@@ -240,13 +240,44 @@ export const PORT_ANCHOR_OVERRIDES = {
   coolingManifold: { _default: { y: 0.5 } },
   fiberBus: { _default: { y: 0.55 } },
 
+  // Cooling-plant anchors coincide with the visible header stubs authored in
+  // cooling-builder.js. Keeping these local coordinates explicit prevents a
+  // sparse/open model from recovering a nearby but unrelated shell surface.
+  packageChiller: {
+    _default: { y: 0.36, lat: 0.48 },
+    cool_out_a: { along: -0.30 }, cool_out_b: { along: -0.10 },
+    cool_out_c: { along: 0.10 }, cool_out_d: { along: 0.30 },
+    cool_out_side: { along: -0.18 }, cool_out_side_2: { along: 0.18 },
+  },
   lcwSkid: {
-    _default: { y: 0.5 },
-    // Cooling branches bolt to the visible high-level supply header. The
-    // legacy centre outlet stays at along=0; the two new branches flank it.
-    cool_out:   { y: 1.09, lat: 0.465, along: 0 },
-    cool_out_2: { y: 1.09, lat: 0.465, along: -0.60 },
-    cool_out_3: { y: 1.09, lat: 0.465, along: 0.60 },
+    _default: { y: 1.09, lat: 0.465 },
+    cool_out: { along: -0.66 }, cool_out_2: { along: -0.22 },
+    cool_out_3: { along: 0.22 }, cool_out_4: { along: 0.66 },
+    cool_out_5: { along: -0.30 }, cool_out_6: { along: 0.30 },
+  },
+  dualCircuitChiller: {
+    _default: { y: 0.54, lat: 0.72 },
+    cool_out: { along: -0.50 }, cool_out_2: { along: -0.17 },
+    cool_out_3: { along: 0.17 }, cool_out_4: { along: 0.50 },
+    cool_out_5: { along: -0.25 }, cool_out_6: { along: 0.25 },
+  },
+  chiller: {
+    _default: { y: 0.74, lat: 0.72 },
+    cool_out: { along: -0.72 }, cool_out_2: { along: -0.30 },
+    cool_out_3: { along: 0.15 }, cool_out_4: { along: 0.60 },
+    cool_out_5: { along: -0.35 }, cool_out_6: { along: 0.35 },
+  },
+  fanCoilCooler: {
+    _default: { y: 0.17, lat: 0.44 },
+    cool_out: { along: -0.10 }, cool_out_2: { along: 0.10 },
+  },
+  dryCoolerBank: {
+    _default: { y: 0.68, lat: 1.36 },
+    cool_out: { along: -0.45 }, cool_out_2: { along: 0.45 },
+  },
+  coolingTower: {
+    _default: { y: 0.15, lat: 0.95 },
+    cool_out: { along: -0.80 }, cool_out_2: { along: 0.80 },
   },
   bakeoutSystem: { _default: { y: 0.5 } },  // 1 m trolley; its box's mid-shell is already 0.5
   areaMonitor: { _default: { y: 0.5 } },    // small head on a post — 0.35 sat on its bottom edge

@@ -9,6 +9,7 @@
 
 import { getUtilityPortsV2 } from '../src/data/utility-ports-v2.js';
 import { INFRASTRUCTURE_RAW } from '../src/data/infrastructure.raw.js';
+import { portSide } from '../src/utility/ports.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -280,30 +281,64 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   const solidStateAmp = getUtilityPortsV2('solidStateAmp');
   const tower = getUtilityPortsV2('coolingTower');
   const tank = getUtilityPortsV2('waterTank');
+  const coolingSources = ports => Object.entries(ports)
+    .filter(([, port]) => port.utility === 'coolingWater' && port.role === 'source');
+  const total = (ports, param) => coolingSources(ports)
+    .reduce((sum, [, port]) => sum + (port.params?.[param] || 0), 0);
+  const hasPlantLayout = ports => {
+    const sources = coolingSources(ports);
+    return sources.length === 6
+      && sources.filter(([, port]) => port.side === 'right').length === 4
+      && sources.filter(([, port]) => port.side === 'left').length === 2
+      && new Set(sources.filter(([, port]) => port.side === 'right')
+        .map(([, port]) => port.offsetAlong)).size === 4
+      && new Set(sources.filter(([, port]) => port.side === 'left')
+        .map(([, port]) => port.offsetAlong)).size === 2;
+  };
+  const hasRejectorLayout = ports => {
+    const sources = coolingSources(ports);
+    return sources.length === 2
+      && new Set(sources.map(([, port]) => port.side)).size === 1
+      && new Set(sources.map(([, port]) => port.offsetAlong)).size === 2;
+  };
   const lcwOutlets = Object.entries(lcw)
     .filter(([, port]) => port.utility === 'coolingWater' && port.role === 'source');
-  assert(lcwOutlets.length === 3
-      && lcwOutlets.every(([, port]) => port.side === 'right' && port.params.reservoir)
-      && new Set(lcwOutlets.map(([, port]) => port.offsetAlong)).size === 3
-      && lcwOutlets.reduce((sum, [, port]) => sum + port.params.capacity, 0) === 25
-      && lcwOutlets.reduce((sum, [, port]) => sum + port.params.heatRejectionCapacity, 0) === 25,
-  'LCW skid has three right-side outlets sharing one self-contained 25 kW plant');
+  assert(hasPlantLayout(lcw)
+      && lcwOutlets.every(([, port]) => port.params.reservoir)
+      && Math.abs(total(lcw, 'capacity') - 25) < 1e-9
+      && Math.abs(total(lcw, 'heatRejectionCapacity') - 25) < 1e-9,
+  'LCW skid has a 4+2 header sharing one self-contained 25 kW plant');
+  const lcwDef = { ports: lcw };
+  assert(lcwOutlets.filter(([name]) => portSide(lcwDef, name, 0, false) === 'E').length === 4
+      && lcwOutlets.filter(([name]) => portSide(lcwDef, name, 0, true) === 'W').length === 4
+      && lcwOutlets.filter(([name]) => portSide(lcwDef, name, 1, false) === 'S').length === 4,
+  'the 4+2 header mirrors with M and rotates with F');
   const packageOutlets = Object.entries(packageChiller)
     .filter(([, port]) => port.utility === 'coolingWater' && port.role === 'source');
-  assert(packageOutlets.length === 3
-      && packageOutlets.reduce((sum, [, port]) => sum + port.params.capacity, 0) === 5
-      && packageOutlets.reduce((sum, [, port]) => sum + port.params.heatRejectionCapacity, 0) === 5
+  assert(hasPlantLayout(packageChiller)
+      && Math.abs(total(packageChiller, 'capacity') - 5) < 1e-9
+      && Math.abs(total(packageChiller, 'heatRejectionCapacity') - 5) < 1e-9
       && packageOutlets.every(([, port]) => port.params.reservoir),
-  'package chiller has three outlets sharing one self-contained 5 kW plant');
+  'package chiller has a 4+2 header sharing one self-contained 5 kW plant');
+  for (const type of ['waterTank', 'dualCircuitChiller', 'chiller']) {
+    assert(hasPlantLayout(getUtilityPortsV2(type)),
+      `${type} exposes four primary-side and two opposite-side connections`);
+  }
+  assert(Math.abs(total(tank, 'capacity') - 100) < 1e-9,
+    'make-up tank keeps its historical 100 kW source fallback across six connections');
+  for (const type of ['fanCoilCooler', 'dryCoolerBank', 'coolingTower']) {
+    assert(hasRejectorLayout(getUtilityPortsV2(type)),
+      `${type} exposes its two heat-rejection connections on one side`);
+  }
   const ssaOutputs = Object.entries(solidStateAmp)
     .filter(([, port]) => port.utility === 'rfWaveguide' && port.role === 'source');
   assert(ssaOutputs.length === 4
       && ssaOutputs.every(([, port]) => port.side === 'left')
       && ssaOutputs.reduce((sum, [, port]) => sum + port.params.capacity, 0) === 35,
   'solid-state amplifier exposes four left-side RF outputs totaling 35 kW');
-  assert(tower.cool_out.params.heatRejectionCapacity === 800,
+  assert(Math.abs(total(tower, 'heatRejectionCapacity') - 800) < 1e-9,
     'cooling tower provides heat rejection on Cooling Water');
-  assert(tank.cool_out?.utility === 'coolingWater' && tank.cool_out.params.reservoir,
+  assert(coolingSources(tank).every(([, port]) => port.params.reservoir),
     'make-up tank provides the Cooling Water reservoir role');
 
   const rough = getUtilityPortsV2('roughingPump');

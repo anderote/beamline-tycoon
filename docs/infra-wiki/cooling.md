@@ -23,6 +23,14 @@ The current simulation expresses both process cooling and heat rejection as
 capacity on the same cooling-water network. The palette and equipment cards
 now label them separately so their physical jobs remain clear.
 
+Cooling suppliers and the make-up tank use one standard connection layout:
+four independently routable sockets on the primary header and two on the
+opposite side. Heat rejectors instead expose one supply/return pair together
+on a single side. The sockets on a component all share its one nameplate
+rating; extra connections simplify routing and do not multiply capacity.
+Press **M** while placing to swap the headers to the opposite sides, or **F**
+to rotate the complete component.
+
 #### Process Cooling
 
 | Equipment | Capacity | Cost | $/kW | Role |

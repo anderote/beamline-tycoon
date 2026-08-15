@@ -866,6 +866,61 @@ function buswayPorts(capacity, serviceRadius) {
   return out;
 }
 
+// Cooling plant uses a consistent, mirrorable header layout. Process-water
+// suppliers and reservoirs expose four branches on the primary (+X/right)
+// header and two on the opposite header. Heat rejectors only need their
+// physical supply/return pair, kept together on one authored face.
+//
+// All sockets on one source are internally united by network discovery, so a
+// numeric nameplate must be divided across them. The parts add back to the
+// same plant rating; adding routing choices never mints cooling capacity.
+const COOLING_PRIMARY_OFFSETS = [0.14, 0.38, 0.62, 0.86];
+const COOLING_SECONDARY_OFFSETS = [0.33, 0.67];
+
+function coolingPlantPorts(params, names = [
+  'cool_out', 'cool_out_2', 'cool_out_3',
+  'cool_out_4', 'cool_out_5', 'cool_out_6',
+]) {
+  const out = {};
+  const splitParams = { ...params };
+  for (const key of ['capacity', 'heatRejectionCapacity']) {
+    if (typeof splitParams[key] === 'number') splitParams[key] /= names.length;
+  }
+  names.forEach((name, i) => {
+    const primary = i < COOLING_PRIMARY_OFFSETS.length;
+    out[name] = {
+      utility: 'coolingWater',
+      side: primary ? 'right' : 'left',
+      offsetAlong: primary
+        ? COOLING_PRIMARY_OFFSETS[i]
+        : COOLING_SECONDARY_OFFSETS[i - COOLING_PRIMARY_OFFSETS.length],
+      role: 'source',
+      params: { ...splitParams },
+    };
+  });
+  return out;
+}
+
+function heatRejectorPorts(heatRejectionCapacity, side = 'right') {
+  // Preserve the cooling source fallback's historical 100 kW contribution as
+  // one device total. Without an explicit split, each new socket would inherit
+  // 100 kW independently and adding the second fitting would change gameplay.
+  const params = {
+    capacity: SOURCE_DEFAULTS.coolingWater.capacity / 2,
+    heatRejectionCapacity: heatRejectionCapacity / 2,
+  };
+  return {
+    cool_out: {
+      utility: 'coolingWater', side, offsetAlong: 0.33,
+      role: 'source', params: { ...params },
+    },
+    cool_out_2: {
+      utility: 'coolingWater', side, offsetAlong: 0.67,
+      role: 'source', params: { ...params },
+    },
+  };
+}
+
 const INFRA_UTILITY_PORTS = {
   // Field distribution is deliberately physical: a finite set of real
   // sockets, not a service-radius shortcut, and it cannot bridge another
@@ -940,33 +995,40 @@ const INFRA_UTILITY_PORTS = {
   gyrotron:            { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 1000, dutyFactor: 1.0 } } },
   // One cooling-water network carries plant and process water. A working loop
   // contains a reservoir, chiller, and heat rejector; compact units carry all
-  // three roles on their one connection.
+  // three roles on their shared six-connection header.
   // $/kW falls monotonically up the ladder (7000 → 6500 → 6000 → 5143 → 4000
   // → 3100 → 2500), so a bigger plant is always the better deal once you can
   // afford one. The 175 and 500 kW rungs exist so growing past a skid or a
   // chiller does not mean buying 3x the capacity you actually need.
-  waterTank:             { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { reservoir: true } } },
-  fanCoilCooler:         { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { heatRejectionCapacity: 50 } } },
-  dryCoolerBank:         { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { heatRejectionCapacity: 500 } } },
-  coolingTower:          { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { heatRejectionCapacity: 800 } } },
-  // Three physical outlets share one integrated 5 kW reservoir/chiller/
-  // rejector package. Discovery joins same-device sources into one header;
-  // splitting every numeric rating prevents multiple sockets minting capacity.
-  packageChiller:        {
-    cool_out_a: { utility: 'coolingWater', side: 'right', offsetAlong: 0.25, role: 'source', params: { reservoir: true, capacity: 5 / 3, heatRejectionCapacity: 5 / 3, displayLabel: 'Cooling capacity' } },
-    cool_out_b: { utility: 'coolingWater', side: 'right', offsetAlong: 0.75, role: 'source', params: { reservoir: true, capacity: 5 / 3, heatRejectionCapacity: 5 / 3, displayLabel: 'Cooling capacity' } },
-    cool_out_side: { utility: 'coolingWater', side: 'front', offsetAlong: 0.5, role: 'source', params: { reservoir: true, capacity: 5 / 3, heatRejectionCapacity: 5 / 3, displayLabel: 'Cooling capacity' } },
-  },
-  // Three branch connections share one 25 kW integrated plant. Keep the
-  // legacy `cool_out` name at the centre so existing saves stay connected;
-  // discovery unites all same-device source ports into one internal header.
-  lcwSkid:               {
-    cool_out:   { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { reservoir: true, capacity: 25 / 3, heatRejectionCapacity: 25 / 3 } },
-    cool_out_2: { utility: 'coolingWater', side: 'right', offsetAlong: 0.2, role: 'source', params: { reservoir: true, capacity: 25 / 3, heatRejectionCapacity: 25 / 3 } },
-    cool_out_3: { utility: 'coolingWater', side: 'right', offsetAlong: 0.8, role: 'source', params: { reservoir: true, capacity: 25 / 3, heatRejectionCapacity: 25 / 3 } },
-  },
-  dualCircuitChiller:    { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 175 } } },
-  chiller:               { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 300 } } },
+  // Explicitly split the generic cooling-source fallback too; otherwise six
+  // reservoir sockets would each inherit 100 kW and inflate the old total 6x.
+  waterTank:             coolingPlantPorts({
+    reservoir: true, capacity: SOURCE_DEFAULTS.coolingWater.capacity,
+  }),
+  // These authored faces follow the visible pipe pairs on each model.
+  fanCoilCooler:         heatRejectorPorts(50, 'back'),
+  dryCoolerBank:         heatRejectorPorts(500, 'back'),
+  coolingTower:          heatRejectorPorts(800, 'right'),
+  // Keep all three historical package-chiller names so existing lines remain
+  // attached after loading. The former front outlet now joins the two-port
+  // secondary header opposite the four primary branches.
+  packageChiller:        coolingPlantPorts(
+    {
+      reservoir: true, capacity: 5, heatRejectionCapacity: 5,
+      displayLabel: 'Cooling capacity',
+    },
+    [
+      'cool_out_a', 'cool_out_b', 'cool_out_c', 'cool_out_d',
+      'cool_out_side', 'cool_out_side_2',
+    ],
+  ),
+  // Preserve the legacy `cool_out` and three previously added branch names;
+  // discovery unites all same-device sources into one internal header.
+  lcwSkid:               coolingPlantPorts({
+    reservoir: true, capacity: 25, heatRejectionCapacity: 25,
+  }),
+  dualCircuitChiller:    coolingPlantPorts({ capacity: 175 }),
+  chiller:               coolingPlantPorts({ capacity: 300 }),
   // cryo
   coldBox4K:           { cryo_out: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'source', params: { coldCapacityW: 500 } } },
   coldBox2K:           { cryo_out: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'source', params: { coldCapacityW: 800 } } },

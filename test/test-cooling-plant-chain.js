@@ -45,8 +45,8 @@ const noTank = coolingWater.solve({ ...plantNetwork, sources: plantNetwork.sourc
 assert.equal(noTank.flowState.totalCapacity, 0, 'missing reservoir takes the plant offline');
 assert(noTank.errors.some(e => e.code === 'cooling_plant_offline'), 'missing plant role is reported');
 
-// An integrated package exposes three physical outlets. Discovery joins those
-// same-device sources into one header without tripling its 5 kW nameplate.
+// An integrated package exposes six physical outlets. Discovery joins those
+// same-device sources into one header without multiplying its 5 kW nameplate.
 const fanoutTopology = {
   placeables: [
     { id: 'package', type: 'packageChiller', col: 0, row: 0 },
@@ -64,11 +64,12 @@ const fanoutTopology = {
 const packageProcessNetworks = discoverNetworks(
   'coolingWater', fanoutTopology.utilityLines, makeDefaultPortLookup(fanoutTopology));
 assert.equal(packageProcessNetworks.length, 1, 'package chiller outlets are one cooling-water network');
-assert.equal(packageProcessNetworks[0].sources.length, 3, 'all three package outlets join the shared header');
-assert.equal(packageProcessNetworks[0].sources.reduce((sum, source) => sum + source.params.capacity, 0), 5,
-  'three package outlets still total exactly 5 kW');
-assert.equal(packageProcessNetworks[0].sources.reduce(
-  (sum, source) => sum + source.params.heatRejectionCapacity, 0), 5,
-  'three package outlets do not duplicate integrated heat rejection');
+assert.equal(packageProcessNetworks[0].sources.length, 6, 'all six package connections join the shared header');
+assert(Math.abs(packageProcessNetworks[0].sources.reduce(
+  (sum, source) => sum + source.params.capacity, 0) - 5) < 1e-9,
+  'six package connections still total exactly 5 kW');
+assert(Math.abs(packageProcessNetworks[0].sources.reduce(
+  (sum, source) => sum + source.params.heatRejectionCapacity, 0) - 5) < 1e-9,
+  'six package connections do not duplicate integrated heat rejection');
 
 console.log('cooling plant chain: PASS');
