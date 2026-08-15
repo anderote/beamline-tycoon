@@ -2508,13 +2508,26 @@ export class InputHandler {
       this.hoverPlaceable = null;
       return;
     }
+    // A carried placeable remains in world state so its stable ID keeps pipe
+    // and utility references intact. Its own occupied cells must therefore be
+    // transparent to the move preview, and moving never re-charges its cost.
+    const movePayload = this.activeTool?.kind === 'move' ? this.activeTool.payload : null;
+    const ignorePlaceableId = movePayload?.kind === 'selectedPlaceable'
+      ? movePayload.placeableId
+      : (movePayload?.kind === 'component' ? movePayload.nodeId : null);
+    const previewOptions = ignorePlaceableId
+      ? { ignorePlaceableId, free: true }
+      : {};
+
     // Beamline junction/placement hover is handled by BeamlineInputController.
     const selDef = COMPONENTS[armedId];
     if (selDef?.role === 'junction' || selDef?.role === 'placement') {
-      this.hoverPlaceable = null;
       const wx = this.lastMouseWorldX ?? 0;
       const wy = this.lastMouseWorldY ?? 0;
-      this.beamlineController.onHover(wx, wy, armedId);
+      const hover = this.beamlineController.onHover(wx, wy, armedId, previewOptions);
+      // Junction moves need the snapped pose at drop time. On-pipe placement
+      // tools keep their separate controller-owned slot record.
+      this.hoverPlaceable = selDef.role === 'junction' ? (hover || null) : null;
       return;
     }
     // Drawn connections (beam pipes) have their own preview system; skip the
@@ -2535,10 +2548,6 @@ export class InputHandler {
     // keep pipes, wall mounts, and utility lines attached. Their current
     // occupancy therefore has to be transparent to their own move ghost while
     // every foreign floor cell or wall-face slot remains a blocker.
-    const movePayload = this.activeTool?.kind === 'move' ? this.activeTool.payload : null;
-    const ignorePlaceableId = movePayload?.kind === 'selectedPlaceable'
-      ? movePayload.placeableId
-      : (movePayload?.kind === 'component' ? movePayload.nodeId : null);
     if (placeable.mount === 'wall') {
       const hasScreenPoint = Number.isFinite(this._lastScreenX) && Number.isFinite(this._lastScreenY);
       const edge = hasScreenPoint
@@ -2553,7 +2562,9 @@ export class InputHandler {
       const geometric = canPlaceWallFixture(
         this.game, placeable, wallMount, ignorePlaceableId,
       );
-      const affordable = canAffordCost(this.game, componentCostFor(placeable));
+      const affordable = ignorePlaceableId
+        ? true
+        : canAffordCost(this.game, componentCostFor(placeable));
       const ok = geometric.ok && affordable;
       const reason = !geometric.hasWall
         ? PLACE_WALL
@@ -2578,8 +2589,6 @@ export class InputHandler {
     const wx = this.lastMouseWorldX ?? 0;
     const wy = this.lastMouseWorldY ?? 0;
     const snap = snapForPlaceable(wx, wy, placeable, this.placementDir);
-    const previewOptions = ignorePlaceableId ? { ignorePlaceableId } : {};
-
     let placeY = 0;
     let stackTargetId = null;
     let ok = false;
@@ -3361,13 +3370,15 @@ export class InputHandler {
     if (p.kind === 'component') {
       const placeable = this.game.getPlaceable(p.nodeId);
       if (!placeable) return false;
+      const hp = this.hoverPlaceable;
+      if (!hp || hp.valid === false) return false;
       return this.game._withUndo(() => {
         const moved = this.game.movePlaceable(p.nodeId, {
-          col,
-          row,
-          subCol: placeable.subCol || 0,
-          subRow: placeable.subRow || 0,
-          dir: this.placementDir ?? placeable.dir ?? 0,
+          col: hp.col,
+          row: hp.row,
+          subCol: hp.subCol,
+          subRow: hp.subRow,
+          dir: hp.dir ?? this.placementDir ?? placeable.dir ?? 0,
         });
         if (!moved) return false;
         this.game._deriveBeamGraph();
