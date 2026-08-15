@@ -4,6 +4,7 @@ import { reverseDir } from '../data/directions.js';
 // models put the hardware the player needs to orient on local +Z instead, so
 // their marker follows that physical service face.
 const POSITIVE_Z_FACING_PLACEABLES = new Set([
+  'compactHvDistributor',
   'switchgear',
 ]);
 
