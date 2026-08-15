@@ -18,6 +18,21 @@ import { tileCenterIso } from '../renderer/grid.js';
 import { makeDraggable } from './draggable.js';
 import { utilityStatRows } from './utility-supply.js';
 
+/**
+ * Resolve the schematic artwork used by a component.
+ *
+ * A number of catalogue entries intentionally share a visual family through
+ * `spriteKey` (for example Penning source -> ion source).  The 3D renderer has
+ * always honoured that field, but the Designer used to look up only the exact
+ * component id and silently produced an empty 70x30 canvas for every alias.
+ */
+export function schematicDrawerKey(componentType) {
+  const drawers = UIHost.prototype._schematicDrawers || {};
+  if (drawers[componentType]) return componentType;
+  const spriteKey = COMPONENTS[componentType]?.spriteKey;
+  return spriteKey && drawers[spriteKey] ? spriteKey : null;
+}
+
 // --- Component popup ---
 
 UIHost.prototype.showPopup = function(node, screenX, screenY) {
@@ -47,7 +62,7 @@ UIHost.prototype.showPopup = function(node, screenX, screenY) {
     }
 
     // Schematic cross-section
-    if (this._schematicDrawers[node.type]) {
+    if (schematicDrawerKey(node.type)) {
       html += `<canvas class="schematic-canvas" id="popup-schematic" width="280" height="100"></canvas>`;
     }
 
@@ -484,7 +499,7 @@ UIHost.prototype.drawSchematic = function(canvas, componentType, params, options
   }
 
   // Dispatch to specific component drawer
-  const drawFn = this._schematicDrawers[componentType];
+  const drawFn = this._schematicDrawers[schematicDrawerKey(componentType)];
   if (drawFn) drawFn(p, px, dot, PW, PH, cy, C, params);
 
   // Scale up to display canvas
@@ -579,6 +594,56 @@ function _drawCryoShell(px, dot, cy, C, L, R, opts) {
   }
 }
 
+// Shared plan-view language for the two self-contained cyclotrons.  The
+// larger machine gains a split return yoke and a second extraction trace;
+// both remain unmistakably circular beside the linear accelerator cards.
+function _drawCyclotronSchematic(px, dot, W, H, cy, C, large = false) {
+  px(0, cy - 2, W - 3, 5, C.bg); // a cyclotron is a source, not an inline load
+  const cx = large ? 29 : 27;
+  const rx = large ? 20 : 17;
+  const ry = 12;
+  const yoke = large ? C.scMagnet : C.magnet;
+  const yokeDk = large ? C.scMagDk : C.magnetDk;
+
+  for (let dy = -ry; dy <= ry; dy++) {
+    const half = Math.round(rx * Math.sqrt(Math.max(0, 1 - (dy * dy) / (ry * ry))));
+    px(cx - half, cy + dy, half * 2 + 1, 1, yokeDk);
+    if (Math.abs(dy) < ry - 2) {
+      const inner = Math.max(0, half - 3);
+      px(cx - inner, cy + dy, inner * 2 + 1, 1, '#11182a');
+    }
+  }
+  // Highlight the return yoke and copper dee electrodes.
+  for (let x = cx - rx + 4; x <= cx + rx - 4; x++) {
+    const edge = Math.round(ry * Math.sqrt(Math.max(0, 1 - ((x - cx) ** 2) / (rx * rx))));
+    dot(x, cy - edge, yoke);
+    dot(x, cy + edge, yoke);
+  }
+  px(cx - 11, cy - 5, 9, 11, C.coilDk);
+  px(cx + 3, cy - 5, 9, 11, C.coil);
+  px(cx - 8, cy - 3, 5, 7, '#172238');
+  px(cx + 4, cy - 3, 5, 7, '#172238');
+  px(cx - 1, cy - 7, 3, 15, C.metalDk);
+
+  // Accelerating orbit and the tangent extraction channel.
+  for (let a = 0; a < Math.PI * 4.5; a += 0.11) {
+    const r = 1.5 + a * 0.72;
+    const x = Math.round(cx + Math.cos(a) * r);
+    const y = Math.round(cy + Math.sin(a) * r * 0.63);
+    if (x > 1 && x < W - 2 && y > 0 && y < H - 1) dot(x, y, C.beam);
+  }
+  const exitX = cx + rx - 3;
+  for (let x = exitX; x < W - FLANGE_W; x++) dot(x, cy, C.beam);
+  px(exitX, cy - PIPE_HALF, W - exitX, 1, C.wallDk);
+  px(exitX, cy + PIPE_HALF, W - exitX, 1, C.wallDk);
+  px(W - FLANGE_W, cy - FLANGE_HALF, FLANGE_W, FLANGE_HALF * 2 + 1, C.metal);
+  if (large) {
+    // Dual extraction is the 70 MeV machine's quick visual tell.
+    for (let x = exitX - 3; x < W - 8; x++) dot(x, cy - 4, C.beamDim);
+    px(cx - 2, 1, 5, 2, C.metal);
+  }
+}
+
 UIHost.prototype._schematicDrawers = {
   // === SOURCE (cathode ray / electron gun style) ===
   source(p, px, dot, W, H, cy, C) {
@@ -663,6 +728,137 @@ UIHost.prototype._schematicDrawers = {
     // --- Solid beam line (right of anode: focused beam in pipe) ---
     px(anodeX + 2, cy, W - FLANGE_W - 2 - (anodeX + 2), 1, C.beam);
 
+  },
+
+  // === VAN DE GRAAFF COMPOUND ACCELERATOR ===
+  // Pressure vessel + belt terminal + horizontal grading column.  This is a
+  // source, so only the right-hand side carries an extracted beam.
+  vanDeGraaff(p, px, dot, W, H, cy, C) {
+    px(0, cy - 2, W - 3, 5, C.bg);
+    const L = 4, R = 29, T = 2, B = 27;
+    const tank = '#3d9b5e', tankDk = '#246a43', tankHi = '#61c77f';
+    for (let y = T; y <= B; y++) {
+      const inset = Math.max(0, 4 - Math.min(y - T, B - y));
+      px(L + inset, y, R - L - inset * 2 + 1, 1, tankDk);
+      if (y > T + 1 && y < B - 1) px(L + inset + 1, y, R - L - inset * 2 - 1, 1, tank);
+    }
+    px(L + 6, T + 2, 5, B - T - 3, tankHi);
+    // Vessel hoops survive scaling and make this read as a pressure tank.
+    for (const y of [8, 15, 22]) px(L + 1, y, R - L - 1, 1, C.metalDk);
+
+    // Belt, rollers and the charged terminal inside the cutaway vessel.
+    px(10, 7, 2, 15, '#20222d');
+    px(13, 7, 1, 15, C.coilDk);
+    for (const y of [7, 21]) {
+      px(9, y, 6, 2, C.coil);
+      dot(11, y, C.hotBright);
+    }
+    px(17, 5, 8, 4, C.metal);
+    px(19, 4, 4, 1, C.wallHi);
+
+    // Evacuated acceleration column with copper grading rings.
+    const colL = 29, colR = W - 4;
+    px(colL, cy - 2, colR - colL, 5, '#171b28');
+    for (let x = colL + 2; x < colR - 2; x += 6) {
+      px(x, cy - 4, 3, 9, C.wallDk);
+      px(x, cy - 5, 1, 11, C.coil);
+      px(x + 2, cy - 4, 1, 9, C.coilDk);
+    }
+    px(colL, cy - PIPE_HALF, colR - colL, 1, C.metalDk);
+    px(colL, cy + PIPE_HALF, colR - colL, 1, C.metalDk);
+    px(colL, cy, colR - colL, 1, C.beam);
+    px(W - FLANGE_W, cy - FLANGE_HALF, FLANGE_W, FLANGE_HALF * 2 + 1, C.metal);
+  },
+
+  // === COCKCROFT-WALTON COMPOUND ACCELERATOR ===
+  cockcroftWalton(p, px, dot, W, H, cy, C) {
+    px(0, cy - 2, W - 3, 5, C.bg);
+    const left = 5, right = 34;
+    px(left - 2, 27, right - left + 6, 2, C.metalDk);
+    px(left, 3, 2, 24, C.wall);
+    px(right - 2, 3, 2, 24, C.wall);
+    for (const y of [4, 8, 12, 16, 20, 24]) {
+      px(left, y, right - left, 1, C.wallHi);
+      px(9, y + 1, 4, 3, C.coil);
+      px(26, y + 1, 4, 3, C.coilDk);
+    }
+    // Alternating diode ladder — the signature voltage-multiplier zig-zag.
+    for (let i = 0; i < 5; i++) {
+      const y = 6 + i * 4;
+      for (let d = 0; d < 12; d++) {
+        dot(14 + d, y + (i % 2 === 0 ? Math.floor(d / 4) : 2 - Math.floor(d / 4)), C.hot);
+      }
+    }
+    px(12, 1, 15, 2, C.metal);
+    px(15, 0, 9, 1, C.wallHi);
+
+    // Integrated ion-source can and extraction pipe.
+    px(36, cy - 6, 12, 13, C.magnetDk);
+    px(38, cy - 4, 8, 9, '#151a27');
+    px(36, cy - 7, 12, 1, C.coil);
+    px(36, cy + 7, 12, 1, C.coil);
+    px(48, cy - PIPE_HALF, W - 48, 1, C.wallDk);
+    px(48, cy + PIPE_HALF, W - 48, 1, C.wallDk);
+    px(42, cy, W - 45, 1, C.beam);
+    px(W - FLANGE_W, cy - FLANGE_HALF, FLANGE_W, FLANGE_HALF * 2 + 1, C.metal);
+  },
+
+  // === COMPACT / MULTI-PARTICLE CYCLOTRONS ===
+  cyclotron30(p, px, dot, W, H, cy, C) {
+    _drawCyclotronSchematic(px, dot, W, H, cy, C, false);
+  },
+
+  cyclotron70(p, px, dot, W, H, cy, C) {
+    _drawCyclotronSchematic(px, dot, W, H, cy, C, true);
+  },
+
+  // === ECR ION SOURCE ===
+  ecrIonSource(p, px, dot, W, H, cy, C) {
+    px(0, cy - 2, 20, 5, C.bg);
+    const L = 12, R = 52;
+    _drawBeamPipe(px, dot, W, cy, C, { leftFlange: false, skipFrom: L, skipTo: R });
+    px(L, cy - 8, R - L, 17, C.wallDk);
+    px(L + 2, cy - 6, R - L - 4, 13, '#15182c');
+    for (const x of [16, 22, 42, 48]) px(x, cy - 10, 3, 21, C.coil);
+    // Microwave injection horn and resonant plasma.
+    px(2, cy - 9, 10, 2, C.pipeRF);
+    for (let x = 7; x < 13; x++) {
+      dot(x, cy - 7 + Math.round((x - 7) * 0.8), C.pipeRF);
+      dot(x, cy - 6 + Math.round((x - 7) * 0.8), C.hot);
+    }
+    for (const [dx, dy] of [[0, 0], [-5, -2], [5, 2], [-8, 3], [8, -3], [-2, 4], [3, -4]]) {
+      dot(32 + dx, cy + dy, Math.abs(dx) < 4 ? C.hotBright : '#bb66ff');
+    }
+    px(32, cy, W - 36, 1, C.beam);
+  },
+
+  // === LASER WAKEFIELD ACCELERATOR STATION ===
+  lwfaStation(p, px, dot, W, H, cy, C) {
+    px(0, cy - 2, W - 3, 5, C.bg);
+    // Laser table above the capillary; the turning mirror injects the pulse.
+    px(4, 3, 33, 8, C.metalDk);
+    px(6, 5, 10, 4, '#18243a');
+    px(18, 5, 13, 2, C.pipeData);
+    px(34, 7, 2, 5, C.wallHi);
+    dot(34, 9, '#ffffff');
+    for (let x = 22; x <= 34; x++) dot(x, 6 + Math.round((x - 22) / 4), '#55ccff');
+    for (let y = 10; y < cy; y++) dot(34, y, '#55ccff');
+
+    const L = 12, R = 59;
+    px(L, cy - 4, R - L, 1, C.wall);
+    px(L, cy + 4, R - L, 1, C.wall);
+    px(L, cy - 3, R - L, 7, '#10172b');
+    for (let x = L + 3; x < R - 2; x += 4) {
+      dot(x, cy - 2, '#8d55ff');
+      dot(x + 1, cy + 2, '#386cff');
+    }
+    for (let x = 34; x < R; x++) {
+      dot(x, cy, x % 3 === 0 ? '#ffffff' : C.beam);
+      if (x < 46) dot(x, cy + ((x % 2) ? 1 : -1), '#55ccff');
+    }
+    px(R, cy - PIPE_HALF, W - R, 1, C.wallDk);
+    px(R, cy + PIPE_HALF, W - R, 1, C.wallDk);
+    px(W - FLANGE_W, cy - FLANGE_HALF, FLANGE_W, FLANGE_HALF * 2 + 1, C.metal);
   },
 
   // === BEAM PIPE ===
@@ -909,6 +1105,45 @@ UIHost.prototype._schematicDrawers = {
         dot(cx2 + 1, cy + dy, '#cc6633');
       }
     }
+  },
+
+  // === INDUSTRIAL E-BEAM LINAC ===
+  // A rugged, self-contained S-band skid: corrugated copper structure in the
+  // beam axis, rectangular RF feed above, water manifold and feet below.  It
+  // deliberately avoids the open three-cell silhouette of the lab RF cavity.
+  industrialLinac(p, px, dot, W, H, cy, C) {
+    const L = 7, R = 63;
+    _drawBeamPipe(px, dot, W, cy, C, { skipFrom: L, skipTo: R });
+
+    // Steel jacket and copper accelerating stack.
+    px(L, cy - 8, R - L, 17, C.metalDk);
+    px(L + 1, cy - 7, R - L - 2, 15, '#202939');
+    px(L + 2, cy - 5, R - L - 4, 11, C.coilDk);
+    for (let x = L + 4; x < R - 2; x += 6) {
+      px(x, cy - 6, 2, 13, C.coil);
+      px(x + 2, cy - 4, 2, 9, '#7f4328');
+      dot(x + 1, cy, C.hotBright);
+    }
+    px(L + 2, cy, R - L - 4, 1, C.beam);
+
+    // Rectangular waveguide feed and ceramic input window.
+    px(20, 2, 29, 3, C.pipeRF);
+    px(20, 5, 4, cy - 10, '#8f3034');
+    px(18, cy - 10, 8, 3, C.wallHi);
+    px(21, cy - 9, 2, 2, C.hotBright);
+
+    // LCW manifold, couplers and skid feet.
+    px(14, cy + 10, 40, 2, C.pipeCooling);
+    for (const x of [17, 31, 45, 52]) {
+      px(x, cy + 7, 1, 4, C.pipeCooling);
+      dot(x + 1, cy + 9, '#66aadd');
+    }
+    for (const x of [11, 56]) px(x, cy + 12, 5, 2, C.wallDk);
+    // Status lamps on the integrated modulator cabinet.
+    px(50, 4, 11, 5, C.metalDk);
+    px(51, 5, 9, 3, '#111823');
+    dot(53, 6, C.beam);
+    dot(57, 6, C.hot);
   },
 
   // === FARADAY CUP ===
