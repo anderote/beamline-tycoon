@@ -1734,8 +1734,14 @@ export class InputHandler {
         }
         case 'Delete': case 'Backspace':
           e.preventDefault();
-          // Toggle context-aware demolish without leaving current menu
-          this._toggleContextDemolish();
+          // Delete the current ordinary selection immediately. A selected
+          // beamline is deliberately protected: removing one of its anchor
+          // modules can tear down the connected machine, and whole-beamline
+          // deletion is no longer offered as a context-window action.
+          if (!this._deleteSelectedFromKeyboard()) {
+            // With no selection, retain the context-aware demolish shortcut.
+            this._toggleContextDemolish();
+          }
           break;
       }
     });
@@ -3252,6 +3258,36 @@ export class InputHandler {
     }));
     this._clearSelection();
     return ids;
+  }
+
+  /**
+   * Handle Delete/Backspace when one or more world items are selected.
+   * Returns false only when there is no selection, allowing the key to keep
+   * its legacy "toggle demolish tool" behavior in that case.
+   *
+   * Beamline nodes are protected as a group. The selected source/module opens
+   * a window for the entire beamline, so treating Delete as a single-item
+   * action there is both ambiguous and dangerously destructive.
+   */
+  _deleteSelectedFromKeyboard() {
+    const ids = this._selectionIdsForAnchor(this.selectedPlaceableId)
+      .filter(id => this.game.getPlaceable(id));
+    if (!ids.length) return false;
+
+    const entries = ids.map(id => this.game.getPlaceable(id)).filter(Boolean);
+    const includesBeamline = entries.some(entry =>
+      entry.kind === 'beamline' || entry.category === 'beamline'
+    );
+    if (includesBeamline) {
+      this._showToast('Beamline deletion is disabled');
+      return true;
+    }
+
+    for (const entry of entries) {
+      this.renderer._closePlaceableInfoWindow?.(entry);
+    }
+    this._demolishSelected(this.selectedPlaceableId);
+    return true;
   }
 
   // Refreshes the unified placeable preview for a just-picked-up carried
