@@ -3236,6 +3236,9 @@ export class ThreeRenderer {
     fillGeo.setIndex([0, 3, 1, 1, 3, 2]);
     fillGeo.computeVertexNormals();
     this._addPreviewMesh(new THREE.Mesh(fillGeo, fillMat));
+    // There is deliberately no facing arrow here: unlike a placeable ghost,
+    // this fallback only knows the hovered tile. Drawing one would require a
+    // component direction and footprint that are not part of this contract.
   }
 
   /**
