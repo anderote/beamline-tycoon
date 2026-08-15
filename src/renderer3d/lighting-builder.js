@@ -38,87 +38,33 @@
 // Non-essential ornamental meshes are tagged `userData.lod = 'detail'` so
 // ThreeRenderer's zoom-based LOD pass can drop them at a distance.
 
+import {
+  aimYaw,
+  fixtureLightProjection,
+  isAimedFixture,
+  lightPoolRadius,
+} from './fixture-light-math.js';
+import { SOFT_GLOW_LAYER } from './glow-pipeline.js';
+
+export { aimYaw, isAimedFixture } from './fixture-light-math.js';
+
 const SUB = 0.5; // 1 sub-tile = 0.5 world units — must match decoration-builder.js
 
 // A dim, deliberately "off" baseline. Task 6 (below) overwrites this every
 // frame once darkness rises; this is what a fixture looks like at noon.
 export const EMITTER_BASE_INTENSITY = 0.15;
 
-// --- Pure aim math — no THREE, safe to unit test directly in Node ---------
-
 /**
- * Only ground-mounted cone fixtures are aimable by `dir`. Overhead cones
- * (highBay) point straight down regardless of dir — nothing to aim.
- */
-export function isAimedFixture(def) {
-  return def.mount === 'ground' && def.light?.shape === 'cone';
-}
-
-/**
- * Yaw for a placement `dir` (0-3 quarter turns), matching the codebase's
- * existing -dir * 90° convention (decorationPlacement.rotY, hover ghosts at
- * ThreeRenderer.js:2378/:2539).
- */
-export function aimYaw(dir = 0) {
-  return -((dir || 0) * (Math.PI / 2));
-}
-
-// --- Pool footprint math (Task 6) — pure, no THREE ---------------------------
-// Ground-pool sizing/shape knobs. `radius` is documented on the light block
-// itself as "the light pool radius in world units (meters)" (lighting.js),
-// so POOL_RADIUS_SCALE starts at 1 — it exists purely as a global retune
-// knob, not because the data needs correcting.
-export const POOL_RADIUS_SCALE = 1.0;
-// A cone pool's along-aim half-length, as a multiple of its across-aim
-// half-length (which stays the plain radius).
-export const CONE_ELONGATION = 1.6;
-// How far the cone pool's centre is pushed along the aim, as a fraction of
-// radius — the footprint should read as "in front of" the fixture, not
-// centred on it.
-export const CONE_OFFSET_FRAC = 0.45;
-
-/**
- * Unit aim vector for a placement `dir` (0-3 quarter turns), derived from
- * aimYaw so the two can never drift apart. Rounded because dir is always an
- * exact quarter turn — the trig would otherwise leave ~1e-16 noise on the
- * axis that should read as exactly 0.
- */
-function _aimVector(dir) {
-  const yaw = aimYaw(dir);
-  return { x: Math.round(Math.cos(yaw)), z: Math.round(-Math.sin(yaw)) };
-}
-
-/**
- * Ground-floor light pool shape for one fixture. Pure and exported for
- * testing (no THREE).
- *
- * A `point` light gives a circle centred on the fixture (rx === rz, zero
- * offset). A `cone` light gives an ellipse elongated along its aim
- * (dir-derived, same -dir*90° convention as aimYaw), its centre pushed
- * forward so the pool reads as being cast BY the fixture rather than sitting
- * under it. Because dir is quantized to quarter turns, the aim vector is
- * always axis-aligned ((±1,0) or (0,±1)) — so rx/rz stay plain axis-aligned
- * half-extents, no rotated-quad geometry is ever needed downstream.
- *
- * @param {{shape?:string, radius?:number}} light - a LIGHTING_DEFS light block.
+ * Compatibility wrapper used by existing callers/tests that only have a light
+ * block. Production pool and real-light paths call fixtureLightProjection
+ * directly with the authored mount and emitter height.
  * @param {number} [dir] - 0-3 quarter turns; ignored for non-cone shapes.
  * @returns {{rx:number, rz:number, offsetX:number, offsetZ:number}}
  */
 export function poolFootprint(light, dir = 0) {
-  const radius = (light?.radius ?? 0) * POOL_RADIUS_SCALE;
-  if (!light || light.shape !== 'cone') {
-    return { rx: radius, rz: radius, offsetX: 0, offsetZ: 0 };
-  }
-  const aim = _aimVector(dir);
-  const along = radius * CONE_ELONGATION;
-  const across = radius;
-  const elongateOnX = aim.x !== 0;
-  return {
-    rx: elongateOnX ? along : across,
-    rz: elongateOnX ? across : along,
-    offsetX: aim.x * radius * CONE_OFFSET_FRAC,
-    offsetZ: aim.z * radius * CONE_OFFSET_FRAC,
-  };
+  if (!light) return { rx: 0, rz: 0, offsetX: 0, offsetZ: 0 };
+  const def = { mount: 'ground', light: { emitterY: 1, ...light } };
+  return fixtureLightProjection(def, { yaw: aimYaw(dir) }).groundFootprint;
 }
 
 // --- Real-light handoff (light-rig.js) --------------------------------------
@@ -173,10 +119,23 @@ export function fixtureLightTag(def, { id, dir = 0 } = {}) {
     offsetY: _emitterOffsetY(def),
     color: light.color,
     intensity: light.intensity ?? 1,
-    radius: light.radius ?? 0,
+    radius: lightPoolRadius(light),
+    poolRadius: lightPoolRadius(light),
     shape: light.shape ?? 'point',
     coneDeg: light.coneDeg ?? 0,
+    beamAngleDeg: light.beamAngleDeg ?? light.coneDeg ?? 0,
     tiltDeg: light.tiltDeg ?? 0,
+    targetDistance: light.targetDistance ?? 0,
+    maxGroundRange: light.maxGroundRange ?? 0,
+    emitterY: light.emitterY ?? 0,
+    mount: def.mount ?? 'ground',
+    penumbra: light.penumbra,
+    sourceRadius: light.sourceRadius ?? 0.1,
+    shadowSoftness: light.shadowSoftness ?? light.penumbra ?? 0.5,
+    bloomProfile: light.bloomProfile ?? 'soft',
+    volumeProfile: light.volumeProfile ?? 'none',
+    dynamicProfile: light.dynamicProfile ?? 'steady',
+    cookieProfile: light.cookieProfile ?? 'soft',
     aimed,
     aimYaw: aimed ? aimYaw(dir) : 0,
   };
@@ -429,13 +388,16 @@ function _buildFloodLight(def) {
   const headY = 0.05 + postH + 0.05;
   const head = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.22, 12), metalMat);
   head.position.set(0.04, headY, 0);
-  head.rotation.z = -tilt;
+  // CylinderGeometry points along +Y. Rotate its axis onto the authored
+  // forward-and-down beam direction; the old sign put the visible lens above
+  // the head while the actual SpotLight aimed down.
+  head.rotation.z = tilt + Math.PI;
   head.castShadow = true;
   group.add(head);
 
   const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.082, 0.02, 12), glowMat);
-  lens.position.set(0.04 + 0.1 * Math.sin(tilt), headY + 0.1 * Math.cos(tilt), 0);
-  lens.rotation.z = -tilt + Math.PI / 2;
+  lens.position.set(0.04 + 0.1 * Math.sin(tilt), headY - 0.1 * Math.cos(tilt), 0);
+  lens.rotation.z = tilt + Math.PI;
   group.add(lens);
 
   group.userData.emitterMaterial = glowMat;
@@ -602,6 +564,14 @@ const BUILDERS = {
 export function buildLightFixture(def, placement = {}) {
   const builder = BUILDERS[def.id];
   const group = builder ? builder(def) : _buildFallback(def);
+  const emitterMaterial = group.userData.emitterMaterial;
+  group.traverse((child) => {
+    if (child.isMesh && child.material === emitterMaterial) {
+      child.layers?.enable(SOFT_GLOW_LAYER);
+      child.userData ||= {};
+      child.userData.glowProfile = 'soft';
+    }
+  });
   if (isAimedFixture(def)) {
     group.rotation.y = aimYaw(placement.dir);
   }
@@ -636,11 +606,6 @@ function _buildFallback(def) {
 // this._darkness (day-night.js's dayNightGrade().darkness) so pools, halos
 // and fixture emissive intensity switch on in lockstep.
 
-// Ceiling height Task 8 will mount overhead fixtures at (matches this file's
-// header comment). Used only to estimate the floor height under an overhead
-// fixture until Task 8 actually places one — see _mountFloorY.
-const OVERHEAD_MOUNT_HEIGHT = 1.5;
-
 // Small lift above the floor plane so the additive pool quad never z-fights
 // the floor mesh it's tinting.
 const POOL_Y_LIFT = 0.015;
@@ -649,36 +614,15 @@ const POOL_Y_LIFT = 0.015;
 // `intensity`) — a global "how punchy do pools read" knob, independent of
 // the runtime opacity ramp below.
 export const POOL_COLOR_SCALE = 1.1;
+// A real spotlight adds wall/object illumination and shadows, but its direct
+// cone is not a replacement for the pool's cheap low-frequency bounce. Keep a
+// calibrated remainder so slot handoff never collapses the fixture footprint.
+export const REAL_LIGHT_POOL_REMAINDER = 0.22;
 
 // Halo sprite size: a small fixed core plus a modest fraction of the
 // fixture's pool radius, so a bollard's halo doesn't dwarf a high-mast's.
-const HALO_BASE_SIZE = 0.3;
-const HALO_RADIUS_FACTOR = 0.05;
-
-/**
- * Reverse of aimYaw: recovers the 0-3 dir from an aimed fixture's actual
- * world yaw. Safe because aimed fixtures' yaw is assigned (not summed with
- * jitter) from that exact formula — see decoration-builder.js's lightingYaw
- * opt-out for cone shapes.
- */
-function _dirFromYaw(yaw) {
-  const d = Math.round(-yaw / (Math.PI / 2));
-  return ((d % 4) + 4) % 4;
-}
-
-/**
- * Floor height under a fixture's mount origin. Ground fixtures' origin IS
- * floor height (see this file's header). Wall/overhead origins sit above the
- * floor by a known height (emitterY / OVERHEAD_MOUNT_HEIGHT respectively,
- * per the header's mount conventions) — Tasks 7/8 haven't landed yet, so
- * today this only matters once they do; the subtraction is a no-op until a
- * wall/overhead fixture actually gets placed above floor level.
- */
-function _mountFloorY(def, originY) {
-  if (def.mount === 'wall') return originY - (def.light?.emitterY ?? 0);
-  if (def.mount === 'overhead') return originY - OVERHEAD_MOUNT_HEIGHT;
-  return originY;
-}
+const HALO_BASE_SIZE = 0.28;
+const HALO_SOURCE_FACTOR = 2.2;
 
 // One small procedural radial-gradient texture, generated once and cached
 // for the module's lifetime. Both the merged pool mesh and every halo
@@ -757,15 +701,16 @@ export function buildLightPools(fixtures) {
     const light = def?.light;
     if (!light) continue;
 
-    const aimed = isAimedFixture(def);
-    const dir = aimed ? _dirFromYaw(fx.group.rotation.y) : 0;
-    const footprintLight = (!aimed && light.shape === 'cone') ? { ...light, shape: 'point' } : light;
-    const { rx, rz, offsetX, offsetZ } = poolFootprint(footprintLight, dir);
+    const projection = fixtureLightProjection(def, {
+      origin: fx.group.position,
+      yaw: fx.group.rotation.y || 0,
+    });
+    const { rx, rz, offsetX, offsetZ } = projection.groundFootprint;
     if (rx <= 0 || rz <= 0) continue;
 
-    const floorY = _mountFloorY(def, fx.group.position.y) + POOL_Y_LIFT;
-    const cx = fx.group.position.x + offsetX;
-    const cz = fx.group.position.z + offsetZ;
+    const floorY = projection.floorY + POOL_Y_LIFT;
+    const cx = projection.emitter.x + offsetX;
+    const cz = projection.emitter.z + offsetZ;
 
     tmpColor.set(light.color);
     const brightness = (light.intensity ?? 1) * POOL_COLOR_SCALE;
@@ -856,7 +801,7 @@ export function applyPoolSuppression(poolMesh, suppression) {
     if (!(quad >= 0) || quad >= cache.length) continue;
     let w = suppression ? (suppression.get(id) ?? 0) : 0;
     if (!Number.isFinite(w)) w = 0;
-    const alpha = 1 - Math.max(0, Math.min(1, w));
+    const alpha = 1 - Math.max(0, Math.min(1, w)) * (1 - REAL_LIGHT_POOL_REMAINDER);
     if (cache[quad] === alpha) continue;
     cache[quad] = alpha;
     const base = quad * 4;
@@ -891,7 +836,7 @@ export function buildLightHalos(fixtures) {
     const emitterMat = fx.group.userData.emitterMaterial;
     if (!light || !emitterMat) continue;
 
-    const size = HALO_BASE_SIZE + (light.radius ?? 0) * HALO_RADIUS_FACTOR;
+    const size = HALO_BASE_SIZE + (light.sourceRadius ?? 0.1) * HALO_SOURCE_FACTOR;
     fx.group.updateMatrixWorld(true);
     fx.group.traverse((child) => {
       if (!child.isMesh || child.material !== emitterMat) return;
@@ -905,6 +850,7 @@ export function buildLightHalos(fixtures) {
         opacity: 0, // Task 6 ramp — ThreeRenderer sets this per frame from darkness.
       });
       const sprite = new THREE.Sprite(spriteMat);
+      sprite.layers?.enable(SOFT_GLOW_LAYER);
       sprite.position.copy(worldPos);
       sprite.scale.set(size, size, 1);
       sprite.renderOrder = 6;

@@ -2,6 +2,7 @@
 
 import { ContextWindow } from './ContextWindow.js';
 import { COMPONENTS } from '../data/components.js';
+import { PLACEABLES } from '../data/placeables/index.js';
 import { utilityStatRows } from './utility-supply.js';
 
 export class EquipmentWindow {
@@ -12,7 +13,10 @@ export class EquipmentWindow {
   constructor(game, equip) {
     this.game = game;
     this.equip = equip;
-    this.comp = COMPONENTS[equip.type];
+    // This window is also the compact info menu for selected furnishings,
+    // decorations, and infrastructure. Equipment remains the common case,
+    // so retain the name and public entry point.
+    this.comp = COMPONENTS[equip.type] || PLACEABLES[equip.type];
     if (!this.comp) return;
 
     this.ctx = new ContextWindow({
@@ -33,7 +37,7 @@ export class EquipmentWindow {
 
     this.ctx.setActions([
       { label: 'Demolish (50% refund)', variant: 'danger', onClick: () => {
-        this.game.demolishTarget({ kind: 'equipment', id: equip.id });
+        this.game.demolishTarget({ kind: equip.kind || 'equipment', id: equip.id });
         this.ctx.close();
       }},
     ]);
@@ -45,7 +49,7 @@ export class EquipmentWindow {
 
     let html = '<div class="equipment-details">';
     html += `<div class="equipment-name">${comp.name}</div>`;
-    html += `<div class="equipment-meta">Category: ${comp.category || 'general'}</div>`;
+    html += `<div class="equipment-meta">Category: ${equip.category || comp.category || 'general'}</div>`;
 
     if (comp.cost) {
       const cost = typeof comp.cost === 'object' ? comp.cost.funding || 0 : comp.cost;

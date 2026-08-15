@@ -41,6 +41,10 @@
 //
 // THREE is loaded as a CDN global (src/three-global.js) — do NOT import it.
 import { fixtureLightTag } from './lighting-builder.js';
+import { fixtureLightProjection } from './fixture-light-math.js';
+import { ShadowScheduler } from './shadow-scheduler.js';
+import { fixtureDynamicFactor } from './light-dynamics.js';
+import { getLightCookie } from './light-cookie.js';
 
 // ---- Tuning constants ------------------------------------------------------
 //
@@ -98,11 +102,6 @@ const SPOT_RANK_SLACK = 2;
 const SPOT_MIN_HOLD_MS = 1200;
 const SPOT_CROSSFADE_MS = 250;
 
-const DEG2RAD = Math.PI / 180;
-// Three clamps SpotLight.angle at PI/2; stay just inside it so a 180° coneDeg
-// in some future def can't produce a degenerate projection matrix.
-const MAX_SPOT_ANGLE = Math.PI / 2 - 1e-3;
-
 export class LightRig {
   /**
    * @param {THREE.Scene} scene
@@ -125,8 +124,13 @@ export class LightRig {
     this.scene = scene;
     this._enabled = opts.enabled !== undefined ? !!opts.enabled : true;
     this._shadowSpotCount = opts.shadowSpotCount ?? 4;
+    this._activeShadowSpotCount = Math.min(
+      this._shadowSpotCount,
+      Math.max(0, opts.activeShadowSpotCount ?? this._shadowSpotCount),
+    );
     this._pointCount = opts.pointCount ?? 8;
     this._shadowMapSize = opts.shadowMapSize ?? 1024;
+    this._shadowHz = Math.max(0, opts.shadowHz ?? 15);
     this._flashReserve = Math.max(0, Math.min(opts.flashReserve ?? 2, this._pointCount));
 
     // Internal clock, advanced by the dt passed to update() — not
@@ -143,6 +147,9 @@ export class LightRig {
         FIXTURE_SPOT_ANGLE, FIXTURE_SPOT_PENUMBRA, FIXTURE_SPOT_DECAY,
       );
       light.castShadow = true;
+      light.map = getLightCookie('soft');
+      light.shadow.autoUpdate = false;
+      light.shadow.needsUpdate = false;
       light.shadow.mapSize.set(this._shadowMapSize, this._shadowMapSize);
       light.shadow.camera.near = 0.2;
       // shadow.camera.far is DELIBERATELY not set here (and must not be set in
@@ -173,6 +180,7 @@ export class LightRig {
       //             the min-hold test.
       this._spotSlots.push({
         light, target, assignedRef: null, weight: 0, releasing: false, heldSinceMs: 0,
+        projection: null, volumePacket: {},
       });
     }
 
@@ -212,6 +220,19 @@ export class LightRig {
     // origin in _tmpWorld would find "the camera" silently relocated to the
     // last fixture examined, and the whole ranking would collapse.
     this._tmpCam = new THREE.Vector3();
+    this._viewFrustum = typeof THREE.Frustum === 'function' ? new THREE.Frustum() : null;
+    this._viewProjection = typeof THREE.Matrix4 === 'function' ? new THREE.Matrix4() : null;
+    this._viewSphere = typeof THREE.Sphere === 'function'
+      ? new THREE.Sphere(new THREE.Vector3(), 1)
+      : null;
+    this._shadowScheduler = new ShadowScheduler(this._shadowSpotCount, {
+      hz: this._shadowHz,
+      maxUpdatesPerFrame: 1,
+    });
+    this._shadowAssignmentKeys = new Array(this._shadowSpotCount).fill(null);
+    this._shadowUpdatesLastFrame = 0;
+    this._volumeCandidates = [];
+    this._effectTimeMs = 0;
   }
 
   get enabled() {
@@ -223,6 +244,53 @@ export class LightRig {
    * deferred to the next update() call, not run here. */
   markDirty() {
     this._candidatesDirty = true;
+    this._shadowScheduler.markAllDirty();
+  }
+
+  /** Apply a quality budget without adding/removing lights. */
+  setQuality(quality = {}) {
+    const active = Math.max(0, Math.min(
+      this._shadowSpotCount,
+      Math.floor(quality.fixtureShadowCount ?? this._activeShadowSpotCount),
+    ));
+    const mapSize = Math.max(128, Math.floor(quality.fixtureShadowMapSize ?? this._shadowMapSize));
+    this._activeShadowSpotCount = active;
+    this._shadowHz = Math.max(0, Number(quality.fixtureShadowHz ?? this._shadowHz));
+    this._shadowScheduler.configure({ hz: this._shadowHz, maxUpdatesPerFrame: 1 });
+    if (mapSize !== this._shadowMapSize) {
+      this._shadowMapSize = mapSize;
+      for (const slot of this._spotSlots) {
+        slot.light.shadow.mapSize.set(mapSize, mapSize);
+        if (slot.light.shadow.map) {
+          slot.light.shadow.map.dispose();
+          slot.light.shadow.map = null;
+        }
+      }
+    }
+    for (let i = active; i < this._spotSlots.length; i++) this._parkSpot(i);
+    this._shadowScheduler.markAllDirty();
+  }
+
+  getStats() {
+    return {
+      allocatedFixtureShadows: this._shadowSpotCount,
+      activeFixtureShadows: this._activeShadowSpotCount,
+      assignedFixtureShadows: this._spotSlots.slice(0, this._activeShadowSpotCount)
+        .filter((slot) => slot.assignedRef && slot.light.intensity > 0).length,
+      shadowUpdatesLastFrame: this._shadowUpdatesLastFrame,
+      fixtureShadowMapSize: this._shadowMapSize,
+      fixtureShadowHz: this._shadowHz,
+    };
+  }
+
+  getVolumeCandidates(limit = this._activeShadowSpotCount) {
+    this._volumeCandidates.length = 0;
+    for (let i = 0; i < this._activeShadowSpotCount && this._volumeCandidates.length < limit; i++) {
+      const slot = this._spotSlots[i];
+      if (!slot.assignedRef || !slot.projection || slot.volumePacket.volumeProfile === 'none') continue;
+      this._volumeCandidates.push(slot.volumePacket);
+    }
+    return this._volumeCandidates;
   }
 
   /** Supply the canonical [{id, def, group}] fixture registry. */
@@ -238,7 +306,8 @@ export class LightRig {
       // Options toggle should kill every light (and any flash in flight) on
       // the frame it's clicked, not fade out over the next tick.
       for (const s of this._spotSlots) {
-        s.light.intensity = 0; s.assignedRef = null; s.weight = 0; s.releasing = false;
+        s.light.intensity = 0; s.light.shadow.needsUpdate = false;
+        s.assignedRef = null; s.weight = 0; s.releasing = false;
       }
       for (const p of this._pointSlots) {
         p.light.intensity = 0; p.assignedRef = null; p.flash = null;
@@ -262,10 +331,7 @@ export class LightRig {
   }
 
   /**
-   * @param {THREE.Camera} camera used only for its .position — see the
-   *        implementation note in _rankByDistance for why that's an accepted
-   *        stand-in for the true pan target with this game's fixed-offset
-   *        isometric camera.
+   * @param {THREE.Camera} camera used for its frustum and as a focus fallback.
    * @param {number} nightFactor 0 (full day — fixtures dark) .. 1 (full
    *        night — fixtures at full intensity). NOT the same curve as
    *        component-builder.js's glow-role factor, which floors at 0.35 so
@@ -273,17 +339,24 @@ export class LightRig {
    *        just silly, so fixtures (and the ambient glow pool) go all the
    *        way to 0.
    * @param {number} dt seconds since the last call.
+   * @param {{x:number,y:number,z:number}|null} focusPoint world-space point at
+   *        the center of the view. Passing the camera position here biases an
+   *        isometric camera toward fixtures tens of metres behind the screen.
    */
-  update(camera, nightFactor, dt) {
+  update(camera, nightFactor, dt, focusPoint = null, effectTimeMs = null) {
     const dtMs = Number.isFinite(dt) && dt > 0 ? dt * 1000 : 0;
     this._clockMs += dtMs;
+    this._effectTimeMs = Number.isFinite(effectTimeMs) ? effectTimeMs : this._clockMs;
     this._advanceFlashes(dtMs);
 
     if (!this._enabled) {
       // Flashes were already cleared by setEnabled(false); nothing to do
       // here except keep the ambient pool at zero every frame the toggle is
       // off (a newly-placed lamppost mustn't light itself up mid-toggle).
-      for (const s of this._spotSlots) s.light.intensity = 0;
+      for (const s of this._spotSlots) {
+        s.light.intensity = 0;
+        s.light.shadow.needsUpdate = false;
+      }
       for (const p of this._pointSlots) if (!p.flash) p.light.intensity = 0;
       this._fixtureSuppression.clear();
       return;
@@ -294,10 +367,14 @@ export class LightRig {
       this._candidatesDirty = false;
     }
 
-    const camPos = (camera && camera.position) ? camera.position : this._tmpCam.set(0, 0, 0);
+    const fallback = (camera && camera.position) ? camera.position : { x: 0, y: 0, z: 0 };
+    const f = focusPoint || fallback;
+    const focus = this._tmpCam.set(f.x || 0, f.y || 0, f.z || 0);
+    this._prepareViewFrustum(camera);
     const nf = Number.isFinite(nightFactor) ? Math.max(0, Math.min(1, nightFactor)) : 0;
-    this._assignSpots(camPos, nf, dtMs);
-    this._assignPoints(camPos, nf);
+    this._assignSpots(focus, nf, dtMs);
+    this._scheduleShadows(nf, dtMs);
+    this._assignPoints(focus, nf);
   }
 
   /**
@@ -361,15 +438,41 @@ export class LightRig {
     this._glowCandidates = glows;
   }
 
-  // Ranks by distance to `camPos`, which is camera.position rather than the
-  // true pan target the isometric camera looks at (ThreeRenderer keeps the
-  // camera at a FIXED offset from that target — see its _panX/_panY-driven
-  // camera.position.set calls). This is a budget allocator picking "roughly
-  // the nearest N", not a precision computation: the fixed offset (tens of
-  // units) barely perturbs relative ordering among candidates spread across
-  // one facility, and update()'s signature only carries `camera` anyway.
   _worldPos(obj) {
     return (obj.group || obj).getWorldPosition(this._tmpWorld);
+  }
+
+  _prepareViewFrustum(camera) {
+    if (!this._viewFrustum || !this._viewProjection || !camera?.projectionMatrix || !camera?.matrixWorldInverse) {
+      this._frustumReady = false;
+      return;
+    }
+    this._viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    this._viewFrustum.setFromProjectionMatrix(this._viewProjection);
+    this._frustumReady = true;
+  }
+
+  _rankCandidates(candidates, focus, radiusFor = null) {
+    return candidates.map((obj, index) => {
+      const p = this._worldPos(obj);
+      const dx = p.x - focus.x, dy = p.y - focus.y, dz = p.z - focus.z;
+      let visible = true;
+      if (this._frustumReady) {
+        const radius = Math.max(0.1, radiusFor ? radiusFor(obj) : 0.25);
+        if (this._viewSphere) {
+          this._viewSphere.center.set(p.x, p.y, p.z);
+          this._viewSphere.radius = radius;
+          visible = this._viewFrustum.intersectsSphere(this._viewSphere);
+        } else {
+          visible = this._viewFrustum.containsPoint(p);
+        }
+      }
+      const id = obj.id ?? obj.userData?.lightFixture?.id ?? obj.uuid ?? index;
+      return { obj, visible, distSq: dx * dx + dy * dy + dz * dz, id: String(id) };
+    }).sort((a, b) =>
+      (Number(b.visible) - Number(a.visible))
+      || (a.distSq - b.distSq)
+      || a.id.localeCompare(b.id));
   }
 
   /**
@@ -391,12 +494,15 @@ export class LightRig {
    *      the SAME weight, so the two systems stay complementary.
    */
   _assignSpots(camPos, nightFactor, dtMs) {
-    const n = this._spotSlots.length;
+    const n = this._activeShadowSpotCount;
+    for (let i = n; i < this._spotSlots.length; i++) this._parkSpot(i);
 
     // --- 1. rank ---------------------------------------------------------
-    const ranked = this._fixtureCandidates
-      .map((obj) => ({ obj, dist: this._worldPos(obj).distanceTo(camPos) }))
-      .sort((a, b) => a.dist - b.dist);
+    const ranked = this._rankCandidates(
+      this._fixtureCandidates,
+      camPos,
+      (obj) => obj.def?.light?.poolRadius ?? obj.def?.light?.radius ?? 1,
+    );
     const pool = new Set();
     for (let i = 0; i < Math.min(n, ranked.length); i++) pool.add(ranked[i].obj);
     const slackPool = new Set(pool);
@@ -415,7 +521,8 @@ export class LightRig {
     // `present` is exactly "gone".
     const present = new Set(this._fixtureCandidates);
     const held = new Set();
-    for (const slot of this._spotSlots) {
+    for (let si = 0; si < n; si++) {
+      const slot = this._spotSlots[si];
       if (!slot.assignedRef) continue;
       if (slot.releasing && slot.weight <= 0) {
         // The fade finished on a previous frame; only now is the slot free.
@@ -439,7 +546,8 @@ export class LightRig {
 
     // --- 3. fill free slots ----------------------------------------------
     let next = 0;
-    for (const slot of this._spotSlots) {
+    for (let si = 0; si < n; si++) {
+      const slot = this._spotSlots[si];
       if (slot.assignedRef) continue;
       while (next < ranked.length && held.has(ranked[next].obj)) next++;
       if (next >= ranked.length || !pool.has(ranked[next].obj)) break;
@@ -453,7 +561,8 @@ export class LightRig {
     // --- 4. crossfade + publish ------------------------------------------
     this._fixtureSuppression.clear();
     const step = SPOT_CROSSFADE_MS > 0 ? dtMs / SPOT_CROSSFADE_MS : 1;
-    for (const slot of this._spotSlots) {
+    for (let si = 0; si < n; si++) {
+      const slot = this._spotSlots[si];
       if (!slot.assignedRef) {
         slot.weight = 0;
         slot.light.intensity = 0;
@@ -477,12 +586,44 @@ export class LightRig {
         // directly so a rotated flood's real cone and painted ellipse agree.
         tag.aimYaw = fx.group.rotation?.y || 0;
       }
-      this._applyFixtureSpot(slot, tag, nightFactor);
+      this._applyFixtureSpot(slot, tag, nightFactor, fx.def || null);
       if (tag.id != null) {
         const prev = this._fixtureSuppression.get(tag.id) ?? 0;
         this._fixtureSuppression.set(tag.id, Math.max(prev, slot.weight));
       }
     }
+  }
+
+  _parkSpot(index) {
+    const slot = this._spotSlots[index];
+    if (!slot) return;
+    slot.light.intensity = 0;
+    slot.light.shadow.needsUpdate = false;
+    slot.assignedRef = null;
+    slot.weight = 0;
+    slot.releasing = false;
+    slot.projection = null;
+    slot.volumePacket.volumeProfile = 'none';
+    this._shadowAssignmentKeys[index] = null;
+  }
+
+  _scheduleShadows(nightFactor, dtMs) {
+    for (let i = 0; i < this._spotSlots.length; i++) {
+      const slot = this._spotSlots[i];
+      slot.light.shadow.needsUpdate = false;
+      this._shadowAssignmentKeys[i] = i < this._activeShadowSpotCount
+        && slot.assignedRef && slot.light.intensity > 0
+        ? (slot.assignedRef.id ?? slot.assignedRef.userData?.lightFixture?.id ?? slot.assignedRef.uuid ?? i)
+        : null;
+    }
+    const updates = this._shadowScheduler.step({
+      activeCount: this._activeShadowSpotCount,
+      enabled: this._enabled && nightFactor > 0.01,
+      dtMs,
+      assignmentKeys: this._shadowAssignmentKeys,
+    });
+    for (const index of updates) this._spotSlots[index].light.shadow.needsUpdate = true;
+    this._shadowUpdatesLastFrame = updates.length;
   }
 
   /**
@@ -492,54 +633,59 @@ export class LightRig {
    * generic tuning constants — a bollard and a high-mast should not throw the
    * same beam.
    */
-  _applyFixtureSpot(slot, tag, nightFactor) {
+  _applyFixtureSpot(slot, tag, nightFactor, authoredDef = null) {
     const light = slot.light;
     const p = this._worldPos(slot.assignedRef);
-    const lx = p.x, ly = p.y + (tag.offsetY || 0), lz = p.z;
-    light.position.set(lx, ly, lz);
+    const def = authoredDef || {
+      mount: tag.mount || 'ground',
+      light: {
+        emitterY: tag.emitterY ?? tag.offsetY ?? 0,
+        radius: tag.poolRadius ?? tag.radius ?? 0,
+        shape: tag.shape,
+        coneDeg: tag.coneDeg,
+        beamAngleDeg: tag.beamAngleDeg,
+        targetDistance: tag.targetDistance || undefined,
+        maxGroundRange: tag.maxGroundRange || undefined,
+        penumbra: tag.penumbra,
+        sourceRadius: tag.sourceRadius,
+        shadowSoftness: tag.shadowSoftness,
+        volumeProfile: tag.volumeProfile,
+        dynamicProfile: tag.dynamicProfile,
+        cookieProfile: tag.cookieProfile,
+      },
+    };
+    const projection = fixtureLightProjection(def, {
+      origin: { x: p.x, y: p.y, z: p.z },
+      yaw: tag.aimYaw || 0,
+    });
 
-    // Throw comes from the def's pool radius so the real cone reaches exactly
-    // as far as the painted pool it replaces. Setting `distance` is also the
-    // ONLY correct way to move the shadow frustum's far plane: three derives
-    // `far = light.distance || camera.far` inside SpotLightShadow and rebuilds
-    // the projection matrix only when it sees that derived value change, so
-    // writing shadow.camera.far here would defeat its own guard and leave a
-    // stale matrix. Do not "help" it.
-    const throwDist = tag.radius > 0 ? tag.radius : FIXTURE_SPOT_DISTANCE;
-    light.distance = throwDist;
-    light.angle = tag.coneDeg > 0
-      ? Math.min(MAX_SPOT_ANGLE, (tag.coneDeg / 2) * DEG2RAD)
-      : FIXTURE_SPOT_ANGLE;
-
-    // Aim. Non-aimed fixtures (every point light, plus overhead cones like
-    // highBay) point straight down. An aimed ground cone (floodLight) tilts
-    // tiltDeg OFF straight-down, TOWARD its aim yaw.
-    //
-    // KNOWN WART, deliberate: the flood's GEOMETRY tilts its head off vertical
-    // the other way (_buildFloodLight does head.rotation.z = -tilt, i.e. the
-    // muzzle rides upward toward +x), so the model and its light disagree
-    // about which way "tilt" leans. The light wins, because the correctness
-    // condition here is that the real spot replaces the pool it suppresses,
-    // and poolFootprint paints its ellipse on the FLOOR, pushed forward along
-    // the aim. Aiming the light where the geometry points would put the cone
-    // on a wall while the suppressed pool sat unlit on the ground.
-    let tx = lx, tz = lz;
-    let ty = ly - throwDist;
-    if (tag.aimed && tag.tiltDeg) {
-      const t = tag.tiltDeg * DEG2RAD;
-      const yaw = tag.aimYaw || 0;
-      // Same convention as lighting-builder.js's _aimVector.
-      const ax = Math.cos(yaw), az = -Math.sin(yaw);
-      const horiz = Math.sin(t) * throwDist;
-      tx = lx + ax * horiz;
-      tz = lz + az * horiz;
-      ty = ly - Math.cos(t) * throwDist;
-    }
-    slot.target.position.set(tx, ty, tz);
+    light.position.set(projection.emitter.x, projection.emitter.y, projection.emitter.z);
+    // Setting light.distance is the correct way to move SpotLightShadow's far
+    // plane; Three observes it and refreshes the projection matrix itself.
+    light.distance = projection.distance || FIXTURE_SPOT_DISTANCE;
+    light.angle = projection.halfAngle || FIXTURE_SPOT_ANGLE;
+    light.penumbra = projection.penumbra;
+    light.shadow.radius = 1 + 3 * Math.max(0, Math.min(1, tag.shadowSoftness ?? 0.5));
+    slot.target.position.set(projection.target.x, projection.target.y, projection.target.z);
     slot.target.updateMatrixWorld();
 
     light.color.set(tag.color != null ? tag.color : DEFAULT_FIXTURE_COLOR);
-    light.intensity = FIXTURE_SPOT_INTENSITY * (tag.intensity ?? 1) * nightFactor * slot.weight;
+    const dynamicFactor = fixtureDynamicFactor(
+      tag.dynamicProfile, tag.id, this._effectTimeMs, nightFactor,
+    );
+    const cookie = getLightCookie(tag.cookieProfile || 'soft');
+    if (cookie) light.map = cookie;
+    light.intensity = FIXTURE_SPOT_INTENSITY * (tag.intensity ?? 1)
+      * nightFactor * slot.weight * dynamicFactor;
+    slot.projection = projection;
+    Object.assign(slot.volumePacket, {
+      id: tag.id,
+      projection,
+      color: tag.color != null ? tag.color : DEFAULT_FIXTURE_COLOR,
+      weight: slot.weight * dynamicFactor,
+      volumeProfile: tag.volumeProfile || 'none',
+      cookieProfile: tag.cookieProfile || 'soft',
+    });
   }
 
   _assignPoints(camPos, nightFactor) {
@@ -555,10 +701,9 @@ export class LightRig {
       s.light.intensity = 0;
       s.assignedRef = null;
     }
-    const ranked = this._glowCandidates
-      .map((mesh) => ({ mesh, dist: this._worldPos(mesh).distanceTo(camPos) }))
-      .sort((a, b) => a.dist - b.dist)
-      .slice(0, freeSlots.length);
+    const ranked = this._rankCandidates(this._glowCandidates, camPos)
+      .slice(0, freeSlots.length)
+      .map((entry) => ({ mesh: entry.obj }));
     for (let i = 0; i < freeSlots.length; i++) {
       const slot = freeSlots[i];
       const cand = ranked[i];

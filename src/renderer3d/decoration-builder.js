@@ -5,6 +5,7 @@
 import { DECORATIONS_RAW } from '../data/decorations.raw.js';
 import { LIGHTING_DEFS } from '../data/placeables/lighting.js';
 import { buildLightFixture, isAimedFixture } from './lighting-builder.js';
+import { fixtureMountY } from './fixture-light-math.js';
 
 const SUB = 0.5; // 1 sub-tile = 0.5 world units
 
@@ -1490,8 +1491,13 @@ export class DecorationBuilder {
         dec.type, dec.category, p.geoW, p.geoL, p.totalH, dec.variant ?? 0, p.seed, dec.dir ?? 0,
       );
 
-      // Center the geometry within the footprint; sit on terrain via dec.y.
-      group.position.set(p.x, dec.y ?? 0, p.z);
+      // Ground fixtures sit on the floor. Wall/overhead fixture geometry is
+      // authored around its mounting point, so lift that origin to the
+      // definition's mount height even though all fixtures still share the
+      // ordinary decoration placement store.
+      const floorY = dec.y ?? 0;
+      const groupY = lightDef ? fixtureMountY(lightDef, floorY) : floorY;
+      group.position.set(p.x, groupY, p.z);
       group.rotation.y = lightDef ? lightingYaw(lightDef, p.rotY, p.seed) : p.rotY;
       if (lightDef) {
         // This registry is handed directly to LightRig and is also the source

@@ -44,6 +44,14 @@ import {
 import { OverlayShim } from './overlay-shim.js';
 import { GlowPipeline } from './glow-pipeline.js';
 import { LightRig } from './light-rig.js';
+import { fixtureMountY } from './fixture-light-math.js';
+import {
+  MAX_FIXTURE_SHADOWS, normalizeLightingQuality, resolveLightingQuality,
+} from './lighting-quality.js';
+import { ShadowScheduler } from './shadow-scheduler.js';
+import { VolumetricLightPool } from './volumetric-light-pool.js';
+import { fixtureDynamicFactor } from './light-dynamics.js';
+import { disposeLightCookies } from './light-cookie.js';
 import { UIHost } from '../ui/UIHost.js';
 // Side-effect imports: attach UI methods to UIHost.prototype.
 // Must run before `new UIHost(...)` is ever evaluated.
@@ -477,6 +485,9 @@ export class ThreeRenderer {
     this.renderer.setPixelRatio(1);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.toneMapping = THREE.AgXToneMapping ?? THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.setClearColor(0x1a1a2e);
 
     const threeCanvas = this.renderer.domElement;
@@ -520,8 +531,8 @@ export class ThreeRenderer {
     this._sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
     this._sunLight.position.set(-30, 40, -30);
     this._sunLight.castShadow = true;
-    this._sunLight.shadow.mapSize.width = 4096;
-    this._sunLight.shadow.mapSize.height = 4096;
+    this._sunLight.shadow.autoUpdate = false;
+    this._sunLight.shadow.needsUpdate = false;
     this._sunLight.shadow.bias = -0.0005;
     this._sunLight.shadow.normalBias = 0.01;
     this._sunLight.shadow.camera.near = 0.5;
@@ -559,11 +570,25 @@ export class ThreeRenderer {
     // :463 ran *before* this and guards its pipeline call for that reason.
     let glowStored;
     try { glowStored = localStorage.getItem('beamlineTycoon.glow'); } catch (_) { glowStored = null; }
+    let qualityStored;
+    try { qualityStored = localStorage.getItem('beamlineTycoon.lightingQuality'); } catch (_) { qualityStored = null; }
+    this._lightingQualityRequested = normalizeLightingQuality(qualityStored);
+    this._lightingQuality = resolveLightingQuality(this._lightingQualityRequested, {
+      hardwareConcurrency: globalThis.navigator?.hardwareConcurrency,
+      deviceMemory: globalThis.navigator?.deviceMemory,
+      maxTextureSize: this.renderer.capabilities.maxTextureSize,
+    });
+    this._setShadowMapSize(this._sunLight.shadow, this._lightingQuality.sunShadowMapSize);
+    this._sunShadowScheduler = new ShadowScheduler(1, {
+      hz: this._lightingQuality.sunShadowHz,
+      maxUpdatesPerFrame: 1,
+    });
     // GlowPipeline reads the renderer's current size in its own constructor
     // (already correct — _setSize() ran above at :463, before this point),
     // so no separate setSize() call is needed here.
     this._glowPipeline = new GlowPipeline(this.renderer, this.scene, this.camera, {
       enabled: glowStored !== '0',
+      quality: this._lightingQuality,
     });
 
     // Real lights: lamppost/wall-light shadows and explosion flashes. Shares
@@ -574,10 +599,21 @@ export class ThreeRenderer {
     // rewrite.
     this._lightRig = new LightRig(this.scene, {
       enabled: glowStored !== '0',
-      shadowSpotCount: 4,
+      shadowSpotCount: MAX_FIXTURE_SHADOWS,
+      activeShadowSpotCount: this._lightingQuality.fixtureShadowCount,
       pointCount: 8,
-      shadowMapSize: 1024,
+      shadowMapSize: this._lightingQuality.fixtureShadowMapSize,
+      shadowHz: this._lightingQuality.fixtureShadowHz,
     });
+    let volumeStored;
+    try { volumeStored = localStorage.getItem('beamlineTycoon.volumetricLighting'); } catch (_) { volumeStored = null; }
+    this._volumetricEnabled = volumeStored !== '0' && glowStored !== '0';
+    this._volumePool = new VolumetricLightPool(this.scene, {
+      maxCount: MAX_FIXTURE_SHADOWS,
+      activeCount: this._lightingQuality.volumetricCount,
+      enabled: this._volumetricEnabled,
+    });
+    this._lightFocus = new THREE.Vector3();
 
     // Scene groups
     this.terrainGroup = new THREE.Group();
@@ -663,6 +699,14 @@ export class ThreeRenderer {
     this.previewGroup.renderOrder = 999;
     this.scene.add(this.previewGroup);
 
+    // Selection is deliberately separate from previewGroup. Placement and
+    // hover feedback clear that group every mouse move; a clicked object must
+    // remain legible as selected while its information window is open.
+    this.selectionGroup = new THREE.Group();
+    this.selectionGroup.name = 'selectionOutline';
+    this.selectionGroup.renderOrder = 1000;
+    this.scene.add(this.selectionGroup);
+
     // Design-placement ghost — see the constructor field comment. Added before
     // previewGroup's tile quads in draw order would be wrong (the quads are
     // depthTest:false floor markers meant to read *under* the machine), so it
@@ -695,6 +739,7 @@ export class ThreeRenderer {
       // enumerate exactly which events could add/remove one; the actual
       // scene traversal is deferred to the rig's next update() call.
       if (this._lightRig) this._lightRig.markDirty();
+      if (this._sunShadowScheduler) this._sunShadowScheduler.markAllDirty();
       switch (event) {
         case 'beamlineChanged':
           this.refresh(); // full 3D rebuild
@@ -1455,11 +1500,67 @@ export class ThreeRenderer {
   setGlowEnabled(enabled) {
     if (this._glowPipeline) this._glowPipeline.setEnabled(enabled);
     if (this._lightRig) this._lightRig.setEnabled(enabled);
+    if (this._volumePool) this._volumePool.setEnabled(enabled && this._volumetricEnabled);
     this._applyGlowToggleToFloorStrips();
   }
 
   get glowEnabled() {
     return this._glowPipeline ? this._glowPipeline.enabled : true;
+  }
+
+  setVolumetricEnabled(enabled) {
+    this._volumetricEnabled = !!enabled;
+    if (this._volumePool) this._volumePool.setEnabled(this._volumetricEnabled && this.glowEnabled);
+  }
+
+  get volumetricEnabled() {
+    return this._volumetricEnabled !== false;
+  }
+
+  setLightingQuality(value) {
+    this._lightingQualityRequested = normalizeLightingQuality(value);
+    this._lightingQuality = resolveLightingQuality(this._lightingQualityRequested, {
+      hardwareConcurrency: globalThis.navigator?.hardwareConcurrency,
+      deviceMemory: globalThis.navigator?.deviceMemory,
+      maxTextureSize: this.renderer?.capabilities?.maxTextureSize,
+    });
+    if (this._lightRig) this._lightRig.setQuality(this._lightingQuality);
+    if (this._volumePool) this._volumePool.setQuality(this._lightingQuality);
+    if (this._sunShadowScheduler) {
+      this._sunShadowScheduler.configure({ hz: this._lightingQuality.sunShadowHz, maxUpdatesPerFrame: 1 });
+      this._sunShadowScheduler.markAllDirty();
+    }
+    if (this._sunLight) {
+      this._setShadowMapSize(this._sunLight.shadow, this._lightingQuality.sunShadowMapSize);
+    }
+    if (this._glowPipeline?.setQuality) this._glowPipeline.setQuality(this._lightingQuality);
+    return this._lightingQuality.name;
+  }
+
+  get lightingQuality() {
+    return this._lightingQualityRequested || 'auto';
+  }
+
+  getLightingStats() {
+    return {
+      quality: this._lightingQuality?.name || 'unknown',
+      requestedQuality: this.lightingQuality,
+      sunShadowUpdate: !!this._sunLight?.shadow?.needsUpdate,
+      ...(this._lightRig?.getStats() || {}),
+      ...(this._volumePool?.getStats() || {}),
+    };
+  }
+
+  _setShadowMapSize(shadow, mapSize) {
+    if (!shadow) return;
+    const size = Math.max(128, Math.floor(mapSize || 1024));
+    if (shadow.mapSize.width === size && shadow.mapSize.height === size) return;
+    shadow.mapSize.set ? shadow.mapSize.set(size, size) : Object.assign(shadow.mapSize, { width: size, height: size });
+    if (shadow.map) {
+      shadow.map.dispose();
+      shadow.map = null;
+    }
+    shadow.needsUpdate = true;
   }
 
   /**
@@ -1987,13 +2088,13 @@ export class ThreeRenderer {
    * Create a red wireframe outline around a source 3D object (Group or Mesh).
    * Traverses all child meshes and adds edge outlines to the preview group.
    */
-  _outlineObject(sourceObj, color = 0xff4444) {
+  _outlineObject(sourceObj, color = 0xff4444, targetGroup = this.previewGroup, linewidth = 1) {
     if (!sourceObj) return;
     // Depth-tested outline so back edges of the box are hidden behind the
     // front faces. Without this, every edge renders through the mesh and
     // the back-top edges look like a phantom duplicate floating above.
     const lineMat = new THREE.LineBasicMaterial({
-      color, transparent: true, opacity: 0.95,
+      color, transparent: true, opacity: 0.95, linewidth,
     });
     const wrapper = new THREE.Group();
 
@@ -2015,7 +2116,24 @@ export class ThreeRenderer {
       wrapper.add(line);
     });
 
-    this.previewGroup.add(wrapper);
+    targetGroup.add(wrapper);
+  }
+
+  /** Keep a clicked object's white outline independent of transient hovers. */
+  setSelectionOutline(sourceObj) {
+    this.clearSelectionOutline();
+    if (sourceObj) this._outlineObject(sourceObj, 0xffffff, this.selectionGroup, 3);
+  }
+
+  clearSelectionOutline() {
+    while (this.selectionGroup?.children?.length) {
+      const child = this.selectionGroup.children[0];
+      this.selectionGroup.remove(child);
+      child.traverse?.((obj) => {
+        obj.geometry?.dispose?.();
+        obj.material?.dispose?.();
+      });
+    }
   }
 
   /**
@@ -2595,7 +2713,8 @@ export class ThreeRenderer {
     // made the ghost drop on click; showing the result is the WYSIWYG choice.
     // Stacked items ride placeY above that same zero.
     const surfaceY = 0;
-    const y = (isDetailed ? placeYOffset : placeYOffset + (vSubH * SUB_UNIT) / 2) + surfaceY;
+    let y = (isDetailed ? placeYOffset : placeYOffset + (vSubH * SUB_UNIT) / 2) + surfaceY;
+    if (placeable.light) y = fixtureMountY(placeable, placeYOffset + surfaceY);
     obj.position.set(px, y, pz);
     obj.rotation.y = -(hover.dir || 0) * (Math.PI / 2);
     obj.renderOrder = 999;
@@ -3196,7 +3315,12 @@ export class ThreeRenderer {
     // fade to zero at midday (a lit lamppost at noon reads as a bug), where
     // glow materials floor at 0.35 so a console screen stays legible.
     if (this._lightRig) {
-      this._lightRig.update(this.camera, this._darkness ?? 0, _dt);
+      this._lightFocus.set(this._panX || 0, 0, this._panY || 0);
+      this._lightRig.update(
+        this.camera, this._darkness ?? 0, _dt, this._lightFocus,
+        this._lightingEffectTimeMs ?? 0,
+      );
+      this._volumePool?.update(this._lightRig, this._darkness ?? 0, _dt);
     }
     this._glowPipeline.render();
     if (this._viewCube) this._viewCube.update();
@@ -3271,7 +3395,7 @@ export class ThreeRenderer {
     this._sunLight.updateMatrixWorld();
     const shadowCam = this._sunLight.shadow.camera;
     shadowCam.updateMatrixWorld();
-    const texelsPerUnit = 4096 / (shadowCam.right - shadowCam.left);
+    const texelsPerUnit = this._sunLight.shadow.mapSize.width / (shadowCam.right - shadowCam.left);
     const shadowMatrix = shadowCam.matrixWorldInverse;
     // Project target into light space, snap, project back
     const targetPos = this._sunLight.target.position.clone().applyMatrix4(shadowMatrix);
@@ -3302,9 +3426,19 @@ export class ThreeRenderer {
     // ramp in lockstep with the sky.
     const grade = dayNightGrade(this._localTimeOfDay);
     this._darkness = grade.darkness;
+    this._lightingEffectTimeMs = this._localTimeOfDay * DAY_LENGTH_TICKS * 1000;
 
     this._sunLight.intensity = grade.sunIntensity;
     this._sunLight.color.setRGB(...grade.sunColor);
+
+    this._sunLight.shadow.needsUpdate = false;
+    const sunUpdates = this._sunShadowScheduler?.step({
+      activeCount: 1,
+      enabled: this.renderer.shadowMap.enabled && grade.sunIntensity > 0.02,
+      dtMs: dt * 1000,
+      assignmentKeys: ['sun'],
+    }) || [];
+    if (sunUpdates.length) this._sunLight.shadow.needsUpdate = true;
 
     this._ambientLight.intensity = grade.ambientIntensity;
     this._ambientLight.color.setRGB(...grade.ambientColor);
@@ -3820,7 +3954,15 @@ export class ThreeRenderer {
     const darkness = this._darkness ?? 0;
     for (const fx of this.lightingGroup) {
       const mat = fx.group.userData.emitterMaterial;
-      if (mat) mat.emissiveIntensity = emitterIntensityForDarkness(darkness);
+      if (mat) {
+        mat.emissiveIntensity = emitterIntensityForDarkness(darkness)
+          * fixtureDynamicFactor(
+            fx.def?.light?.dynamicProfile,
+            fx.id,
+            this._lightingEffectTimeMs ?? 0,
+            darkness,
+          );
+      }
     }
     if (this.lightPoolGroup) {
       const suppression = this._lightRig ? this._lightRig.getFixtureSuppression() : null;
@@ -4520,6 +4662,11 @@ export class ThreeRenderer {
       this._lightRig.dispose();
       this._lightRig = null;
     }
+    if (this._volumePool) {
+      this._volumePool.dispose();
+      this._volumePool = null;
+    }
+    disposeLightCookies();
     this.renderer.dispose();
     const threeCanvas = this.renderer.domElement;
     if (threeCanvas.parentNode) threeCanvas.parentNode.removeChild(threeCanvas);

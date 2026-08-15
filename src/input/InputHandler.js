@@ -73,6 +73,7 @@ export class InputHandler {
     this.placementDir = DIR.NE;     // direction for source/free placement
     this.selectedParamOverrides = null; // param flyout overrides (BeamlineTool)
     this.selectedNodeId = null;
+    this.selectedPlaceableId = null;
     this.isPanning = false;
     this.isFreeOrbiting = false;
     this.freeOrbitLast = { x: 0, y: 0 };
@@ -677,6 +678,46 @@ export class InputHandler {
     }
     // Fallback to tile-based lookup
     return this._getNodeAtGrid(col, row);
+  }
+
+  _selectionRootAt(screenX, screenY) {
+    const hit = this.renderer.raycastScreen?.(screenX, screenY);
+    return hit ? this.renderer.identifyHit?.(hit)?.rootObj || null : null;
+  }
+
+  _clearSelection() {
+    this.selectedNodeId = null;
+    this.selectedPlaceableId = null;
+    this.renderer.clearSelectionOutline?.();
+  }
+
+  /** Select a world object, persist its outline, and open its info menu. */
+  _selectPlaceable(entry, rootObj = null) {
+    if (!entry) return false;
+    this.selectedPlaceableId = entry.id;
+    this.selectedNodeId = entry.category === 'beamline' ? entry.id : null;
+    this.renderer.setSelectionOutline?.(rootObj);
+
+    if (entry.category === 'beamline') {
+      const blId = entry.beamlineId;
+      if (blId) {
+        this.game.selectedBeamlineId = blId;
+        this.renderer._openBeamlineWindow(blId, entry);
+        this.game.emit('beamlineSelected', blId);
+      }
+    } else {
+      this.renderer._openEquipmentWindow?.(entry);
+    }
+    return true;
+  }
+
+  /** Resolve the visible placeable under a normal canvas click. */
+  _selectPlaceableAt(world, grid, screenX, screenY) {
+    const target = this._findDeletablePlaceable(world, grid, screenX, screenY,
+      new Set(['beamline', 'infrastructure', 'equipment', 'furnishing', 'decoration']));
+    const entry = target?.node || target?.entry || null;
+    if (!entry) return false;
+    return this._selectPlaceable(entry, target.rootObj || this._selectionRootAt(screenX, screenY));
   }
 
   _getActiveBeamlineNodes() {
@@ -1562,6 +1603,11 @@ export class InputHandler {
         case 'p': case 'P': {
           if (e.ctrlKey || e.metaKey || e.altKey) break; // keep Cmd/Ctrl+P (print)
           e.preventDefault();
+          // A selected object takes precedence: P is the direct
+          // pick-up/place affordance. Retain pause as the no-selection
+          // fallback so existing saves and the top-bar control keep their
+          // familiar behavior.
+          if (this._beginSelectedMove()) break;
           this.game.togglePause();
           this._showToast(this.game.state.paused ? 'Paused' : 'Resumed');
           break;
@@ -1845,18 +1891,12 @@ export class InputHandler {
       }
     }
 
-    // Selection mode
-    const node = this._getNodeAtScreenOrGrid(screenX, screenY, col, row);
-    if (node) {
-      this.selectedNodeId = node.id;
-      // Select the beamline this node belongs to and open its context window
-      const blId = node.beamlineId;
-      if (blId) {
-        this.game.selectedBeamlineId = blId;
-        this.renderer._openBeamlineWindow(blId, node);
-        this.game.emit('beamlineSelected', blId);
-      }
-    } else {
+    // Click-to-select: all placeable objects get a persistent white outline
+    // and their info menu. Tools still own their placement clicks above;
+    // escape/disarm returns the canvas to this direct selection behavior.
+    if (this._selectPlaceableAt(world, grid, screenX, screenY)) return;
+
+    {
       // Phase 6: rack-segment click-to-inspect removed. Utility inspection
       // now flows through UtilityInspector (opened via the utility-line
       // raycast earlier in _handleClick).
@@ -1880,6 +1920,7 @@ export class InputHandler {
         this.game.emit('editModeChanged', null);
       }
       this.selectedNodeId = null;
+      this._clearSelection();
       this.renderer.hidePopup();
       this.renderer.clearNetworkOverlay();
     }
@@ -1905,6 +1946,8 @@ export class InputHandler {
     this.renderer._clearPreview?.();
     this.renderer.hidePopup();
     this.selectedNodeId = null;
+    this.selectedPlaceableId = null;
+    this.renderer.clearSelectionOutline?.();
     this._hideTooltip();
     // Variant is per-armed-tool state: whatever the previous tool chose must
     // not survive into the next one (a decoration swatch leaking into a
@@ -1982,6 +2025,7 @@ export class InputHandler {
     // Close all overlays and clear selection / palette keyboard focus.
     document.querySelectorAll('.overlay').forEach(el => el.classList.add('hidden'));
     this.selectedNodeId = null;
+    this._clearSelection();
     this.renderer.hidePopup();
     this.paletteIndex = -1;
     this._hidePreview();
@@ -2413,12 +2457,7 @@ export class InputHandler {
       const existingNode = this._getNodeAtScreenOrGrid(screenX, screenY, grid.col, grid.row);
       if (existingNode) {
         this.selectedNodeId = existingNode.id;
-        const blId = existingNode.beamlineId;
-        if (blId) {
-          this.game.selectedBeamlineId = blId;
-          this.renderer._openBeamlineWindow(blId, existingNode);
-          this.game.emit('beamlineSelected', blId);
-        }
+        this._selectPlaceable(existingNode, this._selectionRootAt(screenX, screenY));
         return true;
       }
     }
@@ -2666,6 +2705,23 @@ export class InputHandler {
     }
   }
 
+  _beginSelectedMove() {
+    const entry = this.selectedPlaceableId && this.game.getPlaceable(this.selectedPlaceableId);
+    if (!entry) return false;
+    const tool = new MoveTool();
+    this.setTool(tool);
+    tool.payload = {
+      kind: 'selectedPlaceable',
+      placeableId: entry.id,
+      type: entry.type,
+      dir: entry.dir || 0,
+    };
+    this._armMovePreview(entry.type, entry.dir || 0);
+    this.renderer.canvas.style.cursor = 'grabbing';
+    this._showToast(`Moving ${PLACEABLES[entry.type]?.name || COMPONENTS[entry.type]?.name || entry.type}`);
+    return true;
+  }
+
   // Refreshes the unified placeable preview for a just-picked-up carried
   // item (the carried type arms the preview via MoveTool.armedPlaceableId).
   _armMovePreview(_type, dir) {
@@ -2809,6 +2865,34 @@ export class InputHandler {
         silent: true,
       });
       return placedId !== false;
+    }
+
+    if (p.kind === 'selectedPlaceable') {
+      const hp = this.hoverPlaceable;
+      if (!hp) return false;
+      const entry = this.game.getPlaceable(p.placeableId);
+      if (!entry) return false;
+      return this.game._withUndo(() => {
+        const moved = this.game.movePlaceable(p.placeableId, {
+          col: hp.col, row: hp.row, subCol: hp.subCol, subRow: hp.subRow,
+          dir: hp.dir ?? this.placementDir ?? entry.dir ?? 0,
+        });
+        if (!moved) return false;
+        if (entry.category === 'beamline') {
+          this.game._deriveBeamGraph();
+          this.game.recalcAllBeamlines();
+          this.game.emit('beamlineChanged');
+        }
+        const dangled = this.game.reanchorUtilityLinesForPlaceable(p.placeableId);
+        this.game.computeSystemStats();
+        this.game.emit('placeableChanged');
+        if (entry.category === 'equipment') this.game.emit('facilityChanged');
+        if (entry.category === 'furnishing') this.game.emit('zonesChanged');
+        this._showToast(dangled
+          ? `Moved — ${dangled} utility ${dangled === 1 ? 'line needs' : 'lines need'} rewiring`
+          : 'Moved — connected utilities updated');
+        return true;
+      });
     }
 
     return false;

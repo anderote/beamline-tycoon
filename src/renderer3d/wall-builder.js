@@ -16,6 +16,7 @@ import { WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, WINDOW_WIDTH_FRAC } from '../data
 import { MATERIALS } from './materials/index.js';
 import { applyTiledBoxUVs } from './uv-utils.js';
 import { contentKey } from './content-hash.js';
+import { SOFT_GLOW_LAYER } from './glow-pipeline.js';
 
 // Exported so callers that must size geometry to match what this builder
 // emits (e.g. ThreeRenderer.renderWindowPreview's drag ghost) read the same
@@ -967,6 +968,9 @@ export class WallBuilder {
         ? new THREE.BoxGeometry(glassW, glassH, GLASS_THICKNESS)
         : new THREE.BoxGeometry(GLASS_THICKNESS, glassH, glassW);
       const glass = new THREE.Mesh(glassGeo, glassMat);
+      glass.layers?.enable(SOFT_GLOW_LAYER);
+      glass.userData ||= {};
+      glass.userData.glowProfile = 'soft';
       glass.position.set(edgeCenter.x, base + jambY, edgeCenter.z);
       glass.castShadow = false;
       glass.receiveShadow = false;
