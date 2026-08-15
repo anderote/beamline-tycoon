@@ -37,6 +37,7 @@ import { sampleSurfaceYAt, getTileCornersY } from '../game/terrain.js';
 import { PLACE_UNAFFORDABLE } from '../game/placement.js';
 import { DAY_LENGTH_TICKS } from '../game/Game.js';
 import { dayNightGrade, MOON_COLOR } from './day-night.js';
+import { CINEMATIC_LIGHTING } from './lighting-tuning.js';
 import {
   buildLightPools, buildLightHalos, applyPoolSuppression,
   emitterIntensityForDarkness, poolOpacityForDarkness, haloOpacityForDarkness,
@@ -55,11 +56,10 @@ import {
 import { ShadowScheduler } from './shadow-scheduler.js';
 import { VolumetricLightPool } from './volumetric-light-pool.js';
 import { fixtureDynamicFactor } from './light-dynamics.js';
+import { fixtureActivationFactor } from './fixture-activation.js';
 import { disposeLightCookies } from './light-cookie.js';
 import { UIHost } from '../ui/UIHost.js';
-import { WorldPhysics } from '../physics/world-physics.js';
-import { StaffRagdolls } from '../physics/staff-ragdolls.js';
-import { DebrisSystem } from '../physics/debris-system.js';
+import { WorldPhysicsPresentation } from './world-physics-presentation.js';
 // Side-effect imports: attach UI methods to UIHost.prototype.
 // Must run before `new UIHost(...)` is ever evaluated.
 import '../ui/hud.js';
@@ -109,6 +109,19 @@ const ZOOM_MAX = 14;
 const GHOST_TINT_OK = 0x44ff44;
 const GHOST_TINT_BLOCKED = 0xff4444;
 const GHOST_TINT_UNAFFORDABLE = 0xffb020;
+
+const PORT_MARKER_EVENTS = new Set([
+  'beamlineChanged', 'loaded', 'restored', 'infrastructureChanged',
+  'placeableChanged', 'facilityChanged', 'connectionsChanged', 'utilityLinesChanged',
+]);
+const LIGHT_CANDIDATE_EVENTS = new Set([
+  'beamlineChanged', 'loaded', 'restored', 'infrastructureChanged',
+  'decorationsChanged', 'wallsChanged', 'doorsChanged', 'windowsChanged',
+  'placeableChanged', 'facilityChanged', 'connectionsChanged', 'utilityLinesChanged',
+]);
+const SHADOW_GEOMETRY_EVENTS = new Set([
+  ...LIGHT_CANDIDATE_EVENTS, 'zonesChanged',
+]);
 
 /** Ghost color for a (valid, reason) pair. Reasons come from placement.js. */
 function ghostTint(valid, reason) {
@@ -282,12 +295,13 @@ export class ThreeRenderer {
     this.scene = null;
     this.camera = null;
     this.canvas = null;  // interactive canvas (overlay event-capture canvas)
-    this._worldPhysics = null;
-    this._physicsWorldIds = new Set();
-    this._physicsBodiesDirty = true;
-    this._physicsIncidentSnapshot = null;
-    this._staffRagdolls = null;
-    this._debrisSystem = null;
+    this._physicsPresentation = new WorldPhysicsPresentation({
+      equipmentMeshes: () => this.equipmentBuilder?._meshes,
+      componentMeshes: () => this.componentBuilder?._meshMap,
+      decorationGroups: () => this.decorationBuilder?._groups,
+      forEachWallMesh: (visit) => this.wallGroup?.traverse?.(visit),
+      terrainMesh: () => this._terrainMesh,
+    });
 
     // Overlay-shim references — set during init(). `app` keeps its old
     // Pixi-era shape ({canvas, screen}) for InputHandler/main.js readers;
@@ -312,6 +326,7 @@ export class ThreeRenderer {
     // Task 6 (fake light pools) and Task 9 (real point lights) read this
     // instead of re-scanning every decoration.
     this.lightingGroup = [];
+    this._fixtureActivation = new Map();
     // Task 6 fake-lighting layer: one merged additive mesh for every ground
     // light pool (lightPoolGroup) plus one Sprite billboard per glowing
     // emitter (lightHaloGroup). Both are rebuilt only when lightingGroup
@@ -515,9 +530,9 @@ export class ThreeRenderer {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.AgXToneMapping ?? THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.toneMappingExposure = CINEMATIC_LIGHTING.exposure.day;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.setClearColor(0x1a1a2e);
+    this.renderer.setClearColor(0x091126);
 
     const threeCanvas = this.renderer.domElement;
     threeCanvas.style.position = 'absolute';
@@ -532,16 +547,8 @@ export class ThreeRenderer {
 
     // Scene
     this.scene = new THREE.Scene();
-
-    // World interaction physics is Rapier (Rust compiled to WASM). Rendered
-    // placeables remain dormant fixed bodies until an incident wakes them, so
-    // ordinary construction/gameplay is pixel-for-pixel unchanged and pays no
-    // continuous rigid-body cost. The ground is always available for debris.
-    this._worldPhysics = await new WorldPhysics().init();
-    // A low safety slab catches anything that leaves the finite terrain mesh
-    // without duplicating contacts on the ordinary y≈0 terrain surface.
-    this._worldPhysics.addGround({ y: -20 });
-    this._debrisSystem = new DebrisSystem(this._worldPhysics, this.scene);
+    this.scene.background = new THREE.Color(0x091126);
+    this.scene.fog = new THREE.FogExp2(0x14213a, CINEMATIC_LIGHTING.atmosphere.dayDensity);
 
     // Isometric orthographic camera
     const aspect = gameEl.clientWidth / gameEl.clientHeight;
@@ -564,7 +571,7 @@ export class ThreeRenderer {
     this.camera.lookAt(0, 0, 0);
 
     // Lighting — dynamic day/night cycle
-    this._ambientLight = new THREE.AmbientLight(0xfff5e6, 1.3);
+    this._ambientLight = new THREE.HemisphereLight(0xdceeff, 0x473c30, CINEMATIC_LIGHTING.ambient.day);
     this.scene.add(this._ambientLight);
 
     this._sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -616,6 +623,7 @@ export class ThreeRenderer {
       hardwareConcurrency: globalThis.navigator?.hardwareConcurrency,
       deviceMemory: globalThis.navigator?.deviceMemory,
       maxTextureSize: this._rendererBackend.capabilities.maxTextureSize,
+      backend: this._rendererBackend.backend,
     });
     this._setShadowMapSize(this._sunLight.shadow, this._lightingQuality.sunShadowMapSize);
     this._sunShadowScheduler = new ShadowScheduler(1, {
@@ -788,26 +796,21 @@ export class ThreeRenderer {
 
     // Staff pawns — little walking pixel-people for hired staff
     this.staffPawns = new StaffPawns(this.game, this.scene);
-    this._staffRagdolls = new StaffRagdolls(this.staffPawns, this._worldPhysics, this.scene);
-
+    this._physicsPresentation.attachStaff(this.staffPawns, this.scene);
     window.addEventListener('resize', this._boundOnResize);
 
     // Game event listener — rebuilds relevant 3D sections and updates DOM HUD.
     // Wrapped in try/catch so rendering errors never crash game logic.
     this.game.on((event, data) => {
       try {
-      // Any world event may have moved a port or claimed a utility line —
-      // let _animate rebuild the armed-tool port markers on its next frame.
-      this._portMarkersDirty = true;
-      // Same idea for the light rig's candidate lists (placed fixtures,
-      // glow-role meshes) — invalidate on every event rather than trying to
-      // enumerate exactly which events could add/remove one; the actual
-      // scene traversal is deferred to the rig's next update() call.
-      if (this._lightRig) this._lightRig.markDirty();
-      if (this._sunShadowScheduler) this._sunShadowScheduler.markAllDirty();
+      if (PORT_MARKER_EVENTS.has(event)) this._portMarkersDirty = true;
+      if (this._lightRig && LIGHT_CANDIDATE_EVENTS.has(event)) this._lightRig.markDirty();
+      if (this._sunShadowScheduler && SHADOW_GEOMETRY_EVENTS.has(event)) {
+        this._sunShadowScheduler.markAllDirty();
+      }
       switch (event) {
         case 'beamlineChanged':
-          this.refresh(); // full 3D rebuild
+          this._refreshBeamlineWorld();
           break;
         case 'loaded':
         case 'restored':   // undo/redo snapshot restore
@@ -839,6 +842,10 @@ export class ThreeRenderer {
         case 'zonesChanged':
           this._refreshTerrain();
           this._refreshZones();
+          // Fixture room context is authored by zones. Rebuild its cached
+          // registry so a newly zoned room lights immediately rather than
+          // waiting for an unrelated decoration edit.
+          this._refreshDecorations();
           if (this._refreshPalette) this._refreshPalette();
           break;
         case 'wallsChanged':
@@ -963,6 +970,9 @@ export class ThreeRenderer {
     }
 
     this._animate();
+    // Rapier is a large WASM chunk and ordinary construction never needs it.
+    // Warm it after the first playable frame instead of blocking init/title.
+    this._physicsPresentation.scheduleInit(this.scene);
   }
 
   // --- Coordinate conversion (PixiJS-compatible) ---
@@ -1619,6 +1629,7 @@ export class ThreeRenderer {
       hardwareConcurrency: globalThis.navigator?.hardwareConcurrency,
       deviceMemory: globalThis.navigator?.deviceMemory,
       maxTextureSize: this._rendererBackend?.capabilities?.maxTextureSize,
+      backend: this._rendererBackend?.backend,
     });
     if (this._lightRig) this._lightRig.setQuality(this._lightingQuality);
     if (this._effectSystem) this._effectSystem.setQuality(this._lightingQuality);
@@ -1683,6 +1694,20 @@ export class ThreeRenderer {
     return this._effectSystem?.emit(descriptor) ?? null;
   }
 
+  // Input controllers use these stable renderer-facing commands instead of
+  // depending on UIHost's underscored forwarding implementation.
+  openEquipmentWindow(entry) {
+    return this._openEquipmentWindow?.(entry);
+  }
+
+  closePlaceableInfoWindow(entry) {
+    return this._closePlaceableInfoWindow?.(entry);
+  }
+
+  refreshContextWindows() {
+    return this._refreshContextWindows?.();
+  }
+
   /**
    * Gameplay-facing world explosion. Captures one atomic rollback point,
    * emits the bright presentation burst, then wakes and impulses nearby
@@ -1690,54 +1715,19 @@ export class ThreeRenderer {
    * incident back without touching the simulation save.
    */
   explodeWorld(position, options = {}) {
-    if (!this._worldPhysics?.ready || !position) return [];
-    // One-level incident undo is intentionally atomic. Starting another blast
-    // restores the complete prior incident before taking a fresh baseline.
-    if (this._physicsIncidentSnapshot) this.undoLastPhysicsIncident();
-    this._ensurePhysicsBodies();
-    this._physicsIncidentSnapshot = this._worldPhysics.captureSnapshot();
-    const radius = Math.max(0.1, Number(options.radius) || 7);
-    const strength = Math.max(0, Number(options.strength) || 90);
-    this.emitVisualEffect({
-      kind: 'burst', position,
-      color: options.color ?? 0xffb04a,
-      intensity: options.lightIntensity ?? Math.min(80, strength * 0.55),
-      durationMs: options.durationMs ?? 700,
-      radius: options.visualRadius ?? Math.max(0.35, radius * 0.08),
-      groundRadius: options.groundRadius ?? radius * 0.45,
-    });
-    const ragdolls = options.ragdolls === false
-      ? [] : (this._staffRagdolls?.ragdollNear(position, options.ragdollRadius ?? radius) || []);
-    const fractures = options.fracture === false
-      ? [] : (this._debrisSystem?.fractureNear(position, options.fractureRadius ?? radius) || []);
-    const impacts = this._worldPhysics.explode(position, { ...options, radius, strength });
-    impacts.ragdolls = ragdolls;
-    impacts.fractures = fractures;
-    return impacts;
+    return this._physicsPresentation.explode(
+      position,
+      options,
+      (descriptor) => this.emitVisualEffect(descriptor),
+    );
   }
 
   undoLastPhysicsIncident() {
-    if (!this._physicsIncidentSnapshot || !this._worldPhysics) return false;
-    this._staffRagdolls?.restoreAll();
-    this._debrisSystem?.restoreAll();
-    const restored = this._worldPhysics.restoreSnapshot(this._physicsIncidentSnapshot);
-    if (restored) {
-      this._physicsIncidentSnapshot = null;
-      // Once presentation state is restored, release authored fixed bodies.
-      // Normal construction then has no object colliders in Rapier at all.
-      for (const id of this._physicsWorldIds) this._worldPhysics.unregisterObject(id);
-      this._physicsWorldIds.clear();
-      this._physicsBodiesDirty = true;
-    }
-    return restored;
+    return this._physicsPresentation.undo();
   }
 
   getPhysicsStats() {
-    return {
-      ...(this._worldPhysics?.getStats?.() || { ready: false, bodies: 0, joints: 0 }),
-      ...(this._staffRagdolls?.getStats?.() || { ragdolls: 0, articulatedBodies: 0 }),
-      ...(this._debrisSystem?.getStats?.() || { fracturedObjects: 0, fragments: 0 }),
-    };
+    return this._physicsPresentation.stats();
   }
 
   /** No-op. Dipole bend direction is baked into the placed geometry; nothing
@@ -3782,7 +3772,7 @@ export class ThreeRenderer {
       );
       this._volumePool?.update(this._lightRig, this._darkness ?? 0, _dt);
     }
-    this._worldPhysics?.update(_dt);
+    this._physicsPresentation.update(_dt);
     this._glowPipeline.render();
     if (this._viewCube) this._viewCube.update();
     } catch (e) { console.error('[ThreeRenderer] animate error:', e); }
@@ -3834,18 +3824,19 @@ export class ThreeRenderer {
       this._localTimeOfDay = (this._localTimeOfDay + dt * perSecond) % 1;
     }
 
-    // timeOfDay: 0 = midnight, 0.5 = noon. Map to the sun's old angle
-    // convention (angle=0 was noon, angle=π was midnight) so orbit radius,
-    // elevation range and shadow-texel snapping below are unchanged.
+    const grade = dayNightGrade(this._localTimeOfDay);
+
+    // timeOfDay: 0 = midnight, 0.5 = noon. Dawn and dusk cross the real
+    // horizon at .25/.75, producing the long shadows the previous always-high
+    // orbit could never make.
     const sunAngle = (this._localTimeOfDay - 0.5) * 2 * Math.PI;
 
-    // Sun orbits in a circle: radius 50, height varies with angle
-    const R = 50;
+    const R = CINEMATIC_LIGHTING.sun.orbitRadius;
     const x = Math.cos(sunAngle) * R;
     const z = Math.sin(sunAngle) * R;
-    // Sun height: peaks at noon (angle=0), lowest at midnight (angle=π)
-    // Range from 10 (low sun / long shadows) to 50 (high noon)
-    const elevation = 30 + 20 * Math.cos(sunAngle);
+    const sunHeight = Math.max(0, grade.solarAltitude);
+    const elevation = CINEMATIC_LIGHTING.sun.minElevation
+      + sunHeight * (CINEMATIC_LIGHTING.sun.maxElevation - CINEMATIC_LIGHTING.sun.minElevation);
     // Offset sun position and shadow target to follow the camera center
     // Snap target in light-space to texel grid to prevent shadow swimming
     const cx = this._panX || 0;
@@ -3874,7 +3865,9 @@ export class ThreeRenderer {
     // same pan-tracked target the sun uses. No shadow-texel snapping needed;
     // it never casts shadows.
     const moonAngle = sunAngle + Math.PI;
-    const moonElevation = 30 + 20 * Math.cos(moonAngle);
+    const moonHeight = Math.max(0, -grade.solarAltitude);
+    const moonElevation = CINEMATIC_LIGHTING.sun.minElevation
+      + moonHeight * (CINEMATIC_LIGHTING.sun.maxElevation - CINEMATIC_LIGHTING.sun.minElevation);
     const mx = Math.cos(moonAngle) * R;
     const mz = Math.sin(moonAngle) * R;
     this._moonLight.position.set(mx + cx, moonElevation, mz + cz);
@@ -3885,7 +3878,6 @@ export class ThreeRenderer {
     // day, 1 = deep night) is published on the renderer for later tasks
     // (fixture emissive, light pools, real point lights) to read so they
     // ramp in lockstep with the sky.
-    const grade = dayNightGrade(this._localTimeOfDay);
     this._darkness = grade.darkness;
     this._lightingEffectTimeMs = this._localTimeOfDay * DAY_LENGTH_TICKS * 1000;
 
@@ -3903,8 +3895,13 @@ export class ThreeRenderer {
 
     this._ambientLight.intensity = grade.ambientIntensity;
     this._ambientLight.color.setRGB(...grade.ambientColor);
+    this._ambientLight.groundColor.setRGB(...grade.groundColor);
 
     this._moonLight.intensity = grade.moonIntensity;
+    this.renderer.toneMappingExposure = grade.exposure;
+    this.scene.background.setRGB(...grade.skyColor);
+    this.scene.fog.color.setRGB(...grade.fogColor);
+    this.scene.fog.density = grade.fogDensity;
 
     // Glow role (screens, indicator lamps): brighten as the sky darkens, but
     // never let them read as fully dark at noon — a lit console screen stays
@@ -3982,101 +3979,39 @@ export class ThreeRenderer {
   }
 
   _markPhysicsBodiesDirty() {
-    if (!this._worldPhysics?.ready) return;
-    // A construction edit can arrive while an incident is still active. Put
-    // every authored render object back at its captured transform before
-    // releasing the lazy colliders; otherwise a thrown prop could remain
-    // visually displaced even though canonical game state never moved it.
-    if (this._physicsIncidentSnapshot && this.undoLastPhysicsIncident()) return;
-    this._staffRagdolls?.restoreAll();
-    this._debrisSystem?.restoreAll();
-    this._physicsIncidentSnapshot = null;
-    for (const id of this._physicsWorldIds) this._worldPhysics.unregisterObject(id);
-    this._physicsWorldIds.clear();
-    this._physicsBodiesDirty = true;
+    this._physicsPresentation.markBodiesDirty();
   }
 
   _ensurePhysicsBodies() {
-    if (this._physicsBodiesDirty) this._syncPhysicsBodies();
+    this._physicsPresentation.ensureBodies();
   }
 
   /** Lazily build dormant rigid bodies from the current render snapshot. */
   _syncPhysicsBodies() {
-    if (!this._worldPhysics?.ready) return;
-    this._staffRagdolls?.restoreAll();
-    this._debrisSystem?.restoreAll();
-    this._physicsIncidentSnapshot = null;
-    for (const id of this._physicsWorldIds) this._worldPhysics.unregisterObject(id);
-    this._physicsWorldIds.clear();
-
-    const register = (object, id, kind, options = {}) => {
-      if (!object || !id) return;
-      try {
-        this._worldPhysics.registerObject(object, {
-          id, kind, active: false,
-          destructible: options.destructible !== false,
-          densityKgM3: options.densityKgM3,
-          massKg: options.massKg,
-          friction: options.friction,
-          restitution: options.restitution,
-        });
-        this._physicsWorldIds.add(id);
-      } catch (error) {
-        console.warn(`[Physics] Could not register ${id}.`, error);
-      }
-    };
-
-    for (const object of this.equipmentBuilder?._meshes || []) {
-      const data = object.userData || {};
-      register(object, `world:${data.physicsId}`, data.physicsKind || 'equipment', {
-        massKg: data.physicsMassKg,
-        densityKgM3: data.physicsDensityKgM3,
-      });
-    }
-    for (const [id, object] of this.componentBuilder?._meshMap || []) {
-      const def = PLACEABLES[object.userData?.compType];
-      register(object, `world:beamline:${id}`, 'beamline', {
-        restitution: 0.04,
-        massKg: def?.physicsMassKg,
-        densityKgM3: def?.physicsDensityKgM3,
-      });
-    }
-    for (const object of this.decorationBuilder?._groups || []) {
-      const id = object.userData?.nodeId;
-      const def = PLACEABLES[object.userData?.placeableType];
-      if (id != null) register(object, `world:decoration:${id}`, 'decoration', {
-        massKg: def?.physicsMassKg,
-        densityKgM3: def?.physicsDensityKgM3,
-      });
-    }
-
-    // Wall leaves are fixed collision geometry: they stop a blast from
-    // throwing equipment through the next room but are never themselves
-    // activated by the radial impulse.
-    let wallIndex = 0;
-    this.wallGroup?.traverse?.((object) => {
-      if (!object.isMesh || object.material?.visible === false) return;
-      register(object, `world:wall:${wallIndex++}`, 'concrete', {
-        destructible: false, friction: 0.85, restitution: 0.02,
-      });
-    });
-    this._syncPhysicsTerrain();
-    this._physicsBodiesDirty = false;
+    this._physicsPresentation.syncBodies();
   }
 
   _syncPhysicsTerrain() {
-    if (!this._worldPhysics?.ready) return;
-    try {
-      this._worldPhysics.setTerrainMesh(this._terrainMesh);
-    } catch (error) {
-      console.warn('[Physics] Could not rebuild the terrain collider.', error);
-    }
+    this._physicsPresentation.syncTerrain();
   }
 
   refresh() {
     const snapshot = buildWorldSnapshot(this.game);
     this.applySnapshot(snapshot);
     if (this.staffPawns) this.staffPawns.sync();
+  }
+
+  _refreshBeamlineWorld() {
+    // Beamline edits do not change terrain, rooms, furnishings, or
+    // decorations. Rebuild only the sections whose topology or endpoints can
+    // move instead of walking and hashing the entire world snapshot.
+    this._refreshComponents();
+    this._refreshBeamPipes();
+    this._refreshBeam();
+    this._refreshUtilityLinesV2();
+    this._refreshUnwiredSinkMarkers(true);
+    this._refreshPortFittings();
+    this._markPhysicsBodiesDirty();
   }
 
   _refreshTerrain() {
@@ -4512,10 +4447,13 @@ export class ThreeRenderer {
    */
   _updateLightingRamp() {
     const darkness = this._darkness ?? 0;
+    this._fixtureActivation.clear();
     for (const fx of this.lightingGroup) {
+      const activation = fixtureActivationFactor(fx.def, darkness, { indoors: fx.indoors });
+      if (fx.id != null) this._fixtureActivation.set(fx.id, activation);
       const mat = fx.group.userData.emitterMaterial;
       if (mat) {
-        mat.emissiveIntensity = emitterIntensityForDarkness(darkness)
+        mat.emissiveIntensity = emitterIntensityForDarkness(activation)
           * fixtureDynamicFactor(
             fx.def?.light?.dynamicProfile,
             fx.id,
@@ -4527,13 +4465,16 @@ export class ThreeRenderer {
     if (this.lightPoolGroup) {
       const suppression = this._lightRig ? this._lightRig.getFixtureSuppression() : null;
       for (const child of this.lightPoolGroup.children) {
-        if (child.material) child.material.opacity = poolOpacityForDarkness(darkness);
-        applyPoolSuppression(child, suppression);
+        if (child.material) child.material.opacity = poolOpacityForDarkness(1);
+        applyPoolSuppression(child, suppression, this._fixtureActivation);
       }
     }
     if (this.lightHaloGroup) {
       this.lightHaloGroup.traverse((child) => {
-        if (child.isSprite) child.material.opacity = haloOpacityForDarkness(darkness);
+        if (child.isSprite) {
+          const activation = this._fixtureActivation.get(child.userData.fixtureId) ?? darkness;
+          child.material.opacity = haloOpacityForDarkness(activation);
+        }
       });
     }
     // Window panes come up warm from the outside as night falls. The builder
@@ -5246,18 +5187,10 @@ export class ThreeRenderer {
     if (this.utilityLineBuilderV2 && this.utilityLineGroup) {
       this.utilityLineBuilderV2.dispose(this.utilityLineGroup);
     }
+    this._physicsPresentation.dispose();
     if (this.staffPawns) {
-      this._staffRagdolls?.dispose();
-      this._staffRagdolls = null;
       this.staffPawns.dispose();
       this.staffPawns = null;
-    }
-    if (this._worldPhysics) {
-      this._debrisSystem?.dispose();
-      this._debrisSystem = null;
-      this._worldPhysics.dispose();
-      this._worldPhysics = null;
-      this._physicsWorldIds.clear();
     }
     if (this._viewCube) {
       this._viewCube.dispose();

@@ -273,6 +273,16 @@ console.log('\n=== change detection: a no-op re-apply uploads nothing ===\n');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\n=== room activation and real-light suppression share the same alpha lane ===\n');
+{
+  const mesh = buildLightPools([fixture('A', RED), fixture('B', BLUE)]);
+  applyPoolSuppression(mesh, new Map([['A', 0.5]]), new Map([['A', 0.8], ['B', 0]]));
+  assert(alphaOf(mesh, 0) === Math.fround(0.8 * expectedAlpha(0.5)),
+    'an active room pool combines activation with real-light handoff');
+  assert(alphaOf(mesh, 1) === 0, 'an inactive outdoor pool is fully dark in daylight');
+}
+
+// ---------------------------------------------------------------------------
 console.log('\n=== clamping and degenerate inputs ===\n');
 {
   const mesh = buildLightPools([fixture('A', RED)]);

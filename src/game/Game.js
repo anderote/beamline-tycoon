@@ -758,6 +758,11 @@ export class Game {
     return result;
   }
 
+  /** Public transaction boundary for domain commands that emit several events. */
+  batchEvents(fn) {
+    return this._batchEvents(fn);
+  }
+
   log(msg, type = '') {
     this.state.log.unshift({ msg, type, tick: this.state.tick });
     if (this.state.log.length > 100) this.state.log.length = 100;
@@ -977,6 +982,11 @@ export class Game {
    */
   _withUndo(fn) {
     return this.commitGesture({ mutate: fn });
+  }
+
+  /** Public shorthand for an undoable domain command with no separate cost. */
+  runUndoableMutation(fn) {
+    return this._withUndo(fn);
   }
 
   undo() {
@@ -3504,6 +3514,11 @@ export class Game {
     // EFFECTS must see both, or no research lab can ever rise above tier 0 and
     // every lab item's declared `effects` is dead data.
     this.state.zoneItems = this.state.placeables.filter(p => !!ZONE_FURNISHINGS[p.type]);
+  }
+
+  /** Refresh derived compatibility views after an atomic placeable command. */
+  syncPlaceableViews() {
+    this._syncLegacyPlaceableState();
   }
 
   _getLegacyFurnishingSubgrids() {

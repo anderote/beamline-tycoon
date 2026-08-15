@@ -55,32 +55,51 @@ function sampleTerrainBrightness(col, row, blobs) {
   return Math.max(-1, Math.min(1, val));
 }
 
+// Occupancy changes frequently; terrain shape and brightness do not. Cache the
+// immutable base per live state so a floor/zone/placeable edit only filters
+// tiles instead of re-running every Gaussian and corner-height sample.
+const TERRAIN_BASE_CACHE = new WeakMap();
+
+function terrainBase(game) {
+  const state = game.state;
+  const range = grassRange(game);
+  const blobs = state.terrainBlobs || [];
+  const revision = state.cornerHeightsRevision | 0;
+  const prior = TERRAIN_BASE_CACHE.get(state);
+  if (prior && prior.range === range && prior.blobs === blobs && prior.revision === revision) {
+    return prior;
+  }
+  const tiles = [];
+  for (let col = -range; col <= range; col++) {
+    for (let row = -range; row <= range; row++) {
+      if (!inMapRegion(col, row, range)) continue;
+      tiles.push({
+        col, row,
+        hash: grassHash(col, row),
+        brightness: sampleTerrainBrightness(col, row, blobs),
+        cornersY: getTileCornersY(state, col, row),
+      });
+    }
+  }
+  const next = { range, blobs, revision, tiles, cliffs: null };
+  TERRAIN_BASE_CACHE.set(state, next);
+  return next;
+}
+
 // --- Section builders ---
 
 function buildTerrain(game) {
   const infraOccupied = game.state.infraOccupied || {};
   const zoneOccupied = game.state.zoneOccupied || {};
-  const blobs = game.state.terrainBlobs || [];
   const terrain = [];
-  const range = grassRange(game);
-
-  for (let col = -range; col <= range; col++) {
-    for (let row = -range; row <= range; row++) {
-      if (!inMapRegion(col, row, range)) continue;
-      const key = col + ',' + row;
-      // Grass-kind placements (grass/wildgrass/tallgrass) do NOT displace the
-      // default terrain mesh — they just tag the cell for per-kind tuft
-      // density. This keeps the brightness-blob vertex colouring continuous
-      // across placed grass patches so they blend with the surrounding map.
-      const occupant = infraOccupied[key];
-      if (occupant && !GRASS_SURFACE_KINDS.has(occupant)) continue;
-      if (zoneOccupied[key]) continue;
-
-      const hash = grassHash(col, row);
-      const brightness = sampleTerrainBrightness(col, row, blobs);
-      const cornersY = getTileCornersY(game.state, col, row);
-      terrain.push({ col, row, hash, brightness, cornersY });
-    }
+  for (const tile of terrainBase(game).tiles) {
+    // Grass-kind placements (grass/wildgrass/tallgrass) do NOT displace the
+    // default terrain mesh — they just tag the cell for per-kind tuft density.
+    const key = `${tile.col},${tile.row}`;
+    const occupant = infraOccupied[key];
+    if (occupant && !GRASS_SURFACE_KINDS.has(occupant)) continue;
+    if (zoneOccupied[key]) continue;
+    terrain.push(tile);
   }
 
   return terrain;
@@ -103,8 +122,10 @@ function buildTerrain(game) {
  */
 function buildCliffs(game) {
   const state = game.state;
+  const base = terrainBase(game);
+  if (base.cliffs) return base.cliffs;
   const cliffs = [];
-  const range = grassRange(game);
+  const range = base.range;
 
   for (let col = -range; col <= range; col++) {
     for (let row = -range; row <= range; row++) {
@@ -132,6 +153,7 @@ function buildCliffs(game) {
     }
   }
 
+  base.cliffs = cliffs;
   return cliffs;
 }
 
@@ -409,6 +431,14 @@ function buildDecorations(game) {
           faceOffset: wallFixtureFaceOffset(WALL_TYPES[wallType]),
         };
       }
+      const zoneOccupied = game.state.zoneOccupied || {};
+      const roomKeys = [`${d.col},${d.row}`];
+      if (d.wallMount) {
+        const edgeDelta = {
+          n: [0, -1], e: [1, 0], s: [0, 1], w: [-1, 0],
+        }[d.wallMount.edge];
+        if (edgeDelta) roomKeys.push(`${d.wallMount.col + edgeDelta[0]},${d.wallMount.row + edgeDelta[1]}`);
+      }
       return {
         // Placeable id, so the builder can key its groups and hover/demolish
         // lookups can resolve a decoration's mesh the way components do.
@@ -427,6 +457,7 @@ function buildDecorations(game) {
         tall: d.tall ?? false,
         placeY: d.placeY || 0,
         wallMount,
+        indoors: roomKeys.some((key) => !!zoneOccupied[key]),
         y,
       };
     });

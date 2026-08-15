@@ -50,8 +50,11 @@ assert(/\.palette-item\s*\{[^}]*height:\s*184px/s.test(css)
   'compact build cards and thumbnails fit the shorter bottom HUD');
 
 console.log('\n--- Navbar mute control ---');
-assert(html.includes('class="mp-btn mp-mute"') && html.includes('aria-label="Unmute music"'),
-  'music area exposes an accessible unmute button');
+assert(html.includes('class="mp-btn mp-mute active"') && html.includes('aria-label="Mute music"')
+    && html.includes('aria-pressed="false">🔊</button>'),
+  'music area starts visibly unmuted with an accessible mute action');
+assert(!musicSource.includes('this.audio.muted = true'),
+  'the real audio element keeps its browser-default unmuted state');
 
 const classes = new Set();
 const attrs = {};

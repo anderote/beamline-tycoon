@@ -48,7 +48,7 @@ console.log('\n--- Test 1: source components report correct supply ---');
     assert(rows[0]?.value === `${cap} kW`, `${id}: supplies ${cap} kW (got "${rows[0]?.value}")`);
   }
 
-  const COOLING = { lcwSkid: 100, chiller: 300, coolingTower: 800 };
+  const COOLING = { lcwSkid: 25, chiller: 300, coolingTower: 800 };
   for (const [id, cap] of Object.entries(COOLING)) {
     const rows = supplyRows(id);
     assert(rows.length === 1, `${id}: exactly one supply row`);
@@ -175,9 +175,9 @@ console.log('\n--- Test 7: palette metrics expose placement requirements ---');
     'SRF cavity: palette shows its cryogenic draw');
 
   const fanCoilTags = paletteUtilityTags(COMPONENTS.fanCoilCooler);
-  assert(fanCoilTags.some(tag => tag.text === 'P: -1 kW' && tag.direction === 'draw'),
-    'fan coil: compact palette tag shows its power draw');
-  assert(fanCoilTags.some(tag => tag.text === 'C: +20 kW' && tag.direction === 'supply'),
+  assert(!fanCoilTags.some(tag => tag.key === 'power' && tag.direction === 'draw'),
+    'passive fan coil has no invented power draw');
+  assert(fanCoilTags.some(tag => tag.text === 'C: +50 kW' && tag.direction === 'supply'),
     'fan coil: compact palette tag shows its cooling output');
 }
 

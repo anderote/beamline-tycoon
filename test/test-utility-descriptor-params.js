@@ -26,7 +26,11 @@ const DEM = 3;
 // Extra params some descriptors need before they aggregate at all. RF is the
 // asymmetric one: a sink declares the frequency it is cut for, a source
 // declares the bands it can produce, and capacity only counts if they meet.
-const EXTRA_SOURCE = { rfWaveguide: { bands: ['lband'] } };
+const EXTRA_SOURCE = {
+  rfWaveguide: { bands: ['lband'] },
+  // Staged cooling publishes usable capacity only for a complete plant.
+  coolingWater: { reservoir: true, heatRejectionCapacity: CAP },
+};
 const EXTRA_SINK = { rfWaveguide: { frequency: 1300e6 } };
 
 for (const type of UTILITY_TYPE_LIST) {
@@ -39,6 +43,12 @@ for (const type of UTILITY_TYPE_LIST) {
     `${type} declares capacity/demand param names (${capParam} / ${demParam})`);
 
   const srcParams = { ...(EXTRA_SOURCE[type] || {}), [capParam]: CAP };
+  // Cooling is staged: an integrated source needs reservoir, chilling, and
+  // rejection roles before its effective network capacity is non-zero.
+  if (type === 'coolingWater') {
+    srcParams.reservoir = true;
+    srcParams.heatRejectionCapacity = CAP;
+  }
   const sinkParams = { ...(EXTRA_SINK[type] || {}), [demParam]: DEM };
   const network = {
     id: `net_${type}_test`,

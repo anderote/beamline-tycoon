@@ -274,7 +274,7 @@ facility so today's playthrough-length target survives, per the spec's balance
 section. Under-provisioned facilities are expected to earn materially less —
 that is the intended outcome, not a regression.
 
-Re-run `scripts/balance-sim.mjs` and `scripts/balance-playthrough.mjs`. Confirm
+Re-run `scripts/balance-sim.mjs`. Confirm
 the three invariants in `test/test-economy-balance.js`. Update the `ECON`
 derivation comment to reflect the new basis — it is load-bearing documentation
 and must not be left describing the old model.

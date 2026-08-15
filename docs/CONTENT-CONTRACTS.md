@@ -1,0 +1,51 @@
+# Content contracts
+
+Use this checklist for placeables, utility definitions, research, scenarios, and
+stock designs. `docs/ARCHITECTURE.md` explains why the rules exist; this file is
+the short authoring contract.
+
+## Placeables
+
+- Author content in the appropriate `*.raw.js` registry. `PLACEABLES` in
+  `src/data/placeables/index.js` is the runtime authority; `COMPONENTS` and
+  `DECORATIONS` are compatibility views, not authoring surfaces.
+- Use a category declared by `src/data/modes.js`, an object-valued numeric
+  `cost`, and the normalized footprint fields expected by the registry.
+- A `requiredConnections` entry must have a matching sink in
+  `src/data/utility-ports-v2.js`.
+- If an item is research-gated, its gate and the research node's `unlocks` list
+  must name each other. `test/test-registry-integrity.js` and
+  `test/test-research-integrity.js` enforce the mirror.
+
+## Utility ports and scenarios
+
+- Read ports through `getUtilityPortsV2(id)` when solver defaults and derived RF
+  band information matter. The flat table is raw authoring data.
+- Port identity is `<placeableId>:<portName>`, but scenario scripts should call
+  `wireUtility` with capability selectors such as `{ id, role: 'sink' }` or
+  `{ id, role: 'pass', side: 'left' }`. Add `index` only when several otherwise
+  equivalent connectors must be distributed deterministically.
+- Use `{ id, port: 'authored_name' }` only when that exact connector is material
+  to the scenario. Renaming a connector should otherwise not break balance runs.
+- RF frequency bands live in `src/data/rf-bands.js`, a dependency-neutral data
+  module shared by port authoring and the RF solver descriptor.
+- Cooling supply displays use heat-rejection capacity when it is declared;
+  reservoir volume is inventory, not cooling power.
+
+## Scenario validity
+
+- A scripted build must check every placement and line result. Do not let a
+  rejected wire silently become a later economy or progression imbalance.
+- Separate networks that cannot physically bridge (notably RF and cryogenics)
+  instead of relying on adjacency.
+- Keep balance assertions about player outcomes and physical constraints. When
+  an authored topology changes, repair the topology before adjusting thresholds.
+- Run `npm run test:simulation` after scenario, staffing, utility, income,
+  upkeep, or resource changes that can affect operating balance.
+
+## Adding a new content field
+
+Update, as applicable: raw authoring data, validation, the normalized registry,
+world snapshots, the consuming system, UI formatting, serialization, and tests.
+If a renderer builder consumes it, include it in the relevant snapshot section
+so its content hash invalidates correctly.

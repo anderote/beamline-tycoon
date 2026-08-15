@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// scripts/run-tests.mjs — run every Node test in test/ plus the pytest suite.
+// scripts/run-tests.mjs — run the all, fast, or long-simulation test lane.
 //
 // Discovers test/*.js at the top level only. The browser-level suite lives in
 // test/browser/*.spec.mjs, needs a dev server plus headless Chromium, and runs
@@ -18,9 +18,27 @@ import path from 'node:path';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const testDir = path.join(root, 'test');
 
-const files = readdirSync(testDir)
+const laneFlag = process.argv.find(arg => arg.startsWith('--')) || '--all';
+const lane = laneFlag.slice(2);
+if (!['all', 'fast', 'simulation'].includes(lane)) {
+  console.error(`Unknown test lane: ${laneFlag}`);
+  console.error('Expected --all, --fast, or --simulation.');
+  process.exit(2);
+}
+
+const simulationSuites = new Set([
+  'test-economy-balance.js',
+]);
+
+const discoveredFiles = readdirSync(testDir)
   .filter(f => f.endsWith('.js') && !f.endsWith('.mjs'))
   .sort();
+
+const files = discoveredFiles.filter(file => {
+  if (lane === 'fast') return !simulationSuites.has(file);
+  if (lane === 'simulation') return simulationSuites.has(file);
+  return true;
+});
 
 const results = [];
 
@@ -41,10 +59,12 @@ for (const f of files) {
   run(`test/${f}`, 'node', [path.join('test', f)]);
 }
 
-run('pytest (test/*.py)', 'python3', ['-m', 'pytest', 'test/', '-q']);
+if (lane !== 'simulation') {
+  run('pytest (test/*.py)', 'python3', ['-m', 'pytest', 'test/', '-q']);
+}
 
 const failed = results.filter(r => !r.ok);
-console.log('\n=== Test Summary ===');
+console.log(`\n=== ${lane[0].toUpperCase()}${lane.slice(1)} Test Summary ===`);
 for (const r of results) console.log(`  ${r.ok ? 'PASS' : 'FAIL'}  ${r.name}`);
 console.log(`\n${results.length - failed.length}/${results.length} suites passed`);
 process.exit(failed.length > 0 ? 1 : 0);

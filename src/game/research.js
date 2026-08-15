@@ -130,8 +130,7 @@ export function _getFurnishingTier(zoneType, zoneItems) {
 // backlog, say) retroactively un-start research a player was already
 // mid-node on, or wall an entire research subtree behind a lab that's
 // rarely fully staffed at the exact instant startResearch happens to
-// check. Measured live in a 24-beamline playthrough
-// (scripts/balance-playthrough.mjs): 81% of an 80,000-tick run blocked on
+// check. A large-facility headless benchmark spent 81% of its ticks blocked on
 // lab tier, 31 research nodes never reachable, once commission work (also
 // new this task, and a higher board priority than labWork — 70 vs 40)
 // started competing with labWork for the same finite engineer pool.

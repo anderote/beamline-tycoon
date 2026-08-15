@@ -935,7 +935,7 @@ console.log('\n=== TP2 (fix round 3 ruling): a facility perpetually reassigning 
 {
   // Headless — no renderer, so nothing ever flips job.phase from 'travel'
   // to 'work' (StaffPawns.js's own job, per jobRunner.js's header comment)
-  // — exactly the shape of a real balance-playthrough script (this whole
+  // — exactly the shape of a long-running headless balance script (this whole
   // plan's own origin story: an 80,000-tick headless run that missed a
   // dead facility because nothing surfaced it). Round 2's window bug
   // (issue B, fixed this round) inflated the window to ~3,750 ticks off

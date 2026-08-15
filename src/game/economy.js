@@ -57,8 +57,7 @@ export const ECON = {
   //     indirectly, by the room it makes for more hardware. Long empty runs
   //     are a cost, which is what they should be.
   //
-  // Derivation of 240 against the 28,800-tick target (see
-  // scripts/balance-playthrough.mjs). The anchor is capital payback, because
+  // The anchor for 240 is capital payback, because
   // that is what ties income to the component catalogue rather than to itself:
   //   - the reference extra beamline costs $3.83M all in and carries 8 billed
   //     hardware nodes. All in means what the player is charged at the till:
@@ -68,9 +67,9 @@ export const ECON = {
   //     which is why the model may not quote the catalogue alone;
   //   - measured marginally in the sim, the plant a line obliges eats ~56% of
   //     the gross it earns, so net = 8 * P * 0.99 * 0.44 = 3.49 * P per tick;
-  //   - a line should pay itself back in about 1/6 of a full playthrough
-  //     (~4,600 ticks) — soon enough that expanding is obviously right, slow
-  //     enough that the first expansion is a real commitment of seed capital;
+  //   - a line should pay itself back in roughly 4,600 ticks — soon enough
+  //     that expanding is obviously right, slow enough that the first
+  //     expansion is a real commitment of seed capital;
   //   - P = 3,827,800 / (3.49 * 4,600) = 238.
   // Rounded to 240, which is where the compensating constant happened to land.
   // The number did not move; its justification did, and the research ladder is

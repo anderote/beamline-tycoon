@@ -25,7 +25,7 @@ export function activeShadowPrefixLength(lights, activeCount = lights.length) {
  *
  * Each SpotLight still has its own projection matrix and shadow sampling node,
  * but all nodes bind the same texture and select their layer. That turns N
- * texture/sampler bindings into one and makes 24 cached fixture shadows fit a
+ * texture/sampler bindings into one and makes 12 cached fixture shadows fit a
  * normal WebGPU pipeline layout. The array is refreshed as one multiview pass
  * at the scheduler cadence, then reused between refreshes.
  */
@@ -37,6 +37,14 @@ export class SharedSpotShadowArray {
     this.depthTexture = null;
     this.activeCount = lights.length;
     this._lastFrameId = -1;
+    // Three's WebGPU backend caches the color-attachment layer views from
+    // the first ArrayCamera render. That cache key does not include the
+    // number of sub-cameras, so a pass that grows from one live shadow layer
+    // to two otherwise reuses a one-view descriptor and throws while reading
+    // descriptor.colorAttachments[1]. Track the largest prefix the current
+    // target has rendered so updateBefore can invalidate that backend cache
+    // before the prefix grows.
+    this._renderLayerCapacity = 0;
     this._nodes = [];
 
     lights.forEach((light, layer) => {
@@ -80,6 +88,9 @@ export class SharedSpotShadowArray {
     this.mapSize = Math.max(128, Math.floor(size || 1024));
     if (this.shadowMap) {
       this.shadowMap.setSize(this.mapSize, this.mapSize, this.lights.length);
+      // setSize disposes the target when the dimensions change, which also
+      // discards the backend's cached layer views.
+      this._renderLayerCapacity = 0;
     }
     for (let i = 0; i < this.lights.length; i++) {
       this.lights[i].shadow.needsUpdate = i < this.activeCount;
@@ -134,6 +145,8 @@ export class SharedSpotShadowArray {
     const useVelocity = currentMRT ? currentMRT.has('velocity') : false;
     const referenceShadow = this.lights[0].shadow;
 
+    this._ensureRenderLayerCapacity(renderer, renderCount);
+
     _rendererState = resetRendererAndSceneState(renderer, scene, _rendererState);
     scene.overrideMaterial = getShadowMaterial(this.lights[0]);
     renderer.setRenderObjectFunction(
@@ -153,6 +166,20 @@ export class SharedSpotShadowArray {
     }
   }
 
+  /**
+   * Invalidate Three's WebGPU render-target descriptor cache before an array
+   * shadow pass grows beyond the number of layer views it first created.
+   * Disposing the target releases only GPU-side attachments; the RenderTarget
+   * and shared DepthTexture objects stay live and are rebuilt by the nested
+   * render below. Shrinking needs no reset because the cached prefix already
+   * contains every smaller layer view.
+   */
+  _ensureRenderLayerCapacity(renderer, renderCount) {
+    if (!renderer?.backend?.isWebGPUBackend || renderCount <= this._renderLayerCapacity) return;
+    if (this._renderLayerCapacity > 0) this.shadowMap?.dispose();
+    this._renderLayerCapacity = renderCount;
+  }
+
   dispose() {
     for (const light of this.lights) {
       light.shadow.shadowNode = null;
@@ -161,6 +188,7 @@ export class SharedSpotShadowArray {
     this.shadowMap?.dispose();
     this.shadowMap = null;
     this.depthTexture = null;
+    this._renderLayerCapacity = 0;
     this._nodes.length = 0;
   }
 }
