@@ -21,6 +21,7 @@ import { discoverNetworks, makeDefaultPortLookup } from '../src/utility/network-
 import { gridToIso } from '../src/renderer/grid.js';
 import { portWorldPosition } from '../src/utility/ports.js';
 import { findUtilityEndpoint } from '../src/utility/utility-endpoints.js';
+import { roundedCableTilePath } from '../src/utility/soft-cable.js';
 
 globalThis.COMPONENTS = COMPONENTS;
 globalThis.PARAM_DEFS = PARAM_DEFS;
@@ -117,7 +118,10 @@ function longestSegment(path) {
   return best;
 }
 
-const trunkMid = (trunk) => longestSegment(trunk.path).mid;
+const trunkMid = (trunk) => {
+  const visible = roundedCableTilePath(trunk.cablePath, trunk.utilityType);
+  return visible[Math.floor(visible.length / 2)];
+};
 
 console.log('\n--- 1. The cursor can grab a line, and ports still win ---');
 {

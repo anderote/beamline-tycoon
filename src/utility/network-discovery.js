@@ -18,7 +18,7 @@ import { COMPONENTS } from '../data/components.js';
 import { UTILITY_TYPES } from './registry.js';
 import { getPortSpec } from './ports.js';
 import { expandPath } from './line-geometry.js';
-import { sanitizeCablePath, usesFreeformTopology } from './soft-cable.js';
+import { roundedCableTilePath, usesFreeformTopology } from './soft-cable.js';
 import { listUtilityEndpoints } from './utility-endpoints.js';
 
 function portKey(ref) { return `${ref.placeableId}:${ref.portName}`; }
@@ -416,7 +416,7 @@ export function discoverNetworks(utilityType, lines, portLookup) {
       // clicked, not at an unrelated hidden Manhattan compatibility path.
       const topologyPath = usesFreeformTopology(utilityType)
         && Array.isArray(line.cablePath) && line.cablePath.length >= 2
-        ? sanitizeCablePath(line.cablePath)
+        ? roundedCableTilePath(line.cablePath, utilityType)
         : (line.path || []);
       const expanded = expandPath(topologyPath);
       for (let i = 0; i < expanded.length; i++) {

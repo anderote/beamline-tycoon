@@ -4,7 +4,9 @@ import {
   SOFT_CABLE_TYPES,
   FREEFORM_TOPOLOGY_TYPES,
   SOFT_CABLE_MAX_POINTS,
+  SOFT_CABLE_BEND_RADIUS_METERS,
   cablePathLengthSubUnits,
+  roundedCablePlanarPoints,
   sanitizeCablePath,
   softCableControlPoints,
 } from '../src/utility/soft-cable.js';
@@ -21,6 +23,29 @@ assert(FREEFORM_TOPOLOGY_TYPES.join(',') === 'coolingWater',
   'only cooling uses its visible freehand route as network topology');
 assert(SOFT_CABLE_MAX_POINTS === 1024,
   'detailed freehand runs retain up to 1024 samples');
+assert(SOFT_CABLE_BEND_RADIUS_METERS.powerCable
+    < SOFT_CABLE_BEND_RADIUS_METERS.coolingWater
+    && SOFT_CABLE_BEND_RADIUS_METERS.coolingWater
+      < SOFT_CABLE_BEND_RADIUS_METERS.hvCable,
+  'power bends tightest, cooling is intermediate, and HV bends broadest');
+
+const rightAngle = [
+  { x: 0, z: 0 },
+  { x: 4, z: 0 },
+  { x: 4, z: 4 },
+];
+const turnStarts = {};
+for (const [utilityType, radius] of Object.entries(SOFT_CABLE_BEND_RADIUS_METERS)) {
+  const rounded = roundedCablePlanarPoints(rightAngle, radius);
+  turnStarts[utilityType] = Math.max(...rounded.filter(point => Math.abs(point.z) < 1e-9)
+    .map(point => point.x));
+  assert(rounded[0].x === 0 && rounded[0].z === 0
+      && rounded[rounded.length - 1].x === 4 && rounded[rounded.length - 1].z === 4,
+    `${utilityType} rounding preserves both connection endpoints`);
+}
+assert(turnStarts.powerCable > turnStarts.coolingWater
+    && turnStarts.coolingWater > turnStarts.hvCable,
+  `larger bend radii begin turning sooner (${JSON.stringify(turnStarts)})`);
 
 const trace = sanitizeCablePath([
   { col: 0, row: 0 },
