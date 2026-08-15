@@ -24,6 +24,7 @@ read from this one config.
 from beam_physics.modules.linear_optics import LinearOpticsModule
 from beam_physics.modules.rf_acceleration import RFAccelerationModule
 from beam_physics.modules.synchrotron_rad import SynchrotronRadiationModule
+from beam_physics.modules.synchrotron_light import SynchrotronLightModule
 from beam_physics.modules.aperture_loss import ApertureLossModule
 from beam_physics.modules.collimation import CollimationModule
 from beam_physics.modules.space_charge import SpaceChargeModule
@@ -50,6 +51,7 @@ _RF_ACCELERATION = RFAccelerationModule()
 _SPACE_CHARGE = SpaceChargeModule()
 _BEAM_GAS = BeamGasModule()
 _SYNCHROTRON_RAD = SynchrotronRadiationModule()
+_SYNCHROTRON_LIGHT = SynchrotronLightModule()
 _COLLIMATION = CollimationModule()
 _APERTURE_LOSS = ApertureLossModule()
 _BUNCH_COMPRESSION = BunchCompressionModule()
@@ -118,8 +120,9 @@ _MACHINE_CONFIGS = {
         # the current is stored rather than fresh, and the light is incoherent
         # bend/undulator emission. Running FELGainModule here would report
         # saturation the machine physically cannot reach, and the FoM would pay
-        # for it. Light output arrives with the synchrotron_light module.
-        "modules": _sorted_modules(_TRANSPORT),
+        # for it. Light output arrives with the capability-gated
+        # synchrotron_light module below.
+        "modules": _sorted_modules(_TRANSPORT + [_SYNCHROTRON_LIGHT]),
         "tier": 3,
         "capabilities": frozenset({"sr_light"}),
         "success_metric": "photon_flux",

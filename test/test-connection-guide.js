@@ -2,6 +2,7 @@
 // shared palette refresh path used by mouse clicks, keyboard Tab, and restores.
 
 import * as THREE_REAL from 'three';
+import { readFileSync } from 'node:fs';
 
 class FakeTextureLoader {
   load() { return new THREE_REAL.Texture(); }
@@ -29,6 +30,7 @@ globalThis.document = {
 const { MODES } = await import('../src/data/modes.js');
 const { UIHost } = await import('../src/ui/UIHost.js');
 const { CONNECTION_GUIDES } = await import('../src/ui/hud.js');
+const connectionGuideCss = readFileSync(new URL('../style.css', import.meta.url), 'utf8');
 
 let passed = 0;
 let failed = 0;
@@ -61,7 +63,31 @@ for (const category of infraCategories) {
     guide?.links?.length === guide?.flow?.length - 1,
     `${category} has one link label between each pair of stages`,
   );
+  assert(
+    /^#[0-9a-f]{6}$/i.test(guide?.accent)
+      && guide.flow.every(stage => stage.kind && stage.icon),
+    `${category} gives its flow diagram a color and machine style`,
+  );
 }
+
+console.log('\n--- The schematic stays legible and connected ---\n');
+
+assert(
+  /\.connection-guide-flow\s*\{[^}]*min-height:\s*160px/s.test(connectionGuideCss),
+  'connection diagrams reserve a full-height drawing area',
+);
+assert(
+  /\.connection-guide-machine\s*\{[^}]*width:\s*68px[^}]*height:\s*62px/s.test(connectionGuideCss),
+  'machine drawings use the enlarged schematic footprint',
+);
+assert(
+  /\.connection-guide-track\s*\{[^}]*border-top:\s*3px dotted/s.test(connectionGuideCss),
+  'flow stages are joined by visible dotted connection tracks',
+);
+assert(
+  /\.connection-guide-link\s*\{[^}]*align-items:\s*flex-start/s.test(connectionGuideCss),
+  'connector labels stay compact instead of covering their dotted tracks',
+);
 
 console.log('\n--- A palette category change refreshes all category-bound UI ---\n');
 

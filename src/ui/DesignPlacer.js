@@ -33,8 +33,20 @@ function dirFromCompass(side) {
 function _entryPortName(compType) {
   const ports = COMPONENTS[compType]?.ports || {};
   if (ports.entry) return 'entry';
+  // Ring injection is the one three-port merger whose incoming linac port is
+  // named by function rather than with the generic entry prefix.
+  if (ports.linacEntry) return 'linacEntry';
   const named = Object.keys(ports).filter(k => k.startsWith('entry')).sort();
   return named[0] || 'entry';
+}
+
+/** The forward port a sequential design should leave through. */
+function _exitPortName(compType) {
+  const ports = COMPONENTS[compType]?.ports || {};
+  if (ports.exit) return 'exit';
+  if (ports.ringExit) return 'ringExit';
+  const named = Object.keys(ports).filter(k => /exit/i.test(k)).sort();
+  return named[0] || 'exit';
 }
 
 /**
@@ -60,7 +72,7 @@ function junctionDirForTravel(travelDir) {
  * fixing the entry side fixes the rotation.
  */
 function exitTravelDir(type, dir, fallback) {
-  const side = portSide({ type, dir }, 'exit');
+  const side = portSide({ type, dir }, _exitPortName(type));
   const d = side ? dirFromCompass(side) : null;
   return d === null ? fallback : d;
 }
@@ -506,7 +518,7 @@ export class DesignPlacer {
       }
 
       prevModuleId = placeableId;
-      prevModuleExitPort = 'exit';
+      prevModuleExitPort = _exitPortName(item.type);
 
       // Outgoing direction = where this module's exit port actually points at
       // the rotation it was placed at. Mirrors _recompute.

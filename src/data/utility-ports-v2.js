@@ -147,7 +147,7 @@ const BEAMLINE_UTILITY_PORTS = {
   // extracted beam against ~140 kW at the wall — RF, main coil, and the
   // fraction of the internal beam that never makes it to the stripper all
   // end up in the loop. One padMountTransformer (150 kW) is exactly enough
-  // and one lcwSkid (100 kW) is exactly not.
+  // and one lcwSkid (25 kW) is exactly not.
   cyclotron30: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 140 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 115 } },
@@ -157,6 +157,14 @@ const BEAMLINE_UTILITY_PORTS = {
   cyclotron70: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 380 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 310 } },
+  },
+  // RFQ + low-beta SRF front end delivered as one commissioned tunnel sector.
+  // Unlike a cyclotron it exposes both RF and cryogenic plant to the player.
+  protonLinacFrontEnd: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.15, role: 'sink', params: { demand: 600 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.35, role: 'sink', params: { heatLoad: 420 } },
+    cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.62, role: 'sink', params: { srfHeatW: 500 } },
+    rf_in:   { utility: 'rfWaveguide',  side: 'left',  offsetAlong: 0.82, role: 'sink', params: { demand: 80 } },
   },
   // The extreme case of "a cyclotron is a water heater that occasionally emits
   // protons", and the one machine where the joke is arithmetic: 230 MeV at the
@@ -671,9 +679,10 @@ for (const [id, comp] of Object.entries(BEAMLINE_COMPONENTS_RAW)) {
 //                   → pulsedKlystron 50 @S/C / cwKlystron 50 @UHF/L
 //                   → IOT 80 @UHF/L → MBK 200 @S/C → highPowerSSA 300
 //                   @VHF/UHF/L → gyrotron 1000 @C/X
-//   cooling (kW):   fanCoilCooler 20 → packageChiller 50 → lcwSkid 100
-//                   → dualCircuitChiller 175 → chiller 300
-//                   → dryCoolerBank 500 → coolingTower 800
+//   process cooling (kW): packageChiller 5 → lcwSkid 25
+//                         → dualCircuitChiller 175 → chiller 300
+//   heat rejection (kW): fanCoilCooler 50 → dryCoolerBank 500
+//                        → coolingTower 800
 //   cryo    (W):    coldBox4K 500 → coldBox2K 800
 //   vacuum  (L/s):  roughing 15 → turbo 300 → tiSub 400 → NEG 500 → ion 600
 //   data    (Gbps): patchPanel 2 → timing 5 → rackIoc 10 → archiver 20
@@ -903,11 +912,11 @@ function coolingPlantPorts(params, names = [
 }
 
 function heatRejectorPorts(heatRejectionCapacity, side = 'right') {
-  // Preserve the cooling source fallback's historical 100 kW contribution as
-  // one device total. Without an explicit split, each new socket would inherit
-  // 100 kW independently and adding the second fitting would change gameplay.
+  // A rejector does not create chilled water; it only disposes of heat moved
+  // by a chiller. Declare capacity:0 explicitly so the generic source fallback
+  // cannot make a tower satisfy both plant roles by itself.
   const params = {
-    capacity: SOURCE_DEFAULTS.coolingWater.capacity / 2,
+    capacity: 0,
     heatRejectionCapacity: heatRejectionCapacity / 2,
   };
   return {
@@ -1006,10 +1015,10 @@ const INFRA_UTILITY_PORTS = {
   // → 3100 → 2500), so a bigger plant is always the better deal once you can
   // afford one. The 175 and 500 kW rungs exist so growing past a skid or a
   // chiller does not mean buying 3x the capacity you actually need.
-  // Explicitly split the generic cooling-source fallback too; otherwise six
-  // reservoir sockets would each inherit 100 kW and inflate the old total 6x.
+  // A reservoir stores water but does not chill it. Explicit zero prevents the
+  // generic source fallback from turning the tank into a phantom chiller.
   waterTank:             coolingPlantPorts({
-    reservoir: true, capacity: SOURCE_DEFAULTS.coolingWater.capacity,
+    reservoir: true, capacity: 0,
   }),
   // These authored faces follow the visible pipe pairs on each model.
   fanCoilCooler:         heatRejectorPorts(50, 'back'),

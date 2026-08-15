@@ -251,7 +251,10 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   // A turbo is not a stand-alone atmosphere-to-high-vacuum source. Keep the
   // portable roughing stage on the same header so this scripted facility uses
   // the same staged pump-down rules as a player build.
-  const rp   = place('roughingPump', 0, 16);
+  // Put the backing pump east of the manifold it joins. Vacuum remains a
+  // physical rigid service, so approaching the manifold's right-hand fitting
+  // from the open east aisle avoids crossing the turbo pump's left-hand feed.
+  const rp   = place('roughingPump', 8, 8);
   const ioc2 = place('rackIoc', 1, 8);
   const nsw  = place('networkSwitch', 2, 8);
   const ch1  = place('chiller', 3, 8);

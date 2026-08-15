@@ -72,6 +72,11 @@ const MACHINES = [
     anchor: 'ARRONAX / IBA Cyclone 70, 70 MeV, 2 x 375 uA',
   },
   {
+    id: 'protonLinacFrontEnd', species: 'proton', energyBand: [0.17, 0.19],
+    gate: 'cwLinacDesign', standalone: false,
+    anchor: 'PIP-II / ESS low-beta front end, 180 MeV handoff',
+  },
+  {
     id: 'cyclotron230', species: 'proton', energyBand: [0.225, 0.250],
     gate: 'isochronousCyclotron', standalone: true,
     anchor: 'IBA Cyclone 230 / Varian ProBeam, 230 MeV fixed, ~1 uA',
@@ -163,7 +168,7 @@ console.log('\n--- the roster is a monotonic energy ladder ---');
             - BEAMLINE_COMPONENTS_RAW[b.id].extractionEnergy);
   const order = sorted.map(m => m.id).join(' < ');
   assert(order === 'cockcroftWalton < vanDeGraaff < cyclotron30 < cyclotron70 '
-                 + '< positronSource < cyclotron230 < lwfaStation',
+                 + '< protonLinacFrontEnd < positronSource < cyclotron230 < lwfaStation',
     `energy ordering is the designed one: ${order}`);
 }
 

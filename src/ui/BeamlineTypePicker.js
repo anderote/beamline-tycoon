@@ -243,6 +243,151 @@ export function missingResearchNames(typeId, researchState) {
     .map(id => RESEARCH[id]?.name || id);
 }
 
+function completedResearchSet(researchState) {
+  if (!researchState) return new Set();
+  if (researchState instanceof Set) return researchState;
+  if (Array.isArray(researchState)) return new Set(researchState);
+  return new Set(researchState.completedResearch || []);
+}
+
+function researchRequirements(id) {
+  const req = RESEARCH[id]?.requires;
+  return !req ? [] : (Array.isArray(req) ? req : [req]);
+}
+
+/**
+ * Prerequisite-first research path for arbitrary root nodes.
+ *
+ * Direct type gates are not a useful answer by themselves: saying a future
+ * proton machine "needs Proton Acceleration" hides Cyclotron Technology, the
+ * step the player can actually start today. Walking the DAG here makes the
+ * picker an actionable roadmap rather than a list of locked nouns.
+ */
+function researchPathForRoots(rootIds, researchState) {
+  const done = completedResearchSet(researchState);
+  const visiting = new Set();
+  const emitted = new Set();
+  const path = [];
+
+  const visit = (id) => {
+    if (!id || done.has(id) || emitted.has(id) || visiting.has(id)) return;
+    visiting.add(id);
+    for (const req of researchRequirements(id)) visit(req);
+    visiting.delete(id);
+    const node = RESEARCH[id];
+    // Hidden compatibility nodes cannot be started in the research UI. Their
+    // live prerequisites still belong in the path; the hidden alias does not.
+    if (node?.hidden) return;
+    emitted.add(id);
+    path.push({ id, name: node?.name || id, category: node?.category || null });
+  };
+
+  for (const id of rootIds || []) visit(id);
+  return path;
+}
+
+/** All remaining research, including transitive prerequisites, for a family. */
+export function researchUnlockPath(typeId, researchState) {
+  const type = getBeamlineType(typeId);
+  if (!type?.requires) return [];
+  const roots = Array.isArray(type.requires) ? type.requires : [type.requires];
+  return researchPathForRoots(roots, researchState);
+}
+
+/** Remaining component research before a particular stock design is honest. */
+export function designUnlockPath(design, researchState) {
+  const roots = [];
+  for (const part of design?.components || []) {
+    const req = COMPONENTS[part.type]?.requires;
+    if (Array.isArray(req)) roots.push(...req);
+    else if (req) roots.push(req);
+  }
+  return researchPathForRoots(roots, researchState);
+}
+
+/**
+ * Whole-roster progress plus the nearest locked family. Pure so tests and
+ * future research screens can use the same definition as the picker.
+ */
+export function machineResearchProgress(researchState, typeIds = null) {
+  const wanted = typeIds ? new Set(typeIds) : null;
+  const items = Object.values(BEAMLINE_TYPES)
+    .filter(type => !wanted || wanted.has(type.id))
+    .map((type) => {
+      const remaining = researchUnlockPath(type.id, researchState);
+      const fullPath = researchUnlockPath(type.id, { completedResearch: [] });
+      return {
+        type,
+        unlocked: beamlineTypeUnlocked(type, researchState),
+        remaining,
+        completedSteps: Math.max(0, fullPath.length - remaining.length),
+        totalSteps: fullPath.length,
+        active: !!researchState?.activeResearch
+          && remaining.some(node => node.id === researchState.activeResearch),
+      };
+    });
+
+  const locked = items.filter(item => !item.unlocked);
+  const frontier = [...locked].sort((a, b) => (
+    Number(b.active) - Number(a.active)
+    || a.remaining.length - b.remaining.length
+    || a.type.tier - b.type.tier
+  ))[0] || null;
+
+  return {
+    items,
+    unlockedCount: items.length - locked.length,
+    totalCount: items.length,
+    frontier,
+  };
+}
+
+function compactPath(path, max = 3) {
+  if (!path.length) return '';
+  const shown = path.slice(0, max).map(node => node.name).join(' → ');
+  return path.length > max ? `${shown} → +${path.length - max} more` : shown;
+}
+
+function machineRoadmapHtml(progress) {
+  const byTier = new Map();
+  for (const item of progress.items) {
+    if (!byTier.has(item.type.tier)) byTier.set(item.type.tier, []);
+    byTier.get(item.type.tier).push(item);
+  }
+
+  let html = '<section class="bltype-roadmap">';
+  html += '<div class="bltype-roadmap-head">';
+  html += '<span>Machine research</span>';
+  html += `<strong>${progress.unlockedCount} / ${progress.totalCount} families available</strong>`;
+  html += '</div><div class="bltype-roadmap-tiers">';
+  for (const [tier, items] of [...byTier.entries()].sort((a, b) => a[0] - b[0])) {
+    html += '<div class="bltype-roadmap-tier">';
+    html += `<span class="bltype-roadmap-label">T${tier}</span>`;
+    html += '<div class="bltype-roadmap-items">';
+    for (const item of items) {
+      const cls = item.unlocked ? ' ready' : (item.active ? ' active' : '');
+      const title = item.unlocked
+        ? 'Available now'
+        : item.remaining.map(node => node.name).join(' → ');
+      const suffix = item.unlocked ? '✓' : `${item.remaining.length}`;
+      html += `<span class="bltype-roadmap-item${cls}" title="${esc(title)}">`;
+      html += `${esc(item.type.name)} <b>${suffix}</b></span>`;
+    }
+    html += '</div></div>';
+  }
+  html += '</div>';
+
+  if (progress.frontier) {
+    const lead = progress.frontier.active ? 'Research in progress' : 'Next reachable family';
+    html += '<div class="bltype-frontier">';
+    html += `<span>${lead}</span><strong>${esc(progress.frontier.type.name)}</strong>`;
+    html += `<small>${esc(compactPath(progress.frontier.remaining, 5))}</small>`;
+    html += '</div>';
+  }
+  html += '</section>';
+  return html;
+}
+
 /**
  * The blueprint gallery for one type: its stock designs in tier order, plus the
  * Custom entry that is what this picker did before blueprints existed.
@@ -251,7 +396,7 @@ export function missingResearchNames(typeId, researchState) {
  * nobody has authored blueprints for yet — which is most of them today — and
  * it stays there once they have, because building it yourself is the game.
  */
-function blueprintPanelHtml(type, selectedDesignId) {
+function blueprintPanelHtml(type, selectedDesignId, researchState) {
   if (!type) {
     return '<div class="blueprint-empty">Pick a machine type to see the beamlines it ships with.</div>';
   }
@@ -263,10 +408,12 @@ function blueprintPanelHtml(type, selectedDesignId) {
 
   for (const d of designs) {
     const sel = selectedDesignId === d.id ? ' selected' : '';
+    const unlockPath = designUnlockPath(d, researchState);
+    const locked = unlockPath.length ? ' locked' : '';
     const cost = stockDesignCost(d);
     const perf = formatMeasuredPerformance(d.id);
 
-    html += `<div class="blueprint-card${sel}" data-design-id="${esc(d.id)}">`;
+    html += `<div class="blueprint-card${sel}${locked}" data-design-id="${esc(d.id)}">`;
     html += '<div class="blueprint-head">';
     html += `<span class="blueprint-name">${esc(d.name)}</span>`;
     html += `<span class="bltype-tier">T${d.tier}</span>`;
@@ -279,6 +426,10 @@ function blueprintPanelHtml(type, selectedDesignId) {
     if (perf) {
       html += `<div class="blueprint-measured" title="${esc(MEASURED_CAVEAT)}">`
         + `◈ ${esc(perf)}</div>`;
+    }
+    if (unlockPath.length) {
+      html += `<div class="blueprint-lock" title="${esc(unlockPath.map(n => n.name).join(' → '))}">`
+        + `🔒 Upgrade path (${unlockPath.length}): ${esc(compactPath(unlockPath))}</div>`;
     }
     html += `<div class="bltype-blurb">${esc(d.blurb)}</div>`;
     html += '</div>';
@@ -338,7 +489,9 @@ export function openBeamlineTypePicker(game, {
   let selectedDesignId = showBlueprints ? defaultDesignFor(selected) : '';
 
   function defaultDesignFor(typeId) {
-    return showBlueprints && typeId ? (stockDesignsFor(typeId)[0]?.id || '') : '';
+    if (!showBlueprints || !typeId) return '';
+    return stockDesignsFor(typeId)
+      .find(design => designUnlockPath(design, game.state).length === 0)?.id || '';
   }
 
   function render(container) {
@@ -347,11 +500,13 @@ export function openBeamlineTypePicker(game, {
     // list you just asked for scrolls away from you as it appears.
     const scroll = container.scrollTop;
     const types = Object.values(BEAMLINE_TYPES).filter(t => sourceCompatible(t.id));
-    let html = '<div class="bltype-grid">';
+    const progress = machineResearchProgress(game.state, types.map(t => t.id));
+    let html = machineRoadmapHtml(progress);
+    html += '<div class="bltype-grid">';
 
     for (const t of types) {
       const unlocked = beamlineTypeUnlocked(t, game.state);
-      const missing = unlocked ? [] : missingResearchNames(t.id, game.state);
+      const unlockPath = unlocked ? [] : researchUnlockPath(t.id, game.state);
       const accent = hex(t.accentColor);
       const cls = ['bltype-card'];
       if (!unlocked) cls.push('locked');
@@ -372,14 +527,20 @@ export function openBeamlineTypePicker(game, {
       html += '</div>';
       html += `<div class="bltype-blurb">${esc(t.blurb)}</div>`;
       if (!unlocked) {
-        html += `<div class="bltype-lock">🔒 Needs ${esc(missing.join(' + ')) || 'research'}</div>`;
+        const fullPath = unlockPath.map(node => node.name).join(' → ');
+        html += `<div class="bltype-lock" title="${esc(fullPath)}">`
+          + `🔒 Unlock path (${unlockPath.length}): ${esc(compactPath(unlockPath)) || 'research'}</div>`;
       }
       html += '</div>';
     }
 
     html += '</div>';
     if (showBlueprints) {
-      html += blueprintPanelHtml(selected ? getBeamlineType(selected) : null, selectedDesignId);
+      html += blueprintPanelHtml(
+        selected ? getBeamlineType(selected) : null,
+        selectedDesignId,
+        game.state,
+      );
     } else {
       html += '<div class="bltype-source-note">The choice sets target bands, '
         + 'recommended hardware and the Designer’s mission plots. No hardware is added yet.</div>';
@@ -411,6 +572,7 @@ export function openBeamlineTypePicker(game, {
     });
 
     container.querySelectorAll('.blueprint-card').forEach(card => {
+      if (card.classList.contains('locked')) return;
       card.addEventListener('click', () => {
         const id = card.dataset.designId || '';
         if (id === selectedDesignId) return;   // see the type-card click above
@@ -438,7 +600,8 @@ export function openBeamlineTypePicker(game, {
     // the selected type on every render so the two cannot drift, but the id is
     // the thing that leaves this module, so it is checked where it is used.
     const picked = selectedDesignId ? getStockDesign(selectedDesignId) : null;
-    const design = picked && picked.typeId === type.id ? picked : null;
+    const design = picked && picked.typeId === type.id
+      && designUnlockPath(picked, game.state).length === 0 ? picked : null;
 
     if (onConfirm) onConfirm(type.id, design);
     game.log?.(
@@ -452,7 +615,9 @@ export function openBeamlineTypePicker(game, {
 
   function syncActions() {
     const type = selected ? getBeamlineType(selected) : null;
-    const design = type && selectedDesignId ? getStockDesign(selectedDesignId) : null;
+    const picked = type && selectedDesignId ? getStockDesign(selectedDesignId) : null;
+    const design = picked && designUnlockPath(picked, game.state).length === 0
+      ? picked : null;
     const label = !type
       ? 'Select a type'
       : (design && design.typeId === type.id ? `Build ${design.name}` : `Build ${type.name}`);

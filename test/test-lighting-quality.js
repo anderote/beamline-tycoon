@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  LIGHTING_QUALITY_PRESETS, MAX_FIXTURE_LIGHTS, MAX_FIXTURE_SHADOWS, fixtureShadowTopologyLimit,
+  LIGHTING_QUALITY_PRESETS, MAX_FIXTURE_LIGHTS, MAX_FIXTURE_SHADOWS,
+  MAX_SHADOW_TEXTURE_BUDGET_BYTES, estimateShadowTextureBytes, fixtureShadowTopologyLimit,
   normalizeLightingQuality, resolveLightingQuality,
 } from '../src/renderer3d/lighting-quality.js';
 import { ShadowScheduler } from '../src/renderer3d/shadow-scheduler.js';
@@ -10,7 +11,7 @@ import { fixtureDynamicFactor } from '../src/renderer3d/light-dynamics.js';
 
 test('lighting presets are immutable, bounded, and normalize unknown values to auto', () => {
   assert.equal(MAX_FIXTURE_LIGHTS, 64);
-  assert.equal(MAX_FIXTURE_SHADOWS, 24);
+  assert.equal(MAX_FIXTURE_SHADOWS, 12);
   assert.equal(Object.isFrozen(LIGHTING_QUALITY_PRESETS), true);
   assert.equal(Object.isFrozen(LIGHTING_QUALITY_PRESETS.high), true);
   assert.equal(normalizeLightingQuality('ULTRA'), 'ultra');
@@ -21,10 +22,20 @@ test('lighting presets are immutable, bounded, and normalize unknown values to a
   assert.ok(resolveLightingQuality('high').fixtureLightCount
     > resolveLightingQuality('high').fixtureShadowCount);
   assert.equal(resolveLightingQuality('high').fixtureShadowUpdatesPerFrame, 2);
-  assert.equal(resolveLightingQuality('ultra').fixtureShadowMapSize, 1024);
+  assert.equal(resolveLightingQuality('ultra').fixtureShadowMapSize, 768);
+  assert.equal(resolveLightingQuality('ultra').sunShadowMapSize, 2048);
   assert.equal(resolveLightingQuality('low').contactAOStrength, 0);
   assert.ok(resolveLightingQuality('high').contactAOSamples > resolveLightingQuality('medium').contactAOSamples);
   assert.ok(resolveLightingQuality('ultra').contactAOScale <= 1);
+});
+
+test('every lighting preset stays inside the persistent shadow texture budget', () => {
+  for (const quality of Object.values(LIGHTING_QUALITY_PRESETS)) {
+    assert.ok(
+      estimateShadowTextureBytes(quality) <= MAX_SHADOW_TEXTURE_BUDGET_BYTES,
+      `${quality.name} shadow textures exceed the 64 MiB startup budget`,
+    );
+  }
 });
 
 test('auto lighting quality uses conservative capability thresholds', () => {
@@ -38,8 +49,8 @@ test('auto lighting quality uses conservative capability thresholds', () => {
 test('fixture shadow topology stays inside the fragment texture-unit budget', () => {
   assert.equal(fixtureShadowTopologyLimit(16), 5,
     'a common 16-unit GPU retains five units for material textures');
-  assert.equal(fixtureShadowTopologyLimit(32), 13,
-    'legacy WebGL retains its material reserve even on a 32-unit GPU');
+  assert.equal(fixtureShadowTopologyLimit(32), MAX_FIXTURE_SHADOWS,
+    'the global shadow-memory cap wins once the sampler budget is sufficient');
   assert.equal(fixtureShadowTopologyLimit(64), MAX_FIXTURE_SHADOWS,
     'a sufficiently large legacy sampler budget can allocate the full pool');
   assert.equal(fixtureShadowTopologyLimit(8), 1,

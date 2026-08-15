@@ -9,7 +9,9 @@ so neither can drift back.
 """
 import pytest
 
-from beam_physics.gameplay import black_hole_yield
+from beam_physics.gameplay import (
+    black_hole_yield, physics_to_game, stored_ring_current,
+)
 from beam_physics.lattice import propagate
 from beam_physics.machines import (
     CAPABILITIES, MACHINE_TYPES, _MACHINE_CONFIGS,
@@ -18,6 +20,7 @@ from beam_physics.machines import (
 from beam_physics.modules.beam_beam import BeamBeamModule
 from beam_physics.modules.bunch_compression import BunchCompressionModule
 from beam_physics.modules.fel_gain import FELGainModule
+from beam_physics.modules.synchrotron_light import SynchrotronLightModule
 
 # The ten game beamline types. Ids must match BEAMLINE_TYPES on the JS side —
 # the machineType a beamline stores is looked up here verbatim.
@@ -41,6 +44,7 @@ CAPABILITY_MODULE = {
     "fel": FELGainModule,
     "beam_beam": BeamBeamModule,
     "bunch_compression": BunchCompressionModule,
+    "sr_light": SynchrotronLightModule,
 }
 
 
@@ -234,6 +238,37 @@ def test_only_capable_types_emit_beam_beam_reports(machine_type):
     result = propagate(_minimal_beamline(), machine_type=machine_type)
     emitted = any(r.module == "beam_beam" for r in result["reports"])
     assert emitted == machine_has_capability(machine_type, "beam_beam")
+
+
+@pytest.mark.parametrize("machine_type", ALL_TYPES)
+def test_only_light_source_emits_synchrotron_light_reports(machine_type):
+    result = propagate(_minimal_beamline(), machine_type=machine_type)
+    emitted = any(r.module == "synchrotron_light" for r in result["reports"])
+    assert emitted == machine_has_capability(machine_type, "sr_light")
+
+
+def test_storage_ring_fill_requires_injection_hardware_and_caps_current():
+    assert stored_ring_current(50.0, ring_ready=True) == 250.0
+    assert stored_ring_current(200.0, ring_ready=True) == 500.0
+    assert stored_ring_current(50.0, ring_ready=False) == 0.0
+    assert stored_ring_current(None, ring_ready=True) == 0.0
+
+
+def test_light_source_reports_stored_current_and_incoherent_flux():
+    elements = _minimal_beamline()
+    # Record current after RF capture at the injection septum, and provide both
+    # pieces of real ring-injection hardware to physics_to_game.
+    elements[6]["game_type"] = "injectionSeptum"
+    elements[7]["game_type"] = "fastKicker"
+    physics = propagate(elements, machine_type="lightSource")
+    game = physics_to_game(
+        physics, {"machineType": "lightSource"}, elements)
+
+    injected = physics["summary"]["ring_injection_current"]
+    assert injected > 0
+    assert game["beamCurrent"] == stored_ring_current(injected)
+    assert game["photonRate"] > 0
+    assert game["singlePassLossFraction"] >= game["totalLossFraction"]
 
 
 # --- The tier-6 success metric -------------------------------------------

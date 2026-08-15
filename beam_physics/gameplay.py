@@ -127,6 +127,21 @@ EXTRA_DIMENSIONS = 6
 # (hbar c)^2 = 0.3894 mb GeV^2, and 1 mb = 1e-27 cm^2.
 GEV_MINUS_2_TO_CM2 = 3.894e-28
 
+# A stored beam is filled over repeated injection cycles. Five is deliberately
+# conservative: it turns a healthy 40-60 mA injector into a 200-300 mA ring,
+# while the machine-type specification caps the useful operating range at
+# 500 mA. This is a game-timescale fill abstraction, not turn-by-turn tracking.
+STORAGE_RING_ACCUMULATION_FACTOR = 5.0
+STORAGE_RING_CURRENT_CAP_MA = 500.0
+
+
+def stored_ring_current(injected_current_ma, ring_ready=True):
+    """Stored current after a conservative multi-cycle fill, in mA."""
+    if not ring_ready or injected_current_ma is None or injected_current_ma <= 0:
+        return 0.0
+    return min(STORAGE_RING_CURRENT_CAP_MA,
+               injected_current_ma * STORAGE_RING_ACCUMULATION_FACTOR)
+
 
 def black_hole_yield(beam_energy_gev, luminosity_cm2_s,
                      planck_scale_gev=PLANCK_SCALE_GEV,
@@ -467,6 +482,7 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
     effects = research_effects or {}
     elements = elements or []
     summary = physics_result["summary"]
+    machine_config = get_machine_config(effects.get("machineType"))
 
     lumi_mult = effects.get("luminosityMult", 1.0)
     data_mult = effects.get("dataRateMult", 1.0)
@@ -540,8 +556,32 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
     if data_rate > 0 and data_rate < 0.1:
         data_rate = 0.1
 
-    # Photon rate from undulators: scales with current, quality, and photon science research
-    photon_rate_val = summary["photon_rate"] * quality * current_frac * photon_flux_mult
+    # A ring accumulates several injector shots before serving users. Demand
+    # both halves of real ring injection; merely choosing the machine type does
+    # not multiply a straight linac's current.
+    game_types = {el.get("game_type", el.get("type")) for el in elements}
+    ring_ready = {"injectionSeptum", "fastKicker"} <= game_types
+    injected_ring_current = summary.get("ring_injection_current")
+    stored_current = stored_ring_current(injected_ring_current, ring_ready)
+    is_storage_ring = machine_config["success_metric"] == "photon_flux"
+    current_scale = 1.0
+    if is_storage_ring and stored_current > 0 and injected_ring_current > 0:
+        current_scale = stored_current / injected_ring_current
+
+    # Incoherent bend/undulator flux scales with the number of stored
+    # electrons, beam quality, and photon-science research.
+    photon_survival = 1.0 if is_storage_ring else current_frac
+    photon_rate_val = (summary["photon_rate"] * current_scale
+                       * quality * photon_survival * photon_flux_mult)
+
+    # Keep the public loss number on the same current basis as beamCurrent. For
+    # a storage ring that is injector capture; the raw one-pass loss through
+    # the simplified ring branch remains available separately for diagnostics.
+    reported_loss = raw_loss
+    if (is_storage_ring and stored_current > 0
+            and summary.get("initial_current", 0) > 0):
+        reported_loss = 1.0 - min(
+            1.0, injected_ring_current / summary["initial_current"])
 
     # Collision rate from targets: scales with current and beam quality
     collision_rate = summary["collision_rate"] * current_frac * quality * lumi_mult
@@ -561,7 +601,8 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
         # Core beam state (energies are kinetic, GeV)
         "beamEnergy": max(kinetic_energy, 0.0),
         "beamAlive": summary["alive"],
-        "beamCurrent": summary["final_current"],
+        "beamCurrent": (stored_current if is_storage_ring and stored_current > 0
+                        else summary["final_current"]),
 
         # Resource generation rates (per game tick)
         "dataRate": data_rate,
@@ -570,7 +611,8 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
 
         # Quality metrics
         "beamQuality": quality,
-        "totalLossFraction": summary["total_loss_fraction"],
+        "totalLossFraction": reported_loss,
+        "singlePassLossFraction": summary["total_loss_fraction"],
         "luminosity": raw_luminosity * lumi_mult,
 
         # Discovery
@@ -691,7 +733,7 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
     # accidentally inherit it. Deliberately AFTER the beam-beam block — the
     # luminosity this reads is the one that module just reported.
     machine_type = effects.get("machineType")
-    if get_machine_config(machine_type)["success_metric"] == "black_hole_yield":
+    if machine_config["success_metric"] == "black_hole_yield":
         result["blackHoleYield"] = black_hole_yield(
             max(kinetic_energy, 0.0), result.get("luminosity", 0.0))
 

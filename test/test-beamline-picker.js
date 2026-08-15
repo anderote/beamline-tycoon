@@ -30,10 +30,12 @@ import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
 import { BeamlineDesigner } from '../src/ui/BeamlineDesigner.js';
 import {
   beamlineTypeHidesComponent, formatEnergyBand, formatCurrentBand,
-  missingResearchNames,
+  missingResearchNames, researchUnlockPath, designUnlockPath,
+  machineResearchProgress,
 } from '../src/ui/BeamlineTypePicker.js';
 import { BEAMLINE_TYPES, getBeamlineType } from '../src/data/beamline-types.js';
 import { COMPONENTS } from '../src/data/components.js';
+import { stockDesignsFor } from '../src/data/stock-designs.js';
 
 const store = new Map();
 globalThis.localStorage = {
@@ -341,6 +343,69 @@ console.log('\n=== Locked tiles name what they want ===\n');
 
   assertEq(missingResearchNames('testStand', { completedResearch: [] }).length, 0,
     'an ungated type is never locked');
+}
+
+{
+  // The direct gate is Proton Acceleration, but Cyclotron Technology is the
+  // actionable prerequisite a fresh player can start. The roadmap must show
+  // both, in that order, and collapse the first once it is complete.
+  const freshPath = researchUnlockPath('isotopeIrradiation', {
+    completedResearch: [],
+  });
+  assertEq(freshPath.map(node => node.id).join(','),
+    'cyclotronTech,protonAcceleration',
+    'a family unlock path includes transitive prerequisites, prerequisite first');
+
+  const afterCyclotron = researchUnlockPath('isotopeIrradiation', {
+    completedResearch: ['cyclotronTech'],
+  });
+  assertEq(afterCyclotron.map(node => node.id).join(','), 'protonAcceleration',
+    'completed prerequisites disappear from the actionable path');
+
+  const fresh = machineResearchProgress({ completedResearch: [] });
+  assertEq(fresh.unlockedCount, 2, 'the roadmap counts the two opening families');
+  assertEq(fresh.totalCount, Object.keys(BEAMLINE_TYPES).length,
+    'the roadmap covers the whole machine roster');
+  assertEq(fresh.frontier?.type.id, 'isotopeIrradiation',
+    'the nearest locked family is called out as the next frontier');
+  assertEq(fresh.frontier?.remaining[0]?.id, 'cyclotronTech',
+    'the frontier names research the player can actually start first');
+}
+
+{
+  // A family gate buys its entry blueprint. Higher designs may still ask for
+  // later component technology, and the gallery must expose that instead of
+  // letting its free placement path bypass research.
+  const spallation = getBeamlineType('spallation');
+  const familyDone = { completedResearch: [...spallation.requires] };
+  const [entry, upgrade] = stockDesignsFor('spallation');
+  assertEq(designUnlockPath(entry, familyDone).length, 0,
+    'spallation family research makes the entry stock design buildable');
+  assert(designUnlockPath(upgrade, familyDone)
+    .some(node => node.id === 'cryomoduleDesign'),
+    'the 805 MHz upgrade still names Cryomodule Design as its next technology');
+
+  const ringTop = stockDesignsFor('lightSource')[2];
+  const ringFamily = getBeamlineType('lightSource');
+  assert(designUnlockPath(ringTop, { completedResearch: [...ringFamily.requires] })
+    .some(node => node.id === 'nDopedSrf'),
+    'the flagship light ring remains visibly gated on its Nb3Sn research');
+}
+
+{
+  // Unlocking a machine family must never land the player in an empty guide
+  // gallery. Its Tier 1 blueprint is the concrete payoff for that research;
+  // later tiers can continue to advertise future upgrades.
+  for (const type of Object.values(BEAMLINE_TYPES)) {
+    const completedResearch = researchUnlockPath(type.id, {
+      completedResearch: [],
+    }).map(node => node.id);
+    const entry = stockDesignsFor(type.id)[0];
+
+    assert(entry, `${type.id} has an introductory stock design`);
+    assertEq(designUnlockPath(entry, { completedResearch }).length, 0,
+      `${type.id} unlocks with a research-ready Tier 1 guide`);
+  }
 }
 
 {

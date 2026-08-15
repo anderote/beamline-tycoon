@@ -211,7 +211,8 @@ export const BEAMLINE_TYPES = {
     // both descend from `cyclotronTech`, which stops short of the front end.
     // Without `protonAcceleration` the type unlocks onto a palette with no
     // proton hardware in it.
-    requires: ['isochronousCyclotron', 'machineProtection', 'protonAcceleration'],
+    // Includes the optics used by the introductory treatment-room blueprint.
+    requires: ['isochronousCyclotron', 'machineProtection', 'protonAcceleration', 'beamOptics'],
     // You do not put an uncooled scattering foil in a clinical beam. Both of
     // these are trunk hardware everywhere below 250 MeV — this is the exact
     // case the type-side denylist exists for.
@@ -278,12 +279,14 @@ export const BEAMLINE_TYPES = {
     dutyFactor: 1.0,
     // `storageRingTech` buys the ring and `synchrotronLight` buys the reason to
     // build one, but neither says anything about the injector that fills it.
-    // Without `srfTechnology` the best accelerating structure on the palette is
-    // `sbandStructure` at 51 MeV a placement, so reaching the 2.5 GeV band floor
-    // takes fifty of them — the type unlocks onto a machine nobody would build.
-    // It is also simply what these facilities are: ESRF-EBS, APS-U, MAX IV and
-    // every other fourth-generation ring runs a superconducting RF system.
-    requires: ['storageRingTech', 'synchrotronLight', 'srfTechnology'],
+    // Without the SRF and cryomodule nodes the 2.5 GeV injector is a fifty-
+    // structure copper line; without advanced optics there is no compact ring
+    // lattice or chromatic correction. Requiring the entry machine's actual
+    // disciplines means the family never unlocks into an unusable palette.
+    requires: [
+      'storageRingTech', 'synchrotronLight', 'srfTechnology',
+      'cryomoduleDesign', 'advancedOptics',
+    ],
     // The electron beam has to survive for eight hours. Anything that
     // intercepts it kills a stored beam outright — which is a stronger
     // statement than "degrades it", and is why screen is denied here and not
@@ -322,7 +325,8 @@ export const BEAMLINE_TYPES = {
     // corridor. Every operating hard X-ray FEL that is not LCLS-I is
     // superconducting — European XFEL, LCLS-II, SHINE — so this is the honest
     // gate as well as the playable one.
-    requires: ['felTech', 'srfTechnology'],
+    // Unlock the complete compact plasma-injector/SRF reference machine.
+    requires: ['felTech', 'srfTechnology', 'plasmaAcceleration', 'nDopedSrf', 'cryomoduleDesign'],
     // An XFEL is an emittance-preservation machine; a pepper-pot plate in
     // front of a 17 GeV, 5 kA beam is a plasma experiment, not a filter.
     excludes: ['velocitySelector', 'emittanceFilter'],
@@ -360,7 +364,8 @@ export const BEAMLINE_TYPES = {
     // line to 8 GeV is a $200M mistake, not an upgrade.
     bandWidth: 0.10,
     dutyFactor: 1.0,
-    requires: ['felTech', 'energyRecovery'],
+    // The starter ERL uses a packaged cryomodule rather than individual cavities.
+    requires: ['felTech', 'energyRecovery', 'cryomoduleDesign'],
     // The one type whose palette forbids the CHEAP option. At 1 GeV x 10 mA
     // you are handling 10 MW of beam power continuously; normal-conducting
     // copper would melt and the wall-plug bill would eat the contract.
@@ -493,7 +498,8 @@ export const BEAMLINE_TYPES = {
     // is what gates the chamber and the detector. `bunchCompression` is the
     // luminosity: cross-sections at this energy are geometric and tiny, so the
     // only lever left is how tightly the bunch is squeezed.
-    requires: ['colliderTech', 'particleDiscovery', 'bunchCompression'],
+    // The first guided antimatter source starts with an isochronous cyclotron.
+    requires: ['colliderTech', 'particleDiscovery', 'bunchCompression', 'isochronousCyclotron'],
     // The collider's denials, plus one. Insertion devices are already withheld
     // by allowlist for the same reason as there — a photon here is a loss
     // term, not a product — and the three intercepting devices are the

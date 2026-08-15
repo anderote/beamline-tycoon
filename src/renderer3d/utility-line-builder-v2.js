@@ -1179,6 +1179,7 @@ export class UtilityLineBuilderV2 {
     this._previewObject = null;
     this._previewSig = null;
     this._hoverObject = null;
+    this._hoverSig = null;
     // `${placeableId}:${portName}` → portAnchor3D, filled by setAvailablePorts
     // and read by setHoverPort (which is given an identity, not a record).
     this._anchorByKey = new Map();
@@ -1576,20 +1577,26 @@ export class UtilityLineBuilderV2 {
 
   /** Update the hover-port marker. Call every frame. */
   setHoverPort(hoverPort, parentGroup) {
+    const key = hoverPort ? `${hoverPort.placeableId}:${hoverPort.portName}` : null;
+    const anchor = key ? this._anchorByKey.get(key) : null;
+    const resolved = anchor ? { ...hoverPort, anchor } : hoverPort;
+    const point = resolved?.anchor || resolved?.worldPos || resolved;
+    const sig = key
+      ? `${key}|${point?.x ?? ''},${point?.y ?? ''},${point?.z ?? ''}`
+      : null;
+    if (sig === this._hoverSig) return false;
+    this._hoverSig = sig;
     if (this._hoverObject) {
       parentGroup.remove(this._hoverObject);
       this._disposeObject(this._hoverObject);
       this._hoverObject = null;
     }
-    const key = hoverPort ? `${hoverPort.placeableId}:${hoverPort.portName}` : null;
-    const obj = buildHoverMarker(
-      key && this._anchorByKey.has(key)
-        ? { ...hoverPort, anchor: this._anchorByKey.get(key) }
-        : hoverPort);
+    const obj = buildHoverMarker(resolved);
     if (obj) {
       parentGroup.add(obj);
       this._hoverObject = obj;
     }
+    return true;
   }
 
   /**
@@ -1711,6 +1718,7 @@ export class UtilityLineBuilderV2 {
       this._disposeObject(this._hoverObject);
       this._hoverObject = null;
     }
+    this._hoverSig = null;
     if (this._portMarkerGroup) {
       parentGroup.remove(this._portMarkerGroup);
       this._disposeGroup(this._portMarkerGroup);

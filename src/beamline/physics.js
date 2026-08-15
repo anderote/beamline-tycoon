@@ -26,6 +26,7 @@ export const BeamPhysics = (() => {
     'beam_physics/modules/rf_acceleration.py',
     'beam_physics/modules/space_charge.py',
     'beam_physics/modules/synchrotron_rad.py',
+    'beam_physics/modules/synchrotron_light.py',
     'beam_physics/modules/bunch_compression.py',
     'beam_physics/modules/collimation.py',
     'beam_physics/modules/aperture_loss.py',
