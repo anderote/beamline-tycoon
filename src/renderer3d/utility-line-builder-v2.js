@@ -547,14 +547,13 @@ function buildLineGroup(line, placeablesById, errorStatus, reversed) {
     group.add(buildFaultMark(polylineMidpoint(points), errorStatus));
   }
 
-  // Floor glow: a painted pool of light on the deck beneath the run (see
-  // floor-glow.js — pipes can't cast real light along their length). Built
-  // from the SAME `points`, reversed the SAME way `reversed` already reverses
-  // the pipe's own baked run-distance above, so the pool travels source ->
-  // sink in lockstep with the pulses on the pipe it sits under rather than
-  // drifting out of orientation. Lives in this line's own group, so it is
-  // disposed with the line exactly like the fault mark above; returns null
-  // (no-op) for vacuumPipe and for a hard-faulted run.
+  // Distributed real-light field: invisible proxies sampled along the run are
+  // claimed by LightRig's fixed PointLight pool, so nearby floors, walls and
+  // equipment receive the utility colour. Built from the SAME `points`,
+  // reversed the SAME way `reversed` already reverses the pipe's baked
+  // run-distance, so each proxy's light pulse travels source -> sink in
+  // lockstep with the emissive crest. Lives in this line's group and is
+  // disposed with it; returns null for vacuumPipe and hard-faulted runs.
   const floorPoints = reversed ? points.slice().reverse() : points;
   const floorGlow = buildFloorGlowStrip(floorPoints, line.utilityType, errorStatus);
   if (floorGlow) group.add(floorGlow);

@@ -1,9 +1,10 @@
 // src/renderer3d/light-rig.js
 //
-// Real THREE lights, for the two things bloom/emissive materials can't fake:
-// a lamppost casting an actual shadow, and an explosion actually brightening
-// the wall behind it. Everything else (pipes glowing, screens glowing) stays
-// on bloom (glow-pipeline.js) — this module is deliberately small.
+// Real THREE lights, for the things bloom/emissive materials can't fake: a
+// lamppost casting an actual shadow, an explosion brightening the wall behind
+// it, or a live utility run tinting the floor and equipment beside it. Bloom
+// still supplies the optical halo around the bright source; this rig supplies
+// the light that lands on other surfaces.
 //
 // THE GOVERNING CONSTRAINT: adding or removing a light from a three.js scene
 // forces a shader recompile across every lit material in the scene — a
@@ -24,11 +25,11 @@
 //     pools every fixture already has — see "Spot handover" below, which is
 //     where the interesting logic lives.
 //   - "glow" meshes: userData.role === 'glow' (component-builder.js's screens
-//     / indicator lamps / hot cathodes), plus floor-glow.js's pixel-less
-//     utility-run proxies, which carry their own throw/tint/intensity in
-//     userData.utilityLightEmitter. These get the 8 non-shadow PointLights,
-//     so equipment that's already emissive under bloom — and a live utility
-//     run — also throws a little real light on what's next to it.
+//     / indicator lamps / hot cathodes), plus floor-glow.js's distributed,
+//     pixel-less utility-run proxies. These carry their own throw, tint, day
+//     floor and flow phase in userData.utilityLightEmitter. They get the 8
+//     non-shadow PointLights, so the nearest portion of a live run throws real
+//     moving light onto what is next to it instead of painting fake geometry.
 //
 // SpotLight over PointLight for fixtures: a shadow-casting PointLight needs a
 // CUBE shadow map — six render passes per light per frame. A SpotLight needs
@@ -71,6 +72,41 @@ const DEFAULT_GLOW_LIGHT_COLOR = 0x40e0ff; // llrfController's screen tint (comp
 const FLASH_POINT_DISTANCE = 10;     // an explosion's throw is bigger than a console's ambient glow
 const FLASH_POINT_DECAY = 2;
 const DEFAULT_FLASH_DURATION_MS = 600;
+
+function smoothstep01(t) {
+  const x = Math.max(0, Math.min(1, t));
+  return x * x * (3 - 2 * x);
+}
+
+function positiveModulo(value, divisor) {
+  return ((value % divisor) + divisor) % divisor;
+}
+
+// Match utility-flow.js's broad travelling wave closely enough for the light
+// landing on surrounding surfaces to move with the emissive crest. This is
+// deliberately evaluated per assigned pool slot (at most six in the default
+// rig), never per proxy and never by rebuilding geometry.
+export function utilityEmitterFactor(emitter, timeSeconds) {
+  const flow = emitter && emitter.flow;
+  if (!flow) return 1;
+  const period = Math.max(1e-3, Number(flow.period) || 0);
+  const width = Math.max(1e-3, Number(flow.width) || 0);
+  const distance = Number(flow.distance) || 0;
+  const speed = Number(flow.speed) || 0;
+  const cycle = positiveModulo(distance - timeSeconds * speed, period);
+  const edge = Math.min(cycle, period - cycle);
+  const pulse = 1 - smoothstep01(edge / width);
+  const depth = Math.max(0, Math.min(0.8, Number(flow.pulseDepth) || 0));
+  let factor = 1 - depth * (1 - pulse);
+  if (emitter.flowState === 'soft') {
+    // The material's soft-fault state stutters at 2.2 Hz. Keep a reduced light
+    // floor instead of going black so the real spill communicates "struggling"
+    // without becoming a harsh full-screen flash.
+    const gate = positiveModulo(timeSeconds * 2.2, 1) >= 0.5 ? 1 : 0.55;
+    factor *= gate;
+  }
+  return factor;
+}
 
 // ---- Spot handover (the fixture LOD) ---------------------------------------
 //
@@ -713,11 +749,10 @@ export class LightRig {
         continue;
       }
       const p = this._worldPos(cand.mesh);
-      // A utility-run proxy (floor-glow.js) carries its own throw, tint and
-      // intensity in userData.utilityLightEmitter — a dead coolingWater run
-      // and a healthy one are the same object with different numbers there.
-      // A glow-role mesh has none of that and falls back to the tuned
-      // constants plus its own emissive colour.
+      // A utility-run proxy (floor-glow.js) carries its own throw, tint,
+      // daylight floor and flow phase in userData.utilityLightEmitter. A
+      // glow-role mesh has none of that and falls back to the tuned constants
+      // plus its own emissive colour.
       const utilityEmitter = cand.mesh.userData && cand.mesh.userData.utilityLightEmitter;
       slot.light.distance = utilityEmitter?.distance ?? AMBIENT_POINT_DISTANCE;
       slot.light.decay = AMBIENT_POINT_DECAY;
@@ -726,8 +761,13 @@ export class LightRig {
       if (utilityEmitter?.color != null) slot.light.color.set(utilityEmitter.color);
       else if (emissive) slot.light.color.copy(emissive);
       else slot.light.color.set(DEFAULT_GLOW_LIGHT_COLOR);
+      const daylightFloor = Math.max(0, Math.min(
+        1, Number(utilityEmitter?.daylightFloor) || 0,
+      ));
+      const darknessScale = daylightFloor + (1 - daylightFloor) * nightFactor;
+      const flowFactor = utilityEmitterFactor(utilityEmitter, this._clockMs / 1000);
       slot.light.intensity = AMBIENT_POINT_INTENSITY
-        * (utilityEmitter?.intensity ?? 1) * nightFactor;
+        * (utilityEmitter?.intensity ?? 1) * darknessScale * flowFactor;
       slot.assignedRef = cand.mesh;
     }
   }

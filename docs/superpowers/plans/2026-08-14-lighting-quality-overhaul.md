@@ -38,6 +38,15 @@ generic high-resolution post-processing filter placed over pixel art.
    volumetric count vary by preset without changing gameplay or save data.
 6. **Measure before increasing budgets.** Every expensive stage gets counters,
    deterministic tests, and an off switch.
+7. **Plausible emitters use real light.** Across the whole game, anything that
+   visibly emits enough energy to illuminate its surroundings should feed the
+   fixed pooled-light system when doing so is visually appealing: live utility
+   runs, screens and indicators, hot hardware, beam/arc effects, sparks,
+   explosions, luminous signage, and future particle effects. Bloom describes
+   the bright source and its optical halo; it is not a substitute for coloured
+   light landing on nearby floors, walls, machines, props, or staff. Use camera-
+   local pooled proxies and quality budgets rather than allocating lights per
+   object, and leave purely informational overlays/UI out of world lighting.
 
 ## Performance budgets
 

@@ -1492,8 +1492,8 @@ export class ThreeRenderer {
    * Live on/off switch for the bloom/glow post-processing pipeline — and,
    * since the player sees this as one "dynamic lighting" feature rather than
    * three separate ones, everything Task 5 added too: the light rig (fixture
-   * shadows, ambient glow points, flashes) and the floor-glow strips painted
-   * under utility runs. Forwards to GlowPipeline/LightRig and takes effect on
+   * shadows, ambient glow points, flashes) and the distributed real-light
+   * fields along utility runs. Forwards to GlowPipeline/LightRig and takes effect on
    * the very next frame; persistence is the caller's job (see OptionsDialog,
    * which owns 'beamlineTycoon.glow').
    */
@@ -1501,7 +1501,7 @@ export class ThreeRenderer {
     if (this._glowPipeline) this._glowPipeline.setEnabled(enabled);
     if (this._lightRig) this._lightRig.setEnabled(enabled);
     if (this._volumePool) this._volumePool.setEnabled(enabled && this._volumetricEnabled);
-    this._applyGlowToggleToFloorStrips();
+    this._applyGlowToggleToUtilityFields();
   }
 
   get glowEnabled() {
@@ -1564,13 +1564,14 @@ export class ThreeRenderer {
   }
 
   /**
-   * Hide/show floor-glow strips (floor-glow.js's buildFloorGlowStrip output,
-   * tagged userData.isFloorGlowStrip) to match the current glow toggle.
+   * Hide/show utility light fields (floor-glow.js's historically named
+   * buildFloorGlowStrip output, tagged userData.isFloorGlowStrip) to match the
+   * current glow toggle.
    * Called from setGlowEnabled (toggle flips) and from
    * _refreshUtilityLinesV2 (a rebuilt line's fresh strip otherwise defaults
    * to visible regardless of the toggle already in effect).
    */
-  _applyGlowToggleToFloorStrips() {
+  _applyGlowToggleToUtilityFields() {
     if (!this.utilityLineGroup) return;
     const visible = this.glowEnabled;
     this.utilityLineGroup.traverse((obj) => {
@@ -4013,10 +4014,10 @@ export class ThreeRenderer {
     this.utilityLineBuilderV2.build(snap.utilityLines, placeablesById, this.utilityLineGroup, {
       state,
     });
-    // A rebuilt line's floor-glow strip (if any) starts visible regardless
+    // A rebuilt line's utility light field (if any) starts visible regardless
     // of the current glow toggle — reapply it here rather than only on the
     // toggle's own flip.
-    this._applyGlowToggleToFloorStrips();
+    this._applyGlowToggleToUtilityFields();
   }
 
   /**
