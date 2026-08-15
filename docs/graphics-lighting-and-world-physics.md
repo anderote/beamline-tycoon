@@ -78,6 +78,16 @@ The collision world contains:
 - independently simulated leaf-mesh fragments for multipart objects, capped at
   96 fragments globally and 12 per source object.
 
+Small stackable equipment and furnishings also use the rigid-body world for a
+bounded placement effect. After the ordinary placement transaction selects a
+valid floor or surface sub-cell, the committed model is released a short
+distance above that pose and falls onto a temporary support collider. When it
+sleeps (or reaches the timeout), presentation restores the exact canonical
+transform and releases both temporary bodies. This gives oscilloscopes and
+similar benchtop objects physical weight without allowing solver drift to
+change stack parentage, occupancy, saves, undo history, or utility endpoints.
+Beamline hardware and other non-portable placeables do not use this path.
+
 Explosions use radial falloff, upward bias, linear impulse, and torque. Nearby
 staff become articulated ragdolls. Multipart equipment can separate along its
 authored parts; single-shell art tumbles intact rather than inventing fake

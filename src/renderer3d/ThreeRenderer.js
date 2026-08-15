@@ -1753,6 +1753,15 @@ export class ThreeRenderer {
     );
   }
 
+  /** Let a committed portable item visibly fall onto its canonical surface. */
+  dropPortablePlaceable(placeableId, options = {}) {
+    return this._physicsPresentation.dropPortable(placeableId, options)
+      .catch(error => {
+        console.warn(`[Physics] Portable drop failed for ${placeableId}.`, error);
+        return false;
+      });
+  }
+
   undoLastPhysicsIncident() {
     return this._physicsPresentation.undo();
   }

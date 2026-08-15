@@ -2976,6 +2976,7 @@ export class InputHandler {
       const st = findStackTarget(
         placeable, snap.col, snap.row, snap.subCol, snap.subRow, this.placementDir,
         this.game.state.subgridOccupied, getEntry, getDef,
+        { ignoreEntryId: ignorePlaceableId },
       );
       if (st) {
         placeY = st.placeY;
@@ -3062,8 +3063,9 @@ export class InputHandler {
         return true;
       }
     }
+    let placedId = false;
     this.game._withUndo(() => {
-      const placedId = this.game.placePlaceable({
+      placedId = this.game.placePlaceable({
         type: this.hoverPlaceable.id,
         col: this.hoverPlaceable.col,
         row: this.hoverPlaceable.row,
@@ -3081,6 +3083,7 @@ export class InputHandler {
         if (!guided) this.selectComponentTool('drift');
       }
     });
+    if (placedId) this.renderer.dropPortablePlaceable?.(placedId);
     // Re-preview at the same cursor position: the tile the ghost sits on is
     // now occupied, so leaving the stale green ghost up made a second click
     // without moving report "Space occupied!" under a valid-looking preview.
@@ -3799,6 +3802,7 @@ export class InputHandler {
         free: true,
         silent: true,
       });
+      if (placedId) this.renderer.dropPortablePlaceable?.(placedId);
       return placedId !== false;
     }
 
@@ -3825,6 +3829,7 @@ export class InputHandler {
         this.game.emit('placeableChanged');
         if (entry.category === 'equipment') this.game.emit('facilityChanged');
         if (entry.category === 'furnishing') this.game.emit('zonesChanged');
+        this.renderer.dropPortablePlaceable?.(p.placeableId);
         this._showToast(dangled
           ? `Moved — ${dangled} utility ${dangled === 1 ? 'line needs' : 'lines need'} rewiring`
           : 'Moved — connected utilities updated');

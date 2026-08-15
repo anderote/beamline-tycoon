@@ -61,6 +61,53 @@ try {
   assert.equal(cancelledHandle, 17, 'dispose cancels deferred physics initialization');
   assert.equal(cancelled.world, null, 'cancelled initialization leaves no live physics world');
 
+  let restored = 0;
+  let supportsRemoved = 0;
+  let unregistered = 0;
+  const portableObject = {
+    userData: {
+      placeableId: 'eq_scope',
+      placeableType: 'oscilloscope',
+      physicsKind: 'equipment',
+    },
+  };
+  const portableWorld = {
+    ready: true,
+    update() {},
+    registerObject(object, options) {
+      assert.equal(object, portableObject);
+      assert.equal(options.active, false, 'portable body starts from its canonical fixed pose');
+      return { id: options.id, body: { isSleeping: () => false } };
+    },
+    startDrop() {
+      return { translation: { x: 4, y: 0.76, z: 5 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
+    },
+    addTemporarySupport(options) {
+      assert.equal(options.topY, 0.76, 'landing support uses the canonical surface height');
+      return { id: 'support' };
+    },
+    restoreRecordPose() { restored++; },
+    removeTemporarySupport() { supportsRemoved++; },
+    unregisterObject() { unregistered++; },
+    getStats() { return { ready: true, bodies: 1, joints: 0 }; },
+    dispose() {},
+  };
+  const portablePresentation = new WorldPhysicsPresentation({
+    equipmentMeshes: () => [portableObject],
+  });
+  portablePresentation.world = portableWorld;
+  assert.equal(await portablePresentation.dropPortable('eq_scope', { maxDuration: 0.5 }), true,
+    'portable registry item starts a physical drop');
+  assert.equal(portablePresentation.stats().portableDrops, 1,
+    'active presentation drop is observable');
+  portablePresentation.update(0.5);
+  assert.equal(portablePresentation.stats().portableDrops, 0,
+    'drop finalizes at its bounded timeout');
+  assert.equal(restored, 1, 'finalization restores canonical presentation state');
+  assert.equal(supportsRemoved, 1, 'finalization removes the temporary support');
+  assert.equal(unregistered, 1, 'finalization releases the temporary rigid body');
+  portablePresentation.dispose();
+
   console.log('World physics presentation tests passed.');
 } finally {
   if (originalRequestIdleCallback === undefined) delete globalThis.requestIdleCallback;

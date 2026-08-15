@@ -10,5 +10,17 @@ import { toDims } from './dims.js';
 
 export const EQUIPMENT_DEFS = Object.values(FACILITY_LAB_FURNISHINGS_RAW).map((raw) => {
   const { subW, subL, subH } = toDims(raw);
-  return { ...raw, kind: 'equipment', subW, subL, subH, hasSurface: raw.hasSurface ?? true, stackable: raw.stackable ?? false };
+  const stackable = raw.stackable ?? false;
+  return {
+    ...raw,
+    kind: 'equipment',
+    subW,
+    subL,
+    subH,
+    hasSurface: raw.hasSurface ?? true,
+    stackable,
+    // Small benchtop items are the portable subset. Content can explicitly
+    // opt out without losing stacking, or opt in a future non-stackable prop.
+    portable: raw.portable ?? stackable,
+  };
 });

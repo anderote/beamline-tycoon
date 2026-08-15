@@ -2962,12 +2962,11 @@ export class Game {
       ? (entry.dir || 0)
       : pose.dir;
 
-    // Stacked items don't own their subtiles (the parent does) and a stack
-    // parent's children would be left hanging in mid-air over the old spot.
-    // Beamline junctions are never stackable, so this only ever fires on a
-    // caller pointing the move at the wrong kind of placeable.
-    if (entry.stackParentId || (entry.stackChildren || []).length) {
-      this.log(`Can't move ${def.name}: it is part of a stack`, 'bad');
+    // Moving a surface with children would leave the whole stack hanging over
+    // its old location. Leaf items are safe to re-parent, including portable
+    // instruments already sitting on a bench.
+    if ((entry.stackChildren || []).length) {
+      this.log(`Can't move ${def.name}: remove the items on top first`, 'bad');
       return false;
     }
 
@@ -2985,20 +2984,49 @@ export class Game {
       }
     }
 
-    // A displacement almost always overlaps its OWN old footprint — a module
-    // sliding half a metre down the beamline keeps most of its cells — so use
-    // the same explicit self-exclusion as the move ghost. Only a foreign
-    // occupant blocks either path.
-    const geo = canPlace(this, def, col, row, subCol, subRow, dir, {
-      ignorePlaceableId: placeableId,
-    });
-    if (geo.blockedCells.length) {
-      this.log(`Can't move ${def.name}: space occupied`, 'bad');
-      return false;
+    const getEntry = (id) => {
+      const entryIdx = this.state.placeableIndex[id];
+      return entryIdx === undefined ? null : this.state.placeables[entryIdx];
+    };
+    const stackTarget = def.stackable
+      ? findStackTarget(
+        def, col, row, subCol, subRow, dir,
+        this.state.subgridOccupied, getEntry, type => PLACEABLES[type] || null,
+        { ignoreEntryId: placeableId },
+      )
+      : null;
+
+    if (!stackTarget) {
+      // A displacement almost always overlaps its OWN old footprint — a
+      // module sliding half a metre down the beamline keeps most of its cells
+      // — so use the same explicit self-exclusion as the move ghost.
+      const geo = canPlace(this, def, col, row, subCol, subRow, dir, {
+        ignorePlaceableId: placeableId,
+      });
+      if (geo.blockedCells.length) {
+        this.log(`Can't move ${def.name}: space occupied`, 'bad');
+        return false;
+      }
+      if (geo.wallBlocked) {
+        this.log(`Can't move ${def.name}: intersects a wall`, 'bad');
+        return false;
+      }
     }
-    if (geo.wallBlocked) {
-      this.log(`Can't move ${def.name}: intersects a wall`, 'bad');
-      return false;
+
+    // Release the old floor claims and stack relationship only after every
+    // destination check succeeds, keeping a rejected move atomic.
+    for (const c of (entry.cells || [])) {
+      const key = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
+      if (this.state.subgridOccupied[key]?.id === placeableId) {
+        delete this.state.subgridOccupied[key];
+      }
+    }
+    if (entry.stackParentId) {
+      const oldParent = getEntry(entry.stackParentId);
+      if (oldParent) {
+        oldParent.stackChildren = (oldParent.stackChildren || [])
+          .filter(id => id !== placeableId);
+      }
     }
 
     entry.col = col;
@@ -3010,9 +3038,19 @@ export class Game {
       entry.portsFlipped = pose.portsFlipped === true;
     }
     if (def.mount === 'wall') entry.wallMount = wallMount;
-    this._rebuildPlaceableCells(entry);
-    // _markNavDirty is called inside _rebuildPlaceableCells itself, so every
-    // stable-id move invalidates staff navigation from the same place.
+    entry.cells = def.footprintCells(col, row, subCol, subRow, dir);
+    entry.stackParentId = stackTarget?.targetEntry?.id || null;
+    entry.placeY = stackTarget?.placeY || 0;
+    if (stackTarget) {
+      const children = stackTarget.targetEntry.stackChildren ||= [];
+      if (!children.includes(placeableId)) children.push(placeableId);
+    } else if (usesFloorOccupancy(def)) {
+      for (const c of entry.cells) {
+        const key = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
+        this.state.subgridOccupied[key] = { id: entry.id, kind: entry.kind };
+      }
+    }
+    this._markNavDirty();
 
     // Flatten the DESTINATION tiles, and deliberately leave the origin flat.
     // Placement flattens because everything is drawn at y = 0; a module that

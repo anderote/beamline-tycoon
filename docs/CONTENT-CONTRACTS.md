@@ -11,6 +11,10 @@ the short authoring contract.
   `DECORATIONS` are compatibility views, not authoring surfaces.
 - Use a category declared by `src/data/modes.js`, an object-valued numeric
   `cost`, and the normalized footprint fields expected by the registry.
+- Small equipment/furnishings with `stackable: true` normalize to
+  `portable: true` and receive physical drop presentation after an individual
+  placement or move. Set `portable: false` explicitly when a stackable item is
+  fixed in place. Beamline and infrastructure placement remains constrained.
 - A `requiredConnections` entry must have a matching sink in
   `src/data/utility-ports-v2.js`.
 - If an item is research-gated, its gate and the research node's `unlocks` list

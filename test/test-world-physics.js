@@ -30,6 +30,35 @@ test('fixed-step Rapier integration moves active Three objects and collides with
   physics.dispose();
 });
 
+test('portable drop support settles visually and restores the canonical pose', async () => {
+  const physics = await new WorldPhysics({ rapier: RAPIER }).init();
+  physics.addGround({ y: -10 });
+  const object = new Group();
+  object.position.set(2, 1, 3);
+  const shell = new Mesh(new BoxGeometry(0.4, 0.4, 0.4), new MeshBasicMaterial());
+  shell.position.y = 0.2; // equipment roots sit at the bottom of their art
+  object.add(shell);
+  object.updateMatrixWorld(true);
+  const record = physics.registerObject(object, {
+    id: 'portable-scope', active: false, massKg: 8, friction: 0.8, restitution: 0.03,
+  });
+  const canonical = physics.startDrop(record, { height: 0.8 });
+  const support = physics.addTemporarySupport({
+    x: 2, topY: 1, z: 3, halfWidth: 0.3, halfDepth: 0.3,
+  });
+  for (let i = 0; i < 180; i++) physics.update(1 / 60);
+
+  assert.ok(object.position.y > 0.98 && object.position.y < 1.04,
+    `portable body lands on its authored surface (y=${object.position.y})`);
+  assert.equal(physics.restoreRecordPose(record, canonical), true);
+  assert.ok(Math.abs(object.position.y - 1) < 1e-6,
+    'settling restores the exact canonical root pose');
+  assert.equal(record.active, false, 'restored portable body leaves the active solver set');
+  assert.equal(physics.removeTemporarySupport(support), true,
+    'temporary landing support is removed explicitly');
+  physics.dispose();
+});
+
 test('off-pivot geometry installs its measured center of mass in the rigid body', async () => {
   const physics = await new WorldPhysics({ rapier: RAPIER }).init();
   const object = new Group();
