@@ -34,30 +34,53 @@ export class EquipmentWindow {
     // If a duplicate was returned, just focus it
     if (this.ctx.id !== 'equip-' + equip.id) return;
 
+    this._autoConnectPlan = this.selectionActions.getAutoConnectPlan?.(equip.id) || null;
     this.ctx.onTabRender('info', (container) => this._renderInfo(container));
+    this._updateActions();
+    this._updateTitle();
+  }
 
-    this.ctx.setActions([
+  _updateActions() {
+    const actions = [
       {
         label: 'Place',
         title: 'Pick up the selection and place it together',
-        onClick: () => this.selectionActions.onPlace?.(equip.id),
+        onClick: () => this.selectionActions.onPlace?.(this.equip.id),
       },
       {
         label: 'Copy',
         title: 'Copy the selection and its internal utility connections',
-        onClick: () => this.selectionActions.onCopy?.(equip.id),
+        onClick: () => this.selectionActions.onCopy?.(this.equip.id),
       },
       { label: 'Demolish (50% refund)', variant: 'danger', onClick: () => {
         if (this.selectionActions.onDemolish) {
-          const removedIds = this.selectionActions.onDemolish(equip.id) || [];
+          const removedIds = this.selectionActions.onDemolish(this.equip.id) || [];
           for (const id of removedIds) ContextWindow.getWindow('equip-' + id)?.close();
         } else {
-          this.game.demolishTarget({ kind: equip.kind || 'equipment', id: equip.id });
+          this.game.demolishTarget({ kind: this.equip.kind || 'equipment', id: this.equip.id });
           this.ctx.close();
         }
       }},
-    ]);
-    this._updateTitle();
+    ];
+    if (this.comp.autoConnectRadius > 0) {
+      const plan = this._autoConnectPlan;
+      const count = plan?.stubs?.length || 0;
+      const funding = plan?.cost?.funding || 0;
+      actions.unshift({
+        label: count > 0
+          ? `Auto-connect ${count} ($${funding.toLocaleString()})`
+          : 'Auto-connect nearby',
+        title: count > 0
+          ? `Draw ${count} power cable${count === 1 ? '' : 's'} to free plugs inside the panel radius`
+          : 'No routable unconnected power plugs are currently in range',
+        disabled: count === 0,
+        onClick: () => {
+          this.selectionActions.onAutoConnect?.(this.equip.id);
+          this.refresh();
+        },
+      });
+    }
+    this.ctx.setActions(actions);
   }
 
   _updateTitle() {
@@ -79,6 +102,11 @@ export class EquipmentWindow {
     }
     for (const r of utilityStatRows(comp)) {
       html += `<div class="equipment-utility">${r.label}: ${r.value}</div>`;
+    }
+    if (comp.autoConnectRadius > 0) {
+      const ready = this._autoConnectPlan?.stubs?.length || 0;
+      html += `<div class="equipment-utility">Auto-connect radius: ${comp.autoConnectRadius} tiles</div>`;
+      html += `<div class="equipment-utility">Ready power plugs: ${ready}</div>`;
     }
 
     // Stats / effects
@@ -105,7 +133,9 @@ export class EquipmentWindow {
   }
 
   refresh() {
+    this._autoConnectPlan = this.selectionActions.getAutoConnectPlan?.(this.equip.id) || null;
     this._updateTitle();
+    this._updateActions();
     this.ctx.update();
   }
 }

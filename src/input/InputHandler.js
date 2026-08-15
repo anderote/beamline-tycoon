@@ -32,6 +32,12 @@ import { MoveTool, ProbeTool } from './mode-tools.js';
 import { BeamlineTool } from './beamline-tool.js';
 import { UtilityLineTool } from './utility-line-tool.js';
 import {
+  commitPanelAutoConnect,
+  planPanelAutoConnect,
+} from './panel-auto-connect.js';
+import { portAnchor3D } from '../utility/port-anchors.js';
+import { portWorldPosition } from '../utility/ports.js';
+import {
   captureSelectionGroup,
   previewSelectionGroup,
 } from './selection-group.js';
@@ -729,6 +735,36 @@ export class InputHandler {
     const roots = [...this._selectedRootsById.values()].filter(Boolean);
     if (this.renderer.setSelectionOutlines) this.renderer.setSelectionOutlines(roots);
     else this.renderer.setSelectionOutline?.(roots[roots.length - 1] || null);
+  }
+
+  /** Current paid cable plan for a distribution panel's context action. */
+  _panelAutoConnectPlan(panelId) {
+    return planPanelAutoConnect(this.game.state, panelId, {
+      // Match ordinary interactive wiring to the connector actually visible
+      // on the model, falling back to logical footprint geometry headlessly.
+      portPosition: (endpoint, def, portName) => {
+        const anchor = portAnchor3D(endpoint, def, portName);
+        return anchor
+          ? { x: anchor.x, z: anchor.z }
+          : portWorldPosition(endpoint, def, portName);
+      },
+    });
+  }
+
+  /** Re-plan at click time, then land all valid cables in one undo gesture. */
+  _autoConnectPanel(panelId) {
+    const plan = this._panelAutoConnectPlan(panelId);
+    if (!plan.stubs.length) {
+      if (plan.outlets === 0) this._showToast('No free outlets on this panel');
+      else if (plan.candidates === 0) {
+        this._showToast(`No unconnected power plugs within ${plan.radius} tiles`);
+      } else this._showToast('No clear cable routes to nearby plugs');
+      return [];
+    }
+    const committed = commitPanelAutoConnect(this.game, plan);
+    this.renderer._refreshContextWindows?.();
+    this._renderSelectionOutlines();
+    return committed;
   }
 
   /** Select a world object, persist its outline, and open its info menu. */

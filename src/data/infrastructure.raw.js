@@ -1694,6 +1694,9 @@ export const INFRASTRUCTURE_RAW = {
     cost: { funding: 60000 },
     stats: {},
     energyCost: 0,
+    // Context-menu assisted wiring: unconnected power sinks whose connector
+    // lies inside this many tiles can be cabled from the panel in one action.
+    autoConnectRadius: 5,
     subL: 1, subW: 1, subH: 3, gridW: 1, gridH: 1, geometryType: 'box',
     baseMaterial: 'metal_painted_green',
     faces: { '+X': { decal: 'power_panel_front' } },
@@ -1714,6 +1717,7 @@ export const INFRASTRUCTURE_RAW = {
     cost: { funding: 180000 },
     stats: {},
     energyCost: 0,
+    autoConnectRadius: 7,
     subL: 1, subW: 2, subH: 4, gridW: 2, gridH: 1, geometryType: 'box',
     baseMaterial: 'metal_painted_green',
     spriteKey: 'powerPanel',
@@ -1732,6 +1736,7 @@ export const INFRASTRUCTURE_RAW = {
     cost: { funding: 480000 },
     stats: {},
     energyCost: 0,
+    autoConnectRadius: 9,
     subL: 2, subW: 3, subH: 4, gridW: 3, gridH: 2, geometryType: 'box',
     baseMaterial: 'metal_painted_green',
     spriteKey: 'powerPanel',
