@@ -38,19 +38,19 @@ import { min, mod, sin, smoothstep, uniform, uv } from 'three/tsl';
 //
 export const FLOW_PARAMS = {
   hvCable: {
-    // Sparse, needle-sharp violet surges.  The long crest and stronger local
-    // light make an HV feeder feel dangerous instead of reading as a second
-    // green branch circuit.
-    speed: 2.35, period: 4.4, width: 0.11, strength: 1.45, baseGlow: 0.035,
+    // Long violet surges with a broad smoothstep tail. They remain more widely
+    // spaced than branch-power packets, but recur often enough that a live HV
+    // feeder does not spend most of its time looking inert.
+    speed: 2.35, period: 3.2, width: 0.48, strength: 1.45, baseGlow: 0.035,
     color: '#8f94c8',
-    pulseRadialScale: 0.48, pulseLengthScale: 4.8,
+    pulseRadialScale: 0.48, pulseLengthScale: 6.6,
     lightIntensity: 0.24, lightDistance: 1.9, daylightFloor: 0.3,
   },
   powerCable: {
-    // A regular train of compact green current packets: dependable, frequent,
-    // and visibly less violent than the HV surges above.
-    speed: 1.35, period: 1.05, width: 0.16, strength: 1.0, baseGlow: 0.075,
-    pulseRadialScale: 0.66, pulseLengthScale: 2.25,
+    // A regular train of elongated green current gradients: dependable and
+    // frequent, but visibly less violent than the HV surges above.
+    speed: 1.35, period: 0.88, width: 0.30, strength: 1.0, baseGlow: 0.075,
+    pulseRadialScale: 0.66, pulseLengthScale: 3.6,
     lightIntensity: 0.13, lightDistance: 1.35, daylightFloor: 0.22,
   },
   vacuumPipe: {
@@ -63,13 +63,11 @@ export const FLOW_PARAMS = {
     lightIntensity: 0.055, lightDistance: 0.9, daylightFloor: 0.12,
   },
   rfWaveguide: {
-    // The moving field itself is the light source. A strong, broad emissive
-    // crest crosses the selective-bloom threshold all along the geometry;
-    // the quieter base keeps the complete guide faintly luminous between
-    // crests without introducing a separate point-light hotspot.
-    speed: 3.1, period: 0.82, width: 0.10, strength: 1.75, baseGlow: 0.11,
-    // A broad, very short disc reads as an EM wavefront crossing the guide.
-    pulseRadialScale: 1.18, pulseLengthScale: 0.52,
+    // The moving field itself is the light source. Long, closely spaced red
+    // gradients make the guide read as an energized field instead of a train
+    // of fast sparks; the deliberately slow travel keeps that motion legible.
+    speed: 0.95, period: 0.62, width: 0.24, strength: 1.75, baseGlow: 0.11,
+    pulseRadialScale: 1.18, pulseLengthScale: 3.0,
     lightIntensity: 0.30, lightDistance: 2.15, daylightFloor: 0.28,
   },
   coolingWater: {

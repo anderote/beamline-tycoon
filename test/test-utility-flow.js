@@ -303,15 +303,27 @@ console.log('\n--- 4. FLOW_PARAMS covers every utility ---');
       && Number.isFinite(p.pulseRadialScale) && Number.isFinite(p.pulseLengthScale),
       `${t} has complete motion, glow, and pulse-shape parameters`);
   }
-  assert(FLOW_PARAMS.rfWaveguide.pulseRadialScale > FLOW_PARAMS.rfWaveguide.pulseLengthScale,
-    'RF uses a broad, short wavefront rather than the generic streak');
-  assert(FLOW_PARAMS.coolingWater.pulseLengthScale > FLOW_PARAMS.powerCable.pulseLengthScale * 2,
+  for (const type of ['hvCable', 'powerCable', 'rfWaveguide']) {
+    const p = FLOW_PARAMS[type];
+    assert(p.width * 2 >= p.period * 0.3,
+      `${type} uses a long smooth gradient instead of a needle-sharp packet`);
+  }
+  assert(FLOW_PARAMS.hvCable.pulseLengthScale > 6
+      && FLOW_PARAMS.powerCable.pulseLengthScale > 3
+      && FLOW_PARAMS.rfWaveguide.pulseLengthScale >= 3,
+    'HV, power, and RF publish elongated bloom crests');
+  assert(FLOW_PARAMS.coolingWater.pulseLengthScale > FLOW_PARAMS.powerCable.pulseLengthScale * 1.5,
     'cooling water uses a long fluid slug, distinct from electrical packets');
-  assert(FLOW_PARAMS.dataFiber.speed > FLOW_PARAMS.rfWaveguide.speed
+  assert(FLOW_PARAMS.rfWaveguide.speed < FLOW_PARAMS.powerCable.speed
+      && FLOW_PARAMS.dataFiber.speed > FLOW_PARAMS.rfWaveguide.speed
     && FLOW_PARAMS.dataFiber.light === false,
-    'data is the fastest packet train and does not cast physical light');
+    'RF travels slowly while data remains the fastest lightless packet train');
+  assert(FLOW_PARAMS.hvCable.period < 4
+      && FLOW_PARAMS.powerCable.period < 1
+      && FLOW_PARAMS.rfWaveguide.period < 0.7,
+    'HV, power, and RF pulses recur at the denser tuned cadence');
   assert(FLOW_PARAMS.hvCable.period > FLOW_PARAMS.powerCable.period * 3,
-    'HV surges are sparse while branch power packets are regular');
+    'HV surges remain sparse relative to branch-power gradients');
 }
 
 console.log('\n--- 5. getLineMaterial: distinct per flowState, cached, tagged __shared ---');
