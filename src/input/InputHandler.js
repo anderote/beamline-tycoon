@@ -112,6 +112,8 @@ export class InputHandler {
     this._marquee = null;
     this._marqueeEl = null;
     this._placementKeyHintEl = null;
+    this._panelAutoConnectPlanCache = new Map();
+    this._panelAutoConnectPlanCacheRevision = -1;
     this._selectionClipboard = null;
     this._selectionSlots = this._loadSelectionSlots();
     this.isPanning = false;
@@ -220,6 +222,12 @@ export class InputHandler {
       return;
     }
     // Keep the compact card beside the cursor without rebuilding its DOM.
+    // Panel counts can change while the pointer stays on the same object, so
+    // refresh the two text nodes as well as its position.
+    const title = this._tooltipEl.querySelector?.('.hover-tooltip-title');
+    const detail = this._tooltipEl.querySelector?.('.hover-tooltip-detail');
+    if (title && title.textContent !== info.title) title.textContent = info.title;
+    if (detail && detail.textContent !== info.detail) detail.textContent = info.detail;
     this._positionTooltip(screenX, screenY);
   }
 
@@ -311,7 +319,12 @@ export class InputHandler {
       }
       const def = entry && (COMPONENTS[entry.type] || PLACEABLES[entry.type]);
       if (def) {
-        this._setHoverTooltip(`placeable:${entry.id}`, componentHoverInfo(def), screenX, screenY);
+        this._setHoverTooltip(
+          `placeable:${entry.id}`,
+          this._componentHoverInfo(entry, def),
+          screenX,
+          screenY,
+        );
         return;
       }
       if (hitInfo.group === 'beampipe' && hitInfo.pipeId) {
@@ -370,7 +383,7 @@ export class InputHandler {
       const targetId = 'equip:' + equipId;
       const equip = this.game.state.facilityEquipment.find(e => e.id === equipId);
       const comp = equip && COMPONENTS[equip.type];
-      this._setHoverTooltip(targetId, componentHoverInfo(comp), screenX, screenY);
+      this._setHoverTooltip(targetId, this._componentHoverInfo(equip, comp), screenX, screenY);
       return;
     }
 
@@ -897,7 +910,17 @@ export class InputHandler {
 
   /** Current paid cable plan for a distribution panel's context action. */
   _panelAutoConnectPlan(panelId) {
-    return planPanelAutoConnect(this.game.state, panelId, {
+    const revision = this.game.solveRunner?.topologyRevision;
+    if (Number.isFinite(revision)) {
+      if (this._panelAutoConnectPlanCacheRevision !== revision) {
+        this._panelAutoConnectPlanCache?.clear();
+        this._panelAutoConnectPlanCacheRevision = revision;
+      }
+      const cached = this._panelAutoConnectPlanCache?.get(panelId);
+      if (cached) return cached;
+    }
+
+    const plan = planPanelAutoConnect(this.game.state, panelId, {
       // Match ordinary interactive wiring to the connector actually visible
       // on the model, falling back to logical footprint geometry headlessly.
       portPosition: (endpoint, def, portName) => {
@@ -907,6 +930,39 @@ export class InputHandler {
           : portWorldPosition(endpoint, def, portName);
       },
     });
+    if (Number.isFinite(revision)) {
+      (this._panelAutoConnectPlanCache ||= new Map()).set(panelId, plan);
+    }
+    return plan;
+  }
+
+  /** Dynamic world-hover copy for panels; ordinary machines stay catalogue-only. */
+  _componentHoverInfo(entry, def) {
+    const autoConnectPlan = entry?.id && Number(def?.autoConnectRadius) > 0
+      ? this._panelAutoConnectPlan(entry.id)
+      : null;
+    return componentHoverInfo(def, { autoConnectPlan });
+  }
+
+  /** A single selected distribution panel owns plain Tab before palette tabs do. */
+  _selectedAutoConnectPanelId() {
+    const ids = this._selectionIdsForAnchor(this.selectedPlaceableId);
+    if (ids.length !== 1) return null;
+    const panel = this.game.getPlaceable?.(ids[0])
+      || this.game.state?.placeables?.find?.(entry => entry.id === ids[0]);
+    const def = panel && (COMPONENTS[panel.type] || PLACEABLES[panel.type]);
+    return Number(def?.autoConnectRadius) > 0 ? panel.id : null;
+  }
+
+  _handleSelectedPanelAutoConnectKey(event) {
+    if (event?.key !== 'Tab' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
+      return false;
+    }
+    const panelId = this._selectedAutoConnectPanelId();
+    if (!panelId) return false;
+    event.preventDefault();
+    if (!event.repeat) this._autoConnectPanel(panelId);
+    return true;
   }
 
   /** Re-plan at click time, then land all valid cables in one undo gesture. */
@@ -1859,6 +1915,7 @@ export class InputHandler {
           break;
         }
         case 'Tab': {
+          if (this._handleSelectedPanelAutoConnectKey(e)) break;
           e.preventDefault();
           const mode = MODES[this.activeMode];
           if (!mode || mode.disabled) break;

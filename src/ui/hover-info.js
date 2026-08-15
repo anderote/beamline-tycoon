@@ -62,10 +62,22 @@ export function beamlineRfOperatingInfo(nodes, components) {
 }
 
 /** Summarize a component definition into one title line and one detail line. */
-export function componentHoverInfo(comp) {
+export function componentHoverInfo(comp, { autoConnectPlan = null } = {}) {
   if (!comp) return null;
   const ports = Object.values(comp.ports || {});
   const title = comp.name || humanize(comp.id) || 'Object';
+
+  if (Number(comp.autoConnectRadius) > 0 && autoConnectPlan) {
+    const candidates = Math.max(0, Number(autoConnectPlan.candidates) || 0);
+    const connectable = Array.isArray(autoConnectPlan.stubs)
+      ? autoConnectPlan.stubs.length
+      : Math.max(0, Number(autoConnectPlan.connectable) || 0);
+    return {
+      title,
+      detail: `${candidates} unconnected power plug${candidates === 1 ? '' : 's'} in range`
+        + ` · Tab connects ${connectable}`,
+    };
+  }
 
   const powerOut = sumPorts(ports, ['powerCable', 'hvCable'], 'source', 'capacity');
   const powerIn = sumPorts(ports, ['powerCable', 'hvCable'], 'sink', 'demand');
