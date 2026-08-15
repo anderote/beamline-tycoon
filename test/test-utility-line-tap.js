@@ -271,5 +271,41 @@ console.log('\n--- 5. LCW skid connections share one 25 kW internal header ---')
     `the shared outlets expose 25 kW once, not per socket (got ${capacity} kW)`);
 }
 
+console.log('\n--- 6. Vacuum pipes join pipe-to-pipe at arbitrary mid-span points ---');
+{
+  const game = makeGame();
+  const upperId = game.utilityLineSystem.addLine({
+    utilityType: 'vacuumPipe', start: null, end: null,
+    path: [{ col: 10, row: 12 }, { col: 20, row: 12 }],
+  });
+  const lowerId = game.utilityLineSystem.addLine({
+    utilityType: 'vacuumPipe', start: null, end: null,
+    path: [{ col: 10, row: 18 }, { col: 20, row: 18 }],
+  });
+  assert(upperId && lowerId, 'two separate vacuum trunks to join');
+
+  const ctrl = new UtilityLineInputController({ game, renderer: {} });
+  ctrl.setUtilityType('vacuumPipe');
+  const a = gridToIso(14.5, 12);
+  const b = gridToIso(14.5, 18);
+  ctrl.onMouseDown(a.x, a.y, 0, {});
+  ctrl.onMouseMove(b.x, b.y, {});
+  ctrl.onMouseUp(b.x, b.y, 0, {});
+
+  const vacuumLines = Array.from(game.state.utilityLines.values())
+    .filter(line => line.utilityType === 'vacuumPipe');
+  const connector = vacuumLines.find(line => line.id !== upperId && line.id !== lowerId);
+  assert(connector?.tapLineIds?.start === upperId
+    && connector?.tapLineIds?.end === lowerId,
+  'one drag joins the middles of both existing vacuum pipes');
+
+  const networks = discoverNetworks('vacuumPipe', game.state.utilityLines,
+    makeDefaultPortLookup(game.state));
+  assert(networks.some(network => network.lineIds.includes(upperId)
+    && network.lineIds.includes(lowerId) && network.lineIds.includes(connector?.id)),
+  `both trunks and their connector become one vacuum network (${JSON.stringify(
+    networks.map(network => network.lineIds))})`);
+}
+
 console.log(`\n=== ${passed} passed, ${failed} failed ===`);
 if (failed > 0) process.exit(1);
