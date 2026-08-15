@@ -52,9 +52,10 @@ export const RESEARCH_SPEED_TABLE = {
 };
 
 // ---------------------------------------------------------------------------
-// Phase 12 — the cost ladder is laid across the 28,800-tick target playthrough
-// (scripts/balance-playthrough.mjs). Only `cost` moved; every `requires` /
-// `unlocks` relationship is exactly as Phase 12b left it.
+// Phase 12 — the cost ladder was laid across the original 28,800-tick,
+// 24-expansion-line playthrough. The executable harness now scales that target
+// to 38,400 ticks because the playable-site cap fits 18 of those lines; see
+// scripts/balance-playthrough.mjs. Only `cost` moved in the original pass.
 //
 // Method. Costs were re-derived as a compressive power law over the ORIGINAL
 // shape — new = A * old^0.6 — rather than from a fresh envelope, so the
@@ -96,11 +97,12 @@ export const RESEARCH_SPEED_TABLE = {
 //     achievable curve, which is a wall by definition.
 //
 // Measured result (scripts/balance-sim.mjs d, seed 909), ticks to clear all 68
-// reachable nodes vs the 28,800 target:
+// reachable nodes vs the original 28,800 target:
 //     4 extra lines  67,454  2.34x     12 extra lines  33,197  1.15x
 //     8 extra lines  42,854  1.49x     24 extra lines  22,895  0.79x  (default)
 // The spread is structural, not a tuning miss — see the note on
-// ECON.beamIncomePerNode. The design target is the twelve-line facility.
+// ECON.beamIncomePerNode. The current 18-line site-limited reference completes
+// in roughly 54,000 ticks against its proportionally scaled 38,400 target.
 // ---------------------------------------------------------------------------
 export const RESEARCH = {
   // === Beam Optics tree ===

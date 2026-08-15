@@ -147,7 +147,7 @@ const BEAMLINE_UTILITY_PORTS = {
   // extracted beam against ~140 kW at the wall — RF, main coil, and the
   // fraction of the internal beam that never makes it to the stripper all
   // end up in the loop. One padMountTransformer (150 kW) is exactly enough
-  // and one lcwSkid (100 kW) is exactly not.
+  // and one lcwSkid (25 kW) is exactly not.
   cyclotron30: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 140 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 115 } },
@@ -671,9 +671,10 @@ for (const [id, comp] of Object.entries(BEAMLINE_COMPONENTS_RAW)) {
 //                   → pulsedKlystron 50 @S/C / cwKlystron 50 @UHF/L
 //                   → IOT 80 @UHF/L → MBK 200 @S/C → highPowerSSA 300
 //                   @VHF/UHF/L → gyrotron 1000 @C/X
-//   cooling (kW):   fanCoilCooler 20 → packageChiller 50 → lcwSkid 100
-//                   → dualCircuitChiller 175 → chiller 300
-//                   → dryCoolerBank 500 → coolingTower 800
+//   process cooling (kW): packageChiller 5 → lcwSkid 25
+//                         → dualCircuitChiller 175 → chiller 300
+//   heat rejection (kW): fanCoilCooler 50 → dryCoolerBank 500
+//                        → coolingTower 800
 //   cryo    (W):    coldBox4K 500 → coldBox2K 800
 //   vacuum  (L/s):  roughing 15 → turbo 300 → tiSub 400 → NEG 500 → ion 600
 //   data    (Gbps): patchPanel 2 → timing 5 → rackIoc 10 → archiver 20

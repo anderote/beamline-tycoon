@@ -1,10 +1,12 @@
 // test/test-progression.js — Phase 12 progression invariants.
 //
 // The target this pins: a full playthrough to the top of the tech tree takes
-// ~28,800 ticks (~8 h of active play at 1x; the 1x/2x/4x speed controls make
-// wall-clock shorter). scripts/balance-playthrough.mjs is the tuning companion
-// with the full tables; this file holds the handful of properties that must
-// survive a knob change.
+// ~38,400 ticks (~10.7 h of active play at 1x; the 1x/2x/4x speed controls
+// make wall-clock shorter). This preserves the original pace per expansion
+// line after the playable-site cap reduced the default ladder from 24 lines
+// to 18. scripts/balance-playthrough.mjs is the tuning companion with the full
+// tables; this file holds the handful of properties that must survive a knob
+// change.
 //
 // Two kinds of check, deliberately separated:
 //
@@ -13,15 +15,15 @@
 //   actually edits, so they get the tighter bounds.
 //
 //   SIMULATED (~30 s) — one scripted playthrough at the sim's default policy
-//   (24 extra beamlines, seed 909). Bounds here are wide on purpose: run
+//   (18 extra beamlines, seed 909). Bounds here are wide on purpose: run
 //   length is a strong function of how much hardware the player chooses to
 //   build (see the note on ECON.beamIncomePerNode), so this asserts the SHAPE
 //   of the curve — spread of completions, no dead stretch, which resource is
 //   binding — and only loosely the length.
 //
-// Measured when written (seed 909, 24 extra lines): 22,895 ticks = 0.79x
-// target, longest gap with nothing completing 1,113 ticks (4.9% of the run),
-// blocked 83% funding / 3.7% data / 0% reputation / 0% lab tier.
+// Current reference (seed 909, 18 extra lines): about 53,000 ticks = 1.38x
+// target, longest gap with nothing completing about 2,600 ticks (4.9% of the
+// run), funding-bound with 100% worst-window line uptime.
 
 import { Game } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';

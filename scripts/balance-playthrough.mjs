@@ -9,8 +9,10 @@
 // research tier completes.
 //
 // THE TARGET: a full playthrough to the top of the tech tree should take
-// ~28,800 ticks (~8 h of active play at 1x; the speed controls make wall-clock
-// shorter). Everything printed here is measured against that number.
+// ~38,400 ticks (~10.7 h of active play at 1x; the speed controls make wall-
+// clock shorter). The original 28,800-tick target assumed 24 expansion lines;
+// the playable site now caps this layout at 18, so the target scales by the
+// same 24/18 factor as the linear per-line income model.
 //
 // Determinism: the Game rng is seeded, the policy is a pure function of state,
 // and nothing reads the wall clock. Same seed => same table, every time.
@@ -35,7 +37,7 @@ import { UTILITY_TYPES } from '../src/utility/registry.js';
 import { getStationIndex } from '../src/game/staff/stations.js';
 import { MAX_MAP_HALF_EXTENT } from '../src/data/land.js';
 
-export const PLAYTHROUGH_TARGET_TICKS = 28800;
+export const PLAYTHROUGH_TARGET_TICKS = 38400;
 
 // Nodes the player can never reach are excluded from "top of the tree" so a
 // single unreachable node cannot make every run read as infinite. Nothing is
@@ -208,10 +210,10 @@ const LINE_ON_PIPE = [
   ['buncher', 0.08], ['pillboxCavity', 0.25], ['pillboxCavity', 0.40],
   ['pillboxCavity', 0.55], ['quadrupole', 0.72], ['bpm', 0.88],
 ];
-// Plant differs by grade because the end station does. A faradayCup asks for
-// 1 kW, no cooling and 1 unit of data; a detector asks for 120 kW, 60 kW of
-// cooling and 40 units of data — past the 400 kW switchgear, past the lcwSkid's
-// 100 kW loop and four times the rackIoc's fiber capacity all at once.
+// Plant differs by grade because the end station does. A cup line's source and
+// quadrupole reject 38 kW, so it needs two 25 kW LCW skids. A detector adds
+// 120 kW of power, 60 kW of cooling and 40 units of data, so it uses the larger
+// chiller and a dedicated network switch.
 const LINE_PLANT = {
   cup: {
     supply: 'hvTransformer', cooling: 'lcwSkid', coolingCount: 2, endData: 'rackIoc',
