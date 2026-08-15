@@ -25,7 +25,7 @@ export function activeShadowPrefixLength(lights, activeCount = lights.length) {
  *
  * Each SpotLight still has its own projection matrix and shadow sampling node,
  * but all nodes bind the same texture and select their layer. That turns N
- * texture/sampler bindings into one and makes 24 cached fixture shadows fit a
+ * texture/sampler bindings into one and makes 12 cached fixture shadows fit a
  * normal WebGPU pipeline layout. The array is refreshed as one multiview pass
  * at the scheduler cadence, then reused between refreshes.
  */

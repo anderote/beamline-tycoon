@@ -14,6 +14,7 @@ const memoryStorage = (initial = {}) => {
   return {
     getItem: (key) => values.get(key) ?? null,
     setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key),
   };
 };
 
@@ -37,7 +38,7 @@ test('session recovery pins the tab to WebGL without overriding an explicit quer
   assert.equal(requestedRendererMode(locationWith('?renderer=modern'), storageWith(null), recovery), 'modern');
 });
 
-test('device loss saves, selects WebGL recovery, and reloads once', () => {
+test('first device loss saves and reloads with a fresh WebGPU attempt', () => {
   const session = memoryStorage();
   let saves = 0;
   let reloads = 0;
@@ -49,17 +50,35 @@ test('device loss saves, selects WebGL recovery, and reloads once', () => {
     defer: (callback) => callback(),
   });
 
-  assert.deepEqual(recover({ api: 'WebGPU' }), { reloaded: true, reason: 'device-lost' });
+  assert.deepEqual(recover({ api: 'WebGPU' }), { reloaded: true, reason: 'retry-webgpu' });
   assert.equal(saves, 1);
   assert.equal(reloads, 1);
-  assert.equal(session.getItem(RENDERER_RECOVERY_MODE_STORAGE_KEY), 'legacy');
+  assert.equal(session.getItem(RENDERER_RECOVERY_MODE_STORAGE_KEY), null);
   assert.equal(session.getItem(RENDERER_RECOVERY_RELOAD_AT_STORAGE_KEY), '100000');
   assert.deepEqual(recover({ api: 'WebGPU' }), { reloaded: false, reason: 'already-handled' });
   assert.equal(reloads, 1);
 });
 
-test('repeated device loss inside the cooldown does not reload-loop', () => {
+test('second device loss inside the cooldown falls back to WebGL', () => {
   const session = memoryStorage({
+    [RENDERER_RECOVERY_RELOAD_AT_STORAGE_KEY]: '95000',
+  });
+  let reloads = 0;
+  const recover = createRendererRecovery({
+    sessionStorage: session,
+    location: { reload: () => { reloads++; } },
+    now: () => 100_000,
+    defer: (callback) => callback(),
+  });
+
+  assert.deepEqual(recover({ api: 'WebGPU' }), { reloaded: true, reason: 'fallback-webgl' });
+  assert.equal(reloads, 1);
+  assert.equal(session.getItem(RENDERER_RECOVERY_MODE_STORAGE_KEY), 'legacy');
+});
+
+test('loss on the fallback backend inside the cooldown does not reload-loop', () => {
+  const session = memoryStorage({
+    [RENDERER_RECOVERY_MODE_STORAGE_KEY]: 'legacy',
     [RENDERER_RECOVERY_RELOAD_AT_STORAGE_KEY]: '95000',
   });
   let suppressed = null;
@@ -76,4 +95,22 @@ test('repeated device loss inside the cooldown does not reload-loop', () => {
   assert.deepEqual(recover(info), { reloaded: false, reason: 'cooldown' });
   assert.equal(reloads, 0);
   assert.equal(suppressed, info);
+});
+
+test('a stale fallback gets another WebGPU recreation attempt', () => {
+  const session = memoryStorage({
+    [RENDERER_RECOVERY_MODE_STORAGE_KEY]: 'legacy',
+    [RENDERER_RECOVERY_RELOAD_AT_STORAGE_KEY]: '100000',
+  });
+  let reloads = 0;
+  const recover = createRendererRecovery({
+    sessionStorage: session,
+    location: { reload: () => { reloads++; } },
+    now: () => 1_000_000,
+    defer: (callback) => callback(),
+  });
+
+  assert.deepEqual(recover({ api: 'WebGL' }), { reloaded: true, reason: 'retry-webgpu' });
+  assert.equal(reloads, 1);
+  assert.equal(session.getItem(RENDERER_RECOVERY_MODE_STORAGE_KEY), null);
 });

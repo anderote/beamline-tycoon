@@ -21,6 +21,10 @@ function writeStorage(storage, key, value) {
   try { storage?.setItem(key, value); } catch (_) {}
 }
 
+function removeStorage(storage, key) {
+  try { storage?.removeItem(key); } catch (_) {}
+}
+
 function requestedRendererMode(
   location = globalThis.location,
   storage = globalThis.localStorage,
@@ -40,8 +44,10 @@ function requestedRendererMode(
 
 /**
  * Build the one-shot callback used when Three reports a device/context loss.
- * The first loss saves live game state, pins this tab to WebGL 2, and reloads.
- * A second loss during the cooldown is surfaced to the UI instead of looping.
+ * The first loss saves live game state and reloads so WebGPU gets a fresh
+ * adapter/device and every GPU resource is rebuilt. If that replacement dies
+ * during the cooldown, the second reload pins this tab to WebGL 2. A loss on
+ * the fallback backend is surfaced to the UI instead of creating a loop.
  */
 export function createRendererRecovery({
   sessionStorage = globalThis.sessionStorage,
@@ -65,17 +71,29 @@ export function createRendererRecovery({
       sessionStorage,
       RENDERER_RECOVERY_RELOAD_AT_STORAGE_KEY,
     )) || 0;
+    const recoveryMode = readStorage(sessionStorage, RENDERER_RECOVERY_MODE_STORAGE_KEY);
+    const recoveringRecently = previousReloadAt > 0
+      && timestamp - previousReloadAt < cooldownMs;
 
-    writeStorage(sessionStorage, RENDERER_RECOVERY_MODE_STORAGE_KEY, 'legacy');
-    writeStorage(sessionStorage, RENDERER_RECOVERY_RELOAD_AT_STORAGE_KEY, String(timestamp));
-
-    if (previousReloadAt > 0 && timestamp - previousReloadAt < cooldownMs) {
+    if (recoveringRecently && recoveryMode === 'legacy') {
       try { onReloadSuppressed?.(info); } catch (_) {}
       return { reloaded: false, reason: 'cooldown' };
     }
 
+    if (recoveringRecently) {
+      writeStorage(sessionStorage, RENDERER_RECOVERY_MODE_STORAGE_KEY, 'legacy');
+      writeStorage(sessionStorage, RENDERER_RECOVERY_RELOAD_AT_STORAGE_KEY, String(timestamp));
+      defer(() => location?.reload?.());
+      return { reloaded: true, reason: 'fallback-webgl' };
+    }
+
+    // A stale fallback should not permanently exile this tab from WebGPU.
+    // Its next device-loss recovery gets one fresh native attempt again.
+    removeStorage(sessionStorage, RENDERER_RECOVERY_MODE_STORAGE_KEY);
+    writeStorage(sessionStorage, RENDERER_RECOVERY_RELOAD_AT_STORAGE_KEY, String(timestamp));
+
     defer(() => location?.reload?.());
-    return { reloaded: true, reason: 'device-lost' };
+    return { reloaded: true, reason: 'retry-webgpu' };
   };
 }
 

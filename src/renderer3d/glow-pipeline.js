@@ -360,9 +360,11 @@ class ModernGlowPipeline {
   setQuality(quality = {}) {
     this._quality = { ...this._quality, ...quality };
     this._softGlowPass.strength.value = this._quality.softGlow ? this._softStrength : 0;
-    const scale = Math.max(0.2, Math.min(1, this._quality.glowScale ?? 0.5));
-    this._bloomPass._resolutionScale = scale;
-    this._softGlowPass._resolutionScale = Math.max(0.1, scale * 0.5);
+    // Three r184's BloomNode owns fixed half-resolution mip chains and exposes
+    // no resolution-scale control. Assigning a private `_resolutionScale`
+    // property here looked like a quality setting but BloomNode never read it.
+    // `glowScale` therefore remains a LegacyGlowPipeline-only control until
+    // Three exposes a supported equivalent for the node pipeline.
     if (this._aoPass) {
       this._aoStrength.value = Math.max(0, Math.min(1, quality.contactAOStrength ?? 0.65));
       this._aoPass.samples.value = Math.max(4, Math.floor(quality.contactAOSamples ?? 12));
