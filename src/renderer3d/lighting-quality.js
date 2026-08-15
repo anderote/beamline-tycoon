@@ -4,6 +4,28 @@
 export const MAX_FIXTURE_SHADOWS = 8;
 export const MAX_VOLUMETRIC_BEAMS = 8;
 
+// Every fixed fixture SpotLight contributes two fragment-shader samplers:
+// one for its cookie and one for its shadow map. The sun contributes another
+// shadow sampler, and ordinary materials still need room for their own maps.
+// WebGL implementations commonly expose only 16 fragment texture units, so
+// allocating all eight fixture slots unconditionally can make every lit
+// material's shader fail validation before a fixture is even placed.
+export const MATERIAL_TEXTURE_UNIT_RESERVE = 5;
+export const SUN_SHADOW_TEXTURE_UNITS = 1;
+export const FIXTURE_TEXTURE_UNITS = 2;
+
+/**
+ * Bound the immutable fixture-light topology to the GPU's fragment sampler
+ * budget. The returned count is fixed when the renderer is constructed, so
+ * runtime quality changes still park lights without recompiling shaders.
+ */
+export function fixtureShadowTopologyLimit(maxTextureUnits) {
+  const reported = Number(maxTextureUnits);
+  const total = Number.isFinite(reported) && reported > 0 ? reported : 16;
+  const available = total - MATERIAL_TEXTURE_UNIT_RESERVE - SUN_SHADOW_TEXTURE_UNITS;
+  return Math.max(0, Math.min(MAX_FIXTURE_SHADOWS, Math.floor(available / FIXTURE_TEXTURE_UNITS)));
+}
+
 const PRESETS = {
   low: {
     fixtureShadowCount: 0,

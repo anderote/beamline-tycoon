@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  LIGHTING_QUALITY_PRESETS, MAX_FIXTURE_SHADOWS,
+  LIGHTING_QUALITY_PRESETS, MAX_FIXTURE_SHADOWS, fixtureShadowTopologyLimit,
   normalizeLightingQuality, resolveLightingQuality,
 } from '../src/renderer3d/lighting-quality.js';
 import { ShadowScheduler } from '../src/renderer3d/shadow-scheduler.js';
@@ -25,6 +25,17 @@ test('auto lighting quality uses conservative capability thresholds', () => {
   assert.equal(resolveLightingQuality('auto', { hardwareConcurrency: 4, deviceMemory: 4 }).name, 'medium');
   assert.equal(resolveLightingQuality('auto', { hardwareConcurrency: 8, deviceMemory: 8 }).name, 'high');
   assert.equal(resolveLightingQuality('auto', { hardwareConcurrency: 16, deviceMemory: 16, maxTextureSize: 8192 }).name, 'ultra');
+});
+
+test('fixture shadow topology stays inside the fragment texture-unit budget', () => {
+  assert.equal(fixtureShadowTopologyLimit(16), 5,
+    'a common 16-unit GPU retains five units for material textures');
+  assert.equal(fixtureShadowTopologyLimit(32), MAX_FIXTURE_SHADOWS,
+    'a 32-unit GPU can allocate the full fixture pool');
+  assert.equal(fixtureShadowTopologyLimit(8), 1,
+    'small sampler budgets degrade without exceeding the limit');
+  assert.equal(fixtureShadowTopologyLimit(undefined), 5,
+    'missing capability data uses the conservative WebGL baseline');
 });
 
 test('shadow scheduler immediately refreshes new assignments and staggers them', () => {

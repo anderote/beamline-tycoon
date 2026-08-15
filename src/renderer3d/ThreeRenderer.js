@@ -48,7 +48,8 @@ import { LightRig } from './light-rig.js';
 import { VisualEffectSystem } from './visual-effect-system.js';
 import { fixtureMountY, wallFixturePose } from './fixture-light-math.js';
 import {
-  MAX_FIXTURE_SHADOWS, normalizeLightingQuality, resolveLightingQuality,
+  MAX_FIXTURE_SHADOWS, fixtureShadowTopologyLimit,
+  normalizeLightingQuality, resolveLightingQuality,
 } from './lighting-quality.js';
 import { ShadowScheduler } from './shadow-scheduler.js';
 import { VolumetricLightPool } from './volumetric-light-pool.js';
@@ -607,9 +608,10 @@ export class ThreeRenderer {
     // not two. Pool sizes/shadow resolution are constructor options (see
     // light-rig.js) so a frame-budget complaint is a one-line dial, not a
     // rewrite.
+    const fixtureShadowSlots = fixtureShadowTopologyLimit(this.renderer.capabilities.maxTextures);
     this._lightRig = new LightRig(this.scene, {
       enabled: glowStored !== '0',
-      shadowSpotCount: MAX_FIXTURE_SHADOWS,
+      shadowSpotCount: fixtureShadowSlots,
       activeShadowSpotCount: this._lightingQuality.fixtureShadowCount,
       pointCount: 8,
       shadowMapSize: this._lightingQuality.fixtureShadowMapSize,
