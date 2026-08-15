@@ -63,7 +63,7 @@ import { tileCenterIso, gridToIso } from '../renderer/grid.js';
 import { WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, WINDOW_WIDTH_FRAC } from '../data/structure.js';
 import { ZONES } from '../data/facility.js';
 import { COMPONENTS } from '../data/components.js';
-import { DIR, DIR_DELTA, turnLeft } from '../data/directions.js';
+import { DIR, DIR_DELTA, turnLeft, reverseDir } from '../data/directions.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import {
   PITCH_REST,
@@ -2898,11 +2898,15 @@ export class ThreeRenderer {
     fillGeo.computeVertexNormals();
     this._addPreviewMesh(new THREE.Mesh(fillGeo, fillMat));
 
-    // Every device gets the same unambiguous local-front marker. Decorations
-    // are intentionally excluded: a tree or shrub has no operator-facing side.
+    // Every device gets the same unambiguous local-front marker. Beamline
+    // sources are the one inverse convention: their mesh's local +Z exit is
+    // 'front' (S at dir=0), while DIR_DELTA[0] is N. Reverse it so the marker
+    // follows the source's actual output flange / exit port. Decorations are
+    // intentionally excluded: a tree or shrub has no operator-facing side.
     if (placeable.kind !== 'decoration') {
+      const arrowDir = placeable.isSource ? reverseDir(hover.dir || 0) : (hover.dir || 0);
       this._addFacingArrow(
-        px, pz, hover.dir || 0, ghRaw * SUB_UNIT / 2,
+        px, pz, arrowDir, ghRaw * SUB_UNIT / 2,
         surfaceY + placeYOffset + EDGE_OFFSET + 0.03,
       );
     }
