@@ -3,7 +3,7 @@ import {
   bootFreshGame, createErrorCollector, expectRendererLive, frames,
 } from './helpers.mjs';
 
-test('selected distribution panel owns Tab and advertises live nearby plugs on hover', async ({ page }) => {
+test('hovered distribution panel owns Tab without opening its info window', async ({ page }) => {
   const errors = createErrorCollector(page);
   await bootFreshGame(page);
   await expectRendererLive(page);
@@ -44,34 +44,23 @@ test('selected distribution panel owns Tab and advertises live nearby plugs on h
     '3 unconnected power plugs in range · Tab connects 3',
   );
 
-  // Selection itself is existing, separately-covered behavior. Use its public
-  // input entry point as scaffolding so this spec stays about the new Tab
-  // ownership and does not depend on pixel-perfect picking at a map edge.
-  await page.evaluate((panelId) => {
-    const input = window._renderer._inputHandler;
-    input._selectPlaceable(window.game.getPlaceable(panelId));
-  }, setup.panelId);
-  await expect.poll(() => page.evaluate(() =>
-    window._renderer._inputHandler.selectedPlaceableId)).toBe(setup.panelId);
-  await expect(page.locator('.ctx-action-btn').filter({ hasText: 'Auto-connect' }))
-    .toContainText('Tab');
-
   const categoryBefore = await page.evaluate(() =>
     window._renderer._inputHandler.selectedCategory);
   await page.keyboard.press('Tab');
   await expect.poll(() => page.evaluate(() => window.game.state.utilityLines.size)).toBe(3);
   expect(await page.evaluate(() => window._renderer._inputHandler.selectedCategory),
-    'selected-panel Tab does not also cycle the build palette').toBe(categoryBefore);
+    'hovered-panel Tab does not also cycle the build palette').toBe(categoryBefore);
+  expect(await page.evaluate(() => window._renderer._inputHandler.selectedPlaceableId),
+    'hover auto-connect does not select the panel').toBeNull();
+  await expect(page.locator(`.ctx-window[data-ctx-id="equip-${setup.panelId}"]`))
+    .toHaveCount(0);
 
   const connectedLoads = await page.evaluate(() => [...window.game.state.utilityLines.values()]
     .map(line => line.end.placeableId).sort());
   expect(connectedLoads).toEqual(setup.loadIds.slice().sort());
 
-  // Clear the selection through the same input seam an empty-ground click
-  // uses; the keyboard event below remains real user input.
-  await page.evaluate(() => window._renderer._inputHandler._clearSelection());
-  await expect.poll(() => page.evaluate(() =>
-    window._renderer._inputHandler.selectedPlaceableId)).toBeNull();
+  await page.mouse.move(4, 4);
+  await expect(page.locator('.hover-tooltip')).toHaveCount(0);
   await page.keyboard.press('Tab');
   await expect.poll(() => page.evaluate(() =>
     window._renderer._inputHandler.selectedCategory)).not.toBe(categoryBefore);
