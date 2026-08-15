@@ -672,9 +672,7 @@ UIHost.prototype._generateCategoryTabs = function() {
     btn.addEventListener('click', () => {
       tabsContainer.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
       btn.classList.add('active');
-      this._renderPalette(key);
-      this._renderConnectionGuide(key);
-      this._updateSystemStatsContent(key);
+      this.updatePalette(key);
       if (this._onTabSelect) this._onTabSelect(key);
     });
     tabsContainer.appendChild(btn);
@@ -682,16 +680,15 @@ UIHost.prototype._generateCategoryTabs = function() {
 
   // Render palette for first category in mode
   if (catKeys.length > 0) {
-    this._renderPalette(catKeys[0]);
-    this._renderConnectionGuide(catKeys[0]);
-    this._updateSystemStatsContent(catKeys[0]);
+    this.updatePalette(catKeys[0]);
     if (isFacility && this._onTabSelect) this._onTabSelect(catKeys[0]);
   }
 };
 
-const CONNECTION_GUIDES = {
+export const CONNECTION_GUIDES = {
   power: {
     title: 'POWER PATH',
+    description: 'Bring grid power through distribution before feeding equipment.',
     flow: [
       { name: 'GRID / HV', icon: '⚡', detail: 'supply' },
       { name: 'SWITCHGEAR', icon: '▣', detail: 'distribution' },
@@ -701,6 +698,7 @@ const CONNECTION_GUIDES = {
   },
   vacuum: {
     title: 'VACUUM PATH',
+    description: 'Pump the beam volume, then monitor it with vacuum instruments.',
     flow: [
       { name: 'PUMPS', icon: '◉', detail: 'rough + turbo' },
       { name: 'BEAMLINE', icon: '═', detail: 'vacuum volume' },
@@ -710,6 +708,7 @@ const CONNECTION_GUIDES = {
   },
   rfPower: {
     title: 'RF PATH',
+    description: 'Drive an RF source, then route its output to compatible cavities.',
     flow: [
       { name: 'MODULATOR', icon: '▥', detail: 'control' },
       { name: 'RF SOURCE', icon: '◉', detail: 'amplifier' },
@@ -719,6 +718,7 @@ const CONNECTION_GUIDES = {
   },
   cooling: {
     title: 'COOLING LOOP',
+    description: 'Supply and chill the loop, carry heat away, then reject it.',
     flow: [
       { name: 'MAKE-UP', icon: '●', detail: 'water' },
       { name: 'CHILLER', icon: '▣', detail: 'cold loop' },
@@ -729,6 +729,7 @@ const CONNECTION_GUIDES = {
   },
   dataControls: {
     title: 'CONTROL PATH',
+    description: 'Link the control rack to equipment for commands and telemetry.',
     flow: [
       { name: 'CONTROL RACK', icon: '▥', detail: 'logic + interlocks' },
       { name: 'EQUIPMENT', icon: '◆', detail: 'telemetry' },
@@ -737,6 +738,7 @@ const CONNECTION_GUIDES = {
   },
   ops: {
     title: 'OPERATIONS',
+    description: 'Provide staffed safety systems before operating the beamline.',
     flow: [
       { name: 'SAFETY + STAFF', icon: '✚', detail: 'operate safely' },
       { name: 'BEAMLINE', icon: '═', detail: 'run experiments' },
@@ -764,6 +766,12 @@ UIHost.prototype._renderConnectionGuide = function(category) {
   header.className = 'connection-guide-header';
   header.innerHTML = `<span class="connection-guide-kicker">CONNECTION GUIDE</span><span class="connection-guide-title">${guide.title}</span>`;
   el.appendChild(header);
+  const body = document.createElement('div');
+  body.className = 'connection-guide-body';
+  const description = document.createElement('div');
+  description.className = 'connection-guide-desc';
+  description.textContent = guide.description;
+  body.appendChild(description);
   const flow = document.createElement('div');
   flow.className = 'connection-guide-flow blt-diagram';
   guide.flow.forEach((item, index) => {
@@ -778,7 +786,8 @@ UIHost.prototype._renderConnectionGuide = function(category) {
       flow.appendChild(link);
     }
   });
-  el.appendChild(flow);
+  body.appendChild(flow);
+  el.appendChild(body);
 };
 
 // The infrastructure guide owns the same lower-left slot as the normal
@@ -2759,6 +2768,8 @@ UIHost.prototype._hidePalettePreview = function() {
 
 UIHost.prototype.updatePalette = function(category) {
   this._renderPalette(category);
+  this._renderConnectionGuide(category);
+  this._updateSystemStatsContent(category);
 };
 
 // --- HUD event bindings ---
