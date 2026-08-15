@@ -1,7 +1,15 @@
 import { test, expect } from '@playwright/test';
 import { waitForBoot } from './helpers.mjs';
 
-test('device loss reloads once on WebGL 2 and stops a recovery loop', async ({ page }) => {
+test('repeated device loss falls back to WebGL 2 and stops a recovery loop', async ({ page }) => {
+  // Pretend the immediately preceding document already made the one allowed
+  // WebGPU recreation attempt. This keeps the browser test to two expensive
+  // software-rendered boots; the first-attempt state machine is unit-tested.
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem('beamlineTycoon.rendererRecoveryReloadAt')) {
+      sessionStorage.setItem('beamlineTycoon.rendererRecoveryReloadAt', String(Date.now()));
+    }
+  });
   await page.goto('/');
   await waitForBoot(page);
 
