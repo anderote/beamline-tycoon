@@ -1,0 +1,60 @@
+# Performance benchmarks
+
+## Ten large beamlines
+
+`npm run benchmark:ten-large` constructs ten copies of the shipped
+`blackhole-pev` stock design through a real `Game` and measures the principal
+headless scaling boundaries:
+
+- 300 ordinary game ticks with every beamline running;
+- per-beamline fallback recalculation;
+- partial and full world snapshots on a map large enough for the design;
+- the public component, pipe-attachment, and beam-effect builders;
+- near/far LOD scene objects, draw calls, triangles, and shadow casters;
+- a component / pipe-attachment / beam-effect breakdown, including real light
+  and emissive-glow counts;
+- the authored beam-pipe support/flange detail demand;
+- twenty CPython engine calls, matching the current per-entry plus aggregate
+  main-graph physics passes for ten beamlines.
+
+The normal command reports current values and target PASS/FAIL status without
+failing the process. `npm run benchmark:ten-large -- --gate` exits non-zero
+when a target is missed; it is intended for use after the optimization phases
+bring the current baseline inside budget. `--json` produces machine-readable
+output and `--no-physics` skips the slower CPython workload. Use npm's silent
+mode when redirecting JSON so npm's own command banner is not mixed into it:
+
+```sh
+npm run --silent benchmark:ten-large -- --json > ten-large.json
+```
+
+The initial targets are optimization budgets, not claims about current
+performance. An 8 ms tick/partial-snapshot budget preserves roughly half of a
+60 Hz frame for rendering; the 16 ms synchronous-physics budget catches a
+recalculation capable of consuming a whole frame. Draw-call, triangle, shadow,
+and pipe-object targets describe the intended post-batching/LOD scene. Keep the
+budgets fixed while optimizing so a change cannot make itself pass by moving
+the finish line.
+
+This is deliberately not described as an FPS benchmark. The component scene
+is built with the same public builders as production, but the beam-pipe figure
+is an exact structural estimate of the current renderer's one-mesh-per-run,
+support, and interior-flange path because pipe construction has not yet been
+extracted from `ThreeRenderer` into a public builder. When that extraction and
+batching land, this estimate should be replaced by measurements from the shared
+builder. It cannot measure GPU submission, post-processing, real shadow-map
+renders, or driver behavior.
+Those require the repository owner's explicit approval for the browser lane.
+The headless benchmark provides a stable fixture and structural budgets first,
+so browser captures later compare the same world rather than a hand-built save.
+
+The native CPython timing covers the same twenty synchronous calls the current
+ten-line recalculation requests (ten registry lines plus ten main-graph
+segments). It is a lower-bound proxy, not a Pyodide measurement; a browser
+capture is needed before quoting the exact user-visible hitch.
+
+The fixture currently excludes utility support plant. Utility networks and
+their presentation will be added as a second benchmark layer when utility-line
+batching begins; mixing an invented support layout into this first baseline
+would make it impossible to tell whether component or utility rendering caused
+a regression.
