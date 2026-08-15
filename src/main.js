@@ -653,8 +653,8 @@ function showScenarioPicker(game) {
     for (const [id, port] of [[src,'vac_in'],[far,'vac_in'],[vacBus,'bus_left']])
       wire('vacuumPipe', pump,'vac_out', id, port);
     wire('rfWaveguide', kly,'rf_out', rfBus,'bus_left');
-    wire('plantWater', tank,'water_out', condenser,'plant_in');
-    wire('plantWater', condenser,'reject_out', chil,'reject_in');
+    wire('coolingWater', tank,'cool_out', condenser,'cool_out');
+    wire('coolingWater', condenser,'cool_out', chil,'cool_out');
     for (const [id, port] of [[src,'cool_in'],[coolBus,'bus_left']])
       wire('coolingWater', chil,'cool_out', id, port);
     for (const [id, port] of [[far,'data_in'],[demoBpm,'data_in']])

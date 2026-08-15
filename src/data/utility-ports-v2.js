@@ -902,22 +902,21 @@ const INFRA_UTILITY_PORTS = {
   multibeamKlystron:   { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 200, dutyFactor: 0.005 } } },
   highPowerSSA:        { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 300, dutyFactor: 1.0 } } },
   gyrotron:            { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 1000, dutyFactor: 1.0 } } },
-  // Cooling is staged. Plant water ties tank -> heat rejector -> chiller;
-  // only the chiller exposes the process-water source that reaches equipment.
+  // One cooling-water network carries plant and process water. A working loop
+  // contains a reservoir, chiller, and heat rejector; compact units carry all
+  // three roles on their one connection.
   // $/kW falls monotonically up the ladder (7000 → 6500 → 6000 → 5143 → 4000
   // → 3100 → 2500), so a bigger plant is always the better deal once you can
   // afford one. The 175 and 500 kW rungs exist so growing past a skid or a
   // chiller does not mean buying 3x the capacity you actually need.
-  waterTank:            { water_out: { utility: 'plantWater', side: 'right', offsetAlong: 0.5, role: 'source', connectionKind: 'plantWaterSupplyOut', params: { waterSupply: true } } },
-  fanCoilCooler:         { plant_in: { utility: 'plantWater', side: 'left', offsetAlong: 0.5, role: 'sink', through: true, connectionKind: 'plantWaterRejectorIn', params: {} }, reject_out: { utility: 'plantWater', side: 'right', offsetAlong: 0.5, role: 'source', through: true, connectionKind: 'plantWaterRejectorOut', params: { rejectionCapacity: 50 } } },
-  dryCoolerBank:         { plant_in: { utility: 'plantWater', side: 'left', offsetAlong: 0.5, role: 'sink', through: true, connectionKind: 'plantWaterRejectorIn', params: {} }, reject_out: { utility: 'plantWater', side: 'right', offsetAlong: 0.5, role: 'source', through: true, connectionKind: 'plantWaterRejectorOut', params: { rejectionCapacity: 500 } } },
-  coolingTower:          { plant_in: { utility: 'plantWater', side: 'left', offsetAlong: 0.5, role: 'sink', through: true, connectionKind: 'plantWaterRejectorIn', params: {} }, reject_out: { utility: 'plantWater', side: 'right', offsetAlong: 0.5, role: 'source', through: true, connectionKind: 'plantWaterRejectorOut', params: { rejectionCapacity: 800 } } },
-  // Starter packages contain their tank, pump and air-cooled condenser. They
-  // need wall power but no external plant-water pipework.
-  packageChiller:        { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 50 } } },
-  lcwSkid:               { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 100 } } },
-  dualCircuitChiller:    { reject_in: { utility: 'plantWater', side: 'left', offsetAlong: 0.5, role: 'sink', connectionKind: 'plantWaterChillerIn', params: { rejectionDemand: 175 } }, cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 175 } } },
-  chiller:               { reject_in: { utility: 'plantWater', side: 'left', offsetAlong: 0.5, role: 'sink', connectionKind: 'plantWaterChillerIn', params: { rejectionDemand: 300 } }, cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 300 } } },
+  waterTank:             { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { reservoir: true } } },
+  fanCoilCooler:         { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { heatRejectionCapacity: 50 } } },
+  dryCoolerBank:         { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { heatRejectionCapacity: 500 } } },
+  coolingTower:          { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { heatRejectionCapacity: 800 } } },
+  packageChiller:        { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { reservoir: true, capacity: 5, heatRejectionCapacity: 5 } } },
+  lcwSkid:               { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { reservoir: true, capacity: 25, heatRejectionCapacity: 25 } } },
+  dualCircuitChiller:    { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 175 } } },
+  chiller:               { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 300 } } },
   // cryo
   coldBox4K:           { cryo_out: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'source', params: { coldCapacityW: 500 } } },
   coldBox2K:           { cryo_out: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'source', params: { coldCapacityW: 800 } } },

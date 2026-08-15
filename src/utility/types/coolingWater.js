@@ -9,7 +9,7 @@
 // 0.6 L/tick — a ~$5k refill every ~700 ticks; a 60 kW detector loop refills
 // about twice as often. Visible recurring cost, not a death spiral.
 
-import { powerFeedFactor, heatRejectionFeedFactor } from '../power-feed.js';
+import { powerFeedFactor } from '../power-feed.js';
 
 export const EVAP_PER_KW_PER_TICK = 0.02;
 export const RESERVOIR_MAX_L = 500;
@@ -29,8 +29,8 @@ export default {
   color: '#4488ff',
   geometryStyle: 'cylinder',
   pipeRadiusMeters: 0.04,
-  // Capacity and heatLoad are both kW of heat moved (fanCoilCooler 20 →
-  // packageChiller 50 → lcwSkid 100 → dualCircuitChiller 175 → chiller 300 →
+  // Capacity and heatLoad are both kW of heat moved (packageChiller 5 →
+  // lcwSkid 25 → dualCircuitChiller 175 → chiller 300 →
   // dryCoolerBank 500 → coolingTower 800); litres only track the reservoir
   // level.
   capacityUnit: 'kW',
@@ -48,10 +48,17 @@ export default {
   costPerSubUnit: 36,
   persistentStateDefaults: { reservoirVolumeL: RESERVOIR_MAX_L },
   solve(network, persistent, worldState) {
-    const totalCapacity = network.sources.reduce(
+    const reservoirs = network.sources.filter(s => s.params?.reservoir);
+    const chillers = network.sources.filter(s => (s.params?.capacity || 0) > 0);
+    const rejectors = network.sources.filter(s => (s.params?.heatRejectionCapacity || 0) > 0);
+    const chillerCapacity = chillers.reduce(
       (a, s) => a + ((s.params && s.params.capacity) || 0)
-        * powerFeedFactor(worldState, s.placeableId)
-        * heatRejectionFeedFactor(worldState, s.placeableId), 0);
+        * powerFeedFactor(worldState, s.placeableId), 0);
+    const rejectionCapacity = rejectors.reduce(
+      (a, s) => a + ((s.params && s.params.heatRejectionCapacity) || 0)
+        * powerFeedFactor(worldState, s.placeableId), 0);
+    const plantComplete = reservoirs.length > 0 && chillers.length > 0 && rejectors.length > 0;
+    const totalCapacity = plantComplete ? Math.min(chillerCapacity, rejectionCapacity) : 0;
     const totalDemand = network.sinks.reduce(
       (a, s) => a + ((s.params && s.params.heatLoad) || 0), 0);
     const currentReservoir = (persistent && persistent.reservoirVolumeL) || 0;
@@ -68,12 +75,12 @@ export default {
         message: 'Cooling reservoir is empty.',
         location: { networkId: network.id },
       });
-    } else if (totalCapacity === 0 && totalDemand > 0) {
+    } else if (!plantComplete && totalDemand > 0) {
       quality = 0;
       errors.push({
         severity: 'hard',
         code: 'cooling_plant_offline',
-        message: 'Cooling network has no live chiller capacity.',
+        message: 'Cooling network needs a reservoir, chiller, and heat rejector.',
         location: { networkId: network.id },
       });
     } else {
@@ -97,6 +104,9 @@ export default {
         networkId: network.id,
         utilityType: network.utilityType,
         totalCapacity,
+        chillerCapacity,
+        rejectionCapacity,
+        plantComplete,
         totalDemand,
         utilization: totalCapacity > 0
           ? Math.min(1, totalDemand / totalCapacity)

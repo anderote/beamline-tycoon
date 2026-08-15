@@ -389,13 +389,12 @@ UIHost.prototype.drawSchematic = function(canvas, componentType, params, options
       powerCable:   C.pipePower,
       rfWaveguide:  C.pipeRF,
       coolingWater: C.pipeCooling,
-      plantWater: C.pipePlantWater,
       cryoTransfer: C.pipeCryo,
       dataFiber:    C.pipeData,
       vacuumPipe:   C.pipeVacuum,
     };
     // Valve-bearing connection types (fluid lines)
-    const valveConns = new Set(['coolingWater', 'plantWater', 'cryoTransfer', 'vacuumPipe']);
+    const valveConns = new Set(['coolingWater', 'cryoTransfer', 'vacuumPipe']);
     // Collect unique connection types
     const uniqueConns = [...new Set(conns)].filter(c => connColorMap[c]);
     // Add output connections for facility categories that provide services
@@ -407,10 +406,8 @@ UIHost.prototype.drawSchematic = function(canvas, componentType, params, options
     if (comp.category === 'cooling' && comp.subsection === 'cryogenics' && !uniqueConns.includes('cryoTransfer')) {
       uniqueConns.push('cryoTransfer');
     }
-    // Cooling diagrams describe their actual service: process-water plant
-    // supplies LCW, while tanks and rejectors sit on the plant-water loop.
-    if (comp.category === 'cooling' && ['integratedCooling', 'processCooling'].includes(comp.subsection) && !uniqueConns.includes('coolingWater')) uniqueConns.push('coolingWater');
-    if (comp.category === 'cooling' && ['waterSupply', 'heatRejection'].includes(comp.subsection) && !uniqueConns.includes('plantWater')) uniqueConns.push('plantWater');
+    // All cooling equipment now belongs on the one Cooling Water loop.
+    if (comp.category === 'cooling' && !uniqueConns.includes('coolingWater')) uniqueConns.push('coolingWater');
     // Data/Controls: produces data fiber output
     if (comp.category === 'dataControls' && !uniqueConns.includes('dataFiber')) {
       uniqueConns.push('dataFiber');

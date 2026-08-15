@@ -272,12 +272,6 @@ function portsCanConnect(startSpec, endSpec, utilityType) {
       || oneOfPair(a, b, 'powerDistributionOut', 'powerFieldIn')
       || oneOfPair(a, b, 'powerFieldOut', 'powerLoadIn');
   }
-  if (utilityType === 'plantWater') {
-    const a = connectionKind(startSpec, utilityType);
-    const b = connectionKind(endSpec, utilityType);
-    return oneOfPair(a, b, 'plantWaterSupplyOut', 'plantWaterRejectorIn')
-      || oneOfPair(a, b, 'plantWaterRejectorOut', 'plantWaterChillerIn');
-  }
   return true;
 }
 

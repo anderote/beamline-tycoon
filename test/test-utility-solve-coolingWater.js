@@ -18,6 +18,11 @@ function assert(cond, msg) {
 function approx(a, b, eps = 1e-6) { return Math.abs(a - b) < eps; }
 
 function mkNetwork(overrides) {
+  const supplied = overrides?.sources || [];
+  const sources = supplied.map((source, i) => i === 0
+    ? { ...source, params: { ...source.params, reservoir: true,
+      heatRejectionCapacity: source.params?.capacity || 0 } }
+    : source);
   return {
     id: 'net_x',
     utilityType: 'coolingWater',
@@ -26,6 +31,7 @@ function mkNetwork(overrides) {
     sources: [],
     sinks: [],
     ...overrides,
+    sources,
   };
 }
 

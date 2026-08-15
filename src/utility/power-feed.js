@@ -34,13 +34,6 @@ function hvLoadInputNetwork(worldState, placeableId) {
     .some(port => `${port.placeableId}:${port.portName}` === inputKey)) || null;
 }
 
-function plantWaterInputNetwork(worldState, placeableId) {
-  const networks = worldState?.utilityNetworks?.get?.('plantWater') || [];
-  const inputKey = `${placeableId}:reject_in`;
-  return networks.find(network => (network.ports || [])
-    .some(port => `${port.placeableId}:${port.portName}` === inputKey)) || null;
-}
-
 // Evaluate a feeder tree directly from discovered topology. `hvCable` runs
 // before branch power, but one hvCable network can itself feed another through
 // main switchgear. Reading last tick's nodeQualities made that chain take an
@@ -100,20 +93,5 @@ export function powerFeedFactor(worldState, placeableId) {
   const portName = isHvLoad ? 'hv_in' : 'pwr_in';
   const flow = network && worldState.utilityNetworkData?.get?.(utilityType)?.get?.(network.id);
   const quality = flow?.perSinkQuality?.[`${placeableId}:${portName}`];
-  return typeof quality === 'number' ? Math.max(0, Math.min(1, quality)) : 0;
-}
-
-/**
- * A process chiller cannot create useful LCW unless its condenser is tied to
- * a live make-up-water and heat-rejection network. Plant water solves before
- * coolingWater, so this sees the current tick's delivery quality.
- */
-export function heatRejectionFeedFactor(worldState, placeableId) {
-  if (!worldState) return 1;
-  const type = typeForId(worldState, placeableId);
-  if (!type || !getUtilityPortsV2(type).reject_in) return 1;
-  const network = plantWaterInputNetwork(worldState, placeableId);
-  const flow = network && worldState.utilityNetworkData?.get?.('plantWater')?.get?.(network.id);
-  const quality = flow?.perSinkQuality?.[`${placeableId}:reject_in`];
   return typeof quality === 'number' ? Math.max(0, Math.min(1, quality)) : 0;
 }

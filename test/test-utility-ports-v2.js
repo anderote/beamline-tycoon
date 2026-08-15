@@ -255,14 +255,19 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
     'a supply hands out no branch circuits — everything goes through distribution');
 
   const lcw = getUtilityPortsV2('lcwSkid');
+  const packageUnit = getUtilityPortsV2('packageChiller');
   const tower = getUtilityPortsV2('coolingTower');
   const tank = getUtilityPortsV2('waterTank');
-  assert(lcw.cool_out.params.capacity === 100 && !lcw.reject_in,
-    'LCW skid is a self-contained 100 kW starter cooling package');
-  assert(tower.reject_out.params.rejectionCapacity === 800,
-    'cooling tower provides external heat-rejection capacity');
-  assert(tank.water_out?.utility === 'plantWater' && tank.water_out.params.waterSupply === true,
-    'make-up tank starts the plant-water chain');
+  assert(lcw.cool_out.params.capacity === 25 && lcw.cool_out.params.reservoir
+      && lcw.cool_out.params.heatRejectionCapacity === 25,
+  'LCW skid is a self-contained 25 kW cooling plant');
+  assert(packageUnit.cool_out.params.capacity === 5 && packageUnit.cool_out.params.reservoir
+      && packageUnit.cool_out.params.heatRejectionCapacity === 5,
+  'package chiller is a self-contained 5 kW cooling plant');
+  assert(tower.cool_out.params.heatRejectionCapacity === 800,
+    'cooling tower provides heat rejection on Cooling Water');
+  assert(tank.cool_out?.utility === 'coolingWater' && tank.cool_out.params.reservoir,
+    'make-up tank provides the Cooling Water reservoir role');
 
   const rough = getUtilityPortsV2('roughingPump');
   const turbo = getUtilityPortsV2('turboPump');

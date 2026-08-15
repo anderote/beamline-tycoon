@@ -28,7 +28,7 @@ export const MODES = {
                       utilityLineTools: ['rfWaveguide'],
                       subsections: { transport: { name: 'Transport' }, supply: { name: 'RF Sources' }, distribution: { name: 'Distribution' }, controls: { name: 'Controls' } } },
       cooling:      { name: 'Cooling',         color: '#48c',
-                      utilityLineTools: ['plantWater', 'coolingWater', 'cryoTransfer'],
+                      utilityLineTools: ['coolingWater', 'cryoTransfer'],
                       subsections: {
                         transport: { name: 'Pipes' },
                         waterSupply: { name: 'Water Supply' },
