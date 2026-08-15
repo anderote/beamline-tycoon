@@ -573,8 +573,16 @@ function _buildHighBay(def) {
   bell.castShadow = true;
   group.add(bell);
 
-  const glow = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.015, 14), glowMat);
-  glow.position.y = bellY - 0.08;
+  // A capped cylinder exposes an emissive TOP face. At the bell's lower cap
+  // that face sits on the reflector instead of beneath it, so selective bloom
+  // reads through the back of the shade from an elevated camera. The diffuser
+  // is physically directional: one downward-facing disc, tucked just below
+  // the opaque reflector. FrontSide rendering then makes the shade block the
+  // source from above while leaving the working face bright from below.
+  const glow = new THREE.Mesh(new THREE.CircleGeometry(0.2, 14), glowMat);
+  glow.rotation.x = Math.PI / 2; // CircleGeometry +Z normal -> world/local -Y.
+  glow.position.y = bellY - 0.082;
+  glow.userData.role = 'downwardDiffuser';
   group.add(glow);
 
   group.userData.emitterMaterial = glowMat;
