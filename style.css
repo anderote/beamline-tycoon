@@ -5813,104 +5813,155 @@ body {
   50%      { box-shadow: 0 0 8px rgba(160, 200, 255, 0.45); }
 }
 
-.ctx-window.bltype-window { width: 620px; }
-.ctx-window.bltype-window .ctx-body { height: 440px; }
-
-/* Whole research horizon. The type cards answer "what is this machine?";
-   this strip answers the other question the old picker left implicit: "where
-   am I, and what can I work toward next?" */
-.bltype-roadmap {
-  margin-bottom: 9px;
-  padding: 8px;
-  border: 1px solid rgba(79, 116, 170, 0.34);
-  border-radius: 4px;
-  background: linear-gradient(120deg, rgba(21, 31, 55, 0.92), rgba(12, 17, 35, 0.88));
+.ctx-window.bltype-window {
+  width: 660px;
+  max-width: calc(100vw - 24px);
+  overflow: hidden;
+  border-color: var(--blt-panel-border);
+  border-radius: 5px;
+  background: var(--blt-panel-bg);
+  box-shadow: 0 10px 0 rgba(0, 0, 8, 0.34), 0 22px 54px rgba(0, 0, 10, 0.58);
 }
-.bltype-roadmap-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
+.ctx-window.bltype-window .ctx-titlebar {
+  padding: 11px 14px 10px;
+  border-bottom-color: var(--blt-panel-divider);
+  background:
+    linear-gradient(90deg, rgba(52, 103, 190, 0.25), transparent 58%),
+    #14142d !important;
+}
+.ctx-window.bltype-window .ctx-title {
+  color: var(--blt-heading);
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  text-shadow: 0 0 9px rgba(142, 205, 242, 0.2);
+}
+.ctx-window.bltype-window .ctx-body {
+  height: 480px;
+  max-height: calc(100vh - 150px);
+  padding: 12px 14px 15px;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 23px, rgba(110, 120, 170, 0.025) 23px 24px),
+    repeating-linear-gradient(90deg, transparent 0 23px, rgba(110, 120, 170, 0.02) 23px 24px),
+    rgba(8, 8, 23, 0.5);
+}
+.ctx-window.bltype-window .ctx-actions {
+  border-top-color: var(--blt-panel-divider);
+  background: rgba(10, 10, 27, 0.82);
+}
+.ctx-window.bltype-window .ctx-action-btn {
+  border-color: var(--blt-panel-border);
+  background: rgba(26, 29, 55, 0.94);
+  color: var(--blt-body);
+}
+.ctx-window.bltype-window .ctx-action-btn:hover {
+  border-color: rgba(142, 205, 242, 0.55);
+  background: rgba(36, 48, 78, 0.96);
+  color: var(--blt-heading);
+}
+
+.bltype-brief {
+  margin-bottom: 10px;
+  padding: 10px 12px 11px;
+  background:
+    linear-gradient(100deg, rgba(53, 116, 156, 0.12), transparent 48%),
+    rgba(11, 12, 30, 0.88);
+}
+.bltype-brief-kicker {
   margin-bottom: 7px;
-  color: #7587ad;
+  color: #6688a4;
+  font-size: 7px;
+  letter-spacing: 1.2px;
+}
+.bltype-brief-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.bltype-brief-row strong {
+  color: var(--blt-heading);
+  font-size: 11px;
+  font-weight: normal;
+  line-height: 1.45;
+}
+.bltype-brief-row span {
+  flex: none;
+  color: var(--blt-diagram);
   font-size: 7px;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
 }
-.bltype-roadmap-head strong { color: #b8c9ef; font-weight: normal; }
-.bltype-roadmap-tiers {
+.bltype-brief p {
+  margin: 7px 0 0;
+  color: var(--blt-body);
+  font-size: 8px;
+  line-height: 1.65;
+}
+.bltype-brief-path {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px 7px;
+  grid-template-columns: 7px 1fr 7px 1fr 7px;
+  align-items: center;
+  width: min(290px, 70%);
+  margin-top: 9px;
 }
-.bltype-roadmap-tier {
-  display: grid;
-  grid-template-columns: 20px 1fr;
-  gap: 4px;
-  min-width: 0;
+.bltype-brief-path i {
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--blt-diagram);
+  background: #101323;
+  box-shadow: 0 0 6px rgba(142, 205, 242, 0.25);
 }
-.bltype-roadmap-label { color: #59678a; font-size: 7px; padding-top: 3px; }
-.bltype-roadmap-items { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.bltype-roadmap-item {
-  display: flex;
-  justify-content: space-between;
-  gap: 4px;
-  min-width: 0;
-  padding: 2px 4px;
-  color: #747b98;
-  background: rgba(8, 10, 24, 0.56);
-  border-left: 2px solid #464b63;
-  font-size: 6px;
-  line-height: 1.35;
-}
-.bltype-roadmap-item b { color: #d2a55b; font-weight: normal; flex: 0 0 auto; }
-.bltype-roadmap-item.ready { color: #a9c9b2; border-left-color: #4d9e6b; }
-.bltype-roadmap-item.ready b { color: #69d38c; }
-.bltype-roadmap-item.active { color: #d6c28d; border-left-color: #d4a43f; }
-.bltype-frontier {
-  display: grid;
-  grid-template-columns: auto auto 1fr;
-  align-items: baseline;
-  gap: 5px;
-  margin-top: 7px;
-  padding-top: 6px;
-  border-top: 1px solid rgba(83, 103, 145, 0.25);
-  font-size: 7px;
-}
-.bltype-frontier > span { color: #65769a; text-transform: uppercase; }
-.bltype-frontier > strong { color: #d4def5; font-weight: normal; }
-.bltype-frontier > small { color: #b7975f; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bltype-brief-path b { border-top: 2px dotted rgba(142, 205, 242, 0.48); }
 
 .bltype-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  gap: 7px;
 }
 .bltype-card {
-  background: rgba(15, 15, 35, 0.7);
-  border: 1px solid rgba(80, 80, 120, 0.35);
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(110deg, color-mix(in srgb, var(--bltype-accent, #556) 8%, transparent), transparent 42%),
+    rgba(13, 14, 33, 0.9);
+  border: 1px solid var(--blt-panel-border);
   border-left: 3px solid var(--bltype-accent, #556);
-  border-radius: 3px;
-  padding: 8px 9px;
+  border-radius: 4px;
+  padding: 9px 10px 10px;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
   cursor: pointer;
 }
-.bltype-card:hover { background: rgba(30, 32, 60, 0.85); border-color: rgba(120, 150, 220, 0.5); }
-.bltype-card.selected {
-  background: rgba(40, 55, 95, 0.9);
-  border-color: var(--bltype-accent, #88aaff);
-  box-shadow: 0 0 8px rgba(100, 150, 255, 0.3);
+.bltype-card::after {
+  content: '';
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 3px;
+  height: 3px;
+  background: var(--bltype-accent, var(--blt-diagram));
+  box-shadow: 0 0 5px var(--bltype-accent, var(--blt-diagram));
 }
-.bltype-card.locked { opacity: 0.4; cursor: default; filter: saturate(0.25); }
-.bltype-card.locked:hover { background: rgba(15, 15, 35, 0.7); border-color: rgba(80, 80, 120, 0.35); }
+.bltype-card:hover {
+  border-color: rgba(142, 205, 242, 0.5);
+  background:
+    linear-gradient(110deg, color-mix(in srgb, var(--bltype-accent, #556) 13%, transparent), transparent 48%),
+    rgba(21, 24, 47, 0.96);
+}
+.bltype-card.selected {
+  background:
+    linear-gradient(110deg, color-mix(in srgb, var(--bltype-accent, #556) 20%, transparent), transparent 58%),
+    rgba(25, 34, 61, 0.98);
+  border-color: var(--bltype-accent, #88aaff);
+  box-shadow: inset 0 0 0 1px rgba(204, 221, 255, 0.06), 0 0 10px rgba(100, 150, 255, 0.2);
+}
 
 .bltype-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
-.bltype-name { color: #ccddff; font-size: 9px; line-height: 1.3; }
+.bltype-name { color: var(--blt-heading); font-size: 10px; line-height: 1.4; }
 .bltype-tier {
-  color: #8888aa;
+  color: #7e8ba7;
   font-size: 7px;
-  border: 1px solid rgba(80, 80, 120, 0.5);
+  border: 1px solid var(--blt-panel-divider);
   border-radius: 2px;
   padding: 1px 3px;
   flex: 0 0 auto;
@@ -5918,13 +5969,13 @@ body {
 .bltype-specs { display: flex; flex-wrap: wrap; gap: 4px; }
 .bltype-spec {
   font-size: 7px;
-  color: #aaccaa;
-  background: rgba(10, 10, 25, 0.8);
+  color: #a8cfba;
+  background: rgba(7, 8, 22, 0.82);
+  border: 1px solid rgba(91, 118, 125, 0.2);
   border-radius: 2px;
   padding: 2px 4px;
 }
-.bltype-blurb { font-size: 7px; color: #9999bb; line-height: 1.6; }
-.bltype-lock { font-size: 7px; color: #ddaa22; line-height: 1.5; }
+.bltype-blurb { font-size: 8px; color: var(--blt-body); line-height: 1.65; }
 
 /* The blueprint gallery under the type grid: the folder of stock designs the
    selected type ships with. One column rather than the grid's two — these are

@@ -7,7 +7,7 @@ import { seedComponentParams } from '../beamline/component-params.js';
 import { BeamPhysics } from '../beamline/physics.js';
 import { buildPhysicsElements } from '../beamline/physics-payload.js';
 import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
-import { beamlineTypeUnlocked, getBeamlineType } from '../data/beamline-types.js';
+import { getBeamlineType } from '../data/beamline-types.js';
 import { flattenPath } from '../beamline/flattener.js';
 import { moduleBeamAxis, axisMatchesDirection } from '../beamline/module-axis.js';
 import { BeamlineSystem, pipeRefund, missingResourceLabel } from '../beamline/BeamlineSystem.js';
@@ -4000,7 +4000,6 @@ export class Game {
     const source = entry?.sourceId ? this.getPlaceable(entry.sourceId) : null;
     const sourceDef = source ? COMPONENTS[source.type] : null;
     if (!entry || !type || !sourceDef?.isSource) return false;
-    if (!beamlineTypeUnlocked(type, this.state)) return false;
     if (Array.isArray(sourceDef.beamlineTypes)
         && !sourceDef.beamlineTypes.includes(type.id)) return false;
 

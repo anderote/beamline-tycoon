@@ -25,13 +25,14 @@
 //      beam_physics/machines.py exist to prevent, reintroduced one layer up in
 //      the UI. The heuristic is gone; these tests are what keep it gone.
 
+import { readFileSync } from 'node:fs';
+
 import { Game } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
 import { BeamlineDesigner } from '../src/ui/BeamlineDesigner.js';
 import {
   beamlineTypeHidesComponent, formatEnergyBand, formatCurrentBand,
-  missingResearchNames, researchUnlockPath, designUnlockPath,
-  machineResearchProgress,
+  designUnlockPath,
 } from '../src/ui/BeamlineTypePicker.js';
 import { BEAMLINE_TYPES, getBeamlineType } from '../src/data/beamline-types.js';
 import { COMPONENTS } from '../src/data/components.js';
@@ -322,90 +323,45 @@ function designerFor(game) {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Picker presentation
+// 4. Picker availability and presentation
 // ---------------------------------------------------------------------------
-console.log('\n=== Locked tiles name what they want ===\n');
+console.log('\n=== Missions stay open while hardware remains gated ===\n');
 
 {
-  // A locked tile has to say what would open it, by NAME — an id like
-  // 'isochronousCyclotron' in the UI is a leaked internal. Counts come off the
-  // table rather than being restated, so retuning therapy's gate is a
-  // beamline-types decision and not a picker-test failure.
-  const gate = getBeamlineType('therapy').requires;
-  const names = missingResearchNames('therapy', { completedResearch: [] });
-  assertEq(names.length, gate.length, 'therapy names every one of its missing nodes');
-  assert(names.every(n => n && !/^[a-z][A-Za-z]*$/.test(n)),
-    'missing nodes are reported as display names, not raw ids');
-
-  const partly = missingResearchNames('therapy',
-    { completedResearch: gate.slice(1) });
-  assertEq(partly.length, 1, 'a partly-researched type names only what is left');
-
-  assertEq(missingResearchNames('testStand', { completedResearch: [] }).length, 0,
-    'an ungated type is never locked');
+  const g = new Game(new BeamlineRegistry(), { seed: 17 });
+  assertEq(g.startNewBeamline('blackHoleFactory'), 'blackHoleFactory',
+    'even the tier-6 mission can be selected with no completed research');
+  assert(Object.values(BEAMLINE_TYPES).every(type => !Object.hasOwn(type, 'requires')),
+    'the picker roster contains no family-level research gates');
 }
 
 {
-  // The direct gate is Proton Acceleration, but Cyclotron Technology is the
-  // actionable prerequisite a fresh player can start. The roadmap must show
-  // both, in that order, and collapse the first once it is complete.
-  const freshPath = researchUnlockPath('isotopeIrradiation', {
-    completedResearch: [],
-  });
-  assertEq(freshPath.map(node => node.id).join(','),
-    'cyclotronTech,protonAcceleration',
-    'a family unlock path includes transitive prerequisites, prerequisite first');
-
-  const afterCyclotron = researchUnlockPath('isotopeIrradiation', {
-    completedResearch: ['cyclotronTech'],
-  });
-  assertEq(afterCyclotron.map(node => node.id).join(','), 'protonAcceleration',
-    'completed prerequisites disappear from the actionable path');
-
-  const fresh = machineResearchProgress({ completedResearch: [] });
-  assertEq(fresh.unlockedCount, 2, 'the roadmap counts the two opening families');
-  assertEq(fresh.totalCount, Object.keys(BEAMLINE_TYPES).length,
-    'the roadmap covers the whole machine roster');
-  assertEq(fresh.frontier?.type.id, 'isotopeIrradiation',
-    'the nearest locked family is called out as the next frontier');
-  assertEq(fresh.frontier?.remaining[0]?.id, 'cyclotronTech',
-    'the frontier names research the player can actually start first');
-}
-
-{
-  // A family gate buys its entry blueprint. Higher designs may still ask for
-  // later component technology, and the gallery must expose that instead of
-  // letting its free placement path bypass research.
-  const spallation = getBeamlineType('spallation');
-  const familyDone = { completedResearch: [...spallation.requires] };
+  // Stock designs place real hardware, so they remain gated by the components
+  // they contain even though their mission card is always selectable.
   const [entry, upgrade] = stockDesignsFor('spallation');
-  assertEq(designUnlockPath(entry, familyDone).length, 0,
-    'spallation family research makes the entry stock design buildable');
-  assert(designUnlockPath(upgrade, familyDone)
+  assert(designUnlockPath(entry, { completedResearch: [] }).length > 0,
+    'a spallation stock design does not bypass its component research');
+  assert(designUnlockPath(upgrade, { completedResearch: [] })
     .some(node => node.id === 'cryomoduleDesign'),
-    'the 805 MHz upgrade still names Cryomodule Design as its next technology');
+    'the 805 MHz upgrade names Cryomodule Design as needed hardware');
 
   const ringTop = stockDesignsFor('lightSource')[2];
-  const ringFamily = getBeamlineType('lightSource');
-  assert(designUnlockPath(ringTop, { completedResearch: [...ringFamily.requires] })
+  assert(designUnlockPath(ringTop, { completedResearch: [] })
     .some(node => node.id === 'nDopedSrf'),
-    'the flagship light ring remains visibly gated on its Nb3Sn research');
+    'the flagship light ring remains gated on its high-performance SRF research');
 }
 
 {
-  // Unlocking a machine family must never land the player in an empty guide
-  // gallery. Its Tier 1 blueprint is the concrete payoff for that research;
-  // later tiers can continue to advertise future upgrades.
-  for (const type of Object.values(BEAMLINE_TYPES)) {
-    const completedResearch = researchUnlockPath(type.id, {
-      completedResearch: [],
-    }).map(node => node.id);
-    const entry = stockDesignsFor(type.id)[0];
-
-    assert(entry, `${type.id} has an introductory stock design`);
-    assertEq(designUnlockPath(entry, { completedResearch }).length, 0,
-      `${type.id} unlocks with a research-ready Tier 1 guide`);
-  }
+  // Headless style contract: the picker opts into the shared BLT panel tokens,
+  // carries the schematic mission brief, and has no family-card lock state.
+  const css = readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  const picker = readFileSync(new URL('../src/ui/BeamlineTypePicker.js', import.meta.url), 'utf8');
+  assert(css.includes('.bltype-brief') && css.includes('var(--blt-panel-bg)'),
+    'the mission picker uses the shared BLT panel language');
+  assert(picker.includes("classList.add('bltype-window', 'blt-panel')"),
+    'the picker window explicitly opts into the BLT panel primitive');
+  assert(!picker.includes("cls.push('locked')") && !css.includes('.bltype-card.locked'),
+    'mission cards have no locked visual or interaction state');
 }
 
 {

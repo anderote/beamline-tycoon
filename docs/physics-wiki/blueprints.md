@@ -12,6 +12,13 @@ Every beamline type ships with prebuilt designs at ascending tiers. Place one, r
 
 When you start a new beamline you pick a type — Test Stand, Therapy Line, XFEL, and so on. Each type comes with two or three blueprints at ascending tiers. Selecting one arms a placement ghost: the machine follows your cursor, you rotate it to fit your site, and one click builds the whole thing, pours the concrete under it, and wires the components to each other.
 
+Every type is available from the beginning. Choosing what the beamline is for
+sets its target bands, scoring and recommended hardware; it does not grant any
+technology. Research unlocks the components themselves, so a stock blueprint
+can still be unavailable when it contains a cavity, source, endpoint or upgrade
+you have not researched. You can always choose the mission and begin a custom
+design with the hardware you currently know how to build.
+
 Blueprints are not a shortcut past the game. They are a starting point that works, which is a different thing. A placed blueprint still has to be fed: power, cooling, vacuum, and — for superconducting hardware — cryogenics. None of that comes with the blueprint, because provisioning the machine is a large part of what you are actually playing.
 
 A blueprint is also not optimal. It is a competent, conservative design of its kind, in the way a stock coaster is a competent coaster. Beating it is the point.

@@ -1,7 +1,7 @@
 // test/test-beamline-types.js — the beamline-type table has to stay honest.
 //
-// BEAMLINE_TYPES is a hub: it names research nodes, component ids and physics
-// machine types, and none of those namespaces live in this file. Every one of
+// BEAMLINE_TYPES is a hub: it names component ids and physics machine types,
+// and neither namespace lives in this file. Every one of
 // those references is a hand-written string, which is the exact bug class
 // test-registry-integrity.js exists for — a string that used to be right
 // silently widens a palette or greys out a type forever, and nothing throws.
@@ -9,8 +9,6 @@
 // Two failure modes are worth calling out because they are silent rather than
 // loud:
 //
-//   * A `requires` naming a node that no longer exists makes the type
-//     permanently unbuildable — beamlineTypesFor() just never returns it.
 //   * A component both allowlisted to a type and named in that type's
 //     `excludes` is a contradiction. Whichever rule the palette filter checks
 //     first wins, so the design intent is decided by code ordering rather than
@@ -27,10 +25,8 @@ import { dirname, join } from 'node:path';
 
 import {
   BEAMLINE_TYPES, getBeamlineType, beamlineTypesFor,
-  beamlineTypeUnlocked, missingResearchFor,
 } from '../src/data/beamline-types.js';
 import { COMPONENTS } from '../src/data/components.js';
-import { RESEARCH } from '../src/data/research.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -41,7 +37,6 @@ function assert(cond, msg) {
 }
 
 const TYPES = Object.values(BEAMLINE_TYPES);
-const asArray = v => (v == null ? [] : (Array.isArray(v) ? v : [v]));
 
 // ---------------------------------------------------------------------------
 // Physics machine types. Parsed out of machines.py so a renamed config fails
@@ -67,26 +62,14 @@ console.log('\n--- every machineType resolves in beam_physics/machines.py ---');
   }
 }
 
-// ---------------------------------------------------------------------------
-// Research gates.
-// ---------------------------------------------------------------------------
-console.log('\n--- every research gate resolves in RESEARCH ---');
-for (const t of TYPES) {
-  const dead = asArray(t.requires).filter(id => !RESEARCH[id]);
-  assert(dead.length === 0,
-    `${t.id}.requires: ${dead.length === 0 ? 'all gates resolve' : `dead node(s) ${dead.join(', ')}`}`);
-}
-
-// The roster's design claim, and worth pinning: adding ten types required
-// adding zero research nodes. If a future type needs a new node, that is a
-// decision to make deliberately rather than discover. blackHoleFactory kept
-// that claim intact — it gates on `particleDiscovery`, a node that had sat in
-// the tree unlocking nothing at all since the tree shipped.
-console.log('\n--- the roster is gated entirely on pre-existing research ---');
+// Mission choice is not progression. Research belongs on buildable hardware
+// and upgrades, never on the purpose/target-band table itself.
+console.log('\n--- every mission family is available independently of research ---');
 {
-  const ungated = TYPES.filter(t => !t.requires).map(t => t.id);
-  assert(ungated.length === 2 && ungated.every(id => BEAMLINE_TYPES[id].tier === 1),
-    `exactly the two tier-1 types are ungated (${ungated.join(', ')})`);
+  assert(TYPES.every(t => !Object.hasOwn(t, 'requires')),
+    'no beamline type declares a research gate');
+  assert(beamlineTypesFor().length === TYPES.length,
+    'the complete mission roster is available from the start');
 }
 
 // ---------------------------------------------------------------------------
@@ -242,90 +225,34 @@ console.log('\n--- the roster spans tier 1 through 6 ---');
 }
 
 // ---------------------------------------------------------------------------
-// Lookup helpers.
+// Lookup and availability helpers.
 // ---------------------------------------------------------------------------
-console.log('\n--- lookup and unlock helpers ---');
+console.log('\n--- lookup and availability helpers ---');
 {
   assert(getBeamlineType('testStand') === BEAMLINE_TYPES.testStand, 'getBeamlineType returns the entry');
   assert(getBeamlineType('nope') === null, 'getBeamlineType is null for an unknown id');
 
-  const opening = beamlineTypesFor([]);
-  assert(opening.length === 2 && opening.every(t => t.tier === 1),
-    `an empty research state opens exactly the two tier-1 types (${opening.map(t => t.id).join(', ')})`);
+  const opening = beamlineTypesFor();
+  assert(opening.length === TYPES.length,
+    `the opening roster contains all ${TYPES.length} mission families`);
   assert(getBeamlineType('blackHoleFactory') === BEAMLINE_TYPES.blackHoleFactory,
-    'getBeamlineType finds the tier-6 entry');
-
-  const all = beamlineTypesFor(Object.keys(RESEARCH));
-  assert(all.length === TYPES.length, 'a complete tech tree opens every type');
-
-  // Every shape a caller might reasonably hand it. `therapy` is the fixture
-  // because it is multi-node; read its gate off the table rather than
-  // restating it, so retuning the gate does not fail four unrelated helper
-  // assertions.
-  const gates = asArray(BEAMLINE_TYPES.therapy.requires);
-  assert(gates.length > 1, `therapy is still a multi-node gate (${gates.join(', ')})`);
-  assert(beamlineTypeUnlocked('therapy', gates), 'accepts an array of node ids');
-  assert(beamlineTypeUnlocked('therapy', new Set(gates)), 'accepts a Set');
-  assert(beamlineTypeUnlocked('therapy', { completedResearch: gates }), 'accepts a game state');
-  assert(!beamlineTypeUnlocked('therapy', gates.slice(0, 1)),
-    'a multi-node gate needs every node');
-  assert(!beamlineTypeUnlocked('nope', gates), 'an unknown id is never unlocked');
-  assert(beamlineTypeUnlocked('testStand', undefined), 'an ungated type needs no state at all');
-
-  assert(JSON.stringify(missingResearchFor('therapy', gates.slice(1)))
-    === JSON.stringify(gates.slice(0, 1)),
-    'missingResearchFor names only what is still missing');
-  assert(missingResearchFor('testStand', []).length === 0, 'an ungated type is missing nothing');
+    'getBeamlineType finds the tier-6 mission without research context');
 }
 
 // ---------------------------------------------------------------------------
-// Gating that names the hardware, not just the theme. A type whose `requires`
-// does not imply the research that unlocks its DEFINING component unlocks into
-// an unbuildable palette: the tile lights up, the player starts the machine,
-// and the one thing that would let it reach its own energy band is still
-// greyed out two nodes away. Checking the transitive closure rather than the
-// literal `requires` list is the point — `spallation` requiring `cwLinacDesign`
-// says nothing about protons.
+// Research still has real work to do: it unlocks placeable hardware and
+// performance upgrades. Removing purpose gates must not flatten the catalogue.
 // ---------------------------------------------------------------------------
-console.log('\n--- Types unlock with their defining hardware available ---');
+console.log('\n--- research remains on buildable hardware, not mission families ---');
 {
-  const closure = (ids) => {
-    const out = new Set(); const stack = [...ids];
-    while (stack.length) {
-      const id = stack.pop(); if (out.has(id)) continue; out.add(id);
-      const n = RESEARCH[id]; if (!n) continue;
-      const r = n.requires;
-      for (const p of (!r ? [] : Array.isArray(r) ? r : [r])) stack.push(p);
-    }
-    return out;
-  };
-  const reqOf = (t) => Array.isArray(t.requires) ? t.requires : (t.requires ? [t.requires] : []);
-
-  for (const [need, types] of Object.entries({
-    protonAcceleration: ['isotopeIrradiation', 'spallation', 'therapy'],
-    bunchCompression:   ['collider', 'blackHoleFactory'],
-    srfTechnology:      ['collider'],
-    // The tier-6 type's whole hardware set, and the reason the closure check
-    // matters more here than anywhere else: `targetPhysicsAdv` gates the ONLY
-    // accelerating structure blackHoleFactory can see, and nothing in the
-    // type's literal `requires` names it. It arrives via colliderTech ->
-    // antimatter -> targetPhysicsAdv. Break that chain and the type unlocks
-    // onto a palette whose best rung is a 3.5 GeV cryogenic sector, i.e.
-    // 28,572 placements to the band floor.
-    targetPhysicsAdv:   ['blackHoleFactory'],
-    particleDiscovery:  ['blackHoleFactory'],
-    colliderTech:       ['blackHoleFactory'],
-  })) {
-    for (const tid of types) {
-      const done = closure(reqOf(BEAMLINE_TYPES[tid]));
-      assert(done.has(need), `${tid} unlock implies ${need}`);
-    }
-  }
-
-  assert(BEAMLINE_TYPES.isotopeIrradiation.requires === 'protonAcceleration',
-    'the first paid proton mission opens with proton acceleration');
   assert(COMPONENTS.radiationEffectsStation.requires === 'protonAcceleration',
-    'its electronics irradiation endpoint opens at the same research node');
+    'electronics irradiation hardware requires proton acceleration');
+  assert(COMPONENTS.protonTherapyGantry.requires === 'machineProtection',
+    'the therapy gantry remains gated as buildable clinical hardware');
+  assert(COMPONENTS.xfelEndstation.requires === 'felTech',
+    'the XFEL endstation remains gated as buildable FEL hardware');
+  assert(COMPONENTS.blackHoleChamber.requires === 'particleDiscovery',
+    'the black-hole chamber remains gated as buildable detector hardware');
   assert(BEAMLINE_TYPES.isotopeIrradiation.requiredEndpoint[0] === 'radiationEffectsStation',
     'the guided endpoint order leads with the early paid test station');
   assert(COMPONENTS.isotopeProductionTarget.requires === 'targetPhysics',
@@ -437,8 +364,8 @@ console.log('\n--- the Black Hole Factory type ---');
   assert(t.dutyFactor < BEAMLINE_TYPES.collider.dutyFactor,
     `duty factor ${t.dutyFactor} is below the collider's `
     + `${BEAMLINE_TYPES.collider.dutyFactor} — it fires rarely`);
-  assert(asArray(t.requires).includes('colliderTech'),
-    'the tier-6 type is strictly downstream of the tier-5 one');
+  assert(!Object.hasOwn(t, 'requires'),
+    'the tier-6 mission is selectable even though its hardware is late-game');
 
   // The endpoints, and the identity that makes hawkingDetector worth having:
   // it is the only endpoint in the catalogue that records at scale and sells

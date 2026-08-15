@@ -192,6 +192,9 @@ Stated at `world-snapshot.js:3` and `ThreeRenderer.js:4-12`. Live per-frame stat
 **C5. Research nodes and component gates form a two-way contract.**
 `validateResearch` (`validate.js:365`): every id in `unlocks` must not ship `unlocked: true`, must declare `requires`, and must name this node or one of its prerequisites; every `requires` must name a real, *startable* node. 27 of 68 nodes — $403M of content — were dead before this existed (`validate.js:330-334`).
 `test/test-registry-integrity.js` generalizes this: **every id-shaped string literal in an id position anywhere in `src/`** must resolve against some registry.
+Beamline mission families are deliberately outside this gate: they declare the
+purpose and target bands and are always selectable. Research gates the
+placeable hardware and stock blueprints used to implement them.
 
 **C6. A beamline component with no `ROLE_BUILDERS`/`DETAIL_BUILDERS` entry is *info*, never a problem.**
 `roleBuilderFallbacks` (`validate.js:72`), reported at `component-builder.js:3524-3535`. It renders as a generic box/cylinder.

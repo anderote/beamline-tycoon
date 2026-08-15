@@ -27,6 +27,18 @@ the short authoring contract.
   subtile centres and edges), may share an ordinary component boundary, and
   may not sit inside an ordinary component or share another inline anchor.
 
+## Beamline missions and research
+
+- Beamline mission families are purposes and target bands, not technology
+  rewards. Every entry in `BEAMLINE_TYPES` is selectable from the start and
+  must not declare a research `requires` gate.
+- Research gates the components a player can place and therefore any stock
+  blueprint containing those components. A locked blueprint must derive its
+  missing research from its component definitions; choosing the mission must
+  never bypass those gates.
+- `requiredEndpoint` lists the endpoints that can satisfy a mission. It does
+  not imply that each listed placeable is currently researched.
+
 ## Utility ports and scenarios
 
 - Read ports through `getUtilityPortsV2(id)` when solver defaults and derived RF

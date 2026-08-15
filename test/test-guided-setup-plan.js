@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { COMPONENTS } from '../src/data/components.js';
 import {
   compatibleBeamlineTypesForSource,
   guidedEndpointSuggestions,
@@ -12,20 +11,16 @@ import {
 const unlocked = () => true;
 
 test('source choice narrows the target beamline types by particle family', () => {
-  const research = { completedResearch: [] };
-  const electrons = compatibleBeamlineTypesForSource('source', research).map(t => t.id);
-  const protons = compatibleBeamlineTypesForSource('ionSource', research).map(t => t.id);
+  const electrons = compatibleBeamlineTypesForSource('source').map(t => t.id);
+  const protons = compatibleBeamlineTypesForSource('ionSource').map(t => t.id);
 
   assert.ok(electrons.includes('testStand'));
   assert.ok(!electrons.includes('therapy'));
-  assert.ok(protons.includes('isotopeIrradiation') === false,
-    'research-gated proton types remain hidden until unlocked');
-
-  const allResearch = {
-    completedResearch: Object.values(COMPONENTS).map(c => c.requires).filter(Boolean).flat(),
-  };
-  const unlockedProtons = compatibleBeamlineTypesForSource('ionSource', allResearch).map(t => t.id);
-  assert.ok(!unlockedProtons.includes('testStand'));
+  assert.ok(protons.includes('isotopeIrradiation'),
+    'compatible proton missions are visible before their hardware is researched');
+  assert.ok(protons.includes('therapy'),
+    'therapy is a selectable purpose, not a research reward');
+  assert.ok(!protons.includes('testStand'));
 });
 
 test('starter recipe advances from bunching to acceleration to focusing', () => {
