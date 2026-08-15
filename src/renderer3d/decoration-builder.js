@@ -1490,6 +1490,7 @@ export class DecorationBuilder {
       const group = this._buildOne(
         dec.type, dec.category, p.geoW, p.geoL, p.totalH, dec.variant ?? 0, p.seed, dec.dir ?? 0,
       );
+      group.userData.nodeId = dec.id ?? null;
 
       // Ground fixtures sit on the floor. Wall/overhead fixture geometry is
       // authored around its mounting point, so lift that origin to the

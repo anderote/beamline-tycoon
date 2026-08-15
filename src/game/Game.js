@@ -45,7 +45,7 @@ import {
 import * as research from './research.js';
 import { checkObjectives } from './objectives.js';
 import { findStackTarget, collapsePlan } from './stacking.js';
-import { canPlace } from './placement.js';
+import { canPlace, usesFloorOccupancy } from './placement.js';
 import { generateStartingMap, generateAnnulus, DEFAULT_MAP_HALF_EXTENT } from './map-generator.js';
 import { nextLandParcel } from '../data/land.js';
 import { serializeCornerHeights, deserializeCornerHeights, setTileCorners } from './terrain.js';
@@ -578,7 +578,8 @@ export class Game {
     for (let i = 0; i < this.state.placeables.length; i++) {
       const entry = this.state.placeables[i];
       this.state.placeableIndex[entry.id] = i;
-      if (entry.cells && !entry.stackParentId) {
+      const def = PLACEABLES[entry.type];
+      if (entry.cells && !entry.stackParentId && usesFloorOccupancy(def)) {
         for (const cell of entry.cells) {
           this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id: entry.id, kind: entry.kind, category: entry.category };
         }
@@ -2481,9 +2482,10 @@ export class Game {
     }
 
     const cells = placeable.footprintCells(col, row, subCol || 0, subRow || 0, dir);
+    const usesFloor = usesFloorOccupancy(placeable);
     if (stackTarget) {
       // Stacking — cells are occupied by the ground item, which is expected.
-    } else {
+    } else if (usesFloor) {
       for (const c of cells) {
         const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
         if (this.state.subgridOccupied[k]) {
@@ -2495,7 +2497,7 @@ export class Game {
 
     // Check wall intersection — footprint must not cross any wall edge.
     const wallSet = new Set(cells.map(c => `${c.col},${c.row},${c.subCol},${c.subRow}`));
-    for (const c of cells) {
+    for (const c of usesFloor ? cells : []) {
       if (c.subCol === 3) {
         const nk = `${c.col + 1},${c.row},0,${c.subRow}`;
         if (wallSet.has(nk)) {
@@ -2523,7 +2525,7 @@ export class Game {
     // returns above) leave the heightmap untouched. Stacked items sit on
     // a parent that already flattened its tiles, but re-flattening to zero
     // is idempotent — no need to special-case.
-    {
+    if (usesFloor) {
       const flattenedKeys = new Set();
       for (const c of cells) {
         const tk = c.col + ',' + c.row;
@@ -2600,7 +2602,7 @@ export class Game {
       stackTarget.targetEntry.stackChildren.push(id);
     }
 
-    if (!stackTarget) {
+    if (!stackTarget && usesFloor) {
       for (const c of cells) {
         const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
         this.state.subgridOccupied[k] = { id, kind };
@@ -2651,9 +2653,11 @@ export class Game {
     entry.cells = def.footprintCells(
       entry.col, entry.row, entry.subCol || 0, entry.subRow || 0, entry.dir || 0,
     );
-    for (const c of entry.cells) {
-      const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
-      this.state.subgridOccupied[k] = { id: entry.id, kind: entry.kind };
+    if (usesFloorOccupancy(def)) {
+      for (const c of entry.cells) {
+        const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
+        this.state.subgridOccupied[k] = { id: entry.id, kind: entry.kind };
+      }
     }
     // The one place subgridOccupied moves for an already-placed entry —
     // called both by movePlaceable and by InputHandler._placeMovedObject's
@@ -2746,12 +2750,14 @@ export class Game {
     // The origin cannot be un-flattened — the pre-placement heights were never
     // stored, and neighbouring footprints may share those tiles — which is
     // exactly the asymmetry removePlaceable already lives with.
-    const flattened = new Set();
-    for (const c of entry.cells) {
-      const tk = c.col + ',' + c.row;
-      if (flattened.has(tk)) continue;
-      flattened.add(tk);
-      setTileCorners(this.state, c.col, c.row, { nw: 0, ne: 0, se: 0, sw: 0 });
+    if (usesFloorOccupancy(def)) {
+      const flattened = new Set();
+      for (const c of entry.cells) {
+        const tk = c.col + ',' + c.row;
+        if (flattened.has(tk)) continue;
+        flattened.add(tk);
+        setTileCorners(this.state, c.col, c.row, { nw: 0, ne: 0, se: 0, sw: 0 });
+      }
     }
 
     // No event is emitted here on purpose: one Apply can displace a dozen
@@ -2834,10 +2840,11 @@ export class Game {
     // Free sub-grid cells — only for ground-level items. Stacked items also
     // carry cells (for sibling-collision tracking) but those subtiles belong
     // to the underlying ground item, not to this entry.
-    if (!entry.stackParentId) {
+    if (!entry.stackParentId && usesFloorOccupancy(placeable)) {
       for (const cell of entry.cells) {
         const cellKey = cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow;
-        delete this.state.subgridOccupied[cellKey];
+        const occ = this.state.subgridOccupied[cellKey];
+        if (occ?.id === entry.id) delete this.state.subgridOccupied[cellKey];
       }
     }
 
@@ -2870,9 +2877,11 @@ export class Game {
         if (childDef) {
           const childCells = childDef.footprintCells(child.col, child.row, child.subCol || 0, child.subRow || 0, child.dir || 0);
           child.cells = childCells;
-          for (const c of childCells) {
-            const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
-            this.state.subgridOccupied[k] = { id: child.id, kind: child.kind };
+          if (usesFloorOccupancy(childDef)) {
+            for (const c of childCells) {
+              const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
+              this.state.subgridOccupied[k] = { id: child.id, kind: child.kind };
+            }
           }
         }
       }
@@ -2967,10 +2976,11 @@ export class Game {
 
     // Only ground-level items occupy subgridOccupied — stacked items carry
     // cells for sibling tracking but don't own those subtiles.
-    if (!entry.stackParentId) {
+    if (!entry.stackParentId && usesFloorOccupancy(placeable)) {
       for (const cell of entry.cells) {
         const cellKey = cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow;
-        delete this.state.subgridOccupied[cellKey];
+        const occ = this.state.subgridOccupied[cellKey];
+        if (occ?.id === entry.id) delete this.state.subgridOccupied[cellKey];
       }
     }
 
@@ -3002,9 +3012,11 @@ export class Game {
         if (childDef) {
           const childCells = childDef.footprintCells(child.col, child.row, child.subCol || 0, child.subRow || 0, child.dir || 0);
           child.cells = childCells;
-          for (const c of childCells) {
-            const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
-            this.state.subgridOccupied[k] = { id: child.id, kind: child.kind };
+          if (usesFloorOccupancy(childDef)) {
+            for (const c of childCells) {
+              const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
+              this.state.subgridOccupied[k] = { id: child.id, kind: child.kind };
+            }
           }
         }
       }
@@ -3052,7 +3064,8 @@ export class Game {
 
     for (const cell of entry.cells) {
       const k = cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow;
-      delete this.state.subgridOccupied[k];
+      const occ = this.state.subgridOccupied[k];
+      if (occ?.id === entry.id) delete this.state.subgridOccupied[k];
     }
 
     this.state.placeables.splice(idx, 1);

@@ -12,7 +12,8 @@ import { discoverNetworks, makeDefaultPortLookup } from '../utility/network-disc
 import { UTILITY_TYPES } from '../utility/registry.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import {
-  snapForPlaceable, canPlace, previewPlacement, canAffordCost, componentCostFor, PLACE_UNAFFORDABLE,
+  snapForPlaceable, canPlace, previewPlacement, canAffordCost, componentCostFor,
+  usesFloorOccupancy, PLACE_UNAFFORDABLE,
 } from '../game/placement.js';
 import { findStackTarget } from '../game/stacking.js';
 import { mirrorEdge, findWallKey, findEdgeKey } from '../game/edge-keys.js';
@@ -2225,12 +2226,12 @@ export class InputHandler {
             rootObj: info.rootObj,
           };
         }
-        // Equipment / furnishing / decoration all route through the same
-        // unified subgridOccupied probe, using the hit mesh's world
-        // position as the probe point.
+        // Prefer the id stamped on the rendered wrapper. Floating overhead
+        // fixtures intentionally have no floor-occupancy entry to probe.
         if (info.group === 'equipment' || info.group === 'decoration') {
           const p = info.rootObj.position;
-          const entry = this._placeableAtWorldPos(p.x, p.z);
+          const entry = (info.nodeId && this.game.getPlaceable(info.nodeId))
+            || this._placeableAtWorldPos(p.x, p.z);
           if (entry && scope.has(entry.kind)) {
             return {
               kind: entry.kind,
@@ -2591,7 +2592,7 @@ export class InputHandler {
       );
 
       let overlapsEarlier = false;
-      if (result.ok) {
+      if (result.ok && usesFloorOccupancy(pl)) {
         const myKeys = new Set(result.cells.map(c => `${c.col},${c.row},${c.subCol},${c.subRow}`));
         for (const earlier of hovers) {
           if (!earlier.valid) continue;
@@ -2716,6 +2717,13 @@ export class InputHandler {
         const occ = this.game.state.subgridOccupied[key + ',' + sc + ',' + sr];
         if (occ && occ.id) idsOnTile.add(occ.id);
       }
+    }
+    // Floating placeables are deliberately absent from subgridOccupied, but
+    // the area bulldozer should still remove them when their anchor is here.
+    for (const entry of this.game.state.placeables) {
+      const def = PLACEABLES[entry.type];
+      if (usesFloorOccupancy(def)) continue;
+      if ((entry.cells || []).some(c => c.col === col && c.row === row)) idsOnTile.add(entry.id);
     }
     for (const id of idsOnTile) this.game.removePlaceable(id);
     // Phase 6: rack segments removed from state; nothing to demolish here.
@@ -3058,10 +3066,13 @@ export class InputHandler {
     // Use the 3D raycast when available so the hit matches what the user
     // sees; fall back to subgrid lookup at the cursor tile center.
     let hitEntry = null;
+    const hit = this.renderer.raycastScreen?.(screenX, screenY, OBJECT_PICK_TOLERANCE_PX);
+    const info = hit ? this.renderer.identifyHit?.(hit) : null;
+    if (info?.nodeId) hitEntry = this.game.getPlaceable(info.nodeId);
     const world = this.renderer.screenToWorld
       ? this.renderer.screenToWorld(screenX, screenY)
       : null;
-    if (world && typeof this._placeableAtWorldPos === 'function') {
+    if (!hitEntry && world && typeof this._placeableAtWorldPos === 'function') {
       hitEntry = this._placeableAtWorldPos(world.x, world.y);
     }
     if (!hitEntry) {
@@ -3121,7 +3132,8 @@ export class InputHandler {
         // unified probe below.
       }
       const p = info.rootObj.position;
-      const entry = this._placeableAtWorldPos(p.x, p.z);
+      const entry = (info.nodeId && this.game.getPlaceable(info.nodeId))
+        || this._placeableAtWorldPos(p.x, p.z);
       if (entry && entry.kind !== 'beamline') {
         const comp = COMPONENTS[entry.type];
         this.renderer._clearPreview();
