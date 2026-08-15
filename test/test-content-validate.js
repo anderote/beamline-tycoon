@@ -247,6 +247,18 @@ console.log('\n--- Test 6: every utility type is reachable from the palette ---'
   assert(JSON.stringify(MODES.infra.categories.power.utilityLineTools)
       === JSON.stringify(['powerCable', 'hvCable']),
   'Power transport lists the everyday Power Cable before the HV Feeder');
+
+  assert(JSON.stringify(MODES.infra.categories.rfPower.utilityLineTools)
+      === JSON.stringify(['rfWaveguide', 'hvCable']),
+  'RF Power transport lists Waveguide beside the HV Feeder it also uses');
+
+  assert(Object.keys(MODES.infra.categories).slice(0, 3).join(',')
+      === 'power,rfPower,vacuum',
+  'Infra puts RF Power immediately beside Power');
+
+  assert(Object.keys(MODES.beamline.categories).slice(0, 3).join(',')
+      === 'source,rf,optics',
+  'Beamline puts RF / Accel immediately beside Sources');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
