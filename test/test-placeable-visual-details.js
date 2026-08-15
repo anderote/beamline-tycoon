@@ -30,7 +30,9 @@ globalThis.document = {
 const { PLACEABLES } = await import('../src/data/placeables/index.js');
 const { ComponentBuilder, isDetailedComponent } =
   await import('../src/renderer3d/component-builder.js');
-const { EquipmentBuilder } = await import('../src/renderer3d/equipment-builder.js');
+const { EquipmentBuilder, equipmentPartGlowSpec } =
+  await import('../src/renderer3d/equipment-builder.js');
+const { BLOOM_LAYER } = await import('../src/renderer3d/glow-pipeline.js');
 const {
   PLACEABLE_VISUAL_PROFILES,
   buildPlaceableVisualDetails,
@@ -40,6 +42,14 @@ function meshCount(object) {
   let count = 0;
   object.traverse(child => { if (child.isMesh) count++; });
   return count;
+}
+
+function glowMeshes(object) {
+  const meshes = [];
+  object.traverse(child => {
+    if (child.isMesh && child.userData.role === 'glow') meshes.push(child);
+  });
+  return meshes;
 }
 
 test('every actual generic placeable fallback is covered by the visual-detail audit', () => {
@@ -93,6 +103,55 @@ test('component and facility render paths both retain their housing and add deta
   assert.ok(meshCount(parent.children[0]) > 2,
     'equipment fallback retains its decal housing and adds bezel, display, controls, and feet');
   equipment.dispose(parent);
+});
+
+test('reviewed electronic profiles expose emissive screens, dials, and indicators to bloom', () => {
+  for (const id of ['oscilloscope', 'flowMeter', 'rackIoc', 'areaMonitor', 'projector']) {
+    const def = PLACEABLES[id];
+    const details = buildPlaceableVisualDetails(def, {
+      width: (def.visualSubW ?? def.subW) * 0.5,
+      height: (def.visualSubH ?? def.subH) * 0.5,
+      length: (def.visualSubL ?? def.subL) * 0.5,
+      color: def.spriteColor,
+    });
+    const glows = glowMeshes(details);
+    assert.ok(glows.length > 0, `${id} should publish at least one emissive detail`);
+    assert.ok(glows.every(mesh => mesh.layers.isEnabled(BLOOM_LAYER)),
+      `${id} emissive details must all reach selective bloom`);
+    assert.ok(glows.every(mesh => mesh.castShadow === false && mesh.material.emissive),
+      `${id} lit glass and lamps should emit rather than cast shadows`);
+    assert.equal(glows.filter(mesh => mesh.userData.ambientLight !== false).length, 1,
+      `${id} should nominate one bounded real-light representative`);
+  }
+});
+
+test('semantic authored parts light screens and LEDs without multiplying real-light candidates', () => {
+  const cases = [
+    { equipment: [], furnishings: [{ type: 'workstation', col: 0, row: 0 }] },
+    { equipment: [], furnishings: [{ type: 'monitorBank', col: 0, row: 0 }] },
+    { equipment: [], furnishings: [{ type: 'alarmPanel', col: 0, row: 0 }] },
+    { equipment: [{ type: 'daqRack', col: 0, row: 0 }], furnishings: [] },
+    { equipment: [{ type: 'cncMill', col: 0, row: 0 }], furnishings: [] },
+  ];
+  const parent = new THREE.Group();
+  const builder = new EquipmentBuilder();
+  for (const entry of cases) {
+    builder.build(entry.equipment, entry.furnishings, parent);
+    const [wrapper] = parent.children;
+    const glows = glowMeshes(wrapper);
+    assert.ok(glows.length > 0, `${entry.equipment[0]?.type || entry.furnishings[0]?.type} needs live displays or indicators`);
+    assert.ok(glows.every(mesh => mesh.layers.isEnabled(BLOOM_LAYER)));
+    assert.equal(glows.filter(mesh => mesh.userData.ambientLight !== false).length, 1,
+      'one machine can own many emissive pixels but only one pooled point-light candidate');
+  }
+  builder.dispose(parent);
+});
+
+test('part-light classification is semantic and leaves ordinary structure unlit', () => {
+  assert.equal(equipmentPartGlowSpec(PLACEABLES.workstation, { name: 'monScreen', color: 0x224466 }).profile, 'screen');
+  assert.equal(equipmentPartGlowSpec(PLACEABLES.serverRack, { name: 's3a', color: 0x44ff66 }).profile, 'statusBlink');
+  assert.equal(equipmentPartGlowSpec(PLACEABLES.alarmPanel, { name: 'c2', color: 0xffaa40 }).profile, 'statusBlink');
+  assert.equal(equipmentPartGlowSpec(PLACEABLES.desk, { name: 'top', color: 0x886644 }), null);
 });
 
 test('every source family has bespoke, mechanically detailed 3D geometry', () => {

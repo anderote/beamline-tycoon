@@ -3921,6 +3921,7 @@ export class ThreeRenderer {
     this.pipeAttachmentBuilder.build(snapshot.pipeAttachments || [], this.pipeAttachmentGroup);
     this.beamBuilder.build(snapshot.beamPaths, this.componentGroup);
     this.equipmentBuilder.build(snapshot.equipment, snapshot.furnishings, this.equipmentGroup);
+    this._effectSystem?.syncSurfaceGlows('equipment', this.equipmentGroup);
     this.decorationBuilder.build(snapshot.decorations, this.decorationGroup);
     this.lightingGroup = this.decorationBuilder.getLightingFixtures();
     this._rebuildLightPools();
@@ -4387,6 +4388,7 @@ export class ThreeRenderer {
   _refreshEquipment() {
     const snap = this._updateSnapshot(['equipment', 'furnishings']);
     this.equipmentBuilder.build(snap.equipment, snap.furnishings, this.equipmentGroup);
+    this._effectSystem?.syncSurfaceGlows('equipment', this.equipmentGroup);
   }
 
   _refreshDecorations() {
