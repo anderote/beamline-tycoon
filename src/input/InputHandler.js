@@ -47,6 +47,11 @@ import {
 // mouse click on the item would.
 const VARIANT_MEMORY_KEY = 'bt_lastVariantByKey';
 
+// A mesh ray is pixel-perfect, which is too strict for thin rails, legs and
+// small fittings. Selection/demolish clicks get this fixed screen-space margin
+// (rather than a world-space radius that changes feel with camera zoom).
+const OBJECT_PICK_TOLERANCE_PX = 12;
+
 function _categoryColor(category) {
   const colors = {
     rfPower:       0xcc4444, // red
@@ -397,7 +402,10 @@ export class InputHandler {
     // outline the mesh and show a tooltip with the refund.
     const scope = DEMOLISH_PLACEABLE_SCOPE[dt];
     if (scope) {
-      const found = this._findDeletablePlaceable(world, grid, screenX, screenY, scope);
+      // Hover runs on every pointer move, so keep it to one exact ray. The
+      // click path uses the full tolerance; footprint fallbacks below still
+      // provide broad hover feedback for hollow models.
+      const found = this._findDeletablePlaceable(world, grid, screenX, screenY, scope, 0);
       if (found) {
         this.renderer._clearPreview();
         // Beam pipes draw a section highlight below instead: outlining the
@@ -654,7 +662,7 @@ export class InputHandler {
   _getNodeAtScreenOrGrid(screenX, screenY, col, row) {
     // Try 3D raycast first (picks the visible object under the cursor)
     if (this.renderer.raycastScreen) {
-      const hit = this.renderer.raycastScreen(screenX, screenY);
+      const hit = this.renderer.raycastScreen(screenX, screenY, OBJECT_PICK_TOLERANCE_PX);
       if (hit) {
         const info = this.renderer.identifyHit(hit);
         if (info) {
@@ -681,7 +689,7 @@ export class InputHandler {
   }
 
   _selectionRootAt(screenX, screenY) {
-    const hit = this.renderer.raycastScreen?.(screenX, screenY);
+    const hit = this.renderer.raycastScreen?.(screenX, screenY, OBJECT_PICK_TOLERANCE_PX);
     return hit ? this.renderer.identifyHit?.(hit)?.rootObj || null : null;
   }
 
@@ -2112,13 +2120,18 @@ export class InputHandler {
    *      from the root mesh position and probe subgridOccupied.
    *   3. If raycast missed, fall back to probing the subgrid cell under
    *      the cursor world position.
-   * Never returns an entry whose kind isn't in the scope set.
+   * Never returns an entry whose kind isn't in the scope set. Click callers
+   * get the standard screen-space margin; high-frequency hover callers can
+   * pass zero to request a single exact ray.
    */
-  _findDeletablePlaceable(world, grid, screenX, screenY, scope) {
+  _findDeletablePlaceable(
+    world, grid, screenX, screenY, scope,
+    tolerancePx = OBJECT_PICK_TOLERANCE_PX,
+  ) {
     if (!scope) return null;
 
     // --- 1. Raycast for precise 3D hit detection ---
-    const hit = this.renderer.raycastScreen(screenX, screenY);
+    const hit = this.renderer.raycastScreen(screenX, screenY, tolerancePx);
     if (hit) {
       const info = this.renderer.identifyHit(hit);
       if (info) {
