@@ -8,6 +8,7 @@ import { PLACEABLES } from '../data/placeables/index.js';
 import { MATERIALS } from './materials/index.js';
 import { DECALS } from './materials/decals.js';
 import { applyTiledBoxUVs } from './uv-utils.js';
+import { buildPlaceableVisualDetails } from './placeable-visual-details.js';
 // Phase 6: utility-port-builder removed; all buildPortStubs call sites in
 // this file were already commented out.
 
@@ -230,6 +231,16 @@ export class EquipmentBuilder {
       wrapper.rotation.y = rotY;
       wrapper.matrixAutoUpdate = false;
       wrapper.add(mesh);
+      // The base housing keeps its authored decal faces.  Fallback-only
+      // placeables receive their reviewed mechanical details around that
+      // housing, so facilities no longer read as unlabeled cubes.
+      const details = buildPlaceableVisualDetails(compDef, {
+        width: w, height: h, length: l, color: fallbackColor,
+      });
+      if (details) {
+        details.position.y = h / 2;
+        wrapper.add(details);
+      }
       // PORT STUBS disabled — will revisit with connected routing
       // if (!isFurnishing) {
       //   const portStubs = buildPortStubs(

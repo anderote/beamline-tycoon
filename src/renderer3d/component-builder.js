@@ -9,6 +9,7 @@ import { roleBuilderFallbacks } from '../data/validate.js';
 import { MATERIALS } from './materials/index.js';
 import { DECALS } from './materials/decals.js';
 import { applyTiledBoxUVs, applyTiledCylinderUVs } from './uv-utils.js';
+import { buildPlaceableVisualDetails } from './placeable-visual-details.js';
 import { BLOOM_LAYER } from './glow-pipeline.js';
 import {
   _buildBPMRoles,
@@ -3951,7 +3952,17 @@ function _buildPartsOrFallback(compDef) {
   const mesh = new THREE.Mesh(geometry, material);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
-  return mesh;
+  // Keep the fallback housing (and therefore its per-face decals) as the
+  // shell, then attach an explicit, reviewed physical profile for every
+  // formerly generic placeable.  Both live placement and thumbnails call
+  // this function, so their silhouettes cannot drift apart.
+  const details = buildPlaceableVisualDetails(compDef, {
+    width: w, height: h, length: l, color: fallbackColor,
+  });
+  if (!details) return mesh;
+  const group = new THREE.Group();
+  group.add(mesh, details);
+  return group;
 }
 
 // ── Thumbnail renderer ──────────────────────────────────────────────
