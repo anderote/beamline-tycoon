@@ -7,6 +7,7 @@
 // recipe goes through the designer's ordinary undoable insert path.
 
 import { COMPONENTS } from '../data/components.js';
+import { PARAM_DEFS } from './component-physics.js';
 
 const FOCUS_TYPES = new Set([
   'quadrupole', 'scQuad', 'protonQuad', 'combinedFunctionMagnet', 'solenoid',
@@ -19,6 +20,11 @@ const BUNCH_PREP_TYPES = new Set([
 const URGENCY_THRESHOLD = 0.7;
 const MAX_FOCUS_HINTS = 12;
 const URGENCY_DRIFT_SCALE_M = 20.0;
+const LOW_ENERGY_SOLENOID_MAX_GEV = 0.005;
+const ELECTRON_REST_GEV = 0.000511;
+const PROTON_REST_GEV = 0.938;
+const QUAD_GRADIENT_TO_K = 0.2998;
+const DEFAULT_QUAD_PHASE_ADVANCE = 0.4;
 
 function nodeLengthM(node) {
   const comp = node ? COMPONENTS[node.type] : null;
@@ -58,6 +64,42 @@ function finite(value, fallback = 0) {
   return Number.isFinite(value) ? value : fallback;
 }
 
+/** Relativistic momentum from the kinetic energy published in the envelope. */
+export function beamMomentumGeV(kineticEnergyGeV, particle = 'e-') {
+  const kinetic = Math.max(0, finite(kineticEnergyGeV));
+  const mass = String(particle).startsWith('p') ? PROTON_REST_GEV : ELECTRON_REST_GEV;
+  return Math.sqrt(kinetic * (kinetic + 2 * mass));
+}
+
+/**
+ * A gentle starting gradient for one newly inserted quadrupole.
+ *
+ * The player still tunes the lattice. This only keeps the GeV-scale catalogue
+ * default from being dropped onto a MeV-scale beam, where the same fixed
+ * gradient is orders of magnitude stronger. A 0.4 rad single-magnet phase
+ * advance matches the deliberately mild 0.01-0.02 T/m settings used by the
+ * shipped 39 MeV transport line.
+ */
+export function recommendedQuadrupoleGradient({
+  kineticEnergyGeV,
+  particle = 'e-',
+  lengthM = 1,
+  min = 0.01,
+  max = 50,
+  step = 0.01,
+  phaseAdvance = DEFAULT_QUAD_PHASE_ADVANCE,
+} = {}) {
+  const momentum = beamMomentumGeV(kineticEnergyGeV, particle);
+  const length = Math.max(finite(lengthM, 1), 1e-9);
+  const phase = Math.max(finite(phaseAdvance, DEFAULT_QUAD_PHASE_ADVANCE), 0);
+  const raw = momentum > 0
+    ? (phase * phase * momentum) / (QUAD_GRADIENT_TO_K * length * length)
+    : min;
+  const increment = Math.max(finite(step, 0), 0);
+  const stepped = increment > 0 ? Math.round(raw / increment) * increment : raw;
+  return Number(Math.max(min, Math.min(max, stepped)).toFixed(12));
+}
+
 function formatEnergy(gev) {
   const value = Math.max(0, finite(gev));
   if (value >= 1) return `${value.toFixed(value >= 10 ? 1 : 2)} GeV`;
@@ -95,7 +137,8 @@ function focusHints(nodes, envelope, beamlineType, isAvailable) {
   if (!envelope || envelope.length < 2 || !nodes.length) return [];
 
   const existingFocusS = [];
-  let nextQuadPolarity = 1;
+  // Editor parameter contract: 0 = focus X / defocus Y, 1 = the reverse.
+  let nextQuadPolarity = 0;
   let cumS = 0;
   for (const node of nodes) {
     const length = nodeLengthM(node);
@@ -103,19 +146,18 @@ function focusHints(nodes, envelope, beamlineType, isAvailable) {
       existingFocusS.push(cumS + length / 2);
       if (node.type !== 'solenoid') {
         const polarity = node.params?.polarity;
-        nextQuadPolarity = polarity === 1 ? -1 : 1;
+        nextQuadPolarity = polarity === 0 ? 1 : 0;
       }
     }
     cumS += length;
   }
 
+  const particle = beamlineType?.particle || 'e-';
   const mid = envelope[Math.floor(envelope.length / 2)];
-  const pGev = Math.max(finite(mid?.energy, 0.01), 1e-6);
+  const pGev = Math.max(beamMomentumGeV(mid?.energy, particle), 1e-6);
   const refFocal = pGev / (0.2998 * 20.0 * 2.0);
   const cellLength = Math.max(refFocal * 2, 3.0);
   const spacing = Math.max(3.0, URGENCY_THRESHOLD * URGENCY_DRIFT_SCALE_M * 0.85);
-  const particle = beamlineType?.particle || 'e-';
-  const ionBeam = particle !== 'e-';
 
   const out = [];
   let nextS = -Infinity;
@@ -133,12 +175,13 @@ function focusHints(nodes, envelope, beamlineType, isAvailable) {
       continue;
     }
 
-    // Solenoids are the natural first remedy for a slow ion beam; once the
-    // beam has reached a few MeV, or on an electron line, use an alternating
-    // quadrupole lattice. Availability is supplied by the designer so a rule
-    // never offers locked or machine-incompatible hardware.
+    // Solenoids focus both transverse planes and are the natural first remedy
+    // for ANY slow charged beam. A quadrupole at its minimum gradient can
+    // still over-focus a keV/low-MeV electron beam just as badly as an ion
+    // beam. Once the beam has reached a few MeV, use an alternating quad
+    // lattice. Availability keeps locked or incompatible hardware out.
     const kineticGev = finite(datum?.energy);
-    let componentType = ionBeam && kineticGev <= 0.005 && isAvailable('solenoid')
+    let componentType = kineticGev <= LOW_ENERGY_SOLENOID_MAX_GEV && isAvailable('solenoid')
       ? 'solenoid'
       : 'quadrupole';
     if (!isAvailable(componentType)) {
@@ -160,8 +203,22 @@ function focusHints(nodes, envelope, beamlineType, isAvailable) {
     hint.confidence = urgency >= 0.9 ? 'high' : 'medium';
     if (componentType === 'quadrupole') {
       hint.params.polarity = nextQuadPolarity;
-      hint.axis = nextQuadPolarity === 1 ? 'X' : 'Y';
-      nextQuadPolarity *= -1;
+      const focusAxis = nextQuadPolarity === 0 ? 'X' : 'Y';
+      const defocusAxis = focusAxis === 'X' ? 'Y' : 'X';
+      hint.axis = focusAxis;
+      hint.label = `ADD QUAD · FOCUS ${focusAxis} / DEFOCUS ${defocusAxis}`;
+      const gradientDef = PARAM_DEFS.quadrupole.gradient;
+      hint.params.gradient = recommendedQuadrupoleGradient({
+        kineticEnergyGeV: kineticGev,
+        particle,
+        lengthM: nodeLengthM({ type: 'quadrupole' }),
+        min: gradientDef.min,
+        max: gradientDef.max,
+        step: gradientDef.step,
+      });
+      hint.state += ` · ${hint.params.gradient.toFixed(2)} T/m`;
+      hint.target = 'alternate X/Y quads to restore margin';
+      nextQuadPolarity = nextQuadPolarity === 0 ? 1 : 0;
     }
     out.push(hint);
     nextS = s + spacing;
@@ -272,4 +329,6 @@ export function missionPlotTargets(beamlineType) {
 export const PLACEMENT_HINT_CONSTANTS = Object.freeze({
   urgencyThreshold: URGENCY_THRESHOLD,
   maxFocusHints: MAX_FOCUS_HINTS,
+  lowEnergySolenoidMaxGeV: LOW_ENERGY_SOLENOID_MAX_GEV,
+  defaultQuadPhaseAdvance: DEFAULT_QUAD_PHASE_ADVANCE,
 });

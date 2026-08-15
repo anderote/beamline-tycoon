@@ -18,6 +18,7 @@ import { portWorldPosition } from '../utility/ports.js';
 import {
   computePlacementHints,
   missionPlotTargets,
+  recommendedQuadrupoleGradient,
 } from '../beamline/designer-placement-hints.js';
 
 /**
@@ -34,6 +35,42 @@ function _nodeSubL(node) {
   if (node && typeof node.subL === 'number' && node.subL > 0) return node.subL;
   const c = node ? COMPONENTS[node.type] : null;
   return (c && c.subL) || 4;
+}
+
+/**
+ * Physics-aware defaults for a component newly placed at the blue marker.
+ * Existing components and explicit caller/hint parameters always win.
+ */
+function _localOpticsDefaults(designer, type) {
+  const gradientDef = PARAM_DEFS[type]?.gradient;
+  if (!gradientDef || !['quadrupole', 'scQuad'].includes(type)) return {};
+  // Physics can still be booting when the player makes the first edit. The
+  // minimum is a safe temporary seed; retaining the 20 T/m catalogue default
+  // would recreate the original low-energy blow-up precisely on that path.
+  if (!designer.draftEnvelope?.length) return { gradient: gradientDef.min };
+
+  let datum = designer.draftEnvelope[0];
+  let bestDistance = Infinity;
+  for (const candidate of designer.draftEnvelope) {
+    const distance = Math.abs((candidate.s || 0) - (designer.markerS || 0));
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      datum = candidate;
+    }
+  }
+
+  const typeId = designer._designerBeamlineTypeId?.();
+  const particle = (typeId && getBeamlineType(typeId)?.particle) || 'e-';
+  return {
+    gradient: recommendedQuadrupoleGradient({
+      kineticEnergyGeV: datum.energy,
+      particle,
+      lengthM: _nodeSubL({ type }) * 0.5,
+      min: gradientDef.min,
+      max: gradientDef.max,
+      step: gradientDef.step,
+    }),
+  };
 }
 
 export class BeamlineDesigner {
@@ -1413,6 +1450,7 @@ export class BeamlineDesigner {
         if (!(k in node.params)) node.params[k] = v;
       }
     }
+    Object.assign(node.params, _localOpticsDefaults(this, newType));
     node.computedStats = null;
 
     this._updateTotalLength();
@@ -1451,6 +1489,7 @@ export class BeamlineDesigner {
         if (!(k in newNode.params)) newNode.params[k] = v;
       }
     }
+    Object.assign(newNode.params, _localOpticsDefaults(this, type));
     // Advisor insertions travel through this same public draft operation, but
     // may carry a physics-derived starting point (for example quadrupole
     // polarity). Only declared, non-derived controls may be initialized — a

@@ -438,6 +438,10 @@ console.log('\n-- PARAM_DEFS new types --');
   assert(PARAM_DEFS.quadrupole.gradient !== undefined, 'quadrupole has gradient');
   assert(PARAM_DEFS.quadrupole.focusStrength !== undefined, 'quadrupole has focusStrength');
   assert(PARAM_DEFS.quadrupole.focusStrength.derived === true, 'focusStrength is derived');
+  assert(PARAM_DEFS.quadrupole.polarity.labels[0].includes('Defocus Y'),
+    'Focus X control also names the Y defocus tradeoff');
+  assert(PARAM_DEFS.quadrupole.polarity.labels[1].includes('Defocus X'),
+    'Focus Y control also names the X defocus tradeoff');
 
   assert(PARAM_DEFS.dipole !== undefined, 'PARAM_DEFS.dipole exists');
   assert(PARAM_DEFS.dipole.maxMomentum.derived === true, 'dipole maxMomentum is derived');

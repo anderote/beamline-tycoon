@@ -1,8 +1,10 @@
 // Physics-driven insertion recipes and mission plot targets.
 
 import {
+  beamMomentumGeV,
   computePlacementHints,
   missionPlotTargets,
+  recommendedQuadrupoleGradient,
 } from '../src/beamline/designer-placement-hints.js';
 import { BeamlineDesigner } from '../src/ui/BeamlineDesigner.js';
 import { ProbePlots } from '../src/ui/probe-plots.js';
@@ -45,6 +47,13 @@ console.log('1. an electron transport line gets an alternating quad lattice');
   check('electron focus hints use quadrupoles', focus.every(h => h.componentType === 'quadrupole'));
   check('quadrupole polarity alternates', focus.every((h, i) => i === 0 ||
     h.params.polarity !== focus[i - 1].params.polarity));
+  check('quadrupole hints use the editor 0/1 polarity contract',
+    focus.every(h => h.params.polarity === 0 || h.params.polarity === 1));
+  check('hint axis agrees with the inserted polarity', focus.every(h =>
+    h.axis === (h.params.polarity === 0 ? 'X' : 'Y')));
+  check('hint names both the focused and defocused planes', focus.every(h =>
+    h.label.includes('FOCUS') && h.label.includes('DEFOCUS')));
+  check('hint carries a local-energy gradient', focus.every(h => h.params.gradient === 0.01));
 }
 
 console.log('2. slow proton focusing adapts to a solenoid');
@@ -60,6 +69,32 @@ console.log('2. slow proton focusing adapts to a solenoid');
   check('the low-energy ion remedy is a solenoid', focus?.componentType === 'solenoid',
     focus?.componentType);
   check('the annotation carries local energy', focus?.state.includes('keV'), focus?.state);
+}
+
+console.log('2b. a slow electron front end also gets a solenoid');
+{
+  const hints = computePlacementHints({
+    nodes: [{ type: 'dcGun' }, ...drifts(12)],
+    envelope: envelope(24, { energy: 0.00025 }),
+    beamlineType: { id: 'testStand', particle: 'e-', spec: {} },
+    isAvailable: type => ['solenoid', 'quadrupole'].includes(type),
+  });
+  const focus = hints.find(h => h.kind === 'focus');
+  check('a focus hint exists', !!focus);
+  check('sub-5 MeV electrons use two-plane solenoid focusing',
+    focus?.componentType === 'solenoid', focus?.componentType);
+}
+
+console.log('2c. quadrupole starting gradient follows local rigidity');
+{
+  check('39 MeV electrons start at the shipped transport-line setting',
+    recommendedQuadrupoleGradient({ kineticEnergyGeV: 0.039 }) === 0.02);
+  check('1 GeV electrons start gently instead of at the 20 T/m catalogue default',
+    recommendedQuadrupoleGradient({ kineticEnergyGeV: 1 }) === 0.53);
+  check('momentum conversion includes electron rest energy',
+    beamMomentumGeV(0.00005, 'e-') > 0.0002 && beamMomentumGeV(0.00005, 'e-') < 0.0003);
+  check('proton momentum uses the proton rest mass',
+    beamMomentumGeV(0.005, 'p+') > 0.09 && beamMomentumGeV(0.005, 'p+') < 0.1);
 }
 
 console.log('3. a DC proton front end gets an RFQ capture hint');
@@ -119,11 +154,43 @@ console.log('6. accepting a hint uses the ordinary parameterized insert path');
   designer.insertComponent = (...values) => { args = values; };
   designer._acceptPlacementHint({
     componentType: 'quadrupole', s: 4, nodeIndex: 0, position: 'after',
-    params: { polarity: -1 },
+    params: { polarity: 0, gradient: 0.02 },
   });
   check('insertComponent is called', !!args);
   check('the suggested type and position are preserved', args?.[1] === 'quadrupole' && args?.[2] === 'after');
-  check('the suggested controls are preserved', args?.[3]?.polarity === -1);
+  check('the suggested controls are preserved',
+    args?.[3]?.polarity === 0 && args?.[3]?.gradient === 0.02);
+}
+
+console.log('6b. manual designer insertion uses the local-energy quad default');
+{
+  const designer = Object.create(BeamlineDesigner.prototype);
+  designer._undoStack = [];
+  designer._UNDO_MAX = 10;
+  designer.draftNodes = [{ type: 'drift', subL: 2, params: {} }];
+  designer.draftEnvelope = [
+    { s: 0, energy: 0.039 },
+    { s: 1, energy: 0.039 },
+  ];
+  designer.selectedIndex = 0;
+  designer.markerS = 1;
+  designer.totalLength = 1;
+  designer.editSourceId = null;
+  designer._nextTempId = 0;
+  designer._recalcDraft = () => {};
+  designer._updateDraftBar = () => {};
+  designer._renderAll = () => {};
+  designer.insertComponent(0, 'quadrupole', 'after');
+  const inserted = designer.draftNodes[1];
+  check('a quad was inserted', inserted?.type === 'quadrupole');
+  check('manual insertion uses 0.02 T/m at 39 MeV', inserted?.params?.gradient === 0.02,
+    inserted?.params?.gradient);
+  check('manual insertion retains the declared Focus X default', inserted?.params?.polarity === 0);
+
+  designer.insertComponent(1, 'quadrupole', 'after', { gradient: 2, polarity: 1 });
+  const explicit = designer.draftNodes[2];
+  check('an explicit caller gradient overrides the local default', explicit?.params?.gradient === 2);
+  check('an explicit caller polarity overrides the declared default', explicit?.params?.polarity === 1);
 }
 
 console.log('7. mission bands feed the relevant plots');

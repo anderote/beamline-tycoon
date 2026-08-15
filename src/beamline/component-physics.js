@@ -141,7 +141,7 @@ export const PARAM_DEFS = {
     // low-energy transport had no workable setting at all.
     gradient:     { min: 0.01, max: 50, default: 20, unit: 'T/m', step: 0.01 },
     polarity:     { min: 0, max: 1, default: 0, unit: '', step: 1,
-                    labels: { 0: 'Focus X', 1: 'Focus Y' } },
+                    labels: { 0: 'Focus X · Defocus Y', 1: 'Focus Y · Defocus X' } },
     focusStrength: { derived: true, unit: 'm⁻²' },
   },
 
@@ -149,7 +149,7 @@ export const PARAM_DEFS = {
   scQuad: {
     gradient:     { min: 0.05, max: 200, default: 100, unit: 'T/m', step: 0.05 },
     polarity:     { min: 0, max: 1, default: 0, unit: '', step: 1,
-                    labels: { 0: 'Focus X', 1: 'Focus Y' } },
+                    labels: { 0: 'Focus X · Defocus Y', 1: 'Focus Y · Defocus X' } },
     focusStrength: { derived: true, unit: 'm⁻²' },
   },
 
