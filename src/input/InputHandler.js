@@ -842,6 +842,7 @@ export class InputHandler {
   _finishMarquee(e) {
     const marquee = this._marquee;
     if (!marquee) return false;
+    const previousSelection = [...this.selectedPlaceableIds];
     this._updateMarquee(e);
     if (!marquee.dragging) {
       this._clearMarquee();
@@ -869,6 +870,15 @@ export class InputHandler {
     const primary = this.selectedPlaceableId && this.game.getPlaceable(this.selectedPlaceableId);
     this.selectedNodeId = primary?.category === 'beamline' ? primary.id : null;
     this._renderSelectionOutlines();
+    // A marquee represents one selection panel. Close any older per-item
+    // popups (and any secondary selected-item popups) so the group roster is
+    // the only window the gesture leaves behind.
+    const windowsToClose = new Set([...previousSelection, ...selected]);
+    windowsToClose.delete(primary?.id);
+    for (const id of windowsToClose) {
+      const entry = this.game.getPlaceable(id);
+      if (entry) this.renderer._closePlaceableInfoWindow?.(entry);
+    }
     if (primary && primary.category !== 'beamline') {
       this.renderer._openEquipmentWindow?.(primary);
     }
@@ -3268,8 +3278,8 @@ export class InputHandler {
     });
   }
 
-  _saveSelectionSlot(slot) {
-    const captured = this._captureSelectedCopy();
+  _saveSelectionSlot(slot, anchorId = this.selectedPlaceableId) {
+    const captured = this._captureSelectedCopy(anchorId);
     if (!captured.ok) {
       this._showToast(captured.reason);
       return false;
@@ -3282,8 +3292,8 @@ export class InputHandler {
     return true;
   }
 
-  _copySelectionToClipboard() {
-    const captured = this._captureSelectedCopy();
+  _copySelectionToClipboard(anchorId = this.selectedPlaceableId) {
+    const captured = this._captureSelectedCopy(anchorId);
     if (!captured.ok) {
       this._showToast(captured.reason);
       return false;

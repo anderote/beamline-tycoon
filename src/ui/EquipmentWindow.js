@@ -41,7 +41,48 @@ export class EquipmentWindow {
   }
 
   _updateActions() {
-    const selectionCount = this.selectionActions.getSelectionCount?.(this.equip.id) || 1;
+    const selectionCount = this._selectionEntries().length;
+    if (selectionCount > 1) {
+      const clipboardCount = this.selectionActions.getClipboardCount?.() || 0;
+      this.ctx.setActions([
+        {
+          label: 'Move selection',
+          title: 'Pick up the complete selection and place it together',
+          onClick: () => this.selectionActions.onPlace?.(this.equip.id),
+        },
+        {
+          label: 'Copy',
+          title: 'Copy the selection and its internal utility connections to the formation clipboard',
+          onClick: () => {
+            this.selectionActions.onCopyToClipboard?.(this.equip.id);
+            this.refresh();
+          },
+        },
+        {
+          label: clipboardCount > 0 ? `Paste (${clipboardCount})` : 'Paste',
+          title: clipboardCount > 0
+            ? 'Attach the copied formation to the cursor'
+            : 'Copy a selection before pasting it',
+          disabled: clipboardCount === 0,
+          onClick: () => this.selectionActions.onPaste?.(),
+        },
+        {
+          label: 'Rotate group',
+          title: 'Pick up the selection rotated 90°; F rotates again while placing',
+          onClick: () => this.selectionActions.onRotate?.(this.equip.id),
+        },
+        {
+          label: 'Mirror group',
+          title: 'Pick up and mirror the selection; M mirrors again while placing',
+          onClick: () => this.selectionActions.onMirror?.(this.equip.id),
+        },
+        { label: 'Demolish all (50% refund)', variant: 'danger', onClick: () => {
+          const removedIds = this.selectionActions.onDemolish?.(this.equip.id) || [];
+          for (const id of removedIds) ContextWindow.getWindow('equip-' + id)?.close();
+        }},
+      ]);
+      return;
+    }
     const actions = [
       {
         label: 'Place',
@@ -63,20 +104,6 @@ export class EquipmentWindow {
         }
       }},
     ];
-    if (selectionCount > 1) {
-      actions.splice(2, 0,
-        {
-          label: 'Rotate group',
-          title: 'Pick up the selection rotated 90°; F rotates again while placing',
-          onClick: () => this.selectionActions.onRotate?.(this.equip.id),
-        },
-        {
-          label: 'Mirror group',
-          title: 'Pick up and mirror the selection; M mirrors again while placing',
-          onClick: () => this.selectionActions.onMirror?.(this.equip.id),
-        },
-      );
-    }
     if (this.comp.autoConnectRadius > 0) {
       const plan = this._autoConnectPlan;
       const count = plan?.stubs?.length || 0;
@@ -99,13 +126,61 @@ export class EquipmentWindow {
   }
 
   _updateTitle() {
-    const count = this.selectionActions.getSelectionCount?.(this.equip.id) || 1;
+    const count = this._selectionEntries().length;
+    this.ctx?._el?.classList.toggle('selection-group-window', count > 1);
     this.ctx?.setTitle(count > 1 ? `${count} Items Selected` : this.comp.name);
+  }
+
+  _selectionEntries() {
+    const entries = this.selectionActions.getSelectionEntries?.(this.equip.id);
+    return Array.isArray(entries) && entries.length ? entries : [this.equip];
+  }
+
+  _renderGroupInfo(container, entries) {
+    const slots = this.selectionActions.getSelectionSlots?.() || {};
+    container.innerHTML = '<div class="selection-panel">'
+      + '<div class="selection-panel-heading">Selected items</div>'
+      + '<div class="selection-panel-list"></div>'
+      + '<div class="selection-panel-heading selection-panel-save-heading">Save selection</div>'
+      + '<div class="selection-panel-slots" aria-label="Save selection to slot"></div>'
+      + '<div class="selection-panel-help">Ctrl+1…9 saves · Shift+1…9 recalls</div>'
+      + '</div>';
+
+    const list = container.querySelector('.selection-panel-list');
+    for (const item of selectionWindowItems(entries)) {
+      const row = document.createElement('div');
+      row.className = 'selection-panel-item';
+      row.innerHTML = `<span class="selection-panel-item-name">${escapeHtml(item.name)}</span>`
+        + `<span class="selection-panel-item-kind">${escapeHtml(item.category)}</span>`
+        + `<span class="selection-panel-item-position">${item.position}</span>`;
+      list.appendChild(row);
+    }
+
+    const slotGrid = container.querySelector('.selection-panel-slots');
+    for (let slot = 1; slot <= 9; slot++) {
+      const savedCount = Number(slots[slot]) || 0;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'selection-panel-slot';
+      btn.innerHTML = `<span class="selection-panel-slot-key">${slot}</span>`
+        + `<span>${savedCount ? `${savedCount} saved` : 'empty'}</span>`;
+      btn.title = `Save these ${entries.length} items to formation slot ${slot}`;
+      btn.addEventListener('click', () => {
+        this.selectionActions.onSaveSlot?.(String(slot), this.equip.id);
+        this.refresh();
+      });
+      slotGrid.appendChild(btn);
+    }
   }
 
   _renderInfo(container) {
     const comp = this.comp;
     const equip = this.equip;
+    const selectionEntries = this._selectionEntries();
+    if (selectionEntries.length > 1) {
+      this._renderGroupInfo(container, selectionEntries);
+      return;
+    }
 
     let html = '<div class="equipment-details">';
     html += `<div class="equipment-name">${comp.name}</div>`;
@@ -117,10 +192,6 @@ export class EquipmentWindow {
     }
     for (const r of utilityStatRows(comp)) {
       html += `<div class="equipment-utility">${r.label}: ${r.value}</div>`;
-    }
-    const selectionCount = this.selectionActions.getSelectionCount?.(this.equip.id) || 1;
-    if (selectionCount > 1) {
-      html += '<div class="equipment-utility">Formation slots: Ctrl+1…9 save · Shift+1…9 recall</div>';
     }
     if (comp.autoConnectRadius > 0) {
       const ready = this._autoConnectPlan?.stubs?.length || 0;
@@ -157,6 +228,24 @@ export class EquipmentWindow {
     this._updateActions();
     this.ctx.update();
   }
+}
+
+export function selectionWindowItems(entries) {
+  return (entries || []).map(entry => {
+    const def = COMPONENTS[entry?.type] || PLACEABLES[entry?.type] || {};
+    return {
+      id: entry?.id,
+      name: def.name || entry?.type || 'Unknown item',
+      category: entry?.category || def.category || 'general',
+      position: `(${entry?.col ?? '?'}, ${entry?.row ?? '?'})`,
+    };
+  });
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, char => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[char]);
 }
 
 function _effectLabel(key) {
