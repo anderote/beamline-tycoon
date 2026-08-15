@@ -1,5 +1,5 @@
 // test/browser/unwired-affordance.spec.mjs — scratch spec for the Phase 11b-3
-// unwired-sink affordances. Drives the real app: boots a game, places a
+// utility-port issue affordances. Drives the real app: boots a game, places a
 // beamline component that declares hard-required sinks and wires nothing, then
 // checks that the renderer draws one in-world marker per unwired sink and the
 // compact top-bar chip preserves a deduplicated explanation without opening a
@@ -11,7 +11,7 @@
 import { test, expect } from '@playwright/test';
 import { bootFreshGame, createErrorCollector, frames } from './helpers.mjs';
 
-test('unwired sinks get in-world markers and a compact fault chip', async ({ page }) => {
+test('unwired sinks get port issue markers and a compact fault chip', async ({ page }) => {
   const errors = createErrorCollector(page);
   await bootFreshGame(page);
   await page.evaluate(() => window.dev.enable());
@@ -38,12 +38,13 @@ test('unwired sinks get in-world markers and a compact fault chip', async ({ pag
   const info = await page.evaluate(() => {
     const r = window._renderer;
     const s = window.game.state;
-    const unwired = (s.infraBlockers || []).filter(b => b.fromUnconnectedCheck);
-    const grp = r.unwiredSinkGroup.children[0];
+    const unwired = Object.values(s.unwiredSinks || {})
+      .reduce((sum, utilities) => sum + Object.keys(utilities || {}).length, 0);
+    const grp = r.utilityPortIssueGroup.children[0];
     const chip = document.getElementById('beam-summary');
     return {
-      unwired: unwired.length,
-      markerGroups: r.unwiredSinkGroup.children.length,
+      unwired,
+      markerGroups: r.utilityPortIssueGroup.children.length,
       markers: grp ? grp.children.length : 0,
       panelPresent: !!document.getElementById('infra-blocker-panel'),
       chipText: chip?.textContent,
@@ -64,9 +65,9 @@ test('unwired sinks get in-world markers and a compact fault chip', async ({ pag
   // the existing marker group rather than tearing it down.
   const stable = await page.evaluate(() => {
     const r = window._renderer;
-    const before = r.unwiredSinkGroup.children[0];
-    r._refreshUnwiredSinkMarkers();
-    return r.unwiredSinkGroup.children[0] === before;
+    const before = r.utilityPortIssueGroup.children[0];
+    r._refreshUtilityPortIssueMarkers();
+    return r.utilityPortIssueGroup.children[0] === before;
   });
   expect(stable, 'unchanged blocker set does not rebuild the markers').toBe(true);
 

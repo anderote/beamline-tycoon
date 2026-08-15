@@ -29,6 +29,7 @@ import { utilityLineVisualSignature } from './utility-visual-signature.js';
 import { buildWorldSnapshot } from './world-snapshot.js';
 import { disposeGroupChildren, disposeSceneObject } from './dispose-utils.js';
 import { listUtilityEndpoints, makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
+import { utilityPortIssues } from '../utility/port-issues.js';
 import { placeableCenterWorld, portWorldPosition } from '../utility/ports.js';
 import { portAnchor3D } from '../utility/port-anchors.js';
 import { buildPortFitting, buildPortFittings, portFittingSignature } from './builders/port-fitting-builder.js';
@@ -71,6 +72,7 @@ import {
 } from '../data/structure.js';
 import { ZONES } from '../data/facility.js';
 import { COMPONENTS } from '../data/components.js';
+import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
 import { DIR, DIR_DELTA, turnLeft } from '../data/directions.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { placementFacingArrowDir } from './placement-facing.js';
@@ -387,14 +389,14 @@ export class ThreeRenderer {
     // and we can clear/rebuild them every frame independently.
     this.utilityLineGroup = null;
     this.utilityLinePreviewGroup = null;
-    this.unwiredSinkGroup = null;
+    this.utilityPortIssueGroup = null;
     this.portFittingGroup = null;
     this.wallVisibilityMode = 'transparent';
     this._snapshot = null;
 
-    // Unwired-sink marker memo: keyed on the gate's blocker set, so a steady
-    // world never pays for the endpoint-index walk the markers need.
-    this._unwiredBlockerSig = null;
+    // Utility sink-port alert memo. A steady solve never pays for the anchor
+    // resolution and geometry rebuild the markers need.
+    this._utilityPortIssueSig = null;
 
     // Camera focus animation (focusOnTile). Inert until a focus is requested;
     // cancelled by any manual pan/zoom.
@@ -730,12 +732,12 @@ export class ThreeRenderer {
     this.utilityLinePreviewGroup.renderOrder = 998;
     this.scene.add(this.utilityLinePreviewGroup);
 
-    // Unwired declared sinks — always-on markers, independent of the armed
-    // tool, so a tripped beam is traceable to its offenders without hovering.
-    this.unwiredSinkGroup = new THREE.Group();
-    this.unwiredSinkGroup.name = 'unwiredSinkMarkers';
-    this.unwiredSinkGroup.renderOrder = 1000;
-    this.scene.add(this.unwiredSinkGroup);
+    // Unhealthy sink ports — always-on markers, independent of the armed tool,
+    // so a missing or under-sized feed is traceable without hovering.
+    this.utilityPortIssueGroup = new THREE.Group();
+    this.utilityPortIssueGroup.name = 'utilityPortIssueMarkers';
+    this.utilityPortIssueGroup.renderOrder = 1000;
+    this.scene.add(this.utilityPortIssueGroup);
     // Connector hardware on equipment. Ordinary scene geometry (depth-tested,
     // no renderOrder games) — these are part of the machines, not an overlay.
     this.portFittingGroup = new THREE.Group();
@@ -868,8 +870,8 @@ export class ThreeRenderer {
           this._refreshDecorations();
           this._refreshComponents();
           this._refreshUtilityLinesV2();
-          // Geometry moved; the blocker set may be identical, so force.
-          this._refreshUnwiredSinkMarkers(true);
+          // Geometry moved; the issue set may be identical, so force.
+          this._refreshUtilityPortIssueMarkers(true);
           this._refreshPortFittings();
           this._markPhysicsBodiesDirty();
           break;
@@ -885,17 +887,17 @@ export class ThreeRenderer {
           break;
         case 'utilityLinesChanged':
           this._refreshUtilityLinesV2();
-          this._refreshUnwiredSinkMarkers();
+          this._refreshUtilityPortIssueMarkers();
           // Utility runs can now own instruments with ports of their own.
           // Their connector fittings must appear/disappear in the same frame
           // as the mounted model, not wait for an unrelated placeable edit.
           this._refreshPortFittings();
           break;
         // The gate reran (beam toggle while paused, or a beamline recalc), so
-        // state.infraBlockers may have changed without a tick — and while
+        // published port qualities may have changed without a tick — and while
         // paused there is no tick to repaint the HUD side of it either.
         case 'infrastructureValidated':
-          this._refreshUnwiredSinkMarkers();
+          this._refreshUtilityPortIssueMarkers();
           if (this._updateBeamSummary) this._updateBeamSummary();
           break;
         case 'beamToggled':
@@ -915,9 +917,9 @@ export class ThreeRenderer {
               this._refreshUtilityLinesV2();
             }
           }
-          // Guarded on the blocker signature — a steady world costs one
-          // string join over a handful of entries.
-          this._refreshUnwiredSinkMarkers();
+          // Guarded on the issue signature — a steady world costs one short
+          // sink-quality walk and no scene rebuild.
+          this._refreshUtilityPortIssueMarkers();
           break;
         case 'researchChanged':
           if (this._renderTechTree) this._renderTechTree();
@@ -3784,7 +3786,9 @@ export class ThreeRenderer {
     const _dt = (_now - this._lastAnimTime) / 1000;
     this._lastAnimTime = _now;
     // Emissive-only breathe on existing marker materials — no rebuild.
-    if (this.utilityLineBuilderV2) this.utilityLineBuilderV2.pulseUnwiredMarkers(_now);
+    if (this.utilityLineBuilderV2) {
+      this.utilityLineBuilderV2.pulseUtilityPortIssueMarkers(_now);
+    }
     // Newly committed cords/hoses briefly relax from the hand trace into a
     // gravity-settled rope and then become fully static. Resync declarative
     // path effects only on the final frame, not throughout the interpolation.
@@ -4035,7 +4039,7 @@ export class ThreeRenderer {
     // userData.lightFixture scene-traversal lookup.
     if (this._lightRig) this._lightRig.setFixtureRegistry(this.lightingGroup);
     this._refreshUtilityLinesV2();
-    this._refreshUnwiredSinkMarkers(true);
+    this._refreshUtilityPortIssueMarkers(true);
     this._refreshPortFittings();
     this._refreshBeamPipes();
     this._refreshZones();
@@ -4074,7 +4078,7 @@ export class ThreeRenderer {
     this._refreshBeamPipes();
     this._refreshBeam();
     this._refreshUtilityLinesV2();
-    this._refreshUnwiredSinkMarkers(true);
+    this._refreshUtilityPortIssueMarkers(true);
     this._refreshPortFittings();
     this._markPhysicsBodiesDirty();
   }
@@ -4694,39 +4698,38 @@ export class ThreeRenderer {
     while (group.children.length > 0) this.portFittingGroup.add(group.children[0]);
   }
 
-  _refreshUnwiredSinkMarkers(force = false) {
-    if (!this.unwiredSinkGroup || !this.utilityLineBuilderV2) return;
+  _refreshUtilityPortIssueMarkers(force = false) {
+    if (!this.utilityPortIssueGroup || !this.utilityLineBuilderV2) return;
     const state = this._liveState();
-    const blockers = (state && state.infraBlockers) || [];
-    const unwired = blockers.filter(b => b && b.fromUnconnectedCheck && b.location?.placeableId);
-    // The pin now hangs off the port's 3D anchor, so a device that moved (or
-    // whose anchor resolved once the model bounds were measured) has to
-    // rebuild — the blocker set alone no longer determines the geometry.
-    const sig = unwired.map(b => `${b.location.placeableId}:${b.location.portName}`).join(';');
-    if (!force && sig === this._unwiredBlockerSig) return;
-    this._unwiredBlockerSig = sig;
-    if (unwired.length === 0) {
-      this.utilityLineBuilderV2.setUnwiredSinkMarkers([], this.unwiredSinkGroup);
+    const hasUnwired = Object.keys(state?.unwiredSinks || {}).length > 0;
+    let byId = hasUnwired ? makeUtilityEndpointIndex(state) : null;
+    const issues = utilityPortIssues(state, byId, getUtilityPortsV2);
+    // The glyph hangs off the port's 3D anchor, so a device that moved (or
+    // whose anchor resolved once model bounds were measured) forces a rebuild;
+    // otherwise identity + severity fully determine the marker geometry.
+    const sig = issues.map(issue =>
+      `${issue.placeableId}:${issue.portName}:${issue.severity}`).join(';');
+    if (!force && sig === this._utilityPortIssueSig) return;
+    this._utilityPortIssueSig = sig;
+    if (issues.length === 0) {
+      this.utilityLineBuilderV2.setUtilityPortIssueMarkers([], this.utilityPortIssueGroup);
       return;
     }
-    // Endpoints, not placeables: every cavity/quad/BPM offender lives in
-    // pipe.placements (see utility/utility-endpoints.js).
-    const byId = makeUtilityEndpointIndex(state);
+    if (!byId) byId = makeUtilityEndpointIndex(state);
     const marks = [];
-    for (const b of unwired) {
-      const ep = byId.get(b.location.placeableId);
+    for (const issue of issues) {
+      const ep = byId.get(issue.placeableId);
       if (!ep) continue;
       const def = COMPONENTS[ep.type];
-      const anchor = portAnchor3D(ep, def, b.location.portName);
+      const anchor = portAnchor3D(ep, def, issue.portName);
       if (!anchor) continue;
-      const utilityType = def?.ports?.[b.location.portName]?.utility;
-      if (!utilityType) continue;
       marks.push({
-        id: ep.id, portName: b.location.portName, utilityType,
+        ...issue,
         x: anchor.x, y: anchor.y, z: anchor.z,
       });
     }
-    this.utilityLineBuilderV2.setUnwiredSinkMarkers(marks, this.unwiredSinkGroup);
+    this.utilityLineBuilderV2.setUtilityPortIssueMarkers(
+      marks, this.utilityPortIssueGroup);
   }
 
   /**

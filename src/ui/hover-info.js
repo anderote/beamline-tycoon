@@ -176,13 +176,40 @@ export function utilityNetworkHoverInfo(descriptor, flow) {
     ? 'healthy'
     : (coverage >= 0.5 ? 'warning' : 'critical');
 
+  const errors = Array.isArray(flow.errors) ? flow.errors.filter(Boolean) : [];
+  const qualityValues = Object.values(flow.perSinkQuality || {})
+    .filter(value => typeof value === 'number' && Number.isFinite(value));
+  const zeroService = qualityValues.some(quality => quality <= 0)
+    || (demand > 0 && capacity <= 0);
+  const underServed = qualityValues.some(quality => quality < 1)
+    || capacity < demand;
+  const issueMessages = [...new Set(errors.map(error =>
+    error.message || humanize(error.code || 'Utility issue')))];
+  if (issueMessages.length === 0 && underServed) {
+    issueMessages.push(zeroService
+      ? 'Connected equipment is receiving no service.'
+      : 'Connected equipment is under-served.');
+  }
+  const issueText = issueMessages.length > 0
+    ? `${issueMessages.length === 1 ? 'Issue' : 'Issues'}: ${issueMessages.join(' · ')}`
+    : '';
+  const issueTone = errors.some(error => error.severity === 'hard') || zeroService
+    ? 'critical'
+    : 'warning';
+
+  const detailSegments = [
+    { text: supplyText, tone: 'supply' },
+    { text: ' · ' },
+    { text: demandText, tone: demandTone },
+  ];
+  if (issueText) detailSegments.push(
+    { text: ' · ' },
+    { text: issueText, tone: issueTone },
+  );
+
   return {
     title,
-    detail: `${supplyText} · ${demandText}`,
-    detailSegments: [
-      { text: supplyText, tone: 'supply' },
-      { text: ' · ' },
-      { text: demandText, tone: demandTone },
-    ],
+    detail: detailSegments.map(segment => segment.text).join(''),
+    detailSegments,
   };
 }
