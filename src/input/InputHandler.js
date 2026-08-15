@@ -4275,6 +4275,15 @@ export class InputHandler {
           ['Energy Cost', `${comp.energyCost} kW`],
           ['Length', `${((comp.subL || 4) * 0.5).toFixed(1)} m`],
         ];
+        if (comp.placement === 'attachment') {
+          const utilityName = comp.utilityMount
+            ? (UTILITY_TYPES[comp.utilityMount]?.displayName || comp.utilityMount)
+            : null;
+          statEntries.push([
+            'Placement',
+            utilityName ? `Anywhere along ${utilityName} runs or on beam pipe` : 'On beam pipe',
+          ]);
+        }
         if (comp.stats) {
           for (const [k, v] of Object.entries(comp.stats)) {
             const label = k.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
