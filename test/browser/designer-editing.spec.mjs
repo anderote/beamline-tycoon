@@ -43,7 +43,7 @@ async function openEditModeDesigner(page, { typeId = null } = {}) {
   });
 }
 
-test('mission targets use the regular Energy and Emittance plot strip', async ({ page }) => {
+test('mission targets annotate performance plots without changing their scale', async ({ page }) => {
   const errors = createErrorCollector(page);
   await page.setViewportSize({ width: 1600, height: 950 });
   await bootFreshGame(page);
@@ -91,10 +91,9 @@ test('mission targets use the regular Energy and Emittance plot strip', async ({
   expect(layout.targets).toContain('Energy target: 3.00 MeV–12.0 MeV');
   expect(layout.targets).toContain('Current target: 20 mA–100 mA');
 
-  // Feed the real plot path a tiny, flat 50 keV trace. The mission target is
-  // 3–12 MeV, so the shared domain must expand just far enough to show both;
-  // the old constant-value fallback expanded to ±500 MeV and reduced the
-  // target to an unreadable hairline.
+  // Feed the real plot path a tiny, flat 50 keV trace. The 3–12 MeV mission
+  // band is far above it, so the plot must retain its useful data scale and
+  // turn that target into a labelled arrow at the top edge.
   const plotCalls = await page.evaluate(async () => {
     const { ProbePlots } = await import('/src/ui/probe-plots.js');
     const d = window.game._designer;
@@ -118,7 +117,7 @@ test('mission targets use the regular Energy and Emittance plot strip', async ({
       return orig.apply(this, arguments);
     };
     CanvasRenderingContext2D.prototype.fillText = function(text) {
-      if (String(text).startsWith('MISSION')) targetLabels.push(String(text));
+      if (String(text).includes('TARGET')) targetLabels.push(String(text));
       return origFillText.apply(this, arguments);
     };
     try {
@@ -134,16 +133,14 @@ test('mission targets use the regular Energy and Emittance plot strip', async ({
   expect(energyCall?.targets?.energyGeV).toEqual([0.003, 0.012]);
   expect(energyCall?.targetYDomain?.[0]).toEqual([0.003, 0.012]);
   expect(energyCall?.yAxisMode).toBe('linear');
-  expect(energyCall?.yDomain?.[0]?.[0]).toBe(0);
-  expect(energyCall?.yDomain?.[0]?.[1]).toBeGreaterThan(0.012);
-  expect(energyCall?.yDomain?.[0]?.[1]).toBeLessThan(0.02);
+  expect(energyCall?.yDomain?.[0]?.[0]).toBeCloseTo(0.000046, 8);
+  expect(energyCall?.yDomain?.[0]?.[1]).toBeCloseTo(0.000054, 8);
   expect(emittanceCall?.targetYDomain).toBeNull();
-  expect(plotCalls.targetLabels).toContain('MISSION MIN 3.00');
-  expect(plotCalls.targetLabels).toContain('MISSION MAX 12.0');
+  expect(plotCalls.targetLabels).toContain('↑ TARGET 3.00 MeV–12.0 MeV');
 
   // The reference and axis mode are independent controls. Hiding the mission
-  // reference removes both its domain contribution and dotted labels, while
-  // Log is forwarded to each panel's positive primary y channel.
+  // reference removes its guides and edge annotations, while Log is forwarded
+  // to each panel's positive primary y channel.
   const logWithoutMission = await page.evaluate(async () => {
     const { ProbePlots } = await import('/src/ui/probe-plots.js');
     const d = window.game._designer;
@@ -166,7 +163,7 @@ test('mission targets use the regular Energy and Emittance plot strip', async ({
       return orig.apply(this, arguments);
     };
     CanvasRenderingContext2D.prototype.fillText = function(text) {
-      if (String(text).startsWith('MISSION')) targetLabels.push(String(text));
+      if (String(text).includes('TARGET')) targetLabels.push(String(text));
       if (String(text).includes('· LOG')) logAxisLabels.push(String(text));
       return origFillText.apply(this, arguments);
     };

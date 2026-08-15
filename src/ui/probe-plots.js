@@ -11,8 +11,10 @@ export const ProbePlots = (() => {
    *  opts (all optional; omitting opts entirely === legacy single-pass behavior):
    *    yDomain  [lo, hi] — or [[lo, hi], ...] for multi-channel plots — overrides
    *             this pass's autoscale. Use yDomainFor()/unionYDomain() to build it.
-   *    targetBand [lo, hi] — mission target on the primary y-axis. Either
-   *             bound may be null for an open-ended target.
+   *    targetBand [lo, hi] — mission target annotation on the primary y-axis.
+   *             Either bound may be null for an open-ended target. Targets do
+   *             not affect the data domain; off-scale bounds render at the
+   *             nearest plot edge instead.
    *    yAxisMode 'linear' or 'log' for positive primary y-axis values. Signed
    *             secondary axes and geometric plots keep their native scale.
    *    noClear  skip the clear + background fill so this pass composites over the last.
@@ -193,7 +195,7 @@ export const ProbePlots = (() => {
     return out;
   }
 
-  /** Extra y extent required to keep a machine mission band visible. */
+  /** Mission band associated with a plot's primary y channel. */
   function targetYDomain(type, targets) {
     if (!targets) return null;
     if (type === 'energy-dispersion' && targets.energyGeV) {
@@ -409,45 +411,124 @@ export const ProbePlots = (() => {
     }
   }
 
-  /** Draw endpoint mission boundaries behind a live curve. The labels are explicit
-   *  because a final-energy target is not a claim that energy must remain in
-   *  that band throughout the accelerator. */
-  function _targetBand(ctx, a, band, yMin, yMax, logY = false) {
+  function _targetValue(value, formatValue, unit) {
+    const formatted = formatValue ? formatValue(value) : _fmtPlotValue(value);
+    return unit ? `${formatted} ${unit}` : formatted;
+  }
+
+  function _targetRange(band, formatValue, formatBand, unit) {
+    if (formatBand) return formatBand(band);
+    const [lo, hi] = band;
+    if (lo == null) return `≤ ${_targetValue(hi, formatValue, unit)}`;
+    if (hi == null) return `≥ ${_targetValue(lo, formatValue, unit)}`;
+    return `${_targetValue(lo, formatValue, unit)}–${_targetValue(hi, formatValue, unit)}`;
+  }
+
+  function _targetPill(ctx, a, text, y, edge = null) {
+    const arrow = edge === 'above' ? '↑ ' : edge === 'below' ? '↓ ' : '';
+    const label = `${arrow}${text}`;
+    ctx.font = 'bold 7px monospace';
+    const arrowSpace = edge ? 8 : 0;
+    const width = Math.min(a.w - 8, Math.ceil(ctx.measureText(label).width) + 8);
+    const x = Math.max(a.x + 2, a.x + a.w - width - arrowSpace - 3);
+    const top = Math.max(a.y + 1, Math.min(a.y + a.h - 10, y - 7));
+
+    ctx.fillStyle = 'rgba(31, 27, 16, 0.92)';
+    ctx.fillRect(x, top, width, 9);
+    ctx.strokeStyle = 'rgba(245, 199, 106, 0.72)';
+    ctx.lineWidth = 0.75;
+    ctx.setLineDash([]);
+    ctx.strokeRect(x + 0.5, top + 0.5, width - 1, 8);
+    ctx.fillStyle = 'rgba(255, 221, 145, 0.98)';
+    ctx.textAlign = 'right';
+    ctx.fillText(label, x + width - 4, top + 7);
+
+    if (!edge) return;
+    const arrowX = a.x + a.w - 5;
+    const tipY = edge === 'above' ? a.y + 1 : a.y + a.h - 1;
+    const baseY = edge === 'above' ? a.y + 7 : a.y + a.h - 7;
+    ctx.fillStyle = 'rgba(245, 199, 106, 0.98)';
+    ctx.beginPath();
+    ctx.moveTo(arrowX, tipY);
+    ctx.lineTo(arrowX - 3, baseY);
+    ctx.lineTo(arrowX + 3, baseY);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  /** Draw endpoint mission annotations without changing the curve's scale. A
+   *  visible boundary gets a restrained guide; a boundary beyond the current
+   *  data domain becomes a labelled arrow at the corresponding plot edge. */
+  function _targetBand(ctx, a, band, yMin, yMax, logY = false, opts = {}) {
     if (!Array.isArray(band) || band.length < 2 || !isFinite(yMin) || !isFinite(yMax)) return;
     const boundaries = [];
     if (band[0] != null && isFinite(band[0])) {
       boundaries.push({
         value: Number(band[0]),
-        label: band[1] == null ? 'MISSION ≥' : 'MISSION MIN',
+        label: band[1] == null ? 'TARGET ≥' : 'TARGET MIN',
       });
     }
     if (band[1] != null && isFinite(band[1])) {
       boundaries.push({
         value: Number(band[1]),
-        label: band[0] == null ? 'MISSION ≤' : 'MISSION MAX',
+        label: band[0] == null ? 'TARGET ≤' : 'TARGET MAX',
       });
     }
     if (boundaries.length === 0) return;
 
+    const edgeFor = value => {
+      if (logY && !(value > 0)) return 'below';
+      if (value < yMin) return 'below';
+      if (value > yMax) return 'above';
+      return null;
+    };
+    for (const boundary of boundaries) boundary.edge = edgeFor(boundary.value);
+
     ctx.save();
-    ctx.strokeStyle = 'rgba(80, 220, 150, 0.55)';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 3]);
-    for (const boundary of boundaries) {
+    const inRange = boundaries.filter(boundary => !boundary.edge)
+      .map(boundary => ({
+        ...boundary,
+        y: a.y + a.h - _yFraction(boundary.value, yMin, yMax, logY) * a.h,
+      }))
+      .sort((left, right) => left.y - right.y);
+    const labelMin = a.y + 8;
+    const labelMax = a.y + a.h - 2;
+    const labelYs = inRange.map(boundary =>
+      Math.max(labelMin, Math.min(labelMax, boundary.y - 2)));
+    for (let i = 1; i < labelYs.length; i++) {
+      labelYs[i] = Math.max(labelYs[i], labelYs[i - 1] + 10);
+    }
+    for (let i = labelYs.length - 1; i >= 0; i--) {
+      labelYs[i] = Math.min(labelYs[i], i === labelYs.length - 1
+        ? labelMax
+        : labelYs[i + 1] - 10);
+    }
+    for (let i = 0; i < inRange.length; i++) {
+      const boundary = inRange[i];
       const frac = _yFraction(boundary.value, yMin, yMax, logY);
-      if (frac == null || frac < 0 || frac > 1) continue;
       const y = a.y + a.h - frac * a.h;
+      ctx.strokeStyle = 'rgba(245, 199, 106, 0.42)';
+      ctx.lineWidth = 0.75;
+      ctx.setLineDash([3, 3]);
       ctx.beginPath();
       ctx.moveTo(a.x, y);
       ctx.lineTo(a.x + a.w, y);
       ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = 'rgba(100, 235, 165, 0.9)';
-      ctx.font = 'bold 7px monospace';
-      ctx.textAlign = 'right';
-      const labelY = Math.max(a.y + 7, Math.min(a.y + a.h - 2, y - 2));
-      ctx.fillText(`${boundary.label} ${_fmtPlotValue(boundary.value)}`, a.x + a.w - 3, labelY);
-      ctx.setLineDash([4, 3]);
+      _targetPill(ctx, a,
+        `${boundary.label} ${_targetValue(boundary.value, opts.formatValue, opts.unit)}`,
+        labelYs[i]);
+    }
+
+    for (const edge of ['above', 'below']) {
+      const offScale = boundaries.filter(boundary => boundary.edge === edge);
+      if (offScale.length === 0) continue;
+      const text = offScale.length === boundaries.length && boundaries.length > 1
+        ? `TARGET ${_targetRange(band, opts.formatValue, opts.formatBand, opts.unit)}`
+        : offScale.map(boundary =>
+          `${boundary.label} ${_targetValue(boundary.value, opts.formatValue, opts.unit)}`
+        ).join(' · ');
+      const y = edge === 'above' ? a.y + 8 : a.y + a.h - 2;
+      _targetPill(ctx, a, text, y, edge);
     }
     ctx.restore();
   }
@@ -474,16 +555,15 @@ export const ProbePlots = (() => {
     const logDomain = o?.yAxisMode === 'log'
       ? _positiveDomain([yMin, yMax], [
         ...scaled.flatMap(d => [d.sx_mm, d.sy_mm]),
-        ...(target || []),
       ])
       : null;
     const logY = !!logDomain;
     if (logDomain) [yMin, yMax] = logDomain;
     if (!ghost) _axes(ctx, a, 's (m)', 'mm', yMin, yMax, logY);
-    if (!ghost) _targetBand(ctx, a, target, yMin, yMax, logY);
     _line(ctx, a, scaled, 'sx_mm', '#44aaff', xMin, xMax, yMin, yMax, false, ghost, logY);
     _line(ctx, a, scaled, 'sy_mm', '#ff6644', xMin, xMax, yMin, yMax, true, ghost, logY);
     if (ghost) return;
+    _targetBand(ctx, a, target, yMin, yMax, logY, { unit: 'mm' });
     _pinMarkers(ctx, a, env, pins, xMin, xMax);
     _legend(ctx, a, [{ color: '#44aaff', label: '\u03c3_x' }, { color: '#ff6644', label: '\u03c3_y' }]);
   }
@@ -497,13 +577,11 @@ export const ProbePlots = (() => {
     const logDomain = o?.yAxisMode === 'log'
       ? _positiveDomain([yMin, yMax], [
         ...env.map(d => d.current),
-        ...(target || []),
       ])
       : null;
     const logY = !!logDomain;
     if (logDomain) [yMin, yMax] = logDomain;
     if (!ghost) _axes(ctx, a, 's (m)', 'mA', yMin, yMax, logY);
-    if (!ghost) _targetBand(ctx, a, target, yMin, yMax, logY);
     // Shade loss regions
     for (let i = 1; !ghost && i < env.length; i++) {
       const prev = env[i - 1], curr = env[i];
@@ -518,6 +596,7 @@ export const ProbePlots = (() => {
     }
     _line(ctx, a, env, 'current', '#ddaa44', xMin, xMax, yMin, yMax, false, ghost, logY);
     if (ghost) return;
+    _targetBand(ctx, a, target, yMin, yMax, logY, { unit: 'mA' });
     _pinMarkers(ctx, a, env, pins, xMin, xMax);
     _legend(ctx, a, [{ color: '#ddaa44', label: 'Current' }]);
   }
@@ -563,7 +642,6 @@ export const ProbePlots = (() => {
     const logDomain = o?.yAxisMode === 'log'
       ? _positiveDomain([eMin, eMax], [
         ...env.map(d => d.energy == null ? null : d.energy * eScale),
-        ...(scaledEnergyTarget || []),
       ])
       : null;
     const logY = !!logDomain;
@@ -579,9 +657,13 @@ export const ProbePlots = (() => {
     }
 
     _axesDual(ctx, aR, 's (m)', `E (${eUnit})`, eMin, eMax, '\u03b7_x (m)', dMin, dMax, logY);
-    _targetBand(ctx, aR, scaledEnergyTarget, eMin, eMax, logY);
     _lineScaled(ctx, aR, env, 'energy', '#44dd88', xMin, xMax, eMin, eMax, false, eScale, false, logY);
     _line(ctx, aR, env, 'eta_x', '#ff8844', xMin, xMax, dMin, dMax, true);
+    _targetBand(ctx, aR, scaledEnergyTarget, eMin, eMax, logY, {
+      formatValue: value => _eicFmtEnergy(value / eScale),
+      formatBand: values => values.map(value => value == null ? null : _eicFmtEnergy(value / eScale))
+        .filter(Boolean).join('–'),
+    });
     _pinMarkers(ctx, aR, env, pins, xMin, xMax);
     _legend(ctx, aR, [{ color: '#44dd88', label: 'Energy' }, { color: '#ff8844', label: '\u03b7_x' }]);
   }

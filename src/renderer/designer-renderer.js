@@ -978,39 +978,6 @@ function _drawNoDataPlaceholder(ctx, w, h, designer) {
   lines.forEach((ln, i) => ctx.fillText(ln, w / 2, h / 2 - 2 + i * 10));
 }
 
-// Keep the mission band on the same axes as the plotted beam, including when
-// the proposal is still outside the target. Otherwise the dashed band would be
-// clipped away precisely when it is most useful.
-function _includeMissionBand(yDomain, band, yAxisMode = 'linear') {
-  if (!yDomain || !band || band.length !== 2) return yDomain;
-  const bounds = band.filter(value => value != null && Number.isFinite(Number(value)))
-    .map(Number);
-  if (bounds.length === 0) return yDomain;
-  const domain = (Array.isArray(yDomain[0]) ? yDomain : [yDomain])
-    .map(channel => channel ? [...channel] : channel);
-  if (!domain[0]) return yDomain;
-
-  if (yAxisMode === 'log') {
-    const positive = [...domain[0], ...bounds].filter(value => value > 0);
-    if (positive.length === 0) return yDomain;
-    let lo = Math.min(...positive);
-    let hi = Math.max(...positive);
-    if (lo === hi) { lo /= 1.2; hi *= 1.2; }
-    const span = Math.max(Math.log10(hi) - Math.log10(lo), 0.1);
-    const pad = span * 0.05;
-    domain[0] = [10 ** (Math.log10(lo) - pad), 10 ** (Math.log10(hi) + pad)];
-    return domain;
-  }
-
-  let lo = Math.min(domain[0][0], ...bounds);
-  let hi = Math.max(domain[0][1], ...bounds);
-  const span = hi - lo || Math.max(Math.abs(hi), 1) * 0.1;
-  const pad = span * 0.05;
-  lo = lo >= 0 ? Math.max(0, lo - pad) : lo - pad;
-  domain[0] = [lo, hi + pad];
-  return domain;
-}
-
 BeamlineDesigner.prototype._renderPlots = function() {
   this._renderPlotMissionSummary();
   // Compute the x/y ranges based on plot range modes
@@ -1073,14 +1040,12 @@ BeamlineDesigner.prototype._renderPlots = function() {
       // would autoscale to its own envelope and the two curves would be drawn
       // to different y-axes on the same pixels — a comparison that reads as a
       // difference in beam size when it is only a difference in scale.
-      let yDomain = ProbePlots.unionYDomain(
+      const yDomain = ProbePlots.unionYDomain(
         ProbePlots.yDomainFor(plotType, solid, yScale, pins, 0),
         ghost ? ProbePlots.yDomainFor(plotType, ghost, yScale, pins, 0) : null,
       );
       const targetDomain = ProbePlots.targetYDomain(plotType, targets);
       const targetBand = targetDomain?.[0] || null;
-      yDomain = ProbePlots.unionYDomain(yDomain, targetDomain);
-      yDomain = _includeMissionBand(yDomain, targetBand, yAxisMode);
       // Ghost first: it draws marks only, so the solid pass on top supplies the
       // axes, bands, pin lines and legend. Reversed, the chrome would paint over
       // the proposal and the as-built line would read as the real one.
