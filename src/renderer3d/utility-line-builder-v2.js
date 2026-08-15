@@ -71,8 +71,9 @@ function shared(mat) {
 // "this run is faulted", and the blend lands on a different hue for each of
 // the six utilities so there is nothing to learn. Motion carries the line
 // state, while compact issue markers live over the affected sink ports and
-// the hover tooltip explains the cause. patchFlowMaterial (utility-flow.js)
-// uses errorStatus to select a flowState —
+// the hover tooltip explains the cause. Electrical flow is now a surface-only
+// colour variation; other utilities may still use emissive flow.
+// patchFlowMaterial (utility-flow.js) uses errorStatus to select a flowState —
 // 'ok' | 'soft' | 'hard' — so a faulted run keeps its colour but stutters,
 // dims or stops, which is why the cache key below is per-status again: this
 // is a distinct material variant, just not a distinct colour.
@@ -882,10 +883,12 @@ function buildLineGroup(
   const mat = getLineMaterial(line.utilityType, errorStatus);
   const hardwareMat = getLineHardwareMaterial(line.utilityType);
   const style = descriptor.geometryStyle || 'cylinder';
-  // Only meshes carrying a flow-patched material need to bloom — an untagged
-  // (vacuumPipe) run stays off BLOOM_LAYER and the darken pass leaves it
-  // exactly as inert as it looks.
-  const flowing = !!FLOW_PARAMS[line.utilityType];
+  const flow = FLOW_PARAMS[line.utilityType];
+  const flowing = !!flow;
+  // Electrical lines keep their animated colour variation in ordinary PBR
+  // shading. Only utilities whose flow is actually emissive enter the bloom
+  // pass; otherwise a non-emissive cable could still acquire a false halo.
+  const emissiveFlow = flowing && flow.emissive !== false;
 
   // Segment lengths up front so a reversed run can be baked in one pass too
   // (see below) rather than needing a second walk once the total is known.
@@ -913,7 +916,7 @@ function buildLineGroup(
     ? buildFlexibleCable(points, radius, mat, reversed, utilityLineHeight(line.utilityType))
     : null;
   if (flexibleMesh) {
-    if (flowing) flexibleMesh.layers.enable(BLOOM_LAYER);
+    if (emissiveFlow) flexibleMesh.layers.enable(BLOOM_LAYER);
     group.add(flexibleMesh);
   }
   for (let i = 0; !flexibleMesh && i < points.length - 1; i++) {
@@ -946,7 +949,7 @@ function buildLineGroup(
         // that pass and hide the glowing core it wraps — putting the jacket
         // on BLOOM_LAYER too keeps it rendering (and, per getJacketMaterial,
         // glowing) normally in the bloom pass instead of occluding.
-        if (flowing) jacket.layers.enable(BLOOM_LAYER);
+        if (emissiveFlow) jacket.layers.enable(BLOOM_LAYER);
         group.add(jacket);
       }
     } else {
@@ -957,7 +960,7 @@ function buildLineGroup(
       // decorative hardware (joints, couplers, and RF support frames).  Tests
       // and presentation effects must not infer that role from geometry type.
       mesh.userData.isUtilityLineSegment = true;
-      if (flowing) mesh.layers.enable(BLOOM_LAYER);
+      if (emissiveFlow) mesh.layers.enable(BLOOM_LAYER);
       group.add(mesh);
     }
     if (descriptor.fittingStyle) addInlineCouplers(group, a, b, descriptor, hardwareMat);
@@ -1032,9 +1035,8 @@ function buildLineGroup(
   // builder never allocates lights or effect meshes. Utility crests explicitly
   // skip projected floor circles: the cable itself is the visible source and
   // its bounded real-light proxy supplies any nearby surface response.
-  if (flowing) {
+  if (flowing && (flow.crest !== false || flow.light !== false)) {
     const effectPoints = reversed ? points.slice().reverse() : points;
-    const flow = FLOW_PARAMS[line.utilityType];
     group.userData.visualEffects = [{
       id: `utility-flow:${line.id}`,
       kind: 'pathPulse',

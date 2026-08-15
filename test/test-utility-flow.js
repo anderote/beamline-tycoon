@@ -285,6 +285,32 @@ console.log('\n--- 3. A vacuum run carries restrained gas-flow lighting ---');
   }
 }
 
+console.log('\n--- 3b. Electrical runs vary surface colour without glowing ---');
+{
+  for (const utilityType of ['powerCable', 'hvCable']) {
+    const { group } = buildFlowLine(utilityType);
+    const meshes = cylinderMeshes(group);
+    assert(meshes.length >= 1, `${utilityType} still builds its cable geometry`);
+    assert(meshes.every(mesh => mesh.layers.mask === 1),
+      `${utilityType} stays off the bloom layer`);
+    assert(!group.userData.visualEffects,
+      `${utilityType} publishes no glowing crest or real-light proxy`);
+
+    const material = meshes[0].material;
+    assert(material.colorNode && !material.emissiveNode,
+      `${utilityType} uses a color node rather than an emissive node`);
+    const shader = {
+      uniforms: {},
+      vertexShader: '#include <common>\n#include <uv_vertex>',
+      fragmentShader: '#include <common>\n#include <color_fragment>\n#include <emissivemap_fragment>',
+    };
+    material.onBeforeCompile(shader);
+    assert(shader.fragmentShader.includes('diffuseColor.rgb = mix(')
+        && !shader.fragmentShader.includes('totalEmissiveRadiance +='),
+      `${utilityType} legacy shader varies lit surface colour without emissive radiance`);
+  }
+}
+
 console.log('\n--- 4. FLOW_PARAMS covers every utility ---');
 {
   const missing = UTILITY_TYPE_LIST.filter(t => !(t in FLOW_PARAMS));
@@ -296,25 +322,28 @@ console.log('\n--- 4. FLOW_PARAMS covers every utility ---');
     'rfWaveguide has no colour override — falls through to its own (red) descriptor colour');
   assert(FLOW_PARAMS.hvCable.color && FLOW_PARAMS.hvCable.color !== '#141418',
     'hvCable IS overridden (its own descriptor colour is near-black and cannot visibly glow)');
-  const flowing = UTILITY_TYPE_LIST;
-  for (const t of flowing) {
+  for (const t of UTILITY_TYPE_LIST) {
     const p = FLOW_PARAMS[t];
     assert(p && Number.isFinite(p.speed) && Number.isFinite(p.period)
-      && Number.isFinite(p.width) && Number.isFinite(p.strength) && Number.isFinite(p.baseGlow)
-      && Number.isFinite(p.pulseRadialScale) && Number.isFinite(p.pulseLengthScale),
-      `${t} has complete motion, glow, and pulse-shape parameters`);
+      && Number.isFinite(p.width) && Number.isFinite(p.strength) && Number.isFinite(p.baseGlow),
+      `${t} has complete surface-flow parameters`);
+    if (p.crest !== false) {
+      assert(Number.isFinite(p.pulseRadialScale) && Number.isFinite(p.pulseLengthScale),
+        `${t} has complete visible-crest shape parameters`);
+    }
   }
   for (const type of ['hvCable', 'powerCable', 'rfWaveguide']) {
     const p = FLOW_PARAMS[type];
     assert(p.width * 2 >= p.period * 0.3,
       `${type} uses a long smooth gradient instead of a needle-sharp packet`);
   }
-  assert(FLOW_PARAMS.hvCable.pulseLengthScale > 6
-      && FLOW_PARAMS.powerCable.pulseLengthScale > 3
-      && FLOW_PARAMS.rfWaveguide.pulseLengthScale >= 3,
-    'HV, power, and RF publish elongated bloom crests');
-  assert(FLOW_PARAMS.coolingWater.pulseLengthScale > FLOW_PARAMS.powerCable.pulseLengthScale * 1.5,
-    'cooling water uses a long fluid slug, distinct from electrical packets');
+  assert(FLOW_PARAMS.hvCable.emissive === false
+      && FLOW_PARAMS.hvCable.crest === false
+      && FLOW_PARAMS.hvCable.light === false
+      && FLOW_PARAMS.powerCable.emissive === false
+      && FLOW_PARAMS.powerCable.crest === false
+      && FLOW_PARAMS.powerCable.light === false,
+    'power and HV are surface-colour variations with no glow geometry or emitted light');
   assert(FLOW_PARAMS.rfWaveguide.speed < FLOW_PARAMS.powerCable.speed
       && FLOW_PARAMS.dataFiber.speed > FLOW_PARAMS.rfWaveguide.speed
     && FLOW_PARAMS.dataFiber.light === false,
@@ -325,12 +354,9 @@ console.log('\n--- 4. FLOW_PARAMS covers every utility ---');
     'HV, power, and RF pulses recur at the denser tuned cadence');
   assert(FLOW_PARAMS.hvCable.period > FLOW_PARAMS.powerCable.period * 3,
     'HV surges remain sparse relative to branch-power gradients');
-  assert(FLOW_PARAMS.powerCable.strength > 1
-      && FLOW_PARAMS.hvCable.strength > FLOW_PARAMS.powerCable.strength,
-    'electrical line crests have an intentionally boosted emissive core, led by HV');
-  assert(FLOW_PARAMS.powerCable.lightIntensity > FLOW_PARAMS.coolingWater.lightIntensity * 1.5
-      && FLOW_PARAMS.hvCable.lightIntensity > FLOW_PARAMS.powerCable.lightIntensity * 1.7,
-    'power and HV packets cast a stronger local light than support-service flow');
+  assert(FLOW_PARAMS.powerCable.color !== '#44cc44'
+      && FLOW_PARAMS.hvCable.color !== '#141418',
+    'electrical flow targets contrast with each cable base colour');
 }
 
 console.log('\n--- 5. getLineMaterial: distinct per flowState, cached, tagged __shared ---');
@@ -360,6 +386,8 @@ console.log('\n--- 5. getLineMaterial: distinct per flowState, cached, tagged __
 
   const powerOk = getLineMaterial('powerCable', 'ok');
   assert(powerOk !== ok, 'a different utility type is never the same cached instance');
+  assert(powerOk.colorNode && !powerOk.emissiveNode,
+    'power flow is a surface colour variation rather than emissive light');
 
   assert(ok.userData.flowUniforms && soft.userData.flowUniforms && hard.userData.flowUniforms,
     'flow-capable utility materials carry a flowUniforms handle');
