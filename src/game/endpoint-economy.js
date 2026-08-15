@@ -7,6 +7,7 @@ import { getBeamlineType } from '../data/beamline-types.js';
 export const ENDPOINT_CONTRACTS = {
   faradayCup:              { name: 'Commissioning time',       baseRevenue: 35,   workload: 'cpu' },
   materialsTestStation:    { name: 'Materials qualification', baseRevenue: 180,  workload: 'cpu' },
+  xRayConverterStation:    { name: 'X-ray inspection',         baseRevenue: 520,  workload: 'balanced', hardEnergyCeiling: true },
   eBeamIrradiationVault:   { name: 'Industrial irradiation',  baseRevenue: 900,  workload: 'cpu', hardEnergyCeiling: true },
   isotopeProductionTarget: { name: 'Medical isotope supply',  baseRevenue: 1500, workload: 'cpu' },
   radiationEffectsStation: { name: 'Electronics radiation testing', baseRevenue: 1200, workload: 'cpu' },

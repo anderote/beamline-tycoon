@@ -68,6 +68,10 @@ test('required endpoints follow the chosen machine mission', () => {
   const endpoints = guidedEndpointSuggestions('testStand', unlocked);
   assert.ok(endpoints.includes('faradayCup'));
   assert.ok(endpoints.includes('materialsTestStation'));
+
+  const processingEndpoints = guidedEndpointSuggestions('ebeamProcessing', unlocked);
+  assert.ok(processingEndpoints.includes('xRayConverterStation'),
+    'the compact X-ray station is offered as an early processing endpoint');
 });
 
 test('infrastructure checklist is derived from real component sink ports', () => {

@@ -955,6 +955,28 @@ UIHost.prototype._schematicDrawers = {
     dot(L + 1, cy + 1, C.hot);
   },
 
+  // === X-RAY CONVERTER STATION ===
+  xRayConverterStation(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C, { rightFlange: false });
+    const targetX = 27;
+    const detectorX = 58;
+    // High-Z converter and the incident electron beam.
+    px(targetX, cy - 7, 3, 15, C.metalDk);
+    px(targetX + 1, cy - 6, 1, 13, C.hot);
+    for (let x = 4; x < targetX; x++) dot(x, cy, C.beam);
+    // Collimated bremsstrahlung fan.
+    for (let x = targetX + 3; x < detectorX; x++) {
+      const spread = Math.max(1, Math.round((x - targetX) * 0.18));
+      dot(x, cy, '#fff3a0');
+      dot(x, cy - spread, '#e4b83f');
+      dot(x, cy + spread, '#e4b83f');
+    }
+    // Product fixture and digital flat-panel detector.
+    px(43, cy - 5, 2, 11, C.coil);
+    px(detectorX, cy - 11, 4, 23, C.metal);
+    px(detectorX + 1, cy - 9, 2, 19, C.magnet);
+  },
+
   // === DETECTOR ===
   detector(p, px, dot, W, H, cy, C) {
     _drawBeamPipe(px, dot, W, cy, C, { rightFlange: false });
