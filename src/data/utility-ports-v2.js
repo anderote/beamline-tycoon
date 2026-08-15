@@ -1119,6 +1119,13 @@ const INFRA_SINK_SHAPE = {
   dataFiber:    { name: 'data_in', side: 'back',  offsetAlong: 0.5, param: 'demand' },
 };
 
+// Exceptional cabinet layouts can move a derived sink without duplicating
+// its load. The SSA's demand therefore remains tied to energyCost while its HV
+// feed occupies the face opposite the four RF outputs.
+const INFRA_SINK_SHAPE_OVERRIDES = {
+  solidStateAmp: { hvCable: { side: 'right', offsetAlong: 0.80 } },
+};
+
 // Loads not implied by energyCost. beamDump absorbs beam power, not wall
 // power; heCompressor dumps its compression heat into the water loop.
 // Small control devices use a 1 Gbps management load; high-rate endpoints
@@ -1133,8 +1140,12 @@ function buildInfraSinkPorts() {
   for (const [id, def] of Object.entries(INFRASTRUCTURE_RAW)) {
     const required = Array.isArray(def.requiredConnections) ? def.requiredConnections : [];
     for (const utility of required) {
-      const shape = INFRA_SINK_SHAPE[utility];
-      if (!shape) continue;
+      const baseShape = INFRA_SINK_SHAPE[utility];
+      if (!baseShape) continue;
+      const shape = {
+        ...baseShape,
+        ...((INFRA_SINK_SHAPE_OVERRIDES[id] || {})[utility] || {}),
+      };
       const existing = INFRA_UTILITY_PORTS[id] || {};
       // Never shadow a hand-authored port for the same utility.
       if (Object.values(existing).some(p => p.utility === utility && p.role === 'sink')) continue;

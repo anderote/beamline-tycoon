@@ -201,9 +201,10 @@ console.log('\n--- Test 9: RF source bands & ladder ---');
     `solidStateAmp's four outputs cover vhf,uhf (got ${ssaOutlets.map(port => port.params.bands.join(',')).join(';')})`);
   assert(ssa.hv_in?.utility === 'hvCable'
       && ssa.hv_in.role === 'sink'
+      && ssa.hv_in.side === 'right'
       && ssa.hv_in.connectionKind === 'hvLoadIn'
       && ssa.hv_in.params.demand === 70,
-    'solid-state RF source exposes its required 70 kW HV input');
+    'solid-state RF source exposes its required 70 kW HV input opposite its RF outputs');
 
   const gyro = getUtilityPortsV2('gyrotron');
   const ssaCapacity = ssaOutlets.reduce((sum, port) => sum + port.params.capacity, 0);
@@ -366,6 +367,8 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
       && ssaOutputs.every(([, port]) => port.side === 'left')
       && ssaOutputs.reduce((sum, [, port]) => sum + port.params.capacity, 0) === 35,
   'solid-state amplifier exposes four left-side RF outputs totaling 35 kW');
+  assert(solidStateAmp.hv_in.side === 'right',
+    'solid-state amplifier keeps its HV input on the side opposite its RF outputs');
   assert(Math.abs(total(tower, 'heatRejectionCapacity') - 800) < 1e-9,
     'cooling tower provides heat rejection on Cooling Water');
   assert(coolingSources(tank).every(([, port]) => port.params.reservoir),
