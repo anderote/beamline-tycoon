@@ -113,6 +113,8 @@ export class BeamlineDesigner {
     this.plotRangeMode = 'full';   // x: 'full', '30', '9'
     this.plotYRangeMode = 'full';  // y: 'full', 'half', '30', '9'
     this.plotSource = 'proposed';  // 'proposed' | 'current' | 'both'
+    this.plotYAxisMode = 'linear'; // 'linear' | 'log'
+    this.plotReference = 'mission'; // 'mission' | 'none'
 
     // DOM references
     this.overlay = document.getElementById('designer-overlay');
@@ -473,6 +475,24 @@ export class BeamlineDesigner {
       });
     });
 
+    const yScaleSelect = document.getElementById('dsgn-y-scale-select');
+    if (yScaleSelect) {
+      yScaleSelect.addEventListener('change', () => {
+        if (!this.isOpen) return;
+        this.plotYAxisMode = yScaleSelect.value === 'log' ? 'log' : 'linear';
+        this._renderPlots();
+      });
+    }
+
+    const referenceSelect = document.getElementById('dsgn-plot-reference-select');
+    if (referenceSelect) {
+      referenceSelect.addEventListener('change', () => {
+        if (!this.isOpen) return;
+        this.plotReference = referenceSelect.value === 'none' ? 'none' : 'mission';
+        this._renderPlots();
+      });
+    }
+
     // Mousewheel on plot canvases (sync zoom with schematic)
     document.querySelectorAll('.dsgn-plot-canvas').forEach(canvas => {
       canvas.addEventListener('wheel', (e) => {
@@ -556,6 +576,8 @@ export class BeamlineDesigner {
     this.plotRangeMode = 'full';
     this.plotYRangeMode = 'full';
     this.plotSource = 'proposed';
+    this.plotYAxisMode = 'linear';
+    this.plotReference = 'mission';
 
     this._updateTotalLength();
     this._recalcDraft();
@@ -692,7 +714,10 @@ export class BeamlineDesigner {
     this.designerPaletteIndex = -1;
     this.insertMode = 'nearest';
     this.plotRangeMode = 'full';
+    this.plotYRangeMode = 'full';
     this.plotSource = 'proposed';
+    this.plotYAxisMode = 'linear';
+    this.plotReference = 'mission';
     this._nextTempId = this.draftNodes.length;
 
     this._updateTotalLength();
