@@ -1711,7 +1711,12 @@ export class InputHandler {
       // owns it; our default ladder is this handler's fallback entry
       // (_handleEscape). While the beamline designer is open it swallows
       // every other key at capture phase, so no designer guard is needed.
-      if (e.key === 'Escape') return;
+      if (e.key === 'Escape') {
+        // Esc may be claimed by a context window above our fallback handler,
+        // but it still ends the one-shot connection-guide visit.
+        this.renderer.ui?._dismissConnectionGuide?.();
+        return;
+      }
       // Skip if focused on text input
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
@@ -1945,7 +1950,7 @@ export class InputHandler {
           this.selectedCategory = tabCats[nextIdx];
           tabs.forEach(t => t.classList.remove('active'));
           tabs[nextIdx].classList.add('active');
-          this.renderer.updatePalette(this.selectedCategory);
+          this.renderer.updatePalette(this.selectedCategory, { freshTab: true });
           this.paletteIndex = -1;
           this._hidePreview();
           break;
@@ -2112,6 +2117,11 @@ export class InputHandler {
     }, { passive: false });
 
     canvas.addEventListener('mousedown', (e) => {
+      // Any world interaction ends the fresh-tab orientation moment. This is
+      // before tool/camera dispatch so selections, placements, empty-ground
+      // clicks, pans, and connector grabs all behave alike.
+      this.renderer.ui?._dismissConnectionGuide?.();
+
       // Middle mouse: free-orbit camera drag. Release snaps to nearest iso view.
       if (e.button === 1) {
         this.isFreeOrbiting = true;
@@ -3996,7 +4006,7 @@ export class InputHandler {
       b.classList.toggle('active', b.dataset.mode === mode);
     });
     this.renderer._generateCategoryTabs();
-    this.renderer.updatePalette(category);
+    this.renderer.updatePalette(category, { freshTab: mode === 'infra' });
     // Activate the right tab
     document.querySelectorAll('.cat-tab').forEach(t => {
       t.classList.toggle('active', t.dataset.category === category);
@@ -4133,7 +4143,7 @@ export class InputHandler {
     this.selectedCategory = next.category;
     const tabs = document.querySelectorAll('.cat-tab');
     tabs.forEach(t => t.classList.toggle('active', t.dataset.category === next.category));
-    this.renderer.updatePalette(next.category);
+    this.renderer.updatePalette(next.category, { freshTab: next.mode === 'infra' });
 
     // Keep palette index position, clamped to new tab's item count
     const newItems = document.querySelectorAll('#component-palette .palette-item');

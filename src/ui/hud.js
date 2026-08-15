@@ -625,7 +625,7 @@ UIHost.prototype._openStaffingRoster = function(reason) {
 
 // --- Palette rendering ---
 
-UIHost.prototype._generateCategoryTabs = function() {
+UIHost.prototype._generateCategoryTabs = function({ freshMode = false } = {}) {
   const tabsContainer = document.getElementById('category-tabs');
   if (!tabsContainer) return;
   tabsContainer.innerHTML = '';
@@ -671,9 +671,12 @@ UIHost.prototype._generateCategoryTabs = function() {
     btn.dataset.category = key;
     btn.textContent = cat.name;
     btn.addEventListener('click', () => {
+      const wasActive = btn.classList.contains('active');
       tabsContainer.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
       btn.classList.add('active');
-      this.updatePalette(key);
+      this.updatePalette(key, {
+        freshTab: this.activeMode === 'infra' && !wasActive,
+      });
       if (this._onTabSelect) this._onTabSelect(key);
     });
     tabsContainer.appendChild(btn);
@@ -681,7 +684,9 @@ UIHost.prototype._generateCategoryTabs = function() {
 
   // Render palette for first category in mode
   if (catKeys.length > 0) {
-    this.updatePalette(catKeys[0]);
+    this.updatePalette(catKeys[0], {
+      freshTab: freshMode && this.activeMode === 'infra',
+    });
     if (isFacility && this._onTabSelect) this._onTabSelect(catKeys[0]);
   }
 };
@@ -689,79 +694,88 @@ UIHost.prototype._generateCategoryTabs = function() {
 export const CONNECTION_GUIDES = {
   power: {
     title: 'POWER PATH',
-    description: 'Bring grid power through distribution before feeding equipment.',
+    description: 'Connect a transformer to a panel with an HV Feeder, then run one Power Cable from a panel outlet to each load.',
     accent: '#ffd36a',
+    diagram: 'power',
     flow: [
-      { name: 'GRID / HV', detail: 'supply', diagram: 'transformer' },
-      { name: 'SWITCHGEAR', detail: 'distribution', diagram: 'switchgear' },
-      { name: 'EQUIPMENT', detail: 'load', diagram: 'load' },
+      { name: 'TRANSFORMER', detail: 'capacity source' },
+      { name: 'PANEL / MCC', detail: 'branch outlets' },
+      { name: 'EQUIPMENT', detail: 'power load' },
     ],
-    links: ['HV CABLE', 'POWER CABLE'],
+    links: ['HV FEEDER', 'POWER CABLE'],
   },
   vacuum: {
     title: 'VACUUM PATH',
-    description: 'Pump the beam volume, then monitor it with vacuum instruments.',
+    description: 'Put roughing and high-vacuum pumps on the same Vacuum Pipe network as the beam volume; mount gauges on that line or the beam pipe.',
     accent: '#8fe5ff',
+    diagram: 'vacuum',
     flow: [
-      { name: 'PUMPS', detail: 'rough + turbo', diagram: 'vacuumPump' },
-      { name: 'BEAMLINE', detail: 'vacuum volume', diagram: 'beamline' },
-      { name: 'GAUGES', detail: 'protection', diagram: 'gauge' },
+      { name: 'ROUGH PUMP', detail: 'pump-down' },
+      { name: 'TURBO / UHV', detail: 'high vacuum' },
+      { name: 'BEAM VOLUME', detail: 'vacuum sink' },
+      { name: 'GAUGE', detail: 'monitors pressure' },
     ],
-    links: ['VACUUM PIPE', 'SENSES'],
+    links: ['BACKING STAGE', 'VACUUM PIPE', 'MOUNTS ON LINE'],
   },
   rfPower: {
     title: 'RF PATH',
-    description: 'Drive an RF source, then route its output to compatible cavities.',
+    description: 'Feed an RF source from a transformer, then waveguide it to a band-compatible cavity. One RF network carries one frequency.',
     accent: '#ff9b72',
+    diagram: 'rfPower',
     flow: [
-      { name: 'MODULATOR', detail: 'control', diagram: 'modulator' },
-      { name: 'RF SOURCE', detail: 'amplifier', diagram: 'rfSource' },
-      { name: 'RF CAVITY', detail: 'accelerates', diagram: 'rfCavity' },
+      { name: 'HV SUPPLY', detail: 'transformer' },
+      { name: 'RF SOURCE', detail: 'matching band' },
+      { name: 'RF CAVITY', detail: 'one frequency' },
     ],
-    links: ['DATA FIBER', 'WAVEGUIDE'],
+    links: ['HV FEEDER', 'RF WAVEGUIDE'],
   },
   cooling: {
     title: 'COOLING LOOP',
-    description: 'Supply and chill the loop, carry heat away, then reject it.',
+    description: 'A working Cooling Water network needs storage, process cooling, and heat rejection on the same loop before it can serve equipment.',
     accent: '#76d7c9',
+    diagram: 'cooling',
     flow: [
-      { name: 'MAKE-UP', detail: 'water', diagram: 'waterTank' },
-      { name: 'CHILLER', detail: 'cold loop', diagram: 'chiller' },
-      { name: 'HEAT LOAD', detail: 'equipment', diagram: 'heatLoad' },
-      { name: 'DRY COOLER', detail: 'rejects heat', diagram: 'dryCooler' },
+      { name: 'STORAGE', detail: 'water inventory' },
+      { name: 'CHILLER', detail: 'process capacity' },
+      { name: 'HEAT LOAD', detail: 'equipment' },
+      { name: 'HEAT REJECTOR', detail: 'rejects heat' },
     ],
-    links: ['PLANT WATER', 'COOLING WATER', 'RETURN'],
+    links: ['SAME LOOP', 'SUPPLY', 'RETURN'],
   },
   dataControls: {
     title: 'CONTROL PATH',
-    description: 'Link the control rack to equipment for commands and telemetry.',
+    description: 'Connect a powered rack or switch to equipment data ports with Data Fiber, and keep total demand within the network bandwidth.',
     accent: '#9be27c',
+    diagram: 'dataControls',
     flow: [
-      { name: 'CONTROL RACK', detail: 'logic + interlocks', diagram: 'controlRack' },
-      { name: 'EQUIPMENT', detail: 'telemetry', diagram: 'controlledEquipment' },
+      { name: 'RACK / SWITCH', detail: 'bandwidth source' },
+      { name: 'EQUIPMENT', detail: 'data sink' },
     ],
     links: ['DATA FIBER'],
   },
   ops: {
-    title: 'OPERATIONS',
-    description: 'Provide staffed safety systems before operating the beamline.',
+    title: 'SAFE BEAM DISPOSAL',
+    description: 'Ops hardware surrounds the loss point rather than forming a utility chain: cool the dump, shield it, and handle activated targets remotely.',
     accent: '#f3a4d5',
+    diagram: 'ops',
     flow: [
-      { name: 'SAFETY + STAFF', detail: 'operate safely', diagram: 'safety' },
-      { name: 'BEAMLINE', detail: 'run experiments', diagram: 'beamline' },
-      { name: 'ENDSTATION', detail: 'science output', diagram: 'endstation' },
+      { name: 'BEAMLINE', detail: 'beam delivery' },
+      { name: 'COOLED DUMP', detail: 'Cooling Water' },
+      { name: 'SHIELDING', detail: 'around loss point' },
+      { name: 'REMOTE HANDLING', detail: 'service targets' },
     ],
-    links: ['CLEARANCE', 'BEAM DELIVERY'],
+    links: ['FULL BEAM', 'SURROUNDS', 'SERVICES'],
   },
 };
 
 UIHost.prototype._renderConnectionGuide = function(category) {
   const el = document.getElementById('connection-guide');
   if (!el) return;
-  this._connectionGuideCategory = category;
-  const isPlacing = this._connectionGuidePlacementActive
-    ?? Boolean(this.renderer._inputHandler?.activeTool);
-  const guide = this.activeMode === 'infra' && !isPlacing ? CONNECTION_GUIDES[category] : null;
+  const guide = this.activeMode === 'infra'
+    && this._connectionGuideVisible === true
+    && this._connectionGuideCategory === category
+    ? CONNECTION_GUIDES[category]
+    : null;
   if (!guide) {
     el.classList.add('hidden');
     el.replaceChildren();
@@ -781,42 +795,59 @@ UIHost.prototype._renderConnectionGuide = function(category) {
   description.className = 'connection-guide-desc';
   description.textContent = guide.description;
   body.appendChild(description);
-  const flow = document.createElement('div');
-  flow.className = 'connection-guide-flow blt-diagram';
-  flow.setAttribute('role', 'img');
-  flow.setAttribute(
+  const figure = document.createElement('figure');
+  figure.className = 'connection-guide-figure blt-diagram';
+  const canvas = document.createElement('canvas');
+  canvas.className = 'connection-guide-art';
+  canvas.setAttribute('role', 'img');
+  canvas.setAttribute(
     'aria-label',
     `${guide.title}: ${guide.flow.map((item, index) => (
       index < guide.links.length ? `${item.name}, via ${guide.links[index]}` : item.name
     )).join(', then ')}`,
   );
+  figure.appendChild(canvas);
+  drawConnectionGuideDiagram(canvas, guide.diagram, guide.accent);
+
+  const legend = document.createElement('figcaption');
+  legend.className = 'connection-guide-legend';
   guide.flow.forEach((item, index) => {
-    const node = document.createElement('div');
-    node.className = 'connection-guide-node';
-    node.dataset.diagram = item.diagram;
-    node.innerHTML = `<span class="connection-guide-machine" aria-hidden="true"><canvas class="connection-guide-art"></canvas><span class="connection-guide-step">${String(index + 1).padStart(2, '0')}</span></span><span class="connection-guide-name">${item.name}</span><span class="connection-guide-detail">${item.detail}</span>`;
-    flow.appendChild(node);
-    drawConnectionGuideDiagram(node.querySelector('.connection-guide-art'), item.diagram, guide.accent);
+    const stage = document.createElement('span');
+    stage.className = 'connection-guide-stage';
+    stage.innerHTML = `<span class="connection-guide-step">${String(index + 1).padStart(2, '0')}</span><span class="connection-guide-name">${item.name}</span><span class="connection-guide-detail">${item.detail}</span>`;
+    legend.appendChild(stage);
     if (index < guide.flow.length - 1) {
       const link = document.createElement('div');
       link.className = 'connection-guide-link';
       link.setAttribute('aria-hidden', 'true');
-      link.innerHTML = `<span class="connection-guide-link-label">${guide.links[index]}</span><span class="connection-guide-track"><i></i></span>`;
-      flow.appendChild(link);
+      link.textContent = guide.links[index];
+      legend.appendChild(link);
     }
   });
-  body.appendChild(flow);
+  figure.appendChild(legend);
+  body.appendChild(figure);
   el.appendChild(body);
 };
 
-// The infrastructure guide owns the same lower-left slot as the normal
-// buildable preview. It is a reference card only: arming any placement tool
-// immediately clears it, and Escape restores it for the active infra tab.
-UIHost.prototype._setConnectionGuidePlacementActive = function(active) {
-  this._connectionGuidePlacementActive = active;
-  const category = this._connectionGuideCategory
-    || document.querySelector('.cat-tab.active')?.dataset.category;
+// A guide is revealed only by a fresh Infra tab visit. Every other interaction
+// is one-way for that visit: map click, Escape, or arming any palette tool
+// dismisses it, and disarming the tool must not bring it back.
+UIHost.prototype._showConnectionGuideForTab = function(category) {
+  this._connectionGuideCategory = category;
+  this._connectionGuideVisible = this.activeMode === 'infra'
+    && Boolean(CONNECTION_GUIDES[category]);
   this._renderConnectionGuide(category);
+};
+
+UIHost.prototype._dismissConnectionGuide = function() {
+  this._connectionGuideVisible = false;
+  if (this._connectionGuideCategory) {
+    this._renderConnectionGuide(this._connectionGuideCategory);
+  }
+};
+
+UIHost.prototype._setConnectionGuidePlacementActive = function(active) {
+  if (active) this._dismissConnectionGuide();
 };
 
 /**
@@ -2813,9 +2844,19 @@ UIHost.prototype._hidePalettePreview = function() {
   if (preview) preview.classList.add('hidden');
 };
 
-UIHost.prototype.updatePalette = function(category) {
+UIHost.prototype.updatePalette = function(category, { freshTab = false } = {}) {
   this._renderPalette(category);
-  this._renderConnectionGuide(category);
+  if (freshTab) {
+    this._showConnectionGuideForTab(category);
+  } else {
+    // A category changed without a tab-visit signal (state repair/search/etc.)
+    // must never inherit another tab's still-visible card.
+    if (category !== this._connectionGuideCategory || this.activeMode !== 'infra') {
+      this._connectionGuideVisible = false;
+      this._connectionGuideCategory = category;
+    }
+    this._renderConnectionGuide(category);
+  }
   this._updateSystemStatsContent(category);
 };
 
@@ -2851,10 +2892,11 @@ UIHost.prototype._bindHUDEvents = function() {
     btn.addEventListener('click', () => {
       const mode = btn.dataset.mode;
       if (MODES[mode]?.disabled) return;
+      const previousMode = this.activeMode;
       document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       this.activeMode = mode;
-      this._generateCategoryTabs();
+      this._generateCategoryTabs({ freshMode: previousMode !== mode });
       this._updateSystemStatsVisibility();
     });
   });
