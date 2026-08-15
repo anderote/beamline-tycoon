@@ -30,6 +30,10 @@ globalThis.document = {
 const { MODES } = await import('../src/data/modes.js');
 const { UIHost } = await import('../src/ui/UIHost.js');
 const { CONNECTION_GUIDES } = await import('../src/ui/hud.js');
+const {
+  CONNECTION_GUIDE_DIAGRAMS,
+  drawConnectionGuideDiagram,
+} = await import('../src/ui/connection-guide-diagrams.js');
 const connectionGuideCss = readFileSync(new URL('../style.css', import.meta.url), 'utf8');
 
 let passed = 0;
@@ -65,20 +69,37 @@ for (const category of infraCategories) {
   );
   assert(
     /^#[0-9a-f]{6}$/i.test(guide?.accent)
-      && guide.flow.every(stage => stage.kind && stage.icon),
-    `${category} gives its flow diagram a color and machine style`,
+      && guide.flow.every(stage => CONNECTION_GUIDE_DIAGRAMS[stage.diagram]),
+    `${category} gives every stage a color and registered pixel cutaway`,
   );
 }
 
 console.log('\n--- The schematic stays legible and connected ---\n');
 
+{
+  const context = {
+    clearRect() {},
+    fillRect() {},
+    fillStyle: null,
+    imageSmoothingEnabled: true,
+  };
+  const canvas = { getContext: () => context, width: 0, height: 0 };
+  const diagramKeys = new Set(
+    Object.values(CONNECTION_GUIDES).flatMap(guide => guide.flow.map(stage => stage.diagram)),
+  );
+  assert(
+    [...diagramKeys].every(diagram => drawConnectionGuideDiagram(canvas, diagram, '#8fe5ff')),
+    `all ${diagramKeys.size} guide cutaways render through the public drawing seam`,
+  );
+}
+
 assert(
-  /\.connection-guide-flow\s*\{[^}]*min-height:\s*160px/s.test(connectionGuideCss),
+  /\.connection-guide-flow\s*\{[^}]*min-height:\s*154px/s.test(connectionGuideCss),
   'connection diagrams reserve a full-height drawing area',
 );
 assert(
-  /\.connection-guide-machine\s*\{[^}]*width:\s*68px[^}]*height:\s*62px/s.test(connectionGuideCss),
-  'machine drawings use the enlarged schematic footprint',
+  /\.connection-guide-art\s*\{[^}]*width:\s*78px[^}]*height:\s*50px[^}]*image-rendering:\s*pixelated/s.test(connectionGuideCss),
+  'cutaway canvases keep a hard-edged pixel footprint',
 );
 assert(
   /\.connection-guide-track\s*\{[^}]*border-top:\s*3px dotted/s.test(connectionGuideCss),
