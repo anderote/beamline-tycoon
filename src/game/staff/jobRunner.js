@@ -758,13 +758,25 @@ function statusIdleReason(status) {
  * when nothing profession-relevant turned up anywhere); whatever handleNeeds
  * already set this pass; and only then the generic fallback.
  */
-export function assignJobs(game) {
+export function assignJobs(game, { breaksEnabled = true } = {}) {
   const state = game.state;
   const members = state.staffMembers || [];
   if (!members.length) return;
 
-  for (const member of members) {
-    if (member.status === 'working') handleNeeds(member, game);
+  if (breaksEnabled) {
+    for (const member of members) {
+      if (member.status === 'working') handleNeeds(member, game);
+    }
+  } else {
+    // Release a cafeteria/rest reservation left over from a game that was
+    // already running when breaks were disabled. The ordinary assignment
+    // pass below immediately puts the worker back onto productive work.
+    for (const member of members) {
+      if (member.job?.jobType === 'eat' || member.job?.jobType === 'rest') {
+        abandonJob(member, game, null);
+      }
+      member.unservicedPenalty = false;
+    }
   }
 
   const { offers, suppressions } = buildJobOffers(game);

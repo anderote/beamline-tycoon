@@ -5,6 +5,11 @@ import { PROFESSIONS, professionDef, specialtiesFor } from '../../data/professio
 import { BACKSTORIES, rollBackstory, applyBackstory } from '../../data/backstories.js';
 import { logCareerEvent } from './careerLog.js';
 
+// Temporary gameplay switch: workers currently stay on productive jobs
+// continuously. The underlying needs model remains available so it can be
+// revisited later without rebuilding the staff simulation from scratch.
+export const STAFF_BREAKS_ENABLED = false;
+
 // Base fatigue accrual per tick while 'working' (before trait multipliers).
 // Exported so jobRunner.js's own test (test-job-runner.js) can assert, as a
 // cheap arithmetic guard, that every work job's workTicks fits inside one
@@ -56,7 +61,29 @@ export function createStaffMember(profession, id, tick = 0, rng = Math.random, s
 // sim tick this call is running at — Game.js's own state.tick) is used only
 // for the breakdown diary entry below; every other caller-supplied field
 // was already required.
-export function tickStaffMember(m, { isNight, cafeteriaTier, zoneTier, tick = 0, rng = Math.random }) {
+export function tickStaffMember(m, {
+  isNight, cafeteriaTier, zoneTier, tick = 0, rng = Math.random,
+  breaksEnabled = true,
+}) {
+  // When breaks are disabled, also clean up any need/break state carried by
+  // an in-progress game. Otherwise a worker who was already tired, hungry,
+  // or recovering could remain penalised even though new breaks are off.
+  if (!breaksEnabled) {
+    const statusChanged = m.status !== 'working';
+    m.status = 'working';
+    m._restTimer = null;
+    m.needs.fatigue = 0;
+    m.needs.hunger = 0;
+    m.needs.morale = Math.max(0.6, m.needs.morale ?? 0.6);
+    m.unservicedPenalty = false;
+    m.stats.ticksWorked++;
+    const gain = 0.01 * (m.traits.includes('fastLearner') ? 1.25 : 1);
+    const primary = m.primarySkill || 'operating';
+    m.skills[primary] = Math.min(10, m.skills[primary] + gain);
+    m.updateMood();
+    return statusChanged;
+  }
+
   const isGourmand = m.traits.includes('gourmand');
   const isStoic = m.traits.includes('stoic');
   const isNightOwl = m.traits.includes('nightOwl');

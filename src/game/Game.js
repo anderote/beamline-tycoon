@@ -24,7 +24,9 @@ import {
 import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
 import { StaffMember } from './staff/StaffMember.js';
 import { sanitizeStationReservations, releaseAllFor } from './staff/stations.js';
-import { tickStaffMember, deriveStaffCounts, staffHireCost, createStaffMember } from './staff/staffSystem.js';
+import {
+  STAFF_BREAKS_ENABLED, tickStaffMember, deriveStaffCounts, staffHireCost, createStaffMember,
+} from './staff/staffSystem.js';
 import { assignJobs, tickJobs } from './staff/jobRunner.js';
 // Fix round 3: jobRunner.js now imports the jobEffects/*.js completion
 // modules directly (jobEffects/registry.js's own header has the full
@@ -4501,8 +4503,8 @@ export class Game {
     econ.power = upkeep.powerBill;
     this.chargeConstruction(upkeep.total);
 
-    // RimWorld-like staff needs loop — individuals get tired/hungry, morale shifts
-    // Uses facility tier for cafeteria etc.
+    // Staff development loop. Break/needs simulation is temporarily disabled
+    // by STAFF_BREAKS_ENABLED, so workers remain on productive jobs steadily.
     {
       const isNight = isNightAt(this.state.timeOfDay); // driven by the sim clock — see DAY_LENGTH_TICKS
       const cafTier = (this.state.zoneConnectivity?.cafeteria?.tier) || 0;
@@ -4511,19 +4513,18 @@ export class Game {
         // ensure StaffMember instance (load from JSON may be plain object)
         if (!(m instanceof StaffMember)) Object.setPrototypeOf(m, StaffMember.prototype);
         const zoneTier = m.assignment?.zoneId ? (this.state.zoneConnectivity?.[m.assignment.zoneId]?.tier || 0) : 0;
-        if (tickStaffMember(m, { isNight, cafeteriaTier: cafTier, zoneTier, tick: this.state.tick, rng: this.rng })) anyChange = true;
+        if (tickStaffMember(m, {
+          isNight, cafeteriaTier: cafTier, zoneTier, tick: this.state.tick,
+          rng: this.rng, breaksEnabled: STAFF_BREAKS_ENABLED,
+        })) anyChange = true;
       }
       if (anyChange) this.emit('staffChanged');
       this._syncStaffCounts();
 
       // The job runner (src/game/staff/jobRunner.js): hands idle staff their
-      // next job (needs — hunger/fatigue over threshold — outrank any work
-      // offer, see jobRunner's own doc comment on the deadlock guard this
-      // replaces), then advances everyone already on one. Order matters:
-      // tickStaffMember just ran above, so a member who crossed the hunger/
-      // fatigue threshold THIS tick gets picked up by assignJobs immediately
-      // rather than sitting one tick behind.
-      assignJobs(this);
+      // next productive job, then advances everyone already on one. Passing
+      // the same switch also clears any eat/rest job from an in-progress game.
+      assignJobs(this, { breaksEnabled: STAFF_BREAKS_ENABLED });
       tickJobs(this);
 
       // Fix round 1: task 5's own brief promised a spares-starved repair
