@@ -12,25 +12,27 @@ const COMPASS_BY_VECTOR = new Map([
   ['-1,0', 'W'],
 ]);
 
-const switchgear = {
-  id: 'switchgear',
-  ports: getUtilityPortsV2('switchgear'),
-};
+for (const [id, expectedOutputCount] of [
+  ['compactHvDistributor', 2],
+  ['switchgear', 4],
+]) {
+  const distributor = { id, ports: getUtilityPortsV2(id) };
+  const outputs = Object.entries(distributor.ports)
+    .filter(([, spec]) => spec.connectionKind === 'hvDistributionOut');
 
-const outputs = Object.entries(switchgear.ports)
-  .filter(([, spec]) => spec.connectionKind === 'hvDistributionOut');
+  assert.equal(outputs.length, expectedOutputCount,
+    `${id} exposes its full outgoing plug bank`);
+  assert.ok(outputs.every(([, spec]) => spec.side === 'front'),
+    `${id} output plugs share its authored front service face`);
 
-assert.equal(outputs.length, 4, 'the HV distributor exposes four outgoing plugs');
-assert.ok(outputs.every(([, spec]) => spec.side === 'front'),
-  'all HV distributor output plugs share its authored front service face');
-
-for (let dir = 0; dir < 4; dir++) {
-  const arrowDir = placementFacingArrowDir(switchgear, dir);
-  const arrowVec = DIR_DELTA[arrowDir];
-  const arrowSide = COMPASS_BY_VECTOR.get(`${arrowVec.dc},${arrowVec.dr}`);
-  const outputSide = portSide(switchgear, outputs[0][0], dir);
-  assert.equal(arrowSide, outputSide,
-    `rotation ${dir}: placement arrow points toward the four outgoing plugs`);
+  for (let dir = 0; dir < 4; dir++) {
+    const arrowDir = placementFacingArrowDir(distributor, dir);
+    const arrowVec = DIR_DELTA[arrowDir];
+    const arrowSide = COMPASS_BY_VECTOR.get(`${arrowVec.dc},${arrowVec.dr}`);
+    const outputSide = portSide(distributor, outputs[0][0], dir);
+    assert.equal(arrowSide, outputSide,
+      `${id} rotation ${dir}: placement arrow points toward the outgoing plugs`);
+  }
 }
 
 assert.equal(placementFacingArrowDir({ id: 'officeChair' }, 1), 1,
