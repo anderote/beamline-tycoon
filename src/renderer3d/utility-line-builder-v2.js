@@ -901,12 +901,14 @@ function buildLineGroup(
       speed: flow.speed,
       period: flow.period,
       radius: Math.max(0.040, radius * (style === 'rectWaveguide' ? 1.10 : 1.30)),
+      radialScale: flow.pulseRadialScale,
+      lengthScale: flow.pulseLengthScale,
       groundSpill: false,
       state: errorStatus || 'ok',
-      light: {
-        intensity: line.utilityType === 'rfWaveguide' ? 0.26 : 0.16,
-        distance: line.utilityType === 'rfWaveguide' ? 2.0 : 1.55,
-        daylightFloor: 0.25,
+      light: flow.light === false ? false : {
+        intensity: flow.lightIntensity ?? 0.16,
+        distance: flow.lightDistance ?? 1.55,
+        daylightFloor: flow.daylightFloor ?? 0.25,
       },
     }];
   }
