@@ -424,36 +424,22 @@ export const ProbePlots = (() => {
     return `${_targetValue(lo, formatValue, unit)}–${_targetValue(hi, formatValue, unit)}`;
   }
 
-  function _targetPill(ctx, a, text, y, edge = null) {
-    const arrow = edge === 'above' ? '↑ ' : edge === 'below' ? '↓ ' : '';
+  const TARGET_TEXT_COLOR = 'rgba(255, 82, 82, 0.98)';
+  const TARGET_GUIDE_COLOR = 'rgba(255, 82, 82, 0.48)';
+
+  function _targetMarker(ctx, a, text, y, edge = null) {
+    const arrow = edge === 'above' ? '↑ ' : edge === 'below' ? '↓ ' : '← ';
     const label = `${arrow}${text}`;
-    ctx.font = 'bold 7px monospace';
-    const arrowSpace = edge ? 8 : 0;
-    const width = Math.min(a.w - 8, Math.ceil(ctx.measureText(label).width) + 8);
-    const x = Math.max(a.x + 2, a.x + a.w - width - arrowSpace - 3);
-    const top = Math.max(a.y + 1, Math.min(a.y + a.h - 10, y - 7));
+    const baseline = Math.max(a.y + 8, Math.min(a.y + a.h - 2, y));
 
-    ctx.fillStyle = 'rgba(31, 27, 16, 0.92)';
-    ctx.fillRect(x, top, width, 9);
-    ctx.strokeStyle = 'rgba(245, 199, 106, 0.72)';
-    ctx.lineWidth = 0.75;
-    ctx.setLineDash([]);
-    ctx.strokeRect(x + 0.5, top + 0.5, width - 1, 8);
-    ctx.fillStyle = 'rgba(255, 221, 145, 0.98)';
+    // A bare monospace callout reads as plot instrumentation rather than a UI
+    // badge. The glyph itself supplies the pointer, so there is no box or
+    // separate canvas triangle to obscure the trace beneath it.
+    ctx.font = 'bold 8px monospace';
+    ctx.fillStyle = TARGET_TEXT_COLOR;
     ctx.textAlign = 'right';
-    ctx.fillText(label, x + width - 4, top + 7);
-
-    if (!edge) return;
-    const arrowX = a.x + a.w - 5;
-    const tipY = edge === 'above' ? a.y + 1 : a.y + a.h - 1;
-    const baseY = edge === 'above' ? a.y + 7 : a.y + a.h - 7;
-    ctx.fillStyle = 'rgba(245, 199, 106, 0.98)';
-    ctx.beginPath();
-    ctx.moveTo(arrowX, tipY);
-    ctx.lineTo(arrowX - 3, baseY);
-    ctx.lineTo(arrowX + 3, baseY);
-    ctx.closePath();
-    ctx.fill();
+    ctx.setLineDash([]);
+    ctx.fillText(label, a.x + a.w - 3, baseline);
   }
 
   /** Draw endpoint mission annotations without changing the curve's scale. A
@@ -507,14 +493,14 @@ export const ProbePlots = (() => {
       const boundary = inRange[i];
       const frac = _yFraction(boundary.value, yMin, yMax, logY);
       const y = a.y + a.h - frac * a.h;
-      ctx.strokeStyle = 'rgba(245, 199, 106, 0.42)';
+      ctx.strokeStyle = TARGET_GUIDE_COLOR;
       ctx.lineWidth = 0.75;
       ctx.setLineDash([3, 3]);
       ctx.beginPath();
       ctx.moveTo(a.x, y);
       ctx.lineTo(a.x + a.w, y);
       ctx.stroke();
-      _targetPill(ctx, a,
+      _targetMarker(ctx, a,
         `${boundary.label} ${_targetValue(boundary.value, opts.formatValue, opts.unit)}`,
         labelYs[i]);
     }
@@ -528,7 +514,7 @@ export const ProbePlots = (() => {
           `${boundary.label} ${_targetValue(boundary.value, opts.formatValue, opts.unit)}`
         ).join(' · ');
       const y = edge === 'above' ? a.y + 8 : a.y + a.h - 2;
-      _targetPill(ctx, a, text, y, edge);
+      _targetMarker(ctx, a, text, y, edge);
     }
     ctx.restore();
   }
