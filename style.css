@@ -36,6 +36,12 @@
   --ui-space-3: 12px;
   --ui-space-4: 16px;
   --ui-focus-ring: 0 0 0 2px #0c0c18, 0 0 0 4px #ffd76a;
+
+  /* Stable HUD rails. Floating panels use the same values, so neither bar
+     changes height when content or active build categories change. */
+  --hud-topbar-height: 98px;
+  --hud-bottom-height: 330px;
+  --hud-topbar-bottom: var(--hud-topbar-height);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -85,14 +91,17 @@ body {
 }
 
 /* === TOP BAR === */
-/* One compact operations row. It wraps only when the viewport requires it. */
+/* Two stable rows: commands above, live facility information below. */
 #top-bar {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   z-index: 100;
-  display: block;
+  display: flex;
+  flex-direction: column;
+  height: var(--hud-topbar-height);
+  overflow: visible;
   padding: 0;
   background: rgba(20, 20, 40, 0.92);
   border-bottom: 1px solid rgba(100, 100, 160, 0.3);
@@ -100,11 +109,29 @@ body {
 
 #top-bar-primary {
   display: flex;
-  flex-wrap: wrap;
+  flex: 0 0 50px;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 6px 16px;
-  padding: 6px 12px;
+  gap: 8px 12px;
+  min-width: 0;
+  padding: 8px 12px;
 }
+
+#top-bar-info {
+  display: flex;
+  flex: 0 0 48px;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+  padding: 6px 12px;
+  overflow: hidden;
+  background: rgba(8, 8, 24, 0.42);
+  border-top: 1px solid rgba(100, 100, 160, 0.18);
+}
+
+#top-bar-info > * { flex-shrink: 0; }
+#top-bar-info #beam-stats-panel { flex-shrink: 1; }
 
 
 /* The menu remains above every top-bar child while open. 600 clears the
@@ -122,17 +149,44 @@ body {
 
 #resources {
   display: flex;
-  flex-wrap: wrap;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
   gap: 6px 8px;
-  margin-left: 16px;
+  margin-left: 0;
 }
 
 #top-buttons {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
   align-items: center;
   margin-left: auto;
+  min-width: 0;
+}
+
+#sim-controls,
+#music-player,
+#btn-hire,
+#menu-wrapper { flex-shrink: 0; }
+
+@media (max-width: 1480px) {
+  #top-bar-primary { gap: 8px; }
+  #game-title { font-size: 9px; }
+  #top-bar-primary .hud-btn { padding-right: 8px; padding-left: 8px; font-size: 8px; }
+  #music-player .mp-track-name-wrap { width: 110px; }
+  #top-bar-info #beam-stats-panel { gap: 4px 9px; }
+  #top-bar-info .res-box { min-width: 62px; padding-right: 6px; padding-left: 6px; }
+}
+
+@media (max-width: 1320px) {
+  #game-title { display: none; }
+}
+
+@media (max-width: 1160px) {
+  #music-player .mp-track-name-wrap,
+  #music-player .mp-shuffle,
+  #music-player .mp-theme,
+  #music-player .mp-volume { display: none; }
 }
 
 #menu-wrapper {
@@ -383,6 +437,13 @@ body {
   color: #ccccee;
 }
 
+.mp-mute {
+  width: 28px;
+  font-family: sans-serif;
+  font-size: 13px;
+  line-height: 1;
+}
+
 /* Autoplay was blocked by the browser: invite the user to press play. */
 .mp-btn.mp-attention {
   animation: mp-attention-pulse 1.6s ease-in-out infinite;
@@ -628,15 +689,19 @@ body {
 
 .bl-warn .warn-name { color: #ddd; }
 
-/* === FACILITY STATS STRIP (second top-bar row) === */
+/* === FACILITY STATS STRIP (right side of the information row) === */
 #beam-stats-panel {
   display: flex;
-  flex-wrap: wrap;
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 4px 18px;
-  padding: 3px 12px 4px;
-  background: rgba(8, 8, 24, 0.42);
-  border-top: 1px solid rgba(100, 100, 160, 0.14);
+  justify-content: flex-end;
+  gap: 4px 14px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  background: none;
+  border: 0;
   pointer-events: none;
 }
 
@@ -683,7 +748,7 @@ body {
  * → right = 63 - 43 = 20px to center. */
 #view-cube-widget {
   position: absolute;
-  bottom: 321px;
+  bottom: calc(var(--hud-bottom-height) + 50px);
   right: 20px;
   width: 86px;
   height: 110px;
@@ -740,7 +805,7 @@ body {
 /* === WALL VISIBILITY CONTROL === */
 #wall-visibility-control {
   position: absolute;
-  bottom: 279px;
+  bottom: calc(var(--hud-bottom-height) + 8px);
   right: 12px;
   z-index: 101;
   display: flex;
@@ -789,6 +854,10 @@ body {
   left: 0;
   right: 0;
   z-index: 100;
+  display: flex;
+  flex-direction: column;
+  height: var(--hud-bottom-height);
+  overflow: hidden;
   background: rgba(20, 20, 40, 0.92);
   border-top: 1px solid rgba(100, 100, 160, 0.3);
   padding: 6px 12px 8px;
@@ -857,9 +926,10 @@ body {
 #hud-controls {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 2px 0;
-  min-height: 62px;
+  flex: 0 0 78px;
+  gap: 6px;
+  padding: 4px 0;
+  min-height: 0;
   position: relative;
 }
 
@@ -867,18 +937,24 @@ body {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
+  min-height: 31px;
+  gap: 12px;
 }
 
 /* Category tabs — left-justified row */
 #category-tabs {
   display: flex;
+  flex: 0 0 31px;
   gap: 3px;
   justify-content: flex-start;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 #connection-guide {
   position: absolute;
-  bottom: 280px;
+  bottom: calc(var(--hud-bottom-height) + 8px);
   left: 12px;
   z-index: 110;
   width: 320px;
@@ -1005,7 +1081,7 @@ body {
 .cat-tab {
   font-family: 'Press Start 2P', monospace;
   font-size: 10px;
-  padding: 6px 10px;
+  padding: 8px 11px;
   background: rgba(40, 40, 70, 0.8);
   color: #8888aa;
   border: 1px solid rgba(80, 80, 120, 0.4);
@@ -1035,7 +1111,7 @@ body {
 .facility-group-toggle {
   font-family: 'Press Start 2P', monospace;
   font-size: 10px;
-  padding: 6px 10px;
+  padding: 8px 11px;
   background: rgba(70, 50, 100, 0.85);
   color: #ddccff;
   border: 1px solid rgba(140, 100, 200, 0.6);
@@ -1091,6 +1167,10 @@ body {
 
 /* Component palette */
 .dsgn-palette-actions {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  left: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1130,15 +1210,17 @@ body {
 }
 #component-palette {
   display: flex;
+  flex: 1 1 auto;
   gap: 6px;
+  min-height: 0;
   overflow-x: auto;
-  padding: 6px 0 4px;
+  padding: 8px 0 6px;
 }
 
 .palette-item {
   width: 140px;
   min-width: 140px;
-  height: 192px;
+  height: 218px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -2111,7 +2193,7 @@ body {
 .mode-btn {
   font-family: 'Press Start 2P', monospace;
   font-size: 9px;
-  padding: 6px 10px;
+  padding: 8px 11px;
   background: rgba(30, 30, 50, 0.8);
   color: #6666aa;
   border: 1px solid rgba(60, 60, 100, 0.4);
@@ -2225,7 +2307,7 @@ body {
   font-family: 'Press Start 2P', monospace;
   font-size: 10px;
   width: 220px;
-  padding: 7px 10px;
+  padding: 8px 11px;
   background: rgba(30, 30, 50, 0.8);
   color: #ccddff;
   border: 1px solid rgba(80, 80, 120, 0.4);
@@ -2363,7 +2445,7 @@ body {
 /* === COMPONENT PREVIEW PANEL === */
 #component-preview {
   position: absolute;
-  bottom: 280px;
+  bottom: calc(var(--hud-bottom-height) + 8px);
   left: 12px;
   z-index: 110;
   background: var(--blt-panel-bg);
@@ -3631,10 +3713,16 @@ body {
 /* === STAFF BAR (top bar, next to funding) === */
 #staff-bar {
   display: flex;
-  flex-wrap: wrap;
+  flex: 0 1 240px;
+  flex-wrap: nowrap;
   gap: 6px;
   align-items: center;
-  margin-left: 8px;
+  max-width: 240px;
+  min-width: 0;
+  margin-left: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
 }
 #btn-hire {
   margin-left: 4px;
