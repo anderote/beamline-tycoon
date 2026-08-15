@@ -3625,6 +3625,16 @@ body {
 .hover-tooltip-detail {
   color: #aaaacc;
 }
+.hover-tooltip-segment-supply,
+.hover-tooltip-segment-healthy {
+  color: #44ff88;
+}
+.hover-tooltip-segment-warning {
+  color: #ffcc44;
+}
+.hover-tooltip-segment-critical {
+  color: #ff5555;
+}
 .selection-marquee {
   position: fixed;
   z-index: 9998;

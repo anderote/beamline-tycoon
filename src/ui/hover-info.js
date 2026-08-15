@@ -162,12 +162,27 @@ export function furnishingHoverInfo(def) {
 export function utilityNetworkHoverInfo(descriptor, flow) {
   const title = `${descriptor?.displayName || 'Utility'} Network`;
   if (!flow) return { title, detail: 'Awaiting network data' };
-  const pct = Math.round(Math.max(0, Math.min(1, Number(flow.utilization) || 0)) * 100);
   const capacity = Number(flow.totalCapacity) || 0;
   const demand = Number(flow.totalDemand) || 0;
   const unit = descriptor?.capacityUnit || '';
-  const load = capacity > 0 || demand > 0
-    ? ` · ${fmtNumber(demand)} / ${fmtNumber(capacity)}${unit ? ` ${unit}` : ''}`
-    : '';
-  return { title, detail: `Utilization: ${pct}%${load}` };
+  const suffix = unit ? ` ${unit}` : '';
+  const supplyText = `Supply: ${fmtNumber(capacity)}${suffix}`;
+  const demandText = `Demand: ${fmtNumber(demand)}${suffix}`;
+
+  // Exact coverage is healthy. Once demand exceeds supply, move from orange
+  // to red when less than half of the requested load can be served.
+  const coverage = demand > 0 ? capacity / demand : 1;
+  const demandTone = capacity >= demand
+    ? 'healthy'
+    : (coverage >= 0.5 ? 'warning' : 'critical');
+
+  return {
+    title,
+    detail: `${supplyText} · ${demandText}`,
+    detailSegments: [
+      { text: supplyText, tone: 'supply' },
+      { text: ' · ' },
+      { text: demandText, tone: demandTone },
+    ],
+  };
 }
