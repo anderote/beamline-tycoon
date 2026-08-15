@@ -45,6 +45,7 @@ class ColorStub {
   constructor(c) { this._raw = undefined; if (c !== undefined) this.set(c); }
   set(c) { this._raw = c; return this; }
   copy(o) { this._raw = o._raw; return this; }
+  multiplyScalar(s) { this._scale = s; return this; }
   getHex() { return this._raw; }
 }
 
@@ -91,6 +92,7 @@ class Obj3 {
     this.position = new V3();
     this.rotation = { x: 0, y: 0, z: 0, set(x, y, z) { this.x = x; this.y = y; this.z = z; } };
     this.scale = new V3(1, 1, 1);
+    this.layers = { mask: 1, enable(n) { this.mask |= (1 << n); } };
     this.matrixAutoUpdate = true;
   }
   add(c) { c.parent = this; this.children.push(c); return this; }
@@ -148,6 +150,7 @@ class MeshStandardMaterial {
   constructor(opts = {}) { Object.assign(this, opts); this.userData = {}; }
   dispose() {}
 }
+class MeshBasicMaterial extends MeshStandardMaterial {}
 
 // Scene stand-in that counts add()/remove() calls — the thing this whole
 // suite exists to police. A real THREE.Scene doesn't count anything; this is
@@ -165,6 +168,7 @@ globalThis.THREE = {
   Object3D: Obj3,
   Mesh,
   MeshStandardMaterial,
+  MeshBasicMaterial,
   BoxGeometry,
   CylinderGeometry: SimpleGeometry,
   ConeGeometry: SimpleGeometry,
@@ -569,18 +573,22 @@ test('buildFloorGlowStrip refuses to paint a pool under vacuumPipe (no flow) or 
     'a dead network paints nothing, same as the pipe above it going dark');
 });
 
-test('buildFloorGlowStrip builds a non-rendered real-light proxy for a healthy flowing run', () => {
+test('buildFloorGlowStrip builds bloom ribbons across every horizontal segment of a healthy flowing run', () => {
   const strip = buildFloorGlowStrip(makePoints(), 'coolingWater', 'ok');
-  assert.ok(strip, 'a healthy coolingWater run gets a light proxy');
+  assert.ok(strip, 'a healthy coolingWater run gets floor glow');
   assert.equal(strip.userData.isFloorGlowStrip, true, 'tagged so ThreeRenderer can find/toggle it by traversal');
-  assert.equal(strip.children.length, 0, 'the proxy paints no translucent floor geometry');
-  assert.ok(strip.userData.utilityLightEmitter, 'tagged as a LightRig point-light candidate');
-  assert.ok(strip.userData.utilityLightEmitter.distance > 0, 'real light has a bounded falloff distance');
+  assert.equal(strip.children.length, 2, 'one continuous glow ribbon is built for each horizontal segment');
+  for (const ribbon of strip.children) {
+    assert.equal(ribbon.userData.isFloorGlowRibbon, true, 'each child is explicitly a floor-glow ribbon');
+    assert.ok((ribbon.layers.mask & (1 << 1)) !== 0, 'each ribbon participates in the bloom pass');
+  }
+  assert.equal(strip.userData.utilityLightEmitter, undefined,
+    'the run no longer collapses into one midpoint point-light hotspot');
 
   const soft = buildFloorGlowStrip(makePoints(), 'coolingWater', 'soft');
-  assert.ok(soft, 'a soft-faulted (over-capacity, still delivering) run still emits light');
-  assert.ok(soft.userData.utilityLightEmitter.intensity < strip.userData.utilityLightEmitter.intensity,
-    'soft-faulted utility light is dimmer than healthy light');
+  assert.ok(soft, 'a soft-faulted (over-capacity, still delivering) run still glows');
+  assert.ok(soft.children[0].material.opacity < strip.children[0].material.opacity,
+    'soft-faulted utility ribbons are dimmer than healthy ones');
 });
 
 test('RF waveguide uses its travelling bloom wave, not a point-light hotspot', () => {

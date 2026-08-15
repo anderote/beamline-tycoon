@@ -105,11 +105,12 @@ class BoxGeometry {
 
 globalThis.THREE = {
   Vector3: V3,
-  Color: class { constructor(c) { this.c = c; } },
+  Color: class { constructor(c) { this.c = c; } multiplyScalar(s) { this.scale = s; return this; } },
   Quaternion: class { setFromUnitVectors() { return this; } },
   Group: Obj3,
   Mesh: class extends Obj3 { constructor(geometry, material) { super(); this.isMesh = true; this.geometry = geometry; this.material = material; } },
   MeshStandardMaterial: class { constructor(opts = {}) { Object.assign(this, opts); this.userData = {}; } dispose() {} },
+  MeshBasicMaterial: class { constructor(opts = {}) { Object.assign(this, opts); this.userData = {}; } dispose() {} },
   BoxGeometry,
   CylinderGeometry,
   SphereGeometry: class { constructor(...a) { this.args = a; } dispose() {} },
