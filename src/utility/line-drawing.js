@@ -322,7 +322,10 @@ export function validateDrawLine(state, {
     totalDist += Math.abs(path[i + 1].col - path[i].col)
               + Math.abs(path[i + 1].row - path[i].row);
   }
-  if (totalDist < EPS) return reject('invalid_path');
+  // A power cable may be a zero-length jumper between directly adjacent /
+  // co-located fittings. Every other service retains a physical minimum run:
+  // a zero-length hose or waveguide is not meaningful geometry.
+  if (totalDist < EPS && utilityType !== 'powerCable') return reject('invalid_path');
 
   let startSpec = null;
   let endSpec = null;

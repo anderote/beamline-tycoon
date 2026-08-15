@@ -226,6 +226,20 @@ function laneCandidates(v1, v2) {
 export function buildPortRoutedPaths(start, startVec, end, endVec, opts = {}) {
   if (!start || !end) return [];
 
+  // Cables can join two fittings that occupy the same routing point (for
+  // example a compact distribution unit mounted directly against its load).
+  // Keep two waypoints so every downstream line consumer still sees a normal
+  // path, but deliberately give it zero physical length. Other services keep
+  // their minimum run/clearance rule.
+  if (opts.allowZeroLength
+    && Math.abs(start.col - end.col) < EPS
+    && Math.abs(start.row - end.row) < EPS) {
+    return [[
+      { col: start.col, row: start.row },
+      { col: end.col, row: end.row },
+    ]];
+  }
+
   // `a1` and `b1` are the routing anchors: the free-form Manhattan section
   // starts only AFTER the one-subtile port tails. That section may turn on any
   // grid subtile; only the first and final tail segments are directional.

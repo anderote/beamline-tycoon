@@ -145,6 +145,31 @@ console.log('\n--- Test 3: invalid path ---');
   assert(res.reason === 'invalid_path', `reason=invalid_path (got ${res.reason})`);
 }
 
+// ===========================================================================
+// Test 3b: power cables are valid zero-length jumpers; other services are not.
+// ===========================================================================
+console.log('\n--- Test 3b: power cable has no minimum length ---');
+{
+  const state = makeState({
+    placeables: [placeable('r1', 'source_rack', 2, 3, 0)],
+  });
+  const jumper = [{ col: 2, row: 3 }, { col: 2, row: 3 }];
+  const power = validateDrawLine(state, {
+    utilityType: 'powerCable',
+    start: { placeableId: 'r1', portName: 'powerOut' },
+    end: null,
+    path: jumper,
+  });
+  assert(power.ok, `a co-located power jumper is valid (got ${JSON.stringify(power)})`);
+  assert(power.line?.subL === 0, `the jumper stores zero sub-units, not an invented minimum (got ${power.line?.subL})`);
+
+  const other = validateDrawLine(state, {
+    utilityType: 'dataCable', start: null, end: null, path: jumper,
+  });
+  assert(!other.ok && other.reason === 'invalid_path',
+    `other utilities retain their non-zero minimum (got ${other.ok ? 'ok' : other.reason})`);
+}
+
 // ==========================================================================
 // Test 4: Flexible electrical cables may overlap physically without joining.
 // ==========================================================================

@@ -101,8 +101,11 @@ export function nearestOnPath(p, path) {
  * A Manhattan path from a source fitting to a sink fitting. Port vectors make
  * the lead-outs tidy visually; validator rules do not require their direction.
  */
-export function buildRunStubPath(srcTile, srcVec, sinkTile, sinkVec, preferVerticalFirst) {
-  return buildPortRoutedPath(srcTile, srcVec, sinkTile, sinkVec, { preferVerticalFirst });
+export function buildRunStubPath(srcTile, srcVec, sinkTile, sinkVec, preferVerticalFirst, opts = {}) {
+  return buildPortRoutedPath(srcTile, srcVec, sinkTile, sinkVec, {
+    preferVerticalFirst,
+    allowZeroLength: !!opts.allowZeroLength,
+  });
 }
 
 // --- planning --------------------------------------------------------------
@@ -163,7 +166,7 @@ export function planUtilityRun(state, {
   for (const name of outletNames) {
     const vec = portApproachVec(srcEndpoint, srcDef, name);
     const pos = resolvePortPosition(srcEndpoint, srcDef, name);
-    if (!vec || !pos) continue;
+    if (!pos) continue;
     outlets.push({ portName: name, vec, tile: portTile(pos) });
   }
   if (outlets.length === 0) return empty;
@@ -181,7 +184,7 @@ export function planUtilityRun(state, {
       if (!spec || spec.role !== 'sink') continue;
       const pos = resolvePortPosition(endpoint, def, portName);
       const vec = portApproachVec(endpoint, def, portName);
-      if (!pos || !vec) continue;
+      if (!pos) continue;
       const tile = portTile(pos);
       const near = nearestOnPath(tile, runPath);
       if (near.dist > corridor + EPS) continue;
@@ -224,7 +227,14 @@ export function planUtilityRun(state, {
     // Both bend orders are legal routes; take whichever the real validator
     // accepts, so an incompatible sink is skipped rather than failing the run.
     for (const vf of [preferVerticalFirst, !preferVerticalFirst]) {
-      const path = buildRunStubPath(outlet.tile, outlet.vec, c.tile, c.vec, vf);
+      const directPowerJumper = utilityType === 'powerCable'
+        && Math.abs(outlet.tile.col - c.tile.col) + Math.abs(outlet.tile.row - c.tile.row) <= 0.5;
+      const path = buildRunStubPath(
+        outlet.tile, directPowerJumper ? null : outlet.vec,
+        c.tile, directPowerJumper ? null : c.vec,
+        vf, {
+        allowZeroLength: utilityType === 'powerCable',
+      });
       if (!path) continue;
       if (validateDrawLine(probeState, { utilityType, start, end, path }).ok) {
         chosen = path;

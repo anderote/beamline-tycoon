@@ -424,10 +424,22 @@ export class UtilityLineInputController {
       end: endAnchor && endAnchor.tap ? endAnchor.lineId : null,
     };
 
+    const isPowerCable = this._utilityType === 'powerCable';
+    // Normal-length cords keep their small visual lead-outs: those give the
+    // router enough candidate lanes to steer around an occupied cable tray.
+    // Only a genuinely direct short jumper bypasses them, which is where they
+    // would otherwise impose an artificial minimum length.
+    const directPowerJumper = isPowerCable
+      && Math.abs(startTile.col - endTile.col) + Math.abs(startTile.row - endTile.row) <= 0.5;
     const candidates = buildPortRoutedPaths(
-      startTile, this._portVec(this._drawStart),
-      endTile, this._portVec(endAnchor),
-      { preferVerticalFirst: this._preferVerticalFirst });
+      // Power cords can jumper directly between close fittings, including a
+      // zero-length co-located pair; longer runs retain tidy lead-outs.
+      startTile, directPowerJumper ? null : this._portVec(this._drawStart),
+      endTile, directPowerJumper ? null : this._portVec(endAnchor),
+      {
+        preferVerticalFirst: this._preferVerticalFirst,
+        allowZeroLength: isPowerCable,
+      });
 
     let chosen = null;
     let reason = null;
