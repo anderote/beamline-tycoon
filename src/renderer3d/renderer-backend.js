@@ -2,6 +2,9 @@ import { WebGPURenderer } from 'three/webgpu';
 import { PackedDynamicLighting } from './lighting/packed-dynamic-lighting.js';
 
 export const RENDERER_MODE_STORAGE_KEY = 'beamlineTycoon.renderer';
+export const RENDERER_RECOVERY_MODE_STORAGE_KEY = 'beamlineTycoon.rendererRecovery';
+export const RENDERER_RECOVERY_RELOAD_AT_STORAGE_KEY = 'beamlineTycoon.rendererRecoveryReloadAt';
+export const RENDERER_RECOVERY_COOLDOWN_MS = 5 * 60_000;
 
 const MANY_LIGHT_LIMITS = Object.freeze({
   maxDirectionalLights: 4,
@@ -10,15 +13,70 @@ const MANY_LIGHT_LIMITS = Object.freeze({
   maxHemisphereLights: 2,
 });
 
-function requestedRendererMode(location = globalThis.location, storage = globalThis.localStorage) {
+function readStorage(storage, key) {
+  try { return storage?.getItem(key) ?? null; } catch (_) { return null; }
+}
+
+function writeStorage(storage, key, value) {
+  try { storage?.setItem(key, value); } catch (_) {}
+}
+
+function requestedRendererMode(
+  location = globalThis.location,
+  storage = globalThis.localStorage,
+  recoveryStorage = globalThis.sessionStorage,
+) {
   let queryMode = null;
   try { queryMode = new URLSearchParams(location?.search || '').get('renderer'); } catch (_) {}
   if (queryMode === 'legacy' || queryMode === 'webgl') return 'legacy';
   if (queryMode === 'webgpu' || queryMode === 'modern') return 'modern';
 
-  let storedMode = null;
-  try { storedMode = storage?.getItem(RENDERER_MODE_STORAGE_KEY); } catch (_) {}
+  const recoveryMode = readStorage(recoveryStorage, RENDERER_RECOVERY_MODE_STORAGE_KEY);
+  if (recoveryMode === 'legacy' || recoveryMode === 'webgl') return 'legacy';
+
+  const storedMode = readStorage(storage, RENDERER_MODE_STORAGE_KEY);
   return storedMode === 'legacy' || storedMode === 'webgl' ? 'legacy' : 'modern';
+}
+
+/**
+ * Build the one-shot callback used when Three reports a device/context loss.
+ * The first loss saves live game state, pins this tab to WebGL 2, and reloads.
+ * A second loss during the cooldown is surfaced to the UI instead of looping.
+ */
+export function createRendererRecovery({
+  sessionStorage = globalThis.sessionStorage,
+  location = globalThis.location,
+  save = null,
+  onReloadSuppressed = null,
+  now = () => Date.now(),
+  defer = (callback) => globalThis.setTimeout(callback, 0),
+  cooldownMs = RENDERER_RECOVERY_COOLDOWN_MS,
+} = {}) {
+  let handled = false;
+
+  return (info = {}) => {
+    if (handled) return { reloaded: false, reason: 'already-handled' };
+    handled = true;
+
+    try { save?.(); } catch (_) {}
+
+    const timestamp = Number(now()) || Date.now();
+    const previousReloadAt = Number(readStorage(
+      sessionStorage,
+      RENDERER_RECOVERY_RELOAD_AT_STORAGE_KEY,
+    )) || 0;
+
+    writeStorage(sessionStorage, RENDERER_RECOVERY_MODE_STORAGE_KEY, 'legacy');
+    writeStorage(sessionStorage, RENDERER_RECOVERY_RELOAD_AT_STORAGE_KEY, String(timestamp));
+
+    if (previousReloadAt > 0 && timestamp - previousReloadAt < cooldownMs) {
+      try { onReloadSuppressed?.(info); } catch (_) {}
+      return { reloaded: false, reason: 'cooldown' };
+    }
+
+    defer(() => location?.reload?.());
+    return { reloaded: true, reason: 'device-lost' };
+  };
 }
 
 function modernCapabilities(renderer) {
@@ -40,8 +98,15 @@ function modernCapabilities(renderer) {
   };
 }
 
-async function createNodeRenderer(options, { forceWebGL = false } = {}) {
+async function createNodeRenderer(options, { forceWebGL = false, onDeviceLost = null } = {}) {
   const renderer = new WebGPURenderer({ ...options, forceWebGL });
+  if (onDeviceLost) {
+    const reportDeviceLost = renderer.onDeviceLost.bind(renderer);
+    renderer.onDeviceLost = (info) => {
+      reportDeviceLost(info);
+      onDeviceLost(info);
+    };
+  }
   renderer.lighting = new PackedDynamicLighting(MANY_LIGHT_LIMITS);
   await renderer.init();
   return renderer;
@@ -52,13 +117,13 @@ async function createNodeRenderer(options, { forceWebGL = false } = {}) {
  * and Three's WebGL2 node-renderer backend otherwise. `?renderer=legacy`
  * remains an instant, reload-only escape hatch while the migration settles.
  */
-export async function createWorldRenderer(options = {}) {
+export async function createWorldRenderer(options = {}, { onDeviceLost = null } = {}) {
   const requestedMode = requestedRendererMode();
   if (requestedMode === 'legacy') {
     // The rollback keeps the node/TSL material graph but forces its proven
     // WebGL 2 backend. Reverting all the way to WebGLRenderer would make the
     // migrated TSL materials and packed-light data unreadable.
-    const renderer = await createNodeRenderer(options, { forceWebGL: true });
+    const renderer = await createNodeRenderer(options, { forceWebGL: true, onDeviceLost });
     return {
       renderer,
       mode: 'modern',
@@ -69,7 +134,7 @@ export async function createWorldRenderer(options = {}) {
   }
 
   try {
-    const renderer = await createNodeRenderer(options);
+    const renderer = await createNodeRenderer(options, { onDeviceLost });
     const backend = renderer.backend?.isWebGPUBackend ? 'webgpu' : 'webgl2';
     return {
       renderer,
@@ -81,7 +146,7 @@ export async function createWorldRenderer(options = {}) {
     // A failed adapter/device request must not make a saved game unplayable.
     // Keep the same scene/material graph and retry on the WebGL 2 backend.
     console.warn('[Renderer] WebGPU backend failed; using node WebGL 2.', error);
-    const renderer = await createNodeRenderer(options, { forceWebGL: true });
+    const renderer = await createNodeRenderer(options, { forceWebGL: true, onDeviceLost });
     return {
       renderer,
       mode: 'modern',
