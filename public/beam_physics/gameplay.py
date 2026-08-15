@@ -23,6 +23,7 @@ COMPONENT_DEFAULTS = {
     "cryomodule":   {"energyGain": 2.0},
     "buncher":      {"energyGain": 0.05},
     "harmonicLinearizer": {"energyGain": 0.02},
+    "dtl":           {"energyGain": 0.0073},
     # The RF ladder. These are fallbacks only — the JS catalogue's `stats`
     # win whenever a component is supplied. Keep them in agreement with
     # beamline-components.raw.js; they must never diverge.
@@ -203,6 +204,9 @@ def beamline_config_from_game(game_beamline):
 
         el = {"type": physics_type}
         el["game_type"] = ctype  # preserve original type for diagnostics
+        beta_acceptance = comp.get("betaAcceptance")
+        if beta_acceptance is not None:
+            el["betaAcceptance"] = dict(beta_acceptance)
         # Physical half-aperture, metres. Declared per component in mm; a single
         # global DEFAULT_APERTURE of 50 mm used to apply to everything, which
         # was uniformly generous and most generous exactly where real machines
@@ -626,6 +630,8 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
                 "sigma_x": s["beam_size_x"],
                 "sigma_y": s["beam_size_y"],
                 "energy": max(s["energy"] - beam_mass, 0.0),
+                "rel_beta": s["rel_beta"],
+                "rel_gamma": s["rel_gamma"],
                 "current": s["current"],
                 "alive": s["alive"],
                 # New fields for probe diagnostics
@@ -660,6 +666,15 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
                 "bunch_frequency": s.get("bunch_frequency", 0),
                 "focus_margin": s.get("focus_margin", 1.0),
                 "focus_urgency": s.get("focus_urgency", 0.0),
+                # RF velocity match. Null outside accelerating structures;
+                # rel_beta remains available everywhere along the line.
+                "rel_beta_input": s.get("rel_beta_input"),
+                "beta_acceptance_min": s.get("beta_acceptance_min"),
+                "beta_acceptance_design": s.get("beta_acceptance_design"),
+                "beta_synchronous": s.get("beta_synchronous"),
+                "beta_acceptance_max": s.get("beta_acceptance_max"),
+                "beta_accepted": s.get("beta_accepted"),
+                "beta_ttf": s.get("beta_ttf"),
             }
             for s in physics_result["snapshots"]
         ],

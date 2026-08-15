@@ -81,7 +81,7 @@ Legend: **MVP** = currently in the starter set; everything else is deferred.
 - [x] **MVP** `rfCavity` — NC RF Cavity (2.856 GHz) — cost 500000 — energyGain 0.5 — energy 20 — _Standard NC RF cavity, 500 MeV/unit._
 - [x] **MVP** `sbandStructure` — S-band Structure (2.856 GHz) — cost 600000 — energyGain 0.6 — energy 15 — _SLAC-style traveling-wave NC structure, 600 MeV/section._
 - [ ] `buncher` — Sub-harmonic Buncher (2.856 GHz) — cost 300000 — bunchCompression 0.3 — energy 3 — requires `bunchCompression` — _Longitudinal compressor, place after source._
-- [ ] `dtl` — Drift-Tube Linac (400 MHz) — cost 2000000 — energyGain 0.008 — energy 8 — requires `bunchCompression` — _Alvarez DTL, 3→50 MeV proton/ion workhorse._
+- [x] `dtl` — Drift-Tube Linac (325 MHz) — cost 2200000 — energyGain 0.0073 — energy 22 — requires `protonAcceleration` — _Alvarez DTL, post-RFQ low/medium-beta proton and ion workhorse._
 - [ ] `cbandCavity` — C-band Cavity (5.712 GHz) — cost 1000000 — energyGain 0.8 — energy 8 — requires `highGradientRf` — _35 MV/m compact NC structure, 800 MeV/unit._
 - [ ] `xbandCavity` — X-band Cavity (11.424 GHz) — cost 1500000 — energyGain 1.2 — energy 12 — requires `highGradientRf` — _65 MV/m ultra-compact NC, 1200 MeV/unit._
 - [ ] `dtlCavity` — DTL Cavity — cost 1200000 — energyGain 0.05 — energy 20 — requires `protonAcceleration` — _Proton DTL chain, 3-70 MeV._

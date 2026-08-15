@@ -19,6 +19,8 @@ assertOk(buncher.description.includes('sub-harmonic'), 'includes the untruncated
 assertOk(buncher.rows.some(row => row.label === 'Cost' && row.value === '$150,000'), 'includes formatted cost');
 assertOk(buncher.rows.some(row => row.label === 'RF frequency' && row.value === '162.5 MHz'), 'includes RF frequency');
 assertOk(buncher.rows.some(row => row.label === 'RF band' && row.value === 'VHF'), 'includes RF band');
+assertOk(buncher.rows.some(row => row.label === 'β acceptance'
+  && row.value.includes('0.20–0.75')), 'includes the component beta acceptance window');
 assertOk(buncher.rows.some(row => row.label === 'Bunch Compression'), 'includes component-specific physics stats');
 assertOk(buncher.utilityRows.some(row => row.label === 'Power draw'), 'includes port-derived utility demand');
 assertOk(buncher.utilityRows.some(row => row.label === 'RF draw'), 'includes RF demand');

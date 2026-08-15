@@ -94,6 +94,7 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
       placement: 'module', role: 'junction',
       ports: { entry: { side: 'back' } },
       routing: [{ from: 'entry', to: 'exit' }],
+      betaAcceptance: { min: 0.5, design: 0.4, max: 1, tracksBeam: 'yes' },
       requiredConnections: [],
     },
   };
@@ -157,6 +158,10 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     'unknown physicsType reported');
   assert(hasProblem(problems, 'badRouter', 'routing[0].to', "'exit'"),
     'routing to undeclared port reported');
+  assert(hasProblem(problems, 'badRouter', 'betaAcceptance', 'min <= design <= max'),
+    'misordered beta acceptance window reported');
+  assert(hasProblem(problems, 'badRouter', 'betaAcceptance.tracksBeam', 'boolean'),
+    'non-boolean beta tracking flag reported');
   assert(hasProblem(problems, 'freebie', 'cost'),
     'numeric decoration cost reported');
   assert(hasProblem(problems, 'freebie', 'category', "'notATab'"),

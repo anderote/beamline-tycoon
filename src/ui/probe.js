@@ -13,6 +13,7 @@ const PROBE_PLOT_TYPES = [
   { id: 'current-loss', name: 'Current & Loss' },
   { id: 'emittance', name: 'Emittance' },
   { id: 'energy-dispersion', name: 'Energy & Dispersion' },
+  { id: 'beta-acceptance', name: 'Beam β & Acceptance' },
   { id: 'peak-current', name: 'Peak Current' },
   { id: 'longitudinal', name: 'Longitudinal PS' },
   { id: 'summary', name: 'Summary Stats' },
@@ -373,6 +374,7 @@ export class ProbeWindow {
       r('Energy', formatEnergy(data.energy).val, formatEnergy(data.energy).unit) +
       r('Current', fmtFix(data.current, 2), 'mA') +
       r('I_peak', fmtFix(data.peak_current, 1), 'A') +
+      r('Relativistic β', fmtFix(data.rel_beta, 4), '') +
       r('\u03c3_x', fmtFix((data.sigma_x || 0) * 1000, 3), 'mm') +
       r('\u03c3_y', fmtFix((data.sigma_y || 0) * 1000, 3), 'mm') +
       r('\u03b5_nx', fmtSci(data.emit_nx), 'm\u00b7rad') +

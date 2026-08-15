@@ -63,6 +63,7 @@ export const ProbePlots = (() => {
       'current-loss': _drawCurrentLoss,
       'emittance': _drawEmittance,
       'energy-dispersion': _drawEnergyDispersion,
+      'beta-acceptance': _drawBetaAcceptance,
       'peak-current': _drawPeakCurrent,
       'longitudinal': _drawLongitudinal,
       'eic-triangle': _drawEICTriangle,
@@ -161,6 +162,10 @@ export const ProbePlots = (() => {
         _range(dVals.length > 0 ? dVals : [0]),
       ];
     },
+
+    // Relativistic beta is bounded by definition. A fixed domain makes the
+    // authored acceptance windows comparable from the ion source to beta=1.
+    'beta-acceptance': () => [[0, 1]],
 
     // Raw [min, max] of the plotted values — the plot derives log-vs-linear from
     // it, so both passes agree on which mode they are in.
@@ -371,7 +376,7 @@ export const ProbePlots = (() => {
     for (let i = 0; i < data.length; i++) {
       const xV = data[i].s != null ? data[i].s : i;
       const v = data[i][key];
-      if (v == null || !isFinite(v)) continue;
+      if (v == null || !isFinite(v)) { started = false; continue; }
       const x = a.x + ((xV - xMin) / (xMax - xMin)) * a.w;
       const frac = _yFraction(v * scale, yMin, yMax, logY);
       if (frac == null) { started = false; continue; }
@@ -388,7 +393,7 @@ export const ProbePlots = (() => {
     for (let i = 0; i < data.length; i++) {
       const xV = data[i].s != null ? data[i].s : i;
       const v = data[i][key];
-      if (v == null || !isFinite(v)) continue;
+      if (v == null || !isFinite(v)) { started = false; continue; }
       const x = a.x + ((xV - xMin) / (xMax - xMin)) * a.w;
       const frac = _yFraction(v, yMin, yMax, logY);
       if (frac == null) { started = false; continue; }
@@ -674,6 +679,51 @@ export const ProbePlots = (() => {
     _legend(ctx, aR, [{ color: '#44dd88', label: 'Energy' }, { color: '#ff8844', label: '\u03b7_x' }]);
   }
 
+  function _drawBetaAcceptance(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
+    const a = _area(canvas, o);
+    const [xMin, xMax] = xRange || _xRange(env);
+    const ghost = !!o?.ghost;
+    const [yMin, yMax] = _chan(o, 0, [0, 1]);
+
+    // Each accelerating component publishes the window its cell geometry is
+    // cut for. Draw it as a segmented band, green while the incoming beam is
+    // accepted and red when the player has used the wrong beta rung.
+    if (!ghost) {
+      for (let i = 0; i < env.length - 1; i++) {
+        const d = env[i], next = env[i + 1];
+        const lo = d.beta_acceptance_min;
+        const hi = d.beta_acceptance_max;
+        if (lo == null || hi == null || !isFinite(lo) || !isFinite(hi)) continue;
+        const s0 = _datumS(d, i), s1 = _datumS(next, i + 1);
+        const px0 = a.x + ((s0 - xMin) / (xMax - xMin || 1)) * a.w;
+        const px1 = a.x + ((s1 - xMin) / (xMax - xMin || 1)) * a.w;
+        const pyHi = a.y + a.h - ((hi - yMin) / (yMax - yMin || 1)) * a.h;
+        const pyLo = a.y + a.h - ((lo - yMin) / (yMax - yMin || 1)) * a.h;
+        ctx.fillStyle = d.beta_accepted === false
+          ? 'rgba(255, 68, 68, 0.22)'
+          : 'rgba(80, 220, 130, 0.16)';
+        ctx.fillRect(px0, pyHi, Math.max(0.75, px1 - px0), Math.max(0.75, pyLo - pyHi));
+      }
+    }
+
+    const plotted = env.map(d => ({
+      ...d,
+      _betaDesign: d.beta_synchronous ?? d.beta_acceptance_design,
+    }));
+    if (!ghost) _axes(ctx, a, 's (m)', 'relativistic β', yMin, yMax);
+    _line(ctx, a, plotted, '_betaDesign', '#f0b34e', xMin, xMax,
+      yMin, yMax, true, ghost);
+    _line(ctx, a, plotted, 'rel_beta', '#55ddff', xMin, xMax,
+      yMin, yMax, false, ghost);
+    if (ghost) return;
+    _pinMarkers(ctx, a, env, pins, xMin, xMax);
+    _legend(ctx, a, [
+      { color: '#55ddff', label: 'Beam β' },
+      { color: '#f0b34e', label: 'Design β' },
+      { color: '#50dc82', label: 'Acceptance' },
+    ]);
+  }
+
   function _drawPeakCurrent(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
     const a = _area(canvas, o);
     const [xMin, xMax] = xRange || _xRange(env);
@@ -704,20 +754,22 @@ export const ProbePlots = (() => {
   // the overlay one honest y-axis while both selections use exactly the same
   // physical distance coordinates.
   const SECONDARY_DISTANCE_TYPES = new Set([
-    'energy', 'dispersion', 'beam-envelope', 'current-loss', 'emittance', 'peak-current',
+    'energy', 'dispersion', 'rel-beta', 'beam-envelope', 'current-loss', 'emittance', 'peak-current',
   ]);
 
   function isDistancePlot(type) {
-    return ['energy-dispersion', 'beam-envelope', 'current-loss', 'emittance', 'peak-current']
+    return ['energy-dispersion', 'beta-acceptance', 'beam-envelope', 'current-loss', 'emittance', 'peak-current']
       .includes(type);
   }
 
   function secondaryYDomain(type, envelope, yScale) {
     if (!SECONDARY_DISTANCE_TYPES.has(type) || !envelope || envelope.length < 2) return null;
+    if (type === 'rel-beta') return [0, 1];
     let values;
     let applyScale = false;
     if (type === 'energy') values = envelope.map(d => d.energy);
     else if (type === 'dispersion') values = envelope.map(d => d.eta_x);
+    else if (type === 'rel-beta') values = envelope.map(d => d.rel_beta);
     else if (type === 'beam-envelope') {
       values = envelope.flatMap(d => [(d.sigma_x || 0) * 1000, (d.sigma_y || 0) * 1000]);
       applyScale = true;
@@ -754,6 +806,13 @@ export const ProbePlots = (() => {
         data: env.map(d => ({ ...d, _secondaryA: d.eta_x })), domain,
         axisLabel: '\u03b7_x (m)',
         channels: [{ key: '_secondaryA', color: primary, label: '2·\u03b7_x' }],
+      };
+    }
+    if (type === 'rel-beta') {
+      return {
+        data: env.map(d => ({ ...d, _secondaryA: d.rel_beta })),
+        domain: [0, 1], axisLabel: 'relativistic β',
+        channels: [{ key: '_secondaryA', color: primary, label: '2·Beam β' }],
       };
     }
     if (type === 'beam-envelope') {
@@ -935,6 +994,27 @@ export const ProbePlots = (() => {
         _cursorItem('primary-dispersion', 'η_x', d.eta_x,
           _cursorText(d.eta_x, 'm'), '#ff8844', yd[1]),
       ];
+    } else if (type === 'beta-acceptance') {
+      const status = d.beta_accepted == null
+        ? ''
+        : d.beta_accepted ? ' · MATCH' : ' · MISMATCH';
+      const ttf = d.beta_ttf == null || !isFinite(d.beta_ttf)
+        ? ''
+        : ` · TTF ${_fmtPlotValue(d.beta_ttf)}`;
+      items = [
+        _cursorItem('primary-rel-beta', 'Beam β', d.rel_beta,
+          `${_fmtPlotValue(d.rel_beta)}${ttf}${status}`,
+          d.beta_accepted === false ? '#ff5555' : '#55ddff', domain),
+        _cursorItem('primary-beta-min', 'β min', d.beta_acceptance_min,
+          _cursorText(d.beta_acceptance_min, ''), '#50dc82', domain),
+        _cursorItem('primary-beta-design', d.beta_synchronous != null
+          && d.beta_synchronous !== d.beta_acceptance_design ? 'β sync' : 'β design',
+        d.beta_synchronous ?? d.beta_acceptance_design,
+        _cursorText(d.beta_synchronous ?? d.beta_acceptance_design, ''),
+        '#f0b34e', domain),
+        _cursorItem('primary-beta-max', 'β max', d.beta_acceptance_max,
+          _cursorText(d.beta_acceptance_max, ''), '#50dc82', domain),
+      ];
     } else if (type === 'peak-current') {
       const values = env.map(row => row.peak_current)
         .filter(value => value != null && isFinite(value) && value > 0);
@@ -960,6 +1040,7 @@ export const ProbePlots = (() => {
     const unit = type === 'energy'
       ? (spec.axisLabel.match(/\(([^)]+)\)/)?.[1] || '')
       : type === 'dispersion' ? 'm'
+      : type === 'rel-beta' ? ''
       : type === 'beam-envelope' ? 'mm'
       : type === 'current-loss' ? 'mA'
       : type === 'emittance' ? 'm·rad'

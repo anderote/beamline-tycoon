@@ -23,6 +23,10 @@ class PropagationContext:
         self.element_index = 0
         self.snapshots = []
         self.reports = []
+        # RFAccelerationModule replaces this for each RF sub-step. lattice.py
+        # copies it into the corresponding snapshot, making the component's
+        # authored beta window and the solver's TTF visible to gameplay/UI.
+        self.beta_match = None
 
     def record(self, report):
         """Record an EffectReport from a module."""

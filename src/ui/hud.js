@@ -2484,10 +2484,10 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
   const bands = comp.rfBands
     || (comp.rfBand ? [comp.rfBand] : null)
     || (rfSink && rfSink.band ? [rfSink.band] : null);
-  if (bands) {
+  if (bands || comp.betaAcceptance) {
     const bandEl = document.createElement('div');
     bandEl.className = 'palette-rf-band';
-    for (const b of bands) {
+    for (const b of bands || []) {
       const line = document.createElement('div');
       line.textContent = bandLabels[b] || b;
       bandEl.appendChild(line);
@@ -2505,6 +2505,16 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
       pwrLine.className = 'palette-rf-output';
       pwrLine.textContent = `${comp.params.power} kW`;
       bandEl.appendChild(pwrLine);
+    }
+    if (comp.betaAcceptance) {
+      const beta = comp.betaAcceptance;
+      const regime = beta.design < 0.5 ? 'LOW-β'
+        : beta.design < 0.85 ? 'MID-β' : 'HIGH-β';
+      const fmt = value => value < 0.1 ? value.toFixed(3) : value.toFixed(2);
+      const betaLine = document.createElement('div');
+      betaLine.className = 'palette-beta-range';
+      betaLine.textContent = `${regime} ${fmt(beta.min)}–${fmt(beta.max)}`;
+      bandEl.appendChild(betaLine);
     }
     item.appendChild(bandEl);
   }
@@ -2677,6 +2687,12 @@ UIHost.prototype._showPalettePreview = function(comp) {
           html += statRow(label, `${v}${unit}`);
         }
       }
+    }
+    if (comp.betaAcceptance) {
+      const beta = comp.betaAcceptance;
+      const fmt = value => value < 0.1 ? value.toFixed(3) : value.toFixed(2);
+      html += statRow('β Acceptance',
+        `${fmt(beta.min)}–${fmt(beta.max)} (design ${fmt(beta.design)})`);
     }
     statsEl.innerHTML = html;
   }

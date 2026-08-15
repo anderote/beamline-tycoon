@@ -141,6 +141,7 @@ const EXPECTED = [
     type: 'ellipticalSrfCavity',
     subL: 3,
     stats: { energyGain: 0.0375, gradient: 25 },
+    betaAcceptance: { min: 0.85, design: 0.999, max: 1.0 },
     params: {},
     infraQuality: {
       powerQuality: 0,

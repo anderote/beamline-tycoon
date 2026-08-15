@@ -20,11 +20,10 @@ DEFAULT_RF_FREQ = 1.3e9
 # gives 61 ps at 1.3 GHz and 400 ps at 200 MHz.
 BUNCH_PHASE_SIGMA_RAD = 0.5
 
-# Keyed on game_type (the catalogue id), NOT on the physics type — this is
-# where two components sharing physicsType 'cryomodule' stop being the same
-# machine. beta is the particle velocity the structure's cell spacing is cut
-# for, and the transit-time factor punishes a beam that arrives at any other
-# speed.
+# Legacy fallbacks keyed on game_type (the catalogue id), NOT on the physics
+# type. New game payloads carry the component catalogue's betaAcceptance
+# contract, which is the source of truth; these values preserve compatibility
+# with older callers and deliberately non-cavity physics adapters.
 #
 # It is the entire content of the proton ladder: a 650 MHz beta=0.61 module
 # runs a 200 MeV proton (beta 0.57) at TTF 0.99 and an 800 MeV one (beta 0.84)
@@ -33,6 +32,7 @@ BUNCH_PHASE_SIGMA_RAD = 0.5
 # Electron structures are beta=1 hardware and sit at 0.999.
 DESIGN_BETA = {
     "rfq":                0.04,
+    "dtl":                0.15,
     "pillboxCavity":      0.1,
     "buncher":            0.3,
     "halfWaveResonator":  0.1,
@@ -48,19 +48,15 @@ DESIGN_BETA = {
     # Not an RF structure. A plasma wake only traps and holds a bunch that is
     # already moving at c; there is no low-beta regime for it at all.
     "plasmaAfterburner":  0.999,
-    "ellipticalSrfCavity":0.65,
+    "ellipticalSrfCavity":0.999,
     # The proton beta ladder. These two numbers are the reason spallation is
     # built 650-then-805, exactly as SNS and PIP-II are laid out.
     "srf650Cryomodule":   0.61,
     "srf805Cryomodule":   0.86,
-    "cryomodule":         0.65,
+    "cryomodule":         0.999,
     # TESLA 9-cell cavities are beta=1 structures — the cell spacing is
-    # lambda/2 with no beta derating — so the 1.3 GHz electron rungs take
-    # 0.999. NOTE the `cryomodule` entry above says 0.65 for the same hardware,
-    # which costs it ~19% of its catalogue energy gain against a relativistic
-    # beam. That looks like an error, but it is existing calibration and
-    # changing it moves every electron machine already built, so it is left
-    # alone here and flagged rather than quietly rewritten.
+    # lambda/2 with no beta derating — so every 1.3 GHz electron rung takes
+    # 0.999.
     "cwCryomodule":       0.999,
     "nbSnCryomodule":     0.999,
     "srfLinacSector":     0.999,
@@ -82,6 +78,7 @@ DESIGN_BETA = {
 
 CAPTURE_EFFICIENCY = {
     "rfq":                0.80,
+    "dtl":                0.65,
     "pillboxCavity":      0.50,
     "buncher":            0.65,
     "halfWaveResonator":  0.55,
@@ -148,8 +145,33 @@ class RFAccelerationModule(PhysicsModule):
         dE = dE_nominal * np.cos(phase_rad)
 
         game_type = element.get("game_type", element.get("type", ""))
-        design_beta = DESIGN_BETA.get(game_type, 0.9)
-        ttf = _transit_time_factor(beam.beta, design_beta)
+        beta_input = beam.beta
+        acceptance = element.get("betaAcceptance") or {}
+        design_beta = acceptance.get(
+            "design", DESIGN_BETA.get(game_type, 0.9))
+        beta_min = acceptance.get("min")
+        beta_max = acceptance.get("max")
+        accepted = None
+        if beta_min is not None and beta_max is not None:
+            accepted = beta_min <= beta_input <= beta_max
+        # RFQs and Alvarez DTLs are not made from identical fixed-beta cells:
+        # vane modulation / drift-tube length increases down the tank as the
+        # beam accelerates. Inside the authored window their local synchronous
+        # beta follows the beam; outside it the representative design beta
+        # still produces the ordinary transit-time penalty.
+        synchronous_beta = (beta_input
+                            if acceptance.get("tracksBeam") and accepted
+                            else design_beta)
+        ttf = _transit_time_factor(beta_input, synchronous_beta)
+        context.beta_match = {
+            "rel_beta_input": float(beta_input),
+            "beta_acceptance_min": beta_min,
+            "beta_acceptance_design": design_beta,
+            "beta_synchronous": float(synchronous_beta),
+            "beta_acceptance_max": beta_max,
+            "beta_accepted": accepted,
+            "beta_ttf": float(ttf),
+        }
         dE *= ttf
 
         if ttf < 0.95:
@@ -221,5 +243,5 @@ class RFAccelerationModule(PhysicsModule):
             element_index=context.element_index,
             details={"energy_gain": dE, "phase_deg": phase_deg,
                      "chirp_added": h, "total_chirp": context.chirp,
-                     "rf_frequency": f_rf},
+                     "rf_frequency": f_rf, **context.beta_match},
         )

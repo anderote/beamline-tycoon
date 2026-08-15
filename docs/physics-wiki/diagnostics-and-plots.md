@@ -86,6 +86,24 @@ Non-zero dispersion at an undulator or interaction point is bad — it increases
 
 ---
 
+### Beam Beta & Acceptance
+
+**Quick Tip:** Shows the beam's relativistic velocity beta = v/c against each accelerating component's usable beta window.
+
+**How It Works:**
+
+The cyan line is the beam velocity from 0 (stationary) to 1 (the speed of light). Colored bands are the acceptance windows authored for the RF structure under the beam:
+
+- **Green band** — the beam enters inside the structure's beta window
+- **Red band** — the beam is mismatched; the transit-time factor reduces its effective voltage and adds transverse mismatch
+- **Gold dashed line** — the structure's design beta, or the local synchronous beta in an RFQ/DTL whose cells lengthen as the beam accelerates
+
+For protons, build an overlapping ladder: RFQ (very low beta), DTL, spoke cavity, 650 MHz cryomodule, then 805 MHz high-beta cryomodules. An RFQ takes a keV source to a few MeV and into the DTL's window; it does not make a proton relativistic in one step. Electron beams reach beta near 1 after only a few MeV, so their S-band and TESLA-style structures are high-beta hardware.
+
+Hover the plot for numerical beam beta, the active min/design/max window, match state, and transit-time factor (TTF). Beam beta can also be selected as a secondary trace on any distance plot.
+
+---
+
 ### Peak Current
 
 **Quick Tip:** Shows peak current in Amperes along the beamline. Uses log scale when the range is large. Critical for FEL.
@@ -158,6 +176,7 @@ The sigma_t and sigma_E values shown tell you the bunch length and energy spread
 | Energy | E | GeV | Beam energy at this point |
 | Current | I | mA | Average beam current surviving to here |
 | Peak Current | I_peak | A | Within-bunch current (critical for FEL) |
+| Relativistic beta | beta | dimensionless | Beam speed as a fraction of the speed of light |
 | Beam size x | sigma_x | mm | Horizontal RMS beam size |
 | Beam size y | sigma_y | mm | Vertical RMS beam size |
 | Norm emittance x | epsilon_nx | m-rad | Horizontal normalized emittance |

@@ -131,6 +131,9 @@ def propagate(beamline_config, machine_type=None, source_params=None):
 
         for step in range(n_steps):
             is_last = (step == n_steps - 1)
+            # Never leak the previous cavity's match data onto a drift or
+            # magnet snapshot. An RF module repopulates this during this step.
+            context.beta_match = None
 
             if n_steps > 1:
                 sub_el = _make_sub_element(element, fraction)
@@ -222,11 +225,13 @@ def propagate(beamline_config, machine_type=None, source_params=None):
                     })
 
             # Snapshot after each sub-step
+            beta_extra = context.beta_match or {}
             context.snapshots.append(beam.snapshot(i, etype, context.cumulative_s, extra={
                 "eta_x": float(context.dispersion[0]),
                 "eta_xp": float(context.dispersion[1]),
                 "focus_margin": float(focus_margin),
                 "focus_urgency": float(focus_urgency),
+                **beta_extra,
             }))
 
             if not beam.alive:

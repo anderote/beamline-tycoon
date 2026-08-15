@@ -107,6 +107,9 @@ export function buildPhysicsElements(orderedNodes, ctx = {}) {
       stats: effectiveStats,
       params,
     };
+    if (t.betaAcceptance) {
+      physEl.betaAcceptance = { ...t.betaAcceptance };
+    }
     if (computed && computed.extractionEnergy !== undefined) {
       physEl.extractionEnergy = computed.extractionEnergy;
     } else if (t.extractionEnergy !== undefined) {
