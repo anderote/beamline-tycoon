@@ -143,19 +143,28 @@ console.log('\n-- source: thermionic physics --');
   assert(stats.beamCurrent > 0, 'default source produces positive beamCurrent');
   assert(stats.emittance > 0, 'default source produces positive emittance');
 
-  // Constant-power model: P_beam = I·V is fixed, so higher voltage → lower current
-  const lowV  = computeStats('source', { ...defaults, extractionVoltage: 20 });
+  // At fixed cathode heat, P_beam = I·V is fixed, so higher voltage → lower current.
+  const lowV  = computeStats('source', { ...defaults, extractionVoltage: 25 });
   const highV = computeStats('source', { ...defaults, extractionVoltage: 80 });
   assert(highV.beamCurrent < lowV.beamCurrent,
-    'higher extractionVoltage → lower beamCurrent (constant beam power)');
-  assertClose(lowV.beamCurrent * 20, highV.beamCurrent * 80, 1e-6,
-    'I·V product constant across extractionVoltage (constant beam power)');
+    'higher extractionVoltage → lower beamCurrent at fixed cathode heat');
+  assertClose(lowV.beamCurrent * 25, highV.beamCurrent * 80, 1e-6,
+    'I·V product is constant across extractionVoltage at fixed cathode heat');
 
-  // Thermal emittance: higher cathode temperature → higher emittance
-  const lowT  = computeStats('source', { ...defaults, cathodeTemperature: 700 });
-  const highT = computeStats('source', { ...defaults, cathodeTemperature: 1800 });
+  // Cathode heat raises emission/current, with thermal emittance as its cost.
+  const lowT  = computeStats('source', { ...defaults, cathodeTemperature: 600 });
+  const highT = computeStats('source', { ...defaults, cathodeTemperature: 2000 });
+  assert(highT.beamCurrent > lowT.beamCurrent,
+    'higher cathodeTemperature → higher beamCurrent');
   assert(highT.emittance > lowT.emittance,
     'higher cathodeTemperature → higher emittance');
+  assertClose(stats.beamCurrent, 250, 1e-6,
+    'default thermionic controls produce 250 mA');
+  const maxCurrent = computeStats('source', {
+    ...defaults, extractionVoltage: 25, cathodeTemperature: 2000,
+  });
+  assertClose(maxCurrent.beamCurrent, 900, 1e-6,
+    'pushed thermionic controls approach 1 A');
 }
 
 // -----------------------------------------------------------------------
@@ -552,8 +561,14 @@ console.log('\n--- Ion sources derive extraction energy ---');
   // Defaults reproduce the catalog's advertised beam currents.
   assertClose(computeStats('ionSource', {}).beamCurrent, 50, 1e-6,
     'ionSource default beam current matches its catalog stat (50 mA)');
-  assertClose(computeStats('ecrIonSource', {}).beamCurrent, 200, 1e-6,
-    'ecrIonSource default beam current matches its catalog stat (200 mA)');
+  assertClose(computeStats('ecrIonSource', {}).beamCurrent, 400, 1e-6,
+    'ecrIonSource default beam current matches its catalog stat (400 mA)');
+  const pushedEcr = computeStats('ecrIonSource', {
+    microwavePower: 6000,
+    magnetCurrent: 500,
+  });
+  assertClose(pushedEcr.beamCurrent, 1152, 1e-6,
+    'pushed ECR controls exceed 1 A');
 }
 
 // -----------------------------------------------------------------------
