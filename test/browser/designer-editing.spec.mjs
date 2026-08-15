@@ -21,18 +21,19 @@ import { bootFreshGame, createErrorCollector, frames } from './helpers.mjs';
 
 // Build a real beamline on the map and open the designer against its source,
 // which is the mode the defect lived in. Returns the source placeable id.
-async function openEditModeDesigner(page) {
+async function openEditModeDesigner(page, { typeId = null } = {}) {
   await page.evaluate(() => window.dev.enable());
-  await page.evaluate(() => {
+  await page.evaluate((beamlineTypeId) => {
     const g = window.game;
     g.state.resources.funding = 1e9;
+    if (beamlineTypeId) g.startNewBeamline(beamlineTypeId);
     const area = window.__bt.findClearArea(16, 8);
     const col = area.col + 2, row = area.row + 2;
     for (let c = col - 2; c < col + 14; c++) {
       for (let r = row - 2; r < row + 5; r++) g.placeInfraTile(c, r, 'concrete');
     }
     g.placePlaceable({ type: 'source', col, row, dir: 0 });
-  });
+  }, typeId);
   return page.evaluate(() => {
     const g = window.game;
     const entry = g.registry.getAll()[0];
@@ -41,6 +42,86 @@ async function openEditModeDesigner(page) {
     return entry.sourceId;
   });
 }
+
+test('mission targets use the regular Energy and Emittance plot strip', async ({ page }) => {
+  const errors = createErrorCollector(page);
+  await page.setViewportSize({ width: 1600, height: 950 });
+  await bootFreshGame(page);
+
+  const sourceId = await openEditModeDesigner(page, { typeId: 'ebeamProcessing' });
+  expect(sourceId, 'typed beamline opened in the designer').toBeTruthy();
+  await frames(page, 5);
+
+  const layout = await page.evaluate(() => {
+    const summary = document.getElementById('dsgn-plot-mission-summary');
+    return {
+      largePanel: !!document.getElementById('dsgn-mission-panel'),
+      greenMap: !!document.getElementById('dsgn-mission-map'),
+      plotTypes: [...document.querySelectorAll('.dsgn-plot-select')].map(select => select.value),
+      plotPanels: document.querySelectorAll('.dsgn-plot-panel').length,
+      summaryText: summary?.textContent.replace(/\s+/g, ' ').trim() || '',
+      summaryLabel: summary?.getAttribute('aria-label') || '',
+      targets: [...(summary?.querySelectorAll('.dsgn-plot-mission-metric') || [])]
+        .map(metric => metric.getAttribute('title')),
+      assignedType: window.game.registry.getBySourceId(window.game._designer.editSourceId)?.typeId,
+    };
+  });
+
+  expect(layout.assignedType).toBe('ebeamProcessing');
+  expect(layout.largePanel, 'the oversized mission panel is gone').toBe(false);
+  expect(layout.greenMap, 'the separate green target map is gone').toBe(false);
+  expect(layout.plotPanels, 'the two plots get the full performance row').toBe(2);
+  expect(layout.plotTypes).toEqual(['energy-dispersion', 'emittance']);
+  expect(layout.summaryText).toContain('E-beam Processing Line');
+  expect(layout.summaryText).toContain('Energy');
+  expect(layout.summaryText).toContain('Current');
+  expect(layout.summaryText).toContain('Beam power');
+  expect(layout.summaryText).toContain('Quality');
+  expect(layout.summaryLabel).toContain('target 3.00 MeV–12.0 MeV');
+  expect(layout.targets).toContain('Energy target: 3.00 MeV–12.0 MeV');
+  expect(layout.targets).toContain('Current target: 20 mA–100 mA');
+
+  // Feed the real plot path a tiny, flat 50 keV trace. The mission target is
+  // 3–12 MeV, so the shared domain must expand just far enough to show both;
+  // the old constant-value fallback expanded to ±500 MeV and reduced the
+  // target to an unreadable hairline.
+  const plotCalls = await page.evaluate(async () => {
+    const { ProbePlots } = await import('/src/ui/probe-plots.js');
+    const d = window.game._designer;
+    d.draftPhysicsResult = { beamEnergy: 0.00005, beamCurrent: 97.5, beamQuality: 0.02 };
+    d.draftEnvelope = [
+      { s: 0, energy: 0.00005, eta_x: 0, emit_nx: 1.0e-6, emit_ny: 1.1e-6 },
+      { s: 4, energy: 0.00005, eta_x: 0, emit_nx: 1.2e-6, emit_ny: 1.3e-6 },
+    ];
+    const calls = [];
+    const orig = ProbePlots.draw;
+    ProbePlots.draw = function(canvas, type, envelope, pins, activePin, xRange, yScale, opts) {
+      calls.push({
+        type,
+        targets: opts?.targets || null,
+        targetYDomain: ProbePlots.targetYDomain(type, opts?.targets || null),
+        yDomain: opts?.yDomain || null,
+      });
+      return orig.apply(this, arguments);
+    };
+    try {
+      d._renderPlots();
+    } finally {
+      ProbePlots.draw = orig;
+    }
+    return calls;
+  });
+  const energyCall = plotCalls.find(call => call.type === 'energy-dispersion');
+  const emittanceCall = plotCalls.find(call => call.type === 'emittance');
+  expect(energyCall?.targets?.energyGeV).toEqual([0.003, 0.012]);
+  expect(energyCall?.targetYDomain?.[0]).toEqual([0.003, 0.012]);
+  expect(energyCall?.yDomain?.[0]?.[0]).toBe(0);
+  expect(energyCall?.yDomain?.[0]?.[1]).toBeGreaterThan(0.012);
+  expect(energyCall?.yDomain?.[0]?.[1]).toBeLessThan(0.02);
+  expect(emittanceCall?.targetYDomain).toBeNull();
+
+  errors.checkAll('designer mission plot strip');
+});
 
 test('every visible palette card adds to the draft in edit mode', async ({ page }) => {
   const errors = createErrorCollector(page);

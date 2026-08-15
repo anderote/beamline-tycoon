@@ -11,9 +11,6 @@ import { UNITS } from '../data/units.js';
 import { isFacilityCategory } from './Renderer.js';
 import { beamlineTypeHidesComponent } from '../ui/BeamlineTypePicker.js';
 import { getBeamlineType } from '../data/beamline-types.js';
-import {
-  computeEndpointService, endpointForNodes, ENDPOINT_CONTRACTS,
-} from '../game/endpoint-economy.js';
 import { ProbePlots } from '../ui/probe-plots.js';
 import { paletteUtilityMetrics } from '../ui/utility-supply.js';
 
@@ -33,7 +30,6 @@ function _driftPixelWidth(componentType, subL) {
 
 BeamlineDesigner.prototype._renderAll = function() {
   if (!this.isOpen) return;
-  this._renderMissionPerformance();
   this._renderSchematic();
   this._renderTuning();
   this._renderPlots();
@@ -45,18 +41,6 @@ const _missionFomLabels = {
   felBrilliance: 'FEL brilliance', euvPhotonPowerW: 'EUV photon power',
   integratedLuminosity: 'Luminosity', blackHoleYield: 'Predicted yield',
 };
-
-function _missionBandScore(value, band, width = 0.3, hardHigh = false) {
-  if (!band || band.length !== 2) return 1;
-  const [lo, hi] = band;
-  if (!(value > 0)) return 0;
-  if ((lo == null || value >= lo) && (hi == null || value <= hi)) return 1;
-  if (hardHigh && hi != null && value > hi) return 0;
-  const edge = lo != null && value < lo ? lo : hi;
-  if (!(edge > 0)) return 1;
-  const decades = Math.abs(Math.log10(value / edge));
-  return Math.exp(-0.5 * Math.pow(decades / Math.max(width, 0.01), 2));
-}
 
 function _inBand(value, band) {
   if (!band || band.length !== 2) return value > 0;
@@ -92,161 +76,41 @@ function _missionMetricValue(type, result) {
   return `${Math.round((result.beamQuality || 0) * 100)}% quality`;
 }
 
-BeamlineDesigner.prototype._renderMissionPerformance = function() {
-  const panel = document.getElementById('dsgn-mission-panel');
-  const titleEl = document.getElementById('dsgn-mission-title');
-  const kickerEl = document.getElementById('dsgn-mission-kicker');
-  const metricsEl = document.getElementById('dsgn-mission-metrics');
-  const equationEl = document.getElementById('dsgn-mission-equation');
-  const canvas = document.getElementById('dsgn-mission-map');
-  if (!panel || !titleEl || !metricsEl || !equationEl || !canvas) return;
+BeamlineDesigner.prototype._renderPlotMissionSummary = function() {
+  const summary = document.getElementById('dsgn-plot-mission-summary');
+  if (!summary) return;
 
-  const typeId = this._designerBeamlineTypeId?.();
-  const type = getBeamlineType(typeId);
+  const type = getBeamlineType(this._designerBeamlineTypeId?.());
   if (!type) {
-    panel.classList.add('untyped');
-    kickerEl.textContent = 'MISSION TARGET';
-    titleEl.textContent = 'Choose a beamline type to reveal target bands';
-    metricsEl.innerHTML = '';
-    equationEl.textContent = 'Free Build keeps the full catalogue and does not grade the design.';
+    summary.innerHTML = '<span class="dsgn-plot-mission-empty">Free Build · no mission targets</span>';
+    summary.setAttribute('aria-label', 'Free Build; no mission targets');
     return;
   }
-  panel.classList.remove('untyped');
-  kickerEl.textContent = `MISSION TARGET · T${type.tier}`;
-  titleEl.textContent = type.name;
 
   const draft = this.draftPhysicsResult;
-  const current = this.baselinePhysicsResult;
-  const e = Number(draft?.beamEnergy || 0);
-  const i = Number(draft?.beamCurrent || 0);
-  const eBand = type.spec?.energyGeV;
-  const iBand = type.spec?.currentMA;
-  const metric = (label, value, target, inside) =>
-    `<div class="dsgn-mission-metric ${inside ? 'in' : 'out'}"><span>${label}</span>`
-      + `<strong title="Target: ${target}">${value}</strong></div>`;
-  metricsEl.innerHTML = metric(
-    'Energy', _fmtEnergyValue(e), _fmtBand(eBand, _fmtEnergyValue), _inBand(e, eBand),
-  ) + metric(
-    'Current', `${i < 0.01 ? i.toPrecision(2) : i.toFixed(i < 10 ? 2 : 1)} mA`,
-    _fmtBand(iBand, v => `${v} mA`), _inBand(i, iBand),
-  ) + metric(
-    _missionFomLabels[type.fom] || 'Mission metric', _missionMetricValue(type, draft),
-    type.fomRef != null ? `reference ${type.fomRef}` : 'type objective', !!draft,
-  ) + metric(
-    'Beam quality', `${Math.round((draft?.beamQuality || 0) * 100)}%`,
-    'higher is better', (draft?.beamQuality || 0) >= 0.7,
-  );
+  const energy = Number(draft?.beamEnergy || 0);
+  const current = Number(draft?.beamCurrent || 0);
+  const quality = Math.round((draft?.beamQuality || 0) * 100);
+  const energyTarget = _fmtBand(type.spec?.energyGeV, _fmtEnergyValue);
+  const currentTarget = _fmtBand(type.spec?.currentMA, value => `${value} mA`);
+  const fomLabel = _missionFomLabels[type.fom] || 'Mission metric';
+  const fomValue = _missionMetricValue(type, draft);
+  const currentValue = `${current < 0.01 ? current.toPrecision(2) : current.toFixed(current < 10 ? 2 : 1)} mA`;
+  const metric = (label, value, target, state = '') =>
+    `<span class="dsgn-plot-mission-metric ${state}" title="${label} target: ${target}">`
+      + `<span>${label}</span><strong>${value}</strong></span>`;
 
-  const endpointId = endpointForNodes(this.draftNodes);
-  const service = computeEndpointService(type.id, draft || {}, this.draftNodes);
-  const contract = endpointId ? ENDPOINT_CONTRACTS[endpointId] : null;
-  if (!endpointId || !contract) {
-    const required = (type.requiredEndpoint || []).map(id => COMPONENTS[id]?.name || id).join(', ');
-    equationEl.textContent = `Revenue estimate unavailable — add a contract endpoint${required ? ` (${required})` : ''}.`;
-  } else if (contract.baseRevenue > 0) {
-    equationEl.innerHTML = `${contract.name}: $${contract.baseRevenue.toLocaleString()}`
-      + ` × ${(service.bandScore || 0).toFixed(2)} band × ${(service.performanceScore || 0).toFixed(2)} output`
-      + ` = <strong>$${Math.round(service.revenue || 0).toLocaleString()}/tick</strong>`
-      + ' design estimate at ideal utility availability';
-  } else {
-    equationEl.innerHTML = `${contract.name}: mission output is paid in data/prestige rather than direct service revenue.`;
-  }
-
-  this._drawMissionMap(canvas, type, draft, current, (contract?.baseRevenue || 0) > 0);
-};
-
-BeamlineDesigner.prototype._drawMissionMap = function(canvas, type, draft, current, hasContract) {
-  const rect = canvas.getBoundingClientRect();
-  const dpr = window.devicePixelRatio || 1;
-  const W = Math.max(10, Math.floor(rect.width));
-  const H = Math.max(10, Math.floor(rect.height));
-  canvas.width = W * dpr;
-  canvas.height = H * dpr;
-  const ctx = canvas.getContext('2d');
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, W, H);
-
-  const pad = { l: 44, r: 10, t: 10, b: 25 };
-  const pw = W - pad.l - pad.r;
-  const ph = H - pad.t - pad.b;
-  const eBand = type.spec?.energyGeV || [0.001, 1];
-  const iBand = type.spec?.currentMA || [0.001, 1];
-  const eNow = Math.max(draft?.beamEnergy || current?.beamEnergy || eBand[0] || 0.001, 1e-9);
-  const iNow = Math.max(draft?.beamCurrent || current?.beamCurrent || iBand[0] || 0.001, 1e-9);
-  const positiveRange = (band, now) => {
-    const lo = band?.[0] > 0 ? band[0] : now / 10;
-    const hi = band?.[1] > 0 ? band[1] : now * 10;
-    return [Math.max(1e-9, Math.min(lo, now) / 3), Math.max(hi, now) * 3];
-  };
-  const er = positiveRange(eBand, eNow);
-  const ir = positiveRange(iBand, iNow);
-  const log = Math.log10;
-  const x = value => pad.l + (log(Math.max(value, er[0])) - log(er[0]))
-    / (log(er[1]) - log(er[0])) * pw;
-  const y = value => pad.t + ph - (log(Math.max(value, ir[0])) - log(ir[0]))
-    / (log(ir[1]) - log(ir[0])) * ph;
-
-  const cols = 28, rows = 14;
-  const endpointId = endpointForNodes(this.draftNodes);
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
-      const energy = 10 ** (log(er[0]) + ((col + .5) / cols) * (log(er[1]) - log(er[0])));
-      const currentMa = 10 ** (log(ir[0]) + ((rows - row - .5) / rows) * (log(ir[1]) - log(ir[0])));
-      let score;
-      if (hasContract && endpointId) {
-        const s = computeEndpointService(type.id, {
-          ...(draft || {}), beamEnergy: energy, beamCurrent: currentMa,
-        }, this.draftNodes);
-        const base = ENDPOINT_CONTRACTS[endpointId]?.baseRevenue || 1;
-        score = Math.min(1, (s.revenue || 0) / Math.max(base * 1.5, 1));
-      } else {
-        score = _missionBandScore(energy, eBand, type.bandWidth)
-          * _missionBandScore(currentMa, iBand, type.bandWidth);
-      }
-      ctx.fillStyle = `rgba(${Math.round(32 + score * 35)},${Math.round(58 + score * 115)},${Math.round(76 + score * 60)},.72)`;
-      ctx.fillRect(pad.l + col * pw / cols, pad.t + row * ph / rows,
-        pw / cols + 1, ph / rows + 1);
-    }
-  }
-
-  const x0 = x(eBand[0] ?? er[0]);
-  const x1 = x(eBand[1] ?? er[1]);
-  const y0 = y(iBand[1] ?? ir[1]);
-  const y1 = y(iBand[0] ?? ir[0]);
-  ctx.fillStyle = 'rgba(95, 213, 132, .10)';
-  ctx.strokeStyle = 'rgba(116, 235, 151, .88)';
-  ctx.lineWidth = 1.25;
-  ctx.setLineDash([4, 3]);
-  ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
-  ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
-  ctx.setLineDash([]);
-
-  const dot = (result, color, radius, label) => {
-    if (!(result?.beamEnergy > 0) || !(result?.beamCurrent > 0)) return;
-    const px = x(result.beamEnergy), py = y(result.beamCurrent);
-    ctx.fillStyle = color;
-    ctx.beginPath(); ctx.arc(px, py, radius, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = color;
-    ctx.font = '8px monospace';
-    ctx.textAlign = px > W - 70 ? 'right' : 'left';
-    ctx.fillText(label, px + (ctx.textAlign === 'right' ? -6 : 6), py - 5);
-  };
-  dot(current, 'rgba(180,195,205,.72)', 3, 'CURRENT');
-  dot(draft, '#67d9ff', 4, 'PROPOSED');
-
-  ctx.fillStyle = '#718995';
-  ctx.font = '8px monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText('BEAM ENERGY →', pad.l + pw / 2, H - 5);
-  ctx.save();
-  ctx.translate(9, pad.t + ph / 2);
-  ctx.rotate(-Math.PI / 2);
-  ctx.fillText('CURRENT →', 0, 0);
-  ctx.restore();
-  ctx.textAlign = 'left';
-  ctx.fillText(_fmtEnergyValue(er[0]), pad.l, H - 14);
-  ctx.textAlign = 'right';
-  ctx.fillText(_fmtEnergyValue(er[1]), W - pad.r, H - 14);
+  summary.innerHTML = `<span class="dsgn-plot-mission-name" title="T${type.tier} · ${type.name}">`
+    + `T${type.tier} · ${type.name}</span>`
+    + metric('Energy', _fmtEnergyValue(energy), energyTarget,
+      _inBand(energy, type.spec?.energyGeV) ? 'in' : 'out')
+    + metric('Current', currentValue, currentTarget,
+      _inBand(current, type.spec?.currentMA) ? 'in' : 'out')
+    + metric(fomLabel, fomValue,
+      type.fomRef != null ? `reference ${type.fomRef}` : 'type objective')
+    + metric('Quality', `${quality}%`, 'higher is better', quality >= 70 ? 'in' : 'out');
+  summary.setAttribute('aria-label', `T${type.tier} ${type.name}; Energy ${_fmtEnergyValue(energy)}, target ${energyTarget}; `
+    + `Current ${currentValue}, target ${currentTarget}; ${fomLabel} ${fomValue}; Beam quality ${quality}%`);
 };
 
 BeamlineDesigner.prototype._renderSchematic = function() {
@@ -1103,7 +967,28 @@ function _drawNoDataPlaceholder(ctx, w, h, designer) {
   lines.forEach((ln, i) => ctx.fillText(ln, w / 2, h / 2 - 2 + i * 10));
 }
 
+// Keep the mission band on the same axes as the plotted beam, including when
+// the proposal is still outside the target. Otherwise the dashed band would be
+// clipped away precisely when it is most useful.
+function _includeMissionBand(yDomain, band) {
+  if (!yDomain || !band || band.length !== 2) return yDomain;
+  const bounds = band.filter(value => value != null && Number.isFinite(Number(value)))
+    .map(Number);
+  if (bounds.length === 0) return yDomain;
+  const domain = (Array.isArray(yDomain[0]) ? yDomain : [yDomain])
+    .map(channel => channel ? [...channel] : channel);
+  if (!domain[0]) return yDomain;
+  let lo = Math.min(domain[0][0], ...bounds);
+  let hi = Math.max(domain[0][1], ...bounds);
+  const span = hi - lo || Math.max(Math.abs(hi), 1) * 0.1;
+  const pad = span * 0.05;
+  lo = lo >= 0 ? Math.max(0, lo - pad) : lo - pad;
+  domain[0] = [lo, hi + pad];
+  return domain;
+}
+
 BeamlineDesigner.prototype._renderPlots = function() {
+  this._renderPlotMissionSummary();
   // Compute the x/y ranges based on plot range modes
   const xRange = this._getPlotXRange();
   const yScale = this._getPlotYScale();
@@ -1165,19 +1050,19 @@ BeamlineDesigner.prototype._renderPlots = function() {
         ProbePlots.yDomainFor(plotType, solid, yScale, pins, 0),
         ghost ? ProbePlots.yDomainFor(plotType, ghost, yScale, pins, 0) : null,
       );
-      yDomain = ProbePlots.unionYDomain(
-        yDomain,
-        ProbePlots.targetYDomain(plotType, targets),
-      );
+      const targetDomain = ProbePlots.targetYDomain(plotType, targets);
+      const targetBand = targetDomain?.[0] || null;
+      yDomain = ProbePlots.unionYDomain(yDomain, targetDomain);
+      yDomain = _includeMissionBand(yDomain, targetBand);
       // Ghost first: it draws marks only, so the solid pass on top supplies the
       // axes, bands, pin lines and legend. Reversed, the chrome would paint over
       // the proposal and the as-built line would read as the real one.
       if (ghost) {
         ProbePlots.draw(off, plotType, ghost, pins, 0, xRange, yScale,
-          { yDomain, ghost: true, targets });
+          { yDomain, targetBand, ghost: true, targets });
       }
       ProbePlots.draw(off, plotType, solid, pins, 0, xRange, yScale,
-        { yDomain, noClear: !!ghost, targets });
+        { yDomain, targetBand, noClear: !!ghost, targets });
     }
 
     // Scale up to display canvas with nearest-neighbor (crispy pixels)
