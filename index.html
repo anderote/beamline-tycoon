@@ -78,6 +78,15 @@
           </div>
         </div>
       </div>
+      <div id="beam-stats-panel" aria-label="Facility beam statistics">
+        <div class="bsp-row"><span class="bsp-label">Power</span><span class="bsp-val" id="stat-total-power">0</span><span class="bsp-unit">kW</span></div>
+        <div class="bsp-row"><span class="bsp-label">RF</span><span class="bsp-val" id="stat-rf-power">0</span><span class="bsp-unit">kW</span></div>
+        <div class="bsp-row"><span class="bsp-label">Beam</span><span class="bsp-val" id="stat-beam-power">0</span><span class="bsp-unit">kW</span></div>
+        <div class="bsp-row"><span class="bsp-label">Cooling</span><span class="bsp-val" id="stat-cooling-power">0</span><span class="bsp-unit">kW</span></div>
+        <div class="bsp-row"><span class="bsp-label">Beamline</span><span class="bsp-val" id="stat-total-length">0</span><span class="bsp-unit">m</span></div>
+        <div class="bsp-row"><span class="bsp-label">Peak</span><span class="bsp-val" id="stat-peak-energy">0</span><span class="bsp-unit" id="stat-peak-energy-unit">GeV</span></div>
+        <div class="bsp-row"><span class="bsp-label">Data</span><span class="bsp-val" id="stat-data-rate">0</span><span class="bsp-unit">/s</span></div>
+      </div>
     </div>
 
     <!-- System-level infrastructure stats panel (below top bar, facility mode only) -->
@@ -92,17 +101,6 @@
       <div id="system-stats-detail">
         <!-- populated dynamically by renderer -->
       </div>
-    </div>
-
-    <!-- Facility overview panel (top-left, transparent) -->
-    <div id="beam-stats-panel">
-      <div class="bsp-row"><span class="bsp-label">Power</span><span class="bsp-val" id="stat-total-power">0</span><span class="bsp-unit">kW</span></div>
-      <div class="bsp-row"><span class="bsp-label">RF Power</span><span class="bsp-val" id="stat-rf-power">0</span><span class="bsp-unit">kW</span></div>
-      <div class="bsp-row"><span class="bsp-label">Beam Power</span><span class="bsp-val" id="stat-beam-power">0</span><span class="bsp-unit">kW</span></div>
-      <div class="bsp-row"><span class="bsp-label">Cooling</span><span class="bsp-val" id="stat-cooling-power">0</span><span class="bsp-unit">kW</span></div>
-      <div class="bsp-row"><span class="bsp-label">Beamline</span><span class="bsp-val" id="stat-total-length">0</span><span class="bsp-unit">m</span></div>
-      <div class="bsp-row"><span class="bsp-label">Peak Energy</span><span class="bsp-val" id="stat-peak-energy">0</span><span class="bsp-unit" id="stat-peak-energy-unit">GeV</span></div>
-      <div class="bsp-row"><span class="bsp-label">Data Rate</span><span class="bsp-val" id="stat-data-rate">0</span><span class="bsp-unit">/s</span></div>
     </div>
 
     <!-- Beamline warnings panel (top-right) -->

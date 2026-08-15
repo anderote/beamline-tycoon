@@ -133,7 +133,8 @@ UIHost.prototype._updateHUD = function() {
   setEl('val-data', Math.floor(res.data));
   setEl('val-spares', Math.floor(res.spares));
 
-  // Facility overview (top-left panel) — aggregated stats across the facility.
+  // Facility overview (compact second top-bar row) — aggregated stats across
+  // the facility.
   //
   // This panel used to sum the per-beamline beamState values AND add
   // state.mainBeamState on top, described as "the main-map pipe-graph
@@ -187,7 +188,7 @@ UIHost.prototype._updateHUD = function() {
     }
     setStatRow('stat-data-rate', totalDataRate ? totalDataRate.toFixed(1) : '0', totalDataRate > 0);
 
-    // Hide entire panel if nothing is live
+    // Hide the entire strip if nothing is live.
     const panel = document.getElementById('beam-stats-panel');
     if (panel) {
       const hasVisible = panel.querySelector('.bsp-row:not(.hidden)');
@@ -220,10 +221,6 @@ UIHost.prototype._updateHUD = function() {
       '--hud-topbar-bottom', `${Math.ceil(topBar.getBoundingClientRect().bottom)}px`,
     );
   }
-
-  // Staffing and progress warnings share the left notification stack with
-  // infrastructure faults, rather than taking another top-bar status chip.
-  this._renderStaffingBanner();
 
   // Fix round 1's F3: keep any open staff/roster windows live every tick,
   // not just on 'staffChanged' — see _refreshStaffWindows' own comment.
@@ -258,13 +255,11 @@ UIHost.prototype._updateBeamSummary = function() {
   const canRun = this.game.state.infraCanRun !== false;
   if (!canRun && blockers.length > 0) {
     const hardCount = blockers.filter(b => b.severity === 'hard').length;
-    // The bar only carries a chip — the full breakdown is in the fault popup,
-    // which the chip reopens after it has been dismissed.
     el.textContent = `⚠ ${hardCount} FAULT${hardCount === 1 ? '' : 'S'}`;
     el.className = 'beam-summary fault';
-    el.title = 'Beam tripped — click for details\n'
-      + blockers.map(b => b.message || b.code).join('\n');
-    el.onclick = () => this._showInfraBlockerPanel();
+    const messages = [...new Set(blockers.map(b => b.message || b.code))];
+    el.title = `Beam tripped\n${messages.join('\n')}`;
+    el.onclick = null;
   } else if (total === 0) {
     el.textContent = 'No beamlines';
     el.className = 'beam-summary';
@@ -276,7 +271,6 @@ UIHost.prototype._updateBeamSummary = function() {
     el.title = '';
     el.onclick = null;
   }
-  this._renderInfraBlockerList();
 };
 
 // --- Infrastructure fault popup ---

@@ -628,26 +628,26 @@ body {
 
 .bl-warn .warn-name { color: #ddd; }
 
-/* === BEAM STATS PANEL (top-left) === */
+/* === FACILITY STATS STRIP (second top-bar row) === */
 #beam-stats-panel {
-  position: absolute;
-  top: calc(var(--hud-topbar-bottom, 42px) + 8px);
-  left: 10px;
-  z-index: 90;
-  background: rgba(10, 10, 30, 0.45);
-  border-radius: 4px;
-  padding: 6px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 18px;
+  padding: 3px 12px 4px;
+  background: rgba(8, 8, 24, 0.42);
+  border-top: 1px solid rgba(100, 100, 160, 0.14);
   pointer-events: none;
-  min-width: 140px;
 }
 
 .bsp-row {
-  display: flex;
+  display: inline-flex;
   align-items: baseline;
   gap: 4px;
-  padding: 2px 0;
-  font-size: 9px;
+  padding: 1px 0;
+  font-size: 8px;
   transition: opacity 0.3s;
+  white-space: nowrap;
 }
 
 .bsp-row.hidden {
@@ -655,25 +655,20 @@ body {
 }
 
 .bsp-label {
-  color: rgba(140, 140, 180, 0.8);
-  width: 72px;
-  flex-shrink: 0;
+  color: rgba(140, 140, 180, 0.72);
+  text-transform: uppercase;
+  letter-spacing: 0.35px;
 }
 
 .bsp-val {
   color: #aaddff;
   font-weight: bold;
-  width: 48px;
-  flex-shrink: 0;
-  text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
 .bsp-unit {
   color: rgba(120, 120, 160, 0.7);
   font-size: 7px;
-  width: 24px;
-  flex-shrink: 0;
 }
 
 /* === BEAM DIAGNOSTICS PLOTS (lower-right) === */
@@ -2660,10 +2655,9 @@ body {
 
 .beam-summary { font-family:monospace; font-size:11px; color:#888; padding:4px 8px; white-space:nowrap; }
 .beam-summary.active { color:#4f4; }
-/* Fault state is a compact chip only — the detail lives in the dismissable
-   fault popup at top-left, and clicking the chip brings it back. */
-.beam-summary.fault { color:#ff4444; background:rgba(80,20,20,0.65); border:1px solid #884444; border-radius:3px; cursor:pointer; animation: beamFaultBlink 0.9s steps(2) infinite; }
-@keyframes beamFaultBlink { 0%{opacity:1} 50%{opacity:0.6} 100%{opacity:1} }
+/* Faults stay visible without opening a panel over the playfield. The title
+   attribute carries the deduplicated detail on hover. */
+.beam-summary.fault { color:#ff7766; background:rgba(80,20,20,0.5); border:1px solid #77403b; border-radius:3px; cursor:help; }
 
 
 /* Designs Library */
