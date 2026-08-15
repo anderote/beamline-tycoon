@@ -156,7 +156,45 @@ function makeInput(game, renderer, armedId) {
     `ghost carries the unaffordable reason for the tint (got ${broke && broke.reason})`);
 }
 
-console.log('\n=== 3. Line placement previews only what the budget covers ===\n');
+console.log('\n=== 3. Move previews ignore only the object being moved ===\n');
+
+{
+  const g = makeGame(105);
+  const pl = PLACEABLES.flowerBed;
+  const origin = findClearTile(g, pl);
+  const id = g.placePlaceable({
+    type: 'flowerBed', ...origin.snap, dir: 0, free: true, silent: true,
+  });
+  const entry = g.getPlaceable(id);
+  assertOk(!!entry, 'setup: placed an object that remains in state while selected for moving');
+
+  const renderer = makeRenderer();
+  const input = makeInput(g, renderer, 'flowerBed');
+  input.activeTool = {
+    kind: 'move',
+    payload: { kind: 'selectedPlaceable', placeableId: id, type: 'flowerBed' },
+  };
+  input.lastMouseWorldX = origin.iso.x;
+  input.lastMouseWorldY = origin.iso.y;
+  input._updatePlaceablePreview();
+  assertOk(renderer.ghosts.at(-1)?.ok === true,
+    'a moving object does not block its ghost on its own current footprint');
+
+  const foreign = findClearTile(g, pl);
+  const foreignId = g.placePlaceable({
+    type: 'flowerBed', ...foreign.snap, dir: 0, free: true, silent: true,
+  });
+  assertOk(!!foreignId, 'setup: placed a foreign blocker');
+  renderer.ghosts.length = 0;
+  input.lastMouseWorldX = foreign.iso.x;
+  input.lastMouseWorldY = foreign.iso.y;
+  input._updatePlaceablePreview();
+  assertOk(renderer.ghosts.at(-1)?.ok === false
+      && renderer.ghosts.at(-1)?.reason === 'blocked',
+  'self-exclusion still treats every other object as a blocker');
+}
+
+console.log('\n=== 4. Line placement previews only what the budget covers ===\n');
 
 {
   const g = makeGame(103);
@@ -194,7 +232,7 @@ console.log('\n=== 3. Line placement previews only what the budget covers ===\n'
     'every ghost the preview called valid was actually affordable at commit');
 }
 
-console.log('\n=== 4. Beamline junction + on-pipe ghosts respect the ledger ===\n');
+console.log('\n=== 5. Beamline junction + on-pipe ghosts respect the ledger ===\n');
 
 function makeBeamlineRenderer() {
   return {

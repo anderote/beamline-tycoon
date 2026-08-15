@@ -8,11 +8,10 @@
 //      emit 'beamlineChanged'. (Regression: only 'placeableChanged' fired,
 //      whose renderer path never refreshes beam-pipe meshes — deleted pipes
 //      lingered as unclickable ghosts.)
-//   3. Game._rebuildPlaceableCells: moving a component (MoveTool drop
-//      mutates col/row/dir in place) must rebuild placeable.cells and the
-//      subgridOccupied claims. (Regression: the tool called a nonexistent
-//      method through optional chaining, so the footprint stayed at the old
-//      site — stale demolish targeting and overlapping placement.)
+//   3. Game.movePlaceable: moving a component through the same validated
+//      primitive as MoveTool must rebuild placeable.cells and the
+//      subgridOccupied claims. (Regression: the tool once called a nonexistent
+//      rebuild method, leaving stale targeting and allowing overlaps.)
 //   4. Game._batchEvents: removeInfraRect must coalesce per-tile emits into
 //      one 'infrastructureChanged'. (Regression: an N-tile rect triggered N
 //      full terrain rebuilds inside one mouseup.)
@@ -129,11 +128,10 @@ console.log('\n=== 3. Moving a component rebuilds cells + subgrid claims ===\n')
   const placeable = g.getPlaceable(placed.id);
   const oldCells = placeable.cells.map(c => `${c.col},${c.row},${c.subCol},${c.subRow}`);
 
-  // Mirror MoveTool._placeMovedObject's drop mutations.
+  // Mirror MoveTool._placeMovedObject's validated drop.
   const nCol = placed.col + 10, nRow = placed.row + 10;
-  placeable.col = nCol;
-  placeable.row = nRow;
-  g._rebuildPlaceableCells(placeable);
+  assertOk(g.movePlaceable(placed.id, { col: nCol, row: nRow }),
+    'move primitive accepts a clear destination');
   g._deriveBeamGraph();
   g.recalcAllBeamlines();
 

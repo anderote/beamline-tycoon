@@ -2700,7 +2700,7 @@ export class Game {
   }
 
   /**
-   * Relocate an already-placed, ground-level placeable to a new pose, KEEPING
+   * Relocate an already-placed placeable to a new pose, KEEPING
    * ITS ID. Returns true on success; on refusal nothing at all is mutated and
    * false comes back after a player-facing log.
    *
@@ -2726,7 +2726,17 @@ export class Game {
     const def = PLACEABLES[entry.type];
     if (!def) return false;
 
-    const { col, row } = pose;
+    let { col, row } = pose;
+    let wallMount = null;
+    if (def.mount === 'wall') {
+      wallMount = normalizeWallMount(pose.wallMount);
+      if (!wallMount) {
+        this.log(`Can't move ${def.name}: it must be mounted on a wall`, 'bad');
+        return false;
+      }
+      col = wallMount.col;
+      row = wallMount.row;
+    }
     if (!Number.isFinite(col) || !Number.isFinite(row)) {
       this.log(`Can't move ${def.name}: invalid destination`, 'bad');
       return false;
@@ -2746,18 +2756,28 @@ export class Game {
       return false;
     }
 
-    const geo = canPlace(this, def, col, row, subCol, subRow, dir);
+    if (def.mount === 'wall') {
+      const wallResult = canPlaceWallFixture(
+        this, def, wallMount, placeableId,
+      );
+      if (!wallResult.hasWall) {
+        this.log(`Can't move ${def.name}: it must be mounted on a wall`, 'bad');
+        return false;
+      }
+      if (wallResult.occupied) {
+        this.log(`Can't move ${def.name}: that wall face is occupied`, 'bad');
+        return false;
+      }
+    }
+
     // A displacement almost always overlaps its OWN old footprint — a module
-    // sliding half a metre down the beamline keeps most of its cells — so
-    // cells this very placeable already owns are not collisions. Only a
-    // foreign occupant blocks.
-    const foreign = geo.blockedCells.filter((c) => {
-      const occ = this.state.subgridOccupied[
-        c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow
-      ];
-      return occ && occ.id !== placeableId;
+    // sliding half a metre down the beamline keeps most of its cells — so use
+    // the same explicit self-exclusion as the move ghost. Only a foreign
+    // occupant blocks either path.
+    const geo = canPlace(this, def, col, row, subCol, subRow, dir, {
+      ignorePlaceableId: placeableId,
     });
-    if (foreign.length) {
+    if (geo.blockedCells.length) {
       this.log(`Can't move ${def.name}: space occupied`, 'bad');
       return false;
     }
@@ -2771,10 +2791,10 @@ export class Game {
     entry.subCol = subCol;
     entry.subRow = subRow;
     entry.dir = dir;
+    if (def.mount === 'wall') entry.wallMount = wallMount;
     this._rebuildPlaceableCells(entry);
-    // (_markNavDirty is called inside _rebuildPlaceableCells itself, so
-    // every caller of it — including InputHandler's direct-mutate move
-    // path, which bypasses this method entirely — is covered.)
+    // _markNavDirty is called inside _rebuildPlaceableCells itself, so every
+    // stable-id move invalidates staff navigation from the same place.
 
     // Flatten the DESTINATION tiles, and deliberately leave the origin flat.
     // Placement flattens because everything is drawn at y = 0; a module that

@@ -14,7 +14,8 @@
 //   - light: { color, intensity, radius, shape, coneDeg?, tiltDeg?, emitterY }
 //     — read uniformly by the renderer regardless of mount. `radius` is the
 //     light pool radius in world units (meters); `emitterY` is the emitter's
-//     height above its mount point (also meters); `coneDeg`/`tiltDeg` are
+//     offset above a ground/surface support, or the authored world height for
+//     wall/overhead fixtures (also meters). `coneDeg`/`tiltDeg` are
 //     required when shape === 'cone'.
 //
 // `lamppost` and `bollardLight` are reworked from decorations.raw.js with
@@ -158,7 +159,7 @@ const RAW_LIGHTING_DEFS = [
     subW: 1, subL: 1, subH: 2,
     desc: 'Cool white office panel hung from a short chain.',
     energyCost: 0.05,
-    light: { color: '#eaf3ff', intensity: 0.8, radius: 4, shape: 'point', emitterY: 1.5 },
+    light: { color: '#eaf3ff', intensity: 0.8, radius: 4, shape: 'point', emitterY: 3.0 },
   },
   {
     id: 'highBay', name: 'High Bay Light', cost: { funding: 22 }, removeCost: 0,
@@ -169,7 +170,7 @@ const RAW_LIGHTING_DEFS = [
     energyCost: 0.9,
     light: {
       color: '#f0f5ff', intensity: 1.6, radius: 9, shape: 'cone',
-      coneDeg: 90, tiltDeg: 0, emitterY: 1.5,
+      coneDeg: 90, tiltDeg: 0, emitterY: 4.5,
     },
   },
   {
@@ -179,7 +180,7 @@ const RAW_LIGHTING_DEFS = [
     subW: 3, subL: 1, subH: 2,
     desc: 'A suspended linear luminaire for benches and equipment aisles.',
     energyCost: 0.18,
-    light: { color: '#edf6ff', intensity: 1.15, radius: 6.5, shape: 'point', emitterY: 2.2 },
+    light: { color: '#edf6ff', intensity: 1.15, radius: 6.5, shape: 'point', emitterY: 3.4 },
   },
   {
     id: 'cleanroomPanel', name: 'Cleanroom Panel', cost: { funding: 28 }, removeCost: 0,
@@ -188,7 +189,7 @@ const RAW_LIGHTING_DEFS = [
     subW: 2, subL: 2, subH: 2,
     desc: 'A sealed high-output panel for clean and controlled spaces.',
     energyCost: 0.22,
-    light: { color: '#f4fbff', intensity: 1.35, radius: 7.5, shape: 'point', emitterY: 2.1 },
+    light: { color: '#f4fbff', intensity: 1.35, radius: 7.5, shape: 'point', emitterY: 3.2 },
   },
 
   // === Surface — stack on desks, benches, cabinets, and worktops ===

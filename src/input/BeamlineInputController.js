@@ -15,7 +15,7 @@
 import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import {
-  snapForPlaceable, canPlace, previewPlacement, canAffordCost, componentCostFor, PLACE_UNAFFORDABLE,
+  snapForPlaceable, previewPlacement, canAffordCost, componentCostFor, PLACE_UNAFFORDABLE,
 } from '../game/placement.js';
 import { DIR_DELTA } from '../data/directions.js';
 import { availablePorts, portWorldPosition, portSide } from '../beamline/junctions.js';
@@ -83,6 +83,44 @@ export class BeamlineInputController {
     this._hoverValidAnchor = false;
   }
 
+  _reportPlacementFailure(message) {
+    if (typeof this.input?._showPlacementFailure === 'function') {
+      this.input._showPlacementFailure(message);
+      return;
+    }
+    this.game.log?.(message, 'bad');
+    this.input?._showToast?.(message);
+  }
+
+  _junctionFailureMessage(def, placeable, hover, result) {
+    if (typeof this.input?._placementFailureMessage === 'function') {
+      return this.input._placementFailureMessage(placeable, {
+        ...hover, valid: false, reason: result.reason,
+      });
+    }
+    if (result.wallBlocked) return `Can't place ${def.name}: its footprint crosses a wall.`;
+    if (!result.affordable) return `Can't afford ${def.name}.`;
+    return `Can't place ${def.name}: that space is occupied.`;
+  }
+
+  _pipeSlotFailureMessage(def, pipe, position, subL, reason) {
+    if (reason === 'overlap') {
+      const width = subL / pipe.subL;
+      const blocker = (pipe.placements || []).find((placed) => {
+        const placedWidth = placed.subL / pipe.subL;
+        return position < placed.position + placedWidth - 1e-9
+          && placed.position < position + width - 1e-9;
+      });
+      const blockerName = blocker && COMPONENTS[blocker.type]?.name;
+      return blockerName
+        ? `Can't place ${def.name}: that stretch of pipe is occupied by ${blockerName}.`
+        : `Can't place ${def.name}: that stretch of pipe is already occupied.`;
+    }
+    if (reason === 'full') return `Can't place ${def.name}: there is not enough free pipe length.`;
+    if (reason === 'nothing_to_replace') return `Can't place ${def.name}: there is no component there to replace.`;
+    return `Can't place ${def.name} on this pipe (${reason || 'invalid position'}).`;
+  }
+
   onHover(worldX, worldY, selectedId) {
     if (!selectedId) return;
     const def = COMPONENTS[selectedId];
@@ -146,22 +184,28 @@ export class BeamlineInputController {
     if (!placeable) return false;
     const dir = this.input.placementDir || 0;
     const snap = snapForPlaceable(worldX, worldY, placeable, dir);
-    // No `cost` here: placeJunction routes through placePlaceable, which
-    // prices itself — charging again would bill the player twice.
-    // The geometry check is the gesture's validate step, so a blocked click
-    // is swallowed with its reason logged and nothing else touched; the red
-    // ghost is the only other cue and it vanishes the moment the player
-    // looks away.
+    const hover = {
+      id: selectedId, col: snap.col, row: snap.row,
+      subCol: snap.subCol, subRow: snap.subRow, dir,
+    };
+    const preview = previewPlacement(
+      this.game, placeable,
+      snap.col, snap.row, snap.subCol, snap.subRow, dir,
+    );
+    if (!preview.ok) {
+      this._reportPlacementFailure(
+        this._junctionFailureMessage(def, placeable, hover, preview),
+      );
+      return true;
+    }
+    if (typeof this.game.isComponentUnlocked === 'function'
+        && !this.game.isComponentUnlocked(def)) {
+      this._reportPlacementFailure(`${def.name} is not researched yet.`);
+      return true;
+    }
+    // placeJunction routes through placePlaceable and prices itself, so the
+    // mutation stays uncharged here after the preflight above.
     const placedId = this.game.commitGesture({
-      validate: () => {
-        const result = canPlace(
-          this.game, placeable,
-          snap.col, snap.row, snap.subCol, snap.subRow, dir,
-        );
-        return result.ok
-          ? true
-          : { ok: false, reason: result.wallBlocked ? 'A wall is in the way!' : 'Space occupied!' };
-      },
       mutate: () => this.game.beamline.placeJunction({
         type: selectedId,
         col: snap.col,
@@ -383,20 +427,40 @@ export class BeamlineInputController {
     const { wx, wz } = this._cursorWorldXZ(worldX, worldY);
     const hit = findNearestPipeToWorld(pipes, wx, wz, 1.5);
     if (!hit) {
-      this.game.log(`${def.name || selectedId} must be placed on a beam pipe`, 'bad');
+      this._reportPlacementFailure(`${def.name || selectedId} must be placed on a beam pipe.`);
       return true;
     }
     const subL = (typeof def.subL === 'number' && def.subL > 0) ? def.subL : 2;
     const mode = this.game.state.placementMode || 'snap';
     const quantizedPosition = this._quantizePipePosition(hit.pipe, hit.proj.position, subL);
-    // The overlap check is the validate step; placeOnPipe prices itself and
-    // can still reject beyond geometry ("full", "can't afford"), so the
-    // gesture only snapshots if it actually placed something.
+    if (typeof this.game.isComponentUnlocked === 'function'
+        && !this.game.isComponentUnlocked(def)) {
+      this._reportPlacementFailure(`${def.name || selectedId} is not researched yet.`);
+      return true;
+    }
+    const cost = componentCostFor(def);
+    if (!canAffordCost(this.game, cost)) {
+      const missing = this.game?._missingResourceLabel?.(cost);
+      this._reportPlacementFailure(
+        `Can't afford ${def.name || selectedId}${missing ? ` (${missing})` : ''}.`,
+      );
+      return true;
+    }
+    const dryRun = findSlot(hit.pipe, {
+      type: selectedId,
+      requestedPosition: quantizedPosition,
+      subL,
+      mode,
+      idGenerator: () => 'dry',
+      params: {},
+    });
+    if (!dryRun.ok) {
+      this._reportPlacementFailure(
+        this._pipeSlotFailureMessage(def, hit.pipe, quantizedPosition, subL, dryRun.reason),
+      );
+      return true;
+    }
     const placedId = this.game.commitGesture({
-      validate: () => (mode === 'snap'
-        && this._isOverlappingAtPosition(hit.pipe, quantizedPosition, subL))
-        ? { ok: false, reason: 'That stretch of pipe is already occupied' }
-        : true,
       mutate: () => this.game.beamline.placeOnPipe(hit.pipe.id, {
         type: selectedId,
         position: quantizedPosition,

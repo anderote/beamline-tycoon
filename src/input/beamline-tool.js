@@ -150,16 +150,21 @@ export class BeamlineTool extends Tool {
     if (def?.placement === 'attachment' && !def.role) {
       const hit = input._snapAttachmentToPipe(this.key, world.x, world.y);
       if (!hit) {
-        game.log('Must place on a beam pipe!', 'bad');
+        const message = `${def?.name || 'Attachment'} must be placed on a beam pipe.`;
+        if (typeof input._showPlacementFailure === 'function') input._showPlacementFailure(message);
+        else game.log(message, 'bad');
+        return true;
+      }
+      if (hit.collidesWithModule) {
+        const message = `${def?.name || 'Attachment'} is blocked by a placed module or equipment.`;
+        if (typeof input._showPlacementFailure === 'function') input._showPlacementFailure(message);
+        else game.log(message, 'bad');
         return true;
       }
       // Geometry is the validate step; addAttachmentToPipe prices itself and
       // can still refuse (affordability), so the snapshot is conditional on
       // the mutation, not on the click.
       game.commitGesture({
-        validate: () => (hit.collidesWithModule
-          ? { ok: false, reason: `${def?.name || 'Attachment'} would overlap a placed module!` }
-          : true),
         mutate: () => game.addAttachmentToPipe(
           hit.pipe.id,
           this.key,

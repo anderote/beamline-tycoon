@@ -66,6 +66,8 @@ console.log('\n=== wall fixtures snap to independent wall faces ===\n');
     'wall fixtures do not claim floor occupancy');
   assertOk(!canPlaceWallFixture(game, PLACEABLES.wallStripLight, northFace).ok,
     'the same face/subslot cannot hold a second fixture');
+  assertOk(canPlaceWallFixture(game, PLACEABLES.wallSconce, northFace, firstId).ok,
+    'a moving wall fixture does not block its own current face slot');
   const secondId = game.placePlaceable({
     type: 'wallStripLight', col: 5, row: 4, subCol: 0, subRow: 0,
     wallMount: southFace,
@@ -87,6 +89,16 @@ console.log('\n=== wall fixtures snap to independent wall faces ===\n');
     'opposite aliases line up along the wall and offset onto opposite faces');
   assertOk(approx(Math.abs(a.yaw - b.yaw), Math.PI),
     'opposite wall faces orient fixtures in opposite directions');
+
+  const eastFace = { col: 5, row: 5, edge: 'e', off: 1 };
+  assertOk(game.placeWall(5, 5, 'e', 'officeWall'), 'setup destination wall is built');
+  assertOk(game.movePlaceable(firstId, { wallMount: eastFace }),
+    'a wall fixture moves through the validated stable-id path');
+  assertOk(game.getPlaceable(firstId)?.wallMount?.edge === 'e'
+      && canPlaceWallFixture(game, PLACEABLES.wallSconce, northFace).ok,
+    'moving updates the mount and releases the old wall-face slot');
+  assertOk(game.movePlaceable(firstId, { wallMount: northFace }),
+    'the fixture can move back onto its original slot');
 
   assertOk(game.removeWall(5, 4, 's'), 'the supporting wall can be demolished from its alias');
   assertOk(!game.state.placeables.some(p => p.wallMount),
@@ -115,6 +127,18 @@ console.log('\n=== wall fixture input preview follows the nearest face ===\n');
   assertOk(ghost?.valid === true, 'nearest occupied wall face produces a valid ghost');
   assertOk(ghost?.hover?.wallMount?.edge === 'e' && ghost.hover.wallMount.off === 2,
     'cursor fraction snaps the ghost to the expected one of four wall subslots');
+
+  const fixtureId = game.placePlaceable({
+    type: 'bulkheadLight', col: 3, row: 3, subCol: 0, subRow: 0,
+    wallMount: ghost.hover.wallMount,
+  });
+  input.activeTool = {
+    kind: 'move',
+    payload: { kind: 'selectedPlaceable', placeableId: fixtureId, type: 'bulkheadLight' },
+  };
+  InputHandler.prototype._updatePlaceablePreview.call(input);
+  assertOk(ghost?.valid === true,
+    'a selected wall fixture previews valid over its own occupied face slot');
 }
 
 console.log('\n=== desk and work lights stack on real surfaces ===\n');

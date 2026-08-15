@@ -142,14 +142,20 @@ function footprintCrossesWall(wallOccupied, cells) {
 /**
  * Check whether the placeable can be placed at (col,row,subCol,subRow,dir).
  * Constraints: subtile footprint collision + wall intersection.
+ * A move preview/commit may name its existing placeable ID so those owned
+ * cells are transparent without weakening collisions against anything else.
  */
-export function canPlace(game, placeable, col, row, subCol, subRow, dir = 0) {
+export function canPlace(
+  game, placeable, col, row, subCol, subRow, dir = 0,
+  { ignorePlaceableId = null } = {},
+) {
   const cells = placeable.footprintCells(col, row, subCol, subRow, dir);
   const blocked = [];
   const usesFloor = usesFloorOccupancy(placeable);
   if (usesFloor) {
     for (const c of cells) {
-      if (game.state.subgridOccupied[cellKey(c)]) blocked.push(c);
+      const occupant = game.state.subgridOccupied[cellKey(c)];
+      if (occupant && occupant.id !== ignorePlaceableId) blocked.push(c);
     }
   }
   const wallBlocked = usesFloor && footprintCrossesWall(game.state.wallOccupied, cells);
@@ -214,8 +220,11 @@ export function componentCostFor(def) {
  * (fix round 1: exposed so a caller can show the spares line, not just
  * funding, alongside the ghost).
  */
-export function previewPlacement(game, placeable, col, row, subCol, subRow, dir = 0) {
-  const geo = canPlace(game, placeable, col, row, subCol, subRow, dir);
+export function previewPlacement(
+  game, placeable, col, row, subCol, subRow, dir = 0,
+  options = {},
+) {
+  const geo = canPlace(game, placeable, col, row, subCol, subRow, dir, options);
   const cost = componentCostFor(placeable);
   const affordable = canAffordCost(game, cost);
   const reason = !geo.ok

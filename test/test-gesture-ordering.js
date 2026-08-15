@@ -18,6 +18,7 @@ import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
 import { COMPONENTS } from '../src/data/components.js';
 import { PARAM_DEFS } from '../src/beamline/component-physics.js';
 import { BeamlineInputController } from '../src/input/BeamlineInputController.js';
+import { InputHandler } from '../src/input/InputHandler.js';
 import { tileCenterIso } from '../src/renderer/grid.js';
 
 globalThis.COMPONENTS = COMPONENTS;
@@ -184,13 +185,22 @@ console.log('\n=== 5. Real input paths ===\n');
 // tile must be a complete no-op — this used to push undo before validating.
 {
   const g = gameWithPendingRedo(8);
+  const toasts = [];
+  const inputHandler = {
+    game: g,
+    placementDir: 0,
+    selectedParamOverrides: null,
+    _showToast: message => toasts.push(message),
+    _showPlacementFailure: InputHandler.prototype._showPlacementFailure,
+    _placementFailureMessage: InputHandler.prototype._placementFailureMessage,
+  };
   const controller = new BeamlineInputController({
     game: g,
     renderer: {
       renderBeamPipePreview() {}, clearDragPreview() {},
       renderPlaceableGhost() {}, renderAttachmentGhost() {},
     },
-    inputHandler: { placementDir: 0, selectedParamOverrides: null },
+    inputHandler,
   });
   const placed = g.commitGesture({
     mutate: () => g.beamline.placeJunction({
@@ -215,6 +225,11 @@ console.log('\n=== 5. Real input paths ===\n');
   assertOk(g.state.resources.funding === funding, 'the blocked junction click charged nothing');
   assertOk(g._undoStack.length === 0, 'the blocked junction click pushed no undo entry');
   assertOk(g._redoStack.length === 1, 'the blocked junction click kept the redo stack');
+  const lastLog = g.state.log[0]?.msg || '';
+  assertOk(lastLog.includes("Can't place") && lastLog.includes('blocked by Electron Gun'),
+    `the refused click logs an actionable reason (got ${JSON.stringify(lastLog)})`);
+  assertOk(toasts.at(-1)?.includes("Can't place"),
+    'the same refusal is shown immediately as a toast');
 }
 
 // Pipe remove-sweep across empty ground: nothing to remove, so nothing to

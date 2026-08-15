@@ -12,6 +12,7 @@ import { canPlace, usesFloorOccupancy } from '../src/game/placement.js';
 import { getTileCorners, setTileCorners } from '../src/game/terrain.js';
 import { InputHandler } from '../src/input/InputHandler.js';
 import { DecorationBuilder } from '../src/renderer3d/decoration-builder.js';
+import { fixtureMountY } from '../src/renderer3d/fixture-light-math.js';
 
 globalThis.COMPONENTS = COMPONENTS;
 globalThis.PARAM_DEFS = PARAM_DEFS;
@@ -36,6 +37,23 @@ function makeGame(seed) {
 }
 
 const key = (cell) => `${cell.col},${cell.row},${cell.subCol},${cell.subRow}`;
+
+console.log('\n=== overhead fixtures render above occupied work areas ===\n');
+
+{
+  const expectedHeights = {
+    ceilingPanel: 3.0,
+    highBay: 4.5,
+    linearPendant: 3.4,
+    cleanroomPanel: 3.2,
+  };
+  for (const [id, expected] of Object.entries(expectedHeights)) {
+    const def = PLACEABLES[id];
+    assertOk(def?.mount === 'overhead', `${id} remains an overhead fixture`);
+    assertOk(fixtureMountY(def, 0) === expected,
+      `${id} renders at ${expected.toFixed(1)} m above a level floor`);
+  }
+}
 
 console.log('\n=== overhead fixtures share floor footprints safely ===\n');
 

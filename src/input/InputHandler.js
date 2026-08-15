@@ -2448,6 +2448,14 @@ export class InputHandler {
       this.renderer._clearPreview?.();
       return;
     }
+    // Selected and beamline move payloads remain in state so their stable IDs
+    // keep pipes, wall mounts, and utility lines attached. Their current
+    // occupancy therefore has to be transparent to their own move ghost while
+    // every foreign floor cell or wall-face slot remains a blocker.
+    const movePayload = this.activeTool?.kind === 'move' ? this.activeTool.payload : null;
+    const ignorePlaceableId = movePayload?.kind === 'selectedPlaceable'
+      ? movePayload.placeableId
+      : (movePayload?.kind === 'component' ? movePayload.nodeId : null);
     if (placeable.mount === 'wall') {
       const hasScreenPoint = Number.isFinite(this._lastScreenX) && Number.isFinite(this._lastScreenY);
       const edge = hasScreenPoint
@@ -2459,7 +2467,9 @@ export class InputHandler {
         edge: edge.edge,
         off: wallFixtureOffFromFrac(edge.frac),
       } : null;
-      const geometric = canPlaceWallFixture(this.game, placeable, wallMount);
+      const geometric = canPlaceWallFixture(
+        this.game, placeable, wallMount, ignorePlaceableId,
+      );
       const affordable = canAffordCost(this.game, componentCostFor(placeable));
       const ok = geometric.ok && affordable;
       const reason = !geometric.hasWall
@@ -2476,6 +2486,8 @@ export class InputHandler {
         stackTargetId: null,
         wallMount,
         variant: this.selectedPlaceableVariant,
+        valid: ok,
+        reason,
       };
       this.renderer.renderPlaceableGhost(this.hoverPlaceable, ok, reason);
       return;
@@ -2483,6 +2495,7 @@ export class InputHandler {
     const wx = this.lastMouseWorldX ?? 0;
     const wy = this.lastMouseWorldY ?? 0;
     const snap = snapForPlaceable(wx, wy, placeable, this.placementDir);
+    const previewOptions = ignorePlaceableId ? { ignorePlaceableId } : {};
 
     let placeY = 0;
     let stackTargetId = null;
@@ -2515,6 +2528,7 @@ export class InputHandler {
           this.game, placeable,
           snap.col, snap.row, snap.subCol, snap.subRow,
           this.placementDir,
+          previewOptions,
         );
         ok = result.ok;
         reason = result.reason;
@@ -2524,6 +2538,7 @@ export class InputHandler {
         this.game, placeable,
         snap.col, snap.row, snap.subCol, snap.subRow,
         this.placementDir,
+        previewOptions,
       );
       ok = result.ok;
       reason = result.reason;
@@ -2539,6 +2554,8 @@ export class InputHandler {
       placeY,
       stackTargetId,
       variant: this.selectedPlaceableVariant,
+      valid: ok,
+      reason,
     };
     this.renderer.renderPlaceableGhost(this.hoverPlaceable, ok, reason);
   }
@@ -2554,6 +2571,17 @@ export class InputHandler {
     if (!this.hoverPlaceable) return false;
     const world = this.renderer.screenToWorld(screenX, screenY);
     const grid = isoToGrid(world.x, world.y);
+    const placeable = PLACEABLES[this.hoverPlaceable.id];
+    // A refused build click must explain the red ghost before any existing
+    // object underneath gets selected. Previously this branch opened the
+    // blocker and silently skipped the attempted placement, which read as a
+    // broken click rather than an actionable collision.
+    if (this.hoverPlaceable.valid === false) {
+      this._showPlacementFailure(
+        this._placementFailureMessage(placeable, this.hoverPlaceable),
+      );
+      return true;
+    }
     // For beamline modules, check if the click landed on an existing node
     // (opens its beamline window instead of placing).
     const comp = COMPONENTS[this.hoverPlaceable.id];
@@ -2589,6 +2617,47 @@ export class InputHandler {
     // _finishLinePlaceDecoration refresh the same way.)
     this._repaintArmedPreview();
     return true;
+  }
+
+  _placementFailureMessage(placeable, hover) {
+    const name = placeable?.name || hover?.id || 'item';
+    if (placeable?.mount === 'wall' && hover?.reason === PLACE_BLOCKED) {
+      return `Can't place ${name}: that wall face is occupied.`;
+    }
+    if (hover?.reason === PLACE_WALL) {
+      return placeable?.mount === 'wall'
+        ? `Can't place ${name}: it needs a free wall face.`
+        : `Can't place ${name}: its footprint crosses a wall.`;
+    }
+    if (hover?.reason === PLACE_UNAFFORDABLE) {
+      const cost = componentCostFor(placeable);
+      const missing = this.game?._missingResourceLabel?.(cost);
+      return `Can't afford ${name}${missing ? ` (${missing})` : ''}.`;
+    }
+    if (hover?.reason === PLACE_BLOCKED && placeable?.footprintCells) {
+      const cells = placeable.footprintCells(
+        hover.col, hover.row, hover.subCol || 0, hover.subRow || 0, hover.dir || 0,
+      );
+      const blockerNames = new Set();
+      for (const cell of cells) {
+        const key = `${cell.col},${cell.row},${cell.subCol},${cell.subRow}`;
+        const occupant = this.game?.state?.subgridOccupied?.[key];
+        const entry = occupant?.id ? this.game.getPlaceable?.(occupant.id) : null;
+        const def = entry ? (PLACEABLES[entry.type] || COMPONENTS[entry.type]) : null;
+        if (def?.name) blockerNames.add(def.name);
+      }
+      const blockers = [...blockerNames];
+      if (blockers.length) {
+        return `Can't place ${name}: blocked by ${blockers.slice(0, 2).join(' and ')}.`;
+      }
+    }
+    return `Can't place ${name}: that space is occupied.`;
+  }
+
+  _showPlacementFailure(message) {
+    if (!message) return;
+    this.game?.log?.(message, 'bad');
+    this._showToast?.(message);
   }
 
   /**
@@ -3205,10 +3274,14 @@ export class InputHandler {
       const placeable = this.game.getPlaceable(p.nodeId);
       if (!placeable) return false;
       return this.game._withUndo(() => {
-        placeable.col = col;
-        placeable.row = row;
-        if (this.placementDir != null) placeable.dir = this.placementDir;
-        this.game._rebuildPlaceableCells(placeable);
+        const moved = this.game.movePlaceable(p.nodeId, {
+          col,
+          row,
+          subCol: placeable.subCol || 0,
+          subRow: placeable.subRow || 0,
+          dir: this.placementDir ?? placeable.dir ?? 0,
+        });
+        if (!moved) return false;
         this.game._deriveBeamGraph();
         this.game.recalcAllBeamlines();
         this.game.emit('placeableChanged');
@@ -3247,6 +3320,7 @@ export class InputHandler {
         const moved = this.game.movePlaceable(p.placeableId, {
           col: hp.col, row: hp.row, subCol: hp.subCol, subRow: hp.subRow,
           dir: hp.dir ?? this.placementDir ?? entry.dir ?? 0,
+          wallMount: hp.wallMount,
         });
         if (!moved) return false;
         if (entry.category === 'beamline') {
