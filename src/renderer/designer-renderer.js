@@ -460,7 +460,7 @@ function _placementHintColor(hint) {
   if (hint.kind === 'energy') return '#55dd99';
   if (hint.componentType === 'solenoid') return '#55ccee';
   if (hint.params?.polarity === 1) return '#e65050';
-  if (hint.params?.polarity === -1) return '#508ce6';
+  if (hint.params?.polarity === 0) return '#508ce6';
   return '#ffaa22';
 }
 
