@@ -127,20 +127,15 @@ export default {
   color: '#cc4444',
   geometryStyle: 'rectWaveguide',
   pipeRadiusMeters: 0.05,
-  // Rectangular guide is the deliberately demanding service. A half-tile of
-  // straight guide leaves each launch, every elbow owns the same straight-leg
-  // budget, and the planner keeps a wider service aisle around installed
-  // rigid runs. This is geometry the player can read, not an arbitrary cost.
-  routingProfile: 'rigid',
-  avoidRigidIntersections: true,
-  routeClearanceTiles: 0.5,
-  equipmentClearanceTiles: 0.25,
-  portClearance: true,
-  portTailTiles: 0.5,
-  minStraightTiles: 0.5,
+  // Keep waveguide routing readable without making gallery layout a puzzle:
+  // paths stay rectilinear, but may turn immediately at a fitting and cross
+  // equipment/other services like the existing cryogenic transfer-line
+  // contract. Network topology still decides what is electrically connected.
+  routingProfile: 'rectilinear',
+  portClearance: false,
+  // Presentation only: the renderer trims this radius to fit short legs. It
+  // does not impose a minimum straight run or reject a compact route.
   bendRadiusMeters: 0.42,
-  bendPenalty: 8,
-  requiresPortApproach: true,
   fittingStyle: 'waveguideFlange',
   couplerSpacingMeters: 3,
   capacityUnit: 'kW',

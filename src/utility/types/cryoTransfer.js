@@ -225,8 +225,9 @@ export default {
   color: '#44aacc',
   geometryStyle: 'jacketedCylinder',
   pipeRadiusMeters: 0.06,
-  // The fitting itself supplies the transition; routing may turn immediately
-  // without reserving an extra quarter-tile tail on the deck.
+  // Transfer lines share the forgiving rectilinear routing contract with RF:
+  // horizontal/vertical runs and 90-degree bends, without rigid clearances.
+  routingProfile: 'rectilinear',
   portClearance: false,
   capacityUnit: 'W@4K',
   // Cryogenic transfer is run port-to-port through a valve box; an improvised
