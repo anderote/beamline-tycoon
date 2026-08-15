@@ -440,7 +440,56 @@ console.log('\n--- 9: param tuning only ---');
 }
 
 // =========================================================================
-console.log('\n--- 10: blocker — source_immovable (removed, and prepended to) ---');
+console.log('\n--- 9b: palette Replace materialises the new component type ---');
+{
+  // Pipe-mounted hardware keeps its draft id/_sourceRef when the palette
+  // replaces its type. The planner must still remove the referenced map item
+  // and create the requested type instead of mistaking identity for equality.
+  const state = makeRun({
+    endpoint: 'faradayCup',
+    placements: [{ id: 'pl_1', type: 'quadrupole', position: 0.25, subL: 2, params: {} }],
+  });
+  const draft = draftFromMap(state, 'src_1');
+  const quad = draft.find(n => n._sourceRef.placementId === 'pl_1');
+  quad.type = 'bpm';
+  quad.params = {};
+  const res = plan(state, { sourceId: 'src_1', draftNodes: draft, _label: 'replace attachment' });
+  assert(res.ok === true, `ok=true (blockers ${JSON.stringify(res.blockers)})`);
+  assertEq(kinds(res).join(','), 'removeFromPipe,placeOnPipe',
+    'an attachment replacement removes the old type and places the new one');
+  assertEq(opOf(res, 'removeFromPipe').placementId, 'pl_1', 'removes the retained map identity');
+  assertEq(opOf(res, 'placeOnPipe').type, 'bpm', 'places the requested replacement type');
+
+  // Replacing a schematic Beam Pipe span carries only a pipe back-reference.
+  // That span is map-derived, but the requested hardware is not.
+  const state2 = makeRun({ endpoint: 'faradayCup' });
+  const draft2 = draftFromMap(state2, 'src_1');
+  const drift = draft2.find(n => n._pipeKind === 'drift');
+  drift.type = 'quadrupole';
+  drift.params = {};
+  const res2 = plan(state2, { sourceId: 'src_1', draftNodes: draft2, _label: 'replace drift' });
+  assert(res2.ok === true, `ok=true (blockers ${JSON.stringify(res2.blockers)})`);
+  assertEq(kinds(res2).join(','), 'placeOnPipe',
+    'replacing a drift span creates the requested pipe-mounted component');
+  assertEq(opOf(res2, 'placeOnPipe').type, 'quadrupole', 'places the selected component');
+
+  // Junction replacements keep the old placeable id in exactly the same way.
+  // At a terminal, the old endpoint is removed and the replacement is bound
+  // back onto the now-open pipe end.
+  const state3 = makeRun({ endpoint: 'faradayCup' });
+  const draft3 = draftFromMap(state3, 'src_1');
+  const endpoint = draft3.find(n => n._sourceRef.placeableId === 'end_1');
+  endpoint.type = 'beamStop';
+  endpoint.params = {};
+  const res3 = plan(state3, { sourceId: 'src_1', draftNodes: draft3, _label: 'replace junction' });
+  assert(res3.ok === true, `ok=true (blockers ${JSON.stringify(res3.blockers)})`);
+  assertEq(kinds(res3).join(','), 'removeJunction,placeJunction',
+    'a junction replacement removes the old endpoint and places the new one');
+  assertEq(opOf(res3, 'placeJunction').type, 'beamStop', 'places the requested endpoint type');
+}
+
+// =========================================================================
+console.log('\n--- 10: blocker — source_immovable (removed, prepended to, or replaced) ---');
 {
   const state = makeRun({ endpoint: 'faradayCup' });
   const draft = draftFromMap(state, 'src_1');
@@ -455,6 +504,13 @@ console.log('\n--- 10: blocker — source_immovable (removed, and prepended to) 
   const resB = plan(state, { sourceId: 'src_1', draftNodes: prepended, _label: 'prepend' });
   assertEq(codes(resB).join(','), 'source_immovable', 'prepending in front of the source is refused');
   assertEq(blockerOf(resB, 'source_immovable').nodeIndex, 0, 'points at the prepended node');
+
+  const retyped = draftFromMap(state, 'src_1');
+  retyped[0].type = 'dcPhotoGun';
+  const resC = plan(state, { sourceId: 'src_1', draftNodes: retyped, _label: 'replace source' });
+  assertEq(codes(resC).join(','), 'source_immovable', 'replacing the anchored source is refused');
+  assertEq(blockerOf(resC, 'source_immovable').nodeIndex, 0,
+    'the source replacement blocker points at the source');
 }
 
 // =========================================================================

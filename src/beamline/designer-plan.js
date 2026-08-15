@@ -826,9 +826,28 @@ function draftPipeRef(node) {
   return (node && node._sourceRef && node._sourceRef.pipeId) ? node._sourceRef.pipeId : null;
 }
 
-/** No identity at all → the player added this in the designer. */
-function isAddition(node) {
-  return !draftModuleRef(node) && !draftPlacementRef(node) && !draftPipeRef(node);
+/**
+ * Whether this draft node needs creating on the map.
+ *
+ * A palette Replace intentionally keeps the node's draft id and map
+ * back-reference so undo/selection remain stable. Identity alone therefore
+ * is not enough: when the referenced map object has a different type, the old
+ * object is a removal and this node is also an addition. Beam Pipe is the one
+ * exception. Replacing hardware with a drift means "remove the hardware and
+ * leave the underlying/merged pipe", not "buy more pipe at this position".
+ */
+function isAddition(p, node) {
+  const moduleId = draftModuleRef(node);
+  const placementId = draftPlacementRef(node);
+  const pipeId = draftPipeRef(node);
+  const hasIdentity = !!(moduleId || placementId || pipeId);
+  if (!hasIdentity) return true;
+  if (joinKind(node.type) === 'drift') return false;
+  if (moduleId) return p.mapModuleTypes.get(moduleId) !== node.type;
+  if (placementId) return p.mapPlacementTypes.get(placementId) !== node.type;
+  // A non-drift node retaining a drift's pipe reference is a replacement of
+  // that schematic span, so it must be materialised as new hardware.
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -913,6 +932,12 @@ function checkSourceInvariants(p, mapModules) {
       + 'Demolish it on the map if you really mean to.');
     return false;
   }
+  if (p.draft[sourceIdx].type !== source.type) {
+    p.block(SOURCE_IMMOVABLE, sourceIdx,
+      `${displayName(source.type)} anchors this beamline and cannot be replaced here. `
+      + 'Demolish it on the map if you really mean to.');
+    return false;
+  }
   if (sourceIdx !== 0) {
     p.block(SOURCE_IMMOVABLE, 0,
       `Nothing can go in front of ${displayName(source.type)} — the source is anchored `
@@ -927,6 +952,20 @@ function checkSourceInvariants(p, mapModules) {
 function planRun(p, segs, mapModules) {
   const mapModuleIds = mapModules.map(m => m.id);
   const mapModuleById = new Map(mapModules.map(m => [m.id, m]));
+  const mapPlacementById = new Map();
+  for (const seg of segs) {
+    if (seg.kind !== 'pipe') continue;
+    for (const item of seg.items) {
+      if (item.kind === 'placement') mapPlacementById.set(item.id, item);
+    }
+  }
+  // Draft classification below must compare retained back-references with
+  // the map types they originally named. Keep these on the private planner,
+  // never on the caller's draft nodes.
+  p.mapModuleTypes = new Map(mapModules.map(m => [m.id, m.type]));
+  p.mapPlacementTypes = new Map(
+    [...mapPlacementById].map(([id, item]) => [id, item.type]),
+  );
 
   // Surviving module anchors, in draft order. A draft node keeps its identity
   // only while its TYPE still matches the map; swapping a module's type is a
@@ -974,7 +1013,9 @@ function planRun(p, segs, mapModules) {
   const survivingPlacementIds = new Set();
   for (const node of p.draft) {
     const pid = draftPlacementRef(node);
-    if (pid) survivingPlacementIds.add(pid);
+    if (pid && mapPlacementById.get(pid)?.type === node.type) {
+      survivingPlacementIds.add(pid);
+    }
   }
   for (const seg of segs) {
     if (seg.kind !== 'pipe') continue;
@@ -1107,7 +1148,11 @@ function planGap(p, ctx) {
   );
   let draftDriftSubL = 0;
   for (const { node } of gapNodes) {
-    if (!isAddition(node) && draftPipeRef(node) && node._pipeKind === 'drift') {
+    // A palette replacement of a schematic drift keeps this original drift
+    // back-reference while changing node.type to the requested hardware. The
+    // physical pipe remains underneath an attachment, so it still counts as
+    // retained drift and must not also schedule a trim of the whole span.
+    if (draftPipeRef(node) && node._pipeKind === 'drift') {
       draftDriftSubL += node.subL || 0;
     }
   }
@@ -1115,7 +1160,7 @@ function planGap(p, ctx) {
   // junction's footprint), so a shrink is only meaningful without a merge.
   const removedDriftSubL = merged ? 0 : Math.max(0, mapDriftSubL - draftDriftSubL);
 
-  const lastMapItemIdx = lastMapDerivedIndex(gapNodes);
+  const lastMapItemIdx = lastMapDerivedIndex(p, gapNodes);
 
   const state = {
     workingId,
@@ -1127,7 +1172,7 @@ function planGap(p, ctx) {
   for (let i = 0; i < gapNodes.length; i++) {
     const { node, index } = gapNodes[i];
 
-    if (!isAddition(node)) {
+    if (!isAddition(p, node)) {
       const plId = draftPlacementRef(node);
       if (plId) {
         const pipe = shadowPipe(p.shadow, state.workingId);
@@ -1192,10 +1237,10 @@ function driftSubLOfPipe(segs, pipeId) {
   return 0;
 }
 
-function lastMapDerivedIndex(gapNodes) {
+function lastMapDerivedIndex(p, gapNodes) {
   let last = -1;
   for (let i = 0; i < gapNodes.length; i++) {
-    if (!isAddition(gapNodes[i].node)) last = i;
+    if (!isAddition(p, gapNodes[i].node)) last = i;
   }
   return last;
 }
