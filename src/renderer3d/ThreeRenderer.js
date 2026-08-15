@@ -2669,18 +2669,29 @@ export class ThreeRenderer {
     const wing = Math.min(0.26, Math.max(0.16, frontHalf * 0.28));
     const tipX = cx + dx * tipDist;
     const tipZ = cz + dz * tipDist;
-    const tail = new THREE.Vector3(tipX - dx * shaftLen, y, tipZ - dz * shaftLen);
-    const tip = new THREE.Vector3(tipX, y, tipZ);
-    const mat = this._previewEdgeMat(0x88bbff);
-    this._addPreviewMesh(new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([tail, tip]), mat,
-    ));
-    const chevron = [
-      new THREE.Vector3(tipX - dx * wing + perpX * wing, y, tipZ - dz * wing + perpZ * wing),
-      tip,
-      new THREE.Vector3(tipX - dx * wing - perpX * wing, y, tipZ - dz * wing - perpZ * wing),
+    const tailDist = tipDist - shaftLen;
+    const headBaseDist = tipDist - wing * 1.15;
+    const shaftHalf = Math.min(0.075, wing * 0.34);
+    const point = (forward, sideways) => new THREE.Vector3(
+      cx + dx * forward + perpX * sideways,
+      y,
+      cz + dz * forward + perpZ * sideways,
+    );
+    // A filled arrow survives the pixel-art post-process and remains legible
+    // on a one-subtile object; a one-pixel LineBasicMaterial disappeared into
+    // the placement grid at normal zoom.
+    const verts = [
+      point(tailDist, shaftHalf), point(tailDist, -shaftHalf),
+      point(headBaseDist, -shaftHalf), point(headBaseDist, shaftHalf),
+      point(headBaseDist, wing), point(headBaseDist, -wing), point(tipDist, 0),
     ];
-    this._addPreviewMesh(new THREE.Line(new THREE.BufferGeometry().setFromPoints(chevron), mat));
+    const geo = new THREE.BufferGeometry().setFromPoints(verts);
+    geo.setIndex([0, 1, 2, 0, 2, 3, 4, 5, 6]);
+    geo.computeVertexNormals();
+    const mat = this._previewMat(0xffd34e, 0.92);
+    const arrow = new THREE.Mesh(geo, mat);
+    this._addPreviewMesh(arrow);
+    arrow.renderOrder = 1001;
   }
 
   _addPlaceableGhostMeshes(hover, valid, reason = null) {
