@@ -45,6 +45,7 @@ export class WorldPhysics {
     this._ground = null;
     this._terrain = null;
     this._terrainSource = null;
+    this.temporarySupports = new Set();
     this.stats = { steps: 0, droppedTime: 0, activeBodies: 0, sleepingBodies: 0 };
   }
 
@@ -218,6 +219,76 @@ export class WorldPhysics {
     return record;
   }
 
+  /**
+   * Promote one authored object and release it above its canonical pose.
+   * Returns the pose needed to restore the deterministic game-state view.
+   */
+  startDrop(idOrRecord, { height = 0.75 } = {}) {
+    const record = typeof idOrRecord === 'string' ? this.records.get(idOrRecord) : idOrRecord;
+    if (!record?.body?.isValid?.()) return null;
+    const canonical = {
+      translation: finiteVector(record.body.translation()),
+      rotation: finiteRotation(record.body.rotation()),
+    };
+    this.activate(record);
+    record.body.setTranslation({
+      ...canonical.translation,
+      y: canonical.translation.y + Math.max(0.05, Number(height) || 0.75),
+    }, true);
+    record.body.setRotation(canonical.rotation, true);
+    record.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    record.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    record.body.wakeUp();
+    this._syncRecordObject(record);
+    return canonical;
+  }
+
+  /** Restore one temporary dynamic object to its authored fixed pose. */
+  restoreRecordPose(idOrRecord, pose) {
+    const record = typeof idOrRecord === 'string' ? this.records.get(idOrRecord) : idOrRecord;
+    if (!record?.body?.isValid?.() || !pose) return false;
+    record.body.setBodyType(this.rapier.RigidBodyType.Fixed, true);
+    record.body.setTranslation(finiteVector(pose.translation), true);
+    record.body.setRotation(finiteRotation(pose.rotation), true);
+    record.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    record.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    record.active = false;
+    this._syncRecordObject(record);
+    return true;
+  }
+
+  /**
+   * Physics-only landing pad whose top face is exactly `topY`. Portable-drop
+   * presentation uses this instead of an equipment object's conservative
+   * whole-model box, which may include a tall bench backsplash.
+   */
+  addTemporarySupport({ x = 0, topY = 0, z = 0, halfWidth = 0.25, halfDepth = 0.25, thickness = 0.06 } = {}) {
+    if (!this.ready) return null;
+    const t = Math.max(0.01, Number(thickness) || 0.06);
+    const body = this.world.createRigidBody(
+      this.rapier.RigidBodyDesc.fixed().setTranslation(
+        Number(x) || 0,
+        (Number(topY) || 0) - t / 2,
+        Number(z) || 0,
+      ),
+    );
+    const collider = this.rapier.ColliderDesc.cuboid(
+      Math.max(0.03, Number(halfWidth) || 0.25),
+      t / 2,
+      Math.max(0.03, Number(halfDepth) || 0.25),
+    ).setFriction(0.82).setRestitution(0.03);
+    this.world.createCollider(collider, body);
+    this.temporarySupports.add(body);
+    return body;
+  }
+
+  removeTemporarySupport(body) {
+    if (!body || !this.temporarySupports.has(body)) return false;
+    this.temporarySupports.delete(body);
+    if (body.isValid?.()) this.world.removeRigidBody(body);
+    return true;
+  }
+
   createSphericalJoint(recordA, recordB, worldAnchor, contactsEnabled = false) {
     if (!recordA?.body || !recordB?.body) return null;
     const anchor = _point.set(worldAnchor.x, worldAnchor.y, worldAnchor.z);
@@ -349,25 +420,30 @@ export class WorldPhysics {
   _syncObjects() {
     for (const record of this.records.values()) {
       if (!record.active || !record.object || !record.body.isValid()) continue;
-      const translation = record.body.translation();
-      const rotation = record.body.rotation();
-      _matrix.compose(
-        _worldPosition.set(translation.x, translation.y, translation.z),
-        _worldQuaternion.set(rotation.x, rotation.y, rotation.z, rotation.w),
-        record.object.getWorldScale?.(_worldScale) || record.object.scale,
-      );
-      const parent = record.object.parent;
-      if (parent) {
-        parent.updateWorldMatrix?.(true, false);
-        _parentInverse.copy(parent.matrixWorld).invert();
-        _localMatrix.multiplyMatrices(_parentInverse, _matrix);
-      } else {
-        _localMatrix.copy(_matrix);
-      }
-      _localMatrix.decompose(record.object.position, record.object.quaternion, record.object.scale);
-      record.object.updateMatrix?.();
-      record.object.updateMatrixWorld?.(true);
+      this._syncRecordObject(record);
     }
+  }
+
+  _syncRecordObject(record) {
+    if (!record?.object || !record.body?.isValid?.()) return;
+    const translation = record.body.translation();
+    const rotation = record.body.rotation();
+    _matrix.compose(
+      _worldPosition.set(translation.x, translation.y, translation.z),
+      _worldQuaternion.set(rotation.x, rotation.y, rotation.z, rotation.w),
+      record.object.getWorldScale?.(_worldScale) || record.object.scale,
+    );
+    const parent = record.object.parent;
+    if (parent) {
+      parent.updateWorldMatrix?.(true, false);
+      _parentInverse.copy(parent.matrixWorld).invert();
+      _localMatrix.multiplyMatrices(_parentInverse, _matrix);
+    } else {
+      _localMatrix.copy(_matrix);
+    }
+    _localMatrix.decompose(record.object.position, record.object.quaternion, record.object.scale);
+    record.object.updateMatrix?.();
+    record.object.updateMatrixWorld?.(true);
   }
 
   _pruneJoints() {
@@ -399,6 +475,7 @@ export class WorldPhysics {
     if (!this.world) return;
     this.records.clear();
     this.joints.clear();
+    this.temporarySupports.clear();
     this.world.free();
     this.world = null;
     this.ready = false;

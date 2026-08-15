@@ -150,6 +150,41 @@ console.log('\n=== 3. Moving a component rebuilds cells + subgrid claims ===\n')
     'placement on top of the moved component is refused');
 }
 
+console.log('\n=== 3b. Portable leaves move between surface and floor ===\n');
+
+{
+  const g = makeGame(43);
+  const benchId = g.placePlaceable({
+    type: 'labBench', col: 8, row: 8, subCol: 0, subRow: 0, free: true,
+  });
+  const scopeId = g.placePlaceable({
+    type: 'oscilloscope', col: 8, row: 8, subCol: 0, subRow: 0, free: true,
+  });
+  const bench = g.getPlaceable(benchId);
+  const scope = g.getPlaceable(scopeId);
+  assertOk(scope?.stackParentId === benchId && bench?.stackChildren.includes(scopeId),
+    'setup: oscilloscope is parented to the lab bench');
+
+  assertOk(g.movePlaceable(scopeId, {
+    col: 8, row: 8, subCol: 2, subRow: 0,
+  }), 'a stacked portable item can move to another free surface sub-cell');
+  assertOk(scope.stackParentId === benchId && scope.subCol === 2,
+    'surface move preserves the stack parent and updates the pose');
+  assertOk(bench.stackChildren.filter(id => id === scopeId).length === 1,
+    'surface re-parenting never duplicates the child link');
+
+  assertOk(g.movePlaceable(scopeId, {
+    col: 18, row: 18, subCol: 0, subRow: 0,
+  }), 'the same portable item can move from a surface to clear floor');
+  assertOk(scope.stackParentId === null && scope.placeY === 0,
+    'floor move clears the surface parent and height');
+  assertOk(!bench.stackChildren.includes(scopeId),
+    'floor move detaches the old parent child link');
+  assertOk(scope.cells.every(cell =>
+    g.state.subgridOccupied[`${cell.col},${cell.row},${cell.subCol},${cell.subRow}`]?.id === scopeId
+  ), 'floor move claims the portable item footprint');
+}
+
 console.log('\n=== 4. removeInfraRect coalesces per-tile emits ===\n');
 
 {

@@ -17,7 +17,10 @@ function cellKey(c) {
  * `getEntry(id)` is used to resolve sibling entries on the target so we can
  * check subtile collisions against existing children.
  */
-export function canStack(stackableDef, targetEntry, targetDef, col, row, subCol, subRow, dir, getEntry) {
+export function canStack(
+  stackableDef, targetEntry, targetDef, col, row, subCol, subRow, dir, getEntry,
+  { ignoreEntryId = null } = {},
+) {
   if (!stackableDef.stackable) {
     return { ok: false, placeY: 0, reason: 'Item is not stackable' };
   }
@@ -42,6 +45,7 @@ export function canStack(stackableDef, targetEntry, targetDef, col, row, subCol,
   if (typeof getEntry === 'function' && Array.isArray(targetEntry.stackChildren)) {
     const stackKeys = stackCells.map(cellKey);
     for (const siblingId of targetEntry.stackChildren) {
+      if (siblingId === ignoreEntryId) continue;
       const sibling = getEntry(siblingId);
       if (!sibling || !Array.isArray(sibling.cells)) continue;
       const siblingKeys = new Set(sibling.cells.map(cellKey));
@@ -122,7 +126,10 @@ export function collapsePlan(entryId, getEntry, getDef) {
  *   3. Validate on the terminal node via canStack (with getEntry for sibling
  *      check). Success → { targetEntry, placeY }; failure → null.
  */
-export function findStackTarget(stackableDef, col, row, subCol, subRow, dir, subgridOccupied, getEntry, getDef) {
+export function findStackTarget(
+  stackableDef, col, row, subCol, subRow, dir, subgridOccupied, getEntry, getDef,
+  { ignoreEntryId = null } = {},
+) {
   const cells = stackableDef.footprintCells(col, row, subCol, subRow, dir);
   const stackKeys = cells.map(cellKey);
 
@@ -131,6 +138,7 @@ export function findStackTarget(stackableDef, col, row, subCol, subRow, dir, sub
   let emptyCount = 0;
   for (const k of stackKeys) {
     const occ = subgridOccupied[k];
+    if (occ?.id === ignoreEntryId) { emptyCount++; continue; }
     if (!occ) { emptyCount++; continue; }
     if (groundId === null) groundId = occ.id;
     else if (occ.id !== groundId) return null; // straddles different ground items
@@ -149,6 +157,7 @@ export function findStackTarget(stackableDef, col, row, subCol, subRow, dir, sub
     const kids = current.stackChildren || [];
     let nextChild = null;
     for (const childId of kids) {
+      if (childId === ignoreEntryId) continue;
       const child = getEntry(childId);
       if (!child || !Array.isArray(child.cells)) continue;
       const childCells = new Set(child.cells.map(cellKey));
@@ -176,6 +185,7 @@ export function findStackTarget(stackableDef, col, row, subCol, subRow, dir, sub
   if (!currentDef) return null;
   const result = canStack(
     stackableDef, current, currentDef, col, row, subCol, subRow, dir, getEntry,
+    { ignoreEntryId },
   );
   if (!result.ok) return null;
 

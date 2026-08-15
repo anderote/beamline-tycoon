@@ -10,5 +10,15 @@ import { toDims } from './dims.js';
 
 export const FURNISHING_DEFS = Object.values(FACILITY_ROOM_FURNISHINGS_RAW).map((raw) => {
   const { subW, subL, subH } = toDims(raw);
-  return { ...raw, kind: 'furnishing', subW, subL, subH, hasSurface: raw.hasSurface ?? true, stackable: raw.stackable ?? false };
+  const stackable = raw.stackable ?? false;
+  return {
+    ...raw,
+    kind: 'furnishing',
+    subW,
+    subL,
+    subH,
+    hasSurface: raw.hasSurface ?? true,
+    stackable,
+    portable: raw.portable ?? stackable,
+  };
 });
