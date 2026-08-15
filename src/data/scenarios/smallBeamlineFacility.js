@@ -160,7 +160,10 @@ export function setupSmallBeamlineFacility(game) {
   const xfmr = game.placePlaceable({ type: 'hvTransformer', col: -8, row: -1, free: true, silent: true });
   const mainPanel = game.placePlaceable({ type: 'mainDistributionPanel', col: -5, row: -1, free: true, silent: true });
   const skid = game.placePlaceable({ type: 'lcwSkid', col: -3, row: -1, free: true, silent: true });
-  const ssa  = game.placePlaceable({ type: 'solidStateAmp', col: 0, row: -1, free: true, silent: true });
+  // Rigid waveguide needs a service lane of its own rather than sharing the
+  // beamline's north edge. Put the amplifier against the outer wall so its
+  // four west-facing launchers open into that lane.
+  const ssa  = game.placePlaceable({ type: 'solidStateAmp', col: -2, row: -3, free: true, silent: true });
   const ioc  = game.placePlaceable({ type: 'rackIoc', col: 3, row: -1, free: true, silent: true });
   // Vacuum: the six on-pipe chambers outgas ~4.2e-6 on top of the junctions'
   // 1.2e-6, and pressure is total outgassing over total pump speed — a 15 L/s
@@ -174,7 +177,9 @@ export function setupSmallBeamlineFacility(game) {
   const pwrBus  = game.placePlaceable({ type: 'powerBus', col: 0, row: 1, free: true, silent: true });
   const vacW    = game.placePlaceable({ type: 'vacuumManifold', col: -3, row: 1, free: true, silent: true });
   const vacE    = game.placePlaceable({ type: 'vacuumManifold', col: 3, row: 1, free: true, silent: true });
-  const wgBus   = game.placePlaceable({ type: 'waveguideManifold', col: -2, row: 1, free: true, silent: true });
+  // A dedicated north-wall RF lane leaves room for real straight flange
+  // launches and swept elbows without colliding with beam hardware below.
+  const wgBus   = game.placePlaceable({ type: 'waveguideManifold', col: -4, row: -3, free: true, silent: true });
   // Turbo sits on the distribution row and taps the east manifold's spare
   // port: a sink/pass port takes ONE line, and the roughing pump already
   // holds every bus_left.
@@ -203,7 +208,7 @@ export function setupSmallBeamlineFacility(game) {
   // network, so the turbo backs the whole line, not just the cup.
   if (pump) {
     for (const [id, port] of [[src, 'vac_in'], [cup, 'vac_in'],
-      [vacW, 'bus_left'], [vacE, 'bus_left']]) {
+      [vacW, 'bus_left']]) {
       if (id) wire('vacuumPipe', { id: pump, port: 'vac_out' }, { id, port });
     }
   }

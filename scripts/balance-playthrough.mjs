@@ -298,26 +298,27 @@ export function buildBeamline(game, row, grade = 'cup') {
   const quad = onPipe[4];
   const bpm = onPipe[5];
 
-  // Service row two north of the line, distribution row hard against it — the
-  // shipped starter layout, shifted. One power bus spans the run; vacuum
-  // manifolds only reach 5 cells, so the run takes two.
+  // The ordinary service plant sits one row north and the distribution buses
+  // one row south. Rigid RF owns a separate north lane: unlike cords, a real
+  // rectangular guide cannot share the beamline edge or fold immediately out
+  // of a crowded amplifier face.
   const plant = LINE_PLANT[grade] || LINE_PLANT.cup;
   const place = (type, col, r) => game.placePlaceable({ type, col, row: r, ...opts });
-  const supply = place(plant.supply, -8, row - 2);
-  const gear  = place('switchgear', -5, row - 2);
-  const cool  = place(plant.cooling, -3, row - 2);
-  const ssa   = place('solidStateAmp', 0, row - 2);
-  const ioc   = place('rackIoc', 3, row - 2);
-  const pump  = place('roughingPump', 4, row - 2);
+  const supply = place(plant.supply, -8, row - 1);
+  const gear  = place('switchgear', -5, row - 1);
+  const cool  = place(plant.cooling, -3, row - 1);
+  const ssa   = place('solidStateAmp', -2, row - 3);
+  const ioc   = place('rackIoc', 3, row - 1);
+  const pump  = place('roughingPump', 4, row - 1);
   // Detector lines take a second data source: the detector alone asks for 40
   // units of fiber and a rackIoc carries 10, so the switch serves the end
   // station and the IOC keeps the BPM.
-  const endData = plant.endData === 'rackIoc' ? ioc : place(plant.endData, 2, row - 2);
-  const pwrBus = place('powerBus', 0, row - 1);
-  const vacW   = place('vacuumManifold', -3, row - 1);
-  const vacE   = place('vacuumManifold', 3, row - 1);
-  const wgBus  = place('waveguideManifold', -2, row - 1);
-  const turbo  = place('turboPump', 5, row - 1);
+  const endData = plant.endData === 'rackIoc' ? ioc : place(plant.endData, 2, row - 1);
+  const pwrBus = place('powerBus', 0, row + 1);
+  const vacW   = place('vacuumManifold', -3, row + 1);
+  const vacE   = place('vacuumManifold', 3, row + 1);
+  const wgBus  = place('waveguideManifold', -4, row - 3);
+  const turbo  = place('turboPump', 5, row + 1);
   if (!supply || !gear || !cool || !ssa || !ioc || !pump || !endData || !pwrBus || !vacW
     || !vacE || !wgBus || !turbo) return null;
 
@@ -331,22 +332,26 @@ export function buildBeamline(game, row, grade = 'cup') {
     wiringCost += (runWiringCost(util, line ? line.subL : 0) || {}).funding || 0;
     return id;
   };
-  // Supply -> main switchgear -> distribution -> branch circuits. One HV feeder into an MCC,
-  // whose eight sockets carry the line's loads; a ninth load (a separate data
-  // end-station) takes a second panel, which is the shape of the decision the
-  // chain creates.
+  // Supply -> main switchgear -> distribution -> branch circuits. One HV
+  // feeder into an MCC carries the line's ordinary loads; the RF amplifier
+  // stays on the high-voltage side, as it does in the playable scenario.
   const powered = [[src, 'pwr_in'], [end, 'pwr_in'], [cool, 'pwr_in'],
-    [ssa, 'pwr_in'], [ioc, 'pwr_in'], [pump, 'pwr_in'], [turbo, 'pwr_in'],
+    [ioc, 'pwr_in'], [pump, 'pwr_in'], [turbo, 'pwr_in'],
     [pwrBus, 'pwr_in']];
   if (endData !== ioc) powered.push([endData, 'pwr_in']);
   const panels = [];
   wire('hvCable', { id: supply, port: 'hv_out_1' }, { id: gear, port: 'hv_in' });
   for (let i = 0; i < Math.ceil(powered.length / 8); i++) {
-    const panel = place('mcc', -6 + i * 2, row - 3);
+    // Keep panel footprints west of the dedicated waveguide lane. Their
+    // flexible branch cords may then fan across the hall without becoming RF
+    // obstacles themselves.
+    const panel = place('mcc', -11 - i * 2, row - 2);
     if (!panel) return null;
     panels.push(panel);
     wire('hvCable', { id: gear, port: `hv_out_${i + 1}` }, { id: panel, port: 'hv_in' });
   }
+  // The RF amplifier is an HV load, not a branch-circuit load.
+  wire('hvCable', { id: gear, port: `hv_out_${panels.length + 1}` }, { id: ssa, port: 'hv_in' });
   powered.forEach(([id, port], i) => {
     const panel = panels[Math.floor(i / 8)];
     wire('powerCable', { id: panel, port: `pwr_out_${(i % 8) + 1}` }, { id, port });
@@ -354,11 +359,11 @@ export function buildBeamline(game, row, grade = 'cup') {
   // Both pumps land on the one vacuum network: pump speed sums across a
   // network, so the turbo backs the whole line and not just the end station.
   for (const [id, port] of [[src, 'vac_in'], [end, 'vac_in'],
-    [vacW, 'bus_left'], [vacE, 'bus_left']]) {
+    [vacW, 'bus_left']]) {
     wire('vacuumPipe', { id: pump, port: 'vac_out' }, { id, port });
   }
   wire('vacuumPipe', { id: turbo, port: 'vac_out' }, { id: vacE, port: 'bus_right' });
-  wire('rfWaveguide', { id: ssa, port: 'rf_out' }, { id: wgBus, port: 'bus_left' });
+  wire('rfWaveguide', { id: ssa, port: 'rf_out_1' }, { id: wgBus, port: 'bus_left' });
   wire('coolingWater', { id: cool, port: 'cool_out' }, { id: src, port: 'cool_in' });
   wire('coolingWater', { id: cool, port: 'cool_out' }, { id: quad, port: 'cool_in' });
   if (grade === 'detector') {
