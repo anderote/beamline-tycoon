@@ -6410,6 +6410,179 @@ body {
 .utility-issue-error { color: var(--ui-bad); }
 .utility-refill-wrap { margin-top: 4px; }
 
+.ctx-window[data-ctx-id^="util-rfWaveguide-"] {
+  width: 620px;
+  max-width: calc(100vw - 24px);
+}
+.rf-spectrum-panel {
+  color: #bac2dc;
+  font: 10px/1.45 var(--ui-font-body);
+}
+.rf-spectrum-heading-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.rf-spectrum-heading {
+  color: #ff8b75;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9px;
+  letter-spacing: 0.8px;
+  text-shadow: 0 0 9px rgba(255, 87, 66, 0.35);
+}
+.rf-spectrum-subheading {
+  margin-top: 4px;
+  color: #747b99;
+  font-size: 9px;
+}
+.rf-spectrum-live {
+  padding: 3px 5px;
+  border: 1px solid rgba(85, 220, 135, 0.5);
+  border-radius: 2px;
+  background: rgba(22, 90, 48, 0.3);
+  color: #6be69a;
+  font: 6px/1.2 'Press Start 2P', monospace;
+  letter-spacing: 0.5px;
+}
+.rf-spectrum-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 10px;
+  border: 1px solid rgba(205, 90, 72, 0.18);
+  background: rgba(205, 90, 72, 0.12);
+}
+.rf-spectrum-summary > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 8px;
+  background: rgba(13, 15, 30, 0.86);
+}
+.rf-spectrum-summary span {
+  color: #737b99;
+  font-size: 7px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+.rf-spectrum-summary strong {
+  overflow: hidden;
+  color: #f2d4c9;
+  font-size: 10px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rf-spectrum-chart {
+  position: relative;
+  margin-top: 12px;
+  padding: 7px 7px 5px 24px;
+  overflow-x: auto;
+  border: 1px solid rgba(110, 121, 160, 0.24);
+  border-radius: 3px;
+  background:
+    repeating-linear-gradient(to top, transparent 0 27px, rgba(112, 126, 170, 0.08) 28px),
+    rgba(5, 7, 18, 0.74);
+}
+.rf-spectrum-y-label {
+  position: absolute;
+  top: 50%;
+  left: 5px;
+  color: #555e7e;
+  font: 6px/1 'Press Start 2P', monospace;
+  letter-spacing: 0.5px;
+  transform: translate(-40%, -50%) rotate(-90deg);
+  transform-origin: center;
+  white-space: nowrap;
+}
+.rf-spectrum-bins {
+  display: grid;
+  grid-template-columns: repeat(var(--rf-spectrum-bin-count), minmax(105px, 1fr));
+  min-width: calc(var(--rf-spectrum-bin-count) * 105px);
+  gap: 5px;
+}
+.rf-spectrum-bin {
+  display: grid;
+  min-width: 0;
+  grid-template-rows: 18px 96px auto auto auto auto;
+  text-align: center;
+}
+.rf-spectrum-power {
+  align-self: end;
+  overflow: hidden;
+  color: #66708f;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rf-spectrum-bin.is-active .rf-spectrum-power { color: #ffb09f; }
+.rf-spectrum-bin.is-rejected .rf-spectrum-power { color: #ff6d62; }
+.rf-spectrum-column {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  margin: 3px 12px 0;
+  border-bottom: 1px solid #566080;
+}
+.rf-spectrum-bar {
+  width: min(46px, 62%);
+  height: var(--rf-spectrum-height);
+  min-height: 3px;
+  border: 1px solid rgba(255, 118, 92, 0.55);
+  border-bottom: 0;
+  background: linear-gradient(to top, rgba(204, 68, 68, 0.38), #ff8f72);
+  box-shadow: 0 0 10px rgba(255, 92, 68, 0.22);
+}
+.rf-spectrum-bin.is-rejected .rf-spectrum-bar {
+  border-color: #ff4e4e;
+  background: #ff4e4e;
+  box-shadow: 0 0 8px rgba(255, 42, 42, 0.5);
+}
+.rf-spectrum-frequency {
+  padding-top: 5px;
+  color: #f4d8cb;
+  font-weight: 700;
+}
+.rf-spectrum-band,
+.rf-spectrum-demand {
+  color: #68718e;
+  font-size: 8px;
+}
+.rf-spectrum-status {
+  margin-top: 3px;
+  color: #e8836d;
+  font-size: 7px;
+  letter-spacing: 0.25px;
+}
+.rf-spectrum-bin.is-rejected .rf-spectrum-status { color: #ff5e58; }
+.rf-spectrum-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 7px;
+  color: #777f9c;
+  font-size: 8px;
+}
+.rf-spectrum-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.rf-spectrum-legend i { width: 9px; height: 9px; border-radius: 1px; }
+.rf-spectrum-legend i.is-carried { background: #eb806a; }
+.rf-spectrum-legend i.is-rejected { border: 1px solid #ff4e4e; background: rgba(255, 42, 42, 0.2); }
+.rf-spectrum-note,
+.rf-spectrum-empty {
+  margin-top: 10px;
+  padding: 7px 8px;
+  border-left: 2px solid rgba(204, 68, 68, 0.65);
+  background: rgba(96, 37, 39, 0.16);
+  color: #858ca7;
+  font-size: 9px;
+}
+
+@media (max-width: 600px) {
+  .rf-spectrum-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 @media (max-width: 800px) {
   .mp-track-name-wrap { width: 92px; }
 }
