@@ -1007,7 +1007,7 @@ export const INFRASTRUCTURE_RAW = {
   // ── Cooling Water ─────────────────────────────────────────────────
   waterTank: {
     id: 'waterTank', name: 'Make-up Water Tank',
-    desc: 'Bulk treated-water reservoir for the cooling loop. Connect it to a chiller and a heat rejector on the same Cooling Water network.',
+    desc: 'Bulk treated-water reservoir for the cooling loop, with four connections on its primary header and two on the opposite side. Connect it to a chiller and a heat rejector on the same Cooling Water network.',
     category: 'cooling', subsection: 'waterSupply', accentColor: 0x277a9c,
     cost: { funding: 180000 }, stats: {}, energyCost: 0,
     subL: 3, subW: 3, subH: 4, gridW: 3, gridH: 3, geometryType: 'cylinder',
@@ -1066,7 +1066,7 @@ export const INFRASTRUCTURE_RAW = {
   fanCoilCooler: {
     id: 'fanCoilCooler',
     name: 'Air-Cooled Condenser',
-    desc: 'Small air-cooled heat rejector for a starter cooling plant. Put it on the same Cooling Water network as a reservoir and chiller. It rejects 50 kW to hall air.',
+    desc: 'Small air-cooled heat rejector for a starter cooling plant, with a paired supply and return on one side. Put it on the same Cooling Water network as a reservoir and chiller. It rejects 50 kW to hall air.',
     coolingRole: 'heatRejection',
     category: 'cooling', subsection: 'heatRejection',
     accentColor: 0x2fbccc,
@@ -1088,7 +1088,7 @@ export const INFRASTRUCTURE_RAW = {
   packageChiller: {
     id: 'packageChiller',
     name: 'Package Chiller',
-    desc: 'Self-contained 5 kW cooling package with three independently routable outlets: reservoir, pump, chiller and air-cooled heat rejector on one frame. Give it power and run Cooling Water to your equipment — no separate plant equipment is needed.',
+    desc: 'Self-contained 5 kW cooling package with six independently routable connections: four on its primary header and two opposite. Reservoir, pump, chiller and air-cooled heat rejector share one frame. Give it power and run Cooling Water to your equipment — no separate plant equipment is needed.',
     coolingRole: 'integratedCooling',
     category: 'cooling', subsection: 'integratedCooling',
     accentColor: 0x2fbccc,
@@ -1111,7 +1111,7 @@ export const INFRASTRUCTURE_RAW = {
   lcwSkid: {
     id: 'lcwSkid',
     name: 'LCW Skid',
-    desc: 'Self-contained 25 kW low-conductivity-water skid with three independently routable outlets. Its own reservoir, pump, chiller and air-cooled rejector are packaged together: connect power, then run Cooling Water to magnets and warm RF. Outgrow it into a central chiller plus separate reservoir and heat rejection when the facility gets large.',
+    desc: 'Self-contained 25 kW low-conductivity-water skid with six independently routable connections: four on its primary header and two opposite. Its own reservoir, pump, chiller and air-cooled rejector are packaged together: connect power, then run Cooling Water to magnets and warm RF. Outgrow it into a central chiller plus separate reservoir and heat rejection when the facility gets large.',
     coolingRole: 'integratedCooling',
     category: 'cooling', subsection: 'integratedCooling',
     accentColor: 0x2fbccc,

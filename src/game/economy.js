@@ -546,7 +546,10 @@ export function computeSystemStats(state) {
   const deionizers = counts.deionizer || 0;
   const emergCooling = counts.emergencyCooling || 0;
 
-  const coolingCap = portCapacity('cool_out', 'capacity');
+  // Cooling plants expose several independently routable branches, with the
+  // nameplate divided across their cool_out* source ports. Sum the whole
+  // internal header rather than reporting only the legacy centre socket.
+  const coolingCap = portCapacity(name => name.startsWith('cool_out'), 'capacity');
   const coolingLoad = beamlineEnergyDraw(state) * 0.6; // ~60% of electrical becomes heat
 
   const flowRate = coolingCap > 0 ? coolingCap / (4.18 * 10) * 60 : 0; // L/min assuming 10C delta-T

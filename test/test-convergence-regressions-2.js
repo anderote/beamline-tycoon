@@ -338,6 +338,9 @@ console.log('\n=== 8. Infra panels quote the same ladder the solver gates on ===
 // coldBox2K 200 W vs 800, and a pump ranking that was upside down.
 {
   const cap = (type, port, param) => getUtilityPortsV2(type)?.[port]?.params?.[param];
+  const totalCap = (type, prefix, param) => Object.entries(getUtilityPortsV2(type) || {})
+    .filter(([name]) => name.startsWith(prefix))
+    .reduce((sum, [, port]) => sum + (port?.params?.[param] || 0), 0);
   const st1 = (type) => computeSystemStats({
     placeables: [{ type, category: 'infrastructure' }], beamline: [],
   });
@@ -358,10 +361,11 @@ console.log('\n=== 8. Infra panels quote the same ladder the solver gates on ===
       `${t} cryo capacity matches the solver ladder (${cap(t, 'cryo_out', 'coldCapacityW')} W)`);
   }
   for (const t of ['lcwSkid', 'chiller']) {
-    assert(st1(t).cooling.coolingCapacity === cap(t, 'cool_out', 'capacity'),
-      `${t} cooling capacity matches the solver ladder (${cap(t, 'cool_out', 'capacity')} kW)`);
+    const rated = totalCap(t, 'cool_out', 'capacity');
+    assert(Math.abs(st1(t).cooling.coolingCapacity - rated) < 1e-9,
+      `${t} cooling capacity matches the solver ladder (${rated} kW)`);
   }
-  assert(cap('coolingTower', 'cool_out', 'heatRejectionCapacity') === 800,
+  assert(Math.abs(totalCap('coolingTower', 'cool_out', 'heatRejectionCapacity') - 800) < 1e-9,
     'cooling tower exposes 800 kW of heat-rejection capacity, not process cooling');
 
   // Cryo LOAD counts every cryo sink, not just `cryomodule`.

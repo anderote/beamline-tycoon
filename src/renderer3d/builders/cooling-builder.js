@@ -1006,30 +1006,18 @@ export function _buildPackageChillerRoles() {
     pushT(b.detail, g, m);
   }
 
-  // Two process-water header connections out the +X face. They map to the
-  // two independently routable right-side cooling terminals.
-  for (const zOff of [cabZ - 0.16, cabZ + 0.16]) {
-    const pR = 0.04, pL = 0.08;
-    const g = new THREE.CylinderGeometry(pR, pR, pL, 8);
-    applyTiledCylinderUVs(g, pR, pL, 8);
-    const m = new THREE.Matrix4().multiplyMatrices(
-      trans(cabW / 2 + pL / 2, baseH + 0.72, zOff),
-      new THREE.Matrix4().makeRotationZ(-Math.PI / 2),
-    );
-    pushT(b.pipe, g, m);
-  }
-
-  // A third process-water connection is reachable from the front side. The
-  // front-facing position makes a dense utility run much easier to route.
-  {
-    const pR = 0.04, pL = 0.09;
-    const g = new THREE.CylinderGeometry(pR, pR, pL, 8);
-    applyTiledCylinderUVs(g, pR, pL, 8);
-    const m = new THREE.Matrix4().multiplyMatrices(
-      trans(0, baseH + 0.28, 0.44 + pL / 2),
-      rotX(Math.PI / 2),
-    );
-    pushT(b.pipe, g, m);
+  // Six independently routable process-water branches: four on the primary
+  // +X header, two on the opposite header. They all share the same 5 kW loop.
+  for (const [side, offsets] of [[1, [-0.30, -0.10, 0.10, 0.30]], [-1, [-0.18, 0.18]]]) {
+    for (const zOff of offsets) {
+      const pR = 0.04, pL = 0.08;
+      const g = new THREE.CylinderGeometry(pR, pR, pL, 8);
+      applyTiledCylinderUVs(g, pR, pL, 8);
+      pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+        trans(side * (baseW / 2 + pL / 2), baseH + 0.28, zOff),
+        new THREE.Matrix4().makeRotationZ(-side * Math.PI / 2),
+      ));
+    }
   }
 
   // Control panel on the -Z face
@@ -1137,25 +1125,27 @@ export function _buildDualCircuitChillerRoles() {
       pushT(b.copper, g, trans(outX, baseH + 0.40, cabZ - 0.15 + i * 0.06));
     }
 
-    // Supply/return pair out the +Z face — one pair per circuit, because
-    // each circuit carries its own setpoint to its own loop.
-    for (const y of [baseH + 0.54, baseH + 0.72]) {
-      const pR = 0.04, pL = 0.14;
-      const g = new THREE.CylinderGeometry(pR, pR, pL, 8);
-      applyTiledCylinderUVs(g, pR, pL, 8);
-      const m = new THREE.Matrix4().multiplyMatrices(
-        trans(cx, y, cabZ + cabD / 2 + pL / 2),
-        rotX(Math.PI / 2),
-      );
-      pushT(b.pipe, g, m);
-    }
-
     // Control panel on the -Z face — two setpoints, two keypads.
     {
       const cW = 0.24, cH = 0.28, cD = 0.06;
       const g = new THREE.BoxGeometry(cW, cH, cD);
       applyTiledBoxUVs(g, cW, cH, cD);
       pushT(b.accent, g, trans(cx, baseH + 0.60, cabZ - (cabD / 2 + cD / 2)));
+    }
+  }
+
+  // Both refrigerant circuits feed one six-branch process-water header for
+  // routing: four branches on +X, two on -X. Capacity remains one 175 kW
+  // nameplate even when every branch is connected.
+  for (const [side, offsets] of [[1, [-0.50, -0.17, 0.17, 0.50]], [-1, [-0.25, 0.25]]]) {
+    for (const zOff of offsets) {
+      const pR = 0.04, pL = 0.10;
+      const g = new THREE.CylinderGeometry(pR, pR, pL, 8);
+      applyTiledCylinderUVs(g, pR, pL, 8);
+      pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+        trans(side * (0.67 + pL / 2), 0.54, zOff),
+        new THREE.Matrix4().makeRotationZ(-side * Math.PI / 2),
+      ));
     }
   }
 
@@ -1641,46 +1631,28 @@ export function _buildLcwSkidRoles() {
       }
     }
 
-    // Outboard supply/return connection, flanged.
-    {
-      const cR = 0.05, cL = 0.18;
-      const g = new THREE.CylinderGeometry(cR, cR, cL, 8);
-      applyTiledCylinderUVs(g, cR, cL, 8);
-      pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
-        trans(Math.sign(hx) * 0.39, headerY, -0.85),
-        new THREE.Matrix4().makeRotationZ(Math.PI / 2),
-      ));
-    }
-    {
-      const fR = 0.075, fH = 0.03;
-      const g = new THREE.CylinderGeometry(fR, fR, fH, SEGS);
-      applyTiledCylinderUVs(g, fR, fH, SEGS);
-      pushT(b.detail, g, new THREE.Matrix4().multiplyMatrices(
-        trans(Math.sign(hx) * 0.465, headerY, -0.85),
-        new THREE.Matrix4().makeRotationZ(Math.PI / 2),
-      ));
-    }
   }
 
-  // Three independently routable branches off the +X supply header. The
-  // logical ports use these exact centres through utility-port-anchors.js;
-  // all three still share the skid's one 25 kW hydraulic circuit.
-  for (const outletZ of [-0.60, 0, 0.60]) {
-    const cR = 0.05, cL = 0.18;
-    const c = new THREE.CylinderGeometry(cR, cR, cL, 8);
-    applyTiledCylinderUVs(c, cR, cL, 8);
-    pushT(b.pipe, c, new THREE.Matrix4().multiplyMatrices(
-      trans(0.39, headerY, outletZ),
-      new THREE.Matrix4().makeRotationZ(Math.PI / 2),
-    ));
+  // Four branches on the primary +X header and two opposite. The logical
+  // anchors use these exact flange centres; all six share one 25 kW circuit.
+  for (const [side, offsets] of [[1, [-0.66, -0.22, 0.22, 0.66]], [-1, [-0.30, 0.30]]]) {
+    for (const outletZ of offsets) {
+      const cR = 0.05, cL = 0.18;
+      const c = new THREE.CylinderGeometry(cR, cR, cL, 8);
+      applyTiledCylinderUVs(c, cR, cL, 8);
+      pushT(b.pipe, c, new THREE.Matrix4().multiplyMatrices(
+        trans(side * 0.39, headerY, outletZ),
+        new THREE.Matrix4().makeRotationZ(Math.PI / 2),
+      ));
 
-    const fR = 0.075, fH = 0.03;
-    const f = new THREE.CylinderGeometry(fR, fR, fH, SEGS);
-    applyTiledCylinderUVs(f, fR, fH, SEGS);
-    pushT(b.detail, f, new THREE.Matrix4().multiplyMatrices(
-      trans(0.465, headerY, outletZ),
-      new THREE.Matrix4().makeRotationZ(Math.PI / 2),
-    ));
+      const fR = 0.075, fH = 0.03;
+      const f = new THREE.CylinderGeometry(fR, fR, fH, SEGS);
+      applyTiledCylinderUVs(f, fR, fH, SEGS);
+      pushT(b.detail, f, new THREE.Matrix4().multiplyMatrices(
+        trans(side * 0.465, headerY, outletZ),
+        new THREE.Matrix4().makeRotationZ(Math.PI / 2),
+      ));
+    }
   }
 
   // Control panel on the -Z end, two status lamps on its face.
@@ -1902,28 +1874,24 @@ export function _buildChillerRoles() {
     }
   }
 
-  // Chilled water supply and return off the barrel, out the +Z end.
-  for (const side of [-1, 1]) {
-    {
-      const wR = 0.06, wH = 0.26;
-      const g = new THREE.CylinderGeometry(wR, wR, wH, SEGS);
-      applyTiledCylinderUVs(g, wR, wH, SEGS);
-      pushT(b.pipe, g, trans(side * 0.12, 0.63, 0.58));
-    }
-    {
-      const wR = 0.06, wL = 0.34;
+  // Six independently routable chilled-water branches: four on +X and two
+  // on -X, all tied to the same shell-and-tube evaporator internally.
+  for (const [side, offsets] of [[1, [-0.72, -0.30, 0.15, 0.60]], [-1, [-0.35, 0.35]]]) {
+    for (const zOff of offsets) {
+      const wR = 0.06, wL = 0.10;
       const g = new THREE.CylinderGeometry(wR, wR, wL, SEGS);
       applyTiledCylinderUVs(g, wR, wL, SEGS);
       pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
-        trans(side * 0.12, 0.74, 0.75), rotX(Math.PI / 2),
+        trans(side * (0.67 + wL / 2), 0.74, zOff),
+        new THREE.Matrix4().makeRotationZ(-side * Math.PI / 2),
       ));
-    }
-    {
+
       const fR = 0.085, fH = 0.03;
-      const g = new THREE.CylinderGeometry(fR, fR, fH, SEGS);
-      applyTiledCylinderUVs(g, fR, fH, SEGS);
-      pushT(b.detail, g, new THREE.Matrix4().multiplyMatrices(
-        trans(side * 0.12, 0.74, 0.925), rotX(Math.PI / 2),
+      const f = new THREE.CylinderGeometry(fR, fR, fH, SEGS);
+      applyTiledCylinderUVs(f, fR, fH, SEGS);
+      pushT(b.detail, f, new THREE.Matrix4().multiplyMatrices(
+        trans(side * 0.735, 0.74, zOff),
+        new THREE.Matrix4().makeRotationZ(Math.PI / 2),
       ));
     }
   }

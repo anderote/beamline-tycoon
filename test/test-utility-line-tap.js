@@ -235,7 +235,7 @@ console.log('\n--- 4. A line of another utility is not tappable ---');
     'a power-cable drag does not offer to tap a cooling-water line');
 }
 
-console.log('\n--- 5. LCW skid outlets share one 25 kW internal header ---');
+console.log('\n--- 5. LCW skid connections share one 25 kW internal header ---');
 {
   const state = {
     placeables: [
@@ -267,7 +267,7 @@ console.log('\n--- 5. LCW skid outlets share one 25 kW internal header ---');
     'three physical LCW outlets feed three loads through one network');
   const skidSources = nets[0]?.sources.filter(source => source.placeableId === 'lcw_1') || [];
   const capacity = skidSources.reduce((sum, source) => sum + (source.params?.capacity || 0), 0);
-  assert(skidSources.length === 3 && capacity === 25,
+  assert(skidSources.length === 6 && Math.abs(capacity - 25) < 1e-9,
     `the shared outlets expose 25 kW once, not per socket (got ${capacity} kW)`);
 }
 
