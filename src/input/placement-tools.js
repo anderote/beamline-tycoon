@@ -42,6 +42,9 @@ export class PlaceableTool extends Tool {
 
   onEnter(ctx) {
     ctx.input.selectedPlaceableVariant = this.variant;
+    // Mirroring is placement-local. A newly armed object always starts from
+    // its authored utility-port layout; repeated stamps keep the M choice.
+    ctx.input.placementPortsFlipped = false;
   }
 
   onExit(ctx) {
