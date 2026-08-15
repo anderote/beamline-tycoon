@@ -26,7 +26,7 @@
 //   7. a rule that throws does not take the rest of the table down with it.
 //   8. sprite frames are distinguishable from idle.
 
-import { AdvisorEngine, SEVERITY_RANK } from '../src/advisor/engine.js';
+import { ADVICE_LEVELS, AdvisorEngine, SEVERITY_RANK } from '../src/advisor/engine.js';
 import { ADVICE_RULES } from '../src/advisor/rules.js';
 import { buildAdvisorContext } from '../src/advisor/context.js';
 import { STUBBY_FRAMES } from '../src/ui/stubby-sprite.js';
@@ -270,7 +270,39 @@ console.log('6. persistence');
     reloaded.evaluate(ctx) !== null);
 }
 
-console.log('7. one broken rule does not silence the table');
+console.log('7. player-selected advice levels filter and persist');
+{
+  const always = (id, severity) => ({
+    id, group: 'test', severity, cooldownTicks: 1,
+    when() { return { target: id }; },
+    say() { return { title: id, body: severity }; },
+  });
+  const rules = [always('tip', 'tip'), always('warning', 'warning'), always('blocker', 'blocker')];
+  const engine = new AdvisorEngine(rules);
+
+  check('all four player-facing advice levels are declared',
+    ['all', 'warnings', 'blockers', 'off'].every(level => ADVICE_LEVELS[level]));
+  engine.setLevel('warnings');
+  const warningOnly = new AdvisorEngine([rules[0], rules[1]]);
+  warningOnly.setLevel('warnings');
+  check('warnings level filters tips but keeps warnings',
+    warningOnly.evaluate(quietContext())?.severity === 'warning');
+  engine.setLevel('blockers');
+  check('blockers level keeps only beam-stopping advice',
+    engine.evaluate(quietContext())?.severity === 'blocker');
+  engine.setLevel('off');
+  check('off suppresses every advice band', engine.evaluate(quietContext()) === null);
+
+  const restored = new AdvisorEngine(rules);
+  restored.fromJSON(JSON.parse(JSON.stringify(engine.toJSON())));
+  check('advice level survives a save round trip', restored.level() === 'off');
+  restored.fromJSON({ silenced: [] });
+  check('old saves without a level default to full advice', restored.level() === 'all');
+  check('unknown levels are rejected without changing the preference',
+    restored.setLevel('nonsense') === false && restored.level() === 'all');
+}
+
+console.log('8. one broken rule does not silence the table');
 {
   const exploding = {
     id: 'test.explodes', group: 'test', severity: 'blocker', cooldownTicks: 1,
@@ -302,7 +334,7 @@ console.log('7. one broken rule does not silence the table');
     out2 && out2.ruleId);
 }
 
-console.log('8. sprite frames differ');
+console.log('9. sprite frames differ');
 {
   // A minimal 2-D context recorder: enough to prove each frame issues a
   // different sequence of fills without pulling in a canvas implementation.
@@ -351,7 +383,7 @@ console.log('8. sprite frames differ');
   }
 }
 
-console.log('9. the presenter refreshes changing numbers but does not re-perk');
+console.log('10. the presenter refreshes changing numbers but does not re-perk');
 {
   // Stubby.update's diff, exercised directly. Several rules hold a stable key
   // while their numbers move — optics.needs-focusing counts down as quads go

@@ -29,6 +29,7 @@ import { paletteUtilityTags, utilityStatRows } from './utility-supply.js';
 import { beamlineEnergyDraw, facilityEnergyDraw } from '../game/aggregates.js';
 import { makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
 import { portWorldPosition } from '../utility/ports.js';
+import { ADVICE_LEVELS } from '../advisor/engine.js';
 
 function _costVal(cost) {
   return (typeof cost === 'object' && cost !== null) ? (cost.funding ?? 0) : cost;
@@ -2944,11 +2945,40 @@ UIHost.prototype._openManual = function({ toggle = false, contextual = false } =
   openWikiWindow({ componentId, toggle: toggle && !componentId });
 };
 
+/** Reflect the live AdvisorEngine preference in the help flyout. The flyout
+ *  is built before game.load(), so this deliberately reads the engine when
+ *  the player opens it rather than caching the boot-time default. */
+UIHost.prototype._syncAdvisorLevelMenu = function() {
+  const level = this.game?._advisor?.level?.() || 'all';
+  document.querySelectorAll('#advisor-level-menu [data-advice-level]').forEach((option) => {
+    const selected = option.dataset.adviceLevel === level;
+    option.classList.toggle('active', selected);
+    option.setAttribute('aria-checked', selected ? 'true' : 'false');
+  });
+};
+
+UIHost.prototype._setAdvisorLevel = function(level) {
+  const advisor = this.game?._advisor;
+  if (!advisor?.setLevel?.(level)) return;
+  this._syncAdvisorLevelMenu();
+  // Re-evaluate immediately: choosing Off or a stricter band should dismiss
+  // an ineligible bubble now, not on the next two-second advisor tick.
+  this.game._runAdvisor?.();
+  // Advice level is a durable preference in the advisor save section.
+  this.game.save?.();
+};
+
 UIHost.prototype._bindManualEntryPoints = function() {
-  // "?" button, appended to the top-right button cluster so it never has to
-  // be hand-maintained in index.html alongside the other hud-btns.
+  // "?" button and Stubby advice flyout, appended to the top-right button
+  // cluster so they never have to be hand-maintained in index.html alongside
+  // the other hud-btns. Click still opens the manual; hover/focus exposes the
+  // advice-level choices without making the manual harder to reach.
   const topButtons = document.getElementById('top-buttons');
   if (topButtons && !document.getElementById('btn-manual')) {
+    const wrap = document.createElement('div');
+    wrap.id = 'help-advice-wrapper';
+    wrap.className = 'help-advice-wrapper';
+
     const btn = document.createElement('button');
     btn.id = 'btn-manual';
     btn.className = 'hud-btn hud-help-btn';
@@ -2956,10 +2986,38 @@ UIHost.prototype._bindManualEntryPoints = function() {
     btn.title = 'Operator Manual (F1)';
     btn.setAttribute('aria-label', 'Open the operator manual');
     btn.addEventListener('click', () => this._openManual({ toggle: true, contextual: true }));
+
+    const menu = document.createElement('div');
+    menu.id = 'advisor-level-menu';
+    menu.className = 'advisor-level-menu';
+    menu.setAttribute('role', 'radiogroup');
+    menu.setAttribute('aria-label', 'Stubby advice level');
+    menu.innerHTML = `
+      <div class="advisor-level-title">STUBBY ADVICE</div>
+      <div class="advisor-level-intro">How much advice should Stubby give?</div>
+      ${Object.entries(ADVICE_LEVELS).map(([value, option]) => `
+        <button type="button" class="advisor-level-option" role="radio"
+                aria-checked="false" data-advice-level="${value}">
+          <span class="advisor-level-check" aria-hidden="true"></span>
+          <span class="advisor-level-copy">
+            <span class="advisor-level-label">${option.label}</span>
+            <span class="advisor-level-detail">${option.detail}</span>
+          </span>
+        </button>`).join('')}
+      <div class="advisor-level-manual">Click ? or press F1 for the manual</div>
+    `;
+    menu.addEventListener('click', (event) => {
+      const option = event.target.closest?.('[data-advice-level]');
+      if (option) this._setAdvisorLevel(option.dataset.adviceLevel);
+    });
+    wrap.addEventListener('mouseenter', () => this._syncAdvisorLevelMenu());
+    wrap.addEventListener('focusin', () => this._syncAdvisorLevelMenu());
+    wrap.append(btn, menu);
+
     // Sit just left of the Menu dropdown.
     const menuWrapper = document.getElementById('menu-wrapper');
-    if (menuWrapper) topButtons.insertBefore(btn, menuWrapper);
-    else topButtons.appendChild(btn);
+    if (menuWrapper) topButtons.insertBefore(wrap, menuWrapper);
+    else topButtons.appendChild(wrap);
   }
 
   // Hovered palette item — a passive read for contextual opens.

@@ -11,6 +11,19 @@ import { ADVICE_RULES } from './rules.js';
  *  order of that table is meaningful. */
 const SEVERITY_RANK = { blocker: 3, warning: 2, tip: 1 };
 
+/** Player-facing advice filters. `minRank: Infinity` is the explicit off
+ *  state, rather than a special case spread through the presenter and tick
+ *  loop. The HUD reads this same table, so its labels cannot drift from what
+ *  the engine actually filters. */
+export const ADVICE_LEVELS = Object.freeze({
+  all: Object.freeze({ label: 'Full advice', detail: 'Tips, warnings, and blockers', minRank: 1 }),
+  warnings: Object.freeze({ label: 'Warnings & blockers', detail: 'Skip optional tips', minRank: 2 }),
+  blockers: Object.freeze({ label: 'Blockers only', detail: 'Only problems that stop the beam', minRank: 3 }),
+  off: Object.freeze({ label: 'Off', detail: 'Stubby stays quiet', minRank: Infinity }),
+});
+
+const DEFAULT_ADVICE_LEVEL = 'all';
+
 /** Rules that omit cooldownTicks still get one — a rule firing every
  *  evaluation with no cooldown would re-open its bubble twice a second. */
 const DEFAULT_COOLDOWN_TICKS = 120;
@@ -26,6 +39,7 @@ export class AdvisorEngine {
     /** key -> tick at which it was last dismissed, for cooldown expiry */
     this._dismissedAt = new Map();
     this._current = null;
+    this._level = DEFAULT_ADVICE_LEVEL;
   }
 
   /**
@@ -38,6 +52,7 @@ export class AdvisorEngine {
 
     for (let i = 0; i < this.rules.length; i++) {
       const rule = this.rules[i];
+      if ((SEVERITY_RANK[rule.severity] || 0) < ADVICE_LEVELS[this._level].minRank) continue;
       let payload;
       try {
         payload = rule.when(ctx);
@@ -100,6 +115,21 @@ export class AdvisorEngine {
     return this._current;
   }
 
+  /** Current player-selected advice filter. */
+  level() {
+    return this._level;
+  }
+
+  /** Change how much Stubby is allowed to surface. Returns false for unknown
+   *  values so corrupted/old saves cannot leave the advisor in a phantom
+   *  state. The next evaluate() selects fresh advice under the new filter. */
+  setLevel(level) {
+    if (!Object.hasOwn(ADVICE_LEVELS, level)) return false;
+    this._level = level;
+    this._current = null;
+    return true;
+  }
+
   /** Hide this advice until its cooldown lapses and the problem is still there. */
   dismiss(key, tick = 0) {
     if (!key) return;
@@ -119,11 +149,15 @@ export class AdvisorEngine {
    *  state and deliberately not persisted — a reloaded game should tell you
    *  again what is still broken. */
   toJSON() {
-    return { silenced: [...this._silenced] };
+    return { silenced: [...this._silenced], level: this._level };
   }
 
   fromJSON(data) {
     this._silenced = new Set(Array.isArray(data?.silenced) ? data.silenced : []);
+    this._level = Object.hasOwn(ADVICE_LEVELS, data?.level)
+      ? data.level
+      : DEFAULT_ADVICE_LEVEL;
+    this._current = null;
   }
 }
 
