@@ -43,6 +43,7 @@ const expectedPower = {
   facilityTransformer: [3, 4],
   hvTransformer: [3, 4],
   gridIntertieTransformer: [4, 6],
+  compactHvDistributor: [1, 1],
   switchgear: [2, 3],
   mcc: [4, 2],
   ups: [3, 2],
@@ -54,6 +55,11 @@ for (const [id, [w, l]] of Object.entries(expectedPower)) {
   assert(p?.subW === w && p?.subL === l,
     `${id} reserves ${w} × ${l} half-metre subtiles`);
 }
+assert(PLACEABLES.compactHvDistributor.subH === 2,
+  'compact HV distributor is only two half-metre subtiles tall');
+assert(PLACEABLES.compactHvDistributor.subW * PLACEABLES.compactHvDistributor.subL
+    < PLACEABLES.switchgear.subW * PLACEABLES.switchgear.subL,
+  'compact HV distributor occupies less floor area than the four-way box');
 
 console.log('\n--- Wide SRF hardware includes its side couplers ---');
 for (const id of ['halfWaveResonator', 'spokeCavity', 'ellipticalSrfCavity']) {

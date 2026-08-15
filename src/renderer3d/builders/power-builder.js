@@ -182,10 +182,79 @@ export function _buildDisconnectSwitchRoles() {
   return b;
 }
 
+// ── Compact HV Distributor ─────────────────────────────────────────
+// A short 0.5 m-square 1-to-2 cabinet. The single rear gland and two front
+// breaker/gland pairs mirror the logical HV ports instead of borrowing the
+// four-way switchgear's much larger enclosure.
+export function _buildCompactHvDistributorRoles() {
+  const b = makeBuckets();
+
+  const baseH = 0.06;
+  const encW = 0.40, encH = 0.80, encD = 0.38;
+  const frontZ = encD / 2;
+
+  addBox(b.stand, 0.46, baseH, 0.46, 0, baseH / 2, 0);
+  addBox(b.iron, encW, encH, encD, 0, baseH + encH / 2, 0);
+  addBox(b.accent, 0.44, 0.035, 0.42, 0, baseH + encH + 0.0175, 0);
+
+  // Recessed front service door with hinges, gasket and operating handle.
+  addBox(b.accent, 0.25, 0.66, 0.025, -0.055, 0.46, frontZ + 0.018);
+  for (const sx of [-1, 1]) {
+    addBox(b.detail, 0.012, 0.66, 0.012,
+      -0.055 + sx * 0.119, 0.46, frontZ + 0.038);
+  }
+  for (const sy of [-1, 1]) {
+    addBox(b.detail, 0.25, 0.012, 0.012,
+      -0.055, 0.46 + sy * 0.324, frontZ + 0.038);
+  }
+  for (const y of [0.27, 0.64]) {
+    addCylinder(b.iron, 0.009, 0.045, -0.17, y, frontZ + 0.046);
+  }
+  addBox(b.iron, 0.024, 0.12, 0.026, 0.045, 0.46, frontZ + 0.052);
+
+  // One rear 200 kW inlet at the authored hv_in presentation anchor.
+  {
+    const x = -0.10, y = 0.30, z = -(frontZ + 0.018);
+    addBox(b.detail, 0.16, 0.16, 0.025, x, y, z);
+    const gland = new THREE.CylinderGeometry(0.045, 0.045, 0.075, 10);
+    applyTiledCylinderUVs(gland, 0.045, 0.075, 10);
+    pushT(b.copper, gland, new THREE.Matrix4().multiplyMatrices(
+      trans(x, y, z - 0.042), rotX(Math.PI / 2),
+    ));
+  }
+
+  // Two independently wireable 100 kW outlets on the front face.
+  for (const y of [0.36, 0.66]) {
+    const x = 0.10, z = frontZ + 0.018;
+    addBox(b.detail, 0.15, 0.15, 0.025, x, y, z);
+    addBox(b.pipe, 0.08, 0.035, 0.018, x, y + 0.042, z + 0.023);
+    const gland = new THREE.CylinderGeometry(0.038, 0.038, 0.075, 10);
+    applyTiledCylinderUVs(gland, 0.038, 0.075, 10);
+    pushT(b.copper, gland, new THREE.Matrix4().multiplyMatrices(
+      trans(x, y - 0.035, z + 0.042), rotX(Math.PI / 2),
+    ));
+  }
+
+  // Compact phase mimic, pilot lamp, side vents and a visible ground bond.
+  addBox(b.pipe, 0.12, 0.075, 0.018, -0.065, 0.70, frontZ + 0.042);
+  {
+    const lamp = new THREE.SphereGeometry(0.014, 8, 6);
+    lamp.translate(-0.065, 0.70, frontZ + 0.058);
+    b.glow.push(lamp);
+  }
+  for (const x of [-0.2025, 0.2025]) {
+    for (const y of [0.28, 0.43, 0.58]) {
+      addBox(b.detail, 0.012, 0.055, 0.18, x, y, 0);
+    }
+  }
+  addBox(b.copper, 0.22, 0.015, 0.022, -0.06, 0.13, -(frontZ + 0.014));
+
+  return b;
+}
+
 // ── HV Distributor Box ────────────────────────────────────────────
-// Outdoor metal-clad cabinet: 1.5m L × 1.0m W × 2.0m H. The stable content
-// id remains `switchgear`, but the visible hardware now states its gameplay:
-// one rear HV inlet and four separately protected front HV outlets.
+// Outdoor metal-clad 1-to-4 cabinet: 1.5m L × 1.0m W × 2.0m H. The stable
+// content id remains `switchgear`, but the visible hardware states its role.
 export function _buildSwitchgearRoles() {
   const b = makeBuckets();
 

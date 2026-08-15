@@ -18,6 +18,7 @@ function assert(cond, msg) {
 
 const placeables = [
   ['xfmr', 'facilityTransformer', 0, 0],
+  ['compactGear', 'compactHvDistributor', 8, 8],
   ['gear', 'switchgear', 8, 0],
   ['panelA', 'powerPanel', 16, 0],
   ['panelB', 'powerPanel', 16, 8],
@@ -48,6 +49,12 @@ function candidate(utilityType, start, end) {
 console.log('\n--- HV hierarchy ---');
 assert(candidate('hvCable', ref('xfmr', 'hv_out_1'), ref('gear', 'hv_in')).ok,
   'transformer -> HV Distributor Box is a valid HV feeder');
+assert(candidate('hvCable', ref('xfmr', 'hv_out_2'), ref('compactGear', 'hv_in')).ok,
+  'transformer -> Compact HV Distributor is a valid HV feeder');
+assert(candidate('hvCable', ref('compactGear', 'hv_out_1'), ref('panelA', 'hv_in')).ok,
+  'Compact HV Distributor -> panel is a valid protected downstream feeder');
+assert(candidate('hvCable', ref('compactGear', 'hv_out_2'), ref('rfSource', 'hv_in')).ok,
+  'the compact distributor exposes a second independent HV output');
 assert(candidate('hvCable', ref('gear', 'hv_out_1'), ref('panelA', 'hv_in')).ok,
   'HV Distributor Box -> panel is a valid protected downstream feeder');
 assert(candidate('hvCable', ref('xfmr', 'hv_out_1'), ref('xfmr', 'hv_out_2')).reason === 'invalid_port_pair',

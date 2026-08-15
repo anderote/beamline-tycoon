@@ -257,6 +257,15 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
       && hv.hv_out_1.params.capacity < grid.hv_out_1.params.capacity,
     'HV supply ladder: pad-mount < facility < HV < grid intertie');
 
+  const compactGear = getUtilityPortsV2('compactHvDistributor');
+  const compactHvDistributorOutputs = Object.values(compactGear)
+    .filter(p => p.connectionKind === 'hvDistributionOut');
+  assert(compactGear.hv_in?.connectionKind === 'hvDistributionIn'
+      && compactGear.hv_in.params.demand === 200
+      && compactHvDistributorOutputs.length === 2
+      && compactHvDistributorOutputs.every(p => p.params.capacity === 100),
+    'Compact HV Distributor has one 200 kW input and two protected 100 kW outputs');
+
   const gear = getUtilityPortsV2('switchgear');
   const hvDistributorOutputs = Object.values(gear)
     .filter(p => p.connectionKind === 'hvDistributionOut');
@@ -265,6 +274,9 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
       && hvDistributorOutputs.length === 4
       && hvDistributorOutputs.every(p => p.params.capacity === 100),
     'HV Distributor Box has one 400 kW input and four protected 100 kW outputs');
+  assert(compactHvDistributorOutputs.length < hvDistributorOutputs.length
+      && compactGear.hv_in.params.demand < gear.hv_in.params.demand,
+    'compact HV distribution is the smaller 1-to-2 rung below the 1-to-4 box');
 
   const panel = getUtilityPortsV2('powerPanel');
   const section = getUtilityPortsV2('sectionDistributionPanel');

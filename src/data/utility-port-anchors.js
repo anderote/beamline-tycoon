@@ -73,6 +73,11 @@ export const PORT_ANCHOR_OVERRIDES = {
     hv_out_3: { y: 1.22, along: 0.36 }, hv_out_4: { y: 1.58, along: -0.36 },
     hv_out_5: { y: 1.58, along: 0 }, hv_out_6: { y: 1.58, along: 0.36 },
   },
+  compactHvDistributor: {
+    _default: { y: 0.45, lat: 0.21 },
+    hv_in: { y: 0.30, along: -0.10 },
+    hv_out_1: { y: 0.36, along: 0.10 }, hv_out_2: { y: 0.66, along: 0.10 },
+  },
   switchgear: {
     _default: { y: 0.7, lat: 0.66 },
     hv_in: { y: 0.42, along: -0.28 },

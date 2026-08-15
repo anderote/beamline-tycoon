@@ -90,6 +90,7 @@ import {
 import {
   _buildHVTransformerRoles,
   _buildDisconnectSwitchRoles,
+  _buildCompactHvDistributorRoles,
   _buildSwitchgearRoles,
   _buildPadMountTransformerRoles,
   _buildMCCRoles,
@@ -1640,6 +1641,7 @@ ROLE_BUILDERS.hvTransformer = _buildHVTransformerRoles;
 ROLE_BUILDERS.facilityTransformer = _buildHVTransformerRoles;
 ROLE_BUILDERS.gridIntertieTransformer = _buildHVTransformerRoles;
 ROLE_BUILDERS.disconnectSwitch = _buildDisconnectSwitchRoles;
+ROLE_BUILDERS.compactHvDistributor = _buildCompactHvDistributorRoles;
 ROLE_BUILDERS.switchgear = _buildSwitchgearRoles;
 ROLE_BUILDERS.padMountTransformer = _buildPadMountTransformerRoles;
 ROLE_BUILDERS.mcc = _buildMCCRoles;
