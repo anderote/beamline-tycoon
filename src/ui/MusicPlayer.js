@@ -62,6 +62,7 @@ export class MusicPlayer {
     this.nextBtn = this.el.querySelector('.mp-next');
     this.shuffleBtn = this.el.querySelector('.mp-shuffle');
     this.volumeSlider = this.el.querySelector('.mp-volume');
+    this.muteBtn = this.el.querySelector('.mp-mute');
     this.themeSelect = this.el.querySelector('.mp-theme');
     this.minimizeBtn = this.el.querySelector('.mp-minimize');
     this.minimized = false;
@@ -72,6 +73,7 @@ export class MusicPlayer {
     this._suppressClick = false; // swallow the click that follows a drag
 
     this._bindEvents();
+    this._updateMuteButton();
     // The in-game player lives with the top-bar actions. Keep the
     // draggable positioning support for any standalone embedding, but never
     // let a saved floating position tear the HUD layout apart.
@@ -359,6 +361,9 @@ export class MusicPlayer {
     this.prevBtn.addEventListener('click', () => this.prev());
     this.nextBtn.addEventListener('click', () => this.next());
     this.shuffleBtn.addEventListener('click', () => this.toggleShuffle());
+    if (this.muteBtn) {
+      this.muteBtn.addEventListener('click', () => this.toggleMute());
+    }
     this.volumeSlider.addEventListener('input', (e) => {
       this.audio.volume = parseFloat(e.target.value);
       this._saveState();
@@ -418,6 +423,12 @@ export class MusicPlayer {
       this.isPlaying = false;
       this._updatePlayButton();
       this._saveState();
+    });
+    // `muted` can also change from the title-screen speaker control. Listen
+    // to the media element itself so both controls always describe the same
+    // real audio state instead of maintaining a second UI-only flag.
+    this.audio.addEventListener('volumechange', () => {
+      this._updateMuteButton();
     });
 
     // timeupdate is deliberately throttled; pagehide captures the exact final
@@ -535,6 +546,13 @@ export class MusicPlayer {
     this._saveState();
   }
 
+  toggleMute() {
+    this.audio.muted = !this.audio.muted;
+    this._updateMuteButton();
+    this._saveState();
+    return this.audio.muted;
+  }
+
   _playTrack(index) {
     this.currentIndex = index;
     const targetUrl = this.tracks[index].url;
@@ -633,6 +651,17 @@ export class MusicPlayer {
   _updatePlayButton() {
     // ▶ / ❚❚ using simple text
     this.playBtn.textContent = this.isPlaying ? '||' : '>';
+  }
+
+  _updateMuteButton() {
+    if (!this.muteBtn) return;
+    const muted = !!this.audio.muted;
+    const action = muted ? 'Unmute music' : 'Mute music';
+    this.muteBtn.textContent = muted ? '🔇' : '🔊';
+    this.muteBtn.title = action;
+    this.muteBtn.setAttribute('aria-label', action);
+    this.muteBtn.setAttribute('aria-pressed', muted ? 'true' : 'false');
+    this.muteBtn.classList.toggle('active', !muted);
   }
 
   _generateShuffleOrder() {

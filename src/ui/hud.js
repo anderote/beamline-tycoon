@@ -213,8 +213,9 @@ UIHost.prototype._updateHUD = function() {
   // Staff bar (top bar portraits)
   this._renderStaffBar();
 
-  // The top bar has a dedicated systems row. Keep the remaining anchored HUD
-  // panels below both rows even when the primary row wraps on narrow screens.
+  // The top bar has fixed command and information rows. Publish its measured
+  // bottom edge for anchored warnings as well, so a future token adjustment
+  // cannot leave those overlays behind.
   const topBar = document.getElementById('top-bar');
   if (topBar) {
     document.documentElement.style.setProperty(
@@ -3091,12 +3092,9 @@ UIHost.prototype._bindManualEntryPoints = function() {
 
 // --- System Stats Panel ---
 
-// The stats panel sits directly under the top bar. Its CSS `top` is a fallback
-// for a single-row bar only: the bar WRAPS to a second and third row on a
-// narrow window (see #top-bar's flex-wrap), and the panel stacks below it
-// (z-index 99 vs 100), so a fixed offset slides the panel underneath the bar
-// and leaves half a row of it peeking out. Measure the bar, as the blocker
-// panel and the music player already do.
+// The system panel sits directly under the two-row top bar. Measure rather
+// than repeat the CSS token so zoom and any future density setting remain
+// aligned to the rendered edge.
 function positionSystemStatsPanel(panel) {
   if (!panel) return;
   const bar = document.getElementById('top-bar');

@@ -880,8 +880,9 @@ export class TitleScreen {
   _toggleMute() {
     const m = window.__blMusic;
     if (m && m.audio) {
-      m.audio.muted = !m.audio.muted;
-      this._muted = m.audio.muted;
+      this._muted = typeof m.toggleMute === 'function'
+        ? m.toggleMute()
+        : (m.audio.muted = !m.audio.muted);
     } else {
       this._muted = !this._muted;
     }
