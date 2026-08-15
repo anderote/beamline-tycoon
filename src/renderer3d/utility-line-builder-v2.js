@@ -341,8 +341,8 @@ function getOpenCapMaterial(utilityType) {
   const descriptor = UTILITY_TYPES[utilityType];
   const mat = new THREE.MeshStandardMaterial({
     color: 0xffffff, emissive: new THREE.Color(descriptor?.color || '#ffffff'),
-    emissiveIntensity: 0.9, roughness: 0.2, metalness: 0.2,
-    transparent: true, opacity: 0.9,
+    emissiveIntensity: 0.45, roughness: 0.2, metalness: 0.2,
+    transparent: true, opacity: 0.70,
   });
   _openCapMatCache.set(utilityType, shared(mat));
   return mat;
@@ -523,7 +523,7 @@ function buildLineGroup(line, placeablesById, errorStatus, reversed) {
   const openCapMat = getOpenCapMaterial(line.utilityType);
   if (!line.start && points.length > 0) {
     const cap = new THREE.Mesh(
-      new THREE.SphereGeometry(radius * 2.0, 12, 10),
+      new THREE.SphereGeometry(radius * 1.35, 10, 8),
       openCapMat,
     );
     cap.position.copy(points[0]);
@@ -531,7 +531,7 @@ function buildLineGroup(line, placeablesById, errorStatus, reversed) {
   }
   if (!line.end && points.length > 0) {
     const cap = new THREE.Mesh(
-      new THREE.SphereGeometry(radius * 2.0, 12, 10),
+      new THREE.SphereGeometry(radius * 1.35, 10, 8),
       openCapMat,
     );
     cap.position.copy(points[points.length - 1]);
@@ -559,13 +559,13 @@ function buildLineGroup(line, placeablesById, errorStatus, reversed) {
       color: flow.color || descriptor.color || '#ffffff',
       speed: flow.speed,
       period: flow.period,
-      radius: Math.max(0.055, radius * (style === 'rectWaveguide' ? 1.45 : 1.8)),
-      groundRadius: style === 'rectWaveguide' ? 0.62 : 0.46,
+      radius: Math.max(0.040, radius * (style === 'rectWaveguide' ? 1.10 : 1.30)),
+      groundRadius: style === 'rectWaveguide' ? 0.42 : 0.32,
       state: errorStatus || 'ok',
       light: {
-        intensity: line.utilityType === 'rfWaveguide' ? 0.72 : 0.52,
-        distance: line.utilityType === 'rfWaveguide' ? 3.4 : 2.8,
-        daylightFloor: 0.38,
+        intensity: line.utilityType === 'rfWaveguide' ? 0.42 : 0.28,
+        distance: line.utilityType === 'rfWaveguide' ? 2.4 : 1.9,
+        daylightFloor: 0.25,
       },
     }];
   }

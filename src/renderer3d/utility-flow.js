@@ -37,17 +37,17 @@ import { UTILITY_TYPES, UTILITY_TYPE_LIST } from '../utility/registry.js';
 //
 export const FLOW_PARAMS = {
   hvCable: {
-    speed: 0.65, period: 5.0, width: 3.5, strength: 1.15, baseGlow: 0.12,
+    speed: 0.72, period: 3.2, width: 2.0, strength: 0.72, baseGlow: 0.06,
     color: '#8f94c8',
   },
   powerCable: {
-    speed: 0.65, period: 5.0, width: 3.5, strength: 1.15, baseGlow: 0.12,
+    speed: 0.72, period: 3.2, width: 2.0, strength: 0.72, baseGlow: 0.06,
   },
   vacuumPipe: {
     // Gas load drifts from beam chambers toward the pump. Kept restrained so
     // a vacuum header reads as molecular flow in pipework, not another power
     // cable; direction is inverted in UtilityLineBuilderV2, not in the shader.
-    speed: 0.45, period: 3.6, width: 0.55, strength: 0.8, baseGlow: 0,
+    speed: 0.50, period: 2.5, width: 0.40, strength: 0.50, baseGlow: 0,
     color: '#aebbc2',
   },
   rfWaveguide: {
@@ -55,17 +55,17 @@ export const FLOW_PARAMS = {
     // crest crosses the selective-bloom threshold all along the geometry;
     // the quieter base keeps the complete guide faintly luminous between
     // crests without introducing a separate point-light hotspot.
-    speed: 0.65, period: 3.0, width: 2.1, strength: 2.6, baseGlow: 0.35,
+    speed: 0.72, period: 2.2, width: 1.35, strength: 1.35, baseGlow: 0.15,
   },
   coolingWater: {
     // The reference treatment: a broad, slow band whose neighbours nearly
     // merge into a steady flowing gradient.
-    speed: 0.55, period: 5.0, width: 3.5, strength: 1.1, baseGlow: 0.12,
+    speed: 0.60, period: 3.2, width: 2.0, strength: 0.70, baseGlow: 0.06,
   },
   plantWater: {
     // Condenser/make-up water is a larger, slower outdoor service than the
     // tightly controlled LCW process loop.
-    speed: 0.38, period: 5.5, width: 3.8, strength: 0.9, baseGlow: 0.08,
+    speed: 0.42, period: 3.6, width: 2.25, strength: 0.58, baseGlow: 0.05,
   },
   cryoTransfer: {
     // Very slow drift plus a small always-on baseGlow — the "faint constant
@@ -74,11 +74,11 @@ export const FLOW_PARAMS = {
     // frost forms on the OUTER jacket of a real cryo line, so the jacket
     // carrying its own baseGlow instead of just occluding the core's is the
     // physically-motivated fix, not just the convenient one.
-    speed: 0.2, period: 6.0, width: 4.2, strength: 0.9, baseGlow: 0.28,
+    speed: 0.24, period: 4.2, width: 2.6, strength: 0.58, baseGlow: 0.14,
   },
   dataFiber: {
     // Still the quickest utility, but a soft travelling wash rather than blips.
-    speed: 0.9, period: 4.0, width: 2.4, strength: 1.0, baseGlow: 0.08,
+    speed: 1.0, period: 2.8, width: 1.65, strength: 0.62, baseGlow: 0.05,
   },
 };
 
