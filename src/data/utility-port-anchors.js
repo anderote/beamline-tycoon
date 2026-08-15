@@ -130,7 +130,8 @@ export const PORT_ANCHOR_OVERRIDES = {
   // Pumps are squat and top-connected.
   turboPump: { _default: { y: 0.85 } },
   roughingPump: { _default: { y: 0.5 } },
-  roughingPumpCart: { _default: { y: 0.72, lat: 0.73, along: 0.36 } },
+  roughingPumpCart: { _default: { y: 0.98, lat: 0.24, along: 0.24 } },
+  turboPumpCart: { _default: { y: 0.90, lat: 0.24, along: 0.24 } },
   vacuumCart: { _default: { y: 1.0, lat: 0.88, along: 0.34 } },
   highCapacityVacuumStation: { _default: { y: 1.05, lat: 1.4, along: 1.38 } },
   ionPump: { _default: { y: 0.6 } },
@@ -222,6 +223,7 @@ export const PORT_ANCHOR_OVERRIDES = {
   target: { _default: { y: 0.9 }, cool_in: { y: 0.55 }, vac_in: { y: 1.0 }, data_in: { y: 1.2 } },  // cooling plate 0.46..0.53
   beamDump: { _default: { y: 0.5 } },                                            // 1.5 m shielding block, services at its foot
   faradayCup: { _default: { y: 1.0 }, data_in: { y: 1.3 }, pwr_in: { y: 0.85 } },// can 0.7..1.3, signal stalk to 1.485
+  xRayConverterStation: { _default: { y: 0.9 }, pwr_in: { y: 0.45 }, cool_in: { y: 0.55 }, data_in: { y: 1.25 } },
   detector: { _default: { y: 1.2 }, cool_in: { y: 0.7 }, vac_in: { y: 1.0 }, data_in: { y: 1.5 } },  // barrel -0.33..2.48
   hawkingDetector: { _default: { y: 1.1 }, cool_in: { y: 0.7 }, vac_in: { y: 1.0 } },  // yoke 0..1.85, pipe stub at 1.0
   blackHoleChamber: { _default: { y: 1.2 }, cool_in: { y: 0.8 }, vac_in: { y: 1.0 } }, // chamber 0.69..2.25 on a 1.55 cradle

@@ -299,9 +299,19 @@ console.log('\n--- 4. FLOW_PARAMS covers every utility ---');
   for (const t of flowing) {
     const p = FLOW_PARAMS[t];
     assert(p && Number.isFinite(p.speed) && Number.isFinite(p.period)
-      && Number.isFinite(p.width) && Number.isFinite(p.strength) && Number.isFinite(p.baseGlow),
-      `${t} has a complete { speed, period, width, strength, baseGlow } entry`);
+      && Number.isFinite(p.width) && Number.isFinite(p.strength) && Number.isFinite(p.baseGlow)
+      && Number.isFinite(p.pulseRadialScale) && Number.isFinite(p.pulseLengthScale),
+      `${t} has complete motion, glow, and pulse-shape parameters`);
   }
+  assert(FLOW_PARAMS.rfWaveguide.pulseRadialScale > FLOW_PARAMS.rfWaveguide.pulseLengthScale,
+    'RF uses a broad, short wavefront rather than the generic streak');
+  assert(FLOW_PARAMS.coolingWater.pulseLengthScale > FLOW_PARAMS.powerCable.pulseLengthScale * 2,
+    'cooling water uses a long fluid slug, distinct from electrical packets');
+  assert(FLOW_PARAMS.dataFiber.speed > FLOW_PARAMS.rfWaveguide.speed
+    && FLOW_PARAMS.dataFiber.light === false,
+    'data is the fastest packet train and does not cast physical light');
+  assert(FLOW_PARAMS.hvCable.period > FLOW_PARAMS.powerCable.period * 3,
+    'HV surges are sparse while branch power packets are regular');
 }
 
 console.log('\n--- 5. getLineMaterial: distinct per flowState, cached, tagged __shared ---');

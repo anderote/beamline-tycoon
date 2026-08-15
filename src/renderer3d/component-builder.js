@@ -27,6 +27,7 @@ import {
   _buildRoughingPumpRoles,
   _buildRoughingPumpCartRoles,
   _buildTurboPumpRoles,
+  _buildTurboPumpCartRoles,
   _buildVacuumCartRoles,
   _buildHighCapacityVacuumStationRoles,
   _buildVacuumManifold4Roles,
@@ -105,6 +106,7 @@ import {
   _buildDetectorRoles,
   _buildTargetRoles,
   _buildMaterialsTestStationRoles,
+  _buildXRayConverterStationRoles,
   _buildEBeamIrradiationVaultRoles,
   _buildIsotopeProductionTargetRoles,
   _buildRadiationEffectsStationRoles,
@@ -1585,6 +1587,7 @@ ROLE_BUILDERS.gateValve = _buildGateValveRoles;
 ROLE_BUILDERS.roughingPump = _buildRoughingPumpRoles;
 ROLE_BUILDERS.roughingPumpCart = _buildRoughingPumpCartRoles;
 ROLE_BUILDERS.turboPump = _buildTurboPumpRoles;
+ROLE_BUILDERS.turboPumpCart = _buildTurboPumpCartRoles;
 ROLE_BUILDERS.vacuumCart = _buildVacuumCartRoles;
 ROLE_BUILDERS.highCapacityVacuumStation = _buildHighCapacityVacuumStationRoles;
 ROLE_BUILDERS.vacuumManifold = _buildVacuumManifold4Roles;
@@ -3908,6 +3911,7 @@ ROLE_BUILDERS.beamStop   = _buildBeamStopRoles;
 ROLE_BUILDERS.detector   = _buildDetectorRoles;
 ROLE_BUILDERS.target     = _buildTargetRoles;
 ROLE_BUILDERS.materialsTestStation = _buildMaterialsTestStationRoles;
+ROLE_BUILDERS.xRayConverterStation = _buildXRayConverterStationRoles;
 ROLE_BUILDERS.eBeamIrradiationVault = _buildEBeamIrradiationVaultRoles;
 ROLE_BUILDERS.isotopeProductionTarget = _buildIsotopeProductionTargetRoles;
 ROLE_BUILDERS.radiationEffectsStation = _buildRadiationEffectsStationRoles;

@@ -369,7 +369,7 @@ function buildRectSegment(p0, p1, width, height, material, runDist) {
   return mesh;
 }
 
-function cornerSweepInfo(prev, at, next, descriptor) {
+function cornerBendInfo(prev, at, next, descriptor) {
   const incoming = new THREE.Vector3().subVectors(at, prev);
   const outgoing = new THREE.Vector3().subVectors(next, at);
   const inLen = incoming.length(), outLen = outgoing.length();
@@ -378,7 +378,9 @@ function cornerSweepInfo(prev, at, next, descriptor) {
   outgoing.normalize();
   const dot = incoming.x * outgoing.x + incoming.y * outgoing.y + incoming.z * outgoing.z;
   if (dot > 0.9999 || dot < -0.9999) return null;
-  const authored = descriptor?.bendRadiusMeters || 0;
+  const authored = descriptor?.bendStyle === 'mitered'
+    ? descriptor?.miterLengthMeters || 0
+    : descriptor?.bendRadiusMeters || 0;
   if (!(authored > 0)) return null;
   // Keep a short visible straight on both sides even on legacy routes whose
   // stored legs predate the service's current bend-radius rule.
@@ -398,11 +400,11 @@ function trimmedSegment(points, index, descriptor) {
   let start = points[index].clone();
   let end = points[index + 1].clone();
   if (index > 0) {
-    const bend = cornerSweepInfo(points[index - 1], points[index], points[index + 1], descriptor);
+    const bend = cornerBendInfo(points[index - 1], points[index], points[index + 1], descriptor);
     if (bend) start = bend.end;
   }
   if (index + 1 < points.length - 1) {
-    const bend = cornerSweepInfo(points[index], points[index + 1], points[index + 2], descriptor);
+    const bend = cornerBendInfo(points[index], points[index + 1], points[index + 2], descriptor);
     if (bend) end = bend.start;
   }
   return { start, end };
@@ -488,6 +490,90 @@ function buildRectSweepElbow(info, width, height, material) {
   return mesh;
 }
 
+// Compact H-plane waveguide elbow with a true 45-degree miter face. The
+// centreline turns by 90 degrees at `at`; in that bend plane, the guide body is
+// a concave L whose outside corner is cut on the diagonal through the
+// centreline. Extruding that outline by the guide height leaves planar faces
+// and crisp edges instead of approximating the bend with a rounded sweep.
+function buildRectMiterElbow(info, width, height, material) {
+  if (!THREE.BufferGeometry || !THREE.Float32BufferAttribute || !THREE.ShapeUtils) return null;
+  // Deck bends stay horizontal. Port riser bends retain the compact joint
+  // fallback below because the straight rectangular sections use different
+  // roll frames on a horizontal-to-vertical turn.
+  if (Math.abs(info.incoming.y) > 1e-4 || Math.abs(info.outgoing.y) > 1e-4) return null;
+
+  const halfWidth = width * 0.5;
+  if (info.trim <= halfWidth + 1e-4) return null;
+  const normal = new THREE.Vector3().crossVectors(info.incoming, info.outgoing);
+  if (normal.lengthSq() < 1e-8) return null;
+  normal.normalize();
+
+  // Coordinates are in the bend plane: a follows the incoming leg and b the
+  // outgoing leg. The (-half,-half) -> (+half,+half) edge is the miter face;
+  // (-half,+half) is the inside re-entrant corner.
+  const contour = [
+    new THREE.Vector2(-info.trim, -halfWidth),
+    new THREE.Vector2(-halfWidth, -halfWidth),
+    new THREE.Vector2(halfWidth, halfWidth),
+    new THREE.Vector2(halfWidth, info.trim),
+    new THREE.Vector2(-halfWidth, info.trim),
+    new THREE.Vector2(-halfWidth, halfWidth),
+    new THREE.Vector2(-info.trim, halfWidth),
+  ];
+  const capTriangles = THREE.ShapeUtils.triangulateShape(contour, []);
+  if (!capTriangles.length) return null;
+
+  const positions = [];
+  const uvs = [];
+  const indices = [];
+  const halfHeight = height * 0.5;
+  const worldPoint = (point, offset) => new THREE.Vector3(
+    info.at.x + info.incoming.x * point.x + info.outgoing.x * point.y + normal.x * offset,
+    info.at.y + info.incoming.y * point.x + info.outgoing.y * point.y + normal.y * offset,
+    info.at.z + info.incoming.z * point.x + info.outgoing.z * point.y + normal.z * offset,
+  );
+  const pushVertex = (point, offset, u, v) => {
+    const world = worldPoint(point, offset);
+    positions.push(world.x, world.y, world.z);
+    uvs.push(u, v);
+    return positions.length / 3 - 1;
+  };
+
+  // Duplicate vertices between caps and side faces so computed normals stay
+  // flat and the miter reads as fabricated sheet-metal rather than a soft
+  // bevel. The contour is counter-clockwise in the incoming/outgoing basis.
+  for (const triangle of capTriangles) {
+    const top = triangle.map(i => pushVertex(contour[i], halfHeight, contour[i].x, contour[i].y));
+    indices.push(top[0], top[1], top[2]);
+    const bottom = triangle.map(i => pushVertex(contour[i], -halfHeight, contour[i].x, contour[i].y));
+    indices.push(bottom[0], bottom[2], bottom[1]);
+  }
+  for (let i = 0; i < contour.length; i++) {
+    const next = (i + 1) % contour.length;
+    const edgeLength = contour[i].distanceTo(contour[next]);
+    const base = positions.length / 3;
+    pushVertex(contour[i], -halfHeight, 0, 0);
+    pushVertex(contour[next], -halfHeight, edgeLength, 0);
+    pushVertex(contour[next], halfHeight, edgeLength, height);
+    pushVertex(contour[i], halfHeight, 0, height);
+    indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.userData = {
+    isUtilityJoint: true,
+    isUtilityMiterElbow: true,
+    miterAngle: 45,
+    miterLength: info.trim,
+  };
+  return mesh;
+}
+
 function buildServiceFitting(point, direction, descriptor, material) {
   if (!point || !direction || !descriptor?.fittingStyle) return null;
   const radius = descriptor.pipeRadiusMeters || 0.04;
@@ -544,11 +630,9 @@ function addInlineCouplers(group, start, end, descriptor, material) {
 //
 // Straight segments butt-joined at a waypoint leave a notch on the OUTSIDE of
 // every bend and a self-overlap on the inside, which is what made the runs read
-// as a chain of separate rods rather than as one pipe. Rather than mitre the
-// segment ends (which would need per-corner geometry and still fails where
-// three-way taps meet), we drop a joint body on the waypoint: it fills the
-// notch and swallows the overlap, and at these radii that is as much elbow as
-// a pipe needs to read as plumbing.
+// as a chain of separate rods rather than as one pipe. Service descriptors can
+// replace that overlap with authored sweep or miter geometry; generic lines
+// still receive a small joint body that fills the notch.
 
 // A bend is only a bend if the direction actually changes. Paths carry
 // redundant collinear waypoints — a straight run is stored tile by tile, and a
@@ -577,12 +661,17 @@ function buildCornerJoint(prev, at, next, style, radius, material, descriptor = 
   const cosTurn = (ix * ox + iy * oy + iz * oz) / (inLen * outLen);
   if (cosTurn > COLLINEAR_DOT) return null;
 
-  const sweep = cornerSweepInfo(prev, at, next, descriptor);
-  if (sweep) {
-    const curved = style === 'rectWaveguide'
-      ? buildRectSweepElbow(sweep, radius * 2, radius * 1.4, material)
-      : buildRoundSweepElbow(sweep, radius, material);
-    if (curved) return curved;
+  const bend = cornerBendInfo(prev, at, next, descriptor);
+  if (bend) {
+    let formed;
+    if (style === 'rectWaveguide' && descriptor?.bendStyle === 'mitered') {
+      formed = buildRectMiterElbow(bend, radius * 2, radius * 1.4, material);
+    } else if (style === 'rectWaveguide') {
+      formed = buildRectSweepElbow(bend, radius * 2, radius * 1.4, material);
+    } else {
+      formed = buildRoundSweepElbow(bend, radius, material);
+    }
+    if (formed) return formed;
   }
 
   let geo;
@@ -832,10 +921,10 @@ function buildLineGroup(
         prev, at, next, style, radius * 1.6, jointJacketMat);
       if (jacketJoint) group.add(jacketJoint);
     }
-    const sweep = cornerSweepInfo(prev, at, next, descriptor);
-    if (sweep && descriptor.fittingStyle) {
-      const entry = buildServiceFitting(sweep.start, sweep.incoming, descriptor, hardwareMat);
-      const exit = buildServiceFitting(sweep.end, sweep.outgoing, descriptor, hardwareMat);
+    const bend = cornerBendInfo(prev, at, next, descriptor);
+    if (bend && descriptor.fittingStyle) {
+      const entry = buildServiceFitting(bend.start, bend.incoming, descriptor, hardwareMat);
+      const exit = buildServiceFitting(bend.end, bend.outgoing, descriptor, hardwareMat);
       if (entry) group.add(entry);
       if (exit) group.add(exit);
     }
@@ -901,12 +990,14 @@ function buildLineGroup(
       speed: flow.speed,
       period: flow.period,
       radius: Math.max(0.040, radius * (style === 'rectWaveguide' ? 1.10 : 1.30)),
+      radialScale: flow.pulseRadialScale,
+      lengthScale: flow.pulseLengthScale,
       groundSpill: false,
       state: errorStatus || 'ok',
-      light: {
-        intensity: line.utilityType === 'rfWaveguide' ? 0.26 : 0.16,
-        distance: line.utilityType === 'rfWaveguide' ? 2.0 : 1.55,
-        daylightFloor: 0.25,
+      light: flow.light === false ? false : {
+        intensity: flow.lightIntensity ?? 0.16,
+        distance: flow.lightDistance ?? 1.55,
+        daylightFloor: flow.daylightFloor ?? 0.25,
       },
     }];
   }
@@ -978,19 +1069,21 @@ function buildPreviewLine(preview) {
     const prev = points[i - 1], at = points[i], next = points[i + 1];
     const joint = buildCornerJoint(prev, at, next, style, radius, mat, descriptor);
     if (joint) group.add(joint);
-    const sweep = cornerSweepInfo(prev, at, next, descriptor);
-    if (sweep && descriptor.fittingStyle) {
-      const entry = buildServiceFitting(sweep.start, sweep.incoming, descriptor, hardwareMat);
-      const exit = buildServiceFitting(sweep.end, sweep.outgoing, descriptor, hardwareMat);
+    const bend = cornerBendInfo(prev, at, next, descriptor);
+    if (bend && descriptor.fittingStyle) {
+      const entry = buildServiceFitting(bend.start, bend.incoming, descriptor, hardwareMat);
+      const exit = buildServiceFitting(bend.end, bend.outgoing, descriptor, hardwareMat);
       if (entry) group.add(entry);
       if (exit) group.add(exit);
     }
   }
   // Flexible/open generic utilities keep waypoint beads for hand feedback.
-  // Rigid services show their actual swept elbows and collars instead.
+  // Services with physical fittings show their actual elbows and collars
+  // instead, even when their placement rules are deliberately forgiving.
   const sphereMat = mat;
   const markerPoints = flexible ? [points[0], points[points.length - 1]]
-    : (descriptor.routingProfile === 'rigid' ? [points[0], points[points.length - 1]] : points);
+    : (descriptor.fittingStyle || descriptor.routingProfile === 'rigid'
+        ? [points[0], points[points.length - 1]] : points);
   for (const p of markerPoints) {
     const sg = new THREE.SphereGeometry(radius * 1.2, 10, 8);
     const sm = new THREE.Mesh(sg, sphereMat);

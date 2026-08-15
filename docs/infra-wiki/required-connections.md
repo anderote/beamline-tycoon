@@ -103,6 +103,7 @@ Equipment power demand is its own energy cost, so the panel and the bill can nev
 | Roughing Pump | 0.5 | 15 L/s |
 | Four-Pump Roughing Cart | 2 | 60 L/s roughing/backing |
 | Turbo Pump | 1 | 300 L/s |
+| Turbo Pump Cart | 4 | 1,200 L/s high vacuum; needs 60 L/s backing |
 | Vacuum Cart | 3 | Integrated 30 L/s roughing + 300 L/s turbo |
 | High-Capacity Vacuum Station | 18 | Integrated 150 L/s roughing + 3,000 L/s turbo |
 | Ti Sublimation Pump | | 400 L/s |

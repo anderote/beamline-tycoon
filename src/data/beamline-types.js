@@ -134,7 +134,7 @@ export const BEAMLINE_TYPES = {
     // this type's identity is withheld by allowlists: no cryo, no ion front
     // end, no detector.
     excludes: ['sextupole', 'velocitySelector', 'emittanceFilter'],
-    requiredEndpoint: ['eBeamIrradiationVault', 'beamStop', 'faradayCup'],
+    requiredEndpoint: ['xRayConverterStation', 'eBeamIrradiationVault', 'beamStop', 'faradayCup'],
     blurb: 'You sell dose, by the pallet. Medical-device sterilisation, cable crosslinking, food irradiation — paid on beam power, not beam quality.',
     accentColor: 0x46c25a,
   },

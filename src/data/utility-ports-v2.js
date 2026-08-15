@@ -499,6 +499,11 @@ const BEAMLINE_UTILITY_PORTS = {
     cool_in: { utility: 'coolingWater', side: 'left',  offsetAlong: 0.55, role: 'sink', params: { heatLoad: 3 } },
     data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.5, role: 'sink', params: { demand: 1 } },
   },
+  xRayConverterStation: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 18 } },
+    cool_in: { utility: 'coolingWater', side: 'left',  offsetAlong: 0.6, role: 'sink', params: { heatLoad: 90 } },
+    data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.5, role: 'sink', params: { demand: 4 } },
+  },
   eBeamIrradiationVault: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 35 } },
     cool_in: { utility: 'coolingWater', side: 'left',  offsetAlong: 0.55, role: 'sink', params: { heatLoad: 120 } },
@@ -1080,6 +1085,7 @@ const INFRA_UTILITY_PORTS = {
   roughingPump:        { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 15, roughingSpeed: 15, vacuumStage: 'rough', ultimatePressure: 1e-3 } } },
   roughingPumpCart:    { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 60, roughingSpeed: 60, vacuumStage: 'rough', ultimatePressure: 1e-3 } } },
   turboPump:           { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 300, highVacSpeed: 300, backingDemand: 15, vacuumStage: 'high', ultimatePressure: 1e-8 } } },
+  turboPumpCart:       { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 1200, highVacSpeed: 1200, backingDemand: 60, vacuumStage: 'high', ultimatePressure: 1e-8 } } },
   vacuumCart:          { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 330, roughingSpeed: 30, highVacSpeed: 300, integratedBacking: true, vacuumStage: 'integrated', ultimatePressure: 1e-8 } } },
   highCapacityVacuumStation: { vac_out: { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 3000, roughingSpeed: 150, highVacSpeed: 3000, integratedBacking: true, vacuumStage: 'integrated', ultimatePressure: 1e-8 } } },
   ionPump:             { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 600, uhvSpeed: 600, vacuumStage: 'uhv', requiresHighVac: true, ultimatePressure: 1e-11 } } },

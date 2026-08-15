@@ -89,6 +89,30 @@ test('path effects can keep emissive crests and real-light proxies without floor
   system.dispose();
 });
 
+test('path effects honor utility-specific silhouettes and can opt out of room light', () => {
+  const scene = new Three.Scene();
+  const system = new VisualEffectSystem(scene, { pulseBudget: 8, lightProxyBudget: 4 });
+  system.syncScope('utilities', [{
+    id: 'fiber-1', kind: 'pathPulse', groundSpill: false,
+    path: [{ x: 0, y: 0.1, z: 0 }, { x: 2, y: 0.1, z: 0 }],
+    color: '#eeeeee', speed: 4, period: 4, radius: 0.1,
+    radialScale: 0.4, lengthScale: 0.6, light: false,
+  }]);
+
+  system.update(0, 1);
+  const matrix = new Three.Matrix4();
+  const position = new Three.Vector3();
+  const rotation = new Three.Quaternion();
+  const scale = new Three.Vector3();
+  system._pulseMesh.getMatrixAt(0, matrix);
+  matrix.decompose(position, rotation, scale);
+  assert.ok(Math.abs(scale.x - 0.04) < 1e-6 && Math.abs(scale.z - 0.06) < 1e-6,
+    'the descriptor controls radial and longitudinal crest shape');
+  assert.equal(system.getStats().lightCandidates, 0,
+    'an informational utility can sparkle without casting room light');
+  system.dispose();
+});
+
 test('surface glows animate independently while retaining shared shader structure', () => {
   const scene = new Three.Scene();
   const root = new Three.Group();

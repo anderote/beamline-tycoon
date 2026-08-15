@@ -56,7 +56,7 @@ export class BeamlineDesigner {
     this.draftNodes = [];       // cloned ordered node list
     this.originalNodes = [];    // snapshot for diffing
     this.draftEnvelope = null;  // physics result for draft
-    this.draftPhysicsResult = null; // terminal metrics used by mission plots
+    this.draftPhysicsResult = null; // terminal metrics used by the plot mission readout
     // Physics result for originalNodes — the beamline as actually built, so the
     // plots can show what the draft changes rather than only where it lands.
     // Null in sandbox mode (openDesign), where there is no "current" at all.

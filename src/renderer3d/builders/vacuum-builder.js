@@ -272,76 +272,86 @@ export function _buildRoughingPumpRoles() {
 }
 
 /**
- * Four-Pump Roughing Cart — four compact dry pumps on a common wheeled deck.
- * The paired rows make the four real stages legible from the normal camera;
- * a common side header explains why the cart exposes one vacuum connection.
+ * Shared 2×1-subtile cart frame. The outermost wheel and handle vertices stay
+ * inside X ±0.25 m and Z ±0.5 m so the rendered shell matches placement.
+ */
+function buildCompactPumpCartFrame(b) {
+  {
+    const g = new THREE.BoxGeometry(0.46, 0.06, 0.92);
+    applyTiledBoxUVs(g, 0.46, 0.06, 0.92);
+    pushT(b.stand, g, trans(0, 0.17, 0));
+  }
+  for (const x of [-0.205, 0.205]) {
+    for (const z of [-0.38, 0.38]) {
+      const g = new THREE.CylinderGeometry(0.07, 0.07, 0.05, 10);
+      applyTiledCylinderUVs(g, 0.07, 0.05, 10);
+      pushT(b.detail, g, new THREE.Matrix4().multiplyMatrices(
+        trans(x, 0.09, z), rotZ(Math.PI / 2),
+      ));
+    }
+  }
+  for (const x of [-0.19, 0.19]) {
+    const g = new THREE.BoxGeometry(0.025, 1.0, 0.025);
+    applyTiledBoxUVs(g, 0.025, 1.0, 0.025);
+    pushT(b.stand, g, trans(x, 0.73, -0.43));
+  }
+  {
+    const g = new THREE.CylinderGeometry(0.02, 0.02, 0.38, 8);
+    applyTiledCylinderUVs(g, 0.02, 0.38, 8);
+    pushT(b.stand, g, new THREE.Matrix4().multiplyMatrices(
+      trans(0, 1.23, -0.43), rotZ(Math.PI / 2),
+    ));
+  }
+}
+
+/**
+ * Four-Pump Roughing Cart — four miniature dry-pump cartridges in a compact
+ * two-level rack. The stacked layout preserves all four visible stages while
+ * fitting the cart into the same 2×1-subtile service slot as a single pump.
  */
 export function _buildRoughingPumpCartRoles() {
   const b = makeBuckets();
+  buildCompactPumpCartFrame(b);
 
-  // Deck, four casters, and a push handle.
-  {
-    const g = new THREE.BoxGeometry(1.36, 0.09, 1.82);
-    applyTiledBoxUVs(g, 1.36, 0.09, 1.82);
-    pushT(b.stand, g, trans(0, 0.20, 0));
-  }
-  for (const x of [-0.55, 0.55]) {
-    for (const z of [-0.72, 0.72]) {
-      const g = new THREE.CylinderGeometry(0.11, 0.11, 0.07, 10);
-      applyTiledCylinderUVs(g, 0.11, 0.07, 10);
-      pushT(b.detail, g, new THREE.Matrix4().multiplyMatrices(
-        trans(x, 0.13, z), rotZ(Math.PI / 2),
-      ));
-    }
-  }
-  for (const x of [-0.55, 0.55]) {
-    const g = new THREE.BoxGeometry(0.05, 0.82, 0.05);
-    applyTiledBoxUVs(g, 0.05, 0.82, 0.05);
-    pushT(b.stand, g, trans(x, 0.64, -0.84));
-  }
-  {
-    const g = new THREE.CylinderGeometry(0.03, 0.03, 1.12, 8);
-    applyTiledCylinderUVs(g, 0.03, 1.12, 8);
-    pushT(b.stand, g, new THREE.Matrix4().multiplyMatrices(
-      trans(0, 1.05, -0.84), rotZ(Math.PI / 2),
-    ));
+  // Two rack shelves carry a front/rear pump pair on each level.
+  for (const y of [0.29, 0.66]) {
+    const g = new THREE.BoxGeometry(0.36, 0.035, 0.78);
+    applyTiledBoxUVs(g, 0.36, 0.035, 0.78);
+    pushT(b.stand, g, trans(0, y, 0));
   }
 
-  // Four dry-pump modules in a 2×2 bank.
-  for (const x of [-0.35, 0.35]) {
-    for (const z of [-0.38, 0.38]) {
-      const motor = new THREE.CylinderGeometry(0.13, 0.13, 0.34, 12);
-      applyTiledCylinderUVs(motor, 0.13, 0.34, 12);
+  // Four dry-pump modules: two along the cart on each of two levels.
+  for (const y of [0.42, 0.79]) {
+    for (const z of [-0.27, 0.27]) {
+      const motor = new THREE.CylinderGeometry(0.075, 0.075, 0.16, 12);
+      applyTiledCylinderUVs(motor, 0.075, 0.16, 12);
       pushT(b.iron, motor, new THREE.Matrix4().multiplyMatrices(
-        trans(x, 0.43, z - 0.13), rotX(Math.PI / 2),
+        trans(0, y, z - 0.07), rotX(Math.PI / 2),
       ));
-      const housing = new THREE.BoxGeometry(0.42, 0.34, 0.34);
-      applyTiledBoxUVs(housing, 0.42, 0.34, 0.34);
-      pushT(b.accent, housing, trans(x, 0.43, z + 0.18));
+      const housing = new THREE.BoxGeometry(0.28, 0.18, 0.18);
+      applyTiledBoxUVs(housing, 0.28, 0.18, 0.18);
+      pushT(b.accent, housing, trans(0, y, z + 0.08));
     }
   }
 
-  // Common header along the right side, with four short branch risers and a
-  // flange exactly at the authored `vac_out` mount.
+  // Common header and four risers converge on one right-side connection.
   {
-    const g = new THREE.CylinderGeometry(0.065, 0.065, 1.30, 12);
-    applyTiledCylinderUVs(g, 0.065, 1.30, 12);
+    const g = new THREE.CylinderGeometry(0.035, 0.035, 0.72, 12);
+    applyTiledCylinderUVs(g, 0.035, 0.72, 12);
     pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
-      trans(0.53, 0.72, 0), rotX(Math.PI / 2),
+      trans(0.18, 0.98, 0), rotX(Math.PI / 2),
     ));
   }
-  for (const z of [-0.38, 0.38]) {
-    for (const x of [-0.35, 0.35]) {
-      const g = new THREE.CylinderGeometry(0.035, 0.035, 0.28, 8);
-      applyTiledCylinderUVs(g, 0.035, 0.28, 8);
-      pushT(b.pipe, g, trans(x, 0.59, z));
-    }
+  for (const z of [-0.30, -0.10, 0.10, 0.30]) {
+    const g = new THREE.CylinderGeometry(0.018, 0.018, 0.20, 8);
+    applyTiledCylinderUVs(g, 0.018, 0.20, 8);
+    pushT(b.pipe, g, trans(0.12, 0.88, z));
   }
   {
-    const g = new THREE.CylinderGeometry(0.11, 0.11, 0.08, 12);
-    applyTiledCylinderUVs(g, 0.11, 0.08, 12);
+    const g = new THREE.CylinderGeometry(0.08, 0.08, 0.05, 12);
+    applyTiledCylinderUVs(g, 0.08, 0.05, 12);
     pushT(b.detail, g, new THREE.Matrix4().multiplyMatrices(
-      trans(0.73, 0.72, 0.36), rotZ(Math.PI / 2),
+      trans(0.225, 0.98, 0.24), rotZ(Math.PI / 2),
     ));
   }
 
@@ -405,6 +415,60 @@ export function _buildTurboPumpRoles() {
       new THREE.Matrix4().makeRotationZ(-Math.PI / 2),
     );
     pushT(b.detail, g, m);
+  }
+
+  return b;
+}
+
+/**
+ * Turbo Pump Cart — four compact vertical turbo stages sharing a mobile frame
+ * and high-conductance header. It is a high-vacuum stage only: the separate
+ * 60 L/s backing requirement remains visible in the simulation and catalogue.
+ */
+export function _buildTurboPumpCartRoles() {
+  const b = makeBuckets();
+  buildCompactPumpCartFrame(b);
+
+  for (const x of [-0.10, 0.10]) {
+    for (const z of [-0.22, 0.22]) {
+      const motor = new THREE.CylinderGeometry(0.085, 0.085, 0.22, 12);
+      applyTiledCylinderUVs(motor, 0.085, 0.22, 12);
+      pushT(b.iron, motor, trans(x, 0.41, z));
+
+      const turbo = new THREE.CylinderGeometry(0.068, 0.068, 0.45, 12);
+      applyTiledCylinderUVs(turbo, 0.068, 0.45, 12);
+      pushT(b.pipe, turbo, trans(x, 0.745, z));
+
+      const ring = new THREE.CylinderGeometry(0.095, 0.095, 0.025, 12);
+      applyTiledCylinderUVs(ring, 0.095, 0.025, 12);
+      pushT(b.accent, ring, trans(x, 0.5325, z));
+
+      const flange = new THREE.CylinderGeometry(0.105, 0.105, 0.035, 12);
+      applyTiledCylinderUVs(flange, 0.105, 0.035, 12);
+      pushT(b.detail, flange, trans(x, 0.9875, z));
+
+      const branchL = 0.18 - x;
+      const branch = new THREE.CylinderGeometry(0.018, 0.018, branchL, 8);
+      applyTiledCylinderUVs(branch, 0.018, branchL, 8);
+      pushT(b.pipe, branch, new THREE.Matrix4().multiplyMatrices(
+        trans(x + branchL / 2, 0.88, z), rotZ(Math.PI / 2),
+      ));
+    }
+  }
+
+  {
+    const g = new THREE.CylinderGeometry(0.035, 0.035, 0.72, 12);
+    applyTiledCylinderUVs(g, 0.035, 0.72, 12);
+    pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+      trans(0.18, 0.90, 0), rotX(Math.PI / 2),
+    ));
+  }
+  {
+    const g = new THREE.CylinderGeometry(0.08, 0.08, 0.05, 12);
+    applyTiledCylinderUVs(g, 0.08, 0.05, 12);
+    pushT(b.detail, g, new THREE.Matrix4().multiplyMatrices(
+      trans(0.225, 0.90, 0.24), rotZ(Math.PI / 2),
+    ));
   }
 
   return b;

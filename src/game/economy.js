@@ -373,6 +373,7 @@ export function computeSystemStats(state) {
       roughingPumps: counts.roughingPump || 0,
       roughingPumpCarts: counts.roughingPumpCart || 0,
       turboPumps: counts.turboPump || 0,
+      turboPumpCarts: counts.turboPumpCart || 0,
       ionPumps: counts.ionPump || 0,
       negPumps: counts.negPump || 0,
       tiSubPumps: counts.tiSubPump || 0,

@@ -11,6 +11,8 @@ export const ProbePlots = (() => {
    *  opts (all optional; omitting opts entirely === legacy single-pass behavior):
    *    yDomain  [lo, hi] — or [[lo, hi], ...] for multi-channel plots — overrides
    *             this pass's autoscale. Use yDomainFor()/unionYDomain() to build it.
+   *    targetBand [lo, hi] — mission target on the primary y-axis. Either
+   *             bound may be null for an open-ended target.
    *    noClear  skip the clear + background fill so this pass composites over the last.
    *    ghost    draw data marks only (no bands, axes, pin lines, legend or labels),
    *             dimmed and dashed, so the pass drawn on top of it reads first. */
@@ -19,6 +21,7 @@ export const ProbePlots = (() => {
     if (!ctx || canvas.width < 10 || canvas.height < 10) return;
     const o = {
       ghost: !!(opts && opts.ghost),
+      targetBand: (opts && opts.targetBand) || null,
       yd: null,
       targets: (opts && opts.targets) || null,
     };
@@ -81,7 +84,13 @@ export const ProbePlots = (() => {
       }
     }
     if (!isFinite(lo)) { lo = 0; hi = 1; }
-    if (lo === hi) { lo -= 0.5; hi += 0.5; }
+    if (lo === hi) {
+      // A fixed 0.5-unit fallback turns a constant 50 keV beam into a roughly
+      // ±500 MeV chart (and tiny emittances into ±0.5 m·rad). Scale the padding
+      // to the value so flat traces and mission bands retain their real ratio.
+      const p = Math.max(Math.abs(lo) * 0.08, 1e-12);
+      return [lo - p, hi + p];
+    }
     const p = (hi - lo) * 0.08;
     return [lo - p, hi + p];
   }
@@ -376,8 +385,6 @@ export const ProbePlots = (() => {
     const yBottom = a.y + a.h - ((clippedLo - yMin) / span) * a.h;
 
     ctx.save();
-    ctx.fillStyle = 'rgba(80, 220, 150, 0.07)';
-    ctx.fillRect(a.x, yTop, a.w, Math.max(1, yBottom - yTop));
     ctx.strokeStyle = 'rgba(80, 220, 150, 0.55)';
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 3]);
@@ -414,7 +421,7 @@ export const ProbePlots = (() => {
     const scaled = env.map(d => ({ ...d, sx_mm: (d.sigma_x || 0) * 1000, sy_mm: (d.sigma_y || 0) * 1000 }));
     const [yMin, yMax] = _chan(o, 0, [0, 1]);
     if (!ghost) _axes(ctx, a, 's (m)', 'mm', yMin, yMax);
-    if (!ghost) _targetBand(ctx, a, o?.targets?.spotSizeMm, yMin, yMax);
+    if (!ghost) _targetBand(ctx, a, o?.targetBand || o?.targets?.spotSizeMm, yMin, yMax);
     _line(ctx, a, scaled, 'sx_mm', '#44aaff', xMin, xMax, yMin, yMax, false, ghost);
     _line(ctx, a, scaled, 'sy_mm', '#ff6644', xMin, xMax, yMin, yMax, true, ghost);
     if (ghost) return;
@@ -428,7 +435,7 @@ export const ProbePlots = (() => {
     const ghost = o && o.ghost;
     const [yMin, yMax] = _chan(o, 0, [0, 1]);
     if (!ghost) _axes(ctx, a, 's (m)', 'mA', yMin, yMax);
-    if (!ghost) _targetBand(ctx, a, o?.targets?.currentMA, yMin, yMax);
+    if (!ghost) _targetBand(ctx, a, o?.targetBand || o?.targets?.currentMA, yMin, yMax);
     // Shade loss regions
     for (let i = 1; !ghost && i < env.length; i++) {
       const prev = env[i - 1], curr = env[i];
@@ -487,7 +494,7 @@ export const ProbePlots = (() => {
     }
 
     _axesDual(ctx, aR, 's (m)', `E (${eUnit})`, eMin, eMax, '\u03b7_x (m)', dMin, dMax);
-    const energyTarget = o?.targets?.energyGeV;
+    const energyTarget = o?.targetBand || o?.targets?.energyGeV;
     _targetBand(ctx, aR,
       energyTarget ? energyTarget.map(v => v == null ? null : v * eScale) : null,
       eMin, eMax);

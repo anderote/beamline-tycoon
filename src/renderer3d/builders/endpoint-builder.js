@@ -516,6 +516,59 @@ export function _buildMaterialsTestStationRoles() {
   return buckets;
 }
 
+export function _buildXRayConverterStationRoles() {
+  const buckets = _makeBuckets();
+  const halfZ = 1.5;
+
+  // An open-sided shielding cabinet keeps the conversion line readable:
+  // electron pipe -> high-Z target -> collimator -> sample -> detector.
+  _addBox(buckets, 'stand', 2.7, 0.14, 2.65, 0, 0.07, 0.05);
+  for (const x of [-1.12, 1.12]) {
+    _addBox(buckets, 'iron', 0.32, 1.15, 2.35, x, 0.645, 0.05);
+    _addBox(buckets, 'accent', 0.04, 0.14, 2.18, x * 1.15, 1.08, 0.05);
+  }
+  // Three removable roof beams imply the shielding canopy without hiding the
+  // process line from the game's elevated isometric camera.
+  for (const z of [-0.84, 0.05, 0.94]) {
+    _addBox(buckets, 'iron', 2.56, 0.18, 0.28, 0, 1.58, z);
+  }
+  _addEntryFlange(buckets, halfZ, 0.62);
+
+  // Vacuum target chamber and its water-cooled tungsten/tantalum converter.
+  _addXCylinder(buckets, 'pipe', 0.43, 0.62, 0, BEAM_HEIGHT, -0.32);
+  _addXCylinder(buckets, 'detail', 0.51, 0.08, 0, BEAM_HEIGHT, -0.62);
+  _addXCylinder(buckets, 'copper', 0.32, 0.10, 0, BEAM_HEIGHT, 0.01, 12);
+
+  // A tapered shielding cone limits the broad bremsstrahlung fan before it
+  // reaches the product fixture. CylinderGeometry's two radii make the cone
+  // visible without adding another renderer helper or content field.
+  {
+    const length = 0.58;
+    const g = new THREE.CylinderGeometry(0.17, 0.36, length, SEGS);
+    applyTiledCylinderUVs(g, 0.36, length, SEGS);
+    const rot = new THREE.Matrix4().makeRotationX(Math.PI / 2);
+    const trans = new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT, 0.37);
+    _pushTransformed(buckets.iron, g, new THREE.Matrix4().multiplyMatrices(trans, rot));
+  }
+
+  // Motorised inspection turntable and flat-panel detector.
+  _addVerticalCylinder(buckets, 'stand', 0.42, 0.12, 0, 0.32, 0.74, 12);
+  _addVerticalCylinder(buckets, 'accent', 0.32, 0.06, 0, 0.41, 0.74, 12);
+  _addBox(buckets, 'detail', 1.45, 1.2, 0.13, 0, 1.0, 1.12);
+  _addBox(buckets, 'accent', 1.18, 0.94, 0.04, 0, 1.0, 1.045);
+
+  // External controls and converter cooling headers distinguish this from a
+  // passive beam stop even when the beam axis is hidden by the shielding.
+  _addBox(buckets, 'detail', 0.42, 0.92, 0.48, -1.28, 0.6, 0.72);
+  _addBox(buckets, 'accent', 0.05, 0.35, 0.3, -1.47, 0.73, 0.72);
+  for (const x of [0.62, 0.78]) {
+    _addXCylinder(buckets, 'copper', 0.045, 1.45, x, 0.48, -0.18, 8);
+    _addVerticalCylinder(buckets, 'pipe', 0.04, 0.42, x, 0.69, 0.5, 8);
+  }
+
+  return buckets;
+}
+
 export function _buildEBeamIrradiationVaultRoles() {
   const buckets = _makeBuckets();
   // Shielding bunker plus a conveyor that clearly runs through the dose cell.

@@ -172,6 +172,13 @@ console.log('\n--- Test 8: staged pumping and gas inventory ---');
     pumpSpeed: 300, highVacSpeed: 300, backingDemand: 15,
     vacuumStage: 'high', ultimatePressure: 1e-8,
   };
+  const roughCartParams = {
+    pumpSpeed: 60, roughingSpeed: 60, vacuumStage: 'rough', ultimatePressure: 1e-3,
+  };
+  const turboCartParams = {
+    pumpSpeed: 1200, highVacSpeed: 1200, backingDemand: 60,
+    vacuumStage: 'high', ultimatePressure: 1e-8,
+  };
   const ionParams = {
     pumpSpeed: 600, uhvSpeed: 600, requiresHighVac: true,
     vacuumStage: 'uhv', ultimatePressure: 1e-11,
@@ -201,6 +208,20 @@ console.log('\n--- Test 8: staged pumping and gas inventory ---');
   assert(backed.equilibriumPressure >= HIGH_ULTIMATE_PRESSURE_MBAR
       && backed.equilibriumPressure < ROUGH_ULTIMATE_PRESSURE_MBAR,
     'a complete rough-plus-turbo stack reaches high vacuum');
+
+  const backedCart = desc.solve(mkNetwork({
+    sources: [
+      source('rough_cart', roughCartParams),
+      source('turbo_cart', turboCartParams),
+    ],
+    sinks: [sink],
+  }), lowInventory, world({
+    rough_cart: 'roughingPumpCart', turbo_cart: 'turboPumpCart',
+  })).flowState;
+  assert(backedCart.vacuumStage === 'high'
+      && backedCart.backingFactor === 1
+      && backedCart.totalCapacity === 1200,
+    'one 60 L/s roughing cart fully backs the 1,200 L/s turbo cart');
 
   const uhvInventory = { gasInventoryMbarL: 1e-6 * pipeVolume, pressureHistory: [] };
   const uhv = desc.solve(mkNetwork({
