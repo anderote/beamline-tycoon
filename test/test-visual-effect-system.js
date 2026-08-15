@@ -1,0 +1,111 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import * as Three from 'three';
+
+globalThis.THREE = Three;
+
+const {
+  prepareEffectPath, sampleEffectPath, surfaceGlowFactor, travellingPulseDistances,
+} = await import('../src/renderer3d/effect-math.js');
+const { VisualEffectSystem } = await import('../src/renderer3d/visual-effect-system.js');
+
+test('effect path sampling and travelling crests are continuous and deterministic', () => {
+  const path = prepareEffectPath([
+    { x: 0, y: 0.5, z: 0 },
+    { x: 4, y: 0.5, z: 0 },
+    { x: 4, y: 0.5, z: 3 },
+  ]);
+  assert.equal(path.length, 7);
+  assert.deepEqual(sampleEffectPath(path, 5), { x: 4, y: 0.5, z: 1 });
+  assert.deepEqual(travellingPulseDistances(path.length, 3, 1, 0), [0, 3, 6]);
+  assert.deepEqual(travellingPulseDistances(path.length, 3, 1, 1), [1, 4, 7]);
+  assert.equal(surfaceGlowFactor('statusBlink', 'machine-a', 0.5),
+    surfaceGlowFactor('statusBlink', 'machine-a', 0.5), 'machine phases are deterministic');
+  assert.equal(surfaceGlowFactor('screen', 'machine-a', 0.5, 'off'), 0.06);
+});
+
+test('path effects render every crest in two instanced draws without creating lights', () => {
+  const scene = new Three.Scene();
+  const system = new VisualEffectSystem(scene, { pulseBudget: 32, lightProxyBudget: 12 });
+  system.syncScope('utilities', [{
+    id: 'water-1', kind: 'pathPulse',
+    path: [{ x: 0, y: 0.2, z: 0 }, { x: 10, y: 0.2, z: 0 }],
+    color: '#4488ff', speed: 1, period: 5, radius: 0.1, groundRadius: 0.5,
+    light: { intensity: 0.5, distance: 3, daylightFloor: 0.4 },
+  }]);
+
+  let pointLights = 0;
+  scene.traverse((obj) => { if (obj.isPointLight) pointLights++; });
+  assert.equal(pointLights, 0, 'the scalable effect layer itself allocates no THREE lights');
+
+  system.update(0, 0);
+  assert.equal(system._pulseMesh.count, 3, 'all three visible crests are instanced');
+  assert.equal(system._spillMesh.count, 3, 'every crest gets matching projected spill');
+  assert.equal(system.getStats().lightCandidates, 3,
+    'moving proxies are merely candidates for the bounded physical-light pool');
+
+  const proxyIdentities = system.lightEmitters.slice();
+  const before = proxyIdentities.map((proxy) => proxy.position.x);
+  system.update(0.25, 0);
+  assert.deepEqual(system.lightEmitters, proxyIdentities,
+    'proxy object identities remain fixed as effects animate');
+  assert.notDeepEqual(proxyIdentities.map((proxy) => proxy.position.x), before,
+    'the fixed proxies move with their associated crests');
+
+  system.setQuality({ effectPulseCount: 1 });
+  system.update(0.1, 0);
+  assert.equal(system._pulseMesh.count, 1, 'quality parks visual instances above its budget');
+  assert.ok(system.getStats().droppedPulses > 0);
+  system.setEnabled(false);
+  assert.equal(system._pulseMesh.count, 0);
+  assert.equal(system.lightEmitters.some((proxy) => proxy.visible), false);
+  system.dispose();
+});
+
+test('surface glows animate independently while retaining shared shader structure', () => {
+  const scene = new Three.Scene();
+  const root = new Three.Group();
+  const wrapper = new Three.Group();
+  wrapper.userData.nodeId = 'pump-1';
+  wrapper.userData.effectState = 'on';
+  const source = new Three.MeshStandardMaterial({ emissive: 0x44ff66, emissiveIntensity: 2 });
+  const mesh = new Three.Mesh(new Three.BoxGeometry(1, 1, 1), source);
+  mesh.userData.role = 'glow';
+  mesh.userData.effectProfile = 'statusBlink';
+  wrapper.add(mesh);
+  root.add(wrapper);
+  scene.add(root);
+
+  const system = new VisualEffectSystem(scene, { pulseBudget: 0, lightProxyBudget: 0 });
+  system.syncSurfaceGlows('components', root);
+  assert.notEqual(mesh.material, source, 'a placement receives its own animation material');
+  const clone = mesh.material;
+  system.update(0.1, 1);
+  wrapper.userData.effectState = 'off';
+  system.update(0.1, 1);
+  assert.equal(clone.emissiveIntensity, source.emissiveIntensity * 0.06,
+    'game-driven off state reaches the emissive surface');
+  system.dispose();
+  assert.equal(mesh.material, source, 'dispose restores the builder-owned shared material');
+  mesh.geometry.dispose();
+  source.dispose();
+});
+
+test('one-shot effects combine instanced visuals with an optional physical flash sink', () => {
+  const scene = new Three.Scene();
+  const system = new VisualEffectSystem(scene, { pulseBudget: 8, lightProxyBudget: 0 });
+  const flashes = [];
+  system.setFlashHandler((...args) => { flashes.push(args); return 'pooled-light'; });
+  const burst = system.emit({
+    kind: 'burst', position: { x: 2, y: 1, z: 3 }, color: 0xff8844,
+    intensity: 12, durationMs: 500,
+  });
+  assert.ok(burst);
+  assert.equal(flashes.length, 1, 'the bounded physical-light backend receives one request');
+  system.update(0.1, 1);
+  assert.equal(system.getStats().bursts, 1);
+  assert.equal(system._pulseMesh.count, 1, 'the burst itself is an instanced emissive visual');
+  system.update(0.5, 1);
+  assert.equal(system.getStats().bursts, 0, 'transient visuals expire without scene add/remove churn');
+  system.dispose();
+});

@@ -20,7 +20,6 @@ import { UTILITY_LINE_Y } from '../utility/line-geometry.js';
 import { FLOW_PARAMS, patchFlowMaterial, bakeRunDistanceUVs, bakeRunDistanceFromPositionZ } from './utility-flow.js';
 import { BLOOM_LAYER } from './glow-pipeline.js';
 import { computeLineOrientations } from '../utility/line-orientation.js';
-import { buildFloorGlowStrip } from './floor-glow.js';
 
 // DEFAULT line centerline height. Per-utility heights come from
 // utilityLineHeight (registry): a power cord lies on the floor while a vacuum
@@ -547,16 +546,29 @@ function buildLineGroup(line, placeablesById, errorStatus, reversed) {
     group.add(buildFaultMark(polylineMidpoint(points), errorStatus));
   }
 
-  // Distributed real-light field: invisible proxies sampled along the run are
-  // claimed by LightRig's fixed PointLight pool, so nearby floors, walls and
-  // equipment receive the utility colour. Built from the SAME `points`,
-  // reversed the SAME way `reversed` already reverses the pipe's baked
-  // run-distance, so each proxy's light pulse travels source -> sink in
-  // lockstep with the emissive crest. Lives in this line's group and is
-  // disposed with it; returns null for vacuumPipe and hard-faulted runs.
-  const floorPoints = reversed ? points.slice().reverse() : points;
-  const floorGlow = buildFloorGlowStrip(floorPoints, line.utilityType, errorStatus);
-  if (floorGlow) group.add(floorGlow);
+  // Publish effect INTENT only. VisualEffectSystem owns the scalable drawing
+  // strategy (instanced crest + projected spill + optional pooled real light),
+  // so this geometry builder never allocates lights or effect meshes.
+  if (flowing) {
+    const effectPoints = reversed ? points.slice().reverse() : points;
+    const flow = FLOW_PARAMS[line.utilityType];
+    group.userData.visualEffects = [{
+      id: `utility-flow:${line.id}`,
+      kind: 'pathPulse',
+      path: effectPoints.map((p) => ({ x: p.x, y: p.y, z: p.z })),
+      color: flow.color || descriptor.color || '#ffffff',
+      speed: flow.speed,
+      period: flow.period,
+      radius: Math.max(0.055, radius * (style === 'rectWaveguide' ? 1.45 : 1.8)),
+      groundRadius: style === 'rectWaveguide' ? 0.62 : 0.46,
+      state: errorStatus || 'ok',
+      light: {
+        intensity: line.utilityType === 'rfWaveguide' ? 0.72 : 0.52,
+        distance: line.utilityType === 'rfWaveguide' ? 3.4 : 2.8,
+        daylightFloor: 0.38,
+      },
+    }];
+  }
 
   return group;
 }

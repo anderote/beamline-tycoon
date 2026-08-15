@@ -25,11 +25,9 @@
 //     pools every fixture already has — see "Spot handover" below, which is
 //     where the interesting logic lives.
 //   - "glow" meshes: userData.role === 'glow' (component-builder.js's screens
-//     / indicator lamps / hot cathodes), plus floor-glow.js's distributed,
-//     pixel-less utility-run proxies. These carry their own throw, tint, day
-//     floor and flow phase in userData.utilityLightEmitter. They get the 8
-//     non-shadow PointLights, so the nearest portion of a live run throws real
-//     moving light onto what is next to it instead of painting fake geometry.
+//     / indicator lamps / hot cathodes), plus VisualEffectSystem's moving
+//     effect proxies. They get the bounded non-shadow PointLight pool; all
+//     unbounded visual glow remains instanced/emissive.
 //
 // SpotLight over PointLight for fixtures: a shadow-casting PointLight needs a
 // CUBE shadow map — six render passes per light per frame. A SpotLight needs
@@ -72,41 +70,7 @@ const DEFAULT_GLOW_LIGHT_COLOR = 0x40e0ff; // llrfController's screen tint (comp
 const FLASH_POINT_DISTANCE = 10;     // an explosion's throw is bigger than a console's ambient glow
 const FLASH_POINT_DECAY = 2;
 const DEFAULT_FLASH_DURATION_MS = 600;
-
-function smoothstep01(t) {
-  const x = Math.max(0, Math.min(1, t));
-  return x * x * (3 - 2 * x);
-}
-
-function positiveModulo(value, divisor) {
-  return ((value % divisor) + divisor) % divisor;
-}
-
-// Match utility-flow.js's broad travelling wave closely enough for the light
-// landing on surrounding surfaces to move with the emissive crest. This is
-// deliberately evaluated per assigned pool slot (at most six in the default
-// rig), never per proxy and never by rebuilding geometry.
-export function utilityEmitterFactor(emitter, timeSeconds) {
-  const flow = emitter && emitter.flow;
-  if (!flow) return 1;
-  const period = Math.max(1e-3, Number(flow.period) || 0);
-  const width = Math.max(1e-3, Number(flow.width) || 0);
-  const distance = Number(flow.distance) || 0;
-  const speed = Number(flow.speed) || 0;
-  const cycle = positiveModulo(distance - timeSeconds * speed, period);
-  const edge = Math.min(cycle, period - cycle);
-  const pulse = 1 - smoothstep01(edge / width);
-  const depth = Math.max(0, Math.min(0.8, Number(flow.pulseDepth) || 0));
-  let factor = 1 - depth * (1 - pulse);
-  if (emitter.flowState === 'soft') {
-    // The material's soft-fault state stutters at 2.2 Hz. Keep a reduced light
-    // floor instead of going black so the real spill communicates "struggling"
-    // without becoming a harsh full-screen flash.
-    const gate = positiveModulo(timeSeconds * 2.2, 1) >= 0.5 ? 1 : 0.55;
-    factor *= gate;
-  }
-  return factor;
-}
+const POINT_RANK_SLACK = 4;
 
 // ---- Spot handover (the fixture LOD) ---------------------------------------
 //
@@ -241,6 +205,7 @@ export class LightRig {
     this._fixtureRegistry = [];
     this._fixtureCandidates = [];
     this._glowCandidates = [];
+    this._effectEmitterRegistry = [];
     this._candidatesDirty = true;
 
     // fixture id -> pool-suppression weight in [0,1]. Rebuilt IN PLACE every
@@ -333,6 +298,15 @@ export class LightRig {
   setFixtureRegistry(fixtures) {
     this._fixtureRegistry = Array.isArray(fixtures) ? fixtures : [];
     this.markDirty();
+  }
+
+  /**
+   * Supply VisualEffectSystem's fixed Object3D proxy array. Entries move and
+   * toggle visibility in place, so no scene traversal or light allocation is
+   * needed as effects animate.
+   */
+  setEffectEmitterRegistry(emitters) {
+    this._effectEmitterRegistry = Array.isArray(emitters) ? emitters : [];
   }
 
   setEnabled(v) {
@@ -450,6 +424,7 @@ export class LightRig {
     this._fixtureRegistry = [];
     this._fixtureCandidates = [];
     this._glowCandidates = [];
+    this._effectEmitterRegistry = [];
   }
 
   // ---- internals ------------------------------------------------------
@@ -459,11 +434,7 @@ export class LightRig {
     const glows = [];
     this.scene.traverse((obj) => {
       if (obj.userData && obj.userData.lightFixture) taggedFixtures.push(obj);
-      // floor-glow.js's utility-run proxies: an object with no pixels of its
-      // own whose whole purpose is to be a point-light candidate, so unlike
-      // the glow meshes below it is deliberately NOT required to be a Mesh.
-      if (obj.userData && obj.userData.utilityLightEmitter) glows.push(obj);
-      else if (obj.isMesh && obj.userData && obj.userData.role === 'glow') glows.push(obj);
+      if (obj.isMesh && obj.userData && obj.userData.role === 'glow') glows.push(obj);
     });
     const registryFixtures = this._fixtureRegistry.filter(
       (fx) => fx && fx.group && fx.def && fx.def.light,
@@ -489,7 +460,7 @@ export class LightRig {
   }
 
   _rankCandidates(candidates, focus, radiusFor = null) {
-    return candidates.map((obj, index) => {
+    return candidates.filter((obj) => obj && obj.visible !== false).map((obj, index) => {
       const p = this._worldPos(obj);
       const dx = p.x - focus.x, dy = p.y - focus.y, dz = p.z - focus.z;
       let visible = true;
@@ -737,38 +708,51 @@ export class LightRig {
       s.light.intensity = 0;
       s.assignedRef = null;
     }
-    const ranked = this._rankCandidates(this._glowCandidates, camPos)
-      .slice(0, freeSlots.length)
-      .map((entry) => ({ mesh: entry.obj }));
-    for (let i = 0; i < freeSlots.length; i++) {
-      const slot = freeSlots[i];
-      const cand = ranked[i];
-      if (!cand) {
-        slot.light.intensity = 0;
-        slot.assignedRef = null;
-        continue;
-      }
-      const p = this._worldPos(cand.mesh);
-      // A utility-run proxy (floor-glow.js) carries its own throw, tint,
-      // daylight floor and flow phase in userData.utilityLightEmitter. A
-      // glow-role mesh has none of that and falls back to the tuned constants
-      // plus its own emissive colour.
-      const utilityEmitter = cand.mesh.userData && cand.mesh.userData.utilityLightEmitter;
+    const candidates = this._effectEmitterRegistry.length
+      ? this._glowCandidates.concat(this._effectEmitterRegistry)
+      : this._glowCandidates;
+    const ranked = this._rankCandidates(candidates, camPos);
+    const rankByObject = new Map(ranked.map((entry, index) => [entry.obj, { ...entry, index }]));
+    const keepThrough = Math.min(ranked.length, freeSlots.length + POINT_RANK_SLACK);
+    const claimed = new Set();
+
+    // Preserve assignments while they remain visible and near the active
+    // band. Tiny camera changes therefore do not make point lights jump among
+    // otherwise-equivalent emitters.
+    for (const slot of freeSlots) {
+      const entry = rankByObject.get(slot.assignedRef);
+      if (entry && entry.visible && entry.index < keepThrough) claimed.add(slot.assignedRef);
+      else { slot.assignedRef = null; slot.light.intensity = 0; }
+    }
+    let next = 0;
+    for (const slot of freeSlots) {
+      if (slot.assignedRef) continue;
+      while (next < ranked.length && (!ranked[next].visible || claimed.has(ranked[next].obj))) next++;
+      const entry = ranked[next++];
+      if (!entry || !entry.visible) continue;
+      slot.assignedRef = entry.obj;
+      claimed.add(entry.obj);
+    }
+
+    for (const slot of freeSlots) {
+      const mesh = slot.assignedRef;
+      if (!mesh) continue;
+      const p = this._worldPos(mesh);
+      // Moving effect proxies carry authored throw/tint/intensity. A glow-role
+      // mesh has none and falls back to the tuned console-light constants.
+      const utilityEmitter = mesh.userData && mesh.userData.effectLightEmitter;
       slot.light.distance = utilityEmitter?.distance ?? AMBIENT_POINT_DISTANCE;
       slot.light.decay = AMBIENT_POINT_DECAY;
       slot.light.position.set(p.x, p.y, p.z);
-      const emissive = cand.mesh.material && cand.mesh.material.emissive;
+      const emissive = mesh.material && mesh.material.emissive;
       if (utilityEmitter?.color != null) slot.light.color.set(utilityEmitter.color);
       else if (emissive) slot.light.color.copy(emissive);
       else slot.light.color.set(DEFAULT_GLOW_LIGHT_COLOR);
-      const daylightFloor = Math.max(0, Math.min(
-        1, Number(utilityEmitter?.daylightFloor) || 0,
-      ));
-      const darknessScale = daylightFloor + (1 - daylightFloor) * nightFactor;
-      const flowFactor = utilityEmitterFactor(utilityEmitter, this._clockMs / 1000);
+      const daylightFloor = Math.max(0, Math.min(1, Number(utilityEmitter?.daylightFloor) || 0));
+      const darknessScale = utilityEmitter?.preScaled
+        ? 1 : daylightFloor + (1 - daylightFloor) * nightFactor;
       slot.light.intensity = AMBIENT_POINT_INTENSITY
-        * (utilityEmitter?.intensity ?? 1) * darknessScale * flowFactor;
-      slot.assignedRef = cand.mesh;
+        * (utilityEmitter?.intensity ?? 1) * darknessScale;
     }
   }
 

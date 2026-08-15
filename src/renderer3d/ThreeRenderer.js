@@ -44,6 +44,7 @@ import {
 import { OverlayShim } from './overlay-shim.js';
 import { GlowPipeline } from './glow-pipeline.js';
 import { LightRig } from './light-rig.js';
+import { VisualEffectSystem } from './visual-effect-system.js';
 import { fixtureMountY } from './fixture-light-math.js';
 import {
   MAX_FIXTURE_SHADOWS, normalizeLightingQuality, resolveLightingQuality,
@@ -591,6 +592,14 @@ export class ThreeRenderer {
       quality: this._lightingQuality,
     });
 
+    // Declarative presentation effects: scalable instanced pulses/spill and
+    // per-machine emissive animation. Builders publish descriptors; this is
+    // the only subsystem that chooses their rendering mechanism.
+    this._effectSystem = new VisualEffectSystem(this.scene, {
+      enabled: glowStored !== '0',
+      pulseBudget: this._lightingQuality.effectPulseCount,
+    });
+
     // Real lights: lamppost/wall-light shadows and explosion flashes. Shares
     // the same persisted glow toggle as GlowPipeline (see setGlowEnabled) —
     // "everything the glow feature added" is one on/off switch to the player,
@@ -605,6 +614,11 @@ export class ThreeRenderer {
       shadowMapSize: this._lightingQuality.fixtureShadowMapSize,
       shadowHz: this._lightingQuality.fixtureShadowHz,
     });
+    this._lightRig.setEffectEmitterRegistry(this._effectSystem.lightEmitters);
+    this._effectSystem.setFlashHandler(
+      (position, color, intensity, durationMs) =>
+        this._lightRig?.flash(position, color, intensity, durationMs) ?? null,
+    );
     let volumeStored;
     try { volumeStored = localStorage.getItem('beamlineTycoon.volumetricLighting'); } catch (_) { volumeStored = null; }
     this._volumetricEnabled = volumeStored !== '0' && glowStored !== '0';
@@ -1499,9 +1513,9 @@ export class ThreeRenderer {
    */
   setGlowEnabled(enabled) {
     if (this._glowPipeline) this._glowPipeline.setEnabled(enabled);
+    if (this._effectSystem) this._effectSystem.setEnabled(enabled);
     if (this._lightRig) this._lightRig.setEnabled(enabled);
     if (this._volumePool) this._volumePool.setEnabled(enabled && this._volumetricEnabled);
-    this._applyGlowToggleToUtilityFields();
   }
 
   get glowEnabled() {
@@ -1525,6 +1539,7 @@ export class ThreeRenderer {
       maxTextureSize: this.renderer?.capabilities?.maxTextureSize,
     });
     if (this._lightRig) this._lightRig.setQuality(this._lightingQuality);
+    if (this._effectSystem) this._effectSystem.setQuality(this._lightingQuality);
     if (this._volumePool) this._volumePool.setQuality(this._lightingQuality);
     if (this._sunShadowScheduler) {
       this._sunShadowScheduler.configure({ hz: this._lightingQuality.sunShadowHz, maxUpdatesPerFrame: 1 });
@@ -1547,6 +1562,7 @@ export class ThreeRenderer {
       requestedQuality: this.lightingQuality,
       sunShadowUpdate: !!this._sunLight?.shadow?.needsUpdate,
       ...(this._lightRig?.getStats() || {}),
+      effects: this._effectSystem?.getStats?.() || null,
       ...(this._volumePool?.getStats() || {}),
     };
   }
@@ -1564,28 +1580,17 @@ export class ThreeRenderer {
   }
 
   /**
-   * Hide/show utility light fields (floor-glow.js's historically named
-   * buildFloorGlowStrip output, tagged userData.isFloorGlowStrip) to match the
-   * current glow toggle.
-   * Called from setGlowEnabled (toggle flips) and from
-   * _refreshUtilityLinesV2 (a rebuilt line's fresh strip otherwise defaults
-   * to visible regardless of the toggle already in effect).
-   */
-  _applyGlowToggleToUtilityFields() {
-    if (!this.utilityLineGroup) return;
-    const visible = this.glowEnabled;
-    this.utilityLineGroup.traverse((obj) => {
-      if (obj.userData && obj.userData.isFloorGlowStrip) obj.visible = visible;
-    });
-  }
-
-  /**
    * Fire an impulse flash (explosion, fault spark, ...) without the caller
-   * reaching into the light rig directly. Forwards to LightRig.flash, which
-   * reuses a parked point-light slot — never allocates.
+   * reaching into renderer internals. The effect system draws the visible
+   * burst and may borrow a parked LightRig slot for nearby illumination.
    */
   flashLight(position, colorHex, intensity, durationMs) {
-    if (this._lightRig) this._lightRig.flash(position, colorHex, intensity, durationMs);
+    return this._effectSystem?.flash(position, colorHex, intensity, durationMs) ?? null;
+  }
+
+  /** Generic gameplay-facing one-shot effect entry point. */
+  emitVisualEffect(descriptor) {
+    return this._effectSystem?.emit(descriptor) ?? null;
   }
 
   /** No-op. Dipole bend direction is baked into the placed geometry; nothing
@@ -3302,6 +3307,9 @@ export class ThreeRenderer {
     // One uniform write per flow-patched material — no rebuilds, no per-line
     // cost. See utility-flow.js.
     tickFlow(_dt);
+    // Update moving visual instances/proxies before LightRig ranks those
+    // proxies, so physical lights follow the current-frame pulse positions.
+    this._effectSystem?.update(_dt, this._darkness ?? 0);
     if (this.staffPawns) this.staffPawns.update(_dt);
     // Real lights: fixture spots/shadows, ambient glow points, flash decay.
     // See light-rig.js — nightFactor was computed this same frame by
@@ -3500,6 +3508,7 @@ export class ThreeRenderer {
     }
     this.wallBuilder.build(snapshot.walls, snapshot.doors, snapshot.windows, this.wallGroup, this.wallVisibilityMode, cutawayRoom);
     this.componentBuilder.build(snapshot.components, this.componentGroup);
+    this._effectSystem?.syncSurfaceGlows('components', this.componentGroup);
     this.pipeAttachmentBuilder.build(snapshot.pipeAttachments || [], this.pipeAttachmentGroup);
     this.beamBuilder.build(snapshot.beamPaths, this.componentGroup);
     this.equipmentBuilder.build(snapshot.equipment, snapshot.furnishings, this.equipmentGroup);
@@ -4014,10 +4023,7 @@ export class ThreeRenderer {
     this.utilityLineBuilderV2.build(snap.utilityLines, placeablesById, this.utilityLineGroup, {
       state,
     });
-    // A rebuilt line's utility light field (if any) starts visible regardless
-    // of the current glow toggle — reapply it here rather than only on the
-    // toggle's own flip.
-    this._applyGlowToggleToUtilityFields();
+    this._effectSystem?.syncFromGroup('utility-lines', this.utilityLineGroup);
   }
 
   /**
@@ -4625,6 +4631,7 @@ export class ThreeRenderer {
     try {
     const snap = this._updateSnapshot(['components', 'pipeAttachments']);
     this.componentBuilder.build(snap.components, this.componentGroup);
+    this._effectSystem?.syncSurfaceGlows('components', this.componentGroup);
     this.pipeAttachmentBuilder.build(snap.pipeAttachments || [], this.pipeAttachmentGroup);
     } catch(e) { console.error('[_refreshComponents] CRASH:', e); }
   }
@@ -4662,6 +4669,10 @@ export class ThreeRenderer {
     if (this._lightRig) {
       this._lightRig.dispose();
       this._lightRig = null;
+    }
+    if (this._effectSystem) {
+      this._effectSystem.dispose();
+      this._effectSystem = null;
     }
     if (this._volumePool) {
       this._volumePool.dispose();

@@ -309,6 +309,10 @@ function buildComponents(game) {
       tiles: p.cells ? p.cells.map(c => ({ col: c.col, row: c.row })) : [{ col: p.col, row: p.row }],
       dimmed,
       health,
+      // Presentation state is data, not a renderer inference. Future machine
+      // controllers may publish p.visualState directly; broken hardware has a
+      // useful default today.
+      effectState: p.visualState || (Number.isFinite(health) && health <= 0 ? 'off' : 'on'),
       beamlineId: p.beamlineId ?? null,
       accentColor,
     };
