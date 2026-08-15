@@ -317,6 +317,16 @@ console.log('\n--- 5. getLineMaterial: distinct per flowState, cached, tagged __
   assert(okAgain === ok, 'repeat call for the same (type, state) returns the cached instance');
   assert(softAgain === soft, 'same for the soft variant');
 
+  const shader = {
+    uniforms: {},
+    vertexShader: '#include <common>\n#include <uv_vertex>',
+    fragmentShader: '#include <common>\n#include <emissivemap_fragment>',
+  };
+  soft.onBeforeCompile(shader);
+  assert(shader.fragmentShader.includes('sin( uTime * 6.0 )')
+      && !shader.fragmentShader.includes('step( 0.5, fract( uTime * 2.2 ) )'),
+    'soft faults thrum smoothly instead of square-wave flashing the entire run');
+
   const powerOk = getLineMaterial('powerCable', 'ok');
   assert(powerOk !== ok, 'a different utility type is never the same cached instance');
 

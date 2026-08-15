@@ -11,7 +11,8 @@ import { PLACEABLES } from '../src/data/placeables/index.js';
 import {
   canPlaceWallFixture, physicalWallKey, usesFloorOccupancy,
 } from '../src/game/placement.js';
-import { wallFixturePose } from '../src/renderer3d/fixture-light-math.js';
+import { wallFixtureFaceOffset, wallFixturePose } from '../src/renderer3d/fixture-light-math.js';
+import { WALL_TYPES } from '../src/data/structure.js';
 import { buildWorldSnapshot } from '../src/renderer3d/world-snapshot.js';
 import { DecorationBuilder } from '../src/renderer3d/decoration-builder.js';
 import { buildLightFixture } from '../src/renderer3d/lighting-builder.js';
@@ -85,10 +86,15 @@ console.log('\n=== wall fixtures snap to independent wall faces ===\n');
 
   const a = wallFixturePose(northFace);
   const b = wallFixturePose(southFace);
-  assertOk(approx(a.x, b.x) && approx(Math.abs(a.z - b.z), 0.05),
-    'opposite aliases line up along the wall and offset onto opposite faces');
+  assertOk(approx(a.x, b.x) && approx(Math.abs(a.z - b.z), 0.125),
+    'opposite aliases line up and sit outside the wall slab on opposite faces');
   assertOk(approx(Math.abs(a.yaw - b.yaw), Math.PI),
     'opposite wall faces orient fixtures in opposite directions');
+  const leadOffset = wallFixtureFaceOffset(WALL_TYPES.leadWall);
+  assertOk(leadOffset > wallFixtureFaceOffset(WALL_TYPES.officeWall),
+    'shielding-wall fixtures derive a larger face offset from the actual slab depth');
+  assertOk(wallFixturePose({ ...northFace, faceOffset: leadOffset }).z > leadOffset - 1e-9,
+    'the derived shielding offset carries through the render pose');
 
   const eastFace = { col: 5, row: 5, edge: 'e', off: 1 };
   assertOk(game.placeWall(5, 5, 'e', 'officeWall'), 'setup destination wall is built');

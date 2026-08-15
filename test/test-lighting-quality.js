@@ -9,13 +9,15 @@ import { LIGHTING_DEFS, validateLightingDef } from '../src/data/placeables/light
 import { fixtureDynamicFactor } from '../src/renderer3d/light-dynamics.js';
 
 test('lighting presets are immutable, bounded, and normalize unknown values to auto', () => {
-  assert.equal(MAX_FIXTURE_SHADOWS, 6);
+  assert.equal(MAX_FIXTURE_SHADOWS, 8);
   assert.equal(Object.isFrozen(LIGHTING_QUALITY_PRESETS), true);
   assert.equal(Object.isFrozen(LIGHTING_QUALITY_PRESETS.high), true);
   assert.equal(normalizeLightingQuality('ULTRA'), 'ultra');
   assert.equal(normalizeLightingQuality('potato'), 'auto');
   assert.equal(resolveLightingQuality('low').fixtureShadowCount, 0);
   assert.equal(resolveLightingQuality('ultra').fixtureShadowCount, MAX_FIXTURE_SHADOWS);
+  assert.equal(resolveLightingQuality('high').fixtureShadowUpdatesPerFrame, 2);
+  assert.equal(resolveLightingQuality('ultra').fixtureShadowMapSize, 1536);
 });
 
 test('auto lighting quality uses conservative capability thresholds', () => {

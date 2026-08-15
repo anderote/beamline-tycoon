@@ -1,14 +1,15 @@
 // Immutable lighting budgets. Runtime preset changes only park pooled effects
 // or alter their refresh cadence; they never change shader light topology.
 
-export const MAX_FIXTURE_SHADOWS = 6;
-export const MAX_VOLUMETRIC_BEAMS = 6;
+export const MAX_FIXTURE_SHADOWS = 8;
+export const MAX_VOLUMETRIC_BEAMS = 8;
 
 const PRESETS = {
   low: {
     fixtureShadowCount: 0,
     fixtureShadowMapSize: 512,
     fixtureShadowHz: 0,
+    fixtureShadowUpdatesPerFrame: 1,
     sunShadowMapSize: 1024,
     sunShadowHz: 6,
     glowScale: 0.25,
@@ -17,9 +18,10 @@ const PRESETS = {
     volumetricCount: 0,
   },
   medium: {
-    fixtureShadowCount: 2,
+    fixtureShadowCount: 3,
     fixtureShadowMapSize: 512,
     fixtureShadowHz: 10,
+    fixtureShadowUpdatesPerFrame: 1,
     sunShadowMapSize: 2048,
     sunShadowHz: 10,
     glowScale: 0.35,
@@ -28,9 +30,10 @@ const PRESETS = {
     volumetricCount: 1,
   },
   high: {
-    fixtureShadowCount: 4,
+    fixtureShadowCount: 6,
     fixtureShadowMapSize: 1024,
     fixtureShadowHz: 15,
+    fixtureShadowUpdatesPerFrame: 2,
     sunShadowMapSize: 4096,
     sunShadowHz: 15,
     glowScale: 0.5,
@@ -39,15 +42,16 @@ const PRESETS = {
     volumetricCount: 3,
   },
   ultra: {
-    fixtureShadowCount: 6,
-    fixtureShadowMapSize: 1024,
+    fixtureShadowCount: 8,
+    fixtureShadowMapSize: 1536,
     fixtureShadowHz: 30,
+    fixtureShadowUpdatesPerFrame: 4,
     sunShadowMapSize: 4096,
     sunShadowHz: 30,
     glowScale: 0.5,
     softGlow: true,
     effectPulseCount: 512,
-    volumetricCount: 6,
+    volumetricCount: 8,
   },
 };
 

@@ -2,7 +2,7 @@
 //
 // The merged light-pool mesh (lighting-builder.js's buildLightPools) is ONE
 // draw call covering every fixture in the facility. light-rig.js hands its 4
-// real shadow spots to the nearest few fixtures, and each of those must hide
+// real shadow spots to the nearest fixtures, and each of those must hide
 // its own painted pool or it reads double-bright — so the pool mesh carries a
 // per-quad alpha lane, and applyPoolSuppression writes into it by FIXTURE ID.
 //

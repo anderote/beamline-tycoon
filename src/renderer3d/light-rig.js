@@ -13,13 +13,13 @@
 // until dispose() tears the whole rig down. Every frame after that only ever
 // MOVES, RETINTS, and FADES existing lights — including explosion flashes,
 // which steal a parked slot rather than allocating a new light. This is what
-// makes a 12-light rig (4 shadow spots + 8 plain points) plus on-demand
+// makes a bounded fixed rig (up to 8 shadow spots + 8 plain points) plus on-demand
 // flashes affordable: verify by watching renderer.info.programs.length while
 // panning/flashing — it must not climb.
 //
 // Two emitter sources feed the rig:
 //   - "fixtures": entries from ThreeRenderer.lightingGroup, the same registry
-//     used to build painted pools and halos. These get the 4 shadow-casting
+//     used to build painted pools and halos. These get the pooled shadow-casting
 //     SpotLights. There are
 //     far more fixtures than spots, so the spots are an LOD over the painted
 //     pools every fixture already has — see "Spot handover" below, which is
@@ -35,7 +35,7 @@
 // cheaper and more truthful about the fixture. Shadow map size is 1024, not
 // the sun's 4096 (ThreeRenderer._sunLight) — that's a global map covering the
 // whole facility; these are small pools of light around one fixture each, and
-// six of them at 4096 would be the actual "unshippable" scenario the task
+// several of them at 4096 would be the actual "unshippable" scenario the task
 // brief warns about.
 //
 // THREE is loaded as a CDN global (src/three-global.js) — do NOT import it.
@@ -119,6 +119,8 @@ export class LightRig {
    *        case (one or two simultaneous flashes) never disturbs the ambient
    *        pool at all.
    * @param {boolean} [opts.enabled=true]
+   * @param {number} [opts.shadowUpdatesPerFrame=1] refresh budget for moving
+   *        shadow casters and newly assigned fixtures.
    */
   constructor(scene, opts = {}) {
     this.scene = scene;
@@ -131,6 +133,7 @@ export class LightRig {
     this._pointCount = opts.pointCount ?? 8;
     this._shadowMapSize = opts.shadowMapSize ?? 1024;
     this._shadowHz = Math.max(0, opts.shadowHz ?? 15);
+    this._shadowUpdatesPerFrame = Math.max(1, Math.floor(opts.shadowUpdatesPerFrame ?? 1));
     this._flashReserve = Math.max(0, Math.min(opts.flashReserve ?? 2, this._pointCount));
 
     // Internal clock, advanced by the dt passed to update() — not
@@ -228,7 +231,7 @@ export class LightRig {
       : null;
     this._shadowScheduler = new ShadowScheduler(this._shadowSpotCount, {
       hz: this._shadowHz,
-      maxUpdatesPerFrame: 1,
+      maxUpdatesPerFrame: this._shadowUpdatesPerFrame,
     });
     this._shadowAssignmentKeys = new Array(this._shadowSpotCount).fill(null);
     this._shadowUpdatesLastFrame = 0;
@@ -257,7 +260,13 @@ export class LightRig {
     const mapSize = Math.max(128, Math.floor(quality.fixtureShadowMapSize ?? this._shadowMapSize));
     this._activeShadowSpotCount = active;
     this._shadowHz = Math.max(0, Number(quality.fixtureShadowHz ?? this._shadowHz));
-    this._shadowScheduler.configure({ hz: this._shadowHz, maxUpdatesPerFrame: 1 });
+    this._shadowUpdatesPerFrame = Math.max(1, Math.floor(
+      quality.fixtureShadowUpdatesPerFrame ?? this._shadowUpdatesPerFrame,
+    ));
+    this._shadowScheduler.configure({
+      hz: this._shadowHz,
+      maxUpdatesPerFrame: this._shadowUpdatesPerFrame,
+    });
     if (mapSize !== this._shadowMapSize) {
       this._shadowMapSize = mapSize;
       for (const slot of this._spotSlots) {
@@ -281,6 +290,7 @@ export class LightRig {
       shadowUpdatesLastFrame: this._shadowUpdatesLastFrame,
       fixtureShadowMapSize: this._shadowMapSize,
       fixtureShadowHz: this._shadowHz,
+      fixtureShadowUpdatesPerFrame: this._shadowUpdatesPerFrame,
     };
   }
 
@@ -673,6 +683,13 @@ export class LightRig {
     light.angle = projection.halfAngle || FIXTURE_SPOT_ANGLE;
     light.penumbra = projection.penumbra;
     light.shadow.radius = 1 + 3 * Math.max(0, Math.min(1, tag.shadowSoftness ?? 0.5));
+    // Fit bias to this cone's world-space texel size. A single fixed bias is
+    // either too large for desk lights (floating shadows) or too small for a
+    // high mast (acne); this keeps contact shadows stable across both.
+    const shadowTexel = projection.distance / Math.max(128, this._shadowMapSize);
+    light.shadow.bias = -Math.max(0.00035, Math.min(0.0015, shadowTexel * 0.12));
+    light.shadow.normalBias = Math.max(0.004, Math.min(0.025, shadowTexel * 1.8));
+    light.shadow.camera.near = Math.max(0.035, Math.min(0.15, projection.distance * 0.025));
     slot.target.position.set(projection.target.x, projection.target.y, projection.target.z);
     slot.target.updateMatrixWorld();
 

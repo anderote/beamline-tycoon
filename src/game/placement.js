@@ -5,6 +5,8 @@
 
 import { isoToGridFloat } from '../renderer/grid.js';
 import { findWallKey, mirrorEdge } from './edge-keys.js';
+import { WALL_TYPES } from '../data/structure.js';
+import { wallFixtureFaceOffset } from '../renderer3d/fixture-light-math.js';
 
 /**
  * Snap a world (x,y) to the nearest subtile center, no clamping.
@@ -98,14 +100,23 @@ export function canPlaceWallFixture(game, placeable, site, ignoreId = null) {
   if (placeable?.mount !== 'wall' || !mount) {
     return { ok: false, hasWall: false, occupied: false, wallMount: mount };
   }
-  const hasWall = !!findWallKey(
+  const wallKey = findWallKey(
     game?.state?.wallOccupied, mount.col, mount.row, mount.edge,
   );
+  const wallType = wallKey ? game.state.wallOccupied[wallKey] : null;
+  const hasWall = !!wallKey;
   const key = wallFixtureMountKey(mount);
   const occupied = (game?.state?.placeables || []).some((entry) =>
     entry.id !== ignoreId && wallFixtureMountKey(entry.wallMount) === key
   );
-  return { ok: hasWall && !occupied, hasWall, occupied, wallMount: mount };
+  return {
+    ok: hasWall && !occupied,
+    hasWall,
+    occupied,
+    wallMount: hasWall
+      ? { ...mount, faceOffset: wallFixtureFaceOffset(WALL_TYPES[wallType]) }
+      : mount,
+  };
 }
 
 function hasWallOnEdge(wallOccupied, col, row, edge) {

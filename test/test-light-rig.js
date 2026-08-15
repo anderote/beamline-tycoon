@@ -220,7 +220,7 @@ test('LightRig allocates its full pool at construction; light count never change
   assert.equal(scene.removeCalls, 16, 'dispose() is the ONLY place that removes lights, and it removes exactly what construction added');
 });
 
-test('quality changes park fixed slots and shadow refreshes obey the one-map frame budget', () => {
+test('quality changes park fixed slots and shadow refreshes obey the configured frame budget', () => {
   const scene = new SceneStub();
   for (let i = 0; i < 6; i++) placeFixture(scene, `Q${i}`, DEF.lamppost, i, 0);
   const rig = new LightRig(scene, {

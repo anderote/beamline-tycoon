@@ -2,8 +2,8 @@
 // Builds a flat, serializable snapshot of game state for consumption by the Three.js renderer.
 // The renderer never touches game.* directly — it reads only from this snapshot.
 
-import { FLOORS, DOOR_TYPES } from '../data/structure.js';
-import { defaultDoorOff } from '../game/edge-keys.js';
+import { FLOORS, DOOR_TYPES, WALL_TYPES } from '../data/structure.js';
+import { defaultDoorOff, findWallKey } from '../game/edge-keys.js';
 import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { getTileCornersY, sampleCornersTriangulated } from '../game/terrain.js';
@@ -13,6 +13,7 @@ import { flattenPath } from '../beamline/flattener.js';
 import { getBeamlineType } from '../data/beamline-types.js';
 import { beamVisualMode } from './beam-visual-mode.js';
 import { beamVisualPath } from './beam-visual-path.js';
+import { wallFixtureFaceOffset } from './fixture-light-math.js';
 
 /**
  * How far the drawn ground reaches — always exactly the map the player owns,
@@ -392,6 +393,17 @@ function buildDecorations(game) {
         else if (d.wallMount.edge === 'w') { u = 0; v = 1 - f; }
       }
       const y = sampleCornersTriangulated(c, u, v);
+      let wallMount = null;
+      if (d.wallMount) {
+        const wallKey = findWallKey(
+          game.state.wallOccupied, d.wallMount.col, d.wallMount.row, d.wallMount.edge,
+        );
+        const wallType = wallKey ? game.state.wallOccupied[wallKey] : null;
+        wallMount = {
+          ...d.wallMount,
+          faceOffset: wallFixtureFaceOffset(WALL_TYPES[wallType]),
+        };
+      }
       return {
         // Placeable id, so the builder can key its groups and hover/demolish
         // lookups can resolve a decoration's mesh the way components do.
@@ -409,7 +421,7 @@ function buildDecorations(game) {
         variant: d.variant ?? null,
         tall: d.tall ?? false,
         placeY: d.placeY || 0,
-        wallMount: d.wallMount ? { ...d.wallMount } : null,
+        wallMount,
         y,
       };
     });

@@ -230,6 +230,17 @@ console.log('\n=== fixtureLightTag: the pure handoff to light-rig.js ===\n');
   assert(sconce.offsetY === 0,
     `a wall fixture's emitter sits AT its origin, so offsetY is 0, not emitterY=${DEF.wallSconce.light.emitterY} (got ${sconce.offsetY})`);
   assert(DEF.wallSconce.light.emitterY !== 0, 'sanity: the wall def really does carry a non-zero emitterY to be ignored');
+  assert(sconce.aimed === true,
+    'a wall fixture aims away from its mounting plane instead of wasting half its cone inside the wall');
+
+  const wallProjection = fixtureLightProjection(DEF.wallSconce, {
+    origin: { x: 4, y: DEF.wallSconce.light.emitterY, z: 6 },
+    yaw: 0,
+  });
+  assert(wallProjection.target.z > wallProjection.emitter.z,
+    'a north-face wall fixture with yaw 0 throws outward along local +Z');
+  assert(wallProjection.target.y < wallProjection.emitter.y,
+    'the same wall wash slopes down onto the floor');
 
   const panel = fixtureLightTag(DEF.ceilingPanel, { id: 'C1' });
   assert(panel.offsetY === 0, 'an overhead fixture hangs from its origin too — offsetY 0');

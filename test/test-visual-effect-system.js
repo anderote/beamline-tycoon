@@ -41,6 +41,15 @@ test('path effects render every crest in two instanced draws without creating li
   system.update(0, 0);
   assert.equal(system._pulseMesh.count, 3, 'all three visible crests are instanced');
   assert.equal(system._spillMesh.count, 3, 'every crest gets matching projected spill');
+  const pulseMatrix = new Three.Matrix4();
+  const pulsePosition = new Three.Vector3();
+  const pulseRotation = new Three.Quaternion();
+  const pulseScale = new Three.Vector3();
+  system._pulseMesh.getMatrixAt(0, pulseMatrix);
+  pulseMatrix.decompose(pulsePosition, pulseRotation, pulseScale);
+  assert.ok(Math.max(pulseScale.x, pulseScale.y, pulseScale.z)
+      > Math.min(pulseScale.x, pulseScale.y, pulseScale.z) * 2,
+    'a utility crest is an elongated traveling wave packet, not a flashing sphere');
   assert.equal(system.getStats().lightCandidates, 3,
     'moving proxies are merely candidates for the bounded physical-light pool');
 

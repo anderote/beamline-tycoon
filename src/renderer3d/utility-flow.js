@@ -37,17 +37,17 @@ import { UTILITY_TYPES, UTILITY_TYPE_LIST } from '../utility/registry.js';
 //
 export const FLOW_PARAMS = {
   hvCable: {
-    speed: 0.72, period: 3.2, width: 2.0, strength: 0.72, baseGlow: 0.06,
+    speed: 1.05, period: 2.1, width: 0.32, strength: 1.05, baseGlow: 0.09,
     color: '#8f94c8',
   },
   powerCable: {
-    speed: 0.72, period: 3.2, width: 2.0, strength: 0.72, baseGlow: 0.06,
+    speed: 1.05, period: 2.1, width: 0.32, strength: 1.05, baseGlow: 0.09,
   },
   vacuumPipe: {
     // Gas load drifts from beam chambers toward the pump. Kept restrained so
     // a vacuum header reads as molecular flow in pipework, not another power
     // cable; direction is inverted in UtilityLineBuilderV2, not in the shader.
-    speed: 0.50, period: 2.5, width: 0.40, strength: 0.50, baseGlow: 0,
+    speed: 0.65, period: 1.8, width: 0.24, strength: 0.62, baseGlow: 0.025,
     color: '#aebbc2',
   },
   rfWaveguide: {
@@ -55,12 +55,12 @@ export const FLOW_PARAMS = {
     // crest crosses the selective-bloom threshold all along the geometry;
     // the quieter base keeps the complete guide faintly luminous between
     // crests without introducing a separate point-light hotspot.
-    speed: 0.72, period: 2.2, width: 1.35, strength: 1.35, baseGlow: 0.15,
+    speed: 1.35, period: 1.6, width: 0.28, strength: 1.65, baseGlow: 0.18,
   },
   coolingWater: {
     // The reference treatment: a broad, slow band whose neighbours nearly
     // merge into a steady flowing gradient.
-    speed: 0.60, period: 3.2, width: 2.0, strength: 0.70, baseGlow: 0.06,
+    speed: 0.85, period: 2.2, width: 0.45, strength: 0.90, baseGlow: 0.10,
   },
   cryoTransfer: {
     // Very slow drift plus a small always-on baseGlow — the "faint constant
@@ -69,11 +69,11 @@ export const FLOW_PARAMS = {
     // frost forms on the OUTER jacket of a real cryo line, so the jacket
     // carrying its own baseGlow instead of just occluding the core's is the
     // physically-motivated fix, not just the convenient one.
-    speed: 0.24, period: 4.2, width: 2.6, strength: 0.58, baseGlow: 0.14,
+    speed: 0.38, period: 2.8, width: 0.65, strength: 0.70, baseGlow: 0.16,
   },
   dataFiber: {
     // Still the quickest utility, but a soft travelling wash rather than blips.
-    speed: 1.0, period: 2.8, width: 1.65, strength: 0.62, baseGlow: 0.05,
+    speed: 1.65, period: 1.5, width: 0.22, strength: 0.90, baseGlow: 0.07,
   },
 };
 
@@ -250,7 +250,10 @@ export function patchFlowMaterial(material, utilityType, flowState) {
         'float flowCycle = mod( vFlowDist - uTime * uSpeed, uPeriod );',
         'float flowEdge = min( flowCycle, uPeriod - flowCycle );',
         'float flowPulse = 1.0 - smoothstep( 0.0, uWidth, flowEdge );',
-        'float flowGate = uStutter > 0.5 ? step( 0.5, fract( uTime * 2.2 ) ) : 1.0;',
+        // A soft fault thrums instead of square-wave blinking. The red fault
+        // mark still communicates the problem; motion stays readable.
+        'float flowThrum = 0.72 + 0.28 * ( 0.5 + 0.5 * sin( uTime * 6.0 ) );',
+        'float flowGate = uStutter > 0.5 ? flowThrum : 1.0;',
         'totalEmissiveRadiance += uFlowColor * ( uBaseGlow + uStrength * flowPulse * flowGate );',
       ].join('\n'));
   };

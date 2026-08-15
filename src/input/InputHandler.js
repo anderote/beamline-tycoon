@@ -2507,7 +2507,7 @@ export class InputHandler {
         dir: this.placementDir,
         placeY: 0,
         stackTargetId: null,
-        wallMount,
+        wallMount: geometric.wallMount,
         variant: this.selectedPlaceableVariant,
         valid: ok,
         reason,

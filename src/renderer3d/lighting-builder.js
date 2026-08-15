@@ -69,7 +69,7 @@ export function poolFootprint(light, dir = 0) {
 }
 
 // --- Real-light handoff (light-rig.js) --------------------------------------
-// The rig (src/renderer3d/light-rig.js) hands its 4 shadow-casting SpotLights
+// The rig (src/renderer3d/light-rig.js) hands its bounded shadow SpotLights
 // to the nearest few fixtures on camera; every other fixture keeps the cheap
 // painted pool below. The two systems meet through ONE tag —
 // `group.userData.lightFixture` — stamped by decoration-builder.js from

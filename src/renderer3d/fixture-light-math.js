@@ -26,8 +26,13 @@ function cross(a, b) {
 }
 
 export function isAimedFixture(def) {
-  return (def?.mount === 'ground' || def?.mount === 'surface')
-    && def?.light?.shape === 'cone';
+  // Wall luminaires are directional even when their authored shape is
+  // "point": their reflector faces away from the mounting plane, so treating
+  // them as a centred downlight wastes half the cone inside the wall.
+  return def?.mount === 'wall' || (
+    (def?.mount === 'ground' || def?.mount === 'surface')
+    && def?.light?.shape === 'cone'
+  );
 }
 
 export function aimYaw(dir = 0) {
@@ -37,6 +42,16 @@ export function aimYaw(dir = 0) {
 export function aimVector(yaw = 0) {
   const x = Math.cos(yaw);
   const z = -Math.sin(yaw);
+  return {
+    x: Math.abs(x) < EPS ? 0 : x,
+    z: Math.abs(z) < EPS ? 0 : z,
+  };
+}
+
+/** Local +Z rotated by yaw — the outward face of wall-fixture geometry. */
+export function wallAimVector(yaw = 0) {
+  const x = Math.sin(yaw);
+  const z = Math.cos(yaw);
   return {
     x: Math.abs(x) < EPS ? 0 : x,
     z: Math.abs(z) < EPS ? 0 : z,
@@ -62,12 +77,20 @@ export function fixtureMountY(def, floorY = 0) {
   return floorY + mountHeight;
 }
 
+/** Match WallBuilder's physical slab depth, plus a small no-z-fight gap. */
+export function wallFixtureFaceOffset(wallDef) {
+  const thickness = wallDef?.insetSubtiles
+    ? 0.5 * wallDef.insetSubtiles
+    : Math.max((Number(wallDef?.thickness) || 1.5) * 0.05, 0.025);
+  return thickness / 2 + 0.025;
+}
+
 /**
  * World pose for one of four sub-slots on a wall face. The edge is expressed
  * from the tile whose side the fixture protrudes into, which naturally makes
  * the two aliases of a physical wall its two independently usable faces.
  */
-export function wallFixturePose(site, faceOffset = 0.025) {
+export function wallFixturePose(site, faceOffset = site?.faceOffset ?? 0.0625) {
   if (!site || !['n', 'e', 's', 'w'].includes(site.edge)) return null;
   const col = Math.floor(site.col || 0);
   const row = Math.floor(site.row || 0);
@@ -199,8 +222,12 @@ export function fixtureLightProjection(def, { origin = {}, yaw = 0 } = {}) {
     };
   }
 
-  const aim = aimVector(yaw);
-  const targetDistance = Math.max(0.05, light.targetDistance ?? poolRadius * 0.55);
+  const wallMounted = def?.mount === 'wall';
+  const aim = wallMounted ? wallAimVector(yaw) : aimVector(yaw);
+  const targetDistance = Math.max(
+    0.05,
+    light.targetDistance ?? poolRadius * (wallMounted ? 0.36 : 0.55),
+  );
   const target = {
     x: emitter.x + aim.x * targetDistance,
     y: floorY,
@@ -211,7 +238,10 @@ export function fixtureLightProjection(def, { origin = {}, yaw = 0 } = {}) {
     y: target.y - emitter.y,
     z: target.z - emitter.z,
   });
-  const fullAngleDeg = light.beamAngleDeg ?? light.coneDeg ?? DEFAULT_AIMED_FULL_ANGLE_DEG;
+  const fullAngleDeg = light.wallBeamAngleDeg
+    ?? light.beamAngleDeg
+    ?? light.coneDeg
+    ?? (wallMounted ? 96 : DEFAULT_AIMED_FULL_ANGLE_DEG);
   const halfAngle = clamp((fullAngleDeg * DEG2RAD) / 2, EPS, MAX_HALF_ANGLE);
   // Near-horizontal authored cones can otherwise project to infinity. The
   // cap is intentionally data-relative and becomes part of both render paths.

@@ -95,6 +95,11 @@ export class VisualEffectSystem {
     this._position = new THREE.Vector3();
     this._scale = new THREE.Vector3();
     this._pulseQuat = new THREE.Quaternion();
+    this._burstQuat = new THREE.Quaternion();
+    this._pulseAxis = new THREE.Vector3(0, 0, 1);
+    this._pulseTangent = new THREE.Vector3();
+    this._tangentBefore = { x: 0, y: 0, z: 0 };
+    this._tangentAfter = { x: 0, y: 0, z: 0 };
     this._floorQuat = new THREE.Quaternion().setFromAxisAngle(
       new THREE.Vector3(1, 0, 0), -Math.PI / 2,
     );
@@ -282,12 +287,10 @@ export class VisualEffectSystem {
         requested++;
         const point = sampleEffectPath(effect.path, distance, this._sample);
         if (!point) continue;
-        const soft = effect.state === 'soft';
-        const stutter = !soft || ((this._time * 2.2) % 1 >= 0.5);
-        const strength = (soft ? 0.5 : 1) * (stutter ? 1 : 0.25);
+        const strength = this._pathPulseStrength(effect);
 
         if (instanceIndex < this._pulseBudget) {
-          this._writePulseInstance(instanceIndex, point, effect, strength);
+          this._writePulseInstance(instanceIndex, point, effect, strength, distance);
           instanceIndex++;
         }
       }
@@ -318,10 +321,35 @@ export class VisualEffectSystem {
     }
   }
 
-  _writePulseInstance(index, point, effect, strength) {
+  _pathPulseStrength(effect) {
+    if (effect.state !== 'soft') return 1;
+    // Smooth, shallow modulation preserves the "strained network" read
+    // without switching every pulse and its local light hard on/off.
+    return 0.46 + 0.14 * (0.5 + 0.5 * Math.sin(this._time * 6));
+  }
+
+  _writePulseInstance(index, point, effect, strength, distance) {
     const radius = Math.max(0.025, Number(effect.radius) || 0.09) * strength;
+    const sampleSpan = Math.min(0.12, Math.max(0.025, effect.path.length * 0.02));
+    const before = sampleEffectPath(effect.path, distance - sampleSpan, this._tangentBefore);
+    const after = sampleEffectPath(effect.path, distance + sampleSpan, this._tangentAfter);
+    if (before && after) {
+      this._pulseTangent.set(
+        after.x - before.x,
+        after.y - before.y,
+        after.z - before.z,
+      );
+      if (this._pulseTangent.lengthSq() > 1e-8) {
+        this._pulseTangent.normalize();
+        this._pulseQuat.setFromUnitVectors(this._pulseAxis, this._pulseTangent);
+      } else {
+        this._pulseQuat.identity();
+      }
+    }
     this._position.set(point.x, point.y, point.z);
-    this._scale.set(radius, radius, radius);
+    // A short luminous streak reads as a traveling wave packet instead of a
+    // bead sliding along the pipe. It remains one instanced mesh/draw call.
+    this._scale.set(radius * 0.72, radius * 0.72, radius * 2.65);
     this._matrix.compose(this._position, this._pulseQuat, this._scale);
     this._pulseMesh.setMatrixAt(index, this._matrix);
     this._color.set(effectColor(effect.color)).multiplyScalar(Math.max(0.35, strength));
@@ -355,7 +383,7 @@ export class VisualEffectSystem {
     const radius = Math.max(0.03, Number(burst.radius) || 0.16) * (0.65 + t * 1.8);
     this._position.set(burst.position.x, burst.position.y, burst.position.z);
     this._scale.set(radius, radius, radius);
-    this._matrix.compose(this._position, this._pulseQuat, this._scale);
+    this._matrix.compose(this._position, this._burstQuat, this._scale);
     this._pulseMesh.setMatrixAt(index, this._matrix);
     this._color.set(effectColor(burst.color)).multiplyScalar(Math.max(0.2, fade));
     this._pulseMesh.setColorAt(index, this._color);
@@ -377,9 +405,7 @@ export class VisualEffectSystem {
     // subsequent effects never shift indices when that happens.
     const cycleLength = count * period;
     const phaseDistance = this._time * (Number(effect.speed) || 0) + (effect.phase || 0);
-    const soft = effect.state === 'soft';
-    const stutter = !soft || ((this._time * 2.2) % 1 >= 0.5);
-    const strength = (soft ? 0.5 : 1) * (stutter ? 1 : 0.25);
+    const strength = this._pathPulseStrength(effect);
     let active = 0;
     for (let i = 0; i < count; i++) {
       const distance = positiveModulo(phaseDistance + i * period, cycleLength);

@@ -614,6 +614,7 @@ export class ThreeRenderer {
       pointCount: 8,
       shadowMapSize: this._lightingQuality.fixtureShadowMapSize,
       shadowHz: this._lightingQuality.fixtureShadowHz,
+      shadowUpdatesPerFrame: this._lightingQuality.fixtureShadowUpdatesPerFrame,
     });
     this._lightRig.setEffectEmitterRegistry(this._effectSystem.lightEmitters);
     this._effectSystem.setFlashHandler(

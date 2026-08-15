@@ -629,11 +629,11 @@ function buildLineGroup(line, placeablesById, errorStatus, reversed) {
       speed: flow.speed,
       period: flow.period,
       radius: Math.max(0.040, radius * (style === 'rectWaveguide' ? 1.10 : 1.30)),
-      groundRadius: style === 'rectWaveguide' ? 0.42 : 0.32,
+      groundRadius: style === 'rectWaveguide' ? 0.34 : 0.25,
       state: errorStatus || 'ok',
       light: {
-        intensity: line.utilityType === 'rfWaveguide' ? 0.42 : 0.28,
-        distance: line.utilityType === 'rfWaveguide' ? 2.4 : 1.9,
+        intensity: line.utilityType === 'rfWaveguide' ? 0.26 : 0.16,
+        distance: line.utilityType === 'rfWaveguide' ? 2.0 : 1.55,
         daylightFloor: 0.25,
       },
     }];
