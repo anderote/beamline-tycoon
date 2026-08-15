@@ -74,6 +74,24 @@ class MeshStub {
 }
 
 class CanvasTexture { constructor(c) { this.image = c; } dispose() {} }
+class Vector3 {
+  constructor(x = 0, y = 0, z = 0) { this.set(x, y, z); }
+  set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; }
+  subVectors(a, b) { return this.set(a.x - b.x, a.y - b.y, a.z - b.z); }
+  length() { return Math.hypot(this.x, this.y, this.z); }
+  multiplyScalar(n) { return this.set(this.x * n, this.y * n, this.z * n); }
+  copy(v) { return this.set(v.x, v.y, v.z); }
+  addScaledVector(v, n) { return this.set(this.x + v.x * n, this.y + v.y * n, this.z + v.z * n); }
+}
+class Raycaster {
+  set(_origin, direction) { this.direction = direction; }
+  intersectObjects() {
+    // A solid wall one unit east of the lamp. Only rays aimed east see it.
+    return this.direction.x > 0.1
+      ? [{ point: { x: 1, y: 0, z: 0 }, object: { castShadow: true, material: { transparent: false } } }]
+      : [];
+  }
+}
 
 globalThis.THREE = {
   Color: ColorStub,
@@ -83,6 +101,8 @@ globalThis.THREE = {
   MeshBasicMaterial: MaterialStub,
   Mesh: MeshStub,
   CanvasTexture,
+  Vector3,
+  Raycaster,
   AdditiveBlending: 2,
 };
 
@@ -196,6 +216,22 @@ console.log('\n=== suppressing one fixture touches only that fixture\'s quad ===
   assert(alphaOf(mesh, 1) === 1, 'dropping out of the suppression map restores the pool to alpha 1');
   applyPoolSuppression(mesh, null);
   assert(alphaOf(mesh, 1) === 1, 'a null suppression map means "suppress nothing", not "leave it as it was"');
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n=== wall-aware pools trace and clip their own ground polygon ===\n');
+{
+  const mesh = buildLightPools([fixture('A', RED)], { occluders: [{}] });
+  const positions = mesh.geometry.attributes.position.array;
+  const ranges = mesh.userData.poolVertexRanges;
+  assert(positions.length === 33 * 3, 'occluded pool uses a centre plus a 32-ray fan, rather than one wall-blind quad');
+  assert(ranges.get('A').count === 33, 'suppression tracks the complete fan vertex range for the fixture');
+  assert(positions[3] < 4, 'an east-facing rim ray is clipped before the 4m pool boundary by the wall hit');
+
+  applyPoolSuppression(mesh, new Map([['A', 1]]));
+  const alphas = mesh.geometry.attributes.color.array;
+  assert([...Array(33).keys()].every((v) => alphas[v * 4 + 3] === expectedAlpha(1)),
+    'real-light handoff suppresses every fan vertex together, not just the centre');
 }
 
 // ---------------------------------------------------------------------------

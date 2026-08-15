@@ -740,7 +740,7 @@ function _buildFallback(def) {
 
 // --- Task 6: light pools + halos ---------------------------------------------
 // The payoff layer: no THREE.Light involved (that's Task 9's real point
-// lights). Everything here is a fake — an additive ground quad and a
+// lights). Everything here is a fake — an additive ground pool and a
 // billboard sprite — cheap enough for sixty fixtures because the pools are
 // merged into ONE mesh (buildLightPools) and rebuilt only when the fixture
 // set changes, never per frame. Per-frame work is limited to three scalar
@@ -820,9 +820,12 @@ export function disposeLightGlowTexture() {
  * lane stays a pure (1 - weight), so neither has to know about the other.
  *
  * @param {Array<{id:*, def:object, group:THREE.Group}>} fixtures - ThreeRenderer.lightingGroup.
+ * @param {{occluders?: THREE.Object3D|Array<THREE.Object3D>}} [opts] opaque
+ * wall geometry. When present, each pool is traced against it once at rebuild
+ * time, so the cheap fallback light never paints through a wall.
  * @returns {THREE.Mesh|null} null when there is nothing to draw.
  */
-export function buildLightPools(fixtures) {
+export function buildLightPools(fixtures, opts = {}) {
   if (!fixtures || !fixtures.length) return null;
 
   const positions = [];
@@ -830,13 +833,26 @@ export function buildLightPools(fixtures) {
   const colors = [];
   const indices = [];
   let vertCount = 0;
+  let poolCount = 0;
   const tmpColor = new THREE.Color();
-  // fixture id -> quad index. Built HERE, inline with the loop, rather than
+  // fixture id -> pool index. Built HERE, inline with the loop, rather than
   // derived afterwards by index-of-fixture: the two `continue`s below (no
-  // light block; degenerate radius) mean quad index and fixture index are not
+  // light block; degenerate radius) mean pool index and fixture index are not
   // the same number, and an off-by-one here silently suppresses some OTHER
   // fixture's pool — a bug that looks like a rendering glitch, not a bug.
   const poolQuadByFixtureId = new Map();
+  const poolVertexRanges = new Map();
+  const occluders = opts.occluders
+    ? (Array.isArray(opts.occluders) ? opts.occluders : [opts.occluders])
+    : [];
+  // 32 rays per fixture only run when walls or fixtures change. This is enough
+  // to keep a curved pool smooth while making a 60-fixture facility a small,
+  // one-off raycast batch rather than a per-frame lighting cost.
+  const raycaster = occluders.length ? new THREE.Raycaster() : null;
+  const rayOrigin = new THREE.Vector3();
+  const rayTarget = new THREE.Vector3();
+  const rayDelta = new THREE.Vector3();
+  const RAY_SEGMENTS = 32;
 
   for (const fx of fixtures) {
     const def = fx.def;
@@ -864,14 +880,62 @@ export function buildLightPools(fixtures) {
       [cx + rx, cz + rz, 1, 1],
       [cx - rx, cz + rz, 0, 1],
     ];
-    for (const [x, z, u, v] of corners) {
-      positions.push(x, floorY, z);
-      uvs.push(u, v);
-      colors.push(r, g, b, 1); // alpha = 1: unsuppressed until the rig says otherwise
+    const firstVertex = vertCount;
+    if (!raycaster) {
+      for (const [x, z, u, v] of corners) {
+        positions.push(x, floorY, z);
+        uvs.push(u, v);
+        colors.push(r, g, b, 1); // alpha = 1: unsuppressed until the rig says otherwise
+      }
+      indices.push(vertCount, vertCount + 1, vertCount + 2, vertCount, vertCount + 2, vertCount + 3);
+      if (fx.id != null) poolQuadByFixtureId.set(fx.id, poolCount);
+      vertCount += 4;
+    } else {
+      // A fan centred on the emitter's ground projection. Every rim point is
+      // raycast from the real emitter, not from the floor, so a tall wall
+      // blocks the same line of sight as a real spotlight would.
+      positions.push(cx, floorY, cz);
+      uvs.push(0.5, 0.5);
+      colors.push(r, g, b, 1);
+      rayOrigin.set(projection.emitter.x, projection.emitter.y, projection.emitter.z);
+      for (let i = 0; i < RAY_SEGMENTS; i++) {
+        const angle = (i / RAY_SEGMENTS) * Math.PI * 2;
+        const endX = cx + Math.cos(angle) * rx;
+        const endZ = cz + Math.sin(angle) * rz;
+        rayTarget.set(endX, floorY, endZ);
+        rayDelta.subVectors(rayTarget, rayOrigin);
+        const dist = rayDelta.length();
+        rayDelta.multiplyScalar(1 / Math.max(dist, 1e-6));
+        raycaster.set(rayOrigin, rayDelta);
+        raycaster.near = 0.04;
+        raycaster.far = Math.max(0, dist - 0.02);
+        // Glass and decorative non-shadow casters should not turn into a
+        // black occlusion wall. Match the shadow system's intent: only solid
+        // meshes that cast shadows block the inexpensive indirect pool.
+        const hit = raycaster.intersectObjects(occluders, true).find(({ object }) => {
+          const materials = Array.isArray(object.material) ? object.material : [object.material];
+          return object.castShadow !== false && materials.every((material) =>
+            !material?.transparent || (material.opacity ?? 1) >= 0.98);
+        });
+        if (hit) {
+          // Pull back very slightly so the additive edge neither leaks across
+          // nor z-fights the wall face it was clipped against.
+          rayTarget.copy(hit.point).addScaledVector(rayDelta, -0.025);
+        }
+        positions.push(rayTarget.x, floorY, rayTarget.z);
+        uvs.push(0.5 + (rayTarget.x - cx) / (2 * rx), 0.5 + (rayTarget.z - cz) / (2 * rz));
+        colors.push(r, g, b, 1);
+      }
+      for (let i = 0; i < RAY_SEGMENTS; i++) {
+        const a = firstVertex + 1 + i;
+        const bIdx = firstVertex + 1 + ((i + 1) % RAY_SEGMENTS);
+        indices.push(firstVertex, a, bIdx);
+      }
+      if (fx.id != null) poolQuadByFixtureId.set(fx.id, poolCount);
+      vertCount += RAY_SEGMENTS + 1;
     }
-    indices.push(vertCount, vertCount + 1, vertCount + 2, vertCount, vertCount + 2, vertCount + 3);
-    if (fx.id != null) poolQuadByFixtureId.set(fx.id, vertCount / 4);
-    vertCount += 4;
+    if (fx.id != null) poolVertexRanges.set(fx.id, { start: firstVertex, count: vertCount - firstVertex });
+    poolCount += 1;
   }
 
   if (vertCount === 0) return null;
@@ -906,7 +970,8 @@ export function buildLightPools(fixtures) {
   // representable in single precision (0.2, 0.6, ...), so the cache would
   // never suppress a single upload — it would just add work. Keep the
   // requested double here and compare double-to-double.
-  mesh.userData.poolQuadAlpha = new Float64Array(vertCount / 4).fill(1);
+  mesh.userData.poolQuadAlpha = new Float64Array(poolCount).fill(1);
+  mesh.userData.poolVertexRanges = poolVertexRanges;
   return mesh;
 }
 
@@ -920,7 +985,7 @@ export function buildLightPools(fixtures) {
  * never both (that reads as a double-bright blob) and never neither (the
  * fixture goes dark mid-crossfade). So `suppression` is the rig's live map,
  * fixture id -> weight in [0,1] matching the spot's own crossfade weight, and
- * a quad's alpha is exactly `1 - weight`. Any fixture absent from the map is
+ * a pool's alpha is exactly `1 - weight`. Any fixture absent from the map is
  * unsuppressed.
  *
  * Writes are gated on the cache above: a static night with four steady spots
@@ -934,10 +999,11 @@ export function applyPoolSuppression(poolMesh, suppression) {
   const attr = poolMesh?.geometry?.attributes?.color;
   const quadById = poolMesh?.userData?.poolQuadByFixtureId;
   const cache = poolMesh?.userData?.poolQuadAlpha;
+  const ranges = poolMesh?.userData?.poolVertexRanges;
   if (!attr || attr.itemSize !== 4 || !quadById || !cache) return;
 
   let dirty = false;
-  // Iterate the full quad map, not just the suppression map's keys — that's
+  // Iterate the full pool map, not just the suppression map's keys — that's
   // what restores a pool the frame after its spot is handed to someone else.
   for (const [id, quad] of quadById) {
     if (!(quad >= 0) || quad >= cache.length) continue;
@@ -946,8 +1012,10 @@ export function applyPoolSuppression(poolMesh, suppression) {
     const alpha = 1 - Math.max(0, Math.min(1, w)) * (1 - REAL_LIGHT_POOL_REMAINDER);
     if (cache[quad] === alpha) continue;
     cache[quad] = alpha;
-    const base = quad * 4;
-    for (let v = 0; v < 4; v++) attr.array[(base + v) * 4 + 3] = alpha;
+    const range = ranges?.get(id);
+    const base = range ? range.start : quad * 4;
+    const count = range ? range.count : 4;
+    for (let v = 0; v < count; v++) attr.array[(base + v) * 4 + 3] = alpha;
     dirty = true;
   }
   if (dirty) attr.needsUpdate = true;

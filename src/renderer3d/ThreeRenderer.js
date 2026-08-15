@@ -3911,6 +3911,7 @@ export class ThreeRenderer {
       cutawayRoom = this._detectCutawayRegion(this.hoverCol, this.hoverRow);
     }
     this.wallBuilder.build(snap.walls, snap.doors, snap.windows, this.wallGroup, this.wallVisibilityMode, cutawayRoom);
+    this._rebuildLightPools();
   }
 
   /**
@@ -4047,7 +4048,8 @@ export class ThreeRenderer {
     this._clearLightGroup(this.lightHaloGroup);
     const fixtures = this.lightingGroup;
     if (!fixtures || !fixtures.length) return;
-    const poolMesh = buildLightPools(fixtures);
+    this.wallGroup?.updateMatrixWorld?.(true);
+    const poolMesh = buildLightPools(fixtures, { occluders: this.wallGroup });
     if (poolMesh) this.lightPoolGroup.add(poolMesh);
     const halos = buildLightHalos(fixtures);
     if (halos) this.lightHaloGroup.add(halos);
