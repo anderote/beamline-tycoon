@@ -13,6 +13,8 @@ export const ProbePlots = (() => {
    *             this pass's autoscale. Use yDomainFor()/unionYDomain() to build it.
    *    targetBand [lo, hi] — mission target on the primary y-axis. Either
    *             bound may be null for an open-ended target.
+   *    yAxisMode 'linear' or 'log' for positive primary y-axis values. Signed
+   *             secondary axes and geometric plots keep their native scale.
    *    noClear  skip the clear + background fill so this pass composites over the last.
    *    ghost    draw data marks only (no bands, axes, pin lines, legend or labels),
    *             dimmed and dashed, so the pass drawn on top of it reads first. */
@@ -24,6 +26,7 @@ export const ProbePlots = (() => {
       targetBand: (opts && opts.targetBand) || null,
       yd: null,
       targets: (opts && opts.targets) || null,
+      yAxisMode: opts && opts.yAxisMode === 'log' ? 'log' : 'linear',
     };
     if (!(opts && opts.noClear)) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -261,7 +264,39 @@ export const ProbePlots = (() => {
     }
   }
 
-  function _axes(ctx, a, xLbl, yLbl, yMin, yMax) {
+  function _positiveDomain(domain, values) {
+    const positive = [...domain, ...values].filter(v => v != null && isFinite(v) && v > 0);
+    if (positive.length === 0) return null;
+    let lo = Math.min(...positive);
+    let hi = Math.max(...positive);
+    if (lo === hi) { lo /= 1.2; hi *= 1.2; }
+    const logSpan = Math.max(Math.log10(hi) - Math.log10(lo), 0.1);
+    const pad = logSpan * 0.04;
+    return [10 ** (Math.log10(lo) - pad), 10 ** (Math.log10(hi) + pad)];
+  }
+
+  function _yFraction(value, yMin, yMax, logY) {
+    if (logY) {
+      if (!(value > 0) || !(yMin > 0) || !(yMax > yMin)) return null;
+      return (Math.log10(value) - Math.log10(yMin)) /
+        (Math.log10(yMax) - Math.log10(yMin));
+    }
+    return (value - yMin) / (yMax - yMin || 1);
+  }
+
+  function _tickValue(fraction, yMin, yMax, logY) {
+    if (!logY) return yMin + fraction * (yMax - yMin);
+    return 10 ** (Math.log10(yMin) + fraction * (Math.log10(yMax) - Math.log10(yMin)));
+  }
+
+  function _fmtPlotValue(value) {
+    const abs = Math.abs(value);
+    return abs > 0 && (abs < 0.001 || abs >= 10000)
+      ? value.toExponential(2)
+      : value.toPrecision(3);
+  }
+
+  function _axes(ctx, a, xLbl, yLbl, yMin, yMax, logY = false) {
     ctx.strokeStyle = 'rgba(60, 60, 100, 0.3)';
     ctx.lineWidth = 0.5;
     for (let i = 0; i <= 3; i++) {
@@ -269,7 +304,7 @@ export const ProbePlots = (() => {
       ctx.beginPath(); ctx.moveTo(a.x, y); ctx.lineTo(a.x + a.w, y); ctx.stroke();
       ctx.fillStyle = 'rgba(120, 120, 160, 0.7)';
       ctx.font = '9px monospace'; ctx.textAlign = 'right';
-      ctx.fillText((yMin + (i / 3) * (yMax - yMin)).toPrecision(3), a.x - 3, y + 3);
+      ctx.fillText(_fmtPlotValue(_tickValue(i / 3, yMin, yMax, logY)), a.x - 3, y + 3);
     }
     ctx.strokeStyle = 'rgba(80, 80, 130, 0.5)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(a.x, a.y + a.h); ctx.lineTo(a.x + a.w, a.y + a.h); ctx.stroke();
@@ -277,13 +312,13 @@ export const ProbePlots = (() => {
     if (xLbl) ctx.fillText(xLbl, a.x + a.w / 2, a.y + a.h + 14);
     if (yLbl) {
       ctx.save(); ctx.translate(8, a.y + a.h / 2); ctx.rotate(-Math.PI / 2);
-      ctx.fillText(yLbl, 0, 0); ctx.restore();
+      ctx.fillText(`${yLbl}${logY ? ' · LOG' : ''}`, 0, 0); ctx.restore();
     }
   }
 
   // Dual-axis: second Y axis on the right
-  function _axesDual(ctx, a, xLbl, yLblL, yMinL, yMaxL, yLblR, yMinR, yMaxR) {
-    _axes(ctx, a, xLbl, yLblL, yMinL, yMaxL);
+  function _axesDual(ctx, a, xLbl, yLblL, yMinL, yMaxL, yLblR, yMinR, yMaxR, logLeft = false) {
+    _axes(ctx, a, xLbl, yLblL, yMinL, yMaxL, logLeft);
     // Right axis ticks
     ctx.strokeStyle = 'rgba(60, 60, 100, 0.15)'; ctx.lineWidth = 0.5;
     for (let i = 0; i <= 3; i++) {
@@ -310,7 +345,7 @@ export const ProbePlots = (() => {
     ctx.setLineDash(dashed ? [4, 3] : []);
   }
 
-  function _lineScaled(ctx, a, data, key, color, xMin, xMax, yMin, yMax, dashed, scale, ghost) {
+  function _lineScaled(ctx, a, data, key, color, xMin, xMax, yMin, yMax, dashed, scale, ghost, logY = false) {
     _strokeStyle(ctx, color, dashed, ghost);
     ctx.beginPath();
     let started = false;
@@ -319,13 +354,15 @@ export const ProbePlots = (() => {
       const v = data[i][key];
       if (v == null || !isFinite(v)) continue;
       const x = a.x + ((xV - xMin) / (xMax - xMin)) * a.w;
-      const y = a.y + a.h - ((v * scale - yMin) / (yMax - yMin)) * a.h;
+      const frac = _yFraction(v * scale, yMin, yMax, logY);
+      if (frac == null) { started = false; continue; }
+      const y = a.y + a.h - frac * a.h;
       if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
     }
     ctx.stroke(); ctx.setLineDash([]);
   }
 
-  function _line(ctx, a, data, key, color, xMin, xMax, yMin, yMax, dashed, ghost) {
+  function _line(ctx, a, data, key, color, xMin, xMax, yMin, yMax, dashed, ghost, logY = false) {
     _strokeStyle(ctx, color, dashed, ghost);
     ctx.beginPath();
     let started = false;
@@ -334,7 +371,9 @@ export const ProbePlots = (() => {
       const v = data[i][key];
       if (v == null || !isFinite(v)) continue;
       const x = a.x + ((xV - xMin) / (xMax - xMin)) * a.w;
-      const y = a.y + a.h - ((v - yMin) / (yMax - yMin)) * a.h;
+      const frac = _yFraction(v, yMin, yMax, logY);
+      if (frac == null) { started = false; continue; }
+      const y = a.y + a.h - frac * a.h;
       if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
     }
     ctx.stroke(); ctx.setLineDash([]);
@@ -370,35 +409,46 @@ export const ProbePlots = (() => {
     }
   }
 
-  /** Draw an endpoint mission band behind a live curve. The label is explicit
+  /** Draw endpoint mission boundaries behind a live curve. The labels are explicit
    *  because a final-energy target is not a claim that energy must remain in
    *  that band throughout the accelerator. */
-  function _targetBand(ctx, a, band, yMin, yMax) {
+  function _targetBand(ctx, a, band, yMin, yMax, logY = false) {
     if (!Array.isArray(band) || band.length < 2 || !isFinite(yMin) || !isFinite(yMax)) return;
-    const span = yMax - yMin || 1;
-    const lo = band[0] == null ? yMin : band[0];
-    const hi = band[1] == null ? yMax : band[1];
-    if (hi < yMin || lo > yMax) return;
-    const clippedLo = Math.max(yMin, Math.min(yMax, lo));
-    const clippedHi = Math.max(yMin, Math.min(yMax, hi));
-    const yTop = a.y + a.h - ((clippedHi - yMin) / span) * a.h;
-    const yBottom = a.y + a.h - ((clippedLo - yMin) / span) * a.h;
+    const boundaries = [];
+    if (band[0] != null && isFinite(band[0])) {
+      boundaries.push({
+        value: Number(band[0]),
+        label: band[1] == null ? 'MISSION ≥' : 'MISSION MIN',
+      });
+    }
+    if (band[1] != null && isFinite(band[1])) {
+      boundaries.push({
+        value: Number(band[1]),
+        label: band[0] == null ? 'MISSION ≤' : 'MISSION MAX',
+      });
+    }
+    if (boundaries.length === 0) return;
 
     ctx.save();
     ctx.strokeStyle = 'rgba(80, 220, 150, 0.55)';
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 3]);
-    for (const y of [yTop, yBottom]) {
+    for (const boundary of boundaries) {
+      const frac = _yFraction(boundary.value, yMin, yMax, logY);
+      if (frac == null || frac < 0 || frac > 1) continue;
+      const y = a.y + a.h - frac * a.h;
       ctx.beginPath();
       ctx.moveTo(a.x, y);
       ctx.lineTo(a.x + a.w, y);
       ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(100, 235, 165, 0.9)';
+      ctx.font = 'bold 7px monospace';
+      ctx.textAlign = 'right';
+      const labelY = Math.max(a.y + 7, Math.min(a.y + a.h - 2, y - 2));
+      ctx.fillText(`${boundary.label} ${_fmtPlotValue(boundary.value)}`, a.x + a.w - 3, labelY);
+      ctx.setLineDash([4, 3]);
     }
-    ctx.setLineDash([]);
-    ctx.fillStyle = 'rgba(100, 235, 165, 0.82)';
-    ctx.font = 'bold 7px monospace';
-    ctx.textAlign = 'right';
-    ctx.fillText('END TARGET', a.x + a.w - 3, Math.max(a.y + 8, yTop + 8));
     ctx.restore();
   }
 
@@ -419,11 +469,20 @@ export const ProbePlots = (() => {
     // Focus health color bands (behind everything)
     if (!ghost) _drawFocusBands(ctx, a, env, [xMin, xMax]);
     const scaled = env.map(d => ({ ...d, sx_mm: (d.sigma_x || 0) * 1000, sy_mm: (d.sigma_y || 0) * 1000 }));
-    const [yMin, yMax] = _chan(o, 0, [0, 1]);
-    if (!ghost) _axes(ctx, a, 's (m)', 'mm', yMin, yMax);
-    if (!ghost) _targetBand(ctx, a, o?.targetBand || o?.targets?.spotSizeMm, yMin, yMax);
-    _line(ctx, a, scaled, 'sx_mm', '#44aaff', xMin, xMax, yMin, yMax, false, ghost);
-    _line(ctx, a, scaled, 'sy_mm', '#ff6644', xMin, xMax, yMin, yMax, true, ghost);
+    const target = o?.targetBand || o?.targets?.spotSizeMm;
+    let [yMin, yMax] = _chan(o, 0, [0, 1]);
+    const logDomain = o?.yAxisMode === 'log'
+      ? _positiveDomain([yMin, yMax], [
+        ...scaled.flatMap(d => [d.sx_mm, d.sy_mm]),
+        ...(target || []),
+      ])
+      : null;
+    const logY = !!logDomain;
+    if (logDomain) [yMin, yMax] = logDomain;
+    if (!ghost) _axes(ctx, a, 's (m)', 'mm', yMin, yMax, logY);
+    if (!ghost) _targetBand(ctx, a, target, yMin, yMax, logY);
+    _line(ctx, a, scaled, 'sx_mm', '#44aaff', xMin, xMax, yMin, yMax, false, ghost, logY);
+    _line(ctx, a, scaled, 'sy_mm', '#ff6644', xMin, xMax, yMin, yMax, true, ghost, logY);
     if (ghost) return;
     _pinMarkers(ctx, a, env, pins, xMin, xMax);
     _legend(ctx, a, [{ color: '#44aaff', label: '\u03c3_x' }, { color: '#ff6644', label: '\u03c3_y' }]);
@@ -433,9 +492,18 @@ export const ProbePlots = (() => {
     const a = _area(canvas);
     const [xMin, xMax] = xRange || _xRange(env);
     const ghost = o && o.ghost;
-    const [yMin, yMax] = _chan(o, 0, [0, 1]);
-    if (!ghost) _axes(ctx, a, 's (m)', 'mA', yMin, yMax);
-    if (!ghost) _targetBand(ctx, a, o?.targetBand || o?.targets?.currentMA, yMin, yMax);
+    const target = o?.targetBand || o?.targets?.currentMA;
+    let [yMin, yMax] = _chan(o, 0, [0, 1]);
+    const logDomain = o?.yAxisMode === 'log'
+      ? _positiveDomain([yMin, yMax], [
+        ...env.map(d => d.current),
+        ...(target || []),
+      ])
+      : null;
+    const logY = !!logDomain;
+    if (logDomain) [yMin, yMax] = logDomain;
+    if (!ghost) _axes(ctx, a, 's (m)', 'mA', yMin, yMax, logY);
+    if (!ghost) _targetBand(ctx, a, target, yMin, yMax, logY);
     // Shade loss regions
     for (let i = 1; !ghost && i < env.length; i++) {
       const prev = env[i - 1], curr = env[i];
@@ -448,7 +516,7 @@ export const ProbePlots = (() => {
         ctx.fillRect(x0, a.y, x1 - x0, a.h);
       }
     }
-    _line(ctx, a, env, 'current', '#ddaa44', xMin, xMax, yMin, yMax, false, ghost);
+    _line(ctx, a, env, 'current', '#ddaa44', xMin, xMax, yMin, yMax, false, ghost, logY);
     if (ghost) return;
     _pinMarkers(ctx, a, env, pins, xMin, xMax);
     _legend(ctx, a, [{ color: '#ddaa44', label: 'Current' }]);
@@ -457,16 +525,21 @@ export const ProbePlots = (() => {
   function _drawEmittance(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
     const a = _area(canvas);
     const [xMin, xMax] = xRange || _xRange(env);
-    const [yMin, yMax] = _chan(o, 0, [0, 1]);
+    let [yMin, yMax] = _chan(o, 0, [0, 1]);
+    const logDomain = o?.yAxisMode === 'log'
+      ? _positiveDomain([yMin, yMax], env.flatMap(d => [d.emit_nx, d.emit_ny]))
+      : null;
+    const logY = !!logDomain;
+    if (logDomain) [yMin, yMax] = logDomain;
     if (o && o.ghost) {
-      _line(ctx, a, env, 'emit_nx', '#44aaff', xMin, xMax, yMin, yMax, false, true);
-      _line(ctx, a, env, 'emit_ny', '#ff6644', xMin, xMax, yMin, yMax, true, true);
+      _line(ctx, a, env, 'emit_nx', '#44aaff', xMin, xMax, yMin, yMax, false, true, logY);
+      _line(ctx, a, env, 'emit_ny', '#ff6644', xMin, xMax, yMin, yMax, true, true, logY);
       return;
     }
     // Use normalized emittance — the conserved quantity
-    _axes(ctx, a, 's (m)', '\u03b5_n (m\u00b7rad)', yMin, yMax);
-    _line(ctx, a, env, 'emit_nx', '#44aaff', xMin, xMax, yMin, yMax, false);
-    _line(ctx, a, env, 'emit_ny', '#ff6644', xMin, xMax, yMin, yMax, true);
+    _axes(ctx, a, 's (m)', '\u03b5_n (m\u00b7rad)', yMin, yMax, logY);
+    _line(ctx, a, env, 'emit_nx', '#44aaff', xMin, xMax, yMin, yMax, false, false, logY);
+    _line(ctx, a, env, 'emit_ny', '#ff6644', xMin, xMax, yMin, yMax, true, false, logY);
     _pinMarkers(ctx, a, env, pins, xMin, xMax);
     _legend(ctx, a, [{ color: '#44aaff', label: '\u03b5_nx' }, { color: '#ff6644', label: '\u03b5_ny' }]);
   }
@@ -482,23 +555,32 @@ export const ProbePlots = (() => {
     const eRef = Math.max(Math.abs(eMinGev), Math.abs(eMaxGev)) || 1;
     const eScale = eRef >= 1000 ? 1e-3 : eRef >= 1 ? 1 : eRef >= 1e-3 ? 1e3 : 1e6;
     const eUnit = eRef >= 1000 ? 'TeV' : eRef >= 1 ? 'GeV' : eRef >= 1e-3 ? 'MeV' : 'keV';
-    const eMin = eMinGev * eScale, eMax = eMaxGev * eScale;
+    let eMin = eMinGev * eScale, eMax = eMaxGev * eScale;
+    const energyTarget = o?.targetBand || o?.targets?.energyGeV;
+    const scaledEnergyTarget = energyTarget
+      ? energyTarget.map(v => v == null ? null : v * eScale)
+      : null;
+    const logDomain = o?.yAxisMode === 'log'
+      ? _positiveDomain([eMin, eMax], [
+        ...env.map(d => d.energy == null ? null : d.energy * eScale),
+        ...(scaledEnergyTarget || []),
+      ])
+      : null;
+    const logY = !!logDomain;
+    if (logDomain) [eMin, eMax] = logDomain;
 
     // Right axis: dispersion in metres
     const [dMin, dMax] = _chan(o, 1, [0, 1]);
 
     if (o && o.ghost) {
-      _lineScaled(ctx, aR, env, 'energy', '#44dd88', xMin, xMax, eMin, eMax, false, eScale, true);
+      _lineScaled(ctx, aR, env, 'energy', '#44dd88', xMin, xMax, eMin, eMax, false, eScale, true, logY);
       _line(ctx, aR, env, 'eta_x', '#ff8844', xMin, xMax, dMin, dMax, true, true);
       return;
     }
 
-    _axesDual(ctx, aR, 's (m)', `E (${eUnit})`, eMin, eMax, '\u03b7_x (m)', dMin, dMax);
-    const energyTarget = o?.targetBand || o?.targets?.energyGeV;
-    _targetBand(ctx, aR,
-      energyTarget ? energyTarget.map(v => v == null ? null : v * eScale) : null,
-      eMin, eMax);
-    _lineScaled(ctx, aR, env, 'energy', '#44dd88', xMin, xMax, eMin, eMax, false, eScale);
+    _axesDual(ctx, aR, 's (m)', `E (${eUnit})`, eMin, eMax, '\u03b7_x (m)', dMin, dMax, logY);
+    _targetBand(ctx, aR, scaledEnergyTarget, eMin, eMax, logY);
+    _lineScaled(ctx, aR, env, 'energy', '#44dd88', xMin, xMax, eMin, eMax, false, eScale, false, logY);
     _line(ctx, aR, env, 'eta_x', '#ff8844', xMin, xMax, dMin, dMax, true);
     _pinMarkers(ctx, aR, env, pins, xMin, xMax);
     _legend(ctx, aR, [{ color: '#44dd88', label: 'Energy' }, { color: '#ff8844', label: '\u03b7_x' }]);
@@ -514,61 +596,17 @@ export const ProbePlots = (() => {
       return;
     }
 
-    // Use log scale if range spans > 2 orders of magnitude.
-    // The span comes from the shared domain when there is one, so both passes of
-    // a comparison pick the same mode and the same decades.
     const [minVal, maxVal] = _chan(o, 0, [Math.min(...vals), Math.max(...vals)]);
-    const useLog = maxVal / Math.max(minVal, 1e-10) > 100;
-
-    if (useLog) {
-      const logMin = Math.floor(Math.log10(Math.max(minVal, 1e-3)));
-      const logMax = Math.ceil(Math.log10(maxVal));
-      const lMin = logMin - 0.3, lMax = logMax + 0.3;
-
-      // Custom log axes
-      if (!ghost) _logAxes(ctx, a, logMin, logMax, lMin, lMax);
-
-      // Draw line in log space
-      _strokeStyle(ctx, '#ee55ee', false, ghost);
-      ctx.beginPath();
-      let started = false;
-      for (let i = 0; i < env.length; i++) {
-        const xV = env[i].s != null ? env[i].s : i;
-        const v = env[i].peak_current;
-        if (v == null || !isFinite(v) || v <= 0) continue;
-        const x = a.x + ((xV - xMin) / (xMax - xMin)) * a.w;
-        const logV = Math.log10(v);
-        const y = a.y + a.h - ((logV - lMin) / (lMax - lMin)) * a.h;
-        if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
-      }
-      ctx.stroke(); ctx.setLineDash([]);
-    } else {
-      const [yMin, yMax] = _range([minVal, maxVal]);
-      if (!ghost) _axes(ctx, a, 's (m)', 'I_peak (A)', yMin, yMax);
-      _line(ctx, a, env, 'peak_current', '#ee55ee', xMin, xMax, yMin, yMax, false, ghost);
-    }
+    const logDomain = o?.yAxisMode === 'log'
+      ? _positiveDomain([minVal, maxVal], vals)
+      : null;
+    const logY = !!logDomain;
+    const [yMin, yMax] = logDomain || _range([minVal, maxVal]);
+    if (!ghost) _axes(ctx, a, 's (m)', 'I_peak (A)', yMin, yMax, logY);
+    _line(ctx, a, env, 'peak_current', '#ee55ee', xMin, xMax, yMin, yMax, false, ghost, logY);
     if (ghost) return;
     _pinMarkers(ctx, a, env, pins, xMin, xMax);
     _legend(ctx, a, [{ color: '#ee55ee', label: 'I_peak' }]);
-  }
-
-  // Log-decade gridlines + frame + labels, factored out so a ghost pass can skip it.
-  function _logAxes(ctx, a, logMin, logMax, lMin, lMax) {
-    ctx.strokeStyle = 'rgba(60, 60, 100, 0.3)'; ctx.lineWidth = 0.5;
-    for (let dec = logMin; dec <= logMax; dec++) {
-      const frac = (dec - lMin) / (lMax - lMin);
-      const y = a.y + a.h - frac * a.h;
-      ctx.beginPath(); ctx.moveTo(a.x, y); ctx.lineTo(a.x + a.w, y); ctx.stroke();
-      ctx.fillStyle = 'rgba(120, 120, 160, 0.7)';
-      ctx.font = '9px monospace'; ctx.textAlign = 'right';
-      ctx.fillText('10^' + dec, a.x - 3, y + 3);
-    }
-    ctx.strokeStyle = 'rgba(80, 80, 130, 0.5)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(a.x, a.y + a.h); ctx.lineTo(a.x + a.w, a.y + a.h); ctx.stroke();
-    ctx.fillStyle = 'rgba(140, 140, 180, 0.7)'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
-    ctx.fillText('s (m)', a.x + a.w / 2, a.y + a.h + 14);
-    ctx.save(); ctx.translate(8, a.y + a.h / 2); ctx.rotate(-Math.PI / 2);
-    ctx.fillText('I_peak (A)', 0, 0); ctx.restore();
   }
 
   // --- "At this point" plots ---

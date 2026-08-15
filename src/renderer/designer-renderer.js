@@ -77,10 +77,21 @@ function _missionMetricValue(type, result) {
 }
 
 BeamlineDesigner.prototype._renderPlotMissionSummary = function() {
+  const yScaleSelect = document.getElementById('dsgn-y-scale-select');
+  if (yScaleSelect) yScaleSelect.value = this.plotYAxisMode === 'log' ? 'log' : 'linear';
+
   const summary = document.getElementById('dsgn-plot-mission-summary');
   if (!summary) return;
 
   const type = getBeamlineType(this._designerBeamlineTypeId?.());
+  const referenceSelect = document.getElementById('dsgn-plot-reference-select');
+  if (referenceSelect) {
+    referenceSelect.disabled = !type;
+    referenceSelect.value = type && this.plotReference !== 'none' ? 'mission' : 'none';
+    referenceSelect.title = type
+      ? 'Show or hide mission target lines on compatible plots'
+      : 'Free Build has no mission targets';
+  }
   if (!type) {
     summary.innerHTML = '<span class="dsgn-plot-mission-empty">Free Build · no mission targets</span>';
     summary.setAttribute('aria-label', 'Free Build; no mission targets');
@@ -970,7 +981,7 @@ function _drawNoDataPlaceholder(ctx, w, h, designer) {
 // Keep the mission band on the same axes as the plotted beam, including when
 // the proposal is still outside the target. Otherwise the dashed band would be
 // clipped away precisely when it is most useful.
-function _includeMissionBand(yDomain, band) {
+function _includeMissionBand(yDomain, band, yAxisMode = 'linear') {
   if (!yDomain || !band || band.length !== 2) return yDomain;
   const bounds = band.filter(value => value != null && Number.isFinite(Number(value)))
     .map(Number);
@@ -978,6 +989,19 @@ function _includeMissionBand(yDomain, band) {
   const domain = (Array.isArray(yDomain[0]) ? yDomain : [yDomain])
     .map(channel => channel ? [...channel] : channel);
   if (!domain[0]) return yDomain;
+
+  if (yAxisMode === 'log') {
+    const positive = [...domain[0], ...bounds].filter(value => value > 0);
+    if (positive.length === 0) return yDomain;
+    let lo = Math.min(...positive);
+    let hi = Math.max(...positive);
+    if (lo === hi) { lo /= 1.2; hi *= 1.2; }
+    const span = Math.max(Math.log10(hi) - Math.log10(lo), 0.1);
+    const pad = span * 0.05;
+    domain[0] = [10 ** (Math.log10(lo) - pad), 10 ** (Math.log10(hi) + pad)];
+    return domain;
+  }
+
   let lo = Math.min(domain[0][0], ...bounds);
   let hi = Math.max(domain[0][1], ...bounds);
   const span = hi - lo || Math.max(Math.abs(hi), 1) * 0.1;
@@ -992,7 +1016,10 @@ BeamlineDesigner.prototype._renderPlots = function() {
   // Compute the x/y ranges based on plot range modes
   const xRange = this._getPlotXRange();
   const yScale = this._getPlotYScale();
-  const targets = this._missionPlotTargets?.() || null;
+  const yAxisMode = this.plotYAxisMode === 'log' ? 'log' : 'linear';
+  const targets = this.plotReference === 'none'
+    ? null
+    : (this._missionPlotTargets?.() || null);
 
   // Which beamline(s) the panels show. `solid` is drawn in full colour with all
   // the chrome; `ghost` is the dimmed comparison drawn underneath it.
@@ -1053,16 +1080,16 @@ BeamlineDesigner.prototype._renderPlots = function() {
       const targetDomain = ProbePlots.targetYDomain(plotType, targets);
       const targetBand = targetDomain?.[0] || null;
       yDomain = ProbePlots.unionYDomain(yDomain, targetDomain);
-      yDomain = _includeMissionBand(yDomain, targetBand);
+      yDomain = _includeMissionBand(yDomain, targetBand, yAxisMode);
       // Ghost first: it draws marks only, so the solid pass on top supplies the
       // axes, bands, pin lines and legend. Reversed, the chrome would paint over
       // the proposal and the as-built line would read as the real one.
       if (ghost) {
         ProbePlots.draw(off, plotType, ghost, pins, 0, xRange, yScale,
-          { yDomain, targetBand, ghost: true, targets });
+          { yDomain, targetBand, ghost: true, targets, yAxisMode });
       }
       ProbePlots.draw(off, plotType, solid, pins, 0, xRange, yScale,
-        { yDomain, targetBand, noClear: !!ghost, targets });
+        { yDomain, targetBand, noClear: !!ghost, targets, yAxisMode });
     }
 
     // Scale up to display canvas with nearest-neighbor (crispy pixels)

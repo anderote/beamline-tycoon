@@ -59,6 +59,12 @@ test('mission targets use the regular Energy and Emittance plot strip', async ({
       greenMap: !!document.getElementById('dsgn-mission-map'),
       plotTypes: [...document.querySelectorAll('.dsgn-plot-select')].map(select => select.value),
       plotPanels: document.querySelectorAll('.dsgn-plot-panel').length,
+      yScale: document.getElementById('dsgn-y-scale-select')?.value,
+      yScaleOptions: [...(document.getElementById('dsgn-y-scale-select')?.options || [])]
+        .map(option => option.textContent),
+      reference: document.getElementById('dsgn-plot-reference-select')?.value,
+      referenceOptions: [...(document.getElementById('dsgn-plot-reference-select')?.options || [])]
+        .map(option => option.textContent),
       summaryText: summary?.textContent.replace(/\s+/g, ' ').trim() || '',
       summaryLabel: summary?.getAttribute('aria-label') || '',
       targets: [...(summary?.querySelectorAll('.dsgn-plot-mission-metric') || [])]
@@ -72,6 +78,10 @@ test('mission targets use the regular Energy and Emittance plot strip', async ({
   expect(layout.greenMap, 'the separate green target map is gone').toBe(false);
   expect(layout.plotPanels, 'the two plots get the full performance row').toBe(2);
   expect(layout.plotTypes).toEqual(['energy-dispersion', 'emittance']);
+  expect(layout.yScale).toBe('linear');
+  expect(layout.yScaleOptions).toEqual(['Linear', 'Log']);
+  expect(layout.reference).toBe('mission');
+  expect(layout.referenceOptions).toEqual(['Mission Target', 'None']);
   expect(layout.summaryText).toContain('E-beam Processing Line');
   expect(layout.summaryText).toContain('Energy');
   expect(layout.summaryText).toContain('Current');
@@ -94,31 +104,99 @@ test('mission targets use the regular Energy and Emittance plot strip', async ({
       { s: 4, energy: 0.00005, eta_x: 0, emit_nx: 1.2e-6, emit_ny: 1.3e-6 },
     ];
     const calls = [];
+    const targetLabels = [];
     const orig = ProbePlots.draw;
+    const origFillText = CanvasRenderingContext2D.prototype.fillText;
     ProbePlots.draw = function(canvas, type, envelope, pins, activePin, xRange, yScale, opts) {
       calls.push({
         type,
         targets: opts?.targets || null,
         targetYDomain: ProbePlots.targetYDomain(type, opts?.targets || null),
         yDomain: opts?.yDomain || null,
+        yAxisMode: opts?.yAxisMode || null,
       });
       return orig.apply(this, arguments);
+    };
+    CanvasRenderingContext2D.prototype.fillText = function(text) {
+      if (String(text).startsWith('MISSION')) targetLabels.push(String(text));
+      return origFillText.apply(this, arguments);
     };
     try {
       d._renderPlots();
     } finally {
       ProbePlots.draw = orig;
+      CanvasRenderingContext2D.prototype.fillText = origFillText;
     }
-    return calls;
+    return { calls, targetLabels };
   });
-  const energyCall = plotCalls.find(call => call.type === 'energy-dispersion');
-  const emittanceCall = plotCalls.find(call => call.type === 'emittance');
+  const energyCall = plotCalls.calls.find(call => call.type === 'energy-dispersion');
+  const emittanceCall = plotCalls.calls.find(call => call.type === 'emittance');
   expect(energyCall?.targets?.energyGeV).toEqual([0.003, 0.012]);
   expect(energyCall?.targetYDomain?.[0]).toEqual([0.003, 0.012]);
+  expect(energyCall?.yAxisMode).toBe('linear');
   expect(energyCall?.yDomain?.[0]?.[0]).toBe(0);
   expect(energyCall?.yDomain?.[0]?.[1]).toBeGreaterThan(0.012);
   expect(energyCall?.yDomain?.[0]?.[1]).toBeLessThan(0.02);
   expect(emittanceCall?.targetYDomain).toBeNull();
+  expect(plotCalls.targetLabels).toContain('MISSION MIN 3.00');
+  expect(plotCalls.targetLabels).toContain('MISSION MAX 12.0');
+
+  // The reference and axis mode are independent controls. Hiding the mission
+  // reference removes both its domain contribution and dotted labels, while
+  // Log is forwarded to each panel's positive primary y channel.
+  const logWithoutMission = await page.evaluate(async () => {
+    const { ProbePlots } = await import('/src/ui/probe-plots.js');
+    const d = window.game._designer;
+    const reference = document.getElementById('dsgn-plot-reference-select');
+    reference.value = 'none';
+    reference.dispatchEvent(new Event('change', { bubbles: true }));
+
+    const calls = [];
+    const targetLabels = [];
+    const logAxisLabels = [];
+    const orig = ProbePlots.draw;
+    const origFillText = CanvasRenderingContext2D.prototype.fillText;
+    ProbePlots.draw = function(canvas, type, envelope, pins, activePin, xRange, yScale, opts) {
+      calls.push({
+        type,
+        targets: opts?.targets || null,
+        targetBand: opts?.targetBand || null,
+        yAxisMode: opts?.yAxisMode || null,
+      });
+      return orig.apply(this, arguments);
+    };
+    CanvasRenderingContext2D.prototype.fillText = function(text) {
+      if (String(text).startsWith('MISSION')) targetLabels.push(String(text));
+      if (String(text).includes('· LOG')) logAxisLabels.push(String(text));
+      return origFillText.apply(this, arguments);
+    };
+    try {
+      const scale = document.getElementById('dsgn-y-scale-select');
+      scale.value = 'log';
+      scale.dispatchEvent(new Event('change', { bubbles: true }));
+    } finally {
+      ProbePlots.draw = orig;
+      CanvasRenderingContext2D.prototype.fillText = origFillText;
+    }
+    return {
+      calls,
+      targetLabels,
+      logAxisLabels,
+      plotYAxisMode: d.plotYAxisMode,
+      plotReference: d.plotReference,
+    };
+  });
+  expect(logWithoutMission.plotYAxisMode).toBe('log');
+  expect(logWithoutMission.plotReference).toBe('none');
+  expect(logWithoutMission.calls).toHaveLength(2);
+  expect(logWithoutMission.calls.every(call => call.yAxisMode === 'log')).toBe(true);
+  expect(logWithoutMission.calls.every(call => call.targets === null)).toBe(true);
+  expect(logWithoutMission.calls.every(call => call.targetBand === null)).toBe(true);
+  expect(logWithoutMission.targetLabels).toEqual([]);
+  expect(logWithoutMission.logAxisLabels).toEqual([
+    'E (keV) · LOG',
+    'ε_n (m·rad) · LOG',
+  ]);
 
   errors.checkAll('designer mission plot strip');
 });
