@@ -79,14 +79,6 @@ export const PORT_ANCHOR_OVERRIDES = {
     hv_out_1: { y: 0.55, along: 0.27 }, hv_out_2: { y: 0.92, along: 0.27 },
     hv_out_3: { y: 1.29, along: 0.27 }, hv_out_4: { y: 1.66, along: 0.27 },
   },
-  // The SSA's logical HV port already exists. Mount it on the dedicated
-  // conduit at the low rear corner so it cannot be mistaken for the tall RF
-  // combining spine beside it.
-  solidStateAmp: {
-    _default: { y: 1.2, lat: 0.46, along: 0 },
-    hv_in: { y: 0.37, along: 0.32 },
-    rf_out: { y: 1.55, along: 0 },
-  },
   powerPanel: {
     _default: { y: 0.5, lat: 0.19 }, hv_in: { y: 0.30, along: -0.15 },
     pwr_out_1: { y: 0.30, along: 0.15 }, pwr_out_2: { y: 0.62, along: 0.15 },
@@ -141,8 +133,8 @@ export const PORT_ANCHOR_OVERRIDES = {
   waveguideManifold: { _default: { y: 1.1 } },
   solidStateAmp: {
     _default: { y: 0.95, lat: 0.48 },
-    // Dedicated low rear HV gland, kept clear of the four RF flanges above.
-    hv_in: { y: 0.37, along: 0.32 },
+    // Dedicated low front HV gland, opposite the four rear RF flanges.
+    hv_in: { y: 0.37, along: 0.30 },
     rf_out_1: { y: 0.78, along: -0.30 }, rf_out_2: { y: 0.78, along: -0.10 },
     rf_out_3: { y: 1.12, along: 0.10 }, rf_out_4: { y: 1.12, along: 0.30 },
   },
