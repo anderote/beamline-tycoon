@@ -36,7 +36,13 @@ test('midnight keeps the world readable with selective glow enabled', async ({ p
     const r = window._renderer;
     const probe = new window.THREE.Mesh(
       new window.THREE.BoxGeometry(8, 2, 8),
-      new window.THREE.MeshStandardMaterial({ color: 0xb0b0b0, roughness: 1, metalness: 0 }),
+      new window.THREE.MeshStandardMaterial({
+        color: 0xb0b0b0,
+        roughness: 1,
+        metalness: 0,
+        depthTest: false,
+        depthWrite: false,
+      }),
     );
     // Put the material probe directly on the camera ray and above the world.
     // A fixed y=5 at the camera target can sit inside newer hilly terrain (or
@@ -44,6 +50,7 @@ test('midnight keeps the world readable with selective glow enabled', async ({ p
     const viewDirection = new window.THREE.Vector3();
     r.camera.getWorldDirection(viewDirection);
     probe.position.copy(r.camera.position).addScaledVector(viewDirection, 10);
+    probe.renderOrder = 10_000;
     r.scene.add(probe);
     window.__nightLightingProbe = probe;
     if (r._animFrameId !== null) cancelAnimationFrame(r._animFrameId);
