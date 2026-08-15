@@ -15,6 +15,7 @@
 
 import { validateDrawLine } from './line-drawing.js';
 import { buildManhattanPath } from './line-geometry.js';
+import { utilityAttachmentPose } from './line-attachments.js';
 
 const EPS = 1e-6;
 
@@ -150,7 +151,59 @@ export class UtilityLineSystem {
     if (!lines) return false;
     const line = lines.get(id);
     if (!line) return false;
+    // Instruments mounted on this run are utility endpoints in their own
+    // right (cold-cathode and BA gauges have power plugs). Dangle any lines
+    // wired to those endpoints before their owning run disappears.
+    for (const attachment of (line.attachments || [])) {
+      this.onPlaceableRemoved(attachment.id);
+    }
     lines.delete(id);
+    this.emit('utilityLinesChanged', { utilityType: line.utilityType });
+    return true;
+  }
+
+  /** Add an instrument at a normalized position along an existing run. */
+  addAttachment(lineId, opts = {}) {
+    const lines = this.state && this.state.utilityLines;
+    const line = lines && lines.get(lineId);
+    if (!line || (!opts.id && typeof opts.nextId !== 'function')
+        || !opts.type || !Number.isFinite(opts.position)) return null;
+    const position = Math.max(0, Math.min(1, opts.position));
+    const pose = utilityAttachmentPose(line, position);
+    if (!pose) return null;
+    // Half a metre of centre-to-centre clearance keeps two gauge bodies from
+    // occupying the same fitting while preserving effectively continuous
+    // placement along a run.
+    for (const existing of (line.attachments || [])) {
+      const other = utilityAttachmentPose(line, existing);
+      if (other && Math.hypot(other.worldX - pose.worldX, other.worldZ - pose.worldZ) < 0.5) {
+        this.log("Can't mount instrument: another instrument is already here", 'bad');
+        return null;
+      }
+    }
+    // Mint only after every rejection check, so a refused click is a true
+    // no-op for undo/redo and does not consume an id.
+    const id = opts.id || opts.nextId();
+    const attachment = {
+      id,
+      type: opts.type,
+      position,
+      params: opts.params || null,
+    };
+    if (!Array.isArray(line.attachments)) line.attachments = [];
+    line.attachments.push(attachment);
+    this.emit('utilityLinesChanged', { utilityType: line.utilityType });
+    return id;
+  }
+
+  /** Remove one instrument mounted on a utility run. */
+  removeAttachment(lineId, attachmentId) {
+    const lines = this.state && this.state.utilityLines;
+    const line = lines && lines.get(lineId);
+    if (!line || !Array.isArray(line.attachments)) return false;
+    const index = line.attachments.findIndex(a => a && a.id === attachmentId);
+    if (index < 0) return false;
+    line.attachments.splice(index, 1);
     this.emit('utilityLinesChanged', { utilityType: line.utilityType });
     return true;
   }

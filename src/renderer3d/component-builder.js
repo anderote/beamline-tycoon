@@ -24,6 +24,8 @@ import {
   _buildGateValveRoles,
   _buildRoughingPumpRoles,
   _buildTurboPumpRoles,
+  _buildVacuumCartRoles,
+  _buildHighCapacityVacuumStationRoles,
   _buildIonPumpRoles,
   _buildNEGPumpRoles,
   _buildTiSubPumpRoles,
@@ -1676,6 +1678,8 @@ ROLE_BUILDERS.baGauge = _buildBAGaugeRoles;
 ROLE_BUILDERS.gateValve = _buildGateValveRoles;
 ROLE_BUILDERS.roughingPump = _buildRoughingPumpRoles;
 ROLE_BUILDERS.turboPump = _buildTurboPumpRoles;
+ROLE_BUILDERS.vacuumCart = _buildVacuumCartRoles;
+ROLE_BUILDERS.highCapacityVacuumStation = _buildHighCapacityVacuumStationRoles;
 ROLE_BUILDERS.ionPump = _buildIonPumpRoles;
 ROLE_BUILDERS.negPump = _buildNEGPumpRoles;
 ROLE_BUILDERS.tiSubPump = _buildTiSubPumpRoles;
@@ -4075,11 +4079,14 @@ export function componentPose(compDef, inst, isDetailed) {
   const ghSub = swap ? gwRaw : ghRaw;
 
   let x, z;
+  if (Number.isFinite(inst.worldX) && Number.isFinite(inst.worldZ)) {
+    x = inst.worldX;
+    z = inst.worldZ;
   // Pipe attachments are the exception: their col/row are interpolated float
   // coordinates along a pipe path, so the mesh centres directly on that point
   // regardless of the component's sub-tile footprint. subCol === null is the
   // marker world-snapshot's buildPipeAttachments sets.
-  if (inst.subCol == null && inst.subRow == null) {
+  } else if (inst.subCol == null && inst.subRow == null) {
     x = inst.col * 2 + 1;
     z = inst.row * 2 + 1;
   } else {
@@ -4089,7 +4096,8 @@ export function componentPose(compDef, inst, isDetailed) {
 
   return {
     x, z,
-    y: isDetailed ? 0 : ((compDef.subH || 2) * SUB_UNIT) / 2,
+    y: (isDetailed ? 0 : ((compDef.subH || 2) * SUB_UNIT) / 2)
+      + (Number.isFinite(inst.yOffset) ? inst.yOffset : 0),
     rotY: -direction * (Math.PI / 2),
   };
 }
@@ -4735,6 +4743,7 @@ export class ComponentBuilder {
         obj.userData.beamlineId = comp.beamlineId || null;
         obj.userData.compType = type;
         obj.userData.pipeId = comp.pipeId || null;
+        obj.userData.utilityLineId = comp.utilityLineId || null;
         obj.userData.isPlaceholder = !!usePlaceholder;
         this._meshMap.set(id, obj);
         parentGroup.add(obj);

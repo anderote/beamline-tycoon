@@ -342,7 +342,10 @@ console.log('\n=== 8. Infra panels quote the same ladder the solver gates on ===
     placeables: [{ type, category: 'infrastructure' }], beamline: [],
   });
 
-  for (const t of ['roughingPump', 'turboPump', 'ionPump', 'negPump', 'tiSubPump']) {
+  for (const t of [
+    'roughingPump', 'turboPump', 'vacuumCart', 'highCapacityVacuumStation',
+    'ionPump', 'negPump', 'tiSubPump',
+  ]) {
     assert(st1(t).vacuum.totalPumpSpeed === cap(t, 'vac_out', 'pumpSpeed'),
       `${t} pump speed matches the solver ladder (${cap(t, 'vac_out', 'pumpSpeed')} L/s)`);
   }

@@ -19,7 +19,8 @@
 
 /**
  * @param {object} worldState  game state (reads placeables + beamPipes)
- * @returns {Map<string, object>} id -> the stored placeable or placement
+ * @returns {Map<string, object>} id -> stored placeable, pipe placement, or
+ * line-mounted utility instrument
  */
 export function endpointsById(worldState) {
   const byId = new Map();
@@ -33,6 +34,13 @@ export function endpointsById(worldState) {
       // vacuum solver needs to know which beam pipe a sink sits on so it can
       // charge that pipe's surface area to whatever pumps serve it.
       if (att && att.id) byId.set(att.id, { ...att, pipeId: pipe.id });
+    }
+  }
+  const lines = worldState.utilityLines;
+  const iter = lines && typeof lines.values === 'function' ? lines.values() : (lines || []);
+  for (const line of iter) {
+    for (const att of (line?.attachments || [])) {
+      if (att && att.id) byId.set(att.id, { ...att, utilityLineId: line.id });
     }
   }
   return byId;

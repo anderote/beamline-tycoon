@@ -352,9 +352,18 @@ export class DemolishTool extends Tool {
       // Utility lines are click-on-line (raycast). The catch-all also removes
       // a hovered line before sweeping the tile.
       if (dt === 'demolishUtility' || dt === 'demolishAll') {
+        const objectHit = renderer.raycastScreen?.(screenX, screenY);
+        const objectInfo = objectHit ? renderer.identifyHit?.(objectHit) : null;
+        if (objectInfo?.group === 'utilityAttachment') {
+          if (game.demolishTarget({
+            kind: 'utilityAttachment',
+            lineId: objectInfo.lineId,
+            attachmentId: objectInfo.attachmentId,
+          })) return true;
+        }
         const hit = renderer.raycastUtilityLine?.(screenX, screenY);
         if (hit && hit.lineId && game.utilityLineSystem) {
-          if (game.utilityLineSystem.removeLine(hit.lineId)) {
+          if (game.removeUtilityLine(hit.lineId)) {
             const descriptor = UTILITY_TYPES[hit.utilityType];
             game.log(`Removed ${descriptor?.displayName || hit.utilityType} line`, 'info');
             if (dt === 'demolishUtility') return true;

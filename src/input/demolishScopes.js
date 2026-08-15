@@ -81,6 +81,7 @@ export function refundForFound(found, game) {
   if (found.kind === 'placement') {
     return demolishRefund(found.placeable);
   }
+  if (found.kind === 'utilityAttachment') return demolishRefund(found.placeable);
   return demolishRefund(found.placeable);
 }
 
@@ -92,6 +93,9 @@ export function nameForFound(found) {
   if (found.kind === 'beampipe') return 'Beam Pipe';
   if (found.kind === 'placement') {
     return found.placeable?.name || found.attachment?.type || 'Attachment';
+  }
+  if (found.kind === 'utilityAttachment') {
+    return found.placeable?.name || found.attachment?.type || 'Vacuum Instrument';
   }
   const def = found.placeable;
   return def?.name || found.entry?.type || found.node?.type || 'Unknown';

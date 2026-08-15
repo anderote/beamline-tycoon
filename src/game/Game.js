@@ -3399,6 +3399,8 @@ export class Game {
           target.pipeId || target.id, target.fromSub, target.toSub);
       case 'placement':
         return this.removeAttachment(target.pipeId, target.attachmentId);
+      case 'utilityAttachment':
+        return this.removeUtilityAttachment(target.lineId, target.attachmentId);
       case 'infrastructure':
       case 'equipment':
       case 'furnishing':
@@ -3517,6 +3519,76 @@ export class Game {
    */
   addAttachmentToPipe(pipeId, type, position, params) {
     return this.beamline.placeOnPipe(pipeId, { type, position, params, mode: 'snap' });
+  }
+
+  /** Mount a compatible instrument directly on a drawn utility run. */
+  addUtilityAttachment(lineId, type, position, params) {
+    const line = this.state.utilityLines?.get(lineId);
+    const def = COMPONENTS[type];
+    if (!line || !def || !def.utilityMount || def.utilityMount !== line.utilityType) {
+      this.log(`${def?.name || 'Instrument'} cannot mount on that utility line`, 'bad');
+      return null;
+    }
+    if (!this.isComponentUnlocked(def)) {
+      this.log(`${def.name || type} is not researched yet!`, 'bad');
+      return null;
+    }
+    const cost = def.cost || {};
+    if (!this.canAfford(cost)) {
+      this.log(`Can't afford ${def.name || type}! (${this._missingResourceLabel(cost)})`, 'bad');
+      return null;
+    }
+    const added = this.utilityLineSystem.addAttachment(lineId, {
+      type, position, params,
+      nextId: () => 'ua_' + (this.state.placementNextId = (this.state.placementNextId || 0) + 1),
+    });
+    if (!added) return null;
+    this.spend(cost);
+    this.emit('resourcesChanged');
+    this.log(`Mounted ${def.name} on vacuum line`, 'good');
+    return added;
+  }
+
+  /** Remove and refund an instrument mounted on a utility run. */
+  removeUtilityAttachment(lineId, attachmentId) {
+    const line = this.state.utilityLines?.get(lineId);
+    const attachment = line?.attachments?.find(a => a.id === attachmentId);
+    if (!attachment) return false;
+    // Release power/HV/etc. cables that terminate on the instrument first.
+    this.utilityLineSystem.onPlaceableRemoved(attachmentId);
+    if (!this.utilityLineSystem.removeAttachment(lineId, attachmentId)) return false;
+    const def = COMPONENTS[attachment.type];
+    let fundingRefund = 0;
+    for (const [resource, amount] of Object.entries(def?.cost || {})) {
+      const refund = Math.floor(amount * 0.5);
+      this.state.resources[resource] = (this.state.resources[resource] || 0) + refund;
+      if (resource === 'funding') fundingRefund = refund;
+    }
+    this.emit('resourcesChanged');
+    this.log(`Removed ${def?.name || attachment.type} (+$${fundingRefund.toLocaleString()})`, 'info');
+    return true;
+  }
+
+  /** Remove a utility run and refund any instruments physically mounted on it. */
+  removeUtilityLine(lineId) {
+    const line = this.state.utilityLines?.get(lineId);
+    if (!line) return false;
+    let fundingRefund = 0;
+    for (const attachment of (line.attachments || [])) {
+      this.utilityLineSystem.onPlaceableRemoved(attachment.id);
+      const def = COMPONENTS[attachment.type];
+      for (const [resource, amount] of Object.entries(def?.cost || {})) {
+        const refund = Math.floor(amount * 0.5);
+        this.state.resources[resource] = (this.state.resources[resource] || 0) + refund;
+        if (resource === 'funding') fundingRefund += refund;
+      }
+    }
+    if (!this.utilityLineSystem.removeLine(lineId)) return false;
+    if (fundingRefund > 0) {
+      this.emit('resourcesChanged');
+      this.log(`Recovered line-mounted instruments (+$${fundingRefund.toLocaleString()})`, 'info');
+    }
+    return true;
   }
 
   /**

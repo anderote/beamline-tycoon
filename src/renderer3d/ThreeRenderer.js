@@ -812,6 +812,10 @@ export class ThreeRenderer {
         case 'utilityLinesChanged':
           this._refreshUtilityLinesV2();
           this._refreshUnwiredSinkMarkers();
+          // Utility runs can now own instruments with ports of their own.
+          // Their connector fittings must appear/disappear in the same frame
+          // as the mounted model, not wait for an unrelated placeable edit.
+          this._refreshPortFittings();
           break;
         // The gate reran (beam toggle while paused, or a beamline recalc), so
         // state.infraBlockers may have changed without a tick — and while
@@ -1082,6 +1086,12 @@ export class ThreeRenderer {
       if (obj.parent === this.pipeAttachmentGroup) {
         // Attachment wrappers are built by the same ComponentBuilder, so the
         // attachment id rides on userData.nodeId; pipeId is stamped too.
+        if (obj.userData.utilityLineId) return {
+          group: 'utilityAttachment',
+          rootObj: obj,
+          attachmentId: obj.userData.nodeId ?? null,
+          lineId: obj.userData.utilityLineId,
+        };
         return {
           group: 'attachment',
           rootObj: obj,
@@ -2969,9 +2979,11 @@ export class ThreeRenderer {
    *
    * `reason` follows renderPlaceableGhost: 'unaffordable' tints amber.
    */
-  renderAttachmentGhost(col, row, compType, direction, valid, reason = null, portsFlipped = false) {
+  renderAttachmentGhost(col, row, compType, direction, valid, reason = null, portsFlipped = false, mount = null) {
     this._clearPreviewMeshes();
-    this._renderGridAroundCursor(Math.floor(col), Math.floor(row));
+    const px = Number.isFinite(mount?.worldX) ? mount.worldX : col * 2 + 1;
+    const pz = Number.isFinite(mount?.worldZ) ? mount.worldZ : row * 2 + 1;
+    this._renderGridAroundCursor(Math.floor(px / 2), Math.floor(pz / 2));
     const compDef = COMPONENTS[compType];
     if (!compDef) return;
     const obj = this.componentBuilder._createObject(compDef);
@@ -3011,9 +3023,8 @@ export class ThreeRenderer {
     const SUB_UNIT = 0.5;
     // Attachments use `col * 2 + 1` (fractional col is already the
     // world-centered tile coordinate from the pipe projection).
-    const px = col * 2 + 1;
-    const pz = row * 2 + 1;
-    const y = isDetailed ? 0 : ((compDef.subH || 2) * SUB_UNIT) / 2;
+    const y = (isDetailed ? 0 : ((compDef.subH || 2) * SUB_UNIT) / 2)
+      + (Number.isFinite(mount?.yOffset) ? mount.yOffset : 0);
     obj.position.set(px, y, pz);
     obj.rotation.y = -(direction || 0) * (Math.PI / 2);
     obj.renderOrder = 999;
@@ -3024,6 +3035,7 @@ export class ThreeRenderer {
     // an on-pipe placement to portAnchor3D, preserving its centred pose.
     this._addGhostUtilityPorts({
       type: compType, col, row, subCol: null, subRow: null, dir: direction,
+      worldX: px, worldZ: pz, yOffset: mount?.yOffset,
       portsFlipped: portsFlipped === true,
     }, compDef);
 
@@ -4157,7 +4169,7 @@ export class ThreeRenderer {
    */
   _refreshUtilityLinesV2() {
     if (!this.utilityLineGroup || !this.utilityLineBuilderV2) return;
-    const snap = this._updateSnapshot(['utilityLines']);
+    const snap = this._updateSnapshot(['utilityLines', 'pipeAttachments']);
     // Live read (documented accessor): the builder pins line endpoints to
     // portWorldPosition of live placeables and joins the sim-published
     // utilityNetworks/utilityNetworkData maps for per-network error glow
@@ -4170,6 +4182,7 @@ export class ThreeRenderer {
     this.utilityLineBuilderV2.build(snap.utilityLines, placeablesById, this.utilityLineGroup, {
       state,
     });
+    this.pipeAttachmentBuilder.build(snap.pipeAttachments || [], this.pipeAttachmentGroup);
     this._effectSystem?.syncFromGroup('utility-lines', this.utilityLineGroup);
   }
 

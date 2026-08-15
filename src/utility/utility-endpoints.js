@@ -18,6 +18,7 @@
 
 import { COMPONENTS } from '../data/components.js';
 import { placementPose } from '../beamline/pipe-placements.js';
+import { utilityAttachmentPose, VACUUM_LINE_MOUNT_Y } from './line-attachments.js';
 
 /**
  * Placement → placeable-like record.
@@ -59,6 +60,29 @@ function placementRecord(pipe, att) {
   };
 }
 
+function utilityAttachmentRecord(line, att) {
+  const pose = utilityAttachmentPose(line, att);
+  if (!pose) return null;
+  return {
+    id: att.id,
+    type: att.type,
+    kind: 'infrastructure',
+    category: 'infrastructure',
+    col: pose.col,
+    row: pose.row,
+    subCol: null,
+    subRow: null,
+    worldX: pose.worldX,
+    worldZ: pose.worldZ,
+    dir: pose.dir,
+    params: att.params,
+    utilityLineId: line.id,
+    yOffset: VACUUM_LINE_MOUNT_Y - 1.0,
+    isPlacement: true,
+    isUtilityAttachment: true,
+  };
+}
+
 /**
  * All utility endpoints in the world: state.placeables followed by every pipe
  * placement. Placements are synthesized fresh on each call (they are derived
@@ -71,6 +95,14 @@ export function listUtilityEndpoints(state) {
   for (const pipe of (state && state.beamPipes) || []) {
     for (const att of (pipe.placements) || []) {
       const rec = placementRecord(pipe, att);
+      if (rec) out.push(rec);
+    }
+  }
+  const lines = state?.utilityLines;
+  const iter = lines && typeof lines.values === 'function' ? lines.values() : (lines || []);
+  for (const line of iter) {
+    for (const att of (line?.attachments || [])) {
+      const rec = utilityAttachmentRecord(line, att);
       if (rec) out.push(rec);
     }
   }
@@ -92,6 +124,13 @@ export function findUtilityEndpoint(state, id) {
   for (const pipe of (state && state.beamPipes) || []) {
     for (const att of (pipe.placements) || []) {
       if (att && att.id === id) return placementRecord(pipe, att);
+    }
+  }
+  const lines = state?.utilityLines;
+  const iter = lines && typeof lines.values === 'function' ? lines.values() : (lines || []);
+  for (const line of iter) {
+    for (const att of (line?.attachments || [])) {
+      if (att && att.id === id) return utilityAttachmentRecord(line, att);
     }
   }
   return null;

@@ -34,7 +34,10 @@ import { PLACEABLES } from '../data/placeables/index.js';
 
 // Vacuum pumps: billed the per-tick service fee AND counted in the vacuum
 // panel. These were two lists.
-export const PUMP_TYPES = ['roughingPump', 'turboPump', 'ionPump', 'negPump', 'tiSubPump'];
+export const PUMP_TYPES = [
+  'roughingPump', 'turboPump', 'vacuumCart', 'highCapacityVacuumStation',
+  'ionPump', 'negPump', 'tiSubPump',
+];
 const PUMP_TYPE_SET = new Set(PUMP_TYPES);
 
 export function isPumpType(type) {
