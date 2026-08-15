@@ -96,7 +96,7 @@ the real GPU. Nothing here may assume a frame rate: `frames(page, n)` waits on
 `requestAnimationFrame`, and everything else waits on a condition
 (`expect.poll`), never on a fixed sleep.
 
-## What the four specs own
+## What the specs own
 
 | Spec | Owns | Runtime |
 | --- | --- | --- |
@@ -105,6 +105,7 @@ the real GPU. Nothing here may assume a frame rate: `frames(page, n)` waits on
 | `palette-arm.spec.mjs` | Every palette item in every mode/category: arm via real clicks, hover-preview, commit, Escape-teardown. Replaces `test-ui-placement.mjs`. | 4.4–7.4 min |
 | `preview-regress.spec.mjs` | Three placement-preview defects from commit `3e81e9f8` that no other suite can see: keyboard-arm ghost, stackable ghost vs. a component's invisible hitbox, decoration rotation. | 0.5–1 min |
 | `design-ghost.spec.mjs` | The blueprint placement ghost: that it renders at all, tracks the cursor and the rotate key, tears its prototype cache down on cancel, reuses prototype geometry across rebuilds rather than allocating, and — the fidelity check — stands at exactly the poses the click then builds. | 1–4 min |
+| `lighting-render.spec.mjs` | The pixel-level midnight visibility floor and selective-glow material restoration. | ~1 min |
 
 The low end of each range is the spec run on its own on an otherwise idle
 machine; the high end is the same spec inside a full run with other heavy work
@@ -119,10 +120,10 @@ The three specs that are not the smoke walk clear the generated map
 Each spec's header comment carries its own detailed covers / does-not-cover list.
 The short version of what **none** of them do:
 
-- **No pixel assertions.** They prove the renderer runs and does not throw; they
-  do not prove anything looks right. There is no visual-regression baseline.
-  `preview-regress.spec.mjs` asserts scene-graph *transforms*, which is as close
-  as this harness gets.
+- **No broad visual-regression baseline.** `lighting-render.spec.mjs` owns one
+  deliberately coarse pixel assertion for the midnight visibility floor; the
+  rest prove the renderer runs and does not throw, while
+  `preview-regress.spec.mjs` asserts scene-graph transforms.
 - **No physics or economy assertions.** Pyodide loads and the beam runs, but the
   numbers belong to `test/test_*.py` and the node suites.
 - **No coverage of** research purchasing, staff, scenarios, the Designer's

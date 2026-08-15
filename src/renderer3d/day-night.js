@@ -18,17 +18,20 @@
 // Taste knobs. Everything below derives from these; retune by eye.
 // ---------------------------------------------------------------------------
 
-// Ambient intensity at deep night. Never 0 — geometry must keep legible form
-// at midnight, not go flat black. (Day value, 1.3, matches the intensity the
-// renderer used to pin unconditionally.)
-export const NIGHT_AMBIENT = 0.35;
+// Ambient intensity at deep night. This is deliberately substantial: the
+// ambient colour below is also cool and sub-white, so intensity and tint
+// multiply together before tone mapping. A much lower floor made ordinary
+// materials collapse into black silhouettes while emissive utility effects
+// remained visible. (Day value, 1.3, matches the intensity the renderer used
+// to pin unconditionally.)
+export const NIGHT_AMBIENT = 0.65;
 const DAY_AMBIENT = 1.3;
 
 // Deep blue-purple the ambient (and, faintly, the sun) colour approaches as
-// darkness -> 1. The old code stopped at a soft (0.4, 0.45, 0.6); this
-// deepens it — cool blue ambient against warm fixture pools is what sells
-// the whole feature (design doc §2).
-export const NIGHT_TINT = [0.22, 0.27, 0.48];
+// darkness -> 1. Keep enough red/green energy for material colours and form
+// to remain readable; the blue bias still separates moonlight from warm
+// fixture pools without crushing the unlit scene.
+export const NIGHT_TINT = [0.42, 0.5, 0.72];
 
 // Warm colour at the day/night boundary (dusk/dawn) — this is the "existing
 // warm-to-blue shift" the old code produced as the sun neared the horizon,
@@ -47,7 +50,7 @@ const SUN_DAY_INTENSITY = 1.8;
 
 // Moon: a weak, cool-blue stand-in light for when the sun is down, so
 // midnight has some directionality and geometry keeps its form.
-export const MOON_MAX_INTENSITY = 0.25;
+export const MOON_MAX_INTENSITY = 0.35;
 export const MOON_COLOR = [0.55, 0.65, 0.95];
 
 // Half-width, in "distance from noon" units (see noonDistance below), of the

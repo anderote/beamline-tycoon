@@ -53,7 +53,7 @@ console.log('\n=== darkness is monotonic from noon to midnight ===\n');
 // ---------------------------------------------------------------------------
 console.log('\n=== ambientIntensity ranges from 1.3 (noon) to NIGHT_AMBIENT (midnight) ===\n');
 {
-  assert(NIGHT_AMBIENT === 0.35, `NIGHT_AMBIENT is 0.35 (got ${NIGHT_AMBIENT})`);
+  assert(NIGHT_AMBIENT === 0.65, `NIGHT_AMBIENT is 0.65 (got ${NIGHT_AMBIENT})`);
   const noon = dayNightGrade(0.5);
   const midnight = dayNightGrade(0.0);
   assert(noon.ambientIntensity === 1.3, `ambientIntensity is 1.3 at noon (got ${noon.ambientIntensity})`);
@@ -66,6 +66,10 @@ console.log('\n=== ambientIntensity ranges from 1.3 (noon) to NIGHT_AMBIENT (mid
     if (ambientIntensity < NIGHT_AMBIENT || ambientIntensity > 1.3) inRange = false;
   }
   assert(inRange, 'ambientIntensity never leaves [NIGHT_AMBIENT, 1.3] across a full day');
+
+  const darkestChannel = Math.min(...midnight.ambientColor) * midnight.ambientIntensity;
+  assert(darkestChannel >= 0.25,
+    `midnight ambient keeps every colour channel legible before tone mapping (got ${darkestChannel})`);
 }
 
 // ---------------------------------------------------------------------------
