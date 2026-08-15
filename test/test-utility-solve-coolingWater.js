@@ -1,14 +1,12 @@
 // test/test-utility-solve-coolingWater.js — tests for coolingWater.solve() v1.
 //
-// Physics: totalCapacity = sum(source.params.capacity); totalDemand = sum(
-// sink.params.heatLoad). Quality uniform = min(1, cap/demand). Persistent
-// reservoir decrements by EVAP_PER_KW_PER_TICK * totalHeatKW. Hard cooling_dry
-// error when reservoirVolumeL ≤ 0 with sinks present → quality 0.
-// refillCost: WATER_COST_PER_L per missing litre, capped at RESERVOIR_MAX_L,
-// returns null when ≥ full. Rates are Phase 7 balance knobs — assertions
-// below derive from the exported constants instead of pinning numbers.
+// Process capacity, heat rejection, water supply rate, and water storage are
+// independent. Persistent inventory is bounded by connected tank capacity;
+// evaporation drains it and authored make-up flow replenishes it.
 
-import desc, { EVAP_PER_KW_PER_TICK, RESERVOIR_MAX_L, WATER_COST_PER_L } from '../src/utility/types/coolingWater.js';
+import desc, {
+  EVAP_PER_KW_PER_TICK, WATER_COST_PER_L, boundCoolingWaterPersistentState,
+} from '../src/utility/types/coolingWater.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -18,11 +16,6 @@ function assert(cond, msg) {
 function approx(a, b, eps = 1e-6) { return Math.abs(a - b) < eps; }
 
 function mkNetwork(overrides) {
-  const supplied = overrides?.sources || [];
-  const sources = supplied.map((source, i) => i === 0
-    ? { ...source, params: { ...source.params, reservoir: true,
-      heatRejectionCapacity: source.params?.capacity || 0 } }
-    : source);
   return {
     id: 'net_x',
     utilityType: 'coolingWater',
@@ -31,7 +24,19 @@ function mkNetwork(overrides) {
     sources: [],
     sinks: [],
     ...overrides,
-    sources,
+  };
+}
+
+function integratedSource(overrides = {}) {
+  return {
+    portKey: 's1', placeableId: 'p1', portName: 'cw',
+    params: {
+      capacity: 100,
+      heatRejectionCapacity: 100,
+      storageCapacityL: 500,
+      supplyRateLPerTick: 0,
+      ...overrides,
+    },
   };
 }
 
@@ -42,7 +47,7 @@ console.log('\n--- Test 1: no sources, no sinks ---');
 {
   const r = desc.solve(mkNetwork({}), { reservoirVolumeL: 500 }, {});
   assert(r.errors.length === 0, `no errors (got ${r.errors.length})`);
-  assert(r.nextPersistentState.reservoirVolumeL === 500, `reservoir unchanged (got ${r.nextPersistentState.reservoirVolumeL})`);
+  assert(r.nextPersistentState.reservoirVolumeL === 0, `no tank means no inventory (got ${r.nextPersistentState.reservoirVolumeL})`);
 }
 
 // ==========================================================================
@@ -51,7 +56,7 @@ console.log('\n--- Test 1: no sources, no sinks ---');
 console.log('\n--- Test 2: cap 100, load 50, reservoir 500 ---');
 {
   const net = mkNetwork({
-    sources: [{ portKey: 's1', placeableId: 'p1', portName: 'cw', params: { capacity: 100 } }],
+    sources: [integratedSource()],
     sinks:   [{ portKey: 'k1', placeableId: 'p2', portName: 'cw', params: { heatLoad: 50 } }],
   });
   const r = desc.solve(net, { reservoirVolumeL: 500 }, {});
@@ -68,7 +73,7 @@ console.log('\n--- Test 2: cap 100, load 50, reservoir 500 ---');
 console.log('\n--- Test 3: multiple ticks monotonic ---');
 {
   const net = mkNetwork({
-    sources: [{ portKey: 's1', placeableId: 'p1', portName: 'cw', params: { capacity: 1000 } }],
+    sources: [integratedSource({ capacity: 1000, heatRejectionCapacity: 1000 })],
     sinks:   [{ portKey: 'k1', placeableId: 'p2', portName: 'cw', params: { heatLoad: 1000 } }],
   });
   let p = { reservoirVolumeL: 2 };
@@ -92,7 +97,7 @@ console.log('\n--- Test 3: multiple ticks monotonic ---');
 console.log('\n--- Test 4: reservoir 0 with sinks ---');
 {
   const net = mkNetwork({
-    sources: [{ portKey: 's1', placeableId: 'p1', portName: 'cw', params: { capacity: 100 } }],
+    sources: [integratedSource()],
     sinks:   [{ portKey: 'k1', placeableId: 'p2', portName: 'cw', params: { heatLoad: 50 } }],
   });
   const r = desc.solve(net, { reservoirVolumeL: 0 }, {});
@@ -107,9 +112,9 @@ console.log('\n--- Test 4: reservoir 0 with sinks ---');
 // ==========================================================================
 console.log('\n--- Test 5: refillCost basics ---');
 {
-  assert(desc.refillCost({ reservoirVolumeL: RESERVOIR_MAX_L }) === null, 'full → null');
-  const empty = desc.refillCost({ reservoirVolumeL: 0 });
-  const full$ = Math.ceil(RESERVOIR_MAX_L * WATER_COST_PER_L);
+  assert(desc.refillCost({ reservoirVolumeL: 500, reservoirCapacityL: 500 }) === null, 'full → null');
+  const empty = desc.refillCost({ reservoirVolumeL: 0, reservoirCapacityL: 500 });
+  const full$ = Math.ceil(500 * WATER_COST_PER_L);
   assert(empty && empty.funding === full$, `empty → $${full$} (got ${JSON.stringify(empty)})`);
 }
 
@@ -118,8 +123,8 @@ console.log('\n--- Test 5: refillCost basics ---');
 // ==========================================================================
 console.log('\n--- Test 6: refillCost at 100L remaining ---');
 {
-  const r = desc.refillCost({ reservoirVolumeL: 100 });
-  const want = Math.ceil((RESERVOIR_MAX_L - 100) * WATER_COST_PER_L);
+  const r = desc.refillCost({ reservoirVolumeL: 100, reservoirCapacityL: 500 });
+  const want = Math.ceil((500 - 100) * WATER_COST_PER_L);
   assert(r && r.funding === want, `100L → $${want} (got ${JSON.stringify(r)})`);
 }
 
@@ -129,7 +134,7 @@ console.log('\n--- Test 6: refillCost at 100L remaining ---');
 console.log('\n--- Test 7: purity ---');
 {
   const net = mkNetwork({
-    sources: [{ portKey: 's1', placeableId: 'p1', portName: 'cw', params: { capacity: 100 } }],
+    sources: [integratedSource()],
     sinks:   [{ portKey: 'k1', placeableId: 'p2', portName: 'cw', params: { heatLoad: 50 } }],
   });
   const netSnap = JSON.stringify(net);
@@ -148,12 +153,13 @@ console.log('\n--- Test 7: purity ---');
 console.log('\n--- Test 8: integrated package make-up water ---');
 {
   const capacity = 25;
-  const makeupWaterLPerTick = capacity * EVAP_PER_KW_PER_TICK;
+  const supplyRateLPerTick = capacity * EVAP_PER_KW_PER_TICK;
   const net = mkNetwork({
-    sources: [{
-      portKey: 'skid:cool_out', placeableId: 'skid', portName: 'cool_out',
-      params: { capacity, makeupWaterLPerTick },
-    }],
+    sources: [integratedSource({
+      capacity,
+      heatRejectionCapacity: capacity,
+      supplyRateLPerTick,
+    })],
     sinks: [{
       portKey: 'load:cool_in', placeableId: 'load', portName: 'cool_in',
       params: { heatLoad: capacity },
@@ -165,7 +171,7 @@ console.log('\n--- Test 8: integrated package make-up water ---');
   let publishedRate = null;
   for (let tick = 0; tick < 2000; tick++) {
     const r = desc.solve(net, persistent, {});
-    publishedRate = r.flowState.makeupWaterLPerTick;
+    publishedRate = r.flowState.supplyRateLPerTick;
     if (r.errors.some(error => error.code === 'cooling_dry')
         || r.flowState.perSinkQuality['load:cool_in'] !== 1) {
       stayedLive = false;
@@ -173,8 +179,8 @@ console.log('\n--- Test 8: integrated package make-up water ---');
     }
     persistent = r.nextPersistentState;
   }
-  assert(publishedRate === makeupWaterLPerTick,
-    `published make-up rate is ${makeupWaterLPerTick} L/tick`);
+  assert(publishedRate === supplyRateLPerTick,
+    `published make-up rate is ${supplyRateLPerTick} L/tick`);
   assert(stayedLive, 'a dry integrated skid restarts and runs indefinitely at nameplate load');
   assert(approx(persistent.reservoirVolumeL, 0),
     'nameplate evaporation consumes only the slow make-up water, without instant refilling');
@@ -184,8 +190,113 @@ console.log('\n--- Test 8: integrated package make-up water ---');
     sinks: [{ ...net.sinks[0], params: { heatLoad: capacity / 2 } }],
   };
   const recovering = desc.solve(halfLoad, { reservoirVolumeL: 0 }, {});
-  assert(approx(recovering.nextPersistentState.reservoirVolumeL, makeupWaterLPerTick / 2),
+  assert(approx(recovering.nextPersistentState.reservoirVolumeL, supplyRateLPerTick / 2),
     'below nameplate load, spare make-up water slowly restores the reservoir');
+}
+
+// ==========================================================================
+// Test 9: make-up flow offsets evaporation up to its authored rate.
+// ==========================================================================
+console.log('\n--- Test 9: make-up flow replenishes storage ---');
+{
+  const net = mkNetwork({
+    sources: [integratedSource({ supplyRateLPerTick: 1 })],
+    sinks: [{ portKey: 'k1', placeableId: 'p2', portName: 'cw', params: { heatLoad: 50 } }],
+  });
+  const r = desc.solve(net, { reservoirVolumeL: 250 }, {});
+  assert(approx(r.flowState.evaporationL, 1), `50 kW evaporates 1 L (got ${r.flowState.evaporationL})`);
+  assert(approx(r.flowState.suppliedWaterL, 1), `source supplies 1 L (got ${r.flowState.suppliedWaterL})`);
+  assert(approx(r.nextPersistentState.reservoirVolumeL, 250),
+    `matched supply holds inventory at 250 L (got ${r.nextPersistentState.reservoirVolumeL})`);
+}
+
+// ==========================================================================
+// Test 10: a high-flow source has no implied storage capacity.
+// ==========================================================================
+console.log('\n--- Test 10: source without storage cannot complete plant ---');
+{
+  const net = mkNetwork({
+    sources: [integratedSource({ storageCapacityL: 0, supplyRateLPerTick: 20 })],
+    sinks: [{ portKey: 'k1', placeableId: 'p2', portName: 'cw', params: { heatLoad: 50 } }],
+  });
+  const r = desc.solve(net, { reservoirVolumeL: 500 }, {});
+  assert(r.flowState.storageCapacityL === 0, 'water source contributes zero storage');
+  assert(r.flowState.totalCapacity === 0, 'plant stays offline without a tank');
+  assert(r.errors.some(error => error.code === 'cooling_plant_offline'),
+    'missing storage is reported at the plant contract');
+}
+
+// ==========================================================================
+// Test 11: passive storage contributes no water generation.
+// ==========================================================================
+console.log('\n--- Test 11: passive tank drains without a source ---');
+{
+  const net = mkNetwork({
+    sources: [integratedSource({ storageCapacityL: 5000, supplyRateLPerTick: 0 })],
+    sinks: [{ portKey: 'k1', placeableId: 'p2', portName: 'cw', params: { heatLoad: 100 } }],
+  });
+  const r = desc.solve(net, { reservoirVolumeL: 1000 }, {});
+  assert(r.flowState.supplyRateLPerTick === 0, 'tank contributes zero supply rate');
+  assert(approx(r.nextPersistentState.reservoirVolumeL, 998),
+    `tank loses evaporation instead of generating water (got ${r.nextPersistentState.reservoirVolumeL})`);
+}
+
+// ==========================================================================
+// Test 12: a large source and passive tank compose into a sustainable loop.
+// ==========================================================================
+console.log('\n--- Test 12: large source fills passive storage ---');
+{
+  const net = mkNetwork({
+    sources: [
+      integratedSource({ storageCapacityL: 0, supplyRateLPerTick: 0 }),
+      { portKey: 'main:out', placeableId: 'main', portName: 'out',
+        params: { capacity: 0, supplyRateLPerTick: 20, storageCapacityL: 0 } },
+      { portKey: 'tank:out', placeableId: 'tank', portName: 'out',
+        params: { capacity: 0, supplyRateLPerTick: 0, storageCapacityL: 5000 } },
+    ],
+    sinks: [{ portKey: 'k1', placeableId: 'p2', portName: 'cw', params: { heatLoad: 1000 } }],
+  });
+  const r = desc.solve(net, { reservoirVolumeL: 1000 }, {});
+  assert(r.flowState.storageCapacityL === 5000, 'storage comes only from the tank');
+  assert(r.flowState.supplyRateLPerTick === 20, 'flow comes only from the main');
+  assert(approx(r.nextPersistentState.reservoirVolumeL, 1000),
+    '20 L/tick supply replaces the 1 MW evaporation loss');
+}
+
+// ==========================================================================
+// Test 13: new and migrated state are bounded by authored storage.
+// ==========================================================================
+console.log('\n--- Test 13: dynamic inventory bounds ---');
+{
+  const network = mkNetwork({ sources: [integratedSource({ storageCapacityL: 750 })] });
+  const fresh = boundCoolingWaterPersistentState(desc.persistentStateDefaults, network);
+  const overfull = boundCoolingWaterPersistentState({ reservoirVolumeL: 900 }, network);
+  assert(fresh.reservoirVolumeL === 750 && fresh.reservoirCapacityL === 750,
+    'a new network commissions at its authored capacity');
+  assert(overfull.reservoirVolumeL === 750,
+    'migrated contents clamp to the connected tanks instead of a global constant');
+  const refilled = desc.refilledPersistentState({ reservoirVolumeL: 12, reservoirCapacityL: 750 });
+  assert(refilled.reservoirVolumeL === 750, 'manual refill targets dynamic storage capacity');
+}
+
+// ==========================================================================
+// Test 14: make-up flow fills available storage but never overfills it.
+// ==========================================================================
+console.log('\n--- Test 14: source fills only to tank capacity ---');
+{
+  const net = mkNetwork({
+    sources: [integratedSource({ supplyRateLPerTick: 1 })],
+    sinks: [],
+  });
+  const almostFull = desc.solve(net, { reservoirVolumeL: 499.5 }, {});
+  assert(almostFull.flowState.suppliedWaterL === 0.5,
+    `only the missing half-litre is accepted (got ${almostFull.flowState.suppliedWaterL})`);
+  assert(almostFull.nextPersistentState.reservoirVolumeL === 500,
+    'make-up flow fills the tank exactly to its authored capacity');
+  const full = desc.solve(net, almostFull.nextPersistentState, {});
+  assert(full.flowState.suppliedWaterL === 0
+      && full.nextPersistentState.reservoirVolumeL === 500,
+    'a full tank rejects additional supply instead of overfilling');
 }
 
 // ==========================================================================

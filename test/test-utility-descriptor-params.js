@@ -29,7 +29,7 @@ const DEM = 3;
 const EXTRA_SOURCE = {
   rfWaveguide: { bands: ['lband'] },
   // Staged cooling publishes usable capacity only for a complete plant.
-  coolingWater: { reservoir: true, heatRejectionCapacity: CAP },
+  coolingWater: { storageCapacityL: 500, heatRejectionCapacity: CAP },
 };
 const EXTRA_SINK = { rfWaveguide: { frequency: 1300e6 } };
 
@@ -46,7 +46,7 @@ for (const type of UTILITY_TYPE_LIST) {
   // Cooling is staged: an integrated source needs reservoir, chilling, and
   // rejection roles before its effective network capacity is non-zero.
   if (type === 'coolingWater') {
-    srcParams.reservoir = true;
+    srcParams.storageCapacityL = 500;
     srcParams.heatRejectionCapacity = CAP;
   }
   const sinkParams = { ...(EXTRA_SINK[type] || {}), [demParam]: DEM };

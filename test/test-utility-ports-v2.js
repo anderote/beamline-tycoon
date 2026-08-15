@@ -324,6 +324,8 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   const solidStateAmp = getUtilityPortsV2('solidStateAmp');
   const tower = getUtilityPortsV2('coolingTower');
   const tank = getUtilityPortsV2('waterTank');
+  const waterMain = getUtilityPortsV2('facilityWaterSupply');
+  const bulkTank = getUtilityPortsV2('bulkWaterTank');
   const coolingSources = ports => Object.entries(ports)
     .filter(([, port]) => port.utility === 'coolingWater' && port.role === 'source');
   const total = (ports, param) => coolingSources(ports)
@@ -347,10 +349,10 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   const lcwOutlets = Object.entries(lcw)
     .filter(([, port]) => port.utility === 'coolingWater' && port.role === 'source');
   assert(hasPlantLayout(lcw)
-      && lcwOutlets.every(([, port]) => port.params.reservoir)
+      && Math.abs(total(lcw, 'storageCapacityL') - 500) < 1e-9
+      && Math.abs(total(lcw, 'supplyRateLPerTick') - 0.5) < 1e-9
       && Math.abs(total(lcw, 'capacity') - 25) < 1e-9
-      && Math.abs(total(lcw, 'heatRejectionCapacity') - 25) < 1e-9
-      && Math.abs(total(lcw, 'makeupWaterLPerTick') - 0.5) < 1e-9,
+      && Math.abs(total(lcw, 'heatRejectionCapacity') - 25) < 1e-9,
   'LCW skid has a 4+2 header sharing one self-contained 25 kW plant and 0.5 L/tick make-up');
   const lcwDef = { ports: lcw };
   assert(lcwOutlets.filter(([name]) => portSide(lcwDef, name, 0, false) === 'E').length === 4
@@ -362,15 +364,28 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   assert(hasPlantLayout(packageChiller)
       && Math.abs(total(packageChiller, 'capacity') - 5) < 1e-9
       && Math.abs(total(packageChiller, 'heatRejectionCapacity') - 5) < 1e-9
-      && Math.abs(total(packageChiller, 'makeupWaterLPerTick') - 0.1) < 1e-9
-      && packageOutlets.every(([, port]) => port.params.reservoir),
+      && Math.abs(total(packageChiller, 'storageCapacityL') - 100) < 1e-9
+      && Math.abs(total(packageChiller, 'supplyRateLPerTick') - 0.1) < 1e-9,
   'package chiller has a 4+2 header sharing one self-contained 5 kW plant and 0.1 L/tick make-up');
-  for (const type of ['waterTank', 'dualCircuitChiller', 'chiller']) {
+  for (const type of [
+    'waterTank', 'facilityWaterSupply', 'bulkWaterTank', 'dualCircuitChiller', 'chiller',
+  ]) {
     assert(hasPlantLayout(getUtilityPortsV2(type)),
       `${type} exposes four primary-side and two opposite-side connections`);
   }
   assert(total(tank, 'capacity') === 0,
     'make-up tank stores cooling water without supplying process-cooling capacity');
+  assert(Math.abs(total(tank, 'supplyRateLPerTick') - 1) < 1e-9
+      && Math.abs(total(tank, 'storageCapacityL') - 500) < 1e-9,
+    'make-up tank authors independent 1 L/tick supply and 500 L storage');
+  assert(total(waterMain, 'capacity') === 0
+      && Math.abs(total(waterMain, 'supplyRateLPerTick') - 20) < 1e-9
+      && total(waterMain, 'storageCapacityL') === 0,
+    'facility water supply has the larger flow rate and no storage capacity');
+  assert(total(bulkTank, 'capacity') === 0
+      && total(bulkTank, 'supplyRateLPerTick') === 0
+      && Math.abs(total(bulkTank, 'storageCapacityL') - 5000) < 1e-9,
+    'bulk tanks provide large passive storage and generate no water');
   for (const type of ['fanCoilCooler', 'dryCoolerBank', 'coolingTower']) {
     assert(hasRejectorLayout(getUtilityPortsV2(type)),
       `${type} exposes its two heat-rejection connections on one side`);
@@ -385,8 +400,9 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
     'solid-state amplifier keeps its HV input on the side opposite its RF outputs');
   assert(Math.abs(total(tower, 'heatRejectionCapacity') - 800) < 1e-9,
     'cooling tower provides heat rejection on Cooling Water');
-  assert(coolingSources(tank).every(([, port]) => port.params.reservoir),
-    'make-up tank provides the Cooling Water reservoir role');
+  assert(coolingSources(tank).every(([, port]) => port.params.storageCapacityL > 0
+      && port.params.supplyRateLPerTick > 0),
+    'every make-up tank header branch carries its share of both water capabilities');
 
   const rough = getUtilityPortsV2('roughingPump');
   const roughCart = getUtilityPortsV2('roughingPumpCart');

@@ -313,16 +313,36 @@ const REPRESENTATIVE_SINK = {
 function sourcePerformance(id, utility) {
   if (utility === 'vacuumPipe') return vacuumSourcePerformance(id);
 
-  const port = Object.values(getUtilityPortsV2(id))
-    .find(p => p.utility === utility && p.role === 'source');
-  const cap = port?.params[UTILITY_META[utility].capacityParam] || 0;
+  const sourcePorts = Object.values(getUtilityPortsV2(id))
+    .filter(p => p.utility === utility && p.role === 'source');
+  const port = sourcePorts[0];
+  const cap = sourcePorts.reduce(
+    (sum, source) => sum + (source.params[UTILITY_META[utility].capacityParam] || 0), 0);
   const info = utilityInfo(utility);
   const pos = ladderPosition(utility, id);
-  const perf = [{
+  const perf = [];
+
+  if (utility === 'coolingWater') {
+    const supply = sourcePorts.reduce(
+      (sum, source) => sum + (source.params.supplyRateLPerTick || 0), 0);
+    const storage = sourcePorts.reduce(
+      (sum, source) => sum + (source.params.storageCapacityL || 0), 0);
+    if (supply > 0) perf.push({
+      label: 'Make-up flow', value: round(supply, 3), unit: 'L/tick',
+      note: 'Added to the connected network inventory each tick, up to its tank capacity.',
+    });
+    if (storage > 0) perf.push({
+      label: 'Water storage', value: round(storage, 3), unit: 'L',
+      note: supply > 0
+        ? 'Maximum network inventory contributed by this component.'
+        : 'Passive capacity only: this component never creates make-up water.',
+    });
+  }
+  if (cap > 0) perf.push({
     label: 'Capacity', value: cap, unit: info.capacityUnit,
     note: pos ? `Rung ${pos.rung} of ${pos.rungs}: `
       + UTILITY_LADDERS[utility].map(r => `${r.name} ${r.capacity}`).join(' → ') : '',
-  }];
+  });
 
   if (utility === 'rfWaveguide') return rfSourcePerformance(id, port, perf);
 
@@ -364,7 +384,7 @@ function sourcePerformance(id, utility) {
       });
     }
   }
-  if (utility === 'coolingWater') {
+  if (utility === 'coolingWater' && cap > 0) {
     perf.push({
       label: 'Loop ΔT when starved', value: MAX_DELTA_T, unit: 'K',
       note: 'Scaled by (1 − quality). Only normal-conducting cavities respond to '

@@ -1118,11 +1118,29 @@ export const INFRASTRUCTURE_RAW = {
   // ── Cooling Water ─────────────────────────────────────────────────
   waterTank: {
     id: 'waterTank', name: 'Make-up Water Tank',
-    desc: 'Bulk treated-water reservoir for the cooling loop, with four connections on its primary header and two on the opposite side. Connect it to a chiller and a heat rejector on the same Cooling Water network.',
+    desc: 'Small treated-water make-up tank with a 1 L/tick float-valve supply and 500 L of storage. It replenishes modest evaporation while buffering larger loads. Connect it to a chiller and heat rejector on the same Cooling Water network.',
     category: 'cooling', subsection: 'waterSupply', accentColor: 0x277a9c,
     cost: { funding: 180000 }, stats: {}, energyCost: 0,
     subL: 3, subW: 3, subH: 4, gridW: 3, gridH: 3, geometryType: 'cylinder',
     baseMaterial: 'metal_painted_blue', zoneTier: 0, spriteKey: 'waterLoad', spriteColor: 0x277a9c,
+    placement: 'module', ports: {}, requiredConnections: [],
+  },
+  facilityWaterSupply: {
+    id: 'facilityWaterSupply', name: 'Facility Water Supply',
+    desc: 'Plant-scale water-main connection delivering 20 L/tick of treated make-up water. It has no storage capacity: pair it with a make-up tank or bulk storage tanks so the cooling loop has a real reservoir.',
+    category: 'cooling', subsection: 'waterSupply', accentColor: 0x277a9c,
+    cost: { funding: 650000 }, stats: {}, energyCost: 0,
+    subL: 4, subW: 3, subH: 3, gridW: 3, gridH: 4, geometryType: 'box',
+    baseMaterial: 'metal_painted_blue', zoneTier: 2, spriteKey: 'lcwSkid', spriteColor: 0x277a9c,
+    placement: 'module', ports: {}, requiredConnections: [],
+  },
+  bulkWaterTank: {
+    id: 'bulkWaterTank', name: 'Bulk Water Storage Tanks',
+    desc: 'Passive 5,000 L tank farm for cooling-water inventory. It provides no make-up flow and never generates water; connect a water supply to fill it, or purchase a manual refill from the network inspector.',
+    category: 'cooling', subsection: 'waterSupply', accentColor: 0x277a9c,
+    cost: { funding: 480000 }, stats: {}, energyCost: 0,
+    subL: 6, subW: 4, subH: 5, gridW: 4, gridH: 6, geometryType: 'cylinder',
+    baseMaterial: 'metal_painted_blue', zoneTier: 2, spriteKey: 'waterLoad', spriteColor: 0x277a9c,
     placement: 'module', ports: {}, requiredConnections: [],
   },
   waterLoad: {

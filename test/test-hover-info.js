@@ -41,6 +41,16 @@ const packageChiller = componentHoverInfo(COMPONENTS.packageChiller);
 assert(packageChiller.detail === 'Cooling output: 5 kW',
   `package chiller hover shows its total cooling capacity (${packageChiller.detail})`);
 
+const makeUpTank = componentHoverInfo(COMPONENTS.waterTank);
+assert(makeUpTank.detail === 'Water: 1 L/tick supply · 500 L storage',
+  `make-up tank hover separates supply and storage (${makeUpTank.detail})`);
+const facilityWater = componentHoverInfo(COMPONENTS.facilityWaterSupply);
+assert(facilityWater.detail === 'Water: 20 L/tick supply',
+  `facility water hover claims no storage (${facilityWater.detail})`);
+const bulkWater = componentHoverInfo(COMPONENTS.bulkWaterTank);
+assert(bulkWater.detail === 'Water: 5,000 L storage',
+  `bulk tank hover claims no generation (${bulkWater.detail})`);
+
 const network = utilityNetworkHoverInfo(UTILITY_TYPES.powerCable, {
   utilization: 0.75,
   totalDemand: 75,
@@ -57,7 +67,10 @@ const furnishing = furnishingHoverInfo({
 assert(furnishing.detail === 'Morale +10% · Research +2',
   'furnishing effects stay on one detail line');
 
-for (const info of [cavity, panel, actionablePanel, network, furnishing]) {
+for (const info of [
+  cavity, panel, actionablePanel, packageChiller, makeUpTank, facilityWater,
+  bulkWater, network, furnishing,
+]) {
   assert(info && !info.title.includes('\n') && !info.detail.includes('\n'),
     `${info?.title || 'hover'} is limited to two logical lines`);
 }
