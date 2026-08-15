@@ -29,12 +29,14 @@ import { planDesignerAutoTune } from '../beamline/designer-auto-tuning.js';
  * `openFromSource` copies each one's REAL length off flattenPath — so falling
  * back to the 2 m `COMPONENTS.drift` template modelled a 51 m unfocused drift
  * as 2 m. The schematic already honoured node.subL, so the window drew a long
- * drift wide while running physics on a short one; Game._recalcSingleBeamline
- * and _recalcMainBeamGraph both use `el.subL || t.subL`, i.e. this rule.
+ * drift wide while running physics on a short one. Inline attachments are the
+ * other deliberate exception: their visual catalogue length remains authored,
+ * while the physics draft treats them as zero-length thin elements.
  */
 function _nodeSubL(node) {
-  if (node && typeof node.subL === 'number' && node.subL > 0) return node.subL;
   const c = node ? COMPONENTS[node.type] : null;
+  if (c?.attachmentKind === 'inline') return 0;
+  if (node && typeof node.subL === 'number' && node.subL > 0) return node.subL;
   return (c && c.subL) || 4;
 }
 

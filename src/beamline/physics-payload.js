@@ -103,7 +103,9 @@ export function buildPhysicsElements(orderedNodes, ctx = {}) {
       // cryogenic solver reads them for next tick's heat load.
       id: el.id,
       type: el.type,
-      subL: el.subL || t.subL || 4,
+      // Zero is intentional for inline point-slot attachments: they are thin
+      // beam elements even though their authored `t.subL` still sizes the mesh.
+      subL: el.subL ?? t.subL ?? 4,
       stats: effectiveStats,
       params,
     };

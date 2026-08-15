@@ -26,7 +26,9 @@ import {
   findNearestPipeToWorld,
   positionToPoint,
 } from '../beamline/pipe-geometry.js';
-import { findSlot } from '../beamline/pipe-placements.js';
+import {
+  findSlot, placementsConflict, quantizePlacementPosition,
+} from '../beamline/pipe-placements.js';
 import { isoToGridFloat } from '../renderer/grid.js';
 
 // Hit-test radius (pipe-path units) for snapping the pipe-draw cursor to a
@@ -119,10 +121,11 @@ export class BeamlineInputController {
     const def = COMPONENTS[type];
     if (!pipe || !def || !Number.isFinite(position)) return false;
     const subL = def.subL || 2;
-    const centerFraction = position + (subL / pipe.subL) / 2;
+    const inline = def.attachmentKind === 'inline';
+    const centerFraction = inline ? position : position + (subL / pipe.subL) / 2;
     const point = positionToPoint(pipe, centerFraction);
     if (!point) return false;
-    this._placementHover = { pipeId, position, subL, type };
+    this._placementHover = { pipeId, position, subL, type, inline };
     this.renderer.renderAttachmentGhost?.(
       point.col, point.row, type, point.dir, true, null,
       this.input.placementPortsFlipped === true,
@@ -150,14 +153,10 @@ export class BeamlineInputController {
     return `Can't place ${def.name}: that space is occupied.`;
   }
 
-  _pipeSlotFailureMessage(def, pipe, position, subL, reason) {
+  _pipeSlotFailureMessage(def, pipe, position, subL, reason, inline = false) {
     if (reason === 'overlap') {
-      const width = subL / pipe.subL;
-      const blocker = (pipe.placements || []).find((placed) => {
-        const placedWidth = placed.subL / pipe.subL;
-        return position < placed.position + placedWidth - 1e-9
-          && placed.position < position + width - 1e-9;
-      });
+      const blocker = (pipe.placements || []).find((placed) =>
+        placementsConflict(pipe.subL, { position, subL, inline }, placed));
       const blockerName = blocker && COMPONENTS[blocker.type]?.name;
       return blockerName
         ? `Can't place ${def.name}: that stretch of pipe is occupied by ${blockerName}.`
@@ -400,35 +399,15 @@ export class BeamlineInputController {
     return { wx: gf.col * 2, wz: gf.row * 2 };
   }
 
-  // Snap the cursor's projected fraction to a subtile-aligned start position.
-  // `position` is a fraction [0,1] of pipe arc-length; `pipe.subL` counts
-  // 1-subtile increments along the pipe. The cursor projection is treated as
-  // the desired CENTER of the component, so `startSubtiles =
-  // round(center - subL/2)` keeps the body centered under the cursor and
-  // ensures the placement body aligns to subtile boundaries.
-  _quantizePipePosition(pipe, cursorPosition, subL) {
-    const pipeSubL = pipe.subL;
-    if (!pipeSubL || pipeSubL <= 0) return cursorPosition;
-    const centerSubtiles = cursorPosition * pipeSubL;
-    const startSubtiles = Math.round(centerSubtiles - subL / 2);
-    const clamped = Math.max(0, Math.min(pipeSubL - subL, startSubtiles));
-    return clamped / pipeSubL;
-  }
-
-  // Overlap check in pipe fraction-space. A placement occupies
-  // [position, position + subL/pipe.subL]; two collide iff their intervals
-  // overlap (strict comparison with EPS to ignore shared edges).
-  _isOverlappingAtPosition(pipe, position, subL) {
+  // Overlap check in pipe fraction-space. Inline point slots may share an
+  // ordinary placement's edge, but not its interior or another point slot.
+  _isOverlappingAtPosition(pipe, position, subL, inline = false) {
     const pipeSubL = pipe.subL;
     if (!pipeSubL || pipeSubL <= 0) return false;
-    const EPS = 1e-9;
-    const start = position;
-    const end = position + (subL / pipeSubL);
+    const candidate = { position, subL, inline };
     const existing = pipe.placements || [];
     for (const pl of existing) {
-      const plStart = pl.position;
-      const plEnd = pl.position + (pl.subL / pipeSubL);
-      if (start < plEnd - EPS && plStart < end - EPS) return true;
+      if (placementsConflict(pipeSubL, candidate, pl)) return true;
     }
     return false;
   }
@@ -450,19 +429,23 @@ export class BeamlineInputController {
       return;
     }
     const subL = (typeof def.subL === 'number' && def.subL > 0) ? def.subL : 2;
+    const inline = def.attachmentKind === 'inline';
     const mode = this.game.state.placementMode || 'snap';
-    const quantizedPosition = this._quantizePipePosition(hit.pipe, hit.proj.position, subL);
+    const quantizedPosition = quantizePlacementPosition(
+      hit.pipe, hit.proj.position, subL, inline,
+    );
     let valid;
     if (mode === 'snap') {
       // WYSIWYG: show RED at the cursor when overlapping. findSlot's snap
       // auto-shifts to the nearest free gap and would return ok=true at a
       // DIFFERENT position, which is misleading for a hover preview.
-      valid = !this._isOverlappingAtPosition(hit.pipe, quantizedPosition, subL);
+      valid = !this._isOverlappingAtPosition(hit.pipe, quantizedPosition, subL, inline);
     } else {
       const dryRun = findSlot(hit.pipe, {
         type: selectedId,
         requestedPosition: quantizedPosition,
         subL,
+        inline,
         mode,
         idGenerator: () => 'dry',
         params: {},
@@ -479,12 +462,13 @@ export class BeamlineInputController {
     // refused on click.
     const affordable = canAffordCost(this.game, componentCostFor(def));
     this._placementHover = valid
-      ? { pipeId: hit.pipe.id, position: quantizedPosition, subL, type: selectedId }
+      ? { pipeId: hit.pipe.id, position: quantizedPosition, subL, type: selectedId, inline }
       : null;
-    // Center the ghost on the component body: sample the pipe at
-    // (quantizedStart + subL/2) so the rendered mesh sits over the subtiles
-    // it will actually occupy, not at the start edge.
-    const centerFraction = quantizedPosition + (subL / hit.pipe.subL) / 2;
+    // Center an ordinary ghost on its claimed span. Inline geometry is
+    // centered directly on its point anchor.
+    const centerFraction = inline
+      ? quantizedPosition
+      : quantizedPosition + (subL / hit.pipe.subL) / 2;
     const centerPoint = positionToPoint(hit.pipe, centerFraction) || hit.proj;
     if (this.renderer.renderAttachmentGhost) {
       this.renderer.renderAttachmentGhost(
@@ -510,8 +494,11 @@ export class BeamlineInputController {
       return true;
     }
     const subL = (typeof def.subL === 'number' && def.subL > 0) ? def.subL : 2;
+    const inline = def.attachmentKind === 'inline';
     const mode = this.game.state.placementMode || 'snap';
-    const quantizedPosition = this._quantizePipePosition(hit.pipe, hit.proj.position, subL);
+    const quantizedPosition = quantizePlacementPosition(
+      hit.pipe, hit.proj.position, subL, inline,
+    );
     if (typeof this.game.isComponentUnlocked === 'function'
         && !this.game.isComponentUnlocked(def)) {
       this._reportPlacementFailure(`${def.name || selectedId} is not researched yet.`);
@@ -529,13 +516,16 @@ export class BeamlineInputController {
       type: selectedId,
       requestedPosition: quantizedPosition,
       subL,
+      inline,
       mode,
       idGenerator: () => 'dry',
       params: {},
     });
     if (!dryRun.ok) {
       this._reportPlacementFailure(
-        this._pipeSlotFailureMessage(def, hit.pipe, quantizedPosition, subL, dryRun.reason),
+        this._pipeSlotFailureMessage(
+          def, hit.pipe, quantizedPosition, subL, dryRun.reason, inline,
+        ),
       );
       return true;
     }
@@ -544,6 +534,7 @@ export class BeamlineInputController {
         type: selectedId,
         position: quantizedPosition,
         subL,
+        inline,
         mode,
         params: this.input.selectedParamOverrides,
         portsFlipped: this.input.placementPortsFlipped === true,

@@ -12,8 +12,9 @@
 //     path[0], `end` to the last path point; either may be null (open end).
 //   - Pipes are STRAIGHT ONLY: a single axis, no corners.
 //   - subL is measured in sub-units. 4 sub-units = 1 tile = 2 m.
-//   - A placement's `position` is a 0..1 arc-length fraction from path[0] and
-//     it occupies [position, position + subL / pipe.subL].
+//   - A placement's `position` is a 0..1 arc-length fraction from path[0]. An
+//     ordinary placement occupies [position, position + subL / pipe.subL]; an
+//     inline attachment occupies the point at `position`.
 //
 // Every result path is emitted as a two-point waypoint path (`[from, to]`),
 // which is what validateDrawPipe produces and what expandPipePath / the
@@ -45,6 +46,8 @@
 //   invalid_section          — removeSection: [from, to) is not a non-empty
 //                              whole-sub-unit range inside 0..subL
 
+import { placementSpanSubL } from './pipe-placements.js';
+
 // Geometry tolerance (tile coordinates land on 0.25 boundaries).
 const EPS = 1e-6;
 // Fraction-space tolerance, matching pipe-placements.js interval maths.
@@ -67,7 +70,8 @@ function reject(reason) { return { ok: false, reason }; }
 function roundCoord(v) { return Math.round(v * 1e6) / 1e6; }
 
 function sortByPosition(list) {
-  return list.slice().sort((a, b) => a.position - b.position);
+  return list.slice().sort((a, b) =>
+    (a.position - b.position) || (placementSpanSubL(a) - placementSpanSubL(b)));
 }
 
 function findPipe(state, pipeId) {
@@ -122,10 +126,14 @@ function subUnitsToTiles(sub) { return sub / SUB_PER_TILE; }
 
 function placementInterval(pipeSubL, pl) {
   const start = pl.position;
-  return { start, end: start + (pl.subL / pipeSubL) };
+  const span = placementSpanSubL(pl) / pipeSubL;
+  return { start, end: start + span, point: span === 0 };
 }
 
 function intervalsOverlap(a, b) {
+  if (a.point && b.point) return Math.abs(a.start - b.start) <= IEPS;
+  if (a.point) return a.start > b.start + IEPS && a.start < b.end - IEPS;
+  if (b.point) return b.start > a.start + IEPS && b.start < a.end - IEPS;
   return a.start < b.end - IEPS && b.start < a.end - IEPS;
 }
 
@@ -449,7 +457,7 @@ export function validateMergePipes(state, pipeIdA, pipeIdB) {
     const sTail = arcOf(d.last);
     const runsWithMerged = sTail > sHead;
     return (pipe.placements || []).map(pl => {
-      const wTiles = (pl.subL / d.subL) * d.lenTiles;
+      const wTiles = (placementSpanSubL(pl) / d.subL) * d.lenTiles;
       const aTiles = pl.position * d.lenTiles;             // leading edge from d.first
       const startTiles = runsWithMerged
         ? sHead + aTiles

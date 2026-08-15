@@ -51,6 +51,7 @@ import {
   BEAM_PIPE_Y, projectOntoPipe, pipeSubL, pipeSubUnitAt, pipeSubUnitPath, METRES_PER_SUB,
 } from '../beamline/pipe-geometry.js';
 import { pipeRefund } from '../beamline/BeamlineSystem.js';
+import { placementsConflict } from '../beamline/pipe-placements.js';
 import { pushEscHandler } from '../ui/esc-stack.js';
 import {
   DEMOLISH_PLACEABLE_SCOPE,
@@ -451,12 +452,13 @@ export class InputHandler {
     // rejects with `placement_in_gap`), so say so in the hover rather than
     // quoting a refund the click can't pay. A WHOLE-pipe delete is a different
     // gesture that does take its hardware with it, and is never blocked.
-    const from = range.fromSub / subL, to = range.toSub / subL;
-    const blocked = !wholePipe && (pipe.placements || []).some(pl => {
-      const s = pl.position;
-      const e = pl.position + pl.subL / subL;
-      return s < to - 1e-9 && from < e - 1e-9;
-    });
+    const from = range.fromSub / subL;
+    const blocked = !wholePipe && (pipe.placements || []).some(pl =>
+      placementsConflict(subL, pl, {
+        position: from,
+        subL: range.toSub - range.fromSub,
+        inline: false,
+      }));
     return {
       pipeId: pipe.id,
       fromSub: range.fromSub,
@@ -4299,7 +4301,11 @@ export class InputHandler {
             : null;
           statEntries.push([
             'Placement',
-            utilityName ? `Anywhere along ${utilityName} runs or on beam pipe` : 'On beam pipe',
+            comp.attachmentKind === 'inline'
+              ? 'Tiny inline slot — subtile centre or edge'
+              : utilityName
+                ? `Anywhere along ${utilityName} runs or on beam pipe`
+                : 'On beam pipe',
           ]);
         }
         if (comp.stats) {

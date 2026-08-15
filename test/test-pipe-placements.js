@@ -12,9 +12,13 @@
 //
 // Placement interval on a pipe of length pipe.subL:
 //     [ position, position + placement.subL / pipe.subL ]
-// Two placements collide iff their intervals overlap.
+// Inline placements instead claim one point. They may share an interval edge,
+// but not its interior or another inline point.
 
-import { findSlot } from '../src/beamline/pipe-placements.js';
+import {
+  findSlot, placementPose, placementSpanSubL, placementsConflict,
+  quantizePlacementPosition,
+} from '../src/beamline/pipe-placements.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -359,6 +363,75 @@ console.log('\n--- Extra: invalid mode ---');
   assert(res && res.ok === false, 'ok=false');
   assert(res.reason === 'invalid_mode',
     `reason=invalid_mode (got ${res.reason})`);
+}
+
+// ==========================================================================
+// Inline attachment point slots.
+// ==========================================================================
+console.log('\n--- Inline attachments: point slots fit on component boundaries ---');
+{
+  const left = { id: 'q_l', type: 'quadrupole', position: 0, subL: 2, params: {} };
+  const right = { id: 'q_r', type: 'quadrupole', position: 0.5, subL: 2, params: {} };
+  const pipe = makePipe(4, [left, right]);
+  const point = { type: 'bpm', position: 0.5, subL: 1, inline: true };
+
+  assert(placementSpanSubL(point) === 0,
+    'inline attachment keeps visual subL but claims zero pipe length');
+  assert(!placementsConflict(pipe.subL, point, left)
+      && !placementsConflict(pipe.subL, point, right),
+    'point at the shared edge conflicts with neither neighboring interval');
+  assert(placementsConflict(pipe.subL, { ...point, position: 0.25 }, left),
+    'point inside an ordinary component does conflict');
+  assert(placementsConflict(pipe.subL, point, { ...point, id: 'other' }),
+    'two inline attachments cannot share one anchor');
+
+  const res = findSlot(pipe, {
+    type: 'bpm', requestedPosition: 0.5, subL: 1, inline: true,
+    mode: 'snap', idGenerator: idGen,
+  });
+  assert(res.ok && res.placements.length === 3,
+    'an inline BPM fits even when ordinary hardware fills the whole pipe');
+  const bpm = res.ok && res.placements.find(pl => pl.type === 'bpm');
+  assert(bpm?.inline === true && bpm.position === 0.5,
+    'installed placement stores its point-slot contract and exact anchor');
+  assert(res.ok && res.placements[1]?.type === 'bpm'
+      && res.placements[2]?.type === 'quadrupole',
+    'at a shared start position the point sorts before the downstream body');
+}
+
+console.log('\n--- Inline attachments: pose is centered on the anchor ---');
+{
+  const pipe = makePipe(4);
+  pipe.path = [{ col: 0, row: 0 }, { col: 0, row: 4 }];
+  const inlinePose = placementPose(pipe, {
+    type: 'bpm', position: 0.5, subL: 1, inline: true,
+  });
+  const ordinaryPose = placementPose(pipe, {
+    type: 'bpm', position: 0.5, subL: 1,
+  });
+  assert(approx(inlinePose?.row, 2),
+    `inline mesh sits on its anchor (got row ${inlinePose?.row})`);
+  assert(approx(ordinaryPose?.row, 2.5),
+    `ordinary mesh still sits at its interval midpoint (got row ${ordinaryPose?.row})`);
+}
+
+console.log('\n--- Inline attachments: half-subtile anchor lattice ---');
+{
+  const pipe = makePipe(4);
+  assert(quantizePlacementPosition(pipe, 0.11, 1, true) === 0.125,
+    'cursor snaps to the first subtile centre');
+  assert(quantizePlacementPosition(pipe, 0.24, 1, true) === 0.25,
+    'cursor snaps to the edge between the first two subtiles');
+  assert(quantizePlacementPosition(pipe, 0.36, 1, true) === 0.375,
+    'the next anchor is the second subtile centre');
+  assert(quantizePlacementPosition(pipe, 1.2, 1, true) === 1,
+    'inline anchors clamp to the pipe endpoint');
+  const placed = findSlot(pipe, {
+    type: 'bpm', requestedPosition: 0.11, subL: 1, inline: true,
+    mode: 'snap', idGenerator: idGen,
+  });
+  assert(placed.ok && placed.placements[0].position === 0.125,
+    'the slot finder enforces the same half-subtile lattice for every caller');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

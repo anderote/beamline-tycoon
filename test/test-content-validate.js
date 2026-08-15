@@ -96,6 +96,20 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
       routing: [{ from: 'entry', to: 'exit' }],
       requiredConnections: [],
     },
+    badInlineKind: {
+      id: 'badInlineKind', name: 'Bad Inline Kind', category: 'diagnostic',
+      subsection: 'monitors', physicsType: 'drift',
+      cost: { funding: 1 }, subW: 1, subL: 1, subH: 1,
+      placement: 'attachment', role: 'placement', attachmentKind: 'huge',
+      requiredConnections: [],
+    },
+    misplacedInline: {
+      id: 'misplacedInline', name: 'Misplaced Inline', category: 'diagnostic',
+      subsection: 'monitors', physicsType: 'drift',
+      cost: { funding: 1 }, subW: 1, subL: 1, subH: 1,
+      placement: 'module', role: 'junction', attachmentKind: 'inline',
+      ports: { entry: { side: 'back' } }, requiredConnections: [],
+    },
   };
   // Same rule applies to infrastructure: the cross-check used to run only in
   // the beamline loop, so 42 infra entries declared connections that no sink
@@ -157,6 +171,10 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     'unknown physicsType reported');
   assert(hasProblem(problems, 'badRouter', 'routing[0].to', "'exit'"),
     'routing to undeclared port reported');
+  assert(hasProblem(problems, 'badInlineKind', 'attachmentKind', 'unknown'),
+    'unknown attachmentKind reported');
+  assert(hasProblem(problems, 'misplacedInline', 'attachmentKind', 'requires'),
+    'inline kind requires an on-pipe attachment role');
   assert(hasProblem(problems, 'freebie', 'cost'),
     'numeric decoration cost reported');
   assert(hasProblem(problems, 'freebie', 'category', "'notATab'"),

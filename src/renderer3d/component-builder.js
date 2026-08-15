@@ -1522,24 +1522,24 @@ ROLE_BUILDERS.velocitySelector = _buildVelocitySelectorRoles;
 ROLE_BUILDERS.emittanceFilter = _buildEmittanceFilterRoles;
 
 /**
- * Bellows Section — 1 m long (2 sub-units) corrugated vacuum coupling.
+ * Bellows Section — 0.5 m long (1 sub-unit) corrugated vacuum coupling.
  *
  * A stack of torus rings produces the accordion silhouette. Flanges at
- * both tile edges so it sits flush between neighboring components. No
+ * both subtile edges so it sits flush between neighboring components. No
  * support stand — bellows normally hangs between its neighbors.
  */
 function _buildBellowsRoles() {
   /** @type {Record<string, THREE.BufferGeometry[]>} */
   const buckets = { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
 
-  const tileHalf  = 0.5;                    // ±0.5 m from tile centre (1 m tile)
-  const flangeZ   = tileHalf - FLANGE_H / 2;
-  const bellowsL  = 2 * (tileHalf - FLANGE_H - 0.04); // leave a small stub to the flanges
+  const subtileHalf = 0.25;                 // ±0.25 m from a 0.5 m subtile centre
+  const flangeZ   = subtileHalf - FLANGE_H / 2;
+  const bellowsL  = 2 * (subtileHalf - FLANGE_H - 0.025); // small stub to the flanges
   const ringInner = PIPE_R;                  // inner bore radius
   const ringOuter = PIPE_R * 2.4;            // outer accordion radius
   const tube      = (ringOuter - ringInner) / 2;
   const ringCentR = ringInner + tube;
-  const ringCount = 11;
+  const ringCount = 7;
   const ringSpacing = bellowsL / ringCount;
   const ringSegs  = 10;
   const tubeSegs  = 12;
@@ -1564,7 +1564,7 @@ function _buildBellowsRoles() {
     _pushTransformed(buckets.pipe, g, trans);
   }
 
-  // CF flanges at both tile edges — standard sizes so the bellows butts
+  // CF flanges at both subtile edges — standard sizes so the bellows butts
   // flush against drift pipes or magnets on either side.
   for (const sign of [-1, 1]) {
     const g = new THREE.CylinderGeometry(FLANGE_R, FLANGE_R, FLANGE_H, SEGS);

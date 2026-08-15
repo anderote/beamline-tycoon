@@ -20,6 +20,12 @@ the short authoring contract.
 - If an item is research-gated, its gate and the research node's `unlocks` list
   must name each other. `test/test-registry-integrity.js` and
   `test/test-research-integrity.js` enforce the mirror.
+- Tiny beamline hardware uses `placement: 'attachment'`, `role: 'placement'`,
+  and `attachmentKind: 'inline'`. Its authored `subL` still sizes the visible
+  mesh, but the installed placement claims a point slot and is a zero-length
+  thin beam element. Inline anchors snap at half-subtile intervals (alternating
+  subtile centres and edges), may share an ordinary component boundary, and
+  may not sit inside an ordinary component or share another inline anchor.
 
 ## Utility ports and scenarios
 

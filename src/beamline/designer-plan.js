@@ -150,7 +150,7 @@ import { PLACEABLES } from '../data/placeables/index.js';
 import { flattenPath } from './flattener.js';
 import { validateSplitPipe, validateMergePipes, validateTrimPipe } from './pipe-splice.js';
 import { validateDrawPipe, validateExtendPipe } from './pipe-drawing.js';
-import { findSlot } from './pipe-placements.js';
+import { findSlot, placementSpanSubL } from './pipe-placements.js';
 import { pipeCost, pipeRefund } from './BeamlineSystem.js';
 import { portSide, portWorldPosition } from './junctions.js';
 import { moduleBeamAxis, axisMatchesDirection } from './module-axis.js';
@@ -401,7 +401,9 @@ function farEndRef(pipe, direction) {
 // Beam-order offset (sub-units from where the beam enters the pipe).
 function placementBeamStart(pipe, pl, direction) {
   const abs = pl.position * pipe.subL;
-  return direction === 'forward' ? abs : pipe.subL - (abs + pl.subL);
+  return direction === 'forward'
+    ? abs
+    : pipe.subL - (abs + placementSpanSubL(pl));
 }
 
 // Beam offset → 0..1 fraction measured from path[0] (what the validators want).
@@ -661,6 +663,7 @@ class Planner {
       type,
       requestedPosition: position,
       subL,
+      inline: compDef(type)?.attachmentKind === 'inline',
       mode,
       params: { ...(node.params || {}) },
       idGenerator: () => symbol,
@@ -1134,7 +1137,7 @@ function planGap(p, ctx) {
         const pl = pipe && (pipe.placements || []).find(x => x.id === plId);
         if (pl) {
           const dir = directionOf(pipe, state.upstreamId);
-          state.cursor = placementBeamStart(pipe, pl, dir) + pl.subL;
+          state.cursor = placementBeamStart(pipe, pl, dir) + placementSpanSubL(pl);
           const params = changedParams(pl.params, node.params);
           if (params) p.emitTunePlacement(pipe.id, plId, { ...(node.params || {}) }, index);
         }

@@ -582,5 +582,24 @@ console.log('\n--- Section 9: minimum stubs on both sides of a mid-run cut ---')
   }
 }
 
+console.log('\n--- Section 10: inline points survive boundary cuts but block interior cuts ---');
+{
+  const point = { id: 'pl_inline', type: 'bpm', position: 0.5, subL: 1, inline: true, params: {} };
+  const state = stateWith(longPipe({ placements: [point] }));
+
+  const boundary = validateRemovePipeSection(state, 'bp_1', 16, 17);
+  assert(boundary.ok === true && boundary.action === 'split',
+    `cut beginning on the point boundary is legal (got ${boundary.ok ? boundary.action : boundary.reason})`);
+  if (boundary.ok) {
+    assert(boundary.headPlacements[0]?.id === point.id
+      && boundary.headPlacements[0]?.position === 1,
+    'the point remains on the head stub endpoint');
+  }
+
+  const interior = validateRemovePipeSection(state, 'bp_1', 15, 17);
+  assert(interior.ok === false && interior.reason === 'placement_in_gap',
+    `a cut whose interior contains the point is rejected (got ${interior.reason})`);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

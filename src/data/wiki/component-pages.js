@@ -104,8 +104,10 @@ function buildStats(id) {
       c.rfBand ? `${c.rfBand} band.` : '');
   }
   if (c.placement === 'attachment') {
-    push('Placement', 'On beam pipe', '',
-      'Attaches to a drawn beam-pipe run rather than standing on its own tile.');
+    push('Placement', c.attachmentKind === 'inline' ? 'Tiny inline slot' : 'On beam pipe', '',
+      c.attachmentKind === 'inline'
+        ? 'Snaps to a subtile centre or edge and can share the boundary between larger components.'
+        : 'Attaches to a drawn beam-pipe run rather than standing on its own tile.');
   }
 
   for (const [k, v] of Object.entries(c.stats || {})) {
