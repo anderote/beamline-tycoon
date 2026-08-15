@@ -2660,10 +2660,14 @@ export class ThreeRenderer {
     this._addPlaceableGhostMeshes(hover, valid, reason);
   }
 
-  /** Draw a bright floor chevron at the placeable's local +Z (front) edge. */
+  /** Draw a bright floor chevron in the active placement direction. */
   _addFacingArrow(cx, cz, dir, frontHalf, y) {
-    const vectors = [[0, 1], [-1, 0], [0, -1], [1, 0]];
-    const [dx, dz] = vectors[((dir || 0) % 4 + 4) % 4];
+    // Keep this tied to the one direction convention used by snapping,
+    // rotation and committed placement. The prior hand-written table was the
+    // inverse of DIR_DELTA, so chairs (and every other directional item) had
+    // a ground arrow pointing out of their back.
+    const direction = ((dir || 0) % 4 + 4) % 4;
+    const { dc: dx, dr: dz } = DIR_DELTA[direction];
     const perpX = dz, perpZ = -dx;
     const tipDist = Math.max(0.16, frontHalf - 0.10);
     const shaftLen = Math.min(0.62, Math.max(0.25, frontHalf * 0.55));
@@ -2693,6 +2697,31 @@ export class ThreeRenderer {
     const arrow = new THREE.Mesh(geo, mat);
     this._addPreviewMesh(arrow);
     arrow.renderOrder = 1001;
+  }
+
+  /** Draw oversized, always-on-top utility fittings for any build ghost. */
+  _addGhostUtilityPorts(endpoint, portDef) {
+    if (!portDef?.ports) return;
+    for (const [portName, spec] of Object.entries(portDef.ports)) {
+      if (!spec?.utility) continue;
+      const anchor = portAnchor3D(endpoint, portDef, portName);
+      if (!anchor) continue;
+      const fitting = buildPortFitting(anchor, spec.utility);
+      fitting.scale.setScalar(1.35);
+      fitting.renderOrder = 1002;
+      this.previewGroup.add(fitting);
+      const color = UTILITY_TYPES[spec.utility]?.markerColor
+        || UTILITY_TYPES[spec.utility]?.color || '#ffff88';
+      const glow = new THREE.Mesh(
+        new THREE.SphereGeometry(0.11, 10, 8),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.98, depthTest: false, depthWrite: false }),
+      );
+      const out = anchor.out || { x: 0, z: 0 };
+      const standOff = (anchor.standoff || 0) + 0.11;
+      glow.position.set(anchor.x + out.x * standOff, anchor.y, anchor.z + out.z * standOff);
+      glow.renderOrder = 1003;
+      this.previewGroup.add(glow);
+    }
   }
 
   _addPlaceableGhostMeshes(hover, valid, reason = null) {
@@ -2788,28 +2817,7 @@ export class ThreeRenderer {
     // brighter and larger than the live fitting so a translucent body never
     // buries an important port.
     const portDef = COMPONENTS[hover.id] || placeable;
-    if (portDef?.ports) {
-      const ghostEndpoint = { ...hover, type: hover.id };
-      for (const [portName, spec] of Object.entries(portDef.ports)) {
-        if (!spec?.utility) continue;
-        const anchor = portAnchor3D(ghostEndpoint, portDef, portName);
-        if (!anchor) continue;
-        const fitting = buildPortFitting(anchor, spec.utility);
-        fitting.scale.setScalar(1.35);
-        fitting.renderOrder = 1002;
-        this.previewGroup.add(fitting);
-        const color = UTILITY_TYPES[spec.utility]?.markerColor || UTILITY_TYPES[spec.utility]?.color || '#ffff88';
-        const glow = new THREE.Mesh(
-          new THREE.SphereGeometry(0.11, 10, 8),
-          new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.98, depthTest: false, depthWrite: false }),
-        );
-        const out = anchor.out || { x: 0, z: 0 };
-        const standOff = (anchor.standoff || 0) + 0.11;
-        glow.position.set(anchor.x + out.x * standOff, anchor.y, anchor.z + out.z * standOff);
-        glow.renderOrder = 1003;
-        this.previewGroup.add(glow);
-      }
-    }
+    this._addGhostUtilityPorts({ ...hover, type: hover.id }, portDef);
 
     // Wall fixtures are anchored to an edge, not a floor footprint. Their
     // tinted model is the placement marker; drawing a floor quad beneath it
@@ -2961,6 +2969,13 @@ export class ThreeRenderer {
     obj.renderOrder = 999;
     this.previewGroup.add(obj);
 
+    // Attachment components use the same port rendering as free-standing
+    // placement and move ghosts. Null subtiles deliberately identify this as
+    // an on-pipe placement to portAnchor3D, preserving its centred pose.
+    this._addGhostUtilityPorts({
+      type: compType, col, row, subCol: null, subRow: null, dir: direction,
+    }, compDef);
+
     // Footprint outline (same size as the component's sub-tile footprint,
     // centered on the projected point).
     const gwSub = compDef.gridW || compDef.subW || 4;
@@ -2999,6 +3014,10 @@ export class ThreeRenderer {
     fillGeo.setIndex([0, 3, 1, 1, 3, 2]);
     fillGeo.computeVertexNormals();
     this._addPreviewMesh(new THREE.Mesh(fillGeo, fillMat));
+    this._addFacingArrow(
+      px, pz, direction || 0, ghSub * SUB_UNIT / 2,
+      yAt(px, pz) + EDGE_OFFSET + 0.03,
+    );
   }
 
   /**
