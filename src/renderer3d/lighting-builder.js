@@ -1030,7 +1030,7 @@ export function buildLightPools(fixtures, opts = {}) {
  *   is ignored, so callers can hand it every child of the pool group).
  * @param {Map<*, number>|null} suppression - LightRig.getFixtureSuppression().
  */
-export function applyPoolSuppression(poolMesh, suppression) {
+export function applyPoolSuppression(poolMesh, suppression, activation = null) {
   const attr = poolMesh?.geometry?.attributes?.color;
   const quadById = poolMesh?.userData?.poolQuadByFixtureId;
   const cache = poolMesh?.userData?.poolQuadAlpha;
@@ -1044,7 +1044,10 @@ export function applyPoolSuppression(poolMesh, suppression) {
     if (!(quad >= 0) || quad >= cache.length) continue;
     let w = suppression ? (suppression.get(id) ?? 0) : 0;
     if (!Number.isFinite(w)) w = 0;
-    const alpha = 1 - Math.max(0, Math.min(1, w)) * (1 - REAL_LIGHT_POOL_REMAINDER);
+    let active = activation ? (activation.get(id) ?? 0) : 1;
+    if (!Number.isFinite(active)) active = 0;
+    active = Math.max(0, Math.min(1, active));
+    const alpha = active * (1 - Math.max(0, Math.min(1, w)) * (1 - REAL_LIGHT_POOL_REMAINDER));
     if (cache[quad] === alpha) continue;
     cache[quad] = alpha;
     const range = ranges?.get(id);
@@ -1107,6 +1110,7 @@ export function buildLightHalos(fixtures) {
       sprite.position.copy(worldPos);
       sprite.scale.set(size, size, 1);
       sprite.renderOrder = 6;
+      sprite.userData.fixtureId = fx.id;
       group.add(sprite);
     });
   }

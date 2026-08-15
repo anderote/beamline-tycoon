@@ -4729,6 +4729,22 @@ body {
   color: #ccd2ee;
   font-family: monospace;
 }
+
+.renderer-recovery-notice {
+  position: fixed;
+  left: 50%;
+  top: 24px;
+  z-index: 100000;
+  transform: translateX(-50%);
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 14px 18px;
+  border: 2px solid #e6bd58;
+  background: rgba(9, 14, 28, 0.96);
+  color: #f4e7bd;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.58);
+  font: 12px/1.55 "Press Start 2P", monospace;
+  text-align: center;
+}
 #options-dialog.hidden { display: none; }
 
 .opt-header {

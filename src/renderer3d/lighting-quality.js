@@ -46,6 +46,9 @@ const PRESETS = {
     softGlow: false,
     effectPulseCount: 128,
     volumetricCount: 0,
+    contactAOStrength: 0,
+    contactAOSamples: 4,
+    contactAOScale: 0.25,
   },
   medium: {
     fixtureLightCount: 32,
@@ -59,6 +62,9 @@ const PRESETS = {
     softGlow: true,
     effectPulseCount: 256,
     volumetricCount: 1,
+    contactAOStrength: 0.48,
+    contactAOSamples: 6,
+    contactAOScale: 0.3,
   },
   high: {
     fixtureLightCount: 48,
@@ -72,6 +78,9 @@ const PRESETS = {
     softGlow: true,
     effectPulseCount: 384,
     volumetricCount: 3,
+    contactAOStrength: 0.65,
+    contactAOSamples: 8,
+    contactAOScale: 0.4,
   },
   ultra: {
     fixtureLightCount: 64,
@@ -85,6 +94,9 @@ const PRESETS = {
     softGlow: true,
     effectPulseCount: 512,
     volumetricCount: 8,
+    contactAOStrength: 0.72,
+    contactAOSamples: 12,
+    contactAOScale: 0.5,
   },
 };
 
@@ -104,6 +116,11 @@ export function autoLightingQuality(capabilities = {}) {
   const cores = Number(capabilities.hardwareConcurrency) || 4;
   const memory = Number(capabilities.deviceMemory) || 4;
   const maxTextureSize = Number(capabilities.maxTextureSize) || 4096;
+  // The node renderer's WebGL2 backend includes software/compatibility paths
+  // where reported CPU and texture limits substantially overstate practical
+  // post-processing throughput. Keep Auto conservative; explicit High/Ultra
+  // remain available in Options for strong discrete GPUs.
+  if (capabilities.backend === 'webgl2') return cores <= 2 || memory <= 2 ? 'low' : 'medium';
   if (cores <= 2 || memory <= 2 || maxTextureSize < 4096) return 'low';
   if (cores <= 4 || memory <= 4) return 'medium';
   if (cores >= 12 && memory >= 8 && maxTextureSize >= 8192) return 'ultra';

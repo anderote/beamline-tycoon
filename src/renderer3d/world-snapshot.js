@@ -408,6 +408,14 @@ function buildDecorations(game) {
           faceOffset: wallFixtureFaceOffset(WALL_TYPES[wallType]),
         };
       }
+      const zoneOccupied = game.state.zoneOccupied || {};
+      const roomKeys = [`${d.col},${d.row}`];
+      if (d.wallMount) {
+        const edgeDelta = {
+          n: [0, -1], e: [1, 0], s: [0, 1], w: [-1, 0],
+        }[d.wallMount.edge];
+        if (edgeDelta) roomKeys.push(`${d.wallMount.col + edgeDelta[0]},${d.wallMount.row + edgeDelta[1]}`);
+      }
       return {
         // Placeable id, so the builder can key its groups and hover/demolish
         // lookups can resolve a decoration's mesh the way components do.
@@ -426,6 +434,7 @@ function buildDecorations(game) {
         tall: d.tall ?? false,
         placeY: d.placeY || 0,
         wallMount,
+        indoors: roomKeys.some((key) => !!zoneOccupied[key]),
         y,
       };
     });

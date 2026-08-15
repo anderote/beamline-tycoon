@@ -37,6 +37,7 @@ import { sampleSurfaceYAt, getTileCornersY } from '../game/terrain.js';
 import { PLACE_UNAFFORDABLE } from '../game/placement.js';
 import { DAY_LENGTH_TICKS } from '../game/Game.js';
 import { dayNightGrade, MOON_COLOR } from './day-night.js';
+import { CINEMATIC_LIGHTING } from './lighting-tuning.js';
 import {
   buildLightPools, buildLightHalos, applyPoolSuppression,
   emitterIntensityForDarkness, poolOpacityForDarkness, haloOpacityForDarkness,
@@ -44,7 +45,8 @@ import {
 } from './lighting-builder.js';
 import { OverlayShim } from './overlay-shim.js';
 import { GlowPipeline } from './glow-pipeline.js';
-import { createWorldRenderer } from './renderer-backend.js';
+import { createWorldRenderer, RENDERER_MODE_STORAGE_KEY } from './renderer-backend.js';
+import { attachRendererLossHandler } from './renderer-recovery.js';
 import { LightRig } from './light-rig.js';
 import { VisualEffectSystem } from './visual-effect-system.js';
 import { fixtureMountY, wallFixturePose } from './fixture-light-math.js';
@@ -55,6 +57,7 @@ import {
 import { ShadowScheduler } from './shadow-scheduler.js';
 import { VolumetricLightPool } from './volumetric-light-pool.js';
 import { fixtureDynamicFactor } from './light-dynamics.js';
+import { fixtureActivationFactor } from './fixture-activation.js';
 import { disposeLightCookies } from './light-cookie.js';
 import { UIHost } from '../ui/UIHost.js';
 import { WorldPhysics } from '../physics/world-physics.js';
@@ -312,6 +315,7 @@ export class ThreeRenderer {
     // Task 6 (fake light pools) and Task 9 (real point lights) read this
     // instead of re-scanning every decoration.
     this.lightingGroup = [];
+    this._fixtureActivation = new Map();
     // Task 6 fake-lighting layer: one merged additive mesh for every ground
     // light pool (lightPoolGroup) plus one Sprite billboard per glowing
     // emitter (lightHaloGroup). Both are rebuilt only when lightingGroup
@@ -501,13 +505,17 @@ export class ThreeRenderer {
     // old WebGLRenderer is now confined to tiny thumbnails/view-cube canvases.
     this._rendererBackend = await createWorldRenderer({ antialias: false });
     this.renderer = this._rendererBackend.renderer;
+    this._rendererLossDetach = attachRendererLossHandler(
+      this.renderer,
+      (info) => this._handleRendererLoss(info),
+    );
     this.renderer.setPixelRatio(1);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.AgXToneMapping ?? THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.toneMappingExposure = CINEMATIC_LIGHTING.exposure.day;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.setClearColor(0x1a1a2e);
+    this.renderer.setClearColor(0x091126);
 
     const threeCanvas = this.renderer.domElement;
     threeCanvas.style.position = 'absolute';
@@ -522,6 +530,8 @@ export class ThreeRenderer {
 
     // Scene
     this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x091126);
+    this.scene.fog = new THREE.FogExp2(0x14213a, CINEMATIC_LIGHTING.atmosphere.dayDensity);
 
     // World interaction physics is Rapier (Rust compiled to WASM). Rendered
     // placeables remain dormant fixed bodies until an incident wakes them, so
@@ -554,7 +564,7 @@ export class ThreeRenderer {
     this.camera.lookAt(0, 0, 0);
 
     // Lighting — dynamic day/night cycle
-    this._ambientLight = new THREE.AmbientLight(0xfff5e6, 1.3);
+    this._ambientLight = new THREE.HemisphereLight(0xdceeff, 0x473c30, CINEMATIC_LIGHTING.ambient.day);
     this.scene.add(this._ambientLight);
 
     this._sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -606,6 +616,7 @@ export class ThreeRenderer {
       hardwareConcurrency: globalThis.navigator?.hardwareConcurrency,
       deviceMemory: globalThis.navigator?.deviceMemory,
       maxTextureSize: this._rendererBackend.capabilities.maxTextureSize,
+      backend: this._rendererBackend.backend,
     });
     this._setShadowMapSize(this._sunLight.shadow, this._lightingQuality.sunShadowMapSize);
     this._sunShadowScheduler = new ShadowScheduler(1, {
@@ -829,6 +840,10 @@ export class ThreeRenderer {
         case 'zonesChanged':
           this._refreshTerrain();
           this._refreshZones();
+          // Fixture room context is authored by zones. Rebuild its cached
+          // registry so a newly zoned room lights immediately rather than
+          // waiting for an unrelated decoration edit.
+          this._refreshDecorations();
           if (this._refreshPalette) this._refreshPalette();
           break;
         case 'wallsChanged':
@@ -1609,6 +1624,7 @@ export class ThreeRenderer {
       hardwareConcurrency: globalThis.navigator?.hardwareConcurrency,
       deviceMemory: globalThis.navigator?.deviceMemory,
       maxTextureSize: this._rendererBackend?.capabilities?.maxTextureSize,
+      backend: this._rendererBackend?.backend,
     });
     if (this._lightRig) this._lightRig.setQuality(this._lightingQuality);
     if (this._effectSystem) this._effectSystem.setQuality(this._lightingQuality);
@@ -1641,6 +1657,31 @@ export class ThreeRenderer {
       effects: this._effectSystem?.getStats?.() || null,
       ...(this._volumePool?.getStats() || {}),
     };
+  }
+
+  _handleRendererLoss(info = {}) {
+    if (this._rendererLossHandled) return;
+    this._rendererLossHandled = true;
+    try { this.game?.save?.(); } catch (error) {
+      console.warn('[Renderer] Could not save before graphics recovery.', error);
+    }
+
+    const nativeWebGPU = this._rendererBackend?.backend === 'webgpu';
+    const message = nativeWebGPU
+      ? 'Graphics device reset detected. Recovering with the compatibility renderer…'
+      : 'Graphics context was lost. Reload the game to restore rendering.';
+    const notice = document.createElement('div');
+    notice.className = 'renderer-recovery-notice';
+    notice.setAttribute('role', 'status');
+    notice.textContent = message;
+    document.body.appendChild(notice);
+
+    if (!nativeWebGPU) return;
+    try {
+      localStorage.setItem(RENDERER_MODE_STORAGE_KEY, 'legacy');
+      sessionStorage.setItem('beamlineTycoon.rendererRecovery', info.message || 'WebGPU device lost');
+    } catch (_) {}
+    this._rendererRecoveryTimer = setTimeout(() => globalThis.location?.reload?.(), 650);
   }
 
   _setShadowMapSize(shadow, mapSize) {
@@ -3791,18 +3832,19 @@ export class ThreeRenderer {
       this._localTimeOfDay = (this._localTimeOfDay + dt * perSecond) % 1;
     }
 
-    // timeOfDay: 0 = midnight, 0.5 = noon. Map to the sun's old angle
-    // convention (angle=0 was noon, angle=π was midnight) so orbit radius,
-    // elevation range and shadow-texel snapping below are unchanged.
+    const grade = dayNightGrade(this._localTimeOfDay);
+
+    // timeOfDay: 0 = midnight, 0.5 = noon. Dawn and dusk cross the real
+    // horizon at .25/.75, producing the long shadows the previous always-high
+    // orbit could never make.
     const sunAngle = (this._localTimeOfDay - 0.5) * 2 * Math.PI;
 
-    // Sun orbits in a circle: radius 50, height varies with angle
-    const R = 50;
+    const R = CINEMATIC_LIGHTING.sun.orbitRadius;
     const x = Math.cos(sunAngle) * R;
     const z = Math.sin(sunAngle) * R;
-    // Sun height: peaks at noon (angle=0), lowest at midnight (angle=π)
-    // Range from 10 (low sun / long shadows) to 50 (high noon)
-    const elevation = 30 + 20 * Math.cos(sunAngle);
+    const sunHeight = Math.max(0, grade.solarAltitude);
+    const elevation = CINEMATIC_LIGHTING.sun.minElevation
+      + sunHeight * (CINEMATIC_LIGHTING.sun.maxElevation - CINEMATIC_LIGHTING.sun.minElevation);
     // Offset sun position and shadow target to follow the camera center
     // Snap target in light-space to texel grid to prevent shadow swimming
     const cx = this._panX || 0;
@@ -3831,7 +3873,9 @@ export class ThreeRenderer {
     // same pan-tracked target the sun uses. No shadow-texel snapping needed;
     // it never casts shadows.
     const moonAngle = sunAngle + Math.PI;
-    const moonElevation = 30 + 20 * Math.cos(moonAngle);
+    const moonHeight = Math.max(0, -grade.solarAltitude);
+    const moonElevation = CINEMATIC_LIGHTING.sun.minElevation
+      + moonHeight * (CINEMATIC_LIGHTING.sun.maxElevation - CINEMATIC_LIGHTING.sun.minElevation);
     const mx = Math.cos(moonAngle) * R;
     const mz = Math.sin(moonAngle) * R;
     this._moonLight.position.set(mx + cx, moonElevation, mz + cz);
@@ -3842,7 +3886,6 @@ export class ThreeRenderer {
     // day, 1 = deep night) is published on the renderer for later tasks
     // (fixture emissive, light pools, real point lights) to read so they
     // ramp in lockstep with the sky.
-    const grade = dayNightGrade(this._localTimeOfDay);
     this._darkness = grade.darkness;
     this._lightingEffectTimeMs = this._localTimeOfDay * DAY_LENGTH_TICKS * 1000;
 
@@ -3860,8 +3903,13 @@ export class ThreeRenderer {
 
     this._ambientLight.intensity = grade.ambientIntensity;
     this._ambientLight.color.setRGB(...grade.ambientColor);
+    this._ambientLight.groundColor.setRGB(...grade.groundColor);
 
     this._moonLight.intensity = grade.moonIntensity;
+    this.renderer.toneMappingExposure = grade.exposure;
+    this.scene.background.setRGB(...grade.skyColor);
+    this.scene.fog.color.setRGB(...grade.fogColor);
+    this.scene.fog.density = grade.fogDensity;
 
     // Glow role (screens, indicator lamps): brighten as the sky darkens, but
     // never let them read as fully dark at noon — a lit console screen stays
@@ -4467,10 +4515,13 @@ export class ThreeRenderer {
    */
   _updateLightingRamp() {
     const darkness = this._darkness ?? 0;
+    this._fixtureActivation.clear();
     for (const fx of this.lightingGroup) {
+      const activation = fixtureActivationFactor(fx.def, darkness, { indoors: fx.indoors });
+      if (fx.id != null) this._fixtureActivation.set(fx.id, activation);
       const mat = fx.group.userData.emitterMaterial;
       if (mat) {
-        mat.emissiveIntensity = emitterIntensityForDarkness(darkness)
+        mat.emissiveIntensity = emitterIntensityForDarkness(activation)
           * fixtureDynamicFactor(
             fx.def?.light?.dynamicProfile,
             fx.id,
@@ -4482,13 +4533,16 @@ export class ThreeRenderer {
     if (this.lightPoolGroup) {
       const suppression = this._lightRig ? this._lightRig.getFixtureSuppression() : null;
       for (const child of this.lightPoolGroup.children) {
-        if (child.material) child.material.opacity = poolOpacityForDarkness(darkness);
-        applyPoolSuppression(child, suppression);
+        if (child.material) child.material.opacity = poolOpacityForDarkness(1);
+        applyPoolSuppression(child, suppression, this._fixtureActivation);
       }
     }
     if (this.lightHaloGroup) {
       this.lightHaloGroup.traverse((child) => {
-        if (child.isSprite) child.material.opacity = haloOpacityForDarkness(darkness);
+        if (child.isSprite) {
+          const activation = this._fixtureActivation.get(child.userData.fixtureId) ?? darkness;
+          child.material.opacity = haloOpacityForDarkness(activation);
+        }
       });
     }
     // Window panes come up warm from the outside as night falls. The builder
@@ -5197,6 +5251,9 @@ export class ThreeRenderer {
       this._animFrameId = null;
     }
     window.removeEventListener('resize', this._boundOnResize);
+    this._rendererLossDetach?.();
+    this._rendererLossDetach = null;
+    if (this._rendererRecoveryTimer) clearTimeout(this._rendererRecoveryTimer);
     this._clearDesignGhost();
     if (this.utilityLineBuilderV2 && this.utilityLineGroup) {
       this.utilityLineBuilderV2.dispose(this.utilityLineGroup);
