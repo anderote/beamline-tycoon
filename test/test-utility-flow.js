@@ -355,6 +355,15 @@ console.log('\n--- 6b. Vacuum visually flows from chamber to pump ---');
   const vacuum = computeLineOrientations(network, lines, { invertDirection: true });
   assert(normal.get('V1') === false, 'solver capacity direction is pump to chamber');
   assert(vacuum.get('V1') === true, 'visual vacuum direction reverses chamber to pump');
+
+  // The renderer must request that inversion for real vacuum networks — the
+  // topology helper alone cannot change a rendered line unless the builder
+  // passes the vacuum-specific option through.
+  const builder = new UtilityLineBuilderV2();
+  const orientation = builder._buildOrientationMap(
+    { utilityNetworks: new Map([['vacuumPipe', [network]]]) }, lines);
+  assert(orientation.get('V1') === true,
+    'UtilityLineBuilderV2 renders vacuum gas flowing chamber -> pump');
 }
 
 // computeLineOrientations is pure topology (src/utility/line-orientation.js)

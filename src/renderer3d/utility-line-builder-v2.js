@@ -912,9 +912,8 @@ export class UtilityLineBuilderV2 {
    * (forward / draw order) by every caller here, same as _buildErrorMap's
    * "no entry = ok" convention.
    *
-   * Utility types with no flow at all (FLOW_PARAMS[type] == null, i.e.
-   * vacuumPipe) are skipped — nothing ever reads their orientation, and
-   * skipping avoids paying the BFS for a utility that will never animate.
+   * Vacuum is the one reverse-flow utility: the solver's source is the pump,
+   * while the visible gas load travels from the chamber back toward it.
    */
   _buildOrientationMap(state, utilityLinesMap) {
     const out = new Map();
@@ -925,7 +924,9 @@ export class UtilityLineBuilderV2 {
       if (!FLOW_PARAMS[utilityType]) continue;
       const nets = state.utilityNetworks.get(utilityType) || [];
       for (const net of nets) {
-        const perNet = computeLineOrientations(net, utilityLinesMap);
+        const perNet = computeLineOrientations(net, utilityLinesMap, {
+          invertDirection: utilityType === 'vacuumPipe',
+        });
         for (const [lineId, reversed] of perNet) out.set(lineId, reversed);
       }
     }
