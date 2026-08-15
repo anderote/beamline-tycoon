@@ -27,7 +27,7 @@ function pixelStats(buffer) {
 test('midnight keeps the world readable with selective glow enabled', async ({ page }) => {
   await bootFreshGame(page, { lightingQuality: 'low' });
   await expectRendererLive(page);
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     window.game.stop();
     window.game.state.paused = true;
     window.game.state.timeOfDay = 0;
@@ -51,12 +51,14 @@ test('midnight keeps the world readable with selective glow enabled', async ({ p
     r.camera.getWorldDirection(viewDirection);
     probe.position.copy(r.camera.position).addScaledVector(viewDirection, 10);
     probe.renderOrder = 10_000;
+    probe.frustumCulled = false;
     r.scene.add(probe);
     window.__nightLightingProbe = probe;
     if (r._animFrameId !== null) cancelAnimationFrame(r._animFrameId);
     r._animFrameId = null;
     r._updateSunCycle();
     r._updateLightingRamp();
+    await r.renderer.compileAsync(r.scene, r.camera);
     r._glowPipeline.render();
   });
 
