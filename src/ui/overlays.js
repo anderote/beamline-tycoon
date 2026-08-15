@@ -4694,6 +4694,8 @@ UIHost.prototype._openEquipmentWindow = function(equip) {
     onPlace: id => input?._beginSelectionPlacement('move', id),
     onCopy: id => input?._beginSelectedCopy(id),
     onDemolish: id => input?._demolishSelected(id),
+    onAutoConnect: id => input?._autoConnectPanel(id),
+    getAutoConnectPlan: id => input?._panelAutoConnectPlan(id),
     getSelectionCount: id => input?._selectionIdsForAnchor(id).length || 1,
   });
   if (!ew.ctx) return;

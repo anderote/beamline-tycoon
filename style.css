@@ -2615,6 +2615,8 @@ body {
 .ctx-actions { padding:8px 12px 10px; display:flex; flex-wrap:wrap; gap:6px; border-top:1px solid rgba(80, 80, 120, 0.3); }
 .ctx-action-btn { flex:1; text-align:center; padding:6px 10px; border:1px solid rgba(80, 80, 120, 0.4); border-radius:3px; font-family:'Press Start 2P', monospace; font-size:8px; cursor:pointer; background:rgba(30, 30, 55, 0.7); color:#aaaacc; transition:background 0.15s, color 0.15s; }
 .ctx-action-btn:hover { background:rgba(50, 50, 80, 0.8); color:#ccccee; }
+.ctx-action-btn:disabled { cursor:default; opacity:0.45; }
+.ctx-action-btn:disabled:hover { background:rgba(30, 30, 55, 0.7); color:#aaaacc; }
 .ctx-stats-grid { display:grid; grid-template-columns:1fr 1fr; gap:1px; }
 .ctx-stats-grid.three-col { grid-template-columns:1fr 1fr 1fr; }
 .ctx-stat { background:rgba(15, 15, 35, 0.6); padding:8px 10px; display:flex; flex-direction:column; gap:4px; }

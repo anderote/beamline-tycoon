@@ -229,14 +229,15 @@ export class ContextWindow {
   _renderActions() {
     if (!this._actionsEl) return;
     this._actionsEl.innerHTML = '';
-    this._actions.forEach(({ label, title, style, variant, onClick }) => {
+    this._actions.forEach(({ label, title, style, variant, disabled, onClick }) => {
       const btn = document.createElement('button');
       btn.className = 'ctx-action-btn';
       if (variant) btn.classList.add(`ctx-action-btn-${variant}`);
       btn.textContent = label;
       if (title) btn.title = title;
       if (style) btn.setAttribute('style', style);
-      btn.addEventListener('click', onClick);
+      btn.disabled = !!disabled;
+      if (typeof onClick === 'function') btn.addEventListener('click', onClick);
       this._actionsEl.appendChild(btn);
     });
     this._actionsEl.style.display = this._actions.length === 0 ? 'none' : 'flex';

@@ -28,7 +28,7 @@ import { tickFlow } from './utility-flow.js';
 import { buildWorldSnapshot } from './world-snapshot.js';
 import { disposeGroupChildren, disposeSceneObject } from './dispose-utils.js';
 import { listUtilityEndpoints, makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
-import { portWorldPosition } from '../utility/ports.js';
+import { placeableCenterWorld, portWorldPosition } from '../utility/ports.js';
 import { portAnchor3D } from '../utility/port-anchors.js';
 import { buildPortFitting, buildPortFittings, portFittingSignature } from './builders/port-fitting-builder.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
@@ -2178,11 +2178,48 @@ export class ThreeRenderer {
   setSelectionOutlines(sourceObjects) {
     this.clearSelectionOutline();
     const seen = new Set();
+    const state = this._liveState();
     for (const sourceObj of (sourceObjects || [])) {
       if (!sourceObj || seen.has(sourceObj)) continue;
       seen.add(sourceObj);
       this._outlineObject(sourceObj, 0xffffff, this.selectionGroup, 3);
+      const id = sourceObj.userData?.nodeId;
+      const entry = id == null ? null : state.placeables?.find(p => p.id === id);
+      const def = COMPONENTS[entry?.type] || PLACEABLES[entry?.type];
+      if (entry && def?.autoConnectRadius > 0) {
+        this._addPanelInfluenceRing(entry, def);
+      }
     }
+  }
+
+  /** Ground-following amber ring for a selected panel's assisted-wire reach. */
+  _addPanelInfluenceRing(entry, def) {
+    const centre = placeableCenterWorld(entry, def);
+    const radiusTiles = Number(def?.autoConnectRadius) || 0;
+    if (!centre || radiusTiles <= 0) return;
+    const radiusWorld = radiusTiles * 2;
+    const state = this._liveState();
+    const points = [];
+    const segments = 96;
+    for (let i = 0; i < segments; i++) {
+      const angle = (i / segments) * Math.PI * 2;
+      const x = centre.x + Math.cos(angle) * radiusWorld;
+      const z = centre.z + Math.sin(angle) * radiusWorld;
+      points.push(new THREE.Vector3(x, sampleSurfaceYAt(state, x, z) + 0.12, z));
+    }
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    const material = new THREE.LineBasicMaterial({
+      color: 0xffc84a,
+      transparent: true,
+      opacity: 0.9,
+      depthTest: true,
+      depthWrite: false,
+    });
+    const ring = new THREE.LineLoop(geometry, material);
+    ring.name = 'panelAutoConnectRadius';
+    ring.userData.radiusTiles = radiusTiles;
+    ring.renderOrder = 1000;
+    this.selectionGroup.add(ring);
   }
 
   clearSelectionOutline() {
