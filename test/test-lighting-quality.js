@@ -44,7 +44,7 @@ test('shadow scheduler parks disabled, daylight, and inactive slots', () => {
 });
 
 test('every fixture exposes a complete finite lighting profile', () => {
-  assert.equal(LIGHTING_DEFS.length, 9);
+  assert.equal(LIGHTING_DEFS.length, 15);
   for (const def of LIGHTING_DEFS) {
     assert.deepEqual(validateLightingDef(def), [], `${def.id} profile is valid`);
     assert.ok(def.light.sourceRadius > 0, `${def.id} has an apparent source size`);
@@ -62,5 +62,11 @@ test('fixture dynamics are deterministic, bounded, and identity-phased', () => {
       assert.ok(factor >= 0.75 && factor <= 1.05, `${profile} stays subtle and non-negative`);
     }
   }
+  const emergencySamples = Array.from({ length: 240 }, (_, i) =>
+    fixtureDynamicFactor('statusBlink', 'emergency-a', i * 20, 1));
+  assert.ok(Math.min(...emergencySamples) < Math.max(...emergencySamples),
+    'status blink produces visible pulses instead of falling back to steady');
+  assert.ok(emergencySamples.every(factor => factor >= 0.7 && factor <= 1.3),
+    'status blink stays bounded and never turns the fixture fully off');
   assert.equal(fixtureDynamicFactor('steady', 'x', 99, 1), 1);
 });

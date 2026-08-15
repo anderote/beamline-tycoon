@@ -5,7 +5,7 @@
 import { DECORATIONS_RAW } from '../data/decorations.raw.js';
 import { LIGHTING_DEFS } from '../data/placeables/lighting.js';
 import { buildLightFixture, isAimedFixture } from './lighting-builder.js';
-import { fixtureMountY } from './fixture-light-math.js';
+import { fixtureMountY, wallFixturePose } from './fixture-light-math.js';
 
 const SUB = 0.5; // 1 sub-tile = 0.5 world units
 
@@ -1414,7 +1414,7 @@ export function decorationPlacement(dec) {
  * Pure and exported so tests can pin the opt-out without a THREE global.
  */
 export function lightingYaw(def, rotY, seed) {
-  if (isAimedFixture(def)) return rotY;
+  if (def?.mount !== 'ground' || isAimedFixture(def)) return rotY;
   return rotY + _prng(seed)() * Math.PI * 2;
 }
 
@@ -1426,7 +1426,7 @@ export class DecorationBuilder {
     this._groups = [];
     /** Placeable id → group, for hover/demolish/move mesh lookups. @type {Map<string, THREE.Group>} */
     this._groupsById = new Map();
-    /** Lighting fixtures built by the last `build()` call, for Task 6/9 to
+    /** Lighting fixtures built by the last `build()` call, for lighting systems to
      * enumerate without re-scanning every decoration.
      * @type {Array<{id: string|number, def: object, group: THREE.Group}>} */
     this._lightingFixtures = [];
@@ -1490,16 +1490,19 @@ export class DecorationBuilder {
       const group = this._buildOne(
         dec.type, dec.category, p.geoW, p.geoL, p.totalH, dec.variant ?? 0, p.seed, dec.dir ?? 0,
       );
+      group.userData ||= {};
       group.userData.nodeId = dec.id ?? null;
 
       // Ground fixtures sit on the floor. Wall/overhead fixture geometry is
       // authored around its mounting point, so lift that origin to the
       // definition's mount height even though all fixtures still share the
       // ordinary decoration placement store.
-      const floorY = dec.y ?? 0;
+      const floorY = (dec.y ?? 0) + (dec.placeY || 0) * SUB;
       const groupY = lightDef ? fixtureMountY(lightDef, floorY) : floorY;
-      group.position.set(p.x, groupY, p.z);
-      group.rotation.y = lightDef ? lightingYaw(lightDef, p.rotY, p.seed) : p.rotY;
+      const wallPose = lightDef?.mount === 'wall' ? wallFixturePose(dec.wallMount) : null;
+      group.position.set(wallPose?.x ?? p.x, groupY, wallPose?.z ?? p.z);
+      group.rotation.y = wallPose?.yaw
+        ?? (lightDef ? lightingYaw(lightDef, p.rotY, p.seed) : p.rotY);
       if (lightDef) {
         // This registry is handed directly to LightRig and is also the source
         // for the painted pools/halos, keeping all lighting channels aligned.

@@ -12,8 +12,9 @@ import { discoverNetworks, makeDefaultPortLookup } from '../utility/network-disc
 import { UTILITY_TYPES } from '../utility/registry.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import {
-  snapForPlaceable, canPlace, previewPlacement, canAffordCost, componentCostFor,
-  usesFloorOccupancy, PLACE_UNAFFORDABLE,
+  snapForPlaceable, canPlace, canPlaceWallFixture, previewPlacement,
+  canAffordCost, componentCostFor, usesFloorOccupancy, wallFixtureOffFromFrac,
+  PLACE_BLOCKED, PLACE_WALL, PLACE_UNAFFORDABLE,
 } from '../game/placement.js';
 import { findStackTarget } from '../game/stacking.js';
 import { mirrorEdge, findWallKey, findEdgeKey } from '../game/edge-keys.js';
@@ -1500,6 +1501,7 @@ export class InputHandler {
                 subCol: this.hoverPlaceable.subCol,
                 subRow: this.hoverPlaceable.subRow,
                 dir: this.hoverPlaceable.dir,
+                wallMount: this.hoverPlaceable.wallMount,
                 params: this.selectedParamOverrides,
                 variant: this.selectedPlaceableVariant,
               });
@@ -2429,6 +2431,38 @@ export class InputHandler {
       this.renderer._clearPreview?.();
       return;
     }
+    if (placeable.mount === 'wall') {
+      const hasScreenPoint = Number.isFinite(this._lastScreenX) && Number.isFinite(this._lastScreenY);
+      const edge = hasScreenPoint
+        ? this._getNearestWallEdge(this._lastScreenX, this._lastScreenY)
+        : null;
+      const wallMount = edge ? {
+        col: edge.col,
+        row: edge.row,
+        edge: edge.edge,
+        off: wallFixtureOffFromFrac(edge.frac),
+      } : null;
+      const geometric = canPlaceWallFixture(this.game, placeable, wallMount);
+      const affordable = canAffordCost(this.game, componentCostFor(placeable));
+      const ok = geometric.ok && affordable;
+      const reason = !geometric.hasWall
+        ? PLACE_WALL
+        : (geometric.occupied ? PLACE_BLOCKED : (affordable ? null : PLACE_UNAFFORDABLE));
+      this.hoverPlaceable = {
+        id: armedId,
+        col: wallMount?.col ?? 0,
+        row: wallMount?.row ?? 0,
+        subCol: 0,
+        subRow: 0,
+        dir: this.placementDir,
+        placeY: 0,
+        stackTargetId: null,
+        wallMount,
+        variant: this.selectedPlaceableVariant,
+      };
+      this.renderer.renderPlaceableGhost(this.hoverPlaceable, ok, reason);
+      return;
+    }
     const wx = this.lastMouseWorldX ?? 0;
     const wy = this.lastMouseWorldY ?? 0;
     const snap = snapForPlaceable(wx, wy, placeable, this.placementDir);
@@ -2522,6 +2556,7 @@ export class InputHandler {
         subCol: this.hoverPlaceable.subCol,
         subRow: this.hoverPlaceable.subRow,
         dir: this.hoverPlaceable.dir,
+        wallMount: this.hoverPlaceable.wallMount,
         params: this.selectedParamOverrides,
         variant: this.selectedPlaceableVariant,
       });
@@ -3100,6 +3135,7 @@ export class InputHandler {
         originSubCol: snap.subCol,
         originSubRow: snap.subRow,
         originDir: snap.dir,
+        originWallMount: snap.wallMount,
         dir: snap.dir,
       };
     }
@@ -3176,6 +3212,7 @@ export class InputHandler {
         subCol: hp.subCol,
         subRow: hp.subRow,
         dir: hp.dir ?? this.placementDir ?? 0,
+        wallMount: hp.wallMount,
         params: p.params,
         variant: p.variant,
         free: true,
@@ -3622,7 +3659,10 @@ export class InputHandler {
         if (!dec) { this._hidePreview(); return; }
         const decStats = [['Cost', `$${typeof dec.cost === 'object' ? dec.cost.funding : dec.cost}`]];
         if (dec.morale) decStats.push(['Morale', `+${dec.morale}`]);
-        if (dec.placement === 'outdoor') decStats.push(['Placement', 'Outdoor only']);
+        if (dec.mount === 'wall') decStats.push(['Placement', 'Snaps to either wall face']);
+        else if (dec.mount === 'overhead') decStats.push(['Placement', 'Floats overhead']);
+        else if (dec.mount === 'surface') decStats.push(['Placement', 'Stacks on desks and worktops']);
+        else if (dec.placement === 'outdoor') decStats.push(['Placement', 'Outdoor only']);
         if (dec.blocksBuild) decStats.push(['Blocks building', 'Yes']);
         this._renderPreview(dec.name, dec.desc || '', decStats);
         return;

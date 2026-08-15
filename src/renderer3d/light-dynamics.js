@@ -24,8 +24,14 @@ export function fixtureDynamicFactor(profile, id, timeMs, darkness = 1) {
       return 0.992 + mains * 0.008;
     case 'warmSteady':
       return (0.94 + d * 0.06) * (0.992 + mains * 0.008);
+    case 'statusBlink': {
+      // A short double flash every few seconds, phase-staggered per fixture.
+      // Keep the low state visible so an emergency fitting still reads as a
+      // light source instead of disappearing entirely between pulses.
+      const cycle = ((t + phase / (Math.PI * 2) * 1.7) % 2.4 + 2.4) % 2.4;
+      return cycle < 0.12 || (cycle > 0.22 && cycle < 0.3) ? 1.25 : 0.72;
+    }
     default:
       return 1;
   }
 }
-

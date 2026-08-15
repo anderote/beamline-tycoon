@@ -357,10 +357,19 @@ function buildDecorations(game) {
       const footL = swap ? subW : subL;
       // Centered (no sub-cell) decorations sample the tile midpoint. Triangulated,
       // not bilinear, so the base lands on the rendered mesh on unflattened slopes.
-      const c = getTileCornersY(game.state, d.col, d.row);
+      const sampleCol = d.wallMount?.col ?? d.col;
+      const sampleRow = d.wallMount?.row ?? d.row;
+      const c = getTileCornersY(game.state, sampleCol, sampleRow);
       const subRes = 4;
-      const u = (d.subCol != null) ? ((d.subCol + footW / 2) / subRes) : 0.5;
-      const v = (d.subRow != null) ? ((d.subRow + footL / 2) / subRes) : 0.5;
+      let u = (d.subCol != null) ? ((d.subCol + footW / 2) / subRes) : 0.5;
+      let v = (d.subRow != null) ? ((d.subRow + footL / 2) / subRes) : 0.5;
+      if (d.wallMount) {
+        const f = (Math.max(0, Math.min(3, d.wallMount.off ?? 1)) + 0.5) / 4;
+        if (d.wallMount.edge === 'n') { u = f; v = 0; }
+        else if (d.wallMount.edge === 'e') { u = 1; v = f; }
+        else if (d.wallMount.edge === 's') { u = 1 - f; v = 1; }
+        else if (d.wallMount.edge === 'w') { u = 0; v = 1 - f; }
+      }
       const y = sampleCornersTriangulated(c, u, v);
       return {
         // Placeable id, so the builder can key its groups and hover/demolish
@@ -378,6 +387,8 @@ function buildDecorations(game) {
         subH: raw?.subH ?? 4,
         variant: d.variant ?? null,
         tall: d.tall ?? false,
+        placeY: d.placeY || 0,
+        wallMount: d.wallMount ? { ...d.wallMount } : null,
         y,
       };
     });

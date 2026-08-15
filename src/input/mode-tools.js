@@ -70,6 +70,7 @@ export class MoveTool extends Tool {
         col: p.originCol, row: p.originRow,
         subCol: p.originSubCol, subRow: p.originSubRow,
         dir: p.originDir,
+        wallMount: p.originWallMount,
         params: p.params,
         variant: p.variant,
         free: true,
@@ -85,7 +86,7 @@ export class MoveTool extends Tool {
     // (same gesture as PlaceableTool — carrying arms the unified preview).
     if (e.button === 0 && e.shiftKey && this.payload) {
       const pl = PLACEABLES[this.payload.type];
-      if (pl && pl.kind === 'decoration') {
+      if (pl && pl.kind === 'decoration' && pl.mount !== 'wall') {
         const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
         input.isLinePlacingDecoration = true;
         input.linePlaceStartWorld = { x: world.x, y: world.y };

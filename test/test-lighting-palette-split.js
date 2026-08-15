@@ -3,7 +3,8 @@
 // Lighting fixtures split across two palette tabs by where they mount:
 //   - mount: 'ground'            -> Grounds mode's `lighting` tab (free-
 //     standing fixtures you plant outdoors — landscaping).
-//   - mount: 'wall' | 'overhead' -> Structure mode's `structureLights` tab
+//   - mount: 'wall' | 'overhead' | 'surface' -> Structure mode's
+//     `structureLights` tab
 //     (fixtures that attach to the building — building fabric, alongside
 //     Flooring/Walls/Doors).
 //
@@ -18,7 +19,7 @@
 // defs, since the failure mode is specifically "real fixture ends up in the
 // wrong or a nonexistent tab"):
 //   1. Every mount resolves to the category the design calls for.
-//   2. All nine fixtures are covered by exactly one of the two tabs — none
+//   2. All fixtures are covered by exactly one of the two tabs — none
 //      orphaned into a third category or left uncategorized.
 //   3. Every lighting def's `category` is a key that actually exists in
 //      MODES — an unrecognized category is invisible in every palette
@@ -53,7 +54,7 @@ const ALL_MODE_CATEGORIES = new Set(
   Object.values(MODES).flatMap(mode => Object.keys(mode.categories)),
 );
 
-assert(LIGHTING_DEFS.length === 9, `nine lighting fixtures defined (got ${LIGHTING_DEFS.length})`);
+assert(LIGHTING_DEFS.length === 15, `fifteen lighting fixtures defined (got ${LIGHTING_DEFS.length})`);
 
 const seen = { ground: 0, nonGround: 0 };
 for (const def of LIGHTING_DEFS) {
@@ -64,7 +65,7 @@ for (const def of LIGHTING_DEFS) {
     seen.ground++;
     assert(def.category === GROUNDS_LIGHTING,
       `${def.id} (mount: ground) resolves to Grounds -> Lighting`);
-  } else if (def.mount === 'wall' || def.mount === 'overhead') {
+  } else if (def.mount === 'wall' || def.mount === 'overhead' || def.mount === 'surface') {
     seen.nonGround++;
     assert(def.category === STRUCTURE_LIGHTS,
       `${def.id} (mount: ${def.mount}) resolves to Structure -> Lights`);
@@ -75,14 +76,18 @@ for (const def of LIGHTING_DEFS) {
 }
 
 assert(seen.ground === 5, `five ground-mounted fixtures found (got ${seen.ground})`);
-assert(seen.nonGround === 4, `four wall/overhead-mounted fixtures found (got ${seen.nonGround})`);
+assert(seen.nonGround === 10, `ten wall/overhead/surface-mounted fixtures found (got ${seen.nonGround})`);
 assert(seen.ground + seen.nonGround === LIGHTING_DEFS.length,
   'every fixture is accounted for by exactly one tab (none orphaned)');
 
 // The expected ids per tab, spelled out once so a future rename/id change
 // that silently moves a fixture to the wrong tab fails loudly.
 const expectedGround = ['lamppost', 'doubleLamppost', 'bollardLight', 'highMastLight', 'floodLight'];
-const expectedStructure = ['wallSconce', 'bulkheadLight', 'ceilingPanel', 'highBay'];
+const expectedStructure = [
+  'wallSconce', 'bulkheadLight', 'wallStripLight', 'emergencyWallLight',
+  'ceilingPanel', 'highBay', 'linearPendant', 'cleanroomPanel',
+  'deskLamp', 'portableWorkLight',
+];
 
 const byId = Object.fromEntries(LIGHTING_DEFS.map(d => [d.id, d]));
 for (const id of expectedGround) {

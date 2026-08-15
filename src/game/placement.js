@@ -5,6 +5,7 @@
 
 import { isoToGridFloat } from '../renderer/grid.js';
 import { sparesCostForFunding } from '../beamline/BeamlineSystem.js';
+import { findWallKey, mirrorEdge } from './edge-keys.js';
 
 /**
  * Snap a world (x,y) to the nearest subtile center, no clamping.
@@ -50,12 +51,62 @@ function cellKey(c) {
 }
 
 /**
- * Whether a placeable owns floor subtiles. Overhead fixtures keep footprint
- * cells as their world-space anchor, but live on a separate vertical layer:
- * they neither collide with nor replace equipment beneath them.
+ * Whether a placeable owns floor subtiles. Overhead and wall fixtures keep
+ * footprint/edge data as world-space anchors, but live on separate vertical
+ * layers: they neither collide with nor replace equipment beneath them.
  */
 export function usesFloorOccupancy(placeable) {
-  return placeable?.mount !== 'overhead';
+  return placeable?.mount !== 'overhead' && placeable?.mount !== 'wall';
+}
+
+/** Snap a cursor fraction along a wall edge to one of its four sub-slots. */
+export function wallFixtureOffFromFrac(frac) {
+  const f = Number.isFinite(frac) ? frac : 0.5;
+  return Math.max(0, Math.min(3, Math.floor(f * 4)));
+}
+
+export function normalizeWallMount(site) {
+  if (!site || !['n', 'e', 's', 'w'].includes(site.edge)) return null;
+  if (!Number.isFinite(site.col) || !Number.isFinite(site.row)) return null;
+  return {
+    col: Math.floor(site.col),
+    row: Math.floor(site.row),
+    edge: site.edge,
+    off: Math.max(0, Math.min(3, Math.floor(site.off ?? 1))),
+  };
+}
+
+/** Stable identity for a specific slot on one face of a physical wall. */
+export function wallFixtureMountKey(site) {
+  const mount = normalizeWallMount(site);
+  return mount ? `${mount.col},${mount.row},${mount.edge},${mount.off}` : null;
+}
+
+/** Alias-independent identity for the wall segment supporting a fixture. */
+export function physicalWallKey(site) {
+  const mount = normalizeWallMount(site);
+  if (!mount) return null;
+  const direct = `${mount.col},${mount.row},${mount.edge}`;
+  const mirror = mirrorEdge(mount.col, mount.row, mount.edge);
+  if (!mirror) return direct;
+  const alias = `${mirror.col},${mirror.row},${mirror.edge}`;
+  return direct < alias ? direct : alias;
+}
+
+/** Validate the actual wall and face-slot a wall-mounted fixture needs. */
+export function canPlaceWallFixture(game, placeable, site, ignoreId = null) {
+  const mount = normalizeWallMount(site);
+  if (placeable?.mount !== 'wall' || !mount) {
+    return { ok: false, hasWall: false, occupied: false, wallMount: mount };
+  }
+  const hasWall = !!findWallKey(
+    game?.state?.wallOccupied, mount.col, mount.row, mount.edge,
+  );
+  const key = wallFixtureMountKey(mount);
+  const occupied = (game?.state?.placeables || []).some((entry) =>
+    entry.id !== ignoreId && wallFixtureMountKey(entry.wallMount) === key
+  );
+  return { ok: hasWall && !occupied, hasWall, occupied, wallMount: mount };
 }
 
 function hasWallOnEdge(wallOccupied, col, row, edge) {
