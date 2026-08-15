@@ -358,3 +358,108 @@ export function _buildUPSRoles() {
 
   return b;
 }
+
+// ── Distribution panels ───────────────────────────────────────────
+// Green NEMA-style panels: the player reads the capacity rung from their
+// physical scale, rather than from three unrelated cabinet types.
+function _buildDistributionPanelRoles({ width, height, depth, columns, rows }) {
+  const b = makeBuckets();
+  const baseH = 0.08;
+
+  // A shallow plinth keeps the cabinet off the floor and gives the cable
+  // glands somewhere believable to land.
+  {
+    const g = new THREE.BoxGeometry(width + 0.08, baseH, depth + 0.08);
+    applyTiledBoxUVs(g, width + 0.08, baseH, depth + 0.08);
+    pushT(b.stand, g, trans(0, baseH / 2, 0));
+  }
+  {
+    const g = new THREE.BoxGeometry(width, height, depth);
+    applyTiledBoxUVs(g, width, height, depth);
+    pushT(b.accent, g, trans(0, baseH + height / 2, 0));
+  }
+
+  // The front is a grid of breaker bays: more columns/rows means visibly more
+  // circuits, while the same green cabinet language ties every rung together.
+  const faceZ = depth / 2 + 0.012;
+  const usableW = width * 0.78;
+  const usableH = height * 0.68;
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < columns; col++) {
+      const x = columns === 1 ? 0 : -usableW / 2 + col * (usableW / (columns - 1));
+      const y = baseH + height * 0.56 + (row - (rows - 1) / 2) * (usableH / rows);
+      const g = new THREE.BoxGeometry(width / (columns * 2.8), usableH / (rows * 3.2), 0.025);
+      applyTiledBoxUVs(g, width / (columns * 2.8), usableH / (rows * 3.2), 0.025);
+      pushT(b.iron, g, trans(x, y, faceZ));
+    }
+  }
+
+  // Top gland plate and copper feeder tails distinguish electrical equipment
+  // from an ordinary green storage cabinet.
+  {
+    const g = new THREE.BoxGeometry(width * 0.72, 0.025, depth * 0.62);
+    applyTiledBoxUVs(g, width * 0.72, 0.025, depth * 0.62);
+    pushT(b.detail, g, trans(0, baseH + height + 0.013, 0));
+  }
+  for (let i = 0; i < Math.min(columns + 1, 4); i++) {
+    const x = (i - (Math.min(columns + 1, 4) - 1) / 2) * 0.13;
+    const g = new THREE.CylinderGeometry(0.022, 0.022, 0.12, 8);
+    applyTiledCylinderUVs(g, 0.022, 0.12, 8);
+    pushT(b.copper, g, trans(x, baseH + height + 0.085, 0));
+  }
+  return b;
+}
+
+export function _buildSectionDistributionPanelRoles() {
+  return _buildDistributionPanelRoles({ width: 1.0, height: 1.65, depth: 0.48, columns: 2, rows: 3 });
+}
+
+export function _buildMainDistributionPanelRoles() {
+  return _buildDistributionPanelRoles({ width: 1.45, height: 1.85, depth: 0.52, columns: 2, rows: 5 });
+}
+
+// ── Field distribution ────────────────────────────────────────────
+// The busway is a slim overhead raceway rather than another floor cabinet.
+export function _buildPowerBusRoles() {
+  const b = makeBuckets();
+  const railL = 1.42, railW = 0.20, railH = 0.14;
+  {
+    const g = new THREE.BoxGeometry(railW, railH, railL);
+    applyTiledBoxUVs(g, railW, railH, railL);
+    pushT(b.accent, g, trans(0, 0.92, 0));
+  }
+  // Three plug-in tap boxes make its service function legible at a glance.
+  for (const z of [-0.42, 0, 0.42]) {
+    const g = new THREE.BoxGeometry(0.27, 0.16, 0.20);
+    applyTiledBoxUVs(g, 0.27, 0.16, 0.20);
+    pushT(b.iron, g, trans(0.18, 0.84, z));
+    const gland = new THREE.CylinderGeometry(0.028, 0.028, 0.07, 8);
+    applyTiledCylinderUVs(gland, 0.028, 0.07, 8);
+    pushT(b.copper, gland, new THREE.Matrix4().multiplyMatrices(trans(0.34, 0.84, z), rotZ(Math.PI / 2)));
+  }
+  // Hangers make clear that it rides above the beamline rather than blocks it.
+  for (const z of [-0.55, 0.55]) {
+    const g = new THREE.BoxGeometry(0.035, 0.45, 0.035);
+    applyTiledBoxUVs(g, 0.035, 0.45, 0.035);
+    pushT(b.stand, g, trans(0, 0.47, z));
+  }
+  return b;
+}
+
+// A spider box is a portable, one-subtile field junction: one squat case,
+// four cable glands, and nothing that visually competes with a panel.
+export function _buildSpiderBoxRoles() {
+  const b = makeBuckets();
+  {
+    const g = new THREE.BoxGeometry(0.34, 0.16, 0.34);
+    applyTiledBoxUVs(g, 0.34, 0.16, 0.34);
+    pushT(b.accent, g, trans(0, 0.12, 0));
+  }
+  for (const [x, z] of [[0.22, 0], [-0.22, 0], [0, 0.22], [0, -0.22]]) {
+    const g = new THREE.CylinderGeometry(0.035, 0.035, 0.09, 8);
+    applyTiledCylinderUVs(g, 0.035, 0.09, 8);
+    const matrix = new THREE.Matrix4().multiplyMatrices(trans(x, 0.12, z), rotZ(Math.PI / 2));
+    pushT(b.copper, g, matrix);
+  }
+  return b;
+}

@@ -4707,6 +4707,16 @@ UIHost.prototype._openEquipmentWindow = function(equip) {
   };
 };
 
+/** Close only the anchored info window belonging to a placeable being moved. */
+UIHost.prototype._closePlaceableInfoWindow = function(entry) {
+  if (!entry) return;
+  if (entry.category === 'beamline') {
+    this._beamlineWindows?.[entry.beamlineId]?.ctx?.close();
+    return;
+  }
+  this._equipmentWindows?.[entry.id]?.ctx?.close();
+};
+
 UIHost.prototype._refreshContextWindows = function() {
   // Only refresh content here — position tracking is owned by the
   // renderer's per-frame ThreeRenderer._updateAnchoredWindows. Calling

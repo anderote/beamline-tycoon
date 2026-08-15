@@ -67,8 +67,18 @@ export default {
     // hvCable is registered BEFORE powerCable, so this reads the same tick's
     // result rather than the previous one. A device with no hv_in at all
     // defaults to 1: it is a supply in its own right, not a panel.
-    const totalCapacity = network.sources.reduce(
+    const suppliedCapacity = network.sources.reduce(
       (a, s) => a + (s.capacity || 0) * hvFeedFactor(worldState, s.placeableId), 0);
+    // A field distributor is passive, so it cannot appear as another source
+    // without duplicating the upstream panel's capacity. Its rated throughput
+    // instead caps the branch network it belongs to. Reading every pass port
+    // is intentional: discovery includes all of a box's ports once it is
+    // wired, and the same rating is carried on each one.
+    const fieldLimits = [...new Set(network.ports
+      .map(p => p.params && p.params.fieldCapacity)
+      .filter(limit => Number.isFinite(limit) && limit > 0))];
+    const fieldCapacity = fieldLimits.length > 0 ? Math.min(...fieldLimits) : Infinity;
+    const totalCapacity = Math.min(suppliedCapacity, fieldCapacity);
     const totalDemand   = network.sinks.reduce((a, s) => a + (s.demand || 0), 0);
     const errors = [];
     const perSinkQuality = {};
@@ -93,7 +103,9 @@ export default {
         errors.push({
           severity: 'soft',
           code: 'power_overload',
-          message: `Power network overloaded (${Math.round(utilization * 100)}%).`,
+        message: fieldCapacity < suppliedCapacity
+          ? `Field distribution is overloaded (${Math.round(utilization * 100)}%).`
+          : `Power network overloaded (${Math.round(utilization * 100)}%).`,
           location: { networkId: network.id },
         });
       }

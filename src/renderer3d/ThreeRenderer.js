@@ -4713,7 +4713,7 @@ const UI_METHODS = [
   '_buildTreeLayout', '_renderTechTree', '_bindTreeEvents', '_updateTreeProgress',
   '_showResearchPopover', '_scrollToCategory', '_applyTreeTransform',
   '_renderGoalsOverlay',
-  '_openBeamlineWindow', '_openEquipmentWindow',
+  '_openBeamlineWindow', '_openEquipmentWindow', '_closePlaceableInfoWindow',
   '_refreshContextWindows',
 ];
 

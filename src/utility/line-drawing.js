@@ -269,8 +269,7 @@ function portsCanConnect(startSpec, endSpec, utilityType) {
     const b = connectionKind(endSpec, utilityType);
     return oneOfPair(a, b, 'powerDistributionOut', 'powerLoadIn')
       || oneOfPair(a, b, 'powerDistributionOut', 'powerFieldIn')
-      || oneOfPair(a, b, 'powerFieldOut', 'powerLoadIn')
-      || oneOfPair(a, b, 'powerFieldOut', 'powerFieldIn');
+      || oneOfPair(a, b, 'powerFieldOut', 'powerLoadIn');
   }
   return true;
 }
@@ -385,7 +384,12 @@ export function validateDrawLine(state, { utilityType, start, end, path, tapLine
     // A source end, on a device that already has a line of this utility on it.
     // Whether THIS port is the taken one no longer matters: the bundle leaves
     // the device, not the socket.
-    if (!spec || spec.role !== 'source') continue;
+    // A field distributor's outlets are passive pass ports, but physically
+    // they leave the same raceway as its incoming feeder. Treat those outlets
+    // like sources for the limited shared-device tray exemption only; they
+    // remain single-use ports and never gain source semantics in the solver.
+    if (!spec || (spec.role !== 'source'
+        && connectionKind(spec, utilityType) !== 'powerFieldOut')) continue;
     if (!deviceHasLine(state, ref.placeableId, utilityType)) continue;
     ignoreSharedSource = ignoreSharedSource || {};
     ignoreSharedSource[side] = ref;

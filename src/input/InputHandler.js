@@ -1595,21 +1595,14 @@ export class InputHandler {
           this.game.log(`Zone labels ${visible ? 'shown' : 'hidden'}`, 'info');
           break;
         }
-        case 'y': case 'Y':
-          this._toggleMoveMode();
-          break;
-        // Sim speed. Space is taken (place/toggle beam) and 1-6 are mode
-        // hotkeys, so pause lives on P and speeds on 7/8/9.
+        // P owns movement. With a selected placeable it immediately picks up
+        // that item; otherwise it toggles the general click-to-pick-up mode.
+        // Pause remains available from the top-bar button.
         case 'p': case 'P': {
           if (e.ctrlKey || e.metaKey || e.altKey) break; // keep Cmd/Ctrl+P (print)
           e.preventDefault();
-          // A selected object takes precedence: P is the direct
-          // pick-up/place affordance. Retain pause as the no-selection
-          // fallback so existing saves and the top-bar control keep their
-          // familiar behavior.
           if (this._beginSelectedMove()) break;
-          this.game.togglePause();
-          this._showToast(this.game.state.paused ? 'Paused' : 'Resumed');
+          this._toggleMoveMode();
           break;
         }
         case '7': case '8': case '9': {
@@ -2708,6 +2701,10 @@ export class InputHandler {
   _beginSelectedMove() {
     const entry = this.selectedPlaceableId && this.game.getPlaceable(this.selectedPlaceableId);
     if (!entry) return false;
+    // A context window is useful while inspecting, but obscures the destination
+    // while carrying. Close exactly the selected item's window before setTool
+    // clears the selection ids needed to identify it.
+    this.renderer._closePlaceableInfoWindow?.(entry);
     const tool = new MoveTool();
     this.setTool(tool);
     tool.payload = {

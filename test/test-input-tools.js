@@ -12,11 +12,13 @@
 //      under it. (Regression: the pick-up pushed an undo snapshot, so Ctrl+Z
 //      mid-carry put the object back in the world while the tool still held
 //      it — the next drop minted a free second copy.)
-//   4. Preview lifecycle around arming and committing: a keyboard-armed tool
+//   3. P on a selected item closes its info window before entering move mode.
+//   4. Shift-drag decoration line placement emits one rebuild event.
+//   5. Preview lifecycle around arming and committing: a keyboard-armed tool
 //      must show its ghost before the mouse moves, the variant must not
 //      survive an arm into another family, and a commit must re-preview so
 //      the ghost stops claiming a tile it just filled.
-//   6. Beam pipes demolish by the SECTION, not all-or-nothing: a press
+//   7. Beam pipes demolish by the SECTION, not all-or-nothing: a press
 //      anchors a sweep at the 0.5 m sub-unit under the cursor, the release
 //      removes exactly what was swept (splitting the run on an interior cut),
 //      Shift still takes the whole pipe, and demolishAll opts out entirely.
@@ -155,7 +157,30 @@ console.log('\n=== 2. Undo while carrying does not duplicate the object ===\n');
     `object restored exactly once (got ${countOf('flowerBed')}, want ${before})`);
 }
 
-console.log('\n=== 3. Shift+drag decoration line rebuilds decorations once ===\n');
+console.log('\n=== 3. P-selected move closes the item info window ===\n');
+
+{
+  const entry = { id: 'selected_1', type: 'flowerBed', category: 'grounds', dir: 2 };
+  let closed = null;
+  const input = {
+    selectedPlaceableId: entry.id,
+    game: { getPlaceable: (id) => id === entry.id ? entry : null },
+    renderer: {
+      canvas: { style: {} },
+      _closePlaceableInfoWindow: (target) => { closed = target; },
+    },
+    setTool(tool) { this.activeTool = tool; },
+    _armMovePreview() {},
+    _showToast() {},
+  };
+  const began = InputHandler.prototype._beginSelectedMove.call(input);
+  assertOk(began && input.activeTool?.kind === 'move', 'P-selected path enters move mode');
+  assertOk(closed === entry, 'moving a selected item closes that item\'s info window first');
+  assertOk(input.activeTool.payload?.placeableId === entry.id,
+    'the selected item is armed as the move payload');
+}
+
+console.log('\n=== 4. Shift+drag decoration line rebuilds decorations once ===\n');
 
 {
   // Regression: _finishLinePlaceDecoration wrapped its N placePlaceable calls
@@ -197,7 +222,7 @@ console.log('\n=== 3. Shift+drag decoration line rebuilds decorations once ===\n
     'the line-place commit leaves no armed click suppressor');
 }
 
-console.log('\n=== 4. Preview lifecycle: arming, variants, post-commit refresh ===\n');
+console.log('\n=== 5. Preview lifecycle: arming, variants, post-commit refresh ===\n');
 
 // InputHandler needs a DOM to construct, so drive its prototype methods on a
 // record carrying only the members the preview paths touch — the same trick
@@ -327,7 +352,7 @@ function hoverTile(input, renderer, col, row) {
     'the ghost re-previewed as blocked on the tile the click just filled');
 }
 
-console.log('\n=== 5. Demolishing an object does not tear up the ground under it ===\n');
+console.log('\n=== 6. Demolishing an object does not tear up the ground under it ===\n');
 
 // The catch-all Demolish tool always started a tile-rect drag on mouse-down, so
 // a plain CLICK committed as a 1x1 sweep and levelled the tile: deleting a
@@ -404,7 +429,7 @@ console.log('\n=== 5. Demolishing an object does not tear up the ground under it
   assertOk(swept.length === 4, `the 2x2 drag swept every tile (got ${swept.length})`);
 }
 
-console.log('\n=== 6. Demolish beam pipes by the section, not the whole run ===\n');
+console.log('\n=== 7. Demolish beam pipes by the section, not the whole run ===\n');
 
 // The gesture: press anchors a sweep on the 0.5 m sub-unit under the cursor,
 // the release removes everything swept. Shift takes the whole run instead.

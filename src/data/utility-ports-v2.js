@@ -790,40 +790,41 @@ function distributionPorts(rating, count, { outletSide = null } = {}) {
 
 /**
  * A field box is passive copper, not another source. Its one feed port can
- * only accept a panel/MCC/UPS branch circuit; the remaining pass ports can
- * only leave toward loads or another passive field box. Discovery unites pass
- * ports on one device, so all attached loads stay on the original panel's
- * network and capacity is never duplicated.
+ * only accept a panel branch circuit; its outlets only leave toward loads.
+ * Discovery unites pass ports on one device, so all attached loads stay on
+ * the original panel's network and capacity is never duplicated. The field
+ * rating is a real bottleneck in powerCable.solve, not decorative metadata.
  */
-function fieldDistributionPorts(count, { serviceRadius = null, feedSide = 'back' } = {}) {
+function fieldDistributionPorts(count, { capacity, serviceRadius = null, feedSide = 'back' } = {}) {
   const out = {
     pwr_in: {
       utility: 'powerCable', side: feedSide, offsetAlong: 0.5,
       role: 'pass', connectionKind: 'powerFieldIn',
-      ...(serviceRadius == null ? {} : { bus: true, params: { serviceRadius } }),
+      ...(serviceRadius == null ? {} : { bus: true }),
+      params: { fieldCapacity: capacity, ...(serviceRadius == null ? {} : { serviceRadius }) },
     },
   };
   for (let i = 0; i < count; i++) {
     out[`pwr_out_${i + 1}`] = {
-      utility: 'powerCable', side: 'front', offsetAlong: (i + 1) / (count + 1),
+      // Field taps leave all sides of the small box/raceway. This keeps a
+      // dense set of real circuits routable without overlapping every run in
+      // the first cable tray outside the device.
+      utility: 'powerCable', side: OUTLET_SIDES[i % OUTLET_SIDES.length],
+      offsetAlong: 0.25 + 0.5 * (Math.floor(i / OUTLET_SIDES.length) % 2),
       role: 'pass', connectionKind: 'powerFieldOut',
-      ...(serviceRadius == null ? {} : { bus: true, params: { serviceRadius } }),
+      ...(serviceRadius == null ? {} : { bus: true }),
+      params: { fieldCapacity: capacity, ...(serviceRadius == null ? {} : { serviceRadius }) },
     };
   }
   return out;
 }
 
 const INFRA_UTILITY_PORTS = {
-  // distribution buses (see busPorts above)
-  // The on-pipe distributor stays on the BRANCH side: it takes one power
-  // circuit from a panel and stands in for the stub to every on-pipe sink it
-  // covers. It is not a distribution device in the HV sense — it hands out no
-  // sockets and holds no rating, it just saves the player a dozen identical
-  // stubs, which is exactly what it did before the chain existed.
-  // One rear feeder and orderly front taps: the power bus is a field device,
-  // not a free-form junction that can quietly tie two panels together.
-  powerBus:            fieldDistributionPorts(3, { serviceRadius: 10 }),
-  spiderBox:           fieldDistributionPorts(4),
+  // Field distribution is deliberately physical: an incoming branch circuit
+  // and a finite set of real tap boxes. It is not a service-radius shortcut
+  // and it cannot bridge another field distributor.
+  powerBus:            fieldDistributionPorts(8, { capacity: 160, serviceRadius: 10 }),
+  spiderBox:           fieldDistributionPorts(3, { capacity: 30 }),
   coolingManifold:     busPorts('coolingWater',  8),
   vacuumManifold:      busPorts('vacuumPipe',    5),
   waveguideManifold:   busPorts('rfWaveguide',   6),
@@ -857,6 +858,8 @@ const INFRA_UTILITY_PORTS = {
   // `offsetAlong` gives every visible fitting an independent, evenly-spaced
   // anchor, so a cable leaves the socket it appears to be plugged into.
   powerPanel:          distributionPorts(40, 4, { outletSide: 'front' }),
+  sectionDistributionPanel: distributionPorts(150, 6, { outletSide: 'front' }),
+  mainDistributionPanel: distributionPorts(400, 8, { outletSide: 'front' }),
   mcc:                 distributionPorts(250, 8, { outletSide: 'front' }),
   // Two outlets: the UPS's identity is that only the critical circuits go on
   // it. Make it wide and it becomes a strictly better panel.

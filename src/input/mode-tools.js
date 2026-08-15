@@ -2,7 +2,7 @@
 //
 // Tool objects for the pick-up-and-carry and inspection input modes:
 //
-//   - MoveTool ('y'): click to lift a placed object, click again to drop
+//   - MoveTool ('p'): click to lift a placed object, click again to drop
 //     it. Carrying arms the unified placeable preview (the carried type is
 //     exposed through armedPlaceableId) so the standard ghost + R/F
 //     rotation work; ESC / tool switch restores a lifted item to its
