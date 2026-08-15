@@ -11,6 +11,8 @@ import { DECALS } from './materials/decals.js';
 import { applyTiledBoxUVs, applyTiledCylinderUVs } from './uv-utils.js';
 import { buildPlaceableVisualDetails } from './placeable-visual-details.js';
 import { BLOOM_LAYER } from './glow-pipeline.js';
+import { getGlowMaterial, setGlowNightFactor } from './machine-glow.js';
+export { getGlowMaterial, setGlowNightFactor } from './machine-glow.js';
 import {
   _buildBPMRoles,
   _buildICTRoles,
@@ -260,56 +262,6 @@ export function getAccentMaterial(compType, colorHex) {
   return m;
 }
 
-// ── Glow role: emissive screens and indicator lamps ─────────────────
-// A glow material is a dark, near-black surface lit purely by its emissive
-// term, so it reads as "off" (dim, not literally black) in full daylight and
-// "on" at night. `setGlowNightFactor` (driven by ThreeRenderer's day/night
-// cycle) scales every registered glow material's emissiveIntensity in
-// lockstep, so the whole registry brightens and dims together.
-const GLOW_BASE_ROUGHNESS = 0.35;
-const GLOW_BASE_METALNESS = 0.1;
-//
-// emissiveIntensity at full "night" brightness (night factor k = 1).
-//
-// CORRECTED (Task 3 fix round 1) — the first pass here got the color space
-// wrong and drew a conclusion the numbers don't support. `material.emissive
-// = colorHex` runs through three.js's `ColorManagement` (enabled by default
-// since r152), which treats a bare hex as sRGB and converts it to *linear*
-// on assignment. `UnrealBloomPass`'s luma test
-// (LuminosityHighPassShader: `dot(rgb, vec3(0.299,0.587,0.114))` against
-// `threshold=0.85`) runs on those already-linear values with no further
-// re-encoding — `RenderPass` writes to a non-null target (no OETF) and
-// `renderer.toneMapping` is `NoToneMapping` throughout this pipeline. The
-// original comment computed luma from the raw sRGB byte ratios (e.g.
-// 0x40e0ff -> 0.251/0.878/1.0) as if those were already linear. They are
-// not. Recomputed from the actual linear channel values
-// (`new THREE.Color(hex).r/g/b`), at GLOW_BASE_EMISSIVE_INTENSITY = 4.0
-// (unchanged — this fix does not touch it) and the noon floor of 0.35
-// (GLOW_NIGHT_FACTOR_FLOOR in ThreeRenderer._updateSunCycle):
-//
-//   compType        | linear luma | noon (×1.4) | night (×4.0)
-//   llrfController   0x40e0ff      0.567          0.794 (below 0.85)   2.268 (above)
-//   negPump          0x44ff66      0.619          0.867 (above 0.85)   2.478 (above)
-//   ionSource        0xff6633      0.381          0.533 (below 0.85)   1.523 (above)
-//
-// llrfController and ionSource each cross the 0.85 threshold somewhere
-// between noon and night, and `smoothWidth` in glow-pipeline.js's
-// UnrealBloomPass defaults to 0.01 — a near-binary cliff — so left alone
-// this would make those two surfaces snap their bloom halo on/off at one
-// instant in the cycle instead of easing in, while negPump's noon value
-// sits only 2% above the cliff (fragile, not a real margin). None of that
-// is fixed by raising these intensities further: the corrected llrfController
-// noon value (no bloom at midday) is the *more correct* behavior — a
-// console screen that only starts to bloom as ambient light falls is more
-// truthful than one blooming at noon — so the fix is not "make it cross the
-// threshold at noon after all." Instead, glow-pipeline.js's `smoothWidth`
-// was widened from 0.01 to 0.3 (see DEFAULT_SMOOTH_WIDTH there), turning the
-// threshold from a snap into a ramp wide enough to span each of these
-// crossings smoothly. That's a shared knob — it softens the bloom knee for
-// every BLOOM_LAYER object, not just these three — see that file's comment
-// for what else it touches. No per-material intensity change was needed.
-const GLOW_BASE_EMISSIVE_INTENSITY = 4.0;
-
 // Per-component-type emissive color. Component builders bucket geometry into
 // `b.glow` without choosing a color (buckets only carry geometry); the color
 // is resolved here, at instantiation, keyed by compType — mirroring how
@@ -326,59 +278,6 @@ const GLOW_PROFILES = {
   ionSource: 'arc',
 };
 const DEFAULT_GLOW_COLOR = 0x40e0ff;
-
-/** Cache of (componentType + '|' + colorHex) -> MeshStandardMaterial */
-const _glowMatCache = new Map();
-/** Every material getGlowMaterial has ever created, so the night factor can reach them all. */
-const _glowMatRegistry = new Set();
-// Current night factor (0..1), applied to any material created after the
-// last setGlowNightFactor call — so a material created mid-cycle starts at
-// the correct brightness instead of always starting at full "night"
-// intensity and waiting for the next sun-cycle tick to correct itself.
-// Defaults to 1 (full base intensity) so a material created before the
-// renderer's first _updateSunCycle tick — e.g. a build-menu thumbnail — is
-// still visibly lit rather than starting dark.
-let _glowNightFactor = 1;
-
-/**
- * Get or create an emissive material for a given component type at a given
- * glow color. Same cache shape as `getAccentMaterial`. Every material this
- * creates is registered so `setGlowNightFactor` can find it later — there is
- * no separate emitter list; Task 5 finds glow meshes by traversing the scene
- * for `userData.role === 'glow'` instead.
- */
-export function getGlowMaterial(compType, colorHex) {
-  const key = compType + '|' + colorHex.toString(16).padStart(6, '0');
-  let m = _glowMatCache.get(key);
-  if (!m) {
-    m = new THREE.MeshStandardMaterial({
-      color: 0x0a0a0a, // near-black "unlit glass/housing" base — the glow itself is emissive
-      emissive: colorHex,
-      emissiveIntensity: GLOW_BASE_EMISSIVE_INTENSITY * _glowNightFactor,
-      roughness: GLOW_BASE_ROUGHNESS,
-      metalness: GLOW_BASE_METALNESS,
-    });
-    _glowMatCache.set(key, m);
-    _glowMatRegistry.add(m);
-  }
-  return m;
-}
-
-/**
- * Scale every registered glow material's emissiveIntensity by `k` (0..1),
- * relative to the full-night base intensity. Called from
- * ThreeRenderer._updateSunCycle with a factor derived from `dayness`, clamped
- * so screens never go fully dark at noon. Also remembered so a material
- * created later (between two calls) starts at the correct brightness rather
- * than always starting at full intensity.
- */
-export function setGlowNightFactor(k) {
-  _glowNightFactor = k;
-  const intensity = GLOW_BASE_EMISSIVE_INTENSITY * k;
-  for (const m of _glowMatRegistry) {
-    m.emissiveIntensity = intensity;
-  }
-}
 
 // ── Template-and-tint infrastructure ────────────────────────────────
 // A "role-based" builder returns { accent: [geoms], iron: [geoms], ... }

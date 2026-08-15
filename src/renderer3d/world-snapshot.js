@@ -360,6 +360,7 @@ function buildEquipment(game) {
     dir: eq.dir ?? 0,
     portsFlipped: eq.portsFlipped === true,
     placeY: eq.placeY || 0,
+    effectState: eq.visualState || 'on',
   }));
 }
 
@@ -540,6 +541,7 @@ function buildPipeAttachments(game) {
 
 function buildFurnishings(game) {
   return (game.state.zoneFurnishings || []).map(f => ({
+    id: f.id ?? null,
     col: f.col,
     row: f.row,
     subCol: f.subCol ?? null,
@@ -548,6 +550,7 @@ function buildFurnishings(game) {
     dir: f.dir ?? 0,
     placeY: f.placeY || 0,
     variant: f.variant ?? 0,
+    effectState: f.visualState || 'on',
   }));
 }
 
