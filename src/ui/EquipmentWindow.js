@@ -41,6 +41,7 @@ export class EquipmentWindow {
   }
 
   _updateActions() {
+    const selectionCount = this.selectionActions.getSelectionCount?.(this.equip.id) || 1;
     const actions = [
       {
         label: 'Place',
@@ -62,6 +63,20 @@ export class EquipmentWindow {
         }
       }},
     ];
+    if (selectionCount > 1) {
+      actions.splice(2, 0,
+        {
+          label: 'Rotate group',
+          title: 'Pick up the selection rotated 90°; F rotates again while placing',
+          onClick: () => this.selectionActions.onRotate?.(this.equip.id),
+        },
+        {
+          label: 'Mirror group',
+          title: 'Pick up and mirror the selection; M mirrors again while placing',
+          onClick: () => this.selectionActions.onMirror?.(this.equip.id),
+        },
+      );
+    }
     if (this.comp.autoConnectRadius > 0) {
       const plan = this._autoConnectPlan;
       const count = plan?.stubs?.length || 0;
@@ -102,6 +117,10 @@ export class EquipmentWindow {
     }
     for (const r of utilityStatRows(comp)) {
       html += `<div class="equipment-utility">${r.label}: ${r.value}</div>`;
+    }
+    const selectionCount = this.selectionActions.getSelectionCount?.(this.equip.id) || 1;
+    if (selectionCount > 1) {
+      html += '<div class="equipment-utility">Formation slots: Ctrl+1…9 save · Shift+1…9 recall</div>';
     }
     if (comp.autoConnectRadius > 0) {
       const ready = this._autoConnectPlan?.stubs?.length || 0;

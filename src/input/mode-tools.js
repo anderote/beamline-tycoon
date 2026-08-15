@@ -225,6 +225,16 @@ export class MoveTool extends Tool {
 
   onKey(e, ctx) {
     const input = ctx.input;
+    if (this.payload?.kind === 'selectionGroup'
+        && (e.key === 'f' || e.key === 'F')) {
+      e.preventDefault();
+      return input._transformActiveSelectionGroup('rotate');
+    }
+    if (this.payload?.kind === 'selectionGroup'
+        && (e.key === 'm' || e.key === 'M')) {
+      e.preventDefault();
+      return input._transformActiveSelectionGroup('mirror');
+    }
     // Shift+Z / Shift+X while line-placing: adjust spacing one sub-unit.
     if (input.isLinePlacingDecoration && e.shiftKey
         && (e.key === 'z' || e.key === 'Z' || e.key === 'x' || e.key === 'X')) {
@@ -233,6 +243,12 @@ export class MoveTool extends Tool {
       return true;
     }
     return false;
+  }
+
+  onRotateKey(ctx) {
+    return this.payload?.kind === 'selectionGroup'
+      ? ctx.input._transformActiveSelectionGroup('rotate')
+      : false;
   }
 }
 

@@ -96,6 +96,8 @@ export function captureSelectionGroup(game, ids, { operation = 'move', primaryId
         subCol: entry.subCol || 0,
         subRow: entry.subRow || 0,
         dir: entry.dir || 0,
+        portsFlipped: entry.portsFlipped === true,
+        wallMount: clone(entry.wallMount),
         params: clone(entry.params),
         variant: entry.variant ?? 0,
       })),
@@ -124,6 +126,114 @@ export function selectionTargets(payload, anchorPose) {
       subRow: z.sub,
     };
   });
+}
+
+function footprintSub(item) {
+  const def = PLACEABLES[item?.type] || {};
+  const dir = ((item?.dir || 0) % 4 + 4) % 4;
+  const subW = def.subW || 2;
+  const subL = def.subL || 2;
+  return dir === 1 || dir === 3
+    ? { width: subL, depth: subW }
+    : { width: subW, depth: subL };
+}
+
+function selectionPivotSub(items) {
+  let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity;
+  for (const item of items || []) {
+    const originX = globalSub(item.col, item.subCol);
+    const originZ = globalSub(item.row, item.subRow);
+    const size = footprintSub(item);
+    minX = Math.min(minX, originX);
+    minZ = Math.min(minZ, originZ);
+    maxX = Math.max(maxX, originX + size.width);
+    maxZ = Math.max(maxZ, originZ + size.depth);
+  }
+  return Number.isFinite(minX)
+    ? { x: (minX + maxX) / 2, z: (minZ + maxZ) / 2 }
+    : { x: 0, z: 0 };
+}
+
+function turnPoint(x, z, pivot, quarterTurns, mirror) {
+  let dx = x - pivot.x;
+  let dz = z - pivot.z;
+  if (mirror) dx = -dx;
+  for (let i = 0; i < quarterTurns; i++) {
+    [dx, dz] = [-dz, dx];
+  }
+  return { x: pivot.x + dx, z: pivot.z + dz };
+}
+
+/**
+ * Rotate or mirror a captured formation around its visual bounding-box centre.
+ * Returns a deep copy, leaving a saved hotkey/clipboard payload immutable.
+ * Item origins stay on the quarter-tile lattice; cable paths retain their
+ * authored fractional precision.
+ */
+export function transformSelectionGroup(payload, {
+  quarterTurns = 0,
+  mirror = false,
+} = {}) {
+  if (!payload?.items?.length) return clone(payload);
+  const turns = ((quarterTurns % 4) + 4) % 4;
+  if (turns === 0 && !mirror) return clone(payload);
+
+  const out = clone(payload);
+  // A whole-subtile pivot keeps every rotated top-left origin on the same
+  // quarter-tile lattice. Persist it across repeated transforms so four turns
+  // and two mirrors are exact identities instead of accumulating snap drift.
+  const measuredPivot = selectionPivotSub(payload.items);
+  const pivot = payload.transformPivotSub || {
+    x: Math.round(measuredPivot.x),
+    z: Math.round(measuredPivot.z),
+  };
+  out.transformPivotSub = { ...pivot };
+  for (const item of out.items) {
+    const oldSize = footprintSub(item);
+    const oldCentre = {
+      x: globalSub(item.col, item.subCol) + oldSize.width / 2,
+      z: globalSub(item.row, item.subRow) + oldSize.depth / 2,
+    };
+    const nextCentre = turnPoint(oldCentre.x, oldCentre.z, pivot, turns, mirror);
+    let nextDir = ((item.dir || 0) % 4 + 4) % 4;
+    if (mirror) nextDir = (4 - nextDir) % 4;
+    nextDir = (nextDir + turns) % 4;
+    item.dir = nextDir;
+    const nextSize = footprintSub(item);
+    const originX = Math.round(nextCentre.x - nextSize.width / 2);
+    const originZ = Math.round(nextCentre.z - nextSize.depth / 2);
+    const x = splitGlobalSub(originX);
+    const z = splitGlobalSub(originZ);
+    item.col = x.tile;
+    item.subCol = x.sub;
+    item.row = z.tile;
+    item.subRow = z.sub;
+  }
+
+  const transformPath = path => Array.isArray(path) ? path.map(point => {
+    if (!Number.isFinite(point?.col) || !Number.isFinite(point?.row)) return point;
+    const next = turnPoint(point.col * SUBS_PER_TILE, point.row * SUBS_PER_TILE,
+      pivot, turns, mirror);
+    return {
+      ...point,
+      col: next.x / SUBS_PER_TILE,
+      row: next.z / SUBS_PER_TILE,
+    };
+  }) : path;
+  for (const connection of out.connections || []) {
+    connection.path = transformPath(connection.path);
+    connection.cablePath = transformPath(connection.cablePath);
+  }
+
+  const primary = out.items.find(item => item.id === out.primaryId) || out.items[0];
+  out.anchor = {
+    col: primary.col,
+    row: primary.row,
+    subCol: primary.subCol || 0,
+    subRow: primary.subRow || 0,
+    dir: primary.dir || 0,
+  };
+  return out;
 }
 
 /**

@@ -40,6 +40,7 @@ import { portWorldPosition } from '../utility/ports.js';
 import {
   captureSelectionGroup,
   previewSelectionGroup,
+  transformSelectionGroup,
 } from './selection-group.js';
 import {
   projectOntoPipe, pipeSubL, pipeSubUnitAt, pipeSubUnitPath, METRES_PER_SUB,
@@ -63,6 +64,8 @@ import {
 // Read here so keyboard palette navigation arms with the same variant a
 // mouse click on the item would.
 const VARIANT_MEMORY_KEY = 'bt_lastVariantByKey';
+const SELECTION_SLOT_STORAGE_KEY = 'beamlineTycoon.selectionSlots.v1';
+const MARQUEE_DRAG_THRESHOLD_PX = 6;
 
 // A mesh ray is pixel-perfect, which is too strict for thin rails, legs and
 // small fittings. Selection/demolish clicks get this fixed screen-space margin
@@ -101,6 +104,11 @@ export class InputHandler {
     // most-recent id for legacy single-selection call sites.
     this.selectedPlaceableIds = new Set();
     this._selectedRootsById = new Map();
+    this._marquee = null;
+    this._marqueeEl = null;
+    this._placementKeyHintEl = null;
+    this._selectionClipboard = null;
+    this._selectionSlots = this._loadSelectionSlots();
     this.isPanning = false;
     this.isFreeOrbiting = false;
     this.freeOrbitLast = { x: 0, y: 0 };
@@ -217,6 +225,58 @@ export class InputHandler {
     const top = Math.min(screenY - 8, window.innerHeight - this._tooltipEl.offsetHeight - margin);
     this._tooltipEl.style.left = Math.max(margin, left) + 'px';
     this._tooltipEl.style.top = Math.max(margin, top) + 'px';
+  }
+
+  _placementKeyHintText() {
+    if (this.game._designPlacer?.active) {
+      return '<span class="k">F</span> Rotate <span class="sep">•</span> '
+        + '<span class="k">R</span> Mirror';
+    }
+    const payload = this.activeTool?.kind === 'move' ? this.activeTool.payload : null;
+    if (payload?.kind === 'selectionGroup') {
+      return '<span class="k">F</span> Rotate <span class="sep">•</span> '
+        + '<span class="k">M</span> Mirror';
+    }
+    const armedId = this.armedPlaceableId;
+    if (!armedId) return '';
+    const comp = COMPONENTS[armedId] || PLACEABLES[armedId];
+    const rotatable = !(comp && (comp.role === 'junction'
+      || comp.role === 'placement' || comp.isDrawnConnection));
+    const hasUtilityPorts = Object.values(comp?.ports || {}).some(port => port?.utility);
+    const bits = [];
+    if (rotatable) bits.push('<span class="k">F</span> Rotate');
+    if (hasUtilityPorts) bits.push('<span class="k">M</span> Mirror ports');
+    return bits.join(' <span class="sep">•</span> ');
+  }
+
+  /** Cursor-adjacent transform reminder while an item/formation is armed. */
+  _updatePlacementKeyHint(screenX = this._lastScreenX, screenY = this._lastScreenY) {
+    const html = this._placementKeyHintText();
+    if (!html || !Number.isFinite(screenX) || !Number.isFinite(screenY)) {
+      this._hidePlacementKeyHint();
+      return;
+    }
+    if (!this._placementKeyHintEl) {
+      const el = document.createElement('div');
+      el.className = 'placement-key-hint';
+      document.body.appendChild(el);
+      this._placementKeyHintEl = el;
+    }
+    this._placementKeyHintEl.innerHTML = html;
+    const margin = 8;
+    const width = this._placementKeyHintEl.offsetWidth || 190;
+    const height = this._placementKeyHintEl.offsetHeight || 24;
+    this._placementKeyHintEl.style.left = Math.max(
+      margin, Math.min(screenX + 16, window.innerWidth - width - margin),
+    ) + 'px';
+    this._placementKeyHintEl.style.top = Math.max(
+      margin, Math.min(screenY + 24, window.innerHeight - height - margin),
+    ) + 'px';
+  }
+
+  _hidePlacementKeyHint() {
+    this._placementKeyHintEl?.remove?.();
+    this._placementKeyHintEl = null;
   }
 
   _checkHoverTooltip(world, grid, screenX, screenY) {
@@ -735,6 +795,89 @@ export class InputHandler {
     const roots = [...this._selectedRootsById.values()].filter(Boolean);
     if (this.renderer.setSelectionOutlines) this.renderer.setSelectionOutlines(roots);
     else this.renderer.setSelectionOutline?.(roots[roots.length - 1] || null);
+  }
+
+  _beginMarquee(e) {
+    this._marquee = {
+      startX: e.clientX,
+      startY: e.clientY,
+      endX: e.clientX,
+      endY: e.clientY,
+      additive: !!e.shiftKey,
+      dragging: false,
+    };
+  }
+
+  _updateMarquee(e) {
+    const marquee = this._marquee;
+    if (!marquee) return false;
+    marquee.endX = e.clientX;
+    marquee.endY = e.clientY;
+    marquee.dragging = marquee.dragging || Math.hypot(
+      marquee.endX - marquee.startX,
+      marquee.endY - marquee.startY,
+    ) >= MARQUEE_DRAG_THRESHOLD_PX;
+    if (!marquee.dragging) return false;
+    if (!this._marqueeEl) {
+      const el = document.createElement('div');
+      el.className = 'selection-marquee';
+      document.body.appendChild(el);
+      this._marqueeEl = el;
+    }
+    const left = Math.min(marquee.startX, marquee.endX);
+    const top = Math.min(marquee.startY, marquee.endY);
+    this._marqueeEl.style.left = left + 'px';
+    this._marqueeEl.style.top = top + 'px';
+    this._marqueeEl.style.width = Math.abs(marquee.endX - marquee.startX) + 'px';
+    this._marqueeEl.style.height = Math.abs(marquee.endY - marquee.startY) + 'px';
+    return true;
+  }
+
+  _clearMarquee() {
+    this._marqueeEl?.remove?.();
+    this._marqueeEl = null;
+    this._marquee = null;
+  }
+
+  _finishMarquee(e) {
+    const marquee = this._marquee;
+    if (!marquee) return false;
+    this._updateMarquee(e);
+    if (!marquee.dragging) {
+      this._clearMarquee();
+      return false;
+    }
+    const rect = {
+      left: Math.min(marquee.startX, marquee.endX),
+      right: Math.max(marquee.startX, marquee.endX),
+      top: Math.min(marquee.startY, marquee.endY),
+      bottom: Math.max(marquee.startY, marquee.endY),
+    };
+    const matches = this.renderer.placeablesInScreenRect?.(rect) || [];
+    if (!marquee.additive) {
+      this.selectedPlaceableIds.clear();
+      this._selectedRootsById.clear();
+    }
+    for (const match of matches) {
+      const entry = match?.entry;
+      if (!entry) continue;
+      this.selectedPlaceableIds.add(entry.id);
+      if (match.rootObj) this._selectedRootsById.set(entry.id, match.rootObj);
+    }
+    const selected = [...this.selectedPlaceableIds];
+    this.selectedPlaceableId = selected[selected.length - 1] || null;
+    const primary = this.selectedPlaceableId && this.game.getPlaceable(this.selectedPlaceableId);
+    this.selectedNodeId = primary?.category === 'beamline' ? primary.id : null;
+    this._renderSelectionOutlines();
+    if (primary && primary.category !== 'beamline') {
+      this.renderer._openEquipmentWindow?.(primary);
+    }
+    this.renderer._refreshContextWindows?.();
+    this._clearMarquee();
+    this._showToast(selected.length
+      ? `Selected ${selected.length} item${selected.length === 1 ? '' : 's'}`
+      : 'Nothing selected');
+    return true;
   }
 
   /** Current paid cable plan for a distribution panel's context action. */
@@ -1497,6 +1640,35 @@ export class InputHandler {
         return;
       }
 
+      // Formation clipboard and numbered blueprints. `event.code` keeps
+      // Shift+1 readable as slot 1 even though `event.key` is "!".
+      const digitMatch = /^(?:Digit|Numpad)([1-9])$/.exec(e.code || '');
+      const selectionSlot = digitMatch
+        ? digitMatch[1]
+        : (/^[1-9]$/.test(e.key) ? e.key : null);
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && selectionSlot) {
+        e.preventDefault();
+        if (!e.repeat) this._saveSelectionSlot(selectionSlot);
+        return;
+      }
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && selectionSlot) {
+        e.preventDefault();
+        if (!e.repeat) this._recallSelectionSlot(selectionSlot);
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey
+          && (e.key === 'c' || e.key === 'C')) {
+        e.preventDefault();
+        if (!e.repeat) this._copySelectionToClipboard();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey
+          && (e.key === 'v' || e.key === 'V')) {
+        e.preventDefault();
+        if (!e.repeat) this._pasteSelectionClipboard();
+        return;
+      }
+
       // ` → toggle hotkey hint bar above the build UI
       if (e.key === '`') {
         e.preventDefault();
@@ -1880,6 +2052,14 @@ export class InputHandler {
           return;
         }
       }
+
+      // With no tool armed, a left press starts as an ordinary click and
+      // becomes a marquee only after the pointer clears a small threshold.
+      // This preserves single-click selection while making empty-ground drag
+      // select available without another mode toggle.
+      if (e.button === 0 && !this.activeTool && !this.game._designPlacer?.active) {
+        this._beginMarquee(e);
+      }
     });
 
     canvas.addEventListener('mousemove', (e) => {
@@ -1894,6 +2074,13 @@ export class InputHandler {
         const dx = e.clientX - this.panStart.x;
         const dy = e.clientY - this.panStart.y;
         this.renderer.setPanFromDragDelta(this.panStartPan.x, this.panStartPan.y, dx, dy);
+        return;
+      }
+      this._lastScreenX = e.clientX;
+      this._lastScreenY = e.clientY;
+      this._updatePlacementKeyHint(e.clientX, e.clientY);
+      if (this._updateMarquee(e)) {
+        this._hideTooltip();
         return;
       }
       // Active tool gets first claim on the move (hover previews, drag
@@ -1916,7 +2103,10 @@ export class InputHandler {
       this._checkHoverTooltip(world, grid, e.clientX, e.clientY);
     });
 
-    canvas.addEventListener('mouseleave', () => this._hideTooltip());
+    canvas.addEventListener('mouseleave', () => {
+      this._hideTooltip();
+      this._hidePlacementKeyHint();
+    });
 
     canvas.addEventListener('mouseup', (e) => {
       this._hideDragCostTooltip();
@@ -1931,6 +2121,7 @@ export class InputHandler {
         canvas.style.cursor = '';
         return;
       }
+      if (e.button === 0 && this._finishMarquee(e)) return;
 
       // Active tool gets first claim on the release (drag commits). A
       // plain click falls through to _handleClick, which dispatches the
@@ -2008,6 +2199,8 @@ export class InputHandler {
       this.renderer.endFreeOrbit?.();
     }
     this.isPanning = false;
+    this._clearMarquee?.();
+    this._hidePlacementKeyHint?.();
     const canvas = this.renderer?.canvas;
     if (canvas) canvas.style.cursor = this.activeTool?.cursor || '';
     // 'abort', not 'stateReplaced': nothing restores the world here, so a
@@ -2144,6 +2337,7 @@ export class InputHandler {
       this._repaintArmedPreview();
     }
     this._updateShiftHint();
+    this._updatePlacementKeyHint?.();
   }
 
   /**
@@ -2219,6 +2413,7 @@ export class InputHandler {
     this.renderer._clearPreview?.();
     this.renderer.ui?._setConnectionGuidePlacementActive?.(false);
     this._updateShiftHint();
+    this._hidePlacementKeyHint?.();
   }
 
   /**
@@ -3046,6 +3241,99 @@ export class InputHandler {
 
   // --- Move mode (MoveTool) ---
 
+  _loadSelectionSlots() {
+    try {
+      const raw = localStorage.getItem(SELECTION_SLOT_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  _persistSelectionSlots() {
+    try {
+      localStorage.setItem(SELECTION_SLOT_STORAGE_KEY, JSON.stringify(this._selectionSlots || {}));
+    } catch (_) { /* storage is optional in headless/private sessions */ }
+  }
+
+  _cloneSelectionPayload(payload) {
+    return payload == null ? payload : JSON.parse(JSON.stringify(payload));
+  }
+
+  _captureSelectedCopy(anchorId = this.selectedPlaceableId) {
+    return captureSelectionGroup(this.game, this._selectionIdsForAnchor(anchorId), {
+      operation: 'copy',
+      primaryId: anchorId,
+    });
+  }
+
+  _saveSelectionSlot(slot) {
+    const captured = this._captureSelectedCopy();
+    if (!captured.ok) {
+      this._showToast(captured.reason);
+      return false;
+    }
+    captured.payload.operation = 'copy';
+    this._selectionSlots[slot] = this._cloneSelectionPayload(captured.payload);
+    this._persistSelectionSlots();
+    const count = captured.payload.items.length;
+    this._showToast(`Saved ${count} item${count === 1 ? '' : 's'} to slot ${slot}`);
+    return true;
+  }
+
+  _copySelectionToClipboard() {
+    const captured = this._captureSelectedCopy();
+    if (!captured.ok) {
+      this._showToast(captured.reason);
+      return false;
+    }
+    captured.payload.operation = 'copy';
+    this._selectionClipboard = this._cloneSelectionPayload(captured.payload);
+    this._showToast(`Copied ${captured.payload.items.length} item${captured.payload.items.length === 1 ? '' : 's'}`);
+    return true;
+  }
+
+  _armSelectionPayload(payload, message) {
+    if (!payload?.items?.length) return false;
+    const tool = new MoveTool();
+    this.setTool(tool);
+    tool.payload = this._cloneSelectionPayload(payload);
+    this.placementDir = tool.payload.anchor?.dir || 0;
+    this.renderer.updatePlacementDir?.(this.placementDir);
+    this.renderer.canvas.style.cursor = 'grabbing';
+    this._updateSelectionGroupPreview(tool.payload);
+    this._updateShiftHint();
+    this._updatePlacementKeyHint();
+    if (message) this._showToast(message);
+    return true;
+  }
+
+  _recallSelectionSlot(slot) {
+    const payload = this._selectionSlots?.[slot];
+    if (!payload) {
+      this._showToast(`Selection slot ${slot} is empty`);
+      return false;
+    }
+    const count = payload.items?.length || 0;
+    return this._armSelectionPayload(
+      { ...this._cloneSelectionPayload(payload), operation: 'copy' },
+      `Slot ${slot}: placing ${count} item${count === 1 ? '' : 's'}`,
+    );
+  }
+
+  _pasteSelectionClipboard() {
+    if (!this._selectionClipboard) {
+      this._showToast('Selection clipboard is empty');
+      return false;
+    }
+    const count = this._selectionClipboard.items?.length || 0;
+    return this._armSelectionPayload(
+      { ...this._cloneSelectionPayload(this._selectionClipboard), operation: 'copy' },
+      `Pasting ${count} item${count === 1 ? '' : 's'}`,
+    );
+  }
+
   _toggleMoveMode() {
     // setTool handles the exclusivity sweep; MoveTool.onExit restores a
     // still-carried item to its origin.
@@ -3075,21 +3363,34 @@ export class InputHandler {
       return false;
     }
 
-    const tool = new MoveTool();
-    this.setTool(tool);
-    tool.payload = captured.payload;
-    this.placementDir = captured.payload.anchor.dir;
-    this.renderer.updatePlacementDir?.(this.placementDir);
-    this.renderer.canvas.style.cursor = 'grabbing';
-    this._updateSelectionGroupPreview(tool.payload);
-    this._updateShiftHint();
-    const count = tool.payload.items.length;
-    this._showToast(`${operation === 'copy' ? 'Copying' : 'Placing'} ${count} item${count === 1 ? '' : 's'}`);
-    return true;
+    const count = captured.payload.items.length;
+    return this._armSelectionPayload(
+      captured.payload,
+      `${operation === 'copy' ? 'Copying' : 'Placing'} ${count} item${count === 1 ? '' : 's'}`,
+    );
   }
 
   _beginSelectedCopy(anchorId = this.selectedPlaceableId) {
     return this._beginSelectionPlacement('copy', anchorId);
+  }
+
+  _transformActiveSelectionGroup(kind) {
+    const tool = this.activeTool;
+    if (tool?.kind !== 'move' || tool.payload?.kind !== 'selectionGroup') return false;
+    tool.payload = transformSelectionGroup(tool.payload, kind === 'mirror'
+      ? { mirror: true }
+      : { quarterTurns: 1 });
+    this.placementDir = tool.payload.anchor?.dir || 0;
+    this.renderer.updatePlacementDir?.(this.placementDir);
+    this._updateSelectionGroupPreview(tool.payload);
+    this._updatePlacementKeyHint();
+    this._showToast(kind === 'mirror' ? 'Selection mirrored' : 'Selection rotated');
+    return true;
+  }
+
+  _beginSelectionTransform(kind, anchorId = this.selectedPlaceableId) {
+    if (!this._beginSelectionPlacement('move', anchorId)) return false;
+    return this._transformActiveSelectionGroup(kind);
   }
 
   _beginSelectedMove(anchorId = this.selectedPlaceableId) {
@@ -3206,6 +3507,8 @@ export class InputHandler {
               subCol: target.subCol,
               subRow: target.subRow,
               dir: target.dir,
+              portsFlipped: target.portsFlipped === true,
+              wallMount: target.wallMount,
               params: target.params,
               variant: target.variant,
               silent: true,
@@ -3570,6 +3873,8 @@ export class InputHandler {
       html = `<span class="k">SHIFT</span>+click: delete whole run`;
     } else if (tool?.kind === 'move' && tool.payload?.kind === 'selectionGroup') {
       html = (tool.payload.operation === 'copy' ? 'Click: paste selection' : 'Click: place selection')
+        + sep + `<span class="k">F</span> Rotate`
+        + sep + `<span class="k">M</span> Mirror`
         + sep + `<span class="k">ESC</span> Cancel`;
     } else if (tool?.kind === 'wall') {
       html = `<span class="k">SHIFT</span>: smart floor outline`
