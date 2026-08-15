@@ -146,9 +146,9 @@ console.log('\n--- Test 3: invalid path ---');
 }
 
 // ==========================================================================
-// Test 4: Path overlaps existing SAME-TYPE line → overlap_same_type.
+// Test 4: Flexible electrical cables may overlap physically without joining.
 // ==========================================================================
-console.log('\n--- Test 4: overlap_same_type ---');
+console.log('\n--- Test 4: soft cable overlap stays electrically independent ---');
 {
   const state = makeState({
     placeables: [
@@ -174,8 +174,8 @@ console.log('\n--- Test 4: overlap_same_type ---');
     // Start port is E (+col); path must begin +col. Route it so it crosses (5,3).
     path:  [{ col: 2, row: 7 }, { col: 5, row: 7 }, { col: 5, row: 3 }],
   });
-  assert(res && res.ok === false, 'ok=false');
-  assert(res.reason === 'overlap_same_type', `reason=overlap_same_type (got ${res.reason})`);
+  assert(res && res.ok === true,
+    `power cables may cross or lie together physically (got ${res.reason || 'ok'})`);
 }
 
 // ==========================================================================

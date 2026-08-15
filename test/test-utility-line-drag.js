@@ -24,6 +24,7 @@ import { validateDrawLine } from '../src/utility/line-drawing.js';
 import { portWorldPosition, portSide, portApproachVec } from '../src/utility/ports.js';
 import { findUtilityEndpoint } from '../src/utility/utility-endpoints.js';
 import { gridToIso } from '../src/renderer/grid.js';
+import { discoverNetworks, makeDefaultPortLookup } from '../src/utility/network-discovery.js';
 
 globalThis.COMPONENTS = COMPONENTS;
 globalThis.PARAM_DEFS = PARAM_DEFS;
@@ -167,8 +168,39 @@ console.log('\n--- 2. The preview is the line that commits ---');
   const lines = powerLines(game);
   assert(lines.length === 1, 'the drag committed');
   assert(previewPath && lines.length === 1
-    && JSON.stringify(previewPath) === JSON.stringify(lines[0].path),
-    'the path previewed on the last mousemove is the path that landed');
+    && JSON.stringify(previewPath) === JSON.stringify(lines[0].cablePath),
+    'the freeform cable previewed on the last mousemove is the cable that landed');
+}
+
+console.log('\n--- 2b. A hand-drawn S-curve is stored without subtile snapping ---');
+{
+  const game = makeGame();
+  const src = portTile(game, 'src_1', 'pwr_out_1');
+  const sink = portTile(game, 'pl_3', 'pwr_in');
+  const ctrl = new UtilityLineInputController({ game, renderer: {} });
+  ctrl.setUtilityType('powerCable');
+  const start = gridToIso(src.col, src.row);
+  ctrl.onMouseDown(start.x, start.y, 0, {});
+  for (const point of [
+    { col: src.col + 1.13, row: src.row + 1.37 },
+    { col: src.col + 2.41, row: src.row - 0.83 },
+    { col: sink.col - 1.27, row: sink.row + 1.19 },
+  ]) {
+    const iso = gridToIso(point.col, point.row);
+    ctrl.onMouseMove(iso.x, iso.y, {});
+  }
+  const finish = gridToIso(sink.col, sink.row);
+  ctrl.onMouseMove(finish.x, finish.y, {});
+  const preview = ctrl.preview?.cablePath?.map(point => ({ ...point }));
+  ctrl.onMouseUp(finish.x, finish.y, 0, {});
+  const cable = powerLines(game)[0]?.cablePath;
+  assert(Array.isArray(cable) && cable.length >= 5,
+    `the freehand curve keeps its bends (got ${cable?.length || 0} samples)`);
+  assert(cable?.some(point => Math.abs(point.col * 4 - Math.round(point.col * 4)) > 1e-6
+    || Math.abs(point.row * 4 - Math.round(point.row * 4)) > 1e-6),
+  'freeform samples are not confined to quarter-tile coordinates');
+  assert(JSON.stringify(preview) === JSON.stringify(cable),
+    'the exact S-curve preview is persisted on release');
 }
 
 console.log('\n--- 3. Open-ended drags are unchanged ---');
@@ -338,7 +370,7 @@ console.log('\n--- 6. Right-click erases a line of the armed utility ---');
   drag(game, src, sink);
   assert(powerLines(game).length === 1, 'a line to erase');
   const line = powerLines(game)[0];
-  const mid = line.path[Math.floor(line.path.length / 2)];
+  const mid = line.cablePath[Math.floor(line.cablePath.length / 2)];
 
   const tool = new UtilityLineTool('powerCable');
   const ctrl = new UtilityLineInputController({ game, renderer: {} });
@@ -468,20 +500,10 @@ console.log('\n--- 8. Genuinely invalid gestures are still refused ---');
   assert(game.state.resources.funding === fundsBefore, 'and charges nothing');
 }
 
-console.log('\n--- 9. A drag routes AROUND cable that is already down ---');
+console.log('\n--- 9. Touching flexible cables remain separate circuits ---');
 {
-  // The board is half of what makes a route usable, and the router cannot see
-  // it. So when the best-scoring shape lands on top of an existing run of the
-  // same utility, the drag has to fall to the next shape down rather than
-  // refuse — otherwise wiring a hall gets harder with every cable laid, which
-  // is exactly backwards.
-  //
-  // Two distribution panels. The first is wired to pl_3; the second sits at
-  // col 6 on the same service row and is dragged to pl_1. Its best route
-  // would overlap the first cable collinearly for several subtiles,
-  // which is "laying cable down an existing run" and is refused. A route one
-  // rank down goes south early and crosses the trunk perpendicularly instead,
-  // which is an ordinary legal crossing.
+  // Two distribution cabinets feed separate loads. Their bookkeeping routes
+  // overlap, as floor cords commonly do, but no contact is an electrical tee.
   const game = makeGame({ col: 1, row: 2, dir: 0 });
   game.state.placeables.push({
     id: 'src_2', type: 'mcc', kind: 'infrastructure',
@@ -506,8 +528,8 @@ console.log('\n--- 9. A drag routes AROUND cable that is already down ---');
     end: { placeableId: 'pl_1', portName: 'pwr_in' },
     path: preferred,
   });
-  assert(!preferredRes.ok && preferredRes.reason === 'overlap_same_type',
-    `the best-scoring route really does overlap the trunk (got ${preferredRes.ok ? 'ok' : preferredRes.reason})`);
+  assert(preferredRes.ok,
+    `a flexible cable may use that floor corridor (got ${preferredRes.ok ? 'ok' : preferredRes.reason})`);
 
   // Driven by hand rather than through drag() so dragReject can be read while
   // the gesture is still live — that flag is the drag tooltip, and it is only
@@ -528,14 +550,16 @@ console.log('\n--- 9. A drag routes AROUND cable that is already down ---');
   assert(lines.length === 2,
     `the drag still commits by taking a lower-ranked route (got ${lines.length - 1}`
     + `${game._logs.length ? ' — ' + game._logs.join(' | ') : ''})`);
-  assert(!!branch && JSON.stringify(branch.path) !== JSON.stringify(preferred),
-    'and the committed route is NOT the overlapping one');
+  assert(!!branch && JSON.stringify(branch.path) === JSON.stringify(preferred),
+    'the cable does not take a fake grid detour around another cable');
   assert(!!branch && branch.start.placeableId === 'src_2' && branch.end.placeableId === 'pl_1',
     'joining the two ports the player actually dragged between');
-  // The preview has to be the route that lands, not the one the router would
-  // have picked with an empty board.
-  assert(!!branch && previewPath && JSON.stringify(previewPath) === JSON.stringify(branch.path),
-    'and the route previewed is the route that landed');
+  assert(!!branch && previewPath && JSON.stringify(previewPath) === JSON.stringify(branch.cablePath),
+    'and the freeform cable previewed is the cable that landed');
+  const networks = discoverNetworks(
+    'powerCable', game.state.utilityLines, makeDefaultPortLookup(game.state));
+  assert(networks.filter(network => network.sinks.length > 0).length === 2,
+    'physical overlap does not bridge the two point-to-point circuits');
 }
 
 console.log(`\n=== ${passed} passed, ${failed} failed ===`);

@@ -53,7 +53,7 @@ function fixture(seed) {
   const game = new Game(new BeamlineRegistry(), { seed });
   game.state.resources.funding = 1e9;
   const sourceId = game.placePlaceable({ type: 'mcc', col: 100, row: 100 });
-  const sinkId = game.placePlaceable({ type: 'magnetron', col: 108, row: 106 });
+  const sinkId = game.placePlaceable({ type: 'modulator', col: 108, row: 106 });
   wire(
     game,
     portTile(game, sourceId, 'pwr_out_1'),
@@ -115,6 +115,10 @@ console.log('\n=== Selection groups ===\n');
   assert(![copiedLine.start.placeableId, copiedLine.end.placeableId].includes(sourceId)
       && ![copiedLine.start.placeableId, copiedLine.end.placeableId].includes(sinkId),
     'copied line does not remain attached to either original');
+  assert(copiedLine.cablePath?.length === line.cablePath?.length
+      && copiedLine.cablePath[0].col === line.cablePath[0].col + 20
+      && copiedLine.cablePath[0].row === line.cablePath[0].row + 12,
+    'copied line preserves and translates its freeform cable trace');
   assert(game.state.resources.funding < fundingBefore,
     'copy charges for objects and copied utility length');
   game.undo();
@@ -125,6 +129,7 @@ console.log('\n=== Selection groups ===\n');
 {
   const { game, sourceId, sinkId, line } = fixture(552);
   const originalPath = line.path.map(point => ({ ...point }));
+  const originalCablePath = line.cablePath.map(point => ({ ...point }));
   const captured = captureSelectionGroup(game, [sourceId, sinkId], {
     operation: 'move', primaryId: sourceId,
   });
@@ -145,12 +150,18 @@ console.log('\n=== Selection groups ===\n');
   assert(movedLine.path[0].col === originalPath[0].col + 14
       && movedLine.path[0].row === originalPath[0].row + 9,
     'moved internal line path translates rigidly with the group');
+  assert(movedLine.cablePath[0].col === originalCablePath[0].col + 14
+      && movedLine.cablePath[0].row === originalCablePath[0].row + 9,
+    'moved internal line translates its freeform cable trace with the group');
   game.undo();
   assert(game.getPlaceable(sourceId).col === 100 && game.getPlaceable(sourceId).row === 100,
     'one undo restores the moved formation');
   assert(game.state.utilityLines.get(line.id).path[0].col === originalPath[0].col
       && game.state.utilityLines.get(line.id).path[0].row === originalPath[0].row,
     'the same undo restores the internal utility path');
+  assert(game.state.utilityLines.get(line.id).cablePath[0].col === originalCablePath[0].col
+      && game.state.utilityLines.get(line.id).cablePath[0].row === originalCablePath[0].row,
+    'the same undo restores the freeform cable trace');
 }
 
 {

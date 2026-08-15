@@ -25,6 +25,7 @@ import {
   expandPath,
 } from './line-geometry.js';
 import { findUtilityEndpoint } from './utility-endpoints.js';
+import { cablePathLengthSubUnits, isSoftCable, sanitizeCablePath } from './soft-cable.js';
 
 const EPS = 1e-6;
 
@@ -308,7 +309,9 @@ function isPortTaken(state, placeableId, portName) {
 // Public: validateDrawLine
 // ---------------------------------------------------------------------------
 
-export function validateDrawLine(state, { utilityType, start, end, path, tapLineIds } = {}) {
+export function validateDrawLine(state, {
+  utilityType, start, end, path, tapLineIds, cablePath,
+} = {}) {
   // Path shape.
   if (!Array.isArray(path) || path.length < 2) return reject('invalid_path');
   if (!isManhattanPath(path)) return reject('not_manhattan');
@@ -389,10 +392,16 @@ export function validateDrawLine(state, { utilityType, start, end, path, tapLine
     ignoreSharedSource = ignoreSharedSource || {};
     ignoreSharedSource[side] = ref;
   }
-  if (pathOverlapsSameType(path, lines, utilityType, { ignoreSharedSource, tapLineIds })) {
+  // Flexible electrical cords may lie beside or cross one another on the
+  // floor. They remain electrically separate because Power/HV forbid taps,
+  // source fanout and adjacency bridging; their hidden grid routes therefore
+  // must not reject a perfectly clear freeform cable the player can see.
+  if (!isSoftCable(utilityType)
+      && pathOverlapsSameType(path, lines, utilityType, { ignoreSharedSource, tapLineIds })) {
     return reject('overlap_same_type');
   }
 
+  const freeform = isSoftCable(utilityType) ? sanitizeCablePath(cablePath) : [];
   return {
     ok: true,
     line: {
@@ -400,7 +409,10 @@ export function validateDrawLine(state, { utilityType, start, end, path, tapLine
       start: start || null,
       end: end || null,
       path: path.map(pt => ({ col: pt.col, row: pt.row })),
-      subL: pathLengthSubUnits(path),
+      ...(freeform.length >= 2 ? { cablePath: freeform } : {}),
+      subL: freeform.length >= 2
+        ? cablePathLengthSubUnits(freeform)
+        : pathLengthSubUnits(path),
     },
   };
 }

@@ -208,6 +208,13 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   const facility = getUtilityPortsV2('facilityTransformer');
   const hv = getUtilityPortsV2('hvTransformer');
   const grid = getUtilityPortsV2('gridIntertieTransformer');
+  const hvOutlets = ports => Object.values(ports)
+    .filter(port => port.utility === 'hvCable' && port.role === 'source');
+  assert([pad, facility, hv, grid].map(ports => hvOutlets(ports).length).join(',') === '1,2,4,6',
+    'larger HV sources expose progressively more physical feeder outlets (1, 2, 4, 6)');
+  assert([pad, facility, hv, grid].map(ports => hvOutlets(ports)
+    .reduce((sum, port) => sum + port.params.capacity, 0)).join(',') === '150,400,1200,3000',
+    'split outlet ratings add back to each transformer nameplate capacity');
   assert(pad.hv_out_1.params.capacity < facility.hv_out_1.params.capacity
       && facility.hv_out_1.params.capacity < hv.hv_out_1.params.capacity
       && hv.hv_out_1.params.capacity < grid.hv_out_1.params.capacity,

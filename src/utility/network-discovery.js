@@ -407,25 +407,27 @@ export function discoverNetworks(utilityType, lines, portLookup) {
   // be perpendicular and interior to both; an end-on contact is legal only for
   // a utility that allows taps), so by the time geometry reaches here, an
   // endpoint contact is always a deliberate join.
-  const subtileToLines = new Map();
-  for (const line of lineArr) {
-    const expanded = expandPath(line.path || []);
-    for (let i = 0; i < expanded.length; i++) {
-      const pt = expanded[i];
-      const key = `${Math.round(pt.col * 4)}/${Math.round(pt.row * 4)}`;
-      let arr = subtileToLines.get(key);
-      if (!arr) { arr = []; subtileToLines.set(key, arr); }
-      arr.push({ id: line.id, terminal: i === 0 || i === expanded.length - 1 });
+  if (UTILITY_TYPES[utilityType]?.allowsTap === true) {
+    const subtileToLines = new Map();
+    for (const line of lineArr) {
+      const expanded = expandPath(line.path || []);
+      for (let i = 0; i < expanded.length; i++) {
+        const pt = expanded[i];
+        const key = `${Math.round(pt.col * 4)}/${Math.round(pt.row * 4)}`;
+        let arr = subtileToLines.get(key);
+        if (!arr) { arr = []; subtileToLines.set(key, arr); }
+        arr.push({ id: line.id, terminal: i === 0 || i === expanded.length - 1 });
+      }
     }
-  }
-  for (const hits of subtileToLines.values()) {
-    if (hits.length < 2) continue;
-    for (let a = 0; a < hits.length; a++) {
-      for (let b = a + 1; b < hits.length; b++) {
-        if (hits[a].id === hits[b].id) continue;
-        // At least one of the two has to END here for this to be a join.
-        if (!hits[a].terminal && !hits[b].terminal) continue;
-        dsu.union(lineNodeKey(hits[a].id), lineNodeKey(hits[b].id));
+    for (const hits of subtileToLines.values()) {
+      if (hits.length < 2) continue;
+      for (let a = 0; a < hits.length; a++) {
+        for (let b = a + 1; b < hits.length; b++) {
+          if (hits[a].id === hits[b].id) continue;
+          // At least one of the two has to END here for this to be a join.
+          if (!hits[a].terminal && !hits[b].terminal) continue;
+          dsu.union(lineNodeKey(hits[a].id), lineNodeKey(hits[b].id));
+        }
       }
     }
   }

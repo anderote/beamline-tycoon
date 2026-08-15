@@ -1700,7 +1700,7 @@ export const INFRASTRUCTURE_RAW = {
   hvTransformer: {
     id: 'hvTransformer',
     name: 'HV Transformer',
-    desc: 'Oil-filled high-voltage power transformer that brings utility power into your facility. The big expensive piece — provides 1200 kW of electrical capacity, enough to anchor a serious facility. Place outdoors in a switchyard with disconnect switches and switchgear for an authentic substation layout.',
+    desc: 'Oil-filled high-voltage power transformer that brings utility power into your facility. The big expensive piece — provides 1200 kW through four protected HV feeder outlets, enough to anchor a serious facility. Place outdoors in a switchyard with disconnect switches and switchgear for an authentic substation layout.',
     category: 'power', subsection: 'hvSupply',
     paletteOrder: 30,
     cost: { funding: 800000 },
@@ -1780,7 +1780,7 @@ export const INFRASTRUCTURE_RAW = {
   padMountTransformer: {
     id: 'padMountTransformer',
     name: 'Pad-Mount Transformer',
-    desc: 'Compact green transformer on a concrete pad — the familiar box you see outside every building. Steps voltage down to building level. Cheaper and smaller than the HV transformer, provides 150 kW of electrical capacity — enough for a starter beamline.',
+    desc: 'Compact green transformer on a concrete pad — the familiar box you see outside every building. Its single protected HV feeder supplies 150 kW, enough for a starter beamline.',
     category: 'power', subsection: 'hvSupply',
     paletteOrder: 10,
     cost: { funding: 200000 },

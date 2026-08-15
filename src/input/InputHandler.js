@@ -3081,6 +3081,7 @@ export class InputHandler {
               start: remap(connection.start),
               end: remap(connection.end),
               path: connection.path,
+              cablePath: connection.cablePath,
             });
             if (!lineId) {
               game.restoreBeamlineState(rollback);
@@ -3144,6 +3145,9 @@ export class InputHandler {
           return false;
         }
         line.path = connection.path.map(point => ({ ...point }));
+        if (Array.isArray(connection.cablePath)) {
+          line.cablePath = connection.cablePath.map(point => ({ ...point }));
+        }
         line.subL = connection.subL;
       }
       for (const item of payload.items) {

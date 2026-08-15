@@ -239,6 +239,22 @@ export class UtilityLineSystem {
     path = dropDegenerate(path);
     if (path.length < 2) return dangle();
 
+    // A flexible cable keeps its pooled middle on the floor when one attached
+    // machine moves; only the corresponding plug end follows the machine.
+    let cablePath = Array.isArray(line.cablePath)
+      ? line.cablePath.map(point => ({ col: point.col, row: point.row }))
+      : null;
+    if (cablePath && cablePath.length >= 2) {
+      if (atStart) {
+        const pos = pickPortPos(newPortPos, line.start.portName);
+        if (pos) cablePath[0] = pos;
+      }
+      if (atEnd) {
+        const pos = pickPortPos(newPortPos, line.end.portName);
+        if (pos) cablePath[cablePath.length - 1] = pos;
+      }
+    }
+
     // Validate against every OTHER line: this line is still in state, so
     // leaving it in would have it collide with its own old path and occupy its
     // own ports — every reanchor would "fail" and dangle.
@@ -251,10 +267,12 @@ export class UtilityLineSystem {
       start: line.start,
       end: line.end,
       path,
+      cablePath,
     });
     if (!result.ok) return dangle();
 
     line.path = result.line.path;
+    if (result.line.cablePath) line.cablePath = result.line.cablePath;
     line.subL = result.line.subL;
     this.emit('utilityLinesChanged', { utilityType: line.utilityType });
     return { ok: true };

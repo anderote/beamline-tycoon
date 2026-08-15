@@ -20,6 +20,7 @@ import { UTILITY_LINE_Y } from '../utility/line-geometry.js';
 import { FLOW_PARAMS, patchFlowMaterial, bakeRunDistanceUVs, bakeRunDistanceFromPositionZ } from './utility-flow.js';
 import { BLOOM_LAYER } from './glow-pipeline.js';
 import { computeLineOrientations } from '../utility/line-orientation.js';
+import { isSoftCable, softCableControlPoints } from '../utility/soft-cable.js';
 
 // DEFAULT line centerline height. Per-utility heights come from
 // utilityLineHeight (registry): a power cord lies on the floor while a vacuum
@@ -138,6 +139,29 @@ function anchorFor(ref, placeablesById) {
   return portAnchor3D(rec, COMPONENTS[rec.type], ref.portName);
 }
 
+function anchorTip(anchor) {
+  if (!anchor) return null;
+  const out = anchor.out || { x: 0, z: 0 };
+  const standoff = anchor.standoff || 0;
+  return {
+    x: anchor.x + out.x * standoff,
+    y: anchor.y,
+    z: anchor.z + out.z * standoff,
+  };
+}
+
+/** Flexible Power/HV cable centreline, including true-height plug endpoints. */
+export function buildSoftCableWorldPoints(line, placeablesById, previewAnchors = null) {
+  const trace = Array.isArray(line.cablePath) && line.cablePath.length >= 2
+    ? line.cablePath
+    : line.path;
+  const runY = utilityLineHeight(line.utilityType);
+  const start = anchorTip(previewAnchors?.start || anchorFor(line.start, placeablesById));
+  const end = anchorTip(previewAnchors?.end || anchorFor(line.end, placeablesById));
+  return softCableControlPoints(trace, { start, end, groundY: runY })
+    .map(point => new THREE.Vector3(point.x, point.y, point.z));
+}
+
 // Build 3D points for a line's polyline, with orthogonal tails into anchored
 // ports. Returns an array of THREE.Vector3.
 export function buildWorldPoints(line, placeablesById) {
@@ -242,6 +266,41 @@ function buildCylinderSegment(p0, p1, radius, material, runDist) {
   mesh.quaternion.copy(quat);
   mesh.matrixAutoUpdate = false;
   mesh.updateMatrix();
+  return mesh;
+}
+
+// One continuous flexible sheath. TubeGeometry's uv.x advances along the
+// spline (uv.y goes around its circumference), so copy that distance into
+// uv.y for the existing travelling-power shader.
+function buildFlexibleCable(points, radius, material, reversed = false, floorY = null) {
+  if (points.length < 2 || !THREE.CatmullRomCurve3 || !THREE.TubeGeometry) return null;
+  const spline = new THREE.CatmullRomCurve3(points, false, 'centripetal', 0.5);
+  // Catmull-Rom can undershoot between a descending control point and a run
+  // of floor-level points. Clamp the evaluated centreline, not just its
+  // controls, so a pooled cable's sheath never clips through the deck.
+  let curve = spline;
+  if (Number.isFinite(floorY) && THREE.Curve) {
+    curve = new THREE.Curve();
+    curve.getPoint = (t, target = new THREE.Vector3()) => {
+      spline.getPoint(t, target);
+      target.y = Math.max(floorY, target.y);
+      return target;
+    };
+  }
+  let length = 0;
+  for (let i = 1; i < points.length; i++) length += points[i - 1].distanceTo(points[i]);
+  const tubularSegments = Math.max(16, Math.min(512, Math.ceil(length * 8)));
+  const geometry = new THREE.TubeGeometry(curve, tubularSegments, radius, 8, false);
+  const uv = geometry.attributes?.uv;
+  if (uv?.array) {
+    for (let i = 0; i < uv.array.length; i += 2) {
+      const t = uv.array[i];
+      uv.array[i + 1] = reversed ? length * (1 - t) : length * t;
+    }
+    uv.needsUpdate = true;
+  }
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.userData.isFlexibleUtilityCable = true;
   return mesh;
 }
 
@@ -423,7 +482,10 @@ function polylineMidpoint(points) {
 function buildLineGroup(line, placeablesById, errorStatus, reversed) {
   const descriptor = UTILITY_TYPES[line.utilityType];
   if (!descriptor) return null;
-  const points = buildWorldPoints(line, placeablesById);
+  const flexible = isSoftCable(line.utilityType);
+  const points = flexible
+    ? buildSoftCableWorldPoints(line, placeablesById)
+    : buildWorldPoints(line, placeablesById);
   if (points.length < 2) return null;
 
   const group = new THREE.Group();
@@ -458,7 +520,14 @@ function buildLineGroup(line, placeablesById, errorStatus, reversed) {
   // line keeps that walk but flips which end reads as distance 0 — the
   // physical direction energy travels is source->sink either way.
   let runDistCum = 0;
-  for (let i = 0; i < points.length - 1; i++) {
+  const flexibleMesh = flexible
+    ? buildFlexibleCable(points, radius, mat, reversed, utilityLineHeight(line.utilityType))
+    : null;
+  if (flexibleMesh) {
+    if (flowing) flexibleMesh.layers.enable(BLOOM_LAYER);
+    group.add(flexibleMesh);
+  }
+  for (let i = 0; !flexibleMesh && i < points.length - 1; i++) {
     const a = points[i];
     const b = points[i + 1];
     const segLen = segLens[i];
@@ -507,7 +576,7 @@ function buildLineGroup(line, placeablesById, errorStatus, reversed) {
   // their elbows from this loop with no special case.
   const jointJacketMat = style === 'jacketedCylinder'
     ? getJacketMaterial(line.utilityType, errorStatus) : null;
-  for (let i = 1; i < points.length - 1; i++) {
+  for (let i = 1; !flexible && i < points.length - 1; i++) {
     const prev = points[i - 1], at = points[i], next = points[i + 1];
     const joint = buildCornerJoint(prev, at, next, style, radius, mat);
     if (joint) group.add(joint);
@@ -597,16 +666,30 @@ function buildPreviewLine(preview) {
   const descriptor = UTILITY_TYPES[preview.utilityType];
   if (!descriptor) return null;
   const previewY = utilityLineHeight(preview.utilityType);
-  const points = preview.path.map(p => {
-    const w = tileToWorld(p);
-    return new THREE.Vector3(w.x, previewY, w.z);
-  });
+  const flexible = isSoftCable(preview.utilityType)
+    && Array.isArray(preview.cablePath) && preview.cablePath.length >= 2;
+  const points = flexible
+    ? buildSoftCableWorldPoints({
+        utilityType: preview.utilityType,
+        path: preview.path,
+        cablePath: preview.cablePath,
+        start: null,
+        end: null,
+      }, null, { start: preview.startAnchor, end: preview.endAnchor })
+    : preview.path.map(p => {
+        const w = tileToWorld(p);
+        return new THREE.Vector3(w.x, previewY, w.z);
+      });
   const group = new THREE.Group();
   group.userData = { isUtilityLinePreview: true };
   const radius = (descriptor.pipeRadiusMeters || 0.04) * 1.1; // slightly chunkier so it reads
   const style = descriptor.geometryStyle || 'cylinder';
   const mat = getPreviewMaterial(preview.utilityType);
-  for (let i = 0; i < points.length - 1; i++) {
+  const flexibleMesh = flexible
+    ? buildFlexibleCable(points, radius, mat, false, previewY)
+    : null;
+  if (flexibleMesh) group.add(flexibleMesh);
+  for (let i = 0; !flexibleMesh && i < points.length - 1; i++) {
     const a = points[i], b = points[i + 1];
     let mesh = null;
     if (style === 'rectWaveguide') {
@@ -618,7 +701,7 @@ function buildPreviewLine(preview) {
   }
   // Little spheres at waypoints to emphasize the polyline.
   const sphereMat = mat;
-  for (const p of points) {
+  for (const p of flexible ? [points[0], points[points.length - 1]] : points) {
     const sg = new THREE.SphereGeometry(radius * 1.2, 10, 8);
     const sm = new THREE.Mesh(sg, sphereMat);
     sm.position.copy(p);
@@ -941,8 +1024,10 @@ export class UtilityLineBuilderV2 {
    */
   setPreview(preview, parentGroup) {
     const sig = preview && preview.path && preview.path.length
-      ? preview.type + '|' + preview.valid + '|' +
-        preview.path.map(p => `${p.col},${p.row},${p.subCol ?? 0},${p.subRow ?? 0}`).join(';')
+      ? preview.utilityType + '|' + preview.valid + '|' +
+        preview.path.map(p => `${p.col},${p.row},${p.subCol ?? 0},${p.subRow ?? 0}`).join(';') + '|'
+        + [preview.startAnchor, preview.endAnchor]
+          .map(a => a ? `${a.x},${a.y},${a.z}` : '-').join('|')
       : null;
     if (sig === this._previewSig) return false;
     this._previewSig = sig;
@@ -1111,6 +1196,7 @@ export class UtilityLineBuilderV2 {
     // Path + endpoints + utility type. Include port world positions in the
     // hash so the line rebuilds when a connected placeable is moved.
     const pathStr = (line.path || []).map(p => `${p.col},${p.row}`).join(';');
+    const cableStr = (line.cablePath || []).map(p => `${p.col},${p.row}`).join(';');
     // Explicit "open" marker distinguishes a null endpoint (dangling) from
     // an unresolved port lookup — both used to collide on "".
     let startStr = line.start ? '?' : 'open';
@@ -1132,7 +1218,7 @@ export class UtilityLineBuilderV2 {
         if (a) endStr = `${a.x.toFixed(3)},${a.y.toFixed(3)},${a.z.toFixed(3)}`;
       }
     }
-    return `${line.utilityType}|${pathStr}|${startStr}|${endStr}`;
+    return `${line.utilityType}|${pathStr}|${cableStr}|${startStr}|${endStr}`;
   }
 
   _disposeGroup(group) {

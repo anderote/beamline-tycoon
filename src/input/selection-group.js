@@ -218,6 +218,12 @@ export function previewSelectionGroup(game, payload, anchorPose) {
         col: point.col + deltaCol,
         row: point.row + deltaRow,
       })),
+      cablePath: Array.isArray(source.cablePath)
+        ? source.cablePath.map(point => ({
+            col: point.col + deltaCol,
+            row: point.row + deltaRow,
+          }))
+        : undefined,
     };
     const checked = validateDrawLine(utilityState, plan);
     if (!checked.ok) {
@@ -242,4 +248,3 @@ export function previewSelectionGroup(game, payload, anchorPose) {
     internalLineIds,
   };
 }
-

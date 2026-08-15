@@ -319,6 +319,10 @@ console.log('\n--- B1: perpendicular slide keeps the line intact ---');
     end: { placeableId: 'sink1', portName: 'powerIn' },
     // Leaves src1 east, bends south, arrives at sink1 heading east.
     path: [{ col: 3, row: 3 }, { col: 5, row: 3 }, { col: 5, row: 6 }, { col: 8, row: 6 }],
+    cablePath: [
+      { col: 3, row: 3 }, { col: 4, row: 4.5 },
+      { col: 6, row: 5.5 }, { col: 8, row: 6 },
+    ],
   });
 
   const res = system.reanchorLine('l1', 'src1', { powerOut: { col: 3, row: 5 } });
@@ -328,6 +332,11 @@ console.log('\n--- B1: perpendicular slide keeps the line intact ---');
   assert(line.path[0].col === 3 && line.path[0].row === 5, 'terminal moved to the new port');
   assert(line.path[1].col === 5 && line.path[1].row === 5, 'the bend rode along perpendicular');
   assert(line.path[3].col === 8 && line.path[3].row === 6, 'far end of the path untouched');
+  assert(line.cablePath[0].col === 3 && line.cablePath[0].row === 5,
+    'the flexible cable plug follows the moved source');
+  assert(line.cablePath[1].col === 4 && line.cablePath[1].row === 4.5
+      && line.cablePath.at(-1).col === 8 && line.cablePath.at(-1).row === 6,
+    'the pooled middle and opposite plug stay where the player laid them');
   assert(typeof line.subL === 'number' && line.subL > 0, 'subL recomputed');
   const ev = events.find(e => e.ev === 'utilityLinesChanged');
   assert(ev && ev.data.utilityType === 'powerCable', 'utilityLinesChanged carries the type');

@@ -32,6 +32,7 @@
 // of what a per-line renderer effect can express, not a bug.
 
 import { expandPath } from './line-geometry.js';
+import { UTILITY_TYPES } from './registry.js';
 
 function portKeyOf(ref) {
   return ref ? `${ref.placeableId}:${ref.portName}` : null;
@@ -141,23 +142,25 @@ export function computeLineOrientations(network, linesById, options = {}) {
   // one side is terminal there — same rule network-discovery.js applies so a
   // "join" here never disagrees with what actually put these lines in one
   // network.
-  const subtileToLines = new Map();
-  for (const l of lines) {
-    const expanded = expandPath(l.path || []);
-    for (let i = 0; i < expanded.length; i++) {
-      const key = subtileKey(expanded[i]);
-      const end = i === 0 ? 'start' : (i === expanded.length - 1 ? 'end' : 'interior');
-      if (!subtileToLines.has(key)) subtileToLines.set(key, []);
-      subtileToLines.get(key).push({ lineId: l.id, end });
+  if (UTILITY_TYPES[network.utilityType]?.allowsTap === true) {
+    const subtileToLines = new Map();
+    for (const l of lines) {
+      const expanded = expandPath(l.path || []);
+      for (let i = 0; i < expanded.length; i++) {
+        const key = subtileKey(expanded[i]);
+        const end = i === 0 ? 'start' : (i === expanded.length - 1 ? 'end' : 'interior');
+        if (!subtileToLines.has(key)) subtileToLines.set(key, []);
+        subtileToLines.get(key).push({ lineId: l.id, end });
+      }
     }
-  }
-  for (const hits of subtileToLines.values()) {
-    if (hits.length < 2) continue;
-    for (let a = 0; a < hits.length; a++) {
-      for (let b = a + 1; b < hits.length; b++) {
-        if (hits[a].lineId === hits[b].lineId) continue;
-        if (hits[a].end === 'interior' && hits[b].end === 'interior') continue; // a crossing, not a join
-        addEdge(hits[a].lineId, hits[a].end, hits[b].lineId, hits[b].end);
+    for (const hits of subtileToLines.values()) {
+      if (hits.length < 2) continue;
+      for (let a = 0; a < hits.length; a++) {
+        for (let b = a + 1; b < hits.length; b++) {
+          if (hits[a].lineId === hits[b].lineId) continue;
+          if (hits[a].end === 'interior' && hits[b].end === 'interior') continue; // a crossing, not a join
+          addEdge(hits[a].lineId, hits[a].end, hits[b].lineId, hits[b].end);
+        }
       }
     }
   }

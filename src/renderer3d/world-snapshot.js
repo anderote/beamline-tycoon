@@ -603,6 +603,9 @@ function buildUtilityLines(game) {
       start: l.start || null,
       end: l.end || null,
       path: (l.path || []).map(p => ({ col: p.col, row: p.row })),
+      cablePath: Array.isArray(l.cablePath)
+        ? l.cablePath.map(p => ({ col: p.col, row: p.row }))
+        : undefined,
       subL: l.subL || 0,
     });
   }

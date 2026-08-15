@@ -9,6 +9,7 @@ globalThis.THREE = { Vector3: V3 };
 
 const { COMPONENTS } = await import('../src/data/components.js');
 const { portWorldPosition } = await import('../src/utility/ports.js');
+const { utilityLineHeight } = await import('../src/utility/registry.js');
 const {
   portAnchor3D,
   setModelBoundsProvider,
@@ -71,6 +72,13 @@ function includesPoint(points, target) {
     && Math.abs(p.z - target.z) < 1e-6);
 }
 
+function includesFloorPoint(points, target, utilityType) {
+  const floorY = utilityLineHeight(utilityType);
+  return points.some(p => Math.abs(p.x - target.x) < 1e-6
+    && Math.abs(p.y - floorY) < 1e-6
+    && Math.abs(p.z - target.z) < 1e-6);
+}
+
 console.log('\n--- 1. Start-port tail remains orthogonal ---');
 {
   const points = buildWorldPoints({
@@ -83,7 +91,8 @@ console.log('\n--- 1. Start-port tail remains orthogonal ---');
     ],
   }, endpoints);
   assert(includesPoint(points, anchor), 'moves the floor route onto the visible connector');
-  assert(!includesPoint(points, logical), 'drops the old footprint-edge endpoint instead of looping back to it');
+  assert(!includesFloorPoint(points, logical, 'powerCable'),
+    'drops the old floor-level footprint endpoint instead of looping back to it');
   assert(points.length >= 6, `adds the connector riser (got ${points.length} points)`);
   assert(isOrthogonal(points), 'every connector-to-route segment changes only one axis');
 }
@@ -100,7 +109,8 @@ console.log('\n--- 2. End-port tail remains orthogonal ---');
     ],
   }, endpoints);
   assert(includesPoint(points, anchor), 'moves the sink floor route onto the visible connector');
-  assert(!includesPoint(points, logical), 'the sink tail does not revisit its old footprint edge');
+  assert(!includesFloorPoint(points, logical, 'powerCable'),
+    'the sink tail does not revisit its old floor-level footprint edge');
   assert(points.length >= 6, `adds the unreversed sink riser (got ${points.length} points)`);
   assert(isOrthogonal(points), 'the sink tail has no diagonal segment');
 }
@@ -117,8 +127,9 @@ console.log('\n--- 3. A shared L corner absorbs both measured endpoints ---');
   }, endpoints);
   assert(includesPoint(points, anchor) && includesPoint(points, anchor2),
     'both floor terminals land on their visible connectors');
-  assert(!includesPoint(points, logical) && !includesPoint(points, logical2),
-    'neither end detours through its old footprint position');
+  assert(!includesFloorPoint(points, logical, 'powerCable')
+    && !includesFloorPoint(points, logical2, 'powerCable'),
+    'neither end detours through its old floor-level footprint position');
   assert(isOrthogonal(points), 'moving both ends keeps the shared corner Manhattan');
 }
 

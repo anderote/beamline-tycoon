@@ -37,13 +37,13 @@ function assert(cond, msg) {
   else { failed++; console.log('  FAIL:', msg); }
 }
 
-// A transformer north of a pipe carrying four quadrupoles — the same shape as
+// A package chiller north of a pipe carrying four quadrupoles — the same shape as
 // the run-wiring fixture, so the two gestures are compared on one world.
 function makeGame() {
   const g = new Game(new BeamlineRegistry(), { seed: 11 });
   g.state.resources.funding = 1e9;
   g.state.placeables.push({
-    id: 'src_1', type: 'mcc', kind: 'infrastructure',
+    id: 'src_1', type: 'packageChiller', kind: 'infrastructure',
     category: 'infrastructure', col: 1, row: 1, subCol: 0, subRow: 0, dir: 0,
   });
   g.state.beamPipes.push({
@@ -67,7 +67,7 @@ function portTile(game, id, portName) {
 
 function ctrlFor(game) {
   const c = new UtilityLineInputController({ game, renderer: {} });
-  c.setUtilityType('powerCable');
+  c.setUtilityType('coolingWater');
   return c;
 }
 
@@ -82,16 +82,16 @@ function drag(game, from, to) {
   return ctrl;
 }
 
-function powerLines(game) {
+function coolingLines(game) {
   return Array.from(game.state.utilityLines.values())
-    .filter(l => l.utilityType === 'powerCable');
+    .filter(l => l.utilityType === 'coolingWater');
 }
 
-// The trunk every case here branches off: transformer → the first quad.
+// The trunk every case here branches off: chiller → the first quad.
 function withTrunk() {
   const game = makeGame();
-  drag(game, portTile(game, 'src_1', 'pwr_out_1'), portTile(game, 'pl_1', 'pwr_in'));
-  const trunk = powerLines(game)[0];
+  drag(game, portTile(game, 'src_1', 'cool_out_a'), portTile(game, 'pl_1', 'cool_in'));
+  const trunk = coolingLines(game)[0];
   return { game, trunk };
 }
 
@@ -133,7 +133,7 @@ console.log('\n--- 1. The cursor can grab a line, and ports still win ---');
     `hovering the trunk offers a tap on it (${hov ? (hov.tap ? hov.lineId : 'port') : 'nothing'})`);
 
   // ...but a port under the cursor still wins, even though the trunk ends there.
-  const portPt = portTile(game, 'pl_2', 'pwr_in');
+  const portPt = portTile(game, 'pl_2', 'cool_in');
   const pIso = gridToIso(portPt.col, portPt.row);
   ctrl.onHover(pIso.x, pIso.y);
   assert(ctrl.hoverPort && !ctrl.hoverPort.tap && ctrl.hoverPort.placeableId === 'pl_2',
@@ -144,11 +144,11 @@ console.log('\n--- 2. A drag onto the trunk commits, and joins its network ---')
 {
   const { game, trunk } = withTrunk();
   const mid = trunkMid(trunk);
-  const before = powerLines(game).length;
+  const before = coolingLines(game).length;
 
-  drag(game, portTile(game, 'pl_2', 'pwr_in'), { col: mid.col, row: mid.row });
+  drag(game, portTile(game, 'pl_2', 'cool_in'), { col: mid.col, row: mid.row });
 
-  const lines = powerLines(game);
+  const lines = coolingLines(game);
   assert(lines.length === before + 1,
     `the branch committed (got ${lines.length - before}`
     + `${game._logs.length ? ' — ' + game._logs.join(' | ') : ''})`);
@@ -159,7 +159,7 @@ console.log('\n--- 2. A drag onto the trunk commits, and joins its network ---')
   assert(branch && branch.end === null,
     'and open at the tap end — a tap is a join, not an endpoint reference');
 
-  const nets = discoverNetworks('powerCable', game.state.utilityLines,
+  const nets = discoverNetworks('coolingWater', game.state.utilityLines,
     makeDefaultPortLookup(game.state));
   const withBoth = nets.filter(n => n.lineIds.includes(trunk.id) && n.lineIds.includes(branch.id));
   assert(withBoth.length === 1,
@@ -188,7 +188,7 @@ console.log('\n--- 3. The exemption is exactly one point wide ---');
       { col: mid.col + seg.axis.col, row: mid.row + seg.axis.row },
     ];
     const res = validateDrawLine(game.state, {
-      utilityType: 'powerCable', start: null, end: null, path: along,
+      utilityType: 'coolingWater', start: null, end: null, path: along,
       tapLineIds: { start: trunk.id, end: trunk.id },
     });
     assert(!res.ok && res.reason === 'overlap_same_type',
@@ -202,17 +202,17 @@ console.log('\n--- 3. The exemption is exactly one point wide ---');
     { col: mid.col + perp.col * 2, row: mid.row + perp.row * 2 },
   ];
   const okTap = validateDrawLine(game.state, {
-    utilityType: 'powerCable', start: null, end: null, path: branchPath,
+    utilityType: 'coolingWater', start: null, end: null, path: branchPath,
     tapLineIds: { start: trunk.id, end: null },
   });
   assert(okTap.ok, `a clean tap validates (got ${okTap.ok ? 'ok' : okTap.reason})`);
   const noTap = validateDrawLine(game.state, {
-    utilityType: 'powerCable', start: null, end: null, path: branchPath,
+    utilityType: 'coolingWater', start: null, end: null, path: branchPath,
   });
   assert(!noTap.ok && noTap.reason === 'overlap_same_type',
     `the same path without the tap is refused (got ${noTap.ok ? 'ok' : noTap.reason})`);
   const wrongLine = validateDrawLine(game.state, {
-    utilityType: 'powerCable', start: null, end: null, path: branchPath,
+    utilityType: 'coolingWater', start: null, end: null, path: branchPath,
     tapLineIds: { start: 'ul_does_not_exist', end: null },
   });
   assert(!wrongLine.ok,
@@ -225,10 +225,10 @@ console.log('\n--- 4. A line of another utility is not tappable ---');
   const mid = trunkMid(trunk);
   const iso = gridToIso(mid.col, mid.row);
   const ctrl = new UtilityLineInputController({ game, renderer: {} });
-  ctrl.setUtilityType('coolingWater');
+  ctrl.setUtilityType('powerCable');
   ctrl.onHover(iso.x, iso.y);
   assert(!ctrl.hoverPort || !ctrl.hoverPort.tap,
-    'a cooling drag does not offer to tap a power cable');
+    'a power-cable drag does not offer to tap a cooling-water line');
 }
 
 console.log(`\n=== ${passed} passed, ${failed} failed ===`);

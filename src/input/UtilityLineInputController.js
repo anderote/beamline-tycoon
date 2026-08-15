@@ -31,6 +31,11 @@ import { UTILITY_TYPES } from '../utility/registry.js';
 import { listUtilityEndpoints, findUtilityEndpoint } from '../utility/utility-endpoints.js';
 import { planUtilityRun, runPreviewPath, runWiringCost } from './utility-run-wiring.js';
 import { isoToGridFloat } from '../renderer/grid.js';
+import {
+  cablePathLengthSubUnits,
+  isSoftCable,
+  sanitizeCablePath,
+} from '../utility/soft-cable.js';
 
 // Snap tolerance between cursor and a port's world position, in world meters.
 // 1.5 m gives a deliberately magnetic, but still local, pickup/drop zone.
@@ -56,6 +61,12 @@ const TAP_SNAP_RADIUS_TILES = 0.4;
 // ceiling on point count (an unbounded drag re-plans against it every move).
 const RUN_TRACE_MIN_STEP = 0.5;      // tiles
 const RUN_TRACE_MAX_POINTS = 256;
+
+// Flexible electrical cable follows the hand rather than the routing grid.
+// Roughly 24 cm between samples preserves an S-curve without storing one
+// point per mouse event, and the cap bounds save size / preview rebuild cost.
+const SOFT_CABLE_TRACE_MIN_STEP = 0.12; // tiles
+const SOFT_CABLE_TRACE_MAX_POINTS = 256;
 
 // How far down the router's ranking a drag will look for a route the board
 // accepts. See _dragGeometry: each step costs a full validateDrawLine, which
@@ -86,6 +97,7 @@ export class UtilityLineInputController {
     this._runMode = false;
     this._runPlan = null;    // { stubs, totalSubL, skipped, cost } while dragging
     this._runTrace = [];     // tile points the cursor swept this drag
+    this._cableTrace = [];   // unsnapped freehand points for power/HV visuals
   }
 
   setUtilityType(type) {
@@ -156,7 +168,10 @@ export class UtilityLineInputController {
     if (this._runPlan && this._runPlan.stubs.length > 0) {
       return (this._runPlan.cost && this._runPlan.cost.funding) || 0;
     }
-    const c = this._wiringCost(pathLengthSubUnits(this._drawPath));
+    const cableSubL = isSoftCable(this._utilityType)
+      ? cablePathLengthSubUnits(this._cableTrace)
+      : 0;
+    const c = this._wiringCost(cableSubL || pathLengthSubUnits(this._drawPath));
     return (c && c.funding) || 0;
   }
 
@@ -181,6 +196,9 @@ export class UtilityLineInputController {
     // Manhattan preview: "wire everything this drag passed" is only
     // predictable if it means the path the player's hand drew.
     this._runTrace = [this._anchorTile()];
+    this._cableTrace = isSoftCable(this._utilityType)
+      ? [this._worldToTile(this._drawStart.worldPos)]
+      : [];
     this._preview = {
       utilityType: this._utilityType,
       path: [],
@@ -198,6 +216,7 @@ export class UtilityLineInputController {
     if (snap) snap.utilityType = this._utilityType;
     this._hoverPort = snap;
     const grew = this._traceCursor(worldX, worldY);
+    this._traceSoftCable(worldX, worldY, snap);
     const geom = this._dragGeometry(worldX, worldY, snap);
     this._drawPath = geom.path || [];
     // Re-plan only when the corridor moved or the modifier flipped — planning
@@ -208,10 +227,17 @@ export class UtilityLineInputController {
     // showing the drag line too would advertise geometry that never lands.
     const previewPath = (this._runPlan && this._runPlan.stubs.length > 0)
       ? runPreviewPath(this._runPlan.stubs)
-      : this._drawPath;
+      : (isSoftCable(this._utilityType) && this._cableTrace.length >= 2
+          ? this._cableTrace
+          : this._drawPath);
     this._preview = {
       utilityType: this._utilityType,
       path: previewPath,
+      cablePath: isSoftCable(this._utilityType) && !this._runPlan
+        ? this._cableTrace.map(point => ({ ...point }))
+        : null,
+      startAnchor: this._drawStart?.anchor || null,
+      endAnchor: snap?.anchor || null,
       color: UTILITY_TYPES[this._utilityType]?.color || '#ffffff',
     };
   }
@@ -226,6 +252,7 @@ export class UtilityLineInputController {
     // End may be a port, an existing line's subtile (detected via overlap
     // during discovery), or just empty space.
     const endSnap = this._snapToNearest(worldX, worldY, screen);
+    this._traceSoftCable(worldX, worldY, endSnap, true);
     const geom = this._dragGeometry(worldX, worldY, endSnap);
     // Run-wiring wins over the single-line commit whenever it found something
     // to wire; an empty plan falls through so a modifier-held miss still
@@ -239,6 +266,12 @@ export class UtilityLineInputController {
     const path = geom.path;
     if (path) {
       const { startRef, endRef } = geom;
+      const cablePath = isSoftCable(this._utilityType)
+        ? sanitizeCablePath(this._cableTrace, SOFT_CABLE_TRACE_MAX_POINTS)
+        : null;
+      const pricedSubL = cablePath && cablePath.length >= 2
+        ? cablePathLengthSubUnits(cablePath)
+        : pathLengthSubUnits(path);
       // Trivially self-looping port-to-same-port commits are the gesture's
       // validate step. addLine then runs its own validation (port direction,
       // overlap, port already taken, …) and returns null on rejection, so
@@ -255,12 +288,13 @@ export class UtilityLineInputController {
         validate: () => !(startRef && endRef
           && startRef.placeableId === endRef.placeableId
           && startRef.portName === endRef.portName),
-        cost: this._wiringCost(pathLengthSubUnits(path)) || undefined,
+        cost: this._wiringCost(pricedSubL) || undefined,
         mutate: () => this.game.utilityLineSystem.addLine({
           utilityType: this._utilityType,
           start: startRef,
           end: endRef,
           path,
+          cablePath,
           tapLineIds: geom.tapLineIds,
         }),
       });
@@ -280,6 +314,7 @@ export class UtilityLineInputController {
     this._runMode = false;
     this._runPlan = null;
     this._runTrace = [];
+    this._cableTrace = [];
   }
 
   /** The draw anchor as a snapped tile point. */
@@ -311,6 +346,30 @@ export class UtilityLineInputController {
     // anchor end of the corridor must survive an arbitrarily long drag.
     if (this._runTrace.length >= RUN_TRACE_MAX_POINTS) this._runTrace[this._runTrace.length - 1] = pt;
     else this._runTrace.push(pt);
+    return true;
+  }
+
+  /** Record the actual unsnapped hand path used to render a flexible cable. */
+  _traceSoftCable(worldX, worldY, snap, final = false) {
+    if (!isSoftCable(this._utilityType) || this._runMode) return false;
+    if (!Array.isArray(this._cableTrace) || this._cableTrace.length === 0) return false;
+    const raw = snap?.worldPos
+      ? this._worldToTile(snap.worldPos)
+      : this._isoFloatToTile(worldX, worldY);
+    if (!Number.isFinite(raw.col) || !Number.isFinite(raw.row)) return false;
+    const point = { col: raw.col, row: raw.row };
+    const last = this._cableTrace[this._cableTrace.length - 1];
+    const distance = Math.hypot(point.col - last.col, point.row - last.row);
+    if (distance < 1e-6) return false;
+    if (final || distance >= SOFT_CABLE_TRACE_MIN_STEP) {
+      if (this._cableTrace.length < SOFT_CABLE_TRACE_MAX_POINTS) this._cableTrace.push(point);
+      else this._cableTrace[this._cableTrace.length - 1] = point;
+    } else if (this._cableTrace.length === 1) {
+      this._cableTrace.push(point);
+    } else {
+      // Keep the live endpoint under the cursor without accumulating jitter.
+      this._cableTrace[this._cableTrace.length - 1] = point;
+    }
     return true;
   }
 
@@ -515,6 +574,7 @@ export class UtilityLineInputController {
   _snapToNearest(worldX, worldY, screen) {
     const port = this._snapToNearestPort(worldX, worldY, screen);
     if (port) return port;
+    if (UTILITY_TYPES[this._utilityType]?.allowsTap === false) return null;
     const tap = this.nearestLine(worldX, worldY, TAP_SNAP_RADIUS_TILES);
     if (!tap) return null;
     return { open: true, tap: true, lineId: tap.lineId, worldPos: tap.worldPos };
@@ -542,7 +602,10 @@ export class UtilityLineInputController {
     const iter = typeof lines.values === 'function' ? lines.values() : lines;
     for (const line of iter) {
       if (!line || line.utilityType !== this._utilityType) continue;
-      for (const pt of expandPath(line.path || [])) {
+      const visual = isSoftCable(line.utilityType) && Array.isArray(line.cablePath)
+        ? line.cablePath
+        : expandPath(line.path || []);
+      for (const pt of visual) {
         const dx = pt.col * 2 - cursor.x;
         const dz = pt.row * 2 - cursor.z;
         const d = Math.hypot(dx, dz);
@@ -612,6 +675,7 @@ export class UtilityLineInputController {
 
         let d;
         let routePos = pos;
+        let resolvedAnchor = null;
         if (canProject) {
           const anchor = portAnchor3D(placeable, def, name);
           if (!anchor) continue;
@@ -619,13 +683,20 @@ export class UtilityLineInputController {
           if (!px) continue;
           d = Math.hypot(px.x - screen.x, px.y - screen.y);
           routePos = { x: anchor.x, z: anchor.z };
+          resolvedAnchor = anchor;
         } else {
           d = Math.hypot(pos.x - cursorWorld.x, pos.z - cursorWorld.z);
         }
 
           if (d < bestDist) {
             bestDist = d;
-            best = { placeableId: placeable.id, portName: name, worldPos: routePos, utilityType: type };
+            best = {
+              placeableId: placeable.id,
+              portName: name,
+              worldPos: routePos,
+              utilityType: type,
+              anchor: resolvedAnchor,
+            };
           }
         }
       }
