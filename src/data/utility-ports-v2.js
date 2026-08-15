@@ -949,7 +949,7 @@ function coolingPlantPorts(params, names = [
 ]) {
   const out = {};
   const splitParams = { ...params };
-  for (const key of ['capacity', 'heatRejectionCapacity']) {
+  for (const key of ['capacity', 'heatRejectionCapacity', 'makeupWaterLPerTick']) {
     if (typeof splitParams[key] === 'number') splitParams[key] /= names.length;
   }
   names.forEach((name, i) => {
@@ -1088,6 +1088,10 @@ const INFRA_UTILITY_PORTS = {
   packageChiller:        coolingPlantPorts(
     {
       reservoir: true, capacity: 5, heatRejectionCapacity: 5,
+      // Integrated mains make-up matches nameplate evaporation (0.02 L per
+      // kW per tick). It recovers a depleted package gradually instead of
+      // turning its small internal reservoir into a recurring manual refill.
+      makeupWaterLPerTick: 0.1,
       displayLabel: 'Cooling capacity',
     },
     [
@@ -1099,6 +1103,7 @@ const INFRA_UTILITY_PORTS = {
   // discovery unites all same-device sources into one internal header.
   lcwSkid:               coolingPlantPorts({
     reservoir: true, capacity: 25, heatRejectionCapacity: 25,
+    makeupWaterLPerTick: 0.5,
   }),
   dualCircuitChiller:    coolingPlantPorts({ capacity: 175 }),
   chiller:               coolingPlantPorts({ capacity: 300 }),

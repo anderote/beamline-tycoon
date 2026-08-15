@@ -143,5 +143,51 @@ console.log('\n--- Test 7: purity ---');
 }
 
 // ==========================================================================
+// Test 8: integrated packages add make-up water before the dry check.
+// ==========================================================================
+console.log('\n--- Test 8: integrated package make-up water ---');
+{
+  const capacity = 25;
+  const makeupWaterLPerTick = capacity * EVAP_PER_KW_PER_TICK;
+  const net = mkNetwork({
+    sources: [{
+      portKey: 'skid:cool_out', placeableId: 'skid', portName: 'cool_out',
+      params: { capacity, makeupWaterLPerTick },
+    }],
+    sinks: [{
+      portKey: 'load:cool_in', placeableId: 'load', portName: 'cool_in',
+      params: { heatLoad: capacity },
+    }],
+  });
+
+  let persistent = { reservoirVolumeL: 0 };
+  let stayedLive = true;
+  let publishedRate = null;
+  for (let tick = 0; tick < 2000; tick++) {
+    const r = desc.solve(net, persistent, {});
+    publishedRate = r.flowState.makeupWaterLPerTick;
+    if (r.errors.some(error => error.code === 'cooling_dry')
+        || r.flowState.perSinkQuality['load:cool_in'] !== 1) {
+      stayedLive = false;
+      break;
+    }
+    persistent = r.nextPersistentState;
+  }
+  assert(publishedRate === makeupWaterLPerTick,
+    `published make-up rate is ${makeupWaterLPerTick} L/tick`);
+  assert(stayedLive, 'a dry integrated skid restarts and runs indefinitely at nameplate load');
+  assert(approx(persistent.reservoirVolumeL, 0),
+    'nameplate evaporation consumes only the slow make-up water, without instant refilling');
+
+  const halfLoad = {
+    ...net,
+    sinks: [{ ...net.sinks[0], params: { heatLoad: capacity / 2 } }],
+  };
+  const recovering = desc.solve(halfLoad, { reservoirVolumeL: 0 }, {});
+  assert(approx(recovering.nextPersistentState.reservoirVolumeL, makeupWaterLPerTick / 2),
+    'below nameplate load, spare make-up water slowly restores the reservoir');
+}
+
+// ==========================================================================
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

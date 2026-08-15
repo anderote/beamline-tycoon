@@ -135,7 +135,7 @@ P_eff    = P_forward x coupling
 reflected fraction = 1 - coupling
 ```
 
-**Reservoir:** each cooling network evaporates `0.02 L per kW of heat load per tick` from its 500 L reservoir. Refills cost $12/L, so a full top-up is about $6,000. A 30 kW starter loop drinks 0.6 L/tick — a refill roughly every 830 ticks; a 60 kW detector loop refills about twice as often. A visible recurring cost, not a death spiral.
+**Reservoir:** each cooling network evaporates `0.02 L per kW of heat load per tick` from its 500 L reservoir. The integrated Package Chiller and LCW Skid automatically add make-up water at `0.1 L/tick` and `0.5 L/tick` respectively—enough to offset evaporation at their own nameplate loads. When demand is lower, the spare make-up capacity restores a depleted reservoir gradually rather than filling it instantly. Central plants still need manual refills at $12/L, so a full top-up is about $6,000. A 30 kW central loop drinks 0.6 L/tick—a refill roughly every 830 ticks; a 60 kW detector loop refills about twice as often.
 
 **Margin:**
 ```
