@@ -28,6 +28,7 @@ globalThis.document = {
 };
 
 const { PLACEABLES } = await import('../src/data/placeables/index.js');
+const { COMPONENTS } = await import('../src/data/components.js');
 const { ComponentBuilder, isDetailedComponent } =
   await import('../src/renderer3d/component-builder.js');
 const { EquipmentBuilder, equipmentPartGlowSpec } =
@@ -201,4 +202,13 @@ test('NC RF cavity leaves the external waveguide run to its utility port', () =>
   const size = new THREE.Box3().setFromObject(visual).getSize(new THREE.Vector3());
   assert.ok(size.x <= 1.05,
     `rfCavity geometry stays on the 1 m cavity body instead of growing a waveguide stub (${size.x} m)`);
+});
+
+test('inline bellows uses a compact visual envelope around its point slot', () => {
+  const def = COMPONENTS.bellows;
+  const object = new ComponentBuilder()._createObject(def, def.accentColor);
+  const visual = object.children[0];
+  const size = new THREE.Box3().setFromObject(visual).getSize(new THREE.Vector3());
+  assert.ok(size.z <= 0.26,
+    `bellows should stay near 0.25 m long instead of filling a 0.5 m subtile (${size.z} m)`);
 });
