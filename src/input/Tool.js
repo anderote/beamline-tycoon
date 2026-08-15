@@ -18,7 +18,7 @@
 //     the event. Returning false lets InputHandler's remaining legacy
 //     dispatch chains run.
 //   - onShiftChange(down, ctx): fired when the Shift key goes down/up so
-//     tools with shift-modified previews (wall boundary fill, demolish
+//     tools with shift-modified previews (smart floor wall paths, demolish
 //     whole-run) can refresh without waiting for a mousemove.
 //   - onRotateKey(ctx): R, offered to the active tool BEFORE the unified
 //     placement rotation and the research-overlay fallback. Return true to
