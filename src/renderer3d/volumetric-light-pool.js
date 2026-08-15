@@ -10,6 +10,7 @@ export class VolumetricLightPool {
     this.maxCount = opts.maxCount ?? MAX_VOLUMETRIC_BEAMS;
     this.activeCount = Math.min(this.maxCount, opts.activeCount ?? 0);
     this.enabled = opts.enabled !== false;
+    this.modern = opts.modern === true;
     this.group = new THREE.Group();
     this.group.name = 'volumetricLights';
     scene.add(this.group);
@@ -18,7 +19,7 @@ export class VolumetricLightPool {
     this._up = new THREE.Vector3(UP.x, UP.y, UP.z);
     this._direction = new THREE.Vector3();
     for (let i = 0; i < this.maxCount; i++) {
-      const material = createVolumetricLightMaterial();
+      const material = createVolumetricLightMaterial({ modern: this.modern });
       material.uniforms.uPhase.value = i * 1.618;
       const mesh = new THREE.Mesh(this._geometry, material);
       mesh.visible = false;

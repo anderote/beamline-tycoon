@@ -71,6 +71,24 @@ test('path effects render every crest in two instanced draws without creating li
   system.dispose();
 });
 
+test('path effects can keep emissive crests and real-light proxies without floor circles', () => {
+  const scene = new Three.Scene();
+  const system = new VisualEffectSystem(scene, { pulseBudget: 8, lightProxyBudget: 4 });
+  system.syncScope('utilities', [{
+    id: 'cable-1', kind: 'pathPulse', groundSpill: false,
+    path: [{ x: 0, y: 0.1, z: 0 }, { x: 4, y: 0.1, z: 0 }],
+    color: '#7788ff', speed: 1, period: 2, radius: 0.06,
+    light: { intensity: 0.2, distance: 1.5 },
+  }]);
+
+  system.update(0, 1);
+  assert.equal(system._pulseMesh.count, 3, 'traveling cable crests remain visible');
+  assert.equal(system._spillMesh.count, 0, 'the cable contributes no circular floor decals');
+  assert.ok(system.getStats().lightCandidates > 0,
+    'bounded real-light proxies remain available for nearby surface response');
+  system.dispose();
+});
+
 test('surface glows animate independently while retaining shared shader structure', () => {
   const scene = new Three.Scene();
   const root = new Three.Group();

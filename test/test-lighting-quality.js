@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  LIGHTING_QUALITY_PRESETS, MAX_FIXTURE_SHADOWS, fixtureShadowTopologyLimit,
+  LIGHTING_QUALITY_PRESETS, MAX_FIXTURE_LIGHTS, MAX_FIXTURE_SHADOWS, fixtureShadowTopologyLimit,
   normalizeLightingQuality, resolveLightingQuality,
 } from '../src/renderer3d/lighting-quality.js';
 import { ShadowScheduler } from '../src/renderer3d/shadow-scheduler.js';
@@ -9,15 +9,19 @@ import { LIGHTING_DEFS, validateLightingDef } from '../src/data/placeables/light
 import { fixtureDynamicFactor } from '../src/renderer3d/light-dynamics.js';
 
 test('lighting presets are immutable, bounded, and normalize unknown values to auto', () => {
-  assert.equal(MAX_FIXTURE_SHADOWS, 8);
+  assert.equal(MAX_FIXTURE_LIGHTS, 64);
+  assert.equal(MAX_FIXTURE_SHADOWS, 24);
   assert.equal(Object.isFrozen(LIGHTING_QUALITY_PRESETS), true);
   assert.equal(Object.isFrozen(LIGHTING_QUALITY_PRESETS.high), true);
   assert.equal(normalizeLightingQuality('ULTRA'), 'ultra');
   assert.equal(normalizeLightingQuality('potato'), 'auto');
   assert.equal(resolveLightingQuality('low').fixtureShadowCount, 0);
   assert.equal(resolveLightingQuality('ultra').fixtureShadowCount, MAX_FIXTURE_SHADOWS);
+  assert.equal(resolveLightingQuality('ultra').fixtureLightCount, MAX_FIXTURE_LIGHTS);
+  assert.ok(resolveLightingQuality('high').fixtureLightCount
+    > resolveLightingQuality('high').fixtureShadowCount);
   assert.equal(resolveLightingQuality('high').fixtureShadowUpdatesPerFrame, 2);
-  assert.equal(resolveLightingQuality('ultra').fixtureShadowMapSize, 1536);
+  assert.equal(resolveLightingQuality('ultra').fixtureShadowMapSize, 1024);
 });
 
 test('auto lighting quality uses conservative capability thresholds', () => {
@@ -30,8 +34,10 @@ test('auto lighting quality uses conservative capability thresholds', () => {
 test('fixture shadow topology stays inside the fragment texture-unit budget', () => {
   assert.equal(fixtureShadowTopologyLimit(16), 5,
     'a common 16-unit GPU retains five units for material textures');
-  assert.equal(fixtureShadowTopologyLimit(32), MAX_FIXTURE_SHADOWS,
-    'a 32-unit GPU can allocate the full fixture pool');
+  assert.equal(fixtureShadowTopologyLimit(32), 13,
+    'legacy WebGL retains its material reserve even on a 32-unit GPU');
+  assert.equal(fixtureShadowTopologyLimit(64), MAX_FIXTURE_SHADOWS,
+    'a sufficiently large legacy sampler budget can allocate the full pool');
   assert.equal(fixtureShadowTopologyLimit(8), 1,
     'small sampler budgets degrade without exceeding the limit');
   assert.equal(fixtureShadowTopologyLimit(undefined), 5,

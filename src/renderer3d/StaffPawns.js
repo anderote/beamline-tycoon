@@ -804,6 +804,11 @@ export class StaffPawns {
       const member = byId.get(pawn.id);
       let moved = 0;
 
+      // An incident temporarily hands this figure to StaffRagdolls. Its
+      // authored rig is hidden and the Rapier articulation owns the visible
+      // pose, so pathing/procedural animation must not fight it.
+      if (pawn.ragdolled) continue;
+
       // Reconcile walk/pose state with member.job FIRST, before anything
       // mode-based below runs this frame — see _syncJob's own doc comment
       // for the three-way split (no job / travel / work) this drives.
