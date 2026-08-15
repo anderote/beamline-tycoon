@@ -958,12 +958,16 @@ body {
   bottom: calc(var(--hud-bottom-height) + 28px);
   left: 12px;
   z-index: 110;
-  width: 320px;
+  width: min(496px, calc(100vw - 24px));
   overflow: hidden;
   padding: 0;
   border-color: var(--blt-panel-border);
-  background: var(--blt-panel-bg);
-  box-shadow: none;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--guide-accent, var(--blt-diagram)) 8%, transparent), transparent 42%),
+    var(--blt-panel-bg);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.018),
+    0 12px 34px rgba(0, 0, 12, 0.28);
   color: var(--blt-heading);
   font-family: 'Press Start 2P', monospace;
   pointer-events: none;
@@ -976,11 +980,11 @@ body {
   gap: 12px;
   padding: 10px 14px 8px;
   border-bottom: 1px solid var(--blt-panel-divider);
-  background: none;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--guide-accent) 10%, transparent), transparent 55%);
 }
 .connection-guide-kicker {
   order: 2;
-  color: rgba(160, 160, 200, 0.55);
+  color: color-mix(in srgb, var(--guide-accent) 58%, #77778c);
   font-size: 7px;
   letter-spacing: 1px;
   white-space: nowrap;
@@ -993,7 +997,7 @@ body {
   white-space: nowrap;
 }
 .connection-guide-body {
-  padding: 10px 14px 12px;
+  padding: 11px 14px 14px;
 }
 .connection-guide-desc {
   margin-bottom: 10px;
@@ -1006,30 +1010,118 @@ body {
 .connection-guide-flow {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 3px;
-  min-height: 80px;
-  padding: 10px 8px 12px;
+  justify-content: stretch;
+  gap: 0;
+  min-height: 116px;
+  padding: 14px 10px 13px;
   border: 1px solid rgba(80, 80, 140, 0.25);
   border-radius: 3px;
-  background: rgba(5, 5, 15, 0.6);
+  background:
+    linear-gradient(rgba(8, 8, 22, 0.76), rgba(5, 5, 15, 0.82)),
+    repeating-linear-gradient(0deg, transparent 0 15px, rgba(120, 130, 180, 0.055) 15px 16px),
+    repeating-linear-gradient(90deg, transparent 0 15px, rgba(120, 130, 180, 0.055) 15px 16px);
+  box-shadow: inset 0 0 18px rgba(0, 0, 15, 0.36);
 }
 .connection-guide-node {
   display: flex;
-  flex: 0 1 66px;
+  flex: 0 0 78px;
   flex-direction: column;
   align-items: center;
   min-width: 0;
   color: #b6def8;
   text-align: center;
 }
+.connection-guide-machine {
+  position: relative;
+  display: grid;
+  width: 60px;
+  height: 46px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--guide-accent) 60%, #53536d);
+  border-radius: 3px 3px 2px 2px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--guide-accent) 12%, transparent), transparent 58%),
+    #15152a;
+  box-shadow:
+    inset 0 0 0 3px #0b0b1c,
+    inset 0 -7px rgba(0, 0, 8, 0.22),
+    0 0 9px color-mix(in srgb, var(--guide-accent) 13%, transparent);
+}
+.connection-guide-machine::before,
+.connection-guide-machine::after {
+  content: '';
+  position: absolute;
+  top: 21px;
+  width: 6px;
+  height: 5px;
+  border-top: 2px solid var(--guide-accent);
+  border-bottom: 2px solid color-mix(in srgb, var(--guide-accent) 52%, #414158);
+  background: #090917;
+}
+.connection-guide-machine::before { left: -7px; }
+.connection-guide-machine::after { right: -7px; }
+.connection-guide-step {
+  position: absolute;
+  top: -6px;
+  left: 4px;
+  padding: 2px 3px;
+  border: 1px solid color-mix(in srgb, var(--guide-accent) 48%, #3d3d59);
+  border-radius: 2px;
+  background: #101024;
+  color: color-mix(in srgb, var(--guide-accent) 74%, white);
+  font-size: 5px;
+  line-height: 1;
+}
 .connection-guide-icon {
-  color: var(--blt-diagram);
-  font-size: 19px;
-  text-shadow: 0 0 6px rgba(73, 197, 255, 0.45);
+  color: color-mix(in srgb, var(--guide-accent) 84%, white);
+  font-family: monospace;
+  font-size: 21px;
+  line-height: 1;
+  text-shadow: 0 0 7px color-mix(in srgb, var(--guide-accent) 48%, transparent);
+  transform: translateY(-1px);
+}
+.connection-guide-lights {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  display: flex;
+  gap: 2px;
+}
+.connection-guide-lights i {
+  width: 3px;
+  height: 3px;
+  background: rgba(92, 92, 122, 0.7);
+  box-shadow: 0 0 0 1px rgba(0, 0, 12, 0.7);
+}
+.connection-guide-lights i:first-child {
+  background: var(--guide-accent);
+  box-shadow: 0 0 4px var(--guide-accent);
+}
+.connection-guide-node[data-kind='source'] .connection-guide-machine,
+.connection-guide-node[data-kind='pump'] .connection-guide-machine,
+.connection-guide-node[data-kind='tank'] .connection-guide-machine {
+  border-radius: 10px 10px 3px 3px;
+}
+.connection-guide-node[data-kind='beamline'] .connection-guide-machine,
+.connection-guide-node[data-kind='cavity'] .connection-guide-machine {
+  height: 38px;
+  margin-block: 4px;
+  border-radius: 14px;
+}
+.connection-guide-node[data-kind='gauge'] .connection-guide-machine {
+  width: 52px;
+  height: 52px;
+  margin-block: -3px;
+  border-radius: 50%;
+}
+.connection-guide-node[data-kind='cooler'] .connection-guide-machine::after,
+.connection-guide-node[data-kind='cabinet'] .connection-guide-machine::after {
+  box-shadow: -8px -17px 0 -2px color-mix(in srgb, var(--guide-accent) 42%, transparent);
 }
 .connection-guide-name {
-  margin-top: 4px;
+  min-height: 20px;
+  margin-top: 8px;
+  color: color-mix(in srgb, var(--guide-accent) 58%, #dce8ff);
   font-size: 7px;
   line-height: 1.45;
 }
@@ -1040,26 +1132,57 @@ body {
   line-height: 1.35;
 }
 .connection-guide-link {
-  display: grid;
-  justify-items: center;
-  flex: 1 1 18px;
-  min-width: 12px;
+  position: relative;
+  display: flex;
+  flex: 1 1 42px;
+  align-self: flex-start;
+  justify-content: center;
+  min-width: 30px;
+  height: 54px;
+  padding-top: 4px;
 }
 .connection-guide-link-label {
-  color: rgba(174, 207, 243, 0.64);
-  font-size: 6px;
-  margin-bottom: 4px;
+  position: relative;
+  z-index: 1;
+  max-width: 70px;
+  padding: 3px 4px;
+  border: 1px solid color-mix(in srgb, var(--guide-accent) 24%, #34344c);
+  border-radius: 2px;
+  background: #101020;
+  color: color-mix(in srgb, var(--guide-accent) 60%, #98a2be);
+  font-size: 5px;
+  line-height: 1.45;
   text-align: center;
 }
-.connection-guide-arrow {
-  color: #8ecdf2;
-  width: 100%;
-  padding: 3px 0;
-  border-top: 3px dotted rgba(142, 205, 242, 0.82);
-  font-size: 17px;
-  line-height: 1;
-  text-align: right;
-  text-shadow: 0 0 7px rgba(73, 197, 255, 0.6);
+.connection-guide-track {
+  position: absolute;
+  top: 25px;
+  left: 0;
+  right: 0;
+  height: 10px;
+  border-top: 3px dotted color-mix(in srgb, var(--guide-accent) 78%, transparent);
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--guide-accent) 38%, transparent));
+}
+.connection-guide-track::after {
+  content: '';
+  position: absolute;
+  top: -7px;
+  right: -1px;
+  width: 7px;
+  height: 7px;
+  border-top: 3px solid var(--guide-accent);
+  border-right: 3px solid var(--guide-accent);
+  transform: rotate(45deg);
+}
+.connection-guide-track i {
+  position: absolute;
+  top: -5px;
+  left: 44%;
+  width: 5px;
+  height: 5px;
+  border: 1px solid var(--guide-accent);
+  background: #0a0a18;
+  transform: rotate(45deg);
 }
 
 /* RF waveguides carry one frequency band per physical network. This is a

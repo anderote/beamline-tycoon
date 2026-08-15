@@ -61,6 +61,11 @@ for (const category of infraCategories) {
     guide?.links?.length === guide?.flow?.length - 1,
     `${category} has one link label between each pair of stages`,
   );
+  assert(
+    /^#[0-9a-f]{6}$/i.test(guide?.accent)
+      && guide.flow.every(stage => stage.kind && stage.icon),
+    `${category} gives its flow diagram a color and machine style`,
+  );
 }
 
 console.log('\n--- A palette category change refreshes all category-bound UI ---\n');

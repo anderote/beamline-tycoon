@@ -689,60 +689,66 @@ export const CONNECTION_GUIDES = {
   power: {
     title: 'POWER PATH',
     description: 'Bring grid power through distribution before feeding equipment.',
+    accent: '#ffd36a',
     flow: [
-      { name: 'GRID / HV', icon: '⚡', detail: 'supply' },
-      { name: 'SWITCHGEAR', icon: '▣', detail: 'distribution' },
-      { name: 'EQUIPMENT', icon: '◆', detail: 'load' },
+      { name: 'GRID / HV', icon: '⚡', detail: 'supply', kind: 'source' },
+      { name: 'SWITCHGEAR', icon: '▣', detail: 'distribution', kind: 'cabinet' },
+      { name: 'EQUIPMENT', icon: '◆', detail: 'load', kind: 'load' },
     ],
     links: ['HV CABLE', 'POWER CABLE'],
   },
   vacuum: {
     title: 'VACUUM PATH',
     description: 'Pump the beam volume, then monitor it with vacuum instruments.',
+    accent: '#8fe5ff',
     flow: [
-      { name: 'PUMPS', icon: '◉', detail: 'rough + turbo' },
-      { name: 'BEAMLINE', icon: '═', detail: 'vacuum volume' },
-      { name: 'GAUGES', icon: '◌', detail: 'protection' },
+      { name: 'PUMPS', icon: '◉', detail: 'rough + turbo', kind: 'pump' },
+      { name: 'BEAMLINE', icon: '═', detail: 'vacuum volume', kind: 'beamline' },
+      { name: 'GAUGES', icon: '◌', detail: 'protection', kind: 'gauge' },
     ],
     links: ['VACUUM PIPE', 'SENSES'],
   },
   rfPower: {
     title: 'RF PATH',
     description: 'Drive an RF source, then route its output to compatible cavities.',
+    accent: '#ff9b72',
     flow: [
-      { name: 'MODULATOR', icon: '▥', detail: 'control' },
-      { name: 'RF SOURCE', icon: '◉', detail: 'amplifier' },
-      { name: 'RF CAVITY', icon: '◈', detail: 'accelerates' },
+      { name: 'MODULATOR', icon: '▥', detail: 'control', kind: 'cabinet' },
+      { name: 'RF SOURCE', icon: '◉', detail: 'amplifier', kind: 'source' },
+      { name: 'RF CAVITY', icon: '◈', detail: 'accelerates', kind: 'cavity' },
     ],
     links: ['DATA FIBER', 'WAVEGUIDE'],
   },
   cooling: {
     title: 'COOLING LOOP',
     description: 'Supply and chill the loop, carry heat away, then reject it.',
+    accent: '#76d7c9',
     flow: [
-      { name: 'MAKE-UP', icon: '●', detail: 'water' },
-      { name: 'CHILLER', icon: '▣', detail: 'cold loop' },
-      { name: 'HEAT LOAD', icon: '♨', detail: 'equipment' },
-      { name: 'DRY COOLER', icon: '▤', detail: 'rejects heat' },
+      { name: 'MAKE-UP', icon: '●', detail: 'water', kind: 'tank' },
+      { name: 'CHILLER', icon: '▣', detail: 'cold loop', kind: 'chiller' },
+      { name: 'HEAT LOAD', icon: '♨', detail: 'equipment', kind: 'load' },
+      { name: 'DRY COOLER', icon: '▤', detail: 'rejects heat', kind: 'cooler' },
     ],
     links: ['PLANT WATER', 'COOLING WATER', 'RETURN'],
   },
   dataControls: {
     title: 'CONTROL PATH',
     description: 'Link the control rack to equipment for commands and telemetry.',
+    accent: '#9be27c',
     flow: [
-      { name: 'CONTROL RACK', icon: '▥', detail: 'logic + interlocks' },
-      { name: 'EQUIPMENT', icon: '◆', detail: 'telemetry' },
+      { name: 'CONTROL RACK', icon: '▥', detail: 'logic + interlocks', kind: 'cabinet' },
+      { name: 'EQUIPMENT', icon: '◆', detail: 'telemetry', kind: 'load' },
     ],
     links: ['DATA FIBER'],
   },
   ops: {
     title: 'OPERATIONS',
     description: 'Provide staffed safety systems before operating the beamline.',
+    accent: '#f3a4d5',
     flow: [
-      { name: 'SAFETY + STAFF', icon: '✚', detail: 'operate safely' },
-      { name: 'BEAMLINE', icon: '═', detail: 'run experiments' },
-      { name: 'ENDSTATION', icon: '◈', detail: 'science output' },
+      { name: 'SAFETY + STAFF', icon: '✚', detail: 'operate safely', kind: 'staff' },
+      { name: 'BEAMLINE', icon: '═', detail: 'run experiments', kind: 'beamline' },
+      { name: 'ENDSTATION', icon: '◈', detail: 'science output', kind: 'cavity' },
     ],
     links: ['CLEARANCE', 'BEAM DELIVERY'],
   },
@@ -762,6 +768,8 @@ UIHost.prototype._renderConnectionGuide = function(category) {
   }
   el.classList.remove('hidden');
   el.replaceChildren();
+  el.dataset.guide = category;
+  el.style.setProperty('--guide-accent', guide.accent);
   const header = document.createElement('div');
   header.className = 'connection-guide-header';
   header.innerHTML = `<span class="connection-guide-kicker">CONNECTION GUIDE</span><span class="connection-guide-title">${guide.title}</span>`;
@@ -774,15 +782,24 @@ UIHost.prototype._renderConnectionGuide = function(category) {
   body.appendChild(description);
   const flow = document.createElement('div');
   flow.className = 'connection-guide-flow blt-diagram';
+  flow.setAttribute('role', 'img');
+  flow.setAttribute(
+    'aria-label',
+    `${guide.title}: ${guide.flow.map((item, index) => (
+      index < guide.links.length ? `${item.name}, via ${guide.links[index]}` : item.name
+    )).join(', then ')}`,
+  );
   guide.flow.forEach((item, index) => {
     const node = document.createElement('div');
     node.className = 'connection-guide-node';
-    node.innerHTML = `<span class="connection-guide-icon">${item.icon}</span><span class="connection-guide-name">${item.name}</span><span class="connection-guide-detail">${item.detail}</span>`;
+    node.dataset.kind = item.kind;
+    node.innerHTML = `<span class="connection-guide-machine" aria-hidden="true"><span class="connection-guide-step">${String(index + 1).padStart(2, '0')}</span><span class="connection-guide-icon">${item.icon}</span><span class="connection-guide-lights"><i></i><i></i><i></i></span></span><span class="connection-guide-name">${item.name}</span><span class="connection-guide-detail">${item.detail}</span>`;
     flow.appendChild(node);
     if (index < guide.flow.length - 1) {
       const link = document.createElement('div');
       link.className = 'connection-guide-link';
-      link.innerHTML = `<span class="connection-guide-link-label">${guide.links[index]}</span><span class="connection-guide-arrow">▶</span>`;
+      link.setAttribute('aria-hidden', 'true');
+      link.innerHTML = `<span class="connection-guide-link-label">${guide.links[index]}</span><span class="connection-guide-track"><i></i></span>`;
       flow.appendChild(link);
     }
   });
