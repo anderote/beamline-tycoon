@@ -140,7 +140,7 @@ globalThis.document = {
   createElement: () => ({ width: 0, height: 0, getContext: () => ctx }),
 };
 
-const { WallBuilder, TILE_SIZE, _edgeAliasKey } = await import('../src/renderer3d/wall-builder.js');
+const { WallBuilder, TILE_SIZE, HEIGHT_SCALE, _edgeAliasKey } = await import('../src/renderer3d/wall-builder.js');
 const { WALL_TYPES, WINDOW_TYPES } = await import('../src/data/structure.js');
 
 // --- Fake parentGroup ----------------------------------------------------
@@ -294,6 +294,63 @@ console.log('\n=== negative control: a genuinely different neighbouring edge is 
   assert(fullHeightOnNorthEdge.length === 1,
     `the untouched neighbour edge (5,3,'n') still renders exactly one intact full-height wall slab ` +
     `(got ${fullHeightOnNorthEdge.length}) — the window's alias-skip must not bleed onto a different edge`);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n=== adaptive aperture proportions follow the host wall ===\n');
+{
+  const group = makeGroup();
+  const wb = new WallBuilder(null);
+  wb.build(
+    [{ col: 8, row: 8, edge: 'n', type: 'structuralWall' }],
+    [],
+    [{ col: 8, row: 8, edge: 'n', type: 'industrialSash', variant: 0 }],
+    group,
+    'up',
+    null
+  );
+
+  const glass = group.children.find(m => m.material.emissive === 0xffd9a0);
+  const expectedGlassHeight = WINDOW_TYPES.industrialSash.maxOpeningHeight * HEIGHT_SCALE - 0.12;
+  assert(!!glass && Math.abs(glass.geometry.parameters.height - expectedGlassHeight) < 1e-9,
+    'industrial sash glass expands to its 24-unit factory height in a structural wall');
+
+  const factoryGridBars = group.children.filter(m => {
+    const p = m.geometry.parameters;
+    return [p.width, p.height, p.depth].some(d => Math.abs(d - 0.03) < 1e-9);
+  });
+  assert(factoryGridBars.length === 4,
+    `industrial sash has four inner grid bars for a 3x3 factory pattern (got ${factoryGridBars.length})`);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n=== shielded observation panes are no longer letterbox slits ===\n');
+{
+  const group = makeGroup();
+  const wb = new WallBuilder(null);
+  wb.build(
+    [
+      { col: 10, row: 8, edge: 'n', type: 'leadWall' },
+      { col: 12, row: 8, edge: 'n', type: 'leadWall' },
+    ],
+    [],
+    [
+      { col: 10, row: 8, edge: 'n', type: 'leadedObservation', variant: 0 },
+      { col: 12, row: 8, edge: 'n', type: 'hutchViewport', variant: 0 },
+    ],
+    group,
+    'up',
+    null
+  );
+
+  const glass = group.children.filter(m => m.material.emissive === 0xffd9a0);
+  const leaded = glass.find(m => m.geometry.parameters.width > 1.5);
+  const viewport = glass.find(m => m.geometry.parameters.width < 1.5);
+  assert(!!leaded && leaded.geometry.parameters.height > 0.95,
+    'leaded observation glass fills most of the shielding wall height');
+  assert(!!viewport && viewport.geometry.parameters.width > 0.95 &&
+      viewport.geometry.parameters.height > 0.74,
+    'hutch viewport is both wider and taller than the former narrow slit');
 }
 
 // ---------------------------------------------------------------------------

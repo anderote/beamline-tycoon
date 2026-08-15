@@ -4,7 +4,9 @@
 // room-separation guarantee that is the entire reason windows have their
 // own occupancy map. (Task 3) daylight's contribution to computeRoomMorale.
 
-import { WINDOW_TYPES, WINDOW_WIDTH_FRAC, WALL_TYPES, variantCost } from '../src/data/structure.js';
+import {
+  WINDOW_TYPES, WINDOW_WIDTH_FRAC, WALL_TYPES, variantCost, windowOpeningHeight,
+} from '../src/data/structure.js';
 import { demolishRefund } from '../src/input/demolishScopes.js';
 import { MODES } from '../src/data/modes.js';
 import { Game, DAYLIGHT_ROOM_CAP } from '../src/game/Game.js';
@@ -56,6 +58,9 @@ for (const [id, w] of Object.entries(WINDOW_TYPES)) {
   assert(w.sillHeight + w.openingHeight + 1 <= 14,
     `${id}: sillHeight (${w.sillHeight}) + openingHeight (${w.openingHeight}) + 1 fits a standard 14-high wall`);
 
+  assert(windowOpeningHeight(w, w.previewWallHeight) >= w.openingHeight,
+    `${id}: its representative wall never shrinks the minimum aperture`);
+
   if (w.variants) {
     const n = w.variants.length;
     for (const field of ['variantGlassColors', 'variantGlassOpacities', 'variantPreviewColors', 'variantCosts']) {
@@ -63,6 +68,23 @@ for (const [id, w] of Object.entries(WINDOW_TYPES)) {
         `${id}: ${field} has the same length as variants (${n})`);
     }
   }
+}
+
+console.log('\n=== human-scale and factory-scale window proportions ===\n');
+{
+  const partition = WINDOW_TYPES.glassPartition;
+  const factory = WINDOW_TYPES.industrialSash;
+  const observation = WINDOW_TYPES.leadedObservation;
+  const viewport = WINDOW_TYPES.hutchViewport;
+
+  assert(WINDOW_WIDTH_FRAC.single >= 0.7 && WINDOW_WIDTH_FRAC.narrow >= 0.6,
+    'single and narrow apertures occupy most of a tile instead of reading as slits');
+  assert(partition.sillHeight + windowOpeningHeight(partition, 24) > 19,
+    'a glass partition in an interior wall rises above the 19-unit door/head line');
+  assert(windowOpeningHeight(factory, 30) >= 24,
+    'industrial sash expands into a tall factory aperture in a structural wall');
+  assert(windowOpeningHeight(observation, 14) >= 11 && windowOpeningHeight(viewport, 14) >= 9,
+    'both shielded observation panes fill most of their 14-unit host walls');
 }
 
 console.log('\n=== six catalogue types, in three subsections ===\n');

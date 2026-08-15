@@ -5,7 +5,7 @@
 // the palette can create them immediately, and every variant has a truthful
 // glass tint even before renderer assets finish loading.
 
-import { WINDOW_TYPES, WINDOW_WIDTH_FRAC } from '../data/structure.js';
+import { WINDOW_TYPES, WINDOW_WIDTH_FRAC, windowOpeningHeight } from '../data/structure.js';
 
 const FRAME_COLORS = {
   drywall_painted: '#e6e4dc',
@@ -28,7 +28,11 @@ export function windowPreviewDataUrl(windowType, variant = 0, width = 96, height
   if (!def) return null;
 
   const apertureW = Math.round(68 * (WINDOW_WIDTH_FRAC[def.windowWidth] ?? 0.5));
-  const apertureH = Math.max(18, Math.round(40 * (def.openingHeight / 11)));
+  const resolvedHeight = windowOpeningHeight(def, def.previewWallHeight ?? 14);
+  // 40px for 11 data-height units matches the renderer's HEIGHT_SCALE
+  // against a 68px full-tile width. Cap only when the card itself runs out
+  // of room, so compact observation windows no longer look letterboxed.
+  const apertureH = Math.min(height - 12, Math.max(18, Math.round(40 * (resolvedHeight / 11))));
   const x = Math.round((width - apertureW) / 2);
   const y = Math.round((height - apertureH) / 2);
   const heavy = windowType === 'leadedObservation' || windowType === 'hutchViewport';
@@ -42,10 +46,7 @@ export function windowPreviewDataUrl(windowType, variant = 0, width = 96, height
   const innerH = Math.max(2, apertureH - frameW * 2);
   const grid = windowType === 'industrialSash'
     ? [1, 2].map(i => `<path d="M ${innerX + innerW * i / 3} ${innerY} V ${innerY + innerH}"/>`).join('')
-      + `<path d="M ${innerX} ${innerY + innerH / 2} H ${innerX + innerW}"/>`
-    : '';
-  const lead = heavy
-    ? `<path d="M ${innerX + innerW / 2} ${innerY} V ${innerY + innerH} M ${innerX} ${innerY + innerH / 2} H ${innerX + innerW}"/>`
+      + [1, 2].map(i => `<path d="M ${innerX} ${innerY + innerH * i / 3} H ${innerX + innerW}"/>`).join('')
     : '';
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">
     <rect width="${width}" height="${height}" rx="6" fill="#252a30"/>
@@ -53,7 +54,7 @@ export function windowPreviewDataUrl(windowType, variant = 0, width = 96, height
     <rect x="${x}" y="${y}" width="${apertureW}" height="${apertureH}" rx="1" fill="${frame}"/>
     <rect x="${innerX}" y="${innerY}" width="${innerW}" height="${innerH}" fill="${glass}" fill-opacity=".78"/>
     <path d="M ${innerX + 2} ${innerY + 2} L ${innerX + innerW - 2} ${innerY + innerH - 2}" stroke="#fff" stroke-opacity=".35" stroke-width="1.5"/>
-    <g fill="none" stroke="${frame}" stroke-width="${heavy ? 2.5 : 1.5}">${grid}${lead}</g>
+    <g fill="none" stroke="${frame}" stroke-width="${heavy ? 2.5 : 1.5}">${grid}</g>
   </svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }

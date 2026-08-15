@@ -61,7 +61,9 @@ import { UIHost } from '../ui/UIHost.js';
 import '../ui/hud.js';
 import '../ui/overlays.js';
 import { tileCenterIso, gridToIso } from '../renderer/grid.js';
-import { WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, WINDOW_WIDTH_FRAC } from '../data/structure.js';
+import {
+  WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, WINDOW_WIDTH_FRAC, windowOpeningHeight,
+} from '../data/structure.js';
 import { ZONES } from '../data/facility.js';
 import { COMPONENTS } from '../data/components.js';
 import { DIR, DIR_DELTA, turnLeft, reverseDir } from '../data/directions.js';
@@ -2576,9 +2578,12 @@ export class ThreeRenderer {
     // Sizing constants come from wall-builder.js itself, so a retune there
     // moves the ghost with the geometry it is previewing.
     const sill = (def?.sillHeight ?? 5) * HEIGHT_SCALE;
-    const openH = (def?.openingHeight ?? 6) * HEIGHT_SCALE;
     const width = WALL_TILE_SIZE * (WINDOW_WIDTH_FRAC[def?.windowWidth] ?? 0.5);
     for (const seg of path) {
+      const wallH = this._previewWallHeight(seg.col, seg.row, seg.edge, {
+        wallHeight: def?.previewWallHeight ?? 14,
+      });
+      const openH = windowOpeningHeight(def, wallH / HEIGHT_SCALE) * HEIGHT_SCALE;
       const valid = seg.valid !== false;
       const paneColor = valid
         ? (def?.variantGlassColors?.[seg.variant ?? 0] ?? def?.glassColor ?? 0x88ccff)
@@ -2615,11 +2620,11 @@ export class ThreeRenderer {
       makeFrame(frameW, openH, -width / 2 - frameW / 2, centerY);
       makeFrame(frameW, openH, width / 2 + frameW / 2, centerY);
 
-      if (windowType === 'industrialSash' || heavy) {
-        const count = windowType === 'industrialSash' ? 2 : 1;
-        for (let i = 1; i <= count; i++) makeFrame(
-          frameW * 0.7, openH, -width / 2 + width * i / (count + 1), centerY);
-        makeFrame(width, frameW * 0.7, 0, centerY);
+      if (windowType === 'industrialSash') {
+        for (let i = 1; i <= 2; i++) {
+          makeFrame(frameW * 0.7, openH, -width / 2 + width * i / 3, centerY);
+          makeFrame(width, frameW * 0.7, 0, sill + openH * i / 3);
+        }
       }
     }
   }

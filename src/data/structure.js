@@ -583,10 +583,29 @@ export const DOOR_TYPES = {
 // there is exactly one source for how wide 'narrow' / 'single' / 'double'
 // windows are cut.
 export const WINDOW_WIDTH_FRAC = {
-  narrow: 0.4,
-  single: 0.5,
+  narrow: 0.6,
+  single: 0.7,
   double: 1.0,
 };
+
+/**
+ * Resolve the aperture height for a window inside a particular host wall.
+ *
+ * `openingHeight` remains the minimum height used by the placement fit rule,
+ * so every catalogue entry still works in the shorter 14-unit shielding
+ * walls it originally supported. Taller architectural walls let the pane
+ * grow up to `maxOpeningHeight`, while `headClearance` preserves a visible
+ * wall band above it. This keeps old saves valid and prevents windows from
+ * retaining the undersized proportions of the original 14-unit walls.
+ */
+export function windowOpeningHeight(def, wallHeight = 14) {
+  if (!def) return 0;
+  const sill = Math.max(0, def.sillHeight ?? 0);
+  const minimum = Math.max(0, def.openingHeight ?? 0);
+  const maximum = Math.max(minimum, def.maxOpeningHeight ?? minimum);
+  const head = Math.max(0, def.headClearance ?? 1);
+  return Math.max(0, Math.min(maximum, wallHeight - sill - head));
+}
 
 // Window types — placed on tile edges like doors, but never occupy
 // state.doorOccupied: a window is a hole in a wall, not a passable opening.
@@ -602,6 +621,9 @@ export const WINDOW_TYPES = {
     subH: 5,
     sillHeight: 5,
     openingHeight: 6,
+    maxOpeningHeight: 15,
+    headClearance: 3,
+    previewWallHeight: 24,
     windowWidth: 'single',
     frameTexture: 'drywall_painted',
     glassColor: 0xcfe8f5,
@@ -618,13 +640,16 @@ export const WINDOW_TYPES = {
   glassPartition: {
     id: 'glassPartition',
     name: 'Glass Partition',
-    desc: 'Full-height glass partition for open-plan interiors. Borrows light between the rooms it divides.',
+    desc: 'Floor-to-ceiling glass partition for open-plan interiors. Borrows light between the rooms it divides.',
     cost: 45,
     color: 0x99aabb,
     topColor: 0xaabbcc,
     subH: 5,
     sillHeight: 1,
     openingHeight: 11,
+    maxOpeningHeight: 21,
+    headClearance: 2,
+    previewWallHeight: 24,
     windowWidth: 'double',
     frameTexture: 'metal_brushed',
     glassColor: 0xd8f0ff,
@@ -648,6 +673,9 @@ export const WINDOW_TYPES = {
     subH: 5,
     sillHeight: 3,
     openingHeight: 8,
+    maxOpeningHeight: 19,
+    headClearance: 2,
+    previewWallHeight: 24,
     windowWidth: 'double',
     frameTexture: 'metal_painted_white',
     glassColor: 0xcfe8fa,
@@ -664,13 +692,16 @@ export const WINDOW_TYPES = {
   industrialSash: {
     id: 'industrialSash',
     name: 'Industrial Sash Window',
-    desc: 'Steel-sashed exterior window for machine shops and utility bays.',
+    desc: 'Tall steel-sashed factory window for machine shops and utility bays.',
     cost: 45,
     color: 0x8899a2,
     topColor: 0x9aabb5,
     subH: 5,
     sillHeight: 4,
     openingHeight: 8,
+    maxOpeningHeight: 24,
+    headClearance: 2,
+    previewWallHeight: 30,
     windowWidth: 'double',
     frameTexture: 'metal_brushed',
     glassColor: 0xc8e0ec,
@@ -687,13 +718,16 @@ export const WINDOW_TYPES = {
   leadedObservation: {
     id: 'leadedObservation',
     name: 'Leaded Observation Window',
-    desc: 'Leaded glass observation window for viewing into shielded hutches and radiation areas.',
+    desc: 'Broad leaded-glass observation window for viewing into shielded hutches and radiation areas.',
     cost: 150,
     color: 0x5a5a6e,
     topColor: 0x70708a,
     subH: 5,
-    sillHeight: 5,
-    openingHeight: 6,
+    sillHeight: 2,
+    openingHeight: 11,
+    maxOpeningHeight: 11,
+    headClearance: 1,
+    previewWallHeight: 14,
     windowWidth: 'double',
     frameTexture: 'metal_dark',
     glassColor: 0x9fc9a0,
@@ -715,8 +749,11 @@ export const WINDOW_TYPES = {
     color: 0x4a4a5a,
     topColor: 0x606070,
     subH: 5,
-    sillHeight: 7,
-    openingHeight: 3,
+    sillHeight: 4,
+    openingHeight: 9,
+    maxOpeningHeight: 9,
+    headClearance: 1,
+    previewWallHeight: 14,
     windowWidth: 'narrow',
     frameTexture: 'metal_dark',
     glassColor: 0x7a9a70,

@@ -61,22 +61,25 @@ walls and doors already use (`wallHeight: 14` ≈ one 1.5 m storey, scaled by
 
 | Type | Subsection | Width | Sill | Opening h | Daylight | Variants |
 |---|---|---|---|---|---|---|
-| `officeWindow` | interior | single | 5 | 6 | 0.4 | Clear / Tinted / Frosted |
-| `glassPartition` | interior | double | 1 | 11 | 0.6 | Clear / Frosted / Reeded |
-| `pictureWindow` | exterior | double | 3 | 8 | 0.8 | Clear / Tinted / Mirrored |
-| `industrialSash` | exterior | double | 4 | 8 | 0.5 | Clear / Wired / Grimy |
-| `leadedObservation` | shielded | double | 5 | 6 | 0.2 | Clear / Amber |
-| `hutchViewport` | shielded | narrow | 7 | 3 | 0.05 | — |
+| `officeWindow` | interior | single | 5 | 6–15 | 0.4 | Clear / Tinted / Frosted |
+| `glassPartition` | interior | double | 1 | 11–21 | 0.6 | Clear / Frosted / Reeded |
+| `pictureWindow` | exterior | double | 3 | 8–19 | 0.8 | Clear / Tinted / Mirrored |
+| `industrialSash` | exterior | double | 4 | 8–24 | 0.5 | Clear / Wired / Grimy |
+| `leadedObservation` | shielded | double | 2 | 11 | 0.2 | Clear / Amber |
+| `hutchViewport` | shielded | narrow | 4 | 9 | 0.05 | — |
 
-`single` is half a tile, `double` is the full tile, `narrow` is 0.4 tile.
-Sill + opening height clears the top of a standard 14-high wall in every case,
-leaving a header band so a window never reads as a gap in the wall top.
+`single` is 0.7 tile, `double` is the full tile, and `narrow` is 0.6 tile.
+The first opening-height number is the placement minimum and still fits a
+standard 14-high wall. In taller interior and structural walls, the renderer
+expands the aperture toward the second number while preserving a visible
+header band. This keeps old saves and shielding-wall placement compatible
+without leaving architectural windows at the undersized pre-tall-wall scale.
 
 Variants are the mechanism `structuralWall` already uses — `variants`,
 `variantPreviewColors`, and per-variant cost — but drive **glass colour and
 opacity** rather than a texture swap. `industrialSash` additionally draws a
-mullion grid; `leadedObservation` draws a thicker frame and a green-tinted
-pane; `hutchViewport` is a small square port in a heavy frame.
+3x3 factory mullion grid; `leadedObservation` draws a thicker frame around one
+broad green-tinted pane; `hutchViewport` is a compact port in a heavy frame.
 
 Frames reuse existing tiled materials: `metal_brushed` for the sash and
 partition types, `drywall_painted` for the office window, `metal_dark` for
