@@ -47,7 +47,7 @@ A connected **Bakeout System** drops the network's specific outgassing rate 100x
 
 Pirani, cold-cathode and BA gauges mount directly on a drawn vacuum run. Each has its own useful pressure range; powered cold-cathode and BA gauges read offline if their power connection is absent.
 
-Click a vacuum pipe network to see its pressure history. The inspector always plots the network pressure and adds one log-scale trace per mounted gauge, sampled every half in-game hour over a rolling **12 in-game hours**. This makes stage handoffs, slow pump-down and a weak remote connection visible instead of reducing the network to one number.
+Click a vacuum pipe network to see its pressure history. The inspector always plots the network pressure and adds one log-scale trace per mounted gauge, sampled every half in-game hour and retained for **10 in-game days**. The plot opens at the full 10-day range, with 1-day and 2-day views for closer inspection. This makes stage handoffs, slow pump-down and a weak remote connection visible instead of reducing the network to one number.
 
 ### How Vacuum Reaches the Beam
 

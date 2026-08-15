@@ -6459,10 +6459,104 @@ body {
 .equipment-system-stat { color: #aaaaff; }
 .equipment-position { margin-top: 4px; color: var(--ui-text-faint); }
 
-.utility-inspector { padding: 4px 2px; font: 11px/1.5 var(--ui-font-body); }
-.utility-network-id { margin-bottom: 2px; color: var(--ui-text-faint); font-size: 9px; word-break: break-all; }
-.utility-meter-wrap { margin-top: 5px; }
-.utility-meter { display: flex; align-items: center; gap: 6px; }
+.ctx-window[data-ctx-id^="util-"] {
+  width: 600px;
+  max-width: calc(100vw - 24px);
+}
+.ctx-window[data-ctx-id^="util-"] .ctx-body {
+  height: min(560px, calc(100vh - 150px));
+}
+.utility-inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px;
+  color: var(--ui-text);
+  font: 11px/1.45 var(--ui-font-body);
+}
+.utility-inspector-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 1px 2px;
+  color: var(--ui-text-faint);
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.utility-inspector-identity code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-text-muted);
+  font: 9px var(--ui-font-body);
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+.utility-live-badge {
+  margin-left: auto;
+  padding: 2px 5px;
+  border: 1px solid rgba(68, 221, 102, 0.4);
+  border-radius: var(--ui-radius);
+  background: rgba(25, 100, 50, 0.2);
+  color: var(--ui-good);
+  font: 6px var(--ui-font-display);
+}
+.utility-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--ui-border-subtle);
+  border-radius: var(--ui-radius);
+  background: var(--ui-border-subtle);
+}
+.utility-summary-stat {
+  min-width: 0;
+  padding: 9px 10px;
+  background: rgba(15, 15, 35, 0.88);
+}
+.utility-summary-stat > span,
+.vacuum-physics-stat > span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--ui-text-faint);
+  font: 7px var(--ui-font-display);
+  letter-spacing: 0.35px;
+  text-transform: uppercase;
+}
+.utility-summary-stat strong {
+  display: block;
+  overflow: hidden;
+  color: var(--ui-text-strong);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.utility-summary-stat small,
+.vacuum-physics-stat small {
+  display: block;
+  min-height: 13px;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--ui-text-faint);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.utility-health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 6px;
+}
+.utility-health-grid > div {
+  padding: 7px 9px;
+  border: 1px solid var(--ui-border-subtle);
+  border-radius: var(--ui-radius);
+  background: rgba(12, 12, 28, 0.6);
+}
+.utility-meter { display: flex; align-items: center; gap: 7px; }
 .utility-meter-label { min-width: 56px; color: var(--ui-text-muted); font-size: 9px; }
 .utility-meter-track {
   flex: 1;
@@ -6472,8 +6566,160 @@ body {
   border-radius: 2px;
   background: var(--ui-bg-input);
 }
+.utility-health-grid .utility-meter-track { max-width: none; }
 .utility-meter-fill { height: 100%; border-radius: 2px; background: var(--utility-meter-color); }
 .utility-meter-value { min-width: 36px; color: var(--utility-meter-color); font-size: 10px; text-align: right; }
+.utility-inspector-section {
+  padding-top: 9px;
+  border-top: 1px solid var(--ui-border-subtle);
+}
+.utility-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 6px;
+  color: var(--ui-blue);
+  font: 8px var(--ui-font-display);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+.utility-section-heading > span {
+  min-width: 18px;
+  padding: 2px 4px;
+  border-radius: 8px;
+  background: rgba(70, 80, 125, 0.55);
+  color: var(--ui-text-muted);
+  font-size: 7px;
+  text-align: center;
+}
+.utility-endpoint-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.utility-endpoint-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, auto) auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid rgba(70, 80, 120, 0.24);
+  border-radius: var(--ui-radius);
+  background: rgba(18, 18, 38, 0.6);
+}
+.utility-endpoint-name { min-width: 0; }
+.utility-endpoint-name strong {
+  display: block;
+  overflow: hidden;
+  color: var(--ui-text);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.utility-endpoint-name span {
+  display: block;
+  margin-top: 2px;
+  color: var(--ui-text-faint);
+  font-size: 8px;
+}
+.utility-endpoint-value { color: var(--ui-text-muted); font-size: 9px; text-align: right; }
+.utility-endpoint-quality {
+  min-width: 36px;
+  padding: 3px 5px;
+  border: 1px solid color-mix(in srgb, var(--utility-quality-color) 45%, transparent);
+  border-radius: var(--ui-radius);
+  background: color-mix(in srgb, var(--utility-quality-color) 12%, transparent);
+  color: var(--utility-quality-color);
+  font-size: 8px;
+  text-align: center;
+}
+.utility-issues-section { display: flex; flex-direction: column; gap: 4px; }
+.utility-issues-section .utility-section-heading { margin-bottom: 2px; }
+.utility-issue {
+  --utility-issue-color: var(--ui-bad);
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 8px;
+  padding: 7px 8px;
+  border-left: 2px solid var(--utility-issue-color);
+  border-radius: var(--ui-radius);
+  background: color-mix(in srgb, var(--utility-issue-color) 9%, rgba(18, 18, 38, 0.8));
+  color: var(--ui-text-muted);
+  font-size: 9px;
+  line-height: 1.45;
+}
+.utility-issue strong { color: var(--utility-issue-color); font: 7px var(--ui-font-display); }
+.utility-issue-error { color: var(--ui-bad); }
+.utility-details-section > .utility-section-heading { margin-bottom: 8px; }
+.vacuum-physics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--ui-border-subtle);
+  border-radius: var(--ui-radius);
+  background: var(--ui-border-subtle);
+}
+.vacuum-physics-stat {
+  min-width: 0;
+  padding: 8px 9px;
+  background: rgba(13, 13, 31, 0.88);
+}
+.vacuum-physics-stat strong {
+  display: block;
+  overflow: hidden;
+  color: #d9e3f7;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vacuum-physics-stat-primary strong { color: #f1f5ff; }
+.vacuum-physics-footnote {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0 10px;
+}
+.vacuum-physics-footnote span {
+  padding: 3px 5px;
+  border-radius: var(--ui-radius);
+  background: rgba(60, 65, 95, 0.38);
+  color: var(--ui-text-faint);
+  font-size: 8px;
+}
+.vacuum-pressure-plot {
+  padding: 8px;
+  border: 1px solid var(--ui-border-subtle);
+  border-radius: var(--ui-radius);
+  background: rgba(8, 8, 22, 0.55);
+}
+.vacuum-pressure-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 5px;
+}
+.vacuum-pressure-heading strong { color: var(--ui-text-strong); font-size: 10px; }
+.vacuum-pressure-caption { margin-left: 7px; color: var(--ui-text-faint); font-size: 8px; }
+.vacuum-pressure-range { display: inline-flex; flex: none; gap: 2px; }
+.vacuum-pressure-range-btn {
+  min-width: 34px;
+  padding: 4px 6px;
+  border: 1px solid var(--ui-border-subtle);
+  border-radius: var(--ui-radius);
+  background: var(--ui-bg-input);
+  color: var(--ui-text-faint);
+  font: 7px var(--ui-font-display);
+  cursor: pointer;
+}
+.vacuum-pressure-range-btn:hover { border-color: var(--ui-border-light); color: var(--ui-text); }
+.vacuum-pressure-range-btn.is-active {
+  border-color: rgba(170, 204, 255, 0.6);
+  background: rgba(70, 95, 145, 0.55);
+  color: var(--ui-blue);
+}
 .vacuum-pressure-chart {
   display: block;
   width: 100%;
@@ -6484,14 +6730,20 @@ body {
 }
 .vacuum-pressure-legend {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 2px;
   margin-top: 4px;
   font-size: 9px;
 }
-.utility-list-row { padding: 2px 0; color: var(--ui-text); font-size: 10px; }
-.utility-issue { padding: 2px 0; font-size: 10px; line-height: 1.4; }
-.utility-issue-error { color: var(--ui-bad); }
 .utility-refill-wrap { margin-top: 4px; }
+
+@media (max-width: 700px) {
+  .utility-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .vacuum-physics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .utility-endpoint-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .utility-endpoint-quality { grid-column: 2; }
+  .vacuum-pressure-heading { align-items: flex-start; flex-direction: column; }
+}
 
 .ctx-window[data-ctx-id^="util-rfWaveguide-"] {
   width: 620px;
