@@ -170,8 +170,10 @@ export function _buildDisconnectSwitchRoles() {
   return b;
 }
 
-// ── Switchgear Cabinet ────────────────────────────────────────────
-// Outdoor metal-clad cabinet: 1.5m L × 1.0m W × 2.0m H
+// ── HV Distributor Box ────────────────────────────────────────────
+// Outdoor metal-clad cabinet: 1.5m L × 1.0m W × 2.0m H. The stable content
+// id remains `switchgear`, but the visible hardware now states its gameplay:
+// one rear HV inlet and four separately protected front HV outlets.
 export function _buildSwitchgearRoles() {
   const b = makeBuckets();
 
@@ -216,6 +218,34 @@ export function _buildSwitchgearRoles() {
     const ig = new THREE.CylinderGeometry(0.035, 0.035, 0.04, SEGS);
     applyTiledCylinderUVs(ig, 0.035, 0.04, SEGS);
     pushT(b.accent, ig, trans(0, baseH + encH + 0.02, zOff));
+  }
+
+  // Rear incoming feeder: one breaker plate and one heavy cable gland at the
+  // authored hv_in anchor (back face, low and left).
+  {
+    const x = -0.28, y = 0.42, z = -(encD / 2 + 0.025);
+    const plate = new THREE.BoxGeometry(0.20, 0.20, 0.035);
+    applyTiledBoxUVs(plate, 0.20, 0.20, 0.035);
+    pushT(b.detail, plate, trans(x, y, z));
+    const gland = new THREE.CylinderGeometry(0.055, 0.055, 0.10, 10);
+    applyTiledCylinderUVs(gland, 0.055, 0.10, 10);
+    pushT(b.copper, gland, new THREE.Matrix4().multiplyMatrices(
+      trans(x, y, z - 0.055), rotX(Math.PI / 2),
+    ));
+  }
+
+  // Four output breaker/gland pairs stacked on the front face, matching the
+  // four independently claimable hv_out ports and their presentation anchors.
+  for (const y of [0.55, 0.92, 1.29, 1.66]) {
+    const x = 0.27, z = encD / 2 + 0.025;
+    const plate = new THREE.BoxGeometry(0.22, 0.19, 0.035);
+    applyTiledBoxUVs(plate, 0.22, 0.19, 0.035);
+    pushT(b.detail, plate, trans(x, y, z));
+    const gland = new THREE.CylinderGeometry(0.045, 0.045, 0.09, 10);
+    applyTiledCylinderUVs(gland, 0.045, 0.09, 10);
+    pushT(b.copper, gland, new THREE.Matrix4().multiplyMatrices(
+      trans(x, y, z + 0.05), rotX(Math.PI / 2),
+    ));
   }
 
   return b;

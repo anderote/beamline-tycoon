@@ -1760,9 +1760,13 @@ export const INFRASTRUCTURE_RAW = {
   },
   switchgear: {
     id: 'switchgear',
-    name: 'Switchgear Cabinet',
-    desc: 'Outdoor metal-clad main switchgear. One incoming HV feeder is isolated and split into protected outgoing feeders for your facility distribution panels. It distributes existing capacity; it does not generate any.',
-    category: 'power', subsection: 'specialty',
+    // Keep the stable `switchgear` id for save compatibility, but expose the
+    // component by what it does in the build palette. This is the facility's
+    // HV splitter, not another source of electrical capacity.
+    name: 'HV Distributor Box',
+    desc: 'Protected high-voltage distribution box. One incoming 400 kW HV feeder fans out to four independently wired 100 kW HV feeders for RF sources, cooling plant, or downstream power panels. It distributes existing capacity; it does not generate any.',
+    category: 'power', subsection: 'distribution',
+    paletteOrder: 5,
     cost: { funding: 400000 },
     stats: {},
     energyCost: 0,

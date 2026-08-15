@@ -45,15 +45,17 @@ function candidate(utilityType, start, end) {
 
 console.log('\n--- HV hierarchy ---');
 assert(candidate('hvCable', ref('xfmr', 'hv_out_1'), ref('gear', 'hv_in')).ok,
-  'transformer -> main switchgear is a valid HV feeder');
+  'transformer -> HV Distributor Box is a valid HV feeder');
 assert(candidate('hvCable', ref('gear', 'hv_out_1'), ref('panelA', 'hv_in')).ok,
-  'main switchgear -> panel is a valid protected downstream feeder');
+  'HV Distributor Box -> panel is a valid protected downstream feeder');
 assert(candidate('hvCable', ref('xfmr', 'hv_out_1'), ref('xfmr', 'hv_out_2')).reason === 'invalid_port_pair',
   'two HV supply outputs cannot be tied together');
 assert(candidate('hvCable', ref('xfmr', 'hv_out_1'), ref('rfSource', 'hv_in')).ok,
   'transformer -> RF source is a valid dedicated HV feeder');
 assert(candidate('hvCable', ref('gear', 'hv_out_1'), ref('dryCooler', 'hv_in')).ok,
-  'switchgear -> dry cooler bank is a valid dedicated HV feeder');
+  'HV Distributor Box -> dry cooler bank is a valid dedicated HV feeder');
+assert(candidate('hvCable', ref('gear', 'hv_out_2'), ref('rfSource', 'hv_in')).ok,
+  'a separate HV Distributor Box output can feed an RF source');
 
 console.log('\n--- Branch hierarchy ---');
 assert(candidate('powerCable', ref('panelA', 'pwr_out_1'), ref('bus', 'pwr_in')).ok,

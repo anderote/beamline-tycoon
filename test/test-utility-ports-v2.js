@@ -168,6 +168,11 @@ console.log('\n--- Test 9: RF source bands & ladder ---');
     && port.utility === 'rfWaveguide');
   assert(ssaOutlets.length === 4 && ssaOutlets.every(port => port.params.bands.join(',') === 'vhf,uhf'),
     `solidStateAmp's four outputs cover vhf,uhf (got ${ssaOutlets.map(port => port.params.bands.join(',')).join(';')})`);
+  assert(ssa.hv_in?.utility === 'hvCable'
+      && ssa.hv_in.role === 'sink'
+      && ssa.hv_in.connectionKind === 'hvLoadIn'
+      && ssa.hv_in.params.demand === 70,
+    'solid-state RF source exposes its required 70 kW HV input');
 
   const gyro = getUtilityPortsV2('gyrotron');
   const ssaCapacity = ssaOutlets.reduce((sum, port) => sum + port.params.capacity, 0);
@@ -221,9 +226,13 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
     'HV supply ladder: pad-mount < facility < HV < grid intertie');
 
   const gear = getUtilityPortsV2('switchgear');
+  const hvDistributorOutputs = Object.values(gear)
+    .filter(p => p.connectionKind === 'hvDistributionOut');
   assert(gear.hv_in?.connectionKind === 'hvDistributionIn'
-      && Object.values(gear).filter(p => p.connectionKind === 'hvDistributionOut').length === 4,
-    'main switchgear has one HV input and four protected downstream feeders');
+      && gear.hv_in.params.demand === 400
+      && hvDistributorOutputs.length === 4
+      && hvDistributorOutputs.every(p => p.params.capacity === 100),
+    'HV Distributor Box has one 400 kW input and four protected 100 kW outputs');
 
   const panel = getUtilityPortsV2('powerPanel');
   const section = getUtilityPortsV2('sectionDistributionPanel');

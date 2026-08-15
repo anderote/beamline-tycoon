@@ -752,11 +752,11 @@ function supplyPorts(capacity, count) {
 }
 
 /**
- * Main HV distribution: one protected incoming feeder feeds `count` protected
+ * HV distribution: one protected incoming feeder feeds `count` protected
  * outgoing feeders. It is deliberately split into separate HV networks: the
  * input is a sink, the outputs are sources gated by that input's hvQuality.
- * This keeps the electrical graph radial while letting one main switchgear
- * cabinet feed several downstream panels.
+ * This keeps the electrical graph radial while letting one HV distributor
+ * feed several downstream panels or dedicated HV loads.
  */
 function hvDistributionPorts(rating, count) {
   const out = {
@@ -894,6 +894,8 @@ const INFRA_UTILITY_PORTS = {
   facilityTransformer:      supplyPorts(400, 2),
   hvTransformer:            supplyPorts(1200, 4),
   gridIntertieTransformer:  supplyPorts(3000, 6),
+  // UI name: HV Distributor Box. The stable id remains `switchgear` so older
+  // saves retain the same placed object and utility-line endpoint ids.
   switchgear:               hvDistributionPorts(400, 4),
   // This cabinet is only 0.5 m wide, so four outlets on its front collapse
   // into two routing cells. Spread the logical connectors around the cabinet

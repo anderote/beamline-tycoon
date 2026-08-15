@@ -400,6 +400,11 @@ export function _buildSolidStateAmpRoles() {
 
   // AC feed conduit at the back corner.
   boxAt(b.detail, 0.06, 0.55, 0.07, -0.43, 0.37, 0.32);
+  // Dedicated HV cable gland on that conduit. The persistent utility-port
+  // fitting sits over this collar, making the input distinct from the copper
+  // RF combining spine higher up the same side of the rack.
+  cylX(b.accent, 0.055, 0.10, -0.46, 0.37, 0.32, 10);
+  cylX(b.copper, 0.027, 0.14, -0.50, 0.37, 0.32, 8);
 
   return b;
 }
