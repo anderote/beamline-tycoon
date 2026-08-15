@@ -12,6 +12,8 @@
 
 import {
   buildManhattanPath,
+  buildPortRoutedPaths,
+  portTailPoint,
   pathLengthSubUnits,
   expandPath,
 } from '../src/utility/line-geometry.js';
@@ -100,6 +102,44 @@ console.log('\n--- Test 7: expandPath dense ---');
   assertEq(expanded[0], { col: 2, row: 3 }, 'first point (2,3)');
   assertEq(expanded[12], { col: 5, row: 3 }, 'last point (5,3)');
   assertEq(expanded[4], { col: 3, row: 3 }, 'index 4 is (3,3)');
+}
+
+// ======================================================================
+// Test 8: adjacent, facing ports use the direct one-subtile connection.
+// ======================================================================
+console.log('\n--- Test 8: adjacent facing ports route directly ---');
+{
+  const path = buildPortRoutedPaths(
+    { col: 0, row: 0 }, { dCol: 1, dRow: 0 },
+    { col: 0.25, row: 0 }, { dCol: -1, dRow: 0 },
+  )[0];
+  assertEq(path, [{ col: 0, row: 0 }, { col: 0.25, row: 0 }],
+    'opposing ports one subtile apart get one direct segment, not a detour');
+  assert(pathLengthSubUnits(path) === 1,
+    `adjacent port run costs one sub-unit (got ${pathLengthSubUnits(path)})`);
+}
+
+// ======================================================================
+// Test 9: each port owns its tail; incompatible nearby tails do not loop.
+// ======================================================================
+console.log('\n--- Test 9: fixed port tails preserve clearance ---');
+{
+  assertEq(portTailPoint({ col: 3, row: 5 }, { dCol: -1, dRow: 0 }),
+    { col: 2.75, row: 5 }, 'a port tail exits exactly one subtile along its normal');
+
+  const tooClose = buildPortRoutedPaths(
+    { col: 0, row: 0 }, { dCol: 1, dRow: 0 },
+    { col: 0.25, row: 0 }, { dCol: 1, dRow: 0 },
+  );
+  assert(tooClose.length === 0,
+    'nearby same-facing ports report no route instead of generating a self-crossing loop');
+
+  const freeRoute = buildPortRoutedPaths(
+    { col: 0.25, row: 0 }, null,
+    { col: 0.25, row: 0.25 }, null,
+  )[0];
+  assertEq(freeRoute, [{ col: 0.25, row: 0 }, { col: 0.25, row: 0.25 }],
+    'once clear of the port tails, a utility run can use adjacent subtiles freely');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

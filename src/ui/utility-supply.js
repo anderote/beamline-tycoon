@@ -46,6 +46,68 @@ const SUPPLY_SPEC = {
   vacuumPipe:   { param: 'pumpSpeed',     unit: 'L/s' },
 };
 
+// The build palette needs the same information in a much denser form than a
+// detail panel: what a building will ask the player to wire up, and what it
+// can provide once wired. Keep this driven by the port schema so adding a new
+// utility automatically gives it a useful placement-card label.
+const PALETTE_METRIC_SPEC = {
+  powerCable:   { draw: ['demand', 'Power draw', 'kW'], capacity: ['capacity', 'Power capacity', 'kW'] },
+  hvCable:      { draw: ['demand', 'Power draw', 'kW'], capacity: ['capacity', 'Power capacity', 'kW'] },
+  coolingWater: { draw: ['heatLoad', 'Cooling draw', 'kW thermal'], capacity: ['capacity', 'Cooling capacity', 'kW thermal'] },
+  cryoTransfer: { draw: ['srfHeatW', 'Cryo draw', 'W'], capacity: ['coldCapacityW', 'Cryo capacity', 'W'] },
+  rfWaveguide:  { draw: ['demand', 'RF draw', 'kW'], capacity: ['capacity', 'RF capacity', 'kW'] },
+  vacuumPipe:   { draw: ['outgassing', 'Vacuum load', 'mbar·L/s'], capacity: ['pumpSpeed', 'Pumping capacity', 'L/s'] },
+  dataFiber:    { draw: ['demand', 'Data draw', 'Gbps'], capacity: ['capacity', 'Data capacity', 'Gbps'] },
+};
+
+function compactNumber(value) {
+  if (Math.abs(value) >= 1000) return Math.round(value).toLocaleString();
+  if (Number.isInteger(value)) return String(value);
+  return String(Math.round(value * 100) / 100);
+}
+
+/**
+ * Concise, port-derived facts for a placement card. Sinks appear before
+ * sources, because requirements are the decision a player must make before
+ * placing equipment. Electrical `energyCost` is used as a fallback for older
+ * definitions that have not declared a power input port.
+ */
+export function paletteUtilityMetrics(comp) {
+  const totals = new Map();
+  let hasElectricalSink = false;
+
+  for (const port of Object.values((comp && comp.ports) || {})) {
+    if (!port || (port.role !== 'sink' && port.role !== 'source')) continue;
+    const kind = port.role === 'sink' ? 'draw' : 'capacity';
+    const spec = PALETTE_METRIC_SPEC[port.utility]?.[kind];
+    if (!spec) continue;
+    const [param, label, unit] = spec;
+    const value = Number(port.params?.[param]);
+    if (!Number.isFinite(value) || value <= 0) continue;
+    if (port.role === 'sink' && (port.utility === 'powerCable' || port.utility === 'hvCable')) {
+      hasElectricalSink = true;
+    }
+    const metricKey = `${kind}:${port.utility}`;
+    const entry = totals.get(metricKey) || { label, unit, value: 0, kind };
+    entry.value += value;
+    totals.set(metricKey, entry);
+  }
+
+  if (!hasElectricalSink && Number(comp?.energyCost) > 0) {
+    totals.set('draw:legacy-power', {
+      label: 'Power draw', unit: 'kW', value: Number(comp.energyCost), kind: 'draw',
+    });
+  }
+
+  return [...totals.values()]
+    .sort((a, b) => (a.kind === b.kind ? a.label.localeCompare(b.label) : a.kind === 'draw' ? -1 : 1))
+    .map(({ label, unit, value, kind }) => ({
+      label,
+      value: `${compactNumber(value)} ${unit}`,
+      kind,
+    }));
+}
+
 // 0.001 -> "0.1%", 0.005 -> "0.5%", 0.05 -> "5%", 1 -> "100%".
 function fmtDutyPercent(dutyFactor) {
   const pct = Math.round(dutyFactor * 1000) / 10;
