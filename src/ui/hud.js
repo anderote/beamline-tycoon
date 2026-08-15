@@ -696,27 +696,57 @@ UIHost.prototype._generateCategoryTabs = function() {
 const CONNECTION_GUIDES = {
   power: {
     title: 'POWER PATH',
-    flow: ['GRID / HV', 'SWITCHGEAR', 'EQUIPMENT'],
+    flow: [
+      { name: 'GRID / HV', icon: '⚡', detail: 'supply' },
+      { name: 'SWITCHGEAR', icon: '▣', detail: 'distribution' },
+      { name: 'EQUIPMENT', icon: '◆', detail: 'load' },
+    ],
+    links: ['HV CABLE', 'POWER CABLE'],
   },
   vacuum: {
     title: 'VACUUM PATH',
-    flow: ['ROUGH + TURBO PUMPS', 'BEAMLINE', 'GAUGES'],
+    flow: [
+      { name: 'PUMPS', icon: '◉', detail: 'rough + turbo' },
+      { name: 'BEAMLINE', icon: '═', detail: 'vacuum volume' },
+      { name: 'GAUGES', icon: '◌', detail: 'protection' },
+    ],
+    links: ['VACUUM PIPE', 'SENSES'],
   },
   rfPower: {
     title: 'RF PATH',
-    flow: ['MODULATOR / CONTROL', 'RF SOURCE', 'RF CAVITY'],
+    flow: [
+      { name: 'MODULATOR', icon: '▥', detail: 'control' },
+      { name: 'RF SOURCE', icon: '◉', detail: 'amplifier' },
+      { name: 'RF CAVITY', icon: '◈', detail: 'accelerates' },
+    ],
+    links: ['DATA FIBER', 'WAVEGUIDE'],
   },
   cooling: {
     title: 'COOLING LOOP',
-    flow: ['MAKE-UP WATER', 'CHILLER', 'HEAT LOAD', 'DRY COOLER'],
+    flow: [
+      { name: 'MAKE-UP', icon: '●', detail: 'water' },
+      { name: 'CHILLER', icon: '▣', detail: 'cold loop' },
+      { name: 'HEAT LOAD', icon: '♨', detail: 'equipment' },
+      { name: 'DRY COOLER', icon: '▤', detail: 'rejects heat' },
+    ],
+    links: ['PLANT WATER', 'COOLING WATER', 'RETURN'],
   },
   dataControls: {
     title: 'CONTROL PATH',
-    flow: ['CONTROL RACK', 'EQUIPMENT'],
+    flow: [
+      { name: 'CONTROL RACK', icon: '▥', detail: 'logic + interlocks' },
+      { name: 'EQUIPMENT', icon: '◆', detail: 'telemetry' },
+    ],
+    links: ['DATA FIBER'],
   },
   ops: {
     title: 'OPERATIONS',
-    flow: ['SAFETY + STAFF', 'BEAMLINE', 'TARGETS / ENDSTATIONS'],
+    flow: [
+      { name: 'SAFETY + STAFF', icon: '✚', detail: 'operate safely' },
+      { name: 'BEAMLINE', icon: '═', detail: 'run experiments' },
+      { name: 'ENDSTATION', icon: '◈', detail: 'science output' },
+    ],
+    links: ['CLEARANCE', 'BEAM DELIVERY'],
   },
 };
 
@@ -731,22 +761,22 @@ UIHost.prototype._renderConnectionGuide = function(category) {
   }
   el.classList.remove('hidden');
   el.replaceChildren();
-  const title = document.createElement('div');
-  title.className = 'connection-guide-title';
-  title.textContent = guide.title;
-  el.appendChild(title);
+  const header = document.createElement('div');
+  header.className = 'connection-guide-header';
+  header.innerHTML = `<span class="connection-guide-kicker">CONNECTION GUIDE</span><span class="connection-guide-title">${guide.title}</span>`;
+  el.appendChild(header);
   const flow = document.createElement('div');
   flow.className = 'connection-guide-flow';
-  guide.flow.forEach((label, index) => {
-    const node = document.createElement('span');
+  guide.flow.forEach((item, index) => {
+    const node = document.createElement('div');
     node.className = 'connection-guide-node';
-    node.textContent = label;
+    node.innerHTML = `<span class="connection-guide-icon">${item.icon}</span><span class="connection-guide-name">${item.name}</span><span class="connection-guide-detail">${item.detail}</span>`;
     flow.appendChild(node);
     if (index < guide.flow.length - 1) {
-      const arrow = document.createElement('span');
-      arrow.className = 'connection-guide-arrow';
-      arrow.textContent = '→';
-      flow.appendChild(arrow);
+      const link = document.createElement('div');
+      link.className = 'connection-guide-link';
+      link.innerHTML = `<span class="connection-guide-link-label">${guide.links[index]}</span><span class="connection-guide-arrow">▶</span>`;
+      flow.appendChild(link);
     }
   });
   el.appendChild(flow);
