@@ -70,6 +70,20 @@ function compactNumber(value) {
   return String(Math.round(value * 100) / 100);
 }
 
+// Cooling sources have two distinct plant roles. Chillers advertise
+// `capacity`; towers/condensers advertise `heatRejectionCapacity`. Present the
+// capability the component actually owns without making the solver treat a
+// heat rejector as a chiller.
+function metricPortValue(port, param) {
+  if (port?.utility === 'coolingWater' && port.role === 'source' && param === 'capacity') {
+    const capacity = Number(port.params?.capacity);
+    if (Number.isFinite(capacity) && capacity > 0) return capacity;
+    const rejection = Number(port.params?.heatRejectionCapacity);
+    if (Number.isFinite(rejection) && rejection > 0) return rejection;
+  }
+  return Number(port?.params?.[param]);
+}
+
 /**
  * Concise, port-derived facts for a placement card. Sinks appear before
  * sources, because requirements are the decision a player must make before
@@ -86,7 +100,7 @@ export function paletteUtilityMetrics(comp) {
     const spec = PALETTE_METRIC_SPEC[port.utility]?.[kind];
     if (!spec) continue;
     const [param, label, unit] = spec;
-    const value = Number(port.params?.[param]);
+    const value = metricPortValue(port, param);
     if (!Number.isFinite(value) || value <= 0) continue;
     if (port.role === 'sink' && (port.utility === 'powerCable' || port.utility === 'hvCable')) {
       hasElectricalSink = true;
@@ -138,7 +152,7 @@ export function paletteUtilityTags(comp) {
   for (const port of Object.values(comp.ports || {})) {
     if (!port || port.role !== 'source') continue;
     const spec = PALETTE_UTILITY_SPEC[port.utility];
-    const value = port.params?.[spec?.param];
+    const value = spec ? metricPortValue(port, spec.param) : NaN;
     if (!spec || !Number.isFinite(value)) continue;
     totals.set(spec.key, { ...spec, amount: (totals.get(spec.key)?.amount || 0) + value });
   }
@@ -187,7 +201,7 @@ export function utilityStatRows(comp) {
     if (!port || port.role !== 'source') continue;
     const spec = SUPPLY_SPEC[port.utility];
     if (!spec) continue;
-    const amount = port.params ? port.params[spec.param] : undefined;
+    const amount = metricPortValue(port, spec.param);
     if (typeof amount !== 'number' || !Number.isFinite(amount)) continue;
 
     const entry = totals.get(port.utility)

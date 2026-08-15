@@ -1027,37 +1027,39 @@ export class BeamlineDesigner {
     // count behind for the next one to report as its own.
     this._danglingLineCount = 0;
 
-    const symbols = new Map();
-    for (let i = 0; i < (ops || []).length; i++) {
-      const raw = ops[i];
-      const missing = [];
-      // `out` declares the symbols this op is about to BIND, so it is the one
-      // field that must not be resolved: its values are unbound by definition
-      // and would every one of them read as a dangling reference.
-      const { out, ...args } = raw;
-      const op = this._resolve(args, symbols, missing);
-      if (missing.length) {
-        return { index: i, kind: raw.kind, reason: `unbound ${missing.join(', ')}` };
-      }
-      // A mutator that throws is still a failed op, and it has to be reported
-      // as one: letting the exception escape would skip the rollback and
-      // strand the map halfway through the plan.
-      let produced;
-      try {
-        produced = this._runOp(beam, op);
-      } catch (err) {
-        console.error('[designer] op threw', raw, err);
-        return { index: i, kind: raw.kind, reason: `threw ${err && err.message}` };
-      }
-      if (!produced) return { index: i, kind: raw.kind, reason: 'refused' };
-      for (const [key, symbol] of Object.entries(out || {})) {
-        if (!produced[key]) {
-          return { index: i, kind: raw.kind, reason: `no ${key} id returned` };
+    return this.game._batchEvents(() => {
+      const symbols = new Map();
+      for (let i = 0; i < (ops || []).length; i++) {
+        const raw = ops[i];
+        const missing = [];
+        // `out` declares the symbols this op is about to BIND, so it is the one
+        // field that must not be resolved: its values are unbound by definition
+        // and would every one of them read as a dangling reference.
+        const { out, ...args } = raw;
+        const op = this._resolve(args, symbols, missing);
+        if (missing.length) {
+          return { index: i, kind: raw.kind, reason: `unbound ${missing.join(', ')}` };
         }
-        symbols.set(symbol, produced[key]);
+        // A mutator that throws is still a failed op, and it has to be reported
+        // as one: letting the exception escape would skip the rollback and
+        // strand the map halfway through the plan.
+        let produced;
+        try {
+          produced = this._runOp(beam, op);
+        } catch (err) {
+          console.error('[designer] op threw', raw, err);
+          return { index: i, kind: raw.kind, reason: `threw ${err && err.message}` };
+        }
+        if (!produced) return { index: i, kind: raw.kind, reason: 'refused' };
+        for (const [key, symbol] of Object.entries(out || {})) {
+          if (!produced[key]) {
+            return { index: i, kind: raw.kind, reason: `no ${key} id returned` };
+          }
+          symbols.set(symbol, produced[key]);
+        }
       }
-    }
-    return null;
+      return null;
+    });
   }
 
   /**

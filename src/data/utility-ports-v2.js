@@ -903,11 +903,11 @@ function coolingPlantPorts(params, names = [
 }
 
 function heatRejectorPorts(heatRejectionCapacity, side = 'right') {
-  // Preserve the cooling source fallback's historical 100 kW contribution as
-  // one device total. Without an explicit split, each new socket would inherit
-  // 100 kW independently and adding the second fitting would change gameplay.
+  // A rejector does not create chilled water; it only disposes of heat moved
+  // by a chiller. Declare capacity:0 explicitly so the generic source fallback
+  // cannot make a tower satisfy both plant roles by itself.
   const params = {
-    capacity: SOURCE_DEFAULTS.coolingWater.capacity / 2,
+    capacity: 0,
     heatRejectionCapacity: heatRejectionCapacity / 2,
   };
   return {
@@ -1006,10 +1006,10 @@ const INFRA_UTILITY_PORTS = {
   // → 3100 → 2500), so a bigger plant is always the better deal once you can
   // afford one. The 175 and 500 kW rungs exist so growing past a skid or a
   // chiller does not mean buying 3x the capacity you actually need.
-  // Explicitly split the generic cooling-source fallback too; otherwise six
-  // reservoir sockets would each inherit 100 kW and inflate the old total 6x.
+  // A reservoir stores water but does not chill it. Explicit zero prevents the
+  // generic source fallback from turning the tank into a phantom chiller.
   waterTank:             coolingPlantPorts({
-    reservoir: true, capacity: SOURCE_DEFAULTS.coolingWater.capacity,
+    reservoir: true, capacity: 0,
   }),
   // These authored faces follow the visible pipe pairs on each model.
   fanCoilCooler:         heatRejectorPorts(50, 'back'),

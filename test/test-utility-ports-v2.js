@@ -347,8 +347,8 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
     assert(hasPlantLayout(getUtilityPortsV2(type)),
       `${type} exposes four primary-side and two opposite-side connections`);
   }
-  assert(Math.abs(total(tank, 'capacity') - 100) < 1e-9,
-    'make-up tank keeps its historical 100 kW source fallback across six connections');
+  assert(total(tank, 'capacity') === 0,
+    'make-up tank stores cooling water without supplying process-cooling capacity');
   for (const type of ['fanCoilCooler', 'dryCoolerBank', 'coolingTower']) {
     assert(hasRejectorLayout(getUtilityPortsV2(type)),
       `${type} exposes its two heat-rejection connections on one side`);

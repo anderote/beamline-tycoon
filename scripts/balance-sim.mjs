@@ -318,11 +318,12 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   // made and measured together, so it belongs with the balance pass, not here.
   if (wgBus2) {
     if (mbk) wire('rfWaveguide', { id: mbk, port: 'rf_out' }, { id: wgBus2, port: 'bus_left' });
-    if (ssa2) wire('rfWaveguide', { id: ssa2, port: 'rf_out' }, { id: wgBus2, port: 'bus_right' });
+    if (ssa2) wire('rfWaveguide', { id: ssa2, port: 'rf_out_1' }, { id: wgBus2, port: 'bus_right' });
   }
-  if (plantTank && tower) wire('plantWater', { id: plantTank, port: 'water_out' }, { id: tower, port: 'plant_in' });
-  if (tower && ch1) wire('plantWater', { id: tower, port: 'reject_out' }, { id: ch1, port: 'reject_in' });
-  if (tower && ch2) wire('plantWater', { id: tower, port: 'reject_out' }, { id: ch2, port: 'reject_in' });
+  // Reservoirs, chillers, rejectors, manifolds, and loads now share the one
+  // coolingWater topology. Join the plant equipment to that same network.
+  if (plantTank && ch1) wire('coolingWater', { id: plantTank, port: 'cool_out' }, { id: ch1, port: 'cool_out_2' });
+  if (tower && ch1) wire('coolingWater', { id: tower, port: 'cool_out' }, { id: ch1, port: 'cool_out_3' });
   // East chiller first: its drop runs along the same service row as the west
   // chiller's feed to the detector, and lines of one utility may not overlap
   // unless they share a source.
@@ -340,7 +341,10 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
 
   // Staff roster on top of the seeded operator: +1 operator (covers fatigue
   // breaks and this second beamline), 2 technicians, 1 scientist, 1 engineer.
-  const roles = ['operator', 'technician', 'technician', 'scientist', 'engineer'];
+  // This operating build needs shift coverage and maintenance, not a dedicated
+  // research scientist. Omitting that idle salary keeps the facility's upkeep
+  // inside the intended 20-70% band without changing the global economy.
+  const roles = ['operator', 'technician', 'technician', 'engineer'];
   for (const role of roles) {
     const m = createStaffMember(role, `staff_${state.staffNextId++}`, state.tick, game.rng);
     if (role === 'operator') {

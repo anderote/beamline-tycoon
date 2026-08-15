@@ -214,7 +214,7 @@ const LINE_ON_PIPE = [
 // 100 kW loop and four times the rackIoc's fiber capacity all at once.
 const LINE_PLANT = {
   cup: {
-    supply: 'hvTransformer', cooling: 'lcwSkid', endData: 'rackIoc',
+    supply: 'hvTransformer', cooling: 'lcwSkid', coolingCount: 2, endData: 'rackIoc',
     extra: ['solidStateAmp', 'roughingPump', 'turboPump', 'powerBus',
       'vacuumManifold', 'vacuumManifold', 'waveguideManifold'],
   },
@@ -230,7 +230,9 @@ export function beamlineHardwareCost(grade) {
   const plant = LINE_PLANT[grade] || LINE_PLANT.cup;
   const parts = ['source', grade === 'detector' ? 'detector' : 'faradayCup',
     ...LINE_ON_PIPE.map(p => p[0]),
-    plant.supply, 'switchgear', plant.cooling, plant.endData, ...plant.extra];
+    plant.supply, 'switchgear',
+    ...Array.from({ length: plant.coolingCount || 1 }, () => plant.cooling),
+    plant.endData, ...plant.extra];
   return parts.reduce((s, t) => s + (COMPONENTS[t]?.cost?.funding || 0), 0);
 }
 
@@ -306,6 +308,7 @@ export function buildBeamline(game, row, grade = 'cup') {
   const supply = place(plant.supply, -8, row - 2);
   const gear  = place('switchgear', -5, row - 2);
   const cool  = place(plant.cooling, -3, row - 2);
+  const cool2 = (plant.coolingCount || 1) > 1 ? place(plant.cooling, -2, row - 2) : null;
   const ssa   = place('solidStateAmp', 0, row - 2);
   const ioc   = place('rackIoc', 3, row - 2);
   const pump  = place('roughingPump', 4, row - 2);
@@ -318,7 +321,8 @@ export function buildBeamline(game, row, grade = 'cup') {
   const vacE   = place('vacuumManifold', 3, row - 1);
   const wgBus  = place('waveguideManifold', -2, row - 1);
   const turbo  = place('turboPump', 5, row - 1);
-  if (!supply || !gear || !cool || !ssa || !ioc || !pump || !endData || !pwrBus || !vacW
+  if (!supply || !gear || !cool || ((plant.coolingCount || 1) > 1 && !cool2)
+    || !ssa || !ioc || !pump || !endData || !pwrBus || !vacW
     || !vacE || !wgBus || !turbo) return null;
 
   // Priced through the same runWiringCost the drawing gesture commits with, off
@@ -336,8 +340,9 @@ export function buildBeamline(game, row, grade = 'cup') {
   // end-station) takes a second panel, which is the shape of the decision the
   // chain creates.
   const powered = [[src, 'pwr_in'], [end, 'pwr_in'], [cool, 'pwr_in'],
-    [ssa, 'pwr_in'], [ioc, 'pwr_in'], [pump, 'pwr_in'], [turbo, 'pwr_in'],
+    [ioc, 'pwr_in'], [pump, 'pwr_in'], [turbo, 'pwr_in'],
     [pwrBus, 'pwr_in']];
+  if (cool2) powered.push([cool2, 'pwr_in']);
   if (endData !== ioc) powered.push([endData, 'pwr_in']);
   const panels = [];
   wire('hvCable', { id: supply, port: 'hv_out_1' }, { id: gear, port: 'hv_in' });
@@ -347,6 +352,8 @@ export function buildBeamline(game, row, grade = 'cup') {
     panels.push(panel);
     wire('hvCable', { id: gear, port: `hv_out_${i + 1}` }, { id: panel, port: 'hv_in' });
   }
+  // RF racks are dedicated HV loads, not branch-circuit loads.
+  wire('hvCable', { id: gear, port: `hv_out_${panels.length + 1}` }, { id: ssa, port: 'hv_in' });
   powered.forEach(([id, port], i) => {
     const panel = panels[Math.floor(i / 8)];
     wire('powerCable', { id: panel, port: `pwr_out_${(i % 8) + 1}` }, { id, port });
@@ -358,9 +365,12 @@ export function buildBeamline(game, row, grade = 'cup') {
     wire('vacuumPipe', { id: pump, port: 'vac_out' }, { id, port });
   }
   wire('vacuumPipe', { id: turbo, port: 'vac_out' }, { id: vacE, port: 'bus_right' });
-  wire('rfWaveguide', { id: ssa, port: 'rf_out' }, { id: wgBus, port: 'bus_left' });
+  wire('rfWaveguide', { id: ssa, port: 'rf_out_1' }, { id: wgBus, port: 'bus_left' });
   wire('coolingWater', { id: cool, port: 'cool_out' }, { id: src, port: 'cool_in' });
   wire('coolingWater', { id: cool, port: 'cool_out' }, { id: quad, port: 'cool_in' });
+  if (cool2) {
+    wire('coolingWater', { id: cool2, port: 'cool_out' }, { id: cool, port: 'cool_out_2' });
+  }
   if (grade === 'detector') {
     wire('coolingWater', { id: cool, port: 'cool_out' }, { id: end, port: 'cool_in' });
   }

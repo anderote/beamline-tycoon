@@ -226,8 +226,9 @@ log('\n--- D: objective rewards ---');
   // to remove ($100M colliderTech used to buy a 2,666-tick silence).
   assert(rec.longestGap && rec.longestGap.ticks < 4000,
     `longest span with nothing completing under 4,000 ticks (${rec.longestGap?.ticks})`);
-  assert(rec.longestGap.ticks < 0.2 * T,
-    `...and under a fifth of the run (${(100 * rec.longestGap.ticks / T).toFixed(1)}%)`);
+  assert(rec.longestGap && rec.longestGap.ticks < 0.2 * T,
+    `...and under a fifth of the run (${rec.longestGap
+      ? (100 * rec.longestGap.ticks / T).toFixed(1) : 'n/a'}%)`);
 
   // Completions spread across the run rather than bunching at one end.
   const doneBy = (frac) => RESEARCH_IDS

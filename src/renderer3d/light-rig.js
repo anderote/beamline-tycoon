@@ -227,9 +227,9 @@ export class LightRig {
 
     // Candidate emitters (fixtures, glow-role meshes), refreshed from a scene
     // traversal only when markDirty() has been called since the last
-    // refresh — every game event does this today (ThreeRenderer wires it in
-    // next to the existing _portMarkersDirty flag), so a static facility
-    // costs one traversal total, not one per frame. Ranking + slot
+    // refresh — ThreeRenderer marks only geometry/candidate-changing events,
+    // so ticks and resource/UI updates do not retraverse a static facility.
+    // Ranking + slot
     // assignment still runs every update() call (cheap: these arrays are a
     // handful to a few dozen entries, not the whole scene).
     this._fixtureRegistry = [];

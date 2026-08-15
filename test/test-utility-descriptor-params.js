@@ -39,6 +39,12 @@ for (const type of UTILITY_TYPE_LIST) {
     `${type} declares capacity/demand param names (${capParam} / ${demParam})`);
 
   const srcParams = { ...(EXTRA_SOURCE[type] || {}), [capParam]: CAP };
+  // Cooling is staged: an integrated source needs reservoir, chilling, and
+  // rejection roles before its effective network capacity is non-zero.
+  if (type === 'coolingWater') {
+    srcParams.reservoir = true;
+    srcParams.heatRejectionCapacity = CAP;
+  }
   const sinkParams = { ...(EXTRA_SINK[type] || {}), [demParam]: DEM };
   const network = {
     id: `net_${type}_test`,
