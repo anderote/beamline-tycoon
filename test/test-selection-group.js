@@ -225,6 +225,33 @@ console.log('\n=== Selection groups ===\n');
 }
 
 {
+  const { game, sourceId, sinkId } = fixture(554);
+  const closedWindows = [];
+  let armed = null;
+  const input = {
+    game,
+    renderer: {
+      closePlaceableInfoWindow: entry => closedWindows.push(entry.id),
+    },
+    selectedPlaceableId: sinkId,
+    selectedPlaceableIds: new Set([sourceId, sinkId]),
+    _selectionIdsForAnchor: InputHandler.prototype._selectionIdsForAnchor,
+    _showToast() {},
+    _armSelectionPayload(payload) { armed = payload; return true; },
+  };
+  const moved = InputHandler.prototype._beginSelectionPlacement.call(input, 'move', sinkId);
+  assert(moved && armed?.operation === 'move', 'Move selection arms the captured group');
+  assert(closedWindows.length === 2
+      && closedWindows.includes(sourceId) && closedWindows.includes(sinkId),
+    'Move selection closes every selected object info window');
+
+  closedWindows.length = 0;
+  const copied = InputHandler.prototype._beginSelectionPlacement.call(input, 'copy', sinkId);
+  assert(copied && closedWindows.length === 0,
+    'Copy selection leaves selected object info windows open');
+}
+
+{
   const hint = InputHandler.prototype._placementKeyHintText.call({
     game: { _designPlacer: null },
     activeTool: { kind: 'move', payload: { kind: 'selectionGroup' } },
