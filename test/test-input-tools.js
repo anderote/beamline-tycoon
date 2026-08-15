@@ -183,6 +183,32 @@ console.log('\n=== 3. P-selected move closes the item info window ===\n');
     'the selected item is armed as the move payload');
 }
 
+console.log('\n=== 3a. Click-to-move preserves the object ID and utilities ===\n');
+
+{
+  const entry = {
+    id: 'wired_rack_1', type: 'mcc', kind: 'infrastructure',
+    category: 'infrastructure', dir: 1, variant: 0,
+  };
+  let liftCalls = 0;
+  const input = {
+    game: {
+      getPlaceable: id => id === entry.id ? entry : null,
+      liftPlaceable() { liftCalls++; return null; },
+    },
+    renderer: {
+      raycastScreen: () => ({}),
+      identifyHit: () => ({ nodeId: entry.id }),
+    },
+    _showToast() {},
+  };
+  const payload = InputHandler.prototype._pickUpAt.call(input, 0, 0, 10, 10);
+  assertOk(payload?.kind === 'selectedPlaceable' && payload.placeableId === entry.id,
+    'click-to-move carries the existing stable ID');
+  assertOk(liftCalls === 0,
+    'click-to-move does not remove the object or dangle its utility endpoints');
+}
+
 console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines ===\n');
 
 {

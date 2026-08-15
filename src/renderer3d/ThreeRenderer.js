@@ -3530,6 +3530,9 @@ export class ThreeRenderer {
     if (this.utilityLineBuilderV2?.updateRelaxations(_dt)) {
       this._effectSystem?.syncFromGroup('utility-lines', this.utilityLineGroup);
     }
+    if (this.utilityLineBuilderV2?.updateDragDynamics(_dt)) {
+      this._effectSystem?.syncFromGroup('utility-lines', this.utilityLineGroup);
+    }
     // One uniform write per flow-patched material — no rebuilds, no per-line
     // cost. See utility-flow.js.
     tickFlow(_dt);
@@ -4233,6 +4236,35 @@ export class ThreeRenderer {
   }
 
   /**
+   * Render utility endpoints against a carried ghost pose without mutating
+   * game state. The builder keeps flexible-line particle history between
+   * calls, which makes hose/cable middles trail the cursor and settle.
+   */
+  previewPlaceableUtilityDrag(placeableId, pose) {
+    if (!placeableId || !pose) return this.clearPlaceableUtilityDragPreview();
+    const wall = pose.wallMount;
+    const sig = [
+      placeableId, pose.col, pose.row, pose.subCol || 0, pose.subRow || 0,
+      pose.dir || 0, pose.portsFlipped === true ? 1 : 0,
+      wall ? `${wall.col},${wall.row},${wall.edge},${wall.off}` : '',
+    ].join('|');
+    if (this._utilityDragPreview?.sig === sig) return;
+    this._utilityDragPreview = { placeableId, pose: { ...pose }, sig };
+    this.utilityLineBuilderV2?.setDraggedPlaceableId(placeableId);
+    this._refreshUtilityLinesV2();
+  }
+
+  clearPlaceableUtilityDragPreview() {
+    if (!this._utilityDragPreview) {
+      this.utilityLineBuilderV2?.setDraggedPlaceableId(null);
+      return;
+    }
+    this._utilityDragPreview = null;
+    this.utilityLineBuilderV2?.setDraggedPlaceableId(null);
+    this._refreshUtilityLinesV2();
+  }
+
+  /**
    * Rebuild new-system (Phase 4) utility lines from state.utilityLines.
    * Called on 'utilityLinesChanged' and 'placeableChanged' (the latter so
    * lines follow placeables that are moved).
@@ -4249,6 +4281,18 @@ export class ThreeRenderer {
     if (!state || !state.utilityLines) return;
     // Includes pipe placements, whose ports lines can now attach to.
     const placeablesById = makeUtilityEndpointIndex(state);
+    const drag = this._utilityDragPreview;
+    if (drag) {
+      const original = placeablesById.get(drag.placeableId);
+      if (original) {
+        placeablesById.set(drag.placeableId, {
+          ...original,
+          ...drag.pose,
+          id: original.id,
+          type: original.type,
+        });
+      }
+    }
     this.utilityLineBuilderV2.build(snap.utilityLines, placeablesById, this.utilityLineGroup, {
       state,
     });

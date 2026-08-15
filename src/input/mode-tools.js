@@ -47,6 +47,7 @@ export class MoveTool extends Tool {
       ctx.renderer.clearDragPreview();
     }
     this._restoreCarried(ctx);
+    ctx.renderer.clearPlaceableUtilityDragPreview?.();
     input.hoverPlaceable = null;
     input.selectionGroupPreview = null;
     ctx.renderer._clearPreview();
@@ -79,6 +80,7 @@ export class MoveTool extends Tool {
       });
     }
     this.payload = null;
+    ctx.renderer.clearPlaceableUtilityDragPreview?.();
   }
 
   onMouseDown(e, ctx) {
@@ -180,6 +182,7 @@ export class MoveTool extends Tool {
       if (input._placeMovedObject(this.payload, grid.col, grid.row)) {
         this.payload = null;
         input.hoverPlaceable = null;
+        ctx.renderer.clearPlaceableUtilityDragPreview?.();
         ctx.renderer._clearPreview();
         ctx.renderer.canvas.style.cursor = 'grab';
       }
@@ -215,6 +218,7 @@ export class MoveTool extends Tool {
     ctx.input.hoverPlaceable = null;
     ctx.input.selectionGroupPreview = null;
     ctx.input.isLinePlacingDecoration = false;
+    ctx.renderer.clearPlaceableUtilityDragPreview?.();
     ctx.renderer._clearPreview?.();
     ctx.renderer.canvas.style.cursor = 'grab';
   }

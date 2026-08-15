@@ -68,6 +68,53 @@ export function cablePathLengthSubUnits(path) {
   return tiles * 4;
 }
 
+/**
+ * Pull a laid cable trace along with one or both of its terminal fittings.
+ *
+ * Each interior sample receives a blend of the two endpoint displacements,
+ * weighted by its arc-length position along the original trace. This is the
+ * quasi-static shape a loose cable assumes while a connected machine is
+ * carried: the plug stays attached, the far plug stays pinned, and the slack
+ * between them sweeps across the floor instead of leaving a single stretched
+ * first segment behind.
+ */
+export function draggedCablePath(path, { start = null, end = null } = {}) {
+  const clean = sanitizeCablePath(path);
+  if (clean.length < 2) return clean;
+  const first = clean[0];
+  const last = clean[clean.length - 1];
+  const startTarget = start && Number.isFinite(start.col) && Number.isFinite(start.row)
+    ? start : first;
+  const endTarget = end && Number.isFinite(end.col) && Number.isFinite(end.row)
+    ? end : last;
+  const startDelta = {
+    col: startTarget.col - first.col,
+    row: startTarget.row - first.row,
+  };
+  const endDelta = {
+    col: endTarget.col - last.col,
+    row: endTarget.row - last.row,
+  };
+  const distances = [0];
+  for (let i = 1; i < clean.length; i++) {
+    distances[i] = distances[i - 1] + Math.hypot(
+      clean[i].col - clean[i - 1].col,
+      clean[i].row - clean[i - 1].row,
+    );
+  }
+  const total = distances[distances.length - 1];
+  const moved = clean.map((point, index) => {
+    const t = total > EPS ? distances[index] / total : index / (clean.length - 1);
+    return {
+      col: point.col + startDelta.col * (1 - t) + endDelta.col * t,
+      row: point.row + startDelta.row * (1 - t) + endDelta.row * t,
+    };
+  });
+  moved[0] = { col: startTarget.col, row: startTarget.row };
+  moved[moved.length - 1] = { col: endTarget.col, row: endTarget.row };
+  return moved;
+}
+
 function planarLength(points) {
   let total = 0;
   for (let i = 1; i < points.length; i++) {

@@ -154,8 +154,9 @@ console.log('\n=== floating fixtures remain directly interactive ===\n');
     _showToast: () => {},
   };
   const payload = InputHandler.prototype._pickUpAt.call(input, 3, 4, 100, 100);
-  assertOk(liftedId === overhead.id && payload?.type === 'ceilingPanel',
-    'move mode uses the raycast id instead of picking the occupied floor object below');
+  assertOk(liftedId === null && payload?.placeableId === overhead.id
+      && payload?.type === 'ceilingPanel',
+    'move mode uses the raycast id and preserves it instead of picking the floor object below');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

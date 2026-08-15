@@ -2568,6 +2568,7 @@ export class InputHandler {
     const armedId = this.armedPlaceableId;
     if (!armedId) {
       this.hoverPlaceable = null;
+      this.renderer.clearPlaceableUtilityDragPreview?.();
       return;
     }
     // A carried placeable remains in world state so its stable ID keeps pipe
@@ -2590,12 +2591,18 @@ export class InputHandler {
       // Junction moves need the snapped pose at drop time. On-pipe placement
       // tools keep their separate controller-owned slot record.
       this.hoverPlaceable = selDef.role === 'junction' ? (hover || null) : null;
+      if (ignorePlaceableId && this.hoverPlaceable) {
+        this.renderer.previewPlaceableUtilityDrag?.(ignorePlaceableId, this.hoverPlaceable);
+      } else {
+        this.renderer.clearPlaceableUtilityDragPreview?.();
+      }
       return;
     }
     // Drawn connections (beam pipes) have their own preview system; skip the
     // full-tile ghost/grid overlay so hovering with the pipe tool stays clean.
     if (selDef?.isDrawnConnection) {
       this.hoverPlaceable = null;
+      this.renderer.clearPlaceableUtilityDragPreview?.();
       return;
     }
     const placeable = PLACEABLES[armedId];
@@ -2604,6 +2611,7 @@ export class InputHandler {
       // ghost left over from the previous tool must not stay on screen.
       this.hoverPlaceable = null;
       this.renderer._clearPreview?.();
+      this.renderer.clearPlaceableUtilityDragPreview?.();
       return;
     }
     // Selected and beamline move payloads remain in state so their stable IDs
@@ -2646,6 +2654,9 @@ export class InputHandler {
         reason,
       };
       this.renderer.renderPlaceableGhost(this.hoverPlaceable, ok, reason);
+      if (ignorePlaceableId) {
+        this.renderer.previewPlaceableUtilityDrag?.(ignorePlaceableId, this.hoverPlaceable);
+      }
       return;
     }
     const wx = this.lastMouseWorldX ?? 0;
@@ -2713,6 +2724,9 @@ export class InputHandler {
       reason,
     };
     this.renderer.renderPlaceableGhost(this.hoverPlaceable, ok, reason);
+    if (ignorePlaceableId) {
+      this.renderer.previewPlaceableUtilityDrag?.(ignorePlaceableId, this.hoverPlaceable);
+    }
   }
 
   /**
@@ -3399,24 +3413,19 @@ export class InputHandler {
     }
 
     if (hitEntry) {
-      const snap = this.game._withUndo(() => this.game.liftPlaceable(hitEntry.id));
-      if (!snap) return null;
-      const def = PLACEABLES[snap.type];
-      this._showToast(`Moving ${def?.name || snap.type}`);
+      // Ordinary equipment now follows the same stable-ID move path as a
+      // selected object. Lifting used to remove it from state and dangle all
+      // utility endpoints before the cursor moved a pixel, which made a live
+      // attached-hose preview impossible and minted a replacement ID on drop.
+      const def = PLACEABLES[hitEntry.type];
+      this._showToast(`Moving ${def?.name || hitEntry.type}`);
       return {
-        kind: 'placeable',
-        type: snap.type,
-        params: snap.params,
-        variant: snap.variant ?? 0,
-        originCol: snap.col,
-        originRow: snap.row,
-        originSubCol: snap.subCol,
-        originSubRow: snap.subRow,
-        originDir: snap.dir,
-        originPortsFlipped: snap.portsFlipped === true,
-        originWallMount: snap.wallMount,
-        dir: snap.dir,
-        portsFlipped: snap.portsFlipped === true,
+        kind: 'selectedPlaceable',
+        placeableId: hitEntry.id,
+        type: hitEntry.type,
+        variant: hitEntry.variant ?? 0,
+        dir: hitEntry.dir || 0,
+        portsFlipped: hitEntry.portsFlipped === true,
       };
     }
 
