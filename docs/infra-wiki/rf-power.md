@@ -62,7 +62,7 @@ The cavity frequencies you will be planning around:
 | 325 MHz | VHF | Spoke Cavity | 8 kW |
 | 1300 MHz | L | 9-cell Elliptical SRF | 5 kW |
 | 1300 MHz | L | TESLA Cryomodule | 40 kW |
-| 2450 MHz | S | ECR Ion Source | 2 kW |
+| 2450 MHz | S | ECR Ion Source | 6 kW |
 | 2856 MHz | S | NC RF Cavity | 40 kW |
 | 2856 MHz | S | S-band Structure | 45 kW |
 

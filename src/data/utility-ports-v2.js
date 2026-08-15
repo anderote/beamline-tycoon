@@ -117,11 +117,12 @@ const BEAMLINE_UTILITY_PORTS = {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 30 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.7, role: 'sink', params: { heatLoad: 20 } },
   },
-  // ECR: mirror solenoids draw serious power; 2.45 GHz microwave injection.
+  // ECR: mirror solenoids draw serious power; the 2.45 GHz feed is sized for
+  // the source control's 6 kW high-current setting.
   ecrIonSource: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 60 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 40 } },
-    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 2 } },
+    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 6 } },
   },
 
   // ── Compound machines ─────────────────────────────────────────────

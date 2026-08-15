@@ -433,73 +433,102 @@ BeamlineDesigner.prototype._renderSchematic = function() {
     ctx.fillRect(sx - standW - 1, floorY - 2, standW * 2 + 2, 2);
   }
 
-  // --- Ghost quad arrow markers (FODO advisor) ---
-  if (this.ghostQuads && this.ghostQuads.length > 0 && this.totalLength > 0) {
+  // --- Physics-aware insertion hints ---
+  // Bare terminal text is intentionally drawn into the schematic rather than
+  // placed in a panel: the proposal belongs to one physical s-position. Small
+  // glyphs remain visible along the line; the closest one to the pointer (or
+  // blue marker when keyboard-panning) expands into the one-click recipe.
+  if (this.placementHints && this.placementHints.length > 0 && this.totalLength > 0) {
     const compTop = beamY - schematicH / 2;
     const compBot = beamY + schematicH / 2;
-    const arrowH = Math.max(6, 8 * effectiveZoom);
-    const arrowHW = Math.max(4, 6 * effectiveZoom); // half-width
-    // Base zoom fits about five components to the full canvas, so on any real
-    // beamline most suggestions land outside the visible span. Count the ones
-    // that fall off each edge and point at them.
     let offLeft = 0;
     let offRight = 0;
+    const pointerX = Number.isFinite(this._hoverSchematicX)
+      ? this._hoverSchematicX
+      : 20 + panOffsetPx + this._sToPixelOffset(this.markerS, effectiveZoom);
+    const visible = [];
 
-    for (const ghost of this.ghostQuads) {
-      // Same s -> pixel map as the marker, so the arrow (and the click region
-      // built from it below) sits at the s the advisor actually proposed.
-      const ghostXPos = 20 + panOffsetPx + this._sToPixelOffset(ghost.s, effectiveZoom);
+    for (const hint of this.placementHints) {
+      const hintX = 20 + panOffsetPx + this._sToPixelOffset(hint.s, effectiveZoom);
+      if (hintX < 0) { offLeft++; continue; }
+      if (hintX > W) { offRight++; continue; }
+      visible.push({ hint, x: hintX, color: _placementHintColor(hint) });
+    }
 
-      if (ghostXPos < 0) { offLeft++; continue; }
-      if (ghostXPos > W) { offRight++; continue; }
+    let active = null;
+    for (const item of visible) {
+      const distance = Math.abs(item.x - pointerX);
+      if (!active || distance < active.distance ||
+          (distance === active.distance && item.hint.priority > active.hint.priority)) {
+        active = { ...item, distance };
+      }
+    }
+    // Hints stay quiet until the cursor/marker comes into their neighbourhood.
+    if (active && active.distance > Math.max(110, W * 0.18)) active = null;
 
-      // Focus X (polarity 1) = red, Focus Y (polarity -1) = blue
-      const isX = ghost.polarity === 1;
-      const color = isX ? 'rgba(230, 80, 80, 0.7)' : 'rgba(80, 140, 230, 0.7)';
-      const colorFaint = isX ? 'rgba(230, 80, 80, 0.25)' : 'rgba(80, 140, 230, 0.25)';
-      const label = isX ? 'X' : 'Y';
+    for (const item of visible) {
+      const { hint, x: hintX, color } = item;
+      const isActive = active?.hint.id === hint.id;
 
-      // Dashed vertical guide between arrows
-      ctx.strokeStyle = colorFaint;
+      ctx.strokeStyle = _withAlpha(color, isActive ? 0.55 : 0.2);
       ctx.lineWidth = 1;
       ctx.setLineDash([3, 3]);
       ctx.beginPath();
-      ctx.moveTo(ghostXPos, compTop);
-      ctx.lineTo(ghostXPos, compBot);
+      ctx.moveTo(hintX, compTop - 2);
+      ctx.lineTo(hintX, compBot + 2);
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Top arrow (pointing down into beamline)
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.moveTo(ghostXPos - arrowHW, compTop - arrowH - 2);
-      ctx.lineTo(ghostXPos + arrowHW, compTop - arrowH - 2);
-      ctx.lineTo(ghostXPos, compTop - 2);
-      ctx.closePath();
-      ctx.fill();
-
-      // Bottom arrow (pointing up into beamline)
-      ctx.beginPath();
-      ctx.moveTo(ghostXPos - arrowHW, compBot + arrowH + 2);
-      ctx.lineTo(ghostXPos + arrowHW, compBot + arrowH + 2);
-      ctx.lineTo(ghostXPos, compBot + 2);
-      ctx.closePath();
-      ctx.fill();
-
-      // Axis label above top arrow
-      ctx.fillStyle = color;
-      ctx.font = `bold ${Math.max(8, 10 * effectiveZoom)}px monospace`;
+      ctx.fillStyle = _withAlpha(color, isActive ? 1 : 0.72);
+      ctx.font = 'bold 11px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(label, ghostXPos, compTop - arrowH - 6);
+      ctx.fillText('✦', hintX, compTop - 5);
 
-      // Click region spans from top arrow to bottom arrow
-      const hitX = ghostXPos - arrowHW - 4;
-      const hitY = compTop - arrowH - 6;
-      const hitW = (arrowHW + 4) * 2;
-      const hitH = (compBot + arrowH + 2) - hitY;
       this._ghostRegions.push({
-        x: hitX, y: hitY, w: hitW, h: hitH,
-        ghost,
+        x: hintX - 9, y: compTop - 18, w: 18, h: compBot - compTop + 27,
+        hint,
+      });
+    }
+
+    if (active) {
+      const { hint, x: hintX, color } = active;
+      const line1 = `✦ ${hint.label}  [+ INSERT]`;
+      const line2 = hint.reason || '';
+      const line3 = `${hint.state || ''}${hint.state && hint.target ? '  →  ' : ''}${hint.target || ''}`;
+      ctx.save();
+      ctx.font = 'bold 9px monospace';
+      const textW = Math.max(
+        ctx.measureText(line1).width,
+        ctx.measureText(line2).width,
+        ctx.measureText(line3).width,
+      );
+      const textX = Math.max(8, Math.min(W - textW - 8, hintX + 9));
+      const textY = Math.max(10, compTop - 35);
+
+      ctx.strokeStyle = _withAlpha(color, 0.5);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(hintX, compTop - 4);
+      ctx.lineTo(hintX, textY + 2);
+      ctx.lineTo(textX - 3, textY + 2);
+      ctx.stroke();
+
+      // No box: a tiny shadow is enough to hold terminal text over the lab.
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.95)';
+      ctx.shadowBlur = 2;
+      ctx.textAlign = 'left';
+      ctx.fillStyle = _withAlpha(color, 1);
+      ctx.fillText(line1, textX, textY);
+      ctx.font = '8px monospace';
+      ctx.fillStyle = 'rgba(225, 232, 238, 0.9)';
+      ctx.fillText(line2, textX, textY + 11);
+      ctx.fillStyle = 'rgba(160, 190, 205, 0.85)';
+      ctx.fillText(line3, textX, textY + 21);
+      ctx.restore();
+
+      this._ghostRegions.push({
+        x: textX - 4, y: textY - 10, w: textW + 8, h: 35,
+        hint,
       });
     }
 
@@ -550,6 +579,21 @@ BeamlineDesigner.prototype._renderSchematic = function() {
 
   ctx.restore();
 };
+
+function _placementHintColor(hint) {
+  if (hint.kind === 'longitudinal') return '#cc88ff';
+  if (hint.kind === 'energy') return '#55dd99';
+  if (hint.componentType === 'solenoid') return '#55ccee';
+  if (hint.params?.polarity === 1) return '#e65050';
+  if (hint.params?.polarity === -1) return '#508ce6';
+  return '#ffaa22';
+}
+
+function _withAlpha(hex, alpha) {
+  const value = hex.startsWith('#') ? hex.slice(1) : hex;
+  const n = parseInt(value, 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
 
 /** Edge marker for advisor suggestions that lie outside the visible span:
  *  a chevron pointing the way to scroll, with how many are that way. */
@@ -1063,6 +1107,7 @@ BeamlineDesigner.prototype._renderPlots = function() {
   // Compute the x/y ranges based on plot range modes
   const xRange = this._getPlotXRange();
   const yScale = this._getPlotYScale();
+  const targets = this._missionPlotTargets?.() || null;
 
   // Which beamline(s) the panels show. `solid` is drawn in full colour with all
   // the chrome; `ghost` is the dimmed comparison drawn underneath it.
@@ -1116,19 +1161,23 @@ BeamlineDesigner.prototype._renderPlots = function() {
       // would autoscale to its own envelope and the two curves would be drawn
       // to different y-axes on the same pixels — a comparison that reads as a
       // difference in beam size when it is only a difference in scale.
-      const yDomain = ProbePlots.unionYDomain(
+      let yDomain = ProbePlots.unionYDomain(
         ProbePlots.yDomainFor(plotType, solid, yScale, pins, 0),
         ghost ? ProbePlots.yDomainFor(plotType, ghost, yScale, pins, 0) : null,
+      );
+      yDomain = ProbePlots.unionYDomain(
+        yDomain,
+        ProbePlots.targetYDomain(plotType, targets),
       );
       // Ghost first: it draws marks only, so the solid pass on top supplies the
       // axes, bands, pin lines and legend. Reversed, the chrome would paint over
       // the proposal and the as-built line would read as the real one.
       if (ghost) {
         ProbePlots.draw(off, plotType, ghost, pins, 0, xRange, yScale,
-          { yDomain, ghost: true });
+          { yDomain, ghost: true, targets });
       }
       ProbePlots.draw(off, plotType, solid, pins, 0, xRange, yScale,
-        { yDomain, noClear: !!ghost });
+        { yDomain, noClear: !!ghost, targets });
     }
 
     // Scale up to display canvas with nearest-neighbor (crispy pixels)

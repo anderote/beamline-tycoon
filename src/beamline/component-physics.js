@@ -19,8 +19,10 @@ const mc2_eV = 510998.95;         // eV  — electron rest energy
 export const PARAM_DEFS = {
 
   // ---- Thermionic gun ----
-  // Constant-power source: 50 kW wallplug, 5 kW beam power.
-  // User trades extraction voltage against current: I = P_beam / V.
+  // Cathode heat raises the available emission/beam power; extraction voltage
+  // trades that power between current and injection energy. The resulting
+  // 20-900 mA range makes high current easy to create but leaves the existing
+  // space-charge and aperture-loss modules to decide how much is transportable.
   source: {
     extractionVoltage: {
       min: 25, max: 250, default: 50, unit: 'kV', step: 5,
@@ -57,10 +59,10 @@ export const PARAM_DEFS = {
       min: 10, max: 100, default: 40, unit: 'kV', step: 1,
     },
     microwavePower: {
-      min: 200, max: 3000, default: 1500, unit: 'W', step: 50,
+      min: 200, max: 6000, default: 2500, unit: 'W', step: 50,
     },
     magnetCurrent: {
-      min: 50, max: 400, default: 200, unit: 'A', step: 5,
+      min: 50, max: 500, default: 250, unit: 'A', step: 5,
     },
     beamCurrent:      { derived: true, unit: 'mA' },
     extractionEnergy: { derived: true, unit: 'GeV' },
@@ -458,18 +460,28 @@ export function getDefaults(type) {
 // COMPUTE_STATS implementations
 // ---------------------------------------------------------------------------
 
-// Constant-power thermionic source: 50 kW wallplug, 5 kW beam power.
-// P_beam = I * V → I = P_beam / V. Raising V lowers I by the same factor.
-const SOURCE_BEAM_POWER_W = 5000;
+// Thermionic source. Heating the cathode increases available emission and the
+// gun's delivered beam power from 5 kW at 600 K to 22.5 kW at 2000 K. At a
+// fixed cathode setting P_beam = I * V, so extraction voltage remains a clean
+// energy/current trade. Defaults produce 12.5 kW / 250 mA; the full control
+// envelope spans 20 mA (cold, 250 kV) to 900 mA (hot, 25 kV).
+const SOURCE_MIN_BEAM_POWER_W = 5000;
+const SOURCE_MAX_BEAM_POWER_W = 22500;
+const SOURCE_MIN_CATHODE_K = 600;
+const SOURCE_MAX_CATHODE_K = 2000;
 
 function computeSource(params) {
   const V_kV = params.extractionVoltage;  // kV
   const T    = params.cathodeTemperature; // K
 
   const V_V = V_kV * 1e3;
-  const I_A = SOURCE_BEAM_POWER_W / V_V;   // A
+  const heatFraction = Math.max(0, Math.min(1,
+    (T - SOURCE_MIN_CATHODE_K) / (SOURCE_MAX_CATHODE_K - SOURCE_MIN_CATHODE_K)));
+  const beamPowerW = SOURCE_MIN_BEAM_POWER_W
+    + heatFraction * (SOURCE_MAX_BEAM_POWER_W - SOURCE_MIN_BEAM_POWER_W);
+  const I_A = beamPowerW / V_V;            // A
   const beamCurrent = I_A * 1e3;           // mA
-  const beamPower = SOURCE_BEAM_POWER_W / 1e3; // kW (constant)
+  const beamPower = beamPowerW / 1e3;       // kW
   const extractionEnergy = V_kV * 1e-6;    // GeV (V kV = V * 1e-6 GeV)
 
   // Thermal emittance: ε [mm·mrad] = r_mm * sqrt(k_B * T / (me * c²))
@@ -494,11 +506,11 @@ function computeIonSource(params) {
 }
 
 // ECR source: microwave power sets the plasma density (and so the extracted
-// current), scaled by mirror-field confinement which saturates near the
-// design magnet current. Defaults (1500 W, 200 A) reproduce the catalog's
-// 200 mA.
-const ECR_MA_PER_W = 200 / 1500;
-const ECR_DESIGN_MAGNET_A = 200;
+// current), scaled by mirror-field confinement. The mirror benefit saturates
+// above the design point so power remains the main high-current control.
+// Defaults (2500 W, 250 A) produce 400 mA; pushed controls reach 1.15 A.
+const ECR_MA_PER_W = 400 / 2500;
+const ECR_DESIGN_MAGNET_A = 250;
 
 function computeEcrIonSource(params) {
   const extractionEnergy = params.extractionVoltage * 1e-6; // kV → GeV

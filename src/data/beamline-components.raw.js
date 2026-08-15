@@ -33,14 +33,14 @@ export const BEAMLINE_COMPONENTS_RAW = {
     id: 'source',
     physicsType: 'source',
     name: 'Thermionic Electron Gun',
-    desc: 'Simple, cheap, reliable thermionic electron gun — a heated cathode in a DC extraction field. Delivers a constant 5 kW beam: crank extraction voltage up for higher energy and lower current, down for more current at lower energy. 25 kV / 200 mA at the low end, 250 kV / 20 mA at the top. Perfect first source for any beamline.',
+    desc: 'Simple, cheap, reliable thermionic electron gun — a heated cathode in a DC extraction field. Cathode heat raises emission while extraction voltage trades current for injection energy. It readily supplies hundreds of milliamps and can approach 1 A when run hot and low-voltage, but that beam is difficult to transport cleanly.',
     category: 'source',
     subsection: 'electron',
     cost: { funding: 200000 },
     // Catalogue values mirror component-physics.js at the default controls.
     // Emittance remains live/derived after placement (cathode temperature
     // changes it), but the build card still needs the default for comparison.
-    stats: { beamCurrent: 100, emittance: 1.35 },
+    stats: { beamCurrent: 250, emittance: 1.35 },
     energyCost: 15,
     apertureRadius: 40,
     subL: 4,
@@ -227,18 +227,18 @@ export const BEAMLINE_COMPONENTS_RAW = {
     id: 'ecrIonSource',
     physicsType: 'source', // proton source — gameplay.py initializes the beam with PROTON_MASS via params.particleType
     name: 'ECR Ion Source',
-    desc: 'Electron Cyclotron Resonance ion source — microwave power at 2.45 GHz heats a plasma confined by mirror solenoid magnets, producing high-current proton beams suitable for high-power facilities. Demands RF waveguide injection and substantial cooling, but delivers 4× the current of a duoplasmatron.',
+    desc: 'Electron Cyclotron Resonance ion source — microwave power at 2.45 GHz heats a plasma confined by mirror solenoid magnets, producing a high-current proton beam for high-power facilities. It readily supplies hundreds of milliamps and can exceed 1 A when pushed, but demands RF waveguide injection and substantial cooling.',
     category: 'source',
     subsection: 'proton',
     cost: { funding: 1200000 },
-    stats: { beamCurrent: 200 },
+    stats: { beamCurrent: 400 },
     energyCost: 60,
     apertureRadius: 40,
     subL: 6,
     subW: 4,
     subH: 4, gridW: 4, gridH: 6, geometryType: 'box',
     interiorVolume: 8,
-    // GATED: 4× the duoplasmatron's current is a capability step up, and the
+    // GATED: its much higher current is a capability step up, and the
     // ecrIonSource node exists for exactly this. Sits one node past
     // protonAcceleration, so it can never be reachable before ionSource.
     requires: 'ecrIonSource',
@@ -246,7 +246,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteKey: 'ecrIonSource',
     spriteColor: 0x46c25a,
     accentColor: 0x46c25a,
-    params: { particleType: 'proton', extractionVoltage: 40, microwavePower: 1500, magnetCurrent: 200 },
+    params: { particleType: 'proton', extractionVoltage: 40, microwavePower: 2500, magnetCurrent: 250 },
     placement: 'module',
     role: 'junction',
     routing: [],
@@ -258,7 +258,8 @@ export const BEAMLINE_COMPONENTS_RAW = {
     requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
     rfFrequency: 2450,
     rfBand: 'sband',
-    rfPowerRequired: 2,
+    // Sized for the 6 kW top end of the microwave-power control.
+    rfPowerRequired: 6,
   },
 
   // ── Compound machines ───────────────────────────────────────────────────

@@ -10,7 +10,7 @@ Legend: **MVP** = currently in the starter set; everything else is deferred.
 
 ### Electron sources (`subsection: electron`)
 
-- [x] **MVP** `source` — Source — cost 200000 — beamCurrent 100 — energy 15 — _Simple thermionic electron gun, 25 kV / 200 mA up to 250 kV / 20 mA. Starter source._
+- [x] **MVP** `source` — Source — cost 200000 — beamCurrent 250 — energy 15 — _Simple thermionic electron gun with heat-controlled emission; 20-900 mA across its voltage and cathode settings. Starter source._
 - [ ] `dcPhotoGun` — DC Photocathode Gun — cost 1500000 — beamCurrent 1.5 — energy 3 — requires `photocathodes` — _Laser-driven DC photocathode, mid-tier brightness upgrade._
 - [ ] `ncRfGun` — NC RF Gun — cost 3000000 — beamCurrent 2.5 — energy 8 — requires `rfPhotoinjectors` — _RF photoinjector, very high peak brightness, pulsed._
 - [ ] `srfGun` — SRF Gun — cost 8000000 — beamCurrent 4 — energy 5 — requires `srfGunTech` — _Top-tier CW superconducting RF gun, needs cryo._
