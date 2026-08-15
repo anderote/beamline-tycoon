@@ -38,12 +38,11 @@ export default {
   // Bolting two panels together does not make an HV tie.
   bridgesAdjacent: false,
   // Dearer per metre than a branch circuit (armoured, higher insulation class)
-  // but cheaper than the fluid utilities. On the ladder in powerCable.js:
-  // fiber 300 < power 600 < cooling 900 < HV 1200 < vacuum 1400 < RF 1800.
+  // but still inexpensive compared with equipment: $192 per tile.
   // Sized so that running one feeder to a well-placed panel beats running
   // several long branch circuits back to the transformer, which is the whole
   // reason to buy distribution gear.
-  costPerSubUnit: 1200,
+  costPerSubUnit: 48,
   persistentStateDefaults: {},
 
   /**

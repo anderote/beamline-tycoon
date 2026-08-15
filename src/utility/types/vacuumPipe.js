@@ -85,10 +85,9 @@ export default {
   demandUnit: 'mbar\u00b7L/s',
   capacityParam: 'pumpSpeed',
   demandParam: 'outgassing',
-  // $5,600/tile — UHV-clean beam pipe, the second priciest run.
-  // vacuumManifold ($120k) beats individual runs at about four sinks.
-  // Ladder: powerCable.js.
-  costPerSubUnit: 1400,
+  // $224/tile — UHV-clean beam pipe stays specialized without becoming a
+  // budget wall. Ladder: powerCable.js.
+  costPerSubUnit: 56,
   persistentStateDefaults: {},
   solve(network, persistent, worldState) {
     const totalPumpSpeed = network.sources.reduce(

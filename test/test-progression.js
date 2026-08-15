@@ -128,16 +128,14 @@ log('\n--- C: utility line pricing ---');
     `no utility is absurdly out of line with the others ` +
     `(${Math.min(...vals)} .. ${Math.max(...vals)} per sub-unit)`);
 
-  // Wiring a beamline must be a real budget line, never the dominant cost.
-  // Measured off the sim's reference line rather than estimated, so the bound
-  // moves when the recipe or a rate does.
+  // Wiring should enable layout decisions without competing with the machines
+  // themselves for the construction budget.
   const wiring = beamlineWiringCost('cup');
   const hardware = beamlineHardwareCost('cup');
-  assert(wiring > 0.05 * hardware,
-    `wiring the reference line is a cost the player feels (${money(wiring)} = ` +
-    `${(100 * wiring / hardware).toFixed(0)}% of ${money(hardware)} of hardware)`);
-  assert(wiring < 0.4 * hardware,
-    `…without dominating the hardware it connects (${money(wiring)})`);
+  assert(wiring > 0,
+    `wiring the reference line retains a positive construction cost (${money(wiring)})`);
+  assert(wiring < 0.05 * hardware,
+    `wiring stays below 5% of the hardware it connects (${money(wiring)})`);
 
   // Same bound at the dearest non-cryo rate, so a rate hike on one utility
   // cannot pass by just because the reference line uses little of it.
@@ -145,13 +143,12 @@ log('\n--- C: utility line pricing ---');
   const worstNonCryo = Math.max(...prices
     .filter(([t]) => t !== 'cryoTransfer').map(([, p]) => p));
   const wireWorstCase = 24 * 5 * SUB * worstNonCryo;   // ~24 stubs of ~5 tiles
-  assert(wireWorstCase < 0.4 * hardware,
-    `worst-case wiring stays a minority of a beamline (${money(wireWorstCase)} vs ` +
+  assert(wireWorstCase < 0.05 * hardware,
+    `worst-case wiring stays below 5% of a beamline (${money(wireWorstCase)} vs ` +
     `${money(hardware)} of hardware)`);
 
-  // A distribution bus replaces (N-1) full source→sink runs (~10 tiles) with
-  // (N-1) short stubs (~2 tiles). It must pay for itself well inside the
-  // number of sinks it can actually serve.
+  // Distribution gear is retained for its capacity/topology role, not as an
+  // artificial workaround for expensive short utility runs.
   const BUSES = {
     powerCable: 'powerBus', vacuumPipe: 'vacuumManifold',
     rfWaveguide: 'waveguideManifold', coolingWater: 'coolingManifold',
@@ -159,11 +156,8 @@ log('\n--- C: utility line pricing ---');
   };
   for (const [utility, busType] of Object.entries(BUSES)) {
     const busCost = COMPONENTS[busType]?.cost?.funding || 0;
-    const per = UTILITY_TYPES[utility].costPerSubUnit;
-    const savedPerSink = 8 * SUB * per;      // 10-tile run replaced by a 2-tile stub
-    const breakEven = 1 + busCost / savedPerSink;
-    assert(busCost > 0 && breakEven <= 8,
-      `${busType} beats individual ${utility} runs by ${breakEven.toFixed(1)} sinks`);
+    assert(busCost > 0 && UTILITY_TYPES[utility].costPerSubUnit > 0,
+      `${busType} and its ${utility} runs have positive construction costs`);
   }
 }
 

@@ -26,9 +26,8 @@ export default {
   // discovery treats such a converter as a boundary that never bridges, so in
   // practice this reaches read-only sinks parked against a wired device.
   bridgesAdjacent: true,
-  // $1,200/tile — the cheapest run to pull. fiberBus ($35k) beats individual
-  // runs at about five sinks. Ladder and derivation: powerCable.js.
-  costPerSubUnit: 300,
+  // $48/tile — the cheapest run to pull. Ladder: powerCable.js.
+  costPerSubUnit: 12,
   persistentStateDefaults: {},
   solve(network, persistent, worldState) {
     const poweredSources = network.sources.filter(s => powerFeedFactor(worldState, s.placeableId) > 0);

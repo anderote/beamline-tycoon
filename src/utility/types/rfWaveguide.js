@@ -94,9 +94,9 @@ export default {
   // No adjacency bridging: RF has to be guided. Pushing two klystrons together
   // does not make a waveguide, so every RF sink is wired explicitly.
   bridgesAdjacent: false,
-  // $7,200/tile — brazed precision copper. waveguideManifold ($160k) beats
-  // individual runs at about four sinks. Ladder: powerCable.js.
-  costPerSubUnit: 1800,
+  // $288/tile — brazed precision copper, still well below the RF hardware it
+  // connects. Ladder: powerCable.js.
+  costPerSubUnit: 72,
   persistentStateDefaults: {},
   solve(network, persistent, worldState) {
     const errors = [];

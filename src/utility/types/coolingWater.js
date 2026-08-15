@@ -43,9 +43,9 @@ export default {
   // Per-port param names the inspector reads for its source/sink rows.
   capacityParam: 'capacity',
   demandParam: 'heatLoad',
-  // $3,600/tile — pumped, insulated loop. coolingManifold ($80k) beats
-  // individual runs at about four sinks. Ladder: powerCable.js.
-  costPerSubUnit: 900,
+  // $144/tile — pumped, insulated loop; equipment, not pipe routing, carries
+  // the capital cost. Ladder: powerCable.js.
+  costPerSubUnit: 36,
   persistentStateDefaults: { reservoirVolumeL: RESERVOIR_MAX_L },
   solve(network, persistent, worldState) {
     const totalCapacity = network.sources.reduce(
