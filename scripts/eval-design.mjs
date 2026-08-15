@@ -36,6 +36,7 @@ import '../scripts/balance-env.mjs';
 import { COMPONENTS } from '../src/data/components.js';
 import { BEAMLINE_TYPES } from '../src/data/beamline-types.js';
 import { layoutDesign } from '../src/beamline/design-layout.js';
+import { placementSpanSubL } from '../src/beamline/pipe-placements.js';
 import { buildPhysicsElements } from '../src/beamline/physics-payload.js';
 import { seedComponentParams } from '../src/beamline/component-params.js';
 import { STOCK_DESIGNS } from '../src/data/stock-designs.js';
@@ -93,13 +94,15 @@ export function designToOrderedNodes(design) {
       const plSubL = a.subL != null
         ? a.subL
         : (COMPONENTS[a.type] ? (COMPONENTS[a.type].subL || 1) : 1);
+      const plSpanSubL = placementSpanSubL({ ...a, subL: plSubL });
       return {
         a,
         plSubL,
-        plBeamLen: plSubL * 0.5,
+        plSpanSubL,
+        plBeamLen: plSpanSubL * 0.5,
         offset: a.position * pipeBeamLen,
       };
-    }).sort((x, y) => x.offset - y.offset);
+    }).sort((x, y) => (x.offset - y.offset) || (x.plSpanSubL - y.plSpanSubL));
 
     let consumed = 0;
     for (const p of placements) {
@@ -113,7 +116,7 @@ export function designToOrderedNodes(design) {
         id: `p${n++}`,
         type: p.a.type,
         params: seedParams(p.a.type, p.a.params),
-        subL: p.plSubL,
+        subL: p.plSpanSubL,
         position: p.a.position,
       });
       consumed += p.plBeamLen;

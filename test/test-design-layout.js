@@ -36,6 +36,7 @@
 //     are packed end to end, which is what test 5's numbers changed to.
 
 import { layoutDesign } from '../src/beamline/design-layout.js';
+import { placementsConflict } from '../src/beamline/pipe-placements.js';
 import { COMPONENTS } from '../src/data/components.js';
 
 let passed = 0, failed = 0;
@@ -56,7 +57,7 @@ const MODULE_B = 'dipole';       // role junction,  subL 2, subW 2 → 1x1 tiles
 const MODULE_WIDE = 'ecrIonSource'; // role junction, subL 6, subW 4 → 2x1 tiles
 const ATT = 'bpm';               // subL 1 — a quarter of a one-tile pipe
 const ATT_B = 'quadrupole';      // subL 2 — half a one-tile pipe
-const ATT_C = 'bellows';         // subL 2
+const ATT_C = 'bellows';         // subL 1, inline point slot
 
 function design(...types) {
   return { name: 'test', components: types.map(t => ({ type: t, params: { tag: t } })) };
@@ -81,7 +82,11 @@ console.log('\n--- Test 0: registry fixtures ---');
     'the other two module fixtures are real junctions');
   // The lengths test 5 and test 7 do arithmetic with.
   assert(COMPONENTS[ATT]?.subL === 1 && COMPONENTS[ATT_B]?.subL === 2
-    && COMPONENTS[ATT_C]?.subL === 2, 'attachment fixtures are 1 / 2 / 2 sub-units');
+    && COMPONENTS[ATT_C]?.subL === 1, 'attachment fixtures are 1 / 2 / 1 visual sub-units');
+  assert(COMPONENTS[ATT]?.attachmentKind === 'inline'
+    && COMPONENTS[ATT_C]?.attachmentKind === 'inline'
+    && COMPONENTS[ATT_B]?.attachmentKind == null,
+  'BPM and bellows are inline points; quadrupole remains a length-claiming placement');
   // `placement` and `role` are DIFFERENT axes, and the whole point of the
   // discriminator fix. If these ever agree the fixtures below stop proving
   // anything, because either field would produce the same answer.
@@ -191,76 +196,47 @@ console.log('\n--- Test 4: trailing attachments are discarded ---');
 }
 
 // ==========================================================================
-// Test 5: packed positions.
+// Test 5: inline packing.
 //
-// `position` is the START of the interval [position, position + subL/pipe.subL]
-// that pipe-placements.findSlot reserves, so an arrangement is only legal if
-// those INTERVALS are disjoint — not merely the start points.
-//
-// The old (i + 1) / (n + 1) spacing only spread the starts. Two quadrupoles at
-// 1/3 and 2/3 of a 4-sub-unit pipe each claim half the run, so they overlapped,
-// findSlot rejected the second with 'overlap', and DesignPlacer — which never
-// looked at placeOnPipe's return value — charged for it and dropped it.
-//
-// They are now laid end to end with the pipe's slack split evenly into the
-// n + 1 gaps around them, which both keeps every attachment off the pipe ends
-// (the property the old spacing was chosen for) and makes the intervals
-// provably disjoint.
+// Inline items claim point slots. They snap to the half-subtile lattice and
+// may share an ordinary component's leading/trailing boundary, allowing tiny
+// diagnostics to fit between length-claiming hardware on a one-tile pipe.
 // ==========================================================================
-console.log('\n--- Test 5: packed positions ---');
+console.log('\n--- Test 5: inline point packing ---');
 {
   const onPipe = (...atts) => layoutDesign(design(MODULE, ...atts, MODULE_B)).sequence[1];
   const positions = (...atts) => onPipe(...atts).attachments.map(a => a.position);
 
-  // A lone attachment is CENTRED on the pipe — its interval is, which is what
-  // "centred" has to mean. The old rule put its start at the midpoint, i.e.
-  // the hardware itself sat in the downstream half.
-  const one = onPipe(ATT);            // bpm subL 1 on a 4-sub-unit pipe
-  assert(one.attachments[0].position === 0.375,
-    `1 attachment is centred: [0.375, 0.625] (got ${one.attachments[0].position})`);
+  const one = onPipe(ATT);
+  assert(one.attachments[0].position === 0.5 && one.attachments[0].inline === true,
+    `one tiny attachment uses the pipe-centre point (got ${one.attachments[0].position})`);
 
-  // bpm(1) + quadrupole(2) = 3 sub-units + 3 gaps of 0.5 minimum → 2 tiles,
-  // 8 sub-units, so the slack is 5/3 per gap.
+  // BPM point and quadrupole share the quadrupole's leading boundary.
   const two = onPipe(ATT, ATT_B);
-  assert(two.subL === 8 && two.attachments[0].position === (5 / 3) / 8
-    && two.attachments[1].position === (5 / 3 + 1 + 5 / 3) / 8,
-    `2 attachments sit at the ends of even gaps on an 8-sub-unit pipe (got ${positions(ATT, ATT_B)})`);
+  assert(two.subL === 4 && two.attachments[0].position === 0.25
+    && two.attachments[1].position === 0.25,
+  `BPM shares the quad's leading edge on one tile (got ${positions(ATT, ATT_B)})`);
 
-  // 1 + 2 + 2 = 5 sub-units on an 8-sub-unit pipe → 4 gaps of 0.75.
+  // Bellows is another point at the quadrupole's trailing boundary.
   const three = onPipe(ATT, ATT_B, ATT_C);
-  assert(three.attachments.map(a => a.position).join(',') === '0.09375,0.3125,0.65625',
-    `3 attachments pack at 0.09375 / 0.3125 / 0.65625 (got ${positions(ATT, ATT_B, ATT_C)})`);
+  assert(three.subL === 4
+    && three.attachments.map(a => a.position).join(',') === '0.25,0.25,0.75',
+  `tiny items bracket the quad on one tile (got ${positions(ATT, ATT_B, ATT_C)})`);
 
-  // The invariants, which are what actually has to hold for findSlot to take
-  // every position verbatim in snap mode. These outlive any particular gap
-  // constant: change MIN_GAP_SUB and these must still pass.
   for (const pipe of [one, two, three]) {
-    const set = pipe.attachments.map(a => a.position);
-    const ivs = pipe.attachments.map(a => [a.position, a.position + a.subL / pipe.subL]);
-    assert(set.every(p => p > 0 && p < 1), `every position is strictly inside (0,1): ${set}`);
-    assert(set.every((p, i) => i === 0 || p > set[i - 1]), `positions ascend in author order: ${set}`);
-    assert(ivs.every(([, end]) => end < 1),
-      `nothing runs off the far end of the pipe: ${ivs.map(v => v[1])}`);
-    assert(ivs.every(([start], i) => i === 0 || start > ivs[i - 1][1]),
-      `intervals are disjoint with a real gap between them: ${JSON.stringify(ivs)}`);
-  }
-
-  // Evenly-sized gaps, not just non-overlapping ones — the property that makes
-  // the drift lengths either side of a magnet symmetric.
-  const gaps = (pipe) => {
-    const out = [];
-    let cursor = 0;
-    for (const a of pipe.attachments) {
-      out.push(a.position * pipe.subL - cursor);
-      cursor = a.position * pipe.subL + a.subL;
+    const anchors = pipe.attachments.filter(a => a.inline)
+      .map(a => a.position * pipe.subL);
+    assert(anchors.every(p => Number.isInteger(p * 2)),
+      `inline anchors use half-subtile steps: ${anchors}`);
+    let conflict = false;
+    for (let i = 0; i < pipe.attachments.length; i++) {
+      for (let j = i + 1; j < pipe.attachments.length; j++) {
+        if (placementsConflict(pipe.subL, pipe.attachments[i], pipe.attachments[j])) {
+          conflict = true;
+        }
+      }
     }
-    out.push(pipe.subL - cursor);
-    return out;
-  };
-  for (const pipe of [one, two, three]) {
-    const g = gaps(pipe);
-    assert(g.every(x => Math.abs(x - g[0]) < 1e-9 && x >= 0.5 - 1e-9),
-      `slack is split evenly and never below the 0.5 sub-unit minimum: ${g}`);
+    assert(!conflict, 'packed placements do not compete for any slot');
   }
 }
 
@@ -315,8 +291,8 @@ console.log('\n--- Test 7: role classification and pipe sizing ---');
     'carrying its registry length, which is what sizes the pipe');
 }
 {
-  // The sizing rule: hardware + (n+1) gaps of 0.5, rounded up to whole tiles,
-  // never below 1.
+  // Ordinary hardware still sizes from claimed length + clearance. Inline
+  // point slots can use the boundaries inside that run without adding length.
   const pipeFor = (...atts) => layoutDesign(design(MODULE_B, ...atts, MODULE_B)).sequence[1];
 
   assert(pipeFor().tiles === 1, 'a bare pipe is 1 tile');
@@ -331,9 +307,9 @@ console.log('\n--- Test 7: role classification and pipe sizing ---');
   for (const atts of [[], [ATT], [ATT_B], ['rfCavity'], ['cryomodule'], [ATT, ATT_B, ATT_C]]) {
     const pipe = pipeFor(...atts);
     assert(pipe.subL === pipe.tiles * 4, `subL tracks tiles (${atts.join('+') || 'empty'})`);
-    const hardware = pipe.attachments.reduce((s, a) => s + a.subL, 0);
-    assert(pipe.subL >= hardware + (pipe.attachments.length + 1) * 0.5,
-      `the pipe holds its contents plus clearance (${atts.join('+') || 'empty'})`);
+    const claimed = pipe.attachments.reduce((s, a) => s + (a.inline ? 0 : a.subL), 0);
+    assert(pipe.subL >= claimed,
+      `the pipe holds every claimed interval (${atts.join('+') || 'empty'})`);
   }
 }
 {

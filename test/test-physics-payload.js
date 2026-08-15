@@ -202,11 +202,14 @@ console.log('\n--- Test 2: subL fallback ---');
     { kind: 'module', id: 'b', type: 'bpm' },
     { kind: 'drift', id: 'c', subL: 3 },
     { kind: 'drift', id: 'd' },
+    { kind: 'placement', id: 'inline', type: 'bpm', subL: 0 },
   ], {});
   assert(out[0].subL === 7, 'node subL wins');
   assert(out[1].subL === 1, "falls back to the component's subL");
   assert(out[2].subL === 3, 'drift keeps its own subL');
   assert(out[3].subL === 4, 'a drift with no subL falls back to 4');
+  assert(out[4].subL === 0,
+    'an inline attachment preserves its intentional zero-length physics span');
 }
 
 // ==========================================================================

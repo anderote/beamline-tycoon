@@ -1483,6 +1483,14 @@ body {
   font-weight: bold;
 }
 
+.palette-item.attachment-tool.tiny-attachment-tool {
+  border-left-color: #44cfc7;
+}
+.palette-item.attachment-tool.tiny-attachment-tool::after {
+  content: 'TINY';
+  color: #44cfc7;
+}
+
 
 /* === OVERLAYS === */
 .overlay {

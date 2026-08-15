@@ -23,7 +23,7 @@ import { validateDrawPipe, validateExtendPipe } from './pipe-drawing.js';
 import {
   validateSplitPipe, validateMergePipes, validateTrimPipe, validateRemovePipeSection,
 } from './pipe-splice.js';
-import { findSlot } from './pipe-placements.js';
+import { findSlot, placementContainsPosition } from './pipe-placements.js';
 import { seedComponentParams } from './component-params.js';
 import { portSide, availablePorts } from './junctions.js';
 
@@ -688,6 +688,7 @@ export class BeamlineSystem {
    *
    * @param {string} pipeId
    * @param {{type:string, position:number, subL?:number, params?:object,
+   *          inline?:boolean,
    *          mode:'snap'|'insert'|'replace', free?:boolean}} opts
    */
   placeOnPipe(pipeId, opts = {}) {
@@ -731,6 +732,7 @@ export class BeamlineSystem {
     const subL = (typeof opts.subL === 'number' && opts.subL > 0)
       ? opts.subL
       : (def && typeof def.subL === 'number' ? def.subL : 2);
+    const inline = opts.inline === true || def?.attachmentKind === 'inline';
 
     // Track pre-existing placement ids so we can identify the newly-added one
     // after findSlot returns (findSlot uses idGenerator for the new id; other
@@ -742,6 +744,7 @@ export class BeamlineSystem {
       type: opts.type,
       requestedPosition: opts.position,
       subL,
+      inline,
       mode: opts.mode,
       // Seed defaults, not the bare overrides. This path used to pass
       // `opts.params || {}` through untouched while Game._placePlaceableInner
@@ -825,10 +828,13 @@ export class BeamlineSystem {
     const pipes = (state && state.beamPipes) || [];
     const pipe = pipes.find(p => p && p.id === pipeId);
     if (!pipe || !pipe.subL) return null;
-    for (const pl of pipe.placements || []) {
-      const start = pl.position;
-      const end = pl.position + (pl.subL / pipe.subL);
-      if (position >= start && position <= end) return pl;
+    const placements = pipe.placements || [];
+    // Exact inline points win over ordinary intervals that share their edge.
+    for (const pl of placements) {
+      if (pl.inline === true && placementContainsPosition(pipe.subL, pl, position)) return pl;
+    }
+    for (const pl of placements) {
+      if (placementContainsPosition(pipe.subL, pl, position)) return pl;
     }
     return null;
   }

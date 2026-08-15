@@ -509,11 +509,9 @@ function buildPipeAttachments(game) {
 
     for (const att of atts) {
       // The mesh is rendered CENTERED on its returned (col, row), so
-      // placementPose samples the pipe at the midpoint of the placement's
-      // claimed interval — otherwise the mesh sits half-its-length behind the
-      // subtiles it actually reserves, creating a visible mismatch with the
-      // ghost preview (which already uses the center). The utility system
-      // resolves placement ports from the same helper.
+      // placementPose samples an ordinary claimed interval at its midpoint
+      // and an inline attachment directly at its point anchor. The utility
+      // system resolves placement ports from the same helper.
       const pose = placementPose(pipe, att);
       if (!pose) continue;
       const { col, row, dir } = pose;

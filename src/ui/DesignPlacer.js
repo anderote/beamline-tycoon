@@ -599,6 +599,7 @@ export class DesignPlacer {
             // agree or the packing that guarantees no overlap is computed for
             // a different-sized object than the one findSlot inserts.
             subL: att.subL,
+            inline: att.inline === true,
             params: att.params,
             mode: 'snap',
             // `this.totalCost` already includes every attachment's cost

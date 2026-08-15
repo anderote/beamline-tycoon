@@ -234,6 +234,31 @@ function mulberry32(seed) {
   };
 }
 
+// `inline` is stored on each pipe placement so the dependency-free placement,
+// splice, and flattening modules can apply point-slot geometry without
+// importing the content registry. Stamp it when old saves or authored
+// scenarios predate the field; new placements receive it in BeamlineSystem.
+function normalizePipePlacementContracts(pipes) {
+  for (const pipe of pipes || []) {
+    for (const placement of pipe?.placements || []) {
+      if (COMPONENTS[placement.type]?.attachmentKind !== 'inline'
+          || placement.inline === true) continue;
+      // Legacy `position` named the leading edge. Preserve the old visible
+      // centre when converting it to a point anchor, then land that anchor on
+      // the new half-subtile lattice.
+      if (pipe.subL > 0 && Number.isFinite(placement.position)) {
+        const visualSubL = Number.isFinite(placement.subL)
+          ? placement.subL
+          : (COMPONENTS[placement.type]?.subL || 1);
+        const oldCentreSub = placement.position * pipe.subL + visualSubL / 2;
+        const anchorSub = Math.round(oldCentreSub * 2) / 2;
+        placement.position = Math.max(0, Math.min(pipe.subL, anchorSub)) / pipe.subL;
+      }
+      placement.inline = true;
+    }
+  }
+}
+
 export class Game {
   constructor(registry, options = {}) {
     this.registry = registry;
@@ -4113,9 +4138,10 @@ export class Game {
       return;
     }
 
-    // Contract check: every entry must have a positive subL so physics s-axis is correct
+    // Contract check: every entry must have a non-negative subL. Inline
+    // attachments are intentional zero-length (thin) elements.
     for (const node of ordered) {
-      if (!node.subL || node.subL <= 0) {
+      if (typeof node.subL !== 'number' || node.subL < 0) {
         console.warn('[physics] element with bad subL', node);
       }
     }
@@ -4127,7 +4153,7 @@ export class Game {
       const def = COMPONENTS[node.type];
       return {
         type: node.type,
-        subL: node.subL || (def ? def.subL : 4) || 4,
+        subL: node.subL ?? (def ? def.subL : 4) ?? 4,
         stats: def && def.stats ? { ...def.stats } : {},
         params: node.params || {},
       };
@@ -4247,7 +4273,7 @@ export class Game {
         if (el.kind === 'drift') tLen += (el.subL || 0) * 0.5;
         continue;
       }
-      tLen += (el.subL || t.subL || 4) * 0.5;
+      tLen += (el.subL ?? t.subL ?? 4) * 0.5;
       tCost += (t.energyCost || 0) * ecm;
       if (t.isSource) hasSrc = true;
     }
@@ -5471,6 +5497,7 @@ export class Game {
     // Beamline pipe graph (optional — editor-exported scenarios). Pipes carry
     // their on-pipe placements; junction modules ride in placeables above.
     this.state.beamPipes = scenarioData.beamPipes || [];
+    normalizePipePlacementContracts(this.state.beamPipes);
     this.state.beamPipeNextId = scenarioData.beamPipeNextId || 1;
     this.state.placementNextId = scenarioData.placementNextId || 0;
 
@@ -5961,6 +5988,7 @@ export class Game {
         if (!('end' in pipe)) pipe.end = null;
         if (!Array.isArray(pipe.placements)) pipe.placements = [];
       }
+      normalizePipePlacementContracts(this.state.beamPipes);
     }
 
     // Migrate old format -> unified placeables (if placeables is empty but old arrays have data)

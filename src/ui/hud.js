@@ -2451,12 +2451,15 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
   // utility run but deliberately retain beam-pipe mounting as a fallback.
   if (comp.placement === 'attachment') {
     item.classList.add('attachment-tool');
+    if (comp.attachmentKind === 'inline') item.classList.add('tiny-attachment-tool');
     const utilityName = comp.utilityMount
       ? (UTILITY_TYPES[comp.utilityMount]?.displayName || comp.utilityMount)
       : null;
-    item.title = utilityName
-      ? `${comp.name} — attaches anywhere along ${utilityName} runs or to beam pipe`
-      : `${comp.name} — attaches to beam pipe`;
+    item.title = comp.attachmentKind === 'inline'
+      ? `${comp.name} — tiny inline attachment; snaps to subtile centres and edges`
+      : utilityName
+        ? `${comp.name} — attaches anywhere along ${utilityName} runs or to beam pipe`
+        : `${comp.name} — attaches to beam pipe`;
   }
 
   // Sprite preview — use 3D thumbnail if available, otherwise isometric box swatch

@@ -55,6 +55,7 @@ const PORT_SIDES = new Set(['front', 'back', 'left', 'right']);
 const PORT_ROLES = new Set(['source', 'sink', 'pass']);
 const BEAMLINE_ROLES = new Set(['junction', 'placement']);
 const PLACEMENTS = new Set(['module', 'attachment']);
+const ATTACHMENT_KINDS = new Set(['inline']);
 const LIGHT_MOUNTS = new Set(['ground', 'wall', 'overhead', 'surface']);
 const LIGHT_SHAPES = new Set(['point', 'cone']);
 
@@ -345,6 +346,14 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
 
     if (!PLACEMENTS.has(def.placement)) {
       problem(id, 'placement', `placement must be 'module' or 'attachment', got ${JSON.stringify(def.placement)}`);
+    }
+    if (def.attachmentKind != null) {
+      if (!ATTACHMENT_KINDS.has(def.attachmentKind)) {
+        problem(id, 'attachmentKind', `unknown attachmentKind ${JSON.stringify(def.attachmentKind)} (known: ${[...ATTACHMENT_KINDS].join(', ')})`);
+      }
+      if (def.placement !== 'attachment' || def.role !== 'placement') {
+        problem(id, 'attachmentKind', 'attachmentKind requires placement \'attachment\' and role \'placement\'');
+      }
     }
 
     // Physics identity — gameplay.py raises at compute time; catch at load.

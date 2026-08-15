@@ -761,14 +761,15 @@ export const BEAMLINE_COMPONENTS_RAW = {
     stats: {},
     energyCost: 0,
     apertureRadius: 64,
-    subL: 2,
+    subL: 1,
     subW: 2,
-    subH: 2, gridW: 2, gridH: 2, geometryType: 'cylinder',
+    subH: 2, gridW: 2, gridH: 1, geometryType: 'cylinder',
     interiorVolume: 0.8,
     spriteKey: 'bellows',
     spriteColor: 0x9aa7b5,
     accentColor: 0x9aa7b5,
     placement: 'attachment',
+    attachmentKind: 'inline',
     role: 'placement',
 
     requiredConnections: [],
@@ -2242,6 +2243,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteColor: 0xe0e0e0,
     accentColor: 0xe0e0e0,
     placement: 'attachment',
+    attachmentKind: 'inline',
     role: 'placement',
 
     requiredConnections: ['powerCable', 'dataFiber'],
@@ -2266,6 +2268,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteColor: 0xe0e0e0,
     accentColor: 0xe0e0e0,
     placement: 'attachment',
+    attachmentKind: 'inline',
     role: 'placement',
 
     requiredConnections: ['powerCable', 'dataFiber'],
@@ -2290,6 +2293,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteColor: 0xe0e0e0,
     accentColor: 0xe0e0e0,
     placement: 'attachment',
+    attachmentKind: 'inline',
     role: 'placement',
 
     requiredConnections: ['powerCable', 'dataFiber'],
@@ -2318,6 +2322,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     spriteColor: 0xe0e0e0,
     accentColor: 0xe0e0e0,
     placement: 'attachment',
+    attachmentKind: 'inline',
     role: 'placement',
 
     requiredConnections: ['powerCable', 'dataFiber'],

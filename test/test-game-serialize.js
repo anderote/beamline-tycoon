@@ -121,6 +121,24 @@ assertOk(logB[0].msg === 'Game loaded.' &&
 
 console.log('\n=== Staff round-trip ===\n');
 
+console.log('\n=== Legacy inline-attachment migration ===\n');
+{
+  const legacy = makeGame(42);
+  legacy.state.beamPipes = [{
+    id: 'bp_legacy_inline', start: null, end: null,
+    path: [{ col: 0, row: 0 }, { col: 0, row: 1 }], subL: 4,
+    placements: [{ id: 'pl_legacy_bpm', type: 'bpm', position: 0.25, subL: 1, params: {} }],
+  }];
+  localStorage.setItem('beamlineTycoon', legacy.serialize());
+  const migrated = makeGame(7);
+  migrated.load();
+  const bpm = migrated.state.beamPipes[0]?.placements[0];
+  assertOk(bpm?.inline === true,
+    'a pre-field BPM is stamped as an inline point slot on load');
+  assertOk(bpm?.position === 0.375,
+    `migration preserves its old visual centre on the new anchor lattice (got ${bpm?.position})`);
+}
+
 // Regression: the StaffMember constructor used to hard-reset stats.ticksWorked
 // and stats.breakdowns to 0 after processing opts, so fromJSON(toJSON())
 // silently dropped both — every load and every undo zeroed staff work history.

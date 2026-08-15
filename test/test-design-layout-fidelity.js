@@ -25,8 +25,8 @@
 //   1. Registry fixture sanity — the ids below are still modules/attachments.
 //   2. Modules only, no attachments.
 //   3. One attachment on each pipe.
-//   4. Three attachments on one pipe — the packed interval layout, which is what
-//      sets the drift lengths around them.
+//   4. Three tiny attachments on one pipe — point slots and their surrounding
+//      drift lengths.
 //   5. Two half-pipe attachments on one pipe — the spacing at the point where
 //      the attachments stop fitting.
 //   6. A design containing dipoles, so the walk has to turn corners.
@@ -92,8 +92,11 @@ function placeDesign(design, seed) {
   // player does, not a way around the check. The run is measured from the
   // catalogue rather than from previewTiles, which is not populated until a
   // position has been set.
-  const runTiles = Math.ceil(
-    design.components.reduce((a, c) => a + (COMPONENTS[c.type]?.subL || 2), 0) / 4);
+  const runTiles = Math.ceil(design.components.reduce((sum, c) => {
+    const def = COMPONENTS[c.type];
+    const spanSubL = def?.attachmentKind === 'inline' ? 0 : (def?.subL || 2);
+    return sum + spanSubL;
+  }, 0) / 4);
   while (runTiles > game.state.mapHalfExtent && game.buyLand().ok) { /* next parcel */ }
 
   const placer = new DesignPlacer(game, stubRenderer);
@@ -254,11 +257,11 @@ console.log('\n--- Test 1: registry fixtures ---');
   for (const t of ['quadrupole', 'bpm']) {
     assert(COMPONENTS[t]?.placement === 'attachment', `${t} is still an attachment`);
   }
-  // A one-tile inter-module pipe is 4 sub-units, so a subL-2 attachment claims
-  // half of it and a subL-1 attachment a quarter. Both fixtures below depend on
-  // that.
+  // A one-tile inter-module pipe is 4 sub-units. Quadrupoles claim half of it,
+  // while a BPM is a zero-span point despite retaining a visual subL of 1.
   assert(COMPONENTS.quadrupole?.subL === 2, 'quadrupole is still 2 sub-units (half a pipe)');
-  assert(COMPONENTS.bpm?.subL === 1, 'bpm is still 1 sub-unit (a quarter of a pipe)');
+  assert(COMPONENTS.bpm?.subL === 1, 'bpm keeps a 1-sub-unit visual size');
+  assert(COMPONENTS.bpm?.attachmentKind === 'inline', 'bpm is a tiny inline point slot');
 }
 
 const design = (name, ...types) => ({
@@ -279,7 +282,7 @@ checkFidelity(
   design('one-per-pipe', 'source', 'quadrupole', 'dipole', 'bpm', 'faradayCup'), 402);
 
 checkFidelity(
-  'Test 4: three attachments on one pipe — packed interval layout',
+  'Test 4: three tiny attachments on one pipe — point-slot layout',
   design('three-on-one', 'source', 'bpm', 'bpm', 'bpm', 'faradayCup'), 403);
 
 checkFidelity(

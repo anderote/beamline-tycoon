@@ -215,6 +215,7 @@ export class GuidedBeamlineSetup {
       type: componentId,
       requestedPosition: 0.04,
       subL: def.subL || 2,
+      inline: def.attachmentKind === 'inline',
       mode: 'snap',
       idGenerator: () => '__guided__',
       params: {},

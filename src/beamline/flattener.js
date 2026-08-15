@@ -40,6 +40,7 @@
 // the same pipe in the same direction stops the walk.
 
 import { COMPONENTS } from '../data/components.js';
+import { placementSpanSubL } from './pipe-placements.js';
 
 /**
  * @param {Object} gameState  game.state (reads placeables + beamPipes)
@@ -114,18 +115,19 @@ export function flattenPath(gameState, sourceId, opts = {}) {
       const plSubL = pl.subL != null
         ? pl.subL
         : (COMPONENTS[pl.type] ? (COMPONENTS[pl.type].subL || 1) : 1);
-      const plBeamLen = plSubL * 0.5;
+      const plSpanSubL = placementSpanSubL({ ...pl, subL: plSubL });
+      const plBeamLen = plSpanSubL * 0.5;
       // Metres from the end of the pipe the beam entered through.
       const offset = reversed
         ? pipeBeamLen - (pl.position * pipeBeamLen + plBeamLen)
         : pl.position * pipeBeamLen;
-      return { pl, plSubL, plBeamLen, offset };
-    }).sort((a, b) => a.offset - b.offset);
+      return { pl, plSubL, plSpanSubL, plBeamLen, offset };
+    }).sort((a, b) => (a.offset - b.offset) || (a.plSpanSubL - b.plSpanSubL));
 
     let pipeCursor = beamStart;
     let consumed = 0; // metres consumed on this pipe so far
 
-    for (const { pl, plSubL, plBeamLen, offset } of placements) {
+    for (const { pl, plSubL, plSpanSubL, plBeamLen, offset } of placements) {
       const targetPos = offset;
       const driftBeamLen = targetPos - consumed;
       if (driftBeamLen > 0) {
@@ -146,7 +148,9 @@ export function flattenPath(gameState, sourceId, opts = {}) {
         type: pl.type,
         params: pl.params || {},
         beamStart: pipeCursor,
-        subL: plSubL,
+        // Inline attachments are thin elements in the beam model even though
+        // `pl.subL` still sizes their visible hardware.
+        subL: plSpanSubL,
         pipeId: pipe.id,
         position: pl.position,
         needsCommissioning: !!pl.needsCommissioning,

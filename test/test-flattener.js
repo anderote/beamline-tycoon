@@ -297,5 +297,43 @@ console.log('\n--- Test 5: Splitter routing picks first fraction:1.0 ---');
   }
 }
 
+// ==========================================================================
+// Test 6: Inline point attachments add no beam length and retain ordering.
+// ==========================================================================
+console.log('\n--- Test 6: Inline attachment is a thin boundary element ---');
+{
+  const placements = [
+    { id: 'q_l', type: 'quadrupole', position: 0, subL: 2, params: {} },
+    { id: 'bpm_mid', type: 'bpm', position: 0.5, subL: 1, inline: true, params: {} },
+    { id: 'q_r', type: 'quadrupole', position: 0.5, subL: 2, params: {} },
+  ];
+  const state = {
+    placeables: [
+      placeable('src_1', 'source'),
+      placeable('end_1', 'faradayCup'),
+    ],
+    beamPipes: [makePipe(
+      'bp_inline',
+      { junctionId: 'src_1', portName: 'exit' },
+      { junctionId: 'end_1', portName: 'entry' },
+      [{ col: 0, row: 0 }, { col: 0, row: 1 }],
+      4,
+      placements,
+    )],
+  };
+
+  const flat = flattenPath(state, 'src_1');
+  const carried = flat.filter(e => e.kind === 'placement');
+  assert(carried.map(e => e.id).join(',') === 'q_l,bpm_mid,q_r',
+    `point stays between its two neighbors (got ${carried.map(e => e.id)})`);
+  assert(carried[1].subL === 0,
+    'inline BPM is emitted as a zero-length thin beam element');
+  assert(carried[1].beamStart === carried[2].beamStart,
+    'downstream component starts at the same boundary position');
+  assert(flat.filter(e => e.pipeId === 'bp_inline')
+    .reduce((sum, e) => sum + e.subL, 0) === 4,
+  'pipe entries still sum to the pipe length');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
