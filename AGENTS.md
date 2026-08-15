@@ -113,11 +113,18 @@ authorizes discarding it.
 
 ## Promoting dev to master
 
-Promotion is always a manual action performed by the repository owner. Agents
-must never fast-forward, merge, or push `master`. An agent may validate `dev` and
-report that it is ready for promotion, but must stop before changing `master`.
+Promotion is controlled by the repository owner. By default, agents may validate
+`dev` and report that it is ready for promotion, but must stop before changing
+`master`.
 
-For manual promotion:
+An agent may fast-forward and push `master` only when the repository owner
+explicitly requests that promotion in the current conversation (for example,
+"promote dev to master" or "push dev to master"). An explicit promotion request
+authorizes only the validated, fast-forward-only `dev` -> `master` workflow
+below. It does not authorize force-pushing, merging a feature branch directly
+into `master`, or committing new work on `master`.
+
+For owner-authorized promotion, whether performed manually or by an agent:
 
 1. Confirm `dev` is clean, integrated, and validated.
 2. Fast-forward `master` from `dev`; do not independently merge feature branches
@@ -126,7 +133,7 @@ For manual promotion:
 4. Keep `dev` at least equal to `master` at all times. If `master` ever advances
    unexpectedly, reconcile it into `dev` immediately before starting more work.
 
-Manual promotion reference:
+Promotion reference:
 
 ```sh
 git -C /path/to/master-worktree merge --ff-only dev
