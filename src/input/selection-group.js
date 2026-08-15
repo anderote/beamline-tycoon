@@ -32,6 +32,30 @@ function splitGlobalSub(value) {
   return { tile, sub: value - tile * SUBS_PER_TILE };
 }
 
+function rotationTurns(payload, anchorPose) {
+  const from = payload?.anchor?.dir || 0;
+  const to = anchorPose?.dir ?? from;
+  return ((to - from) % 4 + 4) % 4;
+}
+
+function rotateOffset(x, z, turns) {
+  let rx = x;
+  let rz = z;
+  for (let i = 0; i < turns; i++) [rx, rz] = [-rz, rx];
+  return { x: rx, z: rz };
+}
+
+/** Apply the group's anchor translation/rotation to a utility-path point. */
+export function selectionPointTarget(payload, anchorPose, point) {
+  const sourceX = payload.anchor.col + (payload.anchor.subCol || 0) / SUBS_PER_TILE;
+  const sourceZ = payload.anchor.row + (payload.anchor.subRow || 0) / SUBS_PER_TILE;
+  const targetX = anchorPose.col + (anchorPose.subCol || 0) / SUBS_PER_TILE;
+  const targetZ = anchorPose.row + (anchorPose.subRow || 0) / SUBS_PER_TILE;
+  const offset = rotateOffset(point.col - sourceX, point.row - sourceZ,
+    rotationTurns(payload, anchorPose));
+  return { col: targetX + offset.x, row: targetZ + offset.z };
+}
+
 function addCost(into, cost) {
   for (const [resource, amount] of Object.entries(cost || {})) {
     into[resource] = (into[resource] || 0) + amount;
@@ -104,17 +128,23 @@ export function captureSelectionGroup(game, ids, { operation = 'move', primaryId
   };
 }
 
-/** Translate every selected item by the primary item's snapped displacement. */
+/** Translate and rotate every selected item around the primary item's anchor. */
 export function selectionTargets(payload, anchorPose) {
   if (!payload?.items?.length || !anchorPose) return [];
-  const deltaSubCol = globalSub(anchorPose.col, anchorPose.subCol)
-    - globalSub(payload.anchor.col, payload.anchor.subCol);
-  const deltaSubRow = globalSub(anchorPose.row, anchorPose.subRow)
-    - globalSub(payload.anchor.row, payload.anchor.subRow);
+  const sourceSubCol = globalSub(payload.anchor.col, payload.anchor.subCol);
+  const sourceSubRow = globalSub(payload.anchor.row, payload.anchor.subRow);
+  const targetSubCol = globalSub(anchorPose.col, anchorPose.subCol);
+  const targetSubRow = globalSub(anchorPose.row, anchorPose.subRow);
+  const turns = rotationTurns(payload, anchorPose);
 
   return payload.items.map((item, index) => {
-    const x = splitGlobalSub(globalSub(item.col, item.subCol) + deltaSubCol);
-    const z = splitGlobalSub(globalSub(item.row, item.subRow) + deltaSubRow);
+    const offset = rotateOffset(
+      globalSub(item.col, item.subCol) - sourceSubCol,
+      globalSub(item.row, item.subRow) - sourceSubRow,
+      turns,
+    );
+    const x = splitGlobalSub(targetSubCol + offset.x);
+    const z = splitGlobalSub(targetSubRow + offset.z);
     return {
       ...item,
       placeholderId: `__selection_copy_${index}`,
@@ -122,6 +152,7 @@ export function selectionTargets(payload, anchorPose) {
       row: z.tile,
       subCol: x.sub,
       subRow: z.sub,
+      dir: ((item.dir || 0) + turns) % 4,
     };
   });
 }
@@ -194,10 +225,6 @@ export function previewSelectionGroup(game, payload, anchorPose) {
   }
   const utilityState = { ...game.state, placeables, utilityLines };
 
-  const deltaCol = targets[0].col + targets[0].subCol / SUBS_PER_TILE
-    - (payload.items[0].col + payload.items[0].subCol / SUBS_PER_TILE);
-  const deltaRow = targets[0].row + targets[0].subRow / SUBS_PER_TILE
-    - (payload.items[0].row + payload.items[0].subRow / SUBS_PER_TILE);
   const connections = [];
   for (let index = 0; index < payload.connections.length; index++) {
     const source = payload.connections[index];
@@ -214,10 +241,7 @@ export function previewSelectionGroup(game, payload, anchorPose) {
       utilityType: source.utilityType,
       start: remap(source.start),
       end: remap(source.end),
-      path: (source.path || []).map(point => ({
-        col: point.col + deltaCol,
-        row: point.row + deltaRow,
-      })),
+      path: (source.path || []).map(point => selectionPointTarget(payload, anchorPose, point)),
     };
     const checked = validateDrawLine(utilityState, plan);
     if (!checked.ok) {
@@ -242,4 +266,3 @@ export function previewSelectionGroup(game, payload, anchorPose) {
     internalLineIds,
   };
 }
-

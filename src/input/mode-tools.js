@@ -220,6 +220,14 @@ export class MoveTool extends Tool {
 
   onKey(e, ctx) {
     const input = ctx.input;
+    if (this.payload?.kind === 'selectionGroup'
+        && (e.key === 'f' || e.key === 'F')) {
+      e.preventDefault();
+      input.placementDir = ((input.placementDir ?? this.payload.anchor.dir ?? 0) + 1) % 4;
+      ctx.renderer.updatePlacementDir?.(input.placementDir);
+      input._updateSelectionGroupPreview(this.payload);
+      return true;
+    }
     // Shift+Z / Shift+X while line-placing: adjust spacing one sub-unit.
     if (input.isLinePlacingDecoration && e.shiftKey
         && (e.key === 'z' || e.key === 'Z' || e.key === 'x' || e.key === 'X')) {
