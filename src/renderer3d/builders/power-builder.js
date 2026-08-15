@@ -29,7 +29,19 @@ function rotZ(angle) {
 }
 
 function makeBuckets() {
-  return { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
+  return { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [], glow: [] };
+}
+
+function addBox(bucket, w, h, d, x, y, z) {
+  const g = new THREE.BoxGeometry(w, h, d);
+  applyTiledBoxUVs(g, w, h, d);
+  pushT(bucket, g, trans(x, y, z));
+}
+
+function addCylinder(bucket, r, h, x, y, z, matrix = null, segs = 10) {
+  const g = new THREE.CylinderGeometry(r, r, h, segs);
+  applyTiledCylinderUVs(g, r, h, segs);
+  pushT(bucket, g, matrix || trans(x, y, z));
 }
 
 // ── HV Transformer ────────────────────────────────────────────────
@@ -248,6 +260,48 @@ export function _buildSwitchgearRoles() {
     ));
   }
 
+  // Folded roof, front service door and inspection hardware. Keep the right
+  // strip clear for the four real output glands above; the left door is the
+  // protected breaker compartment an electrician would actually open.
+  const frontZ = encD / 2;
+  addBox(b.accent, encW + 0.07, 0.045, encD + 0.07,
+    0, baseH + encH + 0.022, 0);
+  addBox(b.accent, 0.47, 1.44, 0.030,
+    -0.14, baseH + encH * 0.51, frontZ + 0.022);
+  for (const sx of [-1, 1]) {
+    addBox(b.detail, 0.016, 1.44, 0.016,
+      -0.14 + sx * 0.227, baseH + encH * 0.51, frontZ + 0.044);
+  }
+  for (const sy of [-1, 1]) {
+    addBox(b.detail, 0.47, 0.016, 0.016,
+      -0.14, baseH + encH * 0.51 + sy * 0.712, frontZ + 0.044);
+  }
+  for (const y of [0.38, 0.92, 1.46]) {
+    addCylinder(b.iron, 0.013, 0.07, -0.38, y, frontZ + 0.052);
+  }
+  // Breaker mimic panel, mimic-bus strip and quarter-turn operating handle.
+  addBox(b.pipe, 0.26, 0.18, 0.022,
+    -0.18, 1.38, frontZ + 0.054);
+  addBox(b.copper, 0.22, 0.018, 0.020,
+    -0.18, 1.23, frontZ + 0.056);
+  addBox(b.iron, 0.035, 0.22, 0.035,
+    0.02, 0.88, frontZ + 0.062);
+  for (const x of [-0.25, -0.18, -0.11]) {
+    const lamp = new THREE.SphereGeometry(0.018, 8, 6);
+    lamp.translate(x, 1.52, frontZ + 0.072);
+    b.glow.push(lamp);
+  }
+  // Bonding strap and lifting eyes make this read as serviceable outdoor
+  // metal-clad gear rather than a generic building prop.
+  addBox(b.copper, 0.44, 0.020, 0.028,
+    -0.12, 0.18, -(frontZ + 0.018));
+  for (const x of [-0.28, 0.28]) {
+    const eye = new THREE.TorusGeometry(0.045, 0.010, 6, 10);
+    eye.rotateX(Math.PI / 2);
+    eye.translate(x, baseH + encH + 0.085, 0);
+    b.pipe.push(eye);
+  }
+
   return b;
 }
 
@@ -339,6 +393,44 @@ export function _buildMCCRoles() {
     pushT(b.copper, g, trans(xOff, baseH + encH + 0.05, 0));
   }
 
+  // Eight withdrawable starter/VFD buckets on the front, each with its own
+  // handle, name strip, pilot lamp and ventilation slot. This is the visual
+  // grammar of a real MCC lineup and mirrors its eight branch circuits.
+  const frontZ = encD / 2;
+  const bayW = 0.36;
+  const bayH = 0.72;
+  for (let row = 0; row < 2; row++) {
+    for (let col = 0; col < 4; col++) {
+      const x = -0.63 + col * 0.42;
+      const y = baseH + 0.48 + row * 0.82;
+      addBox(b.accent, bayW, bayH, 0.028, x, y, frontZ + 0.022);
+      // Door seam / gasket.
+      addBox(b.detail, bayW, 0.014, 0.014,
+        x, y + bayH / 2 - 0.007, frontZ + 0.044);
+      addBox(b.detail, bayW, 0.014, 0.014,
+        x, y - bayH / 2 + 0.007, frontZ + 0.044);
+      addBox(b.detail, 0.014, bayH, 0.014,
+        x - bayW / 2 + 0.007, y, frontZ + 0.044);
+      addBox(b.iron, 0.022, 0.14, 0.026,
+        x + bayW * 0.34, y, frontZ + 0.056);
+      // Brushed nameplate and lower vent slot.
+      addBox(b.pipe, bayW * 0.55, 0.055, 0.016,
+        x - bayW * 0.10, y + bayH * 0.31, frontZ + 0.052);
+      addBox(b.detail, bayW * 0.56, 0.035, 0.018,
+        x - bayW * 0.08, y - bayH * 0.31, frontZ + 0.053);
+      const lamp = new THREE.SphereGeometry(0.014, 8, 6);
+      lamp.translate(x - bayW * 0.30, y + bayH * 0.18, frontZ + 0.060);
+      b.glow.push(lamp);
+    }
+  }
+  // Continuous horizontal bus compartment, roof lip and copper ground bar.
+  addBox(b.iron, encW * 0.94, 0.16, 0.030,
+    0, baseH + encH - 0.10, frontZ + 0.024);
+  addBox(b.accent, encW + 0.05, 0.035, encD + 0.05,
+    0, baseH + encH + 0.0175, 0);
+  addBox(b.copper, encW * 0.78, 0.020, 0.025,
+    0, baseH + 0.14, -(frontZ + 0.014));
+
   return b;
 }
 
@@ -409,22 +501,92 @@ function _buildDistributionPanelRoles({ width, height, depth, columns, rows }) {
     pushT(b.accent, g, trans(0, baseH + height / 2, 0));
   }
 
-  // The front is a grid of breaker bays: more columns/rows means visibly more
-  // circuits, while the same green cabinet language ties every rung together.
-  const faceZ = depth / 2 + 0.012;
+  // Folded rain cap and kick plate: the thin overhang and dark toe channel are
+  // the silhouette cues of a real NEMA enclosure, rather than a painted box.
+  addBox(b.accent, width + 0.055, 0.035, depth + 0.055,
+    0, baseH + height + 0.0175, 0);
+  addBox(b.iron, width * 0.94, 0.10, depth + 0.025,
+    0, baseH + 0.05, 0);
+
+  // Proud, hinged front doors with a gasket frame. Larger rungs have two bays;
+  // the compact panel stays a single familiar breaker cabinet.
+  const faceZ = depth / 2;
+  const doorCount = columns;
+  const doorGap = 0.024;
+  const doorSpan = width * 0.90;
+  const doorW = (doorSpan - doorGap * (doorCount - 1)) / doorCount;
+  const doorH = height * 0.84;
+  const doorY = baseH + height * 0.53;
+  const doorFaceZ = faceZ + 0.022;
+  for (let col = 0; col < doorCount; col++) {
+    const doorX = doorCount === 1
+      ? 0
+      : -doorSpan / 2 + doorW / 2 + col * (doorW + doorGap);
+    addBox(b.accent, doorW, doorH, 0.028, doorX, doorY, doorFaceZ);
+
+    // Gasket/frame rails around each door.
+    for (const sx of [-1, 1]) {
+      addBox(b.detail, 0.014, doorH, 0.014,
+        doorX + sx * (doorW / 2 - 0.007), doorY, doorFaceZ + 0.020);
+    }
+    for (const sy of [-1, 1]) {
+      addBox(b.detail, doorW, 0.014, 0.014,
+        doorX, doorY + sy * (doorH / 2 - 0.007), doorFaceZ + 0.020);
+    }
+
+    // Three hinge barrels on the left and a black quarter-turn latch on the
+    // right. These tiny shadows do more to sell a cabinet than extra texture.
+    for (const sy of [-0.30, 0, 0.30]) {
+      addCylinder(b.iron, 0.011, 0.055,
+        doorX - doorW / 2 - 0.006, doorY + sy * doorH, doorFaceZ + 0.028);
+    }
+    addBox(b.iron, 0.020, 0.13, 0.026,
+      doorX + doorW * 0.34, doorY, doorFaceZ + 0.038);
+  }
+
+  // The front is a grid of recessed breaker handles and paper circuit labels:
+  // more rows/columns means visibly more separately protected circuits.
   const usableW = width * 0.78;
   const usableH = height * 0.68;
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < columns; col++) {
       const x = columns === 1 ? 0 : -usableW / 2 + col * (usableW / (columns - 1));
       const y = baseH + height * 0.56 + (row - (rows - 1) / 2) * (usableH / rows);
-      const g = new THREE.BoxGeometry(width / (columns * 2.8), usableH / (rows * 3.2), 0.025);
-      applyTiledBoxUVs(g, width / (columns * 2.8), usableH / (rows * 3.2), 0.025);
-      pushT(b.iron, g, trans(x, y, faceZ));
+      const bayW = width / (columns * 2.8);
+      const bayH = usableH / (rows * 3.0);
+      addBox(b.iron, bayW, bayH, 0.022, x, y, doorFaceZ + 0.041);
+      addBox(b.pipe, bayW * 0.20, bayH * 0.58, 0.018,
+        x - bayW * 0.20, y, doorFaceZ + 0.061);
+      addBox(b.stand, bayW * 0.34, bayH * 0.36, 0.014,
+        x + bayW * 0.17, y, doorFaceZ + 0.059);
     }
   }
 
-  // Top gland plate and copper feeder tails distinguish electrical equipment
+  // Main breaker / metering strip and three restrained pilot lamps. The lamps
+  // share the normal night-aware glow role, so they read without becoming UI.
+  const headerY = baseH + height * 0.88;
+  addBox(b.pipe, width * 0.50, height * 0.075, 0.020,
+    -width * 0.10, headerY, doorFaceZ + 0.052);
+  addBox(b.iron, width * 0.10, height * 0.11, 0.028,
+    width * 0.31, headerY, doorFaceZ + 0.058);
+  for (const x of [-0.08, 0, 0.08]) {
+    const lamp = new THREE.SphereGeometry(Math.min(0.015, width * 0.025), 8, 6);
+    lamp.translate(x - width * 0.12, headerY, doorFaceZ + 0.070);
+    b.glow.push(lamp);
+  }
+
+  // Side louvers and a visible copper bonding bar keep the box grounded and
+  // ventilated. They remain subordinate to the breaker face at game zoom.
+  for (const xSign of [-1, 1]) {
+    for (let i = 0; i < 5; i++) {
+      addBox(b.detail, 0.016, 0.020, depth * 0.48,
+        xSign * (width / 2 + 0.009), baseH + height * (0.25 + i * 0.055), 0);
+    }
+  }
+  addBox(b.copper, width * 0.58, 0.018, 0.025,
+    0, baseH + 0.14, -(depth / 2 + 0.014));
+
+  // Top gland plate and steel conduit hubs distinguish electrical equipment
   // from an ordinary green storage cabinet.
   {
     const g = new THREE.BoxGeometry(width * 0.72, 0.025, depth * 0.62);
@@ -435,7 +597,7 @@ function _buildDistributionPanelRoles({ width, height, depth, columns, rows }) {
     const x = (i - (Math.min(columns + 1, 4) - 1) / 2) * 0.13;
     const g = new THREE.CylinderGeometry(0.022, 0.022, 0.12, 8);
     applyTiledCylinderUVs(g, 0.022, 0.12, 8);
-    pushT(b.copper, g, trans(x, baseH + height + 0.085, 0));
+    pushT(b.pipe, g, trans(x, baseH + height + 0.085, 0));
   }
   return b;
 }
@@ -502,5 +664,22 @@ export function _buildSpiderBoxRoles() {
     );
     pushT(b.copper, g, matrix);
   }
+  // Hinged weatherproof lid, carry handle and rubber corner guards turn the
+  // squat block into the portable field distro box it represents.
+  addBox(b.accent, 0.38, 0.025, 0.38, 0, 0.2125, 0);
+  addBox(b.detail, 0.30, 0.012, 0.30, 0, 0.228, 0);
+  addCylinder(b.detail, 0.012, 0.18, 0, 0.225, -0.185,
+    new THREE.Matrix4().multiplyMatrices(trans(0, 0.225, -0.185), rotZ(Math.PI / 2)), 8);
+  addBox(b.iron, 0.055, 0.045, 0.025, 0, 0.205, 0.195);
+  for (const x of [-0.12, 0.12]) {
+    addBox(b.stand, 0.025, 0.11, 0.035, x, 0.285, -0.09);
+  }
+  addBox(b.stand, 0.265, 0.025, 0.035, 0, 0.34, -0.09);
+  for (const x of [-0.17, 0.17]) {
+    for (const z of [-0.17, 0.17]) {
+      addBox(b.iron, 0.045, 0.08, 0.045, x, 0.10, z);
+    }
+  }
+  addBox(b.pipe, 0.16, 0.012, 0.07, 0, 0.235, 0.06);
   return b;
 }

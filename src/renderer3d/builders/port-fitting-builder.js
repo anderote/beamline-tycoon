@@ -56,6 +56,8 @@ const EMBED = 0.004;
 
 const _matCache = new Map();
 const _geoCache = new Map();
+const _flowMatCache = new Map();
+const _flowGeoCache = new Map();
 
 function getFittingMaterial(color) {
   if (_matCache.has(color)) return _matCache.get(color);
@@ -73,6 +75,86 @@ function getFittingMaterial(color) {
   mat.userData.__shared = true;
   _matCache.set(color, mat);
   return mat;
+}
+
+// ── Physical flow arrows ────────────────────────────────────────────────
+//
+// A fitting already knows the port normal: local +X points away from the
+// machine. Put a small arrow just above the connector in that same local frame
+// and the port's role becomes readable without arming a utility tool:
+//   source → points +X, away from the enclosure
+//   sink   → points -X, into the enclosure
+//   pass   ↔ double-headed, because either side may be the feed
+// These remain depth-tested, translucent machine markings — not UI badges.
+
+const FLOW_ARROW_Y = 0.095;
+const FLOW_ARROW_INNER_X = 0.115;
+const FLOW_ARROW_OUTER_X = 0.285;
+
+function getFlowArrowMaterial(color) {
+  if (_flowMatCache.has(color)) return _flowMatCache.get(color);
+  const mat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(color),
+    emissive: new THREE.Color(color),
+    emissiveIntensity: 0.14,
+    roughness: 0.5,
+    metalness: 0.1,
+    transparent: true,
+    opacity: 0.32,
+    depthTest: true,
+    depthWrite: false,
+  });
+  mat.userData.__shared = true;
+  _flowMatCache.set(color, mat);
+  return mat;
+}
+
+function getFlowArrowGeometry(role) {
+  const normalized = role === 'source' || role === 'sink' ? role : 'pass';
+  const cached = _flowGeoCache.get(normalized);
+  if (cached) return cached;
+
+  const parts = [];
+  const shaftStart = normalized === 'sink' ? FLOW_ARROW_INNER_X + 0.045 : FLOW_ARROW_INNER_X;
+  const shaftEnd = normalized === 'source' ? FLOW_ARROW_OUTER_X - 0.045 : FLOW_ARROW_OUTER_X;
+  const shaft = new THREE.BoxGeometry(shaftEnd - shaftStart, 0.012, 0.012);
+  shaft.translate((shaftStart + shaftEnd) / 2, FLOW_ARROW_Y, 0);
+  parts.push(shaft);
+
+  const addHead = (x, direction) => {
+    const head = new THREE.ConeGeometry(0.029, 0.058, 6);
+    // ConeGeometry points along local +Y. Rotate it onto the fitting's +X
+    // axis; the sign chooses away from or toward the equipment shell.
+    head.rotateZ(direction > 0 ? -Math.PI / 2 : Math.PI / 2);
+    head.translate(x, FLOW_ARROW_Y, 0);
+    parts.push(head);
+  };
+  if (normalized !== 'sink') addHead(FLOW_ARROW_OUTER_X, 1);
+  if (normalized !== 'source') addHead(FLOW_ARROW_INNER_X, -1);
+
+  const merged = _mergeGeometries(parts);
+  for (const part of parts) part.dispose?.();
+  _flowGeoCache.set(normalized, merged);
+  return merged;
+}
+
+function buildFlowArrow(utilityType, role) {
+  const descriptor = UTILITY_TYPES[utilityType];
+  // Black HV conduit is excellent scenery but an invisible arrow. Reuse its
+  // authored marker colour when it has one, then fall back to line colour.
+  const color = descriptor?.markerColor || descriptor?.color || '#aaaaaa';
+  const normalized = role === 'source' || role === 'sink' ? role : 'pass';
+  const arrow = new THREE.Mesh(
+    getFlowArrowGeometry(normalized),
+    getFlowArrowMaterial(color),
+  );
+  arrow.userData = {
+    isUtilityFlowArrow: true,
+    flowRole: normalized,
+    flowDirection: normalized === 'source' ? 1 : normalized === 'sink' ? -1 : 0,
+    sharedGeometry: true,
+  };
+  return arrow;
 }
 
 // ── Geometry primitives, all authored facing local +X ────────────────
@@ -375,8 +457,9 @@ function getFittingGeometry(utilityType) {
  *
  * @param {{x:number,y:number,z:number,out?:{x:number,z:number}}} anchor
  * @param {string} utilityType key into UTILITY_TYPES; unknown → generic collar
+ * @param {'source'|'sink'|'pass'} [role] direction of flow through the port
  */
-export function buildPortFitting(anchor, utilityType) {
+export function buildPortFitting(anchor, utilityType, role = 'pass') {
   const color = UTILITY_TYPES[utilityType]?.color || '#999999';
   const mesh = new THREE.Mesh(getFittingGeometry(utilityType), getFittingMaterial(color));
 
@@ -393,8 +476,11 @@ export function buildPortFitting(anchor, utilityType) {
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), axis);
 
   mesh.position.set(anchor.x, anchor.y, anchor.z);
+  mesh.add(buildFlowArrow(utilityType, role));
   mesh.userData = {
     isUtilityPortFitting: true,
+    utilityType,
+    portRole: role,
     // Shared by reference with every other fitting of this utility; teardown
     // paths must not dispose it. Same contract as component-builder's role
     // meshes.
@@ -420,7 +506,10 @@ export function buildPortFittings(endpoints) {
       if (!spec || !spec.utility) continue;
       const anchor = portAnchor3D(ep, def, name);
       if (!anchor) continue;
-      group.add(buildPortFitting(anchor, spec.utility));
+      const fitting = buildPortFitting(anchor, spec.utility, spec.role);
+      fitting.userData.placeableId = ep.id;
+      fitting.userData.portName = name;
+      group.add(fitting);
       count++;
     }
   }
