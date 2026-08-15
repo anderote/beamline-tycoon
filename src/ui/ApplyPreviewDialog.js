@@ -39,7 +39,8 @@ export class ApplyPreviewDialog {
 
   /**
    * @param {Object} summary  planDesignerApply().summary
-   * @param {{name?: string}} [opts]  beamline name for the header line
+   * @param {{name?: string, title?: string, applyLabel?: string,
+   *          backLabel?: string}} [opts]
    * @returns {Promise<'apply'|'back'>}
    */
   open(summary, opts = {}) {
@@ -119,41 +120,58 @@ export class ApplyPreviewDialog {
   _render(summary, opts) {
     const title = this.el.querySelector('.apv-title');
     if (title) {
-      title.textContent = opts.name
+      title.textContent = opts.title || (opts.name
         ? `Apply changes to ${opts.name}`
-        : 'Apply changes';
+        : 'Apply changes');
     }
 
-    const rows = [];
-    for (const add of summary.adds || []) {
-      rows.push(this._row('+', 'apv-add', this._label(add), money(add.cost)));
+    const applyBtn = this.el.querySelector('[data-act="apply"]');
+    const backBtn = this.el.querySelector('[data-act="back"]');
+    const closeBtn = this.el.querySelector('.apv-close');
+    const applyLabel = opts.applyLabel || 'Apply';
+    const backLabel = opts.backLabel || 'Back to editing';
+    if (applyBtn) applyBtn.textContent = applyLabel;
+    if (backBtn) backBtn.textContent = backLabel;
+    if (closeBtn) {
+      closeBtn.title = backLabel;
+      closeBtn.setAttribute('aria-label', backLabel);
     }
+
+    const additions = [];
+    for (const add of summary.adds || []) {
+      additions.push(this._row('+', 'apv-add', this._label(add), money(add.cost)));
+    }
+    const deletions = [];
     for (const rm of summary.removes || []) {
-      rows.push(this._row('−', 'apv-remove', this._label(rm),
+      deletions.push(this._row('−', 'apv-remove', this._label(rm),
         `+${money(rm.refund)} refund`));
     }
+    const notices = [];
     if (summary.movedCount > 0) {
       const d = summary.movedDistanceM;
-      rows.push(this._row('↕', 'apv-move',
+      notices.push(this._row('↕', 'apv-move',
         `${summary.movedCount} module${summary.movedCount === 1 ? '' : 's'} shift downstream`
         + (d ? ` ${Number(d).toFixed(1)} m` : ''), ''));
     }
     if (summary.danglingLineCount > 0) {
-      rows.push(this._row('⚡', 'apv-warn',
+      notices.push(this._row('⚡', 'apv-warn',
         `${summary.danglingLineCount} utility line`
         + `${summary.danglingLineCount === 1 ? '' : 's'} need rewiring`, ''));
     }
-    if (rows.length === 0) {
-      rows.push('<div class="apv-empty">Nothing to change — the draft already matches the map.</div>');
+    for (const warning of summary.warnings || []) {
+      notices.push(this._row('⚠', 'apv-warn', esc(warning.label || warning),
+        warning.value || ''));
     }
 
     const total = summary.totalCost || 0;
     const totalText = total >= 0 ? money(total) : `${money(-total)} back`;
     const body = this.el.querySelector('.apv-body');
     body.innerHTML = `
-      <div class="apv-rows">${rows.join('')}</div>
+      ${this._section('New', additions)}
+      ${this._section('Deleted', deletions)}
+      ${notices.length ? this._section('Other changes', notices, '') : ''}
       <div class="apv-total">
-        <span class="apv-total-label">Total</span>
+        <span class="apv-total-label">Net cost</span>
         <span class="apv-total-value ${total > 0 ? 'apv-cost' : 'apv-credit'}">${esc(totalText)}</span>
       </div>`;
   }
@@ -161,9 +179,24 @@ export class ApplyPreviewDialog {
   // "3 × Quad" / "Beam Pipe 4.0 m" — the metres come off the drift row only,
   // where a count of "3" would describe three extend ops rather than length.
   _label(row) {
+    if (row.label) {
+      const name = esc(row.label);
+      if (row.metres) return `${name} ${Number(row.metres).toFixed(1)} m`;
+      return row.count > 1 ? `${row.count} × ${name}` : name;
+    }
     const name = displayName(row.type);
     if (row.metres) return `${esc(name)} ${Number(row.metres).toFixed(1)} m`;
     return row.count > 1 ? `${row.count} × ${esc(name)}` : esc(name);
+  }
+
+  _section(title, rows, emptyText = 'None') {
+    const content = rows.length
+      ? `<div class="apv-rows">${rows.join('')}</div>`
+      : `<div class="apv-section-empty">${esc(emptyText)}</div>`;
+    return `<section class="apv-section">`
+      + `<div class="apv-section-title">${esc(title)}</div>`
+      + content
+      + '</section>';
   }
 
   _row(sign, cls, label, value) {
