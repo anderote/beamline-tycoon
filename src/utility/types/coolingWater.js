@@ -1,9 +1,10 @@
 // src/utility/types/coolingWater.js
 //
 // Cooling water utility descriptor. v1 physics: chiller capacity vs sink heat
-// load; reservoir decrements by EVAP_PER_KW_PER_TICK × totalHeatKW. Hard
-// cooling_dry when the reservoir empties; soft cooling_starved when there is
-// demand but no chiller. refillCost: WATER_COST_PER_L per missing litre.
+// load; reservoir decrements by EVAP_PER_KW_PER_TICK × totalHeatKW. Packaged
+// plants can supply slow automatic make-up water; ordinary plant reservoirs
+// emit hard cooling_dry when empty. Soft cooling_starved means demand has no
+// chiller. refillCost: WATER_COST_PER_L per missing litre.
 //
 // Balance (Phase 7, scripts/balance-sim.mjs): a 30 kW starter loop drinks
 // 0.6 L/tick — a ~$5k refill every ~700 ticks; a 60 kW detector loop refills
@@ -62,10 +63,21 @@ export default {
     const totalDemand = network.sinks.reduce(
       (a, s) => a + ((s.params && s.params.heatLoad) || 0), 0);
     const currentReservoir = (persistent && persistent.reservoirVolumeL) || 0;
+    // Packaged cooling units carry a small automatic mains make-up valve.
+    // Apply it before the dry check so a depleted package restarts on its own
+    // instead of emitting a one-tick cooling_dry trip every solve. The rate is
+    // intentionally slow (nameplate evaporation only), so spare make-up
+    // restores inventory over time rather than snapping the reservoir full.
+    const makeupWaterLPerTick = network.sources.reduce(
+      (a, s) => a + ((s.params && s.params.makeupWaterLPerTick) || 0), 0);
+    const replenishedReservoir = Math.min(
+      RESERVOIR_MAX_L,
+      currentReservoir + makeupWaterLPerTick,
+    );
     const errors = [];
     const perSinkQuality = {};
 
-    const dry = currentReservoir <= 0 && network.sinks.length > 0;
+    const dry = replenishedReservoir <= 0 && network.sinks.length > 0;
     let quality;
     if (dry) {
       quality = 0;
@@ -97,7 +109,7 @@ export default {
     }
 
     const evap = dry ? 0 : EVAP_PER_KW_PER_TICK * totalDemand;
-    const nextReservoir = Math.max(0, currentReservoir - evap);
+    const nextReservoir = Math.max(0, replenishedReservoir - evap);
 
     return {
       flowState: {
@@ -108,6 +120,7 @@ export default {
         rejectionCapacity,
         plantComplete,
         totalDemand,
+        makeupWaterLPerTick,
         utilization: totalCapacity > 0
           ? Math.min(1, totalDemand / totalCapacity)
           : (totalDemand > 0 ? 1 : 0),

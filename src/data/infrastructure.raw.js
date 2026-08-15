@@ -1199,7 +1199,7 @@ export const INFRASTRUCTURE_RAW = {
   packageChiller: {
     id: 'packageChiller',
     name: 'Package Chiller',
-    desc: 'Self-contained 5 kW cooling package with six independently routable connections: four on its primary header and two opposite. Reservoir, pump, chiller and air-cooled heat rejector share one frame. Give it power and run Cooling Water to your equipment — no separate plant equipment is needed.',
+    desc: 'Self-contained 5 kW cooling package with six independently routable connections: four on its primary header and two opposite. Reservoir, pump, chiller, air-cooled heat rejector and a slow automatic make-up water feed share one frame. Give it power and run Cooling Water to your equipment — no separate plant equipment or manual reservoir refills are needed.',
     coolingRole: 'integratedCooling',
     category: 'cooling', subsection: 'integratedCooling',
     accentColor: 0x2fbccc,
@@ -1222,7 +1222,7 @@ export const INFRASTRUCTURE_RAW = {
   lcwSkid: {
     id: 'lcwSkid',
     name: 'LCW Skid',
-    desc: 'Self-contained 25 kW low-conductivity-water skid with six independently routable connections: four on its primary header and two opposite. Its own reservoir, pump, chiller and air-cooled rejector are packaged together: connect power, then run Cooling Water to magnets and warm RF. Outgrow it into a central chiller plus separate reservoir and heat rejection when the facility gets large.',
+    desc: 'Self-contained 25 kW low-conductivity-water skid with six independently routable connections: four on its primary header and two opposite. Its own reservoir, pump, chiller, air-cooled rejector and slow automatic make-up water feed are packaged together: connect power, then run Cooling Water to magnets and warm RF. Outgrow it into a central chiller plus separate reservoir and heat rejection when the facility gets large.',
     coolingRole: 'integratedCooling',
     category: 'cooling', subsection: 'integratedCooling',
     accentColor: 0x2fbccc,

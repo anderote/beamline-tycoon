@@ -349,8 +349,9 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   assert(hasPlantLayout(lcw)
       && lcwOutlets.every(([, port]) => port.params.reservoir)
       && Math.abs(total(lcw, 'capacity') - 25) < 1e-9
-      && Math.abs(total(lcw, 'heatRejectionCapacity') - 25) < 1e-9,
-  'LCW skid has a 4+2 header sharing one self-contained 25 kW plant');
+      && Math.abs(total(lcw, 'heatRejectionCapacity') - 25) < 1e-9
+      && Math.abs(total(lcw, 'makeupWaterLPerTick') - 0.5) < 1e-9,
+  'LCW skid has a 4+2 header sharing one self-contained 25 kW plant and 0.5 L/tick make-up');
   const lcwDef = { ports: lcw };
   assert(lcwOutlets.filter(([name]) => portSide(lcwDef, name, 0, false) === 'E').length === 4
       && lcwOutlets.filter(([name]) => portSide(lcwDef, name, 0, true) === 'W').length === 4
@@ -361,8 +362,9 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   assert(hasPlantLayout(packageChiller)
       && Math.abs(total(packageChiller, 'capacity') - 5) < 1e-9
       && Math.abs(total(packageChiller, 'heatRejectionCapacity') - 5) < 1e-9
+      && Math.abs(total(packageChiller, 'makeupWaterLPerTick') - 0.1) < 1e-9
       && packageOutlets.every(([, port]) => port.params.reservoir),
-  'package chiller has a 4+2 header sharing one self-contained 5 kW plant');
+  'package chiller has a 4+2 header sharing one self-contained 5 kW plant and 0.1 L/tick make-up');
   for (const type of ['waterTank', 'dualCircuitChiller', 'chiller']) {
     assert(hasPlantLayout(getUtilityPortsV2(type)),
       `${type} exposes four primary-side and two opposite-side connections`);

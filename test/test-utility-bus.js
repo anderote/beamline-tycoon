@@ -24,7 +24,6 @@ import {
 } from '../src/utility/network-discovery.js';
 import { SolveRunner } from '../src/utility/solve-runner.js';
 import { UtilityRegistry } from '../src/utility/registry.js';
-import { RESERVOIR_MAX_L } from '../src/utility/types/coolingWater.js';
 
 globalThis.COMPONENTS = COMPONENTS;
 globalThis.PARAM_DEFS = PARAM_DEFS;
@@ -169,8 +168,9 @@ console.log('\n--- 4. Reach is bounded ---');
 
 console.log('\n--- 5. Reservoir state survives a bus being added ---');
 {
-  // A drained cooling loop must not refill itself when the network re-hashes
-  // because a bus widened its membership.
+  // A partly depleted cooling loop must keep its inventory when the network
+  // re-hashes because a bus widened its membership. Seed a distinctive level
+  // so a reset to the 500 L default cannot masquerade as a successful carry.
   const state = makeState();
   state.placeables.push(
     { id: 'skid_1', type: 'lcwSkid', kind: 'infrastructure', category: 'infrastructure',
@@ -187,13 +187,12 @@ console.log('\n--- 5. Reservoir state survives a bus being added ---');
     path: [{ col: 8, row: 6 }, { col: 8, row: 0 }],
   });
   const runner = new SolveRunner({ state, registry: UtilityRegistry });
-  for (let i = 0; i < 100; i++) runner.runSolve({ tick: i });
+  runner.runSolve({ tick: 0 });
 
   const idsBefore = [...state.utilityNetworkState.keys()].filter(k => k.startsWith('net_coolingWater_'));
   assert(idsBefore.length === 1, `one cooling network before the bus (got ${idsBefore.length})`);
-  const drained = state.utilityNetworkState.get(idsBefore[0]).reservoirVolumeL;
-  assert(drained < RESERVOIR_MAX_L - 10,
-    `the loop drained over 100 ticks (${drained.toFixed(2)} L)`);
+  const seededVolume = 123;
+  state.utilityNetworkState.get(idsBefore[0]).reservoirVolumeL = seededVolume;
 
   // Phase B: add the bus and a second run off the same source port.
   state.utilityLines.set('cl_2', {
@@ -203,14 +202,14 @@ console.log('\n--- 5. Reservoir state survives a bus being added ---');
     path: [{ col: 8, row: 6 }, { col: 8, row: 1 }, { col: 3, row: 1 }],
   });
   runner.markTopologyDirty();
-  runner.runSolve({ tick: 100 });
+  runner.runSolve({ tick: 1 });
 
   const idsAfter = [...state.utilityNetworkState.keys()].filter(k => k.startsWith('net_coolingWater_'));
   assert(idsAfter.length === 1, `still exactly one cooling network (got ${idsAfter.length})`);
   assert(idsAfter[0] !== idsBefore[0], 'its id re-hashed — port membership grew');
   const carried = state.utilityNetworkState.get(idsAfter[0]).reservoirVolumeL;
-  assert(carried < drained && carried > drained - 5,
-    `the drained reservoir carried over rather than resetting (${carried.toFixed(2)} L vs ${drained.toFixed(2)} L)`);
+  assert(carried >= seededVolume && carried < seededVolume + 1,
+    `the seeded reservoir carried over rather than resetting (${carried.toFixed(2)} L vs ${seededVolume.toFixed(2)} L)`);
 
   const cooled = state.utilityNetworks.get('coolingWater')[0].sinks.map(s => s.placeableId).sort();
   assert(JSON.stringify(cooled) === JSON.stringify(['q1', 'q2', 'q3']),
