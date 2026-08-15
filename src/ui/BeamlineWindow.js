@@ -8,6 +8,9 @@ import { flattenPath } from '../beamline/flattener.js';
 import { hardwareNodes } from '../game/aggregates.js';
 import { dataFeeIncome } from '../game/economy.js';
 import { endpointsById } from '../utility/endpoint-lookup.js';
+import { UTILITY_TYPES as UTILITY_DESCRIPTORS } from '../utility/registry.js';
+import { renderVacuumPressureGraph } from '../utility/types/vacuumPipe.js';
+import { escapeHtml } from './format.js';
 // Imported, not re-declared: this map IS the utility-type -> quality-field
 // contract, and a hand-copied local one drifts from the table the gate wrote.
 import { UTILITY_TO_QUALITY_FIELD } from '../game/utility-gate.js';
@@ -23,6 +26,29 @@ const UTILITY_TYPES = [
   { key: 'cryoTransfer', label: 'Cryo' },
   { key: 'dataFiber',    label: 'Data' },
 ];
+
+const UTILITY_ICONS = {
+  powerCable: '⚡',
+  rfWaveguide: '◉',
+  vacuumPipe: '▽',
+  coolingWater: '◆',
+  cryoTransfer: '❄',
+  dataFiber: '⌁',
+};
+
+function fmtUtilityQty(value) {
+  if (!Number.isFinite(value)) return '--';
+  if (value === 0) return '0';
+  const magnitude = Math.abs(value);
+  if (magnitude >= 0.1 && magnitude < 1e6) return value.toFixed(1);
+  return value.toExponential(2);
+}
+
+function utilityQualityColor(quality) {
+  if (quality >= 0.9) return '#44dd66';
+  if (quality >= 0.5) return '#ddaa22';
+  return '#ff4444';
+}
 
 // Component color palette for schematic blocks
 const COMP_COLORS = {
@@ -205,6 +231,7 @@ export class BeamlineWindow {
     const rf = beamlineRfOperatingInfo(ordered, COMPONENTS);
     const quality = bs.beamQuality ? bs.beamQuality.toFixed(2) : '--';
     const qualityClass = bs.beamQuality > 0.7 ? '' : bs.beamQuality > 0.4 ? ' warn' : ' bad';
+    const nodeIds = ordered.map(node => node.id);
 
     el.innerHTML = `
       <div class="ctx-preview">${schematic}</div>
@@ -222,6 +249,7 @@ export class BeamlineWindow {
         <div class="ctx-stat"><div class="ctx-stat-label">Photon Rate</div><div class="ctx-stat-val">${bs.photonRate ? bs.photonRate.toExponential(1) : '0'}</div></div>
         <div class="ctx-stat"><div class="ctx-stat-label">Discovery</div><div class="ctx-stat-val">${bs.discoveryChance ? (bs.discoveryChance * 100).toFixed(1) + '%' : '--'}</div></div>
       </div>
+      ${this._overviewVacuumHtml(nodeIds)}
     `;
   }
 
@@ -483,9 +511,9 @@ export class BeamlineWindow {
    * Returns one of: 'unused' (declares no such sink), 'unwired', 'partial'
    * (some nodes wired, some not), 'connected'.
    */
-  _utilityStatus(utilityKey, nodeIds) {
+  _utilityCoverage(utilityKey, nodeIds) {
     const qualityField = UTILITY_TO_QUALITY_FIELD[utilityKey];
-    if (!qualityField) return 'unused';
+    if (!qualityField) return { status: 'unused', declared: 0, wired: 0 };
     const nodeQualities = this.game.state.nodeQualities || {};
     const unwiredSinks = this.game.state.unwiredSinks || {};
     let declared = 0;
@@ -496,10 +524,87 @@ export class BeamlineWindow {
       declared++;
       if (unwiredSinks[nodeId] && unwiredSinks[nodeId][utilityKey]) unwired++;
     }
-    if (declared === 0) return 'unused';
-    if (unwired === 0) return 'connected';
-    if (unwired === declared) return 'unwired';
-    return 'partial';
+    const wired = declared - unwired;
+    if (declared === 0) return { status: 'unused', declared, wired };
+    if (unwired === 0) return { status: 'connected', declared, wired };
+    if (unwired === declared) return { status: 'unwired', declared, wired };
+    return { status: 'partial', declared, wired };
+  }
+
+  _utilityStatus(utilityKey, nodeIds) {
+    // Keep this callable from the prototype with a minimal { game } stub;
+    // several diagnostics exercise the wiring verdict without constructing a
+    // DOM-backed BeamlineWindow.
+    return BeamlineWindow.prototype._utilityCoverage.call(this, utilityKey, nodeIds).status;
+  }
+
+  /**
+   * Solved networks which actually touch this beamline, plus beamline-local
+   * delivery quality and network-wide demand/capacity. Demand and capacity
+   * deliberately remain network-wide: a shared chiller or panel can be
+   * overloaded by equipment outside the beamline, and hiding that shared load
+   * here would make the shortfall impossible to explain.
+   */
+  _utilityNetworkSummary(utilityKey, nodeIds) {
+    const state = this.game.state;
+    const nodeSet = new Set(nodeIds);
+    const discovered = state.utilityNetworks && state.utilityNetworks.get
+      ? (state.utilityNetworks.get(utilityKey) || [])
+      : [];
+    const flowMap = state.utilityNetworkData && state.utilityNetworkData.get
+      ? state.utilityNetworkData.get(utilityKey)
+      : null;
+    const networks = [];
+    let totalCapacity = 0;
+    let totalDemand = 0;
+    let worstQuality = null;
+    const issues = [];
+
+    for (const network of discovered) {
+      if (!(network.ports || []).some(port => nodeSet.has(port.placeableId))) continue;
+      const flow = flowMap && flowMap.get ? flowMap.get(network.id) : null;
+      if (!flow) continue;
+      const beamlineSinks = (network.sinks || []).filter(sink => nodeSet.has(sink.placeableId));
+      for (const sink of beamlineSinks) {
+        const quality = flow.perSinkQuality && flow.perSinkQuality[sink.portKey];
+        if (!Number.isFinite(quality)) continue;
+        worstQuality = worstQuality === null ? quality : Math.min(worstQuality, quality);
+      }
+      if (Number.isFinite(flow.totalCapacity)) totalCapacity += flow.totalCapacity;
+      if (Number.isFinite(flow.totalDemand)) totalDemand += flow.totalDemand;
+      for (const issue of flow.errors || []) issues.push({ ...issue, networkId: network.id });
+      networks.push({ network, flow, beamlineSinkCount: beamlineSinks.length });
+    }
+
+    return { networks, totalCapacity, totalDemand, worstQuality, issues };
+  }
+
+  _overviewVacuumHtml(nodeIds) {
+    const summary = this._utilityNetworkSummary('vacuumPipe', nodeIds);
+    if (summary.networks.length === 0) {
+      return `<div class="ctx-section-label">Vacuum pressure</div>
+        <div class="beamline-vacuum-empty">Connect the beamline to a vacuum network to begin pressure history.</div>`;
+    }
+
+    // One readable plot in the overview: when a beamline spans isolated
+    // vacuum sections, show the section with the highest (worst) pressure.
+    // Every section still gets its own plot in the Utilities tab.
+    const primary = summary.networks.reduce((worst, item) => {
+      if (!worst) return item;
+      const pressure = Number.isFinite(item.flow.pressure) ? item.flow.pressure : -Infinity;
+      const worstPressure = Number.isFinite(worst.flow.pressure) ? worst.flow.pressure : -Infinity;
+      return pressure > worstPressure ? item : worst;
+    }, null);
+    const flow = primary.flow;
+    const sectionNote = summary.networks.length > 1
+      ? `Highest-pressure section of ${summary.networks.length}`
+      : 'Connected vacuum section';
+    return `<div class="ctx-section-label">Vacuum pressure</div>
+      <div class="beamline-vacuum-summary">
+        <span>${escapeHtml(sectionNote)}</span>
+        <strong>${fmtUtilityQty(flow.pressure)} mbar</strong>
+      </div>
+      ${renderVacuumPressureGraph(flow)}`;
   }
 
   _renderUtilities(el) {
@@ -522,33 +627,92 @@ export class BeamlineWindow {
 
     let requiredCount = 0;
     let connectedCount = 0;
-    let html = '<div class="ctx-section-label">Utility Connections</div>';
-    for (const { key, label } of UTILITY_TYPES) {
-      const status = this._utilityStatus(key, myNodeIds);
-      if (status !== 'unused') requiredCount++;
-      if (status === 'connected') connectedCount++;
-      const { color, icon, text } = PRESENTATION[status];
-      html += `
-        <div class="ctx-utility-row">
-          <span class="ctx-utility-dot" style="color:${color}">${icon}</span>
-          <span class="ctx-utility-label">${label}</span>
-          <span class="ctx-utility-status" style="color:${color}">${text}</span>
-        </div>
-      `;
+    const summaries = [];
+    for (const utility of UTILITY_TYPES) {
+      const coverage = this._utilityCoverage(utility.key, myNodeIds);
+      const networks = this._utilityNetworkSummary(utility.key, myNodeIds);
+      summaries.push({ ...utility, coverage, ...networks });
+      if (coverage.status !== 'unused') requiredCount++;
+      if (coverage.status === 'connected') connectedCount++;
     }
-    // Coverage is over the utilities this beamline actually NEEDS, not all six.
-    // A source that wants three and has none is at 0%, not the 50% a fixed
-    // denominator reported for having declared them.
-    const coverage = requiredCount > 0
+    const problemCount = summaries.reduce((sum, item) => sum + item.issues.length, 0);
+    const coveragePct = requiredCount > 0
       ? `${(connectedCount / requiredCount * 100).toFixed(0)}%` : '—';
-    html += `
-      <div style="margin-top:12px">
-        <div class="ctx-stats-grid">
-          <div class="ctx-stat"><div class="ctx-stat-label">Connected</div><div class="ctx-stat-val">${connectedCount} / ${requiredCount}</div></div>
-          <div class="ctx-stat"><div class="ctx-stat-label">Coverage</div><div class="ctx-stat-val">${coverage}</div></div>
-        </div>
-      </div>
-    `;
+
+    let html = `<div class="beamline-utility-head">
+      <div class="ctx-stat"><div class="ctx-stat-label">Utility coverage</div><div class="ctx-stat-val">${connectedCount} / ${requiredCount}</div></div>
+      <div class="ctx-stat"><div class="ctx-stat-label">Ready</div><div class="ctx-stat-val">${coveragePct}</div></div>
+      <div class="ctx-stat"><div class="ctx-stat-label">Network issues</div><div class="ctx-stat-val${problemCount ? ' warn' : ''}">${problemCount}</div></div>
+    </div>
+    <div class="ctx-section-label">Demand and capacity</div>`;
+
+    for (const summary of summaries) {
+      const { key, label, coverage, networks, totalCapacity, totalDemand, worstQuality, issues } = summary;
+      const { color, icon, text } = PRESENTATION[coverage.status];
+      const descriptor = UTILITY_DESCRIPTORS[key] || {};
+      const descriptorColor = descriptor.color || color;
+      const comparable = !descriptor.demandUnit || descriptor.demandUnit === descriptor.capacityUnit;
+      const load = comparable && totalCapacity > 0 ? totalDemand / totalCapacity
+        : (comparable && totalDemand > 0 ? 1 : 0);
+      const loadPct = Math.max(0, Math.min(100, load * 100));
+      const loadColor = loadPct >= 90 ? '#ff4444' : loadPct >= 70 ? '#ddaa22' : '#44dd66';
+      const networkWord = networks.length === 1 ? 'network' : 'networks';
+
+      html += `<section class="beamline-utility-card${coverage.status === 'unused' ? ' is-unused' : ''}" style="--beamline-utility-color:${descriptorColor}">
+        <div class="beamline-utility-title">
+          <span class="beamline-utility-icon">${UTILITY_ICONS[key] || icon}</span>
+          <strong>${escapeHtml(label)}</strong>
+          <span class="beamline-utility-connection" style="color:${color}">${icon} ${text}</span>
+        </div>`;
+
+      if (coverage.status === 'unused') {
+        html += `<div class="beamline-utility-note">No component on this beamline requests this service.</div></section>`;
+        continue;
+      }
+
+      html += `<div class="beamline-utility-subtitle">${coverage.wired} / ${coverage.declared} components connected · ${networks.length} solved ${networkWord}</div>
+        <div class="beamline-utility-metrics">
+          <div><span>Demand</span><strong>${networks.length ? fmtUtilityQty(totalDemand) : '--'} ${escapeHtml(descriptor.demandUnit || descriptor.capacityUnit || '')}</strong></div>
+          <div><span>Capacity</span><strong>${networks.length ? fmtUtilityQty(totalCapacity) : '--'} ${escapeHtml(descriptor.capacityUnit || '')}</strong></div>
+          <div><span>Delivered</span><strong style="color:${worstQuality === null ? '#8888aa' : utilityQualityColor(worstQuality)}">${worstQuality === null ? '--' : `${(worstQuality * 100).toFixed(0)}%`}</strong></div>
+        </div>`;
+
+      if (comparable && networks.length > 0) {
+        html += `<div class="beamline-utility-load">
+          <span>Load</span><div><i style="width:${loadPct}%;background:${loadColor}"></i></div><strong style="color:${loadColor}">${loadPct.toFixed(0)}%</strong>
+        </div>`;
+      }
+
+      if (networks.length === 0) {
+        html += `<div class="beamline-utility-alert">No solved network reaches this beamline.</div>`;
+      } else {
+        html += '<div class="beamline-network-list">';
+        for (const item of networks) {
+          const shortId = item.network.id.replace(`net_${key}_`, '');
+          html += `<span title="${escapeHtml(item.network.id)}">${escapeHtml(shortId)} · ${item.beamlineSinkCount} beamline sink${item.beamlineSinkCount === 1 ? '' : 's'}</span>`;
+        }
+        html += '</div>';
+      }
+
+      for (const issue of issues) {
+        const issueColor = issue.severity === 'hard' ? '#ff4444' : '#ddaa22';
+        html += `<div class="beamline-utility-issue" style="color:${issueColor}">${escapeHtml(issue.message || issue.code || 'Network issue')}</div>`;
+      }
+
+      if (key === 'vacuumPipe') {
+        for (const item of networks) {
+          const flow = item.flow;
+          const stage = flow.vacuumStage === 'uhv' ? 'UHV'
+            : flow.vacuumStage === 'high' ? 'High vacuum'
+              : flow.vacuumStage === 'rough' ? 'Roughing' : 'Inactive';
+          html += `<div class="beamline-vacuum-network">
+            <div class="beamline-vacuum-summary"><span>${escapeHtml(stage)} · ${fmtUtilityQty(flow.numberDensity)} molecules/m³</span><strong>${fmtUtilityQty(flow.pressure)} mbar</strong></div>
+            ${renderVacuumPressureGraph(flow)}
+          </div>`;
+        }
+      }
+      html += '</section>';
+    }
     el.innerHTML = html;
   }
 

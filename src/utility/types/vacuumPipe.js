@@ -323,14 +323,20 @@ function escape(value) {
   })[ch]);
 }
 
-function pressureGraph(flow) {
+// Shared by the single-network inspector and the beamline overview. Keeping
+// the plotter here means both windows use the same time range, gauge status
+// rules, log scale, and empty-state copy.
+export function renderVacuumPressureGraph(flow) {
   const gauges = flow.gauges || [];
   if (gauges.length === 0) {
     return '<div><strong>Pressure history</strong></div>'
       + '<div class="ui-text-muted">Mount a Pirani, cold-cathode, or BA gauge on this run to record pressure.</div>';
   }
   const history = flow.pressureHistory || [];
-  const W = 360, H = 150, left = 42, right = 8, top = 8, bottom = 24;
+  // Leave enough room for the right-anchored "now" label. With an 8 px
+  // margin its final glyph sat outside the SVG viewBox and was clipped in
+  // both inspectors.
+  const W = 360, H = 150, left = 42, right = 18, top = 8, bottom = 24;
   const x0 = left, x1 = W - right, y0 = top, y1 = H - bottom;
   const now = Number.isFinite(flow.tick) ? flow.tick : 0;
   const start = now - VACUUM_HISTORY_TICKS;
@@ -558,7 +564,7 @@ export default {
       <div><strong>Effective pumping:</strong> ${escape((flow.effectivePumpSpeed || 0).toFixed(1))} L/s <span class="ui-text-faint">(${escape((flow.nominalPumpSpeed || 0).toFixed(1))} nominal)</span></div>
       <div><strong>Gas mix:</strong> ${escape(flow.gasSpecies || '--')}</div>
       <div class="ui-text-faint">${escape((flow.beamPipeLengthM || 0).toFixed(1))} m beam pipe · ${escape((flow.serviceLineLengthM || 0).toFixed(1))} m service line</div>
-      <div style="margin-top:8px">${pressureGraph(flow)}</div>
+      <div style="margin-top:8px">${renderVacuumPressureGraph(flow)}</div>
     </div>`;
   },
   refillCost() { return null; },

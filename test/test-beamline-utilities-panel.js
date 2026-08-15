@@ -26,6 +26,8 @@ function assert(cond, msg) {
 
 const statusOf = (state, utility, ids) =>
   BeamlineWindow.prototype._utilityStatus.call({ game: { state } }, utility, ids);
+const summaryOf = (state, utility, ids) =>
+  BeamlineWindow.prototype._utilityNetworkSummary.call({ game: { state } }, utility, ids);
 
 // ==========================================================================
 // Test 1: the reported bug — one source, nothing wired.
@@ -121,6 +123,123 @@ console.log('\n--- Test 4: missing state ---');
   const noWiringMap = { nodeQualities: { gun: { powerQuality: 0 } } };
   assert(statusOf(noWiringMap, 'powerCable', ['gun']) === 'connected',
     'without a wiring map the sink is assumed wired (quality then tells the story)');
+}
+
+// ==========================================================================
+// Test 5: solved network totals and beamline-local delivery quality.
+// ==========================================================================
+console.log('\n--- Test 5: connected network demand and capacity ---');
+{
+  const beamSink = { portKey: 'cav:power', placeableId: 'cav', portName: 'power' };
+  const sharedSink = { portKey: 'lab:power', placeableId: 'lab', portName: 'power' };
+  const secondSink = { portKey: 'quad:power', placeableId: 'quad', portName: 'power' };
+  const networks = [
+    {
+      id: 'net_powerCable_a',
+      ports: [beamSink, sharedSink],
+      sinks: [beamSink, sharedSink],
+    },
+    {
+      id: 'net_powerCable_b',
+      ports: [secondSink],
+      sinks: [secondSink],
+    },
+    {
+      id: 'net_powerCable_elsewhere',
+      ports: [{ placeableId: 'office', portName: 'power' }],
+      sinks: [{ portKey: 'office:power', placeableId: 'office', portName: 'power' }],
+    },
+  ];
+  const flows = new Map([
+    ['net_powerCable_a', {
+      totalCapacity: 100,
+      totalDemand: 80,
+      perSinkQuality: { 'cav:power': 0.75, 'lab:power': 0.1 },
+      errors: [{ severity: 'soft', code: 'shared_load', message: 'Shared load is high.' }],
+    }],
+    ['net_powerCable_b', {
+      totalCapacity: 25,
+      totalDemand: 30,
+      perSinkQuality: { 'quad:power': 0.6 },
+      errors: [],
+    }],
+    ['net_powerCable_elsewhere', {
+      totalCapacity: 999,
+      totalDemand: 999,
+      perSinkQuality: { 'office:power': 0 },
+      errors: [],
+    }],
+  ]);
+  const state = {
+    utilityNetworks: new Map([['powerCable', networks]]),
+    utilityNetworkData: new Map([['powerCable', flows]]),
+  };
+  const summary = summaryOf(state, 'powerCable', ['cav', 'quad']);
+
+  assert(summary.networks.length === 2, 'only networks touching the beamline are included');
+  assert(summary.totalCapacity === 125, 'capacity totals all connected beamline networks');
+  assert(summary.totalDemand === 110,
+    'demand remains network-wide so shared off-beamline load stays visible');
+  assert(summary.worstQuality === 0.6,
+    'delivered quality uses only beamline sinks, not a poorer shared lab sink');
+  assert(summary.issues.length === 1 && summary.issues[0].networkId === 'net_powerCable_a',
+    'network issues retain the network that reported them');
+}
+
+// ==========================================================================
+// Test 6: solved topology can exist one tick before its flow result.
+// ==========================================================================
+console.log('\n--- Test 6: unsolved and unrelated networks are not invented ---');
+{
+  const state = {
+    utilityNetworks: new Map([['vacuumPipe', [{
+      id: 'pending',
+      ports: [{ placeableId: 'gun', portName: 'vacuum' }],
+      sinks: [{ portKey: 'gun:vacuum', placeableId: 'gun', portName: 'vacuum' }],
+    }]]]),
+    utilityNetworkData: new Map([['vacuumPipe', new Map()]]),
+  };
+  const summary = summaryOf(state, 'vacuumPipe', ['gun']);
+  assert(summary.networks.length === 0, 'a topology without a solve result is reported as unsolved');
+  assert(summary.totalDemand === 0 && summary.totalCapacity === 0,
+    'an unsolved network does not fabricate demand or capacity');
+}
+
+// ==========================================================================
+// Test 7: the overview embeds the shared two-day vacuum plot.
+// ==========================================================================
+console.log('\n--- Test 7: overview pressure history ---');
+{
+  const network = {
+    id: 'net_vacuumPipe_beam',
+    ports: [{ placeableId: 'gun', portName: 'vacuum' }],
+    sinks: [{ portKey: 'gun:vacuum', placeableId: 'gun', portName: 'vacuum' }],
+  };
+  const flow = {
+    totalCapacity: 300,
+    totalDemand: 1e-6,
+    pressure: 2e-8,
+    tick: 2880,
+    perSinkQuality: { 'gun:vacuum': 1 },
+    gauges: [{ id: 'g1', label: 'BA gauge', color: '#66ddff', reading: 2e-8, status: 'ok' }],
+    pressureHistory: [
+      { tick: 0, readings: { g1: 1e-3 } },
+      { tick: 2880, readings: { g1: 2e-8 } },
+    ],
+    errors: [],
+  };
+  const state = {
+    utilityNetworks: new Map([['vacuumPipe', [network]]]),
+    utilityNetworkData: new Map([['vacuumPipe', new Map([[network.id, flow]])]]),
+  };
+  const windowStub = Object.create(BeamlineWindow.prototype);
+  windowStub.game = { state };
+  const html = windowStub._overviewVacuumHtml(['gun']);
+
+  assert(html.includes('Vacuum pressure') && html.includes('2.00e-8 mbar'),
+    'overview reports the connected section pressure');
+  assert(html.includes('vacuum-pressure-chart') && html.includes('last 2 days'),
+    'overview renders the shared rolling pressure graph');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
