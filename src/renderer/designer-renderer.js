@@ -10,6 +10,10 @@ import { MODES } from '../data/modes.js';
 import { UNITS } from '../data/units.js';
 import { isFacilityCategory } from './Renderer.js';
 import { beamlineTypeHidesComponent } from '../ui/BeamlineTypePicker.js';
+import { getBeamlineType } from '../data/beamline-types.js';
+import {
+  computeEndpointService, endpointForNodes, ENDPOINT_CONTRACTS,
+} from '../game/endpoint-economy.js';
 import { ProbePlots } from '../ui/probe-plots.js';
 import { paletteUtilityMetrics } from '../ui/utility-supply.js';
 
@@ -29,9 +33,220 @@ function _driftPixelWidth(componentType, subL) {
 
 BeamlineDesigner.prototype._renderAll = function() {
   if (!this.isOpen) return;
+  this._renderMissionPerformance();
   this._renderSchematic();
   this._renderTuning();
   this._renderPlots();
+};
+
+const _missionFomLabels = {
+  beamPowerKw: 'Beam power', beamPowerMw: 'Beam power', fluence: 'Fluence',
+  doseAvailability: 'Availability', photonFlux: 'Photon flux',
+  felBrilliance: 'FEL brilliance', euvPhotonPowerW: 'EUV photon power',
+  integratedLuminosity: 'Luminosity', blackHoleYield: 'Predicted yield',
+};
+
+function _missionBandScore(value, band, width = 0.3, hardHigh = false) {
+  if (!band || band.length !== 2) return 1;
+  const [lo, hi] = band;
+  if (!(value > 0)) return 0;
+  if ((lo == null || value >= lo) && (hi == null || value <= hi)) return 1;
+  if (hardHigh && hi != null && value > hi) return 0;
+  const edge = lo != null && value < lo ? lo : hi;
+  if (!(edge > 0)) return 1;
+  const decades = Math.abs(Math.log10(value / edge));
+  return Math.exp(-0.5 * Math.pow(decades / Math.max(width, 0.01), 2));
+}
+
+function _inBand(value, band) {
+  if (!band || band.length !== 2) return value > 0;
+  if (!(value > 0)) return false;
+  return (band[0] == null || value >= band[0]) && (band[1] == null || value <= band[1]);
+}
+
+function _fmtEnergyValue(gev) {
+  const out = formatEnergy(gev || 0);
+  return `${out.val} ${out.unit}`;
+}
+
+function _fmtBand(band, formatter) {
+  if (!band) return 'No target band';
+  const [lo, hi] = band;
+  if (lo == null) return `≤ ${formatter(hi)}`;
+  if (hi == null) return `≥ ${formatter(lo)}`;
+  return `${formatter(lo)}–${formatter(hi)}`;
+}
+
+function _missionMetricValue(type, result) {
+  if (!result) return 'No beam data';
+  const powerKw = (result.beamEnergy || 0) * (result.beamCurrent || 0) * 1000
+    * (type.dutyFactor ?? 1);
+  if (type.fom === 'beamPowerKw') return `${powerKw.toFixed(powerKw >= 100 ? 0 : 1)} kW`;
+  if (type.fom === 'beamPowerMw') return `${(powerKw / 1000).toFixed(2)} MW`;
+  if (type.fom === 'doseAvailability') return `${Math.round((result.beamQuality || 0) * 100)}% quality`;
+  if (type.fom === 'photonFlux') return Number(result.photonRate || 0).toExponential(2);
+  if (type.fom === 'felBrilliance') return result.felSaturated ? 'Saturated' : 'Below saturation';
+  if (type.fom === 'euvPhotonPowerW') return `${Number(result.felPower || 0).toPrecision(3)} W`;
+  if (type.fom === 'integratedLuminosity') return Number(result.luminosity || 0).toExponential(2);
+  if (type.fom === 'blackHoleYield') return Number(result.blackHoleYield || 0).toPrecision(3);
+  return `${Math.round((result.beamQuality || 0) * 100)}% quality`;
+}
+
+BeamlineDesigner.prototype._renderMissionPerformance = function() {
+  const panel = document.getElementById('dsgn-mission-panel');
+  const titleEl = document.getElementById('dsgn-mission-title');
+  const kickerEl = document.getElementById('dsgn-mission-kicker');
+  const metricsEl = document.getElementById('dsgn-mission-metrics');
+  const equationEl = document.getElementById('dsgn-mission-equation');
+  const canvas = document.getElementById('dsgn-mission-map');
+  if (!panel || !titleEl || !metricsEl || !equationEl || !canvas) return;
+
+  const typeId = this._designerBeamlineTypeId?.();
+  const type = getBeamlineType(typeId);
+  if (!type) {
+    panel.classList.add('untyped');
+    kickerEl.textContent = 'MISSION TARGET';
+    titleEl.textContent = 'Choose a beamline type to reveal target bands';
+    metricsEl.innerHTML = '';
+    equationEl.textContent = 'Free Build keeps the full catalogue and does not grade the design.';
+    return;
+  }
+  panel.classList.remove('untyped');
+  kickerEl.textContent = `MISSION TARGET · T${type.tier}`;
+  titleEl.textContent = type.name;
+
+  const draft = this.draftPhysicsResult;
+  const current = this.baselinePhysicsResult;
+  const e = Number(draft?.beamEnergy || 0);
+  const i = Number(draft?.beamCurrent || 0);
+  const eBand = type.spec?.energyGeV;
+  const iBand = type.spec?.currentMA;
+  const metric = (label, value, target, inside) =>
+    `<div class="dsgn-mission-metric ${inside ? 'in' : 'out'}"><span>${label}</span>`
+      + `<strong title="Target: ${target}">${value}</strong></div>`;
+  metricsEl.innerHTML = metric(
+    'Energy', _fmtEnergyValue(e), _fmtBand(eBand, _fmtEnergyValue), _inBand(e, eBand),
+  ) + metric(
+    'Current', `${i < 0.01 ? i.toPrecision(2) : i.toFixed(i < 10 ? 2 : 1)} mA`,
+    _fmtBand(iBand, v => `${v} mA`), _inBand(i, iBand),
+  ) + metric(
+    _missionFomLabels[type.fom] || 'Mission metric', _missionMetricValue(type, draft),
+    type.fomRef != null ? `reference ${type.fomRef}` : 'type objective', !!draft,
+  ) + metric(
+    'Beam quality', `${Math.round((draft?.beamQuality || 0) * 100)}%`,
+    'higher is better', (draft?.beamQuality || 0) >= 0.7,
+  );
+
+  const endpointId = endpointForNodes(this.draftNodes);
+  const service = computeEndpointService(type.id, draft || {}, this.draftNodes);
+  const contract = endpointId ? ENDPOINT_CONTRACTS[endpointId] : null;
+  if (!endpointId || !contract) {
+    const required = (type.requiredEndpoint || []).map(id => COMPONENTS[id]?.name || id).join(', ');
+    equationEl.textContent = `Revenue estimate unavailable — add a contract endpoint${required ? ` (${required})` : ''}.`;
+  } else if (contract.baseRevenue > 0) {
+    equationEl.innerHTML = `${contract.name}: $${contract.baseRevenue.toLocaleString()}`
+      + ` × ${(service.bandScore || 0).toFixed(2)} band × ${(service.performanceScore || 0).toFixed(2)} output`
+      + ` = <strong>$${Math.round(service.revenue || 0).toLocaleString()}/tick</strong>`
+      + ' design estimate at ideal utility availability';
+  } else {
+    equationEl.innerHTML = `${contract.name}: mission output is paid in data/prestige rather than direct service revenue.`;
+  }
+
+  this._drawMissionMap(canvas, type, draft, current, (contract?.baseRevenue || 0) > 0);
+};
+
+BeamlineDesigner.prototype._drawMissionMap = function(canvas, type, draft, current, hasContract) {
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const W = Math.max(10, Math.floor(rect.width));
+  const H = Math.max(10, Math.floor(rect.height));
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+
+  const pad = { l: 44, r: 10, t: 10, b: 25 };
+  const pw = W - pad.l - pad.r;
+  const ph = H - pad.t - pad.b;
+  const eBand = type.spec?.energyGeV || [0.001, 1];
+  const iBand = type.spec?.currentMA || [0.001, 1];
+  const eNow = Math.max(draft?.beamEnergy || current?.beamEnergy || eBand[0] || 0.001, 1e-9);
+  const iNow = Math.max(draft?.beamCurrent || current?.beamCurrent || iBand[0] || 0.001, 1e-9);
+  const positiveRange = (band, now) => {
+    const lo = band?.[0] > 0 ? band[0] : now / 10;
+    const hi = band?.[1] > 0 ? band[1] : now * 10;
+    return [Math.max(1e-9, Math.min(lo, now) / 3), Math.max(hi, now) * 3];
+  };
+  const er = positiveRange(eBand, eNow);
+  const ir = positiveRange(iBand, iNow);
+  const log = Math.log10;
+  const x = value => pad.l + (log(Math.max(value, er[0])) - log(er[0]))
+    / (log(er[1]) - log(er[0])) * pw;
+  const y = value => pad.t + ph - (log(Math.max(value, ir[0])) - log(ir[0]))
+    / (log(ir[1]) - log(ir[0])) * ph;
+
+  const cols = 28, rows = 14;
+  const endpointId = endpointForNodes(this.draftNodes);
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const energy = 10 ** (log(er[0]) + ((col + .5) / cols) * (log(er[1]) - log(er[0])));
+      const currentMa = 10 ** (log(ir[0]) + ((rows - row - .5) / rows) * (log(ir[1]) - log(ir[0])));
+      let score;
+      if (hasContract && endpointId) {
+        const s = computeEndpointService(type.id, {
+          ...(draft || {}), beamEnergy: energy, beamCurrent: currentMa,
+        }, this.draftNodes);
+        const base = ENDPOINT_CONTRACTS[endpointId]?.baseRevenue || 1;
+        score = Math.min(1, (s.revenue || 0) / Math.max(base * 1.5, 1));
+      } else {
+        score = _missionBandScore(energy, eBand, type.bandWidth)
+          * _missionBandScore(currentMa, iBand, type.bandWidth);
+      }
+      ctx.fillStyle = `rgba(${Math.round(32 + score * 35)},${Math.round(58 + score * 115)},${Math.round(76 + score * 60)},.72)`;
+      ctx.fillRect(pad.l + col * pw / cols, pad.t + row * ph / rows,
+        pw / cols + 1, ph / rows + 1);
+    }
+  }
+
+  const x0 = x(eBand[0] ?? er[0]);
+  const x1 = x(eBand[1] ?? er[1]);
+  const y0 = y(iBand[1] ?? ir[1]);
+  const y1 = y(iBand[0] ?? ir[0]);
+  ctx.fillStyle = 'rgba(95, 213, 132, .10)';
+  ctx.strokeStyle = 'rgba(116, 235, 151, .88)';
+  ctx.lineWidth = 1.25;
+  ctx.setLineDash([4, 3]);
+  ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+  ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+  ctx.setLineDash([]);
+
+  const dot = (result, color, radius, label) => {
+    if (!(result?.beamEnergy > 0) || !(result?.beamCurrent > 0)) return;
+    const px = x(result.beamEnergy), py = y(result.beamCurrent);
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(px, py, radius, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = color;
+    ctx.font = '8px monospace';
+    ctx.textAlign = px > W - 70 ? 'right' : 'left';
+    ctx.fillText(label, px + (ctx.textAlign === 'right' ? -6 : 6), py - 5);
+  };
+  dot(current, 'rgba(180,195,205,.72)', 3, 'CURRENT');
+  dot(draft, '#67d9ff', 4, 'PROPOSED');
+
+  ctx.fillStyle = '#718995';
+  ctx.font = '8px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('BEAM ENERGY →', pad.l + pw / 2, H - 5);
+  ctx.save();
+  ctx.translate(9, pad.t + ph / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('CURRENT →', 0, 0);
+  ctx.restore();
+  ctx.textAlign = 'left';
+  ctx.fillText(_fmtEnergyValue(er[0]), pad.l, H - 14);
+  ctx.textAlign = 'right';
+  ctx.fillText(_fmtEnergyValue(er[1]), W - pad.r, H - 14);
 };
 
 BeamlineDesigner.prototype._renderSchematic = function() {

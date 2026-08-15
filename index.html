@@ -13,38 +13,14 @@
     <div id="top-bar">
       <div id="top-bar-primary">
         <div id="game-title">Beamline Tycoon</div>
-        <div id="resources">
-          <div class="res-box" id="res-funding" title="Funding">
-            <span class="res-main"><span class="res-icon">$</span><span class="res-val" id="val-funding">500</span></span>
-            <button id="btn-local-funding" class="local-funding-btn hidden" type="button" title="Local development only: add $250k">+ $250k</button>
-          </div>
-          <div class="res-box" id="res-energy" title="Power Draw (kW)">
-            <span class="res-icon">kW</span>
-            <span class="res-val" id="val-energy">--</span>
-          </div>
-          <div class="res-box" id="res-reputation" title="Reputation">
-            <span class="res-icon">R</span>
-            <span class="res-val" id="val-reputation">0</span>
-          </div>
-          <div class="res-box" id="res-data" title="Research Data">
-            <span class="res-icon">D</span>
-            <span class="res-val" id="val-data">0</span>
-          </div>
-          <div class="res-box" id="res-spares" title="Maintenance spares">
-            <span class="res-icon">SP</span>
-            <span class="res-val" id="val-spares">50</span>
-          </div>
-        </div>
         <div id="sim-controls">
           <button id="btn-pause" class="sim-btn" title="Pause">&#10074;&#10074;</button>
           <button class="sim-btn speed-btn" data-speed="1" title="Normal speed (7)">1x</button>
           <button class="sim-btn speed-btn" data-speed="2" title="Double speed (8)">2x</button>
           <button class="sim-btn speed-btn" data-speed="4" title="Quadruple speed (9)">4x</button>
         </div>
-        <div id="staff-bar" title="Staff"></div>
         <button id="btn-hire" class="hud-btn" title="Hire staff">Hire Staff</button>
         <div id="top-buttons">
-          <span id="beam-summary" class="beam-summary"></span>
           <div id="music-player">
             <button class="mp-btn mp-prev" title="Previous">&lt;</button>
             <button class="mp-btn mp-play" title="Play/Pause">&gt;</button>
@@ -56,6 +32,7 @@
             <button class="mp-btn mp-shuffle" title="Shuffle">~</button>
             <select class="mp-theme" title="Theme"></select>
             <input type="range" class="mp-volume" min="0" max="1" step="0.05" value="0.4" title="Volume">
+            <button class="mp-btn mp-mute" title="Unmute music" aria-label="Unmute music" aria-pressed="true">🔇</button>
             <button class="mp-btn mp-minimize" title="Minimize">_</button>
           </div>
           <button id="btn-designer" class="hud-btn">Beamline Designer</button>
@@ -78,14 +55,40 @@
           </div>
         </div>
       </div>
-      <div id="beam-stats-panel" aria-label="Facility beam statistics">
-        <div class="bsp-row"><span class="bsp-label">Power</span><span class="bsp-val" id="stat-total-power">0</span><span class="bsp-unit">kW</span></div>
-        <div class="bsp-row"><span class="bsp-label">RF</span><span class="bsp-val" id="stat-rf-power">0</span><span class="bsp-unit">kW</span></div>
-        <div class="bsp-row"><span class="bsp-label">Beam</span><span class="bsp-val" id="stat-beam-power">0</span><span class="bsp-unit">kW</span></div>
-        <div class="bsp-row"><span class="bsp-label">Cooling</span><span class="bsp-val" id="stat-cooling-power">0</span><span class="bsp-unit">kW</span></div>
-        <div class="bsp-row"><span class="bsp-label">Beamline</span><span class="bsp-val" id="stat-total-length">0</span><span class="bsp-unit">m</span></div>
-        <div class="bsp-row"><span class="bsp-label">Peak</span><span class="bsp-val" id="stat-peak-energy">0</span><span class="bsp-unit" id="stat-peak-energy-unit">GeV</span></div>
-        <div class="bsp-row"><span class="bsp-label">Data</span><span class="bsp-val" id="stat-data-rate">0</span><span class="bsp-unit">/s</span></div>
+      <div id="top-bar-info">
+        <div id="resources">
+          <div class="res-box" id="res-funding" title="Funding">
+            <span class="res-main"><span class="res-icon">$</span><span class="res-val" id="val-funding">500</span></span>
+            <button id="btn-local-funding" class="local-funding-btn hidden" type="button" title="Local development only: add $250k">+ $250k</button>
+          </div>
+          <div class="res-box" id="res-energy" title="Power Draw (kW)">
+            <span class="res-icon">kW</span>
+            <span class="res-val" id="val-energy">--</span>
+          </div>
+          <div class="res-box" id="res-reputation" title="Reputation">
+            <span class="res-icon">R</span>
+            <span class="res-val" id="val-reputation">0</span>
+          </div>
+          <div class="res-box" id="res-data" title="Research Data">
+            <span class="res-icon">D</span>
+            <span class="res-val" id="val-data">0</span>
+          </div>
+          <div class="res-box" id="res-spares" title="Maintenance spares">
+            <span class="res-icon">SP</span>
+            <span class="res-val" id="val-spares">50</span>
+          </div>
+        </div>
+        <div id="staff-bar" title="Staff"></div>
+        <span id="beam-summary" class="beam-summary"></span>
+        <div id="beam-stats-panel" aria-label="Facility beam statistics">
+          <div class="bsp-row"><span class="bsp-label">Power</span><span class="bsp-val" id="stat-total-power">0</span><span class="bsp-unit">kW</span></div>
+          <div class="bsp-row"><span class="bsp-label">RF</span><span class="bsp-val" id="stat-rf-power">0</span><span class="bsp-unit">kW</span></div>
+          <div class="bsp-row"><span class="bsp-label">Beam</span><span class="bsp-val" id="stat-beam-power">0</span><span class="bsp-unit">kW</span></div>
+          <div class="bsp-row"><span class="bsp-label">Cooling</span><span class="bsp-val" id="stat-cooling-power">0</span><span class="bsp-unit">kW</span></div>
+          <div class="bsp-row"><span class="bsp-label">Beamline</span><span class="bsp-val" id="stat-total-length">0</span><span class="bsp-unit">m</span></div>
+          <div class="bsp-row"><span class="bsp-label">Peak</span><span class="bsp-val" id="stat-peak-energy">0</span><span class="bsp-unit" id="stat-peak-energy-unit">GeV</span></div>
+          <div class="bsp-row"><span class="bsp-label">Data</span><span class="bsp-val" id="stat-data-rate">0</span><span class="bsp-unit">/s</span></div>
+        </div>
       </div>
     </div>
 
@@ -267,6 +270,17 @@
       </div>
       <div class="dsgn-body">
         <div class="dsgn-section-title">Beamline Performance</div>
+        <section class="dsgn-mission-panel" id="dsgn-mission-panel" aria-label="Beamline mission targets">
+          <div class="dsgn-mission-copy">
+            <span class="dsgn-mission-kicker" id="dsgn-mission-kicker">MISSION TARGET</span>
+            <strong class="dsgn-mission-title" id="dsgn-mission-title">Choose a beamline type</strong>
+            <div class="dsgn-mission-metrics" id="dsgn-mission-metrics"></div>
+            <div class="dsgn-mission-equation" id="dsgn-mission-equation"></div>
+          </div>
+          <div class="dsgn-mission-map-wrap">
+            <canvas id="dsgn-mission-map" aria-label="Energy and current target map"></canvas>
+          </div>
+        </section>
         <div class="dsgn-plot-range-bar">
           <span class="dsgn-range-label">X:</span>
           <button class="dsgn-range-btn dsgn-xrange-btn active" data-range="full">Full</button>

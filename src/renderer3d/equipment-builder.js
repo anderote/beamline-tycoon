@@ -9,6 +9,7 @@ import { MATERIALS } from './materials/index.js';
 import { DECALS } from './materials/decals.js';
 import { applyTiledBoxUVs } from './uv-utils.js';
 import { buildPlaceableVisualDetails } from './placeable-visual-details.js';
+import { configureGlowMesh, getGlowMaterial } from './machine-glow.js';
 // Phase 6: utility-port-builder removed; all buildPortStubs call sites in
 // this file were already commented out.
 
@@ -43,6 +44,45 @@ function _partMaterial(baseName, colorHex) {
   });
   _partMatCache.set(key, m);
   return m;
+}
+
+/**
+ * Convert semantically-authored part names into presentation-light intent.
+ * This keeps the raw catalogue renderer-agnostic while allowing every screen,
+ * trace, rack LED, and alarm window to use the lighting engine consistently.
+ */
+export function equipmentPartGlowSpec(compDef, part) {
+  const id = compDef?.id || '';
+  const name = part?.name || '';
+  const color = part?.color ?? 0x40d8ff;
+  if (/(?:screen|scr\d*$|lcd$|display$)/i.test(name)) {
+    return {
+      color, profile: 'screen', priority: 4,
+      light: { intensity: 0.24, distance: 1.7, daylightFloor: 0.18 },
+    };
+  }
+  if (/(?:trace\d*$|^tr\d+$)/i.test(name)) {
+    return {
+      color, profile: 'screen', priority: 3,
+      light: { intensity: 0.16, distance: 1.3, daylightFloor: 0.15 },
+    };
+  }
+  const serverLed = id === 'serverRack' && /^s\d+[acd]$/i.test(name);
+  const daqLed = id === 'daqRack' && /L\d+$/i.test(name);
+  const alarmWindow = id === 'alarmPanel' && /^[a-e][1-4]$/i.test(name);
+  const namedIndicator = /(?:led\d*$|lamp[LMR0-9]*$|dot(?:Hot|Cold)$|beacon$)/i.test(name);
+  if (serverLed || daqLed || alarmWindow || namedIndicator) {
+    const beacon = /beacon$/i.test(name);
+    return {
+      color,
+      profile: 'statusBlink',
+      priority: beacon ? 3 : 2,
+      light: beacon
+        ? { intensity: 0.2, distance: 1.4, daylightFloor: 0.12 }
+        : { intensity: 0.08, distance: 0.9, daylightFloor: 0.08 },
+    };
+  }
+  return null;
 }
 
 function _faceMaterial(compType, faceKey, baseName, faceOverride, fallbackColor) {
@@ -140,8 +180,10 @@ export class EquipmentBuilder {
       const stampPhysicsIdentity = (object) => {
         object.userData ||= {};
         object.userData.physicsId = physicsId;
+        object.userData.nodeId = physicsId;
         object.userData.placeableId = item.id ?? null;
         object.userData.placeableType = item.type;
+        object.userData.effectState = item.effectState || 'on';
         object.userData.physicsKind = isFurnishing ? 'furnishing' : 'equipment';
         object.userData.physicsMassKg = Number(compDef?.physicsMassKg) || null;
         object.userData.physicsDensityKgM3 = Number(compDef?.physicsDensityKgM3) || null;
@@ -160,7 +202,15 @@ export class EquipmentBuilder {
         // falling back to the authored material.
         const variantIdx = item.variant || 0;
         const partOverrides = compDef.variantOverrides?.[variantIdx] || null;
-        for (const part of compDef.parts) {
+        const glowSpecs = compDef.parts.map(part => equipmentPartGlowSpec(compDef, part));
+        let physicalGlowIndex = -1;
+        for (let i = 0; i < glowSpecs.length; i++) {
+          if (!glowSpecs[i]) continue;
+          if (physicalGlowIndex < 0 || glowSpecs[i].priority > glowSpecs[physicalGlowIndex].priority) {
+            physicalGlowIndex = i;
+          }
+        }
+        for (const [partIndex, part] of compDef.parts.entries()) {
           const pw = (part.w || 1) * SUB_UNIT;
           const ph = (part.h || 1) * SUB_UNIT;
           const pl = (part.l || 1) * SUB_UNIT;
@@ -171,7 +221,10 @@ export class EquipmentBuilder {
           const partColorHex = (ov && 'color' in ov) ? ov.color : part.color;
           const partBase = partMatName ?? baseName;
           const partColor = partColorHex ?? (partBase ? null : fallbackColor);
-          const mat = _partMaterial(partBase, partColor);
+          const glowSpec = equipmentPartGlowSpec(compDef, { ...part, color: partColorHex });
+          const mat = glowSpec
+            ? getGlowMaterial(`${compDef.id}:parts`, glowSpec.color)
+            : _partMaterial(partBase, partColor);
           const mesh = new THREE.Mesh(geo, mat);
           mesh.castShadow = true;
           mesh.receiveShadow = true;
@@ -185,6 +238,12 @@ export class EquipmentBuilder {
           );
           mesh.matrixAutoUpdate = false;
           mesh.updateMatrix();
+          if (glowSpec) {
+            configureGlowMesh(mesh, {
+              profile: glowSpec.profile,
+              light: partIndex === physicalGlowIndex ? glowSpec.light : false,
+            });
+          }
           group.add(mesh);
         }
         group.position.set(centerX, baseY, centerZ);

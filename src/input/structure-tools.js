@@ -27,7 +27,7 @@
 
 import { Tool } from './Tool.js';
 import { FLOOR_INTERFACE_HOVER_THRESHOLD } from './floor-wall-paths.js';
-import { FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES } from '../data/structure.js';
+import { FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, WALL_PAINTS } from '../data/structure.js';
 import { doorOffFromFrac, findWallKey, findEdgeKey } from '../game/edge-keys.js';
 import { isoToGrid } from '../renderer/grid.js';
 
@@ -237,6 +237,47 @@ export class FloorTool extends Tool {
       }
     }
     return false;
+  }
+}
+
+export class WallPaintTool extends Tool {
+  constructor(paintId) {
+    super(`wallPaint:${paintId}`, 'wallPaint');
+    this.paintId = paintId;
+  }
+
+  _paint(edge, ctx, paintId = this.paintId) {
+    return ctx.game.paintWallFace(edge.col, edge.row, edge.edge, paintId);
+  }
+
+  onMouseMove(e, ctx) {
+    const edge = ctx.input._getNearestWallEdge(e.clientX, e.clientY);
+    const paint = WALL_PAINTS[this.paintId];
+    ctx.renderer.renderWallEdgeHighlight(edge?.col, edge?.row, edge?.edge, paint?.color ?? 0xffffff);
+    return true;
+  }
+
+  onClick(e, ctx) {
+    if (e.shiftKey) {
+      const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
+      const grid = isoToGrid(world.x, world.y);
+      const path = ctx.input._buildFloorBoundaryRegion({ col: grid.col, row: grid.row }).path;
+      ctx.game._withUndo(() => {
+        for (const edge of path) this._paint(edge, ctx);
+      });
+      return true;
+    }
+    const edge = ctx.input._getNearestWallEdge(e.clientX, e.clientY);
+    if (!edge) return false;
+    ctx.game._withUndo(() => this._paint(edge, ctx));
+    return true;
+  }
+
+  onRightClick(e, ctx) {
+    const edge = ctx.input._getNearestWallEdge(e.clientX, e.clientY);
+    if (!edge) return false;
+    ctx.game._withUndo(() => this._paint(edge, ctx, null));
+    return true;
   }
 }
 
@@ -468,6 +509,16 @@ export class WallTool extends Tool {
     return false;
   }
 
+  onRightClick(e, ctx) {
+    // Keep the wall tool armed so a player can quickly trim a run without
+    // swapping to demolition mode. `removeWall` resolves either spelling of
+    // a shared edge and also cleans up dependent doors/windows.
+    const edge = ctx.input._getNearestFloorEdge(e.clientX, e.clientY);
+    if (!edge) return false;
+    ctx.game._withUndo(() => ctx.game.removeWall(edge.col, edge.row, edge.edge));
+    return true;
+  }
+
   onShiftChange(down, ctx) {
     const input = ctx.input;
     const renderer = ctx.renderer;
@@ -603,8 +654,11 @@ export class DoorTool extends Tool {
   }
 
   onRightClick(_e, ctx) {
-    // Right-click deselects, like every sibling structure tool.
-    ctx.input.clearTool();
+    // Keep the door tool armed so a player can correct openings directly.
+    // `removeDoor` is alias-aware, matching the wall-facing placement snap.
+    const edge = ctx.input._getNearestWallEdge(_e.clientX, _e.clientY);
+    if (!edge) return false;
+    ctx.game._withUndo(() => ctx.game.removeDoor(edge.col, edge.row, edge.edge));
     return true;
   }
 }

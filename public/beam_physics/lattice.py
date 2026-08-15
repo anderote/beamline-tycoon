@@ -77,10 +77,14 @@ def propagate(beamline_config, machine_type=None, source_params=None):
     total_photon_rate = 0.0
     luminosities = []
     collision_rates = []
+    detector_rates = []
     n_focusing = 0
     prev_max_sigma = None  # for divergence rate estimation
     prev_s = 0.0
     last_focus_s = 0.0  # s position of last focusing element
+    max_dispersion = 0.0
+    dispersion_warnings = []
+    DISPERSION_WARN_THRESHOLD = 0.1  # metres — flag if |η_x| exceeds this
 
     for i, element in enumerate(beamline_config):
         context.element_index = i
@@ -145,6 +149,17 @@ def propagate(beamline_config, machine_type=None, source_params=None):
             if etype == "target" and is_last:
                 collision_rates.append(beam.current * element.get("collisionRate", 2.0))
 
+            # Detectors record interactions at a rate set by the beam they
+            # intercept. Without this, detectors contributed NOTHING to the
+            # summary: data rate was derived from `luminosity`, which only the
+            # beam_beam module produces, which only runs on colliders — so
+            # every non-collider detector in the game produced exactly zero
+            # research data and the tech tree was unreachable under real
+            # physics. The headless fallback masked it by computing data a
+            # different way.
+            if is_last and element.get("dataRate", 0) > 0:
+                detector_rates.append(beam.current * element["dataRate"])
+
             context.cumulative_s += sub_el["length"]
 
             # Compute focus margin and urgency for FODO advisor
@@ -183,6 +198,19 @@ def propagate(beamline_config, machine_type=None, source_params=None):
             prev_max_sigma = max_sigma
             prev_s = context.cumulative_s
 
+            # Track dispersion for warnings
+            eta_x_abs = abs(context.dispersion[0])
+            if eta_x_abs > max_dispersion:
+                max_dispersion = eta_x_abs
+            if is_last and eta_x_abs > DISPERSION_WARN_THRESHOLD:
+                if etype not in ("dipole", "combined_function"):
+                    dispersion_warnings.append({
+                        "element_index": i,
+                        "element_type": etype,
+                        "eta_x": float(context.dispersion[0]),
+                        "s": context.cumulative_s,
+                    })
+
             # Snapshot after each sub-step
             context.snapshots.append(beam.snapshot(i, etype, context.cumulative_s, extra={
                 "eta_x": float(context.dispersion[0]),
@@ -206,10 +234,21 @@ def propagate(beamline_config, machine_type=None, source_params=None):
 
     summary = {
         "final_energy": beam.energy,
+        # Game-facing energy: kinetic (total minus rest mass). Matters for
+        # protons, where the 0.938 GeV rest mass would otherwise dominate
+        # every displayed/objective-checked energy figure.
+        "final_kinetic_energy": max(beam.energy - beam.mass, 0.0),
+        "mass": beam.mass,
         "final_current": beam.current,
         "initial_current": initial_current,
         "luminosity": sum(luminosities),
         "collision_rate": sum(collision_rates),
+        # Total rate of recorded interactions across every endpoint that
+        # records any — detectors and fixed targets. Both scale with the beam
+        # current reaching them, so they share a scale and can be summed.
+        # Luminosity is deliberately NOT folded in: it is cm^-2 s^-1 and runs
+        # ~1e33, so adding it would swamp everything else.
+        "event_rate": sum(detector_rates) + sum(collision_rates),
         "photon_rate": total_photon_rate,
         "beam_quality": beam_quality,
         "alive": beam.alive,
@@ -223,6 +262,8 @@ def propagate(beamline_config, machine_type=None, source_params=None):
         "final_beam_size_y": beam.beam_size_y(),
         "final_bunch_length": beam.bunch_length(),
         "n_focusing": n_focusing,
+        "max_dispersion": max_dispersion,
+        "dispersion_warnings": dispersion_warnings,
     }
 
     # Resample snapshots to fixed 1000-point grid

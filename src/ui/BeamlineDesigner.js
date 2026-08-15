@@ -51,6 +51,7 @@ export class BeamlineDesigner {
     this.draftNodes = [];       // cloned ordered node list
     this.originalNodes = [];    // snapshot for diffing
     this.draftEnvelope = null;  // physics result for draft
+    this.draftPhysicsResult = null; // terminal metrics used by mission plots
     // Physics result for originalNodes — the beamline as actually built, so the
     // plots can show what the draft changes rather than only where it lands.
     // Null in sandbox mode (openDesign), where there is no "current" at all.
@@ -58,6 +59,7 @@ export class BeamlineDesigner {
     // the draft is being edited, so recomputing it per keystroke would double
     // the cost of every slider drag for an identical answer.
     this.baselineEnvelope = null;
+    this.baselinePhysicsResult = null;
     this._baselinePending = false;  // baseline deferred until physics is ready
     // Utility lines a moveJunction op could not re-route, counted per apply.
     this._danglingLineCount = 0;
@@ -671,6 +673,7 @@ export class BeamlineDesigner {
     // the pending flag too, or a designer that opened mid-boot in edit mode
     // would have its retry fire here and grow a baseline sandbox has no use for.
     this.baselineEnvelope = null;
+    this.baselinePhysicsResult = null;
     this._baselinePending = false;
     this._updatePlotSourceBar();
 
@@ -1272,7 +1275,9 @@ export class BeamlineDesigner {
     this.draftNodes = [];
     this.originalNodes = [];
     this.draftEnvelope = null;
+    this.draftPhysicsResult = null;
     this.baselineEnvelope = null;
+    this.baselinePhysicsResult = null;
     this._baselinePending = false;
     this.selectedIndex = -1;
     this._lastTuningKey = null;
@@ -2145,9 +2150,10 @@ export class BeamlineDesigner {
     // exactly once, so without this flag it would stay null for the rest of the
     // session and the comparison would silently never appear.
     this._baselinePending = !BeamPhysics.isReady();
-    this.baselineEnvelope = this._baselinePending
+    this.baselinePhysicsResult = this._baselinePending
       ? null
-      : this._computeEnvelope(this.originalNodes);
+      : this._computePhysics(this.originalNodes);
+    this.baselineEnvelope = this.baselinePhysicsResult?.envelope || null;
     this._updatePlotSourceBar();
   }
 
@@ -2161,6 +2167,7 @@ export class BeamlineDesigner {
     // dispersionWarnings off it, and re-running physics to fetch them would
     // double the cost of every keystroke in a slider drag.
     const draftResult = this._computePhysics(this.draftNodes);
+    this.draftPhysicsResult = draftResult;
     this.draftEnvelope = draftResult ? draftResult.envelope : null;
     this.draftDispersionWarnings = draftResult?.dispersionWarnings || [];
     if (!this.draftEnvelope) {

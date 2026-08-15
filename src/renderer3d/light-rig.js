@@ -496,7 +496,8 @@ export class LightRig {
     const glows = [];
     this.scene.traverse((obj) => {
       if (obj.userData && obj.userData.lightFixture) taggedFixtures.push(obj);
-      if (obj.isMesh && obj.userData && obj.userData.role === 'glow') glows.push(obj);
+      if (obj.isMesh && obj.userData && obj.userData.role === 'glow'
+          && obj.userData.ambientLight !== false) glows.push(obj);
     });
     const registryFixtures = this._fixtureRegistry.filter(
       (fx) => fx && fx.group && fx.def && fx.def.light,

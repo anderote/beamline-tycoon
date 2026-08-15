@@ -36,6 +36,18 @@ export function variantCost(def, variant = 0) {
   return typeof vc === 'number' ? vc : flat;
 }
 
+// Cosmetic finishes apply to one face of an existing wall. They deliberately
+// live outside WALL_TYPES: painting never changes a wall's construction cost,
+// height, collision, or shielding properties.
+export const WALL_PAINTS = {
+  cleanWhite:  { id: 'cleanWhite',  name: 'Clean White',  color: 0xe9e5dc },
+  labBlue:     { id: 'labBlue',     name: 'Lab Blue',     color: 0x5f91b8 },
+  controlTeal: { id: 'controlTeal', name: 'Control Teal', color: 0x4b8f8b },
+  safetyGreen: { id: 'safetyGreen', name: 'Safety Green', color: 0x5d9a68 },
+  utilityGray: { id: 'utilityGray', name: 'Utility Gray', color: 0x777d84 },
+  warmOchre:   { id: 'warmOchre',   name: 'Warm Ochre',   color: 0xb68b55 },
+};
+
 // All floor types — placed as full tiles. Indoor floors require a
 // concrete foundation; outdoor floors can sit directly on bare ground
 // or on top of foundations.
@@ -455,6 +467,36 @@ export const DOOR_TYPES = {
     variantPreviewColors: [0xccbb99, 0xdddddd, 0x664433],
     variantTints: [null, 0xdddddd, 0x775544],
   },
+  acousticDoor: {
+    id: 'acousticDoor', name: 'Acoustic Door',
+    desc: 'Solid-core, gasketed door that keeps meeting rooms, offices, and control rooms quiet.',
+    cost: 32, color: 0x665544, topColor: 0x887766, subH: 5,
+    wallHeight: 24, doorHeight: 19, doorWidth: 'single', texture: 'door_office',
+    subsection: 'interior', isDoor: true,
+    variants: ['Walnut', 'Charcoal', 'Light Oak'],
+    variantPreviewColors: [0x775544, 0x4e5155, 0xc8ab78],
+    variantTints: [0x775544, 0x59616a, 0xd1af75],
+  },
+  cleanroomDoor: {
+    id: 'cleanroomDoor', name: 'Cleanroom Door',
+    desc: 'Flush-sealed door with observation window for clean assembly and instrument rooms.',
+    cost: 65, color: 0xaab9c7, topColor: 0xd3e0e6, subH: 5,
+    wallHeight: 24, doorHeight: 19, doorWidth: 'single', texture: 'door_lab',
+    subsection: 'interior', isDoor: true,
+    variants: ['White', 'Blue', 'Clean Green'],
+    variantPreviewColors: [0xe3e6e4, 0x93b7d1, 0x9fc9b5],
+    variantTints: [0xeeeeea, 0xa1c3de, 0xa8d5bd],
+  },
+  panicExit: {
+    id: 'panicExit', name: 'Panic-Bar Exit',
+    desc: 'High-visibility emergency exit with a push bar for fast evacuation.',
+    cost: 38, color: 0xa9443d, topColor: 0xdc7464, subH: 5,
+    wallHeight: 24, doorHeight: 19, doorWidth: 'single', texture: 'door_fire',
+    subsection: 'interior', isDoor: true,
+    variants: ['Safety Red', 'Emergency Green', 'Signal Yellow'],
+    variantPreviewColors: [0xd95d52, 0x5fa87a, 0xe2bd4c],
+    variantTints: [null, 0x6fbc88, 0xf0c852],
+  },
   hallwayDoor: {
     id: 'hallwayDoor',
     name: 'Open Hallway',
@@ -559,6 +601,26 @@ export const DOOR_TYPES = {
     variantPreviewColors: [0x889999, 0x445555, 0x995533],
     variantTints: [null, 0x556666, 0xaa6633],
   },
+  pedestrianGate: {
+    id: 'pedestrianGate', name: 'Pedestrian Gate',
+    desc: 'Narrow self-closing perimeter gate for staff and visitor foot traffic.',
+    cost: 26, color: 0x718487, topColor: 0xa5b8b8, subH: 5,
+    wallHeight: 14, doorHeight: 12, doorWidth: 'single', texture: 'door_chain_link',
+    subsection: 'gates', isDoor: true,
+    variants: ['Galvanized', 'Black', 'Campus Green'],
+    variantPreviewColors: [0xa5b8b8, 0x58666a, 0x739b73],
+    variantTints: [null, 0x5b686c, 0x7da57c],
+  },
+  slidingSecurityGate: {
+    id: 'slidingSecurityGate', name: 'Sliding Security Gate',
+    desc: 'Wide motorized mesh gate for controlled vehicle access through a secure perimeter.',
+    cost: 110, color: 0x596c70, topColor: 0x81979a, subH: 5,
+    wallHeight: 18, doorHeight: 16, doorWidth: 'double', texture: 'door_security_gate',
+    subsection: 'gates', isDoor: true,
+    variants: ['Galvanized', 'Black', 'Safety Red'],
+    variantPreviewColors: [0x81979a, 0x4b585b, 0xbc5c4f],
+    variantTints: [null, 0x4e5c5f, 0xca6555],
+  },
   rollingShutter: {
     id: 'rollingShutter',
     name: 'Rolling Shutter',
@@ -576,6 +638,26 @@ export const DOOR_TYPES = {
     variants: ['Gray', 'Blue', 'White'],
     variantPreviewColors: [0xaaaaaa, 0x7799bb, 0xdddddd],
     variantTints: [null, 0x88aacc, 0xdddddd],
+  },
+  serviceDoor: {
+    id: 'serviceDoor', name: 'Weatherproof Service Door',
+    desc: 'Insulated steel personnel door for exterior utility rooms and service access.',
+    cost: 48, color: 0x667789, topColor: 0x91a1b0, subH: 5,
+    wallHeight: 30, doorHeight: 22, doorWidth: 'single', texture: 'door_security',
+    subsection: 'exterior', isDoor: true,
+    variants: ['Steel Blue', 'Industrial Gray', 'Safety Yellow'],
+    variantPreviewColors: [0x91a1b0, 0x899196, 0xd1b34d],
+    variantTints: [0x829bb1, 0x9ca3a6, 0xe0bf50],
+  },
+  blastDoor: {
+    id: 'blastDoor', name: 'Blast Door',
+    desc: 'Heavy double-leaf reinforced door for shielded enclosures and protected equipment rooms.',
+    cost: 140, color: 0x4d5862, topColor: 0x74818b, subH: 5,
+    wallHeight: 30, doorHeight: 24, doorWidth: 'double', texture: 'door_security',
+    subsection: 'exterior', isDoor: true,
+    variants: ['Gunmetal', 'Safety Orange', 'Clean White'],
+    variantPreviewColors: [0x74818b, 0xc87746, 0xd9d9d2],
+    variantTints: [0x5e6e78, 0xda7b45, 0xe5e5dc],
   },
 };
 

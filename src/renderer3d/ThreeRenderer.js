@@ -3751,7 +3751,7 @@ export class ThreeRenderer {
     const hovering = !drawing && !!(blCtrl && blCtrl.hoverPoint);
     let blSig = null;
     if (drawing || hovering) {
-      const path = drawing ? blCtrl.drawPath : [blCtrl.hoverPoint];
+      const path = drawing ? blCtrl.drawPath : (blCtrl.guidedPath || [blCtrl.hoverPoint]);
       const oe = blCtrl.hoverOpenEnd;
       blSig = (drawing ? blCtrl.drawMode : 'add')
         + '|' + path.map(p => p.col + ',' + p.row).join(';')
@@ -3765,7 +3765,7 @@ export class ThreeRenderer {
       if (drawing) {
         this._renderBeamPipePreview(blCtrl.drawPath, blCtrl.drawMode, blCtrl.drawCost);
       } else if (hovering) {
-        this._renderBeamPipePreview([blCtrl.hoverPoint], 'add');
+        this._renderBeamPipePreview(blCtrl.guidedPath || [blCtrl.hoverPoint], 'add');
         this._renderPipeHoverMarker(blCtrl.hoverPoint);
       } else {
         this._clearBeamPipePreview();
@@ -3996,6 +3996,7 @@ export class ThreeRenderer {
     this.pipeAttachmentBuilder.build(snapshot.pipeAttachments || [], this.pipeAttachmentGroup);
     this.beamBuilder.build(snapshot.beamPaths, this.componentGroup);
     this.equipmentBuilder.build(snapshot.equipment, snapshot.furnishings, this.equipmentGroup);
+    this._effectSystem?.syncSurfaceGlows('equipment', this.equipmentGroup);
     this.decorationBuilder.build(snapshot.decorations, this.decorationGroup);
     this.lightingGroup = this.decorationBuilder.getLightingFixtures();
     this._rebuildLightPools();
@@ -4475,6 +4476,7 @@ export class ThreeRenderer {
   _refreshEquipment() {
     const snap = this._updateSnapshot(['equipment', 'furnishings']);
     this.equipmentBuilder.build(snap.equipment, snap.furnishings, this.equipmentGroup);
+    this._effectSystem?.syncSurfaceGlows('equipment', this.equipmentGroup);
   }
 
   _refreshDecorations() {

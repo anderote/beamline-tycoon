@@ -4,7 +4,6 @@ from beam_physics.context import EffectReport
 from beam_physics.constants import SPEED_OF_LIGHT
 
 R_E = 2.818e-15
-MACHINE_TYPES_WITH_COMPRESSION = {"fel", "collider"}
 
 
 class BunchCompressionModule(PhysicsModule):
@@ -14,7 +13,17 @@ class BunchCompressionModule(PhysicsModule):
         super().__init__(name="bunch_compression", order=50)
 
     def applies_to(self, element, machine_type):
-        if machine_type not in MACHINE_TYPES_WITH_COMPRESSION:
+        # Gated on the "bunch_compression" capability, not on machine-type
+        # names. The literal set here was {"fel", "collider"} — which excluded
+        # `xfel` and `euvFel`, the two types whose whole figure of merit depends
+        # on peak current. A chicane on an XFEL was inert, and nothing failed.
+        # Same drift that put "collider" in fel_gain's set.
+        #
+        # Imported inside the function on purpose: machines.py instantiates
+        # this class, so a module-scope import closes a cycle whose outcome
+        # depends on which module the process imported first.
+        from beam_physics.machines import machine_has_capability
+        if not machine_has_capability(machine_type, "bunch_compression"):
             return False
         return element.get("type", "") == "chicane"
 

@@ -301,20 +301,25 @@ function blueprintPanelHtml(type, selectedDesignId) {
  * Open the picker.
  *
  * @param {object} game
- * @param {{ onConfirm?: (typeId: string|null, design: object|null) => void }} [opts]
+ * @param {{ onConfirm?: (typeId: string|null, design: object|null) => void,
+ *           sourceType?: string|null, showBlueprints?: boolean }} [opts]
  *   onConfirm receives the chosen BEAMLINE_TYPES id — or null when the player
  *   picks "Free Build" (no type — the whole catalogue, as before types existed)
  *   — and the stock blueprint they chose, or null for a custom build. A
  *   blueprint is a STOCK_DESIGNS entry, i.e. exactly the shape DesignPlacer
  *   .start() takes; the caller is expected to arm the type and hand it over.
  */
-export function openBeamlineTypePicker(game, { onConfirm } = {}) {
+export function openBeamlineTypePicker(game, {
+  onConfirm, sourceType = null, showBlueprints = sourceType == null,
+} = {}) {
   const existing = ContextWindow.getWindow(WIN_ID);
   if (existing) { existing.focus(); return existing; }
 
   const ctx = new ContextWindow({
     id: WIN_ID,
-    title: 'New Beamline — What is it FOR?',
+    title: sourceType
+      ? `${COMPONENTS[sourceType]?.name || 'Source'} — What are we building?`
+      : 'New Beamline — What is it FOR?',
     icon: '⚛',
     accentColor: '#3d6ee6',
   });
@@ -322,14 +327,18 @@ export function openBeamlineTypePicker(game, { onConfirm } = {}) {
   // Start on whatever the palette is already filtered to, so reopening the
   // picker on an existing beamline shows that type highlighted rather than
   // nothing.
+  const sourceDef = sourceType ? COMPONENTS[sourceType] : null;
+  const sourceCompatible = (typeId) => !Array.isArray(sourceDef?.beamlineTypes)
+    || sourceDef.beamlineTypes.includes(typeId);
   let selected = game.getActiveBeamlineTypeId?.() || null;
+  if (selected && !sourceCompatible(selected)) selected = null;
   if (selected && !beamlineTypeUnlocked(selected, game.state)) selected = null;
   // '' means Custom. RCT2 opens a track type on its stock designs rather than
   // on an empty editor, so the lowest tier is the default where one exists.
-  let selectedDesignId = defaultDesignFor(selected);
+  let selectedDesignId = showBlueprints ? defaultDesignFor(selected) : '';
 
   function defaultDesignFor(typeId) {
-    return typeId ? (stockDesignsFor(typeId)[0]?.id || '') : '';
+    return showBlueprints && typeId ? (stockDesignsFor(typeId)[0]?.id || '') : '';
   }
 
   function render(container) {
@@ -337,7 +346,7 @@ export function openBeamlineTypePicker(game, { onConfirm } = {}) {
     // below a nine-tile grid that does not fit the window — without this the
     // list you just asked for scrolls away from you as it appears.
     const scroll = container.scrollTop;
-    const types = Object.values(BEAMLINE_TYPES);
+    const types = Object.values(BEAMLINE_TYPES).filter(t => sourceCompatible(t.id));
     let html = '<div class="bltype-grid">';
 
     for (const t of types) {
@@ -369,7 +378,12 @@ export function openBeamlineTypePicker(game, { onConfirm } = {}) {
     }
 
     html += '</div>';
-    html += blueprintPanelHtml(selected ? getBeamlineType(selected) : null, selectedDesignId);
+    if (showBlueprints) {
+      html += blueprintPanelHtml(selected ? getBeamlineType(selected) : null, selectedDesignId);
+    } else {
+      html += '<div class="bltype-source-note">The choice sets target bands, '
+        + 'recommended hardware and the Designer’s mission plots. No hardware is added yet.</div>';
+    }
     container.innerHTML = html;
     container.scrollTop = scroll;
 

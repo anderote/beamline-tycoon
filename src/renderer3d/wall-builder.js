@@ -13,7 +13,7 @@
 // needs the "below" band (bottom = sillHeight; nothing sits below a doorway).
 
 import {
-  WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, WINDOW_WIDTH_FRAC, windowOpeningHeight,
+  WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, WALL_PAINTS, WINDOW_WIDTH_FRAC, windowOpeningHeight,
 } from '../data/structure.js';
 import { MATERIALS } from './materials/index.js';
 import { applyTiledBoxUVs } from './uv-utils.js';
@@ -283,13 +283,13 @@ export class WallBuilder {
       // with different variants (e.g. exterior wall cement vs brick)
       // render with their own textures.
       const matKey = `${type}:${variant}${isCutawayWall ? ':cutaway' : ''}`;
+      const useAlpha = def?.hasAlpha === true;
       if (!matCache[matKey]) {
         const textureName = def?.variantTextures?.[variant] ?? def?.texture;
         const baseMat = textureName ? MATERIALS[textureName] : null;
         // Alpha-cutout materials (chain-link, barbed wire): the PNG has
         // fully transparent holes, so use alphaTest to discard hole
         // pixels and render wire strands as opaque from both sides.
-        const useAlpha = def?.hasAlpha === true;
         matCache[matKey] = new THREE.MeshStandardMaterial({
           map: baseMat ? baseMat.map : null,
           color: baseMat ? 0xffffff : color, // tint white if textured so map shows true colors
@@ -366,7 +366,40 @@ export class WallBuilder {
       geo.computeBoundingBox();
       geo.computeBoundingSphere();
 
-      const mesh = new THREE.Mesh(geo, matCache[matKey]);
+      // BoxGeometry has one material group per face. The stored edge's
+      // `inside` paint faces its own tile; `outside` faces the neighbouring
+      // tile, letting the two rooms use independent finishes.
+      const faceMaterial = (paintId) => {
+        if (!paintId || !WALL_PAINTS[paintId]) return matCache[matKey];
+        const paintKey = `${matKey}:paint:${paintId}`;
+        if (!matCache[paintKey]) {
+          const paintTextureName = def?.variantTextures?.[variant] ?? def?.texture;
+          const paintBaseMat = paintTextureName ? MATERIALS[paintTextureName] : null;
+          matCache[paintKey] = new THREE.MeshStandardMaterial({
+            map: paintBaseMat ? paintBaseMat.map : null,
+            color: WALL_PAINTS[paintId].color,
+            roughness: 0.8,
+            transparent: wallTransparent || useAlpha,
+            alphaTest: useAlpha ? 0.5 : 0,
+            opacity: wallTransparent ? 0.3 : 1.0,
+            depthWrite: useAlpha ? true : !wallTransparent,
+            side: useAlpha ? THREE.DoubleSide : THREE.FrontSide,
+          });
+        }
+        return matCache[paintKey];
+      };
+      const insidePaint = w.facePaint?.inside;
+      const outsidePaint = w.facePaint?.outside;
+      let meshMaterial = matCache[matKey];
+      if (insidePaint || outsidePaint) {
+        const materials = Array(6).fill(matCache[matKey]);
+        const insideFace = edge === 'n' ? 4 : edge === 's' ? 5 : edge === 'e' ? 1 : 0;
+        const outsideFace = edge === 'n' ? 5 : edge === 's' ? 4 : edge === 'e' ? 0 : 1;
+        materials[insideFace] = faceMaterial(insidePaint);
+        materials[outsideFace] = faceMaterial(outsidePaint);
+        meshMaterial = materials;
+      }
+      const mesh = new THREE.Mesh(geo, meshMaterial);
       // Position at the center of the merged span. Y=0 since absolute Y is
       // now baked into geometry vertices.
       const pos = this._wallPosition(col, row, edge, height);
@@ -1189,7 +1222,7 @@ export class WallBuilder {
       return wallData.map(w => ({ ...w, span: 1 }));
     }
 
-    // Group walls by (edge, type, variant, cutaway, and the axis-perpendicular
+    // Group walls by (edge, type, variant, face paint, cutaway, and the axis-perpendicular
     // coordinate). Variant must be part of the key so walls of the same
     // type but different claddings (e.g. cement vs brick exterior) stay
     // separate — otherwise a merged span would pick a single texture for
@@ -1205,7 +1238,8 @@ export class WallBuilder {
       const layerKey = wall.overlay
         ? `overlay:${wall.host?.col},${wall.host?.row},${wall.host?.edge}`
         : 'structural';
-      const groupKey = `${wall.edge},${wall.type},${variant},${cutaway ? 1 : 0},${layerKey},${isNS ? wall.row : wall.col}`;
+      const paintKey = `${wall.facePaint?.inside || ''}:${wall.facePaint?.outside || ''}`;
+      const groupKey = `${wall.edge},${wall.type},${variant},${paintKey},${cutaway ? 1 : 0},${layerKey},${isNS ? wall.row : wall.col}`;
       if (!groups[groupKey]) groups[groupKey] = [];
       groups[groupKey].push({ ...wall, cutaway });
     }
