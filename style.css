@@ -4836,6 +4836,7 @@ body {
   color: #ccd2ee;
   font-family: monospace;
 }
+
 #options-dialog.hidden { display: none; }
 
 .opt-header {

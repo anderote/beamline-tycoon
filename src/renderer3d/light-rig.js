@@ -46,17 +46,13 @@ import { ShadowScheduler } from './shadow-scheduler.js';
 import { fixtureDynamicFactor } from './light-dynamics.js';
 import { getLightCookie } from './light-cookie.js';
 import { SharedSpotShadowArray } from './lighting/shared-spot-shadow-array.js';
+import { fixtureActivationFactor } from './fixture-activation.js';
 
 // ---- Tuning constants ------------------------------------------------------
 //
-// renderer.toneMapping is left at three's default (NoToneMapping — see
-// ThreeRenderer.js, which never sets it, and this task is forbidden from
-// changing it) and outputColorSpace is untouched too, so there is no HDR
-// tone-compression softening these values: anything too hot clips straight to
-// white. Kept modest for that reason, in the same "start conservative, tune
-// by eye" spirit as glow-pipeline.js's DEFAULT_STRENGTH/RADIUS/THRESHOLD —
-// these are a first pass, not a measured result (nobody watched this render;
-// see task-5-report.md).
+// ThreeRenderer uses AgX tone mapping, so these intensities can create a hot
+// practical source without clipping immediately to white. They remain modest
+// because dozens of overlapping fixtures still accumulate in HDR.
 const FIXTURE_SPOT_INTENSITY = 6;
 const FIXTURE_SPOT_DISTANCE = 7;     // metres — a lamppost's real throw, not the whole yard
 const FIXTURE_SPOT_ANGLE = Math.PI / 5.5; // half-angle; a downward cast, not a wide floodlight
@@ -684,6 +680,8 @@ export class LightRig {
   }
 
   _scheduleShadows(nightFactor, dtMs) {
+    const hasLitFixture = this._spotSlots.some((slot, index) =>
+      index < this._activeShadowSpotCount && slot.assignedRef && slot.light.intensity > 0.01);
     if (this._sharedShadowArray) {
       const keys = [];
       for (let i = 0; i < this._activeShadowSpotCount; i++) {
@@ -698,7 +696,7 @@ export class LightRig {
       }
       const updates = this._shadowScheduler.step({
         activeCount: keys.length ? 1 : 0,
-        enabled: this._enabled && nightFactor > 0.01,
+        enabled: this._enabled && hasLitFixture,
         dtMs,
         assignmentKeys: [keys.join('|')],
       });
@@ -721,7 +719,7 @@ export class LightRig {
     }
     const updates = this._shadowScheduler.step({
       activeCount: this._activeShadowSpotCount,
-      enabled: this._enabled && nightFactor > 0.01,
+      enabled: this._enabled && hasLitFixture,
       dtMs,
       assignmentKeys: this._shadowAssignmentKeys,
     });
@@ -789,18 +787,22 @@ export class LightRig {
     const dynamicFactor = fixtureDynamicFactor(
       tag.dynamicProfile, tag.id, this._effectTimeMs, nightFactor,
     );
+    const activation = fixtureActivationFactor(def, nightFactor, {
+      indoors: slot.assignedRef?.indoors === true,
+    });
     if (slot.castsShadow) {
       const cookie = getLightCookie(tag.cookieProfile || 'soft');
       if (cookie) light.map = cookie;
     }
     light.intensity = FIXTURE_SPOT_INTENSITY * (tag.intensity ?? 1)
-      * nightFactor * slot.weight * dynamicFactor;
+      * activation * slot.weight * dynamicFactor;
     slot.projection = projection;
     Object.assign(slot.volumePacket, {
       id: tag.id,
       projection,
       color: tag.color != null ? tag.color : DEFAULT_FIXTURE_COLOR,
       weight: slot.weight * dynamicFactor,
+      activation,
       volumeProfile: tag.volumeProfile || 'none',
       cookieProfile: tag.cookieProfile || 'soft',
     });
