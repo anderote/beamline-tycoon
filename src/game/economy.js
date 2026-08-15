@@ -650,7 +650,7 @@ export function computeSystemStats(state) {
     cpuCapacity: dc.cpu || 0,
     gpuCapacity: dc.gpu || 0,
     gatewayCount: dc.gateways || 0,
-    inactiveDataUnits: (dc.inactive?.wrongZone || 0) + (dc.inactive?.noGateway || 0),
+    inactiveDataUnits: (dc.inactive?.noGateway || 0) + (dc.inactive?.noPower || 0),
     requestedRate: ds.requested || 0,
     ingestRate: ds.ingested || 0,
     processedRate: ds.processed || 0,

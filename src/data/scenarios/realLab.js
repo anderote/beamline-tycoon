@@ -1,3 +1,5 @@
+import { wireUtility } from './scenario-wiring.js';
+
 export function generateRealLab() {
   const floors = [];
   const zones = [];
@@ -96,4 +98,36 @@ export function generateRealLab() {
   addFurn('labBench', rfLabRect.x0 + 1, rfLabRect.y0 + 1, 1, 0, 1);
   addFurn('labBench', vacuumRect.x0 + 1, vacuumRect.y0 + 1, 1, 0, 1);
   return { floors, zones, walls, doors, placeables, placeableNextId: nextId, cornerHeights, infraBlockers: [] };
+}
+
+// Bring the furnished control room up on real services. The small pad-mount
+// feed and four-way panel are deliberately outside/against the west wall so
+// the three rear-fed electronics remain readable inside the room.
+export function setupRealLab(game) {
+  const funding0 = game.state.resources.funding;
+  const pad = game.placePlaceable({
+    type: 'padMountTransformer', col: -8, row: 4, free: true, silent: true,
+  });
+  const panel = game.placePlaceable({
+    type: 'powerPanel', col: -6, row: 4, free: true, silent: true,
+  });
+  const consoleId = game.state.placeables.find(p => p.type === 'operatorConsole')?.id;
+  const monitorId = game.state.placeables.find(p => p.type === 'monitorBank')?.id;
+  const captureId = game.state.placeables.find(p => p.type === 'serverRack')?.id;
+  const wire = (utilityType, from, to) => wireUtility(game, utilityType, from, to);
+
+  if (pad && panel) {
+    wire('hvCable', { id: pad, port: 'hv_out_1' }, { id: panel, port: 'hv_in' });
+  }
+  for (const [index, id] of [consoleId, monitorId, captureId].entries()) {
+    if (panel && id) {
+      wire('powerCable', { id: panel, port: `pwr_out_${index + 1}` }, { id, port: 'pwr_in' });
+    }
+  }
+  if (captureId) {
+    for (const id of [consoleId, monitorId]) {
+      if (id) wire('dataFiber', { id: captureId, port: 'data_out' }, { id, port: 'data_in' });
+    }
+  }
+  game.state.resources.funding = funding0;
 }

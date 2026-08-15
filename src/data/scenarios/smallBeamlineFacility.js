@@ -159,12 +159,15 @@ export function setupSmallBeamlineFacility(game) {
   // is the one with the power.
   const xfmr = game.placePlaceable({ type: 'hvTransformer', col: -8, row: -1, free: true, silent: true });
   const mainPanel = game.placePlaceable({ type: 'mainDistributionPanel', col: -5, row: -1, free: true, silent: true });
+  const roomPanel = game.placePlaceable({ type: 'powerPanel', col: -8, row: 4, free: true, silent: true });
   const skid = game.placePlaceable({ type: 'lcwSkid', col: -3, row: -1, free: true, silent: true });
   // Rigid waveguide needs a service lane of its own rather than sharing the
   // beamline's north edge. Put the amplifier against the outer wall so its
   // four west-facing launchers open into that lane.
   const ssa  = game.placePlaceable({ type: 'solidStateAmp', col: -2, row: -3, free: true, silent: true });
   const ioc  = game.placePlaceable({ type: 'rackIoc', col: 3, row: -1, free: true, silent: true });
+  const operatorConsole = game.state.placeables.find(p => p.type === 'operatorConsole')?.id;
+  const monitorBank = game.state.placeables.find(p => p.type === 'monitorBank')?.id;
   const captureRack = game.state.placeables.find(p => p.type === 'serverRack')?.id;
   // Vacuum: the six on-pipe chambers outgas ~4.2e-6 on top of the junctions'
   // 1.2e-6, and pressure is total outgassing over total pump speed — a 15 L/s
@@ -195,6 +198,7 @@ export function setupSmallBeamlineFacility(game) {
   if (xfmr && mainPanel) wire('hvCable', { id: xfmr, port: 'hv_out_1' }, { id: mainPanel, port: 'hv_in' });
   // RF sources are dedicated high-voltage loads, not branch-circuit loads.
   if (xfmr && ssa) wire('hvCable', { id: xfmr, port: 'hv_out_2' }, { id: ssa, port: 'hv_in' });
+  if (xfmr && roomPanel) wire('hvCable', { id: xfmr, port: 'hv_out_3' }, { id: roomPanel, port: 'hv_in' });
   if (mainPanel) {
     // Six support loads plus the busway use seven of the panel's eight circuits.
     const loads = [[src, 'pwr_in'], [cup, 'pwr_in'], [skid, 'pwr_in'],
@@ -202,6 +206,11 @@ export function setupSmallBeamlineFacility(game) {
       [pwrBus, 'pwr_in']];
     loads.forEach(([id, port], i) => {
       if (id) wire('powerCable', { id: mainPanel, port: `pwr_out_${i + 1}` }, { id, port });
+    });
+  }
+  if (roomPanel) {
+    [operatorConsole, monitorBank, captureRack].forEach((id, i) => {
+      if (id) wire('powerCable', { id: roomPanel, port: `pwr_out_${i + 1}` }, { id, port: 'pwr_in' });
     });
   }
 
@@ -233,6 +242,8 @@ export function setupSmallBeamlineFacility(game) {
     // remains the machine-controls source, but it is not raw-data capture.
     if (cup) wire('dataFiber', { id: captureRack, port: 'data_out' }, { id: cup, port: 'data_in' });
     if (bpm) wire('dataFiber', { id: captureRack, port: 'data_out' }, { id: bpm, port: 'data_in' });
+    if (operatorConsole) wire('dataFiber', { id: captureRack, port: 'data_out' }, { id: operatorConsole, port: 'data_in' });
+    if (monitorBank) wire('dataFiber', { id: captureRack, port: 'data_out' }, { id: monitorBank, port: 'data_in' });
   }
 
   game.state.resources.funding = funding0;

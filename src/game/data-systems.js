@@ -1,96 +1,71 @@
 import { PLACEABLES } from '../data/placeables/index.js';
+import { powerFeedFactor } from '../utility/power-feed.js';
 
 const WORKLOADS = ['cpu', 'gpu', 'balanced'];
 const zeroBuckets = () => ({ cpu: 0, gpu: 0, balanced: 0 });
 
-function declaredZones(def) {
-  if (Array.isArray(def?.zoneTypes)) return def.zoneTypes;
-  return def?.zoneType ? [def.zoneType] : [];
-}
-
-/**
- * Resolve the one declared zone containing a data-system placement.
- *
- * Old/headless states without zone occupancy are treated as unverified rather
- * than invalid so pure pipeline tests and pre-zone saves retain their data.
- * A live game has `zoneOccupied`; there every floor tile touched by the rack
- * must belong to one of its authored home zones.
- */
-export function dataSystemHomeZone(state, placed) {
-  const def = PLACEABLES[placed?.type];
-  const allowed = declaredZones(def);
-  if (allowed.length === 0) return null;
-  if (!state?.zoneOccupied || placed?.col == null || placed?.row == null) {
-    return undefined;
-  }
-
-  const tiles = new Set();
-  for (const cell of (placed.cells || [{ col: placed.col, row: placed.row }])) {
-    tiles.add(`${cell.col},${cell.row}`);
-  }
-  let resolved = null;
-  for (const key of tiles) {
-    const zone = state.zoneOccupied[key];
-    if (!allowed.includes(zone)) return null;
-    if (resolved !== null && resolved !== zone) return null;
-    resolved = zone;
-  }
-  return resolved;
-}
-
-function networkedDataIds(state) {
+function activeDataBackbone(state, candidatesById) {
   // Pure/headless fixtures that predate topology publication omit the field
   // entirely and retain legacy aggregate behavior. A live Game owns the field
   // from construction onward; null there means discovery has not yet proved a
   // gateway connection, so fail closed until the next utility solve.
   if (!state || !Object.hasOwn(state, 'utilityNetworks')) return null;
   const networks = state?.utilityNetworks?.get?.('dataFiber');
-  if (!Array.isArray(networks)) return new Set();
-  const ids = new Set();
+  if (!Array.isArray(networks)) return { activeIds: new Set(), gatewayIds: new Set() };
+  const activeIds = new Set();
+  const gatewayIds = new Set();
   for (const network of networks) {
-    for (const port of (network.ports || [])) ids.add(port.placeableId);
+    const members = new Set();
+    for (const list of [network.ports, network.sources, network.sinks]) {
+      for (const port of (list || [])) {
+        if (port?.placeableId) members.add(port.placeableId);
+      }
+    }
+    const gateways = [...members].filter(id => {
+      const candidate = candidatesById.get(id);
+      return candidate?.spec?.ingest > 0 && candidate.power > 0;
+    });
+    if (gateways.length === 0) continue;
+    for (const id of members) activeIds.add(id);
+    for (const id of gateways) gatewayIds.add(id);
   }
-  return ids;
+  return { activeIds, gatewayIds };
 }
 
 /** Sum the installed ingest, storage and processing hardware. */
 export function computeDataSystemCapacity(state) {
   const capacity = { ingest: 0, storage: 0, cpu: 0, gpu: 0 };
   const units = { allInOne: 0, daq: 0, storage: 0, cpu: 0, gpu: 0 };
-  const inactive = { wrongZone: 0, noGateway: 0 };
+  const inactive = { noGateway: 0, noPower: 0 };
   const candidates = [];
   for (const placed of (state?.placeables || [])) {
     const spec = PLACEABLES[placed.type]?.effects?.dataSystem;
     if (!spec) continue;
-    const zone = dataSystemHomeZone(state, placed);
-    if (zone === null) {
-      inactive.wrongZone++;
+    candidates.push({ placed, spec, power: powerFeedFactor(state, placed.id) });
+  }
+
+  // Data equipment can stand in any room. A live topology still makes the
+  // physical backbone meaningful: an ingest gateway must be fiber-connected,
+  // and touching storage/compute cabinets join it through dataFiber's
+  // adjacency bridge. A detached cabinet can also be wired directly.
+  const candidatesById = new Map(candidates.map(candidate => [candidate.placed.id, candidate]));
+  const backbone = activeDataBackbone(state, candidatesById);
+  const gateways = backbone === null
+    ? candidates.filter(candidate => candidate.spec.ingest > 0 && candidate.power > 0).length
+    : backbone.gatewayIds.size;
+
+  for (const { placed, spec, power } of candidates) {
+    if (!(power > 0)) {
+      inactive.noPower++;
       continue;
     }
-    candidates.push({ placed, spec, zone });
-  }
-
-  // A live topology makes fiber termination meaningful. A Control Room full
-  // of disks and processors is inert until an ingest-capable gateway in that
-  // same zone has a line on the facility data network. Racks behind the
-  // gateway share the room's internal fabric; players wire the room once,
-  // not every individual disk shelf.
-  const networked = networkedDataIds(state);
-  const activeZones = new Set();
-  let gateways = 0;
-  for (const candidate of candidates) {
-    if (!(candidate.spec.ingest > 0)) continue;
-    if (networked && !networked.has(candidate.placed.id)) continue;
-    activeZones.add(candidate.zone);
-    gateways++;
-  }
-
-  for (const { spec, zone } of candidates) {
-    if (networked && !activeZones.has(zone)) {
+    if (backbone !== null && !backbone.activeIds.has(placed.id)) {
       inactive.noGateway++;
       continue;
     }
-    for (const key of Object.keys(capacity)) capacity[key] += Math.max(0, spec[key] || 0);
+    for (const key of Object.keys(capacity)) {
+      capacity[key] += Math.max(0, spec[key] || 0) * power;
+    }
     if (spec.kind && Object.hasOwn(units, spec.kind)) units[spec.kind]++;
   }
   return { ...capacity, units, gateways, inactive };
@@ -210,7 +185,7 @@ export function tickDataSystems(state, entries, requests = []) {
   const stored = entries.reduce((sum, e) => sum + Math.max(0, e.beamState.rawDataStored || 0), 0);
   let bottleneck = 'Clear';
   if (requested > 0) {
-    if (capacity.gateways === 0) bottleneck = 'Control Room DAQ gateway';
+    if (capacity.gateways === 0) bottleneck = 'DAQ gateway';
     else if (ingestDropped > 0) bottleneck = 'DAQ ingest';
     else if (storageDropped > 0) bottleneck = 'Raw data buffer';
     else if (stored > 0 && !(state?.staffDataEfficiency > 0)) bottleneck = 'Data scientist';

@@ -128,6 +128,22 @@ function assertOk(cond, msg) {
   else { failed++; console.log('  FAIL:', msg); }
 }
 
+function publishPoweredDataGateway(game, placeableId, dataPort = 'data_out') {
+  const dataEntry = { placeableId, portName: dataPort, role: 'source' };
+  const powerEntry = { placeableId, portName: 'pwr_in', role: 'sink' };
+  const powerNet = { id: `power-${placeableId}`, ports: [powerEntry], sinks: [powerEntry] };
+  game.state.utilityNetworks = new Map([
+    ['dataFiber', [{
+      id: `data-${placeableId}`, ports: [dataEntry], sources: [dataEntry], sinks: [],
+    }]],
+    ['powerCable', [powerNet]],
+  ]);
+  game.state.utilityNetworkData = new Map([['powerCable', new Map([[
+    powerNet.id,
+    { perSinkQuality: { [`${placeableId}:pwr_in`]: 1 } },
+  ]])]]);
+}
+
 // =============================================================================
 // Section A fixtures — duplicated from test-repair-and-fabrication.js /
 // test-job-runner.js's own convention (see that file's header on why these
@@ -242,9 +258,7 @@ console.log('\n=== 3. Game data pipeline: scientist + hardware gate research dat
   const entry = { id: 'bl-test', sourceId: null, beamState: bs };
   g.registry.beamlines.set(entry.id, entry);
   g.state.placeables.push({ id: 'data-test', type: 'serverCluster' });
-  g.state.utilityNetworks = new Map([['dataFiber', [{
-    ports: [{ placeableId: 'data-test', portName: 'data_out' }],
-  }]]]);
+  publishPoweredDataGateway(g, 'data-test');
 
   g.state.staffDataEfficiency = 0;
   const dataBefore = g.state.resources.data;
@@ -819,9 +833,7 @@ console.log('\n=== 18. Photon data is gated by the same scientist check as detec
   const entry = { id: 'bl-photon', sourceId: null, beamState: bs };
   g.registry.beamlines.set(entry.id, entry);
   g.state.placeables.push({ id: 'data-photon', type: 'serverCluster' });
-  g.state.utilityNetworks = new Map([['dataFiber', [{
-    ports: [{ placeableId: 'data-photon', portName: 'data_out' }],
-  }]]]);
+  publishPoweredDataGateway(g, 'data-photon');
 
   g.state.staffDataEfficiency = 0;
   const dataBefore = g.state.resources.data;
@@ -860,9 +872,7 @@ console.log('\n=== 19. takeData total is independent of beamline count (fix roun
   const entry2 = { id: 'bl-q2', sourceId: null, beamState: bs2, status: 'running' };
   g.registry.getAll = () => [entry1, entry2]; // both registered AND running
   g.state.placeables.push({ id: 'data-shared', type: 'serverRack' });
-  g.state.utilityNetworks = new Map([['dataFiber', [{
-    ports: [{ placeableId: 'data-shared', portName: 'data_out' }],
-  }]]]);
+  publishPoweredDataGateway(g, 'data-shared');
 
   g.state.staffDataEfficiency = 1.0; // one scientist, efficiency 1.0
   const before = g.state.resources.data;

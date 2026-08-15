@@ -312,6 +312,7 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
   monitorBank: {
     id: 'monitorBank', name: 'Monitor Bank', zoneType: 'controlRoom',
     cost: { funding: 8000 }, energyCost: 0.8, spriteColor: 0x44bb66,
+    requiredConnections: ['powerCable', 'dataFiber'],
     gridW: 4, gridH: 2, subH: 3, spriteKey: 'monitorBank',
     effects: { zoneOutput: 0.06 }, baseMaterial: 'metal_painted_white',
     // Wall-mounted with the bracket flush against +Z; screens project
@@ -359,6 +360,7 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
   serverRack: {
     id: 'serverRack', name: 'All-in-One Capture Rack', zoneType: 'controlRoom',
     cost: { funding: 15000 }, energyCost: 3.0, spriteColor: 0x3a3e4a,
+    requiredConnections: ['powerCable'],
     gridW: 1, gridH: 2, subH: 5, spriteKey: 'serverRack',
     effects: {
       zoneOutput: 0.08, research: 0.03,
@@ -432,6 +434,7 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
   dataAppliance: {
     id: 'dataAppliance', name: 'Compact Capture Appliance', zoneType: 'controlRoom',
     cost: { funding: 8000 }, energyCost: 1.2, spriteColor: 0x3f6274,
+    requiredConnections: ['powerCable'],
     gridW: 1, gridH: 1, subH: 3, spriteKey: 'serverRack',
     effects: { zoneOutput: 0.04, dataSystem: { kind: 'allInOne', ingest: 4, storage: 60, cpu: 2, gpu: 1 } },
     baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'server_cluster_front' } },
@@ -439,6 +442,7 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
   dataStorageRack: {
     id: 'dataStorageRack', name: 'Raw Data Buffer', zoneType: 'controlRoom',
     cost: { funding: 45000 }, energyCost: 4.0, spriteColor: 0x426a8a,
+    requiredConnections: ['powerCable', 'dataFiber'],
     gridW: 1, gridH: 2, subH: 5, spriteKey: 'serverRack',
     effects: { zoneOutput: 0.04, dataSystem: { kind: 'storage', storage: 3000 } },
     baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'server_cluster_front' } },
@@ -446,6 +450,7 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
   cpuComputeRack: {
     id: 'cpuComputeRack', name: 'CPU Compute Rack', zoneType: 'controlRoom',
     cost: { funding: 70000 }, energyCost: 9.0, spriteColor: 0x56884b,
+    requiredConnections: ['powerCable', 'dataFiber'],
     gridW: 1, gridH: 2, subH: 5, spriteKey: 'serverRack',
     effects: { zoneOutput: 0.05, research: 0.02, dataSystem: { kind: 'cpu', cpu: 40 } },
     baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'server_cluster_front' } },
@@ -453,6 +458,7 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
   gpuComputeRack: {
     id: 'gpuComputeRack', name: 'GPU Compute Rack', zoneType: 'controlRoom',
     cost: { funding: 110000 }, energyCost: 16.0, spriteColor: 0x7650a5,
+    requiredConnections: ['powerCable', 'dataFiber'],
     gridW: 1, gridH: 2, subH: 5, spriteKey: 'serverRack',
     effects: { zoneOutput: 0.05, research: 0.03, dataSystem: { kind: 'gpu', gpu: 65 } },
     baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'server_cluster_front' } },
@@ -460,6 +466,7 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
   operatorConsole: {
     id: 'operatorConsole', name: 'Operator Console', zoneType: 'controlRoom',
     cost: { funding: 25000 }, energyCost: 0.5, spriteColor: 0x44aa66,
+    requiredConnections: ['powerCable', 'dataFiber'],
     gridW: 3, gridH: 2, subH: 3, surfaceY: 1.48, spriteKey: 'operatorConsole',
     effects: { zoneOutput: 0.07 }, baseMaterial: 'metal_painted_white',
     // Worked from the -Z side (keyboard tray sits at -Z, monitor bank rises
@@ -515,6 +522,7 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
   alarmPanel: {
     id: 'alarmPanel', name: 'Alarm Panel', zoneType: 'controlRoom',
     cost: { funding: 3000 }, energyCost: 0.1, spriteColor: 0xcc5544,
+    requiredConnections: ['powerCable', 'dataFiber'],
     gridW: 1, gridH: 1, subH: 3, spriteKey: 'alarmPanel',
     effects: { zoneOutput: 0.03 }, baseMaterial: 'metal_painted_white',
     // Wall-mount alarm/annunciator panel — white enclosure with rows of
@@ -978,14 +986,14 @@ const ROOM_FURNISHING_DESCS = {
   couch: 'For "quick naps" during 36-hour beam runs. Big morale boost. Office Space.',
   bookshelf: 'Textbooks, proceedings, and one long-overdue library book. Office Space.',
   printer: 'Prints fine until the moment you urgently need it to. Office Space.',
-  monitorBank: 'Wall of status displays — more screens, more control. Control Room.',
-  serverRack: 'The starter control-room fiber gateway: captures detector streams, buffers raw data, and provides modest mixed compute. Control Room.',
-  dataAppliance: 'A compact capture gateway with enough DAQ, memory, CPU and GPU for one low-rate endpoint. Control Room.',
-  dataStorageRack: 'Dense memory and disk dedicated to buffering raw experimental data between capture and processing. Control Room.',
-  cpuComputeRack: 'General-purpose CPU nodes for controls, dosimetry, isotope accounting and reconstruction. Control Room.',
-  gpuComputeRack: 'Accelerator GPUs for imaging, detector events and photon-science workloads. Control Room.',
-  operatorConsole: 'Where operators drive the machine and log the excuses. Control Room.',
-  alarmPanel: 'Annunciator panel. Green is good; you will learn the other colors. Control Room.',
+  monitorBank: 'Wall of status displays — more screens, more control. Works anywhere; the Control Room grants its bonus.',
+  serverRack: 'Starter fiber gateway with raw storage and mixed compute. Works anywhere; the Control Room grants its bonus.',
+  dataAppliance: 'Compact DAQ, memory, CPU and GPU for one low-rate endpoint. Works anywhere; the Control Room grants its bonus.',
+  dataStorageRack: 'Dense raw-data buffer. Works anywhere; the Control Room grants its bonus.',
+  cpuComputeRack: 'General CPU nodes for controls, accounting and reconstruction. Works anywhere; the Control Room grants its bonus.',
+  gpuComputeRack: 'Accelerator GPUs for imaging, detector events and photon science. Works anywhere; the Control Room grants its bonus.',
+  operatorConsole: 'Where operators drive the machine and log the excuses. Works anywhere; the Control Room grants its bonus.',
+  alarmPanel: 'Annunciator panel. Green is good; you will learn the other colors. Works anywhere; the Control Room grants its bonus.',
   diningTable: 'Shared meals, shared gossip, shared crumbs. Cafeteria.',
   servingCounter: 'Hot food line — taco Tuesday moves morale measurably. Cafeteria.',
   vendingMachine: 'Emergency calories for the night shift. Cafeteria.',

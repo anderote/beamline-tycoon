@@ -6,7 +6,7 @@
 // APIs so scripted layouts satisfy utility gating. test/test-scenarios.js
 // regression-checks that every scenario boots with zero hard infra blockers.
 
-import { generateRealLab } from './scenarios/realLab.js';
+import { generateRealLab, setupRealLab } from './scenarios/realLab.js';
 import { generateSmallBeamlineFacility, setupSmallBeamlineFacility } from './scenarios/smallBeamlineFacility.js';
 
 // Custom-scenario slot: the in-game Scenario Editor (dev-only) exports the
@@ -55,6 +55,7 @@ export const SCENARIOS = [
     desc: 'Inspired by SLAC/NASA SPL double-loaded hallway: test cells north, offices south, 12m central hallway spine with doors and furnished labs/control/cafeteria. Based on 78×19 ft hallway separating labs from offices.',
     difficulty: 'Realistic',
     generator: generateRealLab,
+    setup: setupRealLab,
   },
   {
     id: 'smallBeamlineFacility',
