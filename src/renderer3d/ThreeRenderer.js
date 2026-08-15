@@ -2132,8 +2132,18 @@ export class ThreeRenderer {
 
   /** Keep a clicked object's white outline independent of transient hovers. */
   setSelectionOutline(sourceObj) {
+    this.setSelectionOutlines(sourceObj ? [sourceObj] : []);
+  }
+
+  /** Keep every Shift-selected object's outline visible at the same time. */
+  setSelectionOutlines(sourceObjects) {
     this.clearSelectionOutline();
-    if (sourceObj) this._outlineObject(sourceObj, 0xffffff, this.selectionGroup, 3);
+    const seen = new Set();
+    for (const sourceObj of (sourceObjects || [])) {
+      if (!sourceObj || seen.has(sourceObj)) continue;
+      seen.add(sourceObj);
+      this._outlineObject(sourceObj, 0xffffff, this.selectionGroup, 3);
+    }
   }
 
   clearSelectionOutline() {

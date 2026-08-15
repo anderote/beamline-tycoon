@@ -29,7 +29,9 @@ export class MoveTool extends Tool {
   }
 
   // While carrying, the carried type arms the unified placeable preview.
-  get armedPlaceableId() { return this.payload?.type ?? null; }
+  get armedPlaceableId() {
+    return this.payload?.kind === 'selectionGroup' ? null : (this.payload?.type ?? null);
+  }
 
   onEnter(ctx) {
     ctx.input._showToast('Move mode (click to pick up, ESC to exit)');
@@ -46,6 +48,7 @@ export class MoveTool extends Tool {
     }
     this._restoreCarried(ctx);
     input.hoverPlaceable = null;
+    input.selectionGroupPreview = null;
     ctx.renderer._clearPreview();
     input._showToast('Move mode off');
   }
@@ -105,6 +108,15 @@ export class MoveTool extends Tool {
     const world = renderer.screenToWorld(e.clientX, e.clientY);
     const grid = isoToGrid(world.x, world.y);
     renderer.updateHover(grid.col, grid.row);
+    input.lastMouseWorldX = world.x;
+    input.lastMouseWorldY = world.y;
+    input._lastScreenX = e.clientX;
+    input._lastScreenY = e.clientY;
+    if (this.payload?.kind === 'selectionGroup') {
+      input._updateSelectionGroupPreview(this.payload);
+      input._checkHoverTooltip(world, grid, e.clientX, e.clientY);
+      return true;
+    }
     // Carried ghost: keep the unified preview in sync (stackable items use
     // the surface-aware raycast, mirroring the shared hover branch).
     let placeWorld = world;
@@ -116,8 +128,6 @@ export class MoveTool extends Tool {
     }
     input.lastMouseWorldX = placeWorld.x;
     input.lastMouseWorldY = placeWorld.y;
-    input._lastScreenX = e.clientX;
-    input._lastScreenY = e.clientY;
     input._updatePlaceablePreview();
     // Not carrying: outline what a click would pick up.
     if (!this.payload) {
@@ -148,6 +158,21 @@ export class MoveTool extends Tool {
     const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
     const grid = isoToGrid(world.x, world.y);
     if (this.payload) {
+      if (this.payload.kind === 'selectionGroup') {
+        const placed = input._placeSelectionGroup(this.payload);
+        if (placed && this.payload.operation === 'move') {
+          this.payload = null;
+          input.selectionGroupPreview = null;
+          ctx.renderer._clearPreview();
+          ctx.renderer.canvas.style.cursor = 'grab';
+        } else if (placed) {
+          // Copy stays armed so several identical groups can be stamped. The
+          // just-used destination now previews as blocked until the cursor
+          // moves elsewhere.
+          input._updateSelectionGroupPreview(this.payload);
+        }
+        return true;
+      }
       // Carrying — try to drop. Stay in move mode on success so the user
       // can keep clicking to move more things.
       if (input._placeMovedObject(this.payload, grid.col, grid.row)) {
@@ -186,6 +211,7 @@ export class MoveTool extends Tool {
     if (reason === 'stateReplaced') this.payload = null;
     else this._restoreCarried(ctx);
     ctx.input.hoverPlaceable = null;
+    ctx.input.selectionGroupPreview = null;
     ctx.input.isLinePlacingDecoration = false;
     ctx.renderer._clearPreview?.();
     ctx.renderer.canvas.style.cursor = 'grab';

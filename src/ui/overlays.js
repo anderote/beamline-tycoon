@@ -4692,7 +4692,13 @@ UIHost.prototype._openEquipmentWindow = function(equip) {
     this._equipmentWindows[equip.id].ctx.focus();
     return;
   }
-  const ew = new EquipmentWindow(this.game, equip);
+  const input = this.renderer?._inputHandler;
+  const ew = new EquipmentWindow(this.game, equip, {
+    onPlace: id => input?._beginSelectionPlacement('move', id),
+    onCopy: id => input?._beginSelectedCopy(id),
+    onDemolish: id => input?._demolishSelected(id),
+    getSelectionCount: id => input?._selectionIdsForAnchor(id).length || 1,
+  });
   if (!ew.ctx) return;
   this._equipmentWindows[equip.id] = ew;
 

@@ -25,6 +25,10 @@ import { MoveTool, ProbeTool } from './mode-tools.js';
 import { BeamlineTool } from './beamline-tool.js';
 import { UtilityLineTool } from './utility-line-tool.js';
 import {
+  captureSelectionGroup,
+  previewSelectionGroup,
+} from './selection-group.js';
+import {
   projectOntoPipe, pipeSubL, pipeSubUnitAt, pipeSubUnitPath, METRES_PER_SUB,
 } from '../beamline/pipe-geometry.js';
 import { pipeRefund } from '../beamline/BeamlineSystem.js';
@@ -79,6 +83,10 @@ export class InputHandler {
     this.selectedParamOverrides = null; // param flyout overrides (BeamlineTool)
     this.selectedNodeId = null;
     this.selectedPlaceableId = null;
+    // Ordered by selection time. selectedPlaceableId remains the primary /
+    // most-recent id for legacy single-selection call sites.
+    this.selectedPlaceableIds = new Set();
+    this._selectedRootsById = new Map();
     this.isPanning = false;
     this.isFreeOrbiting = false;
     this.freeOrbitLast = { x: 0, y: 0 };
@@ -91,6 +99,7 @@ export class InputHandler {
     // from the active tool (see the `armedPlaceableId` getter).
     this.selectedPlaceableVariant = 0; // decoration color variant etc.
     this.hoverPlaceable = null; // { id, col, row, subCol, subRow, dir } | null
+    this.selectionGroupPreview = null;
     // Shift+drag line placement (trees and other decorations)
     this.isLinePlacingDecoration = false;
     this.linePlaceStartWorld = null; // { x, y } iso-screen world coords
@@ -696,15 +705,40 @@ export class InputHandler {
   _clearSelection() {
     this.selectedNodeId = null;
     this.selectedPlaceableId = null;
+    this.selectedPlaceableIds.clear();
+    this._selectedRootsById.clear();
     this.renderer.clearSelectionOutline?.();
   }
 
+  _renderSelectionOutlines() {
+    const roots = [...this._selectedRootsById.values()].filter(Boolean);
+    if (this.renderer.setSelectionOutlines) this.renderer.setSelectionOutlines(roots);
+    else this.renderer.setSelectionOutline?.(roots[roots.length - 1] || null);
+  }
+
   /** Select a world object, persist its outline, and open its info menu. */
-  _selectPlaceable(entry, rootObj = null) {
+  _selectPlaceable(entry, rootObj = null, { additive = false } = {}) {
     if (!entry) return false;
+    if (!additive) {
+      this.selectedPlaceableIds.clear();
+      this._selectedRootsById.clear();
+    } else if (this.selectedPlaceableIds.has(entry.id)) {
+      this.selectedPlaceableIds.delete(entry.id);
+      this._selectedRootsById.delete(entry.id);
+      const remaining = [...this.selectedPlaceableIds];
+      this.selectedPlaceableId = remaining[remaining.length - 1] || null;
+      const primary = this.selectedPlaceableId && this.game.getPlaceable(this.selectedPlaceableId);
+      this.selectedNodeId = primary?.category === 'beamline' ? primary.id : null;
+      this._renderSelectionOutlines();
+      this.renderer._refreshContextWindows?.();
+      return true;
+    }
+
+    this.selectedPlaceableIds.add(entry.id);
+    if (rootObj) this._selectedRootsById.set(entry.id, rootObj);
     this.selectedPlaceableId = entry.id;
     this.selectedNodeId = entry.category === 'beamline' ? entry.id : null;
-    this.renderer.setSelectionOutline?.(rootObj);
+    this._renderSelectionOutlines();
 
     if (entry.category === 'beamline') {
       const blId = entry.beamlineId;
@@ -716,16 +750,21 @@ export class InputHandler {
     } else {
       this.renderer._openEquipmentWindow?.(entry);
     }
+    this.renderer._refreshContextWindows?.();
     return true;
   }
 
   /** Resolve the visible placeable under a normal canvas click. */
-  _selectPlaceableAt(world, grid, screenX, screenY) {
+  _selectPlaceableAt(world, grid, screenX, screenY, { additive = false } = {}) {
     const target = this._findDeletablePlaceable(world, grid, screenX, screenY,
       new Set(['beamline', 'infrastructure', 'equipment', 'furnishing', 'decoration']));
     const entry = target?.node || target?.entry || null;
     if (!entry) return false;
-    return this._selectPlaceable(entry, target.rootObj || this._selectionRootAt(screenX, screenY));
+    return this._selectPlaceable(
+      entry,
+      target.rootObj || this._selectionRootAt(screenX, screenY),
+      { additive },
+    );
   }
 
   _getActiveBeamlineNodes() {
@@ -1773,7 +1812,7 @@ export class InputHandler {
 
       if (e.button === 0) {
         // Left click
-        this._handleClick(e.clientX, e.clientY);
+        this._handleClick(e.clientX, e.clientY, { shiftKey: e.shiftKey });
       } else if (e.button === 2) {
         // Right click — the active tool decides whether it deselects
         // (ZonePaintTool / FloorTool / DemolishTool / BeamlineTool do;
@@ -1851,7 +1890,7 @@ export class InputHandler {
 
   // --- Click handling ---
 
-  _handleClick(screenX, screenY) {
+  _handleClick(screenX, screenY, { shiftKey = false } = {}) {
     if (this._suppressNextClick) {
       this._suppressNextClick = false;
       return;
@@ -1895,7 +1934,10 @@ export class InputHandler {
     // Click-to-select: all placeable objects get a persistent white outline
     // and their info menu. Tools still own their placement clicks above;
     // escape/disarm returns the canvas to this direct selection behavior.
-    if (this._selectPlaceableAt(world, grid, screenX, screenY)) return;
+    if (this._selectPlaceableAt(
+      world, grid, screenX, screenY,
+      { additive: shiftKey },
+    )) return;
 
     {
       // Phase 6: rack-segment click-to-inspect removed. Utility inspection
@@ -1921,7 +1963,9 @@ export class InputHandler {
         this.game.emit('editModeChanged', null);
       }
       this.selectedNodeId = null;
-      this._clearSelection();
+      // Shift-clicking empty ground should not throw away a selection the
+      // player is still building.
+      if (!shiftKey) this._clearSelection();
       this.renderer.hidePopup();
       this.renderer.clearNetworkOverlay();
     }
@@ -1948,6 +1992,8 @@ export class InputHandler {
     this.renderer.hidePopup();
     this.selectedNodeId = null;
     this.selectedPlaceableId = null;
+    this.selectedPlaceableIds?.clear?.();
+    this._selectedRootsById?.clear?.();
     this.renderer.clearSelectionOutline?.();
     this._hideTooltip();
     // Variant is per-armed-tool state: whatever the previous tool chose must
@@ -2711,8 +2757,50 @@ export class InputHandler {
     }
   }
 
-  _beginSelectedMove() {
-    const entry = this.selectedPlaceableId && this.game.getPlaceable(this.selectedPlaceableId);
+  _selectionIdsForAnchor(anchorId = this.selectedPlaceableId) {
+    if (anchorId && this.selectedPlaceableIds?.has?.(anchorId)) {
+      return [...this.selectedPlaceableIds];
+    }
+    return anchorId ? [anchorId] : [];
+  }
+
+  /** Arm a translated group for a move (Place) or a paid copy. */
+  _beginSelectionPlacement(operation, anchorId = this.selectedPlaceableId) {
+    const ids = this._selectionIdsForAnchor(anchorId);
+    const captured = captureSelectionGroup(this.game, ids, {
+      operation,
+      primaryId: anchorId,
+    });
+    if (!captured.ok) {
+      this._showToast(captured.reason);
+      return false;
+    }
+
+    const tool = new MoveTool();
+    this.setTool(tool);
+    tool.payload = captured.payload;
+    this.placementDir = captured.payload.anchor.dir;
+    this.renderer.updatePlacementDir?.(this.placementDir);
+    this.renderer.canvas.style.cursor = 'grabbing';
+    this._updateSelectionGroupPreview(tool.payload);
+    this._updateShiftHint();
+    const count = tool.payload.items.length;
+    this._showToast(`${operation === 'copy' ? 'Copying' : 'Placing'} ${count} item${count === 1 ? '' : 's'}`);
+    return true;
+  }
+
+  _beginSelectedCopy(anchorId = this.selectedPlaceableId) {
+    return this._beginSelectionPlacement('copy', anchorId);
+  }
+
+  _beginSelectedMove(anchorId = this.selectedPlaceableId) {
+    // Keep this callable by the lightweight input facades used by the tool
+    // regression tests as well as by a fully constructed InputHandler.
+    const ids = typeof this._selectionIdsForAnchor === 'function'
+      ? this._selectionIdsForAnchor(anchorId)
+      : InputHandler.prototype._selectionIdsForAnchor.call(this, anchorId);
+    if (ids.length > 1) return this._beginSelectionPlacement('move', anchorId);
+    const entry = anchorId && this.game.getPlaceable(anchorId);
     if (!entry) return false;
     // A context window is useful while inspecting, but obscures the destination
     // while carrying. Close exactly the selected item's window before setTool
@@ -2730,6 +2818,213 @@ export class InputHandler {
     this.renderer.canvas.style.cursor = 'grabbing';
     this._showToast(`Moving ${PLACEABLES[entry.type]?.name || COMPONENTS[entry.type]?.name || entry.type}`);
     return true;
+  }
+
+  _updateSelectionGroupPreview(payload) {
+    if (!payload?.items?.length) {
+      this.selectionGroupPreview = null;
+      return;
+    }
+    const primary = payload.items.find(item => item.id === payload.primaryId) || payload.items[0];
+    const def = PLACEABLES[primary.type];
+    if (!def) {
+      this.selectionGroupPreview = null;
+      return;
+    }
+    const snap = snapForPlaceable(
+      this.lastMouseWorldX ?? 0,
+      this.lastMouseWorldY ?? 0,
+      def,
+      primary.dir,
+    );
+    const preview = previewSelectionGroup(this.game, payload, {
+      ...snap,
+      dir: primary.dir,
+    });
+    this.selectionGroupPreview = preview;
+    const renderReason = typeof preview.reason === 'string' && preview.reason.startsWith('utility:')
+      ? 'blocked'
+      : preview.reason;
+    this.renderer.renderPlaceableGhosts(preview.targets.map(target => ({
+      hover: {
+        id: target.type,
+        col: target.col,
+        row: target.row,
+        subCol: target.subCol,
+        subRow: target.subRow,
+        dir: target.dir,
+        variant: target.variant,
+      },
+      valid: preview.ok,
+      reason: renderReason,
+    })));
+  }
+
+  _selectionPlacementFailure(reason) {
+    if (reason === 'unaffordable') return 'Cannot afford this copy';
+    if (typeof reason === 'string' && reason.startsWith('utility:')) {
+      return 'Utility connections would overlap here';
+    }
+    if (reason === 'wall') return 'Selection intersects a wall';
+    return 'Selection does not fit here';
+  }
+
+  /** Commit the currently previewed group, preserving internal utility links. */
+  _placeSelectionGroup(payload) {
+    // Revalidate at click time: the simulation and other tools may have
+    // changed occupancy or funding since the last mousemove.
+    this._updateSelectionGroupPreview(payload);
+    const preview = this.selectionGroupPreview;
+    if (!preview?.ok) {
+      this._showToast(this._selectionPlacementFailure(preview?.reason));
+      return false;
+    }
+    return payload.operation === 'copy'
+      ? this._copySelectionGroup(payload, preview)
+      : this._moveSelectionGroup(payload, preview);
+  }
+
+  _copySelectionGroup(payload, preview) {
+    const game = this.game;
+    const newIds = [];
+    const placeholderToId = new Map();
+    const lineCost = Object.keys(preview.lineCost || {}).length ? preview.lineCost : undefined;
+    const result = game.commitGesture({
+      cost: lineCost,
+      mutate: () => {
+        // commitGesture has already charged the copied cable/pipe length at
+        // this point. Snapshot here so a failed object/line commit restores
+        // object spending, then lets commitGesture refund that line charge
+        // exactly once in its own failure path.
+        const rollback = game.snapshotBeamlineState();
+        return game._batchEvents(() => {
+          for (const target of preview.targets) {
+            const id = game.placePlaceable({
+              type: target.type,
+              col: target.col,
+              row: target.row,
+              subCol: target.subCol,
+              subRow: target.subRow,
+              dir: target.dir,
+              params: target.params,
+              variant: target.variant,
+              silent: true,
+            });
+            if (!id) {
+              game.restoreBeamlineState(rollback);
+              return false;
+            }
+            newIds.push(id);
+            placeholderToId.set(target.placeholderId, id);
+          }
+          for (const connection of preview.connections) {
+            const remap = endpoint => endpoint && ({
+              ...endpoint,
+              placeableId: placeholderToId.get(endpoint.placeableId),
+            });
+            const lineId = game.utilityLineSystem.addLine({
+              utilityType: connection.utilityType,
+              start: remap(connection.start),
+              end: remap(connection.end),
+              path: connection.path,
+            });
+            if (!lineId) {
+              game.restoreBeamlineState(rollback);
+              return false;
+            }
+          }
+          return newIds;
+        });
+      },
+      failed: value => !value,
+    });
+    if (!result) return false;
+    this._showToast(`Copied ${newIds.length} item${newIds.length === 1 ? '' : 's'}`);
+    return true;
+  }
+
+  _moveSelectionGroup(payload, preview) {
+    const game = this.game;
+    const rollback = game.snapshotBeamlineState();
+    let dangled = 0;
+    const result = game._withUndo(() => game._batchEvents(() => {
+      const selected = new Set(payload.items.map(item => item.id));
+
+      // Release every original footprint first. This lets a formation slide
+      // through its own old cells without the first item colliding with a
+      // selected neighbour that has not been updated yet.
+      for (const item of payload.items) {
+        const entry = game.getPlaceable(item.id);
+        if (!entry) {
+          game.restoreBeamlineState(rollback);
+          return false;
+        }
+        for (const cell of (entry.cells || [])) {
+          const key = `${cell.col},${cell.row},${cell.subCol},${cell.subRow}`;
+          if (selected.has(game.state.subgridOccupied[key]?.id)) {
+            delete game.state.subgridOccupied[key];
+          }
+        }
+      }
+
+      for (const target of preview.targets) {
+        const moved = game.movePlaceable(target.id, {
+          col: target.col,
+          row: target.row,
+          subCol: target.subCol,
+          subRow: target.subRow,
+          dir: target.dir,
+        });
+        if (!moved) {
+          game.restoreBeamlineState(rollback);
+          return false;
+        }
+      }
+
+      // Lines wholly within the selection translate rigidly. External lines
+      // retain their endpoint IDs and use the existing best-effort reanchor.
+      for (const connection of preview.connections) {
+        const line = game.state.utilityLines.get(connection.sourceId);
+        if (!line) {
+          game.restoreBeamlineState(rollback);
+          return false;
+        }
+        line.path = connection.path.map(point => ({ ...point }));
+        line.subL = connection.subL;
+      }
+      for (const item of payload.items) {
+        dangled += game.reanchorUtilityLinesForPlaceable(item.id, {
+          skipLineIds: preview.internalLineIds,
+        });
+      }
+
+      game._syncLegacyPlaceableState();
+      game.computeSystemStats();
+      game.emit('placeableChanged');
+      game.emit('utilityLinesChanged', {});
+      if (payload.items.some(item => item.kind === 'equipment')) game.emit('facilityChanged');
+      if (payload.items.some(item => item.kind === 'furnishing')) game.emit('zonesChanged');
+      return true;
+    }));
+    if (!result) return false;
+    this._showToast(dangled
+      ? `Placed — ${dangled} external utility ${dangled === 1 ? 'line needs' : 'lines need'} rewiring`
+      : `Placed ${payload.items.length} items`);
+    return true;
+  }
+
+  _demolishSelected(anchorId = this.selectedPlaceableId) {
+    const ids = this._selectionIdsForAnchor(anchorId)
+      .filter(id => this.game.getPlaceable(id));
+    if (!ids.length) return [];
+    this.game._withUndo(() => this.game._batchEvents(() => {
+      for (const id of ids) {
+        const entry = this.game.getPlaceable(id);
+        if (entry) this.game.demolishTarget({ kind: entry.kind || entry.category, id });
+      }
+    }));
+    this._clearSelection();
+    return ids;
   }
 
   // Refreshes the unified placeable preview for a just-picked-up carried
@@ -2924,6 +3219,9 @@ export class InputHandler {
     let html = '';
     if (tool?.kind === 'demolish' && tool.demolishType === 'demolishBuilding') {
       html = `<span class="k">SHIFT</span>+click: delete whole run`;
+    } else if (tool?.kind === 'move' && tool.payload?.kind === 'selectionGroup') {
+      html = (tool.payload.operation === 'copy' ? 'Click: paste selection' : 'Click: place selection')
+        + sep + `<span class="k">ESC</span> Cancel`;
     } else if (tool?.kind === 'wall') {
       html = `<span class="k">SHIFT</span>+click: fill floor boundary`;
     } else if (this.armedPlaceableId) {
