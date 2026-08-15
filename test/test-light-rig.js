@@ -358,6 +358,31 @@ test('production fixture registry drives real spots without a legacy scene tag',
     'the spot follows the rendered group rotation instead of assuming dir=0');
 });
 
+test('stationary fixture ranking and settled pool suppression stay cached', () => {
+  const scene = new SceneStub();
+  const group = new Group();
+  group.position.set(4, 0, 3);
+  scene.add(group);
+  const rig = new LightRig(scene, { shadowSpotCount: 1, pointCount: 1 });
+  rig.setFixtureRegistry([{ id: 'cached-flood', def: DEF.floodLight, group }]);
+  const camera = { position: new V3(0, 0, 0) };
+
+  rig.update(camera, 1, 1);
+  const ranked = rig._fixtureRankCache;
+  const suppressionRevision = rig.getFixtureSuppressionRevision();
+  rig.update(camera, 1, 0.016);
+
+  assert.equal(rig._fixtureRankCache, ranked,
+    'an unchanged camera/focus reuses the ranked fixture array');
+  assert.equal(rig.getFixtureSuppressionRevision(), suppressionRevision,
+    'a settled suppression map does not publish a false change every frame');
+
+  camera.position.x = 2;
+  rig.update(camera, 1, 0.016);
+  assert.notEqual(rig._fixtureRankCache, ranked,
+    'moving the focus invalidates the ranking cache immediately');
+});
+
 test('a large many-light pool selects 64 real fixtures and shadows its nearest 24', () => {
   const scene = new SceneStub();
   const fixtures = [];

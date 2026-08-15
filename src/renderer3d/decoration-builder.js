@@ -1769,6 +1769,7 @@ let _decThumbScene = null;
 let _decThumbCamera = null;
 
 function _getDecThumbRenderer(size) {
+  if (!THREE.WebGLRenderer) return null;
   if (!_decThumbRenderer) {
     _decThumbRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
     _decThumbScene = new THREE.Scene();
@@ -1817,7 +1818,9 @@ export function renderDecorationThumbnail(typeId, size = 96, variant = 0) {
   const model = buildDecorationGroup(typeId, raw.category, sw * SUB, sl * SUB, sh * SUB, variant);
   if (!model) return null;
 
-  const { renderer, scene, camera } = _getDecThumbRenderer(size);
+  const thumb = _getDecThumbRenderer(size);
+  if (!thumb) return null;
+  const { renderer, scene, camera } = thumb;
   scene.add(model);
 
   const box = new THREE.Box3().setFromObject(model);

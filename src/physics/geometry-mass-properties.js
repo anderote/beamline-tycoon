@@ -1,4 +1,4 @@
-import { Box3, Matrix4, Vector3 } from 'three';
+import { Box3, Matrix4, Vector3 } from 'three/webgpu';
 
 const EPSILON_VOLUME = 1e-7;
 const EDGE_WELD_SCALE = 1e5;

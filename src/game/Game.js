@@ -55,6 +55,7 @@ import { generateStartingMap, generateAnnulus, DEFAULT_MAP_HALF_EXTENT } from '.
 import { nextLandParcel } from '../data/land.js';
 import { serializeCornerHeights, deserializeCornerHeights, setTileCorners } from './terrain.js';
 import { SaveSlots } from './SaveSlots.js';
+import { scheduleBrowserIdle } from './idle-work.js';
 import { computeEndpointService } from './endpoint-economy.js';
 import { tickDataSystems } from './data-systems.js';
 
@@ -4953,13 +4954,16 @@ export class Game {
     // mutation happened to see.
     this._syncPhysicsToNodeQualities();
 
-    // Auto-save every 30 ticks. The synchronous serialize+localStorage write
-    // is the most expensive thing in a tick, so keep it rare. Skipped while
+    // Auto-save every 30 ticks. Serialization and localStorage are synchronous,
+    // so browsers queue them for idle time instead of extending this tick.
+    // Headless consumers retain the historical synchronous contract. Skipped while
     // paused: pause() clears the interval so tick() normally never runs
     // paused, but direct drivers (headless env, demo remote-drive, tests) can
     // still call tick() with paused set — don't let those force autosaves.
     // Manual saves (game.save() from UI / save slots) are unaffected.
-    if (this.state.tick % 30 === 0 && !this.state.paused) this.save();
+    if (this.state.tick % 30 === 0 && !this.state.paused) {
+      scheduleBrowserIdle(() => this.save());
+    }
 
     this.emit('tick');
   }

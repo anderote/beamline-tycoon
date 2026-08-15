@@ -24,9 +24,9 @@
 // The world renderer and every object it consumes must come from the same
 // module graph. Mixing objects from `three` with a renderer from
 // `three/webgpu` creates duplicate constructor/node caches and can dispose a
-// shadow texture that another graph still has queued. WebGLRenderer is added
-// only for the three small legacy thumbnail/view-cube canvases.
+// shadow texture that another graph still has queued. The classic renderer
+// used only by live palette thumbnails is deferred until the player first
+// interacts with the build palette (see ThreeRenderer.init()).
 import * as THREE_WEBGPU from 'three/webgpu';
-import { WebGLRenderer } from 'three';
 
-globalThis.THREE ??= Object.freeze({ ...THREE_WEBGPU, WebGLRenderer });
+globalThis.THREE ??= Object.freeze({ ...THREE_WEBGPU });

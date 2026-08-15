@@ -1,23 +1,9 @@
 // src/renderer3d/glow-pipeline.js
 //
-// Selective bloom post-processing. Standard three.js "darken non-bloomed"
-// recipe: a bloom-only composer renders the scene with every material not
-// tagged BLOOM_LAYER swapped to a shared black material, extracts/blurs the
-// bright survivors, and a final composer renders the scene normally and
-// additively composites the bloom buffer on top. Until something is put on
-// BLOOM_LAYER (Task 3), the bloom-only pass sees an all-black scene, so its
-// contribution is zero and this is a no-op over the direct render path.
-//
-// THREE core classes come off the global (see src/three-global.js) like the
-// rest of renderer3d — but the postprocessing addons are never placed on
-// that global, so they need real ESM imports. Verified working import path
-// for three@0.160.0 (its exports map aliases "./addons/*" to
-// "./examples/jsm/*"): 'three/addons/postprocessing/...'.
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+// Selective bloom post-processing for Three's node renderer. The world always
+// uses WebGPURenderer now (native WebGPU or its forceWebGL WebGL2 backend), so
+// the old WebGLRenderer/EffectComposer rollback path was unreachable while
+// still pulling the entire classic Three graph into the startup bundle.
 import { RenderPipeline } from 'three/webgpu';
 import { mix, mrt, normalView, output, pass, uniform, vec3, vec4 } from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
@@ -71,210 +57,6 @@ const SOFT_RADIUS = 0.82;
 const SOFT_THRESHOLD = 0.55;
 const SOFT_SMOOTH_WIDTH = 0.45;
 
-const MIX_VERTEX_SHADER = `
-  varying vec2 vUv;
-  void main() {
-    vUv = uv;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-  }
-`;
-
-// Additive composite of the normal render and the bloom-only render.
-const MIX_FRAGMENT_SHADER = `
-  uniform sampler2D baseTexture;
-  uniform sampler2D bloomTexture;
-  uniform sampler2D softGlowTexture;
-  uniform float softGlowEnabled;
-  varying vec2 vUv;
-  void main() {
-    gl_FragColor = texture2D( baseTexture, vUv )
-      + texture2D( bloomTexture, vUv )
-      + softGlowEnabled * texture2D( softGlowTexture, vUv );
-  }
-`;
-
-class LegacyGlowPipeline {
-  constructor(renderer, scene, camera, opts = {}) {
-    this.renderer = renderer;
-    this.scene = scene;
-    this.camera = camera;
-
-    this._enabled = opts.enabled !== undefined ? !!opts.enabled : true;
-
-    this._bloomLayerMask = new THREE.Layers();
-    this._bloomLayerMask.set(BLOOM_LAYER);
-    this._softGlowLayerMask = new THREE.Layers();
-    this._softGlowLayerMask.set(SOFT_GLOW_LAYER);
-    this._quality = opts.quality || { glowScale: 0.5, softGlow: true };
-
-    // Shared instance — every darkened object points at the same material,
-    // never allocated per-object or per-frame.
-    this._darkMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
-    // Cleared, not reallocated, every frame (see render()).
-    this._materialCache = new Map();
-
-    const size = renderer.getSize(new THREE.Vector2());
-
-    // Bloom-only composer: renders the darkened scene, extracts bright
-    // pixels above `threshold`, blurs them. Never drawn to screen directly.
-    this._bloomComposer = new EffectComposer(renderer);
-    this._bloomComposer.renderToScreen = false;
-    this._bloomComposer.addPass(new RenderPass(scene, camera));
-    this._bloomPass = new UnrealBloomPass(
-      new THREE.Vector2(size.x, size.y),
-      opts.strength ?? DEFAULT_STRENGTH,
-      opts.radius ?? DEFAULT_RADIUS,
-      opts.threshold ?? DEFAULT_THRESHOLD,
-    );
-    // See DEFAULT_SMOOTH_WIDTH above — not a constructor argument, so it's
-    // set directly on the pass's own uniforms after construction.
-    this._bloomPass.highPassUniforms['smoothWidth'].value = opts.smoothWidth ?? DEFAULT_SMOOTH_WIDTH;
-    this._bloomComposer.addPass(this._bloomPass);
-
-    // Broad low-frequency haze is separate from the tight indicator bloom.
-    // The composer exists at every preset; low quality simply skips it.
-    this._softGlowComposer = new EffectComposer(renderer);
-    this._softGlowComposer.renderToScreen = false;
-    this._softGlowComposer.addPass(new RenderPass(scene, camera));
-    this._softGlowPass = new UnrealBloomPass(
-      new THREE.Vector2(size.x, size.y),
-      opts.softStrength ?? SOFT_STRENGTH,
-      opts.softRadius ?? SOFT_RADIUS,
-      opts.softThreshold ?? SOFT_THRESHOLD,
-    );
-    this._softGlowPass.highPassUniforms.smoothWidth.value = opts.softSmoothWidth ?? SOFT_SMOOTH_WIDTH;
-    this._softGlowComposer.addPass(this._softGlowPass);
-
-    // Final composer: renders the real scene, then additively blends the
-    // bloom-only buffer on top and draws to the canvas.
-    this._mixPass = new ShaderPass(
-      new THREE.ShaderMaterial({
-        uniforms: {
-          baseTexture: { value: null },
-          bloomTexture: { value: this._bloomComposer.readBuffer.texture },
-          softGlowTexture: { value: this._softGlowComposer.readBuffer.texture },
-          softGlowEnabled: { value: this._quality.softGlow ? 1 : 0 },
-        },
-        vertexShader: MIX_VERTEX_SHADER,
-        fragmentShader: MIX_FRAGMENT_SHADER,
-      }),
-      'baseTexture',
-    );
-    this._mixPass.needsSwap = true;
-
-    this._finalComposer = new EffectComposer(renderer);
-    this._finalComposer.addPass(new RenderPass(scene, camera));
-    this._finalComposer.addPass(this._mixPass);
-    // RenderPass writes into a non-null WebGLRenderTarget, which resolves to
-    // LinearSRGBColorSpace (WebGLRenderer.js:1746) regardless of the
-    // renderer's outputColorSpace — no sRGB OETF gets applied anywhere in
-    // this chain unless something does it explicitly. A direct
-    // renderer.render(scene, camera) call (render target null) applies that
-    // conversion itself; this composer path does not, so without this pass
-    // the composite blits raw linear values to the canvas and everything
-    // renders washed out, independent of bloom. OutputPass applies the
-    // renderer's outputColorSpace/toneMapping conversion and must be the
-    // last pass so it — not the mix pass — is what renders to the canvas.
-    this._finalComposer.addPass(new OutputPass());
-    this.setSize(size.x, size.y);
-  }
-
-  get enabled() {
-    return this._enabled;
-  }
-
-  setEnabled(v) {
-    this._enabled = !!v;
-  }
-
-  setQuality(quality = {}) {
-    this._quality = { ...this._quality, ...quality };
-    this._mixPass.uniforms.softGlowEnabled.value = this._quality.softGlow ? 1 : 0;
-    const size = this.renderer.getSize(new THREE.Vector2());
-    this.setSize(size.x, size.y);
-  }
-
-  setSize(w, h) {
-    this._width = Math.max(1, Math.floor(w));
-    this._height = Math.max(1, Math.floor(h));
-    const scale = Math.max(0.2, Math.min(1, this._quality.glowScale ?? 0.5));
-    this._bloomComposer.setSize(
-      Math.max(1, Math.floor(this._width * scale)),
-      Math.max(1, Math.floor(this._height * scale)),
-    );
-    this._softGlowComposer.setSize(
-      Math.max(1, Math.floor(this._width * scale * 0.5)),
-      Math.max(1, Math.floor(this._height * scale * 0.5)),
-    );
-    this._finalComposer.setSize(w, h);
-  }
-
-  // Swap every non-bloom object's material for the shared black material,
-  // caching the original so it can be restored after the bloom-only render.
-  // Deliberately keyed on `.material` rather than `.isMesh` — the scene also
-  // carries THREE.Line / THREE.LineSegments / THREE.Sprite objects (utility
-  // line previews, grid overlays, HUD sprites) that are not meshes but do
-  // have a material that could otherwise render at full brightness into the
-  // bloom target and leak a false glow.
-  _darkenNonBloomed(obj, mask) {
-    if (obj.material && mask.test(obj.layers) === false) {
-      this._materialCache.set(obj, obj.material);
-      obj.material = this._darkMaterial;
-    }
-  }
-
-  _restoreMaterial(obj) {
-    const cached = this._materialCache.get(obj);
-    if (cached) obj.material = cached;
-  }
-
-  _renderSelective(composer, mask) {
-    this._materialCache.clear();
-    try {
-      this.scene.traverse((obj) => this._darkenNonBloomed(obj, mask));
-      composer.render();
-    } finally {
-      this.scene.traverse((obj) => this._restoreMaterial(obj));
-      this._materialCache.clear();
-    }
-  }
-
-  render() {
-    if (!this._enabled) {
-      this.renderer.render(this.scene, this.camera);
-      return;
-    }
-
-    // Shadow maps only need to be current for the normal render below; skip
-    // recomputing them for the throwaway darkened pass.
-    const prevShadowAutoUpdate = this.renderer.shadowMap.autoUpdate;
-    try {
-      this.renderer.shadowMap.autoUpdate = false;
-      this._renderSelective(this._bloomComposer, this._bloomLayerMask);
-      if (this._quality.softGlow) {
-        this._renderSelective(this._softGlowComposer, this._softGlowLayerMask);
-      }
-    } finally {
-      this.renderer.shadowMap.autoUpdate = prevShadowAutoUpdate;
-    }
-
-    // Buffer identity flips each frame inside EffectComposer (RenderPass
-    // swaps, UnrealBloomPass doesn't) — read readBuffer fresh rather than
-    // caching a fixed renderTarget1/2 reference.
-    this._mixPass.uniforms.bloomTexture.value = this._bloomComposer.readBuffer.texture;
-    this._mixPass.uniforms.softGlowTexture.value = this._softGlowComposer.readBuffer.texture;
-    this._finalComposer.render();
-  }
-
-  dispose() {
-    this._bloomComposer.dispose();
-    this._softGlowComposer.dispose();
-    this._finalComposer.dispose();
-    this._darkMaterial.dispose();
-    this._materialCache.clear();
-  }
-}
-
 /**
  * TSL-native bloom for WebGPU and its WebGL2 fallback backend. It operates on
  * the HDR scene output, so emissive surfaces and genuinely hot highlights
@@ -312,35 +94,31 @@ class ModernGlowPipeline {
       this._groundedSceneColor = this._sceneColor;
     }
 
-    // Modern bloom is selective too. A layer-filtered camera renders only
-    // explicitly tagged emitters; bright sunlit concrete can no longer haze
-    // the whole frame merely because it crosses a luminance threshold.
+    // Modern bloom is selective too. One layer-filtered camera renders both
+    // authored glow roles into a shared HDR source. Tight and broad bloom use
+    // different thresholds/radii over that source, avoiding the old pair of
+    // nearly-identical extra scene renders while keeping sunlit concrete out.
     this._selectiveBloomEnabled = renderer.backend?.isWebGPUBackend === true;
     if (this._selectiveBloomEnabled) {
-      this._bloomCamera = camera.clone();
-      this._bloomCamera.layers.set(BLOOM_LAYER);
-      this._softGlowCamera = camera.clone();
-      this._softGlowCamera.layers.set(SOFT_GLOW_LAYER);
-      this._bloomScenePass = pass(scene, this._bloomCamera);
-      this._softGlowScenePass = pass(scene, this._softGlowCamera);
-      this._bloomSource = this._bloomScenePass.getTextureNode('output');
-      this._softGlowSource = this._softGlowScenePass.getTextureNode('output');
+      this._glowCamera = camera.clone();
+      this._glowCamera.layers.set(BLOOM_LAYER);
+      this._glowCamera.layers.enable(SOFT_GLOW_LAYER);
+      this._glowScenePass = pass(scene, this._glowCamera);
+      this._glowSource = this._glowScenePass.getTextureNode('output');
     } else {
-      // Compatibility WebGL keeps the original single scene pass. Rendering
-      // two additional layer-filtered copies can starve software GL and low
-      // end GPUs; the luminance threshold remains its conservative mask.
-      this._bloomSource = this._sceneColor;
-      this._softGlowSource = this._sceneColor;
+      // Compatibility WebGL keeps the original scene pass; another filtered
+      // copy can starve software GL and low-end GPUs.
+      this._glowSource = this._sceneColor;
     }
     this._bloomPass = bloom(
-      this._bloomSource,
+      this._glowSource,
       opts.strength ?? DEFAULT_STRENGTH,
       opts.radius ?? DEFAULT_RADIUS,
       opts.threshold ?? DEFAULT_THRESHOLD,
     );
     this._bloomPass.smoothWidth.value = opts.smoothWidth ?? DEFAULT_SMOOTH_WIDTH;
     this._softGlowPass = bloom(
-      this._softGlowSource,
+      this._glowSource,
       this._quality.softGlow ? (opts.softStrength ?? SOFT_STRENGTH) : 0,
       opts.softRadius ?? SOFT_RADIUS,
       opts.softThreshold ?? SOFT_THRESHOLD,
@@ -349,7 +127,6 @@ class ModernGlowPipeline {
     this._softStrength = opts.softStrength ?? SOFT_STRENGTH;
 
     this._pipeline = new RenderPipeline(renderer);
-    this._pipeline.outputNode = this._groundedSceneColor.add(this._bloomPass).add(this._softGlowPass);
     this.setQuality(this._quality);
   }
 
@@ -360,6 +137,12 @@ class ModernGlowPipeline {
   setQuality(quality = {}) {
     this._quality = { ...this._quality, ...quality };
     this._softGlowPass.strength.value = this._quality.softGlow ? this._softStrength : 0;
+    // Omitting the node from output is important: setting strength to zero
+    // alone still schedules its full mip-chain blur. Low quality now pays for
+    // neither the broad bloom nor its work.
+    this._pipeline.outputNode = this._quality.softGlow
+      ? this._groundedSceneColor.add(this._bloomPass).add(this._softGlowPass)
+      : this._groundedSceneColor.add(this._bloomPass);
     // Three r184's BloomNode owns fixed half-resolution mip chains and exposes
     // no resolution-scale control. Assigning a private `_resolutionScale`
     // property here looked like a quality setting but BloomNode never read it.
@@ -379,10 +162,9 @@ class ModernGlowPipeline {
   render() {
     if (this._enabled) {
       if (this._selectiveBloomEnabled) {
-        this._bloomCamera.copy(this.camera);
-        this._bloomCamera.layers.set(BLOOM_LAYER);
-        this._softGlowCamera.copy(this.camera);
-        this._softGlowCamera.layers.set(SOFT_GLOW_LAYER);
+        this._glowCamera.copy(this.camera);
+        this._glowCamera.layers.set(BLOOM_LAYER);
+        this._glowCamera.layers.enable(SOFT_GLOW_LAYER);
       }
       this._pipeline.render();
     }
@@ -397,11 +179,8 @@ class ModernGlowPipeline {
   }
 }
 
-/** Stable facade used by ThreeRenderer while both backends remain supported. */
 export class GlowPipeline {
   constructor(renderer, scene, camera, opts = {}) {
-    return renderer.isWebGPURenderer
-      ? new ModernGlowPipeline(renderer, scene, camera, opts)
-      : new LegacyGlowPipeline(renderer, scene, camera, opts);
+    return new ModernGlowPipeline(renderer, scene, camera, opts);
   }
 }

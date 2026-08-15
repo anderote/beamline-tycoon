@@ -141,6 +141,7 @@ export class InputHandler {
     this._suppressNextClick = false;
     // Continuous panning
     this.keysDown = new Set();
+    this._panFrameId = null;
     // Palette keyboard navigation
     this.paletteIndex = -1;  // -1 = no keyboard focus
     // Hover tooltip state
@@ -171,7 +172,6 @@ export class InputHandler {
     this._toolCtx = { game, renderer, input: this };
     this._bindKeyboard();
     this._bindMouse();
-    this._startPanLoop();
     // Escape is owned by the global esc-stack (ui/esc-stack.js). The game
     // input layer registers the *fallback* (bottom-of-stack) handler — the
     // tool-disarm / selection-sweep ladder — so any open dialog, overlay,
@@ -1792,6 +1792,7 @@ export class InputHandler {
       const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       if (k === 'w' || k === 'a' || k === 's' || k === 'd') {
         this.keysDown.add(k);
+        this._startPanLoop?.();
         e.preventDefault();
         return;
       }
@@ -2040,6 +2041,10 @@ export class InputHandler {
     const clearHeldKeys = () => {
       this.keysDown.clear();
       this._shiftDown = false;
+      if (this._panFrameId !== null) {
+        cancelAnimationFrame(this._panFrameId);
+        this._panFrameId = null;
+      }
     };
     window.addEventListener('blur', clearHeldKeys);
     document.addEventListener('visibilitychange', () => {
@@ -2051,8 +2056,13 @@ export class InputHandler {
   }
 
   _startPanLoop() {
+    if (this._panFrameId !== null) return;
     const PAN_SPEED_BASE = 0.5; // world-pan units per frame at zoom=1
     const loop = () => {
+      this._panFrameId = null;
+      const panning = this.keysDown.has('w') || this.keysDown.has('a')
+        || this.keysDown.has('s') || this.keysDown.has('d');
+      if (!panning) return;
       // Scale inversely with zoom so screen-space pan speed stays consistent
       // (at high zoom, world-space motion is slower).
       const shiftMul = this._shiftDown ? 2.5 : 1;
@@ -2065,9 +2075,9 @@ export class InputHandler {
       if (dxRight !== 0 || dyUp !== 0) {
         this.renderer.panScreenAligned(dxRight, dyUp);
       }
-      requestAnimationFrame(loop);
+      this._panFrameId = requestAnimationFrame(loop);
     };
-    requestAnimationFrame(loop);
+    this._panFrameId = requestAnimationFrame(loop);
   }
 
   // --- Mouse bindings ---

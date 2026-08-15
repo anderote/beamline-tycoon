@@ -180,6 +180,8 @@ export class StaffPawns {
 
     /** @type {Map<string, object>} staffId → pawn record */
     this._pawns = new Map();
+    /** Live roster index, rebuilt only on staffChanged/full sync. */
+    this._membersById = new Map();
   }
 
   // --- Lifecycle -----------------------------------------------------------
@@ -187,9 +189,11 @@ export class StaffPawns {
   /** Create/remove pawns to match game.state.staffMembers. */
   sync() {
     const members = this.game?.state?.staffMembers || [];
+    this._membersById.clear();
 
     const seen = new Set();
     for (const m of members) {
+      this._membersById.set(m.id, m);
       seen.add(m.id);
       if (!this._pawns.has(m.id)) this._addPawn(m);
     }
@@ -294,6 +298,9 @@ export class StaffPawns {
       // have changed. See _syncJob.
       jobAttemptDest: null,
       jobAttemptRevision: -1,
+      visualAccumulator: 0,
+      reportedX: NaN,
+      reportedZ: NaN,
     };
     figure.group.rotation.y = pawn.heading;
     this._placeFigure(pawn);
@@ -797,11 +804,8 @@ export class StaffPawns {
     if (this.game?.state?.paused) return;
     if (!(dt > 0) || dt > 0.5) dt = 0.016; // clamp tab-switch spikes
 
-    const members = this.game?.state?.staffMembers || [];
-    const byId = new Map(members.map(m => [m.id, m]));
-
     for (const pawn of this._pawns.values()) {
-      const member = byId.get(pawn.id);
+      const member = this._membersById.get(pawn.id);
       let moved = 0;
 
       // An incident temporarily hands this figure to StaffRagdolls. Its
@@ -829,9 +833,21 @@ export class StaffPawns {
         this._advanceWorking(pawn);
       }
 
-      pawn.pose = this._poseFor(pawn);
-      this._animate(pawn, dt, moved);
-      this._placeFigure(pawn);
+      const nextPose = this._poseFor(pawn);
+      const poseChanged = nextPose !== pawn.pose;
+      pawn.pose = nextPose;
+      pawn.visualAccumulator += dt;
+      // Walking remains frame-smooth. Stationary rigs only need 20 Hz while
+      // easing into a pose; this avoids rewriting every limb matrix at 60 Hz
+      // for an idle roster while keeping job/arrival logic frame-current.
+      const visualDue = moved > 0 || poseChanged || Math.abs(pawn.swing) > 0.002
+        || pawn.visualAccumulator >= 0.05;
+      if (visualDue) {
+        const visualDt = pawn.visualAccumulator;
+        pawn.visualAccumulator = 0;
+        this._animate(pawn, visualDt, moved);
+        this._placeFigure(pawn);
+      }
 
       // Report the pawn's own position back onto its member — one of the
       // two other writes this file makes besides job.phase (see the
@@ -840,11 +856,14 @@ export class StaffPawns {
       // distance, and nothing else in the sim ever sets it — before this,
       // it was simply never populated, which is why every fromNode-gated
       // runner path (eat/rest job assignment, the travel-budget path-length
-      // estimate, the nearest-station tie-break) sat dormant. Written every
-      // frame, unconditionally, for every live pawn — cheap (a couple of
-      // divides) and unconditionally correct, unlike job.phase which only
-      // ever moves forward on a specific event.
-      if (member) member.fromNode = worldToSubtile(pawn.x, pawn.z);
+      // estimate, the nearest-station tie-break) sat dormant. Position changes
+      // are the only time the derived subtile can change, so stationary pawns
+      // keep their existing value without repeating the conversion each frame.
+      if (member && (pawn.x !== pawn.reportedX || pawn.z !== pawn.reportedZ)) {
+        member.fromNode = worldToSubtile(pawn.x, pawn.z);
+        pawn.reportedX = pawn.x;
+        pawn.reportedZ = pawn.z;
+      }
     }
   }
 
