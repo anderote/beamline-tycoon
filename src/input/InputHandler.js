@@ -1779,7 +1779,8 @@ export class InputHandler {
               // Auto-switch to beam pipe tool after placing a source.
               const comp = COMPONENTS[this.hoverPlaceable.id];
               if (placedId && comp?.isSource) {
-                this.selectComponentTool('drift');
+                const guided = this.game._guidedSetup?.onSourcePlaced?.(placedId);
+                if (!guided) this.selectComponentTool('drift');
               }
             } else {
               this.game.toggleBeam();
@@ -2972,7 +2973,8 @@ export class InputHandler {
       });
       // Auto-switch to beam pipe tool after placing a source.
       if (placedId && comp?.isSource) {
-        this.selectComponentTool('drift');
+        const guided = this.game._guidedSetup?.onSourcePlaced?.(placedId);
+        if (!guided) this.selectComponentTool('drift');
       }
     });
     // Re-preview at the same cursor position: the tile the ghost sits on is

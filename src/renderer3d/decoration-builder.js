@@ -1674,9 +1674,10 @@ export class DecorationBuilder {
       batch.userData.batchedPlants = true;
       batch.userData.batchNodeIds = [];
       for (const entry of entries) {
-        const batchId = batch.addGeometry(entry.geometry);
-        batch.setMatrixAt(batchId, entry.matrix);
-        batch.userData.batchNodeIds[batchId] = entry.nodeId;
+        const geometryId = batch.addGeometry(entry.geometry);
+        const instanceId = batch.addInstance(geometryId);
+        batch.setMatrixAt(instanceId, entry.matrix);
+        batch.userData.batchNodeIds[instanceId] = entry.nodeId;
       }
       batch.computeBoundingBox();
       batch.computeBoundingSphere();

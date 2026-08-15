@@ -13,7 +13,16 @@ class BeamBeamModule(PhysicsModule):
         super().__init__(name="beam_beam", order=90)
 
     def applies_to(self, element, machine_type):
-        if machine_type != "collider":
+        # Gated on the "beam_beam" capability rather than the literal string
+        # "collider", so adding a colliding machine type is a data change in
+        # machines.py instead of an edit buried in this file.
+        #
+        # Imported inside the function on purpose: machines.py instantiates
+        # this class, so a module-scope import closes a cycle whose outcome
+        # depends on which module the process imported first.
+        from beam_physics.machines import machine_has_capability
+
+        if not machine_has_capability(machine_type, "beam_beam"):
             return False
         return element.get("type", "") == "detector"
 

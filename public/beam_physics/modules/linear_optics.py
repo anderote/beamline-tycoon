@@ -157,6 +157,19 @@ def _propagate_dispersion(context, R, d):
     context.dispersion = new_eta
 
 
+# Reference momentum the game's focusStrength stat is computed at
+# (component-physics.js computeQuadrupole hardcodes p = 1.0 GeV). Magnets are
+# rescaled from here to the beam's real momentum.
+P_REF_GEV = 1.0
+
+
+def _momentum_gev(beam):
+    """p = sqrt(E_total^2 - m^2), GeV/c. Zero for a beam at rest."""
+    e2 = beam.energy * beam.energy
+    m2 = beam.mass * beam.mass
+    return np.sqrt(e2 - m2) if e2 > m2 else 0.0
+
+
 class LinearOpticsModule(PhysicsModule):
     """Transfer matrix propagation and dispersion tracking."""
 
@@ -193,6 +206,32 @@ class LinearOpticsModule(PhysicsModule):
                      "dispersion_xp": float(context.dispersion[1])},
         )
 
+    def _rigidity_scale(self, beam):
+        """Ratio by which a magnet's focusing strength changes at this momentum.
+
+        A magnet has a fixed GRADIENT; its focusing strength is
+        k = 0.2998 * g / p, so k falls as the beam stiffens. The game's
+        `focusStrength` stat is computed in component-physics.js as
+        0.2998 * gradient / p with p HARDCODED to 1 GeV ("representative beam
+        momentum"), so every quadrupole behaved as though the beam were 1 GeV
+        no matter its actual energy — a quad was equally strong on a 50 keV
+        injector and a 10 GeV linac.
+
+        Rescaling by P_REF / p here recovers the real 1/p dependence while
+        leaving the stat, and therefore the whole existing balance, exactly as
+        it was at the 1 GeV reference point.
+
+        The consequence is a real physics lesson rather than a nuisance: at
+        50 keV the rigidity is ~4300x lower, so even a minimum-gradient quad is
+        wildly over-focused. Low-energy transport wants solenoids, and quads
+        become the right tool once the beam has stiffened. That is how real
+        front ends are built.
+        """
+        p = _momentum_gev(beam)
+        if p <= 0:
+            return 1.0
+        return P_REF_GEV / p
+
     def _transfer_matrix(self, element, beam):
         etype = element.get("type", "drift")
         length = element.get("length", 0.0)
@@ -206,7 +245,7 @@ class LinearOpticsModule(PhysicsModule):
         if etype == "quadrupole":
             k = element.get("focusStrength", 1.0)
             polarity = element.get("polarity", 1)
-            return quadrupole_matrix(k * polarity, length)
+            return quadrupole_matrix(k * polarity * self._rigidity_scale(beam), length)
 
         if etype == "dipole":
             return dipole_matrix(element.get("bendAngle", 15.0), length)
@@ -220,8 +259,11 @@ class LinearOpticsModule(PhysicsModule):
 
         if etype == "solenoid":
             B = element.get("fieldStrength", 1.0)
-            p = beam.energy
-            return solenoid_matrix(B, p, length)
+            # MOMENTUM, not energy. This read `p = beam.energy` with the note
+            # "approximate momentum ~ energy for relativistic" — true at 1 GeV,
+            # wrong by 2.4x at 50 keV, which is exactly the regime solenoids
+            # exist for.
+            return solenoid_matrix(B, _momentum_gev(beam), length)
 
         if etype == "chicane":
             R = drift_matrix(length)

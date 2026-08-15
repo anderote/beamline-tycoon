@@ -31,6 +31,8 @@ export const BeamPhysics = (() => {
     'beam_physics/modules/aperture_loss.py',
     'beam_physics/modules/fel_gain.py',
     'beam_physics/modules/beam_beam.py',
+    'beam_physics/modules/beam_gas.py',
+    'beam_physics/srf.py',
     'beam_physics/machines.py',
     'beam_physics/lattice.py',
     'beam_physics/elements.py',

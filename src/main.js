@@ -14,6 +14,7 @@ import { ThreeRenderer } from './renderer3d/ThreeRenderer.js';
 import { YAW_STEP } from './renderer3d/free-orbit-math.js';
 import { InputHandler } from './input/InputHandler.js';
 import { BeamlineDesigner } from './ui/BeamlineDesigner.js';
+import { GuidedBeamlineSetup } from './ui/GuidedBeamlineSetup.js';
 import { DesignLibrary } from './ui/DesignLibrary.js';
 import { DesignPlacer } from './ui/DesignPlacer.js';
 import { ProbeWindow } from './ui/probe.js';
@@ -187,6 +188,8 @@ function showScenarioPicker(game) {
   renderer._inputHandler = input;
   const designer = new BeamlineDesigner(game, renderer);
   game._designer = designer;
+  const guidedSetup = new GuidedBeamlineSetup(game, renderer, input);
+  game._guidedSetup = guidedSetup;
   const designLibrary = new DesignLibrary(game, designer, renderer);
   const designPlacer = new DesignPlacer(game, renderer);
   game._designPlacer = designPlacer;
@@ -266,6 +269,10 @@ function showScenarioPicker(game) {
     // designerState's runtime home stays on game.state (BeamlineDesigner and
     // InputHandler read it directly); only its persistence moved to aux.
     load: (data) => { game.state.designerState = data || null; },
+  });
+  game.registerSerializer('guidedSetup', {
+    save: () => guidedSetup.toJSON(),
+    load: (data) => guidedSetup.fromJSON(data),
   });
 
   game.on((event) => {
@@ -722,6 +729,10 @@ function showScenarioPicker(game) {
       game.log('Beam physics engine loaded.', 'good');
       game.recalcAllBeamlines();
       game.emit('beamlineChanged');
+      if (designer.isOpen) {
+        designer._recalcDraft();
+        designer._renderAll();
+      }
     }).catch(err => {
       game.log('Physics engine failed to load — using simplified model.', 'bad');
       console.error('BeamPhysics init error:', err);

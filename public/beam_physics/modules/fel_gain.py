@@ -4,7 +4,6 @@ from beam_physics.context import EffectReport
 from beam_physics.constants import ELECTRON_MASS, ALFVEN_CURRENT
 
 UNDULATOR_TYPES = {"undulator", "helicalUndulator", "wiggler", "apple2Undulator"}
-MACHINE_TYPES_WITH_FEL = {"fel", "collider"}
 
 
 class FELGainModule(PhysicsModule):
@@ -14,7 +13,18 @@ class FELGainModule(PhysicsModule):
         super().__init__(name="fel_gain", order=80)
 
     def applies_to(self, element, machine_type):
-        if machine_type not in MACHINE_TYPES_WITH_FEL:
+        # Gated on the "fel" capability, not on a set of machine-type names.
+        # The name set here used to be {"fel", "collider"} — inherited from the
+        # tier chain in machines.py, and wrong: a collider does not lase. The
+        # capability lives beside the module list that runs this module, so the
+        # two cannot disagree.
+        #
+        # Imported inside the function on purpose: machines.py instantiates
+        # this class, so a module-scope import closes a cycle whose outcome
+        # depends on which module the process imported first.
+        from beam_physics.machines import machine_has_capability
+
+        if not machine_has_capability(machine_type, "fel"):
             return False
         return element.get("type", "") in UNDULATOR_TYPES
 
