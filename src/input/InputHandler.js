@@ -62,6 +62,7 @@ import {
   furnishingHoverInfo,
   utilityNetworkHoverInfo,
 } from '../ui/hover-info.js';
+import { renderHoverTooltipDetail } from '../ui/hover-tooltip-detail.js';
 
 // === BEAMLINE TYCOON: INPUT HANDLER ===
 
@@ -199,7 +200,7 @@ export class InputHandler {
     title.textContent = info.title;
     const detail = document.createElement('div');
     detail.className = 'hover-tooltip-detail';
-    detail.textContent = info.detail;
+    renderHoverTooltipDetail(detail, info);
     el.append(title, detail);
     document.body.appendChild(el);
     this._tooltipEl = el;
@@ -227,7 +228,7 @@ export class InputHandler {
     const title = this._tooltipEl.querySelector?.('.hover-tooltip-title');
     const detail = this._tooltipEl.querySelector?.('.hover-tooltip-detail');
     if (title && title.textContent !== info.title) title.textContent = info.title;
-    if (detail && detail.textContent !== info.detail) detail.textContent = info.detail;
+    renderHoverTooltipDetail(detail, info);
     this._positionTooltip(screenX, screenY);
   }
 

@@ -6,6 +6,10 @@ import {
 } from '../src/ui/hover-info.js';
 import { COMPONENTS } from '../src/data/components.js';
 import { UTILITY_TYPES } from '../src/utility/registry.js';
+import {
+  HOVER_DETAIL_TONE_CLASSES,
+  renderHoverTooltipDetail,
+} from '../src/ui/hover-tooltip-detail.js';
 
 let passed = 0;
 let failed = 0;
@@ -57,8 +61,55 @@ const network = utilityNetworkHoverInfo(UTILITY_TYPES.powerCable, {
   totalCapacity: 100,
 });
 assert(network.title === 'Power Cable Network', 'network hover names the utility');
-assert(network.detail === 'Utilization: 75% · 75 / 100 kW',
-  `network hover shows utilization and load (${network.detail})`);
+assert(network.detail === 'Supply: 100 kW · Demand: 75 kW',
+  `network hover labels numeric supply and demand (${network.detail})`);
+assert(network.detailSegments[0].tone === 'supply'
+    && network.detailSegments[2].tone === 'healthy',
+  'network hover is green when supply exceeds demand');
+
+const exactlyCoveredNetwork = utilityNetworkHoverInfo(UTILITY_TYPES.powerCable, {
+  totalDemand: 100,
+  totalCapacity: 100,
+});
+assert(exactlyCoveredNetwork.detailSegments[2].tone === 'healthy',
+  'network hover remains green when supply exactly meets demand');
+
+const warningNetwork = utilityNetworkHoverInfo(UTILITY_TYPES.powerCable, {
+  totalDemand: 100,
+  totalCapacity: 75,
+});
+assert(warningNetwork.detailSegments[2].tone === 'warning',
+  'moderately underpowered demand is orange');
+
+const criticalNetwork = utilityNetworkHoverInfo(UTILITY_TYPES.powerCable, {
+  totalDemand: 100,
+  totalCapacity: 40,
+});
+assert(criticalNetwork.detailSegments[2].tone === 'critical',
+  'severely underpowered demand is red');
+
+function fakeDocument() {
+  const textNode = text => ({ textContent: String(text) });
+  return {
+    createTextNode: textNode,
+    createElement: () => ({ className: '', textContent: '' }),
+  };
+}
+
+const detailElement = {
+  ownerDocument: fakeDocument(),
+  children: [],
+  replaceChildren(...children) {
+    this.children = children;
+    this.textContent = children.map(child => child.textContent).join('');
+  },
+};
+renderHoverTooltipDetail(detailElement, warningNetwork);
+assert(detailElement.textContent === warningNetwork.detail,
+  'colored network detail preserves the plain tooltip text');
+assert(detailElement.children[0].className === HOVER_DETAIL_TONE_CLASSES.supply
+    && detailElement.children[2].className === HOVER_DETAIL_TONE_CLASSES.warning,
+  'network detail renderer applies supply and underpower color classes');
 
 const furnishing = furnishingHoverInfo({
   name: 'Operator Desk',
@@ -69,7 +120,7 @@ assert(furnishing.detail === 'Morale +10% · Research +2',
 
 for (const info of [
   cavity, panel, actionablePanel, packageChiller, makeUpTank, facilityWater,
-  bulkWater, network, furnishing,
+  bulkWater, network, exactlyCoveredNetwork, warningNetwork, criticalNetwork, furnishing,
 ]) {
   assert(info && !info.title.includes('\n') && !info.detail.includes('\n'),
     `${info?.title || 'hover'} is limited to two logical lines`);
