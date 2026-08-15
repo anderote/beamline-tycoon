@@ -149,6 +149,8 @@ console.log('\n--- 4. RF and cryo enforce shape, not physical clearance ---');
     'RF and cryo publish the same rectilinear routing profile');
   assert(rf.portClearance === false && cryo.portClearance === false,
     'RF and cryo may turn immediately beside a fitting');
+  assert(rf.bendStyle === 'mitered' && rf.miterLengthMeters > rf.pipeRadiusMeters,
+    'RF publishes a compact mitered-elbow presentation contract');
   assert(!rf.avoidRigidIntersections && !cryo.avoidRigidIntersections,
     'RF and cryo do not reserve rigid service aisles');
   const tight = [
