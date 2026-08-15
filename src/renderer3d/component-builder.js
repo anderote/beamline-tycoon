@@ -23,6 +23,7 @@ import {
   _buildBAGaugeRoles,
   _buildGateValveRoles,
   _buildRoughingPumpRoles,
+  _buildRoughingPumpCartRoles,
   _buildTurboPumpRoles,
   _buildVacuumCartRoles,
   _buildHighCapacityVacuumStationRoles,
@@ -1681,6 +1682,7 @@ ROLE_BUILDERS.coldCathodeGauge = _buildColdCathodeGaugeRoles;
 ROLE_BUILDERS.baGauge = _buildBAGaugeRoles;
 ROLE_BUILDERS.gateValve = _buildGateValveRoles;
 ROLE_BUILDERS.roughingPump = _buildRoughingPumpRoles;
+ROLE_BUILDERS.roughingPumpCart = _buildRoughingPumpCartRoles;
 ROLE_BUILDERS.turboPump = _buildTurboPumpRoles;
 ROLE_BUILDERS.vacuumCart = _buildVacuumCartRoles;
 ROLE_BUILDERS.highCapacityVacuumStation = _buildHighCapacityVacuumStationRoles;

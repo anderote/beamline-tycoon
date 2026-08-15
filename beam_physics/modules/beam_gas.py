@@ -2,21 +2,43 @@ import numpy as np
 from beam_physics.modules.base import PhysicsModule
 from beam_physics.context import EffectReport
 
+# Gas density follows the ideal-gas relation n = P/(k_B T). Pressure arrives
+# in mbar from the utility solver; the explicit density is what the collision
+# model consumes.
+K_BOLTZMANN = 1.380649e-23
+GAS_TEMPERATURE_K = 300.0
+MBAR_TO_PA = 100.0
+DENSITY_PER_MBAR = MBAR_TO_PA / (K_BOLTZMANN * GAS_TEMPERATURE_K)
+
+
+def number_density_from_pressure(pressure_mbar, temperature_k=GAS_TEMPERATURE_K):
+    if pressure_mbar is None or pressure_mbar <= 0 or temperature_k <= 0:
+        return 0.0
+    return pressure_mbar * MBAR_TO_PA / (K_BOLTZMANN * temperature_k)
+
+
 # Calibration. C_SCATTER is fixed so that, for a 50 MeV electron beam
 # (beta*gamma ~ 98) with 1e-8 m rad geometric emittance through a 10 m beta
 # function:
 #   - 1e-9 mbar over 100 m grows emittance by ~0.03% (free)
 #   - 1e-5 mbar over 100 m grows it ~2.5x (severe)
 # 1e-5 mbar is genuinely bad vacuum for an accelerator — the utility solver
-# already maps 1e-4 to quality zero — so a beam that barely survives it is the
+# already makes this a poor vacuum — so a beam that barely survives it is the
 # correct outcome, not an overtuned penalty.
 # Units: rad^2 (beta*gamma)^2 / (mbar m).
 C_SCATTER = 0.05
 
-# Beam-gas loss length. At P_REF the 1/e length is LAMBDA_REF; it scales as
-# 1/P, so a decade better vacuum buys a decade more lifetime.
+# The same transport coefficient expressed per molecule rather than per mbar.
+# Keeping this conversion exact preserves the established multiple-scattering
+# calibration while making temperature and density explicit.
+SCATTER_TRANSPORT_M2 = C_SCATTER / DENSITY_PER_MBAR
+
+# Effective total beam-gas loss cross section. 1e-22 m² is an accelerator-scale
+# order-of-magnitude for relativistic electrons on an air-like residual gas;
+# survival is now exp(-n σ L), rather than an independently tuned pressure law.
+LOSS_CROSS_SECTION_M2 = 1.0e-22
 P_REF = 1e-5
-LAMBDA_REF = 100.0
+LAMBDA_REF = 1.0 / (number_density_from_pressure(P_REF) * LOSS_CROSS_SECTION_M2)
 
 # Below this the gas load is irrelevant at any length we can build.
 P_NEGLIGIBLE = 1e-12
@@ -38,10 +60,10 @@ class BeamGasModule(PhysicsModule):
 
         <theta^2> ~ (13.6 MeV / (beta c p))^2 * L / X_0
 
-    and the radiation length of a gas is inversely proportional to its density,
-    hence to pressure. Collecting constants:
+    and the radiation length of a gas is inversely proportional to its number
+    density. Collecting constants into a transport coefficient:
 
-        d<theta^2> = C_SCATTER * P * L / (beta gamma)^2
+        d<theta^2> = K_TRANSPORT * n * L / (beta gamma)^2
 
     added to the divergence terms of the covariance matrix, exactly as
     synchrotron_rad adds quantum excitation. Emittance growth then emerges from
@@ -53,7 +75,7 @@ class BeamGasModule(PhysicsModule):
 
     Separately, large-angle and nuclear scattering remove particles outright:
 
-        I *= exp(-L / lambda),   lambda = LAMBDA_REF * (P_REF / P)
+        I *= exp(-n * sigma_loss * L)
     """
 
     def __init__(self):
@@ -62,13 +84,18 @@ class BeamGasModule(PhysicsModule):
     def applies_to(self, element, machine_type):
         # Absent pressure means the utility solver produced no value for this
         # node — not a perfect vacuum. Skip rather than assume either extreme.
-        pressure = element.get("pressure")
-        if pressure is None or pressure <= P_NEGLIGIBLE:
+        density = element.get("gas_density")
+        if density is None:
+            density = number_density_from_pressure(element.get("pressure"))
+        if density <= number_density_from_pressure(P_NEGLIGIBLE):
             return False
         return element.get("length", 0.0) > 0
 
     def apply(self, beam, element, context):
         pressure = element.get("pressure", 0.0)
+        density = element.get("gas_density")
+        if density is None:
+            density = number_density_from_pressure(pressure)
         length = element.get("length", 0.0)
 
         bg = beam.beta * beam.gamma
@@ -77,7 +104,7 @@ class BeamGasModule(PhysicsModule):
                                 {"skipped": "no_momentum"})
 
         # --- Multiple Coulomb scattering: divergence growth ---
-        d_theta2 = C_SCATTER * pressure * length / (bg * bg)
+        d_theta2 = SCATTER_TRANSPORT_M2 * density * length / (bg * bg)
 
         eps_x_before = beam.emittance_x()
         eps_y_before = beam.emittance_y()
@@ -87,7 +114,7 @@ class BeamGasModule(PhysicsModule):
         beam.sigma = 0.5 * (beam.sigma + beam.sigma.T)
 
         # --- Beam-gas loss ---
-        lam = LAMBDA_REF * (P_REF / pressure)
+        lam = 1.0 / (density * LOSS_CROSS_SECTION_M2) if density > 0 else float("inf")
         survival = float(np.exp(-length / lam)) if lam > 0 else 0.0
         beam.current *= survival
 
@@ -95,6 +122,7 @@ class BeamGasModule(PhysicsModule):
 
         return EffectReport(self.name, context.element_index, {
             "pressure": pressure,
+            "gas_density": density,
             "d_theta2": d_theta2,
             "survival": survival,
             "loss_fraction": 1.0 - survival,

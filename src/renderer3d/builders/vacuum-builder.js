@@ -272,6 +272,83 @@ export function _buildRoughingPumpRoles() {
 }
 
 /**
+ * Four-Pump Roughing Cart — four compact dry pumps on a common wheeled deck.
+ * The paired rows make the four real stages legible from the normal camera;
+ * a common side header explains why the cart exposes one vacuum connection.
+ */
+export function _buildRoughingPumpCartRoles() {
+  const b = makeBuckets();
+
+  // Deck, four casters, and a push handle.
+  {
+    const g = new THREE.BoxGeometry(1.36, 0.09, 1.82);
+    applyTiledBoxUVs(g, 1.36, 0.09, 1.82);
+    pushT(b.stand, g, trans(0, 0.20, 0));
+  }
+  for (const x of [-0.55, 0.55]) {
+    for (const z of [-0.72, 0.72]) {
+      const g = new THREE.CylinderGeometry(0.11, 0.11, 0.07, 10);
+      applyTiledCylinderUVs(g, 0.11, 0.07, 10);
+      pushT(b.detail, g, new THREE.Matrix4().multiplyMatrices(
+        trans(x, 0.13, z), rotZ(Math.PI / 2),
+      ));
+    }
+  }
+  for (const x of [-0.55, 0.55]) {
+    const g = new THREE.BoxGeometry(0.05, 0.82, 0.05);
+    applyTiledBoxUVs(g, 0.05, 0.82, 0.05);
+    pushT(b.stand, g, trans(x, 0.64, -0.84));
+  }
+  {
+    const g = new THREE.CylinderGeometry(0.03, 0.03, 1.12, 8);
+    applyTiledCylinderUVs(g, 0.03, 1.12, 8);
+    pushT(b.stand, g, new THREE.Matrix4().multiplyMatrices(
+      trans(0, 1.05, -0.84), rotZ(Math.PI / 2),
+    ));
+  }
+
+  // Four dry-pump modules in a 2×2 bank.
+  for (const x of [-0.35, 0.35]) {
+    for (const z of [-0.38, 0.38]) {
+      const motor = new THREE.CylinderGeometry(0.13, 0.13, 0.34, 12);
+      applyTiledCylinderUVs(motor, 0.13, 0.34, 12);
+      pushT(b.iron, motor, new THREE.Matrix4().multiplyMatrices(
+        trans(x, 0.43, z - 0.13), rotX(Math.PI / 2),
+      ));
+      const housing = new THREE.BoxGeometry(0.42, 0.34, 0.34);
+      applyTiledBoxUVs(housing, 0.42, 0.34, 0.34);
+      pushT(b.accent, housing, trans(x, 0.43, z + 0.18));
+    }
+  }
+
+  // Common header along the right side, with four short branch risers and a
+  // flange exactly at the authored `vac_out` mount.
+  {
+    const g = new THREE.CylinderGeometry(0.065, 0.065, 1.30, 12);
+    applyTiledCylinderUVs(g, 0.065, 1.30, 12);
+    pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+      trans(0.53, 0.72, 0), rotX(Math.PI / 2),
+    ));
+  }
+  for (const z of [-0.38, 0.38]) {
+    for (const x of [-0.35, 0.35]) {
+      const g = new THREE.CylinderGeometry(0.035, 0.035, 0.28, 8);
+      applyTiledCylinderUVs(g, 0.035, 0.28, 8);
+      pushT(b.pipe, g, trans(x, 0.59, z));
+    }
+  }
+  {
+    const g = new THREE.CylinderGeometry(0.11, 0.11, 0.08, 12);
+    applyTiledCylinderUVs(g, 0.11, 0.08, 12);
+    pushT(b.detail, g, new THREE.Matrix4().multiplyMatrices(
+      trans(0.73, 0.72, 0.36), rotZ(Math.PI / 2),
+    ));
+  }
+
+  return b;
+}
+
+/**
  * Turbo Pump — 1×1 floor module.
  * Tall cylindrical body: motor section at bottom, turbo blades above,
  * intake flange on top, side exhaust for the backing pump line.

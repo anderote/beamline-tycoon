@@ -372,6 +372,7 @@ export function computeSystemStats(state) {
     pressureQuality,
     detail: {
       roughingPumps: counts.roughingPump || 0,
+      roughingPumpCarts: counts.roughingPumpCart || 0,
       turboPumps: counts.turboPump || 0,
       ionPumps: counts.ionPump || 0,
       negPumps: counts.negPump || 0,

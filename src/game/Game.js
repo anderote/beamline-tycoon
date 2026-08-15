@@ -3959,7 +3959,21 @@ export class Game {
       let s = id;
       for (const field of Object.keys(entry).sort()) {
         const v = entry[field];
-        s += `|${field}:${typeof v === 'number' ? Math.round(v * 100) : v}`;
+        let bucket = v;
+        if (typeof v === 'number') {
+          // Vacuum pump-down spans fifteen decades. Linear hundredths made a
+          // full Python optics pass run every tick while pressure was still
+          // hundreds of mbar. Log bins follow what gauges and players can
+          // actually distinguish and still refresh four times per decade.
+          if (field === 'vacuumPressure') {
+            bucket = v > 0 ? Math.round(Math.log10(v) * 4) : -Infinity;
+          } else if (field === 'vacuumQuality') {
+            bucket = Math.round(v * 20);
+          } else {
+            bucket = Math.round(v * 100);
+          }
+        }
+        s += `|${field}:${bucket}`;
       }
       out.push(s);
     }

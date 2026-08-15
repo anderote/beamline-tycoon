@@ -443,6 +443,10 @@ def beamline_config_from_game(game_beamline):
         pressure = infra_q.get("vacuumPressure")
         if pressure is not None:
             el["pressure"] = pressure
+            # Ideal-gas number density at the room-temperature beam pipe.
+            # beam_gas consumes molecules/m³ directly; pressure remains on the
+            # element for diagnostics and backwards-compatible reports.
+            el["gas_density"] = pressure * 100.0 / (1.380649e-23 * 300.0)
 
         elements.append(el)
 

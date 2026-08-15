@@ -346,7 +346,7 @@ console.log('\n=== 8. Infra panels quote the same ladder the solver gates on ===
   });
 
   for (const t of [
-    'roughingPump', 'turboPump', 'vacuumCart', 'highCapacityVacuumStation',
+    'roughingPump', 'roughingPumpCart', 'turboPump', 'vacuumCart', 'highCapacityVacuumStation',
     'ionPump', 'negPump', 'tiSubPump',
   ]) {
     assert(st1(t).vacuum.totalPumpSpeed === cap(t, 'vac_out', 'pumpSpeed'),

@@ -3223,6 +3223,7 @@ UIHost.prototype._renderVacuumStats = function(d, summary, detail) {
   const dd = d.detail;
   detail.innerHTML = `<div class="sstat-detail-grid">
     ${this._detailRow('Roughing Pumps', dd.roughingPumps)}
+    ${this._detailRow('Roughing Carts', dd.roughingPumpCarts)}
     ${this._detailRow('Turbo Pumps', dd.turboPumps)}
     ${this._detailRow('Ion Pumps', dd.ionPumps)}
     ${this._detailRow('NEG Pumps', dd.negPumps)}

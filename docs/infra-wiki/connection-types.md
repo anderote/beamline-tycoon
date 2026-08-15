@@ -25,16 +25,16 @@ Carries low-voltage branch power from distribution panels to field distribution 
 - **Field distribution:** Beamline Busway ($70k, eight taps, 160 kW) and Spider Box (four interchangeable sockets, 30 kW). Connect a panel to any spider-box socket and use the remaining three for loads. Both add no capacity and cannot be chained.
 
 ### Vacuum Pipe (gray)
-Connects vacuum pumps to the beamline. Each pump adds its rated speed to the network; pressure is the network's total gas load divided by its total pump speed.
+Connects staged vacuum pumps to the beamline. The network tracks gas inventory and volume through time, hands off from roughing to backed high-vacuum and UHV stages, and limits remote molecular pumps by tube conductance.
 
 - **Color:** Gray (0x888888)
-- **Network type:** Pressure-based, `P = Q/S`
-- **Source equipment:** Roughing pump, Turbo pump, Ion pump, NEG pump, Ti sublimation pump
+- **Network type:** Dynamic pressure, approaching `P_eq = Q/S_eff + P_ultimate`
+- **Source equipment:** Roughing pump and four-pump cart; turbo pump; integrated vacuum cart and station; ion, NEG and Ti sublimation pumps
 - **Consumers:** Every beamline component — each declares its own gas load, and the beam pipe itself is charged by length
 - **Cost:** $1,400/sub-unit ($5,600/tile)
 - **Bus:** Vacuum Manifold, $120k, 5-cell service radius
 
-There is **no conductance model**. Pipe length between the pump and the beamline does not degrade pumping speed. What length *does* cost you is gas load: every metre of beam pipe outgasses. See [vacuum.md](vacuum.md).
+For molecular-flow stages, the hookup uses `C = 12.1 d³/L` and `S_eff = SC/(S+C)`, so long narrow runs reduce delivered pumping speed. Beam-pipe length also adds chamber volume and outgassing. See [vacuum.md](vacuum.md).
 
 ### RF Waveguide (red)
 Carries RF power from sources to accelerating cavities. Band-matched: a source drives any cavity whose frequency falls inside one of the bands it covers. But a single waveguide network carries only **one** frequency, so cavities cut for different frequencies need separate networks even when one source could feed both.

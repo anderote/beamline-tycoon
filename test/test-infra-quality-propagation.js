@@ -58,7 +58,7 @@ const sourceEntry = (game) => game.registry.getAll().find(e => e.sourceId);
 const powerLines = (game) => [...game.state.utilityLines.entries()]
   .filter(([, l]) => l.utilityType === 'powerCable');
 
-console.log('\n--- 1. boot path: a wired facility produces beam ---');
+console.log('\n--- 1. boot path: a wired facility pumps down and produces beam ---');
 {
   const game = boot();
   const entry = sourceEntry(game);
@@ -66,8 +66,12 @@ console.log('\n--- 1. boot path: a wired facility produces beam ---');
   for (let i = 0; i < 100; i++) game.tick();
   assert(entry.beamState.beamEnergy > 0,
     `beamEnergy > 0 after 100 ticks (${entry.beamState.beamEnergy})`);
-  assert(entry.beamState.beamQuality > 0.9,
-    `beamQuality tracks the solved vacuum (${entry.beamState.beamQuality})`);
+  const earlyQuality = entry.beamState.beamQuality;
+  assert(earlyQuality < 0.9,
+    `newly vented line is still pumping down after 100 ticks (${earlyQuality})`);
+  for (let i = 0; i < 900; i++) game.tick();
+  assert(entry.beamState.beamQuality > earlyQuality + 0.2,
+    `beam quality improves as gas is removed (${earlyQuality} -> ${entry.beamState.beamQuality})`);
   const before = entry.beamState.beamEnergy;
   game.recalcAllBeamlines();
   assert(entry.beamState.beamEnergy === before,

@@ -130,6 +130,9 @@ export const PORT_ANCHOR_OVERRIDES = {
   // Pumps are squat and top-connected.
   turboPump: { _default: { y: 0.85 } },
   roughingPump: { _default: { y: 0.5 } },
+  roughingPumpCart: { _default: { y: 0.72, lat: 0.73, along: 0.36 } },
+  vacuumCart: { _default: { y: 1.0, lat: 0.88, along: 0.34 } },
+  highCapacityVacuumStation: { _default: { y: 1.05, lat: 1.4, along: 1.38 } },
   ionPump: { _default: { y: 0.6 } },
   vacuumManifold: { _default: { y: 0.6 } },
 

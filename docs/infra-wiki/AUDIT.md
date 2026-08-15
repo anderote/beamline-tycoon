@@ -73,12 +73,12 @@ Correct and retained: 4K cold box 500 W / $8M, 2K cold box 800 W / $15M, boil-of
 
 | Claim | Old | New | Source |
 |---|---|---|---|
-| Network model | *"Conductance-based (pump speed degraded by pipe length)"*, with series/parallel conductance math and `C_tile = 50 L/s` | **No conductance model exists.** `P = Q/S`, pump speeds summed. | `src/utility/types/vacuumPipe.js` — `pressure = totalOutgas / totalPumpSpeed` |
+| Network model | *"Conductance-based (pump speed degraded by pipe length)"*, with a fixed `C_tile = 50 L/s` | Dynamic gas inventory and staged pumping, with circular-tube molecular conductance and `S_eff = SC/(S+C)` | `src/utility/types/vacuumPipe.js` — `molecularConductanceLps()`, `activePumpStack()` |
 | Gas load | *"proportional to beamline volume"*, `Q_gas = V_beamline * q_outgassing` | Proportional to **surface area**. 3,770 cm^2 per metre at r = 0.06 m; 3.77e-7 mbar·L/s per metre unbaked | `src/data/utility-ports-v2.js` `pipeSurfaceAreaCm2()`, `outgassingForLength()`, `Q_SPECIFIC_UNBAKED = 1e-10` |
 | Beam pipe cost | Zero — the article never charged for pipe | Every metre of pipe is charged to the pumps serving the components on it | `vacuumPipe.js` `beamPipeOutgassing()` |
-| Bakeout | *"improve ultimate vacuum after any vacuum break"* (no mechanic) | 100x outgassing reduction — **but flagged as currently unreachable** | `vacuumPipe.js` `BAKEOUT_FACTOR`, `isBaked()`; `bakeoutSystem` declares `ports: {}` and `requiredConnections: ['powerCable']` only, so it has no vacuum port and can never appear in `network.sources` or `network.ports`. `test/test-vacuum-length.js` fabricates a `vac_out` port for it, which is why the test passes. |
+| Bakeout | *"improve ultimate vacuum after any vacuum break"* (no mechanic) | Connected Bakeout System applies the implemented 100x outgassing reduction | `vacuumPipe.js` `BAKEOUT_FACTOR`, `isBaked()`; `utility-ports-v2.js` `bakeoutSystem.vac_out` |
 | Consumers | *"Global beamline vacuum (not per-component)"* | Per-sink pressure published to every component | `vacuumPipe.js` `perSinkPressure` |
-| Quality mapping | Prose table only | Log-linear 1e-8 → 1, 1e-4 → 0; unpumped reported as 1013 mbar for the beam-gas module | `vacuumPipe.js` quality block, `reportedPressure` |
+| Quality mapping | Prose table only | Log-linear 1e-8 → 1, 1e-2 → 0; unpumped reported as 1013 mbar for the beam-gas module | `vacuumPipe.js` `qualityFromPressure()`, `reportedPressure` |
 | Panel pressure | *"Average pressure across the whole beamline"* | **Worst** network in the facility, and it is the same number the beam responds to (the old `1e-6/(S/V)` HUD formula is gone) | `src/game/economy.js` `worstVacuumPressure()` |
 | Pump colour | Gray 0x999999 | 0x888888 | `vacuumPipe.js` `color` |
 
@@ -119,7 +119,7 @@ Almost entirely correct. Changes:
 |---|---|---|---|
 | Network formation | *"flood-fill through adjacent tiles of the same type"*, cardinal directions only | **Union-find over named ports** joined by drawn lines. Membership is per-port, not per-tile or per-component. | `src/utility/network-discovery.js` — DSU over `${placeableId}:${portName}` |
 | Distribution buses | Not mentioned | Six buses, one per utility, each with a service radius in grid cells (fiber 12, power 10, cooling 8, RF 6, cryo 6, vacuum 5). Add no capacity. | `utility-ports-v2.js` `busPorts()`; `network-discovery.js` `computeBusService()` |
-| Vacuum exception | *"The exception is vacuum, which uses conductance-based calculations"* | Removed; vacuum uses the same discovery as everything else | `vacuumPipe.js` |
+| Vacuum exception | *"The exception is vacuum, which uses conductance-based calculations"* | Discovery is shared; the vacuum solver then applies staged pump-down and conductance to the discovered network | `network-discovery.js`, `vacuumPipe.js` |
 | Hard gate list | *"Missing utility connection entirely; no PPS interlock; insufficient radiation shielding"* | Unwired sink on any of five hard utilities; `power_starved`; `vacuum_no_pump`; `cooling_dry`; cryo quench; `beam_unstaffed`. **No PPS check and no shielding check exist.** | `utility-gate.js` `HARD_REQUIRED_UTILS` and `run()`; grep for `ppsInterlock` / `shielding` finds only counting in `economy.js` |
 | Fail-closed values | Not documented | Documented in full: qualities → 0, `rfPowerW` → 0, `cryoTempK` → 300 K, `coolingDeltaT` → 100 K, `vacuumPressure` → 1013 mbar | `utility-gate.js` `UTILITY_PHYSICAL_FIELDS`, `sinkQualityFloorFrom()` |
 | Wiring costs | Not mentioned | Full per-utility ladder $300–$4,000 per sub-unit added | each `src/utility/types/*.js` `costPerSubUnit` |
@@ -175,7 +175,7 @@ Two further corrections:
 - **Collimation:** `beam_physics/modules/collimation.py` `applies_to` requires `type == "collimator"`; no component declares that physics type. Noted in `tier1-components.md`. The `aperture` component is a drift.
 - **Beam trip:** `beam.alive` is set `True` in `beam_physics/beam.py` and **never cleared anywhere in `beam_physics/`**. `Game.js` faults a beamline when `!result.beamAlive`, so the path exists but can never fire. The *"beam trips at 50% loss"* claim in `tier1-physics.md` and `diagnostics-and-plots.md` was corrected to say so.
 - **Beam-gas scattering** added as a new section in `tier1-physics.md` and to `equations.md` and the physics glossary, since it is now live and is the mechanism the wiki previously attributed to aperture narrowing.
-- **`equations.md` Engineering section** was replaced wholesale: the old RF/cryo/vacuum formulas were plausible textbook equations that the engine does not use (notably `S_eff = S_pump C / (S_pump + C)` and `C_tube = 12.1 d^3/L`, which have no counterpart in the code).
+- **`equations.md` Engineering section** follows the live solvers. Vacuum now implements `S_eff = S_pump C / (S_pump + C)`, `C_tube = 12.1 d^3/L`, staged pumping and dynamic gas inventory.
 - **`real-machines.md`** tier goals were rewritten against `src/data/objectives.js` — `reach100mev`/`reach1gev`/`reach10gev`/`goodVacuum` (1e-8 mbar)/`subMicronEmittance` are live and checkable; `bunchCompressed` and `felSaturation` are not reachable (`felSaturated` is always `false`), and `colliderMode` is satisfiable but the Collision Point is a plain drift. All real-world facility parameters in that article were left alone — they are accurate.
 
 ---
@@ -190,15 +190,6 @@ Two further corrections:
 
 2. **FEL and beam-beam have never run.** See section J. Documented in seven
    physics-wiki articles.
-
-A third gap surfaced during the audit and is documented alongside them:
-
-3. **Bakeout is unreachable.** `bakeoutSystem` declares no vacuum port, so
-   `isBaked()` in `src/utility/types/vacuumPipe.js` can never return true in
-   real play. The 100x factor is implemented and unit-tested, but
-   `test/test-vacuum-length.js` supplies a synthetic `vac_out` port that the
-   real registry does not have. Documented in `infra-wiki/vacuum.md` and
-   `required-connections.md`.
 
 ---
 

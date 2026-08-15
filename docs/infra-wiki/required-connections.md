@@ -101,16 +101,19 @@ Equipment power demand is its own energy cost, so the panel and the bill can nev
 | Equipment | Power draw | Provides |
 |-----------|:----------:|----------|
 | Roughing Pump | 0.5 | 15 L/s |
+| Four-Pump Roughing Cart | 2 | 60 L/s roughing/backing |
 | Turbo Pump | 1 | 300 L/s |
+| Vacuum Cart | 3 | Integrated 30 L/s roughing + 300 L/s turbo |
+| High-Capacity Vacuum Station | 18 | Integrated 150 L/s roughing + 3,000 L/s turbo |
 | Ti Sublimation Pump | | 400 L/s |
 | NEG Pump | | 500 L/s |
 | Ion Pump | 0.3 | 600 L/s |
 | Vacuum Manifold | | Vacuum bus, 5-cell reach |
-| Pirani Gauge | | *inert* |
-| Cold Cathode Gauge | 0.1 | *inert* |
-| BA Gauge | 0.1 | *inert* |
+| Pirani Gauge | | Pressure trace, 1e3 to 1e-3 mbar |
+| Cold Cathode Gauge | 0.1 | Pressure trace, 1e-2 to 1e-9 mbar |
+| BA Gauge | 0.1 | Pressure trace, 1e-4 to 1e-12 mbar |
 | Gate Valve | | *inert* |
-| Bakeout System | 5 | 100x outgassing reduction — **but declares no vacuum port, so it cannot join a network** |
+| Bakeout System | 5 | 100x outgassing reduction when connected |
 
 ### Cooling
 | Equipment | Power draw | Role | Cooling capacity |
