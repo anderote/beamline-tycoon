@@ -178,28 +178,29 @@ No vacuum is perfect. The residual gas in the beam pipe scatters the beam two wa
 
 **Multiple Coulomb scattering.** Each particle takes a huge number of tiny deflections off gas nuclei. The deflections are random, so they add in quadrature and show up as growth in the beam's angular spread — which is emittance growth, and emittance is the thing that pays. This is the *only* path by which vacuum reaches beam quality.
 
-**Beam-gas loss.** Large-angle and nuclear scattering removes particles outright. Current decays exponentially with the length of pipe traversed, with a loss length inversely proportional to pressure: a decade better vacuum buys a decade more lifetime.
+**Beam-gas loss.** Large-angle and nuclear scattering removes particles outright. Current decays exponentially with `n sigma L`, where the gas number density is calculated from local pressure at 300 K. A decade better vacuum therefore buys a decade more lifetime.
 
 The scaling that matters for how you build:
 
 ```
-d<theta^2> = C_scatter * P * L / (beta*gamma)^2
+d<theta^2> = K_transport * n * L / (beta*gamma)^2
 ```
 
 That `1/(beta*gamma)^2` is the whole design lesson. **A low-energy beam is enormously more fragile than a high-energy one.** Ten metres of mediocre vacuum right after the gun does more damage than a hundred metres of the same vacuum at 1 GeV. Put your pumps at the injector.
 
-For a 50 MeV electron beam through a 10 m beta function: 1e-9 mbar over 100 m grows emittance about 0.03% — free. 1e-5 mbar over the same 100 m grows it about 2.5x — severe. The utility solver already maps 1e-4 mbar to quality zero, so a beam that barely survives 1e-5 is the correct outcome, not an overtuned penalty.
+For a 50 MeV electron beam through a 10 m beta function: 1e-9 mbar over 100 m grows emittance about 0.03% — free. 1e-5 mbar over the same 100 m grows it about 2.5x — severe. The utility solver already treats that as poor vacuum, so a beam that barely survives it is the correct outcome, not an overtuned penalty.
 
 **What replaced the old model:** vacuum used to narrow the "effective aperture" in proportion to a 0-1 vacuum quality scalar. That could never work — aperture clipping only scales current, never the covariance matrix, and beam quality is an emittance ratio. Worse, clipping a Gaussian tighter scrapes halo, which is how emittance is *improved* in reality, so the proxy pointed backwards. It has been deleted.
 
 **The Math:**
 
 ```
-d<theta^2> = C_scatter * P * L / (beta*gamma)^2      C_scatter = 0.05
+d<theta^2> = K_transport * n * L / (beta*gamma)^2
 sigma[1,1] += d<theta^2>
 sigma[3,3] += d<theta^2>
 
-I *= exp(-L / lambda),   lambda = 100 m * (1e-5 mbar / P)
+n = P / (k_B T),  T = 300 K
+I *= exp(-n * sigma_loss * L),   sigma_loss = 1e-22 m^2
 ```
 
 Divergence growth is added to the covariance matrix exactly as synchrotron radiation adds quantum excitation, so emittance growth emerges from the determinant rather than being imposed on it.

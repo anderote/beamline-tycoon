@@ -32,7 +32,7 @@ export const ARTICLE_COMPONENTS = {
     'powerBus', 'spiderBox', 'disconnectSwitch',
   ],
   'infra-vacuum': [
-    'roughingPump', 'turboPump', 'vacuumCart', 'highCapacityVacuumStation',
+    'roughingPump', 'roughingPumpCart', 'turboPump', 'vacuumCart', 'highCapacityVacuumStation',
     'ionPump', 'negPump', 'tiSubPump',
     'vacuumManifold', 'gateValve', 'bakeoutSystem',
     'piraniGauge', 'coldCathodeGauge', 'baGauge',

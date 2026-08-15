@@ -5912,6 +5912,20 @@ body {
 }
 .utility-meter-fill { height: 100%; border-radius: 2px; background: var(--utility-meter-color); }
 .utility-meter-value { min-width: 36px; color: var(--utility-meter-color); font-size: 10px; text-align: right; }
+.vacuum-pressure-chart {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.22);
+}
+.vacuum-pressure-legend {
+  display: grid;
+  gap: 2px;
+  margin-top: 4px;
+  font-size: 9px;
+}
 .utility-list-row { padding: 2px 0; color: var(--ui-text); font-size: 10px; }
 .utility-issue { padding: 2px 0; font-size: 10px; line-height: 1.4; }
 .utility-issue-error { color: var(--ui-bad); }

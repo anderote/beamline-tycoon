@@ -111,16 +111,23 @@ for (const scenario of SCENARIOS) {
     const nq = state.nodeQualities?.[e.id] || {};
     for (const field of Object.keys(floor)) {
       if (!QUALITY_FIELDS.has(field)) continue;
-      if (!(nq[field] > 0)) starved.push(`${e.type}.${field}=${nq[field]}`);
+      // A freshly vented but correctly connected vacuum network can have
+      // quality 0 while it is physically pumping down. Distinguish that from
+      // the fail-closed floor by its pressure already falling below atmosphere.
+      const pumpingVacuum = field === 'vacuumQuality'
+        && nq.vacuumPressure < 1013;
+      if (!(nq[field] > 0) && !pumpingVacuum) {
+        starved.push(`${e.type}.${field}=${nq[field]}`);
+      }
     }
   }
   assert(starved.length === 0,
     `every declared sink is served (starved: ${starved.join(', ') || 'none'})`);
 
   // A wired vacuum network must actually pump down. Pressure comes from the
-  // solver's P = Q/S and now includes beam-pipe surface area, so a scenario
-  // that ships pumps but under-sizes them for its pipe length would show up
-  // here rather than silently running a scattered beam.
+  // dynamic gas inventory and includes beam-pipe surface area and volume, so
+  // a scenario with an inactive stage would show up here instead of silently
+  // treating a newly vented line as ready for beam.
   if ((state.beamPipes || []).length > 0) {
     game.computeSystemStats();
     assert(state.avgPressure < 1013,

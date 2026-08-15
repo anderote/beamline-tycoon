@@ -301,11 +301,12 @@ Residual gas grows emittance (multiple Coulomb scattering) and removes current
 reaches beam quality.
 
 ```
-d<theta^2> = C_scatter * P * L / (beta*gamma)^2       C_scatter = 0.05
+d<theta^2> = K_transport * n * L / (beta*gamma)^2
 sigma[1,1] += d<theta^2>
 sigma[3,3] += d<theta^2>
 
-I *= exp(-L / lambda),   lambda = 100 m * (1e-5 mbar / P)
+I *= exp(-n * sigma_loss * L),   sigma_loss = 1e-22 m^2
+n = P / (k_B T),  T = 300 K
 ```
 
 The `1/(beta*gamma)^2` scaling is the point: a low-energy beam is enormously
@@ -365,10 +366,14 @@ Q       = m_dot * c_p * dT
 
 ### Vacuum
 ```
-P = Q_total / S_total                       (no conductance model)
+C_tube = 12.1*d_cm^3/L_cm                   molecular flow, L/s
+S_eff = S_pump*C_tube/(S_pump + C_tube)
+P_eq = Q_total/S_eff + P_ultimate
+P_next = P_eq + (P_previous-P_eq)*exp(-S_eff*dt/V)
 Q_pipe = q_specific * 2*pi*r*L,  r = 0.06 m
        = 3.77e-7 mbar.L/s per metre unbaked
 q_specific = 1e-10 (unbaked) or 1e-12 (baked) mbar.L/(s.cm^2)
+n = (100*P_mbar)/(k_B*300 K)                molecules/m^3
 ```
 
 ### Power

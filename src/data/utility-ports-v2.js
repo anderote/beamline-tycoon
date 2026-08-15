@@ -1039,13 +1039,14 @@ const INFRA_UTILITY_PORTS = {
   coldBox4K:           { cryo_out: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'source', params: { coldCapacityW: 500 } } },
   coldBox2K:           { cryo_out: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'source', params: { coldCapacityW: 800 } } },
   // vacuum
-  roughingPump:        { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 15 } } },
-  turboPump:           { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 300 } } },
-  vacuumCart:          { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 330 } } },
-  highCapacityVacuumStation: { vac_out: { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 3000 } } },
-  ionPump:             { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 600 } } },
-  negPump:             { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 500 } } },
-  tiSubPump:           { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 400 } } },
+  roughingPump:        { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 15, roughingSpeed: 15, vacuumStage: 'rough', ultimatePressure: 1e-3 } } },
+  roughingPumpCart:    { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 60, roughingSpeed: 60, vacuumStage: 'rough', ultimatePressure: 1e-3 } } },
+  turboPump:           { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 300, highVacSpeed: 300, backingDemand: 15, vacuumStage: 'high', ultimatePressure: 1e-8 } } },
+  vacuumCart:          { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 330, roughingSpeed: 30, highVacSpeed: 300, integratedBacking: true, vacuumStage: 'integrated', ultimatePressure: 1e-8 } } },
+  highCapacityVacuumStation: { vac_out: { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 3000, roughingSpeed: 150, highVacSpeed: 3000, integratedBacking: true, vacuumStage: 'integrated', ultimatePressure: 1e-8 } } },
+  ionPump:             { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 600, uhvSpeed: 600, vacuumStage: 'uhv', requiresHighVac: true, ultimatePressure: 1e-11 } } },
+  negPump:             { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 500, uhvSpeed: 500, vacuumStage: 'uhv', requiresHighVac: true, ultimatePressure: 1e-11 } } },
+  tiSubPump:           { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 400, uhvSpeed: 400, vacuumStage: 'uhv', requiresHighVac: true, ultimatePressure: 1e-11 } } },
   // Bakeout adds no pumping speed — it heats the pipe walls so adsorbed gas
   // desorbs and gets pumped away once, after which the surface outgasses ~100x
   // less (vacuumPipe.js BAKEOUT_FACTOR). It still needs a vacuum PORT: the

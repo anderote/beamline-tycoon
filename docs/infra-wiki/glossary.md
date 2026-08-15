@@ -5,7 +5,7 @@ Accelerator jargon decoded — from conductance to VSWR.
 
 ## Terms
 
-**Bakeout** — Heating vacuum chambers to 150-250 C to drive adsorbed gas molecules off the walls. Required to achieve ultra-high vacuum. In the game it drops specific outgassing 100x — though the Bakeout System currently has no vacuum port and so cannot be attached to a network.
+**Bakeout** — Heating vacuum chambers to 150-250 C to drive adsorbed gas molecules off the walls. Required to achieve ultra-high vacuum. In the game, connecting a Bakeout System to the vacuum network drops specific outgassing 100x.
 
 **BCS surface resistance** — The temperature-dependent part of a superconductor's RF surface resistance, `R_BCS = (A f^2 / T) exp(-Delta/T)`. Exponential in 1/T, which is why a fraction of a kelvin matters so much: 2.0 K to 4.2 K costs a niobium cavity about 35x in Q0.
 
@@ -15,7 +15,7 @@ Accelerator jargon decoded — from conductance to VSWR.
 
 **Cold box** — A refrigeration unit that cools helium gas to cryogenic temperatures (4.5K or 2K). Contains heat exchangers, expansion turbines, and JT valves. The core of any helium cryogenic system.
 
-**Conductance** — A measure of how easily gas flows through a tube or opening, measured in liters per second (L/s). Short, wide tubes have high conductance; long, narrow tubes have low conductance. *Not modelled in the game* — pumping speed is not degraded by how far the pump sits from the beamline. Length matters instead through the gas load it adds.
+**Conductance** — A measure of how easily gas flows through a tube or opening, measured in liters per second (L/s). Short, wide tubes have high conductance; long, narrow tubes have low conductance. Molecular pump stages use tube conductance to calculate the effective speed delivered to the chamber.
 
 **Design temperature** — The temperature a helium bath holds while its plant can cover the load. 2.0 K if a 2K Cold Box sits on the network, 4.5 K otherwise. A bath does not settle at some intermediate temperature proportional to overload; it holds its design point or it warms.
 
@@ -55,7 +55,7 @@ Accelerator jargon decoded — from conductance to VSWR.
 
 **Reflected power** — RF power bouncing back from the cavity toward the source due to impedance mismatch. Circulators divert reflected power into a water load to protect the source.
 
-**Roughing pump** — A mechanical pump (rotary vane, scroll, or diaphragm) that brings vacuum systems from atmospheric pressure to rough vacuum (~1 mbar). Always the first pump in the chain.
+**Roughing pump** — A mechanical pump (rotary vane, scroll, or diaphragm) that evacuates from atmosphere through rough vacuum toward 1e-3 mbar. It is the first pump in the chain and backs a turbomolecular pump.
 
 **Quench** — Loss of superconductivity. In the game it has two independent causes: the helium bath reaching niobium's critical temperature of 9.25 K, or the LHe reservoir dropping below 20 L. A quenched cavity accelerates nothing, but it also stops dissipating, which is what lets the plant recover.
 

@@ -250,6 +250,10 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   const mbk  = place('multibeamKlystron', -3, 8);
   const ssa2 = place('solidStateAmp', -1, 8);
   const tp   = place('turboPump', 0, 8);
+  // A turbo is not a stand-alone atmosphere-to-high-vacuum source. Keep the
+  // portable roughing stage on the same header so this scripted facility uses
+  // the same staged pump-down rules as a player build.
+  const rp   = place('roughingPump', 0, 16);
   const ioc2 = place('rackIoc', 1, 8);
   const nsw  = place('networkSwitch', 2, 8);
   const ch1  = place('chiller', 3, 8);
@@ -292,7 +296,7 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   if (hv && ssa2) wire('hvCable', { id: hv, port: 'hv_out_4' }, { id: ssa2, port: 'hv_in' });
   const westLoads = [[src2, 'pwr_in'],
     [tp, 'pwr_in'], [ioc2, 'pwr_in'], [nsw, 'pwr_in'], [pwrBus2, 'pwr_in']];
-  const eastLoads = [[det, 'pwr_in'], [ch1, 'pwr_in'], [ch2, 'pwr_in'], [tower, 'pwr_in']];
+  const eastLoads = [[det, 'pwr_in'], [ch1, 'pwr_in'], [ch2, 'pwr_in'], [tower, 'pwr_in'], [rp, 'pwr_in']];
   for (const [panel, loads] of [[mcc1, westLoads], [mcc2, eastLoads]]) {
     loads.forEach(([id, port], i) => {
       if (id && panel) wire('powerCable', { id: panel, port: `pwr_out_${i + 1}` }, { id, port });
@@ -304,6 +308,7 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
       if (id) wire('vacuumPipe', { id: tp, port: 'vac_out' }, { id, port });
     }
   }
+  if (rp && vacE2) wire('vacuumPipe', { id: rp, port: 'vac_out' }, { id: vacE2, port: 'bus_right' });
   // TODO(balance): both RF sources land on the same manifold, which used to be
   // fine when the solver bucketed by frequency. It no longer is — one network
   // now carries ONE frequency, so this network serves the cavities' 2856 MHz

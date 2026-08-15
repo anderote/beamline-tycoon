@@ -34,6 +34,10 @@ console.log('\n=== 1. Utility-run projection is continuous and bend-aware ===\n'
 
 console.log('\n=== 2. The new vacuum supply ladder is real catalog data ===\n');
 {
+  assert(COMPONENTS.roughingPumpCart?.energyCost === 2,
+    'roughing cart is a placeable bank of four dry pumps');
+  assert(getUtilityPortsV2('roughingPumpCart').vac_out.params.roughingSpeed === 60,
+    'roughing cart exposes four times the single-pump backing capacity');
   assert(COMPONENTS.vacuumCart?.energyCost === 3,
     'mobile cart is a placeable integrated pumping package');
   assert(getUtilityPortsV2('vacuumCart').vac_out.params.pumpSpeed === 330,
