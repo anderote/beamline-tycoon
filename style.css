@@ -3442,9 +3442,9 @@ body {
   position: relative;
   min-width: 0;
 }
-.dsgn-plot-select {
+.dsgn-plot-select,
+.dsgn-plot-secondary-select {
   position: absolute;
-  top: 4px;
   right: 4px;
   z-index: 10;
   font-family: monospace;
@@ -3454,6 +3454,17 @@ body {
   border: 1px solid rgba(80, 80, 120, 0.3);
   border-radius: 3px;
   padding: 2px 4px;
+}
+.dsgn-plot-select { top: 4px; }
+.dsgn-plot-secondary-select {
+  top: 27px;
+  color: #e28ac8;
+  border-color: rgba(218, 96, 185, 0.38);
+}
+.dsgn-plot-secondary-select:disabled {
+  color: #667;
+  border-color: rgba(80, 80, 120, 0.2);
+  opacity: 0.7;
 }
 .dsgn-plot-canvas {
   width: 100%;
