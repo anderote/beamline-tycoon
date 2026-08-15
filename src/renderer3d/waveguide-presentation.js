@@ -123,7 +123,7 @@ function floorSegment(a, b, floorY, tolerance) {
  * The spacing is a maximum span: `count = floor(length / spacing)` and then
  * equal subdivision keeps both end spans shorter than the requested spacing.
  */
-export function waveguideSupportFrames(points, opts = {}) {
+export function utilitySupportFrames(points, opts = {}) {
   if (!Array.isArray(points) || points.length < 2) return [];
   const floorY = finite(opts.floorY) ? opts.floorY : 0;
   const spacing = finite(opts.spacingMeters) ? Math.max(0.25, opts.spacingMeters) : 3;
@@ -176,3 +176,7 @@ export function waveguideSupportFrames(points, opts = {}) {
   return frames;
 }
 
+// Compatibility name for the original RF-only caller. Support layout is
+// utility-agnostic: any rigid service whose descriptor opts into periodic
+// stands uses the same contiguous, deck-level run math.
+export const waveguideSupportFrames = utilitySupportFrames;

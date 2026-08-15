@@ -225,6 +225,12 @@ export default {
   color: '#44aacc',
   geometryStyle: 'jacketedCylinder',
   pipeRadiusMeters: 0.06,
+  // The outer vacuum jacket rides above the slab on periodic steel stands.
+  // Stand legs are presentation geometry derived from this centreline height;
+  // topology and priced path length remain the authored 2D route.
+  runHeightMeters: 0.30,
+  supportSpacingMeters: 3,
+  supportMinimumRunMeters: 3,
   // Transfer lines share the forgiving rectilinear routing contract with RF:
   // horizontal/vertical runs and 90-degree bends, without rigid clearances.
   routingProfile: 'rectilinear',

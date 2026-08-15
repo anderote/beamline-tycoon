@@ -9,7 +9,10 @@ import {
   Q_SPECIFIC_UNBAKED, Q_SPECIFIC_BAKED, outgassingForLength,
 } from '../../data/utility-ports-v2.js';
 import { endpointsById } from '../endpoint-lookup.js';
-import { utilityAttachmentPose } from '../line-attachments.js';
+import {
+  utilityAttachmentPose,
+  VACUUM_LINE_MOUNT_Y,
+} from '../line-attachments.js';
 import { powerFeedFactor } from '../power-feed.js';
 
 export const BAKEOUT_FACTOR = Q_SPECIFIC_BAKED / Q_SPECIFIC_UNBAKED;
@@ -432,6 +435,11 @@ export default {
   color: '#888888',
   geometryStyle: 'cylinder',
   pipeRadiusMeters: BEAM_PIPE_RADIUS_M,
+  // Keep the process pipe visibly clear of the slab and carry it on periodic
+  // ground-footed stands. The renderer fills each leg to this run height.
+  runHeightMeters: VACUUM_LINE_MOUNT_Y,
+  supportSpacingMeters: 3,
+  supportMinimumRunMeters: 3,
   // Vacuum pipe is the forgiving rigid service: compact swept elbows and
   // tees are ordinary catalogue fittings, so it may turn on the next service
   // grid point. It still routes around machines and other rigid services.

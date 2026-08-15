@@ -5,11 +5,13 @@
 
 const EPS = 1e-9;
 
-// Vacuum Pipe radius (0.06 m) + the registry's 0.01 m deck clearance. Kept
-// here as a tiny cycle-free presentation constant so utility-endpoints can
-// describe a line-mounted gauge without importing the solver registry through
-// COMPONENTS -> validation -> registry -> solver -> endpoint lookup.
-export const VACUUM_LINE_MOUNT_Y = 0.07;
+// Supported vacuum-pipe centreline height. Kept here as a tiny cycle-free
+// presentation constant so utility-endpoints can describe a line-mounted
+// gauge without importing the solver registry through COMPONENTS ->
+// validation -> registry -> solver -> endpoint lookup. The vacuum descriptor
+// imports this same value for `runHeightMeters`, keeping mounted gauges and
+// their supporting line on one physical axis.
+export const VACUUM_LINE_MOUNT_Y = 0.24;
 
 function pathMetrics(line) {
   const path = line?.path || [];

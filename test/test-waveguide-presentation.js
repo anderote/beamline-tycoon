@@ -3,6 +3,7 @@
 
 import * as THREE_NS from 'three';
 import {
+  utilitySupportFrames,
   waveguideDropProfile,
   waveguideSupportFrames,
   waveguideTransitionPoints,
@@ -88,6 +89,8 @@ console.log('\n--- 3. Long bent deck runs receive evenly-spaced supports ---');
   assert(waveguideSupportFrames(points.slice(0, 2), {
     floorY: 0.22, spacingMeters: 3, minimumRunMeters: 9,
   }).length === 0, 'short runs remain uncluttered');
+  assert(utilitySupportFrames === waveguideSupportFrames,
+    'the compatibility RF name exposes the shared utility support layout');
 }
 
 console.log('\n--- 4. The committed builder uses drops and physical support groups ---');

@@ -28,8 +28,8 @@ import {
   softCableControlPoints,
 } from '../utility/soft-cable.js';
 import {
+  utilitySupportFrames,
   waveguideDropProfile,
-  waveguideSupportFrames,
   waveguideTransitionPoints,
 } from './waveguide-presentation.js';
 
@@ -49,7 +49,7 @@ const FLEXIBLE_RELAX_DURATION_SECONDS = 0.9;
 const _matCache = new Map();
 const _jacketMatCache = new Map();
 const _hardwareMatCache = new Map();
-let _waveguideSupportMaterial = null;
+let _utilitySupportMaterial = null;
 
 function matKey(utilityType, errorStatus) {
   return `${utilityType}|${errorStatus || 'ok'}`;
@@ -130,14 +130,14 @@ function getLineHardwareMaterial(utilityType) {
   return mat;
 }
 
-function getWaveguideSupportMaterial() {
-  if (_waveguideSupportMaterial) return _waveguideSupportMaterial;
-  _waveguideSupportMaterial = shared(new THREE.MeshStandardMaterial({
+function getUtilitySupportMaterial() {
+  if (_utilitySupportMaterial) return _utilitySupportMaterial;
+  _utilitySupportMaterial = shared(new THREE.MeshStandardMaterial({
     color: 0x465158,
     roughness: 0.42,
     metalness: 0.72,
   }));
-  return _waveguideSupportMaterial;
+  return _utilitySupportMaterial;
 }
 
 // Convert a tile-coord waypoint to 3D world (x,z). 1 tile = 2 world meters,
@@ -678,33 +678,37 @@ function addInlineCouplers(group, start, end, descriptor, material) {
   }
 }
 
-// Low H-frame saddle under one deck-level waveguide span. The frame is built
-// in a +Z local run direction, then turned onto the actual segment. Its top bar
-// touches the underside of the rectangular guide; feet always remain on y=0.
-function buildWaveguideSupport(frame, descriptor, materialOverride = null) {
+// Low H-frame saddle under one supported rigid-service span. The frame is
+// built in a +Z local run direction, then turned onto the actual segment. Its
+// top bar touches the underside of the guide, pipe, or outer cryogenic jacket;
+// feet always remain on y=0 and the legs fill the measured gap between them.
+function buildUtilitySupport(frame, descriptor, utilityType, materialOverride = null) {
   if (!frame?.point || !frame?.direction) return null;
   const radius = descriptor?.pipeRadiusMeters || 0.05;
-  const guideWidth = radius * 2;
-  const guideHeight = radius * 1.4;
-  const floorY = frame.point.y;
+  const style = descriptor?.geometryStyle || 'cylinder';
+  const bodyHalfWidth = style === 'jacketedCylinder' ? radius * 1.6 : radius;
+  const bodyHalfHeight = style === 'rectWaveguide' ? radius * 0.7 : bodyHalfWidth;
+  const centerlineY = frame.point.y;
   const footH = 0.025;
   const barH = 0.032;
-  const barTop = floorY - guideHeight * 0.5 - 0.006;
+  const barTop = centerlineY - bodyHalfHeight - 0.006;
   const barBottom = barTop - barH;
   if (barBottom <= footH + 0.015) return null;
 
-  const material = materialOverride || getWaveguideSupportMaterial();
+  const material = materialOverride || getUtilitySupportMaterial();
   const support = new THREE.Group();
-  const saddleWidth = Math.max(0.24, guideWidth * 2.25);
+  const saddleWidth = Math.max(0.24, bodyHalfWidth * 4.5);
   const depth = 0.13;
   const foot = new THREE.Mesh(
     new THREE.BoxGeometry(saddleWidth + 0.10, footH, depth + 0.07), material);
   foot.position.y = footH * 0.5;
+  foot.userData.utilitySupportPart = 'foot';
   support.add(foot);
 
   const bar = new THREE.Mesh(
     new THREE.BoxGeometry(saddleWidth + 0.04, barH, depth), material);
   bar.position.y = barBottom + barH * 0.5;
+  bar.userData.utilitySupportPart = 'saddle';
   support.add(bar);
 
   const legH = barBottom - footH;
@@ -712,6 +716,7 @@ function buildWaveguideSupport(frame, descriptor, materialOverride = null) {
   for (const side of [-1, 1]) {
     const leg = new THREE.Mesh(new THREE.BoxGeometry(0.04, legH, 0.055), material);
     leg.position.set(side * legOffset, footH + legH * 0.5, 0);
+    leg.userData.utilitySupportPart = 'leg';
     support.add(leg);
   }
 
@@ -719,25 +724,31 @@ function buildWaveguideSupport(frame, descriptor, materialOverride = null) {
   support.rotation.y = Math.atan2(frame.direction.x, frame.direction.z);
   support.userData = {
     isUtilitySupport: true,
-    utilityType: 'rfWaveguide',
+    utilityType,
     runLength: frame.runLength,
+    centerlineHeight: centerlineY,
+    legHeight: legH,
+    groundY: 0,
   };
   return support;
 }
 
-function addWaveguideSupports(group, points, descriptor, materialOverride = null) {
+function addUtilitySupports(
+  group, points, descriptor, utilityType, materialOverride = null,
+) {
   const spacing = descriptor?.supportSpacingMeters;
   const minimum = descriptor?.supportMinimumRunMeters;
   if (!(spacing > 0) || !(minimum > 0)) return;
-  const floorY = Number.isFinite(descriptor.runHeightMeters)
-    ? descriptor.runHeightMeters : utilityLineHeight('rfWaveguide');
-  const frames = waveguideSupportFrames(points, {
-    floorY,
+  const runY = utilityLineHeight(utilityType);
+  const frames = utilitySupportFrames(points, {
+    floorY: runY,
     spacingMeters: spacing,
     minimumRunMeters: minimum,
   });
   for (const frame of frames) {
-    const support = buildWaveguideSupport(frame, descriptor, materialOverride);
+    const support = buildUtilitySupport(
+      frame, descriptor, utilityType, materialOverride,
+    );
     if (support) group.add(support);
   }
 }
@@ -1024,7 +1035,7 @@ function buildLineGroup(
     if (descriptor.fittingStyle) addInlineCouplers(group, a, b, descriptor, hardwareMat);
   }
 
-  if (style === 'rectWaveguide') addWaveguideSupports(group, points, descriptor);
+  addUtilitySupports(group, points, descriptor, line.utilityType);
 
   // Elbows at every INTERIOR waypoint. The two terminal points are excluded on
   // purpose: they either disappear into a port fitting or carry an open-end
@@ -1193,8 +1204,8 @@ function buildPreviewLine(preview) {
     }
     if (mesh) group.add(mesh);
   }
-  if (!flexible && style === 'rectWaveguide' && preview.endpointTransitions !== false) {
-    addWaveguideSupports(group, points, descriptor, mat);
+  if (!flexible) {
+    addUtilitySupports(group, points, descriptor, preview.utilityType, mat);
   }
   for (let i = 1; !flexible && i < points.length - 1; i++) {
     const prev = points[i - 1], at = points[i], next = points[i + 1];
