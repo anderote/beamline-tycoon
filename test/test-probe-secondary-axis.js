@@ -1,5 +1,5 @@
-// Secondary designer plots share the primary distance axis but retain an
-// independent y-domain and right-side scale. This recording canvas pins the
+// Overlay designer plots share the primary distance axis but retain independent
+// y-domains and right-side scales. This recording canvas pins the three-channel
 // composition contract without requiring browser rendering.
 
 import fs from 'node:fs';
@@ -59,10 +59,10 @@ function recordingCanvas() {
 const envelope = [
   { s: 0, energy: 0.003, eta_x: 0.02, current: 10,
     sigma_x: 0.001, sigma_y: 0.002, emit_nx: 1e-6, emit_ny: 2e-6,
-    peak_current: 4 },
+    peak_current: 4, rel_beta: 0.4 },
   { s: 10, energy: 0.006, eta_x: 0.08, current: 20,
     sigma_x: 0.002, sigma_y: 0.003, emit_nx: 2e-6, emit_ny: 3e-6,
-    peak_current: 8 },
+    peak_current: 8, rel_beta: 0.9 },
 ];
 
 console.log('\n--- Cursor values at shared distance ---');
@@ -119,6 +119,20 @@ console.log('\n--- Cursor values at shared distance ---');
   });
   check(comparison?.rows.some(row => row.includes('P 20.0 mA · C 25.0 mA')),
     'comparison hover values distinguish proposed and current curves');
+
+  const threeChannel = ProbePlots.drawCursor(canvas, 'energy', envelope, [0, 10], {
+    cursorX: 460,
+    cursorY: 180,
+    yDomain: [[0.002, 0.007]],
+    overlays: [
+      { type: 'current-loss', domain: secondaryDomain, seriesIndex: 2 },
+      { type: 'rel-beta', domain: [0, 1], seriesIndex: 3 },
+    ],
+    rightInset: 72,
+  });
+  check(threeChannel?.rows.some(row => row.includes('2·Current'))
+    && threeChannel?.rows.some(row => row.includes('3·Beam β')),
+  'the hover readout reports both independently scaled overlay channels');
 }
 
 console.log('\n--- Secondary metric catalogue ---');
@@ -185,23 +199,68 @@ console.log('\n--- Shared distance pixels, independent right axis ---');
   'primary axis labels use the larger plot font');
 }
 
+console.log('\n--- Third channel styling and axis ---');
+{
+  const { canvas, events } = recordingCanvas();
+  const betaEnvelope = envelope.map((d, index) => ({ ...d, rel_beta: 0.35 + index * 0.5 }));
+  ProbePlots.draw(canvas, 'energy', betaEnvelope, [], 0, [0, 10], null, {
+    yDomain: [[0.002, 0.007]],
+    rightInset: 72,
+  });
+  ProbePlots.drawSecondary(canvas, 'current-loss', betaEnvelope, [0, 10], null, {
+    yDomain: ProbePlots.secondaryYDomain('current-loss', betaEnvelope, null),
+    rightInset: 72,
+    axisOffset: 0,
+    seriesIndex: 2,
+  });
+  ProbePlots.drawSecondary(canvas, 'rel-beta', betaEnvelope, [0, 10], null, {
+    yDomain: ProbePlots.secondaryYDomain('rel-beta', betaEnvelope, null),
+    rightInset: 72,
+    axisOffset: 36,
+    seriesIndex: 3,
+  });
+  const tertiaryTrace = events.paths.find(event => event.strokeStyle === '#5de6ff'
+    && event.path.length >= 2 && event.path[0].x !== event.path[1].x);
+  const tertiaryAxis = events.paths.find(event => event.strokeStyle === '#5de6ff'
+    && event.path.length === 2 && event.path[0].x === event.path[1].x);
+  check(!!tertiaryTrace, 'the third channel has its own cyan tactical trace');
+  check(tertiaryAxis?.path[0].x > Math.max(...tertiaryTrace.path.map(point => point.x)),
+    'the third channel receives a separate outer y-axis');
+  check(events.text.some(event => event.text === '3·Beam β'
+    && event.fillStyle === '#5de6ff'),
+  'the third-channel legend is numbered and color matched');
+}
+
 console.log('\n--- Designer controls ---');
 {
   const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const controller = fs.readFileSync(new URL('../src/ui/BeamlineDesigner.js', import.meta.url), 'utf8');
   const renderer = fs.readFileSync(new URL('../src/renderer/designer-renderer.js', import.meta.url), 'utf8');
-  const selectors = html.match(/class="dsgn-plot-secondary-select"/g) || [];
-  check(selectors.length === 3, 'each plot panel has a second dropdown');
-  check((html.match(/\+ Add second plot/g) || []).length === 3,
-    'each secondary dropdown defaults to no overlay');
+  const secondarySelectors = html.match(/class="dsgn-plot-secondary-select"/g) || [];
+  const tertiarySelectors = html.match(/class="dsgn-plot-tertiary-select"/g) || [];
+  check(secondarySelectors.length === 2 && tertiarySelectors.length === 2,
+    'both distance panels expose second and third channel dropdowns');
+  check(html.includes('<option value="energy" selected>Energy</option>')
+    && html.includes('<option value="current-loss" selected>Beam Current</option>')
+    && html.includes('<option value="rel-beta" selected>Beam &beta;</option>'),
+  'the left panel defaults to Energy, Current, and Beam beta');
+  check(html.includes('<option value="beam-envelope" selected>Beam Envelope</option>')
+    && html.includes('<option value="emittance" selected>Emittance</option>'),
+  'the middle panel defaults to Envelope, Emittance, and Current');
+  check(html.includes('Fixed radar plot for panel 3')
+    && html.includes('E / I / &epsilon; Radar // Locked'),
+  'the right radar is fixed and has no overlay selectors');
   check(html.includes('Secondary plot for panel 1')
-    && html.includes('Secondary plot for panel 3'),
-  'secondary selectors have panel-specific accessible labels');
+    && html.includes('Third plot for panel 2'),
+  'overlay selectors have channel- and panel-specific accessible labels');
   check(controller.includes("canvas.addEventListener('mousemove'")
     && controller.includes("canvas.addEventListener('mouseleave'"),
   'designer canvases track and clear pointer positions for hover readouts');
-  check(renderer.includes('ProbePlots.drawCursor(off, plotType, solid, xRange'),
-    'the renderer composes the cursor readout after primary and secondary lines');
+  check(controller.includes('.dsgn-plot-tertiary-select'),
+    'third-channel selectors trigger a plot redraw');
+  check(renderer.includes('ProbePlots.drawCursor(off, plotType, solid, xRange')
+    && renderer.includes('overlays: overlays.map'),
+  'the renderer composes the cursor readout after all active channels');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -61,6 +61,8 @@ test('mission targets annotate performance plots without changing their scale', 
       plotTypes: [...document.querySelectorAll('.dsgn-plot-select')].map(select => select.value),
       secondaryPlotTypes: [...document.querySelectorAll('.dsgn-plot-secondary-select')]
         .map(select => select.value),
+      tertiaryPlotTypes: [...document.querySelectorAll('.dsgn-plot-tertiary-select')]
+        .map(select => select.value),
       secondaryPlotOptions: [...(document.querySelector('.dsgn-plot-secondary-select')?.options || [])]
         .map(option => option.textContent.trim()),
       plotPanels: panels.length,
@@ -86,10 +88,11 @@ test('mission targets annotate performance plots without changing their scale', 
   expect(layout.largePanel, 'the oversized mission panel is gone').toBe(false);
   expect(layout.greenMap, 'the separate green target map is gone').toBe(false);
   expect(layout.plotPanels, 'three plots share the performance row').toBe(3);
-  expect(layout.plotTypes).toEqual(['energy-dispersion', 'emittance', 'eic-triangle']);
-  expect(layout.secondaryPlotTypes).toEqual(['none', 'none', 'none']);
+  expect(layout.plotTypes).toEqual(['energy', 'beam-envelope', 'eic-triangle']);
+  expect(layout.secondaryPlotTypes).toEqual(['current-loss', 'emittance']);
+  expect(layout.tertiaryPlotTypes).toEqual(['rel-beta', 'current-loss']);
   expect(layout.secondaryPlotOptions).toEqual([
-    '+ Add second plot', 'Energy', 'Dispersion', 'Beam Envelope',
+    'CH-2 // None', 'Energy', 'Dispersion', 'Beam β', 'Beam Envelope',
     'Beam Current', 'Emittance', 'Peak Current',
   ]);
   expect(new Set(layout.plotRects.map(rect => rect.top)).size,
@@ -150,15 +153,15 @@ test('mission targets annotate performance plots without changing their scale', 
     }
     return { calls, targetLabels };
   });
-  const energyCall = plotCalls.calls.find(call => call.type === 'energy-dispersion');
-  const emittanceCall = plotCalls.calls.find(call => call.type === 'emittance');
+  const energyCall = plotCalls.calls.find(call => call.type === 'energy');
+  const radarCall = plotCalls.calls.find(call => call.type === 'eic-triangle');
   expect(energyCall?.targets?.energyGeV).toEqual([0.003, 0.012]);
   expect(energyCall?.targetYDomain?.[0]).toEqual([0.003, 0.012]);
   expect(energyCall?.yAxisMode).toBe('linear');
   expect(energyCall?.yDomain?.[0]?.[0]).toBeCloseTo(0.000046, 8);
   expect(energyCall?.yDomain?.[0]?.[1]).toBeCloseTo(0.000054, 8);
-  expect(emittanceCall?.targetYDomain).toBeNull();
-  expect(plotCalls.targetLabels).toContain('↑ TARGET 3.00 MeV–12.0 MeV');
+  expect(radarCall?.targetYDomain).toBeNull();
+  expect(plotCalls.targetLabels).toContain('ENERGY TARGET 3.00 MeV–12.0 MeV');
 
   const overlay = await page.evaluate(async () => {
     const { ProbePlots } = await import('/src/ui/probe-plots.js');
@@ -179,12 +182,13 @@ test('mission targets annotate performance plots without changing their scale', 
     return { value: select.value, calls };
   });
   expect(overlay.value).toBe('current-loss');
-  expect(overlay.calls.length, 'the selected second quantity is composited').toBe(1);
-  expect(overlay.calls[0].type).toBe('current-loss');
-  expect(overlay.calls[0].xRange, 'the overlay shares the panel distance window')
+  const leftCurrentOverlay = overlay.calls.find(call => call.type === 'current-loss'
+    && call.rightInset === 72 && call.axisOffset === 0);
+  expect(leftCurrentOverlay, 'the selected second quantity is composited').toBeTruthy();
+  expect(leftCurrentOverlay.xRange, 'the overlay shares the panel distance window')
     .toEqual(energyCall?.xRange);
-  expect(overlay.calls[0].rightInset).toBe(66);
-  expect(overlay.calls[0].axisOffset).toBe(30);
+  expect(leftCurrentOverlay.rightInset).toBe(72);
+  expect(leftCurrentOverlay.axisOffset).toBe(0);
 
   // The reference and axis mode are independent controls. Hiding the mission
   // reference removes its guides and edge annotations, while Log is forwarded

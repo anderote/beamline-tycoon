@@ -1052,7 +1052,9 @@ BeamlineDesigner.prototype._renderPlots = function() {
   const panels = document.querySelectorAll('.dsgn-plot-panel');
   panels.forEach((panel) => {
     const select = panel.querySelector('.dsgn-plot-select');
-    const secondarySelect = panel.querySelector('.dsgn-plot-secondary-select');
+    const overlaySelects = [...panel.querySelectorAll(
+      '.dsgn-plot-secondary-select, .dsgn-plot-tertiary-select'
+    )];
     const canvas = panel.querySelector('.dsgn-plot-canvas');
     if (!select || !canvas) return;
 
@@ -1063,26 +1065,47 @@ BeamlineDesigner.prototype._renderPlots = function() {
 
     const plotType = select.value;
     const distancePlot = ProbePlots.isDistancePlot(plotType);
-    if (secondarySelect) {
-      secondarySelect.disabled = !distancePlot;
-      secondarySelect.title = distancePlot
-        ? 'Add a second quantity with its own right-side y-axis'
-        : 'This plot has no beamline-distance x-axis to share';
-      for (const option of secondarySelect.options) {
-        option.disabled = option.value !== 'none' && option.value === plotType;
+    panel.classList.toggle('dsgn-plot-panel--geometric', !distancePlot);
+
+    // Sanitize the two optional channels in order, then disable duplicates in
+    // each selector. Every active channel gets its own scale but shares the
+    // primary plot's physical distance pixels.
+    const usedTypes = new Set([plotType]);
+    for (const overlaySelect of overlaySelects) {
+      overlaySelect.disabled = !distancePlot;
+      overlaySelect.title = distancePlot
+        ? 'Overlay another quantity with an independent right-side y-axis'
+        : 'Geometric plots are single-vector displays';
+      if (!distancePlot || (overlaySelect.value !== 'none' && usedTypes.has(overlaySelect.value))) {
+        overlaySelect.value = 'none';
       }
-      if (!distancePlot || secondarySelect.selectedOptions[0]?.disabled) {
-        secondarySelect.value = 'none';
+      if (overlaySelect.value !== 'none') usedTypes.add(overlaySelect.value);
+    }
+    for (const overlaySelect of overlaySelects) {
+      const otherTypes = new Set([plotType]);
+      for (const other of overlaySelects) {
+        if (other !== overlaySelect && other.value !== 'none') otherTypes.add(other.value);
+      }
+      for (const option of overlaySelect.options) {
+        option.disabled = option.value !== 'none' && otherTypes.has(option.value);
       }
     }
-    const secondaryType = secondarySelect?.value || 'none';
-    const hasSecondary = distancePlot && secondaryType !== 'none';
+    const overlays = distancePlot
+      ? overlaySelects
+        .map((overlaySelect, index) => ({
+          type: overlaySelect.value,
+          seriesIndex: overlaySelect.classList.contains('dsgn-plot-tertiary-select') ? 3 : 2,
+          axisSlot: index,
+        }))
+        .filter(overlay => overlay.type !== overlaySelects[0]?.options[0]?.value)
+        .map((overlay, axisSlot) => ({ ...overlay, axisSlot }))
+      : [];
     const hover = this._plotHoverPositions?.get(canvas.dataset.panel || '0') || null;
     const primaryRightInset = plotType === 'energy-dispersion'
       ? ENERGY_RIGHT_AXIS_INSET
       : 0;
     const rightInset = primaryRightInset
-      + (hasSecondary ? SECONDARY_RIGHT_AXIS_INSET : 0);
+      + overlays.length * SECONDARY_RIGHT_AXIS_INSET;
 
     // Render to a small offscreen canvas
     const off = document.createElement('canvas');
@@ -1102,37 +1125,41 @@ BeamlineDesigner.prototype._renderPlots = function() {
       );
       const targetDomain = ProbePlots.targetYDomain(plotType, targets);
       const targetBand = targetDomain?.[0] || null;
-      const secondaryDomainChannels = hasSecondary
-        ? ProbePlots.unionYDomain(
-          ProbePlots.secondaryYDomain(secondaryType, solid, yScale),
-          ghost ? ProbePlots.secondaryYDomain(secondaryType, ghost, yScale) : null,
-        )
-        : null;
-      const secondaryDomain = secondaryDomainChannels?.[0] || null;
+      for (const overlay of overlays) {
+        const domainChannels = ProbePlots.unionYDomain(
+          ProbePlots.secondaryYDomain(overlay.type, solid, yScale),
+          ghost ? ProbePlots.secondaryYDomain(overlay.type, ghost, yScale) : null,
+        );
+        overlay.domain = domainChannels?.[0] || null;
+      }
       // Ghost first: it draws marks only, so the solid pass on top supplies the
       // axes, bands, pin lines and legend. Reversed, the chrome would paint over
       // the proposal and the as-built line would read as the real one.
       if (ghost) {
         ProbePlots.draw(off, plotType, ghost, pins, 0, xRange, yScale,
           { yDomain, targetBand, ghost: true, targets, yAxisMode, rightInset });
-        if (secondaryDomain) {
-          ProbePlots.drawSecondary(off, secondaryType, ghost, xRange, yScale, {
-            yDomain: secondaryDomain,
+        for (const overlay of overlays) {
+          if (!overlay.domain) continue;
+          ProbePlots.drawSecondary(off, overlay.type, ghost, xRange, yScale, {
+            yDomain: overlay.domain,
             ghost: true,
             yAxisMode,
             rightInset,
-            axisOffset: primaryRightInset,
+            axisOffset: primaryRightInset + overlay.axisSlot * SECONDARY_RIGHT_AXIS_INSET,
+            seriesIndex: overlay.seriesIndex,
           });
         }
       }
       ProbePlots.draw(off, plotType, solid, pins, 0, xRange, yScale,
         { yDomain, targetBand, noClear: !!ghost, targets, yAxisMode, rightInset });
-      if (secondaryDomain) {
-        ProbePlots.drawSecondary(off, secondaryType, solid, xRange, yScale, {
-          yDomain: secondaryDomain,
+      for (const overlay of overlays) {
+        if (!overlay.domain) continue;
+        ProbePlots.drawSecondary(off, overlay.type, solid, xRange, yScale, {
+          yDomain: overlay.domain,
           yAxisMode,
           rightInset,
-          axisOffset: primaryRightInset,
+          axisOffset: primaryRightInset + overlay.axisSlot * SECONDARY_RIGHT_AXIS_INSET,
+          seriesIndex: overlay.seriesIndex,
         });
       }
       if (hover && distancePlot) {
@@ -1140,8 +1167,11 @@ BeamlineDesigner.prototype._renderPlots = function() {
           cursorX: hover.x * plotW,
           cursorY: hover.y * plotH,
           yDomain,
-          secondaryType: hasSecondary ? secondaryType : null,
-          secondaryDomain,
+          overlays: overlays.map(overlay => ({
+            type: overlay.type,
+            domain: overlay.domain,
+            seriesIndex: overlay.seriesIndex,
+          })),
           ghostEnvelope: ghost,
           solidLabel: source === 'current' ? 'C' : 'P',
           ghostLabel: 'C',

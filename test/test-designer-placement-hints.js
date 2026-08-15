@@ -201,6 +201,8 @@ console.log('7. mission bands feed the relevant plots');
   check('energy target is retained', targets.energyGeV[0] === 0.07 && targets.energyGeV[1] === 0.25);
   check('energy plot gets a two-channel target domain',
     ProbePlots.targetYDomain('energy-dispersion', targets)?.[0]?.[1] === 0.25);
+  check('the atomic energy plot gets the same target domain',
+    ProbePlots.targetYDomain('energy', targets)?.[0]?.[0] === 0.07);
   check('envelope plot gets the spot-size band',
     ProbePlots.targetYDomain('beam-envelope', targets)?.[0]?.[0] === 5);
   check('current plot gets the mission-current band',
