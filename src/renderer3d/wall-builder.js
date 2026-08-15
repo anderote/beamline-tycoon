@@ -12,7 +12,9 @@
 // simpler shared _buildOpeningSurround — which is also the only caller that
 // needs the "below" band (bottom = sillHeight; nothing sits below a doorway).
 
-import { WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, WINDOW_WIDTH_FRAC } from '../data/structure.js';
+import {
+  WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, WINDOW_WIDTH_FRAC, windowOpeningHeight,
+} from '../data/structure.js';
 import { MATERIALS } from './materials/index.js';
 import { applyTiledBoxUVs } from './uv-utils.js';
 import { contentKey } from './content-hash.js';
@@ -875,8 +877,10 @@ export class WallBuilder {
       // (wallHeight >= sill + opening + 1), but clamp anyway so a window
       // left behind by a wall swap degrades instead of poking out the top.
       const openingBottom = def.sillHeight * HEIGHT_SCALE;
+      const wallHeightData = wallDef?.wallHeight ?? 14;
+      const resolvedOpeningHeight = windowOpeningHeight(def, wallHeightData);
       const openingTop = Math.min(
-        (def.sillHeight + def.openingHeight) * HEIGHT_SCALE,
+        (def.sillHeight + resolvedOpeningHeight) * HEIGHT_SCALE,
         wallHeight
       );
       const openingHeight = openingTop - openingBottom;
@@ -950,14 +954,15 @@ export class WallBuilder {
         addBar(sign * (halfOpening - frameW / 2), jambY, frameW, jambH, frameDepth);
       }
 
-      // industrialSash: a 3x2 grid of panes — two vertical mullions, one
-      // horizontal transom.
+      // industrialSash: a 3x3 grid of tall factory panes — two vertical
+      // mullions and two horizontal transoms.
       if (def.id === 'industrialSash') {
         const mullionDepth = Math.max(frameDepth * 0.7, GLASS_THICKNESS * 2);
         for (const k of [-1, 1]) {
           addBar(k * openingWidth / 6, jambY, WINDOW_MULLION_W, jambH, mullionDepth);
+          addBar(0, jambY + k * openingHeight / 6,
+            openingWidth - 2 * frameW, WINDOW_MULLION_W, mullionDepth);
         }
-        addBar(0, jambY, openingWidth - 2 * frameW, WINDOW_MULLION_W, mullionDepth);
       }
 
       // --- Glass ---
