@@ -90,6 +90,7 @@ import {
   faceZoneLabels,
   resolveLabelOverlaps,
 } from './zone-label.js';
+import { pickWithScreenTolerance } from './screen-picking.js';
 
 // Closest the camera may get. Detail meshes (userData.lod === 'detail') switch
 // on at zoom 2.0, so anything above that is inside the high-detail band.
@@ -993,27 +994,32 @@ export class ThreeRenderer {
   /**
    * Raycast from a screen position into the 3D scene.
    * Returns the first intersected mesh (skipping preview/terrain/grid),
-   * or null if nothing is hit.
+   * or null if nothing is hit. `tolerancePx` adds a small screen-space margin
+   * after an exact miss, which makes thin/open-frame objects easier to click
+   * without changing which object wins an exact hit.
    */
-  raycastScreen(screenX, screenY) {
+  raycastScreen(screenX, screenY, tolerancePx = 0) {
     if (!this.renderer || !this.camera) return null;
-    const { raycaster } = this._screenRay(screenX, screenY);
     // Decorations are demolishable/movable placeables, so they must be in the
     // target set — identifyHit already resolves decorationGroup, but without
     // this the decoration branch downstream is unreachable.
     const targets = [this.componentGroup, this.equipmentGroup, this.decorationGroup, this.connectionGroup, this.wallGroup, this.beamPipeGroup, this.pipeAttachmentGroup];
-    const all = [];
-    for (const g of targets) {
-      if (g) all.push(...raycaster.intersectObjects(g.children, true));
-    }
-    all.sort((a, b) => a.distance - b.distance);
     // When walls are not fully opaque, skip wall hits so objects behind them are selectable
     const wallsClickable = this.wallVisibilityMode === 'up';
-    if (!wallsClickable) {
-      const hit = all.find(h => !this._isInGroup(h.object, this.wallGroup));
-      return hit || null;
-    }
-    return all.length > 0 ? all[0] : null;
+    const castAt = (x, y) => {
+      const { raycaster } = this._screenRay(x, y);
+      const all = [];
+      for (const g of targets) {
+        if (g) all.push(...raycaster.intersectObjects(g.children, true));
+      }
+      all.sort((a, b) => a.distance - b.distance);
+      if (!wallsClickable) {
+        return all.find(h => !this._isInGroup(h.object, this.wallGroup)) || null;
+      }
+      return all[0] || null;
+    };
+
+    return pickWithScreenTolerance(screenX, screenY, tolerancePx, castAt);
   }
 
   /** Check if a mesh belongs to a given parent group */
