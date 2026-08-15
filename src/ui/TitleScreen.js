@@ -119,7 +119,7 @@ export class TitleScreen {
     this.loadingEl.textContent = 'CLICK TO CONTINUE';
     const loadingSub = document.createElement('div');
     loadingSub.className = 'title-loading-sub';
-    loadingSub.textContent = 'press to begin · music muted';
+    loadingSub.textContent = 'press to begin · music on';
     this.loadingEl.appendChild(loadingSub);
     this._onLoadingClick = (e) => {
       // The speaker lives inside the picture, so it shares this listener — and
@@ -206,7 +206,7 @@ export class TitleScreen {
     // laid over it as a DOM button, so it bends with the glass and takes the
     // scanlines like everything else on the tube. Hit-testing therefore runs
     // through the same warp — see _hitMute.
-    this._muted = true;
+    this._muted = false;
     this._muteHot = false;
 
     document.body.appendChild(this.el);
