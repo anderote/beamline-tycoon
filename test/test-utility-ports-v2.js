@@ -186,6 +186,8 @@ console.log('\n--- Test 9: RF source bands & ladder ---');
     `ecrIonSource rf_in frequency === 2.45e9 Hz (got ${ecr.rf_in.params.frequency})`);
   assert(ecr.rf_in.params.band === 'sband',
     `ecrIonSource rf_in lands in sband (got ${ecr.rf_in.params.band})`);
+  assert(ecr.rf_in.params.demand === 6,
+    `ecrIonSource rf_in is sized for its 6 kW high-current setting (got ${ecr.rf_in.params.demand})`);
 
   const ssa = getUtilityPortsV2('solidStateAmp');
   const ssaOutlets = Object.values(ssa).filter(port => port.role === 'source'
