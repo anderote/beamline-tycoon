@@ -270,17 +270,6 @@
       </div>
       <div class="dsgn-body">
         <div class="dsgn-section-title">Beamline Performance</div>
-        <section class="dsgn-mission-panel" id="dsgn-mission-panel" aria-label="Beamline mission targets">
-          <div class="dsgn-mission-copy">
-            <span class="dsgn-mission-kicker" id="dsgn-mission-kicker">MISSION TARGET</span>
-            <strong class="dsgn-mission-title" id="dsgn-mission-title">Choose a beamline type</strong>
-            <div class="dsgn-mission-metrics" id="dsgn-mission-metrics"></div>
-            <div class="dsgn-mission-equation" id="dsgn-mission-equation"></div>
-          </div>
-          <div class="dsgn-mission-map-wrap">
-            <canvas id="dsgn-mission-map" aria-label="Energy and current target map"></canvas>
-          </div>
-        </section>
         <div class="dsgn-plot-range-bar">
           <span class="dsgn-range-label">X:</span>
           <button class="dsgn-range-btn dsgn-xrange-btn active" data-range="full">Full</button>
@@ -303,14 +292,16 @@
             <button class="dsgn-range-btn dsgn-source-btn" data-source="current">Current</button>
             <button class="dsgn-range-btn dsgn-source-btn" data-source="both">Both</button>
           </span>
+          <span class="dsgn-plot-mission-summary" id="dsgn-plot-mission-summary"
+                aria-label="Beamline mission targets"></span>
         </div>
         <div class="dsgn-plots-row">
           <div class="dsgn-plot-panel">
             <select class="dsgn-plot-select" data-panel="0">
-              <option value="beam-envelope" selected>Beam Envelope</option>
+              <option value="energy-dispersion" selected>Energy &amp; Dispersion</option>
+              <option value="beam-envelope">Beam Envelope</option>
               <option value="current-loss">Current &amp; Loss</option>
               <option value="emittance">Emittance</option>
-              <option value="energy-dispersion">Energy &amp; Dispersion</option>
               <option value="peak-current">Peak Current</option>
               <option value="phase-space">Phase Space</option>
               <option value="longitudinal">Longitudinal PS</option>
@@ -320,9 +311,9 @@
           </div>
           <div class="dsgn-plot-panel">
             <select class="dsgn-plot-select" data-panel="1">
+              <option value="emittance" selected>Emittance</option>
               <option value="beam-envelope">Beam Envelope</option>
               <option value="current-loss">Current &amp; Loss</option>
-              <option value="emittance" selected>Emittance</option>
               <option value="energy-dispersion">Energy &amp; Dispersion</option>
               <option value="peak-current">Peak Current</option>
               <option value="phase-space">Phase Space</option>
@@ -330,19 +321,6 @@
               <option value="eic-triangle">E / I / &epsilon; Triangle</option>
             </select>
             <canvas class="dsgn-plot-canvas" data-panel="1"></canvas>
-          </div>
-          <div class="dsgn-plot-panel">
-            <select class="dsgn-plot-select" data-panel="2">
-              <option value="beam-envelope">Beam Envelope</option>
-              <option value="current-loss">Current &amp; Loss</option>
-              <option value="emittance">Emittance</option>
-              <option value="energy-dispersion">Energy &amp; Dispersion</option>
-              <option value="peak-current">Peak Current</option>
-              <option value="phase-space">Phase Space</option>
-              <option value="longitudinal">Longitudinal PS</option>
-              <option value="eic-triangle" selected>E / I / &epsilon; Triangle</option>
-            </select>
-            <canvas class="dsgn-plot-canvas" data-panel="2"></canvas>
           </div>
         </div>
         <div class="dsgn-section-title">

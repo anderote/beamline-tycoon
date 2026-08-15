@@ -11,13 +11,19 @@ export const ProbePlots = (() => {
    *  opts (all optional; omitting opts entirely === legacy single-pass behavior):
    *    yDomain  [lo, hi] — or [[lo, hi], ...] for multi-channel plots — overrides
    *             this pass's autoscale. Use yDomainFor()/unionYDomain() to build it.
+   *    targetBand [lo, hi] — draws a dashed mission target on the primary
+   *             y-axis. Either bound may be null for an open-ended target.
    *    noClear  skip the clear + background fill so this pass composites over the last.
    *    ghost    draw data marks only (no bands, axes, pin lines, legend or labels),
    *             dimmed and dashed, so the pass drawn on top of it reads first. */
   function draw(canvas, type, envelope, pins, activePin, xRange, yScale, opts) {
     const ctx = canvas.getContext('2d');
     if (!ctx || canvas.width < 10 || canvas.height < 10) return;
-    const o = { ghost: !!(opts && opts.ghost), yd: null };
+    const o = {
+      ghost: !!(opts && opts.ghost),
+      targetBand: opts && opts.targetBand,
+      yd: null,
+    };
     if (!(opts && opts.noClear)) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = 'rgba(5, 5, 20, 0.6)';
@@ -77,7 +83,13 @@ export const ProbePlots = (() => {
       }
     }
     if (!isFinite(lo)) { lo = 0; hi = 1; }
-    if (lo === hi) { lo -= 0.5; hi += 0.5; }
+    if (lo === hi) {
+      // A fixed 0.5-unit fallback turns a constant 50 keV beam into a roughly
+      // ±500 MeV chart (and tiny emittances into ±0.5 m·rad). Scale the padding
+      // to the value so flat traces and mission bands retain their real ratio.
+      const p = Math.max(Math.abs(lo) * 0.08, 1e-12);
+      return [lo - p, hi + p];
+    }
     const p = (hi - lo) * 0.08;
     return [lo - p, hi + p];
   }
@@ -233,6 +245,36 @@ export const ProbePlots = (() => {
     }
   }
 
+  function _drawTargetBand(ctx, area, band, yMin, yMax, scale = 1) {
+    if (!band || band.length !== 2 || !(yMax > yMin)) return;
+    const rawLo = band[0] == null ? yMin / scale : Number(band[0]);
+    const rawHi = band[1] == null ? yMax / scale : Number(band[1]);
+    if (!Number.isFinite(rawLo) || !Number.isFinite(rawHi)) return;
+    const lo = Math.max(yMin, Math.min(rawLo, rawHi) * scale);
+    const hi = Math.min(yMax, Math.max(rawLo, rawHi) * scale);
+    if (hi < lo) return;
+
+    const yTop = area.y + area.h - ((hi - yMin) / (yMax - yMin)) * area.h;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(102, 221, 146, 0.72)';
+    ctx.lineWidth = 0.75;
+    ctx.setLineDash([3, 3]);
+    for (const raw of band) {
+      if (raw == null || !Number.isFinite(Number(raw))) continue;
+      const value = Number(raw) * scale;
+      if (value < yMin || value > yMax) continue;
+      const y = area.y + area.h - ((value - yMin) / (yMax - yMin)) * area.h;
+      ctx.beginPath(); ctx.moveTo(area.x, y); ctx.lineTo(area.x + area.w, y); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(116, 235, 151, 0.85)';
+    ctx.font = '7px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText('TARGET', area.x + area.w - 3,
+      Math.max(area.y + 8, Math.min(area.y + area.h - 2, yTop + 8)));
+    ctx.restore();
+  }
+
   function _axes(ctx, a, xLbl, yLbl, yMin, yMax) {
     ctx.strokeStyle = 'rgba(60, 60, 100, 0.3)';
     ctx.lineWidth = 0.5;
@@ -373,7 +415,10 @@ export const ProbePlots = (() => {
     const [xMin, xMax] = xRange || _xRange(env);
     const ghost = o && o.ghost;
     const [yMin, yMax] = _chan(o, 0, [0, 1]);
-    if (!ghost) _axes(ctx, a, 's (m)', 'mA', yMin, yMax);
+    if (!ghost) {
+      _drawTargetBand(ctx, a, o && o.targetBand, yMin, yMax);
+      _axes(ctx, a, 's (m)', 'mA', yMin, yMax);
+    }
     // Shade loss regions
     for (let i = 1; !ghost && i < env.length; i++) {
       const prev = env[i - 1], curr = env[i];
@@ -431,6 +476,7 @@ export const ProbePlots = (() => {
       return;
     }
 
+    _drawTargetBand(ctx, aR, o && o.targetBand, eMin, eMax, eScale);
     _axesDual(ctx, aR, 's (m)', `E (${eUnit})`, eMin, eMax, '\u03b7_x (m)', dMin, dMax);
     _lineScaled(ctx, aR, env, 'energy', '#44dd88', xMin, xMax, eMin, eMax, false, eScale);
     _line(ctx, aR, env, 'eta_x', '#ff8844', xMin, xMax, dMin, dMax, true);

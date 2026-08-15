@@ -3441,6 +3441,48 @@ body {
   align-items: center;
   gap: 6px;
 }
+.dsgn-plot-mission-summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  font-family: monospace;
+  white-space: nowrap;
+}
+.dsgn-plot-mission-name {
+  overflow: hidden;
+  max-width: 190px;
+  color: #74b8d1;
+  font-size: 8px;
+  letter-spacing: .08em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+}
+.dsgn-plot-mission-metric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  min-width: 0;
+  padding: 1px 4px;
+  border-left: 2px solid #657b86;
+  background: rgba(255,255,255,.025);
+}
+.dsgn-plot-mission-metric.in { border-color: #55c982; }
+.dsgn-plot-mission-metric.out { border-color: #dc865b; }
+.dsgn-plot-mission-metric span {
+  color: #718996;
+  font-size: 7px;
+  text-transform: uppercase;
+}
+.dsgn-plot-mission-metric strong {
+  overflow: hidden;
+  color: #d8e5ea;
+  font-size: 8px;
+  text-overflow: ellipsis;
+}
+.dsgn-plot-mission-empty { color: #667681; font-size: 8px; }
 .dsgn-plots-row {
   flex: 0.8;
   min-height: 80px;
@@ -6555,47 +6597,4 @@ body {
   color: #8da6b4;
   background: rgba(41, 87, 109, .08);
   font-size: 11px;
-}
-
-/* Beamline-type objective map: a compact outcome layer above the existing
-   along-s diagnostic plots. */
-.dsgn-mission-panel {
-  display: grid;
-  grid-template-columns: minmax(320px, .9fr) minmax(360px, 1.3fr);
-  gap: 12px;
-  min-height: 132px;
-  margin: 0 14px 9px;
-  padding: 10px 12px;
-  border: 1px solid rgba(110, 149, 180, .28);
-  border-radius: 6px;
-  background: linear-gradient(115deg, rgba(20, 37, 53, .94), rgba(10, 17, 25, .92));
-  box-shadow: inset 0 1px rgba(255,255,255,.035);
-}
-.dsgn-mission-panel.untyped { grid-template-columns: 1fr; min-height: 70px; }
-.dsgn-mission-panel.untyped .dsgn-mission-map-wrap { display: none; }
-.dsgn-mission-copy { display: flex; flex-direction: column; min-width: 0; }
-.dsgn-mission-kicker { color: #6aaecb; font-size: 8px; letter-spacing: .16em; }
-.dsgn-mission-title { margin-top: 2px; color: #edf5f8; font-size: 13px; }
-.dsgn-mission-metrics { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 4px 9px; margin-top: 8px; }
-.dsgn-mission-metric {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-  padding: 3px 5px;
-  border-left: 2px solid #657b86;
-  background: rgba(255,255,255,.025);
-}
-.dsgn-mission-metric.in { border-color: #55c982; }
-.dsgn-mission-metric.out { border-color: #dc865b; }
-.dsgn-mission-metric span { color: #78909b; font-size: 8px; text-transform: uppercase; }
-.dsgn-mission-metric strong { overflow: hidden; color: #dbe7ec; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.dsgn-mission-equation { margin-top: auto; padding-top: 6px; color: #8aa1ac; font-size: 9px; }
-.dsgn-mission-equation strong { color: #9fe1b4; }
-.dsgn-mission-map-wrap { position: relative; min-height: 112px; }
-#dsgn-mission-map { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
-@media (max-width: 920px) {
-  .dsgn-mission-panel { grid-template-columns: 1fr; }
-  .dsgn-mission-map-wrap { min-height: 128px; }
 }
