@@ -1,6 +1,9 @@
 // test/test-screen-picking.js — forgiving object clicks without ambiguity.
 
-import { pickWithScreenTolerance } from '../src/renderer3d/screen-picking.js';
+import {
+  isVisiblePickObject,
+  pickWithScreenTolerance,
+} from '../src/renderer3d/screen-picking.js';
 
 let passed = 0;
 let failed = 0;
@@ -66,6 +69,19 @@ console.log('\n--- Screen-space object picking ---');
   });
   assert(got === null, 'a disabled tolerance preserves an exact miss');
   assert(calls === 1, 'disabled tolerance performs only the exact raycast');
+}
+
+{
+  const visibleMesh = { visible: true, material: { visible: true }, parent: null };
+  const hiddenProxy = { visible: true, material: { visible: false }, parent: null };
+  assert(isVisiblePickObject(visibleMesh), 'rendered geometry participates in picking');
+  assert(!isVisiblePickObject(hiddenProxy), 'an invisible proxy cannot capture a ground click');
+}
+
+{
+  const hiddenGroup = { visible: false, parent: null };
+  const child = { visible: true, material: { visible: true }, parent: hiddenGroup };
+  assert(!isVisiblePickObject(child), 'geometry below a hidden parent is not pickable');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -22,6 +22,28 @@ const SAMPLE_RINGS = [
 ];
 
 /**
+ * Whether a raycast intersection belongs to geometry that is actually drawn.
+ *
+ * Three.js still reports intersections for meshes whose material is hidden.
+ * We use those meshes as broad construction proxies in a few builders, but
+ * letting them participate in normal picking makes their projected top and
+ * side faces selectable well beyond the visible model in an isometric view.
+ */
+export function isVisiblePickObject(object) {
+  if (!object) return false;
+
+  // A hidden ancestor also makes the mesh absent from the rendered scene.
+  for (let current = object; current; current = current.parent) {
+    if (current.visible === false) return false;
+  }
+
+  const materials = Array.isArray(object.material)
+    ? object.material
+    : (object.material ? [object.material] : []);
+  return materials.length === 0 || materials.some(material => material?.visible !== false);
+}
+
+/**
  * Run an exact screen pick, then retry within `tolerancePx` if it missed.
  * The nearest sample ring wins; hits within a ring are ordered by camera
  * distance so overlapping objects retain normal front-to-back behavior.

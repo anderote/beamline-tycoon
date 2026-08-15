@@ -670,12 +670,13 @@ export class InputHandler {
     return null;
   }
 
-  /**
-   * Find a beamline node by raycasting the 3D scene first, then falling back to tile lookup.
-   */
+  /** Find the beamline node represented by visible projected geometry. */
   _getNodeAtScreenOrGrid(screenX, screenY, col, row) {
-    // Try 3D raycast first (picks the visible object under the cursor)
-    if (this.renderer.raycastScreen) {
+    // In the real renderer a miss means the cursor is on visible ground. Do
+    // not turn that miss into a hit merely because the ground tile is part of
+    // a component's rectangular footprint. The grid lookup remains only as a
+    // compatibility path for non-rendering test/legacy harnesses.
+    if (typeof this.renderer.raycastScreen === 'function') {
       const hit = this.renderer.raycastScreen(screenX, screenY, OBJECT_PICK_TOLERANCE_PX);
       if (hit) {
         const info = this.renderer.identifyHit(hit);
@@ -697,8 +698,8 @@ export class InputHandler {
           }
         }
       }
+      return null;
     }
-    // Fallback to tile-based lookup
     return this._getNodeAtGrid(col, row);
   }
 
@@ -760,14 +761,20 @@ export class InputHandler {
   }
 
   /** Resolve the visible placeable under a normal canvas click. */
-  _selectPlaceableAt(world, grid, screenX, screenY, { additive = false } = {}) {
-    const target = this._findDeletablePlaceable(world, grid, screenX, screenY,
-      new Set(['beamline', 'infrastructure', 'equipment', 'furnishing', 'decoration']));
-    const entry = target?.node || target?.entry || null;
+  _selectPlaceableAt(_world, _grid, screenX, screenY, { additive = false } = {}) {
+    const hit = this.renderer.raycastScreen?.(screenX, screenY, OBJECT_PICK_TOLERANCE_PX);
+    const info = hit ? this.renderer.identifyHit?.(hit) : null;
+    // Rendered placeable wrappers carry their stable state id. Deliberately do
+    // not infer an owner from root position or ground occupancy here: those
+    // substitutions are not perspective-aware and can select a nearby object
+    // whose mesh the cursor never touched.
+    const entry = info?.nodeId != null
+      ? this.game.getPlaceable(info.nodeId)
+      : null;
     if (!entry) return false;
     return this._selectPlaceable(
       entry,
-      target.rootObj || this._selectionRootAt(screenX, screenY),
+      info.rootObj || null,
       { additive },
     );
   }
@@ -3185,37 +3192,19 @@ export class InputHandler {
   }
 
   _pickUpAt(col, row, screenX, screenY) {
-    // Beamline component (moved on placement so attached beam pipes get
-    // rebuilt via _deriveBeamGraph).
-    const node = this._getNodeAtGrid(col, row);
-    if (node) {
-      const comp = COMPONENTS[node.type];
-      this._showToast(`Moving ${comp ? comp.name : node.type}`);
-      return {
-        kind: 'component',
-        nodeId: node.id,
-        type: node.type,
-        dir: node.dir || 0,
-        originCol: node.col,
-        originRow: node.row,
-      };
-    }
-
-    // Unified placeables (equipment, furnishing, decoration, infrastructure).
-    // Use the 3D raycast when available so the hit matches what the user
-    // sees; fall back to subgrid lookup at the cursor tile center.
+    // Resolve the visible mesh first. With a real renderer, a ray miss is an
+    // intentional ground click and must stay a miss even when that ground is
+    // inside a large component's tile/subtile footprint.
     let hitEntry = null;
-    const hit = this.renderer.raycastScreen?.(screenX, screenY, OBJECT_PICK_TOLERANCE_PX);
-    const info = hit ? this.renderer.identifyHit?.(hit) : null;
-    if (info?.nodeId) hitEntry = this.game.getPlaceable(info.nodeId);
-    const world = this.renderer.screenToWorld
-      ? this.renderer.screenToWorld(screenX, screenY)
-      : null;
-    if (!hitEntry && world && typeof this._placeableAtWorldPos === 'function') {
-      hitEntry = this._placeableAtWorldPos(world.x, world.y);
-    }
-    if (!hitEntry) {
-      // Fallback: scan a few subtile cells at the clicked tile center.
+    if (typeof this.renderer.raycastScreen === 'function') {
+      const hit = this.renderer.raycastScreen(screenX, screenY, OBJECT_PICK_TOLERANCE_PX);
+      const info = hit ? this.renderer.identifyHit?.(hit) : null;
+      if (info?.nodeId != null) hitEntry = this.game.getPlaceable(info.nodeId);
+      if (!hitEntry) return null;
+    } else {
+      // Compatibility for non-rendering harnesses: use the old footprint
+      // lookup only when no projected picking API exists at all.
+      hitEntry = this._getNodeAtGrid(col, row);
       for (let sr = 0; sr < 4 && !hitEntry; sr++) {
         for (let sc = 0; sc < 4 && !hitEntry; sc++) {
           const k = col + ',' + row + ',' + sc + ',' + sr;
@@ -3224,7 +3213,24 @@ export class InputHandler {
         }
       }
     }
-    if (hitEntry && hitEntry.kind !== 'beamline') {
+
+    const component = COMPONENTS[hitEntry.type];
+    const isBeamline = hitEntry.kind === 'beamline'
+      || hitEntry.category === 'beamline'
+      || component?.category === 'beamline';
+    if (isBeamline) {
+      this._showToast(`Moving ${component ? component.name : hitEntry.type}`);
+      return {
+        kind: 'component',
+        nodeId: hitEntry.id,
+        type: hitEntry.type,
+        dir: hitEntry.dir || 0,
+        originCol: hitEntry.col,
+        originRow: hitEntry.row,
+      };
+    }
+
+    if (hitEntry) {
       const snap = this.game._withUndo(() => this.game.liftPlaceable(hitEntry.id));
       if (!snap) return null;
       const def = PLACEABLES[snap.type];

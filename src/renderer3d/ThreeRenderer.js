@@ -90,7 +90,7 @@ import {
   faceZoneLabels,
   resolveLabelOverlaps,
 } from './zone-label.js';
-import { pickWithScreenTolerance } from './screen-picking.js';
+import { isVisiblePickObject, pickWithScreenTolerance } from './screen-picking.js';
 
 // Closest the camera may get. Detail meshes (userData.lod === 'detail') switch
 // on at zoom 2.0, so anything above that is inside the high-detail band.
@@ -993,7 +993,8 @@ export class ThreeRenderer {
 
   /**
    * Raycast from a screen position into the 3D scene.
-   * Returns the first intersected mesh (skipping preview/terrain/grid),
+   * Returns the first intersected visible mesh (skipping preview/terrain/grid
+   * and broad invisible construction hitboxes),
    * or null if nothing is hit. `tolerancePx` adds a small screen-space margin
    * after an exact miss, which makes thin/open-frame objects easier to click
    * without changing which object wins an exact hit.
@@ -1013,10 +1014,10 @@ export class ThreeRenderer {
         if (g) all.push(...raycaster.intersectObjects(g.children, true));
       }
       all.sort((a, b) => a.distance - b.distance);
-      if (!wallsClickable) {
-        return all.find(h => !this._isInGroup(h.object, this.wallGroup)) || null;
-      }
-      return all[0] || null;
+      return all.find(h => (
+        isVisiblePickObject(h.object)
+        && (wallsClickable || !this._isInGroup(h.object, this.wallGroup))
+      )) || null;
     };
 
     return pickWithScreenTolerance(screenX, screenY, tolerancePx, castAt);
