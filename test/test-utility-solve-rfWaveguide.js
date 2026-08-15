@@ -7,6 +7,8 @@
 // soft rf_frequency_mismatch, too few of them means a soft rf_overload.
 
 import desc, { RF_BANDS, bandForFrequencyHz, RF_BRANCH_REFLECTION_PER_JUNCTION } from '../src/utility/types/rfWaveguide.js';
+import { renderRfSpectrum } from '../src/ui/rf-spectrum.js';
+import { utilityInspectorTabs } from '../src/ui/UtilityInspector.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -26,6 +28,8 @@ function mkNetwork(overrides) {
     ...overrides,
   };
 }
+
+let splitFlow = null;
 
 // ==========================================================================
 // Test 1: empty.
@@ -54,6 +58,11 @@ console.log('\n--- Band match: one source feeds many same-frequency sinks ---');
   assert(r.errors.length === 0, `no errors (got ${r.errors.length})`);
   assert(r.flowState.totalCapacity === 300, 'totalCapacity 300');
   assert(r.flowState.totalDemand === 120, 'totalDemand 120');
+  assert(r.flowState.rfSpectrum.carrierFrequencyHz === 1300e6,
+    'spectrum publishes the selected carrier');
+  assert(r.flowState.rfSpectrum.bins.length === 1
+      && r.flowState.rfSpectrum.bins[0].deliveredPeakPowerW === 300e3,
+    'spectrum publishes one 300 kW peak at the carried frequency');
 }
 
 console.log('\n--- Band match: source out of band ---');
@@ -78,12 +87,51 @@ console.log('\n--- Same band, two frequencies: network splits ---');
     ],
   });
   const r = desc.solve(net, {}, {});
+  splitFlow = r.flowState;
   assert(r.flowState.perSinkQuality.k1 === 1, 'dominant frequency served');
   assert(r.flowState.perSinkQuality.k2 === 0, 'minority frequency starved');
   const split = r.errors.filter(e => e.code === 'rf_frequency_split');
   assert(split.length === 1, `1 split error (got ${split.length})`);
   assert(split[0].severity === 'soft', 'split severity soft');
   assert(r.flowState.totalDemand === 60, 'totalDemand counts the split-off sink too');
+  assert(r.flowState.rfSpectrum.bins.length === 2,
+    'frequency distribution publishes both requested frequencies');
+  assert(r.flowState.rfSpectrum.bins[0].status === 'carried'
+      && r.flowState.rfSpectrum.bins[0].deliveredPeakPowerW === 300e3,
+    'dominant frequency is the powered spectral line');
+  assert(r.flowState.rfSpectrum.bins[1].status === 'rejected'
+      && r.flowState.rfSpectrum.bins[1].deliveredPeakPowerW === 0,
+    'minority frequency is published as a rejected spectral line');
+}
+
+console.log('\n--- Spectrum inspector markup ---');
+{
+  const html = renderRfSpectrum(splitFlow);
+  assert(utilityInspectorTabs('rfWaveguide')[0].key === 'spectrum',
+    'clicking an RF network opens on the Spectrum tab');
+  assert(utilityInspectorTabs('powerCable').length === 1
+      && utilityInspectorTabs('powerCable')[0].key === 'overview',
+    'other utility inspectors still open on Overview');
+  assert(html.includes('RF POWER SPECTRUM'), 'inspector identifies the spectrum view');
+  assert(html.includes('162.5 MHz') && html.includes('325 MHz'),
+    'inspector labels every requested frequency');
+  assert(html.includes('CARRIED') && html.includes('REJECTED'),
+    'inspector distinguishes delivered and rejected spectral lines');
+}
+
+console.log('\n--- Pulsed source spectrum uses peak power ---');
+{
+  const net = mkNetwork({
+    sources: [{ portKey: 's1', capacity: 50, params: { bands: ['lband'], dutyFactor: 0.001 } }],
+    sinks: [{ portKey: 'k1', demand: 40, params: { frequency: 1300e6, band: 'lband' } }],
+  });
+  const r = desc.solve(net, {}, {});
+  assert(r.flowState.rfSpectrum.forwardPeakPowerW === 50e6,
+    '50 kW at 0.1% duty publishes 50 MW peak forward power');
+  assert(r.flowState.rfSpectrum.bins[0].deliveredPeakPowerW === 50e6,
+    'carried spectral line uses delivered peak power');
+  assert(renderRfSpectrum(r.flowState).includes('50 MW'),
+    'inspector formats the pulsed peak in megawatts');
 }
 
 console.log('\n--- Split tie broken by ascending frequency ---');
@@ -185,6 +233,8 @@ console.log('\n--- Test 7: RF tee mismatch ---');
   assert(approx(r.flowState.branchReflectionFraction, RF_BRANCH_REFLECTION_PER_JUNCTION),
     `tee reflects ${RF_BRANCH_REFLECTION_PER_JUNCTION} (got ${r.flowState.branchReflectionFraction})`);
   assert(r.flowState.totalCapacity < 100, `tee lowers delivered capacity (got ${r.flowState.totalCapacity})`);
+  assert(approx(r.flowState.rfSpectrum.reflectedAveragePowerKw, 4),
+    `spectrum publishes 4 kW reflected at one tee (got ${r.flowState.rfSpectrum.reflectedAveragePowerKw})`);
   assert(r.errors.some(e => e.code === 'rf_branch_mismatch'), 'tee reports RF mismatch / reflected power');
 }
 

@@ -16,6 +16,7 @@ import { UTILITY_TYPES } from '../utility/registry.js';
 import { discoverNetworks, makeDefaultPortLookup } from '../utility/network-discovery.js';
 import { findUtilityEndpoint } from '../utility/utility-endpoints.js';
 import { escapeHtml } from './format.js';
+import { renderRfSpectrum } from './rf-spectrum.js';
 
 // Titlebar accent derives from the utility's registry color (the single
 // source of truth for utility hues), darkened so the title gradient stays
@@ -80,6 +81,12 @@ function fmtQty(v) {
   return v.toExponential(2);
 }
 
+export function utilityInspectorTabs(utilityType) {
+  return utilityType === 'rfWaveguide'
+    ? [{ key: 'spectrum', label: 'Spectrum' }, { key: 'overview', label: 'Overview' }]
+    : [{ key: 'overview', label: 'Overview' }];
+}
+
 export class UtilityInspector {
   /**
    * Open an inspector window for a specific (utilityType, networkId).
@@ -103,17 +110,21 @@ export class UtilityInspector {
     const icon = ICONS[utilityType] || '';
     const displayName = desc ? desc.displayName : utilityType;
 
+    const tabs = utilityInspectorTabs(utilityType);
     const ctx = new ContextWindow({
       id: winId,
       title: displayName,
       icon,
       accentColor: accent,
-      tabs: [{ key: 'overview', label: 'Overview' }],
+      tabs,
       onClose: () => this._cleanup(),
     });
     this.ctx = ctx;
 
     ctx.onTabRender('overview', (el) => this._renderOverview(el));
+    if (utilityType === 'rfWaveguide') {
+      ctx.onTabRender('spectrum', (el) => this._renderSpectrum(el));
+    }
 
     // Auto-refresh on tick / utilityLinesChanged using the game's single
     // listener channel (same pattern as NetworkWindow).
@@ -130,6 +141,12 @@ export class UtilityInspector {
     if (this._off) this._off();
     this._off = null;
     this._listener = null;
+  }
+
+  _renderSpectrum(el) {
+    const perType = this.game.state.utilityNetworkData?.get?.(this.utilityType);
+    const flow = perType?.get?.(this.networkId);
+    el.innerHTML = renderRfSpectrum(flow);
   }
 
   _renderOverview(el) {

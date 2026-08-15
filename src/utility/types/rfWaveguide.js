@@ -121,6 +121,50 @@ function branchReflectionFraction(branches) {
   return 1 - Math.pow(1 - RF_BRANCH_REFLECTION_PER_JUNCTION, branches);
 }
 
+// Publish a display-ready discrete spectrum from the same quantities that
+// drive cavity quality. The UI must not rediscover frequencies or reconstruct
+// delivered power from endpoints: this is the solver-owned contract for RF
+// instrumentation views.
+function buildRfSpectrum(freqs, byFreq, served, servedBand, perSinkQuality,
+  perSinkPower, capacity, nameplateCapacity, meanDuty, peakFactor,
+  branchReflection, vswr) {
+  const bins = freqs.map((frequencyHz) => {
+    const sinks = byFreq.get(frequencyHz) || [];
+    let demandAveragePowerKw = 0;
+    let deliveredPeakPowerW = 0;
+    let quality = null;
+    for (const sink of sinks) {
+      demandAveragePowerKw += sink.demand || 0;
+      deliveredPeakPowerW += perSinkPower[sink.portKey] || 0;
+      const sinkQuality = perSinkQuality[sink.portKey];
+      if (typeof sinkQuality === 'number') {
+        quality = quality === null ? sinkQuality : Math.min(quality, sinkQuality);
+      }
+    }
+    return {
+      frequencyHz,
+      band: bandForFrequencyHz(frequencyHz),
+      sinkCount: sinks.length,
+      demandAveragePowerKw,
+      deliveredPeakPowerW,
+      quality,
+      status: frequencyHz === served ? 'carried' : 'rejected',
+    };
+  });
+
+  return {
+    carrierFrequencyHz: served,
+    carrierBand: servedBand,
+    forwardAveragePowerKw: capacity,
+    forwardPeakPowerW: capacity * 1000 * peakFactor,
+    reflectedAveragePowerKw: Math.max(0, nameplateCapacity - capacity),
+    reflectionFraction: branchReflection,
+    meanDuty,
+    vswr,
+    bins,
+  };
+}
+
 export default {
   type: 'rfWaveguide',
   displayName: 'RF Waveguide',
@@ -272,6 +316,24 @@ export default {
       });
     }
 
+    const vswr = branchReflection > 0
+      ? (1 + Math.sqrt(branchReflection)) / (1 - Math.sqrt(branchReflection))
+      : 1;
+    const rfSpectrum = buildRfSpectrum(
+      freqs,
+      byFreq,
+      served,
+      servedBand,
+      perSinkQuality,
+      perSinkPower,
+      capacity,
+      nameplateCapacity,
+      meanDuty,
+      peakFactor,
+      branchReflection,
+      vswr,
+    );
+
     return {
       flowState: {
         networkId: network.id,
@@ -291,9 +353,8 @@ export default {
         branchTapCount: topology.taps,
         branchSourceFanouts: topology.sourceFanouts,
         branchReflectionFraction: branchReflection,
-        vswr: branchReflection > 0
-          ? (1 + Math.sqrt(branchReflection)) / (1 - Math.sqrt(branchReflection))
-          : 1,
+        vswr,
+        rfSpectrum,
         perSegmentLoad: [],
         perSinkQuality,
         perSinkPower,
