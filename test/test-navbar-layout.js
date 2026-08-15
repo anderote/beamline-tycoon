@@ -41,10 +41,13 @@ assert(/#top-bar-primary #sim-controls\s*\{[^}]*margin-left:\s*auto/s.test(css),
 assert(musicSource.includes("this.el.closest('#top-bar')"),
   'the embedded music player cannot restore a floating position inside the navbar');
 assert(/--hud-topbar-height:\s*98px/.test(css)
-    && /--hud-bottom-height:\s*330px/.test(css),
+    && /--hud-bottom-height:\s*296px/.test(css),
   'top and bottom HUD rails have explicit stable heights');
 assert(/#bottom-hud\s*\{[^}]*height:\s*var\(--hud-bottom-height\)/s.test(css),
   'bottom HUD consumes the shared fixed-height token');
+assert(/\.palette-item\s*\{[^}]*height:\s*184px/s.test(css)
+    && /\.palette-item \.palette-preview\s*\{[^}]*height:\s*86px/s.test(css),
+  'compact build cards and thumbnails fit the shorter bottom HUD');
 
 console.log('\n--- Navbar mute control ---');
 assert(html.includes('class="mp-btn mp-mute"') && html.includes('aria-label="Unmute music"'),

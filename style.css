@@ -40,7 +40,7 @@
   /* Stable HUD rails. Floating panels use the same values, so neither bar
      changes height when content or active build categories change. */
   --hud-topbar-height: 98px;
-  --hud-bottom-height: 330px;
+  --hud-bottom-height: 296px;
   --hud-topbar-bottom: var(--hud-topbar-height);
 }
 
@@ -985,35 +985,35 @@ body {
 .connection-guide-kicker {
   order: 2;
   color: color-mix(in srgb, var(--guide-accent) 58%, #77778c);
-  font-size: 7px;
+  font-size: 8px;
   letter-spacing: 1px;
   white-space: nowrap;
 }
 .connection-guide-title {
   order: 1;
   color: var(--blt-heading);
-  font-size: 13px;
+  font-size: 14px;
   letter-spacing: 1px;
   white-space: nowrap;
 }
 .connection-guide-body {
-  padding: 11px 14px 14px;
+  padding: 12px 14px 15px;
 }
 .connection-guide-desc {
-  margin-bottom: 10px;
-  padding-bottom: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 9px;
   border-bottom: 1px solid rgba(60, 60, 100, 0.2);
   color: var(--blt-body);
-  font-size: 10px;
-  line-height: 1.8;
+  font-size: 11px;
+  line-height: 1.7;
 }
 .connection-guide-flow {
   display: flex;
   align-items: center;
   justify-content: stretch;
   gap: 0;
-  min-height: 116px;
-  padding: 14px 10px 13px;
+  min-height: 160px;
+  padding: 19px 12px 15px;
   border: 1px solid rgba(80, 80, 140, 0.25);
   border-radius: 3px;
   background:
@@ -1024,7 +1024,7 @@ body {
 }
 .connection-guide-node {
   display: flex;
-  flex: 0 0 78px;
+  flex: 0 0 82px;
   flex-direction: column;
   align-items: center;
   min-width: 0;
@@ -1034,8 +1034,8 @@ body {
 .connection-guide-machine {
   position: relative;
   display: grid;
-  width: 60px;
-  height: 46px;
+  width: 68px;
+  height: 62px;
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--guide-accent) 60%, #53536d);
   border-radius: 3px 3px 2px 2px;
@@ -1051,15 +1051,16 @@ body {
 .connection-guide-machine::after {
   content: '';
   position: absolute;
-  top: 21px;
-  width: 6px;
-  height: 5px;
+  top: 50%;
+  width: 8px;
+  height: 7px;
   border-top: 2px solid var(--guide-accent);
   border-bottom: 2px solid color-mix(in srgb, var(--guide-accent) 52%, #414158);
   background: #090917;
+  transform: translateY(-50%);
 }
-.connection-guide-machine::before { left: -7px; }
-.connection-guide-machine::after { right: -7px; }
+.connection-guide-machine::before { left: -9px; }
+.connection-guide-machine::after { right: -9px; }
 .connection-guide-step {
   position: absolute;
   top: -6px;
@@ -1069,13 +1070,13 @@ body {
   border-radius: 2px;
   background: #101024;
   color: color-mix(in srgb, var(--guide-accent) 74%, white);
-  font-size: 5px;
+  font-size: 6px;
   line-height: 1;
 }
 .connection-guide-icon {
   color: color-mix(in srgb, var(--guide-accent) 84%, white);
   font-family: monospace;
-  font-size: 21px;
+  font-size: 24px;
   line-height: 1;
   text-shadow: 0 0 7px color-mix(in srgb, var(--guide-accent) 48%, transparent);
   transform: translateY(-1px);
@@ -1088,8 +1089,8 @@ body {
   gap: 2px;
 }
 .connection-guide-lights i {
-  width: 3px;
-  height: 3px;
+  width: 4px;
+  height: 4px;
   background: rgba(92, 92, 122, 0.7);
   box-shadow: 0 0 0 1px rgba(0, 0, 12, 0.7);
 }
@@ -1100,63 +1101,77 @@ body {
 .connection-guide-node[data-kind='source'] .connection-guide-machine,
 .connection-guide-node[data-kind='pump'] .connection-guide-machine,
 .connection-guide-node[data-kind='tank'] .connection-guide-machine {
-  border-radius: 10px 10px 3px 3px;
+  border-radius: 16px 16px 4px 4px;
 }
 .connection-guide-node[data-kind='beamline'] .connection-guide-machine,
 .connection-guide-node[data-kind='cavity'] .connection-guide-machine {
-  height: 38px;
-  margin-block: 4px;
-  border-radius: 14px;
+  height: 50px;
+  margin-block: 6px;
+  border-radius: 18px;
 }
 .connection-guide-node[data-kind='gauge'] .connection-guide-machine {
-  width: 52px;
-  height: 52px;
-  margin-block: -3px;
+  width: 64px;
+  height: 64px;
+  margin-block: -1px;
   border-radius: 50%;
+}
+.connection-guide-node[data-kind='cabinet'] .connection-guide-machine,
+.connection-guide-node[data-kind='chiller'] .connection-guide-machine,
+.connection-guide-node[data-kind='cooler'] .connection-guide-machine {
+  background:
+    repeating-linear-gradient(90deg, transparent 0 8px, color-mix(in srgb, var(--guide-accent) 12%, transparent) 8px 10px),
+    linear-gradient(135deg, color-mix(in srgb, var(--guide-accent) 13%, transparent), transparent 58%),
+    #15152a;
+}
+.connection-guide-node[data-kind='load'] .connection-guide-machine {
+  background:
+    radial-gradient(circle at 50% 48%, color-mix(in srgb, var(--guide-accent) 18%, transparent), transparent 42%),
+    #15152a;
 }
 .connection-guide-node[data-kind='cooler'] .connection-guide-machine::after,
 .connection-guide-node[data-kind='cabinet'] .connection-guide-machine::after {
   box-shadow: -8px -17px 0 -2px color-mix(in srgb, var(--guide-accent) 42%, transparent);
 }
 .connection-guide-name {
-  min-height: 20px;
-  margin-top: 8px;
+  min-height: 23px;
+  margin-top: 10px;
   color: color-mix(in srgb, var(--guide-accent) 58%, #dce8ff);
-  font-size: 7px;
+  font-size: 8px;
   line-height: 1.45;
 }
 .connection-guide-detail {
   color: rgba(180, 180, 220, 0.72);
   margin-top: 2px;
-  font-size: 6px;
+  font-size: 7px;
   line-height: 1.35;
 }
 .connection-guide-link {
   position: relative;
   display: flex;
-  flex: 1 1 42px;
+  flex: 1 1 38px;
+  align-items: flex-start;
   align-self: flex-start;
   justify-content: center;
   min-width: 30px;
-  height: 54px;
-  padding-top: 4px;
+  height: 76px;
+  padding-top: 6px;
 }
 .connection-guide-link-label {
   position: relative;
   z-index: 1;
-  max-width: 70px;
-  padding: 3px 4px;
+  max-width: 80px;
+  padding: 4px 5px;
   border: 1px solid color-mix(in srgb, var(--guide-accent) 24%, #34344c);
   border-radius: 2px;
   background: #101020;
   color: color-mix(in srgb, var(--guide-accent) 60%, #98a2be);
-  font-size: 5px;
+  font-size: 6px;
   line-height: 1.45;
   text-align: center;
 }
 .connection-guide-track {
   position: absolute;
-  top: 25px;
+  top: 35px;
   left: 0;
   right: 0;
   height: 10px;
@@ -1362,7 +1377,7 @@ body {
 .palette-item {
   width: 140px;
   min-width: 140px;
-  height: 218px;
+  height: 184px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -1395,8 +1410,8 @@ body {
 }
 
 .palette-item .palette-preview {
-  width: 112px;
-  height: 112px;
+  width: 88px;
+  height: 86px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1405,8 +1420,8 @@ body {
 }
 
 .palette-item .palette-preview img {
-  max-width: 112px;
-  max-height: 112px;
+  max-width: 88px;
+  max-height: 86px;
   image-rendering: pixelated;
 }
 
@@ -1425,11 +1440,12 @@ body {
   border-radius: 3px;
   white-space: nowrap;
   pointer-events: none;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0;
-  line-height: 1.3;
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
+  justify-items: end;
+  column-gap: 3px;
+  row-gap: 0;
+  line-height: 1.25;
 }
 
 /* Utility badges deliberately use the same compact treatment as RF bands,
@@ -5832,7 +5848,13 @@ body {
    what you match a source against, the frequency is what forces a separate
    network when two structures in the same band disagree. */
 .palette-item .palette-rf-freq {
+  grid-column: 1 / -1;
   color: #bbaa77;
+  font-size: 7px;
+}
+.palette-item .palette-rf-output {
+  grid-column: 1 / -1;
+  color: #62dd79;
   font-size: 7px;
 }
 
