@@ -110,6 +110,19 @@ const GHOST_TINT_OK = 0x44ff44;
 const GHOST_TINT_BLOCKED = 0xff4444;
 const GHOST_TINT_UNAFFORDABLE = 0xffb020;
 
+const PORT_MARKER_EVENTS = new Set([
+  'beamlineChanged', 'loaded', 'restored', 'infrastructureChanged',
+  'placeableChanged', 'facilityChanged', 'connectionsChanged', 'utilityLinesChanged',
+]);
+const LIGHT_CANDIDATE_EVENTS = new Set([
+  'beamlineChanged', 'loaded', 'restored', 'infrastructureChanged',
+  'decorationsChanged', 'wallsChanged', 'doorsChanged', 'windowsChanged',
+  'placeableChanged', 'facilityChanged', 'connectionsChanged', 'utilityLinesChanged',
+]);
+const SHADOW_GEOMETRY_EVENTS = new Set([
+  ...LIGHT_CANDIDATE_EVENTS, 'zonesChanged',
+]);
+
 /** Ghost color for a (valid, reason) pair. Reasons come from placement.js. */
 function ghostTint(valid, reason) {
   if (valid) return GHOST_TINT_OK;
@@ -537,10 +550,6 @@ export class ThreeRenderer {
     this.scene.background = new THREE.Color(0x091126);
     this.scene.fog = new THREE.FogExp2(0x14213a, CINEMATIC_LIGHTING.atmosphere.dayDensity);
 
-    // Physics is a presentation layer over authored meshes. It owns incident
-    // snapshots and lazy bodies without writing transforms into game state.
-    await this._physicsPresentation.init(this.scene);
-
     // Isometric orthographic camera
     const aspect = gameEl.clientWidth / gameEl.clientHeight;
     const fs = this._frustumSize;
@@ -788,25 +797,20 @@ export class ThreeRenderer {
     // Staff pawns — little walking pixel-people for hired staff
     this.staffPawns = new StaffPawns(this.game, this.scene);
     this._physicsPresentation.attachStaff(this.staffPawns, this.scene);
-
     window.addEventListener('resize', this._boundOnResize);
 
     // Game event listener — rebuilds relevant 3D sections and updates DOM HUD.
     // Wrapped in try/catch so rendering errors never crash game logic.
     this.game.on((event, data) => {
       try {
-      // Any world event may have moved a port or claimed a utility line —
-      // let _animate rebuild the armed-tool port markers on its next frame.
-      this._portMarkersDirty = true;
-      // Same idea for the light rig's candidate lists (placed fixtures,
-      // glow-role meshes) — invalidate on every event rather than trying to
-      // enumerate exactly which events could add/remove one; the actual
-      // scene traversal is deferred to the rig's next update() call.
-      if (this._lightRig) this._lightRig.markDirty();
-      if (this._sunShadowScheduler) this._sunShadowScheduler.markAllDirty();
+      if (PORT_MARKER_EVENTS.has(event)) this._portMarkersDirty = true;
+      if (this._lightRig && LIGHT_CANDIDATE_EVENTS.has(event)) this._lightRig.markDirty();
+      if (this._sunShadowScheduler && SHADOW_GEOMETRY_EVENTS.has(event)) {
+        this._sunShadowScheduler.markAllDirty();
+      }
       switch (event) {
         case 'beamlineChanged':
-          this.refresh(); // full 3D rebuild
+          this._refreshBeamlineWorld();
           break;
         case 'loaded':
         case 'restored':   // undo/redo snapshot restore
@@ -966,6 +970,9 @@ export class ThreeRenderer {
     }
 
     this._animate();
+    // Rapier is a large WASM chunk and ordinary construction never needs it.
+    // Warm it after the first playable frame instead of blocking init/title.
+    this._physicsPresentation.scheduleInit(this.scene);
   }
 
   // --- Coordinate conversion (PixiJS-compatible) ---
@@ -3994,6 +4001,19 @@ export class ThreeRenderer {
     if (this.staffPawns) this.staffPawns.sync();
   }
 
+  _refreshBeamlineWorld() {
+    // Beamline edits do not change terrain, rooms, furnishings, or
+    // decorations. Rebuild only the sections whose topology or endpoints can
+    // move instead of walking and hashing the entire world snapshot.
+    this._refreshComponents();
+    this._refreshBeamPipes();
+    this._refreshBeam();
+    this._refreshUtilityLinesV2();
+    this._refreshUnwiredSinkMarkers(true);
+    this._refreshPortFittings();
+    this._markPhysicsBodiesDirty();
+  }
+
   _refreshTerrain() {
     // Tuft/wildflower builders read snapshot.terrain + snapshot.grassSurfaces.
     // Every builder below is content-hash cached, so calling this on events
@@ -5167,8 +5187,8 @@ export class ThreeRenderer {
     if (this.utilityLineBuilderV2 && this.utilityLineGroup) {
       this.utilityLineBuilderV2.dispose(this.utilityLineGroup);
     }
+    this._physicsPresentation.dispose();
     if (this.staffPawns) {
-      this._physicsPresentation.dispose();
       this.staffPawns.dispose();
       this.staffPawns = null;
     }
