@@ -165,14 +165,6 @@ export class BeamlineWindow {
           }
         },
       },
-      {
-        label: 'Demolish (50% refund)',
-        variant: 'danger',
-        onClick: () => {
-          this.game.demolishTarget({ kind: 'beamlineWhole', beamlineId: this.beamlineId });
-          this.ctx.close();
-        },
-      },
     ]);
   }
 

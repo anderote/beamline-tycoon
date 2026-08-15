@@ -13,6 +13,8 @@
 //      mid-carry put the object back in the world while the tool still held
 //      it — the next drop minted a free second copy.)
 //   3. P on a selected item closes its info window before entering move mode.
+//   3b. Delete/Backspace removes ordinary selections while beamlines remain
+//       protected and D keeps its camera-pan binding.
 //   4. Shift-drag decoration line placement emits one rebuild event.
 //   5. Preview lifecycle around arming and committing: a keyboard-armed tool
 //      must show its ghost before the mouse moves, the variant must not
@@ -30,6 +32,7 @@ import { PARAM_DEFS } from '../src/beamline/component-physics.js';
 import { DemolishTool } from '../src/input/demolish-tool.js';
 import { MoveTool } from '../src/input/mode-tools.js';
 import { InputHandler } from '../src/input/InputHandler.js';
+import { BeamlineWindow } from '../src/ui/BeamlineWindow.js';
 import { tileCenterIso } from '../src/renderer/grid.js';
 
 globalThis.COMPONENTS = COMPONENTS;
@@ -178,6 +181,134 @@ console.log('\n=== 3. P-selected move closes the item info window ===\n');
   assertOk(closed === entry, 'moving a selected item closes that item\'s info window first');
   assertOk(input.activeTool.payload?.placeableId === entry.id,
     'the selected item is armed as the move payload');
+}
+
+console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines ===\n');
+
+{
+  const g = makeGame(441);
+  let itemId = null;
+  for (let row = 2; row < 40 && !itemId; row++) {
+    for (let col = 2; col < 40 && !itemId; col++) {
+      itemId = g.placePlaceable({
+        type: 'flowerBed', col, row, subCol: 0, subRow: 0,
+        free: true, silent: true,
+      });
+    }
+  }
+  assertOk(!!itemId, 'setup: selected ordinary item exists');
+  let closedId = null;
+  const input = {
+    game: g,
+    renderer: {
+      _closePlaceableInfoWindow: entry => { closedId = entry.id; },
+      clearSelectionOutline() {},
+    },
+    selectedNodeId: null,
+    selectedPlaceableId: itemId,
+    selectedPlaceableIds: new Set([itemId]),
+    _selectedRootsById: new Map(),
+    _showToast() {},
+  };
+  for (const method of [
+    '_selectionIdsForAnchor', '_deleteSelectedFromKeyboard',
+    '_demolishSelected', '_clearSelection',
+  ]) input[method] = InputHandler.prototype[method];
+
+  const consumed = input._deleteSelectedFromKeyboard();
+  assertOk(consumed === true && !g.getPlaceable(itemId),
+    'Delete immediately demolishes an ordinary selected item');
+  assertOk(closedId === itemId && input.selectedPlaceableId === null,
+    'Delete closes the item window and clears the selection');
+}
+
+{
+  const g = makeGame(442);
+  let sourceId = null;
+  for (let row = 2; row < 40 && !sourceId; row += 3) {
+    for (let col = 2; col < 40 && !sourceId; col += 3) {
+      sourceId = g.placePlaceable({
+        type: 'penningIonSource', col, row,
+        free: true, silent: true,
+      });
+    }
+  }
+  assertOk(!!sourceId, 'setup: selected beamline exists');
+  let toast = '';
+  let closed = false;
+  const input = {
+    game: g,
+    renderer: { _closePlaceableInfoWindow: () => { closed = true; } },
+    selectedPlaceableId: sourceId,
+    selectedPlaceableIds: new Set([sourceId]),
+    _selectionIdsForAnchor: InputHandler.prototype._selectionIdsForAnchor,
+    _showToast: message => { toast = message; },
+  };
+  input._deleteSelectedFromKeyboard = InputHandler.prototype._deleteSelectedFromKeyboard;
+
+  const consumed = input._deleteSelectedFromKeyboard();
+  assertOk(consumed === true && !!g.getPlaceable(sourceId),
+    'Delete is consumed without removing a selected beamline');
+  assertOk(!closed && /disabled/i.test(toast),
+    'protected beamline stays selected and gets a clear disabled message');
+}
+
+{
+  let actions = null;
+  const beamlineWindow = {
+    beamlineId: 'bl-safe',
+    game: {
+      registry: { get: () => ({ status: 'stopped', name: 'Safe beamline' }) },
+      toggleBeam() {},
+      _openDesignerForBeamline() {},
+      editingBeamlineId: null,
+      selectedBeamlineId: null,
+    },
+    ctx: {
+      setActions: next => { actions = next; },
+      update() {},
+      setTitle() {},
+    },
+    _updateStatus() {},
+  };
+  BeamlineWindow.prototype._updateActions.call(beamlineWindow);
+  assertOk(actions?.length > 0 && !actions.some(action => /demolish|delete/i.test(action.label)),
+    'the whole-beamline info window exposes no delete/demolish action');
+}
+
+{
+  const priorWindow = globalThis.window;
+  const priorDocument = globalThis.document;
+  const listeners = {};
+  globalThis.window = {
+    addEventListener(type, fn) { (listeners[type] ||= []).push(fn); },
+  };
+  globalThis.document = { addEventListener() {} };
+  let deletes = 0;
+  const input = {
+    keysDown: new Set(),
+    activeTool: null,
+    game: { _designPlacer: null },
+    _toolConsumed: () => false,
+    _deleteSelectedFromKeyboard: () => { deletes++; return true; },
+    _toggleContextDemolish() {},
+  };
+  InputHandler.prototype._bindKeyboard.call(input);
+  const keydown = listeners.keydown[0];
+  const event = key => ({
+    key, target: { tagName: 'BODY' },
+    ctrlKey: false, metaKey: false, altKey: false, shiftKey: false,
+    preventDefault() {},
+  });
+  keydown(event('Delete'));
+  keydown(event('Backspace'));
+  keydown(event('d'));
+  assertOk(deletes === 2, 'Delete and Mac Backspace use selection deletion');
+  assertOk(input.keysDown.has('d'), 'D remains the camera pan-right key');
+  if (priorWindow === undefined) delete globalThis.window;
+  else globalThis.window = priorWindow;
+  if (priorDocument === undefined) delete globalThis.document;
+  else globalThis.document = priorDocument;
 }
 
 console.log('\n=== 4. Shift+drag decoration line rebuilds decorations once ===\n');
