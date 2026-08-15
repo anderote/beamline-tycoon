@@ -178,13 +178,14 @@ console.log('\n--- 3. Derivation, overrides, and the headless fallback ---');
     `an authored type answers for every one of its ports (${partial.join(',') || 'all covered'})`);
 
   // Heights are hand-authored per model, so nothing here can be checked
-  // against geometry headless — but a typo'd metre is still catchable: no
-  // connector belongs underfoot or above head height on any of this hardware.
+  // against geometry headless — but a typo'd metre is still catchable. The
+  // portable spider box is intentionally ankle-height; nothing belongs below
+  // its 0.1 m socket centre or above head height.
   const outOfBand = [];
   for (const [type, entry] of Object.entries(PORT_ANCHOR_OVERRIDES)) {
     for (const [port, spec] of Object.entries(entry)) {
       if (!spec || !Number.isFinite(spec.y)) continue;
-      if (spec.y < 0.3 || spec.y > 2.5) outOfBand.push(`${type}.${port}=${spec.y}`);
+      if (spec.y < 0.1 || spec.y > 2.5) outOfBand.push(`${type}.${port}=${spec.y}`);
     }
   }
   assert(outOfBand.length === 0,

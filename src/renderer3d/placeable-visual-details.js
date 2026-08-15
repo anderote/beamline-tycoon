@@ -304,7 +304,9 @@ export function buildPlaceableVisualDetails(compDef, { width, height, length, co
     case 'linac': {
       feet();
       cyl(Math.min(width, height) * 0.30, length * 0.88, steel, 0, 0, 0, 'z');
-      for (const z of [-length * 0.32, 0, length * 0.32]) torus(Math.min(width, height) * 0.32, 0.04, copper, 0, 0, z, [Math.PI / 2, 0, 0]);
+      // TorusGeometry already faces down the local Z beam axis. Rotating the
+      // rings onto Y made them spill beyond the one-metre accelerating skid.
+      for (const z of [-length * 0.32, 0, length * 0.32]) torus(Math.min(width, height) * 0.32, 0.04, copper, 0, 0, z);
       break;
     }
     case 'cryomodule': {

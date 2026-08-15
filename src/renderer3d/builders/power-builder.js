@@ -369,8 +369,8 @@ function _buildDistributionPanelRoles({ width, height, depth, columns, rows }) {
   // A shallow plinth keeps the cabinet off the floor and gives the cable
   // glands somewhere believable to land.
   {
-    const g = new THREE.BoxGeometry(width + 0.08, baseH, depth + 0.08);
-    applyTiledBoxUVs(g, width + 0.08, baseH, depth + 0.08);
+    const g = new THREE.BoxGeometry(width, baseH, depth);
+    applyTiledBoxUVs(g, width, baseH, depth);
     pushT(b.stand, g, trans(0, baseH / 2, 0));
   }
   {
@@ -410,6 +410,10 @@ function _buildDistributionPanelRoles({ width, height, depth, columns, rows }) {
   return b;
 }
 
+export function _buildCompactDistributionPanelRoles() {
+  return _buildDistributionPanelRoles({ width: 0.46, height: 1.35, depth: 0.38, columns: 1, rows: 4 });
+}
+
 export function _buildSectionDistributionPanelRoles() {
   return _buildDistributionPanelRoles({ width: 1.0, height: 1.65, depth: 0.48, columns: 2, rows: 3 });
 }
@@ -428,14 +432,19 @@ export function _buildPowerBusRoles() {
     applyTiledBoxUVs(g, railW, railH, railL);
     pushT(b.accent, g, trans(0, 0.92, 0));
   }
-  // Three plug-in tap boxes make its service function legible at a glance.
-  for (const z of [-0.42, 0, 0.42]) {
-    const g = new THREE.BoxGeometry(0.27, 0.16, 0.20);
-    applyTiledBoxUVs(g, 0.27, 0.16, 0.20);
-    pushT(b.iron, g, trans(0.18, 0.84, z));
-    const gland = new THREE.CylinderGeometry(0.028, 0.028, 0.07, 8);
-    applyTiledCylinderUVs(gland, 0.028, 0.07, 8);
-    pushT(b.copper, gland, new THREE.Matrix4().multiplyMatrices(trans(0.34, 0.84, z), rotZ(Math.PI / 2)));
+  // Eight real plug-in tap boxes: four along each side, matching the eight
+  // individually claimable sockets in utility-ports-v2.
+  for (const xSign of [-1, 1]) {
+    for (const z of [-0.54, -0.18, 0.18, 0.54]) {
+      const g = new THREE.BoxGeometry(0.15, 0.16, 0.18);
+      applyTiledBoxUVs(g, 0.15, 0.16, 0.18);
+      pushT(b.iron, g, trans(xSign * 0.11, 0.84, z));
+      const gland = new THREE.CylinderGeometry(0.028, 0.028, 0.07, 8);
+      applyTiledCylinderUVs(gland, 0.028, 0.07, 8);
+      pushT(b.copper, gland, new THREE.Matrix4().multiplyMatrices(
+        trans(xSign * 0.21, 0.84, z), rotZ(Math.PI / 2),
+      ));
+    }
   }
   // Hangers make clear that it rides above the beamline rather than blocks it.
   for (const z of [-0.55, 0.55]) {
@@ -455,10 +464,12 @@ export function _buildSpiderBoxRoles() {
     applyTiledBoxUVs(g, 0.34, 0.16, 0.34);
     pushT(b.accent, g, trans(0, 0.12, 0));
   }
-  for (const [x, z] of [[0.22, 0], [-0.22, 0], [0, 0.22], [0, -0.22]]) {
+  for (const [x, z] of [[0.205, 0], [-0.205, 0], [0, 0.205], [0, -0.205]]) {
     const g = new THREE.CylinderGeometry(0.035, 0.035, 0.09, 8);
     applyTiledCylinderUVs(g, 0.035, 0.09, 8);
-    const matrix = new THREE.Matrix4().multiplyMatrices(trans(x, 0.12, z), rotZ(Math.PI / 2));
+    const matrix = new THREE.Matrix4().multiplyMatrices(
+      trans(x, 0.12, z), x === 0 ? rotX(Math.PI / 2) : rotZ(Math.PI / 2),
+    );
     pushT(b.copper, g, matrix);
   }
   return b;
