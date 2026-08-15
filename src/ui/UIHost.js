@@ -28,6 +28,11 @@ export class UIHost {
     // Palette item under the cursor — read by the manual's contextual open
     // (hud.js: _contextualManualComponent) so "?" lands on that component.
     this._hoveredPaletteComponent = null;
+    // Connection guides are one-shot orientation cards. A fresh Infra tab
+    // visit reveals one; the first world/tool/Escape interaction dismisses it
+    // for the rest of that visit (hud.js owns the transitions).
+    this._connectionGuideCategory = null;
+    this._connectionGuideVisible = false;
 
     // --- Tech tree pan/zoom state ---
     this._treePanX = 0;

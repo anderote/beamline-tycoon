@@ -1,5 +1,5 @@
-// test/test-connection-guide.js — connection-guide category coverage and the
-// shared palette refresh path used by mouse clicks, keyboard Tab, and restores.
+// test/test-connection-guide.js — connection-guide content, continuous
+// cross-section coverage, and one-shot fresh-tab lifecycle.
 
 import * as THREE_REAL from 'three';
 import { readFileSync } from 'node:fs';
@@ -35,6 +35,8 @@ const {
   drawConnectionGuideDiagram,
 } = await import('../src/ui/connection-guide-diagrams.js');
 const connectionGuideCss = readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+const connectionGuideHud = readFileSync(new URL('../src/ui/hud.js', import.meta.url), 'utf8');
+const inputHandlerSource = readFileSync(new URL('../src/input/InputHandler.js', import.meta.url), 'utf8');
 
 let passed = 0;
 let failed = 0;
@@ -69,12 +71,40 @@ for (const category of infraCategories) {
   );
   assert(
     /^#[0-9a-f]{6}$/i.test(guide?.accent)
-      && guide.flow.every(stage => CONNECTION_GUIDE_DIAGRAMS[stage.diagram]),
-    `${category} gives every stage a color and registered pixel cutaway`,
+      && CONNECTION_GUIDE_DIAGRAMS[guide.diagram],
+    `${category} has an accent and a registered continuous cross-section`,
   );
 }
 
-console.log('\n--- The schematic stays legible and connected ---\n');
+console.log('\n--- Guide flows match the implemented infrastructure contracts ---\n');
+
+assert(
+  CONNECTION_GUIDES.power.links.join('|') === 'HV FEEDER|POWER CABLE'
+    && CONNECTION_GUIDES.power.flow[1].name === 'PANEL / MCC',
+  'power separates transformer capacity, HV-fed distribution, and branch loads',
+);
+assert(
+  CONNECTION_GUIDES.rfPower.links.join('|') === 'HV FEEDER|RF WAVEGUIDE'
+    && !CONNECTION_GUIDES.rfPower.flow.some(stage => stage.name === 'MODULATOR'),
+  'RF uses the implemented HV-feed and waveguide path without inventing a modulator data link',
+);
+assert(
+  ['ROUGH PUMP', 'TURBO / UHV', 'BEAM VOLUME', 'GAUGE']
+    .every(name => CONNECTION_GUIDES.vacuum.flow.some(stage => stage.name === name)),
+  'vacuum shows staged pumping, the vacuum volume, and a gauge tap',
+);
+assert(
+  ['STORAGE', 'CHILLER', 'HEAT LOAD', 'HEAT REJECTOR']
+    .every(name => CONNECTION_GUIDES.cooling.flow.some(stage => stage.name === name)),
+  'cooling shows every plant role required by the cooling-water solver',
+);
+assert(
+  CONNECTION_GUIDES.ops.flow.some(stage => stage.name === 'COOLED DUMP')
+    && CONNECTION_GUIDES.ops.description.includes('rather than forming a utility chain'),
+  'Ops presents a physical loss-point arrangement and calls out the dump cooling connection',
+);
+
+console.log('\n--- The schematic is one continuous Designer-style cross-section ---\n');
 
 {
   const context = {
@@ -85,7 +115,7 @@ console.log('\n--- The schematic stays legible and connected ---\n');
   };
   const canvas = { getContext: () => context, width: 0, height: 0 };
   const diagramKeys = new Set(
-    Object.values(CONNECTION_GUIDES).flatMap(guide => guide.flow.map(stage => stage.diagram)),
+    Object.values(CONNECTION_GUIDES).map(guide => guide.diagram),
   );
   assert(
     [...diagramKeys].every(diagram => drawConnectionGuideDiagram(canvas, diagram, '#8fe5ff')),
@@ -94,20 +124,20 @@ console.log('\n--- The schematic stays legible and connected ---\n');
 }
 
 assert(
-  /\.connection-guide-flow\s*\{[^}]*min-height:\s*154px/s.test(connectionGuideCss),
-  'connection diagrams reserve a full-height drawing area',
+  /\.connection-guide-figure\s*\{[^}]*padding:\s*9px 9px 11px/s.test(connectionGuideCss),
+  'the full-width cross-section has its own drawing field',
 );
 assert(
-  /\.connection-guide-art\s*\{[^}]*width:\s*78px[^}]*height:\s*50px[^}]*image-rendering:\s*pixelated/s.test(connectionGuideCss),
-  'cutaway canvases keep a hard-edged pixel footprint',
+  /\.connection-guide-art\s*\{[^}]*width:\s*100%[^}]*aspect-ratio:\s*113 \/ 41[^}]*image-rendering:\s*pixelated/s.test(connectionGuideCss),
+  'the cutaway spans the guide while retaining hard-edged Designer pixels',
 );
 assert(
-  /\.connection-guide-track\s*\{[^}]*border-top:\s*3px dotted/s.test(connectionGuideCss),
-  'flow stages are joined by visible dotted connection tracks',
+  /drawConnectionGuideDiagram\(canvas, guide\.diagram, guide\.accent\)/.test(connectionGuideHud),
+  'the guide renders one category-wide canvas rather than a canvas per stage',
 );
 assert(
-  /\.connection-guide-link\s*\{[^}]*align-items:\s*flex-start/s.test(connectionGuideCss),
-  'connector labels stay compact instead of covering their dotted tracks',
+  /\.connection-guide-legend\s*\{[^}]*display:\s*flex/s.test(connectionGuideCss),
+  'the physical drawing keeps a compact, separate connection legend',
 );
 
 console.log('\n--- A palette category change refreshes all category-bound UI ---\n');
@@ -126,6 +156,53 @@ console.log('\n--- A palette category change refreshes all category-bound UI ---
     'updatePalette keeps the palette, guide, and stats on the same category',
   );
 }
+
+console.log('\n--- Guides are one-shot within each Infra tab visit ---\n');
+
+{
+  const ui = Object.create(UIHost.prototype);
+  const renders = [];
+  ui.renderer = { activeMode: 'infra' };
+  ui._connectionGuideCategory = null;
+  ui._connectionGuideVisible = false;
+  ui._renderConnectionGuide = category => renders.push({
+    category,
+    visible: ui._connectionGuideVisible,
+  });
+  ui._renderPalette = () => {};
+  ui._updateSystemStatsContent = () => {};
+
+  ui.updatePalette('power', { freshTab: true });
+  assert(ui._connectionGuideVisible === true, 'a fresh Infra tab reveals its guide');
+
+  ui._setConnectionGuidePlacementActive(true);
+  assert(ui._connectionGuideVisible === false, 'arming a component dismisses the guide');
+
+  ui._setConnectionGuidePlacementActive(false);
+  assert(ui._connectionGuideVisible === false, 'disarming or Escape does not restore it');
+
+  ui.updatePalette('power');
+  assert(ui._connectionGuideVisible === false, 'refreshing the same tab does not restore it');
+
+  ui.updatePalette('vacuum', { freshTab: true });
+  assert(
+    ui._connectionGuideVisible === true && ui._connectionGuideCategory === 'vacuum',
+    'switching to another Infra tab begins a new guide visit',
+  );
+
+  ui._dismissConnectionGuide();
+  assert(ui._connectionGuideVisible === false, 'a world/Escape dismissal is sticky for the visit');
+  assert(renders.length >= 5, 'every visibility-changing transition updates the guide immediately');
+}
+
+assert(
+  /canvas\.addEventListener\('mousedown',[\s\S]*?_dismissConnectionGuide/.test(inputHandlerSource),
+  'a map press dismisses the guide before world interaction dispatch',
+);
+assert(
+  /if \(e\.key === 'Escape'\) \{[\s\S]*?_dismissConnectionGuide/.test(inputHandlerSource),
+  'Escape dismisses the guide even when another Escape-stack layer handles the key',
+);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

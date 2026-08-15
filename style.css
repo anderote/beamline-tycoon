@@ -958,7 +958,7 @@ body {
   bottom: calc(var(--hud-bottom-height) + 28px);
   left: 12px;
   z-index: 110;
-  width: min(496px, calc(100vw - 24px));
+  width: min(560px, calc(100vw - 24px));
   overflow: hidden;
   padding: 0;
   border-color: var(--blt-panel-border);
@@ -1007,13 +1007,9 @@ body {
   font-size: 11px;
   line-height: 1.7;
 }
-.connection-guide-flow {
-  display: flex;
-  align-items: center;
-  justify-content: stretch;
-  gap: 0;
-  min-height: 154px;
-  padding: 18px 9px 14px;
+.connection-guide-figure {
+  margin: 0;
+  padding: 9px 9px 11px;
   border: 1px solid rgba(80, 80, 140, 0.25);
   border-radius: 3px;
   background:
@@ -1022,34 +1018,34 @@ body {
     repeating-linear-gradient(90deg, transparent 0 15px, rgba(120, 130, 180, 0.055) 15px 16px);
   box-shadow: inset 0 0 18px rgba(0, 0, 15, 0.36);
 }
-.connection-guide-node {
-  display: flex;
-  flex: 0 0 84px;
-  flex-direction: column;
-  align-items: center;
-  min-width: 0;
-  color: #b6def8;
-  text-align: center;
-}
-.connection-guide-machine {
-  position: relative;
-  display: block;
-  width: 78px;
-  height: 50px;
-  background: #090a18;
-  box-shadow: 0 0 10px color-mix(in srgb, var(--guide-accent) 11%, transparent);
-}
 .connection-guide-art {
   display: block;
-  width: 78px;
-  height: 50px;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 113 / 41;
+  background: #101321;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--guide-accent) 9%, transparent);
   image-rendering: pixelated;
   image-rendering: crisp-edges;
 }
+.connection-guide-legend {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  margin-top: 9px;
+}
+.connection-guide-stage {
+  display: grid;
+  flex: 1 1 0;
+  grid-template-columns: 16px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  min-width: 0;
+  color: #b6def8;
+}
 .connection-guide-step {
-  position: absolute;
-  top: -6px;
-  left: 4px;
+  grid-column: 1;
+  grid-row: 1 / 3;
+  align-self: start;
   padding: 2px 3px;
   border: 1px solid color-mix(in srgb, var(--guide-accent) 48%, #3d3d59);
   border-radius: 2px;
@@ -1059,70 +1055,50 @@ body {
   line-height: 1;
 }
 .connection-guide-name {
-  min-height: 23px;
-  margin-top: 8px;
+  grid-column: 2;
+  grid-row: 1;
   color: color-mix(in srgb, var(--guide-accent) 58%, #dce8ff);
-  font-size: 8px;
+  font-size: 7px;
   line-height: 1.45;
 }
 .connection-guide-detail {
+  grid-column: 2;
+  grid-row: 2;
   color: rgba(180, 180, 220, 0.72);
-  margin-top: 2px;
-  font-size: 7px;
+  margin-top: 1px;
+  font-size: 6px;
   line-height: 1.35;
 }
 .connection-guide-link {
   position: relative;
   display: flex;
-  flex: 1 1 38px;
-  align-items: flex-start;
-  align-self: flex-start;
+  flex: 0 1 54px;
+  align-items: center;
   justify-content: center;
-  min-width: 30px;
-  height: 82px;
-}
-.connection-guide-link-label {
-  position: absolute;
-  top: 35px;
-  z-index: 1;
-  max-width: 80px;
-  padding: 4px 5px;
-  border: 1px solid color-mix(in srgb, var(--guide-accent) 24%, #34344c);
-  border-radius: 2px;
-  background: #101020;
+  min-width: 34px;
+  padding: 0 4px;
   color: color-mix(in srgb, var(--guide-accent) 60%, #98a2be);
-  font-size: 6px;
+  font-size: 5px;
   line-height: 1.45;
   text-align: center;
 }
-.connection-guide-track {
-  position: absolute;
-  top: 24px;
-  left: 0;
-  right: 0;
-  height: 10px;
-  border-top: 3px dotted color-mix(in srgb, var(--guide-accent) 78%, transparent);
-  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--guide-accent) 38%, transparent));
-}
-.connection-guide-track::after {
+.connection-guide-link::before {
   content: '';
   position: absolute;
-  top: -7px;
-  right: -1px;
-  width: 7px;
-  height: 7px;
-  border-top: 3px solid var(--guide-accent);
-  border-right: 3px solid var(--guide-accent);
-  transform: rotate(45deg);
+  top: 7px;
+  left: 0;
+  right: 0;
+  border-top: 1px dotted color-mix(in srgb, var(--guide-accent) 56%, transparent);
 }
-.connection-guide-track i {
+.connection-guide-link::after {
+  content: '';
   position: absolute;
-  top: -5px;
-  left: 44%;
-  width: 5px;
-  height: 5px;
-  border: 1px solid var(--guide-accent);
-  background: #0a0a18;
+  top: 4px;
+  right: -1px;
+  width: 4px;
+  height: 4px;
+  border-top: 1px solid var(--guide-accent);
+  border-right: 1px solid var(--guide-accent);
   transform: rotate(45deg);
 }
 

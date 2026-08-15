@@ -397,7 +397,9 @@ function showScenarioPicker(game) {
       renderer._generateCategoryTabs?.();
       if (restoredView.selectedCategory) {
         input.selectedCategory = restoredView.selectedCategory;
-        renderer.updatePalette(restoredView.selectedCategory);
+        renderer.updatePalette(restoredView.selectedCategory, {
+          freshTab: restoredView.activeMode === 'infra',
+        });
         document.querySelectorAll('.cat-tab').forEach(t => {
           t.classList.toggle('active', t.dataset.category === restoredView.selectedCategory);
         });
