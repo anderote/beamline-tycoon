@@ -1,4 +1,4 @@
-// test/test-rigid-utility-fittings.js — continuous elbows and service hardware.
+// test/test-rigid-utility-fittings.js — formed elbows and service hardware.
 
 import * as THREE_NS from 'three';
 
@@ -17,6 +17,13 @@ function build(lines) {
   const builder = new UtilityLineBuilderV2();
   const parent = new THREE_NS.Group();
   builder.build(new Map(lines.map(line => [line.id, line])), new Map(), parent, { state: {} });
+  return parent;
+}
+
+function buildPreview(preview) {
+  const builder = new UtilityLineBuilderV2();
+  const parent = new THREE_NS.Group();
+  builder.setPreview(preview, parent);
   return parent;
 }
 
@@ -40,23 +47,47 @@ console.log('\n--- 1. Vacuum uses swept elbows and CF-style flange rings ---');
     `${fittings.length} stainless flange rings bracket the elbow and long run`);
 }
 
-console.log('\n--- 2. RF uses a broad rectangular sweep and guide collars ---');
+console.log('\n--- 2. RF uses compact mitered elbows and guide collars ---');
 {
   const parent = build([{
     id: 'rf', utilityType: 'rfWaveguide', start: null, end: null,
     path: [{ col: 0, row: 0 }, { col: 3, row: 0 }, { col: 3, row: 3 }],
   }]);
-  const elbows = collect(parent, object => object.userData?.isUtilitySweepElbow);
+  const elbows = collect(parent, object => object.userData?.isUtilityMiterElbow);
+  const sweeps = collect(parent, object => object.userData?.isUtilitySweepElbow);
   const fittings = collect(parent, object => object.userData?.fittingStyle === 'waveguideFlange');
   assert(elbows.length === 1 && elbows[0].geometry instanceof THREE_NS.BufferGeometry,
-    `one swept rectangular elbow replaces the cube joint (got ${elbows.length})`);
-  assert(elbows[0]?.userData?.bendRadius >= 0.4,
-    `the visible RF bend radius is broad (${elbows[0]?.userData?.bendRadius})`);
+    `one fabricated rectangular miter replaces the rounded sweep (got ${elbows.length})`);
+  assert(elbows[0]?.userData?.miterAngle === 45 && sweeps.length === 0,
+    'the RF elbow has a sharp 45-degree miter face, not a curved bend');
+  const normals = elbows[0]?.geometry?.attributes?.normal?.array || [];
+  let hasDiagonalFace = false;
+  for (let i = 0; i < normals.length; i += 3) {
+    const x = Math.abs(normals[i]), y = Math.abs(normals[i + 1]), z = Math.abs(normals[i + 2]);
+    if (y < 0.05 && x > 0.65 && z > 0.65 && Math.abs(x - z) < 0.05) {
+      hasDiagonalFace = true;
+      break;
+    }
+  }
+  assert(hasDiagonalFace, 'the elbow mesh exposes the diagonal miter wall');
   assert(fittings.length >= 2 && fittings.every(mesh => mesh.geometry instanceof THREE_NS.BoxGeometry),
     `${fittings.length} oversized rectangular collars identify guide sections`);
 }
 
-console.log('\n--- 3. A tapped branch renders as a tee, not a dangling cap ---');
+console.log('\n--- 3. RF preview matches installed miter hardware ---');
+{
+  const parent = buildPreview({
+    utilityType: 'rfWaveguide', valid: true,
+    path: [{ col: 0, row: 0 }, { col: 3, row: 0 }, { col: 3, row: 3 }],
+  });
+  const elbows = collect(parent, object => object.userData?.isUtilityMiterElbow);
+  const waypointBeads = collect(parent, object => object.geometry instanceof THREE_NS.SphereGeometry);
+  assert(elbows.length === 1, 'the live draw preview uses the same miter elbow geometry');
+  assert(waypointBeads.length === 2,
+    `only the two preview endpoints use markers; the elbow stays visible (${waypointBeads.length})`);
+}
+
+console.log('\n--- 4. A tapped branch renders as a tee, not a dangling cap ---');
 {
   const parent = build([
     {

@@ -133,9 +133,11 @@ export default {
   // contract. Network topology still decides what is electrically connected.
   routingProfile: 'rectilinear',
   portClearance: false,
-  // Presentation only: the renderer trims this radius to fit short legs. It
-  // does not impose a minimum straight run or reject a compact route.
-  bendRadiusMeters: 0.42,
+  // Presentation only: use a compact 45-degree miter body at each 90-degree
+  // turn. The renderer trims it to fit short legs; it does not impose a
+  // minimum straight run or reject a compact route.
+  bendStyle: 'mitered',
+  miterLengthMeters: 0.16,
   fittingStyle: 'waveguideFlange',
   couplerSpacingMeters: 3,
   capacityUnit: 'kW',
