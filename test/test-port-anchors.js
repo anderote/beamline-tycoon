@@ -29,6 +29,7 @@
 // following rotation.
 
 import { COMPONENTS } from '../src/data/components.js';
+import * as THREE_REAL from 'three';
 import { portWorldPosition, placeableCenterWorld } from '../src/utility/ports.js';
 import {
   portAnchor3D,
@@ -460,8 +461,86 @@ console.log('\n--- 9. The mount is local: it turns with the placeable ---');
   assert(seen.size === 4, `four rotations, four distinct anchors (${[...seen].join(' | ')})`);
 }
 
+console.log('\n--- 10. Every real component port lands on rendered geometry ---');
+{
+  // The synthetic sections above prove the coordinate arithmetic. This pass
+  // supplies the real renderer and asks every declared utility port on every
+  // component to resolve against its actual model. It catches the production
+  // failure a fake fixed-radius provider cannot: a requested point can fall in
+  // a gap, after which a model-wide bounding box leaves the fitting floating.
+  class FakeTextureLoader {
+    load() { return new THREE_REAL.Texture(); }
+  }
+  globalThis.THREE = { ...THREE_REAL, TextureLoader: FakeTextureLoader };
+  globalThis.document = {
+    createElement(tag) {
+      if (tag !== 'canvas') return {};
+      return {
+        width: 0,
+        height: 0,
+        getContext() {
+          return {
+            createRadialGradient() { return { addColorStop() {} }; },
+            fillRect() {},
+            fillStyle: null,
+          };
+        },
+      };
+    },
+  };
+
+  const { getModelBounds, measureShellSurfaces } = await import(
+    '../src/renderer3d/component-builder.js'
+  );
+  const measured = new Map();
+  setModelBoundsProvider(getModelBounds);
+  setShellMeasureProvider((type, requests) => {
+    const result = measureShellSurfaces(type, requests);
+    for (const req of requests) measured.set(`${type}.${req.key}`, result.get(req.key));
+    return result;
+  });
+
+  const unresolved = [];
+  const unmeasured = [];
+  let recovered = 0;
+  for (const { type, def, name } of utilityPorts) {
+    const anchor = portAnchor3D(place(type), def, name);
+    if (!anchor || !Number.isFinite(anchor.x) || !Number.isFinite(anchor.y)
+        || !Number.isFinite(anchor.z)) {
+      unresolved.push(`${type}.${name}`);
+    }
+    const surface = measured.get(`${type}.${name}`);
+    const usable = Number.isFinite(surface)
+      || (surface && Number.isFinite(surface.lat)
+        && Number.isFinite(surface.y) && Number.isFinite(surface.along));
+    if (!usable) unmeasured.push(`${type}.${name}`);
+    if (surface && typeof surface === 'object') recovered++;
+  }
+  assert(unresolved.length === 0,
+    `all ${utilityPorts.length} real-geometry anchors are finite `
+    + `(${unresolved.slice(0, 5).join(',') || 'all resolve'})`);
+  assert(unmeasured.length === 0,
+    `all ${utilityPorts.length} ports hit a rendered shell directly or nearby `
+    + `(${unmeasured.slice(0, 5).join(',') || 'all attached'})`);
+  assert(recovered > 0, `the audit exercised missed-ray recovery (${recovered} recovered)`);
+
+  // Penning's exit pipe lengthens the overall Z bounds beyond its magnet
+  // yoke. Both front-biased side ports used to request that empty extension;
+  // the lateral fallback then drew them away from the chassis. Recovery must
+  // keep their service height, move them back along the source, and prefer the
+  // broad yoke over the skinny beam support beside it.
+  for (const name of ['cool_in', 'vac_in']) {
+    const surface = measured.get(`penningIonSource.${name}`);
+    assert(surface && typeof surface === 'object'
+        && Math.abs(surface.y - 0.792) < 1e-3
+        && surface.along < 0.3
+        && surface.lat > 0.4,
+    `Penning ${name} recovers onto the magnet yoke (${JSON.stringify(surface)})`);
+  }
+}
+
 // Leave the module as it was found: these providers are process-global, and a
-// future section (or a future import of this file) must not inherit fakes.
+// future import of this file must not inherit either fakes or renderer state.
 useProviders(null, null);
 
 console.log(`\n=== ${passed} passed, ${failed} failed ===`);

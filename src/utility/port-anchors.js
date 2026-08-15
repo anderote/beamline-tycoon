@@ -100,7 +100,12 @@ export function setModelBoundsProvider(fn) {
  * `measureShellSurfaces`. Without it the lateral offset falls back to the
  * model's bounding box and then to the footprint.
  *
- * @param {(type: string, requests: Array<object>) => Map<string, number|null>} fn
+ * A direct shell hit is a lateral distance. When the requested point falls in
+ * a gap, the renderer may instead return the nearest usable mount as
+ * `{ lat, y, along }`; that keeps the fitting on real geometry rather than on
+ * the component's coarse overall bounding box.
+ *
+ * @param {(type: string, requests: Array<object>) => Map<string, number|object|null>} fn
  */
 export function setShellMeasureProvider(fn) {
   _measureProvider = typeof fn === 'function' ? fn : null;
@@ -222,11 +227,28 @@ function resolveTypeMounts(type, def, portsFlipped = false) {
   const mounts = new Map();
   for (const p of ports) {
     const halfLat = p.local.axis === 'x' ? half.x : half.z;
-    const hit = measured && typeof measured.get === 'function'
+    const halfPerp = p.local.axis === 'x' ? half.z : half.x;
+    const measuredValue = measured && typeof measured.get === 'function'
       ? measured.get(p.portName)
       : null;
-    const lat = resolveLat(p.override, bounds, hit, p.local.axis, p.local.sign, halfLat);
-    const mount = { lat, along: p.along, y: p.y };
+    const surface = Number.isFinite(measuredValue)
+      ? { lat: measuredValue }
+      : (measuredValue && typeof measuredValue === 'object' ? measuredValue : null);
+    const lat = resolveLat(
+      p.override, bounds, surface?.lat, p.local.axis, p.local.sign, halfLat,
+    );
+
+    // An explicit lateral override is a complete authored mount: it exists to
+    // bypass shell measurement for intentional hardware such as transformer
+    // terminal banks. Otherwise a miss may be recovered by the renderer at a
+    // nearby point on the same chassis. Keep the recovered point inside the
+    // reserved footprint just like the authored/fractional path above.
+    const useRecoveredMount = !Number.isFinite(p.override?.lat) && surface;
+    const along = useRecoveredMount && Number.isFinite(surface.along)
+      ? clamp(surface.along, -halfPerp, halfPerp)
+      : p.along;
+    const y = useRecoveredMount && Number.isFinite(surface.y) ? surface.y : p.y;
+    const mount = { lat, along, y };
     mounts.set(p.portName, mount);
     if (type) _mountCache.set(`${type}:${p.portName}:${portsFlipped ? 1 : 0}`, mount);
   }
