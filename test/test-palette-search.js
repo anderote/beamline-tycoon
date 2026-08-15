@@ -67,19 +67,19 @@ function makeGame() {
 // === 2. Research-locked components are excluded ===========================
 {
   const game = makeGame(); // fresh game: completedResearch is empty
-  const locked = COMPONENTS.ionSource;
-  assertOk(!!locked && locked.requires === 'protonAcceleration', 'sanity: ionSource is gated behind protonAcceleration');
-  assertOk(!game.isComponentUnlocked(locked), 'sanity: ionSource is locked on a fresh game');
+  const locked = COMPONENTS.srfGun;
+  assertOk(!!locked && locked.requires === 'srfGunTech', 'sanity: srfGun is gated behind srfGunTech');
+  assertOk(!game.isComponentUnlocked(locked), 'sanity: srfGun is locked on a fresh game');
 
   const index = buildPaletteIndex(game);
-  assertOk(!index.some(e => e.id === 'ionSource'), 'locked component (ionSource) is excluded from the index');
+  assertOk(!index.some(e => e.id === 'srfGun'), 'locked component (srfGun) is excluded from the index');
 
   // Unlock it and rebuild — buildPaletteIndex is a pure function of `game`,
   // so the caller rebuilding on a 'researchChanged' event is how the HUD
   // keeps this live without a page reload.
-  game.state.completedResearch.push('protonAcceleration');
+  game.state.completedResearch.push('srfGunTech');
   const index2 = buildPaletteIndex(game);
-  assertOk(index2.some(e => e.id === 'ionSource'), 'newly-unlocked component appears once the index is rebuilt');
+  assertOk(index2.some(e => e.id === 'srfGun'), 'newly-unlocked component appears once the index is rebuilt');
 }
 
 // === 3. Ranking order ======================================================

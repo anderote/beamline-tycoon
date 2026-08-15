@@ -48,7 +48,8 @@ test('every actual generic placeable fallback is covered by the visual-detail au
   const source = readFileSync(new URL('../src/renderer3d/component-builder.js', import.meta.url), 'utf8');
   const detailed = new Set([
     ...[...source.matchAll(/ROLE_BUILDERS\.([A-Za-z0-9_]+)/g)].map(m => m[1]),
-    'source', 'ionSource', 'ecrIonSource', 'drift',
+    'source', 'dcPhotoGun', 'ncRfGun', 'srfGun',
+    'penningIonSource', 'ionSource', 'ecrIonSource', 'drift',
   ]);
   const missingComponentProfiles = Object.values(PLACEABLES)
     .filter(def => (def.kind === 'beamline' || def.kind === 'infrastructure') && !detailed.has(def.id))
@@ -91,4 +92,27 @@ test('component and facility render paths both retain their housing and add deta
   assert.ok(meshCount(parent.children[0]) > 2,
     'equipment fallback retains its decal housing and adds bezel, display, controls, and feet');
   equipment.dispose(parent);
+});
+
+test('every source family has bespoke, mechanically detailed 3D geometry', () => {
+  const builder = new ComponentBuilder();
+  const sourceIds = [
+    'source', 'dcPhotoGun', 'ncRfGun', 'srfGun',
+    'penningIonSource', 'ionSource', 'ecrIonSource',
+  ];
+  for (const id of sourceIds) {
+    const object = builder._createObject(PLACEABLES[id], PLACEABLES[id].accentColor);
+    assert.ok(meshCount(object) >= 8, `${id} has a multi-part source-machine silhouette`);
+  }
+});
+
+test('NC RF cavity leaves the external waveguide run to its utility port', () => {
+  const object = new ComponentBuilder()._createObject(
+    PLACEABLES.rfCavity,
+    PLACEABLES.rfCavity.accentColor,
+  );
+  const visual = object.children[0];
+  const size = new THREE.Box3().setFromObject(visual).getSize(new THREE.Vector3());
+  assert.ok(size.x <= 1.05,
+    `rfCavity geometry stays on the 1 m cavity body instead of growing a waveguide stub (${size.x} m)`);
 });

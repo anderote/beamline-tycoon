@@ -531,7 +531,7 @@ console.log('\n-- PARAM_DEFS low-energy RF types --');
 // -----------------------------------------------------------------------
 console.log('\n--- Ion sources derive extraction energy ---');
 {
-  for (const type of ['ionSource', 'ecrIonSource']) {
+  for (const type of ['penningIonSource', 'ionSource', 'ecrIonSource']) {
     assert(PARAM_DEFS[type] !== undefined, `PARAM_DEFS.${type} exists`);
     assert(PARAM_DEFS[type].extractionVoltage !== undefined,
       `${type} exposes extractionVoltage as a tunable param`);

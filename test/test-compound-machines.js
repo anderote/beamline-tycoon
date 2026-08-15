@@ -353,13 +353,16 @@ console.log('\n--- the LWFA profile is genuinely different ---');
   assert(req.includes('dataFiber'),
     'lwfaStation takes a fibre — the femtosecond timing link to its drive laser');
 
-  // The one utility nobody else in the source palette asks for.
-  const otherSourcesOnFibre = Object.values(BEAMLINE_COMPONENTS_RAW)
-    .filter(c => c.isSource && c.id !== 'lwfaStation')
+  // The one compound machine whose operation depends on a timing network.
+  // Photoinjector guns also need fibre timing, but they are source modules,
+  // not self-contained source+acceleration machines.
+  const otherCompoundMachinesOnFibre = MACHINES
+    .map(machine => BEAMLINE_COMPONENTS_RAW[machine.id])
+    .filter(c => c.id !== 'lwfaStation')
     .filter(c => (c.requiredConnections || []).includes('dataFiber'))
     .map(c => c.id);
-  assert(otherSourcesOnFibre.length === 0,
-    `lwfaStation is the only source on the fibre network${otherSourcesOnFibre.length ? ` (also: ${otherSourcesOnFibre.join(', ')})` : ''}`);
+  assert(otherCompoundMachinesOnFibre.length === 0,
+    `lwfaStation is the only compound source on the fibre network${otherCompoundMachinesOnFibre.length ? ` (also: ${otherCompoundMachinesOnFibre.join(', ')})` : ''}`);
 }
 
 console.log('\n--- the drive laser is its own component, not the gun-drive one ---');

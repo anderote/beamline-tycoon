@@ -348,7 +348,7 @@ export const RESEARCH = {
     desc: 'The ultimate electron source: a superconducting RF photocathode gun that combines the high gradient of an RF gun with the CW capability and efficiency of SRF technology. Produces the highest average brightness beams available — 4x the current of a thermionic source with excellent emittance. Requires both SRF and photoinjector expertise.',
     cost: { data: 452, funding: 18000000, reputation: 1500 },
     duration: 120,
-    unlocks: [],
+    unlocks: ['srfGun'],
     effect: { energyCostMult: 0.75 },
     requires: ['srfTechnology', 'rfPhotoinjectors'],
   },
@@ -736,7 +736,7 @@ export const RESEARCH = {
     desc: 'Develop the specialized techniques needed to accelerate protons and heavy ions, which are 2000x heavier than electrons. Requires dedicated ion sources (ECR, Penning), radio-frequency quadrupoles (RFQs) for initial capture and bunching, and drift-tube linacs for the first stage of acceleration. Opens the door to hadron physics, neutron sources, and medical proton therapy.',
     cost: { data: 200, funding: 5000000 },
     duration: 60,
-    unlocks: ['ionSource', 'rfq'],
+    unlocks: ['rfq'],
     requires: 'cyclotronTech',
   },
   ecrIonSource: {

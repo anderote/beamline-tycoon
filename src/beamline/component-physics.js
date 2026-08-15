@@ -66,6 +66,21 @@ export const PARAM_DEFS = {
     extractionEnergy: { derived: true, unit: 'GeV' },
   },
 
+  // ---- Penning ion source ----
+  penningIonSource: {
+    extractionVoltage: {
+      min: 10, max: 80, default: 30, unit: 'kV', step: 1,
+    },
+    dischargeCurrent: {
+      min: 0.5, max: 10, default: 2.5, unit: 'A', step: 0.25,
+    },
+    magneticField: {
+      min: 0.05, max: 0.3, default: 0.15, unit: 'T', step: 0.01,
+    },
+    beamCurrent:      { derived: true, unit: 'mA' },
+    extractionEnergy: { derived: true, unit: 'GeV' },
+  },
+
   // ---- DC photocathode gun ----
   dcPhotoGun: {
     extractionVoltage: {
@@ -80,6 +95,7 @@ export const PARAM_DEFS = {
     beamCurrent: { derived: true, unit: 'mA' },
     emittance:   { derived: true, unit: 'mm·mrad' },
     cathodeQE:   { derived: true, unit: '%' },
+    extractionEnergy: { derived: true, unit: 'GeV' },
   },
 
   // ---- NC RF gun ----
@@ -96,6 +112,7 @@ export const PARAM_DEFS = {
     beamCurrent: { derived: true, unit: 'mA' },
     emittance:   { derived: true, unit: 'mm·mrad' },
     bunchCharge: { derived: true, unit: 'nC' },
+    extractionEnergy: { derived: true, unit: 'GeV' },
   },
 
   // ---- SRF gun ----
@@ -111,6 +128,7 @@ export const PARAM_DEFS = {
     },
     beamCurrent: { derived: true, unit: 'mA' },
     emittance:   { derived: true, unit: 'mm·mrad' },
+    extractionEnergy: { derived: true, unit: 'GeV' },
   },
 
   // ---- Quadrupole ----
@@ -489,6 +507,20 @@ function computeEcrIonSource(params) {
   return { beamCurrent, extractionEnergy };
 }
 
+// Penning source: discharge current sets the available plasma density while
+// the crossed magnetic field lengthens electron paths through the gas. The
+// square-root confinement term keeps field tuning useful without letting a
+// tiny permanent-magnet source outrun the duoplasmatron. Defaults give 25 mA.
+const PENNING_MA_PER_DISCHARGE_A = 10;
+const PENNING_DESIGN_FIELD_T = 0.15;
+
+function computePenningIonSource(params) {
+  const extractionEnergy = params.extractionVoltage * 1e-6; // kV → GeV
+  const confinement = Math.min(1.2, Math.sqrt(params.magneticField / PENNING_DESIGN_FIELD_T));
+  const beamCurrent = params.dischargeCurrent * PENNING_MA_PER_DISCHARGE_A * confinement;
+  return { beamCurrent, extractionEnergy };
+}
+
 /**
  * DC photocathode gun.
  *
@@ -538,8 +570,9 @@ function computeDcPhotoGun(params) {
 
   // Total (add in quadrature, dominated by geom in DC gun)
   const emittance = Math.sqrt(eps_intrinsic * eps_intrinsic + eps_geom * eps_geom);
+  const extractionEnergy = V_kV * 1e-6; // kV → GeV
 
-  return { beamCurrent, emittance, cathodeQE };
+  return { beamCurrent, emittance, cathodeQE, extractionEnergy };
 }
 
 /**
@@ -549,7 +582,7 @@ function computeDcPhotoGun(params) {
  *   Q [nC] ≈ k_charge * (E_peak [MV/m])^2 * r_spot² [mm²]
  * Calibrated so that E=120 MV/m, r=0.8 mm → Q ~ 1 nC.
  *
- * Average current (at 120 Hz rep rate typical for NC LINAC):
+ * Average current (at 1 MHz, representative of a modern high-duty gun):
  *   I [mA] = Q [nC] * f_rep [Hz] * 1e-6
  * We use f_rep = 120 Hz as a fixed representative value for NC guns.
  *
@@ -570,8 +603,9 @@ function computeNcRfGun(params) {
   const k_charge = 1.085e-4; // nC / (MV/m)² / mm²
   const bunchCharge = k_charge * E_MV * E_MV * r_mm * r_mm; // nC
 
-  // Average current at 120 Hz
-  const f_rep = 120; // Hz — representative NC linac rep rate
+  // Average current at 1 MHz. This makes the gun useful in the game's
+  // average-current model while its power and water demand pay for that duty.
+  const f_rep = 1e6; // Hz
   const beamCurrent = bunchCharge * f_rep * 1e-6; // mA  (nC * Hz = nA → *1e-3 = mA? no: nC*Hz=nA, *1e-3=μA; fix below)
   // Correct: Q[C] * f[Hz] = I[A] → I[mA] = Q[nC]*1e-9 * f * 1e3 = Q[nC]*f*1e-6
   // Already correct above.
@@ -590,8 +624,10 @@ function computeNcRfGun(params) {
   const eps_intrinsic = r_mm * Math.sqrt(excess_eV / (3.0 * mc2_eV));
 
   const emittance = Math.sqrt(eps_rf * eps_rf + eps_intrinsic * eps_intrinsic);
+  // A compact two-cell copper gun produces roughly 5 MeV at the design field.
+  const extractionEnergy = (E_MV / 120) * 0.005;
 
-  return { beamCurrent, emittance, bunchCharge };
+  return { beamCurrent, emittance, bunchCharge, extractionEnergy };
 }
 
 /**
@@ -629,7 +665,8 @@ function computeSrfGun(params) {
   const excess_eV   = Math.max(0, E_ph_eV - phi_work_eV);
   const emittance   = r_mm * Math.sqrt(excess_eV / (3.0 * mc2_eV)); // mm·mrad
 
-  return { beamCurrent, emittance };
+  const extractionEnergy = (G_MV / 20) * 0.005;
+  return { beamCurrent, emittance, extractionEnergy };
 }
 
 // ---------------------------------------------------------------------------
@@ -973,6 +1010,7 @@ function computeDtl(params) {
 // ---------------------------------------------------------------------------
 const COMPUTE_STATS = {
   source:       computeSource,
+  penningIonSource: computePenningIonSource,
   ionSource:    computeIonSource,
   ecrIonSource: computeEcrIonSource,
   dcPhotoGun: computeDcPhotoGun,

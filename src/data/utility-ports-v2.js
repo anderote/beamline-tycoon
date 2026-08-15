@@ -92,6 +92,26 @@ const BEAMLINE_UTILITY_PORTS = {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 50 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 30 } },
   },
+  dcPhotoGun: {
+    pwr_in:  { utility: 'powerCable', side: 'left',  offsetAlong: 0.25, role: 'sink', params: { demand: 35 } },
+    data_in: { utility: 'dataFiber',  side: 'right', offsetAlong: 0.75, role: 'sink', params: { demand: 3 } },
+  },
+  ncRfGun: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 70 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.35, role: 'sink', params: { heatLoad: 70 } },
+    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.65, role: 'sink', params: { demand: 12 } },
+    data_in: { utility: 'dataFiber',    side: 'left',  offsetAlong: 0.8, role: 'sink', params: { demand: 4 } },
+  },
+  srfGun: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 110 } },
+    cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.3, role: 'sink', params: { srfHeatW: 120 } },
+    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.62, role: 'sink', params: { demand: 18 } },
+    data_in: { utility: 'dataFiber',    side: 'left',  offsetAlong: 0.8, role: 'sink', params: { demand: 5 } },
+  },
+  penningIonSource: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 22 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.7, role: 'sink', params: { heatLoad: 14 } },
+  },
   // Duoplasmatron: filament + arc + extraction supplies; magnet needs water.
   ionSource: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 30 } },
@@ -575,7 +595,8 @@ const VACUUM_OUTGASSING = {
   // tiny (diagnostics, thin elements)
   bpm: 2e-7, ict: 2e-7, screen: 2e-7, wireScanner: 2e-7, faradayCup: 2e-7,
   // medium modules
-  source: 1e-6, ionSource: 1e-6, pillboxCavity: 1e-6, spokeCavity: 1e-6,
+  source: 1e-6, dcPhotoGun: 1e-6, ncRfGun: 2e-6, srfGun: 2e-6,
+  penningIonSource: 1e-6, ionSource: 1e-6, pillboxCavity: 1e-6, spokeCavity: 1e-6,
   ellipticalSrfCavity: 1e-6, rfq: 1e-6, target: 1e-6, industrialLinac: 1e-6,
   // large vessels / gas-loaded
   ecrIonSource: 5e-6, rfCavity: 2e-6, sbandStructure: 2e-6,

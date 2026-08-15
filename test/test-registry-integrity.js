@@ -96,8 +96,6 @@ const UNIVERSE = new Set([
 // assertion below until it is removed from this list.
 // ---------------------------------------------------------------------------
 const UNIMPLEMENTED_CONTENT = new Set([
-  // photoinjector guns (Game._ensureBeamlineForSourcePlaceable names these)
-  'dcPhotoGun', 'ncRfGun', 'srfGun',
   // FEL hardware (Game._tickBeamlineEconomy has photon-port user-fee code)
   // `chicane` and `undulator` were here and are now real components — adding
   // them is what finally lets BunchCompressionModule and FELGainModule run.

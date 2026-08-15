@@ -624,6 +624,14 @@ function _buildSource() {
     const ring = _addShadow(new THREE.Mesh(g, _mat(insulatorC, 0.35, 0.05)));
     ring.position.set(0, y, -0.45);
     group.add(ring);
+    // Wide porcelain sheds give the stack a readable high-voltage silhouette.
+    const shed = _addShadow(new THREE.Mesh(
+      new THREE.TorusGeometry(ringR + 0.035, 0.022, 6, 20),
+      _mat(insulatorC, 0.42, 0.03),
+    ));
+    shed.rotation.x = Math.PI / 2;
+    shed.position.set(0, y, -0.45);
+    group.add(shed);
     // Steel spacer between rings
     if (i < 3) {
       const sg = new THREE.CylinderGeometry(ringR + 0.02, ringR + 0.02, ringGap, SEGS);
@@ -632,6 +640,34 @@ function _buildSource() {
       spacer.position.set(0, y + ringH / 2 + ringGap / 2, -0.45);
       group.add(spacer);
     }
+  }
+
+  // Hot cathode face, recessed behind the rear flange.
+  {
+    const cathode = new THREE.Mesh(
+      new THREE.CircleGeometry(0.11, SEGS),
+      getGlowMaterial('source', 0xff8a3d),
+    );
+    cathode.userData.role = 'glow';
+    cathode.layers.enable(BLOOM_LAYER);
+    cathode.position.set(0, BEAM_HEIGHT, -0.2 - chamberH / 2 - 0.022);
+    cathode.rotation.y = Math.PI;
+    group.add(cathode);
+  }
+
+  // Analog HV meter and guard rail make the service side legible from above.
+  {
+    const meter = _addShadow(new THREE.Mesh(
+      new THREE.CylinderGeometry(0.09, 0.09, 0.035, 16),
+      _mat(0xe8e1c8, 0.65, 0.05),
+    ));
+    meter.rotation.z = Math.PI / 2;
+    meter.position.set(chamberR + 0.035, BEAM_HEIGHT + 0.16, -0.08);
+    group.add(meter);
+    const needle = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.055, 0.008), _mat(0x222222, 0.8, 0));
+    needle.rotation.z = -0.55;
+    needle.position.set(chamberR + 0.057, BEAM_HEIGHT + 0.16, -0.08);
+    group.add(needle);
   }
 
   // HV cable bushing on top of insulator stack
@@ -834,6 +870,9 @@ function _buildDuoplasmatron() {
     }
   }
 
+  _addBeamSupport(group, bodyZ - 0.28);
+  _addBeamSupport(group, bodyZ + 0.28);
+
   return group;
 }
 
@@ -910,6 +949,255 @@ function _buildEcrIonSource() {
     }
   }
 
+  // RF vacuum window and a violet plasma viewport distinguish the microwave
+  // source from a plain solenoid can.
+  {
+    const window = _addShadow(new THREE.Mesh(
+      new THREE.BoxGeometry(0.19, 0.19, 0.035),
+      _mat(0x6ca6d8, 0.18, 0.15),
+    ));
+    window.position.set(-(chR + 0.15), BEAM_HEIGHT + 0.05, chZ - chH / 2 + 0.31);
+    group.add(window);
+    const viewport = new THREE.Mesh(
+      new THREE.CircleGeometry(0.1, 16),
+      getGlowMaterial('ecrIonSource', 0xb34dff),
+    );
+    viewport.userData.role = 'glow';
+    viewport.layers.enable(BLOOM_LAYER);
+    viewport.rotation.y = Math.PI / 2;
+    viewport.position.set(chR + 0.006, BEAM_HEIGHT + 0.08, chZ);
+    group.add(viewport);
+  }
+
+  _addBeamSupport(group, chZ - 0.35);
+  _addBeamSupport(group, chZ + 0.35);
+
+  return group;
+}
+
+function _addAxialCylinder(group, {
+  radius, length, z, color, roughness = 0.4, metalness = 0.45,
+  radialSegments = SEGS, radiusBack = radius,
+}) {
+  const geometry = new THREE.CylinderGeometry(radius, radiusBack, length, radialSegments);
+  applyTiledCylinderUVs(geometry, Math.max(radius, radiusBack), length, radialSegments);
+  const mesh = _addShadow(new THREE.Mesh(geometry, _mat(color, roughness, metalness)));
+  mesh.rotation.x = Math.PI / 2;
+  mesh.position.set(0, BEAM_HEIGHT, z);
+  group.add(mesh);
+  return mesh;
+}
+
+function _addSourceExit(group, startZ, endZ = 1.0) {
+  _addAxialCylinder(group, {
+    radius: PIPE_R, length: endZ - startZ, z: (startZ + endZ) / 2,
+    color: PIPE_COLOR, roughness: 0.3, metalness: 0.55,
+  });
+  _addAxialCylinder(group, {
+    radius: FLANGE_R, length: FLANGE_H, z: endZ,
+    color: FLANGE_COLOR, roughness: 0.28, metalness: 0.6,
+  });
+}
+
+function _addSourceGlowDisc(group, id, color, radius, z, facing = 1) {
+  const disc = new THREE.Mesh(
+    new THREE.CircleGeometry(radius, SEGS),
+    getGlowMaterial(id, color),
+  );
+  disc.userData.role = 'glow';
+  disc.layers.enable(BLOOM_LAYER);
+  disc.castShadow = false;
+  if (facing < 0) disc.rotation.y = Math.PI;
+  disc.position.set(0, BEAM_HEIGHT, z);
+  group.add(disc);
+  return disc;
+}
+
+function _buildDcPhotoGun() {
+  const group = new THREE.Group();
+  const stainless = 0x93a7b1;
+  const ceramic = 0xe7d9b0;
+  const blue = 0x2779b8;
+
+  // Broad ceramic HV column behind a compact stainless extraction chamber.
+  _addAxialCylinder(group, { radius: 0.34, length: 0.55, z: -0.48, color: ceramic, roughness: 0.48, metalness: 0.03 });
+  for (const z of [-0.72, -0.58, -0.44, -0.3]) {
+    const shed = _addShadow(new THREE.Mesh(
+      new THREE.TorusGeometry(0.36, 0.035, 7, 22),
+      _mat(0xcbb984, 0.5, 0.02),
+    ));
+    shed.position.set(0, BEAM_HEIGHT, z);
+    group.add(shed);
+  }
+  _addAxialCylinder(group, { radius: 0.4, length: 0.62, z: 0.03, color: stainless, roughness: 0.28, metalness: 0.72 });
+  _addAxialCylinder(group, { radius: 0.44, length: 0.05, z: -0.28, color: FLANGE_COLOR, roughness: 0.25, metalness: 0.68 });
+  _addAxialCylinder(group, { radius: 0.44, length: 0.05, z: 0.34, color: FLANGE_COLOR, roughness: 0.25, metalness: 0.68 });
+
+  // Laser injection arrives through a blue viewport on the service side.
+  const laserTube = _addShadow(new THREE.Mesh(
+    new THREE.CylinderGeometry(0.065, 0.065, 0.48, 12),
+    _mat(blue, 0.22, 0.35),
+  ));
+  laserTube.rotation.z = Math.PI / 2;
+  laserTube.position.set(-0.54, BEAM_HEIGHT + 0.14, -0.05);
+  group.add(laserTube);
+  const viewport = _addShadow(new THREE.Mesh(
+    new THREE.TorusGeometry(0.1, 0.025, 8, 18),
+    _mat(FLANGE_COLOR, 0.25, 0.65),
+  ));
+  viewport.rotation.y = Math.PI / 2;
+  viewport.position.set(-0.405, BEAM_HEIGHT + 0.14, -0.05);
+  group.add(viewport);
+  const laserSpot = new THREE.Mesh(
+    new THREE.CircleGeometry(0.065, 16),
+    getGlowMaterial('dcPhotoGun', 0x55d7ff),
+  );
+  laserSpot.userData.role = 'glow';
+  laserSpot.layers.enable(BLOOM_LAYER);
+  laserSpot.rotation.y = Math.PI / 2;
+  laserSpot.position.set(-0.431, BEAM_HEIGHT + 0.14, -0.05);
+  group.add(laserSpot);
+
+  // Cathode/anode stack is visible as copper discs down the bore.
+  _addAxialCylinder(group, { radius: 0.18, length: 0.035, z: -0.22, color: 0xb87333, roughness: 0.3, metalness: 0.72 });
+  _addAxialCylinder(group, { radius: 0.15, length: 0.035, z: 0.28, color: 0xb87333, roughness: 0.3, metalness: 0.72 });
+  _addSourceGlowDisc(group, 'dcPhotoGun', 0x7be8ff, 0.075, -0.198);
+  _addSourceExit(group, 0.37);
+  _addBeamSupport(group, -0.42);
+  _addBeamSupport(group, 0.22);
+  return group;
+}
+
+function _buildNcRfGun() {
+  const group = new THREE.Group();
+  const copper = 0xc87532;
+  const darkCopper = 0x75401f;
+
+  // Two unequal copper cells give the gun its characteristic photoinjector
+  // profile instead of another generic pressure vessel.
+  _addAxialCylinder(group, { radius: 0.34, length: 0.38, z: -0.38, color: copper, roughness: 0.3, metalness: 0.75, radiusBack: 0.27 });
+  _addAxialCylinder(group, { radius: 0.43, length: 0.46, z: 0.03, color: copper, roughness: 0.28, metalness: 0.78, radiusBack: 0.36 });
+  for (const z of [-0.58, -0.18, 0.27]) {
+    _addAxialCylinder(group, { radius: z === 0.27 ? 0.46 : 0.39, length: 0.045, z, color: darkCopper, roughness: 0.35, metalness: 0.68 });
+  }
+
+  // Rectangular S-band coupler and water manifolds.
+  const coupler = _addShadow(new THREE.Mesh(
+    new THREE.BoxGeometry(0.26, 0.28, 0.42),
+    _mat(0xc2a453, 0.35, 0.58),
+  ));
+  coupler.position.set(0.5, BEAM_HEIGHT + 0.08, 0.02);
+  group.add(coupler);
+  const iris = _addShadow(new THREE.Mesh(
+    new THREE.BoxGeometry(0.12, 0.16, 0.23),
+    _mat(0x5b331f, 0.38, 0.6),
+  ));
+  iris.position.set(0.39, BEAM_HEIGHT + 0.08, 0.02);
+  group.add(iris);
+  for (const x of [-0.3, 0.3]) {
+    const water = _addShadow(new THREE.Mesh(
+      new THREE.TorusGeometry(0.35, 0.025, 7, 20),
+      _mat(0x2879a5, 0.3, 0.45),
+    ));
+    water.position.set(0, BEAM_HEIGHT, x);
+    group.add(water);
+  }
+
+  _addSourceGlowDisc(group, 'ncRfGun', 0xffb34e, 0.075, -0.605, -1);
+  _addSourceExit(group, 0.3);
+  _addBeamSupport(group, -0.38);
+  _addBeamSupport(group, 0.13);
+  return group;
+}
+
+function _buildSrfGun() {
+  const group = new THREE.Group();
+  const cryostat = 0xb7c4d2;
+  const niobium = 0x7d90b8;
+
+  // Long helium vessel with bell-shaped cavity cells visible as raised bands.
+  _addAxialCylinder(group, { radius: 0.48, length: 1.5, z: -0.05, color: cryostat, roughness: 0.22, metalness: 0.72 });
+  for (const z of [-0.48, -0.05, 0.38]) {
+    const cell = _addShadow(new THREE.Mesh(
+      new THREE.TorusGeometry(0.48, 0.075, 10, 28),
+      _mat(niobium, 0.24, 0.8),
+    ));
+    cell.position.set(0, BEAM_HEIGHT, z);
+    group.add(cell);
+  }
+  for (const z of [-0.8, 0.7]) {
+    _addAxialCylinder(group, { radius: 0.52, length: 0.06, z, color: FLANGE_COLOR, roughness: 0.25, metalness: 0.72 });
+  }
+
+  // Top cryogenic turret and side RF fundamental power coupler.
+  const turret = _addShadow(new THREE.Mesh(
+    new THREE.CylinderGeometry(0.15, 0.2, 0.52, 14),
+    _mat(0x6a82aa, 0.3, 0.62),
+  ));
+  turret.position.set(0, BEAM_HEIGHT + 0.58, -0.2);
+  group.add(turret);
+  const cryoPipe = _addShadow(new THREE.Mesh(
+    new THREE.TorusGeometry(0.18, 0.035, 8, 18, Math.PI),
+    _mat(0x79b9dd, 0.26, 0.58),
+  ));
+  cryoPipe.rotation.z = Math.PI / 2;
+  cryoPipe.position.set(0.17, BEAM_HEIGHT + 0.82, -0.2);
+  group.add(cryoPipe);
+  const coupler = _addShadow(new THREE.Mesh(
+    new THREE.BoxGeometry(0.42, 0.24, 0.26),
+    _mat(0xc2a453, 0.34, 0.62),
+  ));
+  coupler.position.set(0.55, BEAM_HEIGHT + 0.05, 0.38);
+  group.add(coupler);
+
+  _addSourceGlowDisc(group, 'srfGun', 0x8ec8ff, 0.07, -0.835, -1);
+  _addSourceExit(group, 0.73, 1.5);
+  _addBeamSupport(group, -0.55);
+  _addBeamSupport(group, 0.45);
+  return group;
+}
+
+function _buildPenningIonSource() {
+  const group = new THREE.Group();
+  const yoke = 0x493d64;
+  const steel = 0x718398;
+
+  // Rectangular permanent-magnet return yoke around a narrow discharge tube.
+  for (const x of [-0.34, 0.34]) {
+    const side = _addShadow(new THREE.Mesh(
+      new THREE.BoxGeometry(0.18, 0.72, 0.82),
+      _mat(yoke, 0.5, 0.42),
+    ));
+    side.position.set(x, BEAM_HEIGHT, -0.16);
+    group.add(side);
+  }
+  for (const y of [BEAM_HEIGHT - 0.36, BEAM_HEIGHT + 0.36]) {
+    const bridge = _addShadow(new THREE.Mesh(
+      new THREE.BoxGeometry(0.86, 0.16, 0.82),
+      _mat(yoke, 0.5, 0.42),
+    ));
+    bridge.position.set(0, y, -0.16);
+    group.add(bridge);
+  }
+  _addAxialCylinder(group, { radius: 0.22, length: 0.9, z: -0.16, color: steel, roughness: 0.34, metalness: 0.58 });
+
+  // Opposed cathode stalks and a visible magenta plasma aperture.
+  for (const x of [-0.27, 0.27]) {
+    const cathode = _addShadow(new THREE.Mesh(
+      new THREE.CylinderGeometry(0.045, 0.045, 0.28, 10),
+      _mat(0xb87333, 0.32, 0.68),
+    ));
+    cathode.rotation.z = Math.PI / 2;
+    cathode.position.set(x / 2, BEAM_HEIGHT, -0.38);
+    group.add(cathode);
+  }
+  _addSourceGlowDisc(group, 'penningIonSource', 0xd95cff, 0.09, 0.315);
+  for (const z of [0.35, 0.43]) {
+    _addAxialCylinder(group, { radius: z === 0.35 ? 0.18 : 0.13, length: 0.035, z, color: 0xb87333, roughness: 0.3, metalness: 0.7 });
+  }
+  _addSourceExit(group, 0.46);
+  _addBeamSupport(group, -0.38);
+  _addBeamSupport(group, 0.2);
   return group;
 }
 
@@ -1573,7 +1861,8 @@ ROLE_BUILDERS.rfq = _buildRFQRoles;
  *
  * Six chunky copper cells strung along the beam like beads — the visual
  * signature of a standing-wave structure. Each cell carries its own small
- * tuning plunger; a single RF drive waveguide feeds the middle cell.
+ * tuning plunger. The routed rfWaveguide utility terminates directly on the
+ * cavity skin; this builder deliberately does not grow a fake external feed.
  * Footprint: subW=4, subL=6 → 2 m × 3 m, beam along +Z.
  */
 function _buildRFCavityRoles() {
@@ -1621,22 +1910,6 @@ function _buildRFCavityRoles() {
     applyTiledCylinderUVs(capGeo, plungerR * 1.4, 0.03, SEGS);
     const capTrans = new THREE.Matrix4().makeTranslation(0, plungerY + plungerH + 0.015, zc);
     _pushTransformed(buckets.detail, capGeo, capTrans);
-  }
-
-  // Single RF drive waveguide into the middle cell, from +X side
-  {
-    const wgW = 0.32, wgH = 0.18, wgL = 0.5;
-    const wgZ = 0;
-    const wgX = cellR + wgL / 2;
-    const g = new THREE.BoxGeometry(wgL, wgH, wgW);
-    applyTiledBoxUVs(g, wgL, wgH, wgW);
-    const trans = new THREE.Matrix4().makeTranslation(wgX, BEAM_HEIGHT, wgZ);
-    _pushTransformed(buckets.accent, g, trans);
-    const capW = 0.4, capH = 0.26, capL = 0.06;
-    const capG = new THREE.BoxGeometry(capL, capH, capW);
-    applyTiledBoxUVs(capG, capL, capH, capW);
-    const capTrans = new THREE.Matrix4().makeTranslation(wgX + wgL / 2 + capL / 2, BEAM_HEIGHT, wgZ);
-    _pushTransformed(buckets.detail, capG, capTrans);
   }
 
   // End pipe stubs + CF flanges at tile edges
@@ -3731,6 +4004,10 @@ ROLE_BUILDERS.euvCollector = _buildEuvCollectorRoles;
 // that still return a fully-assembled THREE.Group rather than role buckets).
 const DETAIL_BUILDERS = {
   source: _buildSource,
+  dcPhotoGun: _buildDcPhotoGun,
+  ncRfGun: _buildNcRfGun,
+  srfGun: _buildSrfGun,
+  penningIonSource: _buildPenningIonSource,
   ionSource: _buildDuoplasmatron,
   ecrIonSource: _buildEcrIonSource,
   drift: _buildDrift,
