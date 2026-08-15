@@ -409,7 +409,7 @@ UIHost.prototype.drawSchematic = function(canvas, componentType, params, options
     }
     // Cooling diagrams describe their actual service: process-water plant
     // supplies LCW, while tanks and rejectors sit on the plant-water loop.
-    if (comp.category === 'cooling' && comp.subsection === 'processCooling' && !uniqueConns.includes('coolingWater')) uniqueConns.push('coolingWater');
+    if (comp.category === 'cooling' && ['integratedCooling', 'processCooling'].includes(comp.subsection) && !uniqueConns.includes('coolingWater')) uniqueConns.push('coolingWater');
     if (comp.category === 'cooling' && ['waterSupply', 'heatRejection'].includes(comp.subsection) && !uniqueConns.includes('plantWater')) uniqueConns.push('plantWater');
     // Data/Controls: produces data fiber output
     if (comp.category === 'dataControls' && !uniqueConns.includes('dataFiber')) {

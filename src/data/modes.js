@@ -32,7 +32,8 @@ export const MODES = {
                       subsections: {
                         transport: { name: 'Pipes' },
                         waterSupply: { name: 'Water Supply' },
-                        processCooling: { name: 'Chillers' },
+                        integratedCooling: { name: 'Self-Contained Cooling' },
+                        processCooling: { name: 'Central Chillers' },
                         heatRejection: { name: 'Heat Rejection' },
                         waterTreatment: { name: 'Water & Treatment' },
                         distribution: { name: 'Distribution' },
