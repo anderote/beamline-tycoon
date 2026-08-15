@@ -87,7 +87,12 @@ server still needs to be stopped before the task is handed off.
 - Run `npm run test:simulation` whenever economy, staffing, scenario, or
   utility-topology changes can affect a facility's operating balance.
 - `npm test` / `npm run test:all` is the complete non-browser gate. Run the
-  Playwright lane when behavior depends on browser rendering or interaction.
+  Playwright lane only when the repository owner explicitly enables browser
+  testing for crash investigation or bug debugging in the current
+  conversation. Browser automation is not part of routine validation, even
+  for renderer or interaction work. This restriction also covers Browser and
+  Chrome control tools. If browser automation appears essential, stop and ask
+  the owner before launching it.
 - A changed contract requires a test at the contract boundary, not only a test
   of the current implementation's private helpers.
 

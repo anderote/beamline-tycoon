@@ -1,6 +1,38 @@
-// The only utility-line visual state that can change without a topology event
-// is each solved network's error severity. Geometry and source/sink orientation
-// are topology-owned and already refresh on their mutation events.
+// Utility-line rendering reads solved topology as well as line geometry. A
+// topology mutation event reaches the renderer immediately, but SolveRunner
+// publishes the replacement utilityNetworks map on the following solve pass.
+// The tick-time signature therefore has to cover both the published topology
+// (which controls source -> sink animation direction) and fault severity.
+
+function sourceKey(source) {
+  return source?.portKey
+    || (source?.placeableId != null && source?.portName != null
+      ? `${source.placeableId}:${source.portName}`
+      : '');
+}
+
+export function utilityTopologyVisualSignature(state) {
+  const networks = state?.utilityNetworks;
+  if (!(networks instanceof Map)) return null;
+
+  const entries = [];
+  for (const [utilityType, nets] of networks) {
+    for (const network of nets || []) {
+      // Direction is rooted at source ports and propagated over the lines in
+      // this discovered network. Include exactly that published membership;
+      // geometry/path edits are already covered by each line's render hash.
+      const lineIds = (network?.lineIds || []).map(String).sort();
+      const sources = (network?.sources || []).map(sourceKey).filter(Boolean).sort();
+      entries.push([
+        String(utilityType),
+        String(network?.id ?? ''),
+        lineIds.join(','),
+        sources.join(','),
+      ].join(':'));
+    }
+  }
+  return entries.sort().join('|');
+}
 
 export function utilityErrorVisualSignature(state) {
   const data = state?.utilityNetworkData;
@@ -26,4 +58,11 @@ export function utilityErrorVisualSignature(state) {
   }
   return [...severityByLine].sort(([a], [b]) => String(a).localeCompare(String(b)))
     .map(([id, severity]) => `${id}:${severity}`).join('|');
+}
+
+export function utilityLineVisualSignature(state) {
+  const topology = utilityTopologyVisualSignature(state);
+  const errors = utilityErrorVisualSignature(state);
+  if (topology === null || errors === null) return null;
+  return `${topology}#${errors}`;
 }
