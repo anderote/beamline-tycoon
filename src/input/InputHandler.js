@@ -83,7 +83,7 @@ export class InputHandler {
     this.selectedCategory = 'source';
     this.dipoleBendDir = 'right';
     this.placementDir = DIR.NE;     // direction for source/free placement
-    this.placementPortsFlipped = false; // F mirrors armed beamline utility ports
+    this.placementPortsFlipped = false; // M mirrors armed utility-port sides
     this.selectedParamOverrides = null; // param flyout overrides (BeamlineTool)
     this.selectedNodeId = null;
     this.selectedPlaceableId = null;
@@ -1506,6 +1506,16 @@ export class InputHandler {
         return; // block other keys while placing (Esc cancel lives in _handleEscape)
       }
 
+      // M mirrors the utility-port layout of any armed placeable that has
+      // swappable ports. This runs before palette-slot hotkeys because M is
+      // also slot 7: while an applicable object is armed, transform the
+      // object the player is positioning instead of silently selecting a
+      // different palette entry.
+      const mirrorHandled = typeof this._handleMirrorPortsKey === 'function'
+        ? this._handleMirrorPortsKey(e)
+        : InputHandler.prototype._handleMirrorPortsKey.call(this, e);
+      if (mirrorHandled) return;
+
       // Arrow keys → palette navigation
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         e.preventDefault();
@@ -1658,8 +1668,10 @@ export class InputHandler {
           break;
         }
         case 'f': case 'F': {
-          // (FloorTool consumes F for orientable floors in its onKey.)
-          // Rotate placement direction (cycles NE→SE→SW→NW)
+          // (FloorTool consumes F for orientable floors in its onKey.) F is
+          // the primary placement rotation key for every free-place object,
+          // including beamline components. R remains a compatibility alias.
+          e.preventDefault();
           this.placementDir = (this.placementDir + 1) % 4;
           this.renderer.updatePlacementDir(this.placementDir);
           // Re-render unified ghost so the preview rotates immediately.
@@ -2504,6 +2516,30 @@ export class InputHandler {
   }
 
   /**
+   * Mirror utility ports on the currently armed object without rotating its
+   * body or beam entry/exit ports. Returns true only when M had an applicable
+   * placement to transform, leaving the unarmed M palette shortcut intact.
+   */
+  _handleMirrorPortsKey(e) {
+    if (e.key !== 'm' && e.key !== 'M') return false;
+    if (e.ctrlKey || e.metaKey || e.altKey) return false;
+    const armedId = this.armedPlaceableId;
+    if (!armedId) return false;
+    const def = COMPONENTS[armedId];
+    const hasUtilityPorts = Object.values(def?.ports || {})
+      .some(port => port?.utility);
+    if (!hasUtilityPorts) return false;
+
+    e.preventDefault?.();
+    this.placementPortsFlipped = !this.placementPortsFlipped;
+    this._showToast?.(`Utility ports: ${this.placementPortsFlipped ? 'mirrored' : 'default side'}`);
+    this._updatePlaceablePreview?.();
+    // Candidate markers are cached separately from the placement ghost.
+    this.renderer._portMarkersDirty = true;
+    return true;
+  }
+
+  /**
    * Recompute the unified placeable ghost from the last known cursor
    * world position. Called from the mousemove handler and from the
    * rotation key so rotating refreshes the preview immediately.
@@ -3042,8 +3078,9 @@ export class InputHandler {
       placeableId: entry.id,
       type: entry.type,
       dir: entry.dir || 0,
+      portsFlipped: entry.portsFlipped === true,
     };
-    this._armMovePreview(entry.type, entry.dir || 0);
+    this._armMovePreview(entry.type, entry.dir || 0, entry.portsFlipped);
     this.renderer.canvas.style.cursor = 'grabbing';
     this._showToast(`Moving ${PLACEABLES[entry.type]?.name || COMPONENTS[entry.type]?.name || entry.type}`);
     return true;
@@ -3292,8 +3329,9 @@ export class InputHandler {
 
   // Refreshes the unified placeable preview for a just-picked-up carried
   // item (the carried type arms the preview via MoveTool.armedPlaceableId).
-  _armMovePreview(_type, dir) {
+  _armMovePreview(_type, dir, portsFlipped = false) {
     this.placementDir = dir || 0;
+    this.placementPortsFlipped = portsFlipped === true;
     this.renderer.updatePlacementDir?.(this.placementDir);
     this.hoverPlaceable = null;
     this.renderer._clearPreview?.();
@@ -3336,6 +3374,7 @@ export class InputHandler {
         dir: hitEntry.dir || 0,
         originCol: hitEntry.col,
         originRow: hitEntry.row,
+        portsFlipped: hitEntry.portsFlipped === true,
       };
     }
 
@@ -3354,8 +3393,10 @@ export class InputHandler {
         originSubCol: snap.subCol,
         originSubRow: snap.subRow,
         originDir: snap.dir,
+        originPortsFlipped: snap.portsFlipped === true,
         originWallMount: snap.wallMount,
         dir: snap.dir,
+        portsFlipped: snap.portsFlipped === true,
       };
     }
 
@@ -3415,10 +3456,12 @@ export class InputHandler {
           subCol: hp.subCol,
           subRow: hp.subRow,
           dir: hp.dir ?? this.placementDir ?? placeable.dir ?? 0,
+          portsFlipped: hp.portsFlipped === true,
         });
         if (!moved) return false;
         this.game._deriveBeamGraph();
         this.game.recalcAllBeamlines();
+        this.game.reanchorUtilityLinesForPlaceable(p.nodeId);
         this.game.emit('placeableChanged');
         return true;
       });
@@ -3437,6 +3480,7 @@ export class InputHandler {
         subCol: hp.subCol,
         subRow: hp.subRow,
         dir: hp.dir ?? this.placementDir ?? 0,
+        portsFlipped: hp.portsFlipped === true,
         wallMount: hp.wallMount,
         params: p.params,
         variant: p.variant,
@@ -3455,6 +3499,7 @@ export class InputHandler {
         const moved = this.game.movePlaceable(p.placeableId, {
           col: hp.col, row: hp.row, subCol: hp.subCol, subRow: hp.subRow,
           dir: hp.dir ?? this.placementDir ?? entry.dir ?? 0,
+          portsFlipped: hp.portsFlipped === true,
           wallMount: hp.wallMount,
         });
         if (!moved) return false;
@@ -3500,24 +3545,14 @@ export class InputHandler {
     } else if (tool?.kind === 'wall') {
       html = `<span class="k">SHIFT</span>+click: fill floor boundary`;
     } else if (this.armedPlaceableId) {
-      // BeamlineTool claims F for utility-port mirroring; R is the normal
-      // placeable rotation key. Other free-placed families retain the legacy
-      // F rotate shortcut.
       const comp = COMPONENTS[this.armedPlaceableId];
       const rotatable = !(comp && (comp.role === 'junction'
         || comp.role === 'placement' || comp.isDrawnConnection));
-      const isBeamline = PLACEABLES[this.armedPlaceableId]?.kind === 'beamline';
       const hasUtilityPorts = Object.values(comp?.ports || {}).some(port => port?.utility);
-      if (rotatable || (isBeamline && hasUtilityPorts)) {
+      if (rotatable || hasUtilityPorts) {
         const bits = [];
-        if (isBeamline) {
-          if (comp?.role !== 'placement' && !comp?.isDrawnConnection) {
-            bits.push(`<span class="k">R</span> Rotate`);
-          }
-          if (hasUtilityPorts) bits.push(`<span class="k">F</span> Flip ports`);
-        } else {
-          bits.push(`<span class="k">F</span> Rotate`);
-        }
+        if (rotatable) bits.push(`<span class="k">F</span> Rotate`);
+        if (hasUtilityPorts) bits.push(`<span class="k">M</span> Mirror ports`);
         const pl = PLACEABLES[this.armedPlaceableId];
         if (pl && pl.kind === 'decoration') {
           bits.push(`<span class="k">SHIFT</span>+drag: line place`);

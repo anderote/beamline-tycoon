@@ -2614,7 +2614,7 @@ export class Game {
 
   /**
    * Place any item on the unified sub-grid.
-   * @param {Object} opts - { type, category, col, row, subCol, subRow, rotated, dir, params }
+   * @param {Object} opts - { type, category, col, row, subCol, subRow, rotated, dir, portsFlipped, params }
    *   category: "beamline" | "equipment" | "furnishing"
    * @returns {string|false} The placeable id, or false on failure
    */
@@ -2765,7 +2765,10 @@ export class Game {
       subCol: subCol || 0,
       subRow: subRow || 0,
       dir,
-      portsFlipped: kind === 'beamline' && portsFlipped === true,
+      // Utility-port mirroring is shared by beamline, infrastructure and
+      // equipment placeables. Kinds without utility ports harmlessly retain
+      // false, keeping one stable instance shape across the registry.
+      portsFlipped: portsFlipped === true,
       params: null,
       variant: variant || 0,
       cells,
@@ -2968,6 +2971,9 @@ export class Game {
     entry.subCol = subCol;
     entry.subRow = subRow;
     entry.dir = dir;
+    if (pose.portsFlipped !== undefined) {
+      entry.portsFlipped = pose.portsFlipped === true;
+    }
     if (def.mount === 'wall') entry.wallMount = wallMount;
     this._rebuildPlaceableCells(entry);
     // _markNavDirty is called inside _rebuildPlaceableCells itself, so every
@@ -3309,6 +3315,7 @@ export class Game {
       subCol: entry.subCol,
       subRow: entry.subRow,
       dir: entry.dir || 0,
+      portsFlipped: entry.portsFlipped === true,
       params: entry.params ? { ...entry.params } : null,
       variant: entry.variant ?? 0,
       wallMount: entry.wallMount ? { ...entry.wallMount } : null,

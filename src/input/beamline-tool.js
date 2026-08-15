@@ -42,7 +42,7 @@ export class BeamlineTool extends Tool {
   onEnter(ctx) {
     ctx.input.selectedParamOverrides = this.paramOverrides;
     // Each newly armed component starts from its authored connector layout;
-    // repeated placements with the same tool retain the player's F choice.
+    // repeated placements with the same tool retain the player's M choice.
     ctx.input.placementPortsFlipped = false;
     ctx.renderer.setBuildMode(true, this.key);
   }
@@ -202,19 +202,6 @@ export class BeamlineTool extends Tool {
   onKey(e, ctx) {
     const input = ctx.input;
     const def = this.def;
-    if ((e.key === 'f' || e.key === 'F') && def) {
-      const utilityPorts = Object.values(def.ports || {}).filter((port) => port?.utility);
-      if (utilityPorts.length > 0) {
-        e.preventDefault();
-        input.placementPortsFlipped = !input.placementPortsFlipped;
-        input._showToast?.(`Utility ports: ${input.placementPortsFlipped ? 'flipped' : 'default side'}`);
-        input._updatePlaceablePreview?.();
-        // If a utility tool is activated without another world event, its
-        // candidate markers must still rebuild from the chosen placement.
-        ctx.renderer._portMarkersDirty = true;
-        return true;
-      }
-    }
     // Space commits junctions/placements at the last known cursor position,
     // honoring placementMode (snap/insert/replace) identically to a click.
     // Undo push happens inside the controller's commit paths. Grid modules

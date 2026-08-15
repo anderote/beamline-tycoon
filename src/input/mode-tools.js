@@ -70,6 +70,7 @@ export class MoveTool extends Tool {
         col: p.originCol, row: p.originRow,
         subCol: p.originSubCol, subRow: p.originSubRow,
         dir: p.originDir,
+        portsFlipped: p.originPortsFlipped,
         wallMount: p.originWallMount,
         params: p.params,
         variant: p.variant,
@@ -189,7 +190,7 @@ export class MoveTool extends Tool {
     if (picked) {
       this.payload = picked;
       input.selectedPlaceableVariant = picked.variant ?? 0;
-      input._armMovePreview(picked.type, picked.dir);
+      input._armMovePreview(picked.type, picked.dir, picked.portsFlipped);
       ctx.renderer.canvas.style.cursor = 'grabbing';
     }
     return true;

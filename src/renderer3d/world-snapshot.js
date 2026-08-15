@@ -357,6 +357,7 @@ function buildEquipment(game) {
     subCol: eq.subCol ?? null,
     subRow: eq.subRow ?? null,
     dir: eq.dir ?? 0,
+    portsFlipped: eq.portsFlipped === true,
     placeY: eq.placeY || 0,
   }));
 }
