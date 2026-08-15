@@ -153,6 +153,8 @@ export class BeamlineDesigner {
     this.plotSource = 'proposed';  // 'proposed' | 'current' | 'both'
     this.plotYAxisMode = 'linear'; // 'linear' | 'log'
     this.plotReference = 'mission'; // 'mission' | 'none'
+    this._plotHoverPositions = new Map(); // panel id -> normalized canvas x/y
+    this._plotHoverFrame = null;
 
     // Opt-in automatic matching. It is a session preference rather than a
     // property of the built machine; only the resulting component params are
@@ -544,8 +546,28 @@ export class BeamlineDesigner {
       });
     }
 
-    // Mousewheel on plot canvases (sync zoom with schematic)
+    // Plot hover readouts and mousewheel zoom. Pointer movement only redraws
+    // the already-computed envelopes; a shared rAF prevents dense move events
+    // from rebuilding all three plot canvases more than once per frame.
     document.querySelectorAll('.dsgn-plot-canvas').forEach(canvas => {
+      canvas.addEventListener('mousemove', (e) => {
+        if (!this.isOpen) return;
+        const rect = canvas.getBoundingClientRect();
+        const panel = canvas.dataset.panel || '0';
+        this._plotHoverPositions.set(panel, {
+          x: Math.max(0, Math.min(1, (e.clientX - rect.left) / (rect.width || 1))),
+          y: Math.max(0, Math.min(1, (e.clientY - rect.top) / (rect.height || 1))),
+        });
+        if (this._plotHoverFrame) return;
+        this._plotHoverFrame = requestAnimationFrame(() => {
+          this._plotHoverFrame = null;
+          if (this.isOpen) this._renderPlots();
+        });
+      });
+      canvas.addEventListener('mouseleave', () => {
+        this._plotHoverPositions.delete(canvas.dataset.panel || '0');
+        if (this.isOpen) this._renderPlots();
+      });
       canvas.addEventListener('wheel', (e) => {
         if (!this.isOpen) return;
         e.preventDefault();
@@ -629,6 +651,7 @@ export class BeamlineDesigner {
     this.plotSource = 'proposed';
     this.plotYAxisMode = 'linear';
     this.plotReference = 'mission';
+    this._plotHoverPositions.clear();
 
     this._updateTotalLength();
     this._recalcDraft();
@@ -770,6 +793,7 @@ export class BeamlineDesigner {
     this.plotSource = 'proposed';
     this.plotYAxisMode = 'linear';
     this.plotReference = 'mission';
+    this._plotHoverPositions.clear();
     this._nextTempId = this.draftNodes.length;
 
     this._updateTotalLength();
@@ -1387,6 +1411,11 @@ export class BeamlineDesigner {
     this._baselinePending = false;
     this.selectedIndex = -1;
     this._lastTuningKey = null;
+    this._plotHoverPositions.clear();
+    if (this._plotHoverFrame) {
+      cancelAnimationFrame(this._plotHoverFrame);
+      this._plotHoverFrame = null;
+    }
     this._markerDir = 0;
     if (this._markerAnimId) {
       cancelAnimationFrame(this._markerAnimId);

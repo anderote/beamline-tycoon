@@ -2,6 +2,19 @@
 
 export const ProbePlots = (() => {
   const PAD = { top: 18, right: 10, bottom: 20, left: 46 };
+  const FONT = Object.freeze({
+    message: '11px monospace',
+    tick: '10px monospace',
+    label: '9px monospace',
+    legend: '9px monospace',
+    target: 'bold 9px monospace',
+    secondaryTick: '8px monospace',
+    secondaryLabel: 'bold 9px monospace',
+    secondaryLegend: '8px monospace',
+    value: '11px monospace',
+    readout: '9px monospace',
+    readoutHeader: 'bold 9px monospace',
+  });
 
   // Ghost pass: dimmed + dashed marks, drawn underneath a live curve for comparison.
   const GHOST_ALPHA = 0.4;
@@ -68,7 +81,7 @@ export const ProbePlots = (() => {
   function _msg(ctx, canvas, text, o) {
     if (o && o.ghost) return;  // the pass drawn over us owns the message
     ctx.fillStyle = 'rgba(100, 100, 150, 0.5)';
-    ctx.font = '10px monospace';
+    ctx.font = FONT.message;
     ctx.textAlign = 'center';
     ctx.fillText(text, canvas.width / 2, canvas.height / 2);
   }
@@ -309,12 +322,12 @@ export const ProbePlots = (() => {
       const y = a.y + a.h - (i / 3) * a.h;
       ctx.beginPath(); ctx.moveTo(a.x, y); ctx.lineTo(a.x + a.w, y); ctx.stroke();
       ctx.fillStyle = 'rgba(120, 120, 160, 0.7)';
-      ctx.font = '9px monospace'; ctx.textAlign = 'right';
+      ctx.font = FONT.tick; ctx.textAlign = 'right';
       ctx.fillText(_fmtPlotValue(_tickValue(i / 3, yMin, yMax, logY)), a.x - 3, y + 3);
     }
     ctx.strokeStyle = 'rgba(80, 80, 130, 0.5)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(a.x, a.y + a.h); ctx.lineTo(a.x + a.w, a.y + a.h); ctx.stroke();
-    ctx.fillStyle = 'rgba(140, 140, 180, 0.7)'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(140, 140, 180, 0.7)'; ctx.font = FONT.label; ctx.textAlign = 'center';
     if (xLbl) ctx.fillText(xLbl, a.x + a.w / 2, a.y + a.h + 14);
     if (yLbl) {
       ctx.save(); ctx.translate(8, a.y + a.h / 2); ctx.rotate(-Math.PI / 2);
@@ -330,11 +343,11 @@ export const ProbePlots = (() => {
     for (let i = 0; i <= 3; i++) {
       const y = a.y + a.h - (i / 3) * a.h;
       ctx.fillStyle = 'rgba(160, 120, 100, 0.7)';
-      ctx.font = '9px monospace'; ctx.textAlign = 'left';
+      ctx.font = FONT.tick; ctx.textAlign = 'left';
       ctx.fillText((yMinR + (i / 3) * (yMaxR - yMinR)).toPrecision(3), a.x + a.w + 3, y + 3);
     }
     // Right axis label
-    ctx.fillStyle = 'rgba(180, 140, 120, 0.7)'; ctx.font = '8px monospace';
+    ctx.fillStyle = 'rgba(180, 140, 120, 0.7)'; ctx.font = FONT.label;
     ctx.save(); ctx.translate(a.x + a.w + PAD.right - 2, a.y + a.h / 2); ctx.rotate(-Math.PI / 2);
     ctx.textAlign = 'center'; ctx.fillText(yLblR, 0, 0); ctx.restore();
   }
@@ -404,7 +417,7 @@ export const ProbePlots = (() => {
   }
 
   function _legend(ctx, a, items) {
-    ctx.font = '8px monospace';
+    ctx.font = FONT.legend;
     let lx = a.x + 4;
     for (const it of items) {
       ctx.fillStyle = it.color;
@@ -439,7 +452,7 @@ export const ProbePlots = (() => {
     // A bare monospace callout reads as plot instrumentation rather than a UI
     // badge. The glyph itself supplies the pointer, so there is no box or
     // separate canvas triangle to obscure the trace beneath it.
-    ctx.font = 'bold 8px monospace';
+    ctx.font = FONT.target;
     ctx.fillStyle = TARGET_TEXT_COLOR;
     ctx.textAlign = 'right';
     ctx.setLineDash([]);
@@ -793,7 +806,7 @@ export const ProbePlots = (() => {
     ctx.lineTo(axisX, a.y + a.h);
     ctx.stroke();
     ctx.fillStyle = color;
-    ctx.font = '7px monospace';
+    ctx.font = FONT.secondaryTick;
     ctx.textAlign = 'left';
     for (let i = 0; i <= 3; i++) {
       const y = a.y + a.h - (i / 3) * a.h;
@@ -802,14 +815,14 @@ export const ProbePlots = (() => {
     ctx.save();
     ctx.translate(axisX + 27, a.y + a.h / 2);
     ctx.rotate(-Math.PI / 2);
-    ctx.font = 'bold 8px monospace';
+    ctx.font = FONT.secondaryLabel;
     ctx.textAlign = 'center';
     ctx.fillText(label, 0, 0);
     ctx.restore();
   }
 
   function _secondaryLegend(ctx, a, channels) {
-    ctx.font = '7px monospace';
+    ctx.font = FONT.secondaryLegend;
     let x = a.x + 4;
     const y = a.y + 8;
     for (const channel of channels) {
@@ -854,6 +867,215 @@ export const ProbePlots = (() => {
       _secondaryLegend(ctx, a, spec.channels);
     }
     ctx.restore();
+  }
+
+  function _datumS(datum, index) {
+    return datum?.s != null && isFinite(datum.s) ? Number(datum.s) : index;
+  }
+
+  function _nearestDatumIndex(env, targetS) {
+    let bestIndex = -1;
+    let bestDistance = Infinity;
+    for (let i = 0; i < (env?.length || 0); i++) {
+      const distance = Math.abs(_datumS(env[i], i) - targetS);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = i;
+      }
+    }
+    return bestIndex;
+  }
+
+  function _cursorText(value, unit) {
+    return `${_fmtPlotValue(value)}${unit ? ` ${unit}` : ''}`;
+  }
+
+  function _cursorItem(id, label, value, text, color, domain, logY = false) {
+    if (value == null || !isFinite(value) || !domain) return null;
+    return { id, label, value: Number(value), text, color, domain, logY };
+  }
+
+  function _primaryCursorItems(type, env, index, yDomain, yAxisMode) {
+    const d = env[index];
+    const yd = _normYD(yDomain) || yDomainFor(type, env, null, [], 0);
+    if (!d || !yd) return [];
+    let domain = yd[0];
+    let logY = false;
+    const positive = values => {
+      const adjusted = yAxisMode === 'log' ? _positiveDomain(domain, values) : null;
+      if (adjusted) { domain = adjusted; logY = true; }
+    };
+    let items = [];
+
+    if (type === 'beam-envelope') {
+      positive(env.flatMap(row => [(row.sigma_x || 0) * 1000, (row.sigma_y || 0) * 1000]));
+      items = [
+        _cursorItem('primary-sx', 'σ_x', (d.sigma_x || 0) * 1000,
+          _cursorText((d.sigma_x || 0) * 1000, 'mm'), '#44aaff', domain, logY),
+        _cursorItem('primary-sy', 'σ_y', (d.sigma_y || 0) * 1000,
+          _cursorText((d.sigma_y || 0) * 1000, 'mm'), '#ff6644', domain, logY),
+      ];
+    } else if (type === 'current-loss') {
+      positive(env.map(row => row.current));
+      items = [_cursorItem('primary-current', 'Current', d.current,
+        _cursorText(d.current, 'mA'), '#ddaa44', domain, logY)];
+    } else if (type === 'emittance') {
+      positive(env.flatMap(row => [row.emit_nx, row.emit_ny]));
+      items = [
+        _cursorItem('primary-enx', 'ε_nx', d.emit_nx,
+          _cursorText(d.emit_nx, 'm·rad'), '#44aaff', domain, logY),
+        _cursorItem('primary-eny', 'ε_ny', d.emit_ny,
+          _cursorText(d.emit_ny, 'm·rad'), '#ff6644', domain, logY),
+      ];
+    } else if (type === 'energy-dispersion') {
+      positive(env.map(row => row.energy));
+      items = [
+        _cursorItem('primary-energy', 'Energy', d.energy, _eicFmtEnergy(d.energy),
+          '#44dd88', domain, logY),
+        _cursorItem('primary-dispersion', 'η_x', d.eta_x,
+          _cursorText(d.eta_x, 'm'), '#ff8844', yd[1]),
+      ];
+    } else if (type === 'peak-current') {
+      const values = env.map(row => row.peak_current)
+        .filter(value => value != null && isFinite(value) && value > 0);
+      const adjusted = yAxisMode === 'log' ? _positiveDomain(domain, values) : null;
+      if (adjusted) { domain = adjusted; logY = true; }
+      else domain = _range(domain);
+      items = [_cursorItem('primary-peak', 'I_peak', d.peak_current,
+        _cursorText(d.peak_current, 'A'), '#ee55ee', domain, logY)];
+    }
+    return items.filter(Boolean);
+  }
+
+  function _secondaryCursorItems(type, env, index, yDomain, yAxisMode) {
+    if (!type || !yDomain) return [];
+    const spec = _secondarySpec(type, env, yDomain);
+    if (!spec || !spec.data[index]) return [];
+    let domain = spec.domain;
+    const values = spec.channels.flatMap(channel =>
+      spec.data.map(d => d[channel.key]).filter(value => value != null && isFinite(value)));
+    const adjusted = yAxisMode === 'log' ? _positiveDomain(domain, values) : null;
+    const logY = !!adjusted;
+    if (adjusted) domain = adjusted;
+    const unit = type === 'energy'
+      ? (spec.axisLabel.match(/\(([^)]+)\)/)?.[1] || '')
+      : type === 'dispersion' ? 'm'
+      : type === 'beam-envelope' ? 'mm'
+      : type === 'current-loss' ? 'mA'
+      : type === 'emittance' ? 'm·rad'
+      : type === 'peak-current' ? 'A'
+      : '';
+    return spec.channels.map((channel, channelIndex) => {
+      const value = spec.data[index][channel.key];
+      return _cursorItem(`secondary-${channelIndex}`, channel.label, value,
+        _cursorText(value, unit), channel.color, domain, logY);
+    }).filter(Boolean);
+  }
+
+  function _drawCursorDot(ctx, a, x, item, ghost = false) {
+    const fraction = _yFraction(item.value, item.domain[0], item.domain[1], item.logY);
+    if (fraction == null || fraction < 0 || fraction > 1) return;
+    const y = a.y + a.h - fraction * a.h;
+    ctx.beginPath();
+    ctx.arc(x, y, ghost ? 1.5 : 2.3, 0, Math.PI * 2);
+    ctx.fillStyle = ghost
+      ? `rgba(${_hexRgb(item.color)}, ${GHOST_ALPHA + 0.15})`
+      : item.color;
+    ctx.fill();
+  }
+
+  /** Draw the final hover layer for an along-distance plot. The cursor snaps
+   *  to the closest solver sample, marks every visible curve at that distance,
+   *  and reports primary plus optional secondary values on the shared x-axis. */
+  function drawCursor(canvas, type, envelope, xRange, opts = {}) {
+    const ctx = canvas.getContext('2d');
+    if (!ctx || !isDistancePlot(type) || !envelope || envelope.length < 2) return null;
+    const cursorX = Number(opts.cursorX);
+    if (!isFinite(cursorX)) return null;
+    const a = _area(canvas, { rightInset: opts.rightInset });
+    if (cursorX < a.x || cursorX > a.x + a.w) return null;
+    const [xMin, xMax] = xRange || _xRange(envelope);
+    const targetS = xMin + ((cursorX - a.x) / (a.w || 1)) * (xMax - xMin);
+    const index = _nearestDatumIndex(envelope, targetS);
+    if (index < 0) return null;
+    const snapS = _datumS(envelope[index], index);
+    if (snapS < xMin || snapS > xMax) return null;
+    const x = a.x + ((snapS - xMin) / (xMax - xMin || 1)) * a.w;
+    const solidItems = [
+      ..._primaryCursorItems(type, envelope, index, opts.yDomain, opts.yAxisMode),
+      ..._secondaryCursorItems(opts.secondaryType, envelope, index,
+        opts.secondaryDomain, opts.yAxisMode),
+    ];
+    if (solidItems.length === 0) return null;
+
+    const ghost = opts.ghostEnvelope;
+    let ghostItems = [];
+    if (ghost?.length) {
+      const ghostIndex = _nearestDatumIndex(ghost, snapS);
+      if (ghostIndex >= 0) {
+        ghostItems = [
+          ..._primaryCursorItems(type, ghost, ghostIndex, opts.yDomain, opts.yAxisMode),
+          ..._secondaryCursorItems(opts.secondaryType, ghost, ghostIndex,
+            opts.secondaryDomain, opts.yAxisMode),
+        ];
+      }
+    }
+    const ghostById = new Map(ghostItems.map(item => [item.id, item]));
+    const comparing = ghostById.size > 0;
+    const solidTag = opts.solidLabel || 'P';
+    const ghostTag = opts.ghostLabel || 'C';
+    const rows = solidItems.map(item => {
+      const ghostItem = ghostById.get(item.id);
+      const valueText = ghostItem
+        ? `${solidTag} ${item.text} · ${ghostTag} ${ghostItem.text}`
+        : item.text;
+      return { item, ghostItem, text: `${item.label}  ${valueText}` };
+    });
+
+    ctx.save();
+    ctx.setLineDash([2, 3]);
+    ctx.strokeStyle = 'rgba(210, 210, 240, 0.42)';
+    ctx.lineWidth = 0.75;
+    ctx.beginPath();
+    ctx.moveTo(x, a.y);
+    ctx.lineTo(x, a.y + a.h);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    for (const row of rows) {
+      _drawCursorDot(ctx, a, x, row.item, false);
+      if (row.ghostItem) _drawCursorDot(ctx, a, x, row.ghostItem, true);
+    }
+
+    const header = `s=${_fmtPlotValue(snapS)} m${comparing ? `  ${solidTag}/${ghostTag}` : ''}`;
+    const lineHeight = 11;
+    const pad = 5;
+    ctx.font = FONT.readout;
+    const textWidth = Math.max(ctx.measureText(header).width,
+      ...rows.map(row => ctx.measureText(row.text).width));
+    const boxW = textWidth + pad * 2;
+    const boxH = (rows.length + 1) * lineHeight + pad * 2 - 2;
+    let boxX = x + 7;
+    if (boxX + boxW > a.x + a.w - 2) boxX = x - boxW - 7;
+    boxX = Math.max(a.x + 2, Math.min(a.x + a.w - boxW - 2, boxX));
+    const cursorY = isFinite(Number(opts.cursorY)) ? Number(opts.cursorY) : a.y + a.h / 2;
+    let boxY = cursorY - boxH / 2;
+    boxY = Math.max(a.y + 2, Math.min(a.y + a.h - boxH - 2, boxY));
+    ctx.fillStyle = 'rgba(5, 7, 18, 0.92)';
+    ctx.fillRect(boxX, boxY, boxW, boxH);
+    ctx.strokeStyle = 'rgba(180, 190, 230, 0.58)';
+    ctx.lineWidth = 0.75;
+    ctx.strokeRect(boxX, boxY, boxW, boxH);
+    ctx.textAlign = 'left';
+    ctx.font = FONT.readoutHeader;
+    ctx.fillStyle = 'rgba(225, 230, 250, 0.96)';
+    ctx.fillText(header, boxX + pad, boxY + pad + 7);
+    ctx.font = FONT.readout;
+    rows.forEach((row, rowIndex) => {
+      ctx.fillStyle = row.item.color;
+      ctx.fillText(row.text, boxX + pad, boxY + pad + 7 + (rowIndex + 1) * lineHeight);
+    });
+    ctx.restore();
+    return { s: snapS, index, rows: rows.map(row => row.text) };
   }
 
   // --- "At this point" plots ---
@@ -923,7 +1145,7 @@ export const ProbePlots = (() => {
     if (ghost) return;
 
     // Labels
-    ctx.fillStyle = 'rgba(140, 140, 180, 0.7)'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(140, 140, 180, 0.7)'; ctx.font = FONT.label; ctx.textAlign = 'center';
     ctx.fillText(xLbl, cx, oy + h + 12);
     ctx.save(); ctx.translate(ox - 2, cy); ctx.rotate(-Math.PI / 2);
     ctx.fillText(yLbl, 0, 0); ctx.restore();
@@ -975,7 +1197,7 @@ export const ProbePlots = (() => {
     ctx.restore();
     if (ghost) return;
 
-    ctx.fillStyle = 'rgba(140, 140, 180, 0.7)'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(140, 140, 180, 0.7)'; ctx.font = FONT.label; ctx.textAlign = 'center';
     ctx.fillText('dt (s)', a.x + a.w / 2, a.y + a.h + 14);
     ctx.fillText(`\u03c3t=${Math.sqrt(s44).toExponential(1)} \u03c3E=${Math.sqrt(s55).toExponential(1)}`,
       a.x + a.w / 2, a.y - 3);
@@ -1114,7 +1336,7 @@ export const ProbePlots = (() => {
     const epsFmt = (eps > 0 && isFinite(eps)) ? eps.toExponential(1) : '--';
 
     ctx.fillStyle = 'rgba(210, 210, 240, 0.9)';
-    ctx.font = '10px monospace';
+    ctx.font = FONT.value;
     ctx.textAlign = 'center';
 
     // Energy (top)
@@ -1144,7 +1366,7 @@ export const ProbePlots = (() => {
 
     // Title
     ctx.fillStyle = 'rgba(180, 180, 220, 0.7)';
-    ctx.font = '8px monospace';
+    ctx.font = FONT.label;
     ctx.textAlign = 'center';
     ctx.fillText('E / I / \u03b5  (log, par dashed)', cx, 12);
   }
@@ -1168,6 +1390,7 @@ export const ProbePlots = (() => {
   return {
     draw,
     drawSecondary,
+    drawCursor,
     isDistancePlot,
     secondaryYDomain,
     yDomainFor,
