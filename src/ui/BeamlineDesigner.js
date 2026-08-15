@@ -106,6 +106,9 @@ export class BeamlineDesigner {
     this.baselineEnvelope = null;
     this.baselinePhysicsResult = null;
     this._baselinePending = false;  // baseline deferred until physics is ready
+    this.physicsPending = false;
+    this._draftPhysicsRevision = 0;
+    this._baselinePhysicsRevision = 0;
     // Utility lines a moveJunction op could not re-route, counted per apply.
     this._danglingLineCount = 0;
     // Physics-driven, non-mutating insertion recipes. `ghostQuads` remains a
@@ -807,6 +810,9 @@ export class BeamlineDesigner {
     this.baselineEnvelope = null;
     this.baselinePhysicsResult = null;
     this._baselinePending = false;
+    this.physicsPending = false;
+    this._draftPhysicsRevision++;
+    this._baselinePhysicsRevision++;
     this._updatePlotSourceBar();
 
     ContextWindow.closeAll();
@@ -2237,14 +2243,14 @@ export class BeamlineDesigner {
    * call _computePhysics and read the field they need. Returning only the
    * envelope here keeps every existing caller honest about what it uses.
    */
-  _computeEnvelope(nodes) {
-    const result = this._computePhysics(nodes);
+  async _computeEnvelope(nodes) {
+    const result = await this._computePhysics(nodes);
     return result ? result.envelope : null;
   }
 
   /** The full physics result for a node list, or null when the engine
    *  declined (empty draft, or Pyodide still booting). */
-  _computePhysics(nodes) {
+  async _computePhysics(nodes, lane = 'designer:draft') {
     if (!nodes || nodes.length === 0) return null;
 
     // Build physics beamline from nodes (same format as Game.recalcBeamline)
@@ -2281,7 +2287,7 @@ export class BeamlineDesigner {
     }
     researchEffects.machineType = this._machineTypeForDraft();
 
-    const result = BeamPhysics.compute(physicsBeamline, researchEffects);
+    const result = await BeamPhysics.computeAsync(physicsBeamline, researchEffects, { lane });
 
     // TEMPORARY (debugging "No beam data"): report every unplottable outcome to
     // the dev sink in vite.config.js, including the branches BeamPhysics itself
@@ -2316,30 +2322,31 @@ export class BeamlineDesigner {
    * draft to the map, after which the old baseline describes a beamline that no
    * longer exists and would show the player a difference they just eliminated.
    */
-  _recalcBaseline() {
+  async _recalcBaseline() {
+    const revision = ++this._baselinePhysicsRevision;
     // Pyodide boots asynchronously, so a designer opened during the first
     // seconds of a session asks a physics engine that answers null to
     // everything. The draft recovers on the next edit; the baseline is computed
     // exactly once, so without this flag it would stay null for the rest of the
     // session and the comparison would silently never appear.
-    this._baselinePending = !BeamPhysics.isReady();
-    this.baselinePhysicsResult = this._baselinePending
-      ? null
-      : this._computePhysics(this.originalNodes);
+    this._baselinePending = true;
+    const result = await this._computePhysics(this.originalNodes, 'designer:baseline');
+    if (revision !== this._baselinePhysicsRevision || !this.isOpen) return;
+    this._baselinePending = false;
+    this.baselinePhysicsResult = result;
     this.baselineEnvelope = this.baselinePhysicsResult?.envelope || null;
     this._updatePlotSourceBar();
+    this._renderAll?.();
   }
 
-  _recalcDraft() {
-    // Only ever fires for a baseline the physics engine refused while booting —
-    // never on the steady-state edit path, where re-running the as-built line on
-    // every keystroke would double the cost of a slider drag for no new answer.
-    if (this._baselinePending && BeamPhysics.isReady()) this._recalcBaseline();
-
+  async _recalcDraft() {
+    const revision = ++this._draftPhysicsRevision;
+    this.physicsPending = this.draftNodes.length > 0;
     // The full result, not just the envelope: the advisor reads
     // dispersionWarnings off it, and re-running physics to fetch them would
     // double the cost of every keystroke in a slider drag.
-    let draftResult = this._computePhysics(this.draftNodes);
+    let draftResult = await this._computePhysics(this.draftNodes);
+    if (revision !== this._draftPhysicsRevision || !this.isOpen) return;
 
     // Auto matching is iterative because an RF phase repair changes downstream
     // energy, and therefore the gradients the downstream magnets need. Each
@@ -2364,13 +2371,15 @@ export class BeamlineDesigner {
           node.computedStats = null;
         }
         this._lastTuningKey = null;
-        draftResult = this._computePhysics(this.draftNodes);
+        draftResult = await this._computePhysics(this.draftNodes);
+        if (revision !== this._draftPhysicsRevision || !this.isOpen) return;
       }
     } else {
       this._lastAutoTuneSummary = null;
     }
 
     this.draftPhysicsResult = draftResult;
+    this.physicsPending = false;
     this.draftEnvelope = draftResult ? draftResult.envelope : null;
     this.draftDispersionWarnings = draftResult?.dispersionWarnings || [];
     if (!this.draftEnvelope) {
@@ -2379,6 +2388,7 @@ export class BeamlineDesigner {
       this._advisorCursor = -1;
       this._placementHintCursor = -1;
       this._updateAdvisorReadout();
+      this._renderAll?.();
       return;
     }
 
@@ -2405,6 +2415,7 @@ export class BeamlineDesigner {
     this._advisorCursor = -1;
     this._placementHintCursor = -1;
     this._updateAdvisorReadout();
+    this._renderAll?.();
     // Optics advice is only meaningful against the current draft, and the
     // draft changes far faster than the tick Stubby normally runs on.
     this.game?._runAdvisor?.();

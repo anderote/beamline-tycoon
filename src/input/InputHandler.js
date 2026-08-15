@@ -2727,7 +2727,7 @@ export class InputHandler {
           if (entry) {
             // Decorations live in the decoration builder's own registry, not
             // the component mesh map — check both or they highlight nothing.
-            const rootObj = this.renderer.componentBuilder?._meshMap?.get(entry.id)
+            const rootObj = this.renderer.componentBuilder?.getGroup?.(entry.id)
               || this.renderer.decorationBuilder?.getGroup?.(entry.id)
               || null;
             return {
@@ -2752,7 +2752,7 @@ export class InputHandler {
         if (!scope.has(p.category)) continue;
         if (!p.cells) continue;
         if (p.cells.some(c => c.col === grid.col && c.row === grid.row)) {
-          const rootObj = this.renderer.componentBuilder?._meshMap?.get(p.id) || null;
+          const rootObj = this.renderer.componentBuilder?.getGroup?.(p.id) || null;
           return {
             kind: p.category,
             entry: p,

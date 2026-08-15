@@ -3,6 +3,7 @@ import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 
 import { BEAMLINE_TYPES } from '../../src/data/beamline-types.js';
+import { PhysicsWorkerClient } from '../../src/beamline/physics.js';
 import { buildWorldSnapshot } from '../../src/renderer3d/world-snapshot.js';
 import { designToPayload } from '../eval-design.mjs';
 import { buildHeadlessBeamlineScene } from './headless-render-metrics.mjs';
@@ -17,8 +18,8 @@ export const TEN_LARGE_PERFORMANCE_TARGETS = Object.freeze({
   farDrawCalls: 400,
   farRenderedTriangles: 750_000,
   shadowDrawCalls: 500,
-  pipeRenderObjects: 100,
-  synchronousPhysicsMs: 16,
+  pipeDrawCalls: 4,
+  physicsScheduleMs: 16,
 });
 
 function percentile(values, fraction) {
@@ -83,12 +84,13 @@ export function estimateBeamPipeDetailDemand(beamPipes = []) {
   return result;
 }
 
-function physicsBenchmark(design, beamlineCount) {
+function nativePhysicsBenchmark(design, beamlineCount) {
   const type = BEAMLINE_TYPES[design.typeId];
   const request = {
     payload: designToPayload(design),
     effects: { machineType: type?.machineType || 'linac' },
-    calls: beamlineCount * 2, // per-entry pass + aggregate main-graph pass
+    requestedCalls: beamlineCount,
+    calls: 1, // identical lattices are coalesced into one background worker job
   };
   const python = String.raw`
 import json, sys, time
@@ -103,6 +105,8 @@ for _ in range(request['calls']):
     result = compute_beam_for_game(payload, effects)
 elapsed = (time.perf_counter() - started) * 1000
 print(json.dumps({
+    'requestedCalls': request['requestedCalls'],
+    'workerJobs': request['calls'],
     'calls': request['calls'],
     'totalMs': elapsed,
     'meanMs': elapsed / request['calls'],
@@ -121,6 +125,45 @@ print(json.dumps({
   return JSON.parse(result.stdout);
 }
 
+class BenchmarkPhysicsWorker {
+  constructor() { this.messages = []; this.onmessage = null; }
+  postMessage(message) {
+    this.messages.push(message);
+    if (message.type === 'init') queueMicrotask(() => this.onmessage?.({ data: { type: 'ready' } }));
+  }
+  finish() {
+    for (const message of this.messages.filter(item => item.type === 'compute')) {
+      this.onmessage?.({
+        data: { type: 'result', requestId: message.requestId, result: { beamEnergy: 1 } },
+      });
+    }
+  }
+}
+
+async function physicsSchedulingBenchmark(design, beamlineCount) {
+  const worker = new BenchmarkPhysicsWorker();
+  const client = new PhysicsWorkerClient({ workerFactory: () => worker });
+  await client.init();
+  const payload = designToPayload(design);
+  const effects = { machineType: BEAMLINE_TYPES[design.typeId]?.machineType || 'linac' };
+  const started = performance.now();
+  const promises = [];
+  for (let i = 0; i < beamlineCount; i++) {
+    const instancePayload = payload.map(element => ({ ...element, id: `${element.id || 'node'}-${i}` }));
+    promises.push(client.computeAsync(instancePayload, effects));
+  }
+  const mainThreadScheduleMs = performance.now() - started;
+  const stats = client.getStats();
+  worker.finish();
+  await Promise.all(promises);
+  return {
+    requests: beamlineCount,
+    mainThreadScheduleMs,
+    workerJobs: stats.workerJobs,
+    deduplicated: stats.deduplicated,
+  };
+}
+
 export function evaluateTenLargeTargets(report, targets = TEN_LARGE_PERFORMANCE_TARGETS) {
   const checks = [
     ['tick p95', report.timings.tick.p95Ms, targets.tickP95Ms, 'ms'],
@@ -131,8 +174,9 @@ export function evaluateTenLargeTargets(report, targets = TEN_LARGE_PERFORMANCE_
     ['far draw calls', report.render.far.drawCalls, targets.farDrawCalls, 'calls'],
     ['far rendered triangles', report.render.far.renderedTriangles, targets.farRenderedTriangles, 'triangles'],
     ['shadow draw calls', report.render.near.shadowDrawCalls, targets.shadowDrawCalls, 'calls'],
-    ['beam-pipe render objects', report.pipeDetailDemand.renderObjects, targets.pipeRenderObjects, 'objects'],
-    ['native synchronous physics lower bound', report.physics.totalMs, targets.synchronousPhysicsMs, 'ms', report.physics.skipped === true],
+    ['beam-pipe near draw calls', report.render.pipeStats.nearDrawCalls, targets.pipeDrawCalls, 'calls'],
+    ['physics main-thread scheduling', report.physics.scheduling.mainThreadScheduleMs, targets.physicsScheduleMs, 'ms'],
+    ['native physics job completed', report.physics.native.error ? 1 : 0, 0, 'errors', report.physics.native.skipped === true],
   ];
   return checks.map(([name, actual, target, unit, skipped = false]) => ({
     name, actual, target, unit, skipped,
@@ -172,16 +216,11 @@ export async function runTenLargeBenchmark({
 
   const render = await buildHeadlessBeamlineScene(partial, { quiet });
   const pipeDetailDemand = estimateBeamPipeDetailDemand(partial.beamPipes);
-  const estimatedNearWithPipes = {
-    visibleMeshes: render.near.visibleMeshes + pipeDetailDemand.renderObjects,
-    drawCalls: render.near.drawCalls + pipeDetailDemand.renderObjects,
-    renderedTriangles: render.near.renderedTriangles + pipeDetailDemand.renderedTriangles,
-    shadowDrawCalls: render.near.shadowDrawCalls + pipeDetailDemand.shadowDrawCalls,
-    lights: render.near.lights,
-  };
-  const physics = includePhysics
-    ? physicsBenchmark(design, registry.getAll().length)
-    : { calls: 0, totalMs: 0, meanMs: 0, resultBytes: 0, skipped: true };
+  const scheduling = await physicsSchedulingBenchmark(design, registry.getAll().length);
+  const native = includePhysics
+    ? nativePhysicsBenchmark(design, registry.getAll().length)
+    : { calls: 0, requestedCalls: registry.getAll().length, workerJobs: 0,
+      totalMs: 0, meanMs: 0, resultBytes: 0, skipped: true };
   const report = {
     scenario: {
       designId: design.id,
@@ -198,12 +237,12 @@ export async function runTenLargeBenchmark({
       near: render.near,
       far: render.far,
       breakdown: render.breakdown,
-      estimatedNearWithPipes,
+      pipeStats: render.pipeStats,
     },
     pipeDetailDemand,
-    physics,
+    physics: { scheduling, native },
     scope: {
-      included: ['Game tick', 'fallback recalc', 'world snapshots', 'components', 'pipe attachments', 'beam effect', 'CPython physics workload'],
+      included: ['Game tick', 'fallback recalc', 'world snapshots', 'components', 'pipe attachments', 'beam pipes', 'beam effect', 'main-thread physics scheduling', 'coalesced CPython physics workload'],
       excluded: ['GPU frame time', 'post-processing', 'utility support plant', 'browser-only shadow rendering'],
     },
   };

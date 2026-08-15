@@ -36,12 +36,9 @@
 //     floor applies even before the gate's first pass has written
 //     nodeQualities at all.
 //
-// Note this is NOT the same payload as the two other places that call
-// BeamPhysics.compute — Game._recalcMainBeamGraph's per-source `toPhysics`
-// (raw catalogue stats, no params solve, no infra) and
-// BeamlineDesigner._recalcDraft (draft nodes, no ids, unknown types filtered
-// out). Those feed different questions and deliberately diverge; unifying them
-// would change what each computes.
+// The designer has a separate draft payload because it models unsaved edits.
+// The main-map aggregate no longer has a second Python payload: it derives its
+// facility summary from these authoritative per-beamline results.
 
 import { COMPONENTS } from '../data/components.js';
 import { PARAM_DEFS, computeStats } from './component-physics.js';

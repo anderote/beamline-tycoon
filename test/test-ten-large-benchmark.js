@@ -51,12 +51,13 @@ test('target evaluator reports measurements without embedding timing in tests', 
       buildMs: 1,
       near: { drawCalls: 1, shadowDrawCalls: 1 },
       far: { drawCalls: 1, renderedTriangles: 1 },
+      pipeStats: { nearDrawCalls: 1 },
     },
     pipeDetailDemand: { renderObjects: 1 },
-    physics: { totalMs: 1 },
+    physics: { scheduling: { mainThreadScheduleMs: 1 }, native: {} },
   };
   const checks = evaluateTenLargeTargets(report);
-  assert.equal(checks.length, 10);
+  assert.equal(checks.length, 11);
   assert.ok(checks.every(check => check.pass));
 });
 
@@ -73,8 +74,24 @@ test('ten-large runner reports each measured subsystem without timing assertions
   assert.ok(report.render.near.drawCalls > 0);
   assert.ok(report.render.near.drawCalls >= report.render.far.drawCalls);
   assert.ok(report.render.breakdown.near.pipeAttachments.drawCalls > 0);
+  assert.ok(report.render.breakdown.near.pipeAttachments.drawCalls <= 12,
+    'attachment geometry should be batched by material');
+  assert.ok(report.render.breakdown.far.pipeAttachments.renderedTriangles
+    < report.render.breakdown.near.pipeAttachments.renderedTriangles / 10,
+  'far attachment proxies should discard most authored triangles');
+  assert.ok(report.render.breakdown.near.beamPipes.drawCalls <= 4,
+    'thousands of authored pipe fittings should share a few instanced draws');
+  assert.ok(report.render.breakdown.far.beamPipes.drawCalls <= 2,
+    'far pipes should hide flanges and supports');
+  assert.ok(report.render.breakdown.near.beamEffects.drawCalls <= 8,
+    'beam segments should be instanced across paths and colors');
+  assert.ok(report.render.far.shadowDrawCalls < report.render.near.shadowDrawCalls / 10,
+    'distant beamline geometry should stop submitting shadow-map draws');
   assert.equal(report.render.near.lights, 0,
     'beamline geometry should not create one real light per component');
   assert.ok(report.pipeDetailDemand.renderObjects > 4_000);
-  assert.equal(report.physics.skipped, true);
+  assert.equal(report.physics.native.skipped, true);
+  assert.equal(report.physics.scheduling.requests, TEN_LARGE_BEAMLINE_COUNT);
+  assert.equal(report.physics.scheduling.workerJobs, 1);
+  assert.equal(report.physics.scheduling.deduplicated, TEN_LARGE_BEAMLINE_COUNT - 1);
 });

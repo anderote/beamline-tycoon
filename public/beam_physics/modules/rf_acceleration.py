@@ -153,7 +153,11 @@ class RFAccelerationModule(PhysicsModule):
         beta_max = acceptance.get("max")
         accepted = None
         if beta_min is not None and beta_max is not None:
-            accepted = beta_min <= beta_input <= beta_max
+            # beta_input is a NumPy scalar. NumPy 2.x names its boolean class
+            # `bool`, but json.dumps still correctly rejects it as a non-native
+            # scalar. Convert at the module boundary so worker results remain
+            # structured-cloneable after the Python JSON round trip.
+            accepted = bool(beta_min <= beta_input <= beta_max)
         # RFQs and Alvarez DTLs are not made from identical fixed-beta cells:
         # vane modulation / drift-tube length increases down the tank as the
         # beam accelerates. Inside the authored window their local synchronous

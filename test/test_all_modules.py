@@ -87,6 +87,7 @@ class TestRFAcceleration(unittest.TestCase):
             "betaAcceptance": {"min": 0.7, "design": 0.78, "max": 0.85},
         }, ctx)
         self.assertTrue(ctx.beta_match["beta_accepted"])
+        self.assertIs(type(ctx.beta_match["beta_accepted"]), bool)
         self.assertGreater(ctx.beta_match["beta_ttf"], 0.99)
         self.assertEqual(report.details["beta_acceptance_design"], 0.78)
 

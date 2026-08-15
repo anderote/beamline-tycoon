@@ -982,11 +982,14 @@ function _drawNoDataPlaceholder(ctx, w, h, designer) {
 
   const err = BeamPhysics.getLastError ? BeamPhysics.getLastError() : null;
   const empty = !designer.draftNodes || designer.draftNodes.length === 0;
+  const pending = designer.physicsPending === true;
 
   let head = 'No beam data';
   let detail = null;
   if (empty) {
     head = 'No components yet';
+  } else if (pending) {
+    head = 'Calculating beam…';
   } else if (err) {
     head = 'Physics engine error';
     detail = err;

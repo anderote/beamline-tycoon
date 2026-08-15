@@ -1,155 +1,234 @@
-// === BEAM PHYSICS: Pyodide Integration ===
-// Loads Python beam physics module client-side via Pyodide + numpy
-// Note: loadPyodide is a CDN global — not imported
+// Async Pyodide bridge. A single module Worker owns Python/WASM so optics
+// recalculation cannot halt animation, input, or audio on the main thread.
 
 import { COMPONENTS } from '../data/components.js';
+import { PHYSICS_MESSAGE } from './physics-protocol.js';
 
-export const BeamPhysics = (() => {
-  let pyodide = null;
-  let ready = false;
-  let loading = false;
-  // Why the last compute() returned null, or null if the last one succeeded.
-  // compute() swallows every failure into a bare null, and the only trace was
-  // a console.error that a busy console buries — a beamline whose physics
-  // raised looked exactly like a beamline with no beam. Callers that render
-  // the absence (the designer's plot panels) read this to say WHICH it was.
-  let lastError = null;
+const NODE_TOKEN_PREFIX = '__beam_node_';
 
-  // Python source files to load
-  const PY_MODULES = [
-    'beam_physics/constants.py',
-    'beam_physics/beam.py',
-    'beam_physics/context.py',
-    'beam_physics/modules/__init__.py',
-    'beam_physics/modules/base.py',
-    'beam_physics/modules/linear_optics.py',
-    'beam_physics/modules/rf_acceleration.py',
-    'beam_physics/modules/space_charge.py',
-    'beam_physics/modules/synchrotron_rad.py',
-    'beam_physics/modules/synchrotron_light.py',
-    'beam_physics/modules/bunch_compression.py',
-    'beam_physics/modules/collimation.py',
-    'beam_physics/modules/aperture_loss.py',
-    'beam_physics/modules/fel_gain.py',
-    'beam_physics/modules/beam_beam.py',
-    'beam_physics/modules/beam_gas.py',
-    'beam_physics/srf.py',
-    'beam_physics/machines.py',
-    'beam_physics/lattice.py',
-    'beam_physics/elements.py',
-    'beam_physics/gameplay.py',
-  ];
+function cloneResultForIds(result, ids) {
+  if (!result) return null;
+  const cavities = Array.isArray(result.cavities)
+    ? result.cavities.map(cavity => {
+      const match = typeof cavity.id === 'string'
+        ? new RegExp(`^${NODE_TOKEN_PREFIX}(\\d+)$`).exec(cavity.id)
+        : null;
+      return match ? { ...cavity, id: ids[Number(match[1])] } : cavity;
+    })
+    : result.cavities;
+  return cavities === result.cavities ? result : { ...result, cavities };
+}
 
-  async function init() {
-    if (ready) return;
-    if (loading) {
-      // Wait for in-progress load
-      while (loading) await new Promise(r => setTimeout(r, 100));
+export function preparePhysicsRequest(gameBeamline, researchEffects = {}) {
+  const ids = [];
+  const payload = (gameBeamline || []).map((element, index) => {
+    ids[index] = element.id;
+    return {
+      ...element,
+      ...(element.id == null ? {} : { id: `${NODE_TOKEN_PREFIX}${index}` }),
+      physicsType: element.physicsType || COMPONENTS[element.type]?.physicsType,
+    };
+  });
+  const effects = { ...researchEffects };
+  return {
+    payload, effects, ids,
+    key: JSON.stringify([payload, effects]),
+  };
+}
+
+export class PhysicsWorkerClient {
+  constructor({ workerFactory = null, maxCacheEntries = 64 } = {}) {
+    this._workerFactory = workerFactory;
+    this._maxCacheEntries = maxCacheEntries;
+    this._worker = null;
+    this._ready = false;
+    this._initPromise = null;
+    this._initResolve = null;
+    this._initReject = null;
+    this._nextRequestId = 1;
+    this._pending = new Map();
+    this._inflight = new Map();
+    this._queue = [];
+    this._queuedByLane = new Map();
+    this._activeRequestId = null;
+    this._cache = new Map();
+    this._lastError = null;
+    this._stats = {
+      requests: 0, workerJobs: 0, cacheHits: 0, deduplicated: 0, superseded: 0,
+    };
+  }
+
+  _baseUrl() {
+    if (globalThis.document?.baseURI) return new URL('.', globalThis.document.baseURI).href;
+    if (globalThis.location?.href) return new URL('.', globalThis.location.href).href;
+    return 'http://localhost/';
+  }
+
+  init() {
+    if (this._ready) return Promise.resolve();
+    if (this._initPromise) return this._initPromise;
+    this._initPromise = new Promise((resolve, reject) => {
+      this._initResolve = resolve;
+      this._initReject = reject;
+    });
+    try {
+      const factory = this._workerFactory || (() => new Worker(
+        new URL('./physics-worker.js', import.meta.url), { type: 'module' },
+      ));
+      this._worker = factory();
+      this._worker.onmessage = event => this._handleMessage(event.data || {});
+      this._worker.onerror = error => this._failInit(error?.message || error);
+      this._worker.postMessage({ type: PHYSICS_MESSAGE.INIT, baseUrl: this._baseUrl() });
+    } catch (error) {
+      this._failInit(error);
+    }
+    return this._initPromise;
+  }
+
+  _failInit(error) {
+    const message = String(error?.stack || error || 'Physics worker failed');
+    this._lastError = message;
+    this._initReject?.(new Error(message));
+    this._initResolve = null;
+    this._initReject = null;
+  }
+
+  _handleMessage(message) {
+    if (message.type === PHYSICS_MESSAGE.READY) {
+      this._ready = true;
+      this._lastError = null;
+      this._initResolve?.();
+      this._initResolve = null;
+      this._initReject = null;
       return;
     }
-    loading = true;
+    if (message.type === PHYSICS_MESSAGE.INIT_ERROR) {
+      this._failInit(message.error);
+      return;
+    }
+    if (message.type !== PHYSICS_MESSAGE.RESULT) return;
+    const pending = this._pending.get(message.requestId);
+    if (!pending) return;
+    this._pending.delete(message.requestId);
+    if (this._activeRequestId === message.requestId) this._activeRequestId = null;
+    if (message.error) {
+      this._lastError = String(message.error).trim().split('\n').filter(Boolean).pop();
+      console.error('BeamPhysics worker compute error:', message.error,
+        '\nbeamline:', pending.payload, '\neffects:', pending.effects);
+      pending.resolve(null);
+      this._dispatchNext();
+      return;
+    }
+    this._lastError = null;
+    pending.resolve(message.result || null);
+    this._dispatchNext();
+  }
 
-    try {
-      // Load Pyodide runtime
-      pyodide = await loadPyodide({
-        indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.27.4/full/',
+  _cacheGet(key) {
+    if (!this._cache.has(key)) return undefined;
+    const value = this._cache.get(key);
+    this._cache.delete(key);
+    this._cache.set(key, value);
+    return value;
+  }
+
+  _cacheSet(key, value) {
+    this._cache.set(key, value);
+    while (this._cache.size > this._maxCacheEntries) {
+      this._cache.delete(this._cache.keys().next().value);
+    }
+  }
+
+  _dispatchNext() {
+    if (!this._ready || this._activeRequestId != null) return;
+    const job = this._queue.shift();
+    if (!job) return;
+    if (job.lane != null && this._queuedByLane.get(job.lane) === job.requestId) {
+      this._queuedByLane.delete(job.lane);
+    }
+    this._activeRequestId = job.requestId;
+    this._stats.workerJobs++;
+    this._worker.postMessage({
+      type: PHYSICS_MESSAGE.COMPUTE, requestId: job.requestId,
+      payload: job.payload, effects: job.effects,
+      baseUrl: this._baseUrl(),
+    });
+  }
+
+  async computeAsync(gameBeamline, researchEffects, { lane = null } = {}) {
+    this._stats.requests++;
+    if (!this._ready) {
+      try {
+        await this.init();
+      } catch (_) {
+        return null;
+      }
+      if (!this._ready) {
+        this._lastError = 'Physics engine still loading';
+        return null;
+      }
+    }
+    const request = preparePhysicsRequest(gameBeamline, researchEffects);
+    const cached = this._cacheGet(request.key);
+    if (cached !== undefined) {
+      this._stats.cacheHits++;
+      return cloneResultForIds(cached, request.ids);
+    }
+    let promise = this._inflight.get(request.key);
+    if (promise) {
+      this._stats.deduplicated++;
+    } else {
+      const requestId = this._nextRequestId++;
+      promise = new Promise(resolve => {
+        this._pending.set(requestId, {
+          resolve, payload: request.payload, effects: request.effects,
+        });
+      }).then(result => {
+        if (result) this._cacheSet(request.key, result);
+        return result;
+      }).finally(() => this._inflight.delete(request.key));
+      this._inflight.set(request.key, promise);
+      if (lane != null) {
+        const previousId = this._queuedByLane.get(lane);
+        if (previousId != null && previousId !== this._activeRequestId) {
+          this._queue = this._queue.filter(job => job.requestId !== previousId);
+          const previous = this._pending.get(previousId);
+          this._pending.delete(previousId);
+          previous?.resolve(null);
+          this._stats.superseded++;
+        }
+        this._queuedByLane.set(lane, requestId);
+      }
+      this._queue.push({
+        requestId, key: request.key, payload: request.payload,
+        effects: request.effects, lane,
       });
-
-      // NumPy provides the small-matrix operations used by the beam model.
-      // Scalar special functions use Python's standard library, so pulling in
-      // SciPy (and its OpenBLAS dependency) would only add tens of megabytes.
-      await pyodide.loadPackage('numpy');
-
-      // Create the beam_physics package in Pyodide's virtual filesystem
-      pyodide.runPython(`
-import os
-os.makedirs('beam_physics', exist_ok=True)
-os.makedirs('beam_physics/modules', exist_ok=True)
-with open('beam_physics/__init__.py', 'w') as f:
-    f.write('')
-      `);
-
-      // Fetch and load each module (written straight to the virtual FS —
-      // no string interpolation into Python source)
-      for (const path of PY_MODULES) {
-        const response = await fetch(path);
-        const code = await response.text();
-        pyodide.FS.writeFile(path, code);
-      }
-
-      // Import the entry point
-      pyodide.runPython(`
-from beam_physics.gameplay import compute_beam_for_game
-      `);
-
-      ready = true;
-    } catch (err) {
-      console.error('BeamPhysics init failed:', err);
-      throw err;
-    } finally {
-      loading = false;
+      this._dispatchNext();
     }
+    return cloneResultForIds(await promise, request.ids);
   }
 
-  function compute(gameBeamline, researchEffects) {
-    if (!ready) {
-      lastError = 'Physics engine still loading';
-      console.warn('BeamPhysics not ready');
-      return null;
-    }
-
-    // Attach each component's declared physics identity from the registry so
-    // Python never has to guess how a game type maps onto the engine.
-    // gameplay.py raises on a missing/unknown physicsType.
-    const payload = gameBeamline.map(el =>
-      el.physicsType ? el : { ...el, physicsType: COMPONENTS[el.type]?.physicsType }
-    );
-
-    try {
-      // Pass JSON via pyodide globals — no quote/backslash escaping games.
-      pyodide.globals.set('beamline_json', JSON.stringify(payload));
-      pyodide.globals.set('effects_json', JSON.stringify(researchEffects || {}));
-      const resultJson = pyodide.runPython(
-        'compute_beam_for_game(beamline_json, effects_json)'
-      );
-      lastError = null;
-      return JSON.parse(resultJson);
-    } catch (err) {
-      // A PythonError's message IS the traceback; its last non-empty line is
-      // the exception itself, which is the part worth showing in a UI.
-      const full = String((err && err.message) || err);
-      lastError = full.trim().split('\n').filter(Boolean).pop() || full;
-      console.error('BeamPhysics compute error:', lastError, '\n', full,
-        '\nbeamline:', gameBeamline, '\neffects:', researchEffects);
-      // TEMPORARY: mirror the traceback and the exact payload to the dev
-      // server's /__diag sink (vite.config.js), so a failure that only happens
-      // on a live save can be reproduced offline. Remove with the sink.
-      if (import.meta.env.DEV) {
-        try {
-          fetch('/__diag', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              kind: 'physics-compute-error',
-              error: full,
-              beamline: gameBeamline,
-              effects: researchEffects,
-            }),
-          }).catch(() => {});
-        } catch (_) { /* never let diagnostics break the caller */ }
-      }
-      return null;
-    }
+  // Compatibility for old callers: cached answers remain synchronous, while
+  // a miss schedules background work and reports pending as null.
+  compute(gameBeamline, researchEffects) {
+    const request = preparePhysicsRequest(gameBeamline, researchEffects);
+    const cached = this._cacheGet(request.key);
+    if (cached !== undefined) return cloneResultForIds(cached, request.ids);
+    if (this._ready) this.computeAsync(gameBeamline, researchEffects).catch(() => {});
+    this._lastError = this._ready ? 'Physics result pending' : 'Physics engine still loading';
+    return null;
   }
 
-  function isReady() {
-    return ready;
+  isReady() { return this._ready; }
+  getLastError() { return this._lastError; }
+  getStats() {
+    return {
+      ...this._stats,
+      cacheEntries: this._cache.size,
+      pending: this._pending.size,
+      queued: this._queue.length,
+    };
   }
+}
 
-  /** Why the last compute() returned null; null after a successful one. */
-  function getLastError() {
-    return lastError;
-  }
-
-  return { init, compute, isReady, getLastError };
-})();
+export const BeamPhysics = new PhysicsWorkerClient();

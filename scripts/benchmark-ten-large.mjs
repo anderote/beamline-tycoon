@@ -27,8 +27,11 @@ if (json) {
     partialSnapshot: { meanMs: round(report.timings.partialSnapshot.meanMs), p95Ms: round(report.timings.partialSnapshot.p95Ms), totalMs: '' },
     warmFullSnapshot: { meanMs: round(report.timings.warmFullSnapshot.meanMs), p95Ms: round(report.timings.warmFullSnapshot.p95Ms), totalMs: '' },
     coldFullSnapshot: { meanMs: round(report.timings.coldFullSnapshotMs), p95Ms: '', totalMs: round(report.timings.coldFullSnapshotMs) },
-    [`nativePhysics (${report.physics.calls} calls)`]: {
-      meanMs: round(report.physics.meanMs), p95Ms: '', totalMs: round(report.physics.totalMs),
+    [`physicsSchedule (${report.physics.scheduling.requests} requests)`]: {
+      meanMs: round(report.physics.scheduling.mainThreadScheduleMs), p95Ms: '', totalMs: '',
+    },
+    [`backgroundNativePhysics (${report.physics.native.workerJobs} job)`]: {
+      meanMs: round(report.physics.native.meanMs), p95Ms: '', totalMs: round(report.physics.native.totalMs),
     },
   });
   console.log('\nHeadless render structure');
@@ -47,19 +50,19 @@ if (json) {
       shadowCalls: report.render.far.shadowDrawCalls,
       lights: report.render.far.lights,
     },
-    currentBeamPipes: {
-      meshes: report.pipeDetailDemand.renderObjects,
-      drawCalls: report.pipeDetailDemand.renderObjects,
-      triangles: report.pipeDetailDemand.renderedTriangles,
-      shadowCalls: report.pipeDetailDemand.shadowDrawCalls,
+    batchedBeamPipes: {
+      meshes: report.render.breakdown.near.beamPipes.visibleMeshes,
+      drawCalls: report.render.breakdown.near.beamPipes.drawCalls,
+      triangles: report.render.breakdown.near.beamPipes.renderedTriangles,
+      shadowCalls: report.render.breakdown.near.beamPipes.shadowDrawCalls,
       lights: 0,
     },
-    estimatedNearWithPipes: {
-      meshes: report.render.estimatedNearWithPipes.visibleMeshes,
-      drawCalls: report.render.estimatedNearWithPipes.drawCalls,
-      triangles: report.render.estimatedNearWithPipes.renderedTriangles,
-      shadowCalls: report.render.estimatedNearWithPipes.shadowDrawCalls,
-      lights: report.render.estimatedNearWithPipes.lights,
+    authoredPipeDetail: {
+      meshes: report.pipeDetailDemand.renderObjects,
+      drawCalls: '',
+      triangles: report.pipeDetailDemand.renderedTriangles,
+      shadowCalls: '',
+      lights: 0,
     },
   });
   console.log('\nNear scene by subsystem');
@@ -78,7 +81,8 @@ if (json) {
     target: target.target,
     unit: target.unit,
   }])));
-  console.log('\nStructural/headless benchmark only; native CPython is a lower-bound proxy for in-browser Pyodide.');
+  console.log(`\nPhysics coalescing: ${report.physics.scheduling.requests} requests -> ${report.physics.scheduling.workerJobs} worker job(s).`);
+  console.log('Structural/headless benchmark only; native CPython is a lower-bound proxy for worker-hosted Pyodide.');
   console.log('Exact FPS and GPU/shadow-map time require the owner-enabled browser lane.');
 }
 

@@ -39,6 +39,7 @@ export function makeDefaultBeamState(machineType) {
     discoveryChance: 0,
     photonRate: 0,
     collisionRate: 0,
+    nDiagnostics: 0,
     totalLossFraction: 0,
     componentHealth: {},
     felSaturated: false,

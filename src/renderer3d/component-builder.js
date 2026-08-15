@@ -4603,6 +4603,24 @@ export class ComponentBuilder {
     this._meshMap = new Map();
   }
 
+  /** Public lookup for picking/selection coordinators. */
+  getGroup(id) { return this._meshMap.get(id) || null; }
+
+  /** Hide ornamental geometry and shadow submissions outside detail zoom. */
+  setDetailLevel(showDetail) {
+    const visible = !!showDetail;
+    for (const obj of this._meshMap.values()) {
+      obj.traverse(child => {
+        if (!child.isMesh) return;
+        if (child.userData.lod === 'detail') child.visible = visible;
+        if (child.userData.nearCastShadow == null) {
+          child.userData.nearCastShadow = child.castShadow === true;
+        }
+        child.castShadow = visible && child.userData.nearCastShadow;
+      });
+    }
+  }
+
   /**
    * Create a fallback mesh for components without a role or detail
    * builder. Delegates to the shared standalone builder so live meshes,
@@ -4691,6 +4709,11 @@ export class ComponentBuilder {
     wrapper.add(hitbox);
 
     return wrapper;
+  }
+
+  /** Public component factory for renderer coordinators that batch visuals. */
+  createObject(compDef, accentColorHex = 0xc62828) {
+    return this._createObject(compDef, accentColorHex);
   }
 
   /**
@@ -4837,6 +4860,11 @@ export class ComponentBuilder {
         if (mat && typeof mat.dispose === 'function') mat.dispose();
       }
     });
+  }
+
+  /** Public teardown paired with createObject(). */
+  disposeObject(obj) {
+    this._disposeWrapper(obj);
   }
 
   /**
