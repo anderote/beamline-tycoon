@@ -38,8 +38,6 @@ export class MusicPlayer {
     this.currentIndex = -1;
     this.audio = new Audio();
     this.audio.volume = 0.4;
-    // Start silently unless the player explicitly enables soundtrack audio.
-    this.audio.muted = true;
     // Global handle so lightweight UI (e.g. the title-screen mute toggle) can
     // reach the player without threading a reference through every screen.
     try { window.__blMusic = this; } catch { /* no window */ }
@@ -66,7 +64,7 @@ export class MusicPlayer {
     this.themeSelect = this.el.querySelector('.mp-theme');
     this.minimizeBtn = this.el.querySelector('.mp-minimize');
     this.minimized = false;
-    this._embedded = !!this.el.closest('#top-buttons');
+    this._embedded = !!this.el.closest('#top-bar');
 
     // Drag / position state
     this._customPos = null;      // { left, top } once the user has dragged the player
@@ -74,7 +72,7 @@ export class MusicPlayer {
 
     this._bindEvents();
     this._updateMuteButton();
-    // The in-game player lives with the top-bar actions. Keep the
+    // The in-game player lives beside the title in the top bar. Keep the
     // draggable positioning support for any standalone embedding, but never
     // let a saved floating position tear the HUD layout apart.
     if (!this._embedded) {

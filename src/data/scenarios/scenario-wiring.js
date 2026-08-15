@@ -14,6 +14,7 @@
 import { COMPONENTS } from '../components.js';
 import { portSide, portWorldPosition } from '../../utility/ports.js';
 import { findUtilityEndpoint } from '../../utility/utility-endpoints.js';
+import { resolveUtilityPortName } from '../../utility/port-contracts.js';
 
 const SIDE_VEC = {
   N: { dCol: 0, dRow: -1 },
@@ -24,19 +25,21 @@ const SIDE_VEC = {
 
 const EPS = 1e-9;
 
-function portAnchor(state, placeableId, portName) {
+function portAnchor(state, utilityType, ref, defaultRole) {
   // Endpoints, not state.placeables: components carried on beam pipes declare
   // utility ports too (see utility/utility-endpoints.js).
-  const p = findUtilityEndpoint(state, placeableId);
+  const p = findUtilityEndpoint(state, ref.id);
   if (!p) return null;
   const def = COMPONENTS[p.type];
   if (!def) return null;
+  const portName = resolveUtilityPortName(def, utilityType, ref, defaultRole);
+  if (!portName) return null;
   const wp = portWorldPosition(p, def, portName);
   const side = portSide(def, portName, p.dir || 0);
   const vec = side ? SIDE_VEC[side] : null;
   if (!wp || !vec) return null;
   // 1 tile = 2 world metres (4 subtiles of 0.5 m).
-  return { tile: { col: wp.x / 2, row: wp.z / 2 }, vec };
+  return { portName, tile: { col: wp.x / 2, row: wp.z / 2 }, vec };
 }
 
 /**
@@ -44,16 +47,18 @@ function portAnchor(state, placeableId, portName) {
  *
  * @param {Game} game
  * @param {string} utilityType  'powerCable' | 'vacuumPipe' | ...
- * @param {{id: string, port: string}} from  source-end placeable/port
- * @param {{id: string, port: string}} to    sink-end placeable/port
+ * @param {{id: string, port?: string, role?: string|string[], side?: string, index?: number}} from
+ *   source-end explicit port or capability selector
+ * @param {{id: string, port?: string, role?: string|string[], side?: string, index?: number}} to
+ *   sink-end explicit port or capability selector
  * @param {{stub?: number}} [opts]  stub = how far (tiles) the line runs
  *   straight out of each port before bending (default 0.5).
  * @returns {string|null} the new line id, or null on failure (logged).
  */
 export function wireUtility(game, utilityType, from, to, opts = {}) {
   const state = game.state;
-  const a = portAnchor(state, from.id, from.port);
-  const b = portAnchor(state, to.id, to.port);
+  const a = portAnchor(state, utilityType, from, ['source', 'pass']);
+  const b = portAnchor(state, utilityType, to, ['sink', 'pass']);
   if (!a || !b) {
     console.warn('[scenario-wiring] missing port anchor', utilityType, from, to);
     return null;
@@ -63,21 +68,44 @@ export function wireUtility(game, utilityType, from, to, opts = {}) {
   const p1 = { col: p0.col + a.vec.dCol * stub, row: p0.row + a.vec.dRow * stub };
   const p3 = b.tile;
   const p2 = { col: p3.col + b.vec.dCol * stub, row: p3.row + b.vec.dRow * stub };
-  // Connect the two stub ends with one corner (horizontal-then-vertical).
-  const corner = { col: p2.col, row: p1.row };
-  const raw = [p0, p1, corner, p2, p3];
-  // Drop consecutive duplicate points (degenerate zero-length segments).
-  const path = raw.filter((pt, i) => i === 0
-    || Math.abs(pt.col - raw[i - 1].col) > EPS
-    || Math.abs(pt.row - raw[i - 1].row) > EPS);
-  const id = game.utilityLineSystem.addLine({
-    utilityType,
-    start: { placeableId: from.id, portName: from.port },
-    end: { placeableId: to.id, portName: to.port },
-    path,
-  });
-  if (!id) {
-    console.warn('[scenario-wiring] addLine rejected', utilityType, from, to, path);
+  // Try both legal one-corner orders. Scripted layouts should use the same
+  // routing flexibility the interactive tool provides; pinning one bend order
+  // made unrelated equipment moves silently invalidate scenario wiring.
+  const candidateRaws = [
+    [p0, p1, { col: p2.col, row: p1.row }, p2, p3],
+    [p0, p1, { col: p1.col, row: p2.row }, p2, p3],
+  ];
+  // Dense scripted facilities can occupy both direct elbows. Try a small set
+  // of deterministic outer corridors before giving up; this mirrors a player
+  // dragging the run around an existing tray without introducing a pathfinder
+  // or nondeterminism into scenario generation.
+  for (const clearance of [0.5, 1, 1.5, 2, 3, 4]) {
+    for (const row of [Math.min(p1.row, p2.row) - clearance, Math.max(p1.row, p2.row) + clearance]) {
+      candidateRaws.push([
+        p0, p1, { col: p1.col, row }, { col: p2.col, row }, p2, p3,
+      ]);
+    }
+    for (const col of [Math.min(p1.col, p2.col) - clearance, Math.max(p1.col, p2.col) + clearance]) {
+      candidateRaws.push([
+        p0, p1, { col, row: p1.row }, { col, row: p2.row }, p2, p3,
+      ]);
+    }
   }
-  return id;
+  let lastPath = null;
+  for (const raw of candidateRaws) {
+    // Drop consecutive duplicate points (degenerate zero-length segments).
+    const path = raw.filter((pt, i) => i === 0
+      || Math.abs(pt.col - raw[i - 1].col) > EPS
+      || Math.abs(pt.row - raw[i - 1].row) > EPS);
+    lastPath = path;
+    const id = game.utilityLineSystem.addLine({
+      utilityType,
+      start: { placeableId: from.id, portName: a.portName },
+      end: { placeableId: to.id, portName: b.portName },
+      path,
+    });
+    if (id) return id;
+  }
+  console.warn('[scenario-wiring] addLine rejected', utilityType, from, to, lastPath);
+  return null;
 }

@@ -29,9 +29,14 @@ for (const [id, raw] of Object.entries(INFRASTRUCTURE_RAW)) {
   COMPONENTS[id] = raw;
 }
 
-// Overlay wrapped Placeable instances for placeable kinds.
+// Overlay wrapped Placeable instances for placeable kinds. A small number of
+// room furnishings (notably Control Room DAQ gateways) expose real utility
+// ports too; include those so the legacy port/hit-test consumers that still
+// resolve definitions through COMPONENTS can actually wire them.
 for (const p of Object.values(PLACEABLES)) {
-  if (p.kind === 'beamline' || p.kind === 'infrastructure' || p.kind === 'equipment') {
+  const hasUtilityPorts = Object.keys(getUtilityPortsV2(p.id)).length > 0;
+  if (p.kind === 'beamline' || p.kind === 'infrastructure' || p.kind === 'equipment'
+      || hasUtilityPorts) {
     COMPONENTS[p.id] = p;
   }
 }

@@ -1,0 +1,70 @@
+import assert from 'node:assert/strict';
+import { WorldPhysicsPresentation } from '../src/renderer3d/world-physics-presentation.js';
+
+const originalRequestIdleCallback = globalThis.requestIdleCallback;
+const originalCancelIdleCallback = globalThis.cancelIdleCallback;
+
+try {
+  let idleCallback = null;
+  let cancelledHandle = null;
+  globalThis.requestIdleCallback = (callback) => {
+    idleCallback = callback;
+    return 17;
+  };
+  globalThis.cancelIdleCallback = handle => { cancelledHandle = handle; };
+
+  let worldCreates = 0;
+  let debrisCreates = 0;
+  let ragdollCreates = 0;
+  const world = {
+    ready: true,
+    addGround() {},
+    setTerrainMesh() {},
+    dispose() {},
+  };
+  const presentation = new WorldPhysicsPresentation(
+    { terrainMesh: () => ({ id: 'terrain' }) },
+    {
+      createWorld: () => ({
+        async init() {
+          worldCreates++;
+          return world;
+        },
+      }),
+      createDebris: () => {
+        debrisCreates++;
+        return { dispose() {} };
+      },
+      createRagdolls: () => {
+        ragdollCreates++;
+        return { dispose() {} };
+      },
+    },
+  );
+
+  presentation.attachStaff({ id: 'staff' }, { id: 'scene' });
+  presentation.scheduleInit({ id: 'scene' });
+  assert.equal(worldCreates, 0, 'scheduling physics does not load Rapier on the startup path');
+  assert.equal(typeof idleCallback, 'function', 'physics initialization is queued for idle time');
+
+  idleCallback();
+  await presentation.initPromise;
+  assert.equal(worldCreates, 1, 'idle initialization creates the physics world once');
+  assert.equal(debrisCreates, 1, 'debris attaches after the world is ready');
+  assert.equal(ragdollCreates, 1, 'staff attached before initialization receives ragdolls afterward');
+  presentation.dispose();
+
+  const cancelled = new WorldPhysicsPresentation({}, { createWorld: () => ({ init: async () => world }) });
+  idleCallback = null;
+  cancelled.scheduleInit({});
+  cancelled.dispose();
+  assert.equal(cancelledHandle, 17, 'dispose cancels deferred physics initialization');
+  assert.equal(cancelled.world, null, 'cancelled initialization leaves no live physics world');
+
+  console.log('World physics presentation tests passed.');
+} finally {
+  if (originalRequestIdleCallback === undefined) delete globalThis.requestIdleCallback;
+  else globalThis.requestIdleCallback = originalRequestIdleCallback;
+  if (originalCancelIdleCallback === undefined) delete globalThis.cancelIdleCallback;
+  else globalThis.cancelIdleCallback = originalCancelIdleCallback;
+}

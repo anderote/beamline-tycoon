@@ -91,7 +91,7 @@ body {
 }
 
 /* === TOP BAR === */
-/* Two stable rows: commands above, live facility information below. */
+/* Two stable rows: identity/audio above, navigation and live stats below. */
 #top-bar {
   position: absolute;
   top: 0;
@@ -157,10 +157,11 @@ body {
 
 #top-buttons {
   display: flex;
+  flex: 0 0 auto;
   flex-wrap: nowrap;
   gap: 6px;
   align-items: center;
-  margin-left: auto;
+  margin-left: 0;
   min-width: 0;
 }
 
@@ -169,17 +170,17 @@ body {
 #btn-hire,
 #menu-wrapper { flex-shrink: 0; }
 
+#top-bar-primary #sim-controls {
+  margin-left: auto;
+}
+
 @media (max-width: 1480px) {
   #top-bar-primary { gap: 8px; }
-  #game-title { font-size: 9px; }
-  #top-bar-primary .hud-btn { padding-right: 8px; padding-left: 8px; font-size: 8px; }
+  #top-bar-info { gap: 8px; }
+  #top-bar-info .hud-btn { padding-right: 8px; padding-left: 8px; font-size: 8px; }
   #music-player .mp-track-name-wrap { width: 110px; }
   #top-bar-info #beam-stats-panel { gap: 4px 9px; }
   #top-bar-info .res-box { min-width: 62px; padding-right: 6px; padding-left: 6px; }
-}
-
-@media (max-width: 1320px) {
-  #game-title { display: none; }
 }
 
 @media (max-width: 1160px) {
@@ -306,10 +307,10 @@ body {
   color: #ffcc88;
 }
 
-/* === MUSIC PLAYER (embedded with the primary top-bar actions) === */
+/* === MUSIC PLAYER (embedded beside the game title) === */
 #music-player {
   position: static;
-  margin-left: 2px;
+  margin-left: 0;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -954,7 +955,7 @@ body {
 
 #connection-guide {
   position: absolute;
-  bottom: calc(var(--hud-bottom-height) + 8px);
+  bottom: calc(var(--hud-bottom-height) + 28px);
   left: 12px;
   z-index: 110;
   width: 320px;
@@ -971,21 +972,36 @@ body {
 .connection-guide-header {
   display: flex;
   align-items: baseline;
-  gap: 9px;
+  justify-content: space-between;
+  gap: 12px;
   padding: 10px 14px 8px;
   border-bottom: 1px solid var(--blt-panel-divider);
   background: none;
 }
 .connection-guide-kicker {
+  order: 2;
   color: rgba(160, 160, 200, 0.55);
   font-size: 7px;
   letter-spacing: 1px;
+  white-space: nowrap;
 }
 .connection-guide-title {
+  order: 1;
   color: var(--blt-heading);
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 1px;
   white-space: nowrap;
+}
+.connection-guide-body {
+  padding: 10px 14px 12px;
+}
+.connection-guide-desc {
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(60, 60, 100, 0.2);
+  color: var(--blt-body);
+  font-size: 10px;
+  line-height: 1.8;
 }
 .connection-guide-flow {
   display: flex;
@@ -993,7 +1009,10 @@ body {
   justify-content: space-between;
   gap: 3px;
   min-height: 80px;
-  padding: 12px 12px 14px;
+  padding: 10px 8px 12px;
+  border: 1px solid rgba(80, 80, 140, 0.25);
+  border-radius: 3px;
+  background: rgba(5, 5, 15, 0.6);
 }
 .connection-guide-node {
   display: flex;
@@ -4817,6 +4836,7 @@ body {
   color: #ccd2ee;
   font-family: monospace;
 }
+
 #options-dialog.hidden { display: none; }
 
 .opt-header {

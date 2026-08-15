@@ -170,7 +170,7 @@ console.log('\n=== 3. P-selected move closes the item info window ===\n');
     game: { getPlaceable: (id) => id === entry.id ? entry : null },
     renderer: {
       canvas: { style: {} },
-      _closePlaceableInfoWindow: (target) => { closed = target; },
+      closePlaceableInfoWindow: (target) => { closed = target; },
     },
     setTool(tool) { this.activeTool = tool; },
     _armMovePreview() {},
@@ -227,7 +227,7 @@ console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines
   const input = {
     game: g,
     renderer: {
-      _closePlaceableInfoWindow: entry => { closedId = entry.id; },
+      closePlaceableInfoWindow: entry => { closedId = entry.id; },
       clearSelectionOutline() {},
     },
     selectedNodeId: null,
@@ -264,7 +264,7 @@ console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines
   let closed = false;
   const input = {
     game: g,
-    renderer: { _closePlaceableInfoWindow: () => { closed = true; } },
+    renderer: { closePlaceableInfoWindow: () => { closed = true; } },
     selectedPlaceableId: sourceId,
     selectedPlaceableIds: new Set([sourceId]),
     _selectionIdsForAnchor: InputHandler.prototype._selectionIdsForAnchor,

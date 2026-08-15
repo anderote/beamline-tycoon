@@ -39,9 +39,8 @@ const SUPPLY_LABEL = 'Supplies';
 const SUPPLY_SPEC = {
   hvCable:      { param: 'capacity',      unit: 'kW' },
   powerCable:   { param: 'capacity',      unit: 'kW' },
-  hvCable:      { param: 'capacity',      unit: 'kW' },
   rfWaveguide:  { param: 'capacity',      unit: 'kW' },
-  coolingWater: { param: 'capacity',      unit: 'kW thermal' },
+  coolingWater: { param: ['heatRejectionCapacity', 'capacity'], unit: 'kW thermal' },
   cryoTransfer: { param: 'coldCapacityW', unit: 'W' },
   vacuumPipe:   { param: 'pumpSpeed',     unit: 'L/s' },
 };
@@ -53,7 +52,7 @@ const SUPPLY_SPEC = {
 const PALETTE_METRIC_SPEC = {
   powerCable:   { draw: ['demand', 'Power draw', 'kW'], capacity: ['capacity', 'Power capacity', 'kW'] },
   hvCable:      { draw: ['demand', 'Power draw', 'kW'], capacity: ['capacity', 'Power capacity', 'kW'] },
-  coolingWater: { draw: ['heatLoad', 'Cooling draw', 'kW thermal'], capacity: ['capacity', 'Cooling capacity', 'kW thermal'] },
+  coolingWater: { draw: ['heatLoad', 'Cooling draw', 'kW thermal'], capacity: [['heatRejectionCapacity', 'capacity'], 'Cooling capacity', 'kW thermal'] },
   cryoTransfer: { draw: ['srfHeatW', 'Cryo draw', 'W'], capacity: ['coldCapacityW', 'Cryo capacity', 'W'] },
   rfWaveguide:  { draw: ['demand', 'RF draw', 'kW'], capacity: ['capacity', 'RF capacity', 'kW'] },
   vacuumPipe:   { draw: ['outgassing', 'Vacuum load', 'mbar·L/s'], capacity: ['pumpSpeed', 'Pumping capacity', 'L/s'] },
@@ -68,20 +67,6 @@ function compactNumber(value) {
   if (value !== 0 && Math.abs(value) < 0.01) return value.toExponential(1);
   if (Number.isInteger(value)) return String(value);
   return String(Math.round(value * 100) / 100);
-}
-
-// Cooling sources have two distinct plant roles. Chillers advertise
-// `capacity`; towers/condensers advertise `heatRejectionCapacity`. Present the
-// capability the component actually owns without making the solver treat a
-// heat rejector as a chiller.
-function metricPortValue(port, param) {
-  if (port?.utility === 'coolingWater' && port.role === 'source' && param === 'capacity') {
-    const capacity = Number(port.params?.capacity);
-    if (Number.isFinite(capacity) && capacity > 0) return capacity;
-    const rejection = Number(port.params?.heatRejectionCapacity);
-    if (Number.isFinite(rejection) && rejection > 0) return rejection;
-  }
-  return Number(port?.params?.[param]);
 }
 
 /**
@@ -100,7 +85,8 @@ export function paletteUtilityMetrics(comp) {
     const spec = PALETTE_METRIC_SPEC[port.utility]?.[kind];
     if (!spec) continue;
     const [param, label, unit] = spec;
-    const value = metricPortValue(port, param);
+    const params = Array.isArray(param) ? param : [param];
+    const value = Number(params.map(key => port.params?.[key]).find(Number.isFinite));
     if (!Number.isFinite(value) || value <= 0) continue;
     if (port.role === 'sink' && (port.utility === 'powerCable' || port.utility === 'hvCable')) {
       hasElectricalSink = true;
@@ -130,7 +116,7 @@ const PALETTE_UTILITY_SPEC = {
   hvCable:      { key: 'power', label: 'P', param: 'capacity', unit: 'kW' },
   powerCable:   { key: 'power', label: 'P', param: 'capacity', unit: 'kW' },
   rfWaveguide:  { key: 'rf', label: 'R', param: 'capacity', unit: 'kW' },
-  coolingWater: { key: 'cooling', label: 'C', param: 'capacity', unit: 'kW' },
+  coolingWater: { key: 'cooling', label: 'C', param: ['heatRejectionCapacity', 'capacity'], unit: 'kW' },
   cryoTransfer: { key: 'cryo', label: 'K', param: 'coldCapacityW', unit: 'W' },
   vacuumPipe:   { key: 'vacuum', label: 'V', param: 'pumpSpeed', unit: 'L/s' },
   dataFiber:    { key: 'data', label: 'D', param: 'capacity', unit: 'Gbps' },
@@ -152,7 +138,8 @@ export function paletteUtilityTags(comp) {
   for (const port of Object.values(comp.ports || {})) {
     if (!port || port.role !== 'source') continue;
     const spec = PALETTE_UTILITY_SPEC[port.utility];
-    const value = spec ? metricPortValue(port, spec.param) : NaN;
+    const params = Array.isArray(spec?.param) ? spec.param : [spec?.param];
+    const value = params.map(param => port.params?.[param]).find(Number.isFinite);
     if (!spec || !Number.isFinite(value)) continue;
     totals.set(spec.key, { ...spec, amount: (totals.get(spec.key)?.amount || 0) + value });
   }
@@ -201,7 +188,8 @@ export function utilityStatRows(comp) {
     if (!port || port.role !== 'source') continue;
     const spec = SUPPLY_SPEC[port.utility];
     if (!spec) continue;
-    const amount = metricPortValue(port, spec.param);
+    const params = Array.isArray(spec.param) ? spec.param : [spec.param];
+    const amount = params.map(param => port.params?.[param]).find(Number.isFinite);
     if (typeof amount !== 'number' || !Number.isFinite(amount)) continue;
 
     const entry = totals.get(port.utility)

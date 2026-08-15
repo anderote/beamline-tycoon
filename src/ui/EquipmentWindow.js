@@ -107,13 +107,14 @@ export class EquipmentWindow {
     if (this.comp.autoConnectRadius > 0) {
       const plan = this._autoConnectPlan;
       const count = plan?.stubs?.length || 0;
+      const inRange = plan?.candidates || 0;
       const funding = plan?.cost?.funding || 0;
       actions.unshift({
         label: count > 0
-          ? `Auto-connect ${count} ($${funding.toLocaleString()})`
-          : 'Auto-connect nearby',
-        title: count > 0
-          ? `Draw ${count} power cable${count === 1 ? '' : 's'} to free plugs inside the panel radius`
+          ? `Auto-connect ${count} ($${funding.toLocaleString()}) · Tab`
+          : 'Auto-connect nearby · Tab',
+        title: inRange > 0
+          ? `${inRange} unconnected power plug${inRange === 1 ? '' : 's'} in range; Tab draws ${count} routable cable${count === 1 ? '' : 's'} using free outlets`
           : 'No routable unconnected power plugs are currently in range',
         disabled: count === 0,
         onClick: () => {
@@ -195,8 +196,10 @@ export class EquipmentWindow {
     }
     if (comp.autoConnectRadius > 0) {
       const ready = this._autoConnectPlan?.stubs?.length || 0;
+      const inRange = this._autoConnectPlan?.candidates || 0;
       html += `<div class="equipment-utility">Auto-connect radius: ${comp.autoConnectRadius} tiles</div>`;
-      html += `<div class="equipment-utility">Ready power plugs: ${ready}</div>`;
+      html += `<div class="equipment-utility">Unconnected power plugs in range: ${inRange}</div>`;
+      html += `<div class="equipment-utility">Routable with free outlets: ${ready}</div>`;
     }
 
     // Stats / effects

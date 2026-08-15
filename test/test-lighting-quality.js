@@ -22,6 +22,9 @@ test('lighting presets are immutable, bounded, and normalize unknown values to a
     > resolveLightingQuality('high').fixtureShadowCount);
   assert.equal(resolveLightingQuality('high').fixtureShadowUpdatesPerFrame, 2);
   assert.equal(resolveLightingQuality('ultra').fixtureShadowMapSize, 1024);
+  assert.equal(resolveLightingQuality('low').contactAOStrength, 0);
+  assert.ok(resolveLightingQuality('high').contactAOSamples > resolveLightingQuality('medium').contactAOSamples);
+  assert.ok(resolveLightingQuality('ultra').contactAOScale <= 1);
 });
 
 test('auto lighting quality uses conservative capability thresholds', () => {
@@ -29,6 +32,7 @@ test('auto lighting quality uses conservative capability thresholds', () => {
   assert.equal(resolveLightingQuality('auto', { hardwareConcurrency: 4, deviceMemory: 4 }).name, 'medium');
   assert.equal(resolveLightingQuality('auto', { hardwareConcurrency: 8, deviceMemory: 8 }).name, 'high');
   assert.equal(resolveLightingQuality('auto', { hardwareConcurrency: 16, deviceMemory: 16, maxTextureSize: 8192 }).name, 'ultra');
+  assert.equal(resolveLightingQuality('auto', { hardwareConcurrency: 16, deviceMemory: 16, maxTextureSize: 8192, backend: 'webgl2' }).name, 'medium');
 });
 
 test('fixture shadow topology stays inside the fragment texture-unit budget', () => {

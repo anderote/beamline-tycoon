@@ -26,7 +26,11 @@ const DEM = 3;
 // Extra params some descriptors need before they aggregate at all. RF is the
 // asymmetric one: a sink declares the frequency it is cut for, a source
 // declares the bands it can produce, and capacity only counts if they meet.
-const EXTRA_SOURCE = { rfWaveguide: { bands: ['lband'] } };
+const EXTRA_SOURCE = {
+  rfWaveguide: { bands: ['lband'] },
+  // Staged cooling publishes usable capacity only for a complete plant.
+  coolingWater: { reservoir: true, heatRejectionCapacity: CAP },
+};
 const EXTRA_SINK = { rfWaveguide: { frequency: 1300e6 } };
 
 for (const type of UTILITY_TYPE_LIST) {

@@ -52,10 +52,9 @@ export const RESEARCH_SPEED_TABLE = {
 };
 
 // ---------------------------------------------------------------------------
-// Phase 12 — the cost ladder was laid across the original 28,800-tick,
-// 24-expansion-line playthrough. The executable harness now scales that target
-// to 38,400 ticks because the playable-site cap fits 18 of those lines; see
-// scripts/balance-playthrough.mjs. Only `cost` moved in the original pass.
+// Phase 12 — the cost ladder was rebalanced as a complete curve. Only `cost`
+// moved; every `requires` /
+// `unlocks` relationship is exactly as Phase 12b left it.
 //
 // Method. Costs were re-derived as a compressive power law over the ORIGINAL
 // shape — new = A * old^0.6 — rather than from a fresh envelope, so the
@@ -736,10 +735,10 @@ export const RESEARCH = {
   protonAcceleration: {
     id: 'protonAcceleration', category: 'machineTypes',
     name: 'Proton Acceleration',
-    desc: 'Develop the specialized techniques needed to accelerate protons and heavy ions, which are 2000x heavier than electrons. Requires dedicated ion sources (ECR, Penning), radio-frequency quadrupoles (RFQs) for initial capture and bunching, and drift-tube linacs for the first stage of acceleration. Opens the door to hadron physics, neutron sources, and medical proton therapy.',
+    desc: 'Develop the specialized techniques needed to accelerate protons and heavy ions, which are 2000x heavier than electrons. Requires dedicated ion sources (ECR, Penning), radio-frequency quadrupoles (RFQs) for initial capture and bunching, and drift-tube linacs for the first stage of acceleration. Opens an electronics irradiation test station as the first commercial proton contract, followed later by isotope production, neutron sources, and medical proton therapy.',
     cost: { data: 200, funding: 5000000 },
     duration: 60,
-    unlocks: ['rfq'],
+    unlocks: ['rfq', 'radiationEffectsStation'],
     requires: 'cyclotronTech',
   },
   ecrIonSource: {
@@ -780,8 +779,7 @@ export const RESEARCH = {
     cost: { data: 140, funding: 2600000 },
     duration: 45,
     unlocks: [
-      'target', 'isotopeProductionTarget', 'radiationEffectsStation',
-      'spallationNeutronTarget',
+      'target', 'isotopeProductionTarget', 'spallationNeutronTarget',
     ],
     requires: null,
   },

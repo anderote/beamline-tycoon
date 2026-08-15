@@ -4,12 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "lsof -ti:8000 | xargs kill -9 2>/dev/null || true",
     "dev": "vite",
     "build": "vite build",
     "build:web": "bash scripts/build-web.sh",
     "preview": "vite preview",
     "test": "node scripts/run-tests.mjs",
+    "test:all": "node scripts/run-tests.mjs --all",
+    "test:fast": "node scripts/run-tests.mjs --fast",
+    "test:simulation": "node scripts/run-tests.mjs --simulation",
     "assets": "node tools/asset-gen/server.cjs",
     "test:browser": "playwright test",
     "test:browser:headed": "playwright test --headed"

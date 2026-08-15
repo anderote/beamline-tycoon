@@ -27,7 +27,7 @@ console.log('\n=== Endpoint service economy ===\n');
   assert(low.revenue > 0, 'radiation testing earns dollars directly');
   assert(highCurrent.revenue > low.revenue, 'radiation revenue rises with beam current');
   assert(highEnergy.revenue > low.revenue, 'radiation revenue rises with beam energy');
-  assert(low.contractName === 'Radiation testing', 'endpoint publishes its named contract');
+  assert(low.contractName === 'Electronics radiation testing', 'endpoint publishes its named contract');
 }
 
 {

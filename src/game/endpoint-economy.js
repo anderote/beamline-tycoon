@@ -9,7 +9,7 @@ export const ENDPOINT_CONTRACTS = {
   materialsTestStation:    { name: 'Materials qualification', baseRevenue: 180,  workload: 'cpu' },
   eBeamIrradiationVault:   { name: 'Industrial irradiation',  baseRevenue: 900,  workload: 'cpu', hardEnergyCeiling: true },
   isotopeProductionTarget: { name: 'Medical isotope supply',  baseRevenue: 1500, workload: 'cpu' },
-  radiationEffectsStation: { name: 'Radiation testing',       baseRevenue: 1200, workload: 'cpu' },
+  radiationEffectsStation: { name: 'Electronics radiation testing', baseRevenue: 1200, workload: 'cpu' },
   protonTherapyGantry:     { name: 'Patient treatments',      baseRevenue: 2500, workload: 'cpu', availabilityContract: true, hardEnergyCeiling: true },
   target:                  { name: 'Target user programme',   baseRevenue: 600,  workload: 'cpu' },
   spallationNeutronTarget: { name: 'Neutron instrument time', baseRevenue: 1400, workload: 'balanced' },

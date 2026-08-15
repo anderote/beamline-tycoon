@@ -13,6 +13,20 @@
     <div id="top-bar">
       <div id="top-bar-primary">
         <div id="game-title">Beamline Tycoon</div>
+        <div id="music-player">
+          <button class="mp-btn mp-prev" title="Previous">&lt;</button>
+          <button class="mp-btn mp-play" title="Play/Pause">&gt;</button>
+          <button class="mp-btn mp-next" title="Next">&gt;&gt;</button>
+          <div class="mp-track-name-wrap">
+            <button class="mp-track-name" title="Click to show tracks"><span class="mp-track-name-inner">Loading...</span></button>
+            <div class="mp-track-list" hidden></div>
+          </div>
+          <button class="mp-btn mp-shuffle" title="Shuffle">~</button>
+          <select class="mp-theme" title="Theme"></select>
+          <input type="range" class="mp-volume" min="0" max="1" step="0.05" value="0.4" title="Volume">
+          <button class="mp-btn mp-mute active" title="Mute music" aria-label="Mute music" aria-pressed="false">🔊</button>
+          <button class="mp-btn mp-minimize" title="Minimize">_</button>
+        </div>
         <div id="sim-controls">
           <button id="btn-pause" class="sim-btn" title="Pause">&#10074;&#10074;</button>
           <button class="sim-btn speed-btn" data-speed="1" title="Normal speed (7)">1x</button>
@@ -20,21 +34,9 @@
           <button class="sim-btn speed-btn" data-speed="4" title="Quadruple speed (9)">4x</button>
         </div>
         <button id="btn-hire" class="hud-btn" title="Hire staff">Hire Staff</button>
+      </div>
+      <div id="top-bar-info">
         <div id="top-buttons">
-          <div id="music-player">
-            <button class="mp-btn mp-prev" title="Previous">&lt;</button>
-            <button class="mp-btn mp-play" title="Play/Pause">&gt;</button>
-            <button class="mp-btn mp-next" title="Next">&gt;&gt;</button>
-            <div class="mp-track-name-wrap">
-              <button class="mp-track-name" title="Click to show tracks"><span class="mp-track-name-inner">Loading...</span></button>
-              <div class="mp-track-list" hidden></div>
-            </div>
-            <button class="mp-btn mp-shuffle" title="Shuffle">~</button>
-            <select class="mp-theme" title="Theme"></select>
-            <input type="range" class="mp-volume" min="0" max="1" step="0.05" value="0.4" title="Volume">
-            <button class="mp-btn mp-mute" title="Unmute music" aria-label="Unmute music" aria-pressed="true">🔇</button>
-            <button class="mp-btn mp-minimize" title="Minimize">_</button>
-          </div>
           <button id="btn-designer" class="hud-btn">Beamline Designer</button>
           <button id="btn-research" class="hud-btn">Research</button>
           <button id="btn-economy" class="hud-btn">Economy</button>
@@ -54,8 +56,6 @@
             </div>
           </div>
         </div>
-      </div>
-      <div id="top-bar-info">
         <div id="resources">
           <div class="res-box" id="res-funding" title="Funding">
             <span class="res-main"><span class="res-icon">$</span><span class="res-val" id="val-funding">500</span></span>

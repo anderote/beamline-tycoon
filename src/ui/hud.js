@@ -672,9 +672,7 @@ UIHost.prototype._generateCategoryTabs = function() {
     btn.addEventListener('click', () => {
       tabsContainer.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
       btn.classList.add('active');
-      this._renderPalette(key);
-      this._renderConnectionGuide(key);
-      this._updateSystemStatsContent(key);
+      this.updatePalette(key);
       if (this._onTabSelect) this._onTabSelect(key);
     });
     tabsContainer.appendChild(btn);
@@ -682,16 +680,15 @@ UIHost.prototype._generateCategoryTabs = function() {
 
   // Render palette for first category in mode
   if (catKeys.length > 0) {
-    this._renderPalette(catKeys[0]);
-    this._renderConnectionGuide(catKeys[0]);
-    this._updateSystemStatsContent(catKeys[0]);
+    this.updatePalette(catKeys[0]);
     if (isFacility && this._onTabSelect) this._onTabSelect(catKeys[0]);
   }
 };
 
-const CONNECTION_GUIDES = {
+export const CONNECTION_GUIDES = {
   power: {
     title: 'POWER PATH',
+    description: 'Bring grid power through distribution before feeding equipment.',
     flow: [
       { name: 'GRID / HV', icon: '⚡', detail: 'supply' },
       { name: 'SWITCHGEAR', icon: '▣', detail: 'distribution' },
@@ -701,6 +698,7 @@ const CONNECTION_GUIDES = {
   },
   vacuum: {
     title: 'VACUUM PATH',
+    description: 'Pump the beam volume, then monitor it with vacuum instruments.',
     flow: [
       { name: 'PUMPS', icon: '◉', detail: 'rough + turbo' },
       { name: 'BEAMLINE', icon: '═', detail: 'vacuum volume' },
@@ -710,6 +708,7 @@ const CONNECTION_GUIDES = {
   },
   rfPower: {
     title: 'RF PATH',
+    description: 'Drive an RF source, then route its output to compatible cavities.',
     flow: [
       { name: 'MODULATOR', icon: '▥', detail: 'control' },
       { name: 'RF SOURCE', icon: '◉', detail: 'amplifier' },
@@ -719,6 +718,7 @@ const CONNECTION_GUIDES = {
   },
   cooling: {
     title: 'COOLING LOOP',
+    description: 'Supply and chill the loop, carry heat away, then reject it.',
     flow: [
       { name: 'MAKE-UP', icon: '●', detail: 'water' },
       { name: 'CHILLER', icon: '▣', detail: 'cold loop' },
@@ -729,6 +729,7 @@ const CONNECTION_GUIDES = {
   },
   dataControls: {
     title: 'CONTROL PATH',
+    description: 'Link the control rack to equipment for commands and telemetry.',
     flow: [
       { name: 'CONTROL RACK', icon: '▥', detail: 'logic + interlocks' },
       { name: 'EQUIPMENT', icon: '◆', detail: 'telemetry' },
@@ -737,6 +738,7 @@ const CONNECTION_GUIDES = {
   },
   ops: {
     title: 'OPERATIONS',
+    description: 'Provide staffed safety systems before operating the beamline.',
     flow: [
       { name: 'SAFETY + STAFF', icon: '✚', detail: 'operate safely' },
       { name: 'BEAMLINE', icon: '═', detail: 'run experiments' },
@@ -764,6 +766,12 @@ UIHost.prototype._renderConnectionGuide = function(category) {
   header.className = 'connection-guide-header';
   header.innerHTML = `<span class="connection-guide-kicker">CONNECTION GUIDE</span><span class="connection-guide-title">${guide.title}</span>`;
   el.appendChild(header);
+  const body = document.createElement('div');
+  body.className = 'connection-guide-body';
+  const description = document.createElement('div');
+  description.className = 'connection-guide-desc';
+  description.textContent = guide.description;
+  body.appendChild(description);
   const flow = document.createElement('div');
   flow.className = 'connection-guide-flow blt-diagram';
   guide.flow.forEach((item, index) => {
@@ -778,7 +786,8 @@ UIHost.prototype._renderConnectionGuide = function(category) {
       flow.appendChild(link);
     }
   });
-  el.appendChild(flow);
+  body.appendChild(flow);
+  el.appendChild(body);
 };
 
 // The infrastructure guide owns the same lower-left slot as the normal
@@ -2607,6 +2616,13 @@ UIHost.prototype._showPalettePreview = function(comp) {
     let html = '';
     html += statRow('Cost', costs);
     for (const r of utilityStatRows(comp)) html += statRow(r.label, r.value);
+    const dataSystem = comp.effects?.dataSystem;
+    if (dataSystem) {
+      if (dataSystem.ingest > 0) html += statRow('DAQ Ingest', `${dataSystem.ingest} data/t`);
+      if (dataSystem.storage > 0) html += statRow('Raw Buffer', `${dataSystem.storage} data`);
+      if (dataSystem.cpu > 0) html += statRow('CPU Processing', `${dataSystem.cpu} data/t`);
+      if (dataSystem.gpu > 0) html += statRow('GPU Processing', `${dataSystem.gpu} data/t`);
+    }
     html += statRow('Length', `${((comp.subL || 4) * 0.5).toFixed(1)} m`);
     if (comp.stats) {
       for (const [k, v] of Object.entries(comp.stats)) {
@@ -2759,6 +2775,8 @@ UIHost.prototype._hidePalettePreview = function() {
 
 UIHost.prototype.updatePalette = function(category) {
   this._renderPalette(category);
+  this._renderConnectionGuide(category);
+  this._updateSystemStatsContent(category);
 };
 
 // --- HUD event bindings ---
@@ -3398,6 +3416,7 @@ UIHost.prototype._renderPowerStats = function(d, summary, detail) {
 UIHost.prototype._renderDataControlsStats = function(d, summary, detail) {
   const mpsColor = d.mpsStatus === 'Active' ? 'good' : '';
   const dataColor = d.droppedRate > 0 ? 'bad' : (d.rawStored > d.storageCapacity * 0.8 ? 'warn' : 'good');
+  const gatewayColor = d.gatewayCount > 0 ? 'good' : (d.requestedRate > 0 ? 'bad' : '');
   summary.innerHTML = [
     this._sstat('IOCs', d.iocs, ''),
     this._ssep(),
@@ -3409,9 +3428,13 @@ UIHost.prototype._renderDataControlsStats = function(d, summary, detail) {
     this._ssep(),
     this._sstat('MPS', d.mpsStatus, '', mpsColor),
     this._ssep(),
-    this._sstat('Ingest', d.ingestRate.toFixed(1), `/ ${this._fmt(d.ingestCapacity)}`, dataColor),
+    this._sstat('DAQ', d.gatewayCount, 'gateways', gatewayColor),
     this._ssep(),
-    this._sstat('Processed', d.processedRate.toFixed(1), '/t'),
+    this._sstat('Captured', d.ingestRate.toFixed(1), `/ ${d.requestedRate.toFixed(1)}`, dataColor),
+    this._ssep(),
+    this._sstat('Buffered', d.rawStored.toFixed(1), `/ ${this._fmt(d.storageCapacity)}`, dataColor),
+    this._ssep(),
+    this._sstat('Processed', d.processedRate.toFixed(1), '/t', dataColor),
     this._ssep(),
     this._sstat('Draw', d.energyDraw.toFixed(1), 'kW'),
   ].join('');
@@ -3424,10 +3447,17 @@ UIHost.prototype._renderDataControlsStats = function(d, summary, detail) {
     ${this._detailRow('Timing Systems', dd.timingSystems)}
     ${this._detailRow('MPS Units', dd.mps)}
     ${this._detailRow('Laser Systems', dd.laserSystems)}
+    ${this._detailRow('Pipeline', 'Fiber → DAQ → Buffer → Compute')}
+    ${this._detailRow('Current Bottleneck', d.bottleneck)}
+    ${this._detailRow('Requested Stream', d.requestedRate.toFixed(1), 'data/t')}
+    ${this._detailRow('DAQ Ingest', d.ingestRate.toFixed(1), `/ ${this._fmt(d.ingestCapacity)}`)}
     ${this._detailRow('Raw Buffer', d.rawStored.toFixed(1), `/ ${this._fmt(d.storageCapacity)}`)}
     ${this._detailRow('Dropped This Tick', d.droppedRate.toFixed(1), 'data')}
+    ${this._detailRow('Capture Racks', dd.dataUnits.allInOne || 0)}
+    ${this._detailRow('Raw Buffer Racks', dd.dataUnits.storage || 0)}
     ${this._detailRow('CPU Processing', this._fmt(d.cpuCapacity), 'data/t')}
     ${this._detailRow('GPU Processing', this._fmt(d.gpuCapacity), 'data/t')}
+    ${this._detailRow('Inactive Data Units', d.inactiveDataUnits)}
   </div>`;
 };
 

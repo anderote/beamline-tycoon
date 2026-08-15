@@ -43,6 +43,11 @@ import {
   transformSelectionGroup,
 } from './selection-group.js';
 import {
+  copySelectionGroup,
+  demolishSelection,
+  moveSelectionGroup,
+} from './selection-commands.js';
+import {
   projectOntoPipe, pipeSubL, pipeSubUnitAt, pipeSubUnitPath, METRES_PER_SUB,
 } from '../beamline/pipe-geometry.js';
 import { pipeRefund } from '../beamline/BeamlineSystem.js';
@@ -107,6 +112,8 @@ export class InputHandler {
     this._marquee = null;
     this._marqueeEl = null;
     this._placementKeyHintEl = null;
+    this._panelAutoConnectPlanCache = new Map();
+    this._panelAutoConnectPlanCacheRevision = -1;
     this._selectionClipboard = null;
     this._selectionSlots = this._loadSelectionSlots();
     this.isPanning = false;
@@ -215,6 +222,12 @@ export class InputHandler {
       return;
     }
     // Keep the compact card beside the cursor without rebuilding its DOM.
+    // Panel counts can change while the pointer stays on the same object, so
+    // refresh the two text nodes as well as its position.
+    const title = this._tooltipEl.querySelector?.('.hover-tooltip-title');
+    const detail = this._tooltipEl.querySelector?.('.hover-tooltip-detail');
+    if (title && title.textContent !== info.title) title.textContent = info.title;
+    if (detail && detail.textContent !== info.detail) detail.textContent = info.detail;
     this._positionTooltip(screenX, screenY);
   }
 
@@ -306,7 +319,12 @@ export class InputHandler {
       }
       const def = entry && (COMPONENTS[entry.type] || PLACEABLES[entry.type]);
       if (def) {
-        this._setHoverTooltip(`placeable:${entry.id}`, componentHoverInfo(def), screenX, screenY);
+        this._setHoverTooltip(
+          `placeable:${entry.id}`,
+          this._componentHoverInfo(entry, def),
+          screenX,
+          screenY,
+        );
         return;
       }
       if (hitInfo.group === 'beampipe' && hitInfo.pipeId) {
@@ -365,7 +383,7 @@ export class InputHandler {
       const targetId = 'equip:' + equipId;
       const equip = this.game.state.facilityEquipment.find(e => e.id === equipId);
       const comp = equip && COMPONENTS[equip.type];
-      this._setHoverTooltip(targetId, componentHoverInfo(comp), screenX, screenY);
+      this._setHoverTooltip(targetId, this._componentHoverInfo(equip, comp), screenX, screenY);
       return;
     }
 
@@ -877,12 +895,12 @@ export class InputHandler {
     windowsToClose.delete(primary?.id);
     for (const id of windowsToClose) {
       const entry = this.game.getPlaceable(id);
-      if (entry) this.renderer._closePlaceableInfoWindow?.(entry);
+      if (entry) this.renderer.closePlaceableInfoWindow?.(entry);
     }
     if (primary && primary.category !== 'beamline') {
-      this.renderer._openEquipmentWindow?.(primary);
+      this.renderer.openEquipmentWindow?.(primary);
     }
-    this.renderer._refreshContextWindows?.();
+    this.renderer.refreshContextWindows?.();
     this._clearMarquee();
     this._showToast(selected.length
       ? `Selected ${selected.length} item${selected.length === 1 ? '' : 's'}`
@@ -892,7 +910,17 @@ export class InputHandler {
 
   /** Current paid cable plan for a distribution panel's context action. */
   _panelAutoConnectPlan(panelId) {
-    return planPanelAutoConnect(this.game.state, panelId, {
+    const revision = this.game.solveRunner?.topologyRevision;
+    if (Number.isFinite(revision)) {
+      if (this._panelAutoConnectPlanCacheRevision !== revision) {
+        this._panelAutoConnectPlanCache?.clear();
+        this._panelAutoConnectPlanCacheRevision = revision;
+      }
+      const cached = this._panelAutoConnectPlanCache?.get(panelId);
+      if (cached) return cached;
+    }
+
+    const plan = planPanelAutoConnect(this.game.state, panelId, {
       // Match ordinary interactive wiring to the connector actually visible
       // on the model, falling back to logical footprint geometry headlessly.
       portPosition: (endpoint, def, portName) => {
@@ -902,6 +930,39 @@ export class InputHandler {
           : portWorldPosition(endpoint, def, portName);
       },
     });
+    if (Number.isFinite(revision)) {
+      (this._panelAutoConnectPlanCache ||= new Map()).set(panelId, plan);
+    }
+    return plan;
+  }
+
+  /** Dynamic world-hover copy for panels; ordinary machines stay catalogue-only. */
+  _componentHoverInfo(entry, def) {
+    const autoConnectPlan = entry?.id && Number(def?.autoConnectRadius) > 0
+      ? this._panelAutoConnectPlan(entry.id)
+      : null;
+    return componentHoverInfo(def, { autoConnectPlan });
+  }
+
+  /** A single selected distribution panel owns plain Tab before palette tabs do. */
+  _selectedAutoConnectPanelId() {
+    const ids = this._selectionIdsForAnchor(this.selectedPlaceableId);
+    if (ids.length !== 1) return null;
+    const panel = this.game.getPlaceable?.(ids[0])
+      || this.game.state?.placeables?.find?.(entry => entry.id === ids[0]);
+    const def = panel && (COMPONENTS[panel.type] || PLACEABLES[panel.type]);
+    return Number(def?.autoConnectRadius) > 0 ? panel.id : null;
+  }
+
+  _handleSelectedPanelAutoConnectKey(event) {
+    if (event?.key !== 'Tab' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
+      return false;
+    }
+    const panelId = this._selectedAutoConnectPanelId();
+    if (!panelId) return false;
+    event.preventDefault();
+    if (!event.repeat) this._autoConnectPanel(panelId);
+    return true;
   }
 
   /** Re-plan at click time, then land all valid cables in one undo gesture. */
@@ -915,7 +976,7 @@ export class InputHandler {
       return [];
     }
     const committed = commitPanelAutoConnect(this.game, plan);
-    this.renderer._refreshContextWindows?.();
+    this.renderer.refreshContextWindows?.();
     this._renderSelectionOutlines();
     return committed;
   }
@@ -934,7 +995,7 @@ export class InputHandler {
       const primary = this.selectedPlaceableId && this.game.getPlaceable(this.selectedPlaceableId);
       this.selectedNodeId = primary?.category === 'beamline' ? primary.id : null;
       this._renderSelectionOutlines();
-      this.renderer._refreshContextWindows?.();
+      this.renderer.refreshContextWindows?.();
       return true;
     }
 
@@ -952,9 +1013,9 @@ export class InputHandler {
         this.game.emit('beamlineSelected', blId);
       }
     } else {
-      this.renderer._openEquipmentWindow?.(entry);
+      this.renderer.openEquipmentWindow?.(entry);
     }
-    this.renderer._refreshContextWindows?.();
+    this.renderer.refreshContextWindows?.();
     return true;
   }
 
@@ -1854,6 +1915,7 @@ export class InputHandler {
           break;
         }
         case 'Tab': {
+          if (this._handleSelectedPanelAutoConnectKey(e)) break;
           e.preventDefault();
           const mode = MODES[this.activeMode];
           if (!mode || mode.disabled) break;
@@ -2283,7 +2345,7 @@ export class InputHandler {
           const comp = COMPONENTS[equip.type];
           if (comp) {
             this.renderer.showNetworkOverlay(facId);
-            this.renderer._openEquipmentWindow(equip);
+            this.renderer.openEquipmentWindow(equip);
             return;
           }
         }
@@ -3418,7 +3480,7 @@ export class InputHandler {
     // A context window is useful while inspecting, but obscures the destination
     // while carrying. Close exactly the selected item's window before setTool
     // clears the selection ids needed to identify it.
-    this.renderer._closePlaceableInfoWindow?.(entry);
+    this.renderer.closePlaceableInfoWindow?.(entry);
     const tool = new MoveTool();
     this.setTool(tool);
     tool.payload = {
@@ -3499,150 +3561,24 @@ export class InputHandler {
   }
 
   _copySelectionGroup(payload, preview) {
-    const game = this.game;
-    const newIds = [];
-    const placeholderToId = new Map();
-    const lineCost = Object.keys(preview.lineCost || {}).length ? preview.lineCost : undefined;
-    const result = game.commitGesture({
-      cost: lineCost,
-      mutate: () => {
-        // commitGesture has already charged the copied cable/pipe length at
-        // this point. Snapshot here so a failed object/line commit restores
-        // object spending, then lets commitGesture refund that line charge
-        // exactly once in its own failure path.
-        const rollback = game.snapshotBeamlineState();
-        return game._batchEvents(() => {
-          for (const target of preview.targets) {
-            const id = game.placePlaceable({
-              type: target.type,
-              col: target.col,
-              row: target.row,
-              subCol: target.subCol,
-              subRow: target.subRow,
-              dir: target.dir,
-              portsFlipped: target.portsFlipped === true,
-              wallMount: target.wallMount,
-              params: target.params,
-              variant: target.variant,
-              silent: true,
-            });
-            if (!id) {
-              game.restoreBeamlineState(rollback);
-              return false;
-            }
-            newIds.push(id);
-            placeholderToId.set(target.placeholderId, id);
-          }
-          for (const connection of preview.connections) {
-            const remap = endpoint => endpoint && ({
-              ...endpoint,
-              placeableId: placeholderToId.get(endpoint.placeableId),
-            });
-            const lineId = game.utilityLineSystem.addLine({
-              utilityType: connection.utilityType,
-              start: remap(connection.start),
-              end: remap(connection.end),
-              path: connection.path,
-              cablePath: connection.cablePath,
-            });
-            if (!lineId) {
-              game.restoreBeamlineState(rollback);
-              return false;
-            }
-          }
-          return newIds;
-        });
-      },
-      failed: value => !value,
-    });
-    if (!result) return false;
-    this._showToast(`Copied ${newIds.length} item${newIds.length === 1 ? '' : 's'}`);
+    const result = copySelectionGroup(this.game, payload, preview);
+    if (!result.ok) return false;
+    this._showToast(`Copied ${result.ids.length} item${result.ids.length === 1 ? '' : 's'}`);
     return true;
   }
 
   _moveSelectionGroup(payload, preview) {
-    const game = this.game;
-    const rollback = game.snapshotBeamlineState();
-    let dangled = 0;
-    const result = game._withUndo(() => game._batchEvents(() => {
-      const selected = new Set(payload.items.map(item => item.id));
-
-      // Release every original footprint first. This lets a formation slide
-      // through its own old cells without the first item colliding with a
-      // selected neighbour that has not been updated yet.
-      for (const item of payload.items) {
-        const entry = game.getPlaceable(item.id);
-        if (!entry) {
-          game.restoreBeamlineState(rollback);
-          return false;
-        }
-        for (const cell of (entry.cells || [])) {
-          const key = `${cell.col},${cell.row},${cell.subCol},${cell.subRow}`;
-          if (selected.has(game.state.subgridOccupied[key]?.id)) {
-            delete game.state.subgridOccupied[key];
-          }
-        }
-      }
-
-      for (const target of preview.targets) {
-        const moved = game.movePlaceable(target.id, {
-          col: target.col,
-          row: target.row,
-          subCol: target.subCol,
-          subRow: target.subRow,
-          dir: target.dir,
-        });
-        if (!moved) {
-          game.restoreBeamlineState(rollback);
-          return false;
-        }
-      }
-
-      // Lines wholly within the selection translate rigidly. External lines
-      // retain their endpoint IDs and use the existing best-effort reanchor.
-      for (const connection of preview.connections) {
-        const line = game.state.utilityLines.get(connection.sourceId);
-        if (!line) {
-          game.restoreBeamlineState(rollback);
-          return false;
-        }
-        line.path = connection.path.map(point => ({ ...point }));
-        if (Array.isArray(connection.cablePath)) {
-          line.cablePath = connection.cablePath.map(point => ({ ...point }));
-        }
-        line.subL = connection.subL;
-      }
-      for (const item of payload.items) {
-        dangled += game.reanchorUtilityLinesForPlaceable(item.id, {
-          skipLineIds: preview.internalLineIds,
-        });
-      }
-
-      game._syncLegacyPlaceableState();
-      game.computeSystemStats();
-      game.emit('placeableChanged');
-      game.emit('utilityLinesChanged', {});
-      if (payload.items.some(item => item.kind === 'equipment')) game.emit('facilityChanged');
-      if (payload.items.some(item => item.kind === 'furnishing')) game.emit('zonesChanged');
-      return true;
-    }));
-    if (!result) return false;
-    this._showToast(dangled
-      ? `Placed — ${dangled} external utility ${dangled === 1 ? 'line needs' : 'lines need'} rewiring`
+    const result = moveSelectionGroup(this.game, payload, preview);
+    if (!result.ok) return false;
+    this._showToast(result.dangled
+      ? `Placed — ${result.dangled} external utility ${result.dangled === 1 ? 'line needs' : 'lines need'} rewiring`
       : `Placed ${payload.items.length} items`);
     return true;
   }
 
   _demolishSelected(anchorId = this.selectedPlaceableId) {
-    const ids = this._selectionIdsForAnchor(anchorId)
-      .filter(id => this.game.getPlaceable(id));
+    const ids = demolishSelection(this.game, this._selectionIdsForAnchor(anchorId));
     if (!ids.length) return [];
-    this.game._withUndo(() => this.game._batchEvents(() => {
-      for (const id of ids) {
-        const entry = this.game.getPlaceable(id);
-        if (entry) this.game.demolishTarget({ kind: entry.kind || entry.category, id });
-      }
-    }));
     this._clearSelection();
     return ids;
   }
@@ -3671,7 +3607,7 @@ export class InputHandler {
     }
 
     for (const entry of entries) {
-      this.renderer._closePlaceableInfoWindow?.(entry);
+      this.renderer.closePlaceableInfoWindow?.(entry);
     }
     this._demolishSelected(this.selectedPlaceableId);
     return true;

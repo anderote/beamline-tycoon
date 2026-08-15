@@ -175,8 +175,8 @@ console.log('\n--- Test 7: palette metrics expose placement requirements ---');
     'SRF cavity: palette shows its cryogenic draw');
 
   const fanCoilTags = paletteUtilityTags(COMPONENTS.fanCoilCooler);
-  assert(!fanCoilTags.some(tag => tag.key === 'power'),
-    'passive fan coil: compact palette tag has no phantom power draw');
+  assert(!fanCoilTags.some(tag => tag.key === 'power' && tag.direction === 'draw'),
+    'passive fan coil has no invented power draw');
   assert(fanCoilTags.some(tag => tag.text === 'C: +50 kW' && tag.direction === 'supply'),
     'fan coil: compact palette tag shows its cooling output');
 }

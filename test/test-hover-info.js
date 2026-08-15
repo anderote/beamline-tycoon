@@ -31,6 +31,12 @@ const panel = componentHoverInfo(COMPONENTS.powerPanel);
 assert(panel.detail === 'Power: 40 kW consumed · 40 kW produced',
   `power distributor hover compares consumed and produced power (${panel.detail})`);
 
+const actionablePanel = componentHoverInfo(COMPONENTS.powerPanel, {
+  autoConnectPlan: { candidates: 5, stubs: [{}, {}, {}, {}] },
+});
+assert(actionablePanel.detail === '5 unconnected power plugs in range · Tab connects 4',
+  `placed panel hover reports both nearby plugs and Tab capacity (${actionablePanel.detail})`);
+
 const packageChiller = componentHoverInfo(COMPONENTS.packageChiller);
 assert(packageChiller.detail === 'Cooling output: 5 kW',
   `package chiller hover shows its total cooling capacity (${packageChiller.detail})`);
@@ -51,7 +57,7 @@ const furnishing = furnishingHoverInfo({
 assert(furnishing.detail === 'Morale +10% · Research +2',
   'furnishing effects stay on one detail line');
 
-for (const info of [cavity, panel, network, furnishing]) {
+for (const info of [cavity, panel, actionablePanel, network, furnishing]) {
   assert(info && !info.title.includes('\n') && !info.detail.includes('\n'),
     `${info?.title || 'hover'} is limited to two logical lines`);
 }

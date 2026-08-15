@@ -1498,7 +1498,7 @@ export class DecorationBuilder {
     this._groupsById = new Map();
     /** Lighting fixtures built by the last `build()` call, for lighting systems to
      * enumerate without re-scanning every decoration.
-     * @type {Array<{id: string|number, def: object, group: THREE.Group}>} */
+     * @type {Array<{id: string|number, def: object, group: THREE.Group, indoors: boolean}>} */
     this._lightingFixtures = [];
     /** Material-compatible BatchedMeshes used by trees and shrubs. */
     this._plantBatches = [];
@@ -1581,7 +1581,7 @@ export class DecorationBuilder {
     group.rotation.y = wallPose?.yaw
       ?? (lightDef ? lightingYaw(lightDef, p.rotY, p.seed) : p.rotY);
     if (lightDef) {
-      this._lightingFixtures.push({ id: dec.id, def: lightDef, group });
+      this._lightingFixtures.push({ id: dec.id, def: lightDef, group, indoors: dec.indoors === true });
     }
 
     parentGroup.add(group);
