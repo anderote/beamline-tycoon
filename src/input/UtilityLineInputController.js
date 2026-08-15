@@ -4,7 +4,7 @@
 // Parallel to BeamlineInputController but scoped to the utility-line system:
 //   - Stores the current utility type (e.g. 'powerCable').
 //   - Snaps start/end to ports whose spec.utility matches the current type.
-//   - Paths are Manhattan (one 90° bend max) from start port to end port.
+//   - Paths are orthogonal; rigid services can detour around installed work.
 //   - Commit on mouse-up calls UtilityLineSystem.addLine().
 //
 // The controller is the single owner of the tool's render state:
@@ -24,8 +24,14 @@
 import { COMPONENTS } from '../data/components.js';
 import { availablePorts, portApproachVec, portWorldPosition } from '../utility/ports.js';
 import { portAnchor3D } from '../utility/port-anchors.js';
-import { buildPortRoutedPaths, pathLengthSubUnits, expandPath } from '../utility/line-geometry.js';
+import {
+  buildPortRoutedPaths,
+  findObstacleAwareRoute,
+  pathLengthSubUnits,
+  expandPath,
+} from '../utility/line-geometry.js';
 import { validateDrawLine } from '../utility/line-drawing.js';
+import { buildRigidRouteObstacles } from '../utility/route-obstacles.js';
 import { reasonMessage } from '../utility/UtilityLineSystem.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
 import { listUtilityEndpoints, findUtilityEndpoint } from '../utility/utility-endpoints.js';
@@ -205,6 +211,7 @@ export class UtilityLineInputController {
     this._preview = {
       utilityType: this._utilityType,
       path: [],
+      valid: true,
       color: UTILITY_TYPES[this._utilityType]?.color || '#ffffff',
     };
     return true;
@@ -236,6 +243,7 @@ export class UtilityLineInputController {
     this._preview = {
       utilityType: this._utilityType,
       path: previewPath,
+      valid: !!(this._runPlan?.stubs?.length) || !this._dragReject,
       cablePath: isSoftCable(this._utilityType) && !this._runPlan
         ? this._cableTrace.map(point => ({ ...point }))
         : null,
@@ -456,16 +464,20 @@ export class UtilityLineInputController {
     // would otherwise impose an artificial minimum length.
     const directPowerJumper = isPowerCable
       && Math.abs(startTile.col - endTile.col) + Math.abs(startTile.row - endTile.row) <= 0.5;
+    const descriptor = UTILITY_TYPES[this._utilityType] || {};
+    const startVec = directPowerJumper ? null : this._portVec(this._drawStart);
+    const endVec = directPowerJumper ? null : this._portVec(endAnchor);
+    const routeOpts = {
+      preferVerticalFirst: this._preferVerticalFirst,
+      allowZeroLength: isPowerCable,
+      portClearance: descriptor.portClearance !== false,
+      portTailTiles: descriptor.portTailTiles,
+      minStraightTiles: descriptor.minStraightTiles,
+    };
     const candidates = buildPortRoutedPaths(
       // Power cords can jumper directly between close fittings, including a
       // zero-length co-located pair; longer runs retain tidy lead-outs.
-      startTile, directPowerJumper ? null : this._portVec(this._drawStart),
-      endTile, directPowerJumper ? null : this._portVec(endAnchor),
-      {
-        preferVerticalFirst: this._preferVerticalFirst,
-        allowZeroLength: isPowerCable,
-        portClearance: UTILITY_TYPES[this._utilityType]?.portClearance !== false,
-      });
+      startTile, startVec, endTile, endVec, routeOpts);
 
     let chosen = null;
     let reason = null;
@@ -489,6 +501,36 @@ export class UtilityLineInputController {
       // zero — would be refused.
       if (reason === null) reason = res.reason;
     }
+    // Generic L/U candidates are intentionally cheap. If the board rejects
+    // them, rigid services get one bounded A* recovery pass over real
+    // equipment and installed-line obstacles. This is what makes a drag find
+    // the aisle around a pump or existing guide instead of merely cycling
+    // through six variations of the same collision.
+    let routedFallback = fallback;
+    if (!chosen && descriptor.routingProfile === 'rigid') {
+      const obstacles = buildRigidRouteObstacles(this.game.state, this._utilityType, {
+        startRef, endRef,
+      });
+      const detour = findObstacleAwareRoute(
+        startTile, startVec, endTile, endVec, {
+          ...routeOpts,
+          blocked: obstacles.isBlocked,
+          bendPenalty: descriptor.bendPenalty,
+          searchMarginTiles: descriptor.searchMarginTiles,
+          maxExpanded: descriptor.maxRouteExpanded,
+        });
+      if (detour) {
+        const path = snapPath(detour);
+        const res = validateDrawLine(this.game.state, {
+          utilityType: this._utilityType, start: startRef, end: endRef, path, tapLineIds,
+        });
+        if (res.ok) chosen = path;
+        else if (!routedFallback) {
+          routedFallback = path;
+          if (reason === null) reason = res.reason;
+        }
+      }
+    }
     // Why the gesture would be refused, for the drag tooltip. The commit path
     // logs this too, but the log has no on-screen surface — leaving "release
     // and nothing happens" as the only feedback the player ever got.
@@ -496,11 +538,11 @@ export class UtilityLineInputController {
     // fixed port tails has no non-overlapping route. Surface that spatial
     // problem before release instead of presenting an empty preview that
     // simply does nothing.
-    if (reason === null && !fallback && startRef && endRef) reason = 'port_clearance';
+    if (reason === null && !routedFallback && startRef && endRef) reason = 'port_clearance';
     this._dragReject = chosen ? null : reason;
     return {
       startTile, endTile, endAnchor, startRef, endRef, tapLineIds,
-      path: chosen || fallback,
+      path: chosen || routedFallback,
     };
   }
 

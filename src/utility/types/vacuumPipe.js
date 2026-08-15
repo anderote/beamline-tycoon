@@ -392,6 +392,17 @@ export default {
   color: '#888888',
   geometryStyle: 'cylinder',
   pipeRadiusMeters: BEAM_PIPE_RADIUS_M,
+  // Vacuum pipe is the forgiving rigid service: compact swept elbows and
+  // tees are ordinary catalogue fittings, so it may turn on the next service
+  // grid point. It still routes around machines and other rigid services.
+  routingProfile: 'rigid',
+  avoidRigidIntersections: true,
+  routeClearanceTiles: 0.25,
+  equipmentClearanceTiles: 0.125,
+  bendRadiusMeters: 0.20,
+  bendPenalty: 1.5,
+  fittingStyle: 'vacuumFlange',
+  couplerSpacingMeters: 4,
   portClearance: false,
   capacityUnit: 'L/s',
   allowsTap: true,

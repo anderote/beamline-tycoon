@@ -69,12 +69,12 @@ function unitDir(a, b) {
 }
 
 /** The grid point immediately outside a port's fixed horizontal tail. */
-export function portTailPoint(port, vec) {
+export function portTailPoint(port, vec, distanceTiles = PORT_TAIL_TILES) {
   if (!port) return null;
   if (!vec) return { col: port.col, row: port.row };
   return {
-    col: snapQ(port.col + vec.dCol * PORT_TAIL_TILES),
-    row: snapQ(port.row + vec.dRow * PORT_TAIL_TILES),
+    col: snapQ(port.col + vec.dCol * distanceTiles),
+    row: snapQ(port.row + vec.dRow * distanceTiles),
   };
 }
 
@@ -138,6 +138,33 @@ function isManhattan(path) {
     const dc = path[i + 1].col - path[i].col;
     const dr = path[i + 1].row - path[i].row;
     if (Math.abs(dc) > EPS && Math.abs(dr) > EPS) return false;
+  }
+  return true;
+}
+
+/** Length in tiles of one Manhattan segment, or 0 for a degenerate one. */
+function segmentLengthTiles(a, b) {
+  return Math.abs(b.col - a.col) + Math.abs(b.row - a.row);
+}
+
+/**
+ * Whether every leg touching a real corner has enough straight length for the
+ * service's physical elbow. A direct run has no corner and is always valid.
+ *
+ * This is deliberately a centreline rule, not a renderer clamp. A rectangular
+ * RF guide cannot hide a 500 mm bend inside a 250 mm leg just because the mesh
+ * builder is capable of shrinking the curve until it fits.
+ */
+export function hasMinimumBendClearance(path, minimumTiles = 0) {
+  if (!(minimumTiles > EPS) || !Array.isArray(path) || path.length < 3) return true;
+  const simple = simplifyPath(path);
+  for (let i = 1; i < simple.length - 1; i++) {
+    const before = unitDir(simple[i - 1], simple[i]);
+    const after = unitDir(simple[i], simple[i + 1]);
+    if (!before || !after) return false;
+    if (before.dCol === after.dCol && before.dRow === after.dRow) continue;
+    if (segmentLengthTiles(simple[i - 1], simple[i]) + EPS < minimumTiles
+      || segmentLengthTiles(simple[i], simple[i + 1]) + EPS < minimumTiles) return false;
   }
   return true;
 }
@@ -245,8 +272,10 @@ export function buildPortRoutedPaths(start, startVec, end, endVec, opts = {}) {
   // may opt out: their fittings already provide the visual transition and the
   // route should be allowed to turn immediately without reserving deck space.
   const usePortClearance = opts.portClearance !== false;
-  const a1 = usePortClearance ? portTailPoint(start, startVec) : start;
-  const b1 = usePortClearance ? portTailPoint(end, endVec) : end;
+  const tailTiles = Number.isFinite(opts.portTailTiles)
+    ? Math.max(0, opts.portTailTiles) : PORT_TAIL_TILES;
+  const a1 = usePortClearance ? portTailPoint(start, startVec, tailTiles) : start;
+  const b1 = usePortClearance ? portTailPoint(end, endVec, tailTiles) : end;
 
   // Mid-routes are the interior waypoints between the two stub tips: [] is the
   // straight shot, one point is an L, two points is a jog through a lane.
@@ -297,6 +326,7 @@ export function buildPortRoutedPaths(start, startVec, end, endVec, opts = {}) {
     if (!isManhattan(full)) continue;
     if (pathReversals(full) > 0) continue;
     if (selfIntersects(full)) continue;
+    if (!hasMinimumBendClearance(full, opts.minStraightTiles || 0)) continue;
 
     const key = full.map(p => `${p.col},${p.row}`).join(';');
     if (seen.has(key)) continue;
@@ -334,6 +364,186 @@ export function buildPortRoutedPaths(start, startVec, end, endVec, opts = {}) {
     || x.order - y.order
   ));
   return scored.map(s => s.path);
+}
+
+// ---------------------------------------------------------------------------
+// Board-aware orthogonal routing.
+// ---------------------------------------------------------------------------
+
+const CARDINALS = Object.freeze([
+  { dCol: 1, dRow: 0, axis: 'h' },
+  { dCol: -1, dRow: 0, axis: 'h' },
+  { dCol: 0, dRow: 1, axis: 'v' },
+  { dCol: 0, dRow: -1, axis: 'v' },
+]);
+
+class MinHeap {
+  constructor() { this.items = []; }
+  push(item) {
+    const a = this.items;
+    a.push(item);
+    let i = a.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (a[p].priority <= item.priority) break;
+      a[i] = a[p];
+      i = p;
+    }
+    a[i] = item;
+  }
+  pop() {
+    const a = this.items;
+    if (a.length === 0) return null;
+    const root = a[0];
+    const tail = a.pop();
+    if (a.length > 0) {
+      let i = 0;
+      while (true) {
+        const l = i * 2 + 1;
+        if (l >= a.length) break;
+        const r = l + 1;
+        const child = r < a.length && a[r].priority < a[l].priority ? r : l;
+        if (a[child].priority >= tail.priority) break;
+        a[i] = a[child];
+        i = child;
+      }
+      a[i] = tail;
+    }
+    return root;
+  }
+  get size() { return this.items.length; }
+}
+
+function gridPoint(point) {
+  return {
+    x: Math.round(point.col * SUB_PER_TILE),
+    y: Math.round(point.row * SUB_PER_TILE),
+  };
+}
+
+function directionIndex(vec) {
+  if (!vec) return -1;
+  return CARDINALS.findIndex(d => d.dCol === vec.dCol && d.dRow === vec.dRow);
+}
+
+function stateKey(x, y, dir, run, runCap) {
+  return `${x}:${y}:${dir}:${Math.min(run, runCap)}`;
+}
+
+function reconstructRoute(node, records) {
+  const points = [];
+  let current = node;
+  while (current) {
+    points.push({ col: current.x / SUB_PER_TILE, row: current.y / SUB_PER_TILE });
+    current = current.parent ? records.get(current.parent) : null;
+  }
+  points.reverse();
+  return simplifyPath(points);
+}
+
+/**
+ * Find a short, low-bend Manhattan path around a board-aware obstacle map.
+ *
+ * The ordinary candidate generator above remains the fast path. This search is
+ * the recovery path for real halls: once an L or U would hit equipment or an
+ * installed rigid service, A* walks the quarter-tile service grid instead of
+ * asking the player to hand-author a scenic detour. Direction and straight-run
+ * length are part of the state, so a waveguide can require roomy elbows while
+ * vacuum plumbing may turn on the next sub-tile.
+ *
+ * `blocked(col,row)` answers whether the centreline may occupy a grid point.
+ * Start and goal are always admitted; endpoint fittings own those positions.
+ */
+export function findObstacleAwareRoute(start, startVec, end, endVec, opts = {}) {
+  if (!start || !end) return null;
+  const usePortClearance = opts.portClearance !== false;
+  const tailTiles = Number.isFinite(opts.portTailTiles)
+    ? Math.max(0, opts.portTailTiles) : PORT_TAIL_TILES;
+  const a1 = usePortClearance ? portTailPoint(start, startVec, tailTiles) : start;
+  const b1 = usePortClearance ? portTailPoint(end, endVec, tailTiles) : end;
+  const s = gridPoint(a1), goal = gridPoint(b1);
+  const minRunSteps = Math.max(1, Math.ceil((opts.minStraightTiles || 0) * SUB_PER_TILE));
+  const startDir = usePortClearance ? directionIndex(startVec) : -1;
+  const startRun = startDir >= 0 ? Math.max(minRunSteps, Math.round(tailTiles * SUB_PER_TILE)) : minRunSteps;
+  const bendPenalty = Number.isFinite(opts.bendPenalty) ? Math.max(0, opts.bendPenalty) : 3;
+  const maxExpanded = Number.isFinite(opts.maxExpanded) ? Math.max(100, opts.maxExpanded) : 12000;
+  const directSteps = Math.abs(goal.x - s.x) + Math.abs(goal.y - s.y);
+  const marginSteps = Math.max(
+    Math.ceil((opts.searchMarginTiles || 5) * SUB_PER_TILE),
+    Math.ceil(directSteps * 0.35),
+  );
+  const minX = Math.min(s.x, goal.x) - marginSteps;
+  const maxX = Math.max(s.x, goal.x) + marginSteps;
+  const minY = Math.min(s.y, goal.y) - marginSteps;
+  const maxY = Math.max(s.y, goal.y) + marginSteps;
+  const isBlocked = typeof opts.blocked === 'function' ? opts.blocked : () => false;
+  const preferVertical = !!opts.preferVerticalFirst;
+  const directions = CARDINALS.slice().sort((a, b) => {
+    const ap = (a.axis === 'v') === preferVertical ? 0 : 1;
+    const bp = (b.axis === 'v') === preferVertical ? 0 : 1;
+    return ap - bp;
+  });
+
+  const records = new Map();
+  const best = new Map();
+  const heap = new MinHeap();
+  const firstKey = stateKey(s.x, s.y, startDir, startRun, minRunSteps);
+  const first = {
+    x: s.x, y: s.y, dir: startDir, run: startRun,
+    cost: 0, priority: directSteps, parent: null, key: firstKey,
+  };
+  records.set(firstKey, first);
+  best.set(firstKey, 0);
+  heap.push(first);
+
+  let expanded = 0;
+  let winner = null;
+  while (heap.size > 0 && expanded < maxExpanded) {
+    const current = heap.pop();
+    if (!current || current.cost !== best.get(current.key)) continue;
+    expanded++;
+    if (current.x === goal.x && current.y === goal.y) {
+      winner = current;
+      break;
+    }
+    for (const d of directions) {
+      const nextDir = directionIndex(d);
+      const reversing = current.dir >= 0
+        && CARDINALS[current.dir].dCol === -d.dCol
+        && CARDINALS[current.dir].dRow === -d.dRow;
+      if (reversing) continue;
+      const turning = current.dir >= 0 && nextDir !== current.dir;
+      if (turning && current.run < minRunSteps) continue;
+      const nx = current.x + d.dCol;
+      const ny = current.y + d.dRow;
+      if (nx < minX || nx > maxX || ny < minY || ny > maxY) continue;
+      const atGoal = nx === goal.x && ny === goal.y;
+      if (!atGoal && isBlocked(nx / SUB_PER_TILE, ny / SUB_PER_TILE)) continue;
+      const run = turning ? 1 : current.run + 1;
+      const cost = current.cost + 1 + (turning ? bendPenalty : 0);
+      const key = stateKey(nx, ny, nextDir, run, minRunSteps);
+      if (best.has(key) && best.get(key) <= cost) continue;
+      const heuristic = Math.abs(goal.x - nx) + Math.abs(goal.y - ny);
+      // A tiny preferred-axis tie break changes equal routes without ever
+      // outranking a shorter or lower-bend path; this keeps the R key useful.
+      const axisNudge = ((d.axis === 'v') === preferVertical) ? 0 : 0.01;
+      const node = {
+        x: nx, y: ny, dir: nextDir, run, cost,
+        priority: cost + heuristic + axisNudge,
+        parent: current.key, key,
+      };
+      records.set(key, node);
+      best.set(key, cost);
+      heap.push(node);
+    }
+  }
+  if (!winner) return null;
+  const middle = reconstructRoute(winner, records);
+  const full = simplifyPath([start, a1, ...middle.slice(1, -1), b1, end]);
+  if (full.length < 2 || !isManhattan(full) || pathReversals(full) > 0
+    || selfIntersects(full)
+    || !hasMinimumBendClearance(full, opts.minStraightTiles || 0)) return null;
+  return full;
 }
 
 /**
