@@ -107,6 +107,7 @@ export const REASON_MESSAGES = {
   port_taken:           'that port is already connected',
   port_mismatch_start:  "line doesn't align with start port direction",
   port_mismatch_end:    "line doesn't align with end port direction",
+  port_clearance:       'these ports need more clearance for their utility tails',
 };
 
 export function reasonMessage(r) { return REASON_MESSAGES[r] || r; }

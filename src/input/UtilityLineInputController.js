@@ -392,6 +392,10 @@ export class UtilityLineInputController {
     // Why the gesture would be refused, for the drag tooltip. The commit path
     // logs this too, but the log has no on-screen surface — leaving "release
     // and nothing happens" as the only feedback the player ever got.
+    // A port-to-port drag with no candidates means their fixed one-subtile
+    // tails have no non-overlapping route. Surface that spatial problem before
+    // release instead of presenting an empty preview that simply does nothing.
+    if (reason === null && !fallback && startRef && endRef) reason = 'port_clearance';
     this._dragReject = chosen ? null : reason;
     return {
       startTile, endTile, endAnchor, startRef, endRef, tapLineIds,

@@ -37,10 +37,11 @@ export function buildManhattanPath(start, end, opts = {}) {
   ];
 }
 
-// Length of the straight lead-out a path takes off a port before it is allowed
-// to bend, in tiles. One sub-unit — the minimum that gives validateDrawLine a
-// first/last segment whose direction it can match against the port's side.
-const STUB_TILES = 0.25;
+// Every port owns one fixed horizontal tail before a utility run may bend.
+// One sub-unit = 0.25 tiles = 0.5 world metres. The tail is part of the line's
+// stored polyline so validation, cost, overlap and rendering all agree on the
+// same physical clearance.
+export const PORT_TAIL_TILES = 0.25;
 
 // How far a detour lane sits off the straight line between the two stubs, in
 // tiles. Two sub-tiles: far enough that a route wrapping around a port cannot
@@ -65,6 +66,16 @@ function unitDir(a, b) {
   if (hasC) return { dCol: Math.sign(dc), dRow: 0 };
   if (hasR) return { dCol: 0, dRow: Math.sign(dr) };
   return null;
+}
+
+/** The grid point immediately outside a port's fixed horizontal tail. */
+export function portTailPoint(port, vec) {
+  if (!port) return null;
+  if (!vec) return { col: port.col, row: port.row };
+  return {
+    col: snapQ(port.col + vec.dCol * PORT_TAIL_TILES),
+    row: snapQ(port.row + vec.dRow * PORT_TAIL_TILES),
+  };
 }
 
 /**
@@ -131,11 +142,18 @@ function isManhattan(path) {
   return true;
 }
 
-/** The old one-corner shape, kept as the last resort — see buildPortRoutedPath. */
-function buildSingleLPath(start, a1, b1, end, opts) {
-  const mid = buildManhattanPath(a1, b1, opts);
-  const path = simplifyPath(mid ? [start, ...mid, end] : [start, a1, b1, end]);
-  return path.length >= 2 ? path : null;
+// A line may cross another line of the same utility under the policy in
+// line-drawing.js, but it must never cross or revisit itself. The old fallback
+// could do exactly that when two fixed port tails landed on each other's base
+// point, producing a loop that looked like an inexplicable failed connection.
+function selfIntersects(path) {
+  const seen = new Set();
+  for (const point of expandPath(path)) {
+    const key = `${Math.round(point.col * SUB_PER_TILE)},${Math.round(point.row * SUB_PER_TILE)}`;
+    if (seen.has(key)) return true;
+    seen.add(key);
+  }
+  return false;
 }
 
 /** Unique, grid-snapped cross-coordinates a detour leg is allowed to sit on. */
@@ -208,21 +226,11 @@ function laneCandidates(v1, v2) {
 export function buildPortRoutedPaths(start, startVec, end, endVec, opts = {}) {
   if (!start || !end) return [];
 
-  // Open-ended drag: no port at either end means no approach constraint to
-  // reconcile, and the player is pointing at the shape they want. Leave it be.
-  if (!startVec && !endVec) {
-    const plain = buildManhattanPath(start, end, opts);
-    if (!plain) return [];
-    const path = simplifyPath(plain);
-    return path.length >= 2 ? [path] : [];
-  }
-
-  const a1 = startVec
-    ? { col: snapQ(start.col + startVec.dCol * STUB_TILES), row: snapQ(start.row + startVec.dRow * STUB_TILES) }
-    : { col: start.col, row: start.row };
-  const b1 = endVec
-    ? { col: snapQ(end.col + endVec.dCol * STUB_TILES), row: snapQ(end.row + endVec.dRow * STUB_TILES) }
-    : { col: end.col, row: end.row };
+  // `a1` and `b1` are the routing anchors: the free-form Manhattan section
+  // starts only AFTER the one-subtile port tails. That section may turn on any
+  // grid subtile; only the first and final tail segments are directional.
+  const a1 = portTailPoint(start, startVec);
+  const b1 = portTailPoint(end, endVec);
 
   // Mid-routes are the interior waypoints between the two stub tips: [] is the
   // straight shot, one point is an L, two points is a jog through a lane.
@@ -238,11 +246,33 @@ export function buildPortRoutedPaths(start, startVec, end, endVec, opts = {}) {
 
   const preferVertical = !!opts.preferVerticalFirst;
   const scored = [];
+  const seen = new Set();
+
+  // If the ports already face each other on one grid line, the direct run is
+  // not merely legal — it is the only sensible shape. The ordinary lead-outs
+  // are each one subtile long, so for ports one subtile apart they meet (or
+  // pass each other) and turn a 0.25-tile cable into a self-crossing loop.
+  // Keep it in the candidate set rather than returning early: if a trunk
+  // occupies the direct route, the board-aware caller can still select a
+  // longer clear detour below.
+  const direct = buildManhattanPath(start, end, opts);
+  if (direct && direct.length === 2) {
+    const direction = unitDir(direct[0], direct[1]);
+    const leavesStart = !startVec
+      || (direction.dCol === startVec.dCol && direction.dRow === startVec.dRow);
+    const entersEnd = !endVec
+      || (-direction.dCol === endVec.dCol && -direction.dRow === endVec.dRow);
+    if (leavesStart && entersEnd) {
+      const length = Math.abs(end.col - start.col) + Math.abs(end.row - start.row);
+      scored.push({ path: direct, corners: 0, length, axisPenalty: 0, order: -1 });
+      seen.add(direct.map(p => `${p.col},${p.row}`).join(';'));
+    }
+  }
+
   // Different mid-routes collapse onto the same geometry all the time — the
   // lane through b1's own column IS the horizontal-first L once the stubs
   // merge. Deduping here is what stops a caller from running the validator
   // repeatedly on one shape while it walks the list.
-  const seen = new Set();
   for (const mid of mids) {
     const raw = [start, a1, ...mid, b1, end]
       .map(p => ({ col: snapQ(p.col), row: snapQ(p.row) }));
@@ -250,6 +280,7 @@ export function buildPortRoutedPaths(start, startVec, end, endVec, opts = {}) {
     if (full.length < 2) continue;
     if (!isManhattan(full)) continue;
     if (pathReversals(full) > 0) continue;
+    if (selfIntersects(full)) continue;
 
     const key = full.map(p => `${p.col},${p.row}`).join(';');
     if (seen.has(key)) continue;
@@ -274,12 +305,10 @@ export function buildPortRoutedPaths(start, startVec, end, endVec, opts = {}) {
   }
 
   if (scored.length === 0) {
-    // Nothing routed cleanly. Hand back the old single-L result rather than an
-    // empty list: the caller's preview is what tells the player what the commit
-    // will attempt, and no preview turns a refusal into the gesture silently
-    // doing nothing.
-    const fallback = buildSingleLPath(start, a1, b1, end, opts);
-    return fallback ? [fallback] : [];
+    // No legal path means the fixed port tails have consumed the available
+    // clearance. Do not hand a self-looping fallback to the caller; it cannot
+    // become valid at commit and only hides the real placement problem.
+    return [];
   }
 
   scored.sort((x, y) => (
