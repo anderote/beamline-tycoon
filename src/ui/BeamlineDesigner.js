@@ -492,9 +492,11 @@ export class BeamlineDesigner {
       });
     }
 
-    // Primary and optional secondary plot selectors — the renderer validates
-    // whether the selected pair can share a distance axis.
-    document.querySelectorAll('.dsgn-plot-select, .dsgn-plot-secondary-select').forEach(select => {
+    // Primary and optional overlay plot selectors — the renderer validates
+    // whether all three channels can share a distance axis.
+    document.querySelectorAll(
+      '.dsgn-plot-select, .dsgn-plot-secondary-select, .dsgn-plot-tertiary-select'
+    ).forEach(select => {
       select.addEventListener('change', () => {
         if (this.isOpen) this._renderPlots();
       });

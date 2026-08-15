@@ -7,7 +7,7 @@ export const ProbePlots = (() => {
     tick: '10px monospace',
     label: '9px monospace',
     legend: '9px monospace',
-    target: 'bold 9px monospace',
+    target: 'bold 13px monospace',
     secondaryTick: '8px monospace',
     secondaryLabel: 'bold 9px monospace',
     secondaryLegend: '8px monospace',
@@ -48,7 +48,7 @@ export const ProbePlots = (() => {
     };
     if (!(opts && opts.noClear)) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = 'rgba(5, 5, 20, 0.6)';
+      ctx.fillStyle = 'rgba(2, 8, 15, 0.82)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
 
@@ -62,6 +62,7 @@ export const ProbePlots = (() => {
       'beam-envelope': _drawBeamEnvelope,
       'current-loss': _drawCurrentLoss,
       'emittance': _drawEmittance,
+      'energy': _drawEnergy,
       'energy-dispersion': _drawEnergyDispersion,
       'beta-acceptance': _drawBetaAcceptance,
       'peak-current': _drawPeakCurrent,
@@ -154,6 +155,9 @@ export const ProbePlots = (() => {
     'emittance': (env, yScale) => [_applyYScale(
       ..._range(env.flatMap(d => [d.emit_nx, d.emit_ny].filter(v => v != null && isFinite(v)))), yScale)],
 
+    'energy': (env) => [_range(
+      env.map(d => d.energy).filter(v => v != null && isFinite(v)))],
+
     // Dual axis: [energy (GeV, pre unit-scaling), dispersion (m)]
     'energy-dispersion': (env) => {
       const dVals = env.map(d => d.eta_x).filter(v => v != null && isFinite(v));
@@ -220,7 +224,7 @@ export const ProbePlots = (() => {
   /** Mission band associated with a plot's primary y channel. */
   function targetYDomain(type, targets) {
     if (!targets) return null;
-    if (type === 'energy-dispersion' && targets.energyGeV) {
+    if ((type === 'energy' || type === 'energy-dispersion') && targets.energyGeV) {
       return [targets.energyGeV, null];
     }
     if (type === 'beam-envelope' && targets.spotSizeMm) {
@@ -321,18 +325,18 @@ export const ProbePlots = (() => {
   }
 
   function _axes(ctx, a, xLbl, yLbl, yMin, yMax, logY = false) {
-    ctx.strokeStyle = 'rgba(60, 60, 100, 0.3)';
+    ctx.strokeStyle = 'rgba(67, 137, 139, 0.28)';
     ctx.lineWidth = 0.5;
     for (let i = 0; i <= 3; i++) {
       const y = a.y + a.h - (i / 3) * a.h;
       ctx.beginPath(); ctx.moveTo(a.x, y); ctx.lineTo(a.x + a.w, y); ctx.stroke();
-      ctx.fillStyle = 'rgba(120, 120, 160, 0.7)';
+      ctx.fillStyle = 'rgba(119, 162, 164, 0.72)';
       ctx.font = FONT.tick; ctx.textAlign = 'right';
       ctx.fillText(_fmtPlotValue(_tickValue(i / 3, yMin, yMax, logY)), a.x - 3, y + 3);
     }
-    ctx.strokeStyle = 'rgba(80, 80, 130, 0.5)'; ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(81, 174, 169, 0.58)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(a.x, a.y + a.h); ctx.lineTo(a.x + a.w, a.y + a.h); ctx.stroke();
-    ctx.fillStyle = 'rgba(140, 140, 180, 0.7)'; ctx.font = FONT.label; ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(133, 191, 187, 0.78)'; ctx.font = FONT.label; ctx.textAlign = 'center';
     if (xLbl) ctx.fillText(xLbl, a.x + a.w / 2, a.y + a.h + 14);
     if (yLbl) {
       ctx.save(); ctx.translate(8, a.y + a.h / 2); ctx.rotate(-Math.PI / 2);
@@ -447,21 +451,56 @@ export const ProbePlots = (() => {
   }
 
   const TARGET_TEXT_COLOR = 'rgba(255, 82, 82, 0.98)';
-  const TARGET_GUIDE_COLOR = 'rgba(255, 82, 82, 0.48)';
+  const TARGET_GUIDE_COLOR = 'rgba(255, 82, 82, 0.62)';
 
-  function _targetMarker(ctx, a, text, y, edge = null) {
-    const arrow = edge === 'above' ? '↑ ' : edge === 'below' ? '↓ ' : '← ';
-    const label = `${arrow}${text}`;
-    const baseline = Math.max(a.y + 8, Math.min(a.y + a.h - 2, y));
+  function _targetLeader(ctx, fromX, fromY, toX, toY) {
+    const elbowX = Math.max(toX + 10, fromX - 18);
+    ctx.strokeStyle = TARGET_TEXT_COLOR;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(elbowX, fromY);
+    ctx.lineTo(toX, toY);
+    ctx.stroke();
 
-    // A bare monospace callout reads as plot instrumentation rather than a UI
-    // badge. The glyph itself supplies the pointer, so there is no box or
-    // separate canvas triangle to obscure the trace beneath it.
+    // Open chevron arrowhead: military/radar callout furniture without a
+    // filled badge obscuring the trace underneath it.
+    const angle = Math.atan2(toY - fromY, toX - elbowX);
+    const size = 4;
+    ctx.beginPath();
+    ctx.moveTo(toX, toY);
+    ctx.lineTo(toX - Math.cos(angle - Math.PI / 6) * size,
+      toY - Math.sin(angle - Math.PI / 6) * size);
+    ctx.moveTo(toX, toY);
+    ctx.lineTo(toX - Math.cos(angle + Math.PI / 6) * size,
+      toY - Math.sin(angle + Math.PI / 6) * size);
+    ctx.stroke();
+  }
+
+  function _targetMarker(ctx, a, text, y, edge = null, requestedBaseline = null) {
+    const tipY = edge === 'above'
+      ? a.y + 1
+      : edge === 'below' ? a.y + a.h - 1 : y;
+    const baseline = requestedBaseline != null
+      ? requestedBaseline
+      : edge === 'above'
+      ? a.y + 22
+      : edge === 'below' ? a.y + a.h - 10
+      : Math.max(a.y + 15, Math.min(a.y + a.h - 3,
+        y + (y < a.y + a.h - 30 ? 25 : -10)));
+    const textX = a.x + a.w - 4;
+
+    // Oversized terminal text plus an angular leader keeps the annotation
+    // readable as a tactical target callout while pointing back into the data.
     ctx.font = FONT.target;
     ctx.fillStyle = TARGET_TEXT_COLOR;
     ctx.textAlign = 'right';
     ctx.setLineDash([]);
-    ctx.fillText(label, a.x + a.w - 3, baseline);
+    ctx.fillText(text, textX, baseline);
+    const textWidth = ctx.measureText(text).width;
+    _targetLeader(ctx, Math.max(a.x + a.w * 0.55, textX - textWidth - 7), baseline - 5,
+      a.x + a.w * 0.48, tipY);
   }
 
   /** Draw endpoint mission annotations without changing the curve's scale. A
@@ -470,16 +509,17 @@ export const ProbePlots = (() => {
   function _targetBand(ctx, a, band, yMin, yMax, logY = false, opts = {}) {
     if (!Array.isArray(band) || band.length < 2 || !isFinite(yMin) || !isFinite(yMax)) return;
     const boundaries = [];
+    const targetName = `${opts.metricLabel ? `${opts.metricLabel} ` : ''}TARGET`;
     if (band[0] != null && isFinite(band[0])) {
       boundaries.push({
         value: Number(band[0]),
-        label: band[1] == null ? 'TARGET ≥' : 'TARGET MIN',
+        label: band[1] == null ? `${targetName} ≥` : `${targetName} MIN`,
       });
     }
     if (band[1] != null && isFinite(band[1])) {
       boundaries.push({
         value: Number(band[1]),
-        label: band[0] == null ? 'TARGET ≤' : 'TARGET MAX',
+        label: band[0] == null ? `${targetName} ≤` : `${targetName} MAX`,
       });
     }
     if (boundaries.length === 0) return;
@@ -499,17 +539,18 @@ export const ProbePlots = (() => {
         y: a.y + a.h - _yFraction(boundary.value, yMin, yMax, logY) * a.h,
       }))
       .sort((left, right) => left.y - right.y);
-    const labelMin = a.y + 8;
-    const labelMax = a.y + a.h - 2;
+    const labelMin = a.y + 15;
+    const labelMax = a.y + a.h - 3;
     const labelYs = inRange.map(boundary =>
-      Math.max(labelMin, Math.min(labelMax, boundary.y - 2)));
+      Math.max(labelMin, Math.min(labelMax,
+        boundary.y + (boundary.y < a.y + a.h - 30 ? 25 : -10))));
     for (let i = 1; i < labelYs.length; i++) {
-      labelYs[i] = Math.max(labelYs[i], labelYs[i - 1] + 10);
+      labelYs[i] = Math.max(labelYs[i], labelYs[i - 1] + 17);
     }
     for (let i = labelYs.length - 1; i >= 0; i--) {
       labelYs[i] = Math.min(labelYs[i], i === labelYs.length - 1
         ? labelMax
-        : labelYs[i + 1] - 10);
+        : labelYs[i + 1] - 17);
     }
     for (let i = 0; i < inRange.length; i++) {
       const boundary = inRange[i];
@@ -524,14 +565,14 @@ export const ProbePlots = (() => {
       ctx.stroke();
       _targetMarker(ctx, a,
         `${boundary.label} ${_targetValue(boundary.value, opts.formatValue, opts.unit)}`,
-        labelYs[i]);
+        boundary.y, null, labelYs[i]);
     }
 
     for (const edge of ['above', 'below']) {
       const offScale = boundaries.filter(boundary => boundary.edge === edge);
       if (offScale.length === 0) continue;
       const text = offScale.length === boundaries.length && boundaries.length > 1
-        ? `TARGET ${_targetRange(band, opts.formatValue, opts.formatBand, opts.unit)}`
+        ? `${targetName} ${_targetRange(band, opts.formatValue, opts.formatBand, opts.unit)}`
         : offScale.map(boundary =>
           `${boundary.label} ${_targetValue(boundary.value, opts.formatValue, opts.unit)}`
         ).join(' · ');
@@ -631,6 +672,42 @@ export const ProbePlots = (() => {
     _legend(ctx, a, [{ color: '#44aaff', label: '\u03b5_nx' }, { color: '#ff6644', label: '\u03b5_ny' }]);
   }
 
+  function _drawEnergy(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
+    const a = _area(canvas, o);
+    const [xMin, xMax] = xRange || _xRange(env);
+    const [eMinGev, eMaxGev] = _chan(o, 0, [0, 1]);
+    const eRef = Math.max(Math.abs(eMinGev), Math.abs(eMaxGev)) || 1;
+    const eScale = eRef >= 1000 ? 1e-3 : eRef >= 1 ? 1 : eRef >= 1e-3 ? 1e3 : 1e6;
+    const eUnit = eRef >= 1000 ? 'TeV' : eRef >= 1 ? 'GeV' : eRef >= 1e-3 ? 'MeV' : 'keV';
+    let eMin = eMinGev * eScale;
+    let eMax = eMaxGev * eScale;
+    const energyTarget = o?.targetBand || o?.targets?.energyGeV;
+    const scaledEnergyTarget = energyTarget
+      ? energyTarget.map(v => v == null ? null : v * eScale)
+      : null;
+    const logDomain = o?.yAxisMode === 'log'
+      ? _positiveDomain([eMin, eMax], [
+        ...env.map(d => d.energy == null ? null : d.energy * eScale),
+      ])
+      : null;
+    const logY = !!logDomain;
+    if (logDomain) [eMin, eMax] = logDomain;
+    const ghost = !!o?.ghost;
+
+    if (!ghost) _axes(ctx, a, 's (m)', `E (${eUnit})`, eMin, eMax, logY);
+    _lineScaled(ctx, a, env, 'energy', '#55f29a', xMin, xMax,
+      eMin, eMax, false, eScale, ghost, logY);
+    if (ghost) return;
+    _targetBand(ctx, a, scaledEnergyTarget, eMin, eMax, logY, {
+      metricLabel: 'ENERGY',
+      formatValue: value => _eicFmtEnergy(value / eScale),
+      formatBand: values => values.map(value => value == null ? null : _eicFmtEnergy(value / eScale))
+        .filter(Boolean).join('–'),
+    });
+    _pinMarkers(ctx, a, env, pins, xMin, xMax);
+    _legend(ctx, a, [{ color: '#55f29a', label: 'Energy' }]);
+  }
+
   function _drawEnergyDispersion(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
     // This plot already owns one right axis for dispersion. Callers composing
     // another metric can reserve additional room while keeping every trace on
@@ -671,6 +748,7 @@ export const ProbePlots = (() => {
     _lineScaled(ctx, aR, env, 'energy', '#44dd88', xMin, xMax, eMin, eMax, false, eScale, false, logY);
     _line(ctx, aR, env, 'eta_x', '#ff8844', xMin, xMax, dMin, dMax, true);
     _targetBand(ctx, aR, scaledEnergyTarget, eMin, eMax, logY, {
+      metricLabel: 'ENERGY',
       formatValue: value => _eicFmtEnergy(value / eScale),
       formatBand: values => values.map(value => value == null ? null : _eicFmtEnergy(value / eScale))
         .filter(Boolean).join('–'),
@@ -757,8 +835,13 @@ export const ProbePlots = (() => {
     'energy', 'dispersion', 'rel-beta', 'beam-envelope', 'current-loss', 'emittance', 'peak-current',
   ]);
 
+  const OVERLAY_STYLES = Object.freeze({
+    2: Object.freeze({ primary: '#ff5ec4', paired: '#a98bff' }),
+    3: Object.freeze({ primary: '#5de6ff', paired: '#72f0b0' }),
+  });
+
   function isDistancePlot(type) {
-    return ['energy-dispersion', 'beta-acceptance', 'beam-envelope', 'current-loss', 'emittance', 'peak-current']
+    return ['energy', 'energy-dispersion', 'beta-acceptance', 'beam-envelope', 'current-loss', 'emittance', 'peak-current']
       .includes(type);
   }
 
@@ -786,9 +869,10 @@ export const ProbePlots = (() => {
     return applyScale ? _applyYScale(domain[0], domain[1], yScale) : domain;
   }
 
-  function _secondarySpec(type, env, domain) {
-    const primary = '#ff5ec4';
-    const paired = '#a98bff';
+  function _secondarySpec(type, env, domain, seriesIndex = 2) {
+    const style = OVERLAY_STYLES[seriesIndex] || OVERLAY_STYLES[2];
+    const { primary, paired } = style;
+    const channel = `${seriesIndex}·`;
     if (type === 'energy') {
       const ref = Math.max(Math.abs(domain[0]), Math.abs(domain[1])) || 1;
       const scale = ref >= 1000 ? 1e-3 : ref >= 1 ? 1 : ref >= 1e-3 ? 1e3 : 1e6;
@@ -798,21 +882,21 @@ export const ProbePlots = (() => {
         domain: domain.map(v => v * scale),
         axisLabel: `E (${unit})`,
         scale,
-        channels: [{ key: '_secondaryA', color: primary, label: '2·Energy' }],
+        channels: [{ key: '_secondaryA', color: primary, label: `${channel}Energy` }],
       };
     }
     if (type === 'dispersion') {
       return {
         data: env.map(d => ({ ...d, _secondaryA: d.eta_x })), domain,
         axisLabel: '\u03b7_x (m)',
-        channels: [{ key: '_secondaryA', color: primary, label: '2·\u03b7_x' }],
+        channels: [{ key: '_secondaryA', color: primary, label: `${channel}\u03b7_x` }],
       };
     }
     if (type === 'rel-beta') {
       return {
         data: env.map(d => ({ ...d, _secondaryA: d.rel_beta })),
         domain: [0, 1], axisLabel: 'relativistic β',
-        channels: [{ key: '_secondaryA', color: primary, label: '2·Beam β' }],
+        channels: [{ key: '_secondaryA', color: primary, label: `${channel}Beam β` }],
       };
     }
     if (type === 'beam-envelope') {
@@ -823,8 +907,8 @@ export const ProbePlots = (() => {
         })),
         domain, axisLabel: '\u03c3 (mm)',
         channels: [
-          { key: '_secondaryA', color: primary, label: '2·\u03c3_x' },
-          { key: '_secondaryB', color: paired, label: '2·\u03c3_y', dashed: true },
+          { key: '_secondaryA', color: primary, label: `${channel}\u03c3_x` },
+          { key: '_secondaryB', color: paired, label: `${channel}\u03c3_y`, dashed: true },
         ],
       };
     }
@@ -832,7 +916,7 @@ export const ProbePlots = (() => {
       return {
         data: env.map(d => ({ ...d, _secondaryA: d.current })), domain,
         axisLabel: 'I (mA)',
-        channels: [{ key: '_secondaryA', color: primary, label: '2·Current' }],
+        channels: [{ key: '_secondaryA', color: primary, label: `${channel}Current` }],
       };
     }
     if (type === 'emittance') {
@@ -840,8 +924,8 @@ export const ProbePlots = (() => {
         data: env.map(d => ({ ...d, _secondaryA: d.emit_nx, _secondaryB: d.emit_ny })),
         domain, axisLabel: '\u03b5_n (m·rad)',
         channels: [
-          { key: '_secondaryA', color: primary, label: '2·\u03b5_nx' },
-          { key: '_secondaryB', color: paired, label: '2·\u03b5_ny', dashed: true },
+          { key: '_secondaryA', color: primary, label: `${channel}\u03b5_nx` },
+          { key: '_secondaryB', color: paired, label: `${channel}\u03b5_ny`, dashed: true },
         ],
       };
     }
@@ -849,7 +933,7 @@ export const ProbePlots = (() => {
       return {
         data: env.map(d => ({ ...d, _secondaryA: d.peak_current })), domain,
         axisLabel: 'I_peak (A)',
-        channels: [{ key: '_secondaryA', color: primary, label: '2·I_peak' }],
+        channels: [{ key: '_secondaryA', color: primary, label: `${channel}I_peak` }],
       };
     }
     return null;
@@ -880,10 +964,10 @@ export const ProbePlots = (() => {
     ctx.restore();
   }
 
-  function _secondaryLegend(ctx, a, channels) {
+  function _secondaryLegend(ctx, a, channels, seriesIndex) {
     ctx.font = FONT.secondaryLegend;
     let x = a.x + 4;
-    const y = a.y + 8;
+    const y = a.y + 8 + Math.max(0, seriesIndex - 2) * 9;
     for (const channel of channels) {
       ctx.fillStyle = channel.color;
       ctx.fillRect(x, y - 5, 7, 2);
@@ -901,7 +985,8 @@ export const ProbePlots = (() => {
     if (!ctx || canvas.width < 10 || canvas.height < 10) return;
     const rawDomain = opts.yDomain || secondaryYDomain(type, envelope, yScale);
     if (!rawDomain || !envelope || envelope.length < 2) return;
-    const spec = _secondarySpec(type, envelope, rawDomain);
+    const seriesIndex = opts.seriesIndex === 3 ? 3 : 2;
+    const spec = _secondarySpec(type, envelope, rawDomain, seriesIndex);
     if (!spec) return;
 
     const a = _area(canvas, { rightInset: opts.rightInset });
@@ -923,7 +1008,7 @@ export const ProbePlots = (() => {
     if (!opts.ghost) {
       _secondaryAxis(ctx, a, spec.axisLabel, yMin, yMax, logY,
         spec.channels[0].color, Math.max(0, Number(opts.axisOffset) || 0));
-      _secondaryLegend(ctx, a, spec.channels);
+      _secondaryLegend(ctx, a, spec.channels, seriesIndex);
     }
     ctx.restore();
   }
@@ -986,6 +1071,10 @@ export const ProbePlots = (() => {
         _cursorItem('primary-eny', 'ε_ny', d.emit_ny,
           _cursorText(d.emit_ny, 'm·rad'), '#ff6644', domain, logY),
       ];
+    } else if (type === 'energy') {
+      positive(env.map(row => row.energy));
+      items = [_cursorItem('primary-energy', 'Energy', d.energy, _eicFmtEnergy(d.energy),
+        '#55f29a', domain, logY)];
     } else if (type === 'energy-dispersion') {
       positive(env.map(row => row.energy));
       items = [
@@ -1027,9 +1116,9 @@ export const ProbePlots = (() => {
     return items.filter(Boolean);
   }
 
-  function _secondaryCursorItems(type, env, index, yDomain, yAxisMode) {
+  function _secondaryCursorItems(type, env, index, yDomain, yAxisMode, seriesIndex = 2) {
     if (!type || !yDomain) return [];
-    const spec = _secondarySpec(type, env, yDomain);
+    const spec = _secondarySpec(type, env, yDomain, seriesIndex);
     if (!spec || !spec.data[index]) return [];
     let domain = spec.domain;
     const values = spec.channels.flatMap(channel =>
@@ -1048,9 +1137,27 @@ export const ProbePlots = (() => {
       : '';
     return spec.channels.map((channel, channelIndex) => {
       const value = spec.data[index][channel.key];
-      return _cursorItem(`secondary-${channelIndex}`, channel.label, value,
+      return _cursorItem(`overlay-${seriesIndex}-${channelIndex}`, channel.label, value,
         _cursorText(value, unit), channel.color, domain, logY);
     }).filter(Boolean);
+  }
+
+  function _cursorOverlayItems(opts, env, index) {
+    const overlays = Array.isArray(opts.overlays)
+      ? opts.overlays
+      : [{
+        type: opts.secondaryType,
+        domain: opts.secondaryDomain,
+        seriesIndex: 2,
+      }];
+    return overlays.flatMap((overlay, overlayIndex) => _secondaryCursorItems(
+      overlay?.type,
+      env,
+      index,
+      overlay?.domain,
+      opts.yAxisMode,
+      overlay?.seriesIndex || overlayIndex + 2,
+    ));
   }
 
   function _drawCursorDot(ctx, a, x, item, ghost = false) {
@@ -1084,8 +1191,7 @@ export const ProbePlots = (() => {
     const x = a.x + ((snapS - xMin) / (xMax - xMin || 1)) * a.w;
     const solidItems = [
       ..._primaryCursorItems(type, envelope, index, opts.yDomain, opts.yAxisMode),
-      ..._secondaryCursorItems(opts.secondaryType, envelope, index,
-        opts.secondaryDomain, opts.yAxisMode),
+      ..._cursorOverlayItems(opts, envelope, index),
     ];
     if (solidItems.length === 0) return null;
 
@@ -1096,8 +1202,7 @@ export const ProbePlots = (() => {
       if (ghostIndex >= 0) {
         ghostItems = [
           ..._primaryCursorItems(type, ghost, ghostIndex, opts.yDomain, opts.yAxisMode),
-          ..._secondaryCursorItems(opts.secondaryType, ghost, ghostIndex,
-            opts.secondaryDomain, opts.yAxisMode),
+          ..._cursorOverlayItems(opts, ghost, ghostIndex),
         ];
       }
     }
@@ -1331,7 +1436,7 @@ export const ProbePlots = (() => {
   // pass skips it and only contributes its own triangle.
   function _eicChrome(ctx, cx, cy, R, angles) {
     // --- Background rings (0.25, 0.5, 0.75, 1.0) ---
-    ctx.strokeStyle = 'rgba(60, 60, 100, 0.35)';
+    ctx.strokeStyle = 'rgba(74, 139, 118, 0.34)';
     ctx.lineWidth = 0.5;
     for (const frac of [0.25, 0.5, 0.75, 1.0]) {
       _eicPath(ctx, cx, cy, R, angles, [frac, frac, frac]);
@@ -1339,17 +1444,34 @@ export const ProbePlots = (() => {
     }
 
     // --- Spokes ---
-    ctx.strokeStyle = 'rgba(80, 80, 130, 0.5)';
+    ctx.strokeStyle = 'rgba(82, 168, 139, 0.52)';
     ctx.lineWidth = 1;
     for (const a of angles) {
       ctx.beginPath();
       ctx.moveTo(cx, cy);
       ctx.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
       ctx.stroke();
+
+      // Short calibration marks turn each spoke into a radar range vector.
+      const tx = -Math.sin(a) * 2.5;
+      const ty = Math.cos(a) * 2.5;
+      for (const frac of [0.25, 0.5, 0.75, 1]) {
+        const px = cx + Math.cos(a) * R * frac;
+        const py = cy + Math.sin(a) * R * frac;
+        ctx.beginPath();
+        ctx.moveTo(px - tx, py - ty);
+        ctx.lineTo(px + tx, py + ty);
+        ctx.stroke();
+      }
     }
 
+    ctx.fillStyle = 'rgba(93, 230, 197, 0.75)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+
     // --- Reference "par" polygon (dashed) ---
-    ctx.strokeStyle = 'rgba(150, 150, 190, 0.55)';
+    ctx.strokeStyle = 'rgba(180, 180, 145, 0.5)';
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 3]);
     _eicPath(ctx, cx, cy, R, angles, [
@@ -1449,7 +1571,7 @@ export const ProbePlots = (() => {
     ctx.fillStyle = 'rgba(180, 180, 220, 0.7)';
     ctx.font = FONT.label;
     ctx.textAlign = 'center';
-    ctx.fillText('E / I / \u03b5  (log, par dashed)', cx, 12);
+    ctx.fillText('TACTICAL E / I / \u03b5 VECTOR  //  LOG  //  PAR DASHED', cx, 12);
   }
 
   function _eicFmtEnergy(gev) {
