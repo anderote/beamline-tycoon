@@ -290,7 +290,10 @@ export class GuidedBeamlineSetup {
     } else if (utility === 'coolingWater') {
       if (![...types].some(t => ['packageChiller', 'lcwSkid', 'chiller'].includes(t))) component = 'packageChiller';
     } else if (utility === 'vacuumPipe') {
-      if (![...types].some(t => ['roughingPump', 'turboPump', 'ionPump'].includes(t))) component = 'roughingPump';
+      if (![...types].some(t => [
+        'roughingPump', 'roughingPumpCart', 'turboPump', 'turboPumpCart',
+        'vacuumCart', 'highCapacityVacuumStation', 'ionPump', 'negPump', 'tiSubPump',
+      ].includes(t))) component = 'roughingPump';
     } else if (utility === 'cryoTransfer') {
       if (![...types].some(t => ['coldBox4K', 'coldBox2K'].includes(t))) component = 'coldBox4K';
     } else if (utility === 'dataFiber') {

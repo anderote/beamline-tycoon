@@ -91,6 +91,7 @@ console.log('\n--- Test 5: turboPump ---');
 {
   const cart = getUtilityPortsV2('roughingPumpCart');
   const ports = getUtilityPortsV2('turboPump');
+  const turboCart = getUtilityPortsV2('turboPumpCart');
   assert(cart.vac_out.params.roughingSpeed === 60,
     'four-pump cart supplies 60 L/s of roughing and backing speed');
   assert(cart.vac_out.params.vacuumStage === 'rough',
@@ -100,6 +101,10 @@ console.log('\n--- Test 5: turboPump ---');
   assert(ports.vac_out.role === 'source', 'vac_out is source');
   assert(ports.vac_out.params.pumpSpeed > 0,
     `vac_out.params.pumpSpeed > 0 (got ${ports.vac_out.params.pumpSpeed})`);
+  assert(turboCart.vac_out.params.highVacSpeed === 1200,
+    'turbo cart supplies four times the single-turbo high-vac speed');
+  assert(turboCart.vac_out.params.backingDemand === cart.vac_out.params.roughingSpeed,
+    'one roughing cart exactly backs one turbo cart');
 }
 
 // ==========================================================================
@@ -367,11 +372,14 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   const rough = getUtilityPortsV2('roughingPump');
   const roughCart = getUtilityPortsV2('roughingPumpCart');
   const turbo = getUtilityPortsV2('turboPump');
+  const turboCart = getUtilityPortsV2('turboPumpCart');
   const ion = getUtilityPortsV2('ionPump');
   assert(rough.vac_out.params.pumpSpeed < roughCart.vac_out.params.pumpSpeed
       && roughCart.vac_out.params.pumpSpeed < turbo.vac_out.params.pumpSpeed
       && turbo.vac_out.params.pumpSpeed < ion.vac_out.params.pumpSpeed,
     'vacuum ladder: single roughing < roughing cart < turbo < ion');
+  assert(turboCart.vac_out.params.highVacSpeed === turbo.vac_out.params.highVacSpeed * 4,
+    'turbo cart is a four-stage bank, not an integrated roughing shortcut');
 
   const cb4 = getUtilityPortsV2('coldBox4K');
   const cb2 = getUtilityPortsV2('coldBox2K');

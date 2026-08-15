@@ -14,6 +14,7 @@ Particle beams must travel through ultra-high vacuum. The better your vacuum, th
 | Roughing pump | 15 roughing | $50k | First pump-down stage and backing for one turbo |
 | Four-pump roughing cart | 60 roughing | $170k | Faster pump-down or backing for four turbos |
 | Turbo pump | 300 high-vacuum | $200k | Workhorse high-vacuum stage; requires 15 L/s backing |
+| Turbo pump cart | 1,200 high-vacuum | $680k | Four-stage mobile bank; requires 60 L/s backing |
 | Vacuum cart | 30 roughing + 300 high-vacuum | $475k | Integrated portable two-stage package |
 | Ti sublimation pump | 400 UHV | $300k | Extreme vacuum with a working high-vacuum stage |
 | NEG pump | 500 UHV | $600k | Distributed pumping, zero energy cost |
@@ -22,7 +23,7 @@ Particle beams must travel through ultra-high vacuum. The better your vacuum, th
 
 The stages are live. Roughing operates from atmosphere toward 1e-3 mbar. A backed turbo takes over below 1 mbar and can approach 1e-8 mbar. Ion, NEG and Ti-sub pumps join below 1e-5 mbar only when a working high-vacuum stage is present. A lone turbo reports an unbacked-pump blocker; a lone UHV pump cannot evacuate a vented chamber.
 
-The network stores its gas inventory in mbar·L. Beam-pipe and service-line volume set how long pump-down takes, so the four-pump cart genuinely evacuates the same chamber about four times faster than one roughing pump.
+The network stores its gas inventory in mbar·L. Beam-pipe and service-line volume set how long pump-down takes, so the four-pump roughing cart genuinely evacuates the same chamber about four times faster than one roughing pump. One of those compact roughing carts supplies exactly the 60 L/s backing capacity required by a turbo pump cart.
 
 ### Gas Load, Volume and Conductance
 
@@ -67,7 +68,7 @@ The Systems panel reports the facility's worst vacuum network. Within a network,
 ### Strategy
 
 - Start with a roughing pump and turbo, or buy an integrated vacuum cart.
-- One roughing pump backs one turbo; the four-pump cart backs four.
+- One roughing pump backs one turbo; the four-pump roughing cart backs one four-stage turbo cart.
 - Distribute molecular pumps and keep their service runs short.
 - Use ion, NEG or Ti-sub pumps only after high vacuum is established.
 - A vacuum manifold ($120k) reduces connection clutter but adds no pumping speed.
