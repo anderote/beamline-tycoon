@@ -54,11 +54,16 @@ test('mission targets annotate performance plots without changing their scale', 
 
   const layout = await page.evaluate(() => {
     const summary = document.getElementById('dsgn-plot-mission-summary');
+    const panels = [...document.querySelectorAll('.dsgn-plot-panel')];
     return {
       largePanel: !!document.getElementById('dsgn-mission-panel'),
       greenMap: !!document.getElementById('dsgn-mission-map'),
       plotTypes: [...document.querySelectorAll('.dsgn-plot-select')].map(select => select.value),
-      plotPanels: document.querySelectorAll('.dsgn-plot-panel').length,
+      plotPanels: panels.length,
+      plotRects: panels.map(panel => {
+        const rect = panel.getBoundingClientRect();
+        return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+      }),
       yScale: document.getElementById('dsgn-y-scale-select')?.value,
       yScaleOptions: [...(document.getElementById('dsgn-y-scale-select')?.options || [])]
         .map(option => option.textContent),
@@ -76,8 +81,15 @@ test('mission targets annotate performance plots without changing their scale', 
   expect(layout.assignedType).toBe('ebeamProcessing');
   expect(layout.largePanel, 'the oversized mission panel is gone').toBe(false);
   expect(layout.greenMap, 'the separate green target map is gone').toBe(false);
-  expect(layout.plotPanels, 'the two plots get the full performance row').toBe(2);
-  expect(layout.plotTypes).toEqual(['energy-dispersion', 'emittance']);
+  expect(layout.plotPanels, 'three plots share the performance row').toBe(3);
+  expect(layout.plotTypes).toEqual(['energy-dispersion', 'emittance', 'current-loss']);
+  expect(new Set(layout.plotRects.map(rect => rect.top)).size,
+    'all plot panels begin on the same row').toBe(1);
+  expect(layout.plotRects[0].left).toBeLessThan(layout.plotRects[1].left);
+  expect(layout.plotRects[1].left).toBeLessThan(layout.plotRects[2].left);
+  expect(Math.max(...layout.plotRects.map(rect => rect.width))
+    - Math.min(...layout.plotRects.map(rect => rect.width)),
+  'the three plot columns are equal width').toBeLessThanOrEqual(1);
   expect(layout.yScale).toBe('linear');
   expect(layout.yScaleOptions).toEqual(['Linear', 'Log']);
   expect(layout.reference).toBe('mission');
@@ -185,7 +197,7 @@ test('mission targets annotate performance plots without changing their scale', 
   });
   expect(logWithoutMission.plotYAxisMode).toBe('log');
   expect(logWithoutMission.plotReference).toBe('none');
-  expect(logWithoutMission.calls).toHaveLength(2);
+  expect(logWithoutMission.calls).toHaveLength(3);
   expect(logWithoutMission.calls.every(call => call.yAxisMode === 'log')).toBe(true);
   expect(logWithoutMission.calls.every(call => call.targets === null)).toBe(true);
   expect(logWithoutMission.calls.every(call => call.targetBand === null)).toBe(true);
@@ -193,6 +205,7 @@ test('mission targets annotate performance plots without changing their scale', 
   expect(logWithoutMission.logAxisLabels).toEqual([
     'E (keV) · LOG',
     'ε_n (m·rad) · LOG',
+    'mA · LOG',
   ]);
 
   errors.checkAll('designer mission plot strip');
