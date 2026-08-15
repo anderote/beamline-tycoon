@@ -228,7 +228,12 @@ export class UtilityInspector {
 
     // Errors
     if (flow.errors && flow.errors.length) {
+      const rfBandMismatch = this.utilityType === 'rfWaveguide'
+        && flow.errors.some(e => e.code === 'rf_frequency_split' || e.code === 'rf_frequency_mismatch');
       html += `<hr class="ui-divider"/>`;
+      if (rfBandMismatch) {
+        html += '<div class="utility-rf-band-alert utility-rf-band-alert-inspector">⚠ RF BAND MISMATCH — SPLIT THIS WAVEGUIDE NETWORK</div>';
+      }
       html += `<div><strong>Issues:</strong></div>`;
       for (const e of flow.errors) {
         const color = e.severity === 'hard' ? '#ff4444' : '#ddaa22';

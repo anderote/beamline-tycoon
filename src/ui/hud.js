@@ -769,7 +769,7 @@ UIHost.prototype._renderConnectionGuide = function(category) {
   header.innerHTML = `<span class="connection-guide-kicker">CONNECTION GUIDE</span><span class="connection-guide-title">${guide.title}</span>`;
   el.appendChild(header);
   const flow = document.createElement('div');
-  flow.className = 'connection-guide-flow';
+  flow.className = 'connection-guide-flow blt-diagram';
   guide.flow.forEach((item, index) => {
     const node = document.createElement('div');
     node.className = 'connection-guide-node';

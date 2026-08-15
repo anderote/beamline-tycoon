@@ -49,12 +49,17 @@ export class UtilityStatsPanel {
       let totalDem = 0;
       let hardErr = 0;
       let softErr = 0;
+      let rfBandMismatch = false;
       for (const flow of flows) {
         totalCap += flow.totalCapacity || 0;
         totalDem += flow.totalDemand || 0;
         for (const e of (flow.errors || [])) {
           if (e.severity === 'hard') hardErr++;
           else if (e.severity === 'soft') softErr++;
+          if (type === 'rfWaveguide'
+            && (e.code === 'rf_frequency_split' || e.code === 'rf_frequency_mismatch')) {
+            rfBandMismatch = true;
+          }
         }
       }
 
@@ -67,6 +72,7 @@ export class UtilityStatsPanel {
         <span class="utility-stats-flow">${totalCap.toFixed(0)}/${totalDem.toFixed(0)}</span>
         ${hardErr > 0 ? `<span class="utility-stats-badge utility-stats-badge-hard">${hardErr}</span>` : ''}
         ${softErr > 0 ? `<span class="utility-stats-badge utility-stats-badge-soft">${softErr}</span>` : ''}
+        ${rfBandMismatch ? '<span class="utility-rf-band-alert">⚠ BAND MISMATCH</span>' : ''}
       </button>`;
     }
 

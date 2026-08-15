@@ -883,17 +883,16 @@ body {
 
 #connection-guide {
   position: absolute;
-  top: 8px;
-  left: 4px;
-  z-index: 150;
+  bottom: 280px;
+  left: 12px;
+  z-index: 110;
   width: 320px;
   overflow: hidden;
   padding: 0;
-  border: 2px solid rgba(200, 120, 40, 0.6);
-  border-radius: 2px;
-  background: rgba(8, 8, 24, 0.94);
-  box-shadow: 0 0 12px rgba(200, 120, 40, 0.15), inset 0 0 30px rgba(10, 10, 30, 0.5);
-  color: #ccddff;
+  border-color: var(--blt-panel-border);
+  background: var(--blt-panel-bg);
+  box-shadow: none;
+  color: var(--blt-heading);
   font-family: 'Press Start 2P', monospace;
   pointer-events: none;
 }
@@ -901,18 +900,18 @@ body {
 .connection-guide-header {
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  gap: 9px;
   padding: 10px 14px 8px;
-  border-bottom: 1px solid rgba(200, 120, 40, 0.35);
-  background: linear-gradient(180deg, rgba(200, 120, 40, 0.12) 0%, transparent 100%);
+  border-bottom: 1px solid var(--blt-panel-divider);
+  background: none;
 }
 .connection-guide-kicker {
-  color: rgba(200, 120, 40, 0.58);
+  color: rgba(160, 160, 200, 0.55);
   font-size: 7px;
   letter-spacing: 1px;
 }
 .connection-guide-title {
-  color: #ee9944;
+  color: var(--blt-heading);
   font-size: 11px;
   letter-spacing: 1px;
   white-space: nowrap;
@@ -935,9 +934,9 @@ body {
   text-align: center;
 }
 .connection-guide-icon {
-  color: #ee9944;
+  color: var(--blt-diagram);
   font-size: 19px;
-  text-shadow: 0 0 6px rgba(200, 120, 40, 0.45);
+  text-shadow: 0 0 6px rgba(73, 197, 255, 0.45);
 }
 .connection-guide-name {
   margin-top: 4px;
@@ -945,7 +944,7 @@ body {
   line-height: 1.45;
 }
 .connection-guide-detail {
-  color: rgba(180, 180, 220, 0.66);
+  color: rgba(180, 180, 220, 0.72);
   margin-top: 2px;
   font-size: 6px;
   line-height: 1.35;
@@ -957,20 +956,51 @@ body {
   min-width: 12px;
 }
 .connection-guide-link-label {
-  color: rgba(200, 160, 100, 0.72);
+  color: rgba(174, 207, 243, 0.64);
   font-size: 6px;
   margin-bottom: 4px;
   text-align: center;
 }
 .connection-guide-arrow {
-  color: #ee9944;
+  color: #8ecdf2;
   width: 100%;
   padding: 3px 0;
-  border-top: 2px solid rgba(238, 153, 68, 0.68);
+  border-top: 3px dotted rgba(142, 205, 242, 0.82);
   font-size: 17px;
   line-height: 1;
   text-align: right;
-  text-shadow: 0 0 7px rgba(238, 153, 68, 0.6);
+  text-shadow: 0 0 7px rgba(73, 197, 255, 0.6);
+}
+
+/* RF waveguides carry one frequency band per physical network. This is a
+ * live, player-actionable fault, so the cue intentionally pulses until the
+ * incompatible device is separated onto its own waveguide run. */
+.utility-rf-band-alert {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 3px 5px;
+  border: 1px solid #ff6555;
+  border-radius: 2px;
+  background: rgba(120, 20, 18, 0.8);
+  color: #ffe1a0;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 6px;
+  line-height: 1.4;
+  letter-spacing: 0.3px;
+  animation: blt-rf-band-alert 0.85s steps(2, end) infinite;
+}
+.utility-rf-band-alert-inspector {
+  margin: 0 0 8px;
+  font-size: 7px;
+  line-height: 1.65;
+}
+@keyframes blt-rf-band-alert {
+  50% {
+    border-color: #fff1a3;
+    background: rgba(235, 55, 35, 0.95);
+    color: #1b1020;
+    box-shadow: 0 0 9px rgba(255, 80, 55, 0.85);
+  }
 }
 
 @media (max-width: 1250px) {
@@ -2313,15 +2343,36 @@ body {
 }
 #key-toast.hidden { opacity: 0; }
 
+/* === BLT STYLE ===
+ * Beamline Tycoon's default information-card language: cool dark panels,
+ * pale pixel headings, and dotted schematic paths. Use .blt-panel for new
+ * contextual panels and .blt-diagram for their compact flow diagrams.
+ */
+:root {
+  --blt-panel-bg: rgba(15, 15, 35, 0.92);
+  --blt-panel-border: rgba(80, 80, 140, 0.4);
+  --blt-panel-divider: rgba(80, 80, 120, 0.3);
+  --blt-heading: #ccddff;
+  --blt-body: rgba(180, 180, 220, 0.8);
+  --blt-diagram: #8ecdf2;
+}
+.blt-panel {
+  background: var(--blt-panel-bg);
+  border: 1px solid var(--blt-panel-border);
+  border-radius: 5px;
+}
+.blt-diagram {
+  color: var(--blt-diagram);
+}
+
 /* === COMPONENT PREVIEW PANEL === */
 #component-preview {
   position: absolute;
   bottom: 280px;
   left: 12px;
   z-index: 110;
-  background: rgba(15, 15, 35, 0.92);
-  border: 1px solid rgba(80, 80, 140, 0.4);
-  border-radius: 5px;
+  background: var(--blt-panel-bg);
+  border-color: var(--blt-panel-border);
   width: 320px;
   overflow: hidden;
 }
@@ -2330,12 +2381,12 @@ body {
   display: flex;
   align-items: center;
   padding: 10px 14px 8px;
-  border-bottom: 1px solid rgba(80, 80, 120, 0.3);
+  border-bottom: 1px solid var(--blt-panel-divider);
 }
 
 #preview-name {
   font-size: 13px;
-  color: #ccddff;
+  color: var(--blt-heading);
   text-transform: uppercase;
   letter-spacing: 1px;
 }
