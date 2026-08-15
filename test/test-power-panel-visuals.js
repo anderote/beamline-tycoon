@@ -1,0 +1,73 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import * as THREE from 'three';
+
+globalThis.THREE = THREE;
+
+const {
+  _buildSwitchgearRoles,
+  _buildMCCRoles,
+  _buildCompactDistributionPanelRoles,
+  _buildSectionDistributionPanelRoles,
+  _buildMainDistributionPanelRoles,
+  _buildSpiderBoxRoles,
+} = await import('../src/renderer3d/builders/power-builder.js');
+
+function totalParts(buckets) {
+  return Object.values(buckets).reduce((sum, parts) => sum + parts.length, 0);
+}
+
+function disposeBuckets(buckets) {
+  for (const parts of Object.values(buckets)) {
+    for (const geometry of parts) geometry.dispose();
+  }
+}
+
+test('distribution panel rungs are detailed NEMA enclosures, not plain boxes', () => {
+  const compact = _buildCompactDistributionPanelRoles();
+  const section = _buildSectionDistributionPanelRoles();
+  const main = _buildMainDistributionPanelRoles();
+
+  assert.ok(totalParts(compact) >= 35,
+    `compact panel has doors, hinges, breakers, labels and vents (${totalParts(compact)} parts)`);
+  assert.ok(totalParts(section) > totalParts(compact),
+    'section panel visibly adds a second cabinet/breaker bank');
+  assert.ok(totalParts(main) > totalParts(section),
+    'main panel visibly carries the largest breaker lineup');
+
+  for (const [name, buckets] of [['compact', compact], ['section', section], ['main', main]]) {
+    assert.ok(buckets.accent.length >= 3, `${name} panel has a cabinet, cap and proud door`);
+    assert.ok(buckets.detail.length >= 15, `${name} panel has gasket frames and side louvers`);
+    assert.equal(buckets.glow.length, 3, `${name} panel has a restrained three-lamp status row`);
+    assert.ok(buckets.copper.length >= 1, `${name} panel exposes its grounding bond`);
+    disposeBuckets(buckets);
+  }
+});
+
+test('switchgear and MCC show serviceable electrical compartments', () => {
+  const switchgear = _buildSwitchgearRoles();
+  const mcc = _buildMCCRoles();
+
+  assert.ok(totalParts(switchgear) >= 35,
+    `switchgear has a door, meter, breaker hardware and lifting eyes (${totalParts(switchgear)} parts)`);
+  assert.equal(switchgear.glow.length, 3, 'switchgear has three phase/status pilot lamps');
+  assert.ok(switchgear.copper.length >= 9, 'switchgear retains terminals plus a grounding strap');
+
+  assert.ok(totalParts(mcc) >= 70,
+    `MCC has eight individually legible starter buckets (${totalParts(mcc)} parts)`);
+  assert.equal(mcc.glow.length, 8, 'each MCC starter bucket has one pilot lamp');
+  assert.ok(mcc.accent.length >= 9, 'MCC enclosure carries eight proud compartment doors');
+
+  disposeBuckets(switchgear);
+  disposeBuckets(mcc);
+});
+
+test('portable spider box gains a lid, guards, label and carry handle', () => {
+  const spider = _buildSpiderBoxRoles();
+  assert.ok(totalParts(spider) >= 17,
+    `portable field box has believable case hardware (${totalParts(spider)} parts)`);
+  assert.ok(spider.stand.length >= 3, 'carry handle has two uprights and a grip');
+  assert.ok(spider.iron.length >= 4, 'rubberized corner guards protect the case');
+  assert.ok(spider.pipe.length >= 1, 'lid carries a brushed equipment label');
+  disposeBuckets(spider);
+});

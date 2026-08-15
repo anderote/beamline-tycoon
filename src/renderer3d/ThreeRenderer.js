@@ -2826,7 +2826,7 @@ export class ThreeRenderer {
       if (!spec?.utility) continue;
       const anchor = portAnchor3D(endpoint, portDef, portName);
       if (!anchor) continue;
-      const fitting = buildPortFitting(anchor, spec.utility);
+      const fitting = buildPortFitting(anchor, spec.utility, spec.role);
       fitting.scale.setScalar(1.35);
       fitting.renderOrder = 1002;
       this.previewGroup.add(fitting);
