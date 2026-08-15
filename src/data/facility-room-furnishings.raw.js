@@ -362,10 +362,10 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     gridW: 1, gridH: 2, subH: 5, spriteKey: 'serverRack',
     effects: {
       zoneOutput: 0.08, research: 0.03,
-      // The starter control-room data backbone: it captures detector streams,
-      // keeps a raw-data buffer, and has just enough mixed compute for one
-      // modest experiment. Larger facilities scale each axis independently
-      // with the dedicated archive and compute racks below.
+      // The starter control-room data backbone and fiber gateway: it captures
+      // detector streams, keeps a raw-data buffer, and has just enough mixed
+      // compute for one modest experiment. Larger facilities scale each axis
+      // independently with dedicated buffer and compute racks below.
       dataSystem: { kind: 'allInOne', ingest: 8, storage: 240, cpu: 5, gpu: 3 },
     }, baseMaterial: 'metal_dark',
     // 1×2 footprint, 2.5 m tall. 19" server cabinet — medium-gray body,
@@ -437,7 +437,7 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     baseMaterial: 'metal_dark', faces: { '+Z': { decal: 'server_cluster_front' } },
   },
   dataStorageRack: {
-    id: 'dataStorageRack', name: 'Storage Array', zoneType: 'controlRoom',
+    id: 'dataStorageRack', name: 'Raw Data Buffer', zoneType: 'controlRoom',
     cost: { funding: 45000 }, energyCost: 4.0, spriteColor: 0x426a8a,
     gridW: 1, gridH: 2, subH: 5, spriteKey: 'serverRack',
     effects: { zoneOutput: 0.04, dataSystem: { kind: 'storage', storage: 3000 } },
@@ -979,9 +979,9 @@ const ROOM_FURNISHING_DESCS = {
   bookshelf: 'Textbooks, proceedings, and one long-overdue library book. Office Space.',
   printer: 'Prints fine until the moment you urgently need it to. Office Space.',
   monitorBank: 'Wall of status displays — more screens, more control. Control Room.',
-  serverRack: 'The starter control-room data backbone: captures detector streams, buffers raw data, and runs modest CPU/GPU analysis. Control Room.',
-  dataAppliance: 'A compact capture, memory and compute package for extending a small control room. Control Room.',
-  dataStorageRack: 'A dense standalone memory and disk array for buffering long experimental runs. Control Room.',
+  serverRack: 'The starter control-room fiber gateway: captures detector streams, buffers raw data, and provides modest mixed compute. Control Room.',
+  dataAppliance: 'A compact capture gateway with enough DAQ, memory, CPU and GPU for one low-rate endpoint. Control Room.',
+  dataStorageRack: 'Dense memory and disk dedicated to buffering raw experimental data between capture and processing. Control Room.',
   cpuComputeRack: 'General-purpose CPU nodes for controls, dosimetry, isotope accounting and reconstruction. Control Room.',
   gpuComputeRack: 'Accelerator GPUs for imaging, detector events and photon-science workloads. Control Room.',
   operatorConsole: 'Where operators drive the machine and log the excuses. Control Room.',

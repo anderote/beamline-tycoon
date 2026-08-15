@@ -539,13 +539,11 @@ function ensureAmenities(game, staffCount) {
 // fixed in balance round 3/4 (see hireStaff's own comment) — headcount
 // alone was never going to fix it.
 //
-// takeData does NOT care what zone (if any) its station sits in — unlike
-// labWork, which credits stationZoneType toward that zone's staffedOutput
-// (jobRunner.js's tickJobs), takeData only sums workEfficiency into a
-// facility-wide total (state.staffDataEfficiency) regardless of where the
-// station is. So these ride their own dedicated grid, same as consoles/
-// cafeteria/rest, rather than needing to sit inside diagnosticsLab's fixed
-// 16-tile footprint.
+// takeData work is still facility-wide, but functional data hardware now has
+// an authored home: DAQ racks belong in a Control Room or Diagnostics Lab.
+// These ride their own dedicated Control Room grid rather than overflowing
+// diagnosticsLab's fixed 16-tile footprint. Painting each exact rack footprint
+// also keeps this benchmark on the same construction path as a real player.
 //
 // One daqRack per scientist: takeData is a scientist's entire job, not an
 // occasional need like eating or resting, so under-provisioning here directly
@@ -564,6 +562,10 @@ function ensureDataStations(game, stationsNeeded) {
     const { col, row } = wrappedGridPosition(DATA_ORIGIN, index, 3, 4, DATA_PER_ROW);
     index++;
     ensureMapHalfExtent(game, Math.max(Math.abs(col), Math.abs(row)) + 5);
+    const rackCells = COMPONENTS.daqRack.footprintCells(col, row, 0, 0, 0);
+    for (const cell of rackCells) {
+      game.placeFacilityZoneBrushTile(cell.col, cell.row, 'controlRoom');
+    }
     const ok = game.placePlaceable({ type: 'daqRack', col, row, subCol: 0, subRow: 0, dir: 0, silent: true });
     if (!ok) console.error('[ensureDataStations] placement failed (will retry at the next grid cell)', { col, row });
   }

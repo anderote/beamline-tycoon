@@ -3,17 +3,97 @@ import { PLACEABLES } from '../data/placeables/index.js';
 const WORKLOADS = ['cpu', 'gpu', 'balanced'];
 const zeroBuckets = () => ({ cpu: 0, gpu: 0, balanced: 0 });
 
+function declaredZones(def) {
+  if (Array.isArray(def?.zoneTypes)) return def.zoneTypes;
+  return def?.zoneType ? [def.zoneType] : [];
+}
+
+/**
+ * Resolve the one declared zone containing a data-system placement.
+ *
+ * Old/headless states without zone occupancy are treated as unverified rather
+ * than invalid so pure pipeline tests and pre-zone saves retain their data.
+ * A live game has `zoneOccupied`; there every floor tile touched by the rack
+ * must belong to one of its authored home zones.
+ */
+export function dataSystemHomeZone(state, placed) {
+  const def = PLACEABLES[placed?.type];
+  const allowed = declaredZones(def);
+  if (allowed.length === 0) return null;
+  if (!state?.zoneOccupied || placed?.col == null || placed?.row == null) {
+    return undefined;
+  }
+
+  const tiles = new Set();
+  for (const cell of (placed.cells || [{ col: placed.col, row: placed.row }])) {
+    tiles.add(`${cell.col},${cell.row}`);
+  }
+  let resolved = null;
+  for (const key of tiles) {
+    const zone = state.zoneOccupied[key];
+    if (!allowed.includes(zone)) return null;
+    if (resolved !== null && resolved !== zone) return null;
+    resolved = zone;
+  }
+  return resolved;
+}
+
+function networkedDataIds(state) {
+  // Pure/headless fixtures that predate topology publication omit the field
+  // entirely and retain legacy aggregate behavior. A live Game owns the field
+  // from construction onward; null there means discovery has not yet proved a
+  // gateway connection, so fail closed until the next utility solve.
+  if (!state || !Object.hasOwn(state, 'utilityNetworks')) return null;
+  const networks = state?.utilityNetworks?.get?.('dataFiber');
+  if (!Array.isArray(networks)) return new Set();
+  const ids = new Set();
+  for (const network of networks) {
+    for (const port of (network.ports || [])) ids.add(port.placeableId);
+  }
+  return ids;
+}
+
 /** Sum the installed ingest, storage and processing hardware. */
 export function computeDataSystemCapacity(state) {
   const capacity = { ingest: 0, storage: 0, cpu: 0, gpu: 0 };
   const units = { allInOne: 0, daq: 0, storage: 0, cpu: 0, gpu: 0 };
+  const inactive = { wrongZone: 0, noGateway: 0 };
+  const candidates = [];
   for (const placed of (state?.placeables || [])) {
     const spec = PLACEABLES[placed.type]?.effects?.dataSystem;
     if (!spec) continue;
+    const zone = dataSystemHomeZone(state, placed);
+    if (zone === null) {
+      inactive.wrongZone++;
+      continue;
+    }
+    candidates.push({ placed, spec, zone });
+  }
+
+  // A live topology makes fiber termination meaningful. A Control Room full
+  // of disks and processors is inert until an ingest-capable gateway in that
+  // same zone has a line on the facility data network. Racks behind the
+  // gateway share the room's internal fabric; players wire the room once,
+  // not every individual disk shelf.
+  const networked = networkedDataIds(state);
+  const activeZones = new Set();
+  let gateways = 0;
+  for (const candidate of candidates) {
+    if (!(candidate.spec.ingest > 0)) continue;
+    if (networked && !networked.has(candidate.placed.id)) continue;
+    activeZones.add(candidate.zone);
+    gateways++;
+  }
+
+  for (const { spec, zone } of candidates) {
+    if (networked && !activeZones.has(zone)) {
+      inactive.noGateway++;
+      continue;
+    }
     for (const key of Object.keys(capacity)) capacity[key] += Math.max(0, spec[key] || 0);
     if (spec.kind && Object.hasOwn(units, spec.kind)) units[spec.kind]++;
   }
-  return { ...capacity, units };
+  return { ...capacity, units, gateways, inactive };
 }
 
 function processingBudget(capacity, staffEfficiency) {
@@ -85,15 +165,21 @@ export function tickDataSystems(state, entries, requests = []) {
   let freeStorage = Math.max(0, capacity.storage - storedBefore);
   let ingested = 0;
   let dropped = capacityDrop;
+  let ingestDropped = 0;
+  let storageDropped = capacityDrop;
 
   for (const request of requests) {
     const bs = request.entry.beamState;
     const afterIngest = Math.max(0, request.rate || 0) * ingestScale;
     const accepted = Math.min(afterIngest, freeStorage);
-    const lost = Math.max(0, request.rate || 0) - accepted;
+    const rejectedAtIngest = Math.max(0, request.rate || 0) - afterIngest;
+    const rejectedAtStorage = afterIngest - accepted;
+    const lost = rejectedAtIngest + rejectedAtStorage;
     freeStorage -= accepted;
     ingested += accepted;
     dropped += lost;
+    ingestDropped += rejectedAtIngest;
+    storageDropped += rejectedAtStorage;
     bs.rawDataStored = Math.max(0, bs.rawDataStored || 0) + accepted;
     bs.rawDataDropped = Math.max(0, bs.rawDataDropped || 0) + lost;
     bs.totalRawDataIngested = Math.max(0, bs.totalRawDataIngested || 0) + accepted;
@@ -122,13 +208,29 @@ export function tickDataSystems(state, entries, requests = []) {
 
   state.resources.data += processed;
   const stored = entries.reduce((sum, e) => sum + Math.max(0, e.beamState.rawDataStored || 0), 0);
+  let bottleneck = 'Clear';
+  if (requested > 0) {
+    if (capacity.gateways === 0) bottleneck = 'Control Room DAQ gateway';
+    else if (ingestDropped > 0) bottleneck = 'DAQ ingest';
+    else if (storageDropped > 0) bottleneck = 'Raw data buffer';
+    else if (stored > 0 && !(state?.staffDataEfficiency > 0)) bottleneck = 'Data scientist';
+    else if (stored > 0 && processed < ingested) {
+      const cpuBacklog = requests.some(r => r.workload === 'cpu');
+      const gpuBacklog = requests.some(r => r.workload === 'gpu');
+      bottleneck = cpuBacklog && !gpuBacklog ? 'CPU processing'
+        : (gpuBacklog && !cpuBacklog ? 'GPU processing' : 'Mixed processing');
+    }
+  }
   const snapshot = {
     capacity,
     requested,
     ingested,
     dropped,
+    ingestDropped,
+    storageDropped,
     stored,
     processed,
+    bottleneck,
     processedByWorkload,
     ingestUtilization: capacity.ingest > 0 ? Math.min(1, requested / capacity.ingest) : (requested > 0 ? 1 : 0),
     storageUtilization: capacity.storage > 0 ? Math.min(1, stored / capacity.storage) : (stored > 0 ? 1 : 0),

@@ -1,6 +1,7 @@
 // test/test-component-physics.js — Node.js tests for component-physics.js
 
 import { PARAM_DEFS, computeStats, getDefaults } from '../src/beamline/component-physics.js';
+import { COMPONENTS } from '../src/data/components.js';
 
 // --- Test harness ---
 let passed = 0;
@@ -74,6 +75,9 @@ console.log('-- PARAM_DEFS structure --');
   assert(src.beamCurrent.derived === true, 'beamCurrent is derived');
   assert(src.emittance !== undefined, 'source has emittance');
   assert(src.emittance.derived === true, 'emittance is derived');
+  assertClose(COMPONENTS.source.stats.emittance,
+    computeStats('source', COMPONENTS.source.params).emittance, 0.01,
+    'thermionic build info lists the default derived emittance');
 
   // dcPhotoGun params
   const dc = PARAM_DEFS.dcPhotoGun;
