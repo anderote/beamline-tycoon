@@ -49,6 +49,15 @@ function cellKey(c) {
   return c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
 }
 
+/**
+ * Whether a placeable owns floor subtiles. Overhead fixtures keep footprint
+ * cells as their world-space anchor, but live on a separate vertical layer:
+ * they neither collide with nor replace equipment beneath them.
+ */
+export function usesFloorOccupancy(placeable) {
+  return placeable?.mount !== 'overhead';
+}
+
 function hasWallOnEdge(wallOccupied, col, row, edge) {
   return !!wallOccupied[`${col},${row},${edge}`];
 }
@@ -86,10 +95,13 @@ function footprintCrossesWall(wallOccupied, cells) {
 export function canPlace(game, placeable, col, row, subCol, subRow, dir = 0) {
   const cells = placeable.footprintCells(col, row, subCol, subRow, dir);
   const blocked = [];
-  for (const c of cells) {
-    if (game.state.subgridOccupied[cellKey(c)]) blocked.push(c);
+  const usesFloor = usesFloorOccupancy(placeable);
+  if (usesFloor) {
+    for (const c of cells) {
+      if (game.state.subgridOccupied[cellKey(c)]) blocked.push(c);
+    }
   }
-  const wallBlocked = footprintCrossesWall(game.state.wallOccupied, cells);
+  const wallBlocked = usesFloor && footprintCrossesWall(game.state.wallOccupied, cells);
   return { ok: blocked.length === 0 && !wallBlocked, blockedCells: blocked, cells, wallBlocked };
 }
 
