@@ -67,8 +67,8 @@ console.log('\n--- In-range mission bounds ---');
     'maximum energy uses the same left-pointing terminal annotation');
   check(labels.every(event => event.fillStyle === 'rgba(255, 82, 82, 0.98)'),
     'target text uses terminal red');
-  check(labels.every(event => event.font === 'bold 8px monospace'),
-    'target text uses the shared terminal font');
+  check(labels.every(event => event.font === 'bold 9px monospace'),
+    'target text uses the larger terminal font');
   check(rendered.fillRects.length === baseline.fillRects.length,
     'target annotations add no filled background rectangles');
   check(rendered.strokeRects.length === baseline.strokeRects.length,

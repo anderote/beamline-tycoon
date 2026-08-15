@@ -1050,6 +1050,7 @@ BeamlineDesigner.prototype._renderPlots = function() {
     }
     const secondaryType = secondarySelect?.value || 'none';
     const hasSecondary = distancePlot && secondaryType !== 'none';
+    const hover = this._plotHoverPositions?.get(canvas.dataset.panel || '0') || null;
     const primaryRightInset = plotType === 'energy-dispersion'
       ? ENERGY_RIGHT_AXIS_INSET
       : 0;
@@ -1105,6 +1106,20 @@ BeamlineDesigner.prototype._renderPlots = function() {
           yAxisMode,
           rightInset,
           axisOffset: primaryRightInset,
+        });
+      }
+      if (hover && distancePlot) {
+        ProbePlots.drawCursor(off, plotType, solid, xRange, {
+          cursorX: hover.x * plotW,
+          cursorY: hover.y * plotH,
+          yDomain,
+          secondaryType: hasSecondary ? secondaryType : null,
+          secondaryDomain,
+          ghostEnvelope: ghost,
+          solidLabel: source === 'current' ? 'C' : 'P',
+          ghostLabel: 'C',
+          yAxisMode,
+          rightInset,
         });
       }
     }

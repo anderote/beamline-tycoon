@@ -18,7 +18,7 @@ function check(condition, message, detail = '') {
 }
 
 function recordingCanvas() {
-  const events = { paths: [], text: [] };
+  const events = { paths: [], text: [], fillRects: [], strokeRects: [], arcs: [] };
   const ctx = {
     fillStyle: null,
     strokeStyle: null,
@@ -27,7 +27,8 @@ function recordingCanvas() {
     lineWidth: 1,
     _path: [],
     clearRect() {},
-    fillRect() {},
+    fillRect(...args) { events.fillRects.push({ args, fillStyle: this.fillStyle }); },
+    strokeRect(...args) { events.strokeRects.push({ args, strokeStyle: this.strokeStyle }); },
     beginPath() { this._path = []; },
     moveTo(x, y) { this._path.push({ op: 'move', x, y }); },
     lineTo(x, y) { this._path.push({ op: 'line', x, y }); },
@@ -41,6 +42,7 @@ function recordingCanvas() {
     translate() {},
     rotate() {},
     fill() {},
+    arc(...args) { events.arcs.push({ args, fillStyle: this.fillStyle }); },
     closePath() {},
     fillText(text, x, y) {
       events.text.push({ text: String(text), x, y, fillStyle: this.fillStyle,
@@ -62,6 +64,62 @@ const envelope = [
     sigma_x: 0.002, sigma_y: 0.003, emit_nx: 2e-6, emit_ny: 3e-6,
     peak_current: 8 },
 ];
+
+console.log('\n--- Cursor values at shared distance ---');
+{
+  const { canvas, events } = recordingCanvas();
+  const rightInset = 66;
+  const primaryDomain = [[0.002, 0.007], [0, 0.1]];
+  const secondaryDomain = ProbePlots.secondaryYDomain('current-loss', envelope, null);
+  ProbePlots.draw(canvas, 'energy-dispersion', envelope, [], 0, [0, 10], null, {
+    yDomain: primaryDomain,
+    rightInset,
+  });
+  ProbePlots.drawSecondary(canvas, 'current-loss', envelope, [0, 10], null, {
+    yDomain: secondaryDomain,
+    rightInset,
+    axisOffset: 30,
+  });
+  const readout = ProbePlots.drawCursor(canvas, 'energy-dispersion', envelope, [0, 10], {
+    cursorX: 460,
+    cursorY: 180,
+    yDomain: primaryDomain,
+    secondaryType: 'current-loss',
+    secondaryDomain,
+    rightInset,
+  });
+  check(readout?.s === 10,
+    'the cursor snaps to the nearest solver sample on the shared distance axis');
+  check(readout?.rows.some(row => row.includes('Energy') && row.includes('6.00 MeV')),
+    'the hover readout reports the primary energy value with units');
+  check(readout?.rows.some(row => row.includes('η_x') && row.includes('0.0800 m')),
+    'the hover readout reports the other primary line value');
+  check(readout?.rows.some(row => row.includes('2·Current') && row.includes('20.0 mA')),
+    'the hover readout includes the secondary-axis value');
+  check(events.arcs.length >= 3,
+    'the cursor marks each visible line at the sampled distance');
+  check(events.strokeRects.length === 1
+    && events.text.some(event => event.text.startsWith('s=10.0 m')),
+  'the values appear in one compact distance-labelled terminal readout');
+
+  const ghost = envelope.map(d => ({ ...d, energy: d.energy + 0.001, current: d.current + 5 }));
+  const comparison = ProbePlots.drawCursor(canvas, 'energy-dispersion', envelope, [0, 10], {
+    cursorX: 460,
+    cursorY: 180,
+    yDomain: primaryDomain,
+    secondaryType: 'current-loss',
+    secondaryDomain: ProbePlots.unionYDomain(
+      ProbePlots.secondaryYDomain('current-loss', envelope, null),
+      ProbePlots.secondaryYDomain('current-loss', ghost, null),
+    )?.[0],
+    ghostEnvelope: ghost,
+    solidLabel: 'P',
+    ghostLabel: 'C',
+    rightInset,
+  });
+  check(comparison?.rows.some(row => row.includes('P 20.0 mA · C 25.0 mA')),
+    'comparison hover values distinguish proposed and current curves');
+}
 
 console.log('\n--- Secondary metric catalogue ---');
 {
@@ -114,13 +172,24 @@ console.log('\n--- Shared distance pixels, independent right axis ---');
   check(events.text.some(event => event.text === 'I (mA)'
     && event.fillStyle === '#ff5ec4'),
   'the independent right axis is labelled in the secondary trace colour');
+  check(events.text.some(event => event.text === 'I (mA)'
+    && event.font === 'bold 9px monospace'),
+  'the independent right-axis label uses the larger plot font');
   check(events.text.some(event => event.text === '2·Current'),
     'the overlaid trace receives a distinct secondary legend');
+  check(events.text.some(event => event.text === '2·Current'
+    && event.font === '8px monospace'),
+  'the secondary legend uses the larger plot font');
+  check(events.text.some(event => event.text === 's (m)'
+    && event.font === '9px monospace'),
+  'primary axis labels use the larger plot font');
 }
 
 console.log('\n--- Designer controls ---');
 {
   const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const controller = fs.readFileSync(new URL('../src/ui/BeamlineDesigner.js', import.meta.url), 'utf8');
+  const renderer = fs.readFileSync(new URL('../src/renderer/designer-renderer.js', import.meta.url), 'utf8');
   const selectors = html.match(/class="dsgn-plot-secondary-select"/g) || [];
   check(selectors.length === 3, 'each plot panel has a second dropdown');
   check((html.match(/\+ Add second plot/g) || []).length === 3,
@@ -128,6 +197,11 @@ console.log('\n--- Designer controls ---');
   check(html.includes('Secondary plot for panel 1')
     && html.includes('Secondary plot for panel 3'),
   'secondary selectors have panel-specific accessible labels');
+  check(controller.includes("canvas.addEventListener('mousemove'")
+    && controller.includes("canvas.addEventListener('mouseleave'"),
+  'designer canvases track and clear pointer positions for hover readouts');
+  check(renderer.includes('ProbePlots.drawCursor(off, plotType, solid, xRange'),
+    'the renderer composes the cursor readout after primary and secondary lines');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
