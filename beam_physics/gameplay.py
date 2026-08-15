@@ -612,6 +612,10 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
                 "eta_x": s.get("eta_x", 0),
                 "eta_xp": s.get("eta_xp", 0),
                 "peak_current": s.get("peak_current", 0),
+                # Keep the designer's longitudinal advisor on the exact beam
+                # state the RF module propagated. Zero means DC/unbunched;
+                # the first RF element replaces it with its bucket frequency.
+                "bunch_frequency": s.get("bunch_frequency", 0),
                 "focus_margin": s.get("focus_margin", 1.0),
                 "focus_urgency": s.get("focus_urgency", 0.0),
             }

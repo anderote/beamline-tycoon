@@ -104,6 +104,9 @@ class TestGameplayBridge(unittest.TestCase):
         self.assertIn("beamEnergy", result)
         self.assertIn("beamAlive", result)
         self.assertIn("envelope", result)
+        self.assertTrue(result["envelope"])
+        self.assertTrue(all("bunch_frequency" in point for point in result["envelope"]))
+        self.assertGreater(result["envelope"][-1]["bunch_frequency"], 0)
         self.assertIn("felSaturated", result)
         self.assertTrue(result["beamAlive"])
 
