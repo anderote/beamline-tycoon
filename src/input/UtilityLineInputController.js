@@ -34,6 +34,7 @@ import { isoToGridFloat } from '../renderer/grid.js';
 import {
   cablePathLengthSubUnits,
   isSoftCable,
+  roundedCableTilePath,
   sanitizeCablePath,
   SOFT_CABLE_MAX_POINTS,
 } from '../utility/soft-cable.js';
@@ -626,9 +627,10 @@ export class UtilityLineInputController {
    * cable is a 2 cm cylinder, so a mesh raycast alone misses often enough to
    * feel broken) and tapping a trunk to branch off it.
    *
-   * Distance is measured against the expanded path — the same 0.25-tile
-   * sampling network discovery uses to decide two lines touch — so what the
-   * player can grab and what the sim will merge are the same points.
+   * Distance is measured against the rounded visible route for flexible runs,
+   * and against the expanded grid path for rigid ones. Network discovery uses
+   * that same rounded cooling route, so what the player grabs and where the
+   * plumbing joins remain the same point.
    *
    * @returns {{lineId, worldPos: {x, z}, dist}|null} dist in world metres
    */
@@ -642,7 +644,7 @@ export class UtilityLineInputController {
     for (const line of iter) {
       if (!line || line.utilityType !== this._utilityType) continue;
       const visual = isSoftCable(line.utilityType) && Array.isArray(line.cablePath)
-        ? line.cablePath
+        ? roundedCableTilePath(line.cablePath, line.utilityType)
         : expandPath(line.path || []);
       for (const pt of visual) {
         const dx = pt.col * 2 - cursor.x;

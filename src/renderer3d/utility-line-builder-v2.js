@@ -20,7 +20,11 @@ import { UTILITY_LINE_Y } from '../utility/line-geometry.js';
 import { FLOW_PARAMS, patchFlowMaterial, bakeRunDistanceUVs, bakeRunDistanceFromPositionZ } from './utility-flow.js';
 import { BLOOM_LAYER } from './glow-pipeline.js';
 import { computeLineOrientations } from '../utility/line-orientation.js';
-import { isSoftCable, softCableControlPoints } from '../utility/soft-cable.js';
+import {
+  isSoftCable,
+  softCableBendRadiusMeters,
+  softCableControlPoints,
+} from '../utility/soft-cable.js';
 
 // DEFAULT line centerline height. Per-utility heights come from
 // utilityLineHeight (registry): a power cord lies on the floor while a vacuum
@@ -158,7 +162,12 @@ export function buildSoftCableWorldPoints(line, placeablesById, previewAnchors =
   const runY = utilityLineHeight(line.utilityType);
   const start = anchorTip(previewAnchors?.start || anchorFor(line.start, placeablesById));
   const end = anchorTip(previewAnchors?.end || anchorFor(line.end, placeablesById));
-  return softCableControlPoints(trace, { start, end, groundY: runY })
+  return softCableControlPoints(trace, {
+    start,
+    end,
+    groundY: runY,
+    bendRadiusMeters: softCableBendRadiusMeters(line.utilityType),
+  })
     .map(point => new THREE.Vector3(point.x, point.y, point.z));
 }
 

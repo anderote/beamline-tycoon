@@ -28,6 +28,7 @@ import { portWorldPosition, portSide, portApproachVec } from '../src/utility/por
 import { findUtilityEndpoint } from '../src/utility/utility-endpoints.js';
 import { gridToIso } from '../src/renderer/grid.js';
 import { discoverNetworks, makeDefaultPortLookup } from '../src/utility/network-discovery.js';
+import { roundedCableTilePath } from '../src/utility/soft-cable.js';
 
 globalThis.COMPONENTS = COMPONENTS;
 globalThis.PARAM_DEFS = PARAM_DEFS;
@@ -401,7 +402,8 @@ console.log('\n--- 6. Right-click erases a line of the armed utility ---');
   drag(game, src, sink);
   assert(powerLines(game).length === 1, 'a line to erase');
   const line = powerLines(game)[0];
-  const mid = line.cablePath[Math.floor(line.cablePath.length / 2)];
+  const visible = roundedCableTilePath(line.cablePath, line.utilityType);
+  const mid = visible[Math.floor(visible.length / 2)];
 
   const tool = new UtilityLineTool('powerCable');
   const ctrl = new UtilityLineInputController({ game, renderer: {} });

@@ -3,7 +3,7 @@
 
 globalThis.THREE = await import('three');
 
-const { UtilityLineBuilderV2 } =
+const { buildSoftCableWorldPoints, UtilityLineBuilderV2 } =
   await import('../src/renderer3d/utility-line-builder-v2.js');
 
 let passed = 0, failed = 0;
@@ -27,6 +27,26 @@ const cablePath = [
   { col: 3, row: 0 },
 ];
 const path = [{ col: 0, row: 0 }, { col: 3, row: 0 }];
+
+{
+  const cornerPath = [
+    { col: 0, row: 0 },
+    { col: 2, row: 0 },
+    { col: 2, row: 2 },
+  ];
+  const closestToCorner = {};
+  for (const utilityType of ['powerCable', 'coolingWater', 'hvCable']) {
+    const points = buildSoftCableWorldPoints({
+      utilityType, path: cornerPath, cablePath: cornerPath,
+      start: null, end: null,
+    }, new Map());
+    closestToCorner[utilityType] = Math.min(...points.map(point =>
+      Math.hypot(point.x - 4, point.z)));
+  }
+  assert(closestToCorner.powerCable < closestToCorner.coolingWater
+      && closestToCorner.coolingWater < closestToCorner.hvCable,
+    `renderer applies progressively broader turns (${JSON.stringify(closestToCorner)})`);
+}
 
 {
   const builder = new UtilityLineBuilderV2();
