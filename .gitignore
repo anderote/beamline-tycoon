@@ -1,4 +1,5 @@
 .env
+/public/music/
 tools/asset-dashboard.html
 node_modules/
 dist/

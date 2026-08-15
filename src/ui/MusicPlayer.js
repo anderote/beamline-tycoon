@@ -148,13 +148,13 @@ export class MusicPlayer {
   }
 
   async _loadTracks() {
-    // Built bundle serves the manifest at music/tracks.json; the Vite dev
-    // server serves the web soundtrack at music-web/tracks.json. Try both so
-    // music works in dev and in the deployed bundle. (Relative paths keep the
-    // game working when deployed under a subpath.)
+    // Prefer the object-storage soundtrack in development so a checkout does
+    // not need the large, personal music library. The web build relocates that
+    // manifest to music/tracks.json, so retain the bundled-manifest fallback.
+    // Relative paths keep the game working when deployed under a subpath.
     let manifest = null;
     let manifestDir = 'music';
-    for (const path of ['music/tracks.json', 'music-web/tracks.json']) {
+    for (const path of ['music-web/tracks.json', 'music/tracks.json']) {
       try {
         const resp = await fetch(path);
         if (!resp.ok) continue;
