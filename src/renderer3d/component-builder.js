@@ -308,6 +308,11 @@ const GLOW_COLORS = {
   negPump: 0x44ff66,        // green "active" indicator strip
   ionSource: 0xff6633,      // hot-cathode orange (unchanged from the old hand-rolled material)
 };
+const GLOW_PROFILES = {
+  llrfController: 'screen',
+  negPump: 'statusBlink',
+  ionSource: 'arc',
+};
 const DEFAULT_GLOW_COLOR = 0x40e0ff;
 
 /** Cache of (componentType + '|' + colorHex) -> MeshStandardMaterial */
@@ -487,6 +492,9 @@ function _instantiateRoleTemplate(compType, accentColorHex) {
       mesh.castShadow = false;
       mesh.receiveShadow = true;
       mesh.layers.enable(BLOOM_LAYER);
+      // Declarative profile only. VisualEffectSystem owns the animation and
+      // clones the shared material per placement when it syncs the scene.
+      mesh.userData.effectProfile = GLOW_PROFILES[compType] || 'steady';
     } else {
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -4446,6 +4454,7 @@ export class ComponentBuilder {
       }
 
       const obj = this._meshMap.get(id);
+      obj.userData.effectState = comp.effectState || 'on';
 
       // Position + rotation. Shared with the design-placement ghost via
       // componentPose so a preview can never claim a spot the commit will not

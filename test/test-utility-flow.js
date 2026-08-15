@@ -194,16 +194,11 @@ function cylinderMeshes(group) {
   return out;
 }
 
-// Excludes floor-glow.js's painted strip (Task 5, added alongside the pipe
-// itself): it ALSO builds BoxGeometry segments (via the same
-// bakeRunDistanceFromPositionZ this suite is testing) for the pool of light
-// under the run, nested in its own userData.isFloorGlowStrip-tagged group —
-// this helper is about the PIPE's own rectWaveguide segments, not that
-// separate strip, so it doesn't descend into it.
+// Corner fittings are BoxGeometry too; this helper is only about the pipe's
+// own rectWaveguide segments.
 function boxMeshes(group) {
   const out = [];
   const walk = (o) => {
-    if (o.userData && o.userData.isFloorGlowStrip) return;
     // Corner joints are boxes too on a rectWaveguide, but they are plumbing
     // fittings rather than flow segments — no run-distance is baked into them,
     // so they must not be counted among the segments the flow travels along.
@@ -218,6 +213,11 @@ function boxMeshes(group) {
 console.log('\n--- 2. Continuous across segment boundaries, source -> sink ---');
 {
   const { group } = buildFlowLine('coolingWater');
+  const effect = group.userData.visualEffects?.[0];
+  assert(effect?.kind === 'pathPulse', 'the builder publishes a declarative path-pulse effect');
+  assert(effect?.path?.length === 3, 'the effect receives the same complete polyline as the pipe');
+  assert(!group.children.some((child) => child.userData?.isFloorGlowStrip),
+    'the geometry builder allocates no light-field or spill objects itself');
   const meshes = cylinderMeshes(group);
   assert(meshes.length === 2, `two cylinder segments built (got ${meshes.length})`);
 

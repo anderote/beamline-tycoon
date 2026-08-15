@@ -13,6 +13,7 @@ const PRESETS = {
     sunShadowHz: 6,
     glowScale: 0.25,
     softGlow: false,
+    effectPulseCount: 128,
     volumetricCount: 0,
   },
   medium: {
@@ -23,6 +24,7 @@ const PRESETS = {
     sunShadowHz: 10,
     glowScale: 0.35,
     softGlow: true,
+    effectPulseCount: 256,
     volumetricCount: 1,
   },
   high: {
@@ -33,6 +35,7 @@ const PRESETS = {
     sunShadowHz: 15,
     glowScale: 0.5,
     softGlow: true,
+    effectPulseCount: 384,
     volumetricCount: 3,
   },
   ultra: {
@@ -43,6 +46,7 @@ const PRESETS = {
     sunShadowHz: 30,
     glowScale: 0.5,
     softGlow: true,
+    effectPulseCount: 512,
     volumetricCount: 6,
   },
 };
@@ -74,4 +78,3 @@ export function resolveLightingQuality(value, capabilities = {}) {
   const resolvedName = requested === 'auto' ? autoLightingQuality(capabilities) : requested;
   return Object.freeze({ ...LIGHTING_QUALITY_PRESETS[resolvedName], requested });
 }
-
