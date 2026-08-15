@@ -25,7 +25,7 @@ import { EquipmentBuilder } from './equipment-builder.js';
 import { DecorationBuilder } from './decoration-builder.js';
 import { UtilityLineBuilderV2 } from './utility-line-builder-v2.js';
 import { tickFlow } from './utility-flow.js';
-import { utilityErrorVisualSignature } from './utility-visual-signature.js';
+import { utilityLineVisualSignature } from './utility-visual-signature.js';
 import { buildWorldSnapshot } from './world-snapshot.js';
 import { disposeGroupChildren, disposeSceneObject } from './dispose-utils.js';
 import { listUtilityEndpoints, makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
@@ -905,13 +905,13 @@ export class ThreeRenderer {
         case 'tick':
           if (this._updateHUD) this._updateHUD();
           if (this._updateTreeProgress) this._updateTreeProgress();
-          // Geometry/orientation changes arrive through topology events. A
-          // steady solve can only change line fault severity, so avoid the
-          // endpoint index, per-line hashes, attachment build, and effect
-          // traversal until that compact visual signature actually changes.
+          // A topology event can arrive one solve pass before the replacement
+          // utilityNetworks map. Watch the published topology as well as fault
+          // severity so healthy new runs are reoriented once discovery catches
+          // up, while a steady solve still avoids all rebuild work.
           {
-            const sig = utilityErrorVisualSignature(this._liveState());
-            if (sig !== null && sig !== this._utilityErrorVisualSig) {
+            const sig = utilityLineVisualSignature(this._liveState());
+            if (sig !== null && sig !== this._utilityLineVisualSig) {
               this._refreshUtilityLinesV2();
             }
           }
@@ -4633,7 +4633,7 @@ export class ThreeRenderer {
     });
     this.pipeAttachmentBuilder.build(snap.pipeAttachments || [], this.pipeAttachmentGroup);
     this._effectSystem?.syncFromGroup('utility-lines', this.utilityLineGroup);
-    this._utilityErrorVisualSig = utilityErrorVisualSignature(state);
+    this._utilityLineVisualSig = utilityLineVisualSignature(state);
   }
 
   /**
