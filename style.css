@@ -85,32 +85,40 @@ body {
 }
 
 /* === TOP BAR === */
-/* Wraps to a second (or third) row on narrow windows rather than pushing the
-   right-hand buttons off-screen. Everything that parks itself under the bar
-   (music player, facility overview, fault popup) measures offsetHeight, so a
-   taller bar is handled without extra bookkeeping. */
+/* The bar deliberately has two rows: operations/resources above, compact
+   live systems below. The primary row can still wrap at narrow widths. */
 #top-bar {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   z-index: 100;
+  display: block;
+  padding: 0;
+  background: rgba(20, 20, 40, 0.92);
+  border-bottom: 1px solid rgba(100, 100, 160, 0.3);
+}
+
+#top-bar-primary {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 16px;
   padding: 6px 12px;
-  background: rgba(20, 20, 40, 0.92);
-  border-bottom: 1px solid rgba(100, 100, 160, 0.3);
 }
 
-/* The z-index here opens a stacking context, so .menu-dropdown's own 300 is
-   scoped INSIDE it: against #music-player (101) the whole open dropdown
-   stacked at 100 and the player — which #initPosition parks directly under
-   the top-right buttons, i.e. exactly where the dropdown opens — swallowed
-   pointer events on Save/Load Game. Raise the bar only while a menu is open,
-   so the player keeps painting above the bar the rest of the time. 600 clears
-   the context-window layer (500) and stays below the modal dialogs (9000+). */
+#top-bar-secondary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  padding: 3px 12px;
+  border-top: 1px solid rgba(100, 100, 160, 0.2);
+  background: rgba(12, 12, 28, 0.38);
+}
+
+/* The menu remains above every top-bar child while open. 600 clears the
+   context-window layer (500) and stays below the modal dialogs (9000+). */
 #top-bar:has(.menu-dropdown:not(.hidden)) {
   z-index: 600;
 }
@@ -237,14 +245,10 @@ body {
   color: #ffcc88;
 }
 
-/* === MUSIC PLAYER (top-right, below top bar; draggable — JS sets left/top) === */
+/* === MUSIC PLAYER (embedded in the top-bar systems row) === */
 #music-player {
-  position: absolute;
-  top: 56px; /* no-JS fallback; MusicPlayer._initPosition() measures the top bar */
-  right: 12px;
-  z-index: 101; /* above #top-bar (100) so it never paints underneath; the bar
-                   outranks it only while a menu is open — see #top-bar:has() */
-  cursor: grab;
+  position: static;
+  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -591,7 +595,7 @@ body {
 /* === BEAMLINE WARNINGS (top-right) === */
 #beamline-warnings {
   position: absolute;
-  top: 42px;
+  top: calc(var(--hud-topbar-bottom, 42px) + 8px);
   right: 10px;
   z-index: 90;
   pointer-events: none;
@@ -620,7 +624,7 @@ body {
 /* === BEAM STATS PANEL (top-left) === */
 #beam-stats-panel {
   position: absolute;
-  top: 42px;
+  top: calc(var(--hud-topbar-bottom, 42px) + 8px);
   left: 10px;
   z-index: 90;
   background: rgba(10, 10, 30, 0.45);
@@ -2502,6 +2506,21 @@ body {
    fault popup at top-left, and clicking the chip brings it back. */
 .beam-summary.fault { color:#ff4444; background:rgba(80,20,20,0.65); border:1px solid #884444; border-radius:3px; cursor:pointer; animation: beamFaultBlink 0.9s steps(2) infinite; }
 @keyframes beamFaultBlink { 0%{opacity:1} 50%{opacity:0.6} 100%{opacity:1} }
+
+/* A staff/stall signal is a peer of the beam/fault chip, not a third floating
+   panel. HUD code supplies the severity colors and click behavior. */
+.staffing-summary {
+  display: none;
+  max-width: min(340px, 28vw);
+  overflow: hidden;
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 10px;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 
 /* Designs Library */
 .designs-category-tabs {
@@ -5463,35 +5482,46 @@ body {
 .utility-issue-error { color: var(--ui-bad); }
 .utility-refill-wrap { margin-top: 4px; }
 
+#utility-stats-container {
+  flex: 1 1 420px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
 .utility-stats-panel {
-  min-width: 240px;
-  margin-top: 8px;
-  padding: 10px;
-  border: 1px solid var(--ui-border-subtle);
-  border-radius: var(--ui-radius);
-  background: rgba(20, 20, 30, 0.9);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--ui-text);
   font-family: var(--ui-font-body);
   pointer-events: auto;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  box-shadow: none;
 }
 .utility-stats-title {
-  margin-bottom: 6px;
+  margin: 0 4px 0 0;
   color: var(--ui-gold-muted);
   font-family: var(--ui-font-display);
   font-size: 8px;
   letter-spacing: 1px;
 }
 .utility-stats-row {
-  width: 100%;
+  width: auto;
+  flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 28px;
-  padding: 4px 2px;
-  border: 0;
-  border-bottom: 1px solid rgba(80, 80, 120, 0.22);
-  background: transparent;
+  gap: 5px;
+  min-height: 24px;
+  padding: 3px 5px;
+  border: 1px solid rgba(80, 80, 120, 0.28);
+  border-radius: var(--ui-radius);
+  background: rgba(24, 24, 48, 0.48);
   color: var(--ui-text);
   font-size: 10px;
   text-align: left;
@@ -5507,7 +5537,7 @@ body {
   border-radius: var(--ui-radius);
   background: var(--utility-color);
 }
-.utility-stats-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.utility-stats-name { flex: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .utility-stats-count { flex: none; color: var(--ui-text-faint); font-size: 9px; }
 .utility-stats-flow { flex: none; color: var(--ui-text-muted); font-size: 9px; }
 .utility-stats-badge {
@@ -5522,6 +5552,15 @@ body {
 }
 .utility-stats-badge-hard { background: var(--ui-bad); }
 .utility-stats-badge-soft { background: var(--ui-warn); }
+
+@media (max-width: 800px) {
+  #top-bar-secondary { gap: 6px; padding-inline: 8px; }
+  #utility-stats-container { flex-basis: 260px; }
+  .utility-stats-title { display: none; }
+  .utility-stats-flow { display: none; }
+  .mp-track-name-wrap { width: 92px; }
+  .staffing-summary { max-width: min(250px, 62vw); }
+}
 
 @media (max-width: 600px) {
   .ui-modal-backdrop { padding: 10px; }

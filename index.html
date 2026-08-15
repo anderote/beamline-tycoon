@@ -11,73 +11,78 @@
 
     <!-- Top resource bar (DOM overlay) -->
     <div id="top-bar">
-      <div id="game-title">Beamline Tycoon</div>
-      <div id="resources">
-        <div class="res-box" id="res-funding" title="Funding">
-          <span class="res-icon">$</span>
-          <span class="res-val" id="val-funding">500</span>
+      <div id="top-bar-primary">
+        <div id="game-title">Beamline Tycoon</div>
+        <div id="resources">
+          <div class="res-box" id="res-funding" title="Funding">
+            <span class="res-icon">$</span>
+            <span class="res-val" id="val-funding">500</span>
+          </div>
+          <div class="res-box" id="res-energy" title="Power Draw (kW)">
+            <span class="res-icon">kW</span>
+            <span class="res-val" id="val-energy">--</span>
+          </div>
+          <div class="res-box" id="res-reputation" title="Reputation">
+            <span class="res-icon">R</span>
+            <span class="res-val" id="val-reputation">0</span>
+          </div>
+          <div class="res-box" id="res-data" title="Research Data">
+            <span class="res-icon">D</span>
+            <span class="res-val" id="val-data">0</span>
+          </div>
+          <div class="res-box" id="res-spares" title="Spares">
+            <span class="res-icon">SP</span>
+            <span class="res-val" id="val-spares">50</span>
+          </div>
         </div>
-        <div class="res-box" id="res-energy" title="Power Draw (kW)">
-          <span class="res-icon">kW</span>
-          <span class="res-val" id="val-energy">--</span>
+        <div id="sim-controls">
+          <button id="btn-pause" class="sim-btn" title="Pause">&#10074;&#10074;</button>
+          <button class="sim-btn speed-btn" data-speed="1" title="Normal speed (7)">1x</button>
+          <button class="sim-btn speed-btn" data-speed="2" title="Double speed (8)">2x</button>
+          <button class="sim-btn speed-btn" data-speed="4" title="Quadruple speed (9)">4x</button>
         </div>
-        <div class="res-box" id="res-reputation" title="Reputation">
-          <span class="res-icon">R</span>
-          <span class="res-val" id="val-reputation">0</span>
-        </div>
-        <div class="res-box" id="res-data" title="Research Data">
-          <span class="res-icon">D</span>
-          <span class="res-val" id="val-data">0</span>
-        </div>
-        <div class="res-box" id="res-spares" title="Spares">
-          <span class="res-icon">SP</span>
-          <span class="res-val" id="val-spares">50</span>
-        </div>
-      </div>
-      <div id="sim-controls">
-        <button id="btn-pause" class="sim-btn" title="Pause">&#10074;&#10074;</button>
-        <button class="sim-btn speed-btn" data-speed="1" title="Normal speed (7)">1x</button>
-        <button class="sim-btn speed-btn" data-speed="2" title="Double speed (8)">2x</button>
-        <button class="sim-btn speed-btn" data-speed="4" title="Quadruple speed (9)">4x</button>
-      </div>
-      <div id="staff-bar" title="Staff"></div>
-      <button id="btn-hire" class="hud-btn" title="Hire staff">Hire Staff</button>
-      <div id="top-buttons">
-        <span id="beam-summary" class="beam-summary"></span>
-        <button id="btn-designer" class="hud-btn">Beamline Designer</button>
-        <button id="btn-research" class="hud-btn">Research</button>
-        <button id="btn-economy" class="hud-btn">Economy</button>
-        <button id="btn-goals" class="hud-btn">Goals</button>
-        <div id="menu-wrapper">
-          <button id="btn-menu" class="hud-btn">Menu</button>
-          <div id="menu-dropdown" class="menu-dropdown hidden">
-            <button class="menu-item" data-action="new-game">New Game</button>
-            <button class="menu-item" data-action="save-game">Save Game</button>
-            <button class="menu-item" data-action="load-game">Load Game</button>
-            <div class="menu-divider"></div>
-            <button class="menu-item" data-action="scenarios">Scenarios</button>
-            <button class="menu-item" data-action="options">Options</button>
-            <button class="menu-item" data-action="guide">Guide</button>
-            <div class="menu-divider"></div>
-            <button class="menu-item" data-action="main-menu">Main Menu</button>
+        <div id="staff-bar" title="Staff"></div>
+        <button id="btn-hire" class="hud-btn" title="Hire staff">Hire Staff</button>
+        <div id="top-buttons">
+          <span id="beam-summary" class="beam-summary"></span>
+          <span id="staffing-summary" class="staffing-summary" role="status" aria-live="polite"></span>
+          <button id="btn-designer" class="hud-btn">Beamline Designer</button>
+          <button id="btn-research" class="hud-btn">Research</button>
+          <button id="btn-economy" class="hud-btn">Economy</button>
+          <button id="btn-goals" class="hud-btn">Goals</button>
+          <div id="menu-wrapper">
+            <button id="btn-menu" class="hud-btn">Menu</button>
+            <div id="menu-dropdown" class="menu-dropdown hidden">
+              <button class="menu-item" data-action="new-game">New Game</button>
+              <button class="menu-item" data-action="save-game">Save Game</button>
+              <button class="menu-item" data-action="load-game">Load Game</button>
+              <div class="menu-divider"></div>
+              <button class="menu-item" data-action="scenarios">Scenarios</button>
+              <button class="menu-item" data-action="options">Options</button>
+              <button class="menu-item" data-action="guide">Guide</button>
+              <div class="menu-divider"></div>
+              <button class="menu-item" data-action="main-menu">Main Menu</button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-
-    <!-- Music player (top-right, below top bar) -->
-    <div id="music-player">
-      <button class="mp-btn mp-prev" title="Previous">&lt;</button>
-      <button class="mp-btn mp-play" title="Play/Pause">&gt;</button>
-      <button class="mp-btn mp-next" title="Next">&gt;&gt;</button>
-      <div class="mp-track-name-wrap">
-        <button class="mp-track-name" title="Click to show tracks"><span class="mp-track-name-inner">Loading...</span></button>
-        <div class="mp-track-list" hidden></div>
+      <div id="top-bar-secondary">
+        <!-- Compact facility utility overview. -->
+        <div id="utility-stats-container"></div>
+        <div id="music-player">
+          <button class="mp-btn mp-prev" title="Previous">&lt;</button>
+          <button class="mp-btn mp-play" title="Play/Pause">&gt;</button>
+          <button class="mp-btn mp-next" title="Next">&gt;&gt;</button>
+          <div class="mp-track-name-wrap">
+            <button class="mp-track-name" title="Click to show tracks"><span class="mp-track-name-inner">Loading...</span></button>
+            <div class="mp-track-list" hidden></div>
+          </div>
+          <button class="mp-btn mp-shuffle" title="Shuffle">~</button>
+          <select class="mp-theme" title="Theme"></select>
+          <input type="range" class="mp-volume" min="0" max="1" step="0.05" value="0.4" title="Volume">
+          <button class="mp-btn mp-minimize" title="Minimize">_</button>
+        </div>
       </div>
-      <button class="mp-btn mp-shuffle" title="Shuffle">~</button>
-      <select class="mp-theme" title="Theme"></select>
-      <input type="range" class="mp-volume" min="0" max="1" step="0.05" value="0.4" title="Volume">
-      <button class="mp-btn mp-minimize" title="Minimize">_</button>
     </div>
 
     <!-- System-level infrastructure stats panel (below top bar, facility mode only) -->
