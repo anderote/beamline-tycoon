@@ -71,6 +71,7 @@ test('unwired sinks get in-world markers and a compact fault chip', async ({ pag
   expect(stable, 'unchanged blocker set does not rebuild the markers').toBe(true);
 
   const repeatedMessageCount = await page.evaluate(() => {
+    window.game.pause();
     const message = 'Power network has no capacity.';
     window.game.state.infraCanRun = false;
     window.game.state.infraBlockers = [
