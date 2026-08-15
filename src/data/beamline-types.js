@@ -166,15 +166,16 @@ export const BEAMLINE_TYPES = {
     fomRef: 0.02,
     bandWidth: 0.30,
     dutyFactor: 0.8,
-    // Two nodes, because this type is two jobs sharing a tunnel. Protons get
-    // you to 70 MeV; `targetPhysics` is what lets you put them into something
-    // and take an isotope back out. Gating on the accelerator alone would open
-    // the type before its own `requiredEndpoint` existed.
-    requires: ['protonAcceleration', 'targetPhysics'],
+    // The first commercial proton line is electronics irradiation, not isotope
+    // production. Its test station unlocks with the proton accelerator itself,
+    // so a newly researched 15-30 MeV line can earn before the player buys
+    // Target Physics. That later node still opens the isotope-production and
+    // general-purpose target paths.
+    requires: 'protonAcceleration',
     // Nothing denied. A 70 MeV proton line is exactly where a Wien filter and
     // a pepper-pot still make sense, and it is the last type where they do.
     excludes: [],
-    requiredEndpoint: ['isotopeProductionTarget', 'radiationEffectsStation', 'target', 'beamStop'],
+    requiredEndpoint: ['radiationEffectsStation', 'isotopeProductionTarget', 'target', 'beamStop'],
     blurb: 'Two customers on one machine: PET isotopes sold by the curie, and aerospace electronics paid for by the shift. Highest revenue per square metre in the roster.',
     accentColor: 0xe0a33a,
   },
