@@ -103,6 +103,7 @@ import {
   _buildDetectorRoles,
   _buildTargetRoles,
   _buildMaterialsTestStationRoles,
+  _buildXRayConverterStationRoles,
   _buildEBeamIrradiationVaultRoles,
   _buildIsotopeProductionTargetRoles,
   _buildRadiationEffectsStationRoles,
@@ -3904,6 +3905,7 @@ ROLE_BUILDERS.beamStop   = _buildBeamStopRoles;
 ROLE_BUILDERS.detector   = _buildDetectorRoles;
 ROLE_BUILDERS.target     = _buildTargetRoles;
 ROLE_BUILDERS.materialsTestStation = _buildMaterialsTestStationRoles;
+ROLE_BUILDERS.xRayConverterStation = _buildXRayConverterStationRoles;
 ROLE_BUILDERS.eBeamIrradiationVault = _buildEBeamIrradiationVaultRoles;
 ROLE_BUILDERS.isotopeProductionTarget = _buildIsotopeProductionTargetRoles;
 ROLE_BUILDERS.radiationEffectsStation = _buildRadiationEffectsStationRoles;

@@ -183,6 +183,15 @@ test('early RF driver supplies reuse the matching dedicated machine geometry', (
   }
 });
 
+test('X-ray converter has a purpose-built target, collimator, and detector silhouette', () => {
+  const def = PLACEABLES.xRayConverterStation;
+  assert.equal(isDetailedComponent(def.id, def), true,
+    'the station must bypass generic endpoint geometry');
+  const object = new ComponentBuilder()._createObject(def, def.accentColor);
+  assert.ok(meshCount(object) >= 6,
+    'all six material roles expose the shield cabinet, converter line, fixture, detector, and services');
+});
+
 test('NC RF cavity leaves the external waveguide run to its utility port', () => {
   const object = new ComponentBuilder()._createObject(
     PLACEABLES.rfCavity,

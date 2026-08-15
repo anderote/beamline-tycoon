@@ -499,6 +499,11 @@ const BEAMLINE_UTILITY_PORTS = {
     cool_in: { utility: 'coolingWater', side: 'left',  offsetAlong: 0.55, role: 'sink', params: { heatLoad: 3 } },
     data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.5, role: 'sink', params: { demand: 1 } },
   },
+  xRayConverterStation: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 18 } },
+    cool_in: { utility: 'coolingWater', side: 'left',  offsetAlong: 0.6, role: 'sink', params: { heatLoad: 90 } },
+    data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.5, role: 'sink', params: { demand: 4 } },
+  },
   eBeamIrradiationVault: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 35 } },
     cool_in: { utility: 'coolingWater', side: 'left',  offsetAlong: 0.55, role: 'sink', params: { heatLoad: 120 } },
