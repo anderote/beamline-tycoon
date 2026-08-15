@@ -7,7 +7,9 @@ applying scaling, clamping, and multipliers from research effects.
 
 import json
 from beam_physics.lattice import propagate
+from beam_physics.machines import get_machine_config
 from beam_physics.constants import DEFAULT_APERTURE
+from beam_physics import srf
 
 # Default stats per component type, matching data.js COMPONENTS
 # Note: length is NOT stored here — every component must declare subL in JS
@@ -21,9 +23,19 @@ COMPONENT_DEFAULTS = {
     "cryomodule":   {"energyGain": 2.0},
     "buncher":      {"energyGain": 0.05},
     "harmonicLinearizer": {"energyGain": 0.02},
-    "cbandCavity":  {"energyGain": 0.8},
-    "xbandCavity":  {"energyGain": 1.2},
-    "srf650Cavity": {"energyGain": 1.5},
+    # The RF ladder. These are fallbacks only — the JS catalogue's `stats`
+    # win whenever a component is supplied. Keep them in agreement with
+    # beamline-components.raw.js; they must never diverge.
+    "cbandStructure":   {"energyGain": 0.12},
+    "xbandStructure":   {"energyGain": 0.30},
+    "srf650Cryomodule": {"energyGain": 0.15},
+    "srf805Cryomodule": {"energyGain": 0.40},
+    "cwCryomodule":     {"energyGain": 0.50},
+    "nbSnCryomodule":   {"energyGain": 1.2},
+    "srfLinacSector":   {"energyGain": 3.5},
+    "twoBeamModule":    {"energyGain": 6.0},
+    "plasmaAfterburner": {"energyGain": 15},
+    "crystalChannelStage": {"energyGain": 12000},
     # === Magnets ===
     "dipole":       {"bendAngle": 90.0},
     "quadrupole":   {"focusStrength": 1.0},
@@ -47,23 +59,24 @@ COMPONENT_DEFAULTS = {
     "photonPort":   {"photonRate": 0.5},
     "positronTarget": {"collisionRate": 3.0},
     "comptonIP":    {"photonRate": 1.0},
+    "blackHoleChamber": {"collisionRate": 12.0},
+    "hawkingDetector":  {"dataRate": 40.0},
 }
 
-# Source types that produce initial beam
-SOURCE_TYPES = {"source", "dcPhotoGun", "ncRfGun", "srfGun"}
-
-# Component types that are diagnostics
+# Component types that are diagnostics (game types; used for coverage counting)
 DIAGNOSTIC_TYPES = {"bpm", "screen", "ict", "wireScanner", "bunchLengthMonitor",
                     "energySpectrometer", "beamLossMonitor", "srLightMonitor"}
 
-# Component types that are insertion devices
-INSERTION_DEVICE_TYPES = {"undulator", "helicalUndulator", "wiggler", "apple2Undulator"}
-
-# RF cavity types
-RF_CAVITY_TYPES = {"rfCavity", "cryomodule", "buncher", "harmonicLinearizer",
-                   "cbandCavity", "xbandCavity", "srf650Cavity",
-                   "rfq", "pillboxCavity", "sbandStructure",
-                   "halfWaveResonator", "spokeCavity", "ellipticalSrfCavity"}
+# The closed set of physics element types the engine understands
+# (elements.transfer_matrix dispatch, lattice special-casing, and the
+# module tier lists in machines.py). Every game component declares one of
+# these as `physicsType` in src/data/beamline-components.raw.js; a missing
+# or unknown value raises ValueError — no silent fallthrough.
+KNOWN_PHYSICS_TYPES = {
+    "source", "drift", "quadrupole", "dipole", "combined_function",
+    "rfCavity", "cryomodule", "sextupole", "collimator", "undulator",
+    "solenoid", "chicane", "detector", "target", "beamStop",
+}
 
 # Scaling factors: convert game stat values to physically reasonable parameters
 # Game focusStrength=1 -> k=0.3 /m^2 (moderate quad, 1-tile quad = 2m physical)
@@ -72,17 +85,83 @@ RF_CAVITY_TYPES = {"rfCavity", "cryomodule", "buncher", "harmonicLinearizer",
 QUAD_K_SCALE = 0.3        # game focusStrength -> k (1/m^2)
 DIPOLE_ANGLE_SCALE = 15.0 / 90.0  # game bendAngle -> physical degrees
 
+# --- black_hole_yield ------------------------------------------------------
+#
+# The success metric for machines.py's "blackHoleFactory", and the only figure
+# of merit in the game computed here rather than on the JS side. It is here for
+# one reason: it needs the luminosity, and luminosity is produced by the
+# beam_beam module, which only this file ever sees the reports of.
+#
+# ANALYTIC, and no new physics module. In a theory with `n` flat extra
+# dimensions and a fundamental scale M_D of order a TeV, two partons that pass
+# within their common Schwarzschild radius form a black hole, and the
+# production cross-section is simply the area of that disc — the standard
+# Dimopoulos-Landsberg / Giddings-Thomas geometric estimate:
+#
+#     r_s ~ (1 / M_D) * (sqrt(s) / M_D)^(1 / (n + 1))
+#     sigma = pi * r_s^2
+#
+# with sqrt(s) = 2 * E_beam for head-on equal beams. Yield is then sigma x L,
+# which is the same shape as every other metric in the roster: a physics
+# quantity times the beam that delivers it, with no fitted constants. The one
+# input that is a CHOICE rather than a measurement is M_D, and the choice is
+# stated below rather than buried.
+#
+# Note what this does NOT claim. Nothing here models formation, evaporation, or
+# the parton distribution that decides how much of the beam energy is actually
+# available — real yield estimates integrate over PDFs and lose orders of
+# magnitude doing it. This is a figure of merit with the right dependence on
+# the two things the player controls, exactly as `fluence` and `photon_flux`
+# are, and the spec (docs/superpowers/specs/2026-08-12-*) puts a real
+# production model explicitly out of scope.
+
+# Fundamental (higher-dimensional) Planck scale, GeV. 5 TeV is inside what LHC
+# searches have not excluded for large n, and it is the number the band floor
+# was chosen against: below ~200 TeV in the centre of mass nothing is above
+# threshold by enough to see.
+PLANCK_SCALE_GEV = 5000.0
+# Number of flat extra dimensions. 6 is the ADD benchmark and the value that
+# makes r_s scale as the seventh root — a very weak energy dependence, which is
+# why this machine is bought for luminosity and not for the last 100 TeV.
+EXTRA_DIMENSIONS = 6
+# (hbar c)^2 = 0.3894 mb GeV^2, and 1 mb = 1e-27 cm^2.
+GEV_MINUS_2_TO_CM2 = 3.894e-28
+
+
+def black_hole_yield(beam_energy_gev, luminosity_cm2_s,
+                     planck_scale_gev=PLANCK_SCALE_GEV,
+                     extra_dimensions=EXTRA_DIMENSIONS):
+    """Black holes produced per second: sigma(E) x L.
+
+    `beam_energy_gev` is the KINETIC energy of one beam; both beams are assumed
+    equal and head-on, so sqrt(s) = 2 E. Returns 0 below threshold, where the
+    centre-of-mass energy does not exceed the fundamental scale and the
+    semiclassical estimate does not apply at all.
+    """
+    import math
+    if luminosity_cm2_s <= 0 or beam_energy_gev <= 0:
+        return 0.0
+    sqrt_s = 2.0 * beam_energy_gev
+    if sqrt_s <= planck_scale_gev:
+        return 0.0
+    r_s = (sqrt_s / planck_scale_gev) ** (1.0 / (extra_dimensions + 1.0))
+    r_s /= planck_scale_gev                       # GeV^-1
+    sigma_cm2 = math.pi * r_s * r_s * GEV_MINUS_2_TO_CM2
+    return sigma_cm2 * luminosity_cm2_s
+
 
 def beamline_config_from_game(game_beamline):
     """
     Convert game beamline format to physics element list.
 
     game_beamline: list of dicts, each with at minimum:
-        {"type": "quadrupole", ...}
+        {"type": "quadrupole", "physicsType": "quadrupole", ...}
     May also include stats from the COMPONENTS template:
         {"type": "quadrupole", "stats": {"focusStrength": 1}, "length": 2}
 
-    Maps game component stats to physics parameters.
+    The physics identity is declared in the data (physicsType, from
+    beamline-components.raw.js); this function only validates it and maps
+    game stats/params onto physics parameters.
     """
     elements = []
     quad_index = 0
@@ -90,45 +169,41 @@ def beamline_config_from_game(game_beamline):
     for comp in game_beamline:
         ctype = comp["type"]
 
-        # Map game component types to physics element types
-        if ctype in ("driftVert", "bellows", "splitter", "dogleg"):
-            physics_type = "drift"
-        elif ctype in SOURCE_TYPES:
-            physics_type = "source"
-        elif ctype in ("scQuad",):
-            physics_type = "quadrupole"
-        elif ctype in ("scDipole",):
-            physics_type = "dipole"
-        elif ctype in RF_CAVITY_TYPES:
-            physics_type = "rfCavity" if ctype != "cryomodule" else "cryomodule"
-            if ctype in ("buncher", "harmonicLinearizer", "cbandCavity",
-                         "xbandCavity", "srf650Cavity"):
-                physics_type = "rfCavity"
-        elif ctype in INSERTION_DEVICE_TYPES:
-            physics_type = "undulator"
-        elif ctype in DIAGNOSTIC_TYPES:
-            physics_type = "drift"  # diagnostics are thin elements
-        elif ctype in ("fixedTargetAdv", "positronTarget"):
-            physics_type = "target"
-        elif ctype in ("photonPort", "comptonIP"):
-            physics_type = "drift"  # endpoints, no beam physics effect
-        elif ctype in ("kickerMagnet", "septumMagnet", "corrector",
-                        "octupole", "stripperFoil"):
-            physics_type = "drift"  # thin elements, minimal beam effect
-        elif ctype == "combinedFunctionMagnet":
-            physics_type = "combined_function"
-        elif ctype == "chicane":
-            physics_type = "chicane"
-        elif ctype == "solenoid":
-            physics_type = "solenoid"
-        else:
-            physics_type = ctype
+        physics_type = comp.get("physicsType")
+        if physics_type is None:
+            raise ValueError(
+                f"component '{ctype}' has no physicsType — every beamline "
+                f"component must declare physicsType in "
+                f"beamline-components.raw.js"
+            )
+        if physics_type not in KNOWN_PHYSICS_TYPES:
+            raise ValueError(
+                f"component '{ctype}' declares unknown physicsType "
+                f"'{physics_type}' — known types: "
+                f"{sorted(KNOWN_PHYSICS_TYPES)}"
+            )
 
         defaults = COMPONENT_DEFAULTS.get(ctype, {})
         stats = comp.get("stats", {})
 
         el = {"type": physics_type}
         el["game_type"] = ctype  # preserve original type for diagnostics
+        # Physical half-aperture, metres. Declared per component in mm; a single
+        # global DEFAULT_APERTURE of 50 mm used to apply to everything, which
+        # was uniformly generous and most generous exactly where real machines
+        # are tightest — an RFQ bore is 3-5 mm, an undulator half-gap 3-5, a
+        # TESLA iris 35. That inverted a real design pressure: the front end,
+        # where aperture is genuinely fought for, was the most forgiving part of
+        # the machine.
+        ap_mm = comp.get("apertureRadius")
+        if ap_mm is not None and ap_mm > 0:
+            el["aperture"] = ap_mm * 1e-3
+        # Placeable id, when the caller supplied one. Lets per-cavity results
+        # (achieved gradient, wall dissipation) be written back onto the
+        # placeable, which is where the JS cryogenic solver reads them to
+        # compute next tick's heat load.
+        if comp.get("id") is not None:
+            el["game_id"] = comp["id"]
         # subL sub-units × 0.5m per sub-unit — every component must declare subL
         sub_l = comp.get("subL", None)
         if sub_l is None:
@@ -137,6 +212,12 @@ def beamline_config_from_game(game_beamline):
                 f"declare subL in beamline-components.raw.js"
             )
         el["length"] = sub_l * 0.5
+
+        # Endpoint data production is a catalogue capability, not a physics
+        # type. Several purpose-built endpoints are thin drifts or targets but
+        # still carry digitizers; preserve their declared rate for lattice.py.
+        if stats.get("dataRate", 0) > 0:
+            el["dataRate"] = stats["dataRate"]
 
         if physics_type == "source":
             # Read emittance from computed stats if available, else use defaults per gun type
@@ -150,6 +231,11 @@ def beamline_config_from_game(game_beamline):
             # Extraction energy from component definition (GeV)
             if "extractionEnergy" in comp:
                 el["extractionEnergy"] = comp["extractionEnergy"]
+            # Particle species from component params (ion sources declare
+            # particleType: 'proton'); used to pick the beam rest mass.
+            particle = comp.get("params", {}).get("particleType")
+            if particle is not None:
+                el["particleType"] = particle
 
         elif physics_type == "quadrupole":
             raw_k = stats.get("focusStrength",
@@ -186,6 +272,30 @@ def beamline_config_from_game(game_beamline):
             params = comp.get("params", {})
             el["rfPhase"] = params.get("rfPhase",
                                        stats.get("rfPhase", 0.0))
+            # The gradient the player is ASKING for, MV/m, ALWAYS back-derived
+            # from the effective energy gain over this element's own physics
+            # length.
+            #
+            # Deliberately NOT read from params/stats `gradient`, even though
+            # some components carry one. Those two disagree: pillboxCavity
+            # ships stats.energyGain 0.00035 GeV alongside stats.gradient 0.5
+            # MV/m over a 1.0 m element, which are different machines. Deriving
+            # from energyGain keeps ONE source of truth and makes the balance
+            # guarantee exact — a cavity with ample RF and cold reproduces its
+            # catalogue energy gain to the last digit, because achieved ==
+            # demanded feeds straight back through the same conversion below.
+            # Player sliders still reach this: component-physics.js computes
+            # energyGain from voltage/gradient/phase before it gets here.
+            cav_spec = srf.get_spec(ctype)
+            if cav_spec is not None and el["length"] > 0:
+                el["gradientDemanded"] = max(
+                    0.0, el["energyGain"] * 1000.0 / el["length"])
+            # rfFrequency: game stores MHz, physics needs Hz
+            raw_freq = (params.get("rfFrequency", None)
+                        or comp.get("rfFrequency", None)
+                        or stats.get("rfFrequency", None))
+            if raw_freq is not None:
+                el["rfFrequency"] = float(raw_freq) * 1e6
 
         elif physics_type == "sextupole":
             el["focusStrength"] = stats.get("focusStrength",
@@ -230,28 +340,94 @@ def beamline_config_from_game(game_beamline):
             else:
                 el["r56"] = defaults.get("r56", -0.05)
 
-        # === Infrastructure quality multipliers ===
+        # === Infrastructure coupling ===
+        #
+        # Utilities used to collapse to four abstract 0-1 scalars multiplied
+        # together onto energyGain. They now act through the quantities they
+        # physically control: RF power and cryo temperature set the achievable
+        # gradient (beam_physics/srf.py), cooling deficit detunes NC cavities,
+        # and vacuum acts on the beam directly via the beam_gas module rather
+        # than through an aperture proxy.
+        #
+        # ABSENT vs ZERO is load-bearing throughout. An absent field means the
+        # solver produced no value for this node (unwired, pre-solve, or a test
+        # fixture), and falls back to the legacy linear path so nothing
+        # silently zeroes. A present 0 means the solver decided this node gets
+        # nothing, and is honoured as starvation. Game.js stamps fail-closed
+        # floors so a declared-but-unwired sink arrives as an explicit 0.
         infra_q = comp.get("infraQuality", {})
         power_q = infra_q.get("powerQuality", 1.0)
         rf_q = infra_q.get("rfQuality", 1.0)
         cooling_q = infra_q.get("coolingQuality", 1.0)
         cryo_q = infra_q.get("cryoQuality", 1.0)
         cryo_quenched = infra_q.get("cryoQuenched", False)
+        rf_power_w = infra_q.get("rfPowerW")
+        cryo_temp_k = infra_q.get("cryoTempK")
+        cooling_dt = infra_q.get("coolingDeltaT")
 
-        # SRF quench: convert to drift (zero acceleration)
-        SRF_TYPES_SET = {"cryomodule", "srf650Cavity", "srfGun"}
-        if cryo_quenched and ctype in SRF_TYPES_SET:
+        cav_spec = srf.get_spec(ctype)
+        is_srf = cav_spec is not None and cav_spec["kind"] == "srf"
+
+        # SRF quench: convert to drift (zero acceleration). Either cause counts
+        # — the LHe reservoir emptying, or the cavity going over Tc thermally.
+        #
+        # Eligibility is `is_srf`, i.e. the component's own spec says kind
+        # "srf". This used to be a hand-maintained SRF_TYPES_SET of ids sitting
+        # next to the identical fact already derived one line above, and it
+        # failed silently in the only way that matters: a new superconducting
+        # component missing from the set kept accelerating through an empty
+        # helium vessel, skipping the entire cryogenic mechanic, with no test
+        # to notice. One source of truth (srf.CAVITY_SPECS) instead.
+        thermally_quenched = (is_srf and cryo_temp_k is not None
+                              and cryo_temp_k >= srf.T_CRITICAL)
+        if (cryo_quenched or thermally_quenched) and is_srf:
             el["type"] = "drift"
             el.pop("energyGain", None)
             el.pop("focusStrength", None)
+            el["quenched"] = True
             elements.append(el)
             continue
 
-        # Derate energy gain: power * rf * cooling * cryo
-        if "energyGain" in el:
-            el["energyGain"] *= power_q * rf_q * cooling_q * cryo_q
+        # --- Achievable gradient ---
+        # Modelled cavities get their energy gain from the power and cold they
+        # are actually supplied with. Everything else keeps the legacy derate.
+        modelled = (cav_spec is not None and "gradientDemanded" in el
+                    and rf_power_w is not None)
+        if modelled:
+            n_cav = cav_spec["n_cav"]
 
-        # Derate focus strength: power only
+            # NC cavities that lose cooling detune off resonance and reflect
+            # power rather than absorbing it. SRF cavities have no separate
+            # water loop — their thermal path is the cryo model below.
+            coupling = 1.0
+            if not is_srf:
+                coupling = srf.detune_coupling(cooling_dt, cav_spec)
+            el["reflectedFraction"] = 1.0 - coupling
+
+            power_per_cavity = (rf_power_w * coupling) / n_cav if n_cav else 0.0
+            achievable = srf.e_acc_max(power_per_cavity, cav_spec, cryo_temp_k)
+            achieved = min(el["gradientDemanded"], achievable)
+
+            el["gradientAchievable"] = achievable
+            el["gradientAchieved"] = achieved
+            el["cavityQ0"] = srf.q0(cryo_temp_k if cryo_temp_k is not None else 2.0,
+                                    cav_spec)
+            # Heat the cryoplant has to remove next tick — the term that closes
+            # the thermal feedback loop. Dissipation is per cavity over the
+            # cavity's own active length, which is real hardware geometry, not
+            # the element's grid footprint.
+            el["pDissW"] = srf.p_diss(achieved, cav_spec, cryo_temp_k) * n_cav
+            # Same length used to derive the demand, so achieved == demanded
+            # returns the catalogue energy gain exactly.
+            el["energyGain"] = achieved * el["length"] / 1000.0
+        else:
+            # Legacy linear derate, retained for unmodelled cavities and for
+            # any node the utility solver has not produced power data for.
+            if "energyGain" in el:
+                el["energyGain"] *= power_q * rf_q * cooling_q * cryo_q
+
+        # Derate focus strength: power only. Magnet field goes as coil current,
+        # which goes as supply power, so linear is already correct here.
         if "focusStrength" in el:
             el["focusStrength"] *= power_q
 
@@ -259,11 +435,18 @@ def beamline_config_from_game(game_beamline):
         if cooling_q < 1.0:
             el["coolingDegradation"] = 1.0 + 0.1 * (1.0 - cooling_q)
 
-        # Poor vacuum narrows effective aperture (gas scattering)
-        vac_q = infra_q.get("vacuumQuality", 1.0)
-        if vac_q < 1.0:
-            current_aperture = el.get("aperture", DEFAULT_APERTURE)
-            el["aperture"] = current_aperture * (0.5 + 0.5 * vac_q)
+        # Residual gas pressure in mbar, consumed by the beam_gas module. This
+        # replaced an `aperture *= (0.5 + 0.5 * vacuumQuality)` proxy that could
+        # never reach the quantity it was meant to affect: aperture_loss only
+        # scales beam.current, while beam_quality is an emittance ratio. Poor
+        # vacuum now grows emittance and scatters beam out directly.
+        pressure = infra_q.get("vacuumPressure")
+        if pressure is not None:
+            el["pressure"] = pressure
+            # Ideal-gas number density at the room-temperature beam pipe.
+            # beam_gas consumes molecules/m³ directly; pressure remains on the
+            # element for diagnostics and backwards-compatible reports.
+            el["gas_density"] = pressure * 100.0 / (1.380649e-23 * 300.0)
 
         elements.append(el)
 
@@ -316,16 +499,43 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
     #   An uncontrolled beam can't reliably deliver particles to an experiment
     import math
     raw_luminosity = summary["luminosity"]
-    compressed_lumi = math.sqrt(max(raw_luminosity, 0))
-    energy_factor = math.log(1.0 + summary["final_energy"] / 0.1)
+    # Interaction rate driving data collection.
+    #
+    # This used to be sqrt(luminosity), and luminosity is produced by exactly
+    # one module (beam_beam) which only runs on colliders — a machine type the
+    # game could never set. So dataRate was identically zero for every beamline
+    # ever built, research income was zero, and the tech tree was unreachable.
+    # It went unnoticed because the headless fallback computes data separately,
+    # which is what every balance sim measured.
+    #
+    # event_rate counts what the endpoints actually record and scales with the
+    # beam current reaching them. sqrt() keeps the original dynamic-range
+    # compression.
+    event_rate = summary.get("event_rate", 0.0)
+    compressed_lumi = math.sqrt(max(event_rate, 0))
+    # Kinetic energy (total minus rest mass) is the game-facing figure: for
+    # protons the 0.938 GeV rest mass would otherwise inflate every energy
+    # readout, objective check, and data-rate factor.
+    beam_mass = summary.get("mass", 0.0)
+    kinetic_energy = summary.get(
+        "final_kinetic_energy", summary["final_energy"] - beam_mass)
+    energy_factor = math.log(1.0 + max(kinetic_energy, 0.0) / 0.1)
 
     # Count focusing elements for beam control factor
     n_focusing = summary.get("n_focusing", 0)
     control_factor = 0.05 + min(0.95, n_focusing * 0.3)
 
+    # DATA_RATE_SCALE is calibrated so a general-purpose detector (dataRate 1)
+    # on a healthy ~20 mA, 0.5 GeV beam with a focused lattice yields ~1 data/s
+    # — matching what Game._fallbackStatsForBeamline produces for the same
+    # machine. The two paths MUST agree: the fallback runs headless (tests,
+    # balance sims, the agent env) while real physics runs in the browser, and
+    # a facility that earns differently in each is a balance trap. The old
+    # 0.001 was tuned against sqrt(luminosity) ~ 1e16 and is meaningless here.
+    DATA_RATE_SCALE = 0.2
     data_rate = (compressed_lumi * quality * current_frac
                  * energy_factor * control_factor
-                 * lumi_mult * data_mult * 0.001)
+                 * lumi_mult * data_mult * DATA_RATE_SCALE)
     # Minimum viable data rate if there's a detector and beam is alive
     if data_rate > 0 and data_rate < 0.1:
         data_rate = 0.1
@@ -338,8 +548,8 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
 
     # Discovery chance scales with luminosity, energy, and beam quality squared
     discovery_base = effects.get("discoveryChance", 0.0)
-    if summary["final_energy"] > 10.0 and raw_luminosity > 0:
-        discovery_chance = discovery_base * summary["final_energy"] * 0.01 * quality * quality
+    if kinetic_energy > 10.0 and raw_luminosity > 0:
+        discovery_chance = discovery_base * kinetic_energy * 0.01 * quality * quality
     else:
         discovery_chance = 0.0
 
@@ -348,8 +558,8 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
                         if el.get("game_type", el["type"]) in DIAGNOSTIC_TYPES)
 
     result = {
-        # Core beam state
-        "beamEnergy": summary["final_energy"],
+        # Core beam state (energies are kinetic, GeV)
+        "beamEnergy": max(kinetic_energy, 0.0),
         "beamAlive": summary["alive"],
         "beamCurrent": summary["final_current"],
 
@@ -373,7 +583,7 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
                 "type": s["element_type"],
                 "sigma_x": s["beam_size_x"],
                 "sigma_y": s["beam_size_y"],
-                "energy": s["energy"],
+                "energy": max(s["energy"] - beam_mass, 0.0),
                 "current": s["current"],
                 "alive": s["alive"],
                 # New fields for probe diagnostics
@@ -420,7 +630,34 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
 
         # Diagnostic coverage
         "nDiagnostics": n_diagnostics,
+
+        # Dispersion warnings
+        "maxDispersion": summary.get("max_dispersion", 0),
+        "dispersionWarnings": summary.get("dispersion_warnings", []),
     }
+
+    # Per-cavity results, keyed by placeable id. The JS cryogenic solver reads
+    # `pDissW` back off the placeable to compute next tick's heat load — that
+    # one-tick lag is what breaks the circular dependency between temperature
+    # and gradient (heat depends on gradient, gradient depends on temperature).
+    # Explicit-Euler coupling, and it makes thermal runaway something the
+    # player watches happen rather than something that snaps.
+    cavities = []
+    for el in elements:
+        if "gradientAchieved" not in el and not el.get("quenched"):
+            continue
+        cavities.append({
+            "id": el.get("game_id"),
+            "gameType": el.get("game_type"),
+            "gradientDemanded": el.get("gradientDemanded", 0.0),
+            "gradientAchieved": el.get("gradientAchieved", 0.0),
+            "gradientAchievable": el.get("gradientAchievable", 0.0),
+            "pDissW": el.get("pDissW", 0.0),
+            "q0": el.get("cavityQ0", 0.0),
+            "reflectedFraction": el.get("reflectedFraction", 0.0),
+            "quenched": bool(el.get("quenched", False)),
+        })
+    result["cavities"] = cavities
 
     # Extract FEL data from module reports
     reports = physics_result.get("reports", [])
@@ -442,7 +679,53 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
         result["tuneShiftY"] = bb_reports[0].details.get("tune_shift_y", 0)
         result["beamStable"] = bb_reports[0].details.get("beam_stable", True)
 
+    # The type's own figure of merit, when the type has one this file can
+    # compute. Keyed off `success_metric` rather than off the machine type
+    # string, for the same reason machines.py uses capability sets instead of
+    # type literals: a renamed or added type that is paid on black_hole_yield
+    # gets the number automatically, and one that is not can never
+    # accidentally inherit it. Deliberately AFTER the beam-beam block — the
+    # luminosity this reads is the one that module just reported.
+    machine_type = effects.get("machineType")
+    if get_machine_config(machine_type)["success_metric"] == "black_hole_yield":
+        result["blackHoleYield"] = black_hole_yield(
+            max(kinetic_energy, 0.0), result.get("luminosity", 0.0))
+
     return result
+
+
+def extract_source_params(elements, game_beamline):
+    """
+    Extract beam-initialization parameters from the first source element so
+    that gun-tuning sliders (emittance, current) and the particle species
+    feed into beam initialization. Returns None when the beamline has no
+    source element.
+    """
+    for idx, el in enumerate(elements):
+        if el.get("type") != "source":
+            continue
+        source_params = {}
+        if "emittance" in el:
+            source_params["eps_norm_x"] = el["emittance"]
+            source_params["eps_norm_y"] = el["emittance"]
+        # Extraction energy from the source component (GeV)
+        if "extractionEnergy" in el:
+            source_params["energy"] = el["extractionEnergy"]
+        # Set mass for proton sources. Species comes from the component's
+        # params.particleType (carried through beamline_config_from_game);
+        # game_type is kept as a fallback for hand-built configs.
+        game_type = el.get("game_type", "")
+        if (el.get("particleType") == "proton"
+                or game_type in ("ionSource", "ecrIonSource")):
+            from beam_physics.constants import PROTON_MASS
+            source_params["mass"] = PROTON_MASS
+        # Find corresponding game component for beamCurrent
+        if idx < len(game_beamline):
+            bc = game_beamline[idx].get("stats", {}).get("beamCurrent", None)
+            if bc is not None and bc > 0:
+                source_params["current"] = bc
+        return source_params
+    return None
 
 
 def compute_beam_for_game(game_beamline_json, research_effects_json=None):
@@ -457,38 +740,13 @@ def compute_beam_for_game(game_beamline_json, research_effects_json=None):
     elements = beamline_config_from_game(game_beamline)
     machine_type = research_effects.get("machineType", "linac") if research_effects else "linac"
 
-    # Extract source parameters from the first source element so that
-    # gun-tuning sliders (emittance, current) feed into beam initialization.
-    source_params = None
-    for el in elements:
-        if el.get("type") == "source":
-            source_params = {}
-            if "emittance" in el:
-                source_params["eps_norm_x"] = el["emittance"]
-                source_params["eps_norm_y"] = el["emittance"]
-            # Extraction energy from the source component (GeV)
-            if "extractionEnergy" in el:
-                source_params["energy"] = el["extractionEnergy"]
-            # Set mass for ion sources (proton/H-)
-            game_type = el.get("game_type", "")
-            if game_type == "ionSource":
-                from beam_physics.constants import PROTON_MASS
-                source_params["mass"] = PROTON_MASS
-            # Find corresponding game component for beamCurrent
-            idx = elements.index(el)
-            if idx < len(game_beamline):
-                bc = game_beamline[idx].get("stats", {}).get("beamCurrent", None)
-                if bc is not None and bc > 0:
-                    source_params["current"] = bc
-            break
+    source_params = extract_source_params(elements, game_beamline)
 
-    # Vacuum quality widens effective aperture during propagation
-    vacuum_quality = research_effects.get("vacuumQuality", 0) if research_effects else 0
-    if vacuum_quality > 0:
-        wider_aperture = DEFAULT_APERTURE * (1.0 + vacuum_quality * 2.0)
-        for el in elements:
-            if "aperture" not in el:
-                el["aperture"] = wider_aperture
+    # Vacuum research used to WIDEN the aperture here — a leftover from the
+    # model where vacuum reached the beam by narrowing it. Better vacuum does
+    # not make a beam pipe physically bigger. Vacuum now acts on the beam
+    # properly, through gas scattering in beam_gas.py, and the aperture is
+    # fixed hardware declared per component.
 
     physics_result = propagate(elements, machine_type=machine_type,
                                source_params=source_params)

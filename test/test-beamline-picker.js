@@ -164,6 +164,21 @@ function gameWithSource(typeId) {
 }
 
 {
+  // Guided setup starts from the opposite direction: an ordinary source is
+  // already on the map, then the player says what that machine is for.
+  const { g, instance, entry } = gameWithSource(null);
+  g.state.placeables.push(instance);
+  g.state.placeableIndex[instance.id] = g.state.placeables.length - 1;
+  assert(g.assignBeamlineType(entry.id, 'testStand'),
+    'an untyped placed source can be designated after placement');
+  assertEq(entry.typeId, 'testStand', 'post-placement designation reaches the registry');
+  assertEq(entry.beamState.machineType, BEAMLINE_TYPES.testStand.machineType,
+    'post-placement designation updates the physics machine type');
+  assert(!g.assignBeamlineType(entry.id, 'therapy'),
+    'an electron source refuses an incompatible proton mission');
+}
+
+{
   // Round-trip. typeId has to survive toJSON/fromJSON or a reloaded save has a
   // beamline whose palette and physics silently revert to untyped.
   const reg = new BeamlineRegistry();

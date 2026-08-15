@@ -239,15 +239,7 @@ test.describe('design placement ghost', () => {
     expect(built, 'every ghosted component was built where it was shown')
       .toEqual(ghost.componentPoses);
 
-    // NOT errors.checkAll(). Committing a beamline runs the physics engine,
-    // and the copy of the solver under public/beam_physics is a stale April
-    // snapshot whose machines.py has no 'testStand' entry and no fallback, so
-    // every commit of this blueprint logs a Pyodide KeyError. That predates
-    // this feature and is nowhere near the renderer, so the assertion is
-    // narrowed to the code this spec is actually about rather than deleted.
-    const unexpected = errors.all.filter(e => !/BeamPhysics compute error/.test(e.text));
-    expect(unexpected.map(e => e.text), 'no errors beyond the known stale-physics one')
-      .toEqual([]);
+    errors.checkAll();
   });
 
   test('dragging the ghost across the map does not leak geometry', async ({ page }) => {

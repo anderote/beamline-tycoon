@@ -3676,7 +3676,7 @@ export class ThreeRenderer {
     const hovering = !drawing && !!(blCtrl && blCtrl.hoverPoint);
     let blSig = null;
     if (drawing || hovering) {
-      const path = drawing ? blCtrl.drawPath : [blCtrl.hoverPoint];
+      const path = drawing ? blCtrl.drawPath : (blCtrl.guidedPath || [blCtrl.hoverPoint]);
       const oe = blCtrl.hoverOpenEnd;
       blSig = (drawing ? blCtrl.drawMode : 'add')
         + '|' + path.map(p => p.col + ',' + p.row).join(';')
@@ -3690,7 +3690,7 @@ export class ThreeRenderer {
       if (drawing) {
         this._renderBeamPipePreview(blCtrl.drawPath, blCtrl.drawMode, blCtrl.drawCost);
       } else if (hovering) {
-        this._renderBeamPipePreview([blCtrl.hoverPoint], 'add');
+        this._renderBeamPipePreview(blCtrl.guidedPath || [blCtrl.hoverPoint], 'add');
         this._renderPipeHoverMarker(blCtrl.hoverPoint);
       } else {
         this._clearBeamPipePreview();

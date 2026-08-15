@@ -61,6 +61,7 @@ export class BeamlineInputController {
     this._hoverPoint = null;          // {col,row} in pipe-path space
     this._hoverOpenEnd = null;        // { pipeId, openEnd } when snapped to a cap
     this._hoverValidAnchor = false;   // true when a click here would start a draw
+    this._guidedPath = null;          // two-point starter stub from Build Forward
 
     // Last valid placement-on-pipe preview, set by _previewPlacement and
     // consumed by onMouseDown. Null when no pipe is under the cursor or the
@@ -76,11 +77,52 @@ export class BeamlineInputController {
   get hoverPoint() { return this._hoverPoint; }
   get hoverOpenEnd() { return this._hoverOpenEnd; }
   get hoverValidAnchor() { return this._hoverValidAnchor; }
+  get guidedPath() { return this._guidedPath; }
 
   clearHover() {
     this._hoverPoint = null;
     this._hoverOpenEnd = null;
     this._hoverValidAnchor = false;
+    this._guidedPath = null;
+  }
+
+  /** Show a short, valid pipe ghost physically attached to a newly placed source. */
+  showGuidedPipeStart(junctionId, portName = 'exit') {
+    const placeable = this._findPlaceable(junctionId);
+    const pos = placeable && portWorldPosition(placeable, portName);
+    if (!placeable || !pos) return false;
+    const origin = { col: (pos.x - 1) / 2, row: (pos.z - 1) / 2 };
+    const side = portSide(placeable, portName);
+    const delta = side === 'N' ? { col: 0, row: -0.5 }
+      : side === 'S' ? { col: 0, row: 0.5 }
+      : side === 'E' ? { col: 0.5, row: 0 }
+      : { col: -0.5, row: 0 };
+    this._hoverPoint = origin;
+    this._hoverOpenEnd = null;
+    this._hoverValidAnchor = true;
+    this._guidedPath = [origin, {
+      col: origin.col + delta.col,
+      row: origin.row + delta.row,
+    }];
+    this.renderer.renderBeamPipePreview(this._guidedPath, 'add');
+    return true;
+  }
+
+  /** Render the assistant's exact proposed on-pipe slot before it is bought. */
+  showGuidedPlacement({ pipeId, type, position }) {
+    const pipe = (this.game.state?.beamPipes || []).find(p => p.id === pipeId);
+    const def = COMPONENTS[type];
+    if (!pipe || !def || !Number.isFinite(position)) return false;
+    const subL = def.subL || 2;
+    const centerFraction = position + (subL / pipe.subL) / 2;
+    const point = positionToPoint(pipe, centerFraction);
+    if (!point) return false;
+    this._placementHover = { pipeId, position, subL, type };
+    this.renderer.renderAttachmentGhost?.(
+      point.col, point.row, type, point.dir, true, null,
+      this.input.placementPortsFlipped === true,
+    );
+    return true;
   }
 
   _reportPlacementFailure(message) {
@@ -138,6 +180,7 @@ export class BeamlineInputController {
    * pre-click marker. Called from BeamlineTool's mousemove path.
    */
   onPipeToolHover(worldX, worldY) {
+    this._guidedPath = null;
     const snapped = snapPipePoint(worldX, worldY);
     // If the cursor is near an existing pipe's open (capped) end, snap the
     // hover marker to that exact point so the player sees "you can start
@@ -220,7 +263,8 @@ export class BeamlineInputController {
     // Sources auto-advance the tool to the beam-pipe draw tool (same UX
     // the old generic path provided).
     if (placedId && def.isSource && typeof this.input?.selectComponentTool === 'function') {
-      this.input.selectComponentTool('drift');
+      const guided = this.game._guidedSetup?.onSourcePlaced?.(placedId);
+      if (!guided) this.input.selectComponentTool('drift');
     }
     return true;
   }
@@ -257,15 +301,17 @@ export class BeamlineInputController {
     // Only the button that armed the gesture may commit it. (Releasing the
     // *other* button mid-gesture used to run the commit path.)
     if (button != null && this._drawButton != null && button !== this._drawButton) return true;
+    let builtPipeId = null;
     if (this._drawMode === 'remove') {
       this._pipeRemoveEnd(worldX, worldY);
     } else {
       // commitGesture, not a raw push inside _pipeDrawEnd: drawPipe/extendPipe
       // validate on commit (port_mismatch is the common one) and return null,
       // which would otherwise leave a phantom undo entry and clear redo.
-      this.game.commitGesture({ mutate: () => this._pipeDrawEnd(worldX, worldY) });
+      builtPipeId = this.game.commitGesture({ mutate: () => this._pipeDrawEnd(worldX, worldY) });
     }
     this._resetDrawing();
+    if (builtPipeId) this.game._guidedSetup?.onPipeBuilt?.(builtPipeId);
     return true;
   }
 
@@ -480,9 +526,10 @@ export class BeamlineInputController {
       }),
     });
     if (placedId) {
+      const guided = this.game._guidedSetup?.onComponentBuilt?.(hit.pipe.id, placedId);
       // Refresh the ghost so the user sees the next valid hover immediately
       // after committing (the previous ghost may now overlap the new placement).
-      this._previewPlacement(selectedId, worldX, worldY);
+      if (!guided) this._previewPlacement(selectedId, worldX, worldY);
     }
     return true;
   }
@@ -496,6 +543,7 @@ export class BeamlineInputController {
     const cursor = snapPipePoint(worldX, worldY);
     const port = this._findPortNearCursor(cursor);
     if (port) {
+      this._guidedPath = null;
       this._drawing = true;
       this._drawMode = 'add';
       this._drawButton = 0;
@@ -507,6 +555,7 @@ export class BeamlineInputController {
     }
     const openEnd = this._findOpenEndNearCursor(cursor);
     if (openEnd) {
+      this._guidedPath = null;
       this._drawing = true;
       this._drawMode = 'add';
       this._drawButton = 0;
@@ -560,8 +609,7 @@ export class BeamlineInputController {
     // anchors at `_drawOrigin` (the open end's point) and moves outward to the
     // cursor, matching validateExtendPipe's expected direction.
     if (anchorStart?.kind === 'openEnd') {
-      this.game.beamline.extendPipe(anchorStart.pipeId, path);
-      return;
+      return this.game.beamline.extendPipe(anchorStart.pipeId, path);
     }
 
     // From here the start is a port (or nothing). Build the start anchor now.
@@ -571,12 +619,11 @@ export class BeamlineInputController {
 
     // Port → port (distinct) → full port-to-port pipe.
     if (portEnd && (!anchorStart || portEnd.junctionId !== anchorStart.junctionId || portEnd.portName !== anchorStart.portName)) {
-      this.game.beamline.drawPipe(
+      return this.game.beamline.drawPipe(
         startAnchor,
         { junctionId: portEnd.junctionId, portName: portEnd.portName },
         path,
       );
-      return;
     }
 
     // Port → existing pipe's open end → extend that pipe. validateExtendPipe
@@ -589,12 +636,11 @@ export class BeamlineInputController {
     // claiming the port on extend is a future enhancement.
     if (openEndHit) {
       const reversed = path.slice().reverse();
-      this.game.beamline.extendPipe(openEndHit.pipeId, reversed);
-      return;
+      return this.game.beamline.extendPipe(openEndHit.pipeId, reversed);
     }
 
     // Open-ended pipe (from port, terminates in empty space).
-    this.game.beamline.drawPipe(startAnchor, null, path);
+    return this.game.beamline.drawPipe(startAnchor, null, path);
   }
 
   _pipeRemoveEnd(worldX, worldY) {
@@ -779,6 +825,7 @@ export class BeamlineInputController {
     this._drawPath = [];
     this._drawOrigin = null;
     this._drawStartAnchor = null;
+    this._guidedPath = null;
     this.renderer.clearDragPreview?.();
   }
 }

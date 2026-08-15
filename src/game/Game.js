@@ -7,7 +7,7 @@ import { seedComponentParams } from '../beamline/component-params.js';
 import { BeamPhysics } from '../beamline/physics.js';
 import { buildPhysicsElements } from '../beamline/physics-payload.js';
 import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
-import { getBeamlineType } from '../data/beamline-types.js';
+import { beamlineTypeUnlocked, getBeamlineType } from '../data/beamline-types.js';
 import { flattenPath } from '../beamline/flattener.js';
 import { moduleBeamAxis, axisMatchesDirection } from '../beamline/module-axis.js';
 import { BeamlineSystem, pipeRefund, missingResourceLabel } from '../beamline/BeamlineSystem.js';
@@ -3907,6 +3907,33 @@ export class Game {
     this.selectedBeamlineId = null;
     this.emit('editModeChanged', null);
     return this.pendingBeamlineTypeId;
+  }
+
+  /**
+   * Assign a mission to a source that was placed through the ordinary source
+   * palette rather than the New Beamline picker. The registry remains the sole
+   * authority: this never guesses a type from the installed hardware.
+   */
+  assignBeamlineType(beamlineId, typeId) {
+    const entry = beamlineId ? this.registry.get(beamlineId) : null;
+    const type = typeId ? getBeamlineType(typeId) : null;
+    const source = entry?.sourceId ? this.getPlaceable(entry.sourceId) : null;
+    const sourceDef = source ? COMPONENTS[source.type] : null;
+    if (!entry || !type || !sourceDef?.isSource) return false;
+    if (!beamlineTypeUnlocked(type, this.state)) return false;
+    if (Array.isArray(sourceDef.beamlineTypes)
+        && !sourceDef.beamlineTypes.includes(type.id)) return false;
+
+    entry.typeId = type.id;
+    entry.beamState.machineType = type.machineType;
+    this.pendingBeamlineTypeId = null;
+    this.editingBeamlineId = entry.id;
+    this.selectedBeamlineId = entry.id;
+    this.schedulePhysicsRecalc();
+    this.emit('editModeChanged', entry.id);
+    this.emit('beamlineChanged');
+    this.log(`${entry.name} designated as a ${type.name}`, 'good');
+    return true;
   }
 
   /**
