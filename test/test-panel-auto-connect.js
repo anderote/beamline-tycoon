@@ -140,28 +140,42 @@ console.log('\n--- 4. Affordability is checked before mutation ---');
     'an unaffordable click adds no undo entry');
 }
 
-console.log('\n--- 5. Tab belongs to one selected distribution panel ---');
+console.log('\n--- 5. A hovered distribution panel owns Tab without selection ---');
 {
   const game = makeGame();
   const input = {
     game,
-    selectedPlaceableId: 'panel',
-    selectedPlaceableIds: new Set(['panel']),
+    _hoverTooltipTarget: 'placeable:panel',
+    selectedPlaceableId: null,
+    selectedPlaceableIds: new Set(),
     _selectionIdsForAnchor: InputHandler.prototype._selectionIdsForAnchor,
+    _hoveredAutoConnectPanelId: InputHandler.prototype._hoveredAutoConnectPanelId,
     _selectedAutoConnectPanelId: InputHandler.prototype._selectedAutoConnectPanelId,
+    panelAutoConnectTargetId: InputHandler.prototype.panelAutoConnectTargetId,
     _autoConnectPanel: id => { input.connectedPanelId = id; },
   };
   let prevented = 0;
-  const handled = InputHandler.prototype._handleSelectedPanelAutoConnectKey.call(input, {
+  const handled = InputHandler.prototype.handlePanelAutoConnectKey.call(input, {
     key: 'Tab', shiftKey: false, ctrlKey: false, metaKey: false, altKey: false,
     repeat: false, preventDefault: () => { prevented++; },
   });
   assert(handled && prevented === 1 && input.connectedPanelId === 'panel',
-    'plain Tab auto-connects the single selected distribution panel');
+    'plain Tab auto-connects a hovered panel without selecting or opening it');
+
+  input._hoverTooltipTarget = 'placeable:near_1';
+  input.selectedPlaceableId = 'panel';
+  input.selectedPlaceableIds.add('panel');
+  input.connectedPanelId = null;
+  const selectedHandled = InputHandler.prototype.handlePanelAutoConnectKey.call(input, {
+    key: 'Tab', shiftKey: false, ctrlKey: false, metaKey: false, altKey: false,
+    repeat: false, preventDefault: () => { prevented++; },
+  });
+  assert(selectedHandled && input.connectedPanelId === 'panel',
+    'the existing single-selected-panel shortcut remains available off hover');
 
   input.selectedPlaceableIds.add('near_1');
   input.connectedPanelId = null;
-  const multiHandled = InputHandler.prototype._handleSelectedPanelAutoConnectKey.call(input, {
+  const multiHandled = InputHandler.prototype.handlePanelAutoConnectKey.call(input, {
     key: 'Tab', shiftKey: false, ctrlKey: false, metaKey: false, altKey: false,
     repeat: false, preventDefault: () => { prevented++; },
   });

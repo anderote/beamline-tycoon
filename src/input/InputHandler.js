@@ -945,7 +945,17 @@ export class InputHandler {
     return componentHoverInfo(def, { autoConnectPlan });
   }
 
-  /** A single selected distribution panel owns plain Tab before palette tabs do. */
+  /** Resolve a distribution panel from the current world-hover tooltip. */
+  _hoveredAutoConnectPanelId() {
+    const match = /^(?:placeable|equip):(.+)$/.exec(this._hoverTooltipTarget || '');
+    if (!match) return null;
+    const panel = this.game.getPlaceable?.(match[1])
+      || this.game.state?.placeables?.find?.(entry => entry.id === match[1]);
+    const def = panel && (COMPONENTS[panel.type] || PLACEABLES[panel.type]);
+    return Number(def?.autoConnectRadius) > 0 ? panel.id : null;
+  }
+
+  /** A single selected distribution panel is the fallback Tab target. */
   _selectedAutoConnectPanelId() {
     const ids = this._selectionIdsForAnchor(this.selectedPlaceableId);
     if (ids.length !== 1) return null;
@@ -955,11 +965,17 @@ export class InputHandler {
     return Number(def?.autoConnectRadius) > 0 ? panel.id : null;
   }
 
-  _handleSelectedPanelAutoConnectKey(event) {
+  /** The hovered panel wins; selection preserves the existing keyboard path. */
+  panelAutoConnectTargetId() {
+    return this._hoveredAutoConnectPanelId() || this._selectedAutoConnectPanelId();
+  }
+
+  /** Public keyboard coordinator for panel auto-connect versus palette Tab. */
+  handlePanelAutoConnectKey(event) {
     if (event?.key !== 'Tab' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
       return false;
     }
-    const panelId = this._selectedAutoConnectPanelId();
+    const panelId = this.panelAutoConnectTargetId();
     if (!panelId) return false;
     event.preventDefault();
     if (!event.repeat) this._autoConnectPanel(panelId);
@@ -1917,7 +1933,7 @@ export class InputHandler {
           break;
         }
         case 'Tab': {
-          if (this._handleSelectedPanelAutoConnectKey(e)) break;
+          if (this.handlePanelAutoConnectKey(e)) break;
           e.preventDefault();
           const mode = MODES[this.activeMode];
           if (!mode || mode.disabled) break;
