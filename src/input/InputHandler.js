@@ -3469,6 +3469,18 @@ export class InputHandler {
       return false;
     }
 
+    // Group moves can leave both the primary selection panel and older
+    // per-item panels over the destination. Close every selected object's
+    // anchored window before setTool clears the selection that identifies
+    // them. Copies keep the inspection window open because nothing is being
+    // carried away from its current location.
+    if (operation === 'move') {
+      for (const id of ids) {
+        const entry = this.game.getPlaceable(id);
+        if (entry) this.renderer.closePlaceableInfoWindow?.(entry);
+      }
+    }
+
     const count = captured.payload.items.length;
     return this._armSelectionPayload(
       captured.payload,
