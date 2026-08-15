@@ -441,7 +441,11 @@ export class BeamlineWindow {
     const nodes = this.game.state.placeables.filter(p => p.beamlineId === this.beamlineId);
     const buildCost = nodes.reduce((sum, n) => {
       const comp = COMPONENTS[n.type];
-      return sum + (comp ? (comp.cost || 0) : 0);
+      if (!comp) return sum;
+      const funding = typeof comp.cost === 'object'
+        ? (comp.cost?.funding || 0)
+        : (comp.cost || 0);
+      return sum + funding;
     }, 0);
 
     const energyDraw = bs.totalEnergyCost || 0;
