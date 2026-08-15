@@ -231,5 +231,41 @@ console.log('\n--- 4. A line of another utility is not tappable ---');
     'a power-cable drag does not offer to tap a cooling-water line');
 }
 
+console.log('\n--- 5. LCW skid outlets share one 25 kW internal header ---');
+{
+  const state = {
+    placeables: [
+      { id: 'lcw_1', type: 'lcwSkid', col: 1, row: 1, subCol: 0, subRow: 0, dir: 0 },
+      { id: 'load_1', type: 'source', col: 6, row: 1, subCol: 0, subRow: 0, dir: 0 },
+      { id: 'load_2', type: 'source', col: 6, row: 4, subCol: 0, subRow: 0, dir: 0 },
+      { id: 'load_3', type: 'source', col: 6, row: 7, subCol: 0, subRow: 0, dir: 0 },
+    ],
+    beamPipes: [],
+    utilityLines: new Map([
+      ['lcw_a', { id: 'lcw_a', utilityType: 'coolingWater',
+        start: { placeableId: 'lcw_1', portName: 'cool_out' },
+        end: { placeableId: 'load_1', portName: 'cool_in' },
+        path: [{ col: 2, row: 1 }, { col: 5, row: 1 }] }],
+      ['lcw_b', { id: 'lcw_b', utilityType: 'coolingWater',
+        start: { placeableId: 'lcw_1', portName: 'cool_out_2' },
+        end: { placeableId: 'load_2', portName: 'cool_in' },
+        path: [{ col: 2, row: 2 }, { col: 5, row: 4 }] }],
+      ['lcw_c', { id: 'lcw_c', utilityType: 'coolingWater',
+        start: { placeableId: 'lcw_1', portName: 'cool_out_3' },
+        end: { placeableId: 'load_3', portName: 'cool_in' },
+        path: [{ col: 2, row: 3 }, { col: 5, row: 7 }] }],
+    ]),
+  };
+  const nets = discoverNetworks(
+    'coolingWater', state.utilityLines, makeDefaultPortLookup(state),
+  );
+  assert(nets.length === 1 && nets[0].sinks.length === 3,
+    'three physical LCW outlets feed three loads through one network');
+  const skidSources = nets[0]?.sources.filter(source => source.placeableId === 'lcw_1') || [];
+  const capacity = skidSources.reduce((sum, source) => sum + (source.params?.capacity || 0), 0);
+  assert(skidSources.length === 3 && capacity === 25,
+    `the shared outlets expose 25 kW once, not per socket (got ${capacity} kW)`);
+}
+
 console.log(`\n=== ${passed} passed, ${failed} failed ===`);
 if (failed > 0) process.exit(1);

@@ -1662,6 +1662,27 @@ export function _buildLcwSkidRoles() {
     }
   }
 
+  // Three independently routable branches off the +X supply header. The
+  // logical ports use these exact centres through utility-port-anchors.js;
+  // all three still share the skid's one 25 kW hydraulic circuit.
+  for (const outletZ of [-0.60, 0, 0.60]) {
+    const cR = 0.05, cL = 0.18;
+    const c = new THREE.CylinderGeometry(cR, cR, cL, 8);
+    applyTiledCylinderUVs(c, cR, cL, 8);
+    pushT(b.pipe, c, new THREE.Matrix4().multiplyMatrices(
+      trans(0.39, headerY, outletZ),
+      new THREE.Matrix4().makeRotationZ(Math.PI / 2),
+    ));
+
+    const fR = 0.075, fH = 0.03;
+    const f = new THREE.CylinderGeometry(fR, fR, fH, SEGS);
+    applyTiledCylinderUVs(f, fR, fH, SEGS);
+    pushT(b.detail, f, new THREE.Matrix4().multiplyMatrices(
+      trans(0.465, headerY, outletZ),
+      new THREE.Matrix4().makeRotationZ(Math.PI / 2),
+    ));
+  }
+
   // Control panel on the -Z end, two status lamps on its face.
   {
     const cW = 0.34, cH = 0.40, cD = 0.08;

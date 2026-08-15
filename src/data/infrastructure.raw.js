@@ -1111,7 +1111,7 @@ export const INFRASTRUCTURE_RAW = {
   lcwSkid: {
     id: 'lcwSkid',
     name: 'LCW Skid',
-    desc: 'Self-contained 25 kW low-conductivity-water skid. Its own reservoir, pump, chiller and air-cooled rejector are packaged together: connect power, then run Cooling Water to magnets and warm RF. Outgrow it into a central chiller plus separate reservoir and heat rejection when the facility gets large.',
+    desc: 'Self-contained 25 kW low-conductivity-water skid with three independently routable outlets. Its own reservoir, pump, chiller and air-cooled rejector are packaged together: connect power, then run Cooling Water to magnets and warm RF. Outgrow it into a central chiller plus separate reservoir and heat rejection when the facility gets large.',
     coolingRole: 'integratedCooling',
     category: 'cooling', subsection: 'integratedCooling',
     accentColor: 0x2fbccc,

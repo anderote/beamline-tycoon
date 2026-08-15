@@ -952,7 +952,14 @@ const INFRA_UTILITY_PORTS = {
     cool_out_b: { utility: 'coolingWater', side: 'right', offsetAlong: 0.75, role: 'source', params: { reservoir: true, capacity: 5 / 3, heatRejectionCapacity: 5 / 3, displayLabel: 'Cooling capacity' } },
     cool_out_side: { utility: 'coolingWater', side: 'front', offsetAlong: 0.5, role: 'source', params: { reservoir: true, capacity: 5 / 3, heatRejectionCapacity: 5 / 3, displayLabel: 'Cooling capacity' } },
   },
-  lcwSkid:               { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { reservoir: true, capacity: 25, heatRejectionCapacity: 25 } } },
+  // Three branch connections share one 25 kW integrated plant. Keep the
+  // legacy `cool_out` name at the centre so existing saves stay connected;
+  // discovery unites all same-device source ports into one internal header.
+  lcwSkid:               {
+    cool_out:   { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { reservoir: true, capacity: 25 / 3, heatRejectionCapacity: 25 / 3 } },
+    cool_out_2: { utility: 'coolingWater', side: 'right', offsetAlong: 0.2, role: 'source', params: { reservoir: true, capacity: 25 / 3, heatRejectionCapacity: 25 / 3 } },
+    cool_out_3: { utility: 'coolingWater', side: 'right', offsetAlong: 0.8, role: 'source', params: { reservoir: true, capacity: 25 / 3, heatRejectionCapacity: 25 / 3 } },
+  },
   dualCircuitChiller:    { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 175 } } },
   chiller:               { cool_out: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 300 } } },
   // cryo
