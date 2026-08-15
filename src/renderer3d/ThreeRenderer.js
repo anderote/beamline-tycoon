@@ -3487,6 +3487,12 @@ export class ThreeRenderer {
     this._lastAnimTime = _now;
     // Emissive-only breathe on existing marker materials — no rebuild.
     if (this.utilityLineBuilderV2) this.utilityLineBuilderV2.pulseUnwiredMarkers(_now);
+    // Newly committed cords/hoses briefly relax from the hand trace into a
+    // gravity-settled rope and then become fully static. Resync declarative
+    // path effects only on the final frame, not throughout the interpolation.
+    if (this.utilityLineBuilderV2?.updateRelaxations(_dt)) {
+      this._effectSystem?.syncFromGroup('utility-lines', this.utilityLineGroup);
+    }
     // One uniform write per flow-patched material — no rebuilds, no per-line
     // cost. See utility-flow.js.
     tickFlow(_dt);

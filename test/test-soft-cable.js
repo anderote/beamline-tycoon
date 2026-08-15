@@ -7,6 +7,7 @@ import {
   SOFT_CABLE_BEND_RADIUS_METERS,
   cablePathLengthSubUnits,
   roundedCablePlanarPoints,
+  relaxedCableControlPoints,
   sanitizeCablePath,
   softCableControlPoints,
 } from '../src/utility/soft-cable.js';
@@ -80,6 +81,36 @@ assert(pooled.every(point => point.y >= 0.03),
 assert(Math.min(...pooled.map(point => point.z)) < 0
     && Math.max(...pooled.map(point => point.z)) > 0,
   'the pooled 3D centreline follows both bends of the drawn S');
+
+const kinked = [
+  { x: 0, y: 1.8, z: 0 },
+  { x: 0.6, y: 1.45, z: 0 },
+  { x: 1.35, y: 1.2, z: 0.8 },
+  { x: 2.0, y: 0.7, z: 0.15 },
+  { x: 2.5, y: 0.03, z: 0 },
+  { x: 3.0, y: 0.03, z: 0 },
+];
+const relaxed = relaxedCableControlPoints(kinked, { floorY: 0.03 });
+assert(JSON.stringify(relaxed[0]) === JSON.stringify(kinked[0])
+    && JSON.stringify(relaxed[relaxed.length - 1]) === JSON.stringify(kinked[kinked.length - 1]),
+  'relaxation keeps both terminal points pinned');
+assert(JSON.stringify(relaxed[4]) === JSON.stringify(kinked[4]),
+  'relaxation preserves an existing floor-contact point');
+assert(relaxed.every(point => point.y >= 0.03 - 1e-9),
+  'relaxation never pulls the line below the floor');
+const floatingTurn = (path, i) => {
+  const a = path[i - 1], b = path[i], c = path[i + 1];
+  const u = { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z };
+  const v = { x: c.x - b.x, y: c.y - b.y, z: c.z - b.z };
+  const lengths = Math.hypot(u.x, u.y, u.z) * Math.hypot(v.x, v.y, v.z);
+  return Math.acos(Math.max(-1, Math.min(1,
+    (u.x * v.x + u.y * v.y + u.z * v.z) / lengths)));
+};
+assert(floatingTurn(relaxed, 2) < floatingTurn(kinked, 2),
+  `floating kink relaxes (${floatingTurn(kinked, 2)} -> ${floatingTurn(relaxed, 2)})`);
+assert(Math.max(...relaxed.slice(1, 4).map(point => Math.abs(point.z)))
+    < Math.max(...kinked.slice(1, 4).map(point => Math.abs(point.z))) * 0.3,
+  'suspended lateral elbow is pulled into the natural hanging span');
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

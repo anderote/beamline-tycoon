@@ -61,6 +61,8 @@ const path = [{ col: 0, row: 0 }, { col: 3, row: 0 }];
     `committed cooling run is one continuous flexible sheath (got ${meshes.length})`);
   assert(meshes[0]?.geometry?.type === 'TubeGeometry',
     `committed cooling sheath uses smooth tube geometry (${meshes[0]?.geometry?.type})`);
+  assert(builder.updateRelaxations(0.1) === false,
+    'a line loaded with the scene starts already settled');
 }
 
 {
@@ -75,6 +77,56 @@ const path = [{ col: 0, row: 0 }, { col: 3, row: 0 }];
     `cooling draw preview is one continuous flexible sheath (got ${meshes.length})`);
   assert(meshes[0]?.geometry?.type === 'TubeGeometry',
     `cooling preview uses smooth tube geometry (${meshes[0]?.geometry?.type})`);
+}
+
+{
+  const builder = new UtilityLineBuilderV2();
+  const parent = new THREE.Group();
+  // Establish the initial scene. Lines present here would load already at
+  // rest; only a line appearing afterward should visibly settle.
+  builder.build(new Map(), new Map(), parent, { state: {} });
+  const placeables = new Map([
+    ['supply', {
+      id: 'supply', type: 'mcc', kind: 'infrastructure', category: 'infrastructure',
+      col: 0, row: 0, subCol: 0, subRow: 0, dir: 0,
+    }],
+    ['load', {
+      id: 'load', type: 'mcc', kind: 'infrastructure', category: 'infrastructure',
+      col: 4, row: 3, subCol: 0, subRow: 0, dir: 2,
+    }],
+  ]);
+  const line = {
+    id: 'new_power_cord', utilityType: 'powerCable',
+    start: { placeableId: 'supply', portName: 'pwr_out_1' },
+    end: { placeableId: 'load', portName: 'pwr_out_1' },
+    path: [{ col: 0, row: 0 }, { col: 4, row: 3 }],
+    cablePath: [
+      { col: 0, row: 0 },
+      { col: 1.2, row: 0.1 },
+      { col: 1.4, row: 1.6 },
+      { col: 4, row: 3 },
+    ],
+  };
+  builder.build(new Map([[line.id, line]]), placeables, parent, { state: {} });
+  const beforeMesh = flexibleMeshes(parent)[0];
+  const before = Array.from(beforeMesh.geometry.attributes.position.array);
+  builder.updateRelaxations(0.1);
+  const during = Array.from(beforeMesh.geometry.attributes.position.array);
+  assert(JSON.stringify(during) !== JSON.stringify(before),
+    'a newly committed flexible line starts moving toward its settled shape');
+
+  let finished = false;
+  for (let frame = 0; frame < 12; frame++) {
+    finished = builder.updateRelaxations(0.1) || finished;
+  }
+  assert(finished, 'the relaxation reaches a terminal resting frame');
+  const atRestMesh = flexibleMeshes(parent)[0];
+  const atRest = Array.from(atRestMesh.geometry.attributes.position.array);
+  assert(builder.updateRelaxations(1) === false,
+    'a rested line performs no more animation work');
+  assert(JSON.stringify(Array.from(atRestMesh.geometry.attributes.position.array))
+      === JSON.stringify(atRest),
+    'the final cable geometry remains completely still');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

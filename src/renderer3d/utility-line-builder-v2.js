@@ -22,6 +22,7 @@ import { BLOOM_LAYER } from './glow-pipeline.js';
 import { computeLineOrientations } from '../utility/line-orientation.js';
 import {
   isSoftCable,
+  relaxedCableControlPoints,
   softCableBendRadiusMeters,
   softCableControlPoints,
 } from '../utility/soft-cable.js';
@@ -35,6 +36,7 @@ import {
 // camera. Kept here for the marker fallbacks, which are not per-line.
 const PIPE_Y = UTILITY_LINE_Y;
 const SEGS = 12;     // cylinder radial segments
+const FLEXIBLE_RELAX_DURATION_SECONDS = 0.9;
 
 // Material cache keyed by (utilityType, errorStatus) — 'ok' | 'soft' | 'hard'.
 // Keeps identical materials shared across lines for the same descriptor+state.
@@ -281,7 +283,7 @@ function buildCylinderSegment(p0, p1, radius, material, runDist) {
 // One continuous flexible sheath. TubeGeometry's uv.x advances along the
 // spline (uv.y goes around its circumference), so copy that distance into
 // uv.y for the existing travelling-power shader.
-function buildFlexibleCable(points, radius, material, reversed = false, floorY = null) {
+function buildFlexibleCableGeometry(points, radius, reversed = false, floorY = null) {
   if (points.length < 2 || !THREE.CatmullRomCurve3 || !THREE.TubeGeometry) return null;
   const spline = new THREE.CatmullRomCurve3(points, false, 'centripetal', 0.5);
   // Catmull-Rom can undershoot between a descending control point and a run
@@ -308,6 +310,12 @@ function buildFlexibleCable(points, radius, material, reversed = false, floorY =
     }
     uv.needsUpdate = true;
   }
+  return geometry;
+}
+
+function buildFlexibleCable(points, radius, material, reversed = false, floorY = null) {
+  const geometry = buildFlexibleCableGeometry(points, radius, reversed, floorY);
+  if (!geometry) return null;
   const mesh = new THREE.Mesh(geometry, material);
   mesh.userData.isFlexibleUtilityCable = true;
   return mesh;
@@ -488,13 +496,13 @@ function polylineMidpoint(points) {
   return points[points.length - 1];
 }
 
-function buildLineGroup(line, placeablesById, errorStatus, reversed) {
+function buildLineGroup(line, placeablesById, errorStatus, reversed, pointOverride = null) {
   const descriptor = UTILITY_TYPES[line.utilityType];
   if (!descriptor) return null;
   const flexible = isSoftCable(line.utilityType);
-  const points = flexible
+  const points = pointOverride || (flexible
     ? buildSoftCableWorldPoints(line, placeablesById)
-    : buildWorldPoints(line, placeablesById);
+    : buildWorldPoints(line, placeablesById));
   if (points.length < 2) return null;
 
   const group = new THREE.Group();
@@ -880,6 +888,12 @@ export class UtilityLineBuilderV2 {
     this._lineGroups = new Map();
     // (line.id → hash string) to detect path/descriptor changes.
     this._lineHashes = new Map();
+    // line.id → one short-lived interpolation from the just-drawn hand shape
+    // to its deterministic, gravity-settled rope solve.
+    this._relaxations = new Map();
+    // Existing lines loaded with the scene start already settled. Only lines
+    // appearing after the first build perform the visible relaxation.
+    this._hasBuiltOnce = false;
     // Preview / hover layers. The preview is content-keyed (see setPreview) —
     // a run-wiring drag makes it far too big to rebuild per frame.
     this._previewObject = null;
@@ -923,17 +937,50 @@ export class UtilityLineBuilderV2 {
       const hash = this._hashLine(line, placeablesById) + '|' + errorStatus + '|' + (reversed ? 'rev' : 'fwd');
       const prevHash = this._lineHashes.get(line.id);
       if (prevHash === hash && this._lineGroups.has(line.id)) continue;
+      const isNewLine = prevHash === undefined;
+      this._relaxations.delete(line.id);
       // Rebuild: remove old, add new.
       const old = this._lineGroups.get(line.id);
       if (old) {
         parentGroup.remove(old);
         this._disposeGroup(old);
       }
-      const group = buildLineGroup(line, placeablesById, errorStatus, reversed);
+      let pointOverride = null;
+      let relaxation = null;
+      if (isSoftCable(line.utilityType)) {
+        const initialPoints = buildSoftCableWorldPoints(line, placeablesById);
+        const floorY = utilityLineHeight(line.utilityType);
+        const bendRadius = softCableBendRadiusMeters(line.utilityType);
+        const finalPoints = relaxedCableControlPoints(initialPoints, {
+          floorY,
+          bendStiffness: 0.08 + Math.min(0.08, bendRadius * 0.1),
+        }).map(point => new THREE.Vector3(point.x, point.y, point.z));
+        const animate = this._hasBuiltOnce && isNewLine
+          && initialPoints.length === finalPoints.length && initialPoints.length >= 3;
+        pointOverride = animate ? initialPoints : finalPoints;
+        if (animate) {
+          relaxation = {
+            elapsed: 0,
+            duration: FLEXIBLE_RELAX_DURATION_SECONDS,
+            initialPoints,
+            finalPoints,
+            floorY,
+            radius: UTILITY_TYPES[line.utilityType]?.pipeRadiusMeters || 0.04,
+            line,
+            placeablesById,
+            errorStatus,
+            reversed,
+            parentGroup,
+          };
+        }
+      }
+      const group = buildLineGroup(
+        line, placeablesById, errorStatus, reversed, pointOverride);
       if (group) {
         parentGroup.add(group);
         this._lineGroups.set(line.id, group);
         this._lineHashes.set(line.id, hash);
+        if (relaxation) this._relaxations.set(line.id, { ...relaxation, group });
       } else {
         this._lineGroups.delete(line.id);
         this._lineHashes.delete(line.id);
@@ -947,8 +994,79 @@ export class UtilityLineBuilderV2 {
         this._disposeGroup(g);
         this._lineGroups.delete(id);
         this._lineHashes.delete(id);
+        this._relaxations.delete(id);
       }
     }
+    this._hasBuiltOnce = true;
+  }
+
+  /**
+   * Advance newly drawn flexible lines toward their settled rope solve.
+   * Returns true only when a line reaches rest, so ThreeRenderer can resync
+   * its path-pulse effect once rather than rebuilding effect state per frame.
+   */
+  updateRelaxations(dtSeconds) {
+    const dt = Number.isFinite(dtSeconds) && dtSeconds > 0 ? dtSeconds : 0;
+    if (dt <= 0 || this._relaxations.size === 0) return false;
+    let finishedAny = false;
+    for (const [lineId, state] of [...this._relaxations]) {
+      const group = this._lineGroups.get(lineId);
+      if (!group || group !== state.group) {
+        this._relaxations.delete(lineId);
+        continue;
+      }
+      state.elapsed += Math.min(dt, 0.1);
+      const t = Math.min(1, state.elapsed / state.duration);
+      // Cubic ease-out reads as a quick release followed by damped settling,
+      // with no perpetual wobble once the one-second solve is complete.
+      const eased = 1 - Math.pow(1 - t, 3);
+      const points = state.initialPoints.map((point, index) => {
+        const target = state.finalPoints[index];
+        return new THREE.Vector3(
+          point.x + (target.x - point.x) * eased,
+          Math.max(state.floorY, point.y + (target.y - point.y) * eased),
+          point.z + (target.z - point.z) * eased,
+        );
+      });
+
+      if (t < 1) {
+        let mesh = null;
+        group.traverse(object => {
+          if (!mesh && object.userData?.isFlexibleUtilityCable) mesh = object;
+        });
+        if (mesh) {
+          const geometry = buildFlexibleCableGeometry(
+            points, state.radius, state.reversed, state.floorY);
+          if (geometry) {
+            mesh.geometry?.dispose?.();
+            mesh.geometry = geometry;
+          }
+        }
+        continue;
+      }
+
+      // Rebuild once at rest so fault marks and declarative path effects use
+      // the final centreline too. Shared materials survive the replacement.
+      state.parentGroup.remove(group);
+      this._disposeGroup(group);
+      const replacement = buildLineGroup(
+        state.line,
+        state.placeablesById,
+        state.errorStatus,
+        state.reversed,
+        state.finalPoints,
+      );
+      if (replacement) {
+        state.parentGroup.add(replacement);
+        this._lineGroups.set(lineId, replacement);
+      } else {
+        this._lineGroups.delete(lineId);
+        this._lineHashes.delete(lineId);
+      }
+      this._relaxations.delete(lineId);
+      finishedAny = true;
+    }
+    return finishedAny;
   }
 
   /**
@@ -1173,6 +1291,8 @@ export class UtilityLineBuilderV2 {
     }
     this._lineGroups.clear();
     this._lineHashes.clear();
+    this._relaxations.clear();
+    this._hasBuiltOnce = false;
     if (this._previewObject) {
       parentGroup.remove(this._previewObject);
       this._disposeObject(this._previewObject);

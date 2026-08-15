@@ -261,3 +261,118 @@ export function softCableControlPoints(path, {
   sampled[sampled.length - 1].y = endY;
   return sampled;
 }
+
+function pointDistance3D(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+}
+
+/**
+ * Settle a sampled flexible-line centreline as a position-based rope.
+ *
+ * Both terminal fittings and every section already resting on the deck are
+ * fixed. Suspended spans keep their traced cable length, fall under gravity,
+ * and repeatedly satisfy distance + bend constraints until sharp floating
+ * kinks relax into a smooth hanging curve. Returned points are plain objects
+ * so this remains deterministic and testable without Three.js.
+ */
+export function relaxedCableControlPoints(points, {
+  floorY = 0.03,
+  iterations = 140,
+  constraintPasses = 5,
+  gravityStep = 0.018,
+  bendStiffness = 0.12,
+} = {}) {
+  if (!Array.isArray(points)) return [];
+  const settled = points
+    .filter(point => point && Number.isFinite(point.x)
+      && Number.isFinite(point.y) && Number.isFinite(point.z))
+    .map(point => ({ x: point.x, y: point.y, z: point.z }));
+  if (settled.length < 3) return settled;
+
+  const original = settled.map(point => ({ ...point }));
+  const fixed = settled.map((point, index) => index === 0
+    || index === settled.length - 1
+    || point.y <= floorY + 1e-5);
+
+  // Redistribute each supported span's original length evenly across its
+  // samples. Uniform rest lengths remove sampling-density elbows while keeping
+  // exactly the slack the player's drawn route purchased.
+  const restLengths = new Array(settled.length - 1).fill(0);
+  const supports = [];
+  for (let i = 0; i < fixed.length; i++) if (fixed[i]) supports.push(i);
+  for (let support = 0; support < supports.length - 1; support++) {
+    const from = supports[support];
+    const to = supports[support + 1];
+    let spanLength = 0;
+    for (let i = from; i < to; i++) spanLength += pointDistance3D(original[i], original[i + 1]);
+    const segmentLength = spanLength / Math.max(1, to - from);
+    for (let i = from; i < to; i++) restLengths[i] = segmentLength;
+  }
+
+  const restoreSupports = () => {
+    for (let i = 0; i < settled.length; i++) {
+      if (!fixed[i]) continue;
+      settled[i].x = original[i].x;
+      settled[i].y = original[i].y;
+      settled[i].z = original[i].z;
+    }
+  };
+
+  const count = Math.max(1, Math.floor(iterations));
+  const passes = Math.max(1, Math.floor(constraintPasses));
+  for (let iteration = 0; iteration < count; iteration++) {
+    // Gravity supplies the motive force. A small Laplacian bend constraint
+    // damps zigzags without pinning the rope to its original lateral trace.
+    const bendTargets = settled.map(point => ({ x: point.x, y: point.y, z: point.z }));
+    for (let i = 1; i < settled.length - 1; i++) {
+      if (fixed[i]) continue;
+      const previous = settled[i - 1];
+      const point = settled[i];
+      const next = settled[i + 1];
+      bendTargets[i].x = point.x + ((previous.x + next.x) * 0.5 - point.x) * bendStiffness;
+      bendTargets[i].y = point.y + ((previous.y + next.y) * 0.5 - point.y) * bendStiffness
+        - gravityStep;
+      bendTargets[i].z = point.z + ((previous.z + next.z) * 0.5 - point.z) * bendStiffness;
+    }
+    for (let i = 1; i < settled.length - 1; i++) {
+      if (fixed[i]) continue;
+      settled[i] = bendTargets[i];
+      settled[i].y = Math.max(floorY, settled[i].y);
+    }
+
+    for (let pass = 0; pass < passes; pass++) {
+      // Alternate direction so neither fitting gets a systematic bias.
+      const forward = (iteration + pass) % 2 === 0;
+      for (let step = 0; step < restLengths.length; step++) {
+        const i = forward ? step : restLengths.length - 1 - step;
+        const a = settled[i];
+        const b = settled[i + 1];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dz = b.z - a.z;
+        const distance = Math.hypot(dx, dy, dz);
+        const rest = restLengths[i];
+        if (!(distance > EPS) || !(rest > EPS)) continue;
+        const error = (distance - rest) / distance;
+        const aFree = !fixed[i];
+        const bFree = !fixed[i + 1];
+        if (!aFree && !bFree) continue;
+        const aShare = aFree ? (bFree ? 0.5 : 1) : 0;
+        const bShare = bFree ? (aFree ? 0.5 : 1) : 0;
+        if (aShare) {
+          a.x += dx * error * aShare;
+          a.y = Math.max(floorY, a.y + dy * error * aShare);
+          a.z += dz * error * aShare;
+        }
+        if (bShare) {
+          b.x -= dx * error * bShare;
+          b.y = Math.max(floorY, b.y - dy * error * bShare);
+          b.z -= dz * error * bShare;
+        }
+      }
+      restoreSupports();
+    }
+  }
+  restoreSupports();
+  return settled;
+}
