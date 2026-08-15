@@ -44,7 +44,7 @@ import {
 } from './lighting-builder.js';
 import { OverlayShim } from './overlay-shim.js';
 import { GlowPipeline } from './glow-pipeline.js';
-import { createWorldRenderer } from './renderer-backend.js';
+import { createRendererRecovery, createWorldRenderer } from './renderer-backend.js';
 import { LightRig } from './light-rig.js';
 import { VisualEffectSystem } from './visual-effect-system.js';
 import { fixtureMountY, wallFixturePose } from './fixture-light-math.js';
@@ -499,7 +499,17 @@ export class ThreeRenderer {
     // browser supports it, WebGL2 through the same API otherwise. The query
     // `?renderer=legacy` forces that WebGL2 backend as an immediate rollback;
     // old WebGLRenderer is now confined to tiny thumbnails/view-cube canvases.
-    this._rendererBackend = await createWorldRenderer({ antialias: false });
+    this._rendererRecovery = createRendererRecovery({
+      // init() runs before the save has been loaded. Only persist if the game
+      // loop has started, otherwise a device loss during boot could replace a
+      // real save with the constructor's fresh state.
+      save: () => { if (this.game?.tickInterval) this.game.save?.(); },
+      onReloadSuppressed: (info) => this._showRendererRecoveryError(info),
+    });
+    this._rendererBackend = await createWorldRenderer(
+      { antialias: false },
+      { onDeviceLost: this._rendererRecovery },
+    );
     this.renderer = this._rendererBackend.renderer;
     this.renderer.setPixelRatio(1);
     this.renderer.shadowMap.enabled = true;
@@ -3539,6 +3549,39 @@ export class ThreeRenderer {
     // First call happens during init(), before the glow pipeline (which
     // needs the scene/camera) is constructed — guard rather than reorder.
     if (this._glowPipeline) this._glowPipeline.setSize(rw, rh);
+  }
+
+  _showRendererRecoveryError(info = {}) {
+    if (document.getElementById('graphics-recovery-error')) return;
+
+    const panel = document.createElement('section');
+    panel.id = 'graphics-recovery-error';
+    panel.setAttribute('role', 'alert');
+    panel.style.cssText = [
+      'position:fixed', 'left:50%', 'top:50%', 'transform:translate(-50%,-50%)',
+      'z-index:10000', 'width:min(460px,calc(100vw - 32px))',
+      'padding:18px 20px', 'border:2px solid #e16b5a', 'background:#141422',
+      'color:#ddd8ef', 'box-shadow:0 10px 40px #000c',
+      'font:14px/1.5 monospace', 'text-align:left',
+    ].join(';');
+
+    const heading = document.createElement('strong');
+    heading.textContent = 'GRAPHICS DEVICE LOST';
+    heading.style.cssText = 'display:block;color:#ff9b87;font-size:16px;margin-bottom:8px';
+
+    const message = document.createElement('p');
+    const api = info.api === 'WebGL' ? 'WebGL' : 'WebGPU';
+    message.textContent = `${api} stopped responding. Your saved game is intact, but automatic recovery could not restore the graphics.`;
+    message.style.margin = '0 0 14px';
+
+    const reload = document.createElement('button');
+    reload.type = 'button';
+    reload.textContent = 'Reload Graphics';
+    reload.style.cssText = 'padding:8px 12px;border:1px solid #6d6a91;background:#2b2944;color:#fff;cursor:pointer;font:inherit';
+    reload.addEventListener('click', () => location.reload());
+
+    panel.append(heading, message, reload);
+    document.body.appendChild(panel);
   }
 
   _updateCameraFrustum() {
