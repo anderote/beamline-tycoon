@@ -57,8 +57,11 @@ export const FLOW_PARAMS = {
     // Gas load drifts from beam chambers toward the pump. Kept restrained so
     // a vacuum header reads as molecular flow in pipework, not another power
     // cable; direction is inverted in UtilityLineBuilderV2, not in the shader.
+    // Vacuum has no visible travelling crest object: only the pipe's emissive
+    // pulse and its bounded moving light proxy communicate that flow.
     speed: 0.30, period: 3.8, width: 0.78, strength: 0.46, baseGlow: 0.018,
     color: '#aebbc2',
+    crest: false,
     pulseRadialScale: 0.92, pulseLengthScale: 5.6,
     lightIntensity: 0.055, lightDistance: 0.9, daylightFloor: 0.12,
   },

@@ -284,23 +284,27 @@ export class VisualEffectSystem {
 
     for (const effect of this._effects.values()) {
       if (effect.enabled === false || effect.state === 'hard') continue;
-      const distances = travellingPulseDistances(
-        effect.path.length, effect.period, effect.speed, this._time, effect.phase || 0,
-      );
-      for (const distance of distances) {
-        requested++;
-        const point = sampleEffectPath(effect.path, distance, this._sample);
-        if (!point) continue;
-        const strength = this._pathPulseStrength(effect);
+      // Some effects need only their moving light proxy. Vacuum flow uses
+      // this to illuminate the pipe without drawing a travelling crest object.
+      if (effect.crest !== false) {
+        const distances = travellingPulseDistances(
+          effect.path.length, effect.period, effect.speed, this._time, effect.phase || 0,
+        );
+        for (const distance of distances) {
+          requested++;
+          const point = sampleEffectPath(effect.path, distance, this._sample);
+          if (!point) continue;
+          const strength = this._pathPulseStrength(effect);
 
-        if (instanceIndex < this._pulseBudget) {
-          const writesSpill = effect.groundSpill !== false;
-          this._writePulseInstance(
-            instanceIndex, writesSpill ? spillIndex : -1,
-            point, effect, strength, distance,
-          );
-          instanceIndex++;
-          if (writesSpill) spillIndex++;
+          if (instanceIndex < this._pulseBudget) {
+            const writesSpill = effect.groundSpill !== false;
+            this._writePulseInstance(
+              instanceIndex, writesSpill ? spillIndex : -1,
+              point, effect, strength, distance,
+            );
+            instanceIndex++;
+            if (writesSpill) spillIndex++;
+          }
         }
       }
       activeProxyCount += this._updateEffectLightProxies(effect, darkness);
