@@ -140,6 +140,9 @@ export default {
   color: '#cc4444',
   geometryStyle: 'rectWaveguide',
   pipeRadiusMeters: 0.05,
+  // The fitting itself supplies the transition; routing may turn immediately
+  // without reserving an extra quarter-tile tail on the deck.
+  portClearance: false,
   capacityUnit: 'kW',
   // Waveguide may tee, but every tee introduces a modeled impedance mismatch.
   // Extra branches show up as reflected power and worse VSWR in the RF panel.

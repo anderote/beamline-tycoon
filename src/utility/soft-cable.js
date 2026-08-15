@@ -1,22 +1,35 @@
-// Freeform presentation geometry for flexible electrical cables.
+// Freeform presentation geometry for flexible cords and hoses.
 //
-// Power and HV remain ordinary point-to-point utility networks. Their hidden
-// `path` is still the grid-routed topology/collision path, while `cablePath`
-// records the player's unsnapped mouse trace. This module owns the latter so
-// input, pricing, hit testing and rendering agree about the cable actually
+// Power, HV and cooling remain ordinary utility networks. Their hidden `path`
+// is still the grid-routed topology path, while `cablePath` records the
+// player's unsnapped mouse trace. This module owns the latter so input,
+// pricing, hit testing and rendering agree about the flexible run actually
 // visible on the floor.
 
-export const SOFT_CABLE_TYPES = Object.freeze(['powerCable', 'hvCable']);
+export const SOFT_CABLE_TYPES = Object.freeze(['powerCable', 'hvCable', 'coolingWater']);
+export const FREEFORM_TOPOLOGY_TYPES = Object.freeze(['coolingWater']);
+export const SOFT_CABLE_MAX_POINTS = 1024;
 
 const SOFT_SET = new Set(SOFT_CABLE_TYPES);
+const FREEFORM_TOPOLOGY_SET = new Set(FREEFORM_TOPOLOGY_TYPES);
 const EPS = 1e-6;
 
 export function isSoftCable(utilityType) {
   return SOFT_SET.has(utilityType);
 }
 
+/** True when the visible freehand route, rather than its hidden grid route, joins networks. */
+export function usesFreeformTopology(utilityType) {
+  return FREEFORM_TOPOLOGY_SET.has(utilityType);
+}
+
+/** Loose electrical cords may cross; plumbed hoses retain overlap/tap rules. */
+export function softCableSkipsOverlap(utilityType) {
+  return isSoftCable(utilityType) && !usesFreeformTopology(utilityType);
+}
+
 /** Copy a finite freeform tile path, removing coincident samples. */
-export function sanitizeCablePath(path, maxPoints = 256) {
+export function sanitizeCablePath(path, maxPoints = SOFT_CABLE_MAX_POINTS) {
   if (!Array.isArray(path)) return [];
   const out = [];
   for (const raw of path) {

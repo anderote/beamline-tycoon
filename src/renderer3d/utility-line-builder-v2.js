@@ -150,7 +150,7 @@ function anchorTip(anchor) {
   };
 }
 
-/** Flexible Power/HV cable centreline, including true-height plug endpoints. */
+/** Flexible cord/hose centreline, including true-height fitting endpoints. */
 export function buildSoftCableWorldPoints(line, placeablesById, previewAnchors = null) {
   const trace = Array.isArray(line.cablePath) && line.cablePath.length >= 2
     ? line.cablePath

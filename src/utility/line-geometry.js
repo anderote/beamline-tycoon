@@ -240,11 +240,13 @@ export function buildPortRoutedPaths(start, startVec, end, endVec, opts = {}) {
     ]];
   }
 
-  // `a1` and `b1` are the routing anchors: the free-form Manhattan section
-  // starts only AFTER the one-subtile port tails. That section may turn on any
-  // grid subtile; only the first and final tail segments are directional.
-  const a1 = portTailPoint(start, startVec);
-  const b1 = portTailPoint(end, endVec);
+  // `a1` and `b1` are the routing anchors. Most utilities start the free-form
+  // Manhattan section only AFTER one-subtile port tails. Large rigid services
+  // may opt out: their fittings already provide the visual transition and the
+  // route should be allowed to turn immediately without reserving deck space.
+  const usePortClearance = opts.portClearance !== false;
+  const a1 = usePortClearance ? portTailPoint(start, startVec) : start;
+  const b1 = usePortClearance ? portTailPoint(end, endVec) : end;
 
   // Mid-routes are the interior waypoints between the two stub tips: [] is the
   // straight shot, one point is an L, two points is a jog through a lane.

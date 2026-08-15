@@ -18,6 +18,7 @@ import { COMPONENTS } from '../data/components.js';
 import { UTILITY_TYPES } from './registry.js';
 import { getPortSpec } from './ports.js';
 import { expandPath } from './line-geometry.js';
+import { sanitizeCablePath, usesFreeformTopology } from './soft-cable.js';
 import { listUtilityEndpoints } from './utility-endpoints.js';
 
 function portKey(ref) { return `${ref.placeableId}:${ref.portName}`; }
@@ -410,7 +411,14 @@ export function discoverNetworks(utilityType, lines, portLookup) {
   if (UTILITY_TYPES[utilityType]?.allowsTap === true) {
     const subtileToLines = new Map();
     for (const line of lineArr) {
-      const expanded = expandPath(line.path || []);
+      // Cooling hoses are physically routed by their visible freehand trace.
+      // A branch snapped to that hose must therefore join where the player
+      // clicked, not at an unrelated hidden Manhattan compatibility path.
+      const topologyPath = usesFreeformTopology(utilityType)
+        && Array.isArray(line.cablePath) && line.cablePath.length >= 2
+        ? sanitizeCablePath(line.cablePath)
+        : (line.path || []);
+      const expanded = expandPath(topologyPath);
       for (let i = 0; i < expanded.length; i++) {
         const pt = expanded[i];
         const key = `${Math.round(pt.col * 4)}/${Math.round(pt.row * 4)}`;

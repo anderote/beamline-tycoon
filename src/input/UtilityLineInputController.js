@@ -35,6 +35,7 @@ import {
   cablePathLengthSubUnits,
   isSoftCable,
   sanitizeCablePath,
+  SOFT_CABLE_MAX_POINTS,
 } from '../utility/soft-cable.js';
 
 // Snap tolerance between cursor and a port's world position, in world meters.
@@ -62,11 +63,12 @@ const TAP_SNAP_RADIUS_TILES = 0.4;
 const RUN_TRACE_MIN_STEP = 0.5;      // tiles
 const RUN_TRACE_MAX_POINTS = 256;
 
-// Flexible electrical cable follows the hand rather than the routing grid.
-// Roughly 24 cm between samples preserves an S-curve without storing one
-// point per mouse event, and the cap bounds save size / preview rebuild cost.
-const SOFT_CABLE_TRACE_MIN_STEP = 0.12; // tiles
-const SOFT_CABLE_TRACE_MAX_POINTS = 256;
+// Flexible cords and hoses follow the hand rather than the routing grid. One
+// half-subtile (1/8 tile, 25 cm in-world) between committed samples preserves
+// deliberate small bends without storing one point per mouse event. A live
+// endpoint follows the cursor between samples; the higher cap still bounds
+// save size and preview rebuild cost while covering a 128-tile drawn run.
+export const SOFT_CABLE_TRACE_STEP = 0.125; // tiles
 
 // How far down the router's ranking a drag will look for a route the board
 // accepts. See _dragGeometry: each step costs a full validateDrawLine, which
@@ -267,7 +269,7 @@ export class UtilityLineInputController {
     if (path) {
       const { startRef, endRef } = geom;
       const cablePath = isSoftCable(this._utilityType)
-        ? sanitizeCablePath(this._cableTrace, SOFT_CABLE_TRACE_MAX_POINTS)
+        ? sanitizeCablePath(this._cableTrace, SOFT_CABLE_MAX_POINTS)
         : null;
       const pricedSubL = cablePath && cablePath.length >= 2
         ? cablePathLengthSubUnits(cablePath)
@@ -349,7 +351,7 @@ export class UtilityLineInputController {
     return true;
   }
 
-  /** Record the actual unsnapped hand path used to render a flexible cable. */
+  /** Record the actual unsnapped hand path used to render a flexible run. */
   _traceSoftCable(worldX, worldY, snap, final = false) {
     if (!isSoftCable(this._utilityType) || this._runMode) return false;
     if (!Array.isArray(this._cableTrace) || this._cableTrace.length === 0) return false;
@@ -358,18 +360,40 @@ export class UtilityLineInputController {
       : this._isoFloatToTile(worldX, worldY);
     if (!Number.isFinite(raw.col) || !Number.isFinite(raw.row)) return false;
     const point = { col: raw.col, row: raw.row };
-    const last = this._cableTrace[this._cableTrace.length - 1];
-    const distance = Math.hypot(point.col - last.col, point.row - last.row);
-    if (distance < 1e-6) return false;
-    if (final || distance >= SOFT_CABLE_TRACE_MIN_STEP) {
-      if (this._cableTrace.length < SOFT_CABLE_TRACE_MAX_POINTS) this._cableTrace.push(point);
-      else this._cableTrace[this._cableTrace.length - 1] = point;
-    } else if (this._cableTrace.length === 1) {
-      this._cableTrace.push(point);
-    } else {
-      // Keep the live endpoint under the cursor without accumulating jitter.
-      this._cableTrace[this._cableTrace.length - 1] = point;
+    const trace = this._cableTrace;
+    const last = trace[trace.length - 1];
+    if (Math.hypot(point.col - last.col, point.row - last.row) < 1e-6) return false;
+
+    if (trace.length === 1) {
+      trace.push(point);
+      return true;
     }
+
+    // The last point is live, not committed. Measure from the point before it
+    // so a slow stream of tiny mouse moves accumulates distance instead of
+    // repeatedly replacing itself forever. Fill every half-subtile crossed in
+    // one event too, so fast and slow strokes get the same spatial detail.
+    trace.pop();
+    const anchor = trace[trace.length - 1];
+    const dc = point.col - anchor.col;
+    const dr = point.row - anchor.row;
+    const distance = Math.hypot(dc, dr);
+    const steps = Math.floor(distance / SOFT_CABLE_TRACE_STEP);
+    for (let i = 1; i <= steps && trace.length < SOFT_CABLE_MAX_POINTS - 1; i++) {
+      const along = Math.min(i * SOFT_CABLE_TRACE_STEP, distance);
+      trace.push({
+        col: anchor.col + dc * along / distance,
+        row: anchor.row + dr * along / distance,
+      });
+    }
+
+    const endpoint = trace[trace.length - 1];
+    if (final && endpoint
+      && Math.hypot(point.col - endpoint.col, point.row - endpoint.row) < 1e-6) {
+      return true;
+    }
+    if (trace.length < SOFT_CABLE_MAX_POINTS) trace.push(point);
+    else trace[trace.length - 1] = point;
     return true;
   }
 
@@ -439,6 +463,7 @@ export class UtilityLineInputController {
       {
         preferVerticalFirst: this._preferVerticalFirst,
         allowZeroLength: isPowerCable,
+        portClearance: UTILITY_TYPES[this._utilityType]?.portClearance !== false,
       });
 
     let chosen = null;
@@ -455,6 +480,7 @@ export class UtilityLineInputController {
       const path = snapPath(candidates[i]);
       const res = validateDrawLine(this.game.state, {
         utilityType: this._utilityType, start: startRef, end: endRef, path, tapLineIds,
+        cablePath: isSoftCable(this._utilityType) ? this._cableTrace : null,
       });
       if (res.ok) { chosen = path; break; }
       // The reason shown is the FIRST failure: it is the one that explains why
@@ -465,9 +491,10 @@ export class UtilityLineInputController {
     // Why the gesture would be refused, for the drag tooltip. The commit path
     // logs this too, but the log has no on-screen surface — leaving "release
     // and nothing happens" as the only feedback the player ever got.
-    // A port-to-port drag with no candidates means their fixed one-subtile
-    // tails have no non-overlapping route. Surface that spatial problem before
-    // release instead of presenting an empty preview that simply does nothing.
+    // A port-to-port drag with no candidates means a utility that retains
+    // fixed port tails has no non-overlapping route. Surface that spatial
+    // problem before release instead of presenting an empty preview that
+    // simply does nothing.
     if (reason === null && !fallback && startRef && endRef) reason = 'port_clearance';
     this._dragReject = chosen ? null : reason;
     return {

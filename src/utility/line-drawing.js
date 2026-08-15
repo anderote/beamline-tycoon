@@ -25,7 +25,12 @@ import {
   expandPath,
 } from './line-geometry.js';
 import { findUtilityEndpoint } from './utility-endpoints.js';
-import { cablePathLengthSubUnits, isSoftCable, sanitizeCablePath } from './soft-cable.js';
+import {
+  cablePathLengthSubUnits,
+  isSoftCable,
+  sanitizeCablePath,
+  softCableSkipsOverlap,
+} from './soft-cable.js';
 
 const EPS = 1e-6;
 
@@ -412,16 +417,16 @@ export function validateDrawLine(state, {
     ignoreSharedSource = ignoreSharedSource || {};
     ignoreSharedSource[side] = ref;
   }
-  // Flexible electrical cords may lie beside or cross one another on the
-  // floor. They remain electrically separate because Power/HV forbid taps,
-  // source fanout and adjacency bridging; their hidden grid routes therefore
-  // must not reject a perfectly clear freeform cable the player can see.
-  if (!isSoftCable(utilityType)
+  const freeform = isSoftCable(utilityType) ? sanitizeCablePath(cablePath) : [];
+  // Loose electrical cords may cross on the floor without joining. Cooling
+  // hoses are equally smooth, but remain plumbed networks and retain the
+  // hidden grid route for deterministic overlap/tap-clearance validation.
+  // Their visible route owns the actual network join position in discovery.
+  if (!softCableSkipsOverlap(utilityType)
       && pathOverlapsSameType(path, lines, utilityType, { ignoreSharedSource, tapLineIds })) {
     return reject('overlap_same_type');
   }
 
-  const freeform = isSoftCable(utilityType) ? sanitizeCablePath(cablePath) : [];
   return {
     ok: true,
     line: {

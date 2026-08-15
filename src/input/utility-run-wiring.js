@@ -105,6 +105,7 @@ export function buildRunStubPath(srcTile, srcVec, sinkTile, sinkVec, preferVerti
   return buildPortRoutedPath(srcTile, srcVec, sinkTile, sinkVec, {
     preferVerticalFirst,
     allowZeroLength: !!opts.allowZeroLength,
+    portClearance: opts.portClearance !== false,
   });
 }
 
@@ -234,6 +235,7 @@ export function planUtilityRun(state, {
         c.tile, directPowerJumper ? null : c.vec,
         vf, {
         allowZeroLength: utilityType === 'powerCable',
+        portClearance: UTILITY_TYPES[utilityType]?.portClearance !== false,
       });
       if (!path) continue;
       if (validateDrawLine(probeState, { utilityType, start, end, path }).ok) {

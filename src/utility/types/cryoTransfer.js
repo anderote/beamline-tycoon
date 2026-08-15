@@ -225,6 +225,9 @@ export default {
   color: '#44aacc',
   geometryStyle: 'jacketedCylinder',
   pipeRadiusMeters: 0.06,
+  // The fitting itself supplies the transition; routing may turn immediately
+  // without reserving an extra quarter-tile tail on the deck.
+  portClearance: false,
   capacityUnit: 'W@4K',
   // Cryogenic transfer is run port-to-port through a valve box; an improvised
   // tee would be a heat leak and is not a player routing shortcut.

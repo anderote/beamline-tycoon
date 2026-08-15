@@ -16,7 +16,10 @@ import { Game } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
 import { COMPONENTS } from '../src/data/components.js';
 import { PARAM_DEFS } from '../src/beamline/component-physics.js';
-import { UtilityLineInputController } from '../src/input/UtilityLineInputController.js';
+import {
+  SOFT_CABLE_TRACE_STEP,
+  UtilityLineInputController,
+} from '../src/input/UtilityLineInputController.js';
 import { UtilityLineTool } from '../src/input/utility-line-tool.js';
 import { utilityLineHeight } from '../src/utility/registry.js';
 import { buildPortRoutedPath } from '../src/utility/line-geometry.js';
@@ -201,6 +204,34 @@ console.log('\n--- 2b. A hand-drawn S-curve is stored without subtile snapping -
   'freeform samples are not confined to quarter-tile coordinates');
   assert(JSON.stringify(preview) === JSON.stringify(cable),
     'the exact S-curve preview is persisted on release');
+}
+
+console.log('\n--- 2c. Cooling hoses retain half-subtile detail during slow drawing ---');
+{
+  const game = makeGame();
+  const ctrl = new UtilityLineInputController({ game, renderer: {} });
+  ctrl.setUtilityType('coolingWater');
+  const startTile = { col: 12, row: 12 };
+  const start = gridToIso(startTile.col, startTile.row);
+  ctrl.onMouseDown(start.x, start.y, 0, {});
+  // Each mouse event moves only 1/40 tile. The former live-endpoint logic
+  // replaced every one of these and retained no intermediate detail.
+  for (let i = 1; i <= 20; i++) {
+    const point = gridToIso(startTile.col + i / 40, startTile.row);
+    ctrl.onMouseMove(point.x, point.y, {});
+  }
+  const finish = gridToIso(startTile.col + 0.5, startTile.row);
+  ctrl.onMouseUp(finish.x, finish.y, 0, {});
+  const hose = Array.from(game.state.utilityLines.values())
+    .find(line => line.utilityType === 'coolingWater');
+  assert(Array.isArray(hose?.cablePath) && hose.cablePath.length >= 5,
+    `slow cooling stroke retains half-subtile samples (got ${hose?.cablePath?.length || 0})`);
+  const longestSample = hose?.cablePath?.slice(1).reduce((longest, point, index) => {
+    const previous = hose.cablePath[index];
+    return Math.max(longest, Math.hypot(point.col - previous.col, point.row - previous.row));
+  }, 0) || 0;
+  assert(longestSample <= SOFT_CABLE_TRACE_STEP + 1e-6,
+    `cooling samples stay within one half-subtile (got ${longestSample})`);
 }
 
 console.log('\n--- 3. Open-ended drags are unchanged ---');
