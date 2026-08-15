@@ -312,6 +312,12 @@ console.log('\n--- 4. FLOW_PARAMS covers every utility ---');
     'data is the fastest packet train and does not cast physical light');
   assert(FLOW_PARAMS.hvCable.period > FLOW_PARAMS.powerCable.period * 3,
     'HV surges are sparse while branch power packets are regular');
+  assert(FLOW_PARAMS.powerCable.strength > 1
+      && FLOW_PARAMS.hvCable.strength > FLOW_PARAMS.powerCable.strength,
+    'electrical line crests have an intentionally boosted emissive core, led by HV');
+  assert(FLOW_PARAMS.powerCable.lightIntensity > FLOW_PARAMS.coolingWater.lightIntensity * 1.5
+      && FLOW_PARAMS.hvCable.lightIntensity > FLOW_PARAMS.powerCable.lightIntensity * 1.7,
+    'power and HV packets cast a stronger local light than support-service flow');
 }
 
 console.log('\n--- 5. getLineMaterial: distinct per flowState, cached, tagged __shared ---');

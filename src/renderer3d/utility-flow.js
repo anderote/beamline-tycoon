@@ -41,17 +41,17 @@ export const FLOW_PARAMS = {
     // Sparse, needle-sharp violet surges.  The long crest and stronger local
     // light make an HV feeder feel dangerous instead of reading as a second
     // green branch circuit.
-    speed: 2.35, period: 4.4, width: 0.11, strength: 1.45, baseGlow: 0.035,
+    speed: 2.35, period: 4.4, width: 0.11, strength: 1.60, baseGlow: 0.045,
     color: '#8f94c8',
-    pulseRadialScale: 0.48, pulseLengthScale: 4.8,
-    lightIntensity: 0.24, lightDistance: 1.9, daylightFloor: 0.3,
+    pulseRadialScale: 0.52, pulseLengthScale: 4.8,
+    lightIntensity: 0.28, lightDistance: 2.05, daylightFloor: 0.34,
   },
   powerCable: {
     // A regular train of compact green current packets: dependable, frequent,
     // and visibly less violent than the HV surges above.
-    speed: 1.35, period: 1.05, width: 0.16, strength: 1.0, baseGlow: 0.075,
-    pulseRadialScale: 0.66, pulseLengthScale: 2.25,
-    lightIntensity: 0.13, lightDistance: 1.35, daylightFloor: 0.22,
+    speed: 1.35, period: 1.05, width: 0.16, strength: 1.12, baseGlow: 0.09,
+    pulseRadialScale: 0.71, pulseLengthScale: 2.25,
+    lightIntensity: 0.16, lightDistance: 1.5, daylightFloor: 0.26,
   },
   vacuumPipe: {
     // Gas load drifts from beam chambers toward the pump. Kept restrained so
