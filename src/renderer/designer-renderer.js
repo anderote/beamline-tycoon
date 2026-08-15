@@ -11,6 +11,7 @@ import { UNITS } from '../data/units.js';
 import { isFacilityCategory } from './Renderer.js';
 import { beamlineTypeHidesComponent } from '../ui/BeamlineTypePicker.js';
 import { ProbePlots } from '../ui/probe-plots.js';
+import { paletteUtilityMetrics } from '../ui/utility-supply.js';
 
 // Schematic pixel dimensions per component (same as overlays.js drawSchematic)
 const SCHEM_PW = 70;
@@ -1014,6 +1015,7 @@ BeamlineDesigner.prototype._visibleDesignerComps = function(category) {
 BeamlineDesigner.prototype._renderDesignerPalette = function(category) {
   const palette = document.getElementById('component-palette');
   if (!palette) return;
+  this._hideDesignerPaletteHover();
   palette.innerHTML = '';
 
   // Only show beamline components
@@ -1061,6 +1063,147 @@ BeamlineDesigner.prototype._renderDesignerPalette = function(category) {
       palette.appendChild(this._createDesignerPaletteCard(key, comp));
     }
   }
+};
+
+const DESIGNER_CONNECTION_LABELS = {
+  powerCable: 'Power cable',
+  hvCable: 'HV cable',
+  coolingWater: 'Cooling water',
+  cryoTransfer: 'Cryogenic transfer',
+  rfWaveguide: 'RF waveguide',
+  vacuumPipe: 'Vacuum pipe',
+  dataFiber: 'Data fiber',
+};
+
+/**
+ * Return the complete static catalogue facts used by the designer palette's
+ * floating hover inspector. Keeping this separate from DOM construction makes
+ * it difficult for the compact card and the detailed panel to drift apart.
+ */
+export function designerPaletteDetails(key, comp) {
+  const rows = [];
+  const costs = Object.entries(comp.cost || {}).map(([resource, amount]) =>
+    resource === 'funding' ? `$${amount.toLocaleString()}` : `${amount} ${resource}`
+  ).join(', ') || '--';
+  rows.push({ label: 'Cost', value: costs });
+  rows.push({ label: 'Power', value: `${comp.energyCost || 0} kW` });
+  rows.push({ label: 'Length', value: `${((comp.subL || 4) * 0.5).toFixed(1)} m` });
+
+  if (Number.isFinite(comp.apertureRadius)) {
+    rows.push({ label: 'Aperture radius', value: `${comp.apertureRadius} mm` });
+  }
+
+  for (const [statKey, value] of Object.entries(comp.stats || {})) {
+    if (statKey === 'energyGain') {
+      const energy = formatEnergy(value);
+      rows.push({ label: _paramLabel(statKey), value: `${energy.val} ${energy.unit}` });
+    } else {
+      const unit = UNITS?.[statKey] || '';
+      rows.push({ label: _paramLabel(statKey), value: `${value}${unit ? ` ${unit}` : ''}` });
+    }
+  }
+
+  if (typeof comp.rfFrequency === 'number') {
+    rows.push({ label: 'RF frequency', value: `${comp.rfFrequency} MHz` });
+  }
+  const rfBands = comp.rfBands || (comp.rfBand ? [comp.rfBand] : null);
+  if (rfBands) rows.push({ label: 'RF band', value: rfBands.map(b => b.toUpperCase()).join(', ') });
+
+  const utilityRows = paletteUtilityMetrics(comp);
+  const connections = (comp.requiredConnections || [])
+    .map(connection => DESIGNER_CONNECTION_LABELS[connection] || _paramLabel(connection));
+
+  const params = [];
+  const defs = PARAM_DEFS[key] || {};
+  for (const [paramKey, value] of Object.entries(comp.params || {})) {
+    const unit = defs[paramKey]?.unit || '';
+    params.push({
+      label: _paramLabel(paramKey),
+      value: `${value}${unit ? ` ${unit}` : ''}`,
+    });
+  }
+
+  return {
+    name: comp.name || key,
+    description: comp.desc || '',
+    rows,
+    utilityRows,
+    connections,
+    params,
+  };
+}
+
+BeamlineDesigner.prototype._hideDesignerPaletteHover = function() {
+  if (this._designerPaletteHover?.isConnected) this._designerPaletteHover.remove();
+  this._designerPaletteHover = null;
+};
+
+BeamlineDesigner.prototype._showDesignerPaletteHover = function(card, key, comp) {
+  this._hideDesignerPaletteHover();
+  const details = designerPaletteDetails(key, comp);
+  const popup = document.createElement('div');
+  popup.className = 'dsgn-palette-hover';
+  popup.setAttribute('role', 'tooltip');
+
+  const title = document.createElement('div');
+  title.className = 'dsgn-palette-hover-title';
+  title.textContent = details.name;
+  popup.appendChild(title);
+
+  if (details.description) {
+    const description = document.createElement('div');
+    description.className = 'dsgn-palette-hover-desc';
+    description.textContent = details.description;
+    popup.appendChild(description);
+  }
+
+  const addRows = (label, rows) => {
+    if (!rows.length) return;
+    const section = document.createElement('div');
+    section.className = 'dsgn-palette-hover-section';
+    if (label) {
+      const heading = document.createElement('div');
+      heading.className = 'dsgn-palette-hover-heading';
+      heading.textContent = label;
+      section.appendChild(heading);
+    }
+    for (const row of rows) {
+      const line = document.createElement('div');
+      line.className = 'dsgn-palette-hover-row';
+      const rowLabel = document.createElement('span');
+      rowLabel.textContent = row.label;
+      const rowValue = document.createElement('strong');
+      rowValue.textContent = row.value;
+      line.append(rowLabel, rowValue);
+      section.appendChild(line);
+    }
+    popup.appendChild(section);
+  };
+
+  addRows('', details.rows);
+  addRows('Utilities', details.utilityRows);
+  addRows('Default parameters', details.params);
+
+  if (details.connections.length) {
+    const requirements = document.createElement('div');
+    requirements.className = 'dsgn-palette-hover-requirements';
+    requirements.textContent = `Connections: ${details.connections.join(', ')}`;
+    popup.appendChild(requirements);
+  }
+
+  document.body.appendChild(popup);
+  const cardRect = card.getBoundingClientRect();
+  const popupRect = popup.getBoundingClientRect();
+  const margin = 10;
+  const left = Math.max(margin, Math.min(
+    cardRect.left + cardRect.width / 2 - popupRect.width / 2,
+    window.innerWidth - popupRect.width - margin,
+  ));
+  let top = cardRect.top - popupRect.height - margin;
+  if (top < margin) top = Math.min(window.innerHeight - popupRect.height - margin, cardRect.bottom + margin);
+  popup.style.left = `${left}px`;
+  popup.style.top = `${Math.max(margin, top)}px`;
+  this._designerPaletteHover = popup;
 };
 
 BeamlineDesigner.prototype._createDesignerPaletteCard = function(key, comp) {
@@ -1115,8 +1258,13 @@ BeamlineDesigner.prototype._createDesignerPaletteCard = function(key, comp) {
   // Click handler — same single palette path as the main HUD; with the
   // designer open, selectComponentTool routes into handlePaletteClick.
   card.addEventListener('click', () => {
+    this._hideDesignerPaletteHover();
     this.renderer._inputHandler?.selectPaletteTool('component', key);
   });
+  card.addEventListener('mouseenter', () => this._showDesignerPaletteHover(card, key, comp));
+  card.addEventListener('mouseleave', () => this._hideDesignerPaletteHover());
+  card.addEventListener('focusin', () => this._showDesignerPaletteHover(card, key, comp));
+  card.addEventListener('focusout', () => this._hideDesignerPaletteHover());
 
   return card;
 };

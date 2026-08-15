@@ -1236,6 +1236,7 @@ export class BeamlineDesigner {
   }
 
   _cleanup() {
+    this._hideDesignerPaletteHover?.();
     this.isOpen = false;
     this._escUnsub?.();
     this._escUnsub = null;

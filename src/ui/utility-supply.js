@@ -62,6 +62,10 @@ const PALETTE_METRIC_SPEC = {
 
 function compactNumber(value) {
   if (Math.abs(value) >= 1000) return Math.round(value).toLocaleString();
+  // Vacuum loads are intentionally tiny (often 5e-7 mbar·L/s). Rounding
+  // them to two decimals made a real requirement read as a misleading zero
+  // in palette cards and the Designer hover inspector.
+  if (value !== 0 && Math.abs(value) < 0.01) return value.toExponential(1);
   if (Number.isInteger(value)) return String(value);
   return String(Math.round(value * 100) / 100);
 }
