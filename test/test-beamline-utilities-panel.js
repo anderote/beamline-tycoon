@@ -206,7 +206,7 @@ console.log('\n--- Test 6: unsolved and unrelated networks are not invented ---'
 }
 
 // ==========================================================================
-// Test 7: the overview embeds the shared two-day vacuum plot.
+// Test 7: the overview embeds the shared 12-hour vacuum plot.
 // ==========================================================================
 console.log('\n--- Test 7: overview pressure history ---');
 {
@@ -219,12 +219,13 @@ console.log('\n--- Test 7: overview pressure history ---');
     totalCapacity: 300,
     totalDemand: 1e-6,
     pressure: 2e-8,
+    networkPressure: 2e-8,
     tick: 2880,
     perSinkQuality: { 'gun:vacuum': 1 },
     gauges: [{ id: 'g1', label: 'BA gauge', color: '#66ddff', reading: 2e-8, status: 'ok' }],
     pressureHistory: [
-      { tick: 0, readings: { g1: 1e-3 } },
-      { tick: 2880, readings: { g1: 2e-8 } },
+      { tick: 2760, pressure: 1e-3, readings: { g1: 1e-3 } },
+      { tick: 2880, pressure: 2e-8, readings: { g1: 2e-8 } },
     ],
     errors: [],
   };
@@ -238,7 +239,8 @@ console.log('\n--- Test 7: overview pressure history ---');
 
   assert(html.includes('Vacuum pressure') && html.includes('2.00e-8 mbar'),
     'overview reports the connected section pressure');
-  assert(html.includes('vacuum-pressure-chart') && html.includes('last 2 days'),
+  assert(html.includes('vacuum-pressure-chart') && html.includes('last 12 hours')
+      && html.includes('Network'),
     'overview renders the shared rolling pressure graph');
 }
 
