@@ -32,6 +32,14 @@
 const DRAW_LABEL = 'Energy Cost';
 const SUPPLY_LABEL = 'Supplies';
 
+function sourceLabel(comp, utility) {
+  if (utility !== 'coolingWater') return SUPPLY_LABEL;
+  if (comp?.coolingRole === 'processCooling') return 'Process Cooling';
+  if (comp?.coolingRole === 'heatRejection') return 'Heat Rejection';
+  if (comp?.coolingRole === 'directAir') return 'Air Heat Rejection';
+  return 'Cooling Capacity';
+}
+
 // Per-utility: which params.* key on a `role: 'source'` port holds its
 // capacity, and the unit to display it in. coolingWater capacity is thermal
 // kW, not electrical kW, hence the qualifier; cryoTransfer's cold capacity is
@@ -103,7 +111,7 @@ export function utilityStatRows(comp) {
     if (utility === 'rfWaveguide' && typeof dutyFactor === 'number') {
       value += ` peak (${fmtDutyPercent(dutyFactor)} duty)`;
     }
-    rows.push({ label: SUPPLY_LABEL, value });
+    rows.push({ label: sourceLabel(comp, utility), value });
   }
 
   return rows;

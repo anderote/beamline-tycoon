@@ -7,8 +7,8 @@
 // UI files themselves, which touch the DOM and aren't Node-testable.
 //
 // Covers:
-//   1. Every one of the 27 source components (powerCable x8, rfWaveguide x9,
-//      coolingWater x3, cryoTransfer x2, vacuumPipe x5) yields a correct
+//   1. Every one of the 29 source components (powerCable x8, rfWaveguide x9,
+//      coolingWater x5, cryoTransfer x2, vacuumPipe x5) yields a correct
 //      supply row.
 //   2. A component with no source port yields no supply row.
 //   3. A component that both draws and supplies yields both rows.
@@ -27,7 +27,7 @@ function assert(cond, msg) {
 }
 
 function supplyRows(id) {
-  return utilityStatRows(COMPONENTS[id]).filter(r => r.label === 'Supplies');
+  return utilityStatRows(COMPONENTS[id]).filter(r => r.label !== 'Energy Cost');
 }
 function drawRows(id) {
   return utilityStatRows(COMPONENTS[id]).filter(r => r.label === 'Energy Cost');
@@ -49,10 +49,15 @@ console.log('\n--- Test 1: source components report correct supply ---');
     assert(rows[0]?.value === `${cap} kW`, `${id}: supplies ${cap} kW (got "${rows[0]?.value}")`);
   }
 
-  const COOLING = { lcwSkid: 100, chiller: 300, coolingTower: 800 };
-  for (const [id, cap] of Object.entries(COOLING)) {
+  const COOLING = {
+    lcwSkid: [100, 'Process Cooling'], chiller: [300, 'Process Cooling'],
+    coolingTower: [800, 'Heat Rejection'], dryCoolerBank: [500, 'Heat Rejection'],
+    fanCoilCooler: [20, 'Air Heat Rejection'],
+  };
+  for (const [id, [cap, label]] of Object.entries(COOLING)) {
     const rows = supplyRows(id);
     assert(rows.length === 1, `${id}: exactly one supply row`);
+    assert(rows[0]?.label === label, `${id}: identifies its cooling role (got "${rows[0]?.label}")`);
     assert(rows[0]?.value === `${cap} kW thermal`, `${id}: supplies ${cap} kW thermal (got "${rows[0]?.value}")`);
   }
 
@@ -90,7 +95,7 @@ console.log('\n--- Test 1: source components report correct supply ---');
     ...Object.keys(POWER), ...Object.keys(COOLING), ...Object.keys(CRYO),
     ...Object.keys(VACUUM), ...Object.keys(RF),
   ];
-  assert(totalSourceIds.length === 27, `27 source components covered (got ${totalSourceIds.length})`);
+  assert(totalSourceIds.length === 29, `29 source components covered (got ${totalSourceIds.length})`);
 }
 
 // ==========================================================================
@@ -107,12 +112,15 @@ console.log('\n--- Test 2: no source port -> no supply row ---');
 // ==========================================================================
 console.log('\n--- Test 3: draw + supply coexist ---');
 {
-  const BOTH = { ups: [2, 100, 'kW'], chiller: [5, 300, 'kW thermal'], coolingTower: [4, 800, 'kW thermal'], mcc: [1, 250, 'kW'] };
-  for (const [id, [draw, supply, unit]] of Object.entries(BOTH)) {
+  const BOTH = {
+    ups: [2, 100, 'kW', 'Supplies'], chiller: [5, 300, 'kW thermal', 'Process Cooling'],
+    coolingTower: [4, 800, 'kW thermal', 'Heat Rejection'], mcc: [1, 250, 'kW', 'Supplies'],
+  };
+  for (const [id, [draw, supply, unit, label]] of Object.entries(BOTH)) {
     const d = drawRows(id);
     const s = supplyRows(id);
     assert(d.length === 1 && d[0].value === `${draw} kW`, `${id}: draws ${draw} kW (got ${JSON.stringify(d)})`);
-    assert(s.length === 1 && s[0].value === `${supply} ${unit}`, `${id}: supplies ${supply} ${unit} (got ${JSON.stringify(s)})`);
+    assert(s.length === 1 && s[0].label === label && s[0].value === `${supply} ${unit}`, `${id}: reports its distinct supply role (got ${JSON.stringify(s)})`);
   }
 }
 
