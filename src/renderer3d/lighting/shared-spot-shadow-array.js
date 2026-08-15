@@ -10,6 +10,17 @@ const { resetRendererAndSceneState, restoreRendererAndSceneState } = RendererUti
 let _rendererState;
 
 /**
+ * Texture-array layers are positional, so a gap cannot be filtered out. Render
+ * only through the last live light: one newly placed fixture costs one shadow
+ * camera, while a sparse assignment still preserves every layer index.
+ */
+export function activeShadowPrefixLength(lights, activeCount = lights.length) {
+  let count = Math.max(0, Math.min(lights.length, Math.floor(activeCount || 0)));
+  while (count > 0 && !(lights[count - 1]?.intensity > 0)) count--;
+  return count;
+}
+
+/**
  * One depth-array texture shared by every fixture shadow.
  *
  * Each SpotLight still has its own projection matrix and shadow sampling node,
@@ -89,10 +100,13 @@ export class SharedSpotShadowArray {
     if (!this.shadowMap || this._lastFrameId === frame.frameId) return;
     this._lastFrameId = frame.frameId;
 
-    const activeLights = this.lights.slice(0, this.activeCount);
-    const active = activeLights.filter((light) => light.intensity > 0);
-    const needsUpdate = active.some((light) => light.shadow.needsUpdate || light.shadow.autoUpdate);
-    if (!needsUpdate || active.length === 0) return;
+    const renderCount = activeShadowPrefixLength(this.lights, this.activeCount);
+    if (renderCount === 0) return;
+    const renderLights = this.lights.slice(0, renderCount);
+    const needsUpdate = renderLights.some((light) => (
+      light.intensity > 0 && (light.shadow.needsUpdate || light.shadow.autoUpdate)
+    ));
+    if (!needsUpdate) return;
 
     const { renderer, scene, camera } = frame;
     const shadowType = renderer.shadowMap.type;
@@ -103,8 +117,8 @@ export class SharedSpotShadowArray {
 
     const cameras = [];
     const previousLayers = [];
-    for (let i = 0; i < activeLights.length; i++) {
-      const light = activeLights[i];
+    for (let i = 0; i < renderLights.length; i++) {
+      const light = renderLights[i];
       const lightShadow = light.shadow;
       previousLayers.push(lightShadow.camera.layers.mask);
       if ((lightShadow.camera.layers.mask & 0xFFFFFFFE) === 0) {
@@ -132,8 +146,8 @@ export class SharedSpotShadowArray {
     renderer.setRenderObjectFunction(currentRenderObjectFunction);
     restoreRendererAndSceneState(renderer, scene, _rendererState);
 
-    for (let i = 0; i < activeLights.length; i++) {
-      const light = activeLights[i];
+    for (let i = 0; i < renderLights.length; i++) {
+      const light = renderLights[i];
       light.shadow.camera.layers.mask = previousLayers[i];
       light.shadow.needsUpdate = false;
     }

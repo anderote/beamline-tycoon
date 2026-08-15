@@ -215,6 +215,8 @@ console.log('\n--- 2. Continuous across segment boundaries, source -> sink ---')
   const { group } = buildFlowLine('coolingWater');
   const effect = group.userData.visualEffects?.[0];
   assert(effect?.kind === 'pathPulse', 'the builder publishes a declarative path-pulse effect');
+  assert(effect?.groundSpill === false,
+    'utility pulses do not paint repeating circular glows on the floor');
   assert(effect?.path?.length === 3, 'the effect receives the same complete polyline as the pipe');
   assert(!group.children.some((child) => child.userData?.isFloorGlowStrip),
     'the geometry builder allocates no light-field or spill objects itself');

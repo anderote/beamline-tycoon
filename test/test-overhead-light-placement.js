@@ -12,7 +12,7 @@ import { canPlace, usesFloorOccupancy } from '../src/game/placement.js';
 import { getTileCorners, setTileCorners } from '../src/game/terrain.js';
 import { InputHandler } from '../src/input/InputHandler.js';
 import { DecorationBuilder } from '../src/renderer3d/decoration-builder.js';
-import { fixtureMountY } from '../src/renderer3d/fixture-light-math.js';
+import { fixtureLightProjection, fixtureMountY } from '../src/renderer3d/fixture-light-math.js';
 
 globalThis.COMPONENTS = COMPONENTS;
 globalThis.PARAM_DEFS = PARAM_DEFS;
@@ -52,6 +52,11 @@ console.log('\n=== overhead fixtures render above occupied work areas ===\n');
     assertOk(def?.mount === 'overhead', `${id} remains an overhead fixture`);
     assertOk(fixtureMountY(def, 0) === expected,
       `${id} renders at ${expected.toFixed(1)} m above a level floor`);
+    const projection = fixtureLightProjection(def, {
+      origin: { x: 0, y: expected, z: 0 },
+    });
+    assertOk(projection.emitter.y === expected + def.light.sourceOffsetY,
+      `${id} emits from its visible diffuser instead of its ceiling attachment`);
   }
 }
 

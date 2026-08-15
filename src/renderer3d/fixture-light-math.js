@@ -183,7 +183,13 @@ export function fixtureLightProjection(def, { origin = {}, yaw = 0 } = {}) {
   const oy = Number.isFinite(origin.y) ? origin.y : 0;
   const oz = Number.isFinite(origin.z) ? origin.z : 0;
   const floorY = fixtureFloorY(def, oy);
-  const emitterHeight = Math.max(EPS, light.emitterY ?? (oy - floorY) ?? 1);
+  const supported = def?.mount === 'ground' || def?.mount === 'surface';
+  const nominalEmitterY = supported
+    ? floorY + (light.emitterY ?? 0)
+    : oy;
+  const sourceOffsetY = Number.isFinite(light.sourceOffsetY) ? light.sourceOffsetY : 0;
+  const emitterY = nominalEmitterY + sourceOffsetY;
+  const emitterHeight = Math.max(EPS, emitterY - floorY);
   const emitter = { x: ox, y: floorY + emitterHeight, z: oz };
   const poolRadius = lightPoolRadius(light);
   const aimed = isAimedFixture(def);

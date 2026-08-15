@@ -1,9 +1,10 @@
 // Declarative, scalable presentation effects.
 //
 // Game/render builders publish descriptors; this system chooses how to draw
-// them. Most emitters become instanced emissive geometry plus cheap projected
-// spill. A bounded list of moving proxies is offered to LightRig for optional
-// real illumination. Producers never allocate THREE lights themselves.
+// them. Most emitters become instanced emissive geometry and may opt into
+// cheap projected spill. A bounded list of moving proxies is offered to
+// LightRig for optional real illumination. Producers never allocate THREE
+// lights themselves.
 
 import { BLOOM_LAYER, SOFT_GLOW_LAYER } from './glow-pipeline.js';
 import {
@@ -254,6 +255,7 @@ export class VisualEffectSystem {
     if (!this.enabled) return;
 
     let instanceIndex = 0;
+    let spillIndex = 0;
     let activeProxyCount = 0;
     let requested = 0;
     for (const proxy of this._lightProxies) {
@@ -270,8 +272,10 @@ export class VisualEffectSystem {
       if (t >= 1) continue;
       requested++;
       if (instanceIndex < this._pulseBudget) {
-        this._writeBurstInstance(instanceIndex, burst, t);
+        const writesSpill = burst.groundSpill !== false;
+        this._writeBurstInstance(instanceIndex, writesSpill ? spillIndex : -1, burst, t);
         instanceIndex++;
+        if (writesSpill) spillIndex++;
       }
       liveBursts.push(burst);
     }
@@ -290,8 +294,13 @@ export class VisualEffectSystem {
         const strength = this._pathPulseStrength(effect);
 
         if (instanceIndex < this._pulseBudget) {
-          this._writePulseInstance(instanceIndex, point, effect, strength, distance);
+          const writesSpill = effect.groundSpill !== false;
+          this._writePulseInstance(
+            instanceIndex, writesSpill ? spillIndex : -1,
+            point, effect, strength, distance,
+          );
           instanceIndex++;
+          if (writesSpill) spillIndex++;
         }
       }
       activeProxyCount += this._updateEffectLightProxies(effect, darkness);
@@ -299,7 +308,7 @@ export class VisualEffectSystem {
     const pathPulseCount = instanceIndex - burstInstanceCount;
 
     this._pulseMesh.count = instanceIndex;
-    this._spillMesh.count = instanceIndex;
+    this._spillMesh.count = spillIndex;
     this._pulseMesh.instanceMatrix.needsUpdate = true;
     this._spillMesh.instanceMatrix.needsUpdate = true;
     if (this._pulseMesh.instanceColor) this._pulseMesh.instanceColor.needsUpdate = true;
@@ -328,7 +337,7 @@ export class VisualEffectSystem {
     return 0.46 + 0.14 * (0.5 + 0.5 * Math.sin(this._time * 6));
   }
 
-  _writePulseInstance(index, point, effect, strength, distance) {
+  _writePulseInstance(index, spillIndex, point, effect, strength, distance) {
     const radius = Math.max(0.025, Number(effect.radius) || 0.09) * strength;
     const sampleSpan = Math.min(0.12, Math.max(0.025, effect.path.length * 0.02));
     const before = sampleEffectPath(effect.path, distance - sampleSpan, this._tangentBefore);
@@ -355,12 +364,13 @@ export class VisualEffectSystem {
     this._color.set(effectColor(effect.color)).multiplyScalar(Math.max(0.35, strength));
     this._pulseMesh.setColorAt(index, this._color);
 
+    if (spillIndex < 0) return;
     const spillRadius = Math.max(radius * 2, Number(effect.groundRadius) || 0.48);
     this._position.set(point.x, effect.floorY ?? FLOOR_Y, point.z);
     this._scale.set(spillRadius, spillRadius, spillRadius);
     this._matrix.compose(this._position, this._floorQuat, this._scale);
-    this._spillMesh.setMatrixAt(index, this._matrix);
-    this._spillMesh.setColorAt(index, this._color);
+    this._spillMesh.setMatrixAt(spillIndex, this._matrix);
+    this._spillMesh.setColorAt(spillIndex, this._color);
   }
 
   _writeLightProxy(index, point, effect, strength, darkness) {
@@ -378,7 +388,7 @@ export class VisualEffectSystem {
     };
   }
 
-  _writeBurstInstance(index, burst, t) {
+  _writeBurstInstance(index, spillIndex, burst, t) {
     const fade = (1 - t) * (1 - t);
     const radius = Math.max(0.03, Number(burst.radius) || 0.16) * (0.65 + t * 1.8);
     this._position.set(burst.position.x, burst.position.y, burst.position.z);
@@ -388,12 +398,13 @@ export class VisualEffectSystem {
     this._color.set(effectColor(burst.color)).multiplyScalar(Math.max(0.2, fade));
     this._pulseMesh.setColorAt(index, this._color);
 
+    if (spillIndex < 0) return;
     const spillRadius = Math.max(radius * 2, Number(burst.groundRadius) || 0.8) * (0.7 + t);
     this._position.set(burst.position.x, burst.floorY ?? FLOOR_Y, burst.position.z);
     this._scale.set(spillRadius, spillRadius, spillRadius);
     this._matrix.compose(this._position, this._floorQuat, this._scale);
-    this._spillMesh.setMatrixAt(index, this._matrix);
-    this._spillMesh.setColorAt(index, this._color);
+    this._spillMesh.setMatrixAt(spillIndex, this._matrix);
+    this._spillMesh.setColorAt(spillIndex, this._color);
   }
 
   _updateEffectLightProxies(effect, darkness) {

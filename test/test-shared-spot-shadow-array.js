@@ -1,7 +1,25 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { SpotLight } from 'three/webgpu';
-import { SharedSpotShadowArray } from '../src/renderer3d/lighting/shared-spot-shadow-array.js';
+import {
+  SharedSpotShadowArray,
+  activeShadowPrefixLength,
+} from '../src/renderer3d/lighting/shared-spot-shadow-array.js';
+
+test('shared fixture shadows render only through the last assigned layer', () => {
+  const lights = Array.from({ length: 12 }, () => ({ intensity: 0 }));
+  lights[0].intensity = 1;
+  assert.equal(activeShadowPrefixLength(lights, 12), 1,
+    'the first placed light renders one camera, not the whole quality budget');
+
+  lights[3].intensity = 1;
+  assert.equal(activeShadowPrefixLength(lights, 12), 4,
+    'a sparse layer keeps the positional prefix required by the texture array');
+
+  lights[11].intensity = 1;
+  assert.equal(activeShadowPrefixLength(lights, 6), 4,
+    'lights outside the active quality budget cannot expand the pass');
+});
 
 test('shared fixture shadow array activates only the selected prefix of layers', () => {
   const lights = Array.from({ length: 6 }, () => {

@@ -88,14 +88,16 @@ export function poolFootprint(light, dir = 0) {
  * ceiling attachment. Copying emitterY raw would hang a wall sconce's spot
  * ~2.1 m above its own geometry.
  *
- * This is the exact inverse of _mountFloorY (below), which the painted pools
- * already use — that identity is the reason a fixture's real spot and its
- * painted pool agree on height. Change one, change the other.
+ * Hanging fixtures may add sourceOffsetY because their group origin is the
+ * ceiling attachment, not the glowing diffuser at the bottom of the housing.
+ * fixtureLightProjection consumes the same correction, so real light and the
+ * painted pool stay attached to the same visible source.
  */
 function _emitterOffsetY(def) {
+  const sourceOffsetY = def?.light?.sourceOffsetY ?? 0;
   return (def?.mount === 'ground' || def?.mount === 'surface')
-    ? (def.light?.emitterY ?? 0)
-    : 0;
+    ? (def.light?.emitterY ?? 0) + sourceOffsetY
+    : sourceOffsetY;
 }
 
 /**
@@ -131,6 +133,7 @@ export function fixtureLightTag(def, { id, dir = 0 } = {}) {
     targetDistance: light.targetDistance ?? 0,
     maxGroundRange: light.maxGroundRange ?? 0,
     emitterY: light.emitterY ?? 0,
+    sourceOffsetY: light.sourceOffsetY ?? 0,
     mount: def.mount ?? 'ground',
     penumbra: light.penumbra,
     sourceRadius: light.sourceRadius ?? 0.1,

@@ -625,8 +625,8 @@ test('a spot is aimed, angled, throttled and tinted by the fixture def itself, n
     && Math.abs(bay.target.position.z - bay.light.position.z) < 1e-9,
     'an overhead cone points STRAIGHT down regardless of dir — it has no aim to follow');
   assert.ok(bay.target.position.y < bay.light.position.y, 'down, not up');
-  assert.equal(bay.light.position.y, 0,
-    'an overhead fixture\'s emitter is at its own origin (offsetY 0) — emitterY is measured from the ceiling it hangs off, not from the floor');
+  assert.ok(Math.abs(bay.light.position.y - DEF.highBay.light.sourceOffsetY) < 1e-9,
+    'an overhead fixture emits from its visible diffuser below the ceiling attachment');
 });
 
 test('the flash reserve keeps idle point slots back, so an explosion never has to darken a lit console', () => {

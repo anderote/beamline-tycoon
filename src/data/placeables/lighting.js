@@ -11,12 +11,15 @@
 // (Structure -> Lights, alongside Flooring/Walls/Doors). Two extra fields
 // discriminate behavior for later tasks:
 //   - mount: 'ground' | 'wall' | 'overhead' | 'surface' — placement layer.
-//   - light: { color, intensity, radius, shape, coneDeg?, tiltDeg?, emitterY }
+//   - light: { color, intensity, radius, shape, coneDeg?, tiltDeg?, emitterY,
+//              sourceOffsetY? }
 //     — read uniformly by the renderer regardless of mount. `radius` is the
 //     light pool radius in world units (meters); `emitterY` is the emitter's
 //     offset above a ground/surface support, or the authored world height for
-//     wall/overhead fixtures (also meters). `coneDeg`/`tiltDeg` are
-//     required when shape === 'cone'.
+//     wall/overhead fixtures (also meters). `sourceOffsetY` is an optional
+//     correction from that mounted group origin to the visible diffuser; it
+//     keeps the analytic light and painted pool attached to hanging geometry.
+//     `coneDeg`/`tiltDeg` are required when shape === 'cone'.
 //
 // `lamppost` and `bollardLight` are reworked from decorations.raw.js with
 // their cost/morale/footprint carried over unchanged. `floodLight` replaces
@@ -167,6 +170,7 @@ const RAW_LIGHTING_DEFS = [
     light: {
       color: '#eaf3ff', intensity: 0.8, radius: 4, shape: 'cone',
       coneDeg: 105, beamAngleDeg: 105, tiltDeg: 0, emitterY: 3.0,
+      sourceOffsetY: -0.195,
     },
   },
   {
@@ -178,7 +182,7 @@ const RAW_LIGHTING_DEFS = [
     energyCost: 0.9,
     light: {
       color: '#f0f5ff', intensity: 1.6, radius: 9, shape: 'cone',
-      coneDeg: 90, tiltDeg: 0, emitterY: 4.5,
+      coneDeg: 90, tiltDeg: 0, emitterY: 4.5, sourceOffsetY: -0.28,
     },
   },
   {
@@ -191,6 +195,7 @@ const RAW_LIGHTING_DEFS = [
     light: {
       color: '#edf6ff', intensity: 1.15, radius: 6.5, shape: 'cone',
       coneDeg: 100, beamAngleDeg: 100, tiltDeg: 0, emitterY: 3.4,
+      sourceOffsetY: -0.251,
     },
   },
   {
@@ -203,6 +208,7 @@ const RAW_LIGHTING_DEFS = [
     light: {
       color: '#f4fbff', intensity: 1.35, radius: 7.5, shape: 'cone',
       coneDeg: 110, beamAngleDeg: 110, tiltDeg: 0, emitterY: 3.2,
+      sourceOffsetY: -0.139,
     },
   },
 
