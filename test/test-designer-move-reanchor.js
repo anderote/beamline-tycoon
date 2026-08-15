@@ -334,9 +334,9 @@ console.log('\n--- B1: perpendicular slide keeps the line intact ---');
   assert(line.path[3].col === 8 && line.path[3].row === 6, 'far end of the path untouched');
   assert(line.cablePath[0].col === 3 && line.cablePath[0].row === 5,
     'the flexible cable plug follows the moved source');
-  assert(line.cablePath[1].col === 4 && line.cablePath[1].row === 4.5
+  assert(line.cablePath[1].row > 4.5
       && line.cablePath.at(-1).col === 8 && line.cablePath.at(-1).row === 6,
-    'the pooled middle and opposite plug stay where the player laid them');
+    'the cable middle is pulled with the moved plug while the opposite plug stays pinned');
   assert(typeof line.subL === 'number' && line.subL > 0, 'subL recomputed');
   const ev = events.find(e => e.ev === 'utilityLinesChanged');
   assert(ev && ev.data.utilityType === 'powerCable', 'utilityLinesChanged carries the type');
@@ -462,6 +462,31 @@ console.log('\n--- B6: unknown or unrelated lines are reported, not mutated ---'
     `unrelated placeable reported (${JSON.stringify(other)})`);
   assert(line.start && line.end, 'endpoints untouched');
   assert(events.length === 0, `no events emitted (got ${events.length})`);
+}
+
+// ==========================================================================
+// B7: installed length is the physical leash.
+// ==========================================================================
+console.log('\n--- B7: a genuinely overstretched line lets go ---');
+{
+  const { system, state } = fixture();
+  const line = addRaw(state, {
+    id: 'l7', utilityType: 'powerCable', subL: 20,
+    start: { placeableId: 'src1', portName: 'powerOut' },
+    end: { placeableId: 'sink1', portName: 'powerIn' },
+    path: [{ col: 3, row: 3 }, { col: 8, row: 3 }],
+    cablePath: [{ col: 3, row: 3 }, { col: 8, row: 3 }],
+  });
+  const originalPath = JSON.stringify(line.path);
+  const res = system.reanchorLine('l7', 'src1', {
+    powerOut: { col: -10, row: 3 },
+  });
+  assert(res.dangled === true && res.reason === 'overstretched',
+    `an over-limit pull reports the physical reason (${JSON.stringify(res)})`);
+  assert(line.start === null && line.end?.placeableId === 'sink1',
+    'only the plug on the carried machine disconnects');
+  assert(JSON.stringify(line.path) === originalPath && line.subL === 20,
+    'the loose run stays where it was and its installed length is unchanged');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -6,6 +6,7 @@ import {
   SOFT_CABLE_MAX_POINTS,
   SOFT_CABLE_BEND_RADIUS_METERS,
   cablePathLengthSubUnits,
+  draggedCablePath,
   roundedCablePlanarPoints,
   relaxedCableControlPoints,
   sanitizeCablePath,
@@ -81,6 +82,14 @@ assert(pooled.every(point => point.y >= 0.03),
 assert(Math.min(...pooled.map(point => point.z)) < 0
     && Math.max(...pooled.map(point => point.z)) > 0,
   'the pooled 3D centreline follows both bends of the drawn S');
+
+const pulledTrace = draggedCablePath([
+  { col: 0, row: 0 }, { col: 1, row: 1 }, { col: 3, row: 1 }, { col: 4, row: 0 },
+], { start: { col: 0, row: 2 } });
+assert(pulledTrace[0].row === 2 && pulledTrace.at(-1).row === 0,
+  'dragged cable pins the carried plug and the opposite plug');
+assert(pulledTrace[1].row > 1 && pulledTrace[2].row > 1,
+  'dragged cable distributes the pull through its slack instead of stretching one segment');
 
 const kinked = [
   { x: 0, y: 1.8, z: 0 },

@@ -14,10 +14,16 @@
 //   - nextLineId() → string: id generator.
 
 import { validateDrawLine } from './line-drawing.js';
-import { buildManhattanPath } from './line-geometry.js';
+import { buildManhattanPath, pathLengthSubUnits } from './line-geometry.js';
 import { utilityAttachmentPose } from './line-attachments.js';
+import {
+  cablePathLengthSubUnits,
+  draggedCablePath,
+} from './soft-cable.js';
 
 const EPS = 1e-6;
+export const UTILITY_LINE_STRAIN_ALLOWANCE = 1.12;
+const UTILITY_LINE_STRAIN_GRACE_SUBUNITS = 0.5;
 
 /** Which axis a leg runs along: 'v' (col fixed), 'h' (row fixed), or null. */
 function legAxis(a, b) {
@@ -94,6 +100,44 @@ function pickPortPos(newPortPos, portName) {
     return { col: p.col, row: p.row };
   }
   return null;
+}
+
+/**
+ * Compare a moved fitting's straight-line reach with the amount of utility
+ * line the player originally installed. Bends are usable slack: carrying a
+ * cabinet pulls them out until the run is nearly taut. A small 12% allowance
+ * reads as connector/hose compliance and prevents a harmless half-subtile
+ * nudge from popping a plug.
+ */
+export function utilityLineReachStatus(line, placeableId, newPortPos) {
+  if (!line) return { canReach: false, reason: 'line_not_found' };
+  const atStart = !!(line.start?.placeableId === placeableId);
+  const atEnd = !!(line.end?.placeableId === placeableId);
+  if (!atStart && !atEnd) return { canReach: false, reason: 'not_anchored' };
+  const route = Array.isArray(line.cablePath) && line.cablePath.length >= 2
+    ? line.cablePath : line.path;
+  if (!Array.isArray(route) || route.length < 2) {
+    return { canReach: false, reason: 'invalid_path' };
+  }
+  const start = atStart ? pickPortPos(newPortPos, line.start.portName) : route[0];
+  const end = atEnd ? pickPortPos(newPortPos, line.end.portName) : route[route.length - 1];
+  if (!start || !end) return { canReach: false, reason: 'invalid_port' };
+  const fallbackLength = Array.isArray(line.cablePath) && line.cablePath.length >= 2
+    ? cablePathLengthSubUnits(line.cablePath)
+    : pathLengthSubUnits(line.path || []);
+  const installedSubL = Number.isFinite(line.subL) && line.subL > 0
+    ? line.subL : fallbackLength;
+  const requiredSubL = Math.hypot(end.col - start.col, end.row - start.row) * 4;
+  const limitSubL = installedSubL * UTILITY_LINE_STRAIN_ALLOWANCE
+    + UTILITY_LINE_STRAIN_GRACE_SUBUNITS;
+  return {
+    canReach: requiredSubL <= limitSubL + EPS,
+    installedSubL,
+    requiredSubL,
+    limitSubL,
+    tension: limitSubL > EPS ? requiredSubL / limitSubL : Infinity,
+    reason: requiredSubL <= limitSubL + EPS ? null : 'overstretched',
+  };
 }
 
 // Map validator reason codes → player-facing messages. Same pattern as
@@ -259,7 +303,7 @@ export class UtilityLineSystem {
     const atEnd = !!(line.end && line.end.placeableId === placeableId);
     if (!atStart && !atEnd) return { ok: false, dangled: false, reason: 'not_anchored' };
 
-    const dangle = () => {
+    const dangle = (reason = null) => {
       // Same fallback as onPlaceableRemoved: keep the geometry the player drew
       // so they can see where the feed used to run, but stop claiming it is
       // connected — a line still pointing at a port it no longer reaches would
@@ -267,8 +311,12 @@ export class UtilityLineSystem {
       if (atStart) line.start = null;
       if (atEnd) line.end = null;
       this.emit('utilityLinesChanged', { utilityType: line.utilityType });
-      return { ok: false, dangled: true };
+      return { ok: false, dangled: true, ...(reason ? { reason } : {}) };
     };
+
+    const reach = utilityLineReachStatus(line, placeableId, newPortPos);
+    if (!reach.canReach) return dangle(reach.reason);
+    const installedSubL = reach.installedSubL;
 
     let path = (line.path || []).map(p => ({ col: p.col, row: p.row }));
     if (path.length < 2) return dangle();
@@ -298,14 +346,9 @@ export class UtilityLineSystem {
       ? line.cablePath.map(point => ({ col: point.col, row: point.row }))
       : null;
     if (cablePath && cablePath.length >= 2) {
-      if (atStart) {
-        const pos = pickPortPos(newPortPos, line.start.portName);
-        if (pos) cablePath[0] = pos;
-      }
-      if (atEnd) {
-        const pos = pickPortPos(newPortPos, line.end.portName);
-        if (pos) cablePath[cablePath.length - 1] = pos;
-      }
+      const start = atStart ? pickPortPos(newPortPos, line.start.portName) : null;
+      const end = atEnd ? pickPortPos(newPortPos, line.end.portName) : null;
+      cablePath = draggedCablePath(cablePath, { start, end });
     }
 
     // Validate against every OTHER line: this line is still in state, so
@@ -326,7 +369,9 @@ export class UtilityLineSystem {
 
     line.path = result.line.path;
     if (result.line.cablePath) line.cablePath = result.line.cablePath;
-    line.subL = result.line.subL;
+    // Moving equipment consumes slack; it does not silently buy or delete
+    // cable. Keep the installed length as the physical break threshold.
+    line.subL = installedSubL || result.line.subL;
     this.emit('utilityLinesChanged', { utilityType: line.utilityType });
     return { ok: true };
   }

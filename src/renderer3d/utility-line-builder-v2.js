@@ -21,6 +21,7 @@ import { FLOW_PARAMS, patchFlowMaterial, bakeRunDistanceUVs, bakeRunDistanceFrom
 import { BLOOM_LAYER } from './glow-pipeline.js';
 import { computeLineOrientations } from '../utility/line-orientation.js';
 import {
+  draggedCablePath,
   isSoftCable,
   relaxedCableControlPoints,
   softCableBendRadiusMeters,
@@ -158,12 +159,16 @@ function anchorTip(anchor) {
 
 /** Flexible cord/hose centreline, including true-height fitting endpoints. */
 export function buildSoftCableWorldPoints(line, placeablesById, previewAnchors = null) {
-  const trace = Array.isArray(line.cablePath) && line.cablePath.length >= 2
+  const laidTrace = Array.isArray(line.cablePath) && line.cablePath.length >= 2
     ? line.cablePath
     : line.path;
   const runY = utilityLineHeight(line.utilityType);
   const start = anchorTip(previewAnchors?.start || anchorFor(line.start, placeablesById));
   const end = anchorTip(previewAnchors?.end || anchorFor(line.end, placeablesById));
+  const trace = draggedCablePath(laidTrace, {
+    start: start ? { col: start.x / 2, row: start.z / 2 } : null,
+    end: end ? { col: end.x / 2, row: end.z / 2 } : null,
+  });
   return softCableControlPoints(trace, {
     start,
     end,
@@ -318,6 +323,7 @@ function buildFlexibleCable(points, radius, material, reversed = false, floorY =
   if (!geometry) return null;
   const mesh = new THREE.Mesh(geometry, material);
   mesh.userData.isFlexibleUtilityCable = true;
+  mesh.userData.flexibleControlPoints = points.map(point => point.clone());
   return mesh;
 }
 
@@ -494,6 +500,28 @@ function polylineMidpoint(points) {
     walked += seg;
   }
   return points[points.length - 1];
+}
+
+/** Preserve the visible rope shape when a new target solve changes sampling. */
+function resampleControlPoints(points, count) {
+  if (!Array.isArray(points) || points.length < 2 || count < 2) return null;
+  if (points.length === count) return points.map(point => point.clone());
+  const cumulative = [0];
+  for (let i = 1; i < points.length; i++) {
+    cumulative[i] = cumulative[i - 1] + points[i - 1].distanceTo(points[i]);
+  }
+  const total = cumulative[cumulative.length - 1];
+  if (!(total > 1e-9)) return Array.from({ length: count }, () => points[0].clone());
+  const out = [];
+  let segment = 0;
+  for (let i = 0; i < count; i++) {
+    const distance = total * i / (count - 1);
+    while (segment < cumulative.length - 2 && cumulative[segment + 1] < distance) segment++;
+    const span = cumulative[segment + 1] - cumulative[segment];
+    const t = span > 1e-9 ? (distance - cumulative[segment]) / span : 0;
+    out.push(points[segment].clone().lerp(points[segment + 1], t));
+  }
+  return out;
 }
 
 function buildLineGroup(line, placeablesById, errorStatus, reversed, pointOverride = null) {
@@ -891,6 +919,13 @@ export class UtilityLineBuilderV2 {
     // line.id → one short-lived interpolation from the just-drawn hand shape
     // to its deterministic, gravity-settled rope solve.
     this._relaxations = new Map();
+    // While equipment is carried, flexible runs keep a tiny damped-spring
+    // state so their middle lags behind the pinned fittings and catches up.
+    // This is transient renderer state only; the committed cable remains the
+    // deterministic relaxed solve stored by the game.
+    this._draggedPlaceableId = null;
+    this._dragCableStates = new Map();
+    this._dragLineIds = new Set();
     // Existing lines loaded with the scene start already settled. Only lines
     // appearing after the first build perform the visible relaxation.
     this._hasBuiltOnce = false;
@@ -938,9 +973,19 @@ export class UtilityLineBuilderV2 {
       const prevHash = this._lineHashes.get(line.id);
       if (prevHash === hash && this._lineGroups.has(line.id)) continue;
       const isNewLine = prevHash === undefined;
+      const isDraggedLine = !!this._draggedPlaceableId
+        && (line.start?.placeableId === this._draggedPlaceableId
+          || line.end?.placeableId === this._draggedPlaceableId);
+      if (isDraggedLine) this._dragLineIds.add(line.id);
       this._relaxations.delete(line.id);
       // Rebuild: remove old, add new.
       const old = this._lineGroups.get(line.id);
+      let oldControlPoints = null;
+      old?.traverse(object => {
+        if (!oldControlPoints && object.userData?.isFlexibleUtilityCable) {
+          oldControlPoints = object.userData.flexibleControlPoints?.map(point => point.clone()) || null;
+        }
+      });
       if (old) {
         parentGroup.remove(old);
         this._disposeGroup(old);
@@ -955,9 +1000,36 @@ export class UtilityLineBuilderV2 {
           floorY,
           bendStiffness: 0.08 + Math.min(0.08, bendRadius * 0.1),
         }).map(point => new THREE.Vector3(point.x, point.y, point.z));
-        const animate = this._hasBuiltOnce && isNewLine
+        const previousDrag = this._dragCableStates.get(line.id);
+        const previousPoints = previousDrag?.points || oldControlPoints;
+        const dragPoints = isDraggedLine
+          ? resampleControlPoints(previousPoints, finalPoints.length) : null;
+        const dragAnimate = isDraggedLine && dragPoints && dragPoints.length >= 3;
+        if (dragAnimate) {
+          // The fittings never visually detach from the carried ghost. Only
+          // interior rope particles retain momentum and trail the cursor.
+          dragPoints[0].copy(finalPoints[0]);
+          dragPoints[dragPoints.length - 1].copy(finalPoints[finalPoints.length - 1]);
+          pointOverride = dragPoints;
+          const velocities = previousDrag?.velocities?.length === dragPoints.length
+            ? previousDrag.velocities
+            : dragPoints.map(() => new THREE.Vector3());
+          this._dragCableStates.set(line.id, {
+            points: dragPoints,
+            targetPoints: finalPoints,
+            velocities,
+            floorY,
+            radius: UTILITY_TYPES[line.utilityType]?.pipeRadiusMeters || 0.04,
+            reversed,
+            settled: false,
+            group: null,
+          });
+        } else if (!isDraggedLine) {
+          this._dragCableStates.delete(line.id);
+        }
+        const animate = !dragAnimate && this._hasBuiltOnce && isNewLine
           && initialPoints.length === finalPoints.length && initialPoints.length >= 3;
-        pointOverride = animate ? initialPoints : finalPoints;
+        if (!dragAnimate) pointOverride = animate ? initialPoints : finalPoints;
         if (animate) {
           relaxation = {
             elapsed: 0,
@@ -981,6 +1053,8 @@ export class UtilityLineBuilderV2 {
         this._lineGroups.set(line.id, group);
         this._lineHashes.set(line.id, hash);
         if (relaxation) this._relaxations.set(line.id, { ...relaxation, group });
+        const dragState = this._dragCableStates.get(line.id);
+        if (dragState && isDraggedLine) dragState.group = group;
       } else {
         this._lineGroups.delete(line.id);
         this._lineHashes.delete(line.id);
@@ -995,9 +1069,84 @@ export class UtilityLineBuilderV2 {
         this._lineGroups.delete(id);
         this._lineHashes.delete(id);
         this._relaxations.delete(id);
+        this._dragCableStates.delete(id);
       }
     }
     this._hasBuiltOnce = true;
+  }
+
+  /** Select the one carried placeable whose attached lines receive inertia. */
+  setDraggedPlaceableId(placeableId) {
+    const next = placeableId || null;
+    if (next === this._draggedPlaceableId) return;
+    // The last preview pose can equal the newly committed pose. In that case
+    // its hash also matches, but its visible rope may still contain transient
+    // inertia. Force every previewed line through one final static rebuild.
+    for (const lineId of this._dragLineIds) this._lineHashes.delete(lineId);
+    this._dragLineIds.clear();
+    this._draggedPlaceableId = next;
+    this._dragCableStates.clear();
+  }
+
+  /**
+   * Advance the lightweight damped-spring cable particles used only during a
+   * move gesture. Both fittings stay pinned; interior points overshoot just
+   * enough to read as mass, then become completely idle when settled.
+   * Returns true when any cable newly comes to rest.
+   */
+  updateDragDynamics(dtSeconds) {
+    const dt = Math.min(0.05,
+      Number.isFinite(dtSeconds) && dtSeconds > 0 ? dtSeconds : 0);
+    if (dt <= 0 || !this._draggedPlaceableId || this._dragCableStates.size === 0) return false;
+    let finishedAny = false;
+    for (const [lineId, state] of this._dragCableStates) {
+      if (state.settled) continue;
+      const group = this._lineGroups.get(lineId);
+      if (!group || group !== state.group
+          || state.points.length !== state.targetPoints.length) continue;
+      let maxError = 0;
+      let maxSpeed = 0;
+      const damping = Math.exp(-7.5 * dt);
+      for (let i = 0; i < state.points.length; i++) {
+        const point = state.points[i];
+        const target = state.targetPoints[i];
+        const velocity = state.velocities[i];
+        if (i === 0 || i === state.points.length - 1) {
+          point.copy(target);
+          velocity.set(0, 0, 0);
+          continue;
+        }
+        const dx = target.x - point.x;
+        const dy = target.y - point.y;
+        const dz = target.z - point.z;
+        maxError = Math.max(maxError, Math.hypot(dx, dy, dz));
+        velocity.x = (velocity.x + dx * 34 * dt) * damping;
+        velocity.y = (velocity.y + dy * 34 * dt) * damping;
+        velocity.z = (velocity.z + dz * 34 * dt) * damping;
+        point.x += velocity.x * dt;
+        point.y = Math.max(state.floorY, point.y + velocity.y * dt);
+        point.z += velocity.z * dt;
+        maxSpeed = Math.max(maxSpeed, velocity.length());
+      }
+      if (maxError < 0.002 && maxSpeed < 0.01) {
+        state.points.forEach((point, i) => point.copy(state.targetPoints[i]));
+        state.velocities.forEach(velocity => velocity.set(0, 0, 0));
+        state.settled = true;
+        finishedAny = true;
+      }
+      let mesh = null;
+      group.traverse(object => {
+        if (!mesh && object.userData?.isFlexibleUtilityCable) mesh = object;
+      });
+      if (!mesh) continue;
+      const geometry = buildFlexibleCableGeometry(
+        state.points, state.radius, state.reversed, state.floorY);
+      if (!geometry) continue;
+      mesh.geometry?.dispose?.();
+      mesh.geometry = geometry;
+      mesh.userData.flexibleControlPoints = state.points.map(point => point.clone());
+    }
+    return finishedAny;
   }
 
   /**
@@ -1292,6 +1441,9 @@ export class UtilityLineBuilderV2 {
     this._lineGroups.clear();
     this._lineHashes.clear();
     this._relaxations.clear();
+    this._dragCableStates.clear();
+    this._dragLineIds.clear();
+    this._draggedPlaceableId = null;
     this._hasBuiltOnce = false;
     if (this._previewObject) {
       parentGroup.remove(this._previewObject);
