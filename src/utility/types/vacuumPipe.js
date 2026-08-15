@@ -22,7 +22,7 @@ export const UHV_START_PRESSURE_MBAR = 1e-5;
 export const ROUGH_ULTIMATE_PRESSURE_MBAR = 1e-3;
 export const HIGH_ULTIMATE_PRESSURE_MBAR = 1e-8;
 export const UHV_ULTIMATE_PRESSURE_MBAR = 1e-11;
-export const VACUUM_HISTORY_TICKS = 480; // two in-game days (240 ticks/day)
+export const VACUUM_HISTORY_TICKS = 120; // 12 in-game hours (240 ticks/day)
 export const VACUUM_HISTORY_SAMPLE_TICKS = 5; // half an in-game hour
 
 const SUB_UNIT_M = 0.5;
@@ -300,14 +300,13 @@ function collectGauges(lines, active, stage, totalOutgas, networkPressure, ultim
   return gauges;
 }
 
-function nextHistory(previous, gauges, tick) {
-  if (gauges.length === 0) return [];
+function nextHistory(previous, gauges, tick, networkPressure) {
   const history = Array.isArray(previous) ? previous.slice() : [];
   const lastTick = history.length ? history[history.length - 1].tick : -Infinity;
   if (Number.isFinite(tick) && tick - lastTick >= VACUUM_HISTORY_SAMPLE_TICKS) {
     const readings = {};
     for (const g of gauges) readings[g.id] = g.reading;
-    history.push({ tick, readings });
+    history.push({ tick, pressure: networkPressure, readings });
   }
   const cutoff = (Number.isFinite(tick) ? tick : 0) - VACUUM_HISTORY_TICKS;
   return history.filter(sample => sample && sample.tick >= cutoff);
@@ -325,13 +324,9 @@ function escape(value) {
 
 // Shared by the single-network inspector and the beamline overview. Keeping
 // the plotter here means both windows use the same time range, gauge status
-// rules, log scale, and empty-state copy.
+// rules, log scale, and series styling.
 export function renderVacuumPressureGraph(flow) {
   const gauges = flow.gauges || [];
-  if (gauges.length === 0) {
-    return '<div><strong>Pressure history</strong></div>'
-      + '<div class="ui-text-muted">Mount a Pirani, cold-cathode, or BA gauge on this run to record pressure.</div>';
-  }
   const history = flow.pressureHistory || [];
   // Leave enough room for the right-anchored "now" label. With an 8 px
   // margin its final glyph sat outside the SVG viewBox and was clipped in
@@ -347,42 +342,61 @@ export function renderVacuumPressureGraph(flow) {
     const log = Math.max(logMin, Math.min(logMax, Math.log10(Math.max(1e-12, pressure))));
     return y0 + (logMax - log) / (logMax - logMin) * (y1 - y0);
   };
-  let svg = `<svg class="vacuum-pressure-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Vacuum pressure over the last two in-game days">`;
+  let svg = `<svg class="vacuum-pressure-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Vacuum pressure over the last 12 in-game hours">`;
   for (const decade of [3, 0, -3, -6, -9, -12]) {
     const py = y(Math.pow(10, decade));
     svg += `<line x1="${x0}" y1="${py}" x2="${x1}" y2="${py}" stroke="#ffffff18"/>`;
     svg += `<text x="${x0 - 4}" y="${py + 3}" fill="#aaa" font-size="9" text-anchor="end">1e${decade}</text>`;
   }
-  for (const [tick, label] of [[start, '-2d'], [start + VACUUM_HISTORY_TICKS / 2, '-1d'], [now, 'now']]) {
+  for (const [tick, label] of [[start, '-12h'], [start + VACUUM_HISTORY_TICKS / 2, '-6h'], [now, 'now']]) {
     const px = x(tick);
     svg += `<line x1="${px}" y1="${y0}" x2="${px}" y2="${y1}" stroke="#ffffff12"/>`;
     svg += `<text x="${px}" y="${H - 7}" fill="#aaa" font-size="9" text-anchor="middle">${label}</text>`;
   }
-  for (const gauge of gauges) {
+  const networkPressure = Number.isFinite(flow.networkPressure)
+    ? flow.networkPressure : flow.pressure;
+  const series = [{
+    id: null,
+    label: 'Network',
+    color: '#d7e5ff',
+    reading: networkPressure,
+    status: 'ok',
+    pressureAt: sample => sample.pressure,
+  }, ...gauges.map(gauge => ({
+    ...gauge,
+    pressureAt: sample => sample.readings?.[gauge.id],
+  }))];
+  for (const trace of series) {
     const points = [];
     for (const sample of history) {
-      const pressure = sample.readings?.[gauge.id];
+      const pressure = trace.pressureAt(sample);
       if (!(pressure > 0)) continue;
       points.push(`${x(sample.tick).toFixed(1)},${y(pressure).toFixed(1)}`);
     }
+    // Newly loaded legacy saves have gauge-only history until their first
+    // post-load sample. Keep the network series visible immediately.
+    if (trace.id === null && points.length === 0 && networkPressure > 0) {
+      points.push(`${x(now).toFixed(1)},${y(networkPressure).toFixed(1)}`);
+    }
     if (points.length === 1) {
       const [px, py] = points[0].split(',');
-      svg += `<circle cx="${px}" cy="${py}" r="2.5" fill="${gauge.color}"/>`;
+      svg += `<circle cx="${px}" cy="${py}" r="2.5" fill="${trace.color}"/>`;
     } else if (points.length > 1) {
-      svg += `<polyline points="${points.join(' ')}" fill="none" stroke="${gauge.color}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
+      svg += `<polyline points="${points.join(' ')}" fill="none" stroke="${trace.color}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
     }
   }
   svg += '</svg>';
   let legend = '<div class="vacuum-pressure-legend">';
-  for (const gauge of gauges) {
-    const status = gauge.status === 'ok' ? fmtPressure(gauge.reading)
-      : gauge.status === 'offline' ? 'offline'
-        : gauge.status === 'above_range' ? `>${fmtPressure(gauge.reading)}`
-          : `<${fmtPressure(gauge.reading)}`;
-    legend += `<div><span style="color:${gauge.color}">●</span> ${escape(gauge.label)} <span class="ui-text-faint">${escape(gauge.id)} · ${escape(status)}</span></div>`;
+  for (const trace of series) {
+    const status = trace.status === 'ok' ? fmtPressure(trace.reading)
+      : trace.status === 'offline' ? 'offline'
+        : trace.status === 'above_range' ? `>${fmtPressure(trace.reading)}`
+          : `<${fmtPressure(trace.reading)}`;
+    const detail = trace.id ? `${trace.id} · ${status}` : status;
+    legend += `<div><span style="color:${trace.color}">●</span> ${escape(trace.label)} <span class="ui-text-faint">${escape(detail)}</span></div>`;
   }
   legend += '</div>';
-  return '<div><strong>Pressure history</strong> <span class="ui-text-faint">last 2 days · mbar, log scale</span></div>'
+  return '<div><strong>Pressure history</strong> <span class="ui-text-faint">last 12 hours · mbar, log scale</span></div>'
     + svg + legend;
 }
 
@@ -477,7 +491,9 @@ export default {
       stack.ultimatePressure, worldState,
     );
     const tick = Number.isFinite(worldState?.tick) ? worldState.tick : 0;
-    const pressureHistory = nextHistory(persistent?.pressureHistory, gauges, tick);
+    const pressureHistory = nextHistory(
+      persistent?.pressureHistory, gauges, tick, pressure,
+    );
     const errors = [];
     const hasSinks = (network.sinks || []).length > 0;
     const nominalPumpSpeed = pumps.reduce((sum, p) => sum + p.nominalSpeed, 0);

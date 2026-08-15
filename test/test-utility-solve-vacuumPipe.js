@@ -7,7 +7,7 @@
 import desc, {
   circularPipeVolumeLitres, numberDensityFromPressure,
   ROUGH_ULTIMATE_PRESSURE_MBAR, HIGH_ULTIMATE_PRESSURE_MBAR,
-  UHV_ULTIMATE_PRESSURE_MBAR,
+  UHV_ULTIMATE_PRESSURE_MBAR, VACUUM_HISTORY_TICKS,
 } from '../src/utility/types/vacuumPipe.js';
 
 let passed = 0, failed = 0;
@@ -285,11 +285,46 @@ console.log('\n--- Test 9: conductance and gauge history ---');
       && result.flowState.gauges[0].type === 'piraniGauge',
     'line-mounted gauges sample their local vacuum');
   assert(result.flowState.pressureHistory.length === 1
+      && result.flowState.pressureHistory[0].pressure === result.flowState.networkPressure
       && result.flowState.pressureHistory[0].readings.gauge_1 > 0,
-    'gauge pressure is recorded into the rolling history');
+    'network and gauge pressure are recorded into the rolling history');
   const html = desc.renderInspector(net, result.flowState, result.nextPersistentState);
-  assert(html.includes('Pressure history') && html.includes('last 2 days') && html.includes('<svg'),
-    'the vacuum network inspector renders the two-day pressure graph');
+  assert(html.includes('Pressure history') && html.includes('last 12 hours')
+      && html.includes('-12h') && html.includes('Network') && html.includes('<svg'),
+    'the vacuum network inspector renders the 12-hour pressure graph');
+
+  world.tick = VACUUM_HISTORY_TICKS + 10;
+  const trimmed = desc.solve(net, {
+    gasInventoryMbarL: result.nextPersistentState.gasInventoryMbarL,
+    pressureHistory: [
+      { tick: 9, pressure: 1e-3, readings: { gauge_1: 1e-3 } },
+      { tick: 10, pressure: 1e-4, readings: { gauge_1: 1e-4 } },
+    ],
+  }, world);
+  assert(trimmed.flowState.pressureHistory.length === 2
+      && trimmed.flowState.pressureHistory[0].tick === 10
+      && trimmed.flowState.pressureHistory[1].tick === world.tick,
+    'pressure history retains exactly the latest 12 in-game hours');
+}
+
+// ==========================================================================
+console.log('\n--- Test 10: ungauged network history ---');
+{
+  const line = {
+    id: 'bare_vac_line', utilityType: 'vacuumPipe',
+    path: [{ col: 0, row: 0 }, { col: 1, row: 0 }],
+    start: null, end: null, attachments: [],
+  };
+  const net = mkNetwork({ lineIds: [line.id] });
+  const world = { tick: 25, utilityLines: new Map([[line.id, line]]) };
+  const result = desc.solve(net, { pressureHistory: [] }, world);
+  const html = desc.renderInspector(net, result.flowState, result.nextPersistentState);
+  assert(result.flowState.gauges.length === 0
+      && result.flowState.pressureHistory[0].pressure === result.flowState.networkPressure,
+    'an ungauged vacuum run still records its published network pressure');
+  assert(html.includes('vacuum-pressure-chart') && html.includes('Network')
+      && !html.includes('Mount a Pirani'),
+    'an ungauged vacuum run still renders its network pressure plot');
 }
 
 // ==========================================================================
