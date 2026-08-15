@@ -12,6 +12,7 @@ import { planDesignerApply } from '../beamline/designer-plan.js';
 import { makeDraggable } from './draggable.js';
 import { pushEscHandler } from './esc-stack.js';
 import { applyPreviewDialog } from './ApplyPreviewDialog.js';
+import { DesignNameDialog } from './DesignNameDialog.js';
 import { portWorldPosition } from '../utility/ports.js';
 
 /**
@@ -107,6 +108,7 @@ export class BeamlineDesigner {
     this.costEl = document.getElementById('dsgn-draft-cost');
 
     this._suppressHashUpdate = false;
+    this._designNameDialog = new DesignNameDialog();
 
     this._bindButtons();
     this._bindEvents();
@@ -132,8 +134,12 @@ export class BeamlineDesigner {
       this.insertMode = 'nearest';
       this._updateInsertButtons();
     });
-    document.getElementById('dsgn-save-design').addEventListener('click', () => this.saveDesign());
-    document.getElementById('dsgn-save-as').addEventListener('click', () => this.saveDesignAs());
+    document.getElementById('dsgn-save-design').addEventListener('click', () => {
+      Promise.resolve(this.saveDesign()).catch(err => console.error('[designer] save failed', err));
+    });
+    document.getElementById('dsgn-save-as').addEventListener('click', () => {
+      Promise.resolve(this.saveDesignAs()).catch(err => console.error('[designer] save-as failed', err));
+    });
   }
 
   _bindEvents() {
@@ -756,7 +762,7 @@ export class BeamlineDesigner {
     }
   }
 
-  saveDesign() {
+  async saveDesign() {
     if (this.draftNodes.length === 0) {
       this.game.log('Cannot save empty design!', 'bad');
       return;
@@ -776,7 +782,9 @@ export class BeamlineDesigner {
       this.originalNodes = this.draftNodes.map(n => this._cloneNode(n));
       this.game.log(`Design "${this.designName}" saved.`, 'good');
     } else {
-      const name = this.mode === 'design' ? this.designName : prompt('Design name:', 'My Design');
+      const name = this.mode === 'design'
+        ? this.designName.trim()
+        : await this._requestDesignName('My Design', 'Save Beamline Design');
       if (!name) return;
       const category = this._pickCategory();
       const id = this.game.addDesign({ name, category, components });
@@ -790,12 +798,15 @@ export class BeamlineDesigner {
     }
   }
 
-  saveDesignAs() {
+  async saveDesignAs() {
     if (this.draftNodes.length === 0) {
       this.game.log('Cannot save empty design!', 'bad');
       return;
     }
-    const name = prompt('New design name:', this.designName + ' (copy)');
+    const name = await this._requestDesignName(
+      `${this.designName} (copy)`,
+      'Save a Copy'
+    );
     if (!name) return;
     const category = this._pickCategory();
     const components = this.draftNodes.map(n => ({
@@ -809,6 +820,16 @@ export class BeamlineDesigner {
     this.originalNodes = this.draftNodes.map(n => this._cloneNode(n));
     this._updateDesignerHeader();
     this.game.log(`Design "${name}" saved as new copy.`, 'good');
+  }
+
+  _requestDesignName(defaultName, title) {
+    return this._designNameDialog.open({
+      title,
+      defaultName,
+      componentCount: this.draftNodes.length,
+      lengthM: this.totalLength,
+      category: this._pickCategory(),
+    });
   }
 
   /**
