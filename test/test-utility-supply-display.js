@@ -18,7 +18,7 @@
 //      yields no supply row.
 
 import { COMPONENTS } from '../src/data/components.js';
-import { utilityStatRows } from '../src/ui/utility-supply.js';
+import { paletteUtilityMetrics, utilityStatRows } from '../src/ui/utility-supply.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -147,6 +147,28 @@ console.log('\n--- Test 6: zero-capacity source port -> no supply row ---');
   assert(COMPONENTS.bakeoutSystem.ports.vac_out.params.pumpSpeed === 0,
     'bakeoutSystem fixture assumption — pumpSpeed is 0');
   assert(supplyRows('bakeoutSystem').length === 0, 'bakeoutSystem (pumpSpeed:0 marker port) has no supply row');
+}
+
+// ======================================================================
+// Test 7: placement-card metrics describe real port requirements/supply.
+// ======================================================================
+console.log('\n--- Test 7: palette metrics expose placement requirements ---');
+{
+  const sourceMetrics = paletteUtilityMetrics(COMPONENTS.source);
+  assert(sourceMetrics.some(r => r.label === 'Power draw' && r.value === '50 kW'),
+    'source: palette shows its 50 kW power draw');
+  assert(sourceMetrics.some(r => r.label === 'Cooling draw' && r.value === '30 kW thermal'),
+    'source: palette shows its 30 kW thermal cooling draw');
+
+  const chillerMetrics = paletteUtilityMetrics(COMPONENTS.chiller);
+  assert(chillerMetrics.some(r => r.label === 'Power draw' && r.value === '5 kW'),
+    'chiller: palette shows its electrical draw');
+  assert(chillerMetrics.some(r => r.label === 'Cooling capacity' && r.value === '300 kW thermal'),
+    'chiller: palette shows its cooling capacity');
+
+  const cryoMetrics = paletteUtilityMetrics(COMPONENTS.ellipticalSrfCavity);
+  assert(cryoMetrics.some(r => r.label === 'Cryo draw'),
+    'SRF cavity: palette shows its cryogenic draw');
 }
 
 // ==========================================================================

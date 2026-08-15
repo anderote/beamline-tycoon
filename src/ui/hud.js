@@ -24,7 +24,7 @@ import { openHiringDialog } from './HiringDialog.js';
 import { facilityStaffingReport, facilityProgressReport } from '../game/staff/staffDiagnostics.js';
 import { professionDef } from '../data/professions.js';
 import { fmtMoney, ROLE_COLORS, staffInitials, staffMoodClass, escapeHtml } from './format.js';
-import { utilityStatRows } from './utility-supply.js';
+import { paletteUtilityMetrics, utilityStatRows } from './utility-supply.js';
 import { beamlineEnergyDraw, facilityEnergyDraw } from '../game/aggregates.js';
 import { makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
 import { portWorldPosition } from '../utility/ports.js';
@@ -2327,6 +2327,24 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
   }
   item.appendChild(previewEl);
 
+  // Placement cards need the practical wiring facts without requiring a
+  // hover. This is port-derived rather than a hand-maintained list: power is
+  // common, while cooling, RF, cryo, vacuum, and data appear when relevant.
+  const paletteMetrics = paletteUtilityMetrics(comp);
+  if (paletteMetrics.length) {
+    const metricsEl = document.createElement('div');
+    metricsEl.className = 'palette-metrics';
+    metricsEl.title = paletteMetrics.map(metric => `${metric.label}: ${metric.value}`).join('\n');
+    for (const metric of paletteMetrics) {
+      const line = document.createElement('div');
+      line.className = `palette-metric palette-metric-${metric.kind}`;
+      line.textContent = `${metric.label}: ${metric.value}`;
+      metricsEl.appendChild(line);
+    }
+    item.style.setProperty('--palette-metrics-height', `${paletteMetrics.length * 12}px`);
+    item.appendChild(metricsEl);
+  }
+
   // RF band badge (top-right corner).
   //
   // Sources declare `rfBands` — what the tube can cover. Accelerating
@@ -2362,13 +2380,6 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
       pwrLine.className = 'palette-rf-output';
       pwrLine.textContent = `${comp.params.power} kW`;
       bandEl.appendChild(pwrLine);
-    }
-    // RF power draw (red) for beamline accel components
-    if (comp.rfPowerRequired) {
-      const rfLine = document.createElement('div');
-      rfLine.className = 'palette-rf-draw';
-      rfLine.textContent = `${comp.rfPowerRequired} kW`;
-      bandEl.appendChild(rfLine);
     }
     item.appendChild(bandEl);
   }
@@ -3764,4 +3775,3 @@ UIHost.prototype._armSearchResult = function(result) {
 
   this._selectPaletteTool(kind, id, recallVariant(id));
 };
-

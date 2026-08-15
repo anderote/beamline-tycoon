@@ -1004,7 +1004,7 @@ body {
 .palette-item {
   width: 140px;
   min-width: 140px;
-  height: 180px;
+  height: 192px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -1074,6 +1074,31 @@ body {
   line-height: 1.3;
 }
 
+/* Wiring requirements and capacities are visible before placement.  They sit
+   over the thumbnail so the card can retain a comfortably readable full
+   building name below it. */
+.palette-item .palette-metrics {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  max-width: 112px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  background: rgba(18, 22, 42, 0.9);
+  color: #c6cee8;
+  font-size: 7px;
+  line-height: 1.4;
+  text-align: right;
+  pointer-events: none;
+}
+
+.palette-item .palette-metric { white-space: nowrap; }
+.palette-item .palette-metric-draw { color: #eeaa77; }
+.palette-item .palette-metric-capacity { color: #7fd39a; }
+.palette-item .palette-metrics + .palette-rf-band {
+  top: calc(5px + var(--palette-metrics-height, 0px));
+}
+
 .palette-item .palette-rf-output {
   color: #44dd66;
   margin-top: 1px;
@@ -1087,9 +1112,9 @@ body {
 .palette-item .palette-name {
   font-size: 10px;
   text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
   max-width: 130px;
 }
 
