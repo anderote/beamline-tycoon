@@ -24,7 +24,7 @@ import { openHiringDialog } from './HiringDialog.js';
 import { facilityStaffingReport, facilityProgressReport } from '../game/staff/staffDiagnostics.js';
 import { professionDef } from '../data/professions.js';
 import { fmtMoney, ROLE_COLORS, staffInitials, staffMoodClass, escapeHtml } from './format.js';
-import { paletteUtilityMetrics, paletteUtilityTags, utilityStatRows } from './utility-supply.js';
+import { paletteUtilityTags, utilityStatRows } from './utility-supply.js';
 import { beamlineEnergyDraw, facilityEnergyDraw } from '../game/aggregates.js';
 import { makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
 import { portWorldPosition } from '../utility/ports.js';
@@ -2327,26 +2327,8 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
   }
   item.appendChild(previewEl);
 
-  // Placement cards need the practical wiring facts without requiring a
-  // hover. This is port-derived rather than a hand-maintained list: power is
-  // common, while cooling, RF, cryo, vacuum, and data appear when relevant.
-  const paletteMetrics = paletteUtilityMetrics(comp);
-  if (paletteMetrics.length) {
-    const metricsEl = document.createElement('div');
-    metricsEl.className = 'palette-metrics';
-    metricsEl.title = paletteMetrics.map(metric => `${metric.label}: ${metric.value}`).join('\n');
-    for (const metric of paletteMetrics) {
-      const line = document.createElement('div');
-      line.className = `palette-metric palette-metric-${metric.kind}`;
-      line.textContent = `${metric.label}: ${metric.value}`;
-      metricsEl.appendChild(line);
-    }
-    item.style.setProperty('--palette-metrics-height', `${paletteMetrics.length * 12}px`);
-    item.appendChild(metricsEl);
-  }
-
-  // Compact signed badges complement the full wiring facts: they make a
-  // source's output or a device's operating draw comparable at a glance.
+  // Compact signed badges make a source's output or a device's operating draw
+  // comparable at a glance without obscuring the component thumbnail.
   const utilityTags = paletteUtilityTags(comp);
   if (utilityTags.length) {
     const tagsEl = document.createElement('div');
