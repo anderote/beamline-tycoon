@@ -9,17 +9,16 @@
 // by counting scene.add()/remove() calls rather than trusting the render
 // loop not to hitch, since nothing in this suite can see a real frame.
 //
-// Also covers floor-glow.js's buildFloorGlowStrip: it must refuse to paint a
-// pool under vacuumPipe (FLOW_PARAMS.vacuumPipe is null — no flow to paint)
-// or a hard-faulted run (the pipe above goes dark; so does the pool), and
-// whatever it does build must not be tagged __shared, since — unlike the
-// cached line/jacket materials in utility-line-builder-v2.js — its geometry
-// is unique to one line's polyline and cannot be reused by another.
+// Also covers floor-glow.js's historically named buildFloorGlowStrip: it must
+// refuse to light vacuumPipe (FLOW_PARAMS.vacuumPipe is null — no emission) or
+// a hard-faulted run, and it must sample multiple pixel-less real-light
+// proxies along a route instead of drawing translucent floor geometry or
+// collapsing the entire line into one midpoint hotspot.
 //
 // THREE is a CDN global in the browser; stubbed here (pattern lifted from
 // test/test-utility-flow.js, which stubs the same two geometry classes
 // floor-glow.js needs — Vector3 and BoxGeometry — for the same reason: no
-// browser, no real WebGL, just the geometry/uniform math). LightRig itself
+// browser, no real WebGL, just the proxy/light allocation math). LightRig itself
 // needs a few more stub classes (SpotLight, PointLight, a Scene that counts
 // add/remove calls) that utility-flow's test didn't need.
 
@@ -178,7 +177,7 @@ globalThis.THREE = {
   AdditiveBlending: 2,
 };
 
-const { LightRig } = await import('../src/renderer3d/light-rig.js');
+const { LightRig, utilityEmitterFactor } = await import('../src/renderer3d/light-rig.js');
 const { fixtureLightTag } = await import('../src/renderer3d/lighting-builder.js');
 const { fixtureLightProjection, aimYaw } = await import('../src/renderer3d/fixture-light-math.js');
 const { fixtureDynamicFactor } = await import('../src/renderer3d/light-dynamics.js');
@@ -617,7 +616,7 @@ function makePoints() {
   return [new V3(0, 0.5, 0), new V3(4, 0.5, 0), new V3(4, 0.5, 6)];
 }
 
-test('buildFloorGlowStrip refuses to paint a pool under vacuumPipe (no flow) or a hard-faulted run', () => {
+test('buildFloorGlowStrip refuses to light vacuumPipe (no flow) or a hard-faulted run', () => {
   assert.equal(FLOW_PARAMS.vacuumPipe, null, 'sanity: vacuumPipe really has no FLOW_PARAMS entry');
   assert.equal(buildFloorGlowStrip(makePoints(), 'vacuumPipe', 'ok'), null,
     'no flow to paint, regardless of flow state');
@@ -625,25 +624,57 @@ test('buildFloorGlowStrip refuses to paint a pool under vacuumPipe (no flow) or 
     'a dead network paints nothing, same as the pipe above it going dark');
 });
 
-test('buildFloorGlowStrip builds bloom ribbons across every horizontal segment of a healthy flowing run', () => {
+test('buildFloorGlowStrip distributes invisible real-light emitters along every horizontal leg', () => {
   const strip = buildFloorGlowStrip(makePoints(), 'coolingWater', 'ok');
-  assert.ok(strip, 'a healthy coolingWater run gets floor glow');
+  assert.ok(strip, 'a healthy coolingWater run gets a light field');
   assert.equal(strip.userData.isFloorGlowStrip, true, 'tagged so ThreeRenderer can find/toggle it by traversal');
-  assert.equal(strip.children.length, 2, 'one continuous glow ribbon is built for each horizontal segment');
-  for (const ribbon of strip.children) {
-    assert.equal(ribbon.userData.isFloorGlowRibbon, true, 'each child is explicitly a floor-glow ribbon');
-    assert.ok((ribbon.layers.mask & (1 << 1)) !== 0, 'each ribbon participates in the bloom pass');
+  assert.equal(strip.userData.isUtilityLightField, true, 'identified as real utility lighting, not floor paint');
+  assert.equal(strip.children.length, 5,
+    'the 4 m + 6 m route is sampled at overlapping intervals instead of once at its midpoint');
+  for (const emitter of strip.children) {
+    assert.equal(emitter.isMesh, undefined, 'an emitter proxy has no visible pixels or translucent geometry');
+    assert.equal(emitter.userData.isUtilityLightEmitter, true, 'each sample is an explicit real-light candidate');
+    assert.ok(emitter.userData.utilityLightEmitter.distance > 0, 'each real light has bounded falloff');
+    assert.ok(emitter.userData.utilityLightEmitter.daylightFloor > 0,
+      'a visibly live utility still casts some real light during the day');
   }
   assert.equal(strip.userData.utilityLightEmitter, undefined,
-    'the run no longer collapses into one midpoint point-light hotspot');
+    'the parent does not collapse the run back into one midpoint hotspot');
 
   const soft = buildFloorGlowStrip(makePoints(), 'coolingWater', 'soft');
-  assert.ok(soft, 'a soft-faulted (over-capacity, still delivering) run still glows');
-  assert.ok(soft.children[0].material.opacity < strip.children[0].material.opacity,
-    'soft-faulted utility ribbons are dimmer than healthy ones');
+  assert.ok(soft, 'a soft-faulted (over-capacity, still delivering) run still emits');
+  assert.ok(soft.children[0].userData.utilityLightEmitter.intensity
+      < strip.children[0].userData.utilityLightEmitter.intensity,
+  'soft-faulted utility lighting is dimmer than healthy lighting');
 });
 
-test('RF waveguide uses its travelling bloom wave, not a point-light hotspot', () => {
-  assert.equal(buildFloorGlowStrip(makePoints(), 'rfWaveguide', 'ok'), null,
-    'RF does not create a real-light proxy; its emissive geometry supplies the glow');
+test('utility emitters make the pooled PointLights cast in daylight and pulse with the shader wave', () => {
+  const scene = new SceneStub();
+  const field = buildFloorGlowStrip(makePoints(), 'coolingWater', 'ok');
+  scene.add(field);
+  const rig = new LightRig(scene, {
+    shadowSpotCount: 0, pointCount: 4, flashReserve: 0,
+  });
+  rig.update({ position: new V3(0, 4, 0) }, 0, 0.25, new V3(2, 0, 1));
+
+  const assigned = rig._pointSlots.filter((slot) => slot.assignedRef);
+  assert.equal(assigned.length, 4, 'the fixed pool claims the nearest four samples without allocating lights');
+  assert.ok(assigned.every((slot) => slot.assignedRef.userData.isUtilityLightEmitter),
+    'the claimed candidates are the distributed utility samples');
+  assert.ok(assigned.every((slot) => slot.light.intensity > 0),
+    'utility light reaches surrounding materials even at nightFactor=0/full daylight');
+  assert.ok(assigned.every((slot) => slot.light.color.getHex() === '#4488ff'),
+    'the real spill carries the utility descriptor colour');
+
+  const emitter = field.children[0].userData.utilityLightEmitter;
+  assert.notEqual(utilityEmitterFactor(emitter, 0), utilityEmitterFactor(emitter, 2),
+    'the real-light intensity travels with the same distance/speed wave as the emissive material');
+});
+
+test('RF waveguide gets distributed real spill as well as its travelling bloom wave', () => {
+  const field = buildFloorGlowStrip(makePoints(), 'rfWaveguide', 'ok');
+  assert.ok(field, 'RF energy is bright enough to illuminate nearby surfaces');
+  assert.ok(field.children.length > 1, 'RF uses the distributed field, not a point-light hotspot');
+  assert.ok(field.children[0].userData.utilityLightEmitter.flow.pulseDepth > 0.4,
+    'RF spill carries a stronger travelling modulation than ordinary service lines');
 });
