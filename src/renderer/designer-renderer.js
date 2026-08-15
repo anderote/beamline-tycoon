@@ -5,6 +5,7 @@ import { BeamlineDesigner } from '../ui/BeamlineDesigner.js';
 import { COMPONENTS } from '../data/components.js';
 import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
 import { BeamPhysics } from '../beamline/physics.js';
+import { isDesignerAutoManagedParam } from '../beamline/designer-auto-tuning.js';
 import { formatEnergy } from '../data/units.js';
 import { MODES } from '../data/modes.js';
 import { UNITS } from '../data/units.js';
@@ -30,6 +31,7 @@ function _driftPixelWidth(componentType, subL) {
 
 BeamlineDesigner.prototype._renderAll = function() {
   if (!this.isOpen) return;
+  this._updateAutoTuneControl();
   this._renderSchematic();
   this._renderTuning();
   this._renderPlots();
@@ -732,6 +734,9 @@ BeamlineDesigner.prototype._renderTuning = function() {
     for (const [key, def] of Object.entries(paramDefs)) {
       if (def.derived) continue;
       const val = node.params[key] ?? def.default;
+      const autoManaged = this.autoTuneEnabled && isDesignerAutoManagedParam(node.type, key);
+      const disabled = autoManaged ? ' disabled' : '';
+      const managedTitle = autoManaged ? ' title="Managed by automatic matching"' : '';
 
       // Binary params with labels → toggle buttons instead of slider
       if (def.labels && def.min === 0 && def.max === 1 && def.step === 1) {
@@ -740,7 +745,7 @@ BeamlineDesigner.prototype._renderTuning = function() {
         html += `<div class="param-toggle-group" data-toggle-param="${key}">`;
         for (const [lv, ll] of Object.entries(def.labels)) {
           const active = Math.round(val) === Number(lv) ? ' active' : '';
-          html += `<button class="param-toggle-btn${active}" data-toggle-val="${lv}">${ll}</button>`;
+          html += `<button class="param-toggle-btn${active}" data-toggle-val="${lv}"${disabled}${managedTitle}>${ll}</button>`;
         }
         html += `</div>`;
         html += `</div>`;
@@ -749,7 +754,7 @@ BeamlineDesigner.prototype._renderTuning = function() {
 
       html += `<div class="param-slider-row">`;
       html += `<span class="param-label">${_paramLabel(key)}</span>`;
-      html += `<input type="range" min="${def.min}" max="${def.max}" step="${def.step}" value="${val}" data-param="${key}">`;
+      html += `<input type="range" min="${def.min}" max="${def.max}" step="${def.step}" value="${val}" data-param="${key}"${disabled}${managedTitle}>`;
       if (def.labels) {
         html += `<span class="param-value" data-param-display="${key}">${def.labels[Math.round(val)] || val}</span>`;
       } else {

@@ -20,6 +20,7 @@ import {
   missionPlotTargets,
   recommendedQuadrupoleGradient,
 } from '../beamline/designer-placement-hints.js';
+import { planDesignerAutoTune } from '../beamline/designer-auto-tuning.js';
 
 /**
  * Physical length (in sub-units) of one draft node.
@@ -153,6 +154,12 @@ export class BeamlineDesigner {
     this.plotYAxisMode = 'linear'; // 'linear' | 'log'
     this.plotReference = 'mission'; // 'mission' | 'none'
 
+    // Opt-in automatic matching. It is a session preference rather than a
+    // property of the built machine; only the resulting component params are
+    // saved/applied. The summary feeds the compact lower-right status readout.
+    this.autoTuneEnabled = false;
+    this._lastAutoTuneSummary = null;
+
     // DOM references
     this.overlay = document.getElementById('designer-overlay');
     this.summaryEl = document.getElementById('dsgn-draft-summary');
@@ -191,6 +198,12 @@ export class BeamlineDesigner {
     document.getElementById('dsgn-save-as').addEventListener('click', () => {
       Promise.resolve(this.saveDesignAs()).catch(err => console.error('[designer] save-as failed', err));
     });
+    const autoTune = document.getElementById('dsgn-auto-tune');
+    if (autoTune) {
+      autoTune.addEventListener('change', () => {
+        this._setAutoTuneEnabled(autoTune.checked);
+      });
+    }
   }
 
   _bindEvents() {
@@ -711,6 +724,7 @@ export class BeamlineDesigner {
 
     if (hasSavedDraft && savedDraft.draftNodes.length > 0) {
       // Restore saved draft
+      this.autoTuneEnabled = savedDraft.autoTuneEnabled === true;
       this.designId = savedDraft.designId;
       this.designName = savedDraft.designName;
       this.draftNodes = savedDraft.draftNodes.map(n => ({
@@ -1407,6 +1421,7 @@ export class BeamlineDesigner {
       draftNodes: this.draftNodes.map(n => this._cloneNode(n)),
       selectedIndex: this.selectedIndex,
       markerS: this.markerS,
+      autoTuneEnabled: this.autoTuneEnabled,
     });
     if (this._undoStack.length > this._UNDO_MAX) {
       this._undoStack.shift();
@@ -1422,6 +1437,7 @@ export class BeamlineDesigner {
     this.draftNodes = snap.draftNodes;
     this.selectedIndex = snap.selectedIndex;
     this.markerS = snap.markerS;
+    this.autoTuneEnabled = snap.autoTuneEnabled === true;
     this._lastTuningKey = null; // force tuning panel rebuild
     this._updateTotalLength();
     this._recalcDraft();
@@ -2291,7 +2307,37 @@ export class BeamlineDesigner {
     // The full result, not just the envelope: the advisor reads
     // dispersionWarnings off it, and re-running physics to fetch them would
     // double the cost of every keystroke in a slider drag.
-    const draftResult = this._computePhysics(this.draftNodes);
+    let draftResult = this._computePhysics(this.draftNodes);
+
+    // Auto matching is iterative because an RF phase repair changes downstream
+    // energy, and therefore the gradients the downstream magnets need. Each
+    // pass plans from the current published envelope, applies only changed
+    // params, then recomputes. In practice this settles in two passes; the cap
+    // makes a future rounded-control edge case harmless.
+    if (this.autoTuneEnabled) {
+      const typeId = this._designerBeamlineTypeId?.();
+      const particle = (typeId && getBeamlineType(typeId)?.particle) || 'e-';
+      for (let pass = 0; pass < 3; pass++) {
+        const plan = planDesignerAutoTune({
+          nodes: this.draftNodes,
+          envelope: draftResult?.envelope || [],
+          particle,
+        });
+        this._lastAutoTuneSummary = plan;
+        if (plan.updates.length === 0) break;
+        for (const update of plan.updates) {
+          const node = this.draftNodes[update.index];
+          if (!node) continue;
+          node.params = { ...(node.params || {}), ...update.params };
+          node.computedStats = null;
+        }
+        this._lastTuningKey = null;
+        draftResult = this._computePhysics(this.draftNodes);
+      }
+    } else {
+      this._lastAutoTuneSummary = null;
+    }
+
     this.draftPhysicsResult = draftResult;
     this.draftEnvelope = draftResult ? draftResult.envelope : null;
     this.draftDispersionWarnings = draftResult?.dispersionWarnings || [];
@@ -2502,6 +2548,44 @@ export class BeamlineDesigner {
     if (insertBtn) insertBtn.classList.toggle('active', !!this.insertMode);
   }
 
+  /** Toggle the opt-in matcher. Enabling is one undoable draft action; later
+   * structural edits retain the mode in their own snapshots. */
+  _setAutoTuneEnabled(enabled) {
+    const next = enabled === true;
+    if (next === this.autoTuneEnabled) {
+      this._updateAutoTuneControl();
+      return;
+    }
+    if (next && this.isOpen && this.draftNodes.length > 0) this._pushUndo();
+    this.autoTuneEnabled = next;
+    this._lastAutoTuneSummary = null;
+    this._lastTuningKey = null;
+    if (this.isOpen) {
+      this._recalcDraft();
+      this._updateDraftBar();
+      this._renderAll();
+    } else {
+      this._updateAutoTuneControl();
+    }
+  }
+
+  /** Keep the lower-right checkbox and managed-element count in sync. */
+  _updateAutoTuneControl() {
+    const input = document.getElementById('dsgn-auto-tune');
+    const root = document.getElementById('dsgn-auto-tune-control');
+    const status = document.getElementById('dsgn-auto-tune-status');
+    if (input) input.checked = this.autoTuneEnabled === true;
+    if (root) root.classList.toggle('active', this.autoTuneEnabled === true);
+    if (!status) return;
+    if (!this.autoTuneEnabled) {
+      status.textContent = 'MANUAL';
+      return;
+    }
+    const magnets = this._lastAutoTuneSummary?.managedMagnets || 0;
+    const rf = this._lastAutoTuneSummary?.managedRf || 0;
+    status.textContent = `${magnets} MAG · ${rf} RF`;
+  }
+
   serializeState() {
     if (!this.isOpen) return null;
     // Envelopes are deliberately absent: draftEnvelope and baselineEnvelope are
@@ -2537,6 +2621,7 @@ export class BeamlineDesigner {
       selectedIndex: this.selectedIndex,
       viewX: this.viewX,
       viewZoom: this.viewZoom,
+      autoTuneEnabled: this.autoTuneEnabled,
     };
   }
 
@@ -2544,6 +2629,7 @@ export class BeamlineDesigner {
     if (!state || !state.isOpen) return;
 
     if (state.mode === 'edit' && state.editSourceId) {
+      this.autoTuneEnabled = state.autoTuneEnabled === true;
       this.openFromSource(state.editSourceId, state.editEndpointId);
       if (state.draftNodes?.length) {
         this.draftNodes = state.draftNodes.map(n => ({
@@ -2571,6 +2657,7 @@ export class BeamlineDesigner {
         this._renderAll();
       }
     } else if (state.mode === 'design') {
+      this.autoTuneEnabled = state.autoTuneEnabled === true;
       const design = state.designId ? this.game.getDesign(state.designId) : null;
       this.openDesign(design);
       // Override draft with saved state
