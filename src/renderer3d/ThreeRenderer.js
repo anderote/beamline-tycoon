@@ -1105,6 +1105,10 @@ export class ThreeRenderer {
         return { group: 'equipment', rootObj: obj, nodeId: obj.userData.nodeId ?? null };
       }
       if (obj.parent === this.decorationGroup) {
+        const batched = this.decorationBuilder?.resolveBatchHit?.(hit);
+        if (batched) {
+          return { group: 'decoration', ...batched };
+        }
         return { group: 'decoration', rootObj: obj, nodeId: obj.userData.nodeId ?? null };
       }
       if (obj.parent === this.wallGroup) {
@@ -2125,6 +2129,24 @@ export class ThreeRenderer {
       color, transparent: true, opacity: 0.95, linewidth,
     });
     const wrapper = new THREE.Group();
+
+    // Batched trees keep a lightweight per-placeable root for selection while
+    // their visible parts live in shared BatchedMeshes. Outline that root's
+    // authored bounds instead of outlining the entire forest batch.
+    const outlineBounds = sourceObj.userData?.outlineBounds;
+    if (outlineBounds) {
+      const box = new THREE.BoxGeometry(
+        outlineBounds.width, outlineBounds.height, outlineBounds.depth,
+      );
+      box.translate(0, outlineBounds.height / 2, 0);
+      const edges = new THREE.EdgesGeometry(box, 20);
+      box.dispose();
+      const line = new THREE.LineSegments(edges, lineMat);
+      sourceObj.updateWorldMatrix(true, false);
+      line.matrixAutoUpdate = false;
+      line.matrix.copy(sourceObj.matrixWorld);
+      wrapper.add(line);
+    }
 
     sourceObj.traverse(child => {
       if (!child.isMesh || !child.geometry) return;

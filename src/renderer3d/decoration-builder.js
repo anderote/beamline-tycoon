@@ -254,6 +254,24 @@ export function decorationSeed(col, row, subCol, subRow) {
   return (h >>> 0) || 1;
 }
 
+// Trees used to turn every coordinate seed into wholly new geometry. A
+// generated map can contain thousands of them, so that meant thousands of
+// nearly-identical vertex buffers and materials. Sixteen silhouettes per
+// species retain visible variety while making prototype reuse practical.
+export const TREE_VISUAL_VARIANTS = 16;
+export function treeVisualSeed(typeId, seed) {
+  if (!seed) return 0; // thumbnails keep the nominal authored form
+  let typeHash = 2166136261;
+  for (let i = 0; i < typeId.length; i++) {
+    typeHash ^= typeId.charCodeAt(i);
+    typeHash = Math.imul(typeHash, 16777619);
+  }
+  const bucket = (seed ^ (seed >>> 16)) & (TREE_VISUAL_VARIANTS - 1);
+  let representative = Math.imul(typeHash ^ bucket, 0x9e3779b1) >>> 0;
+  representative ^= representative >>> 15;
+  return representative || 1;
+}
+
 // Shift a hex color's green channel by `delta` (clamped). Used for per-tree
 // foliage hue variation — keeps R/B anchored so species palette (red maple,
 // green oak) stays recognizable.
@@ -1362,7 +1380,9 @@ function buildDecorationGroup(typeId, category, footW, footL, totalH, variant = 
   // already keys on.
   const lightDef = LIGHTING_DEFS_BY_ID[typeId];
   if (lightDef) return buildLightFixture(lightDef, { dir });
-  if (TREE_BUILDERS[typeId]) return TREE_BUILDERS[typeId](footW, footL, totalH, seed);
+  if (TREE_BUILDERS[typeId]) {
+    return TREE_BUILDERS[typeId](footW, footL, totalH, treeVisualSeed(typeId, seed));
+  }
   if (_isFlowerBedType(typeId)) {
     const builder = FLOWER_BED_VARIANTS[variant ?? 0] || FLOWER_BED_VARIANTS[0];
     return builder(footW, footL, totalH);
@@ -1371,9 +1391,59 @@ function buildDecorationGroup(typeId, category, footW, footL, totalH, variant = 
   if (category === 'treesPlants') {
     if (totalH > 1.5) return _oakTree(footW, footL, totalH, seed);
   }
-  if (typeId === 'shrub')         return _shrub(footW, footL, totalH, seed);
-  if (category === 'treesPlants') return _shrub(footW, footL, totalH, seed);
+  if (typeId === 'shrub') {
+    return _shrub(footW, footL, totalH, treeVisualSeed(typeId, seed));
+  }
+  if (category === 'treesPlants') {
+    return _shrub(footW, footL, totalH, treeVisualSeed(typeId, seed));
+  }
   return _defaultBox(footW, footL, totalH);
+}
+
+function _isBatchablePlant(typeId) {
+  return !!TREE_BUILDERS[typeId] || typeId === 'shrub';
+}
+
+function _geometrySignature(geometry) {
+  const attrs = Object.entries(geometry.attributes || {})
+    .map(([name, attr]) => `${name}:${attr.itemSize}:${attr.normalized ? 1 : 0}:${attr.array?.constructor?.name || ''}`)
+    .sort()
+    .join(',');
+  return `${geometry.getIndex?.() ? 'indexed' : 'plain'}|${attrs}`;
+}
+
+function _materialSignature(material, geometry) {
+  const map = material?.map;
+  return [
+    _geometrySignature(geometry),
+    material?.type || 'Material',
+    map?.uuid || 'no-map',
+    material?.roughness ?? '', material?.metalness ?? '',
+    material?.side ?? '', material?.transparent ? 1 : 0,
+    material?.opacity ?? 1, material?.alphaTest ?? 0,
+    material?.flatShading ? 1 : 0,
+  ].join('|');
+}
+
+function _geometryWithBakedColor(geometry, material) {
+  const copy = geometry.clone();
+  const count = copy.getAttribute('position').count;
+  const color = material?.color || new THREE.Color(0xffffff);
+  const colors = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    colors[i * 3] = color.r;
+    colors[i * 3 + 1] = color.g;
+    colors[i * 3 + 2] = color.b;
+  }
+  copy.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return copy;
+}
+
+function _batchMaterial(source) {
+  const material = source.clone();
+  if (material.color) material.color.setHex(0xffffff);
+  material.vertexColors = true;
+  return material;
 }
 
 /**
@@ -1430,6 +1500,11 @@ export class DecorationBuilder {
      * enumerate without re-scanning every decoration.
      * @type {Array<{id: string|number, def: object, group: THREE.Group}>} */
     this._lightingFixtures = [];
+    /** Material-compatible BatchedMeshes used by trees and shrubs. */
+    this._plantBatches = [];
+    /** Small reusable silhouette library: species × visual variant. */
+    this._plantPrototypes = new Map();
+    this._batchStats = { plantCount: 0, batchCount: 0, partCount: 0, prototypeCount: 0 };
   }
 
   /** The rendered group for a placeable id, or null. Mirrors ComponentBuilder's _meshMap lookup. */
@@ -1440,6 +1515,19 @@ export class DecorationBuilder {
   /** Lighting fixtures placed by the last `build()` call. */
   getLightingFixtures() {
     return this._lightingFixtures;
+  }
+
+  getBatchStats() {
+    return { ...this._batchStats };
+  }
+
+  resolveBatchHit(hit) {
+    if (!hit?.object?.userData?.batchedPlants || hit.batchId == null) return null;
+    const nodeId = hit.object.userData.batchNodeIds?.[hit.batchId] ?? null;
+    return {
+      nodeId,
+      rootObj: nodeId != null ? (this.getGroup(nodeId) || hit.object) : hit.object,
+    };
   }
 
   /**
@@ -1470,6 +1558,141 @@ export class DecorationBuilder {
     return this._buildOne(typeId, raw.category, sw * SUB, sl * SUB, sh * SUB, variant, seed, pos?.dir ?? 0);
   }
 
+  _addOrdinaryDecoration(dec, parentGroup) {
+    const p = decorationPlacement(dec);
+    // Keyed on the def carrying a `light` block, not `dec.category` —
+    // category is palette grouping and is being reshuffled independently
+    // of which defs are actually light fixtures.
+    const lightDef = LIGHTING_DEFS_BY_ID[dec.type] || null;
+    const group = this._buildOne(
+      dec.type, dec.category, p.geoW, p.geoL, p.totalH, dec.variant ?? 0, p.seed, dec.dir ?? 0,
+    );
+    group.userData ||= {};
+    group.userData.nodeId = dec.id ?? null;
+
+    // Ground fixtures sit on the floor. Wall/overhead fixture geometry is
+    // authored around its mounting point, so lift that origin to the
+    // definition's mount height even though all fixtures still share the
+    // ordinary decoration placement store.
+    const floorY = (dec.y ?? 0) + (dec.placeY || 0) * SUB;
+    const groupY = lightDef ? fixtureMountY(lightDef, floorY) : floorY;
+    const wallPose = lightDef?.mount === 'wall' ? wallFixturePose(dec.wallMount) : null;
+    group.position.set(wallPose?.x ?? p.x, groupY, wallPose?.z ?? p.z);
+    group.rotation.y = wallPose?.yaw
+      ?? (lightDef ? lightingYaw(lightDef, p.rotY, p.seed) : p.rotY);
+    if (lightDef) {
+      this._lightingFixtures.push({ id: dec.id, def: lightDef, group });
+    }
+
+    parentGroup.add(group);
+    this._groups.push(group);
+    if (dec.id != null) this._groupsById.set(dec.id, group);
+  }
+
+  _plantPrototype(dec, p) {
+    const visualSeed = treeVisualSeed(dec.type, p.seed);
+    const key = [dec.type, p.geoW, p.geoL, p.totalH, visualSeed].join('|');
+    let prototype = this._plantPrototypes.get(key);
+    if (prototype) return prototype;
+    prototype = TREE_BUILDERS[dec.type]
+      ? TREE_BUILDERS[dec.type](p.geoW, p.geoL, p.totalH, visualSeed)
+      : _shrub(p.geoW, p.geoL, p.totalH, visualSeed);
+    prototype.updateMatrixWorld(true);
+    this._plantPrototypes.set(key, prototype);
+    return prototype;
+  }
+
+  _buildPlantBatches(plants, parentGroup) {
+    if (!plants.length) return;
+    const buckets = new Map();
+    const coloredGeometry = new WeakMap();
+    const tempGeometry = new Set();
+    const placementMatrix = new THREE.Matrix4();
+    const worldMatrix = new THREE.Matrix4();
+    const rotation = new THREE.Quaternion();
+    const unitScale = new THREE.Vector3(1, 1, 1);
+    let partCount = 0;
+
+    for (const dec of plants) {
+      const p = decorationPlacement(dec);
+      const floorY = (dec.y ?? 0) + (dec.placeY || 0) * SUB;
+      const root = new THREE.Group();
+      root.position.set(p.x, floorY, p.z);
+      root.rotation.y = p.rotY;
+      root.userData.nodeId = dec.id ?? null;
+      root.userData.batchedPlantRoot = true;
+      root.userData.outlineBounds = {
+        width: p.geoW, height: p.totalH, depth: p.geoL,
+      };
+      this._groups.push(root);
+      if (dec.id != null) this._groupsById.set(dec.id, root);
+
+      rotation.setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.rotY);
+      placementMatrix.compose(root.position, rotation, unitScale);
+      const prototype = this._plantPrototype(dec, p);
+      prototype.updateMatrixWorld(true);
+      prototype.traverse((child) => {
+        if (!child.isMesh || !child.geometry || !child.material) return;
+        const sourceMaterial = Array.isArray(child.material) ? child.material[0] : child.material;
+        if (!sourceMaterial) return;
+        let geometry = coloredGeometry.get(child.geometry);
+        if (!geometry) {
+          geometry = _geometryWithBakedColor(child.geometry, sourceMaterial);
+          coloredGeometry.set(child.geometry, geometry);
+          tempGeometry.add(geometry);
+        }
+        const signature = _materialSignature(sourceMaterial, geometry);
+        let bucket = buckets.get(signature);
+        if (!bucket) {
+          bucket = { material: _batchMaterial(sourceMaterial), entries: [] };
+          buckets.set(signature, bucket);
+        }
+        bucket.entries.push({
+          geometry,
+          matrix: worldMatrix.multiplyMatrices(placementMatrix, child.matrixWorld).clone(),
+          nodeId: dec.id ?? null,
+          castShadow: child.castShadow,
+          receiveShadow: child.receiveShadow,
+        });
+        partCount++;
+      });
+    }
+
+    for (const bucket of buckets.values()) {
+      const entries = bucket.entries;
+      const maxVertices = entries.reduce((sum, e) => sum + e.geometry.getAttribute('position').count, 0);
+      const maxIndices = entries.reduce((sum, e) => sum + (e.geometry.getIndex()?.count || 0), 0);
+      const batch = new THREE.BatchedMesh(
+        entries.length,
+        maxVertices,
+        Math.max(maxIndices, maxVertices),
+        bucket.material,
+      );
+      batch.name = 'batched-trees-plants';
+      batch.castShadow = entries.some(e => e.castShadow);
+      batch.receiveShadow = entries.some(e => e.receiveShadow);
+      batch.userData.batchedPlants = true;
+      batch.userData.batchNodeIds = [];
+      for (const entry of entries) {
+        const batchId = batch.addGeometry(entry.geometry);
+        batch.setMatrixAt(batchId, entry.matrix);
+        batch.userData.batchNodeIds[batchId] = entry.nodeId;
+      }
+      batch.computeBoundingBox();
+      batch.computeBoundingSphere();
+      parentGroup.add(batch);
+      this._plantBatches.push(batch);
+    }
+
+    for (const geometry of tempGeometry) geometry.dispose();
+    this._batchStats = {
+      plantCount: plants.length,
+      batchCount: this._plantBatches.length,
+      partCount,
+      prototypeCount: this._plantPrototypes.size,
+    };
+  }
+
   /**
    * Build decoration groups from snapshot data.
    * @param {Array} decorationData - Array of decoration objects from WorldSnapshot
@@ -1479,40 +1702,13 @@ export class DecorationBuilder {
     this.dispose(parentGroup);
     if (!decorationData) return;
     this._lightingFixtures = [];
-
+    const canBatch = typeof THREE !== 'undefined' && typeof THREE.BatchedMesh === 'function';
+    const plants = canBatch ? decorationData.filter(dec => _isBatchablePlant(dec.type)) : [];
+    const plantSet = new Set(plants);
     for (const dec of decorationData) {
-      const p = decorationPlacement(dec);
-      // Keyed on the def carrying a `light` block, not `dec.category` —
-      // category is palette grouping and is being reshuffled independently
-      // of which defs are actually light fixtures.
-      const lightDef = LIGHTING_DEFS_BY_ID[dec.type] || null;
-
-      const group = this._buildOne(
-        dec.type, dec.category, p.geoW, p.geoL, p.totalH, dec.variant ?? 0, p.seed, dec.dir ?? 0,
-      );
-      group.userData ||= {};
-      group.userData.nodeId = dec.id ?? null;
-
-      // Ground fixtures sit on the floor. Wall/overhead fixture geometry is
-      // authored around its mounting point, so lift that origin to the
-      // definition's mount height even though all fixtures still share the
-      // ordinary decoration placement store.
-      const floorY = (dec.y ?? 0) + (dec.placeY || 0) * SUB;
-      const groupY = lightDef ? fixtureMountY(lightDef, floorY) : floorY;
-      const wallPose = lightDef?.mount === 'wall' ? wallFixturePose(dec.wallMount) : null;
-      group.position.set(wallPose?.x ?? p.x, groupY, wallPose?.z ?? p.z);
-      group.rotation.y = wallPose?.yaw
-        ?? (lightDef ? lightingYaw(lightDef, p.rotY, p.seed) : p.rotY);
-      if (lightDef) {
-        // This registry is handed directly to LightRig and is also the source
-        // for the painted pools/halos, keeping all lighting channels aligned.
-        this._lightingFixtures.push({ id: dec.id, def: lightDef, group });
-      }
-
-      parentGroup.add(group);
-      this._groups.push(group);
-      if (dec.id != null) this._groupsById.set(dec.id, group);
+      if (!plantSet.has(dec)) this._addOrdinaryDecoration(dec, parentGroup);
     }
+    if (canBatch) this._buildPlantBatches(plants, parentGroup);
   }
 
   /**
@@ -1520,8 +1716,15 @@ export class DecorationBuilder {
    * @param {THREE.Group} parentGroup
    */
   dispose(parentGroup) {
+    for (const batch of this._plantBatches) {
+      parentGroup.remove(batch);
+      batch.material?.dispose?.();
+      batch.dispose?.();
+    }
+    this._plantBatches = [];
     for (const group of this._groups) {
       parentGroup.remove(group);
+      if (group.userData?.batchedPlantRoot) continue;
       group.traverse(child => {
         if (child.geometry) child.geometry.dispose();
         if (child.material) child.material.dispose();
@@ -1530,6 +1733,10 @@ export class DecorationBuilder {
     this._groups = [];
     this._groupsById.clear();
     this._lightingFixtures = [];
+    this._batchStats = {
+      plantCount: 0, batchCount: 0, partCount: 0,
+      prototypeCount: this._plantPrototypes.size,
+    };
   }
 }
 
