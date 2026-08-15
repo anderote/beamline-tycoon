@@ -1,5 +1,6 @@
+from math import erf
+
 import numpy as np
-from scipy.special import erf
 from beam_physics.modules.base import PhysicsModule
 from beam_physics.context import EffectReport
 from beam_physics.constants import DEFAULT_APERTURE

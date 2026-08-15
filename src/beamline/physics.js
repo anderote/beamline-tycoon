@@ -52,8 +52,10 @@ export const BeamPhysics = (() => {
         indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.27.4/full/',
       });
 
-      // Load numpy and scipy
-      await pyodide.loadPackage(['numpy', 'scipy']);
+      // NumPy provides the small-matrix operations used by the beam model.
+      // Scalar special functions use Python's standard library, so pulling in
+      // SciPy (and its OpenBLAS dependency) would only add tens of megabytes.
+      await pyodide.loadPackage('numpy');
 
       // Create the beam_physics package in Pyodide's virtual filesystem
       pyodide.runPython(`
