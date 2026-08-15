@@ -47,6 +47,7 @@ export class MusicPlayer {
     this._pendingResumeTime = 0;
     this._lastPositionSave = 0;
     this._stateReady = false;
+    this._playRequested = false;
 
     // DOM references
     this.el = document.getElementById('music-player');
@@ -293,7 +294,7 @@ export class MusicPlayer {
 
     // A deliberate pause survives reload too. Legacy state without
     // `wasPlaying` retains the original autoplay behavior.
-    if (!welcomeTheme && saved?.wasPlaying === false) {
+    if (!this._playRequested && !welcomeTheme && saved?.wasPlaying === false) {
       this.isPlaying = false;
       this._updatePlayButton();
     } else {
@@ -435,6 +436,18 @@ export class MusicPlayer {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') this._saveState();
     });
+  }
+
+  /**
+   * Start playback from a deliberate UI gesture. This is public so screens
+   * that own the gesture can hand it to the audio element synchronously,
+   * which is required by browser autoplay policies.
+   */
+  requestPlayback() {
+    this._playRequested = true;
+    if (!this._stateReady || this.tracks.length === 0) return false;
+    this._tryAutoplay();
+    return true;
   }
 
   /**
