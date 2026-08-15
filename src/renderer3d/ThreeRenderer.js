@@ -45,7 +45,7 @@ import { OverlayShim } from './overlay-shim.js';
 import { GlowPipeline } from './glow-pipeline.js';
 import { LightRig } from './light-rig.js';
 import { VisualEffectSystem } from './visual-effect-system.js';
-import { fixtureMountY } from './fixture-light-math.js';
+import { fixtureMountY, wallFixturePose } from './fixture-light-math.js';
 import {
   MAX_FIXTURE_SHADOWS, normalizeLightingQuality, resolveLightingQuality,
 } from './lighting-quality.js';
@@ -2760,8 +2760,13 @@ export class ThreeRenderer {
     const footH = ghSub * SUB_UNIT;
     const col = hover.col;
     const row = hover.row;
-    const px = col * 2 + sc * SUB_UNIT + footW / 2;
-    const pz = row * 2 + sr * SUB_UNIT + footH / 2;
+    let px = col * 2 + sc * SUB_UNIT + footW / 2;
+    let pz = row * 2 + sr * SUB_UNIT + footH / 2;
+    const wallPose = placeable.mount === 'wall' ? wallFixturePose(hover.wallMount) : null;
+    if (wallPose) {
+      px = wallPose.x;
+      pz = wallPose.z;
+    }
     const placeYOffset = (hover.placeY || 0) * SUB_UNIT;
     const vSubH = placeable.visualSubH ?? placeable.subH ?? 2;
     // Game._placePlaceableInner auto-flattens every footprint tile to zero
@@ -2773,9 +2778,14 @@ export class ThreeRenderer {
     let y = (isDetailed ? placeYOffset : placeYOffset + (vSubH * SUB_UNIT) / 2) + surfaceY;
     if (placeable.light) y = fixtureMountY(placeable, placeYOffset + surfaceY);
     obj.position.set(px, y, pz);
-    obj.rotation.y = -(hover.dir || 0) * (Math.PI / 2);
+    obj.rotation.y = wallPose?.yaw ?? (-(hover.dir || 0) * (Math.PI / 2));
     obj.renderOrder = 999;
     this.previewGroup.add(obj);
+
+    // Wall fixtures are anchored to an edge, not a floor footprint. Their
+    // tinted model is the placement marker; drawing a floor quad beneath it
+    // suggests that equipment occupancy is involved when it is not.
+    if (placeable.mount === 'wall') return;
 
     // Floor outline + fill on the post-flatten surface, so the footprint
     // marker and the ghost mesh sit on the same plane.

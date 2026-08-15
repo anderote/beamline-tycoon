@@ -1794,7 +1794,10 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
 
       const decStats = [['Cost', _costLabel(dec.cost)]];
       if (dec.morale) decStats.push(['Morale', `+${dec.morale}`]);
-      if (dec.placement === 'outdoor') decStats.push(['Placement', 'Outdoor only']);
+      if (dec.mount === 'wall') decStats.push(['Placement', 'Snaps to either wall face']);
+      else if (dec.mount === 'overhead') decStats.push(['Placement', 'Floats overhead']);
+      else if (dec.mount === 'surface') decStats.push(['Placement', 'Stacks on desks and worktops']);
+      else if (dec.placement === 'outdoor') decStats.push(['Placement', 'Outdoor only']);
       if (dec.blocksBuild) decStats.push(['Blocks building', 'Yes']);
       this._attachSimpleHoverPreview(item, dec.name, dec.desc, decStats);
 

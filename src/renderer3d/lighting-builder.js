@@ -1,25 +1,26 @@
 // src/renderer3d/lighting-builder.js
-// Geometry for the nine facility lighting fixtures (src/data/placeables/
+// Geometry for the facility lighting fixtures (src/data/placeables/
 // lighting.js). THREE is a CDN global — do NOT import it.
 //
 // This module owns geometry only. It does NOT emit light (no THREE.Light),
-// does NOT ramp glow with time of day (Task 6), and does NOT decide where a
-// wall/overhead fixture sits on its wall edge or ceiling tile (Tasks 7/8).
-// Every fixture is built in a documented local-space convention so those
-// later tasks can position/rotate the returned group without knowing
+// does NOT ramp glow with time of day, and does NOT decide where a fixture
+// sits in world space. Every fixture is built in a documented local-space
+// convention so placement code can position/rotate the returned group without knowing
 // anything about its internals:
 //
 //   - mount: 'ground'   — origin sits at the fixture's base (y=0, ground
 //     level). The whole footprint centering + dir rotation is handled by
 //     the caller (decoration-builder.js), exactly like any other decoration.
 //   - mount: 'wall'     — origin is the wall-mounting point: the backplate
-//     is flush with local z=0, fixture protrudes toward +z. Task 7 places
+//     is flush with local z=0, fixture protrudes toward +z. Placement puts
 //     this point on the wall edge at `def.light.emitterY` height and rotates
 //     to match the chosen face.
 //   - mount: 'overhead' — origin is the ceiling attachment point (top of the
-//     stem/chain); the fixture hangs down into -y from there. Task 8
-//     translates this point to wall height (1.5 m per the design doc) above
+//     stem/chain); the fixture hangs down into -y from there. Placement
+//     translates this point to its authored mounting height above
 //     the floor tile.
+//   - mount: 'surface'  — origin sits on the supporting worktop. Stacking
+//     supplies that worktop height; the fixture itself extends upward.
 //
 // Art direction: the lamp family (lamppost, doubleLamppost, bollardLight,
 // highMastLight) and wallSconce share the lamppost's patina-teal cast iron —
@@ -92,7 +93,9 @@ export function poolFootprint(light, dir = 0) {
  * painted pool agree on height. Change one, change the other.
  */
 function _emitterOffsetY(def) {
-  return def?.mount === 'ground' ? (def.light?.emitterY ?? 0) : 0;
+  return (def?.mount === 'ground' || def?.mount === 'surface')
+    ? (def.light?.emitterY ?? 0)
+    : 0;
 }
 
 /**
@@ -406,7 +409,7 @@ function _buildFloodLight(def) {
 
 // --- Wall -------------------------------------------------------------------
 // Origin = wall mounting point (backplate flush at local z=0, fixture
-// protrudes to +z). Task 7 positions/rotates this to a wall face.
+// protrudes to +z). Placement positions/rotates this to a wall face.
 
 // Wall sconce: warm teal-family fixture — a bracket arm off a backplate
 // holding a glowing glass shade, same product line as the lamppost.
@@ -479,9 +482,46 @@ function _buildBulkheadLight(def) {
   return group;
 }
 
+function _buildWallStripLight(def) {
+  const group = new THREE.Group();
+  const frameMat = _mat(GREY_FRAME, { metalness: 0.55, roughness: 0.42 });
+  const glowMat = _emitterMat(def.light.color);
+  const back = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.11, 0.025), frameMat);
+  back.position.z = 0.012;
+  back.castShadow = true;
+  group.add(back);
+  const diffuser = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.075, 0.045), glowMat);
+  diffuser.position.z = 0.048;
+  group.add(diffuser);
+  group.userData.emitterMaterial = glowMat;
+  return group;
+}
+
+function _buildEmergencyWallLight(def) {
+  const group = new THREE.Group();
+  const bodyMat = _mat(0x7f8589, { metalness: 0.35, roughness: 0.55 });
+  const glowMat = _emitterMat(def.light.color);
+  const back = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.14, 0.035), bodyMat);
+  back.position.z = 0.018;
+  back.castShadow = true;
+  group.add(back);
+  for (const x of [-0.07, 0.07]) {
+    const head = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.07, 10), bodyMat);
+    head.rotation.x = Math.PI / 2;
+    head.position.set(x, 0.025, 0.075);
+    group.add(head);
+    const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.041, 0.041, 0.012, 10), glowMat);
+    lens.rotation.x = Math.PI / 2;
+    lens.position.set(x, 0.025, 0.113);
+    group.add(lens);
+  }
+  group.userData.emitterMaterial = glowMat;
+  return group;
+}
+
 // --- Overhead ----------------------------------------------------------------
 // Origin = ceiling attachment point (top of stem/chain); fixture hangs into
-// -y from there. Task 8 translates this point to wall height (1.5 m).
+// -y from there. Placement translates this point to the authored height.
 
 // Ceiling panel: pale office housing on a short chain.
 function _buildCeilingPanel(def) {
@@ -538,6 +578,102 @@ function _buildHighBay(def) {
   return group;
 }
 
+function _buildLinearPendant(def) {
+  const group = new THREE.Group();
+  const frameMat = _mat(GREY_FRAME, { metalness: 0.45, roughness: 0.48 });
+  const glowMat = _emitterMat(def.light.color);
+  for (const x of [-0.42, 0.42]) {
+    const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.18, 6), frameMat);
+    cable.position.set(x, -0.09, 0);
+    cable.userData.lod = 'detail';
+    group.add(cable);
+  }
+  const housing = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.07, 0.16), frameMat);
+  housing.position.y = -0.21;
+  housing.castShadow = true;
+  group.add(housing);
+  const diffuser = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.012, 0.12), glowMat);
+  diffuser.position.y = -0.251;
+  group.add(diffuser);
+  group.userData.emitterMaterial = glowMat;
+  return group;
+}
+
+function _buildCleanroomPanel(def) {
+  const group = new THREE.Group();
+  const frameMat = _mat(PANEL_LIGHT, { roughness: 0.65, metalness: 0.12 });
+  const glowMat = _emitterMat(def.light.color);
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.08, 6), frameMat);
+  stem.position.y = -0.04;
+  group.add(stem);
+  const housing = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.055, 0.58), frameMat);
+  housing.position.y = -0.105;
+  housing.castShadow = true;
+  group.add(housing);
+  const diffuser = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.012, 0.5), glowMat);
+  diffuser.position.y = -0.139;
+  group.add(diffuser);
+  group.userData.emitterMaterial = glowMat;
+  return group;
+}
+
+// --- Surface -----------------------------------------------------------------
+
+function _buildDeskLamp(def) {
+  const group = new THREE.Group();
+  const metalMat = _mat(TEAL_METAL, { roughness: 0.5, metalness: 0.45 });
+  const glowMat = _emitterMat(def.light.color);
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.035, 12), metalMat);
+  base.position.y = 0.018;
+  base.castShadow = true;
+  group.add(base);
+  const lower = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.25, 7), metalMat);
+  lower.rotation.z = -0.38;
+  lower.position.set(0.045, 0.16, 0);
+  group.add(lower);
+  const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.22, 7), metalMat);
+  upper.rotation.z = 0.58;
+  upper.position.set(0.085, 0.36, 0);
+  group.add(upper);
+  const shade = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.11, 0.11, 12), metalMat);
+  shade.rotation.z = Math.PI / 2 + 0.35;
+  shade.position.set(0.18, 0.45, 0);
+  shade.castShadow = true;
+  group.add(shade);
+  const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.012, 12), glowMat);
+  lens.rotation.z = Math.PI / 2 + 0.35;
+  lens.position.set(0.225, 0.432, 0);
+  group.add(lens);
+  group.userData.emitterMaterial = glowMat;
+  return group;
+}
+
+function _buildPortableWorkLight(def) {
+  const group = new THREE.Group();
+  const frameMat = _mat(0xe0a52b, { roughness: 0.48, metalness: 0.32 });
+  const bodyMat = _mat(CHARCOAL, { roughness: 0.4, metalness: 0.65 });
+  const glowMat = _emitterMat(def.light.color);
+  const base = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.035, 0.18), frameMat);
+  base.position.y = 0.018;
+  base.castShadow = true;
+  group.add(base);
+  const stand = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.014, 6, 14, Math.PI), frameMat);
+  stand.rotation.x = Math.PI / 2;
+  stand.position.y = 0.13;
+  group.add(stand);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.19, 0.1), bodyMat);
+  head.position.set(0.04, 0.3, 0);
+  head.rotation.z = -0.45;
+  head.castShadow = true;
+  group.add(head);
+  const lens = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.15, 0.075), glowMat);
+  lens.position.set(0.125, 0.26, 0);
+  lens.rotation.z = -0.45;
+  group.add(lens);
+  group.userData.emitterMaterial = glowMat;
+  return group;
+}
+
 // --- Dispatch ----------------------------------------------------------------
 
 const BUILDERS = {
@@ -548,8 +684,14 @@ const BUILDERS = {
   floodLight: _buildFloodLight,
   wallSconce: _buildWallSconce,
   bulkheadLight: _buildBulkheadLight,
+  wallStripLight: _buildWallStripLight,
+  emergencyWallLight: _buildEmergencyWallLight,
   ceilingPanel: _buildCeilingPanel,
   highBay: _buildHighBay,
+  linearPendant: _buildLinearPendant,
+  cleanroomPanel: _buildCleanroomPanel,
+  deskLamp: _buildDeskLamp,
+  portableWorkLight: _buildPortableWorkLight,
 };
 
 /**
@@ -557,8 +699,8 @@ const BUILDERS = {
  *
  * @param {object} def - a LIGHTING_DEFS entry (id, mount, light block, ...).
  * @param {{dir?:number, face?:string}} [placement] - opaque placement bag.
- *   `dir` (0-3 quarter turns) is read only for ground-mounted cone fixtures
- *   (floodLight); `face` is Task 7's, unused here.
+ *   `dir` (0-3 quarter turns) is read for ground/surface cone fixtures;
+ *   wall-facing placement is applied by the caller.
  * @returns {THREE.Group}
  */
 export function buildLightFixture(def, placement = {}) {
@@ -579,7 +721,7 @@ export function buildLightFixture(def, placement = {}) {
 }
 
 // Defensive fallback for an unrecognized id — should never trigger for the
-// nine known fixtures, but keeps the renderer from throwing on a bad def.
+// known fixtures, but keeps the renderer from throwing on a bad def.
 function _buildFallback(def) {
   const { footW, footL, totalH } = _dims(def);
   const group = new THREE.Group();

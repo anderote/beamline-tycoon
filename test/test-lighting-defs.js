@@ -1,15 +1,15 @@
 // test/test-lighting-defs.js
 //
-// Tests for the nine facility lighting fixtures defined in
+// Tests for the facility lighting fixtures defined in
 // src/data/placeables/lighting.js and wired into PLACEABLES via
 // src/data/placeables/index.js.
 //
-//   1. All nine catalogue ids exist in PLACEABLES with the spec's mount, and
+//   1. All catalogue ids exist in PLACEABLES with the spec's mount, and
 //      each def's `category` follows the documented mount -> category rule
-//      (ground -> 'lighting', wall/overhead -> 'structureLights') rather
+//      (ground -> 'lighting', wall/overhead/surface -> 'structureLights') rather
 //      than a hardcoded per-id value, so this keeps working if a fixture's
 //      mount is reassigned or new fixtures are added. Which palette tab
-//      each category actually renders under, that all nine are covered with
+//      each category actually renders under, that all fixtures are covered with
 //      none orphaned, and that every category key exists in MODES is
 //      test/test-lighting-palette-split.js's job, not this file's — this
 //      test only pins the catalogue's own mount/category consistency.
@@ -44,7 +44,7 @@ function assert(cond, msg) {
 }
 
 // ==========================================================================
-// Test 1: the nine catalogue fixtures exist with the spec's mount.
+// Test 1: the catalogue fixtures exist with the spec's mount.
 // ==========================================================================
 console.log('\n--- Test 1: catalogue fixtures present with correct mount ---');
 {
@@ -56,8 +56,14 @@ console.log('\n--- Test 1: catalogue fixtures present with correct mount ---');
     floodLight: 'ground',
     wallSconce: 'wall',
     bulkheadLight: 'wall',
+    wallStripLight: 'wall',
+    emergencyWallLight: 'wall',
     ceilingPanel: 'overhead',
     highBay: 'overhead',
+    linearPendant: 'overhead',
+    cleanroomPanel: 'overhead',
+    deskLamp: 'surface',
+    portableWorkLight: 'surface',
   };
 
   // Mirrors lighting.js's own CATEGORY_BY_MOUNT (not imported — it's a
@@ -70,6 +76,7 @@ console.log('\n--- Test 1: catalogue fixtures present with correct mount ---');
     ground: 'lighting',
     wall: 'structureLights',
     overhead: 'structureLights',
+    surface: 'structureLights',
   };
 
   for (const [id, mount] of Object.entries(EXPECTED_MOUNTS)) {
@@ -89,10 +96,10 @@ console.log('\n--- Test 1: catalogue fixtures present with correct mount ---');
 // ==========================================================================
 console.log('\n--- Test 2: light blocks are well-formed ---');
 {
-  const LIGHT_MOUNTS = new Set(['ground', 'wall', 'overhead']);
+  const LIGHT_MOUNTS = new Set(['ground', 'wall', 'overhead', 'surface']);
   const lit = Object.values(PLACEABLES).filter(p => p.light != null);
 
-  assert(lit.length === 9, `exactly 9 placeables carry a light block (got ${lit.length})`);
+  assert(lit.length === 15, `exactly 15 placeables carry a light block (got ${lit.length})`);
 
   for (const def of lit) {
     assert(LIGHT_MOUNTS.has(def.mount), `${def.id}: mount '${def.mount}' is valid`);

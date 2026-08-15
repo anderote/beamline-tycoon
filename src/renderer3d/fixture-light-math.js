@@ -26,7 +26,8 @@ function cross(a, b) {
 }
 
 export function isAimedFixture(def) {
-  return def?.mount === 'ground' && def?.light?.shape === 'cone';
+  return (def?.mount === 'ground' || def?.mount === 'surface')
+    && def?.light?.shape === 'cone';
 }
 
 export function aimYaw(dir = 0) {
@@ -49,16 +50,38 @@ export function lightPoolRadius(light) {
 
 /** World-space floor height below a fixture group origin. */
 export function fixtureFloorY(def, originY = 0) {
-  if (def?.mount === 'ground') return originY;
+  if (def?.mount === 'ground' || def?.mount === 'surface') return originY;
   const mountHeight = def?.light?.mountY ?? def?.light?.emitterY ?? 0;
   return originY - mountHeight;
 }
 
 /** World-space group-origin height for a fixture placed on a floor. */
 export function fixtureMountY(def, floorY = 0) {
-  if (def?.mount === 'ground') return floorY;
+  if (def?.mount === 'ground' || def?.mount === 'surface') return floorY;
   const mountHeight = def?.light?.mountY ?? def?.light?.emitterY ?? 0;
   return floorY + mountHeight;
+}
+
+/**
+ * World pose for one of four sub-slots on a wall face. The edge is expressed
+ * from the tile whose side the fixture protrudes into, which naturally makes
+ * the two aliases of a physical wall its two independently usable faces.
+ */
+export function wallFixturePose(site, faceOffset = 0.025) {
+  if (!site || !['n', 'e', 's', 'w'].includes(site.edge)) return null;
+  const col = Math.floor(site.col || 0);
+  const row = Math.floor(site.row || 0);
+  const off = Math.max(0, Math.min(3, Math.floor(site.off ?? 1)));
+  const f = (off + 0.5) / 4;
+  const x0 = col * 2;
+  const z0 = row * 2;
+  switch (site.edge) {
+    case 'n': return { x: x0 + 2 * f, z: z0 + faceOffset, yaw: 0 };
+    case 'e': return { x: x0 + 2 - faceOffset, z: z0 + 2 * f, yaw: -Math.PI / 2 };
+    case 's': return { x: x0 + 2 - 2 * f, z: z0 + 2 - faceOffset, yaw: Math.PI };
+    case 'w': return { x: x0 + faceOffset, z: z0 + 2 - 2 * f, yaw: Math.PI / 2 };
+    default: return null;
+  }
 }
 
 function footprintFromBounds(points, emitter, fallbackRadius = 0) {

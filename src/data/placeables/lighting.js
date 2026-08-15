@@ -7,10 +7,10 @@
 // Fixtures stay kind: 'decoration' (see design doc §5) — lighting is not a
 // new Placeable kind. `category` is derived below from `mount`, not
 // authored per-fixture: ground-mounted fixtures are landscaping (Grounds ->
-// Lighting), while wall- and overhead-mounted fixtures are building fabric
+// Lighting), while wall-, overhead-, and surface-mounted fixtures are building fabric
 // (Structure -> Lights, alongside Flooring/Walls/Doors). Two extra fields
 // discriminate behavior for later tasks:
-//   - mount: 'ground' | 'wall' | 'overhead' — placement path + render height.
+//   - mount: 'ground' | 'wall' | 'overhead' | 'surface' — placement layer.
 //   - light: { color, intensity, radius, shape, coneDeg?, tiltDeg?, emitterY }
 //     — read uniformly by the renderer regardless of mount. `radius` is the
 //     light pool radius in world units (meters); `emitterY` is the emitter's
@@ -31,7 +31,7 @@
 // for the full reasoning.
 
 // mount -> palette category. Ground-mounted fixtures are landscaping
-// (Grounds mode's `lighting` tab); wall- and overhead-mounted fixtures are
+// (Grounds mode's `lighting` tab); wall-, overhead-, and surface-mounted fixtures are
 // building fabric (Structure mode's `structureLights` tab, see modes.js).
 // Keyed off `mount`, not per-fixture id, so new fixtures fall into the
 // right tab automatically as long as they declare a mount.
@@ -39,6 +39,7 @@ const CATEGORY_BY_MOUNT = {
   ground: 'lighting',
   wall: 'structureLights',
   overhead: 'structureLights',
+  surface: 'structureLights',
 };
 
 const LIGHT_PROFILES = {
@@ -49,8 +50,14 @@ const LIGHT_PROFILES = {
   floodLight:     { sourceRadius: 0.12, shadowSoftness: 0.3,  bloomProfile: 'soft', volumeProfile: 'aimedCone', dynamicProfile: 'arcStable', cookieProfile: 'flood' },
   wallSconce:     { sourceRadius: 0.09, shadowSoftness: 0.7,  bloomProfile: 'soft', volumeProfile: 'wallWash', dynamicProfile: 'warmSteady', cookieProfile: 'soft' },
   bulkheadLight:  { sourceRadius: 0.1,  shadowSoftness: 0.6,  bloomProfile: 'soft', volumeProfile: 'wallWash', dynamicProfile: 'fluorescent', cookieProfile: 'cage' },
+  wallStripLight: { sourceRadius: 0.16, shadowSoftness: 0.75, bloomProfile: 'soft', volumeProfile: 'wallWash', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
+  emergencyWallLight: { sourceRadius: 0.08, shadowSoftness: 0.6, bloomProfile: 'soft', volumeProfile: 'wallWash', dynamicProfile: 'statusBlink', cookieProfile: 'soft' },
   ceilingPanel:   { sourceRadius: 0.24, shadowSoftness: 0.85, bloomProfile: 'soft', volumeProfile: 'none', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
   highBay:        { sourceRadius: 0.17, shadowSoftness: 0.45, bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'arcStable', cookieProfile: 'panel' },
+  linearPendant:  { sourceRadius: 0.22, shadowSoftness: 0.8, bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
+  cleanroomPanel: { sourceRadius: 0.28, shadowSoftness: 0.9, bloomProfile: 'soft', volumeProfile: 'none', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
+  deskLamp:       { sourceRadius: 0.07, shadowSoftness: 0.7, bloomProfile: 'soft', volumeProfile: 'none', dynamicProfile: 'warmSteady', cookieProfile: 'soft' },
+  portableWorkLight: { sourceRadius: 0.1, shadowSoftness: 0.45, bloomProfile: 'soft', volumeProfile: 'aimedCone', dynamicProfile: 'arcStable', cookieProfile: 'flood' },
 };
 
 const RAW_LIGHTING_DEFS = [
@@ -124,6 +131,24 @@ const RAW_LIGHTING_DEFS = [
     energyCost: 0.12,
     light: { color: '#dce6e8', intensity: 0.9, radius: 4.5, shape: 'point', emitterY: 2.4 },
   },
+  {
+    id: 'wallStripLight', name: 'Wall Strip Light', cost: { funding: 12 }, removeCost: 0,
+    morale: 0.1, placement: 'outdoor', spriteKey: 'wall_strip_light',
+    blocksBuild: false, kind: 'decoration', mount: 'wall',
+    subW: 1, subL: 1, subH: 2,
+    desc: 'A broad linear wall wash for corridors and service bays.',
+    energyCost: 0.14,
+    light: { color: '#e5f2ff', intensity: 1.05, radius: 5.5, shape: 'point', emitterY: 2.3 },
+  },
+  {
+    id: 'emergencyWallLight', name: 'Emergency Wall Light', cost: { funding: 14 }, removeCost: 0,
+    morale: 0.05, placement: 'outdoor', spriteKey: 'emergency_wall_light',
+    blocksBuild: false, kind: 'decoration', mount: 'wall',
+    subW: 1, subL: 1, subH: 2,
+    desc: 'Twin amber emergency lamps with a restrained status pulse.',
+    energyCost: 0.08,
+    light: { color: '#ff8a45', intensity: 0.75, radius: 3.5, shape: 'point', emitterY: 2.2 },
+  },
 
   // === Overhead ===
   {
@@ -147,6 +172,48 @@ const RAW_LIGHTING_DEFS = [
       coneDeg: 90, tiltDeg: 0, emitterY: 1.5,
     },
   },
+  {
+    id: 'linearPendant', name: 'Linear Pendant', cost: { funding: 18 }, removeCost: 0,
+    morale: 0.1, placement: 'outdoor', spriteKey: 'linear_pendant',
+    blocksBuild: false, kind: 'decoration', mount: 'overhead',
+    subW: 3, subL: 1, subH: 2,
+    desc: 'A suspended linear luminaire for benches and equipment aisles.',
+    energyCost: 0.18,
+    light: { color: '#edf6ff', intensity: 1.15, radius: 6.5, shape: 'point', emitterY: 2.2 },
+  },
+  {
+    id: 'cleanroomPanel', name: 'Cleanroom Panel', cost: { funding: 28 }, removeCost: 0,
+    morale: 0.15, placement: 'outdoor', spriteKey: 'cleanroom_panel',
+    blocksBuild: false, kind: 'decoration', mount: 'overhead',
+    subW: 2, subL: 2, subH: 2,
+    desc: 'A sealed high-output panel for clean and controlled spaces.',
+    energyCost: 0.22,
+    light: { color: '#f4fbff', intensity: 1.35, radius: 7.5, shape: 'point', emitterY: 2.1 },
+  },
+
+  // === Surface — stack on desks, benches, cabinets, and worktops ===
+  {
+    id: 'deskLamp', name: 'Desk Lamp', cost: { funding: 6 }, removeCost: 0,
+    morale: 0.2, placement: 'outdoor', spriteKey: 'desk_lamp',
+    blocksBuild: false, kind: 'decoration', mount: 'surface', stackable: true,
+    subW: 1, subL: 1, subH: 1,
+    desc: 'A warm articulated task lamp that sits on any available surface.',
+    energyCost: 0.04,
+    light: { color: '#ffd29a', intensity: 0.55, radius: 2.5, shape: 'point', emitterY: 0.48 },
+  },
+  {
+    id: 'portableWorkLight', name: 'Portable Work Light', cost: { funding: 11 }, removeCost: 0,
+    morale: 0.05, placement: 'outdoor', spriteKey: 'portable_work_light',
+    blocksBuild: false, kind: 'decoration', mount: 'surface', stackable: true,
+    subW: 1, subL: 1, subH: 1,
+    desc: 'A compact directional work lamp for benches, carts, and tool cabinets.',
+    energyCost: 0.16,
+    light: {
+      color: '#fff1cf', intensity: 1.0, radius: 4.5, shape: 'cone',
+      coneDeg: 42, beamAngleDeg: 42, tiltDeg: 58, emitterY: 0.42,
+      targetDistance: 2.2, maxGroundRange: 7, penumbra: 0.5,
+    },
+  },
 ];
 
 export const LIGHTING_DEFS = RAW_LIGHTING_DEFS.map((def) => {
@@ -165,7 +232,7 @@ export const LIGHTING_DEFS = RAW_LIGHTING_DEFS.map((def) => {
 
 export function validateLightingDef(def) {
   const errors = [];
-  if (!def || !['ground', 'wall', 'overhead'].includes(def.mount)) errors.push('invalid mount');
+  if (!def || !['ground', 'wall', 'overhead', 'surface'].includes(def.mount)) errors.push('invalid mount');
   const light = def?.light;
   if (!light) return [...errors, 'missing light'];
   for (const field of ['intensity', 'poolRadius', 'emitterY', 'sourceRadius', 'shadowSoftness']) {

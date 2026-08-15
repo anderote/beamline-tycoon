@@ -55,7 +55,7 @@ const PORT_SIDES = new Set(['front', 'back', 'left', 'right']);
 const PORT_ROLES = new Set(['source', 'sink', 'pass']);
 const BEAMLINE_ROLES = new Set(['junction', 'placement']);
 const PLACEMENTS = new Set(['module', 'attachment']);
-const LIGHT_MOUNTS = new Set(['ground', 'wall', 'overhead']);
+const LIGHT_MOUNTS = new Set(['ground', 'wall', 'overhead', 'surface']);
 const LIGHT_SHAPES = new Set(['point', 'cone']);
 
 const BEAMLINE_CATEGORIES = new Set(Object.keys(MODES.beamline.categories));

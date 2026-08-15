@@ -61,7 +61,7 @@ export class PlaceableTool extends Tool {
     // Spaces copies along the drag vector at ~footprint intervals.
     if (e.button === 0 && e.shiftKey) {
       const pl = PLACEABLES[this.key];
-      if (pl && pl.kind === 'decoration') {
+      if (pl && pl.kind === 'decoration' && pl.mount !== 'wall') {
         const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
         input.isLinePlacingDecoration = true;
         input.linePlaceStartWorld = { x: world.x, y: world.y };

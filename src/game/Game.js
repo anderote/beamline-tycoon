@@ -45,7 +45,10 @@ import {
 import * as research from './research.js';
 import { checkObjectives } from './objectives.js';
 import { findStackTarget, collapsePlan } from './stacking.js';
-import { canPlace, usesFloorOccupancy } from './placement.js';
+import {
+  canPlace, canPlaceWallFixture, normalizeWallMount, physicalWallKey,
+  usesFloorOccupancy,
+} from './placement.js';
 import { generateStartingMap, generateAnnulus, DEFAULT_MAP_HALF_EXTENT } from './map-generator.js';
 import { nextLandParcel } from '../data/land.js';
 import { serializeCornerHeights, deserializeCornerHeights, setTileCorners } from './terrain.js';
@@ -1616,6 +1619,14 @@ export class Game {
     for (const cell of [{ col, row, edge }, winAlias]) {
       this.removeWindow(cell.col, cell.row, cell.edge);
     }
+    // A fixture may be mounted from either adjacent tile, but both faces
+    // depend on this same physical wall segment. Demolishing the support
+    // removes the fixtures through their normal refund/lifecycle path.
+    const removedWallKey = physicalWallKey({ col, row, edge, off: 0 });
+    const mountedIds = this.state.placeables
+      .filter(p => p.wallMount && physicalWallKey(p.wallMount) === removedWallKey)
+      .map(p => p.id);
+    for (const id of mountedIds) this.removePlaceable(id);
     this.emit('wallsChanged');
     return true;
   }
@@ -2424,7 +2435,10 @@ export class Game {
     try { return this._placePlaceableInner(opts); } catch(e) { console.error('[placePlaceable] CRASH:', e); return false; }
   }
   _placePlaceableInner(opts, opts2) {
-    const { type, col, row, subCol, subRow, dir = 0, params, variant = 0, free = false, silent = false } = opts;
+    const {
+      type, col, row, subCol, subRow, dir = 0, params, variant = 0,
+      wallMount = null, free = false, silent = false,
+    } = opts;
     const skipBeamlineRoute = !!(opts2 && opts2.skipBeamlineRoute);
 
     const placeable = PLACEABLES[type];
@@ -2465,6 +2479,21 @@ export class Game {
     if (!free && !this.canAfford(cost)) {
       this.log(`Can't afford ${placeable.name}! (${this._missingResourceLabel(cost)})`, 'bad');
       return false;
+    }
+
+    const normalizedWallMount = placeable.mount === 'wall'
+      ? normalizeWallMount(wallMount)
+      : null;
+    if (placeable.mount === 'wall') {
+      const wallResult = canPlaceWallFixture(this, placeable, normalizedWallMount);
+      if (!wallResult.hasWall) {
+        this.log(`${placeable.name} must be mounted on a wall`, 'bad');
+        return false;
+      }
+      if (wallResult.occupied) {
+        this.log('That wall face is occupied!', 'bad');
+        return false;
+      }
     }
 
     // --- Stack target resolution ---
@@ -2564,6 +2593,7 @@ export class Game {
       placeY: 0,
       stackParentId: null,
       stackChildren: [],
+      wallMount: normalizedWallMount,
     };
 
     // Beamline param init (was previously inline; only kind that needs it).
@@ -3082,6 +3112,7 @@ export class Game {
       dir: entry.dir || 0,
       params: entry.params ? { ...entry.params } : null,
       variant: entry.variant ?? 0,
+      wallMount: entry.wallMount ? { ...entry.wallMount } : null,
     };
 
     // The drop re-inserts through placePlaceable, which mints a NEW id, so
