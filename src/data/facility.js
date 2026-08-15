@@ -118,8 +118,8 @@ export function zoneTierFromStaffedOutput(staffedOutput) {
 // controls -> rfLab/vacuumLab/coolingLab/diagnosticsLab/controlRoom), so
 // engineer attention sent there by ordinary assignment (nearest eligible
 // station, no specialty-aware routing) is thin and inconsistent enough
-// that staffedOutput never reliably clears even tier 1. Measured live in a
-// 24-beamline playthrough (scripts/balance-playthrough.mjs): machineShop's
+// that staffedOutput never reliably clears even tier 1. In a large-facility
+// headless benchmark, machineShop's
 // own staffedOutput peaked at 0.18, just under the 0.2 tier-1 threshold,
 // permanently pinning 12 research nodes (RESEARCH_LAB_MAP's machineShop
 // category) at "not yet startable" — 81% of an 80,000-tick run blocked on

@@ -1,7 +1,7 @@
 // scripts/balance-env.mjs — the browser surface the Game expects, for headless
 // balance runs. Imported for side effects before anything that constructs a
-// Game; kept in its own module so balance-sim.mjs and balance-playthrough.mjs
-// cannot install two different versions of it.
+// Game; kept separate from the rate scenarios so the browser shim stays
+// reusable and easy to audit.
 
 import { COMPONENTS } from '../src/data/components.js';
 import { PARAM_DEFS } from '../src/beamline/component-physics.js';

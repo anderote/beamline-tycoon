@@ -57,9 +57,7 @@ import { VolumetricLightPool } from './volumetric-light-pool.js';
 import { fixtureDynamicFactor } from './light-dynamics.js';
 import { disposeLightCookies } from './light-cookie.js';
 import { UIHost } from '../ui/UIHost.js';
-import { WorldPhysics } from '../physics/world-physics.js';
-import { StaffRagdolls } from '../physics/staff-ragdolls.js';
-import { DebrisSystem } from '../physics/debris-system.js';
+import { WorldPhysicsPresentation } from './world-physics-presentation.js';
 // Side-effect imports: attach UI methods to UIHost.prototype.
 // Must run before `new UIHost(...)` is ever evaluated.
 import '../ui/hud.js';
@@ -282,12 +280,13 @@ export class ThreeRenderer {
     this.scene = null;
     this.camera = null;
     this.canvas = null;  // interactive canvas (overlay event-capture canvas)
-    this._worldPhysics = null;
-    this._physicsWorldIds = new Set();
-    this._physicsBodiesDirty = true;
-    this._physicsIncidentSnapshot = null;
-    this._staffRagdolls = null;
-    this._debrisSystem = null;
+    this._physicsPresentation = new WorldPhysicsPresentation({
+      equipmentMeshes: () => this.equipmentBuilder?._meshes,
+      componentMeshes: () => this.componentBuilder?._meshMap,
+      decorationGroups: () => this.decorationBuilder?._groups,
+      forEachWallMesh: (visit) => this.wallGroup?.traverse?.(visit),
+      terrainMesh: () => this._terrainMesh,
+    });
 
     // Overlay-shim references — set during init(). `app` keeps its old
     // Pixi-era shape ({canvas, screen}) for InputHandler/main.js readers;
@@ -523,15 +522,9 @@ export class ThreeRenderer {
     // Scene
     this.scene = new THREE.Scene();
 
-    // World interaction physics is Rapier (Rust compiled to WASM). Rendered
-    // placeables remain dormant fixed bodies until an incident wakes them, so
-    // ordinary construction/gameplay is pixel-for-pixel unchanged and pays no
-    // continuous rigid-body cost. The ground is always available for debris.
-    this._worldPhysics = await new WorldPhysics().init();
-    // A low safety slab catches anything that leaves the finite terrain mesh
-    // without duplicating contacts on the ordinary y≈0 terrain surface.
-    this._worldPhysics.addGround({ y: -20 });
-    this._debrisSystem = new DebrisSystem(this._worldPhysics, this.scene);
+    // Physics is a presentation layer over authored meshes. It owns incident
+    // snapshots and lazy bodies without writing transforms into game state.
+    await this._physicsPresentation.init(this.scene);
 
     // Isometric orthographic camera
     const aspect = gameEl.clientWidth / gameEl.clientHeight;
@@ -778,7 +771,7 @@ export class ThreeRenderer {
 
     // Staff pawns — little walking pixel-people for hired staff
     this.staffPawns = new StaffPawns(this.game, this.scene);
-    this._staffRagdolls = new StaffRagdolls(this.staffPawns, this._worldPhysics, this.scene);
+    this._physicsPresentation.attachStaff(this.staffPawns, this.scene);
 
     window.addEventListener('resize', this._boundOnResize);
 
@@ -1673,6 +1666,20 @@ export class ThreeRenderer {
     return this._effectSystem?.emit(descriptor) ?? null;
   }
 
+  // Input controllers use these stable renderer-facing commands instead of
+  // depending on UIHost's underscored forwarding implementation.
+  openEquipmentWindow(entry) {
+    return this._openEquipmentWindow?.(entry);
+  }
+
+  closePlaceableInfoWindow(entry) {
+    return this._closePlaceableInfoWindow?.(entry);
+  }
+
+  refreshContextWindows() {
+    return this._refreshContextWindows?.();
+  }
+
   /**
    * Gameplay-facing world explosion. Captures one atomic rollback point,
    * emits the bright presentation burst, then wakes and impulses nearby
@@ -1680,54 +1687,19 @@ export class ThreeRenderer {
    * incident back without touching the simulation save.
    */
   explodeWorld(position, options = {}) {
-    if (!this._worldPhysics?.ready || !position) return [];
-    // One-level incident undo is intentionally atomic. Starting another blast
-    // restores the complete prior incident before taking a fresh baseline.
-    if (this._physicsIncidentSnapshot) this.undoLastPhysicsIncident();
-    this._ensurePhysicsBodies();
-    this._physicsIncidentSnapshot = this._worldPhysics.captureSnapshot();
-    const radius = Math.max(0.1, Number(options.radius) || 7);
-    const strength = Math.max(0, Number(options.strength) || 90);
-    this.emitVisualEffect({
-      kind: 'burst', position,
-      color: options.color ?? 0xffb04a,
-      intensity: options.lightIntensity ?? Math.min(80, strength * 0.55),
-      durationMs: options.durationMs ?? 700,
-      radius: options.visualRadius ?? Math.max(0.35, radius * 0.08),
-      groundRadius: options.groundRadius ?? radius * 0.45,
-    });
-    const ragdolls = options.ragdolls === false
-      ? [] : (this._staffRagdolls?.ragdollNear(position, options.ragdollRadius ?? radius) || []);
-    const fractures = options.fracture === false
-      ? [] : (this._debrisSystem?.fractureNear(position, options.fractureRadius ?? radius) || []);
-    const impacts = this._worldPhysics.explode(position, { ...options, radius, strength });
-    impacts.ragdolls = ragdolls;
-    impacts.fractures = fractures;
-    return impacts;
+    return this._physicsPresentation.explode(
+      position,
+      options,
+      (descriptor) => this.emitVisualEffect(descriptor),
+    );
   }
 
   undoLastPhysicsIncident() {
-    if (!this._physicsIncidentSnapshot || !this._worldPhysics) return false;
-    this._staffRagdolls?.restoreAll();
-    this._debrisSystem?.restoreAll();
-    const restored = this._worldPhysics.restoreSnapshot(this._physicsIncidentSnapshot);
-    if (restored) {
-      this._physicsIncidentSnapshot = null;
-      // Once presentation state is restored, release authored fixed bodies.
-      // Normal construction then has no object colliders in Rapier at all.
-      for (const id of this._physicsWorldIds) this._worldPhysics.unregisterObject(id);
-      this._physicsWorldIds.clear();
-      this._physicsBodiesDirty = true;
-    }
-    return restored;
+    return this._physicsPresentation.undo();
   }
 
   getPhysicsStats() {
-    return {
-      ...(this._worldPhysics?.getStats?.() || { ready: false, bodies: 0, joints: 0 }),
-      ...(this._staffRagdolls?.getStats?.() || { ragdolls: 0, articulatedBodies: 0 }),
-      ...(this._debrisSystem?.getStats?.() || { fracturedObjects: 0, fragments: 0 }),
-    };
+    return this._physicsPresentation.stats();
   }
 
   /** No-op. Dipole bend direction is baked into the placed geometry; nothing
@@ -3739,7 +3711,7 @@ export class ThreeRenderer {
       );
       this._volumePool?.update(this._lightRig, this._darkness ?? 0, _dt);
     }
-    this._worldPhysics?.update(_dt);
+    this._physicsPresentation.update(_dt);
     this._glowPipeline.render();
     if (this._viewCube) this._viewCube.update();
     } catch (e) { console.error('[ThreeRenderer] animate error:', e); }
@@ -3938,95 +3910,20 @@ export class ThreeRenderer {
   }
 
   _markPhysicsBodiesDirty() {
-    if (!this._worldPhysics?.ready) return;
-    // A construction edit can arrive while an incident is still active. Put
-    // every authored render object back at its captured transform before
-    // releasing the lazy colliders; otherwise a thrown prop could remain
-    // visually displaced even though canonical game state never moved it.
-    if (this._physicsIncidentSnapshot && this.undoLastPhysicsIncident()) return;
-    this._staffRagdolls?.restoreAll();
-    this._debrisSystem?.restoreAll();
-    this._physicsIncidentSnapshot = null;
-    for (const id of this._physicsWorldIds) this._worldPhysics.unregisterObject(id);
-    this._physicsWorldIds.clear();
-    this._physicsBodiesDirty = true;
+    this._physicsPresentation.markBodiesDirty();
   }
 
   _ensurePhysicsBodies() {
-    if (this._physicsBodiesDirty) this._syncPhysicsBodies();
+    this._physicsPresentation.ensureBodies();
   }
 
   /** Lazily build dormant rigid bodies from the current render snapshot. */
   _syncPhysicsBodies() {
-    if (!this._worldPhysics?.ready) return;
-    this._staffRagdolls?.restoreAll();
-    this._debrisSystem?.restoreAll();
-    this._physicsIncidentSnapshot = null;
-    for (const id of this._physicsWorldIds) this._worldPhysics.unregisterObject(id);
-    this._physicsWorldIds.clear();
-
-    const register = (object, id, kind, options = {}) => {
-      if (!object || !id) return;
-      try {
-        this._worldPhysics.registerObject(object, {
-          id, kind, active: false,
-          destructible: options.destructible !== false,
-          densityKgM3: options.densityKgM3,
-          massKg: options.massKg,
-          friction: options.friction,
-          restitution: options.restitution,
-        });
-        this._physicsWorldIds.add(id);
-      } catch (error) {
-        console.warn(`[Physics] Could not register ${id}.`, error);
-      }
-    };
-
-    for (const object of this.equipmentBuilder?._meshes || []) {
-      const data = object.userData || {};
-      register(object, `world:${data.physicsId}`, data.physicsKind || 'equipment', {
-        massKg: data.physicsMassKg,
-        densityKgM3: data.physicsDensityKgM3,
-      });
-    }
-    for (const [id, object] of this.componentBuilder?._meshMap || []) {
-      const def = PLACEABLES[object.userData?.compType];
-      register(object, `world:beamline:${id}`, 'beamline', {
-        restitution: 0.04,
-        massKg: def?.physicsMassKg,
-        densityKgM3: def?.physicsDensityKgM3,
-      });
-    }
-    for (const object of this.decorationBuilder?._groups || []) {
-      const id = object.userData?.nodeId;
-      const def = PLACEABLES[object.userData?.placeableType];
-      if (id != null) register(object, `world:decoration:${id}`, 'decoration', {
-        massKg: def?.physicsMassKg,
-        densityKgM3: def?.physicsDensityKgM3,
-      });
-    }
-
-    // Wall leaves are fixed collision geometry: they stop a blast from
-    // throwing equipment through the next room but are never themselves
-    // activated by the radial impulse.
-    let wallIndex = 0;
-    this.wallGroup?.traverse?.((object) => {
-      if (!object.isMesh || object.material?.visible === false) return;
-      register(object, `world:wall:${wallIndex++}`, 'concrete', {
-        destructible: false, friction: 0.85, restitution: 0.02,
-      });
-    });
-    this._syncPhysicsTerrain();
-    this._physicsBodiesDirty = false;
+    this._physicsPresentation.syncBodies();
   }
 
   _syncPhysicsTerrain() {
-    if (!this._worldPhysics?.ready) return;
-    try {
-      this._worldPhysics.setTerrainMesh(this._terrainMesh);
-    } catch (error) {
-      console.warn('[Physics] Could not rebuild the terrain collider.', error);
-    }
+    this._physicsPresentation.syncTerrain();
   }
 
   refresh() {
@@ -5202,17 +5099,9 @@ export class ThreeRenderer {
       this.utilityLineBuilderV2.dispose(this.utilityLineGroup);
     }
     if (this.staffPawns) {
-      this._staffRagdolls?.dispose();
-      this._staffRagdolls = null;
+      this._physicsPresentation.dispose();
       this.staffPawns.dispose();
       this.staffPawns = null;
-    }
-    if (this._worldPhysics) {
-      this._debrisSystem?.dispose();
-      this._debrisSystem = null;
-      this._worldPhysics.dispose();
-      this._worldPhysics = null;
-      this._physicsWorldIds.clear();
     }
     if (this._viewCube) {
       this._viewCube.dispose();

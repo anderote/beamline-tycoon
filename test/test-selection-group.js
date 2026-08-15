@@ -13,6 +13,7 @@ import {
   selectionTargets,
   transformSelectionGroup,
 } from '../src/input/selection-group.js';
+import { copySelectionGroup, moveSelectionGroup } from '../src/input/selection-commands.js';
 import { findUtilityEndpoint } from '../src/utility/utility-endpoints.js';
 import { portWorldPosition } from '../src/utility/ports.js';
 import { gridToIso } from '../src/renderer/grid.js';
@@ -63,15 +64,6 @@ function fixture(seed) {
   const line = [...game.state.utilityLines.values()][0];
   assert(!!sourceId && !!sinkId && !!line, 'fixture placed and wired two selectable objects');
   return { game, sourceId, sinkId, line };
-}
-
-function inputFacade(game) {
-  return {
-    game,
-    _showToast() {},
-    _copySelectionGroup: InputHandler.prototype._copySelectionGroup,
-    _moveSelectionGroup: InputHandler.prototype._moveSelectionGroup,
-  };
 }
 
 console.log('\n=== Selection groups ===\n');
@@ -143,8 +135,8 @@ console.log('\n=== Selection groups ===\n');
   assert((preview.lineCost.funding || 0) > 0,
     'copy preview prices the duplicated utility line');
 
-  const copied = inputFacade(game)._copySelectionGroup(captured.payload, preview);
-  assert(copied === true && game.state.placeables.length === countBefore + 2,
+  const copied = copySelectionGroup(game, captured.payload, preview);
+  assert(copied.ok === true && game.state.placeables.length === countBefore + 2,
     'copy commit creates both objects in one operation');
   assert(game.state.utilityLines.size === 2, 'copy commit creates the internal utility line');
   const copiedLine = [...game.state.utilityLines.values()].find(candidate => candidate.id !== line.id);
@@ -184,9 +176,9 @@ console.log('\n=== Selection groups ===\n');
         { entry: entries.b, rootObj: { name: 'root-b' } },
       ],
       setSelectionOutlines: roots => selectedFrames.push(roots.slice()),
-      _openEquipmentWindow() {},
-      _closePlaceableInfoWindow: entry => closedWindows.push(entry.id),
-      _refreshContextWindows() {},
+      openEquipmentWindow() {},
+      closePlaceableInfoWindow: entry => closedWindows.push(entry.id),
+      refreshContextWindows() {},
     },
     game: { getPlaceable: id => entries[id] || null },
     selectedNodeId: null,
@@ -254,8 +246,8 @@ console.log('\n=== Selection groups ===\n');
     ...anchor, col: anchor.col + 14, row: anchor.row + 9,
   });
   assert(preview.ok, 'connected group move previews at a clear destination');
-  const moved = inputFacade(game)._moveSelectionGroup(captured.payload, preview);
-  assert(moved === true, 'connected group move commits');
+  const moved = moveSelectionGroup(game, captured.payload, preview);
+  assert(moved.ok === true, 'connected group move commits');
   assert(game.getPlaceable(sourceId).col === 114 && game.getPlaceable(sourceId).row === 109,
     'move preserves ids and translates the source object');
   assert(game.getPlaceable(sinkId).col === 122 && game.getPlaceable(sinkId).row === 115,
@@ -293,8 +285,8 @@ console.log('\n=== Selection groups ===\n');
     },
     renderer: {
       setSelectionOutlines: selected => roots.push(selected.slice()),
-      _openEquipmentWindow() {},
-      _refreshContextWindows() {},
+      openEquipmentWindow() {},
+      refreshContextWindows() {},
     },
     selectedNodeId: null,
     selectedPlaceableId: null,

@@ -29,6 +29,11 @@
 
 import { powerFeedFactor } from '../power-feed.js';
 import { expandPath } from '../line-geometry.js';
+import { RF_BANDS, bandForFrequencyHz } from '../../data/rf-bands.js';
+
+// Compatibility export for existing UI and tests. New data-layer consumers
+// should import the neutral module directly.
+export { RF_BANDS, bandForFrequencyHz } from '../../data/rf-bands.js';
 //
 // DUTY FACTOR reconciles the game's kilowatt-scale RF ladder with the megawatt
 // peak power a normal-conducting structure needs. Pulsed sources deliver their
@@ -45,24 +50,6 @@ import { expandPath } from '../line-geometry.js';
 // band — that is the "generous" half of the rule. The strict half lives in
 // solve(): one network carries one frequency, so two frequencies in the same
 // band still need two networks and two source instances.
-export const RF_BANDS = [
-  { id: 'vhf',   loMHz:    50, hiMHz:   500, label: 'VHF',     tier: 'beginner' },
-  { id: 'uhf',   loMHz:   500, hiMHz:  1000, label: 'UHF',     tier: 'proton SRF' },
-  { id: 'lband', loMHz:  1000, hiMHz:  2000, label: 'L-band',  tier: 'SRF workhorse' },
-  { id: 'sband', loMHz:  2000, hiMHz:  4000, label: 'S-band',  tier: 'mid NC' },
-  { id: 'cband', loMHz:  4000, hiMHz:  8000, label: 'C-band',  tier: 'high-gradient NC' },
-  { id: 'xband', loMHz:  8000, hiMHz: 16000, label: 'X-band',  tier: 'expert NC' },
-];
-
-/** Band id for a frequency in HERTZ, or null if outside every band. */
-export function bandForFrequencyHz(hz) {
-  const mhz = hz / 1e6;
-  for (const b of RF_BANDS) {
-    if (mhz >= b.loMHz && mhz < b.hiMHz) return b.id;
-  }
-  return null;
-}
-
 // Fraction of the network's capacity that reaches a sink, in watts of peak
 // power. Capacity is quoted in kW; sinks share it in proportion to their
 // declared demand so an oversubscribed network starves everything on it

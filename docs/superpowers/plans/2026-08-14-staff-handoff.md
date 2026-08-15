@@ -72,7 +72,7 @@ boundary the spec already states ("the sim decides; the renderer displays").
 
 ### Two things this will expose — surface them, do not smooth them over
 
-1. **`scripts/balance-playthrough.mjs`'s shim teleports staff** (`fromNode = destNode`
+1. **The retired headless career benchmark teleported staff** (`fromNode = destNode`
    on the same tick). The 80,000-tick benchmark therefore measures a facility
    where **nobody ever walks**: throughput is overstated, station contention
    understated, and the travel-abandonment paths (`"Gave up trying to get

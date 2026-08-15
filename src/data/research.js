@@ -52,8 +52,8 @@ export const RESEARCH_SPEED_TABLE = {
 };
 
 // ---------------------------------------------------------------------------
-// Phase 12 — the cost ladder is laid across the 28,800-tick target playthrough
-// (scripts/balance-playthrough.mjs). Only `cost` moved; every `requires` /
+// Phase 12 — the cost ladder was rebalanced as a complete curve. Only `cost`
+// moved; every `requires` /
 // `unlocks` relationship is exactly as Phase 12b left it.
 //
 // Method. Costs were re-derived as a compressive power law over the ORIGINAL
@@ -338,7 +338,7 @@ export const RESEARCH = {
     duration: 60,
     // The return leg an ERL is built around. This node promised energy
     // recovery and shipped only a discount on the electricity bill.
-    unlocks: ['recirculationArc'],
+    unlocks: ['recirculationArc', 'euvCollector'],
     effect: { energyCostMult: 0.7 },
     requires: 'srfTechnology',
   },
@@ -509,7 +509,7 @@ export const RESEARCH = {
     desc: 'Build a Machine Protection System (MPS) — the safety layer that prevents beam from damaging accelerator components. A single missteered high-power beam pulse can melt through a copper beam pipe in microseconds. The MPS monitors beam loss signals, current readings, and equipment status, and can trigger a beam abort within microseconds if something goes wrong.',
     cost: { data: 140, funding: 2600000 },
     duration: 40,
-    unlocks: ['mps', 'emergencyCooling'],
+    unlocks: ['mps', 'emergencyCooling', 'protonTherapyGantry'],
     requires: 'beamDiagnostics',
   },
   transverseDiagnostics: {
@@ -565,7 +565,7 @@ export const RESEARCH = {
     desc: 'Harness the intense electromagnetic radiation emitted when relativistic electrons are deflected by magnetic fields. Undulators use periodic magnet arrays to produce highly collimated, quasi-monochromatic light with brilliance billions of times brighter than X-ray tubes. Wigglers produce broader-spectrum, higher-flux radiation. This light can be delivered to user experiments via photon beamline ports.',
     cost: { data: 228, funding: 6700000 },
     duration: 70,
-    unlocks: ['undulator'],
+    unlocks: ['undulator', 'photonScienceHutch'],
     effect: { photonFluxMult: 1.2 },
     requires: null,
   },
@@ -777,7 +777,10 @@ export const RESEARCH = {
     desc: 'Study the physics of beam-target interactions — what happens when a high-energy particle beam strikes a solid material. Different target materials (beryllium, copper, carbon) produce different spectra of secondary particles. Understanding radiation damage, thermal shock, and secondary particle production is essential for designing target stations that survive and produce useful physics data.',
     cost: { data: 140, funding: 2600000 },
     duration: 45,
-    unlocks: ['target'],
+    unlocks: [
+      'target', 'isotopeProductionTarget', 'radiationEffectsStation',
+      'spallationNeutronTarget',
+    ],
     requires: null,
   },
   targetPhysicsAdv: {
@@ -828,7 +831,7 @@ export const RESEARCH = {
     desc: 'Develop the techniques for building a Free Electron Laser — the most brilliant X-ray source ever conceived. Requires mastery of bunch compression, undulator physics, and emittance preservation over kilometres of beamline. Unlocks the FEL machine type.',
     cost: { data: 370, funding: 15000000, reputation: 1100 },
     duration: 100,
-    unlocks: [],
+    unlocks: ['xfelEndstation'],
     effect: { photonFluxMult: 1.5 },
     requires: ['bunchCompression', 'felPhysics'],
   },

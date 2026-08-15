@@ -438,8 +438,7 @@ function repairOffers(nodes, nav, state) {
 // facility, not just the current beamline, on a path (buildJobOffers) that
 // runs every single tick. One index built per buildJobOffers call, shared
 // by every node the loop below checks, keeps this linear regardless of how
-// large the on-pipe catalogue grows. (A large-facility playthrough
-// [scripts/balance-playthrough.mjs] was independently found to run well
+// large the on-pipe catalogue grows. (A large-facility benchmark was found to run
 // below its own historical throughput while this task was in progress —
 // see task-6-report.md's performance section for what was and wasn't ruled
 // out as the cause; this index is cheap insurance either way, not a claimed

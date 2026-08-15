@@ -1,27 +1,10 @@
 // test/test-progression.js — Phase 12 progression invariants.
 //
-// The target this pins: a full playthrough to the top of the tech tree takes
-// ~28,800 ticks (~8 h of active play at 1x; the 1x/2x/4x speed controls make
-// wall-clock shorter). scripts/balance-playthrough.mjs is the tuning companion
-// with the full tables; this file holds the handful of properties that must
-// survive a knob change.
+// This file pins fast, deterministic progression contracts without simulating
+// a synthetic player or asserting a prescribed full-career path.
 //
-// Two kinds of check, deliberately separated:
-//
-//   STATIC (instant) — the cost ladder, the utility-line prices and the
-//   milestone rewards, checked as pure data. These are the knobs a tuner
-//   actually edits, so they get the tighter bounds.
-//
-//   SIMULATED (~30 s) — one scripted playthrough at the sim's default policy
-//   (24 extra beamlines, seed 909). Bounds here are wide on purpose: run
-//   length is a strong function of how much hardware the player chooses to
-//   build (see the note on ECON.beamIncomePerNode), so this asserts the SHAPE
-//   of the curve — spread of completions, no dead stretch, which resource is
-//   binding — and only loosely the length.
-//
-// Measured when written (seed 909, 24 extra lines): 22,895 ticks = 0.79x
-// target, longest gap with nothing completing 1,113 ticks (4.9% of the run),
-// blocked 83% funding / 3.7% data / 0% reputation / 0% lab tier.
+// The cost ladder, utility-line prices, and milestone rewards are checked as
+// pure data because those are the knobs a tuner actually edits.
 
 import { Game } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
@@ -30,10 +13,26 @@ import { OBJECTIVES } from '../src/data/objectives.js';
 import { UTILITY_TYPES } from '../src/utility/registry.js';
 import { COMPONENTS } from '../src/data/components.js';
 import { SUB_PER_TILE_CONST } from '../src/utility/line-geometry.js';
-import {
-  runPlaythrough, PLAYTHROUGH_TARGET_TICKS, RESEARCH_IDS, NODE_TIER, TIERS,
-  beamlineRecipeCost, beamlineHardwareCost, beamlineWiringCost,
-} from '../scripts/balance-playthrough.mjs';
+import { _computeNodeDepth } from '../src/game/research.js';
+
+const RESEARCH_IDS = Object.entries(RESEARCH)
+  .filter(([, node]) => !node.hidden)
+  .map(([id]) => id);
+const NODE_TIER = Object.fromEntries(
+  RESEARCH_IDS.map(id => [id, _computeNodeDepth(id)]),
+);
+const TIERS = [...new Set(Object.values(NODE_TIER))].sort((a, b) => a - b);
+
+const REFERENCE_LINE_PARTS = [
+  'source', 'faradayCup', 'buncher', 'pillboxCavity', 'pillboxCavity',
+  'pillboxCavity', 'quadrupole', 'bpm', 'hvTransformer', 'switchgear',
+  'lcwSkid', 'rackIoc', 'solidStateAmp', 'roughingPump', 'turboPump',
+  'powerBus', 'vacuumManifold', 'vacuumManifold', 'waveguideManifold',
+];
+const referenceHardwareCost = REFERENCE_LINE_PARTS.reduce(
+  (sum, id) => sum + (COMPONENTS[id]?.cost?.funding || 0),
+  0,
+);
 
 const log = console.log.bind(console);
 let passed = 0, failed = 0;
@@ -130,22 +129,15 @@ log('\n--- C: utility line pricing ---');
 
   // Wiring should enable layout decisions without competing with the machines
   // themselves for the construction budget.
-  const wiring = beamlineWiringCost('cup');
-  const hardware = beamlineHardwareCost('cup');
-  assert(wiring > 0,
-    `wiring the reference line retains a positive construction cost (${money(wiring)})`);
-  assert(wiring < 0.05 * hardware,
-    `wiring stays below 5% of the hardware it connects (${money(wiring)})`);
-
   // Same bound at the dearest non-cryo rate, so a rate hike on one utility
   // cannot pass by just because the reference line uses little of it.
   const SUB = SUB_PER_TILE_CONST;
   const worstNonCryo = Math.max(...prices
     .filter(([t]) => t !== 'cryoTransfer').map(([, p]) => p));
   const wireWorstCase = 24 * 5 * SUB * worstNonCryo;   // ~24 stubs of ~5 tiles
-  assert(wireWorstCase < 0.05 * hardware,
+  assert(wireWorstCase < 0.05 * referenceHardwareCost,
     `worst-case wiring stays below 5% of a beamline (${money(wireWorstCase)} vs ` +
-    `${money(hardware)} of hardware)`);
+    `${money(referenceHardwareCost)} of hardware)`);
 
   // Distribution gear is retained for its capacity/topology role, not as an
   // artificial workaround for expensive short utility runs.
@@ -181,7 +173,11 @@ log('\n--- D: objective rewards ---');
   // expansion, or milestones are not what unlocks the next tier of spending.
   // Priced ALL IN — hardware, drift pipe and wiring — because that is what the
   // player is actually asked for at the till.
-  const lineCost = beamlineRecipeCost('cup');
+  const worstNonCryo = Math.max(...Object.entries(UTILITY_TYPES)
+    .filter(([type]) => type !== 'cryoTransfer')
+    .map(([, descriptor]) => descriptor.costPerSubUnit));
+  const referenceWiringBudget = 24 * 5 * SUB_PER_TILE_CONST * worstNonCryo;
+  const lineCost = referenceHardwareCost + referenceWiringBudget;
   assert(byTier[0].funding + STARTING_FUNDS >= lineCost,
     `tier 0 + seed buys the first extra beamline ` +
     `(${money(byTier[0].funding + STARTING_FUNDS)} vs ${money(lineCost)})`);
@@ -198,89 +194,5 @@ log('\n--- D: objective rewards ---');
 }
 
 // ---------------------------------------------------------------------------
-// E: one full playthrough. Shape first, length loosely.
-// ---------------------------------------------------------------------------
-{
-  const rec = runPlaythrough({ seed: 909, maxTicks: 80_000, sampleEvery: 100_000 });
-  // Balance fix round 5: MAX_LINES is now derived from MAX_MAP_HALF_EXTENT
-  // (balance-playthrough.mjs), not a hardcoded 24 — log the line count the
-  // run actually used instead of a stale literal.
-  log(`\n--- E: full playthrough (seed 909, ${rec.maxLines} extra lines) ---`);
-  const T = rec.totalTicks;
-  log(`  (ran ${T.toLocaleString()} ticks = ` +
-    `${(T / PLAYTHROUGH_TARGET_TICKS).toFixed(2)}x target)`);
-
-  assert(rec.finished, `every reachable node completes (${rec.remainingNodes.length} left)`);
-  assert(!rec.ladderStalled, `facility expansion never stalls (${rec.ladderStalled || 'ok'})`);
-  // Wide band: the sim's default policy is the maximal builder, and a player
-  // who builds half as much takes roughly twice as long. This catches an order
-  // -of-magnitude regression, not a tuning drift.
-  assert(T > 0.5 * PLAYTHROUGH_TARGET_TICKS && T < 1.5 * PLAYTHROUGH_TARGET_TICKS,
-    `playthrough length within 0.5x-1.5x of the ${PLAYTHROUGH_TARGET_TICKS.toLocaleString()}-tick target`);
-
-  // No dead opening: the player must be able to finish something early.
-  const firstAt = Math.min(...RESEARCH_IDS.map(id => rec.completedAt[id] ?? Infinity));
-  assert(firstAt < 2500, `first node completes early (t=${firstAt})`);
-
-  // No dead stretch: a long span where nothing lands is what this phase set out
-  // to remove ($100M colliderTech used to buy a 2,666-tick silence).
-  assert(rec.longestGap && rec.longestGap.ticks < 4000,
-    `longest span with nothing completing under 4,000 ticks (${rec.longestGap?.ticks})`);
-  assert(rec.longestGap.ticks < 0.2 * T,
-    `...and under a fifth of the run (${(100 * rec.longestGap.ticks / T).toFixed(1)}%)`);
-
-  // Completions spread across the run rather than bunching at one end.
-  const doneBy = (frac) => RESEARCH_IDS
-    .filter(id => (rec.completedAt[id] ?? Infinity) <= frac * T).length / RESEARCH_IDS.length;
-  const q1 = doneBy(0.25), q2 = doneBy(0.5), q3 = doneBy(0.75);
-  log(`  (nodes done at 25/50/75% of the run: ` +
-    `${(100 * q1).toFixed(0)}% / ${(100 * q2).toFixed(0)}% / ${(100 * q3).toFixed(0)}%)`);
-  assert(q1 >= 0.05 && q1 <= 0.45, `first quarter lands some of the tree (${(100 * q1).toFixed(0)}%)`);
-  assert(q2 >= 0.20 && q2 <= 0.70, `half-way point is mid-tree (${(100 * q2).toFixed(0)}%)`);
-  assert(q3 >= 0.50 && q3 <= 0.92, `three-quarter point leaves a real end-game (${(100 * q3).toFixed(0)}%)`);
-
-  // The deepest tier must be the last thing standing — otherwise the tree has
-  // no climax and the ladder is priced backwards.
-  const deepest = TIERS[TIERS.length - 1];
-  assert(rec.tierCompletedAt[deepest] > 0.75 * T,
-    `deepest tier (${deepest}) closes the run (t=${rec.tierCompletedAt[deepest]} of ${T})`);
-  const shallowest = TIERS[0];
-  assert(rec.tierCompletedAt[shallowest] < 0.7 * T,
-    `shallowest tier (${shallowest}) is done well before the end ` +
-    `(t=${rec.tierCompletedAt[shallowest]} of ${T})`);
-
-  // Which resource is binding. Funding is meant to be the pacing resource;
-  // reputation and data are seasoning, and the lab ladder must never block.
-  const b = rec.blockedTicks;
-  log(`  (blocked: funding ${b.funding} / data ${b.data} / ` +
-    `reputation ${b.reputation} / labTier ${b.labTier} of ${T} ticks)`);
-  assert(b.funding > b.data && b.funding > b.reputation && b.funding > b.labTier,
-    'funding is the binding constraint');
-  assert(b.reputation < 0.25 * T,
-    `reputation paces rather than walls (${(100 * b.reputation / T).toFixed(1)}% of ticks)`);
-  assert(b.data < 0.25 * T,
-    `data paces rather than walls (${(100 * b.data / T).toFixed(1)}% of ticks)`);
-  assert(b.labTier === 0,
-    `the lab ladder never blocks a run that builds labs (${b.labTier} ticks)`);
-  // Balance fix round 4: this used to read `rec.beamOnTicks > 0.8 * T`,
-  // which passed at 99% straight through a ~24,000-tick stall — beamOnTicks
-  // only asks "is ANY line running", and line 1 kept running the whole
-  // time while lines 2-4 sat built, staffed, and off (a one-line bug in
-  // balance-playthrough.mjs's own gate-check handling: it never pressed
-  // Start again after a new line's staffing race cleared).
-  //
-  // Round 4's own fix (asserting the WHOLE-RUN AVERAGE of running/registered
-  // lines) still missed it: reconstructed on a pre-fix checkout,
-  // runningLineFraction reads 91.2% — a ~24,000-tick deficit dilutes across
-  // a ~470,000 line-tick run and clears the 0.8 bar anyway. Asserting the
-  // WORST 2,000-tick WINDOW instead (minWindowLineFraction) is what
-  // actually catches it: 33.3% on that same pre-fix reconstruction, 100.0%
-  // on the fixed run. "4 registered lines and only 1 running" is true
-  // instantaneously; only a windowed metric, not a whole-run mean, holds
-  // that true for long enough to fail on it.
-  assert(rec.minWindowLineFraction > 0.8,
-    `the worst 2,000-tick window still has >80% of registered lines running (${(100 * rec.minWindowLineFraction).toFixed(1)}%; whole-run average was ${(100 * rec.runningLineFraction).toFixed(1)}%, ${rec.runningLineTicks}/${rec.registeredLineTicks} line-ticks)`);
-}
-
 log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

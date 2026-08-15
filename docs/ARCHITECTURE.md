@@ -1,5 +1,9 @@
 # Beamline Tycoon — Architecture
 
+This is the living architecture reference. The repository guardrails in
+`AGENTS.md`, content rules in `CONTENT-CONTRACTS.md`, and executable tests are
+authoritative when a cited line number has moved.
+
 Written for someone who can already read the code. It does not restate what a file does;
 it records the things that are **invisible from reading one file**: which of two similar
 registries is authoritative, which fields are load-bearing beyond their obvious use, where a
@@ -48,7 +52,8 @@ One line per area: what it owns, and what it must not own.
 | Path | Owns | Must not own |
 |---|---|---|
 | `world-snapshot.js` | The **only** channel by which world data reaches the 3D renderer. A registry of independently buildable sections (`:465-486`); `only:` computes a subset. | Mutation, or knowledge of THREE. |
-| `ThreeRenderer.js` | Camera, scene graph, event→refresh routing, hover/ghost previews. | Live `game.state` reads outside the single sanctioned accessor `_liveState()` (`:3076-3086`). |
+| `ThreeRenderer.js` | Camera, scene graph, event→refresh routing, hover/ghost previews, and composition of renderer coordinators. | Live `game.state` reads outside the single sanctioned accessor `_liveState()`; incident physics orchestration (`world-physics-presentation.js`). |
+| `world-physics-presentation.js` | Lazy authored-body registration, incident snapshots, ragdolls, debris, and presentation-only rollback. | Writing transforms or state back into the canonical game model. |
 | `component-builder.js` | `ROLE_BUILDERS` (role-bucket geometry, the current path) **and** `DETAIL_BUILDERS` (legacy, returns a full Group). `isDetailedComponent` (`:3551`) is the authoritative "does this have real geometry" test. | Placement arithmetic — that is `componentPose` (`:3558`), shared with the ghost so preview and commit cannot drift. |
 | `builders/*.js`, `{decoration,equipment,floor,wall,terrain,cliff,beam,grass-tuft,wildflower}-builder.js` | Geometry from one snapshot section, cached on a `contentKey` of that section. | Reading state. THREE is a **CDN global — do NOT import it** (repeated in every builder header). |
 | `texture-manager.js` | Path→`THREE.Texture` cache and the two manifest loaders. Nearest-filter + sRGB is applied here, once (`:33-35`). | Material construction. |
@@ -59,10 +64,10 @@ One line per area: what it owns, and what it must not own.
 The old PixiJS renderer is **gone**. What survives: `grid.js` (iso ↔ grid coordinate math, still used by input and placement), `Renderer.js` (mode/category helpers + a 4x5 pixel font), `sprites.js`, and `designer-renderer.js` — 1144 lines of 2D canvas schematic/plot rendering **attached to `BeamlineDesigner.prototype`** as a side-effect import (`main.js:9`).
 
 ### `src/input`
-`InputHandler.js` is the event hub. `Tool.js` defines the one-armed-tool contract; `placement-tools.js`, `structure-tools.js`, `demolish-tool.js`, `mode-tools.js`, `beamline-tool.js`, `utility-line-tool.js` are the families. Mutual exclusivity holds *by construction* — one `activeTool` slot (`Tool.js:5-9`). `BeamlineInputController` and `UtilityLineInputController` own the multi-step gesture state that `ThreeRenderer` reads live each frame. `demolishScopes.js` owns what each demolish button may delete and its refund. Escape belongs to `ui/esc-stack.js`, never to a keydown listener of your own.
+`InputHandler.js` is the event hub. `Tool.js` defines the one-armed-tool contract; `placement-tools.js`, `structure-tools.js`, `demolish-tool.js`, `mode-tools.js`, `beamline-tool.js`, `utility-line-tool.js` are the families. Mutual exclusivity holds *by construction* — one `activeTool` slot (`Tool.js:5-9`). `selection-commands.js` owns atomic copy, move, and demolish transactions so they are testable without calling private `InputHandler` methods. `BeamlineInputController` and `UtilityLineInputController` own the multi-step gesture state that `ThreeRenderer` reads live each frame. `demolishScopes.js` owns what each demolish button may delete and its refund. Escape belongs to `ui/esc-stack.js`, never to a keydown listener of your own.
 
 ### `src/utility`
-`registry.js` (6 descriptors; adding a 7th is one import + one array entry) → `network-discovery.js` (union-find over port keys, plus **distribution buses** and **adjacency bridging**) → `solve-runner.js` (per-tick solve, topology-revision cache, persistent-state reconciliation) → `game/utility-gate.js` (policy). `UtilityLineSystem.js` is the only writer of `state.utilityLines`; `line-drawing.js` is its pure validator; `line-geometry.js` holds the Manhattan path math and `UTILITY_LINE_Y`. `ports.js` answers *where on the footprint*; `port-anchors.js` answers *where on the model*. `utility-endpoints.js` flattens `state.placeables` **and** `pipe.placements` into one endpoint list — everything utility-shaped must consume that, not `placeables` alone.
+`registry.js` (6 descriptors; adding a 7th is one import + one array entry) → `network-discovery.js` (union-find over port keys, plus **distribution buses** and **adjacency bridging**) → `solve-runner.js` (per-tick solve, topology-revision cache, persistent-state reconciliation) → `game/utility-gate.js` (policy). `UtilityLineSystem.js` is the only writer of `state.utilityLines`; `line-drawing.js` is its pure validator; `line-geometry.js` holds the Manhattan path math and `UTILITY_LINE_Y`. `ports.js` answers *where on the footprint*; `port-anchors.js` answers *where on the model*; `port-contracts.js` resolves scenario-facing capability selectors to authored port names. `utility-endpoints.js` flattens `state.placeables` **and** `pipe.placements` into one endpoint list — everything utility-shaped must consume that, not `placeables` alone.
 
 ### `src/beamline`
 `BeamlineSystem.js` owns mutation of pipes, junctions and on-pipe placements (Game injects `placePlaceable`/`removePlaceable`/`movePlaceable` into it). `flattener.js` is **the single source of truth for beam element ordering** (`flattener.js:5-6`). `pipe-{drawing,splice,geometry,placements}.js` are pure validators. `designer-plan.js` (1406 lines) plans a Designer *Apply* as an ordered op list; `BeamlineRegistry.js` holds per-beamline identity + `beamState`. `component-physics.js` holds `PARAM_DEFS` and the JS-side stat math; `physics-payload.js` builds the payload for Python; `physics.js` is the Pyodide bridge.
