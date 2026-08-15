@@ -14,7 +14,8 @@
 //     right-drag removes, pre-click hover marker via onPipeToolHover. All
 //     gesture state lives in the controller.
 //   - legacy attachments (placement 'attachment' with no role — infra
-//     gauges/valves): pipe-projected ghost + addAttachmentToPipe commit.
+//     gauges/valves): gauges prefer a compatible utility run and fall back to
+//     beam pipe; valves remain beam-pipe-only.
 //
 // This replaces the legacy beamline shadow-arming fields and selector
 // methods, plus the beamline delegation guards that were spread across
@@ -149,17 +150,21 @@ export class BeamlineTool extends Tool {
         && input.beamlineController.onMouseDown(world.x, world.y, 0, this.key)) {
       return true;
     }
-    // Legacy attachment placement — infrastructure gauges and valves.
+    // Infrastructure gauges can mount on a drawn vacuum run or a beam pipe;
+    // valves remain beam-pipe-only.
     if (def?.placement === 'attachment' && !def.role) {
-      const hit = input._snapAttachmentToPipe(this.key, world.x, world.y);
+      const hit = input._resolveAttachmentTarget(this.key, world.x, world.y);
       if (!hit) {
-        const message = `${def?.name || 'Attachment'} must be placed on a beam pipe.`;
+        const mount = def.utilityMount ? 'a vacuum line or beam pipe' : 'a beam pipe';
+        const message = `${def?.name || 'Attachment'} must be placed on ${mount}.`;
         if (typeof input._showPlacementFailure === 'function') input._showPlacementFailure(message);
         else game.log(message, 'bad');
         return true;
       }
-      if (hit.collidesWithModule) {
-        const message = `${def?.name || 'Attachment'} is blocked by a placed module or equipment.`;
+      if (hit.collidesWithModule || hit.collidesWithAttachment) {
+        const message = hit.collidesWithAttachment
+          ? `${def?.name || 'Attachment'} is too close to another line-mounted instrument.`
+          : `${def?.name || 'Attachment'} is blocked by a placed module or equipment.`;
         if (typeof input._showPlacementFailure === 'function') input._showPlacementFailure(message);
         else game.log(message, 'bad');
         return true;
@@ -168,12 +173,13 @@ export class BeamlineTool extends Tool {
       // can still refuse (affordability), so the snapshot is conditional on
       // the mutation, not on the click.
       game.commitGesture({
-        mutate: () => game.addAttachmentToPipe(
-          hit.pipe.id,
-          this.key,
-          hit.proj.position,
-          input.selectedParamOverrides,
-        ),
+        mutate: () => hit.kind === 'utilityLine'
+          ? game.addUtilityAttachment(
+            hit.line.id, this.key, hit.proj.position, input.selectedParamOverrides,
+          )
+          : game.addAttachmentToPipe(
+            hit.pipe.id, this.key, hit.proj.position, input.selectedParamOverrides,
+          ),
       });
       return true;
     }

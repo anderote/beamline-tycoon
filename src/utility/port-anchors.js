@@ -258,9 +258,12 @@ export function portAnchor3D(placeable, def, portName) {
   // presentation anchors do not lose the renderer's +1 m centre offset.
   const onPipe = placeable.isPlacement === true
     || (placeable.subCol == null && placeable.subRow == null);
-  const centre = onPipe
+  const explicitCentre = Number.isFinite(placeable.worldX) && Number.isFinite(placeable.worldZ)
+    ? { x: placeable.worldX, z: placeable.worldZ }
+    : null;
+  const centre = explicitCentre || (onPipe
     ? { x: (placeable.col || 0) * 2 + 1, z: (placeable.row || 0) * 2 + 1 }
-    : placeableCenterWorld(placeable, def);
+    : placeableCenterWorld(placeable, def));
   if (!centre) return null;
 
   const type = placeable.type;
@@ -293,7 +296,7 @@ export function portAnchor3D(placeable, def, portName) {
 
   return {
     x: simFallback ? simFallback.x : centre.x + offset.x,
-    y: mount.y,
+    y: mount.y + (Number.isFinite(placeable.yOffset) ? placeable.yOffset : 0),
     z: simFallback ? simFallback.z : centre.z + offset.z,
     out,
     standoff,

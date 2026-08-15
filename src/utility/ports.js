@@ -163,6 +163,9 @@ function alongOffset(spec) {
  */
 export function placeableCenterWorld(placeable, def) {
   if (!placeable) return null;
+  if (Number.isFinite(placeable.worldX) && Number.isFinite(placeable.worldZ)) {
+    return { x: placeable.worldX, z: placeable.worldZ };
+  }
   const dir = normalizeDir(placeable.dir || 0);
   const subL = (def && def.subL) || 2;
   const subW = (def && def.subW) || 2;

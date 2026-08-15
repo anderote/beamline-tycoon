@@ -9,7 +9,8 @@ import { formatEnergy, UNITS } from '../data/units.js';
 import { UtilityInspector } from '../ui/UtilityInspector.js';
 import { EconomyWindow } from '../ui/EconomyWindow.js';
 import { discoverNetworks, makeDefaultPortLookup } from '../utility/network-discovery.js';
-import { UTILITY_TYPES } from '../utility/registry.js';
+import { UTILITY_TYPES, utilityLineHeight } from '../utility/registry.js';
+import { projectOntoUtilityLine, utilityAttachmentPose } from '../utility/line-attachments.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import {
   snapForPlaceable, canPlace, canPlaceWallFixture, previewPlacement,
@@ -223,6 +224,10 @@ export class InputHandler {
           entry = (pipe.placements || []).find(p => p.id === rootId);
           if (entry) break;
         }
+      }
+      if (!entry && hitInfo.group === 'utilityAttachment' && rootId) {
+        const line = this.game.state.utilityLines?.get(hitInfo.lineId);
+        entry = line?.attachments?.find(a => a.id === rootId) || null;
       }
       if (!entry && hitInfo.rootObj
           && (hitInfo.group === 'equipment' || hitInfo.group === 'decoration')) {
@@ -1240,6 +1245,39 @@ export class InputHandler {
     return { snap, pipe, proj, cells, collidesWithModule };
   }
 
+  /** Snap a compatible instrument to the nearest point on its utility run. */
+  _snapAttachmentToUtilityLine(compKey, worldX, worldY) {
+    const def = COMPONENTS[compKey];
+    if (!def?.utilityMount) return null;
+    const gf = isoToGridFloat(worldX, worldY);
+    const lines = this.game.state.utilityLines;
+    const iter = lines && typeof lines.values === 'function' ? lines.values() : (lines || []);
+    let best = null;
+    for (const line of iter) {
+      if (!line || line.utilityType !== def.utilityMount) continue;
+      const proj = projectOntoUtilityLine(line, gf.col, gf.row);
+      if (!proj || proj.distance > 0.45) continue;
+      if (!best || proj.distance < best.proj.distance) best = { line, proj };
+    }
+    if (!best) return null;
+    best.collidesWithAttachment = (best.line.attachments || []).some(att => {
+      const pose = utilityAttachmentPose(best.line, att);
+      return pose && Math.hypot(
+        pose.worldX - best.proj.worldX,
+        pose.worldZ - best.proj.worldZ,
+      ) < 0.5;
+    });
+    return { kind: 'utilityLine', ...best };
+  }
+
+  /** Prefer a declared utility mount, while preserving beam-pipe mounting. */
+  _resolveAttachmentTarget(compKey, worldX, worldY) {
+    const lineHit = this._snapAttachmentToUtilityLine(compKey, worldX, worldY);
+    if (lineHit) return lineHit;
+    const pipeHit = this._snapAttachmentToPipe(compKey, worldX, worldY);
+    return pipeHit ? { kind: 'beamPipe', ...pipeHit } : null;
+  }
+
   /**
    * Compute the subtile cells an attachment occupies when placed at a
    * projected on-pipe position. Mirrors the renderer's centering rule
@@ -1280,7 +1318,7 @@ export class InputHandler {
    * pipe-alignment.
    */
   _updateAttachmentPreview(compKey, worldX, worldY) {
-    const hit = this._snapAttachmentToPipe(compKey, worldX, worldY);
+    const hit = this._resolveAttachmentTarget(compKey, worldX, worldY);
     if (!hit) {
       // No pipe under the cursor: drop the ghost mesh but keep the placement
       // grid every other placement tool shows (a full _clearPreview stripped
@@ -1301,13 +1339,23 @@ export class InputHandler {
     // componentCostFor(def), not the bare def.cost, or a spares-short
     // on-pipe part still previewed green here and then refused on click.
     const affordable = canAffordCost(this.game, componentCostFor(COMPONENTS[compKey]));
-    const valid = !hit.collidesWithModule && affordable;
+    const blocked = hit.kind === 'utilityLine'
+      ? hit.collidesWithAttachment
+      : hit.collidesWithModule;
+    const valid = !blocked && affordable;
+    const mount = hit.kind === 'utilityLine' ? {
+      worldX: hit.proj.worldX,
+      worldZ: hit.proj.worldZ,
+      yOffset: utilityLineHeight(hit.line.utilityType) - 1.0,
+    } : null;
     this.renderer.renderAttachmentGhost(
       hit.proj.col, hit.proj.row,
       compKey,
       hit.proj.dir,
       valid,
-      (!hit.collidesWithModule && !affordable) ? PLACE_UNAFFORDABLE : null,
+      (!blocked && !affordable) ? PLACE_UNAFFORDABLE : null,
+      false,
+      mount,
     );
   }
 
@@ -2262,6 +2310,18 @@ export class InputHandler {
           return {
             kind: 'placement',
             pipeId: info.pipeId,
+            attachmentId: info.attachmentId,
+            attachment: att,
+            placeable: att ? COMPONENTS[att.type] : null,
+            rootObj: info.rootObj,
+          };
+        }
+        if (info.group === 'utilityAttachment' && scope.has('infrastructure')) {
+          const line = this.game.state.utilityLines?.get(info.lineId);
+          const att = line?.attachments?.find(a => a.id === info.attachmentId) || null;
+          return {
+            kind: 'utilityAttachment',
+            lineId: info.lineId,
             attachmentId: info.attachmentId,
             attachment: att,
             placeable: att ? COMPONENTS[att.type] : null,

@@ -387,6 +387,7 @@ export const RESEARCH = {
     desc: 'Design differential pumping sections that maintain large pressure differences between adjacent vacuum regions without physical barriers. Uses a series of small-aperture tubes with pumps between them to create a pressure gradient of 1000x or more. Essential for connecting gas-filled devices (like gas jets or plasma cells) to the UHV beamline without contamination.',
     cost: { data: 200, funding: 5000000 },
     duration: 55,
+    unlocks: ['highCapacityVacuumStation'],
     effect: { vacuumQuality: 0.08 },
     requires: 'uhvSystems',
   },

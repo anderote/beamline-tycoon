@@ -107,7 +107,7 @@ export class UtilityLineTool extends Tool {
     if (!lineId) return false;
     let removed = false;
     game._withUndo(() => {
-      removed = game.utilityLineSystem.removeLine(lineId);
+      removed = game.removeUtilityLine(lineId);
       return removed;
     });
     if (removed) {

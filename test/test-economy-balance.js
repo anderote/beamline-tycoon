@@ -238,7 +238,10 @@ realLog('\n--- D: infrastructure placeables are billed ---');
 // ---------------------------------------------------------------------------
 realLog('\n--- E: pump billing and Systems-panel counts agree ---');
 {
-  for (const type of ['roughingPump', 'turboPump', 'ionPump', 'negPump', 'tiSubPump']) {
+  for (const type of [
+    'roughingPump', 'turboPump', 'vacuumCart', 'highCapacityVacuumStation',
+    'ionPump', 'negPump', 'tiSubPump',
+  ]) {
     const u = computeTickUpkeep({
       staff: {}, staffCosts: {}, beamOn: false,
       placeables: [{ category: 'infrastructure', type }],

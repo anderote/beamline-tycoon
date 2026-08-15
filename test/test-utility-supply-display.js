@@ -7,8 +7,8 @@
 // UI files themselves, which touch the DOM and aren't Node-testable.
 //
 // Covers:
-//   1. Every one of the 25 source components (powerCable x6, rfWaveguide x9,
-//      coolingWater x3, cryoTransfer x2, vacuumPipe x5) yields a correct
+//   1. Every source component in the named ladders (powerCable x6,
+//      rfWaveguide x9, coolingWater x3, cryoTransfer x2, vacuumPipe x7) yields a correct
 //      supply row.
 //   2. A component with no source port yields no supply row.
 //   3. A component that both draws and supplies yields both rows.
@@ -34,7 +34,7 @@ function drawRows(id) {
 }
 
 // ==========================================================================
-// Test 1: all 25 source components report the right supply value + unit.
+// Test 1: all named source components report the right supply value + unit.
 // ==========================================================================
 console.log('\n--- Test 1: source components report correct supply ---');
 {
@@ -62,7 +62,11 @@ console.log('\n--- Test 1: source components report correct supply ---');
     assert(rows[0]?.value === `${cap} W`, `${id}: supplies ${cap} W (got "${rows[0]?.value}")`);
   }
 
-  const VACUUM = { roughingPump: 15, turboPump: 300, tiSubPump: 400, negPump: 500, ionPump: 600 };
+  const VACUUM = {
+    roughingPump: 15, turboPump: 300, vacuumCart: 330,
+    tiSubPump: 400, negPump: 500, ionPump: 600,
+    highCapacityVacuumStation: 3000,
+  };
   for (const [id, speed] of Object.entries(VACUUM)) {
     const rows = supplyRows(id);
     assert(rows.length === 1, `${id}: exactly one supply row`);
@@ -89,7 +93,7 @@ console.log('\n--- Test 1: source components report correct supply ---');
     ...Object.keys(POWER), ...Object.keys(COOLING), ...Object.keys(CRYO),
     ...Object.keys(VACUUM), ...Object.keys(RF),
   ];
-  assert(totalSourceIds.length === 25, `25 source components covered (got ${totalSourceIds.length})`);
+  assert(totalSourceIds.length === 27, `27 source components covered (got ${totalSourceIds.length})`);
 }
 
 // ==========================================================================

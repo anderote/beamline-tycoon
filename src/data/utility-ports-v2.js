@@ -961,6 +961,8 @@ const INFRA_UTILITY_PORTS = {
   // vacuum
   roughingPump:        { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 15 } } },
   turboPump:           { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 300 } } },
+  vacuumCart:          { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 330 } } },
+  highCapacityVacuumStation: { vac_out: { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 3000 } } },
   ionPump:             { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 600 } } },
   negPump:             { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 500 } } },
   tiSubPump:           { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 400 } } },

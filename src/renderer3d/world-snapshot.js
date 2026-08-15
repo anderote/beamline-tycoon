@@ -14,6 +14,8 @@ import { getBeamlineType } from '../data/beamline-types.js';
 import { beamVisualMode } from './beam-visual-mode.js';
 import { beamVisualPath } from './beam-visual-path.js';
 import { wallFixtureFaceOffset } from './fixture-light-math.js';
+import { utilityAttachmentPose } from '../utility/line-attachments.js';
+import { utilityLineHeight } from '../utility/registry.js';
 
 /**
  * How far the drawn ground reaches — always exactly the map the player owns,
@@ -504,6 +506,33 @@ function buildPipeAttachments(game) {
       });
     }
   }
+  const lines = game.state.utilityLines;
+  const iter = lines && typeof lines.values === 'function' ? lines.values() : (lines || []);
+  for (const line of iter) {
+    for (const att of (line?.attachments || [])) {
+      const pose = utilityAttachmentPose(line, att);
+      if (!pose) continue;
+      result.push({
+        id: att.id,
+        type: att.type,
+        col: pose.col,
+        row: pose.row,
+        worldX: pose.worldX,
+        worldZ: pose.worldZ,
+        subCol: null,
+        subRow: null,
+        direction: pose.dir,
+        tiles: [{ col: Math.floor(pose.col), row: Math.floor(pose.row) }],
+        dimmed: false,
+        utilityLineId: line.id,
+        position: att.position ?? 0,
+        params: att.params,
+        // Gauge role-builders are authored around the 1 m beam axis. Move
+        // that mounting spool down onto the physical vacuum run.
+        yOffset: utilityLineHeight(line.utilityType) - 1.0,
+      });
+    }
+  }
   return result;
 }
 
@@ -619,6 +648,9 @@ function buildUtilityLines(game) {
         ? l.cablePath.map(p => ({ col: p.col, row: p.row }))
         : undefined,
       subL: l.subL || 0,
+      attachments: (l.attachments || []).map(a => ({
+        id: a.id, type: a.type, position: a.position, params: a.params || null,
+      })),
     });
   }
   return out;
