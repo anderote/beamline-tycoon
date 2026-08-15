@@ -340,12 +340,19 @@ console.log('\n=== 6. Lintel invariant: doorHeight + lintel fits the wall ===\n'
     securityDoor: ['structuralWall'],
     rollingShutter: ['structuralWall'],
     officeDoor: ['officeWall', 'hallwayWall'],
+    acousticDoor: ['officeWall', 'hallwayWall'],
+    cleanroomDoor: ['officeWall', 'hallwayWall'],
+    panicExit: ['officeWall', 'hallwayWall'],
     hallwayDoor: ['officeWall', 'hallwayWall'],
     fireDoor: ['officeWall', 'hallwayWall'],
     labDoor: ['officeWall', 'hallwayWall'],
     chainLinkGate: ['chainLinkFence'],
+    pedestrianGate: ['chainLinkFence'],
     woodGate: ['woodFence'],
     securityGate: ['barbedWireFence'],
+    slidingSecurityGate: ['barbedWireFence'],
+    serviceDoor: ['structuralWall'],
+    blastDoor: ['structuralWall'],
   };
   for (const [id, hosts] of Object.entries(HOSTS)) {
     const def = DOOR_TYPES[id];
