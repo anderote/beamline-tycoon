@@ -73,8 +73,39 @@ class TestRFAcceleration(unittest.TestCase):
     def test_design_beta_lookup(self):
         from beam_physics.modules.rf_acceleration import DESIGN_BETA
         self.assertAlmostEqual(DESIGN_BETA["rfq"], 0.04)
-        self.assertAlmostEqual(DESIGN_BETA["cryomodule"], 0.65)
+        self.assertAlmostEqual(DESIGN_BETA["cryomodule"], 0.999)
+        self.assertAlmostEqual(DESIGN_BETA["dtl"], 0.15)
         self.assertIn("buncher", DESIGN_BETA)
+
+    def test_authored_beta_window_drives_ttf_and_status(self):
+        mod = RFAccelerationModule()
+        beam = make_beam(energy=0.0003)
+        ctx = PropagationContext("linac")
+        report = mod.apply(beam, {
+            "type": "rfCavity", "length": 1.0, "energyGain": 1e-6,
+            "rfPhase": 0.0, "game_type": "rfCavity",
+            "betaAcceptance": {"min": 0.7, "design": 0.78, "max": 0.85},
+        }, ctx)
+        self.assertTrue(ctx.beta_match["beta_accepted"])
+        self.assertGreater(ctx.beta_match["beta_ttf"], 0.99)
+        self.assertEqual(report.details["beta_acceptance_design"], 0.78)
+
+    def test_rfq_tracks_beam_through_ramped_cells(self):
+        mod = RFAccelerationModule()
+        beam = make_beam(energy=4e-5, mass=0.9382720813)
+        ctx = PropagationContext("linac")
+        before = beam.energy
+        mod.apply(beam, {
+            "type": "rfCavity", "length": 0.5, "energyGain": 0.0005,
+            "rfPhase": 0.0, "game_type": "rfq",
+            "betaAcceptance": {
+                "min": 0.005, "design": 0.04, "max": 0.10,
+                "tracksBeam": True,
+            },
+        }, ctx)
+        self.assertTrue(ctx.beta_match["beta_accepted"])
+        self.assertAlmostEqual(ctx.beta_match["beta_ttf"], 1.0)
+        self.assertAlmostEqual(beam.energy - before, 0.0005, places=8)
 
     # --- Task 2: Transit time factor ---
 

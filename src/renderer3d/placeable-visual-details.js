@@ -15,7 +15,7 @@ export const PLACEABLE_VISUAL_PROFILES = Object.freeze({
   cyclotron30: 'cyclotron', cyclotron70: 'cyclotron', cyclotron230: 'cyclotron',
   lwfaStation: 'laserBay', positronSource: 'targetStation',
   injectionSeptum: 'magnet', combinedFunctionMagnet: 'magnet',
-  industrialLinac: 'linac', protonLinacFrontEnd: 'linac',
+  industrialLinac: 'linac', protonLinacFrontEnd: 'linac', dtl: 'linac',
   cryomodule: 'cryomodule', collisionPoint: 'collision',
 
   // Infrastructure modules without a dedicated role builder.

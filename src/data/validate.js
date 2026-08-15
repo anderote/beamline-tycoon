@@ -337,6 +337,31 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     }
   }
 
+  function checkBetaAcceptance(id, def) {
+    if (def.betaAcceptance == null) return;
+    const window = def.betaAcceptance;
+    if (typeof window !== 'object' || Array.isArray(window)) {
+      problem(id, 'betaAcceptance', 'must be {min, design, max}');
+      return;
+    }
+    for (const field of ['min', 'design', 'max']) {
+      const value = window[field];
+      if (typeof value !== 'number' || !Number.isFinite(value)
+          || value <= 0 || value > 1) {
+        problem(id, `betaAcceptance.${field}`,
+          `${field} must be a finite number in (0, 1], got ${JSON.stringify(value)}`);
+      }
+    }
+    if (Number.isFinite(window.min) && Number.isFinite(window.design)
+        && Number.isFinite(window.max)
+        && !(window.min <= window.design && window.design <= window.max)) {
+      problem(id, 'betaAcceptance', 'must satisfy min <= design <= max');
+    }
+    if (window.tracksBeam != null && typeof window.tracksBeam !== 'boolean') {
+      problem(id, 'betaAcceptance.tracksBeam', 'tracksBeam must be boolean when present');
+    }
+  }
+
   // ── Beamline raw entries (modules + attachments + drawn connections) ──
   for (const [id, def] of Object.entries(beamline)) {
     checkCommon(id, def);
@@ -375,6 +400,7 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
       problem(id, 'role', `unknown role ${JSON.stringify(def.role)}`);
     }
     checkBeamPorts(id, def);
+    checkBetaAcceptance(id, def);
     if (def.routing != null) {
       if (!Array.isArray(def.routing)) {
         problem(id, 'routing', 'routing must be an array of {from, to}');

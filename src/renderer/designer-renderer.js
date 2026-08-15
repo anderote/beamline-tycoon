@@ -63,6 +63,17 @@ function _fmtBand(band, formatter) {
   return `${formatter(lo)}–${formatter(hi)}`;
 }
 
+function _fmtBeta(value) {
+  if (!Number.isFinite(value)) return '--';
+  return value < 0.1 ? value.toFixed(3) : value.toFixed(2);
+}
+
+function _fmtBetaAcceptance(window) {
+  if (!window) return null;
+  const design = window.tracksBeam ? 'ramped cells' : `design ${_fmtBeta(window.design)}`;
+  return `${_fmtBeta(window.min)}–${_fmtBeta(window.max)} (${design})`;
+}
+
 function _missionMetricValue(type, result) {
   if (!result) return 'No beam data';
   const powerKw = (result.beamEnergy || 0) * (result.beamCurrent || 0) * 1000
@@ -643,6 +654,9 @@ BeamlineDesigner.prototype._renderTuning = function() {
     const label = rfBands.map(b => b.toUpperCase()).join(', ');
     statsHtml += `<div class="ts-row"><span class="ts-label">RF Band</span><span class="ts-val">${label}</span></div>`;
   }
+  if (comp.betaAcceptance) {
+    statsHtml += `<div class="ts-row"><span class="ts-label">β Acceptance</span><span class="ts-val">${_fmtBetaAcceptance(comp.betaAcceptance)}</span></div>`;
+  }
 
   // Health from game state
   const entry = this.game.registry.get(this.beamlineId);
@@ -661,6 +675,16 @@ BeamlineDesigner.prototype._renderTuning = function() {
     const eAt = formatEnergy(envSnap.energy);
     statsHtml += `<div class="ts-row"><span class="ts-label">Energy</span><span class="ts-val">${eAt.val} <span class="ts-unit">${eAt.unit}</span></span></div>`;
     statsHtml += `<div class="ts-row"><span class="ts-label">Current</span><span class="ts-val">${envSnap.current.toFixed(3)} <span class="ts-unit">mA</span></span></div>`;
+    if (Number.isFinite(envSnap.rel_beta)) {
+      statsHtml += `<div class="ts-row"><span class="ts-label">Beam β</span><span class="ts-val">${envSnap.rel_beta.toFixed(4)}</span></div>`;
+    }
+    if (envSnap.beta_accepted != null) {
+      const matchColor = envSnap.beta_accepted ? '#4d4' : '#f55';
+      const matchText = envSnap.beta_accepted ? 'MATCHED' : 'OUTSIDE WINDOW';
+      const ttf = Number.isFinite(envSnap.beta_ttf)
+        ? ` · TTF ${envSnap.beta_ttf.toFixed(3)}` : '';
+      statsHtml += `<div class="ts-row"><span class="ts-label">Velocity match</span><span class="ts-val" style="color:${matchColor}">${matchText}${ttf}</span></div>`;
+    }
 
     const sx = envSnap.sigma_x * 1e3;
     const sy = envSnap.sigma_y * 1e3;
@@ -1316,6 +1340,9 @@ export function designerPaletteDetails(key, comp) {
   }
   const rfBands = comp.rfBands || (comp.rfBand ? [comp.rfBand] : null);
   if (rfBands) rows.push({ label: 'RF band', value: rfBands.map(b => b.toUpperCase()).join(', ') });
+  if (comp.betaAcceptance) {
+    rows.push({ label: 'β acceptance', value: _fmtBetaAcceptance(comp.betaAcceptance) });
+  }
 
   const utilityRows = paletteUtilityMetrics(comp);
   const connections = (comp.requiredConnections || [])

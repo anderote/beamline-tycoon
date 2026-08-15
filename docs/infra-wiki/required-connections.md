@@ -36,6 +36,7 @@ The numbers below are the declared loads: power in kW, cooling in kW of heat, RF
 | Buncher | 5 | | 2 @ 162.5 MHz | | | 5e-7 |
 | Pillbox Cavity | 10 | | 5 @ 162.5 MHz | | | 1e-6 |
 | RFQ | 40 | 60 | 25 @ 162.5 MHz | | | 1e-6 |
+| Drift-Tube Linac | 22 | 140 | 45 @ 325 MHz | | | 1.5e-6 |
 | NC RF Cavity | 60 | 120 | 40 @ 2856 MHz | | | 2e-6 |
 | S-band Structure | 60 | 100 | 45 @ 2856 MHz | | | 2e-6 |
 | Half-Wave Resonator | 8 | | 3 @ 162.5 MHz | 15 W | | 5e-7 |

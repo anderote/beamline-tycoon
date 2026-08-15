@@ -6003,6 +6003,12 @@ body {
   color: #62dd79;
   font-size: 7px;
 }
+.palette-item .palette-beta-range {
+  grid-column: 1 / -1;
+  color: #6fe0f2;
+  font-size: 7px;
+  letter-spacing: 0.02em;
+}
 
 /* === STUBBY — the facility advisor (src/ui/Stubby.js) ===================== */
 /* The container never takes pointer events; the sprite and bubble take them

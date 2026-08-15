@@ -94,6 +94,7 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
       placement: 'module', role: 'junction',
       ports: { entry: { side: 'back' } },
       routing: [{ from: 'entry', to: 'exit' }],
+      betaAcceptance: { min: 0.5, design: 0.4, max: 1, tracksBeam: 'yes' },
       requiredConnections: [],
     },
     badInlineKind: {
@@ -175,6 +176,10 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     'unknown attachmentKind reported');
   assert(hasProblem(problems, 'misplacedInline', 'attachmentKind', 'requires'),
     'inline kind requires an on-pipe attachment role');
+  assert(hasProblem(problems, 'badRouter', 'betaAcceptance', 'min <= design <= max'),
+    'misordered beta acceptance window reported');
+  assert(hasProblem(problems, 'badRouter', 'betaAcceptance.tracksBeam', 'boolean'),
+    'non-boolean beta tracking flag reported');
   assert(hasProblem(problems, 'freebie', 'cost'),
     'numeric decoration cost reported');
   assert(hasProblem(problems, 'freebie', 'category', "'notATab'"),

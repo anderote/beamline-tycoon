@@ -1424,6 +1424,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     subsection: 'normalConducting',
     cost: { funding: 150000 },
     stats: { energyGain: 0.0001, bunchCompression: 0.15 },
+    betaAcceptance: { min: 0.20, design: 0.30, max: 0.75 },
     energyCost: 1,
     apertureRadius: 32,
     subL: 2,
@@ -1464,6 +1465,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     subsection: 'normalConducting',
     cost: { funding: 200000 },
     stats: { energyGain: 0.0005, gradient: 0.5 },
+    betaAcceptance: { min: 0.13, design: 0.20, max: 0.50 },
     energyCost: 3,
     apertureRadius: 32,
     subL: 2,
@@ -1497,6 +1499,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     subsection: 'normalConducting',
     cost: { funding: 500000 },
     stats: { energyGain: 0.045, gradient: 15 },
+    betaAcceptance: { min: 0.85, design: 0.999, max: 1.0 },
     energyCost: 20,
     apertureRadius: 19,
     subL: 6,
@@ -1531,6 +1534,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     subsection: 'normalConducting',
     cost: { funding: 600000 },
     stats: { energyGain: 0.051, gradient: 17 },
+    betaAcceptance: { min: 0.80, design: 0.98, max: 1.0 },
     energyCost: 15,
     apertureRadius: 19,
     subL: 6,
@@ -1571,6 +1575,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // 40 MV/m x 3.0 m = 120 MeV. subL 6 -> length 3 m, so gradientDemanded
     // lands on 40 exactly. Do not change one without the other.
     stats: { energyGain: 0.12, gradient: 40 },
+    betaAcceptance: { min: 0.92, design: 0.999, max: 1.0 },
     energyCost: 45,
     apertureRadius: 13,
     subL: 6,
@@ -1609,6 +1614,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // 100 MV/m x 3.0 m = 300 MeV, and 100 MV/m is where X-band copper really
     // sits — CLIC's 12 GHz test structures run exactly this.
     stats: { energyGain: 0.30, gradient: 100 },
+    betaAcceptance: { min: 0.96, design: 0.999, max: 1.0 },
     energyCost: 90,
     apertureRadius: 8,
     subL: 6,
@@ -1648,6 +1654,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // with length = subL x 0.5 m — so subL 2 must match l_active 1.0 in
     // CAVITY_SPECS or the catalogue gain and the physics gain disagree.
     stats: { energyGain: 0.010, gradient: 10 },
+    betaAcceptance: { min: 0.60, design: 0.95, max: 1.0 },
     energyCost: 8,
     apertureRadius: 19,
     subL: 2,
@@ -1685,6 +1692,10 @@ export const BEAMLINE_COMPONENTS_RAW = {
     subsection: 'normalConducting',
     cost: { funding: 1500000 },
     stats: { energyGain: 0.003, bunchCompression: 0.5, gradient: 1.0 },
+    // RFQ vane modulation is the deliberate hand-off from a source at a few
+    // thousandths of c to a bunched beam near beta=0.08. It is the first rung,
+    // not a magic jump to beta=1; the DTL and spoke sections continue the climb.
+    betaAcceptance: { min: 0.005, design: 0.04, max: 0.10, tracksBeam: true },
     energyCost: 6,
     apertureRadius: 6,
     subL: 6,
@@ -1716,6 +1727,39 @@ export const BEAMLINE_COMPONENTS_RAW = {
     rfBand: 'vhf',
     rfPowerRequired: 25,
   },
+  dtl: {
+    id: 'dtl',
+    physicsType: 'rfCavity',
+    name: 'Drift-Tube Linac',
+    desc: 'Alvarez drift-tube linac for the first post-RFQ acceleration stage. The RFQ hands it a captured beam near beta 0.08; progressively longer drift tubes keep that rising-speed beam shielded during the decelerating half-cycle and carry it through the low-to-medium-beta gap toward spoke or elliptical structures. Three metres at 3 MV/m delivers about 7.3 MeV at the default synchronous phase.',
+    category: 'rf',
+    subsection: 'normalConducting',
+    cost: { funding: 2200000 },
+    stats: { energyGain: 0.0073, gradient: 3 },
+    betaAcceptance: { min: 0.06, design: 0.16, max: 0.38, tracksBeam: true },
+    energyCost: 22,
+    apertureRadius: 18,
+    subL: 6,
+    subW: 4,
+    subH: 4, gridW: 4, gridH: 6, geometryType: 'cylinder',
+    interiorVolume: 28,
+    requires: 'protonAcceleration',
+    spriteKey: 'rfCavity',
+    spriteColor: 0xc95a34,
+    accentColor: 0xf09a4a,
+    params: { gradient: 3, rfPhase: -25 },
+    placement: 'module',
+    role: 'placement',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
+    beamlineTypes: ['isotopeIrradiation', 'therapy', 'spallation'],
+    requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
+    rfFrequency: 325,
+    rfBand: 'vhf',
+    rfPowerRequired: 45,
+  },
   // The two top rungs of the whole ladder. Both are filed under
   // normalConducting because neither has a cryostat, but neither is an
   // ordinary copper structure either: one gets its power from a second beam,
@@ -1734,6 +1778,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // balance readout and the catalogue agree — the desc is where the honesty
     // about what it represents lives.
     stats: { energyGain: 6.0, gradient: 500 },
+    betaAcceptance: { min: 0.995, design: 0.9999, max: 1.0 },
     energyCost: 120,
     apertureRadius: 6,
     subL: 24,
@@ -1774,6 +1819,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // is what a laser-driven wake actually sustains. This is the one rung
     // where the absurd number in the balance readout is the real number.
     stats: { energyGain: 15, gradient: 1500 },
+    betaAcceptance: { min: 0.995, design: 0.9999, max: 1.0 },
     // The drive laser, not the beam. A titanium-sapphire chain at a few
     // tenths of a percent wall-plug efficiency is the single largest
     // electrical load any beamline component in this catalogue presents.
@@ -1829,6 +1875,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // this rung is three orders of magnitude above it, and the readout should
     // say so rather than quietly changing units.
     stats: { energyGain: 12000, gradient: 1200000 },
+    betaAcceptance: { min: 0.999, design: 0.99999, max: 1.0 },
     // The crystal is passive; the bill is the mount. A cryogenic goniometer
     // holding microradian alignment against the thermal shock of a TeV-scale
     // beam is the largest electrical load in the catalogue, and essentially
@@ -1885,6 +1932,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     subsection: 'superconducting',
     cost: { funding: 400000 },
     stats: { energyGain: 0.001, gradient: 1 },
+    betaAcceptance: { min: 0.065, design: 0.10, max: 0.22 },
     energyCost: 4,
     apertureRadius: 24,
     subL: 2,
@@ -1922,6 +1970,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     subsection: 'superconducting',
     cost: { funding: 600000 },
     stats: { energyGain: 0.01, gradient: 5 },
+    betaAcceptance: { min: 0.22, design: 0.35, max: 0.58 },
     energyCost: 5,
     apertureRadius: 32,
     subL: 4,
@@ -1955,6 +2004,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     subsection: 'superconducting',
     cost: { funding: 1800000 },
     stats: { energyGain: 0.0375, gradient: 25 },
+    betaAcceptance: { min: 0.85, design: 0.999, max: 1.0 },
     energyCost: 3,
     apertureRadius: 56,
     subL: 3,
@@ -2000,6 +2050,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // HONEST. 0.15 GeV over subL 20 (10 m) derives 15 MV/m, which is what a
     // 650 MHz medium-beta string really runs.
     stats: { energyGain: 0.15, gradient: 15 },
+    betaAcceptance: { min: 0.45, design: 0.61, max: 0.76 },
     energyCost: 8,
     apertureRadius: 72,
     subL: 20,
@@ -2040,6 +2091,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // modules. stats.gradient states the derived sector figure so the balance
     // readout agrees with the catalogue.
     stats: { energyGain: 0.40, gradient: 33 },
+    betaAcceptance: { min: 0.68, design: 0.86, max: 0.96 },
     energyCost: 14,
     apertureRadius: 60,
     subL: 24,
@@ -2078,6 +2130,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     subsection: 'superconducting',
     cost: { funding: 12000000 },
     stats: { energyGain: 0.2, gradient: 25 },
+    betaAcceptance: { min: 0.85, design: 0.999, max: 1.0 },
     energyCost: 12,
     apertureRadius: 56,
     subL: 16,
@@ -2124,6 +2177,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // ABSTRACTION — three modules. 0.5 GeV over 12 m derives 42 MV/m; real CW
     // 1.3 GHz cavities run about 16.
     stats: { energyGain: 0.50, gradient: 42 },
+    betaAcceptance: { min: 0.85, design: 0.999, max: 1.0 },
     energyCost: 16,
     apertureRadius: 56,
     subL: 24,
@@ -2159,6 +2213,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // ABSTRACTION — six modules. 1.2 GeV over 12 m derives 100 MV/m; Nb3Sn
     // cavities run about 17.
     stats: { energyGain: 1.2, gradient: 100 },
+    betaAcceptance: { min: 0.85, design: 0.999, max: 1.0 },
     energyCost: 20,
     apertureRadius: 56,
     subL: 24,
@@ -2194,6 +2249,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // ABSTRACTION — seventeen modules. 3.5 GeV over subL 32 (16 m) derives
     // 219 MV/m; the cavities in it run about 25, same as a TESLA cryomodule.
     stats: { energyGain: 3.5, gradient: 219 },
+    betaAcceptance: { min: 0.85, design: 0.999, max: 1.0 },
     energyCost: 45,
     apertureRadius: 56,
     subL: 32,

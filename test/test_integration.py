@@ -106,6 +106,7 @@ class TestGameplayBridge(unittest.TestCase):
         self.assertIn("envelope", result)
         self.assertTrue(result["envelope"])
         self.assertTrue(all("bunch_frequency" in point for point in result["envelope"]))
+        self.assertTrue(all("rel_beta" in point for point in result["envelope"]))
         self.assertGreater(result["envelope"][-1]["bunch_frequency"], 0)
         self.assertIn("felSaturated", result)
         self.assertTrue(result["beamAlive"])
@@ -216,6 +217,33 @@ class TestLowBetaAcceleration(unittest.TestCase):
         wrong = propagate(wrong_order, machine_type="linac")
         self.assertGreater(right["summary"]["final_energy"],
                            wrong["summary"]["final_energy"])
+
+    def test_rfq_and_dtl_bridge_proton_beta_ladder(self):
+        from beam_physics.constants import PROTON_MASS
+        window_rfq = {"min": 0.005, "design": 0.04, "max": 0.10,
+                      "tracksBeam": True}
+        window_dtl = {"min": 0.06, "design": 0.16, "max": 0.38,
+                      "tracksBeam": True}
+        config = [
+            {"type": "source", "length": 0},
+            {"type": "rfCavity", "length": 3.0, "energyGain": 0.003,
+             "rfPhase": 0.0, "game_type": "rfq", "aperture": self._APERTURE,
+             "betaAcceptance": window_rfq},
+            {"type": "rfCavity", "length": 3.0, "energyGain": 0.0073,
+             "rfPhase": 0.0, "game_type": "dtl", "aperture": self._APERTURE,
+             "betaAcceptance": window_dtl},
+        ]
+        result = propagate(config, machine_type="linac", source_params={
+            "mass": PROTON_MASS, "energy": 4e-5,
+        })
+        rfq_snaps = [s for s in result["snapshots"]
+                     if s["element_index"] == 1 and s.get("beta_accepted")]
+        dtl_snaps = [s for s in result["snapshots"]
+                     if s["element_index"] == 2 and s.get("beta_accepted")]
+        self.assertTrue(rfq_snaps)
+        self.assertTrue(dtl_snaps)
+        self.assertLess(rfq_snaps[0]["rel_beta_input"], 0.02)
+        self.assertGreater(result["snapshots"][-1]["rel_beta"], 0.10)
 
 
 if __name__ == "__main__":

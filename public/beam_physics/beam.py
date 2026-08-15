@@ -118,6 +118,10 @@ class BeamState:
             "beam_size_x": self.beam_size_x(),
             "beam_size_y": self.beam_size_y(),
             "energy": self.energy,
+            # Relativistic velocity and Lorentz factor. Keep this distinct from
+            # beta_x / beta_y below, which are Twiss optical functions in metres.
+            "rel_beta": self.beta,
+            "rel_gamma": self.gamma,
             "current": self.current,
             "emittance_x": self.emittance_x(),
             "emittance_y": self.emittance_y(),

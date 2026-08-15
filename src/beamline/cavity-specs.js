@@ -101,6 +101,9 @@ export const CAVITY_SPECS = {
   rfq: {
     kind: 'nc', f_ghz: 0.4, r_shunt: 25e6, l_active: 2.0, n_cav: 1,
   },
+  dtl: {
+    kind: 'nc', f_ghz: 0.325, r_shunt: 35e6, l_active: 3.0, n_cav: 1,
+  },
 
   // DELIBERATELY ABSENT: twoBeamModule (driven by a decelerating drive beam
   // through PETS, not by the site RF network) and plasmaAfterburner (not a

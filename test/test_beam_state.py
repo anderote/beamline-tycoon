@@ -49,6 +49,9 @@ class TestBeamStateBunchProperties(unittest.TestCase):
         self.assertIn("peak_current", snap)
         self.assertIn("n_particles", snap)
         self.assertIn("bunch_frequency", snap)
+        self.assertIn("rel_beta", snap)
+        self.assertIn("rel_gamma", snap)
+        self.assertGreater(snap["rel_beta"], 0)
 
 
 if __name__ == "__main__":
