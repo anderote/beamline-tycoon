@@ -30,6 +30,7 @@ import { beamlineEnergyDraw, facilityEnergyDraw } from '../game/aggregates.js';
 import { makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
 import { portWorldPosition } from '../utility/ports.js';
 import { ADVICE_LEVELS, ADVICE_LEVEL_STORAGE_KEY } from '../advisor/engine.js';
+import { drawConnectionGuideDiagram } from './connection-guide-diagrams.js';
 
 function _costVal(cost) {
   return (typeof cost === 'object' && cost !== null) ? (cost.funding ?? 0) : cost;
@@ -691,9 +692,9 @@ export const CONNECTION_GUIDES = {
     description: 'Bring grid power through distribution before feeding equipment.',
     accent: '#ffd36a',
     flow: [
-      { name: 'GRID / HV', icon: '⚡', detail: 'supply', kind: 'source' },
-      { name: 'SWITCHGEAR', icon: '▣', detail: 'distribution', kind: 'cabinet' },
-      { name: 'EQUIPMENT', icon: '◆', detail: 'load', kind: 'load' },
+      { name: 'GRID / HV', detail: 'supply', diagram: 'transformer' },
+      { name: 'SWITCHGEAR', detail: 'distribution', diagram: 'switchgear' },
+      { name: 'EQUIPMENT', detail: 'load', diagram: 'load' },
     ],
     links: ['HV CABLE', 'POWER CABLE'],
   },
@@ -702,9 +703,9 @@ export const CONNECTION_GUIDES = {
     description: 'Pump the beam volume, then monitor it with vacuum instruments.',
     accent: '#8fe5ff',
     flow: [
-      { name: 'PUMPS', icon: '◉', detail: 'rough + turbo', kind: 'pump' },
-      { name: 'BEAMLINE', icon: '═', detail: 'vacuum volume', kind: 'beamline' },
-      { name: 'GAUGES', icon: '◌', detail: 'protection', kind: 'gauge' },
+      { name: 'PUMPS', detail: 'rough + turbo', diagram: 'vacuumPump' },
+      { name: 'BEAMLINE', detail: 'vacuum volume', diagram: 'beamline' },
+      { name: 'GAUGES', detail: 'protection', diagram: 'gauge' },
     ],
     links: ['VACUUM PIPE', 'SENSES'],
   },
@@ -713,9 +714,9 @@ export const CONNECTION_GUIDES = {
     description: 'Drive an RF source, then route its output to compatible cavities.',
     accent: '#ff9b72',
     flow: [
-      { name: 'MODULATOR', icon: '▥', detail: 'control', kind: 'cabinet' },
-      { name: 'RF SOURCE', icon: '◉', detail: 'amplifier', kind: 'source' },
-      { name: 'RF CAVITY', icon: '◈', detail: 'accelerates', kind: 'cavity' },
+      { name: 'MODULATOR', detail: 'control', diagram: 'modulator' },
+      { name: 'RF SOURCE', detail: 'amplifier', diagram: 'rfSource' },
+      { name: 'RF CAVITY', detail: 'accelerates', diagram: 'rfCavity' },
     ],
     links: ['DATA FIBER', 'WAVEGUIDE'],
   },
@@ -724,10 +725,10 @@ export const CONNECTION_GUIDES = {
     description: 'Supply and chill the loop, carry heat away, then reject it.',
     accent: '#76d7c9',
     flow: [
-      { name: 'MAKE-UP', icon: '●', detail: 'water', kind: 'tank' },
-      { name: 'CHILLER', icon: '▣', detail: 'cold loop', kind: 'chiller' },
-      { name: 'HEAT LOAD', icon: '♨', detail: 'equipment', kind: 'load' },
-      { name: 'DRY COOLER', icon: '▤', detail: 'rejects heat', kind: 'cooler' },
+      { name: 'MAKE-UP', detail: 'water', diagram: 'waterTank' },
+      { name: 'CHILLER', detail: 'cold loop', diagram: 'chiller' },
+      { name: 'HEAT LOAD', detail: 'equipment', diagram: 'heatLoad' },
+      { name: 'DRY COOLER', detail: 'rejects heat', diagram: 'dryCooler' },
     ],
     links: ['PLANT WATER', 'COOLING WATER', 'RETURN'],
   },
@@ -736,8 +737,8 @@ export const CONNECTION_GUIDES = {
     description: 'Link the control rack to equipment for commands and telemetry.',
     accent: '#9be27c',
     flow: [
-      { name: 'CONTROL RACK', icon: '▥', detail: 'logic + interlocks', kind: 'cabinet' },
-      { name: 'EQUIPMENT', icon: '◆', detail: 'telemetry', kind: 'load' },
+      { name: 'CONTROL RACK', detail: 'logic + interlocks', diagram: 'controlRack' },
+      { name: 'EQUIPMENT', detail: 'telemetry', diagram: 'controlledEquipment' },
     ],
     links: ['DATA FIBER'],
   },
@@ -746,9 +747,9 @@ export const CONNECTION_GUIDES = {
     description: 'Provide staffed safety systems before operating the beamline.',
     accent: '#f3a4d5',
     flow: [
-      { name: 'SAFETY + STAFF', icon: '✚', detail: 'operate safely', kind: 'staff' },
-      { name: 'BEAMLINE', icon: '═', detail: 'run experiments', kind: 'beamline' },
-      { name: 'ENDSTATION', icon: '◈', detail: 'science output', kind: 'cavity' },
+      { name: 'SAFETY + STAFF', detail: 'operate safely', diagram: 'safety' },
+      { name: 'BEAMLINE', detail: 'run experiments', diagram: 'beamline' },
+      { name: 'ENDSTATION', detail: 'science output', diagram: 'endstation' },
     ],
     links: ['CLEARANCE', 'BEAM DELIVERY'],
   },
@@ -792,9 +793,10 @@ UIHost.prototype._renderConnectionGuide = function(category) {
   guide.flow.forEach((item, index) => {
     const node = document.createElement('div');
     node.className = 'connection-guide-node';
-    node.dataset.kind = item.kind;
-    node.innerHTML = `<span class="connection-guide-machine" aria-hidden="true"><span class="connection-guide-step">${String(index + 1).padStart(2, '0')}</span><span class="connection-guide-icon">${item.icon}</span><span class="connection-guide-lights"><i></i><i></i><i></i></span></span><span class="connection-guide-name">${item.name}</span><span class="connection-guide-detail">${item.detail}</span>`;
+    node.dataset.diagram = item.diagram;
+    node.innerHTML = `<span class="connection-guide-machine" aria-hidden="true"><canvas class="connection-guide-art"></canvas><span class="connection-guide-step">${String(index + 1).padStart(2, '0')}</span></span><span class="connection-guide-name">${item.name}</span><span class="connection-guide-detail">${item.detail}</span>`;
     flow.appendChild(node);
+    drawConnectionGuideDiagram(node.querySelector('.connection-guide-art'), item.diagram, guide.accent);
     if (index < guide.flow.length - 1) {
       const link = document.createElement('div');
       link.className = 'connection-guide-link';

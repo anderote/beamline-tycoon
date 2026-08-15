@@ -1012,8 +1012,8 @@ body {
   align-items: center;
   justify-content: stretch;
   gap: 0;
-  min-height: 160px;
-  padding: 19px 12px 15px;
+  min-height: 154px;
+  padding: 18px 9px 14px;
   border: 1px solid rgba(80, 80, 140, 0.25);
   border-radius: 3px;
   background:
@@ -1024,7 +1024,7 @@ body {
 }
 .connection-guide-node {
   display: flex;
-  flex: 0 0 82px;
+  flex: 0 0 84px;
   flex-direction: column;
   align-items: center;
   min-width: 0;
@@ -1033,34 +1033,19 @@ body {
 }
 .connection-guide-machine {
   position: relative;
-  display: grid;
-  width: 68px;
-  height: 62px;
-  place-items: center;
-  border: 1px solid color-mix(in srgb, var(--guide-accent) 60%, #53536d);
-  border-radius: 3px 3px 2px 2px;
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--guide-accent) 12%, transparent), transparent 58%),
-    #15152a;
-  box-shadow:
-    inset 0 0 0 3px #0b0b1c,
-    inset 0 -7px rgba(0, 0, 8, 0.22),
-    0 0 9px color-mix(in srgb, var(--guide-accent) 13%, transparent);
+  display: block;
+  width: 78px;
+  height: 50px;
+  background: #090a18;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--guide-accent) 11%, transparent);
 }
-.connection-guide-machine::before,
-.connection-guide-machine::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  width: 8px;
-  height: 7px;
-  border-top: 2px solid var(--guide-accent);
-  border-bottom: 2px solid color-mix(in srgb, var(--guide-accent) 52%, #414158);
-  background: #090917;
-  transform: translateY(-50%);
+.connection-guide-art {
+  display: block;
+  width: 78px;
+  height: 50px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
-.connection-guide-machine::before { left: -9px; }
-.connection-guide-machine::after { right: -9px; }
 .connection-guide-step {
   position: absolute;
   top: -6px;
@@ -1073,68 +1058,9 @@ body {
   font-size: 6px;
   line-height: 1;
 }
-.connection-guide-icon {
-  color: color-mix(in srgb, var(--guide-accent) 84%, white);
-  font-family: monospace;
-  font-size: 24px;
-  line-height: 1;
-  text-shadow: 0 0 7px color-mix(in srgb, var(--guide-accent) 48%, transparent);
-  transform: translateY(-1px);
-}
-.connection-guide-lights {
-  position: absolute;
-  right: 5px;
-  bottom: 5px;
-  display: flex;
-  gap: 2px;
-}
-.connection-guide-lights i {
-  width: 4px;
-  height: 4px;
-  background: rgba(92, 92, 122, 0.7);
-  box-shadow: 0 0 0 1px rgba(0, 0, 12, 0.7);
-}
-.connection-guide-lights i:first-child {
-  background: var(--guide-accent);
-  box-shadow: 0 0 4px var(--guide-accent);
-}
-.connection-guide-node[data-kind='source'] .connection-guide-machine,
-.connection-guide-node[data-kind='pump'] .connection-guide-machine,
-.connection-guide-node[data-kind='tank'] .connection-guide-machine {
-  border-radius: 16px 16px 4px 4px;
-}
-.connection-guide-node[data-kind='beamline'] .connection-guide-machine,
-.connection-guide-node[data-kind='cavity'] .connection-guide-machine {
-  height: 50px;
-  margin-block: 6px;
-  border-radius: 18px;
-}
-.connection-guide-node[data-kind='gauge'] .connection-guide-machine {
-  width: 64px;
-  height: 64px;
-  margin-block: -1px;
-  border-radius: 50%;
-}
-.connection-guide-node[data-kind='cabinet'] .connection-guide-machine,
-.connection-guide-node[data-kind='chiller'] .connection-guide-machine,
-.connection-guide-node[data-kind='cooler'] .connection-guide-machine {
-  background:
-    repeating-linear-gradient(90deg, transparent 0 8px, color-mix(in srgb, var(--guide-accent) 12%, transparent) 8px 10px),
-    linear-gradient(135deg, color-mix(in srgb, var(--guide-accent) 13%, transparent), transparent 58%),
-    #15152a;
-}
-.connection-guide-node[data-kind='load'] .connection-guide-machine {
-  background:
-    radial-gradient(circle at 50% 48%, color-mix(in srgb, var(--guide-accent) 18%, transparent), transparent 42%),
-    #15152a;
-}
-.connection-guide-node[data-kind='cooler'] .connection-guide-machine::after,
-.connection-guide-node[data-kind='cabinet'] .connection-guide-machine::after {
-  box-shadow: -8px -17px 0 -2px color-mix(in srgb, var(--guide-accent) 42%, transparent);
-}
 .connection-guide-name {
   min-height: 23px;
-  margin-top: 10px;
+  margin-top: 8px;
   color: color-mix(in srgb, var(--guide-accent) 58%, #dce8ff);
   font-size: 8px;
   line-height: 1.45;
@@ -1153,11 +1079,11 @@ body {
   align-self: flex-start;
   justify-content: center;
   min-width: 30px;
-  height: 76px;
-  padding-top: 6px;
+  height: 82px;
 }
 .connection-guide-link-label {
-  position: relative;
+  position: absolute;
+  top: 35px;
   z-index: 1;
   max-width: 80px;
   padding: 4px 5px;
@@ -1171,7 +1097,7 @@ body {
 }
 .connection-guide-track {
   position: absolute;
-  top: 35px;
+  top: 24px;
   left: 0;
   right: 0;
   height: 10px;
