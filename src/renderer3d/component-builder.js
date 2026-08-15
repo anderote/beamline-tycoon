@@ -4429,15 +4429,128 @@ export function getModelBounds(compType) {
   return out;
 }
 
-// `${compType}|${request hash}` → Map<key, number|null>. A type is instantiated
-// at most once per distinct request list, which in practice means once: the
-// anchor layer asks for all of a type's ports in a single call and caches the
-// answer itself.
+// `${compType}|${request hash}` → Map<key, direct-distance|recovered-mount|null>.
+// A type is instantiated at most once per distinct request list, which in
+// practice means once: the anchor layer asks for all of a type's ports in a
+// single call and caches the answer itself.
 const _shellMeasureCache = new Map();
 
 // Rays start this far outside the model's bounding box, so a surface sitting
 // exactly on the box face is still in front of the origin.
 const _RAY_MARGIN = 1.0;
+
+// A missed ray usually means the authored longitudinal fraction landed in a
+// gap between pieces of the chassis (or the authored height is just above a
+// squat machine). Falling back to the full model bounds leaves a fitting in
+// empty air. These samples find the closest point whose inward ray actually
+// intersects rendered geometry. Fractions include near-edge points because a
+// port just beyond a cabinet end should snap to that end, not its midpoint.
+const _SHELL_SAMPLE_FRACTIONS = [0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98];
+
+function _surfaceAxisSamples(target, lo, hi) {
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi < lo) return [];
+  if (hi - lo < 1e-6) return [lo];
+  const values = [Math.min(hi, Math.max(lo, target))];
+  for (const f of _SHELL_SAMPLE_FRACTIONS) values.push(lo + (hi - lo) * f);
+  return [...new Set(values.map(v => Math.round(v * 1e6) / 1e6))];
+}
+
+function _castShellRay(raycaster, model, box, req, y, along, span) {
+  const sign = req.sign < 0 ? -1 : 1;
+  const perp = req.axis === 'x' ? 'z' : 'x';
+  const face = sign > 0 ? box.max[req.axis] : box.min[req.axis];
+  const origin = new THREE.Vector3(0, y, 0);
+  origin[req.axis] = face + sign * _RAY_MARGIN;
+  origin[perp] = along;
+  const direction = new THREE.Vector3();
+  direction[req.axis] = -sign;
+  raycaster.set(origin, direction);
+  raycaster.far = span;
+  const hits = raycaster.intersectObject(model, true);
+  if (hits.length === 0) return null;
+  return { lat: Math.abs(hits[0].point[req.axis]), y, along };
+}
+
+/**
+ * Recover a missed shell request on the nearest real piece of model geometry.
+ *
+ * First keep the requested height and move only along the machine. That is the
+ * important source/chassis case: an extraction pipe extends the model bounds
+ * past the cabinet, but a power or cooling gland still belongs on the cabinet
+ * at its authored service height. Only when no nearby surface exists at that
+ * height do we search both dimensions (needed for a port authored just above a
+ * short pump or manifold).
+ */
+function _nearestShellMount(raycaster, model, box, req, span) {
+  const perp = req.axis === 'x' ? 'z' : 'x';
+  const meshBoxes = [];
+  model.traverse?.((obj) => {
+    if (!obj?.isMesh || obj.visible === false) return;
+    const meshBox = new THREE.Box3().setFromObject(obj);
+    if (Number.isFinite(meshBox.max.y)) meshBoxes.push(meshBox);
+  });
+
+  let best = null;
+  let bestCost = Infinity;
+  let bestBody = null;
+  let bestBodyCost = Infinity;
+  const sideExtent = Math.abs(req.sign < 0 ? box.min[req.axis] : box.max[req.axis]);
+  // During recovery, a beam pipe or support leg can be closer in projection
+  // than the chassis but is a poor service mount. Prefer a substantial shell
+  // on the requested side when one exists; retain the narrow hit as a fallback
+  // for genuinely slender devices such as gauges.
+  const bodyLat = Math.max(0.06, sideExtent * 0.25);
+  const tested = new Set();
+  const tryPoint = (y, along, cost) => {
+    const key = `${Math.round(y * 1e6)}:${Math.round(along * 1e6)}`;
+    if (tested.has(key)) return;
+    tested.add(key);
+    const hit = _castShellRay(raycaster, model, box, req, y, along, span);
+    if (hit && cost < bestCost) {
+      best = hit;
+      bestCost = cost;
+    }
+    if (hit && hit.lat >= bodyLat && cost < bestBodyCost) {
+      bestBody = hit;
+      bestBodyCost = cost;
+    }
+  };
+
+  // Preserve the service height when a nearby part of the chassis exists.
+  for (const meshBox of meshBoxes) {
+    if (req.y < meshBox.min.y - 1e-6 || req.y > meshBox.max.y + 1e-6) continue;
+    for (const along of _surfaceAxisSamples(req.along, meshBox.min[perp], meshBox.max[perp])) {
+      const delta = along - req.along;
+      tryPoint(req.y, along, delta * delta);
+    }
+  }
+  const perpSpan = box.max[perp] - box.min[perp];
+  const sameHeightLimit = Math.max(0.35, Math.min(1.0, perpSpan * 0.25));
+  const sameHeight = bestBody || best;
+  const sameHeightCost = bestBody ? bestBodyCost : bestCost;
+  if (sameHeight && Math.sqrt(sameHeightCost) <= sameHeightLimit) return sameHeight;
+
+  // No nearby surface at the requested height: find the closest projected
+  // point on any mesh, sampling each mesh's own bounds so open space in a
+  // compound machine cannot win merely because it lies inside the overall box.
+  best = null;
+  bestCost = Infinity;
+  bestBody = null;
+  bestBodyCost = Infinity;
+  tested.clear();
+  for (const meshBox of meshBoxes) {
+    const ys = _surfaceAxisSamples(req.y, meshBox.min.y, meshBox.max.y);
+    const alongs = _surfaceAxisSamples(req.along, meshBox.min[perp], meshBox.max[perp]);
+    for (const y of ys) {
+      for (const along of alongs) {
+        const dy = y - req.y;
+        const da = along - req.along;
+        tryPoint(y, along, dy * dy + da * da);
+      }
+    }
+  }
+  return bestBody || best;
+}
 
 /**
  * Where a component type's shell actually is, measured by raycast.
@@ -4454,9 +4567,11 @@ const _RAY_MARGIN = 1.0;
  * @param {string} compType
  * @param {Array<{key: string, axis: 'x'|'z', sign: 1|-1, y: number, along: number}>} requests
  *   `along` is the offset on the axis perpendicular to `axis`, in local metres.
- * @returns {Map<string, number|null>} distance in metres per request key; null
- *   where the ray hit nothing (the height is above or below the model). Empty
- *   when THREE is absent or the type has no model at all.
+ * @returns {Map<string, number|{lat:number,y:number,along:number}|null>}
+ *   A direct hit is its lateral distance in metres. A recovered miss is the
+ *   nearest complete mount on real geometry. Null is reserved for a model with
+ *   no raycastable surface at all; the map is empty when THREE is absent or the
+ *   type has no model.
  */
 export function measureShellSurfaces(compType, requests) {
   const list = Array.isArray(requests) ? requests : [];
@@ -4474,8 +4589,6 @@ export function measureShellSurfaces(compType, requests) {
       const box = new THREE.Box3().setFromObject(model);
       if (Number.isFinite(box.max.y)) {
         const raycaster = new THREE.Raycaster();
-        const origin = new THREE.Vector3();
-        const direction = new THREE.Vector3();
         const span = box.max.distanceTo(box.min) + _RAY_MARGIN * 2;
         for (const req of list) {
           if (!req || (req.axis !== 'x' && req.axis !== 'z')) continue;
@@ -4483,20 +4596,14 @@ export function measureShellSurfaces(compType, requests) {
             out.set(req && req.key, null);
             continue;
           }
-          const sign = req.sign < 0 ? -1 : 1;
-          const perp = req.axis === 'x' ? 'z' : 'x';
-          const face = sign > 0 ? box.max[req.axis] : box.min[req.axis];
-          origin.set(0, req.y, 0);
-          origin[req.axis] = face + sign * _RAY_MARGIN;
-          origin[perp] = req.along;
-          direction.set(0, 0, 0);
-          direction[req.axis] = -sign;
-          raycaster.set(origin, direction);
-          raycaster.far = span;
-          const hits = raycaster.intersectObject(model, true);
-          // Nearest hit first — that is the outer skin, which is what a bolted-on
-          // connector sits against.
-          out.set(req.key, hits.length > 0 ? Math.abs(hits[0].point[req.axis]) : null);
+          const direct = _castShellRay(
+            raycaster, model, box, req, req.y, req.along, span,
+          );
+          // Preserve the compact numeric answer for a direct hit. A recovered
+          // miss carries its adjusted height/longitudinal position as well.
+          out.set(req.key, direct
+            ? direct.lat
+            : _nearestShellMount(raycaster, model, box, req, span));
         }
       }
       _disposeMeasurementModel(model);
