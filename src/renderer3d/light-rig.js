@@ -239,6 +239,8 @@ export class LightRig {
     // reference once and read it per frame without churning garbage. See
     // getFixtureSuppression.
     this._fixtureSuppression = new Map();
+    this._nextFixtureSuppression = new Map();
+    this._fixtureSuppressionRevision = 0;
 
     this._tmpWorld = new THREE.Vector3();
     this._tmpTarget = new THREE.Vector3();
@@ -260,6 +262,12 @@ export class LightRig {
     this._shadowUpdatesLastFrame = 0;
     this._volumeCandidates = [];
     this._effectTimeMs = 0;
+    this._fixtureRankCache = [];
+    this._fixtureRankDirty = true;
+    this._fixtureRankFocus = [NaN, NaN, NaN];
+    this._fixtureRankCamera = null;
+    this._fixtureRankWorld = new Float64Array(16);
+    this._fixtureRankProjection = new Float64Array(16);
   }
 
   get enabled() {
@@ -271,6 +279,7 @@ export class LightRig {
    * deferred to the next update() call, not run here. */
   markDirty() {
     this._candidatesDirty = true;
+    this._fixtureRankDirty = true;
     this._shadowScheduler.markAllDirty();
   }
 
@@ -377,20 +386,27 @@ export class LightRig {
       }
       // Every fixture goes back to its painted pool on the same frame — the
       // toggle must never leave a fixture suppressed with nothing lighting it.
-      this._fixtureSuppression.clear();
+      if (this._fixtureSuppression.size) {
+        this._fixtureSuppression.clear();
+        this._fixtureSuppressionRevision++;
+      }
     }
   }
 
   /**
    * fixture id -> [0,1] suppression weight for the painted floor pools, i.e.
    * "how much of this fixture's lighting is currently being done for real".
-   * The returned Map is live and rebuilt in place each update() — read it, do
-   * not retain copies of its entries. Consumed by lighting-builder.js's
+   * The returned Map is live and updated in place when the weights change —
+   * read it, do not retain copies of its entries. Consumed by lighting-builder.js's
    * applyPoolSuppression; see the "Spot handover" block above for why this rig
    * (not the pool builder) owns the decision.
    */
   getFixtureSuppression() {
     return this._fixtureSuppression;
+  }
+
+  getFixtureSuppressionRevision() {
+    return this._fixtureSuppressionRevision;
   }
 
   /**
@@ -421,7 +437,10 @@ export class LightRig {
         s.light.shadow.needsUpdate = false;
       }
       for (const p of this._pointSlots) if (!p.flash) p.light.intensity = 0;
-      this._fixtureSuppression.clear();
+      if (this._fixtureSuppression.size) {
+        this._fixtureSuppression.clear();
+        this._fixtureSuppressionRevision++;
+      }
       return;
     }
 
@@ -435,7 +454,7 @@ export class LightRig {
     const focus = this._tmpCam.set(f.x || 0, f.y || 0, f.z || 0);
     this._prepareViewFrustum(camera);
     const nf = Number.isFinite(nightFactor) ? Math.max(0, Math.min(1, nightFactor)) : 0;
-    this._assignSpots(focus, nf, dtMs);
+    this._assignSpots(focus, nf, dtMs, camera);
     this._scheduleShadows(nf, dtMs);
     this._assignPoints(focus, nf);
   }
@@ -559,16 +578,44 @@ export class LightRig {
    *   4. ADVANCE the crossfade and publish — intensity and suppression from
    *      the SAME weight, so the two systems stay complementary.
    */
-  _assignSpots(camPos, nightFactor, dtMs) {
+  _assignSpots(camPos, nightFactor, dtMs, camera = null) {
     const n = this._activeFixtureLightCount;
     for (let i = n; i < this._spotSlots.length; i++) this._parkSpot(i);
 
     // --- 1. rank ---------------------------------------------------------
-    const ranked = this._rankCandidates(
-      this._fixtureCandidates,
-      camPos,
-      (obj) => obj.def?.light?.poolRadius ?? obj.def?.light?.radius ?? 1,
-    );
+    let rankDirty = this._fixtureRankDirty
+      || camPos.x !== this._fixtureRankFocus[0]
+      || camPos.y !== this._fixtureRankFocus[1]
+      || camPos.z !== this._fixtureRankFocus[2]
+      || camera !== this._fixtureRankCamera;
+    const world = camera?.matrixWorld?.elements;
+    const projection = camera?.projectionMatrix?.elements;
+    if (!rankDirty && world && projection) {
+      for (let i = 0; i < 16; i++) {
+        if (world[i] !== this._fixtureRankWorld[i]
+          || projection[i] !== this._fixtureRankProjection[i]) {
+          rankDirty = true;
+          break;
+        }
+      }
+    }
+    if (rankDirty) {
+      this._fixtureRankDirty = false;
+      this._fixtureRankFocus[0] = camPos.x;
+      this._fixtureRankFocus[1] = camPos.y;
+      this._fixtureRankFocus[2] = camPos.z;
+      this._fixtureRankCamera = camera;
+      if (world && projection) {
+        this._fixtureRankWorld.set(world);
+        this._fixtureRankProjection.set(projection);
+      }
+      this._fixtureRankCache = this._rankCandidates(
+        this._fixtureCandidates,
+        camPos,
+        (obj) => obj.def?.light?.poolRadius ?? obj.def?.light?.radius ?? 1,
+      );
+    }
+    const ranked = this._fixtureRankCache;
     const pool = new Set();
     for (let i = 0; i < Math.min(n, ranked.length); i++) pool.add(ranked[i].obj);
     const slackPool = new Set(pool);
@@ -625,7 +672,8 @@ export class LightRig {
     }
 
     // --- 4. crossfade + publish ------------------------------------------
-    this._fixtureSuppression.clear();
+    const nextSuppression = this._nextFixtureSuppression;
+    nextSuppression.clear();
     const step = SPOT_CROSSFADE_MS > 0 ? dtMs / SPOT_CROSSFADE_MS : 1;
     for (let si = 0; si < n; si++) {
       const slot = this._spotSlots[si];
@@ -655,9 +703,23 @@ export class LightRig {
       }
       this._applyFixtureSpot(slot, tag, nightFactor, fx.def || null);
       if (tag.id != null) {
-        const prev = this._fixtureSuppression.get(tag.id) ?? 0;
-        this._fixtureSuppression.set(tag.id, Math.max(prev, slot.weight));
+        const prev = nextSuppression.get(tag.id) ?? 0;
+        nextSuppression.set(tag.id, Math.max(prev, slot.weight));
       }
+    }
+    let suppressionChanged = nextSuppression.size !== this._fixtureSuppression.size;
+    if (!suppressionChanged) {
+      for (const [id, weight] of nextSuppression) {
+        if (this._fixtureSuppression.get(id) !== weight) {
+          suppressionChanged = true;
+          break;
+        }
+      }
+    }
+    if (suppressionChanged) {
+      this._fixtureSuppression.clear();
+      for (const [id, weight] of nextSuppression) this._fixtureSuppression.set(id, weight);
+      this._fixtureSuppressionRevision++;
     }
   }
 

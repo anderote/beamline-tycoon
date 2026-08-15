@@ -4225,6 +4225,7 @@ let _thumbScene = null;
 let _thumbCamera = null;
 
 function _getThumbRenderer(size) {
+  if (!THREE.WebGLRenderer) return null;
   if (!_thumbRenderer) {
     _thumbRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
     _thumbScene = new THREE.Scene();
@@ -4538,7 +4539,9 @@ export function renderComponentThumbnail(compType, size = 64) {
   const hasFootprint = !!(compDef.subW || compDef.gridW);
   if (!hasRole && !legacyBuilder && !hasParts && !hasFootprint) return null;
 
-  const { renderer, scene, camera } = _getThumbRenderer(size);
+  const thumb = _getThumbRenderer(size);
+  if (!thumb) return null;
+  const { renderer, scene, camera } = thumb;
 
   const defaultAccent = (compDef && compDef.accentColor) || 0xc62828;
   let model;

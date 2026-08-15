@@ -1,4 +1,4 @@
-import { Matrix4, Quaternion, Vector3 } from 'three';
+import { Matrix4, Quaternion, Vector3 } from 'three/webgpu';
 import { geometryMassProperties } from './geometry-mass-properties.js';
 
 const DEFAULT_FIXED_STEP = 1 / 60;

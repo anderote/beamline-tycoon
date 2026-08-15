@@ -25,6 +25,7 @@ import { EquipmentBuilder } from './equipment-builder.js';
 import { DecorationBuilder } from './decoration-builder.js';
 import { UtilityLineBuilderV2 } from './utility-line-builder-v2.js';
 import { tickFlow } from './utility-flow.js';
+import { utilityErrorVisualSignature } from './utility-visual-signature.js';
 import { buildWorldSnapshot } from './world-snapshot.js';
 import { disposeGroupChildren, disposeSceneObject } from './dispose-utils.js';
 import { listUtilityEndpoints, makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
@@ -90,6 +91,7 @@ import {
   YAW_DIVISIONS,
 } from './free-orbit-math.js';
 import { ViewCube } from './view-cube.js';
+import { loadLegacyThumbnailRenderer } from './legacy-thumbnail-renderer.js';
 import {
   DEFAULT_ZONE_LABEL_STYLE,
   zoneLabelStyleById,
@@ -512,8 +514,9 @@ export class ThreeRenderer {
 
     // The world renderer uses Three's node renderer: native WebGPU where the
     // browser supports it, WebGL2 through the same API otherwise. The query
-    // `?renderer=legacy` forces that WebGL2 backend as an immediate rollback;
-    // old WebGLRenderer is now confined to tiny thumbnails/view-cube canvases.
+    // `?renderer=legacy` forces that WebGL2 backend as an immediate rollback.
+    // The small classic renderer used by live palette thumbnails is loaded
+    // separately on the player's first palette interaction (see below).
     this._rendererRecovery = createRendererRecovery({
       // init() runs before the save has been loaded. Only persist if the game
       // loop has started, otherwise a device loss during boot could replace a
@@ -607,6 +610,11 @@ export class ThreeRenderer {
     this._localTimeOfDay = null;
     this._lastSyncedTimeOfDay = null;
     this._lastSunFrameTime = performance.now();
+    this._lastSunAppliedAt = 0;
+    this._lastSunPanX = NaN;
+    this._lastSunPanY = NaN;
+    this._lastSunAppliedTimeOfDay = null;
+    this._sunSnapTarget = new THREE.Vector3();
     this._lastAnimTime = performance.now();
     this._lastLodDetail = undefined; // force first LOD update
 
@@ -896,10 +904,16 @@ export class ThreeRenderer {
         case 'tick':
           if (this._updateHUD) this._updateHUD();
           if (this._updateTreeProgress) this._updateTreeProgress();
-          // Refresh utility line meshes so emissive glow reflects the
-          // latest per-network error status. The builder's hash cache
-          // short-circuits unchanged lines, so this is cheap in practice.
-          this._refreshUtilityLinesV2();
+          // Geometry/orientation changes arrive through topology events. A
+          // steady solve can only change line fault severity, so avoid the
+          // endpoint index, per-line hashes, attachment build, and effect
+          // traversal until that compact visual signature actually changes.
+          {
+            const sig = utilityErrorVisualSignature(this._liveState());
+            if (sig !== null && sig !== this._utilityErrorVisualSig) {
+              this._refreshUtilityLinesV2();
+            }
+          }
           // Guarded on the blocker signature — a steady world costs one
           // string join over a handful of entries.
           this._refreshUnwiredSinkMarkers();
@@ -970,6 +984,22 @@ export class ThreeRenderer {
     }
 
     this._animate();
+    // Most palette entries have static thumbnails. Fetch the small classic
+    // renderer for the remaining entries only when the player first reaches
+    // for the palette, then redraw the active category. This keeps its second
+    // Three.js graph out of sessions that never open the build menu.
+    const paletteEl = document.getElementById('component-palette');
+    let thumbnailLoadStarted = false;
+    const loadLiveThumbnails = () => {
+      if (thumbnailLoadStarted) return;
+      thumbnailLoadStarted = true;
+      loadLegacyThumbnailRenderer().then((ready) => {
+        if (ready && this._refreshPalette) this._refreshPalette();
+      });
+    };
+    paletteEl?.addEventListener('pointerenter', loadLiveThumbnails, { once: true, passive: true });
+    paletteEl?.addEventListener('pointerdown', loadLiveThumbnails, { once: true, passive: true });
+    paletteEl?.addEventListener('focusin', loadLiveThumbnails, { once: true });
     // Rapier is a large WASM chunk and ordinary construction never needs it.
     // Warm it after the first playable frame instead of blocking init/title.
     this._physicsPresentation.scheduleInit(this.scene);
@@ -3207,10 +3237,6 @@ export class ThreeRenderer {
     fillGeo.setIndex([0, 3, 1, 1, 3, 2]);
     fillGeo.computeVertexNormals();
     this._addPreviewMesh(new THREE.Mesh(fillGeo, fillMat));
-    this._addFacingArrow(
-      px, pz, direction || 0, ghRaw * SUB_UNIT / 2,
-      yAt(px, pz) + EDGE_OFFSET + 0.03,
-    );
   }
 
   /**
@@ -3623,11 +3649,29 @@ export class ThreeRenderer {
    */
   _updateAnchoredWindows() {
     if (!this.camera) return;
+    const windows = [];
+    if (this.ui?._beamlineWindows) windows.push(...Object.values(this.ui._beamlineWindows));
+    if (this.ui?._equipmentWindows) windows.push(...Object.values(this.ui._equipmentWindows));
+    if (windows.length === 0) {
+      this._anchoredWindowsSig = null;
+      return;
+    }
     const gameEl = document.getElementById('game');
     const sw = gameEl.clientWidth;
     const sh = gameEl.clientHeight;
+    const matrix = this.camera.matrixWorld.elements;
+    const projection = this.camera.projectionMatrix.elements;
+    const sig = [sw, sh, ...matrix, ...projection, ...windows.flatMap((w) => {
+      const ctx = w.ctx || w;
+      const a = ctx._tileAnchor;
+      const d = ctx._dragOffset;
+      return [a?.col, a?.row, a?.screenDx, a?.screenDy, d?.x, d?.y];
+    })].join('|');
+    if (sig === this._anchoredWindowsSig) return;
+    this._anchoredWindowsSig = sig;
+    const vec = this._anchorProjectVec || (this._anchorProjectVec = new THREE.Vector3());
     const projectFn = (cam, wx, wy, wz, screenW, screenH) => {
-      const vec = new THREE.Vector3(wx, wy, wz);
+      vec.set(wx, wy, wz);
       vec.project(cam);
       return {
         x: (vec.x * 0.5 + 0.5) * screenW,
@@ -3643,12 +3687,7 @@ export class ThreeRenderer {
     // The window registries live on the UIHost — _openBeamlineWindow /
     // _openEquipmentWindow are UI_METHODS forwards, so their bodies run
     // with `this` = this.ui and populate the registries there.
-    if (this.ui?._beamlineWindows) {
-      for (const bw of Object.values(this.ui._beamlineWindows)) updateWin(bw);
-    }
-    if (this.ui?._equipmentWindows) {
-      for (const ew of Object.values(this.ui._equipmentWindows)) updateWin(ew);
-    }
+    for (const w of windows) updateWin(w);
   }
 
   _animate() {
@@ -3801,14 +3840,30 @@ export class ThreeRenderer {
 
   _updateSunCycle() {
     const now = performance.now();
-    const dt = (now - this._lastSunFrameTime) / 1000; // seconds
-    this._lastSunFrameTime = now;
-
     const game = this.game;
     const authoritative = game?.state?.timeOfDay;
     if (typeof authoritative !== 'number') return; // no game/state yet
 
-    if (this._localTimeOfDay === null || authoritative !== this._lastSyncedTimeOfDay) {
+    const cx = this._panX || 0;
+    const cz = this._panY || 0;
+    const authoritativeChanged = this._localTimeOfDay === null
+      || authoritative !== this._lastSyncedTimeOfDay;
+    const localTimeChanged = this._localTimeOfDay !== this._lastSunAppliedTimeOfDay;
+    const panChanged = cx !== this._lastSunPanX || cz !== this._lastSunPanY;
+    const timeMoving = !game.state.paused;
+    // Day/night grading does not need a 60 Hz solve. Keep camera-following
+    // shadows immediate while panning, but otherwise cap the orbit/material
+    // work at 20 Hz and sleep completely when paused and unchanged.
+    if (!authoritativeChanged && !localTimeChanged && !panChanged) {
+      if (!timeMoving || now - this._lastSunAppliedAt < 50) return;
+    }
+    const dt = (now - this._lastSunFrameTime) / 1000; // seconds
+    this._lastSunFrameTime = now;
+    this._lastSunAppliedAt = now;
+    this._lastSunPanX = cx;
+    this._lastSunPanY = cz;
+
+    if (authoritativeChanged) {
       // First frame, or the sim just ticked (or was loaded/undone/redone) —
       // snap to the authoritative value rather than drift toward it, so a
       // save load or undo can never leave the sun stuck mid-glide.
@@ -3825,6 +3880,7 @@ export class ThreeRenderer {
     }
 
     const grade = dayNightGrade(this._localTimeOfDay);
+    this._lastSunAppliedTimeOfDay = this._localTimeOfDay;
 
     // timeOfDay: 0 = midnight, 0.5 = noon. Dawn and dusk cross the real
     // horizon at .25/.75, producing the long shadows the previous always-high
@@ -3839,8 +3895,6 @@ export class ThreeRenderer {
       + sunHeight * (CINEMATIC_LIGHTING.sun.maxElevation - CINEMATIC_LIGHTING.sun.minElevation);
     // Offset sun position and shadow target to follow the camera center
     // Snap target in light-space to texel grid to prevent shadow swimming
-    const cx = this._panX || 0;
-    const cz = this._panY || 0;
     this._sunLight.position.set(x + cx, elevation, z + cz);
     this._sunLight.target.position.set(cx, 0, cz);
     this._sunLight.target.updateMatrixWorld();
@@ -3850,7 +3904,7 @@ export class ThreeRenderer {
     const texelsPerUnit = this._sunLight.shadow.mapSize.width / (shadowCam.right - shadowCam.left);
     const shadowMatrix = shadowCam.matrixWorldInverse;
     // Project target into light space, snap, project back
-    const targetPos = this._sunLight.target.position.clone().applyMatrix4(shadowMatrix);
+    const targetPos = this._sunSnapTarget.copy(this._sunLight.target.position).applyMatrix4(shadowMatrix);
     targetPos.x = Math.round(targetPos.x * texelsPerUnit) / texelsPerUnit;
     targetPos.y = Math.round(targetPos.y * texelsPerUnit) / texelsPerUnit;
     const snapped = targetPos.applyMatrix4(shadowCam.matrixWorld);
@@ -4447,29 +4501,52 @@ export class ThreeRenderer {
    */
   _updateLightingRamp() {
     const darkness = this._darkness ?? 0;
-    this._fixtureActivation.clear();
-    for (const fx of this.lightingGroup) {
-      const activation = fixtureActivationFactor(fx.def, darkness, { indoors: fx.indoors });
-      if (fx.id != null) this._fixtureActivation.set(fx.id, activation);
-      const mat = fx.group.userData.emitterMaterial;
-      if (mat) {
-        mat.emissiveIntensity = emitterIntensityForDarkness(activation)
-          * fixtureDynamicFactor(
-            fx.def?.light?.dynamicProfile,
-            fx.id,
-            this._lightingEffectTimeMs ?? 0,
-            darkness,
-          );
+    const groupChanged = this._lastLightingGroup !== this.lightingGroup;
+    const darknessChanged = this._lastLightingDarkness !== darkness;
+    const effectTime = this._lightingEffectTimeMs ?? 0;
+    const dynamicChanged = this.lightingGroup.length > 0
+      && this._lastLightingEffectTime !== effectTime;
+    const suppression = this._lightRig ? this._lightRig.getFixtureSuppression() : null;
+    const suppressionRevision = this._lightRig?.getFixtureSuppressionRevision?.() ?? 0;
+    const suppressionChanged = suppressionRevision !== this._lastLightingSuppressionRevision;
+    if (!groupChanged && !darknessChanged && !dynamicChanged && !suppressionChanged) return;
+
+    this._lastLightingGroup = this.lightingGroup;
+    this._lastLightingDarkness = darkness;
+    this._lastLightingEffectTime = effectTime;
+    this._lastLightingSuppressionRevision = suppressionRevision;
+
+    if (groupChanged || darknessChanged) {
+      this._fixtureActivation.clear();
+      for (const fx of this.lightingGroup) {
+        const activation = fixtureActivationFactor(fx.def, darkness, { indoors: fx.indoors });
+        if (fx.id != null) this._fixtureActivation.set(fx.id, activation);
       }
     }
-    if (this.lightPoolGroup) {
-      const suppression = this._lightRig ? this._lightRig.getFixtureSuppression() : null;
+    if (groupChanged || darknessChanged || dynamicChanged) {
+      for (const fx of this.lightingGroup) {
+        const activation = fx.id != null
+          ? (this._fixtureActivation.get(fx.id) ?? darkness)
+          : fixtureActivationFactor(fx.def, darkness, { indoors: fx.indoors });
+        const mat = fx.group.userData.emitterMaterial;
+        if (mat) {
+          mat.emissiveIntensity = emitterIntensityForDarkness(activation)
+            * fixtureDynamicFactor(
+              fx.def?.light?.dynamicProfile,
+              fx.id,
+              effectTime,
+              darkness,
+            );
+        }
+      }
+    }
+    if (this.lightPoolGroup && (groupChanged || darknessChanged || suppressionChanged)) {
       for (const child of this.lightPoolGroup.children) {
         if (child.material) child.material.opacity = poolOpacityForDarkness(1);
         applyPoolSuppression(child, suppression, this._fixtureActivation);
       }
     }
-    if (this.lightHaloGroup) {
+    if (this.lightHaloGroup && (groupChanged || darknessChanged)) {
       this.lightHaloGroup.traverse((child) => {
         if (child.isSprite) {
           const activation = this._fixtureActivation.get(child.userData.fixtureId) ?? darkness;
@@ -4482,7 +4559,7 @@ export class ThreeRenderer {
     // — a facade of twenty identical windows is one write, not twenty — and
     // the array is empty until a window is actually placed.
     const glassMats = this.wallBuilder ? this.wallBuilder.glassMaterials() : null;
-    if (glassMats && glassMats.length) {
+    if ((groupChanged || darknessChanged) && glassMats && glassMats.length) {
       const glow = glassGlowForDarkness(darkness);
       for (const mat of glassMats) mat.emissiveIntensity = glow;
     }
@@ -4557,6 +4634,7 @@ export class ThreeRenderer {
     });
     this.pipeAttachmentBuilder.build(snap.pipeAttachments || [], this.pipeAttachmentGroup);
     this._effectSystem?.syncFromGroup('utility-lines', this.utilityLineGroup);
+    this._utilityErrorVisualSig = utilityErrorVisualSignature(state);
   }
 
   /**

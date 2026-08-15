@@ -1,7 +1,8 @@
 // src/renderer3d/view-cube.js
 //
-// Live mini view-cube widget. Mirrors the main camera's yaw/pitch in a
-// small WebGL canvas so the player always sees the current orientation.
+// Live mini view-cube widget. Mirrors the main camera's yaw/pitch in a small
+// cached Canvas2D projection so orientation controls do not need a second GPU
+// context or another copy of Three's classic renderer.
 // Click semantics:
 //   - top face         -> setViewMode('top', currentTopYawIdx)
 //   - side faces (4)   -> setViewMode('iso', faceYawIdx)
@@ -54,11 +55,16 @@ const FACE_LABELS = {
   negY: '',
 };
 
-// Material order for THREE.BoxGeometry: [+X, -X, +Y, -Y, +Z, -Z].
-const FACE_MAT_ORDER = ['posX', 'negX', 'posY', 'negY', 'posZ', 'negZ'];
-
 const CUBE_CANVAS_PX = 86;
-const CUBE_RADIUS = 2.4; // distance from cube center for the mirror camera
+
+const CUBE_FACES = [
+  { id: 'posX', normal: [1, 0, 0], verts: [[1,-1,-1],[1,-1,1],[1,1,1],[1,1,-1]] },
+  { id: 'negX', normal: [-1, 0, 0], verts: [[-1,-1,1],[-1,-1,-1],[-1,1,-1],[-1,1,1]] },
+  { id: 'posY', normal: [0, 1, 0], verts: [[-1,1,-1],[1,1,-1],[1,1,1],[-1,1,1]] },
+  { id: 'negY', normal: [0, -1, 0], verts: [[-1,-1,1],[1,-1,1],[1,-1,-1],[-1,-1,-1]] },
+  { id: 'posZ', normal: [0, 0, 1], verts: [[1,-1,1],[-1,-1,1],[-1,1,1],[1,1,1]] },
+  { id: 'negZ', normal: [0, 0, -1], verts: [[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1]] },
+];
 
 export class ViewCube {
   constructor(renderer, hostEl) {
@@ -177,51 +183,13 @@ export class ViewCube {
   }
 
   _buildScene() {
-    this.scene = new THREE.Scene();
-
-    // Ortho camera tracking main camera's yaw/pitch at fixed radius.
-    const aspect = 1;
-    const fs = 3.0;
-    this.camera = new THREE.OrthographicCamera(
-      -fs * aspect / 2, fs * aspect / 2,
-       fs / 2,         -fs / 2,
-       0.1, 100
-    );
-
-    // Lights: soft ambient + a directional from the camera's general
-    // direction so faces have subtle shading.
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.85));
-    const dir = new THREE.DirectionalLight(0xffffff, 0.6);
-    dir.position.set(2, 3, 2);
-    this.scene.add(dir);
-
-    // Build textured materials for the 6 faces.
-    this.materials = FACE_MAT_ORDER.map((face) => {
-      const tex = makeFaceTexture(FACE_LABELS[face]);
-      const mat = new THREE.MeshLambertMaterial({
-        map: tex,
-        emissive: 0x000000,
-      });
-      mat.userData = { face, baseEmissive: 0x000000 };
-      return mat;
-    });
-
-    const geo = new THREE.BoxGeometry(1, 1, 1);
-    this.cube = new THREE.Mesh(geo, this.materials);
-    this.scene.add(this.cube);
-
-    // Renderer (separate WebGL context, transparent background).
-    this.cubeRenderer = new THREE.WebGLRenderer({
-      canvas: this.cubeCanvas,
-      alpha: true,
-      antialias: true,
-    });
-    this.cubeRenderer.setPixelRatio(window.devicePixelRatio || 1);
-    this.cubeRenderer.setSize(CUBE_CANVAS_PX, CUBE_CANVAS_PX, false);
-    this.cubeRenderer.setClearColor(0x000000, 0);
-
-    this.raycaster = new THREE.Raycaster();
-    this.pointer = new THREE.Vector2();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.cubeCanvas.width = Math.round(CUBE_CANVAS_PX * dpr);
+    this.cubeCanvas.height = Math.round(CUBE_CANVAS_PX * dpr);
+    this.ctx = this.cubeCanvas.getContext('2d');
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this._facePolygons = [];
+    this._drawSig = null;
   }
 
   _bindEvents() {
@@ -263,22 +231,19 @@ export class ViewCube {
 
   _faceAtPointer(e) {
     const rect = this.cubeCanvas.getBoundingClientRect();
-    this.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-    this.pointer.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
-    this.raycaster.setFromCamera(this.pointer, this.camera);
-    const hits = this.raycaster.intersectObject(this.cube, false);
-    if (hits.length === 0) return null;
-    // Each BoxGeometry face uses the material at the order in FACE_MAT_ORDER.
-    const matIdx = hits[0].face.materialIndex;
-    return FACE_MAT_ORDER[matIdx] || null;
+    const x = (e.clientX - rect.left) * CUBE_CANVAS_PX / rect.width;
+    const y = (e.clientY - rect.top) * CUBE_CANVAS_PX / rect.height;
+    // Polygons are stored back-to-front; test the visible frontmost face first.
+    for (let i = this._facePolygons.length - 1; i >= 0; i--) {
+      const face = this._facePolygons[i];
+      if (pointInPolygon(x, y, face.points)) return face.id;
+    }
+    return null;
   }
 
   _updateHoverHighlight() {
-    for (const mat of this.materials) {
-      const isHover = mat.userData.face === this._hoveredFace;
-      mat.emissive.setHex(isHover ? 0x444444 : mat.userData.baseEmissive);
-      mat.needsUpdate = true;
-    }
+    this._drawSig = null;
+    this.update();
   }
 
   /**
@@ -288,60 +253,92 @@ export class ViewCube {
   update() {
     const yaw = this.renderer._effectiveYaw();
     const pitch = this.renderer._effectivePitch();
+    const sig = `${yaw.toFixed(4)}|${pitch.toFixed(4)}|${this._hoveredFace || ''}`;
+    if (sig === this._drawSig) return;
+    this._drawSig = sig;
     const off = cameraOffset(yaw, pitch);
-    const scale = CUBE_RADIUS / Math.hypot(off.x, off.y, off.z);
-    this.camera.position.set(off.x * scale, off.y * scale, off.z * scale);
-    this.camera.lookAt(0, 0, 0);
-    this.cubeRenderer.render(this.scene, this.camera);
+    this._drawCube(off);
+  }
+
+  _drawCube(camera) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    ctx.clearRect(0, 0, CUBE_CANVAS_PX, CUBE_CANVAS_PX);
+
+    const length = Math.hypot(camera.x, camera.y, camera.z) || 1;
+    const forward = { x: -camera.x / length, y: -camera.y / length, z: -camera.z / length };
+    let right = { x: -forward.z, y: 0, z: forward.x };
+    const rightLen = Math.hypot(right.x, right.z) || 1;
+    right = { x: right.x / rightLen, y: 0, z: right.z / rightLen };
+    const up = {
+      x: right.y * forward.z - right.z * forward.y,
+      y: right.z * forward.x - right.x * forward.z,
+      z: right.x * forward.y - right.y * forward.x,
+    };
+    const project = ([x, y, z]) => ({
+      x: CUBE_CANVAS_PX / 2 + (x * right.x + y * right.y + z * right.z) * 21,
+      y: CUBE_CANVAS_PX / 2 - (x * up.x + y * up.y + z * up.z) * 21,
+      depth: x * forward.x + y * forward.y + z * forward.z,
+    });
+
+    const visible = CUBE_FACES.filter((face) =>
+      face.normal[0] * camera.x + face.normal[1] * camera.y + face.normal[2] * camera.z > 0
+    ).map((face) => {
+      const points = face.verts.map(project);
+      return { ...face, points, depth: points.reduce((sum, p) => sum + p.depth, 0) / points.length };
+    }).sort((a, b) => a.depth - b.depth);
+
+    this._facePolygons = visible;
+    for (const face of visible) {
+      const light = Math.max(0, face.normal[0] * 0.35 + face.normal[1] * 0.8 + face.normal[2] * 0.45);
+      const base = face.id === this._hoveredFace ? 232 : 205 + Math.round(light * 25);
+      ctx.beginPath();
+      ctx.moveTo(face.points[0].x, face.points[0].y);
+      for (let i = 1; i < face.points.length; i++) ctx.lineTo(face.points[i].x, face.points[i].y);
+      ctx.closePath();
+      ctx.fillStyle = `rgb(${base},${base - 2},${base - 10})`;
+      ctx.fill();
+      ctx.strokeStyle = face.id === this._hoveredFace ? '#6bdcff' : '#2a2a3a';
+      ctx.lineWidth = face.id === this._hoveredFace ? 2 : 1.2;
+      ctx.stroke();
+
+      const cx = face.points.reduce((sum, p) => sum + p.x, 0) / face.points.length;
+      const cy = face.points.reduce((sum, p) => sum + p.y, 0) / face.points.length;
+      const label = FACE_LABELS[face.id];
+      ctx.fillStyle = '#1a1a2e';
+      ctx.strokeStyle = '#1a1a2e';
+      if (label === '__cross__') {
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(cx - 6, cy); ctx.lineTo(cx + 6, cy);
+        ctx.moveTo(cx, cy - 6); ctx.lineTo(cx, cy + 6);
+        ctx.stroke();
+      } else if (label) {
+        ctx.font = 'bold 15px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, cx, cy + 1);
+      }
+    }
   }
 
   dispose() {
     this.cubeCanvas.removeEventListener('pointermove', this._onMove);
     this.cubeCanvas.removeEventListener('pointerleave', this._onLeave);
     this.cubeCanvas.removeEventListener('click', this._onClick);
-    if (this.cube) {
-      this.cube.geometry.dispose();
-      for (const mat of this.materials) {
-        if (mat.map) mat.map.dispose();
-        mat.dispose();
-      }
-    }
-    if (this.cubeRenderer) this.cubeRenderer.dispose();
+    this._facePolygons = [];
+    this.ctx = null;
     this.host.innerHTML = '';
   }
 }
 
-function makeFaceTexture(label) {
-  const size = 128;
-  const c = document.createElement('canvas');
-  c.width = size; c.height = size;
-  const ctx = c.getContext('2d');
-  // Slightly off-white face with a thin dark border so faces are visually
-  // separable when adjacent in projection.
-  ctx.fillStyle = '#e8e6dd';
-  ctx.fillRect(0, 0, size, size);
-  ctx.strokeStyle = '#2a2a3a';
-  ctx.lineWidth = 4;
-  ctx.strokeRect(2, 2, size - 4, size - 4);
-  if (label === '__cross__') {
-    // Plus-sign / cross glyph for the top face.
-    ctx.strokeStyle = '#1a1a2e';
-    ctx.lineWidth = 14;
-    ctx.lineCap = 'square';
-    const pad = 30;
-    ctx.beginPath();
-    ctx.moveTo(size / 2, pad); ctx.lineTo(size / 2, size - pad);
-    ctx.moveTo(pad, size / 2); ctx.lineTo(size - pad, size / 2);
-    ctx.stroke();
-  } else if (label) {
-    ctx.fillStyle = '#1a1a2e';
-    ctx.font = 'bold 56px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(label, size / 2, size / 2 + 4);
+function pointInPolygon(x, y, points) {
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const a = points[i], b = points[j];
+    const crosses = ((a.y > y) !== (b.y > y))
+      && x < (b.x - a.x) * (y - a.y) / ((b.y - a.y) || 1e-9) + a.x;
+    if (crosses) inside = !inside;
   }
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
-  return tex;
+  return inside;
 }

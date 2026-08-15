@@ -1,4 +1,4 @@
-import { Box3, Quaternion, Vector3 } from 'three';
+import { Box3, Quaternion, Vector3 } from 'three/webgpu';
 
 const _position = new Vector3();
 const _rotation = new Quaternion();
