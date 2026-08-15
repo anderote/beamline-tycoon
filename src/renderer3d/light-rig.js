@@ -13,9 +13,10 @@
 // until dispose() tears the whole rig down. Every frame after that only ever
 // MOVES, RETINTS, and FADES existing lights — including explosion flashes,
 // which steal a parked slot rather than allocating a new light. This is what
-// makes a bounded fixed rig (up to 8 shadow spots + 8 plain points) plus on-demand
-// flashes affordable: verify by watching renderer.info.programs.length while
-// panning/flashing — it must not climb.
+// makes a bounded fixed rig plus on-demand flashes affordable. On the modern
+// renderer, non-shadow spots are dynamically batched: their count can change
+// without changing material programs, while a stable leading subset owns
+// cached shadow maps.
 //
 // Two emitter sources feed the rig:
 //   - "fixtures": entries from ThreeRenderer.lightingGroup, the same registry
@@ -44,6 +45,7 @@ import { fixtureLightProjection } from './fixture-light-math.js';
 import { ShadowScheduler } from './shadow-scheduler.js';
 import { fixtureDynamicFactor } from './light-dynamics.js';
 import { getLightCookie } from './light-cookie.js';
+import { SharedSpotShadowArray } from './lighting/shared-spot-shadow-array.js';
 
 // ---- Tuning constants ------------------------------------------------------
 //
@@ -125,10 +127,22 @@ export class LightRig {
   constructor(scene, opts = {}) {
     this.scene = scene;
     this._enabled = opts.enabled !== undefined ? !!opts.enabled : true;
+    this._modernRenderer = opts.modernRenderer === true;
     this._shadowSpotCount = opts.shadowSpotCount ?? 4;
+    this._hasIndependentFixtureBudget = opts.fixtureLightCount != null;
+    this._fixtureLightCount = Math.max(
+      this._shadowSpotCount,
+      Math.floor(opts.fixtureLightCount ?? this._shadowSpotCount),
+    );
     this._activeShadowSpotCount = Math.min(
       this._shadowSpotCount,
       Math.max(0, opts.activeShadowSpotCount ?? this._shadowSpotCount),
+    );
+    this._activeFixtureLightCount = Math.max(
+      this._activeShadowSpotCount,
+      Math.min(this._fixtureLightCount, Math.max(0, Math.floor(
+        opts.activeFixtureLightCount ?? this._fixtureLightCount,
+      ))),
     );
     this._pointCount = opts.pointCount ?? 8;
     this._shadowMapSize = opts.shadowMapSize ?? 1024;
@@ -142,18 +156,24 @@ export class LightRig {
     // the frame (tickFlow, staffPawns.update) already uses.
     this._clockMs = 0;
 
-    // ---- The fixture pool: shadow-casting spots, allocated once ----------
+    // ---- Fixture spots: stable shadow leaders + dynamically batched tail --
     this._spotSlots = [];
-    for (let i = 0; i < this._shadowSpotCount; i++) {
+    for (let i = 0; i < this._fixtureLightCount; i++) {
+      const castsShadow = i < this._shadowSpotCount;
       const light = new THREE.SpotLight(
         DEFAULT_FIXTURE_COLOR, 0, FIXTURE_SPOT_DISTANCE,
         FIXTURE_SPOT_ANGLE, FIXTURE_SPOT_PENUMBRA, FIXTURE_SPOT_DECAY,
       );
-      light.castShadow = true;
-      light.map = getLightCookie('soft');
+      light.castShadow = castsShadow;
+      // Shadow-capable slots stay in the immutable light topology, but a
+      // lower quality tier can make their shadow contribution exactly zero.
+      // This preserves their analytic PBR light without sampling an
+      // unrefreshed layer or recompiling materials when quality changes.
+      light.shadow.intensity = castsShadow && i < this._activeShadowSpotCount ? 1 : 0;
+      light.map = castsShadow ? getLightCookie('soft') : null;
       light.shadow.autoUpdate = false;
       light.shadow.needsUpdate = false;
-      light.shadow.mapSize.set(this._shadowMapSize, this._shadowMapSize);
+      if (castsShadow) light.shadow.mapSize.set(this._shadowMapSize, this._shadowMapSize);
       light.shadow.camera.near = 0.2;
       // shadow.camera.far is DELIBERATELY not set here (and must not be set in
       // _applyFixtureSpot either — see the note there). SpotLightShadow's
@@ -183,9 +203,16 @@ export class LightRig {
       //             the min-hold test.
       this._spotSlots.push({
         light, target, assignedRef: null, weight: 0, releasing: false, heldSinceMs: 0,
-        projection: null, volumePacket: {},
+        projection: null, volumePacket: {}, castsShadow,
       });
     }
+    this._sharedShadowArray = this._modernRenderer && this._shadowSpotCount > 0
+      ? new SharedSpotShadowArray(
+        this._spotSlots.slice(0, this._shadowSpotCount).map((slot) => slot.light),
+        this._shadowMapSize,
+      )
+      : null;
+    this._sharedShadowArray?.setActiveCount(this._activeShadowSpotCount);
 
     // ---- The non-shadow pool: ambient glow + flash target, allocated once
     this._pointSlots = [];
@@ -229,11 +256,11 @@ export class LightRig {
     this._viewSphere = typeof THREE.Sphere === 'function'
       ? new THREE.Sphere(new THREE.Vector3(), 1)
       : null;
-    this._shadowScheduler = new ShadowScheduler(this._shadowSpotCount, {
+    this._shadowScheduler = new ShadowScheduler(this._sharedShadowArray ? 1 : this._shadowSpotCount, {
       hz: this._shadowHz,
       maxUpdatesPerFrame: this._shadowUpdatesPerFrame,
     });
-    this._shadowAssignmentKeys = new Array(this._shadowSpotCount).fill(null);
+    this._shadowAssignmentKeys = new Array(this._sharedShadowArray ? 1 : this._shadowSpotCount).fill(null);
     this._shadowUpdatesLastFrame = 0;
     this._volumeCandidates = [];
     this._effectTimeMs = 0;
@@ -257,8 +284,21 @@ export class LightRig {
       this._shadowSpotCount,
       Math.floor(quality.fixtureShadowCount ?? this._activeShadowSpotCount),
     ));
+    const activeLights = this._hasIndependentFixtureBudget
+      ? Math.max(active, Math.min(
+        this._fixtureLightCount,
+        Math.floor(quality.fixtureLightCount ?? this._activeFixtureLightCount),
+      ))
+      : active;
+    this._activeFixtureLightCount = Math.max(active, activeLights);
     const mapSize = Math.max(128, Math.floor(quality.fixtureShadowMapSize ?? this._shadowMapSize));
     this._activeShadowSpotCount = active;
+    for (let i = 0; i < this._shadowSpotCount; i++) {
+      const shadow = this._spotSlots[i].light.shadow;
+      shadow.intensity = i < active ? 1 : 0;
+      if (i >= active) shadow.needsUpdate = false;
+    }
+    this._sharedShadowArray?.setActiveCount(active);
     this._shadowHz = Math.max(0, Number(quality.fixtureShadowHz ?? this._shadowHz));
     this._shadowUpdatesPerFrame = Math.max(1, Math.floor(
       quality.fixtureShadowUpdatesPerFrame ?? this._shadowUpdatesPerFrame,
@@ -269,20 +309,25 @@ export class LightRig {
     });
     if (mapSize !== this._shadowMapSize) {
       this._shadowMapSize = mapSize;
-      for (const slot of this._spotSlots) {
+      for (const slot of this._spotSlots.slice(0, this._shadowSpotCount)) {
         slot.light.shadow.mapSize.set(mapSize, mapSize);
-        if (slot.light.shadow.map) {
+        if (slot.light.shadow.map && !this._modernRenderer) {
           slot.light.shadow.map.dispose();
           slot.light.shadow.map = null;
         }
       }
+      this._sharedShadowArray?.setMapSize(mapSize);
     }
-    for (let i = active; i < this._spotSlots.length; i++) this._parkSpot(i);
+    for (let i = this._activeFixtureLightCount; i < this._spotSlots.length; i++) this._parkSpot(i);
     this._shadowScheduler.markAllDirty();
   }
 
   getStats() {
     return {
+      allocatedFixtureLights: this._fixtureLightCount,
+      activeFixtureLights: this._activeFixtureLightCount,
+      assignedFixtureLights: this._spotSlots.slice(0, this._activeFixtureLightCount)
+        .filter((slot) => slot.assignedRef && slot.light.intensity > 0).length,
       allocatedFixtureShadows: this._shadowSpotCount,
       activeFixtureShadows: this._activeShadowSpotCount,
       assignedFixtureShadows: this._spotSlots.slice(0, this._activeShadowSpotCount)
@@ -291,12 +336,14 @@ export class LightRig {
       fixtureShadowMapSize: this._shadowMapSize,
       fixtureShadowHz: this._shadowHz,
       fixtureShadowUpdatesPerFrame: this._shadowUpdatesPerFrame,
+      sharedFixtureShadowArray: !!this._sharedShadowArray,
+      fixtureShadowArrayLayers: this._sharedShadowArray?.lights.length ?? 0,
     };
   }
 
   getVolumeCandidates(limit = this._activeShadowSpotCount) {
     this._volumeCandidates.length = 0;
-    for (let i = 0; i < this._activeShadowSpotCount && this._volumeCandidates.length < limit; i++) {
+    for (let i = 0; i < this._activeFixtureLightCount && this._volumeCandidates.length < limit; i++) {
       const slot = this._spotSlots[i];
       if (!slot.assignedRef || !slot.projection || slot.volumePacket.volumeProfile === 'none') continue;
       this._volumeCandidates.push(slot.volumePacket);
@@ -421,8 +468,13 @@ export class LightRig {
   }
 
   dispose() {
+    const ownsSharedShadowMap = !!this._sharedShadowArray;
+    this._sharedShadowArray?.dispose();
     for (const s of this._spotSlots) {
-      if (s.light.shadow && s.light.shadow.map) s.light.shadow.map.dispose();
+      if (!ownsSharedShadowMap && s.castsShadow && s.light.shadow && s.light.shadow.map) {
+        s.light.shadow.map.dispose();
+      }
+      if (s.light.shadow) s.light.shadow.map = null;
       this.scene.remove(s.target);
       this.scene.remove(s.light);
     }
@@ -511,7 +563,7 @@ export class LightRig {
    *      the SAME weight, so the two systems stay complementary.
    */
   _assignSpots(camPos, nightFactor, dtMs) {
-    const n = this._activeShadowSpotCount;
+    const n = this._activeFixtureLightCount;
     for (let i = n; i < this._spotSlots.length; i++) this._parkSpot(i);
 
     // --- 1. rank ---------------------------------------------------------
@@ -583,6 +635,7 @@ export class LightRig {
       if (!slot.assignedRef) {
         slot.weight = 0;
         slot.light.intensity = 0;
+        if (!slot.castsShadow) slot.light.visible = si === this._shadowSpotCount;
         continue;
       }
       if (slot.releasing) {
@@ -616,6 +669,11 @@ export class LightRig {
     if (!slot) return;
     slot.light.intensity = 0;
     slot.light.shadow.needsUpdate = false;
+    // DynamicLighting explicitly supports count changes without recompiling.
+    // Keep one zero-intensity tail light visible so its SpotLight data node is
+    // prewarmed even in an empty facility; all other parked tail slots vanish
+    // from the GPU loop entirely.
+    if (!slot.castsShadow) slot.light.visible = index === this._shadowSpotCount;
     slot.assignedRef = null;
     slot.weight = 0;
     slot.releasing = false;
@@ -625,7 +683,34 @@ export class LightRig {
   }
 
   _scheduleShadows(nightFactor, dtMs) {
-    for (let i = 0; i < this._spotSlots.length; i++) {
+    if (this._sharedShadowArray) {
+      const keys = [];
+      for (let i = 0; i < this._activeShadowSpotCount; i++) {
+        const slot = this._spotSlots[i];
+        slot.light.shadow.needsUpdate = false;
+        if (slot.assignedRef && slot.light.intensity > 0) {
+          keys.push(slot.assignedRef.id
+            ?? slot.assignedRef.userData?.lightFixture?.id
+            ?? slot.assignedRef.uuid
+            ?? i);
+        }
+      }
+      const updates = this._shadowScheduler.step({
+        activeCount: keys.length ? 1 : 0,
+        enabled: this._enabled && nightFactor > 0.01,
+        dtMs,
+        assignmentKeys: [keys.join('|')],
+      });
+      if (updates.length) {
+        for (let i = 0; i < this._activeShadowSpotCount; i++) {
+          this._spotSlots[i].light.shadow.needsUpdate = true;
+        }
+      }
+      this._shadowUpdatesLastFrame = updates.length ? this._activeShadowSpotCount : 0;
+      return;
+    }
+
+    for (let i = 0; i < this._shadowSpotCount; i++) {
       const slot = this._spotSlots[i];
       slot.light.shadow.needsUpdate = false;
       this._shadowAssignmentKeys[i] = i < this._activeShadowSpotCount
@@ -652,6 +737,7 @@ export class LightRig {
    */
   _applyFixtureSpot(slot, tag, nightFactor, authoredDef = null) {
     const light = slot.light;
+    light.visible = true;
     const p = this._worldPos(slot.assignedRef);
     const def = authoredDef || {
       mount: tag.mount || 'ground',
@@ -682,14 +768,18 @@ export class LightRig {
     light.distance = projection.distance || FIXTURE_SPOT_DISTANCE;
     light.angle = projection.halfAngle || FIXTURE_SPOT_ANGLE;
     light.penumbra = projection.penumbra;
-    light.shadow.radius = 1 + 3 * Math.max(0, Math.min(1, tag.shadowSoftness ?? 0.5));
+    if (slot.castsShadow) {
+      light.shadow.radius = 1 + 3 * Math.max(0, Math.min(1, tag.shadowSoftness ?? 0.5));
+    }
     // Fit bias to this cone's world-space texel size. A single fixed bias is
     // either too large for desk lights (floating shadows) or too small for a
     // high mast (acne); this keeps contact shadows stable across both.
     const shadowTexel = projection.distance / Math.max(128, this._shadowMapSize);
-    light.shadow.bias = -Math.max(0.00035, Math.min(0.0015, shadowTexel * 0.12));
-    light.shadow.normalBias = Math.max(0.004, Math.min(0.025, shadowTexel * 1.8));
-    light.shadow.camera.near = Math.max(0.035, Math.min(0.15, projection.distance * 0.025));
+    if (slot.castsShadow) {
+      light.shadow.bias = -Math.max(0.00035, Math.min(0.0015, shadowTexel * 0.12));
+      light.shadow.normalBias = Math.max(0.004, Math.min(0.025, shadowTexel * 1.8));
+      light.shadow.camera.near = Math.max(0.035, Math.min(0.15, projection.distance * 0.025));
+    }
     slot.target.position.set(projection.target.x, projection.target.y, projection.target.z);
     slot.target.updateMatrixWorld();
 
@@ -697,8 +787,10 @@ export class LightRig {
     const dynamicFactor = fixtureDynamicFactor(
       tag.dynamicProfile, tag.id, this._effectTimeMs, nightFactor,
     );
-    const cookie = getLightCookie(tag.cookieProfile || 'soft');
-    if (cookie) light.map = cookie;
+    if (slot.castsShadow) {
+      const cookie = getLightCookie(tag.cookieProfile || 'soft');
+      if (cookie) light.map = cookie;
+    }
     light.intensity = FIXTURE_SPOT_INTENSITY * (tag.intensity ?? 1)
       * nightFactor * slot.weight * dynamicFactor;
     slot.projection = projection;

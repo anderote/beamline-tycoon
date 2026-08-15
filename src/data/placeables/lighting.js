@@ -53,10 +53,15 @@ const LIGHT_PROFILES = {
   bulkheadLight:  { sourceRadius: 0.1,  shadowSoftness: 0.6,  bloomProfile: 'soft', volumeProfile: 'wallWash', dynamicProfile: 'fluorescent', cookieProfile: 'cage' },
   wallStripLight: { sourceRadius: 0.16, shadowSoftness: 0.75, bloomProfile: 'soft', volumeProfile: 'wallWash', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
   emergencyWallLight: { sourceRadius: 0.08, shadowSoftness: 0.6, bloomProfile: 'soft', volumeProfile: 'wallWash', dynamicProfile: 'statusBlink', cookieProfile: 'soft' },
-  ceilingPanel:   { sourceRadius: 0.24, shadowSoftness: 0.85, bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
-  highBay:        { sourceRadius: 0.17, shadowSoftness: 0.45, bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'arcStable', cookieProfile: 'panel' },
-  linearPendant:  { sourceRadius: 0.22, shadowSoftness: 0.8, bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
-  cleanroomPanel: { sourceRadius: 0.28, shadowSoftness: 0.9, bloomProfile: 'soft', volumeProfile: 'downlight', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
+  // Ordinary interior luminaires should be perceived from the surfaces they
+  // illuminate, not from a translucent cone hanging in otherwise-clear air.
+  // Volumetric shafts remain available to deliberately atmospheric fixtures
+  // (outdoor mast/flood profiles and incident effects), but an office panel or
+  // high bay gets a broad real-light penumbra and no visible beam geometry.
+  ceilingPanel:   { sourceRadius: 0.24, shadowSoftness: 0.9,  bloomProfile: 'soft', volumeProfile: 'none', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
+  highBay:        { sourceRadius: 0.2,  shadowSoftness: 0.78, bloomProfile: 'soft', volumeProfile: 'none', dynamicProfile: 'arcStable', cookieProfile: 'panel' },
+  linearPendant:  { sourceRadius: 0.22, shadowSoftness: 0.88, bloomProfile: 'soft', volumeProfile: 'none', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
+  cleanroomPanel: { sourceRadius: 0.28, shadowSoftness: 0.94, bloomProfile: 'soft', volumeProfile: 'none', dynamicProfile: 'fluorescent', cookieProfile: 'panel' },
   deskLamp:       { sourceRadius: 0.07, shadowSoftness: 0.7, bloomProfile: 'soft', volumeProfile: 'none', dynamicProfile: 'warmSteady', cookieProfile: 'soft' },
   portableWorkLight: { sourceRadius: 0.1, shadowSoftness: 0.45, bloomProfile: 'soft', volumeProfile: 'aimedCone', dynamicProfile: 'arcStable', cookieProfile: 'flood' },
 };

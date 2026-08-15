@@ -165,6 +165,10 @@ function showScenarioPicker(game) {
     disable() { game.setDevMode(false); },
     toggle() { game.setDevMode(!game.devMode); },
     get on() { return game.devMode; },
+    explode(position, options) { return renderer.explodeWorld(position, options); },
+    undoPhysics() { return renderer.undoLastPhysicsIncident(); },
+    physicsStats() { return renderer.getPhysicsStats(); },
+    lightingStats() { return renderer.getLightingStats(); },
   };
   if (game.devMode) {
     // Apply the unlimited-funding boost immediately so the HUD reflects it

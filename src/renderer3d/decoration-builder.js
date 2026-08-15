@@ -1492,6 +1492,7 @@ export class DecorationBuilder {
       );
       group.userData ||= {};
       group.userData.nodeId = dec.id ?? null;
+      group.userData.placeableType = dec.type;
 
       // Ground fixtures sit on the floor. Wall/overhead fixture geometry is
       // authored around its mounting point, so lift that origin to the

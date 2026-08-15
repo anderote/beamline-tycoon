@@ -265,7 +265,7 @@ console.log('\n=== fixtureLightTag: the pure handoff to light-rig.js ===\n');
     assert(overhead.shape === 'cone', `${id} uses a directional cone, not an omnidirectional point light`);
     assert(overhead.aimed === false, `${id} points straight down — placement dir does not tilt it sideways`);
     assert(overhead.aimYaw === 0, `${id} reports zero horizontal aim yaw`);
-    assert(overhead.volumeProfile === 'downlight', `${id} publishes a visible downward volume profile`);
+    assert(overhead.volumeProfile === 'none', `${id} avoids a visible cone in clear interior air`);
   }
   const bay = fixtureLightTag(DEF.highBay, { id: 'H1', dir: 1 });
   assert(bay.coneDeg === 90, 'highBay keeps its wide 90 degree cone');

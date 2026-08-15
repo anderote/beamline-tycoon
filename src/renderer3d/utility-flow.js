@@ -11,6 +11,7 @@
 // THREE is loaded as a CDN global (src/three-global.js) — do NOT import it.
 
 import { UTILITY_TYPES, UTILITY_TYPE_LIST } from '../utility/registry.js';
+import { min, mod, sin, smoothstep, uniform, uv } from 'three/tsl';
 
 // ---- Per-utility motion --------------------------------------------------
 //
@@ -220,6 +221,26 @@ export function patchFlowMaterial(material, utilityType, flowState) {
     uFlowColor: { value: new THREE.Color(colorHex) },
   };
 
+  // Node-renderer equivalent of the GLSL patch below. Both paths reference
+  // the same value objects, and tickFlow advances both representations, so
+  // the legacy rollback and WebGPU renderer remain visually synchronized.
+  for (const entry of Object.values(uniforms)) entry.node = uniform(entry.value);
+  const flowDist = uv().y;
+  const flowCycle = mod(
+    flowDist.sub(uniforms.uTime.node.mul(uniforms.uSpeed.node)),
+    uniforms.uPeriod.node,
+  );
+  const flowEdge = min(flowCycle, uniforms.uPeriod.node.sub(flowCycle));
+  const flowPulse = smoothstep(0, uniforms.uWidth.node, flowEdge).oneMinus();
+  const flowThrum = sin(uniforms.uTime.node.mul(6)).mul(0.5).add(0.5)
+    .mul(0.28).add(0.72);
+  const flowGate = uniforms.uStutter.node.greaterThan(0.5).select(flowThrum, 1);
+  material.emissiveNode = uniforms.uFlowColor.node.mul(
+    uniforms.uBaseGlow.node.add(
+      uniforms.uStrength.node.mul(flowPulse).mul(flowGate),
+    ),
+  );
+
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
 
@@ -273,6 +294,9 @@ export function tickFlow(dtSeconds) {
   if (!Number.isFinite(dtSeconds) || dtSeconds <= 0) return;
   for (const mat of _patchedMaterials) {
     const u = mat.userData && mat.userData.flowUniforms;
-    if (u && u.uTime) u.uTime.value += dtSeconds;
+    if (u && u.uTime) {
+      u.uTime.value += dtSeconds;
+      if (u.uTime.node) u.uTime.node.value = u.uTime.value;
+    }
   }
 }

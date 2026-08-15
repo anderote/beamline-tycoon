@@ -44,11 +44,12 @@ import {
 } from './lighting-builder.js';
 import { OverlayShim } from './overlay-shim.js';
 import { GlowPipeline } from './glow-pipeline.js';
+import { createWorldRenderer } from './renderer-backend.js';
 import { LightRig } from './light-rig.js';
 import { VisualEffectSystem } from './visual-effect-system.js';
 import { fixtureMountY, wallFixturePose } from './fixture-light-math.js';
 import {
-  MAX_FIXTURE_SHADOWS, fixtureShadowTopologyLimit,
+  MAX_FIXTURE_LIGHTS, MAX_FIXTURE_SHADOWS, MAX_VOLUMETRIC_BEAMS, fixtureShadowTopologyLimit,
   normalizeLightingQuality, resolveLightingQuality,
 } from './lighting-quality.js';
 import { ShadowScheduler } from './shadow-scheduler.js';
@@ -56,6 +57,9 @@ import { VolumetricLightPool } from './volumetric-light-pool.js';
 import { fixtureDynamicFactor } from './light-dynamics.js';
 import { disposeLightCookies } from './light-cookie.js';
 import { UIHost } from '../ui/UIHost.js';
+import { WorldPhysics } from '../physics/world-physics.js';
+import { StaffRagdolls } from '../physics/staff-ragdolls.js';
+import { DebrisSystem } from '../physics/debris-system.js';
 // Side-effect imports: attach UI methods to UIHost.prototype.
 // Must run before `new UIHost(...)` is ever evaluated.
 import '../ui/hud.js';
@@ -278,6 +282,12 @@ export class ThreeRenderer {
     this.scene = null;
     this.camera = null;
     this.canvas = null;  // interactive canvas (overlay event-capture canvas)
+    this._worldPhysics = null;
+    this._physicsWorldIds = new Set();
+    this._physicsBodiesDirty = true;
+    this._physicsIncidentSnapshot = null;
+    this._staffRagdolls = null;
+    this._debrisSystem = null;
 
     // Overlay-shim references — set during init(). `app` keeps its old
     // Pixi-era shape ({canvas, screen}) for InputHandler/main.js readers;
@@ -485,8 +495,12 @@ export class ThreeRenderer {
     // Increase for chunkier pixels; 1 disables the effect.
     this._pixelScale = 2;
 
-    // Create WebGL renderer
-    this.renderer = new THREE.WebGLRenderer({ antialias: false });
+    // The world renderer uses Three's node renderer: native WebGPU where the
+    // browser supports it, WebGL2 through the same API otherwise. The query
+    // `?renderer=legacy` forces that WebGL2 backend as an immediate rollback;
+    // old WebGLRenderer is now confined to tiny thumbnails/view-cube canvases.
+    this._rendererBackend = await createWorldRenderer({ antialias: false });
+    this.renderer = this._rendererBackend.renderer;
     this.renderer.setPixelRatio(1);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -508,6 +522,16 @@ export class ThreeRenderer {
 
     // Scene
     this.scene = new THREE.Scene();
+
+    // World interaction physics is Rapier (Rust compiled to WASM). Rendered
+    // placeables remain dormant fixed bodies until an incident wakes them, so
+    // ordinary construction/gameplay is pixel-for-pixel unchanged and pays no
+    // continuous rigid-body cost. The ground is always available for debris.
+    this._worldPhysics = await new WorldPhysics().init();
+    // A low safety slab catches anything that leaves the finite terrain mesh
+    // without duplicating contacts on the ordinary y≈0 terrain surface.
+    this._worldPhysics.addGround({ y: -20 });
+    this._debrisSystem = new DebrisSystem(this._worldPhysics, this.scene);
 
     // Isometric orthographic camera
     const aspect = gameEl.clientWidth / gameEl.clientHeight;
@@ -581,7 +605,7 @@ export class ThreeRenderer {
     this._lightingQuality = resolveLightingQuality(this._lightingQualityRequested, {
       hardwareConcurrency: globalThis.navigator?.hardwareConcurrency,
       deviceMemory: globalThis.navigator?.deviceMemory,
-      maxTextureSize: this.renderer.capabilities.maxTextureSize,
+      maxTextureSize: this._rendererBackend.capabilities.maxTextureSize,
     });
     this._setShadowMapSize(this._sunLight.shadow, this._lightingQuality.sunShadowMapSize);
     this._sunShadowScheduler = new ShadowScheduler(1, {
@@ -610,12 +634,21 @@ export class ThreeRenderer {
     // not two. Pool sizes/shadow resolution are constructor options (see
     // light-rig.js) so a frame-budget complaint is a one-line dial, not a
     // rewrite.
-    const fixtureShadowSlots = fixtureShadowTopologyLimit(this.renderer.capabilities.maxTextures);
+    const fixtureShadowSlots = this._rendererBackend.mode === 'modern'
+      ? MAX_FIXTURE_SHADOWS
+      : fixtureShadowTopologyLimit(this._rendererBackend.capabilities.maxTextures);
     this._lightRig = new LightRig(this.scene, {
       enabled: glowStored !== '0',
+      modernRenderer: this._rendererBackend.mode === 'modern',
+      fixtureLightCount: this._rendererBackend.mode === 'modern'
+        ? MAX_FIXTURE_LIGHTS
+        : fixtureShadowSlots,
+      activeFixtureLightCount: this._rendererBackend.mode === 'modern'
+        ? this._lightingQuality.fixtureLightCount
+        : fixtureShadowSlots,
       shadowSpotCount: fixtureShadowSlots,
       activeShadowSpotCount: this._lightingQuality.fixtureShadowCount,
-      pointCount: 8,
+      pointCount: this._rendererBackend.mode === 'modern' ? 16 : 8,
       shadowMapSize: this._lightingQuality.fixtureShadowMapSize,
       shadowHz: this._lightingQuality.fixtureShadowHz,
       shadowUpdatesPerFrame: this._lightingQuality.fixtureShadowUpdatesPerFrame,
@@ -629,9 +662,10 @@ export class ThreeRenderer {
     try { volumeStored = localStorage.getItem('beamlineTycoon.volumetricLighting'); } catch (_) { volumeStored = null; }
     this._volumetricEnabled = volumeStored !== '0' && glowStored !== '0';
     this._volumePool = new VolumetricLightPool(this.scene, {
-      maxCount: MAX_FIXTURE_SHADOWS,
+      maxCount: MAX_VOLUMETRIC_BEAMS,
       activeCount: this._lightingQuality.volumetricCount,
       enabled: this._volumetricEnabled,
+      modern: this._rendererBackend.mode === 'modern',
     });
     this._lightFocus = new THREE.Vector3();
 
@@ -744,6 +778,7 @@ export class ThreeRenderer {
 
     // Staff pawns — little walking pixel-people for hired staff
     this.staffPawns = new StaffPawns(this.game, this.scene);
+    this._staffRagdolls = new StaffRagdolls(this.staffPawns, this._worldPhysics, this.scene);
 
     window.addEventListener('resize', this._boundOnResize);
 
@@ -780,9 +815,16 @@ export class ThreeRenderer {
           this._refreshTerrain();
           this._refreshInfra();
           break;
+        case 'worldExplosion':
+          this.explodeWorld(data?.position || data, data?.options || {});
+          break;
+        case 'worldPhysicsUndo':
+          this.undoLastPhysicsIncident();
+          break;
         case 'decorationsChanged':
           this._refreshTerrain();
           this._refreshDecorations();
+          this._markPhysicsBodiesDirty();
           break;
         case 'zonesChanged':
           this._refreshTerrain();
@@ -793,6 +835,7 @@ export class ThreeRenderer {
         case 'doorsChanged':
         case 'windowsChanged':
           this._refreshWalls();
+          this._markPhysicsBodiesDirty();
           break;
         case 'placeableChanged':
           this._refreshEquipment();
@@ -802,14 +845,17 @@ export class ThreeRenderer {
           // Geometry moved; the blocker set may be identical, so force.
           this._refreshUnwiredSinkMarkers(true);
           this._refreshPortFittings();
+          this._markPhysicsBodiesDirty();
           break;
         case 'facilityChanged':
           this._refreshEquipment();
           this._refreshComponents();
+          this._markPhysicsBodiesDirty();
           break;
         case 'connectionsChanged':
           this._refreshConnections();
           this._refreshComponents();
+          this._markPhysicsBodiesDirty();
           break;
         case 'utilityLinesChanged':
           this._refreshUtilityLinesV2();
@@ -1558,7 +1604,7 @@ export class ThreeRenderer {
     this._lightingQuality = resolveLightingQuality(this._lightingQualityRequested, {
       hardwareConcurrency: globalThis.navigator?.hardwareConcurrency,
       deviceMemory: globalThis.navigator?.deviceMemory,
-      maxTextureSize: this.renderer?.capabilities?.maxTextureSize,
+      maxTextureSize: this._rendererBackend?.capabilities?.maxTextureSize,
     });
     if (this._lightRig) this._lightRig.setQuality(this._lightingQuality);
     if (this._effectSystem) this._effectSystem.setQuality(this._lightingQuality);
@@ -1580,8 +1626,12 @@ export class ThreeRenderer {
 
   getLightingStats() {
     return {
+      rendererMode: this._rendererBackend?.mode || 'unknown',
+      requestedRendererMode: this._rendererBackend?.requestedMode || 'default',
+      rendererBackend: this._rendererBackend?.backend || 'unknown',
       quality: this._lightingQuality?.name || 'unknown',
       requestedQuality: this.lightingQuality,
+      fixtureCandidates: this.lightingGroup?.length || 0,
       sunShadowUpdate: !!this._sunLight?.shadow?.needsUpdate,
       ...(this._lightRig?.getStats() || {}),
       effects: this._effectSystem?.getStats?.() || null,
@@ -1594,7 +1644,11 @@ export class ThreeRenderer {
     const size = Math.max(128, Math.floor(mapSize || 1024));
     if (shadow.mapSize.width === size && shadow.mapSize.height === size) return;
     shadow.mapSize.set ? shadow.mapSize.set(size, size) : Object.assign(shadow.mapSize, { width: size, height: size });
-    if (shadow.map) {
+    // WebGPURenderer's ShadowNode owns this render target. Disposing it from
+    // application code leaves the node holding a destroyed depth texture and
+    // the next queued submit fails validation. Changing mapSize is enough;
+    // ShadowNode resizes its target immediately before the next shadow pass.
+    if (shadow.map && this._rendererBackend?.mode !== 'modern') {
       shadow.map.dispose();
       shadow.map = null;
     }
@@ -1613,6 +1667,63 @@ export class ThreeRenderer {
   /** Generic gameplay-facing one-shot effect entry point. */
   emitVisualEffect(descriptor) {
     return this._effectSystem?.emit(descriptor) ?? null;
+  }
+
+  /**
+   * Gameplay-facing world explosion. Captures one atomic rollback point,
+   * emits the bright presentation burst, then wakes and impulses nearby
+   * uniform-density bodies. Call undoLastPhysicsIncident() to snap the whole
+   * incident back without touching the simulation save.
+   */
+  explodeWorld(position, options = {}) {
+    if (!this._worldPhysics?.ready || !position) return [];
+    // One-level incident undo is intentionally atomic. Starting another blast
+    // restores the complete prior incident before taking a fresh baseline.
+    if (this._physicsIncidentSnapshot) this.undoLastPhysicsIncident();
+    this._ensurePhysicsBodies();
+    this._physicsIncidentSnapshot = this._worldPhysics.captureSnapshot();
+    const radius = Math.max(0.1, Number(options.radius) || 7);
+    const strength = Math.max(0, Number(options.strength) || 90);
+    this.emitVisualEffect({
+      kind: 'burst', position,
+      color: options.color ?? 0xffb04a,
+      intensity: options.lightIntensity ?? Math.min(80, strength * 0.55),
+      durationMs: options.durationMs ?? 700,
+      radius: options.visualRadius ?? Math.max(0.35, radius * 0.08),
+      groundRadius: options.groundRadius ?? radius * 0.45,
+    });
+    const ragdolls = options.ragdolls === false
+      ? [] : (this._staffRagdolls?.ragdollNear(position, options.ragdollRadius ?? radius) || []);
+    const fractures = options.fracture === false
+      ? [] : (this._debrisSystem?.fractureNear(position, options.fractureRadius ?? radius) || []);
+    const impacts = this._worldPhysics.explode(position, { ...options, radius, strength });
+    impacts.ragdolls = ragdolls;
+    impacts.fractures = fractures;
+    return impacts;
+  }
+
+  undoLastPhysicsIncident() {
+    if (!this._physicsIncidentSnapshot || !this._worldPhysics) return false;
+    this._staffRagdolls?.restoreAll();
+    this._debrisSystem?.restoreAll();
+    const restored = this._worldPhysics.restoreSnapshot(this._physicsIncidentSnapshot);
+    if (restored) {
+      this._physicsIncidentSnapshot = null;
+      // Once presentation state is restored, release authored fixed bodies.
+      // Normal construction then has no object colliders in Rapier at all.
+      for (const id of this._physicsWorldIds) this._worldPhysics.unregisterObject(id);
+      this._physicsWorldIds.clear();
+      this._physicsBodiesDirty = true;
+    }
+    return restored;
+  }
+
+  getPhysicsStats() {
+    return {
+      ...(this._worldPhysics?.getStats?.() || { ready: false, bodies: 0, joints: 0 }),
+      ...(this._staffRagdolls?.getStats?.() || { ragdolls: 0, articulatedBodies: 0 }),
+      ...(this._debrisSystem?.getStats?.() || { fracturedObjects: 0, fragments: 0 }),
+    };
   }
 
   /** No-op. Dipole bend direction is baked into the placed geometry; nothing
@@ -3493,6 +3604,7 @@ export class ThreeRenderer {
       );
       this._volumePool?.update(this._lightRig, this._darkness ?? 0, _dt);
     }
+    this._worldPhysics?.update(_dt);
     this._glowPipeline.render();
     if (this._viewCube) this._viewCube.update();
     } catch (e) { console.error('[ThreeRenderer] animate error:', e); }
@@ -3687,6 +3799,99 @@ export class ThreeRenderer {
     this._refreshBeamPipes();
     this._refreshZones();
     this._invalidateGridOverlay();
+    this._markPhysicsBodiesDirty();
+  }
+
+  _markPhysicsBodiesDirty() {
+    if (!this._worldPhysics?.ready) return;
+    // A construction edit can arrive while an incident is still active. Put
+    // every authored render object back at its captured transform before
+    // releasing the lazy colliders; otherwise a thrown prop could remain
+    // visually displaced even though canonical game state never moved it.
+    if (this._physicsIncidentSnapshot && this.undoLastPhysicsIncident()) return;
+    this._staffRagdolls?.restoreAll();
+    this._debrisSystem?.restoreAll();
+    this._physicsIncidentSnapshot = null;
+    for (const id of this._physicsWorldIds) this._worldPhysics.unregisterObject(id);
+    this._physicsWorldIds.clear();
+    this._physicsBodiesDirty = true;
+  }
+
+  _ensurePhysicsBodies() {
+    if (this._physicsBodiesDirty) this._syncPhysicsBodies();
+  }
+
+  /** Lazily build dormant rigid bodies from the current render snapshot. */
+  _syncPhysicsBodies() {
+    if (!this._worldPhysics?.ready) return;
+    this._staffRagdolls?.restoreAll();
+    this._debrisSystem?.restoreAll();
+    this._physicsIncidentSnapshot = null;
+    for (const id of this._physicsWorldIds) this._worldPhysics.unregisterObject(id);
+    this._physicsWorldIds.clear();
+
+    const register = (object, id, kind, options = {}) => {
+      if (!object || !id) return;
+      try {
+        this._worldPhysics.registerObject(object, {
+          id, kind, active: false,
+          destructible: options.destructible !== false,
+          densityKgM3: options.densityKgM3,
+          massKg: options.massKg,
+          friction: options.friction,
+          restitution: options.restitution,
+        });
+        this._physicsWorldIds.add(id);
+      } catch (error) {
+        console.warn(`[Physics] Could not register ${id}.`, error);
+      }
+    };
+
+    for (const object of this.equipmentBuilder?._meshes || []) {
+      const data = object.userData || {};
+      register(object, `world:${data.physicsId}`, data.physicsKind || 'equipment', {
+        massKg: data.physicsMassKg,
+        densityKgM3: data.physicsDensityKgM3,
+      });
+    }
+    for (const [id, object] of this.componentBuilder?._meshMap || []) {
+      const def = PLACEABLES[object.userData?.compType];
+      register(object, `world:beamline:${id}`, 'beamline', {
+        restitution: 0.04,
+        massKg: def?.physicsMassKg,
+        densityKgM3: def?.physicsDensityKgM3,
+      });
+    }
+    for (const object of this.decorationBuilder?._groups || []) {
+      const id = object.userData?.nodeId;
+      const def = PLACEABLES[object.userData?.placeableType];
+      if (id != null) register(object, `world:decoration:${id}`, 'decoration', {
+        massKg: def?.physicsMassKg,
+        densityKgM3: def?.physicsDensityKgM3,
+      });
+    }
+
+    // Wall leaves are fixed collision geometry: they stop a blast from
+    // throwing equipment through the next room but are never themselves
+    // activated by the radial impulse.
+    let wallIndex = 0;
+    this.wallGroup?.traverse?.((object) => {
+      if (!object.isMesh || object.material?.visible === false) return;
+      register(object, `world:wall:${wallIndex++}`, 'concrete', {
+        destructible: false, friction: 0.85, restitution: 0.02,
+      });
+    });
+    this._syncPhysicsTerrain();
+    this._physicsBodiesDirty = false;
+  }
+
+  _syncPhysicsTerrain() {
+    if (!this._worldPhysics?.ready) return;
+    try {
+      this._worldPhysics.setTerrainMesh(this._terrainMesh);
+    } catch (error) {
+      console.warn('[Physics] Could not rebuild the terrain collider.', error);
+    }
   }
 
   refresh() {
@@ -3703,6 +3908,7 @@ export class ThreeRenderer {
     this.terrainBuilder.build(snap.terrain, this.terrainGroup);
     this.cliffBuilder.build(snap.cliffs || [], this.terrainGroup);
     this._terrainMesh = this.terrainBuilder.getMesh();
+    this._syncPhysicsTerrain();
     this.wildflowerBuilder.rebuild(snap);
     this.grassTuftBuilder.rebuild(snap);
     // Cached overlay lines bake the old heights (placement auto-flattens).
@@ -4820,8 +5026,17 @@ export class ThreeRenderer {
       this.utilityLineBuilderV2.dispose(this.utilityLineGroup);
     }
     if (this.staffPawns) {
+      this._staffRagdolls?.dispose();
+      this._staffRagdolls = null;
       this.staffPawns.dispose();
       this.staffPawns = null;
+    }
+    if (this._worldPhysics) {
+      this._debrisSystem?.dispose();
+      this._debrisSystem = null;
+      this._worldPhysics.dispose();
+      this._worldPhysics = null;
+      this._physicsWorldIds.clear();
     }
     if (this._viewCube) {
       this._viewCube.dispose();
