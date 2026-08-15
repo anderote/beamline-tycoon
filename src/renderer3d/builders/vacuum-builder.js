@@ -565,6 +565,109 @@ export function _buildHighCapacityVacuumStationRoles() {
 }
 
 /**
+ * High-vacuum distribution header with one common rear fitting and paired
+ * branch banks on the long sides. The open skid, CF-style flange discs,
+ * isolation handwheels, and continuous stainless header make this read as
+ * real vacuum plumbing instead of a cabinet. Dimensions mirror the authored
+ * footprints: 1×4 is 0.5 m × 1.5 m; 1×8 is 1.0 m × 2.5 m.
+ */
+function buildVacuumManifoldRoles(branchCount) {
+  const b = makeBuckets();
+  const large = branchCount === 8;
+  const width = large ? 1.0 : 0.5;
+  const length = large ? 2.5 : 1.5;
+  const headerY = 0.60;
+  const headerR = large ? 0.13 : 0.11;
+  const flangeR = large ? 0.19 : 0.16;
+  const edgeX = width / 2;
+  const halfLength = length / 2;
+  const perSide = branchCount / 2;
+
+  // Continuous central header, capped at the front and open to the common
+  // rear connection. Its centreline reaches both footprint faces so utility
+  // fittings visibly meet the authored port anchors.
+  {
+    const g = new THREE.CylinderGeometry(headerR, headerR, length - 0.06, SEGS);
+    applyTiledCylinderUVs(g, headerR, length - 0.06, SEGS);
+    pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+      trans(0, headerY, 0), rotX(Math.PI / 2),
+    ));
+  }
+  for (const z of [-halfLength + 0.015, halfLength - 0.015]) {
+    const g = new THREE.CylinderGeometry(flangeR, flangeR, 0.03, SEGS);
+    applyTiledCylinderUVs(g, flangeR, 0.03, SEGS);
+    pushT(b.detail, g, new THREE.Matrix4().multiplyMatrices(
+      trans(0, headerY, z), rotX(Math.PI / 2),
+    ));
+  }
+
+  // Two opposed branch banks. Each branch ends at the footprint edge with a
+  // visible flange and gets its own red handwheel isolation valve.
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < perSide; i++) {
+      const z = halfLength * (1 - 2 * (i + 1) / (perSide + 1));
+      const branchL = edgeX - headerR + 0.015;
+      const branchX = side * (headerR + branchL / 2 - 0.015);
+      {
+        const g = new THREE.CylinderGeometry(0.055, 0.055, branchL, 12);
+        applyTiledCylinderUVs(g, 0.055, branchL, 12);
+        pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+          trans(branchX, headerY, z), rotZ(Math.PI / 2),
+        ));
+      }
+      {
+        const g = new THREE.CylinderGeometry(0.105, 0.105, 0.035, 12);
+        applyTiledCylinderUVs(g, 0.105, 0.035, 12);
+        pushT(b.detail, g, new THREE.Matrix4().multiplyMatrices(
+          trans(side * (edgeX - 0.0175), headerY, z), rotZ(Math.PI / 2),
+        ));
+      }
+      {
+        const g = new THREE.TorusGeometry(0.075, 0.014, 6, 12);
+        pushT(b.accent, g, new THREE.Matrix4().multiplyMatrices(
+          trans(side * Math.min(edgeX - 0.10, headerR + 0.06), headerY + 0.14, z),
+          rotX(Math.PI / 2),
+        ));
+      }
+      {
+        const g = new THREE.CylinderGeometry(0.012, 0.012, 0.13, 6);
+        applyTiledCylinderUVs(g, 0.012, 0.13, 6);
+        pushT(b.detail, g, trans(
+          side * Math.min(edgeX - 0.10, headerR + 0.06), headerY + 0.075, z,
+        ));
+      }
+    }
+  }
+
+  // Low steel saddles leave daylight beneath the vessel like a real header
+  // skid and keep the silhouette distinct from a solid fallback box.
+  const standZs = large ? [-0.82, 0, 0.82] : [-0.46, 0.46];
+  for (const z of standZs) {
+    const columnH = headerY - headerR - 0.06;
+    {
+      const g = new THREE.BoxGeometry(Math.max(0.28, width * 0.58), 0.05, 0.16);
+      applyTiledBoxUVs(g, Math.max(0.28, width * 0.58), 0.05, 0.16);
+      pushT(b.stand, g, trans(0, 0.025, z));
+    }
+    for (const x of [-Math.min(0.16, width * 0.28), Math.min(0.16, width * 0.28)]) {
+      const g = new THREE.BoxGeometry(0.045, columnH, 0.06);
+      applyTiledBoxUVs(g, 0.045, columnH, 0.06);
+      pushT(b.stand, g, trans(x, 0.05 + columnH / 2, z));
+    }
+  }
+
+  return b;
+}
+
+export function _buildVacuumManifold4Roles() {
+  return buildVacuumManifoldRoles(4);
+}
+
+export function _buildVacuumManifold8Roles() {
+  return buildVacuumManifoldRoles(8);
+}
+
+/**
  * Ion Pump — 2×1 floor module.
  * Flat rectangular body with magnet yokes on ±X sides, HV feedthrough
  * on top, and an intake flange.

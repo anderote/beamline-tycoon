@@ -34,7 +34,7 @@ export const ARTICLE_COMPONENTS = {
   'infra-vacuum': [
     'roughingPump', 'roughingPumpCart', 'turboPump', 'vacuumCart', 'highCapacityVacuumStation',
     'ionPump', 'negPump', 'tiSubPump',
-    'vacuumManifold', 'gateValve', 'bakeoutSystem',
+    'vacuumManifold', 'vacuumManifold8', 'gateValve', 'bakeoutSystem',
     'piraniGauge', 'coldCathodeGauge', 'baGauge',
   ],
   'infra-rf-power': [
@@ -60,7 +60,7 @@ export const ARTICLE_COMPONENTS = {
     'mps', 'ppsInterlock', 'accessControl', 'searchSecure', 'areaMonitor',
   ],
   'infra-connection-types': [
-    'powerBus', 'spiderBox', 'coolingManifold', 'vacuumManifold', 'waveguideManifold',
+    'powerBus', 'spiderBox', 'coolingManifold', 'vacuumManifold', 'vacuumManifold8', 'waveguideManifold',
     'cryoValveBox', 'fiberBus',
   ],
   'physics-tier1-components': [

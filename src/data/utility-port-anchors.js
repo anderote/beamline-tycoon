@@ -135,6 +135,7 @@ export const PORT_ANCHOR_OVERRIDES = {
   highCapacityVacuumStation: { _default: { y: 1.05, lat: 1.4, along: 1.38 } },
   ionPump: { _default: { y: 0.6 } },
   vacuumManifold: { _default: { y: 0.6 } },
+  vacuumManifold8: { _default: { y: 0.6 } },
 
   waveguideManifold: { _default: { y: 1.1 } },
   solidStateAmp: {

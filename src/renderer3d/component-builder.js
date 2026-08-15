@@ -29,6 +29,8 @@ import {
   _buildTurboPumpRoles,
   _buildVacuumCartRoles,
   _buildHighCapacityVacuumStationRoles,
+  _buildVacuumManifold4Roles,
+  _buildVacuumManifold8Roles,
   _buildIonPumpRoles,
   _buildNEGPumpRoles,
   _buildTiSubPumpRoles,
@@ -1585,6 +1587,8 @@ ROLE_BUILDERS.roughingPumpCart = _buildRoughingPumpCartRoles;
 ROLE_BUILDERS.turboPump = _buildTurboPumpRoles;
 ROLE_BUILDERS.vacuumCart = _buildVacuumCartRoles;
 ROLE_BUILDERS.highCapacityVacuumStation = _buildHighCapacityVacuumStationRoles;
+ROLE_BUILDERS.vacuumManifold = _buildVacuumManifold4Roles;
+ROLE_BUILDERS.vacuumManifold8 = _buildVacuumManifold8Roles;
 ROLE_BUILDERS.ionPump = _buildIonPumpRoles;
 ROLE_BUILDERS.negPump = _buildNEGPumpRoles;
 ROLE_BUILDERS.tiSubPump = _buildTiSubPumpRoles;

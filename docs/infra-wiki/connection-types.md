@@ -32,7 +32,7 @@ Connects staged vacuum pumps to the beamline. The network tracks gas inventory a
 - **Source equipment:** Roughing pump and four-pump cart; turbo pump; integrated vacuum cart and station; ion, NEG and Ti sublimation pumps
 - **Consumers:** Every beamline component — each declares its own gas load, and the beam pipe itself is charged by length
 - **Cost:** $1,400/sub-unit ($5,600/tile)
-- **Bus:** Vacuum Manifold, $120k, 5-cell service radius
+- **Distribution:** 1×4 Vacuum Manifold ($120k, four pump branches, 5-cell service radius) or 1×8 Vacuum Manifold ($260k, eight branches, 7-cell radius). Both combine real pump outlets and add no capacity.
 
 For molecular-flow stages, the hookup uses `C = 12.1 d³/L` and `S_eff = SC/(S+C)`, so long narrow runs reduce delivered pumping speed. Beam-pipe length also adds chamber volume and outgassing. See [vacuum.md](vacuum.md).
 

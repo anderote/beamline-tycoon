@@ -32,6 +32,12 @@ Every metre of beam pipe adds gas load and volume. Every metre of narrow service
 
 Each beam pipe is charged once to the network serving its mounted components.
 
+### Pump Manifolds
+
+The **1×4 Vacuum Manifold** has one common header connection and four pump branches. The larger **1×8 Vacuum Manifold** has eight branches and a longer service reach. Connect separate pump outlets to the branch flanges, then connect the common flange to the beamline network; every working pump contributes its real nameplate speed to that shared network.
+
+The manifolds are passive stainless plumbing. They add no pumping speed, do not replace roughing or backing stages, and cannot make an invalid pump stack work. Their value is physical fan-in: four or eight independently routable pump lines can meet one common high-conductance header without stacking lines onto the same fitting.
+
 ### Bakeout
 
 A connected **Bakeout System** drops the network's specific outgassing rate 100x, from 1e-10 to 1e-12 mbar·L/(s·cm²). It has a vacuum connection, so the upgrade is active in play.
@@ -70,7 +76,7 @@ The Systems panel reports the facility's worst vacuum network. Within a network,
 - One roughing pump backs one turbo; the four-pump cart backs four.
 - Distribute molecular pumps and keep their service runs short.
 - Use ion, NEG or Ti-sub pumps only after high vacuum is established.
-- A vacuum manifold ($120k) reduces connection clutter but adds no pumping speed.
+- Use the 1×4 manifold ($120k) for a compact pump bank and the 1×8 ($260k) for a large sector; neither adds pumping speed.
 - Watch the pressure graph during pump-down, especially near the injector.
 
 ## The Math

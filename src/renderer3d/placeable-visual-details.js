@@ -19,7 +19,7 @@ export const PLACEABLE_VISUAL_PROFILES = Object.freeze({
   cryomodule: 'cryomodule', collisionPoint: 'collision',
 
   // Infrastructure modules without a dedicated role builder.
-  vacuumManifold: 'manifold', bakeoutSystem: 'cabinet',
+  bakeoutSystem: 'cabinet',
   rackIoc: 'rack', ppsInterlock: 'rack', mps: 'rack', timingSystem: 'rack',
   patchPanel: 'rack', networkSwitch: 'rack', fiberBus: 'rack', blmReadout: 'rack',
   bpmElectronics: 'rack', archiver: 'rack', searchSecure: 'rack', accessControl: 'rack',

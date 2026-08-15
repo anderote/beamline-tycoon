@@ -733,6 +733,33 @@ function busPorts(utility, serviceRadius) {
   return out;
 }
 
+/**
+ * Vacuum combiner: one common header connection and a finite bank of pump
+ * branches. All fittings are pass-throughs, so pump speed still comes only
+ * from the pumps connected to them; the manifold merely joins those sources
+ * into one network. The left/right legacy names preserve the connectors used
+ * by older authored layouts.
+ */
+function vacuumManifoldPorts(branchCount, serviceRadius) {
+  const out = {
+    bus_back: {
+      utility: 'vacuumPipe', side: 'back', offsetAlong: 0.5,
+      role: 'pass', bus: true, params: { serviceRadius },
+    },
+  };
+  const perSide = branchCount / 2;
+  for (let i = 0; i < branchCount; i++) {
+    const sideIndex = i % perSide;
+    const name = i === 0 ? 'bus_left' : i === perSide ? 'bus_right' : `vac_branch_${i + 1}`;
+    out[name] = {
+      utility: 'vacuumPipe', side: i < perSide ? 'left' : 'right',
+      offsetAlong: (sideIndex + 1) / (perSide + 1),
+      role: 'pass', bus: true, params: { serviceRadius },
+    };
+  }
+  return out;
+}
+
 // Sides used by compact field boxes. Permanent cabinets and transformers put
 // their terminals on a deliberate front/rear service plane instead.
 const OUTLET_SIDES = ['right', 'front', 'left', 'back'];
@@ -940,7 +967,8 @@ const INFRA_UTILITY_PORTS = {
   powerBus:            buswayPorts(160, 10),
   spiderBox:           fieldDistributionPorts(3, { capacity: 30, interchangeable: true }),
   coolingManifold:     busPorts('coolingWater',  8),
-  vacuumManifold:      busPorts('vacuumPipe',    5),
+  vacuumManifold:      vacuumManifoldPorts(4, 5),
+  vacuumManifold8:     vacuumManifoldPorts(8, 7),
   waveguideManifold:   busPorts('rfWaveguide',   6),
   cryoValveBox:        busPorts('cryoTransfer',  6),
   fiberBus:            busPorts('dataFiber',    12),
