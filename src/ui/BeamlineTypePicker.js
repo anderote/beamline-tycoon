@@ -1,9 +1,8 @@
 // src/ui/BeamlineTypePicker.js — the New Beamline picker.
 //
-// RCT2's ride-select list, for accelerators: everything the game contains laid
-// out at once, the locked entries visible but greyed and naming the research
-// that would open them. Showing what you cannot have yet is the whole point —
-// it is the roster, not a menu of the currently affordable.
+// The complete accelerator mission roster. A mission is a target band and a
+// commercial/scientific purpose, so it is never research-gated. Research gates
+// the components and stock designs that can implement that mission.
 //
 // Picking a type opens the second half of the RCT2 flow: the folder of stock
 // designs that ship with it (src/data/stock-designs.js), plus a "Custom" entry
@@ -39,7 +38,7 @@
 
 import { ContextWindow } from './ContextWindow.js';
 import {
-  BEAMLINE_TYPES, getBeamlineType, beamlineTypeUnlocked, missingResearchFor,
+  BEAMLINE_TYPES, getBeamlineType,
 } from '../data/beamline-types.js';
 import { MODES } from '../data/modes.js';
 import { RESEARCH } from '../data/research.js';
@@ -237,12 +236,6 @@ export const MEASURED_CAVEAT =
   + 'power, RF, cooling, cryo, vacuum and data fully provisioned. Your facility '
   + 'has to actually supply that.';
 
-/** Human-readable names for the research nodes a locked type is waiting on. */
-export function missingResearchNames(typeId, researchState) {
-  return missingResearchFor(typeId, researchState)
-    .map(id => RESEARCH[id]?.name || id);
-}
-
 function completedResearchSet(researchState) {
   if (!researchState) return new Set();
   if (researchState instanceof Set) return researchState;
@@ -286,14 +279,6 @@ function researchPathForRoots(rootIds, researchState) {
   return path;
 }
 
-/** All remaining research, including transitive prerequisites, for a family. */
-export function researchUnlockPath(typeId, researchState) {
-  const type = getBeamlineType(typeId);
-  if (!type?.requires) return [];
-  const roots = Array.isArray(type.requires) ? type.requires : [type.requires];
-  return researchPathForRoots(roots, researchState);
-}
-
 /** Remaining component research before a particular stock design is honest. */
 export function designUnlockPath(design, researchState) {
   const roots = [];
@@ -305,87 +290,25 @@ export function designUnlockPath(design, researchState) {
   return researchPathForRoots(roots, researchState);
 }
 
-/**
- * Whole-roster progress plus the nearest locked family. Pure so tests and
- * future research screens can use the same definition as the picker.
- */
-export function machineResearchProgress(researchState, typeIds = null) {
-  const wanted = typeIds ? new Set(typeIds) : null;
-  const items = Object.values(BEAMLINE_TYPES)
-    .filter(type => !wanted || wanted.has(type.id))
-    .map((type) => {
-      const remaining = researchUnlockPath(type.id, researchState);
-      const fullPath = researchUnlockPath(type.id, { completedResearch: [] });
-      return {
-        type,
-        unlocked: beamlineTypeUnlocked(type, researchState),
-        remaining,
-        completedSteps: Math.max(0, fullPath.length - remaining.length),
-        totalSteps: fullPath.length,
-        active: !!researchState?.activeResearch
-          && remaining.some(node => node.id === researchState.activeResearch),
-      };
-    });
-
-  const locked = items.filter(item => !item.unlocked);
-  const frontier = [...locked].sort((a, b) => (
-    Number(b.active) - Number(a.active)
-    || a.remaining.length - b.remaining.length
-    || a.type.tier - b.type.tier
-  ))[0] || null;
-
-  return {
-    items,
-    unlockedCount: items.length - locked.length,
-    totalCount: items.length,
-    frontier,
-  };
-}
-
 function compactPath(path, max = 3) {
   if (!path.length) return '';
   const shown = path.slice(0, max).map(node => node.name).join(' → ');
   return path.length > max ? `${shown} → +${path.length - max} more` : shown;
 }
 
-function machineRoadmapHtml(progress) {
-  const byTier = new Map();
-  for (const item of progress.items) {
-    if (!byTier.has(item.type.tier)) byTier.set(item.type.tier, []);
-    byTier.get(item.type.tier).push(item);
-  }
-
-  let html = '<section class="bltype-roadmap">';
-  html += '<div class="bltype-roadmap-head">';
-  html += '<span>Machine research</span>';
-  html += `<strong>${progress.unlockedCount} / ${progress.totalCount} families available</strong>`;
-  html += '</div><div class="bltype-roadmap-tiers">';
-  for (const [tier, items] of [...byTier.entries()].sort((a, b) => a[0] - b[0])) {
-    html += '<div class="bltype-roadmap-tier">';
-    html += `<span class="bltype-roadmap-label">T${tier}</span>`;
-    html += '<div class="bltype-roadmap-items">';
-    for (const item of items) {
-      const cls = item.unlocked ? ' ready' : (item.active ? ' active' : '');
-      const title = item.unlocked
-        ? 'Available now'
-        : item.remaining.map(node => node.name).join(' → ');
-      const suffix = item.unlocked ? '✓' : `${item.remaining.length}`;
-      html += `<span class="bltype-roadmap-item${cls}" title="${esc(title)}">`;
-      html += `${esc(item.type.name)} <b>${suffix}</b></span>`;
-    }
-    html += '</div></div>';
-  }
-  html += '</div>';
-
-  if (progress.frontier) {
-    const lead = progress.frontier.active ? 'Research in progress' : 'Next reachable family';
-    html += '<div class="bltype-frontier">';
-    html += `<span>${lead}</span><strong>${esc(progress.frontier.type.name)}</strong>`;
-    html += `<small>${esc(compactPath(progress.frontier.remaining, 5))}</small>`;
-    html += '</div>';
-  }
-  html += '</section>';
-  return html;
+function missionBriefHtml(typeCount) {
+  return '<section class="bltype-brief blt-panel">'
+    + '<div class="bltype-brief-kicker">MISSION PROFILE // OPEN ROSTER</div>'
+    + '<div class="bltype-brief-row">'
+    + '<strong>Choose what the beamline is for.</strong>'
+    + `<span>${typeCount} compatible missions</span>`
+    + '</div>'
+    + '<div class="bltype-brief-path" aria-hidden="true">'
+    + '<i></i><b></b><i></i><b></b><i></i>'
+    + '</div>'
+    + '<p>Research unlocks components, better cavities and performance upgrades — '
+    + 'never the mission itself.</p>'
+    + '</section>';
 }
 
 /**
@@ -429,7 +352,7 @@ function blueprintPanelHtml(type, selectedDesignId, researchState) {
     }
     if (unlockPath.length) {
       html += `<div class="blueprint-lock" title="${esc(unlockPath.map(n => n.name).join(' → '))}">`
-        + `🔒 Upgrade path (${unlockPath.length}): ${esc(compactPath(unlockPath))}</div>`;
+        + `🔒 Hardware needed (${unlockPath.length}): ${esc(compactPath(unlockPath))}</div>`;
     }
     html += `<div class="bltype-blurb">${esc(d.blurb)}</div>`;
     html += '</div>';
@@ -483,7 +406,6 @@ export function openBeamlineTypePicker(game, {
     || sourceDef.beamlineTypes.includes(typeId);
   let selected = game.getActiveBeamlineTypeId?.() || null;
   if (selected && !sourceCompatible(selected)) selected = null;
-  if (selected && !beamlineTypeUnlocked(selected, game.state)) selected = null;
   // '' means Custom. RCT2 opens a track type on its stock designs rather than
   // on an empty editor, so the lowest tier is the default where one exists.
   let selectedDesignId = showBlueprints ? defaultDesignFor(selected) : '';
@@ -500,17 +422,13 @@ export function openBeamlineTypePicker(game, {
     // list you just asked for scrolls away from you as it appears.
     const scroll = container.scrollTop;
     const types = Object.values(BEAMLINE_TYPES).filter(t => sourceCompatible(t.id));
-    const progress = machineResearchProgress(game.state, types.map(t => t.id));
-    let html = machineRoadmapHtml(progress);
+    let html = missionBriefHtml(types.length);
     html += '<div class="bltype-grid">';
 
     for (const t of types) {
-      const unlocked = beamlineTypeUnlocked(t, game.state);
-      const unlockPath = unlocked ? [] : researchUnlockPath(t.id, game.state);
       const accent = hex(t.accentColor);
       const cls = ['bltype-card'];
-      if (!unlocked) cls.push('locked');
-      if (unlocked && selected === t.id) cls.push('selected');
+      if (selected === t.id) cls.push('selected');
 
       const current = formatCurrentBand(t.spec?.currentMA);
 
@@ -526,11 +444,6 @@ export function openBeamlineTypePicker(game, {
       if (current) html += `<span class="bltype-spec">${esc(current)}</span>`;
       html += '</div>';
       html += `<div class="bltype-blurb">${esc(t.blurb)}</div>`;
-      if (!unlocked) {
-        const fullPath = unlockPath.map(node => node.name).join(' → ');
-        html += `<div class="bltype-lock" title="${esc(fullPath)}">`
-          + `🔒 Unlock path (${unlockPath.length}): ${esc(compactPath(unlockPath)) || 'research'}</div>`;
-      }
       html += '</div>';
     }
 
@@ -549,7 +462,6 @@ export function openBeamlineTypePicker(game, {
     container.scrollTop = scroll;
 
     container.querySelectorAll('.bltype-card').forEach(card => {
-      if (card.classList.contains('locked')) return;
       card.addEventListener('click', () => {
         // Re-rendering replaces the node under the cursor, and a replaced node
         // never receives the second click — so a card that is already selected
@@ -591,11 +503,6 @@ export function openBeamlineTypePicker(game, {
     if (!selected) return;
     const type = getBeamlineType(selected);
     if (!type) return;
-    // Locked tiles are not clickable, so this is belt and braces — but it is
-    // the last gate before a research-gated machine reaches the placer, and
-    // a blueprint places real hardware rather than merely filtering a palette.
-    if (!beamlineTypeUnlocked(type, game.state)) return;
-
     // A blueprint only ever speaks for its own type. The panel is rebuilt from
     // the selected type on every render so the two cannot drift, but the id is
     // the thing that leaves this module, so it is checked where it is used.
@@ -640,7 +547,7 @@ export function openBeamlineTypePicker(game, {
   }
 
   if (ctx._body) {
-    ctx._el?.classList.add('bltype-window');
+    ctx._el?.classList.add('bltype-window', 'blt-panel');
     render(ctx._body);
   }
   // Tab-less window: ContextWindow.update() would wipe the body with no tab

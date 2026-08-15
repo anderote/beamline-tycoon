@@ -65,14 +65,13 @@
  *                    structure, so every beam it produces is effectively CW and
  *                    a pulsed type would otherwise be paid for duty it does not
  *                    have.
- *   requires         research node id, array of ids, or null for ungated
  *   excludes         component ids hidden from this type's palette
  *   requiredEndpoint component ids of which at least one must terminate the line
  *   blurb            one-line pitch for the New Beamline picker
  *   accentColor      tile accent
  */
 export const BEAMLINE_TYPES = {
-  // ── Tier 1 — ungated, available on tick 0 ─────────────────────────────
+  // ── Tier 1 ───────────────────────────────────────────────────────────────
   testStand: {
     id: 'testStand',
     name: 'Test Stand',
@@ -94,7 +93,6 @@ export const BEAMLINE_TYPES = {
     // still a test stand — that tolerance IS its identity.
     bandWidth: 0.45,
     dutyFactor: 0.10,
-    requires: null,
     // The only type with nothing denied to it beyond what the allowlists
     // already withhold. The sandbox where you may build things that do not
     // work is what keeps a type-filtered game from feeling like a cage.
@@ -125,7 +123,6 @@ export const BEAMLINE_TYPES = {
     // physics preference. Going over does not earn less — it earns nothing.
     bandWidth: 0.15,
     dutyFactor: 1.0,
-    requires: null,
     // Chromaticity correction on a 10 MeV sterilisation line is hardware
     // nobody in the industry has ever bought, and the two intercepting
     // devices are worse: this is a 100 kW CW beam, so a foil or a pepper-pot
@@ -167,11 +164,8 @@ export const BEAMLINE_TYPES = {
     bandWidth: 0.30,
     dutyFactor: 0.8,
     // The first commercial proton line is electronics irradiation, not isotope
-    // production. Its test station unlocks with the proton accelerator itself,
-    // so a newly researched 15-30 MeV line can earn before the player buys
-    // Target Physics. That later node still opens the isotope-production and
-    // general-purpose target paths.
-    requires: 'protonAcceleration',
+    // production. Research gates its proton hardware and higher-performance
+    // targets, never the player's choice of mission.
     // Nothing denied. A 70 MeV proton line is exactly where a Wien filter and
     // a pepper-pot still make sense, and it is the last type where they do.
     excludes: [],
@@ -206,13 +200,9 @@ export const BEAMLINE_TYPES = {
     // economic: a 300 MeV proton overshoots the patient.
     bandWidth: 0.12,
     dutyFactor: 1.0,
-    // `isochronousCyclotron` names the machine and `machineProtection` names
-    // the interlocks, but neither implies you can accelerate a proton at all —
-    // both descend from `cyclotronTech`, which stops short of the front end.
-    // Without `protonAcceleration` the type unlocks onto a palette with no
-    // proton hardware in it.
-    // Includes the optics used by the introductory treatment-room blueprint.
-    requires: ['isochronousCyclotron', 'machineProtection', 'protonAcceleration', 'beamOptics'],
+    // The mission is available immediately. Cyclotrons, proton acceleration,
+    // machine protection and treatment hardware remain research-gated
+    // components, so choosing Therapy early sets a goal without granting it.
     // You do not put an uncooled scattering foil in a clinical beam. Both of
     // these are trunk hardware everywhere below 250 MeV — this is the exact
     // case the type-side denylist exists for.
@@ -243,11 +233,8 @@ export const BEAMLINE_TYPES = {
     bandWidth: 0.25,
     // SNS-class: 60 Hz x ~1 ms pulses.
     dutyFactor: 0.05,
-    // `cwLinacDesign` descends from `srfTechnology`, so it buys the linac and
-    // says nothing about what is in it. A spallation source is a PROTON linac
-    // into a heavy-metal target; without `protonAcceleration` the type opens
-    // with an electron front end and no way to make a neutron.
-    requires: ['cwLinacDesign', 'targetPhysics', 'protonAcceleration'],
+    // The mission is always selectable; its proton linac, high-power RF and
+    // target hardware remain gated in their component definitions.
     // Destructive intercepting devices in a 1 MW beam are the single worst
     // idea available. wireScanner survives because real MW machines do use
     // them, at low duty cycle and briefly.
@@ -277,16 +264,9 @@ export const BEAMLINE_TYPES = {
     fomRef: 1e20,
     bandWidth: 0.30,
     dutyFactor: 1.0,
-    // `storageRingTech` buys the ring and `synchrotronLight` buys the reason to
-    // build one, but neither says anything about the injector that fills it.
-    // Without the SRF and cryomodule nodes the 2.5 GeV injector is a fifty-
-    // structure copper line; without advanced optics there is no compact ring
-    // lattice or chromatic correction. Requiring the entry machine's actual
-    // disciplines means the family never unlocks into an unusable palette.
-    requires: [
-      'storageRingTech', 'synchrotronLight', 'srfTechnology',
-      'cryomoduleDesign', 'advancedOptics',
-    ],
+    // Storage-ring, injector, SRF and advanced-optics research controls which
+    // implementations the catalogue offers, not whether photon science can
+    // be selected as the beamline's purpose.
     // The electron beam has to survive for eight hours. Anything that
     // intercepts it kills a stored beam outright — which is a stronger
     // statement than "degrades it", and is why screen is denied here and not
@@ -319,14 +299,9 @@ export const BEAMLINE_TYPES = {
     bandWidth: 0.25,
     // Burst mode: European XFEL's 27,000 pulses/s in 600 us trains.
     dutyFactor: 0.006,
-    // `felTech` buys the undulator and the physics of lasing; it does not buy
-    // the 6-17.5 GeV linac in front of it. On copper alone the band floor is 118
-    // `sbandStructure` placements away, which is not a machine, it is a
-    // corridor. Every operating hard X-ray FEL that is not LCLS-I is
-    // superconducting — European XFEL, LCLS-II, SHINE — so this is the honest
-    // gate as well as the playable one.
-    // Unlock the complete compact plasma-injector/SRF reference machine.
-    requires: ['felTech', 'srfTechnology', 'plasmaAcceleration', 'nDopedSrf', 'cryomoduleDesign'],
+    // FEL, plasma-injector and high-performance SRF research determine whether
+    // a credible implementation is buildable. The scientific mission itself
+    // remains available as a target from the start.
     // An XFEL is an emittance-preservation machine; a pepper-pot plate in
     // front of a 17 GeV, 5 kA beam is a plasma experiment, not a filter.
     excludes: ['velocitySelector', 'emittanceFilter'],
@@ -364,8 +339,8 @@ export const BEAMLINE_TYPES = {
     // line to 8 GeV is a $200M mistake, not an upgrade.
     bandWidth: 0.10,
     dutyFactor: 1.0,
-    // The starter ERL uses a packaged cryomodule rather than individual cavities.
-    requires: ['felTech', 'energyRecovery', 'cryomoduleDesign'],
+    // FEL, energy-recovery and cryomodule research gates the practical
+    // hardware and stock designs, not the EUV mission category.
     // The one type whose palette forbids the CHEAP option. At 1 GeV x 10 mA
     // you are handling 10 MW of beam power continuously; normal-conducting
     // copper would melt and the wall-plug bill would eat the contract.
@@ -418,13 +393,8 @@ export const BEAMLINE_TYPES = {
     fomRef: 1e32,
     bandWidth: 0.30,
     dutyFactor: 0.005,
-    // Three nodes for the one type that has to be earned. `colliderTech`
-    // names the collider; `bunchCompression` and `srfTechnology` are what
-    // make it collide anything — luminosity is set by how short the bunch is,
-    // and everything above the SLC's energy is superconducting. Neither is
-    // implied by `colliderTech`'s own ancestry (highLuminosity, antimatter),
-    // which is exactly why they are stated here.
-    requires: ['colliderTech', 'bunchCompression', 'srfTechnology'],
+    // Collider, bunch-compression and SRF research gates useful hardware and
+    // upgrades. The programme may still be chosen before it can be built.
     // Intercepting devices, plus: here your photons are a loss mechanism
     // rather than a product, so every insertion device is withheld by
     // allowlist. Real colliders do use damping wigglers; dropping that nuance
@@ -489,17 +459,9 @@ export const BEAMLINE_TYPES = {
     // cooling down and being re-aligned; it delivers collisions for about a
     // thousandth of the wall clock and every one of them is an event.
     dutyFactor: 0.001,
-    // Three nodes, and unlike every other type one of them is another type's
-    // gate. `colliderTech` is required outright: you do not get here without
-    // having built the linear collider first, and the tier-6 machine being
-    // strictly downstream of the tier-5 one is the only place in the roster
-    // where the tiers are a real ordering rather than an economic one.
-    // `particleDiscovery` is what makes the result claimable at five sigma and
-    // is what gates the chamber and the detector. `bunchCompression` is the
-    // luminosity: cross-sections at this energy are geometric and tiny, so the
-    // only lever left is how tightly the bunch is squeezed.
-    // The first guided antimatter source starts with an isochronous cyclotron.
-    requires: ['colliderTech', 'particleDiscovery', 'bunchCompression', 'isochronousCyclotron'],
+    // The mission can be selected immediately, while collider technology,
+    // particle discovery, bunch compression, antimatter sources and the
+    // chamber remain gated as buildable hardware and performance upgrades.
     // The collider's denials, plus one. Insertion devices are already withheld
     // by allowlist for the same reason as there — a photon here is a loss
     // term, not a product — and the three intercepting devices are the
@@ -520,54 +482,7 @@ export function getBeamlineType(id) {
   return BEAMLINE_TYPES[id] || null;
 }
 
-/**
- * The types a given research state has opened, in roster order.
- *
- * Accepts whatever the caller has to hand — the completed-research array from
- * game state, a Set of ids, or the state object itself — because the picker,
- * the scenario editor and the tests all reach this from different directions
- * and none of them should have to reshape their data first.
- */
-export function beamlineTypesFor(researchState) {
-  const done = normaliseResearch(researchState);
-  return Object.values(BEAMLINE_TYPES).filter(t => typeIsUnlocked(t, done));
-}
-
-/** Whether `type` (or its id) is unlocked by the given research state. */
-export function beamlineTypeUnlocked(type, researchState) {
-  const t = typeof type === 'string' ? BEAMLINE_TYPES[type] : type;
-  if (!t) return false;
-  return typeIsUnlocked(t, normaliseResearch(researchState));
-}
-
-/**
- * Research node ids still missing before `type` unlocks. The picker greys a
- * locked tile and names what it wants, which is the whole job RCT2's ride list
- * does: here is everything the game contains, and here is what you cannot have
- * yet.
- */
-export function missingResearchFor(type, researchState) {
-  const t = typeof type === 'string' ? BEAMLINE_TYPES[type] : type;
-  if (!t || !t.requires) return [];
-  const done = normaliseResearch(researchState);
-  return requiredNodes(t).filter(id => !done.has(id));
-}
-
-function requiredNodes(type) {
-  if (!type.requires) return [];
-  return Array.isArray(type.requires) ? type.requires : [type.requires];
-}
-
-function typeIsUnlocked(type, done) {
-  return requiredNodes(type).every(id => done.has(id));
-}
-
-function normaliseResearch(researchState) {
-  if (!researchState) return new Set();
-  if (researchState instanceof Set) return researchState;
-  if (Array.isArray(researchState)) return new Set(researchState);
-  if (Array.isArray(researchState.completedResearch)) {
-    return new Set(researchState.completedResearch);
-  }
-  return new Set();
+/** All mission families, in roster order. Research gates hardware, not purpose. */
+export function beamlineTypesFor() {
+  return Object.values(BEAMLINE_TYPES);
 }

@@ -6,7 +6,6 @@
 import { COMPONENTS } from '../data/components.js';
 import {
   BEAMLINE_TYPES,
-  beamlineTypeUnlocked,
   getBeamlineType,
 } from '../data/beamline-types.js';
 
@@ -40,11 +39,11 @@ function sourceAllowsType(source, typeId) {
   return !Array.isArray(source?.beamlineTypes) || source.beamlineTypes.includes(typeId);
 }
 
-export function compatibleBeamlineTypesForSource(sourceType, researchState) {
+export function compatibleBeamlineTypesForSource(sourceType) {
   const source = COMPONENTS[sourceType];
   if (!source?.isSource) return [];
   return Object.values(BEAMLINE_TYPES).filter(type =>
-    sourceAllowsType(source, type.id) && beamlineTypeUnlocked(type, researchState));
+    sourceAllowsType(source, type.id));
 }
 
 export function componentAllowedForBeamline(typeId, componentId, isUnlocked = () => true) {
@@ -187,4 +186,3 @@ export function infrastructureChecklistForNodes(nodes = [], state = null) {
     }];
   });
 }
-

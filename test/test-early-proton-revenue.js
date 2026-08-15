@@ -1,4 +1,4 @@
-import { BEAMLINE_TYPES, beamlineTypeUnlocked } from '../src/data/beamline-types.js';
+import { BEAMLINE_TYPES, beamlineTypesFor } from '../src/data/beamline-types.js';
 import { COMPONENTS } from '../src/data/components.js';
 import { getStockDesign } from '../src/data/stock-designs.js';
 import { RESEARCH } from '../src/data/research.js';
@@ -20,10 +20,10 @@ const endpoint = COMPONENTS.radiationEffectsStation;
 const starter = getStockDesign('isotope-cyclone30');
 const lastComponent = starter?.components?.at(-1)?.type;
 
-assert(beamlineTypeUnlocked(type, research),
-  'proton acceleration alone opens the entry irradiation mission');
+assert(beamlineTypesFor().includes(type),
+  'the irradiation mission is selectable before proton hardware is researched');
 assert(endpoint?.requires === 'protonAcceleration',
-  'electronics irradiation station unlocks with the mission');
+  'electronics irradiation hardware still unlocks through proton acceleration');
 assert(RESEARCH.protonAcceleration.unlocks.includes('radiationEffectsStation'),
   'the research node advertises the station in its unlock list');
 assert(guidedEndpointSuggestions(type.id, comp => research.includes(comp.requires))[0]
