@@ -132,8 +132,11 @@ export class UtilityLineTool extends Tool {
   // two conversions, not one.
   _cableWorld(e, ctx) {
     const r = ctx.renderer;
+    const ctrl = ctx.input.utilityLineController;
+    const height = ctrl?.isActive?.()
+      ? ctrl.drawHeight : utilityLineHeight(this.utilityType);
     return r.screenToWorldAtHeight
-      ? r.screenToWorldAtHeight(e.clientX, e.clientY, utilityLineHeight(this.utilityType))
+      ? r.screenToWorldAtHeight(e.clientX, e.clientY, height)
       : r.screenToWorld(e.clientX, e.clientY);
   }
 

@@ -394,6 +394,31 @@ console.log('\n--- 5. The tool picks on the cable plane, not the floor ---');
     `the power cord runs on the floor (${heights.powerCable} m)`);
 }
 
+{
+  const game = makeGame();
+  const tool = new UtilityLineTool('vacuumPipe');
+  const ctrl = new UtilityLineInputController({ game, renderer: {} });
+  ctrl.setUtilityType('vacuumPipe');
+  // These are the public draw states produced by a measured connector and by
+  // a validator that has lifted the route above an occupied lower lane.
+  ctrl._drawing = true;
+  ctrl._drawStart = { anchor: { y: 0.72 }, worldPos: { x: 0, z: 0 } };
+  const seen = [];
+  const ctx = {
+    game,
+    renderer: {
+      screenToWorldAtHeight: (x, y, h) => { seen.push(h); return { x, y }; },
+      screenToWorld: (x, y) => ({ x, y }),
+    },
+    input: { utilityLineController: ctrl },
+  };
+  tool._cableWorld({ clientX: 1, clientY: 2 }, ctx);
+  ctrl._preview = { routeHeightMeters: 1.02 };
+  tool._cableWorld({ clientX: 3, clientY: 4 }, ctx);
+  assert(seen[0] === 0.72 && seen[1] === 1.02,
+    `a rigid draw follows its start port and then its resolved rack lane (${seen.join(' m → ')} m)`);
+}
+
 console.log('\n--- 6. Right-click erases a line of the armed utility ---');
 {
   const game = makeGame();

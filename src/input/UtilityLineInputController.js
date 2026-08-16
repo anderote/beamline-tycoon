@@ -33,7 +33,7 @@ import {
 import { validateDrawLine } from '../utility/line-drawing.js';
 import { buildRigidRouteObstacles } from '../utility/route-obstacles.js';
 import { reasonMessage } from '../utility/UtilityLineSystem.js';
-import { UTILITY_TYPES } from '../utility/registry.js';
+import { UTILITY_TYPES, utilityLineHeight } from '../utility/registry.js';
 import { listUtilityEndpoints, findUtilityEndpoint } from '../utility/utility-endpoints.js';
 import { planUtilityRun, runPreviewPath, runWiringCost } from './utility-run-wiring.js';
 import { isoToGridFloat } from '../renderer/grid.js';
@@ -169,6 +169,21 @@ export class UtilityLineInputController {
   // and `cost` for the drag tooltip.
   get runPlan() { return this._runPlan; }
 
+  // Plane used by UtilityLineTool while a rigid service is being drawn. A
+  // port-anchored route begins at that connector's measured height; once the
+  // validator lifts it over an occupied run, the cursor follows the selected
+  // lane so preview and pointer do not drift apart under the isometric camera.
+  get drawHeight() {
+    const descriptor = UTILITY_TYPES[this._utilityType];
+    if (!descriptor?.verticalRouteLanes) return utilityLineHeight(this._utilityType);
+    const previewHeight = this._preview?.routeHeightMeters;
+    const startHeight = this._drawStart?.routeHeightMeters ?? this._drawStart?.anchor?.y;
+    return utilityLineHeight(
+      this._utilityType,
+      Number.isFinite(previewHeight) ? previewHeight : startHeight,
+    );
+  }
+
   // Public: what the gesture as it stands would be charged, in funding — the
   // run plan's total, or the single line's own length. Both commits price
   // through _wiringCost, so the tooltip cannot quote a number the commit
@@ -253,6 +268,8 @@ export class UtilityLineInputController {
         : null,
       startAnchor: this._drawStart?.anchor || null,
       endAnchor: snap?.anchor || null,
+      routeHeightMeters: this._runPlan?.stubs?.[0]?.routeHeightMeters
+        ?? geom.routeHeightMeters,
       color: UTILITY_TYPES[this._utilityType]?.color || '#ffffff',
     };
   }
@@ -311,6 +328,7 @@ export class UtilityLineInputController {
           path,
           cablePath,
           tapLineIds: geom.tapLineIds,
+          routeHeightMeters: geom.routeHeightMeters,
         }),
       });
     }
@@ -484,6 +502,7 @@ export class UtilityLineInputController {
       startTile, startVec, endTile, endVec, routeOpts);
 
     let chosen = null;
+    let chosenRouteHeight = null;
     let reason = null;
     const fallback = candidates.length > 0 ? snapPath(candidates[0]) : null;
     // This runs on every mousemove, and validateDrawLine walks the whole board
@@ -493,13 +512,21 @@ export class UtilityLineInputController {
     // having anyway — past that the shapes are getting long and ugly enough
     // that refusing and saying why beats committing one of them.
     const limit = Math.min(candidates.length, MAX_ROUTE_CANDIDATES);
+    const preferredRouteHeightMeters = descriptor.verticalRouteLanes
+      ? (this._drawStart?.routeHeightMeters ?? this._drawStart?.anchor?.y)
+      : null;
     for (let i = 0; i < limit; i++) {
       const path = snapPath(candidates[i]);
       const res = validateDrawLine(this.game.state, {
         utilityType: this._utilityType, start: startRef, end: endRef, path, tapLineIds,
         cablePath: isSoftCable(this._utilityType) ? this._cableTrace : null,
+        preferredRouteHeightMeters,
       });
-      if (res.ok) { chosen = path; break; }
+      if (res.ok) {
+        chosen = path;
+        chosenRouteHeight = res.line.routeHeightMeters ?? null;
+        break;
+      }
       // The reason shown is the FIRST failure: it is the one that explains why
       // the route the player is looking at — the preview, which is candidate
       // zero — would be refused.
@@ -527,8 +554,12 @@ export class UtilityLineInputController {
         const path = snapPath(detour);
         const res = validateDrawLine(this.game.state, {
           utilityType: this._utilityType, start: startRef, end: endRef, path, tapLineIds,
+          preferredRouteHeightMeters,
         });
-        if (res.ok) chosen = path;
+        if (res.ok) {
+          chosen = path;
+          chosenRouteHeight = res.line.routeHeightMeters ?? null;
+        }
         else if (!routedFallback) {
           routedFallback = path;
           if (reason === null) reason = res.reason;
@@ -547,6 +578,8 @@ export class UtilityLineInputController {
     return {
       startTile, endTile, endAnchor, startRef, endRef, tapLineIds,
       path: chosen || routedFallback,
+      routeHeightMeters: chosenRouteHeight
+        ?? (descriptor.verticalRouteLanes ? preferredRouteHeightMeters : null),
     };
   }
 
@@ -588,7 +621,7 @@ export class UtilityLineInputController {
       portPosition: (endpoint, def, portName) => {
         const anchor = portAnchor3D(endpoint, def, portName);
         return anchor
-          ? { x: anchor.x, z: anchor.z }
+          ? { x: anchor.x, y: anchor.y, z: anchor.z }
           : portWorldPosition(endpoint, def, portName);
       },
     });
@@ -623,6 +656,7 @@ export class UtilityLineInputController {
             start: stub.start,
             end: stub.end,
             path: stub.path,
+            routeHeightMeters: stub.routeHeightMeters,
           });
           if (id) { committed.push(id); subL += stub.subL; }
         }
@@ -661,9 +695,39 @@ export class UtilityLineInputController {
     const port = this._snapToNearestPort(worldX, worldY, screen);
     if (port) return port;
     if (UTILITY_TYPES[this._utilityType]?.allowsTap === false) return null;
-    const tap = this.nearestLine(worldX, worldY, TAP_SNAP_RADIUS_TILES);
+    // Stacked runs project to different screen positions. If the cursor
+    // actually hit a mesh, re-project onto THAT line's elevation and restrict
+    // the subtile snap to its id; otherwise a plan-view tie would always grab
+    // whichever lane happened to win insertion-order/highest-lane fallback.
+    let tap = null;
+    const rayHit = screen && this.renderer?.raycastUtilityLine?.(screen.x, screen.y);
+    if (rayHit?.lineId && rayHit.utilityType === this._utilityType) {
+      const lines = this.game.state.utilityLines;
+      const hitLine = typeof lines?.get === 'function'
+        ? lines.get(rayHit.lineId)
+        : (lines || []).find(line => line?.id === rayHit.lineId);
+      if (hitLine) {
+        let lineWorld = { x: worldX, y: worldY };
+        if (this.renderer?.screenToWorldAtHeight) {
+          lineWorld = this.renderer.screenToWorldAtHeight(
+            screen.x,
+            screen.y,
+            utilityLineHeight(hitLine.utilityType, hitLine.routeHeightMeters),
+          );
+        }
+        tap = this.nearestLine(
+          lineWorld.x, lineWorld.y, TAP_SNAP_RADIUS_TILES, rayHit.lineId);
+      }
+    }
+    tap = tap || this.nearestLine(worldX, worldY, TAP_SNAP_RADIUS_TILES);
     if (!tap) return null;
-    return { open: true, tap: true, lineId: tap.lineId, worldPos: tap.worldPos };
+    return {
+      open: true,
+      tap: true,
+      lineId: tap.lineId,
+      worldPos: tap.worldPos,
+      routeHeightMeters: tap.routeHeightMeters,
+    };
   }
 
   /**
@@ -678,9 +742,11 @@ export class UtilityLineInputController {
    * that same rounded cooling route, so what the player grabs and where the
    * plumbing joins remain the same point.
    *
-   * @returns {{lineId, worldPos: {x, z}, dist}|null} dist in world metres
+   * @param {string|null} [onlyLineId] restrict a mesh-confirmed snap to one run
+   * @returns {{lineId, worldPos: {x, z}, routeHeightMeters, dist}|null}
+   *          dist in world metres
    */
-  nearestLine(worldX, worldY, maxTiles = 0.5) {
+  nearestLine(worldX, worldY, maxTiles = 0.5, onlyLineId = null) {
     const lines = this.game.state.utilityLines;
     if (!lines || !this._utilityType) return null;
     const cursor = this._isoFloatToWorld(worldX, worldY);
@@ -689,6 +755,7 @@ export class UtilityLineInputController {
     const iter = typeof lines.values === 'function' ? lines.values() : lines;
     for (const line of iter) {
       if (!line || line.utilityType !== this._utilityType) continue;
+      if (onlyLineId && line.id !== onlyLineId) continue;
       const visual = isSoftCable(line.utilityType) && Array.isArray(line.cablePath)
         ? roundedCableTilePath(line.cablePath, line.utilityType)
         : expandPath(line.path || []);
@@ -696,9 +763,18 @@ export class UtilityLineInputController {
         const dx = pt.col * 2 - cursor.x;
         const dz = pt.row * 2 - cursor.z;
         const d = Math.hypot(dx, dz);
-        if (d < bestDist) {
+        const routeHeightMeters = utilityLineHeight(
+          line.utilityType, line.routeHeightMeters);
+        if (d < bestDist - 1e-9
+            || (Math.abs(d - bestDist) <= 1e-9
+              && routeHeightMeters > (best?.routeHeightMeters ?? -Infinity))) {
           bestDist = d;
-          best = { lineId: line.id, worldPos: { x: pt.col * 2, z: pt.row * 2 }, dist: d };
+          best = {
+            lineId: line.id,
+            worldPos: { x: pt.col * 2, z: pt.row * 2 },
+            routeHeightMeters,
+            dist: d,
+          };
         }
       }
     }

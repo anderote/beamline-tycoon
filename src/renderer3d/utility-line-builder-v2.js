@@ -251,7 +251,7 @@ export function buildWorldPoints(line, placeablesById) {
   const points = [];
   const path = line.path || [];
   if (path.length === 0) return points;
-  const runY = utilityLineHeight(line.utilityType);
+  const runY = utilityLineHeight(line.utilityType, line.routeHeightMeters);
   for (const pt of path) {
     const w = tileToWorld(pt);
     points.push(new THREE.Vector3(w.x, runY, w.z));
@@ -735,12 +735,12 @@ function buildUtilitySupport(frame, descriptor, utilityType, materialOverride = 
 }
 
 function addUtilitySupports(
-  group, points, descriptor, utilityType, materialOverride = null,
+  group, points, descriptor, utilityType, materialOverride = null, routeHeightMeters = null,
 ) {
   const spacing = descriptor?.supportSpacingMeters;
   const minimum = descriptor?.supportMinimumRunMeters;
   if (!(spacing > 0) || !(minimum > 0)) return;
-  const runY = utilityLineHeight(utilityType);
+  const runY = utilityLineHeight(utilityType, routeHeightMeters);
   const frames = utilitySupportFrames(points, {
     floorY: runY,
     spacingMeters: spacing,
@@ -878,7 +878,13 @@ function buildLineGroup(
   if (points.length < 2) return null;
 
   const group = new THREE.Group();
-  group.userData = { lineId: line.id, utilityType: line.utilityType, errorStatus: errorStatus || 'ok' };
+  const runY = utilityLineHeight(line.utilityType, line.routeHeightMeters);
+  group.userData = {
+    lineId: line.id,
+    utilityType: line.utilityType,
+    routeHeightMeters: runY,
+    errorStatus: errorStatus || 'ok',
+  };
   const radius = descriptor.pipeRadiusMeters || 0.04;
   const mat = getLineMaterial(line.utilityType, errorStatus);
   const hardwareMat = getLineHardwareMaterial(line.utilityType);
@@ -913,7 +919,7 @@ function buildLineGroup(
   // physical direction energy travels is source->sink either way.
   let runDistCum = 0;
   const flexibleMesh = flexible
-    ? buildFlexibleCable(points, radius, mat, reversed, utilityLineHeight(line.utilityType))
+    ? buildFlexibleCable(points, radius, mat, reversed, runY)
     : null;
   if (flexibleMesh) {
     if (emissiveFlow) flexibleMesh.layers.enable(BLOOM_LAYER);
@@ -966,7 +972,8 @@ function buildLineGroup(
     if (descriptor.fittingStyle) addInlineCouplers(group, a, b, descriptor, hardwareMat);
   }
 
-  addUtilitySupports(group, points, descriptor, line.utilityType);
+  addUtilitySupports(
+    group, points, descriptor, line.utilityType, null, line.routeHeightMeters);
 
   // Elbows at every INTERIOR waypoint. The two terminal points are excluded on
   // purpose: they either disappear into a port fitting or carry an open-end
@@ -1085,7 +1092,7 @@ function buildPreviewLine(preview) {
   if (!preview || !Array.isArray(preview.path) || preview.path.length < 2) return null;
   const descriptor = UTILITY_TYPES[preview.utilityType];
   if (!descriptor) return null;
-  const previewY = utilityLineHeight(preview.utilityType);
+  const previewY = utilityLineHeight(preview.utilityType, preview.routeHeightMeters);
   const flexible = isSoftCable(preview.utilityType)
     && Array.isArray(preview.cablePath) && preview.cablePath.length >= 2;
   const points = flexible
@@ -1106,7 +1113,10 @@ function buildPreviewLine(preview) {
       points, preview.startAnchor, preview.endAnchor, previewY, descriptor);
   }
   const group = new THREE.Group();
-  group.userData = { isUtilityLinePreview: true };
+  group.userData = {
+    isUtilityLinePreview: true,
+    routeHeightMeters: previewY,
+  };
   const radius = (descriptor.pipeRadiusMeters || 0.04) * 1.1; // slightly chunkier so it reads
   const style = descriptor.geometryStyle || 'cylinder';
   const mat = getPreviewMaterial(preview.utilityType, preview.valid !== false);
@@ -1127,7 +1137,8 @@ function buildPreviewLine(preview) {
     if (mesh) group.add(mesh);
   }
   if (!flexible) {
-    addUtilitySupports(group, points, descriptor, preview.utilityType, mat);
+    addUtilitySupports(
+      group, points, descriptor, preview.utilityType, mat, preview.routeHeightMeters);
   }
   for (let i = 1; !flexible && i < points.length - 1; i++) {
     const prev = points[i - 1], at = points[i], next = points[i + 1];
@@ -1232,7 +1243,11 @@ function buildHoverMarker(hoverPort) {
   // a T-join on an existing run, the other claims a connector — so they must
   // not look alike. A ring around the line reads as "join here".
   if (hoverPort.tap) {
-    return buildTapMarker(hoverPort.worldPos, color, utilityLineHeight(hoverPort.utilityType));
+    return buildTapMarker(
+      hoverPort.worldPos,
+      color,
+      utilityLineHeight(hoverPort.utilityType, hoverPort.routeHeightMeters),
+    );
   }
   const anchor = hoverPort.anchor || { ...hoverPort.worldPos, y: PIPE_Y + 0.3 };
   return buildPortMarker(anchor, color, true);
@@ -1701,6 +1716,8 @@ export class UtilityLineBuilderV2 {
   setPreview(preview, parentGroup) {
     const sig = preview && preview.path && preview.path.length
       ? preview.utilityType + '|' + preview.valid + '|' +
+        (Number.isFinite(preview.routeHeightMeters)
+          ? preview.routeHeightMeters.toFixed(3) : 'default') + '|' +
         preview.path.map(p => `${p.col},${p.row},${p.subCol ?? 0},${p.subRow ?? 0}`).join(';') + '|'
         + (preview.cablePath || []).map(p => `${p.col},${p.row}`).join(';') + '|'
         + (preview.endpointTransitions === false ? 'flat|' : 'drops|')
@@ -1725,12 +1742,14 @@ export class UtilityLineBuilderV2 {
 
   /** Update the hover-port marker. Call every frame. */
   setHoverPort(hoverPort, parentGroup) {
-    const key = hoverPort ? `${hoverPort.placeableId}:${hoverPort.portName}` : null;
+    const key = hoverPort?.tap
+      ? `tap:${hoverPort.lineId}`
+      : hoverPort ? `${hoverPort.placeableId}:${hoverPort.portName}` : null;
     const anchor = key ? this._anchorByKey.get(key) : null;
     const resolved = anchor ? { ...hoverPort, anchor } : hoverPort;
     const point = resolved?.anchor || resolved?.worldPos || resolved;
     const sig = key
-      ? `${key}|${point?.x ?? ''},${point?.y ?? ''},${point?.z ?? ''}`
+      ? `${key}|${point?.x ?? ''},${point?.y ?? ''},${point?.z ?? ''}|${resolved?.routeHeightMeters ?? ''}`
       : null;
     if (sig === this._hoverSig) return false;
     this._hoverSig = sig;
@@ -1885,6 +1904,8 @@ export class UtilityLineBuilderV2 {
     // Path + endpoints + utility type. Include port world positions in the
     // hash so the line rebuilds when a connected placeable is moved.
     const pathStr = (line.path || []).map(p => `${p.col},${p.row}`).join(';');
+    const routeHeightStr = Number.isFinite(line.routeHeightMeters)
+      ? line.routeHeightMeters.toFixed(3) : 'default';
     const cableStr = (line.cablePath || []).map(p => `${p.col},${p.row}`).join(';');
     const tapStr = `${line.tapLineIds?.start || '-'}:${line.tapLineIds?.end || '-'}`;
     // Explicit "open" marker distinguishes a null endpoint (dangling) from
@@ -1908,7 +1929,7 @@ export class UtilityLineBuilderV2 {
         if (a) endStr = `${a.x.toFixed(3)},${a.y.toFixed(3)},${a.z.toFixed(3)}`;
       }
     }
-    return `${line.utilityType}|${pathStr}|${cableStr}|${tapStr}|${startStr}|${endStr}`;
+    return `${line.utilityType}|${routeHeightStr}|${pathStr}|${cableStr}|${tapStr}|${startStr}|${endStr}`;
   }
 
   _disposeGroup(group) {

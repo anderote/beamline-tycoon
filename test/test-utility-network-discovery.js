@@ -318,5 +318,32 @@ console.log('\n--- Test 8: merge via bridge line ---');
 }
 
 // ==========================================================================
+// Test 9: Plan-view crossings only join fabricated services on one elevation.
+// ==========================================================================
+console.log('\n--- Test 9: elevated rigid routes stay topologically separate ---');
+{
+  const lower = {
+    id: 'vac_lower', utilityType: 'vacuumPipe', start: null, end: null,
+    routeHeightMeters: 0.24,
+    path: [{ col: 0, row: 1 }, { col: 4, row: 1 }],
+  };
+  const upper = {
+    id: 'vac_upper', utilityType: 'vacuumPipe', start: null, end: null,
+    routeHeightMeters: 0.54,
+    path: [{ col: 2, row: 1 }, { col: 2, row: 4 }],
+  };
+  const separated = discoverNetworks('vacuumPipe', [lower, upper], () => null);
+  assert(separated.length === 2,
+    `two plan-overlapping pipes on distinct rack lanes remain separate networks (got ${separated.length})`);
+
+  const tapped = discoverNetworks('vacuumPipe', [
+    lower,
+    { ...upper, routeHeightMeters: lower.routeHeightMeters },
+  ], () => null);
+  assert(tapped.length === 1,
+    `an endpoint on a same-height trunk still forms a real tee (got ${tapped.length})`);
+}
+
+// ==========================================================================
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

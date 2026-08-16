@@ -2,13 +2,14 @@
 //
 // Board-aware obstacle map for rigid utility services. The generic orthogonal
 // router in line-geometry.js intentionally knows nothing about game state;
-// this module translates installed equipment and rigid runs into the simple
-// `blocked(col,row)` predicate it consumes.
+// this module translates installed equipment and any services that truly need
+// plan-view separation into the simple `blocked(col,row)` predicate it consumes.
 
 import { COMPONENTS } from '../data/components.js';
 import { expandPath } from './line-geometry.js';
 import { placeableCenterWorld, footprintHalfExtents } from './ports.js';
 import { UTILITY_TYPES } from './registry.js';
+import { usesVerticalRouteLanes } from './route-elevation.js';
 import { listUtilityEndpoints } from './utility-endpoints.js';
 
 const SUB_PER_TILE = 4;
@@ -53,6 +54,11 @@ function addLineObstacles(out, state, utilityType, opts) {
     ? state.utilityLines.values() : (state?.utilityLines || []);
   for (const line of iter) {
     if (!line || !rigidUtilitiesConflict(utilityType, line.utilityType)) continue;
+    // Fabricated services resolve shared plan routes with explicit Y lanes.
+    // Keep A* focused on true 2D obstacles (equipment); line-drawing assigns
+    // the first vertically clear lane and remains the commit authority.
+    if (usesVerticalRouteLanes(utilityType)
+        && usesVerticalRouteLanes(line.utilityType)) continue;
     const other = UTILITY_TYPES[line.utilityType] || {};
     const clearanceTiles = Math.max(
       candidate.routeClearanceTiles || 0,
@@ -145,8 +151,9 @@ function addEquipmentObstacles(out, state, utilityType, ignoredPlaceableIds) {
  *
  * The source and destination machines are omitted: their connector and riser
  * geometry own the transition through their footprint. Every other placeable
- * is solid, as are installed vacuum/waveguide centre-lines with their authored
- * service clearance.
+ * is solid. Fabricated vacuum, cryogenic, and RF runs do not become 2D
+ * obstacles to one another: commit validation assigns a clear support-rack
+ * elevation when their plan routes meet.
  */
 export function buildRigidRouteObstacles(state, utilityType, opts = {}) {
   const blocked = new Set();

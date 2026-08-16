@@ -18,6 +18,11 @@ import { COMPONENTS } from '../data/components.js';
 import { UTILITY_TYPES } from './registry.js';
 import { getPortSpec } from './ports.js';
 import { expandPath } from './line-geometry.js';
+import {
+  routeHeightForLine,
+  routeHeightsConflict,
+  usesVerticalRouteLanes,
+} from './route-elevation.js';
 import { roundedCableTilePath, usesFreeformTopology } from './soft-cable.js';
 import { listUtilityEndpoints } from './utility-endpoints.js';
 
@@ -424,7 +429,11 @@ export function discoverNetworks(utilityType, lines, portLookup) {
         const key = `${Math.round(pt.col * 4)}/${Math.round(pt.row * 4)}`;
         let arr = subtileToLines.get(key);
         if (!arr) { arr = []; subtileToLines.set(key, arr); }
-        arr.push({ id: line.id, terminal: i === 0 || i === expanded.length - 1 });
+        arr.push({
+          id: line.id,
+          line,
+          terminal: i === 0 || i === expanded.length - 1,
+        });
       }
     }
     for (const hits of subtileToLines.values()) {
@@ -434,6 +443,14 @@ export function discoverNetworks(utilityType, lines, portLookup) {
           if (hits[a].id === hits[b].id) continue;
           // At least one of the two has to END here for this to be a join.
           if (!hits[a].terminal && !hits[b].terminal) continue;
+          // A shared X/Z point is not a fitting when the two runs occupy
+          // distinct rack elevations. Explicit taps inherit their trunk's
+          // height during validation, so real tees still arrive here aligned.
+          if (usesVerticalRouteLanes(utilityType)
+              && !routeHeightsConflict(
+                utilityType, routeHeightForLine(hits[a].line),
+                utilityType, routeHeightForLine(hits[b].line),
+              )) continue;
           dsu.union(lineNodeKey(hits[a].id), lineNodeKey(hits[b].id));
         }
       }

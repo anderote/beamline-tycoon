@@ -7,7 +7,7 @@ import { getUtilityPortsV2 } from '../src/data/utility-ports-v2.js';
 import { listUtilityEndpoints, findUtilityEndpoint } from '../src/utility/utility-endpoints.js';
 import { portWorldPosition } from '../src/utility/ports.js';
 import {
-  projectOntoUtilityLine, utilityAttachmentPose, VACUUM_LINE_MOUNT_Y,
+  projectOntoUtilityLine, utilityAttachmentPose,
 } from '../src/utility/line-attachments.js';
 import { buildWorldSnapshot } from '../src/renderer3d/world-snapshot.js';
 import { InputHandler } from '../src/input/InputHandler.js';
@@ -138,6 +138,7 @@ console.log('\n=== 5. Gauges mount, render, save, wire, and refund as line equip
   const vacuumLine = {
     id: 'ul_vac', utilityType: 'vacuumPipe',
     path: [{ col: 1, row: 2 }, { col: 5, row: 2 }],
+    routeHeightMeters: 1.14,
     start: null, end: null,
   };
   game.state.utilityLines.set(vacuumLine.id, vacuumLine);
@@ -164,8 +165,8 @@ console.log('\n=== 5. Gauges mount, render, save, wire, and refund as line equip
   const rendered = snap.pipeAttachments.find(a => a.id === id);
   assert(rendered?.utilityLineId === 'ul_vac',
     'renderer snapshot identifies the owning utility run');
-  assert(Math.abs(rendered.yOffset - (VACUUM_LINE_MOUNT_Y - 1)) < 1e-9,
-    'gauge mounting spool is lowered from beam height onto the vacuum pipe');
+  assert(Math.abs(rendered.yOffset - (vacuumLine.routeHeightMeters - 1)) < 1e-9,
+    'gauge mounting spool follows its vacuum pipe onto an elevated rack lane');
 
   const afterFirst = game.state.resources.funding;
   const idCounterBeforeOverlap = game.state.placementNextId;
@@ -179,6 +180,8 @@ console.log('\n=== 5. Gauges mount, render, save, wire, and refund as line equip
   const savedLine = save.state.utilityLines.find(([lineId]) => lineId === 'ul_vac')?.[1];
   assert(savedLine?.attachments?.[0]?.id === id,
     'nested line instruments survive serialization');
+  assert(savedLine?.routeHeightMeters === vacuumLine.routeHeightMeters,
+    'the fabricated route elevation survives serialization with the line');
 
   game.state.utilityLines.set('ul_power', {
     id: 'ul_power', utilityType: 'powerCable', path: [{ col: 2, row: 2 }, { col: 2, row: 3 }],

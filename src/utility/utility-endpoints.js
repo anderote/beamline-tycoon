@@ -77,7 +77,8 @@ function utilityAttachmentRecord(line, att) {
     dir: pose.dir,
     params: att.params,
     utilityLineId: line.id,
-    yOffset: VACUUM_LINE_MOUNT_Y - 1.0,
+    yOffset: (Number.isFinite(line.routeHeightMeters)
+      ? line.routeHeightMeters : VACUUM_LINE_MOUNT_Y) - 1.0,
     isPlacement: true,
     isUtilityAttachment: true,
   };

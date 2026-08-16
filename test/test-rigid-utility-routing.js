@@ -7,6 +7,10 @@ import {
 } from '../src/utility/line-geometry.js';
 import { validateDrawLine } from '../src/utility/line-drawing.js';
 import { buildRigidRouteObstacles } from '../src/utility/route-obstacles.js';
+import {
+  routeHeightForLine,
+  routeHeightsConflict,
+} from '../src/utility/route-elevation.js';
 import { UTILITY_TYPES } from '../src/utility/registry.js';
 import { portWorldPosition } from '../src/utility/ports.js';
 import { UtilityLineInputController } from '../src/input/UtilityLineInputController.js';
@@ -22,7 +26,7 @@ function pointKey(point) {
   return `${Math.round(point.col * 4)}:${Math.round(point.row * 4)}`;
 }
 
-console.log('\n--- 1. Vacuum stays rigid; RF/cryo may cross other services ---');
+console.log('\n--- 1. Rigid services share plan routes on automatic height lanes ---');
 {
   const state = {
     placeables: [], beamPipes: [],
@@ -35,7 +39,8 @@ console.log('\n--- 1. Vacuum stays rigid; RF/cryo may cross other services ---')
     utilityType: 'vacuumPipe', start: null, end: null,
     path: [{ col: 0, row: 0 }, { col: 4, row: 0 }],
   });
-  assert(crossed.ok, 'rectilinear waveguide does not block a vacuum crossing');
+  assert(crossed.ok && crossed.line.routeHeightMeters > routeHeightForLine(state.utilityLines.get('rf')),
+    `vacuum automatically lifts over the waveguide (${crossed.line.routeHeightMeters} m)`);
 
   const cable = validateDrawLine(state, {
     utilityType: 'powerCable', start: null, end: null,
@@ -54,21 +59,57 @@ console.log('\n--- 1. Vacuum stays rigid; RF/cryo may cross other services ---')
     utilityType: 'vacuumPipe', start: null, end: null,
     path: [{ col: 2, row: -2 }, { col: 2, row: 2 }],
   });
-  assert(!duplicateVacuum.ok && duplicateVacuum.reason === 'overlap_same_type',
-    `two rigid vacuum runs still cannot cross (${duplicateVacuum.reason})`);
+  assert(duplicateVacuum.ok
+      && duplicateVacuum.line.routeHeightMeters > routeHeightForLine(vacuumState.utilityLines.get('trunk')),
+    `a second vacuum run takes the next support-rack lane (${duplicateVacuum.line.routeHeightMeters} m)`);
   const tee = validateDrawLine(vacuumState, {
     utilityType: 'vacuumPipe', start: null, end: null,
     path: [{ col: 2, row: 0 }, { col: 2, row: 2 }],
     tapLineIds: { start: 'trunk' },
   });
-  assert(tee.ok && tee.line.tapLineIds?.start === 'trunk',
-    'a named perpendicular vacuum tee clears its fitting envelope and persists the join');
+  assert(tee.ok && tee.line.tapLineIds?.start === 'trunk'
+      && tee.line.routeHeightMeters === routeHeightForLine(vacuumState.utilityLines.get('trunk')),
+    'a named perpendicular vacuum tee inherits its trunk height and persists the join');
   const hiddenDuplicate = validateDrawLine(vacuumState, {
     utilityType: 'vacuumPipe', start: null, end: null,
     path: [{ col: 2, row: 0 }, { col: 3, row: 0 }],
     tapLineIds: { start: 'trunk' },
   });
   assert(!hiddenDuplicate.ok, 'a tap cannot license a collinear pipe hidden inside its trunk');
+
+  const portLed = validateDrawLine({
+    placeables: [], beamPipes: [], utilityLines: new Map(),
+  }, {
+    utilityType: 'cryoTransfer', start: null, end: null,
+    preferredRouteHeightMeters: 0.72,
+    path: [{ col: 0, row: 8 }, { col: 4, row: 8 }],
+  });
+  assert(portLed.ok && portLed.line.routeHeightMeters === 0.72,
+    'an unobstructed fabricated run adopts its starting connector height');
+
+  const stackedLines = new Map([['vac', {
+    id: 'vac', utilityType: 'vacuumPipe', start: null, end: null,
+    path: [{ col: 0, row: 4 }, { col: 4, row: 4 }],
+    routeHeightMeters: 0.24,
+  }]]);
+  const stackedState = { placeables: [], beamPipes: [], utilityLines: stackedLines };
+  const rf = validateDrawLine(stackedState, {
+    utilityType: 'rfWaveguide', start: null, end: null,
+    path: [{ col: 0, row: 4 }, { col: 4, row: 4 }],
+  });
+  stackedLines.set('rf', { id: 'rf', ...rf.line });
+  const cryo = validateDrawLine(stackedState, {
+    utilityType: 'cryoTransfer', start: null, end: null,
+    path: [{ col: 0, row: 4 }, { col: 4, row: 4 }],
+  });
+  assert(rf.ok && cryo.ok,
+    'vacuum, RF, and cryo may all occupy the same parallel X/Z route');
+  const stacked = [...stackedLines.values(), { id: 'cryo', ...cryo.line }];
+  assert(stacked.every((line, index) => stacked.slice(index + 1).every(other =>
+    !routeHeightsConflict(
+      line.utilityType, routeHeightForLine(line),
+      other.utilityType, routeHeightForLine(other),
+    ))), 'every stacked service has physical vertical clearance');
 }
 
 console.log('\n--- 2. Board-aware search finds the service aisle around a blocker ---');
@@ -86,7 +127,8 @@ console.log('\n--- 2. Board-aware search finds the service aisle around a blocke
     { col: 4, row: 0 }, null,
     { portClearance: false, blocked: obstacles.isBlocked, bendPenalty: 1.5 },
   );
-  assert(route && route.length >= 4, `a detour was found (${JSON.stringify(route)})`);
+  assert(route && route.length === 2,
+    `installed service lines no longer force a 2D detour (${JSON.stringify(route)})`);
   assert(route && expandPath(route).every(point => !obstacles.isBlocked(point.col, point.row)),
     'every detour centreline point clears the installed guide');
   const committed = validateDrawLine(state, {
@@ -165,10 +207,38 @@ console.log('\n--- 3b. The ordinary drag controller invokes the detour search --
   ctrl._drawStart = { open: true, worldPos: { x: 0, z: 0 } };
   const cursor = gridToIso(4, 0);
   const geometry = ctrl._dragGeometry(cursor.x, cursor.y, null);
-  assert(geometry.path?.length >= 4 && ctrl.dragReject === null,
-    `one normal drag previews a valid routed detour (${JSON.stringify(geometry.path)})`);
-  assert(expandPath(geometry.path).every(point => !(point.col === 2 && Math.abs(point.row) <= 1)),
-    'the controller preview does not cross the installed guide');
+  assert(geometry.path?.length === 2 && ctrl.dragReject === null,
+    `one normal drag keeps the direct plan route (${JSON.stringify(geometry.path)})`);
+  assert(geometry.routeHeightMeters > routeHeightForLine(state.utilityLines.get('pipe')),
+    `the controller preview assigns the clear upper lane (${geometry.routeHeightMeters} m)`);
+}
+
+console.log('\n--- 3c. Visible stacked lanes remain individually tappable ---');
+{
+  const lower = {
+    id: 'lower', utilityType: 'vacuumPipe', start: null, end: null,
+    routeHeightMeters: 0.24,
+    path: [{ col: 0, row: 0 }, { col: 4, row: 0 }],
+  };
+  const upper = { ...lower, id: 'upper', routeHeightMeters: 0.84 };
+  const state = {
+    placeables: [], beamPipes: [],
+    utilityLines: new Map([[lower.id, lower], [upper.id, upper]]),
+  };
+  let hitId = lower.id;
+  const renderer = {
+    raycastUtilityLine: () => ({ lineId: hitId, utilityType: 'vacuumPipe' }),
+    screenToWorldAtHeight: () => gridToIso(2, 0),
+  };
+  const ctrl = new UtilityLineInputController({ game: { state }, renderer });
+  ctrl._utilityType = 'vacuumPipe';
+  const lowerTap = ctrl._snapToNearest(999, 999, { x: 10, y: 20 });
+  hitId = upper.id;
+  const upperTap = ctrl._snapToNearest(999, 999, { x: 10, y: 20 });
+  assert(lowerTap?.lineId === lower.id && lowerTap.routeHeightMeters === 0.24,
+    'a mesh hit on the lower run selects the lower route lane');
+  assert(upperTap?.lineId === upper.id && upperTap.routeHeightMeters === 0.84,
+    'a mesh hit on the upper run selects the upper route lane');
 }
 
 console.log('\n--- 4. RF and cryo enforce shape, not physical clearance ---');
@@ -183,6 +253,8 @@ console.log('\n--- 4. RF and cryo enforce shape, not physical clearance ---');
     'RF publishes a compact mitered-elbow presentation contract');
   assert(!rf.avoidRigidIntersections && !cryo.avoidRigidIntersections,
     'RF and cryo do not reserve rigid service aisles');
+  assert(rf.verticalRouteLanes && cryo.verticalRouteLanes,
+    'RF and cryo opt into fabricated vertical routing lanes');
   const tight = [
     { col: 0, row: 0 },
     { col: 0.25, row: 0 },
