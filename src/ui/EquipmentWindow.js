@@ -4,6 +4,7 @@ import { ContextWindow } from './ContextWindow.js';
 import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { utilityStatRows } from './utility-supply.js';
+import { componentUtilityPortSectionHtml } from './utility-port-details.js';
 
 export class EquipmentWindow {
   /**
@@ -194,6 +195,7 @@ export class EquipmentWindow {
     for (const r of utilityStatRows(comp)) {
       html += `<div class="equipment-utility">${r.label}: ${r.value}</div>`;
     }
+    html += componentUtilityPortSectionHtml(equip.type);
     if (comp.autoConnectRadius > 0) {
       const ready = this._autoConnectPlan?.stubs?.length || 0;
       const inRange = this._autoConnectPlan?.candidates || 0;
