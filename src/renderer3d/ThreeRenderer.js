@@ -109,7 +109,7 @@ import {
 import { isVisiblePickObject, pickWithScreenTolerance } from './screen-picking.js';
 import {
   PLACEMENT_GRID_STYLE,
-  appendPlacementGridRibbon,
+  appendPlacementGridDots,
   placementGridAlphaAt,
 } from './placement-grid-style.js';
 
@@ -3312,9 +3312,10 @@ export class ThreeRenderer {
    * Render major grid lines and sub-grid lines in an area around the cursor.
    * Major lines = tile boundaries (every 2 world units).
    * Sub-grid lines = quarter-tile divisions (every 0.5 world units).
-   * Major lines use slim mesh ribbons so they remain visibly heavier than the
-   * hairline sub-grid on both WebGPU and WebGL. Vertex alpha gives both layers
-   * a soft fade from the cursor to the edge of the compact preview.
+   * Both layers use short one-pixel linelets instead of solid lines: brighter
+   * tile-boundary dots establish the blueprint rhythm while quieter micro-dots
+   * describe the quarter-grid. Vertex alpha gives both layers a soft fade from
+   * the cursor to the edge of the compact preview.
    * Renders into gridOverlayGroup (not previewGroup) so _clearPreview doesn't wipe them.
    */
   _renderGridAroundCursor(col, row) {
@@ -3345,15 +3346,18 @@ export class ThreeRenderer {
     // so cliffs and mismatched corners between tiles don't produce ugly
     // chord lines spanning across the cliff.
 
-    // --- Per-tile borders (bold) ---
-    const majorBuffers = { positions: [], colors: [], indices: [] };
-    const addMajorSegment = (start, end) => appendPlacementGridRibbon(
+    // --- Per-tile dotted borders ---
+    const majorBuffers = { positions: [], colors: [] };
+    const addMajorSegment = (start, end) => appendPlacementGridDots(
       majorBuffers,
       start,
       end,
-      PLACEMENT_GRID_STYLE.majorLineWidthWorld,
-      alphaAt('major', start.x, start.z),
-      alphaAt('major', end.x, end.z),
+      {
+        spacing: PLACEMENT_GRID_STYLE.majorDotSpacingWorld,
+        dotLength: PLACEMENT_GRID_STYLE.majorDotLengthWorld,
+        startAlpha: alphaAt('major', start.x, start.z),
+        endAlpha: alphaAt('major', end.x, end.z),
+      },
     );
     for (let dr = Math.ceil(-majorRadius); dr <= Math.floor(majorRadius); dr++) {
       for (let dc = Math.ceil(-majorRadius); dc <= Math.floor(majorRadius); dc++) {
@@ -3374,15 +3378,15 @@ export class ThreeRenderer {
     const majorGeo = new THREE.BufferGeometry();
     majorGeo.setAttribute('position', new THREE.Float32BufferAttribute(majorBuffers.positions, 3));
     majorGeo.setAttribute('color', new THREE.Float32BufferAttribute(majorBuffers.colors, 4));
-    majorGeo.setIndex(majorBuffers.indices);
-    const majorMat = new THREE.MeshBasicMaterial({
-      color: 0x88ccff, vertexColors: true, transparent: true,
-      depthTest: false, depthWrite: false, side: THREE.DoubleSide,
+    const majorMat = new THREE.LineBasicMaterial({
+      color: PLACEMENT_GRID_STYLE.colorHex, vertexColors: true, transparent: true,
+      depthTest: false, depthWrite: false,
     });
-    const majorLines = new THREE.Mesh(majorGeo, majorMat);
+    const majorLines = new THREE.LineSegments(majorGeo, majorMat);
     majorLines.name = 'placementGridMajor';
     majorLines.userData.gridLineKind = 'major';
-    majorLines.userData.lineWidthWorld = PLACEMENT_GRID_STYLE.majorLineWidthWorld;
+    majorLines.userData.dotSpacingWorld = PLACEMENT_GRID_STYLE.majorDotSpacingWorld;
+    majorLines.userData.dotLengthWorld = PLACEMENT_GRID_STYLE.majorDotLengthWorld;
     majorLines.renderOrder = 997;
     this.gridOverlayGroup.add(majorLines);
 
@@ -3393,11 +3397,20 @@ export class ThreeRenderer {
     // lies exactly on the triangulated mesh fold inside this tile.
     const subVerts = [];
     const subColors = [];
-    const addSubSegment = (ax, ay, az, bx, by, bz) => {
-      subVerts.push(ax, ay, az, bx, by, bz);
-      const alphaA = alphaAt('subgrid', ax, az);
-      const alphaB = alphaAt('subgrid', bx, bz);
-      subColors.push(1, 1, 1, alphaA, 1, 1, 1, alphaB);
+    const subBuffers = { positions: subVerts, colors: subColors };
+    const addSubSegment = (ax, ay, az, bx, by, bz, patternOffsetWorld) => {
+      appendPlacementGridDots(
+        subBuffers,
+        { x: ax, y: ay, z: az },
+        { x: bx, y: by, z: bz },
+        {
+          spacing: PLACEMENT_GRID_STYLE.subgridDotSpacingWorld,
+          dotLength: PLACEMENT_GRID_STYLE.subgridDotLengthWorld,
+          patternOffsetWorld,
+          startAlpha: alphaAt('subgrid', ax, az),
+          endAlpha: alphaAt('subgrid', bx, bz),
+        },
+      );
     };
     for (let dr = -subRadius; dr <= subRadius; dr++) {
       for (let dc = -subRadius; dc <= subRadius; dc++) {
@@ -3419,8 +3432,8 @@ export class ThreeRenderer {
           const yE = (1 - v) * ne + v * se;
           const xMid = c * 2 + 2 * (1 - v);
           const yMid = (1 - v) * ne + v * sw;
-          addSubSegment(xa, yW, z, xMid, yMid, z);
-          addSubSegment(xMid, yMid, z, xb, yE, z);
+          addSubSegment(xa, yW, z, xMid, yMid, z, 0);
+          addSubSegment(xMid, yMid, z, xb, yE, z, xMid - xa);
         }
         // North-south sub-lines (3 per tile, at u = 0.25, 0.5, 0.75).
         // North Y = (1-u)nw + u·ne   South Y = (1-u)sw + u·se
@@ -3432,8 +3445,8 @@ export class ThreeRenderer {
           const yS = (1 - u) * sw + u * se;
           const zMid = r * 2 + 2 * (1 - u);
           const yMid = (1 - u) * sw + u * ne;
-          addSubSegment(x, yN, za, x, yMid, zMid);
-          addSubSegment(x, yMid, zMid, x, yS, zb);
+          addSubSegment(x, yN, za, x, yMid, zMid, 0);
+          addSubSegment(x, yMid, zMid, x, yS, zb, zMid - za);
         }
       }
     }
@@ -3441,12 +3454,14 @@ export class ThreeRenderer {
     subGeo.setAttribute('position', new THREE.Float32BufferAttribute(subVerts, 3));
     subGeo.setAttribute('color', new THREE.Float32BufferAttribute(subColors, 4));
     const subMat = new THREE.LineBasicMaterial({
-      color: 0x88ccff, vertexColors: true, transparent: true,
+      color: PLACEMENT_GRID_STYLE.colorHex, vertexColors: true, transparent: true,
       depthTest: false, depthWrite: false,
     });
     const subLines = new THREE.LineSegments(subGeo, subMat);
     subLines.name = 'placementGridSubgrid';
     subLines.userData.gridLineKind = 'subgrid';
+    subLines.userData.dotSpacingWorld = PLACEMENT_GRID_STYLE.subgridDotSpacingWorld;
+    subLines.userData.dotLengthWorld = PLACEMENT_GRID_STYLE.subgridDotLengthWorld;
     subLines.renderOrder = 997;
     this.gridOverlayGroup.add(subLines);
 
