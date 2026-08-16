@@ -11,7 +11,7 @@ import { inMapRegion, DEFAULT_MAP_HALF_EXTENT } from '../game/map-generator.js';
 import { placementPose } from '../beamline/pipe-placements.js';
 import { flattenPath } from '../beamline/flattener.js';
 import { getBeamlineType } from '../data/beamline-types.js';
-import { beamVisualMode } from './beam-visual-mode.js';
+import { beamVisualMode, beamVisualProfile } from './beam-visual-mode.js';
 import { beamVisualPath } from './beam-visual-path.js';
 import { wallFixtureFaceOffset } from './fixture-light-math.js';
 import { utilityAttachmentPose } from '../utility/line-attachments.js';
@@ -480,6 +480,7 @@ function buildBeamPaths(game) {
 
     const dimmed = !!(editingId && entry.id !== editingId);
 
+    const beamlineType = getBeamlineType(entry.typeId);
     beamPaths.push({
       beamlineId: entry.id,
       nodePositions: nodes.map(n => ({
@@ -488,7 +489,10 @@ function buildBeamPaths(game) {
         tiles: n.cells ? n.cells.map(c => ({ col: c.col, row: c.row })) : [{ col: n.col, row: n.row }],
       })),
       dimmed,
-      visualMode: beamVisualMode(getBeamlineType(entry.typeId), flat),
+      visualMode: beamVisualMode(beamlineType, flat),
+      visualProfile: beamVisualProfile(
+        beamlineType, flat, entry.beamState?.physicsEnvelope,
+      ),
       color: entry.accentColor || 0x44ff44,
       worldPoints: beamVisualPath(flat, game.state.beamPipes),
     });
