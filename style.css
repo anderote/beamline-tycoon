@@ -6492,6 +6492,57 @@ body {
 .equipment-name { color: var(--ui-blue); font-size: 11px; }
 .equipment-meta { color: var(--ui-text-faint); }
 .equipment-utility { color: #dddd88; }
+.equipment-port-section {
+  margin-top: 4px;
+  padding-top: 7px;
+  border-top: 1px solid var(--ui-border-subtle);
+}
+.equipment-port-heading {
+  margin-bottom: 5px;
+  color: #99bfff;
+  font-size: 8px;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+}
+.equipment-port-list { display: flex; flex-direction: column; gap: 5px; }
+.equipment-port-row {
+  padding: 5px 6px;
+  border: 1px solid rgba(70, 85, 130, 0.3);
+  border-left: 3px solid var(--equipment-port-color);
+  border-radius: 3px;
+  background: rgba(13, 18, 38, 0.72);
+}
+.equipment-port-title { display: flex; align-items: center; gap: 5px; color: #d2ddff; }
+.equipment-port-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: var(--equipment-port-color);
+  box-shadow: 0 0 5px var(--equipment-port-color);
+}
+.equipment-port-role {
+  margin-left: auto;
+  color: var(--equipment-port-color);
+  font-size: 6px;
+  text-transform: uppercase;
+}
+.equipment-port-names {
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+  color: #707796;
+  font-size: 6px;
+  line-height: 1.5;
+}
+.equipment-port-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 3px;
+  color: #b6bad0;
+  font-size: 7px;
+}
+.equipment-port-metrics strong { color: #dddd88; font-weight: normal; }
 .ctx-window.selection-group-window {
   width: 380px;
   max-width: calc(100vw - 24px);
