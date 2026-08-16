@@ -319,7 +319,7 @@ function missionBriefHtml(typeCount) {
  * nobody has authored blueprints for yet — which is most of them today — and
  * it stays there once they have, because building it yourself is the game.
  */
-function blueprintPanelHtml(type, selectedDesignId, researchState) {
+export function blueprintPanelHtml(type, selectedDesignId, researchState) {
   if (!type) {
     return '<div class="blueprint-empty">Pick a machine type to see the beamlines it ships with.</div>';
   }
@@ -339,10 +339,14 @@ function blueprintPanelHtml(type, selectedDesignId, researchState) {
     html += `<div class="blueprint-card${sel}${locked}" data-design-id="${esc(d.id)}">`;
     html += '<div class="blueprint-head">';
     html += `<span class="blueprint-name">${esc(d.name)}</span>`;
+    html += '<span class="blueprint-head-meta">';
     html += `<span class="bltype-tier">T${d.tier}</span>`;
+    html += '<span class="blueprint-cost" '
+      + 'title="Hardware cost only; concrete and beam pipe are quoted when placed.">'
+      + `<span class="blueprint-cost-label">Cost</span> $${cost.toLocaleString()}</span>`;
+    html += '</span>';
     html += '</div>';
     html += '<div class="bltype-specs">';
-    html += `<span class="bltype-spec">$${cost.toLocaleString()}</span>`;
     html += `<span class="bltype-spec">${d.components.length} parts</span>`;
     html += '</div>';
     // No measured entry, no line. See formatMeasuredPerformance.
