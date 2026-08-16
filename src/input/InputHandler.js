@@ -75,6 +75,14 @@ import { renderHoverTooltipDetail } from '../ui/hover-tooltip-detail.js';
 const VARIANT_MEMORY_KEY = 'bt_lastVariantByKey';
 const SELECTION_SLOT_STORAGE_KEY = 'beamlineTycoon.selectionSlots.v1';
 const MARQUEE_DRAG_THRESHOLD_PX = 6;
+export const MIDDLE_CAMERA_DRAG_THRESHOLD_PX = 4;
+
+/** Ignore normal mouse jitter when deciding whether MMB was a click or orbit. */
+export function isMiddleCameraDrag(start, current) {
+  const dx = current.x - start.x;
+  const dy = current.y - start.y;
+  return dx * dx + dy * dy >= MIDDLE_CAMERA_DRAG_THRESHOLD_PX ** 2;
+}
 
 // A mesh ray is pixel-perfect, which is too strict for thin rails, legs and
 // small fittings. Selection/demolish clicks get this fixed screen-space margin
@@ -122,7 +130,9 @@ export class InputHandler {
     this._selectionSlots = this._loadSelectionSlots();
     this.isPanning = false;
     this.isFreeOrbiting = false;
+    this.freeOrbitStart = { x: 0, y: 0 };
     this.freeOrbitLast = { x: 0, y: 0 };
+    this.freeOrbitDragged = false;
     this.panStart = { x: 0, y: 0 };
     this.worldStart = { x: 0, y: 0 };
     this.activeMode = 'beamline';
@@ -2138,11 +2148,13 @@ export class InputHandler {
       // clicks, pans, and connector grabs all behave alike.
       this.renderer.ui?._dismissConnectionGuide?.();
 
-      // Middle mouse: free-orbit camera drag. Release snaps to nearest iso view.
+      // Middle mouse: a click toggles iso/top at the same heading; movement
+      // beyond the jitter threshold becomes the existing free-orbit drag.
       if (e.button === 1) {
         this.isFreeOrbiting = true;
+        this.freeOrbitStart = { x: e.clientX, y: e.clientY };
         this.freeOrbitLast = { x: e.clientX, y: e.clientY };
-        this.renderer.startFreeOrbit();
+        this.freeOrbitDragged = false;
         canvas.style.cursor = 'grabbing';
         e.preventDefault();
         return;
@@ -2210,6 +2222,18 @@ export class InputHandler {
 
     canvas.addEventListener('mousemove', (e) => {
       if (this.isFreeOrbiting) {
+        if (!this.freeOrbitDragged) {
+          const current = { x: e.clientX, y: e.clientY };
+          if (!isMiddleCameraDrag(this.freeOrbitStart, current)) return;
+          this.freeOrbitDragged = true;
+          this.renderer.startFreeOrbit();
+          this.renderer.orbitBy(
+            e.clientX - this.freeOrbitStart.x,
+            e.clientY - this.freeOrbitStart.y,
+          );
+          this.freeOrbitLast = current;
+          return;
+        }
         const dx = e.clientX - this.freeOrbitLast.x;
         const dy = e.clientY - this.freeOrbitLast.y;
         this.freeOrbitLast = { x: e.clientX, y: e.clientY };
@@ -2256,12 +2280,7 @@ export class InputHandler {
 
     canvas.addEventListener('mouseup', (e) => {
       this._hideDragCostTooltip();
-      if (this.isFreeOrbiting) {
-        this.isFreeOrbiting = false;
-        this.renderer.endFreeOrbit();
-        canvas.style.cursor = '';
-        return;
-      }
+      if (e.button === 1 && this._finishMiddleCameraGesture({ toggleClick: true })) return;
       if (this.isPanning) {
         this.isPanning = false;
         canvas.style.cursor = '';
@@ -2310,9 +2329,9 @@ export class InputHandler {
     // so the snap animation still runs.
     window.addEventListener('mouseup', (e) => {
       if (e.button === 1 && this.isFreeOrbiting) {
-        this.isFreeOrbiting = false;
-        this.renderer.endFreeOrbit();
-        canvas.style.cursor = '';
+        // Releasing off-world completes a real orbit, but does not turn a
+        // pending press into a view-toggle click.
+        this._finishMiddleCameraGesture();
         return;
       }
       // The canvas is a full-screen overlay with the HUD, build bar, popups
@@ -2335,15 +2354,29 @@ export class InputHandler {
   }
 
   /**
+   * Finish the pending middle-button camera gesture. A drag owns a live
+   * renderer orbit and must snap it; an on-canvas click owns no orbit yet and
+   * toggles only the camera elevation. Off-canvas/abort callers pass false.
+   */
+  _finishMiddleCameraGesture({ toggleClick = false } = {}) {
+    if (!this.isFreeOrbiting) return false;
+    const dragged = this.freeOrbitDragged;
+    this.isFreeOrbiting = false;
+    this.freeOrbitDragged = false;
+    if (dragged) this.renderer.endFreeOrbit?.();
+    else if (toggleClick) this.renderer.toggleViewMode?.();
+    const canvas = this.renderer?.app?.canvas || this.renderer?.canvas;
+    if (canvas) canvas.style.cursor = '';
+    return true;
+  }
+
+  /**
    * Drop every in-flight pointer gesture without committing it: camera
    * orbit/pan and the active tool's drag state. Safe to call repeatedly.
    */
   _abortPointerGesture() {
     this._hideDragCostTooltip?.();
-    if (this.isFreeOrbiting) {
-      this.isFreeOrbiting = false;
-      this.renderer.endFreeOrbit?.();
-    }
+    this._finishMiddleCameraGesture();
     this.isPanning = false;
     this._clearMarquee?.();
     this._hidePlacementKeyHint?.();
