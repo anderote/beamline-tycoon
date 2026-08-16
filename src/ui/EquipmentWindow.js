@@ -5,6 +5,26 @@ import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { utilityStatRows } from './utility-supply.js';
 import { componentUtilityPortSectionHtml } from './utility-port-details.js';
+import { autoConnectTargetLabel } from './hover-info.js';
+
+export function equipmentAutoConnectAction(plan, fallbackUtilityType = 'powerCable') {
+  const utilityType = plan?.utilityType || fallbackUtilityType;
+  const count = plan?.stubs?.length || 0;
+  const inRange = plan?.candidates || 0;
+  const funding = plan?.cost?.funding || 0;
+  return {
+    count,
+    inRange,
+    funding,
+    label: count > 0
+      ? `Auto-connect ${count} ($${funding.toLocaleString()}) · Tab`
+      : 'Auto-connect nearby · Tab',
+    title: inRange > 0
+      ? `${inRange} unconnected ${autoConnectTargetLabel(utilityType, inRange)} in range; Tab draws ${count} routable line${count === 1 ? '' : 's'} using free outlets`
+      : `No routable ${autoConnectTargetLabel(utilityType, 2)} are currently in range`,
+    disabled: count === 0,
+  };
+}
 
 export class EquipmentWindow {
   /**
@@ -105,25 +125,6 @@ export class EquipmentWindow {
         }
       }},
     ];
-    if (this.comp.autoConnectRadius > 0) {
-      const plan = this._autoConnectPlan;
-      const count = plan?.stubs?.length || 0;
-      const inRange = plan?.candidates || 0;
-      const funding = plan?.cost?.funding || 0;
-      actions.unshift({
-        label: count > 0
-          ? `Auto-connect ${count} ($${funding.toLocaleString()}) · Tab`
-          : 'Auto-connect nearby · Tab',
-        title: inRange > 0
-          ? `${inRange} unconnected power plug${inRange === 1 ? '' : 's'} in range; Tab draws ${count} routable cable${count === 1 ? '' : 's'} using free outlets`
-          : 'No routable unconnected power plugs are currently in range',
-        disabled: count === 0,
-        onClick: () => {
-          this.selectionActions.onAutoConnect?.(this.equip.id);
-          this.refresh();
-        },
-      });
-    }
     this.ctx.setActions(actions);
   }
 
@@ -186,6 +187,18 @@ export class EquipmentWindow {
 
     let html = '<div class="equipment-details">';
     html += `<div class="equipment-name">${comp.name}</div>`;
+    const autoConnectAction = comp.autoConnectRadius > 0
+      ? equipmentAutoConnectAction(
+          this._autoConnectPlan,
+          comp.autoConnectUtility || 'powerCable',
+        )
+      : null;
+    if (autoConnectAction) {
+      html += `<button type="button" class="ctx-action-btn equipment-auto-connect-btn"`
+        + `${autoConnectAction.disabled ? ' disabled' : ''}`
+        + ` title="${escapeHtml(autoConnectAction.title)}">`
+        + `${escapeHtml(autoConnectAction.label)}</button>`;
+    }
     html += `<div class="equipment-meta">Category: ${equip.category || comp.category || 'general'}</div>`;
 
     if (comp.cost) {
@@ -200,7 +213,9 @@ export class EquipmentWindow {
       const ready = this._autoConnectPlan?.stubs?.length || 0;
       const inRange = this._autoConnectPlan?.candidates || 0;
       html += `<div class="equipment-utility">Auto-connect radius: ${comp.autoConnectRadius} tiles</div>`;
-      html += `<div class="equipment-utility">Unconnected power plugs in range: ${inRange}</div>`;
+      const utilityType = this._autoConnectPlan?.utilityType
+        || comp.autoConnectUtility || 'powerCable';
+      html += `<div class="equipment-utility">Unconnected ${autoConnectTargetLabel(utilityType, inRange)} in range: ${inRange}</div>`;
       html += `<div class="equipment-utility">Routable with free outlets: ${ready}</div>`;
     }
 
@@ -225,6 +240,11 @@ export class EquipmentWindow {
     html += `<div class="equipment-position">Position: (${equip.col}, ${equip.row})</div>`;
     html += '</div>';
     container.innerHTML = html;
+    const autoConnectButton = container.querySelector?.('.equipment-auto-connect-btn');
+    autoConnectButton?.addEventListener?.('click', () => {
+      this.selectionActions.onAutoConnect?.(this.equip.id);
+      this.refresh();
+    });
   }
 
   refresh() {

@@ -43,6 +43,10 @@ the short authoring contract.
 
 - Read ports through `getUtilityPortsV2(id)` when solver defaults and derived RF
   band information matter. The flat table is raw authoring data.
+- Assisted distribution wiring uses `autoConnectRadius` and commits real paid
+  lines from real free source ports. `autoConnectUtility` defaults to
+  `powerCable`; set it to `hvCable` for HV distributors. The authored utility
+  must exist and the device must expose a matching source port.
 - Port identity is `<placeableId>:<portName>`, but scenario scripts should call
   `wireUtility` with capability selectors such as `{ id, role: 'sink' }` or
   `{ id, role: 'pass', side: 'left' }`. Add `index` only when several otherwise

@@ -58,6 +58,11 @@ function powerLines(game) {
     .filter(line => line.utilityType === 'powerCable');
 }
 
+function linesOf(game, utilityType) {
+  return Array.from(game.state.utilityLines.values())
+    .filter(line => line.utilityType === utilityType);
+}
+
 console.log('\n--- 1. Radius and physical outlet constraints ---');
 {
   assert(COMPONENTS.powerPanel.autoConnectRadius === 5,
@@ -181,6 +186,41 @@ console.log('\n--- 5. A hovered distribution panel owns Tab without selection --
   });
   assert(!multiHandled && input.connectedPanelId === null,
     'multi-selection leaves Tab available to cycle palette categories');
+}
+
+console.log('\n--- 6. HV distributors auto-connect ordinary HV feeders ---');
+{
+  assert(COMPONENTS.compactHvDistributor.autoConnectUtility === 'hvCable'
+      && COMPONENTS.switchgear.autoConnectUtility === 'hvCable',
+  'both HV distribution tiers opt into feeder auto-connect');
+  assert(COMPONENTS.switchgear.autoConnectRadius
+      > COMPONENTS.compactHvDistributor.autoConnectRadius,
+  'the larger HV distributor has the longer assisted-wiring reach');
+
+  const game = new Game(new BeamlineRegistry(), { seed: 92 });
+  game.state.resources.funding = 1e9;
+  game.state.placeables.push(
+    item('hv_dist', 'compactHvDistributor', 10, 10),
+    item('panel_1', 'powerPanel', 12, 10),
+    item('panel_2', 'sectionDistributionPanel', 14, 10),
+    item('panel_3', 'mainDistributionPanel', 16, 10),
+    item('panel_far', 'powerPanel', 30, 10),
+  );
+  const plan = planPanelAutoConnect(game.state, 'hv_dist');
+  const ends = plan.stubs.map(stub => stub.end.placeableId);
+  assert(plan.utilityType === 'hvCable' && plan.candidates === 3,
+    `the HV plan finds feeder inputs in range (got ${plan.candidates})`);
+  assert(plan.outlets === 2 && plan.stubs.length === 2 && plan.skipped === 1,
+    `two protected outputs promise exactly two feeder runs (got ${plan.stubs.length})`);
+  assert(ends.join(',') === 'panel_1,panel_2' && !ends.includes('panel_far'),
+    `nearest downstream panels win and the far panel is ignored (got ${ends.join(',')})`);
+  assert(plan.stubs.every(stub => validateDrawLine(game.state, {
+    utilityType: 'hvCable', start: stub.start, end: stub.end, path: stub.path,
+  }).ok), 'HV auto-connect uses the ordinary feeder validator');
+
+  const committed = commitPanelAutoConnect(game, plan);
+  assert(committed.length === 2 && linesOf(game, 'hvCable').length === 2,
+    'the HV action commits real HV feeder lines');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

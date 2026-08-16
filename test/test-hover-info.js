@@ -41,6 +41,12 @@ const actionablePanel = componentHoverInfo(COMPONENTS.powerPanel, {
 assert(actionablePanel.detail === '5 unconnected power plugs in range · Tab connects 4',
   `placed panel hover reports both nearby plugs and Tab capacity (${actionablePanel.detail})`);
 
+const actionableHvDistributor = componentHoverInfo(COMPONENTS.compactHvDistributor, {
+  autoConnectPlan: { utilityType: 'hvCable', candidates: 2, stubs: [{}] },
+});
+assert(actionableHvDistributor.detail === '2 unconnected HV feeder inputs in range · Tab connects 1',
+  `HV distributor hover names feeder inputs (${actionableHvDistributor.detail})`);
+
 const packageChiller = componentHoverInfo(COMPONENTS.packageChiller);
 assert(packageChiller.detail === 'Cooling output: 5 kW',
   `package chiller hover shows its total cooling capacity (${packageChiller.detail})`);
@@ -146,7 +152,7 @@ assert(furnishing.detail === 'Morale +10% · Research +2',
   'furnishing effects stay on one detail line');
 
 for (const info of [
-  cavity, panel, actionablePanel, packageChiller, makeUpTank, facilityWater,
+  cavity, panel, actionablePanel, actionableHvDistributor, packageChiller, makeUpTank, facilityWater,
   bulkWater, network, exactlyCoveredNetwork, warningNetwork, criticalNetwork,
   mismatchNetwork, hardFaultNetwork, furnishing,
 ]) {

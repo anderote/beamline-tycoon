@@ -6490,6 +6490,19 @@ body {
 /* Equipment and utility inspectors */
 .equipment-details { display: flex; flex-direction: column; gap: 5px; font-size: 10px; line-height: 1.4; }
 .equipment-name { color: var(--ui-blue); font-size: 11px; }
+.equipment-auto-connect-btn {
+  flex: 0 0 auto;
+  width: 100%;
+  margin: 2px 0 4px;
+  padding: 8px 10px;
+  color: #e2e68e;
+  border-color: rgba(190, 196, 92, 0.5);
+  background: rgba(48, 50, 44, 0.72);
+}
+.equipment-auto-connect-btn:not(:disabled):hover {
+  color: #f1f4aa;
+  background: rgba(66, 69, 51, 0.9);
+}
 .equipment-meta { color: var(--ui-text-faint); }
 .equipment-utility { color: #dddd88; }
 .equipment-port-section {

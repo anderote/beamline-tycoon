@@ -1,7 +1,12 @@
 // Regression coverage for the multi-selection context panel.
 
-import { EquipmentWindow, selectionWindowItems } from '../src/ui/EquipmentWindow.js';
+import {
+  EquipmentWindow,
+  equipmentAutoConnectAction,
+  selectionWindowItems,
+} from '../src/ui/EquipmentWindow.js';
 import { reconcileSelectionWindow } from '../src/input/selection-window.js';
+import { COMPONENTS } from '../src/data/components.js';
 
 let passed = 0;
 let failed = 0;
@@ -92,6 +97,52 @@ console.log('\n=== Multi-selection window ===\n');
   EquipmentWindow.prototype._updateActions.call(panel);
   assert(actions.find(action => action.label === 'Paste')?.disabled === true,
     'Paste is disabled until a formation has been copied');
+}
+
+{
+  const action = equipmentAutoConnectAction({
+    utilityType: 'hvCable', candidates: 2, stubs: [{}, {}],
+    cost: { funding: 960 },
+  });
+  assert(action.label === 'Auto-connect 2 ($960) · Tab'
+      && action.title.includes('2 unconnected HV feeder inputs'),
+  'HV distributor action copy identifies feeder inputs');
+
+  let footerActions = [];
+  const panel = {
+    comp: COMPONENTS.sectionDistributionPanel,
+    equip: {
+      id: 'section_panel', type: 'sectionDistributionPanel',
+      category: 'infrastructure', col: 6, row: 9,
+    },
+    _autoConnectPlan: {
+      utilityType: 'powerCable', candidates: 3, stubs: [{}, {}],
+      cost: { funding: 480 },
+    },
+    selectionActions: {},
+    _selectionEntries() { return [this.equip]; },
+    ctx: { setActions(actions) { footerActions = actions; } },
+  };
+  EquipmentWindow.prototype._updateActions.call(panel);
+  assert(!footerActions.some(item => item.label.startsWith('Auto-connect')),
+    'auto-connect is removed from the crowded footer action row');
+
+  let clickHandler = null;
+  const container = {
+    innerHTML: '',
+    querySelector(selector) {
+      if (selector !== '.equipment-auto-connect-btn'
+          || !this.innerHTML.includes('equipment-auto-connect-btn')) return null;
+      return { addEventListener(type, handler) { if (type === 'click') clickHandler = handler; } };
+    },
+  };
+  EquipmentWindow.prototype._renderInfo.call(panel, container);
+  assert(container.innerHTML.indexOf('equipment-auto-connect-btn')
+      < container.innerHTML.indexOf('Category:'),
+  'the dedicated auto-connect button renders near the top, before metadata');
+  assert(container.innerHTML.includes('ctx-action-btn equipment-auto-connect-btn')
+      && typeof clickHandler === 'function',
+  'the top button uses the shared action styling and remains interactive');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -32,6 +32,7 @@ import { DemolishTool } from './demolish-tool.js';
 import { MoveTool, ProbeTool } from './mode-tools.js';
 import { BeamlineTool } from './beamline-tool.js';
 import { UtilityLineTool } from './utility-line-tool.js';
+import { DeferredUtilityPortDrag } from './deferred-port-drag.js';
 import {
   commitPanelAutoConnect,
   planPanelAutoConnect,
@@ -123,6 +124,7 @@ export class InputHandler {
     this._selectedRootsById = new Map();
     this._marquee = null;
     this._marqueeEl = null;
+    this._deferredUtilityPortDrag = new DeferredUtilityPortDrag();
     this._placementKeyHintEl = null;
     this._panelAutoConnectPlanCache = new Map();
     this._panelAutoConnectPlanCacheRevision = -1;
@@ -2194,19 +2196,17 @@ export class InputHandler {
         }
       }
 
-      // With no build tool active, a direct grab on a visible connector starts
-      // the matching utility gesture. This keeps ordinary equipment selection
-      // intact everywhere except the port itself, where wiring is the clear
-      // intent. The UtilityLineTool owns the rest of the drag/commit exactly
-      // as if it had been armed from the build palette.
+      // With no build tool active, a direct press on a visible connector stays
+      // ambiguous until the pointer actually drags. A plain release must reach
+      // normal equipment selection even inside the generous port hit radius;
+      // only dragging outward arms the matching utility tool.
       if (e.button === 0 && !this.activeTool) {
         const world = this.renderer.screenToWorld(e.clientX, e.clientY);
         const port = this.utilityLineController.findPortAt(
           world.x, world.y, { x: e.clientX, y: e.clientY },
         );
         if (port?.utilityType) {
-          this.setTool(new UtilityLineTool(port.utilityType));
-          this._toolConsumed('onMouseDown', e);
+          this._deferredUtilityPortDrag.begin(port, e);
           return;
         }
       }
@@ -2249,6 +2249,16 @@ export class InputHandler {
       this._lastScreenX = e.clientX;
       this._lastScreenY = e.clientY;
       this._updatePlacementKeyHint(e.clientX, e.clientY);
+      const deferredPortDrag = this._deferredUtilityPortDrag.update(e);
+      if (deferredPortDrag) {
+        this.setTool(new UtilityLineTool(deferredPortDrag.port.utilityType));
+        // Replay the original press so the line stays anchored on the port,
+        // then advance the newly armed tool to the current cursor in the same
+        // event. This makes the threshold invisible in the preview geometry.
+        this._toolConsumed('onMouseDown', deferredPortDrag.press);
+        this._toolConsumed('onMouseMove', e);
+        return;
+      }
       if (this._updateMarquee(e)) {
         this._hideTooltip();
         return;
@@ -2280,6 +2290,7 @@ export class InputHandler {
 
     canvas.addEventListener('mouseup', (e) => {
       this._hideDragCostTooltip();
+      if (e.button === 0) this._deferredUtilityPortDrag.release();
       if (e.button === 1 && this._finishMiddleCameraGesture({ toggleClick: true })) return;
       if (this.isPanning) {
         this.isPanning = false;
@@ -2378,6 +2389,7 @@ export class InputHandler {
     this._hideDragCostTooltip?.();
     this._finishMiddleCameraGesture();
     this.isPanning = false;
+    this._deferredUtilityPortDrag?.cancel?.();
     this._clearMarquee?.();
     this._hidePlacementKeyHint?.();
     const canvas = this.renderer?.canvas;
@@ -2416,10 +2428,19 @@ export class InputHandler {
       return;
     }
 
-    // Utility-line click-to-inspect. An armed beamline tool suppresses it
-    // (legacy dispatch order: the beamline family kept the click for node
-    // selection below); tools that consume clicks never reach this point.
-    // Opens a UtilityInspector window for the clicked line's network.
+    // Click-to-select: all placeable objects get a persistent white outline
+    // and their info menu. Equipment wins before utility-line inspection so a
+    // cable ending on (or crossing in front of) its mesh cannot steal the
+    // click. Tools still own their placement clicks above; escape/disarm
+    // returns the canvas to this direct selection behavior.
+    if (this._selectPlaceableAt(
+      world, grid, screenX, screenY,
+      { additive: shiftKey },
+    )) return;
+
+    // Utility-line click-to-inspect is the fallback after the placeable pick.
+    // An armed beamline tool suppresses it; tools that consume clicks never
+    // reach this point. Opens a UtilityInspector for the clicked line's net.
     if (this.activeTool?.kind !== 'beamline'
         && typeof this.renderer.raycastUtilityLine === 'function') {
       const hit = this.renderer.raycastUtilityLine(screenX, screenY);
@@ -2427,14 +2448,6 @@ export class InputHandler {
         if (this._openUtilityInspectorForLine(hit.lineId)) return;
       }
     }
-
-    // Click-to-select: all placeable objects get a persistent white outline
-    // and their info menu. Tools still own their placement clicks above;
-    // escape/disarm returns the canvas to this direct selection behavior.
-    if (this._selectPlaceableAt(
-      world, grid, screenX, screenY,
-      { additive: shiftKey },
-    )) return;
 
     {
       // Phase 6: rack-segment click-to-inspect removed. Utility inspection
@@ -2478,6 +2491,7 @@ export class InputHandler {
    * here; family-specific arming lives in the tool's onEnter.
    */
   setTool(tool) {
+    this._deferredUtilityPortDrag?.cancel?.();
     const prev = this.activeTool;
     this.activeTool = null;
     if (prev) {

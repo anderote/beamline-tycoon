@@ -40,15 +40,22 @@ export function panelAutoConnectRadius(def) {
   return Number.isFinite(radius) && radius > 0 ? radius : 0;
 }
 
+/** Power panels default to branch cable; HV distributors opt into feeders. */
+export function panelAutoConnectUtility(def) {
+  const utilityType = def?.autoConnectUtility || PANEL_AUTO_CONNECT_UTILITY;
+  return UTILITY_TYPES[utilityType] ? utilityType : null;
+}
+
 /**
- * Plan real power cables from one distribution panel to nearby free sinks.
- * Nearest connectors win when there are more loads than physical outlets.
+ * Plan real lines from one distribution device to nearby free sinks of its
+ * selected utility. Nearest connectors win when loads outnumber outlets.
  */
 export function planPanelAutoConnect(state, panelId, {
   portPosition = portWorldPosition,
 } = {}) {
-  const empty = {
+  const baseEmpty = {
     panelId,
+    utilityType: null,
     radius: 0,
     candidates: 0,
     outlets: 0,
@@ -57,19 +64,21 @@ export function planPanelAutoConnect(state, panelId, {
     totalSubL: 0,
     cost: null,
   };
-  if (!state || !panelId) return empty;
+  if (!state || !panelId) return baseEmpty;
 
   const panel = findUtilityEndpoint(state, panelId);
   const panelDef = COMPONENTS[panel?.type];
   const radius = panelAutoConnectRadius(panelDef);
-  if (!panel || !panelDef || radius <= 0) return empty;
+  const utilityType = panelAutoConnectUtility(panelDef);
+  const empty = { ...baseEmpty, utilityType };
+  if (!panel || !panelDef || radius <= 0 || !utilityType) return empty;
 
   const resolvePortPosition = typeof portPosition === 'function'
     ? portPosition
     : portWorldPosition;
   const lines = state.utilityLines;
   const sourcePorts = availablePorts(
-    panel, panelDef, PANEL_AUTO_CONNECT_UTILITY, lines,
+    panel, panelDef, utilityType, lines,
   ).filter(name => getPortSpec(panelDef, name)?.role === 'source');
   const centre = placeableCenterWorld(panel, panelDef);
   if (!centre) return { ...empty, radius, outlets: sourcePorts.length };
@@ -88,7 +97,7 @@ export function planPanelAutoConnect(state, panelId, {
     if (!endpoint || endpoint.id === panelId) continue;
     const def = COMPONENTS[endpoint.type];
     if (!def?.ports) continue;
-    for (const portName of availablePorts(endpoint, def, PANEL_AUTO_CONNECT_UTILITY, lines)) {
+    for (const portName of availablePorts(endpoint, def, utilityType, lines)) {
       const spec = getPortSpec(def, portName);
       if (spec?.role !== 'sink') continue;
       const pos = resolvePortPosition(endpoint, def, portName);
@@ -133,11 +142,11 @@ export function planPanelAutoConnect(state, panelId, {
       sink.tile, directJumper ? null : sink.vec,
       {
         allowZeroLength: true,
-        portClearance: UTILITY_TYPES[PANEL_AUTO_CONNECT_UTILITY]?.portClearance !== false,
+        portClearance: UTILITY_TYPES[utilityType]?.portClearance !== false,
       },
     );
     const path = routes.find(candidate => validateDrawLine(probeState, {
-      utilityType: PANEL_AUTO_CONNECT_UTILITY,
+      utilityType,
       start,
       end,
       path: candidate,
@@ -151,7 +160,7 @@ export function planPanelAutoConnect(state, panelId, {
     stubs.push({ start, end, path, subL });
     plannedLines.push({
       id: `__panel_auto_${stubs.length}`,
-      utilityType: PANEL_AUTO_CONNECT_UTILITY,
+      utilityType,
       start,
       end,
       path,
@@ -162,19 +171,21 @@ export function planPanelAutoConnect(state, panelId, {
 
   return {
     panelId,
+    utilityType,
     radius,
     candidates: candidates.length,
     outlets: outlets.length,
     stubs,
     skipped,
     totalSubL,
-    cost: runWiringCost(PANEL_AUTO_CONNECT_UTILITY, totalSubL),
+    cost: runWiringCost(utilityType, totalSubL),
   };
 }
 
 /** Commit a previously calculated plan as a single paid/undoable gesture. */
 export function commitPanelAutoConnect(game, plan) {
   if (!game || !plan || plan.stubs.length === 0) return [];
+  const utilityType = plan.utilityType || PANEL_AUTO_CONNECT_UTILITY;
   const planCost = plan.cost;
   const committed = [];
   game.commitGesture({
@@ -183,7 +194,7 @@ export function commitPanelAutoConnect(game, plan) {
       let committedSubL = 0;
       for (const stub of plan.stubs) {
         const id = game.utilityLineSystem.addLine({
-          utilityType: PANEL_AUTO_CONNECT_UTILITY,
+          utilityType,
           start: stub.start,
           end: stub.end,
           path: stub.path,
@@ -197,7 +208,7 @@ export function commitPanelAutoConnect(game, plan) {
       // A world change between menu render and click can invalidate one line.
       // Charge only for lines that actually landed.
       if (planCost && committed.length > 0) {
-        const actual = runWiringCost(PANEL_AUTO_CONNECT_UTILITY, committedSubL) || {};
+        const actual = runWiringCost(utilityType, committedSubL) || {};
         for (const [resource, amount] of Object.entries(planCost)) {
           const refund = amount - (actual[resource] || 0);
           if (refund > 0) game.state.resources[resource] += refund;
@@ -209,8 +220,9 @@ export function commitPanelAutoConnect(game, plan) {
   });
 
   if (committed.length > 0) {
+    const label = UTILITY_TYPES[utilityType]?.displayName || utilityType;
     game.log(
-      `Power Cable: auto-connected ${committed.length} nearby plug${committed.length === 1 ? '' : 's'}`,
+      `${label}: auto-connected ${committed.length} nearby input${committed.length === 1 ? '' : 's'}`,
       'good',
     );
   }
