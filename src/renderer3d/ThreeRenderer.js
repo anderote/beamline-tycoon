@@ -55,6 +55,7 @@ import { LightRig } from './light-rig.js';
 import { VisualEffectSystem } from './visual-effect-system.js';
 import { fixtureMountY, wallFixturePose } from './fixture-light-math.js';
 import {
+  DYNAMIC_POINT_LIGHT_FLASH_RESERVE, MAX_DYNAMIC_POINT_LIGHTS,
   MAX_FIXTURE_LIGHTS, MAX_FIXTURE_SHADOWS, MAX_VOLUMETRIC_BEAMS, fixtureShadowTopologyLimit,
   normalizeLightingQuality, resolveLightingQuality,
 } from './lighting-quality.js';
@@ -569,7 +570,8 @@ export class ThreeRenderer {
         : fixtureShadowSlots,
       shadowSpotCount: fixtureShadowSlots,
       activeShadowSpotCount: this._lightingQuality.fixtureShadowCount,
-      pointCount: this._rendererBackend.mode === 'modern' ? 16 : 8,
+      pointCount: MAX_DYNAMIC_POINT_LIGHTS,
+      flashReserve: DYNAMIC_POINT_LIGHT_FLASH_RESERVE,
       shadowMapSize: this._lightingQuality.fixtureShadowMapSize,
       shadowHz: this._lightingQuality.fixtureShadowHz,
       shadowUpdatesPerFrame: this._lightingQuality.fixtureShadowUpdatesPerFrame,

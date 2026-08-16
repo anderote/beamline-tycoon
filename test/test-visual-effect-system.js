@@ -89,6 +89,30 @@ test('path effects can keep emissive crests and real-light proxies without floor
   system.dispose();
 });
 
+test('dense utility runs share the bounded light-proxy pool fairly', () => {
+  const scene = new Three.Scene();
+  const system = new VisualEffectSystem(scene, { pulseBudget: 8, lightProxyBudget: 4 });
+  const path = [{ x: 0, y: 0.1, z: 0 }, { x: 10, y: 0.1, z: 0 }];
+  system.syncScope('utilities', [
+    {
+      id: 'power-old', kind: 'pathPulse', path, speed: 1, period: 1, crest: false,
+      light: { intensity: 0.16, distance: 1.5 },
+    },
+    {
+      id: 'hv-new', kind: 'pathPulse', path, speed: 1, period: 1, crest: false,
+      light: { intensity: 0.28, distance: 2.05 },
+    },
+  ]);
+
+  assert.deepEqual([...system._effects.values()].map((effect) => effect.proxyCount), [2, 2],
+    'the older dense run cannot consume every candidate before the newer run gets one');
+  system.update(0, 1);
+  assert.equal(system.getStats().lightCandidates, 4);
+  assert.ok(system.lightEmitters.some((proxy) => proxy.visible && proxy.position.x >= 5),
+    'a reduced proxy allocation still spans the full run instead of bunching at its source');
+  system.dispose();
+});
+
 test('path effects can keep moving light proxies without crest objects', () => {
   const scene = new Three.Scene();
   const system = new VisualEffectSystem(scene, { pulseBudget: 8, lightProxyBudget: 4 });

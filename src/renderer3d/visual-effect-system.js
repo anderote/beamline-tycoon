@@ -179,13 +179,37 @@ export class VisualEffectSystem {
   }
 
   _assignLightProxyRanges() {
-    let cursor = 0;
+    const requests = [];
     for (const effect of this._effects.values()) {
-      effect.proxyStart = cursor;
       const desired = effect.light === false
         ? 0 : Math.max(1, Math.ceil(effect.path.length / Math.max(0.05, effect.period || 1)) + 1);
-      effect.proxyCount = Math.min(desired, Math.max(0, this._lightProxies.length - cursor));
-      cursor += effect.proxyCount;
+      requests.push({ effect, desired, assigned: 0 });
+    }
+
+    // Share the bounded proxy pool in rounds. Every light-capable run gets one
+    // moving candidate before any dense/long run gets its second. This keeps
+    // early-created power cables from monopolizing the pool merely because
+    // their pulse spacing is short; LightRig performs the camera ranking over
+    // the resulting candidates each frame.
+    let remaining = this._lightProxies.length;
+    while (remaining > 0) {
+      let progressed = false;
+      for (const request of requests) {
+        if (remaining <= 0) break;
+        if (request.assigned >= request.desired) continue;
+        request.assigned++;
+        remaining--;
+        progressed = true;
+      }
+      if (!progressed) break;
+    }
+
+    let cursor = 0;
+    for (const request of requests) {
+      request.effect.proxyStart = cursor;
+      request.effect.proxyCount = request.assigned;
+      request.effect.proxyCycleCount = request.desired;
+      cursor += request.assigned;
     }
   }
 
@@ -421,12 +445,17 @@ export class VisualEffectSystem {
     // One full train cycle includes an off-path interval. Stable proxy
     // identities cross the sink, park, and later re-enter at the source;
     // subsequent effects never shift indices when that happens.
-    const cycleLength = count * period;
+    const cycleCount = Math.max(count, effect.proxyCycleCount || count);
+    const cycleLength = cycleCount * period;
     const phaseDistance = this._time * (Number(effect.speed) || 0) + (effect.phase || 0);
     const strength = this._pathPulseStrength(effect);
     let active = 0;
     for (let i = 0; i < count; i++) {
-      const distance = positiveModulo(phaseDistance + i * period, cycleLength);
+      // When this effect received fewer proxies than its ideal pulse train,
+      // sample evenly across that full train instead of bunching every proxy
+      // near the source and shortening the cycle to the assigned count.
+      const pulseIndex = Math.floor(i * cycleCount / count);
+      const distance = positiveModulo(phaseDistance + pulseIndex * period, cycleLength);
       if (distance > effect.path.length) continue;
       const point = sampleEffectPath(effect.path, distance, this._sample);
       if (!point) continue;

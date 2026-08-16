@@ -14,6 +14,8 @@
 // when the browser, OS, or driver comes under additional graphics pressure.
 export const MAX_FIXTURE_LIGHTS = 64;
 export const MAX_FIXTURE_SHADOWS = 12;
+export const MAX_DYNAMIC_POINT_LIGHTS = 32;
+export const DYNAMIC_POINT_LIGHT_FLASH_RESERVE = 2;
 export const MAX_VOLUMETRIC_BEAMS = 8;
 export const MAX_SHADOW_TEXTURE_BUDGET_BYTES = 64 * 1024 * 1024;
 
