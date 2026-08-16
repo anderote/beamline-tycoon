@@ -86,13 +86,13 @@ server still needs to be stopped before the task is handed off.
   then `npm run test:fast` and `npm run build` before handoff.
 - Run `npm run test:simulation` whenever economy, staffing, scenario, or
   utility-topology changes can affect a facility's operating balance.
-- `npm test` / `npm run test:all` is the complete non-browser gate. Run the
-  Playwright lane only when the repository owner explicitly enables browser
-  testing for crash investigation or bug debugging in the current
-  conversation. Browser automation is not part of routine validation, even
-  for renderer or interaction work. This restriction also covers Browser and
-  Chrome control tools. If browser automation appears essential, stop and ask
-  the owner before launching it.
+- `npm test` / `npm run test:all` is the complete non-browser gate. Codex and
+  other development agents must never launch or control a browser, open browser
+  windows, run Playwright or `npm run test:browser`, use Browser, Chrome, or
+  computer-use tools to operate a browser, or perform manual game playtesting
+  while working in this repository. The repository owner performs all browser
+  and gameplay validation. Agents must restrict validation to non-browser tests
+  and builds, then hand off any remaining playtesting checklist to the owner.
 - A changed contract requires a test at the contract boundary, not only a test
   of the current implementation's private helpers.
 
