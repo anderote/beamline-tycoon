@@ -1429,6 +1429,13 @@ body {
   white-space: nowrap;
 }
 
+/* RF hardware has two compact utility rows (power and RF) at the left edge.
+   Put its wider band/frequency block on the next row instead of letting the
+   opposing absolute-positioned badges print over one another. */
+.palette-item .palette-utility-tags + .palette-rf-band {
+  top: 32px;
+}
+
 .palette-item .palette-utility-draw { color: #ee6655; }
 .palette-item .palette-utility-power.palette-utility-supply { color: #e5c95a; }
 .palette-item .palette-utility-cooling.palette-utility-supply { color: #59c8e6; }

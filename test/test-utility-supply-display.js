@@ -17,6 +17,7 @@
 //   6. A source port whose capacity is 0 (bakeoutSystem's marker port)
 //      yields no supply row.
 
+import { readFileSync } from 'node:fs';
 import { COMPONENTS } from '../src/data/components.js';
 import { paletteUtilityMetrics, paletteUtilityTags, utilityStatRows } from '../src/ui/utility-supply.js';
 
@@ -216,6 +217,22 @@ console.log('\n--- Test 8: water inventory metrics stay separate ---');
   assert(makeUpMetrics.some(r => r.label === 'Water supply' && r.value === '1 L/tick')
       && makeUpMetrics.some(r => r.label === 'Water storage' && r.value === '500 L'),
     'placement card exposes both make-up tank capabilities');
+}
+
+// ==========================================================================
+// Test 9: RF card metadata cannot occupy the utility-tag rows.
+// ==========================================================================
+console.log('\n--- Test 9: RF palette badge layout ---');
+{
+  const rfComponents = Object.values(COMPONENTS)
+    .filter(comp => comp.rfBand || comp.rfBands || comp.betaAcceptance);
+  const maxUtilityRows = Math.max(...rfComponents.map(comp => paletteUtilityTags(comp).length));
+  const css = readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+
+  assert(maxUtilityRows === 2,
+    'RF palette hardware uses at most the two reserved utility rows');
+  assert(/\.palette-item \.palette-utility-tags \+ \.palette-rf-band\s*\{[^}]*top:\s*32px/s.test(css),
+    'RF metadata starts below utility rows instead of overlapping their text');
 }
 
 // ==========================================================================
