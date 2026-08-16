@@ -122,6 +122,18 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
       placement: 'module',
       requiredConnections: ['powerCable'],
     },
+    badAutoUtility: {
+      id: 'badAutoUtility', name: 'Bad Auto Utility', category: 'power',
+      cost: { funding: 100 }, subW: 1, subL: 1, subH: 1,
+      placement: 'module', requiredConnections: [],
+      autoConnectRadius: 5, autoConnectUtility: 'steamPipe',
+    },
+    portlessAutoPanel: {
+      id: 'portlessAutoPanel', name: 'Portless Auto Panel', category: 'power',
+      cost: { funding: 100 }, subW: 1, subL: 1, subH: 1,
+      placement: 'module', requiredConnections: [],
+      autoConnectRadius: 5,
+    },
   };
   const badDecorations = {
     freebie: {
@@ -204,6 +216,10 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     'requiredConnections without matching sink port reported');
   assert(hasProblem(problems, 'hungryBox', 'requiredConnections', "'powerCable'"),
     'the sink-port rule also covers infrastructure entries');
+  assert(hasProblem(problems, 'badAutoUtility', 'autoConnectUtility', "'steamPipe'"),
+    'an unknown assisted-wiring utility is rejected');
+  assert(hasProblem(problems, 'portlessAutoPanel', 'autoConnectUtility', 'source port'),
+    'assisted wiring requires a real source port of its selected utility');
 }
 
 // ==========================================================================

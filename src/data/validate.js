@@ -187,6 +187,27 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     }
   }
 
+  // Assisted wiring still commits ordinary utility lines, so its authored
+  // utility must exist and the device needs a real source connector to start
+  // each promised run. autoConnectUtility defaults to powerCable for the
+  // original low-voltage distribution panels.
+  function checkAutoConnect(id, def) {
+    if (def.autoConnectRadius == null && def.autoConnectUtility == null) return;
+    const radius = def.autoConnectRadius;
+    if (typeof radius !== 'number' || !Number.isFinite(radius) || radius <= 0) {
+      problem(id, 'autoConnectRadius', `autoConnectRadius must be a positive number, got ${JSON.stringify(radius)}`);
+    }
+    const utility = def.autoConnectUtility || 'powerCable';
+    if (!UTILITIES.has(utility)) {
+      problem(id, 'autoConnectUtility', `unknown utility '${utility}' (known: ${[...UTILITIES].join(', ')})`);
+      return;
+    }
+    const ports = utilityPorts[id] || {};
+    if (!Object.values(ports).some(port => port.utility === utility && port.role === 'source')) {
+      problem(id, 'autoConnectUtility', `auto-connects '${utility}' but has no '${utility}' source port in utility-ports-v2.js`);
+    }
+  }
+
   // Every declared connection must have a matching sink port in the
   // utility-ports-v2 table, or the solver can never connect or gate it.
   // Applies to beamline AND infrastructure: an infrastructure unit with a
@@ -423,6 +444,7 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
   // ── Infrastructure raw entries ────────────────────────────────────
   for (const [id, def] of Object.entries(infrastructure)) {
     checkCommon(id, def);
+    checkAutoConnect(id, def);
     checkDims(id, def);
     checkCategory(id, def, INFRA_CATEGORIES, 'infra');
     checkSubsection(id, def, 'infra');

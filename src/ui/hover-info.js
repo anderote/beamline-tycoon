@@ -26,6 +26,11 @@ function humanize(value) {
     .replace(/^./, c => c.toUpperCase());
 }
 
+export function autoConnectTargetLabel(utilityType, count) {
+  const singular = utilityType === 'hvCable' ? 'HV feeder input' : 'power plug';
+  return `${singular}${count === 1 ? '' : 's'}`;
+}
+
 export function formatRfFrequencyHz(hz) {
   const mhz = hz / 1e6;
   const rounded = Math.round(mhz * 10) / 10;
@@ -74,7 +79,7 @@ export function componentHoverInfo(comp, { autoConnectPlan = null } = {}) {
       : Math.max(0, Number(autoConnectPlan.connectable) || 0);
     return {
       title,
-      detail: `${candidates} unconnected power plug${candidates === 1 ? '' : 's'} in range`
+      detail: `${candidates} unconnected ${autoConnectTargetLabel(autoConnectPlan.utilityType, candidates)} in range`
         + ` · Tab connects ${connectable}`,
     };
   }
