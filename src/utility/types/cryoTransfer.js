@@ -231,6 +231,10 @@ export default {
   runHeightMeters: 0.30,
   supportSpacingMeters: 3,
   supportMinimumRunMeters: 3,
+  verticalRouteLanes: true,
+  routeLaneSpacingMeters: 0.30,
+  routeVerticalClearanceMeters: 0.06,
+  maxRouteHeightMeters: 3.0,
   // Transfer lines share the forgiving rectilinear routing contract with RF:
   // horizontal/vertical runs and 90-degree bends, without rigid clearances.
   routingProfile: 'rectilinear',

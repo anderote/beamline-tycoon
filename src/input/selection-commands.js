@@ -43,6 +43,7 @@ export function copySelectionGroup(game, payload, preview) {
             end: remap(connection.end),
             path: connection.path,
             cablePath: connection.cablePath,
+            routeHeightMeters: connection.routeHeightMeters,
           });
           if (!lineId) {
             game.restoreBeamlineState(rollback);
@@ -97,6 +98,9 @@ export function moveSelectionGroup(game, payload, preview) {
         return false;
       }
       line.path = connection.path.map(point => ({ ...point }));
+      if (Number.isFinite(connection.routeHeightMeters)) {
+        line.routeHeightMeters = connection.routeHeightMeters;
+      }
       if (Array.isArray(connection.cablePath)) {
         line.cablePath = connection.cablePath.map(point => ({ ...point }));
       }

@@ -35,12 +35,14 @@ const GROUND_CLEARANCE = 0.01;
  * Derived from the pipe's own radius, so a 2 cm cord and a 6 cm vacuum line
  * each rest ON the ground rather than one of them sinking into it. A
  * descriptor can still pin its own `runHeightMeters` for a service that is
- * genuinely carried overhead.
+ * genuinely carried overhead. Fabricated rigid lines may pass an explicit
+ * saved `routeHeightMeters` after the height-lane router resolves overlaps.
  *
  * Used by the renderer AND by the input tool, which has to pick against the
  * plane it draws on — see UtilityLineTool._cableWorld.
  */
-export function utilityLineHeight(utilityType) {
+export function utilityLineHeight(utilityType, routeHeightMeters = null) {
+  if (Number.isFinite(routeHeightMeters)) return routeHeightMeters;
   const d = UTILITY_TYPES[utilityType];
   if (!d) return UTILITY_LINE_Y;
   if (Number.isFinite(d.runHeightMeters)) return d.runHeightMeters;

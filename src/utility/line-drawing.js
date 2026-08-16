@@ -3,8 +3,8 @@
 // Pure validator for drawing a utility line between two ports. Mirrors the
 // shape of src/beamline/pipe-drawing.js but with these differences:
 //   - Paths may contain 90° Manhattan bends (no diagonals).
-//   - Loose utilities overlap independently; installed rigid services share a
-//     physical deck and therefore cannot cross each other.
+//   - Loose utilities overlap independently; fabricated rigid services may
+//     share plan routes when their explicit vertical lanes have clearance.
 //   - Endpoints reference placeables via `placeableId` (not `junctionId`).
 //   - Rejection reasons are utility-specific and distinguish start/end port
 //     alignment failures.
@@ -27,6 +27,13 @@ import {
   hasMinimumBendClearance,
 } from './line-geometry.js';
 import { buildRigidRouteObstacles, rigidUtilitiesConflict } from './route-obstacles.js';
+import {
+  routeHeightCandidates,
+  routeHeightForLine,
+  routeHeightsConflict,
+  tappedRouteHeight,
+  usesVerticalRouteLanes,
+} from './route-elevation.js';
 import { findUtilityEndpoint } from './utility-endpoints.js';
 import {
   cablePathLengthSubUnits,
@@ -70,7 +77,7 @@ function segmentDirection(a, b) {
 }
 
 // ---------------------------------------------------------------------------
-// Overlap check (same-type only).
+// Plan overlap and physical-clearance checks.
 // ---------------------------------------------------------------------------
 
 function pointsOverlap(a, b, clearanceTiles = 0.25, inclusive = false) {
@@ -99,7 +106,8 @@ function pointsOverlap(a, b, clearanceTiles = 0.25, inclusive = false) {
 //                                                the tapLineIds exemption.
 //   interior of both, perpendicular              a crossing: one passes over
 //                                                the other, never joined.
-//                                                Always legal.
+//                                                Legal when their service
+//                                                bodies have vertical clearance.
 //   interior of both, collinear                  laying down an existing run.
 //                                                Never legal.
 //
@@ -141,6 +149,7 @@ function isPerpendicular(axesA, axesB) {
 function pathOverlapReason(newPath, lines, utilityType, opts = {}) {
   const newExpanded = expandPath(newPath);
   const newDescriptor = UTILITY_TYPES[utilityType] || {};
+  const newRouteHeight = opts.routeHeightMeters;
   const ignoreSharedSource = opts.ignoreSharedSource || null; // { start, end }
   // Tap: this end of the new line deliberately lands ON an existing line, to
   // branch off it. Exempt exactly ONE point — the terminal subtile at that end
@@ -166,9 +175,17 @@ function pathOverlapReason(newPath, lines, utilityType, opts = {}) {
     if (!line) continue;
     const sameType = line.utilityType === utilityType;
     const rigidConflict = rigidUtilitiesConflict(utilityType, line.utilityType);
-    if (!sameType && !rigidConflict) continue;
+    const lanePair = usesVerticalRouteLanes(utilityType)
+      && usesVerticalRouteLanes(line.utilityType);
+    const physicalConflict = rigidConflict || lanePair;
+    if (!sameType && !physicalConflict) continue;
+    if (lanePair && Number.isFinite(newRouteHeight)
+        && !routeHeightsConflict(
+          utilityType, newRouteHeight,
+          line.utilityType, routeHeightForLine(line),
+        )) continue;
     const existingDescriptor = UTILITY_TYPES[line.utilityType] || {};
-    const clearanceTiles = rigidConflict
+    const clearanceTiles = physicalConflict
       ? Math.max(newDescriptor.routeClearanceTiles || 0.25,
         existingDescriptor.routeClearanceTiles || 0.25)
       : 0.25;
@@ -221,7 +238,8 @@ function pathOverlapReason(newPath, lines, utilityType, opts = {}) {
     // Loose lines may share a tray out of a common source. A rigid service may
     // share the connector point but cannot be laid invisibly inside an already
     // installed pipe/guide; its next subtile must choose another lane.
-    if (skipEndpoint && !newDescriptor.avoidRigidIntersections) continue;
+    if (skipEndpoint && !newDescriptor.avoidRigidIntersections
+        && !usesVerticalRouteLanes(utilityType)) continue;
     const existing = expandPath(line.path || []);
     for (let k = 0; k < sharedExistingIndices.length; k++) {
       if (sharedExistingIndices[k] < 0) sharedExistingIndices[k] = existing.length - 1;
@@ -232,8 +250,8 @@ function pathOverlapReason(newPath, lines, utilityType, opts = {}) {
       const np = newExpanded[i];
       const newTerminal = i === 0 || i === newExpanded.length - 1;
       for (let j = 0; j < existing.length; j++) {
-        if (!pointsOverlap(np, existing[j], clearanceTiles, rigidConflict)) continue;
-        if (rigidConflict && sharedNewIndices.length > 0) {
+        if (!pointsOverlap(np, existing[j], clearanceTiles, physicalConflict)) continue;
+        if (physicalConflict && sharedNewIndices.length > 0) {
           let insideSharedFitting = false;
           for (let k = 0; k < sharedNewIndices.length; k++) {
             const newTerminal = newExpanded[sharedNewIndices[k]];
@@ -253,7 +271,7 @@ function pathOverlapReason(newPath, lines, utilityType, opts = {}) {
         // the new branch travel radially out of that envelope before normal
         // lane clearance resumes. Collinear departure is never exempt — that
         // would still be laying a second pipe invisibly inside the trunk.
-        if (rigidConflict && exempt) {
+        if (physicalConflict && exempt) {
           const startTap = exempt.has(0);
           const endTap = exempt.has(newExpanded.length - 1);
           const terminalIndex = startTap ? 0 : endTap ? newExpanded.length - 1 : -1;
@@ -275,7 +293,7 @@ function pathOverlapReason(newPath, lines, utilityType, opts = {}) {
         // Installed rigid services occupy one physical elevation, so even a
         // perpendicular centreline crossing is a collision. Cables retain the
         // old bridge-over behavior.
-        if (rigidConflict
+        if (physicalConflict
           || !isPerpendicular(axesAtIndex(newExpanded, i), axesAtIndex(existing, j))) {
           return sameType ? 'overlap_same_type' : 'overlap_rigid_service';
         }
@@ -402,6 +420,7 @@ function isPortTaken(state, placeableId, portName) {
 
 export function validateDrawLine(state, {
   utilityType, start, end, path, tapLineIds, cablePath,
+  routeHeightMeters, preferredRouteHeightMeters,
 } = {}) {
   // Path shape.
   if (!Array.isArray(path) || path.length < 2) return reject('invalid_path');
@@ -514,10 +533,45 @@ export function validateDrawLine(state, {
   // hoses are equally smooth, but remain plumbed networks and retain the
   // hidden grid route for deterministic overlap/tap-clearance validation.
   // Their visible route owns the actual network join position in discovery.
+  let resolvedRouteHeight = null;
   if (!softCableSkipsOverlap(utilityType)) {
-    const overlapReason = pathOverlapReason(
-      path, lines, utilityType, { ignoreSharedSource, tapLineIds, start, end });
-    if (overlapReason) return reject(overlapReason);
+    if (usesVerticalRouteLanes(utilityType)) {
+      const tapped = tappedRouteHeight(lines, tapLineIds, utilityType);
+      if (tapped.mismatch) return reject('route_height_mismatch');
+      if (Number.isFinite(routeHeightMeters)
+          && Number.isFinite(tapped.height)
+          && Math.abs(routeHeightMeters - tapped.height) > EPS) {
+        return reject('route_height_mismatch');
+      }
+      const candidates = Number.isFinite(routeHeightMeters)
+        ? [routeHeightMeters]
+        : Number.isFinite(tapped.height)
+          ? [tapped.height]
+          : routeHeightCandidates(utilityType, preferredRouteHeightMeters);
+      const autoSelectingLane = !Number.isFinite(routeHeightMeters)
+        && !Number.isFinite(tapped.height);
+      let overlapReason = null;
+      for (const candidate of candidates) {
+        const reason = pathOverlapReason(path, lines, utilityType, {
+          ignoreSharedSource, tapLineIds, start, end, routeHeightMeters: candidate,
+        });
+        if (!reason) {
+          resolvedRouteHeight = candidate;
+          overlapReason = null;
+          break;
+        }
+        overlapReason = overlapReason || reason;
+      }
+      if (overlapReason || !Number.isFinite(resolvedRouteHeight)) {
+        return reject(autoSelectingLane
+          ? 'route_height_exhausted'
+          : (overlapReason || 'route_height_exhausted'));
+      }
+    } else {
+      const overlapReason = pathOverlapReason(
+        path, lines, utilityType, { ignoreSharedSource, tapLineIds, start, end });
+      if (overlapReason) return reject(overlapReason);
+    }
   }
 
   // A rigid route is physical floor hardware, not a graph edge painted over
@@ -542,6 +596,9 @@ export function validateDrawLine(state, {
       start: start || null,
       end: end || null,
       path: path.map(pt => ({ col: pt.col, row: pt.row })),
+      ...(Number.isFinite(resolvedRouteHeight)
+        ? { routeHeightMeters: resolvedRouteHeight }
+        : {}),
       ...(freeform.length >= 2 ? { cablePath: freeform } : {}),
       ...((tapLineIds?.start || tapLineIds?.end)
         ? { tapLineIds: { start: tapLineIds.start || null, end: tapLineIds.end || null } }
@@ -569,4 +626,6 @@ export const REASONS = Object.freeze({
   port_mismatch_start: 'port_mismatch_start',
   port_mismatch_end: 'port_mismatch_end',
   invalid_port_pair: 'invalid_port_pair',
+  route_height_mismatch: 'route_height_mismatch',
+  route_height_exhausted: 'route_height_exhausted',
 });

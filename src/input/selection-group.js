@@ -334,6 +334,14 @@ export function previewSelectionGroup(game, payload, anchorPose) {
             row: point.row + deltaRow,
           }))
         : undefined,
+      // A move keeps the fabricated rack elevation. A copy prefers the source
+      // elevation but may be lifted if it lands over the original route.
+      ...(moving && Number.isFinite(source.routeHeightMeters)
+        ? { routeHeightMeters: source.routeHeightMeters }
+        : {}),
+      ...(!moving && Number.isFinite(source.routeHeightMeters)
+        ? { preferredRouteHeightMeters: source.routeHeightMeters }
+        : {}),
     };
     const checked = validateDrawLine(utilityState, plan);
     if (!checked.ok) {
@@ -345,7 +353,13 @@ export function previewSelectionGroup(game, payload, anchorPose) {
       id: moving ? source.id : `__selection_line_${index}`,
     };
     utilityLines.set(provisional.id, provisional);
-    connections.push({ ...plan, subL: checked.line.subL });
+    connections.push({
+      ...plan,
+      subL: checked.line.subL,
+      ...(Number.isFinite(checked.line.routeHeightMeters)
+        ? { routeHeightMeters: checked.line.routeHeightMeters }
+        : {}),
+    });
   }
 
   return {

@@ -561,7 +561,7 @@ function buildPipeAttachments(game) {
         params: att.params,
         // Gauge role-builders are authored around the 1 m beam axis. Move
         // that mounting spool down onto the physical vacuum run.
-        yOffset: utilityLineHeight(line.utilityType) - 1.0,
+        yOffset: utilityLineHeight(line.utilityType, line.routeHeightMeters) - 1.0,
       });
     }
   }

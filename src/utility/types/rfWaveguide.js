@@ -182,6 +182,10 @@ export default {
   dropRunPerRise: 1,
   supportSpacingMeters: 3,
   supportMinimumRunMeters: 3,
+  verticalRouteLanes: true,
+  routeLaneSpacingMeters: 0.30,
+  routeVerticalClearanceMeters: 0.06,
+  maxRouteHeightMeters: 3.0,
   // Keep waveguide routing readable without making gallery layout a puzzle:
   // paths stay rectilinear, but may turn immediately at a fitting and cross
   // equipment/other services like the existing cryogenic transfer-line

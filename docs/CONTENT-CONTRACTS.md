@@ -54,6 +54,11 @@ the short authoring contract.
 - RF waveguides and cryogenic transfer lines use the `rectilinear` routing
   profile: their paths must be axis-aligned with 90-degree bends, but do not
   reserve rigid equipment or service-clearance aisles.
+- Vacuum pipe, RF waveguide, and cryogenic transfer line are fabricated rigid
+  services with vertical route lanes. Their saved `routeHeightMeters` starts at
+  the source connector height and rises only as needed, so parallel or crossing
+  runs may share X/Z coordinates while remaining physically separate. A named
+  tap is a real fitting and therefore inherits the trunk's route height.
 - Cooling supply displays use heat-rejection capacity when it is declared;
   reservoir volume is inventory, not cooling power.
 - Cooling-water ports author make-up flow as `supplyRateLPerTick` and tank

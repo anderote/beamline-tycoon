@@ -1598,7 +1598,8 @@ export class InputHandler {
     const mount = hit.kind === 'utilityLine' ? {
       worldX: hit.proj.worldX,
       worldZ: hit.proj.worldZ,
-      yOffset: utilityLineHeight(hit.line.utilityType) - 1.0,
+      yOffset: utilityLineHeight(
+        hit.line.utilityType, hit.line.routeHeightMeters) - 1.0,
     } : null;
     this.renderer.renderAttachmentGhost(
       hit.proj.col, hit.proj.row,

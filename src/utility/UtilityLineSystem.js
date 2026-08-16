@@ -147,6 +147,8 @@ export const REASON_MESSAGES = {
   not_manhattan:        'path must use 90° bends only',
   overlap_same_type:    'another line of this type already runs here',
   overlap_rigid_service:'a rigid service already occupies that route',
+  route_height_mismatch:'those tapped services are on different height lanes',
+  route_height_exhausted:'the service rack has no free height lane',
   blocked_by_equipment: 'that route passes through installed equipment',
   bend_too_tight:       'waveguide elbows need a longer straight approach',
   invalid_start:        'starting port is missing or invalid',
@@ -367,10 +369,14 @@ export class UtilityLineSystem {
       end: line.end,
       path,
       cablePath,
+      routeHeightMeters: line.routeHeightMeters,
     });
     if (!result.ok) return dangle();
 
     line.path = result.line.path;
+    if (Number.isFinite(result.line.routeHeightMeters)) {
+      line.routeHeightMeters = result.line.routeHeightMeters;
+    }
     if (result.line.cablePath) line.cablePath = result.line.cablePath;
     // Moving equipment consumes slack; it does not silently buy or delete
     // cable. Keep the installed length as the physical break threshold.

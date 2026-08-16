@@ -440,9 +440,17 @@ export default {
   runHeightMeters: VACUUM_LINE_MOUNT_Y,
   supportSpacingMeters: 3,
   supportMinimumRunMeters: 3,
+  // Parallel rigid services may share an X/Z route by occupying successive
+  // support-rack elevations. The first lane follows the source connector when
+  // input supplies its measured height; later lanes stack upward as needed.
+  verticalRouteLanes: true,
+  routeLaneSpacingMeters: 0.30,
+  routeVerticalClearanceMeters: 0.06,
+  maxRouteHeightMeters: 3.0,
   // Vacuum pipe is the forgiving rigid service: compact swept elbows and
   // tees are ordinary catalogue fittings, so it may turn on the next service
-  // grid point. It still routes around machines and other rigid services.
+  // grid point. It still routes around machines; other fabricated services
+  // may occupy the same plan route on a separate height lane.
   routingProfile: 'rigid',
   avoidRigidIntersections: true,
   routeClearanceTiles: 0.25,

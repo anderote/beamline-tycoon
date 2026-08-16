@@ -130,7 +130,7 @@ export function buildRunStubPath(srcTile, srcVec, sinkTile, sinkVec, preferVerti
  * @param {boolean} [opts.preferVerticalFirst]
  * @param {Function} [opts.portPosition]   optional (endpoint, def, portName)
  *        position resolver; interactive routing supplies measured connector
- *        X/Z while headless/scenario callers retain portWorldPosition
+ *        X/Z/Y while headless/scenario callers retain portWorldPosition
  * @returns {{stubs: Array, totalSubL: number, skipped: number}}
  *          `stubs` are ready-to-commit addLine arguments in drag order;
  *          `skipped` counts candidates in the corridor that no route reached.
@@ -175,7 +175,12 @@ export function planUtilityRun(state, {
     const vec = portApproachVec(srcEndpoint, srcDef, name);
     const pos = resolvePortPosition(srcEndpoint, srcDef, name);
     if (!pos) continue;
-    outlets.push({ portName: name, vec, tile: portTile(pos) });
+    outlets.push({
+      portName: name,
+      vec,
+      tile: portTile(pos),
+      routeHeightMeters: Number.isFinite(pos.y) ? pos.y : null,
+    });
   }
   if (outlets.length === 0) return empty;
 
@@ -232,6 +237,7 @@ export function planUtilityRun(state, {
     const start = { placeableId: source.placeableId, portName: outlet.portName };
     const end = { placeableId: c.placeableId, portName: c.portName };
     let chosen = null;
+    let chosenRouteHeight = null;
     // Both bend orders are legal routes; take whichever the real validator
     // accepts, so an incompatible sink is skipped rather than failing the run.
     for (const vf of [preferVerticalFirst, !preferVerticalFirst]) {
@@ -247,8 +253,16 @@ export function planUtilityRun(state, {
         minStraightTiles: UTILITY_TYPES[utilityType]?.minStraightTiles,
       });
       if (!path) continue;
-      if (validateDrawLine(probeState, { utilityType, start, end, path }).ok) {
+      const checked = validateDrawLine(probeState, {
+        utilityType,
+        start,
+        end,
+        path,
+        preferredRouteHeightMeters: outlet.routeHeightMeters,
+      });
+      if (checked.ok) {
         chosen = path;
+        chosenRouteHeight = checked.line.routeHeightMeters ?? null;
         break;
       }
     }
@@ -263,12 +277,41 @@ export function planUtilityRun(state, {
         bendPenalty: descriptor.bendPenalty,
         blocked: obstacles.isBlocked,
       });
-      if (path && validateDrawLine(probeState, { utilityType, start, end, path }).ok) chosen = path;
+      if (path) {
+        const checked = validateDrawLine(probeState, {
+          utilityType,
+          start,
+          end,
+          path,
+          preferredRouteHeightMeters: outlet.routeHeightMeters,
+        });
+        if (checked.ok) {
+          chosen = path;
+          chosenRouteHeight = checked.line.routeHeightMeters ?? null;
+        }
+      }
     }
     if (!chosen) { skipped++; continue; }
     const subL = pathLengthSubUnits(chosen);
-    stubs.push({ start, end, path: chosen, subL });
-    planned.push({ id: `__plan_${stubs.length}`, utilityType, start, end, path: chosen });
+    stubs.push({
+      start,
+      end,
+      path: chosen,
+      subL,
+      ...(Number.isFinite(chosenRouteHeight)
+        ? { routeHeightMeters: chosenRouteHeight }
+        : {}),
+    });
+    planned.push({
+      id: `__plan_${stubs.length}`,
+      utilityType,
+      start,
+      end,
+      path: chosen,
+      ...(Number.isFinite(chosenRouteHeight)
+        ? { routeHeightMeters: chosenRouteHeight }
+        : {}),
+    });
     totalSubL += subL;
     // A fanning utility keeps serving every stub from the one port; a
     // non-fanning one consumes a socket per committed stub.
