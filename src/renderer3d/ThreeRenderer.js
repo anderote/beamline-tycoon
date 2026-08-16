@@ -798,6 +798,12 @@ export class ThreeRenderer {
           this._refreshBeam();
           if (this._updateBeamSummary) this._updateBeamSummary();
           break;
+        case 'physicsUpdated':
+          // Beam speed/structure comes from the newly published per-line
+          // envelope, so refresh the presentation without rebuilding the
+          // rest of the world.
+          this._refreshBeam();
+          break;
         case 'tick':
           if (this._updateHUD) this._updateHUD();
           if (this._updateTreeProgress) this._updateTreeProgress();

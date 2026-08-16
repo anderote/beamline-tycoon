@@ -1,6 +1,8 @@
 // src/renderer3d/beam-builder.js — batched glowing beam paths.
 // THREE is loaded as a CDN global — do NOT import it.
 
+import { sampleBeamVisualProfile } from './beam-visual-mode.js';
+
 function routedPoints(path) {
   const authored = (path.worldPoints || []).map(point => ({
     x: point.col * 2 + 1, y: 1.0, z: point.row * 2 + 1,
@@ -54,6 +56,10 @@ export class BeamBuilder {
     this._meshes = [];
     this._packetRuns = [];
     this._showDetail = true;
+    this._motionAxis = new THREE.Vector3(0, 1, 0);
+    this._motionPosition = new THREE.Vector3();
+    this._motionRotation = new THREE.Quaternion();
+    this._motionScale = new THREE.Vector3();
   }
 
   build(beamPathData, parentGroup) {
@@ -68,8 +74,16 @@ export class BeamBuilder {
       const opacityScale = path.dimmed ? 0.3 : 1;
       const mode = path.visualMode || 'continuous';
       const color = path.color ?? 0x44ff44;
-      const coreOpacity = (mode === 'continuous' ? 0.78 : 0.16) * opacityScale;
-      const glowOpacity = (mode === 'continuous' ? 0.22 : 0.07) * opacityScale;
+      const profile = path.visualProfile || [];
+      const hasContinuous = profile.length
+        ? profile.some(sample => sample.bunch < 0.99)
+        : mode === 'continuous';
+      const hasBunched = profile.length
+        ? profile.some(sample => sample.bunch > 0.01)
+        : mode === 'bunched';
+      const mixed = hasContinuous && hasBunched;
+      const coreOpacity = (mixed ? 0.30 : hasContinuous ? 0.64 : 0.16) * opacityScale;
+      const glowOpacity = (mixed ? 0.10 : hasContinuous ? 0.18 : 0.05) * opacityScale;
       const core = bucketFor(segmentBuckets, `core:${coreOpacity}`, {
         role: 'core', radius: 0.05, opacity: coreOpacity,
       });
@@ -83,21 +97,33 @@ export class BeamBuilder {
         glow.entries.push({ matrix, color });
       }
 
-      if (mode !== 'bunched') continue;
-      const run = this._makePacketRun(points);
+      const run = this._makePacketRun(points, profile, mode);
       if (!run) continue;
       this._packetRuns.push(run);
-      const packetCore = bucketFor(packetBuckets, `core:${opacityScale}`, {
-        role: 'packet-core', radius: 0.052, segments: 8, rings: 6,
-        opacity: 0.92 * opacityScale,
-      });
-      const packetHalo = bucketFor(packetBuckets, `halo:${opacityScale}`, {
-        role: 'packet-halo', radius: 0.14, segments: 10, rings: 8,
-        opacity: 0.18 * opacityScale,
-      });
-      for (const packet of run.packets) {
-        packetCore.entries.push({ run, packet, color });
-        packetHalo.entries.push({ run, packet, color });
+
+      const movingStyles = [];
+      if (hasBunched) {
+        movingStyles.push(
+          { role: 'packet-core', radius: 0.052, segments: 8, rings: 6,
+            xScale: 2.8, opacity: 0.92 * opacityScale },
+          { role: 'packet-halo', radius: 0.14, segments: 10, rings: 8,
+            xScale: 2.2, opacity: 0.18 * opacityScale },
+        );
+      }
+      if (hasContinuous) {
+        // Long, soft crests slide over an unbroken core. They communicate
+        // direction/speed like utility flow without turning a CW beam into a
+        // dotted line.
+        movingStyles.push(
+          { role: 'flow-core', radius: 0.045, segments: 8, rings: 6,
+            xScale: 12, opacity: 0.48 * opacityScale },
+          { role: 'flow-halo', radius: 0.14, segments: 10, rings: 8,
+            xScale: 7, opacity: 0.13 * opacityScale },
+        );
+      }
+      for (const style of movingStyles) {
+        const bucket = bucketFor(packetBuckets, `${style.role}:${opacityScale}`, style);
+        for (const packet of run.packets) bucket.entries.push({ run, packet, color });
       }
     }
 
@@ -119,19 +145,24 @@ export class BeamBuilder {
         bucket.radius, bucket.segments, bucket.rings,
       );
       const material = new THREE.MeshBasicMaterial({
-        color: 0xffffff, transparent: true, opacity: bucket.opacity, depthWrite: false,
+        color: 0xffffff,
+        transparent: true,
+        opacity: bucket.opacity,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
       });
       const entries = bucket.entries.map(({ run, packet, color }) => {
-        const point = this._pointAt(run, packet.offset);
-        return { matrix: new THREE.Matrix4().makeTranslation(point.x, point.y, point.z), color };
+        const point = this._pointAt(run, packet.distance);
+        const motion = this._motionAt(run, packet.distance);
+        const matrix = this._motionMatrix(
+          point, motion, bucket.role, bucket.xScale, new THREE.Matrix4(),
+        );
+        return { matrix, color };
       });
       const mesh = makeInstancedMesh(`beam-${bucket.role}`, geometry, material, entries, true);
       bucket.entries.forEach(({ packet }, index) => {
-        if (bucket.role === 'packet-core') {
-          packet.coreMesh = mesh; packet.coreIndex = index;
-        } else {
-          packet.haloMesh = mesh; packet.haloIndex = index;
-        }
+        packet.instances[bucket.role] = { mesh, index, xScale: bucket.xScale };
       });
       parentGroup.add(mesh);
       this._meshes.push(mesh);
@@ -139,7 +170,7 @@ export class BeamBuilder {
     this.setDetailLevel(this._showDetail);
   }
 
-  _makePacketRun(points) {
+  _makePacketRun(points, profile, fallbackMode) {
     const lengths = [];
     let total = 0;
     for (let i = 0; i < points.length - 1; i++) {
@@ -150,15 +181,18 @@ export class BeamBuilder {
     if (total < 0.01) return null;
     const count = Math.max(2, Math.min(12, Math.ceil(total / 1.6)));
     return {
-      points, lengths, total, phase: 0, speed: 3.4,
-      packets: Array.from({ length: count }, (_, i) => ({ offset: (i / count) * total })),
+      points, lengths, total, profile, fallbackMode,
+      packets: Array.from({ length: count }, (_, i) => ({
+        distance: (i / count) * total,
+        instances: {},
+      })),
     };
   }
 
   setDetailLevel(showDetail) {
     this._showDetail = !!showDetail;
     for (const mesh of this._meshes) {
-      if (mesh.name === 'beam-glow' || mesh.name === 'beam-packet-halo') {
+      if (mesh.name.includes('glow') || mesh.name.includes('halo')) {
         mesh.visible = this._showDetail;
       }
     }
@@ -170,17 +204,15 @@ export class BeamBuilder {
     const touched = new Set();
     const matrix = new THREE.Matrix4();
     for (const run of this._packetRuns) {
-      run.phase = (run.phase + dtSeconds * run.speed) % run.total;
       for (const packet of run.packets) {
-        const point = this._pointAt(run, (packet.offset + run.phase) % run.total);
-        matrix.makeTranslation(point.x, point.y, point.z);
-        if (packet.coreMesh) {
-          packet.coreMesh.setMatrixAt(packet.coreIndex, matrix);
-          touched.add(packet.coreMesh);
-        }
-        if (packet.haloMesh) {
-          packet.haloMesh.setMatrixAt(packet.haloIndex, matrix);
-          touched.add(packet.haloMesh);
+        const motion = this._motionAt(run, packet.distance);
+        packet.distance = (packet.distance + dtSeconds * motion.speed) % run.total;
+        const nextPoint = this._pointAt(run, packet.distance);
+        const nextMotion = this._motionAt(run, packet.distance);
+        for (const [role, instance] of Object.entries(packet.instances)) {
+          this._motionMatrix(nextPoint, nextMotion, role, instance.xScale, matrix);
+          instance.mesh.setMatrixAt(instance.index, matrix);
+          touched.add(instance.mesh);
         }
       }
     }
@@ -198,11 +230,28 @@ export class BeamBuilder {
           x: a.x + (b.x - a.x) * t,
           y: a.y + (b.y - a.y) * t,
           z: a.z + (b.z - a.z) * t,
+          rotationY: -Math.atan2(b.z - a.z, b.x - a.x),
         };
       }
       previousEnd = end;
     }
     return run.points[run.points.length - 1];
+  }
+
+  _motionAt(run, distance) {
+    const normalized = run.total > 0 ? distance / run.total : 0;
+    return sampleBeamVisualProfile(run.profile, normalized, run.fallbackMode);
+  }
+
+  _motionMatrix(point, motion, role, xScale, matrix) {
+    const visibility = role.startsWith('packet-') ? motion.bunch : 1 - motion.bunch;
+    // Scaling to almost zero gives a soft geometry crossfade between the
+    // continuous crest and packet train without per-instance materials.
+    const visibleScale = Math.max(0.0001, visibility);
+    this._motionPosition.set(point.x, point.y, point.z);
+    this._motionRotation.setFromAxisAngle(this._motionAxis, point.rotationY || 0);
+    this._motionScale.set(xScale * visibleScale, visibleScale, visibleScale);
+    return matrix.compose(this._motionPosition, this._motionRotation, this._motionScale);
   }
 
   dispose(parentGroup) {
