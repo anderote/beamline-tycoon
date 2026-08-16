@@ -206,12 +206,6 @@ UIHost.prototype._updateHUD = function() {
   // Refresh any open beamline context windows
   this._refreshContextWindows();
 
-  // If the Goals overlay is open, keep its tutorial progress fresh.
-  const goalsOverlay = document.getElementById('goals-overlay');
-  if (goalsOverlay && !goalsOverlay.classList.contains('hidden')) {
-    this._renderGoalsOverlay();
-  }
-
   // Staff bar (top bar portraits)
   this._renderStaffBar();
 
@@ -2931,17 +2925,12 @@ UIHost.prototype._bindHUDEvents = function() {
     });
   }
 
-  // Goals button
-  const goalsBtn = document.getElementById('btn-goals');
-  if (goalsBtn) {
-    goalsBtn.addEventListener('click', () => {
-      const overlay = document.getElementById('goals-overlay');
-      if (overlay) {
-        overlay.classList.toggle('hidden');
-        if (!overlay.classList.contains('hidden')) {
-          this._renderGoalsOverlay();
-        }
-      }
+  // Build Forward replaces the parallel Goals checklist. It reopens the
+  // contextual assistant for the selected (or only) beamline.
+  const buildForwardBtn = document.getElementById('btn-build-forward');
+  if (buildForwardBtn) {
+    buildForwardBtn.addEventListener('click', () => {
+      this.game._guidedSetup?.toggle?.();
     });
   }
 

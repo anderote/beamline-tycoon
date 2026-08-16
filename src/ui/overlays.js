@@ -1,12 +1,10 @@
 // === OVERLAYS EXTENSION ===
-// Adds component popup, tech tree, and goals overlay rendering to UIHost.prototype.
+// Adds component popup, tech tree, and context-window rendering to UIHost.prototype.
 
 import { _pxText } from '../renderer/Renderer.js';
 import { UIHost } from './UIHost.js';
 import { COMPONENTS } from '../data/components.js';
 import { RESEARCH, RESEARCH_CATEGORIES, RESEARCH_LAB_MAP } from '../data/research.js';
-import { OBJECTIVES } from '../data/objectives.js';
-import { TUTORIAL_STEPS, TUTORIAL_GROUPS } from '../data/tutorial.js';
 import { BeamlineWindow } from './BeamlineWindow.js';
 import { EquipmentWindow } from './EquipmentWindow.js';
 import { pushEscHandler } from './esc-stack.js';
@@ -4755,142 +4753,6 @@ UIHost.prototype._bindTreeEvents = function() {
     });
   }
 };
-
-// --- Goals overlay ---
-
-UIHost.prototype._renderGoalsOverlay = function() {
-  const list = document.getElementById('goals-list');
-  if (!list) return;
-  list.innerHTML = '';
-
-  const state = this.game.state;
-
-  let completedCount = 0;
-  let firstIncomplete = null;
-  const completedSet = new Set();
-  for (const step of TUTORIAL_STEPS) {
-    let done = false;
-    try { done = step.condition(state); } catch (_) {}
-    if (done) {
-      completedCount++;
-      completedSet.add(step.id);
-    } else if (!firstIncomplete) {
-      firstIncomplete = step.id;
-    }
-  }
-
-  // Summary / progress header
-  const summary = document.createElement('div');
-  summary.className = 'goals-progress';
-  const total = TUTORIAL_STEPS.length;
-  const pct = total > 0 ? Math.round((completedCount / total) * 100) : 0;
-  summary.innerHTML =
-    `<div class="goals-progress-label">` +
-    `<span>${completedCount === total ? 'All Done!' : 'Getting Started'}</span>` +
-    `<span class="goals-progress-count">${completedCount}/${total}</span>` +
-    `</div>` +
-    `<div class="goals-progress-bar"><div class="goals-progress-fill" style="width:${pct}%"></div></div>`;
-  list.appendChild(summary);
-
-  // Grouped checklist
-  for (const group of TUTORIAL_GROUPS) {
-    const groupDiv = document.createElement('div');
-    groupDiv.className = 'tut-group';
-    const title = document.createElement('div');
-    title.className = 'tut-group-name';
-    title.textContent = group.name;
-    groupDiv.appendChild(title);
-
-    for (const step of TUTORIAL_STEPS.filter(s => s.group === group.id)) {
-      const stepDiv = document.createElement('div');
-      stepDiv.className = 'tut-step';
-      if (completedSet.has(step.id)) stepDiv.classList.add('completed');
-      if (step.id === firstIncomplete) stepDiv.classList.add('next');
-
-      const check = document.createElement('span');
-      check.className = 'tut-check';
-      check.textContent = completedSet.has(step.id) ? '\u2713' : '\u25cb';
-      stepDiv.appendChild(check);
-
-      const nameWrap = document.createElement('span');
-      nameWrap.className = 'tut-name';
-      nameWrap.textContent = step.name;
-      const hint = document.createElement('span');
-      hint.className = 'tut-hint';
-      hint.textContent = step.hint;
-      nameWrap.appendChild(hint);
-      stepDiv.appendChild(nameWrap);
-
-      groupDiv.appendChild(stepDiv);
-    }
-
-    list.appendChild(groupDiv);
-  }
-
-  // Objectives. The tutorial checklist is guidance, not the reward layer —
-  // OBJECTIVES carries the actual funding/reputation milestones, and until
-  // now it had no UI at all (the only signal was a log line nothing renders).
-  const completedObjectives = new Set(state.completedObjectives || []);
-  const objHeader = document.createElement('div');
-  objHeader.className = 'goals-progress';
-  objHeader.innerHTML =
-    `<div class="goals-progress-label">` +
-    `<span>Objectives</span>` +
-    `<span class="goals-progress-count">${completedObjectives.size}/${OBJECTIVES.length}</span>` +
-    `</div>` +
-    `<div class="goals-progress-bar"><div class="goals-progress-fill" ` +
-    `style="width:${Math.round((completedObjectives.size / OBJECTIVES.length) * 100)}%"></div></div>`;
-  list.appendChild(objHeader);
-
-  for (const [tier, tierName] of OBJECTIVE_TIER_NAMES) {
-    const objs = OBJECTIVES.filter(o => (o.tier || 0) === tier);
-    if (objs.length === 0) continue;
-    const groupDiv = document.createElement('div');
-    groupDiv.className = 'tut-group';
-    const title = document.createElement('div');
-    title.className = 'tut-group-name';
-    title.textContent = `Tier ${tier} — ${tierName}`;
-    groupDiv.appendChild(title);
-
-    for (const obj of objs) {
-      const done = completedObjectives.has(obj.id);
-      const item = document.createElement('div');
-      item.className = 'objective-item' + (done ? ' completed' : '');
-      const name = document.createElement('div');
-      name.className = 'obj-name';
-      name.textContent = (done ? '✓ ' : '○ ') + obj.name;
-      const desc = document.createElement('div');
-      desc.className = 'obj-desc';
-      desc.textContent = obj.desc;
-      const reward = document.createElement('div');
-      reward.className = 'obj-reward';
-      reward.textContent = objectiveRewardText(obj.reward);
-      item.appendChild(name);
-      item.appendChild(desc);
-      item.appendChild(reward);
-      groupDiv.appendChild(item);
-    }
-    list.appendChild(groupDiv);
-  }
-};
-
-// Tier labels mirror the section comments in src/data/objectives.js.
-const OBJECTIVE_TIER_NAMES = [
-  [0, 'Getting Started'],
-  [1, 'Basic Competence'],
-  [2, 'Real Facility'],
-  [3, 'World Class'],
-  [4, 'Frontier'],
-  [5, 'Legacy'],
-];
-
-function objectiveRewardText(reward) {
-  const parts = [];
-  if (reward?.funding) parts.push('$' + reward.funding.toLocaleString());
-  if (reward?.reputation) parts.push(`+${reward.reputation} rep`);
-  if (reward?.data) parts.push(`+${reward.data} data`);
-  return parts.length ? 'Reward: ' + parts.join(' · ') : '';
-}
 
 // ---------------------------------------------------------------------------
 // Beamline context windows

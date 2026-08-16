@@ -7,6 +7,7 @@
 // recipe goes through the designer's ordinary undoable insert path.
 
 import { COMPONENTS } from '../data/components.js';
+import { getBeamlineType } from '../data/beamline-types.js';
 import { PARAM_DEFS } from './component-physics.js';
 
 const FOCUS_TYPES = new Set([
@@ -314,6 +315,49 @@ export function computePlacementHints({
   if (bunch) hints.push(bunch);
   if (energy) hints.push(energy);
   return dedupeHints(hints).sort((a, b) => a.s - b.s || b.priority - a.priority);
+}
+
+/**
+ * The shared availability contract for every physics-hint consumer.
+ * Build Forward and Designer must never disagree because one of them applied
+ * a mission exclusion or research gate that the other forgot.
+ */
+export function placementHintComponentAvailable({
+  typeId = null,
+  componentType,
+  isUnlocked = () => true,
+} = {}) {
+  const comp = COMPONENTS[componentType];
+  if (!comp || comp.category === 'source' || comp.category === 'endpoint') return false;
+  if (!isUnlocked(comp)) return false;
+  const beamlineType = getBeamlineType(typeId);
+  if (!beamlineType) return true;
+  if (Array.isArray(comp.beamlineTypes) && !comp.beamlineTypes.includes(typeId)) return false;
+  if (Array.isArray(beamlineType.excludes) && beamlineType.excludes.includes(componentType)) return false;
+  return true;
+}
+
+/**
+ * Mission-aware entry point shared by Designer and the in-world Build Forward
+ * assistant. Both surfaces therefore consume the same propagated envelope,
+ * candidate ordering, compatibility rules, and suggested component params.
+ */
+export function computeBeamlinePlacementHints({
+  nodes = [],
+  envelope = [],
+  typeId = null,
+  isUnlocked = () => true,
+} = {}) {
+  return computePlacementHints({
+    nodes,
+    envelope,
+    beamlineType: getBeamlineType(typeId),
+    isAvailable: componentType => placementHintComponentAvailable({
+      typeId,
+      componentType,
+      isUnlocked,
+    }),
+  });
 }
 
 /** Mission bands understood by the shared plot renderer. */

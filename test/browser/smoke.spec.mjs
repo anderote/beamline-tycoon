@@ -482,11 +482,10 @@ test('full session walk: boot -> build -> beam -> save/reload -> undo -> escape'
     await page.keyboard.press('Escape');
     await expect(page.locator('#research-overlay')).toBeHidden();
 
-    // 3. goals overlay (closed by the input layer's fallback ladder)
-    await page.click('#btn-goals');
-    await expect(page.locator('#goals-overlay')).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(page.locator('#goals-overlay')).toBeHidden();
+    // 3. Build Forward is the sole guided-build surface; Goals is gone.
+    await expect(page.locator('#btn-build-forward')).toHaveText('Build Forward');
+    await expect(page.locator('#btn-goals')).toHaveCount(0);
+    await expect(page.locator('#goals-overlay')).toHaveCount(0);
 
     // 4. beamline designer
     await page.click('#btn-designer');

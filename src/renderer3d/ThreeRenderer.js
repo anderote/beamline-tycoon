@@ -722,14 +722,9 @@ export class ThreeRenderer {
         case 'loaded':
         case 'restored':   // undo/redo snapshot restore
           this.refresh(); // full 3D rebuild
-          // Both overlays are snapshot renders baked at init() — before
-          // game.load() runs — and are otherwise only redrawn on
-          // 'researchChanged' / 'objectiveCompleted' or by their HUD buttons.
-          // Opening them with the R / G hotkeys after a load therefore showed
-          // the fresh-game tree (completed nodes rendered un-researched) and
-          // stale objective progress.
+          // The research overlay is a snapshot render baked at init(), before
+          // game.load() runs, so refresh it after restored research arrives.
           if (this._renderTechTree) this._renderTechTree();
-          if (this._renderGoalsOverlay) this._renderGoalsOverlay();
           break;
         case 'infrastructureChanged':
           this._refreshTerrain();
@@ -826,9 +821,6 @@ export class ThreeRenderer {
         case 'researchChanged':
           if (this._renderTechTree) this._renderTechTree();
           break;
-        case 'objectiveCompleted':
-          if (this._renderGoalsOverlay) this._renderGoalsOverlay();
-          break;
         case 'staffChanged':
           if (this._renderStaffBar) this._renderStaffBar();
           if (this._refreshStaffWindows) this._refreshStaffWindows();
@@ -878,7 +870,6 @@ export class ThreeRenderer {
     // Initial DOM renders (added by hud.js/overlays.js bridge)
     if (this._generateCategoryTabs) this._generateCategoryTabs();
     if (this._renderTechTree) this._renderTechTree();
-    if (this._renderGoalsOverlay) this._renderGoalsOverlay();
     if (this._updateHUD) this._updateHUD();
 
     // Mount the live view-cube widget if its DOM host exists. (It's a
@@ -5083,7 +5074,6 @@ const UI_METHODS = [
   '_paramLabel', '_fmtParam', '_wirePopupSliders',
   '_buildTreeLayout', '_renderTechTree', '_bindTreeEvents', '_updateTreeProgress',
   '_showResearchPopover', '_scrollToCategory', '_applyTreeTransform',
-  '_renderGoalsOverlay',
   '_openBeamlineWindow', '_openEquipmentWindow', '_closePlaceableInfoWindow',
   '_refreshContextWindows',
 ];

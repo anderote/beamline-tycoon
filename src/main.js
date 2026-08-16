@@ -472,7 +472,7 @@ function showScenarioPicker(game) {
     designLibrary.open(true);
   });
 
-  // Welcome/goals dialog — auto-shown on fresh games (below), reopenable
+  // Welcome/guide dialog — auto-shown on fresh games (below), reopenable
   // anytime via Menu > Guide. Marks welcomeSeen + saves on dismiss.
   const welcomeDialog = new WelcomeDialog(() => {
     if (!game.state.welcomeSeen) {
