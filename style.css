@@ -982,7 +982,7 @@ body {
   bottom: calc(var(--hud-bottom-height) + 28px);
   left: 12px;
   z-index: 110;
-  width: min(560px, calc(100vw - 24px));
+  width: min(680px, calc(100vw - 24px));
   overflow: hidden;
   padding: 0;
   border-color: var(--blt-panel-border);
@@ -1009,14 +1009,14 @@ body {
 .connection-guide-kicker {
   order: 2;
   color: color-mix(in srgb, var(--guide-accent) 58%, #77778c);
-  font-size: 8px;
+  font-size: 9px;
   letter-spacing: 1px;
   white-space: nowrap;
 }
 .connection-guide-title {
   order: 1;
   color: var(--blt-heading);
-  font-size: 14px;
+  font-size: 15px;
   letter-spacing: 1px;
   white-space: nowrap;
 }
@@ -1028,102 +1028,28 @@ body {
   padding-bottom: 9px;
   border-bottom: 1px solid rgba(60, 60, 100, 0.2);
   color: var(--blt-body);
-  font-size: 11px;
-  line-height: 1.7;
+  font-size: 12px;
+  line-height: 1.75;
 }
 .connection-guide-figure {
   margin: 0;
-  padding: 9px 9px 11px;
+  padding: 10px;
   border: 1px solid rgba(80, 80, 140, 0.25);
   border-radius: 3px;
   background:
-    linear-gradient(rgba(8, 8, 22, 0.76), rgba(5, 5, 15, 0.82)),
-    repeating-linear-gradient(0deg, transparent 0 15px, rgba(120, 130, 180, 0.055) 15px 16px),
-    repeating-linear-gradient(90deg, transparent 0 15px, rgba(120, 130, 180, 0.055) 15px 16px);
-  box-shadow: inset 0 0 18px rgba(0, 0, 15, 0.36);
+    linear-gradient(rgba(6, 15, 27, 0.88), rgba(4, 12, 22, 0.94)),
+    repeating-linear-gradient(0deg, transparent 0 23px, rgba(120, 180, 220, 0.045) 23px 24px),
+    repeating-linear-gradient(90deg, transparent 0 23px, rgba(120, 180, 220, 0.045) 23px 24px);
+  box-shadow: inset 0 0 22px rgba(0, 8, 18, 0.48);
 }
 .connection-guide-art {
   display: block;
   width: 100%;
   height: auto;
-  aspect-ratio: 113 / 41;
-  background: #101321;
-  box-shadow: 0 0 12px color-mix(in srgb, var(--guide-accent) 9%, transparent);
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
-}
-.connection-guide-legend {
-  display: flex;
-  align-items: stretch;
-  gap: 0;
-  margin-top: 9px;
-}
-.connection-guide-stage {
-  display: grid;
-  flex: 1 1 0;
-  grid-template-columns: 16px minmax(0, 1fr);
-  grid-template-rows: auto auto;
-  min-width: 0;
-  color: #b6def8;
-}
-.connection-guide-step {
-  grid-column: 1;
-  grid-row: 1 / 3;
-  align-self: start;
-  padding: 2px 3px;
-  border: 1px solid color-mix(in srgb, var(--guide-accent) 48%, #3d3d59);
-  border-radius: 2px;
-  background: #101024;
-  color: color-mix(in srgb, var(--guide-accent) 74%, white);
-  font-size: 6px;
-  line-height: 1;
-}
-.connection-guide-name {
-  grid-column: 2;
-  grid-row: 1;
-  color: color-mix(in srgb, var(--guide-accent) 58%, #dce8ff);
-  font-size: 7px;
-  line-height: 1.45;
-}
-.connection-guide-detail {
-  grid-column: 2;
-  grid-row: 2;
-  color: rgba(180, 180, 220, 0.72);
-  margin-top: 1px;
-  font-size: 6px;
-  line-height: 1.35;
-}
-.connection-guide-link {
-  position: relative;
-  display: flex;
-  flex: 0 1 54px;
-  align-items: center;
-  justify-content: center;
-  min-width: 34px;
-  padding: 0 4px;
-  color: color-mix(in srgb, var(--guide-accent) 60%, #98a2be);
-  font-size: 5px;
-  line-height: 1.45;
-  text-align: center;
-}
-.connection-guide-link::before {
-  content: '';
-  position: absolute;
-  top: 7px;
-  left: 0;
-  right: 0;
-  border-top: 1px dotted color-mix(in srgb, var(--guide-accent) 56%, transparent);
-}
-.connection-guide-link::after {
-  content: '';
-  position: absolute;
-  top: 4px;
-  right: -1px;
-  width: 4px;
-  height: 4px;
-  border-top: 1px solid var(--guide-accent);
-  border-right: 1px solid var(--guide-accent);
-  transform: rotate(45deg);
+  aspect-ratio: 80 / 23;
+  background: #07101b;
+  box-shadow: 0 0 16px color-mix(in srgb, var(--guide-accent) 11%, transparent);
+  image-rendering: auto;
 }
 
 /* RF waveguides carry one frequency band per physical network. This is a

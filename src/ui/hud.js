@@ -694,19 +694,19 @@ UIHost.prototype._generateCategoryTabs = function({ freshMode = false } = {}) {
 export const CONNECTION_GUIDES = {
   power: {
     title: 'POWER PATH',
-    description: 'Connect a transformer to a panel with an HV Feeder, then run one Power Cable from a panel outlet to each load.',
+    description: 'HV Supply → HV Feeder → Distribution Panel. Run a separate Power Cable from the panel to every equipment load.',
     accent: '#ffd36a',
     diagram: 'power',
     flow: [
-      { name: 'TRANSFORMER', detail: 'capacity source' },
-      { name: 'PANEL / MCC', detail: 'branch outlets' },
-      { name: 'EQUIPMENT', detail: 'power load' },
+      { name: 'HV SUPPLY', detail: 'capacity source' },
+      { name: 'DISTRIBUTION PANEL', detail: 'branch outlets' },
+      { name: 'EQUIPMENT LOADS', detail: 'one cable each' },
     ],
     links: ['HV FEEDER', 'POWER CABLE'],
   },
   vacuum: {
     title: 'VACUUM PATH',
-    description: 'Put roughing and high-vacuum pumps on the same Vacuum Pipe network as the beam volume; mount gauges on that line or the beam pipe.',
+    description: 'Connect roughing and high-vacuum pumps to the beam volume with Vacuum Pipe. Gauges are taps on that same line.',
     accent: '#8fe5ff',
     diagram: 'vacuum',
     flow: [
@@ -719,7 +719,7 @@ export const CONNECTION_GUIDES = {
   },
   rfPower: {
     title: 'RF PATH',
-    description: 'Feed an RF source from a transformer, then waveguide it to a band-compatible cavity. One RF network carries one frequency.',
+    description: 'Feed the RF source from an HV Supply, then connect it to a band-compatible cavity with RF Waveguide. One network carries one frequency.',
     accent: '#ff9b72',
     diagram: 'rfPower',
     flow: [
@@ -731,7 +731,7 @@ export const CONNECTION_GUIDES = {
   },
   cooling: {
     title: 'COOLING LOOP',
-    description: 'A working Cooling Water network needs storage, process cooling, and heat rejection on the same loop before it can serve equipment.',
+    description: 'Put storage, chiller, equipment, and heat rejection on one Cooling Water loop. Cold supply flows out; warm water returns through the plant.',
     accent: '#76d7c9',
     diagram: 'cooling',
     flow: [
@@ -744,7 +744,7 @@ export const CONNECTION_GUIDES = {
   },
   dataControls: {
     title: 'CONTROL PATH',
-    description: 'Connect a powered rack or switch to equipment data ports with Data Fiber, and keep total demand within the network bandwidth.',
+    description: 'Run Data Fiber from a powered control rack or switch to each equipment data port. Keep total demand within the available bandwidth.',
     accent: '#9be27c',
     diagram: 'dataControls',
     flow: [
@@ -755,7 +755,7 @@ export const CONNECTION_GUIDES = {
   },
   ops: {
     title: 'SAFE BEAM DISPOSAL',
-    description: 'Ops hardware surrounds the loss point rather than forming a utility chain: cool the dump, shield it, and handle activated targets remotely.',
+    description: 'Terminate the full beam inside shielding. Cool the dump and provide remote handling at the same loss point.',
     accent: '#f3a4d5',
     diagram: 'ops',
     flow: [
@@ -808,23 +808,6 @@ UIHost.prototype._renderConnectionGuide = function(category) {
   );
   figure.appendChild(canvas);
   drawConnectionGuideDiagram(canvas, guide.diagram, guide.accent);
-
-  const legend = document.createElement('figcaption');
-  legend.className = 'connection-guide-legend';
-  guide.flow.forEach((item, index) => {
-    const stage = document.createElement('span');
-    stage.className = 'connection-guide-stage';
-    stage.innerHTML = `<span class="connection-guide-step">${String(index + 1).padStart(2, '0')}</span><span class="connection-guide-name">${item.name}</span><span class="connection-guide-detail">${item.detail}</span>`;
-    legend.appendChild(stage);
-    if (index < guide.flow.length - 1) {
-      const link = document.createElement('div');
-      link.className = 'connection-guide-link';
-      link.setAttribute('aria-hidden', 'true');
-      link.textContent = guide.links[index];
-      legend.appendChild(link);
-    }
-  });
-  figure.appendChild(legend);
   body.appendChild(figure);
   el.appendChild(body);
 };
