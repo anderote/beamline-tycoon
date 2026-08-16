@@ -32,7 +32,7 @@ import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
 import { BeamlineDesigner } from '../src/ui/BeamlineDesigner.js';
 import {
   beamlineTypeHidesComponent, formatEnergyBand, formatCurrentBand,
-  designUnlockPath,
+  designUnlockPath, blueprintPanelHtml, stockDesignCost,
 } from '../src/ui/BeamlineTypePicker.js';
 import { BEAMLINE_TYPES, getBeamlineType } from '../src/data/beamline-types.js';
 import { COMPONENTS } from '../src/data/components.js';
@@ -353,7 +353,8 @@ console.log('\n=== Missions stay open while hardware remains gated ===\n');
 
 {
   // Headless style contract: the picker opts into the shared BLT panel tokens,
-  // carries the schematic mission brief, and has no family-card lock state.
+  // carries the schematic mission brief, has no family-card lock state, and
+  // publishes each stock tier's price in its top-right header cluster.
   const css = readFileSync(new URL('../style.css', import.meta.url), 'utf8');
   const picker = readFileSync(new URL('../src/ui/BeamlineTypePicker.js', import.meta.url), 'utf8');
   assert(css.includes('.bltype-brief') && css.includes('var(--blt-panel-bg)'),
@@ -362,6 +363,23 @@ console.log('\n=== Missions stay open while hardware remains gated ===\n');
     'the picker window explicitly opts into the BLT panel primitive');
   assert(!picker.includes("cls.push('locked')") && !css.includes('.bltype-card.locked'),
     'mission cards have no locked visual or interaction state');
+
+  const design = stockDesignsFor('testStand')[0];
+  const panel = blueprintPanelHtml(BEAMLINE_TYPES.testStand, design.id, {});
+  const cardStart = panel.indexOf(`data-design-id="${design.id}"`);
+  const nextCard = panel.indexOf('<div class="blueprint-card', cardStart + 1);
+  const card = panel.slice(cardStart, nextCard);
+  const headStart = card.indexOf('<div class="blueprint-head">');
+  const headEnd = card.indexOf('</div>', headStart);
+  const head = card.slice(headStart, headEnd);
+  const exactCost = `$${stockDesignCost(design).toLocaleString()}`;
+  assert(head.includes('class="blueprint-head-meta"')
+    && head.includes('class="blueprint-cost"') && head.includes(exactCost),
+    `a stock tier publishes its exact ${exactCost} hardware cost in the card header`);
+  assert(head.indexOf('class="blueprint-cost"') > head.indexOf('class="bltype-tier"'),
+    'the prominent cost sits at the far right of the tier header');
+  assert(css.includes('.blueprint-cost') && css.includes('.blueprint-head-meta'),
+    'the tier header gives its cost a dedicated prominent badge');
 }
 
 {
