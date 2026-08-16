@@ -280,12 +280,31 @@ test('every visible palette card adds to the draft in edit mode', async ({ page 
   expect(sourceId, 'designer opened from a placed source').toBeTruthy();
   await frames(page, 5);
 
-  const mode = await page.evaluate(() => ({
-    editSourceId: window.game._designer.editSourceId,
-    isOpen: window.game._designer.isOpen,
-  }));
+  const mode = await page.evaluate(() => {
+    const tabs = [...document.querySelectorAll('#category-tabs .cat-tab')];
+    const searchRect = document.getElementById('palette-search')?.getBoundingClientRect();
+    const lastTabRect = tabs.at(-1)?.getBoundingClientRect();
+    const bottomHud = document.getElementById('bottom-hud');
+    return {
+      editSourceId: window.game._designer.editSourceId,
+      isOpen: window.game._designer.isOpen,
+      designerHud: bottomHud?.classList.contains('designer-active'),
+      hudHeight: bottomHud?.getBoundingClientRect().height,
+      topRowDisplay: getComputedStyle(document.getElementById('hud-top-row')).display,
+      searchTop: searchRect?.top,
+      lastTabTop: lastTabRect?.top,
+      searchLeft: searchRect?.left,
+      lastTabRight: lastTabRect?.right,
+    };
+  });
   expect(mode.isOpen).toBe(true);
   expect(mode.editSourceId, 'in pipe-graph edit mode, not sandbox').toBeTruthy();
+  expect(mode.designerHud, 'Designer compact HUD state is active').toBe(true);
+  expect(mode.hudHeight, 'the unused mode row is removed from the Designer HUD').toBe(257);
+  expect(mode.topRowDisplay).toBe('none');
+  expect(mode.searchTop, 'search is vertically aligned with the category buttons').toBe(mode.lastTabTop);
+  expect(mode.searchLeft, 'search sits to the right of the category buttons')
+    .toBeGreaterThan(mode.lastTabRight);
 
   // Click every card in every category. The draft must grow by exactly one
   // each time — never silently ignore a click.

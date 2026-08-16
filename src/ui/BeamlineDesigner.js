@@ -673,7 +673,10 @@ export class BeamlineDesigner {
     // Show overlay
     this.overlay.classList.remove('hidden');
     const bottomHud = document.getElementById('bottom-hud');
-    if (bottomHud) bottomHud.style.zIndex = '260';
+    if (bottomHud) {
+      bottomHud.style.zIndex = '260';
+      bottomHud.classList.add('designer-active');
+    }
     const paletteActions = document.getElementById('dsgn-palette-actions');
     if (paletteActions) paletteActions.classList.remove('hidden');
 
@@ -822,7 +825,10 @@ export class BeamlineDesigner {
 
     this.overlay.classList.remove('hidden');
     const bottomHud = document.getElementById('bottom-hud');
-    if (bottomHud) bottomHud.style.zIndex = '260';
+    if (bottomHud) {
+      bottomHud.style.zIndex = '260';
+      bottomHud.classList.add('designer-active');
+    }
     const paletteActions = document.getElementById('dsgn-palette-actions');
     if (paletteActions) paletteActions.classList.remove('hidden');
 
@@ -1443,7 +1449,10 @@ export class BeamlineDesigner {
     }
     this.overlay.classList.add('hidden');
     const bottomHud = document.getElementById('bottom-hud');
-    if (bottomHud) bottomHud.style.zIndex = '';
+    if (bottomHud) {
+      bottomHud.style.zIndex = '';
+      bottomHud.classList.remove('designer-active');
+    }
     const paletteActions = document.getElementById('dsgn-palette-actions');
     if (paletteActions) paletteActions.classList.add('hidden');
     if (!this._suppressHashUpdate && window.location.hash.startsWith('#designer')) {

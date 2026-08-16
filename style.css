@@ -41,6 +41,7 @@
      changes height when content or active build categories change. */
   --hud-topbar-height: 98px;
   --hud-bottom-height: 296px;
+  --designer-hud-bottom-height: 257px;
   --hud-topbar-bottom: var(--hud-topbar-height);
 }
 
@@ -923,7 +924,7 @@ body {
   display: none;
 }
 
-/* HUD controls — two rows: modes+pipes on top, category tabs below */
+/* HUD controls — two rows: modes on top, category tabs + search below. */
 #hud-controls {
   display: flex;
   flex-direction: column;
@@ -937,20 +938,43 @@ body {
 #hud-top-row {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
+  justify-content: flex-start;
   min-height: 31px;
   gap: 12px;
 }
 
-/* Category tabs — left-justified row */
+#hud-category-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  min-height: 31px;
+}
+
+/* Category tabs scroll on the left while search stays pinned on the right. */
 #category-tabs {
   display: flex;
-  flex: 0 0 31px;
+  flex: 1 1 auto;
+  height: 31px;
   gap: 3px;
   justify-content: flex-start;
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
+}
+
+/* The Designer hides the mode switcher. Collapse that empty first row and
+   shorten the HUD by the same amount, preserving palette-card height while
+   returning 39px of vertical space to the tuning/sliders above it. */
+#bottom-hud.designer-active {
+  height: var(--designer-hud-bottom-height);
+}
+#bottom-hud.designer-active #hud-controls {
+  flex-basis: 39px;
+  gap: 0;
+}
+#bottom-hud.designer-active #hud-top-row {
+  display: none;
 }
 
 #connection-guide {
@@ -1246,7 +1270,7 @@ body {
   position: absolute;
   z-index: 20;
   right: 12px;
-  bottom: calc(var(--hud-bottom-height) + 8px);
+  bottom: calc(var(--designer-hud-bottom-height) + 8px);
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -2432,7 +2456,9 @@ body {
 /* === BUILD MENU SEARCH === */
 #palette-search {
   display: flex;
+  flex: 0 0 auto;
   align-items: flex-start;
+  margin-left: auto;
 }
 
 #palette-search-input {
@@ -3154,7 +3180,8 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding-bottom: 240px; /* space for taller bottom HUD with preview cards */
+  /* The compact Designer HUD leaves 39px more of the tuning row visible. */
+  padding-bottom: 240px;
 }
 .dsgn-section-title {
   font: 9px monospace;
