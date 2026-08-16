@@ -141,6 +141,12 @@ body {
   z-index: 600;
 }
 
+/* The compact info row normally clips horizontally overflowing statistics.
+   Let the open menu escape that row so its items remain visible below it. */
+#top-bar-info:has(.menu-dropdown:not(.hidden)) {
+  overflow: visible;
+}
+
 #game-title {
   font-size: 11px;
   color: #aaccff;
