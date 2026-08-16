@@ -133,21 +133,33 @@ console.log('\n--- 3. Sink alerts are compact exclamation points over ports ---'
       placeableId: 'cavity', portName: 'rf_in', utilityType: 'rfWaveguide',
       severity: 'critical', x: 5, y: 0.8, z: 7,
     },
+    {
+      placeableId: 'panel', portName: 'hv_in', utilityType: 'hvCable',
+      severity: 'critical', x: 8, y: 0.6, z: 4,
+    },
   ], parent);
   const markers = parent.children[0]?.children || [];
-  assert(markers.length === 2, 'one marker is drawn per affected sink port');
-  assert(markers.every(marker => marker.children.length === 2),
-    'each marker is a two-piece exclamation glyph, not an X');
-  assert(markers.every(marker => marker.children[1].position.y > marker.children[0].position.y),
-    'the bar sits over the dot');
+  assert(markers.length === 3, 'one marker is drawn per affected sink port');
+  assert(markers.every(marker => marker.children.length === 3),
+    'each marker is a leader plus two-piece exclamation glyph, not an X');
+  assert(markers.every(marker => marker.children[0].position.y < marker.children[1].position.y
+      && marker.children[1].position.y < marker.children[2].position.y),
+    'the leader rises from the port to the dot and bar');
   assert(markers[0]?.userData.severity === 'warning'
-      && markers[0]?.children[0].material.color.c === '#ffcc33',
-    'partial service uses a yellow exclamation point');
+      && markers[0]?.children[1].material.color.c === '#2e8b2e',
+    'partial power uses a subdued shade of the green power-port color');
   assert(markers[1]?.userData.severity === 'critical'
-      && markers[1]?.children[0].material.color.c === '#ff3333',
-    'zero service uses a red exclamation point');
-  assert(markers[1]?.position.x === 5 && markers[1]?.position.z === 7,
-    'the issue glyph is anchored over the affected port');
+      && markers[1]?.children[1].material.color.c === UTILITY_TYPES.rfWaveguide.color,
+    'zero RF service uses the full-bright RF port color');
+  assert(markers[1]?.position.x === 5 && markers[1]?.position.y === 0.8
+      && markers[1]?.position.z === 7,
+    'the marker group starts at the exact affected port anchor');
+  assert(markers[2]?.children[1].material.color.c === UTILITY_TYPES.hvCable.markerColor,
+    'HV issues use its visible port-marker override, not the near-black cable color');
+  builder.pulseUtilityPortIssueMarkers(0);
+  assert(markers[0]?.children[1].material.emissiveIntensity
+      < markers[1]?.children[1].material.emissiveIntensity,
+    'warning markers remain dimmer than critical markers while pulsing');
 }
 
 console.log('\n--- 4. Clearing port issues clears the glyphs ---');
