@@ -3768,12 +3768,10 @@ UIHost.prototype._refreshStaffWindows = function() {
 
 // --- Build-menu search ------------------------------------------------
 //
-// The search bar lives in #palette-search (index.html, in place of the
-// dead #connection-tools rack-paint row). Typing filters #component-palette
-// to a flat, cross-category result list; clicking a result switches mode +
-// category to the item's home and arms it — see src/ui/palette-search.js
-// for the index/ranking and .superpowers/sdd/.../search-brief.md for the
-// full design rationale.
+// The search bar lives at the right of the category-tab row in
+// #palette-search (index.html). Typing filters #component-palette to a flat,
+// cross-category result list; clicking a result switches mode + category to
+// the item's home and arms it — see src/ui/palette-search.js for ranking.
 
 UIHost.prototype._getPaletteIndex = function() {
   // Lazy + cached: rebuilding walks every COMPONENTS/FLOORS/WALL_TYPES/
