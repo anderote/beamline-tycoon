@@ -2678,6 +2678,35 @@ body {
   font-weight: bold;
 }
 
+/* Shared by mouse-hover, keyboard-focus, and Designer build previews. The
+   text itself carries the same hue as the matching in-world port marker. */
+.required-port-requirements {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(80, 80, 125, 0.34);
+}
+
+.required-port-heading {
+  color: #7180a9;
+  font-size: 8px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.required-port-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  margin-top: 6px;
+}
+
+.required-port-type {
+  color: var(--required-port-color);
+  font-weight: bold;
+  text-shadow: 0 0 5px color-mix(in srgb, var(--required-port-color) 45%, transparent);
+  white-space: nowrap;
+}
+
 /* Palette subsections */
 .palette-subsection {
   display: flex;
@@ -3754,13 +3783,6 @@ body {
   font-weight: normal;
   text-align: right;
 }
-.dsgn-palette-hover-requirements {
-  color: #e2b96c;
-  border-top: 1px solid rgba(110, 88, 45, 0.36);
-  margin-top: 9px;
-  padding-top: 8px;
-}
-
 /* Hover tooltip for furnishings/equipment */
 .hover-tooltip {
   position: fixed;

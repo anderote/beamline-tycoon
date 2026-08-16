@@ -7,6 +7,7 @@ import { DIR, DIR_DELTA } from '../data/directions.js';
 import { isoToGrid, isoToGridFloat, gridToIso, isoToSubGrid } from '../renderer/grid.js';
 import { formatEnergy, UNITS } from '../data/units.js';
 import { UtilityInspector } from '../ui/UtilityInspector.js';
+import { appendRequiredPortRequirements } from '../ui/required-port-preview.js';
 import { EconomyWindow } from '../ui/EconomyWindow.js';
 import { discoverNetworks, makeDefaultPortLookup } from '../utility/network-discovery.js';
 import { UTILITY_TYPES, utilityLineHeight } from '../utility/registry.js';
@@ -4361,7 +4362,7 @@ export class InputHandler {
           const reqs = Array.isArray(comp.requires) ? comp.requires : [comp.requires];
           statEntries.push(['Requires', reqs.join(', ')]);
         }
-        this._renderPreview(comp.name, comp.desc || '', statEntries, comp.id);
+        this._renderPreview(comp.name, comp.desc || '', statEntries, comp.id, comp);
         return;
       }
       default:
@@ -4369,7 +4370,7 @@ export class InputHandler {
     }
   }
 
-  _renderPreview(name, desc, stats, componentId) {
+  _renderPreview(name, desc, stats, componentId, comp = null) {
     const panel = document.getElementById('component-preview');
     const nameEl = document.getElementById('preview-name');
     const descEl = document.getElementById('preview-desc');
@@ -4385,6 +4386,7 @@ export class InputHandler {
       row.innerHTML = `<span>${label}</span><span class="prev-stat-val">${val}</span>`;
       statsEl.appendChild(row);
     }
+    appendRequiredPortRequirements(statsEl, comp);
     // Draw schematic if available
     const schematicCanvas = document.getElementById('preview-schematic');
     if (schematicCanvas && componentId && this.renderer._schematicDrawers[componentId]) {
