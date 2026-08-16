@@ -70,6 +70,17 @@ test('mission targets annotate performance plots without changing their scale', 
         const rect = panel.getBoundingClientRect();
         return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
       }),
+      plotControlRects: panels.map(panel => {
+        const rect = panel.querySelector('.dsgn-plot-options')?.getBoundingClientRect();
+        return rect ? { top: rect.top, bottom: rect.bottom, height: rect.height } : null;
+      }),
+      plotCanvasRects: panels.map(panel => {
+        const rect = panel.querySelector('.dsgn-plot-canvas')?.getBoundingClientRect();
+        return rect ? { top: rect.top, bottom: rect.bottom, height: rect.height } : null;
+      }),
+      thirdPlotDisabled: document.querySelector('.dsgn-plot-select[data-panel="2"]')?.disabled,
+      thirdPlotOptions: [...(document.querySelector('.dsgn-plot-select[data-panel="2"]')?.options || [])]
+        .map(option => option.value),
       yScale: document.getElementById('dsgn-y-scale-select')?.value,
       yScaleOptions: [...(document.getElementById('dsgn-y-scale-select')?.options || [])]
         .map(option => option.textContent),
@@ -102,6 +113,16 @@ test('mission targets annotate performance plots without changing their scale', 
   expect(Math.max(...layout.plotRects.map(rect => rect.width))
     - Math.min(...layout.plotRects.map(rect => rect.width)),
   'the three plot columns are equal width').toBeLessThanOrEqual(1);
+  expect(layout.plotControlRects.every((rect, index) => rect
+    && layout.plotCanvasRects[index]
+    && rect.bottom <= layout.plotCanvasRects[index].top),
+  'each plot control row sits above rather than on top of its canvas').toBe(true);
+  expect(layout.thirdPlotDisabled, 'the right plot selector is interactive').toBe(false);
+  expect(layout.thirdPlotOptions).toEqual([
+    'eic-triangle', 'energy', 'energy-dispersion', 'beta-acceptance',
+    'beam-envelope', 'current-loss', 'emittance', 'peak-current',
+    'phase-space', 'longitudinal',
+  ]);
   expect(layout.yScale).toBe('linear');
   expect(layout.yScaleOptions).toEqual(['Linear', 'Log']);
   expect(layout.reference).toBe('mission');

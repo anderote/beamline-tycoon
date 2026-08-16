@@ -3379,24 +3379,26 @@ body {
 }
 .dsgn-plot-range-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  padding: 3px 10px;
+  gap: 7px;
+  padding: 6px 10px;
   flex-shrink: 0;
   border-bottom: 1px solid rgba(72, 145, 147, 0.2);
   background: rgba(4, 12, 19, 0.62);
 }
 .dsgn-range-label {
-  font-size: 9px;
+  font-family: var(--ui-font-display);
+  font-size: 10px;
   color: #556;
-  font-family: monospace;
   text-transform: uppercase;
   letter-spacing: 1px;
 }
 .dsgn-range-btn {
-  font-family: monospace;
-  font-size: 9px;
-  padding: 2px 8px;
+  font-family: var(--ui-font-display);
+  font-size: 10px;
+  line-height: 1.35;
+  padding: 4px 9px;
   background: rgba(30, 30, 55, 0.7);
   color: #889;
   border: 1px solid rgba(80, 80, 120, 0.3);
@@ -3414,7 +3416,7 @@ body {
 }
 .dsgn-range-sep {
   color: rgba(80, 80, 120, 0.4);
-  font-size: 10px;
+  font: 11px var(--ui-font-display);
   margin: 0 4px;
 }
 /* Proposed/Current/Both toggle. A flex row of its own so hiding the group in
@@ -3432,13 +3434,14 @@ body {
   flex-shrink: 0;
 }
 .dsgn-plot-control-select {
-  max-width: 112px;
-  padding: 1px 3px;
+  max-width: 180px;
+  padding: 4px 6px;
   border: 1px solid rgba(80, 80, 120, 0.35);
   border-radius: 3px;
   background: rgba(20, 20, 40, 0.85);
   color: #aab;
-  font: 8px monospace;
+  font: 9px/1.35 var(--ui-font-display);
+  text-transform: uppercase;
 }
 .dsgn-plot-control-select:disabled {
   color: #556;
@@ -3528,30 +3531,42 @@ body {
 .dsgn-plot-panel--radar {
   background: radial-gradient(circle at 50% 56%, rgba(82, 124, 47, 0.12), transparent 58%);
 }
+.dsgn-plot-options {
+  position: relative;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: 6px;
+  border-bottom: 1px solid rgba(75, 153, 153, 0.3);
+  background: rgba(4, 12, 20, 0.96);
+}
+.dsgn-plot-options--single {
+  grid-template-columns: minmax(0, 1fr);
+}
 .dsgn-plot-select,
 .dsgn-plot-secondary-select,
 .dsgn-plot-tertiary-select {
-  position: absolute;
-  right: 4px;
-  z-index: 10;
-  font-family: monospace;
-  font-size: 9px;
+  width: 100%;
+  min-width: 0;
+  font-family: var(--ui-font-display);
+  font-size: 10px;
+  line-height: 1.35;
   background: rgba(4, 12, 20, 0.92);
   color: #9fc6c3;
   border: 1px solid rgba(75, 153, 153, 0.38);
   border-radius: 1px;
-  padding: 2px 5px;
+  padding: 5px 6px;
   text-transform: uppercase;
-  letter-spacing: .35px;
+  letter-spacing: .45px;
 }
-.dsgn-plot-select { top: 4px; }
 .dsgn-plot-secondary-select {
-  top: 27px;
   color: #e28ac8;
   border-color: rgba(218, 96, 185, 0.38);
 }
 .dsgn-plot-tertiary-select {
-  top: 50px;
   color: #71ddea;
   border-color: rgba(93, 230, 255, 0.38);
 }
@@ -3561,14 +3576,11 @@ body {
   border-color: rgba(80, 80, 120, 0.2);
   opacity: 0.7;
 }
-.dsgn-plot-select--locked:disabled {
-  color: #dcb25c;
-  border-color: rgba(220, 178, 92, 0.34);
-  opacity: 1;
-}
 .dsgn-plot-canvas {
+  flex: 1 1 0;
+  min-height: 0;
   width: 100%;
-  height: 100%;
+  height: 0;
   display: block;
   cursor: crosshair;
   image-rendering: pixelated;
