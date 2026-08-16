@@ -21,14 +21,15 @@ import { min, mix, mod, sin, smoothstep, uniform, uv } from 'three/tsl';
 //
 // `color` is the pulse's tint. Emissive flows normally use the utility's own
 // descriptor colour (UTILITY_TYPES[type].color). Electrical cables are the
-// exception: their flow is an albedo variation on the cable surface, with no
-// bloom, crest object, or real-light proxy. That needs an explicit lighter
-// target colour so powerCable's green-on-green variation remains visible and
-// hvCable's near-black trunk can visibly change at all.
+// exception: their visible flow is an albedo variation on the cable surface,
+// with no bloom or crest object. Their bounded moving point-light proxy still
+// casts the restrained local illumination expected from live power. The
+// surface variation needs an explicit lighter target colour so powerCable's
+// green-on-green variation remains visible and hvCable's near-black trunk can
+// visibly change at all.
 //
 // `#8f94c8` remains a dim, desaturated blue-violet so HV reads differently
-// from ordinary branch power. It is now only a surface colour and does not
-// imply that the cable is casting light into the room.
+// from ordinary branch power.
 //
 export const FLOW_PARAMS = {
   hvCable: {
@@ -37,14 +38,16 @@ export const FLOW_PARAMS = {
     // live HV feeder does not spend most of its time looking inert.
     speed: 2.35, period: 3.2, width: 0.48, strength: 1.60, baseGlow: 0.045,
     color: '#8f94c8',
-    emissive: false, crest: false, light: false,
+    emissive: false, crest: false,
+    lightIntensity: 0.28, lightDistance: 2.05, daylightFloor: 0.34,
   },
   powerCable: {
     // A regular train of elongated green surface gradients: dependable and
     // frequent, but visibly less forceful than the HV bands above.
     speed: 1.35, period: 0.88, width: 0.30, strength: 1.12, baseGlow: 0.09,
     color: '#9be39b',
-    emissive: false, crest: false, light: false,
+    emissive: false, crest: false,
+    lightIntensity: 0.16, lightDistance: 1.5, daylightFloor: 0.26,
   },
   vacuumPipe: {
     // Gas load drifts from beam chambers toward the pump. Kept restrained so

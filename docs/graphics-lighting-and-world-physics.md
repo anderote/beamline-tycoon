@@ -26,7 +26,7 @@ All 64 participate in PBR material lighting. Their parameters are uploaded in
 packed uniform arrays rather than one GPU binding per light, avoiding common
 WebGPU binding-count limits.
 
-The nearest/highest-value subset of up to 24 lights casts real dynamic
+The nearest/highest-value subset of up to 12 lights casts real dynamic
 shadows. Those shadow maps live in one shared depth-texture array and are
 rendered with one array camera. The array is cached and cadence-throttled; each
 quality preset independently selects its active layer count, map size, and
@@ -51,8 +51,8 @@ Current maximum budgets:
 | Resource | Modern maximum | Notes |
 | --- | ---: | --- |
 | Real fixture lights | 64 | Camera-ranked, packed GPU data |
-| Shadowed fixture lights | 24 | Cached shared depth array |
-| Dynamic point/effect lights | 16 | Explosions, flashes, transient effects |
+| Shadowed fixture lights | 12 | Cached shared depth array |
+| Dynamic point/effect lights | 32 | 30 camera-ranked utility-flow/machine-glow slots plus 2 flash reserves |
 | Volumetric fixture meshes | 8 | Independent presentation budget |
 
 Use `window.dev.lightingStats()` to inspect the selected backend, candidates,

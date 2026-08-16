@@ -285,7 +285,7 @@ console.log('\n--- 3. A vacuum run carries restrained gas-flow lighting ---');
   }
 }
 
-console.log('\n--- 3b. Electrical runs vary surface colour without glowing ---');
+console.log('\n--- 3b. Electrical runs vary surface colour and cast bounded local light ---');
 {
   for (const utilityType of ['powerCable', 'hvCable']) {
     const { group } = buildFlowLine(utilityType);
@@ -293,8 +293,11 @@ console.log('\n--- 3b. Electrical runs vary surface colour without glowing ---')
     assert(meshes.length >= 1, `${utilityType} still builds its cable geometry`);
     assert(meshes.every(mesh => mesh.layers.mask === 1),
       `${utilityType} stays off the bloom layer`);
-    assert(!group.userData.visualEffects,
-      `${utilityType} publishes no glowing crest or real-light proxy`);
+    const effect = group.userData.visualEffects?.[0];
+    assert(effect?.crest === false && effect?.groundSpill === false,
+      `${utilityType} publishes no crest or projected floor-glow geometry`);
+    assert(effect?.light && effect.light.intensity > 0 && effect.light.distance > 0,
+      `${utilityType} publishes a bounded moving real-light candidate`);
 
     const material = meshes[0].material;
     assert(material.colorNode && !material.emissiveNode,
@@ -339,11 +342,11 @@ console.log('\n--- 4. FLOW_PARAMS covers every utility ---');
   }
   assert(FLOW_PARAMS.hvCable.emissive === false
       && FLOW_PARAMS.hvCable.crest === false
-      && FLOW_PARAMS.hvCable.light === false
+      && FLOW_PARAMS.hvCable.light !== false
       && FLOW_PARAMS.powerCable.emissive === false
       && FLOW_PARAMS.powerCable.crest === false
-      && FLOW_PARAMS.powerCable.light === false,
-    'power and HV are surface-colour variations with no glow geometry or emitted light');
+      && FLOW_PARAMS.powerCable.light !== false,
+    'power and HV keep surface-colour motion and real light without glow geometry');
   assert(FLOW_PARAMS.rfWaveguide.speed < FLOW_PARAMS.powerCable.speed
       && FLOW_PARAMS.dataFiber.speed > FLOW_PARAMS.rfWaveguide.speed
     && FLOW_PARAMS.dataFiber.light === false,
@@ -357,6 +360,19 @@ console.log('\n--- 4. FLOW_PARAMS covers every utility ---');
   assert(FLOW_PARAMS.powerCable.color !== '#44cc44'
       && FLOW_PARAMS.hvCable.color !== '#141418',
     'electrical flow targets contrast with each cable base colour');
+  assert(FLOW_PARAMS.powerCable.lightIntensity > FLOW_PARAMS.coolingWater.lightIntensity * 1.5
+      && FLOW_PARAMS.hvCable.lightIntensity > FLOW_PARAMS.powerCable.lightIntensity * 1.7,
+    'power and HV cast stronger local light than support-service flow');
+  for (const type of [
+    'hvCable', 'powerCable', 'vacuumPipe', 'rfWaveguide', 'coolingWater', 'cryoTransfer',
+  ]) {
+    const { group } = buildFlowLine(type);
+    const effect = group.userData.visualEffects?.[0];
+    assert(effect?.light && effect.light.intensity > 0 && effect.light.distance > 0,
+      `${type} publishes a moving real-light candidate while its network is flowing`);
+  }
+  assert(buildFlowLine('dataFiber').group.userData.visualEffects?.[0]?.light === false,
+    'data fiber remains an emissive information packet without room illumination');
 }
 
 console.log('\n--- 5. getLineMaterial: distinct per flowState, cached, tagged __shared ---');

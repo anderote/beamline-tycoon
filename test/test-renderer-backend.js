@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  MANY_LIGHT_LIMITS,
   RENDERER_RECOVERY_MODE_STORAGE_KEY,
   RENDERER_RECOVERY_RELOAD_AT_STORAGE_KEY,
   createRendererRecovery,
   requestedRendererMode,
 } from '../src/renderer3d/renderer-backend.js';
+import { MAX_DYNAMIC_POINT_LIGHTS } from '../src/renderer3d/lighting-quality.js';
 
 const locationWith = (search = '') => ({ search });
 const storageWith = (value = null) => ({ getItem: () => value });
@@ -17,6 +19,11 @@ const memoryStorage = (initial = {}) => {
     removeItem: (key) => values.delete(key),
   };
 };
+
+test('the dynamic point-light pool stays inside the packed shader capacity', () => {
+  assert.equal(MAX_DYNAMIC_POINT_LIGHTS, 32);
+  assert.ok(MAX_DYNAMIC_POINT_LIGHTS <= MANY_LIGHT_LIMITS.maxPointLights);
+});
 
 test('renderer query explicitly selects native/default or forced WebGL 2 paths', () => {
   assert.equal(requestedRendererMode(locationWith('?renderer=modern'), storageWith('legacy')), 'modern');

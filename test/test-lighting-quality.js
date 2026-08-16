@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  LIGHTING_QUALITY_PRESETS, MAX_FIXTURE_LIGHTS, MAX_FIXTURE_SHADOWS,
+  DYNAMIC_POINT_LIGHT_FLASH_RESERVE, LIGHTING_QUALITY_PRESETS,
+  MAX_DYNAMIC_POINT_LIGHTS, MAX_FIXTURE_LIGHTS, MAX_FIXTURE_SHADOWS,
   MAX_SHADOW_TEXTURE_BUDGET_BYTES, estimateShadowTextureBytes, fixtureShadowTopologyLimit,
   normalizeLightingQuality, resolveLightingQuality,
 } from '../src/renderer3d/lighting-quality.js';
@@ -12,6 +13,9 @@ import { fixtureDynamicFactor } from '../src/renderer3d/light-dynamics.js';
 test('lighting presets are immutable, bounded, and normalize unknown values to auto', () => {
   assert.equal(MAX_FIXTURE_LIGHTS, 64);
   assert.equal(MAX_FIXTURE_SHADOWS, 12);
+  assert.equal(MAX_DYNAMIC_POINT_LIGHTS, 32);
+  assert.equal(DYNAMIC_POINT_LIGHT_FLASH_RESERVE, 2);
+  assert.equal(MAX_DYNAMIC_POINT_LIGHTS - DYNAMIC_POINT_LIGHT_FLASH_RESERVE, 30);
   assert.equal(Object.isFrozen(LIGHTING_QUALITY_PRESETS), true);
   assert.equal(Object.isFrozen(LIGHTING_QUALITY_PRESETS.high), true);
   assert.equal(normalizeLightingQuality('ULTRA'), 'ultra');

@@ -669,6 +669,11 @@ test('the flash reserve keeps idle point slots back, so an explosion never has t
 
   const lit = rig._pointSlots.filter((s) => s.light.intensity > 0);
   assert.equal(lit.length, 6, 'ambient glow claims pointCount - flashReserve slots and no more');
+  const pointStats = rig.getStats();
+  assert.equal(pointStats.allocatedPointLights, 8);
+  assert.equal(pointStats.ambientPointLightCapacity, 6);
+  assert.equal(pointStats.assignedAmbientPointLights, 6);
+  assert.equal(pointStats.activePointFlashes, 0);
   const litBefore = rig._pointSlots.map((s) => s.light.intensity);
 
   const flashed = rig.flash(new V3(0, 0, 0), 0xff8844, 30, 500);
@@ -679,6 +684,8 @@ test('the flash reserve keeps idle point slots back, so an explosion never has t
       `ambient slot ${i} is completely undisturbed by the flash`);
   }
   assert.equal(flashed.intensity, 30, 'and the flash itself is lit');
+  assert.equal(rig.getStats().activePointFlashes, 1,
+    'runtime lighting stats expose reserved flash utilization');
 
   // Saturating the reserve is the only thing that lets a flash spill into the
   // ambient band — at which point stealing a console is the correct trade.

@@ -328,6 +328,9 @@ export class LightRig {
   }
 
   getStats() {
+    const assignedAmbientPointLights = this._pointSlots
+      .filter((slot) => !slot.flash && slot.assignedRef && slot.light.intensity > 0).length;
+    const activePointFlashes = this._pointSlots.filter((slot) => slot.flash).length;
     return {
       allocatedFixtureLights: this._fixtureLightCount,
       activeFixtureLights: this._activeFixtureLightCount,
@@ -343,6 +346,10 @@ export class LightRig {
       fixtureShadowUpdatesPerFrame: this._shadowUpdatesPerFrame,
       sharedFixtureShadowArray: !!this._sharedShadowArray,
       fixtureShadowArrayLayers: this._sharedShadowArray?.lights.length ?? 0,
+      allocatedPointLights: this._pointCount,
+      ambientPointLightCapacity: Math.max(0, this._pointCount - this._flashReserve),
+      assignedAmbientPointLights,
+      activePointFlashes,
     };
   }
 
