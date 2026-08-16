@@ -491,6 +491,27 @@ export const ProbePlots = (() => {
     ctx.stroke();
   }
 
+  function _targetEdgeArrow(ctx, x, fromY, toY) {
+    const direction = Math.sign(toY - fromY) || -1;
+    const size = 4;
+    ctx.strokeStyle = TARGET_TEXT_COLOR;
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(x, fromY);
+    ctx.lineTo(x, toY);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(x, toY);
+    ctx.lineTo(x - size, toY - direction * size);
+    ctx.moveTo(x, toY);
+    ctx.lineTo(x + size, toY - direction * size);
+    ctx.stroke();
+  }
+
   function _targetMarker(ctx, a, text, y, edge = null, requestedBaseline = null) {
     const tipY = edge === 'above'
       ? a.y + 1
@@ -504,7 +525,7 @@ export const ProbePlots = (() => {
         y + (y < a.y + a.h - 30 ? 25 : -10)));
     const textX = a.x + a.w - 4;
 
-    // Oversized terminal text plus an angular leader keeps the annotation
+    // Oversized terminal text plus a restrained leader keeps the annotation
     // readable as a tactical target callout while pointing back into the data.
     ctx.font = FONT.target;
     ctx.fillStyle = TARGET_TEXT_COLOR;
@@ -512,6 +533,14 @@ export const ProbePlots = (() => {
     ctx.setLineDash([]);
     ctx.fillText(text, textX, baseline);
     const textWidth = ctx.measureText(text).width;
+    if (edge) {
+      // Off-scale goals read most clearly as a literal direction beside the
+      // label: a heavier vertical arrow points out through the relevant edge.
+      const arrowX = Math.max(a.x + 6, textX - textWidth - 9);
+      const fromY = edge === 'above' ? baseline - 3 : baseline + 3;
+      _targetEdgeArrow(ctx, arrowX, fromY, tipY);
+      return;
+    }
     _targetLeader(ctx, Math.max(a.x + a.w * 0.55, textX - textWidth - 7), baseline - 5,
       a.x + a.w * 0.48, tipY);
   }

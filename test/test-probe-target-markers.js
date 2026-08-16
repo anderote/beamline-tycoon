@@ -33,6 +33,7 @@ function renderEnergyTarget(yDomain, targetBand) {
     lineTo(x, y) { this._path.push({ op: 'line', x, y }); },
     stroke() {
       events.paths.push({ strokeStyle: this.strokeStyle,
+        lineWidth: this.lineWidth,
         path: this._path.map(point => ({ ...point })) });
     },
     setLineDash() {},
@@ -92,8 +93,17 @@ console.log('\n--- Off-scale mission range ---');
     'off-scale target text uses the same terminal red');
   check(rendered.fillRects.length === baseline.fillRects.length,
     'off-scale annotations also have no filled background');
-  check(rendered.paths.length >= baseline.paths.length + 2,
-    'the off-scale callout points upward into the plot with a drawn leader');
+  const arrowPaths = rendered.paths.filter(event => event.strokeStyle === 'rgba(255, 82, 82, 0.98)');
+  const shaft = arrowPaths.find(event => event.path.length === 2
+    && event.path[0].x === event.path[1].x
+    && event.path[1].y < event.path[0].y);
+  const label = labels.find(event => event.text === 'ENERGY TARGET 3.00 MeV–12.0 MeV');
+  check(!!shaft && arrowPaths.length >= 2,
+    'the off-scale callout uses a vertical upward arrow');
+  check(shaft?.lineWidth === 2,
+    'the off-scale arrow has text-like visual weight');
+  check(shaft?.path[0].x < label.x - label.text.length * 5,
+    'the upward arrow sits to the left of its target text');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

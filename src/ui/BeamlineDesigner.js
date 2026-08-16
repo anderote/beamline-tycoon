@@ -160,6 +160,7 @@ export class BeamlineDesigner {
     this.plotReference = 'mission'; // 'mission' | 'none'
     this._plotHoverPositions = new Map(); // panel id -> normalized canvas x/y
     this._plotHoverFrame = null;
+    this.tuningPanelExpanded = true;
 
     // Opt-in automatic matching. It is a session preference rather than a
     // property of the built machine; only the resulting component params are
@@ -209,6 +210,36 @@ export class BeamlineDesigner {
     if (autoTune) {
       autoTune.addEventListener('change', () => {
         this._setAutoTuneEnabled(autoTune.checked);
+      });
+    }
+    const tuningToggle = document.getElementById('dsgn-tuning-toggle');
+    if (tuningToggle) {
+      tuningToggle.addEventListener('click', () => {
+        this._setTuningPanelExpanded(!this.tuningPanelExpanded);
+      });
+    }
+  }
+
+  _setTuningPanelExpanded(expanded) {
+    this.tuningPanelExpanded = expanded !== false;
+    const toggle = document.getElementById('dsgn-tuning-toggle');
+    const row = document.getElementById('dsgn-tuning-row');
+    const label = document.getElementById('dsgn-tuning-toggle-label');
+    row?.classList.toggle('is-collapsed', !this.tuningPanelExpanded);
+    if (toggle) {
+      toggle.setAttribute('aria-expanded', String(this.tuningPanelExpanded));
+      toggle.setAttribute('aria-label', this.tuningPanelExpanded
+        ? 'Collapse component details'
+        : 'Expand component details');
+    }
+    if (label) label.textContent = this.tuningPanelExpanded ? 'Hide' : 'Show';
+
+    // Canvas backing sizes are derived from their laid-out CSS rectangles.
+    // Redraw one frame after the panel changes so the plots claim the height
+    // released by a collapsed details strip (and shrink cleanly when reopened).
+    if (this.isOpen) {
+      requestAnimationFrame(() => {
+        if (this.isOpen) this._renderAll();
       });
     }
   }
