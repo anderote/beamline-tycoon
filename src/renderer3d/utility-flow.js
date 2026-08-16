@@ -33,18 +33,18 @@ import { min, mix, mod, sin, smoothstep, uniform, uv } from 'three/tsl';
 //
 export const FLOW_PARAMS = {
   hvCable: {
-    // Long violet surface bands with a broad smoothstep tail. They remain more
-    // widely spaced than branch-power packets, but recur often enough that a
-    // live HV feeder does not spend most of its time looking inert.
-    speed: 2.35, period: 3.2, width: 0.48, strength: 1.60, baseGlow: 0.045,
+    // Isolated violet surface bands drift along the feeder. Their wide spacing
+    // keeps long HV trunks from becoming rows of moving light points.
+    speed: 0.72, period: 12.0, width: 0.48, strength: 1.60, baseGlow: 0.045,
     color: '#8f94c8',
     emissive: false, crest: false,
     lightIntensity: 0.28, lightDistance: 2.05, daylightFloor: 0.34,
   },
   powerCable: {
-    // A regular train of elongated green surface gradients: dependable and
-    // frequent, but visibly less forceful than the HV bands above.
-    speed: 1.35, period: 0.88, width: 0.30, strength: 1.12, baseGlow: 0.09,
+    // Sparse green surface gradients move at a deliberate crawl. A typical
+    // branch run now shows one or two travelling highlights instead of a
+    // tightly packed train of glowing points.
+    speed: 0.48, period: 3.2, width: 0.30, strength: 1.12, baseGlow: 0.09,
     color: '#9be39b',
     emissive: false, crest: false,
     lightIntensity: 0.16, lightDistance: 1.5, daylightFloor: 0.26,
