@@ -35,6 +35,21 @@ class BeamState:
     def update_relativistic(self):
         self.gamma, self.beta = relativistic_params(self.energy, self.mass)
 
+    def momentum_gev(self):
+        """Relativistic momentum magnitude in GeV/c."""
+        e2 = self.energy * self.energy
+        m2 = self.mass * self.mass
+        return np.sqrt(e2 - m2) if e2 > m2 else 0.0
+
+    def magnetic_rigidity(self):
+        """Magnetic rigidity |B rho| in T*m for the unit-charge game species.
+
+        Electrons and protons both have |q/e| = 1. If multiply charged ions are
+        added later, their charge state belongs on BeamState and divides this
+        value.
+        """
+        return self.momentum_gev() / 0.299792458
+
     def _update_bunch_properties(self):
         """Derive peak current and n_particles from average current and bunch length.
 
@@ -122,6 +137,8 @@ class BeamState:
             # beta_x / beta_y below, which are Twiss optical functions in metres.
             "rel_beta": self.beta,
             "rel_gamma": self.gamma,
+            "momentum_gev_c": self.momentum_gev(),
+            "rigidity_t_m": self.magnetic_rigidity(),
             "current": self.current,
             "emittance_x": self.emittance_x(),
             "emittance_y": self.emittance_y(),

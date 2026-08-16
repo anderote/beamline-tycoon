@@ -110,6 +110,8 @@ def propagate(beamline_config, machine_type=None, source_params=None):
             focus_margin = 1.0 - (max_sigma / aperture)
             context.snapshots.append(beam.snapshot(i, etype, context.cumulative_s, extra={
                 "eta_x": 0.0, "eta_xp": 0.0,
+                "phase_advance_x": float(context.phase_advance[0]),
+                "phase_advance_y": float(context.phase_advance[1]),
                 "focus_margin": float(focus_margin),
                 "focus_urgency": 0.0,
             }))
@@ -229,6 +231,8 @@ def propagate(beamline_config, machine_type=None, source_params=None):
             context.snapshots.append(beam.snapshot(i, etype, context.cumulative_s, extra={
                 "eta_x": float(context.dispersion[0]),
                 "eta_xp": float(context.dispersion[1]),
+                "phase_advance_x": float(context.phase_advance[0]),
+                "phase_advance_y": float(context.phase_advance[1]),
                 "focus_margin": float(focus_margin),
                 "focus_urgency": float(focus_urgency),
                 **beta_extra,

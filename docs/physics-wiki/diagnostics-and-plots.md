@@ -104,6 +104,42 @@ Hover the plot for numerical beam beta, the active min/design/max window, match 
 
 ---
 
+### Twiss Beta
+
+**Quick Tip:** Shows the horizontal and vertical optical beta functions, beta_x and beta_y, in metres.
+
+**How It Works:**
+
+Twiss beta describes the focusing shape of the lattice rather than particle speed. Minima are beam waists; large peaks reveal weak focusing or a mismatched section. In a FODO lattice, beta_x and beta_y should alternate as the quadrupoles focus one plane and defocus the other.
+
+This plot is related to the physical beam envelope through `sigma^2 = emittance * beta`. A large Twiss beta does not automatically mean a large beam if the emittance is very small, but it shows where the optics magnifies that emittance most strongly.
+
+---
+
+### Phase Advance
+
+**Quick Tip:** Shows cumulative horizontal and vertical betatron phase, mu_x and mu_y, in degrees.
+
+**How It Works:**
+
+Phase advance accumulates according to `d mu / ds = 1 / beta(s)`. Strong focusing advances the betatron oscillation faster; weak focusing advances it more slowly. Use the curve to compare cells and verify that repeated sections contribute similar phase.
+
+This is deliberately called **phase advance**, not tune. Tune is the number of betatron oscillations per complete turn of a closed ring. An open transport line has no one-turn tune.
+
+---
+
+### Magnetic Rigidity
+
+**Quick Tip:** Shows magnetic stiffness, B-rho, in tesla-metres.
+
+**How It Works:**
+
+Rigidity is `B-rho = p / |q|`. As RF cavities increase momentum, the beam becomes harder for the same dipole field to bend and for the same quadrupole gradient to focus. For the game's electron and proton beams, both of which have unit charge magnitude, `B-rho [T*m] = p [GeV/c] / 0.299792458`.
+
+For one particle species the rigidity curve resembles the energy curve, but it is the more useful quantity when judging magnet strength. A gradient that is gentle near the source may become too weak after acceleration.
+
+---
+
 ### Peak Current
 
 **Quick Tip:** Shows peak current in Amperes along the beamline. Uses log scale when the range is large. Critical for FEL.
@@ -184,6 +220,9 @@ The sigma_t and sigma_E values shown tell you the bunch length and energy spread
 | Dispersion x | eta_x | m | Horizontal dispersion |
 | Beta function x | beta_x | m | Twiss beta (beam optics parameter) |
 | Beta function y | beta_y | m | Twiss beta (beam optics parameter) |
+| Magnetic rigidity | B-rho | T-m | Beam stiffness against magnetic bending and focusing |
+| Phase advance x | mu_x | deg | Cumulative horizontal betatron phase |
+| Phase advance y | mu_y | deg | Cumulative vertical betatron phase |
 | Energy spread | sigma_E | (fractional) | RMS relative energy spread |
 | Bunch length | sigma_t | s | RMS bunch length in time |
 

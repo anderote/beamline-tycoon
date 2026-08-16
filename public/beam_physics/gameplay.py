@@ -632,6 +632,8 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
                 "energy": max(s["energy"] - beam_mass, 0.0),
                 "rel_beta": s["rel_beta"],
                 "rel_gamma": s["rel_gamma"],
+                "momentum_gev_c": s["momentum_gev_c"],
+                "rigidity_t_m": s["rigidity_t_m"],
                 "current": s["current"],
                 "alive": s["alive"],
                 # New fields for probe diagnostics
@@ -659,6 +661,8 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
                 # Dispersion and bunch properties
                 "eta_x": s.get("eta_x", 0),
                 "eta_xp": s.get("eta_xp", 0),
+                "phase_advance_x": s.get("phase_advance_x", 0),
+                "phase_advance_y": s.get("phase_advance_y", 0),
                 "peak_current": s.get("peak_current", 0),
                 # Keep the designer's longitudinal advisor on the exact beam
                 # state the RF module propagated. Zero means DC/unbunched;

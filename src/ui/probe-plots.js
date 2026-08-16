@@ -62,6 +62,9 @@ export const ProbePlots = (() => {
       'beam-envelope': _drawBeamEnvelope,
       'current-loss': _drawCurrentLoss,
       'emittance': _drawEmittance,
+      'twiss-beta': _drawTwissBeta,
+      'phase-advance': _drawPhaseAdvance,
+      'rigidity': _drawRigidity,
       'energy': _drawEnergy,
       'energy-dispersion': _drawEnergyDispersion,
       'beta-acceptance': _drawBetaAcceptance,
@@ -154,6 +157,16 @@ export const ProbePlots = (() => {
 
     'emittance': (env, yScale) => [_applyYScale(
       ..._range(env.flatMap(d => [d.emit_nx, d.emit_ny].filter(v => v != null && isFinite(v)))), yScale)],
+
+    'twiss-beta': (env, yScale) => [_applyYScale(
+      ..._range(env.flatMap(d => [d.beta_x, d.beta_y].filter(v => v != null && isFinite(v)))), yScale)],
+
+    'phase-advance': (env, yScale) => [_applyYScale(
+      ..._range(env.flatMap(d => [d.phase_advance_x, d.phase_advance_y]
+        .filter(v => v != null && isFinite(v)).map(v => v * 180 / Math.PI))), yScale)],
+
+    'rigidity': (env, yScale) => [_applyYScale(
+      ..._range(env.map(d => d.rigidity_t_m).filter(v => v != null && isFinite(v))), yScale)],
 
     'energy': (env) => [_range(
       env.map(d => d.energy).filter(v => v != null && isFinite(v)))],
@@ -672,6 +685,74 @@ export const ProbePlots = (() => {
     _legend(ctx, a, [{ color: '#44aaff', label: '\u03b5_nx' }, { color: '#ff6644', label: '\u03b5_ny' }]);
   }
 
+  function _drawTwissBeta(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
+    const a = _area(canvas, o);
+    const [xMin, xMax] = xRange || _xRange(env);
+    let [yMin, yMax] = _chan(o, 0, [0, 1]);
+    const values = env.flatMap(d => [d.beta_x, d.beta_y]);
+    const logDomain = o?.yAxisMode === 'log'
+      ? _positiveDomain([yMin, yMax], values)
+      : null;
+    const logY = !!logDomain;
+    if (logDomain) [yMin, yMax] = logDomain;
+    const ghost = !!o?.ghost;
+    if (!ghost) _axes(ctx, a, 's (m)', 'Twiss β (m)', yMin, yMax, logY);
+    _line(ctx, a, env, 'beta_x', '#55aaff', xMin, xMax, yMin, yMax, false, ghost, logY);
+    _line(ctx, a, env, 'beta_y', '#ff8a55', xMin, xMax, yMin, yMax, true, ghost, logY);
+    if (ghost) return;
+    _pinMarkers(ctx, a, env, pins, xMin, xMax);
+    _legend(ctx, a, [
+      { color: '#55aaff', label: 'β_x' },
+      { color: '#ff8a55', label: 'β_y' },
+    ]);
+  }
+
+  function _drawPhaseAdvance(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
+    const a = _area(canvas, o);
+    const [xMin, xMax] = xRange || _xRange(env);
+    const plotted = env.map(d => ({
+      ...d,
+      _phaseXDeg: d.phase_advance_x == null ? null : d.phase_advance_x * 180 / Math.PI,
+      _phaseYDeg: d.phase_advance_y == null ? null : d.phase_advance_y * 180 / Math.PI,
+    }));
+    let [yMin, yMax] = _chan(o, 0, [0, 1]);
+    const values = plotted.flatMap(d => [d._phaseXDeg, d._phaseYDeg]);
+    const logDomain = o?.yAxisMode === 'log'
+      ? _positiveDomain([yMin, yMax], values)
+      : null;
+    const logY = !!logDomain;
+    if (logDomain) [yMin, yMax] = logDomain;
+    const ghost = !!o?.ghost;
+    if (!ghost) _axes(ctx, a, 's (m)', 'μ (deg)', yMin, yMax, logY);
+    _line(ctx, a, plotted, '_phaseXDeg', '#5de6ff', xMin, xMax, yMin, yMax, false, ghost, logY);
+    _line(ctx, a, plotted, '_phaseYDeg', '#ff5ec4', xMin, xMax, yMin, yMax, true, ghost, logY);
+    if (ghost) return;
+    _pinMarkers(ctx, a, env, pins, xMin, xMax);
+    _legend(ctx, a, [
+      { color: '#5de6ff', label: 'μ_x' },
+      { color: '#ff5ec4', label: 'μ_y' },
+    ]);
+  }
+
+  function _drawRigidity(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
+    const a = _area(canvas, o);
+    const [xMin, xMax] = xRange || _xRange(env);
+    let [yMin, yMax] = _chan(o, 0, [0, 1]);
+    const values = env.map(d => d.rigidity_t_m);
+    const logDomain = o?.yAxisMode === 'log'
+      ? _positiveDomain([yMin, yMax], values)
+      : null;
+    const logY = !!logDomain;
+    if (logDomain) [yMin, yMax] = logDomain;
+    const ghost = !!o?.ghost;
+    if (!ghost) _axes(ctx, a, 's (m)', 'Bρ (T·m)', yMin, yMax, logY);
+    _line(ctx, a, env, 'rigidity_t_m', '#f0b34e', xMin, xMax,
+      yMin, yMax, false, ghost, logY);
+    if (ghost) return;
+    _pinMarkers(ctx, a, env, pins, xMin, xMax);
+    _legend(ctx, a, [{ color: '#f0b34e', label: 'Bρ' }]);
+  }
+
   function _drawEnergy(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
     const a = _area(canvas, o);
     const [xMin, xMax] = xRange || _xRange(env);
@@ -832,7 +913,8 @@ export const ProbePlots = (() => {
   // the overlay one honest y-axis while both selections use exactly the same
   // physical distance coordinates.
   const SECONDARY_DISTANCE_TYPES = new Set([
-    'energy', 'dispersion', 'rel-beta', 'beam-envelope', 'current-loss', 'emittance', 'peak-current',
+    'energy', 'dispersion', 'rel-beta', 'twiss-beta', 'phase-advance', 'rigidity',
+    'beam-envelope', 'current-loss', 'emittance', 'peak-current',
   ]);
 
   const OVERLAY_STYLES = Object.freeze({
@@ -841,7 +923,8 @@ export const ProbePlots = (() => {
   });
 
   function isDistancePlot(type) {
-    return ['energy', 'energy-dispersion', 'beta-acceptance', 'beam-envelope', 'current-loss', 'emittance', 'peak-current']
+    return ['energy', 'energy-dispersion', 'beta-acceptance', 'twiss-beta', 'phase-advance',
+      'rigidity', 'beam-envelope', 'current-loss', 'emittance', 'peak-current']
       .includes(type);
   }
 
@@ -853,7 +936,17 @@ export const ProbePlots = (() => {
     if (type === 'energy') values = envelope.map(d => d.energy);
     else if (type === 'dispersion') values = envelope.map(d => d.eta_x);
     else if (type === 'rel-beta') values = envelope.map(d => d.rel_beta);
-    else if (type === 'beam-envelope') {
+    else if (type === 'twiss-beta') {
+      values = envelope.flatMap(d => [d.beta_x, d.beta_y]);
+      applyScale = true;
+    } else if (type === 'phase-advance') {
+      values = envelope.flatMap(d => [d.phase_advance_x, d.phase_advance_y]
+        .map(v => v == null ? null : v * 180 / Math.PI));
+      applyScale = true;
+    } else if (type === 'rigidity') {
+      values = envelope.map(d => d.rigidity_t_m);
+      applyScale = true;
+    } else if (type === 'beam-envelope') {
       values = envelope.flatMap(d => [(d.sigma_x || 0) * 1000, (d.sigma_y || 0) * 1000]);
       applyScale = true;
     } else if (type === 'current-loss') {
@@ -897,6 +990,36 @@ export const ProbePlots = (() => {
         data: env.map(d => ({ ...d, _secondaryA: d.rel_beta })),
         domain: [0, 1], axisLabel: 'relativistic β',
         channels: [{ key: '_secondaryA', color: primary, label: `${channel}Beam β` }],
+      };
+    }
+    if (type === 'twiss-beta') {
+      return {
+        data: env.map(d => ({ ...d, _secondaryA: d.beta_x, _secondaryB: d.beta_y })),
+        domain, axisLabel: 'Twiss β (m)',
+        channels: [
+          { key: '_secondaryA', color: primary, label: `${channel}β_x` },
+          { key: '_secondaryB', color: paired, label: `${channel}β_y`, dashed: true },
+        ],
+      };
+    }
+    if (type === 'phase-advance') {
+      return {
+        data: env.map(d => ({ ...d,
+          _secondaryA: d.phase_advance_x == null ? null : d.phase_advance_x * 180 / Math.PI,
+          _secondaryB: d.phase_advance_y == null ? null : d.phase_advance_y * 180 / Math.PI,
+        })),
+        domain, axisLabel: 'μ (deg)',
+        channels: [
+          { key: '_secondaryA', color: primary, label: `${channel}μ_x` },
+          { key: '_secondaryB', color: paired, label: `${channel}μ_y`, dashed: true },
+        ],
+      };
+    }
+    if (type === 'rigidity') {
+      return {
+        data: env.map(d => ({ ...d, _secondaryA: d.rigidity_t_m })), domain,
+        axisLabel: 'Bρ (T·m)',
+        channels: [{ key: '_secondaryA', color: primary, label: `${channel}Bρ` }],
       };
     }
     if (type === 'beam-envelope') {
@@ -1071,6 +1194,29 @@ export const ProbePlots = (() => {
         _cursorItem('primary-eny', 'ε_ny', d.emit_ny,
           _cursorText(d.emit_ny, 'm·rad'), '#ff6644', domain, logY),
       ];
+    } else if (type === 'twiss-beta') {
+      positive(env.flatMap(row => [row.beta_x, row.beta_y]));
+      items = [
+        _cursorItem('primary-beta-x', 'β_x', d.beta_x,
+          _cursorText(d.beta_x, 'm'), '#55aaff', domain, logY),
+        _cursorItem('primary-beta-y', 'β_y', d.beta_y,
+          _cursorText(d.beta_y, 'm'), '#ff8a55', domain, logY),
+      ];
+    } else if (type === 'phase-advance') {
+      const phaseX = d.phase_advance_x == null ? null : d.phase_advance_x * 180 / Math.PI;
+      const phaseY = d.phase_advance_y == null ? null : d.phase_advance_y * 180 / Math.PI;
+      positive(env.flatMap(row => [row.phase_advance_x, row.phase_advance_y]
+        .map(v => v == null ? null : v * 180 / Math.PI)));
+      items = [
+        _cursorItem('primary-phase-x', 'μ_x', phaseX,
+          _cursorText(phaseX, 'deg'), '#5de6ff', domain, logY),
+        _cursorItem('primary-phase-y', 'μ_y', phaseY,
+          _cursorText(phaseY, 'deg'), '#ff5ec4', domain, logY),
+      ];
+    } else if (type === 'rigidity') {
+      positive(env.map(row => row.rigidity_t_m));
+      items = [_cursorItem('primary-rigidity', 'Bρ', d.rigidity_t_m,
+        _cursorText(d.rigidity_t_m, 'T·m'), '#f0b34e', domain, logY)];
     } else if (type === 'energy') {
       positive(env.map(row => row.energy));
       items = [_cursorItem('primary-energy', 'Energy', d.energy, _eicFmtEnergy(d.energy),
@@ -1130,6 +1276,9 @@ export const ProbePlots = (() => {
       ? (spec.axisLabel.match(/\(([^)]+)\)/)?.[1] || '')
       : type === 'dispersion' ? 'm'
       : type === 'rel-beta' ? ''
+      : type === 'twiss-beta' ? 'm'
+      : type === 'phase-advance' ? 'deg'
+      : type === 'rigidity' ? 'T·m'
       : type === 'beam-envelope' ? 'mm'
       : type === 'current-loss' ? 'mA'
       : type === 'emittance' ? 'm·rad'

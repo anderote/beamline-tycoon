@@ -51,7 +51,11 @@ class TestBeamStateBunchProperties(unittest.TestCase):
         self.assertIn("bunch_frequency", snap)
         self.assertIn("rel_beta", snap)
         self.assertIn("rel_gamma", snap)
+        self.assertIn("momentum_gev_c", snap)
+        self.assertIn("rigidity_t_m", snap)
         self.assertGreater(snap["rel_beta"], 0)
+        self.assertAlmostEqual(
+            snap["rigidity_t_m"], snap["momentum_gev_c"] / 0.299792458)
 
 
 if __name__ == "__main__":

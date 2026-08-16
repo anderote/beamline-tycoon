@@ -33,6 +33,31 @@ class TestDrift(unittest.TestCase):
         mod.apply(beam, {"type": "drift", "length": 10.0}, ctx)
         self.assertAlmostEqual(beam.emittance_x(), eps_before, places=15)
 
+    def test_drift_accumulates_courant_snyder_phase(self):
+        mod = LinearOpticsModule()
+        beam = make_beam(beta_x=10.0, beta_y=10.0, alpha_x=0.0, alpha_y=0.0)
+        ctx = make_context()
+        mod.apply(beam, {"type": "drift", "length": 2.0}, ctx)
+        expected = np.arctan(2.0 / 10.0)
+        self.assertAlmostEqual(ctx.phase_advance[0], expected, places=12)
+        self.assertAlmostEqual(ctx.phase_advance[1], expected, places=12)
+
+    def test_phase_advance_is_cumulative_and_monotonic(self):
+        mod = LinearOpticsModule()
+        beam = make_beam(energy=1.0)
+        ctx = make_context()
+        samples = []
+        for element in [
+            {"type": "drift", "length": 1.0},
+            {"type": "quadrupole", "length": 0.5, "focusStrength": 0.3, "polarity": 1},
+            {"type": "drift", "length": 1.0},
+        ]:
+            mod.apply(beam, element, ctx)
+            samples.append(ctx.phase_advance.copy())
+        self.assertTrue(all(np.all(samples[i] >= samples[i - 1])
+                            for i in range(1, len(samples))))
+        self.assertTrue(np.all(samples[-1] > 0))
+
 
 class TestQuadrupole(unittest.TestCase):
     def test_emittance_preserved_in_quad(self):

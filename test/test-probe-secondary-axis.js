@@ -59,10 +59,12 @@ function recordingCanvas() {
 const envelope = [
   { s: 0, energy: 0.003, eta_x: 0.02, current: 10,
     sigma_x: 0.001, sigma_y: 0.002, emit_nx: 1e-6, emit_ny: 2e-6,
-    peak_current: 4, rel_beta: 0.4 },
+    peak_current: 4, rel_beta: 0.4, beta_x: 4, beta_y: 7,
+    phase_advance_x: 0.1, phase_advance_y: 0.2, rigidity_t_m: 0.012 },
   { s: 10, energy: 0.006, eta_x: 0.08, current: 20,
     sigma_x: 0.002, sigma_y: 0.003, emit_nx: 2e-6, emit_ny: 3e-6,
-    peak_current: 8, rel_beta: 0.9 },
+    peak_current: 8, rel_beta: 0.9, beta_x: 9, beta_y: 5,
+    phase_advance_x: 0.8, phase_advance_y: 1.0, rigidity_t_m: 0.024 },
 ];
 
 console.log('\n--- Cursor values at shared distance ---');
@@ -147,6 +149,39 @@ console.log('\n--- Secondary metric catalogue ---');
     'the secondary current axis has its own padded y-domain', JSON.stringify(currentDomain));
   check(ProbePlots.secondaryYDomain('phase-space', envelope, null) === null,
     'unsupported point plots expose no secondary y-domain');
+  check(['twiss-beta', 'phase-advance', 'rigidity']
+    .every(type => ProbePlots.isDistancePlot(type)
+      && ProbePlots.secondaryYDomain(type, envelope, null)),
+  'Twiss beta, phase advance, and rigidity are primary and overlay distance plots');
+}
+
+console.log('\n--- Beam optics plot traces and units ---');
+{
+  const twiss = recordingCanvas();
+  ProbePlots.draw(twiss.canvas, 'twiss-beta', envelope, [], 0, [0, 10], null);
+  check(twiss.events.paths.some(event => event.strokeStyle === '#55aaff')
+    && twiss.events.paths.some(event => event.strokeStyle === '#ff8a55'),
+  'Twiss beta renders independent horizontal and vertical optics traces');
+
+  const phase = recordingCanvas();
+  const phaseDomain = ProbePlots.yDomainFor('phase-advance', envelope, null, [], 0);
+  ProbePlots.draw(phase.canvas, 'phase-advance', envelope, [], 0, [0, 10], null,
+    { yDomain: phaseDomain });
+  const phaseReadout = ProbePlots.drawCursor(
+    phase.canvas, 'phase-advance', envelope, [0, 10], {
+      cursorX: 460, cursorY: 180, yDomain: phaseDomain,
+    });
+  check(phase.events.text.some(event => event.text === 'μ (deg)')
+    && phaseReadout?.rows.some(row => row.includes('μ_x') && row.includes('deg')),
+  'phase advance is labelled and reported in degrees rather than as ring tune');
+
+  const rigidity = recordingCanvas();
+  ProbePlots.drawSecondary(rigidity.canvas, 'rigidity', envelope, [0, 10], null, {
+    yDomain: ProbePlots.secondaryYDomain('rigidity', envelope, null),
+    rightInset: 36,
+  });
+  check(rigidity.events.text.some(event => event.text === 'Bρ (T·m)'),
+    'magnetic rigidity uses the standard B-rho axis and tesla-metre units');
 }
 
 console.log('\n--- Shared distance pixels, independent right axis ---');
@@ -275,6 +310,10 @@ console.log('\n--- Designer controls ---');
   check(html.includes('Secondary plot for panel 1')
     && html.includes('Third plot for panel 2'),
   'overlay selectors have channel- and panel-specific accessible labels');
+  check(html.includes('<option value="twiss-beta">Twiss &beta;x / &beta;y</option>')
+    && html.includes('<option value="phase-advance">Phase Advance &mu;x / &mu;y</option>')
+    && html.includes('<option value="rigidity">Magnetic Rigidity</option>'),
+  'all three new optics quantities appear in the designer plot catalogue');
   check(controller.includes("canvas.addEventListener('mousemove'")
     && controller.includes("canvas.addEventListener('mouseleave'"),
   'designer canvases track and clear pointer positions for hover readouts');
