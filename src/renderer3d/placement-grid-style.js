@@ -6,7 +6,7 @@ const TILE_SIZE_WORLD = 2;
 
 export const PLACEMENT_GRID_STYLE = Object.freeze({
   radiusTiles: 1.5,
-  colorHex: 0x88ccff,
+  colorHex: 0xffffff,
   majorDotSpacingWorld: 0.25,
   majorDotLengthWorld: 0.06,
   subgridDotSpacingWorld: 0.25,

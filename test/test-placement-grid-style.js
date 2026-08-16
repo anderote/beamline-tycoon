@@ -23,6 +23,9 @@ function approx(actual, expected, tolerance = 1e-9) {
 
 console.log('\n=== Placement grid falloff ===\n');
 
+assertOk(PLACEMENT_GRID_STYLE.colorHex === 0xffffff,
+  'placement grid dots use pure white without a tint');
+
 const centerMajor = placementGridAlphaAt('major', 0, 0, 0, 0);
 const middleMajor = placementGridAlphaAt('major', 1.5, 0, 0, 0);
 const edgeMajor = placementGridAlphaAt('major', 3, 0, 0, 0);

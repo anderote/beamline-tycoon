@@ -3314,10 +3314,10 @@ export class ThreeRenderer {
    * Render major grid lines and sub-grid lines in an area around the cursor.
    * Major lines = tile boundaries (every 2 world units).
    * Sub-grid lines = quarter-tile divisions (every 0.5 world units).
-   * Both layers use short one-pixel linelets instead of solid lines: brighter
-   * tile-boundary dots establish the blueprint rhythm while quieter micro-dots
-   * describe the quarter-grid. Vertex alpha gives both layers a soft fade from
-   * the cursor to the edge of the compact preview.
+   * Both layers use pure-white, one-pixel linelets instead of solid lines:
+   * brighter tile-boundary dots establish the blueprint rhythm while quieter
+   * micro-dots describe the quarter-grid. Vertex alpha gives both layers a
+   * soft fade from the cursor to the edge of the compact preview.
    * Renders into gridOverlayGroup (not previewGroup) so _clearPreview doesn't wipe them.
    */
   _renderGridAroundCursor(col, row) {
@@ -3382,7 +3382,7 @@ export class ThreeRenderer {
     majorGeo.setAttribute('color', new THREE.Float32BufferAttribute(majorBuffers.colors, 4));
     const majorMat = new THREE.LineBasicMaterial({
       color: PLACEMENT_GRID_STYLE.colorHex, vertexColors: true, transparent: true,
-      depthTest: false, depthWrite: false,
+      depthTest: false, depthWrite: false, toneMapped: false,
     });
     const majorLines = new THREE.LineSegments(majorGeo, majorMat);
     majorLines.name = 'placementGridMajor';
@@ -3457,7 +3457,7 @@ export class ThreeRenderer {
     subGeo.setAttribute('color', new THREE.Float32BufferAttribute(subColors, 4));
     const subMat = new THREE.LineBasicMaterial({
       color: PLACEMENT_GRID_STYLE.colorHex, vertexColors: true, transparent: true,
-      depthTest: false, depthWrite: false,
+      depthTest: false, depthWrite: false, toneMapped: false,
     });
     const subLines = new THREE.LineSegments(subGeo, subMat);
     subLines.name = 'placementGridSubgrid';

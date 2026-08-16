@@ -82,30 +82,37 @@ test('placement grid preview has a compact radius, soft falloff, and line hierar
     const subgridAlphas = [];
     for (let i = 0; i < majorColors.count; i++) majorAlphas.push(majorColors.getW(i));
     for (let i = 0; i < subgridColors.count; i++) subgridAlphas.push(subgridColors.getW(i));
-    const lineWidth = major.userData.lineWidthWorld;
+    const materialColors = renderer.gridOverlayGroup.children.map(child =>
+      `#${child.material.color.getHexString()}`);
     return {
       radiusTiles: Math.max(
         centreX - Math.min(...xs), Math.max(...xs) - centreX,
         centreZ - Math.min(...zs), Math.max(...zs) - centreZ,
-      ) / 2 - lineWidth / 4,
-      tileCount: positions.count / 16,
+      ) / 2,
       majorAlphaRange: [Math.min(...majorAlphas), Math.max(...majorAlphas)],
       subgridAlphaRange: [Math.min(...subgridAlphas), Math.max(...subgridAlphas)],
-      majorIsRibbon: major.isMesh === true,
+      layerCount: renderer.gridOverlayGroup.children.length,
+      materialColors,
+      toneMapped: renderer.gridOverlayGroup.children.every(child =>
+        child.material.toneMapped === false),
+      majorIsDottedLine: major.isLineSegments === true,
       subgridIsHairline: subgrid.isLineSegments === true,
     };
   });
 
   expect(grid, 'the major placement grid was rendered').not.toBeNull();
   expect(grid.radiusTiles, 'the preview radius is half the former 3 tiles').toBe(1.5);
-  expect(grid.tileCount, 'a centred 1.5-tile radius covers a 3×3 tile square').toBe(9);
   expect(grid.majorAlphaRange[1], 'major lines are strongest by the cursor')
     .toBeGreaterThan(grid.majorAlphaRange[0]);
   expect(grid.subgridAlphaRange[1], 'subgrid lines also fade outward')
     .toBeGreaterThan(grid.subgridAlphaRange[0]);
   expect(grid.majorAlphaRange[1], 'major lines remain more definite than the subgrid')
     .toBeGreaterThan(grid.subgridAlphaRange[1]);
-  expect(grid.majorIsRibbon, 'major tile boundaries use reliable wide geometry').toBe(true);
+  expect(grid.layerCount, 'the grid has no extra outline layer').toBe(2);
+  expect(grid.materialColors, 'both placement-dot layers are pure white')
+    .toEqual(['#ffffff', '#ffffff']);
+  expect(grid.toneMapped, 'placement dots bypass scene tone mapping').toBe(false);
+  expect(grid.majorIsDottedLine, 'major tile boundaries use dotted line segments').toBe(true);
   expect(grid.subgridIsHairline, 'subgrid divisions remain hairline segments').toBe(true);
 });
 
