@@ -186,6 +186,8 @@ console.log('\n=== Selection groups ===\n');
     selectedPlaceableIds: new Set(['old']),
     _selectedRootsById: new Map(),
     _renderSelectionOutlines: InputHandler.prototype._renderSelectionOutlines,
+    _openPlaceableInfoWindow: InputHandler.prototype._openPlaceableInfoWindow,
+    _reconcileSelectionWindow: InputHandler.prototype._reconcileSelectionWindow,
     _showToast() {},
   };
   const consumed = InputHandler.prototype._finishMarquee.call(input, { clientX: 100, clientY: 120 });
@@ -301,6 +303,8 @@ console.log('\n=== Selection groups ===\n');
 
 {
   const roots = [];
+  const openedWindows = [];
+  const closedWindows = [];
   const entries = {
     a: { id: 'a', type: 'labBench', kind: 'equipment', category: 'equipment' },
     b: { id: 'b', type: 'labBench', kind: 'equipment', category: 'equipment' },
@@ -312,7 +316,8 @@ console.log('\n=== Selection groups ===\n');
     },
     renderer: {
       setSelectionOutlines: selected => roots.push(selected.slice()),
-      openEquipmentWindow() {},
+      openEquipmentWindow: entry => openedWindows.push(entry.id),
+      closePlaceableInfoWindow: entry => closedWindows.push(entry.id),
       refreshContextWindows() {},
     },
     selectedNodeId: null,
@@ -320,14 +325,20 @@ console.log('\n=== Selection groups ===\n');
     selectedPlaceableIds: new Set(),
     _selectedRootsById: new Map(),
     _renderSelectionOutlines: InputHandler.prototype._renderSelectionOutlines,
+    _openPlaceableInfoWindow: InputHandler.prototype._openPlaceableInfoWindow,
+    _reconcileSelectionWindow: InputHandler.prototype._reconcileSelectionWindow,
   };
   InputHandler.prototype._selectPlaceable.call(input, entries.a, { name: 'root-a' });
   InputHandler.prototype._selectPlaceable.call(input, entries.b, { name: 'root-b' }, { additive: true });
   assert(input.selectedPlaceableIds.size === 2 && roots.at(-1).length === 2,
     'Shift-add selection retains both ids and both outlines');
-  InputHandler.prototype._selectPlaceable.call(input, entries.a, { name: 'root-a' }, { additive: true });
-  assert(input.selectedPlaceableIds.size === 1 && input.selectedPlaceableId === 'b',
-    'Shift-clicking a selected object toggles only that object off');
+  assert(openedWindows.join(',') === 'a,b' && closedWindows.join(',') === 'a',
+    'Shift-add replaces the first item window with one group window');
+  InputHandler.prototype._selectPlaceable.call(input, entries.b, { name: 'root-b' }, { additive: true });
+  assert(input.selectedPlaceableIds.size === 1 && input.selectedPlaceableId === 'a',
+    'Shift-clicking the primary object toggles only that object off');
+  assert(closedWindows.at(-1) === 'b' && openedWindows.at(-1) === 'a',
+    'removing the primary moves the single window to the remaining selection');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -47,6 +47,7 @@ import {
   demolishSelection,
   moveSelectionGroup,
 } from './selection-commands.js';
+import { reconcileSelectionWindow } from './selection-window.js';
 import {
   BEAM_PIPE_Y, projectOntoPipe, pipeSubL, pipeSubUnitAt, pipeSubUnitPath, METRES_PER_SUB,
 } from '../beamline/pipe-geometry.js';
@@ -818,6 +819,33 @@ export class InputHandler {
     else this.renderer.setSelectionOutline?.(roots[roots.length - 1] || null);
   }
 
+  /** Open the inspector appropriate for one selected placeable. */
+  _openPlaceableInfoWindow(entry) {
+    if (!entry) return;
+    if (entry.category === 'beamline') {
+      const blId = entry.beamlineId;
+      if (!blId) return;
+      this.game.selectedBeamlineId = blId;
+      this.renderer._openBeamlineWindow(blId, entry);
+      this.game.emit('beamlineSelected', blId);
+      return;
+    }
+    this.renderer.openEquipmentWindow?.(entry);
+  }
+
+  /** Leave one live context window representing the complete selection. */
+  _reconcileSelectionWindow(previousIds = []) {
+    return reconcileSelectionWindow({
+      previousIds,
+      selectedIds: [...this.selectedPlaceableIds],
+      primaryId: this.selectedPlaceableId,
+      getPlaceable: id => this.game.getPlaceable(id),
+      closeWindow: entry => this.renderer.closePlaceableInfoWindow?.(entry),
+      openWindow: entry => this._openPlaceableInfoWindow(entry),
+      refreshWindows: () => this.renderer.refreshContextWindows?.(),
+    });
+  }
+
   _beginMarquee(e) {
     this._marquee = {
       startX: e.clientX,
@@ -891,19 +919,7 @@ export class InputHandler {
     const primary = this.selectedPlaceableId && this.game.getPlaceable(this.selectedPlaceableId);
     this.selectedNodeId = primary?.category === 'beamline' ? primary.id : null;
     this._renderSelectionOutlines();
-    // A marquee represents one selection panel. Close any older per-item
-    // popups (and any secondary selected-item popups) so the group roster is
-    // the only window the gesture leaves behind.
-    const windowsToClose = new Set([...previousSelection, ...selected]);
-    windowsToClose.delete(primary?.id);
-    for (const id of windowsToClose) {
-      const entry = this.game.getPlaceable(id);
-      if (entry) this.renderer.closePlaceableInfoWindow?.(entry);
-    }
-    if (primary && primary.category !== 'beamline') {
-      this.renderer.openEquipmentWindow?.(primary);
-    }
-    this.renderer.refreshContextWindows?.();
+    this._reconcileSelectionWindow(previousSelection);
     this._clearMarquee();
     this._showToast(selected.length
       ? `Selected ${selected.length} item${selected.length === 1 ? '' : 's'}`
@@ -1003,6 +1019,7 @@ export class InputHandler {
   /** Select a world object, persist its outline, and open its info menu. */
   _selectPlaceable(entry, rootObj = null, { additive = false } = {}) {
     if (!entry) return false;
+    const previousSelection = [...this.selectedPlaceableIds];
     if (!additive) {
       this.selectedPlaceableIds.clear();
       this._selectedRootsById.clear();
@@ -1014,7 +1031,7 @@ export class InputHandler {
       const primary = this.selectedPlaceableId && this.game.getPlaceable(this.selectedPlaceableId);
       this.selectedNodeId = primary?.category === 'beamline' ? primary.id : null;
       this._renderSelectionOutlines();
-      this.renderer.refreshContextWindows?.();
+      this._reconcileSelectionWindow(previousSelection);
       return true;
     }
 
@@ -1024,17 +1041,12 @@ export class InputHandler {
     this.selectedNodeId = entry.category === 'beamline' ? entry.id : null;
     this._renderSelectionOutlines();
 
-    if (entry.category === 'beamline') {
-      const blId = entry.beamlineId;
-      if (blId) {
-        this.game.selectedBeamlineId = blId;
-        this.renderer._openBeamlineWindow(blId, entry);
-        this.game.emit('beamlineSelected', blId);
-      }
+    if (additive) {
+      this._reconcileSelectionWindow(previousSelection);
     } else {
-      this.renderer.openEquipmentWindow?.(entry);
+      this._openPlaceableInfoWindow(entry);
+      this.renderer.refreshContextWindows?.();
     }
-    this.renderer.refreshContextWindows?.();
     return true;
   }
 
