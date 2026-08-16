@@ -1,6 +1,7 @@
 // Regression coverage for the multi-selection context panel.
 
 import { EquipmentWindow, selectionWindowItems } from '../src/ui/EquipmentWindow.js';
+import { reconcileSelectionWindow } from '../src/input/selection-window.js';
 
 let passed = 0;
 let failed = 0;
@@ -16,6 +17,30 @@ function assert(ok, label) {
 }
 
 console.log('\n=== Multi-selection window ===\n');
+
+{
+  const entries = new Map([
+    ['a', { id: 'a' }],
+    ['b', { id: 'b' }],
+    ['c', { id: 'c' }],
+  ]);
+  const closed = [];
+  const opened = [];
+  let refreshed = 0;
+  const primary = reconcileSelectionWindow({
+    previousIds: ['a', 'b'],
+    selectedIds: ['a', 'b', 'c'],
+    primaryId: 'c',
+    getPlaceable: id => entries.get(id),
+    closeWindow: entry => closed.push(entry.id),
+    openWindow: entry => opened.push(entry.id),
+    refreshWindows: () => { refreshed++; },
+  });
+  assert(primary?.id === 'c' && opened.join(',') === 'c',
+    'the current primary owns the one selection window');
+  assert(closed.join(',') === 'a,b' && refreshed === 1,
+    'all other selected item windows close before the group panel refreshes');
+}
 
 {
   const items = selectionWindowItems([
