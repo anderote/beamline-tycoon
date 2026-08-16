@@ -8,18 +8,7 @@ import {
   BEAMLINE_TYPES,
   getBeamlineType,
 } from '../data/beamline-types.js';
-
-const PREBUNCHED_SOURCES = new Set(['ncRfGun', 'srfGun']);
-const FOCUSING = ['quadrupole', 'protonQuad', 'scQuad', 'combinedFunctionMagnet'];
-const DIAGNOSTICS = ['bpm', 'ict', 'screen'];
-const ELECTRON_ACCEL = [
-  'pillboxCavity', 'rfCavity', 'sbandStructure', 'ellipticalSrfCavity',
-  'cryomodule', 'cbandStructure', 'xbandStructure',
-];
-const PROTON_ACCEL = [
-  'rfq', 'pillboxCavity', 'halfWaveResonator', 'spokeCavity',
-  'ellipticalSrfCavity', 'srf650Cryomodule', 'srf805Cryomodule',
-];
+import { computeBeamlinePlacementHints } from './designer-placement-hints.js';
 
 export const GUIDED_UTILITY_ORDER = Object.freeze([
   'powerCable', 'rfWaveguide', 'coolingWater', 'vacuumPipe',
@@ -56,64 +45,109 @@ export function componentAllowedForBeamline(typeId, componentId, isUnlocked = ()
   return true;
 }
 
-function firstAllowed(ids, typeId, isUnlocked, reject = new Set()) {
-  return ids.find(id => !reject.has(id)
-    && componentAllowedForBeamline(typeId, id, isUnlocked));
+/**
+ * Recommend the next on-pipe components from the exact physics advisor used
+ * by Designer. `primary` is the first source-to-endpoint recipe, while the
+ * complete list remains available to callers that need to skip a location
+ * which cannot accept another physical component.
+ */
+export function guidedPlacementSuggestions({
+  typeId = null, nodes = [], envelope = [], isUnlocked = () => true,
+} = {}) {
+  const hints = computeBeamlinePlacementHints({
+    typeId,
+    nodes,
+    envelope,
+    isUnlocked,
+  });
+  return {
+    primary: hints[0] || null,
+    alternatives: hints.slice(1, 3),
+    hints,
+  };
+}
+
+function nodeEndS(node) {
+  return (node?.beamStart || 0) + Math.max(0, node?.subL || 0) * 0.5;
 }
 
 /**
- * Recommend the next few on-pipe components for a new line. This is an
- * intentionally short starter recipe, not an automatic optimiser: after the
- * first accelerator/focusing/diagnostic vocabulary is established the player
- * graduates to the Designer and its real physics plots.
+ * Translate a Designer insertion recipe into a real pipe coordinate. The
+ * physics hint's `s` is the preferred location; the before/after node boundary
+ * is a fallback for older recipes. Reverse-traversed pipes are mapped back to
+ * their authored start-relative coordinate.
  */
-export function guidedPlacementSuggestions({
-  sourceType, typeId = null, placements = [], isUnlocked = () => true,
-} = {}) {
-  const placedTypes = placements.map(p => p?.type).filter(Boolean);
-  const placed = new Set(placedTypes);
-  const type = getBeamlineType(typeId);
-  const accelOrder = type?.particle === 'p+' ? PROTON_ACCEL : ELECTRON_ACCEL;
-  const accelerator = firstAllowed(accelOrder, typeId, isUnlocked);
-  const focusing = firstAllowed(FOCUSING, typeId, isUnlocked);
-  const diagnostic = firstAllowed(DIAGNOSTICS, typeId, isUnlocked);
-  const needsBuncher = !PREBUNCHED_SOURCES.has(sourceType)
-    && componentAllowedForBeamline(typeId, 'buncher', isUnlocked);
+export function guidedPlacementTarget({ nodes = [], pipes = [], hint } = {}) {
+  if (!hint?.componentType || nodes.length === 0 || pipes.length === 0) return null;
+  const nodeIndex = Math.max(0, Math.min(nodes.length - 1, hint.nodeIndex || 0));
+  const targetNode = nodes[nodeIndex];
+  const fallbackS = hint.position === 'before'
+    ? (targetNode?.beamStart || 0)
+    : nodeEndS(targetNode);
+  const boundaryS = Number.isFinite(hint.s) ? hint.s : fallbackS;
 
-  let primary = null;
-  let reason = '';
-  if (needsBuncher && !placed.has('buncher')) {
-    primary = 'buncher';
-    reason = 'Shape the continuous source beam into RF bunches';
-  } else if (accelerator && !placedTypes.some(id => accelOrder.includes(id))) {
-    primary = accelerator;
-    reason = 'Add the first accelerating section';
-  } else if (focusing && !placedTypes.some(id => FOCUSING.includes(id))) {
-    primary = focusing;
-    reason = 'Control the beam envelope before it grows';
-  } else if (diagnostic && !placedTypes.some(id => DIAGNOSTICS.includes(id))) {
-    primary = diagnostic;
-    reason = 'Measure the beam before committing to a longer lattice';
-  } else if (accelerator) {
-    primary = accelerator;
-    reason = 'Continue toward the selected beamline’s target energy';
+  let pipeNodeIndex = targetNode?.pipeId ? nodeIndex : -1;
+  if (pipeNodeIndex < 0) {
+    const step = hint.position === 'before' ? -1 : 1;
+    for (let i = nodeIndex + step; i >= 0 && i < nodes.length; i += step) {
+      if (nodes[i]?.pipeId) {
+        pipeNodeIndex = i;
+        break;
+      }
+    }
   }
-
-  const reject = new Set(primary ? [primary] : []);
-  const alternatives = [];
-  for (const id of ['buncher', accelerator, focusing, diagnostic].filter(Boolean)) {
-    if (alternatives.length >= 2) break;
-    if (reject.has(id) || placed.has(id)) continue;
-    if (!componentAllowedForBeamline(typeId, id, isUnlocked)) continue;
-    reject.add(id);
-    alternatives.push(id);
+  if (pipeNodeIndex < 0) {
+    let bestDistance = Infinity;
+    for (let i = 0; i < nodes.length; i++) {
+      if (!nodes[i]?.pipeId) continue;
+      const lo = nodes[i].beamStart || 0;
+      const hi = nodeEndS(nodes[i]);
+      const distance = boundaryS < lo ? lo - boundaryS : boundaryS > hi ? boundaryS - hi : 0;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        pipeNodeIndex = i;
+      }
+    }
   }
+  const pipeId = nodes[pipeNodeIndex]?.pipeId;
+  const pipe = pipes.find(candidate => candidate?.id === pipeId);
+  if (!pipe || !(pipe.subL > 0)) return null;
 
-  const coreReady = (!needsBuncher || placed.has('buncher'))
-    && placedTypes.some(id => accelOrder.includes(id))
-    && placedTypes.some(id => FOCUSING.includes(id));
+  const pipeIndices = [];
+  for (let i = 0; i < nodes.length; i++) {
+    if (nodes[i]?.pipeId === pipeId) pipeIndices.push(i);
+  }
+  if (pipeIndices.length === 0) return null;
+  const firstIndex = pipeIndices[0];
+  const pipeBeamStart = Math.min(...pipeIndices.map(i => nodes[i].beamStart || 0));
+  let previousModule = null;
+  for (let i = firstIndex - 1; i >= 0; i--) {
+    if (nodes[i]?.kind === 'module') {
+      previousModule = nodes[i];
+      break;
+    }
+  }
+  const traversalAnchorId = previousModule?.id
+    || nodes.find(node => node?.kind === 'module')?.id
+    || null;
+  const forward = !traversalAnchorId || pipe.start?.junctionId === traversalAnchorId;
 
-  return { primary, alternatives, reason, coreReady };
+  const pipeLengthM = pipe.subL * 0.5;
+  const def = COMPONENTS[hint.componentType];
+  const componentLengthM = def?.attachmentKind === 'inline'
+    ? 0
+    : Math.max(0, def?.subL || 2) * 0.5;
+  const offsetM = Math.max(0, Math.min(pipeLengthM, boundaryS - pipeBeamStart));
+  const rawPosition = forward
+    ? offsetM / pipeLengthM
+    : (pipeLengthM - offsetM - componentLengthM) / pipeLengthM;
+  const maxPosition = Math.max(0, 1 - componentLengthM / pipeLengthM);
+
+  return {
+    pipeId,
+    position: Math.max(0, Math.min(maxPosition, rawPosition)),
+    forward,
+  };
 }
 
 export function guidedEndpointSuggestions(typeId, isUnlocked = () => true) {

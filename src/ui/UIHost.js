@@ -1,7 +1,7 @@
 // src/ui/UIHost.js
 //
 // UIHost owns the DOM-side UI of Beamline Tycoon: HUD panels, palette,
-// popups, tech tree, goals overlay, and anchored context windows.
+// popups, tech tree, and anchored context windows.
 //
 // It is populated by side-effect imports of ./hud.js and ./overlays.js,
 // which attach their methods to UIHost.prototype.

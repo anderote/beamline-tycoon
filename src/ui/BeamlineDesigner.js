@@ -3,7 +3,6 @@
 
 import { COMPONENTS } from '../data/components.js';
 import { getBeamlineType } from '../data/beamline-types.js';
-import { beamlineTypeHidesComponent } from './BeamlineTypePicker.js';
 import { RESEARCH_PHYSICS_EFFECT_KEYS } from '../data/research.js';
 import { BeamPhysics } from '../beamline/physics.js';
 import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
@@ -16,8 +15,10 @@ import { applyPreviewDialog } from './ApplyPreviewDialog.js';
 import { DesignNameDialog } from './DesignNameDialog.js';
 import { portWorldPosition } from '../utility/ports.js';
 import {
+  computeBeamlinePlacementHints,
   computePlacementHints,
   missionPlotTargets,
+  placementHintComponentAvailable,
   recommendedQuadrupoleGradient,
 } from '../beamline/designer-placement-hints.js';
 import { planDesignerAutoTune } from '../beamline/designer-auto-tuning.js';
@@ -2434,22 +2435,22 @@ export class BeamlineDesigner {
 
   /** Whether the player can actually insert a component into this machine. */
   _componentAvailableForHint(type) {
-    const comp = COMPONENTS[type];
-    if (!comp || comp.category === 'source' || comp.category === 'endpoint') return false;
-    if (!this.game?.isComponentUnlocked?.(comp)) return false;
     const typeId = this._designerBeamlineTypeId?.();
-    return !beamlineTypeHidesComponent(typeId, type, comp);
+    return placementHintComponentAvailable({
+      typeId,
+      componentType: type,
+      isUnlocked: comp => this.game?.isComponentUnlocked?.(comp) !== false,
+    });
   }
 
   /** Compute all designer-local insertion recipes. */
   _computePlacementHints() {
     const typeId = this._designerBeamlineTypeId?.();
-    const beamlineType = typeId ? getBeamlineType(typeId) : null;
-    this.placementHints = computePlacementHints({
+    this.placementHints = computeBeamlinePlacementHints({
       nodes: this.draftNodes,
       envelope: this.draftEnvelope,
-      beamlineType,
-      isAvailable: type => this._componentAvailableForHint(type),
+      typeId,
+      isUnlocked: comp => this.game?.isComponentUnlocked?.(comp) !== false,
     });
     // Stubby's existing focus rules and the regression suite consume this
     // narrow view. Keep it derived so it cannot disagree with the canvas.

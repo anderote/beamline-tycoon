@@ -1928,13 +1928,12 @@ export class InputHandler {
           break;
         }
         case 'g': case 'G': {
-          const overlay = document.getElementById('goals-overlay');
-          if (overlay) overlay.classList.toggle('hidden');
+          this.game._guidedSetup?.toggle?.();
           break;
         }
         case 'k': case 'K': {
           // K, not E/F/B/M: every mnemonic for "economy" is already a mode,
-          // palette slot or camera key. Toggles like the Research/Goals keys.
+          // palette slot or camera key. Toggles like the Research/Build Forward keys.
           if (e.ctrlKey || e.metaKey || e.altKey) break;
           EconomyWindow.toggle(this.game);
           break;

@@ -1,4 +1,4 @@
-// src/ui/WelcomeDialog.js — first-run welcome/goals popup.
+// src/ui/WelcomeDialog.js — first-run welcome/guide popup.
 // Shown automatically on a fresh game (game.state.welcomeSeen unset) once the
 // player is actually looking at the game; reopenable anytime via Menu > Guide.
 // Draggable by its header (same pattern as the component popup in overlays.js).
@@ -71,7 +71,7 @@ export class WelcomeDialog {
       </div>
       <div class="welcome-body">
         <div class="welcome-tagline">Your particle accelerator empire starts as an empty field. Here's the plan, Director:</div>
-        <div class="welcome-section-title">Goals</div>
+        <div class="welcome-section-title">Getting Started</div>
         <ul class="welcome-goals">
           <li>Pour a concrete pad and raise an <b>accelerator hall</b> (Structure mode) to house your beamline components.</li>
           <li>Lay laboratory flooring and assign lab space with <b>zones</b> (Facility mode).</li>

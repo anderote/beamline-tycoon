@@ -4,6 +4,7 @@ import { flattenPath } from '../beamline/flattener.js';
 import { findSlot } from '../beamline/pipe-placements.js';
 import {
   guidedEndpointSuggestions,
+  guidedPlacementTarget,
   guidedPlacementSuggestions,
   infrastructureChecklistForNodes,
 } from '../beamline/guided-setup-plan.js';
@@ -60,6 +61,9 @@ export class GuidedBeamlineSetup {
     this.suggestionId = null;
     this.suggestionReason = '';
     this.suggestionPosition = null;
+    this.suggestionPipeId = null;
+    this.suggestionParams = null;
+    this.suggestionStatus = 'idle';
     this._el = this._createElement();
     this._off = game.on((event, data) => this._onGameEvent(event, data));
   }
@@ -95,8 +99,61 @@ export class GuidedBeamlineSetup {
     this.collapsed = data.collapsed !== false;
     this.completed = !!data.completed;
     this.dismissedSources = new Set(data.dismissedSources || []);
+    this._clearSuggestion();
     this._resolvePipe();
     this.render();
+  }
+
+  _entryForOpen(beamlineId = null) {
+    const selectedId = beamlineId
+      || this.game.selectedBeamlineId
+      || this.game.editingBeamlineId;
+    const selected = selectedId ? this.game.registry.get(selectedId) : null;
+    if (selected?.sourceId) return selected;
+    const active = this.activeSourceId
+      ? this.game.registry.getBySourceId(this.activeSourceId)
+      : null;
+    if (active?.sourceId) return active;
+    const all = this.game.registry.getAll().filter(entry => entry?.sourceId);
+    return all.length === 1 ? all[0] : null;
+  }
+
+  /** Reopen Build Forward for the selected (or only) beamline. */
+  open(beamlineId = null) {
+    const entry = this._entryForOpen(beamlineId);
+    if (!entry) {
+      const count = this.game.registry.getAll().filter(candidate => candidate?.sourceId).length;
+      this.game.log(
+        count > 1 ? 'Select a beamline to use Build Forward' : 'Build a beam source to use Build Forward',
+        'info',
+      );
+      return false;
+    }
+    this.activeSourceId = entry.sourceId;
+    this.activePipeId = null;
+    this.dismissedSources.delete(entry.sourceId);
+    this.collapsed = false;
+    this._resolvePipe();
+    this.render();
+    return true;
+  }
+
+  toggle(beamlineId = null) {
+    if (!this.collapsed && this._source() && !beamlineId) {
+      this.collapsed = true;
+      this.render();
+      return true;
+    }
+    return this.open(beamlineId);
+  }
+
+  _clearSuggestion(status = 'idle') {
+    this.suggestionId = null;
+    this.suggestionReason = '';
+    this.suggestionPosition = null;
+    this.suggestionPipeId = null;
+    this.suggestionParams = null;
+    this.suggestionStatus = status;
   }
 
   onSourcePlaced(sourceId) {
@@ -108,6 +165,7 @@ export class GuidedBeamlineSetup {
     this.completed = false;
     this.collapsed = false;
     this.dismissedSources.delete(sourceId);
+    this._clearSuggestion();
     this.render();
 
     if (!entry.typeId) this._chooseMission();
@@ -124,15 +182,13 @@ export class GuidedBeamlineSetup {
         && pipe.id !== this.activePipeId) return;
     this.activePipeId = pipe.id;
     this.collapsed = false;
-    this._setRecommendedComponent();
+    this._clearSuggestion();
     this.render();
   }
 
   onComponentBuilt(pipeId) {
-    if (pipeId !== this.activePipeId) return false;
-    this.suggestionId = null;
-    this.suggestionPosition = null;
-    this._setRecommendedComponent();
+    if (!this._nodes().some(node => node.pipeId === pipeId)) return false;
+    this._clearSuggestion();
     this.render();
     return true;
   }
@@ -160,18 +216,15 @@ export class GuidedBeamlineSetup {
 
   _nodes() {
     if (!this.activeSourceId) return [];
-    return flattenPath(this.game.state, this.activeSourceId)
-      .filter(node => node.kind !== 'drift');
+    return flattenPath(this.game.state, this.activeSourceId);
   }
 
   _plan() {
-    const source = this._source();
     const entry = this._entry();
-    const pipe = this._pipe();
     return guidedPlacementSuggestions({
-      sourceType: source?.type,
       typeId: entry?.typeId,
-      placements: pipe?.placements || [],
+      nodes: this._nodes(),
+      envelope: entry?.beamState?.physicsEnvelope || [],
       isUnlocked: comp => this.game.isComponentUnlocked(comp),
     });
   }
@@ -207,57 +260,107 @@ export class GuidedBeamlineSetup {
     this.render();
   }
 
-  _slotFor(componentId) {
-    const pipe = this._pipe();
-    const def = COMPONENTS[componentId];
-    if (!pipe || !def) return null;
+  _slotForHint(hint) {
+    const def = COMPONENTS[hint?.componentType];
+    const target = guidedPlacementTarget({
+      nodes: this._nodes(),
+      pipes: this.game.state.beamPipes || [],
+      hint,
+    });
+    const pipe = target
+      ? (this.game.state.beamPipes || []).find(candidate => candidate.id === target.pipeId)
+      : null;
+    if (!pipe || !def || !target) return null;
     const result = findSlot(pipe, {
-      type: componentId,
-      requestedPosition: 0.04,
+      type: hint.componentType,
+      requestedPosition: target.position,
       subL: def.subL || 2,
       inline: def.attachmentKind === 'inline',
       mode: 'snap',
       idGenerator: () => '__guided__',
-      params: {},
+      params: hint.params || {},
     });
     if (!result.ok) return null;
     const placed = result.placements.find(p => p.id === '__guided__');
-    return placed?.position ?? null;
+    return placed ? { pipeId: pipe.id, position: placed.position } : null;
   }
 
-  _setRecommendedComponent(explicitId = null) {
+  _setRecommendedComponent() {
     const plan = this._plan();
-    const candidate = explicitId || plan.primary;
-    const position = candidate ? this._slotFor(candidate) : null;
-    this.suggestionId = position != null ? candidate : null;
-    this.suggestionPosition = position;
-    this.suggestionReason = explicitId
-      ? 'Alternative starter component'
-      : plan.reason;
-    if (!this.suggestionId) return;
+    if (!plan.hints.length) {
+      this._clearSuggestion('none');
+      return false;
+    }
+    let hint = null;
+    let slot = null;
+    for (const candidate of plan.hints) {
+      slot = this._slotForHint(candidate);
+      if (slot) {
+        hint = candidate;
+        break;
+      }
+    }
+    if (!hint || !slot) {
+      this._clearSuggestion('no-room');
+      return false;
+    }
+    this.suggestionId = hint.componentType;
+    this.suggestionPosition = slot.position;
+    this.suggestionPipeId = slot.pipeId;
+    this.suggestionParams = { ...(hint.params || {}) };
+    this.suggestionReason = [
+      hint.reason,
+      hint.state,
+      hint.target ? `Target ${hint.target}` : null,
+    ].filter(Boolean).join(' · ');
+    this.suggestionStatus = 'ready';
     this.input.setActiveMode?.('beamline');
     this.input.selectComponentTool(this.suggestionId);
     this.input.beamlineController?.showGuidedPlacement?.({
-      pipeId: this.activePipeId,
+      pipeId: this.suggestionPipeId,
       type: this.suggestionId,
       position: this.suggestionPosition,
     });
+    return true;
+  }
+
+  _requestSuggestion() {
+    const entry = this._entry();
+    if (!entry || !this._pipe()) return false;
+    if (this.game.physicsRecalcCoordinator?.isPending?.(entry.id)) {
+      this._clearSuggestion('analyzing');
+      this.render();
+      return false;
+    }
+    if (!entry.beamState?.physicsEnvelope?.length) {
+      const ready = this.game.physicsEngine?.isReady?.() === true;
+      this._clearSuggestion(ready ? 'analyzing' : 'warming');
+      if (ready) this.game.recalcBeamline(entry.id);
+      this.render();
+      return false;
+    }
+    const recommended = this._setRecommendedComponent();
+    this.render();
+    return recommended;
   }
 
   _buildSuggested() {
-    if (!this.suggestionId) return;
+    if (!this.suggestionId || !this.suggestionPipeId) return;
     const id = this.suggestionId;
-    const position = this._slotFor(id);
+    const pipeId = this.suggestionPipeId;
+    const position = this.suggestionPosition;
+    const params = { ...(this.suggestionParams || {}) };
     if (position == null) return;
     const placedId = this.game.commitGesture({
-      mutate: () => this.game.beamline.placeOnPipe(this.activePipeId, {
+      mutate: () => this.game.beamline.placeOnPipe(pipeId, {
         type: id,
         position,
         subL: COMPONENTS[id]?.subL,
         mode: 'snap',
+        params,
       }),
     });
-    if (placedId) this.onComponentBuilt(this.activePipeId, placedId);
+    if (placedId) this.onComponentBuilt(pipeId, placedId);
   }
 
   _switchInfraCategory(category) {
@@ -316,8 +419,10 @@ export class GuidedBeamlineSetup {
       const entry = this.game.registry.get(data);
       if (entry?.sourceId) {
         this.activeSourceId = entry.sourceId;
+        this.activePipeId = null;
         this.completed = false;
         this.collapsed = this.dismissedSources.has(entry.sourceId);
+        this._clearSuggestion();
         this._resolvePipe();
         this.render();
       }
@@ -326,7 +431,24 @@ export class GuidedBeamlineSetup {
     if (!this.activeSourceId) return;
     if (event === 'beamlineChanged' || event === 'placeableChanged') {
       this._resolvePipe();
+      if (event === 'beamlineChanged' && this.suggestionStatus !== 'analyzing') {
+        this._clearSuggestion();
+      }
       this.render();
+      return;
+    }
+    if (event === 'physicsUpdated' && this.suggestionStatus === 'analyzing') {
+      const entry = this._entry();
+      const pending = this.game.physicsRecalcCoordinator?.isPending?.(entry?.id) === true;
+      if (pending) {
+        this.render();
+      } else if (entry?.beamState?.physicsEnvelope?.length) {
+        this._setRecommendedComponent();
+        this.render();
+      } else {
+        this._clearSuggestion('unavailable');
+        this.render();
+      }
       return;
     }
     if (event === 'tick') {
@@ -358,8 +480,8 @@ export class GuidedBeamlineSetup {
       if (this.activeSourceId) this.dismissedSources.add(this.activeSourceId);
     } else if (action === 'choose-mission') this._chooseMission();
     else if (action === 'draw-pipe') this._beginPipeGuidance();
+    else if (action === 'suggest-next') this._requestSuggestion();
     else if (action === 'build-suggestion') this._buildSuggested();
-    else if (action === 'alternative') this._setRecommendedComponent(button.dataset.component);
     else if (action === 'endpoint') {
       const id = button.dataset.component;
       if (id) {
@@ -402,7 +524,6 @@ export class GuidedBeamlineSetup {
     }
 
     const pipe = this._pipe();
-    const plan = this._plan();
     const endpointIds = guidedEndpointSuggestions(type.id, comp => this.game.isComponentUnlocked(comp));
     const checklist = infrastructureChecklistForNodes(this._nodes(), this.game.state);
     let html = `<div class="guided-type-badge" style="--guide-accent:#${type.accentColor.toString(16).padStart(6, '0')}">`
@@ -419,14 +540,26 @@ export class GuidedBeamlineSetup {
         + `<strong>Recommended: ${esc(def?.name || this.suggestionId)}</strong>`
         + `<p>${esc(this.suggestionReason)} · ${esc(money(def?.cost))}</p>`
         + '<div class="guided-actions">'
-        + '<button type="button" class="primary" data-guide-action="build-suggestion">Build here</button>';
-      for (const id of plan.alternatives) {
-        html += `<button type="button" data-guide-action="alternative" data-component="${esc(id)}">${esc(COMPONENTS[id]?.name || id)}</button>`;
-      }
-      html += '</div></div></section>';
+        + '<button type="button" class="primary" data-guide-action="build-suggestion">Auto-place here</button>'
+        + '</div></div></section>';
+    } else {
+      const messages = {
+        analyzing: 'Running the same beam-envelope advisor used by Designer…',
+        warming: 'The physics advisor is still warming up. Try again in a moment.',
+        unavailable: 'The physics advisor could not analyze this line. Try again or open Designer.',
+        none: 'The physics advisor has no component to add right now.',
+        'no-room': 'The suggested location has no open pipe span. Extend the pipe or use Designer.',
+        idle: 'Analyze the current beam envelope and choose the next useful component.',
+      };
+      const disabled = this.suggestionStatus === 'analyzing' ? ' disabled' : '';
+      html += '<section class="guided-step active"><span class="guided-step-num">2</span><div>'
+        + '<strong>Physics build advisor</strong>'
+        + `<p>${esc(messages[this.suggestionStatus] || messages.idle)}</p>`
+        + `<button type="button" class="primary" data-guide-action="suggest-next"${disabled}>Suggest next component</button>`
+        + '</div></section>';
     }
 
-    if (plan.coreReady && endpointIds.length) {
+    if (endpointIds.length) {
       html += '<section class="guided-step"><span class="guided-step-num">3</span><div>'
         + '<strong>Choose an endpoint</strong><p>Terminate the line with equipment suited to its mission.</p>'
         + '<div class="guided-actions">';
@@ -436,7 +569,7 @@ export class GuidedBeamlineSetup {
       html += '</div></div></section>';
     }
 
-    if (plan.coreReady && checklist.length) {
+    if (checklist.length) {
       const allComplete = checklist.every(row => row.complete);
       html += '<section class="guided-checklist"><div class="guided-checklist-head">'
         + `<strong>${allComplete ? 'Ready to commission' : 'Make it operational'}</strong>`
