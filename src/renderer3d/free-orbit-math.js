@@ -85,3 +85,8 @@ export function pickSnapMode(pitch) {
 export function targetPitchForMode(mode) {
   return mode === 'top' ? PITCH_TOP : PITCH_REST;
 }
+
+/** The other canonical camera elevation, without changing compass heading. */
+export function toggledViewMode(mode) {
+  return mode === 'top' ? 'iso' : 'top';
+}

@@ -94,6 +94,7 @@ import {
   easeInOutQuad,
   pickSnapMode,
   targetPitchForMode,
+  toggledViewMode,
   YAW_STEP,
   YAW_DIVISIONS,
 } from './free-orbit-math.js';
@@ -153,8 +154,9 @@ export class ThreeRenderer {
     this.zoom = 1;
 
     // Two canonical view modes: dimetric ('iso') and near-top-down ('top').
-    // Each mode has its own yaw index 0..3 — switching modes restores that
-    // mode's last facing rather than syncing yaw across both.
+    // Each mode remembers its own yaw index for view-cube navigation. The
+    // middle-click elevation toggle deliberately carries the live heading
+    // across instead, then updates the destination mode's remembered index.
     this.viewMode = 'iso';
     this._isoYawIdx = 0;
     this._topYawIdx = 0;
@@ -1395,6 +1397,15 @@ export class ThreeRenderer {
     this._freeYaw = fromYaw;
     this._freePitch = fromPitch;
     if (this.world) this.world.visible = false;
+  }
+
+  /**
+   * Toggle between isometric and top-down without rotating the map.
+   * Omitting setViewMode's yawIdx is intentional: its default destination is
+   * the live rotation angle, rather than the other mode's remembered facing.
+   */
+  toggleViewMode() {
+    this.setViewMode(toggledViewMode(this.viewMode));
   }
 
   /**
