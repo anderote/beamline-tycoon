@@ -1250,36 +1250,61 @@ function buildTapMarker(worldPos, color, runY) {
 
 // --- Sink-port issue markers -------------------------------------------
 //
-// The pipe stays visually identified by utility type. A compact exclamation
-// point over the affected sink carries status instead: yellow means connected
-// but under-served; red means the port receives nothing (including an RF band
-// mismatch) or belongs to a hard-failed network.
+// The pipe and its port affordances share one utility identity. A compact
+// exclamation point uses that same port-marker hue: partial service is a
+// subdued shade, while zero service / hard failure uses the full-bright hue.
+// A thin vertical leader starts at the exact 3D port anchor so the glyph reads
+// as belonging to that connector rather than floating over the general area.
 
-const ISSUE_MARK_COLORS = { warning: '#ffcc33', critical: '#ff3333' };
 const ISSUE_MARK_RISE = 0.42;
+const ISSUE_DOT_RADIUS = 0.05;
+const ISSUE_SHADE = { warning: 0.68, critical: 1 };
+const ISSUE_EMISSIVE = { warning: 0.5, critical: 0.95 };
+
+function shadeHexColor(color, scale) {
+  const match = /^#([0-9a-f]{6})$/i.exec(color || '');
+  if (!match) return color;
+  const value = Number.parseInt(match[1], 16);
+  const channel = shift => Math.max(0, Math.min(255,
+    Math.round(((value >> shift) & 0xff) * scale)));
+  return `#${[channel(16), channel(8), channel(0)]
+    .map(n => n.toString(16).padStart(2, '0')).join('')}`;
+}
 
 const _issueMatCache = new Map();
-function getIssueMarkerMaterial(severity) {
-  if (_issueMatCache.has(severity)) return _issueMatCache.get(severity);
-  const color = ISSUE_MARK_COLORS[severity] || ISSUE_MARK_COLORS.critical;
+function getIssueMarkerMaterial(utilityType, severity) {
+  const key = `${utilityType}|${severity}`;
+  if (_issueMatCache.has(key)) return _issueMatCache.get(key);
+  const descriptor = UTILITY_TYPES[utilityType];
+  const portColor = markerColorFor(descriptor);
+  const color = shadeHexColor(portColor, ISSUE_SHADE[severity] ?? 1);
+  const emissiveBase = ISSUE_EMISSIVE[severity] ?? ISSUE_EMISSIVE.critical;
   const mat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(color),
     emissive: new THREE.Color(color),
-    emissiveIntensity: 0.9,
+    emissiveIntensity: emissiveBase,
     roughness: 0.25, metalness: 0.1,
-    transparent: true, opacity: 0.95,
+    transparent: true, opacity: severity === 'warning' ? 0.82 : 0.96,
     depthTest: false,
   });
-  _issueMatCache.set(severity, shared(mat));
+  mat.userData.issueEmissiveBase = emissiveBase;
+  _issueMatCache.set(key, shared(mat));
   return mat;
 }
 
 function buildUtilityPortIssueMarker(mark) {
-  const mat = getIssueMarkerMaterial(mark.severity);
+  const mat = getIssueMarkerMaterial(mark.utilityType, mark.severity);
   const g = new THREE.Group();
   const footY = Number.isFinite(mark.y) ? mark.y : PIPE_Y;
-  const dotY = footY + ISSUE_MARK_RISE;
-  const dot = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), mat);
+  const leaderHeight = ISSUE_MARK_RISE - ISSUE_DOT_RADIUS;
+  const leader = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.012, 0.012, leaderHeight, 6), mat);
+  leader.position.set(0, leaderHeight / 2, 0);
+  leader.renderOrder = 1001;
+  g.add(leader);
+
+  const dotY = ISSUE_MARK_RISE;
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(ISSUE_DOT_RADIUS, 8, 6), mat);
   dot.position.set(0, dotY, 0);
   dot.renderOrder = 1001;
   g.add(dot);
@@ -1289,7 +1314,7 @@ function buildUtilityPortIssueMarker(mark) {
   bar.renderOrder = 1001;
   g.add(bar);
 
-  g.position.set(mark.x, 0, mark.z);
+  g.position.set(mark.x, footY, mark.z);
   g.userData = {
     isUtilityPortIssueMarker: true,
     placeableId: mark.placeableId,
@@ -1830,13 +1855,15 @@ export class UtilityLineBuilderV2 {
 
   /**
    * Breathe the marker emissive so the glyphs read as an alert rather than as
-   * more scenery. Touches at most one material per severity and only
-   * while markers exist, so it is safe on the per-frame path.
+   * more scenery. Touches at most one material per utility/severity pair and
+   * only while markers exist, so it is safe on the per-frame path.
    */
   pulseUtilityPortIssueMarkers(timeMs) {
     if (!this._issueGroup) return;
-    const k = 0.6 + 0.6 * (0.5 + 0.5 * Math.sin(timeMs * 0.005));
-    for (const mat of _issueMatCache.values()) mat.emissiveIntensity = k;
+    const k = 0.82 + 0.36 * (0.5 + 0.5 * Math.sin(timeMs * 0.005));
+    for (const mat of _issueMatCache.values()) {
+      mat.emissiveIntensity = (mat.userData.issueEmissiveBase || 0.5) * k;
+    }
   }
 
 
