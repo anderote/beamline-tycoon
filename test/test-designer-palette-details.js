@@ -25,7 +25,12 @@ assertOk(buncher.rows.some(row => row.label === 'Bunch Compression'), 'includes 
 assertOk(buncher.utilityRows.some(row => row.label === 'Power draw'), 'includes port-derived utility demand');
 assertOk(buncher.utilityRows.some(row => row.label === 'RF draw'), 'includes RF demand');
 assertOk(buncher.utilityRows.some(row => row.label === 'Vacuum load' && row.value === '5.0e-7 mbar·L/s'), 'preserves tiny nonzero utility loads');
-assertOk(buncher.connections.includes('Power cable') && buncher.connections.includes('RF waveguide'), 'includes readable connection requirements');
+assertOk(buncher.connections.includes('Power Cable')
+  && buncher.connections.includes('RF Waveguide')
+  && buncher.connections.includes('Vacuum Pipe'),
+'includes every required sink port, including the port-contract vacuum requirement');
+assertOk(buncher.requiredPorts.every(port => /^#[0-9a-f]{6}$/i.test(port.color)),
+  'required ports publish their utility marker colors');
 assertOk(buncher.params.some(row => row.label === 'Voltage' && row.value === '0.1 MV'), 'includes default tunable parameters and units');
 
 console.log(`\n${passed}/${passed + failed} assertions passed`);

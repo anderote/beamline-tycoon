@@ -14,6 +14,10 @@ import { beamlineTypeHidesComponent } from '../ui/BeamlineTypePicker.js';
 import { getBeamlineType } from '../data/beamline-types.js';
 import { ProbePlots } from '../ui/probe-plots.js';
 import { paletteUtilityMetrics } from '../ui/utility-supply.js';
+import {
+  appendRequiredPortRequirements,
+  requiredUtilityPorts,
+} from '../ui/required-port-preview.js';
 
 // Schematic pixel dimensions per component (same as overlays.js drawSchematic)
 const SCHEM_PW = 70;
@@ -1334,16 +1338,6 @@ BeamlineDesigner.prototype._renderDesignerPalette = function(category) {
   }
 };
 
-const DESIGNER_CONNECTION_LABELS = {
-  powerCable: 'Power cable',
-  hvCable: 'HV cable',
-  coolingWater: 'Cooling water',
-  cryoTransfer: 'Cryogenic transfer',
-  rfWaveguide: 'RF waveguide',
-  vacuumPipe: 'Vacuum pipe',
-  dataFiber: 'Data fiber',
-};
-
 /**
  * Return the complete static catalogue facts used by the designer palette's
  * floating hover inspector. Keeping this separate from DOM construction makes
@@ -1382,8 +1376,9 @@ export function designerPaletteDetails(key, comp) {
   }
 
   const utilityRows = paletteUtilityMetrics(comp);
-  const connections = (comp.requiredConnections || [])
-    .map(connection => DESIGNER_CONNECTION_LABELS[connection] || _paramLabel(connection));
+  const requiredPorts = requiredUtilityPorts(comp);
+  const connections = requiredPorts
+    .map(port => `${port.label}${port.count > 1 ? ` ×${port.count}` : ''}`);
 
   const params = [];
   const defs = PARAM_DEFS[key] || {};
@@ -1401,6 +1396,7 @@ export function designerPaletteDetails(key, comp) {
     rows,
     utilityRows,
     connections,
+    requiredPorts,
     params,
   };
 }
@@ -1456,12 +1452,7 @@ BeamlineDesigner.prototype._showDesignerPaletteHover = function(card, key, comp)
   addRows('Utilities', details.utilityRows);
   addRows('Default parameters', details.params);
 
-  if (details.connections.length) {
-    const requirements = document.createElement('div');
-    requirements.className = 'dsgn-palette-hover-requirements';
-    requirements.textContent = `Connections: ${details.connections.join(', ')}`;
-    popup.appendChild(requirements);
-  }
+  appendRequiredPortRequirements(popup, details.requiredPorts);
 
   document.body.appendChild(popup);
   const cardRect = card.getBoundingClientRect();
