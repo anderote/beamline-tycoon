@@ -308,8 +308,9 @@ export class VisualEffectSystem {
 
     for (const effect of this._effects.values()) {
       if (effect.enabled === false || effect.state === 'hard') continue;
-      // Some effects need only their moving light proxy. Vacuum flow uses
-      // this to illuminate the pipe without drawing a travelling crest object.
+      // Some effects need only their moving light proxy. Utility lines use
+      // this to add bounded nearby illumination without drawing a travelling
+      // shape over the animated colour already carried by the line material.
       if (effect.crest !== false) {
         const distances = travellingPulseDistances(
           effect.path.length, effect.period, effect.speed, this._time, effect.phase || 0,

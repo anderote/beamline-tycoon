@@ -1037,12 +1037,11 @@ function buildLineGroup(
     }
   }
 
-  // Publish effect INTENT only. VisualEffectSystem owns the scalable drawing
-  // strategy (instanced crest + optional pooled real light), so this geometry
-  // builder never allocates lights or effect meshes. Utility crests explicitly
-  // skip projected floor circles: the cable itself is the visible source and
-  // its bounded real-light proxy supplies any nearby surface response.
-  if (flowing && (flow.crest !== false || flow.light !== false)) {
+  // The animated material is the only visible flow treatment. Publish only an
+  // invisible, bounded light-proxy path for utilities that illuminate nearby
+  // surfaces; VisualEffectSystem must never add travelling crest geometry or
+  // projected floor circles over utility lines.
+  if (flowing && flow.light !== false) {
     const effectPoints = reversed ? points.slice().reverse() : points;
     group.userData.visualEffects = [{
       id: `utility-flow:${line.id}`,
@@ -1051,13 +1050,10 @@ function buildLineGroup(
       color: flow.color || descriptor.color || '#ffffff',
       speed: flow.speed,
       period: flow.period,
-      radius: Math.max(0.040, radius * (style === 'rectWaveguide' ? 1.10 : 1.30)),
-      crest: flow.crest !== false,
-      radialScale: flow.pulseRadialScale,
-      lengthScale: flow.pulseLengthScale,
+      crest: false,
       groundSpill: false,
       state: errorStatus || 'ok',
-      light: flow.light === false ? false : {
+      light: {
         intensity: flow.lightIntensity ?? 0.16,
         distance: flow.lightDistance ?? 1.55,
         daylightFloor: flow.daylightFloor ?? 0.25,
