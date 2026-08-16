@@ -19,14 +19,15 @@ import { min, mix, mod, sin, smoothstep, uniform, uv } from 'three/tsl';
 // writes ABSOLUTE run distance in metres into uv.y, not a 0..1 fraction, so
 // `speed` is metres/second and `period`/`width` are metres of pipe.
 //
-// `color` is the pulse's tint. Emissive flows normally use the utility's own
-// descriptor colour (UTILITY_TYPES[type].color). Electrical cables are the
-// exception: their visible flow is an albedo variation on the cable surface,
-// with no bloom or crest object. Their bounded moving point-light proxy still
-// casts the restrained local illumination expected from live power. The
-// surface variation needs an explicit lighter target colour so powerCable's
-// green-on-green variation remains visible and hvCable's near-black trunk can
-// visibly change at all.
+// `color` is the moving surface band's tint. Emissive flows normally use the
+// utility's own descriptor colour (UTILITY_TYPES[type].color). Utility flow is
+// deliberately line-only: no utility publishes a separate travelling crest
+// shape. Electrical cables are the exception only in shading — their visible
+// flow is an albedo variation rather than emissive output. Their bounded,
+// invisible moving point-light proxy can still cast restrained nearby light.
+// The surface variation needs an explicit lighter target colour so
+// powerCable's green-on-green variation remains visible and hvCable's
+// near-black trunk can visibly change at all.
 //
 // `#8f94c8` remains a dim, desaturated blue-violet so HV reads differently
 // from ordinary branch power.
@@ -37,7 +38,7 @@ export const FLOW_PARAMS = {
     // keeps long HV trunks from becoming rows of moving light points.
     speed: 0.72, period: 12.0, width: 0.48, strength: 1.60, baseGlow: 0.045,
     color: '#8f94c8',
-    emissive: false, crest: false,
+    emissive: false,
     lightIntensity: 0.28, lightDistance: 2.05, daylightFloor: 0.34,
   },
   powerCable: {
@@ -46,19 +47,16 @@ export const FLOW_PARAMS = {
     // tightly packed train of glowing points.
     speed: 0.48, period: 3.2, width: 0.30, strength: 1.12, baseGlow: 0.09,
     color: '#9be39b',
-    emissive: false, crest: false,
+    emissive: false,
     lightIntensity: 0.16, lightDistance: 1.5, daylightFloor: 0.26,
   },
   vacuumPipe: {
     // Gas load drifts from beam chambers toward the pump. Kept restrained so
     // a vacuum header reads as molecular flow in pipework, not another power
     // cable; direction is inverted in UtilityLineBuilderV2, not in the shader.
-    // Vacuum has no visible travelling crest object: only the pipe's emissive
-    // pulse and its bounded moving light proxy communicate that flow.
+    // Only the pipe's emissive band and bounded light proxy communicate flow.
     speed: 0.30, period: 3.8, width: 0.78, strength: 0.46, baseGlow: 0.018,
     color: '#aebbc2',
-    crest: false,
-    pulseRadialScale: 0.92, pulseLengthScale: 5.6,
     lightIntensity: 0.055, lightDistance: 0.9, daylightFloor: 0.12,
   },
   rfWaveguide: {
@@ -66,14 +64,12 @@ export const FLOW_PARAMS = {
     // gradients make the guide read as an energized field instead of a train
     // of fast sparks; the deliberately slow travel keeps that motion legible.
     speed: 0.95, period: 0.62, width: 0.24, strength: 1.75, baseGlow: 0.11,
-    pulseRadialScale: 1.18, pulseLengthScale: 3.0,
     lightIntensity: 0.30, lightDistance: 2.15, daylightFloor: 0.28,
   },
   coolingWater: {
     // The reference treatment: a broad, slow band whose neighbours nearly
     // merge into a steady flowing gradient.
     speed: 0.62, period: 2.6, width: 0.72, strength: 0.82, baseGlow: 0.075,
-    pulseRadialScale: 0.82, pulseLengthScale: 6.4,
     lightIntensity: 0.10, lightDistance: 1.35, daylightFloor: 0.18,
   },
   cryoTransfer: {
@@ -84,7 +80,6 @@ export const FLOW_PARAMS = {
     // carrying its own baseGlow instead of just occluding the core's is the
     // physically-motivated fix, not just the convenient one.
     speed: 0.16, period: 4.8, width: 1.35, strength: 0.42, baseGlow: 0.19,
-    pulseRadialScale: 1.05, pulseLengthScale: 8.2,
     lightIntensity: 0.075, lightDistance: 1.15, daylightFloor: 0.2,
   },
   dataFiber: {
@@ -92,7 +87,6 @@ export const FLOW_PARAMS = {
     // information, so it should sparkle on the cable without illuminating
     // the room like an energy service.
     speed: 4.4, period: 0.50, width: 0.055, strength: 1.18, baseGlow: 0.025,
-    pulseRadialScale: 0.42, pulseLengthScale: 0.58,
     light: false,
   },
 };

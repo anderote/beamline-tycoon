@@ -330,20 +330,14 @@ console.log('\n--- 4. FLOW_PARAMS covers every utility ---');
     assert(p && Number.isFinite(p.speed) && Number.isFinite(p.period)
       && Number.isFinite(p.width) && Number.isFinite(p.strength) && Number.isFinite(p.baseGlow),
       `${t} has complete surface-flow parameters`);
-    if (p.crest !== false) {
-      assert(Number.isFinite(p.pulseRadialScale) && Number.isFinite(p.pulseLengthScale),
-        `${t} has complete visible-crest shape parameters`);
-    }
   }
   assert(FLOW_PARAMS.rfWaveguide.width * 2 >= FLOW_PARAMS.rfWaveguide.period * 0.3,
     'RF uses a long smooth gradient instead of a needle-sharp packet');
   assert(FLOW_PARAMS.hvCable.emissive === false
-      && FLOW_PARAMS.hvCable.crest === false
       && FLOW_PARAMS.hvCable.light !== false
       && FLOW_PARAMS.powerCable.emissive === false
-      && FLOW_PARAMS.powerCable.crest === false
       && FLOW_PARAMS.powerCable.light !== false,
-    'power and HV keep surface-colour motion and real light without glow geometry');
+    'power and HV keep surface-colour motion and bounded light');
   assert(FLOW_PARAMS.hvCable.speed <= 0.75
       && FLOW_PARAMS.powerCable.speed <= 0.5,
     'electrical highlights travel at a restrained crawl');
@@ -366,11 +360,12 @@ console.log('\n--- 4. FLOW_PARAMS covers every utility ---');
   ]) {
     const { group } = buildFlowLine(type);
     const effect = group.userData.visualEffects?.[0];
-    assert(effect?.light && effect.light.intensity > 0 && effect.light.distance > 0,
-      `${type} publishes a moving real-light candidate while its network is flowing`);
+    assert(effect?.crest === false
+        && effect?.light && effect.light.intensity > 0 && effect.light.distance > 0,
+      `${type} publishes light motion without a visible travelling shape`);
   }
-  assert(buildFlowLine('dataFiber').group.userData.visualEffects?.[0]?.light === false,
-    'data fiber remains an emissive information packet without room illumination');
+  assert(!buildFlowLine('dataFiber').group.userData.visualEffects,
+    'data fiber uses only its moving line colour, with no shape or room-light effect');
 }
 
 console.log('\n--- 5. getLineMaterial: distinct per flowState, cached, tagged __shared ---');
