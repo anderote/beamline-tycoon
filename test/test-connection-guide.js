@@ -1,5 +1,5 @@
-// test/test-connection-guide.js — connection-guide content, continuous
-// cross-section coverage, and one-shot fresh-tab lifecycle.
+// test/test-connection-guide.js — connection-guide content, readable blueprint
+// topology coverage, and one-shot fresh-tab lifecycle.
 
 import * as THREE_REAL from 'three';
 import { readFileSync } from 'node:fs';
@@ -11,18 +11,42 @@ class FakeTextureLoader {
 // hud.js reaches the renderer's component thumbnail modules, whose material
 // catalogue uses the browser's THREE global at import time.
 globalThis.THREE = { ...THREE_REAL, TextureLoader: FakeTextureLoader };
+
+function drawingContext({ labels = [], dashPatterns = [] } = {}) {
+  return {
+    beginPath() {},
+    clearRect() {},
+    closePath() {},
+    createRadialGradient() { return { addColorStop() {} }; },
+    fill() {},
+    fillRect() {},
+    fillText(text) { labels.push(String(text)); },
+    lineTo() {},
+    measureText(text) { return { width: String(text).length * 8 }; },
+    moveTo() {},
+    restore() {},
+    save() {},
+    setLineDash(pattern) { dashPatterns.push([...pattern]); },
+    stroke() {},
+    strokeRect() {},
+    fillStyle: null,
+    font: '',
+    imageSmoothingEnabled: true,
+    lineCap: '',
+    lineJoin: '',
+    lineWidth: 1,
+    strokeStyle: null,
+    textAlign: '',
+    textBaseline: '',
+  };
+}
+
 globalThis.document = {
   createElement() {
     return {
       width: 0,
       height: 0,
-      getContext() {
-        return {
-          createRadialGradient() { return { addColorStop() {} }; },
-          fillRect() {},
-          fillStyle: null,
-        };
-      },
+      getContext() { return drawingContext(); },
     };
   },
 };
@@ -32,6 +56,7 @@ const { UIHost } = await import('../src/ui/UIHost.js');
 const { CONNECTION_GUIDES } = await import('../src/ui/hud.js');
 const {
   CONNECTION_GUIDE_DIAGRAMS,
+  CONNECTION_GUIDE_SCHEMATICS,
   drawConnectionGuideDiagram,
 } = await import('../src/ui/connection-guide-diagrams.js');
 const connectionGuideCss = readFileSync(new URL('../style.css', import.meta.url), 'utf8');
@@ -72,7 +97,7 @@ for (const category of infraCategories) {
   assert(
     /^#[0-9a-f]{6}$/i.test(guide?.accent)
       && CONNECTION_GUIDE_DIAGRAMS[guide.diagram],
-    `${category} has an accent and a registered continuous cross-section`,
+    `${category} has an accent and a registered blueprint schematic`,
   );
 }
 
@@ -80,7 +105,7 @@ console.log('\n--- Guide flows match the implemented infrastructure contracts --
 
 assert(
   CONNECTION_GUIDES.power.links.join('|') === 'HV FEEDER|POWER CABLE'
-    && CONNECTION_GUIDES.power.flow[1].name === 'PANEL / MCC',
+    && CONNECTION_GUIDES.power.flow[1].name === 'DISTRIBUTION PANEL',
   'power separates transformer capacity, HV-fed distribution, and branch loads',
 );
 assert(
@@ -100,44 +125,74 @@ assert(
 );
 assert(
   CONNECTION_GUIDES.ops.flow.some(stage => stage.name === 'COOLED DUMP')
-    && CONNECTION_GUIDES.ops.description.includes('rather than forming a utility chain'),
+    && CONNECTION_GUIDES.ops.description.includes('inside shielding')
+    && CONNECTION_GUIDE_SCHEMATICS.ops.boundaries
+      .some(boundary => boundary.label === 'SHIELDED LOSS AREA'),
   'Ops presents a physical loss-point arrangement and calls out the dump cooling connection',
 );
 
-console.log('\n--- The schematic is one continuous Designer-style cross-section ---\n');
+console.log('\n--- The diagram is a readable, labeled BLT blueprint ---\n');
 
 {
-  const context = {
-    clearRect() {},
-    fillRect() {},
-    fillStyle: null,
-    imageSmoothingEnabled: true,
-  };
+  const labels = [];
+  const dashPatterns = [];
+  const context = drawingContext({ labels, dashPatterns });
   const canvas = { getContext: () => context, width: 0, height: 0 };
   const diagramKeys = new Set(
     Object.values(CONNECTION_GUIDES).map(guide => guide.diagram),
   );
   assert(
     [...diagramKeys].every(diagram => drawConnectionGuideDiagram(canvas, diagram, '#8fe5ff')),
-    `all ${diagramKeys.size} guide cutaways render through the public drawing seam`,
+    `all ${diagramKeys.size} guide schematics render through the public drawing seam`,
+  );
+  assert(canvas.width === 640 && canvas.height === 184,
+    'the blueprint uses a wide, high-resolution field for legible labels');
+  assert(
+    ['HV SUPPLY', 'HV FEEDER', 'POWER CABLES', 'RF WAVEGUIDE', 'VACUUM PIPE', 'DATA FIBER']
+      .every(label => labels.includes(label)),
+    'equipment and connection names are drawn inside the schematic itself',
+  );
+  assert(
+    dashPatterns.some(pattern => pattern.join(',') === '8,6'),
+    'utility runs use the BLT dotted-route language',
   );
 }
 
+const powerSchematic = CONNECTION_GUIDE_SCHEMATICS.power;
+const powerNodeNames = powerSchematic.nodes.map(item => (
+  Array.isArray(item.title) ? item.title.join(' ') : item.title
+));
 assert(
-  /\.connection-guide-figure\s*\{[^}]*padding:\s*9px 9px 11px/s.test(connectionGuideCss),
-  'the full-width cross-section has its own drawing field',
+  powerNodeNames.includes('HV SUPPLY')
+    && powerNodeNames.includes('DISTRIBUTION PANEL')
+    && powerNodeNames.filter(name => name.startsWith('EQUIPMENT')).length === 3,
+  'power is boxes for one HV supply, one distributor, and several equipment loads',
 );
 assert(
-  /\.connection-guide-art\s*\{[^}]*width:\s*100%[^}]*aspect-ratio:\s*113 \/ 41[^}]*image-rendering:\s*pixelated/s.test(connectionGuideCss),
-  'the cutaway spans the guide while retaining hard-edged Designer pixels',
+  powerSchematic.connections.some(item => item.label === 'HV FEEDER')
+    && powerSchematic.connections.some(item => item.label === 'POWER CABLES')
+    && powerSchematic.connections.filter(item => item.points.at(-1)[0] === 520).length === 3,
+  'power labels the HV feeder and visibly fans separate power cables to three loads',
+);
+
+assert(
+  /#connection-guide\s*\{[^}]*width:\s*min\(680px/s.test(connectionGuideCss)
+    && /\.connection-guide-desc\s*\{[^}]*font-size:\s*12px/s.test(connectionGuideCss),
+  'the panel and explanatory copy are enlarged for readability',
+);
+assert(
+  /\.connection-guide-figure\s*\{[^}]*padding:\s*10px/s.test(connectionGuideCss)
+    && /\.connection-guide-art\s*\{[^}]*width:\s*100%[^}]*aspect-ratio:\s*80 \/ 23/s.test(connectionGuideCss),
+  'the labeled blueprint spans the enlarged guide field',
 );
 assert(
   /drawConnectionGuideDiagram\(canvas, guide\.diagram, guide\.accent\)/.test(connectionGuideHud),
   'the guide renders one category-wide canvas rather than a canvas per stage',
 );
 assert(
-  /\.connection-guide-legend\s*\{[^}]*display:\s*flex/s.test(connectionGuideCss),
-  'the physical drawing keeps a compact, separate connection legend',
+  !/connection-guide-legend/.test(connectionGuideHud)
+    && !/\.connection-guide-(?:stage|step|name|detail|link|legend)\b/.test(connectionGuideCss),
+  'the former tiny duplicate legend is removed',
 );
 
 console.log('\n--- A palette category change refreshes all category-bound UI ---\n');
