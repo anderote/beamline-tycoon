@@ -38,6 +38,8 @@ assert(info.indexOf('id="btn-designer"') < info.indexOf('id="resources"')
   'second row flows from Beamline Designer actions into statistics');
 assert(/#top-bar-primary #sim-controls\s*\{[^}]*margin-left:\s*auto/s.test(css),
   'simulation controls stay at the right edge of the spacious first row');
+assert(/#top-bar-info:has\(\.menu-dropdown:not\(\.hidden\)\)\s*\{[^}]*overflow:\s*visible/s.test(css),
+  'an open menu escapes the clipped second row instead of disappearing below it');
 assert(musicSource.includes("this.el.closest('#top-bar')"),
   'the embedded music player cannot restore a floating position inside the navbar');
 assert(/--hud-topbar-height:\s*98px/.test(css)
