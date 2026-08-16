@@ -5,7 +5,7 @@
 //
 //   type a cross-category query -> flat results render into #component-palette
 //   -> click a result -> mode + category switch to its home, tool arms
-//   -> Escape clears the box without disarming anything else
+//   -> Escape clears the box, releases focus, and does not disarm anything else
 //
 // Companion to palette-arm.spec.mjs (which walks every normal palette item)
 // and test/test-palette-search.js (which covers the index/ranking headless,
@@ -15,7 +15,7 @@
 import { test, expect } from '@playwright/test';
 import { createErrorCollector, expectRendererLive, bootFreshGame, frames } from './helpers.mjs';
 
-test('build-menu search: type, click a result, arm — Escape clears without disarming', async ({ page }) => {
+test('build-menu search: type, click a result, arm — Escape exits search without disarming', async ({ page }) => {
   const errors = createErrorCollector(page);
 
   await bootFreshGame(page);
@@ -67,7 +67,7 @@ test('build-menu search: type, click a result, arm — Escape clears without dis
   expect(uiAfterClick.searchValue, 'search box clears once a result is armed').toBe('');
   errors.check('clicked a result');
 
-  // --- Escape clears the search box locally without disarming the tool ---
+  // --- Escape exits search mode locally without disarming the tool ---
   // (the desk tool armed above should still be active — Escape in the
   // search box must not reach the esc-stack / InputHandler ladder).
   await searchInput.fill('table');
@@ -77,6 +77,7 @@ test('build-menu search: type, click a result, arm — Escape clears without dis
 
   await searchInput.press('Escape');
   await expect(searchInput).toHaveValue('');
+  await expect(searchInput).not.toBeFocused();
   // Escape restored the normal category view (facility/officeSpace, still
   // the active tab from the desk click above) rather than the search list.
   await expect(page.locator('#component-palette .palette-item[data-palette-key="desk"]')).toBeVisible();

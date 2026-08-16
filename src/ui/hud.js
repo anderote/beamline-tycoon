@@ -3808,17 +3808,19 @@ UIHost.prototype._bindPaletteSearch = function() {
     this._paletteSearchDebounce = setTimeout(() => runSearch(input.value), 120);
   });
 
-  // Escape clears the box locally instead of falling through to the
-  // esc-stack (src/ui/esc-stack.js), which would otherwise disarm the
-  // active tool or close whatever dialog is open — same pattern as the
-  // manual's search box (WikiWindow.js _buildLayout).
+  // Escape leaves search mode completely: restore the normal palette and
+  // return keyboard focus to the game. Consume it locally instead of falling
+  // through to the esc-stack (src/ui/esc-stack.js), which would otherwise
+  // also disarm the active tool or close whatever dialog is open.
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && input.value) {
-      e.stopPropagation();
-      input.value = '';
-      if (this._paletteSearchDebounce) clearTimeout(this._paletteSearchDebounce);
-      runSearch('');
-    }
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    e.stopPropagation();
+    input.value = '';
+    if (this._paletteSearchDebounce) clearTimeout(this._paletteSearchDebounce);
+    this._paletteSearchDebounce = null;
+    runSearch('');
+    input.blur();
   });
 };
 
