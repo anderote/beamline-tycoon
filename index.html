@@ -318,84 +318,102 @@
         </div>
         <div class="dsgn-plots-row">
           <div class="dsgn-plot-panel">
-            <select class="dsgn-plot-select" data-panel="0">
-              <option value="energy" selected>Energy</option>
-              <option value="energy-dispersion">Energy &amp; Dispersion</option>
-              <option value="beta-acceptance">Beam &beta; &amp; Acceptance</option>
-              <option value="beam-envelope">Beam Envelope</option>
-              <option value="current-loss">Current &amp; Loss</option>
-              <option value="emittance">Emittance</option>
-              <option value="peak-current">Peak Current</option>
-              <option value="phase-space">Phase Space</option>
-              <option value="longitudinal">Longitudinal PS</option>
-              <option value="eic-triangle">E / I / &epsilon; Triangle</option>
-            </select>
-            <select class="dsgn-plot-secondary-select" data-panel="0"
-                    aria-label="Secondary plot for panel 1">
-              <option value="none">CH-2 // None</option>
-              <option value="energy">Energy</option>
-              <option value="dispersion">Dispersion</option>
-              <option value="rel-beta">Beam &beta;</option>
-              <option value="beam-envelope">Beam Envelope</option>
-              <option value="current-loss" selected>Beam Current</option>
-              <option value="emittance">Emittance</option>
-              <option value="peak-current">Peak Current</option>
-            </select>
-            <select class="dsgn-plot-tertiary-select" data-panel="0"
-                    aria-label="Third plot for panel 1">
-              <option value="none">CH-3 // None</option>
-              <option value="energy">Energy</option>
-              <option value="dispersion">Dispersion</option>
-              <option value="rel-beta" selected>Beam &beta;</option>
-              <option value="beam-envelope">Beam Envelope</option>
-              <option value="current-loss">Beam Current</option>
-              <option value="emittance">Emittance</option>
-              <option value="peak-current">Peak Current</option>
-            </select>
+            <div class="dsgn-plot-options" role="group" aria-label="Plot options for panel 1">
+              <select class="dsgn-plot-select" data-panel="0"
+                      aria-label="Primary plot for panel 1">
+                <option value="energy" selected>Energy</option>
+                <option value="energy-dispersion">Energy &amp; Dispersion</option>
+                <option value="beta-acceptance">Beam &beta; &amp; Acceptance</option>
+                <option value="beam-envelope">Beam Envelope</option>
+                <option value="current-loss">Current &amp; Loss</option>
+                <option value="emittance">Emittance</option>
+                <option value="peak-current">Peak Current</option>
+                <option value="phase-space">Phase Space</option>
+                <option value="longitudinal">Longitudinal PS</option>
+                <option value="eic-triangle">E / I / &epsilon; Triangle</option>
+              </select>
+              <select class="dsgn-plot-secondary-select" data-panel="0"
+                      aria-label="Secondary plot for panel 1">
+                <option value="none">CH-2 // None</option>
+                <option value="energy">Energy</option>
+                <option value="dispersion">Dispersion</option>
+                <option value="rel-beta">Beam &beta;</option>
+                <option value="beam-envelope">Beam Envelope</option>
+                <option value="current-loss" selected>Beam Current</option>
+                <option value="emittance">Emittance</option>
+                <option value="peak-current">Peak Current</option>
+              </select>
+              <select class="dsgn-plot-tertiary-select" data-panel="0"
+                      aria-label="Third plot for panel 1">
+                <option value="none">CH-3 // None</option>
+                <option value="energy">Energy</option>
+                <option value="dispersion">Dispersion</option>
+                <option value="rel-beta" selected>Beam &beta;</option>
+                <option value="beam-envelope">Beam Envelope</option>
+                <option value="current-loss">Beam Current</option>
+                <option value="emittance">Emittance</option>
+                <option value="peak-current">Peak Current</option>
+              </select>
+            </div>
             <canvas class="dsgn-plot-canvas" data-panel="0"></canvas>
           </div>
           <div class="dsgn-plot-panel">
-            <select class="dsgn-plot-select" data-panel="1">
-              <option value="beam-envelope" selected>Beam Envelope</option>
-              <option value="energy">Energy</option>
-              <option value="emittance">Emittance</option>
-              <option value="current-loss">Current &amp; Loss</option>
-              <option value="energy-dispersion">Energy &amp; Dispersion</option>
-              <option value="beta-acceptance">Beam &beta; &amp; Acceptance</option>
-              <option value="peak-current">Peak Current</option>
-              <option value="phase-space">Phase Space</option>
-              <option value="longitudinal">Longitudinal PS</option>
-              <option value="eic-triangle">E / I / &epsilon; Triangle</option>
-            </select>
-            <select class="dsgn-plot-secondary-select" data-panel="1"
-                    aria-label="Secondary plot for panel 2">
-              <option value="none">CH-2 // None</option>
-              <option value="energy">Energy</option>
-              <option value="dispersion">Dispersion</option>
-              <option value="rel-beta">Beam &beta;</option>
-              <option value="beam-envelope">Beam Envelope</option>
-              <option value="current-loss">Beam Current</option>
-              <option value="emittance" selected>Emittance</option>
-              <option value="peak-current">Peak Current</option>
-            </select>
-            <select class="dsgn-plot-tertiary-select" data-panel="1"
-                    aria-label="Third plot for panel 2">
-              <option value="none">CH-3 // None</option>
-              <option value="energy">Energy</option>
-              <option value="dispersion">Dispersion</option>
-              <option value="rel-beta">Beam &beta;</option>
-              <option value="beam-envelope">Beam Envelope</option>
-              <option value="current-loss" selected>Beam Current</option>
-              <option value="emittance">Emittance</option>
-              <option value="peak-current">Peak Current</option>
-            </select>
+            <div class="dsgn-plot-options" role="group" aria-label="Plot options for panel 2">
+              <select class="dsgn-plot-select" data-panel="1"
+                      aria-label="Primary plot for panel 2">
+                <option value="beam-envelope" selected>Beam Envelope</option>
+                <option value="energy">Energy</option>
+                <option value="emittance">Emittance</option>
+                <option value="current-loss">Current &amp; Loss</option>
+                <option value="energy-dispersion">Energy &amp; Dispersion</option>
+                <option value="beta-acceptance">Beam &beta; &amp; Acceptance</option>
+                <option value="peak-current">Peak Current</option>
+                <option value="phase-space">Phase Space</option>
+                <option value="longitudinal">Longitudinal PS</option>
+                <option value="eic-triangle">E / I / &epsilon; Triangle</option>
+              </select>
+              <select class="dsgn-plot-secondary-select" data-panel="1"
+                      aria-label="Secondary plot for panel 2">
+                <option value="none">CH-2 // None</option>
+                <option value="energy">Energy</option>
+                <option value="dispersion">Dispersion</option>
+                <option value="rel-beta">Beam &beta;</option>
+                <option value="beam-envelope">Beam Envelope</option>
+                <option value="current-loss">Beam Current</option>
+                <option value="emittance" selected>Emittance</option>
+                <option value="peak-current">Peak Current</option>
+              </select>
+              <select class="dsgn-plot-tertiary-select" data-panel="1"
+                      aria-label="Third plot for panel 2">
+                <option value="none">CH-3 // None</option>
+                <option value="energy">Energy</option>
+                <option value="dispersion">Dispersion</option>
+                <option value="rel-beta">Beam &beta;</option>
+                <option value="beam-envelope">Beam Envelope</option>
+                <option value="current-loss" selected>Beam Current</option>
+                <option value="emittance">Emittance</option>
+                <option value="peak-current">Peak Current</option>
+              </select>
+            </div>
             <canvas class="dsgn-plot-canvas" data-panel="1"></canvas>
           </div>
           <div class="dsgn-plot-panel dsgn-plot-panel--radar">
-            <select class="dsgn-plot-select dsgn-plot-select--locked" data-panel="2"
-                    aria-label="Fixed radar plot for panel 3" disabled>
-              <option value="eic-triangle" selected>E / I / &epsilon; Radar // Locked</option>
-            </select>
+            <div class="dsgn-plot-options dsgn-plot-options--single"
+                 role="group" aria-label="Plot options for panel 3">
+              <select class="dsgn-plot-select" data-panel="2"
+                      aria-label="Primary plot for panel 3">
+                <option value="eic-triangle" selected>E / I / &epsilon; Triangle</option>
+                <option value="energy">Energy</option>
+                <option value="energy-dispersion">Energy &amp; Dispersion</option>
+                <option value="beta-acceptance">Beam &beta; &amp; Acceptance</option>
+                <option value="beam-envelope">Beam Envelope</option>
+                <option value="current-loss">Current &amp; Loss</option>
+                <option value="emittance">Emittance</option>
+                <option value="peak-current">Peak Current</option>
+                <option value="phase-space">Phase Space</option>
+                <option value="longitudinal">Longitudinal PS</option>
+              </select>
+            </div>
             <canvas class="dsgn-plot-canvas" data-panel="2"></canvas>
           </div>
         </div>

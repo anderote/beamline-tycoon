@@ -234,12 +234,31 @@ console.log('\n--- Third channel styling and axis ---');
 console.log('\n--- Designer controls ---');
 {
   const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const styles = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
   const controller = fs.readFileSync(new URL('../src/ui/BeamlineDesigner.js', import.meta.url), 'utf8');
   const renderer = fs.readFileSync(new URL('../src/renderer/designer-renderer.js', import.meta.url), 'utf8');
+  const optionRows = html.match(/class="dsgn-plot-options(?: dsgn-plot-options--single)?"/g) || [];
+  const primarySelectors = html.match(/class="dsgn-plot-select"/g) || [];
   const secondarySelectors = html.match(/class="dsgn-plot-secondary-select"/g) || [];
   const tertiarySelectors = html.match(/class="dsgn-plot-tertiary-select"/g) || [];
+  const thirdPanelStart = html.indexOf('aria-label="Plot options for panel 3"');
+  const thirdPanelEnd = html.indexOf('<canvas class="dsgn-plot-canvas" data-panel="2">');
+  const thirdPanelControls = html.slice(thirdPanelStart, thirdPanelEnd);
+  const selectorRule = styles.match(
+    /\.dsgn-plot-select,\s*\.dsgn-plot-secondary-select,\s*\.dsgn-plot-tertiary-select\s*\{([^}]*)\}/
+  )?.[1] || '';
+  check(optionRows.length === 3
+    && styles.includes('.dsgn-plot-options {')
+    && !selectorRule.includes('position: absolute'),
+  'each plot keeps its selectors in a dedicated control row outside the canvas');
+  check(selectorRule.includes('var(--ui-font-display)')
+    && styles.includes('.dsgn-range-btn {')
+    && styles.match(/\.dsgn-range-btn\s*\{[^}]*var\(--ui-font-display\)/s),
+  'plot selectors and range buttons use the Beamline Tycoon display typeface');
   check(secondarySelectors.length === 2 && tertiarySelectors.length === 2,
     'both distance panels expose second and third channel dropdowns');
+  check(primarySelectors.length === 3,
+    'all three panels expose a primary plot dropdown');
   check(html.includes('<option value="energy" selected>Energy</option>')
     && html.includes('<option value="current-loss" selected>Beam Current</option>')
     && html.includes('<option value="rel-beta" selected>Beam &beta;</option>'),
@@ -247,9 +266,12 @@ console.log('\n--- Designer controls ---');
   check(html.includes('<option value="beam-envelope" selected>Beam Envelope</option>')
     && html.includes('<option value="emittance" selected>Emittance</option>'),
   'the middle panel defaults to Envelope, Emittance, and Current');
-  check(html.includes('Fixed radar plot for panel 3')
-    && html.includes('E / I / &epsilon; Radar // Locked'),
-  'the right radar is fixed and has no overlay selectors');
+  check(thirdPanelControls.includes('data-panel="2"')
+    && thirdPanelControls.includes('<option value="eic-triangle" selected>')
+    && thirdPanelControls.includes('<option value="energy">Energy</option>')
+    && thirdPanelControls.includes('<option value="phase-space">Phase Space</option>')
+    && !thirdPanelControls.includes('disabled'),
+  'the right panel defaults to the radar but offers the full primary plot catalogue');
   check(html.includes('Secondary plot for panel 1')
     && html.includes('Third plot for panel 2'),
   'overlay selectors have channel- and panel-specific accessible labels');
@@ -261,6 +283,9 @@ console.log('\n--- Designer controls ---');
   check(renderer.includes('ProbePlots.drawCursor(off, plotType, solid, xRange')
     && renderer.includes('overlays: overlays.map'),
   'the renderer composes the cursor readout after all active channels');
+  check(renderer.includes('const rect = canvas.getBoundingClientRect()')
+    && renderer.includes("panel.classList.toggle('dsgn-plot-panel--radar', plotType === 'eic-triangle')"),
+  'plot sizing excludes the control row and radar styling follows the selected plot');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

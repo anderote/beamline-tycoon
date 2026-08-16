@@ -1058,14 +1058,18 @@ BeamlineDesigner.prototype._renderPlots = function() {
     const canvas = panel.querySelector('.dsgn-plot-canvas');
     if (!select || !canvas) return;
 
-    const rect = panel.getBoundingClientRect();
+    // The selectors live in a dedicated panel header. Size from the canvas
+    // itself so the renderer never relies on a guessed control-row height or
+    // paints underneath the controls.
+    const rect = canvas.getBoundingClientRect();
     const plotW = Math.floor(rect.width / PLOT_SCALE);
-    const plotH = Math.floor((rect.height - 28) / PLOT_SCALE);
+    const plotH = Math.floor(rect.height / PLOT_SCALE);
     if (plotW < 10 || plotH < 10) return;
 
     const plotType = select.value;
     const distancePlot = ProbePlots.isDistancePlot(plotType);
     panel.classList.toggle('dsgn-plot-panel--geometric', !distancePlot);
+    panel.classList.toggle('dsgn-plot-panel--radar', plotType === 'eic-triangle');
 
     // Sanitize the two optional channels in order, then disable duplicates in
     // each selector. Every active channel gets its own scale but shares the
@@ -1183,7 +1187,7 @@ BeamlineDesigner.prototype._renderPlots = function() {
 
     // Scale up to display canvas with nearest-neighbor (crispy pixels)
     canvas.width = Math.floor(rect.width);
-    canvas.height = Math.floor(rect.height - 28);
+    canvas.height = Math.floor(rect.height);
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
