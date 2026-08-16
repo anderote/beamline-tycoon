@@ -12,6 +12,9 @@ const PROBE_PLOT_TYPES = [
   { id: 'beam-envelope', name: 'Beam Envelope' },
   { id: 'current-loss', name: 'Current & Loss' },
   { id: 'emittance', name: 'Emittance' },
+  { id: 'twiss-beta', name: 'Twiss βx / βy' },
+  { id: 'phase-advance', name: 'Phase Advance μx / μy' },
+  { id: 'rigidity', name: 'Magnetic Rigidity' },
   { id: 'energy-dispersion', name: 'Energy & Dispersion' },
   { id: 'beta-acceptance', name: 'Beam β & Acceptance' },
   { id: 'peak-current', name: 'Peak Current' },
@@ -382,6 +385,9 @@ export class ProbeWindow {
       r('\u03b7_x', fmtFix(data.eta_x, 4), 'm') +
       r('\u03b2_x', fmtFix(data.beta_x, 2), 'm') +
       r('\u03b2_y', fmtFix(data.beta_y, 2), 'm') +
+      r('B\u03c1', fmtFix(data.rigidity_t_m, 3), 'T\u00b7m') +
+      r('\u03bc_x', fmtFix((data.phase_advance_x || 0) * 180 / Math.PI, 1), 'deg') +
+      r('\u03bc_y', fmtFix((data.phase_advance_y || 0) * 180 / Math.PI, 1), 'deg') +
       r('\u03c3_E', fmtSci(data.energy_spread), '') +
       r('\u03c3_t', fmtSci(data.bunch_length), 's');
   }

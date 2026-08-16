@@ -103,8 +103,9 @@ test('mission targets annotate performance plots without changing their scale', 
   expect(layout.secondaryPlotTypes).toEqual(['current-loss', 'emittance']);
   expect(layout.tertiaryPlotTypes).toEqual(['rel-beta', 'current-loss']);
   expect(layout.secondaryPlotOptions).toEqual([
-    'CH-2 // None', 'Energy', 'Dispersion', 'Beam β', 'Beam Envelope',
-    'Beam Current', 'Emittance', 'Peak Current',
+    'CH-2 // None', 'Energy', 'Dispersion', 'Beam β', 'Twiss βx / βy',
+    'Phase Advance μx / μy', 'Magnetic Rigidity', 'Beam Envelope', 'Beam Current',
+    'Emittance', 'Peak Current',
   ]);
   expect(new Set(layout.plotRects.map(rect => rect.top)).size,
     'all plot panels begin on the same row').toBe(1);
@@ -120,8 +121,8 @@ test('mission targets annotate performance plots without changing their scale', 
   expect(layout.thirdPlotDisabled, 'the right plot selector is interactive').toBe(false);
   expect(layout.thirdPlotOptions).toEqual([
     'eic-triangle', 'energy', 'energy-dispersion', 'beta-acceptance',
-    'beam-envelope', 'current-loss', 'emittance', 'peak-current',
-    'phase-space', 'longitudinal',
+    'twiss-beta', 'phase-advance', 'rigidity', 'beam-envelope', 'current-loss',
+    'emittance', 'peak-current', 'phase-space', 'longitudinal',
   ]);
   expect(layout.yScale).toBe('linear');
   expect(layout.yScaleOptions).toEqual(['Linear', 'Log']);

@@ -165,9 +165,35 @@ P_REF_GEV = 1.0
 
 def _momentum_gev(beam):
     """p = sqrt(E_total^2 - m^2), GeV/c. Zero for a beam at rest."""
-    e2 = beam.energy * beam.energy
-    m2 = beam.mass * beam.mass
-    return np.sqrt(e2 - m2) if e2 > m2 else 0.0
+    return beam.momentum_gev()
+
+
+def _plane_phase_advance(matrix, beta_in, alpha_in, beta_out, length):
+    """Unwrapped local Courant-Snyder phase advance for one transport step.
+
+    For an uncoupled 2x2 map, M12 = sqrt(beta_in*beta_out) sin(mu) and
+    M11 = sqrt(beta_out/beta_in) (cos(mu) + alpha_in sin(mu)). The fallback
+    integrates dmu/ds = 1/beta with endpoint Twiss values; it is used for the
+    coupled solenoid map where a projected x/y 2x2 block is not symplectic.
+    """
+    if beta_in <= 0 or beta_out <= 0:
+        return 0.0
+
+    determinant = np.linalg.det(matrix)
+    if np.isfinite(determinant) and abs(determinant - 1.0) < 1e-8:
+        sin_mu = matrix[0, 1] / np.sqrt(beta_in * beta_out)
+        cos_mu = matrix[0, 0] * np.sqrt(beta_in / beta_out) - alpha_in * sin_mu
+        if np.isfinite(sin_mu) and np.isfinite(cos_mu):
+            mu = np.arctan2(sin_mu, cos_mu)
+            if mu < -1e-12:
+                mu += 2.0 * np.pi
+            elif mu < 0:
+                mu = 0.0
+            return float(mu)
+
+    # Positive, stable definition for coupled transport. Sub-stepping keeps
+    # this trapezoidal integral accurate while avoiding a false ring "tune".
+    return float(max(length, 0.0) * 0.5 * (1.0 / beta_in + 1.0 / beta_out))
 
 
 class LinearOpticsModule(PhysicsModule):
@@ -183,6 +209,11 @@ class LinearOpticsModule(PhysicsModule):
         etype = element.get("type", "drift")
         length = element.get("length", 0.0)
 
+        beta_x_in = beam.beta_x()
+        alpha_x_in = beam.alpha_x()
+        beta_y_in = beam.beta_y()
+        alpha_y_in = beam.alpha_y()
+
         R = self._transfer_matrix(element, beam)
 
         # For dipoles, compose edge focusing into the full transfer matrix
@@ -195,6 +226,11 @@ class LinearOpticsModule(PhysicsModule):
         beam.sigma = R @ beam.sigma @ R.T
         beam.sigma = 0.5 * (beam.sigma + beam.sigma.T)
 
+        context.phase_advance[0] += _plane_phase_advance(
+            R[0:2, 0:2], beta_x_in, alpha_x_in, beam.beta_x(), length)
+        context.phase_advance[1] += _plane_phase_advance(
+            R[2:4, 2:4], beta_y_in, alpha_y_in, beam.beta_y(), length)
+
         # Propagate dispersion
         d = _dispersion_generation_vector(element)
         _propagate_dispersion(context, R, d)
@@ -203,7 +239,9 @@ class LinearOpticsModule(PhysicsModule):
             module=self.name,
             element_index=context.element_index,
             details={"dispersion_x": float(context.dispersion[0]),
-                     "dispersion_xp": float(context.dispersion[1])},
+                     "dispersion_xp": float(context.dispersion[1]),
+                     "phase_advance_x": float(context.phase_advance[0]),
+                     "phase_advance_y": float(context.phase_advance[1])},
         )
 
     def _rigidity_scale(self, beam):

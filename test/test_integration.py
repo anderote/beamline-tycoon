@@ -107,6 +107,13 @@ class TestGameplayBridge(unittest.TestCase):
         self.assertTrue(result["envelope"])
         self.assertTrue(all("bunch_frequency" in point for point in result["envelope"]))
         self.assertTrue(all("rel_beta" in point for point in result["envelope"]))
+        self.assertTrue(all("beta_x" in point and "beta_y" in point
+                            for point in result["envelope"]))
+        self.assertTrue(all("rigidity_t_m" in point for point in result["envelope"]))
+        self.assertTrue(all("phase_advance_x" in point and "phase_advance_y" in point
+                            for point in result["envelope"]))
+        self.assertGreater(result["envelope"][-1]["rigidity_t_m"], 0)
+        self.assertGreater(result["envelope"][-1]["phase_advance_x"], 0)
         self.assertGreater(result["envelope"][-1]["bunch_frequency"], 0)
         self.assertIn("felSaturated", result)
         self.assertTrue(result["beamAlive"])
