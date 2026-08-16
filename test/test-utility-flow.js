@@ -335,11 +335,8 @@ console.log('\n--- 4. FLOW_PARAMS covers every utility ---');
         `${t} has complete visible-crest shape parameters`);
     }
   }
-  for (const type of ['hvCable', 'powerCable', 'rfWaveguide']) {
-    const p = FLOW_PARAMS[type];
-    assert(p.width * 2 >= p.period * 0.3,
-      `${type} uses a long smooth gradient instead of a needle-sharp packet`);
-  }
+  assert(FLOW_PARAMS.rfWaveguide.width * 2 >= FLOW_PARAMS.rfWaveguide.period * 0.3,
+    'RF uses a long smooth gradient instead of a needle-sharp packet');
   assert(FLOW_PARAMS.hvCable.emissive === false
       && FLOW_PARAMS.hvCable.crest === false
       && FLOW_PARAMS.hvCable.light !== false
@@ -347,16 +344,17 @@ console.log('\n--- 4. FLOW_PARAMS covers every utility ---');
       && FLOW_PARAMS.powerCable.crest === false
       && FLOW_PARAMS.powerCable.light !== false,
     'power and HV keep surface-colour motion and real light without glow geometry');
-  assert(FLOW_PARAMS.rfWaveguide.speed < FLOW_PARAMS.powerCable.speed
-      && FLOW_PARAMS.dataFiber.speed > FLOW_PARAMS.rfWaveguide.speed
-    && FLOW_PARAMS.dataFiber.light === false,
-    'RF travels slowly while data remains the fastest lightless packet train');
-  assert(FLOW_PARAMS.hvCable.period < 4
-      && FLOW_PARAMS.powerCable.period < 1
-      && FLOW_PARAMS.rfWaveguide.period < 0.7,
-    'HV, power, and RF pulses recur at the denser tuned cadence');
+  assert(FLOW_PARAMS.hvCable.speed <= 0.75
+      && FLOW_PARAMS.powerCable.speed <= 0.5,
+    'electrical highlights travel at a restrained crawl');
+  assert(FLOW_PARAMS.dataFiber.speed > FLOW_PARAMS.rfWaveguide.speed
+      && FLOW_PARAMS.dataFiber.light === false,
+    'data remains the fastest lightless packet train');
+  assert(FLOW_PARAMS.hvCable.period >= 12
+      && FLOW_PARAMS.powerCable.period >= 3.2,
+    'power and HV highlights are spaced far enough apart to avoid glowing rows');
   assert(FLOW_PARAMS.hvCable.period > FLOW_PARAMS.powerCable.period * 3,
-    'HV surges remain sparse relative to branch-power gradients');
+    'HV highlights remain much sparser than branch-power highlights');
   assert(FLOW_PARAMS.powerCable.color !== '#44cc44'
       && FLOW_PARAMS.hvCable.color !== '#141418',
     'electrical flow targets contrast with each cable base colour');
