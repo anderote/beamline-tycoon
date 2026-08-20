@@ -35,6 +35,11 @@ import {
 import { ADVICE_RULES } from '../src/advisor/rules.js';
 import { buildAdvisorContext } from '../src/advisor/context.js';
 import { STUBBY_FRAMES } from '../src/ui/stubby-sprite.js';
+import {
+  STUBBY_INTRODUCTION,
+  STUBBY_INTRODUCTION_STORAGE_KEY,
+  Stubby,
+} from '../src/ui/Stubby.js';
 
 let failures = 0;
 function check(name, cond, detail) {
@@ -390,19 +395,87 @@ console.log('9. sprite frames differ');
   }
 }
 
-console.log('10. the presenter refreshes changing numbers but does not re-perk');
+console.log('10. Stubby introduces himself before his first advice');
+{
+  check('the introduction has the requested greeting',
+    STUBBY_INTRODUCTION.title === "Hi, I'm Stubby"
+      && STUBBY_INTRODUCTION.body === "I'm a three-stub tuner here to help impedance match your gameplay experience. It looks like you're trying to build a beamline. Want some help?");
+  check('the introduction has the requested choices',
+    STUBBY_INTRODUCTION.acceptLabel === 'Yes help me'
+      && STUBBY_INTRODUCTION.declineLabel === 'No Piss off');
+
+  const firstAdvice = {
+    key: 'tutorial.next-step:first', severity: 'tip',
+    title: 'Build a beamline', body: 'Start with a source.',
+  };
+  const introduced = [];
+  const fake = Object.create(Stubby.prototype);
+  fake.advice = null;
+  fake.introducing = false;
+  fake.introductionSeen = false;
+  fake._pendingAdvice = null;
+  fake._showIntroduction = function () {
+    this.introducing = true;
+    introduced.push(this._pendingAdvice);
+  };
+  fake.update(firstAdvice);
+  check('first advice opens the introduction instead',
+    fake.introducing && introduced[0] === firstAdvice && fake.advice === null);
+
+  const originalStorage = globalThis.localStorage;
+  const stored = new Map();
+  globalThis.localStorage = {
+    getItem: key => stored.get(key) ?? null,
+    setItem: (key, value) => stored.set(key, String(value)),
+  };
+  try {
+    const acceptedAdvice = [];
+    fake._setAdvice = advice => {
+      fake.advice = advice;
+      acceptedAdvice.push(advice);
+    };
+    check('accepting the introduction is handled', fake.respondToIntroduction(true));
+    check('accepting reveals the pending first advice',
+      acceptedAdvice[0] === firstAdvice && fake.advice === firstAdvice);
+    check('accepting remembers that Stubby introduced himself',
+      stored.get(STUBBY_INTRODUCTION_STORAGE_KEY) === 'accepted');
+
+    let saved = 0;
+    let selectedLevel = null;
+    const declined = Object.create(Stubby.prototype);
+    declined.introducing = true;
+    declined.introductionSeen = false;
+    declined._pendingAdvice = firstAdvice;
+    declined.engine = { setLevel: level => { selectedLevel = level; } };
+    declined.game = { save: () => { saved++; } };
+    declined._setAdvice = advice => { declined.advice = advice; };
+    declined._rememberIntroduction = Stubby.prototype._rememberIntroduction;
+    check('declining the introduction is handled', declined.respondToIntroduction(false));
+    check('declining turns advice off and hides the pending advice',
+      selectedLevel === 'off' && declined.advice === null);
+    check('declining persists the preference and save',
+      stored.get(STUBBY_INTRODUCTION_STORAGE_KEY) === 'declined'
+        && stored.get(ADVICE_LEVEL_STORAGE_KEY) === 'off'
+        && saved === 1);
+  } finally {
+    if (originalStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = originalStorage;
+  }
+}
+
+console.log('11. the presenter refreshes changing numbers but does not re-perk');
 {
   // Stubby.update's diff, exercised directly. Several rules hold a stable key
   // while their numbers move — optics.needs-focusing counts down as quads go
   // in, economy.burning-cash tracks the runway — so diffing on key alone
   // froze the bubble at whatever it said first.
-  const { Stubby } = await import('../src/ui/Stubby.js');
-
   const rendered = [];
   const perks = [];
   const fake = Object.create(Stubby.prototype);
   fake.advice = null;
   fake.collapsed = false;
+  fake.introducing = false;
+  fake.introductionSeen = true;
   fake._setAdvice = function (advice, opts = {}) {
     this.advice = advice || null;
     rendered.push(advice ? `${advice.title}|${advice.body}` : null);

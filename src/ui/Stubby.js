@@ -9,7 +9,19 @@
 // take pointer events back, so anywhere Stubby overlaps the facility, clicks
 // pass straight through to it.
 
+import { ADVICE_LEVEL_STORAGE_KEY } from '../advisor/engine.js';
 import { drawStubby, STUBBY_W, STUBBY_H } from './stubby-sprite.js';
+
+/** The introduction is a global player choice, like the advice level itself:
+ * switching save slots must not make Stubby introduce himself again. */
+export const STUBBY_INTRODUCTION_STORAGE_KEY = 'beamlineTycoon.stubbyIntroduced';
+
+export const STUBBY_INTRODUCTION = Object.freeze({
+  title: "Hi, I'm Stubby",
+  body: "I'm a three-stub tuner here to help impedance match your gameplay experience. It looks like you're trying to build a beamline. Want some help?",
+  acceptLabel: 'Yes help me',
+  declineLabel: 'No Piss off',
+});
 
 /** How long the perk-up animation runs before settling back to idle. */
 const PERK_MS = 900;
@@ -34,6 +46,9 @@ export class Stubby {
     this.host = { game, renderer };
     this.advice = null;
     this.collapsed = false;
+    this.introducing = false;
+    this.introductionSeen = this._hasSeenIntroduction();
+    this._pendingAdvice = null;
     this._frame = 'idle';
     this._talkTimer = null;
     this._perkTimer = null;
@@ -49,9 +64,11 @@ export class Stubby {
         <div class="stubby-bubble-title"></div>
         <div class="stubby-bubble-body"></div>
         <div class="stubby-bubble-actions">
-          <button type="button" class="stubby-btn stubby-btn-action hidden"></button>
+          <button type="button" class="stubby-btn stubby-btn-action hidden" data-act="advice-action"></button>
           <button type="button" class="stubby-btn" data-act="dismiss">Got it</button>
           <button type="button" class="stubby-btn stubby-btn-quiet" data-act="silence">Stop telling me this</button>
+          <button type="button" class="stubby-btn stubby-btn-action hidden" data-act="intro-accept">${STUBBY_INTRODUCTION.acceptLabel}</button>
+          <button type="button" class="stubby-btn stubby-btn-quiet hidden" data-act="intro-decline">${STUBBY_INTRODUCTION.declineLabel}</button>
         </div>
       </div>
       <canvas class="stubby-sprite" width="${STUBBY_W}" height="${STUBBY_H}"
@@ -63,21 +80,27 @@ export class Stubby {
     this.bubble = root.querySelector('.stubby-bubble');
     this.titleEl = root.querySelector('.stubby-bubble-title');
     this.bodyEl = root.querySelector('.stubby-bubble-body');
-    this.actionBtn = root.querySelector('.stubby-btn-action');
+    this.actionBtn = root.querySelector('[data-act="advice-action"]');
+    this.dismissBtn = root.querySelector('[data-act="dismiss"]');
+    this.silenceBtn = root.querySelector('[data-act="silence"]');
+    this.introAcceptBtn = root.querySelector('[data-act="intro-accept"]');
+    this.introDeclineBtn = root.querySelector('[data-act="intro-decline"]');
     this.canvas = root.querySelector('.stubby-sprite');
 
     this.canvas.addEventListener('click', () => {
       this.collapsed = !this.collapsed;
       this._syncBubble();
     });
-    root.querySelector('[data-act="dismiss"]').addEventListener('click', () => {
+    this.dismissBtn.addEventListener('click', () => {
       if (this.advice) this.engine.dismiss(this.advice.key, this.game?.state?.tick || 0);
       this._setAdvice(null);
     });
-    root.querySelector('[data-act="silence"]').addEventListener('click', () => {
+    this.silenceBtn.addEventListener('click', () => {
       if (this.advice) this.engine.silence(this.advice.key);
       this._setAdvice(null);
     });
+    this.introAcceptBtn.addEventListener('click', () => this.respondToIntroduction(true));
+    this.introDeclineBtn.addEventListener('click', () => this.respondToIntroduction(false));
     this.actionBtn.addEventListener('click', () => {
       if (this.advice?.action) this.advice.action.run(this.host);
     });
@@ -98,6 +121,19 @@ export class Stubby {
    * text refreshes quietly.
    */
   update(advice) {
+    if (this.introducing) {
+      this._pendingAdvice = advice || null;
+      // The HUD can set advice to Off while the introduction is open. Honour
+      // that preference immediately, just as it dismisses an ordinary bubble.
+      if (this.engine.level?.() === 'off') this.respondToIntroduction(false);
+      return;
+    }
+    if (advice && !this.introductionSeen) {
+      this._pendingAdvice = advice;
+      this._showIntroduction();
+      return;
+    }
+
     const prev = this.advice;
     if (!advice && !prev) return;
     if (advice && prev
@@ -112,6 +148,7 @@ export class Stubby {
 
   _setAdvice(advice, opts = {}) {
     this.advice = advice || null;
+    this._showAdviceControls();
 
     if (!this.advice) {
       this.root.classList.add('hidden');
@@ -145,14 +182,14 @@ export class Stubby {
   /** @param {{talk?: boolean}} opts talk:false refreshes the bubble without
    *  re-animating — used when only the numbers in an on-screen advice moved. */
   _syncBubble(opts = {}) {
-    const shown = !!this.advice && !this.collapsed;
+    const shown = (this.introducing || !!this.advice) && !this.collapsed;
     this.bubble.classList.toggle('hidden', !shown);
     if (!shown) this._stopTalking();
     else if (opts.talk !== false) this._startTalking();
   }
 
   /** One-shot attention grab, then settle into the talking cycle. */
-  _perk() {
+  _perk(severity = this.advice?.severity) {
     clearTimeout(this._perkTimer);
     // _syncBubble has already started the mouth flapping; leaving it running
     // would repaint over the perk pose one flap later and cut the perk from
@@ -161,16 +198,76 @@ export class Stubby {
     // A tip is not bad news — nothing is broken, he just has an idea. Opening
     // wide-eyed and alarmed for "you have money to spend" would train the
     // player to read every appearance as a fault.
-    this._draw(this.advice?.severity === 'tip' ? 'pleased' : 'alert');
+    this._draw(severity === 'tip' ? 'pleased' : 'alert');
     this.root.classList.remove('stubby-perk');
     // Reflow so re-adding the class restarts the animation.
     void this.root.offsetWidth;
     this.root.classList.add('stubby-perk');
     this._perkTimer = setTimeout(() => {
       this.root.classList.remove('stubby-perk');
-      if (!this.collapsed && this.advice) this._startTalking();
+      if (!this.collapsed && (this.introducing || this.advice)) this._startTalking();
       else this._draw('idle');
     }, PERK_MS);
+  }
+
+  _hasSeenIntroduction() {
+    try {
+      return localStorage.getItem(STUBBY_INTRODUCTION_STORAGE_KEY) != null;
+    } catch {
+      return false;
+    }
+  }
+
+  _rememberIntroduction(choice) {
+    this.introductionSeen = true;
+    try { localStorage.setItem(STUBBY_INTRODUCTION_STORAGE_KEY, choice); } catch {}
+  }
+
+  _showIntroduction() {
+    this.introducing = true;
+    this.advice = null;
+    this.collapsed = false;
+    this.root.classList.remove('hidden');
+    this.root.dataset.severity = 'tip';
+    this.titleEl.textContent = STUBBY_INTRODUCTION.title;
+    this.bodyEl.textContent = STUBBY_INTRODUCTION.body;
+    this.actionBtn.classList.add('hidden');
+    this.dismissBtn.classList.add('hidden');
+    this.silenceBtn.classList.add('hidden');
+    this.introAcceptBtn.classList.remove('hidden');
+    this.introDeclineBtn.classList.remove('hidden');
+    this._syncBubble();
+    this._perk('tip');
+  }
+
+  _showAdviceControls() {
+    this.dismissBtn.classList.remove('hidden');
+    this.silenceBtn.classList.remove('hidden');
+    this.introAcceptBtn.classList.add('hidden');
+    this.introDeclineBtn.classList.add('hidden');
+  }
+
+  /** Resolve the one-time introduction while keeping the player's first real
+   * advice ready to show if they accept. */
+  respondToIntroduction(wantsHelp) {
+    if (!this.introducing) return false;
+
+    this.introducing = false;
+    const pending = this._pendingAdvice;
+    this._pendingAdvice = null;
+    this._rememberIntroduction(wantsHelp ? 'accepted' : 'declined');
+
+    if (!wantsHelp) {
+      this.engine.setLevel('off');
+      try { localStorage.setItem(ADVICE_LEVEL_STORAGE_KEY, 'off'); } catch {}
+      this.game?.save?.();
+      this._setAdvice(null);
+      return true;
+    }
+
+    if (pending) this._setAdvice(pending);
+    else this._setAdvice(null);
+    return true;
   }
 
   _startTalking() {
