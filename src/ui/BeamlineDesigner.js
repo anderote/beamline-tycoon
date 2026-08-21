@@ -9,11 +9,11 @@ import { PARAM_DEFS } from '../beamline/component-physics.js';
 import { ContextWindow } from './ContextWindow.js';
 import { flattenPath } from '../beamline/flattener.js';
 import { planDesignerApply } from '../beamline/designer-plan.js';
+import { executeDesignerApply } from '../beamline/designer-apply.js';
 import { makeDraggable } from './draggable.js';
 import { pushEscHandler } from './esc-stack.js';
 import { applyPreviewDialog } from './ApplyPreviewDialog.js';
 import { DesignNameDialog } from './DesignNameDialog.js';
-import { portWorldPosition } from '../utility/ports.js';
 import {
   computeBeamlinePlacementHints,
   computePlacementHints,
@@ -1484,6 +1484,7 @@ export class BeamlineDesigner {
       sourceId: this.editSourceId,
       draftNodes: this.draftNodes,
       originalNodes: this.originalNodes,
+      prepareSite: true,
     });
     if (!plan.ok) {
       this._reportBlockers(plan.blockers);
@@ -1500,14 +1501,12 @@ export class BeamlineDesigner {
     // a session that no longer exists.
     if (!this.isOpen || !this.editSourceId) return false;
 
-    const snapshot = this.game.snapshotBeamlineState();
     const failure = this._executePlan(plan.ops);
     if (failure) {
       // All-or-nothing. A half-applied beamline — a pipe cut in two with no
       // module in the gap, a junction placed with nothing feeding it — is
       // worse than no change at all, and the player has no way to see it
       // happened, let alone undo it.
-      this.game.restoreBeamlineState(snapshot);
       this.game.log(
         `Apply failed at step ${failure.index + 1} (${failure.kind}: ${failure.reason}) — `
         + 'nothing was changed',
@@ -1576,222 +1575,9 @@ export class BeamlineDesigner {
    * the very reference removeJunction nulls.
    */
   _executePlan(ops) {
-    const beam = this.game.beamline;
-    if (!beam) return { index: 0, kind: '-', reason: 'no beamline system' };
-
-    // Reset per-transaction: a rolled-back apply must not leave its dangle
-    // count behind for the next one to report as its own.
-    this._danglingLineCount = 0;
-
-    return this.game._batchEvents(() => {
-      const symbols = new Map();
-      for (let i = 0; i < (ops || []).length; i++) {
-        const raw = ops[i];
-        const missing = [];
-        // `out` declares the symbols this op is about to BIND, so it is the one
-        // field that must not be resolved: its values are unbound by definition
-        // and would every one of them read as a dangling reference.
-        const { out, ...args } = raw;
-        const op = this._resolve(args, symbols, missing);
-        if (missing.length) {
-          return { index: i, kind: raw.kind, reason: `unbound ${missing.join(', ')}` };
-        }
-        // A mutator that throws is still a failed op, and it has to be reported
-        // as one: letting the exception escape would skip the rollback and
-        // strand the map halfway through the plan.
-        let produced;
-        try {
-          produced = this._runOp(beam, op);
-        } catch (err) {
-          console.error('[designer] op threw', raw, err);
-          return { index: i, kind: raw.kind, reason: `threw ${err && err.message}` };
-        }
-        if (!produced) return { index: i, kind: raw.kind, reason: 'refused' };
-        for (const [key, symbol] of Object.entries(out || {})) {
-          if (!produced[key]) {
-            return { index: i, kind: raw.kind, reason: `no ${key} id returned` };
-          }
-          symbols.set(symbol, produced[key]);
-        }
-      }
-      return null;
-    });
-  }
-
-  /**
-   * Replace every `'$sym'` in an op's arguments with the id the producing op
-   * returned. Walks generically rather than per-op-kind: symbols turn up
-   * nested inside `{junctionId, portName}` endpoint refs and inside
-   * `connect[].pipe`, and a per-kind resolver would silently miss whichever
-   * nesting a future op kind invents.
-   *
-   * Unknown `$` strings are collected in `missing` rather than passed through:
-   * an unresolved symbol dispatched as a literal pipe id would fail somewhere
-   * downstream with a message about a missing pipe, hiding a planner bug
-   * behind a geometry complaint.
-   */
-  _resolve(value, symbols, missing) {
-    if (typeof value === 'string') {
-      if (value[0] !== '$') return value;
-      if (symbols.has(value)) return symbols.get(value);
-      missing.push(value);
-      return value;
-    }
-    if (Array.isArray(value)) return value.map(v => this._resolve(v, symbols, missing));
-    if (value && typeof value === 'object') {
-      const outv = {};
-      for (const [k, v] of Object.entries(value)) outv[k] = this._resolve(v, symbols, missing);
-      return outv;
-    }
-    return value;
-  }
-
-  /**
-   * Dispatch one resolved op. Returns null/false on failure, otherwise an
-   * object whose keys are the symbol names the planner's `out` may declare
-   * (`head`/`tail`, `pipe`, `junction`, `placement`) — the same table the
-   * designer-plan.js header documents, so binding stays generic.
-   */
-  _runOp(beam, op) {
-    switch (op.kind) {
-      case 'removeFromPipe':
-        return beam.removeFromPipe(op.pipeId, op.placementId) ? {} : null;
-
-      case 'removeJunction':
-        // removeJunction is void and cannot report; the placeable being gone
-        // is the only proof available that removePlaceable actually took.
-        beam.removeJunction(op.junctionId);
-        return this.game.getPlaceable(op.junctionId) ? null : {};
-
-      case 'mergePipes': {
-        const id = beam.mergePipes(op.pipeIdA, op.pipeIdB);
-        return id ? { pipe: id } : null;
-      }
-
-      case 'splitPipe': {
-        const res = beam.splitPipe(op.pipeId, op.atPosition, op.gapSubL);
-        return res ? { head: res.headPipeId, tail: res.tailPipeId } : null;
-      }
-
-      case 'trimPipe':
-        return beam.trimPipe(op.pipeId, op.newSubL) ? {} : null;
-
-      case 'drawPipe': {
-        const id = beam.drawPipe(op.start, op.end, op.path);
-        return id ? { pipe: id } : null;
-      }
-
-      case 'extendPipe':
-        return beam.extendPipe(op.pipeId, op.additionalPath) ? {} : null;
-
-      case 'placeJunction': {
-        const id = beam.placeJunction({
-          type: op.type,
-          col: op.col, row: op.row, subCol: op.subCol, subRow: op.subRow,
-          dir: op.dir,
-          params: op.params || {},
-        });
-        if (!id) return null;
-        // The bind is what re-joins the beam path: splitPipe and trimPipe
-        // leave the fresh ends open on purpose, and this junction is what
-        // closes them. Skipping it would leave the flattener walking into a
-        // dead stub with everything downstream silently off the beamline.
-        for (const c of op.connect || []) {
-          if (!beam.attachPipeEnd(c.pipe, c.end, id, c.port)) return null;
-        }
-        return { junction: id };
-      }
-
-      case 'placeOnPipe': {
-        const id = beam.placeOnPipe(op.pipeId, {
-          type: op.type,
-          position: op.position,
-          subL: op.subL,
-          params: op.params || {},
-          mode: op.mode,
-        });
-        return id ? { placement: id } : null;
-      }
-
-      case 'moveJunction': {
-        if (!beam.moveJunction(op.placeableId, {
-          col: op.col, row: op.row, subCol: op.subCol, subRow: op.subRow,
-          dir: op.dir,
-        })) return null;
-        // The placeable kept its id, so every utility line wired to it is
-        // still pointing at a real endpoint — but at the OLD coordinates. Drag
-        // them along now, while we still know which placeable moved.
-        this._reanchorLinesFor(op.placeableId);
-        return {};
-      }
-
-      case 'tuneParams':
-        return this._runTuneParams(op) ? {} : null;
-
-      default:
-        return null;
-    }
-  }
-
-  /**
-   * Re-anchor every utility line attached to a placeable that has just moved,
-   * accumulating how many could not be saved into `_danglingLineCount` so the
-   * apply flow can tell the player how much rewiring the displacement cost
-   * them. A dangle is never a failed op: the line survives as a visible loose
-   * end, which is a far better outcome than rolling back the whole beamline
-   * edit because one cable could not find a legal route.
-   */
-  _reanchorLinesFor(placeableId) {
-    const util = this.game.utilityLineSystem;
-    const lines = this.game.state.utilityLines;
-    if (!util || !lines) return;
-    const placeable = this.game.getPlaceable(placeableId);
-    const def = placeable ? COMPONENTS[placeable.type] : null;
-    if (!placeable || !def) return;
-
-    // Snapshot the ids first: reanchorLine writes to the same Map we would
-    // otherwise be iterating.
-    const attached = [];
-    for (const line of lines.values()) {
-      const ports = [];
-      if (line.start && line.start.placeableId === placeableId) ports.push(line.start.portName);
-      if (line.end && line.end.placeableId === placeableId) ports.push(line.end.portName);
-      if (ports.length) attached.push({ id: line.id, ports });
-    }
-
-    for (const { id, ports } of attached) {
-      // Keyed by port name, because a line can meet the same placeable at both
-      // ends and the two ports are at different corners of the footprint.
-      // portWorldPosition is in world metres; line paths are in tiles, and one
-      // tile is 2 m (the conversion UtilityLineInputController._worldToTile
-      // uses).
-      const byPort = {};
-      for (const name of ports) {
-        const wp = portWorldPosition(placeable, def, name);
-        if (wp) byPort[name] = { col: wp.x / 2, row: wp.z / 2 };
-      }
-      const res = util.reanchorLine(id, placeableId, byPort);
-      if (res && res.dangled) this._danglingLineCount++;
-    }
-  }
-
-  /**
-   * Param edits are written straight onto the target: BeamlineSystem has no
-   * tuning surface because this is a field update, not a slot mutation.
-   * Shallow-merged, so a draft never deletes a param it did not carry.
-   */
-  _runTuneParams(op) {
-    if (op.target === 'module') {
-      const p = this.game.getPlaceable(op.junctionId);
-      if (!p) return false;
-      p.params = { ...(p.params || {}), ...(op.params || {}) };
-      return true;
-    }
-    const pipe = (this.game.state.beamPipes || []).find(pp => pp.id === op.pipeId);
-    const pl = pipe && (pipe.placements || []).find(a => a.id === op.placementId);
-    if (!pl) return false;
-    pl.params = { ...(pl.params || {}), ...(op.params || {}) };
-    return true;
+    const result = executeDesignerApply(this.game, ops);
+    this._danglingLineCount = result.danglingLineCount;
+    return result.failure;
   }
 
   /**

@@ -5658,7 +5658,19 @@ export class Game {
    * copy of that conversion. The payload being a string also makes aliasing
    * impossible: nothing mutated after the snapshot can reach into it.
    */
-  snapshotBeamlineState() {
+  snapshotBeamlineState({ includeSitePreparation = false } = {}) {
+    // Decisive Designer confirmation may also bulldoze placeables/walls and
+    // replace floors with concrete. Those fields deliberately remain outside
+    // the ordinary narrow beamline transaction, but this explicit scope needs
+    // the full undo-grade world snapshot so a later refused pipe/module op can
+    // put the prepared site back exactly as it was. restoreSnapshot preserves
+    // live sim progress, registry accumulators and the resource ledger.
+    if (includeSitePreparation) {
+      return {
+        scope: 'designer-site-preparation',
+        undoEntry: this._makeUndoEntry(),
+      };
+    }
     return {
       // includeAux false: camera, probe pins and the designer session are
       // host state a rollback must not touch. includeLog false: an aborted
@@ -5682,6 +5694,13 @@ export class Game {
    * wiping the map.
    */
   restoreBeamlineState(snapshot) {
+    if (snapshot?.scope === 'designer-site-preparation') {
+      const entry = snapshot.undoEntry;
+      if (!entry || typeof entry.payload !== 'string') return false;
+      try { JSON.parse(entry.payload); } catch (_) { return false; }
+      this.restoreSnapshot(entry);
+      return true;
+    }
     if (!snapshot || typeof snapshot.payload !== 'string') return false;
     let saved;
     try { saved = JSON.parse(snapshot.payload).state; } catch (_) { return false; }

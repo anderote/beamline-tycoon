@@ -18,6 +18,8 @@
 
 import { planDesignerApply } from '../src/beamline/designer-plan.js';
 import { COMPONENTS } from '../src/data/components.js';
+import { PLACEABLES } from '../src/data/placeables/index.js';
+import { FLOORS, WALL_TYPES } from '../src/data/structure.js';
 import { flattenPath } from '../src/beamline/flattener.js';
 import { pipeCost } from '../src/beamline/BeamlineSystem.js';
 
@@ -39,13 +41,15 @@ function blockerOf(plan, code) { return plan.blockers.find(b => b.code === code)
 // -------------------------------------------------------------------------
 
 const PHASE_RANK = {
-  removeFromPipe: 0,
-  mergePipes: 1,
-  removeJunction: 2,
-  splitPipe: 3, trimPipe: 3, extendPipe: 3,
-  drawPipe: 3,            // may be promoted to 4 when it needs a new junction
-  placeJunction: 4, placeOnPipe: 4,
-  tuneParams: 5,
+  bulldozePlaceable: 0, bulldozeWall: 0,
+  removeFromPipe: 1,
+  mergePipes: 2,
+  removeJunction: 3,
+  clearDecoration: 4, placeConcrete: 4,
+  splitPipe: 5, trimPipe: 5, extendPipe: 5,
+  drawPipe: 5,            // may be promoted when it needs a new junction
+  placeJunction: 6, placeOnPipe: 6,
+  tuneParams: 7,
 };
 
 function collectSymbols(value, into) {
@@ -82,7 +86,7 @@ function checkPlanInvariants(plan, label) {
     // A drawPipe anchored to a junction this plan creates is the one
     // documented promotion; it may sit in the placement phase.
     const effective = (op.kind === 'drawPipe' && collectSymbols({ ...op, out: undefined }, new Set()).size > 0)
-      ? 4 : r;
+      ? 6 : r;
     if (effective < rank) { ok = false; detail = `${op.kind} runs out of phase order`; }
     rank = Math.max(rank, effective);
 
@@ -110,7 +114,7 @@ function plan(state, opts) {
 // (col 0, row 0.5). We instead anchor the run on col 2 by placing the source
 // at col 2 so ports and pipe line up on the same column.
 function placeable(id, type, col, row, subCol = 0, subRow = 0, dir = 0, params = {}) {
-  const def = COMPONENTS[type];
+  const def = COMPONENTS[type] || PLACEABLES[type];
   const swap = dir === 1 || dir === 3;
   const w = swap ? def.subL : def.subW;
   const h = swap ? def.subW : def.subL;
@@ -545,6 +549,106 @@ console.log('\n--- 12: blocker — collision when a new junction lands on someth
   assertEq(codes(res).join(','), 'collision', 'blocked as collision');
   assert(/already there/i.test(blockerOf(res, 'collision').message),
     'message says the space is taken');
+}
+
+// =========================================================================
+console.log('\n--- 12b: decisive confirmation clears ordinary site conflicts and pours concrete ---');
+{
+  const state = makeRun();
+  const squatter = placeable('eq_1', 'coolantPump', 2, 7, 0, 0);
+  squatter.kind = 'equipment';
+  squatter.category = 'equipment';
+  state.placeables.push(squatter);
+  Object.assign(state.subgridOccupied, occupancyOf([squatter]));
+  state.floors = [];
+  state.infraOccupied = {};
+  state.zones = [];
+  state.zoneOccupied = {};
+
+  const draft = draftFromMap(state, 'src_1');
+  draft.push(newNode('faradayCup'));
+  const res = plan(state, {
+    sourceId: 'src_1', draftNodes: draft,
+    prepareSite: true, _label: 'decisive site preparation',
+  });
+
+  assert(res.ok === true, `ordinary equipment is site-cleared (blockers ${JSON.stringify(res.blockers)})`);
+  assertEq(kinds(res).join(','), 'bulldozePlaceable,placeConcrete,placeJunction',
+    'bulldoze and foundation precede the new module');
+  assertEq(opOf(res, 'bulldozePlaceable').placeableId, 'eq_1',
+    'the exact obstructing placeable is named');
+  assertEq(res.ops.filter(op => op.kind === 'placeConcrete').length, 1,
+    'the one-tile module footprint is paved once');
+  assert(res.summary.adds.some(row => row.label === FLOORS.concrete.name),
+    'the confirmation lists the concrete pad');
+  assert(res.summary.removes.some(row => row.type === 'coolantPump'
+      || row.label === PLACEABLES.coolantPump.name),
+    'the confirmation explicitly lists the bulldozed equipment');
+  const expected = (COMPONENTS.faradayCup.cost.funding || 0)
+    + FLOORS.concrete.cost
+    - Math.floor((PLACEABLES.coolantPump.cost.funding || 0) * 0.5);
+  assertEq(res.summary.totalCost, expected,
+    'the net quote includes concrete and the normal demolition refund');
+}
+
+// =========================================================================
+console.log('\n--- 12c: decisive confirmation clears walls crossed by a wide module ---');
+{
+  const state = makeRun();
+  state.walls = [{ type: 'structuralWall', col: 2, row: 7, edge: 'e', variant: 0 }];
+  state.wallOccupied = { '2,7,e': 'structuralWall' };
+  state.wallOverlays = [];
+  state.doors = [];
+  state.windows = [];
+  state.floors = [];
+  state.infraOccupied = {};
+  state.zones = [];
+  state.zoneOccupied = {};
+
+  const draft = draftFromMap(state, 'src_1');
+  draft.push(newNode('detector'));
+  const res = plan(state, {
+    sourceId: 'src_1', draftNodes: draft,
+    prepareSite: true, _label: 'wall site preparation',
+  });
+  assert(res.ok === true, `crossed wall is removable (blockers ${JSON.stringify(res.blockers)})`);
+  assert(kinds(res)[0] === 'bulldozeWall' && kinds(res).at(-1) === 'placeJunction',
+    `wall demolition precedes foundation and module placement (got ${kinds(res)})`);
+  assert(res.summary.removes.some(row => row.label === WALL_TYPES.structuralWall.name),
+    'the confirmation lists the demolished wall and refund');
+  assert(res.ops.filter(op => op.kind === 'placeConcrete').length > 1,
+    'the full multi-tile detector footprint receives foundation');
+}
+
+// =========================================================================
+console.log('\n--- 12d: destructive landscaping is charged rather than refunded ---');
+{
+  const state = makeRun();
+  const tree = placeable('dc_1', 'oakTree', 2, 7, 0, 0);
+  tree.kind = 'decoration';
+  tree.category = 'decoration';
+  state.placeables.push(tree);
+  Object.assign(state.subgridOccupied, occupancyOf([tree]));
+  state.floors = [];
+  state.infraOccupied = {};
+  state.zones = [];
+  state.zoneOccupied = {};
+
+  const draft = draftFromMap(state, 'src_1');
+  draft.push(newNode('faradayCup'));
+  const res = plan(state, {
+    sourceId: 'src_1', draftNodes: draft,
+    prepareSite: true, _label: 'tree site preparation',
+  });
+  assert(res.ok === true, `tree is cleared (blockers ${JSON.stringify(res.blockers)})`);
+  assertEq(kinds(res).join(','), 'clearDecoration,placeConcrete,placeJunction',
+    'tree clearing and foundation precede module placement');
+  assert(res.summary.adds.some(row => row.label === 'Site clearing'
+      && row.cost === PLACEABLES.oakTree.removeCost),
+    'the confirmation quotes the tree removal cost');
+  assert(res.summary.removes.some(row => row.label === PLACEABLES.oakTree.name
+      && row.refund === 0),
+    'the confirmation shows that destructive clearing has no resale refund');
 }
 
 // =========================================================================
