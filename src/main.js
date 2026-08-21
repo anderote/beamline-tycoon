@@ -244,7 +244,7 @@ function showScenarioPicker(game) {
     if (!design) return;
     if (designer.isOpen) {
       designer._suppressHashUpdate = true;
-      designer._cleanup();
+      designer.close();
     }
     if (window.location.hash !== '#game') window.location.hash = 'game';
 
@@ -494,14 +494,14 @@ function showScenarioPicker(game) {
     } else if (view === 'designs') {
       if (designer.isOpen) {
         designer._suppressHashUpdate = true;
-        designer._cleanup();
+        designer.close();
       }
       if (!designLibrary.isOpen) designLibrary.open();
     } else {
       // #game or default
       if (designer.isOpen) {
         designer._suppressHashUpdate = true;
-        designer._cleanup();
+        designer.close();
       }
       if (designLibrary.isOpen) {
         designLibrary._suppressHashUpdate = true;
