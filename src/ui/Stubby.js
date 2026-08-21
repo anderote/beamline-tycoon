@@ -23,6 +23,8 @@ export const STUBBY_INTRODUCTION = Object.freeze({
   declineLabel: 'No Piss off',
 });
 
+export const STUBBY_TURN_OFF_LABEL = 'Turn Stubby off';
+
 /** How long the perk-up animation runs before settling back to idle. */
 const PERK_MS = 900;
 /** Mouth-flap period while Stubby is delivering a line. */
@@ -67,6 +69,8 @@ export class Stubby {
           <button type="button" class="stubby-btn stubby-btn-action hidden" data-act="advice-action"></button>
           <button type="button" class="stubby-btn" data-act="dismiss">Got it</button>
           <button type="button" class="stubby-btn stubby-btn-quiet" data-act="silence">Stop telling me this</button>
+          <button type="button" class="stubby-btn stubby-btn-quiet stubby-btn-off" data-act="turn-off"
+                  title="Hide Stubby until you turn advice back on from the ? menu">${STUBBY_TURN_OFF_LABEL}</button>
           <button type="button" class="stubby-btn stubby-btn-action hidden" data-act="intro-accept">${STUBBY_INTRODUCTION.acceptLabel}</button>
           <button type="button" class="stubby-btn stubby-btn-quiet hidden" data-act="intro-decline">${STUBBY_INTRODUCTION.declineLabel}</button>
         </div>
@@ -83,6 +87,7 @@ export class Stubby {
     this.actionBtn = root.querySelector('[data-act="advice-action"]');
     this.dismissBtn = root.querySelector('[data-act="dismiss"]');
     this.silenceBtn = root.querySelector('[data-act="silence"]');
+    this.turnOffBtn = root.querySelector('[data-act="turn-off"]');
     this.introAcceptBtn = root.querySelector('[data-act="intro-accept"]');
     this.introDeclineBtn = root.querySelector('[data-act="intro-decline"]');
     this.canvas = root.querySelector('.stubby-sprite');
@@ -99,6 +104,7 @@ export class Stubby {
       if (this.advice) this.engine.silence(this.advice.key);
       this._setAdvice(null);
     });
+    this.turnOffBtn.addEventListener('click', () => this.turnOff());
     this.introAcceptBtn.addEventListener('click', () => this.respondToIntroduction(true));
     this.introDeclineBtn.addEventListener('click', () => this.respondToIntroduction(false));
     this.actionBtn.addEventListener('click', () => {
@@ -234,6 +240,9 @@ export class Stubby {
     this.actionBtn.classList.add('hidden');
     this.dismissBtn.classList.add('hidden');
     this.silenceBtn.classList.add('hidden');
+    // The introduction already has its explicit permanent opt-out. Avoid two
+    // adjacent buttons that perform the same action under different labels.
+    this.turnOffBtn.classList.add('hidden');
     this.introAcceptBtn.classList.remove('hidden');
     this.introDeclineBtn.classList.remove('hidden');
     this._syncBubble();
@@ -243,6 +252,7 @@ export class Stubby {
   _showAdviceControls() {
     this.dismissBtn.classList.remove('hidden');
     this.silenceBtn.classList.remove('hidden');
+    this.turnOffBtn.classList.remove('hidden');
     this.introAcceptBtn.classList.add('hidden');
     this.introDeclineBtn.classList.add('hidden');
   }
@@ -252,21 +262,33 @@ export class Stubby {
   respondToIntroduction(wantsHelp) {
     if (!this.introducing) return false;
 
+    if (!wantsHelp) return this.turnOff();
+
     this.introducing = false;
     const pending = this._pendingAdvice;
     this._pendingAdvice = null;
-    this._rememberIntroduction(wantsHelp ? 'accepted' : 'declined');
-
-    if (!wantsHelp) {
-      this.engine.setLevel('off');
-      try { localStorage.setItem(ADVICE_LEVEL_STORAGE_KEY, 'off'); } catch {}
-      this.game?.save?.();
-      this._setAdvice(null);
-      return true;
-    }
+    this._rememberIntroduction('accepted');
 
     if (pending) this._setAdvice(pending);
     else this._setAdvice(null);
+    return true;
+  }
+
+  /** Permanently disable Stubby until the player opts back in from the ? menu. */
+  turnOff() {
+    // If this is the introduction's opt-out, remember it too so a new save
+    // cannot re-open the greeting before the global Off preference is read.
+    if (this.introducing && !this.introductionSeen) {
+      this._rememberIntroduction('declined');
+    }
+    this.introducing = false;
+    this._pendingAdvice = null;
+    this.engine.setLevel('off');
+    try { localStorage.setItem(ADVICE_LEVEL_STORAGE_KEY, 'off'); } catch {}
+    // The global preference covers new facilities; the advisor serializer in
+    // the active save makes the same choice portable with that facility.
+    this.game?.save?.();
+    this._setAdvice(null);
     return true;
   }
 

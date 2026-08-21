@@ -25,6 +25,7 @@
 //      do not.
 //   7. a rule that throws does not take the rest of the table down with it.
 //   8. sprite frames are distinguishable from idle.
+//   9. every advice can disable Stubby through the durable global Off level.
 
 import {
   ADVICE_LEVELS,
@@ -38,6 +39,7 @@ import { STUBBY_FRAMES } from '../src/ui/stubby-sprite.js';
 import {
   STUBBY_INTRODUCTION,
   STUBBY_INTRODUCTION_STORAGE_KEY,
+  STUBBY_TURN_OFF_LABEL,
   Stubby,
 } from '../src/ui/Stubby.js';
 
@@ -463,7 +465,40 @@ console.log('10. Stubby introduces himself before his first advice');
   }
 }
 
-console.log('11. the presenter refreshes changing numbers but does not re-perk');
+console.log('11. every advice can turn Stubby off permanently');
+{
+  check('the permanent action is explicit', STUBBY_TURN_OFF_LABEL === 'Turn Stubby off');
+
+  const originalStorage = globalThis.localStorage;
+  const stored = new Map();
+  globalThis.localStorage = {
+    getItem: key => stored.get(key) ?? null,
+    setItem: (key, value) => stored.set(key, String(value)),
+  };
+  try {
+    let saved = 0;
+    let selectedLevel = null;
+    const fake = Object.create(Stubby.prototype);
+    fake.advice = { key: 'tutorial.next-step:first' };
+    fake.introducing = false;
+    fake.introductionSeen = true;
+    fake._pendingAdvice = null;
+    fake.engine = { setLevel: level => { selectedLevel = level; } };
+    fake.game = { save: () => { saved++; } };
+    fake._setAdvice = advice => { fake.advice = advice; };
+
+    check('the message-level action is handled', fake.turnOff());
+    check('turning Stubby off hides the current advice immediately', fake.advice === null);
+    check('turning Stubby off selects the engine Off level', selectedLevel === 'off');
+    check('turning Stubby off persists globally and in the active save',
+      stored.get(ADVICE_LEVEL_STORAGE_KEY) === 'off' && saved === 1);
+  } finally {
+    if (originalStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = originalStorage;
+  }
+}
+
+console.log('12. the presenter refreshes changing numbers but does not re-perk');
 {
   // Stubby.update's diff, exercised directly. Several rules hold a stable key
   // while their numbers move — optics.needs-focusing counts down as quads go
