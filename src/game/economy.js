@@ -8,9 +8,10 @@ import {
   heRecoveryFraction, HE_RECOVERY_CAP, HE_RECOVERY_CAP_NO_STORAGE, HE_STORAGE_TYPE,
 } from '../utility/types/cryoTransfer.js';
 import {
-  poweredPlaceables, beamlineEnergyDraw, facilityEnergyDraw,
-  pumpCount as countPumps,
+  poweredPlaceables, beamlineEnergyDraw, billedDataRate, facilityEnergyDraw,
+  hardwareNodeCount, pumpCount as countPumps,
 } from './aggregates.js';
+import { computeEndpointService } from './endpoint-economy.js';
 
 // ---------------------------------------------------------------------------
 // Phase 7 — economy tuning knobs. All per-tick revenue/upkeep coefficients
@@ -176,6 +177,53 @@ export function computeBeamIncomeBreakdown(beamState, nodeCount = 0, options = {
 /** The breakdown's total, which is the amount one running beamline is paid. */
 export function computeBeamIncome(beamState, nodeCount = 0, options = {}) {
   return computeBeamIncomeBreakdown(beamState, nodeCount, options).total;
+}
+
+/**
+ * Gross revenue for one beamline tick, using the same composition for live
+ * billing and Designer projections. The caller supplies data connectivity
+ * because only the world utility graph can know it; projections may use 1 to
+ * show the fully connected earning potential and must label that assumption.
+ *
+ * `nodeCount` is an optional projection override for Designer drafts, whose
+ * synthetic drift entries use `type: 'drift'` instead of the flattener's
+ * `kind: 'drift'` contract consumed by hardwareNodeCount.
+ */
+export function computeBeamlineRevenueBreakdown(
+  typeId,
+  beamState,
+  nodes = [],
+  { dataConnectivity = 1, nodeCount = null } = {},
+) {
+  const state = beamState || {};
+  const billedRate = billedDataRate(state, dataConnectivity);
+  const service = computeEndpointService(typeId, state, nodes);
+  const count = Number.isFinite(nodeCount) ? Math.max(0, nodeCount) : hardwareNodeCount(nodes);
+  const billedState = billedRate === state.dataRate ? state : { ...state, dataRate: billedRate };
+  const earned = computeBeamIncomeBreakdown(billedState, count, {
+    typed: !!typeId,
+    serviceRevenue: service.revenue,
+  });
+  const quality = Number.isFinite(state.beamQuality) ? state.beamQuality : 0;
+  const photonPortCount = nodes.filter(node => node?.type === 'photonPort').length;
+  const photonUserFees = photonPortCount > 0 && quality > 0.5
+    ? photonPortCount * 2 * quality
+    : 0;
+
+  return {
+    beam: earned.beam + photonUserFees,
+    dataFees: earned.dataFees,
+    total: earned.total + photonUserFees,
+    effectiveDataRate: billedRate,
+    serviceRevenue: service.revenue,
+    serviceContract: service.contractName,
+    serviceWorkload: service.workload,
+    serviceBandScore: service.bandScore,
+    servicePerformanceScore: service.performanceScore,
+    serviceBeamPowerKw: service.beamPowerKw || 0,
+    photonPortCount,
+    photonUserFees,
+  };
 }
 
 /**

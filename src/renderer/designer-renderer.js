@@ -97,6 +97,14 @@ function _missionMetricValue(type, result) {
   return `${Math.round((result.beamQuality || 0) * 100)}% quality`;
 }
 
+function _fmtRevenueRate(value) {
+  const amount = Number.isFinite(value) ? Math.max(0, value) : 0;
+  if (amount >= 1000) return `$${Math.round(amount).toLocaleString('en-US')}/t`;
+  if (amount >= 100) return `$${amount.toFixed(0)}/t`;
+  if (amount >= 10) return `$${amount.toFixed(1)}/t`;
+  return `$${amount.toFixed(2)}/t`;
+}
+
 BeamlineDesigner.prototype._renderPlotMissionSummary = function() {
   const summary = document.getElementById('dsgn-plot-mission-summary');
   if (!summary) return;
@@ -110,13 +118,24 @@ BeamlineDesigner.prototype._renderPlotMissionSummary = function() {
       ? 'Show or hide mission target lines on compatible plots'
       : 'Free Build has no mission targets';
   }
+
+  const draft = this.draftPhysicsResult;
+  const projection = this.draftRevenueProjection;
+  const projectedRate = projection ? _fmtRevenueRate(projection.total) : '--';
+  const revenueTitle = projection
+    ? `Projected gross revenue at full data connectivity; excludes facility upkeep`
+    : 'Projected revenue is available after beam physics completes';
+  const metric = (label, value, target, state = '', title = null) =>
+    `<span class="dsgn-plot-mission-metric ${state}" title="${title || `${label} target: ${target}`}">`
+      + `<span>${label}</span><strong>${value}</strong></span>`;
+
   if (!type) {
-    summary.innerHTML = '<span class="dsgn-plot-mission-empty">Free Build · no mission targets</span>';
-    summary.setAttribute('aria-label', 'Free Build; no mission targets');
+    summary.innerHTML = '<span class="dsgn-plot-mission-name">Free Build</span>'
+      + metric('Est. revenue', projectedRate, 'fully connected gross rate', 'revenue', revenueTitle);
+    summary.setAttribute('aria-label', `Free Build; estimated revenue ${projectedRate} at full data connectivity`);
     return;
   }
 
-  const draft = this.draftPhysicsResult;
   const energy = Number(draft?.beamEnergy || 0);
   const current = Number(draft?.beamCurrent || 0);
   const quality = Math.round((draft?.beamQuality || 0) * 100);
@@ -125,9 +144,6 @@ BeamlineDesigner.prototype._renderPlotMissionSummary = function() {
   const fomLabel = _missionFomLabels[type.fom] || 'Mission metric';
   const fomValue = _missionMetricValue(type, draft);
   const currentValue = `${current < 0.01 ? current.toPrecision(2) : current.toFixed(current < 10 ? 2 : 1)} mA`;
-  const metric = (label, value, target, state = '') =>
-    `<span class="dsgn-plot-mission-metric ${state}" title="${label} target: ${target}">`
-      + `<span>${label}</span><strong>${value}</strong></span>`;
 
   summary.innerHTML = `<span class="dsgn-plot-mission-name" title="T${type.tier} · ${type.name}">`
     + `T${type.tier} · ${type.name}</span>`
@@ -137,9 +153,11 @@ BeamlineDesigner.prototype._renderPlotMissionSummary = function() {
       _inBand(current, type.spec?.currentMA) ? 'in' : 'out')
     + metric(fomLabel, fomValue,
       type.fomRef != null ? `reference ${type.fomRef}` : 'type objective')
-    + metric('Quality', `${quality}%`, 'higher is better', quality >= 70 ? 'in' : 'out');
+    + metric('Quality', `${quality}%`, 'higher is better', quality >= 70 ? 'in' : 'out')
+    + metric('Est. revenue', projectedRate, 'fully connected gross rate', 'revenue', revenueTitle);
   summary.setAttribute('aria-label', `T${type.tier} ${type.name}; Energy ${_fmtEnergyValue(energy)}, target ${energyTarget}; `
-    + `Current ${currentValue}, target ${currentTarget}; ${fomLabel} ${fomValue}; Beam quality ${quality}%`);
+    + `Current ${currentValue}, target ${currentTarget}; ${fomLabel} ${fomValue}; Beam quality ${quality}%; `
+    + `estimated revenue ${projectedRate} at full data connectivity`);
 };
 
 BeamlineDesigner.prototype._renderSchematic = function() {

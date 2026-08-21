@@ -26,7 +26,7 @@ One line per area: what it owns, and what it must not own.
 | `Placeable.js` | Footprint arithmetic (`footprintCells`) and kind validation. 46 lines; keep it that way. | Anything kind-specific — that lives in the defs. |
 | `placement.js` | Pure snap + collision + affordability preview. No state mutation. | Cost charging. |
 | `aggregates.js` | **One definition per derived quantity.** Every accessor here replaced a value computed at two call sites that had already drifted into a shipped balance bug (`aggregates.js:1-30`). | Any variant logic — a caller that needs a variant passes an argument, it does not re-derive. |
-| `economy.js` | The `ECON` tuning table and the per-tick income/upkeep functions. | Its own derivations of draw/pumps/uptime — it imports them from `aggregates.js` (`economy.js:3-6`). |
+| `economy.js` | The `ECON` tuning table, per-tick income/upkeep functions, and the canonical per-beamline gross-revenue breakdown used by billing and projections. | Its own derivations of draw/pumps/uptime — it imports them from `aggregates.js` (`economy.js:3-6`). |
 | `terrain.js` | Sparse per-corner heightmap + the within-tile invariant. | Cross-tile cascade (deliberately absent, `terrain.js:8-10`). |
 | `utility-gate.js` | Per-tick gating **policy**: which unwired sinks trip the beam, staffing, `nodeQualities`. | Topology knowledge — that is `network-discovery.js`. |
 | `stacking.js` | Pure stack legality (`canStack`, `findStackTarget`, `collapsePlan`). | State mutation; callers apply the plan. |
@@ -123,7 +123,7 @@ Defined `aggregates.js:75`; billed at `economy.js:181`; displayed at `hud.js:150
 `aggregates.js:50-54`. Pumps, RF sources, chillers and cold boxes are `kind: 'infrastructure'`; `equipment` is lab devices. Filtering to `equipment` alone left the HUD reporting zero pumps and zero draw for hardware the player is billed for.
 
 **S3. Beam income scales with `hardwareNodeCount`, never `flattened.length`.**
-`aggregates.js:92-99` strips the flattener's synthetic `kind: 'drift'` gap entries; `Game._tickBeamline` uses it at `Game.js:3883`; `ECON.beamIncomePerNode` is derived against that meaning (`economy.js:29-80`).
+`aggregates.js:92-99` strips the flattener's synthetic `kind: 'drift'` gap entries; `computeBeamlineRevenueBreakdown` uses it for live billing; `ECON.beamIncomePerNode` is derived against that meaning (`economy.js:29-80`). Designer drafts pass an explicit non-drift node count because their synthetic gaps are identified by `type` rather than `kind`.
 *Silent failure:* billing raw entries pays for every gap — spacing identical hardware further apart mints income at zero cost.
 
 **S4. `billedDataRate` (not `beamState.dataRate`) is what may be paid for or displayed.**
@@ -132,6 +132,13 @@ Defined `aggregates.js:75`; billed at `economy.js:181`; displayed at `hud.js:150
 **S5. `state.economySnapshot` is what the tick *charged*, not a second opinion about it.**
 Accumulated during `tick()` and published once at `Game.js:3723` / `_publishEconomySnapshot` (`:3792`). Panels call `getEconomySnapshot()` (`:3831`) and display; they do not recompute (`EconomyWindow.js:4`).
 *Silent failure:* re-derivation at the display site drifts from the balance without any error.
+
+The Beamline Designer's revenue number is explicitly a **projection**, not a
+snapshot of charged money. `BeamlineDesigner` publishes `draftRevenueProjection`
+through the same `computeBeamlineRevenueBreakdown` function used by
+`Game._tickBeamline`; the renderer only formats it. Because a draft has no
+external utility topology, the projection is labelled as gross earning
+potential at full data connectivity and excludes facility upkeep.
 
 **S6. Facility uptime is the **mean** of per-beamline uptimes, not summed ticks over wall clock.**
 `aggregates.js:112-118`. The summed form runs up to N with N beamlines and once paid out the `highAvailability` objective for a facility whose beams were down.

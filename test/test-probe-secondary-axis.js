@@ -323,6 +323,9 @@ console.log('\n--- Designer controls ---');
   const selectorRule = styles.match(
     /\.dsgn-plot-select,\s*\.dsgn-plot-secondary-select,\s*\.dsgn-plot-tertiary-select\s*\{([^}]*)\}/
   )?.[1] || '';
+  const missionValueRule = styles.match(
+    /\.dsgn-plot-mission-metric strong\s*\{([^}]*)\}/
+  )?.[1] || '';
   check(optionRows.length === 3
     && styles.includes('.dsgn-plot-options {')
     && !selectorRule.includes('position: absolute'),
@@ -382,6 +385,15 @@ console.log('\n--- Designer controls ---');
     && controller.includes('this.plotYAxisModes[panelIndex]')
     && renderer.includes('this.plotYAxisModes?.[panelIndex]'),
   'plot scale changes are stored and rendered by panel index');
+  check(controller.includes('computeBeamlineRevenueBreakdown')
+    && controller.includes('this.draftRevenueProjection = draftResult')
+    && renderer.includes('const projection = this.draftRevenueProjection')
+    && renderer.includes("metric('Est. revenue'"),
+  'the Designer publishes one canonical revenue projection for the summary renderer');
+  check(missionValueRule.includes('var(--ui-font-display)')
+    && missionValueRule.includes('font-size: 12px')
+    && styles.match(/\.dsgn-plot-mission-metric\.revenue strong\s*\{[^}]*font-size:\s*14px/s),
+  'performance values use prominent BLT typography with extra emphasis on revenue');
   check(renderer.includes('ProbePlots.drawCursor(off, plotType, solid, xRange')
     && renderer.includes('overlays: overlays.map'),
   'the renderer composes the cursor readout after all active channels');
