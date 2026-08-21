@@ -25,6 +25,7 @@ export const ZONES = {
   diagnosticsLab: { id: 'diagnosticsLab', name: 'Diagnostics Lab', color: 0xaacc44, requiredFloor: 'labFloor', gatesCategory: null,      subsection: 'laboratories' },
   cafeteria:   { id: 'cafeteria',   name: 'Cafeteria',      color: 0xaa6644, requiredFloor: 'officeFloor', gatesCategory: null,           subsection: 'operations'   },
   meetingRoom: { id: 'meetingRoom', name: 'Meeting Room',   color: 0x664499, requiredFloor: 'officeFloor', gatesCategory: null,           subsection: 'operations'   },
+  facultyLounge: { id: 'facultyLounge', name: 'Faculty Lounge', color: 0x886655, requiredFloor: 'officeFloor', gatesCategory: null, subsection: 'operations' },
   reception:   { id: 'reception',   name: 'Reception',      color: 0xbb8855, requiredFloor: 'officeFloor', gatesCategory: null,           subsection: 'operations'   },
   storageRoom: { id: 'storageRoom', name: 'Storage Room',   color: 0x668877, requiredFloor: 'concrete',    gatesCategory: null,           subsection: 'industrial'   },
 };
@@ -43,6 +44,7 @@ const ZONE_DESCS = {
   diagnosticsLab: 'Where signals become plots and plots become papers. Paint over Lab Flooring.',
   cafeteria: 'Feeds the facility, fuels the physics. Paint over Office Flooring.',
   meetingRoom: 'This meeting could have been an email. Paint over Office Flooring.',
+  facultyLounge: 'Leather chairs, old journals, and a bar for the people who approve the beamtime. Paint over Office Flooring.',
   reception: 'The public face of the facility. Paint over Office Flooring.',
   storageRoom: 'Organized supplies, spares, and shipping overflow. Paint over bare Concrete.',
 };

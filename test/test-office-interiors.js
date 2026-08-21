@@ -28,6 +28,14 @@ const cellKey = (cell) => `${cell.col},${cell.row},${cell.subCol},${cell.subRow}
 
 console.log('\n=== office and meeting-room catalogue ===\n');
 
+console.log('\n=== faculty lounge catalogue ===\n');
+for (const id of ['clubChair', 'tuftedSofa', 'clawFootTable', 'drinksCabinet', 'facultyBar', 'chalkboard', 'newspaperStand', 'cigarAshtray']) {
+  const def = PLACEABLES[id];
+  assertOk(!!def && def.kind === 'furnishing', `${id} is registered as a furnishing`);
+  assertOk(itemMatchesZone(def, 'facultyLounge'), `${id} is available in faculty lounges`);
+  assertOk(Array.isArray(def?.parts) && def.parts.length >= 4, `${id} has authored 3D geometry`);
+}
+
 for (const id of ['standingDesk', 'acousticPod', 'beamlineDisplayCase', 'collaborationTable']) {
   const def = PLACEABLES[id];
   assertOk(!!def && def.kind === 'furnishing', `${id} is registered as a furnishing`);
