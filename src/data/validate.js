@@ -58,6 +58,8 @@ const PLACEMENTS = new Set(['module', 'attachment']);
 const ATTACHMENT_KINDS = new Set(['inline']);
 const LIGHT_MOUNTS = new Set(['ground', 'wall', 'overhead', 'surface']);
 const LIGHT_SHAPES = new Set(['point', 'cone']);
+const PART_SHAPES = new Set(['box', 'cylinder', 'sphere', 'torus', 'cone']);
+const PART_AXES = new Set(['x', 'y', 'z']);
 
 const BEAMLINE_CATEGORIES = new Set(Object.keys(MODES.beamline.categories));
 const INFRA_CATEGORIES = new Set(Object.keys(MODES.infra.categories));
@@ -252,6 +254,54 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
         problem(id, 'light.tiltDeg', `cone lights require a numeric tiltDeg, got ${JSON.stringify(tiltDeg)}`);
       }
     }
+  }
+
+  // Authored facility parts default to boxes. Non-box primitives share the
+  // same exact w/h/l bounding-box contract in EquipmentBuilder, so malformed
+  // dimensions, axes, or rotations would otherwise produce invisible or NaN
+  // meshes deep in the renderer.
+  function checkParts(id, def) {
+    if (def.parts == null) return;
+    if (!Array.isArray(def.parts)) {
+      problem(id, 'parts', `parts must be an array, got ${JSON.stringify(def.parts)}`);
+      return;
+    }
+    def.parts.forEach((part, index) => {
+      if (!part || typeof part !== 'object' || Array.isArray(part)) {
+        problem(id, `parts[${index}]`, `part must be an object, got ${JSON.stringify(part)}`);
+        return;
+      }
+      const shape = part.shape || 'box';
+      if (!PART_SHAPES.has(shape)) {
+        problem(id, `parts[${index}].shape`,
+          `unknown part shape '${shape}' (known: ${[...PART_SHAPES].join(', ')})`);
+      }
+      if (part.shape != null) {
+        for (const field of ['w', 'h', 'l']) {
+          const value = part[field];
+          if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+            problem(id, `parts[${index}].${field}`,
+              `primitive part ${field} must be a positive number, got ${JSON.stringify(value)}`);
+          }
+        }
+      }
+      if (part.axis != null && !PART_AXES.has(part.axis)) {
+        problem(id, `parts[${index}].axis`,
+          `part axis must be one of ${[...PART_AXES].join(', ')}, got ${JSON.stringify(part.axis)}`);
+      }
+      if (part.rotation != null && (!Array.isArray(part.rotation)
+          || part.rotation.length !== 3
+          || part.rotation.some(value => typeof value !== 'number' || !Number.isFinite(value)))) {
+        problem(id, `parts[${index}].rotation`,
+          `part rotation must be three finite radians, got ${JSON.stringify(part.rotation)}`);
+      }
+      if (part.topScale != null && (shape !== 'cone'
+          || typeof part.topScale !== 'number' || !Number.isFinite(part.topScale)
+          || part.topScale < 0 || part.topScale > 1)) {
+        problem(id, `parts[${index}].topScale`,
+          `topScale is only valid on cones and must be in [0, 1], got ${JSON.stringify(part.topScale)}`);
+      }
+    });
   }
 
   // A `station` describes where a pawn stands or sits to do a job at a def,
@@ -486,6 +536,7 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     }
     checkDims(id, p);
     checkLight(id, p);
+    checkParts(id, p);
     // Lighting fixtures (src/data/placeables/lighting.js) are authored
     // directly into PLACEABLES rather than via the `decorations` raw
     // registry, so they never hit the checkCategory call below — check them

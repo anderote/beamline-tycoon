@@ -15,6 +15,11 @@ the short authoring contract.
   `portable: true` and receive physical drop presentation after an individual
   placement or move. Set `portable: false` explicitly when a stackable item is
   fixed in place. Beamline and infrastructure placement remains constrained.
+- Authored `parts` default to `shape: 'box'`. Equipment parts may instead use
+  `cylinder`, `sphere`, `torus`, or `cone`; their positive `w`/`h`/`l` values
+  always describe the exact visual bounds in subtiles. `axis` is `x`, `y`, or
+  `z` (the long axis for cylinders/cones and hole normal for toruses), optional
+  `rotation` is three radians, and a cone's optional `topScale` is in `[0, 1]`.
 - Floor coverings use `mount: 'floor'`. They retain a placement footprint for
   rendering, selection, rotation, and area demolition, but do not claim the
   ordinary furnishing occupancy layer, so desks and chairs can sit on them.
