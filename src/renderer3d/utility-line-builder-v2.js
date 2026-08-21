@@ -174,6 +174,32 @@ function alignTerminalToTarget(points, which, target) {
   return true;
 }
 
+// A saved straight run has only two waypoints, so alignTerminalToTarget cannot
+// slide a neighboring corner independently at either end. Rebuild that tiny
+// route between the two measured landing points instead. This removes the
+// footprint-edge backtracking that otherwise makes two facing waveguide
+// launchers fold through each other before joining the nominal straight run.
+function alignTwoPointRunToTargets(points, startTarget, endTarget, runY) {
+  if (!Array.isArray(points) || points.length !== 2) return false;
+  const originalStart = points[0];
+  const originalEnd = points[1];
+  const startsAlongX = Math.abs(originalEnd.x - originalStart.x)
+    >= Math.abs(originalEnd.z - originalStart.z);
+  const start = startTarget || originalStart;
+  const end = endTarget || originalEnd;
+  const rebuilt = [new THREE.Vector3(start.x, runY, start.z)];
+  const differsX = Math.abs(end.x - start.x) > 1e-6;
+  const differsZ = Math.abs(end.z - start.z) > 1e-6;
+  if (differsX && differsZ) {
+    rebuilt.push(startsAlongX
+      ? new THREE.Vector3(end.x, runY, start.z)
+      : new THREE.Vector3(start.x, runY, end.z));
+  }
+  rebuilt.push(new THREE.Vector3(end.x, runY, end.z));
+  points.splice(0, points.length, ...rebuilt);
+  return true;
+}
+
 function anchorFor(ref, placeablesById) {
   if (!ref || !placeablesById) return null;
   const rec = placeablesById.get(ref.placeableId);
@@ -206,8 +232,16 @@ function attachWaveguideTransitions(points, startAnchor, endAnchor, runY, descri
   const opts = waveguideDropOptions(descriptor);
   const startDrop = waveguideDropProfile(startAnchor, runY, opts);
   const endDrop = waveguideDropProfile(endAnchor, runY, opts);
-  alignTerminalToTarget(points, 'start', startDrop?.landing || startAnchor);
-  alignTerminalToTarget(points, 'end', endDrop?.landing || endAnchor);
+  const alignedShortRun = alignTwoPointRunToTargets(
+    points,
+    startDrop?.landing || startAnchor,
+    endDrop?.landing || endAnchor,
+    runY,
+  );
+  if (!alignedShortRun) {
+    alignTerminalToTarget(points, 'start', startDrop?.landing || startAnchor);
+    alignTerminalToTarget(points, 'end', endDrop?.landing || endAnchor);
+  }
 
   const startRunPoint = points[0];
   const endRunPoint = points[points.length - 1];
