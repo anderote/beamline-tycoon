@@ -1,6 +1,7 @@
 import {
   addDesignerPlotTag,
   applyDesignerPlotYRange,
+  clearDesignerPlotTags,
   createDesignerPlotYRanges,
   DESIGNER_PLOT_TAG_LIMIT,
   designerPlotCursorLayers,
@@ -50,6 +51,14 @@ console.log('\n--- Persistent plot tags and live hover ---');
   'live hover and both persistent tags are composed together');
   check(layers[1].cursor.slot === 0 && layers[2].cursor.slot === 1,
     'persistent A/B tags draw after hover in stable slot order');
+
+  check(clearDesignerPlotTags(tagsByPanel, '0')
+    && !tagsByPanel.has('0')
+    && tagsByPanel.get('1').length === 1
+    && designerPlotTagCount(tagsByPanel) === 1,
+  'clearing one plot removes only that panel\'s persistent tags');
+  check(!clearDesignerPlotTags(tagsByPanel, '0'),
+    'clearing an already-empty plot is a no-op');
 }
 
 console.log('\n--- Per-panel Designer Y ranges ---');
