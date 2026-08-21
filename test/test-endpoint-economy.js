@@ -1,4 +1,4 @@
-import { computeEndpointService } from '../src/game/endpoint-economy.js';
+import { computeEndpointService, ENDPOINT_CONTRACTS } from '../src/game/endpoint-economy.js';
 import { computeBeamlineRevenueBreakdown } from '../src/game/economy.js';
 
 let passed = 0, failed = 0;
@@ -15,6 +15,10 @@ const beam = (energy, current, extra = {}) => ({
 
 console.log('\n=== Endpoint service economy ===\n');
 
+assert(Object.entries(ENDPOINT_CONTRACTS).every(([, contract]) =>
+  contract.driverLabel && contract.description),
+'every endpoint contract explains its player-facing revenue driver');
+
 {
   const low = computeEndpointService(
     'isotopeIrradiation', beam(0.02, 0.2), node('radiationEffectsStation'),
@@ -29,6 +33,21 @@ console.log('\n=== Endpoint service economy ===\n');
   assert(highCurrent.revenue > low.revenue, 'radiation revenue rises with beam current');
   assert(highEnergy.revenue > low.revenue, 'radiation revenue rises with beam energy');
   assert(low.contractName === 'Electronics radiation testing', 'endpoint publishes its named contract');
+  assert(low.driverLabel === 'Test dose / fluence'
+    && low.description.includes('dose delivered'),
+  'endpoint publishes its own player-facing revenue driver');
+}
+
+{
+  const materials = computeEndpointService(
+    'testStand', beam(0.02, 2.5), node('materialsTestStation'),
+  );
+  const commissioning = computeEndpointService(
+    'testStand', beam(0.02, 2.5), node('faradayCup'),
+  );
+  assert(materials.driverLabel === 'Delivered beam power'
+    && commissioning.driverLabel === 'Commissioning beam delivery',
+  'the same Test Stand explains earnings according to its selected endpoint');
 }
 
 {
@@ -82,6 +101,17 @@ console.log('\n=== Endpoint service economy ===\n');
     'canonical beamline revenue terms sum to the projected gross rate');
   assert(full.serviceRevenue === service.revenue,
     'the canonical revenue breakdown uses the endpoint contract result');
+  assert(full.serviceEndpointId === 'eBeamIrradiationVault'
+    && full.serviceBaseRevenue === 900
+    && full.serviceDescription.includes('regulatory energy ceiling'),
+  'the canonical breakdown publishes the selected endpoint and reference contract');
+  assert(full.serviceEnergyScore === service.energyScore
+    && full.serviceCurrentScore === service.currentScore,
+  'the canonical breakdown publishes the energy and current fit factors');
+  assert(Math.abs(full.total - (
+    full.operationsRevenue + full.serviceRevenue + full.photonUserFees + full.dataFees
+  )) < 1e-9,
+  'published revenue terms reconcile exactly to the canonical total');
   assert(full.dataFees > 0 && cut.dataFees === 0,
     'the shared billing and projection path honors data connectivity');
   assert(full.beam === cut.beam,

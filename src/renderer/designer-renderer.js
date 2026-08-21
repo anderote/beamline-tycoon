@@ -21,6 +21,10 @@ import {
 } from '../ui/designer-plot-controls.js';
 import { paletteUtilityMetrics } from '../ui/utility-supply.js';
 import {
+  designerRevenueBreakdownHtml,
+  formatRevenueRate,
+} from '../ui/designer-revenue-breakdown.js';
+import {
   appendRequiredPortRequirements,
   requiredUtilityPorts,
 } from '../ui/required-port-preview.js';
@@ -100,14 +104,6 @@ function _missionMetricValue(type, result) {
   return `${Math.round((result.beamQuality || 0) * 100)}% quality`;
 }
 
-function _fmtRevenueRate(value) {
-  const amount = Number.isFinite(value) ? Math.max(0, value) : 0;
-  if (amount >= 1000) return `$${Math.round(amount).toLocaleString('en-US')}/t`;
-  if (amount >= 100) return `$${amount.toFixed(0)}/t`;
-  if (amount >= 10) return `$${amount.toFixed(1)}/t`;
-  return `$${amount.toFixed(2)}/t`;
-}
-
 BeamlineDesigner.prototype._renderPlotMissionSummary = function() {
   const summary = document.getElementById('dsgn-plot-mission-summary');
   if (!summary) return;
@@ -124,17 +120,33 @@ BeamlineDesigner.prototype._renderPlotMissionSummary = function() {
 
   const draft = this.draftPhysicsResult;
   const projection = this.draftRevenueProjection;
-  const projectedRate = projection ? _fmtRevenueRate(projection.total) : '--';
+  const projectedRate = projection ? formatRevenueRate(projection.total) : '--';
   const revenueTitle = projection
     ? `Projected gross revenue at full data connectivity; excludes facility upkeep`
     : 'Projected revenue is available after beam physics completes';
   const metric = (label, value, target, state = '', title = null) =>
     `<span class="dsgn-plot-mission-metric ${state}" title="${title || `${label} target: ${target}`}">`
       + `<span>${label}</span><strong>${value}</strong></span>`;
+  const revenueMetric = () => {
+    if (!projection) {
+      return metric('Est. revenue', projectedRate, 'fully connected gross rate', 'revenue', revenueTitle);
+    }
+    const endpointName = projection.serviceEndpointId
+      ? (COMPONENTS[projection.serviceEndpointId]?.name || projection.serviceEndpointId)
+      : null;
+    return '<span class="dsgn-plot-mission-metric revenue dsgn-revenue-disclosure" tabindex="0" '
+      + `aria-label="Estimated revenue ${projectedRate}; focus for calculation breakdown" `
+      + 'aria-describedby="dsgn-revenue-breakdown">'
+      + '<span>Est. revenue</span>'
+      + `<strong>${projectedRate}</strong>`
+      + '<span class="dsgn-revenue-chevron" aria-hidden="true">▾</span>'
+      + designerRevenueBreakdownHtml(type, projection, endpointName)
+      + '</span>';
+  };
 
   if (!type) {
     summary.innerHTML = '<span class="dsgn-plot-mission-name">Free Build</span>'
-      + metric('Est. revenue', projectedRate, 'fully connected gross rate', 'revenue', revenueTitle);
+      + revenueMetric();
     summary.setAttribute('aria-label', `Free Build; estimated revenue ${projectedRate} at full data connectivity`);
     return;
   }
@@ -157,7 +169,7 @@ BeamlineDesigner.prototype._renderPlotMissionSummary = function() {
     + metric(fomLabel, fomValue,
       type.fomRef != null ? `reference ${type.fomRef}` : 'type objective')
     + metric('Quality', `${quality}%`, 'higher is better', quality >= 70 ? 'in' : 'out')
-    + metric('Est. revenue', projectedRate, 'fully connected gross rate', 'revenue', revenueTitle);
+    + revenueMetric();
   summary.setAttribute('aria-label', `T${type.tier} ${type.name}; Energy ${_fmtEnergyValue(energy)}, target ${energyTarget}; `
     + `Current ${currentValue}, target ${currentTarget}; ${fomLabel} ${fomValue}; Beam quality ${quality}%; `
     + `estimated revenue ${projectedRate} at full data connectivity`);
