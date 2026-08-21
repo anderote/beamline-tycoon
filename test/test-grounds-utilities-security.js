@@ -124,6 +124,34 @@ test('new utility and security props use bespoke multi-part 3D models', () => {
   }
 });
 
+test('security gate boom extends away from the guard hut', () => {
+  const def = PLACEABLES.securityGatehouse;
+  const model = buildDecorationGroup(
+    def.id,
+    def.category,
+    def.subW * 0.5,
+    def.subL * 0.5,
+    def.subH * 0.5,
+  );
+  const meshes = [];
+  model.traverse(child => {
+    if (child.isMesh) meshes.push(child);
+  });
+
+  const hut = meshes.find(mesh => mesh.material.color.getHex() === 0xd0d2cc);
+  const boom = meshes.find(mesh => mesh.material.color.getHex() === 0xe7d8b2);
+  const markings = meshes.filter(mesh => mesh.material.color.getHex() === 0xd45a43);
+
+  assert.ok(hut && boom, 'gatehouse exposes identifiable hut and boom geometry');
+  assert.equal(markings.length, 4, 'gatehouse boom retains all warning markings');
+  const hutRightEdge = hut.position.x + hut.geometry.parameters.width / 2;
+  const boomLeftEdge = boom.position.x - boom.geometry.parameters.width / 2;
+  assert.ok(boomLeftEdge > hutRightEdge,
+    'boom starts beyond the hut instead of passing through it');
+  assert.ok(markings.every(marking => marking.position.x > hutRightEdge),
+    'boom warning markings point away from the hut');
+});
+
 test('global search keeps reused placeables single-homed', () => {
   const index = buildPaletteIndex(null);
 
