@@ -66,7 +66,8 @@ const COMMISSIONING_DERATE = 0.7;
  *   per-placeable solved utility qualities keyed by node id. May be absent
  *   (before the first gate pass); declared sinks still get their 0 floor.
  * @returns {Array} elements: { id?, type, subL, stats, params,
- *   betaAcceptance?, apertureRadius?, extractionEnergy?, infraQuality? }
+ *   betaAcceptance?, apertureRadius?, extractionEnergy?, rfFrequency?,
+ *   sourceBeamRadiusMm?, sourceSpaceChargeCompensation?, infraQuality? }
  */
 function _buildPhysicsElements(orderedNodes, {
   nodeQualities,
@@ -111,6 +112,16 @@ function _buildPhysicsElements(orderedNodes, {
     };
     if (t.betaAcceptance) {
       physEl.betaAcceptance = { ...t.betaAcceptance };
+    }
+    if (Number.isFinite(t.rfFrequency) && t.rfFrequency > 0) {
+      physEl.rfFrequency = t.rfFrequency;
+    }
+    if (Number.isFinite(t.sourceBeamRadiusMm) && t.sourceBeamRadiusMm > 0) {
+      physEl.sourceBeamRadiusMm = t.sourceBeamRadiusMm;
+    }
+    if (Number.isFinite(t.sourceSpaceChargeCompensation)) {
+      physEl.sourceSpaceChargeCompensation = Math.max(
+        0, Math.min(0.999, t.sourceSpaceChargeCompensation));
     }
     // Authored physical half-aperture, in millimetres. gameplay.py converts it
     // to metres before the aperture-loss module runs. Omitting this field makes

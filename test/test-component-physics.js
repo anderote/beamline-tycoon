@@ -271,6 +271,34 @@ console.log('\n-- quadrupole: focusing strength --');
 }
 
 // -----------------------------------------------------------------------
+// high-voltage DC injector / LEBT
+// -----------------------------------------------------------------------
+console.log('\n-- dcInjector: extraction and electrostatic matching --');
+{
+  const defs = getDefaults('dcInjector');
+  const stats = computeStats('dcInjector', defs);
+  assertClose(stats.energyGain, 0.00075, 1e-12,
+    '750 kV terminal adds 0.00075 GeV without RF');
+  assertClose(stats.focusStrength, 0.9, 1e-12,
+    '30 kV default lens has the calibrated match strength');
+  assert(stats.spaceChargeCompensation === 99,
+    'neutralized LEBT publishes 99% compensation');
+
+  const higherTerminal = computeStats('dcInjector', {
+    terminalVoltage: 1000, lensVoltage: 30,
+  });
+  const strongerLens = computeStats('dcInjector', {
+    terminalVoltage: 750, lensVoltage: 60,
+  });
+  assert(higherTerminal.energyGain > stats.energyGain,
+    'higher terminal voltage adds more kinetic energy');
+  assert(higherTerminal.focusStrength < stats.focusStrength,
+    'the same electrostatic lens weakens as rigidity rises');
+  assert(strongerLens.focusStrength > stats.focusStrength,
+    'higher lens voltage strengthens the match');
+}
+
+// -----------------------------------------------------------------------
 // dipole / scDipole
 // -----------------------------------------------------------------------
 console.log('\n-- dipole: max momentum --');

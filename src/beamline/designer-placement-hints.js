@@ -12,11 +12,16 @@ import { PARAM_DEFS } from './component-physics.js';
 
 const FOCUS_TYPES = new Set([
   'quadrupole', 'scQuad', 'protonQuad', 'combinedFunctionMagnet', 'solenoid',
+  'dcInjector',
 ]);
 
 const BUNCH_PREP_TYPES = new Set([
   'buncher', 'rfq', 'ncRfGun', 'srfGun',
 ]);
+
+const DC_EXTRACTION_TYPES = new Set(['dcInjector']);
+const HIGH_CURRENT_DC_THRESHOLD_MA = 20;
+const DC_INJECTOR_MAX_ENERGY_GEV = 0.001;
 
 const URGENCY_THRESHOLD = 0.7;
 const MAX_FOCUS_HINTS = 12;
@@ -253,6 +258,36 @@ function bunchingHint(nodes, envelope, beamlineType, isAvailable) {
   return hint;
 }
 
+function dcExtractionHint(nodes, envelope, isAvailable) {
+  if (!nodes.length || !envelope?.length || !isAvailable('dcInjector')) return null;
+  if (nodes.some(node => DC_EXTRACTION_TYPES.has(node.type))) return null;
+
+  const sourceIndex = Math.max(0, nodes.findIndex(node => COMPONENTS[node.type]?.isSource));
+  // RF guns already emit bunched beam even before the first propagated
+  // envelope sample has acquired a frequency. They need their RF transport,
+  // not a DC column inserted after the gun.
+  if (BUNCH_PREP_TYPES.has(nodes[sourceIndex]?.type)) return null;
+
+  const first = envelope[0];
+  if (finite(first?.bunch_frequency) > 0) return null;
+  const current = finite(first?.current);
+  const energy = finite(first?.energy);
+  if (current < HIGH_CURRENT_DC_THRESHOLD_MA || energy >= DC_INJECTOR_MAX_ENERGY_GEV) {
+    return null;
+  }
+
+  const s = boundaryAfterNode(nodes, sourceIndex);
+  const hint = hintBase(
+    `extract:dcInjector:${sourceIndex}`,
+    'extraction', 'dcInjector', s, sourceIndex, 'after', 99,
+  );
+  hint.reason = 'HIGH-CURRENT DC BEAM NEEDS EXTRACTION';
+  hint.state = `${current.toFixed(current >= 100 ? 0 : 1)} mA · ${formatEnergy(energy)} · unbunched`;
+  hint.target = 'raise rigidity and match into the first RF or focusing channel';
+  hint.confidence = 'high';
+  return hint;
+}
+
 function acceleratorCandidates(beamlineType, kineticGev) {
   const id = beamlineType?.id;
   const ionBeam = beamlineType?.particle && beamlineType.particle !== 'e-';
@@ -310,8 +345,10 @@ export function computePlacementHints({
   isAvailable = () => true,
 } = {}) {
   const hints = focusHints(nodes, envelope, beamlineType, isAvailable);
+  const extraction = dcExtractionHint(nodes, envelope, isAvailable);
   const bunch = bunchingHint(nodes, envelope, beamlineType, isAvailable);
   const energy = energyHint(nodes, envelope, beamlineType, isAvailable);
+  if (extraction) hints.push(extraction);
   if (bunch) hints.push(bunch);
   if (energy) hints.push(energy);
   return dedupeHints(hints).sort((a, b) => a.s - b.s || b.priority - a.priority);
@@ -328,7 +365,10 @@ export function placementHintComponentAvailable({
   isUnlocked = () => true,
 } = {}) {
   const comp = COMPONENTS[componentType];
-  if (!comp || comp.category === 'source' || comp.category === 'endpoint') return false;
+  // Integrated sources are invalid insertions, but source-front-end transport
+  // legitimately lives in the source palette.  `isSource` is the capability
+  // contract; category alone is too broad.
+  if (!comp || comp.isSource || comp.isDrawnConnection || comp.category === 'endpoint') return false;
   if (!isUnlocked(comp)) return false;
   const beamlineType = getBeamlineType(typeId);
   if (!beamlineType) return true;
@@ -375,4 +415,6 @@ export const PLACEMENT_HINT_CONSTANTS = Object.freeze({
   maxFocusHints: MAX_FOCUS_HINTS,
   lowEnergySolenoidMaxGeV: LOW_ENERGY_SOLENOID_MAX_GEV,
   defaultQuadPhaseAdvance: DEFAULT_QUAD_PHASE_ADVANCE,
+  highCurrentDcThresholdMA: HIGH_CURRENT_DC_THRESHOLD_MA,
+  dcInjectorMaxEnergyGeV: DC_INJECTOR_MAX_ENERGY_GEV,
 });

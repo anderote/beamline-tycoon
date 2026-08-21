@@ -1,6 +1,6 @@
 # Tier 2 Physics — Photoinjector
 
-> **What runs today:** **space charge is live** — it is a tier-1 module and applies to every beamline in the game. Everything else on this page describes physics that is either implemented but unreachable (emittance compensation needs a solenoid, which is not in the catalogue) or reference material for a source model the game does not yet expose (photocathode MTE, laser spot size). The thermionic Electron Gun's emittance *is* computed from its cathode temperature and extraction voltage, so the source-emittance trade-off is partly real.
+> **What runs today:** **space charge is live** — it is a tier-1 module and applies to every beamline in the game. Solenoids and the DC injector/LEBT are live countermeasures; photocathode MTE remains reference material for source models the game does not yet expose. The thermionic Electron Gun's emittance *is* computed from its cathode temperature and extraction voltage, so the source-emittance trade-off is partly real.
 
 ---
 
@@ -32,6 +32,10 @@ K = (2 * I_peak) / (I_A * beta^3 * gamma^3)
 ```
 
 where `I_A = 17045 A` is the Alfven current, and `I_peak` is the peak current in the bunch.
+
+For ions, the Alfven current scales with particle mass. For an unbunched,
+partly neutralized LEBT, the effective current is
+`I_peak * (1 - compensation)`. RF capture removes that compensation.
 
 For a 50 A peak current beam at 5 MeV (gamma = 10, beta = 0.995):
 ```
@@ -72,7 +76,7 @@ The optimal solenoid position and strength depend on:
 
 In the game, this means the solenoid is not just "a focusing element" — its exact strength matters critically. Too strong or too weak, and the compensation doesn't work. The player needs to tune it by watching the emittance diagnostic.
 
-> **Not reachable yet.** There is no solenoid in the component catalogue, so emittance compensation cannot be attempted. The solenoid transfer matrix and its parameter definitions are implemented and waiting.
+Both the solenoid and the electrostatic lens inside the High-Voltage DC Injector are live focusing channels. The latter is the natural match for a high-current DC source before RF capture.
 
 **The rule of thumb:**
 

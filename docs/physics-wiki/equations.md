@@ -138,7 +138,8 @@ sigma[:,3] *= E_before / E_after
 ### Generalized Perveance
 ```
 K = (2 * I_peak) / (I_A * beta^3 * gamma^3)
-I_A = 17045 A  (Alfven current)
+I_A = 17045 A * (particle_mass / electron_mass)
+I_peak,effective = I_peak * (1 - compensation)  (DC beam only)
 ```
 
 ### Envelope Equation (defocusing term)
@@ -146,11 +147,16 @@ I_A = 17045 A  (Alfven current)
 sigma_x'' = K / (4 * sigma_x)  (plus focusing from external fields)
 ```
 
-### Applied to Sigma Matrix (per element)
+### Applied as a Coherent Envelope Kick (per element)
 ```
-delta_sigma[1,1] += K * L / sigma_x
-delta_sigma[3,3] += K * L / sigma_y
+x' <- x' + K * L * x / (4 * sigma_x^2)
+y' <- y' + K * L * y / (4 * sigma_y^2)
+sigma_out = R_sc * sigma_in * R_sc^T
 ```
+
+The symplectic kick expands the envelope without inventing irreversible
+emittance. External lenses can therefore counter it; scattering modules remain
+responsible for incoherent emittance growth.
 
 ---
 

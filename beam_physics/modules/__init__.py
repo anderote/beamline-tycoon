@@ -1,5 +1,6 @@
 from beam_physics.modules.base import PhysicsModule
 from beam_physics.modules.linear_optics import LinearOpticsModule
+from beam_physics.modules.dc_acceleration import DCElectrostaticAccelerationModule
 from beam_physics.modules.rf_acceleration import RFAccelerationModule
 from beam_physics.modules.synchrotron_rad import SynchrotronRadiationModule
 from beam_physics.modules.synchrotron_light import SynchrotronLightModule

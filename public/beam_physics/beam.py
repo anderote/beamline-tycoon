@@ -19,7 +19,8 @@ class BeamState:
     Units: m, rad, m, rad, s, dimensionless
     """
 
-    def __init__(self, sigma, energy, current, mass=ELECTRON_MASS, bunch_frequency=0.0):
+    def __init__(self, sigma, energy, current, mass=ELECTRON_MASS,
+                 bunch_frequency=0.0, space_charge_compensation=0.0):
         self.sigma = np.array(sigma, dtype=np.float64)
         self.energy = energy        # GeV
         self.current = current      # mA
@@ -30,6 +31,8 @@ class BeamState:
         self.initial_eps_x = self.emittance_x()
         self.initial_eps_y = self.emittance_y()
         self.bunch_frequency = bunch_frequency
+        self.space_charge_compensation = max(
+            0.0, min(float(space_charge_compensation), 0.999))
         self._update_bunch_properties()
 
     def update_relativistic(self):
@@ -168,6 +171,7 @@ class BeamState:
             "peak_current": self.peak_current,
             "n_particles": self.n_particles,
             "bunch_frequency": self.bunch_frequency,
+            "space_charge_compensation": self.space_charge_compensation,
         }
         if extra:
             snap.update(extra)
@@ -179,7 +183,8 @@ def create_initial_beam(params):
     Create a BeamState from source parameters.
 
     params dict keys: energy, mass, current, eps_norm_x, eps_norm_y,
-                      sigma_dE, sigma_dt, beta_x, beta_y, alpha_x, alpha_y
+                      sigma_dE, sigma_dt, beta_x, beta_y, alpha_x, alpha_y,
+                      beam_radius, space_charge_compensation
 
     `energy` is the source's KINETIC energy (extraction/injection energy
     above rest mass, GeV). BeamState.energy is TOTAL energy, so the rest
@@ -198,6 +203,15 @@ def create_initial_beam(params):
     bg = beta_rel * gamma_rel
     eps_x = params["eps_norm_x"] / bg if bg > 0 else params["eps_norm_x"]
     eps_y = params["eps_norm_y"] / bg if bg > 0 else params["eps_norm_y"]
+
+    # A source may publish its measured RMS exit radius. Derive the Twiss beta
+    # that produces that size at the live emittance; sources without the field
+    # retain the legacy authored/default beta values.
+    beam_radius = params.get("beam_radius")
+    if beam_radius is not None and beam_radius > 0:
+        params = dict(params)
+        params["beta_x"] = beam_radius * beam_radius / max(eps_x, 1e-30)
+        params["beta_y"] = beam_radius * beam_radius / max(eps_y, 1e-30)
 
     # Build 6x6 sigma matrix (block diagonal)
     sigma = np.zeros((6, 6))
@@ -227,4 +241,8 @@ def create_initial_beam(params):
     # 0 = unbunched. rf_acceleration.py sets the real frequency at the first
     # RF element; before that the beam is DC and peak current == average.
     bunch_freq = params.get("bunch_frequency", 0.0)
-    return BeamState(sigma, energy, current, mass, bunch_frequency=bunch_freq)
+    return BeamState(
+        sigma, energy, current, mass,
+        bunch_frequency=bunch_freq,
+        space_charge_compensation=params.get("space_charge_compensation", 0.0),
+    )

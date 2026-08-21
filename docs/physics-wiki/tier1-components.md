@@ -28,6 +28,26 @@ The beam quality from a thermionic gun is limited by the thermal energy of the e
 
 ---
 
+## High-Voltage DC Injector / LEBT
+
+**Quick Tip:** Put the DC injector immediately after a high-current thermionic or ion source, before its RFQ or first RF cavity.
+
+**How It Works:**
+
+The injector combines a 100–1000 kV electrostatic acceleration column with an einzel-lens matching section. DC acceleration raises particle momentum without creating RF buckets; the beam remains continuous and unbunched until it reaches an RFQ or buncher. The added rigidity and lens waist keep a high-current source from expanding into the first small aperture.
+
+Ion low-energy beam transport is commonly partly neutralized by electrons from residual gas. The game carries that compensation only while the beam is DC. The first RF capture element clears it, because a bunched, accelerating beam cannot retain the same stationary neutralizing cloud.
+
+**Game parameters:**
+
+- `terminalVoltage` (kV): DC energy gain; 750 kV adds 0.00075 GeV.
+- `lensVoltage` (kV): Electrostatic matching strength. Too little misses the RFQ acceptance; too much over-focuses.
+- `spaceChargeCompensation`: Published by the hardware at 99%; it is a propagated solver value, not a permanent beam bonus.
+
+The component needs 400 kW of electrical capacity, 150 kW of process cooling, and vacuum. It needs no RF waveguide: RF capture is the next component's job.
+
+---
+
 ## Drift (Beam Pipe)
 
 **Quick Tip:** A drift is empty beam pipe — the beam coasts through but spreads out as it travels.

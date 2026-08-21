@@ -21,6 +21,7 @@ Legend: **MVP** = currently in the starter set; everything else is deferred.
 
 ### Utility / drift (`subsection: utility`)
 
+- [x] `dcInjector` — High-Voltage DC Injector — cost 1500000 — energyGain 0.00075, focusStrength 0.9 — _DC extraction column and neutralized LEBT matching lens for high-current sources._
 - [x] **MVP** `drift` — Beam Pipe — cost 10000 — energy 0 — _Straight beam pipe, no active elements. Drawn-connection. Cheap length filler._
 - [x] **MVP** `bellows` — Bellows Section — cost 15000 — energy 0 — _Flexible vacuum bellows, absorbs thermal expansion / vibration._
 

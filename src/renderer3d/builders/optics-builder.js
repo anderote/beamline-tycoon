@@ -1,7 +1,7 @@
 // src/renderer3d/builders/optics-builder.js
 //
 // Role-bucket builders for beam-optics manipulation components:
-// solenoid, collimator, aperture, velocity selector, pepper-pot emittance
+// DC injector/LEBT, solenoid, collimator, aperture, velocity selector, pepper-pot emittance
 // filter, and sextupole.
 //
 // Conventions match component-builder.js and diagnostic-builder.js:
@@ -134,6 +134,52 @@ function buildSegment(bucket, a, b, radius, segs = 10) {
 
 function buildSideFlange(bucket, x, z = 0) {
   buildCylX(bucket, FLANGE_R, FLANGE_H, { x, z });
+}
+
+// ── High-voltage DC injector / LEBT ─────────────────────────────────
+// subL=4 subW=4 subH=5 → a 2m accelerating column with a visibly distinct
+// ceramic stack at the source end and a three-electrode einzel lens at exit.
+// Keeping both signatures on the beam axis makes the model read as transport
+// hardware, not as another integrated ion source.
+export function _buildDcInjectorRoles() {
+  const buckets = makeBuckets();
+  const halfLen = 1.0;
+
+  buildPipeSegment(buckets, 4);
+  buildFlanges(buckets, halfLen);
+
+  // Graded accelerating column: ceramic spacers alternate with copper field
+  // electrodes. The open stack is the visual vocabulary of a DC HV column.
+  for (let i = 0; i < 7; i++) {
+    const z = -0.72 + i * 0.16;
+    buildTorus(buckets.accent, 0.27, 0.052, { z });
+    if (i < 6) buildTorus(buckets.copper, 0.225, 0.025, { z: z + 0.08 });
+  }
+
+  // Three thick electrodes form the downstream einzel lens. The center
+  // electrode is larger and copper-fed from the side terminal box.
+  for (const [z, radius] of [[0.42, 0.23], [0.58, 0.29], [0.74, 0.23]]) {
+    buildTorus(buckets.iron, radius, 0.055, { z });
+  }
+  buildBox(buckets.accent, 0.28, 0.30, 0.34, {
+    x: 0.48, y: BEAM_HEIGHT + 0.25, z: 0.58,
+  });
+  buildCylX(buckets.copper, 0.035, 0.34, {
+    x: 0.31, y: BEAM_HEIGHT + 0.25, z: 0.58,
+  });
+
+  // HV terminal dome and insulated feed stalk above the column midpoint.
+  buildCylX(buckets.detail, 0.16, 0.44, {
+    x: 0.48, y: BEAM_HEIGHT + 0.68, z: -0.18,
+  });
+  buildBox(buckets.accent, 0.16, 0.50, 0.16, {
+    x: 0.48, y: BEAM_HEIGHT + 0.39, z: -0.18,
+  });
+
+  buildPedestals(buckets, [-0.66, 0.66], BEAM_HEIGHT - 0.30, {
+    width: 0.28, depth: 0.18,
+  });
+  return buckets;
 }
 
 // ── Injection Septum ────────────────────────────────────────────────

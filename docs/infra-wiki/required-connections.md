@@ -22,6 +22,7 @@ The numbers below are the declared loads: power in kW, cooling in kW of heat, RF
 | Electron Gun | 50 | 30 | | | | 1e-6 |
 | Duoplasmatron Ion Source | 30 | 20 | | | | 1e-6 |
 | ECR Ion Source | 60 | 40 | 6 @ 2450 MHz | | | 5e-6 |
+| High-Voltage DC Injector | 400 | 150 | | | | 2e-6 |
 
 ### Drift / Beam Pipe
 | Component | Power | Cooling | RF | Cryo | Data | Vacuum |

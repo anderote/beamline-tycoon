@@ -129,6 +129,13 @@ const BEAMLINE_UTILITY_PORTS = {
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 40 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 6 } },
   },
+  // The default 750 kV stage adds up to 300 kW of beam power at the ECR's
+  // 400 mA design current. The electrical sink is intentionally substation-
+  // scale; the cooling loop carries column, lens, and intercepted-halo heat.
+  dcInjector: {
+    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 400 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.7, role: 'sink', params: { heatLoad: 150 } },
+  },
 
   // ── Compound machines ─────────────────────────────────────────────
   // Source + acceleration + extraction in one crate. Their utility profiles
@@ -623,7 +630,7 @@ const VACUUM_OUTGASSING = {
   bpm: 2e-7, ict: 2e-7, screen: 2e-7, wireScanner: 2e-7, faradayCup: 2e-7,
   // medium modules
   source: 1e-6, dcPhotoGun: 1e-6, ncRfGun: 2e-6, srfGun: 2e-6,
-  penningIonSource: 1e-6, ionSource: 1e-6, pillboxCavity: 1e-6, spokeCavity: 1e-6,
+  penningIonSource: 1e-6, ionSource: 1e-6, dcInjector: 2e-6, pillboxCavity: 1e-6, spokeCavity: 1e-6,
   ellipticalSrfCavity: 1e-6, rfq: 1e-6, dtl: 1.5e-6, target: 1e-6, industrialLinac: 1e-6,
   // large vessels / gas-loaded
   ecrIonSource: 5e-6, rfCavity: 2e-6, sbandStructure: 2e-6,

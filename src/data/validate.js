@@ -33,7 +33,7 @@ import { UTILITY_TYPE_LIST } from '../utility/registry.js';
 export const KNOWN_PHYSICS_TYPES = new Set([
   'source', 'drift', 'quadrupole', 'dipole', 'combined_function',
   'rfCavity', 'cryomodule', 'sextupole', 'collimator', 'undulator',
-  'solenoid', 'chicane', 'detector', 'target', 'beamStop',
+  'solenoid', 'dcAccelerator', 'chicane', 'detector', 'target', 'beamStop',
 ]);
 
 export const KNOWN_KINDS = new Set([
@@ -521,6 +521,19 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
       problem(id, 'physicsType', 'missing physicsType — every beamline component must declare its physics identity');
     } else if (!KNOWN_PHYSICS_TYPES.has(def.physicsType)) {
       problem(id, 'physicsType', `unknown physicsType '${def.physicsType}' (known: ${[...KNOWN_PHYSICS_TYPES].sort().join(', ')})`);
+    }
+
+    // Source exit phase space crosses JS -> Python by name.  Reject malformed
+    // authored values here instead of silently falling back to the old one-size
+    // Twiss beam in gameplay.py.
+    if (def.sourceBeamRadiusMm != null &&
+        (!Number.isFinite(def.sourceBeamRadiusMm) || def.sourceBeamRadiusMm <= 0)) {
+      problem(id, 'sourceBeamRadiusMm', 'source beam radius must be a positive finite RMS radius in mm');
+    }
+    if (def.sourceSpaceChargeCompensation != null &&
+        (!Number.isFinite(def.sourceSpaceChargeCompensation) ||
+         def.sourceSpaceChargeCompensation < 0 || def.sourceSpaceChargeCompensation >= 1)) {
+      problem(id, 'sourceSpaceChargeCompensation', 'source compensation must be a finite fraction in [0, 1)');
     }
 
     // Role/routing shape. Drawn connections (drift) carry no role.

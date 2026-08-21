@@ -89,6 +89,7 @@ import {
   _buildUndulatorRoles,
   _buildEnergyDegraderRoles,
   _buildScanningMagnetRoles,
+  _buildDcInjectorRoles,
   _buildSolenoidRoles,
   _buildCollimatorRoles,
   _buildApertureRoles,
@@ -1546,6 +1547,7 @@ ROLE_BUILDERS.chicane = _buildChicaneRoles;
 ROLE_BUILDERS.undulator = _buildUndulatorRoles;
 ROLE_BUILDERS.energyDegrader = _buildEnergyDegraderRoles;
 ROLE_BUILDERS.scanningMagnet = _buildScanningMagnetRoles;
+ROLE_BUILDERS.dcInjector = _buildDcInjectorRoles;
 ROLE_BUILDERS.solenoid = _buildSolenoidRoles;
 ROLE_BUILDERS.collimator = _buildCollimatorRoles;
 ROLE_BUILDERS.aperture = _buildApertureRoles;

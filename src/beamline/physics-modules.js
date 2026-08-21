@@ -8,6 +8,7 @@ export const PY_PHYSICS_MODULES = Object.freeze([
   'beam_physics/modules/__init__.py',
   'beam_physics/modules/base.py',
   'beam_physics/modules/linear_optics.py',
+  'beam_physics/modules/dc_acceleration.py',
   'beam_physics/modules/rf_acceleration.py',
   'beam_physics/modules/space_charge.py',
   'beam_physics/modules/synchrotron_rad.py',

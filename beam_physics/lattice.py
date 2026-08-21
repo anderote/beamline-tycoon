@@ -119,7 +119,11 @@ def propagate(beamline_config, machine_type=None, source_params=None):
             }))
             continue
 
-        if etype in ("quadrupole", "sextupole"):
+        is_focusing = (
+            etype in ("quadrupole", "sextupole", "solenoid", "dcAccelerator")
+            or (etype == "rfCavity" and element.get("game_type") == "rfq")
+        )
+        if is_focusing:
             n_focusing += 1
             last_focus_s = context.cumulative_s
 
