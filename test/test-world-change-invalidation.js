@@ -143,3 +143,48 @@ test('stable-id snapshot patches preserve untouched equipment and furnishings', 
     'an unrelated equipment snapshot entry is not remapped');
   assert.equal(partial.furnishings[0].col, 3);
 });
+
+test('decoration snapshot patches preserve untouched entries until shared context changes', () => {
+  const first = {
+    id: 'dec_1', kind: 'decoration', category: 'outdoor', type: 'parkBench',
+    col: 0, row: 0, subCol: 0, subRow: 0, dir: 0,
+  };
+  const second = {
+    id: 'dec_2', kind: 'decoration', category: 'outdoor', type: 'parkBench',
+    col: 2, row: 0, subCol: 0, subRow: 0, dir: 0,
+  };
+  const game = {
+    state: {
+      placeables: [first, second],
+      placeableIndex: { dec_1: 0, dec_2: 1 },
+      cornerHeights: new Map(),
+      cornerHeightsRevision: 0,
+      wallOccupied: {},
+      zoneOccupied: {},
+    },
+  };
+  const current = buildWorldSnapshot(game, { only: ['decorations'] });
+  const untouched = current.decorations.find(entry => entry.id === 'dec_2');
+  const moved = { ...first, col: 1 };
+  game.state.placeables[0] = moved;
+  const exact = placeableWorldChange(moved, 'moved');
+  const partial = updateWorldSnapshot(game, current, {
+    only: ['decorations'], changeSet: exact,
+  });
+  assert.strictEqual(
+    partial.decorations.find(entry => entry.id === 'dec_2'),
+    untouched,
+    'an exact decoration move does not remap unrelated entries',
+  );
+  assert.equal(partial.decorations.find(entry => entry.id === 'dec_1').col, 1);
+
+  exact.domains.add('terrain');
+  const contextual = updateWorldSnapshot(game, current, {
+    only: ['decorations'], changeSet: exact,
+  });
+  assert.notStrictEqual(
+    contextual.decorations.find(entry => entry.id === 'dec_2'),
+    untouched,
+    'terrain/room/wall context retains the safe full-section fallback',
+  );
+});

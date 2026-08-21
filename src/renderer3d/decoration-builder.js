@@ -6,6 +6,7 @@ import { DECORATIONS_RAW } from '../data/decorations.raw.js';
 import { LIGHTING_DEFS } from '../data/placeables/lighting.js';
 import { buildLightFixture, isAimedFixture } from './lighting-builder.js';
 import { fixtureMountY, wallFixturePose } from './fixture-light-math.js';
+import { contentKey } from './content-hash.js';
 
 const SUB = 0.5; // 1 sub-tile = 0.5 world units
 
@@ -1821,12 +1822,24 @@ export class DecorationBuilder {
     this._groups = [];
     /** Placeable id → group, for hover/demolish/move mesh lookups. @type {Map<string, THREE.Group>} */
     this._groupsById = new Map();
+    /** Ordinary (non-batched-plant) placeable id → rendered group. */
+    this._ordinaryGroupsById = new Map();
+    /** Ordinary placeable id → structural snapshot signature. */
+    this._ordinarySignaturesById = new Map();
+    /** Compatibility-only groups for old/test snapshot records without IDs. */
+    this._anonymousGroups = [];
     /** Lighting fixtures built by the last `build()` call, for lighting systems to
      * enumerate without re-scanning every decoration.
      * @type {Array<{id: string|number, def: object, group: THREE.Group, indoors: boolean}>} */
     this._lightingFixtures = [];
+    /** Fixture placeable id → canonical lighting registry record. */
+    this._fixturesById = new Map();
+    this._anonymousFixtures = [];
     /** Material-compatible BatchedMeshes used by trees and shrubs. */
     this._plantBatches = [];
+    /** IDs represented by the current shared plant batches. */
+    this._plantIds = new Set();
+    this._plantSignature = null;
     /** Small reusable silhouette library: species × visual variant. */
     this._plantPrototypes = new Map();
     this._batchStats = { plantCount: 0, batchCount: 0, partCount: 0, prototypeCount: 0 };
@@ -1906,12 +1919,56 @@ export class DecorationBuilder {
     group.rotation.y = wallPose?.yaw
       ?? (lightDef ? lightingYaw(lightDef, p.rotY, p.seed) : p.rotY);
     if (lightDef) {
-      this._lightingFixtures.push({ id: dec.id, def: lightDef, group, indoors: dec.indoors === true });
+      const fixture = {
+        id: dec.id, def: lightDef, group, indoors: dec.indoors === true,
+      };
+      if (dec.id != null) this._fixturesById.set(dec.id, fixture);
+      else this._anonymousFixtures.push(fixture);
     }
 
     parentGroup.add(group);
-    this._groups.push(group);
-    if (dec.id != null) this._groupsById.set(dec.id, group);
+    if (dec.id != null) {
+      this._ordinaryGroupsById.set(dec.id, group);
+      this._groupsById.set(dec.id, group);
+    } else this._anonymousGroups.push(group);
+    return group;
+  }
+
+  _disposeOrdinaryDecoration(id, parentGroup) {
+    const group = this._ordinaryGroupsById.get(id);
+    if (!group) return;
+    parentGroup.remove(group);
+    group.traverse(child => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) child.material.dispose();
+    });
+    this._ordinaryGroupsById.delete(id);
+    this._ordinarySignaturesById.delete(id);
+    this._fixturesById.delete(id);
+    this._groupsById.delete(id);
+  }
+
+  _disposePlantBatches(parentGroup) {
+    for (const batch of this._plantBatches) {
+      parentGroup.remove(batch);
+      batch.material?.dispose?.();
+      batch.dispose?.();
+    }
+    this._plantBatches = [];
+    for (const id of this._plantIds) this._groupsById.delete(id);
+    this._plantIds.clear();
+    this._plantSignature = null;
+    this._batchStats = {
+      plantCount: 0, batchCount: 0, partCount: 0,
+      prototypeCount: this._plantPrototypes.size,
+    };
+  }
+
+  _syncPublicCollections({ lightingChanged = false } = {}) {
+    this._groups = [...this._groupsById.values(), ...this._anonymousGroups];
+    if (lightingChanged) {
+      this._lightingFixtures = [...this._fixturesById.values(), ...this._anonymousFixtures];
+    }
   }
 
   _plantPrototype(dec, p) {
@@ -1950,7 +2007,10 @@ export class DecorationBuilder {
         width: p.geoW, height: p.totalH, depth: p.geoL,
       };
       this._groups.push(root);
-      if (dec.id != null) this._groupsById.set(dec.id, root);
+      if (dec.id != null) {
+        this._groupsById.set(dec.id, root);
+        this._plantIds.add(dec.id);
+      } else this._anonymousGroups.push(root);
 
       rotation.setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.rotY);
       placementMatrix.compose(root.position, rotation, unitScale);
@@ -2024,17 +2084,95 @@ export class DecorationBuilder {
    * @param {Array} decorationData - Array of decoration objects from WorldSnapshot
    * @param {THREE.Group} parentGroup
    */
-  build(decorationData, parentGroup) {
-    this.dispose(parentGroup);
-    if (!decorationData) return;
-    this._lightingFixtures = [];
+  build(decorationData, parentGroup, { changes = null } = {}) {
+    if (!decorationData) {
+      this.dispose(parentGroup);
+      return { decorationsChanged: true, lightingChanged: true, plantsRebuilt: true };
+    }
     const canBatch = typeof THREE !== 'undefined' && typeof THREE.BatchedMesh === 'function';
     const plants = canBatch ? decorationData.filter(dec => _isBatchablePlant(dec.type)) : [];
     const plantSet = new Set(plants);
-    for (const dec of decorationData) {
-      if (!plantSet.has(dec)) this._addOrdinaryDecoration(dec, parentGroup);
+    const ordinary = decorationData.filter(dec => !plantSet.has(dec));
+    const byId = new Map(decorationData
+      .filter(dec => dec.id != null)
+      .map(dec => [dec.id, dec]));
+    let decorationsChanged = false;
+    let lightingChanged = false;
+    let plantsRebuilt = false;
+
+    // Stable IDs are a production snapshot contract, but a few pure builder
+    // tests and old integrations still pass anonymous records. Keep their
+    // historical full-build behavior instead of silently dropping geometry.
+    if (decorationData.some(dec => dec.id == null)) {
+      this.dispose(parentGroup);
+      for (const dec of ordinary) this._addOrdinaryDecoration(dec, parentGroup);
+      if (canBatch) this._buildPlantBatches(plants, parentGroup);
+      this._plantSignature = contentKey(plants);
+      this._syncPublicCollections({ lightingChanged: true });
+      return { decorationsChanged: true, lightingChanged: true, plantsRebuilt: true };
     }
-    if (canBatch) this._buildPlantBatches(plants, parentGroup);
+
+    const replaceOrdinary = (id, dec) => {
+      const previousFixture = this._fixturesById.has(id);
+      const signature = dec ? contentKey(dec) : null;
+      if (dec && this._ordinaryGroupsById.has(id)
+          && this._ordinarySignaturesById.get(id) === signature) return;
+      if (this._ordinaryGroupsById.has(id)) this._disposeOrdinaryDecoration(id, parentGroup);
+      if (dec) {
+        this._addOrdinaryDecoration(dec, parentGroup);
+        this._ordinarySignaturesById.set(id, signature);
+      }
+      decorationsChanged = true;
+      if (previousFixture || this._fixturesById.has(id)) lightingChanged = true;
+    };
+
+    // Exact placeable patches are the common placement/move/demolish path.
+    // They avoid even hashing unrelated benches, signs, and fixture housings.
+    const exactChanges = changes instanceof Map && changes.size > 0
+      && Array.from(changes.values()).every(change => change.kind != null);
+    if (exactChanges) {
+      let plantTouched = false;
+      for (const change of changes.values()) {
+        if (change.kind !== 'decoration') continue;
+        const dec = byId.get(change.id) || null;
+        const isPlantNow = !!dec && canBatch && _isBatchablePlant(dec.type);
+        if (this._plantIds.has(change.id) || isPlantNow) plantTouched = true;
+        replaceOrdinary(change.id, isPlantNow ? null : dec);
+      }
+      if (plantTouched) {
+        this._disposePlantBatches(parentGroup);
+        if (canBatch) this._buildPlantBatches(plants, parentGroup);
+        this._plantSignature = contentKey(plants);
+        decorationsChanged = true;
+        plantsRebuilt = true;
+      }
+      this._syncPublicCollections({ lightingChanged });
+      return { decorationsChanged, lightingChanged, plantsRebuilt };
+    }
+
+    // Broad changes (load/restore, zone context, terrain, old callers) still
+    // reconcile by stable id. Only entries whose structural content changed
+    // allocate new geometry; removed entries are disposed individually.
+    const desiredOrdinary = new Set();
+    for (const dec of ordinary) {
+      if (dec.id == null) continue;
+      desiredOrdinary.add(dec.id);
+      replaceOrdinary(dec.id, dec);
+    }
+    for (const id of [...this._ordinaryGroupsById.keys()]) {
+      if (!desiredOrdinary.has(id)) replaceOrdinary(id, null);
+    }
+
+    const plantSignature = contentKey(plants);
+    if (plantSignature !== this._plantSignature) {
+      this._disposePlantBatches(parentGroup);
+      if (canBatch) this._buildPlantBatches(plants, parentGroup);
+      this._plantSignature = plantSignature;
+      decorationsChanged = true;
+      plantsRebuilt = true;
+    }
+    this._syncPublicCollections({ lightingChanged });
+    return { decorationsChanged, lightingChanged, plantsRebuilt };
   }
 
   /**
@@ -2042,13 +2180,11 @@ export class DecorationBuilder {
    * @param {THREE.Group} parentGroup
    */
   dispose(parentGroup) {
-    for (const batch of this._plantBatches) {
-      parentGroup.remove(batch);
-      batch.material?.dispose?.();
-      batch.dispose?.();
+    this._disposePlantBatches(parentGroup);
+    for (const id of [...this._ordinaryGroupsById.keys()]) {
+      this._disposeOrdinaryDecoration(id, parentGroup);
     }
-    this._plantBatches = [];
-    for (const group of this._groups) {
+    for (const group of this._anonymousGroups) {
       parentGroup.remove(group);
       if (group.userData?.batchedPlantRoot) continue;
       group.traverse(child => {
@@ -2056,9 +2192,14 @@ export class DecorationBuilder {
         if (child.material) child.material.dispose();
       });
     }
+    this._anonymousGroups = [];
     this._groups = [];
     this._groupsById.clear();
+    this._ordinaryGroupsById.clear();
+    this._ordinarySignaturesById.clear();
     this._lightingFixtures = [];
+    this._fixturesById.clear();
+    this._anonymousFixtures = [];
     this._batchStats = {
       plantCount: 0, batchCount: 0, partCount: 0,
       prototypeCount: this._plantPrototypes.size,

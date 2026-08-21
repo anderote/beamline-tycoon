@@ -392,78 +392,80 @@ function equipmentSnapshotEntry(eq) {
 function buildDecorations(game) {
   return (game.state.placeables || [])
     .filter(p => p.kind === 'decoration')
-    .map(d => {
-      // PLACEABLES is a superset of the legacy DECORATIONS_RAW map and the
-      // source of truth for every def, lighting fixtures included — a
-      // DECORATIONS_RAW-only lookup would silently resolve lighting fixtures
-      // to category 'unknown' and default 4x4x4 dims.
-      const raw = PLACEABLES[d.type];
-      const category = raw?.category ?? 'unknown';
-      const subW = raw?.subW ?? raw?.gridW ?? 4;
-      const subL = raw?.subL ?? raw?.gridH ?? 4;
-      // Occupancy extents swap on dir 1/3 — same rule as Placeable.footprintCells,
-      // so the sampled midpoint is the centre of the cells actually reserved.
-      const dir = d.dir || 0;
-      const swap = dir === 1 || dir === 3;
-      const footW = swap ? subL : subW;
-      const footL = swap ? subW : subL;
-      // Centered (no sub-cell) decorations sample the tile midpoint. Triangulated,
-      // not bilinear, so the base lands on the rendered mesh on unflattened slopes.
-      const sampleCol = d.wallMount?.col ?? d.col;
-      const sampleRow = d.wallMount?.row ?? d.row;
-      const c = getTileCornersY(game.state, sampleCol, sampleRow);
-      const subRes = 4;
-      let u = (d.subCol != null) ? ((d.subCol + footW / 2) / subRes) : 0.5;
-      let v = (d.subRow != null) ? ((d.subRow + footL / 2) / subRes) : 0.5;
-      if (d.wallMount) {
-        const f = (Math.max(0, Math.min(3, d.wallMount.off ?? 1)) + 0.5) / 4;
-        if (d.wallMount.edge === 'n') { u = f; v = 0; }
-        else if (d.wallMount.edge === 'e') { u = 1; v = f; }
-        else if (d.wallMount.edge === 's') { u = 1 - f; v = 1; }
-        else if (d.wallMount.edge === 'w') { u = 0; v = 1 - f; }
-      }
-      const y = sampleCornersTriangulated(c, u, v);
-      let wallMount = null;
-      if (d.wallMount) {
-        const wallKey = findWallKey(
-          game.state.wallOccupied, d.wallMount.col, d.wallMount.row, d.wallMount.edge,
-        );
-        const wallType = wallKey ? game.state.wallOccupied[wallKey] : null;
-        wallMount = {
-          ...d.wallMount,
-          faceOffset: wallFixtureFaceOffset(WALL_TYPES[wallType]),
-        };
-      }
-      const zoneOccupied = game.state.zoneOccupied || {};
-      const roomKeys = [`${d.col},${d.row}`];
-      if (d.wallMount) {
-        const edgeDelta = {
-          n: [0, -1], e: [1, 0], s: [0, 1], w: [-1, 0],
-        }[d.wallMount.edge];
-        if (edgeDelta) roomKeys.push(`${d.wallMount.col + edgeDelta[0]},${d.wallMount.row + edgeDelta[1]}`);
-      }
-      return {
-        // Placeable id, so the builder can key its groups and hover/demolish
-        // lookups can resolve a decoration's mesh the way components do.
-        id: d.id,
-        col: d.col,
-        row: d.row,
-        type: d.type,
-        category,
-        subCol: d.subCol ?? null,
-        subRow: d.subRow ?? null,
-        subW,
-        subL,
-        dir,
-        subH: raw?.subH ?? 4,
-        variant: d.variant ?? null,
-        tall: d.tall ?? false,
-        placeY: d.placeY || 0,
-        wallMount,
-        indoors: roomKeys.some((key) => !!zoneOccupied[key]),
-        y,
-      };
-    });
+    .map(d => decorationSnapshotEntry(game, d));
+}
+
+function decorationSnapshotEntry(game, d) {
+  // PLACEABLES is a superset of the legacy DECORATIONS_RAW map and the
+  // source of truth for every def, lighting fixtures included — a
+  // DECORATIONS_RAW-only lookup would silently resolve lighting fixtures
+  // to category 'unknown' and default 4x4x4 dims.
+  const raw = PLACEABLES[d.type];
+  const category = raw?.category ?? 'unknown';
+  const subW = raw?.subW ?? raw?.gridW ?? 4;
+  const subL = raw?.subL ?? raw?.gridH ?? 4;
+  // Occupancy extents swap on dir 1/3 — same rule as Placeable.footprintCells,
+  // so the sampled midpoint is the centre of the cells actually reserved.
+  const dir = d.dir || 0;
+  const swap = dir === 1 || dir === 3;
+  const footW = swap ? subL : subW;
+  const footL = swap ? subW : subL;
+  // Centered (no sub-cell) decorations sample the tile midpoint. Triangulated,
+  // not bilinear, so the base lands on the rendered mesh on unflattened slopes.
+  const sampleCol = d.wallMount?.col ?? d.col;
+  const sampleRow = d.wallMount?.row ?? d.row;
+  const c = getTileCornersY(game.state, sampleCol, sampleRow);
+  const subRes = 4;
+  let u = (d.subCol != null) ? ((d.subCol + footW / 2) / subRes) : 0.5;
+  let v = (d.subRow != null) ? ((d.subRow + footL / 2) / subRes) : 0.5;
+  if (d.wallMount) {
+    const f = (Math.max(0, Math.min(3, d.wallMount.off ?? 1)) + 0.5) / 4;
+    if (d.wallMount.edge === 'n') { u = f; v = 0; }
+    else if (d.wallMount.edge === 'e') { u = 1; v = f; }
+    else if (d.wallMount.edge === 's') { u = 1 - f; v = 1; }
+    else if (d.wallMount.edge === 'w') { u = 0; v = 1 - f; }
+  }
+  const y = sampleCornersTriangulated(c, u, v);
+  let wallMount = null;
+  if (d.wallMount) {
+    const wallKey = findWallKey(
+      game.state.wallOccupied, d.wallMount.col, d.wallMount.row, d.wallMount.edge,
+    );
+    const wallType = wallKey ? game.state.wallOccupied[wallKey] : null;
+    wallMount = {
+      ...d.wallMount,
+      faceOffset: wallFixtureFaceOffset(WALL_TYPES[wallType]),
+    };
+  }
+  const zoneOccupied = game.state.zoneOccupied || {};
+  const roomKeys = [`${d.col},${d.row}`];
+  if (d.wallMount) {
+    const edgeDelta = {
+      n: [0, -1], e: [1, 0], s: [0, 1], w: [-1, 0],
+    }[d.wallMount.edge];
+    if (edgeDelta) roomKeys.push(`${d.wallMount.col + edgeDelta[0]},${d.wallMount.row + edgeDelta[1]}`);
+  }
+  return {
+    // Placeable id, so the builder can key its groups and hover/demolish
+    // lookups can resolve a decoration's mesh the way components do.
+    id: d.id,
+    col: d.col,
+    row: d.row,
+    type: d.type,
+    category,
+    subCol: d.subCol ?? null,
+    subRow: d.subRow ?? null,
+    subW,
+    subL,
+    dir,
+    subH: raw?.subH ?? 4,
+    variant: d.variant ?? null,
+    tall: d.tall ?? false,
+    placeY: d.placeY || 0,
+    wallMount,
+    indoors: roomKeys.some((key) => !!zoneOccupied[key]),
+    y,
+  };
 }
 
 function buildBeamPaths(game) {
@@ -679,6 +681,7 @@ export function buildWorldSnapshot(game, opts = {}) {
 const PATCHABLE_PLACEABLE_KINDS = Object.freeze({
   components: new Set(['beamline', 'infrastructure']),
   equipment: new Set(['equipment']),
+  decorations: new Set(['decoration']),
   furnishings: new Set(['furnishing']),
 });
 
@@ -698,8 +701,9 @@ function patchSnapshotArray(current, changes, acceptedKinds, findLive, mapEntry)
 /**
  * Build selected sections, incrementally patching the stable-id placeable
  * arrays when a canonical change-set proves exactly which entries changed.
- * Sections with derived cross-entity context (terrain, rooms, decorations,
- * pipes) deliberately retain their safe full-section builders.
+ * Sections with derived cross-entity context retain safe full-section
+ * fallbacks. Decorations patch exact IDs only while terrain/room/wall context
+ * is unchanged; contextual mutations rebuild that complete section.
  */
 export function updateWorldSnapshot(game, current, opts = {}) {
   const only = opts.only ? new Set(opts.only) : null;
@@ -726,14 +730,18 @@ export function updateWorldSnapshot(game, current, opts = {}) {
     }
     const hasUnknownKind = Array.from(changeSet.placeables.values())
       .some(change => change.kind == null);
-    if (hasUnknownKind) {
+    const decorationContextChanged = name === 'decorations'
+      && ['terrain', 'zones', 'walls'].some(domain => changeSet.domains.has(domain));
+    if (hasUnknownKind || decorationContextChanged) {
       partial[name] = SECTION_BUILDERS[name](game);
       continue;
     }
     const findLive = name === 'furnishings' ? furnishingById : placeableById;
     const mapEntry = name === 'components'
       ? entry => componentSnapshotEntry(game, entry)
-      : name === 'equipment' ? equipmentSnapshotEntry : furnishingSnapshotEntry;
+      : name === 'equipment' ? equipmentSnapshotEntry
+        : name === 'decorations' ? entry => decorationSnapshotEntry(game, entry)
+          : furnishingSnapshotEntry;
     partial[name] = patchSnapshotArray(
       current[name], changeSet.placeables, acceptedKinds, findLive, mapEntry,
     ) ?? SECTION_BUILDERS[name](game);

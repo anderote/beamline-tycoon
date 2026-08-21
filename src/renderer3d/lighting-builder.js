@@ -46,6 +46,7 @@ import {
   lightPoolRadius,
 } from './fixture-light-math.js';
 import { SOFT_GLOW_LAYER } from './glow-pipeline.js';
+import { contentKey } from './content-hash.js';
 
 export { aimYaw, isAimedFixture } from './fixture-light-math.js';
 
@@ -858,13 +859,17 @@ function makePoolOccludersDoubleSided(occluders) {
  * lane stays a pure (1 - weight), so neither has to know about the other.
  *
  * @param {Array<{id:*, def:object, group:THREE.Group}>} fixtures - ThreeRenderer.lightingGroup.
- * @param {{occluders?: THREE.Object3D|Array<THREE.Object3D>}} [opts] opaque
- * wall geometry. When present, each pool is traced against it once at rebuild
- * time, so the cheap fallback light never paints through a wall.
+ * @param {{occluders?: THREE.Object3D|Array<THREE.Object3D>, fragmentCache?: Map}} [opts]
+ * opaque wall geometry and an optional stable-id fragment cache. The caller
+ * must clear the cache when wall occlusion changes. With the cache, only new
+ * or moved fixtures repeat their 32-ray trace; the result is still one mesh.
  * @returns {THREE.Mesh|null} null when there is nothing to draw.
  */
 export function buildLightPools(fixtures, opts = {}) {
-  if (!fixtures || !fixtures.length) return null;
+  if (!fixtures || !fixtures.length) {
+    if (opts.fragmentCache instanceof Map) opts.fragmentCache.clear();
+    return null;
+  }
 
   const positions = [];
   const uvs = [];
@@ -872,7 +877,6 @@ export function buildLightPools(fixtures, opts = {}) {
   const indices = [];
   let vertCount = 0;
   let poolCount = 0;
-  const tmpColor = new THREE.Color();
   // fixture id -> pool index. Built HERE, inline with the loop, rather than
   // derived afterwards by index-of-fixture: the two `continue`s below (no
   // light block; degenerate radius) mean pool index and fixture index are not
@@ -883,6 +887,8 @@ export function buildLightPools(fixtures, opts = {}) {
   const occluders = opts.occluders
     ? (Array.isArray(opts.occluders) ? opts.occluders : [opts.occluders])
     : [];
+  const fragmentCache = opts.fragmentCache instanceof Map ? opts.fragmentCache : null;
+  const seenFixtureIds = new Set();
   // 32 rays per fixture only run when walls or fixtures change. This is enough
   // to keep a curved pool smooth while making a 60-fixture facility a small,
   // one-off raycast batch rather than a per-frame lighting cost.
@@ -890,96 +896,133 @@ export function buildLightPools(fixtures, opts = {}) {
   const rayOrigin = new THREE.Vector3();
   const rayTarget = new THREE.Vector3();
   const rayDelta = new THREE.Vector3();
+  const tmpColor = new THREE.Color();
   const RAY_SEGMENTS = 32;
   // A wall's render side is view-facing, not physics-facing. Keep the change
   // scoped to this one-off rebuild: the visible material is restored before
   // the renderer can draw another frame.
-  const restoreOccluderSides = raycaster ? makePoolOccludersDoubleSided(occluders) : null;
+  let restoreOccluderSides = null;
 
   for (const fx of fixtures) {
     const def = fx.def;
     const light = def?.light;
-    if (!light) continue;
+    const cacheId = fx.id ?? null;
+    if (cacheId != null) seenFixtureIds.add(cacheId);
+    const signature = contentKey([
+      def?.id ?? null,
+      def?.mount ?? null,
+      light ?? null,
+      fx.group?.position?.x ?? 0,
+      fx.group?.position?.y ?? 0,
+      fx.group?.position?.z ?? 0,
+      fx.group?.rotation?.y ?? 0,
+    ]);
+    const cached = cacheId != null ? fragmentCache?.get(cacheId) : null;
+    let fragment = cached?.signature === signature ? cached.fragment : undefined;
 
-    const projection = fixtureLightProjection(def, {
-      origin: fx.group.position,
-      yaw: fx.group.rotation.y || 0,
-    });
-    const { rx, rz, offsetX, offsetZ } = projection.groundFootprint;
-    if (rx <= 0 || rz <= 0) continue;
-
-    const floorY = projection.floorY + POOL_Y_LIFT;
-    const cx = projection.emitter.x + offsetX;
-    const cz = projection.emitter.z + offsetZ;
-
-    tmpColor.set(light.color);
-    const brightness = (light.intensity ?? 1) * POOL_COLOR_SCALE;
-    const r = tmpColor.r * brightness, g = tmpColor.g * brightness, b = tmpColor.b * brightness;
-
-    const corners = [
-      [cx - rx, cz - rz, 0, 0],
-      [cx + rx, cz - rz, 1, 0],
-      [cx + rx, cz + rz, 1, 1],
-      [cx - rx, cz + rz, 0, 1],
-    ];
-    const firstVertex = vertCount;
-    if (!raycaster) {
-      for (const [x, z, u, v] of corners) {
-        positions.push(x, floorY, z);
-        uvs.push(u, v);
-        colors.push(r, g, b, 1); // alpha = 1: unsuppressed until the rig says otherwise
-      }
-      indices.push(vertCount, vertCount + 1, vertCount + 2, vertCount, vertCount + 2, vertCount + 3);
-      if (fx.id != null) poolQuadByFixtureId.set(fx.id, poolCount);
-      vertCount += 4;
-    } else {
-      // A fan centred on the emitter's ground projection. Every rim point is
-      // raycast from the real emitter, not from the floor, so a tall wall
-      // blocks the same line of sight as a real spotlight would.
-      positions.push(cx, floorY, cz);
-      uvs.push(0.5, 0.5);
-      colors.push(r, g, b, 1);
-      rayOrigin.set(projection.emitter.x, projection.emitter.y, projection.emitter.z);
-      for (let i = 0; i < RAY_SEGMENTS; i++) {
-        const angle = (i / RAY_SEGMENTS) * Math.PI * 2;
-        const endX = cx + Math.cos(angle) * rx;
-        const endZ = cz + Math.sin(angle) * rz;
-        rayTarget.set(endX, floorY, endZ);
-        rayDelta.subVectors(rayTarget, rayOrigin);
-        const dist = rayDelta.length();
-        rayDelta.multiplyScalar(1 / Math.max(dist, 1e-6));
-        raycaster.set(rayOrigin, rayDelta);
-        raycaster.near = 0.04;
-        raycaster.far = Math.max(0, dist - 0.02);
-        // Glass and decorative non-shadow casters should not turn into a
-        // black occlusion wall. Match the shadow system's intent: only solid
-        // meshes that cast shadows block the inexpensive indirect pool.
-        const hit = raycaster.intersectObjects(occluders, true).find(({ object }) => {
-          const materials = Array.isArray(object.material) ? object.material : [object.material];
-          return object.castShadow !== false && materials.every((material) =>
-            !material?.transparent || (material.opacity ?? 1) >= 0.98);
+    if (fragment === undefined) {
+      fragment = null;
+      if (light) {
+        const projection = fixtureLightProjection(def, {
+          origin: fx.group.position,
+          yaw: fx.group.rotation.y || 0,
         });
-        if (hit) {
-          // Pull back very slightly so the additive edge neither leaks across
-          // nor z-fights the wall face it was clipped against.
-          rayTarget.copy(hit.point).addScaledVector(rayDelta, -0.025);
+        const { rx, rz, offsetX, offsetZ } = projection.groundFootprint;
+        if (rx > 0 && rz > 0) {
+          if (raycaster && !restoreOccluderSides) {
+            restoreOccluderSides = makePoolOccludersDoubleSided(occluders);
+          }
+          const fragmentPositions = [];
+          const fragmentUvs = [];
+          const fragmentColors = [];
+          const fragmentIndices = [];
+          const floorY = projection.floorY + POOL_Y_LIFT;
+          const cx = projection.emitter.x + offsetX;
+          const cz = projection.emitter.z + offsetZ;
+          tmpColor.set(light.color);
+          const brightness = (light.intensity ?? 1) * POOL_COLOR_SCALE;
+          const r = tmpColor.r * brightness;
+          const g = tmpColor.g * brightness;
+          const b = tmpColor.b * brightness;
+
+          if (!raycaster) {
+            const corners = [
+              [cx - rx, cz - rz, 0, 0],
+              [cx + rx, cz - rz, 1, 0],
+              [cx + rx, cz + rz, 1, 1],
+              [cx - rx, cz + rz, 0, 1],
+            ];
+            for (const [x, z, u, v] of corners) {
+              fragmentPositions.push(x, floorY, z);
+              fragmentUvs.push(u, v);
+              fragmentColors.push(r, g, b, 1);
+            }
+            fragmentIndices.push(0, 1, 2, 0, 2, 3);
+          } else {
+            // A fan centred on the emitter's ground projection. Every rim
+            // point is raycast once, then retained until that fixture or the
+            // wall-occlusion revision changes.
+            fragmentPositions.push(cx, floorY, cz);
+            fragmentUvs.push(0.5, 0.5);
+            fragmentColors.push(r, g, b, 1);
+            rayOrigin.set(projection.emitter.x, projection.emitter.y, projection.emitter.z);
+            for (let i = 0; i < RAY_SEGMENTS; i++) {
+              const angle = (i / RAY_SEGMENTS) * Math.PI * 2;
+              rayTarget.set(cx + Math.cos(angle) * rx, floorY, cz + Math.sin(angle) * rz);
+              rayDelta.subVectors(rayTarget, rayOrigin);
+              const dist = rayDelta.length();
+              rayDelta.multiplyScalar(1 / Math.max(dist, 1e-6));
+              raycaster.set(rayOrigin, rayDelta);
+              raycaster.near = 0.04;
+              raycaster.far = Math.max(0, dist - 0.02);
+              const hit = raycaster.intersectObjects(occluders, true).find(({ object }) => {
+                const materials = Array.isArray(object.material) ? object.material : [object.material];
+                return object.castShadow !== false && materials.every((material) =>
+                  !material?.transparent || (material.opacity ?? 1) >= 0.98);
+              });
+              if (hit) rayTarget.copy(hit.point).addScaledVector(rayDelta, -0.025);
+              fragmentPositions.push(rayTarget.x, floorY, rayTarget.z);
+              fragmentUvs.push(
+                0.5 + (rayTarget.x - cx) / (2 * rx),
+                0.5 + (rayTarget.z - cz) / (2 * rz),
+              );
+              fragmentColors.push(r, g, b, 1);
+            }
+            for (let i = 0; i < RAY_SEGMENTS; i++) {
+              fragmentIndices.push(0, 1 + i, 1 + ((i + 1) % RAY_SEGMENTS));
+            }
+          }
+          fragment = {
+            positions: fragmentPositions,
+            uvs: fragmentUvs,
+            colors: fragmentColors,
+            indices: fragmentIndices,
+            vertexCount: fragmentPositions.length / 3,
+          };
         }
-        positions.push(rayTarget.x, floorY, rayTarget.z);
-        uvs.push(0.5 + (rayTarget.x - cx) / (2 * rx), 0.5 + (rayTarget.z - cz) / (2 * rz));
-        colors.push(r, g, b, 1);
       }
-      for (let i = 0; i < RAY_SEGMENTS; i++) {
-        const a = firstVertex + 1 + i;
-        const bIdx = firstVertex + 1 + ((i + 1) % RAY_SEGMENTS);
-        indices.push(firstVertex, a, bIdx);
-      }
-      if (fx.id != null) poolQuadByFixtureId.set(fx.id, poolCount);
-      vertCount += RAY_SEGMENTS + 1;
+      if (cacheId != null && fragmentCache) fragmentCache.set(cacheId, { signature, fragment });
     }
-    if (fx.id != null) poolVertexRanges.set(fx.id, { start: firstVertex, count: vertCount - firstVertex });
+
+    if (!fragment) continue;
+    const firstVertex = vertCount;
+    positions.push(...fragment.positions);
+    uvs.push(...fragment.uvs);
+    colors.push(...fragment.colors);
+    for (const index of fragment.indices) indices.push(firstVertex + index);
+    if (fx.id != null) {
+      poolQuadByFixtureId.set(fx.id, poolCount);
+      poolVertexRanges.set(fx.id, { start: firstVertex, count: fragment.vertexCount });
+    }
+    vertCount += fragment.vertexCount;
     poolCount += 1;
   }
   restoreOccluderSides?.();
+  if (fragmentCache) {
+    for (const id of fragmentCache.keys()) {
+      if (!seenFixtureIds.has(id)) fragmentCache.delete(id);
+    }
+  }
 
   if (vertCount === 0) return null;
 

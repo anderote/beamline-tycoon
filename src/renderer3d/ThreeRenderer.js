@@ -227,11 +227,17 @@ export class ThreeRenderer {
     // instead of re-scanning every decoration.
     this.lightingGroup = [];
     this._fixtureActivation = new Map();
+    // Fixture id → immutable pool-geometry fragment. The final draw remains
+    // one merged mesh, but adding one lamp only raycasts that lamp's footprint.
+    this._lightPoolFragmentCache = new Map();
+    // Fixture id → halo group. Sprite draw calls are inherently per-emitter,
+    // so stable groups let one changed housing update only its own sprites.
+    this._lightHaloGroupsByFixtureId = new Map();
     // Task 6 fake-lighting layer: one merged additive mesh for every ground
     // light pool (lightPoolGroup) plus one Sprite billboard per glowing
-    // emitter (lightHaloGroup). Both are rebuilt only when lightingGroup
-    // above is reassigned (applySnapshot / _refreshDecorations) — see
-    // _rebuildLightPools. Per frame, only their material opacity moves (see
+    // emitter (lightHaloGroup). Pools stay merged while halo groups reconcile
+    // by fixture ID when lightingGroup changes — see _rebuildLightPools. Per
+    // frame, only their material opacity moves (see
     // _updateLightingRamp), driven by this._darkness in lockstep with the
     // sun/ambient grade and fixture emissiveIntensity.
     this.lightPoolGroup = null;
@@ -4048,7 +4054,7 @@ export class ThreeRenderer {
     this._effectSystem?.syncSurfaceGlows('equipment', this.equipmentGroup);
     this.decorationBuilder.build(snapshot.decorations, this.decorationGroup);
     this.lightingGroup = this.decorationBuilder.getLightingFixtures();
-    this._rebuildLightPools();
+    this._rebuildLightPools({ invalidateOcclusion: true });
     // Feed the same registry to the real-light rig's fixture discovery — see
     // light-rig.js's setFixtureRegistry(); this is what replaced the dead
     // userData.lightFixture scene-traversal lookup.
@@ -4376,7 +4382,7 @@ export class ThreeRenderer {
       cutawayRoom = this._detectCutawayRegion(this.hoverCol, this.hoverRow);
     }
     this.wallBuilder.build(snap.walls, snap.doors, snap.windows, this.wallGroup, this.wallVisibilityMode, cutawayRoom);
-    this._rebuildLightPools();
+    this._rebuildLightPools({ invalidateOcclusion: true });
   }
 
   /**
@@ -4493,7 +4499,12 @@ export class ThreeRenderer {
 
   _refreshDecorations(changeSet = null) {
     const snap = this._updateSnapshot(['decorations'], changeSet);
-    this.decorationBuilder.build(snap.decorations, this.decorationGroup);
+    const contextualChange = changeSet?.full === true
+      || ['terrain', 'zones', 'walls'].some(domain => changeSet?.domains?.has(domain));
+    const result = this.decorationBuilder.build(snap.decorations, this.decorationGroup, {
+      changes: contextualChange ? null : changeSet?.placeables || null,
+    });
+    if (!result?.lightingChanged) return;
     this.lightingGroup = this.decorationBuilder.getLightingFixtures();
     this._rebuildLightPools();
     // Feed the same registry to the real-light rig's fixture discovery — see
@@ -4503,24 +4514,62 @@ export class ThreeRenderer {
   }
 
   /**
-   * Rebuild the merged light-pool mesh and halo sprites from the current
-   * `this.lightingGroup` registry. Geometry only — this is NOT called per
+   * Rebuild the merged light-pool mesh and reconcile halo sprites from the
+   * current `this.lightingGroup` registry. Geometry only — this is NOT called per
    * frame; per-frame opacity/emissive ramping lives in _updateLightingRamp.
    * Triggers: every place that reassigns `this.lightingGroup`, i.e.
-   * applySnapshot() (full load) and _refreshDecorations() (any
-   * decoration-affecting game event) — never on a render tick, so placing
-   * sixty lamps costs sixty rebuilds total, not sixty rebuilds per second.
+   * applySnapshot() (full load), wall changes (occlusion invalidation), and
+   * actual fixture changes — never on a render tick. Non-light decoration
+   * edits do not touch this layer. Unchanged fixture raycasts are retained in
+   * `_lightPoolFragmentCache` while the final output stays one draw call.
    */
-  _rebuildLightPools() {
+  _rebuildLightPools({ invalidateOcclusion = false } = {}) {
+    if (invalidateOcclusion) this._lightPoolFragmentCache.clear();
     this._clearLightGroup(this.lightPoolGroup);
-    this._clearLightGroup(this.lightHaloGroup);
     const fixtures = this.lightingGroup;
-    if (!fixtures || !fixtures.length) return;
+    this._reconcileLightHalos(fixtures || []);
+    if (!fixtures || !fixtures.length) {
+      this._lightPoolFragmentCache.clear();
+      this._lastLightingGroup = null;
+      return;
+    }
     this.wallGroup?.updateMatrixWorld?.(true);
-    const poolMesh = buildLightPools(fixtures, { occluders: this.wallGroup });
+    const poolMesh = buildLightPools(fixtures, {
+      occluders: this.wallGroup,
+      fragmentCache: this._lightPoolFragmentCache,
+    });
     if (poolMesh) this.lightPoolGroup.add(poolMesh);
-    const halos = buildLightHalos(fixtures);
-    if (halos) this.lightHaloGroup.add(halos);
+    // The replacement pool material starts at opacity zero. Force the normal
+    // ramp path to initialize it even when only wall occlusion changed and the
+    // fixture registry array itself retained its identity.
+    this._lastLightingGroup = null;
+  }
+
+  _reconcileLightHalos(fixtures) {
+    if (!this.lightHaloGroup) return;
+    const seen = new Set();
+    for (const fixture of fixtures) {
+      if (fixture?.id == null) continue;
+      seen.add(fixture.id);
+      const existing = this._lightHaloGroupsByFixtureId.get(fixture.id);
+      if (existing?.fixtureGroup === fixture.group) continue;
+      if (existing) {
+        this.lightHaloGroup.remove(existing.haloGroup);
+        this._clearLightGroup(existing.haloGroup);
+      }
+      const haloGroup = buildLightHalos([fixture]);
+      this.lightHaloGroup.add(haloGroup);
+      this._lightHaloGroupsByFixtureId.set(fixture.id, {
+        fixtureGroup: fixture.group,
+        haloGroup,
+      });
+    }
+    for (const [id, existing] of this._lightHaloGroupsByFixtureId) {
+      if (seen.has(id)) continue;
+      this.lightHaloGroup.remove(existing.haloGroup);
+      this._clearLightGroup(existing.haloGroup);
+      this._lightHaloGroupsByFixtureId.delete(id);
+    }
   }
 
   /**
