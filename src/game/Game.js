@@ -59,10 +59,13 @@ import {
 } from './placement.js';
 import { generateStartingMap, generateAnnulus, DEFAULT_MAP_HALF_EXTENT } from './map-generator.js';
 import { nextLandParcel } from '../data/land.js';
-import { serializeCornerHeights, deserializeCornerHeights, setTileCorners } from './terrain.js';
+import {
+  serializeCornerHeights, deserializeCornerHeights, getTileCorners, setTileCorners,
+} from './terrain.js';
 import { SaveSlots } from './SaveSlots.js';
 import { scheduleBrowserIdle } from './idle-work.js';
 import { tickDataSystems } from './data-systems.js';
+import { placeableMutationEvent } from './placeable-events.js';
 
 // Every game.state key that persists in saves. Everything else on state is
 // derived — occupancy/index maps, aggregate beam stats, morale, systemStats,
@@ -2834,16 +2837,22 @@ export class Game {
 
     // Auto-flatten terrain under the footprint. All validation above has
     // passed, so this mutation is committed; failed placements (early
-    // returns above) leave the heightmap untouched. Stacked items sit on
-    // a parent that already flattened its tiles, but re-flattening to zero
-    // is idempotent — no need to special-case.
+    // returns above) leave the heightmap untouched. Skip already-zero tiles:
+    // setTileCorners bumps the global terrain revision even for an identical
+    // value, which used to invalidate the entire terrain cache for every
+    // table or chair placed on an ordinary flat room floor.
+    let terrainChanged = false;
     if (usesFloor) {
       const flattenedKeys = new Set();
       for (const c of cells) {
         const tk = c.col + ',' + c.row;
         if (flattenedKeys.has(tk)) continue;
         flattenedKeys.add(tk);
+        const corners = getTileCorners(this.state, c.col, c.row);
+        if (corners.nw === 0 && corners.ne === 0
+            && corners.se === 0 && corners.sw === 0) continue;
         setTileCorners(this.state, c.col, c.row, { nw: 0, ne: 0, se: 0, sw: 0 });
+        terrainChanged = true;
       }
     }
 
@@ -2945,9 +2954,10 @@ export class Game {
 
     this.computeSystemStats();
     this._syncLegacyPlaceableState();
-    this.emit('placeableChanged');
-    if (kind === 'equipment') this.emit('facilityChanged');
-    if (kind === 'furnishing') this.emit('zonesChanged');
+    const mutationEvent = placeableMutationEvent(entry, 'placed', { terrainChanged });
+    this.emit('placeableChanged', mutationEvent);
+    if (kind === 'equipment') this.emit('facilityChanged', mutationEvent);
+    if (kind === 'furnishing') this.emit('zonesChanged', mutationEvent);
     return id;
   }
 

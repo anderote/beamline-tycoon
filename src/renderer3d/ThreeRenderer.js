@@ -113,6 +113,7 @@ import {
   appendPlacementGridDots,
   placementGridAlphaAt,
 } from './placement-grid-style.js';
+import { placeableRefreshPlan } from './placeable-refresh-plan.js';
 
 // Closest the camera may get. Detail meshes (userData.lod === 'detail') switch
 // on at zoom 2.0, so anything above that is inside the high-detail band.
@@ -742,33 +743,14 @@ export class ThreeRenderer {
           this._markPhysicsBodiesDirty();
           break;
         case 'zonesChanged':
-          this._refreshTerrain();
-          this._refreshZones();
-          // Fixture room context is authored by zones. Rebuild its cached
-          // registry so a newly zoned room lights immediately rather than
-          // waiting for an unrelated decoration edit.
-          this._refreshDecorations();
-          if (this._refreshPalette) this._refreshPalette();
+        case 'placeableChanged':
+        case 'facilityChanged':
+          this._applyPlaceableRefreshPlan(placeableRefreshPlan(event, data));
           break;
         case 'wallsChanged':
         case 'doorsChanged':
         case 'windowsChanged':
           this._refreshWalls();
-          this._markPhysicsBodiesDirty();
-          break;
-        case 'placeableChanged':
-          this._refreshEquipment();
-          this._refreshDecorations();
-          this._refreshComponents();
-          this._refreshUtilityLinesV2();
-          // Geometry moved; the issue set may be identical, so force.
-          this._refreshUtilityPortIssueMarkers(true);
-          this._refreshPortFittings();
-          this._markPhysicsBodiesDirty();
-          break;
-        case 'facilityChanged':
-          this._refreshEquipment();
-          this._refreshComponents();
           this._markPhysicsBodiesDirty();
           break;
         case 'connectionsChanged':
@@ -4058,6 +4040,24 @@ export class ThreeRenderer {
 
   _markPhysicsBodiesDirty() {
     this._physicsPresentation.markBodiesDirty();
+  }
+
+  _applyPlaceableRefreshPlan(plan) {
+    if (!plan) return;
+    if (plan.terrain) this._refreshTerrain();
+    if (plan.zones) this._refreshZones();
+    if (plan.equipment) this._refreshEquipment();
+    // Fixture room context is authored by zones, so a real zone mutation
+    // continues to refresh decorations and the derived light registry.
+    if (plan.decorations) this._refreshDecorations();
+    if (plan.components) this._refreshComponents();
+    if (plan.utilityLines) this._refreshUtilityLinesV2();
+    if (plan.utilityIssues) {
+      this._refreshUtilityPortIssueMarkers(plan.utilityIssues === 'force');
+    }
+    if (plan.portFittings) this._refreshPortFittings();
+    if (plan.physicsBodies) this._markPhysicsBodiesDirty();
+    if (plan.palette && this._refreshPalette) this._refreshPalette();
   }
 
   _ensurePhysicsBodies() {
