@@ -65,7 +65,8 @@ import { nextLandParcel } from '../data/land.js';
 import {
   serializeCornerHeights, deserializeCornerHeights, getTileCorners, setTileCorners,
 } from './terrain.js';
-import { SaveSlots } from './SaveSlots.js';
+import { SaveSlots, setActiveSave } from './SaveSlots.js';
+import { getStorage, isQuotaError } from './storageQuota.js';
 import { scheduleBrowserIdle } from './idle-work.js';
 import { tickDataSystems } from './data-systems.js';
 import { placeableMutationEvent } from './placeable-events.js';
@@ -5688,9 +5689,17 @@ export class Game {
     // Autosave runs from tick(), which headless Node drivers (agent env,
     // balance sims) also call — there localStorage may be missing or
     // non-functional, and persistence must never kill the sim.
+    let payload;
+    try { payload = this.serialize(); } catch (_) { return; }
+
+    // A full quota evicts the oldest recovery autosaves and retries: the game
+    // in progress outranks its own history. Named slots and authored
+    // scenarios are never touched.
+    const write = setActiveSave(payload);
+    if (!write.ok) { this._reportSaveFailure(write.error); return; }
+    this._saveFailureReported = false;
+
     try {
-      const payload = this.serialize();
-      localStorage.setItem('beamlineTycoon', payload);
       SaveSlots.autosave(payload, {
         funding: Math.floor(this.state.resources?.funding ?? 0),
         staff: (this.state.staffMembers || []).length,
@@ -5698,6 +5707,24 @@ export class Game {
         tick: this.state.tick || 0,
       });
     } catch (_) {}
+  }
+
+  // Autosave fires every few seconds; a persistent storage failure must be
+  // surfaced once, loudly, and then stay quiet until saving works again.
+  _reportSaveFailure(error) {
+    if (this._saveFailureReported) return;
+    // Headless drivers (balance sims, agent test runs) have no localStorage at
+    // all and never asked for persistence; nothing failed from their point of
+    // view. A browser that *has* storage but refuses the write is a real
+    // failure the player must hear about.
+    if (!getStorage()) return;
+    this._saveFailureReported = true;
+    if (typeof this.log !== 'function') return;
+    if (isQuotaError(error)) {
+      this.log('AUTOSAVE FAILED — browser storage is full. Open LOAD and delete old saves, then save again. Your progress is only in this tab until then.', 'bad');
+    } else {
+      this.log('AUTOSAVE FAILED — this browser is not allowing local storage. Your progress is only in this tab.', 'bad');
+    }
   }
 
   load() {
