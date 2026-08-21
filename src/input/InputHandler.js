@@ -2309,9 +2309,9 @@ export class InputHandler {
         // Left click
         this._handleClick(e.clientX, e.clientY, { shiftKey: e.shiftKey });
       } else if (e.button === 2) {
-        // Right click — the active tool decides whether it deselects
-        // (ZonePaintTool / FloorTool / DemolishTool / BeamlineTool do;
-        // PlaceableTool keeps the legacy behavior of ignoring right-click).
+        // Right click — the active tool decides whether it erases, cancels,
+        // or deselects. ZonePaintTool erases the hovered zone while staying
+        // armed; PlaceableTool keeps the legacy behavior of ignoring it.
         this._toolConsumed('onRightClick', e);
       }
     });
