@@ -3389,6 +3389,13 @@ body {
   align-items: center;
   gap: 6px;
 }
+.dsgn-plot-source-group .dsgn-range-label,
+.dsgn-source-btn {
+  font-size: 12px;
+}
+.dsgn-source-btn {
+  padding: 5px 10px;
+}
 .dsgn-plot-control {
   display: inline-flex;
   align-items: center;
@@ -3523,6 +3530,11 @@ body {
   padding: 5px 6px;
   text-transform: uppercase;
   letter-spacing: .45px;
+}
+.dsgn-plot-select {
+  color: #c9f0ed;
+  font-size: 12px;
+  font-weight: 700;
 }
 .dsgn-plot-secondary-select {
   color: #e28ac8;
@@ -3682,6 +3694,25 @@ body {
   font-weight: normal;
   text-align: right;
 }
+.dsgn-palette-hover-placement {
+  margin-top: 2px;
+  padding: 9px 9px 8px;
+  border: 1px solid rgba(82, 153, 222, 0.38);
+  background: rgba(34, 58, 82, 0.22);
+}
+.dsgn-palette-hover-placement .dsgn-palette-hover-heading {
+  padding-top: 0;
+  margin-top: 0;
+  border-top: 0;
+  color: #9fc8f5;
+}
+.dsgn-palette-hover-placement-status {
+  color: #7f8ca7;
+  padding: 3px 0 1px;
+}
+.dsgn-palette-hover-row.is-good > strong { color: #64db8d; }
+.dsgn-palette-hover-row.is-bad > strong { color: #ff756f; }
+.dsgn-palette-hover-row.is-warn > strong { color: #e7b85d; }
 /* Hover tooltip for furnishings/equipment */
 .hover-tooltip {
   position: fixed;
