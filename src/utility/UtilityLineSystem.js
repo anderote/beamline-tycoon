@@ -20,6 +20,7 @@ import {
   cablePathLengthSubUnits,
   draggedCablePath,
 } from './soft-cable.js';
+import { PLACEABLES } from '../data/placeables/index.js';
 
 const EPS = 1e-6;
 export const UTILITY_LINE_STRAIN_ALLOWANCE = 1.12;
@@ -186,6 +187,18 @@ export class UtilityLineSystem {
     }
     const line = result.line;
     line.id = this.nextLineId();
+    // A duct-bank run is identified by two real access-vault terminals. Save
+    // the resolved elevation on the line itself so rendering, picking, moving,
+    // copying and serialization all keep agreeing that the segment is buried.
+    if (line.utilityType === 'hvCable' && line.start && line.end) {
+      const typeAt = (id) => this.state?.placeables?.find(p => p.id === id)?.type;
+      const startDef = PLACEABLES[typeAt(line.start.placeableId)];
+      const endDef = PLACEABLES[typeAt(line.end.placeableId)];
+      if (startDef?.buriedCableTerminal && endDef?.buriedCableTerminal) {
+        line.routeHeightMeters = -0.18;
+        line.buried = true;
+      }
+    }
     if (!this.state.utilityLines) this.state.utilityLines = new Map();
     this.state.utilityLines.set(line.id, line);
     this.emit('utilityLinesChanged', { utilityType: line.utilityType });

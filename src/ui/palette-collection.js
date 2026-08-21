@@ -13,12 +13,12 @@ export function resolvePaletteCollection(categoryKey, categoryDef, {
   const seenComponents = new Set();
 
   const addDecoration = (id, def) => {
-    if (!def || seenDecorations.has(id)) return;
+    if (!def || def.deprecated || seenDecorations.has(id)) return;
     seenDecorations.add(id);
     decorationEntries.push([id, def]);
   };
   const addComponent = (id, def) => {
-    if (!def || seenComponents.has(id)) return;
+    if (!def || def.deprecated || seenComponents.has(id)) return;
     seenComponents.add(id);
     componentEntries.push([id, def]);
   };

@@ -60,6 +60,9 @@ const LIGHT_MOUNTS = new Set(['ground', 'wall', 'overhead', 'surface']);
 const LIGHT_SHAPES = new Set(['point', 'cone']);
 const PART_SHAPES = new Set(['box', 'cylinder', 'sphere', 'torus', 'cone']);
 const PART_AXES = new Set(['x', 'y', 'z']);
+const ELECTRICAL_UTILITIES = new Set(['powerCable', 'hvCable']);
+const ELECTRICAL_CONTROL_KINDS = new Set(['disconnect', 'transfer']);
+const ELECTRICAL_SOURCE_KINDS = new Set(['grid', 'generator']);
 
 const BEAMLINE_CATEGORIES = new Set(Object.keys(MODES.beamline.categories));
 const INFRA_CATEGORIES = new Set(Object.keys(MODES.infra.categories));
@@ -230,6 +233,136 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
         || ports.some(port => port.role !== 'pass')
         || !sides.has('front') || !sides.has('back')) {
       problem(id, 'wallPassThrough', 'requires exactly two passive front/back ports of one electrical cable type');
+    }
+  }
+
+  function checkElectrical(id, def) {
+    const control = def.electricalControl;
+    const groups = def.electricalGroups;
+    if (control == null && groups == null) return;
+    const ports = utilityPorts[id] || {};
+
+    if (control != null) {
+      if (typeof control !== 'object' || Array.isArray(control)) {
+        problem(id, 'electricalControl', 'electricalControl must be an object');
+        return;
+      }
+      if (control.kind != null && !ELECTRICAL_CONTROL_KINDS.has(control.kind)) {
+        problem(id, 'electricalControl.kind',
+          `unknown kind '${control.kind}' (known: ${[...ELECTRICAL_CONTROL_KINDS].join(', ')})`);
+      }
+      if (control.breaker != null) {
+        const { utility, rating, tripDelayTicks } = control.breaker;
+        if (!ELECTRICAL_UTILITIES.has(utility)) {
+          problem(id, 'electricalControl.breaker.utility',
+            `breaker utility must be powerCable or hvCable, got ${JSON.stringify(utility)}`);
+        }
+        if (!(Number.isFinite(rating) && rating > 0)) {
+          problem(id, 'electricalControl.breaker.rating', 'breaker rating must be positive');
+        }
+        if (!(Number.isFinite(tripDelayTicks) && tripDelayTicks > 0)) {
+          problem(id, 'electricalControl.breaker.tripDelayTicks',
+            'breaker tripDelayTicks must be positive');
+        }
+        if (!Object.values(ports).some(port =>
+          port?.utility === utility && (port.role === 'source' || port.role === 'pass'))) {
+          problem(id, 'electricalControl.breaker',
+            `breaker monitors '${utility}' but the device has no source/pass port of that type`);
+        }
+      }
+      if (control.source != null) {
+        const source = control.source;
+        if (!ELECTRICAL_SOURCE_KINDS.has(source.kind)) {
+          problem(id, 'electricalControl.source.kind',
+            `unknown source kind '${source.kind}'`);
+        }
+        if (source.kind === 'grid') {
+          if (!(Number.isFinite(source.outageChancePerTick)
+              && source.outageChancePerTick >= 0 && source.outageChancePerTick <= 1)) {
+            problem(id, 'electricalControl.source.outageChancePerTick',
+              'grid outageChancePerTick must be in [0, 1]');
+          }
+          if (!(Number.isFinite(source.outageMinTicks) && source.outageMinTicks > 0
+              && Number.isFinite(source.outageMaxTicks)
+              && source.outageMaxTicks >= source.outageMinTicks)) {
+            problem(id, 'electricalControl.source.outageTicks',
+              'grid outage tick range must be positive and ordered');
+          }
+        }
+        if (source.kind === 'generator'
+            && !(Number.isFinite(source.fuelTicks) && source.fuelTicks > 0)) {
+          problem(id, 'electricalControl.source.fuelTicks',
+            'generator fuelTicks must be positive');
+        }
+        if (!Object.values(ports).some(port =>
+          ELECTRICAL_UTILITIES.has(port?.utility) && port.role === 'source')) {
+          problem(id, 'electricalControl.source',
+            'electrical source requires a powerCable or hvCable source port');
+        }
+      }
+      if (control.battery != null) {
+        if (!(Number.isFinite(control.battery.capacityTicks)
+            && control.battery.capacityTicks > 0)) {
+          problem(id, 'electricalControl.battery.capacityTicks',
+            'battery capacityTicks must be positive');
+        }
+        if (!(Number.isFinite(control.battery.rechargePerTick)
+            && control.battery.rechargePerTick > 0)) {
+          problem(id, 'electricalControl.battery.rechargePerTick',
+            'battery rechargePerTick must be positive');
+        }
+      }
+      if (control.kind === 'disconnect') {
+        const pass = Object.entries(ports).filter(([, port]) =>
+          ELECTRICAL_UTILITIES.has(port?.utility) && port.role === 'pass');
+        if (pass.length !== 2 || new Set(pass.map(([, port]) => port.utility)).size !== 1) {
+          problem(id, 'electricalControl.kind',
+            'disconnect requires exactly two passive ports of one electrical utility');
+        }
+      }
+      if (control.kind === 'transfer') {
+        for (const name of ['normal_in', 'backup_in', 'pwr_out']) {
+          const port = ports[name];
+          if (port?.utility !== 'powerCable' || port.role !== 'pass') {
+            problem(id, 'electricalControl.kind',
+              `transfer requires passive powerCable port '${name}'`);
+          }
+        }
+      }
+    }
+
+    if (groups != null) {
+      if (typeof groups !== 'object' || Array.isArray(groups)) {
+        problem(id, 'electricalGroups', 'electricalGroups must be keyed by utility');
+        return;
+      }
+      for (const [utility, authoredGroups] of Object.entries(groups)) {
+        if (!ELECTRICAL_UTILITIES.has(utility) || !Array.isArray(authoredGroups)) {
+          problem(id, `electricalGroups.${utility}`,
+            'electrical groups must be arrays under powerCable or hvCable');
+          continue;
+        }
+        const used = new Set();
+        authoredGroups.forEach((group, index) => {
+          if (!Array.isArray(group) || group.length < 2) {
+            problem(id, `electricalGroups.${utility}[${index}]`,
+              'each conductor group needs at least two port names');
+            return;
+          }
+          for (const name of group) {
+            const port = ports[name];
+            if (port?.utility !== utility || port.role !== 'pass') {
+              problem(id, `electricalGroups.${utility}[${index}]`,
+                `port '${name}' is not a passive ${utility} port`);
+            }
+            if (used.has(name)) {
+              problem(id, `electricalGroups.${utility}[${index}]`,
+                `port '${name}' appears in more than one conductor group`);
+            }
+            used.add(name);
+          }
+        });
+      }
     }
   }
 
@@ -528,6 +661,7 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     checkSinkPortsForRequired(id, def);
     checkBeamPorts(id, def);
     checkWallPassThrough(id, def);
+    checkElectrical(id, def);
   }
 
   // ── Furnishings + equipment (zone-scoped) ─────────────────────────
@@ -551,6 +685,7 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
   for (const [id, def] of Object.entries(decorations)) {
     checkCommon(id, def);
     checkCategory(id, def, DECORATION_CATEGORIES, 'decoration');
+    checkElectrical(id, def);
   }
 
   // ── PLACEABLES wrapper layer ──────────────────────────────────────

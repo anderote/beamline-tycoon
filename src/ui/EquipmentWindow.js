@@ -105,6 +105,15 @@ export class EquipmentWindow {
       return;
     }
     const actions = [
+      ...(this.game?.getPowerDeviceActions?.(this.equip.id) || []).map(action => ({
+        label: action.label,
+        title: action.title || 'Change this device’s operating state',
+        disabled: !!action.disabled,
+        onClick: () => {
+          this.game.dispatchPowerDeviceAction?.(this.equip.id, action.id);
+          this.refresh();
+        },
+      })),
       {
         label: 'Place',
         title: 'Pick up the selection and place it together',
@@ -209,6 +218,13 @@ export class EquipmentWindow {
       html += `<div class="equipment-utility">${r.label}: ${r.value}</div>`;
     }
     html += componentUtilityPortSectionHtml(equip.type);
+    const powerStatus = this.game?.getPowerDeviceStatus?.(equip.id);
+    if (powerStatus?.rows?.length) {
+      html += '<div class="equipment-section equipment-section-label">Electrical status:</div>';
+      for (const row of powerStatus.rows) {
+        html += `<div class="equipment-utility">${escapeHtml(row.label)}: ${escapeHtml(row.value)}</div>`;
+      }
+    }
     if (comp.autoConnectRadius > 0) {
       const ready = this._autoConnectPlan?.stubs?.length || 0;
       const inRange = this._autoConnectPlan?.candidates || 0;

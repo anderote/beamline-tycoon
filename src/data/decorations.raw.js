@@ -151,12 +151,14 @@ export const DECORATIONS_RAW = {
     morale: 0, placement: 'outdoor', spriteKey: 'utility_pole',
     blocksBuild: true, category: 'utilities',
     subW: 1, subL: 1, subH: 16,
+    requires: 'electricalDistribution',
   },
   overheadPowerSpan: {
     id: 'overheadPowerSpan', name: 'Overhead Power Line', cost: { funding: 18000 }, removeCost: 1500,
     morale: 0, placement: 'outdoor', spriteKey: 'overhead_power_span',
     blocksBuild: true, category: 'utilities',
     subW: 12, subL: 2, subH: 16,
+    deprecated: true,
   },
   outdoorPipeRack: {
     id: 'outdoorPipeRack', name: 'Outdoor Pipe Rack', cost: { funding: 22000 }, removeCost: 2000,
@@ -169,6 +171,11 @@ export const DECORATIONS_RAW = {
     morale: 0, placement: 'outdoor', spriteKey: 'backup_generator',
     blocksBuild: true, category: 'utilities',
     subW: 6, subL: 4, subH: 5,
+    requires: 'resilientPower',
+    electricalControl: {
+      source: { kind: 'generator', fuelTicks: 300 },
+      breaker: { utility: 'powerCable', rating: 250, tripDelayTicks: 5 },
+    },
   },
 
   // === Security ===
@@ -258,9 +265,9 @@ const DECORATION_DESCS = {
   statue: 'Commemorates the founder, or possibly the first working klystron.',
   propaneTank: 'Horizontal propane vessel on concrete saddles for heating and emergency plant. Decorative site utility.',
   utilityPole: 'Functional HV distribution pole with an incoming and outgoing crossarm terminal. Draw HV feeders between rotated poles to hang real, sagging conductors.',
-  overheadPowerSpan: 'Two-pole overhead distribution span with three conductors. Decorative; use real cable tools for powered networks.',
+  overheadPowerSpan: 'Legacy decorative two-pole span retained for old saves. Use functional Utility Poles and real HV feeders for new construction.',
   outdoorPipeRack: 'Elevated rack carrying color-coded campus service pipes. Decorative site utility.',
-  backupGenerator: 'Weatherproof standby-generator enclosure with radiator bank and exhaust stack. Decorative; it does not generate power.',
+  backupGenerator: '250 kW standby generator with finite fuel. Connect it to the backup terminal of an Automatic Transfer Switch; refuel and enable it from its equipment window.',
   guardTower: 'Raised perimeter watch tower with enclosed cabin, railings, ladder, and an excellent view of the switchyard.',
   securityGatehouse: 'Glazed checkpoint booth with canopy and vehicle-control arm.',
   securityCameraMast: 'Tall camera mast with three directional surveillance heads.',

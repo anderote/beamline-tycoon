@@ -54,6 +54,7 @@ export class SolveRunner {
     this.registry = opts.registry || { types: {}, list: [] };
     this.emit = opts.emit || (() => {});
     this.portLookup = opts.portLookup || null;
+    this.getDefinition = opts.getDefinition || (() => null);
 
     // Topology-dirty cache. `topologyRevision` is bumped by markTopologyDirty()
     // on every topology mutation; discovery re-runs when it differs from
@@ -127,7 +128,9 @@ export class SolveRunner {
 
         let result;
         try {
-          result = descriptor.solve(network, persistent, worldState) || {};
+          result = descriptor.solve(network, persistent, worldState, {
+            getDefinition: this.getDefinition,
+          }) || {};
         } catch (e) {
           result = {
             flowState: null,

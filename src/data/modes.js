@@ -36,6 +36,8 @@ export const MODES = {
       vacuum:       { name: 'Vacuum',          color: '#999',
                       utilityLineTools: ['vacuumPipe'],
                       subsections: { transport: { name: 'Transport' }, supply: { name: 'Pumps & Supply' }, distribution: { name: 'Distribution' }, instruments: { name: 'Instruments' }, hardware: { name: 'Hardware' } } },
+      experimentalSystems: { name: 'Experimental Systems', color: '#b56',
+                      subsections: { lasers: { name: 'Laser Systems' } } },
       cooling:      { name: 'Cooling',         color: '#48c',
                       utilityLineTools: ['coolingWater', 'cryoTransfer'],
                       subsections: {
@@ -103,8 +105,9 @@ export const MODES = {
       utilities:   { name: 'Utilities',      color: '#789', isDecorationTab: true,
                      utilityLineTools: ['hvCable', 'powerCable', 'coolingWater'],
                      linkedPlaceables: [
-                       'padMountTransformer', 'facilityTransformer', 'hvTransformer',
-                       'gridIntertieTransformer', 'disconnectSwitch',
+                       'gridServicePoint', 'padMountTransformer', 'facilityTransformer',
+                       'hvTransformer', 'gridIntertieTransformer', 'poleMountTransformer',
+                       'disconnectSwitch', 'hvDuctBankVault',
                        'waterTank', 'facilityWaterSupply', 'bulkWaterTank',
                      ] },
       security:    { name: 'Security',       color: '#b76', isDecorationTab: true,

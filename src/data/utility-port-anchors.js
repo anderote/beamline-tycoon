@@ -62,6 +62,16 @@ export const PORT_ANCHOR_OVERRIDES = {
     _default: { y: 0.78, lat: 0.42 },
     hv_out_1: { along: 0 },
   },
+  gridServicePoint: {
+    _default: { y: 1.25, lat: 0.72 },
+    hv_out_1: { along: -0.34 }, hv_out_2: { along: 0.34 },
+  },
+  poleMountTransformer: {
+    _default: { y: 0.72, lat: 0.43 },
+    hv_in: { y: 1.42, along: -0.28 },
+    pwr_out_1: { y: 0.42, along: -0.30 }, pwr_out_2: { y: 0.72, along: -0.10 },
+    pwr_out_3: { y: 0.72, along: 0.10 }, pwr_out_4: { y: 0.42, along: 0.30 },
+  },
   facilityTransformer: {
     _default: { y: 1.55, lat: 0.82 },
     hv_out_1: { along: -0.25 }, hv_out_2: { along: 0.25 },
@@ -127,14 +137,40 @@ export const PORT_ANCHOR_OVERRIDES = {
   powerWallPassThrough: {
     _default: { y: 1.25, lat: 0.22, out: 0.04 },
   },
+  meterMain: {
+    _default: { y: 1.35, lat: 0.22, out: 0.04 },
+  },
   hvWallPassThrough: {
     _default: { y: 1.45, lat: 0.22, out: 0.07 },
+  },
+  disconnectSwitch: {
+    _default: { y: 1.55, lat: 0.20, out: 0.08 },
+  },
+  hvDuctBankVault: {
+    _default: { y: 0.18, lat: 0.30, out: 0.03 },
   },
   // One logical feeder represents the pole's conductor bundle. Both ends sit
   // at crossarm height so the flexible-cable rope solver hangs the run between
   // poles instead of dropping it to the ground first.
   utilityPole: {
     _default: { y: 6.40, lat: 0.18, out: 0.08 },
+  },
+  cableTray: {
+    _default: { y: 2.35, lat: 0.46, out: 0.02 },
+  },
+  cableRiser: {
+    _default: { y: 0.18, lat: 0.42, out: 0.02 },
+    pwr_out_1: { y: 2.35, along: -0.14 },
+    pwr_out_2: { y: 2.35, along: 0.14 },
+  },
+  automaticTransferSwitch: {
+    _default: { y: 0.82, lat: 0.56 },
+    normal_in: { y: 0.55, along: -0.28 },
+    backup_in: { y: 1.18, along: -0.28 },
+    pwr_out: { y: 0.82, along: 0.28 },
+  },
+  backupGenerator: {
+    _default: { y: 0.92, lat: 0.72, out: 0.05 },
   },
   spiderBox: {
     _default: { y: 0.12, lat: 0.22, along: 0 },

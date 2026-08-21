@@ -726,6 +726,18 @@ export const CONNECTION_GUIDES = {
     ],
     links: ['HV FEEDER', 'RF WAVEGUIDE'],
   },
+  experimentalSystems: {
+    title: 'LASER FACILITY SERVICES',
+    description: 'Laser systems are major facility loads. Feed them from a distribution panel, a complete Cooling Water loop, and a synchronized Data Fiber control source.',
+    accent: '#e99ac4',
+    diagram: 'experimentalSystems',
+    flow: [
+      { name: 'POWER PANEL', detail: 'branch capacity' },
+      { name: 'LASER SYSTEM', detail: 'high-energy load' },
+      { name: 'COOLING + TIMING', detail: 'water and data' },
+    ],
+    links: ['POWER CABLE', 'COOLING + DATA'],
+  },
   cooling: {
     title: 'COOLING LOOP',
     description: 'Put storage, chiller, equipment, and heat rejection on one Cooling Water loop. Cold supply flows out; warm water returns through the plant.',
@@ -1927,6 +1939,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         && collection.utilityLineTools.length === 0) return;
 
     for (const [key, dec] of decItems) {
+      if (!this.game.isComponentUnlocked(dec)) continue;
       const item = document.createElement('div');
       item.className = 'palette-item';
       item.dataset.paletteIndex = paletteIdx;
@@ -3284,6 +3297,7 @@ UIHost.prototype._updateSystemStatsContent = function(category) {
     cooling:      { key: 'cooling',      name: 'COOLING' },
     dataControls: { key: 'dataControls', name: 'DATA/CTRL' },
     power:        { key: 'power',        name: 'POWER' },
+    experimentalSystems: { key: 'power', name: 'EXPERIMENTAL SYSTEMS' },
     ops:          { key: 'ops',          name: 'OPS' },
   };
 
@@ -3294,7 +3308,7 @@ UIHost.prototype._updateSystemStatsContent = function(category) {
   if (title) {
     title.textContent = mapped.name;
     // Set color from category
-    const cat = MODES.facility?.categories[category];
+    const cat = MODES[this.activeMode]?.categories[category];
     if (cat) title.style.color = cat.color;
   }
 
@@ -3543,6 +3557,8 @@ UIHost.prototype._renderPowerStats = function(d, summary, detail) {
     ${this._detailRow('RF Draw', dd.rfDraw.toFixed(1), 'kW')}
     ${this._detailRow('Cryo Draw', dd.cryoDraw.toFixed(1), 'kW')}
     ${this._detailRow('Cooling Draw', dd.coolingDraw.toFixed(1), 'kW')}
+    ${this._detailRow('Laser Systems', d.laserSystems)}
+    ${this._detailRow('Standby Generators', d.standbyGenerators)}
   </div>`;
 };
 

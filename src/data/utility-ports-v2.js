@@ -1024,6 +1024,18 @@ const INFRA_UTILITY_PORTS = {
       role: 'pass', connectionKind: 'powerPassThroughOut', params: {},
     },
   },
+  meterMain: {
+    pwr_in: {
+      utility: 'powerCable', side: 'front', offsetAlong: 0.5,
+      role: 'pass', connectionKind: 'powerPassThroughIn',
+      params: { fieldCapacity: 100 },
+    },
+    pwr_out: {
+      utility: 'powerCable', side: 'back', offsetAlong: 0.5,
+      role: 'pass', connectionKind: 'powerPassThroughOut',
+      params: { fieldCapacity: 100 },
+    },
+  },
   hvWallPassThrough: {
     hv_in: {
       utility: 'hvCable', side: 'front', offsetAlong: 0.5,
@@ -1032,6 +1044,28 @@ const INFRA_UTILITY_PORTS = {
     hv_out: {
       utility: 'hvCable', side: 'back', offsetAlong: 0.5,
       role: 'pass', connectionKind: 'hvPassThroughOut', params: {},
+    },
+  },
+  disconnectSwitch: {
+    hv_in: {
+      utility: 'hvCable', side: 'back', offsetAlong: 0.5,
+      role: 'pass', connectionKind: 'hvPassThroughIn', params: {},
+    },
+    hv_out: {
+      utility: 'hvCable', side: 'front', offsetAlong: 0.5,
+      role: 'pass', connectionKind: 'hvPassThroughOut', params: {},
+    },
+  },
+  hvDuctBankVault: {
+    hv_in: {
+      utility: 'hvCable', side: 'back', offsetAlong: 0.5,
+      role: 'pass', connectionKind: 'hvPassThroughIn',
+      params: { fieldCapacity: 400 },
+    },
+    hv_out: {
+      utility: 'hvCable', side: 'front', offsetAlong: 0.5,
+      role: 'pass', connectionKind: 'hvPassThroughOut',
+      params: { fieldCapacity: 400 },
     },
   },
   // Grounds owns the pole visually, but these are real HV endpoints. Local
@@ -1045,6 +1079,39 @@ const INFRA_UTILITY_PORTS = {
     hv_out: {
       utility: 'hvCable', side: 'front', offsetAlong: 0.5,
       role: 'pass', connectionKind: 'hvPassThroughOut', params: {},
+    },
+  },
+  cableTray: {
+    pwr_in_1: { utility: 'powerCable', side: 'back', offsetAlong: 0.20, role: 'pass', connectionKind: 'powerPassThroughIn', params: { fieldCapacity: 160 } },
+    pwr_in_2: { utility: 'powerCable', side: 'back', offsetAlong: 0.40, role: 'pass', connectionKind: 'powerPassThroughIn', params: { fieldCapacity: 160 } },
+    pwr_in_3: { utility: 'powerCable', side: 'back', offsetAlong: 0.60, role: 'pass', connectionKind: 'powerPassThroughIn', params: { fieldCapacity: 160 } },
+    pwr_in_4: { utility: 'powerCable', side: 'back', offsetAlong: 0.80, role: 'pass', connectionKind: 'powerPassThroughIn', params: { fieldCapacity: 160 } },
+    pwr_out_1: { utility: 'powerCable', side: 'front', offsetAlong: 0.20, role: 'pass', connectionKind: 'powerPassThroughOut', params: { fieldCapacity: 160 } },
+    pwr_out_2: { utility: 'powerCable', side: 'front', offsetAlong: 0.40, role: 'pass', connectionKind: 'powerPassThroughOut', params: { fieldCapacity: 160 } },
+    pwr_out_3: { utility: 'powerCable', side: 'front', offsetAlong: 0.60, role: 'pass', connectionKind: 'powerPassThroughOut', params: { fieldCapacity: 160 } },
+    pwr_out_4: { utility: 'powerCable', side: 'front', offsetAlong: 0.80, role: 'pass', connectionKind: 'powerPassThroughOut', params: { fieldCapacity: 160 } },
+  },
+  cableRiser: {
+    pwr_in_1: { utility: 'powerCable', side: 'back', offsetAlong: 0.33, role: 'pass', connectionKind: 'powerPassThroughIn', params: { fieldCapacity: 80 } },
+    pwr_in_2: { utility: 'powerCable', side: 'back', offsetAlong: 0.67, role: 'pass', connectionKind: 'powerPassThroughIn', params: { fieldCapacity: 80 } },
+    pwr_out_1: { utility: 'powerCable', side: 'front', offsetAlong: 0.33, role: 'pass', connectionKind: 'powerPassThroughOut', params: { fieldCapacity: 80 } },
+    pwr_out_2: { utility: 'powerCable', side: 'front', offsetAlong: 0.67, role: 'pass', connectionKind: 'powerPassThroughOut', params: { fieldCapacity: 80 } },
+  },
+  automaticTransferSwitch: {
+    normal_in: {
+      utility: 'powerCable', side: 'back', offsetAlong: 0.25,
+      role: 'pass', connectionKind: 'powerTransferNormalIn',
+      params: { fieldCapacity: 250 },
+    },
+    backup_in: {
+      utility: 'powerCable', side: 'back', offsetAlong: 0.75,
+      role: 'pass', connectionKind: 'powerTransferBackupIn',
+      params: { fieldCapacity: 250 },
+    },
+    pwr_out: {
+      utility: 'powerCable', side: 'front', offsetAlong: 0.5,
+      role: 'pass', connectionKind: 'powerTransferOut',
+      params: { fieldCapacity: 250 },
     },
   },
   coolingManifold:     busPorts('coolingWater',  8),
@@ -1069,6 +1136,7 @@ const INFRA_UTILITY_PORTS = {
   // A distribution device's hv_in demand is its own rating, not its live draw:
   // you size the feeder for the panel. That keeps the HV solve local and makes
   // an oversized panel cost something instead of being a free upgrade.
+  gridServicePoint:         supplyPorts(1200, 2),
   padMountTransformer:      supplyPorts(150, 1),
   facilityTransformer:      supplyPorts(400, 2),
   hvTransformer:            supplyPorts(1200, 4),
@@ -1086,10 +1154,18 @@ const INFRA_UTILITY_PORTS = {
   powerPanel:          distributionPorts(40, 4, { outletSide: 'front' }),
   sectionDistributionPanel: distributionPorts(150, 6, { outletSide: 'front' }),
   mainDistributionPanel: distributionPorts(400, 8, { outletSide: 'front' }),
+  poleMountTransformer: distributionPorts(100, 4, { outletSide: 'front' }),
   mcc:                 distributionPorts(250, 8, { outletSide: 'front' }),
   // Two outlets: the UPS's identity is that only the critical circuits go on
   // it. Make it wide and it becomes a strictly better panel.
   ups:                 distributionPorts(100, 2, { outletSide: 'front' }),
+  backupGenerator: {
+    pwr_out: {
+      utility: 'powerCable', side: 'front', offsetAlong: 0.5,
+      role: 'source', connectionKind: 'powerAlternateSourceOut',
+      params: { capacity: 250 },
+    },
+  },
   // rf (capacity kW = raw params.power)
   magnetron:           { rf_out:   { utility: 'rfWaveguide', ...SINGLE_RF_OUTPUT, role: 'source', params: { capacity: 5, dutyFactor: 0.01 } } },
   widebandDriverAmp:   { rf_out:   { utility: 'rfWaveguide', ...SINGLE_RF_OUTPUT, role: 'source', params: { capacity: 5, dutyFactor: 1.0 } } },

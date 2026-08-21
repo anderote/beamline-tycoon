@@ -639,8 +639,14 @@ export function computeSystemStats(state) {
   const substations = (counts.padMountTransformer || 0)
     + (counts.facilityTransformer || 0)
     + (counts.hvTransformer || 0)
-    + (counts.gridIntertieTransformer || 0);
-  const panels = counts.powerPanel || 0;
+    + (counts.gridIntertieTransformer || 0)
+    + (counts.gridServicePoint || 0)
+    + (counts.poleMountTransformer || 0);
+  const panels = (counts.powerPanel || 0)
+    + (counts.sectionDistributionPanel || 0)
+    + (counts.mainDistributionPanel || 0)
+    + (counts.poleMountTransformer || 0);
+  const standbyGenerators = counts.backupGenerator || 0;
   const laserSystems = counts.laserSystem || 0;
 
   // Capacity is the sum of every placed SUPPLY's HV outlets — the same ladder
@@ -677,6 +683,7 @@ export function computeSystemStats(state) {
     utilization: Math.min(powerUtil, 100),
     substations,
     panels,
+    standbyGenerators,
     laserSystems,
     detail: {
       vacuumDraw: vacuum.energyDraw,

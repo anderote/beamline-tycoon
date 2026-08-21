@@ -140,6 +140,21 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
       placement: 'module', requiredConnections: [],
       mount: 'floor', wallPassThrough: true,
     },
+    badDisconnect: {
+      id: 'badDisconnect', name: 'Bad Disconnect', category: 'power',
+      cost: { funding: 100 }, subW: 1, subL: 1, subH: 1,
+      placement: 'module', requiredConnections: [],
+      electricalControl: {
+        kind: 'disconnect',
+        breaker: { utility: 'steamPipe', rating: 0, tripDelayTicks: 0 },
+      },
+    },
+    badCableCarrier: {
+      id: 'badCableCarrier', name: 'Bad Cable Carrier', category: 'power',
+      cost: { funding: 100 }, subW: 1, subL: 1, subH: 1,
+      placement: 'module', requiredConnections: [],
+      electricalGroups: { powerCable: [['in', 'missing'], ['in', 'out']] },
+    },
   };
   const badDecorations = {
     freebie: {
@@ -176,6 +191,13 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     },
     badFeedthrough: {
       only: { utility: 'powerCable', side: 'front', offsetAlong: 0.5, role: 'sink' },
+    },
+    badDisconnect: {
+      only: { utility: 'hvCable', side: 'front', offsetAlong: 0.5, role: 'pass' },
+    },
+    badCableCarrier: {
+      in: { utility: 'powerCable', side: 'back', offsetAlong: 0.5, role: 'pass' },
+      out: { utility: 'powerCable', side: 'front', offsetAlong: 0.5, role: 'pass' },
     },
   };
 
@@ -251,6 +273,16 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     'wall pass-throughs must use the wall placement layer');
   assert(hasProblem(problems, 'badFeedthrough', 'wallPassThrough', 'exactly two passive'),
     'wall pass-throughs require two passive ports on opposite faces');
+  assert(hasProblem(problems, 'badDisconnect', 'electricalControl.breaker.utility'),
+    'electrical breakers reject non-electrical utility types');
+  assert(hasProblem(problems, 'badDisconnect', 'electricalControl.breaker.rating'),
+    'electrical breakers require a positive rating');
+  assert(hasProblem(problems, 'badDisconnect', 'electricalControl.kind', 'exactly two'),
+    'disconnects require one real two-terminal conductor');
+  assert(hasProblem(problems, 'badCableCarrier', 'electricalGroups.powerCable[0]', "'missing'"),
+    'carrier groups may reference only real passive ports');
+  assert(hasProblem(problems, 'badCableCarrier', 'electricalGroups.powerCable[1]', 'more than one'),
+    'one port cannot belong to two isolated conductor groups');
 }
 
 // ==========================================================================

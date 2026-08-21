@@ -207,11 +207,11 @@ function collectCavities(network, worldState) {
 }
 
 /** Coldest design temperature among the plants feeding this network. */
-function designTemp(network, worldState) {
+function designTemp(network, worldState, getDefinition) {
   const byId = endpointsById(worldState);
   let coldest = null;
   for (const src of network.sources) {
-    if (powerFeedFactor(worldState, src.placeableId) <= 0) continue;
+    if (powerFeedFactor(worldState, src.placeableId, getDefinition) <= 0) continue;
     const rec = byId.get(src.placeableId);
     const t = rec && PLANT_DESIGN_TEMP[rec.type];
     if (t != null && (coldest === null || t < coldest)) coldest = t;
@@ -253,10 +253,10 @@ export default {
   // cryo plant rather than short routing runs is the real capital decision.
   costPerSubUnit: 160,
   persistentStateDefaults: { lheVolumeL: RESERVOIR_MAX_L, tempK: T_DEFAULT },
-  solve(network, persistent, worldState) {
+  solve(network, persistent, worldState, context = {}) {
     const ratedCapacity = network.sources.reduce(
       (a, s) => a + ((s.params && s.params.coldCapacityW) || 0)
-        * powerFeedFactor(worldState, s.placeableId), 0);
+        * powerFeedFactor(worldState, s.placeableId, context.getDefinition), 0);
     // Declared srfHeatW is the STATIC load — vessel, transfer line and
     // radiation heat a cavity leaks whether or not it is powered. Taken at
     // face value: it is what the inspector renders as the sink's demand, so
@@ -266,7 +266,7 @@ export default {
     const staticLoad = network.sinks.reduce(
       (a, s) => a + ((s.params && s.params.srfHeatW) || 0), 0);
     const currentLhe = (persistent && persistent.lheVolumeL) || 0;
-    const designTempK = designTemp(network, worldState);
+    const designTempK = designTemp(network, worldState, context.getDefinition);
     const prevTemp = (persistent && persistent.tempK) || designTempK;
 
     const cavities = collectCavities(network, worldState);

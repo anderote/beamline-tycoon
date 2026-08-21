@@ -59,12 +59,18 @@ export default {
    * coupling — and makes an oversized panel a real cost rather than a free
    * upgrade.
    */
-  solve(network, persistent, worldState) {
+  solve(network, persistent, worldState, context = {}) {
     // A main switchgear cabinet is a downstream distributor, not a second
     // grid connection. Its HV outputs inherit the quality of its one HV input;
     // actual transformers have no hv_in and retain factor 1.
-    const totalCapacity = network.sources.reduce(
-      (a, s) => a + (s.capacity || 0) * hvFeedFactor(worldState, s.placeableId), 0);
+    const suppliedCapacity = network.sources.reduce(
+      (a, s) => a + (s.capacity || 0)
+        * hvFeedFactor(worldState, s.placeableId, new Set(), context.getDefinition), 0);
+    const fieldLimits = [...new Set(network.ports
+      .map(p => p.params && p.params.fieldCapacity)
+      .filter(limit => Number.isFinite(limit) && limit > 0))];
+    const fieldCapacity = fieldLimits.length > 0 ? Math.min(...fieldLimits) : Infinity;
+    const totalCapacity = Math.min(suppliedCapacity, fieldCapacity);
     const totalDemand = network.sinks.reduce((a, s) => a + (s.demand || 0), 0);
     const errors = [];
     const perSinkQuality = {};
@@ -92,7 +98,9 @@ export default {
         errors.push({
           severity: 'soft',
           code: 'hv_overload',
-          message: `HV supply oversubscribed (${Math.round(utilization * 100)}%).`,
+          message: fieldCapacity < suppliedCapacity
+            ? `HV cable route overloaded (${Math.round(utilization * 100)}%).`
+            : `HV supply oversubscribed (${Math.round(utilization * 100)}%).`,
           location: { networkId: network.id },
         });
       }

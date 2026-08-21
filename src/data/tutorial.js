@@ -127,7 +127,7 @@ export const TUTORIAL_STEPS = [
   {
     id: 'tut-power',
     name: 'Connect Power',
-    hint: 'Place a HV Transformer and run Power Cable to each beamline junction — source and Faraday cup both need power (fanout from one transformer is fine).',
+    hint: 'Place a transformer, connect an HV Feeder from it to a Power Distribution Panel, then run Power Cable from panel outlets to the beamline junctions. Cables need a feedthrough or meter-main to cross a wall.',
     group: 'infrastructure',
     condition: (state) => hasFunctionalNetwork(state, 'powerCable'),
   },
