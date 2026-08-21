@@ -1333,15 +1333,20 @@ export class WallBuilder {
   }
 
   _cleanup(parentGroup) {
+    const mats = new Set();
     for (const mesh of this._meshes) {
       parentGroup.remove(mesh);
       mesh.geometry.dispose();
-      // Only dispose material if it's not shared (walls share one mat, doors share one mat)
-      // Track uniqueness by checking reference — but since we create one mat per build,
-      // we dispose after removing all meshes. Use a Set to avoid double-dispose.
+      // Painted walls use BoxGeometry's six-material array so each room-facing
+      // side can have its own finish. Ordinary walls and opening pieces still
+      // carry one shared material. Flatten both shapes into the same identity
+      // set: treating the painted array itself as a Material throws after the
+      // scene has already detached every wall, leaving the facility wall-less.
+      const meshMats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const mat of meshMats) if (mat) mats.add(mat);
     }
-    // Collect unique materials and dispose once
-    const mats = new Set(this._meshes.map(m => m.material));
+    // Walls, doors, and opening fills share materials within one build, so
+    // dispose each unique instance exactly once.
     for (const mat of mats) mat.dispose();
 
     this._meshes = [];
