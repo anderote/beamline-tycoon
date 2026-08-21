@@ -1123,7 +1123,10 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
           applyPreviewTint(previewEl, infra, rememberedVi);
         } else {
           const swatch = document.createElement('div');
-          const c = infra.topColor || infra.color || 0x888888;
+          const previewColor = resolveVariantPreview(infra, rememberedVi);
+          const c = Array.isArray(previewColor)
+            ? previewColor[0]
+            : (previewColor ?? infra.topColor ?? infra.color ?? 0x888888);
           swatch.style.cssText = `width:48px;height:32px;background:#${c.toString(16).padStart(6,'0')};clip-path:polygon(50% 0%,100% 30%,100% 80%,50% 100%,0% 80%,0% 30%);`;
           previewEl.appendChild(swatch);
         }
@@ -1186,10 +1189,14 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
                 if (previewImg) {
                   const newPath = this.sprites.getTilePath(key, variantIdx);
                   if (newPath) previewImg.src = newPath;
-                }
-                if (previewElNow) {
                   previewElNow.querySelectorAll('div').forEach(d => d.remove());
                   applyPreviewTint(previewElNow, infra, variantIdx);
+                } else if (previewElNow?.firstElementChild) {
+                  const previewColor = resolveVariantPreview(infra, variantIdx);
+                  const c = Array.isArray(previewColor)
+                    ? previewColor[0]
+                    : (previewColor ?? infra.topColor ?? infra.color ?? 0x888888);
+                  previewElNow.firstElementChild.style.background = `#${c.toString(16).padStart(6, '0')}`;
                 }
                 flyout.querySelectorAll('.param-flyout-btn').forEach(b => b.classList.remove('active'));
                 vBtn.classList.add('active');
@@ -1280,7 +1287,10 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
           applyPreviewTint(previewEl, door, rememberedVi);
         } else {
           const swatch = document.createElement('div');
-          const c = door.topColor || door.color || 0x888888;
+          const previewColor = resolveVariantPreview(door, rememberedVi);
+          const c = Array.isArray(previewColor)
+            ? previewColor[0]
+            : (previewColor ?? door.topColor ?? door.color ?? 0x888888);
           swatch.style.cssText = `width:48px;height:32px;background:#${c.toString(16).padStart(6,'0')};clip-path:polygon(50% 0%,100% 30%,100% 80%,50% 100%,0% 80%,0% 30%);`;
           previewEl.appendChild(swatch);
         }
@@ -1328,10 +1338,14 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
                 if (previewImg) {
                   const newPath = this.sprites.getTilePath(key, variantIdx);
                   if (newPath) previewImg.src = newPath;
-                }
-                if (previewElNow) {
                   previewElNow.querySelectorAll('div').forEach(d => d.remove());
                   applyPreviewTint(previewElNow, door, variantIdx);
+                } else if (previewElNow?.firstElementChild) {
+                  const previewColor = resolveVariantPreview(door, variantIdx);
+                  const c = Array.isArray(previewColor)
+                    ? previewColor[0]
+                    : (previewColor ?? door.topColor ?? door.color ?? 0x888888);
+                  previewElNow.firstElementChild.style.background = `#${c.toString(16).padStart(6, '0')}`;
                 }
                 flyout.querySelectorAll('.param-flyout-btn').forEach(b => b.classList.remove('active'));
                 vBtn.classList.add('active');

@@ -53,11 +53,12 @@ function cellKey(c) {
 
 /**
  * Whether a placeable owns floor subtiles. Overhead and wall fixtures keep
- * footprint/edge data as world-space anchors, but live on separate vertical
- * layers: they neither collide with nor replace equipment beneath them.
+ * footprint/edge data as world-space anchors, while `mount: 'floor'`
+ * coverings retain a floor outline without reserving the furniture layer.
+ * All three can overlap ordinary equipment without replacing it.
  */
 export function usesFloorOccupancy(placeable) {
-  return placeable?.mount !== 'overhead' && placeable?.mount !== 'wall';
+  return !['overhead', 'wall', 'floor'].includes(placeable?.mount);
 }
 
 /** Snap a cursor fraction along a wall edge to one of its four sub-slots. */

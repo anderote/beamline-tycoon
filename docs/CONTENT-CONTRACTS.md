@@ -15,6 +15,9 @@ the short authoring contract.
   `portable: true` and receive physical drop presentation after an individual
   placement or move. Set `portable: false` explicitly when a stackable item is
   fixed in place. Beamline and infrastructure placement remains constrained.
+- Floor coverings use `mount: 'floor'`. They retain a placement footprint for
+  rendering, selection, rotation, and area demolition, but do not claim the
+  ordinary furnishing occupancy layer, so desks and chairs can sit on them.
 - A `requiredConnections` entry must have a matching sink in
   `src/data/utility-ports-v2.js`.
 - If an item is research-gated, its gate and the research node's `unlocks` list

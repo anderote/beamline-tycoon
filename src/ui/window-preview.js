@@ -44,10 +44,13 @@ export function windowPreviewDataUrl(windowType, variant = 0, width = 96, height
   const innerY = y + frameW;
   const innerW = Math.max(2, apertureW - frameW * 2);
   const innerH = Math.max(2, apertureH - frameW * 2);
-  const grid = windowType === 'industrialSash'
-    ? [1, 2].map(i => `<path d="M ${innerX + innerW * i / 3} ${innerY} V ${innerY + innerH}"/>`).join('')
-      + [1, 2].map(i => `<path d="M ${innerX} ${innerY + innerH * i / 3} H ${innerX + innerW}"/>`).join('')
-    : '';
+  const verticalMullions = Math.max(0, Math.floor(def.mullions?.vertical || 0));
+  const horizontalMullions = Math.max(0, Math.floor(def.mullions?.horizontal || 0));
+  const grid = Array.from({ length: verticalMullions }, (_, i) =>
+    `<path d="M ${innerX + innerW * (i + 1) / (verticalMullions + 1)} ${innerY} V ${innerY + innerH}"/>`
+  ).join('') + Array.from({ length: horizontalMullions }, (_, i) =>
+    `<path d="M ${innerX} ${innerY + innerH * (i + 1) / (horizontalMullions + 1)} H ${innerX + innerW}"/>`
+  ).join('');
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">
     <rect width="${width}" height="${height}" rx="6" fill="#252a30"/>
     <rect x="${x - 4}" y="${y - 4}" width="${apertureW + 8}" height="${apertureH + 8}" rx="2" fill="${wall}"/>
