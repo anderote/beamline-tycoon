@@ -1,5 +1,5 @@
 // Beamline Designer keyboard navigation contract. With keyboard focus on the
-// stackup, horizontal arrows move the viewport; tabs and palette cards retain
+// stackup, horizontal arrows move the blue marker; tabs and palette cards retain
 // their existing row-specific horizontal navigation.
 
 import assert from 'node:assert/strict';
@@ -17,7 +17,7 @@ function keyEvent(key) {
   };
 }
 
-test('left and right arrows pan the focused beamline stackup', () => {
+test('left and right arrows move the focused beamline stackup marker', () => {
   const priorWindow = globalThis.window;
   const priorDocument = globalThis.document;
   const priorResizeObserver = globalThis.ResizeObserver;
@@ -38,24 +38,24 @@ test('left and right arrows pan the focused beamline stackup', () => {
   };
 
   try {
-    const panStarts = [];
-    let panStops = 0;
-    let markerStarts = 0;
+    const markerStarts = [];
+    let markerStops = 0;
+    let panStarts = 0;
     const designer = new BeamlineDesigner({}, {});
     designer.isOpen = true;
     designer.focusRow = 0;
-    designer._startPan = dir => { panStarts.push(dir); };
-    designer._stopPan = () => { panStops++; };
-    designer._startMarkerMove = () => { markerStarts++; };
+    designer._startMarkerMove = dir => { markerStarts.push(dir); };
+    designer._stopMarkerMove = () => { markerStops++; };
+    designer._startPan = () => { panStarts++; };
 
     listeners.keydown(keyEvent('ArrowLeft'));
     listeners.keyup(keyEvent('ArrowLeft'));
     listeners.keydown(keyEvent('ArrowRight'));
     listeners.keyup(keyEvent('ArrowRight'));
 
-    assert.deepEqual(panStarts, [-1, 1]);
-    assert.equal(panStops, 2);
-    assert.equal(markerStarts, 0);
+    assert.deepEqual(markerStarts, [-1, 1]);
+    assert.equal(markerStops, 2);
+    assert.equal(panStarts, 0);
   } finally {
     if (priorWindow === undefined) delete globalThis.window;
     else globalThis.window = priorWindow;

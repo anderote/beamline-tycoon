@@ -358,7 +358,7 @@ export class BeamlineDesigner {
           e.preventDefault();
           e.stopPropagation();
           if (this.focusRow === 0) {
-            this._startPan(-1);
+            this._startMarkerMove(-1);
           } else if (this.focusRow === 1) {
             this._navigateDesignerTab(-1);
           } else if (this.focusRow === 2) {
@@ -369,7 +369,7 @@ export class BeamlineDesigner {
           e.preventDefault();
           e.stopPropagation();
           if (this.focusRow === 0) {
-            this._startPan(1);
+            this._startMarkerMove(1);
           } else if (this.focusRow === 1) {
             this._navigateDesignerTab(1);
           } else if (this.focusRow === 2) {
@@ -445,7 +445,7 @@ export class BeamlineDesigner {
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         e.preventDefault();
         e.stopPropagation();
-        if (this.focusRow === 0) this._stopPan();
+        this._stopMarkerMove();
       }
       if (e.key === 'a' || e.key === 'A' || e.key === 'd' || e.key === 'D') {
         e.preventDefault();
@@ -2203,6 +2203,7 @@ export class BeamlineDesigner {
   focusRowDown() {
     if (this.focusRow < 2) {
       this.focusRow++;
+      this._stopMarkerMove();
       // Initialize palette index if entering palette row
       if (this.focusRow === 2 && this.designerPaletteIndex < 0) this.designerPaletteIndex = 0;
       this._updateFocusRowVisuals();
