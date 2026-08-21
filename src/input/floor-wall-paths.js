@@ -1,6 +1,8 @@
-// Pure geometry helpers for Shift-modified wall placement. Keeping the flood
-// fill out of InputHandler makes the floor semantics easy to test without a
-// renderer or DOM.
+// Pure geometry helpers for floor-driven wall placement and face painting.
+// Keeping the flood fills out of InputHandler makes the selection semantics
+// easy to test without a renderer or DOM.
+
+import { findWallKey } from '../game/edge-keys.js';
 
 const SIDES = [
   { edge: 'n', dc: 0, dr: -1 },
@@ -28,6 +30,61 @@ function across(edge) {
     col: edge.col + side.dc,
     row: edge.row + side.dr,
   };
+}
+
+/**
+ * Return the four wall faces bordering one selected floor tile. Keeping each
+ * edge expressed from that tile is important: Game.paintWallFace uses the
+ * requested edge spelling to choose the physical wall's tile-facing side.
+ */
+export function buildFloorTileWallPath(origin) {
+  if (!Number.isFinite(origin?.col) || !Number.isFinite(origin?.row)) return [];
+  return SIDES.map(side => ({
+    col: origin.col,
+    row: origin.row,
+    edge: side.edge,
+  }));
+}
+
+/**
+ * Find every wall surface bounding the floored interior that contains the
+ * selected tile. Unlike the material-based wall-placement fill below, this
+ * flood may cross flooring changes but never crosses a wall. A wall remains
+ * a paint boundary even when it carries a door, so adjoining rooms can keep
+ * independent finishes around their openings.
+ */
+export function buildInteriorWallBoundary(infraOccupied, wallOccupied, origin) {
+  const startKey = tileKey(origin?.col, origin?.row);
+  if (!infraOccupied[startKey]) {
+    return { mode: 'free', tileCount: 0, path: [] };
+  }
+
+  const visited = new Set([startKey]);
+  const tiles = [{ col: origin.col, row: origin.row }];
+  const path = [];
+
+  for (let i = 0; i < tiles.length; i++) {
+    const tile = tiles[i];
+    for (const side of SIDES) {
+      if (findWallKey(wallOccupied, tile.col, tile.row, side.edge)) {
+        path.push({ col: tile.col, row: tile.row, edge: side.edge });
+        continue;
+      }
+      const col = tile.col + side.dc;
+      const row = tile.row + side.dr;
+      const key = tileKey(col, row);
+      if (!infraOccupied[key] || visited.has(key)) continue;
+      visited.add(key);
+      tiles.push({ col, row });
+    }
+  }
+
+  path.sort((a, b) => (
+    a.row - b.row
+    || a.col - b.col
+    || EDGE_ORDER[a.edge] - EDGE_ORDER[b.edge]
+  ));
+  return { mode: 'interior', tileCount: tiles.length, path };
 }
 
 /**

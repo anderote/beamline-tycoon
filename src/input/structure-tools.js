@@ -26,7 +26,11 @@
 // because the demolish family shares them.
 
 import { Tool } from './Tool.js';
-import { FLOOR_INTERFACE_HOVER_THRESHOLD } from './floor-wall-paths.js';
+import {
+  buildFloorTileWallPath,
+  buildInteriorWallBoundary,
+  FLOOR_INTERFACE_HOVER_THRESHOLD,
+} from './floor-wall-paths.js';
 import { FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, WALL_PAINTS } from '../data/structure.js';
 import { doorOffFromFrac, findWallKey, findEdgeKey } from '../game/edge-keys.js';
 import { canAffordFunding } from '../game/affordability.js';
@@ -245,40 +249,94 @@ export class WallPaintTool extends Tool {
   constructor(paintId) {
     super(`wallPaint:${paintId}`, 'wallPaint');
     this.paintId = paintId;
+    this._selectionCache = null;
   }
 
   _paint(edge, ctx, paintId = this.paintId) {
     return ctx.game.paintWallFace(edge.col, edge.row, edge.edge, paintId);
   }
 
-  onMouseMove(e, ctx) {
-    const edge = ctx.input._getNearestWallEdge(e.clientX, e.clientY);
+  _selectionAt(screenX, screenY, ctx, expanded = false) {
+    const world = ctx.renderer.screenToWorld(screenX, screenY);
+    const tile = isoToGrid(world.x, world.y);
+    const infraOccupied = ctx.game.state.infraOccupied;
+    const wallOccupied = ctx.game.state.wallOccupied;
+    const cacheKey = `${tile.col},${tile.row}:${expanded ? 'interior' : 'tile'}`;
+    if (this._selectionCache?.infraOccupied === infraOccupied
+      && this._selectionCache?.wallOccupied === wallOccupied
+      && this._selectionCache?.key === cacheKey) {
+      return this._selectionCache.selection;
+    }
+    const hasFloor = !!infraOccupied[`${tile.col},${tile.row}`];
+    const path = expanded
+      ? buildInteriorWallBoundary(
+          infraOccupied,
+          wallOccupied,
+          tile,
+        ).path
+      : (hasFloor ? buildFloorTileWallPath(tile) : []);
+    const selection = { tile, path };
+    this._selectionCache = { infraOccupied, wallOccupied, key: cacheKey, selection };
+    return selection;
+  }
+
+  _existingWallFaces(path, ctx) {
+    const occupied = ctx.game.state.wallOccupied;
+    return path.filter(edge => findWallKey(occupied, edge.col, edge.row, edge.edge));
+  }
+
+  _renderPreview(screenX, screenY, ctx, expanded = false) {
+    const selection = this._selectionAt(screenX, screenY, ctx, expanded);
+    const path = this._existingWallFaces(selection.path, ctx);
     const paint = WALL_PAINTS[this.paintId];
-    ctx.renderer.renderWallEdgeHighlight(edge?.col, edge?.row, edge?.edge, paint?.color ?? 0xffffff);
+    ctx.renderer.renderWallPaintPreview(
+      selection.tile.col,
+      selection.tile.row,
+      path,
+      paint?.color ?? 0xffffff,
+    );
+  }
+
+  onMouseMove(e, ctx) {
+    this._renderPreview(e.clientX, e.clientY, ctx, e.shiftKey || ctx.input._shiftDown);
     return true;
   }
 
   onClick(e, ctx) {
-    if (e.shiftKey) {
-      const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
-      const grid = isoToGrid(world.x, world.y);
-      const path = ctx.input._buildFloorBoundaryRegion({ col: grid.col, row: grid.row }).path;
-      ctx.game.runUndoableMutation(() => ctx.game.batchEvents(() => {
-        for (const edge of path) this._paint(edge, ctx);
-      }));
-      return true;
-    }
-    const edge = ctx.input._getNearestWallEdge(e.clientX, e.clientY);
-    if (!edge) return false;
-    ctx.game.runUndoableMutation(() => this._paint(edge, ctx));
+    const { path } = this._selectionAt(
+      e.clientX,
+      e.clientY,
+      ctx,
+      e.shiftKey || ctx.input._shiftDown,
+    );
+    ctx.game.runUndoableMutation(() => ctx.game.batchEvents(() => {
+      for (const edge of path) this._paint(edge, ctx);
+    }));
     return true;
   }
 
   onRightClick(e, ctx) {
-    const edge = ctx.input._getNearestWallEdge(e.clientX, e.clientY);
-    if (!edge) return false;
-    ctx.game.runUndoableMutation(() => this._paint(edge, ctx, null));
+    const { path } = this._selectionAt(
+      e.clientX,
+      e.clientY,
+      ctx,
+      e.shiftKey || ctx.input._shiftDown,
+    );
+    ctx.game.runUndoableMutation(() => ctx.game.batchEvents(() => {
+      for (const edge of path) this._paint(edge, ctx, null);
+    }));
     return true;
+  }
+
+  onShiftChange(down, ctx) {
+    const input = ctx.input;
+    if (input._lastScreenX == null) return;
+    this._renderPreview(input._lastScreenX, input._lastScreenY, ctx, down);
+  }
+
+  onExit(ctx) {
+    this._selectionCache = null;
+    ctx.renderer.clearDragPreview();
   }
 }
 

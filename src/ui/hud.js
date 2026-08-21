@@ -1076,8 +1076,8 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
           hintEl.textContent = 'face paint';
           item.appendChild(hintEl);
           this._attachSimpleHoverPreview(item, paint.name,
-            'Click a wall face to paint it. Shift-click a floor area to paint its inward-facing perimeter walls.',
-            [['Placement', 'Wall face'], ['Shift', 'Room perimeter']]);
+            'Click a floor tile to paint its adjacent wall faces. Shift-click to paint all inward-facing walls bounding that interior.',
+            [['Placement', 'Tile walls'], ['Shift', 'Interior boundary']]);
           item.addEventListener('click', () => {
             if (this._onPaletteClick) this._onPaletteClick(idx);
             this._selectPaletteTool('wallPaint', paint.id);

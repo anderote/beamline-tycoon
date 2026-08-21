@@ -120,18 +120,70 @@ console.log('\n=== 1. Demolish edge paths rebuild walls once, not per edge ===\n
     `one wallsChanged for the whole drag (got ${counts.wallsChanged || 0}, ${RUN} edges)`);
 }
 
-console.log('\n=== 1b. Shift-paint rebuilds the wall scene once ===\n');
+console.log('\n=== 1b. Wall paint follows the selected floor tile ===\n');
+
+{
+  const g = makeGame(142);
+  const tile = { col: 10, row: 10 };
+  g.placeInfraTile(tile.col, tile.row, 'concrete');
+
+  // Store two walls from the selected tile and two from their mirrored
+  // neighbours. The paint gesture must still address the face looking into
+  // the selected tile, regardless of which spelling owns the physical wall.
+  g.placeWall(10, 10, 'n', 'structuralWall');
+  g.placeWall(11, 10, 'w', 'structuralWall');
+  g.placeWall(10, 10, 's', 'structuralWall');
+  g.placeWall(9, 10, 'e', 'structuralWall');
+  g.placeWall(15, 15, 'n', 'structuralWall');
+
+  const ctx = {
+    game: g,
+    input: { _shiftDown: false },
+    renderer: { screenToWorld: () => tileCenterIso(tile.col, tile.row) },
+  };
+  const counts = {};
+  g.on((ev) => { counts[ev] = (counts[ev] || 0) + 1; });
+
+  new WallPaintTool('labBlue').onClick(
+    { shiftKey: false, clientX: 0, clientY: 0 },
+    ctx,
+  );
+
+  const [north, east, south, west, remote] = g.state.walls;
+  assertOk(north.facePaint?.inside === 'labBlue'
+    && east.facePaint?.outside === 'labBlue'
+    && south.facePaint?.inside === 'labBlue'
+    && west.facePaint?.outside === 'labBlue',
+  'click paints every existing wall face adjacent to the selected tile');
+  assertOk(!remote.facePaint, 'click leaves walls away from the selected tile unchanged');
+  assertOk((counts.wallsChanged || 0) === 1,
+    `one wallsChanged for the tile paint (got ${counts.wallsChanged || 0})`);
+  assertOk(g._undoStack.length === 1, 'the tile paint pushes exactly one undo entry');
+
+  new WallPaintTool('labBlue').onRightClick(
+    { shiftKey: false, clientX: 0, clientY: 0 },
+    ctx,
+  );
+  assertOk(g.state.walls.slice(0, 4).every(wall => !wall.facePaint),
+    'right-click clears the same tile-adjacent wall faces');
+  assertOk(g._undoStack.length === 2, 'the tile paint removal pushes one undo entry');
+}
+
+console.log('\n=== 1c. Shift-paint rebuilds the wall scene once ===\n');
 
 {
   const g = makeGame(143);
   const path = [];
-  for (let col = 4; col < 12; col++) path.push({ col, row: 9, edge: 'n' });
+  for (let col = 4; col < 12; col++) {
+    path.push({ col, row: 9, edge: 'n' });
+    g.placeInfraTile(col, 9, 'concrete');
+  }
   for (const pt of path) g.placeWall(pt.col, pt.row, pt.edge, 'structuralWall');
 
   const ctx = {
     game: g,
-    input: { _buildFloorBoundaryRegion: () => ({ path }) },
-    renderer: { screenToWorld: () => ({ x: 0, y: 0 }) },
+    input: {},
+    renderer: { screenToWorld: () => tileCenterIso(4, 9) },
   };
   const counts = {};
   g.on((ev) => { counts[ev] = (counts[ev] || 0) + 1; });
