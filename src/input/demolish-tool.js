@@ -1,8 +1,8 @@
 // src/input/demolish-tool.js
 //
-// DemolishTool: one Tool per demolish scope (demolishScopes.js remains the
-// data backbone — DEMOLISH_PLACEABLE_SCOPE maps each demolishType to the
-// placeable kinds it may delete; DEMOLISH_BUTTONS drives the palette).
+// DemolishTool: one demolition cursor governed by the checkbox filters in
+// demolishScopes.js. The old named scopes remain accepted by the constructor
+// for compatibility with focused tests and context saved before the filter UI.
 //
 //   - demolishBeamline / demolishUtility: click-on-object (raycast) delete.
 //   - demolishBuilding: edge-first. Press on a wall/door/window edge starts
@@ -21,7 +21,10 @@
 import { Tool } from './Tool.js';
 import { isoToGrid } from '../renderer/grid.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
-import { DEMOLISH_PLACEABLE_SCOPE } from './demolishScopes.js';
+import {
+  createDemolishPolicy, defaultDemolishFilters, legacyDemolishPolicy,
+  normalizeDemolishFilters,
+} from './demolishScopes.js';
 
 // Beam pipes are the one demolish target that is cut by the SECTION rather
 // than all-or-nothing: a press anchors a sweep at the 0.5 m sub-unit under the
@@ -32,9 +35,14 @@ import { DEMOLISH_PLACEABLE_SCOPE } from './demolishScopes.js';
 // highlight and this commit path resolve the same stretch.
 
 export class DemolishTool extends Tool {
-  constructor(demolishType) {
+  constructor(demolishType = 'demolishFiltered', filters = defaultDemolishFilters()) {
     super(`demolish:${demolishType}`, 'demolish');
-    this.demolishType = demolishType || 'demolishAll';
+    this.demolishType = demolishType || 'demolishFiltered';
+    this.filtered = this.demolishType === 'demolishFiltered';
+    this.filters = this.filtered ? normalizeDemolishFilters(filters) : null;
+    this.policy = this.filtered
+      ? createDemolishPolicy(this.filters)
+      : legacyDemolishPolicy(this.demolishType);
     this.cursor = 'crosshair';
     this._dragging = false;
     this._dragStart = null; // { col, row }
@@ -44,6 +52,12 @@ export class DemolishTool extends Tool {
     this._edgePath = [];    // [{ col, row, edge }]
     this._pipeSweep = null; // { pipeId, index } anchor of a pipe-section drag
     this._pressedDoorEdge = null; // catch-all click on visible raised door geometry
+  }
+
+  setFilters(filters) {
+    if (!this.filtered) return;
+    this.filters = normalizeDemolishFilters(filters);
+    this.policy = createDemolishPolicy(this.filters);
   }
 
   onExit(ctx) {
@@ -81,6 +95,43 @@ export class DemolishTool extends Tool {
     if (e.button !== 0) return false;
     const input = ctx.input;
     const game = ctx.game;
+    if (this.filtered) {
+      const edgeHit = input.findDemolishableEdgeAtScreen?.(e.clientX, e.clientY);
+      if (edgeHit && this.policy.allowsEdge(edgeHit)) {
+        if (input._shiftDown) {
+          const segment = edgeHit.overlayType
+            ? input._buildWallOverlaySegmentPath(edgeHit.edge)
+            : edgeHit.wallType
+            ? input._buildWallSegmentPath(edgeHit.edge)
+            : edgeHit.doorType
+              ? input._buildDoorSegmentPath(edgeHit.edge)
+              : input._buildWindowSegmentPath(edgeHit.edge);
+          if (segment.length > 0) {
+            game._withUndo(() => game._batchEvents(() => {
+              for (const pt of segment) {
+                const hit = input._findWallOrDoorAtEdge(pt);
+                if (hit && this.policy.allowsEdge(hit)) input._removeWallAndDoorAtEdge(pt);
+              }
+            }));
+            ctx.renderer.clearDragPreview();
+            input._suppressNextClick = true;
+          }
+          return true;
+        }
+        this._drawingEdges = true;
+        this._edgeStart = edgeHit.edge;
+        this._edgePath = [edgeHit.edge];
+        return true;
+      }
+      this._pipeSweep = this._pipeSweepAnchor(e, ctx);
+      if (this._pipeSweep) return true;
+      const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
+      const grid = isoToGrid(world.x, world.y);
+      this._dragging = true;
+      this._dragStart = { col: grid.col, row: grid.row };
+      this._dragEnd = { col: grid.col, row: grid.row };
+      return true;
+    }
     if (this.demolishType === 'demolishBuilding') {
       // Edge-first: starting on a wall/door edge begins an edge-path drag
       // (removes walls AND doors along the path); otherwise fall through to
@@ -153,7 +204,10 @@ export class DemolishTool extends Tool {
     }
     if (this._drawingEdges) {
       const edge = input._getNearestEdge(e.clientX, e.clientY);
-      this._edgePath = input._buildWallLine(this._edgeStart, edge);
+      const path = input._buildWallLine(this._edgeStart, edge);
+      this._edgePath = this.filtered
+        ? path.filter(pt => this.policy.allowsEdge(input._findWallOrDoorAtEdge(pt)))
+        : path;
       renderer.renderDemolishPathPreview(this._edgePath);
       return true;
     }
@@ -166,7 +220,7 @@ export class DemolishTool extends Tool {
     input._lastScreenX = e.clientX;
     input._lastScreenY = e.clientY;
     input._updateDemolishHover(
-      world, grid, e.clientX, e.clientY, this.demolishType, this._pipeSweep,
+      world, grid, e.clientX, e.clientY, this.policy, this._pipeSweep,
     );
     if (input._hoverTooltipTarget) input._hideTooltip();
     return true;
@@ -181,15 +235,12 @@ export class DemolishTool extends Tool {
    */
   _pipeSweepAnchor(e, ctx) {
     const input = ctx.input;
-    // demolishAll is the "level everything here" tool and stays all-or-nothing
-    // on pipes; only the beamline tool cuts by the section.
-    if (this.demolishType !== 'demolishBeamline') return null;
-    const scope = DEMOLISH_PLACEABLE_SCOPE[this.demolishType];
-    if (!scope) return null;
+    if (!this.filtered && this.demolishType !== 'demolishBeamline') return null;
+    if (!this.policy.allowsCategory('beamline')) return null;
     const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
     const grid = isoToGrid(world.x, world.y);
     const found = input._findDeletablePlaceable(
-      { x: world.x, y: world.y }, grid, e.clientX, e.clientY, scope,
+      { x: world.x, y: world.y }, grid, e.clientX, e.clientY, this.policy,
     );
     if (!found || found.kind !== 'beampipe') return null;
     const pipe = (ctx.game.state.beamPipes || []).find(p => p.id === found.pipeId);
@@ -253,13 +304,26 @@ export class DemolishTool extends Tool {
         // one wall rebuild for the drag, not one per edge.
         game._withUndo(() => game._batchEvents(() => {
           for (const pt of this._edgePath) {
-            input._removeWallAndDoorAtEdge(pt);
+            if (!this.filtered) {
+              input._removeWallAndDoorAtEdge(pt);
+              continue;
+            }
+            const hit = input._findWallOrDoorAtEdge(pt);
+            if (hit && this.policy.allowsEdge(hit)) input._removeWallAndDoorAtEdge(pt);
           }
         }));
       }
       this._drawingEdges = false;
       this._edgeStart = null;
       this._edgePath = [];
+      ctx.renderer.clearDragPreview();
+      return true;
+    }
+    if (this.filtered && this._dragging && this._dragStart && this._dragEnd) {
+      this._commitFilteredRect(e, ctx);
+      this._dragging = false;
+      this._dragStart = null;
+      this._dragEnd = null;
       ctx.renderer.clearDragPreview();
       return true;
     }
@@ -307,7 +371,7 @@ export class DemolishTool extends Tool {
           const found = singleTile && !pressedDoorEdge
             ? input._findDeletablePlaceable(
               { x: world.x, y: world.y }, { col: minCol, row: minRow },
-              e.clientX, e.clientY, DEMOLISH_PLACEABLE_SCOPE.demolishAll)
+              e.clientX, e.clientY, this.policy)
             : null;
           if (pressedDoorEdge) {
             input._removeWallAndDoorAtEdge(pressedDoorEdge);
@@ -332,6 +396,53 @@ export class DemolishTool extends Tool {
     return false;
   }
 
+  _commitFilteredRect(e, ctx) {
+    const input = ctx.input;
+    const game = ctx.game;
+    const minCol = Math.min(this._dragStart.col, this._dragEnd.col);
+    const maxCol = Math.max(this._dragStart.col, this._dragEnd.col);
+    const minRow = Math.min(this._dragStart.row, this._dragEnd.row);
+    const maxRow = Math.max(this._dragStart.row, this._dragEnd.row);
+    const singleTile = minCol === maxCol && minRow === maxRow;
+    const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
+
+    game._withUndo(() => game._batchEvents(() => {
+      if (singleTile) {
+        const grid = { col: minCol, row: minRow };
+        const found = input._findDeletablePlaceable(
+          { x: world.x, y: world.y }, grid, e.clientX, e.clientY, this.policy,
+        );
+        if (found) {
+          game.demolishTarget(found);
+          return;
+        }
+
+        if (this.policy.allowsCategory('infra')) {
+          const objectHit = ctx.renderer.raycastScreen?.(e.clientX, e.clientY);
+          const objectInfo = objectHit ? ctx.renderer.identifyHit?.(objectHit) : null;
+          if (objectInfo?.group === 'utilityAttachment' && game.demolishTarget({
+            kind: 'utilityAttachment',
+            lineId: objectInfo.lineId,
+            attachmentId: objectInfo.attachmentId,
+          })) return;
+
+          const lineHit = ctx.renderer.raycastUtilityLine?.(e.clientX, e.clientY);
+          if (lineHit?.lineId && game.utilityLineSystem && game.removeUtilityLine(lineHit.lineId)) {
+            const descriptor = UTILITY_TYPES[lineHit.utilityType];
+            game.log(`Removed ${descriptor?.displayName || lineHit.utilityType} line`, 'info');
+            return;
+          }
+        }
+      }
+
+      for (let col = minCol; col <= maxCol; col++) {
+        for (let row = minRow; row <= maxRow; row++) {
+          input._demolishEverythingAt(col, row, this.policy);
+        }
+      }
+    }));
+  }
+
   onClick(e, ctx) {
     const input = ctx.input;
     const game = ctx.game;
@@ -349,7 +460,9 @@ export class DemolishTool extends Tool {
       // through _findDeletablePlaceable for consistent hover UX and click
       // behavior. Mode-specific non-placeable branches (utility lines, zones,
       // floors, walls, doors) still fall through below.
-      const scope = DEMOLISH_PLACEABLE_SCOPE[dt];
+      const scope = (dt === 'demolishAll' || dt === 'demolishBeamline')
+        ? this.policy
+        : null;
       if (scope) {
         const found = input._findDeletablePlaceable({ x: world.x, y: world.y }, grid, screenX, screenY, scope);
         if (found) {
@@ -427,21 +540,21 @@ export class DemolishTool extends Tool {
     const input = ctx.input;
     if (this._dragging || this._drawingEdges) return;
     if (input._lastScreenX == null) return;
-    if (this.demolishType === 'demolishBeamline') {
+    if (this.policy.allowsCategory('beamline')) {
       // Shift widens a pipe-section highlight to the whole run. Refresh now
       // rather than leaving the old section outlined until the next mousemove.
       const world = ctx.renderer.screenToWorld(input._lastScreenX, input._lastScreenY);
       input._updateDemolishHover(
         world, isoToGrid(world.x, world.y),
-        input._lastScreenX, input._lastScreenY, this.demolishType, this._pipeSweep,
+        input._lastScreenX, input._lastScreenY, this.policy, this._pipeSweep,
       );
-      return;
+      if (!this.policy.allowsCategory('structure') && !this.policy.allowsCategory('grounds')) return;
     }
-    if (this.demolishType !== 'demolishBuilding') return;
+    if (!this.policy.allowsCategory('structure') && !this.policy.allowsCategory('grounds')) return;
     const found = input.findDemolishableEdgeAtScreen(
       input._lastScreenX, input._lastScreenY,
     );
-    if (!found) return;
+    if (!found || !this.policy.allowsEdge(found)) return;
     const { edge, overlayType, wallType, doorType } = found;
     if (down) {
       const path = overlayType

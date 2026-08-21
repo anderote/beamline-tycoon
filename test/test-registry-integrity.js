@@ -42,8 +42,9 @@ import {
   RESEARCH, RESEARCH_CATEGORIES, RESEARCH_LAB_MAP,
 } from '../src/data/research.js';
 import {
-  DEMOLISH_BUTTONS, DEMOLISH_PLACEABLE_SCOPE, DEMOLISH_STANDALONE,
+  DEMOLISH_FILTERS,
 } from '../src/input/demolishScopes.js';
+import { SELECTION_CATEGORY_KEYS } from '../src/game/selection-targets.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -73,7 +74,7 @@ const R = {
   WALLS:       reg('WALL_TYPES',       Object.keys(WALL_TYPES)),
   DOORS:       reg('DOOR_TYPES',       Object.keys(DOOR_TYPES)),
   KINDS:       reg('Placeable kinds',  ['beamline', 'infrastructure', 'equipment', 'furnishing', 'decoration']),
-  DEMOLISH:    reg('demolish tools',   [...Object.keys(DEMOLISH_PLACEABLE_SCOPE), ...DEMOLISH_STANDALONE]),
+  DEMOLISH:    reg('selection categories', SELECTION_CATEGORY_KEYS),
 };
 
 // Union of every id namespace, for the broad sweep.
@@ -187,9 +188,7 @@ const LISTS = [
   ['src/renderer3d/component-builder.js ROLE_BUILDERS',
     [...readFileSync(join(ROOT, 'src/renderer3d/component-builder.js'), 'utf8')
       .matchAll(/^ROLE_BUILDERS\.([A-Za-z0-9_]+)\s*=/gm)].map(m => m[1]),                         R.COMPONENTS],
-  ['src/input/demolishScopes.js DEMOLISH_BUTTONS keys', DEMOLISH_BUTTONS.map(b => b.key),        R.DEMOLISH],
-  ['src/input/demolishScopes.js DEMOLISH_PLACEABLE_SCOPE',
-    Object.values(DEMOLISH_PLACEABLE_SCOPE).flatMap(s => [...s]),                                R.KINDS],
+  ['src/input/demolishScopes.js DEMOLISH_FILTERS keys', DEMOLISH_FILTERS.map(b => b.key),        R.DEMOLISH],
 ];
 
 // Scenario generators write ids straight into the map — one dead floor/zone/

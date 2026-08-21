@@ -63,8 +63,10 @@ import { pipeRefund } from '../beamline/BeamlineSystem.js';
 import { placementsConflict } from '../beamline/pipe-placements.js';
 import { pushEscHandler } from '../ui/esc-stack.js';
 import {
-  DEMOLISH_PLACEABLE_SCOPE,
-  DEMOLISH_BUTTONS,
+  createDemolishPolicy,
+  defaultDemolishFilters,
+  legacyDemolishPolicy,
+  normalizeDemolishFilters,
   demolishRefund,
 } from './demolishScopes.js';
 import {
@@ -162,6 +164,10 @@ export class InputHandler {
     this.panStart = { x: 0, y: 0 };
     this.worldStart = { x: 0, y: 0 };
     this.activeMode = 'beamline';
+    // Demolition is one persistent cursor. Filters survive leaving/re-entering
+    // the mode during the session, while their initial state comes from the
+    // authored defaults in demolishScopes.js.
+    this.demolishFilters = defaultDemolishFilters();
     this.hoverSubCol = -1;              // sub-grid column under cursor
     this.hoverSubRow = -1;              // sub-grid row under cursor
     // Unified placeable preview state. Which placeable is armed derives
@@ -530,9 +536,12 @@ export class InputHandler {
    *   in flight, so the hover highlights the whole swept range rather than the
    *   single sub-unit under the cursor.
    */
-  _updateDemolishHover(world, grid, screenX, screenY, dt, pipeSweep = null) {
+  _updateDemolishHover(world, grid, screenX, screenY, policyOrType, pipeSweep = null) {
     const col = grid.col, row = grid.row;
     const key = col + ',' + row;
+    const policy = typeof policyOrType === 'string'
+      ? legacyDemolishPolicy(policyOrType)
+      : policyOrType;
 
     // --- Live pipe-section sweep ---
     // A drag in flight owns the hover outright: it resolves against the pipe
@@ -555,12 +564,11 @@ export class InputHandler {
     // --- Unified placeable detection ---
     // Any demolish mode with a placeable scope uses the same hover UX:
     // outline the mesh and show a tooltip with the refund.
-    const scope = DEMOLISH_PLACEABLE_SCOPE[dt];
-    if (scope) {
+    if (policy) {
       // Hover runs on every pointer move, so keep it to one exact ray. The
       // click path uses the full tolerance; footprint fallbacks below still
       // provide broad hover feedback for hollow models.
-      const found = this._findDeletablePlaceable(world, grid, screenX, screenY, scope, 0);
+      const found = this._findDeletablePlaceable(world, grid, screenX, screenY, policy, 0);
       if (found) {
         this.renderer._clearPreview();
         // Beam pipes draw a section highlight below instead: outlining the
@@ -589,7 +597,7 @@ export class InputHandler {
             return;
           }
           // No sweep argument: a live drag already returned above.
-          const section = dt === 'demolishBeamline'
+          const section = policy.allowsCategory('beamline')
             ? this._demolishPipeSection(pipe, world)
             : null;
           if (section) {
@@ -626,7 +634,7 @@ export class InputHandler {
 
     // Utility lines — raycast-based hover (lines are narrow 3D groups, not
     // tile occupants).
-    if (!found && (dt === 'demolishUtility' || dt === 'demolishAll')) {
+    if (!found && policy?.allowsCategory('infra')) {
       const hit = this.renderer.raycastUtilityLine?.(screenX, screenY);
       if (hit && hit.lineId) {
         // Drop the previous frame's outline/tile highlight like every sibling
@@ -645,11 +653,11 @@ export class InputHandler {
     // Walls / doors — edge-based hover (checks both edge-key aliases).
     // Highlight the matched edge; with Shift held in Building mode,
     // preview the whole connected run.
-    if (!found && (dt === 'demolishBuilding' || dt === 'demolishAll')) {
+    if (!found && (policy?.allowsCategory('structure') || policy?.allowsCategory('grounds'))) {
       const hit = this.findDemolishableEdgeAtScreen(screenX, screenY);
-      if (hit) {
+      if (hit && policy.allowsEdge(hit)) {
         const { edge, overlayType, wallType, doorType, windowType } = hit;
-        if (this._shiftDown && dt === 'demolishBuilding') {
+        if (this._shiftDown) {
           const seg = overlayType
             ? this._buildWallOverlaySegmentPath(edge)
             : wallType
@@ -677,7 +685,7 @@ export class InputHandler {
     }
 
     // Zones
-    if (!found && (dt === 'demolishBuilding' || dt === 'demolishAll')) {
+    if (!found && policy?.allowsCategory('facility')) {
       const zoneType = this.game.state.zoneOccupied[key];
       if (zoneType) {
         const zone = ZONES[zoneType];
@@ -688,9 +696,9 @@ export class InputHandler {
     }
 
     // Infrastructure / floor
-    if (!found && (dt === 'demolishBuilding' || dt === 'demolishAll')) {
+    if (!found) {
       const infraType = this.game.state.infraOccupied[key];
-      if (infraType) {
+      if (infraType && policy?.allowsFloor(infraType)) {
         const infra = FLOORS[infraType];
         this.renderer.renderDemolishTileOutline(col, row);
         this._showDemolishTooltip(infra ? infra.name : infraType, infra ? Math.floor((infra.cost || 0) * 0.5) : 0, screenX, screenY);
@@ -2925,11 +2933,29 @@ export class InputHandler {
       case 'zone':       this.setTool(new ZonePaintTool(key)); break;
       case 'furnishing': this.setTool(new PlaceableTool('furnishing', key, variant)); break;
       case 'decoration': this.setTool(new PlaceableTool('decoration', key, variant)); break;
-      case 'demolish':   this.setTool(new DemolishTool(key || 'demolishAll')); break;
+      case 'demolish':   this.setTool(new DemolishTool('demolishFiltered', this.demolishFilters)); break;
       case 'utility':    this.setTool(new UtilityLineTool(key)); break;
       default:
         console.warn('[InputHandler] unknown palette kind:', kind, key);
     }
+  }
+
+  getDemolishFilters() {
+    return new Set(this.demolishFilters);
+  }
+
+  setDemolishFilter(key, enabled) {
+    const next = normalizeDemolishFilters(this.demolishFilters);
+    if (enabled) next.add(key);
+    else next.delete(key);
+    this.demolishFilters = normalizeDemolishFilters(next);
+    if (this.activeTool?.kind === 'demolish' && this.activeTool.filtered) {
+      this.activeTool.setFilters(this.demolishFilters);
+      this.renderer.clearDragPreview();
+      this._hideDemolishTooltip();
+      this._updateShiftHint();
+    }
+    return this.demolishFilters.has(key);
   }
 
   /**
@@ -2975,6 +3001,8 @@ export class InputHandler {
     tolerancePx = OBJECT_PICK_TOLERANCE_PX,
   ) {
     if (!scope) return null;
+    const allowsEntry = entry => scope.has(entry?.kind || entry?.category)
+      && (!scope.allowsPlaceable || scope.allowsPlaceable(entry));
 
     // --- 1. Raycast for precise 3D hit detection ---
     const hit = this.renderer.raycastScreen(screenX, screenY, tolerancePx);
@@ -2997,7 +3025,7 @@ export class InputHandler {
             node = this._getNodeAtGrid(Math.floor(p.x / 2), Math.floor(p.z / 2));
           }
           if (!node) node = this._getNodeAtGrid(grid.col, grid.row);
-          if (node && scope.has('beamline')) {
+          if (node && scope.has('beamline') && allowsEntry(node)) {
             const placeable = PLACEABLES[node.type] || COMPONENTS[node.type];
             return { kind: 'beamline', node, placeable, rootObj: info.rootObj };
           }
@@ -3005,7 +3033,7 @@ export class InputHandler {
           // the unified subgridOccupied probe using the hit world position.
           const p = info.rootObj.position;
           const entry = this._placeableAtWorldPos(p.x, p.z);
-          if (entry && scope.has(entry.kind)) {
+          if (entry && allowsEntry(entry)) {
             return {
               kind: entry.kind,
               entry,
@@ -3050,7 +3078,7 @@ export class InputHandler {
           const p = info.rootObj.position;
           const entry = (info.nodeId && this.game.getPlaceable(info.nodeId))
             || this._placeableAtWorldPos(p.x, p.z);
-          if (entry && scope.has(entry.kind)) {
+          if (entry && allowsEntry(entry)) {
             return {
               kind: entry.kind,
               entry,
@@ -3076,7 +3104,7 @@ export class InputHandler {
         const occ = this.game.state.subgridOccupied[k];
         if (occ && scope.has(occ.kind)) {
           const entry = this.game.getPlaceable(occ.id);
-          if (entry) {
+          if (entry && allowsEntry(entry)) {
             // Decorations live in the decoration builder's own registry, not
             // the component mesh map — check both or they highlight nothing.
             const rootObj = this.renderer.componentBuilder?.getGroup?.(entry.id)
@@ -3101,7 +3129,7 @@ export class InputHandler {
     if (grid && grid.col !== undefined && grid.row !== undefined) {
       for (const p of this.game.state.placeables) {
         if (p.category !== 'beamline' && p.category !== 'infrastructure') continue;
-        if (!scope.has(p.category)) continue;
+        if (!allowsEntry(p)) continue;
         if (!p.cells) continue;
         if (p.cells.some(c => c.col === grid.col && c.row === grid.row)) {
           const rootObj = this.renderer.componentBuilder?.getGroup?.(p.id) || null;
@@ -3686,11 +3714,13 @@ export class InputHandler {
     this._updatePlaceablePreview();
   }
 
-  _demolishEverythingAt(col, row) {
+  _demolishEverythingAt(col, row, policy = createDemolishPolicy([
+    'structure', 'beamline', 'infra', 'facility', 'grounds',
+  ])) {
     const key = col + ',' + row;
     // Remove beamline components
     const node = this._getNodeAtGrid(col, row);
-    if (node) this.game.removePlaceable(node.id);
+    if (node && policy.allowsPlaceable(node)) this.game.removePlaceable(node.id);
     // Remove unified placeables (equipment / furnishings / decorations /
     // infrastructure modules) occupying any subcell of this tile.
     const idsOnTile = new Set();
@@ -3707,11 +3737,14 @@ export class InputHandler {
       if (usesFloorOccupancy(def)) continue;
       if ((entry.cells || []).some(c => c.col === col && c.row === row)) idsOnTile.add(entry.id);
     }
-    for (const id of idsOnTile) this.game.removePlaceable(id);
+    for (const id of idsOnTile) {
+      const entry = this.game.getPlaceable(id);
+      if (entry && policy.allowsPlaceable(entry)) this.game.removePlaceable(id);
+    }
     // Phase 6: rack segments removed from state; nothing to demolish here.
     // Remove furnishings
     const subgrid = this.game.state.zoneFurnishingSubgrids[key];
-    if (subgrid) {
+    if (subgrid && policy.allowsCategory('facility')) {
       for (let sr = 0; sr < 4; sr++) {
         for (let sc = 0; sc < 4; sc++) {
           const furnIdx = subgrid[sr][sc];
@@ -3722,17 +3755,21 @@ export class InputHandler {
         }
       }
     }
-    // Remove decorations
-    this.game.removeDecoration(col, row);
     // Remove zones
-    if (this.game.state.zoneOccupied[key]) this.game.removeZoneTile(col, row);
+    if (policy.allowsCategory('facility') && this.game.state.zoneOccupied[key]) {
+      this.game.removeZoneTile(col, row);
+    }
     // Remove walls and doors on every edge of this tile (segments may be
     // stored under either alias of any of the four edge keys)
-    for (const edge of ['n', 's', 'e', 'w']) {
-      this._removeWallAndDoorAtEdge({ col, row, edge });
+    if (policy.allowsCategory('structure') || policy.allowsCategory('grounds')) {
+      for (const edge of ['n', 's', 'e', 'w']) {
+        const hit = this._findWallOrDoorAtEdge({ col, row, edge });
+        if (hit && policy.allowsEdge(hit)) this._removeWallAndDoorAtEdge({ col, row, edge });
+      }
     }
     // Remove floor last
-    if (this.game.state.infraOccupied[key]) this.game.removeInfraTile(col, row);
+    const floorType = this.game.state.infraOccupied[key];
+    if (floorType && policy.allowsFloor(floorType)) this.game.removeInfraTile(col, row);
   }
 
   // --- Move mode (MoveTool) ---
@@ -4279,7 +4316,8 @@ export class InputHandler {
     const sep = `<span class="sep">•</span>`;
     const tool = this.activeTool;
     let html = '';
-    if (tool?.kind === 'demolish' && tool.demolishType === 'demolishBuilding') {
+    if (tool?.kind === 'demolish'
+        && (tool.policy?.allowsCategory('structure') || tool.policy?.allowsCategory('grounds'))) {
       html = `<span class="k">SHIFT</span>+click: delete whole run`;
     } else if (tool?.kind === 'move' && tool.payload?.kind === 'selectionGroup') {
       html = (tool.payload.operation === 'copy' ? 'Click: paste selection' : 'Click: place selection')
@@ -4342,30 +4380,9 @@ export class InputHandler {
       this._hidePreview();
       return;
     }
-    // Pick demolish type based on active tool context: structure-ish tools
-    // map to Building, beamline mode maps to Beamline, everything else gets
-    // the catch-all.
-    let demolishType;
-    const kind = this.activeTool?.kind;
-    const cat = this.selectedCategory;
-    const catDef = MODES[this.activeMode]?.categories?.[cat];
-    if (kind === 'wall' || catDef?.isWallTab || cat === 'walls' || cat === 'fencing'
-        || kind === 'door' || cat === 'doors'
-        || kind === 'window' || cat === 'windows'
-        || kind === 'floor' || cat === 'flooring' || catDef?.isSurfaceTab
-        || kind === 'zone') {
-      demolishType = 'demolishBuilding';
-    } else if (this.activeMode === 'beamline') {
-      demolishType = 'demolishBeamline';
-    } else {
-      demolishType = 'demolishAll';
-    }
-
-    // Activate demolish in-place without changing mode/menu — setTool
-    // disarms whatever was active.
-    this.setTool(new DemolishTool(demolishType));
-    const btn = DEMOLISH_BUTTONS.find(b => b.key === demolishType);
-    this._renderPreview(btn?.name || 'Demolish', 'Press Delete or Esc to exit', []);
+    // Activate the same filtered cursor in-place without changing mode/menu.
+    this.setTool(new DemolishTool('demolishFiltered', this.demolishFilters));
+    this._renderPreview('Demolish', 'Uses the active Demolish-category filters', []);
   }
 
   /**
@@ -4449,13 +4466,10 @@ export class InputHandler {
       this.selectedCategory = catKeys[0] || '';
     }
     this.renderer.activeMode = mode;
-    // Entering demolish mode arms the catch-all tool immediately (RCT
-    // style) so the first click already demolishes. The HUD's own mode-btn
-    // listener runs before this one, so the palette DOM is already built;
-    // highlight card 0 to match.
+    // Entering demolish mode arms the filtered cursor immediately so the
+    // first click already demolishes. Checkboxes modify this live tool.
     if (mode === 'demolish') {
-      this.setTool(new DemolishTool('demolishAll'));
-      this._syncPaletteClick(0);
+      this.setTool(new DemolishTool('demolishFiltered', this.demolishFilters));
     }
     // Emit so UI layers (stats panels, overlays) can react to mode transitions.
     if (prev !== mode && this.game && typeof this.game.emit === 'function') {
@@ -4680,11 +4694,6 @@ export class InputHandler {
         else if (dec.placement === 'outdoor') decStats.push(['Placement', 'Outdoor only']);
         if (dec.blocksBuild) decStats.push(['Blocks building', 'Yes']);
         this._renderPreview(dec.name, dec.desc || '', decStats);
-        return;
-      }
-      case 'demolish': {
-        const btn = DEMOLISH_BUTTONS.find(b => b.key === key);
-        this._renderPreview(btn?.name || 'Demolish', btn?.desc || '', []);
         return;
       }
       case 'utility': {
