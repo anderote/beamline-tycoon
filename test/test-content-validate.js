@@ -156,6 +156,10 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
       energyCost: 0,
       light: { color: '#fff', intensity: 1, radius: 3, shape: 'point', emitterY: 1 },
     },
+    badHanging: {
+      id: 'badHanging', kind: 'decoration', category: 'hangings', mount: 'wall',
+      wallSpan: 5, subW: 1, subL: 1, subH: 1, cost: { funding: 1 },
+    },
     malformedPrimitive: {
       id: 'malformedPrimitive', kind: 'equipment',
       subW: 1, subL: 1, subH: 1,
@@ -219,6 +223,10 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     'light-bearing def with no mount reported');
   assert(hasProblem(problems, 'darkFixture', 'energyCost'),
     'light-bearing def with energyCost 0 reported');
+  assert(hasProblem(problems, 'badHanging', 'wallSpan', '1 to 4'),
+    'wall hanging span outside the quarter-wall range reported');
+  assert(hasProblem(problems, 'badHanging', 'mountY', 'positive'),
+    'non-light wall hanging without a mounting height reported');
   assert(hasProblem(problems, 'malformedPrimitive', 'parts[0].shape', "'banana'"),
     'unknown authored primitive shape reported');
   assert(hasProblem(problems, 'malformedPrimitive', 'parts[0].w', 'positive number'),

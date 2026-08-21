@@ -82,7 +82,7 @@ export function fixtureFloorY(def, originY = 0) {
 /** World-space group-origin height for a fixture placed on a floor. */
 export function fixtureMountY(def, floorY = 0) {
   if (def?.mount === 'ground' || def?.mount === 'surface') return floorY;
-  const mountHeight = def?.light?.mountY ?? def?.light?.emitterY ?? 0;
+  const mountHeight = def?.mountY ?? def?.light?.mountY ?? def?.light?.emitterY ?? 0;
   return floorY + mountHeight;
 }
 
