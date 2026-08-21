@@ -216,6 +216,25 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
       { name: 'top', x: 0, y: 0.8, z: 0, w: 2.0, h: 0.08, l: 2.0, material: 'tile_hardwood' },
     ],
   },
+  loungeTable: {
+    id: 'loungeTable', name: 'Lounge Table', zoneTypes: ['officeSpace', 'meetingRoom', 'reception'],
+    cost: { funding: 450 }, energyCost: 0, spriteColor: 0x8a7a5a,
+    gridW: 3, gridH: 2, subH: 1, surfaceY: 0.9, spriteKey: 'loungeTable',
+    effects: { morale: 2 }, baseMaterial: 'tile_hardwood',
+    // 3×2 footprint. Same low-slab family as coffeeTable, widened to sit in
+    // front of the 3×1 couch, with a lower shelf tier for the extra cost.
+    parts: [
+      // Four short legs
+      { name: 'legFL', x: -1.3, y: 0, z: -0.8, w: 0.1, h: 0.8, l: 0.1, material: 'tile_hardwood' },
+      { name: 'legFR', x:  1.3, y: 0, z: -0.8, w: 0.1, h: 0.8, l: 0.1, material: 'tile_hardwood' },
+      { name: 'legBL', x: -1.3, y: 0, z:  0.8, w: 0.1, h: 0.8, l: 0.1, material: 'tile_hardwood' },
+      { name: 'legBR', x:  1.3, y: 0, z:  0.8, w: 0.1, h: 0.8, l: 0.1, material: 'tile_hardwood' },
+      // Tabletop
+      { name: 'top', x: 0, y: 0.8, z: 0, w: 3.0, h: 0.08, l: 2.0, material: 'tile_hardwood' },
+      // Lower shelf tier between the legs
+      { name: 'shelf', x: 0, y: 0.3, z: 0, w: 2.6, h: 0.06, l: 1.6, material: 'tile_hardwood' },
+    ],
+  },
   couch: {
     id: 'couch', name: 'Couch', zoneTypes: ['officeSpace', 'reception'],
     cost: { funding: 1200 }, energyCost: 0, spriteColor: 0x4a5a7a,
@@ -1414,6 +1433,7 @@ const ROOM_FURNISHING_DESCS = {
   faxMachine: 'Nobody knows why it is still here. Nobody dares unplug it. Office Space.',
   receptionDesk: 'First impressions for visiting funding agencies. Office Space or Reception.',
   coffeeTable: 'Holds journals nobody reads and coasters nobody uses. Office Space, Meeting Room, or Reception.',
+  loungeTable: 'A larger low table with a shelf tier for the magazines nobody reads either. Office Space, Meeting Room, or Reception.',
   couch: 'For visitors, informal discussions, and "quick naps" during 36-hour beam runs. Office Space or Reception.',
   bookshelf: 'Textbooks, proceedings, and one long-overdue library book. Office Space or Reception.',
   printer: 'Prints fine until the moment you urgently need it to. Office Space or Reception.',

@@ -27,6 +27,7 @@ const SHARED_AVAILABILITY = {
   pottedPlant: ['officeSpace', 'meetingRoom', 'reception'],
   receptionDesk: ['officeSpace', 'reception'],
   coffeeTable: ['officeSpace', 'meetingRoom', 'reception'],
+  loungeTable: ['officeSpace', 'meetingRoom', 'reception'],
   couch: ['officeSpace', 'reception'],
   waterCooler: ['cafeteria', 'officeSpace', 'reception', 'storageRoom'],
   cafeteriaRefrigerator: ['cafeteria', 'storageRoom'],
