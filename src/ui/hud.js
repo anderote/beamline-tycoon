@@ -3110,7 +3110,7 @@ UIHost.prototype._bindHUDEvents = function() {
   }
   this._updateSimControls();
 
-  // Staff: Hire button opens hiring dialog (3 candidates)
+  // Staff navigation opens the hiring dialog (3 candidates).
   const hireBtn = document.getElementById('btn-hire');
   if (hireBtn) {
     hireBtn.addEventListener('click', () => {
