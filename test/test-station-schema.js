@@ -10,11 +10,11 @@
 //   3. Stackable benchtop instruments never carry a station (fix-round-1:
 //      their def-local anchor resolves against the wrong footprint once
 //      they're stacked on a bench/table/rack).
-//   4. All ten geometry-driven anchor deviations (the defs whose "face a
+//   4. All geometry-driven anchor deviations (the defs whose "face a
 //      person works from" isn't the brief's +Z/facing:'n' example) are
 //      pinned to their exact coordinates, so a later edit can't silently
 //      flip one back without a red test.
-//   5. All seven chairs carry a seat facing exactly 'n' (their backrests are
+//   5. All eight chairs carry a seat facing exactly 'n' (their backrests are
 //      all authored at local +Z), and (5b) the exact seatY read off each
 //      chair's own 'seat' part.
 //   6. No chair carries a station (chairs are matched by adjacency).
@@ -51,12 +51,12 @@ function hasProblem(problems, id, field, messagePart) {
 
 const CHAIR_IDS = [
   'officeChair', 'ergonomicChair', 'executiveChair',
-  'operatorChair', 'meetingChair', 'barStool', 'cafeteriaChair',
+  'operatorChair', 'meetingChair', 'barStool', 'cafeteriaChair', 'labStool',
 ];
 
 // seat.seatY per chair (subtiles — the same coordinate space as the def's
 // own `parts[].y`), pinned to the exact value read off each chair's own
-// 'seat' part in facility-room-furnishings.raw.js. Not all six share a
+// 'seat' part in the facility furnishing registries. Not all chairs share a
 // height (fix-round-1 on this task: StaffPawns.js used to lift every seated
 // pawn by a fixed, style-only hip height, landing the hip at roughly TWICE
 // hip height regardless of which chair — see test-pawn-pathing.js's seated
@@ -64,6 +64,7 @@ const CHAIR_IDS = [
 const CHAIR_SEAT_Y = {
   officeChair: 0.8, ergonomicChair: 0.8, executiveChair: 0.8,
   operatorChair: 0.82, meetingChair: 0.82, barStool: 1.15, cafeteriaChair: 0.82,
+  labStool: 1.02,
 };
 
 // Assignment table from task-3-brief.md. Stackable benchtop instruments
@@ -80,6 +81,9 @@ const EXPECTED_STATIONS = {
   cafeTable: { jobs: ['eat'], slots: 2 },
   breakfastBar: { jobs: ['eat'], slots: 3 },
   labBench: { jobs: ['labWork'], slots: 2 },
+  labTable: { jobs: ['labWork'], slots: 2 },
+  rfTestRack: { jobs: ['labWork'], slots: 1 },
+  waveguideWorkstand: { jobs: ['labWork'], slots: 1 },
   testChamber: { jobs: ['labWork'], slots: 1 },
   rga: { jobs: ['labWork'], slots: 1 },
   heatExchanger: { jobs: ['labWork'], slots: 1 },
@@ -99,9 +103,10 @@ const EXPECTED_STATIONS = {
 // the wrong host footprint, so these must never carry a station.
 const STACKABLE_NO_STATION_IDS = [
   'oscilloscope', 'spectrumAnalyzer', 'networkAnalyzer', 'flowMeter', 'scopeStation',
+  'solderingStation', 'frequencyCounter', 'rfPowerMeter', 'rfDummyLoad', 'rfShieldBox',
 ];
 
-// The ten defs whose anchor deviates from the brief's +Z/facing:'n' example
+// The defs whose anchor deviates from the brief's +Z/facing:'n' example
 // because their part geometry puts the "face a person works from" somewhere
 // else (see task-3-report.md for the per-def reasoning). Pinned exactly so a
 // later edit can't silently flip one back to +Z without a red test.
@@ -111,6 +116,7 @@ const DEVIATING_ANCHORS = {
   operatorConsole: { subCol: 1, subRow: -1, facing: 's' },
   monitorBank: { subCol: 1, subRow: -1, facing: 's' },
   daqRack: { subCol: 0, subRow: -1, facing: 's' },
+  rfTestRack: { subCol: 0, subRow: -1, facing: 's' },
   toolChest: { subCol: 1, subRow: -1, facing: 's' },
   lathe: { subCol: -1, subRow: 1, facing: 'e' },
   millingMachine: { subCol: 0, subRow: -1, facing: 's' },
@@ -182,7 +188,7 @@ for (const id of STACKABLE_NO_STATION_IDS) {
 }
 
 // ==========================================================================
-// Test 4: the ten geometry-driven anchor deviations are pinned exactly.
+// Test 4: geometry-driven anchor deviations are pinned exactly.
 // ==========================================================================
 console.log('\n--- Test 4: deviating anchor coordinates are pinned ---');
 for (const [id, expected] of Object.entries(DEVIATING_ANCHORS)) {
@@ -198,7 +204,7 @@ for (const [id, expected] of Object.entries(DEVIATING_ANCHORS)) {
 }
 
 // ==========================================================================
-// Test 5: all six chairs have seat.facing exactly 'n'.
+// Test 5: all chairs have seat.facing exactly 'n'.
 // ==========================================================================
 console.log("\n--- Test 5: chairs have seat.facing === 'n' ---");
 for (const id of CHAIR_IDS) {
