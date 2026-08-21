@@ -5,12 +5,14 @@ import {
   CUSTOM_SCENARIO_ID,
   CUSTOM_SCENARIO_INDEX_KEY,
   CUSTOM_SCENARIO_KEY,
+  CUSTOM_SCENARIO_PREFIX,
   DEFAULT_STARTING_SCENARIO_KEY,
   PENDING_SCENARIO_KEY,
   customScenarioRef,
   listCustomScenarios,
   listPlayableScenarios,
   loadCustomScenarioById,
+  migrateLegacyCustomScenario,
   resolveScenario,
   saveCustomScenario,
   stageScenarioSelection,
@@ -56,6 +58,14 @@ assert.equal(listCustomScenarios(storage).length, 2,
   'Save As creates multiple independently playable local scenarios');
 assert.equal(listPlayableScenarios(storage).filter(scenario => scenario.local).length, 2,
   'every local scenario is included in the New Game catalogue');
+assert.deepEqual(
+  listPlayableScenarios(storage).filter(scenario => !scenario.local).map(scenario => scenario.id),
+  ['sandbox'],
+  'New Game has no source-authored choices beyond blank Sandbox');
+assert.equal(resolveScenario('realLab', storage), null,
+  'the former Real Lab fixture is not launchable from New Game');
+assert.equal(resolveScenario('smallBeamlineFacility', storage), null,
+  'the former Small Beamline Facility fixture is not launchable from New Game');
 
 const balanceRef = customScenarioRef('balanceLab');
 const resolved = resolveScenario(balanceRef, storage);
@@ -85,14 +95,41 @@ legacyStorage.setItem(CUSTOM_SCENARIO_KEY, JSON.stringify({
   id: 'legacyLab', name: 'Legacy Lab', data: baseData, sandbox: true,
 }));
 legacyStorage.setItem(DEFAULT_STARTING_SCENARIO_KEY, CUSTOM_SCENARIO_ID);
-assert.equal(listCustomScenarios(legacyStorage)[0]?.id, 'legacyLab');
+const migratedLegacy = migrateLegacyCustomScenario(legacyStorage);
+assert.equal(migratedLegacy?.id, 'legacyLab');
+assert.deepEqual(migratedLegacy?.data, baseData,
+  'startup migration preserves the complete authored world payload');
 assert.equal(legacyStorage.getItem(CUSTOM_SCENARIO_KEY), null);
 assert.equal(legacyStorage.getItem(DEFAULT_STARTING_SCENARIO_KEY), null,
   'the retired implicit New Game default is removed during migration');
 assert.ok(legacyStorage.getItem(CUSTOM_SCENARIO_INDEX_KEY),
   'the migrated scenario is indexed in the new catalogue');
+assert.ok(legacyStorage.getItem(`${CUSTOM_SCENARIO_PREFIX}legacyLab`),
+  'the migrated world is stored in the per-scenario catalogue layout');
 assert.equal(resolveScenario(CUSTOM_SCENARIO_ID, legacyStorage)?.name, 'Legacy Lab',
   'old pending custom-scenario references still resolve after migration');
+assert.deepEqual(listPlayableScenarios(legacyStorage).map(scenario => scenario.name),
+  ['Legacy Lab', 'Sandbox'],
+  'a migrated starter and Sandbox are the only New Game choices');
+
+// The old slot remains the recovery source until the new catalogue index is
+// safely committed. A quota/write failure may leave an orphan target payload,
+// but it must never delete the only indexed copy of the authored world.
+const failingMigrationStorage = memoryStorage();
+failingMigrationStorage.setItem(CUSTOM_SCENARIO_KEY, JSON.stringify({
+  id: 'recoverableLab', name: 'Recoverable Lab', data: baseData, sandbox: true,
+}));
+failingMigrationStorage.setItem(DEFAULT_STARTING_SCENARIO_KEY, CUSTOM_SCENARIO_ID);
+const workingSetItem = failingMigrationStorage.setItem;
+failingMigrationStorage.setItem = (key, value) => {
+  if (key === CUSTOM_SCENARIO_INDEX_KEY) throw new Error('simulated quota failure');
+  workingSetItem(key, value);
+};
+assert.throws(() => migrateLegacyCustomScenario(failingMigrationStorage), /quota failure/);
+assert.ok(failingMigrationStorage.getItem(CUSTOM_SCENARIO_KEY),
+  'a failed catalogue write retains the legacy scenario recovery copy');
+assert.equal(failingMigrationStorage.getItem(DEFAULT_STARTING_SCENARIO_KEY), CUSTOM_SCENARIO_ID,
+  'a failed migration retains the legacy default marker');
 
 assert.equal(scenarioIdFromName('My Cool Lab'), 'myCoolLab');
 assert.equal(scenarioIdFromName('42 MeV Starter'), 'custom42MevStarter');
@@ -134,10 +171,15 @@ assert.equal(listCustomScenarios(editorStorage).length, 2,
 // remains in the owner-run browser lane, while the non-browser gate pins that
 // both New Game surfaces route to the same picker coordinator.
 const mainSource = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+const pickerSource = readFileSync(new URL('../src/ui/ScenarioPicker.js', import.meta.url), 'utf8');
 const titleSource = readFileSync(new URL('../src/ui/TitleScreen.js', import.meta.url), 'utf8');
 const htmlSource = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 assert.match(mainSource, /case 'new-game':\s*scenarioPicker\.open\(\)/);
 assert.match(mainSource, /onNewGame:\s*\(\) => scenarioPicker\.open\(\)/);
+assert.match(mainSource, /try \{ migrateLegacyCustomScenario\(\); \}/,
+  'app startup eagerly migrates the legacy single scenario slot');
+assert.match(pickerSource, /data-edit-scenario=/,
+  'the migrated starter remains reopenable in Scenario Editor');
 assert.doesNotMatch(titleSource, /addBtn\('Scenarios'/,
   'the separate title Scenarios action is folded into New Game');
 assert.doesNotMatch(htmlSource, /data-action="scenarios"/,

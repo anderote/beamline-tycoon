@@ -25,6 +25,7 @@ import {
   PENDING_SCENARIO_KEY,
   loadCustomScenario,
   loadCustomScenarioById,
+  migrateLegacyCustomScenario,
   resolveScenario,
 } from './data/scenarios.js';
 import { MusicPlayer } from './ui/MusicPlayer.js';
@@ -54,6 +55,12 @@ window.PARAM_DEFS = PARAM_DEFS;
 // Clear old saves from the grid-based version
 const oldSave = localStorage.getItem('beamlineCowboy');
 if (oldSave) localStorage.removeItem('beamlineCowboy');
+
+// Upgrade the retired single Scenario Admin slot before any title, editor, or
+// New Game path reads local scenarios. The migration keeps the legacy payload
+// until the new catalogue entry has been written and verified.
+try { migrateLegacyCustomScenario(); }
+catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', error); }
 
 (async function main() {
   // Capture save existence BEFORE game.load()/start() can autosave.
