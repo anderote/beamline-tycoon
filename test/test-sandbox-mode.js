@@ -1,4 +1,4 @@
-// test/test-sandbox-mode.js — sandbox suppresses charges, not the economy.
+// test/test-sandbox-mode.js — sandbox suppresses capital charges, not the economy.
 //
 // The distinction from devMode matters: devMode pins funding at 1e12, which
 // hides what a facility actually earns. Sandbox leaves the balance real so the
@@ -50,6 +50,20 @@ console.log('\n--- chargeConstruction is the single build-time chokepoint ---');
   assert(g.state.resources.funding === now, 'sandbox suppresses it');
 }
 
+console.log('\n--- structure affordability is also bypassed ---');
+{
+  const g = mk();
+  g.setSandboxMode(true);
+  g.state.resources.funding = -50000;
+  const before = g.state.resources.funding;
+  assert(g.placeInfraTile(0, 0, 'concrete') === true,
+    'a floor can be built with a negative sandbox balance');
+  assert(g.placeWall(0, 0, 'n', 'structuralWall') === true,
+    'a wall can be built with a negative sandbox balance');
+  assert(g.state.resources.funding === before,
+    'capital construction leaves the real operating balance untouched');
+}
+
 console.log('\n--- placement is free but the balance stays real ---');
 {
   const g = mk();
@@ -67,9 +81,47 @@ console.log('\n--- income still accrues ---');
   const g = mk();
   g.setSandboxMode(true);
   g.state.resources.funding = 0;
-  for (let i = 0; i < 30; i++) g.tick();
-  assert(g.state.resources.funding > 0,
-    `grants/income still credit in sandbox (got ${g.state.resources.funding})`);
+  g.tick();
+  const { snapshot } = g.getEconomySnapshot();
+  assert(snapshot.income.total > 0,
+    `grants/income are still credited in sandbox (got ${snapshot.income.total})`);
+}
+
+console.log('\n--- recurring operating costs remain real ---');
+{
+  const g = mk();
+  g.setSandboxMode(true);
+  // Remove the seeded operator so the expected tick delta is just grant minus
+  // this placed pump's service and electricity bill.
+  g.state.staff = Object.fromEntries(Object.keys(g.state.staff).map(id => [id, 0]));
+  g.state.resources.funding = 0;
+  const id = g.placePlaceable({ type: 'turboPump', col: 12, row: 12, silent: true });
+  assert(!!id, 'operating-cost fixture places in sandbox');
+  g.tick();
+  const { snapshot } = g.getEconomySnapshot();
+  assert(snapshot.upkeep.total > 0, 'the published sandbox snapshot includes real upkeep');
+  assert(g.state.resources.funding === snapshot.income.total - snapshot.upkeep.total,
+    'the sandbox cash balance is moved by both recurring income and upkeep');
+
+  const beforeRefill = g.state.resources.funding;
+  g.chargeReservoirRefill({ funding: 250 });
+  assert(g.state.resources.funding === beforeRefill - 250,
+    'reservoir consumables remain a real sandbox operating cost');
+}
+
+console.log('\n--- failed and demolished free builds cannot mint money ---');
+{
+  const g = mk();
+  g.setSandboxMode(true);
+  g.state.resources.funding = 1234;
+  const id = g.placePlaceable({ type: 'turboPump', col: 12, row: 12, silent: true });
+  assert(!!id && g.removePlaceable(id), 'a sandbox placeable can be demolished');
+  assert(g.state.resources.funding === 1234,
+    'demolishing free sandbox construction pays no refund');
+  const before = g.state.resources.funding;
+  g.commitGesture({ cost: { funding: 999 }, mutate: () => false });
+  assert(g.state.resources.funding === before,
+    'a rejected paid gesture does not refund a charge sandbox never took');
 }
 
 console.log('\n--- persistence ---');

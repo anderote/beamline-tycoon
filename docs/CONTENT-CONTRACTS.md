@@ -73,6 +73,10 @@ the short authoring contract.
 
 - A scripted build must check every placement and line result. Do not let a
   rejected wire silently become a later economy or progression imbalance.
+- The dev-only Scenario Admin persists one browser-local custom layout as the
+  New Game default. Its balance sandbox waives capital construction and
+  demolition refunds, but recurring salaries, power, pump service, reservoir
+  refills, income, research, and physics continue through their normal paths.
 - Separate networks that cannot physically bridge (notably RF and cryogenics)
   instead of relying on adjacency.
 - Keep balance assertions about player outcomes and physical constraints. When

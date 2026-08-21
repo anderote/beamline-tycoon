@@ -160,6 +160,17 @@ export class BeamlineSystem {
     this.emit = opts.emit || (() => {});
     this.log = opts.log || (() => {});
     this.spend = opts.spend || (() => {});
+    this.refund = opts.refund || ((costs, fraction = 1) => {
+      const credited = {};
+      for (const [resource, amount] of Object.entries(costs || {})) {
+        const value = Math.floor(amount * fraction);
+        credited[resource] = value;
+        if (this.state?.resources) {
+          this.state.resources[resource] = (this.state.resources[resource] || 0) + value;
+        }
+      }
+      return credited;
+    });
     this.canAfford = opts.canAfford || (() => true);
     this.isUnlocked = opts.isUnlocked || (() => true);
     this.placePlaceable = opts.placePlaceable;
@@ -575,9 +586,7 @@ export class BeamlineSystem {
       subL: result.subL,
       placements: result.placements,
     };
-    if (state.resources) {
-      state.resources.funding = (state.resources.funding || 0) + refund;
-    }
+    this.refund({ funding: refund }, 1);
     this.emit('beamlineChanged');
     return pipeId;
   }
@@ -667,11 +676,9 @@ export class BeamlineSystem {
       pipeIds = [head.id, tail.id];
     }
 
-    if (state.resources) {
-      state.resources.funding = (state.resources.funding || 0) + refund;
-    }
+    const credited = this.refund({ funding: refund }, 1);
     this.emit('beamlineChanged');
-    return { action: result.action, refund, pipeIds };
+    return { action: result.action, refund: credited.funding || 0, pipeIds };
   }
 
   // -------------------------------------------------------------------------
@@ -812,9 +819,7 @@ export class BeamlineSystem {
       // attachment returned $100k AND 20 spares. Two refund paths for the
       // same removed part must agree, or the cheaper move is always to
       // destroy more.
-      for (const [r, a] of Object.entries(def.cost)) {
-        state.resources[r] = (state.resources[r] || 0) + Math.floor(a * 0.5);
-      }
+      this.refund(def.cost, 0.5);
     }
     this.emit('beamlineChanged');
     return true;

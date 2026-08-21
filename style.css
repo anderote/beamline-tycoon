@@ -6432,6 +6432,15 @@ body {
   cursor: pointer;
 }
 .scenario-card:hover { border-color: var(--ui-border-light) var(--ui-border-dark) var(--ui-border-dark) var(--ui-border-light); background: #2b2b4a; }
+.scenario-card-admin {
+  margin-top: 12px;
+  border-color: #806628 #2a1d08 #2a1d08 #806628;
+  background: linear-gradient(180deg, rgba(112, 78, 18, 0.42), rgba(45, 34, 18, 0.8));
+}
+.scenario-card-admin:hover {
+  border-color: #c59b39 #3b290b #3b290b #c59b39;
+  background: linear-gradient(180deg, rgba(145, 101, 23, 0.52), rgba(56, 41, 18, 0.9));
+}
 .scenario-card-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .scenario-card-name { color: #ffe9b0; font-size: 12px; }
 .scenario-difficulty {

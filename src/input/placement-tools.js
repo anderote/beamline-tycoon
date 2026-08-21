@@ -18,6 +18,7 @@
 // and MoveTool also use.
 
 import { Tool } from './Tool.js';
+import { canAffordFunding } from '../game/affordability.js';
 import { ZONES } from '../data/facility.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { isoToGrid } from '../renderer/grid.js';
@@ -176,7 +177,7 @@ export class ZonePaintTool extends Tool {
   _showCost(ctx, e, c0, r0, c1, r1) {
     const cost = ctx.game.computeFacilityBrushCost(c0, r0, c1, r1, this.zoneType);
     ctx.input._showDragCostTooltip(cost.totalCost, e.clientX, e.clientY, {
-      insufficientFunding: ctx.game.state.resources.funding < cost.totalCost,
+      insufficientFunding: !canAffordFunding(ctx.game, cost.totalCost),
     });
   }
 

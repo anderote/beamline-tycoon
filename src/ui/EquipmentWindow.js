@@ -97,7 +97,7 @@ export class EquipmentWindow {
           title: 'Pick up and mirror the selection; M mirrors again while placing',
           onClick: () => this.selectionActions.onMirror?.(this.equip.id),
         },
-        { label: 'Demolish all (50% refund)', variant: 'danger', onClick: () => {
+        { label: this.game?.sandboxMode ? 'Demolish all (no refund)' : 'Demolish all (50% refund)', variant: 'danger', onClick: () => {
           const removedIds = this.selectionActions.onDemolish?.(this.equip.id) || [];
           for (const id of removedIds) ContextWindow.getWindow('equip-' + id)?.close();
         }},
@@ -115,7 +115,7 @@ export class EquipmentWindow {
         title: 'Copy the selection and its internal utility connections',
         onClick: () => this.selectionActions.onCopy?.(this.equip.id),
       },
-      { label: 'Demolish (50% refund)', variant: 'danger', onClick: () => {
+      { label: this.game?.sandboxMode ? 'Demolish (no refund)' : 'Demolish (50% refund)', variant: 'danger', onClick: () => {
         if (this.selectionActions.onDemolish) {
           const removedIds = this.selectionActions.onDemolish(this.equip.id) || [];
           for (const id of removedIds) ContextWindow.getWindow('equip-' + id)?.close();

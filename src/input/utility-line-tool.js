@@ -12,6 +12,7 @@
 // only 1 of 10 selectors" bug by construction.
 
 import { Tool } from './Tool.js';
+import { canAffordFunding } from '../game/affordability.js';
 import { isoToGrid } from '../renderer/grid.js';
 import { UTILITY_TYPES, utilityLineHeight } from '../utility/registry.js';
 
@@ -222,7 +223,7 @@ export class UtilityLineTool extends Tool {
     }
     ctx.input._showDragCostTooltip?.(cost, screenX, screenY, {
       note,
-      insufficientFunding: cost > 0 && ctx.game.state.resources.funding < cost,
+      insufficientFunding: cost > 0 && !canAffordFunding(ctx.game, cost),
     });
   }
 }

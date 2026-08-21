@@ -160,7 +160,7 @@ export class OptionsDialog {
           <input type="checkbox" id="opt-dev-mode" class="opt-check">
         </div>
         <div class="opt-row">
-          <label class="opt-label" for="opt-sandbox-mode">Sandbox (build free, still earn)</label>
+          <label class="opt-label" for="opt-sandbox-mode">Balance sandbox (free build, live income/upkeep)</label>
           <input type="checkbox" id="opt-sandbox-mode" class="opt-check">
         </div>
 
