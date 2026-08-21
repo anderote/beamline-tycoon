@@ -1904,7 +1904,7 @@ export class InputHandler {
               const comp = COMPONENTS[this.hoverPlaceable.id];
               if (placedId && comp?.isSource) {
                 const guided = this.game._guidedSetup?.onSourcePlaced?.(placedId);
-                if (!guided) this.selectComponentTool('drift');
+                if (!guided) this.beginBeamPipeFromSource(placedId);
               }
             } else {
               this.game.toggleBeam();
@@ -2666,6 +2666,12 @@ export class InputHandler {
     this.setTool(new BeamlineTool(key, overrides));
   }
 
+  /** Arm a live beam-pipe ghost at a source's exit after source placement. */
+  beginBeamPipeFromSource(sourceId) {
+    this.selectComponentTool('drift');
+    return this.beamlineController.showGuidedPipeStart(sourceId, 'exit');
+  }
+
   /**
    * Locate a deletable placeable under the cursor, honoring the demolish
    * mode's kind scope. Returns { kind, placeable, entry?, node?, rootObj? }
@@ -3168,7 +3174,7 @@ export class InputHandler {
       // Auto-switch to beam pipe tool after placing a source.
       if (placedId && comp?.isSource) {
         const guided = this.game._guidedSetup?.onSourcePlaced?.(placedId);
-        if (!guided) this.selectComponentTool('drift');
+        if (!guided) this.beginBeamPipeFromSource(placedId);
       }
     });
     if (placedId) this.renderer.dropPortablePlaceable?.(placedId);

@@ -7,7 +7,8 @@
 //   2. The idle direct-manipulation query only returns source beam ports.
 //   3. Hover and drag previews land on the exact port coordinate.
 //   4. A casual diagonal hand motion stays locked to the source's beam axis.
-//   5. BeamlineTool picks down/move/up on the plane where pipes are rendered.
+//   5. A source placement can prime a live, draggable pipe ghost.
+//   6. BeamlineTool picks down/move/up on the plane where pipes are rendered.
 
 import { BeamlineInputController } from '../src/input/BeamlineInputController.js';
 import { BeamlineTool } from '../src/input/beamline-tool.js';
@@ -70,6 +71,11 @@ console.log('\n--- 1. The drawn source flange, not its shadow, is the grab targe
   assert(ctrl.hoverValidAnchor === true, 'hovering the visible flange is a valid anchor');
   assert(ctrl.hoverPoint?.col === exit.path.col && ctrl.hoverPoint?.row === exit.path.row,
     'the hover marker snaps onto the exact flange coordinate');
+
+  const forgivingPx = { x: flangePx.x + 56, y: flangePx.y };
+  const forgiving = ctrl.findSourcePortAt(exit.iso.x, exit.iso.y, forgivingPx);
+  assert(forgiving?.junctionId === source.id && forgiving?.portName === 'exit',
+    'a source exit has a forgiving magnetic target beyond the standard junction radius');
 }
 
 console.log('\n--- 2. Idle direct manipulation is source-only ---');
@@ -115,7 +121,46 @@ console.log('\n--- 3. Preview acquires the exact destination and locks to the be
     'a diagonal hand motion remains on the source output axis');
 }
 
-console.log('\n--- 4. The beamline tool picks on the rendered pipe plane ---');
+console.log('\n--- 4. A new source primes a draggable pipe ghost ---');
+{
+  const source = placeable('src', 'source', 2, 2);
+  const renderer = projectedRenderer();
+  const ctrl = controllerWith([source], renderer);
+  const exit = beamPortPoint(source, 'exit');
+
+  assert(ctrl.showGuidedPipeStart(source.id, 'exit'),
+    'the source exit accepts an automatic starter ghost');
+  assert(ctrl.isActive(), 'the automatic ghost is a live pipe gesture');
+  assert(ctrl.drawPath.length === 2
+    && ctrl.drawPath[0].col === exit.path.col
+    && ctrl.drawPath[0].row === exit.path.row,
+  'the live ghost starts exactly on the source flange');
+
+  const diagonal = gridToIso(exit.pos.x / 2 + 3, exit.pos.z / 2 + 4);
+  ctrl.onMouseMove(diagonal.x, diagonal.y, { x: 9999, y: 9999 });
+  assert(ctrl.drawPath.length >= 2 && ctrl.drawPath.every(p => p.col === exit.path.col),
+    'moving before the next click stretches the source ghost along its beam axis');
+
+  ctrl.onMouseUp(diagonal.x, diagonal.y, 0, { x: 9999, y: 9999 });
+  assert(ctrl.isActive(), 'a release without a new press cannot accidentally buy the primed pipe');
+
+  let committed = null;
+  ctrl.game.commitGesture = ({ mutate }) => mutate();
+  ctrl.game.beamline = {
+    drawPipe(start, end, path) {
+      committed = { start, end, path };
+      return 'pipe-1';
+    },
+  };
+  ctrl.onMouseDown(diagonal.x, diagonal.y, 0, 'drift', { x: 9999, y: 9999 });
+  ctrl.onMouseUp(diagonal.x, diagonal.y, 0, { x: 9999, y: 9999 });
+  assert(committed?.start?.junctionId === source.id
+    && committed?.start?.portName === 'exit',
+  'the next left press/release commits the stretched ghost from the source exit');
+  assert(!ctrl.isActive(), 'the committed automatic gesture returns to idle pipe-tool hover');
+}
+
+console.log('\n--- 5. The beamline tool picks on the rendered pipe plane ---');
 {
   const heights = [];
   let active = false;
