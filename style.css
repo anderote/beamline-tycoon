@@ -6684,14 +6684,52 @@ body {
   cursor: pointer;
 }
 .scenario-card:hover { border-color: var(--ui-border-light) var(--ui-border-dark) var(--ui-border-dark) var(--ui-border-light); background: #2b2b4a; }
-.scenario-card-admin {
+.scenario-admin-section {
   margin-top: 12px;
+  padding: 10px 12px 12px;
+  border-style: solid;
+  border-width: 2px;
   border-color: #806628 #2a1d08 #2a1d08 #806628;
+  border-radius: var(--ui-radius);
   background: linear-gradient(180deg, rgba(112, 78, 18, 0.42), rgba(45, 34, 18, 0.8));
 }
-.scenario-card-admin:hover {
-  border-color: #c59b39 #3b290b #3b290b #c59b39;
-  background: linear-gradient(180deg, rgba(145, 101, 23, 0.52), rgba(56, 41, 18, 0.9));
+.scenario-admin-section > .scenario-description {
+  display: block;
+  margin-top: 7px;
+}
+.scenario-admin-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 7px;
+  margin-top: 10px;
+}
+.scenario-admin-action {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-height: 58px;
+  padding: 8px 9px;
+  border: 1px solid rgba(232, 194, 90, 0.42);
+  border-radius: var(--ui-radius);
+  background: rgba(24, 22, 36, 0.72);
+  color: var(--ui-text);
+  font-family: var(--ui-font-body);
+  text-align: left;
+  cursor: pointer;
+}
+.scenario-admin-action:hover {
+  border-color: rgba(255, 220, 120, 0.8);
+  background: rgba(68, 51, 23, 0.82);
+}
+.scenario-admin-action strong {
+  color: #ffe9b0;
+  font-family: var(--ui-font-display);
+  font-size: 8px;
+}
+.scenario-admin-action span {
+  color: var(--ui-text-muted);
+  font-size: 9px;
+  line-height: 1.4;
 }
 .scenario-card-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .scenario-card-name { color: #ffe9b0; font-size: 12px; }

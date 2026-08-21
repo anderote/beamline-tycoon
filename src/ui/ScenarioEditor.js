@@ -1,6 +1,6 @@
 // src/ui/ScenarioEditor.js — dev-only in-game Scenario Editor mode.
 //
-// Entered via ?editor=1 (or the dev-only Menu item). main.js only imports
+// Entered via ?editor=1 to resume or ?editor=new for a blank project. main.js only imports
 // this module behind `import.meta.env.DEV`, so none of it ships in the
 // production bundle. The editor session:
 //   - runs on a fresh blank world, or the existing local default for revision
@@ -20,9 +20,18 @@ import {
 } from '../data/scenarios.js';
 
 export class ScenarioEditor {
-  constructor(game, existingScenario = null) {
+  constructor(game, existingScenario = null, {
+    fresh = false,
+    storage = globalThis.localStorage,
+  } = {}) {
     this.game = game;
-    this._lastName = existingScenario?.name || 'Local Balance Sandbox';
+    this.storage = storage;
+    this._lastName = fresh
+      ? 'Untitled Default World'
+      : existingScenario?.name || 'Local Balance Sandbox';
+    this._lastId = fresh ? null : existingScenario?.id || null;
+    this._hasSavedDesign = !fresh && !!existingScenario?.data;
+    this._savedSnapshot = null;
   }
 
   init() {
@@ -44,7 +53,8 @@ export class ScenarioEditor {
 
     this._mountBadge();
     this._mountToolbar();
-    g.log('SCENARIO CONSTRUCTION — free build; operating income and upkeep remain live. Use Save + Playtest to make this the local default.', 'info');
+    if (this._hasSavedDesign) this._savedSnapshot = this._currentSnapshot();
+    g.log('SCENARIO CONSTRUCTION — free build; operating income and upkeep remain live. Save Design keeps this project available to resume later.', 'info');
   }
 
   // === UI ===
@@ -53,7 +63,7 @@ export class ScenarioEditor {
     const title = document.getElementById('game-title');
     const badge = document.createElement('div');
     badge.id = 'editor-badge';
-    badge.textContent = 'SCENARIO ADMIN';
+    badge.textContent = `SCENARIO ADMIN · ${this._hasSavedDesign ? 'CURRENT' : 'NEW'}`;
     badge.title = 'Scenario Editor — click to exit';
     badge.addEventListener('click', () => this.exit());
     if (title && title.parentNode) title.after(badge);
@@ -72,9 +82,10 @@ export class ScenarioEditor {
       bar.appendChild(b);
       return b;
     };
+    mk('Save Design', 'Save this default-world design locally and keep editing', () => this.saveDesign());
     mk('Export', 'Export Scenario — download .json + copy a .js generator module to clipboard/console', () => this.exportScenario());
     mk('Save + Playtest', 'Save as the local New Game default and playtest with free construction plus real operating economics', () => this.playScenario());
-    mk('Exit', 'Exit Editor — leave the editor and resume your saved game', () => this.exit());
+    mk('Exit', 'Exit Editor — saved designs can be resumed from Scenarios', () => this.exit());
     // Sit inline in the top bar, right after the EDITOR MODE badge.
     const badge = document.getElementById('editor-badge');
     if (badge) badge.after(bar);
@@ -121,7 +132,49 @@ export class ScenarioEditor {
       return i === 0 ? lw : lw.charAt(0).toUpperCase() + lw.slice(1);
     }).join('');
     if (!id || /^[0-9]/.test(id)) id = 'custom' + (id || 'Scenario');
+    this._lastId = id;
     return { id, name };
+  }
+
+  _currentSnapshot() {
+    return JSON.stringify(this.collectScenarioData());
+  }
+
+  hasUnsavedChanges() {
+    return this._savedSnapshot !== this._currentSnapshot();
+  }
+
+  _save(meta) {
+    const data = this.collectScenarioData();
+    try {
+      const stored = saveCustomScenario({ ...meta, data, sandbox: true }, {
+        storage: this.storage,
+      });
+      this._hasSavedDesign = true;
+      this._lastId = stored.id;
+      this._lastName = stored.name;
+      this._savedSnapshot = JSON.stringify(data);
+      const badge = globalThis.document?.getElementById('editor-badge');
+      if (badge) badge.textContent = 'SCENARIO ADMIN · CURRENT';
+      return stored;
+    } catch (e) {
+      alert('Could not store the scenario in localStorage (quota?): ' + e.message);
+      return null;
+    }
+  }
+
+  /** Save the current design without leaving Scenario Admin. */
+  saveDesign(meta = null) {
+    const selectedMeta = meta || (this._hasSavedDesign && this._lastId
+      ? { id: this._lastId, name: this._lastName }
+      : this._promptMeta());
+    if (!selectedMeta) return null;
+    this._lastName = selectedMeta.name;
+    const stored = this._save(selectedMeta);
+    if (stored) {
+      this.game.log(`Saved "${stored.name}" as the current default-world design. You can keep editing or resume it later from Scenarios.`, 'good');
+    }
+    return stored;
   }
 
   exportScenario() {
@@ -175,15 +228,9 @@ export class ScenarioEditor {
     const meta = this._promptMeta();
     if (!meta) return;
     if (!confirm(`Save "${meta.name}" as the local default and start a sandbox playtest now?\n\nConstruction stays free, while income and recurring operating costs remain real.`)) return;
-    const data = this.collectScenarioData();
-    try {
-      saveCustomScenario({ ...meta, data, sandbox: true });
-    } catch (e) {
-      alert('Could not store the scenario in localStorage (quota?): ' + e.message);
-      return;
-    }
-    localStorage.removeItem('beamlineTycoon');
-    localStorage.setItem(PENDING_SCENARIO_KEY, CUSTOM_SCENARIO_ID);
+    if (!this._save(meta)) return;
+    this.storage.removeItem('beamlineTycoon');
+    this.storage.setItem(PENDING_SCENARIO_KEY, CUSTOM_SCENARIO_ID);
     sessionStorage.setItem('beamlineTycoon.skipTitle', '1');
     // Reload WITHOUT the editor flag → sandbox construction with the real
     // tick economy (the stored scenario carries sandbox: true).
@@ -193,7 +240,10 @@ export class ScenarioEditor {
   // === EXIT ===
 
   exit() {
-    if (!confirm('Exit the Scenario Editor?\n\nUnexported changes will be lost. Your previous game resumes untouched.')) return;
+    const message = this.hasUnsavedChanges()
+      ? 'Exit the Scenario Editor?\n\nUnsaved changes will be lost. Use Save Design if you want to resume this version later.'
+      : 'Exit the Scenario Editor and resume your previous game?\n\nYour saved default-world design will remain available under Scenarios.';
+    if (!confirm(message)) return;
     location.href = location.pathname;
   }
 }
