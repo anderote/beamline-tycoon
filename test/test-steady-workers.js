@@ -23,6 +23,7 @@ assert(STAFF_BREAKS_ENABLED === false, 'the live gameplay switch disables staff 
   member._restTimer = 20;
   member.needs = { fatigue: 1, hunger: 1, morale: 0.05 };
   member.unservicedPenalty = true;
+  member.job = { jobType: 'runBeam', phase: 'work', progress: 0 };
   const skillBefore = member.skills[member.primarySkill];
 
   const changed = tickStaffMember(member, {
@@ -37,7 +38,7 @@ assert(STAFF_BREAKS_ENABLED === false, 'the live gameplay switch disables staff 
   assert(member.needs.morale >= 0.6 && member.unservicedPenalty === false,
     'old stress and unserviced-needs penalties are cleared');
   assert(member.stats.ticksWorked === 1 && member.skills[member.primarySkill] > skillBefore,
-    'the tick still counts as productive work and grants normal skill progress');
+    'an active work job still counts as productive work and grants normal skill progress');
 }
 
 {

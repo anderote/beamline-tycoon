@@ -32,15 +32,9 @@
 // nearest reachable subtile just outside the target's real footprint, via
 // jobs.js's own wall-aware perimeter walk), and tickJobs times the work and
 // completes/abandons it. This file never asks which kind of job it is: it
-// walks the pawn to `job.destNode`, full stop, then reports arrival —
-// flipping `job.phase` from 'travel' to 'work' once the pawn's feet
-// actually land there — the one place this file writes to a member's JOB
-// itself (see _arriveAtPathEnd); every other read of `job` is exactly
-// that, a read. Two other writes exist and are a different claim, not
-// contradicted by the one above: every frame, this file also reports the
-// pawn's own live position onto `member.fromNode` (see update()) — the
-// reachability/distance signal jobRunner.js's findStation/eligibleFor/
-// tie-break all key off — and it releases station RESERVATIONS
+// walks the pawn to `job.destNode`, full stop. Arrival, `job.phase`, and
+// `member.fromNode` are simulation state owned by jobRunner/staffMovement;
+// this renderer never writes them. It still releases station RESERVATIONS
 // (releaseStation/releaseAllFor) on pawn teardown and via the raw
 // sendToStation/setDestination seam, Plan 2 machinery that predates the
 // job system entirely and is unrelated to job.phase (see
@@ -85,6 +79,7 @@ import {
   applyPose,
   DEFAULT_STAFF_STYLE,
 } from './builders/staff-builder.js';
+import { staffPoseFor } from './staff-pose.js';
 
 // Skin/hair/coat choices and the per-role accents both live in the builder,
 // keyed by the style's palette, so a style change (e.g. RCT2's sampled palette
@@ -245,7 +240,9 @@ export class StaffPawns {
     const figure = buildStaffFigure(look, DEFAULT_STAFF_STYLE);
     figure.group.userData.staffId = member.id;
 
-    const spawn = this._pickSpawn(member, rng);
+    const spawn = member.fromNode
+      ? subtileToWorld(member.fromNode)
+      : this._pickSpawn(member, rng);
     const pawn = {
       id: member.id,
       figure,
@@ -299,8 +296,6 @@ export class StaffPawns {
       jobAttemptDest: null,
       jobAttemptRevision: -1,
       visualAccumulator: 0,
-      reportedX: NaN,
-      reportedZ: NaN,
     };
     figure.group.rotation.y = pawn.heading;
     this._placeFigure(pawn);
@@ -396,8 +391,8 @@ export class StaffPawns {
   // --- Job-driven movement (staff-professions-3, Task 3) -------------------
   //
   // The sim (jobRunner.js) decides what a member does and reserves whatever
-  // station it needs; this file only ever WALKS the pawn and reports when it
-  // gets there. _syncJob is the one method that reads member.job at all,
+  // station it needs; this file only presents that trip. _syncJob is the
+  // one method that reads member.job at all,
   // called first every update() frame, before anything mode-based runs —
   // see that method's own doc comment for the state machine it drives.
 
@@ -439,9 +434,8 @@ export class StaffPawns {
    *     the job at all) holds position defensively rather than crashing or
    *     wandering off.
    *   - `phase: 'work'`: the pawn should be AT `job.destNode` holding its
-   *     pose. Ordinarily this is already true (this method's own travel
-   *     handling walked it there and _arriveAtPathEnd flipped the phase on
-   *     arrival), so the common case is a no-op; the explicit resolve+snap
+   *     pose. Ordinarily this is already true because visual and simulation
+   *     travel run in parallel, so the common case is a no-op; resolve+snap
    *     only fires on a mismatch (a freshly-synced pawn for a member whose
    *     job was already mid-work, or any other desync) rather than trusting
    *     the phase blindly.
@@ -545,9 +539,7 @@ export class StaffPawns {
   /** Teleport the pawn straight onto `job.destNode` (and `ref`'s facing,
    * when a station resolved one) — used only by _syncJob to resync a pawn
    * whose job is already (or becomes) phase: 'work' without this pawn
-   * having walked there itself. Ordinary arrival goes through
-   * _arriveAtPathEnd instead, which is the one place that also reports
-   * arrival back to the job (see that method). */
+   * having walked there itself. */
   _snapToJobDest(pawn, job, ref) {
     const world = subtileToWorld(job.destNode);
     pawn.x = world.x;
@@ -657,8 +649,7 @@ export class StaffPawns {
    * pawn's feet); if the re-path comes back null, the destination is no
    * longer reachable at all, so the reservation is released and the pawn
    * goes idle rather than freezing mid-stride. `member` is threaded through
-   * to _arriveAtPathEnd purely to report job arrival (see that method) —
-   * null for an ambient wander with no member.job at all.
+   * only so visual arrival can distinguish a job walk from ambient travel.
    */
   _advancePathWalk(pawn, member, dt) {
     const state = this.game.state;
@@ -700,7 +691,7 @@ export class StaffPawns {
     const dx = targetXZ.x - pawn.x;
     const dz = targetXZ.z - pawn.z;
     const dist = Math.hypot(dx, dz);
-    const step = pawn.speed * dt;
+    const step = pawn.speed * dt * (state.speed || 1);
     let moved = 0;
 
     if (dist <= step || dist < ARRIVE_EPS) {
@@ -734,21 +725,9 @@ export class StaffPawns {
   _arriveAtPathEnd(pawn, member) {
     const state = this.game?.state;
 
-    // Arrival reporting: the one place this file writes to a member's JOB
-    // (see this file's header for the two other, unrelated writes this
-    // file also makes). The sim owns everything about a job — what it
-    // is, how long it takes, when it's done — but only the renderer knows
-    // WHEN a pawn's feet have actually landed on job.destNode, so this is
-    // the sole signal that can flip travel -> work and let
-    // jobRunner.tickJobs start accruing progress. Computed once, here,
-    // for BOTH a station- and a target-addressed job identically — neither
-    // this check nor anything below it asks which one it is (see
-    // _syncJob's own doc comment on that unification). Guarded on the
-    // member still actually holding a 'travel' job pointed at exactly the
-    // node this pawn just walked to: a job can be abandoned (needs
-    // preemption, demolition, travel timeout) or reassigned to a different
-    // destination on a sim tick that lands between this pawn's last synced
-    // position and this arrival.
+    // Visual-only arrival. The simulation independently publishes fromNode
+    // and flips travel -> work; this check only decides whether the figure
+    // should hold a work pose while it waits for the next sim snapshot.
     const jobArrival = pawn.jobTracking && member?.job?.phase === 'travel'
       && sameNode(member.job.destNode, pawn.jobDestNode);
 
@@ -775,7 +754,6 @@ export class StaffPawns {
       pawn.heading = FACING_HEADING[ref.facing] ?? pawn.heading;
       pawn.mode = 'working';
       pawn.workNavRevision = state?.navRevision || 0;
-      if (jobArrival) member.job.phase = 'work';
     } else if (jobArrival) {
       // A target-addressed job (repair/commission — no StationRef; see
       // jobRunner.js's destination-resolution comment) walked here via
@@ -785,7 +763,6 @@ export class StaffPawns {
       // fallback) at whatever heading it arrived facing.
       pawn.mode = 'working';
       pawn.workNavRevision = state?.navRevision || 0;
-      member.job.phase = 'work';
     } else {
       // A plain setDestination walk with no job and no station attached.
       pawn.mode = 'idle';
@@ -797,10 +774,7 @@ export class StaffPawns {
 
   update(dt) {
     if (!this._pawns.size) return;
-    // The renderer keeps receiving animation frames while the simulation is
-    // paused. Pawn movement owns observable simulation state (job arrival and
-    // member.fromNode), so advancing it here would let staff walk, arrive, and
-    // change availability while every other simulation system is frozen.
+    // Keep presentation frozen with the simulation while paused.
     if (this.game?.state?.paused) return;
     if (!(dt > 0) || dt > 0.5) dt = 0.016; // clamp tab-switch spikes
 
@@ -833,7 +807,7 @@ export class StaffPawns {
         this._advanceWorking(pawn);
       }
 
-      const nextPose = this._poseFor(pawn);
+      const nextPose = this._poseFor(pawn, member);
       const poseChanged = nextPose !== pawn.pose;
       pawn.pose = nextPose;
       pawn.visualAccumulator += dt;
@@ -849,28 +823,15 @@ export class StaffPawns {
         this._placeFigure(pawn);
       }
 
-      // Report the pawn's own position back onto its member — one of the
-      // two other writes this file makes besides job.phase (see the
-      // header and _arriveAtPathEnd): jobRunner's findStation/eligibleFor/
-      // tie-break all key off member.fromNode for reachability and
-      // distance, and nothing else in the sim ever sets it — before this,
-      // it was simply never populated, which is why every fromNode-gated
-      // runner path (eat/rest job assignment, the travel-budget path-length
-      // estimate, the nearest-station tie-break) sat dormant. Position changes
-      // are the only time the derived subtile can change, so stationary pawns
-      // keep their existing value without repeating the conversion each frame.
-      if (member && (pawn.x !== pawn.reportedX || pawn.z !== pawn.reportedZ)) {
-        member.fromNode = worldToSubtile(pawn.x, pawn.z);
-        pawn.reportedX = pawn.x;
-        pawn.reportedZ = pawn.z;
-      }
     }
   }
 
-  _poseFor(pawn) {
-    if (pawn.mode === 'pathWalk') return 'walk';
-    if (pawn.mode === 'working') return pawn.pendingStation?.seated ? 'sit' : 'benchWork';
-    return 'stand';
+  _poseFor(pawn, member) {
+    return staffPoseFor({
+      mode: pawn.mode,
+      seated: !!pawn.pendingStation?.seated,
+      jobType: member?.job?.jobType || null,
+    });
   }
 
   /**

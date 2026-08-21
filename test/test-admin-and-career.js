@@ -142,8 +142,8 @@ function makeMember(profession, id, skillsOverride = {}) {
   });
 }
 
-// Simulate the renderer reporting arrival — see jobRunner.js's own header
-// comment on why only the renderer is allowed to do this in the real game.
+// Force the arrival boundary; this suite focuses on completion/career effects
+// while movement ownership has dedicated integration coverage.
 function arrive(member) { if (member.job) member.job.phase = 'work'; }
 
 function runUntilComplete(game, member, maxTicks = 500) {

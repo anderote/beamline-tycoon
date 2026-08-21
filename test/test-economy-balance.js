@@ -61,26 +61,8 @@ function assert(cond, msg) {
   else { failed++; realLog('  FAIL:', msg); }
 }
 
-// Headless tests have no renderer to report pawn arrival (that's
-// StaffPawns.js's job — see jobRunner.js's own header comment on
-// job.phase), so every game.tick() call here also instantly completes any
-// in-flight walk. Same shim test-job-runner.js's own arrive() helper covers
-// for a single member, applied automatically so every tick() call in this
-// file benefits without having to remember it at each call site.
-function withInstantArrival(game) {
-  const rawTick = game.tick.bind(game);
-  game.tick = (...args) => {
-    const result = rawTick(...args);
-    for (const m of (game.state.staffMembers || [])) {
-      if (m.job && m.job.phase === 'travel') m.job.phase = 'work';
-    }
-    return result;
-  };
-  return game;
-}
-
 function mkGame(seed) {
-  return withInstantArrival(new Game(new BeamlineRegistry(), { seed }));
+  return new Game(new BeamlineRegistry(), { seed });
 }
 
 function bootSmallFacility(seed) {
@@ -95,7 +77,13 @@ function bootSmallFacility(seed) {
 }
 
 function startAllBeams(game) {
-  game.tick();
+  const requiredOperators = game.registry.getAll().length;
+  for (let i = 0; i < 240; i++) {
+    game.tick();
+    const seated = game.state.staffMembers.filter(member =>
+      member.job?.jobType === 'runBeam' && member.job.phase === 'work').length;
+    if (seated >= requiredOperators && game.state.infraCanRun) break;
+  }
   for (const entry of game.registry.getAll()) {
     if (entry.status !== 'running') game.toggleBeam(entry.id);
   }

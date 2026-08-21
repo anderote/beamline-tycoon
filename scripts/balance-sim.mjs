@@ -181,7 +181,13 @@ function bootSmallFacility(seed) {
 }
 
 function startAllBeams(game) {
-  game.tick(); // let the gate see the wired topology
+  const requiredOperators = game.registry.getAll().length;
+  for (let i = 0; i < 240; i++) {
+    game.tick();
+    const seated = game.state.staffMembers.filter(member =>
+      member.job?.jobType === 'runBeam' && member.job.phase === 'work').length;
+    if (seated >= requiredOperators && game.state.infraCanRun) break;
+  }
   for (const entry of game.registry.getAll()) {
     if (entry.status !== 'running') game.toggleBeam(entry.id);
   }

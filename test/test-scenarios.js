@@ -41,25 +41,8 @@ function assert(cond, msg) {
   else { failed++; console.log('  FAIL:', msg); }
 }
 
-// Headless tests have no renderer to report pawn arrival (that's
-// StaffPawns.js's job — see jobRunner.js's own header comment on
-// job.phase), so every game.tick() call here also instantly completes any
-// in-flight walk. Same shim test-job-runner.js's own arrive() helper covers
-// for a single member.
-function withInstantArrival(game) {
-  const rawTick = game.tick.bind(game);
-  game.tick = (...args) => {
-    const result = rawTick(...args);
-    for (const m of (game.state.staffMembers || [])) {
-      if (m.job && m.job.phase === 'travel') m.job.phase = 'work';
-    }
-    return result;
-  };
-  return game;
-}
-
 function bootScenario(scenario) {
-  const game = withInstantArrival(new Game(new BeamlineRegistry(), { seed: 1234 }));
+  const game = new Game(new BeamlineRegistry(), { seed: 1234 });
   const mapData = scenario.generator();
   game.applyScenario(mapData);
   if (scenario.setup) scenario.setup(game);
@@ -67,7 +50,7 @@ function bootScenario(scenario) {
   // Deliberately does NOT toggle any beamline on: jobRunner's runBeam cap
   // counts REGISTERED beamlines (src/game/staff/jobRunner.js's
   // beamlineCount), not only running ones, so the seeded operator gets
-  // offered — and, over these 20 ticks, seated at — the scenario's console
+  // offered — and, over these 20 ticks, walked to — the scenario's console
   // regardless of whether the beamline itself has ever been started. That's
   // what makes `infraCanRun` true below without this helper having to press
   // Start on the player's behalf; the dedicated "beamline is startable"

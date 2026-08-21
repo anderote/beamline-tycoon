@@ -44,8 +44,8 @@ export function openHiringDialog(game) {
     // Footer markup (reroll hint) is a plain string; candidate cards are
     // built as real elements so renderBioCard's HTMLElement can drop in.
     const footerHtml = `<div class="hiring-footer">` +
-      `<span class="hiring-note">3 candidates • rerolls when pool &lt; 2</span>` +
-      `<button type="button" class="ui-button ui-button-compact" data-reroll>Reroll</button>` +
+      `<span class="hiring-note">One candidate per profession</span>` +
+      `<button type="button" class="ui-button ui-button-compact" data-reroll>Reroll all</button>` +
       `</div>`;
 
     container.innerHTML = '';
@@ -99,8 +99,7 @@ export function openHiringDialog(game) {
     });
     const reroll = container.querySelector('[data-reroll]');
     if (reroll) reroll.addEventListener('click', () => {
-      if (game._refreshStaffCandidates) game._refreshStaffCandidates();
-      game.emit('staffChanged');
+      if (game.refreshStaffCandidates) game.refreshStaffCandidates();
       renderHiring(container);
     });
   }

@@ -188,8 +188,8 @@ function makeMember(profession, id, opts = {}) {
   });
 }
 
-// Simulate the renderer reporting arrival — see jobRunner.js's own header
-// comment: only StaffPawns.js is supposed to flip this in the real game.
+// Force the arrival boundary; this suite focuses on science/zone output while
+// movement ownership has dedicated integration coverage.
 function arrive(member) { if (member.job) member.job.phase = 'work'; }
 
 function runUntilComplete(game, member, maxTicks = 500) {

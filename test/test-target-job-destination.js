@@ -12,15 +12,15 @@
 // The fix: jobRunner.js resolves a concrete destNode at ASSIGNMENT time —
 // jobs.js's own (now-exported) wall-aware approachCandidates perimeter walk
 // for a target job, the StationRef's own node for a station job — and
-// StaffPawns.js walks to job.destNode uniformly, with no branching on
-// jobType at all. This file drives the REAL jobRunner.assignJobs/tickJobs
-// and a REAL StaffPawns instance together (not hand-built job objects —
+// jobRunner advances to job.destNode uniformly, while StaffPawns presents
+// the published state. This file drives the REAL assignJobs/tickJobs and a
+// REAL StaffPawns instance together (not hand-built job objects —
 // see test-pawn-job-integration.js for that, StaffPawns-only version) to
 // prove the whole path actually closes:
 //   1. a damaged component with a boxed-in origin corner but an otherwise
 //      open perimeter is still assigned to a technician, who walks to a
 //      real approach node outside the footprint (not the blocked corner),
-//      flips to phase 'work', and accrues progress.
+//      reaches phase 'work' in simulation, and accrues progress.
 //   2. a component whose ENTIRE perimeter is walled off produces NO
 //      assignment at all, with a reason — never a job that gets taken and
 //      then stalls (the exact failure this whole fix round exists to close).
@@ -259,7 +259,7 @@ test('a damaged module with a boxed-in origin corner but an open perimeter is as
   // confirms this isn't the pre-fix "probe the origin corner" behavior.
   assert.notEqual(`${destNode.col},${destNode.row}`, '5,5', 'destNode is not inside the module\'s own blocked tile');
 
-  // Walk a real pawn there and confirm arrival is reported.
+  // Advance the real simulation and let the renderer present its state.
   const pawns = makePawns(state);
   pawns.sync();
   const pawn = pawns._pawns.get('t1');
@@ -267,8 +267,13 @@ test('a damaged module with a boxed-in origin corner but an open perimeter is as
   pawn.x = startWorld.x; pawn.z = startWorld.z;
 
   let steps = 0;
-  while (technician.job.phase !== 'work' && steps < 4000) { pawns.update(0.02); steps++; }
-  assert.equal(technician.job.phase, 'work', `job.phase flipped to 'work' on arrival (after ${steps} render steps)`);
+  while (technician.job.phase !== 'work' && steps < 200) {
+    tickJobs(game);
+    pawns.update(0.02);
+    steps++;
+  }
+  pawns.update(0.02);
+  assert.equal(technician.job.phase, 'work', `simulation reached phase 'work' after ${steps} ticks`);
   assert.equal(pawn.mode, 'working', 'the pawn is in working mode');
   const worldAtDest = subtileToWorld(destNode);
   const dist = Math.hypot(pawn.x - worldAtDest.x, pawn.z - worldAtDest.z);
