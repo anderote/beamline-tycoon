@@ -107,15 +107,27 @@ function showScenarioPicker(game) {
   }
 
   if (import.meta.env.DEV) {
-    html += '<button type="button" class="scenario-card scenario-card-admin" data-scenario-action="construct">';
+    html += '<section class="scenario-admin-section" aria-labelledby="scenario-admin-title">';
     html += '<span class="scenario-card-header">';
-    html += `<strong class="scenario-card-name">${customScenario ? 'Edit Default Scenario' : 'Construct Default Scenario'}</strong>`;
+    html += '<strong class="scenario-card-name" id="scenario-admin-title">Default World Editor</strong>';
     html += '<span class="scenario-difficulty">Admin · Local</span>';
     html += '</span>';
-    html += `<span class="scenario-description">${customScenario
-      ? 'Open the saved layout in the scenario constructor, revise it, then save and restart its balance sandbox.'
-      : 'Build a starting layout with every technology unlocked, then save it as the local New Game default and balance-test it.'}</span>`;
+    html += `<p class="scenario-description">${customScenario
+      ? `The current saved design is “${escapeScenarioText(customScenario.name || 'Untitled Local Scenario')}”. Save while editing, then resume it here later.`
+      : 'Build a reusable starting world with every technology unlocked, then save it as the local New Game default.'}</p>`;
+    html += '<div class="scenario-admin-actions">';
+    if (customScenario) {
+      html += '<button type="button" class="scenario-admin-action" data-scenario-action="edit-current">';
+      html += '<strong>Edit Current</strong><span>Resume the saved default-world design.</span>';
+      html += '</button>';
+    }
+    html += '<button type="button" class="scenario-admin-action" data-scenario-action="start-new">';
+    html += `<strong>Start New</strong><span>${customScenario
+      ? 'Open a blank design; the current one stays safe until you save over it.'
+      : 'Open a blank default-world design.'}</span>`;
     html += '</button>';
+    html += '</div>';
+    html += '</section>';
   }
 
   html += '</div>';
@@ -127,13 +139,18 @@ function showScenarioPicker(game) {
 
   // Card click
   panel.addEventListener('click', (e) => {
-    const adminCard = e.target.closest('[data-scenario-action="construct"]');
-    if (adminCard && import.meta.env.DEV) {
-      const verb = customScenario ? 'edit the local default scenario' : 'construct a local default scenario';
-      if (!confirm(`Enter Scenario Admin to ${verb}?\n\nYour current game will be saved and kept in recovery saves.`)) return;
+    const adminAction = e.target.closest('[data-scenario-action]')?.dataset.scenarioAction;
+    if (adminAction && import.meta.env.DEV) {
+      const startNew = adminAction === 'start-new';
+      const message = startNew && customScenario
+        ? `Start a new default-world design?\n\n“${customScenario.name || 'Untitled Local Scenario'}” will remain saved and playable until you use Save Design in the new project. Saving the new project will replace it.`
+        : startNew
+          ? 'Start a new default-world design?\n\nYour current game will be saved and kept in recovery saves.'
+          : `Resume editing “${customScenario?.name || 'Untitled Local Scenario'}”?\n\nYour current game will be saved and kept in recovery saves.`;
+      if (!confirm(message)) return;
       game.save();
       SaveSlots.preserveActive('Before scenario construction');
-      location.href = location.pathname + '?editor=1';
+      location.href = location.pathname + (startNew ? '?editor=new' : '?editor=1');
       return;
     }
 
@@ -170,7 +187,8 @@ function showScenarioPicker(game) {
   // Title screen — skipped on demo mode, after in-menu "New Game" /
   // scenario-picker reloads (skipTitle flag), or with a pending scenario.
   const bootParams = new URLSearchParams(location.search);
-  // Dev-only Scenario Editor mode (?editor=1 or Menu > Scenario Editor).
+  // Dev-only Scenario Editor mode (?editor=1 resumes the current project;
+  // ?editor=new starts from a blank world without deleting the saved project).
   // Compile-time gated: in production builds import.meta.env.DEV is false,
   // so IS_EDITOR is always false and the dynamic import of ScenarioEditor
   // below is dead-code-eliminated from the bundle.
@@ -369,12 +387,14 @@ function showScenarioPicker(game) {
   // normal boot path picks the save right back up.
   if (IS_EDITOR) {
     const { ScenarioEditor } = await import('./ui/ScenarioEditor.js');
-    // Re-entering Scenario Admin edits the local default instead of silently
-    // starting over. Custom scenarios are fully serialized map data, so no
-    // dynamic setup hook is required here.
-    const existingScenario = loadCustomScenario();
+    const freshEditorProject = bootParams.get('editor') === 'new';
+    // Re-entering Scenario Admin restores the saved default-world project.
+    // Starting new leaves that stored project untouched until Save Design.
+    const existingScenario = freshEditorProject ? null : loadCustomScenario();
     if (existingScenario?.data) game.applyScenario(existingScenario.data);
-    const scenarioEditor = new ScenarioEditor(game, existingScenario);
+    const scenarioEditor = new ScenarioEditor(game, existingScenario, {
+      fresh: freshEditorProject,
+    });
     scenarioEditor.init();
     window.scenarioEditor = scenarioEditor;
   } else {

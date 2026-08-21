@@ -11,6 +11,7 @@ import {
   saveCustomScenario,
   stageDefaultStartingScenario,
 } from '../src/data/scenarios.js';
+import { ScenarioEditor } from '../src/ui/ScenarioEditor.js';
 
 function memoryStorage() {
   const values = new Map();
@@ -59,5 +60,46 @@ assert.equal(loadDefaultStartingScenarioId(storage), null,
 assert.equal(stageDefaultStartingScenario(storage), null);
 assert.equal(storage.getItem(PENDING_SCENARIO_KEY), null,
   'staging without a valid default clears any stale pending scenario');
+
+const editorStorage = memoryStorage();
+const editorLog = [];
+const editorState = {
+  floors: [],
+  zones: [],
+  walls: [],
+  doors: [],
+  windows: [],
+  placeables: [],
+  placeableNextId: 1,
+  cornerHeights: new Map(),
+  beamPipes: [],
+  beamPipeNextId: 1,
+  placementNextId: 0,
+  utilityLines: new Map(),
+  utilityNextId: 1,
+};
+const editor = new ScenarioEditor({
+  state: editorState,
+  log: message => editorLog.push(message),
+}, null, { fresh: true, storage: editorStorage });
+
+assert.equal(editor.hasUnsavedChanges(), true,
+  'a new editor project starts as an unsaved design');
+const savedDraft = editor.saveDesign({ id: 'draftWorld', name: 'Draft World' });
+assert.equal(savedDraft?.name, 'Draft World');
+assert.equal(editor.hasUnsavedChanges(), false,
+  'Save Design establishes a resumable checkpoint without leaving the editor');
+assert.equal(loadCustomScenario(editorStorage)?.name, 'Draft World');
+assert.equal(editorStorage.getItem(DEFAULT_STARTING_SCENARIO_KEY), CUSTOM_SCENARIO_ID,
+  'a saved editor project is also the local default world');
+assert.match(editorLog.at(-1), /resume it later/i);
+
+editorState.floors.push({ type: 'concrete', col: 8, row: 9 });
+assert.equal(editor.hasUnsavedChanges(), true,
+  'world edits after a save are detected before exiting');
+editor.saveDesign();
+assert.equal(editor.hasUnsavedChanges(), false,
+  'later saves reuse the current project identity without another naming step');
+assert.deepEqual(loadCustomScenario(editorStorage)?.data.floors, editorState.floors);
 
 console.log('Scenario construction persistence: all assertions passed');

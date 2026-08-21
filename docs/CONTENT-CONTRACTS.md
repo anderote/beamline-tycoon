@@ -77,6 +77,10 @@ the short authoring contract.
   New Game default. Its balance sandbox waives capital construction and
   demolition refunds, but recurring salaries, power, pump service, reservoir
   refills, income, research, and physics continue through their normal paths.
+- Scenario Admin's **Save Design** action updates that local layout without
+  leaving the editor. **Edit Current** restores it later; **Start New** opens a
+  blank project without deleting the current saved layout until the new project
+  is explicitly saved over it.
 - Separate networks that cannot physically bridge (notably RF and cryogenics)
   instead of relying on adjacency.
 - Keep balance assertions about player outcomes and physical constraints. When
