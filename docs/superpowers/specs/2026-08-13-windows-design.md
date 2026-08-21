@@ -65,8 +65,8 @@ walls and doors already use (`wallHeight: 14` ≈ one 1.5 m storey, scaled by
 | `glassPartition` | interior | double | 1 | 11–21 | 0.6 | Clear / Frosted / Reeded |
 | `pictureWindow` | exterior | double | 3 | 8–19 | 0.8 | Clear / Tinted / Mirrored |
 | `industrialSash` | exterior | double | 4 | 8–24 | 0.5 | Clear / Wired / Grimy |
-| `leadedObservation` | shielded | double | 2 | 11 | 0.2 | Clear / Amber |
-| `hutchViewport` | shielded | narrow | 4 | 9 | 0.05 | — |
+| `leadedObservation` | shielded | double | 5 | 6 | 0.2 | Clear / Amber |
+| `hutchViewport` | shielded | narrow | 7 | 3 | 0.05 | — |
 
 `single` is 0.7 tile, `double` is the full tile, and `narrow` is 0.6 tile.
 The first opening-height number is the placement minimum and still fits a

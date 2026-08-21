@@ -1115,8 +1115,11 @@ export const WINDOW_TYPES = {
     color: 0x5a5a6e,
     topColor: 0x70708a,
     subH: 5,
-    sillHeight: 2,
-    openingHeight: 11,
+    // Keep the observation pane at eye/head level on the 14-unit shielding
+    // walls it is designed for. The resolved aperture can still grow on
+    // taller host walls without dropping the sill toward the floor.
+    sillHeight: 5,
+    openingHeight: 6,
     maxOpeningHeight: 11,
     headClearance: 1,
     previewWallHeight: 14,
@@ -1141,8 +1144,8 @@ export const WINDOW_TYPES = {
     color: 0x4a4a5a,
     topColor: 0x606070,
     subH: 5,
-    sillHeight: 4,
-    openingHeight: 9,
+    sillHeight: 7,
+    openingHeight: 3,
     maxOpeningHeight: 9,
     headClearance: 1,
     previewWallHeight: 14,

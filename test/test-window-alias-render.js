@@ -144,7 +144,7 @@ globalThis.document = {
 const {
   WallBuilder, TILE_SIZE, HEIGHT_SCALE, _edgeAliasKey, windowOpeningLayout,
 } = await import('../src/renderer3d/wall-builder.js');
-const { WALL_TYPES, WINDOW_TYPES } = await import('../src/data/structure.js');
+const { WALL_TYPES, WINDOW_TYPES, windowOpeningHeight } = await import('../src/data/structure.js');
 
 // --- Fake parentGroup ----------------------------------------------------
 function makeGroup() {
@@ -371,7 +371,7 @@ console.log('\n=== compact windows occupy the selected half of a tile edge ===\n
 }
 
 // ---------------------------------------------------------------------------
-console.log('\n=== shielded observation panes are no longer letterbox slits ===\n');
+console.log('\n=== shielded observation panes sit at head level ===\n');
 {
   const group = makeGroup();
   const wb = new WallBuilder(null);
@@ -393,11 +393,18 @@ console.log('\n=== shielded observation panes are no longer letterbox slits ===\
   const glass = group.children.filter(m => m.userData?.windowGlass);
   const leaded = glass.find(m => m.geometry.parameters.width > 1.5);
   const viewport = glass.find(m => m.geometry.parameters.width < 1.5);
-  assert(!!leaded && leaded.geometry.parameters.height > 0.95,
-    'leaded observation glass fills most of the shielding wall height');
-  assert(!!viewport && viewport.geometry.parameters.width > 0.95 &&
-      viewport.geometry.parameters.height > 0.74,
-    'hutch viewport is both wider and taller than the former narrow slit');
+  const leadedDef = WINDOW_TYPES.leadedObservation;
+  const viewportDef = WINDOW_TYPES.hutchViewport;
+  const expectedBottom = (def) => def.sillHeight * HEIGHT_SCALE + 0.11;
+  assert(!!leaded && leaded.position.y - leaded.geometry.parameters.height / 2
+      >= expectedBottom(leadedDef) - 1e-9,
+    'leaded observation glass begins at its raised sill, not on the floor');
+  assert(!!viewport && viewport.position.y - viewport.geometry.parameters.height / 2
+      >= expectedBottom(viewportDef) - 1e-9,
+    'hutch viewport glass begins at its raised sill, not on the floor');
+  assert(Math.abs(leaded.geometry.parameters.height -
+      (windowOpeningHeight(leadedDef, 14) * HEIGHT_SCALE - 0.22)) < 1e-9,
+    'leaded observation aperture resolves against the shielding wall height');
 }
 
 // ---------------------------------------------------------------------------

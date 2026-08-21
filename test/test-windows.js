@@ -95,8 +95,11 @@ console.log('\n=== human-scale and factory-scale window proportions ===\n');
     'a glass partition in an interior wall rises above the 19-unit door/head line');
   assert(windowOpeningHeight(factory, 30) >= 24,
     'industrial sash expands into a tall factory aperture in a structural wall');
-  assert(windowOpeningHeight(observation, 14) >= 11 && windowOpeningHeight(viewport, 14) >= 9,
-    'both shielded observation panes fill most of their 14-unit host walls');
+  assert(observation.sillHeight >= 5 && viewport.sillHeight >= 7,
+    'shielded observation panes start at head level instead of the floor');
+  assert(windowOpeningHeight(observation, 14) >= observation.openingHeight
+      && windowOpeningHeight(viewport, 14) >= viewport.openingHeight,
+    'both shielded observation panes retain their minimum aperture on 14-unit walls');
 }
 
 console.log('\n=== expanded catalogue, in three subsections ===\n');
