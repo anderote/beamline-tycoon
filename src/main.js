@@ -42,6 +42,10 @@ import { EconomyWindow } from './ui/EconomyWindow.js';
 import { AdvisorEngine, ADVICE_LEVEL_STORAGE_KEY } from './advisor/engine.js';
 import { buildAdvisorContext } from './advisor/context.js';
 import { Stubby } from './ui/Stubby.js';
+import {
+  SKIP_TITLE_SESSION_KEY,
+  returnToMainMenu,
+} from './ui/main-menu-navigation.js';
 import { discoverNetworks, makeDefaultPortLookup } from './utility/network-discovery.js';
 import { wireUtility } from './data/scenarios/scenario-wiring.js';
 
@@ -171,7 +175,7 @@ function showScenarioPicker(game) {
     if (scenario.generator) {
       localStorage.setItem(PENDING_SCENARIO_KEY, id);
     } else localStorage.removeItem(PENDING_SCENARIO_KEY);
-    sessionStorage.setItem('beamlineTycoon.skipTitle', '1');
+    sessionStorage.setItem(SKIP_TITLE_SESSION_KEY, '1');
     location.reload();
   });
 
@@ -193,8 +197,8 @@ function showScenarioPicker(game) {
   // so IS_EDITOR is always false and the dynamic import of ScenarioEditor
   // below is dead-code-eliminated from the bundle.
   const IS_EDITOR = import.meta.env.DEV && bootParams.has('editor');
-  const skipTitleFlag = !!sessionStorage.getItem('beamlineTycoon.skipTitle');
-  if (skipTitleFlag) sessionStorage.removeItem('beamlineTycoon.skipTitle');
+  const skipTitleFlag = !!sessionStorage.getItem(SKIP_TITLE_SESSION_KEY);
+  if (skipTitleFlag) sessionStorage.removeItem(SKIP_TITLE_SESSION_KEY);
   const skipTitle = skipTitleFlag
     || IS_EDITOR
     || bootParams.has('demo') || location.hash.includes('demo')
@@ -575,7 +579,7 @@ function showScenarioPicker(game) {
           // skipTitle so the reload lands in a fresh game rather than on the
           // title screen — which, with the save just deleted, would show no
           // Continue button and force a second New Game click.
-          sessionStorage.setItem('beamlineTycoon.skipTitle', '1');
+          sessionStorage.setItem(SKIP_TITLE_SESSION_KEY, '1');
           game.save();
           SaveSlots.preserveActive('Before new game');
           localStorage.removeItem('beamlineTycoon');
@@ -600,9 +604,9 @@ function showScenarioPicker(game) {
         welcomeDialog.open();
         break;
       case 'main-menu':
-        // Save first so the title screen's Continue picks up right here.
-        game.save();
-        location.reload();
+        // Save first so Continue picks up right here, then strip any demo,
+        // editor, hash, or one-shot boot state that could skip the title.
+        returnToMainMenu(game);
         break;
     }
   });
@@ -664,7 +668,7 @@ function showScenarioPicker(game) {
         // Mirrors the menu-dropdown 'new-game' action (clear save, reload),
         // with skipTitle set so the reload goes straight into the game.
         if (hadSave && !confirm('Start a new game? Your current game will be kept in recovery saves.')) return;
-        sessionStorage.setItem('beamlineTycoon.skipTitle', '1');
+        sessionStorage.setItem(SKIP_TITLE_SESSION_KEY, '1');
         game.save();
         SaveSlots.preserveActive('Before new game');
         localStorage.removeItem('beamlineTycoon');
