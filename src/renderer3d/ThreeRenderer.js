@@ -1014,6 +1014,26 @@ export class ThreeRenderer {
     return pickWithScreenTolerance(screenX, screenY, tolerancePx, castAt);
   }
 
+  /**
+   * Raycast only rendered door assemblies, including while walls are in the
+   * default transparent/click-through view. Door source meshes carry tight
+   * bounds and their owning edge, so this avoids both facility-wide batch
+   * raycasts and the perspective error from projecting a raised door click
+   * onto the ground behind it.
+   */
+  raycastDoorScreen(screenX, screenY, tolerancePx = 0) {
+    if (!this.renderer || !this.camera || !this.wallBuilder) return null;
+    const targets = this.wallBuilder.doorPickMeshes?.() || [];
+    if (targets.length === 0) return null;
+    const castAt = (x, y) => {
+      const { raycaster } = this._screenRay(x, y);
+      const hits = raycaster.intersectObjects(targets, false);
+      hits.sort((a, b) => a.distance - b.distance);
+      return hits.find(hit => isVisiblePickObject(hit.object)) || null;
+    };
+    return pickWithScreenTolerance(screenX, screenY, tolerancePx, castAt);
+  }
+
   /** Check if a mesh belongs to a given parent group */
   _isInGroup(obj, group) {
     while (obj) {

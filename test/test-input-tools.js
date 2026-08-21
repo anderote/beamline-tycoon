@@ -81,6 +81,7 @@ console.log('\n=== 1. Demolish edge paths rebuild walls once, not per edge ===\n
     _suppressNextClick: false,
     _getNearestEdge: () => run[0],
     _findWallOrDoorAtEdge: (edge) => ({ edge, wallType: 'officeWall' }),
+    findDemolishableEdgeAtScreen: () => ({ edge: run[0], wallType: 'officeWall' }),
     _buildWallSegmentPath: () => run,
     _removeWallAndDoorAtEdge: (pt) => {
       g.removeWall(pt.col, pt.row, pt.edge);
@@ -124,6 +125,62 @@ console.log('\n=== 1. Demolish edge paths rebuild walls once, not per edge ===\n
   assertOk(g.state.walls.length === 0, 'the dragged edge path was deleted');
   assertOk((counts.wallsChanged || 0) === 1,
     `one wallsChanged for the whole drag (got ${counts.wallsChanged || 0}, ${RUN} edges)`);
+}
+
+console.log('\n=== 1a. Demolish resolves visible door geometry before its ground projection ===\n');
+
+function doorDemolishCtx(g, edge, groundEdge) {
+  const renderer = {
+    raycastDoorScreen: () => ({ object: { userData: { doorEdge: edge } } }),
+    screenToWorld: () => tileCenterIso(groundEdge.col, groundEdge.row),
+    clearDragPreview() {},
+  };
+  const input = {
+    renderer,
+    game: g,
+    _shiftDown: false,
+    _edgeAlias: InputHandler.prototype._edgeAlias,
+    _findWallOrDoorAtEdge: InputHandler.prototype._findWallOrDoorAtEdge,
+    _getNearestEdge: () => groundEdge,
+    findDemolishableEdgeAtScreen: InputHandler.prototype.findDemolishableEdgeAtScreen,
+    _removeWallAndDoorAtEdge: InputHandler.prototype._removeWallAndDoorAtEdge,
+  };
+  return { game: g, input, renderer };
+}
+
+{
+  const g = makeGame(44);
+  const doorEdge = { col: 6, row: 7, edge: 'n' };
+  const wrongGroundEdge = { col: 20, row: 20, edge: 's' };
+  g.placeWall(doorEdge.col, doorEdge.row, doorEdge.edge, 'officeWall');
+  g.placeDoor(doorEdge.col, doorEdge.row, doorEdge.edge, 'officeDoor');
+  const ctx = doorDemolishCtx(g, doorEdge, wrongGroundEdge);
+
+  const found = ctx.input.findDemolishableEdgeAtScreen(300, 200);
+  assertOk(found?.doorType === 'officeDoor'
+    && found.edge.col === doorEdge.col && found.edge.row === doorEdge.row,
+    'visible door ray wins when its ground projection lands on another edge');
+
+  const tool = new DemolishTool('demolishBuilding');
+  tool.onMouseDown({ button: 0, clientX: 300, clientY: 200 }, ctx);
+  tool.onMouseUp({ button: 0, clientX: 300, clientY: 200 }, ctx);
+  assertOk(g.state.doors.length === 0,
+    'Building demolition removes the door selected through its visible panel');
+}
+
+{
+  const g = makeGame(45);
+  const doorEdge = { col: 8, row: 9, edge: 'e' };
+  const wrongGroundEdge = { col: 24, row: 24, edge: 'w' };
+  g.placeWall(doorEdge.col, doorEdge.row, doorEdge.edge, 'officeWall');
+  g.placeDoor(doorEdge.col, doorEdge.row, doorEdge.edge, 'officeDoor');
+  const ctx = doorDemolishCtx(g, doorEdge, wrongGroundEdge);
+
+  const tool = new DemolishTool('demolishAll');
+  tool.onMouseDown({ button: 0, clientX: 320, clientY: 220 }, ctx);
+  tool.onMouseUp({ button: 0, clientX: 320, clientY: 220 }, ctx);
+  assertOk(g.state.doors.length === 0,
+    'catch-all demolition also removes a door selected above the wrong ground tile');
 }
 
 console.log('\n=== 1b. Wall paint follows the selected floor tile ===\n');

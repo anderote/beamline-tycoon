@@ -290,6 +290,10 @@ console.log('\n=== 5. build(): the visible door panel ===\n');
 
   const office = panelsOf('officeDoor', 0);
   assert(office.length === 1, 'a textured door renders exactly one panel leaf');
+  assert(office[0].userData?.doorEdge?.col === 0
+    && office[0].userData?.doorEdge?.row === 0
+    && office[0].userData?.doorEdge?.edge === 'n',
+    'the visible panel retains its owning edge for perspective-correct picking');
   assert(office[0].material.map != null, 'the panel is wired to the door texture, not left untextured');
   assert(near(office[0].geometry.parameters.width, 1.0 - 0.04),
     'the panel fills the opening less the frame gap');
@@ -472,6 +476,10 @@ console.log('\n=== 6b. Multi-tile doors render as one continuous assembly ===\n'
   const leafXs = leaves.map(mesh => mesh.position.x).sort((a, b) => a - b);
   assert(leafXs[0] > 2.9 && leafXs[0] < 3.1 && leafXs[1] > 8.9 && leafXs[1] < 9.1,
     'the paired leaves occupy the two halves of the complete six-tile opening');
+  assert(wb.doorPickMeshes().length >= 5
+    && wb.doorPickMeshes().every(mesh => mesh.userData?.doorEdge?.col === 0
+      && mesh.userData?.doorEdge?.row === 0 && mesh.userData?.doorEdge?.edge === 'n'),
+    'every pickable part of the continuous door resolves to its owning record');
   const lintels = wb._meshes.filter(mesh => near(mesh.geometry.parameters?.height ?? -1, LINTEL_HEIGHT));
   assert(lintels.length === 1 && near(lintels[0].geometry.parameters.width, TILE_SIZE * 6),
     'one lintel spans the complete opening without tile seams');
