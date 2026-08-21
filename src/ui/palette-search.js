@@ -124,7 +124,7 @@ export function buildPaletteIndex(game) {
   }
 
   // --- DECORATIONS (decorations.js) — always Grounds; `category` is the
-  // grounds tab key directly (treesPlants/furniture/lighting/bins).
+  // grounds tab key directly (treesPlants/furniture/lighting/utilities/etc.).
   for (const [id, dec] of Object.entries(DECORATIONS)) {
     if (!dec.category) continue;
     index.push({

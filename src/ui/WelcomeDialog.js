@@ -10,7 +10,7 @@ const MODE_ROWS = [
   ['2', 'Infra',     '#e0c86e', 'power, vacuum, RF power, cooling & data utilities'],
   ['3', 'Facility',  '#6ec8e0', 'assign zones — labs, control room, offices, cafeteria'],
   ['4', 'Structure', '#c8b49a', 'floors, walls, doors & shielding'],
-  ['5', 'Grounds',   '#9ade7a', 'outdoor decoration — paths, trees, fences, lighting'],
+  ['5', 'Grounds',   '#9ade7a', 'outdoor site work — paths, trees, utilities, security'],
   ['6', 'Demolish',  '#ff7a66', 'tear things back down'],
 ];
 

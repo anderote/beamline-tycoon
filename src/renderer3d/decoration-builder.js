@@ -1331,6 +1331,311 @@ function _flagpole(_footW, _footL, totalH) {
   return group;
 }
 
+// --- Site utilities + security ------------------------------------------
+
+function _siteMat(color, { metalness = 0.05, roughness = 0.72, emissive = 0x000000 } = {}) {
+  return new THREE.MeshStandardMaterial({ color, metalness, roughness, emissive });
+}
+
+function _siteBox(group, size, pos, material, rotation = null) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(size[0], size[1], size[2]), material);
+  mesh.position.set(pos[0], pos[1], pos[2]);
+  if (rotation) mesh.rotation.set(rotation[0] || 0, rotation[1] || 0, rotation[2] || 0);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  group.add(mesh);
+  return mesh;
+}
+
+function _siteCylinder(group, radiusTop, radiusBottom, height, pos, material, axis = 'y', segments = 12) {
+  const mesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(radiusTop, radiusBottom, height, segments),
+    material,
+  );
+  mesh.position.set(pos[0], pos[1], pos[2]);
+  if (axis === 'x') mesh.rotation.z = Math.PI / 2;
+  else if (axis === 'z') mesh.rotation.x = Math.PI / 2;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  group.add(mesh);
+  return mesh;
+}
+
+function _siteSphere(group, radius, pos, material, scale = null) {
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 16, 12), material);
+  mesh.position.set(pos[0], pos[1], pos[2]);
+  if (scale) mesh.scale.set(scale[0], scale[1], scale[2]);
+  mesh.castShadow = true;
+  group.add(mesh);
+  return mesh;
+}
+
+function _siteBeam(group, from, to, radius, material, segments = 8) {
+  const a = new THREE.Vector3(from[0], from[1], from[2]);
+  const b = new THREE.Vector3(to[0], to[1], to[2]);
+  const delta = b.clone().sub(a);
+  const length = delta.length();
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, length, segments), material);
+  mesh.position.copy(a.add(b).multiplyScalar(0.5));
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), delta.normalize());
+  mesh.castShadow = true;
+  group.add(mesh);
+  return mesh;
+}
+
+function _propaneTank(footW, footL, totalH) {
+  const group = new THREE.Group();
+  const tankMat = _siteMat(0xe8e8df, { metalness: 0.42, roughness: 0.38 });
+  const dark = _siteMat(0x343a3f, { metalness: 0.65, roughness: 0.42 });
+  const concrete = _siteMat(0x8a8b86, { roughness: 0.95 });
+  const pipe = _siteMat(0xc7b445, { metalness: 0.55, roughness: 0.38 });
+  const tankLength = footW * 0.74;
+  const radius = Math.min(footL * 0.32, totalH * 0.23);
+  const tankY = Math.max(radius + 0.34, totalH * 0.44);
+
+  _siteBox(group, [footW * 0.9, 0.12, footL * 0.82], [0, 0.06, 0], concrete);
+  for (const x of [-tankLength * 0.28, tankLength * 0.28]) {
+    _siteBox(group, [0.22, tankY - radius, radius * 1.5], [x, (tankY - radius) / 2 + 0.12, 0], dark);
+    _siteBox(group, [0.5, 0.13, radius * 1.8], [x, 0.19, 0], dark);
+  }
+  _siteCylinder(group, radius, radius, tankLength, [0, tankY, 0], tankMat, 'x', 20);
+  _siteSphere(group, radius, [-tankLength / 2, tankY, 0], tankMat, [0.45, 1, 1]);
+  _siteSphere(group, radius, [tankLength / 2, tankY, 0], tankMat, [0.45, 1, 1]);
+  _siteCylinder(group, 0.055, 0.055, 0.32, [0.45, tankY + radius + 0.16, 0], pipe);
+  _siteBox(group, [0.3, 0.11, 0.12], [0.45, tankY + radius + 0.34, 0], pipe);
+  _siteCylinder(group, 0.06, 0.06, 0.18, [-tankLength * 0.32, tankY + radius + 0.09, 0], dark);
+  return group;
+}
+
+function _utilityPoleModel(footW, _footL, totalH) {
+  const group = new THREE.Group();
+  const wood = _siteMat(0x75512f, { roughness: 0.92 });
+  const metal = _siteMat(0x667078, { metalness: 0.72, roughness: 0.42 });
+  const ceramic = _siteMat(0xd7e0e4, { roughness: 0.24 });
+  const poleH = totalH * 0.94;
+  const armW = Math.max(footW * 2.6, 1.25);
+  _siteCylinder(group, 0.075, 0.12, poleH, [0, poleH / 2, 0], wood, 'y', 10);
+  _siteBox(group, [armW, 0.11, 0.13], [0, poleH * 0.82, 0], wood);
+  _siteBox(group, [armW * 0.68, 0.09, 0.11], [0, poleH * 0.68, 0], wood);
+  for (const y of [poleH * 0.82, poleH * 0.68]) {
+    for (const x of [-armW * 0.35, 0, armW * 0.35]) {
+      _siteCylinder(group, 0.045, 0.055, 0.18, [x, y + 0.14, 0], ceramic, 'y', 10);
+      _siteSphere(group, 0.055, [x, y + 0.24, 0], metal);
+    }
+  }
+  _siteBox(group, [0.28, 0.44, 0.16], [0.18, poleH * 0.48, -0.1], metal);
+  return group;
+}
+
+function _overheadPowerSpan(footW, footL, totalH) {
+  const group = new THREE.Group();
+  const wood = _siteMat(0x6d4a2c, { roughness: 0.94 });
+  const wire = _siteMat(0x171a1c, { metalness: 0.6, roughness: 0.5 });
+  const ceramic = _siteMat(0xcbd8dd, { roughness: 0.28 });
+  const poleH = totalH * 0.9;
+  const poleX = footW * 0.46;
+  const armW = Math.max(footL * 1.45, 1.1);
+  const wireZ = [-armW * 0.34, 0, armW * 0.34];
+
+  for (const x of [-poleX, poleX]) {
+    _siteCylinder(group, 0.07, 0.12, poleH, [x, poleH / 2, 0], wood, 'y', 10);
+    _siteBox(group, [0.12, 0.12, armW], [x, poleH * 0.82, 0], wood);
+    for (const z of wireZ) {
+      _siteCylinder(group, 0.04, 0.05, 0.17, [x, poleH * 0.82 + 0.14, z], ceramic, 'y', 8);
+    }
+  }
+  for (const z of wireZ) {
+    _siteBeam(group, [-poleX, poleH * 0.82 + 0.24, z], [poleX, poleH * 0.82 + 0.24, z], 0.018, wire, 6);
+  }
+  _siteBeam(group, [-poleX, poleH * 0.56, 0], [poleX, poleH * 0.56, 0], 0.014, wire, 6);
+  return group;
+}
+
+function _outdoorPipeRack(footW, footL, totalH) {
+  const group = new THREE.Group();
+  const steel = _siteMat(0x606b72, { metalness: 0.7, roughness: 0.46 });
+  const pad = _siteMat(0x858681, { roughness: 0.96 });
+  const pipeMats = [
+    _siteMat(0x2d79a7, { metalness: 0.35, roughness: 0.45 }),
+    _siteMat(0xb18a35, { metalness: 0.35, roughness: 0.45 }),
+    _siteMat(0x8d4940, { metalness: 0.35, roughness: 0.45 }),
+    _siteMat(0x4d8a58, { metalness: 0.35, roughness: 0.45 }),
+  ];
+  const rackH = totalH * 0.78;
+  _siteBox(group, [footW * 0.96, 0.1, footL * 0.92], [0, 0.05, 0], pad);
+  for (const x of [-footW * 0.4, 0, footW * 0.4]) {
+    for (const z of [-footL * 0.34, footL * 0.34]) {
+      _siteBox(group, [0.1, rackH, 0.1], [x, rackH / 2 + 0.1, z], steel);
+    }
+    for (const y of [rackH * 0.48, rackH]) {
+      _siteBox(group, [0.13, 0.1, footL * 0.86], [x, y, 0], steel);
+    }
+  }
+  const runs = [
+    [-footL * 0.27, rackH * 0.42],
+    [footL * 0.27, rackH * 0.42],
+    [-footL * 0.27, rackH * 0.9],
+    [footL * 0.27, rackH * 0.9],
+  ];
+  runs.forEach(([z, y], i) => {
+    _siteCylinder(group, 0.075, 0.075, footW * 0.9, [0, y, z], pipeMats[i], 'x', 10);
+  });
+  return group;
+}
+
+function _backupGenerator(footW, footL, totalH) {
+  const group = new THREE.Group();
+  const shell = _siteMat(0x596b53, { metalness: 0.45, roughness: 0.52 });
+  const dark = _siteMat(0x252b2e, { metalness: 0.62, roughness: 0.46 });
+  const pad = _siteMat(0x858681, { roughness: 0.96 });
+  const warning = _siteMat(0xd9b43b, { metalness: 0.25, roughness: 0.52 });
+  const bodyW = footW * 0.82;
+  const bodyL = footL * 0.78;
+  const bodyH = totalH * 0.68;
+  _siteBox(group, [footW * 0.94, 0.12, footL * 0.92], [0, 0.06, 0], pad);
+  _siteBox(group, [bodyW, bodyH, bodyL], [0, bodyH / 2 + 0.12, 0], shell);
+  _siteBox(group, [0.05, bodyH * 0.72, bodyL * 0.72], [-bodyW / 2 - 0.028, bodyH * 0.52, 0], dark);
+  for (let i = -3; i <= 3; i++) {
+    _siteBox(group, [0.025, bodyH * 0.52, 0.035], [-bodyW / 2 - 0.058, bodyH * 0.52, i * bodyL * 0.085], shell);
+  }
+  _siteBox(group, [bodyW * 0.34, bodyH * 0.72, 0.035], [bodyW * 0.16, bodyH * 0.52, -bodyL / 2 - 0.02], dark);
+  _siteBox(group, [bodyW * 0.1, bodyH * 0.18, 0.04], [bodyW * 0.16, bodyH * 0.58, -bodyL / 2 - 0.045], warning);
+  _siteCylinder(group, 0.075, 0.085, totalH * 0.3, [bodyW * 0.28, bodyH + totalH * 0.15, 0], dark, 'y', 10);
+  _siteCylinder(group, 0.11, 0.075, 0.12, [bodyW * 0.28, bodyH + totalH * 0.31, 0], dark, 'y', 10);
+  return group;
+}
+
+function _guardTower(footW, footL, totalH) {
+  const group = new THREE.Group();
+  const steel = _siteMat(0x59646b, { metalness: 0.65, roughness: 0.46 });
+  const cabin = _siteMat(0x697a76, { metalness: 0.28, roughness: 0.62 });
+  const glass = _siteMat(0x477c91, { metalness: 0.2, roughness: 0.18, emissive: 0x071820 });
+  const roof = _siteMat(0x31383c, { metalness: 0.48, roughness: 0.5 });
+  const concrete = _siteMat(0x878883, { roughness: 0.96 });
+  const deckY = totalH * 0.67;
+  const legX = footW * 0.34;
+  const legZ = footL * 0.34;
+
+  _siteBox(group, [footW * 0.92, 0.12, footL * 0.92], [0, 0.06, 0], concrete);
+  for (const x of [-legX, legX]) {
+    for (const z of [-legZ, legZ]) {
+      _siteBox(group, [0.13, deckY, 0.13], [x, deckY / 2 + 0.12, z], steel);
+    }
+  }
+  for (const z of [-legZ, legZ]) {
+    _siteBeam(group, [-legX, 0.3, z], [legX, deckY - 0.15, z], 0.045, steel);
+    _siteBeam(group, [legX, 0.3, z], [-legX, deckY - 0.15, z], 0.045, steel);
+  }
+  _siteBox(group, [footW * 0.9, 0.18, footL * 0.9], [0, deckY, 0], steel);
+
+  const cabinW = footW * 0.62;
+  const cabinL = footL * 0.62;
+  const cabinH = totalH * 0.22;
+  _siteBox(group, [cabinW, cabinH, cabinL], [0, deckY + cabinH / 2 + 0.12, 0], cabin);
+  const windowY = deckY + cabinH * 0.62;
+  _siteBox(group, [cabinW * 0.72, cabinH * 0.45, 0.035], [0, windowY, -cabinL / 2 - 0.02], glass);
+  _siteBox(group, [cabinW * 0.72, cabinH * 0.45, 0.035], [0, windowY, cabinL / 2 + 0.02], glass);
+  _siteBox(group, [0.035, cabinH * 0.45, cabinL * 0.72], [-cabinW / 2 - 0.02, windowY, 0], glass);
+  _siteBox(group, [0.035, cabinH * 0.45, cabinL * 0.72], [cabinW / 2 + 0.02, windowY, 0], glass);
+  const roofMesh = new THREE.Mesh(new THREE.ConeGeometry(Math.max(cabinW, cabinL) * 0.72, totalH * 0.07, 4), roof);
+  roofMesh.position.y = deckY + cabinH + totalH * 0.055;
+  roofMesh.rotation.y = Math.PI / 4;
+  roofMesh.castShadow = true;
+  group.add(roofMesh);
+
+  const railY = deckY + 0.65;
+  for (const z of [-footL * 0.43, footL * 0.43]) {
+    _siteBeam(group, [-footW * 0.42, railY, z], [footW * 0.42, railY, z], 0.025, steel, 6);
+  }
+  for (const x of [-footW * 0.43, footW * 0.43]) {
+    _siteBeam(group, [x, railY, -footL * 0.42], [x, railY, footL * 0.42], 0.025, steel, 6);
+  }
+  const ladderX = footW * 0.42;
+  for (const z of [-0.18, 0.18]) {
+    _siteBeam(group, [ladderX, 0.15, z], [ladderX, deckY, z], 0.025, steel, 6);
+  }
+  for (let y = 0.45; y < deckY; y += 0.42) {
+    _siteBeam(group, [ladderX, y, -0.18], [ladderX, y, 0.18], 0.018, steel, 6);
+  }
+  return group;
+}
+
+function _securityGatehouse(footW, footL, totalH) {
+  const group = new THREE.Group();
+  const wall = _siteMat(0xd0d2cc, { roughness: 0.72 });
+  const trim = _siteMat(0x3e4b51, { metalness: 0.48, roughness: 0.5 });
+  const glass = _siteMat(0x4c8298, { metalness: 0.18, roughness: 0.2, emissive: 0x07161d });
+  const pad = _siteMat(0x878883, { roughness: 0.96 });
+  const arm = _siteMat(0xe7d8b2, { roughness: 0.55 });
+  const bodyW = footW * 0.58;
+  const bodyL = footL * 0.72;
+  const bodyH = totalH * 0.66;
+  _siteBox(group, [footW * 0.94, 0.1, footL * 0.92], [0, 0.05, 0], pad);
+  _siteBox(group, [bodyW, bodyH, bodyL], [-footW * 0.12, bodyH / 2 + 0.1, 0], wall);
+  _siteBox(group, [bodyW * 0.78, bodyH * 0.45, 0.035], [-footW * 0.12, bodyH * 0.64, -bodyL / 2 - 0.02], glass);
+  _siteBox(group, [0.035, bodyH * 0.45, bodyL * 0.65], [-footW * 0.12 + bodyW / 2 + 0.02, bodyH * 0.64, 0], glass);
+  _siteBox(group, [bodyW * 1.26, 0.16, bodyL * 1.18], [-footW * 0.12, bodyH + 0.18, 0], trim);
+  _siteBox(group, [bodyW * 0.28, bodyH * 0.7, 0.045], [-footW * 0.12 - bodyW * 0.2, bodyH * 0.42, bodyL / 2 + 0.025], trim);
+  const pivotX = footW * 0.37;
+  _siteBox(group, [0.26, 0.8, 0.3], [pivotX, 0.5, footL * 0.24], trim);
+  _siteBox(group, [footW * 0.55, 0.1, 0.12], [pivotX - footW * 0.26, 0.92, footL * 0.24], arm, [0, 0, 0.08]);
+  for (let i = 0; i < 4; i++) {
+    _siteBox(group, [0.24, 0.105, 0.125], [pivotX - 0.22 - i * 0.34, 0.92 + i * 0.027, footL * 0.24 - 0.002], _siteMat(0xd45a43));
+  }
+  return group;
+}
+
+function _securityCameraMast(_footW, _footL, totalH) {
+  const group = new THREE.Group();
+  const steel = _siteMat(0x566169, { metalness: 0.72, roughness: 0.42 });
+  const housing = _siteMat(0xd5d8d4, { metalness: 0.28, roughness: 0.52 });
+  const lens = _siteMat(0x10171b, { metalness: 0.3, roughness: 0.16, emissive: 0x061018 });
+  const poleH = totalH * 0.84;
+  _siteCylinder(group, 0.2, 0.24, 0.12, [0, 0.06, 0], steel, 'y', 12);
+  _siteCylinder(group, 0.045, 0.075, poleH, [0, poleH / 2 + 0.12, 0], steel, 'y', 10);
+  _siteCylinder(group, 0.14, 0.14, 0.16, [0, poleH + 0.18, 0], steel, 'y', 10);
+  const cameras = [
+    [0.28, poleH + 0.22, 0, 0],
+    [-0.14, poleH + 0.32, 0.24, Math.PI * 2 / 3],
+    [-0.14, poleH + 0.32, -0.24, -Math.PI * 2 / 3],
+  ];
+  for (const [x, y, z, yaw] of cameras) {
+    const camera = new THREE.Group();
+    _siteBox(camera, [0.38, 0.18, 0.2], [0, 0, 0], housing);
+    _siteCylinder(camera, 0.055, 0.055, 0.04, [0.2, 0, 0], lens, 'x', 12);
+    camera.position.set(x, y, z);
+    camera.rotation.y = yaw;
+    group.add(camera);
+  }
+  return group;
+}
+
+function _vehicleBarrier(footW, footL, totalH) {
+  const group = new THREE.Group();
+  const concrete = _siteMat(0xa6a49b, { roughness: 0.96 });
+  const stripe = _siteMat(0xd87932, { roughness: 0.68 });
+  const lowerH = totalH * 0.48;
+  const upperH = totalH * 0.42;
+  _siteBox(group, [footW * 0.96, lowerH, footL * 0.88], [0, lowerH / 2, 0], concrete);
+  _siteBox(group, [footW * 0.84, upperH, footL * 0.46], [0, lowerH + upperH / 2, 0], concrete);
+  for (let x = -footW * 0.34; x <= footW * 0.34; x += footW * 0.17) {
+    _siteBox(group, [footW * 0.08, totalH * 0.22, 0.025], [x, lowerH * 0.56, -footL * 0.45], stripe, [0, 0, 0.32]);
+  }
+  return group;
+}
+
+function _securityBollard(_footW, _footL, totalH) {
+  const group = new THREE.Group();
+  const yellow = _siteMat(0xd6a62f, { metalness: 0.42, roughness: 0.48 });
+  const dark = _siteMat(0x252a2d, { metalness: 0.62, roughness: 0.42 });
+  const h = totalH * 0.84;
+  _siteCylinder(group, 0.14, 0.18, 0.12, [0, 0.06, 0], dark, 'y', 12);
+  _siteCylinder(group, 0.1, 0.12, h, [0, h / 2 + 0.12, 0], yellow, 'y', 12);
+  _siteCylinder(group, 0.105, 0.105, 0.08, [0, h * 0.5 + 0.12, 0], dark, 'y', 12);
+  _siteSphere(group, 0.105, [0, h + 0.12, 0], yellow, [1, 0.45, 1]);
+  return group;
+}
+
 const ITEM_BUILDERS = {
   parkBench:     _parkBench,
   picnicTable:   _picnicTable,
@@ -1341,7 +1646,27 @@ const ITEM_BUILDERS = {
   infoSign:      _infoSign,
   directionSign: _directionSign,
   flagpole:      _flagpole,
+  propaneTank:   _propaneTank,
+  utilityPole:   _utilityPoleModel,
+  overheadPowerSpan: _overheadPowerSpan,
+  outdoorPipeRack: _outdoorPipeRack,
+  backupGenerator: _backupGenerator,
+  guardTower: _guardTower,
+  securityGatehouse: _securityGatehouse,
+  securityCameraMast: _securityCameraMast,
+  vehicleBarrier: _vehicleBarrier,
+  securityBollard: _securityBollard,
 };
+
+export function hasDedicatedDecorationGeometry(typeId) {
+  return Boolean(
+    LIGHTING_DEFS_BY_ID[typeId]
+    || TREE_BUILDERS[typeId]
+    || _isFlowerBedType(typeId)
+    || ITEM_BUILDERS[typeId]
+    || typeId === 'shrub'
+  );
+}
 
 function _defaultBox(footW, footL, totalH) {
   const group = new THREE.Group();
@@ -1371,7 +1696,7 @@ function _isFlowerBedType(typeId) {
   return typeId === 'flowerBed' || typeId === 'largeFlowerBed' || typeId === 'longFlowerBed';
 }
 
-function buildDecorationGroup(typeId, category, footW, footL, totalH, variant = 0, seed = 0, dir = 0) {
+export function buildDecorationGroup(typeId, category, footW, footL, totalH, variant = 0, seed = 0, dir = 0) {
   // Routed on the def actually carrying a `light` block (LIGHTING_DEFS_BY_ID
   // only contains ids that do), not on `category === 'lighting'` — the
   // mounted fixtures (wallSconce, bulkheadLight, ceilingPanel, highBay) are

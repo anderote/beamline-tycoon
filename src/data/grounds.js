@@ -2,7 +2,8 @@
 //
 // Grounds data — items that appear in the Grounds build mode.
 // Currently grounds-specific walls (hedges + fencing). Trees, plants,
-// furniture, lighting, and bins live in decorations.raw.js for now,
+// furniture, lighting, utilities, security, and bins live in the decoration
+// registries,
 // surfaces live alongside other floors in structure.js.
 
 export const GROUNDS_WALLS = {
