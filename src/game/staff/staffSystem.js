@@ -10,6 +10,11 @@ import { logCareerEvent } from './careerLog.js';
 // revisited later without rebuilding the staff simulation from scratch.
 export const STAFF_BREAKS_ENABLED = false;
 
+// Soft staff routines stay enabled while hard needs remain disabled. They
+// create the visible desk -> cafeteria/wander -> desk rhythm without making
+// hunger or fatigue a production gate.
+export const STAFF_ROUTINES_ENABLED = true;
+
 // Base fatigue accrual per tick while 'working' (before trait multipliers).
 // Exported so jobRunner.js's own test (test-job-runner.js) can assert, as a
 // cheap arithmetic guard, that every work job's workTicks fits inside one
@@ -53,6 +58,10 @@ export function createStaffMember(profession, id, tick = 0, rng = Math.random, s
     m.backstoryId = backstory.id;
     applyBackstory(m, backstory);
   }
+  const professionHome = professionDef(profession)?.homeZone ?? null;
+  const specialtyHome = specialtiesFor(profession)
+    .find(candidate => candidate.id === chosenSpecialty)?.zoneId ?? null;
+  m.assignment.zoneId = specialtyHome || professionHome;
   m.history = [{ tick, event: 'hired', note: `Joined as ${profession}` }];
   return m;
 }
@@ -76,10 +85,14 @@ export function tickStaffMember(m, {
     m.needs.hunger = 0;
     m.needs.morale = Math.max(0.6, m.needs.morale ?? 0.6);
     m.unservicedPenalty = false;
-    m.stats.ticksWorked++;
-    const gain = 0.01 * (m.traits.includes('fastLearner') ? 1.25 : 1);
-    const primary = m.primarySkill || 'operating';
-    m.skills[primary] = Math.min(10, m.skills[primary] + gain);
+    const workingProductively = m.job?.phase === 'work'
+      && m.job.jobType !== 'eat' && m.job.jobType !== 'rest';
+    if (workingProductively) {
+      m.stats.ticksWorked++;
+      const gain = 0.01 * (m.traits.includes('fastLearner') ? 1.25 : 1);
+      const primary = m.primarySkill || 'operating';
+      m.skills[primary] = Math.min(10, m.skills[primary] + gain);
+    }
     m.updateMood();
     return statusChanged;
   }

@@ -90,6 +90,20 @@ export class StaffMember {
     // once for a member the runner has actually looked at; see jobRunner.js.
     this.job = opts.job || null;
     this.idleReason = opts.idleReason ?? null;
+    // Authoritative simulation position at subtile resolution. The renderer
+    // may interpolate a figure between published positions, but it never
+    // writes this field. A null position is resolved deterministically by
+    // jobRunner before the member is considered for work.
+    this.fromNode = opts.fromNode ? { ...opts.fromNode } : null;
+    // Lightweight, soft downtime. Productive finite jobs schedule a short
+    // window in which the member may visit a cafeteria and otherwise wander.
+    // This is deliberately independent of the dormant hunger/fatigue model.
+    this.routineUntil = opts.routineUntil ?? 0;
+    this.routineMealTaken = opts.routineMealTaken ?? false;
+    // Transient path cache for job/downtime movement. It is intentionally not
+    // loaded or serialized; fromNode + the destination are enough to rebuild
+    // it after load or a navigation revision.
+    this._staffMotion = null;
     // Work progress a need pre-emption bumped this member off of — `{
     // jobType, progress, target }` or null. Set only by jobRunner.js's
     // tryTakeNeedJob (never for eat/rest itself — there's nothing useful to
@@ -192,6 +206,15 @@ export class StaffMember {
   }
 
   toJSON() {
+    const job = this.job ? { ...this.job } : null;
+    if (job) {
+      delete job.travelPath;
+      delete job.travelPathIndex;
+      delete job.travelPathRevision;
+      delete job.travelTicks;
+      delete job.travelBudgetTicks;
+      delete job.travelBudgetSpeed;
+    }
     return {
       id: this.id, firstName: this.firstName, lastName: this.lastName,
       profession: this.profession, specialty: this.specialty, backstoryId: this.backstoryId,
@@ -200,7 +223,9 @@ export class StaffMember {
       assignment: { ...this.assignment }, shift: this.shift,
       status: this.status, mood: this.mood, history: [...this.history],
       stats: { ...this.stats },
-      job: this.job ? { ...this.job } : null, idleReason: this.idleReason,
+      job, idleReason: this.idleReason,
+      fromNode: this.fromNode ? { ...this.fromNode } : null,
+      routineUntil: this.routineUntil, routineMealTaken: this.routineMealTaken,
       unservicedPenalty: this.unservicedPenalty,
     };
   }

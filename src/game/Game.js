@@ -32,7 +32,8 @@ import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
 import { StaffMember } from './staff/StaffMember.js';
 import { sanitizeStationReservations, releaseAllFor } from './staff/stations.js';
 import {
-  STAFF_BREAKS_ENABLED, tickStaffMember, deriveStaffCounts, staffHireCost, createStaffMember,
+  STAFF_BREAKS_ENABLED, STAFF_ROUTINES_ENABLED, tickStaffMember, deriveStaffCounts,
+  staffHireCost, createStaffMember,
 } from './staff/staffSystem.js';
 import { assignJobs, tickJobs } from './staff/jobRunner.js';
 // Fix round 3: jobRunner.js now imports the jobEffects/*.js completion
@@ -340,7 +341,7 @@ export class Game {
       staffCosts: Object.fromEntries(Object.keys(PROFESSIONS).map(id => [id, PROFESSIONS[id].baseSalary])), // $/tick — tuned for MVP drain
       staffMembers: [], // StaffMember[] — individual pawns
       staffNextId: 1,
-      staffCandidates: [], // hiring pool (3 offered)
+      staffCandidates: [], // hiring pool (one candidate per profession)
       // Task 7 (staff-professions-3, jobs-and-gates): built up by an admin's
       // paperwork completions (src/game/staff/jobEffects/paperwork.js), 0..
       // 0.4, and spent in full (reset to 0) the moment the NEXT hire lands —
@@ -615,19 +616,26 @@ export class Game {
       this.state.staffMembers.push(m);
       this.state.staff = deriveStaffCounts(this.state.staffMembers);
       // seed hiring pool
-      this._refreshStaffCandidates();
+      this.refreshStaffCandidates();
     }
   }
 
+  _createStaffCandidate(profession) {
+    return createStaffMember(
+      profession, `cand_${this.state.staffNextId++}`, this.state.tick, this.rng,
+    );
+  }
+
+  refreshStaffCandidates() {
+    this.state.staffCandidates = Object.keys(PROFESSIONS)
+      .map(profession => this._createStaffCandidate(profession));
+    this.emit('staffChanged');
+    return this.state.staffCandidates;
+  }
+
+  // Compatibility for older UI/tests. New callers use the public method.
   _refreshStaffCandidates() {
-    const professions = Object.keys(PROFESSIONS);
-    this.state.staffCandidates = [];
-    for (let i = 0; i < 3; i++) {
-      const profession = professions[Math.floor(this.rng() * professions.length)];
-      const m = createStaffMember(profession, `cand_${this.state.staffNextId++}`, this.state.tick, this.rng);
-      // candidates are not yet in staffMembers
-      this.state.staffCandidates.push(m);
-    }
+    return this.refreshStaffCandidates();
   }
 
   // Rebuild placeableIndex + subgridOccupied from current state.placeables.
@@ -4953,8 +4961,8 @@ export class Game {
     // recurring bill always lands on the real balance.
     this.state.resources.funding -= upkeep.total;
 
-    // Staff development loop. Break/needs simulation is temporarily disabled
-    // by STAFF_BREAKS_ENABLED, so workers remain on productive jobs steadily.
+    // Hard hunger/fatigue gates are disabled for the MVP; safe soft routines
+    // still create cafeteria/wander downtime between finite jobs.
     {
       const isNight = isNightAt(this.state.timeOfDay); // driven by the sim clock — see DAY_LENGTH_TICKS
       const cafTier = (this.state.zoneConnectivity?.cafeteria?.tier) || 0;
@@ -4974,8 +4982,11 @@ export class Game {
       // The job runner (src/game/staff/jobRunner.js): hands idle staff their
       // next productive job, then advances everyone already on one. Passing
       // the same switch also clears any eat/rest job from an in-progress game.
-      assignJobs(this, { breaksEnabled: STAFF_BREAKS_ENABLED });
-      tickJobs(this);
+      assignJobs(this, {
+        breaksEnabled: STAFF_BREAKS_ENABLED,
+        routinesEnabled: STAFF_ROUTINES_ENABLED,
+      });
+      tickJobs(this, { routinesEnabled: STAFF_ROUTINES_ENABLED });
 
     }
 
@@ -5365,9 +5376,9 @@ export class Game {
     const m = new StaffMember({ ...cand, id: `staff_${this.state.staffNextId++}` });
     m.history = [{ tick: this.state.tick, event: 'hired', note: `Hired ${m.name} as ${m.profession}` }];
     this.state.staffMembers.push(m);
-    this.state.staffCandidates.splice(idx, 1);
-    // refill pool if low
-    if (this.state.staffCandidates.length < 2) this._refreshStaffCandidates();
+    // Keep the role explicitly hireable: replace this slot with a fresh
+    // candidate of the same profession instead of shrinking/randomizing it.
+    this.state.staffCandidates[idx] = this._createStaffCandidate(cand.profession);
     this._syncStaffCounts();
     this.log(`Hired ${m.name} (${m.profession}) — ${m.traits.join(', ')}`, 'good');
     this.emit('staffChanged');
@@ -6032,6 +6043,12 @@ export class Game {
     for (let i = 0; i < (this.state.staffCandidates || []).length; i++) {
       const o = this.state.staffCandidates[i];
       if (!(o instanceof StaffMember)) this.state.staffCandidates[i] = StaffMember.fromJSON(o);
+    }
+    const candidateRoles = new Set(this.state.staffCandidates.map(c => c.profession));
+    if (this.state.staffCandidates.length !== Object.keys(PROFESSIONS).length
+        || Object.keys(PROFESSIONS).some(role => !candidateRoles.has(role))) {
+      this.state.staffCandidates = Object.keys(PROFESSIONS)
+        .map(role => this._createStaffCandidate(role));
     }
     this._syncStaffCounts();
 

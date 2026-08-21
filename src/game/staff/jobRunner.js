@@ -9,20 +9,10 @@
 // load — releases a held station. See abandonJob's own doc comment for why
 // that matters more than it looks.
 //
-// Walking is NOT this module's problem. `member.job.phase` starts 'travel'
-// on assignment and stays there until something reports arrival by writing
-// `job.phase = 'work'` directly — in the running game that writer is the
-// renderer (src/renderer3d/StaffPawns.js, Task 3 of this plan), which owns
-// actual pawn motion and is the one place outside this module allowed to
-// touch `job.phase`. tickJobs() only ever READS phase to decide whether to
-// accrue work progress; it never advances travel itself. Headless callers
-// (tests, or the game before Task 3 lands) that never flip phase simply
-// leave a job parked in 'travel' — but tickJobs still re-checks a
-// station-addressed travel job's route every tick and abandons it if the
-// route disappears (a wall built after assignment, say) or if it's been
-// travelling for too long regardless of why — see tickJobs' own doc comment.
-// "Never walks anywhere" is not the same guarantee as "never needs to
-// notice the walk became impossible."
+// Movement and arrival are simulation-owned. `member.job.phase` starts at
+// 'travel'; tickJobs advances the authoritative `member.fromNode` and flips
+// the phase to 'work' on arrival. Renderers only interpolate the published
+// state, which keeps staffing gates and headless simulations identical.
 
 import {
   JOB_TYPES, buildJobOffers, eligibleFor, footprintCellsOf, approachCandidates,
@@ -30,6 +20,10 @@ import {
 } from './jobs.js';
 import { getStationIndex, findStation, reserveStation, releaseStation } from './stations.js';
 import { getNavGrid, findPath, isReachable } from './nav.js';
+import {
+  advanceStaffTravel, clearStaffMotion, ensureStaffPosition, tickStaffWander,
+  STAFF_TRAVEL_SUBTILES_PER_TICK,
+} from './staffMovement.js';
 import { countBeamlines } from '../utility-gate.js';
 import { LABWORK_CAPABLE_ZONES, zoneTierFromStaffedOutput } from '../../data/facility.js';
 
@@ -53,6 +47,7 @@ import { LABWORK_CAPABLE_ZONES, zoneTierFromStaffedOutput } from '../../data/fac
 // the same numbers this module actually runs on rather than a copy that can
 // drift.
 export const NEEDS_THRESHOLD = 0.8;
+export const STAFF_DOWNTIME_TICKS = 90;
 // Balance fix round 2: slower than HUNGER_PER_TICK/FATIGUE_PER_TICK
 // (staffSystem.js), not faster — the round-1 rates (0.02/0.05, the old
 // cafeteria-less onBreak branch's own numbers) recovered FASTER than the
@@ -695,7 +690,7 @@ function parkedProgressMatches(parked, offer) {
   return !offer.target;
 }
 
-function assignOffer(member, game, offer, destNode) {
+function assignOffer(member, game, offer, destNode, { routine = false } = {}) {
   if (offer.stationKey) reserveStation(game.state, offer.stationKey, member.id);
 
   // Consume-or-discard: this assignment is the one and only chance a parked
@@ -720,8 +715,22 @@ function assignOffer(member, game, offer, destNode) {
     destNode,
     phase: 'travel',
     progress,
+    routine,
   };
+  clearStaffMotion(member);
   member.idleReason = null;
+}
+
+function tryAssignRoutineMeal(member, game) {
+  const ref = findStation(game.state, {
+    jobs: ['eat'], fromNode: member.fromNode, staffId: member.id,
+  });
+  member.routineMealTaken = true;
+  if (!ref) return false;
+  assignOffer(member, game, {
+    jobType: 'eat', target: null, specialty: null, stationKey: ref.key,
+  }, ref.node, { routine: true });
+  return true;
 }
 
 function statusIdleReason(status) {
@@ -758,10 +767,15 @@ function statusIdleReason(status) {
  * when nothing profession-relevant turned up anywhere); whatever handleNeeds
  * already set this pass; and only then the generic fallback.
  */
-export function assignJobs(game, { breaksEnabled = true } = {}) {
+export function assignJobs(game, { breaksEnabled = true, routinesEnabled = false } = {}) {
   const state = game.state;
   const members = state.staffMembers || [];
   if (!members.length) return;
+
+  // Assignment, reachability and travel all start from simulation state.
+  // Resolve legacy/new staff before either the needs pass or job board asks
+  // whether a destination can be reached.
+  for (const member of members) ensureStaffPosition(state, member);
 
   if (breaksEnabled) {
     for (const member of members) {
@@ -772,7 +786,8 @@ export function assignJobs(game, { breaksEnabled = true } = {}) {
     // already running when breaks were disabled. The ordinary assignment
     // pass below immediately puts the worker back onto productive work.
     for (const member of members) {
-      if (member.job?.jobType === 'eat' || member.job?.jobType === 'rest') {
+      if ((member.job?.jobType === 'eat' || member.job?.jobType === 'rest')
+          && !member.job.routine) {
         abandonJob(member, game, null);
       }
       member.unservicedPenalty = false;
@@ -789,6 +804,18 @@ export function assignJobs(game, { breaksEnabled = true } = {}) {
     if (member.status !== 'working') {
       if (!member.idleReason) member.idleReason = statusIdleReason(member.status);
       continue;
+    }
+
+    const tick = state.tick || 0;
+    if (routinesEnabled && member.routineUntil > tick) {
+      if (!member.routineMealTaken) tryAssignRoutineMeal(member, game);
+      if (!member.job) member.idleReason = 'Taking a short break.';
+      continue;
+    }
+    if (member.routineUntil) {
+      member.routineUntil = 0;
+      member.routineMealTaken = false;
+      clearStaffMotion(member);
     }
 
     const { offer, reason, fallbackReason } = pickBestOffer(member, offers, game, caps, holders, claimedTargets);
@@ -896,71 +923,16 @@ function currentStationNode(state, job) {
   return getStationIndex(state).byKey[job.stationKey]?.node || null;
 }
 
-// --- Travel budget (fix-round-2) --------------------------------------------
-//
-// A flat tick-count backstop is wrong on two independent, compounding axes,
-// found live in review: sim ticks fire every TICK_MS/state.speed ms
-// (Game.js), so MORE ticks elapse per real second at higher game speed —
-// while pawn walking is driven by real wall-clock dt (ThreeRenderer.js),
-// entirely independent of state.speed. A fixed tick budget therefore covers
-// FEWER real seconds — and so fewer walkable subtiles — the faster the game
-// runs: 300 ticks was ~10% headroom over a measured 487-subtile
-// corner-to-corner walk on the default 61x61 map at 1x, already fired at
-// 2x, fired badly at 4x, and had no headroom left at all against a grown
-// map even at 1x. The failure mode is an infinite loop, not just a stuck
-// pawn: abandon mid-walk releases the reservation, the very next assignJobs
-// reassigns the identical job, and the member never arrives — dropping and
-// retaking the reservation every cycle forever.
-//
-// The fix budgets by DISTANCE, which is both speed- and map-size-invariant
-// (unlike a tick count, which is neither): convert the job's own real path
-// length (in subtiles, via findPath — not a universal guess) into however
-// many ticks the SLOWEST pawn needs to walk it AT THE CURRENT GAME SPEED,
-// times a generous safety factor, with a floor for trivially short hops.
-// Computed ONCE, lazily, the first tick a job is seen in 'travel' (cached on
-// job.travelBudgetTicks) — not every tick, which would mean a findPath call
-// per traveling member per tick, the exact cost problem pickNearestInTier
-// (above) already had to solve for a different call site.
-//
-// SUBTILE_UNIT/SLOWEST_PAWN_SPEED are duplicated from StaffPawns.js's own
-// SUB_UNIT/WALK_SPEED_MIN rather than imported — that file is a renderer
-// module referencing the THREE global, which this headless file must not
-// pull in. Keep these two numbers in sync if that file's walk speed ever
-// changes.
-const SUBTILE_UNIT = 0.5;          // world units per subtile (nav.js's convention)
-const SLOWEST_PAWN_SPEED = 0.9;    // world units/sec — StaffPawns.js's WALK_SPEED_MIN
-const TRAVEL_BUDGET_SAFETY = 2;    // generous multiplier over the bare "just enough" figure
-const MIN_TRAVEL_BUDGET_TICKS = 60; // floor: even a one-subtile hop gets a fair few ticks
-const VALID_SPEEDS = [1, 2, 4];    // Game.js's setSpeed()'s own allowed values
+// A conservative simulation-tick watchdog. Normal path loss is detected by
+// advanceStaffTravel immediately; this only prevents an unforeseen motion
+// bug from holding a job/reservation forever. It is derived solely from the
+// simulation movement rate, never renderer frame rate or game-speed UI.
+const TRAVEL_BUDGET_SAFETY = 4;
+const MIN_TRAVEL_BUDGET_TICKS = 60;
 
-// Worst-case cross-map subtile distance, used when a real path length can't
-// be computed yet — no member.fromNode (no pawn has reported a position:
-// true of every job the instant it's assigned, before that member's own
-// pawn has rendered even one frame) or no node at all (should not happen
-// post-destNode-unification: jobRunner never hands out a job without a
-// resolved destNode — see resolveDestNode — but this stays a defensive
-// fallback rather than a `node` non-null assumption). A Manhattan
-// corner-to-corner walk of the whole nav grid on both axes; scales with
-// state.mapHalfExtent so a grown map gets a correspondingly larger (never
-// tighter) budget.
 function worstCaseMapSubtiles(state) {
   const half = Number.isFinite(state.mapHalfExtent) ? state.mapHalfExtent : 30;
   return (half * 2 + 1) * 4 * 2;
-}
-
-// game.state.speed, clamped to a known value — the same fallback
-// ticksPerSubtile uses, and also what tickJobs compares job.travelBudgetSpeed
-// against to decide whether a budget needs recomputing (see fix-round-3
-// below).
-function normalizedSpeed(game) {
-  return VALID_SPEEDS.includes(game.state.speed) ? game.state.speed : 1;
-}
-
-// Real seconds to cover one subtile at the slowest pawn speed, converted to
-// SIM ticks at the game's current speed multiplier — the exact conversion
-// that makes the old flat constant wrong (see this section's header).
-function ticksPerSubtile(game) {
-  return (SUBTILE_UNIT / SLOWEST_PAWN_SPEED) * normalizedSpeed(game);
 }
 
 function computeTravelBudget(game, member, node) {
@@ -973,28 +945,11 @@ function computeTravelBudget(game, member, node) {
   } else {
     subtiles = worstCaseMapSubtiles(state);
   }
-  return Math.max(MIN_TRAVEL_BUDGET_TICKS, Math.ceil(subtiles * ticksPerSubtile(game) * TRAVEL_BUDGET_SAFETY));
-}
-
-// fix-round-3: TRAVEL_BUDGET_SAFETY (2x) covers a speed increase up to
-// double whatever the budget was last computed at, but VALID_SPEEDS is
-// [1, 2, 4] — a 1x -> 4x jump mid-journey is exactly the uncovered case,
-// and a lone speed-up is a completely ordinary player action mid-walk, not
-// an edge case. Reproduced live: a job budgeted at 1x and then switched to
-// 4x got abandoned once ("Gave up trying to get there."), dropped its
-// reservation, and completed fine on reassignment with a freshly computed
-// (correct) budget — bounded and self-healing, never the original bug's
-// infinite loop, but a visible, avoidable stumble.
-//
-// Fixed by tracking the speed a budget was computed AT (job.travelBudgetSpeed)
-// alongside the budget itself, and recomputing whenever the CURRENT speed
-// exceeds it — see the call site in tickJobs. Deliberately NOT fixed by
-// raising TRAVEL_BUDGET_SAFETY to 4x instead: that's a blanket change that
-// also blunts what the backstop exists for — a genuinely stuck job would
-// then take twice as long (543 -> ~1086 ticks at the worst-case-map figure)
-// to be caught. This fix is scoped to the one case that actually needs it.
-function needsBudgetRecompute(job, speedNow) {
-  return job.travelBudgetTicks == null || speedNow > job.travelBudgetSpeed;
+  const expectedTicks = subtiles / STAFF_TRAVEL_SUBTILES_PER_TICK;
+  return Math.max(
+    MIN_TRAVEL_BUDGET_TICKS,
+    Math.ceil(expectedTicks * TRAVEL_BUDGET_SAFETY),
+  );
 }
 
 /**
@@ -1008,33 +963,10 @@ function needsBudgetRecompute(job, speedNow) {
  * (direct demolish, undo, load, a beamline getting deleted out from under
  * a repair target) and it's exactly one O(1) index lookup per active job.
  *
- * A `phase: 'travel'` job is not walked here — see this file's header
- * comment, that's the renderer's job — but it IS re-checked for whether
- * the route there still exists, which is a DIFFERENT failure from
- * demolition: an ordinary build action (a wall, a new placeable) can seal
- * off a reachable station without ever touching the station itself, and
- * neither jobStillValid (existence) nor anything else was catching that.
- * Left unchecked, a job stuck mid-travel to a now-unreachable station was
- * never abandoned by ANY of this module's three guards — not tickJobs (only
- * checked phase === 'work'), not assignJobs (`member.job != null` skips
- * it), not handleNeeds (short-circuits once `member.job?.jobType` already
- * matches the need) — so the member sat there forever with the need at 1.0
- * and, worse, the station reservation held forever, silently downgrading
- * every OTHER hungry/tired staffer in the building to the slow fallback
- * too. That is the exact scar-comment deadlock this task exists to prevent,
- * reopened by a route the brief's own abandon list names explicitly
- * ("need threshold crossed, target demolished, station destroyed, or path
- * lost" — this is the fourth one).
- *
- * The live isReachable() re-check applies to every travelling job alike —
- * station-addressed via currentStationNode, target-addressed (repair/
- * commission) via job.destNode, the same subtile StaffPawns.js is walking
- * toward (see the travel-phase branch's own comment). Every job still gets
- * a travel-tick budget as a hard backstop regardless — see this section's
- * header comment for why that budget is computed from the job's own path
- * length and the game's current speed, not a flat constant, and why it's
- * re-derived (needsBudgetRecompute) whenever state.speed rises above
- * whatever speed it was last computed at.
+ * A `phase: 'travel'` job advances its authoritative subtile position here.
+ * A changed navigation revision rebuilds the path; a lost path abandons the
+ * job and releases its reservation through the same choke point as every
+ * other exit.
  *
  * Once `phase === 'work'`, progress accrues by the member's own efficiency
  * (skill/mood/zone-tier/specialty-match, all in StaffMember.efficiency) —
@@ -1060,7 +992,7 @@ function needsBudgetRecompute(job, speedNow) {
  * progress — until status flips back (which happens in tickStaffMember,
  * before this runs, so ticking resumes the same tick it should).
  */
-export function tickJobs(game) {
+export function tickJobs(game, { routinesEnabled = false } = {}) {
   const state = game.state;
   // Task 6 (staff-professions-3, jobs-and-gates): two per-tick aggregates
   // built alongside the ordinary per-member work loop below, rather than as
@@ -1090,37 +1022,24 @@ export function tickJobs(game) {
     }
 
     if (job.phase === 'travel') {
-      // currentStationNode only ever resolves a station-addressed job's
-      // node (see its own comment) — a target-addressed job (repair/
-      // commission) falls back to job.destNode, the exact same subtile
-      // StaffPawns.js is walking toward (see this round's destNode
-      // unification). Before that field existed there was nothing to fall
-      // back to here at all, so a target job got NEITHER the live
-      // reachability re-check below NOR a real-path-length travel budget —
-      // only the worst-case-map fallback (computeTravelBudget) and, on a
-      // genuinely severed route, up to ~544 ticks (the map-scale backstop,
-      // ≈9 minutes of wall clock at TICK_MS=1000) standing motionless
-      // before giving up, versus 1 tick for the identical failure on a
-      // station job. destNode being universal now closes that gap for
-      // free — same check, same variable, no branch on jobType.
+      // Resolve a station's live node when it has one; target-addressed jobs
+      // already carry the approach node chosen at assignment. Both then use
+      // the same simulation movement path.
       const node = currentStationNode(state, job) || job.destNode;
-      if (node && member.fromNode) {
-        const nav = getNavGrid(state);
-        if (!isReachable(nav, member.fromNode, node)) {
-          abandonJob(member, game, 'The path there was lost.');
-          continue;
-        }
+      const travel = advanceStaffTravel(state, member, node, 'job');
+      if (travel.blocked) {
+        abandonJob(member, game, 'The path there was lost.');
+        continue;
       }
-      const speedNow = normalizedSpeed(game);
-      if (needsBudgetRecompute(job, speedNow)) {
+      if (job.travelBudgetTicks == null) {
         job.travelBudgetTicks = computeTravelBudget(game, member, node);
-        job.travelBudgetSpeed = speedNow;
       }
       job.travelTicks = (job.travelTicks || 0) + 1;
       if (job.travelTicks > job.travelBudgetTicks) {
         abandonJob(member, game, 'Gave up trying to get there.');
         continue;
       }
+      if (travel.arrived) job.phase = 'work';
       continue;
     }
 
@@ -1155,7 +1074,17 @@ export function tickJobs(game) {
 
     if (jobType.workTicks != null && job.progress >= jobType.workTicks) {
       onJobComplete(game, member, job);
+      if (routinesEnabled && !flatNeedJob) {
+        member.routineUntil = (state.tick || 0) + STAFF_DOWNTIME_TICKS;
+        member.routineMealTaken = false;
+      }
       abandonJob(member, game, null);
+    }
+  }
+
+  if (routinesEnabled) {
+    for (const member of (state.staffMembers || [])) {
+      if (!member.job && member.status === 'working') tickStaffWander(game, member);
     }
   }
 
@@ -1199,6 +1128,7 @@ export function abandonJob(member, game, reason = null) {
   const job = member.job;
   if (job?.stationKey) releaseStation(state, job.stationKey, member.id);
   member.job = null;
+  clearStaffMotion(member);
   member.idleReason = reason;
 }
 

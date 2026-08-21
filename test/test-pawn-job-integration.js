@@ -12,17 +12,9 @@
 // nearest reachable approach node outside a target job's real footprint,
 // via jobs.js's approachCandidates) and the renderer just walks there;
 // `phase: 'work'` holds the station's pose (or a plain working pose, for a
-// target job with no StationRef to snap onto). Arrival is reported back to
-// the ONE sim field this file is allowed to touch: flipping `job.phase`
-// from 'travel' to 'work' once the pawn's feet land — identically for a
-// station- or target-addressed job; see test-target-job-destination.js for
-// the real end-to-end version driven by jobRunner.assignJobs itself.
-//
-// Also exercised here: `member.fromNode` — nothing set this before Task 3,
-// which is why jobRunner's own findStation/eligibleFor/tie-break reachability
-// checks were dormant (see this plan's progress.md, Task 2's C1 finding).
-// StaffPawns.update() is now the one place that populates it, every frame,
-// from the pawn's own live position.
+// target job with no StationRef to snap onto). Arrival and fromNode are now
+// simulation-owned; these tests explicitly prove rendering never authors
+// either field while still animating the visual pawn correctly.
 //
 // Same idiom as test-pawn-pathing.js: a minimal THREE stub (records
 // geometry/hierarchy, tracks position/rotation as plain numbers, does NOT
@@ -32,7 +24,7 @@
 // against mesh world transforms the stub can't compute.
 
 import { StaffPawns } from '../src/renderer3d/StaffPawns.js';
-import { worldToSubtile, subtileToWorld } from '../src/game/staff/nav.js';
+import { subtileToWorld } from '../src/game/staff/nav.js';
 import { getStationIndex, reserveStation } from '../src/game/staff/stations.js';
 import { PLACEABLES } from '../src/data/placeables/index.js';
 
@@ -198,7 +190,8 @@ function makePawns(state) {
 }
 
 function sameNode(a, b) {
-  return a.col === b.col && a.row === b.row && a.subCol === b.subCol && a.subRow === b.subRow;
+  return !!a && !!b && a.col === b.col && a.row === b.row
+    && a.subCol === b.subCol && a.subRow === b.subRow;
 }
 
 console.log('\n=== 0. Pausing freezes pawn travel and its simulation-facing state ===\n');
@@ -223,8 +216,8 @@ console.log('\n=== 0. Pausing freezes pawn travel and its simulation-facing stat
 
   pawns.update(1);
   assertOk(pawn.mode === 'idle' && pawn.path === null, 'a paused pawn does not begin its queued journey');
-  assertOk(member.job.phase === 'travel', 'a paused pawn cannot arrive and advance its job');
-  assertOk(member.fromNode === undefined, 'a paused pawn does not update simulation-facing position');
+  assertOk(member.job.phase === 'travel', 'a paused pawn cannot visually arrive');
+  assertOk(member.fromNode === undefined, 'the renderer does not author simulation position while paused');
   assertOk(pawn.x === start.x && pawn.z === start.z, 'a paused pawn stays at its current position');
   void consoleEntry;
 }
@@ -259,20 +252,25 @@ console.log('\n=== 1. A travel job with a resolvable station walks the pawn ther
   const lastNode = pawn.path[pawn.path.length - 1];
   assertOk(sameNode(lastNode, ref.node), "the path ends exactly on the station's anchor node");
 
-  console.log('\n=== 2. member.fromNode tracks the pawn\'s live position every frame ===\n');
+  console.log('\n=== 2. Rendering movement does not mutate simulation position ===\n');
   pawns.update(0.02);
-  const expectedFromNode = worldToSubtile(pawn.x, pawn.z);
-  assertOk(!!member.fromNode, 'member.fromNode is populated after the pawn has moved');
-  assertOk(sameNode(member.fromNode, expectedFromNode),
-    'member.fromNode matches the pawn\'s own current position, not a stale or fabricated value');
+  assertOk(member.fromNode === undefined,
+    'member.fromNode remains untouched after the visual pawn moves');
 
-  console.log('\n=== 3. Stepping to arrival flips job.phase to \'work\' and the pawn holds the station\'s pose ===\n');
+  console.log('\n=== 3. Visual arrival holds the station pose without flipping simulation phase ===\n');
   let steps = 0;
-  while (member.job.phase !== 'work' && steps < 4000) { pawns.update(0.02); steps++; }
-  assertOk(member.job.phase === 'work', `job.phase flipped to 'work' on arrival (after ${steps} steps)`);
+  while (pawn.mode !== 'working' && steps < 4000) { pawns.update(0.02); steps++; }
+  assertOk(pawn.mode === 'working', `the visual pawn arrived after ${steps} steps`);
+  assertOk(member.job.phase === 'travel', 'visual arrival leaves job.phase owned by the simulation');
   assertOk(pawn.mode === 'working', 'the pawn itself is in working mode');
   assertOk(pawn.pendingStation?.key === ref.key, 'the pawn is holding the job\'s own station');
   assertOk(state.stationReservations[ref.key] === 's1', 'the reservation made at assignment time is still held — this file never released it');
+  assertOk(pawn.pose === 'benchWork',
+    'a console without a matching chair uses the standing work pose');
+
+  member.job.phase = 'work';
+  pawns.update(0.02);
+  assertOk(pawn.mode === 'working', 'the published work phase keeps the pawn working');
 
   const worldAtAnchor = subtileToWorld(ref.node);
   const dist = Math.hypot(pawn.x - worldAtAnchor.x, pawn.z - worldAtAnchor.z);
@@ -335,8 +333,9 @@ console.log('\n=== 5. Reassigning to a different station mid-walk reroutes the p
   assertOk(pawn.stationKey === refB.key, 'the pawn switches to station B on the very next frame, with no sendToStation call from the test');
 
   let steps = 0;
-  while (member.job.phase !== 'work' && steps < 4000) { pawns.update(0.02); steps++; }
-  assertOk(member.job.phase === 'work', 'the pawn reaches and reports arrival at the NEW station');
+  while (pawn.mode !== 'working' && steps < 4000) { pawns.update(0.02); steps++; }
+  assertOk(pawn.mode === 'working', 'the pawn visually reaches the NEW station');
+  assertOk(member.job.phase === 'travel', 'rerouted visual arrival still leaves simulation phase untouched');
   assertOk(pawn.pendingStation?.key === refB.key, 'the pawn is holding station B, not the one it was first sent toward');
 }
 
@@ -348,7 +347,7 @@ console.log('\n=== 6. A target-addressed job (repair/commission — no StationRe
   // approachCandidates, and hands it to this file the exact same way a
   // station job's StationRef.node always was. This file must not care:
   // no pendingStation to snap onto, no facing to adopt, just walk to
-  // destNode and report arrival — see test-target-job-destination.js for
+  // destNode — see test-target-job-destination.js for
   // the real end-to-end version driven by jobRunner.assignJobs itself
   // rather than a hand-built job object.
   const state = makeState();
@@ -372,8 +371,8 @@ console.log('\n=== 6. A target-addressed job (repair/commission — no StationRe
   assertOk(pawn.pendingStation === null, 'no StationRef exists for a target job — pendingStation stays null throughout');
 
   let steps = 0;
-  while (member.job.phase !== 'work' && steps < 4000) { pawns.update(0.02); steps++; }
-  assertOk(member.job.phase === 'work', `job.phase flipped to 'work' on arrival at the bare destNode (after ${steps} steps)`);
+  while (pawn.mode !== 'working' && steps < 4000) { pawns.update(0.02); steps++; }
+  assertOk(member.job.phase === 'travel', `visual arrival leaves job.phase at travel (after ${steps} steps)`);
   assertOk(pawn.mode === 'working', 'the pawn is working');
   const worldAtDest = subtileToWorld(destNode);
   const dist = Math.hypot(pawn.x - worldAtDest.x, pawn.z - worldAtDest.z);
@@ -403,7 +402,7 @@ console.log('\n=== 7. A job with no destNode at all (defensive floor — jobRunn
   assertOk(pawn.mode === 'idle', 'the pawn never starts an ambient wander while it still holds a job, even one with no destNode');
   assertOk(pawn.x === startX && pawn.z === startZ, 'the pawn never moves from where it started');
   assertOk(member.job != null && member.job.phase === 'travel',
-    'member.job is left completely untouched — this file only ever writes job.phase on a real arrival');
+    'member.job is left completely untouched');
 }
 
 console.log('\n=== 8. A station-addressed job whose declared station no longer resolves does not trust the cached destNode ===\n');
@@ -478,8 +477,10 @@ console.log('\n=== 9. A SECOND job at the SAME destination (the ordinary "job co
   // Job A: walk to the console and arrive, exactly like scenario 1.
   member.job = { jobType: 'runBeam', target: null, specialty: null, stationKey: ref.key, destNode: ref.node, phase: 'travel', progress: 0 };
   let steps = 0;
-  while (member.job.phase !== 'work' && steps < 4000) { pawns.update(0.02); steps++; }
-  assertOk(member.job.phase === 'work', `setup: job A reaches 'work' (after ${steps} steps)`);
+  while (pawn.mode !== 'working' && steps < 4000) { pawns.update(0.02); steps++; }
+  assertOk(pawn.mode === 'working' && member.job.phase === 'travel',
+    `setup: job A visually arrives without mutating its phase (after ${steps} steps)`);
+  member.job.phase = 'work';
 
   // Job A "completes": jobRunner.abandonJob releases the reservation and
   // nulls member.job — mirror that, then give the renderer exactly one
@@ -509,8 +510,9 @@ console.log('\n=== 9. A SECOND job at the SAME destination (the ordinary "job co
     `job B actually starts (or, being already there, instantly completes) instead of being silently throttled (mode is "${pawn.mode}" after ${steps} steps)`);
 
   steps = 0;
-  while (member.job.phase !== 'work' && steps < 4000) { pawns.update(0.02); steps++; }
-  assertOk(member.job.phase === 'work', `job B reaches 'work' — the staffer does a SECOND job, not just one forever (after ${steps} steps)`);
+  while (pawn.mode !== 'working' && steps < 4000) { pawns.update(0.02); steps++; }
+  assertOk(pawn.mode === 'working' && member.job.phase === 'travel',
+    `job B visually arrives without mutating the new job — the staffer does a SECOND job (after ${steps} steps)`);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

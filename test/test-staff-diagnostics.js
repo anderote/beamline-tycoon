@@ -138,6 +138,7 @@ function makeMember(overrides = {}) {
     stats: {},
     job: null,
     idleReason: null,
+    efficiency: () => 0.5,
     ...overrides,
   };
 }
@@ -931,17 +932,8 @@ console.log('\n=== TP1 (fix round 3 ruling): a seated, never-started operator be
   assert(firstStallTick <= 260, `TP1: fires at the floor window (240), not thousands of ticks late or never (got tick ${firstStallTick})`);
 }
 
-console.log('\n=== TP2 (fix round 3 ruling): a facility perpetually reassigning labWork, with nothing else happening, eventually stalls ===\n');
+console.log('\n=== TP2: headless lab work travels and progresses without renderer help ===\n');
 {
-  // Headless — no renderer, so nothing ever flips job.phase from 'travel'
-  // to 'work' (StaffPawns.js's own job, per jobRunner.js's header comment)
-  // — exactly the shape of a long-running headless balance script (this whole
-  // plan's own origin story: an 80,000-tick headless run that missed a
-  // dead facility because nothing surfaced it). Round 2's window bug
-  // (issue B, fixed this round) inflated the window to ~3,750 ticks off
-  // this member's OWN full, un-accrued workTicks while stuck in travel;
-  // excluding travelling jobs from the window is what actually restores
-  // this specific true positive — see longestInFlightWindow's own comment.
   const state = makeState();
   floorRect(state, 0, 8, 0, 8);
   placeItem(state, 'testChamber', 2, 2, 0, 0, 0); // a real labWork station (vacuumLab)
@@ -950,17 +942,21 @@ console.log('\n=== TP2 (fix round 3 ruling): a facility perpetually reassigning 
   const game = { state, registry: { getAll: () => [] } };
 
   let firstStallTick = null;
+  let sawWork = false;
+  let sawProgress = false;
   for (let t = 1; t <= 500; t++) {
     state.tick = t;
     assignJobs(game);
     tickJobs(game);
+    if (engineer.job?.phase === 'work') sawWork = true;
+    if ((engineer.job?.progress || 0) > 0) sawProgress = true;
     const r = facilityProgressReport(game);
     if (r.stalled && firstStallTick == null) firstStallTick = t;
   }
-  assert(engineer.job?.jobType === 'labWork' && engineer.job?.phase === 'travel',
-    `setup sanity: assigned labWork, permanently stuck in travel with nothing to promote it (got ${JSON.stringify(engineer.job)})`);
-  assert(firstStallTick != null, `TP2: the detector eventually fires (got firstStallTick=${firstStallTick})`);
-  assert(firstStallTick <= 260, `TP2: fires near the 240-tick floor window, not thousands of ticks late (got tick ${firstStallTick})`);
+  assert(sawWork, 'the engineer reaches phase work in a headless simulation');
+  assert(sawProgress, 'lab work accrues progress without renderer input');
+  assert(firstStallTick == null,
+    `active headless work is not falsely reported as stalled (got firstStallTick=${firstStallTick})`);
 }
 
 // ==========================================================================

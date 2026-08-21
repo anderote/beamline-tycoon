@@ -131,9 +131,9 @@ function makeMember(profession, id) {
   });
 }
 
-// Simulate the renderer reporting arrival (see jobRunner.js's header
-// comment: only the renderer is supposed to flip this in the real game;
-// this test stands in for it).
+// Force the unit fixture across the arrival boundary when a test is about
+// work/completion rather than travel. Dedicated cases below exercise real
+// simulation-owned movement.
 function arrive(member) { if (member.job) member.job.phase = 'work'; }
 
 // One "Game.tick()"-shaped step for the deadlock-guard scenario: needs
@@ -169,7 +169,7 @@ console.log('\n=== 1. Idle operator -> assigned runBeam, holds the reservation, 
   assertOk(operator.idleReason === null, 'idleReason is cleared on assignment');
 
   arrive(operator);
-  assertOk(operator.job.phase === 'work', "arrival (renderer-reported) flips phase to 'work'");
+  assertOk(operator.job.phase === 'work', "the forced arrival boundary flips phase to 'work'");
 
   const before = operator.job.progress;
   tickJobs(game);
@@ -292,18 +292,8 @@ console.log('\n=== 3b. C1: an ordinary build action (closing a door) that seals 
 }
 
 // ---------------------------------------------------------------------------
-console.log('\n=== 3c. Travel-tick budget backstop: a job stuck in phase travel is eventually abandoned even when nothing else catches it ===\n');
+console.log('\n=== 3c. Headless travel advances position and reaches work without renderer help ===\n');
 {
-  // repair is target-addressed (no stationKey), so the live isReachable
-  // re-check (3b, above) never applies to it — currentStationNode returns
-  // null for any job without a stationKey. No member.fromNode is set
-  // either, so computeTravelBudget also can't compute a real path length —
-  // both together exercise the worst-case-map-distance fallback budget
-  // (worstCaseMapSubtiles), at the default mapHalfExtent (30) and default
-  // speed (1), which fix-round-2 replaced the old flat MAX_TRAVEL_TICKS=300
-  // with: (61*8) subtiles * (0.5/0.9)*1 ticks/subtile * 2 safety = 543
-  // ticks. This is the catch-all for "a reason nobody anticipated", not the
-  // reachability path (3b) or the speed/map-scaling behavior (3d, below).
   const state = makeState();
   floorRect(state, 0, 10, 0, 10);
   const beamline = placeDamagedBeamline(state, 'bl-1', 5, 5, 40);
@@ -314,43 +304,25 @@ console.log('\n=== 3c. Travel-tick budget backstop: a job stuck in phase travel 
 
   assignJobs(game);
   assertOk(technician.job?.jobType === 'repair', 'setup: technician assigned repair');
-  assertOk(technician.job?.phase === 'travel', 'setup: never arrives in this test (no arrive() call)');
+  assertOk(!!technician.fromNode, 'assignment resolves an authoritative starting position');
+  const start = { ...technician.fromNode };
 
-  let abandonedAtTick = -1;
-  for (let t = 0; t < 600 && abandonedAtTick < 0; t++) {
+  let reachedWorkAt = -1;
+  for (let t = 0; t < 100 && reachedWorkAt < 0; t++) {
     tickJobs(game);
-    if (technician.job === null) abandonedAtTick = t;
+    if (technician.job?.phase === 'work') reachedWorkAt = t;
   }
-  assertOk(abandonedAtTick >= 0, `the stuck travel job was eventually abandoned (at tick ${abandonedAtTick})`);
-  assertOk(abandonedAtTick === 543, `the backstop fires at exactly the computed worst-case-map budget (fired at tick ${abandonedAtTick}, expected 543)`);
-  assertOk(!!technician.idleReason, 'idleReason explains why (non-empty)');
+  assertOk(reachedWorkAt >= 0, `target travel reaches phase work headlessly (at tick ${reachedWorkAt})`);
+  assertOk(JSON.stringify(technician.fromNode) !== JSON.stringify(start),
+    'travel updates StaffMember.fromNode in the simulation');
+
+  for (let t = 0; t < 200 && technician.job; t++) tickJobs(game);
+  assertOk(technician.job === null, 'the reached repair job goes on to complete normally');
 }
 
 // ---------------------------------------------------------------------------
-console.log('\n=== 3d. fix-round-2: the travel budget is distance- and speed-invariant — a genuinely long walk completes at 1x/2x/4x instead of looping forever ===\n');
+console.log('\n=== 3d. Long simulation-owned walks arrive at every game speed ===\n');
 {
-  // The bug this pins: MAX_TRAVEL_TICKS used to count raw sim ticks, which
-  // fire MORE often per real second at higher state.speed (Game.js:
-  // tickInterval = TICK_MS / speed), while a pawn's own walk speed is real
-  // wall-clock-driven and untouched by state.speed. A fixed tick budget
-  // therefore covered FEWER real seconds — and fewer walkable subtiles —
-  // the faster the game ran: generous at 1x, already firing at 2x, firing
-  // badly at 4x. Abandoning mid-walk released the reservation; the very
-  // next assignJobs reassigned the SAME job; the member never arrived —
-  // an infinite loop, not just a stuck pawn.
-  //
-  // Reproduces the reviewer's own numbers: a large map (mapHalfExtent 60,
-  // double the default) and a genuinely long corner-to-corner path (~974
-  // subtiles, computed for real via findPath since both endpoints are
-  // reachable open floor), run at each of the three valid speeds. No
-  // renderer exists in this headless test to actually walk the pawn over
-  // real wall-clock time, so "survives the walk" is verified analytically:
-  // tick exactly as many sim ticks as the real walk would take at this
-  // speed (requiredTravelTicks, below — the same conversion jobRunner.js's
-  // own ticksPerSubtile uses) and assert the job is neither abandoned nor
-  // reset partway through. Then simulate arrival and confirm it completes
-  // normally, so this isn't just "delays the same failure past this test's
-  // patience".
   function buildLongWalk(speed) {
     const state = makeState();
     state.mapHalfExtent = 60;
@@ -369,19 +341,6 @@ console.log('\n=== 3d. fix-round-2: the travel budget is distance- and speed-inv
     return { game, operator };
   }
 
-  // Same conversion jobRunner.js's own (unexported) ticksPerSubtile uses —
-  // duplicated here (not imported: it's not exported, on purpose, same as
-  // every other internal helper in that file) to compute, independently,
-  // how many sim ticks the ACTUAL real-world walk requires at each speed.
-  // This is what a correct budget must be AT LEAST as big as; it's also
-  // exactly the number the old flat MAX_TRAVEL_TICKS=300 fell short of at
-  // 2x/4x.
-  const SUB_UNIT_TEST = 0.5;
-  const SLOWEST_PAWN_SPEED_TEST = 0.9;
-  function requiredTravelTicks(pathSubtiles, speed) {
-    return Math.ceil(pathSubtiles * (SUB_UNIT_TEST / SLOWEST_PAWN_SPEED_TEST) * speed);
-  }
-
   for (const speed of [1, 2, 4]) {
     const { game, operator } = buildLongWalk(speed);
     assignJobs(game);
@@ -392,24 +351,17 @@ console.log('\n=== 3d. fix-round-2: the travel budget is distance- and speed-inv
     const path = findPath(getNavGrid(game.state), operator.fromNode, targetNode);
     assertOk(!!path, `${speed}x: setup: sanity — a real path exists between the corners`);
     assertOk(path.length > 900, `${speed}x: setup: sanity — this really is a long walk (${path.length} subtiles)`);
-    const required = requiredTravelTicks(path.length, speed);
 
-    // Tick exactly the number of sim ticks the real walk requires at this
-    // speed. The job must not have been abandoned by then — that's the bug:
-    // at 2x/4x, the old flat 300-tick budget fired WELL before `required`,
-    // releasing the reservation and getting the identical job reassigned
-    // next pass, forever, without ever completing the walk.
-    for (let t = 0; t < required; t++) tickJobs(game);
-    assertOk(operator.job?.jobType === 'eat',
-      `${speed}x: the job survives the full ${required}-tick real-world walk duration without being abandoned (job is now ${JSON.stringify(operator.job)})`);
-    assertOk(operator.job.phase === 'travel', `${speed}x: still travelling (never reassigned/reset) through the whole required duration`);
-    assertOk(operator.job.travelBudgetTicks >= required,
-      `${speed}x: the computed budget (${operator.job.travelBudgetTicks}) comfortably covers the required duration (${required})`);
+    let arrivedAt = -1;
+    for (let t = 0; t < path.length && arrivedAt < 0; t++) {
+      tickJobs(game);
+      if (operator.job?.phase === 'work') arrivedAt = t;
+    }
+    assertOk(arrivedAt >= 0,
+      `${speed}x: the long walk arrives without renderer input (at tick ${arrivedAt})`);
+    assertOk(arrivedAt <= Math.ceil(path.length / 2),
+      `${speed}x: movement advances at least two subtiles per sim tick`);
 
-    // Arrival (renderer-reported, same stand-in as every other scenario)
-    // now completes the job normally — proves the fix doesn't just delay
-    // the same failure, the job actually finishes.
-    arrive(operator);
     let completedAtTick = -1;
     for (let t = 0; t < 200 && completedAtTick < 0; t++) {
       tickJobs(game);
@@ -420,29 +372,8 @@ console.log('\n=== 3d. fix-round-2: the travel budget is distance- and speed-inv
 }
 
 // ---------------------------------------------------------------------------
-console.log('\n=== 3e. fix-round-3: a mid-journey 1x -> 4x speed change does not abandon the job ===\n');
+console.log('\n=== 3e. A mid-journey speed change leaves simulation travel intact ===\n');
 {
-  // TRAVEL_BUDGET_SAFETY (2x) covers a speed increase up to double whatever
-  // the budget was last computed at — but a 1x -> 4x jump (VALID_SPEEDS is
-  // [1, 2, 4]) is exactly the uncovered case, and speeding the game up
-  // mid-walk is a completely ordinary player action, not an edge case.
-  //
-  // Same long-walk world as 3d (950-subtile path). Simulated as: walk the
-  // FIRST HALF of the path's worth of real time at 1x (requiredTravelTicks
-  // for half the path, at speed 1), switch state.speed to 4, then walk the
-  // SECOND HALF's worth of real time at 4x (requiredTravelTicks for the
-  // other half, at speed 4). That total tick count is what a real pawn
-  // actually walking the full path with that mid-journey speed change would
-  // produce.
-  //
-  // Under the pre-fix code (a single budget computed once at 1x and never
-  // revisited): budget stays fixed at the 1x figure (1056, from 3d) for the
-  // WHOLE journey. The total ticks this scenario ticks through (264 + 1056
-  // = 1320) exceeds that fixed 1056 partway into the 4x half, so the job
-  // gets abandoned with "Gave up trying to get there." well before the walk
-  // is actually done — reproducing the reviewer's report exactly. This test
-  // fails against that code and passes against the fix (recompute whenever
-  // the CURRENT speed exceeds the speed the cached budget was computed at).
   const state = makeState();
   state.mapHalfExtent = 60;
   floorRect(state, -60, 60, -60, 60);
@@ -465,34 +396,25 @@ console.log('\n=== 3e. fix-round-3: a mid-journey 1x -> 4x speed change does not
   const path = findPath(getNavGrid(state), operator.fromNode, targetNode);
   assertOk(path.length > 900, `setup: sanity — this really is a long walk (${path.length} subtiles)`);
 
-  const SUB_UNIT_TEST = 0.5;
-  const SLOWEST_PAWN_SPEED_TEST = 0.9;
-  function requiredTravelTicks(pathSubtiles, speed) {
-    return Math.ceil(pathSubtiles * (SUB_UNIT_TEST / SLOWEST_PAWN_SPEED_TEST) * speed);
-  }
-  const halfPath = path.length / 2;
-  const ticksBeforeSwitch = requiredTravelTicks(halfPath, 1);
-  const ticksAfterSwitch = requiredTravelTicks(halfPath, 4);
+  const ticksBeforeSwitch = Math.floor(path.length / 8);
 
   for (let t = 0; t < ticksBeforeSwitch; t++) tickJobs(game);
   assertOk(operator.job?.jobType === 'eat', `still travelling at 1x after ${ticksBeforeSwitch} ticks (first half)`);
-  assertOk(operator.job.travelBudgetSpeed === 1, 'the cached budget was computed at speed 1');
-  const budgetAt1x = operator.job.travelBudgetTicks;
+  const positionAtSwitch = { ...operator.fromNode };
 
   state.speed = 4;
-  for (let t = 0; t < ticksAfterSwitch; t++) tickJobs(game);
+  let arrivedAt = -1;
+  for (let t = 0; t < path.length && arrivedAt < 0; t++) {
+    tickJobs(game);
+    if (operator.job?.phase === 'work') arrivedAt = t;
+  }
 
-  assertOk(operator.job?.jobType === 'eat',
-    `the job survives the full mid-journey 1x->4x switch instead of being abandoned (job is now ${JSON.stringify(operator.job)})`);
-  assertOk(operator.job.phase === 'travel', 'still travelling (never reassigned/reset) through the whole switch');
-  assertOk(operator.job.travelBudgetSpeed === 4, 'the budget was recomputed at the new speed (4)');
-  assertOk(operator.job.travelBudgetTicks > budgetAt1x,
-    `the recomputed budget (${operator.job.travelBudgetTicks}) is larger than the stale 1x one (${budgetAt1x})`);
+  assertOk(arrivedAt >= 0, 'the job arrives after the ordinary 1x -> 4x switch');
+  assertOk(JSON.stringify(operator.fromNode) !== JSON.stringify(positionAtSwitch),
+    'position continues advancing after the speed switch');
   assertOk(!!operator.job.stationKey && state.stationReservations[operator.job.stationKey] === operator.id,
-    'the reservation was never dropped and reacquired — this was never actually abandoned, not even briefly');
+    'the reservation remains held throughout the trip');
 
-  // And it still completes normally afterward.
-  arrive(operator);
   let completedAtTick = -1;
   for (let t = 0; t < 200 && completedAtTick < 0; t++) {
     tickJobs(game);
