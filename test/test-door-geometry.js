@@ -86,6 +86,7 @@ const {
   SUBTILES_PER_EDGE, SUBTILE_SIZE,
 } = await import('../src/renderer3d/wall-builder.js');
 const { DOOR_TYPES, WALL_TYPES, WALL_PAINTS } = await import('../src/data/structure.js');
+const { PLACEABLES } = await import('../src/data/placeables/index.js');
 
 const TILE_SIZE = 2;
 const POST_WIDTH = 0.1;
@@ -368,11 +369,17 @@ console.log('\n=== 6. Lintel invariant: doorHeight + lintel fits the wall ===\n'
 }
 
 // ---------------------------------------------------------------------------
-console.log('\n=== 7. Wall heights clear a standing person; exteriors overtop interiors ===\n');
+console.log('\n=== 7. Wall heights match furnishing and human scale ===\n');
 {
-  // 1 data unit = HEIGHT_SCALE world units = HEIGHT_SCALE * 2 metres.
-  // TILE_SIZE is 2 world units and 2 m real, so 1 world unit = 1 m.
+  // TILE_SIZE is 2 world units and 2 m real, so one data unit maps to
+  // HEIGHT_SCALE metres.
   const metres = (data) => data * HEIGHT_SCALE;
+  const deskSurfaceMetres = PLACEABLES.desk.surfaceY * 0.5;
+  const cubicleMetres = metres(WALL_TYPES.cubicleWall.wallHeight);
+  assert(cubicleMetres >= deskSurfaceMetres * 1.5,
+    `cubicle dividers provide seated privacy above a desk (${cubicleMetres.toFixed(2)} m wall vs ${deskSurfaceMetres.toFixed(2)} m desk)`);
+  assert(WALL_TYPES.cubicleWall.wallHeight < WALL_TYPES.cinderblockWall.wallHeight,
+    'cubicle dividers remain lower than full-height shielding walls');
   assert(WALL_TYPES.officeWall.wallHeight === 24, 'officeWall is 24 data units');
   assert(WALL_TYPES.hallwayWall.wallHeight === 24, 'hallwayWall is 24 data units');
   assert(metres(WALL_TYPES.officeWall.wallHeight) > 2.2,

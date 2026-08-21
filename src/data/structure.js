@@ -330,7 +330,7 @@ export const STRUCTURE_WALLS = {
     color: 0x99aabb,
     topColor: 0xaabbcc,
     subH: 6,
-    wallHeight: 8,
+    wallHeight: 11,
     thickness: 0,
     material: 'fabric',
     texture: 'metal_brushed',
