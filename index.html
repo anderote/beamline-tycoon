@@ -309,51 +309,65 @@
             <div class="dsgn-plot-options" role="group" aria-label="Plot options for panel 1">
               <select class="dsgn-plot-select" data-panel="0"
                       aria-label="Primary plot for panel 1">
-                <option value="energy" selected>Energy</option>
-                <option value="beam-power">Beam Power</option>
-                <option value="bunch-evolution">Bunch Evolution</option>
-                <option value="energy-dispersion">Energy &amp; Dispersion</option>
-                <option value="beta-acceptance">Beam &beta; &amp; Acceptance</option>
-                <option value="twiss-beta">Twiss &beta;x / &beta;y</option>
-                <option value="phase-advance">Phase Advance &mu;x / &mu;y</option>
-                <option value="rigidity">Magnetic Rigidity</option>
-                <option value="beam-envelope">Beam Envelope</option>
-                <option value="current-loss">Current &amp; Loss</option>
-                <option value="emittance">Emittance</option>
-                <option value="peak-current">Peak Current</option>
-                <option value="phase-space">Phase Space</option>
-                <option value="longitudinal">Longitudinal PS</option>
-                <option value="eic-triangle">E / I / &epsilon; Triangle</option>
+                <optgroup label="Beam Transport">
+                  <option value="beam-envelope">Beam Envelope</option>
+                  <option value="current-loss">Current &amp; Loss</option>
+                  <option value="emittance">Emittance</option>
+                  <option value="beta-acceptance">Beam &beta; &amp; Acceptance</option>
+                </optgroup>
+                <optgroup label="Longitudinal Beam">
+                  <option value="beam-power" selected>Beam Power</option>
+                  <option value="bunch-evolution">Bunch Evolution</option>
+                  <option value="peak-current">Peak Current</option>
+                  <option value="longitudinal">Longitudinal PS</option>
+                </optgroup>
+                <optgroup label="Lattice Optics">
+                  <option value="twiss-beta">Twiss &beta;x / &beta;y</option>
+                  <option value="phase-advance">Phase Advance &mu;x / &mu;y</option>
+                  <option value="rigidity">Magnetic Rigidity</option>
+                </optgroup>
+                <optgroup label="At Probe">
+                  <option value="phase-space">Phase Space</option>
+                  <option value="eic-triangle">E / I / &epsilon; Triangle</option>
+                </optgroup>
               </select>
               <select class="dsgn-plot-secondary-select" data-panel="0"
                       aria-label="Secondary plot for panel 1">
                 <option value="none">CH-2 // None</option>
-                <option value="energy">Energy</option>
-                <option value="beam-power">Beam Power</option>
-                <option value="dispersion">Dispersion</option>
-                <option value="rel-beta">Beam &beta;</option>
-                <option value="twiss-beta">Twiss &beta;x / &beta;y</option>
-                <option value="phase-advance">Phase Advance &mu;x / &mu;y</option>
-                <option value="rigidity">Magnetic Rigidity</option>
-                <option value="beam-envelope">Beam Envelope</option>
-                <option value="current-loss" selected>Beam Current</option>
-                <option value="emittance">Emittance</option>
-                <option value="peak-current">Peak Current</option>
+                <optgroup label="Beam Quantities">
+                  <option value="beam-power">Beam Power</option>
+                  <option value="rel-beta">Beam &beta;</option>
+                  <option value="beam-envelope">Beam Envelope</option>
+                  <option value="current-loss" selected>Beam Current</option>
+                </optgroup>
+                <optgroup label="Lattice Optics">
+                  <option value="twiss-beta">Twiss &beta;x / &beta;y</option>
+                  <option value="phase-advance">Phase Advance &mu;x / &mu;y</option>
+                  <option value="rigidity">Magnetic Rigidity</option>
+                </optgroup>
+                <optgroup label="Beam Quality">
+                  <option value="emittance">Emittance</option>
+                  <option value="peak-current">Peak Current</option>
+                </optgroup>
               </select>
               <select class="dsgn-plot-tertiary-select" data-panel="0"
                       aria-label="Third plot for panel 1">
                 <option value="none">CH-3 // None</option>
-                <option value="energy">Energy</option>
-                <option value="beam-power">Beam Power</option>
-                <option value="dispersion">Dispersion</option>
-                <option value="rel-beta" selected>Beam &beta;</option>
-                <option value="twiss-beta">Twiss &beta;x / &beta;y</option>
-                <option value="phase-advance">Phase Advance &mu;x / &mu;y</option>
-                <option value="rigidity">Magnetic Rigidity</option>
-                <option value="beam-envelope">Beam Envelope</option>
-                <option value="current-loss">Beam Current</option>
-                <option value="emittance">Emittance</option>
-                <option value="peak-current">Peak Current</option>
+                <optgroup label="Beam Quantities">
+                  <option value="beam-power">Beam Power</option>
+                  <option value="rel-beta" selected>Beam &beta;</option>
+                  <option value="beam-envelope">Beam Envelope</option>
+                  <option value="current-loss">Beam Current</option>
+                </optgroup>
+                <optgroup label="Lattice Optics">
+                  <option value="twiss-beta">Twiss &beta;x / &beta;y</option>
+                  <option value="phase-advance">Phase Advance &mu;x / &mu;y</option>
+                  <option value="rigidity">Magnetic Rigidity</option>
+                </optgroup>
+                <optgroup label="Beam Quality">
+                  <option value="emittance">Emittance</option>
+                  <option value="peak-current">Peak Current</option>
+                </optgroup>
               </select>
               <select class="dsgn-plot-scale-select" data-panel="0"
                       aria-label="Y-axis scale for plot 1"
@@ -379,51 +393,65 @@
             <div class="dsgn-plot-options" role="group" aria-label="Plot options for panel 2">
               <select class="dsgn-plot-select" data-panel="1"
                       aria-label="Primary plot for panel 2">
-                <option value="beam-envelope" selected>Beam Envelope</option>
-                <option value="energy">Energy</option>
-                <option value="beam-power">Beam Power</option>
-                <option value="bunch-evolution">Bunch Evolution</option>
-                <option value="emittance">Emittance</option>
-                <option value="current-loss">Current &amp; Loss</option>
-                <option value="energy-dispersion">Energy &amp; Dispersion</option>
-                <option value="beta-acceptance">Beam &beta; &amp; Acceptance</option>
-                <option value="twiss-beta">Twiss &beta;x / &beta;y</option>
-                <option value="phase-advance">Phase Advance &mu;x / &mu;y</option>
-                <option value="rigidity">Magnetic Rigidity</option>
-                <option value="peak-current">Peak Current</option>
-                <option value="phase-space">Phase Space</option>
-                <option value="longitudinal">Longitudinal PS</option>
-                <option value="eic-triangle">E / I / &epsilon; Triangle</option>
+                <optgroup label="Beam Transport">
+                  <option value="beam-envelope" selected>Beam Envelope</option>
+                  <option value="current-loss">Current &amp; Loss</option>
+                  <option value="emittance">Emittance</option>
+                  <option value="beta-acceptance">Beam &beta; &amp; Acceptance</option>
+                </optgroup>
+                <optgroup label="Longitudinal Beam">
+                  <option value="beam-power">Beam Power</option>
+                  <option value="bunch-evolution">Bunch Evolution</option>
+                  <option value="peak-current">Peak Current</option>
+                  <option value="longitudinal">Longitudinal PS</option>
+                </optgroup>
+                <optgroup label="Lattice Optics">
+                  <option value="twiss-beta">Twiss &beta;x / &beta;y</option>
+                  <option value="phase-advance">Phase Advance &mu;x / &mu;y</option>
+                  <option value="rigidity">Magnetic Rigidity</option>
+                </optgroup>
+                <optgroup label="At Probe">
+                  <option value="phase-space">Phase Space</option>
+                  <option value="eic-triangle">E / I / &epsilon; Triangle</option>
+                </optgroup>
               </select>
               <select class="dsgn-plot-secondary-select" data-panel="1"
                       aria-label="Secondary plot for panel 2">
                 <option value="none">CH-2 // None</option>
-                <option value="energy">Energy</option>
-                <option value="beam-power">Beam Power</option>
-                <option value="dispersion">Dispersion</option>
-                <option value="rel-beta">Beam &beta;</option>
-                <option value="twiss-beta">Twiss &beta;x / &beta;y</option>
-                <option value="phase-advance">Phase Advance &mu;x / &mu;y</option>
-                <option value="rigidity">Magnetic Rigidity</option>
-                <option value="beam-envelope">Beam Envelope</option>
-                <option value="current-loss">Beam Current</option>
-                <option value="emittance" selected>Emittance</option>
-                <option value="peak-current">Peak Current</option>
+                <optgroup label="Beam Quantities">
+                  <option value="beam-power">Beam Power</option>
+                  <option value="rel-beta">Beam &beta;</option>
+                  <option value="beam-envelope">Beam Envelope</option>
+                  <option value="current-loss">Beam Current</option>
+                </optgroup>
+                <optgroup label="Lattice Optics">
+                  <option value="twiss-beta">Twiss &beta;x / &beta;y</option>
+                  <option value="phase-advance">Phase Advance &mu;x / &mu;y</option>
+                  <option value="rigidity">Magnetic Rigidity</option>
+                </optgroup>
+                <optgroup label="Beam Quality">
+                  <option value="emittance" selected>Emittance</option>
+                  <option value="peak-current">Peak Current</option>
+                </optgroup>
               </select>
               <select class="dsgn-plot-tertiary-select" data-panel="1"
                       aria-label="Third plot for panel 2">
                 <option value="none">CH-3 // None</option>
-                <option value="energy">Energy</option>
-                <option value="beam-power">Beam Power</option>
-                <option value="dispersion">Dispersion</option>
-                <option value="rel-beta">Beam &beta;</option>
-                <option value="twiss-beta">Twiss &beta;x / &beta;y</option>
-                <option value="phase-advance">Phase Advance &mu;x / &mu;y</option>
-                <option value="rigidity">Magnetic Rigidity</option>
-                <option value="beam-envelope">Beam Envelope</option>
-                <option value="current-loss" selected>Beam Current</option>
-                <option value="emittance">Emittance</option>
-                <option value="peak-current">Peak Current</option>
+                <optgroup label="Beam Quantities">
+                  <option value="beam-power">Beam Power</option>
+                  <option value="rel-beta">Beam &beta;</option>
+                  <option value="beam-envelope">Beam Envelope</option>
+                  <option value="current-loss" selected>Beam Current</option>
+                </optgroup>
+                <optgroup label="Lattice Optics">
+                  <option value="twiss-beta">Twiss &beta;x / &beta;y</option>
+                  <option value="phase-advance">Phase Advance &mu;x / &mu;y</option>
+                  <option value="rigidity">Magnetic Rigidity</option>
+                </optgroup>
+                <optgroup label="Beam Quality">
+                  <option value="emittance">Emittance</option>
+                  <option value="peak-current">Peak Current</option>
+                </optgroup>
               </select>
               <select class="dsgn-plot-scale-select" data-panel="1"
                       aria-label="Y-axis scale for plot 2"
@@ -450,21 +478,27 @@
                  role="group" aria-label="Plot options for panel 3">
               <select class="dsgn-plot-select" data-panel="2"
                       aria-label="Primary plot for panel 3">
-                <option value="eic-triangle" selected>E / I / &epsilon; Triangle</option>
-                <option value="energy">Energy</option>
-                <option value="beam-power">Beam Power</option>
-                <option value="bunch-evolution">Bunch Evolution</option>
-                <option value="energy-dispersion">Energy &amp; Dispersion</option>
-                <option value="beta-acceptance">Beam &beta; &amp; Acceptance</option>
-                <option value="twiss-beta">Twiss &beta;x / &beta;y</option>
-                <option value="phase-advance">Phase Advance &mu;x / &mu;y</option>
-                <option value="rigidity">Magnetic Rigidity</option>
-                <option value="beam-envelope">Beam Envelope</option>
-                <option value="current-loss">Current &amp; Loss</option>
-                <option value="emittance">Emittance</option>
-                <option value="peak-current">Peak Current</option>
-                <option value="phase-space">Phase Space</option>
-                <option value="longitudinal">Longitudinal PS</option>
+                <optgroup label="Beam Transport">
+                  <option value="beam-envelope">Beam Envelope</option>
+                  <option value="current-loss">Current &amp; Loss</option>
+                  <option value="emittance">Emittance</option>
+                  <option value="beta-acceptance">Beam &beta; &amp; Acceptance</option>
+                </optgroup>
+                <optgroup label="Longitudinal Beam">
+                  <option value="beam-power">Beam Power</option>
+                  <option value="bunch-evolution">Bunch Evolution</option>
+                  <option value="peak-current">Peak Current</option>
+                  <option value="longitudinal">Longitudinal PS</option>
+                </optgroup>
+                <optgroup label="Lattice Optics">
+                  <option value="twiss-beta">Twiss &beta;x / &beta;y</option>
+                  <option value="phase-advance">Phase Advance &mu;x / &mu;y</option>
+                  <option value="rigidity">Magnetic Rigidity</option>
+                </optgroup>
+                <optgroup label="At Probe">
+                  <option value="phase-space">Phase Space</option>
+                  <option value="eic-triangle" selected>E / I / &epsilon; Triangle</option>
+                </optgroup>
               </select>
               <select class="dsgn-plot-scale-select" data-panel="2"
                       aria-label="Y-axis scale for plot 3"

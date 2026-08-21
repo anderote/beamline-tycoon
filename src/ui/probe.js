@@ -6,23 +6,38 @@ import { makeDraggable } from './draggable.js';
 
 const PROBE_COLORS = ['#ff5555', '#55bbff', '#55bb55', '#ffaa55', '#bb55ff', '#55ffff'];
 const PROBE_GRID_LAYOUTS = [[1,1],[2,1],[1,2],[2,2],[3,2]];
-const PROBE_PLOT_TYPES = [
-  { id: 'eic-triangle', name: 'E / I / \u03b5 Triangle' },
-  { id: 'phase-space', name: 'Phase Space' },
-  { id: 'beam-envelope', name: 'Beam Envelope' },
-  { id: 'current-loss', name: 'Current & Loss' },
-  { id: 'beam-power', name: 'Beam Power' },
-  { id: 'bunch-evolution', name: 'Bunch Evolution' },
-  { id: 'emittance', name: 'Emittance' },
-  { id: 'twiss-beta', name: 'Twiss βx / βy' },
-  { id: 'phase-advance', name: 'Phase Advance μx / μy' },
-  { id: 'rigidity', name: 'Magnetic Rigidity' },
-  { id: 'energy-dispersion', name: 'Energy & Dispersion' },
-  { id: 'beta-acceptance', name: 'Beam β & Acceptance' },
-  { id: 'peak-current', name: 'Peak Current' },
-  { id: 'longitudinal', name: 'Longitudinal PS' },
-  { id: 'summary', name: 'Summary Stats' },
+const PROBE_PLOT_GROUPS = [
+  { label: 'Beam Transport', plots: [
+    { id: 'beam-envelope', name: 'Beam Envelope' },
+    { id: 'current-loss', name: 'Current & Loss' },
+    { id: 'emittance', name: 'Emittance' },
+    { id: 'beta-acceptance', name: 'Beam β & Acceptance' },
+  ] },
+  { label: 'Longitudinal Beam', plots: [
+    { id: 'beam-power', name: 'Beam Power' },
+    { id: 'bunch-evolution', name: 'Bunch Evolution' },
+    { id: 'peak-current', name: 'Peak Current' },
+    { id: 'longitudinal', name: 'Longitudinal PS' },
+  ] },
+  { label: 'Lattice Optics', plots: [
+    { id: 'twiss-beta', name: 'Twiss βx / βy' },
+    { id: 'phase-advance', name: 'Phase Advance μx / μy' },
+    { id: 'rigidity', name: 'Magnetic Rigidity' },
+  ] },
+  { label: 'At Probe', plots: [
+    { id: 'phase-space', name: 'Phase Space' },
+    { id: 'eic-triangle', name: 'E / I / ε Triangle' },
+    { id: 'summary', name: 'Summary Stats' },
+  ] },
 ];
+
+const probePlotOptions = (selected = '') => PROBE_PLOT_GROUPS.map(group => `
+  <optgroup label="${group.label}">
+    ${group.plots.map(plot =>
+      `<option value="${plot.id}"${plot.id === selected ? ' selected' : ''}>${plot.name}</option>`
+    ).join('')}
+  </optgroup>
+`).join('');
 
 export class ProbeWindow {
   constructor(game) {
@@ -253,9 +268,7 @@ export class ProbeWindow {
           <div class="probe-cell-header">
             <select class="probe-cell-select" data-cell="${i}">
               <option value="">-- Select --</option>
-              ${PROBE_PLOT_TYPES.map(p =>
-                `<option value="${p.id}"${p.id === cellData.type ? ' selected' : ''}>${p.name}</option>`
-              ).join('')}
+              ${probePlotOptions(cellData.type)}
             </select>
             <button class="probe-cell-clear" data-cell="${i}">\u00d7</button>
           </div>
@@ -269,9 +282,7 @@ export class ProbeWindow {
         cell.innerHTML = `
           <select class="probe-cell-select add-plot" data-cell="${i}">
             <option value="">+ Add Plot</option>
-            ${PROBE_PLOT_TYPES.map(p =>
-              `<option value="${p.id}">${p.name}</option>`
-            ).join('')}
+            ${probePlotOptions()}
           </select>
         `;
       }
