@@ -101,8 +101,8 @@ export function generateRealLab() {
 }
 
 // Bring the furnished control room up on real services. The small pad-mount
-// feed and four-way panel are deliberately outside/against the west wall so
-// the three rear-fed electronics remain readable inside the room.
+// supply stays outside the west wall, so its HV feeder terminates on a rated
+// wall bushing before a second cable continues to the panel inside.
 export function setupRealLab(game) {
   const funding0 = game.state.resources.funding;
   const pad = game.placePlaceable({
@@ -111,13 +111,22 @@ export function setupRealLab(game) {
   const panel = game.placePlaceable({
     type: 'powerPanel', col: -6, row: 4, free: true, silent: true,
   });
+  const hvFeedthrough = game.placePlaceable({
+    type: 'hvWallPassThrough', col: -6, row: 4,
+    wallMount: { col: -6, row: 4, edge: 'w', off: 2 },
+    // On a west wall the default input faces into the room. Reverse the two
+    // terminals so the supply lands outdoors and the output lands indoors.
+    portsFlipped: true,
+    free: true, silent: true,
+  });
   const consoleId = game.state.placeables.find(p => p.type === 'operatorConsole')?.id;
   const monitorId = game.state.placeables.find(p => p.type === 'monitorBank')?.id;
   const captureId = game.state.placeables.find(p => p.type === 'serverRack')?.id;
   const wire = (utilityType, from, to) => wireUtility(game, utilityType, from, to);
 
-  if (pad && panel) {
-    wire('hvCable', { id: pad, port: 'hv_out_1' }, { id: panel, port: 'hv_in' });
+  if (pad && panel && hvFeedthrough) {
+    wire('hvCable', { id: pad, port: 'hv_out_1' }, { id: hvFeedthrough, port: 'hv_in' });
+    wire('hvCable', { id: hvFeedthrough, port: 'hv_out' }, { id: panel, port: 'hv_in' });
   }
   for (const [index, id] of [consoleId, monitorId, captureId].entries()) {
     if (panel && id) {

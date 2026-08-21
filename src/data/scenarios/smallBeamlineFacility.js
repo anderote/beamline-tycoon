@@ -188,6 +188,13 @@ export function setupSmallBeamlineFacility(game) {
   // port: a sink/pass port takes ONE line, and the roughing pump already
   // holds every bus_left.
   const turbo   = game.placePlaceable({ type: 'turboPump', col: 5, row: 1, free: true, silent: true });
+  // The SSA sits outside the beam-hall north wall. Its dedicated HV feeder is
+  // therefore two terminated cable runs joined by a rated wall bushing.
+  const ssaFeedthrough = game.placePlaceable({
+    type: 'hvWallPassThrough', col: -2, row: -1,
+    wallMount: { col: -2, row: -1, edge: 'n', off: 1 },
+    free: true, silent: true,
+  });
 
   const wire = (util, from, to) => wireUtility(game, util, from, to);
 
@@ -197,7 +204,10 @@ export function setupSmallBeamlineFacility(game) {
   // turns one HV feeder into eight 50 kW branch circuits; it adds no capacity.
   if (xfmr && mainPanel) wire('hvCable', { id: xfmr, port: 'hv_out_1' }, { id: mainPanel, port: 'hv_in' });
   // RF sources are dedicated high-voltage loads, not branch-circuit loads.
-  if (xfmr && ssa) wire('hvCable', { id: xfmr, port: 'hv_out_2' }, { id: ssa, port: 'hv_in' });
+  if (xfmr && ssa && ssaFeedthrough) {
+    wire('hvCable', { id: xfmr, port: 'hv_out_2' }, { id: ssaFeedthrough, port: 'hv_in' });
+    wire('hvCable', { id: ssaFeedthrough, port: 'hv_out' }, { id: ssa, port: 'hv_in' });
+  }
   if (xfmr && roomPanel) wire('hvCable', { id: xfmr, port: 'hv_out_3' }, { id: roomPanel, port: 'hv_in' });
   if (mainPanel) {
     // Six support loads plus the busway use seven of the panel's eight circuits.

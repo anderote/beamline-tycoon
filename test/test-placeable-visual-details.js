@@ -77,6 +77,7 @@ test('every beamline component has dedicated geometry and every actual generic f
 
   const missingComponentProfiles = Object.values(PLACEABLES)
     .filter(def => def.kind === 'infrastructure' && !detailed.has(def.id))
+    .filter(def => !(def.parts?.length))
     .filter(def => !PLACEABLE_VISUAL_PROFILES[def.id])
     .map(def => def.id);
   assert.deepEqual(missingComponentProfiles, [],

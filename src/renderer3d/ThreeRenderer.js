@@ -3255,7 +3255,11 @@ export class ThreeRenderer {
     const row = hover.row;
     let px = col * 2 + sc * SUB_UNIT + footW / 2;
     let pz = row * 2 + sr * SUB_UNIT + footH / 2;
-    const wallPose = placeable.mount === 'wall' ? wallFixturePose(hover.wallMount) : null;
+    const wallPose = placeable.mount === 'wall'
+      ? (placeable.wallPassThrough === true
+          ? wallFixturePose(hover.wallMount, 0)
+          : wallFixturePose(hover.wallMount))
+      : null;
     if (wallPose) {
       px = wallPose.x;
       pz = wallPose.z;

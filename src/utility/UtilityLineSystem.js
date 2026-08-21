@@ -150,6 +150,7 @@ export const REASON_MESSAGES = {
   route_height_mismatch:'those tapped services are on different height lanes',
   route_height_exhausted:'the service rack has no free height lane',
   blocked_by_equipment: 'that route passes through installed equipment',
+  wall_pass_through_required: 'electrical cables need a wall feedthrough here',
   bend_too_tight:       'waveguide elbows need a longer straight approach',
   invalid_start:        'starting port is missing or invalid',
   invalid_end:          'ending port is missing or invalid',

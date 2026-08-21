@@ -124,6 +124,18 @@ export const PORT_ANCHOR_OVERRIDES = {
     pwr_out_5: { along: 0.18 }, pwr_out_6: { along: 0.18 },
     pwr_out_7: { along: 0.54 }, pwr_out_8: { along: 0.54 },
   },
+  powerWallPassThrough: {
+    _default: { y: 1.25, lat: 0.22, out: 0.04 },
+  },
+  hvWallPassThrough: {
+    _default: { y: 1.45, lat: 0.22, out: 0.07 },
+  },
+  // One logical feeder represents the pole's conductor bundle. Both ends sit
+  // at crossarm height so the flexible-cable rope solver hangs the run between
+  // poles instead of dropping it to the ground first.
+  utilityPole: {
+    _default: { y: 6.40, lat: 0.18, out: 0.08 },
+  },
   spiderBox: {
     _default: { y: 0.12, lat: 0.22, along: 0 },
   },

@@ -37,6 +37,9 @@ export default {
   // supply's HV outlet count is how many distribution points it can serve.
   allowsTap: false,
   fansOut: false,
+  // Armoured HV cable still needs a rated wall gland/feedthrough; unlike a
+  // fabricated pipe or waveguide it may not simply pass through the slab.
+  requiresWallPassThrough: true,
   // Bolting two panels together does not make an HV tie.
   bridgesAdjacent: false,
   // Dearer per metre than a branch circuit (armoured, higher insulation class)

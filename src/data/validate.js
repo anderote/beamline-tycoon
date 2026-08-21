@@ -210,6 +210,29 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     }
   }
 
+  // A wall pass-through is a two-ended electrical fitting, not merely a
+  // wall-mounted prop. Both faces must expose passive ports of one cable type
+  // so network discovery can bridge the two separately terminated runs.
+  function checkWallPassThrough(id, def) {
+    if (def.wallPassThrough == null) return;
+    if (def.wallPassThrough !== true) {
+      problem(id, 'wallPassThrough', 'wallPassThrough must be true when declared');
+      return;
+    }
+    if (def.mount !== 'wall') {
+      problem(id, 'wallPassThrough', "wall pass-throughs must declare mount: 'wall'");
+    }
+    const ports = Object.values(utilityPorts[id] || {})
+      .filter(port => port?.utility === 'powerCable' || port?.utility === 'hvCable');
+    const utilities = new Set(ports.map(port => port.utility));
+    const sides = new Set(ports.map(port => port.side));
+    if (ports.length !== 2 || utilities.size !== 1
+        || ports.some(port => port.role !== 'pass')
+        || !sides.has('front') || !sides.has('back')) {
+      problem(id, 'wallPassThrough', 'requires exactly two passive front/back ports of one electrical cable type');
+    }
+  }
+
   // Every declared connection must have a matching sink port in the
   // utility-ports-v2 table, or the solver can never connect or gate it.
   // Applies to beamline AND infrastructure: an infrastructure unit with a
@@ -504,6 +527,7 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     checkRequiredConnections(id, def);
     checkSinkPortsForRequired(id, def);
     checkBeamPorts(id, def);
+    checkWallPassThrough(id, def);
   }
 
   // ── Furnishings + equipment (zone-scoped) ─────────────────────────
@@ -550,8 +574,9 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
 
   // ── Utility ports table integrity ─────────────────────────────────
   for (const [id, ports] of Object.entries(utilityPorts)) {
-    if (!beamline[id] && !infrastructure[id] && !roomFurnishings[id] && !labFurnishings[id]) {
-      problem(id, 'utilityPorts', `utility-ports-v2.js entry '${id}' references no component or facility furnishing`);
+    if (!beamline[id] && !infrastructure[id] && !roomFurnishings[id]
+        && !labFurnishings[id] && !decorations[id]) {
+      problem(id, 'utilityPorts', `utility-ports-v2.js entry '${id}' references no component, furnishing, or decoration`);
     }
     for (const [portName, spec] of Object.entries(ports || {})) {
       if (!UTILITIES.has(spec.utility)) {

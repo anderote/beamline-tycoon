@@ -323,6 +323,18 @@ function buildWallOccupancy(game) {
   };
 }
 
+function wallMountSnapshot(game, wallMount) {
+  if (!wallMount) return null;
+  const wallKey = findWallKey(
+    game.state.wallOccupied, wallMount.col, wallMount.row, wallMount.edge,
+  );
+  const wallType = wallKey ? game.state.wallOccupied[wallKey] : null;
+  return {
+    ...wallMount,
+    faceOffset: wallFixtureFaceOffset(WALL_TYPES[wallType]),
+  };
+}
+
 function buildComponents(game) {
   // All beamline + infrastructure placeables
   const placeables = (game.state.placeables || []).filter(
@@ -355,6 +367,7 @@ function componentSnapshotEntry(game, p) {
     subRow: p.subRow ?? null,
     direction: p.dir ?? null,
     portsFlipped: p.portsFlipped === true,
+    wallMount: wallMountSnapshot(game, p.wallMount),
     tiles: p.cells ? p.cells.map(c => ({ col: c.col, row: c.row })) : [{ col: p.col, row: p.row }],
     dimmed,
     health,
@@ -426,17 +439,7 @@ function decorationSnapshotEntry(game, d) {
     else if (d.wallMount.edge === 'w') { u = 0; v = 1 - f; }
   }
   const y = sampleCornersTriangulated(c, u, v);
-  let wallMount = null;
-  if (d.wallMount) {
-    const wallKey = findWallKey(
-      game.state.wallOccupied, d.wallMount.col, d.wallMount.row, d.wallMount.edge,
-    );
-    const wallType = wallKey ? game.state.wallOccupied[wallKey] : null;
-    wallMount = {
-      ...d.wallMount,
-      faceOffset: wallFixtureFaceOffset(WALL_TYPES[wallType]),
-    };
-  }
+  const wallMount = wallMountSnapshot(game, d.wallMount);
   const zoneOccupied = game.state.zoneOccupied || {};
   const roomKeys = [`${d.col},${d.row}`];
   if (d.wallMount) {
