@@ -33,10 +33,12 @@ import { BeamlineDesigner } from '../src/ui/BeamlineDesigner.js';
 import {
   beamlineTypeHidesComponent, formatEnergyBand, formatCurrentBand,
   designUnlockPath, blueprintPanelHtml, stockDesignCost,
+  beamlineTypeApproxCost, beamlineTypeCardHtml,
 } from '../src/ui/BeamlineTypePicker.js';
 import { BEAMLINE_TYPES, getBeamlineType } from '../src/data/beamline-types.js';
 import { COMPONENTS } from '../src/data/components.js';
 import { stockDesignsFor } from '../src/data/stock-designs.js';
+import { fmtMoney } from '../src/ui/format.js';
 
 const store = new Map();
 globalThis.localStorage = {
@@ -380,6 +382,23 @@ console.log('\n=== Missions stay open while hardware remains gated ===\n');
     'the prominent cost sits at the far right of the tier header');
   assert(css.includes('.blueprint-cost') && css.includes('.blueprint-head-meta'),
     'the tier header gives its cost a dedicated prominent badge');
+
+  const mission = BEAMLINE_TYPES.testStand;
+  const missionHtml = beamlineTypeCardHtml(mission);
+  const entryCost = stockDesignCost(stockDesignsFor(mission.id)[0]);
+  assertEq(beamlineTypeApproxCost(mission.id), entryCost,
+    'a mission cost estimate uses its tier-1 stock hardware as the stable baseline');
+  assertEq(beamlineTypeApproxCost('not-a-mission'), null,
+    'a mission with no stock design omits the estimate instead of advertising zero');
+  assert(missionHtml.includes('class="bltype-requirements"')
+    && missionHtml.includes('class="bltype-requirement-label">Energy')
+    && missionHtml.includes('class="bltype-requirement-label">Current'),
+  'mission cards promote energy and current into labeled requirement blocks');
+  assert(missionHtml.includes('class="bltype-requirement bltype-cost-estimate"')
+    && missionHtml.includes(`≈ ${fmtMoney(entryCost)}`),
+  'mission cards publish a compact approximate starting cost');
+  assert(css.includes('.bltype-requirement strong') && css.includes('font-size: 9px'),
+    'requirement values have a larger dedicated type treatment');
 }
 
 {

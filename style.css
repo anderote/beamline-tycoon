@@ -5979,8 +5979,23 @@ body {
   box-shadow: inset 0 0 0 1px rgba(204, 221, 255, 0.06), 0 0 10px rgba(100, 150, 255, 0.2);
 }
 
-.bltype-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.bltype-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
 .bltype-name { color: var(--blt-heading); font-size: 10px; line-height: 1.4; }
+.bltype-head-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+.bltype-particle {
+  color: #a8cfba;
+  font-size: 7px;
+  line-height: 1;
+  background: rgba(7, 8, 22, 0.82);
+  border: 1px solid rgba(91, 118, 125, 0.2);
+  border-radius: 2px;
+  padding: 2px 4px;
+}
 .bltype-tier {
   color: #7e8ba7;
   font-size: 7px;
@@ -5989,6 +6004,45 @@ body {
   padding: 1px 3px;
   flex: 0 0 auto;
 }
+.bltype-requirements {
+  display: flex;
+  gap: 5px;
+}
+.bltype-requirement {
+  min-width: 0;
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 5px 6px;
+  background: rgba(7, 8, 22, 0.82);
+  border: 1px solid rgba(91, 118, 125, 0.28);
+  border-radius: 3px;
+}
+.bltype-requirement-label {
+  color: #6f9187;
+  font-size: 6px;
+  line-height: 1;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+.bltype-requirement strong {
+  overflow: hidden;
+  color: #c5f0d4;
+  font-size: 9px;
+  font-weight: normal;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.bltype-cost-estimate {
+  border-color: rgba(99, 210, 135, 0.38);
+  background: rgba(25, 82, 52, 0.3);
+  cursor: help;
+}
+.bltype-cost-estimate .bltype-requirement-label { color: #72bd8a; }
+.bltype-cost-estimate strong { color: #b8f2c7; }
 .bltype-specs { display: flex; flex-wrap: wrap; gap: 4px; }
 .bltype-spec {
   font-size: 7px;
