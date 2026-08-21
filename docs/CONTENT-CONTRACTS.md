@@ -105,8 +105,13 @@ the short authoring contract.
 - Scenario Admin's **Save** action updates the open local scenario. **Save As**
   can deliberately overwrite a selected local scenario or create another one;
   each saved scenario remains independently editable and playable.
-- **New Game** always opens the scenario picker. The `sandbox` registry entry is
-  the explicit blank-map path; do not add a second implicit blank-game flow.
+- App startup migrates the retired single local-scenario slot into the current
+  catalogue. The old payload remains the recovery source until both the new
+  per-scenario payload and catalogue index have been written and verified.
+- **New Game** always opens the scenario picker. Its playable choices are the
+  local Scenario Editor-authored starter game and the `sandbox` registry entry;
+  source-authored regression fixtures do not appear. Sandbox is the explicit
+  blank-map path; do not add a second implicit blank-game flow.
 - Separate networks that cannot physically bridge (notably RF and cryogenics)
   instead of relying on adjacency.
 - Keep balance assertions about player outcomes and physical constraints. When

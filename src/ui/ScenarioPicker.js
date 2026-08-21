@@ -84,12 +84,14 @@ export class ScenarioPicker {
       html += '<span class="scenario-difficulty">Admin · Local</span>';
       html += '</span>';
       html += `<p class="scenario-description">${localScenarios.length
-        ? 'Use Edit beside a local scenario to revise it, or begin another blank starting situation.'
-        : 'Build a playable starting situation with every technology unlocked, then publish it with Save As.'}</p>`;
+        ? 'Use Edit beside your local starter game to keep revising it.'
+        : 'Build your starter game with every technology unlocked, then publish it from the editor.'}</p>`;
       html += '<div class="scenario-admin-actions">';
-      html += '<button type="button" class="scenario-admin-action" data-scenario-action="start-new">';
-      html += '<strong>New Scenario</strong><span>Open a blank project without changing existing playable scenarios.</span>';
-      html += '</button>';
+      if (!localScenarios.length) {
+        html += '<button type="button" class="scenario-admin-action" data-scenario-action="start-new">';
+        html += '<strong>Create Starter Game</strong><span>Open a blank project for the New Game picker.</span>';
+        html += '</button>';
+      }
       html += '</div>';
       html += '</section>';
     }

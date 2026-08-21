@@ -1,4 +1,7 @@
-// Scenario definitions — selectable from the New Game picker.
+// Scenario definitions and regression fixtures. New Game intentionally offers
+// only browser-local Scenario Editor creations plus the blank Sandbox entry;
+// the older source-authored facilities remain here solely as headless fixtures
+// for utility, physics, and economy regression coverage.
 // Each scenario has metadata for the picker UI and a generator function
 // that returns the map data (floors, zones, walls, doors, placeables).
 // An optional setup(game) runs AFTER game.applyScenario(mapData): it builds
@@ -48,6 +51,10 @@ function customScenarioStorageKey(id) {
   return CUSTOM_SCENARIO_PREFIX + encodeURIComponent(id);
 }
 
+function isNewGameBuiltInScenario(scenario) {
+  return scenario?.id === 'sandbox';
+}
+
 /** Stable picker/launch id for a browser-local scenario. */
 export function customScenarioRef(id) {
   return `${CUSTOM_SCENARIO_ID}:${encodeURIComponent(id)}`;
@@ -60,7 +67,14 @@ export function customScenarioIdFromRef(ref) {
   catch (_) { return null; }
 }
 
-function migrateLegacyCustomScenario(storage) {
+/**
+ * Upgrade the old single custom-scenario slot into the current catalogue.
+ *
+ * The legacy payload is the recovery copy until both the per-scenario payload
+ * and catalogue index can be read back. Only then are the retired keys
+ * removed, so a quota or storage failure cannot strand the authored world.
+ */
+export function migrateLegacyCustomScenario(storage = globalThis.localStorage) {
   if (!storage) return;
   let legacy = null;
   try { legacy = parseStoredScenario(storage.getItem(CUSTOM_SCENARIO_KEY)); }
@@ -74,29 +88,38 @@ function migrateLegacyCustomScenario(storage) {
   const index = readCustomScenarioIndex(storage);
   const existing = index.find(entry => entry.id === id);
   const existingPayload = parseStoredScenario(storage.getItem(customScenarioStorageKey(id)));
-  if (!existing || !existingPayload) {
-    const stored = {
-      id,
-      name: legacy.name || 'Custom Scenario',
-      desc: legacy.desc || '',
-      data: legacy.data,
-      sandbox: legacy.sandbox !== false,
-      updatedAt: legacy.updatedAt || Date.now(),
-    };
+  const stored = existingPayload || {
+    id,
+    name: legacy.name || 'Custom Scenario',
+    desc: legacy.desc || '',
+    data: legacy.data,
+    sandbox: legacy.sandbox !== false,
+    updatedAt: legacy.updatedAt || Date.now(),
+  };
+  if (!existingPayload) {
     storage.setItem(customScenarioStorageKey(id), JSON.stringify(stored));
-    const metadata = {
-      id: stored.id,
-      name: stored.name,
-      desc: stored.desc,
-      sandbox: stored.sandbox,
-      updatedAt: stored.updatedAt,
-    };
-    if (existing) Object.assign(existing, metadata);
-    else index.push(metadata);
-    writeCustomScenarioIndex(storage, index);
   }
+
+  const metadata = {
+    id,
+    name: stored.name || legacy.name || 'Custom Scenario',
+    desc: stored.desc || legacy.desc || '',
+    sandbox: stored.sandbox !== false,
+    updatedAt: stored.updatedAt || legacy.updatedAt || Date.now(),
+  };
+  if (existing) Object.assign(existing, metadata);
+  else index.push(metadata);
+  writeCustomScenarioIndex(storage, index);
+
+  const migratedPayload = parseStoredScenario(storage.getItem(customScenarioStorageKey(id)));
+  const migratedIndex = readCustomScenarioIndex(storage);
+  if (!migratedPayload || !migratedIndex.some(entry => entry.id === id)) {
+    throw new Error(`Could not verify migrated scenario "${id}"`);
+  }
+
   storage.removeItem(CUSTOM_SCENARIO_KEY);
   storage.removeItem(DEFAULT_STARTING_SCENARIO_KEY);
+  return migratedPayload;
 }
 
 /** Return every valid browser-local playable scenario, newest first. */
@@ -177,15 +200,15 @@ export function resolveScenario(id, storage = globalThis.localStorage) {
       local: true,
     };
   }
-  return SCENARIOS.find(s => s.id === id) || null;
+  return SCENARIOS.find(s => s.id === id && isNewGameBuiltInScenario(s)) || null;
 }
 
-/** All scenarios shown by New Game, with local creations first. */
+/** The editor-authored starter situation followed by blank Sandbox. */
 export function listPlayableScenarios(storage = globalThis.localStorage) {
   const local = listCustomScenarios(storage)
     .map(scenario => resolveScenario(customScenarioRef(scenario.id), storage))
     .filter(Boolean);
-  return [...local, ...SCENARIOS];
+  return [...local, ...SCENARIOS.filter(isNewGameBuiltInScenario)];
 }
 
 /** Stage a picker selection for the existing post-reload scenario boot path. */
