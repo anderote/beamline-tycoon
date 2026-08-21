@@ -39,6 +39,15 @@ export function openStaffInspector(game, staffId) {
     if (work.station) {
       html += `<div class="staff-work-station">${escapeHtml(work.station)}</div>`;
     }
+    const officeZone = staff.assignment?.zoneId === 'privateOffice'
+      ? 'privateOffice' : staff.assignment?.zoneId === 'officeSpace' ? 'officeSpace' : '';
+    html += `<label class="staff-office-assignment">Office assignment
+      <select class="staff-office-select">
+        <option value="" ${officeZone === '' ? 'selected' : ''}>No dedicated office</option>
+        <option value="officeSpace" ${officeZone === 'officeSpace' ? 'selected' : ''}>Shared office</option>
+        <option value="privateOffice" ${officeZone === 'privateOffice' ? 'selected' : ''}>Private office</option>
+      </select>
+    </label>`;
 
     // History
     if (staff.history && staff.history.length) {
@@ -53,6 +62,12 @@ export function openStaffInspector(game, staffId) {
     const rest = document.createElement('div');
     rest.innerHTML = html;
     container.appendChild(rest);
+    const officeSelect = rest.querySelector('.staff-office-select');
+    officeSelect?.addEventListener('change', () => {
+      if (officeSelect.value) game.assignStaffToOffice(staff.id, officeSelect.value);
+      else game.assignStaff(staff.id, null);
+      ctx.refresh();
+    });
   }
 
   ctx.onTabRender = ctx.onTabRender || function() {};

@@ -119,12 +119,12 @@ function deepFreeze(obj, seen = new Set()) {
   return Object.freeze(obj);
 }
 
-console.log('\n=== 0. JOB_TYPES is exactly the eleven closed ids ===\n');
+console.log('\n=== 0. JOB_TYPES is exactly the thirteen closed ids ===\n');
 {
-  const expected = ['runBeam', 'repair', 'labWork', 'commission', 'takeData', 'analyze', 'fabricate', 'paperwork', 'meet', 'eat', 'rest'];
+  const expected = ['runBeam', 'repair', 'labWork', 'commission', 'takeData', 'analyze', 'fabricate', 'paperwork', 'meet', 'eat', 'rest', 'officeWork', 'privateOfficeWork'];
   const actual = Object.keys(JOB_TYPES);
   assertOk(expected.every(id => actual.includes(id)) && actual.length === expected.length,
-    `JOB_TYPES has exactly the eleven job ids (got ${actual.sort().join(',')})`);
+    `JOB_TYPES has exactly the thirteen job ids (got ${actual.sort().join(',')})`);
 }
 
 console.log('\n=== 0b. eat/rest outrank every possible work priority NUMERICALLY, not just by an assumed margin ===\n');

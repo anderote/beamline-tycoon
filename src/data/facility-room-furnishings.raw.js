@@ -1,5 +1,34 @@
 // Facility room furnishings — items placed inside room zones (control room, office, meeting room, cafeteria).
 export const FACILITY_ROOM_FURNISHINGS_RAW = {
+  sharedDesk: {
+    id: 'sharedDesk', name: 'Shared Desk', zoneType: 'officeSpace',
+    cost: { funding: 700 }, energyCost: 0.1, spriteColor: 0x806b4a,
+    gridW: 2, gridH: 2, subH: 2, surfaceY: 1.5, spriteKey: 'desk',
+    effects: { morale: 1 }, baseMaterial: 'tile_hardwood',
+    // A generic reservable seat. Every profession can use it when their
+    // profession-specific station has no current work to claim.
+    station: { jobs: ['officeWork'], slots: 1, seated: 'preferred',
+      anchors: [{ subCol: 0, subRow: -1, facing: 's' }] },
+    parts: [
+      { name: 'top', x: 0, y: 1.4, z: 0, w: 2.0, h: 0.1, l: 2.0, material: 'tile_hardwood' },
+      { name: 'legL', x: -0.8, y: 0, z: 0, w: 0.12, h: 1.4, l: 0.12, material: 'metal_dark' },
+      { name: 'legR', x: 0.8, y: 0, z: 0, w: 0.12, h: 1.4, l: 0.12, material: 'metal_dark' },
+    ],
+  },
+  privateOfficeDesk: {
+    id: 'privateOfficeDesk', name: 'Private Office Desk', zoneType: 'privateOffice',
+    cost: { funding: 2500 }, energyCost: 0.2, spriteColor: 0x57486f,
+    gridW: 3, gridH: 2, subH: 2, surfaceY: 1.5, spriteKey: 'desk',
+    effects: { morale: 2, research: 0.02 }, baseMaterial: 'tile_hardwood',
+    station: { jobs: ['privateOfficeWork'], slots: 1, seated: 'preferred',
+      anchors: [{ subCol: 1, subRow: -1, facing: 's' }] },
+    parts: [
+      { name: 'top', x: 0, y: 1.4, z: 0, w: 3.0, h: 0.1, l: 2.0, material: 'tile_hardwood' },
+      { name: 'modesty', x: 0, y: 0.5, z: 0.9, w: 2.7, h: 0.9, l: 0.06, material: 'tile_hardwood' },
+      { name: 'legL', x: -1.3, y: 0, z: 0, w: 0.14, h: 1.4, l: 0.14, material: 'metal_dark' },
+      { name: 'legR', x: 1.3, y: 0, z: 0, w: 0.14, h: 1.4, l: 0.14, material: 'metal_dark' },
+    ],
+  },
   desk: {
     id: 'desk', name: 'Desk', zoneType: 'officeSpace',
     cost: { funding: 500 }, energyCost: 0.2, spriteColor: 0x7a6a4a,
