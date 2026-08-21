@@ -20,6 +20,7 @@ import { BLOOM_LAYER } from './glow-pipeline.js';
 import { getGlowMaterial, setGlowNightFactor } from './machine-glow.js';
 export { getGlowMaterial, setGlowNightFactor } from './machine-glow.js';
 import { wallFixturePose } from '../game/wall-fixture-geometry.js';
+import { syncMapEdgeServiceLeadVisual } from './map-edge-service-lead.js';
 import {
   _buildBPMRoles,
   _buildICTRoles,
@@ -4860,6 +4861,7 @@ export class ComponentBuilder {
       const pose = componentPose(compDef, comp, isDetailed);
       obj.position.set(pose.x, pose.y, pose.z);
       obj.rotation.y = pose.rotY;
+      syncMapEdgeServiceLeadVisual(obj, comp.mapEdgeConnection, pose);
 
       // Dimming
       this._setDimmed(obj, dimmed);

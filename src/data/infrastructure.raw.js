@@ -1906,7 +1906,7 @@ export const INFRASTRUCTURE_RAW = {
   gridServicePoint: {
     id: 'gridServicePoint',
     name: 'Utility Service Point',
-    desc: 'Metered utility takeoff that supplies 1200 kW through two HV terminals. It is cheaper than a packaged on-site substation, but the external grid can suffer brief outages — add a UPS or generator-backed transfer switch for critical loads.',
+    desc: 'Map-edge metered utility takeoff that supplies 1200 kW through two HV terminals. Place it within four tiles of the property boundary; its incoming conductors terminate at the edge to represent the off-map grid. It is cheaper than a packaged on-site substation, but the external grid can suffer brief outages — add a UPS or generator-backed transfer switch for critical loads.',
     category: 'power', subsection: 'hvSupply',
     paletteOrder: 5,
     cost: { funding: 520000 },
@@ -1922,6 +1922,14 @@ export const INFRASTRUCTURE_RAW = {
     accentColor: 0xf0c04e,
     hasSurface: false,
     placement: 'module',
+    mapEdgeConnection: {
+      maxDistanceTiles: 4,
+      conductorCount: 3,
+      leadHeightMeters: 2.05,
+      conductorSpacingMeters: 0.34,
+      conductorRadiusMeters: 0.035,
+      sagMeters: 0.22,
+    },
     ports: {},
     electricalControl: {
       source: { kind: 'grid', outageChancePerTick: 0.00055, outageMinTicks: 12, outageMaxTicks: 35 },

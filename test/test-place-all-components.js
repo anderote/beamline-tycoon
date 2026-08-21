@@ -124,17 +124,22 @@ console.log('\n--- Infrastructure placeables ---\n');
 const infraTypes = Object.values(PLACEABLES)
   .filter(p => p.kind === 'infrastructure')
   .map(p => p.id);
+let mapEdgeRowOffset = -20;
 
 for (const type of infraTypes) {
   const def = PLACEABLES[type];
   test(`${type} (infra) — places on its authored mount`, () => {
+    const placementCol = def.mapEdgeConnection
+      ? -game.state.mapHalfExtent
+      : colOffset;
+    const placementRow = def.mapEdgeConnection ? mapEdgeRowOffset : 0;
     const wallMount = def.mount === 'wall'
-      ? { col: colOffset, row: 0, edge: 'n', off: 1 }
+      ? { col: placementCol, row: placementRow, edge: 'n', off: 1 }
       : undefined;
-    if (wallMount) game.state.wallOccupied[`${colOffset},0,n`] = 'officeWall';
+    if (wallMount) game.state.wallOccupied[`${placementCol},${placementRow},n`] = 'officeWall';
     const result = game.placePlaceable({
       type,
-      col: colOffset, row: 0,
+      col: placementCol, row: placementRow,
       subCol: 0, subRow: 0,
       dir: 0,
       wallMount,
@@ -144,7 +149,8 @@ for (const type of infraTypes) {
     if (!result) {
       throw new Error(`placePlaceable returned false for ${type}`);
     }
-    colOffset += 10;
+    if (def.mapEdgeConnection) mapEdgeRowOffset += 4;
+    else colOffset += 10;
   });
 }
 

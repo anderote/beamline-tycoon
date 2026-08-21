@@ -43,6 +43,12 @@ the short authoring contract.
   faces and declare exactly two passive front/back ports of one electrical
   utility. A line terminates on each face; same-device pass-port continuity is
   the only connection through the wall.
+- An off-map service uses `mapEdgeConnection` with a positive integer
+  `maxDistanceTiles` plus validated conductor presentation dimensions. Its
+  complete footprint must remain on the map and inside that boundary band at
+  placement or move time. The renderer derives its nearest edge and conductor
+  endpoints from the current `mapHalfExtent`; land expansion extends existing
+  leads to the new boundary without relocating or deleting the service.
 - A `requiredConnections` entry must have a matching sink in
   `src/data/utility-ports-v2.js`.
 - If an item is research-gated, its gate and the research node's `unlocks` list

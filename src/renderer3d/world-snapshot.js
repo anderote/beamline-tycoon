@@ -20,6 +20,7 @@ import { utilityAttachmentPose } from '../utility/line-attachments.js';
 import { utilityLineHeight } from '../utility/registry.js';
 import { isWorldChangeSet } from '../game/world-change-set.js';
 import { findRoofRegion, roofKey, roofProfileForRegion } from '../game/roofing.js';
+import { resolveMapEdgeConnection } from '../game/map-edge-connection.js';
 
 /**
  * How far the drawn ground reaches — always exactly the map the player owns,
@@ -409,6 +410,14 @@ function componentSnapshotEntry(game, p) {
   const health = typeof game.getComponentHealth === 'function'
     ? game.getComponentHealth(p.id)
     : undefined;
+  const def = PLACEABLES[p.type] || COMPONENTS[p.type];
+  const mapEdgeConnection = def?.mapEdgeConnection
+    ? resolveMapEdgeConnection(
+        p.cells || def.footprintCells(p.col, p.row, p.subCol || 0, p.subRow || 0, p.dir || 0),
+        game.state.mapHalfExtent ?? DEFAULT_MAP_HALF_EXTENT,
+        def.mapEdgeConnection,
+      )
+    : null;
 
   return {
     id: p.id,
@@ -430,6 +439,7 @@ function componentSnapshotEntry(game, p) {
     effectState: p.visualState || (Number.isFinite(health) && health <= 0 ? 'off' : 'on'),
     beamlineId: p.beamlineId ?? null,
     accentColor,
+    mapEdgeConnection,
   };
 }
 

@@ -14,6 +14,7 @@ import {
   canAffordCost,
   componentCostFor,
   PLACE_BLOCKED,
+  PLACE_MAP_EDGE,
   PLACE_UNAFFORDABLE,
   PLACE_WALL,
 } from '../game/placement.js';
@@ -455,7 +456,11 @@ export function previewSelectionGroup(game, payload, anchorPose) {
       probeGame, def,
       target.col, target.row, target.subCol, target.subRow, target.dir,
     );
-    if (!geo.ok && !reason) reason = geo.wallBlocked ? PLACE_WALL : PLACE_BLOCKED;
+    if (!geo.ok && !reason) {
+      reason = geo.wallBlocked
+        ? PLACE_WALL
+        : (geo.mapEdgeBlocked ? PLACE_MAP_EDGE : PLACE_BLOCKED);
+    }
     const targetId = moving ? target.id : target.placeholderId;
     for (const cell of geo.cells) {
       const key = `${cell.col},${cell.row},${cell.subCol},${cell.subRow}`;

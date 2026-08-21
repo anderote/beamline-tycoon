@@ -66,6 +66,7 @@ import {
   canPlace, canPlaceWallFixture, normalizeWallMount, physicalWallKey,
   usesFloorOccupancy,
 } from './placement.js';
+import { resolveMapEdgeConnection } from './map-edge-connection.js';
 import { wallFixtureDir } from './wall-fixture-geometry.js';
 import { generateStartingMap, generateAnnulus, DEFAULT_MAP_HALF_EXTENT } from './map-generator.js';
 import { nextLandParcel } from '../data/land.js';
@@ -797,6 +798,14 @@ export class Game {
     // The new decorations have to reach subgridOccupied, or the player can
     // build straight through the trees that just appeared.
     this._rebuildPlaceableIndex();
+    // Off-map services keep their original equipment position while the
+    // property grows, but their derived incoming conductors must reach the
+    // NEW boundary. Publish exact component updates so the renderer patches
+    // only those service-point snapshots instead of rebuilding every machine.
+    for (const entry of this.state.placeables) {
+      if (!PLACEABLES[entry.type]?.mapEdgeConnection) continue;
+      this.emit('placeableChanged', placeableMutationEvent(entry, 'changed'));
+    }
     // Map growth widens infraOccupied's bounding box, which the nav grid's
     // `bounds` is derived from — and scatters new trees into subgridOccupied.
     this._markNavDirty();
@@ -3070,6 +3079,19 @@ export class Game {
     );
     const usesFloor = usesFloorOccupancy(placeable);
 
+    const mapEdgeConnection = placeable.mapEdgeConnection
+      ? resolveMapEdgeConnection(
+          cells, this.state.mapHalfExtent, placeable.mapEdgeConnection,
+        )
+      : null;
+    if (mapEdgeConnection && !mapEdgeConnection.valid) {
+      this.log(
+        `${placeable.name} must be fully on the map and within ${placeable.mapEdgeConnection.maxDistanceTiles} tiles of the map edge`,
+        'bad',
+      );
+      return false;
+    }
+
     if (stackTarget) {
       // Stacking — cells are occupied by the ground item, which is expected.
     } else if (usesFloor) {
@@ -3364,6 +3386,13 @@ export class Game {
       }
       if (geo.wallBlocked) {
         this.log(`Can't move ${def.name}: intersects a wall`, 'bad');
+        return false;
+      }
+      if (geo.mapEdgeBlocked) {
+        this.log(
+          `Can't move ${def.name}: it must remain within ${def.mapEdgeConnection.maxDistanceTiles} tiles of the map edge`,
+          'bad',
+        );
         return false;
       }
     }
