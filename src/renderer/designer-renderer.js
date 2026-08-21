@@ -42,6 +42,7 @@ function _driftPixelWidth(componentType, subL) {
 BeamlineDesigner.prototype._renderAll = function() {
   if (!this.isOpen) return;
   this._updateAutoTuneControl();
+  this._updateCommissioningPanel();
   this._renderSchematic();
   this._renderTuning();
   this._renderPlots();

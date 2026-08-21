@@ -513,6 +513,18 @@
         <span>Auto-tune magnets &amp; match RF</span>
         <span id="dsgn-auto-tune-status" class="dsgn-auto-tune-status">MANUAL</span>
       </label>
+      <section id="dsgn-commissioning-control" class="dsgn-commissioning-control"
+               aria-label="Injector commissioning">
+        <div class="dsgn-commissioning-head">
+          <strong>Injector commissioning</strong>
+          <span id="dsgn-commissioning-status">WAITING FOR BEAM</span>
+        </div>
+        <div id="dsgn-commissioning-metrics" class="dsgn-commissioning-metrics"></div>
+        <button type="button" id="dsgn-commissioning-optimize"
+                title="Scan existing injector solenoids and quadrupole pairs through the full beam solver">
+          Match section
+        </button>
+      </section>
     </div>
 
     <!-- Apply preview (src/ui/ApplyPreviewDialog.js) — the confirmation step

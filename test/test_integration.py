@@ -1,5 +1,6 @@
 """Integration tests — full beamline propagation through the module system."""
 import unittest
+from beam_physics.gameplay import physics_to_game
 from beam_physics.lattice import propagate
 
 
@@ -210,6 +211,22 @@ class TestLowBetaAcceleration(unittest.TestCase):
         result = propagate(self._low_beta_config(), machine_type="linac")
         last_snap = result["snapshots"][-1]
         self.assertAlmostEqual(last_snap["bunch_frequency"], 200e6)
+
+    def test_capture_metrics_are_published_on_buncher_snapshots(self):
+        elements = self._low_beta_config()
+        result = propagate(elements, machine_type="testStand")
+        buncher = next(s for s in result["snapshots"]
+                       if s["element_index"] == 1
+                       and s.get("rf_capture_efficiency") is not None)
+        self.assertAlmostEqual(buncher["rf_capture_efficiency"], 0.65)
+        self.assertGreater(buncher["rf_current_before"],
+                           buncher["rf_current_after"])
+        self.assertGreater(buncher["rf_bunch_length_after"], 0.0)
+        published = next(s for s in physics_to_game(
+            result, {}, elements)["envelope"]
+            if s.get("rf_capture_efficiency") is not None)
+        self.assertEqual(published["rf_current_after"],
+                         buncher["rf_current_after"])
 
     def test_wrong_order_loses_more_energy(self):
         """Putting high-beta cavity first should give less total energy gain."""

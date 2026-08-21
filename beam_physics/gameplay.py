@@ -291,6 +291,12 @@ def beamline_config_from_game(game_beamline):
             params = comp.get("params", {})
             el["rfPhase"] = params.get("rfPhase",
                                        stats.get("rfPhase", 0.0))
+            # A -90 degree buncher has zero mean energy gain but non-zero RF
+            # voltage. Preserve the actual knob separately so the longitudinal
+            # solver can create head-tail chirp and the player can tune it.
+            if ctype == "buncher" and params.get("voltage") is not None:
+                el["rfVoltage"] = params["voltage"] * 1e-3  # MV -> GeV
+                el["energyGain"] = el["rfVoltage"]
             # The gradient the player is ASKING for, MV/m, ALWAYS back-derived
             # from the effective energy gain over this element's own physics
             # length.
@@ -684,6 +690,22 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
                 "beta_acceptance_max": s.get("beta_acceptance_max"),
                 "beta_accepted": s.get("beta_accepted"),
                 "beta_ttf": s.get("beta_ttf"),
+                # Per-RF-step commissioning evidence. These are solver values,
+                # not UI derivations: the Designer and Probe may format them,
+                # but must not independently recompute capture or chirp.
+                "rf_capture_efficiency": s.get("rf_capture_efficiency"),
+                "rf_captured_dc": s.get("rf_captured_dc"),
+                "rf_current_before": s.get("rf_current_before"),
+                "rf_current_after": s.get("rf_current_after"),
+                "rf_bunch_frequency_before": s.get("rf_bunch_frequency_before"),
+                "rf_bunch_frequency_after": s.get("rf_bunch_frequency_after"),
+                "rf_bunch_length_before": s.get("rf_bunch_length_before"),
+                "rf_bunch_length_after": s.get("rf_bunch_length_after"),
+                "rf_peak_current_before": s.get("rf_peak_current_before"),
+                "rf_peak_current_after": s.get("rf_peak_current_after"),
+                "rf_time_chirp_added": s.get("rf_time_chirp_added"),
+                "rf_energy_gain": s.get("rf_energy_gain"),
+                "rf_phase_deg": s.get("rf_phase_deg"),
             }
             for s in physics_result["snapshots"]
         ],

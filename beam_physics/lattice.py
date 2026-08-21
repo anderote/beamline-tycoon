@@ -35,6 +35,8 @@ def _make_sub_element(element, length_fraction):
     # Scale energy gain for RF elements
     if "energyGain" in element:
         sub["energyGain"] = element["energyGain"] * length_fraction
+    if "rfVoltage" in element:
+        sub["rfVoltage"] = element["rfVoltage"] * length_fraction
 
     # Scale R56 for chicanes
     if "r56" in element:
@@ -136,6 +138,7 @@ def propagate(beamline_config, machine_type=None, source_params=None):
             # Never leak the previous cavity's match data onto a drift or
             # magnet snapshot. An RF module repopulates this during this step.
             context.beta_match = None
+            context.rf_event = None
 
             if n_steps > 1:
                 sub_el = _make_sub_element(element, fraction)
@@ -228,6 +231,7 @@ def propagate(beamline_config, machine_type=None, source_params=None):
 
             # Snapshot after each sub-step
             beta_extra = context.beta_match or {}
+            rf_extra = context.rf_event or {}
             context.snapshots.append(beam.snapshot(i, etype, context.cumulative_s, extra={
                 "eta_x": float(context.dispersion[0]),
                 "eta_xp": float(context.dispersion[1]),
@@ -236,6 +240,7 @@ def propagate(beamline_config, machine_type=None, source_params=None):
                 "focus_margin": float(focus_margin),
                 "focus_urgency": float(focus_urgency),
                 **beta_extra,
+                **rf_extra,
             }))
 
             if not beam.alive:

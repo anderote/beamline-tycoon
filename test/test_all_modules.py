@@ -5,6 +5,7 @@ from beam_physics.beam import create_initial_beam
 from beam_physics.constants import DEFAULT_SOURCE, ELECTRON_MASS
 from beam_physics.context import PropagationContext
 from beam_physics.modules.rf_acceleration import RFAccelerationModule
+from beam_physics.modules.linear_optics import LinearOpticsModule
 from beam_physics.modules.synchrotron_rad import SynchrotronRadiationModule
 from beam_physics.modules.aperture_loss import ApertureLossModule
 from beam_physics.modules.collimation import CollimationModule
@@ -61,6 +62,44 @@ class TestRFAcceleration(unittest.TestCase):
         ctx = PropagationContext("linac")
         mod.apply(beam, {"type": "rfCavity", "length": 4.0, "energyGain": 0.5, "rfPhase": 0.0}, ctx)
         self.assertAlmostEqual(ctx.chirp, 0.0, places=10)
+
+    def test_buncher_publishes_capture_and_longitudinal_effects(self):
+        mod = RFAccelerationModule()
+        beam = make_beam(energy=0.00005, current=100.0)
+        ctx = PropagationContext("testStand")
+
+        report = mod.apply(beam, {
+            "type": "rfCavity", "length": 0.5,
+            "energyGain": 0.0, "rfVoltage": 1e-5,
+            "rfPhase": -90.0, "rfFrequency": 162.5e6,
+            "game_type": "buncher",
+        }, ctx)
+
+        self.assertAlmostEqual(report.details["capture_efficiency"], 0.65)
+        self.assertAlmostEqual(report.details["current_before"], 100.0)
+        self.assertAlmostEqual(report.details["current_after"], 65.0)
+        self.assertGreater(report.details["bunch_length_after"], 0.0)
+        self.assertNotAlmostEqual(report.details["time_chirp_added"], 0.0)
+        self.assertEqual(ctx.rf_event["rf_current_after"],
+                         report.details["current_after"])
+
+    def test_buncher_chirp_compresses_in_a_low_energy_drift(self):
+        rf = RFAccelerationModule()
+        optics = LinearOpticsModule()
+        beam = make_beam(energy=0.00005, current=20.0)
+        ctx = PropagationContext("testStand")
+        rf.apply(beam, {
+            "type": "rfCavity", "length": 0.5,
+            "energyGain": 0.0, "rfVoltage": 1e-5,
+            "rfPhase": -90.0, "rfFrequency": 162.5e6,
+            "game_type": "buncher",
+        }, ctx)
+        before = beam.bunch_length()
+
+        optics.apply(beam, {"type": "drift", "length": 0.25}, ctx)
+
+        self.assertLess(beam.bunch_length(), before)
+        self.assertGreater(beam.peak_current, 0.0)
 
     def test_applies_to_rf_elements(self):
         mod = RFAccelerationModule()

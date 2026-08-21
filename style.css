@@ -1255,6 +1255,83 @@ body {
   text-align: right;
 }
 .dsgn-auto-tune-control.active .dsgn-auto-tune-status { color: #91c5ff; }
+.dsgn-commissioning-control {
+  position: absolute;
+  z-index: 20;
+  left: 12px;
+  bottom: calc(var(--designer-hud-bottom-height) + 8px);
+  display: grid;
+  grid-template-columns: auto minmax(330px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  max-width: min(760px, calc(100vw - 430px));
+  min-height: 27px;
+  padding: 3px 5px 3px 8px;
+  border: 1px solid rgba(74, 156, 135, 0.52);
+  border-radius: 3px;
+  background: rgba(7, 25, 27, 0.94);
+  color: #b8d9d2;
+  font: 9px monospace;
+}
+.dsgn-commissioning-head {
+  display: grid;
+  gap: 1px;
+  min-width: 142px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.dsgn-commissioning-head strong {
+  color: #d7fff2;
+  font: 8px var(--ui-font-display);
+}
+.dsgn-commissioning-head span {
+  color: #6fa99b;
+  font-size: 8px;
+}
+.dsgn-commissioning-metrics {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  overflow: hidden;
+}
+.dsgn-commissioning-metric {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 4px;
+  white-space: nowrap;
+}
+.dsgn-commissioning-metric span { color: #628b82; }
+.dsgn-commissioning-metric strong { color: #d5eee8; font-weight: normal; }
+.dsgn-commissioning-metric.good strong { color: #7df2b5; }
+.dsgn-commissioning-metric.watch strong { color: #f0c56c; }
+.dsgn-commissioning-metric.bad strong { color: #ff7a76; }
+#dsgn-commissioning-optimize {
+  padding: 5px 9px;
+  border: 1px solid rgba(77, 205, 164, 0.55);
+  border-radius: 3px;
+  background: rgba(35, 105, 85, 0.55);
+  color: #caffed;
+  font: 8px var(--ui-font-display);
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#dsgn-commissioning-optimize:hover:not(:disabled) {
+  background: rgba(45, 135, 105, 0.72);
+  border-color: rgba(100, 242, 194, 0.8);
+}
+#dsgn-commissioning-optimize:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+@media (max-width: 1050px) {
+  .dsgn-commissioning-control {
+    max-width: calc(100vw - 360px);
+    grid-template-columns: auto 1fr auto;
+  }
+  .dsgn-commissioning-metric:nth-child(n + 5) { display: none; }
+}
 .dsgn-palette-hint {
   font-family: monospace;
   font-size: 10px;
