@@ -5,6 +5,7 @@
 // classification logic below).
 
 import { EDGE_DELTAS, edgeKey, mirrorEdge } from '../game/edge-keys.js';
+import { roofedTiles } from '../game/roofing.js';
 
 /**
  * Check if movement from (col, row) in direction `edge` is blocked by a wall
@@ -43,6 +44,7 @@ export function detectRooms(state) {
 
   const visited = new Set();
   const rooms = [];
+  const roofTiles = roofedTiles(state);
   let roomId = 0;
 
   for (const key of allTileKeys) {
@@ -119,6 +121,8 @@ export function detectRooms(state) {
       flooringBreakdown,
       roomType,
       zoneTypes,
+      roofed: tiles.every(t => roofTiles.has(`${t.col},${t.row}`)),
+      roofedTileCount: tiles.filter(t => roofTiles.has(`${t.col},${t.row}`)).length,
     });
   }
 
@@ -173,4 +177,3 @@ export function computeRoomReach(room) {
 
   return reach;
 }
-

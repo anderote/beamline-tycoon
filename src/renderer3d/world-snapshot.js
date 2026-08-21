@@ -218,6 +218,18 @@ function buildFloors(game) {
   return out;
 }
 
+function buildRoofs(game) {
+  return (game.state.roofs || []).map(tile => {
+    const def = FLOORS[tile.type] || FLOORS.roof;
+    const corners = getTileCornersY(game.state, tile.col, tile.row);
+    return {
+      col: tile.col, row: tile.row, type: tile.type || 'roof', variant: tile.variant ?? 0,
+      x: (tile.col + 0.5) * 2, z: (tile.row + 0.5) * 2,
+      y: (corners.nw + corners.ne + corners.se + corners.sw) / 4 + (def.roofHeight ?? 3.35),
+    };
+  });
+}
+
 /**
  * Terrain height at an edge's two endpoints — a = first-listed corner,
  * b = second, in the corner order the renderer's `off` / baseY conventions
@@ -639,6 +651,7 @@ const SECTION_BUILDERS = {
   terrain: buildTerrain,           // expensive: full map-region tile walk
   cliffs: buildCliffs,             // expensive: full map-region tile walk
   floors: buildFloors,
+  roofs: buildRoofs,
   grassSurfaces: buildGrassSurfaces,
   walls: buildWalls,
   doors: buildDoors,

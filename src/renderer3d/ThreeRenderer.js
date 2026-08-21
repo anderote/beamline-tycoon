@@ -17,6 +17,7 @@ import { CliffBuilder } from './cliff-builder.js';
 import { WildflowerBuilder } from './wildflower-builder.js';
 import { GrassTuftBuilder } from './grass-tuft-builder.js';
 import { FloorBuilder } from './floor-builder.js';
+import { RoofBuilder } from './roof-builder.js';
 import {
   WallBuilder, HEIGHT_SCALE, LINTEL_HEIGHT, doorOpeningLayout, windowOpeningLayout,
 } from './wall-builder.js';
@@ -128,11 +129,11 @@ const GHOST_TINT_BLOCKED = 0xff4444;
 const GHOST_TINT_UNAFFORDABLE = 0xffb020;
 
 const PORT_MARKER_EVENTS = new Set([
-  'beamlineChanged', 'loaded', 'restored', 'infrastructureChanged',
+  'beamlineChanged', 'loaded', 'restored', 'infrastructureChanged', 'roofsChanged',
   'placeableChanged', 'facilityChanged', 'connectionsChanged', 'utilityLinesChanged',
 ]);
 const LIGHT_CANDIDATE_EVENTS = new Set([
-  'beamlineChanged', 'loaded', 'restored', 'infrastructureChanged',
+  'beamlineChanged', 'loaded', 'restored', 'infrastructureChanged', 'roofsChanged',
   'decorationsChanged', 'wallsChanged', 'doorsChanged', 'windowsChanged',
   'placeableChanged', 'facilityChanged', 'connectionsChanged', 'utilityLinesChanged',
 ]);
@@ -282,6 +283,7 @@ export class ThreeRenderer {
     this.wildflowerBuilder = new WildflowerBuilder();
     this.grassTuftBuilder = new GrassTuftBuilder();
     this.floorBuilder = new FloorBuilder(this.textureManager);
+    this.roofBuilder = new RoofBuilder();
     this.wallBuilder = new WallBuilder(this.textureManager);
     this.componentBuilder = new ComponentBuilder();
     // Port anchors need model heights and where the shell's surface actually
@@ -620,6 +622,10 @@ export class ThreeRenderer {
     this.floorGroup.name = 'floors';
     this.scene.add(this.floorGroup);
 
+    this.roofGroup = new THREE.Group();
+    this.roofGroup.name = 'roofs';
+    this.scene.add(this.roofGroup);
+
     this.wallGroup = new THREE.Group();
     this.wallGroup.name = 'walls';
     this.scene.add(this.wallGroup);
@@ -744,6 +750,7 @@ export class ThreeRenderer {
       switch (event) {
         case 'beamlineChanged':
         case 'infrastructureChanged':
+        case 'roofsChanged':
         case 'decorationsChanged':
         case 'zonesChanged':
         case 'placeableChanged':
@@ -2519,6 +2526,18 @@ export class ThreeRenderer {
 
   clearDragPreview() { this._clearPreview(); }
 
+  renderRoofPreview(region, roofDef = null) {
+    this._clearPreview();
+    if (!region?.length) return;
+    const mat = this._previewMat(roofDef?.topColor || 0x88bbff, 0.42);
+    for (const tile of region) {
+      this._addPreviewMesh(new THREE.Mesh(
+        this._terrainTileQuad(tile.col, tile.row, (roofDef?.roofHeight || 3.35) + 0.02),
+        mat,
+      ));
+    }
+  }
+
   /**
    * Render a line-based infrastructure preview (paths, conduits).
    * Shows a coloured strip along the path tiles.
@@ -4206,6 +4225,7 @@ export class ThreeRenderer {
     this.wildflowerBuilder.rebuild(snapshot);
     this.grassTuftBuilder.rebuild(snapshot);
     this.floorBuilder.build(snapshot.floors, this.floorGroup);
+    this.roofBuilder.build(snapshot.roofs || [], this.roofGroup);
     let cutawayRoom = null;
     if (this.wallVisibilityMode === 'cutaway') {
       cutawayRoom = this._detectCutawayRegion(this.hoverCol, this.hoverRow);
@@ -4324,8 +4344,9 @@ export class ThreeRenderer {
   }
 
   _refreshInfra() {
-    const snap = this._updateSnapshot(['floors']);
+    const snap = this._updateSnapshot(['floors', 'roofs']);
     this.floorBuilder.build(snap.floors, this.floorGroup);
+    this.roofBuilder.build(snap.roofs || [], this.roofGroup);
   }
 
   _refreshZones() {

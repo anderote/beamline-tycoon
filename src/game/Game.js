@@ -1,5 +1,6 @@
 import { COMPONENTS, commissioningSpecialtyFor } from '../data/components.js';
 import { FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, variantCost } from '../data/structure.js';
+import { findRoofRegion, isRoofedRegion, roofKey } from './roofing.js';
 import { ZONES, ZONE_TIER_THRESHOLDS, ZONE_FURNISHINGS, itemMatchesZone, matchingZoneForPlacement, zoneTierFromStaffedOutput, LABWORK_CAPABLE_ZONES } from '../data/facility.js';
 import { RESEARCH, RESEARCH_PHYSICS_EFFECT_KEYS } from '../data/research.js';
 import { PARAM_DEFS } from '../beamline/component-physics.js';
@@ -101,7 +102,7 @@ const SERIALIZED_FIELDS = [
   'staffCosts', 'staffMembers', 'staffNextId', 'staffCandidates', 'staffHireDiscount',
   'stationReservations',
   // world / terrain
-  'seed', 'terrainSeed', 'terrainBlobs', 'mapHalfExtent', 'floors', 'cornerHeights',
+  'seed', 'terrainSeed', 'terrainBlobs', 'mapHalfExtent', 'floors', 'roofs', 'cornerHeights',
   'zones', 'walls', 'wallOverlays', 'doors', 'windows',
   // zoneConnectivity is mostly derived (active/tileCount/tileTier/tier are
   // rebuilt from `zones` on every recomputeZoneConnectivity() call — see
@@ -374,6 +375,7 @@ export class Game {
       mapHalfExtent: DEFAULT_MAP_HALF_EXTENT,
       // Infrastructure tiles (paths, concrete pads)
       floors: [],       // [{ type, col, row }]
+      roofs: [],        // [{ col, row, type: 'roof' }], over enclosed floor regions
       infraOccupied: {},        // "col,row" -> type
       // Per-corner terrain heights (RCT2-style). Sparse: absent tile = flat.
       cornerHeights: new Map(),   // "col,row" -> Int8Array(4): [nw, ne, se, sw]
@@ -1550,6 +1552,49 @@ export class Game {
       }
     });
     return placed > 0;
+  }
+
+  /** Return the enclosed floor footprint that the auto-roof tool would cover. */
+  roofRegionAt(col, row) {
+    return findRoofRegion(this.state, col, row);
+  }
+
+  isRoomRoofedAt(col, row) {
+    return isRoofedRegion(this.state, this.roofRegionAt(col, row));
+  }
+
+  placeRoofRegion(col, row, roofType = 'roof', variant = 0) {
+    const roof = FLOORS[roofType];
+    if (!roof?.isRoofPlacement) return false;
+    const region = this.roofRegionAt(col, row);
+    if (region.length === 0) {
+      this.log('Roofs require a completely enclosed wall region.', 'bad');
+      return false;
+    }
+    const existing = new Set((this.state.roofs || []).map(tile => roofKey(tile.col, tile.row)));
+    const tiles = region.filter(tile => !existing.has(roofKey(tile.col, tile.row)));
+    if (tiles.length === 0) return true;
+    const cost = (roof.variantCosts?.[variant] ?? roof.cost) * tiles.length;
+    if (!this.canAfford({ funding: cost })) {
+      this.log(`Need $${cost} for ${tiles.length} roof tiles!`, 'bad');
+      return false;
+    }
+    this.chargeConstruction(cost);
+    this.state.roofs = this.state.roofs || [];
+    for (const tile of tiles) this.state.roofs.push({ type: roofType, col: tile.col, row: tile.row, variant });
+    this.emit('roofsChanged');
+    return true;
+  }
+
+  removeRoofRegion(col, row) {
+    const region = this.roofRegionAt(col, row);
+    const keys = new Set(region.map(tile => roofKey(tile.col, tile.row)));
+    const removed = (this.state.roofs || []).filter(tile => keys.has(roofKey(tile.col, tile.row)));
+    if (!removed.length) return false;
+    this.state.roofs = this.state.roofs.filter(tile => !keys.has(roofKey(tile.col, tile.row)));
+    this.refundConstruction({ funding: removed.reduce((sum, tile) => sum + (FLOORS[tile.type]?.cost || 0), 0) });
+    this.emit('roofsChanged');
+    return true;
   }
 
   removeInfraTile(col, row) {
@@ -5979,6 +6024,8 @@ export class Game {
     // load so renderer builders rebuild on the first frame.
     this.state.cornerHeights = deserializeCornerHeights(this.state.cornerHeights || []);
     this.state.cornerHeightsRevision = 0;
+
+    this.state.roofs = Array.isArray(this.state.roofs) ? this.state.roofs : [];
 
     // Restore registry from saved beamlines data. The entry set itself is
     // gesture state (placing/removing a source creates/deletes beamlines), so

@@ -982,6 +982,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
   // Infrastructure tab uses FLOORS items instead of COMPONENTS
   if (compCategory === 'infrastructure') {
     for (const [key, infra] of Object.entries(FLOORS)) {
+      if (infra.isRoofPlacement) continue;
       const item = document.createElement('div');
       item.className = 'palette-item';
       item.dataset.paletteIndex = paletteIdx;
@@ -1563,7 +1564,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
   }
 
   if (compCategory === 'flooring') {
-    const flooringKeys = ['labFloor', 'officeFloor', 'concrete', 'hallway'];
+    const flooringKeys = ['labFloor', 'officeFloor', 'concrete', 'hallway', 'roof'];
     const catDef = MODES.structure.categories.flooring;
     const subsections = catDef.subsections;
     const subKeys = Object.keys(subsections);
@@ -1634,7 +1635,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
 
         const floorStats = [
           ['Cost', `${_costLabel(infra.cost)}/tile`],
-          ['Placement', infra.isLinePlacement ? 'Drag a line' : 'Drag an area'],
+          ['Placement', infra.isRoofPlacement ? 'Click an enclosed room' : infra.isLinePlacement ? 'Drag a line' : 'Drag an area'],
         ];
         if (infra.requiresFoundation) {
           floorStats.push(['Requires', FLOORS[infra.requiresFoundation]?.name || infra.requiresFoundation]);

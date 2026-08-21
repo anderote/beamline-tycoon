@@ -158,6 +158,12 @@ export class FloorTool extends Tool {
 
   _def() { return FLOORS[this.floorType]; }
 
+  _roofRegion(ctx, screenX, screenY) {
+    const world = ctx.renderer.screenToWorld(screenX, screenY);
+    const grid = isoToGrid(world.x, world.y);
+    return ctx.game.roofRegionAt(grid.col, grid.row);
+  }
+
   onEnter(ctx) {
     // Legacy selectInfraTool always dropped any in-flight drag preview.
     ctx.renderer.clearDragPreview();
@@ -208,6 +214,16 @@ export class FloorTool extends Tool {
     }
     ctx.renderer.renderDragPreview(c0, r0, c1, r1, this.floorType);
     this._showRectCost(ctx, screenX, screenY, c0, r0, c1, r1);
+  }
+
+  _previewRoof(ctx, screenX, screenY) {
+    const region = this._roofRegion(ctx, screenX, screenY);
+    ctx.renderer.renderRoofPreview?.(region, this._def());
+    const newTiles = region.filter(tile => !(ctx.game.state.roofs || []).some(r => r.col === tile.col && r.row === tile.row)).length;
+    ctx.input._showDragCostTooltip((this._def()?.cost || 0) * newTiles, screenX, screenY, {
+      note: region.length ? `${region.length} enclosed tiles` : 'Walls must fully enclose the room',
+      insufficientFunding: !canAffordFunding(ctx.game, (this._def()?.cost || 0) * newTiles),
+    });
   }
 
   /**
@@ -272,6 +288,12 @@ export class FloorTool extends Tool {
     const renderer = ctx.renderer;
     const world = renderer.screenToWorld(e.clientX, e.clientY);
     const grid = isoToGrid(world.x, world.y);
+    if (this._def()?.isRoofPlacement && !this._dragging && !this._drawingLine) {
+      this._previewRoof(ctx, e.clientX, e.clientY);
+      input._lastScreenX = e.clientX;
+      input._lastScreenY = e.clientY;
+      return true;
+    }
     if (this._dragging && this._dragStart) {
       this._dragEnd = { col: grid.col, row: grid.row };
       this._previewRect(ctx, e.clientX, e.clientY);
@@ -363,6 +385,18 @@ export class FloorTool extends Tool {
     // floors commit in onMouseUp; their clicks are consumed as no-ops,
     // matching the legacy infra click branch.
     const infra = this._def();
+    if (infra?.isRoofPlacement) {
+      const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
+      const grid = isoToGrid(world.x, world.y);
+      const erase = eraseHeld(e, ctx.input);
+      ctx.game._withUndo(() => {
+        if (erase) ctx.game.removeRoofRegion(grid.col, grid.row);
+        else ctx.game.placeRoofRegion(grid.col, grid.row, this.floorType, this.variant);
+      });
+      ctx.renderer.clearDragPreview();
+      ctx.input._hideDragCostTooltip();
+      return true;
+    }
     if (infra && !infra.isDragPlacement && !infra.isLinePlacement) {
       const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
       const grid = isoToGrid(world.x, world.y);
