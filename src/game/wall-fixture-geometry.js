@@ -27,8 +27,9 @@ export function wallFixturePose(site, faceOffset = site?.faceOffset ?? 0.0625) {
   if (!site || !['n', 'e', 's', 'w'].includes(site.edge)) return null;
   const col = Math.floor(site.col || 0);
   const row = Math.floor(site.row || 0);
-  const off = Math.max(0, Math.min(3, Math.floor(site.off ?? 1)));
-  const f = (off + 0.5) / 4;
+  const span = Math.max(1, Math.min(4, Math.floor(site.span ?? 1)));
+  const off = Math.max(0, Math.min(4 - span, Math.floor(site.off ?? 1)));
+  const f = (off + span / 2) / 4;
   const x0 = col * 2;
   const z0 = row * 2;
   switch (site.edge) {
@@ -54,4 +55,17 @@ export function physicalWallFixtureSlotKey(site) {
   const pose = wallFixturePose(site, 0);
   if (!pose) return null;
   return `${Math.round(pose.x * 4)},${Math.round(pose.z * 4)}`;
+}
+
+/** Alias-independent identities for every quarter-wall slot in a fixture span. */
+export function physicalWallFixtureSlotKeys(site) {
+  if (!site) return [];
+  const span = Math.max(1, Math.min(4, Math.floor(site.span ?? 1)));
+  const off = Math.max(0, Math.min(4 - span, Math.floor(site.off ?? 1)));
+  const keys = [];
+  for (let i = 0; i < span; i++) {
+    const key = physicalWallFixtureSlotKey({ ...site, off: off + i, span: 1 });
+    if (key) keys.push(key);
+  }
+  return keys;
 }

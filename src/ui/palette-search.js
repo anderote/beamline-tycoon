@@ -123,13 +123,16 @@ export function buildPaletteIndex(game) {
     });
   }
 
-  // --- DECORATIONS (decorations.js) — always Grounds; `category` is the
-  // grounds tab key directly (treesPlants/furniture/lighting/utilities/etc.).
+  // --- DECORATIONS (decorations.js) — category keys can live in Grounds or
+  // Structure. Mounted lights and Hangings are building fabric, while trees,
+  // benches, and other free-standing decorations remain under Grounds.
   for (const [id, dec] of Object.entries(DECORATIONS)) {
     if (!dec.category) continue;
+    const mode = getModeForCategory(dec.category);
+    if (!mode) continue;
     index.push({
       id, name: dec.name || id, desc: dec.desc || '',
-      mode: 'grounds', category: dec.category, kind: 'decoration', source: 'decorations',
+      mode, category: dec.category, kind: 'decoration', source: 'decorations',
     });
   }
 

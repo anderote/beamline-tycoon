@@ -279,6 +279,23 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     }
   }
 
+  // Wide wall-mounted props reserve consecutive quarter-wall slots. Their
+  // authored centre height is independent of lighting's emitter height.
+  function checkWallMount(id, def) {
+    if (def.wallSpan != null && def.mount !== 'wall') {
+      problem(id, 'wallSpan', "wallSpan is only valid with mount: 'wall'");
+    }
+    if (def.mount !== 'wall' || def.kind !== 'decoration') return;
+    if (def.wallSpan != null
+        && (!Number.isInteger(def.wallSpan) || def.wallSpan < 1 || def.wallSpan > 4)) {
+      problem(id, 'wallSpan', `wallSpan must be an integer from 1 to 4, got ${JSON.stringify(def.wallSpan)}`);
+    }
+    if (def.light == null
+        && (typeof def.mountY !== 'number' || !Number.isFinite(def.mountY) || def.mountY <= 0)) {
+      problem(id, 'mountY', `non-light wall hangings require a positive mountY, got ${JSON.stringify(def.mountY)}`);
+    }
+  }
+
   // Authored facility parts default to boxes. Non-box primitives share the
   // same exact w/h/l bounding-box contract in EquipmentBuilder, so malformed
   // dimensions, axes, or rotations would otherwise produce invisible or NaN
@@ -560,6 +577,7 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     }
     checkDims(id, p);
     checkLight(id, p);
+    checkWallMount(id, p);
     checkParts(id, p);
     // Lighting fixtures (src/data/placeables/lighting.js) are authored
     // directly into PLACEABLES rather than via the `decorations` raw

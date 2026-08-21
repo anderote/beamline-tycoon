@@ -234,6 +234,75 @@ export const DECORATIONS_RAW = {
     blocksBuild: false, category: 'bins',
     subW: 1, subL: 1, subH: 12,
   },
+
+  // === Structure / Hangings ===
+  // wallSpan is measured in the four quarter-tile slots along one wall
+  // segment. mountY is the centre of the hanging in world metres above the
+  // floor. These are decoration-kind placeables, but they use the same wall
+  // face placement contract as sconces and electrical feedthroughs.
+  abstractPainting: {
+    id: 'abstractPainting', name: 'Abstract Painting', cost: { funding: 25 }, removeCost: 0,
+    morale: 1, placement: 'indoor', spriteKey: 'abstract_painting',
+    blocksBuild: false, category: 'hangings', mount: 'wall', wallSpan: 2, mountY: 1.65,
+    subW: 2, subL: 1, subH: 2,
+    desc: 'A vivid geometric original that makes even a service corridor feel curated.',
+  },
+  landscapePainting: {
+    id: 'landscapePainting', name: 'Landscape Painting', cost: { funding: 35 }, removeCost: 0,
+    morale: 1.25, placement: 'indoor', spriteKey: 'landscape_painting',
+    blocksBuild: false, category: 'hangings', mount: 'wall', wallSpan: 3, mountY: 1.65,
+    subW: 3, subL: 1, subH: 2,
+    desc: 'A wide landscape for rooms whose real windows overlook the switchyard.',
+  },
+  beamlinePhotograph: {
+    id: 'beamlinePhotograph', name: 'Beamline Photograph', cost: { funding: 18 }, removeCost: 0,
+    morale: 0.75, placement: 'indoor', spriteKey: 'beamline_photograph',
+    blocksBuild: false, category: 'hangings', mount: 'wall', wallSpan: 2, mountY: 1.6,
+    subW: 2, subL: 1, subH: 2,
+    desc: 'A framed photograph of the facility during first beam, before the cable trays filled up.',
+  },
+  acceleratorBlueprint: {
+    id: 'acceleratorBlueprint', name: 'Accelerator Blueprint', cost: { funding: 22 }, removeCost: 0,
+    morale: 0.5, placement: 'indoor', spriteKey: 'accelerator_blueprint',
+    blocksBuild: false, category: 'hangings', mount: 'wall', wallSpan: 3, mountY: 1.6,
+    subW: 3, subL: 1, subH: 2,
+    desc: 'A framed technical drawing of an accelerator lattice, complete with optimistic annotations.',
+  },
+  wallTelevision: {
+    id: 'wallTelevision', name: 'Wall TV', cost: { funding: 180 }, removeCost: 10,
+    morale: 0.75, placement: 'indoor', spriteKey: 'wall_television',
+    blocksBuild: false, category: 'hangings', mount: 'wall', wallSpan: 3, mountY: 1.65,
+    subW: 3, subL: 1, subH: 2,
+    desc: 'A wall-mounted display for schedules, status dashboards, and the occasional seminar stream.',
+  },
+  largeWallTelevision: {
+    id: 'largeWallTelevision', name: 'Large Wall TV', cost: { funding: 320 }, removeCost: 15,
+    morale: 1, placement: 'indoor', spriteKey: 'large_wall_television',
+    blocksBuild: false, category: 'hangings', mount: 'wall', wallSpan: 4, mountY: 1.7,
+    subW: 4, subL: 1, subH: 2.5,
+    desc: 'A room-scale display for control dashboards and presentations with very small axis labels.',
+  },
+  wallWhiteboard: {
+    id: 'wallWhiteboard', name: 'Wall Whiteboard', cost: { funding: 45 }, removeCost: 0,
+    morale: 0.5, placement: 'indoor', spriteKey: 'wall_whiteboard',
+    blocksBuild: false, category: 'hangings', mount: 'wall', wallSpan: 3, mountY: 1.55,
+    subW: 3, subL: 1, subH: 2,
+    desc: 'A magnetic whiteboard with marker tray, equations, and one emphatic DO NOT ERASE.',
+  },
+  wallBlackboard: {
+    id: 'wallBlackboard', name: 'Wall Blackboard', cost: { funding: 50 }, removeCost: 0,
+    morale: 0.75, placement: 'indoor', spriteKey: 'wall_blackboard',
+    blocksBuild: false, category: 'hangings', mount: 'wall', wallSpan: 3, mountY: 1.55,
+    subW: 3, subL: 1, subH: 2,
+    desc: 'A slate blackboard with a chalk rail and the satisfying permanence of an unfinished derivation.',
+  },
+  noticeBoard: {
+    id: 'noticeBoard', name: 'Notice Board', cost: { funding: 20 }, removeCost: 0,
+    morale: 0.25, placement: 'indoor', spriteKey: 'notice_board',
+    blocksBuild: false, category: 'hangings', mount: 'wall', wallSpan: 2, mountY: 1.55,
+    subW: 2, subL: 1, subH: 2,
+    desc: 'A cork notice board layered with shift rotas, seminar flyers, and expired safety reminders.',
+  },
 };
 
 // Palette-preview descriptions, kept in one block so the data table above

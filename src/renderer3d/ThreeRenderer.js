@@ -3273,7 +3273,9 @@ export class ThreeRenderer {
     // Stacked items ride placeY above that same zero.
     const surfaceY = 0;
     let y = (isDetailed ? placeYOffset : placeYOffset + (vSubH * SUB_UNIT) / 2) + surfaceY;
-    if (placeable.light) y = fixtureMountY(placeable, placeYOffset + surfaceY);
+    if (placeable.mount === 'wall' || placeable.light) {
+      y = fixtureMountY(placeable, placeYOffset + surfaceY);
+    }
     obj.position.set(px, y, pz);
     obj.rotation.y = wallPose?.yaw ?? (-(hover.dir || 0) * (Math.PI / 2));
     obj.renderOrder = 999;

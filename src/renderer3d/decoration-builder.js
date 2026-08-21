@@ -6,6 +6,7 @@ import { DECORATIONS_RAW } from '../data/decorations.raw.js';
 import { LIGHTING_DEFS } from '../data/placeables/lighting.js';
 import { buildLightFixture, isAimedFixture } from './lighting-builder.js';
 import { fixtureMountY, wallFixturePose } from './fixture-light-math.js';
+import { buildHanging, hasHangingGeometry } from './hanging-builder.js';
 import { contentKey } from './content-hash.js';
 
 const SUB = 0.5; // 1 sub-tile = 0.5 world units
@@ -1665,6 +1666,7 @@ export function hasDedicatedDecorationGeometry(typeId) {
     || TREE_BUILDERS[typeId]
     || _isFlowerBedType(typeId)
     || ITEM_BUILDERS[typeId]
+    || hasHangingGeometry(typeId)
     || typeId === 'shrub'
   );
 }
@@ -1706,6 +1708,8 @@ export function buildDecorationGroup(typeId, category, footW, footL, totalH, var
   // already keys on.
   const lightDef = LIGHTING_DEFS_BY_ID[typeId];
   if (lightDef) return buildLightFixture(lightDef, { dir });
+  const hanging = buildHanging(typeId, footW, footL, totalH);
+  if (hanging) return hanging;
   if (TREE_BUILDERS[typeId]) {
     return TREE_BUILDERS[typeId](footW, footL, totalH, treeVisualSeed(typeId, seed));
   }
@@ -1902,6 +1906,7 @@ export class DecorationBuilder {
     // category is palette grouping and is being reshuffled independently
     // of which defs are actually light fixtures.
     const lightDef = LIGHTING_DEFS_BY_ID[dec.type] || null;
+    const def = lightDef || DECORATIONS_RAW[dec.type] || null;
     const group = this._buildOne(
       dec.type, dec.category, p.geoW, p.geoL, p.totalH, dec.variant ?? 0, p.seed, dec.dir ?? 0,
     );
@@ -1913,8 +1918,10 @@ export class DecorationBuilder {
     // definition's mount height even though all fixtures still share the
     // ordinary decoration placement store.
     const floorY = (dec.y ?? 0) + (dec.placeY || 0) * SUB;
-    const groupY = lightDef ? fixtureMountY(lightDef, floorY) : floorY;
-    const wallPose = lightDef?.mount === 'wall' ? wallFixturePose(dec.wallMount) : null;
+    const groupY = def?.mount === 'wall' || lightDef
+      ? fixtureMountY(def, floorY)
+      : floorY;
+    const wallPose = def?.mount === 'wall' ? wallFixturePose(dec.wallMount) : null;
     group.position.set(wallPose?.x ?? p.x, groupY, wallPose?.z ?? p.z);
     group.rotation.y = wallPose?.yaw
       ?? (lightDef ? lightingYaw(lightDef, p.rotY, p.seed) : p.rotY);

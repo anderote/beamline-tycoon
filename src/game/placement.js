@@ -8,7 +8,7 @@ import { findWallKey, mirrorEdge } from './edge-keys.js';
 import { WALL_TYPES } from '../data/structure.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import {
-  physicalWallFixtureSlotKey,
+  physicalWallFixtureSlotKeys,
   wallFixtureFaceOffset,
 } from './wall-fixture-geometry.js';
 
@@ -66,9 +66,11 @@ export function usesFloorOccupancy(placeable) {
 }
 
 /** Snap a cursor fraction along a wall edge to one of its four sub-slots. */
-export function wallFixtureOffFromFrac(frac) {
+export function wallFixtureOffFromFrac(frac, span = 1) {
   const f = Number.isFinite(frac) ? frac : 0.5;
-  return Math.max(0, Math.min(3, Math.floor(f * 4)));
+  const slots = Math.max(1, Math.min(4, Math.floor(span || 1)));
+  const start = Math.floor(f * 4 - (slots - 1) / 2);
+  return Math.max(0, Math.min(4 - slots, start));
 }
 
 export function normalizeWallMount(site) {
@@ -88,6 +90,18 @@ export function wallFixtureMountKey(site) {
   return mount ? `${mount.col},${mount.row},${mount.edge},${mount.off}` : null;
 }
 
+/** Stable face-local identities for every quarter-wall slot a fixture covers. */
+export function wallFixtureMountKeys(site) {
+  const mount = normalizeWallMount(site);
+  if (!mount) return [];
+  const span = Math.max(1, Math.min(4, Math.floor(site?.span ?? 1)));
+  const off = Math.max(0, Math.min(4 - span, mount.off));
+  return Array.from(
+    { length: span },
+    (_, i) => `${mount.col},${mount.row},${mount.edge},${off + i}`,
+  );
+}
+
 /** Alias-independent identity for the wall segment supporting a fixture. */
 export function physicalWallKey(site) {
   const mount = normalizeWallMount(site);
@@ -101,7 +115,11 @@ export function physicalWallKey(site) {
 
 /** Validate the actual wall and face-slot a wall-mounted fixture needs. */
 export function canPlaceWallFixture(game, placeable, site, ignoreId = null) {
-  const mount = normalizeWallMount(site);
+  const requestedMount = normalizeWallMount(site);
+  const span = Math.max(1, Math.min(4, Math.floor(placeable?.wallSpan ?? 1)));
+  const mount = requestedMount
+    ? { ...requestedMount, off: Math.min(requestedMount.off, 4 - span), span }
+    : null;
   if (placeable?.mount !== 'wall' || !mount) {
     return { ok: false, hasWall: false, occupied: false, wallMount: mount };
   }
@@ -110,16 +128,20 @@ export function canPlaceWallFixture(game, placeable, site, ignoreId = null) {
   );
   const wallType = wallKey ? game.state.wallOccupied[wallKey] : null;
   const hasWall = !!wallKey;
-  const key = wallFixtureMountKey(mount);
-  const physicalSlot = physicalWallFixtureSlotKey(mount);
+  const keys = new Set(wallFixtureMountKeys(mount));
+  const physicalSlots = new Set(physicalWallFixtureSlotKeys(mount));
   const occupied = (game?.state?.placeables || []).some((entry) => {
     if (entry.id === ignoreId || !entry.wallMount) return false;
-    if (wallFixtureMountKey(entry.wallMount) === key) return true;
+    const otherDef = PLACEABLES[entry.type];
+    const otherMount = {
+      ...entry.wallMount,
+      span: otherDef?.wallSpan ?? entry.wallMount.span ?? 1,
+    };
+    if (wallFixtureMountKeys(otherMount).some(key => keys.has(key))) return true;
     // An ordinary light occupies one face. A cable feedthrough pierces the
     // slab and therefore reserves the matching slot on both faces.
-    const otherDef = PLACEABLES[entry.type];
     return (placeable.wallPassThrough === true || otherDef?.wallPassThrough === true)
-      && physicalWallFixtureSlotKey(entry.wallMount) === physicalSlot;
+      && physicalWallFixtureSlotKeys(otherMount).some(key => physicalSlots.has(key));
   });
   return {
     ok: hasWall && !occupied,

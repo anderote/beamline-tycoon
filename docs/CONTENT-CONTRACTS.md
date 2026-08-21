@@ -23,6 +23,11 @@ the short authoring contract.
 - Floor coverings use `mount: 'floor'`. They retain a placement footprint for
   rendering, selection, rotation, and area demolition, but do not claim the
   ordinary furnishing occupancy layer, so desks and chairs can sit on them.
+- Wall-mounted placeables use `mount: 'wall'`. Non-light hangings declare a
+  positive `mountY` centre height in world metres. Wide fixtures may declare
+  `wallSpan` from 1–4 to reserve consecutive quarter-wall slots; the default is
+  one slot. Placement stores the resolved span on `wallMount` so render poses,
+  overlap checks, moves, and save/load agree.
 - Electrical wall feedthroughs use `mount: 'wall'` and
   `wallPassThrough: true`. They reserve the matching quarter-wall slot on both
   faces and declare exactly two passive front/back ports of one electrical

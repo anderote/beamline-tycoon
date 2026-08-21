@@ -3244,7 +3244,7 @@ export class InputHandler {
         col: edge.col,
         row: edge.row,
         edge: edge.edge,
-        off: wallFixtureOffFromFrac(edge.frac),
+        off: wallFixtureOffFromFrac(edge.frac, placeable.wallSpan),
       } : null;
       const geometric = canPlaceWallFixture(
         this.game, placeable, wallMount, ignorePlaceableId,
