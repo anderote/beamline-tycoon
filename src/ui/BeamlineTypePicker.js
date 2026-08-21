@@ -44,6 +44,7 @@ import { MODES } from '../data/modes.js';
 import { RESEARCH } from '../data/research.js';
 import { COMPONENTS } from '../data/components.js';
 import { stockDesignsFor, getStockDesign } from '../data/stock-designs.js';
+import { fmtMoney } from './format.js';
 
 const WIN_ID = 'beamline-type-picker';
 
@@ -93,6 +94,21 @@ export function measuredFor(designId) {
 export function stockDesignCost(design) {
   return (design?.components || []).reduce(
     (sum, c) => sum + (COMPONENTS[c.type]?.cost?.funding || 0), 0);
+}
+
+/**
+ * A comparable starting-price estimate for a beamline mission.
+ *
+ * A mission alone does not have a price: the player can custom-build any
+ * lattice that reaches its target bands, and site-dependent pipe/foundation
+ * costs do not exist until placement. The tier-1 stock design is therefore the
+ * stable baseline — a known working entry machine made from published
+ * catalogue costs. Keep this hardware-only, like stockDesignCost(), and make
+ * the exclusions explicit wherever it is displayed.
+ */
+export function beamlineTypeApproxCost(typeId) {
+  const entryDesign = stockDesignsFor(typeId)[0];
+  return entryDesign ? stockDesignCost(entryDesign) : null;
 }
 
 /**
@@ -311,6 +327,50 @@ function missionBriefHtml(typeCount) {
     + '</section>';
 }
 
+const TYPE_COST_CAVEAT =
+  'Approximate entry hardware cost, based on this mission’s tier-1 stock design. '
+  + 'Concrete, beam pipe, utility plant, rooms and land cost extra.';
+
+/** One mission card, kept independently renderable for its display contract. */
+export function beamlineTypeCardHtml(type, selected = false) {
+  if (!type) return '';
+
+  const accent = hex(type.accentColor);
+  const cls = ['bltype-card'];
+  if (selected) cls.push('selected');
+
+  const energy = formatEnergyBand(type.spec?.energyGeV);
+  const current = formatCurrentBand(type.spec?.currentMA);
+  const approxCost = beamlineTypeApproxCost(type.id);
+
+  let html = `<div class="${cls.join(' ')}" data-type-id="${esc(type.id)}"`
+    + ` style="--bltype-accent:${accent};">`;
+  html += '<div class="bltype-card-head">';
+  html += `<span class="bltype-name">${esc(type.name)}</span>`;
+  html += '<span class="bltype-head-meta">';
+  html += `<span class="bltype-particle">${esc(type.particle)}</span>`;
+  html += `<span class="bltype-tier">T${type.tier}</span>`;
+  html += '</span></div>';
+  html += '<div class="bltype-requirements">';
+  html += '<span class="bltype-requirement">'
+    + '<span class="bltype-requirement-label">Energy</span>'
+    + `<strong>${esc(energy)}</strong></span>`;
+  if (current) {
+    html += '<span class="bltype-requirement">'
+      + '<span class="bltype-requirement-label">Current</span>'
+      + `<strong>${esc(current)}</strong></span>`;
+  }
+  if (approxCost != null) {
+    html += `<span class="bltype-requirement bltype-cost-estimate" title="${esc(TYPE_COST_CAVEAT)}">`
+      + '<span class="bltype-requirement-label">Starts at</span>'
+      + `<strong>≈ ${esc(fmtMoney(approxCost))}</strong></span>`;
+  }
+  html += '</div>';
+  html += `<div class="bltype-blurb">${esc(type.blurb)}</div>`;
+  html += '</div>';
+  return html;
+}
+
 /**
  * The blueprint gallery for one type: its stock designs in tier order, plus the
  * Custom entry that is what this picker did before blueprints existed.
@@ -430,25 +490,7 @@ export function openBeamlineTypePicker(game, {
     html += '<div class="bltype-grid">';
 
     for (const t of types) {
-      const accent = hex(t.accentColor);
-      const cls = ['bltype-card'];
-      if (selected === t.id) cls.push('selected');
-
-      const current = formatCurrentBand(t.spec?.currentMA);
-
-      html += `<div class="${cls.join(' ')}" data-type-id="${esc(t.id)}"`
-        + ` style="--bltype-accent:${accent};">`;
-      html += '<div class="bltype-card-head">';
-      html += `<span class="bltype-name">${esc(t.name)}</span>`;
-      html += `<span class="bltype-tier">T${t.tier}</span>`;
-      html += '</div>';
-      html += '<div class="bltype-specs">';
-      html += `<span class="bltype-spec">${esc(t.particle)}</span>`;
-      html += `<span class="bltype-spec">${esc(formatEnergyBand(t.spec?.energyGeV))}</span>`;
-      if (current) html += `<span class="bltype-spec">${esc(current)}</span>`;
-      html += '</div>';
-      html += `<div class="bltype-blurb">${esc(t.blurb)}</div>`;
-      html += '</div>';
+      html += beamlineTypeCardHtml(t, selected === t.id);
     }
 
     html += '</div>';
