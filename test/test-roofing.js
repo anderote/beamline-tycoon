@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
-import { findRoofRegion, roofProfileForRegion } from '../src/game/roofing.js';
+import { findRoofRegion, isRoofedRegion, roofProfileForRegion } from '../src/game/roofing.js';
 import { detectRooms } from '../src/networks/rooms.js';
 import { buildWorldSnapshot } from '../src/renderer3d/world-snapshot.js';
 import { roofVisibleForWallMode } from '../src/renderer3d/roof-visibility.js';
@@ -77,6 +77,21 @@ assert.equal(roofProfileForRegion(highBay, findRoofRegion(highBay, 0, 0)).id, 'h
 highBay.wallOccupied['0,0,n'] = 'officeWall';
 assert.equal(roofProfileForRegion(highBay, findRoofRegion(highBay, 0, 0)).id, 'dropCeiling',
   'mixing an interior wall into the boundary selects a suspended ceiling');
+
+const upper = {
+  infraOccupied: { '1|0,0': 'officeFloor' },
+  wallOccupied: {
+    '1|0,0,n': 'officeWall', '1|0,0,e': 'officeWall',
+    '1|0,0,s': 'officeWall', '1|0,0,w': 'officeWall',
+  },
+  roofs: [{ col: 0, row: 0, level: 1, type: 'roof' }],
+};
+assert.deepEqual(findRoofRegion(upper, 0, 0, 1), [{ col: 0, row: 0, level: 1 }],
+  'upper-storey enclosure uses level-aware floor and wall indexes');
+assert.deepEqual(findRoofRegion(upper, 0, 0, 0), [],
+  'an upper room does not appear on the ground floor');
+assert.equal(isRoofedRegion(upper, findRoofRegion(upper, 0, 0, 1)), true,
+  'upper roof tiles satisfy their own room');
 
 highBay.roofs = [{ col: 0, row: 0, type: 'roof' }];
 const roofSnapshot = buildWorldSnapshot({ state: highBay }, { only: ['roofs'] }).roofs[0];

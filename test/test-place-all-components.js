@@ -12,6 +12,7 @@ import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
 import { Game } from '../src/game/Game.js';
 import { BEAMLINE_COMPONENTS_RAW } from '../src/data/beamline-components.raw.js';
 import { PLACEABLES } from '../src/data/placeables/index.js';
+import { tileKey, withLevel } from '../src/game/storeys.js';
 
 // --- harness ---
 let passed = 0;
@@ -137,6 +138,19 @@ for (const type of infraTypes) {
       ? { col: placementCol, row: placementRow, edge: 'n', off: 1 }
       : undefined;
     if (wallMount) game.state.wallOccupied[`${placementCol},${placementRow},n`] = 'officeWall';
+    if (def.verticalConnector) {
+      const landingTiles = new Set(def.footprintCells(
+        placementCol, placementRow, 0, 0, 0,
+      ).map(cell => `${cell.col},${cell.row}`));
+      for (const key of landingTiles) {
+        const [col, row] = key.split(',').map(Number);
+        for (const level of [0, 1]) {
+          const floor = withLevel({ type: 'concrete', col, row, variant: 0 }, level);
+          game.state.floors.push(floor);
+          game.state.infraOccupied[tileKey(col, row, level)] = 'concrete';
+        }
+      }
+    }
     const result = game.placePlaceable({
       type,
       col: placementCol, row: placementRow,

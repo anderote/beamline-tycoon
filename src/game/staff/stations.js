@@ -26,6 +26,7 @@
 
 import { getNavGrid, isReachable } from './nav.js';
 import { PLACEABLES } from '../../data/placeables/index.js';
+import { levelOf, sameLevel, tileKey, withLevel } from '../storeys.js';
 
 // Facing letters, in the same rotation order as `dir` (see task-4-brief.md's
 // dir/edge/facing table): n=dir0(-Z), e=dir1(+X), s=dir2(+Z), w=dir3(-X).
@@ -86,12 +87,12 @@ function rotateAnchorOffset(ac, ar, subW, subL, dir) {
 function absoluteSubtile(entry, dc, dr) {
   const totalCol = (entry.subCol || 0) + dc;
   const totalRow = (entry.subRow || 0) + dr;
-  return {
+  return withLevel({
     col: entry.col + Math.floor(totalCol / 4),
     row: entry.row + Math.floor(totalRow / 4),
     subCol: ((totalCol % 4) + 4) % 4,
     subRow: ((totalRow % 4) + 4) % 4,
-  };
+  }, levelOf(entry));
 }
 
 /**
@@ -143,6 +144,7 @@ function findMatchingChair(chairs, usedChairs, anchorNode, anchorFacing) {
   let bestDist = Infinity;
   for (const chair of chairs) {
     if (usedChairs.has(chair.id)) continue;
+    if (!sameLevel(chair, levelOf(anchorNode))) continue;
     const def = PLACEABLES[chair.type];
     if (!def?.seat) continue;
     const facing = rotateFacing(def.seat.facing, chair.dir || 0);
@@ -178,7 +180,7 @@ export function buildStationIndex(state) {
     const def = PLACEABLES[entry.type];
     if (!def || !def.station) continue;
     const { jobs, seated: seatedPref, anchors } = def.station;
-    const zoneType = zoneOccupied[entry.col + ',' + entry.row] ?? null;
+    const zoneType = zoneOccupied[tileKey(entry.col, entry.row, levelOf(entry))] ?? null;
 
     anchors.forEach((anchorDef, slotIndex) => {
       const { node: anchorNode, facing: anchorFacing } = resolveAnchor(entry, def, anchorDef);
@@ -194,7 +196,10 @@ export function buildStationIndex(state) {
           usedChairs.add(chair.id);
           seated = true;
           seatPlaceableId = chair.id;
-          node = { col: chair.col, row: chair.row, subCol: chair.subCol || 0, subRow: chair.subRow || 0 };
+          node = withLevel({
+            col: chair.col, row: chair.row,
+            subCol: chair.subCol || 0, subRow: chair.subRow || 0,
+          }, levelOf(chair));
           facing = rotateFacing(PLACEABLES[chair.type].seat.facing, chair.dir || 0);
         }
       }

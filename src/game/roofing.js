@@ -1,13 +1,14 @@
 import { EDGE_DELTAS, edgeKey, mirrorEdge } from './edge-keys.js';
 import { FLOORS, WALL_TYPES } from '../data/structure.js';
+import { levelOf, normalizeLevel, sameLevel, tileKey, withLevel } from './storeys.js';
 
 const EDGES = ['n', 'e', 's', 'w'];
 
-function wallTypeAt(state, col, row, edge) {
+function wallTypeAt(state, col, row, edge, level = 0) {
   const wallOccupied = state.wallOccupied || {};
-  const direct = edgeKey(col, row, edge);
-  const mirror = mirrorEdge(col, row, edge);
-  return wallOccupied[direct] || wallOccupied[edgeKey(mirror.col, mirror.row, mirror.edge)] || null;
+  const direct = edgeKey(col, row, edge, level);
+  const mirror = mirrorEdge(col, row, edge, level);
+  return wallOccupied[direct] || wallOccupied[edgeKey(mirror.col, mirror.row, mirror.edge, level)] || null;
 }
 
 /** True when a wall type is a building wall rather than a landscape divider. */
@@ -19,18 +20,19 @@ export function isRoofBoundaryWall(wallType) {
     def.subsection !== 'fencing' && def.subsection !== 'hedges';
 }
 
-function blocked(state, col, row, edge) {
+function blocked(state, col, row, edge, level = 0) {
   // A doorway remains part of the enclosing wall for roofing. Treating doors
   // as flood-fill openings joined every office, lab and corridor in a large
   // facility into one enormous region, so the roof tool reported that
   // otherwise complete rooms were not enclosed.
-  return isRoofBoundaryWall(wallTypeAt(state, col, row, edge));
+  return isRoofBoundaryWall(wallTypeAt(state, col, row, edge, level));
 }
 
 /** Return the floored, wall-enclosed region under a roof-tool cursor. */
-export function findRoofRegion(state, startCol, startRow) {
+export function findRoofRegion(state, startCol, startRow, level = 0) {
+  level = normalizeLevel(level);
   const floors = state.infraOccupied || {};
-  const start = `${startCol},${startRow}`;
+  const start = tileKey(startCol, startRow, level);
   if (!floors[start]) return [];
 
   const region = [];
@@ -38,12 +40,13 @@ export function findRoofRegion(state, startCol, startRow) {
   const queue = [start];
   for (let cursor = 0; cursor < queue.length; cursor++) {
     const key = queue[cursor];
-    const [col, row] = key.split(',').map(Number);
-    region.push({ col, row });
+    const raw = key.includes('|') ? key.slice(key.indexOf('|') + 1) : key;
+    const [col, row] = raw.split(',').map(Number);
+    region.push(withLevel({ col, row }, level));
     for (const edge of EDGES) {
       const delta = EDGE_DELTAS[edge];
-      const next = `${col + delta.dc},${row + delta.dr}`;
-      if (!floors[next] || seen.has(next) || blocked(state, col, row, edge)) continue;
+      const next = tileKey(col + delta.dc, row + delta.dr, level);
+      if (!floors[next] || seen.has(next) || blocked(state, col, row, edge, level)) continue;
       seen.add(next);
       queue.push(next);
     }
@@ -52,12 +55,12 @@ export function findRoofRegion(state, startCol, startRow) {
   // A region is roofable only when every edge leading off its floor footprint
   // is a solid wall. This rejects outdoor floor patches and rooms with an
   // open doorway to the outside, while allowing doors between enclosed rooms.
-  const regionKeys = new Set(region.map(tile => `${tile.col},${tile.row}`));
+  const regionKeys = new Set(region.map(tile => tileKey(tile.col, tile.row, level)));
   for (const tile of region) {
     for (const edge of EDGES) {
       const delta = EDGE_DELTAS[edge];
-      const next = `${tile.col + delta.dc},${tile.row + delta.dr}`;
-      if (!regionKeys.has(next) && !blocked(state, tile.col, tile.row, edge)) return [];
+      const next = tileKey(tile.col + delta.dc, tile.row + delta.dr, level);
+      if (!regionKeys.has(next) && !blocked(state, tile.col, tile.row, edge, level)) return [];
     }
   }
   return region;
@@ -73,13 +76,14 @@ export function roofProfileForRegion(state, region) {
   const profiles = FLOORS.roof.roofProfiles;
   if (!region?.length) return profiles.highBay;
 
-  const keys = new Set(region.map(tile => `${tile.col},${tile.row}`));
+  const level = levelOf(region[0]);
+  const keys = new Set(region.map(tile => tileKey(tile.col, tile.row, level)));
   const boundaryTypes = [];
   for (const tile of region) {
     for (const edge of EDGES) {
       const delta = EDGE_DELTAS[edge];
-      if (keys.has(`${tile.col + delta.dc},${tile.row + delta.dr}`)) continue;
-      const type = wallTypeAt(state, tile.col, tile.row, edge);
+      if (keys.has(tileKey(tile.col + delta.dc, tile.row + delta.dr, level))) continue;
+      const type = wallTypeAt(state, tile.col, tile.row, edge, level);
       if (isRoofBoundaryWall(type)) boundaryTypes.push(type);
     }
   }
@@ -90,14 +94,16 @@ export function roofProfileForRegion(state, region) {
   return highBay ? profiles.highBay : profiles.dropCeiling;
 }
 
-export function roofKey(col, row) { return `${col},${row}`; }
+export function roofKey(col, row, level = 0) { return tileKey(col, row, level); }
 
-export function roofedTiles(state) {
-  return new Set((state.roofs || []).map(tile => roofKey(tile.col, tile.row)));
+export function roofedTiles(state, level = null) {
+  return new Set((state.roofs || [])
+    .filter(tile => level == null || sameLevel(tile, level))
+    .map(tile => roofKey(tile.col, tile.row, levelOf(tile))));
 }
 
 export function isRoofedRegion(state, region) {
   if (!region?.length) return false;
   const roofs = roofedTiles(state);
-  return region.every(tile => roofs.has(roofKey(tile.col, tile.row)));
+  return region.every(tile => roofs.has(roofKey(tile.col, tile.row, levelOf(tile))));
 }

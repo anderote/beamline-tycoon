@@ -51,6 +51,13 @@ console.log('\n=== Facility data systems ===\n');
   ) };
   assert(matchingZoneForPlacement(PLACEABLES.serverCluster, placed, complete.zoneOccupied) === 'controlRoom',
     'a fully enclosed data rack resolves its bonus room');
+  const upperOccupied = Object.fromEntries(
+    cells.map(cell => [`1|${cell.col},${cell.row}`, 'controlRoom']),
+  );
+  assert(matchingZoneForPlacement(
+    PLACEABLES.serverCluster, { ...placed, level: 1 }, upperOccupied,
+    (cell, entry) => `${entry.level}|${cell.col},${cell.row}`,
+  ) === 'controlRoom', 'a caller-provided tile identity resolves an upper-floor bonus room');
 }
 
 {

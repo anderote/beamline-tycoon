@@ -5,49 +5,60 @@
 import { placeableMutationEvent } from '../game/placeable-events.js';
 import { selectionTargetByKey } from '../game/selection-targets.js';
 import { mirrorEdge } from '../game/edge-keys.js';
+import { levelOf, subtileKey } from '../game/storeys.js';
 
 function placeFloorCopy(game, floor) {
   if (floor.foundation
-      && !game.placeInfraTile(floor.col, floor.row, floor.foundation, floor.variant ?? 0)) {
+      && !game.placeInfraTile(
+        floor.col, floor.row, floor.foundation, floor.variant ?? 0,
+        { level: levelOf(floor) },
+      )) {
     return false;
   }
   return game.placeInfraRect(
     floor.col, floor.row, floor.col, floor.row,
-    floor.type, floor.variant ?? 0, floor.orientation ?? null,
+    floor.type, floor.variant ?? 0, floor.orientation ?? null, levelOf(floor),
   );
 }
 
 function copyWallPaint(game, wall) {
   if (!wall?.facePaint) return;
   if (wall.facePaint.inside) {
-    game.paintWallFace(wall.col, wall.row, wall.edge, wall.facePaint.inside);
+    game.paintWallFace(
+      wall.col, wall.row, wall.edge, wall.facePaint.inside, levelOf(wall),
+    );
   }
   if (wall.facePaint.outside) {
-    const mirror = mirrorEdge(wall.col, wall.row, wall.edge);
-    if (mirror) game.paintWallFace(mirror.col, mirror.row, mirror.edge, wall.facePaint.outside);
+    const mirror = mirrorEdge(wall.col, wall.row, wall.edge, levelOf(wall));
+    if (mirror) game.paintWallFace(
+      mirror.col, mirror.row, mirror.edge, wall.facePaint.outside, levelOf(wall),
+    );
   }
 }
 
 function placeEdgeCopy(game, assembly, { includeDoor = true } = {}) {
   const wall = assembly?.wall;
   if (!wall || !game.placeWall(
-    wall.col, wall.row, wall.edge, wall.type, wall.variant ?? 0,
+    wall.col, wall.row, wall.edge, wall.type, wall.variant ?? 0, levelOf(wall),
   )) return false;
   copyWallPaint(game, wall);
 
   const overlay = assembly.overlay;
   if (overlay && !game.placeWall(
     overlay.col, overlay.row, overlay.edge, overlay.type, overlay.variant ?? 0,
+    levelOf(overlay),
   )) return false;
 
   const door = includeDoor && assembly.door;
   if (door && !game.placeDoor(
     door.col, door.row, door.edge, door.type, door.variant ?? 0, door.off,
+    levelOf(door),
   )) return false;
 
   const window = assembly.window;
   if (window && !game.placeWindow(
     window.col, window.row, window.edge, window.type, window.variant ?? 0, window.off,
+    levelOf(window),
   )) return false;
   return true;
 }
@@ -88,6 +99,7 @@ export function copySelectionGroup(game, payload, preview) {
           placedDoors.add(doorKey);
           if (!game.placeDoor(
             door.col, door.row, door.edge, door.type, door.variant ?? 0, door.off,
+            levelOf(door),
           )) {
             game.restoreBeamlineState(rollback);
             return false;
@@ -106,6 +118,7 @@ export function copySelectionGroup(game, payload, preview) {
             params: target.params,
             variant: target.variant,
             silent: true,
+            level: target.level,
           });
           if (!id) {
             game.restoreBeamlineState(rollback);
@@ -153,7 +166,9 @@ export function moveSelectionGroup(game, payload, preview) {
         return false;
       }
       for (const cell of (entry.cells || [])) {
-        const key = `${cell.col},${cell.row},${cell.subCol},${cell.subRow}`;
+        const key = subtileKey(
+          cell.col, cell.row, cell.subCol, cell.subRow, levelOf(entry),
+        );
         if (selected.has(game.state.subgridOccupied[key]?.id)) {
           delete game.state.subgridOccupied[key];
         }
@@ -167,6 +182,7 @@ export function moveSelectionGroup(game, payload, preview) {
         subCol: target.subCol,
         subRow: target.subRow,
         dir: target.dir,
+        level: target.level,
       })) {
         game.restoreBeamlineState(rollback);
         return false;
@@ -229,13 +245,13 @@ export function demolishSelection(game, ids) {
       } else if (target.targetKind === 'beamlineAttachment') {
         game.beamline?.removeFromPipe?.(target.pipeId, target.id);
       } else if (target.targetKind === 'floor') {
-        game.removeInfraTile(target.col, target.row);
+        game.removeInfraTile(target.col, target.row, target.level);
       } else if (target.targetKind === 'edge') {
         const { overlay, door, window, wall } = target;
-        if (window) game.removeWindow(window.col, window.row, window.edge);
-        if (door) game.removeDoor(door.col, door.row, door.edge);
-        if (overlay) game.removeWall(overlay.col, overlay.row, overlay.edge);
-        if (wall) game.removeWall(wall.col, wall.row, wall.edge);
+        if (window) game.removeWindow(window.col, window.row, window.edge, levelOf(window));
+        if (door) game.removeDoor(door.col, door.row, door.edge, levelOf(door));
+        if (overlay) game.removeWall(overlay.col, overlay.row, overlay.edge, levelOf(overlay));
+        if (wall) game.removeWall(wall.col, wall.row, wall.edge, levelOf(wall));
       }
     }
   }));

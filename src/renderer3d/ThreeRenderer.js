@@ -109,6 +109,7 @@ import {
   YAW_DIVISIONS,
 } from './free-orbit-math.js';
 import { ViewCube } from './view-cube.js';
+import { MAX_LEVEL, floorLabel, levelWorldY } from '../game/storeys.js';
 import { loadLegacyThumbnailRenderer } from './legacy-thumbnail-renderer.js';
 import {
   DEFAULT_ZONE_LABEL_STYLE,
@@ -813,6 +814,12 @@ export class ThreeRenderer {
           // game.load() runs, so refresh it after restored research arrives.
           if (this._renderTechTree) this._renderTechTree();
           break;
+        case 'activeLevelChanged':
+          this._worldInvalidationScheduler.clear();
+          this._clearPreview();
+          this._syncActiveLevelPresentation();
+          this.refresh();
+          break;
         case 'worldExplosion':
           this.explodeWorld(data?.position || data, data?.options || {});
           break;
@@ -913,6 +920,8 @@ export class ThreeRenderer {
     if (cubeHost) {
       this._viewCube = new ViewCube(this, cubeHost);
     }
+    this._bindFloorViewControl();
+    this._syncActiveLevelPresentation();
 
     this._animate();
     // Most palette entries have static thumbnails. Fetch the small classic
@@ -931,7 +940,35 @@ export class ThreeRenderer {
 
   // --- Coordinate conversion (PixiJS-compatible) ---
 
+  _bindFloorViewControl() {
+    const host = document.getElementById('floor-view-control');
+    if (!host || host.dataset.bound === 'true') return;
+    host.dataset.bound = 'true';
+    host.addEventListener('click', (event) => {
+      const button = event.target.closest?.('[data-floor-level]');
+      if (!button) return;
+      this.game.setActiveLevel(Number(button.dataset.floorLevel));
+    });
+  }
+
+  _syncActiveLevelPresentation() {
+    const level = Math.max(0, Math.min(MAX_LEVEL, this.game.activeLevel || 0));
+    document.querySelectorAll('.floor-view-btn').forEach((button) => {
+      const buttonLevel = Number(button.dataset.floorLevel);
+      button.classList.toggle('active', buttonLevel === level);
+      button.setAttribute('aria-pressed', buttonLevel === level ? 'true' : 'false');
+      button.setAttribute('aria-label', floorLabel(buttonLevel));
+    });
+    const y = levelWorldY(level);
+    if (this.previewGroup) this.previewGroup.position.y = y;
+    if (this.gridOverlayGroup) this.gridOverlayGroup.position.y = y;
+  }
+
   screenToWorld(screenX, screenY) {
+    const activeHeight = levelWorldY(this.game.activeLevel || 0);
+    if (activeHeight > 0) {
+      return this.screenToWorldAtHeight(screenX, screenY, activeHeight);
+    }
     // Raycast the ground plane through the current camera so this respects
     // view rotation. Returns iso-pixel coords (the downstream isoToGrid /
     // isoToSubGrid helpers expect base-iso coordinates, so we convert the
@@ -963,14 +1000,24 @@ export class ThreeRenderer {
    */
   screenToWorldAtHeight(screenX, screenY, height) {
     if (!height) return this.screenToWorld(screenX, screenY);
-    if (!this.camera || !this.renderer) return this.screenToWorld(screenX, screenY);
+    if (!this.camera || !this.renderer) {
+      return {
+        x: (screenX - (this.world?.x || 0)) / this.zoom,
+        y: (screenY - (this.world?.y || 0)) / this.zoom,
+      };
+    }
     const { raycaster } = this._screenRay(screenX, screenY);
     let plane = this._heightPlaneScratch;
     if (!plane) plane = this._heightPlaneScratch = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     // Plane equation is normal·p + constant = 0, so y = height is constant = -height.
     plane.constant = -height;
     const hit = new THREE.Vector3();
-    if (!raycaster.ray.intersectPlane(plane, hit)) return this.screenToWorld(screenX, screenY);
+    if (!raycaster.ray.intersectPlane(plane, hit)) {
+      return {
+        x: (screenX - (this.world?.x || 0)) / this.zoom,
+        y: (screenY - (this.world?.y || 0)) / this.zoom,
+      };
+    }
     return gridToIso(hit.x / 2, hit.z / 2);
   }
 

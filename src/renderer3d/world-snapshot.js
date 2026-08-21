@@ -21,6 +21,9 @@ import { utilityLineHeight } from '../utility/registry.js';
 import { isWorldChangeSet } from '../game/world-change-set.js';
 import { findRoofRegion, roofKey, roofProfileForRegion } from '../game/roofing.js';
 import { resolveMapEdgeConnection } from '../game/map-edge-connection.js';
+import {
+  STOREY_HEIGHT, levelOf, levelWorldY, sameLevel, tileKey,
+} from '../game/storeys.js';
 
 /**
  * How far the drawn ground reaches — always exactly the map the player owns,
@@ -170,6 +173,7 @@ const GRASS_SURFACE_KINDS = new Set(['grass', 'wildgrass', 'tallgrass']);
  * separate snapshot field to keep other floor consumers uninvolved.
  */
 function buildGrassSurfaces(game) {
+  if (game.activeLevel !== 0) return [];
   const blobs = game.state.terrainBlobs || [];
   const infraOccupied = game.state.infraOccupied || {};
   const out = [];
@@ -197,6 +201,7 @@ function buildGrassSurfaces(game) {
 function buildFloors(game) {
   const out = [];
   for (const tile of game.state.floors || []) {
+    if (!sameLevel(tile, game.activeLevel)) continue;
     // Grass-kind surfaces render via the terrain mesh (which still covers
     // these cells) plus the tuft builder — skip emitting a floor tile so the
     // FloorBuilder doesn't stamp a flat texture on top.
@@ -205,8 +210,9 @@ function buildFloors(game) {
     // Concrete is treated as a flat foundation pad at y=0 — it ignores
     // underlying terrain slope (may visually clip; flatten-on-place TBD).
     const isConcrete = tile.type === 'concrete';
-    const cornersY = isConcrete
-      ? { nw: 0, ne: 0, se: 0, sw: 0 }
+    const baseY = levelWorldY(levelOf(tile));
+    const cornersY = levelOf(tile) > 0 || isConcrete
+      ? { nw: baseY, ne: baseY, se: baseY, sw: baseY }
       : getTileCornersY(game.state, tile.col, tile.row);
     out.push({
       col: tile.col,
@@ -224,36 +230,36 @@ function buildFloors(game) {
 
 function buildRoofs(game) {
   const state = game.state;
+  const level = game.activeLevel || 0;
   const profileByTile = new Map();
-  const roofKeys = new Set((state.roofs || []).map(tile => roofKey(tile.col, tile.row)));
+  const activeRoofs = (state.roofs || []).filter(tile => sameLevel(tile, level));
+  const roofKeys = new Set(activeRoofs.map(tile => roofKey(tile.col, tile.row, level)));
 
   // Resolve each enclosed room once, then share its semantic ceiling profile
   // across every roof tile in that room. Door edges split regions, so a large
   // connected facility can mix office ceilings and structural high bays.
-  for (const tile of state.roofs || []) {
-    const startKey = roofKey(tile.col, tile.row);
+  for (const tile of activeRoofs) {
+    const startKey = roofKey(tile.col, tile.row, level);
     if (profileByTile.has(startKey)) continue;
-    const region = findRoofRegion(state, tile.col, tile.row);
+    const region = findRoofRegion(state, tile.col, tile.row, level);
     const profile = roofProfileForRegion(state, region);
     if (!region.length) {
       profileByTile.set(startKey, profile);
       continue;
     }
     for (const member of region) {
-      const key = roofKey(member.col, member.row);
+      const key = roofKey(member.col, member.row, level);
       if (roofKeys.has(key)) profileByTile.set(key, profile);
     }
   }
 
-  return (game.state.roofs || []).map(tile => {
+  return activeRoofs.map(tile => {
     const def = FLOORS[tile.type] || FLOORS.roof;
-    const corners = getTileCornersY(game.state, tile.col, tile.row);
-    const profile = profileByTile.get(roofKey(tile.col, tile.row)) || def.roofProfiles?.highBay;
+    const profile = profileByTile.get(roofKey(tile.col, tile.row, level)) || def.roofProfiles?.highBay;
     return {
       col: tile.col, row: tile.row, type: tile.type || 'roof', variant: tile.variant ?? 0,
       x: (tile.col + 0.5) * 2, z: (tile.row + 0.5) * 2,
-      y: (corners.nw + corners.ne + corners.se + corners.sw) / 4 +
-        (profile?.height ?? def.roofHeight ?? 3.35),
+      y: levelWorldY(level) + (profile?.height ?? def.roofHeight ?? STOREY_HEIGHT),
       profile: profile?.id ?? 'highBay',
       texture: profile?.texture ?? null,
     };
@@ -278,17 +284,22 @@ function edgeBaseY(state, col, row, edge) {
 }
 
 function buildWalls(game) {
-  const walls = (game.state.walls || []).map(w => ({
+  const level = game.activeLevel || 0;
+  const storeyBase = levelWorldY(level);
+  const walls = (game.state.walls || []).filter(w => sameLevel(w, level)).map(w => ({
     col: w.col,
     row: w.row,
     edge: w.edge,
     type: w.type,
     variant: w.variant ?? 0,
     facePaint: w.facePaint ?? null,
-    baseY: edgeBaseY(game.state, w.col, w.row, w.edge),
+    baseY: level > 0
+      ? { a: storeyBase, b: storeyBase }
+      : edgeBaseY(game.state, w.col, w.row, w.edge),
   }));
   for (const layer of (game.state.wallOverlays || [])) {
-    const hostKey = game._wallSiteKey?.(layer.col, layer.row, layer.edge);
+    if (!sameLevel(layer, level)) continue;
+    const hostKey = game._wallSiteKey?.(layer.col, layer.row, layer.edge, level);
     const host = hostKey ? game._wallAt?.(hostKey) : null;
     if (!host) continue;
     walls.push({
@@ -299,7 +310,9 @@ function buildWalls(game) {
       variant: layer.variant ?? 0,
       overlay: true,
       host: { col: host.col, row: host.row, edge: host.edge, type: host.type },
-      baseY: edgeBaseY(game.state, layer.col, layer.row, layer.edge),
+      baseY: level > 0
+        ? { a: storeyBase, b: storeyBase }
+        : edgeBaseY(game.state, layer.col, layer.row, layer.edge),
     });
   }
   return walls;
@@ -318,13 +331,17 @@ function buildWalls(game) {
  * climbs the hill.
  */
 function buildDoors(game) {
-  return (game.state.doors || []).map(d => {
+  const level = game.activeLevel || 0;
+  const storeyBase = levelWorldY(level);
+  return (game.state.doors || []).filter(d => sameLevel(d, level)).map(d => {
     const def = DOOR_TYPES[d.type];
     const segments = doorRecordEdges(d, def);
     const first = segments[0] || d;
     const last = segments[segments.length - 1] || first;
-    const firstBase = edgeBaseY(game.state, first.col, first.row, first.edge);
-    const lastBase = edgeBaseY(game.state, last.col, last.row, last.edge);
+    const firstBase = level > 0 ? { a: storeyBase, b: storeyBase }
+      : edgeBaseY(game.state, first.col, first.row, first.edge);
+    const lastBase = level > 0 ? { a: storeyBase, b: storeyBase }
+      : edgeBaseY(game.state, last.col, last.row, last.edge);
     return {
       col: first.col,
       row: first.row,
@@ -345,7 +362,9 @@ function buildDoors(game) {
 // window is a hole in a wall, not a passable opening. See
 // docs/superpowers/specs/2026-08-13-windows-design.md.
 function buildWindows(game) {
-  return (game.state.windows || []).map(w => ({
+  const level = game.activeLevel || 0;
+  const storeyBase = levelWorldY(level);
+  return (game.state.windows || []).filter(w => sameLevel(w, level)).map(w => ({
     col: w.col,
     row: w.row,
     edge: w.edge,
@@ -354,12 +373,13 @@ function buildWindows(game) {
     off: w.off ?? defaultWindowOff(WINDOW_TYPES[w.type]),
     // Same endpoint heights walls and doors carry, so a window in a wall on
     // sloped ground sits on the terrain instead of at world zero.
-    baseY: edgeBaseY(game.state, w.col, w.row, w.edge),
+    baseY: level > 0 ? { a: storeyBase, b: storeyBase }
+      : edgeBaseY(game.state, w.col, w.row, w.edge),
   }));
 }
 
 function buildZones(game) {
-  return (game.state.zones || []).map(z => ({
+  return (game.state.zones || []).filter(z => sameLevel(z, game.activeLevel)).map(z => ({
     col: z.col,
     row: z.row,
     zoneType: z.type,
@@ -371,9 +391,23 @@ function buildZones(game) {
  * renderer's cached snapshot stays detached from live state mutation.
  */
 function buildWallOccupancy(game) {
+  const level = game.activeLevel || 0;
+  const wallOccupied = {};
+  const doorOccupied = {};
+  for (const wall of game.state.walls || []) {
+    if (sameLevel(wall, level)) {
+      wallOccupied[`${wall.col},${wall.row},${wall.edge}`] = wall.type;
+    }
+  }
+  for (const door of game.state.doors || []) {
+    if (!sameLevel(door, level)) continue;
+    for (const segment of doorRecordEdges(door, DOOR_TYPES[door.type])) {
+      doorOccupied[`${segment.col},${segment.row},${segment.edge}`] = door.type;
+    }
+  }
   return {
-    wallOccupied: { ...(game.state.wallOccupied || {}) },
-    doorOccupied: { ...(game.state.doorOccupied || {}) },
+    wallOccupied,
+    doorOccupied,
   };
 }
 
@@ -381,6 +415,7 @@ function wallMountSnapshot(game, wallMount) {
   if (!wallMount) return null;
   const wallKey = findWallKey(
     game.state.wallOccupied, wallMount.col, wallMount.row, wallMount.edge,
+    levelOf(wallMount),
   );
   const wallType = wallKey ? game.state.wallOccupied[wallKey] : null;
   return {
@@ -392,7 +427,10 @@ function wallMountSnapshot(game, wallMount) {
 function buildComponents(game) {
   // All beamline + infrastructure placeables
   const placeables = (game.state.placeables || []).filter(
-    p => p.category === 'beamline' || p.category === 'infrastructure'
+    p => (sameLevel(p, game.activeLevel)
+        || (PLACEABLES[p.type]?.verticalConnector
+          && levelOf(p) + 1 === game.activeLevel))
+      && (p.category === 'beamline' || p.category === 'infrastructure')
   );
 
   return placeables.map(p => componentSnapshotEntry(game, p));
@@ -440,18 +478,21 @@ function componentSnapshotEntry(game, p) {
     beamlineId: p.beamlineId ?? null,
     accentColor,
     mapEdgeConnection,
+    yOffset: levelWorldY(levelOf(p)),
   };
 }
 
 function buildEquipment(game) {
-  const equip = (game.state.placeables || []).filter(p => p.category === 'equipment');
+  const equip = (game.state.placeables || []).filter(
+    p => p.category === 'equipment' && sameLevel(p, game.activeLevel),
+  );
 
   return equip.map(equipmentSnapshotEntry);
 }
 
 function equipmentSnapshotEntry(eq) {
   return {
-    key: eq.col + ',' + eq.row,
+    key: tileKey(eq.col, eq.row, levelOf(eq)),
     id: eq.id,
     type: eq.type ?? null,
     col: eq.col ?? null,
@@ -460,14 +501,15 @@ function equipmentSnapshotEntry(eq) {
     subRow: eq.subRow ?? null,
     dir: eq.dir ?? 0,
     portsFlipped: eq.portsFlipped === true,
-    placeY: eq.placeY || 0,
+    level: levelOf(eq),
+    placeY: (eq.placeY || 0) + levelWorldY(levelOf(eq)) / 0.5,
     effectState: eq.visualState || 'on',
   };
 }
 
 function buildDecorations(game) {
   return (game.state.placeables || [])
-    .filter(p => p.kind === 'decoration')
+    .filter(p => p.kind === 'decoration' && sameLevel(p, game.activeLevel))
     .map(d => decorationSnapshotEntry(game, d));
 }
 
@@ -501,15 +543,19 @@ function decorationSnapshotEntry(game, d) {
     else if (d.wallMount.edge === 's') { u = 1 - f; v = 1; }
     else if (d.wallMount.edge === 'w') { u = 0; v = 1 - f; }
   }
-  const y = sampleCornersTriangulated(c, u, v);
+  const y = levelOf(d) > 0
+    ? levelWorldY(levelOf(d))
+    : sampleCornersTriangulated(c, u, v);
   const wallMount = wallMountSnapshot(game, d.wallMount);
   const zoneOccupied = game.state.zoneOccupied || {};
-  const roomKeys = [`${d.col},${d.row}`];
+  const roomKeys = [tileKey(d.col, d.row, levelOf(d))];
   if (d.wallMount) {
     const edgeDelta = {
       n: [0, -1], e: [1, 0], s: [0, 1], w: [-1, 0],
     }[d.wallMount.edge];
-    if (edgeDelta) roomKeys.push(`${d.wallMount.col + edgeDelta[0]},${d.wallMount.row + edgeDelta[1]}`);
+    if (edgeDelta) roomKeys.push(tileKey(
+      d.wallMount.col + edgeDelta[0], d.wallMount.row + edgeDelta[1], levelOf(d),
+    ));
   }
   return {
     // Placeable id, so the builder can key its groups and hover/demolish
@@ -535,6 +581,7 @@ function decorationSnapshotEntry(game, d) {
 }
 
 function buildBeamPaths(game) {
+  if (game.activeLevel !== 0) return [];
   const editingId = game.editingBeamlineId;
   const beamPaths = [];
 
@@ -573,6 +620,7 @@ function buildBeamPaths(game) {
 }
 
 function buildPipeAttachments(game) {
+  if (game.activeLevel !== 0) return [];
   const result = [];
   const pipes = game.state.beamPipes || [];
   for (const pipe of pipes) {
@@ -644,7 +692,9 @@ function buildPipeAttachments(game) {
 }
 
 function buildFurnishings(game) {
-  return (game.state.zoneFurnishings || []).map(furnishingSnapshotEntry);
+  return (game.state.zoneFurnishings || [])
+    .filter(f => sameLevel(f, game.activeLevel))
+    .map(furnishingSnapshotEntry);
 }
 
 function furnishingSnapshotEntry(f) {
@@ -656,7 +706,7 @@ function furnishingSnapshotEntry(f) {
     subRow: f.subRow ?? null,
     type: f.type,
     dir: f.dir ?? 0,
-    placeY: f.placeY || 0,
+    placeY: (f.placeY || 0) + levelWorldY(levelOf(f)) / 0.5,
     variant: f.variant ?? 0,
     effectState: f.visualState || 'on',
   };
@@ -668,6 +718,7 @@ function furnishingSnapshotEntry(f) {
  * there.
  */
 function buildBeamPipes(game) {
+  if (game.activeLevel !== 0) return [];
   return (game.state.beamPipes || []).map(pipe => ({
     id: pipe.id,
     path: (pipe.path || []).map(p => ({ col: p.col, row: p.row })),
@@ -682,6 +733,7 @@ function buildBeamPipes(game) {
  * stands on these cells (modules render their own internal pipe geometry).
  */
 function buildModuleSubTiles(game) {
+  if (game.activeLevel !== 0) return [];
   const keys = [];
   for (const p of (game.state.placeables || [])) {
     if (p.category !== 'beamline') continue;
@@ -817,6 +869,7 @@ export function updateWorldSnapshot(game, current, opts = {}) {
 }
 
 function buildUtilityLines(game) {
+  if (game.activeLevel !== 0) return [];
   const lines = game && game.state && game.state.utilityLines;
   if (!lines) return [];
   const iter = typeof lines.values === 'function' ? lines.values() : lines;

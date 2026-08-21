@@ -13,6 +13,8 @@
 // findEdgeKey first, and store at the key that came back so the renderer's
 // exact-key lookups (wall-builder matches doors to walls by key) line up.
 
+import { normalizeLevel, storeyEdgeKey, withLevel } from './storeys.js';
+
 /** Neighbour tile and the mirrored edge name, per edge. */
 export const EDGE_DELTAS = {
   n: { dc: 0, dr: -1, opposite: 's' },
@@ -24,29 +26,32 @@ export const EDGE_DELTAS = {
 export const EDGES = ['n', 'e', 's', 'w'];
 
 /** Canonical occupancy-map key for a tile edge. */
-export function edgeKey(col, row, edge) {
-  return `${col},${row},${edge}`;
+export function edgeKey(col, row, edge, level = 0) {
+  return storeyEdgeKey(col, row, edge, level);
 }
 
 /** Inverse of edgeKey. Returns null for anything that isn't an edge key. */
 export function parseEdgeKey(key) {
-  const parts = String(key).split(',');
+  const text = String(key);
+  const split = text.indexOf('|');
+  const level = split === -1 ? 0 : normalizeLevel(Number(text.slice(0, split)));
+  const parts = (split === -1 ? text : text.slice(split + 1)).split(',');
   if (parts.length !== 3) return null;
   const col = Number(parts[0]);
   const row = Number(parts[1]);
   const edge = parts[2];
   if (!Number.isFinite(col) || !Number.isFinite(row) || !EDGE_DELTAS[edge]) return null;
-  return { col, row, edge };
+  return withLevel({ col, row, edge }, level);
 }
 
 /**
  * The same physical edge expressed from the neighbouring tile.
  * (5,5,'n') -> (5,4,'s'). Returns null for an unknown edge name.
  */
-export function mirrorEdge(col, row, edge) {
+export function mirrorEdge(col, row, edge, level = 0) {
   const d = EDGE_DELTAS[edge];
   if (!d) return null;
-  return { col: col + d.dc, row: row + d.dr, edge: d.opposite };
+  return withLevel({ col: col + d.dc, row: row + d.dr, edge: d.opposite }, level);
 }
 
 /**
@@ -54,24 +59,24 @@ export function mirrorEdge(col, row, edge) {
  * (a plain "key -> type" map), preferring the direct one. Returns the key
  * string, or null when neither side is occupied.
  */
-export function findEdgeKey(occupied, col, row, edge) {
+export function findEdgeKey(occupied, col, row, edge, level = 0) {
   if (!occupied) return null;
-  const direct = edgeKey(col, row, edge);
+  const direct = edgeKey(col, row, edge, level);
   if (occupied[direct]) return direct;
-  const m = mirrorEdge(col, row, edge);
+  const m = mirrorEdge(col, row, edge, level);
   if (!m) return null;
-  const mirror = edgeKey(m.col, m.row, m.edge);
+  const mirror = edgeKey(m.col, m.row, m.edge, level);
   return occupied[mirror] ? mirror : null;
 }
 
 /** findEdgeKey under the name the wall/door call sites use. */
-export function findWallKey(wallOccupied, col, row, edge) {
-  return findEdgeKey(wallOccupied, col, row, edge);
+export function findWallKey(wallOccupied, col, row, edge, level = 0) {
+  return findEdgeKey(wallOccupied, col, row, edge, level);
 }
 
 /** True when `key` is the mirrored (neighbour-tile) spelling of this edge. */
-export function isMirroredKey(key, col, row, edge) {
-  return !!key && key !== edgeKey(col, row, edge);
+export function isMirroredKey(key, col, row, edge, level = 0) {
+  return !!key && key !== edgeKey(col, row, edge, level);
 }
 
 // --- Door openings along an edge ---

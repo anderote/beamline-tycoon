@@ -15,6 +15,7 @@ import { placementPose } from '../beamline/pipe-placements.js';
 import {
   edgeKey, mirrorEdge, parseEdgeKey, doorRecordCoversEdge,
 } from './edge-keys.js';
+import { levelOf, sameLevel, tileKey } from './storeys.js';
 
 export const SELECTION_CATEGORIES = Object.freeze([
   Object.freeze({ key: 'beamline', label: 'Beamline' }),
@@ -48,16 +49,16 @@ export function selectionCategoryForPlaceable(entry, def = PLACEABLES[entry?.typ
   return 'facility';
 }
 
-export function floorSelectionKey(col, row) {
-  return `floor:${col},${row}`;
+export function floorSelectionKey(col, row, level = 0) {
+  return `floor:${tileKey(col, row, level)}`;
 }
 
 /** One key for the two spellings of the same physical edge. */
-export function physicalEdgeSelectionKey(col, row, edge) {
-  const direct = edgeKey(col, row, edge);
-  const mirror = mirrorEdge(col, row, edge);
+export function physicalEdgeSelectionKey(col, row, edge, level = 0) {
+  const direct = edgeKey(col, row, edge, level);
+  const mirror = mirrorEdge(col, row, edge, level);
   if (!mirror) return `edge:${direct}`;
-  const alias = edgeKey(mirror.col, mirror.row, mirror.edge);
+  const alias = edgeKey(mirror.col, mirror.row, mirror.edge, level);
   return `edge:${direct < alias ? direct : alias}`;
 }
 
@@ -80,6 +81,7 @@ export function selectionTargetForPlaceable(entry, rootObj = null) {
     subCol: entry.subCol || 0,
     subRow: entry.subRow || 0,
     dir: entry.dir || 0,
+    level: levelOf(entry),
     entry,
     rootObj,
   };
@@ -88,7 +90,7 @@ export function selectionTargetForPlaceable(entry, rootObj = null) {
 function floorTarget(tile) {
   const def = FLOORS[tile?.type] || {};
   return {
-    key: floorSelectionKey(tile.col, tile.row),
+    key: floorSelectionKey(tile.col, tile.row, levelOf(tile)),
     targetKind: 'floor',
     selectionCategory: def.groundsSurface ? 'grounds' : 'structure',
     type: tile.type,
@@ -98,20 +100,22 @@ function floorTarget(tile) {
     subCol: 0,
     subRow: 0,
     dir: tile.orientation ? 1 : 0,
+    level: levelOf(tile),
     tile,
   };
 }
 
 function samePhysicalEdge(a, b) {
-  return !!a && !!b && physicalEdgeSelectionKey(a.col, a.row, a.edge)
-    === physicalEdgeSelectionKey(b.col, b.row, b.edge);
+  return !!a && !!b && sameLevel(a, levelOf(b))
+    && physicalEdgeSelectionKey(a.col, a.row, a.edge, levelOf(a))
+      === physicalEdgeSelectionKey(b.col, b.row, b.edge, levelOf(b));
 }
 
 function edgeTarget(state, wall) {
   const overlay = (state.wallOverlays || []).find(entry => samePhysicalEdge(entry, wall)) || null;
   const door = (state.doors || []).find(entry => doorRecordCoversEdge(
     entry, DOOR_TYPES[entry.type], wall.col, wall.row, wall.edge,
-  )) || null;
+  ) && sameLevel(entry, levelOf(wall))) || null;
   const window = (state.windows || []).find(entry => samePhysicalEdge(entry, wall)) || null;
   const wallDef = WALL_TYPES[wall.type] || {};
   const feature = window || door || overlay || wall;
@@ -123,7 +127,7 @@ function edgeTarget(state, wall) {
         ? WALL_TYPES[overlay.type]
         : wallDef;
   return {
-    key: physicalEdgeSelectionKey(wall.col, wall.row, wall.edge),
+    key: physicalEdgeSelectionKey(wall.col, wall.row, wall.edge, levelOf(wall)),
     targetKind: 'edge',
     selectionCategory: GROUNDS_WALLS[wall.type] ? 'grounds' : 'structure',
     type: feature.type,
@@ -134,6 +138,7 @@ function edgeTarget(state, wall) {
     subRow: 0,
     dir: wall.edge === 'e' ? 1 : wall.edge === 's' ? 2 : wall.edge === 'w' ? 3 : 0,
     edge: wall.edge,
+    level: levelOf(wall),
     wall,
     overlay,
     door,
@@ -193,8 +198,10 @@ export function selectionTargetByKey(state, key) {
 }
 
 export function parseFloorSelectionKey(key) {
-  const match = /^floor:(-?\d+),(-?\d+)$/.exec(String(key));
-  return match ? { col: Number(match[1]), row: Number(match[2]) } : null;
+  const match = /^floor:(?:(\d+)\|)?(-?\d+),(-?\d+)$/.exec(String(key));
+  if (!match) return null;
+  const value = { col: Number(match[2]), row: Number(match[3]) };
+  return match[1] ? { ...value, level: Number(match[1]) } : value;
 }
 
 export function parsePhysicalEdgeSelectionKey(key) {

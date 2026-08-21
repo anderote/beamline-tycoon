@@ -22,6 +22,11 @@
 import { isBlocked } from '../../networks/rooms.js';
 import { PLACEABLES } from '../../data/placeables/index.js';
 import { FLOORS } from '../../data/structure.js';
+import { parseEdgeKey } from '../edge-keys.js';
+import {
+  MAX_LEVEL, levelOf, parseSubtileKey, parseTileKey,
+  subtileKey as storeySubtileKey, tileKey, withLevel,
+} from '../storeys.js';
 
 // Fallback margin added around the content bounding box when a state has no
 // mapHalfExtent (hand-built states, mostly in tests). Real Game states
@@ -92,16 +97,19 @@ const PASS1_MAX_EXPANDED = 6000;   // small budget — most routing is local
 const PASS2_WEIGHT = 3.0;          // inadmissible: guarantees termination
 const MAX_EXPANDED_NODES = 20000;  // pass 2's full cap
 
-function subtileKey(col, row, subCol, subRow) {
-  return col + ',' + row + ',' + subCol + ',' + subRow;
+function subtileKey(col, row, subCol, subRow, level = 0) {
+  return storeySubtileKey(col, row, subCol, subRow, level);
 }
 
 function nodeKey(n) {
-  return subtileKey(n.col, n.row, n.subCol, n.subRow);
+  return subtileKey(n.col, n.row, n.subCol, n.subRow, levelOf(n));
 }
 
 function normalizeNode(n) {
-  return { col: n.col, row: n.row, subCol: n.subCol, subRow: n.subRow };
+  return withLevel(
+    { col: n.col, row: n.row, subCol: n.subCol, subRow: n.subRow },
+    levelOf(n),
+  );
 }
 
 // --- Coordinate bridge -----------------------------------------------------
@@ -109,27 +117,27 @@ function normalizeNode(n) {
 /**
  * World (x,z) -> the subtile node containing that point.
  */
-export function worldToSubtile(x, z) {
+export function worldToSubtile(x, z, level = 0) {
   const absCol = Math.floor(x / 0.5);
   const absRow = Math.floor(z / 0.5);
   const col = Math.floor(absCol / 4);
   const row = Math.floor(absRow / 4);
-  return {
+  return withLevel({
     col,
     row,
     subCol: absCol - col * 4,
     subRow: absRow - row * 4,
-  };
+  }, level);
 }
 
 /**
  * Subtile node -> its world-space CENTER (x,z).
  */
 export function subtileToWorld(node) {
-  return {
+  return withLevel({
     x: node.col * 2 + node.subCol * 0.5 + 0.25,
     z: node.row * 2 + node.subRow * 0.5 + 0.25,
-  };
+  }, levelOf(node));
 }
 
 // --- Grid construction -------------------------------------------------
@@ -197,17 +205,17 @@ export function buildNavGrid(state) {
     const def = FLOORS[type];
     if (!def || def.groundsSurface !== true) {
       flooredTiles.add(key);
-      const [c, r] = key.split(',').map(Number);
+      const { col: c, row: r } = parseTileKey(key);
       extendContent(c, r);
     }
   }
   for (const key of Object.keys(wallOccupied)) {
-    const [c, r] = key.split(',');
-    extendContent(+c, +r);
+    const { col, row } = parseEdgeKey(key);
+    extendContent(col, row);
   }
   for (const key of Object.keys(doorOccupied)) {
-    const [c, r] = key.split(',');
-    extendContent(+c, +r);
+    const { col, row } = parseEdgeKey(key);
+    extendContent(col, row);
   }
   for (const entry of placeables) {
     // Decorations (kind: 'decoration' — trees, rocks, flowerbeds, ...) are
@@ -307,8 +315,29 @@ export function buildNavGrid(state) {
     // tile. An unresolvable occupant (missing index/def entry) is treated
     // as blocking, not passable.
     const passableThrough = !!def
-      && (def.stackable || (def.subH ?? 1) <= 1 || !!def.seat);
+      && (def.stackable || (def.subH ?? 1) <= 1 || !!def.seat || !!def.verticalConnector);
     if (!passableThrough) blockedSubtiles.add(key);
+  }
+
+  const verticalLinks = new Map();
+  for (const entry of placeables) {
+    const def = PLACEABLES[entry.type];
+    const fromLevel = levelOf(entry);
+    if (!def?.verticalConnector || fromLevel >= MAX_LEVEL || !entry.cells?.length) continue;
+    const first = entry.cells[0];
+    const last = entry.cells[entry.cells.length - 1];
+    const lower = withLevel({
+      col: first.col, row: first.row, subCol: first.subCol, subRow: first.subRow,
+    }, fromLevel);
+    const upper = withLevel({
+      col: last.col, row: last.row, subCol: last.subCol, subRow: last.subRow,
+    }, fromLevel + 1);
+    verticalLinks.set(nodeKey(lower), {
+      node: upper, cost: def.verticalConnector.travelCost || 8,
+    });
+    verticalLinks.set(nodeKey(upper), {
+      node: lower, cost: def.verticalConnector.travelCost || 8,
+    });
   }
 
   const passable = {
@@ -323,25 +352,21 @@ export function buildNavGrid(state) {
     // without an explicit check a key like "0,0,9,9" silently read as
     // in-bounds-and-unblocked.
     has(key) {
-      let i = key.indexOf(',');
-      const col = +key.slice(0, i);
+      const parsed = parseSubtileKey(key);
+      const { col, row, subCol, subRow, level } = parsed;
       if (col < bounds.minCol || col > bounds.maxCol) return false;
-      let j = key.indexOf(',', i + 1);
-      const row = +key.slice(i + 1, j);
       if (row < bounds.minRow || row > bounds.maxRow) return false;
-      let k = key.indexOf(',', j + 1);
-      const subCol = +key.slice(j + 1, k);
       if (subCol < 0 || subCol > 3) return false;
-      const subRow = +key.slice(k + 1);
       if (subRow < 0 || subRow > 3) return false;
+      if (level > 0 && !flooredTiles.has(tileKey(col, row, level))) return false;
       return !blockedSubtiles.has(key);
     },
   };
   const cost = {
     get(key) {
-      const comma = key.indexOf(',', key.indexOf(',') + 1);
-      const tileKey = key.slice(0, comma);
-      return flooredTiles.has(tileKey) ? FLOOR_COST : GRASS_COST;
+      const parsed = parseSubtileKey(key);
+      return flooredTiles.has(tileKey(parsed.col, parsed.row, parsed.level))
+        ? FLOOR_COST : GRASS_COST;
     },
   };
 
@@ -484,6 +509,7 @@ export function buildNavGrid(state) {
     // isReachable can run isBlocked() against the same state the grid was
     // built from without every caller having to pass state back in.
     _state: state,
+    verticalLinks,
     // Internal, lazy — see getComponentLabels() below. `_labels` starts
     // unbuilt so a nav grid built and never reachability-queried (e.g. most
     // hand-built test grids) never pays the labelling cost. `_buildLabels`
@@ -560,7 +586,8 @@ class MinHeap {
 
 function inBounds(bounds, n) {
   return n.col >= bounds.minCol && n.col <= bounds.maxCol
-      && n.row >= bounds.minRow && n.row <= bounds.maxRow;
+      && n.row >= bounds.minRow && n.row <= bounds.maxRow
+      && levelOf(n) >= 0 && levelOf(n) <= MAX_LEVEL;
 }
 
 // --- Connected components (O(1) reachability) ---------------------------
@@ -610,7 +637,8 @@ function getComponentLabels(nav) {
 function heuristic(a, b, weight) {
   const dCol = (a.col * 4 + a.subCol) - (b.col * 4 + b.subCol);
   const dRow = (a.row * 4 + a.subRow) - (b.row * 4 + b.subRow);
-  return (Math.abs(dCol) + Math.abs(dRow)) * weight;
+  return (Math.abs(dCol) + Math.abs(dRow)) * weight
+    + Math.abs(levelOf(a) - levelOf(b)) * 8;
 }
 
 // The four cardinal neighbours of a subtile node. Steps that stay inside the
@@ -618,28 +646,32 @@ function heuristic(a, b, weight) {
 // carry the edge isBlocked() should be asked about, tested from the CURRENT
 // tile's side (matching the dir/edge correspondence in src/data/directions.js
 // and src/networks/rooms.js's EDGE_DELTAS).
-function neighborsOf(n) {
+function neighborsOf(n, nav) {
   const out = [];
+  const level = levelOf(n);
+  const atLevel = node => withLevel(node, level);
   if (n.subCol > 0) {
-    out.push({ node: { col: n.col, row: n.row, subCol: n.subCol - 1, subRow: n.subRow } });
+    out.push({ node: atLevel({ col: n.col, row: n.row, subCol: n.subCol - 1, subRow: n.subRow }) });
   } else {
-    out.push({ node: { col: n.col - 1, row: n.row, subCol: 3, subRow: n.subRow }, edge: 'w' });
+    out.push({ node: atLevel({ col: n.col - 1, row: n.row, subCol: 3, subRow: n.subRow }), edge: 'w' });
   }
   if (n.subCol < 3) {
-    out.push({ node: { col: n.col, row: n.row, subCol: n.subCol + 1, subRow: n.subRow } });
+    out.push({ node: atLevel({ col: n.col, row: n.row, subCol: n.subCol + 1, subRow: n.subRow }) });
   } else {
-    out.push({ node: { col: n.col + 1, row: n.row, subCol: 0, subRow: n.subRow }, edge: 'e' });
+    out.push({ node: atLevel({ col: n.col + 1, row: n.row, subCol: 0, subRow: n.subRow }), edge: 'e' });
   }
   if (n.subRow > 0) {
-    out.push({ node: { col: n.col, row: n.row, subCol: n.subCol, subRow: n.subRow - 1 } });
+    out.push({ node: atLevel({ col: n.col, row: n.row, subCol: n.subCol, subRow: n.subRow - 1 }) });
   } else {
-    out.push({ node: { col: n.col, row: n.row - 1, subCol: n.subCol, subRow: 3 }, edge: 'n' });
+    out.push({ node: atLevel({ col: n.col, row: n.row - 1, subCol: n.subCol, subRow: 3 }), edge: 'n' });
   }
   if (n.subRow < 3) {
-    out.push({ node: { col: n.col, row: n.row, subCol: n.subCol, subRow: n.subRow + 1 } });
+    out.push({ node: atLevel({ col: n.col, row: n.row, subCol: n.subCol, subRow: n.subRow + 1 }) });
   } else {
-    out.push({ node: { col: n.col, row: n.row + 1, subCol: n.subCol, subRow: 0 }, edge: 's' });
+    out.push({ node: atLevel({ col: n.col, row: n.row + 1, subCol: n.subCol, subRow: 0 }), edge: 's' });
   }
+  const vertical = nav.verticalLinks?.get(nodeKey(n));
+  if (vertical) out.push({ node: vertical.node, vertical: true, cost: vertical.cost });
   return out;
 }
 
@@ -689,13 +721,15 @@ function runAStar(nav, from, to, fromKey, toKey, wantPath, weight, maxExpanded) 
     expanded++;
     if (expanded > maxExpanded) return { reached: false, path: null, capped: true };
 
-    for (const step of neighborsOf(current.node)) {
+    for (const step of neighborsOf(current.node, nav)) {
       const nbKey = nodeKey(step.node);
       if (closed.has(nbKey)) continue;
       if (!nav.passable.has(nbKey)) continue;
-      if (step.edge && isBlocked(current.node.col, current.node.row, step.edge, nav._state)) continue;
+      if (step.edge && isBlocked(
+        current.node.col, current.node.row, step.edge, nav._state, levelOf(current.node),
+      )) continue;
 
-      const stepCost = nav.cost.get(nbKey);
+      const stepCost = step.vertical ? step.cost : nav.cost.get(nbKey);
       const tentativeG = gScore.get(current.key) + stepCost;
       const prevG = gScore.get(nbKey);
       if (prevG === undefined || tentativeG < prevG) {
@@ -777,9 +811,11 @@ function search(nav, from, to, wantPath) {
   // island) fail immediately instead of burning up to PASS1_MAX_EXPANDED +
   // MAX_EXPANDED_NODES expansions to rediscover what the labelling already
   // knows.
-  const labels = getComponentLabels(nav);
-  if (labels.get(from) !== labels.get(to)) {
-    return { reached: false, path: null };
+  if (levelOf(from) === 0 && levelOf(to) === 0) {
+    const labels = getComponentLabels(nav);
+    if (labels.get(from) !== labels.get(to)) {
+      return { reached: false, path: null };
+    }
   }
 
   const pass1 = runAStar(nav, from, to, fromKey, toKey, wantPath, PASS1_WEIGHT, PASS1_MAX_EXPANDED);
@@ -817,6 +853,9 @@ export function isReachable(nav, from, to) {
   const fromKey = nodeKey(from);
   const toKey = nodeKey(to);
   if (!nav.passable.has(fromKey) || !nav.passable.has(toKey)) return false;
-  const labels = getComponentLabels(nav);
-  return labels.get(from) === labels.get(to);
+  if (levelOf(from) === 0 && levelOf(to) === 0) {
+    const labels = getComponentLabels(nav);
+    return labels.get(from) === labels.get(to);
+  }
+  return search(nav, from, to, false).reached;
 }

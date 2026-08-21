@@ -22,6 +22,7 @@ import { findWallKey } from '../game/edge-keys.js';
 import { selectionTargetByKey } from '../game/selection-targets.js';
 import { validateDrawLine } from '../utility/line-drawing.js';
 import { runWiringCost } from './utility-run-wiring.js';
+import { levelOf, subtileKey, tileKey } from '../game/storeys.js';
 
 const SUBS_PER_TILE = 4;
 
@@ -122,6 +123,7 @@ export function captureSelectionGroup(game, ids, { operation = 'move', primaryId
         wallMount: clone(entry.wallMount),
         params: clone(entry.params),
         variant: entry.variant ?? 0,
+        level: entry.level ?? 0,
       })),
       floors: targets
         .filter(target => target.targetKind === 'floor')
@@ -455,6 +457,7 @@ export function previewSelectionGroup(game, payload, anchorPose) {
     const geo = canPlace(
       probeGame, def,
       target.col, target.row, target.subCol, target.subRow, target.dir,
+      { level: target.level },
     );
     if (!geo.ok && !reason) {
       reason = geo.wallBlocked
@@ -463,7 +466,9 @@ export function previewSelectionGroup(game, payload, anchorPose) {
     }
     const targetId = moving ? target.id : target.placeholderId;
     for (const cell of geo.cells) {
-      const key = `${cell.col},${cell.row},${cell.subCol},${cell.subRow}`;
+      const key = subtileKey(
+        cell.col, cell.row, cell.subCol, cell.subRow, target.level,
+      );
       // Claim even after a collision so later targets also see the group's
       // intended footprint and the entire preview stays consistently red.
       occupancy[key] = { id: targetId, kind: target.kind };
@@ -484,7 +489,9 @@ export function previewSelectionGroup(game, payload, anchorPose) {
       reason = reason || PLACE_BLOCKED;
       continue;
     }
-    const existingType = game.state.infraOccupied?.[`${floor.col},${floor.row}`] || null;
+    const existingType = game.state.infraOccupied?.[
+      tileKey(floor.col, floor.row, levelOf(floor))
+    ] || null;
     const existingDef = FLOORS[existingType];
     const canReplace = !existingType
       || existingType === floor.type
@@ -499,7 +506,9 @@ export function previewSelectionGroup(game, payload, anchorPose) {
       reason = reason || PLACE_BLOCKED;
       continue;
     }
-    if (findWallKey(game.state.wallOccupied, wall.col, wall.row, wall.edge) && !reason) {
+    if (findWallKey(
+      game.state.wallOccupied, wall.col, wall.row, wall.edge, levelOf(wall),
+    ) && !reason) {
       reason = PLACE_BLOCKED;
     }
   }

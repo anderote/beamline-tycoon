@@ -4,9 +4,10 @@
 // inside placePlaceable / removePlaceable, which take game as an argument.
 
 import { isoToGridFloat } from '../renderer/grid.js';
-import { findWallKey, mirrorEdge } from './edge-keys.js';
+import { edgeKey, findWallKey, mirrorEdge } from './edge-keys.js';
 import { WALL_TYPES } from '../data/structure.js';
 import { PLACEABLES } from '../data/placeables/index.js';
+import { levelOf, normalizeLevel, subtileKey, tileKey, withLevel } from './storeys.js';
 import {
   physicalWallFixtureSlotKeys,
   wallFixtureFaceOffset,
@@ -77,18 +78,18 @@ export function wallFixtureOffFromFrac(frac, span = 1) {
 export function normalizeWallMount(site) {
   if (!site || !['n', 'e', 's', 'w'].includes(site.edge)) return null;
   if (!Number.isFinite(site.col) || !Number.isFinite(site.row)) return null;
-  return {
+  return withLevel({
     col: Math.floor(site.col),
     row: Math.floor(site.row),
     edge: site.edge,
     off: Math.max(0, Math.min(3, Math.floor(site.off ?? 1))),
-  };
+  }, site.level ?? 0);
 }
 
 /** Stable identity for a specific slot on one face of a physical wall. */
 export function wallFixtureMountKey(site) {
   const mount = normalizeWallMount(site);
-  return mount ? `${mount.col},${mount.row},${mount.edge},${mount.off}` : null;
+  return mount ? `${levelOf(mount)}|${mount.col},${mount.row},${mount.edge},${mount.off}` : null;
 }
 
 /** Stable face-local identities for every quarter-wall slot a fixture covers. */
@@ -107,10 +108,11 @@ export function wallFixtureMountKeys(site) {
 export function physicalWallKey(site) {
   const mount = normalizeWallMount(site);
   if (!mount) return null;
-  const direct = `${mount.col},${mount.row},${mount.edge}`;
-  const mirror = mirrorEdge(mount.col, mount.row, mount.edge);
+  const level = levelOf(mount);
+  const direct = `${level}|${mount.col},${mount.row},${mount.edge}`;
+  const mirror = mirrorEdge(mount.col, mount.row, mount.edge, level);
   if (!mirror) return direct;
-  const alias = `${mirror.col},${mirror.row},${mirror.edge}`;
+  const alias = `${level}|${mirror.col},${mirror.row},${mirror.edge}`;
   return direct < alias ? direct : alias;
 }
 
@@ -125,7 +127,7 @@ export function canPlaceWallFixture(game, placeable, site, ignoreId = null) {
     return { ok: false, hasWall: false, occupied: false, wallMount: mount };
   }
   const wallKey = findWallKey(
-    game?.state?.wallOccupied, mount.col, mount.row, mount.edge,
+    game?.state?.wallOccupied, mount.col, mount.row, mount.edge, levelOf(mount),
   );
   const wallType = wallKey ? game.state.wallOccupied[wallKey] : null;
   const hasWall = !!wallKey;
@@ -154,8 +156,8 @@ export function canPlaceWallFixture(game, placeable, site, ignoreId = null) {
   };
 }
 
-function hasWallOnEdge(wallOccupied, col, row, edge) {
-  return !!wallOccupied[`${col},${row},${edge}`];
+function hasWallOnEdge(wallOccupied, col, row, edge, level = 0) {
+  return !!wallOccupied[edgeKey(col, row, edge, level)];
 }
 
 /**
@@ -163,21 +165,21 @@ function hasWallOnEdge(wallOccupied, col, row, edge) {
  * Only tile boundaries that have cells on BOTH sides are checked —
  * footprints adjacent to a wall (but not through it) are fine.
  */
-function footprintCrossesWall(wallOccupied, cells) {
+function footprintCrossesWall(wallOccupied, cells, level = 0) {
   const set = new Set(cells.map(cellKey));
   for (const c of cells) {
     if (c.subCol === 3) {
       const nk = cellKey({ col: c.col + 1, row: c.row, subCol: 0, subRow: c.subRow });
       if (set.has(nk)) {
-        if (hasWallOnEdge(wallOccupied, c.col, c.row, 'e') ||
-            hasWallOnEdge(wallOccupied, c.col + 1, c.row, 'w')) return true;
+        if (hasWallOnEdge(wallOccupied, c.col, c.row, 'e', level) ||
+            hasWallOnEdge(wallOccupied, c.col + 1, c.row, 'w', level)) return true;
       }
     }
     if (c.subRow === 3) {
       const nk = cellKey({ col: c.col, row: c.row + 1, subCol: c.subCol, subRow: 0 });
       if (set.has(nk)) {
-        if (hasWallOnEdge(wallOccupied, c.col, c.row, 's') ||
-            hasWallOnEdge(wallOccupied, c.col, c.row + 1, 'n')) return true;
+        if (hasWallOnEdge(wallOccupied, c.col, c.row, 's', level) ||
+            hasWallOnEdge(wallOccupied, c.col, c.row + 1, 'n', level)) return true;
       }
     }
   }
@@ -193,18 +195,25 @@ function footprintCrossesWall(wallOccupied, cells) {
  */
 export function canPlace(
   game, placeable, col, row, subCol, subRow, dir = 0,
-  { ignorePlaceableId = null } = {},
+  { ignorePlaceableId = null, level = 0 } = {},
 ) {
+  level = normalizeLevel(level);
   const cells = placeable.footprintCells(col, row, subCol, subRow, dir);
   const blocked = [];
   const usesFloor = usesFloorOccupancy(placeable);
   if (usesFloor) {
     for (const c of cells) {
-      const occupant = game.state.subgridOccupied[cellKey(c)];
+      if (level > 0 && !game.state.infraOccupied[tileKey(c.col, c.row, level)]) {
+        blocked.push(c);
+        continue;
+      }
+      const occupant = game.state.subgridOccupied[subtileKey(
+        c.col, c.row, c.subCol, c.subRow, level,
+      )];
       if (occupant && occupant.id !== ignorePlaceableId) blocked.push(c);
     }
   }
-  const wallBlocked = usesFloor && footprintCrossesWall(game.state.wallOccupied, cells);
+  const wallBlocked = usesFloor && footprintCrossesWall(game.state.wallOccupied, cells, level);
   const mapEdgeConnection = placeable.mapEdgeConnection
     ? resolveMapEdgeConnection(
         cells, game?.state?.mapHalfExtent, placeable.mapEdgeConnection,

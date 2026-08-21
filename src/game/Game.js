@@ -4,6 +4,9 @@ import {
   floorSupportsZone, floorRequirementLabel,
 } from '../data/structure.js';
 import { findRoofRegion, isRoofedRegion, roofKey, roofProfileForRegion } from './roofing.js';
+import {
+  MAX_LEVEL, levelOf, normalizeLevel, parseTileKey, sameLevel, subtileKey, tileKey, withLevel,
+} from './storeys.js';
 import { ZONES, ZONE_TIER_THRESHOLDS, ZONE_FURNISHINGS, itemMatchesZone, matchingZoneForPlacement, zoneTierFromStaffedOutput, LABWORK_CAPABLE_ZONES } from '../data/facility.js';
 import { RESEARCH, RESEARCH_PHYSICS_EFFECT_KEYS } from '../data/research.js';
 import { PARAM_DEFS } from '../beamline/component-physics.js';
@@ -474,6 +477,11 @@ export class Game {
       tutorialDismissed: false,
     };
 
+    // Session/view state, deliberately outside saves and undo. Construction
+    // commands default to this level only when the input layer passes it;
+    // scenario and headless callers that omit a level remain on level 0.
+    this.activeLevel = 0;
+
     this.listeners = [];
     // Event coalescing for batch mutations (see _batchEvents): while set,
     // emit() collects events here instead of dispatching them.
@@ -530,7 +538,7 @@ export class Game {
     // tufts) lingering under the new floor. Scenario load and deserialize
     // already rebuild this index; the fresh-map path must too.
     for (const tile of this.state.floors)
-      this.state.infraOccupied[tile.col + ',' + tile.row] = tile.type;
+      this.state.infraOccupied[tileKey(tile.col, tile.row, levelOf(tile))] = tile.type;
     this._rebuildPlaceableIndex();
     this._rebuildWallLayerIndexes();
 
@@ -682,7 +690,10 @@ export class Game {
       const def = PLACEABLES[entry.type];
       if (entry.cells && !entry.stackParentId && usesFloorOccupancy(def)) {
         for (const cell of entry.cells) {
-          this.state.subgridOccupied[cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow] = { id: entry.id, kind: entry.kind, category: entry.category };
+          const level = levelOf(entry);
+          this.state.subgridOccupied[subtileKey(
+            cell.col, cell.row, cell.subCol, cell.subRow, level,
+          )] = { id: entry.id, kind: entry.kind, category: entry.category, level };
         }
       }
     }
@@ -699,6 +710,14 @@ export class Game {
   // is unchanged.
   _markNavDirty() {
     this.state.navRevision = (this.state.navRevision | 0) + 1;
+  }
+
+  setActiveLevel(level) {
+    const next = normalizeLevel(level);
+    if (next === this.activeLevel) return false;
+    this.activeLevel = next;
+    this.emit('activeLevelChanged', { level: next });
+    return true;
   }
 
   _generateTerrainBlobs(seed) {
@@ -1289,6 +1308,14 @@ export class Game {
 
   // === FLOORS ===
 
+  _hasRoofSupport(col, row, level) {
+    const normalized = normalizeLevel(level);
+    if (normalized === 0) return true;
+    return (this.state.roofs || []).some(tile =>
+      tile.col === col && tile.row === row && levelOf(tile) === normalized - 1
+    );
+  }
+
   /**
    * @param {object} [opts]
    * @param {boolean} [opts.free=false] skip the affordability check and the
@@ -1300,13 +1327,18 @@ export class Game {
    */
   placeInfraTile(col, row, infraType, variant = 0, opts = {}) {
     const free = !!opts.free;
+    const level = normalizeLevel(opts.level ?? 0);
     const infra = FLOORS[infraType];
     if (!infra) return false;
-    const key = col + ',' + row;
+    if (level > 0 && !this._hasRoofSupport(col, row, level)) {
+      this.log('Upper floors can only be built on roofed tiles.', 'bad');
+      return false;
+    }
+    const key = tileKey(col, row, level);
     const existing = this.state.infraOccupied[key];
     // For orientable tiles of the same type, toggle orientation for free
     if (existing === infraType && infra.orientable) {
-      const existingTile = this.state.floors.find(t => t.col === col && t.row === row);
+      const existingTile = this.state.floors.find(t => t.col === col && t.row === row && sameLevel(t, level));
       if (existingTile) {
         existingTile.orientation = existingTile.orientation ? 0 : 1;
         this.emit('infrastructureChanged');
@@ -1315,7 +1347,7 @@ export class Game {
     }
     // Same type but different variant — update variant for free
     if (existing === infraType) {
-      const existingTile = this.state.floors.find(t => t.col === col && t.row === row);
+      const existingTile = this.state.floors.find(t => t.col === col && t.row === row && sameLevel(t, level));
       if (existingTile && existingTile.variant !== variant) {
         existingTile.variant = variant;
         this.emit('infrastructureChanged');
@@ -1324,8 +1356,8 @@ export class Game {
     }
     // Check foundation requirement
     if (infra.requiresFoundation) {
-      const existingTile = this.state.floors.find(t => t.col === col && t.row === row);
-      const baseType = existingTile?.foundation || existing;
+      const existingTile = this.state.floors.find(t => t.col === col && t.row === row && sameLevel(t, level));
+      const baseType = existingTile?.foundation || existing || (level > 0 ? 'concrete' : null);
       if (baseType !== infra.requiresFoundation) {
         this.log(`${infra.name} requires ${FLOORS[infra.requiresFoundation]?.name || infra.requiresFoundation}!`, 'bad');
         return false;
@@ -1336,25 +1368,25 @@ export class Game {
     // not dismantling, so skip the normal 50% refund.
     const tileCost = infra.variantCosts?.[variant] ?? infra.cost;
     let totalCost = tileCost;
-    const existingDec = this._decorationAtTile(col, row);
+    const existingDec = this._decorationAtTile(col, row, level);
     const destroyedDec = floorDestroysDecoration(infraType, existingDec) ? existingDec : null;
     if (destroyedDec) {
       const def = DECORATIONS[destroyedDec.type];
       totalCost += def ? (def.removeCost || 0) : 0;
     }
     if (!free && !this.canAfford({ funding: totalCost })) return false;
-    if (destroyedDec) this.removeDecoration(col, row, { skipRefund: true });
+    if (destroyedDec) this.removePlaceable(destroyedDec.id, { skipRefund: true });
     // Track foundation for surface tiles placed on top of a foundation
     let foundation = null;
     let zoneRemoved = false;
     if (infra.requiresFoundation && existing) {
-      const existingTile = this.state.floors.find(t => t.col === col && t.row === row);
-      foundation = existingTile?.foundation || existing;
+      const existingTile = this.state.floors.find(t => t.col === col && t.row === row && sameLevel(t, level));
+      foundation = existingTile?.foundation || existing || (level > 0 ? 'concrete' : null);
     }
     if (existing) {
       // Replace existing floor - remove old tile first
       this.state.floors = this.state.floors.filter(
-        t => !(t.col === col && t.row === row)
+        t => !(t.col === col && t.row === row && sameLevel(t, level))
       );
       // A cosmetic finish swap may keep the room's zone when the new finish
       // satisfies the same floor contract. Incompatible surfaces still evict
@@ -1362,19 +1394,19 @@ export class Game {
       const hadZone = this.state.zoneOccupied?.[key];
       if (hadZone && !floorSupportsZone(infraType, ZONES[hadZone]?.requiredFloor)) {
         delete this.state.zoneOccupied[key];
-        this.state.zones = this.state.zones.filter(z => !(z.col === col && z.row === row));
+        this.state.zones = this.state.zones.filter(z => !(z.col === col && z.row === row && sameLevel(z, level)));
         zoneRemoved = true;
       }
     }
 
     if (!free) this.chargeConstruction(totalCost);
-    const tileEntry = { type: infraType, col, row, variant };
+    const tileEntry = withLevel({ type: infraType, col, row, variant }, level);
     if (foundation) tileEntry.foundation = foundation;
     this.state.floors.push(tileEntry);
     this.state.infraOccupied[key] = infraType;
     this._markNavDirty();
     // Concrete pad excavates hills / fills hollows to y=0 under its footprint.
-    if (infraType === 'concrete') {
+    if (infraType === 'concrete' && level === 0) {
       setTileCorners(this.state, col, row, { nw: 0, ne: 0, se: 0, sw: 0 });
     }
     if (infraType === 'hallway' || zoneRemoved) {
@@ -1390,7 +1422,8 @@ export class Game {
    * { newTiles, totalCost, skippedNoFoundation } so the UI can show cost
    * during drag without mutating state. Shares logic with placeInfraRect.
    */
-  computeInfraRectCost(startCol, startRow, endCol, endRow, infraType, variant = 0) {
+  computeInfraRectCost(startCol, startRow, endCol, endRow, infraType, variant = 0, level = 0) {
+    level = normalizeLevel(level);
     const infra = FLOORS[infraType];
     if (!infra) return { newTiles: 0, totalCost: 0, skippedNoFoundation: 0 };
     const minCol = Math.min(startCol, endCol);
@@ -1403,24 +1436,28 @@ export class Game {
     let skippedNoFoundation = 0;
     for (let c = minCol; c <= maxCol; c++) {
       for (let r = minRow; r <= maxRow; r++) {
-        const tileKey = c + ',' + r;
-        const existing = this.state.infraOccupied[tileKey];
+        const key = tileKey(c, r, level);
+        if (level > 0 && !this._hasRoofSupport(c, r, level)) {
+          skippedNoFoundation++;
+          continue;
+        }
+        const existing = this.state.infraOccupied[key];
         // Same type + same variant: skip entirely (no cost, no action).
         if (existing === infraType && !infra.orientable) {
-          const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
+          const existingTile = this.state.floors.find(t => t.col === c && t.row === r && sameLevel(t, level));
           if (!existingTile || existingTile.variant === variant) continue;
           newTiles++;
           continue;
         }
         if (existing === infraType && infra.orientable) { newTiles++; continue; }
         if (infra.requiresFoundation) {
-          const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
-          const baseType = existingTile?.foundation || existing;
+          const existingTile = this.state.floors.find(t => t.col === c && t.row === r && sameLevel(t, level));
+          const baseType = existingTile?.foundation || existing || (level > 0 ? 'concrete' : null);
           if (baseType !== infra.requiresFoundation) { skippedNoFoundation++; continue; }
         }
         newTiles++;
         totalCost += tileCost;
-        const existingDec = this._decorationAtTile(c, r);
+        const existingDec = this._decorationAtTile(c, r, level);
         const destroyedDec = floorDestroysDecoration(infraType, existingDec) ? existingDec : null;
         if (destroyedDec) {
           const def = DECORATIONS[destroyedDec.type];
@@ -1435,7 +1472,8 @@ export class Game {
    * Cost-only computation for a line (hallway) placement. Returns
    * { newTiles, totalCost, skippedNoFoundation }.
    */
-  computeInfraLineCost(path, infraType, variant = 0) {
+  computeInfraLineCost(path, infraType, variant = 0, level = 0) {
+    level = normalizeLevel(level);
     const infra = FLOORS[infraType];
     if (!infra || !path || path.length === 0) return { newTiles: 0, totalCost: 0, skippedNoFoundation: 0 };
     const tileCost = infra.variantCosts?.[variant] ?? infra.cost;
@@ -1444,19 +1482,23 @@ export class Game {
     let skippedNoFoundation = 0;
     const seen = new Set();
     for (const pt of path) {
-      const k = pt.col + ',' + pt.row;
+      const k = tileKey(pt.col, pt.row, level);
       if (seen.has(k)) continue;
       seen.add(k);
+      if (level > 0 && !this._hasRoofSupport(pt.col, pt.row, level)) {
+        skippedNoFoundation++;
+        continue;
+      }
       const existing = this.state.infraOccupied[k];
       if (existing === infraType) {
-        const existingTile = this.state.floors.find(t => t.col === pt.col && t.row === pt.row);
+        const existingTile = this.state.floors.find(t => t.col === pt.col && t.row === pt.row && sameLevel(t, level));
         if (!existingTile || existingTile.variant === variant) continue;
         newTiles++;
         continue;
       }
       if (infra.requiresFoundation) {
-        const existingTile = this.state.floors.find(t => t.col === pt.col && t.row === pt.row);
-        const baseType = existingTile?.foundation || existing;
+        const existingTile = this.state.floors.find(t => t.col === pt.col && t.row === pt.row && sameLevel(t, level));
+        const baseType = existingTile?.foundation || existing || (level > 0 ? 'concrete' : null);
         if (baseType !== infra.requiresFoundation) { skippedNoFoundation++; continue; }
       }
       newTiles++;
@@ -1465,7 +1507,8 @@ export class Game {
     return { newTiles, totalCost, skippedNoFoundation };
   }
 
-  placeInfraRect(startCol, startRow, endCol, endRow, infraType, variant = 0, orientationOverride = null) {
+  placeInfraRect(startCol, startRow, endCol, endRow, infraType, variant = 0, orientationOverride = null, level = 0) {
+    level = normalizeLevel(level);
     const infra = FLOORS[infraType];
     if (!infra) return false;
 
@@ -1485,7 +1528,7 @@ export class Game {
     const maxRow = Math.max(startRow, endRow);
 
     const { newTiles, totalCost, skippedNoFoundation } = this.computeInfraRectCost(
-      startCol, startRow, endCol, endRow, infraType, variant,
+      startCol, startRow, endCol, endRow, infraType, variant, level,
     );
     if (newTiles === 0) {
       if (skippedNoFoundation > 0) {
@@ -1508,18 +1551,19 @@ export class Game {
     this._batchEvents(() => {
       for (let c = minCol; c <= maxCol; c++) {
         for (let r = minRow; r <= maxRow; r++) {
-          const key = c + ',' + r;
+          const key = tileKey(c, r, level);
+          if (level > 0 && !this._hasRoofSupport(c, r, level)) continue;
           const existing = this.state.infraOccupied[key];
           // Same-type orientable: just update orientation for free
           if (existing === infraType && infra.orientable) {
-            const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
+            const existingTile = this.state.floors.find(t => t.col === c && t.row === r && sameLevel(t, level));
             if (existingTile) existingTile.orientation = orientation;
             placed++;
             continue;
           }
           // Same type — update variant for free if it differs, otherwise skip
           if (existing === infraType) {
-            const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
+            const existingTile = this.state.floors.find(t => t.col === c && t.row === r && sameLevel(t, level));
             if (existingTile && existingTile.variant !== variant) {
               existingTile.variant = variant;
               placed++;
@@ -1527,48 +1571,48 @@ export class Game {
             continue;
           }
           if (infra.requiresFoundation) {
-            const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
-            const baseType = existingTile?.foundation || existing;
+            const existingTile = this.state.floors.find(t => t.col === c && t.row === r && sameLevel(t, level));
+            const baseType = existingTile?.foundation || existing || (level > 0 ? 'concrete' : null);
             if (baseType !== infra.requiresFoundation) continue;
           }
           // Floor placement normally leaves decorations in place. Concrete
           // clears only vegetation; charge its removal cost as destruction,
           // without the normal 50% refund.
           let perTileExtra = 0;
-          const existingDec = this._decorationAtTile(c, r);
+          const existingDec = this._decorationAtTile(c, r, level);
           const destroyedDec = floorDestroysDecoration(infraType, existingDec) ? existingDec : null;
           if (destroyedDec) {
             const decDef = DECORATIONS[destroyedDec.type];
             perTileExtra = decDef ? (decDef.removeCost || 0) : 0;
-            this.removeDecoration(c, r, { skipRefund: true });
+            this.removePlaceable(destroyedDec.id, { skipRefund: true });
           }
           // Track foundation for surface tiles
           let foundation = null;
           if (infra.requiresFoundation && existing) {
-            const existingTile = this.state.floors.find(t => t.col === c && t.row === r);
-            foundation = existingTile?.foundation || existing;
+            const existingTile = this.state.floors.find(t => t.col === c && t.row === r && sameLevel(t, level));
+            foundation = existingTile?.foundation || existing || (level > 0 ? 'concrete' : null);
           }
           if (existing) {
             // Replace existing floor - remove old tile
             this.state.floors = this.state.floors.filter(
-              t => !(t.col === c && t.row === r)
+              t => !(t.col === c && t.row === r && sameLevel(t, level))
             );
             // Preserve the zone across compatible finish changes.
             const hadZone = this.state.zoneOccupied?.[key];
             if (hadZone && !floorSupportsZone(infraType, ZONES[hadZone]?.requiredFloor)) {
               delete this.state.zoneOccupied[key];
-              this.state.zones = this.state.zones.filter(z => !(z.col === c && z.row === r));
+              this.state.zones = this.state.zones.filter(z => !(z.col === c && z.row === r && sameLevel(z, level)));
               zonesRemoved = true;
             }
           }
           this.chargeConstruction(tileCostForVariant + perTileExtra);
-          const tileEntry = { type: infraType, col: c, row: r, variant };
+          const tileEntry = withLevel({ type: infraType, col: c, row: r, variant }, level);
           if (foundation) tileEntry.foundation = foundation;
           if (orientation) tileEntry.orientation = orientation;
           this.state.floors.push(tileEntry);
           this.state.infraOccupied[key] = infraType;
           // Concrete pad excavates hills / fills hollows to y=0 under its footprint.
-          if (infraType === 'concrete') {
+          if (infraType === 'concrete' && level === 0) {
             setTileCorners(this.state, c, r, { nw: 0, ne: 0, se: 0, sw: 0 });
           }
           placed++;
@@ -1591,8 +1635,8 @@ export class Game {
   }
 
   /** Return the enclosed floor footprint that the auto-roof tool would cover. */
-  roofRegionAt(col, row) {
-    return findRoofRegion(this.state, col, row);
+  roofRegionAt(col, row, level = 0) {
+    return findRoofRegion(this.state, col, row, level);
   }
 
   /** Return the ceiling/high-bay treatment the renderer will use for a region. */
@@ -1600,20 +1644,21 @@ export class Game {
     return roofProfileForRegion(this.state, region);
   }
 
-  isRoomRoofedAt(col, row) {
-    return isRoofedRegion(this.state, this.roofRegionAt(col, row));
+  isRoomRoofedAt(col, row, level = 0) {
+    return isRoofedRegion(this.state, this.roofRegionAt(col, row, level));
   }
 
-  placeRoofRegion(col, row, roofType = 'roof', variant = 0) {
+  placeRoofRegion(col, row, roofType = 'roof', variant = 0, level = 0) {
+    level = normalizeLevel(level);
     const roof = FLOORS[roofType];
     if (!roof?.isRoofPlacement) return false;
-    const region = this.roofRegionAt(col, row);
+    const region = this.roofRegionAt(col, row, level);
     if (region.length === 0) {
       this.log('Roofs require a completely enclosed wall region.', 'bad');
       return false;
     }
-    const existing = new Set((this.state.roofs || []).map(tile => roofKey(tile.col, tile.row)));
-    const tiles = region.filter(tile => !existing.has(roofKey(tile.col, tile.row)));
+    const existing = new Set((this.state.roofs || []).map(tile => roofKey(tile.col, tile.row, levelOf(tile))));
+    const tiles = region.filter(tile => !existing.has(roofKey(tile.col, tile.row, level)));
     if (tiles.length === 0) return true;
     const cost = (roof.variantCosts?.[variant] ?? roof.cost) * tiles.length;
     if (!this.canAfford({ funding: cost })) {
@@ -1622,31 +1667,45 @@ export class Game {
     }
     this.chargeConstruction(cost);
     this.state.roofs = this.state.roofs || [];
-    for (const tile of tiles) this.state.roofs.push({ type: roofType, col: tile.col, row: tile.row, variant });
+    for (const tile of tiles) {
+      this.state.roofs.push(withLevel({ type: roofType, col: tile.col, row: tile.row, variant }, level));
+    }
     this.emit('roofsChanged');
     return true;
   }
 
-  removeRoofRegion(col, row) {
-    const region = this.roofRegionAt(col, row);
-    const keys = new Set(region.map(tile => roofKey(tile.col, tile.row)));
-    const removed = (this.state.roofs || []).filter(tile => keys.has(roofKey(tile.col, tile.row)));
+  removeRoofRegion(col, row, level = 0) {
+    level = normalizeLevel(level);
+    const region = this.roofRegionAt(col, row, level);
+    const keys = new Set(region.map(tile => roofKey(tile.col, tile.row, level)));
+    const removed = (this.state.roofs || []).filter(tile =>
+      keys.has(roofKey(tile.col, tile.row, levelOf(tile)))
+    );
     if (!removed.length) return false;
-    this.state.roofs = this.state.roofs.filter(tile => !keys.has(roofKey(tile.col, tile.row)));
+    if (level < MAX_LEVEL && removed.some(tile => this.state.infraOccupied[
+      tileKey(tile.col, tile.row, level + 1)
+    ])) {
+      this.log('Remove the floor above before demolishing its supporting roof.', 'bad');
+      return false;
+    }
+    this.state.roofs = this.state.roofs.filter(tile =>
+      !keys.has(roofKey(tile.col, tile.row, levelOf(tile)))
+    );
     this.refundConstruction({ funding: removed.reduce((sum, tile) => sum + (FLOORS[tile.type]?.cost || 0), 0) });
     this.emit('roofsChanged');
     return true;
   }
 
-  removeInfraTile(col, row) {
-    const key = col + ',' + row;
+  removeInfraTile(col, row, level = 0) {
+    level = normalizeLevel(level);
+    const key = tileKey(col, row, level);
     if (!this.state.infraOccupied[key]) return false;
-    const idx = this.state.floors.findIndex(t => t.col === col && t.row === row);
+    const idx = this.state.floors.findIndex(t => t.col === col && t.row === row && sameLevel(t, level));
     if (idx === -1) return false;
 
     // Removing flooring also removes any zone on that tile
     if (this.state.zoneOccupied[key]) {
-      this.removeZoneTile(col, row);
+      this.removeZoneTile(col, row, level);
     }
 
     const tile = this.state.floors[idx];
@@ -1656,7 +1715,7 @@ export class Game {
 
     // If the tile had a foundation, revert to the foundation type
     if (foundation) {
-      this.state.floors.push({ type: foundation, col, row, variant: tile.variant });
+      this.state.floors.push(withLevel({ type: foundation, col, row, variant: tile.variant }, level));
       this.state.infraOccupied[key] = foundation;
     } else {
       delete this.state.infraOccupied[key];
@@ -1684,14 +1743,20 @@ export class Game {
   // across any doorway on that edge, since wall-builder matches doors to
   // walls by exact key).
 
+  _edgeHasFloor(col, row, edge, level) {
+    if (this.state.infraOccupied[tileKey(col, row, level)]) return true;
+    const alias = this._edgeAlias(col, row, edge);
+    return !!this.state.infraOccupied[tileKey(alias.col, alias.row, level)];
+  }
+
   /**
    * The key this edge's wall is stored under, or the direct key when the
    * edge is empty. Placement writes here; the returned key is always one of
    * the edge's two spellings.
    */
-  _wallSiteKey(col, row, edge) {
-    return findWallKey(this.state.wallOccupied, col, row, edge)
-      ?? edgeKey(col, row, edge);
+  _wallSiteKey(col, row, edge, level = 0) {
+    return findWallKey(this.state.wallOccupied, col, row, edge, level)
+      ?? edgeKey(col, row, edge, level);
   }
 
   /**
@@ -1699,18 +1764,18 @@ export class Game {
    * tile when the key names no recognized edge, so a malformed edge still
    * round-trips through state instead of throwing.
    */
-  _wallSite(key, col, row, edge) {
-    return parseEdgeKey(key) ?? { col, row, edge };
+  _wallSite(key, col, row, edge, level = 0) {
+    return parseEdgeKey(key) ?? withLevel({ col, row, edge }, level);
   }
 
   /** The wall record stored at `key`, or undefined. */
   _wallAt(key) {
-    return this.state.walls.find(w => edgeKey(w.col, w.row, w.edge) === key);
+    return this.state.walls.find(w => edgeKey(w.col, w.row, w.edge, levelOf(w)) === key);
   }
 
   _wallOverlayAt(key) {
     return (this.state.wallOverlays || []).find(
-      w => edgeKey(w.col, w.row, w.edge) === key
+      w => edgeKey(w.col, w.row, w.edge, levelOf(w)) === key
     );
   }
 
@@ -1724,19 +1789,19 @@ export class Game {
       else if (wall.edge === 'w') cells.push({ col: wall.col, row: wall.row, subCol: 0, subRow: 3 - slot });
     }
     if (includeDoorOpening) return cells;
-    const doorKey = findEdgeKey(this.state.doorOccupied, wall.col, wall.row, wall.edge);
+    const doorKey = findEdgeKey(this.state.doorOccupied, wall.col, wall.row, wall.edge, levelOf(wall));
     if (!doorKey) return cells;
     const door = this._doorRecordAtKey(doorKey);
     const dt = door && DOOR_TYPES[door.type];
     if (!door || !dt) return cells;
     let off = door.off ?? defaultDoorOff(dt);
-    if (isMirroredKey(doorKey, wall.col, wall.row, wall.edge)) off = mirrorDoorOff(off, dt);
+    if (isMirroredKey(doorKey, wall.col, wall.row, wall.edge, levelOf(wall))) off = mirrorDoorOff(off, dt);
     const width = dt.doorWidth === 'double' ? 4 : 2;
     return cells.filter((_cell, slot) => slot < off || slot >= off + width);
   }
 
   _wallInsetOccupantId(wall) {
-    return `shielding-wall:${edgeKey(wall.col, wall.row, wall.edge)}`;
+    return `shielding-wall:${edgeKey(wall.col, wall.row, wall.edge, levelOf(wall))}`;
   }
 
   _releaseWallInset(wall) {
@@ -1751,7 +1816,9 @@ export class Game {
     const ownId = this._wallInsetOccupantId(wall);
     const replacingId = replacing ? this._wallInsetOccupantId(replacing) : null;
     return this._wallInsetCells(wall).every(cell => {
-      const occ = this.state.subgridOccupied?.[`${cell.col},${cell.row},${cell.subCol},${cell.subRow}`];
+      const occ = this.state.subgridOccupied?.[subtileKey(
+        cell.col, cell.row, cell.subCol, cell.subRow, levelOf(wall),
+      )];
       return !occ || occ.id === ownId || occ.id === replacingId;
     });
   }
@@ -1759,7 +1826,7 @@ export class Game {
   _claimWallInset(wall) {
     const id = this._wallInsetOccupantId(wall);
     for (const cell of this._wallInsetCells(wall)) {
-      const key = `${cell.col},${cell.row},${cell.subCol},${cell.subRow}`;
+      const key = subtileKey(cell.col, cell.row, cell.subCol, cell.subRow, levelOf(wall));
       if (!this.state.subgridOccupied[key]) {
         this.state.subgridOccupied[key] = { id, kind: 'shieldingWall' };
       }
@@ -1778,22 +1845,23 @@ export class Game {
     this.state.wallOverlays = this.state.wallOverlays || [];
     this.state.wallOccupied = {};
     for (const wall of this.state.walls) {
-      this.state.wallOccupied[edgeKey(wall.col, wall.row, wall.edge)] = wall.type;
+      this.state.wallOccupied[edgeKey(wall.col, wall.row, wall.edge, levelOf(wall))] = wall.type;
     }
     this.state.wallOverlayOccupied = {};
     for (const layer of this.state.wallOverlays) {
       // A layer without a host can only come from hand-edited/invalid data;
       // keep it serialized but do not expose it as a buildable physical edge.
-      if (findWallKey(this.state.wallOccupied, layer.col, layer.row, layer.edge)) {
-        this.state.wallOverlayOccupied[edgeKey(layer.col, layer.row, layer.edge)] = layer.type;
+      if (findWallKey(this.state.wallOccupied, layer.col, layer.row, layer.edge, levelOf(layer))) {
+        this.state.wallOverlayOccupied[edgeKey(layer.col, layer.row, layer.edge, levelOf(layer))] = layer.type;
       }
     }
     this._refreshWallInsetOccupancy();
   }
 
-  _placeWallOverlay(col, row, edge, wallType, variant = 0) {
+  _placeWallOverlay(col, row, edge, wallType, variant = 0, level = 0) {
+    level = normalizeLevel(level);
     const wt = WALL_TYPES[wallType];
-    const hostKey = findWallKey(this.state.wallOccupied, col, row, edge);
+    const hostKey = findWallKey(this.state.wallOccupied, col, row, edge, level);
     if (!wt?.wallOverlay || !hostKey) {
       if (wt?.wallOverlay) this.log(`${wt.name} must be layered onto an existing wall`, 'bad');
       return false;
@@ -1804,12 +1872,12 @@ export class Game {
       this.log(`${wt.name} needs a full-height host wall`, 'bad');
       return false;
     }
-    if (findEdgeKey(this.state.doorOccupied, col, row, edge) ||
-        findEdgeKey(this.state.windowOccupied, col, row, edge)) {
+    if (findEdgeKey(this.state.doorOccupied, col, row, edge, level) ||
+        findEdgeKey(this.state.windowOccupied, col, row, edge, level)) {
       this.log(`${wt.name} needs an uninterrupted wall segment`, 'bad');
       return false;
     }
-    const heldKey = findEdgeKey(this.state.wallOverlayOccupied, col, row, edge);
+    const heldKey = findEdgeKey(this.state.wallOverlayOccupied, col, row, edge, level);
     if (heldKey && this.state.wallOverlayOccupied[heldKey] === wallType) {
       const held = this._wallOverlayAt(heldKey);
       if (held && (held.variant ?? 0) !== variant) {
@@ -1822,13 +1890,13 @@ export class Game {
     if (!this.canAfford({ funding: segCost })) return false;
     if (heldKey) {
       this.state.wallOverlays = this.state.wallOverlays.filter(
-        w => edgeKey(w.col, w.row, w.edge) !== heldKey
+        w => edgeKey(w.col, w.row, w.edge, levelOf(w)) !== heldKey
       );
       delete this.state.wallOverlayOccupied[heldKey];
     }
     this.chargeConstruction(segCost);
-    const key = edgeKey(col, row, edge);
-    const entry = { type: wallType, col, row, edge };
+    const key = edgeKey(col, row, edge, level);
+    const entry = withLevel({ type: wallType, col, row, edge }, level);
     if (variant) entry.variant = variant;
     this.state.wallOverlays.push(entry);
     this.state.wallOverlayOccupied[key] = wallType;
@@ -1836,26 +1904,32 @@ export class Game {
     return true;
   }
 
-  _removeWallOverlay(col, row, edge) {
-    const key = findEdgeKey(this.state.wallOverlayOccupied, col, row, edge);
+  _removeWallOverlay(col, row, edge, level = 0) {
+    level = normalizeLevel(level);
+    const key = findEdgeKey(this.state.wallOverlayOccupied, col, row, edge, level);
     if (!key) return false;
     const entry = this._wallOverlayAt(key);
     const wt = WALL_TYPES[this.state.wallOverlayOccupied[key]];
     if (wt) this.refundConstruction({ funding: variantCost(wt, entry?.variant ?? 0) });
     this.state.wallOverlays = this.state.wallOverlays.filter(
-      w => edgeKey(w.col, w.row, w.edge) !== key
+      w => edgeKey(w.col, w.row, w.edge, levelOf(w)) !== key
     );
     delete this.state.wallOverlayOccupied[key];
     this.emit('wallsChanged');
     return true;
   }
 
-  placeWall(col, row, edge, wallType, variant = 0) {
+  placeWall(col, row, edge, wallType, variant = 0, level = 0) {
+    level = normalizeLevel(level);
     const wt = WALL_TYPES[wallType];
     if (!wt) return false;
-    if (wt.wallOverlay) return this._placeWallOverlay(col, row, edge, wallType, variant);
+    if (wt.wallOverlay) return this._placeWallOverlay(col, row, edge, wallType, variant, level);
+    if (level > 0 && !this._edgeHasFloor(col, row, edge, level)) {
+      this.log('Upper-storey walls need a supported floor beside the edge.', 'bad');
+      return false;
+    }
     const segCost = wt.variantCosts?.[variant] ?? wt.cost;
-    const key = this._wallSiteKey(col, row, edge);
+    const key = this._wallSiteKey(col, row, edge, level);
     if (this.state.wallOccupied[key] === wallType) {
       // Same type — just update the variant for free.
       const existing = this._wallAt(key);
@@ -1867,10 +1941,10 @@ export class Game {
     }
     if (!this.canAfford({ funding: segCost })) return false;
     const replaced = this.state.wallOccupied[key] ? this._wallAt(key) : null;
-    const requestedSite = { type: wallType, col, row, edge };
+    const requestedSite = withLevel({ type: wallType, col, row, edge }, level);
     const site = wt.insetSubtiles
       ? requestedSite
-      : { type: wallType, ...this._wallSite(key, col, row, edge) };
+      : { type: wallType, ...this._wallSite(key, col, row, edge, level) };
     if (wt.insetSubtiles && !this._canClaimWallInset(site, replaced)) {
       this.log(`${wt.name} needs a clear one-subtile strip beside the edge`, 'bad');
       return false;
@@ -1879,7 +1953,7 @@ export class Game {
       // Replace existing wall on this edge
       this._releaseWallInset(replaced);
       this.state.walls = this.state.walls.filter(
-        w => edgeKey(w.col, w.row, w.edge) !== key
+        w => edgeKey(w.col, w.row, w.edge, levelOf(w)) !== key
       );
       delete this.state.wallOccupied[key];
     }
@@ -1887,12 +1961,12 @@ export class Game {
     // edge — placeWindow's fit rule has to survive a wall swap, or the
     // renderer clamps the opening into a slit while daylight morale keeps
     // paying the full amount.
-    this._evictUnfittableWindows(col, row, edge, wt);
+    this._evictUnfittableWindows(col, row, edge, wt, level);
     this.chargeConstruction(segCost);
-    const wallEntry = { type: wallType, col: site.col, row: site.row, edge: site.edge };
+    const wallEntry = withLevel({ type: wallType, col: site.col, row: site.row, edge: site.edge }, level);
     if (variant) wallEntry.variant = variant;
     this.state.walls.push(wallEntry);
-    const storedKey = edgeKey(site.col, site.row, site.edge);
+    const storedKey = edgeKey(site.col, site.row, site.edge, level);
     this.state.wallOccupied[storedKey] = wallType;
     this._claimWallInset(wallEntry);
     this._markNavDirty();
@@ -1900,19 +1974,21 @@ export class Game {
     return true;
   }
 
-  placeWallPath(path, wallType, variant = 0) {
+  placeWallPath(path, wallType, variant = 0, level = 0) {
+    level = normalizeLevel(level);
     const wt = WALL_TYPES[wallType];
     if (!wt) return false;
     if (wt.wallOverlay) {
       let placed = 0;
-      for (const pt of path) if (this._placeWallOverlay(pt.col, pt.row, pt.edge, wallType, variant)) placed++;
+      for (const pt of path) if (this._placeWallOverlay(pt.col, pt.row, pt.edge, wallType, variant, level)) placed++;
       if (placed > 0) this.log(`Layered ${placed} ${wt.name} segment${placed > 1 ? 's' : ''}`, 'good');
       return placed > 0;
     }
     const segCost = wt.variantCosts?.[variant] ?? wt.cost;
     let placed = 0;
     for (const pt of path) {
-      const key = this._wallSiteKey(pt.col, pt.row, pt.edge);
+      if (level > 0 && !this._edgeHasFloor(pt.col, pt.row, pt.edge, level)) continue;
+      const key = this._wallSiteKey(pt.col, pt.row, pt.edge, level);
       if (this.state.wallOccupied[key] === wallType) {
         const existing = this._wallAt(key);
         if (existing && (existing.variant ?? 0) !== variant) {
@@ -1923,26 +1999,26 @@ export class Game {
       }
       if (!this.canAfford({ funding: segCost })) break;
       const replaced = this.state.wallOccupied[key] ? this._wallAt(key) : null;
-      const requestedSite = { type: wallType, col: pt.col, row: pt.row, edge: pt.edge };
+      const requestedSite = withLevel({ type: wallType, col: pt.col, row: pt.row, edge: pt.edge }, level);
       const site = wt.insetSubtiles
         ? requestedSite
-        : { type: wallType, ...this._wallSite(key, pt.col, pt.row, pt.edge) };
+        : { type: wallType, ...this._wallSite(key, pt.col, pt.row, pt.edge, level) };
       if (wt.insetSubtiles && !this._canClaimWallInset(site, replaced)) continue;
       if (this.state.wallOccupied[key]) {
         this._releaseWallInset(replaced);
         this.state.walls = this.state.walls.filter(
-          w => edgeKey(w.col, w.row, w.edge) !== key
+          w => edgeKey(w.col, w.row, w.edge, levelOf(w)) !== key
         );
         delete this.state.wallOccupied[key];
       }
       // See placeWall: a shorter replacement wall evicts a window it can no
       // longer hold.
-      this._evictUnfittableWindows(pt.col, pt.row, pt.edge, wt);
+      this._evictUnfittableWindows(pt.col, pt.row, pt.edge, wt, level);
       this.chargeConstruction(segCost);
-      const wallEntry = { type: wallType, col: site.col, row: site.row, edge: site.edge };
+      const wallEntry = withLevel({ type: wallType, col: site.col, row: site.row, edge: site.edge }, level);
       if (variant) wallEntry.variant = variant;
       this.state.walls.push(wallEntry);
-      this.state.wallOccupied[edgeKey(site.col, site.row, site.edge)] = wallType;
+      this.state.wallOccupied[edgeKey(site.col, site.row, site.edge, level)] = wallType;
       this._claimWallInset(wallEntry);
       placed++;
     }
@@ -1954,9 +2030,10 @@ export class Game {
     return placed > 0;
   }
 
-  removeWall(col, row, edge) {
-    if (this._removeWallOverlay(col, row, edge)) return true;
-    const key = findWallKey(this.state.wallOccupied, col, row, edge);
+  removeWall(col, row, edge, level = 0) {
+    level = normalizeLevel(level);
+    if (this._removeWallOverlay(col, row, edge, level)) return true;
+    const key = findWallKey(this.state.wallOccupied, col, row, edge, level);
     if (!key) return false;
     const wallType = this.state.wallOccupied[key];
     const wt = WALL_TYPES[wallType];
@@ -1973,7 +2050,7 @@ export class Game {
     const removedWall = this._wallAt(key);
     this._releaseWallInset(removedWall);
     this.state.walls = this.state.walls.filter(
-      w => edgeKey(w.col, w.row, w.edge) !== key
+      w => edgeKey(w.col, w.row, w.edge, levelOf(w)) !== key
     );
     delete this.state.wallOccupied[key];
     this._markNavDirty();
@@ -1981,8 +2058,8 @@ export class Game {
     // either spelling of the edge (see edge-keys.js), so resolve before
     // deleting — an unresolved lookup used to strand the door on a wall that
     // no longer exists.
-    if (findEdgeKey(this.state.doorOccupied, col, row, edge)) {
-      this.removeDoor(col, row, edge);
+    if (findEdgeKey(this.state.doorOccupied, col, row, edge, level)) {
+      this.removeDoor(col, row, edge, level);
     }
     // Remove any orphaned window on this edge — a window is a hole in a
     // wall, not a free-standing pane, so it cannot survive the wall going.
@@ -1996,14 +2073,14 @@ export class Game {
     // variant-aware refund lives in exactly one place.
     const winAlias = this._edgeAlias(col, row, edge);
     for (const cell of [{ col, row, edge }, winAlias]) {
-      this.removeWindow(cell.col, cell.row, cell.edge);
+      this.removeWindow(cell.col, cell.row, cell.edge, level);
     }
     // A fixture may be mounted from either adjacent tile, but both faces
     // depend on this same physical wall segment. Demolishing the support
     // removes the fixtures through their normal refund/lifecycle path.
     const removedWallKey = physicalWallKey({ col, row, edge, off: 0 });
     const mountedIds = this.state.placeables
-      .filter(p => p.wallMount && physicalWallKey(p.wallMount) === removedWallKey)
+      .filter(p => p.wallMount && sameLevel(p, level) && physicalWallKey(p.wallMount) === removedWallKey)
       .map(p => p.id);
     for (const id of mountedIds) this.removePlaceable(id);
     this.emit('wallsChanged');
@@ -2015,11 +2092,12 @@ export class Game {
    * stored edge paints its tile-facing side; its mirrored edge paints the
    * opposite face. This keeps two rooms independently paintable.
    */
-  paintWallFace(col, row, edge, paintId = null) {
-    const key = findWallKey(this.state.wallOccupied, col, row, edge);
+  paintWallFace(col, row, edge, paintId = null, level = 0) {
+    level = normalizeLevel(level);
+    const key = findWallKey(this.state.wallOccupied, col, row, edge, level);
     const wall = key && this._wallAt(key);
     if (!wall) return false;
-    const requestedKey = edgeKey(col, row, edge);
+    const requestedKey = edgeKey(col, row, edge, level);
     const face = requestedKey === key ? 'inside' : 'outside';
     const before = wall.facePaint?.[face] ?? null;
     if (before === paintId) return false;
@@ -2048,8 +2126,9 @@ export class Game {
    * `off` is the subtile offset of the opening from the edge's first-listed
    * corner (n: NW->NE, e: NE->SE, s: SE->SW, w: SW->NW).
    */
-  _resolveDoorSite(col, row, edge, dt, off) {
-    const key = findWallKey(this.state.wallOccupied, col, row, edge);
+  _resolveDoorSite(col, row, edge, dt, off, level = 0) {
+    level = normalizeLevel(level);
+    const key = findWallKey(this.state.wallOccupied, col, row, edge, level);
     if (!key) return null;
     const site = parseEdgeKey(key);
     const wanted = clampDoorOff(dt, off ?? defaultDoorOff(dt));
@@ -2058,8 +2137,9 @@ export class Game {
       col: site.col,
       row: site.row,
       edge: site.edge,
+      level,
       // The two spellings run in opposite directions along the edge.
-      off: isMirroredKey(key, col, row, edge) ? mirrorDoorOff(wanted, dt) : wanted,
+      off: isMirroredKey(key, col, row, edge, level) ? mirrorDoorOff(wanted, dt) : wanted,
     };
   }
 
@@ -2077,13 +2157,14 @@ export class Game {
     const site = parseEdgeKey(key);
     if (!site) return null;
     return this.state.doors.find(d =>
-      doorRecordCoversEdge(d, DOOR_TYPES[d.type], site.col, site.row, site.edge)
+      sameLevel(d, site.level ?? 0)
+      && doorRecordCoversEdge(d, DOOR_TYPES[d.type], site.col, site.row, site.edge)
     ) || null;
   }
 
   _doorRecordKeys(record) {
     return doorRecordEdges(record, DOOR_TYPES[record?.type])
-      .map(site => edgeKey(site.col, site.row, site.edge));
+      .map(site => edgeKey(site.col, site.row, site.edge, levelOf(record)));
   }
 
   _indexDoorRecord(record) {
@@ -2102,7 +2183,8 @@ export class Game {
     for (const door of this.state.doors || []) this._indexDoorRecord(door);
   }
 
-  _placeWideDoorPath(path, doorType, variant = 0) {
+  _placeWideDoorPath(path, doorType, variant = 0, level = 0) {
+    level = normalizeLevel(level);
     const dt = DOOR_TYPES[doorType];
     const sites = normalizeDoorSpanPath(path, dt);
     if (!dt || !sites) {
@@ -2111,21 +2193,21 @@ export class Game {
     }
 
     for (const site of sites) {
-      const wallKey = findWallKey(this.state.wallOccupied, site.col, site.row, site.edge);
+      const wallKey = findWallKey(this.state.wallOccupied, site.col, site.row, site.edge, level);
       if (!wallKey) {
         this.log(`A ${dt.name} needs an unbroken run of ${sites.length} wall edges`, 'bad');
         return false;
       }
-      if (findEdgeKey(this.state.wallOverlayOccupied, site.col, site.row, site.edge)) {
+      if (findEdgeKey(this.state.wallOverlayOccupied, site.col, site.row, site.edge, level)) {
         this.log(`Remove the wall sheeting before cutting a ${dt.name} opening`, 'bad');
         return false;
       }
     }
 
     const existing = this._doorRecordAtKey(
-      findEdgeKey(this.state.doorOccupied, sites[0].col, sites[0].row, sites[0].edge) || ''
+      findEdgeKey(this.state.doorOccupied, sites[0].col, sites[0].row, sites[0].edge, level) || ''
     );
-    const wantedKeys = sites.map(site => edgeKey(site.col, site.row, site.edge));
+    const wantedKeys = sites.map(site => edgeKey(site.col, site.row, site.edge, level));
     const existingKeys = existing ? this._doorRecordKeys(existing) : [];
     if (existing?.type === doorType
         && existingKeys.length === wantedKeys.length
@@ -2144,21 +2226,21 @@ export class Game {
 
     const displaced = new Set();
     for (const site of sites) {
-      const heldKey = findEdgeKey(this.state.doorOccupied, site.col, site.row, site.edge);
+      const heldKey = findEdgeKey(this.state.doorOccupied, site.col, site.row, site.edge, level);
       const held = heldKey ? this._doorRecordAtKey(heldKey) : null;
       if (held) displaced.add(held);
     }
     for (const record of displaced) this._dropDoorRecord(record);
 
     for (const site of sites) {
-      const windowKey = findEdgeKey(this.state.windowOccupied, site.col, site.row, site.edge);
+      const windowKey = findEdgeKey(this.state.windowOccupied, site.col, site.row, site.edge, level);
       const windowSite = windowKey && parseEdgeKey(windowKey);
-      if (windowSite) this.removeWindow(windowSite.col, windowSite.row, windowSite.edge);
+      if (windowSite) this.removeWindow(windowSite.col, windowSite.row, windowSite.edge, level);
     }
 
     this.chargeConstruction(dt.cost);
     const first = sites[0];
-    const record = {
+    const record = withLevel({
       type: doorType,
       col: first.col,
       row: first.row,
@@ -2166,7 +2248,7 @@ export class Game {
       segments: sites.map(site => ({ ...site })),
       variant,
       off: 0,
-    };
+    }, level);
     this.state.doors.push(record);
     this._indexDoorRecord(record);
     this._refreshWallInsetOccupancy();
@@ -2176,20 +2258,21 @@ export class Game {
     return true;
   }
 
-  placeDoor(col, row, edge, doorType, variant = 0, off = null) {
+  placeDoor(col, row, edge, doorType, variant = 0, off = null, level = 0) {
+    level = normalizeLevel(level);
     const dt = DOOR_TYPES[doorType];
     if (!dt) return false;
     if (doorTileSpan(dt) > 1) {
       return this._placeWideDoorPath(
-        doorSpanPath({ col, row, edge }, doorTileSpan(dt)), doorType, variant,
+        doorSpanPath({ col, row, edge }, doorTileSpan(dt)), doorType, variant, level,
       );
     }
-    const site = this._resolveDoorSite(col, row, edge, dt, off);
+    const site = this._resolveDoorSite(col, row, edge, dt, off, level);
     if (!site) {
       this.log(`No wall on that edge — a ${dt.name} has to hang on a wall`, 'bad');
       return false;
     }
-    if (findEdgeKey(this.state.wallOverlayOccupied, col, row, edge)) {
+    if (findEdgeKey(this.state.wallOverlayOccupied, col, row, edge, level)) {
       this.log(`Remove the wall sheeting before cutting a door opening`, 'bad');
       return false;
     }
@@ -2215,15 +2298,15 @@ export class Game {
     // its usual refund) the same way removeWall() clears an orphaned door.
     // A window may be stored under either edge representation (see
     // placeWindow), so check both.
-    const winKey = edgeKey(col, row, edge);
+    const winKey = edgeKey(col, row, edge, level);
     const alias = this._edgeAlias(col, row, edge);
-    const aliasKey = edgeKey(alias.col, alias.row, alias.edge);
-    if (this.state.windowOccupied[winKey]) this.removeWindow(col, row, edge);
-    else if (this.state.windowOccupied[aliasKey]) this.removeWindow(alias.col, alias.row, alias.edge);
+    const aliasKey = edgeKey(alias.col, alias.row, alias.edge, level);
+    if (this.state.windowOccupied[winKey]) this.removeWindow(col, row, edge, level);
+    else if (this.state.windowOccupied[aliasKey]) this.removeWindow(alias.col, alias.row, alias.edge, level);
     this.chargeConstruction(dt.cost);
-    this.state.doors.push({
+    this.state.doors.push(withLevel({
       type: doorType, col: site.col, row: site.row, edge: site.edge, variant, off: site.off,
-    });
+    }, level));
     this.state.doorOccupied[site.key] = doorType;
     this._refreshWallInsetOccupancy();
     this._markNavDirty();
@@ -2236,18 +2319,19 @@ export class Game {
    * (subtile offset of the opening); the `off` argument is the fallback for
    * points that don't. Skips are summarized in one log line, never silent.
    */
-  placeDoorPath(path, doorType, variant = 0, off = null) {
+  placeDoorPath(path, doorType, variant = 0, off = null, level = 0) {
+    level = normalizeLevel(level);
     const dt = DOOR_TYPES[doorType];
     if (!dt) return false;
-    if (doorTileSpan(dt) > 1) return this._placeWideDoorPath(path, doorType, variant);
+    if (doorTileSpan(dt) > 1) return this._placeWideDoorPath(path, doorType, variant, level);
     let placed = 0;
     let updated = 0;
     let noWall = 0;
     let brokeOnFunding = false;
     for (const pt of path) {
-      const site = this._resolveDoorSite(pt.col, pt.row, pt.edge, dt, pt.off ?? off);
+      const site = this._resolveDoorSite(pt.col, pt.row, pt.edge, dt, pt.off ?? off, level);
       if (!site) { noWall++; continue; }
-      if (findEdgeKey(this.state.wallOverlayOccupied, pt.col, pt.row, pt.edge)) { noWall++; continue; }
+      if (findEdgeKey(this.state.wallOverlayOccupied, pt.col, pt.row, pt.edge, level)) { noWall++; continue; }
       if (this.state.doorOccupied[site.key] === doorType) {
         if (this._updateDoorRecord(site.key, variant, site.off)) updated++;
         continue;
@@ -2258,15 +2342,15 @@ export class Game {
       }
       // Exactly one opening per edge, always — see placeDoor. Check both
       // edge representations; a window may be stored under either.
-      const winKey = edgeKey(pt.col, pt.row, pt.edge);
+      const winKey = edgeKey(pt.col, pt.row, pt.edge, level);
       const alias = this._edgeAlias(pt.col, pt.row, pt.edge);
-      const aliasKey = edgeKey(alias.col, alias.row, alias.edge);
-      if (this.state.windowOccupied[winKey]) this.removeWindow(pt.col, pt.row, pt.edge);
-      else if (this.state.windowOccupied[aliasKey]) this.removeWindow(alias.col, alias.row, alias.edge);
+      const aliasKey = edgeKey(alias.col, alias.row, alias.edge, level);
+      if (this.state.windowOccupied[winKey]) this.removeWindow(pt.col, pt.row, pt.edge, level);
+      else if (this.state.windowOccupied[aliasKey]) this.removeWindow(alias.col, alias.row, alias.edge, level);
       this.chargeConstruction(dt.cost);
-      this.state.doors.push({
+      this.state.doors.push(withLevel({
         type: doorType, col: site.col, row: site.row, edge: site.edge, variant, off: site.off,
-      });
+      }, level));
       this.state.doorOccupied[site.key] = doorType;
       this._refreshWallInsetOccupancy();
       placed++;
@@ -2286,18 +2370,21 @@ export class Game {
     return placed > 0 || updated > 0;
   }
 
-  removeDoor(col, row, edge) {
-    const key = findEdgeKey(this.state.doorOccupied, col, row, edge);
+  removeDoor(col, row, edge, level = 0) {
+    level = normalizeLevel(level);
+    const key = findEdgeKey(this.state.doorOccupied, col, row, edge, level);
     if (!key) return false;
     const record = this._doorRecordAtKey(key);
     if (!record) return false;
     for (const site of doorRecordEdges(record, DOOR_TYPES[record.type])) {
-      const wallKey = findWallKey(this.state.wallOccupied, site.col, site.row, site.edge);
+      const wallKey = findWallKey(this.state.wallOccupied, site.col, site.row, site.edge, level);
       const wall = wallKey ? this._wallAt(wallKey) : null;
       if (!wall || !WALL_TYPES[wall.type]?.insetSubtiles) continue;
       const id = this._wallInsetOccupantId(wall);
       const blocked = this._wallInsetCells(wall, true).some(cell => {
-        const occ = this.state.subgridOccupied?.[`${cell.col},${cell.row},${cell.subCol},${cell.subRow}`];
+        const occ = this.state.subgridOccupied?.[subtileKey(
+          cell.col, cell.row, cell.subCol, cell.subRow, level,
+        )];
         return occ && occ.id !== id;
       });
       if (blocked) {
@@ -2349,16 +2436,16 @@ export class Game {
    * the new wall height (a squashed slit) while computeRoomMorale keeps
    * paying the window's full daylight.
    */
-  _evictUnfittableWindows(col, row, edge, wallDef) {
+  _evictUnfittableWindows(col, row, edge, wallDef, level = 0) {
     const alias = this._edgeAlias(col, row, edge);
     for (const cell of [{ col, row, edge }, alias]) {
-      const wKey = `${cell.col},${cell.row},${cell.edge}`;
+      const wKey = edgeKey(cell.col, cell.row, cell.edge, level);
       const winType = this.state.windowOccupied[wKey];
       if (!winType) continue;
       const winDef = WINDOW_TYPES[winType];
       if (winDef && wallDef &&
           wallDef.wallHeight >= winDef.sillHeight + winDef.openingHeight + 1) continue;
-      this.removeWindow(cell.col, cell.row, cell.edge);
+      this.removeWindow(cell.col, cell.row, cell.edge, level);
       this.log(
         `${winDef?.name || 'Window'} removed — ${wallDef?.name || 'the new wall'} is too short to hold it`,
         'bad'
@@ -2366,15 +2453,16 @@ export class Game {
     }
   }
 
-  placeWindow(col, row, edge, windowType, variant = 0, off = null) {
+  placeWindow(col, row, edge, windowType, variant = 0, off = null, level = 0) {
+    level = normalizeLevel(level);
     const wt = WINDOW_TYPES[windowType];
     if (!wt) return false;
     const wantedOff = clampWindowOff(wt, off ?? defaultWindowOff(wt));
     const segCost = wt.variantCosts?.[variant] ?? wt.cost;
-    const key = `${col},${row},${edge}`;
+    const key = edgeKey(col, row, edge, level);
     const alias = this._edgeAlias(col, row, edge);
-    const aliasKey = `${alias.col},${alias.row},${alias.edge}`;
-    if (findEdgeKey(this.state.wallOverlayOccupied, col, row, edge)) return false;
+    const aliasKey = edgeKey(alias.col, alias.row, alias.edge, level);
+    if (findEdgeKey(this.state.wallOverlayOccupied, col, row, edge, level)) return false;
     // A window is a hole in an existing wall — accept the wall under either
     // edge representation, the same way InputHandler._findWallOrDoorAtEdge does.
     const wallTypeId = this.state.wallOccupied[key] || this.state.wallOccupied[aliasKey];
@@ -2394,11 +2482,11 @@ export class Game {
     const held = this.state.windowOccupied[key]
       ? { col, row, edge }
       : (this.state.windowOccupied[aliasKey] ? alias : null);
-    const heldKey = held ? `${held.col},${held.row},${held.edge}` : null;
+    const heldKey = held ? edgeKey(held.col, held.row, held.edge, level) : null;
 
     if (held && this.state.windowOccupied[heldKey] === windowType) {
       const existing = this.state.windows.find(
-        w => w.col === held.col && w.row === held.row && w.edge === held.edge
+        w => sameLevel(w, level) && w.col === held.col && w.row === held.row && w.edge === held.edge
       );
       const storedOff = heldKey === key ? wantedOff : mirrorWindowOff(wantedOff, wt);
       if (existing && (existing.variant !== variant || existing.off !== storedOff)) {
@@ -2418,37 +2506,38 @@ export class Game {
       // on which side of the wall the player was standing on. (placeWall and
       // placeDoor replace their own kind the same way.)
       this.state.windows = this.state.windows.filter(
-        w => `${w.col},${w.row},${w.edge}` !== heldKey
+        w => edgeKey(w.col, w.row, w.edge, levelOf(w)) !== heldKey
       );
       delete this.state.windowOccupied[heldKey];
     }
     // Exactly one opening per edge, always. A door may be stored under
     // either edge representation, so check both.
-    if (this.state.doorOccupied[key]) this.removeDoor(col, row, edge);
-    else if (this.state.doorOccupied[aliasKey]) this.removeDoor(alias.col, alias.row, alias.edge);
+    if (this.state.doorOccupied[key]) this.removeDoor(col, row, edge, level);
+    else if (this.state.doorOccupied[aliasKey]) this.removeDoor(alias.col, alias.row, alias.edge, level);
     this.chargeConstruction(segCost);
     // Stored under the representation the caller passed (col,row,edge), not
     // normalized to whichever alias the wall-existence check above matched
     // against — only lookups (here, and in placeDoor's mirror-image check)
     // are alias-aware. Mirrors placeDoor/placeWall, which don't normalize
     // either.
-    this.state.windows.push({ type: windowType, col, row, edge, variant, off: wantedOff });
+    this.state.windows.push(withLevel({ type: windowType, col, row, edge, variant, off: wantedOff }, level));
     this.state.windowOccupied[key] = windowType;
     this.emit('windowsChanged');
     return true;
   }
 
-  placeWindowPath(path, windowType, variant = 0, off = null) {
+  placeWindowPath(path, windowType, variant = 0, off = null, level = 0) {
+    level = normalizeLevel(level);
     const wt = WINDOW_TYPES[windowType];
     if (!wt) return false;
     const segCost = wt.variantCosts?.[variant] ?? wt.cost;
     let placed = 0;
     let updated = 0;
     for (const pt of path) {
-      if (findEdgeKey(this.state.wallOverlayOccupied, pt.col, pt.row, pt.edge)) continue;
-      const key = `${pt.col},${pt.row},${pt.edge}`;
+      if (findEdgeKey(this.state.wallOverlayOccupied, pt.col, pt.row, pt.edge, level)) continue;
+      const key = edgeKey(pt.col, pt.row, pt.edge, level);
       const alias = this._edgeAlias(pt.col, pt.row, pt.edge);
-      const aliasKey = `${alias.col},${alias.row},${alias.edge}`;
+      const aliasKey = edgeKey(alias.col, alias.row, alias.edge, level);
       const wallTypeId = this.state.wallOccupied[key] || this.state.wallOccupied[aliasKey];
       if (!wallTypeId) continue;
       const wallDef = WALL_TYPES[wallTypeId];
@@ -2460,14 +2549,14 @@ export class Game {
       const held = this.state.windowOccupied[key]
         ? { col: pt.col, row: pt.row, edge: pt.edge }
         : (this.state.windowOccupied[aliasKey] ? alias : null);
-      const heldKey = held ? `${held.col},${held.row},${held.edge}` : null;
+      const heldKey = held ? edgeKey(held.col, held.row, held.edge, level) : null;
       const wantedOff = clampWindowOff(
         wt,
         pt.off ?? off ?? defaultWindowOff(wt),
       );
       if (held && this.state.windowOccupied[heldKey] === windowType) {
         const existing = this.state.windows.find(
-          w => w.col === held.col && w.row === held.row && w.edge === held.edge
+          w => sameLevel(w, level) && w.col === held.col && w.row === held.row && w.edge === held.edge
         );
         const storedOff = heldKey === key ? wantedOff : mirrorWindowOff(wantedOff, wt);
         if (existing && (existing.variant !== variant || existing.off !== storedOff)) {
@@ -2480,22 +2569,22 @@ export class Game {
       if (!this.canAfford({ funding: segCost })) break;
       if (held) {
         this.state.windows = this.state.windows.filter(
-          w => `${w.col},${w.row},${w.edge}` !== heldKey
+          w => edgeKey(w.col, w.row, w.edge, levelOf(w)) !== heldKey
         );
         delete this.state.windowOccupied[heldKey];
       }
       // A door may be stored under either edge representation, so check both.
-      if (this.state.doorOccupied[key]) this.removeDoor(pt.col, pt.row, pt.edge);
-      else if (this.state.doorOccupied[aliasKey]) this.removeDoor(alias.col, alias.row, alias.edge);
+      if (this.state.doorOccupied[key]) this.removeDoor(pt.col, pt.row, pt.edge, level);
+      else if (this.state.doorOccupied[aliasKey]) this.removeDoor(alias.col, alias.row, alias.edge, level);
       this.chargeConstruction(segCost);
-      this.state.windows.push({
+      this.state.windows.push(withLevel({
         type: windowType,
         col: pt.col,
         row: pt.row,
         edge: pt.edge,
         variant,
         off: wantedOff,
-      });
+      }, level));
       this.state.windowOccupied[key] = windowType;
       placed++;
     }
@@ -2508,12 +2597,13 @@ export class Game {
     return placed > 0 || updated > 0;
   }
 
-  removeWindow(col, row, edge) {
-    const key = `${col},${row},${edge}`;
+  removeWindow(col, row, edge, level = 0) {
+    level = normalizeLevel(level);
+    const key = edgeKey(col, row, edge, level);
     const windowType = this.state.windowOccupied[key];
     if (!windowType) return false;
     const wt = WINDOW_TYPES[windowType];
-    const entry = this.state.windows.find(w => w.col === col && w.row === row && w.edge === edge);
+    const entry = this.state.windows.find(w => sameLevel(w, level) && w.col === col && w.row === row && w.edge === edge);
     if (wt) {
       // Refund half of what was actually paid — placeWindow charges
       // variantCosts[variant] when the type declares them, so a flat
@@ -2522,7 +2612,7 @@ export class Game {
       this.refundConstruction({ funding: variantCost(wt, entry?.variant ?? 0) });
     }
     this.state.windows = this.state.windows.filter(
-      w => !(w.col === col && w.row === row && w.edge === edge)
+      w => !(sameLevel(w, level) && w.col === col && w.row === row && w.edge === edge)
     );
     delete this.state.windowOccupied[key];
     this.emit('windowsChanged');
@@ -2531,27 +2621,29 @@ export class Game {
 
   // === ZONES ===
 
-  placeZoneTile(col, row, zoneType) {
+  placeZoneTile(col, row, zoneType, level = 0) {
+    level = normalizeLevel(level);
     const zone = ZONES[zoneType];
     if (!zone) return false;
-    const key = col + ',' + row;
+    const key = tileKey(col, row, level);
     // Must have the right flooring underneath
     const floor = this.state.infraOccupied[key];
     if (!floorSupportsZone(floor, zone.requiredFloor)) return false;
     // Overwrite existing zone if different type; skip if same type
     if (this.state.zoneOccupied[key]) {
       if (this.state.zoneOccupied[key] === zoneType) return false;
-      this.removeZoneTile(col, row);
+      this.removeZoneTile(col, row, level);
     }
 
-    this.state.zones.push({ type: zoneType, col, row });
+    this.state.zones.push(withLevel({ type: zoneType, col, row }, level));
     this.state.zoneOccupied[key] = zoneType;
     this.recomputeZoneConnectivity();
     this.emit('zonesChanged');
     return true;
   }
 
-  placeZoneRect(startCol, startRow, endCol, endRow, zoneType) {
+  placeZoneRect(startCol, startRow, endCol, endRow, zoneType, level = 0) {
+    level = normalizeLevel(level);
     const zone = ZONES[zoneType];
     if (!zone) return false;
 
@@ -2563,18 +2655,18 @@ export class Game {
     let placed = 0;
     for (let c = minCol; c <= maxCol; c++) {
       for (let r = minRow; r <= maxRow; r++) {
-        const key = c + ',' + r;
+        const key = tileKey(c, r, level);
         const floor = this.state.infraOccupied[key];
         if (!floorSupportsZone(floor, zone.requiredFloor)) continue;
         if (this.state.zoneOccupied[key] === zoneType) continue;
         if (this.state.zoneOccupied[key]) {
           // Overwrite existing zone
-          const idx = this.state.zones.findIndex(z => z.col === c && z.row === r);
+          const idx = this.state.zones.findIndex(z => sameLevel(z, level) && z.col === c && z.row === r);
           if (idx !== -1) this.state.zones.splice(idx, 1);
           delete this.state.zoneOccupied[key];
         }
 
-        this.state.zones.push({ type: zoneType, col: c, row: r });
+        this.state.zones.push(withLevel({ type: zoneType, col: c, row: r }, level));
         this.state.zoneOccupied[key] = zoneType;
         placed++;
       }
@@ -2598,8 +2690,9 @@ export class Game {
   // 3-minute path helper: new players no longer need a separate
   // Structure → Flooring step before painting Facility zones.
 
-  _ensureFloorForBrush(col, row, requiredFloor) {
-    const key = col + ',' + row;
+  _ensureFloorForBrush(col, row, requiredFloor, level = 0) {
+    level = normalizeLevel(level);
+    const key = tileKey(col, row, level);
     if (floorSupportsZone(this.state.infraOccupied[key], requiredFloor)) return true;
     const def = FLOORS[requiredFloor];
     if (!def) return false;
@@ -2609,12 +2702,12 @@ export class Game {
       const existing = this.state.infraOccupied[key];
       let hasFoundation = existing === need;
       if (!hasFoundation) {
-        const tile = this.state.floors.find(t => t.col === col && t.row === row);
+        const tile = this.state.floors.find(t => sameLevel(t, level) && t.col === col && t.row === row);
         if (tile && tile.foundation === need) hasFoundation = true;
       }
       if (!hasFoundation) {
         // Place foundation; if it fails (funding) abort this tile.
-        const ok = this.placeInfraTile(col, row, need, 0);
+        const ok = this.placeInfraTile(col, row, need, 0, { level });
         if (!ok) return false;
         // After placing foundation, the tile's infraOccupied is now 'need'.
         // Fall through to place the surface on top.
@@ -2622,21 +2715,22 @@ export class Game {
       }
     }
     if (floorSupportsZone(this.state.infraOccupied[key], requiredFloor)) return true;
-    return this.placeInfraTile(col, row, requiredFloor, 0);
+    return this.placeInfraTile(col, row, requiredFloor, 0, { level });
   }
 
   /**
    * Single-tile brush: ensure floor then paint zone.
    * Returns true if the zone was newly painted.
    */
-  placeFacilityZoneBrushTile(col, row, zoneType) {
+  placeFacilityZoneBrushTile(col, row, zoneType, level = 0) {
+    level = normalizeLevel(level);
     const zone = ZONES[zoneType];
     if (!zone) return false;
-    const key = col + ',' + row;
+    const key = tileKey(col, row, level);
     if (this.state.zoneOccupied[key] === zoneType) return false;
     // Ensure floor exists — auto-place if missing.
     if (!floorSupportsZone(this.state.infraOccupied[key], zone.requiredFloor)) {
-      const ok = this._ensureFloorForBrush(col, row, zone.requiredFloor);
+      const ok = this._ensureFloorForBrush(col, row, zone.requiredFloor, level);
       if (!ok) {
         // If floor placement failed (e.g. insufficient funds), don't paint zone.
         if (!floorSupportsZone(this.state.infraOccupied[key], zone.requiredFloor)) return false;
@@ -2644,10 +2738,10 @@ export class Game {
     }
     // Overwrite different zone type.
     if (this.state.zoneOccupied[key] && this.state.zoneOccupied[key] !== zoneType) {
-      this.removeZoneTile(col, row);
+      this.removeZoneTile(col, row, level);
     }
     if (this.state.zoneOccupied[key] === zoneType) return false;
-    this.state.zones.push({ type: zoneType, col, row });
+    this.state.zones.push(withLevel({ type: zoneType, col, row }, level));
     this.state.zoneOccupied[key] = zoneType;
     this.recomputeZoneConnectivity();
     this.emit('zonesChanged');
@@ -2660,7 +2754,8 @@ export class Game {
    * Rectangular brush: auto-places floor+zone across the drag rect.
    * Returns true if at least one tile was painted.
    */
-  placeFacilityZoneBrushRect(startCol, startRow, endCol, endRow, zoneType) {
+  placeFacilityZoneBrushRect(startCol, startRow, endCol, endRow, zoneType, level = 0) {
+    level = normalizeLevel(level);
     const zone = ZONES[zoneType];
     if (!zone) return false;
     const minCol = Math.min(startCol, endCol);
@@ -2671,21 +2766,21 @@ export class Game {
     let infraChanged = false;
     for (let c = minCol; c <= maxCol; c++) {
       for (let r = minRow; r <= maxRow; r++) {
-        const key = c + ',' + r;
+        const key = tileKey(c, r, level);
         if (this.state.zoneOccupied[key] === zoneType) continue;
         const beforeFloor = this.state.infraOccupied[key];
         if (!floorSupportsZone(beforeFloor, zone.requiredFloor)) {
-          const ok = this._ensureFloorForBrush(c, r, zone.requiredFloor);
+          const ok = this._ensureFloorForBrush(c, r, zone.requiredFloor, level);
           if (!ok && !floorSupportsZone(this.state.infraOccupied[key], zone.requiredFloor)) continue;
           if (this.state.infraOccupied[key] !== beforeFloor) infraChanged = true;
         }
         if (this.state.zoneOccupied[key] && this.state.zoneOccupied[key] !== zoneType) {
-          const idx = this.state.zones.findIndex(z => z.col === c && z.row === r);
+          const idx = this.state.zones.findIndex(z => sameLevel(z, level) && z.col === c && z.row === r);
           if (idx !== -1) this.state.zones.splice(idx, 1);
           delete this.state.zoneOccupied[key];
         }
         if (this.state.zoneOccupied[key] === zoneType) continue;
-        this.state.zones.push({ type: zoneType, col: c, row: r });
+        this.state.zones.push(withLevel({ type: zoneType, col: c, row: r }, level));
         this.state.zoneOccupied[key] = zoneType;
         placed++;
       }
@@ -2705,7 +2800,8 @@ export class Game {
    * that lack the required floor plus any needed concrete foundations.
    * Zones themselves are free.
    */
-  computeFacilityBrushCost(startCol, startRow, endCol, endRow, zoneType) {
+  computeFacilityBrushCost(startCol, startRow, endCol, endRow, zoneType, level = 0) {
+    level = normalizeLevel(level);
     const zone = ZONES[zoneType];
     if (!zone) return { newTiles: 0, totalCost: 0 };
     const minCol = Math.min(startCol, endCol);
@@ -2716,7 +2812,7 @@ export class Game {
     let totalCost = 0;
     for (let c = minCol; c <= maxCol; c++) {
       for (let r = minRow; r <= maxRow; r++) {
-        const key = c + ',' + r;
+        const key = tileKey(c, r, level);
         if (this.state.zoneOccupied[key] === zoneType) continue;
         newTiles++;
         const requiredFloor = zone.requiredFloor;
@@ -2729,7 +2825,7 @@ export class Game {
           const existing = this.state.infraOccupied[key];
           let hasFoundation = existing === need;
           if (!hasFoundation) {
-            const tile = this.state.floors.find(t => t.col === c && t.row === r);
+            const tile = this.state.floors.find(t => sameLevel(t, level) && t.col === c && t.row === r);
             if (tile && tile.foundation === need) hasFoundation = true;
           }
           if (!hasFoundation) {
@@ -2745,7 +2841,8 @@ export class Game {
     return { newTiles, totalCost };
   }
 
-  removeZoneRect(startCol, startRow, endCol, endRow) {
+  removeZoneRect(startCol, startRow, endCol, endRow, level = 0) {
+    level = normalizeLevel(level);
     const minCol = Math.min(startCol, endCol);
     const maxCol = Math.max(startCol, endCol);
     const minRow = Math.min(startRow, endRow);
@@ -2754,9 +2851,9 @@ export class Game {
     let removed = 0;
     for (let c = minCol; c <= maxCol; c++) {
       for (let r = minRow; r <= maxRow; r++) {
-        const key = c + ',' + r;
+        const key = tileKey(c, r, level);
         if (this.state.zoneOccupied[key]) {
-          const idx = this.state.zones.findIndex(z => z.col === c && z.row === r);
+          const idx = this.state.zones.findIndex(z => sameLevel(z, level) && z.col === c && z.row === r);
           if (idx !== -1) {
             this.state.zones.splice(idx, 1);
             delete this.state.zoneOccupied[key];
@@ -2773,7 +2870,8 @@ export class Game {
     return removed > 0;
   }
 
-  removeInfraRect(startCol, startRow, endCol, endRow) {
+  removeInfraRect(startCol, startRow, endCol, endRow, level = 0) {
+    level = normalizeLevel(level);
     const minCol = Math.min(startCol, endCol);
     const maxCol = Math.max(startCol, endCol);
     const minRow = Math.min(startRow, endRow);
@@ -2787,7 +2885,7 @@ export class Game {
     this._batchEvents(() => {
       for (let c = minCol; c <= maxCol; c++) {
         for (let r = minRow; r <= maxRow; r++) {
-          if (this.removeInfraTile(c, r)) removed++;
+          if (this.removeInfraTile(c, r, level)) removed++;
         }
       }
     });
@@ -2797,10 +2895,11 @@ export class Game {
     return removed > 0;
   }
 
-  removeZoneTile(col, row) {
-    const key = col + ',' + row;
+  removeZoneTile(col, row, level = 0) {
+    level = normalizeLevel(level);
+    const key = tileKey(col, row, level);
     if (!this.state.zoneOccupied[key]) return false;
-    const idx = this.state.zones.findIndex(z => z.col === col && z.row === row);
+    const idx = this.state.zones.findIndex(z => sameLevel(z, level) && z.col === col && z.row === row);
     if (idx !== -1) {
       this.state.zones.splice(idx, 1);
       delete this.state.zoneOccupied[key];
@@ -2811,7 +2910,7 @@ export class Game {
       // `cost` is an object ({funding: N}) — refunding it as a scalar produced
       // NaN funding. _batchEvents coalesces the per-furnishing emits.
       const tileFurnishingIds = this.state.zoneFurnishings
-        .filter(e => e.col === col && e.row === row)
+        .filter(e => sameLevel(e, level) && e.col === col && e.row === row)
         .map(e => e.id);
       this._batchEvents(() => {
         for (const id of tileFurnishingIds) this.removePlaceable(id);
@@ -2892,7 +2991,7 @@ export class Game {
     // Find all Control Room tiles
     const controlRoomTiles = this.state.zones
       .filter(z => z.type === 'controlRoom')
-      .map(z => z.col + ',' + z.row);
+      .map(z => tileKey(z.col, z.row, levelOf(z)));
 
     if (controlRoomTiles.length === 0) {
       this.state.zoneConnectivity = connectivity;
@@ -2905,7 +3004,20 @@ export class Game {
     // Find all hallway tiles adjacent to Control Room -- seed the flood fill
     const hallwaySet = new Set();
     for (const tile of this.state.floors) {
-      if (tile.type === 'hallway') hallwaySet.add(tile.col + ',' + tile.row);
+      if (tile.type === 'hallway') hallwaySet.add(tileKey(tile.col, tile.row, levelOf(tile)));
+    }
+
+    const verticalHallwayLinks = new Map();
+    for (const entry of this.state.placeables || []) {
+      const def = PLACEABLES[entry.type];
+      if (!def?.verticalConnector || !entry.cells?.length || levelOf(entry) >= MAX_LEVEL) continue;
+      const first = entry.cells[0];
+      const last = entry.cells[entry.cells.length - 1];
+      const lower = tileKey(first.col, first.row, levelOf(entry));
+      const upper = tileKey(last.col, last.row, levelOf(entry) + 1);
+      if (!hallwaySet.has(lower) || !hallwaySet.has(upper)) continue;
+      verticalHallwayLinks.set(lower, upper);
+      verticalHallwayLinks.set(upper, lower);
     }
 
     const visited = new Set();
@@ -2913,9 +3025,9 @@ export class Game {
 
     // Seed: hallway tiles adjacent to any Control Room tile
     for (const crKey of controlRoomTiles) {
-      const [cc, cr] = crKey.split(',').map(Number);
+      const { col: cc, row: cr, level } = parseTileKey(crKey);
       for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]]) {
-        const nk = (cc + dc) + ',' + (cr + dr);
+        const nk = tileKey(cc + dc, cr + dr, level);
         if (hallwaySet.has(nk) && !visited.has(nk)) {
           visited.add(nk);
           queue.push(nk);
@@ -2926,13 +3038,18 @@ export class Game {
     // BFS through hallway tiles
     while (queue.length > 0) {
       const cur = queue.shift();
-      const [cc, cr] = cur.split(',').map(Number);
+      const { col: cc, row: cr, level } = parseTileKey(cur);
       for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]]) {
-        const nk = (cc + dc) + ',' + (cr + dr);
+        const nk = tileKey(cc + dc, cr + dr, level);
         if (hallwaySet.has(nk) && !visited.has(nk)) {
           visited.add(nk);
           queue.push(nk);
         }
+      }
+      const vertical = verticalHallwayLinks.get(cur);
+      if (vertical && !visited.has(vertical)) {
+        visited.add(vertical);
+        queue.push(vertical);
       }
     }
 
@@ -2947,7 +3064,7 @@ export class Game {
       if (zoneType === 'controlRoom') continue; // already active
       for (const tile of tiles) {
         for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]]) {
-          const nk = (tile.col + dc) + ',' + (tile.row + dr);
+          const nk = tileKey(tile.col + dc, tile.row + dr, levelOf(tile));
           if (visited.has(nk)) {
             connectivity[zoneType].active = true;
             break;
@@ -3006,13 +3123,23 @@ export class Game {
     const {
       type, col, row, subCol, subRow, dir = 0, params, variant = 0,
       portsFlipped = false,
-      wallMount = null, free = false, silent = false,
+      wallMount = null, free = false, silent = false, level: requestedLevel = 0,
     } = opts;
+    const level = normalizeLevel(requestedLevel ?? wallMount?.level ?? 0);
     const skipBeamlineRoute = !!(opts2 && opts2.skipBeamlineRoute);
 
     const placeable = PLACEABLES[type];
     if (!placeable) return false;
     const kind = placeable.kind;
+
+    // Beam pipes and utility routing still use the ground-plane topology.
+    // Keep beamline modules honest until those systems gain storey-aware
+    // endpoints instead of silently creating a ground-floor beamline while
+    // the player is looking at an upper floor.
+    if (kind === 'beamline' && level > 0) {
+      this.log('Beamline construction is currently ground-floor only.', 'bad');
+      return false;
+    }
 
     // Route beamline components by their role metadata. Junctions delegate
     // to BeamlineSystem.placeJunction; placements must go through
@@ -3041,7 +3168,7 @@ export class Game {
     }
 
     const normalizedWallMount = placeable.mount === 'wall'
-      ? normalizeWallMount(wallMount)
+      ? normalizeWallMount(wallMount ? { ...wallMount, level } : wallMount)
       : null;
     let resolvedWallMount = normalizedWallMount;
     if (placeable.mount === 'wall') {
@@ -3071,6 +3198,7 @@ export class Game {
       stackTarget = findStackTarget(
         placeable, col, row, subCol || 0, subRow || 0, placementDir,
         this.state.subgridOccupied, getEntry, getDef,
+        { keyForCell: c => subtileKey(c.col, c.row, c.subCol, c.subRow, level) },
       );
     }
 
@@ -3078,6 +3206,30 @@ export class Game {
       col, row, subCol || 0, subRow || 0, placementDir,
     );
     const usesFloor = usesFloorOccupancy(placeable);
+
+    if (placeable.verticalConnector) {
+      if (level >= MAX_LEVEL) {
+        this.log(`${placeable.name} cannot connect above the third floor.`, 'bad');
+        return false;
+      }
+      const landingTiles = new Set(cells.map(c => `${c.col},${c.row}`));
+      const missingLanding = [...landingTiles].some((key) => {
+        const [tileCol, tileRow] = key.split(',').map(Number);
+        return !this.state.infraOccupied[tileKey(tileCol, tileRow, level)]
+          || !this.state.infraOccupied[tileKey(tileCol, tileRow, level + 1)];
+      });
+      if (missingLanding) {
+        this.log(`${placeable.name} needs finished floors at both landings.`, 'bad');
+        return false;
+      }
+    }
+
+    if (level > 0 && usesFloor && cells.some(c =>
+      !this.state.infraOccupied[tileKey(c.col, c.row, level)]
+    )) {
+      this.log(`${placeable.name} needs an upper floor under its whole footprint.`, 'bad');
+      return false;
+    }
 
     const mapEdgeConnection = placeable.mapEdgeConnection
       ? resolveMapEdgeConnection(
@@ -3096,7 +3248,7 @@ export class Game {
       // Stacking — cells are occupied by the ground item, which is expected.
     } else if (usesFloor) {
       for (const c of cells) {
-        const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
+        const k = subtileKey(c.col, c.row, c.subCol, c.subRow, level);
         if (this.state.subgridOccupied[k]) {
           this.log('Space occupied!', 'bad');
           return false;
@@ -3110,8 +3262,8 @@ export class Game {
       if (c.subCol === 3) {
         const nk = `${c.col + 1},${c.row},0,${c.subRow}`;
         if (wallSet.has(nk)) {
-          if (this.state.wallOccupied[`${c.col},${c.row},e`] ||
-              this.state.wallOccupied[`${c.col + 1},${c.row},w`]) {
+          if (this.state.wallOccupied[edgeKey(c.col, c.row, 'e', level)] ||
+              this.state.wallOccupied[edgeKey(c.col + 1, c.row, 'w', level)]) {
             this.log('Intersects a wall!', 'bad');
             return false;
           }
@@ -3120,8 +3272,8 @@ export class Game {
       if (c.subRow === 3) {
         const nk = `${c.col},${c.row + 1},${c.subCol},0`;
         if (wallSet.has(nk)) {
-          if (this.state.wallOccupied[`${c.col},${c.row},s`] ||
-              this.state.wallOccupied[`${c.col},${c.row + 1},n`]) {
+          if (this.state.wallOccupied[edgeKey(c.col, c.row, 's', level)] ||
+              this.state.wallOccupied[edgeKey(c.col, c.row + 1, 'n', level)]) {
             this.log('Intersects a wall!', 'bad');
             return false;
           }
@@ -3136,7 +3288,7 @@ export class Game {
     // value, which used to invalidate the entire terrain cache for every
     // table or chair placed on an ordinary flat room floor.
     let terrainChanged = false;
-    if (usesFloor) {
+    if (usesFloor && level === 0) {
       const flattenedKeys = new Set();
       for (const c of cells) {
         const tk = c.col + ',' + c.row;
@@ -3163,7 +3315,7 @@ export class Game {
       else this.spend(placeable.cost);
     }
 
-    const entry = {
+    const entry = withLevel({
       id,
       type,
       category: kind,            // legacy alias for downstream consumers
@@ -3184,7 +3336,7 @@ export class Game {
       stackParentId: null,
       stackChildren: [],
       wallMount: resolvedWallMount,
-    };
+    }, level);
 
     // Beamline param init (was previously inline; only kind that needs it).
     // The three-step seed now lives in seedComponentParams so this path and
@@ -3225,8 +3377,8 @@ export class Game {
 
     if (!stackTarget && usesFloor) {
       for (const c of cells) {
-        const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
-        this.state.subgridOccupied[k] = { id, kind };
+        const k = subtileKey(c.col, c.row, c.subCol, c.subRow, level);
+        this.state.subgridOccupied[k] = { id, kind, level };
       }
     }
     this._markNavDirty();
@@ -3267,8 +3419,9 @@ export class Game {
     if (!entry || entry.stackParentId) return;
     const def = PLACEABLES[entry.type];
     if (!def) return;
+    const level = levelOf(entry);
     for (const c of (entry.cells || [])) {
-      const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
+      const k = subtileKey(c.col, c.row, c.subCol, c.subRow, level);
       const occ = this.state.subgridOccupied[k];
       if (occ && occ.id === entry.id) delete this.state.subgridOccupied[k];
     }
@@ -3277,8 +3430,8 @@ export class Game {
     );
     if (usesFloorOccupancy(def)) {
       for (const c of entry.cells) {
-        const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
-        this.state.subgridOccupied[k] = { id: entry.id, kind: entry.kind };
+        const k = subtileKey(c.col, c.row, c.subCol, c.subRow, level);
+        this.state.subgridOccupied[k] = { id: entry.id, kind: entry.kind, level };
       }
     }
     // The one place subgridOccupied moves for an already-placed entry —
@@ -3315,11 +3468,12 @@ export class Game {
     if (!entry) return false;
     const def = PLACEABLES[entry.type];
     if (!def) return false;
+    const level = normalizeLevel(pose.level ?? levelOf(entry));
 
     let { col, row } = pose;
     let wallMount = null;
     if (def.mount === 'wall') {
-      wallMount = normalizeWallMount(pose.wallMount);
+      wallMount = normalizeWallMount({ ...pose.wallMount, level });
       if (!wallMount) {
         this.log(`Can't move ${def.name}: it must be mounted on a wall`, 'bad');
         return false;
@@ -3369,7 +3523,10 @@ export class Game {
       ? findStackTarget(
         def, col, row, subCol, subRow, dir,
         this.state.subgridOccupied, getEntry, type => PLACEABLES[type] || null,
-        { ignoreEntryId: placeableId },
+        {
+          ignoreEntryId: placeableId,
+          keyForCell: c => subtileKey(c.col, c.row, c.subCol, c.subRow, level),
+        },
       )
       : null;
 
@@ -3379,6 +3536,7 @@ export class Game {
       // — so use the same explicit self-exclusion as the move ghost.
       const geo = canPlace(this, def, col, row, subCol, subRow, dir, {
         ignorePlaceableId: placeableId,
+        level,
       });
       if (geo.blockedCells.length) {
         this.log(`Can't move ${def.name}: space occupied`, 'bad');
@@ -3400,7 +3558,7 @@ export class Game {
     // Release the old floor claims and stack relationship only after every
     // destination check succeeds, keeping a rejected move atomic.
     for (const c of (entry.cells || [])) {
-      const key = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
+      const key = subtileKey(c.col, c.row, c.subCol, c.subRow, levelOf(entry));
       if (this.state.subgridOccupied[key]?.id === placeableId) {
         delete this.state.subgridOccupied[key];
       }
@@ -3418,6 +3576,8 @@ export class Game {
     entry.subCol = subCol;
     entry.subRow = subRow;
     entry.dir = dir;
+    if (level > 0) entry.level = level;
+    else delete entry.level;
     if (pose.portsFlipped !== undefined) {
       entry.portsFlipped = pose.portsFlipped === true;
     }
@@ -3430,8 +3590,8 @@ export class Game {
       if (!children.includes(placeableId)) children.push(placeableId);
     } else if (usesFloorOccupancy(def)) {
       for (const c of entry.cells) {
-        const key = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
-        this.state.subgridOccupied[key] = { id: entry.id, kind: entry.kind };
+        const key = subtileKey(c.col, c.row, c.subCol, c.subRow, level);
+        this.state.subgridOccupied[key] = { id: entry.id, kind: entry.kind, level };
       }
     }
     this._markNavDirty();
@@ -3442,7 +3602,7 @@ export class Game {
     // The origin cannot be un-flattened — the pre-placement heights were never
     // stored, and neighbouring footprints may share those tiles — which is
     // exactly the asymmetry removePlaceable already lives with.
-    if (usesFloorOccupancy(def)) {
+    if (usesFloorOccupancy(def) && level === 0) {
       const flattened = new Set();
       for (const c of entry.cells) {
         const tk = c.col + ',' + c.row;
@@ -3532,9 +3692,11 @@ export class Game {
     // to the underlying ground item, not to this entry.
     if (!entry.stackParentId && usesFloorOccupancy(placeable)) {
       for (const cell of entry.cells) {
-        const cellKey = cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow;
-        const occ = this.state.subgridOccupied[cellKey];
-        if (occ?.id === entry.id) delete this.state.subgridOccupied[cellKey];
+        const key = subtileKey(
+          cell.col, cell.row, cell.subCol, cell.subRow, levelOf(entry),
+        );
+        const occ = this.state.subgridOccupied[key];
+        if (occ?.id === entry.id) delete this.state.subgridOccupied[key];
       }
     }
 
@@ -3569,8 +3731,11 @@ export class Game {
           child.cells = childCells;
           if (usesFloorOccupancy(childDef)) {
             for (const c of childCells) {
-              const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
-              this.state.subgridOccupied[k] = { id: child.id, kind: child.kind };
+              const childLevel = levelOf(child);
+              const k = subtileKey(c.col, c.row, c.subCol, c.subRow, childLevel);
+              this.state.subgridOccupied[k] = {
+                id: child.id, kind: child.kind, level: childLevel,
+              };
             }
           }
         }
@@ -3667,9 +3832,11 @@ export class Game {
     // cells for sibling tracking but don't own those subtiles.
     if (!entry.stackParentId && usesFloorOccupancy(placeable)) {
       for (const cell of entry.cells) {
-        const cellKey = cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow;
-        const occ = this.state.subgridOccupied[cellKey];
-        if (occ?.id === entry.id) delete this.state.subgridOccupied[cellKey];
+        const key = subtileKey(
+          cell.col, cell.row, cell.subCol, cell.subRow, levelOf(entry),
+        );
+        const occ = this.state.subgridOccupied[key];
+        if (occ?.id === entry.id) delete this.state.subgridOccupied[key];
       }
     }
 
@@ -3703,8 +3870,11 @@ export class Game {
           child.cells = childCells;
           if (usesFloorOccupancy(childDef)) {
             for (const c of childCells) {
-              const k = c.col + ',' + c.row + ',' + c.subCol + ',' + c.subRow;
-              this.state.subgridOccupied[k] = { id: child.id, kind: child.kind };
+              const childLevel = levelOf(child);
+              const k = subtileKey(c.col, c.row, c.subCol, c.subRow, childLevel);
+              this.state.subgridOccupied[k] = {
+                id: child.id, kind: child.kind, level: childLevel,
+              };
             }
           }
         }
@@ -3755,7 +3925,9 @@ export class Game {
     if (entry.kind === 'beamline') return null;
 
     for (const cell of entry.cells) {
-      const k = cell.col + ',' + cell.row + ',' + cell.subCol + ',' + cell.subRow;
+      const k = subtileKey(
+        cell.col, cell.row, cell.subCol, cell.subRow, levelOf(entry),
+      );
       const occ = this.state.subgridOccupied[k];
       if (occ?.id === entry.id) delete this.state.subgridOccupied[k];
     }
@@ -3776,6 +3948,7 @@ export class Game {
       params: entry.params ? { ...entry.params } : null,
       variant: entry.variant ?? 0,
       wallMount: entry.wallMount ? { ...entry.wallMount } : null,
+      level: levelOf(entry),
     };
 
     // The drop re-inserts through placePlaceable, which mints a NEW id, so
@@ -3909,7 +4082,7 @@ export class Game {
     this.state.facilityEquipment = this.state.placeables.filter(p => p.category === 'equipment');
     this.state.facilityGrid = {};
     for (const eq of this.state.facilityEquipment) {
-      this.state.facilityGrid[eq.col + ',' + eq.row] = eq.id;
+      this.state.facilityGrid[tileKey(eq.col, eq.row, levelOf(eq))] = eq.id;
     }
     this.state.zoneFurnishings = this.state.placeables.filter(p => p.category === 'furnishing');
     this.state.zoneFurnishingSubgrids = this._getLegacyFurnishingSubgrids();
@@ -3939,7 +4112,7 @@ export class Game {
       // desk hide the desk from old sub-tile selection/demolish paths even
       // though the authoritative subgrid correctly lets both coexist.
       if (!def || !usesFloorOccupancy(def)) continue;
-      const key = entry.col + ',' + entry.row;
+      const key = tileKey(entry.col, entry.row, levelOf(entry));
       if (!subgrids[key]) {
         subgrids[key] = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
       }
@@ -3955,8 +4128,8 @@ export class Game {
     return subgrids;
   }
 
-  getPlaceableAtSubgrid(col, row, subCol, subRow) {
-    const key = col + ',' + row + ',' + subCol + ',' + subRow;
+  getPlaceableAtSubgrid(col, row, subCol, subRow, level = 0) {
+    const key = subtileKey(col, row, subCol, subRow, level);
     const occ = this.state.subgridOccupied[key];
     if (!occ) return null;
     return this.getPlaceable(occ.id);
@@ -4213,10 +4386,11 @@ export class Game {
    * crop/clear/bulldozer code that needs "is there a decoration on this
    * tile?" semantics.
    */
-  _decorationAtTile(col, row) {
+  _decorationAtTile(col, row, level = 0) {
+    level = normalizeLevel(level);
     for (let sr = 0; sr < 4; sr++) {
       for (let sc = 0; sc < 4; sc++) {
-        const k = col + ',' + row + ',' + sc + ',' + sr;
+        const k = subtileKey(col, row, sc, sr, level);
         const occ = this.state.subgridOccupied[k];
         if (!occ || occ.kind !== 'decoration') continue;
         const idx = this.state.placeableIndex[occ.id];
@@ -4907,7 +5081,9 @@ export class Game {
       if (!furnDef || !furnDef.effects) continue;
 
       const tileZone = matchingZoneForPlacement(
-        furnDef, furn, this.state.zoneOccupied);
+        furnDef, furn, this.state.zoneOccupied,
+        cell => tileKey(cell.col, cell.row, levelOf(furn)),
+      );
 
       // zoneOutput only applies in the preferred zone
       if (furnDef.effects.zoneOutput && itemMatchesZone(furnDef, tileZone)) {
@@ -4923,11 +5099,12 @@ export class Game {
     return { zoneOutput, research };
   }
 
-  _detectRoom(startCol, startRow) {
+  _detectRoom(startCol, startRow, level = 0) {
+    level = normalizeLevel(level);
     const wallOcc = this.state.wallOccupied || {};
     const doorOcc = this.state.doorOccupied || {};
     const room = new Set();
-    const queue = [`${startCol},${startRow}`];
+    const queue = [tileKey(startCol, startRow, level)];
     room.add(queue[0]);
     const MAX_TILES = ROOM_DETECT_MAX_TILES;
 
@@ -4940,22 +5117,22 @@ export class Game {
 
     while (queue.length > 0 && room.size < MAX_TILES) {
       const key = queue.shift();
-      const [c, r] = key.split(',').map(Number);
+      const { col: c, row: r } = parseTileKey(key);
 
-      const eKey = `${c + 1},${r}`;
-      if (!room.has(eKey) && !edgeBlocked(`${c},${r},e`, `${c+1},${r},w`, `${c},${r},e`, `${c+1},${r},w`)) {
+      const eKey = tileKey(c + 1, r, level);
+      if (!room.has(eKey) && !edgeBlocked(edgeKey(c, r, 'e', level), edgeKey(c + 1, r, 'w', level), edgeKey(c, r, 'e', level), edgeKey(c + 1, r, 'w', level))) {
         room.add(eKey); queue.push(eKey);
       }
-      const wKey = `${c - 1},${r}`;
-      if (!room.has(wKey) && !edgeBlocked(`${c-1},${r},e`, `${c},${r},w`, `${c-1},${r},e`, `${c},${r},w`)) {
+      const wKey = tileKey(c - 1, r, level);
+      if (!room.has(wKey) && !edgeBlocked(edgeKey(c - 1, r, 'e', level), edgeKey(c, r, 'w', level), edgeKey(c - 1, r, 'e', level), edgeKey(c, r, 'w', level))) {
         room.add(wKey); queue.push(wKey);
       }
-      const sKey = `${c},${r + 1}`;
-      if (!room.has(sKey) && !edgeBlocked(`${c},${r},s`, `${c},${r+1},n`, `${c},${r},s`, `${c},${r+1},n`)) {
+      const sKey = tileKey(c, r + 1, level);
+      if (!room.has(sKey) && !edgeBlocked(edgeKey(c, r, 's', level), edgeKey(c, r + 1, 'n', level), edgeKey(c, r, 's', level), edgeKey(c, r + 1, 'n', level))) {
         room.add(sKey); queue.push(sKey);
       }
-      const nKey = `${c},${r - 1}`;
-      if (!room.has(nKey) && !edgeBlocked(`${c},${r-1},s`, `${c},${r},n`, `${c},${r-1},s`, `${c},${r},n`)) {
+      const nKey = tileKey(c, r - 1, level);
+      if (!room.has(nKey) && !edgeBlocked(edgeKey(c, r - 1, 's', level), edgeKey(c, r, 'n', level), edgeKey(c, r - 1, 's', level), edgeKey(c, r, 'n', level))) {
         room.add(nKey); queue.push(nKey);
       }
     }
@@ -4984,10 +5161,11 @@ export class Game {
       const furnDef = ZONE_FURNISHINGS[furn.type];
       if (!furnDef || !furnDef.effects || !furnDef.effects.morale) continue;
 
-      const key = furn.col + ',' + furn.row;
+      const level = levelOf(furn);
+      const key = tileKey(furn.col, furn.row, level);
       let room = tileToRoom[key];
       if (!room && !processed.has(key)) {
-        room = this._detectRoom(furn.col, furn.row);
+        room = this._detectRoom(furn.col, furn.row, level);
         for (const tileKey of room) {
           tileToRoom[tileKey] = room;
           processed.add(tileKey);
@@ -5009,11 +5187,11 @@ export class Game {
     // capped at DAYLIGHT_ROOM_CAP before joining the (uncapped) furnishing
     // total. See the "Daylight" section of
     // docs/superpowers/specs/2026-08-13-windows-design.md.
-    const resolveRoom = (col, row) => {
-      const key = `${col},${row}`;
+    const resolveRoom = (col, row, level) => {
+      const key = tileKey(col, row, level);
       let room = tileToRoom[key];
       if (!room && !processed.has(key)) {
-        room = this._detectRoom(col, row);
+        room = this._detectRoom(col, row, level);
         for (const tileKey of room) {
           tileToRoom[tileKey] = room;
           processed.add(tileKey);
@@ -5027,11 +5205,12 @@ export class Game {
       const winDef = WINDOW_TYPES[win.type];
       if (!winDef || !winDef.daylight) continue;
 
-      const alias = this._edgeAlias(win.col, win.row, win.edge);
+      const level = levelOf(win);
+      const alias = this._edgeAlias(win.col, win.row, win.edge, level);
       const sides = [[win.col, win.row], [alias.col, alias.row]];
 
       for (const [col, row] of sides) {
-        const room = resolveRoom(col, row);
+        const room = resolveRoom(col, row, level);
         // room.size can exceed ROOM_DETECT_MAX_TILES by a few tiles (the
         // cap is only rechecked once per dequeued tile, not per neighbor
         // added), so ">=" rather than "===" is the correct outdoors test.
@@ -5057,13 +5236,14 @@ export class Game {
       const furnDef = ZONE_FURNISHINGS[furn.type];
       if (!furnDef || !furnDef.effects || !furnDef.effects.beamPhysics) continue;
 
-      const room = this._detectRoom(furn.col, furn.row);
+      const level = levelOf(furn);
+      const room = this._detectRoom(furn.col, furn.row, level);
 
       for (const entry of this.registry.getAll()) {
         for (const node of entry.nodes) {
           for (const tile of (node.tiles || [{ col: node.col, row: node.row }])) {
-            const tileKey = tile.col + ',' + tile.row;
-            if (room.has(tileKey)) {
+            const key = tileKey(tile.col, tile.row, levelOf(node));
+            if (room.has(key)) {
               results.push({
                 beamlineId: entry.id,
                 effects: furnDef.effects.beamPhysics,
@@ -5832,16 +6012,16 @@ export class Game {
     // Rebuild lookup tables
     this.state.infraOccupied = {};
     for (const tile of this.state.floors)
-      this.state.infraOccupied[tile.col + ',' + tile.row] = tile.type;
+      this.state.infraOccupied[tileKey(tile.col, tile.row, levelOf(tile))] = tile.type;
     this.state.zoneOccupied = {};
     for (const z of this.state.zones)
-      this.state.zoneOccupied[z.col + ',' + z.row] = z.type;
+      this.state.zoneOccupied[tileKey(z.col, z.row, levelOf(z))] = z.type;
     this._rebuildWallLayerIndexes();
     this._rebuildDoorIndex();
     this._refreshWallInsetOccupancy();
     this.state.windowOccupied = {};
     for (const w of this.state.windows)
-      this.state.windowOccupied[`${w.col},${w.row},${w.edge}`] = w.type;
+      this.state.windowOccupied[edgeKey(w.col, w.row, w.edge, levelOf(w))] = w.type;
     this._rebuildPlaceableIndex();
     this._markNavDirty();
     // Placeables were replaced wholesale, so the derived views
@@ -6266,13 +6446,13 @@ export class Game {
     this.state.infraOccupied = {};
     if (this.state.floors) {
       for (const tile of this.state.floors)
-        this.state.infraOccupied[tile.col + ',' + tile.row] = tile.type;
+        this.state.infraOccupied[tileKey(tile.col, tile.row, levelOf(tile))] = tile.type;
     } else { this.state.floors = []; }
     // Rebuild zoneOccupied
     this.state.zones = this.state.zones || [];
     this.state.zoneOccupied = {};
     for (const z of this.state.zones) {
-      this.state.zoneOccupied[z.col + ',' + z.row] = z.type;
+      this.state.zoneOccupied[tileKey(z.col, z.row, levelOf(z))] = z.type;
     }
     // Task 6 (staff-professions-3, jobs-and-gates): this used to
     // unconditionally reset state.zoneConnectivity to {} right here, before
@@ -6460,7 +6640,7 @@ export class Game {
     this.state.windows = this.state.windows || [];
     this.state.windowOccupied = {};
     for (const w of this.state.windows) {
-      this.state.windowOccupied[`${w.col},${w.row},${w.edge}`] = w.type;
+      this.state.windowOccupied[edgeKey(w.col, w.row, w.edge, levelOf(w))] = w.type;
     }
 
     // Drop station reservations that no longer point at anything real — a
