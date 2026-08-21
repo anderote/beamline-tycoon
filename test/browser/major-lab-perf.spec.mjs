@@ -193,6 +193,177 @@ test.describe('Major Lab frame cost', () => {
       };
     })();
 
+    // ── Stall hunt ───────────────────────────────────────────────────────
+    // Median frame cost is fine; p95 is ~100x median on real hardware. That
+    // is a stall, not throughput, so look for per-frame STATE CHANGES rather
+    // than steady cost. Shader program count is the headline suspect:
+    // three recompiles every lit material when scene light topology changes,
+    // and light-rig.js is explicitly built to avoid that (see its header).
+    const stalls = await page.evaluate(async () => {
+      const r = window._renderer;
+      const gl = r.renderer;
+      const step = () => new Promise(res => requestAnimationFrame(res));
+
+      const snap = () => {
+        let meshes = 0, litMaterials = 0, activeLights = 0;
+        const seen = new Set();
+        r.scene.traverse((o) => {
+          if (o.isMesh) {
+            meshes++;
+            const mats = Array.isArray(o.material) ? o.material : [o.material];
+            for (const m of mats) {
+              if (!m || seen.has(m.uuid)) continue;
+              seen.add(m.uuid);
+              if (m.isMeshStandardMaterial || m.isMeshPhysicalMaterial) litMaterials++;
+            }
+          }
+          if (o.isLight && o.intensity > 0) activeLights++;
+        });
+        return {
+          programs: gl.info.programs?.length ?? -1,
+          geometries: gl.info.memory.geometries,
+          textures: gl.info.memory.textures,
+          meshes, litMaterials, activeLights,
+        };
+      };
+
+      const frames = [];
+      let prev = snap();
+      let last = performance.now();
+
+      // Move the camera the way a player does: continuous pan, then zoom.
+      for (let i = 0; i < 90; i++) {
+        if (i < 60) {
+          r._panX += Math.cos(i / 9) * 2.0;
+          r._panY += Math.sin(i / 9) * 2.0;
+        } else {
+          r.zoom *= (i % 2 ? 1.06 : 0.94);
+        }
+        r._updateCameraLookAt();
+        r._syncOverlayFromPan?.();
+        await step();
+        const now = performance.now();
+        const dt = now - last;
+        last = now;
+        const cur = snap();
+        frames.push({
+          i,
+          ms: +dt.toFixed(1),
+          dPrograms: cur.programs - prev.programs,
+          dGeometries: cur.geometries - prev.geometries,
+          dTextures: cur.textures - prev.textures,
+          dMeshes: cur.meshes - prev.meshes,
+          dLit: cur.litMaterials - prev.litMaterials,
+          dLights: cur.activeLights - prev.activeLights,
+        });
+        prev = cur;
+      }
+
+      const times = frames.map(f => f.ms).sort((a, b) => a - b);
+      const med = times[Math.floor(times.length / 2)];
+      const changed = frames.filter(f => (
+        f.dPrograms || f.dGeometries || f.dTextures || f.dMeshes || f.dLit
+      ));
+      const spikes = frames.filter(f => f.ms > med * 3);
+      // Do the spikes coincide with state changes?
+      const spikeKeys = new Set(spikes.map(f => f.i));
+      const changedKeys = new Set(changed.map(f => f.i));
+      let overlap = 0;
+      for (const k of spikeKeys) if (changedKeys.has(k)) overlap++;
+
+      return {
+        medianMs: +med.toFixed(1),
+        p95Ms: +times[Math.floor(times.length * 0.95)].toFixed(1),
+        maxMs: +times[times.length - 1].toFixed(1),
+        totalFrames: frames.length,
+        spikeCount: spikes.length,
+        changeCount: changed.length,
+        spikesWithStateChange: overlap,
+        finalPrograms: prev.programs,
+        finalLitMaterials: prev.litMaterials,
+        worstFrames: [...frames].sort((a, b) => b.ms - a.ms).slice(0, 8),
+        changedFrames: changed.slice(0, 10),
+      };
+    });
+
+    // ── Rebuild attribution ──────────────────────────────────────────────
+    // The sim ticks at 1 Hz (Game.TICK_MS = 1000) and the player's stalls
+    // arrive at roughly 1 Hz too. _animate() opens each frame with
+    // _worldInvalidationScheduler.flush(), so a tick that dirties the world
+    // pays for a rebuild on the next frame. Wrap every refresh entry point
+    // and let the sim run: whatever owns the time will name itself.
+    const rebuilds = await page.evaluate(async () => {
+      const r = window._renderer;
+      const g = window.game;
+      const log = [];
+
+      const METHODS = [
+        '_refreshWalls', '_refreshEquipment', '_refreshDecorations', '_refreshInfra',
+        '_refreshZones', '_refreshTerrain', '_refreshComponents', '_refreshBeamPipes',
+        '_refreshConnections', '_refreshPortFittings', '_refreshPipeAttachments',
+        '_refreshBeam', '_refreshBeamlineWorld', '_refreshUtilityPortIssueMarkers',
+        'refresh',
+      ];
+      for (const name of METHODS) {
+        const fn = r[name];
+        if (typeof fn !== 'function') continue;
+        r[name] = function wrapped(...a) {
+          const t0 = performance.now();
+          try { return fn.apply(this, a); }
+          finally { log.push({ what: name, ms: performance.now() - t0 }); }
+        };
+      }
+      const sched = r._worldInvalidationScheduler;
+      if (sched && typeof sched.flush === 'function') {
+        const realFlush = sched.flush.bind(sched);
+        sched.flush = (...a) => {
+          const t0 = performance.now();
+          try { return realFlush(...a); }
+          finally {
+            const ms = performance.now() - t0;
+            if (ms > 0.5) log.push({ what: 'scheduler.flush', ms });
+          }
+        };
+      }
+      if (typeof g.save === 'function') {
+        const realSave = g.save.bind(g);
+        g.save = (...a) => {
+          const t0 = performance.now();
+          try { return realSave(...a); }
+          finally { log.push({ what: 'game.save', ms: performance.now() - t0 }); }
+        };
+      }
+
+      // Make sure the sim is actually running, then let it tick.
+      g.state.paused = false;
+      if (typeof g.setPaused === 'function') g.setPaused(false);
+      const started = performance.now();
+      await new Promise(res => setTimeout(res, 25000));
+      const elapsedS = (performance.now() - started) / 1000;
+
+      const byName = new Map();
+      for (const e of log) {
+        const hit = byName.get(e.what) || { what: e.what, calls: 0, total: 0, max: 0 };
+        hit.calls++;
+        hit.total += e.ms;
+        hit.max = Math.max(hit.max, e.ms);
+        byName.set(e.what, hit);
+      }
+      return {
+        elapsedS: +elapsedS.toFixed(1),
+        tick: g.state.tick,
+        rows: [...byName.values()]
+          .map(h => ({
+            what: h.what, calls: h.calls,
+            totalMs: +h.total.toFixed(1),
+            avgMs: +(h.total / h.calls).toFixed(1),
+            maxMs: +h.max.toFixed(1),
+            perSec: +(h.calls / elapsedS).toFixed(2),
+          }))
+          .sort((a, b) => b.totalMs - a.totalMs),
+      };
+    });
+
     // ── Lights: the single biggest lever in a forward renderer ───────────
     const lights = await page.evaluate(() => {
       const r = window._renderer;
@@ -382,6 +553,26 @@ FRAME DECOMPOSITION — idle, ${passes.frames} frames, ${passes.totalPasses} ren
 
   by render target:
 ${passes.groups.map(g => `    ${g.shape.padEnd(38)} ${String(g.perFrame).padStart(6)}/frame  ${String(g.callsPerFrame).padStart(7)} calls/frame  (avg ${g.avgCalls}, max ${g.maxCalls})  ${g.msPerFrame}ms/frame`).join('\n')}
+
+STALL HUNT (${stalls.totalFrames} frames of camera motion)
+  median ${stalls.medianMs}ms   p95 ${stalls.p95Ms}ms   max ${stalls.maxMs}ms
+  frames >3x median          ${stalls.spikeCount}
+  frames with a state change ${stalls.changeCount}
+  spikes that coincide       ${stalls.spikesWithStateChange} of ${stalls.spikeCount}
+  shader programs (final)    ${stalls.finalPrograms}    lit materials ${stalls.finalLitMaterials}
+
+  worst frames:
+${stalls.worstFrames.map(f => `    f${String(f.i).padStart(3)}  ${String(f.ms).padStart(9)}ms  dProg=${f.dPrograms}  dGeo=${f.dGeometries}  dTex=${f.dTextures}  dMesh=${f.dMeshes}  dLit=${f.dLit}  dLights=${f.dLights}`).join('\n')}
+
+  frames that changed state:
+${stalls.changedFrames.length
+  ? stalls.changedFrames.map(f => `    f${String(f.i).padStart(3)}  ${String(f.ms).padStart(9)}ms  dProg=${f.dPrograms}  dGeo=${f.dGeometries}  dTex=${f.dTextures}  dMesh=${f.dMeshes}  dLit=${f.dLit}`).join('\n')
+  : '    (none — scene state was completely static during the pan)'}
+
+REBUILD ATTRIBUTION (sim running ${rebuilds.elapsedS}s, game tick ${rebuilds.tick})
+${rebuilds.rows.length
+  ? rebuilds.rows.map(r2 => `    ${r2.what.padEnd(32)} calls=${String(r2.calls).padStart(5)} (${String(r2.perSec).padStart(6)}/s)  total=${String(r2.totalMs).padStart(9)}ms  avg=${String(r2.avgMs).padStart(8)}ms  max=${String(r2.maxMs).padStart(9)}ms`).join('\n')
+  : '    (nothing rebuilt while the sim ran)'}
 
 LIGHTS
   by type         ${JSON.stringify(lights.byType)}
