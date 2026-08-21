@@ -41,6 +41,10 @@ const PIPE_SNAP_RADIUS = 0.5;
 // when the renderer can project them. This stays forgiving across zoom levels
 // and avoids asking the player to click the flange's ground-plane shadow.
 const PIPE_SNAP_RADIUS_PX = 42;
+// Sources are the start of the most common pipe gesture and their body can
+// visually crowd the small exit flange. Give source beam ports a larger
+// magnetic target without widening every junction in a dense beamline.
+const SOURCE_PIPE_SNAP_RADIUS_PX = 64;
 // Tolerance for matching a pipe path point during right-click-drag removal.
 // Matches the value used in the legacy InputHandler flow.
 const PIPE_REMOVE_EPS = 0.13;
@@ -59,6 +63,7 @@ export class BeamlineInputController {
     this._drawing = false;
     this._drawMode = 'add';           // 'add' | 'remove'
     this._drawButton = null;          // mouse button that armed the gesture
+    this._drawPrimed = false;         // source ghost follows hover until next press
     this._drawPath = [];              // [{col,row}] — current preview path
     this._drawOrigin = null;          // snapped start point
     this._drawStartAnchor = null;     // null | { kind:'port', junctionId, portName }
@@ -93,25 +98,40 @@ export class BeamlineInputController {
     this._guidedPath = null;
   }
 
-  /** Show a short, valid pipe ghost physically attached to a newly placed source. */
+  /**
+   * Prime a draggable pipe ghost on a newly placed source. The ghost follows
+   * the pointer immediately; the next left press/release commits it. Keeping
+   * the primed state distinct prevents the release that placed the source (or
+   * dismissed its mission picker) from accidentally buying the starter pipe.
+   */
   showGuidedPipeStart(junctionId, portName = 'exit') {
     const placeable = this._findPlaceable(junctionId);
     const pos = placeable && portWorldPosition(placeable, portName);
-    if (!placeable || !pos) return false;
+    const beamPipes = this.game.state?.beamPipes || [];
+    if (!placeable || !pos || !availablePorts(placeable, beamPipes).includes(portName)) {
+      return false;
+    }
     const origin = { col: (pos.x - 1) / 2, row: (pos.z - 1) / 2 };
     const side = portSide(placeable, portName);
     const delta = side === 'N' ? { col: 0, row: -0.5 }
       : side === 'S' ? { col: 0, row: 0.5 }
       : side === 'E' ? { col: 0.5, row: 0 }
       : { col: -0.5, row: 0 };
-    this._hoverPoint = origin;
-    this._hoverOpenEnd = null;
-    this._hoverValidAnchor = true;
-    this._guidedPath = [origin, {
+    this._drawing = true;
+    this._drawMode = 'add';
+    this._drawButton = null;
+    this._drawPrimed = true;
+    this._drawOrigin = origin;
+    this._drawStartAnchor = { kind: 'port', junctionId, portName };
+    this._drawPath = [origin, {
       col: origin.col + delta.col,
       row: origin.row + delta.row,
     }];
-    this.renderer.renderBeamPipePreview(this._guidedPath, 'add');
+    this._hoverPoint = null;
+    this._hoverOpenEnd = null;
+    this._hoverValidAnchor = false;
+    this._guidedPath = null;
+    this.renderer.renderBeamPipePreview(this._drawPath, 'add', this._previewCost());
     return true;
   }
 
@@ -226,7 +246,20 @@ export class BeamlineInputController {
       // A second button pressed mid-gesture must not re-anchor or flip the
       // mode: pressing right during a left draw used to convert the whole
       // gesture into a destructive remove-sweep (and vice versa). Swallow it.
-      if (this._drawing) return true;
+      if (this._drawing) {
+        // A source-created ghost exists before the player presses. The first
+        // left press claims it as a normal draw; right press cancels it so the
+        // ordinary right-click tool behavior can take over on release.
+        if (this._drawPrimed) {
+          if (button === 0) {
+            this._drawPrimed = false;
+            this._drawButton = 0;
+          } else if (button === 2) {
+            this._resetDrawing();
+          }
+        }
+        return true;
+      }
       if (button === 0) return this._pipeDrawStart(worldX, worldY, screen);
       if (button === 2) return this._pipeRemoveStart(worldX, worldY);
       return false;
@@ -281,7 +314,14 @@ export class BeamlineInputController {
     // the old generic path provided).
     if (placedId && def.isSource && typeof this.input?.selectComponentTool === 'function') {
       const guided = this.game._guidedSetup?.onSourcePlaced?.(placedId);
-      if (!guided) this.input.selectComponentTool('drift');
+      if (!guided) {
+        if (typeof this.input.beginBeamPipeFromSource === 'function') {
+          this.input.beginBeamPipeFromSource(placedId);
+        } else {
+          this.input.selectComponentTool('drift');
+          this.showGuidedPipeStart(placedId, 'exit');
+        }
+      }
     }
     return true;
   }
@@ -319,6 +359,9 @@ export class BeamlineInputController {
 
   onMouseUp(worldX, worldY, button, screen) {
     if (!this._drawing) return false;
+    // A primed source ghost has not received its committing press yet. This
+    // also protects against a delayed release from the source-placement click.
+    if (this._drawPrimed) return true;
     // Only the button that armed the gesture may commit it. (Releasing the
     // *other* button mid-gesture used to run the commit path.)
     if (button != null && this._drawButton != null && button !== this._drawButton) return true;
@@ -562,6 +605,7 @@ export class BeamlineInputController {
       this._drawing = true;
       this._drawMode = 'add';
       this._drawButton = 0;
+      this._drawPrimed = false;
       this._drawOrigin = { col: port.pathPos.col, row: port.pathPos.row };
       this._drawStartAnchor = { kind: 'port', junctionId: port.junctionId, portName: port.portName };
       this._drawPath = [this._drawOrigin];
@@ -574,6 +618,7 @@ export class BeamlineInputController {
       this._drawing = true;
       this._drawMode = 'add';
       this._drawButton = 0;
+      this._drawPrimed = false;
       this._drawOrigin = { col: openEnd.point.col, row: openEnd.point.row };
       this._drawStartAnchor = { kind: 'openEnd', pipeId: openEnd.pipeId, openEnd: openEnd.openEnd };
       this._drawPath = [this._drawOrigin];
@@ -592,6 +637,7 @@ export class BeamlineInputController {
     this._drawing = true;
     this._drawMode = 'remove';
     this._drawButton = 2;
+    this._drawPrimed = false;
     this._drawOrigin = startPt;
     this._drawStartAnchor = null;
     this._drawPath = [startPt];
@@ -838,9 +884,13 @@ export class BeamlineInputController {
       && typeof this.renderer.worldToScreen === 'function');
     if (canProject) {
       let best = null;
-      let bestDist = PIPE_SNAP_RADIUS_PX;
+      let bestDist = Infinity;
       for (const p of placeables) {
         if (!candidatePlaceable(p)) continue;
+        const def = COMPONENTS[p.type];
+        const snapRadius = def?.isSource
+          ? SOURCE_PIPE_SNAP_RADIUS_PX
+          : PIPE_SNAP_RADIUS_PX;
         for (const portName of availablePorts(p, beamPipes)) {
           const pos = portWorldPosition(p, portName);
           if (!pos) continue;
@@ -849,7 +899,7 @@ export class BeamlineInputController {
           const projected = this.renderer.worldToScreen(pos.x, BEAM_PIPE_Y, pos.z);
           if (!projected) continue;
           const dist = Math.hypot(projected.x - screen.x, projected.y - screen.y);
-          if (dist < bestDist) {
+          if (dist < snapRadius && dist < bestDist) {
             bestDist = dist;
             best = hit;
           }
@@ -979,6 +1029,7 @@ export class BeamlineInputController {
     this._drawing = false;
     this._drawMode = 'add';
     this._drawButton = null;
+    this._drawPrimed = false;
     this._drawPath = [];
     this._drawOrigin = null;
     this._drawStartAnchor = null;

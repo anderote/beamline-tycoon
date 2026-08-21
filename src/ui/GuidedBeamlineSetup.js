@@ -241,7 +241,12 @@ export class GuidedBeamlineSetup {
           this.dismissedSources.add(source.id);
           this.collapsed = true;
           this.render();
-          this.input.selectComponentTool('drift');
+          if (typeof this.input.beginBeamPipeFromSource === 'function') {
+            this.input.beginBeamPipeFromSource(source.id);
+          } else {
+            this.input.selectComponentTool('drift');
+            this.input.beamlineController?.showGuidedPipeStart?.(source.id, 'exit');
+          }
           return;
         }
         if (!this.game.assignBeamlineType(entry.id, typeId)) return;
@@ -255,8 +260,12 @@ export class GuidedBeamlineSetup {
     const source = this._source();
     if (!source) return;
     this.input.setActiveMode?.('beamline');
-    this.input.selectComponentTool('drift');
-    this.input.beamlineController?.showGuidedPipeStart?.(source.id, 'exit');
+    if (typeof this.input.beginBeamPipeFromSource === 'function') {
+      this.input.beginBeamPipeFromSource(source.id);
+    } else {
+      this.input.selectComponentTool('drift');
+      this.input.beamlineController?.showGuidedPipeStart?.(source.id, 'exit');
+    }
     this.render();
   }
 
@@ -533,7 +542,7 @@ export class GuidedBeamlineSetup {
       html += '<section class="guided-step active"><span class="guided-step-num">1</span><div>'
         + '<strong>Extend beam pipe from the source</strong>'
         + '<p>The pipe tool is anchored at the exit. Drag forward to choose the starter length.</p>'
-        + '<button type="button" data-guide-action="draw-pipe">Show pipe ghost</button></div></section>';
+        + '<button type="button" data-guide-action="draw-pipe">Drag beam pipe</button></div></section>';
     } else if (this.suggestionId) {
       const def = COMPONENTS[this.suggestionId];
       html += '<section class="guided-step active"><span class="guided-step-num">2</span><div>'
