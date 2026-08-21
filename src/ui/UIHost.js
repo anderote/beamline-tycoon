@@ -48,6 +48,7 @@ export class UIHost {
     // --- Anchored context-window registries ---
     this._beamlineWindows = {};
     this._equipmentWindows = {};
+    this._selectionWindow = null;
   }
 
   // Number formatter — shared fmtNumber, kept as a method so UI code can

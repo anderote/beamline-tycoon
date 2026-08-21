@@ -7,6 +7,9 @@
 
 import { PLACEABLES } from '../data/placeables/index.js';
 import {
+  DOOR_TYPES, FLOORS, WALL_TYPES, WINDOW_TYPES, variantCost,
+} from '../data/structure.js';
+import {
   canPlace,
   canAffordCost,
   componentCostFor,
@@ -14,6 +17,8 @@ import {
   PLACE_UNAFFORDABLE,
   PLACE_WALL,
 } from '../game/placement.js';
+import { findWallKey } from '../game/edge-keys.js';
+import { selectionTargetByKey } from '../game/selection-targets.js';
 import { validateDrawLine } from '../utility/line-drawing.js';
 import { runWiringCost } from './utility-run-wiring.js';
 
@@ -53,18 +58,33 @@ function lineMap(lines) {
  */
 export function captureSelectionGroup(game, ids, { operation = 'move', primaryId = null } = {}) {
   const uniqueIds = [...new Set(ids || [])];
-  const entries = uniqueIds.map(id => game.getPlaceable?.(id)).filter(Boolean);
-  if (entries.length !== uniqueIds.length || entries.length === 0) {
+  const targets = uniqueIds
+    .map(id => selectionTargetByKey(game.state, id))
+    .filter(Boolean);
+  if (targets.length !== uniqueIds.length || targets.length === 0) {
     return { ok: false, reason: 'Nothing selected' };
   }
-  if (entries.some(entry => entry.kind === 'beamline')) {
-    return { ok: false, reason: 'Copy beamline hardware from the Designer' };
+  if (targets.some(target => target.selectionCategory === 'beamline')) {
+    return { ok: false, reason: 'Deselect Beamline to copy, or copy that hardware from the Designer' };
   }
+  const entries = targets
+    .filter(target => target.targetKind === 'placeable')
+    .map(target => target.entry);
   if (entries.some(entry => entry.stackParentId || (entry.stackChildren || []).length > 0)) {
     return { ok: false, reason: 'Stacked items must be moved separately' };
   }
+  const hasStructure = targets.some(target => target.targetKind === 'floor' || target.targetKind === 'edge');
+  if (operation === 'move' && hasStructure) {
+    return { ok: false, reason: 'Building fabric can be copied or demolished, but not moved' };
+  }
 
-  const primary = entries.find(entry => entry.id === primaryId) || entries[entries.length - 1];
+  const primaryTarget = targets.find(target => target.key === primaryId) || targets[targets.length - 1];
+  const primary = entries.find(entry => entry.id === primaryTarget.key) || entries[entries.length - 1];
+  const kindTargets = targets.filter(target => target.targetKind === primaryTarget.targetKind);
+  const primaryTargetRef = {
+    kind: primaryTarget.targetKind,
+    index: Math.max(0, kindTargets.findIndex(target => target.key === primaryTarget.key)),
+  };
   const selected = new Set(entries.map(entry => entry.id));
   const connections = [];
   for (const line of (game.state.utilityLines?.values?.() || [])) {
@@ -79,13 +99,14 @@ export function captureSelectionGroup(game, ids, { operation = 'move', primaryId
     payload: {
       kind: 'selectionGroup',
       operation,
-      primaryId: primary.id,
+      primaryId: primaryTarget.key,
+      primaryTarget: primaryTargetRef,
       anchor: {
-        col: primary.col,
-        row: primary.row,
-        subCol: primary.subCol || 0,
-        subRow: primary.subRow || 0,
-        dir: primary.dir || 0,
+        col: primaryTarget.col,
+        row: primaryTarget.row,
+        subCol: primaryTarget.subCol || 0,
+        subRow: primaryTarget.subRow || 0,
+        dir: primaryTarget.dir || 0,
       },
       items: entries.map(entry => ({
         id: entry.id,
@@ -101,9 +122,27 @@ export function captureSelectionGroup(game, ids, { operation = 'move', primaryId
         params: clone(entry.params),
         variant: entry.variant ?? 0,
       })),
+      floors: targets
+        .filter(target => target.targetKind === 'floor')
+        .map(target => clone(target.tile)),
+      edges: targets
+        .filter(target => target.targetKind === 'edge')
+        .map(target => ({
+          key: target.key,
+          wall: clone(target.wall),
+          overlay: clone(target.overlay),
+          door: clone(target.door),
+          window: clone(target.window),
+        })),
       connections,
     },
   };
+}
+
+export function selectionPayloadCount(payload) {
+  return (payload?.items?.length || 0)
+    + (payload?.floors?.length || 0)
+    + (payload?.edges?.length || 0);
 }
 
 /** Translate every selected item by the primary item's snapped displacement. */
@@ -128,6 +167,47 @@ export function selectionTargets(payload, anchorPose) {
   });
 }
 
+function selectionDeltaSub(payload, anchorPose) {
+  if (!payload?.anchor || !anchorPose) return null;
+  return {
+    col: globalSub(anchorPose.col, anchorPose.subCol)
+      - globalSub(payload.anchor.col, payload.anchor.subCol),
+    row: globalSub(anchorPose.row, anchorPose.subRow)
+      - globalSub(payload.anchor.row, payload.anchor.subRow),
+  };
+}
+
+export function selectionFloorTargets(payload, anchorPose) {
+  const delta = selectionDeltaSub(payload, anchorPose);
+  if (!delta || delta.col % SUBS_PER_TILE !== 0 || delta.row % SUBS_PER_TILE !== 0) return [];
+  const dc = delta.col / SUBS_PER_TILE;
+  const dr = delta.row / SUBS_PER_TILE;
+  return (payload?.floors || []).map(floor => ({
+    ...clone(floor),
+    col: floor.col + dc,
+    row: floor.row + dr,
+  }));
+}
+
+export function selectionEdgeTargets(payload, anchorPose) {
+  const delta = selectionDeltaSub(payload, anchorPose);
+  if (!delta || delta.col % SUBS_PER_TILE !== 0 || delta.row % SUBS_PER_TILE !== 0) return [];
+  const dc = delta.col / SUBS_PER_TILE;
+  const dr = delta.row / SUBS_PER_TILE;
+  const translate = record => record && ({
+    ...clone(record),
+    col: record.col + dc,
+    row: record.row + dr,
+  });
+  return (payload?.edges || []).map(assembly => ({
+    ...assembly,
+    wall: translate(assembly.wall),
+    overlay: translate(assembly.overlay),
+    door: translate(assembly.door),
+    window: translate(assembly.window),
+  }));
+}
+
 function footprintSub(item) {
   const def = PLACEABLES[item?.type] || {};
   const dir = ((item?.dir || 0) % 4 + 4) % 4;
@@ -138,9 +218,39 @@ function footprintSub(item) {
     : { width: subW, depth: subL };
 }
 
-function selectionPivotSub(items) {
+function edgeEndpointsSub(record) {
+  if (!record) return null;
+  const x = record.col * SUBS_PER_TILE;
+  const z = record.row * SUBS_PER_TILE;
+  if (record.edge === 'n') return [{ x, z }, { x: x + 4, z }];
+  if (record.edge === 'e') return [{ x: x + 4, z }, { x: x + 4, z: z + 4 }];
+  if (record.edge === 's') return [{ x: x + 4, z: z + 4 }, { x, z: z + 4 }];
+  if (record.edge === 'w') return [{ x, z: z + 4 }, { x, z }];
+  return null;
+}
+
+function edgeRecordFromEndpoints(record, start, end) {
+  if (!record || !start || !end) return clone(record);
+  const dx = Math.round(end.x - start.x);
+  const dz = Math.round(end.z - start.z);
+  if (dx === 4 && dz === 0) {
+    return { ...record, col: Math.round(start.x / 4), row: Math.round(start.z / 4), edge: 'n' };
+  }
+  if (dx === -4 && dz === 0) {
+    return { ...record, col: Math.round(end.x / 4), row: Math.round(start.z / 4) - 1, edge: 's' };
+  }
+  if (dx === 0 && dz === 4) {
+    return { ...record, col: Math.round(start.x / 4) - 1, row: Math.round(start.z / 4), edge: 'e' };
+  }
+  if (dx === 0 && dz === -4) {
+    return { ...record, col: Math.round(start.x / 4), row: Math.round(end.z / 4), edge: 'w' };
+  }
+  return clone(record);
+}
+
+function selectionPivotSub(payload) {
   let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity;
-  for (const item of items || []) {
+  for (const item of payload?.items || []) {
     const originX = globalSub(item.col, item.subCol);
     const originZ = globalSub(item.row, item.subRow);
     const size = footprintSub(item);
@@ -148,6 +258,24 @@ function selectionPivotSub(items) {
     minZ = Math.min(minZ, originZ);
     maxX = Math.max(maxX, originX + size.width);
     maxZ = Math.max(maxZ, originZ + size.depth);
+  }
+  for (const floor of payload?.floors || []) {
+    const originX = globalSub(floor.col, 0);
+    const originZ = globalSub(floor.row, 0);
+    minX = Math.min(minX, originX);
+    minZ = Math.min(minZ, originZ);
+    maxX = Math.max(maxX, originX + SUBS_PER_TILE);
+    maxZ = Math.max(maxZ, originZ + SUBS_PER_TILE);
+  }
+  for (const assembly of payload?.edges || []) {
+    const endpoints = edgeEndpointsSub(assembly.wall);
+    if (!endpoints) continue;
+    for (const point of endpoints) {
+      minX = Math.min(minX, point.x);
+      minZ = Math.min(minZ, point.z);
+      maxX = Math.max(maxX, point.x);
+      maxZ = Math.max(maxZ, point.z);
+    }
   }
   return Number.isFinite(minX)
     ? { x: (minX + maxX) / 2, z: (minZ + maxZ) / 2 }
@@ -174,7 +302,7 @@ export function transformSelectionGroup(payload, {
   quarterTurns = 0,
   mirror = false,
 } = {}) {
-  if (!payload?.items?.length) return clone(payload);
+  if (selectionPayloadCount(payload) === 0) return clone(payload);
   const turns = ((quarterTurns % 4) + 4) % 4;
   if (turns === 0 && !mirror) return clone(payload);
 
@@ -182,13 +310,13 @@ export function transformSelectionGroup(payload, {
   // A whole-subtile pivot keeps every rotated top-left origin on the same
   // quarter-tile lattice. Persist it across repeated transforms so four turns
   // and two mirrors are exact identities instead of accumulating snap drift.
-  const measuredPivot = selectionPivotSub(payload.items);
+  const measuredPivot = selectionPivotSub(payload);
   const pivot = payload.transformPivotSub || {
     x: Math.round(measuredPivot.x),
     z: Math.round(measuredPivot.z),
   };
   out.transformPivotSub = { ...pivot };
-  for (const item of out.items) {
+  for (const item of out.items || []) {
     const oldSize = footprintSub(item);
     const oldCentre = {
       x: globalSub(item.col, item.subCol) + oldSize.width / 2,
@@ -208,6 +336,47 @@ export function transformSelectionGroup(payload, {
     item.subCol = x.sub;
     item.row = z.tile;
     item.subRow = z.sub;
+
+    if (item.wallMount) {
+      const mountEnds = edgeEndpointsSub(item.wallMount);
+      if (mountEnds) {
+        const transformedStart = turnPoint(
+          mountEnds[0].x, mountEnds[0].z, pivot, turns, mirror,
+        );
+        const transformedEnd = turnPoint(
+          mountEnds[1].x, mountEnds[1].z, pivot, turns, mirror,
+        );
+        item.wallMount = edgeRecordFromEndpoints(
+          item.wallMount, transformedStart, transformedEnd,
+        );
+        item.col = item.wallMount.col;
+        item.row = item.wallMount.row;
+      }
+    }
+  }
+
+  for (const floor of out.floors || []) {
+    const centre = {
+      x: globalSub(floor.col, 0) + SUBS_PER_TILE / 2,
+      z: globalSub(floor.row, 0) + SUBS_PER_TILE / 2,
+    };
+    const next = turnPoint(centre.x, centre.z, pivot, turns, mirror);
+    floor.col = Math.round((next.x - SUBS_PER_TILE / 2) / SUBS_PER_TILE);
+    floor.row = Math.round((next.z - SUBS_PER_TILE / 2) / SUBS_PER_TILE);
+    if (turns % 2 === 1 && FLOORS[floor.type]?.orientable) {
+      floor.orientation = floor.orientation ? 0 : 1;
+    }
+  }
+
+  for (const assembly of out.edges || []) {
+    const originalEnds = edgeEndpointsSub(assembly.wall);
+    if (!originalEnds) continue;
+    const start = turnPoint(originalEnds[0].x, originalEnds[0].z, pivot, turns, mirror);
+    const end = turnPoint(originalEnds[1].x, originalEnds[1].z, pivot, turns, mirror);
+    for (const field of ['wall', 'overlay', 'door', 'window']) {
+      if (!assembly[field]) continue;
+      assembly[field] = edgeRecordFromEndpoints(assembly[field], start, end);
+    }
   }
 
   const transformPath = path => Array.isArray(path) ? path.map(point => {
@@ -225,7 +394,13 @@ export function transformSelectionGroup(payload, {
     connection.cablePath = transformPath(connection.cablePath);
   }
 
-  const primary = out.items.find(item => item.id === out.primaryId) || out.items[0];
+  let primary = null;
+  if (out.primaryTarget?.kind === 'floor') primary = out.floors?.[out.primaryTarget.index];
+  else if (out.primaryTarget?.kind === 'edge') primary = out.edges?.[out.primaryTarget.index]?.wall;
+  else if (out.primaryTarget?.kind === 'placeable') primary = out.items?.[out.primaryTarget.index];
+  primary ||= out.items?.find(item => item.id === out.primaryId)
+    || out.items?.[0] || out.floors?.[0] || out.edges?.[0]?.wall;
+  if (!primary) return out;
   out.anchor = {
     col: primary.col,
     row: primary.row,
@@ -242,7 +417,22 @@ export function transformSelectionGroup(payload, {
  */
 export function previewSelectionGroup(game, payload, anchorPose) {
   const targets = selectionTargets(payload, anchorPose);
-  if (!targets.length) return { ok: false, reason: PLACE_BLOCKED, targets: [] };
+  const floorTargets = selectionFloorTargets(payload, anchorPose);
+  const edgeTargets = selectionEdgeTargets(payload, anchorPose);
+  if (selectionPayloadCount(payload) === 0) {
+    return { ok: false, reason: PLACE_BLOCKED, targets: [], floorTargets: [], edgeTargets: [] };
+  }
+  if (targets.length !== (payload.items?.length || 0)
+      || floorTargets.length !== (payload.floors?.length || 0)
+      || edgeTargets.length !== (payload.edges?.length || 0)) {
+    return {
+      ok: false,
+      reason: 'alignment',
+      targets,
+      floorTargets,
+      edgeTargets,
+    };
+  }
 
   const moving = payload.operation === 'move';
   const selectedIds = new Set(payload.items.map(item => item.id));
@@ -283,12 +473,54 @@ export function previewSelectionGroup(game, payload, anchorPose) {
     });
   }
 
+  for (const floor of floorTargets) {
+    const def = FLOORS[floor.type];
+    if (!def) {
+      reason = reason || PLACE_BLOCKED;
+      continue;
+    }
+    const existingType = game.state.infraOccupied?.[`${floor.col},${floor.row}`] || null;
+    const existingDef = FLOORS[existingType];
+    const canReplace = !existingType
+      || existingType === floor.type
+      || existingType === floor.foundation
+      || existingDef?.groundsSurface === true;
+    if (!canReplace && !reason) reason = PLACE_BLOCKED;
+  }
+
+  for (const assembly of edgeTargets) {
+    const wall = assembly.wall;
+    if (!wall || !WALL_TYPES[wall.type]) {
+      reason = reason || PLACE_BLOCKED;
+      continue;
+    }
+    if (findWallKey(game.state.wallOccupied, wall.col, wall.row, wall.edge) && !reason) {
+      reason = PLACE_BLOCKED;
+    }
+  }
+
   const itemCost = {};
   const lineCost = {};
+  const structureCost = {};
   if (!moving) {
     for (const item of payload.items) addCost(itemCost, componentCostFor(PLACEABLES[item.type]));
-    for (const line of payload.connections) addCost(lineCost, runWiringCost(line.utilityType, line.subL));
-    const total = addCost({ ...itemCost }, lineCost);
+    for (const floor of payload.floors || []) {
+      if (floor.foundation) {
+        addCost(structureCost, { funding: variantCost(FLOORS[floor.foundation], floor.variant ?? 0) });
+      }
+      addCost(structureCost, { funding: variantCost(FLOORS[floor.type], floor.variant ?? 0) });
+    }
+    for (const assembly of payload.edges || []) {
+      for (const record of [assembly.wall, assembly.overlay, assembly.door, assembly.window]) {
+        if (!record) continue;
+        const def = WALL_TYPES[record.type] || DOOR_TYPES[record.type] || WINDOW_TYPES[record.type];
+        addCost(structureCost, { funding: variantCost(def, record.variant ?? 0) });
+      }
+    }
+    for (const line of payload.connections || []) {
+      addCost(lineCost, runWiringCost(line.utilityType, line.subL));
+    }
+    const total = addCost(addCost({ ...itemCost }, structureCost), lineCost);
     if (!canAffordCost(game, total) && !reason) reason = PLACE_UNAFFORDABLE;
   }
 
@@ -297,19 +529,23 @@ export function previewSelectionGroup(game, payload, anchorPose) {
   const placeables = moving
     ? (game.state.placeables || []).map(entry => replacementByOldId.get(entry.id) || entry)
     : [...(game.state.placeables || []), ...targetEntries];
-  const internalLineIds = new Set(payload.connections.map(line => line.id));
+  const internalLineIds = new Set((payload.connections || []).map(line => line.id));
   const utilityLines = lineMap(game.state.utilityLines);
   if (moving) {
     for (const id of internalLineIds) utilityLines.delete(id);
   }
   const utilityState = { ...game.state, placeables, utilityLines };
 
-  const deltaCol = targets[0].col + targets[0].subCol / SUBS_PER_TILE
-    - (payload.items[0].col + payload.items[0].subCol / SUBS_PER_TILE);
-  const deltaRow = targets[0].row + targets[0].subRow / SUBS_PER_TILE
-    - (payload.items[0].row + payload.items[0].subRow / SUBS_PER_TILE);
+  const deltaCol = targets.length
+    ? targets[0].col + targets[0].subCol / SUBS_PER_TILE
+      - (payload.items[0].col + payload.items[0].subCol / SUBS_PER_TILE)
+    : 0;
+  const deltaRow = targets.length
+    ? targets[0].row + targets[0].subRow / SUBS_PER_TILE
+      - (payload.items[0].row + payload.items[0].subRow / SUBS_PER_TILE)
+    : 0;
   const connections = [];
-  for (let index = 0; index < payload.connections.length; index++) {
+  for (let index = 0; index < (payload.connections || []).length; index++) {
     const source = payload.connections[index];
     const remap = (endpoint) => {
       if (!endpoint) return null;
@@ -363,11 +599,14 @@ export function previewSelectionGroup(game, payload, anchorPose) {
   }
 
   return {
-    ok: !reason && connections.length === payload.connections.length,
+    ok: !reason && connections.length === (payload.connections?.length || 0),
     reason,
     targets,
+    floorTargets,
+    edgeTargets,
     connections,
     itemCost,
+    structureCost,
     lineCost,
     internalLineIds,
   };

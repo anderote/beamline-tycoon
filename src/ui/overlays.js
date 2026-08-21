@@ -7,6 +7,7 @@ import { COMPONENTS } from '../data/components.js';
 import { RESEARCH, RESEARCH_CATEGORIES, RESEARCH_LAB_MAP } from '../data/research.js';
 import { BeamlineWindow } from './BeamlineWindow.js';
 import { EquipmentWindow } from './EquipmentWindow.js';
+import { SelectionWindow } from './SelectionWindow.js';
 import { pushEscHandler } from './esc-stack.js';
 import { ZONES } from '../data/facility.js';
 import { formatEnergy } from '../data/units.js';
@@ -4845,6 +4846,61 @@ UIHost.prototype._openEquipmentWindow = function(equip) {
   };
 };
 
+// --- Mixed-category selection window ---
+
+UIHost.prototype._openSelectionWindow = function(anchor) {
+  if (!this.renderer?.selectionPanelState || !anchor) return null;
+
+  const position = (window, target) => {
+    const col = Number(target?.col) || 0;
+    const row = Number(target?.row) || 0;
+    const subCol = (Number(target?.subCol) || 0) / 4;
+    const subRow = (Number(target?.subRow) || 0) / 4;
+    const iso = tileCenterIso(col + subCol, row + subRow);
+    window.ctx.setWorldAnchor(iso.x + 40, iso.y - 60);
+    window.ctx.setTileAnchor(col + subCol + 0.5, row + subRow + 0.5, 40, -60);
+    window.ctx.updateScreenPosition(this.world.x, this.world.y, this.zoom);
+  };
+
+  if (this._selectionWindow?.ctx) {
+    position(this._selectionWindow, anchor);
+    this._selectionWindow.refresh(anchor);
+    this._selectionWindow.ctx.focus();
+    return this._selectionWindow;
+  }
+
+  const sw = new SelectionWindow(this.game, anchor, {
+    onPlace: () => this.renderer.dispatchSelectionPanelAction('move'),
+    onCopyToClipboard: () => this.renderer.dispatchSelectionPanelAction('copy'),
+    onPaste: () => this.renderer.dispatchSelectionPanelAction('paste'),
+    onSaveSlot: slot => this.renderer.dispatchSelectionPanelAction('saveSlot', slot),
+    onRotate: () => this.renderer.dispatchSelectionPanelAction('rotate'),
+    onMirror: () => this.renderer.dispatchSelectionPanelAction('mirror'),
+    onDemolish: () => this.renderer.dispatchSelectionPanelAction('demolish'),
+    onToggleCategory: category => this.renderer.dispatchSelectionPanelAction(
+      'toggleCategory', category,
+    ),
+    getCandidates: () => this.renderer.selectionPanelState().candidates,
+    getSelectionEntries: () => this.renderer.selectionPanelState().entries,
+    getClipboardCount: () => this.renderer.selectionPanelState().clipboardCount,
+    getSelectionSlots: () => this.renderer.selectionPanelState().slots,
+  });
+  if (!sw.ctx) return null;
+  this._selectionWindow = sw;
+  position(sw, anchor);
+
+  const origClose = sw.ctx._onClose;
+  sw.ctx._onClose = () => {
+    this._selectionWindow = null;
+    if (origClose) origClose();
+  };
+  return sw;
+};
+
+UIHost.prototype._closeSelectionWindow = function() {
+  this._selectionWindow?.ctx?.close();
+};
+
 /** Close only the anchored info window belonging to a placeable being moved. */
 UIHost.prototype._closePlaceableInfoWindow = function(entry) {
   if (!entry) return;
@@ -4867,6 +4923,7 @@ UIHost.prototype._refreshContextWindows = function() {
   if (this._equipmentWindows) {
     for (const ew of Object.values(this._equipmentWindows)) ew.refresh();
   }
+  this._selectionWindow?.refresh();
 };
 
 // (Position tracking for anchored windows is owned by the renderer's

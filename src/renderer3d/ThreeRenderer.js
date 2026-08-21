@@ -114,6 +114,7 @@ import {
 } from './placement-grid-style.js';
 import { worldRefreshPlan } from './world-refresh-plan.js';
 import { WorldInvalidationScheduler } from './world-invalidation-scheduler.js';
+import { selectionTargetsForState } from '../game/selection-targets.js';
 
 // Closest the camera may get. Detail meshes (userData.lod === 'detail') switch
 // on at zoom 2.0, so anything above that is inside the high-detail band.
@@ -1623,6 +1624,24 @@ export class ThreeRenderer {
     return this._openEquipmentWindow?.(entry);
   }
 
+  openSelectionWindow(target) {
+    return this._openSelectionWindow?.(target);
+  }
+
+  closeSelectionWindow() {
+    return this._closeSelectionWindow?.();
+  }
+
+  selectionPanelState() {
+    return this._inputHandler?.selectionPanelState?.() || {
+      candidates: [], entries: [], clipboardCount: 0, slots: {},
+    };
+  }
+
+  dispatchSelectionPanelAction(action, value = null) {
+    return this._inputHandler?.dispatchSelectionPanelAction?.(action, value) ?? false;
+  }
+
   closePlaceableInfoWindow(entry) {
     return this._closePlaceableInfoWindow?.(entry);
   }
@@ -2235,21 +2254,73 @@ export class ThreeRenderer {
     }
   }
 
+  /** Outline logical selection targets, including non-mesh floors and edges. */
+  setSelectionTargets(targets) {
+    this.clearSelectionOutline();
+    const state = this._liveState();
+    const lineMaterial = () => new THREE.LineBasicMaterial({
+      color: 0xffffff, transparent: true, opacity: 0.96, depthTest: true,
+    });
+    const seenRoots = new Set();
+    for (const target of targets || []) {
+      const root = target?.rootObj || null;
+      if (root && !seenRoots.has(root)) {
+        seenRoots.add(root);
+        this._outlineObject(root, 0xffffff, this.selectionGroup, 3);
+      } else if (target?.targetKind === 'floor') {
+        const points = this._terrainTileBorderPoints(target.col, target.row, 0.055);
+        this.selectionGroup.add(new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(points), lineMaterial(),
+        ));
+      } else if (target?.targetKind === 'edge') {
+        const ends = this._edgeEndpoints(target.col, target.row, target.edge, 0.045);
+        const height = (WALL_TYPES[target.wall?.type]?.wallHeight || 14) * HEIGHT_SCALE;
+        const points = [
+          ends.p0,
+          ends.p1,
+          new THREE.Vector3(ends.p1.x, ends.p1.y + height, ends.p1.z),
+          new THREE.Vector3(ends.p0.x, ends.p0.y + height, ends.p0.z),
+          ends.p0,
+        ];
+        this.selectionGroup.add(new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(points), lineMaterial(),
+        ));
+      }
+
+      if (target?.targetKind === 'placeable') {
+        const def = COMPONENTS[target.type] || PLACEABLES[target.type];
+        if (target.entry && def?.autoConnectRadius > 0) {
+          this._addPanelInfluenceRing(target.entry, def);
+        }
+      }
+    }
+  }
+
   /**
    * Movable placeables whose projected model bounds overlap a screen marquee.
    * Beamline hardware and stacked objects stay out: the group-placement model
    * cannot move them without also rewriting their carrier pipe/stack graph.
    */
   placeablesInScreenRect(rect) {
+    return this.selectionTargetsInScreenRect(rect)
+      .filter(match => match.target?.targetKind === 'placeable'
+        && match.target.selectionCategory !== 'beamline')
+      .map(match => ({ ...match, entry: match.target.entry }));
+  }
+
+  /** Logical world objects whose projected bounds overlap a screen marquee. */
+  selectionTargetsInScreenRect(rect) {
     if (!rect || !this.camera || !this.renderer) return [];
     const left = Math.min(rect.left, rect.right);
     const right = Math.max(rect.left, rect.right);
     const top = Math.min(rect.top, rect.bottom);
     const bottom = Math.max(rect.top, rect.bottom);
     const state = this._liveState();
-    const byId = new Map((state.placeables || []).map(entry => [entry.id, entry]));
     const rootsById = new Map();
-    for (const group of [this.componentGroup, this.equipmentGroup, this.decorationGroup]) {
+    for (const group of [
+      this.componentGroup, this.equipmentGroup, this.decorationGroup,
+      this.pipeAttachmentGroup,
+    ]) {
       for (const root of (group?.children || [])) {
         if (root.userData?.nodeId != null) rootsById.set(root.userData.nodeId, root);
       }
@@ -2257,16 +2328,19 @@ export class ThreeRenderer {
 
     const results = [];
     const box = new THREE.Box3();
-    for (const entry of (state.placeables || [])) {
-      if (entry.kind === 'beamline' || entry.category === 'beamline') continue;
-      if (entry.stackParentId || (entry.stackChildren || []).length > 0) continue;
-      const rootObj = rootsById.get(entry.id);
-      if (!rootObj) continue;
-      rootObj.updateWorldMatrix?.(true, true);
-      box.makeEmpty();
-      box.setFromObject(rootObj);
+    for (const target of selectionTargetsForState(state)) {
+      if (target.targetKind === 'placeable'
+          && (target.entry?.stackParentId || (target.entry?.stackChildren || []).length > 0)) continue;
+      const rootObj = target.targetKind === 'beamlineAttachment'
+        ? this.pipeAttachmentBuilder?.getGroup?.(target.id) || null
+        : this.decorationBuilder?.getGroup?.(target.id) || rootsById.get(target.id) || null;
       const projected = [];
-      if (!box.isEmpty()) {
+      if (rootObj) {
+        rootObj.updateWorldMatrix?.(true, true);
+        box.makeEmpty();
+        box.setFromObject(rootObj);
+      } else box.makeEmpty();
+      if (rootObj && !box.isEmpty()) {
         for (const x of [box.min.x, box.max.x]) {
           for (const y of [box.min.y, box.max.y]) {
             for (const z of [box.min.z, box.max.z]) {
@@ -2276,9 +2350,32 @@ export class ThreeRenderer {
           }
         }
       }
-      if (projected.length === 0) {
-        const def = COMPONENTS[entry.type] || PLACEABLES[entry.type];
-        const centre = placeableCenterWorld(entry, def);
+      if (projected.length === 0 && target.targetKind === 'floor') {
+        for (const [x, z] of [
+          [target.col * 2, target.row * 2],
+          [target.col * 2 + 2, target.row * 2],
+          [target.col * 2 + 2, target.row * 2 + 2],
+          [target.col * 2, target.row * 2 + 2],
+        ]) {
+          const point = this.worldToScreen(x, sampleSurfaceYAt(state, x, z) + 0.05, z);
+          if (point) projected.push(point);
+        }
+      } else if (projected.length === 0 && target.targetKind === 'edge') {
+        const ends = this._edgeEndpoints(target.col, target.row, target.edge, 0);
+        const height = (WALL_TYPES[target.wall?.type]?.wallHeight || 14) * HEIGHT_SCALE;
+        for (const point of [
+          ends.p0, ends.p1,
+          new THREE.Vector3(ends.p0.x, ends.p0.y + height, ends.p0.z),
+          new THREE.Vector3(ends.p1.x, ends.p1.y + height, ends.p1.z),
+        ]) {
+          const projectedPoint = this.worldToScreen(point.x, point.y, point.z);
+          if (projectedPoint) projected.push(projectedPoint);
+        }
+      } else if (projected.length === 0) {
+        const def = COMPONENTS[target.type] || PLACEABLES[target.type];
+        const centre = target.targetKind === 'placeable'
+          ? placeableCenterWorld(target.entry, def)
+          : { x: target.col * 2, z: target.row * 2 };
         if (centre) {
           const point = this.worldToScreen(
             centre.x,
@@ -2297,7 +2394,7 @@ export class ThreeRenderer {
       }), { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity });
       if (bounds.right < left || bounds.left > right
           || bounds.bottom < top || bounds.top > bottom) continue;
-      results.push({ entry: byId.get(entry.id) || entry, rootObj });
+      results.push({ target: { ...target, rootObj }, rootObj });
     }
     return results;
   }
@@ -2959,6 +3056,52 @@ export class ThreeRenderer {
         this._addPlaceableGhostMeshes(item.hover, item.valid, item.reason ?? null);
       }
     } catch (e) { console.error('[renderPlaceableGhosts] CRASH:', e); }
+  }
+
+  /** Mixed formation preview for placeables, floors, walls, and openings. */
+  renderSelectionGroupGhosts(preview, placeableGhosts = []) {
+    try {
+      this._clearPreview();
+      const anchor = placeableGhosts.at(-1)?.hover
+        || preview?.floorTargets?.at(-1)
+        || preview?.edgeTargets?.at(-1)?.wall;
+      if (anchor) this._renderGridAroundCursor(anchor.col, anchor.row);
+      for (const item of placeableGhosts) {
+        this._addPlaceableGhostMeshes(item.hover, item.valid, item.reason ?? null);
+      }
+
+      const color = preview?.ok
+        ? GHOST_TINT_OK
+        : preview?.reason === PLACE_UNAFFORDABLE
+          ? GHOST_TINT_UNAFFORDABLE
+          : GHOST_TINT_BLOCKED;
+      const floorMat = this._previewMat(color, 0.28);
+      for (const floor of preview?.floorTargets || []) {
+        this._addPreviewMesh(new THREE.Mesh(
+          this._terrainTileQuad(floor.col, floor.row, 0.035), floorMat,
+        ));
+      }
+
+      const edgeMat = new THREE.LineBasicMaterial({
+        color, transparent: true, opacity: 0.95,
+      });
+      for (const assembly of preview?.edgeTargets || []) {
+        const wall = assembly.wall;
+        if (!wall) continue;
+        const ends = this._edgeEndpoints(wall.col, wall.row, wall.edge, 0.04);
+        const height = (WALL_TYPES[wall.type]?.wallHeight || 14) * HEIGHT_SCALE;
+        const points = [
+          ends.p0,
+          ends.p1,
+          new THREE.Vector3(ends.p1.x, ends.p1.y + height, ends.p1.z),
+          new THREE.Vector3(ends.p0.x, ends.p0.y + height, ends.p0.z),
+          ends.p0,
+        ];
+        this._addPreviewMesh(new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(points), edgeMat,
+        ));
+      }
+    } catch (e) { console.error('[renderSelectionGroupGhosts] CRASH:', e); }
   }
   _renderPlaceableGhostInner(hover, valid, reason = null) {
     this._clearPreview();
@@ -3676,6 +3819,7 @@ export class ThreeRenderer {
     const windows = [];
     if (this.ui?._beamlineWindows) windows.push(...Object.values(this.ui._beamlineWindows));
     if (this.ui?._equipmentWindows) windows.push(...Object.values(this.ui._equipmentWindows));
+    if (this.ui?._selectionWindow) windows.push(this.ui._selectionWindow);
     if (windows.length === 0) {
       this._anchoredWindowsSig = null;
       return;
@@ -5207,7 +5351,8 @@ const UI_METHODS = [
   '_paramLabel', '_fmtParam', '_wirePopupSliders',
   '_buildTreeLayout', '_renderTechTree', '_bindTreeEvents', '_updateTreeProgress',
   '_showResearchPopover', '_scrollToCategory', '_applyTreeTransform',
-  '_openBeamlineWindow', '_openEquipmentWindow', '_closePlaceableInfoWindow',
+  '_openBeamlineWindow', '_openEquipmentWindow', '_openSelectionWindow',
+  '_closeSelectionWindow', '_closePlaceableInfoWindow',
   '_refreshContextWindows',
 ];
 

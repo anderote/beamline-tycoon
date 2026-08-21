@@ -42,6 +42,7 @@ import { portWorldPosition } from '../utility/ports.js';
 import {
   captureSelectionGroup,
   previewSelectionGroup,
+  selectionPayloadCount,
   transformSelectionGroup,
 } from './selection-group.js';
 import {
@@ -68,6 +69,12 @@ import {
 } from '../ui/hover-info.js';
 import { renderHoverTooltipDetail } from '../ui/hover-tooltip-detail.js';
 import { placeableMutationEvent } from '../game/placeable-events.js';
+import {
+  floorSelectionKey,
+  physicalEdgeSelectionKey,
+  selectionTargetByKey,
+  selectionTargetForPlaceable,
+} from '../game/selection-targets.js';
 
 // === BEAMLINE TYCOON: INPUT HANDLER ===
 
@@ -123,6 +130,10 @@ export class InputHandler {
     // most-recent id for legacy single-selection call sites.
     this.selectedPlaceableIds = new Set();
     this._selectedRootsById = new Map();
+    // Full candidate set from the latest marquee/Shift-add gesture. Category
+    // toggles only change selectedPlaceableIds, so a disabled category can be
+    // re-enabled without drawing the marquee again.
+    this._selectionCandidatesByKey = new Map();
     this._marquee = null;
     this._marqueeEl = null;
     this._deferredUtilityPortDrag = new DeferredUtilityPortDrag();
@@ -826,13 +837,40 @@ export class InputHandler {
     this.selectedPlaceableId = null;
     this.selectedPlaceableIds.clear();
     this._selectedRootsById.clear();
+    this._selectionCandidatesByKey?.clear?.();
     this.renderer.clearSelectionOutline?.();
+    this.renderer.closeSelectionWindow?.();
+  }
+
+  _selectionTarget(key) {
+    const current = this.game?.state
+      ? selectionTargetByKey(this.game.state, key)
+      : selectionTargetForPlaceable(this.game?.getPlaceable?.(key));
+    const candidate = this._selectionCandidatesByKey?.get?.(key);
+    if (!current) return candidate || null;
+    return {
+      ...current,
+      rootObj: candidate?.rootObj || this._selectedRootsById?.get?.(key) || current.rootObj || null,
+    };
+  }
+
+  _selectionTargets(keys = this.selectedPlaceableIds) {
+    const resolve = typeof this._selectionTarget === 'function'
+      ? key => this._selectionTarget(key)
+      : key => InputHandler.prototype._selectionTarget.call(this, key);
+    return [...(keys || [])].map(resolve).filter(Boolean);
   }
 
   _renderSelectionOutlines() {
-    const roots = [...this._selectedRootsById.values()].filter(Boolean);
-    if (this.renderer.setSelectionOutlines) this.renderer.setSelectionOutlines(roots);
-    else this.renderer.setSelectionOutline?.(roots[roots.length - 1] || null);
+    const targets = typeof this._selectionTargets === 'function'
+      ? this._selectionTargets()
+      : InputHandler.prototype._selectionTargets.call(this);
+    if (this.renderer.setSelectionTargets) this.renderer.setSelectionTargets(targets);
+    else {
+      const roots = targets.map(target => target.rootObj).filter(Boolean);
+      if (this.renderer.setSelectionOutlines) this.renderer.setSelectionOutlines(roots);
+      else this.renderer.setSelectionOutline?.(roots[roots.length - 1] || null);
+    }
   }
 
   /** Open the inspector appropriate for one selected placeable. */
@@ -851,6 +889,31 @@ export class InputHandler {
 
   /** Leave one live context window representing the complete selection. */
   _reconcileSelectionWindow(previousIds = []) {
+    const selectedTargets = typeof this._selectionTargets === 'function'
+      ? this._selectionTargets()
+      : InputHandler.prototype._selectionTargets.call(this);
+    const useSelectionPanel = selectedTargets.length > 1
+      || selectedTargets.some(target => target.targetKind !== 'placeable')
+      || (this._selectionCandidatesByKey?.size || 0) > selectedTargets.length;
+
+    if (useSelectionPanel && typeof this.renderer.openSelectionWindow === 'function') {
+      for (const key of new Set([...(previousIds || []), ...this.selectedPlaceableIds])) {
+        const target = this._selectionTarget(key);
+        if (target?.entry) this.renderer.closePlaceableInfoWindow?.(target.entry);
+      }
+      const primary = (typeof this._selectionTarget === 'function'
+        ? this._selectionTarget(this.selectedPlaceableId)
+        : InputHandler.prototype._selectionTarget.call(this, this.selectedPlaceableId))
+        || selectedTargets.at(-1)
+        || [...(this._selectionCandidatesByKey?.values?.() || [])].at(-1)
+        || null;
+      if (primary) this.renderer.openSelectionWindow?.(primary);
+      else this.renderer.closeSelectionWindow?.();
+      this.renderer.refreshContextWindows?.();
+      return primary;
+    }
+
+    this.renderer.closeSelectionWindow?.();
     return reconcileSelectionWindow({
       previousIds,
       selectedIds: [...this.selectedPlaceableIds],
@@ -860,6 +923,57 @@ export class InputHandler {
       openWindow: entry => this._openPlaceableInfoWindow(entry),
       refreshWindows: () => this.renderer.refreshContextWindows?.(),
     });
+  }
+
+  /** Read-only model consumed by the mixed-category context panel. */
+  selectionPanelState() {
+    const candidates = [...this._selectionCandidatesByKey.values()]
+      .map(target => this._selectionTarget(target.key) || target);
+    return {
+      candidates,
+      entries: this._selectionTargets(),
+      clipboardCount: selectionPayloadCount(this._selectionClipboard),
+      slots: Object.fromEntries(Object.entries(this._selectionSlots || {})
+        .map(([slot, payload]) => [slot, selectionPayloadCount(payload)])),
+    };
+  }
+
+  /** Public command seam for SelectionWindow; UI code never reaches internals. */
+  dispatchSelectionPanelAction(action, value = null) {
+    if (action === 'move') return this._beginSelectionPlacement('move');
+    if (action === 'copy') return this._copySelectionToClipboard();
+    if (action === 'paste') return this._pasteSelectionClipboard();
+    if (action === 'saveSlot') return this._saveSelectionSlot(value);
+    if (action === 'rotate') return this._beginSelectionTransform('rotate');
+    if (action === 'mirror') return this._beginSelectionTransform('mirror');
+    if (action === 'demolish') return this._demolishSelected();
+    if (action === 'toggleCategory') return this._toggleSelectionCategory(value);
+    return false;
+  }
+
+  _toggleSelectionCategory(category) {
+    const candidates = [...(this._selectionCandidatesByKey?.values?.() || [])]
+      .filter(target => target.selectionCategory === category);
+    if (!candidates.length) return false;
+    const previous = [...this.selectedPlaceableIds];
+    const enabled = candidates.some(target => this.selectedPlaceableIds.has(target.key));
+    for (const target of candidates) {
+      if (enabled) {
+        this.selectedPlaceableIds.delete(target.key);
+        this._selectedRootsById.delete(target.key);
+      } else {
+        this.selectedPlaceableIds.add(target.key);
+        if (target.rootObj) this._selectedRootsById.set(target.key, target.rootObj);
+      }
+    }
+    const selected = [...this.selectedPlaceableIds];
+    this.selectedPlaceableId = selected.at(-1) || null;
+    const primary = this._selectionTarget(this.selectedPlaceableId);
+    this.selectedNodeId = primary?.selectionCategory === 'beamline'
+      && primary.targetKind === 'placeable' ? primary.id : null;
+    this._renderSelectionOutlines();
+    this._reconcileSelectionWindow(previous);
+    return true;
   }
 
   _beginMarquee(e) {
@@ -919,21 +1033,32 @@ export class InputHandler {
       top: Math.min(marquee.startY, marquee.endY),
       bottom: Math.max(marquee.startY, marquee.endY),
     };
-    const matches = this.renderer.placeablesInScreenRect?.(rect) || [];
+    const logicalMatches = this.renderer.selectionTargetsInScreenRect?.(rect);
+    const matches = logicalMatches || (this.renderer.placeablesInScreenRect?.(rect) || [])
+      .map(match => ({
+        ...match,
+        target: selectionTargetForPlaceable(match.entry, match.rootObj),
+      }));
     if (!marquee.additive) {
       this.selectedPlaceableIds.clear();
       this._selectedRootsById.clear();
+      this._selectionCandidatesByKey?.clear?.();
     }
     for (const match of matches) {
-      const entry = match?.entry;
-      if (!entry) continue;
-      this.selectedPlaceableIds.add(entry.id);
-      if (match.rootObj) this._selectedRootsById.set(entry.id, match.rootObj);
+      const target = match?.target;
+      if (!target?.key) continue;
+      const candidate = { ...target, rootObj: match.rootObj || target.rootObj || null };
+      this._selectionCandidatesByKey?.set?.(target.key, candidate);
+      this.selectedPlaceableIds.add(target.key);
+      if (candidate.rootObj) this._selectedRootsById.set(target.key, candidate.rootObj);
     }
     const selected = [...this.selectedPlaceableIds];
     this.selectedPlaceableId = selected[selected.length - 1] || null;
-    const primary = this.selectedPlaceableId && this.game.getPlaceable(this.selectedPlaceableId);
-    this.selectedNodeId = primary?.category === 'beamline' ? primary.id : null;
+    const primary = this.selectedPlaceableId && (typeof this._selectionTarget === 'function'
+      ? this._selectionTarget(this.selectedPlaceableId)
+      : InputHandler.prototype._selectionTarget.call(this, this.selectedPlaceableId));
+    this.selectedNodeId = primary?.selectionCategory === 'beamline'
+      && primary.targetKind === 'placeable' ? primary.id : null;
     this._renderSelectionOutlines();
     this._reconcileSelectionWindow(previousSelection);
     this._clearMarquee();
@@ -1035,10 +1160,12 @@ export class InputHandler {
   /** Select a world object, persist its outline, and open its info menu. */
   _selectPlaceable(entry, rootObj = null, { additive = false } = {}) {
     if (!entry) return false;
+    const target = selectionTargetForPlaceable(entry, rootObj);
     const previousSelection = [...this.selectedPlaceableIds];
     if (!additive) {
       this.selectedPlaceableIds.clear();
       this._selectedRootsById.clear();
+      this._selectionCandidatesByKey?.clear?.();
     } else if (this.selectedPlaceableIds.has(entry.id)) {
       this.selectedPlaceableIds.delete(entry.id);
       this._selectedRootsById.delete(entry.id);
@@ -1052,6 +1179,7 @@ export class InputHandler {
     }
 
     this.selectedPlaceableIds.add(entry.id);
+    if (target) this._selectionCandidatesByKey?.set?.(entry.id, target);
     if (rootObj) this._selectedRootsById.set(entry.id, rootObj);
     this.selectedPlaceableId = entry.id;
     this.selectedNodeId = entry.category === 'beamline' ? entry.id : null;
@@ -1066,8 +1194,39 @@ export class InputHandler {
     return true;
   }
 
+  _selectLogicalTarget(target, rootObj = null, { additive = false } = {}) {
+    if (!target?.key) return false;
+    if (target.targetKind === 'placeable') {
+      return this._selectPlaceable(target.entry, rootObj, { additive });
+    }
+    const previousSelection = [...this.selectedPlaceableIds];
+    if (!additive) {
+      this.selectedPlaceableIds.clear();
+      this._selectedRootsById.clear();
+      this._selectionCandidatesByKey?.clear?.();
+    } else if (this.selectedPlaceableIds.has(target.key)) {
+      this.selectedPlaceableIds.delete(target.key);
+      this._selectedRootsById.delete(target.key);
+      const remaining = [...this.selectedPlaceableIds];
+      this.selectedPlaceableId = remaining.at(-1) || null;
+      this._renderSelectionOutlines();
+      this._reconcileSelectionWindow(previousSelection);
+      return true;
+    }
+    const candidate = { ...target, rootObj: rootObj || target.rootObj || null };
+    this._selectionCandidatesByKey?.set?.(target.key, candidate);
+    this.selectedPlaceableIds.add(target.key);
+    if (candidate.rootObj) this._selectedRootsById.set(target.key, candidate.rootObj);
+    this.selectedPlaceableId = target.key;
+    this.selectedNodeId = target.selectionCategory === 'beamline'
+      && target.targetKind === 'placeable' ? target.id : null;
+    this._renderSelectionOutlines();
+    this._reconcileSelectionWindow(previousSelection);
+    return true;
+  }
+
   /** Resolve the visible placeable under a normal canvas click. */
-  _selectPlaceableAt(_world, _grid, screenX, screenY, { additive = false } = {}) {
+  _selectPlaceableAt(_world, grid, screenX, screenY, { additive = false } = {}) {
     const hit = this.renderer.raycastScreen?.(screenX, screenY, OBJECT_PICK_TOLERANCE_PX);
     const info = hit ? this.renderer.identifyHit?.(hit) : null;
     // Rendered placeable wrappers carry their stable state id. Deliberately do
@@ -1077,12 +1236,31 @@ export class InputHandler {
     const entry = info?.nodeId != null
       ? this.game.getPlaceable(info.nodeId)
       : null;
-    if (!entry) return false;
-    return this._selectPlaceable(
-      entry,
-      info.rootObj || null,
-      { additive },
-    );
+    if (entry) {
+      return this._selectPlaceable(entry, info.rootObj || null, { additive });
+    }
+
+    if (info?.group === 'attachment' && info.attachmentId) {
+      const target = selectionTargetByKey(
+        this.game.state, `attachment:${info.attachmentId}`,
+      );
+      if (target) return this._selectLogicalTarget(target, info.rootObj || null, { additive });
+    }
+    if (info?.group === 'wall') {
+      const edge = this._getNearestWallEdge(screenX, screenY);
+      const key = physicalEdgeSelectionKey(edge.col, edge.row, edge.edge);
+      const target = selectionTargetByKey(this.game.state, key);
+      if (target) return this._selectLogicalTarget(target, null, { additive });
+    }
+
+    // A rendered non-selectable object (for example a utility line or beam
+    // pipe) keeps its existing inspector/click behavior. Only a true terrain
+    // hit may fall through to the logical floor beneath the cursor.
+    if (info) return false;
+
+    const floorKey = floorSelectionKey(grid.col, grid.row);
+    const floor = selectionTargetByKey(this.game.state, floorKey);
+    return floor ? this._selectLogicalTarget(floor, null, { additive }) : false;
   }
 
   _getActiveBeamlineNodes() {
@@ -2507,7 +2685,9 @@ export class InputHandler {
     this.selectedPlaceableId = null;
     this.selectedPlaceableIds?.clear?.();
     this._selectedRootsById?.clear?.();
+    this._selectionCandidatesByKey?.clear?.();
     this.renderer.clearSelectionOutline?.();
+    this.renderer.closeSelectionWindow?.();
     this._hideTooltip();
     // Variant is per-armed-tool state: whatever the previous tool chose must
     // not survive into the next one (a decoration swatch leaking into a
@@ -3481,7 +3661,7 @@ export class InputHandler {
     captured.payload.operation = 'copy';
     this._selectionSlots[slot] = this._cloneSelectionPayload(captured.payload);
     this._persistSelectionSlots();
-    const count = captured.payload.items.length;
+    const count = selectionPayloadCount(captured.payload);
     this._showToast(`Saved ${count} item${count === 1 ? '' : 's'} to slot ${slot}`);
     return true;
   }
@@ -3494,12 +3674,13 @@ export class InputHandler {
     }
     captured.payload.operation = 'copy';
     this._selectionClipboard = this._cloneSelectionPayload(captured.payload);
-    this._showToast(`Copied ${captured.payload.items.length} item${captured.payload.items.length === 1 ? '' : 's'}`);
+    const count = selectionPayloadCount(captured.payload);
+    this._showToast(`Copied ${count} item${count === 1 ? '' : 's'}`);
     return true;
   }
 
   _armSelectionPayload(payload, message) {
-    if (!payload?.items?.length) return false;
+    if (selectionPayloadCount(payload) === 0) return false;
     const tool = new MoveTool();
     this.setTool(tool);
     tool.payload = this._cloneSelectionPayload(payload);
@@ -3519,7 +3700,7 @@ export class InputHandler {
       this._showToast(`Selection slot ${slot} is empty`);
       return false;
     }
-    const count = payload.items?.length || 0;
+    const count = selectionPayloadCount(payload);
     return this._armSelectionPayload(
       { ...this._cloneSelectionPayload(payload), operation: 'copy' },
       `Slot ${slot}: placing ${count} item${count === 1 ? '' : 's'}`,
@@ -3531,7 +3712,7 @@ export class InputHandler {
       this._showToast('Selection clipboard is empty');
       return false;
     }
-    const count = this._selectionClipboard.items?.length || 0;
+    const count = selectionPayloadCount(this._selectionClipboard);
     return this._armSelectionPayload(
       { ...this._cloneSelectionPayload(this._selectionClipboard), operation: 'copy' },
       `Pasting ${count} item${count === 1 ? '' : 's'}`,
@@ -3574,12 +3755,12 @@ export class InputHandler {
     // carried away from its current location.
     if (operation === 'move') {
       for (const id of ids) {
-        const entry = this.game.getPlaceable(id);
+        const entry = selectionTargetByKey(this.game.state, id)?.entry;
         if (entry) this.renderer.closePlaceableInfoWindow?.(entry);
       }
     }
 
-    const count = captured.payload.items.length;
+    const count = selectionPayloadCount(captured.payload);
     return this._armSelectionPayload(
       captured.payload,
       `${operation === 'copy' ? 'Copying' : 'Placing'} ${count} item${count === 1 ? '' : 's'}`,
@@ -3638,31 +3819,45 @@ export class InputHandler {
   }
 
   _updateSelectionGroupPreview(payload) {
-    if (!payload?.items?.length) {
+    if (selectionPayloadCount(payload) === 0) {
       this.selectionGroupPreview = null;
       return;
     }
-    const primary = payload.items.find(item => item.id === payload.primaryId) || payload.items[0];
-    const def = PLACEABLES[primary.type];
-    if (!def) {
-      this.selectionGroupPreview = null;
-      return;
+    const hasStructure = (payload.floors?.length || 0) + (payload.edges?.length || 0) > 0;
+    const primary = payload.items.find(item => item.id === payload.primaryId)
+      || payload.items[0]
+      || payload.anchor;
+    let snap;
+    if (hasStructure) {
+      const cursor = isoToGridFloat(this.lastMouseWorldX ?? 0, this.lastMouseWorldY ?? 0);
+      snap = {
+        col: Math.round(cursor.col - (payload.anchor.subCol || 0) / 4),
+        row: Math.round(cursor.row - (payload.anchor.subRow || 0) / 4),
+        subCol: payload.anchor.subCol || 0,
+        subRow: payload.anchor.subRow || 0,
+      };
+    } else {
+      const def = PLACEABLES[primary?.type];
+      if (!def) {
+        this.selectionGroupPreview = null;
+        return;
+      }
+      snap = snapForPlaceable(
+        this.lastMouseWorldX ?? 0,
+        this.lastMouseWorldY ?? 0,
+        def,
+        primary.dir,
+      );
     }
-    const snap = snapForPlaceable(
-      this.lastMouseWorldX ?? 0,
-      this.lastMouseWorldY ?? 0,
-      def,
-      primary.dir,
-    );
     const preview = previewSelectionGroup(this.game, payload, {
       ...snap,
-      dir: primary.dir,
+      dir: primary?.dir || 0,
     });
     this.selectionGroupPreview = preview;
     const renderReason = typeof preview.reason === 'string' && preview.reason.startsWith('utility:')
       ? 'blocked'
       : preview.reason;
-    this.renderer.renderPlaceableGhosts(preview.targets.map(target => ({
+    const ghosts = preview.targets.map(target => ({
       hover: {
         id: target.type,
         col: target.col,
@@ -3674,11 +3869,15 @@ export class InputHandler {
       },
       valid: preview.ok,
       reason: renderReason,
-    })));
+    }));
+    if (this.renderer.renderSelectionGroupGhosts) {
+      this.renderer.renderSelectionGroupGhosts(preview, ghosts);
+    } else this.renderer.renderPlaceableGhosts(ghosts);
   }
 
   _selectionPlacementFailure(reason) {
     if (reason === 'unaffordable') return 'Cannot afford this copy';
+    if (reason === 'alignment') return 'Structures must stay aligned to whole tiles';
     if (typeof reason === 'string' && reason.startsWith('utility:')) {
       return 'Utility connections would overlap here';
     }
@@ -3704,7 +3903,8 @@ export class InputHandler {
   _copySelectionGroup(payload, preview) {
     const result = copySelectionGroup(this.game, payload, preview);
     if (!result.ok) return false;
-    this._showToast(`Copied ${result.ids.length} item${result.ids.length === 1 ? '' : 's'}`);
+    const count = selectionPayloadCount(payload);
+    this._showToast(`Copied ${count} item${count === 1 ? '' : 's'}`);
     return true;
   }
 
@@ -3735,20 +3935,18 @@ export class InputHandler {
    */
   _deleteSelectedFromKeyboard() {
     const ids = this._selectionIdsForAnchor(this.selectedPlaceableId)
-      .filter(id => this.game.getPlaceable(id));
+      .filter(id => selectionTargetByKey(this.game.state, id));
     if (!ids.length) return false;
 
-    const entries = ids.map(id => this.game.getPlaceable(id)).filter(Boolean);
-    const includesBeamline = entries.some(entry =>
-      entry.kind === 'beamline' || entry.category === 'beamline'
-    );
+    const targets = ids.map(id => selectionTargetByKey(this.game.state, id)).filter(Boolean);
+    const includesBeamline = targets.some(target => target.selectionCategory === 'beamline');
     if (includesBeamline) {
       this._showToast('Beamline deletion is disabled');
       return true;
     }
 
-    for (const entry of entries) {
-      this.renderer.closePlaceableInfoWindow?.(entry);
+    for (const target of targets) {
+      if (target.entry) this.renderer.closePlaceableInfoWindow?.(target.entry);
     }
     this._demolishSelected(this.selectedPlaceableId);
     return true;
