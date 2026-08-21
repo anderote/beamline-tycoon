@@ -25,6 +25,8 @@ export const ZONES = {
   diagnosticsLab: { id: 'diagnosticsLab', name: 'Diagnostics Lab', color: 0xaacc44, requiredFloor: 'labFloor', gatesCategory: null,      subsection: 'laboratories' },
   cafeteria:   { id: 'cafeteria',   name: 'Cafeteria',      color: 0xaa6644, requiredFloor: 'officeFloor', gatesCategory: null,           subsection: 'operations'   },
   meetingRoom: { id: 'meetingRoom', name: 'Meeting Room',   color: 0x664499, requiredFloor: 'officeFloor', gatesCategory: null,           subsection: 'operations'   },
+  reception:   { id: 'reception',   name: 'Reception',      color: 0xbb8855, requiredFloor: 'officeFloor', gatesCategory: null,           subsection: 'operations'   },
+  storageRoom: { id: 'storageRoom', name: 'Storage Room',   color: 0x668877, requiredFloor: 'concrete',    gatesCategory: null,           subsection: 'industrial'   },
 };
 
 // Palette-preview descriptions, kept in one block so the zone table above
@@ -41,6 +43,8 @@ const ZONE_DESCS = {
   diagnosticsLab: 'Where signals become plots and plots become papers. Paint over Lab Flooring.',
   cafeteria: 'Feeds the facility, fuels the physics. Paint over Office Flooring.',
   meetingRoom: 'This meeting could have been an email. Paint over Office Flooring.',
+  reception: 'The public face of the facility. Paint over Office Flooring.',
+  storageRoom: 'Organized supplies, spares, and shipping overflow. Paint over bare Concrete.',
 };
 for (const [id, desc] of Object.entries(ZONE_DESCS)) {
   if (ZONES[id]) ZONES[id].desc = desc;

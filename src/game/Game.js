@@ -2555,8 +2555,8 @@ export class Game {
   // Task 6 (staff-professions-3, jobs-and-gates) added the zone-tier
   // ratchet: `tier` is now min(tileTier, tierFromStaffedOutput), not tile
   // count alone, for the zone types a labWork bench can ever be staffed in
-  // (LABWORK_CAPABLE_ZONES — cafeteria/controlRoom/officeSpace/meetingRoom
-  // sit outside it and keep the old tile-count-only behaviour, since
+  // (LABWORK_CAPABLE_ZONES — non-lab room types sit outside it and keep
+  // the old tile-count-only behaviour, since
   // nothing can ever raise their staffedOutput off 0). `staffedOutput`
   // itself is NOT recomputed here — jobRunner.js's tickJobs/
   // updateZoneStaffedOutput owns its per-tick rise/decay — so it and
@@ -3601,9 +3601,8 @@ export class Game {
     this.state.zoneFurnishings = this.state.placeables.filter(p => p.category === 'furnishing');
     this.state.zoneFurnishingSubgrids = this._getLegacyFurnishingSubgrids();
     // Every placed item that has a ZONE_FURNISHINGS def, regardless of kind.
-    // The 32 room items (office/controlRoom/cafeteria/meetingRoom) are kind
-    // 'furnishing'; the 43 LAB items (optics/rf/vacuum/cooling/diagnostics/
-    // machineShop) are kind 'equipment'. state.zoneFurnishings stays the
+    // Room items are kind 'furnishing'; LAB items (optics/rf/vacuum/cooling/
+    // diagnostics/machineShop) are kind 'equipment'. state.zoneFurnishings stays the
     // furnishing-only render/hit-test view — the equipment pass in
     // world-snapshot already draws the lab items — but zone tiering and zone
     // EFFECTS must see both, or no research lab can ever rise above tier 0 and

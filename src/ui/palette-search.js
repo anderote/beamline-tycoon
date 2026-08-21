@@ -49,6 +49,19 @@ function wallHome(wall) {
 }
 
 /**
+ * Pick the one tab a shared furnishing opens when selected from search.
+ * The normal build palette still renders it in every compatible room tab;
+ * search deliberately keeps one result per item and uses the first declared
+ * live zone as its stable landing point.
+ */
+export function primaryFacilityZone(furnishing) {
+  const candidates = furnishing.zoneType
+    ? [furnishing.zoneType]
+    : (Array.isArray(furnishing.zoneTypes) ? furnishing.zoneTypes : []);
+  return candidates.find(zoneType => MODES.facility.categories[zoneType]) || null;
+}
+
+/**
  * Build a flat index of every searchable placeable item.
  *
  * @param {object} game - the active Game instance. Only `game.isComponentUnlocked`
@@ -121,12 +134,12 @@ export function buildPaletteIndex(game) {
   }
 
   // --- ZONE_FURNISHINGS (facility.js) — lab + room furnishings, always
-  // Facility mode. A furnishing's tab is its zoneType (single) or the
-  // first of zoneTypes (multi-zone equipment like the lab bench, which
-  // arms identically no matter which of its zones you land in).
+  // Facility mode. Shared furnishings remain one search result, with their
+  // first declared live zone used as a predictable landing tab. The normal
+  // palette still lists the same item in every compatible room tab.
   for (const [id, furn] of Object.entries(ZONE_FURNISHINGS)) {
-    const zoneType = furn.zoneType || (Array.isArray(furn.zoneTypes) ? furn.zoneTypes[0] : null);
-    if (!zoneType || !MODES.facility.categories[zoneType]) continue;
+    const zoneType = primaryFacilityZone(furn);
+    if (!zoneType) continue;
     index.push({
       id, name: furn.name || id, desc: furn.desc || '',
       mode: 'facility', category: zoneType, kind: 'furnishing', source: 'facility',
