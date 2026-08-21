@@ -100,10 +100,13 @@ test('full session walk: boot -> build -> beam -> save/reload -> undo -> escape'
     const labels = await page.locator('.title-btn').allTextContents();
     // Fresh profile: no save, so no Continue button yet. Manual is always
     // present — the operator manual is readable before a game exists.
-    expect(labels).toEqual(['New Game', 'Scenarios', 'Manual']);
+    expect(labels).toEqual(['New Game', 'Manual']);
 
     await page.locator('.title-btn', { hasText: 'New Game' }).click();
-    // New Game clears the save and reloads with skipTitle set.
+    await expect(page.locator('#scenario-dialog')).toBeVisible();
+    await page.locator('.scenario-card', { hasText: 'Sandbox' }).click();
+    // The explicit blank-map choice clears the save and reloads with
+    // skipTitle set.
     await waitForBoot(page);
     await expect(page.locator('#title-screen')).toHaveCount(0);
     await installPageHelpers(page);
@@ -405,7 +408,7 @@ test('full session walk: boot -> build -> beam -> save/reload -> undo -> escape'
     await page.mouse.click(720, 450);
     await expect(page.locator('.title-btn').first()).toBeVisible();
     expect(await page.locator('.title-btn').allTextContents())
-      .toEqual(['Continue', 'New Game', 'Scenarios', 'Manual']);
+      .toEqual(['Continue', 'New Game', 'Manual']);
     await page.locator('.title-btn', { hasText: 'Continue' }).click();
     await expect(page.locator('#title-screen')).toHaveCount(0);
     await frames(page, 3);
