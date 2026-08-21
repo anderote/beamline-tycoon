@@ -17,6 +17,10 @@
 //     passability map stay entirely separate from doors (see
 //     docs/superpowers/specs/2026-08-13-windows-design.md).
 //
+// All four take the same pair of modifiers: Shift EXTENDS the gesture, Ctrl
+// (Cmd) INVERTS it into an erase over the same geometry. See the eraseHeld
+// block below.
+//
 // These replaced the legacy per-family floor/wall/door selection fields
 // and their drawing-state webs (isDragging /
 // isDrawingLine / isDrawingWall / isDrawingDoor / _shiftWallPending etc.),
@@ -36,7 +40,103 @@ import {
   doorOffFromFrac, windowOffFromFrac, findWallKey, findEdgeKey,
 } from '../game/edge-keys.js';
 import { canAffordFunding } from '../game/affordability.js';
+import { demolishRefund } from './demolishScopes.js';
 import { isoToGrid } from '../renderer/grid.js';
+
+// --- Ctrl/Cmd: the erase modifier -------------------------------------------
+//
+// Shift EXTENDS a structure gesture (smart region select, whole-run select).
+// Ctrl — Cmd on macOS, the same pair every other binding in InputHandler
+// accepts — is its mirror image: the same drag ERASES along exactly the path
+// the tool would have drawn. So each gesture below comes in a pair, place vs.
+// remove over identical geometry, previewed with the demolish renderer's red
+// instead of the placement blue and quoted as a refund instead of a cost.
+//
+// Synthesized clicks (the {clientX, clientY, button} record _handleClick hands
+// to onClick) carry no modifier flags at all, which is why InputHandler tracks
+// _ctrlDown for us to fall back on. Tools latch the answer into `_erasing` on
+// press: releasing Ctrl halfway through a drag must not turn the rest of the
+// run into a placement.
+function eraseHeld(e, input) {
+  return !!(e?.ctrlKey || e?.metaKey || input?._ctrlDown);
+}
+
+const EDGE_DEFS = {
+  overlay: WALL_TYPES, wall: WALL_TYPES, door: DOOR_TYPES, window: WINDOW_TYPES,
+};
+
+function plural(n, noun) { return `${n} ${noun}${n === 1 ? '' : 's'}`; }
+
+/**
+ * The wall / overlay / door / window entry standing at an edge, resolved
+ * through BOTH spellings of the shared edge (see edge-keys.js) — a run
+ * redrawn from the far side of the line addresses the same segments under
+ * the mirrored triple.
+ */
+function edgeEntryAt(game, kind, edge) {
+  const s = game.state;
+  const list = kind === 'overlay' ? s.wallOverlays
+    : kind === 'wall' ? s.walls
+    : kind === 'door' ? s.doors : s.windows;
+  if (!list || !edge) return null;
+  const alias = game._edgeAlias(edge.col, edge.row, edge.edge);
+  return list.find(x => (x.col === edge.col && x.row === edge.row && x.edge === edge.edge)
+    || (x.col === alias.col && x.row === alias.row && x.edge === alias.edge)) || null;
+}
+
+/**
+ * Refund an erase along `path` would credit, and how many segments actually
+ * hold something. Priced PER VARIANT: walls and windows are charged per
+ * variant and refunded per variant, so quoting the def's base cost promises
+ * the wrong money back on a Reinforced run (the same rule
+ * InputHandler._updateDemolishHover follows).
+ */
+function edgePathRefund(game, kind, path) {
+  let refund = 0, count = 0;
+  for (const pt of path || []) {
+    const entry = edgeEntryAt(game, kind, pt);
+    if (!entry) continue;
+    count++;
+    refund += demolishRefund(EDGE_DEFS[kind][entry.type], entry.variant ?? 0);
+  }
+  return { refund, count };
+}
+
+/**
+ * Refund for clearing floor tiles. Mirrors the infrastructure branch of
+ * InputHandler._updateDemolishHover so Ctrl+erase and the demolish tool quote
+ * the same number for the same removal.
+ */
+function floorTilesRefund(game, tiles) {
+  let refund = 0, count = 0;
+  for (const t of tiles || []) {
+    const type = game.state.infraOccupied[`${t.col},${t.row}`];
+    if (!type) continue;
+    count++;
+    refund += Math.floor((FLOORS[type]?.cost || 0) * 0.5);
+  }
+  return { refund, count };
+}
+
+/** Red name + green refund beside the cursor — demolish mode's own tooltip. */
+function showEraseTooltip(ctx, screenX, screenY, label, refund) {
+  ctx.input._hideDragCostTooltip?.();
+  ctx.input._showDemolishTooltip?.(label, refund, screenX, screenY);
+}
+
+/** Hover quote for one edge: what stands there, and what it pays back. */
+function showEdgeEraseHover(ctx, kind, edge, screenX, screenY, emptyLabel) {
+  const entry = edgeEntryAt(ctx.game, kind, edge);
+  const def = entry ? EDGE_DEFS[kind][entry.type] : null;
+  showEraseTooltip(ctx, screenX, screenY, def?.name || emptyLabel,
+    entry ? demolishRefund(def, entry.variant ?? 0) : 0);
+}
+
+/** Drag quote for an edge run: how many segments go, and for how much. */
+function showEdgePathEraseQuote(ctx, kind, path, screenX, screenY, noun) {
+  const { refund, count } = edgePathRefund(ctx.game, kind, path);
+  showEraseTooltip(ctx, screenX, screenY, `Clear ${plural(count, noun)}`, refund);
+}
 
 export class FloorTool extends Tool {
   constructor(floorType, variant = 0) {
@@ -51,6 +151,9 @@ export class FloorTool extends Tool {
     this._drawingLine = false;
     this._lineStart = null; // { col, row }
     this._linePath = [];
+    // Ctrl/Cmd latched at gesture start: this drag clears the rect / L path
+    // instead of laying it.
+    this._erasing = false;
   }
 
   _def() { return FLOORS[this.floorType]; }
@@ -67,14 +170,16 @@ export class FloorTool extends Tool {
     this._drawingLine = false;
     this._lineStart = null;
     this._linePath = [];
+    this._erasing = false;
     ctx.renderer.clearDragPreview();
     ctx.input._hideDragCostTooltip();
+    ctx.input._hideDemolishTooltip?.();
   }
 
-  _showRectCost(ctx, e, c0, r0, c1, r1) {
+  _showRectCost(ctx, screenX, screenY, c0, r0, c1, r1) {
     const infra = this._def();
     const cost = ctx.game.computeInfraRectCost(c0, r0, c1, r1, this.floorType, this.variant);
-    ctx.input._showDragCostTooltip(cost.totalCost, e.clientX, e.clientY, {
+    ctx.input._showDragCostTooltip(cost.totalCost, screenX, screenY, {
       skippedNoFoundation: cost.skippedNoFoundation,
       foundationName: infra?.requiresFoundation
         ? (FLOORS[infra.requiresFoundation]?.name || infra.requiresFoundation)
@@ -83,25 +188,79 @@ export class FloorTool extends Tool {
     });
   }
 
+  _rectTiles(c0, r0, c1, r1) {
+    const tiles = [];
+    for (let c = Math.min(c0, c1); c <= Math.max(c0, c1); c++) {
+      for (let r = Math.min(r0, r1); r <= Math.max(r0, r1); r++) tiles.push({ col: c, row: r });
+    }
+    return tiles;
+  }
+
+  /** Rect drag preview: blue fill + cost, or demolish red + refund. */
+  _previewRect(ctx, screenX, screenY) {
+    const { col: c0, row: r0 } = this._dragStart;
+    const { col: c1, row: r1 } = this._dragEnd;
+    if (this._erasing) {
+      ctx.renderer.renderDemolishPreview(c0, r0, c1, r1);
+      const { refund, count } = floorTilesRefund(ctx.game, this._rectTiles(c0, r0, c1, r1));
+      showEraseTooltip(ctx, screenX, screenY, `Clear ${plural(count, 'floor tile')}`, refund);
+      return;
+    }
+    ctx.renderer.renderDragPreview(c0, r0, c1, r1, this.floorType);
+    this._showRectCost(ctx, screenX, screenY, c0, r0, c1, r1);
+  }
+
+  /**
+   * L-path (hallway) preview. `screenX == null` renders the strip without
+   * touching the tooltip — the press itself has never quoted a price.
+   */
+  _previewLine(ctx, screenX = null, screenY = null) {
+    ctx.renderer.renderLinePreview(this._linePath, this.floorType, this._erasing);
+    if (screenX == null) return;
+    if (this._erasing) {
+      const { refund, count } = floorTilesRefund(ctx.game, this._linePath);
+      showEraseTooltip(ctx, screenX, screenY, `Clear ${plural(count, 'floor tile')}`, refund);
+      return;
+    }
+    const infra = this._def();
+    const lineCost = ctx.game.computeInfraLineCost(this._linePath, this.floorType, this.variant);
+    ctx.input._showDragCostTooltip(lineCost.totalCost, screenX, screenY, {
+      skippedNoFoundation: lineCost.skippedNoFoundation,
+      foundationName: infra?.requiresFoundation
+        ? (FLOORS[infra.requiresFoundation]?.name || infra.requiresFoundation)
+        : null,
+      insufficientFunding: !canAffordFunding(ctx.game, lineCost.totalCost),
+    });
+  }
+
+  /** Hover under Ctrl: the tile this click would clear, and its refund. */
+  _previewEraseHover(ctx, grid, screenX, screenY) {
+    ctx.renderer.renderDemolishTileOutline(grid.col, grid.row);
+    const type = ctx.game.state.infraOccupied[`${grid.col},${grid.row}`];
+    const { refund } = floorTilesRefund(ctx.game, [grid]);
+    showEraseTooltip(ctx, screenX, screenY,
+      type ? (FLOORS[type]?.name || type) : 'No flooring here', refund);
+  }
+
   onMouseDown(e, ctx) {
     if (e.button !== 0) return false;
     const infra = this._def();
     if (!infra) return false;
     const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
     const grid = isoToGrid(world.x, world.y);
+    this._erasing = eraseHeld(e, ctx.input);
     if (infra.isLinePlacement) {
       this._drawingLine = true;
       this._lineStart = { col: grid.col, row: grid.row };
       this._linePath = [{ col: grid.col, row: grid.row }];
-      ctx.renderer.renderLinePreview(this._linePath, this.floorType);
+      this._previewLine(ctx);
       return true;
     }
     if (infra.isDragPlacement) {
       this._dragging = true;
       this._dragStart = { col: grid.col, row: grid.row };
       this._dragEnd = { col: grid.col, row: grid.row };
-      ctx.renderer.renderDragPreview(grid.col, grid.row, grid.col, grid.row, this.floorType);
-      this._showRectCost(ctx, e, grid.col, grid.row, grid.col, grid.row);
+      this._previewRect(ctx, e.clientX, e.clientY);
       return true;
     }
     // Click-place floors commit on click (mouseup → onClick).
@@ -115,31 +274,25 @@ export class FloorTool extends Tool {
     const grid = isoToGrid(world.x, world.y);
     if (this._dragging && this._dragStart) {
       this._dragEnd = { col: grid.col, row: grid.row };
-      renderer.renderDragPreview(
-        this._dragStart.col, this._dragStart.row,
-        grid.col, grid.row, this.floorType,
-      );
-      this._showRectCost(ctx, e, this._dragStart.col, this._dragStart.row, grid.col, grid.row);
+      this._previewRect(ctx, e.clientX, e.clientY);
       return true;
     }
     if (this._drawingLine) {
       this._linePath = input._buildLPath(this._lineStart || this._linePath[0], grid);
-      renderer.renderLinePreview(this._linePath, this.floorType);
-      const infra = this._def();
-      const lineCost = ctx.game.computeInfraLineCost(this._linePath, this.floorType, this.variant);
-      input._showDragCostTooltip(lineCost.totalCost, e.clientX, e.clientY, {
-        skippedNoFoundation: lineCost.skippedNoFoundation,
-        foundationName: infra?.requiresFoundation
-          ? (FLOORS[infra.requiresFoundation]?.name || infra.requiresFoundation)
-          : null,
-        insufficientFunding: !canAffordFunding(ctx.game, lineCost.totalCost),
-      });
+      this._previewLine(ctx, e.clientX, e.clientY);
       return true;
     }
-    // Hover: cross cursor tinted with the floor color.
+    // Hover: cross cursor tinted with the floor color — or, under Ctrl, the
+    // red outline of the tile this click would clear.
     renderer.updateHover(grid.col, grid.row);
-    const infra = this._def();
-    renderer.renderInfraHoverCursor(grid.col, grid.row, infra?.topColor || 0xffffff);
+    this._erasing = eraseHeld(e, input);
+    if (this._erasing) {
+      this._previewEraseHover(ctx, grid, e.clientX, e.clientY);
+    } else {
+      input._hideDemolishTooltip?.();
+      const infra = this._def();
+      renderer.renderInfraHoverCursor(grid.col, grid.row, infra?.topColor || 0xffffff);
+    }
     input.lastMouseWorldX = world.x;
     input.lastMouseWorldY = world.y;
     input._lastScreenX = e.clientX;
@@ -163,9 +316,12 @@ export class FloorTool extends Tool {
       // _batchEvents: each tile can clear a decoration, and every removal
       // emits 'placeableChanged' (a full renderer decoration rebuild) —
       // coalesce the whole line into one dispatch, like the rect sweep.
+      // The erase arm batches for the same reason: removeInfraTile emits
+      // 'infrastructureChanged' (and 'zonesChanged' for hallways) per tile.
       game._withUndo(() => game._batchEvents(() => {
         for (const pt of this._linePath) {
-          game.placeInfraTile(pt.col, pt.row, this.floorType, this.variant);
+          if (this._erasing) game.removeInfraTile(pt.col, pt.row);
+          else game.placeInfraTile(pt.col, pt.row, this.floorType, this.variant);
         }
         game.emit('infrastructureChanged');
       }));
@@ -173,20 +329,29 @@ export class FloorTool extends Tool {
       this._lineStart = null;
       this._linePath = [];
       ctx.renderer.clearDragPreview();
+      ctx.input._hideDemolishTooltip?.();
       return true;
     }
     if (this._dragging && this._dragStart && this._dragEnd) {
-      game._withUndo(() => game.placeInfraRect(
-        this._dragStart.col, this._dragStart.row,
-        this._dragEnd.col, this._dragEnd.row,
-        this.floorType,
-        this.variant,
-        this.orientationOverride,
-      ));
+      // removeInfraRect batches its own per-tile emits, exactly as
+      // placeInfraRect does.
+      game._withUndo(() => (this._erasing
+        ? game.removeInfraRect(
+          this._dragStart.col, this._dragStart.row,
+          this._dragEnd.col, this._dragEnd.row,
+        )
+        : game.placeInfraRect(
+          this._dragStart.col, this._dragStart.row,
+          this._dragEnd.col, this._dragEnd.row,
+          this.floorType,
+          this.variant,
+          this.orientationOverride,
+        )));
       this._dragging = false;
       this._dragStart = null;
       this._dragEnd = null;
       ctx.renderer.clearDragPreview();
+      ctx.input._hideDemolishTooltip?.();
       return true;
     }
     // Plain release falls through to _handleClick → onClick.
@@ -201,8 +366,14 @@ export class FloorTool extends Tool {
     if (infra && !infra.isDragPlacement && !infra.isLinePlacement) {
       const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
       const grid = isoToGrid(world.x, world.y);
+      // Ctrl+click is the single-tile erase. The synthesized click record
+      // carries no modifier flags, so this reads InputHandler._ctrlDown.
+      const erase = eraseHeld(e, ctx.input);
       ctx.game._withUndo(() => {
-        if (ctx.game.placeInfraTile(grid.col, grid.row, this.floorType, this.variant)) {
+        if (erase) {
+          // removeInfraTile emits 'infrastructureChanged' itself.
+          ctx.game.removeInfraTile(grid.col, grid.row);
+        } else if (ctx.game.placeInfraTile(grid.col, grid.row, this.floorType, this.variant)) {
           ctx.game.emit('infrastructureChanged');
         }
       });
@@ -211,9 +382,29 @@ export class FloorTool extends Tool {
   }
 
   onRightClick(_e, ctx) {
-    // Right-click deselects (legacy deselectInfraTool behavior).
+    // Right-click deselects (legacy deselectInfraTool behavior). InputHandler
+    // withholds this event while Ctrl is held — on macOS a Ctrl+left-click
+    // also arrives as a right-click, and disarming the tool mid-erase-drag
+    // would strand the gesture.
     ctx.input.clearTool();
     return true;
+  }
+
+  onCtrlChange(down, ctx) {
+    // A gesture in flight keeps the intent it was pressed with; only the
+    // hover cursor has to flip under a stationary pointer.
+    if (this._dragging || this._drawingLine) return;
+    const input = ctx.input;
+    if (input._lastScreenX == null) return;
+    this._erasing = down;
+    const world = ctx.renderer.screenToWorld(input._lastScreenX, input._lastScreenY);
+    const grid = isoToGrid(world.x, world.y);
+    if (down) {
+      this._previewEraseHover(ctx, grid, input._lastScreenX, input._lastScreenY);
+      return;
+    }
+    input._hideDemolishTooltip?.();
+    ctx.renderer.renderInfraHoverCursor(grid.col, grid.row, this._def()?.topColor || 0xffffff);
   }
 
   onKey(e, ctx) {
@@ -354,6 +545,9 @@ export class WallTool extends Tool {
     this._shiftDragStart = null;
     this._shiftStartScreen = null;
     this._smartCache = null;
+    // Ctrl/Cmd: this gesture clears the run (or the smart selection, with
+    // Shift also held) instead of drawing it.
+    this._erasing = false;
   }
 
   onExit(ctx) {
@@ -364,9 +558,53 @@ export class WallTool extends Tool {
     this._shiftDragStart = null;
     this._shiftStartScreen = null;
     this._smartCache = null;
+    this._erasing = false;
     ctx.renderer.clearDragPreview();
     ctx.input._hideDragCostTooltip();
     ctx.input._hideTooltip?.();
+    ctx.input._hideDemolishTooltip?.();
+  }
+
+  /**
+   * 'overlay' for a wall type that layers onto an existing wall (copper
+   * cladding and friends), 'wall' otherwise. Erase must undo what THIS tool
+   * places: an overlay tool peels its own layer and leaves the host standing,
+   * where removeWall would take both.
+   */
+  _eraseKind() { return WALL_TYPES[this.wallType]?.wallOverlay ? 'overlay' : 'wall'; }
+
+  _eraseNoun() { return this._eraseKind() === 'overlay' ? 'wall layer' : 'wall segment'; }
+
+  /** Commit an erase along `path`, mirroring placeWallPath's undo/batching. */
+  _commitErase(ctx, path) {
+    const game = ctx.game;
+    const overlay = this._eraseKind() === 'overlay';
+    // _batchEvents for the same reason the demolish edge-drag does it: each
+    // removal emits 'wallsChanged', and every one of those is a full
+    // WallBuilder teardown + rebuild of every wall on the map.
+    game._withUndo(() => game._batchEvents(() => {
+      for (const pt of path) {
+        if (overlay) game._removeWallOverlay(pt.col, pt.row, pt.edge);
+        else game.removeWall(pt.col, pt.row, pt.edge);
+      }
+    }));
+  }
+
+  /**
+   * Paint the gesture's path: placement ghost + cost, or demolish red +
+   * refund. `screenX == null` renders without touching the tooltip (the
+   * press itself has never quoted a price).
+   */
+  _preview(ctx, path, screenX = null, screenY = null, selection = null) {
+    if (this._erasing) {
+      ctx.renderer.renderDemolishPathPreview(path);
+      if (screenX != null) {
+        showEdgePathEraseQuote(ctx, this._eraseKind(), path, screenX, screenY, this._eraseNoun());
+      }
+      return;
+    }
+    ctx.renderer.renderWallPreview(path, this.wallType);
+    if (screenX != null) this._showCost(ctx, path, screenX, screenY, selection);
   }
 
   // Off-canvas release / focus loss: drop the drag without committing.
@@ -454,7 +692,9 @@ export class WallTool extends Tool {
     }
     ctx.input._setHoverTooltip?.(
       `wall-shift:${selection.mode}:${selection.floorType || selection.floorTypes?.join(':') || 'free'}:${selection.path.length}`,
-      { title, detail },
+      // The erase modifier has no palette affordance of its own, and the
+      // resting hover is the only moment there is room to name it.
+      { title, detail: `${detail} · CTRL: erase` },
       screenX,
       screenY,
     );
@@ -465,24 +705,25 @@ export class WallTool extends Tool {
     if (e.button !== 0) return false;
     const input = ctx.input;
     input._hideTooltip?.();
+    this._erasing = eraseHeld(e, input);
     if (input._shiftDown) {
       const edge = input._getNearestFloorEdge(e.clientX, e.clientY);
       const selection = this._smartSelection(ctx, edge);
-      // A click commits the smart selection. Moving far enough converts this
-      // into an ordinary straight wall drag starting from the raw edge.
+      // A click commits the smart selection — with Ctrl also held, it clears
+      // that whole boundary instead. Moving far enough converts this into an
+      // ordinary straight wall drag starting from the raw edge.
       this._shiftPending = true;
       this._shiftDragStart = input._getNearestEdge(e.clientX, e.clientY);
       this._shiftStartScreen = { x: e.clientX, y: e.clientY };
       this._path = selection.path;
-      ctx.renderer.renderWallPreview(this._path, this.wallType);
-      this._showCost(ctx, this._path, e.clientX, e.clientY, selection);
+      this._preview(ctx, this._path, e.clientX, e.clientY, selection);
       return true;
     }
     const edge = input._getNearestFloorEdge(e.clientX, e.clientY);
     this._drawing = true;
     this._start = edge;
     this._path = [edge];
-    ctx.renderer.renderWallPreview(this._path, this.wallType);
+    this._preview(ctx, this._path);
     return true;
   }
 
@@ -494,8 +735,7 @@ export class WallTool extends Tool {
     if (this._drawing) {
       const edge = input._getNearestEdge(e.clientX, e.clientY);
       this._path = input._buildWallLine(this._start, edge);
-      renderer.renderWallPreview(this._path, this.wallType);
-      this._showCost(ctx, this._path, e.clientX, e.clientY);
+      this._preview(ctx, this._path, e.clientX, e.clientY);
       return true;
     }
     if (this._shiftPending) {
@@ -511,8 +751,7 @@ export class WallTool extends Tool {
         this._shiftStartScreen = null;
         const edge = input._getNearestEdge(e.clientX, e.clientY);
         this._path = input._buildWallLine(this._start, edge);
-        renderer.renderWallPreview(this._path, this.wallType);
-        this._showCost(ctx, this._path, e.clientX, e.clientY);
+        this._preview(ctx, this._path, e.clientX, e.clientY);
         return true;
       }
       // Until the drag threshold is crossed, preserve the smart click
@@ -526,13 +765,21 @@ export class WallTool extends Tool {
       return true;
     }
     const edge = input._getNearestFloorEdge(e.clientX, e.clientY);
+    this._erasing = eraseHeld(e, input);
     if (input._shiftDown) {
       input._hideTooltip?.();
       const selection = this._smartSelection(ctx, edge);
-      renderer.renderWallPreview(selection.path, this.wallType);
-      this._showCost(ctx, selection.path, e.clientX, e.clientY, selection);
+      this._preview(ctx, selection.path, e.clientX, e.clientY, selection);
+    } else if (this._erasing) {
+      // The shift hover hint advertises drawing; under Ctrl this edge is
+      // about to be cleared, so quote the refund instead.
+      input._hideTooltip?.();
+      renderer.renderDemolishEdgeOutline(edge.col, edge.row, edge.edge);
+      showEdgeEraseHover(ctx, this._eraseKind(), edge, e.clientX, e.clientY,
+        this._eraseKind() === 'overlay' ? 'No wall layer here' : 'No wall here');
     } else {
       input._hideDragCostTooltip();
+      input._hideDemolishTooltip?.();
       renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge);
       this._showShiftHoverHint(ctx, edge, e.clientX, e.clientY);
     }
@@ -548,7 +795,8 @@ export class WallTool extends Tool {
     const game = ctx.game;
     if (this._shiftPending) {
       if (this._path.length > 0) {
-        game._withUndo(() => game.placeWallPath(this._path, this.wallType, this.variant));
+        if (this._erasing) this._commitErase(ctx, this._path);
+        else game._withUndo(() => game.placeWallPath(this._path, this.wallType, this.variant));
       }
       this._shiftPending = false;
       this._shiftDragStart = null;
@@ -556,15 +804,18 @@ export class WallTool extends Tool {
       this._path = [];
       ctx.renderer.clearDragPreview();
       ctx.input._hideDragCostTooltip();
+      ctx.input._hideDemolishTooltip?.();
       return true;
     }
     if (this._drawing && this._path.length > 0) {
-      game._withUndo(() => game.placeWallPath(this._path, this.wallType, this.variant));
+      if (this._erasing) this._commitErase(ctx, this._path);
+      else game._withUndo(() => game.placeWallPath(this._path, this.wallType, this.variant));
       this._drawing = false;
       this._path = [];
       this._start = null;
       ctx.renderer.clearDragPreview();
       ctx.input._hideDragCostTooltip();
+      ctx.input._hideDemolishTooltip?.();
       return true;
     }
     return false;
@@ -590,8 +841,7 @@ export class WallTool extends Tool {
       input._hideTooltip?.();
       const edge = input._getNearestFloorEdge(input._lastScreenX, input._lastScreenY);
       const selection = this._smartSelection(ctx, edge);
-      renderer.renderWallPreview(selection.path, this.wallType);
-      this._showCost(ctx, selection.path, input._lastScreenX, input._lastScreenY, selection);
+      this._preview(ctx, selection.path, input._lastScreenX, input._lastScreenY, selection);
       return;
     }
     // Shift released: cancel a pending boundary fill and fall back to the
@@ -607,10 +857,47 @@ export class WallTool extends Tool {
       input._hideDragCostTooltip();
       if (input._lastScreenX != null) {
         const edge = input._getNearestFloorEdge(input._lastScreenX, input._lastScreenY);
+        if (this._erasing) {
+          renderer.renderDemolishEdgeOutline(edge.col, edge.row, edge.edge);
+          showEdgeEraseHover(ctx, this._eraseKind(), edge,
+            input._lastScreenX, input._lastScreenY,
+            this._eraseKind() === 'overlay' ? 'No wall layer here' : 'No wall here');
+          return;
+        }
         renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge);
         this._showShiftHoverHint(ctx, edge, input._lastScreenX, input._lastScreenY);
       }
     }
+  }
+
+  onCtrlChange(down, ctx) {
+    // A gesture in flight keeps the intent it was pressed with; only the
+    // hover preview flips under a stationary cursor. Shift still decides
+    // WHAT is previewed (smart selection vs. single edge) — Ctrl only
+    // decides whether that geometry is drawn or cleared.
+    const input = ctx.input;
+    const renderer = ctx.renderer;
+    if (this._drawing || this._shiftPending) return;
+    if (input._lastScreenX == null) return;
+    this._erasing = down;
+    const edge = input._getNearestFloorEdge(input._lastScreenX, input._lastScreenY);
+    if (input._shiftDown) {
+      input._hideTooltip?.();
+      const selection = this._smartSelection(ctx, edge);
+      this._preview(ctx, selection.path, input._lastScreenX, input._lastScreenY, selection);
+      return;
+    }
+    if (down) {
+      input._hideTooltip?.();
+      renderer.renderDemolishEdgeOutline(edge.col, edge.row, edge.edge);
+      showEdgeEraseHover(ctx, this._eraseKind(), edge,
+        input._lastScreenX, input._lastScreenY,
+        this._eraseKind() === 'overlay' ? 'No wall layer here' : 'No wall here');
+      return;
+    }
+    input._hideDemolishTooltip?.();
+    renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge);
+    this._showShiftHoverHint(ctx, edge, input._lastScreenX, input._lastScreenY);
   }
 }
 
@@ -625,6 +912,9 @@ export class DoorTool extends Tool {
     // Subtile offset of the opening along the edge, quantized from the
     // cursor's along-edge fraction. See _offFor.
     this._off = null;
+    // Ctrl/Cmd: this drag clears the doors along the run instead of hanging
+    // them.
+    this._erasing = false;
   }
 
   onExit(ctx) {
@@ -632,8 +922,10 @@ export class DoorTool extends Tool {
     this._start = null;
     this._path = [];
     this._off = null;
+    this._erasing = false;
     ctx.renderer.clearDragPreview();
     ctx.input._hideDragCostTooltip();
+    ctx.input._hideDemolishTooltip?.();
   }
 
   // Off-canvas release / focus loss: drop the drag without committing.
@@ -651,14 +943,27 @@ export class DoorTool extends Tool {
     return doorOffFromFrac(edge?.frac, DOOR_TYPES[this.doorType]);
   }
 
+  /** Placement ghost + no quote, or demolish red + refund. */
+  _preview(ctx, path, screenX = null, screenY = null) {
+    if (this._erasing) {
+      ctx.renderer.renderDemolishPathPreview(path);
+      if (screenX != null) {
+        showEdgePathEraseQuote(ctx, 'door', path, screenX, screenY, 'door');
+      }
+      return;
+    }
+    ctx.renderer.renderDoorPreview(path, this.doorType);
+  }
+
   onMouseDown(e, ctx) {
     if (e.button !== 0) return false;
     const edge = ctx.input._getNearestWallEdge(e.clientX, e.clientY);
     this._off = this._offFor(edge);
+    this._erasing = eraseHeld(e, ctx.input);
     this._drawing = true;
     this._start = edge;
     this._path = [{ ...edge, off: this._off }];
-    ctx.renderer.renderDoorPreview(this._path, this.doorType);
+    this._preview(ctx, this._path);
     return true;
   }
 
@@ -675,7 +980,7 @@ export class DoorTool extends Tool {
       if (edge && edge.edge === this._start.edge) this._off = this._offFor(edge);
       this._path = input._buildWallLine(this._start, edge)
         .map(pt => ({ ...pt, off: this._off }));
-      renderer.renderDoorPreview(this._path, this.doorType);
+      this._preview(ctx, this._path, e.clientX, e.clientY);
       return true;
     }
     this._off = this._offFor(edge);
@@ -689,9 +994,20 @@ export class DoorTool extends Tool {
     input.lastMouseWorldY = world.y;
     input._lastScreenX = e.clientX;
     input._lastScreenY = e.clientY;
-    renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge);
+    this._erasing = eraseHeld(e, input);
+    if (this._erasing) {
+      this._previewEraseHover(ctx, edge, e.clientX, e.clientY);
+    } else {
+      input._hideDemolishTooltip?.();
+      renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge);
+    }
     if (input._hoverTooltipTarget) input._hideTooltip();
     return true;
+  }
+
+  _previewEraseHover(ctx, edge, screenX, screenY) {
+    ctx.renderer.renderDemolishEdgeOutline(edge.col, edge.row, edge.edge);
+    showEdgeEraseHover(ctx, 'door', edge, screenX, screenY, 'No door here');
   }
 
   onMouseUp(e, ctx) {
@@ -701,14 +1017,23 @@ export class DoorTool extends Tool {
     // right-click-to-deselect never ran.
     if (e.button !== 0) return false;
     if (this._drawing && this._path.length > 0) {
-      // Each path point carries its own `off`; this._off is the fallback.
-      ctx.game._withUndo(
-        () => ctx.game.placeDoorPath(this._path, this.doorType, this.variant, this._off)
-      );
+      if (this._erasing) {
+        // Batched like placeDoorPath: each removeDoor emits 'wallsChanged',
+        // and every one of those rebuilds the map's walls.
+        ctx.game._withUndo(() => ctx.game._batchEvents(() => {
+          for (const pt of this._path) ctx.game.removeDoor(pt.col, pt.row, pt.edge);
+        }));
+      } else {
+        // Each path point carries its own `off`; this._off is the fallback.
+        ctx.game._withUndo(
+          () => ctx.game.placeDoorPath(this._path, this.doorType, this.variant, this._off)
+        );
+      }
       this._drawing = false;
       this._start = null;
       this._path = [];
       ctx.renderer.clearDragPreview();
+      ctx.input._hideDemolishTooltip?.();
       return true;
     }
     return false;
@@ -717,10 +1042,27 @@ export class DoorTool extends Tool {
   onRightClick(_e, ctx) {
     // Keep the door tool armed so a player can correct openings directly.
     // `removeDoor` is alias-aware, matching the wall-facing placement snap.
+    // (InputHandler withholds this while Ctrl is held — see the macOS
+    // Ctrl+left-click collision there.)
     const edge = ctx.input._getNearestWallEdge(_e.clientX, _e.clientY);
     if (!edge) return false;
     ctx.game._withUndo(() => ctx.game.removeDoor(edge.col, edge.row, edge.edge));
     return true;
+  }
+
+  onCtrlChange(down, ctx) {
+    const input = ctx.input;
+    if (this._drawing) return;
+    if (input._lastScreenX == null) return;
+    this._erasing = down;
+    const edge = input._getNearestWallEdge(input._lastScreenX, input._lastScreenY);
+    if (!edge) return;
+    if (down) {
+      this._previewEraseHover(ctx, edge, input._lastScreenX, input._lastScreenY);
+      return;
+    }
+    input._hideDemolishTooltip?.();
+    ctx.renderer.renderWallEdgeHighlight(edge.col, edge.row, edge.edge);
   }
 }
 
@@ -733,6 +1075,8 @@ export class WindowTool extends Tool {
     this._start = null;
     this._path = [];
     this._off = null;
+    // Ctrl/Cmd: this drag clears the windows along the run.
+    this._erasing = false;
   }
 
   onExit(ctx) {
@@ -740,8 +1084,10 @@ export class WindowTool extends Tool {
     this._start = null;
     this._path = [];
     this._off = null;
+    this._erasing = false;
     ctx.renderer.clearDragPreview();
     ctx.input._hideDragCostTooltip();
+    ctx.input._hideDemolishTooltip?.();
   }
 
   // Off-canvas release / focus loss: drop the drag without committing.
@@ -772,7 +1118,14 @@ export class WindowTool extends Tool {
     return { valid: true, reason: null };
   }
 
-  _renderPreview(ctx, path) {
+  _renderPreview(ctx, path, screenX = null, screenY = null) {
+    if (this._erasing) {
+      ctx.renderer.renderDemolishPathPreview(path);
+      if (screenX != null) {
+        showEdgePathEraseQuote(ctx, 'window', path, screenX, screenY, 'window');
+      }
+      return;
+    }
     const previewPath = path.map(edge => ({
       ...edge,
       variant: this.variant,
@@ -785,6 +1138,7 @@ export class WindowTool extends Tool {
     if (e.button !== 0) return false;
     const edge = ctx.input._getNearestWallEdge(e.clientX, e.clientY);
     this._off = this._offFor(edge);
+    this._erasing = eraseHeld(e, ctx.input);
     this._drawing = true;
     this._start = edge;
     this._path = [{ ...edge, off: this._off }];
@@ -800,7 +1154,7 @@ export class WindowTool extends Tool {
       if (edge && edge.edge === this._start.edge) this._off = this._offFor(edge);
       this._path = input._buildWallLine(this._start, edge)
         .map(pt => ({ ...pt, off: this._off }));
-      this._renderPreview(ctx, this._path);
+      this._renderPreview(ctx, this._path, e.clientX, e.clientY);
       return true;
     }
     // Every other tool keeps renderer.hoverCol/hoverRow and the last cursor
@@ -814,11 +1168,35 @@ export class WindowTool extends Tool {
     input._lastScreenX = e.clientX;
     input._lastScreenY = e.clientY;
     this._off = this._offFor(edge);
-    // Unlike the old tiny crosshair, hovering a window tool renders the
-    // actual framed opening snapped to the nearest real wall.
-    this._renderPreview(ctx, [{ ...edge, off: this._off }]);
+    this._erasing = eraseHeld(e, input);
+    if (this._erasing) {
+      this._previewEraseHover(ctx, edge, e.clientX, e.clientY);
+    } else {
+      input._hideDemolishTooltip?.();
+      // Unlike the old tiny crosshair, hovering a window tool renders the
+      // actual framed opening snapped to the nearest real wall.
+      this._renderPreview(ctx, [{ ...edge, off: this._off }]);
+    }
     if (input._hoverTooltipTarget) input._hideTooltip();
     return true;
+  }
+
+  _previewEraseHover(ctx, edge, screenX, screenY) {
+    ctx.renderer.renderDemolishEdgeOutline(edge.col, edge.row, edge.edge);
+    showEdgeEraseHover(ctx, 'window', edge, screenX, screenY, 'No window here');
+  }
+
+  /**
+   * Windows are the one edge family whose mutator is NOT alias-aware:
+   * placeWindow accepts a wall found under either representation but stores
+   * the window under the key it was handed, so a run redrawn from the far
+   * side addresses the mirrored triple. Try the other spelling before
+   * giving up (the same belt _removeWallAndDoorAtEdge's comment describes).
+   */
+  _removeWindowAt(game, pt) {
+    if (game.removeWindow(pt.col, pt.row, pt.edge)) return true;
+    const alias = game._edgeAlias(pt.col, pt.row, pt.edge);
+    return game.removeWindow(alias.col, alias.row, alias.edge);
   }
 
   onMouseUp(e, ctx) {
@@ -828,21 +1206,48 @@ export class WindowTool extends Tool {
     // right-click-to-deselect never ran.
     if (e.button !== 0) return false;
     if (this._drawing && this._path.length > 0) {
-      ctx.game._withUndo(
-        () => ctx.game.placeWindowPath(this._path, this.windowType, this.variant, this._off)
-      );
+      if (this._erasing) {
+        // Batched like placeWindowPath: each removeWindow emits its own
+        // renderer rebuild otherwise.
+        ctx.game._withUndo(() => ctx.game._batchEvents(() => {
+          for (const pt of this._path) this._removeWindowAt(ctx.game, pt);
+        }));
+      } else {
+        ctx.game._withUndo(
+          () => ctx.game.placeWindowPath(this._path, this.windowType, this.variant, this._off)
+        );
+      }
       this._drawing = false;
       this._start = null;
       this._path = [];
       ctx.renderer.clearDragPreview();
+      ctx.input._hideDemolishTooltip?.();
       return true;
     }
     return false;
   }
 
   onRightClick(_e, ctx) {
-    // Right-click deselects, like every sibling structure tool.
+    // Right-click deselects, like every sibling structure tool. (InputHandler
+    // withholds this while Ctrl is held — see the macOS Ctrl+left-click
+    // collision there.)
     ctx.input.clearTool();
     return true;
+  }
+
+  onCtrlChange(down, ctx) {
+    const input = ctx.input;
+    if (this._drawing) return;
+    if (input._lastScreenX == null) return;
+    this._erasing = down;
+    const edge = input._getNearestWallEdge(input._lastScreenX, input._lastScreenY);
+    if (!edge) return;
+    if (down) {
+      this._previewEraseHover(ctx, edge, input._lastScreenX, input._lastScreenY);
+      return;
+    }
+    input._hideDemolishTooltip?.();
+    this._off = this._offFor(edge);
+    this._renderPreview(ctx, [{ ...edge, off: this._off }]);
   }
 }

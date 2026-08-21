@@ -167,6 +167,15 @@ export class InputHandler {
     this.linePlaceSpacingSub = new Map();
     this._linePlaceLastWorld = null; // for re-previewing on spacing change
     this._suppressNextClick = false;
+    // Live modifier state, kept because synthesized events (the {clientX,
+    // clientY, button} record _handleClick hands to onClick) carry no
+    // modifier flags, and because a modifier can change under a stationary
+    // cursor with no mouse event to read it from.
+    this._shiftDown = false;
+    // Ctrl (or Cmd) is the mirror of Shift for structure build tools: Shift
+    // EXTENDS the gesture, Ctrl INVERTS it into an erase along exactly the
+    // path the tool would have drawn. See structure-tools.js.
+    this._ctrlDown = false;
     // Continuous panning
     this.keysDown = new Set();
     this._panFrameId = null;
@@ -1916,6 +1925,14 @@ export class InputHandler {
         // whole-run) refresh even with a stationary cursor.
         this.activeTool?.onShiftChange?.(true, this._toolCtx);
       }
+      // Cmd is the Mac spelling of Ctrl throughout this handler (undo,
+      // selection slots), so the erase modifier reads both. Tracked before
+      // the shortcut ladder below so a tool that repaints on the change sees
+      // the same state the ladder does.
+      this._ctrlDown = e.ctrlKey || e.metaKey;
+      if (e.key === 'Control' || e.key === 'Meta') {
+        this.activeTool?.onCtrlChange?.(true, this._toolCtx);
+      }
       // Escape never routes through here — the esc-stack (ui/esc-stack.js)
       // owns it; our default ladder is this handler's fallback entry
       // (_handleEscape). While the beamline designer is open it swallows
@@ -2264,6 +2281,12 @@ export class InputHandler {
         // whole-run preview back to the single-edge highlight.
         this.activeTool?.onShiftChange?.(false, this._toolCtx);
       }
+      this._ctrlDown = e.ctrlKey || e.metaKey;
+      if (e.key === 'Control' || e.key === 'Meta') {
+        // Structure tools drop the red erase preview back to their normal
+        // placement ghost.
+        this.activeTool?.onCtrlChange?.(false, this._toolCtx);
+      }
     });
 
     // Clear all held keys when the window loses focus so pan doesn't stick
@@ -2271,6 +2294,12 @@ export class InputHandler {
     const clearHeldKeys = () => {
       this.keysDown.clear();
       this._shiftDown = false;
+      // Cmd-tab in particular swallows the Meta keyup, so a stale _ctrlDown
+      // would leave every later click erasing.
+      if (this._ctrlDown) {
+        this._ctrlDown = false;
+        this.activeTool?.onCtrlChange?.(false, this._toolCtx);
+      }
       if (this._panFrameId !== null) {
         cancelAnimationFrame(this._panFrameId);
         this._panFrameId = null;
@@ -2491,12 +2520,24 @@ export class InputHandler {
         // Right click — the active tool decides whether it erases, cancels,
         // or deselects. ZonePaintTool erases the hovered zone while staying
         // armed; PlaceableTool keeps the legacy behavior of ignoring it.
+        //
+        // ...except while Ctrl/Cmd is held. macOS reports a Ctrl+left-click
+        // as a right-click (WebKit rewrites the button; Chrome keeps button 0
+        // but still fires contextmenu), so the erase drag would arrive here
+        // as a right release — WallTool.onRightClick would remove one extra
+        // wall and FloorTool.onRightClick would disarm the tool mid-gesture.
+        // Ctrl already means "erase along the drawn path", so swallow it.
+        if (e.ctrlKey || e.metaKey || this._ctrlDown) return;
         this._toolConsumed('onRightClick', e);
       }
     });
 
     canvas.addEventListener('contextmenu', (e) => {
       e.preventDefault();
+      // Same macOS collision as above: the Ctrl+left-click that starts an
+      // erase drag also fires contextmenu. Stop it here so nothing further
+      // up can read it as a real right-click on the world.
+      if (e.ctrlKey || e.metaKey || this._ctrlDown) e.stopPropagation();
     });
 
     // Double-click: enter edit mode for the clicked beamline and open its window

@@ -2522,11 +2522,18 @@ export class ThreeRenderer {
   /**
    * Render a line-based infrastructure preview (paths, conduits).
    * Shows a coloured strip along the path tiles.
+   *
+   * `erase` paints the same L-shaped strip in demolish red: Ctrl+drag on a
+   * hallway tool clears exactly the path it would have laid, and the strip
+   * is the only preview that traces that shape (renderDemolishPreview only
+   * knows rectangles).
    */
-  renderLinePreview(path, infraType) {
+  renderLinePreview(path, infraType, erase = false) {
     this._clearPreview();
     if (!path || path.length === 0) return;
-    const mat = this._previewMat(0x44aaff, 0.35);
+    const mat = erase
+      ? this._previewMat(0xff4444, 0.35)
+      : this._previewMat(0x44aaff, 0.35);
     for (const tile of path) {
       this._addPreviewMesh(new THREE.Mesh(this._terrainTileQuad(tile.col, tile.row, 0.02), mat));
     }

@@ -20,6 +20,11 @@
 //   - onShiftChange(down, ctx): fired when the Shift key goes down/up so
 //     tools with shift-modified previews (smart floor wall paths, demolish
 //     whole-run) can refresh without waiting for a mousemove.
+//   - onCtrlChange(down, ctx): the same, for Ctrl (or Cmd on macOS). Where
+//     Shift EXTENDS a structure gesture, Ctrl INVERTS it — the tool erases
+//     along exactly the path it would have drawn — so the preview has to
+//     swap between the placement ghost and the red demolish preview even
+//     with a stationary cursor.
 //   - onRotateKey(ctx): R, offered to the active tool BEFORE the unified
 //     placement rotation and the research-overlay fallback. Return true to
 //     consume it. For tools whose gesture has an orientation of its own —
@@ -59,6 +64,7 @@ export class Tool {
   onRightClick(_e, _ctx) { return false; }
   onKey(_e, _ctx) { return false; }
   onShiftChange(_down, _ctx) {}
+  onCtrlChange(_down, _ctx) {}
   onRotateKey(_ctx) { return false; }
   cancelGesture(_ctx, _reason) {}
 }

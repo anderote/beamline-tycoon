@@ -20,6 +20,10 @@
 //      must show its ghost before the mouse moves, the variant must not
 //      survive an arm into another family, and a commit must re-preview so
 //      the ghost stops claiming a tile it just filled.
+//   8. Ctrl/Cmd is the mirror of Shift on the structure build tools: the same
+//      gesture ERASES along exactly the path it would have drawn, previewed in
+//      demolish red and quoted as a refund. Includes the macOS collision where
+//      a Ctrl+left-click also arrives as a right-click.
 //   7. Beam pipes demolish by the SECTION, not all-or-nothing: a press
 //      anchors a sweep at the 0.5 m sub-unit under the cursor, the release
 //      removes exactly what was swept (splitting the run on an interior cut),
@@ -34,7 +38,9 @@ import { MoveTool } from '../src/input/mode-tools.js';
 import { InputHandler } from '../src/input/InputHandler.js';
 import { BeamlineWindow } from '../src/ui/BeamlineWindow.js';
 import { tileCenterIso } from '../src/renderer/grid.js';
-import { WallPaintTool } from '../src/input/structure-tools.js';
+import {
+  WallPaintTool, FloorTool, WallTool, DoorTool, WindowTool,
+} from '../src/input/structure-tools.js';
 
 globalThis.COMPONENTS = COMPONENTS;
 globalThis.PARAM_DEFS = PARAM_DEFS;
@@ -797,6 +803,352 @@ function sweep(tool, ctx, from, to) {
   tool.onMouseDown({ button: 0, clientX: tileCenterIso(6, 10).x, clientY: tileCenterIso(6, 10).y }, ctx);
   assertOk(tool._pipeSweep == null, 'demolishAll anchors no pipe sweep');
   assertOk(g.state.beamPipes.length === 1, 'and the press alone changed nothing');
+}
+
+console.log('\n=== 8. Ctrl/Cmd+drag erases along the path the tool would have drawn ===\n');
+
+// Shift EXTENDS a structure gesture; Ctrl inverts it. The tools are driven
+// through their handler contract with a stub ctx that records which preview
+// family was painted and what the tooltip quoted, so each test can assert both
+// the world change AND that the player was shown the erase, not a placement.
+//
+// Tiles are addressed by iso world position (tileCenterIso) because the tools
+// import isoToGrid directly — screenToWorld is the identity here. Edge-based
+// tools take their edges from the _getNearest*Edge stubs instead, so those
+// tests can pass a bare column as clientX.
+function structCtx(g, opts = {}) {
+  const seen = { preview: [], tooltip: null };
+  const renderer = {
+    screenToWorld: (x, y) => ({ x, y }),
+    clearDragPreview() {}, updateHover() {},
+    renderDragPreview() { seen.preview.push('place-rect'); },
+    renderLinePreview(_path, _type, erase) { seen.preview.push(erase ? 'erase-line' : 'place-line'); },
+    renderInfraHoverCursor() { seen.preview.push('place-hover'); },
+    renderWallPreview() { seen.preview.push('place-wall'); },
+    renderWallEdgeHighlight() { seen.preview.push('place-edge'); },
+    renderDoorPreview() { seen.preview.push('place-door'); },
+    renderWindowPreview() { seen.preview.push('place-window'); },
+    renderDemolishPreview() { seen.preview.push('erase-rect'); },
+    renderDemolishPathPreview(path) { seen.preview.push(`erase-path:${path.length}`); },
+    renderDemolishEdgeOutline() { seen.preview.push('erase-edge'); },
+    renderDemolishTileOutline() { seen.preview.push('erase-tile'); },
+  };
+  const input = {
+    _shiftDown: !!opts.shift,
+    _ctrlDown: !!opts.ctrl,
+    _lastScreenX: null, _lastScreenY: null,
+    _showDragCostTooltip() { seen.tooltip = { kind: 'cost' }; },
+    _hideDragCostTooltip() {},
+    _showDemolishTooltip(name, refund) { seen.tooltip = { kind: 'refund', name, refund }; },
+    _hideDemolishTooltip() {},
+    _hideTooltip() {}, _setHoverTooltip() {}, clearTool() {},
+    _buildLPath: InputHandler.prototype._buildLPath,
+    _buildWallLine: InputHandler.prototype._buildWallLine,
+    _getNearestEdge: (x, y) => opts.edgeAt?.(x, y),
+    _getNearestFloorEdge: (x, y) => opts.edgeAt?.(x, y),
+    _getNearestWallEdge: (x, y) => opts.edgeAt?.(x, y),
+    _buildSmartFloorWallPath: () => opts.smart,
+  };
+  return { game: g, renderer, input, seen };
+}
+
+// Press → move → release, the shape every drag gesture takes.
+function drag(tool, ctx, from, to) {
+  tool.onMouseDown({ button: 0, clientX: from.x, clientY: from.y }, ctx);
+  tool.onMouseMove({ button: 0, clientX: to.x, clientY: to.y }, ctx);
+  tool.onMouseUp({ button: 0, clientX: to.x, clientY: to.y }, ctx);
+}
+
+function countInfra(g, c0, r0, c1, r1) {
+  let n = 0;
+  for (let c = c0; c <= c1; c++) for (let r = r0; r <= r1; r++) {
+    if (g.state.infraOccupied[`${c},${r}`]) n++;
+  }
+  return n;
+}
+
+{
+  // FloorTool, drag-placement: Ctrl+drag clears the rect it would have filled.
+  const g = makeGame(90);
+  g.placeInfraRect(2, 2, 5, 5, 'concrete');
+  assertOk(countInfra(g, 2, 2, 5, 5) === 16, 'setup: a 4x4 concrete pad');
+
+  const ctx = structCtx(g, { ctrl: true });
+  const tool = new FloorTool('concrete');
+  drag(tool, ctx, tileCenterIso(2, 2), tileCenterIso(5, 5));
+
+  assertOk(countInfra(g, 2, 2, 5, 5) === 0, 'Ctrl+drag cleared the whole rect');
+  assertOk(ctx.seen.preview.length > 0 && ctx.seen.preview.every(p => p.startsWith('erase')),
+    `the drag previewed in demolish red throughout (got ${ctx.seen.preview.join(',')})`);
+  // concrete costs 25, so 16 tiles quote 16 x floor(25/2).
+  assertOk(ctx.seen.tooltip?.kind === 'refund' && ctx.seen.tooltip.refund === 16 * 12,
+    `the tooltip quoted a refund, not a cost (got ${JSON.stringify(ctx.seen.tooltip)})`);
+
+  g.undo();
+  assertOk(countInfra(g, 2, 2, 5, 5) === 16, 'one Ctrl+drag is one undo step');
+}
+
+{
+  // FloorTool, line placement: the L path erases tile by tile, batched into a
+  // single renderer event, and a hallway falls back to its concrete foundation
+  // exactly as the demolish tool leaves it.
+  const g = makeGame(91);
+  g.placeInfraRect(4, 4, 8, 8, 'concrete');
+  for (let c = 4; c <= 8; c++) g.placeInfraTile(c, 4, 'hallway');
+  assertOk(g.state.infraOccupied['6,4'] === 'hallway', 'setup: a 5-tile hallway on concrete');
+
+  const ctx = structCtx(g, { ctrl: true });
+  const counts = {};
+  g.on((ev) => { counts[ev] = (counts[ev] || 0) + 1; });
+  drag(new FloorTool('hallway'), ctx, tileCenterIso(4, 4), tileCenterIso(8, 4));
+
+  let reverted = 0;
+  for (let c = 4; c <= 8; c++) if (g.state.infraOccupied[`${c},4`] === 'concrete') reverted++;
+  assertOk(reverted === 5, `every hallway tile fell back to its foundation (got ${reverted}/5)`);
+  assertOk((counts.infrastructureChanged || 0) === 1,
+    `one infrastructureChanged for the whole line (got ${counts.infrastructureChanged || 0})`);
+  assertOk(ctx.seen.preview.includes('erase-line') && !ctx.seen.preview.includes('place-line'),
+    'the L path previewed in demolish red');
+}
+
+{
+  // FloorTool, click placement: Ctrl+click erases the tile the click would
+  // have laid. The synthesized click record carries no modifier flags at all
+  // (see InputHandler._handleClick), so this has to read _ctrlDown.
+  const g = makeGame(92);
+  const ctx = structCtx(g);
+  const tool = new FloorTool('path');
+  const p = tileCenterIso(3, 3);
+
+  tool.onClick({ clientX: p.x, clientY: p.y }, ctx);
+  assertOk(g.state.infraOccupied['3,3'] === 'path', 'a plain click still places one tile');
+
+  ctx.input._ctrlDown = true;
+  tool.onClick({ clientX: p.x, clientY: p.y }, ctx);
+  assertOk(!g.state.infraOccupied['3,3'],
+    'Ctrl+click erases it again, reading the modifier from InputHandler._ctrlDown');
+}
+
+{
+  // WallTool: the straight run erases, batched into one wall rebuild.
+  const g = makeGame(93);
+  const RUN = 8;
+  for (let c = 4; c < 4 + RUN; c++) g.placeWall(c, 10, 'n', 'officeWall');
+  assertOk(g.state.walls.length === RUN, `setup: ${RUN}-segment officeWall run`);
+
+  const ctx = structCtx(g, { ctrl: true, edgeAt: (x) => ({ col: x, row: 10, edge: 'n' }) });
+  const counts = {};
+  g.on((ev) => { counts[ev] = (counts[ev] || 0) + 1; });
+  drag(new WallTool('officeWall'), ctx, { x: 4, y: 0 }, { x: 4 + RUN - 1, y: 0 });
+
+  assertOk(g.state.walls.length === 0, 'Ctrl+drag cleared the whole run');
+  assertOk((counts.wallsChanged || 0) === 1,
+    `one wallsChanged for the whole run (got ${counts.wallsChanged || 0}, ${RUN} edges)`);
+  assertOk(ctx.seen.preview.includes(`erase-path:${RUN}`) && !ctx.seen.preview.includes('place-wall'),
+    'the run previewed as a red edge path, never the wall ghost');
+  // officeWall costs 15 → floor(15/2) each.
+  assertOk(ctx.seen.tooltip?.refund === RUN * 7,
+    `the tooltip quoted the run's refund (got ${JSON.stringify(ctx.seen.tooltip)})`);
+}
+
+{
+  // Walls are refunded PER VARIANT: a Reinforced structuralWall costs 35, so
+  // quoting the def's base cost would promise 12 instead of 17.
+  const g = makeGame(94);
+  g.placeWall(5, 12, 'n', 'structuralWall', 3);
+  const ctx = structCtx(g, {
+    ctrl: true,
+    edgeAt: () => ({ col: 5, row: 12, edge: 'n' }),
+    smart: { mode: 'free', path: [] },
+  });
+  new WallTool('structuralWall').onMouseMove({ button: 0, clientX: 5, clientY: 0 }, ctx);
+
+  assertOk(ctx.seen.preview.at(-1) === 'erase-edge', 'the Ctrl hover outlines the edge in red');
+  assertOk(ctx.seen.tooltip?.refund === 17,
+    `and prices the variant actually standing there (got ${ctx.seen.tooltip?.refund}, base would be 12)`);
+}
+
+{
+  // An overlay tool must undo what IT places: peel the copper, leave the host
+  // wall standing. removeWall would take both.
+  const g = makeGame(95);
+  for (let c = 4; c < 8; c++) {
+    g.placeWall(c, 14, 'n', 'officeWall');
+    g.placeWall(c, 14, 'n', 'copperSheeting');
+  }
+  assertOk(g.state.wallOverlays.length === 4 && g.state.walls.length === 4,
+    'setup: 4 copper-clad office walls');
+
+  const ctx = structCtx(g, { ctrl: true, edgeAt: (x) => ({ col: x, row: 14, edge: 'n' }) });
+  drag(new WallTool('copperSheeting'), ctx, { x: 4, y: 0 }, { x: 7, y: 0 });
+
+  assertOk(g.state.wallOverlays.length === 0, 'the copper layer is gone');
+  assertOk(g.state.walls.length === 4, 'and the host walls it was clad onto still stand');
+  // copperSheeting costs 55 → floor(55/2) each.
+  assertOk(ctx.seen.tooltip?.refund === 4 * 27,
+    `the quote priced the layer, not the wall (got ${JSON.stringify(ctx.seen.tooltip)})`);
+}
+
+{
+  // Ctrl+Shift erases the whole smart selection — the same path Shift alone
+  // would have filled.
+  const g = makeGame(96);
+  const boundary = [];
+  for (let c = 4; c < 8; c++) boundary.push({ col: c, row: 16, edge: 'n' });
+  for (const pt of boundary) g.placeWall(pt.col, pt.row, pt.edge, 'officeWall');
+
+  const ctx = structCtx(g, {
+    ctrl: true, shift: true,
+    edgeAt: (x) => ({ col: x, row: 16, edge: 'n' }),
+    smart: { mode: 'perimeter', floorType: 'concrete', tileCount: 4, path: boundary },
+  });
+  const tool = new WallTool('officeWall');
+  tool.onMouseDown({ button: 0, clientX: 4, clientY: 0 }, ctx);
+  tool.onMouseUp({ button: 0, clientX: 4, clientY: 0 }, ctx);
+
+  assertOk(g.state.walls.length === 0, 'Ctrl+Shift cleared the whole boundary selection');
+  assertOk(ctx.seen.preview.includes('erase-path:4'),
+    'and previewed that selection in demolish red');
+}
+
+{
+  // DoorTool: the edge run erases the openings and leaves the walls.
+  const g = makeGame(97);
+  for (let c = 4; c < 8; c++) {
+    g.placeWall(c, 18, 'n', 'officeWall');
+    g.placeDoor(c, 18, 'n', 'officeDoor');
+  }
+  assertOk(g.state.doors.length === 4, 'setup: 4 office doors in a wall run');
+
+  const ctx = structCtx(g, {
+    ctrl: true, edgeAt: (x) => ({ col: x, row: 18, edge: 'n', frac: 0.25 }),
+  });
+  drag(new DoorTool('officeDoor'), ctx, { x: 4, y: 0 }, { x: 7, y: 0 });
+
+  assertOk(g.state.doors.length === 0, 'Ctrl+drag cleared the door run');
+  assertOk(g.state.walls.length === 4, 'the walls the doors were hung in survive');
+  // officeDoor costs 20 → floor(20/2) each.
+  assertOk(ctx.seen.tooltip?.refund === 4 * 10,
+    `the tooltip quoted the doors' refund (got ${JSON.stringify(ctx.seen.tooltip)})`);
+}
+
+{
+  // WindowTool: same, and the walls stay glazed-hole-free.
+  const g = makeGame(98);
+  for (let c = 4; c < 8; c++) {
+    g.placeWall(c, 20, 'n', 'officeWall');
+    g.placeWindow(c, 20, 'n', 'officeWindow');
+  }
+  assertOk(g.state.windows.length === 4, 'setup: 4 office windows in a wall run');
+
+  const ctx = structCtx(g, {
+    ctrl: true, edgeAt: (x) => ({ col: x, row: 20, edge: 'n', frac: 0.25 }),
+  });
+  drag(new WindowTool('officeWindow'), ctx, { x: 4, y: 0 }, { x: 7, y: 0 });
+
+  assertOk(g.state.windows.length === 0, 'Ctrl+drag cleared the window run');
+  assertOk(g.state.walls.length === 4, 'the walls they were set into survive');
+  // officeWindow's variant 0 costs 30 → floor(30/2) each.
+  assertOk(ctx.seen.tooltip?.refund === 4 * 15,
+    `the tooltip quoted the windows' refund (got ${JSON.stringify(ctx.seen.tooltip)})`);
+}
+
+{
+  // The modifier can change under a stationary cursor, so onCtrlChange has to
+  // repaint without waiting for a mousemove — the Shift hook's mirror.
+  const g = makeGame(99);
+  g.placeWall(5, 22, 'n', 'officeWall');
+  const ctx = structCtx(g, {
+    edgeAt: () => ({ col: 5, row: 22, edge: 'n' }),
+    smart: { mode: 'free', path: [] },
+  });
+  ctx.input._lastScreenX = 5;
+  ctx.input._lastScreenY = 0;
+  const tool = new WallTool('officeWall');
+
+  tool.onCtrlChange(true, ctx);
+  assertOk(ctx.seen.preview.at(-1) === 'erase-edge' && ctx.seen.tooltip?.refund === 7,
+    'pressing Ctrl flips the parked hover to the red outline + refund');
+
+  tool.onCtrlChange(false, ctx);
+  assertOk(ctx.seen.preview.at(-1) === 'place-edge',
+    'releasing it restores the placement highlight');
+}
+
+{
+  // Latched intent: releasing Ctrl halfway through a drag must not turn the
+  // rest of the run into a placement.
+  const g = makeGame(100);
+  for (let c = 4; c < 8; c++) g.placeWall(c, 24, 'n', 'officeWall');
+  const ctx = structCtx(g, { ctrl: true, edgeAt: (x) => ({ col: x, row: 24, edge: 'n' }) });
+  const tool = new WallTool('officeWall');
+  tool.onMouseDown({ button: 0, clientX: 4, clientY: 0 }, ctx);
+  ctx.input._ctrlDown = false;              // Ctrl released mid-drag
+  tool.onMouseMove({ button: 0, clientX: 7, clientY: 0 }, ctx);
+  tool.onMouseUp({ button: 0, clientX: 7, clientY: 0 }, ctx);
+
+  assertOk(g.state.walls.length === 0, 'the gesture kept the intent it was pressed with');
+}
+
+{
+  // macOS turns a Ctrl+left-click into a right-click (and always fires
+  // contextmenu). Both must be withheld from the tool while Ctrl is held:
+  // WallTool.onRightClick removes an extra wall and FloorTool.onRightClick
+  // disarms the tool, either of which would wreck the erase drag.
+  const prevWindow = globalThis.window;
+  globalThis.window = { addEventListener() {} };
+  const canvas = { handlers: {}, style: {}, addEventListener(type, fn) { (this.handlers[type] ||= []).push(fn); } };
+  const dispatched = [];
+  const handler = {
+    renderer: { app: { canvas }, ui: {} },
+    game: {},
+    _ctrlDown: false,
+    isPanning: false,
+    _hideDragCostTooltip() {},
+    _deferredUtilityPortDrag: { release() {}, update: () => null, begin() {} },
+    _finishMiddleCameraGesture: () => false,
+    _finishMarquee: () => false,
+    // Real tools consume their own release; returning false here lets the
+    // handler fall through to the button-2 routing this test is about.
+    _toolConsumed: (name) => { dispatched.push(name); return false; },
+    _handleClick: () => { dispatched.push('click'); },
+  };
+  InputHandler.prototype._bindMouse.call(handler);
+  const fire = (type, e) => canvas.handlers[type].forEach(fn => fn(e));
+  const menuEvent = (mods) => {
+    const rec = { ...mods, prevented: false, stopped: false,
+      preventDefault() { rec.prevented = true; }, stopPropagation() { rec.stopped = true; } };
+    return rec;
+  };
+
+  fire('mouseup', { button: 2, ctrlKey: false, metaKey: false });
+  assertOk(dispatched.at(-1) === 'onRightClick', 'a plain right release still reaches the tool');
+
+  dispatched.length = 0;
+  fire('mouseup', { button: 2, ctrlKey: true, metaKey: false });
+  assertOk(!dispatched.includes('onRightClick'),
+    'a Ctrl+left-click arriving as a right release is swallowed, not routed to onRightClick');
+
+  handler._ctrlDown = true;   // Cmd/Ctrl held with no flag on the event itself
+  dispatched.length = 0;
+  fire('mouseup', { button: 2, ctrlKey: false, metaKey: false });
+  assertOk(!dispatched.includes('onRightClick'), 'the tracked modifier state guards it too');
+
+  // ...and the left release that actually ends the drag still commits.
+  fire('mouseup', { button: 0, ctrlKey: true, metaKey: false });
+  assertOk(dispatched.includes('onMouseUp'), 'the Ctrl drag still completes on its left release');
+
+  const menu = menuEvent({ ctrlKey: true, metaKey: false });
+  fire('contextmenu', menu);
+  assertOk(menu.prevented && menu.stopped,
+    'the contextmenu that macOS fires alongside the Ctrl press is stopped');
+  handler._ctrlDown = false;
+  const plainMenu = menuEvent({ ctrlKey: false, metaKey: false });
+  fire('contextmenu', plainMenu);
+  assertOk(plainMenu.prevented && !plainMenu.stopped,
+    'an ordinary contextmenu is still only prevented, not stopped');
+
+  globalThis.window = prevWindow;
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
