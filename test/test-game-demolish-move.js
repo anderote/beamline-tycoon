@@ -236,7 +236,31 @@ console.log('\n=== 5. removeZoneTile refunds furnishings without corrupting fund
   assertOk(g.state.zoneFurnishings.length === 0, 'derived furnishing list is empty');
 }
 
-console.log('\n=== 6. placeInfraRect coalesces decoration-clearing emits ===\n');
+console.log('\n=== 6. floors preserve items above them, except concrete clears plants ===\n');
+
+{
+  const g = makeGame(47);
+  const benchId = g.placePlaceable({ type: 'parkBench', col: 12, row: 12, free: true });
+  const treeId = g.placePlaceable({ type: 'oakTree', col: 16, row: 12, free: true });
+  assertOk(benchId && treeId, 'setup: placed a bench and a tree on bare ground');
+
+  assertOk(g.placeInfraTile(12, 12, 'path'),
+    'a non-concrete floor can be placed beneath a bench');
+  assertOk(!!g.getPlaceable(benchId),
+    'placing a non-concrete floor preserves the item above it');
+
+  const fundingBefore = g.state.resources.funding;
+  assertOk(g.placeInfraTile(16, 12, 'concrete'),
+    'concrete can be placed beneath a tree');
+  assertOk(!g.getPlaceable(treeId),
+    'concrete destroys vegetation above the tile');
+  assertOk(g.getPlaceable(benchId),
+    'concrete still preserves non-plant items above the tile');
+  assertOk(g.state.resources.funding === fundingBefore - 35,
+    'concrete charges its tile cost plus the destroyed tree cost');
+}
+
+console.log('\n=== 7. placeInfraRect coalesces decoration-clearing emits ===\n');
 
 // Regression: paving a rect over a grove called removeDecoration per tile, and
 // every removePlaceable emitted 'placeableChanged' — one full renderer
