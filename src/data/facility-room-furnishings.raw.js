@@ -483,6 +483,139 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     ],
   },
 
+  // ── Generic room furniture ──────────────────────────────────────────
+
+  visitorArmchair: {
+    id: 'visitorArmchair', name: 'Visitor Armchair', zoneTypes: ['officeSpace', 'privateOffice', 'meetingRoom', 'reception', 'facultyLounge'], furnitureGroup: 'seating',
+    cost: { funding: 520 }, energyCost: 0, spriteColor: 0x536b78, gridW: 1, gridH: 1, subH: 2, spriteKey: 'visitorArmchair', effects: { morale: 2 }, baseMaterial: null, hasSurface: false,
+    parts: [
+      { name: 'seat', x: 0, y: 0.68, z: -0.04, w: 0.86, h: 0.28, l: 0.74, color: 0x536b78 }, { name: 'back', x: 0, y: 1.3, z: 0.28, w: 0.88, h: 1.1, l: 0.18, color: 0x49616e },
+      { name: 'armL', x: -0.43, y: 0.9, z: 0, w: 0.14, h: 0.58, l: 0.78, color: 0x49616e }, { name: 'armR', x: 0.43, y: 0.9, z: 0, w: 0.14, h: 0.58, l: 0.78, color: 0x49616e },
+      { name: 'legL', x: -0.3, y: 0, z: -0.22, w: 0.1, h: 0.18, l: 0.1, color: 0x30343a }, { name: 'legR', x: 0.3, y: 0, z: -0.22, w: 0.1, h: 0.18, l: 0.1, color: 0x30343a },
+    ],
+  },
+  ottoman: {
+    id: 'ottoman', name: 'Ottoman', zoneTypes: ['officeSpace', 'privateOffice', 'meetingRoom', 'reception', 'facultyLounge'], furnitureGroup: 'seating',
+    cost: { funding: 260 }, energyCost: 0, spriteColor: 0x6b4a3c, gridW: 1, gridH: 1, subH: 1, spriteKey: 'ottoman', effects: { morale: 1 }, baseMaterial: null, hasSurface: false,
+    parts: [
+      { name: 'cushion', x: 0, y: 0.44, z: 0, w: 0.78, h: 0.42, l: 0.62, color: 0x6b4a3c }, { name: 'base', x: 0, y: 0.12, z: 0, w: 0.7, h: 0.22, l: 0.54, color: 0x4a3027 },
+      { name: 'footL', x: -0.25, y: 0, z: -0.18, w: 0.1, h: 0.14, l: 0.1, color: 0x30241d }, { name: 'footR', x: 0.25, y: 0, z: -0.18, w: 0.1, h: 0.14, l: 0.1, color: 0x30241d },
+    ],
+  },
+  credenza: {
+    id: 'credenza', name: 'Credenza', zoneTypes: ['officeSpace', 'privateOffice', 'meetingRoom', 'reception', 'facultyLounge'], furnitureGroup: 'storage',
+    cost: { funding: 880 }, energyCost: 0, spriteColor: 0x70482d, gridW: 3, gridH: 1, subH: 2, spriteKey: 'credenza', effects: { morale: 1 }, baseMaterial: 'tile_hardwood',
+    parts: [
+      { name: 'body', x: 0, y: 0.6, z: 0, w: 2.8, h: 1.1, l: 0.72, color: 0x70482d }, { name: 'top', x: 0, y: 1.22, z: 0, w: 2.94, h: 0.12, l: 0.82, color: 0x9b6638 },
+      { name: 'doorL', x: -0.94, y: 0.6, z: -0.38, w: 0.78, h: 0.8, l: 0.04, color: 0x805333 }, { name: 'doorC', x: 0, y: 0.6, z: -0.38, w: 0.78, h: 0.8, l: 0.04, color: 0x805333 }, { name: 'doorR', x: 0.94, y: 0.6, z: -0.38, w: 0.78, h: 0.8, l: 0.04, color: 0x805333 },
+      { name: 'footL', x: -1.05, y: 0, z: 0, w: 0.14, h: 0.24, l: 0.14, color: 0x34251d }, { name: 'footR', x: 1.05, y: 0, z: 0, w: 0.14, h: 0.24, l: 0.14, color: 0x34251d },
+    ],
+  },
+  wastebasket: {
+    id: 'wastebasket', name: 'Wastebasket', zoneTypes: ['officeSpace', 'privateOffice', 'meetingRoom', 'reception', 'facultyLounge', 'cafeteria'], furnitureGroup: 'support',
+    cost: { funding: 90 }, energyCost: 0, spriteColor: 0x68727b, gridW: 1, gridH: 1, subH: 1, spriteKey: 'wastebasket', effects: {}, baseMaterial: null, stackable: true,
+    parts: [
+      { name: 'bin', x: 0, y: 0.38, z: 0, w: 0.52, h: 0.72, l: 0.52, color: 0x68727b }, { name: 'rim', x: 0, y: 0.76, z: 0, w: 0.58, h: 0.08, l: 0.58, color: 0x89939b }, { name: 'liner', x: 0, y: 0.78, z: 0, w: 0.42, h: 0.04, l: 0.42, color: 0x30343a },
+    ],
+  },
+  deskOrganizer: {
+    id: 'deskOrganizer', name: 'Desk Organizer', zoneTypes: ['officeSpace', 'privateOffice', 'meetingRoom', 'reception'], furnitureGroup: 'support',
+    cost: { funding: 85 }, energyCost: 0, spriteColor: 0x5d7180, gridW: 1, gridH: 1, subH: 1, spriteKey: 'deskOrganizer', effects: {}, baseMaterial: null, stackable: true,
+    parts: [
+      { name: 'tray', x: 0, y: 0.08, z: 0, w: 0.48, h: 0.16, l: 0.34, color: 0x5d7180 }, { name: 'folder1', x: -0.12, y: 0.28, z: 0, w: 0.1, h: 0.36, l: 0.2, color: 0xc38c4e }, { name: 'folder2', x: 0.04, y: 0.28, z: 0, w: 0.1, h: 0.42, l: 0.2, color: 0x648aa0 }, { name: 'cup', x: 0.18, y: 0.2, z: 0, w: 0.12, h: 0.24, l: 0.12, color: 0xd4cab4 },
+    ],
+  },
+  displayScreen: {
+    id: 'displayScreen', name: 'Wall Display', zoneTypes: ['officeSpace', 'privateOffice', 'meetingRoom', 'reception', 'facultyLounge'], furnitureGroup: 'presentation',
+    cost: { funding: 1150 }, energyCost: 0.15, spriteColor: 0x345473, gridW: 3, gridH: 1, subH: 3, spriteKey: 'displayScreen', effects: { morale: 1 }, baseMaterial: 'metal_dark', hasSurface: false,
+    parts: [
+      { name: 'case', x: 0, y: 1.45, z: 0, w: 2.72, h: 1.65, l: 0.12, color: 0x252c34 }, { name: 'screen', x: 0, y: 1.45, z: -0.08, w: 2.42, h: 1.35, l: 0.03, color: 0x345473 }, { name: 'trace', x: -0.15, y: 1.36, z: -0.1, w: 1.72, h: 0.04, l: 0.02, color: 0x6bd3c4 },
+      { name: 'mountL', x: -0.92, y: 0.54, z: 0.02, w: 0.12, h: 0.32, l: 0.12, color: 0x515a63 }, { name: 'mountR', x: 0.92, y: 0.54, z: 0.02, w: 0.12, h: 0.32, l: 0.12, color: 0x515a63 },
+    ],
+  },
+  flipChart: {
+    id: 'flipChart', name: 'Flip Chart', zoneTypes: ['officeSpace', 'privateOffice', 'meetingRoom', 'reception', 'facultyLounge'], furnitureGroup: 'presentation',
+    cost: { funding: 240 }, energyCost: 0, spriteColor: 0xe5dfc9, gridW: 2, gridH: 1, subH: 3, spriteKey: 'flipChart', effects: { morale: 1, research: 0.01 }, baseMaterial: null, hasSurface: false,
+    parts: [
+      { name: 'paper', x: 0, y: 1.72, z: 0, w: 1.55, h: 1.82, l: 0.08, color: 0xe5dfc9 }, { name: 'header', x: 0, y: 2.58, z: -0.05, w: 1.42, h: 0.08, l: 0.03, color: 0x52778a }, { name: 'line1', x: -0.12, y: 2.05, z: -0.06, w: 0.72, h: 0.04, l: 0.03, color: 0x6c8d9a }, { name: 'line2', x: 0.14, y: 1.72, z: -0.06, w: 0.84, h: 0.04, l: 0.03, color: 0x6c8d9a },
+      { name: 'legL', x: -0.62, y: 0, z: 0, w: 0.1, h: 1.62, l: 0.1, color: 0x4c5961 }, { name: 'legR', x: 0.62, y: 0, z: 0, w: 0.1, h: 1.62, l: 0.1, color: 0x4c5961 }, { name: 'tray', x: 0, y: 0.42, z: -0.12, w: 1.18, h: 0.08, l: 0.26, color: 0x596c75 },
+    ],
+  },
+  bulletinBoard: {
+    id: 'bulletinBoard', name: 'Bulletin Board', zoneTypes: ['officeSpace', 'privateOffice', 'meetingRoom', 'reception', 'facultyLounge', 'cafeteria'], furnitureGroup: 'presentation',
+    cost: { funding: 190 }, energyCost: 0, spriteColor: 0x76553d, gridW: 3, gridH: 1, subH: 3, spriteKey: 'bulletinBoard', effects: { morale: 1 }, baseMaterial: null, hasSurface: false,
+    parts: [
+      { name: 'board', x: 0, y: 1.42, z: 0, w: 2.72, h: 1.82, l: 0.1, color: 0x76553d }, { name: 'frameTop', x: 0, y: 2.38, z: -0.04, w: 2.88, h: 0.1, l: 0.14, color: 0x9a6b40 }, { name: 'frameBottom', x: 0, y: 0.46, z: -0.04, w: 2.88, h: 0.1, l: 0.14, color: 0x9a6b40 },
+      { name: 'note1', x: -0.72, y: 1.68, z: -0.08, w: 0.42, h: 0.48, l: 0.03, color: 0xe3cf8b }, { name: 'note2', x: 0.06, y: 1.22, z: -0.08, w: 0.46, h: 0.54, l: 0.03, color: 0xb7d5df }, { name: 'note3', x: 0.76, y: 1.78, z: -0.08, w: 0.38, h: 0.44, l: 0.03, color: 0xe1a38a },
+    ],
+  },
+  umbrellaStand: {
+    id: 'umbrellaStand', name: 'Umbrella Stand', zoneTypes: ['reception', 'officeSpace', 'meetingRoom'], furnitureGroup: 'support',
+    cost: { funding: 160 }, energyCost: 0, spriteColor: 0x566872, gridW: 1, gridH: 1, subH: 2, spriteKey: 'umbrellaStand', effects: { morale: 1 }, baseMaterial: 'metal_dark', hasSurface: false,
+    parts: [
+      { name: 'base', x: 0, y: 0.05, z: 0, w: 0.64, h: 0.1, l: 0.64, color: 0x30363b }, { name: 'body', x: 0, y: 0.56, z: 0, w: 0.52, h: 0.96, l: 0.52, color: 0x566872 }, { name: 'rim', x: 0, y: 1.05, z: 0, w: 0.58, h: 0.08, l: 0.58, color: 0x81919a },
+      { name: 'umbrella1', x: -0.1, y: 1.5, z: 0, w: 0.05, h: 0.92, l: 0.05, color: 0x26333b }, { name: 'umbrella2', x: 0.1, y: 1.55, z: 0, w: 0.05, h: 1.02, l: 0.05, color: 0x8b4d3a },
+    ],
+  },
+  badgePrinter: {
+    id: 'badgePrinter', name: 'Badge Printer', zoneTypes: ['reception'], furnitureGroup: 'support',
+    cost: { funding: 640 }, energyCost: 0.1, spriteColor: 0x78838b, gridW: 1, gridH: 1, subH: 2, spriteKey: 'badgePrinter', effects: { morale: 1 }, baseMaterial: 'metal_painted_white', stackable: true,
+    parts: [
+      { name: 'body', x: 0, y: 0.28, z: 0, w: 0.78, h: 0.52, l: 0.58, color: 0x78838b }, { name: 'top', x: 0, y: 0.56, z: 0.04, w: 0.68, h: 0.12, l: 0.46, color: 0x9ca6ab }, { name: 'badge', x: 0, y: 0.18, z: -0.32, w: 0.28, h: 0.08, l: 0.03, color: 0xe5e0c5 }, { name: 'status', x: 0.22, y: 0.57, z: -0.24, w: 0.06, h: 0.06, l: 0.02, color: 0x55dd88 },
+    ],
+  },
+  dishwasher: {
+    id: 'dishwasher', name: 'Dishwasher', zoneTypes: ['cafeteria'], furnitureGroup: 'support',
+    cost: { funding: 1100 }, energyCost: 0.6, spriteColor: 0xb6bbc0, gridW: 1, gridH: 1, subH: 2, spriteKey: 'dishwasher', effects: { morale: 1 }, baseMaterial: 'metal_painted_white',
+    parts: [
+      { name: 'body', x: 0, y: 0.62, z: 0, w: 0.92, h: 1.24, l: 0.72, color: 0xb6bbc0 }, { name: 'door', x: 0, y: 0.62, z: -0.38, w: 0.76, h: 0.64, l: 0.04, color: 0x737b82 }, { name: 'handle', x: 0, y: 0.96, z: -0.43, w: 0.42, h: 0.06, l: 0.04, color: 0xd5d8da }, { name: 'status', x: 0.25, y: 1.42, z: -0.42, w: 0.06, h: 0.06, l: 0.02, color: 0x55dd88 },
+    ],
+  },
+  warmingCabinet: {
+    id: 'warmingCabinet', name: 'Warming Cabinet', zoneTypes: ['cafeteria'], furnitureGroup: 'hospitality',
+    cost: { funding: 1300 }, energyCost: 0.8, spriteColor: 0x8f6240, gridW: 1, gridH: 1, subH: 3, spriteKey: 'warmingCabinet', effects: { morale: 2 }, baseMaterial: 'metal_dark',
+    parts: [
+      { name: 'body', x: 0, y: 0.9, z: 0, w: 0.92, h: 1.82, l: 0.72, color: 0x8f6240 }, { name: 'door', x: 0, y: 0.94, z: -0.38, w: 0.74, h: 1.48, l: 0.04, color: 0x4d3430 }, { name: 'window', x: 0, y: 1.34, z: -0.42, w: 0.46, h: 0.5, l: 0.03, color: 0xc07143 }, { name: 'handle', x: 0.3, y: 0.94, z: -0.44, w: 0.06, h: 0.42, l: 0.04, color: 0xc8a15c },
+    ],
+  },
+  plateStation: {
+    id: 'plateStation', name: 'Plate & Cutlery Station', zoneTypes: ['cafeteria'], furnitureGroup: 'hospitality',
+    cost: { funding: 360 }, energyCost: 0, spriteColor: 0x9a6b40, gridW: 2, gridH: 1, subH: 2, spriteKey: 'plateStation', effects: { morale: 1 }, baseMaterial: 'tile_hardwood',
+    parts: [
+      { name: 'body', x: 0, y: 0.6, z: 0, w: 1.72, h: 1.08, l: 0.62, color: 0x7a5130 }, { name: 'top', x: 0, y: 1.22, z: 0, w: 1.84, h: 0.12, l: 0.72, color: 0x9a6b40 }, { name: 'plates', x: -0.48, y: 1.36, z: -0.08, w: 0.46, h: 0.18, l: 0.46, color: 0xd9d3c2 }, { name: 'trays', x: 0.22, y: 1.34, z: -0.08, w: 0.58, h: 0.1, l: 0.32, color: 0x78878b }, { name: 'cutlery', x: 0.62, y: 1.4, z: 0.05, w: 0.18, h: 0.24, l: 0.18, color: 0xb7bec0 },
+    ],
+  },
+  readingLamp: {
+    id: 'readingLamp', name: 'Reading Lamp', zoneTypes: ['facultyLounge', 'officeSpace', 'privateOffice', 'meetingRoom'], furnitureGroup: 'decor',
+    cost: { funding: 240 }, energyCost: 0.08, spriteColor: 0xd0ad62, gridW: 1, gridH: 1, subH: 4, spriteKey: 'readingLamp', effects: { morale: 2 }, baseMaterial: null, hasSurface: false,
+    parts: [
+      { name: 'base', x: 0, y: 0.05, z: 0, w: 0.46, h: 0.1, l: 0.46, color: 0x4c4030 }, { name: 'stem', x: 0, y: 1.35, z: 0, w: 0.08, h: 2.55, l: 0.08, color: 0xb28d4f }, { name: 'shade', x: 0, y: 2.46, z: 0, w: 0.7, h: 0.38, l: 0.7, color: 0xd0ad62 }, { name: 'cord', x: 0.16, y: 0.16, z: 0, w: 0.04, h: 0.18, l: 0.04, color: 0x24282c },
+    ],
+  },
+  globe: {
+    id: 'globe', name: 'Academic Globe', zoneTypes: ['facultyLounge', 'officeSpace', 'privateOffice', 'meetingRoom', 'reception'], furnitureGroup: 'decor',
+    cost: { funding: 340 }, energyCost: 0, spriteColor: 0x47758a, gridW: 1, gridH: 1, subH: 2, spriteKey: 'globe', effects: { morale: 2 }, baseMaterial: null, stackable: true,
+    parts: [
+      { name: 'base', x: 0, y: 0.08, z: 0, w: 0.5, h: 0.12, l: 0.5, color: 0x9a6b40 }, { name: 'stand', x: 0, y: 0.42, z: 0, w: 0.08, h: 0.62, l: 0.08, color: 0x9a6b40 }, { name: 'globe', x: 0, y: 0.76, z: 0, w: 0.58, h: 0.58, l: 0.58, color: 0x47758a }, { name: 'equator', x: 0, y: 0.76, z: -0.3, w: 0.48, h: 0.04, l: 0.03, color: 0xd1b46c },
+    ],
+  },
+  chessTable: {
+    id: 'chessTable', name: 'Chess Table', zoneTypes: ['facultyLounge'], furnitureGroup: 'tables',
+    cost: { funding: 640 }, energyCost: 0, spriteColor: 0x80532f, gridW: 2, gridH: 2, subH: 2, surfaceY: 1.25, spriteKey: 'chessTable', effects: { morale: 3 }, baseMaterial: 'tile_hardwood',
+    parts: [
+      { name: 'top', x: 0, y: 1.22, z: 0, w: 1.62, h: 0.12, l: 1.62, color: 0x80532f }, { name: 'board', x: 0, y: 1.3, z: 0, w: 1.12, h: 0.04, l: 1.12, color: 0xd2b783 }, { name: 'pedestal', x: 0, y: 0.56, z: 0, w: 0.28, h: 1.25, l: 0.28, color: 0x4d3021 }, { name: 'foot', x: 0, y: 0.08, z: 0, w: 0.82, h: 0.16, l: 0.82, color: 0x4d3021 },
+      { name: 'piece1', x: -0.32, y: 1.38, z: -0.18, w: 0.08, h: 0.18, l: 0.08, color: 0xeee7d3 }, { name: 'piece2', x: 0.24, y: 1.38, z: 0.22, w: 0.08, h: 0.22, l: 0.08, color: 0x332820 },
+    ],
+  },
+  drinksTrolley: {
+    id: 'drinksTrolley', name: 'Drinks Trolley', zoneTypes: ['facultyLounge', 'reception', 'meetingRoom'], furnitureGroup: 'hospitality',
+    cost: { funding: 580 }, energyCost: 0, spriteColor: 0x9a6b40, gridW: 2, gridH: 1, subH: 2, spriteKey: 'drinksTrolley', effects: { morale: 2 }, baseMaterial: 'tile_hardwood', hasSurface: false,
+    parts: [
+      { name: 'top', x: 0, y: 1.32, z: 0, w: 1.62, h: 0.12, l: 0.72, color: 0x9a6b40 }, { name: 'lower', x: 0, y: 0.58, z: 0, w: 1.5, h: 0.08, l: 0.64, color: 0x70482d }, { name: 'postL', x: -0.62, y: 0.16, z: 0.2, w: 0.08, h: 1.24, l: 0.08, color: 0x70482d }, { name: 'postR', x: 0.62, y: 0.16, z: 0.2, w: 0.08, h: 1.24, l: 0.08, color: 0x70482d },
+      { name: 'bottle1', x: -0.38, y: 1.5, z: 0, w: 0.14, h: 0.42, l: 0.14, color: 0x6b8b55 }, { name: 'bottle2', x: 0, y: 1.5, z: 0, w: 0.14, h: 0.54, l: 0.14, color: 0x9c6b34 }, { name: 'glass', x: 0.42, y: 1.46, z: 0, w: 0.18, h: 0.2, l: 0.18, color: 0xc2d7d2 },
+    ],
+  },
+
   // ── Shared room furniture ──────────────────────────────────────────
 
   sharedCounter: {
@@ -1585,6 +1718,23 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
 // stays scannable. Every item must have an entry — the HUD preview panel
 // shows these on hover/keyboard focus.
 const ROOM_FURNISHING_DESCS = {
+  visitorArmchair: 'Comfortable guest seating for offices, reception areas, and meeting rooms. Shared room furniture.',
+  ottoman: 'Compact footstool that turns a chair corner into a proper lounge. Shared room furniture.',
+  credenza: 'Low storage cabinet for presentation supplies, linens, and office overflow. Shared room furniture.',
+  wastebasket: 'Small wastebasket for desks, meeting rooms, and reception corners. Shared room furniture.',
+  deskOrganizer: 'Tray, folders, and pen cup for making a desk look intentionally occupied. Shared room furniture.',
+  displayScreen: 'Wall-mounted display for schedules, plots, visitor information, or a tasteful loop of beam footage. Shared room furniture.',
+  flipChart: 'Portable paper board for agendas, sketches, and ideas that escape the meeting. Shared room furniture.',
+  bulletinBoard: 'Pinned notices, room schedules, and the one poster nobody takes down. Shared room furniture.',
+  umbrellaStand: 'Reception-side stand for umbrellas and wet-weather visitors. Shared room furniture.',
+  badgePrinter: 'Small reception printer for visitor badges and temporary access cards. Reception.',
+  dishwasher: 'Cafeteria dishwasher for keeping the mug economy moving. Cafeteria.',
+  warmingCabinet: 'Hot-holding cabinet for catered meals and the late shift. Cafeteria.',
+  plateStation: 'Plates, trays, and cutlery arranged before the queue begins. Cafeteria.',
+  readingLamp: 'Tall pool of warm light for reading journals and arguing over footnotes. Faculty Lounge or office.',
+  globe: 'Academic globe for pointing at places where the next collaboration might happen. Shared room furniture.',
+  chessTable: 'A small chess table for the long pause between seminars. Faculty Lounge.',
+  drinksTrolley: 'Rolling drinks service for receptions, meetings, and faculty-lounge diplomacy. Shared room furniture.',
   sharedCounter: 'A neutral service counter for forms, refreshments, check-in, and meeting-room supplies. Shared room furniture.',
   coffeeStation: 'Compact coffee service with machine, carafe, mugs, and cabinet storage. Shared room furniture.',
   snackTable: 'Small self-service table for fruit, pastries, napkins, and the emergency meeting biscuit. Shared room furniture.',

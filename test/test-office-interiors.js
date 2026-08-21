@@ -32,13 +32,23 @@ console.log('\n=== office and meeting-room catalogue ===\n');
 console.log('\n=== faculty lounge catalogue ===\n');
 
 console.log('\n=== shared furniture catalogue and grouping ===\n');
-for (const id of ['sharedCounter', 'coffeeStation', 'snackTable', 'bookcaseWide', 'glassBookcase', 'sideboard', 'endTable']) {
+for (const id of ['sharedCounter', 'coffeeStation', 'snackTable', 'bookcaseWide', 'glassBookcase', 'sideboard', 'endTable', 'visitorArmchair', 'ottoman', 'credenza', 'wastebasket', 'deskOrganizer', 'displayScreen', 'flipChart', 'bulletinBoard', 'globe']) {
   const def = PLACEABLES[id];
   assertOk(!!def && def.kind === 'furnishing', `${id} is registered as a furnishing`);
   assertOk(def?.furnitureGroup && ROOM_FURNITURE_GROUPS[def.furnitureGroup],
     `${id} has a palette furniture group`);
   assertOk(['officeSpace', 'privateOffice', 'meetingRoom', 'reception'].every(zone => itemMatchesZone(def, zone)),
     `${id} is shared across core room types`);
+}
+for (const id of ['umbrellaStand', 'readingLamp', 'drinksTrolley']) {
+  const def = PLACEABLES[id];
+  assertOk(!!def && def.kind === 'furnishing', `${id} is registered as a furnishing`);
+  assertOk(def?.furnitureGroup && ROOM_FURNITURE_GROUPS[def.furnitureGroup], `${id} has a palette furniture group`);
+}
+for (const id of ['badgePrinter', 'dishwasher', 'warmingCabinet', 'plateStation']) {
+  const def = PLACEABLES[id];
+  assertOk(!!def && def.kind === 'furnishing', `${id} is registered as a furnishing`);
+  assertOk(def?.furnitureGroup && ROOM_FURNITURE_GROUPS[def.furnitureGroup], `${id} has a palette furniture group`);
 }
 for (const [id, category] of Object.entries(MODES.facility.categories)) {
   if (!category.isZoneTab || !category.furnitureGroups) continue;
