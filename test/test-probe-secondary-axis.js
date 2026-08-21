@@ -433,19 +433,20 @@ console.log('\n--- Designer controls ---');
     && html.includes('aria-label="Y-axis scale for plot 1"')
     && html.includes('aria-label="Y-axis scale for plot 3"'),
   'each plot exposes its own accessible Lin/Log selector instead of one global control');
-  check(html.includes('<option value="energy" selected>Energy</option>')
+  check(html.includes('<option value="beam-power" selected>Beam Power</option>')
     && html.includes('<option value="current-loss" selected>Beam Current</option>')
     && html.includes('<option value="rel-beta" selected>Beam &beta;</option>'),
-  'the left panel defaults to Energy, Current, and Beam beta');
+  'the left panel defaults to Beam Power, Current, and Beam beta');
   check(html.includes('<option value="beam-envelope" selected>Beam Envelope</option>')
     && html.includes('<option value="emittance" selected>Emittance</option>'),
   'the middle panel defaults to Envelope, Emittance, and Current');
   check(thirdPanelControls.includes('data-panel="2"')
     && thirdPanelControls.includes('<option value="eic-triangle" selected>')
-    && thirdPanelControls.includes('<option value="energy">Energy</option>')
     && thirdPanelControls.includes('<option value="phase-space">Phase Space</option>')
+    && !thirdPanelControls.includes('value="energy"')
+    && !thirdPanelControls.includes('value="energy-dispersion"')
     && !thirdPanelControls.includes('disabled'),
-  'the right panel defaults to the radar but offers the full primary plot catalogue');
+  'the right panel defaults to the radar and shares the grouped primary plot catalogue');
   check(html.includes('Secondary plot for panel 1')
     && html.includes('Third plot for panel 2'),
   'overlay selectors have channel- and panel-specific accessible labels');
@@ -453,7 +454,7 @@ console.log('\n--- Designer controls ---');
     && html.includes('<option value="phase-advance">Phase Advance &mu;x / &mu;y</option>')
     && html.includes('<option value="rigidity">Magnetic Rigidity</option>'),
   'all three new optics quantities appear in the designer plot catalogue');
-  check((html.match(/<option value="beam-power">Beam Power<\/option>/g) || []).length === 7,
+  check((html.match(/<option value="beam-power"(?: selected)?\s*>Beam Power<\/option>/g) || []).length === 7,
     'beam power appears in every primary and overlay Designer plot catalogue');
   check((html.match(/<option value="bunch-evolution">Bunch Evolution<\/option>/g) || []).length === 3,
     'bunch evolution appears in every primary Designer catalogue without posing as one-axis overlay');
