@@ -701,6 +701,24 @@ console.log('\n--- 15: blocker — unaffordable ---');
 }
 
 // =========================================================================
+console.log('\n--- 15b: free-construction planning still quotes an unaffordable build ---');
+{
+  const state = makeRun();
+  state.resources.funding = 0;
+  const draft = draftFromMap(state, 'src_1');
+  draft.push(newNode('faradayCup'));
+  const res = plan(state, {
+    sourceId: 'src_1', draftNodes: draft, freeConstruction: true,
+    _label: 'free construction',
+  });
+  assert(res.ok === true,
+    `free construction is not blocked by the live balance (${JSON.stringify(res.blockers)})`);
+  assertEq(res.summary.totalCost, COMPONENTS.faradayCup.cost.funding,
+    'the confirmation keeps the full nominal build quote');
+  assert(res.ops.length > 0, 'the quoted free-construction plan remains executable');
+}
+
+// =========================================================================
 console.log('\n--- 16: symbols chain across a multi-step plan ---');
 {
   // Delete the magnet (merge) AND splice a fresh one back in: the split has to

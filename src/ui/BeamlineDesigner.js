@@ -1524,6 +1524,10 @@ export class BeamlineDesigner {
       draftNodes: this.draftNodes,
       originalNodes: this.originalNodes,
       prepareSite: true,
+      // Scenario Admin uses balance-sandbox economics: capital work is free,
+      // but the confirmation must still show its nominal cost and everything
+      // site preparation will destroy.
+      freeConstruction: this.game.sandboxMode === true,
     });
     if (!plan.ok) {
       this._reportBlockers(plan.blockers);
@@ -1533,6 +1537,7 @@ export class BeamlineDesigner {
     const choice = await applyPreviewDialog.open(plan.summary, {
       name: this._editedBeamlineName(),
       applyLabel: 'Confirm changes',
+      freeConstruction: this.game.sandboxMode === true,
     });
     if (choice !== 'apply') return false;
     // The designer can be torn down while the preview is up (a load, a

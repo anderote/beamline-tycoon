@@ -5,7 +5,9 @@
 // state it is handed, not the draft nodes, not the component registry. Same
 // house contract as pipe-drawing.js / pipe-placements.js / pipe-splice.js.
 //
-//   planDesignerApply(state, { sourceId, draftNodes, originalNodes, prepareSite })
+//   planDesignerApply(state, {
+//     sourceId, draftNodes, originalNodes, prepareSite, freeConstruction,
+//   })
 //     → { ok, ops, summary, blockers }
 //
 // The draft is a statement of the DESIRED END STATE of one linear beam path,
@@ -513,6 +515,11 @@ class Planner {
     this.sourceId = opts.sourceId;
     this.draft = opts.draftNodes || [];
     this.prepareSite = opts.prepareSite === true;
+    // Scenario Admin and balance-sandbox sessions still need the nominal
+    // quote and complete site-preparation preview, but Game suppresses the
+    // eventual construction debit. A raw funding comparison here used to
+    // reject those plans before the confirmation dialog could open.
+    this.freeConstruction = opts.freeConstruction === true;
     this.protectedPlaceableIds = new Set();
 
     // One bucket per execution phase — see the ORDERING note in the header.
@@ -1136,12 +1143,17 @@ function isAddition(p, node) {
  * @param {boolean} [opts.prepareSite=false] emit priced demolition and
  *   concrete-foundation ops for ordinary facility conflicts. Beamline
  *   hardware and illegal beam geometry remain blockers.
+ * @param {boolean} [opts.freeConstruction=false] keep nominal prices in the
+ *   summary but do not block the plan against the current funding balance.
  * @returns {{ok:boolean, ops:Array, summary:Object, blockers:Array}}
  */
 export function planDesignerApply(state, opts = {}) {
   const { sourceId, draftNodes } = opts;
   const p = new Planner(state, {
-    sourceId, draftNodes, prepareSite: opts.prepareSite === true,
+    sourceId,
+    draftNodes,
+    prepareSite: opts.prepareSite === true,
+    freeConstruction: opts.freeConstruction === true,
   });
 
   if (!sourceId) {
@@ -1708,7 +1720,7 @@ function finish(p) {
 
   const funding = p.state && p.state.resources && typeof p.state.resources.funding === 'number'
     ? p.state.resources.funding : null;
-  if (funding != null && totalCost > funding) {
+  if (!p.freeConstruction && funding != null && totalCost > funding) {
     p.block(UNAFFORDABLE, -1,
       `This costs $${totalCost.toLocaleString()} and you have $${funding.toLocaleString()}.`);
   }
