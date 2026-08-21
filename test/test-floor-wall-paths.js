@@ -1,4 +1,6 @@
 import {
+  buildFloorTileWallPath,
+  buildInteriorWallBoundary,
   buildFloorRegionPerimeter,
   buildFloorInterfaceRun,
   buildSmartFloorWallPath,
@@ -22,6 +24,43 @@ function has(path, col, row, edge) {
 }
 
 console.log('\n=== smart floor wall geometry ===\n');
+
+{
+  const path = buildFloorTileWallPath({ col: 3, row: 5 });
+  assertOk(path.length === 4, 'one selected floor tile exposes four candidate wall faces');
+  assertOk(has(path, 3, 5, 'n') && has(path, 3, 5, 'e')
+    && has(path, 3, 5, 's') && has(path, 3, 5, 'w'),
+  'each candidate face is expressed from the selected tile');
+}
+
+{
+  const occ = { '0,0': 'labFloor', '1,0': 'labFloor' };
+  const walls = {
+    '0,0,n': 'officeWall', '0,0,e': 'officeWall',
+    '0,0,s': 'officeWall', '0,0,w': 'officeWall',
+    '1,0,n': 'officeWall', '1,0,e': 'officeWall', '1,0,s': 'officeWall',
+  };
+  const result = buildInteriorWallBoundary(occ, walls, { col: 0, row: 0 });
+  assertOk(result.mode === 'interior' && result.tileCount === 1,
+    'an interior paint fill stops at a partition even when both rooms share flooring');
+  assertOk(result.path.length === 4 && has(result.path, 0, 0, 'e'),
+    'the selected room includes its inward-facing partition surface');
+  assertOk(!has(result.path, 1, 0, 'e'),
+    'the selected room excludes the adjoining room\'s outer wall surfaces');
+}
+
+{
+  const occ = { '0,0': 'labFloor', '1,0': 'officeFloor' };
+  const walls = {
+    '0,0,n': 'officeWall', '0,0,s': 'officeWall', '0,0,w': 'officeWall',
+    '1,0,n': 'officeWall', '1,0,e': 'officeWall', '1,0,s': 'officeWall',
+  };
+  const result = buildInteriorWallBoundary(occ, walls, { col: 0, row: 0 });
+  assertOk(result.tileCount === 2,
+    'an interior paint fill crosses flooring changes when no wall divides them');
+  assertOk(result.path.length === 6 && has(result.path, 1, 0, 'e'),
+    'the mixed-floor interior resolves one complete inward-facing boundary');
+}
 
 {
   const occ = {

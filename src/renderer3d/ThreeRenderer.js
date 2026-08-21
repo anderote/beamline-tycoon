@@ -2823,6 +2823,50 @@ export class ThreeRenderer {
   }
 
   /**
+   * Preview the floor-driven wall-paint selection. The floor tile remains the
+   * gesture's anchor while translucent vertical panels identify the exact
+   * inward-facing wall surfaces that will receive paint.
+   */
+  renderWallPaintPreview(col, row, path, color = 0xffffff) {
+    this._clearPreview();
+    if (!Number.isFinite(col) || !Number.isFinite(row)) return;
+
+    this._addPreviewMesh(new THREE.Mesh(
+      this._terrainTileQuad(col, row, 0.02),
+      this._previewMat(color, 0.14),
+    ));
+    this._addPreviewMesh(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(this._terrainTileBorderPoints(col, row, 0.04)),
+      this._previewEdgeMat(color),
+    ));
+
+    const faceMat = this._previewMat(color, 0.36);
+    const FACE_OFFSET = 0.045;
+    for (const seg of (path || [])) {
+      const ends = this._edgeEndpoints(seg.col, seg.row, seg.edge, 0);
+      const wallH = this._previewWallHeight(seg.col, seg.row, seg.edge, null);
+      // Every edge is expressed from the selected tile/region, so this
+      // direction offsets the preview onto the face looking into it.
+      const inwardX = seg.edge === 'e' ? -1 : seg.edge === 'w' ? 1 : 0;
+      const inwardZ = seg.edge === 'n' ? 1 : seg.edge === 's' ? -1 : 0;
+      const ax = ends.p0.x + inwardX * FACE_OFFSET;
+      const az = ends.p0.z + inwardZ * FACE_OFFSET;
+      const bx = ends.p1.x + inwardX * FACE_OFFSET;
+      const bz = ends.p1.z + inwardZ * FACE_OFFSET;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute([
+        ax, ends.p0.y + 0.03,         az,
+        bx, ends.p1.y + 0.03,         bz,
+        bx, ends.p1.y + wallH + 0.03, bz,
+        ax, ends.p0.y + wallH + 0.03, az,
+      ], 3));
+      geo.setIndex([0, 1, 2, 0, 2, 3]);
+      geo.computeVertexNormals();
+      this._addPreviewMesh(new THREE.Mesh(geo, faceMat));
+    }
+  }
+
+  /**
    * Highlight a single wall edge — white cross / edge marker on hover.
    */
   renderWallEdgeHighlight(col, row, edge, color = 0xffffff) {
