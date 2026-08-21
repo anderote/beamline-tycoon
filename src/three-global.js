@@ -25,8 +25,9 @@
 // module graph. Mixing objects from `three` with a renderer from
 // `three/webgpu` creates duplicate constructor/node caches and can dispose a
 // shadow texture that another graph still has queued. The classic renderer
-// used only by live palette thumbnails is deferred until the player first
-// interacts with the build palette (see ThreeRenderer.init()).
+// used only by live palette thumbnails is loaded after the first playable
+// frame so it stays off the blocking initialization path while previews still
+// hydrate without requiring palette interaction (see ThreeRenderer.init()).
 import * as THREE_WEBGPU from 'three/webgpu';
 
 globalThis.THREE ??= Object.freeze({ ...THREE_WEBGPU });
