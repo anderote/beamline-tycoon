@@ -26,6 +26,7 @@ import {
 import { findSlot, placementContainsPosition } from './pipe-placements.js';
 import { seedComponentParams } from './component-params.js';
 import { portSide, availablePorts } from './junctions.js';
+import { placeableMutationEvent } from '../game/placeable-events.js';
 
 // 4 sub-units per tile: path distance is measured in tiles, subL in sub-units.
 const SUB_PER_TILE = 4;
@@ -227,7 +228,13 @@ export class BeamlineSystem {
       // placePlaceable already logs — but keep it defensive.
       return null;
     }
-    this.emit('placeableChanged');
+    // Keep the facade's standalone event contract (its injected callback need
+    // not be Game). In the live Game path this repeats the same exact id and
+    // the world change-set merger collapses it before the next frame.
+    const entry = this.state?.placeables?.find(placeable => placeable.id === id);
+    this.emit('placeableChanged', placeableMutationEvent(entry || {
+      id, kind: 'beamline', category: 'beamline',
+    }, 'placed'));
     this.emit('beamlineChanged');
     return id;
   }
@@ -240,6 +247,9 @@ export class BeamlineSystem {
   removeJunction(id) {
     if (!id) return;
     const state = this.state;
+    const entry = state?.placeables?.find(placeable => placeable.id === id) || {
+      id, kind: 'beamline', category: 'beamline',
+    };
     const pipes = (state && state.beamPipes) || [];
     for (const pipe of pipes) {
       if (pipe.start && pipe.start.junctionId === id) pipe.start = null;
@@ -248,7 +258,7 @@ export class BeamlineSystem {
     if (typeof this.removePlaceable === 'function') {
       this.removePlaceable(id);
     }
-    this.emit('placeableChanged');
+    this.emit('placeableChanged', placeableMutationEvent(entry, 'removed'));
     this.emit('beamlineChanged');
   }
 
@@ -286,7 +296,10 @@ export class BeamlineSystem {
       return false;
     }
     if (!this.movePlaceable(id, pose)) return false;
-    this.emit('placeableChanged');
+    const entry = this.state?.placeables?.find(placeable => placeable.id === id);
+    this.emit('placeableChanged', placeableMutationEvent(entry || {
+      id, kind: 'beamline', category: 'beamline',
+    }, 'moved', { terrainChanged: true }));
     this.emit('beamlineChanged');
     return true;
   }

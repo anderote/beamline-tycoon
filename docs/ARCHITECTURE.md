@@ -173,11 +173,23 @@ Stated at `world-snapshot.js:3` and `ThreeRenderer.js:4-12`. Live per-frame stat
 `SECTION_BUILDERS` (`world-snapshot.js:465`); `terrain` and `cliffs` walk the whole map region. `_updateSnapshot(sections)` merges a partial into the cache (`ThreeRenderer.js:3067-3072`).
 *Silent failure:* refreshing a cheap section via the full `refresh()` costs a full-map walk per event — a frame-rate regression with no correctness symptom.
 
-**P4. Preview geometry and committed geometry must share one arithmetic.**
+**P4. Durable world mutations publish one canonical, frame-coalesced change-set.**
+`Game.emit` preserves the public compatibility events and additionally publishes
+`worldChanged` with the `WorldChangeSet` contract from `game/world-change-set.js`.
+Exact placeable mutations carry stable ids and net actions; transaction merging
+preserves every id and collapses add/update/remove sequences. `ThreeRenderer`
+queues the derived `world-refresh-plan` and drains it once at the start of the
+next animation frame. Full load/restore and unscoped legacy mutations retain
+conservative full-section fallbacks.
+*Silent failure:* rebuilding from each compatibility event separately turns one
+placement into several synchronous snapshot walks and scene teardowns; dropping
+all but the last batched payload leaves stale entity meshes behind.
+
+**P5. Preview geometry and committed geometry must share one arithmetic.**
 `componentPose` was extracted from `ComponentBuilder.build` for the design ghost (`component-builder.js:3558-3564`), and `isDetailedComponent` is the authoritative "has real geometry" test because `_createObject` always wraps in a Group with a hitbox, so `children.length` is *always* truthy (`ThreeRenderer.js:2340-2344`, `:2522-2526`).
 *Silent failure:* the ghost sits a metre below the pipe, or claims a spot the commit will not take.
 
-**P5. Grass-kind floors do not displace the terrain mesh.**
+**P6. Grass-kind floors do not displace the terrain mesh.**
 `world-snapshot.js:63-68` keeps the terrain tile and tags it; `buildFloors` skips emitting a floor for them (`:168`); `buildGrassSurfaces` re-checks `infraOccupied`, which is authoritative over the `floors` array (`:143-149`).
 *Silent failure:* stamping a flat texture over a placed grass patch breaks the brightness-blob vertex colouring continuity.
 

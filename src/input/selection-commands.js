@@ -2,6 +2,8 @@
 // UI/input code owns gestures and messages; this module owns the state changes
 // so InputHandler remains an event coordinator rather than a domain service.
 
+import { placeableMutationEvent } from '../game/placeable-events.js';
+
 export function copySelectionGroup(game, payload, preview) {
   const newIds = [];
   const placeholderToId = new Map();
@@ -114,10 +116,21 @@ export function moveSelectionGroup(game, payload, preview) {
 
     game.syncPlaceableViews();
     game.computeSystemStats();
-    game.emit('placeableChanged');
+    const movedEntries = payload.items.map(item => game.getPlaceable(item.id)).filter(Boolean);
+    const mutationEvent = placeableMutationEvent(
+      movedEntries[0], 'moved', {
+        terrainChanged: true,
+        affectedEntries: movedEntries.slice(1),
+      },
+    );
+    game.emit('placeableChanged', mutationEvent);
     game.emit('utilityLinesChanged', {});
-    if (payload.items.some(item => item.kind === 'equipment')) game.emit('facilityChanged');
-    if (payload.items.some(item => item.kind === 'furnishing')) game.emit('zonesChanged');
+    if (payload.items.some(item => item.kind === 'equipment')) {
+      game.emit('facilityChanged', mutationEvent);
+    }
+    if (payload.items.some(item => item.kind === 'furnishing')) {
+      game.emit('zonesChanged', mutationEvent);
+    }
     return true;
   }));
   return { ok: !!result, dangled: result ? dangled : 0 };

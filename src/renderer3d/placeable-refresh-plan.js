@@ -3,6 +3,7 @@
 // browser or graphics device.
 
 import { isScopedPlaceableMutation } from '../game/placeable-events.js';
+import { worldChangeFromPayload } from '../game/world-change-set.js';
 
 const EMPTY = Object.freeze({});
 
@@ -10,6 +11,7 @@ const LEGACY_PLACEABLE = Object.freeze({
   equipment: true,
   decorations: true,
   components: true,
+  pipeAttachments: true,
   utilityLines: true,
   utilityIssues: 'force',
   portFittings: true,
@@ -70,9 +72,36 @@ function scopedPlaceablePlan(data) {
   }
 }
 
+function mergeFlags(target, incoming) {
+  for (const [key, value] of Object.entries(incoming || {})) {
+    if (key === 'utilityIssues') {
+      if (value === 'force' || !target.utilityIssues) target.utilityIssues = value;
+    } else if (value) {
+      target[key] = true;
+    }
+  }
+  return target;
+}
+
+function canonicalPlaceablePlan(data) {
+  const changeSet = worldChangeFromPayload(data);
+  if (!changeSet) return null;
+  const plan = {};
+  if (changeSet.domains.has('terrain')) plan.terrain = true;
+  for (const change of changeSet.placeables.values()) {
+    mergeFlags(plan, scopedPlaceablePlan({
+      kind: change.kind,
+      terrainChanged: false,
+    }));
+  }
+  return plan;
+}
+
 export function placeableRefreshPlan(event, data) {
-  const scoped = isScopedPlaceableMutation(data);
+  const canonical = canonicalPlaceablePlan(data);
+  const scoped = canonical || isScopedPlaceableMutation(data);
   if (event === 'placeableChanged') {
+    if (canonical) return canonical;
     return scoped ? scopedPlaceablePlan(data) : LEGACY_PLACEABLE;
   }
   if (event === 'facilityChanged') {

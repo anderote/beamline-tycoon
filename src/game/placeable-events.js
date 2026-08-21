@@ -3,15 +3,21 @@
 // expensive consumers invalidate only the world sections the mutation can
 // actually affect.
 
+import { placeableWorldChange } from './world-change-set.js';
+
 export const PLACEABLE_MUTATION_EVENT_SOURCE = 'placeable-mutation';
 
-export function placeableMutationEvent(entry, action, { terrainChanged = false } = {}) {
+export function placeableMutationEvent(entry, action, {
+  terrainChanged = false,
+  affectedEntries = [],
+} = {}) {
   return {
     source: PLACEABLE_MUTATION_EVENT_SOURCE,
     action,
     placeableId: entry?.id ?? null,
     kind: entry?.kind ?? entry?.category ?? null,
     terrainChanged: terrainChanged === true,
+    changeSet: placeableWorldChange(entry, action, { terrainChanged, affectedEntries }),
   };
 }
 
