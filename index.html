@@ -511,25 +511,20 @@
           </div>
         </div>
       </div>
-      <label id="dsgn-auto-tune-control" class="dsgn-auto-tune-control"
-             title="Continuously match focusing magnets to local beam energy and restore each RF device's frequency and synchronous phase">
-        <input id="dsgn-auto-tune" type="checkbox">
-        <span>Auto-tune magnets &amp; match RF</span>
-        <span id="dsgn-auto-tune-status" class="dsgn-auto-tune-status">MANUAL</span>
-      </label>
-      <section id="dsgn-commissioning-control" class="dsgn-commissioning-control"
-               aria-label="Injector commissioning">
-        <div class="dsgn-commissioning-head">
-          <strong>Injector commissioning</strong>
-          <span id="dsgn-commissioning-status">WAITING FOR BEAM</span>
+      <section id="dsgn-optimizer-launch" class="dsgn-optimizer-launch"
+               aria-label="Beamline optimizer">
+        <div class="dsgn-optimizer-launch-copy">
+          <strong>Beamline optimizer</strong>
+          <span id="dsgn-optimizer-launch-status">Choose targets, sweep setpoints, compare before &amp; after</span>
         </div>
-        <div id="dsgn-commissioning-metrics" class="dsgn-commissioning-metrics"></div>
-        <button type="button" id="dsgn-commissioning-optimize"
-                title="Scan existing injector solenoids and quadrupole pairs through the full beam solver">
-          Match section
+        <button type="button" id="dsgn-open-optimizer"
+                title="Open the solver-backed beamline optimizer">
+          Optimize beamline…
         </button>
       </section>
     </div>
+
+    <div id="dsgn-optimizer-dialog" class="dsgn-optimizer-dialog hidden"></div>
 
     <!-- Apply preview (src/ui/ApplyPreviewDialog.js) — the confirmation step
          between the designer's draft and the map. Rendered into by the dialog;

@@ -21,7 +21,6 @@ function clonePayload(payload = {}) {
     selectedIndex: Number.isInteger(payload.selectedIndex) ? payload.selectedIndex : 0,
     viewX: Number.isFinite(payload.viewX) ? payload.viewX : 0,
     viewZoom: Number.isFinite(payload.viewZoom) ? payload.viewZoom : 0.7,
-    autoTuneEnabled: payload.autoTuneEnabled === true,
     hasChanges: payload.hasChanges === true,
   };
 }

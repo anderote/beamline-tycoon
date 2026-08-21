@@ -21,12 +21,10 @@ import {
   placementHintComponentAvailable,
   recommendedQuadrupoleGradient,
 } from '../beamline/designer-placement-hints.js';
-import { planDesignerAutoTune } from '../beamline/designer-auto-tuning.js';
 import {
-  commissioningReport,
-  inferInjectorTargetS,
-  optimizeInjectorMagnets,
-} from '../beamline/injector-commissioning.js';
+  designerOptimizableParams,
+  optimizeDesignerBeamline,
+} from '../beamline/designer-optimizer.js';
 import { seedComponentParams } from '../beamline/component-params.js';
 import { buildDesignerPhysicsElements } from '../beamline/physics-payload.js';
 import { summarizeDesignerPlacement } from '../beamline/designer-placement-preview.js';
@@ -40,6 +38,7 @@ import {
   suggestDesignerFixedYRange,
   validateDesignerFixedYRange,
 } from './designer-plot-controls.js';
+import { BeamlineOptimizerDialog } from './BeamlineOptimizerDialog.js';
 
 /**
  * Physical length (in sub-units) of one draft node.
@@ -112,24 +111,6 @@ function _designerComponentParams(designer, type, initialParams = null) {
     }
   }
   return params;
-}
-
-function _commissioningPercent(value) {
-  return Number.isFinite(value) ? `${Math.round(value * 100)}%` : '--';
-}
-
-function _commissioningDuration(seconds) {
-  if (!Number.isFinite(seconds) || seconds <= 0) return '--';
-  if (seconds < 1e-12) return `${(seconds * 1e15).toFixed(0)} fs`;
-  if (seconds < 1e-9) return `${(seconds * 1e12).toFixed(0)} ps`;
-  return `${(seconds * 1e9).toFixed(1)} ns`;
-}
-
-function _commissioningTone(value, good, watch) {
-  if (!Number.isFinite(value)) return '';
-  if (value >= good) return 'good';
-  if (value >= watch) return 'watch';
-  return 'bad';
 }
 
 export class BeamlineDesigner {
@@ -227,16 +208,12 @@ export class BeamlineDesigner {
     this.plotTags = new Map(); // panel id -> up to two persistent solver-sample readouts
     this.tuningPanelExpanded = true;
 
-    // Opt-in automatic matching. It is a session preference rather than a
-    // property of the built machine; only the resulting component params are
-    // saved/applied. The summary feeds the compact lower-right status readout.
-    this.autoTuneEnabled = false;
-    this._lastAutoTuneSummary = null;
-    this.commissioningBusy = false;
-    this._commissioningRun = 0;
-    this._commissioningProgress = null;
-    this._lastCommissioningResult = null;
-    this._commissioningApplying = false;
+    // Explicit solver sweeps are previewed in a dialog, then applied to the
+    // draft as one undoable edit. Run/revision tokens discard results if the
+    // designer closes or a newer draft solve supersedes them.
+    this.optimizerBusy = false;
+    this._optimizerRun = 0;
+    this._optimizerStartingRevision = null;
 
     // DOM references
     this.overlay = document.getElementById('designer-overlay');
@@ -245,6 +222,11 @@ export class BeamlineDesigner {
 
     this._suppressHashUpdate = false;
     this._designNameDialog = new DesignNameDialog();
+    this._optimizerDialog = new BeamlineOptimizerDialog({
+      onRun: config => this._runDesignerOptimizer(config),
+      onApply: result => this._applyDesignerOptimizer(result),
+      onCancel: () => this._cancelDesignerOptimizer(),
+    });
 
     this._bindButtons();
     this._bindEvents();
@@ -286,17 +268,8 @@ export class BeamlineDesigner {
         this._switchWorkspaceDraft(button.dataset.draftId);
       }
     });
-    const autoTune = document.getElementById('dsgn-auto-tune');
-    if (autoTune) {
-      autoTune.addEventListener('change', () => {
-        this._setAutoTuneEnabled(autoTune.checked);
-      });
-    }
-    const commission = document.getElementById('dsgn-commissioning-optimize');
-    commission?.addEventListener('click', () => {
-      Promise.resolve(this._optimizeInjectorSection()).catch(err => {
-        console.error('[designer] injector commissioning failed', err);
-      });
+    document.getElementById('dsgn-open-optimizer')?.addEventListener('click', () => {
+      this._openDesignerOptimizer('all');
     });
     const tuningToggle = document.getElementById('dsgn-tuning-toggle');
     if (tuningToggle) {
@@ -917,7 +890,6 @@ export class BeamlineDesigner {
       selectedIndex: this.selectedIndex,
       viewX: this.viewX,
       viewZoom: this.viewZoom,
-      autoTuneEnabled: this.autoTuneEnabled === true,
       hasChanges: this.mode === 'edit' && this._nodesDiffer(nodes, this.originalNodes),
     };
   }
@@ -947,7 +919,6 @@ export class BeamlineDesigner {
       : (this.draftNodes.length ? 0 : -1);
     this.viewX = Number.isFinite(draft.viewX) ? draft.viewX : 0;
     this.viewZoom = Number.isFinite(draft.viewZoom) ? draft.viewZoom : 0.7;
-    this.autoTuneEnabled = draft.autoTuneEnabled === true;
     this._nextTempId = this.draftNodes.length;
     this._undoStack = [];
     this._activeDraftOpenSnapshot = this._draftPayload();
@@ -964,7 +935,6 @@ export class BeamlineDesigner {
       selectedIndex: this.originalNodes.length ? 0 : -1,
       viewX: 0,
       viewZoom: 0.7,
-      autoTuneEnabled: false,
     };
     const workspace = this.game.ensureBeamlineDesignerWorkspace?.({
       workspaceId: this.draftWorkspaceId,
@@ -1052,7 +1022,6 @@ export class BeamlineDesigner {
       selectedIndex: this.originalNodes.length ? 0 : -1,
       viewX: 0,
       viewZoom: 0.7,
-      autoTuneEnabled: false,
       hasChanges: false,
     };
     const draft = this.game.createBeamlineDesignerAlternative?.(
@@ -1179,7 +1148,6 @@ export class BeamlineDesigner {
 
     if (hasSavedDraft && savedDraft.draftNodes.length > 0) {
       // Restore saved draft
-      this.autoTuneEnabled = savedDraft.autoTuneEnabled === true;
       this.designId = savedDraft.designId;
       this.designName = savedDraft.designName;
       this.draftNodes = savedDraft.draftNodes.map(n => ({
@@ -1646,6 +1614,8 @@ export class BeamlineDesigner {
 
   _cleanup() {
     this._hideDesignerPaletteHover?.();
+    if (this._optimizerDialog?.isOpen) this._optimizerDialog.close();
+    else this._cancelDesignerOptimizer();
     this.isOpen = false;
     this._escUnsub?.();
     this._escUnsub = null;
@@ -1713,7 +1683,6 @@ export class BeamlineDesigner {
       draftNodes: this.draftNodes.map(n => this._cloneNode(n)),
       selectedIndex: this.selectedIndex,
       markerS: this.markerS,
-      autoTuneEnabled: this.autoTuneEnabled,
     });
     if (this._undoStack.length > this._UNDO_MAX) {
       this._undoStack.shift();
@@ -1729,7 +1698,6 @@ export class BeamlineDesigner {
     this.draftNodes = snap.draftNodes;
     this.selectedIndex = snap.selectedIndex;
     this.markerS = snap.markerS;
-    this.autoTuneEnabled = snap.autoTuneEnabled === true;
     this._lastTuningKey = null; // force tuning panel rebuild
     this._updateTotalLength();
     this._recalcDraft();
@@ -2595,44 +2563,13 @@ export class BeamlineDesigner {
 
   async _recalcDraft() {
     const revision = ++this._draftPhysicsRevision;
-    if (!this._commissioningApplying) this._lastCommissioningResult = null;
     this.physicsPending = this.draftNodes.length > 0;
     this.draftRevenueProjection = null;
     // The full result, not just the envelope: the advisor reads
     // dispersionWarnings off it, and re-running physics to fetch them would
     // double the cost of every keystroke in a slider drag.
-    let draftResult = await this._computePhysics(this.draftNodes);
+    const draftResult = await this._computePhysics(this.draftNodes);
     if (revision !== this._draftPhysicsRevision || !this.isOpen) return;
-
-    // Auto matching is iterative because an RF phase repair changes downstream
-    // energy, and therefore the gradients the downstream magnets need. Each
-    // pass plans from the current published envelope, applies only changed
-    // params, then recomputes. In practice this settles in two passes; the cap
-    // makes a future rounded-control edge case harmless.
-    if (this.autoTuneEnabled) {
-      const typeId = this._designerBeamlineTypeId?.();
-      const particle = (typeId && getBeamlineType(typeId)?.particle) || 'e-';
-      for (let pass = 0; pass < 3; pass++) {
-        const plan = planDesignerAutoTune({
-          nodes: this.draftNodes,
-          envelope: draftResult?.envelope || [],
-          particle,
-        });
-        this._lastAutoTuneSummary = plan;
-        if (plan.updates.length === 0) break;
-        for (const update of plan.updates) {
-          const node = this.draftNodes[update.index];
-          if (!node) continue;
-          node.params = { ...(node.params || {}), ...update.params };
-          node.computedStats = null;
-        }
-        this._lastTuningKey = null;
-        draftResult = await this._computePhysics(this.draftNodes);
-        if (revision !== this._draftPhysicsRevision || !this.isOpen) return;
-      }
-    } else {
-      this._lastAutoTuneSummary = null;
-    }
 
     this.draftPhysicsResult = draftResult;
     this.draftRevenueProjection = draftResult
@@ -2922,159 +2859,105 @@ export class BeamlineDesigner {
     if (insertBtn) insertBtn.classList.toggle('active', !!this.insertMode);
   }
 
-  /** Toggle the opt-in matcher. Enabling is one undoable draft action; later
-   * structural edits retain the mode in their own snapshots. */
-  _setAutoTuneEnabled(enabled) {
-    const next = enabled === true;
-    if (next === this.autoTuneEnabled) {
-      this._updateAutoTuneControl();
-      return;
-    }
-    if (next && this.isOpen && this.draftNodes.length > 0) this._pushUndo();
-    this.autoTuneEnabled = next;
-    this._lastAutoTuneSummary = null;
-    this._lastTuningKey = null;
-    if (this.isOpen) {
-      this._recalcDraft();
-      this._updateDraftBar();
-      this._renderAll();
-    } else {
-      this._updateAutoTuneControl();
-    }
+  _updateOptimizerLaunch() {
+    const button = document.getElementById('dsgn-open-optimizer');
+    const status = document.getElementById('dsgn-optimizer-launch-status');
+    if (!button || !status) return;
+    const tunable = this.draftNodes.filter(node => designerOptimizableParams(node).length > 0);
+    const controls = tunable.reduce(
+      (sum, node) => sum + designerOptimizableParams(node).length,
+      0,
+    );
+    button.disabled = this.optimizerBusy || this.physicsPending
+      || !this.draftPhysicsResult || controls === 0;
+    button.textContent = this.optimizerBusy ? 'Sweeping…' : 'Optimize beamline…';
+    if (this.optimizerBusy) status.textContent = 'Solver sweep in progress';
+    else if (this.physicsPending) status.textContent = 'Waiting for the current beam solve';
+    else if (!this.draftPhysicsResult) status.textContent = 'Add a source and beamline to begin';
+    else if (controls === 0) status.textContent = 'No solver-backed controls in this draft';
+    else status.textContent = `${tunable.length} tunable components · ${controls} controls · before/after preview`;
   }
 
-  /** Keep the lower-right checkbox and managed-element count in sync. */
-  _updateAutoTuneControl() {
-    const input = document.getElementById('dsgn-auto-tune');
-    const root = document.getElementById('dsgn-auto-tune-control');
-    const status = document.getElementById('dsgn-auto-tune-status');
-    if (input) input.checked = this.autoTuneEnabled === true;
-    if (root) root.classList.toggle('active', this.autoTuneEnabled === true);
-    if (!status) return;
-    if (!this.autoTuneEnabled) {
-      status.textContent = 'MANUAL';
-      return;
+  _optimizerEnergyTarget() {
+    const current = Number(this.draftPhysicsResult?.beamEnergy || 0);
+    const type = getBeamlineType(this._designerBeamlineTypeId?.());
+    const band = type?.spec?.energyGeV;
+    if (Array.isArray(band) && band.length === 2) {
+      const [lo, hi] = band;
+      if (Number.isFinite(lo) && current < lo) return lo;
+      if (Number.isFinite(hi) && current > hi) return hi;
+      if (Number.isFinite(lo) && Number.isFinite(hi) && current <= 0) return (lo + hi) / 2;
     }
-    const magnets = this._lastAutoTuneSummary?.managedMagnets || 0;
-    const rf = this._lastAutoTuneSummary?.managedRf || 0;
-    status.textContent = `${magnets} MAG · ${rf} RF`;
+    return Math.max(current * 1.25, 0.001);
   }
 
-  _commissioningTargetS() {
-    return inferInjectorTargetS(this.draftEnvelope || []);
-  }
-
-  _updateCommissioningPanel() {
-    const root = document.getElementById('dsgn-commissioning-control');
-    const status = document.getElementById('dsgn-commissioning-status');
-    const metrics = document.getElementById('dsgn-commissioning-metrics');
-    const button = document.getElementById('dsgn-commissioning-optimize');
-    if (!root || !status || !metrics || !button) return;
-
-    const report = commissioningReport(this.draftEnvelope || [], {
-      targetS: this._commissioningTargetS(),
+  _openDesignerOptimizer(defaultScope = 'all') {
+    if (!this.isOpen || this.physicsPending || !this.draftPhysicsResult) return false;
+    const opened = this._optimizerDialog.open({
+      nodes: this.draftNodes,
+      selectedIndex: this.selectedIndex,
+      initialResult: this.draftPhysicsResult,
+      defaultScope,
+      energyTargetGeV: this._optimizerEnergyTarget(),
     });
-    const hasMagnets = this.draftNodes.some(node =>
-      ['solenoid', 'quadrupole', 'scQuad'].includes(node?.type));
-    button.disabled = this.commissioningBusy || this.physicsPending || !report || !hasMagnets;
-    button.textContent = this.commissioningBusy ? 'Scanning…' : 'Match section';
-
-    if (!report) {
-      status.textContent = this.physicsPending ? 'SOLVING BEAM…' : 'WAITING FOR BEAM';
-      metrics.innerHTML = '<span class="dsgn-commissioning-metric"><span>Add a source and beamline to begin</span></span>';
-      return;
-    }
-
-    if (this.commissioningBusy && this._commissioningProgress) {
-      const { evaluations, total } = this._commissioningProgress;
-      status.textContent = `SOLVING ${Math.min(evaluations, total)} / ${total}`;
-    } else {
-      const score = Math.round(report.score * 100);
-      const previous = this._lastCommissioningResult?.before?.score;
-      const gain = Number.isFinite(previous)
-        ? Math.max(0, Math.round((report.score - previous) * 100))
-        : 0;
-      status.textContent = `0–${report.targetS.toFixed(1)} M · ${score}/100${gain ? ` · +${gain}` : ''}`;
-    }
-
-    const capture = report.captureEfficiency;
-    const margin = report.minFocusMargin;
-    const rows = [
-      ['Capture', _commissioningPercent(capture), _commissioningTone(capture, 0.6, 0.4)],
-      ['Transmit', _commissioningPercent(report.transmission), _commissioningTone(report.transmission, 0.8, 0.55)],
-      ['ε keep', _commissioningPercent(report.emittancePreservation), _commissioningTone(report.emittancePreservation, 0.95, 0.8)],
-      ['Aperture', _commissioningPercent(margin), _commissioningTone(margin, 0.5, 0.2)],
-      ['Bunch', _commissioningDuration(report.bunchLength), report.bunchFrequency > 0 ? 'good' : 'watch'],
-      ['I peak', Number.isFinite(report.peakCurrent) ? `${report.peakCurrent.toFixed(2)} A` : '--', ''],
-    ];
-    metrics.innerHTML = rows.map(([label, value, tone]) =>
-      `<span class="dsgn-commissioning-metric ${tone}"><span>${label}</span><strong>${value}</strong></span>`
-    ).join('');
+    if (!opened) this.game?.log?.('The selected scope has no solver-backed controls', 'info');
+    return opened;
   }
 
-  /** Scan the current source-to-5 MeV section through the authoritative worker
-   * solver. This is deliberately an explicit action rather than continuous:
-   * one run can evaluate dozens of candidates, while the lightweight Auto mode
-   * remains suitable for every slider drag and structural edit. */
-  async _optimizeInjectorSection() {
-    if (this.commissioningBusy || this.physicsPending || !this.draftEnvelope?.length) return;
-    const run = ++this._commissioningRun;
+  async _runDesignerOptimizer({ scope, selectedIndex, targets }) {
+    if (this.optimizerBusy || this.physicsPending || !this.draftPhysicsResult) return null;
+    const run = ++this._optimizerRun;
     const startingRevision = this._draftPhysicsRevision;
-    const targetS = this._commissioningTargetS();
-    this.commissioningBusy = true;
-    this._commissioningProgress = { evaluations: 0, total: 1 };
-    this._updateCommissioningPanel();
-
+    this._optimizerStartingRevision = startingRevision;
+    this.optimizerBusy = true;
+    this._updateOptimizerLaunch();
     try {
-      const result = await optimizeInjectorMagnets({
+      return await optimizeDesignerBeamline({
         nodes: this.draftNodes,
-        initialEnvelope: this.draftEnvelope,
-        targetS,
-        evaluate: nodes => this._computePhysics(nodes, 'designer:commissioning'),
+        initialResult: this.draftPhysicsResult,
+        scope,
+        selectedIndex,
+        targets,
+        evaluate: nodes => this._computePhysics(nodes, 'designer:optimizer'),
+        shouldContinue: () => this.isOpen && run === this._optimizerRun
+          && startingRevision === this._draftPhysicsRevision,
         onProgress: progress => {
-          if (run !== this._commissioningRun) return;
-          this._commissioningProgress = progress;
-          this._updateCommissioningPanel();
+          if (run !== this._optimizerRun) return;
+          this._optimizerDialog.setProgress(progress);
         },
       });
-      // A structural edit or another run supersedes this scan. Candidate
-      // solves are read-only, so abandoning their answer needs no rollback.
-      if (!this.isOpen || run !== this._commissioningRun
-          || startingRevision !== this._draftPhysicsRevision) return;
-
-      if (result.updates.length) {
-        this._pushUndo();
-        for (const update of result.updates) {
-          const node = this.draftNodes[update.index];
-          if (!node) continue;
-          node.params = { ...(node.params || {}), ...update.params };
-          node.computedStats = null;
-        }
-        // The continuous rigidity heuristic owns the same controls and would
-        // immediately overwrite a solved section match. Leave the optimized
-        // setpoints in manual mode so they remain the values the scan proved.
-        this.autoTuneEnabled = false;
-        this._lastAutoTuneSummary = null;
-        this._lastTuningKey = null;
-        this._commissioningApplying = true;
-        await this._recalcDraft();
-        this._commissioningApplying = false;
-        this._lastCommissioningResult = {
-          ...result,
-          after: commissioningReport(this.draftEnvelope || [], { targetS }),
-        };
-        this._updateDraftBar();
-      } else {
-        this._lastCommissioningResult = result;
-      }
     } finally {
-      if (run === this._commissioningRun) {
-        this.commissioningBusy = false;
-        this._commissioningApplying = false;
-        this._commissioningProgress = null;
-        this._renderAll();
+      if (run === this._optimizerRun) {
+        this.optimizerBusy = false;
+        this._updateOptimizerLaunch();
       }
     }
+  }
+
+  async _applyDesignerOptimizer(result) {
+    if (!result?.updates?.length || !this.isOpen) return false;
+    if (this._optimizerStartingRevision !== this._draftPhysicsRevision) {
+      throw new Error('The draft changed after this sweep. Run the optimizer again.');
+    }
+    this._pushUndo();
+    for (const update of result.updates) {
+      const node = this.draftNodes[update.index];
+      if (!node) continue;
+      node.params = { ...(node.params || {}), ...update.params };
+      node.computedStats = null;
+    }
+    this._lastTuningKey = null;
+    await this._recalcDraft();
+    this._updateDraftBar();
+    this._renderAll();
+    return true;
+  }
+
+  _cancelDesignerOptimizer() {
+    this._optimizerRun++;
+    this._optimizerStartingRevision = null;
+    this.optimizerBusy = false;
+    this._updateOptimizerLaunch();
   }
 
   serializeState() {
@@ -3103,7 +2986,6 @@ export class BeamlineDesigner {
       selectedIndex: this.selectedIndex,
       viewX: this.viewX,
       viewZoom: this.viewZoom,
-      autoTuneEnabled: this.autoTuneEnabled,
     };
   }
 
@@ -3111,7 +2993,6 @@ export class BeamlineDesigner {
     if (!state || !state.isOpen) return;
 
     if (state.mode === 'edit' && state.editSourceId) {
-      this.autoTuneEnabled = state.autoTuneEnabled === true;
       this.openFromSource(state.editSourceId, state.editEndpointId);
       if (state.activeWorkspaceDraftId && this.draftWorkspaceId) {
         this.game.selectBeamlineDesignerDraft?.(
@@ -3132,7 +3013,6 @@ export class BeamlineDesigner {
         this._activeDraftOpenSnapshot = this._draftPayload();
       }
     } else if (state.mode === 'design') {
-      this.autoTuneEnabled = state.autoTuneEnabled === true;
       const design = state.designId ? this.game.getDesign(state.designId) : null;
       this.openDesign(design);
       // Override draft with saved state
