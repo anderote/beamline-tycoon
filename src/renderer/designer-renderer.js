@@ -329,7 +329,7 @@ BeamlineDesigner.prototype._renderSchematic = function() {
   // Bare terminal text is intentionally drawn into the schematic rather than
   // placed in a panel: the proposal belongs to one physical s-position. Small
   // glyphs remain visible along the line; the closest one to the pointer (or
-  // blue marker when keyboard-panning) expands into the one-click recipe.
+  // blue marker when there is no pointer) expands into the one-click recipe.
   if (this.placementHints && this.placementHints.length > 0 && this.totalLength > 0) {
     const compTop = beamY - schematicH / 2;
     const compBot = beamY + schematicH / 2;
