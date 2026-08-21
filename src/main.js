@@ -21,7 +21,15 @@ import { ProbeWindow } from './ui/probe.js';
 import { ViewRouter } from './ui/ViewRouter.js';
 import { MODES } from './data/modes.js';
 import { COMPONENTS } from './data/components.js';
-import { SCENARIOS, CUSTOM_SCENARIO_ID, loadCustomScenario, resolveScenario } from './data/scenarios.js';
+import {
+  SCENARIOS,
+  CUSTOM_SCENARIO_ID,
+  PENDING_SCENARIO_KEY,
+  loadCustomScenario,
+  loadDefaultStartingScenarioId,
+  resolveScenario,
+  stageDefaultStartingScenario,
+} from './data/scenarios.js';
 import { MusicPlayer } from './ui/MusicPlayer.js';
 import { TitleScreen } from './ui/TitleScreen.js';
 import { WelcomeDialog } from './ui/WelcomeDialog.js';
@@ -46,6 +54,15 @@ window.PARAM_DEFS = PARAM_DEFS;
 const oldSave = localStorage.getItem('beamlineCowboy');
 if (oldSave) localStorage.removeItem('beamlineCowboy');
 
+function escapeScenarioText(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
 function showScenarioPicker(game) {
   // Remove existing dialog if any
   const existing = document.getElementById('scenario-dialog');
@@ -67,23 +84,38 @@ function showScenarioPicker(game) {
 
   // Editor-exported custom scenario (localStorage slot), if present.
   const customScenario = loadCustomScenario();
+  const defaultScenarioId = loadDefaultStartingScenarioId();
   const pickerScenarios = customScenario
-    ? [...SCENARIOS, {
+    ? [{
         id: CUSTOM_SCENARIO_ID,
-        name: `Custom: ${customScenario.name || 'Untitled'}`,
-        desc: 'Scenario exported from the in-game Scenario Editor (stored in localStorage).',
-        difficulty: 'Custom',
-      }]
+        name: customScenario.name || 'Untitled Local Scenario',
+        desc: defaultScenarioId === CUSTOM_SCENARIO_ID
+          ? 'Your local New Game default. Starts in balance sandbox: construction is free, recurring costs and income are real.'
+          : 'Locally constructed scenario. Starts in balance sandbox for play-testing.',
+        difficulty: defaultScenarioId === CUSTOM_SCENARIO_ID ? 'Default · Sandbox' : 'Sandbox',
+      }, ...SCENARIOS]
     : SCENARIOS;
 
   for (const sc of pickerScenarios) {
     html += `<button type="button" class="scenario-card" data-id="${sc.id}">`;
     html += `<span class="scenario-card-header">`;
-    html += `<strong class="scenario-card-name">${sc.name}</strong>`;
-    html += `<span class="scenario-difficulty">${sc.difficulty}</span>`;
+    html += `<strong class="scenario-card-name">${escapeScenarioText(sc.name)}</strong>`;
+    html += `<span class="scenario-difficulty">${escapeScenarioText(sc.difficulty)}</span>`;
     html += `</span>`;
-    html += `<span class="scenario-description">${sc.desc}</span>`;
+    html += `<span class="scenario-description">${escapeScenarioText(sc.desc)}</span>`;
     html += `</button>`;
+  }
+
+  if (import.meta.env.DEV) {
+    html += '<button type="button" class="scenario-card scenario-card-admin" data-scenario-action="construct">';
+    html += '<span class="scenario-card-header">';
+    html += `<strong class="scenario-card-name">${customScenario ? 'Edit Default Scenario' : 'Construct Default Scenario'}</strong>`;
+    html += '<span class="scenario-difficulty">Admin · Local</span>';
+    html += '</span>';
+    html += `<span class="scenario-description">${customScenario
+      ? 'Open the saved layout in the scenario constructor, revise it, then save and restart its balance sandbox.'
+      : 'Build a starting layout with every technology unlocked, then save it as the local New Game default and balance-test it.'}</span>`;
+    html += '</button>';
   }
 
   html += '</div>';
@@ -95,6 +127,16 @@ function showScenarioPicker(game) {
 
   // Card click
   panel.addEventListener('click', (e) => {
+    const adminCard = e.target.closest('[data-scenario-action="construct"]');
+    if (adminCard && import.meta.env.DEV) {
+      const verb = customScenario ? 'edit the local default scenario' : 'construct a local default scenario';
+      if (!confirm(`Enter Scenario Admin to ${verb}?\n\nYour current game will be saved and kept in recovery saves.`)) return;
+      game.save();
+      SaveSlots.preserveActive('Before scenario construction');
+      location.href = location.pathname + '?editor=1';
+      return;
+    }
+
     const card = e.target.closest('.scenario-card');
     if (!card) return;
     const id = card.dataset.id;
@@ -110,8 +152,8 @@ function showScenarioPicker(game) {
     SaveSlots.preserveActive('Before ' + scenario.name);
     localStorage.removeItem('beamlineTycoon');
     if (scenario.generator) {
-      localStorage.setItem('beamlineTycoon.pendingScenario', id);
-    }
+      localStorage.setItem(PENDING_SCENARIO_KEY, id);
+    } else localStorage.removeItem(PENDING_SCENARIO_KEY);
     sessionStorage.setItem('beamlineTycoon.skipTitle', '1');
     location.reload();
   });
@@ -138,7 +180,7 @@ function showScenarioPicker(game) {
   const skipTitle = skipTitleFlag
     || IS_EDITOR
     || bootParams.has('demo') || location.hash.includes('demo')
-    || !!localStorage.getItem('beamlineTycoon.pendingScenario');
+    || !!localStorage.getItem(PENDING_SCENARIO_KEY);
   const titleScreen = skipTitle ? null : new TitleScreen();
 
   // Music player boots first: its manifest fetch is tiny, so the soundtrack
@@ -327,7 +369,12 @@ function showScenarioPicker(game) {
   // normal boot path picks the save right back up.
   if (IS_EDITOR) {
     const { ScenarioEditor } = await import('./ui/ScenarioEditor.js');
-    const scenarioEditor = new ScenarioEditor(game);
+    // Re-entering Scenario Admin edits the local default instead of silently
+    // starting over. Custom scenarios are fully serialized map data, so no
+    // dynamic setup hook is required here.
+    const existingScenario = loadCustomScenario();
+    if (existingScenario?.data) game.applyScenario(existingScenario.data);
+    const scenarioEditor = new ScenarioEditor(game, existingScenario);
     scenarioEditor.init();
     window.scenarioEditor = scenarioEditor;
   } else {
@@ -336,11 +383,17 @@ function showScenarioPicker(game) {
     // Apply pending scenario (set by scenario picker or the editor's
     // "Play This Scenario" before reload). resolveScenario also checks the
     // beamlineTycoon.customScenario slot for editor-exported scenarios.
-    const pendingScenario = localStorage.getItem('beamlineTycoon.pendingScenario');
+    const pendingScenario = localStorage.getItem(PENDING_SCENARIO_KEY);
     if (pendingScenario) {
-      localStorage.removeItem('beamlineTycoon.pendingScenario');
+      localStorage.removeItem(PENDING_SCENARIO_KEY);
       const scenario = resolveScenario(pendingScenario);
       if (scenario?.generator) {
+        if (scenario.sandbox === true) {
+          // devMode pins funding at 1e12 every tick and would hide the balance
+          // signal this scenario is meant to expose.
+          if (game.devMode) game.setDevMode(false);
+          if (!game.sandboxMode) game.setSandboxMode(true);
+        }
         const mapData = scenario.generator();
         game.applyScenario(mapData);
         // Dynamic scenario content (beamline, pipes, utility wiring) builds
@@ -487,17 +540,6 @@ function showScenarioPicker(game) {
   // Menu dropdown toggle
   const menuBtn = document.getElementById('btn-menu');
   const menuDropdown = document.getElementById('menu-dropdown');
-  // Dev-only Scenario Editor entry — appended at runtime so it never
-  // exists in production (import.meta.env.DEV is compile-time false there).
-  if (import.meta.env.DEV) {
-    const editorItem = document.createElement('button');
-    editorItem.className = 'menu-item';
-    editorItem.dataset.action = 'scenario-editor';
-    editorItem.textContent = 'Scenario Editor';
-    const scenariosItem = menuDropdown.querySelector('[data-action="scenarios"]');
-    if (scenariosItem) scenariosItem.after(editorItem);
-    else menuDropdown.appendChild(editorItem);
-  }
   menuBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     menuDropdown.classList.toggle('hidden');
@@ -517,6 +559,8 @@ function showScenarioPicker(game) {
           game.save();
           SaveSlots.preserveActive('Before new game');
           localStorage.removeItem('beamlineTycoon');
+          if (import.meta.env.DEV) stageDefaultStartingScenario();
+          else localStorage.removeItem(PENDING_SCENARIO_KEY);
           location.reload();
         }
         break;
@@ -528,13 +572,6 @@ function showScenarioPicker(game) {
         break;
       case 'scenarios':
         showScenarioPicker(game);
-        break;
-      case 'scenario-editor':
-        if (import.meta.env.DEV) {
-          if (!confirm('Enter the Scenario Editor?\n\nYour current game is saved and resumes when you exit the editor.')) break;
-          game.save();
-          location.href = location.pathname + '?editor=1';
-        }
         break;
       case 'options':
         optionsDialog.open();
@@ -611,6 +648,8 @@ function showScenarioPicker(game) {
         game.save();
         SaveSlots.preserveActive('Before new game');
         localStorage.removeItem('beamlineTycoon');
+        if (import.meta.env.DEV) stageDefaultStartingScenario();
+        else localStorage.removeItem(PENDING_SCENARIO_KEY);
         location.reload();
       },
       onScenarios: () => showScenarioPicker(game),

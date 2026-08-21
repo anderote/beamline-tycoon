@@ -3,9 +3,9 @@
 // Entered via ?editor=1 (or the dev-only Menu item). main.js only imports
 // this module behind `import.meta.env.DEV`, so none of it ships in the
 // production bundle. The editor session:
-//   - runs on a fresh blank world (main.js skips game.load())
+//   - runs on a fresh blank world, or the existing local default for revision
 //   - never writes the active save (game.suppressAutosave)
-//   - has dev-mode economics + all research unlocked, so nothing is
+//   - has sandbox economics + all research unlocked, so nothing is
 //     placement-locked while designing
 //   - exports the built world as scenario data: a downloadable .json, a
 //     ready-to-paste .js generator module (console + clipboard), and a
@@ -13,12 +13,16 @@
 
 import { RESEARCH } from '../data/research.js';
 import { serializeCornerHeights } from '../game/terrain.js';
-import { CUSTOM_SCENARIO_KEY, CUSTOM_SCENARIO_ID } from '../data/scenarios.js';
+import {
+  CUSTOM_SCENARIO_ID,
+  PENDING_SCENARIO_KEY,
+  saveCustomScenario,
+} from '../data/scenarios.js';
 
 export class ScenarioEditor {
-  constructor(game) {
+  constructor(game, existingScenario = null) {
     this.game = game;
-    this._lastName = 'My Scenario';
+    this._lastName = existingScenario?.name || 'Local Balance Sandbox';
   }
 
   init() {
@@ -26,10 +30,11 @@ export class ScenarioEditor {
     g.editorMode = true;
     // Never touch the player's active save from an editor session.
     g.suppressAutosave = true;
-    // Dev economics WITHOUT persisting the devMode flag to localStorage
-    // (setDevMode would leak dev mode into the player's normal sessions).
-    g.devMode = true;
-    g.state.resources.funding = 1e12;
+    // Free construction WITHOUT persisting the sandbox flag from the editor
+    // session. Unlike devMode, this leaves the actual balance moving so the
+    // same contract is exercised while authoring and while play-testing.
+    g.devMode = false;
+    g.sandboxMode = true;
     // No first-run popups while designing.
     g.state.welcomeSeen = true;
     g.state.tutorialDismissed = true;
@@ -39,7 +44,7 @@ export class ScenarioEditor {
 
     this._mountBadge();
     this._mountToolbar();
-    g.log('SCENARIO EDITOR — free build; nothing is saved. Use Export / Play This Scenario.', 'info');
+    g.log('SCENARIO CONSTRUCTION — free build; operating income and upkeep remain live. Use Save + Playtest to make this the local default.', 'info');
   }
 
   // === UI ===
@@ -48,7 +53,7 @@ export class ScenarioEditor {
     const title = document.getElementById('game-title');
     const badge = document.createElement('div');
     badge.id = 'editor-badge';
-    badge.textContent = 'EDITOR MODE';
+    badge.textContent = 'SCENARIO ADMIN';
     badge.title = 'Scenario Editor — click to exit';
     badge.addEventListener('click', () => this.exit());
     if (title && title.parentNode) title.after(badge);
@@ -68,7 +73,7 @@ export class ScenarioEditor {
       return b;
     };
     mk('Export', 'Export Scenario — download .json + copy a .js generator module to clipboard/console', () => this.exportScenario());
-    mk('Play', 'Play This Scenario — apply the built world as a scenario and playtest it with normal economics', () => this.playScenario());
+    mk('Save + Playtest', 'Save as the local New Game default and playtest with free construction plus real operating economics', () => this.playScenario());
     mk('Exit', 'Exit Editor — leave the editor and resume your saved game', () => this.exit());
     // Sit inline in the top bar, right after the EDITOR MODE badge.
     const badge = document.getElementById('editor-badge');
@@ -167,19 +172,21 @@ export class ScenarioEditor {
   // === PLAY-TEST LOOP ===
 
   playScenario() {
-    if (!confirm('Play this scenario now?\n\nThis replaces your current active save (same as starting any scenario) and leaves the editor.')) return;
-    const meta = { id: CUSTOM_SCENARIO_ID, name: this._lastName };
+    const meta = this._promptMeta();
+    if (!meta) return;
+    if (!confirm(`Save "${meta.name}" as the local default and start a sandbox playtest now?\n\nConstruction stays free, while income and recurring operating costs remain real.`)) return;
     const data = this.collectScenarioData();
     try {
-      localStorage.setItem(CUSTOM_SCENARIO_KEY, JSON.stringify({ id: meta.id, name: meta.name, data }));
+      saveCustomScenario({ ...meta, data, sandbox: true });
     } catch (e) {
       alert('Could not store the scenario in localStorage (quota?): ' + e.message);
       return;
     }
     localStorage.removeItem('beamlineTycoon');
-    localStorage.setItem('beamlineTycoon.pendingScenario', CUSTOM_SCENARIO_ID);
+    localStorage.setItem(PENDING_SCENARIO_KEY, CUSTOM_SCENARIO_ID);
     sessionStorage.setItem('beamlineTycoon.skipTitle', '1');
-    // Reload WITHOUT the editor flag → normal economics.
+    // Reload WITHOUT the editor flag → sandbox construction with the real
+    // tick economy (the stored scenario carries sandbox: true).
     location.href = location.pathname;
   }
 

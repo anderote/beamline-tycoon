@@ -211,7 +211,7 @@ export function commitPanelAutoConnect(game, plan) {
         const actual = runWiringCost(utilityType, committedSubL) || {};
         for (const [resource, amount] of Object.entries(planCost)) {
           const refund = amount - (actual[resource] || 0);
-          if (refund > 0) game.state.resources[resource] += refund;
+          if (refund > 0) game.refundConstruction({ [resource]: refund }, 1);
         }
       }
       return committed.length > 0 ? committed : null;

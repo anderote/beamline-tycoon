@@ -149,7 +149,9 @@ UIHost.prototype.showPopup = function(node, screenX, screenY) {
     html += `<div class="popup-health-bar"><div class="popup-health-fill" style="width:${health}%;background:${healthColor}"></div></div>`;
 
     // Actions
-    const refund = Object.entries(comp.cost).map(([r, a]) => `${Math.floor(a * 0.5)} ${r}`).join(', ');
+    const refund = this.game.sandboxMode
+      ? 'no refund · sandbox build'
+      : Object.entries(comp.cost).map(([r, a]) => `${Math.floor(a * 0.5)} ${r}`).join(', ');
     html += '<div class="popup-actions">';
     html += `<button class="btn-danger" id="popup-remove-btn">Recycle (${refund})</button>`;
     html += '<button class="popup-probe-btn" id="popup-probe-btn">Probe</button>';
@@ -298,7 +300,7 @@ UIHost.prototype.showFacilityPopup = function(equip, comp, screenX, screenY) {
     html += `<div>Category: ${comp.category}</div>`;
     for (const r of utilityStatRows(comp)) html += `<div>${r.label}: ${r.value}</div>`;
     html += `</div>`;
-    html += `<div class="popup-actions"><button class="btn-danger" id="popup-remove-facility-btn">Remove (50% refund)</button></div>`;
+    html += `<div class="popup-actions"><button class="btn-danger" id="popup-remove-facility-btn">${this.game.sandboxMode ? 'Remove (no sandbox refund)' : 'Remove (50% refund)'}</button></div>`;
     body.innerHTML = html;
 
     document.getElementById('popup-remove-facility-btn')?.addEventListener('click', () => {

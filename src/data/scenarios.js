@@ -15,10 +15,12 @@ import { generateSmallBeamlineFacility, setupSmallBeamlineFacility } from './sce
 // (floors, zones, walls, doors, placeables, beamPipes, utilityLines, ...).
 export const CUSTOM_SCENARIO_KEY = 'beamlineTycoon.customScenario';
 export const CUSTOM_SCENARIO_ID = '__custom__';
+export const DEFAULT_STARTING_SCENARIO_KEY = 'beamlineTycoon.defaultStartingScenario';
+export const PENDING_SCENARIO_KEY = 'beamlineTycoon.pendingScenario';
 
-export function loadCustomScenario() {
+export function loadCustomScenario(storage = globalThis.localStorage) {
   try {
-    const raw = localStorage.getItem(CUSTOM_SCENARIO_KEY);
+    const raw = storage?.getItem(CUSTOM_SCENARIO_KEY);
     if (!raw) return null;
     const obj = JSON.parse(raw);
     if (!obj || typeof obj !== 'object' || !obj.data) return null;
@@ -26,19 +28,61 @@ export function loadCustomScenario() {
   } catch (_) { return null; }
 }
 
+/**
+ * Persist the dev-authored scenario and optionally make it the layout used by
+ * New Game. The payload keeps the sandbox flag with the scenario instead of
+ * relying on whichever global Options setting happened to be active while it
+ * was authored.
+ */
+export function saveCustomScenario(payload, {
+  storage = globalThis.localStorage,
+  makeDefault = true,
+} = {}) {
+  if (!storage || !payload?.data) throw new Error('Scenario data is required');
+  const stored = {
+    id: payload.id || 'customScenario',
+    name: payload.name || 'Custom Scenario',
+    data: payload.data,
+    sandbox: payload.sandbox !== false,
+  };
+  storage.setItem(CUSTOM_SCENARIO_KEY, JSON.stringify(stored));
+  if (makeDefault) storage.setItem(DEFAULT_STARTING_SCENARIO_KEY, CUSTOM_SCENARIO_ID);
+  return stored;
+}
+
 // Resolve a scenario id (registry id or the custom slot) to a
 // { id, name, generator } shape usable by the boot path and picker.
-export function resolveScenario(id) {
+export function resolveScenario(id, storage = globalThis.localStorage) {
   if (id === CUSTOM_SCENARIO_ID) {
-    const custom = loadCustomScenario();
+    const custom = loadCustomScenario(storage);
     if (!custom) return null;
     return {
       id: CUSTOM_SCENARIO_ID,
       name: custom.name || 'Custom Scenario',
       generator: () => custom.data,
+      sandbox: custom.sandbox === true,
     };
   }
   return SCENARIOS.find(s => s.id === id) || null;
+}
+
+/** Return a valid locally configured New Game scenario, or null. */
+export function loadDefaultStartingScenarioId(storage = globalThis.localStorage) {
+  try {
+    const id = storage?.getItem(DEFAULT_STARTING_SCENARIO_KEY);
+    return id && resolveScenario(id, storage) ? id : null;
+  } catch (_) { return null; }
+}
+
+/**
+ * Stage the local default for the normal pending-scenario boot path. Keeping
+ * this decision here makes title-screen and in-game New Game behave alike.
+ */
+export function stageDefaultStartingScenario(storage = globalThis.localStorage) {
+  const id = loadDefaultStartingScenarioId(storage);
+  if (id) storage?.setItem(PENDING_SCENARIO_KEY, id);
+  else storage?.removeItem(PENDING_SCENARIO_KEY);
+  return id;
 }
 
 export const SCENARIOS = [

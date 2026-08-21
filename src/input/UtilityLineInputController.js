@@ -664,7 +664,7 @@ export class UtilityLineInputController {
           const actual = this._wiringCost(subL) || {};
           for (const [r, amount] of Object.entries(planCost)) {
             const back = amount - (actual[r] || 0);
-            if (back > 0) game.state.resources[r] += back;
+            if (back > 0) game.refundConstruction({ [r]: back }, 1);
           }
         }
         return committed.length > 0 ? committed : null;

@@ -28,6 +28,7 @@ import { fmtMoney, ROLE_COLORS, staffInitials, staffMoodClass, escapeHtml } from
 import { paletteUtilityTags, utilityStatRows } from './utility-supply.js';
 import { appendRequiredPortRequirements } from './required-port-preview.js';
 import { beamlineEnergyDraw, facilityEnergyDraw } from '../game/aggregates.js';
+import { canAffordFunding } from '../game/affordability.js';
 import { makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
 import { portWorldPosition } from '../utility/ports.js';
 import { ADVICE_LEVELS, ADVICE_LEVEL_STORAGE_KEY } from '../advisor/engine.js';
@@ -1153,7 +1154,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
           const c = variantCost(infra, vi);
           costEl.textContent = `${fmtMoney(c)}/seg`;
           hoverStats[0][1] = `${fmtMoney(c)}/segment`;
-          item.classList.toggle('unaffordable', this.game.state.resources.funding < c);
+          item.classList.toggle('unaffordable', !canAffordFunding(this.game, c));
         };
 
         if (infra.variants && infra.variants.length > 1) {
@@ -1455,7 +1456,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
           const c = variantCost(win, vi);
           costEl.textContent = `${fmtMoney(c)}/seg`;
           hoverStats[0][1] = `${fmtMoney(c)}/segment`;
-          item.classList.toggle('unaffordable', this.game.state.resources.funding < c);
+          item.classList.toggle('unaffordable', !canAffordFunding(this.game, c));
         };
 
         if (win.variants && win.variants.length > 1) {

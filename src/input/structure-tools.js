@@ -29,6 +29,7 @@ import { Tool } from './Tool.js';
 import { FLOOR_INTERFACE_HOVER_THRESHOLD } from './floor-wall-paths.js';
 import { FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, WALL_PAINTS } from '../data/structure.js';
 import { doorOffFromFrac, findWallKey, findEdgeKey } from '../game/edge-keys.js';
+import { canAffordFunding } from '../game/affordability.js';
 import { isoToGrid } from '../renderer/grid.js';
 
 export class FloorTool extends Tool {
@@ -72,7 +73,7 @@ export class FloorTool extends Tool {
       foundationName: infra?.requiresFoundation
         ? (FLOORS[infra.requiresFoundation]?.name || infra.requiresFoundation)
         : null,
-      insufficientFunding: ctx.game.state.resources.funding < cost.totalCost,
+      insufficientFunding: !canAffordFunding(ctx.game, cost.totalCost),
     });
   }
 
@@ -125,7 +126,7 @@ export class FloorTool extends Tool {
         foundationName: infra?.requiresFoundation
           ? (FLOORS[infra.requiresFoundation]?.name || infra.requiresFoundation)
           : null,
-        insufficientFunding: ctx.game.state.resources.funding < lineCost.totalCost,
+        insufficientFunding: !canAffordFunding(ctx.game, lineCost.totalCost),
       });
       return true;
     }
@@ -356,7 +357,7 @@ export class WallTool extends Tool {
     const cost = this._pathCost(ctx, path);
     ctx.input._showDragCostTooltip(cost, screenX, screenY, {
       note: this._selectionNote(selection),
-      insufficientFunding: ctx.game.state.resources.funding < cost,
+      insufficientFunding: !canAffordFunding(ctx.game, cost),
     });
   }
 
@@ -701,7 +702,7 @@ export class WindowTool extends Tool {
     const heldType = game.state.windowOccupied[key] || game.state.windowOccupied[aliasKey];
     if (heldType === this.windowType) return { valid: true, reason: null };
     const cost = def.variantCosts?.[this.variant] ?? def.cost;
-    if (game.state.resources.funding < cost) return { valid: false, reason: 'Insufficient funding' };
+    if (!canAffordFunding(game, cost)) return { valid: false, reason: 'Insufficient funding' };
     return { valid: true, reason: null };
   }
 

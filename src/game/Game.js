@@ -291,11 +291,11 @@ export class Game {
       } catch (_) { return false; }
     })();
 
-    // Sandbox mode — nothing is charged, but the balance is REAL. Distinct
+    // Sandbox mode — capital construction is free, but the balance is REAL. Distinct
     // from devMode, which pins funding at 1e12 and so hides what the facility
     // actually earns. Here income, upkeep accounting, research and every
-    // physics consequence run normally and prices are still displayed; the
-    // debits simply do not land. Persisted the same way devMode is.
+    // physics consequence run normally and prices are still displayed;
+    // construction/action debits do not land. Persisted like devMode.
     this.sandboxMode = (() => {
       try {
         if (typeof window !== 'undefined' && window.location?.search.includes('sandbox=1')) return true;
@@ -511,6 +511,7 @@ export class Game {
       emit: this.emit.bind(this),
       log: this.log.bind(this),
       spend: this.spend.bind(this),
+      refund: this.refundConstruction.bind(this),
       canAfford: this.canAfford.bind(this),
       isUnlocked: this.isComponentUnlocked.bind(this),
       placePlaceable: (opts) => this._placePlaceableInner(opts, { skipBeamlineRoute: true }),
@@ -984,7 +985,10 @@ export class Game {
 
     const gesture = this.beginGesture();
     let result;
-    let refund = !!costs;   // cleared once the mutation reports success
+    // Sandbox spend() is intentionally a no-op, so there is nothing to hand
+    // back if the mutation fails. Treating it as charged would mint resources
+    // on every rejected sandbox gesture.
+    let refund = !!costs && !this.sandboxMode;   // cleared once mutation succeeds
     try {
       if (costs) this.spend(costs);
       result = mutate();
@@ -1049,7 +1053,7 @@ export class Game {
   /**
    * Sandbox mode: build anything without being charged for it.
    *
-   * Deliberately narrow — it suppresses SPENDING only. Income, upkeep,
+   * Deliberately narrow — it suppresses construction/action spending only. Income, upkeep,
    * research, reputation and every physics consequence still run exactly as in
    * a normal game, and prices are still displayed, because the point is to
    * design machines without the capital grind rather than to disable the
@@ -1060,7 +1064,7 @@ export class Game {
     this.sandboxMode = !!on;
     try { localStorage.setItem('beamlineTycoon.sandboxMode', this.sandboxMode ? '1' : '0'); } catch (_) {}
     this.log(this.sandboxMode
-      ? 'SANDBOX MODE ON — nothing is charged. Income still accrues.'
+      ? 'BALANCE SANDBOX ON — construction is free; income and operating costs stay live.'
       : 'SANDBOX MODE OFF — costs are charged normally.', 'good');
     this.emit('resourcesChanged');
   }
@@ -1118,6 +1122,23 @@ export class Game {
   }
 
   /**
+   * Credit a construction/demolition refund. Free sandbox construction has no
+   * paid basis to refund, so suppressing this alongside spend() prevents a
+   * build/remove loop from masquerading as operating profit.
+   */
+  refundConstruction(costs, fraction = 0.5) {
+    const credited = {};
+    for (const [resource, amount] of Object.entries(costs || {})) {
+      const refund = this.sandboxMode ? 0 : Math.floor(amount * fraction);
+      credited[resource] = refund;
+      if (refund > 0) {
+        this.state.resources[resource] = (this.state.resources[resource] || 0) + refund;
+      }
+    }
+    return credited;
+  }
+
+  /**
    * Charge a construction cost — funding, and (task 5, staff-professions-3)
    * optionally spares — in one debit. Every build-time debit of either
    * resource goes through here rather than writing `resources.funding -=` /
@@ -1134,7 +1155,14 @@ export class Game {
   chargeConstruction(cost) {
     if (this.sandboxMode) return;
     const c = typeof cost === 'number' ? { funding: cost } : (cost || {});
-    if (c.funding) this.state.resources.funding -= c.funding;
+    for (const [resource, amount] of Object.entries(c)) {
+      if (!amount) continue;
+      if (resource === 'spares') {
+        this.state.resources[resource] = Math.max(0, (this.state.resources[resource] || 0) - amount);
+      } else {
+        this.state.resources[resource] = (this.state.resources[resource] || 0) - amount;
+      }
+    }
   }
 
   /**
@@ -1145,7 +1173,12 @@ export class Game {
    * the panel reports a cost the player never paid, or misses one they did.
    */
   chargeReservoirRefill(costs) {
-    this.spend(costs);
+    // Reservoir consumables are operating costs, not capital construction.
+    // They must move the sandbox balance or the published economy snapshot
+    // would report an expense that was never actually paid.
+    for (const [resource, amount] of Object.entries(costs || {})) {
+      this.state.resources[resource] = (this.state.resources[resource] || 0) - amount;
+    }
     this._refillsCharged += (costs?.funding || 0);
   }
 
@@ -1213,7 +1246,7 @@ export class Game {
       const def = DECORATIONS[existingDec.type];
       totalCost += def ? (def.removeCost || 0) : 0;
     }
-    if (!free && this.state.resources.funding < totalCost) return false;
+    if (!free && !this.canAfford({ funding: totalCost })) return false;
     if (existingDec) this.removeDecoration(col, row, { skipRefund: true });
     // Track foundation for surface tiles placed on top of a foundation
     let foundation = null;
@@ -1360,7 +1393,7 @@ export class Game {
       }
       return true;
     }
-    if (this.state.resources.funding < totalCost) {
+    if (!this.canAfford({ funding: totalCost })) {
       this.log(`Need $${totalCost} for ${newTiles} tiles!`, 'bad');
       return false;
     }
@@ -1635,7 +1668,7 @@ export class Game {
       return true;
     }
     const segCost = wt.variantCosts?.[variant] ?? wt.cost;
-    if (this.state.resources.funding < segCost) return false;
+    if (!this.canAfford({ funding: segCost })) return false;
     if (heldKey) {
       this.state.wallOverlays = this.state.wallOverlays.filter(
         w => edgeKey(w.col, w.row, w.edge) !== heldKey
@@ -1657,7 +1690,7 @@ export class Game {
     if (!key) return false;
     const entry = this._wallOverlayAt(key);
     const wt = WALL_TYPES[this.state.wallOverlayOccupied[key]];
-    if (wt) this.state.resources.funding += Math.floor(variantCost(wt, entry?.variant ?? 0) * 0.5);
+    if (wt) this.refundConstruction({ funding: variantCost(wt, entry?.variant ?? 0) });
     this.state.wallOverlays = this.state.wallOverlays.filter(
       w => edgeKey(w.col, w.row, w.edge) !== key
     );
@@ -1681,7 +1714,7 @@ export class Game {
       }
       return true;
     }
-    if (this.state.resources.funding < segCost) return false;
+    if (!this.canAfford({ funding: segCost })) return false;
     const replaced = this.state.wallOccupied[key] ? this._wallAt(key) : null;
     const requestedSite = { type: wallType, col, row, edge };
     const site = wt.insetSubtiles
@@ -1737,7 +1770,7 @@ export class Game {
         }
         continue;
       }
-      if (this.state.resources.funding < segCost) break;
+      if (!this.canAfford({ funding: segCost })) break;
       const replaced = this.state.wallOccupied[key] ? this._wallAt(key) : null;
       const requestedSite = { type: wallType, col: pt.col, row: pt.row, edge: pt.edge };
       const site = wt.insetSubtiles
@@ -1784,7 +1817,7 @@ export class Game {
       // Same rule removeWindow uses. _wallAt resolves either spelling of the
       // edge (see edge-keys.js), so a mirrored record still prices correctly.
       const existing = this._wallAt(key);
-      this.state.resources.funding += Math.floor(variantCost(wt, existing?.variant ?? 0) * 0.5);
+      this.refundConstruction({ funding: variantCost(wt, existing?.variant ?? 0) });
     }
     const removedWall = this._wallAt(key);
     this._releaseWallInset(removedWall);
@@ -1800,7 +1833,7 @@ export class Game {
     const doorKey = findEdgeKey(this.state.doorOccupied, col, row, edge);
     if (doorKey) {
       const dt = DOOR_TYPES[this.state.doorOccupied[doorKey]];
-      if (dt) this.state.resources.funding += Math.floor(dt.cost * 0.5);
+      if (dt) this.refundConstruction({ funding: dt.cost });
       this.state.doors = this.state.doors.filter(d => edgeKey(d.col, d.row, d.edge) !== doorKey);
       delete this.state.doorOccupied[doorKey];
       this.emit('doorsChanged');
@@ -1917,7 +1950,7 @@ export class Game {
     // Funding gates every state mutation below: check it before touching
     // state.doors, or an insufficient-funds replacement leaves the old
     // entry filtered out of the array while doorOccupied still names it.
-    if (this.state.resources.funding < dt.cost) {
+    if (!this.canAfford({ funding: dt.cost })) {
       this.log(`Not enough funding for a ${dt.name} ($${dt.cost})`, 'bad');
       return false;
     }
@@ -1964,7 +1997,7 @@ export class Game {
         if (this._updateDoorRecord(site.key, variant, site.off)) updated++;
         continue;
       }
-      if (this.state.resources.funding < dt.cost) { brokeOnFunding = true; break; }
+      if (!this.canAfford({ funding: dt.cost })) { brokeOnFunding = true; break; }
       if (this.state.doorOccupied[site.key]) {
         this.state.doors = this.state.doors.filter(d => edgeKey(d.col, d.row, d.edge) !== site.key);
       }
@@ -2016,7 +2049,7 @@ export class Game {
     }
     const doorType = this.state.doorOccupied[key];
     const dt = DOOR_TYPES[doorType];
-    if (dt) this.state.resources.funding += Math.floor(dt.cost * 0.5);
+    if (dt) this.refundConstruction({ funding: dt.cost });
     this.state.doors = this.state.doors.filter(d => edgeKey(d.col, d.row, d.edge) !== key);
     delete this.state.doorOccupied[key];
     this._refreshWallInsetOccupancy();
@@ -2118,7 +2151,7 @@ export class Game {
     // Funding gates every state mutation below: check it before touching
     // state.windows, or an insufficient-funds replacement leaves the old
     // entry filtered out of the array while windowOccupied[key] still names it.
-    if (this.state.resources.funding < segCost) return false;
+    if (!this.canAfford({ funding: segCost })) return false;
     if (held) {
       // Same-kind replacement: drop the old window without a refund, exactly
       // as an exact-key replacement always has, so the outcome cannot depend
@@ -2168,7 +2201,7 @@ export class Game {
         : (this.state.windowOccupied[aliasKey] ? alias : null);
       const heldKey = held ? `${held.col},${held.row},${held.edge}` : null;
       if (held && this.state.windowOccupied[heldKey] === windowType) continue;
-      if (this.state.resources.funding < segCost) break;
+      if (!this.canAfford({ funding: segCost })) break;
       if (held) {
         this.state.windows = this.state.windows.filter(
           w => `${w.col},${w.row},${w.edge}` !== heldKey
@@ -2201,7 +2234,7 @@ export class Game {
       // variantCosts[variant] when the type declares them, so a flat
       // wt.cost refund would pay back the wrong amount on every non-default
       // variant (short on a Mirrored picture window, over on a Grimy sash).
-      this.state.resources.funding += Math.floor(variantCost(wt, entry?.variant ?? 0) * 0.5);
+      this.refundConstruction({ funding: variantCost(wt, entry?.variant ?? 0) });
     }
     this.state.windows = this.state.windows.filter(
       w => !(w.col === col && w.row === row && w.edge === edge)
@@ -3165,9 +3198,7 @@ export class Game {
     // method's own header for why a beamline component's spares cost has to
     // be folded back in here rather than read off the static definition.
     if (!opts.skipRefund && placeable.cost) {
-      for (const [r, a] of Object.entries(this._refundCostFor(placeable) || {})) {
-        this.state.resources[r] += Math.floor(a * 0.5);
-      }
+      this.refundConstruction(this._refundCostFor(placeable));
     }
 
     // Lifecycle hook — runs before we clear cells / remove the entry so
@@ -3254,7 +3285,7 @@ export class Game {
     this._rebuildPlaceableIndex();
     this._markNavDirty();
 
-    this.log(`Removed ${placeable.name} (50% refund)`, 'info');
+    this.log(`Removed ${placeable.name} (${this.sandboxMode ? 'no sandbox refund' : '50% refund'})`, 'info');
 
     if (entry.category === 'beamline') {
       this._deriveBeamGraph();
@@ -3303,11 +3334,7 @@ export class Game {
 
     const updates = collapsePlan(placeableId, getEntry, getDef);
 
-    if (placeable.cost) {
-      for (const [r, a] of Object.entries(this._refundCostFor(placeable) || {})) {
-        this.state.resources[r] += Math.floor(a * 0.5);
-      }
-    }
+    if (placeable.cost) this.refundConstruction(this._refundCostFor(placeable));
 
     placeable.onRemoved(this, entry);
 
@@ -3363,7 +3390,7 @@ export class Game {
     this._rebuildPlaceableIndex();
     this._markNavDirty();
 
-    this.log(`Removed ${placeable.name} (50% refund)`, 'info');
+    this.log(`Removed ${placeable.name} (${this.sandboxMode ? 'no sandbox refund' : '50% refund'})`, 'info');
 
     if (entry.category === 'beamline') {
       this._deriveBeamGraph();
@@ -3490,11 +3517,11 @@ export class Game {
           // payout — removePlaceable's own 50% refund would double it.
           this.removePlaceable(pid, { skipRefund: true });
         }
-        this.state.resources.funding += refund;
+        const credited = this.refundConstruction({ funding: refund }, 1).funding || 0;
         if (this.editingBeamlineId === target.beamlineId) this.editingBeamlineId = null;
         if (this.selectedBeamlineId === target.beamlineId) this.selectedBeamlineId = null;
         this.registry.removeBeamline(target.beamlineId);
-        this.log(`Demolished beamline (+$${refund.toLocaleString()})`, 'good');
+        this.log(`Demolished beamline (+$${credited.toLocaleString()})`, 'good');
         this.recalcAllBeamlines();
         this.computeSystemStats();
         this.emit('beamlineChanged');
@@ -3672,12 +3699,7 @@ export class Game {
     this.utilityLineSystem.onPlaceableRemoved(attachmentId);
     if (!this.utilityLineSystem.removeAttachment(lineId, attachmentId)) return false;
     const def = COMPONENTS[attachment.type];
-    let fundingRefund = 0;
-    for (const [resource, amount] of Object.entries(def?.cost || {})) {
-      const refund = Math.floor(amount * 0.5);
-      this.state.resources[resource] = (this.state.resources[resource] || 0) + refund;
-      if (resource === 'funding') fundingRefund = refund;
-    }
+    const fundingRefund = this.refundConstruction(def?.cost || {}).funding || 0;
     this.emit('resourcesChanged');
     this.log(`Removed ${def?.name || attachment.type} (+$${fundingRefund.toLocaleString()})`, 'info');
     return true;
@@ -3692,8 +3714,7 @@ export class Game {
       this.utilityLineSystem.onPlaceableRemoved(attachment.id);
       const def = COMPONENTS[attachment.type];
       for (const [resource, amount] of Object.entries(def?.cost || {})) {
-        const refund = Math.floor(amount * 0.5);
-        this.state.resources[resource] = (this.state.resources[resource] || 0) + refund;
+        const refund = this.refundConstruction({ [resource]: amount })[resource] || 0;
         if (resource === 'funding') fundingRefund += refund;
       }
     }
@@ -3743,22 +3764,20 @@ export class Game {
     // hand-rolled formula floored the basis at one full tile while the charge
     // floors at 0.25 tiles, so a 0.25-tile stub cost $2,500 and refunded
     // $5,000 — a repeatable money printer off any free port.
-    if (!opts.skipRefund) this.state.resources.funding += pipeRefund(pipe);
+    if (!opts.skipRefund) this.refundConstruction({ funding: pipeRefund(pipe) }, 1);
 
     // Refund all placements on this pipe (50%), and detach any utility line
     // wired to one — they are utility endpoints, and the pipe is going away.
     for (const att of (pipe.placements || [])) {
       const attDef = COMPONENTS[att.type];
       if (!opts.skipRefund && attDef && attDef.cost) {
-        for (const [r, a] of Object.entries(this._refundCostFor(attDef) || {})) {
-          this.state.resources[r] += Math.floor(a * 0.5);
-        }
+        this.refundConstruction(this._refundCostFor(attDef));
       }
       if (this.utilityLineSystem) this.utilityLineSystem.onPlaceableRemoved(att.id);
     }
 
     this.state.beamPipes.splice(idx, 1);
-    if (!opts.silent) this.log('Removed beam pipe (50% refund)', 'info');
+    if (!opts.silent) this.log(`Removed beam pipe (${this.sandboxMode ? 'no sandbox refund' : '50% refund'})`, 'info');
     this._deriveBeamGraph();
     this.schedulePhysicsRecalc();
     this.emit('beamlineChanged');
@@ -4837,7 +4856,10 @@ export class Game {
     econ.staff = upkeep.staffCost;
     econ.pumps = upkeep.pumpUpkeep;
     econ.power = upkeep.powerBill;
-    this.chargeConstruction(upkeep.total);
+    // Sandbox only waives capital/action spending. Salaries, pump service and
+    // electricity are the balance signal this mode exists to measure, so the
+    // recurring bill always lands on the real balance.
+    this.state.resources.funding -= upkeep.total;
 
     // Staff development loop. Break/needs simulation is temporarily disabled
     // by STAFF_BREAKS_ENABLED, so workers remain on productive jobs steadily.
