@@ -1,7 +1,8 @@
 // src/renderer3d/builders/optics-builder.js
 //
 // Role-bucket builders for beam-optics manipulation components:
-// aperture, velocity selector, pepper-pot emittance filter.
+// solenoid, collimator, aperture, velocity selector, pepper-pot emittance
+// filter, and sextupole.
 //
 // Conventions match component-builder.js and diagnostic-builder.js:
 //   - Beam axis runs along local +Z at y = BEAM_HEIGHT.
@@ -58,6 +59,240 @@ function buildFlanges(buckets, halfLen) {
     applyTiledCylinderUVs(g, FLANGE_R, FLANGE_H, SEGS);
     pushT(buckets.detail, g, mul(trans(0, BEAM_HEIGHT, sign * halfLen), rotX(Math.PI / 2)));
   }
+}
+
+function buildTorus(bucket, majorRadius, tubeRadius, {
+  x = 0, y = BEAM_HEIGHT, z = 0, rotateX = 0, rotateY = 0,
+} = {}) {
+  const g = new THREE.TorusGeometry(majorRadius, tubeRadius, 8, 20);
+  const rotation = new THREE.Matrix4();
+  if (rotateX) rotation.multiply(new THREE.Matrix4().makeRotationX(rotateX));
+  if (rotateY) rotation.multiply(new THREE.Matrix4().makeRotationY(rotateY));
+  pushT(bucket, g, mul(trans(x, y, z), rotation));
+}
+
+function buildPedestals(buckets, zPositions, topY, { width = 0.24, depth = 0.16 } = {}) {
+  const baseH = 0.05;
+  const colH = Math.max(0.04, topY - baseH);
+  for (const z of zPositions) {
+    const base = new THREE.BoxGeometry(width + 0.14, baseH, depth + 0.06);
+    applyTiledBoxUVs(base, width + 0.14, baseH, depth + 0.06);
+    pushT(buckets.stand, base, trans(0, baseH / 2, z));
+
+    const col = new THREE.BoxGeometry(width, colH, depth);
+    applyTiledBoxUVs(col, width, colH, depth);
+    pushT(buckets.stand, col, trans(0, baseH + colH / 2, z));
+  }
+}
+
+// ── Solenoid ──────────────────────────────────────────────────────────
+// subL=2 subW=2 subH=2 → 1m long, 1m wide, 1m click volume
+// Exposed copper windings around a straight beam tube, retained between
+// painted end rings and longitudinal tie rods. The beam axis is baked at 1m,
+// so both committed hardware and its placement ghost straddle the pipe.
+export function _buildSolenoidRoles() {
+  const buckets = makeBuckets();
+  const magL = 1.0;
+  const halfLen = magL / 2;
+  const coilSpan = 0.62;
+  const coilMajorR = 0.25;
+  const coilTubeR = 0.038;
+
+  buildPipeSegment(buckets, 2);
+  buildFlanges(buckets, halfLen);
+
+  // Copper turns are the visual signature: individual toruses leave the bore
+  // and beam tube visible instead of presenting another opaque cylinder.
+  const turnCount = 8;
+  for (let i = 0; i < turnCount; i++) {
+    const z = -coilSpan / 2 + (i / (turnCount - 1)) * coilSpan;
+    buildTorus(buckets.copper, coilMajorR, coilTubeR, { z });
+  }
+
+  // Painted retaining rings and four dark tie rods clamp the winding pack.
+  const endZ = coilSpan / 2 + 0.055;
+  for (const sign of [-1, 1]) {
+    buildTorus(buckets.accent, coilMajorR + 0.015, 0.052, { z: sign * endZ });
+  }
+  const tieRadius = coilMajorR + coilTubeR + 0.025;
+  for (const angle of [Math.PI / 4, 3 * Math.PI / 4, 5 * Math.PI / 4, 7 * Math.PI / 4]) {
+    const x = Math.cos(angle) * tieRadius;
+    const y = BEAM_HEIGHT + Math.sin(angle) * tieRadius;
+    const g = new THREE.CylinderGeometry(0.018, 0.018, 2 * endZ, 8);
+    applyTiledCylinderUVs(g, 0.018, 2 * endZ, 8);
+    pushT(buckets.iron, g, mul(trans(x, y, 0), rotX(Math.PI / 2)));
+  }
+
+  // Side terminal box and copper feedthroughs make this read as a powered
+  // focusing magnet rather than a passive spool or vacuum chamber.
+  {
+    const boxW = 0.16;
+    const boxH = 0.18;
+    const boxD = 0.24;
+    const boxX = 0.37;
+    const boxY = BEAM_HEIGHT + 0.18;
+    const box = new THREE.BoxGeometry(boxW, boxH, boxD);
+    applyTiledBoxUVs(box, boxW, boxH, boxD);
+    pushT(buckets.accent, box, trans(boxX, boxY, 0));
+    for (const z of [-0.065, 0.065]) {
+      const stud = new THREE.CylinderGeometry(0.026, 0.026, 0.12, 8);
+      applyTiledCylinderUVs(stud, 0.026, 0.12, 8);
+      pushT(buckets.copper, stud, mul(
+        trans(boxX - boxW / 2 - 0.055, boxY, z),
+        rotZ(Math.PI / 2),
+      ));
+    }
+  }
+
+  // Small stainless cooling header along the opposite side of the coil pack.
+  {
+    const headerR = 0.026;
+    const headerL = coilSpan;
+    const g = new THREE.CylinderGeometry(headerR, headerR, headerL, 8);
+    applyTiledCylinderUVs(g, headerR, headerL, 8);
+    pushT(buckets.detail, g, mul(
+      trans(-0.32, BEAM_HEIGHT - 0.14, 0),
+      rotX(Math.PI / 2),
+    ));
+  }
+
+  buildPedestals(buckets, [-0.25, 0.25], BEAM_HEIGHT - (coilMajorR + coilTubeR), {
+    width: 0.22,
+    depth: 0.14,
+  });
+
+  return buckets;
+}
+
+// ── Collimator ───────────────────────────────────────────────────────
+// subL=2 subW=2 subH=2 → 1m long, 1m wide, 1m click volume
+// Four dense jaws close around a square aperture inside a shield frame. Four
+// actuator barrels and handwheels make it visibly adjustable and keep it
+// distinct from the thinner two-jaw aperture component.
+export function _buildCollimatorRoles() {
+  const buckets = makeBuckets();
+  const magL = 1.0;
+  const halfLen = magL / 2;
+  const frameOuter = 0.74;
+  const frameWall = 0.13;
+  const frameDepth = 0.56;
+
+  buildPipeSegment(buckets, 2);
+  buildFlanges(buckets, halfLen);
+
+  // Heavy square shielding frame around the beam axis.
+  for (const sign of [-1, 1]) {
+    const horizontal = new THREE.BoxGeometry(frameOuter, frameWall, frameDepth);
+    applyTiledBoxUVs(horizontal, frameOuter, frameWall, frameDepth);
+    pushT(buckets.accent, horizontal, trans(
+      0,
+      BEAM_HEIGHT + sign * (frameOuter / 2 - frameWall / 2),
+      0,
+    ));
+
+    const vertical = new THREE.BoxGeometry(
+      frameWall,
+      frameOuter - 2 * frameWall,
+      frameDepth,
+    );
+    applyTiledBoxUVs(vertical, frameWall, frameOuter - 2 * frameWall, frameDepth);
+    pushT(buckets.accent, vertical, trans(
+      sign * (frameOuter / 2 - frameWall / 2),
+      BEAM_HEIGHT,
+      0,
+    ));
+  }
+
+  // Dark face collars keep the shield block legible from the beam direction.
+  for (const zSign of [-1, 1]) {
+    const z = zSign * (frameDepth / 2 + 0.018);
+    for (const ySign of [-1, 1]) {
+      const g = new THREE.BoxGeometry(frameOuter + 0.04, 0.035, 0.035);
+      applyTiledBoxUVs(g, frameOuter + 0.04, 0.035, 0.035);
+      pushT(buckets.iron, g, trans(0, BEAM_HEIGHT + ySign * frameOuter / 2, z));
+    }
+    for (const xSign of [-1, 1]) {
+      const g = new THREE.BoxGeometry(0.035, frameOuter, 0.035);
+      applyTiledBoxUVs(g, 0.035, frameOuter, 0.035);
+      pushT(buckets.iron, g, trans(xSign * frameOuter / 2, BEAM_HEIGHT, z));
+    }
+  }
+
+  // Four copper/tungsten-colored jaw blocks stop just outside the vacuum tube.
+  const halfGap = PIPE_R + 0.025;
+  const jawReach = 0.18;
+  const jawFace = 0.28;
+  const jawDepth = 0.42;
+  for (const sign of [-1, 1]) {
+    const sideJaw = new THREE.BoxGeometry(jawReach, jawFace, jawDepth);
+    applyTiledBoxUVs(sideJaw, jawReach, jawFace, jawDepth);
+    pushT(buckets.copper, sideJaw, trans(
+      sign * (halfGap + jawReach / 2),
+      BEAM_HEIGHT,
+      0,
+    ));
+
+    const verticalJaw = new THREE.BoxGeometry(jawFace, jawReach, jawDepth);
+    applyTiledBoxUVs(verticalJaw, jawFace, jawReach, jawDepth);
+    pushT(buckets.copper, verticalJaw, trans(
+      0,
+      BEAM_HEIGHT + sign * (halfGap + jawReach / 2),
+      0,
+    ));
+  }
+
+  // Screw actuators and handwheels on all four sides. The side pair rotate
+  // around X; the vertical pair rotate around Y.
+  const rodLen = 0.20;
+  const rodCentre = halfGap + jawReach + rodLen / 2;
+  const barrelCentre = frameOuter / 2 + 0.045;
+  for (const sign of [-1, 1]) {
+    {
+      const rod = new THREE.CylinderGeometry(0.022, 0.022, rodLen, 8);
+      applyTiledCylinderUVs(rod, 0.022, rodLen, 8);
+      pushT(buckets.detail, rod, mul(
+        trans(sign * rodCentre, BEAM_HEIGHT, 0),
+        rotZ(Math.PI / 2),
+      ));
+      const barrel = new THREE.CylinderGeometry(0.052, 0.052, 0.11, 12);
+      applyTiledCylinderUVs(barrel, 0.052, 0.11, 12);
+      pushT(buckets.iron, barrel, mul(
+        trans(sign * barrelCentre, BEAM_HEIGHT, 0),
+        rotZ(Math.PI / 2),
+      ));
+      buildTorus(buckets.detail, 0.075, 0.014, {
+        x: sign * 0.47,
+        rotateY: Math.PI / 2,
+      });
+    }
+    {
+      const rod = new THREE.CylinderGeometry(0.022, 0.022, rodLen, 8);
+      applyTiledCylinderUVs(rod, 0.022, rodLen, 8);
+      pushT(buckets.detail, rod, trans(
+        0,
+        BEAM_HEIGHT + sign * rodCentre,
+        0,
+      ));
+      const barrel = new THREE.CylinderGeometry(0.052, 0.052, 0.11, 12);
+      applyTiledCylinderUVs(barrel, 0.052, 0.11, 12);
+      pushT(buckets.iron, barrel, trans(
+        0,
+        BEAM_HEIGHT + sign * barrelCentre,
+        0,
+      ));
+      buildTorus(buckets.detail, 0.075, 0.014, {
+        y: BEAM_HEIGHT + sign * 0.47,
+        rotateX: Math.PI / 2,
+      });
+    }
+  }
+
+  buildPedestals(buckets, [-0.19, 0.19], BEAM_HEIGHT - frameOuter / 2, {
+    width: 0.24,
+    depth: 0.14,
+  });
+
+  return buckets;
 }
 
 // ── Aperture ────────────────────────────────────────────────────────
