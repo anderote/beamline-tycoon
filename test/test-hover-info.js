@@ -5,6 +5,7 @@ import {
   utilityNetworkHoverInfo,
 } from '../src/ui/hover-info.js';
 import { COMPONENTS } from '../src/data/components.js';
+import { PLACEABLES } from '../src/data/placeables/index.js';
 import { UTILITY_TYPES } from '../src/utility/registry.js';
 import {
   HOVER_DETAIL_TONE_CLASSES,
@@ -30,6 +31,19 @@ const cavity = componentHoverInfo(COMPONENTS.ellipticalSrfCavity);
 assert(cavity.title === COMPONENTS.ellipticalSrfCavity.name, 'component hover names the object');
 assert(cavity.detail.includes('L-band') && cavity.detail.includes('1300 MHz'),
   'RF component hover shows band and frequency');
+
+const tree = componentHoverInfo(PLACEABLES.oakTree);
+assert(tree.detail.includes('Shift+drag: line place')
+    && tree.detail.includes('Shift+Z/X: spacing'),
+  'ground decoration hover explains line placement and spacing shortcuts');
+
+const lamppost = componentHoverInfo(PLACEABLES.lamppost);
+assert(lamppost.detail.includes('Shift+drag: line place'),
+  'ground lamp hover explains line placement');
+
+const wallSconce = componentHoverInfo(PLACEABLES.wallSconce);
+assert(!wallSconce.detail.includes('Shift+drag: line place'),
+  'wall-mounted decoration hover omits unsupported line placement');
 
 const panel = componentHoverInfo(COMPONENTS.powerPanel);
 assert(panel.detail === 'Power: 40 kW consumed · 40 kW produced',

@@ -42,6 +42,12 @@ function rfSink(ports) {
     && (p.params?.frequency > 0 || p.params?.band));
 }
 
+/** The decoration placement tool supports line placement for non-wall items. */
+function linePlacementHint(comp) {
+  if (comp?.kind !== 'decoration' || comp.mount === 'wall') return '';
+  return ' · Shift+drag: line place · Shift+Z/X: spacing';
+}
+
 /** The first accelerating RF element fixes the beam's bunch frequency. */
 export function beamlineRfOperatingInfo(nodes, components) {
   for (const node of nodes || []) {
@@ -71,6 +77,7 @@ export function componentHoverInfo(comp, { autoConnectPlan = null } = {}) {
   if (!comp) return null;
   const ports = Object.values(comp.ports || {});
   const title = comp.name || humanize(comp.id) || 'Object';
+  const detailWithHints = detail => `${detail}${linePlacementHint(comp)}`;
 
   if (Number(comp.autoConnectRadius) > 0 && autoConnectPlan) {
     const candidates = Math.max(0, Number(autoConnectPlan.candidates) || 0);
@@ -79,8 +86,10 @@ export function componentHoverInfo(comp, { autoConnectPlan = null } = {}) {
       : Math.max(0, Number(autoConnectPlan.connectable) || 0);
     return {
       title,
-      detail: `${candidates} unconnected ${autoConnectTargetLabel(autoConnectPlan.utilityType, candidates)} in range`
-        + ` · Tab connects ${connectable}`,
+      detail: detailWithHints(
+        `${candidates} unconnected ${autoConnectTargetLabel(autoConnectPlan.utilityType, candidates)} in range`
+          + ` · Tab connects ${connectable}`,
+      ),
     };
   }
 
@@ -90,7 +99,9 @@ export function componentHoverInfo(comp, { autoConnectPlan = null } = {}) {
     const consumed = powerIn > 0 ? powerIn : (Number(comp.energyCost) || 0);
     return {
       title,
-      detail: `Power: ${fmtNumber(consumed)} kW consumed · ${fmtNumber(powerOut)} kW produced`,
+      detail: detailWithHints(
+        `Power: ${fmtNumber(consumed)} kW consumed · ${fmtNumber(powerOut)} kW produced`,
+      ),
     };
   }
 
@@ -102,19 +113,22 @@ export function componentHoverInfo(comp, { autoConnectPlan = null } = {}) {
     if (hz > 0) parts.push(formatRfFrequencyHz(hz));
     const demand = Number(sink.params?.demand) || Number(comp.rfPowerRequired) || 0;
     if (demand > 0) parts.push(`${fmtNumber(demand)} kW demand`);
-    return { title, detail: `RF: ${parts.join(' · ')}` };
+    return { title, detail: detailWithHints(`RF: ${parts.join(' · ')}`) };
   }
 
   const rfOut = sumPorts(ports, ['rfWaveguide'], 'source', 'capacity');
   if (rfOut > 0) {
     const bands = (comp.rfBands || (comp.rfBand ? [comp.rfBand] : []))
       .map(b => RF_LABELS[b] || humanize(b)).join(', ');
-    return { title, detail: `RF output: ${fmtNumber(rfOut)} kW${bands ? ` · ${bands}` : ''}` };
+    return {
+      title,
+      detail: detailWithHints(`RF output: ${fmtNumber(rfOut)} kW${bands ? ` · ${bands}` : ''}`),
+    };
   }
 
   const coolingOut = sumPorts(ports, ['coolingWater'], 'source', 'capacity');
   if (coolingOut > 0) {
-    return { title, detail: `Cooling output: ${fmtNumber(coolingOut)} kW` };
+    return { title, detail: detailWithHints(`Cooling output: ${fmtNumber(coolingOut)} kW`) };
   }
 
   const waterSupply = sumPorts(
@@ -125,7 +139,7 @@ export function componentHoverInfo(comp, { autoConnectPlan = null } = {}) {
     const parts = [];
     if (waterSupply > 0) parts.push(`${fmtNumber(waterSupply)} L/tick supply`);
     if (waterStorage > 0) parts.push(`${fmtNumber(waterStorage)} L storage`);
-    return { title, detail: `Water: ${parts.join(' · ')}` };
+    return { title, detail: detailWithHints(`Water: ${parts.join(' · ')}`) };
   }
 
   const sourceSpecs = [
@@ -135,16 +149,24 @@ export function componentHoverInfo(comp, { autoConnectPlan = null } = {}) {
   ];
   for (const [utility, param, label, unit] of sourceSpecs) {
     const value = sumPorts(ports, [utility], 'source', param);
-    if (value > 0) return { title, detail: `${label}: ${fmtNumber(value)} ${unit}` };
+    if (value > 0) {
+      return { title, detail: detailWithHints(`${label}: ${fmtNumber(value)} ${unit}`) };
+    }
   }
 
   if (Number(comp.energyCost) > 0) {
-    return { title, detail: `Power use: ${fmtNumber(comp.energyCost)} kW` };
+    return { title, detail: detailWithHints(`Power use: ${fmtNumber(comp.energyCost)} kW`) };
   }
   if (Number(comp.stats?.beamCurrent) > 0) {
-    return { title, detail: `Beam current: ${fmtNumber(comp.stats.beamCurrent)} mA` };
+    return {
+      title,
+      detail: detailWithHints(`Beam current: ${fmtNumber(comp.stats.beamCurrent)} mA`),
+    };
   }
-  return { title, detail: humanize(comp.category || comp.kind || 'Placed object') };
+  return {
+    title,
+    detail: detailWithHints(humanize(comp.category || comp.kind || 'Placed object')),
+  };
 }
 
 export function furnishingHoverInfo(def) {
