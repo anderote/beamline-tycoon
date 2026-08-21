@@ -8,9 +8,9 @@
 //
 // The two passes rebuild it differently. Doors carry a subtile `off`, so the
 // door pass sizes each side fill from doorOpeningLayout and follows the
-// terrain per-fill. Windows are always centred on their edge, so they use the
-// simpler shared _buildOpeningSurround — which is also the only caller that
-// needs the "below" band (bottom = sillHeight; nothing sits below a doorway).
+// terrain per-fill. Compact windows use the same half-edge model; broader
+// windows remain centred. Windows also need the "below" surround band
+// (bottom = sillHeight; nothing sits below a doorway).
 
 import {
   WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, WALL_PAINTS, WINDOW_WIDTH_FRAC, windowOpeningHeight,
@@ -36,6 +36,7 @@ const POST_WIDTH = 0.1 * M;      // 10cm posts
 export const LINTEL_HEIGHT = 0.15 * M;   // 15cm lintel
 const PANEL_THICKNESS = 0.04 * M; // 4cm door panel
 const PANEL_GAP = 0.02 * M;       // gap between panel and frame
+const DOUBLE_LEAF_GAP = 0.025 * M; // visible meeting seam between two leaves
 const GHOST_OPACITY = 0.3;
 const CUTOUT_ALPHA_TEST = 0.5;
 
@@ -107,6 +108,40 @@ export function doorOpeningLayout(edge, off, isDouble) {
     leftCenter: at(leftWidth / 2),
     rightCenter: at(leftWidth + openingWidth + rightWidth / 2),
   };
+}
+
+/**
+ * Resolve a window aperture along an edge. Half-tile catalogue entries snap
+ * to off=0/2 exactly like single doors. All existing continuous-width window
+ * types retain their centred placement and ignore `off`.
+ */
+export function windowOpeningLayout(edge, off, def) {
+  if (def?.windowWidth === 'half') return doorOpeningLayout(edge, off, false);
+
+  const openingWidth = TILE_SIZE * (WINDOW_WIDTH_FRAC[def?.windowWidth] ?? 0.5);
+  const leftWidth = (TILE_SIZE - openingWidth) / 2;
+  const rightWidth = leftWidth;
+  const dir = (edge === 'n' || edge === 'e') ? 1 : -1;
+  const half = TILE_SIZE / 2;
+  const at = (d) => dir * (d - half);
+  return {
+    off: 0,
+    openingWidth,
+    leftWidth,
+    rightWidth,
+    dir,
+    center: 0,
+    leftCenter: at(leftWidth / 2),
+    rightCenter: at(leftWidth + openingWidth + rightWidth / 2),
+  };
+}
+
+function mirrorGeometryU(geometry) {
+  const uv = geometry.getAttribute?.('uv');
+  if (!uv) return geometry;
+  for (let i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i));
+  uv.needsUpdate = true;
+  return geometry;
 }
 
 /** Neighbour tile + mirrored edge name. Mirrors EDGE_DELTAS in game/edge-keys.js. */
@@ -708,10 +743,12 @@ export class WallBuilder {
         this._meshes.push(aboveMesh);
       }
 
-      // --- Door panel (the visible leaf) ---
-      // Textured and glazed types get a leaf filling the opening. Types with
-      // neither (hallwayDoor) remain an open passthrough with a bare frame.
-      if (doorDef && (doorDef.texture || doorDef.isGlassDoor)) {
+      // --- Door panels (the visible leaves) ---
+      // Ordinary full-tile double doors are two separate meshes meeting at a
+      // centre seam. Wide rolling/sliding gates explicitly opt into one leaf,
+      // while hallwayDoor opts out entirely.
+      const leafCount = doorDef?.leafCount ?? (isDouble ? 2 : 1);
+      if (doorDef && leafCount > 0 && (doorDef.texture || doorDef.isGlassDoor)) {
         const ghost = isTransparent || isDoorCutaway;
         const matKey = `${type}:${variant}:${ghost ? 'ghost' : 'solid'}`;
         if (!panelMatCache[matKey]) {
@@ -744,51 +781,73 @@ export class WallBuilder {
           }
         }
 
-        const panelW = Math.max(0.01, doorOpeningWidth - PANEL_GAP * 2);
+        const totalPanelW = Math.max(0.01, doorOpeningWidth - PANEL_GAP * 2);
+        const meetingGap = leafCount === 2 ? DOUBLE_LEAF_GAP : 0;
+        const panelW = Math.max(0.01, (totalPanelW - meetingGap) / leafCount);
         const panelH = Math.max(0.01, doorHeight - PANEL_GAP);
-        // One leaf across the whole opening — the door textures already depict
-        // a complete door (both leaves for the doubles), so splitting a double
-        // into two meshes would draw the artwork twice.
-        const panelGeo = isNS
-          ? new THREE.BoxGeometry(panelW, panelH, PANEL_THICKNESS)
-          : new THREE.BoxGeometry(PANEL_THICKNESS, panelH, panelW);
-        const panel = new THREE.Mesh(panelGeo, panelMatCache[matKey]);
-        panel.position.set(
-          edgeCenter.x + openX,
-          openingBaseY + panelH / 2,
-          edgeCenter.z + openZ
-        );
-        panel.castShadow = !ghost && !doorDef.isGlassDoor;
-        panel.receiveShadow = !doorDef.isGlassDoor;
-        if (doorDef.isGlassDoor) {
-          panel.layers?.enable(SOFT_GLOW_LAYER);
+        const leafOffsets = leafCount === 2
+          ? [-(panelW + meetingGap) / 2, (panelW + meetingGap) / 2]
+          : [0];
+        for (let leafIndex = 0; leafIndex < leafOffsets.length; leafIndex++) {
+          const leafOffset = leafOffsets[leafIndex];
+          let panelGeo = isNS
+            ? new THREE.BoxGeometry(panelW, panelH, PANEL_THICKNESS)
+            : new THREE.BoxGeometry(PANEL_THICKNESS, panelH, panelW);
+          // The paired leaves face one another instead of repeating the same
+          // handed artwork. Mirroring UVs leaves the physical geometry intact.
+          if (leafCount === 2 && leafIndex === 0) panelGeo = mirrorGeometryU(panelGeo);
+          const panel = new THREE.Mesh(panelGeo, panelMatCache[matKey]);
+          const signedOffset = layout.center + leafOffset;
+          panel.position.set(
+            edgeCenter.x + (isNS ? signedOffset : 0),
+            baseAt(signedOffset) + panelH / 2,
+            edgeCenter.z + (isNS ? 0 : signedOffset)
+          );
+          panel.castShadow = !ghost && !doorDef.isGlassDoor;
+          panel.receiveShadow = !doorDef.isGlassDoor;
           panel.userData ||= {};
-          panel.userData.glassDoor = true;
-          panel.renderOrder = 2;
+          panel.userData.doorLeaf = true;
+          panel.userData.doorLeafIndex = leafIndex;
+          panel.userData.doorLeafCount = leafCount;
+          if (doorDef.isGlassDoor) {
+            panel.layers?.enable(SOFT_GLOW_LAYER);
+            panel.userData.glassDoor = true;
+            panel.renderOrder = 2;
+          }
+          panel.matrixAutoUpdate = false;
+          panel.updateMatrix();
+          parentGroup.add(panel);
+          this._meshes.push(panel);
         }
-        panel.matrixAutoUpdate = false;
-        panel.updateMatrix();
-        parentGroup.add(panel);
-        this._meshes.push(panel);
 
         if (doorDef.isGlassDoor) {
           const handleGeo = isNS
             ? new THREE.BoxGeometry(0.04 * M, doorHeight * 0.34, 0.06 * M)
             : new THREE.BoxGeometry(0.06 * M, doorHeight * 0.34, 0.04 * M);
-          const handleOffset = doorOpeningWidth * 0.28;
-          const handle = new THREE.Mesh(handleGeo, activeDoorMat);
-          handle.position.set(
-            edgeCenter.x + openX + (isNS ? handleOffset : 0),
-            openingBaseY + doorHeight * 0.5,
-            edgeCenter.z + openZ + (isNS ? 0 : handleOffset),
-          );
-          handle.castShadow = !ghost;
-          handle.userData ||= {};
-          handle.userData.glassDoorHandle = true;
-          handle.matrixAutoUpdate = false;
-          handle.updateMatrix();
-          parentGroup.add(handle);
-          this._meshes.push(handle);
+          const handleOffsets = leafCount === 2
+            ? [-Math.max(0.05 * M, meetingGap / 2 + 0.025 * M),
+              Math.max(0.05 * M, meetingGap / 2 + 0.025 * M)]
+            : [doorOpeningWidth * 0.28];
+          for (let handleIndex = 0; handleIndex < handleOffsets.length; handleIndex++) {
+            const signedOffset = layout.center + handleOffsets[handleIndex];
+            const handle = new THREE.Mesh(
+              handleIndex === 0 ? handleGeo : handleGeo.clone(),
+              activeDoorMat,
+            );
+            handle.position.set(
+              edgeCenter.x + (isNS ? signedOffset : 0),
+              baseAt(signedOffset) + doorHeight * 0.5,
+              edgeCenter.z + (isNS ? 0 : signedOffset),
+            );
+            handle.castShadow = !ghost;
+            handle.userData ||= {};
+            handle.userData.glassDoorHandle = true;
+            handle.userData.doorLeafIndex = handleIndex;
+            handle.matrixAutoUpdate = false;
+            handle.updateMatrix();
+            parentGroup.add(handle);
+            this._meshes.push(handle);
+          }
         }
       }
 
@@ -879,9 +938,9 @@ export class WallBuilder {
    * edge's own wall segment was dropped from the main loop, so this is the
    * only thing putting wall back.
    *
-   * Windows only: the opening is centred on the edge, so the two side fills
-   * are symmetric. Doors carry a subtile offset and build their own
-   * asymmetric fills inline — see the door pass in build().
+   * Window layouts may be centred or half-edge offset. Doors build their own
+   * asymmetric fills inline because their surrounds also follow terrain at
+   * each individual piece — see the door pass in build().
    *
    * Geometry conventions carried over from the door code this was extracted
    * from: side fills run the FULL wall height (not just the opening's span)
@@ -895,6 +954,7 @@ export class WallBuilder {
    * @param {number} o.openingWidth  world units across the edge
    * @param {number} o.openingBottom world-Y of the opening's underside
    * @param {number} o.openingTop    world-Y of the opening's head
+   * @param {object} [o.openingLayout] edge-axis widths and centres
    * @param {number} [o.base]        world-Y of the ground under this edge
    * @param {string|null} o.matKey   material cache key from
    *   _ensureOpeningWallMaterial, or null when the edge carries no wall
@@ -905,11 +965,11 @@ export class WallBuilder {
    */
   _buildOpeningSurround({
     col, row, edge, openingWidth, openingBottom, openingTop, base = 0,
-    matKey, wallDef, wallRecord, matCache, isTransparent, parentGroup,
+    openingLayout = null, matKey, wallDef, wallRecord, matCache,
+    isTransparent, parentGroup,
   }) {
     const isNS = edge === 'n' || edge === 's';
     const edgeCenter = this._offsetEdgeCenter(this._edgeCenter(col, row, edge), wallRecord);
-    const halfTile = TILE_SIZE / 2;
     const wallHeight = wallDef ? wallDef.wallHeight * HEIGHT_SCALE : DEFAULT_WALL_HEIGHT;
     const wallThickness = this._wallThickness(wallDef);
     const wallColor = wallDef ? wallDef.color : 0xcccccc;
@@ -941,11 +1001,20 @@ export class WallBuilder {
       this._meshes.push(mesh);
     };
 
-    // 1. Fill beside the opening (sub-tile widths only). A full-tile opening
-    //    gives sideWidth 0 and emits nothing — the old `if (!isDouble)` guard
-    //    is subsumed by the width test.
-    const sideWidth = (TILE_SIZE - openingWidth) / 2;
-    if (sideWidth > 0.001) {
+    // 1. Fill beside the opening (sub-tile widths only). Compact windows can
+    //    leave one half-tile fill instead of two symmetric slivers.
+    const centeredSideWidth = (TILE_SIZE - openingWidth) / 2;
+    const sideFills = openingLayout
+      ? [
+          { width: openingLayout.leftWidth, offset: openingLayout.leftCenter },
+          { width: openingLayout.rightWidth, offset: openingLayout.rightCenter },
+        ]
+      : [
+          { width: centeredSideWidth, offset: -(openingWidth + centeredSideWidth) / 2 },
+          { width: centeredSideWidth, offset: (openingWidth + centeredSideWidth) / 2 },
+        ];
+    for (const sideFill of sideFills.filter(s => s.width > 0.001)) {
+      const sideWidth = sideFill.width;
       const sideMat = fillMaterial();
       const sideGeo = isNS
         ? new THREE.BoxGeometry(sideWidth, wallHeight, wallThickness)
@@ -955,21 +1024,19 @@ export class WallBuilder {
       } else {
         applyTiledBoxUVs(sideGeo, wallThickness, wallHeight, sideWidth);
       }
-      for (const [i, sign] of [[0, -1], [1, 1]]) {
-        const side = new THREE.Mesh(i === 0 ? sideGeo : sideGeo.clone(), sideMat);
-        const off = sign * (halfTile - sideWidth / 2);
-        side.position.set(
-          edgeCenter.x + (isNS ? off : 0),
-          base + wallHeight / 2,
-          edgeCenter.z + (isNS ? 0 : off)
-        );
-        side.castShadow = !fillTransparent;
-        side.receiveShadow = true;
-        side.matrixAutoUpdate = false;
-        side.updateMatrix();
-        parentGroup.add(side);
-        this._meshes.push(side);
-      }
+      const side = new THREE.Mesh(sideGeo, sideMat);
+      const sideOffset = sideFill.offset;
+      side.position.set(
+        edgeCenter.x + (isNS ? sideOffset : 0),
+        base + wallHeight / 2,
+        edgeCenter.z + (isNS ? 0 : sideOffset)
+      );
+      side.castShadow = !fillTransparent;
+      side.receiveShadow = true;
+      side.matrixAutoUpdate = false;
+      side.updateMatrix();
+      parentGroup.add(side);
+      this._meshes.push(side);
     }
 
     // 2. Fill above the opening (head to wall top).
@@ -1020,14 +1087,17 @@ export class WallBuilder {
       const edgeCenter = this._offsetEdgeCenter(rawEdgeCenter, wallEntry?.wall);
       const wallHeight = wallDef ? wallDef.wallHeight * HEIGHT_SCALE : DEFAULT_WALL_HEIGHT;
       const wallThickness = this._wallThickness(wallDef);
+      const layout = windowOpeningLayout(edge, wnd.off, def);
+      const openingWidth = layout.openingWidth;
       const matKey = this._ensureOpeningWallMaterial(
         wallType, wallDef, wallVariant, isWindowCutaway, matCache, isTransparent
       );
       // Ground under the edge. Walls bake their base Y into the geometry;
       // window parts are boxes placed at a y, so they take theirs from the
-      // terrain. The opening is centred, so the edge midpoint is the right
-      // sample. Absent baseY (older snapshots) reads as flat ground at 0.
-      const base = ((wnd.baseY?.a || 0) + (wnd.baseY?.b || 0)) / 2;
+      // terrain. Compact windows sample at their left/right half centre;
+      // broader windows still sample the edge midpoint. Absent baseY (older
+      // snapshots) reads as flat ground at 0.
+      const base = baseYAtOffset(wnd.baseY, layout.dir, layout.center);
 
       // Opening box. Game.placeWindow enforces the fit rule
       // (wallHeight >= sill + opening + 1), but clamp anyway so a window
@@ -1060,12 +1130,10 @@ export class WallBuilder {
         });
         continue;
       }
-      const openingWidth = TILE_SIZE * (WINDOW_WIDTH_FRAC[def.windowWidth] ?? 0.5);
-
       // Surround first, so the wall is behind the frame in the mesh list.
       this._buildOpeningSurround({
         col, row, edge, openingWidth, openingBottom, openingTop,
-        base, matKey, wallDef, wallRecord: wallEntry?.wall,
+        openingLayout: layout, base, matKey, wallDef, wallRecord: wallEntry?.wall,
         matCache, isTransparent, parentGroup,
       });
 
@@ -1086,10 +1154,11 @@ export class WallBuilder {
           ? new THREE.BoxGeometry(uLen, yLen, depth)
           : new THREE.BoxGeometry(depth, yLen, uLen);
         const mesh = new THREE.Mesh(geo, frameMat);
+        const signedCenter = layout.center + uCenter;
         mesh.position.set(
-          edgeCenter.x + (isNS ? uCenter : 0),
+          edgeCenter.x + (isNS ? signedCenter : 0),
           base + yCenter,
-          edgeCenter.z + (isNS ? 0 : uCenter)
+          edgeCenter.z + (isNS ? 0 : signedCenter)
         );
         mesh.castShadow = !ghosted;
         mesh.receiveShadow = true;
@@ -1138,7 +1207,11 @@ export class WallBuilder {
       glass.layers?.enable(SOFT_GLOW_LAYER);
       glass.userData ||= {};
       glass.userData.glowProfile = 'soft';
-      glass.position.set(edgeCenter.x, base + jambY, edgeCenter.z);
+      glass.position.set(
+        edgeCenter.x + (isNS ? layout.center : 0),
+        base + jambY,
+        edgeCenter.z + (isNS ? 0 : layout.center),
+      );
       glass.castShadow = false;
       glass.receiveShadow = false;
       glass.renderOrder = 2;

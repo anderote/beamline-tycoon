@@ -140,7 +140,9 @@ globalThis.document = {
   createElement: () => ({ width: 0, height: 0, getContext: () => ctx }),
 };
 
-const { WallBuilder, TILE_SIZE, HEIGHT_SCALE, _edgeAliasKey } = await import('../src/renderer3d/wall-builder.js');
+const {
+  WallBuilder, TILE_SIZE, HEIGHT_SCALE, _edgeAliasKey, windowOpeningLayout,
+} = await import('../src/renderer3d/wall-builder.js');
 const { WALL_TYPES, WINDOW_TYPES } = await import('../src/data/structure.js');
 
 // --- Fake parentGroup ----------------------------------------------------
@@ -321,6 +323,44 @@ console.log('\n=== adaptive aperture proportions follow the host wall ===\n');
   });
   assert(factoryGridBars.length === 4,
     `industrial sash has four inner grid bars for a 3x3 factory pattern (got ${factoryGridBars.length})`);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n=== compact windows occupy the selected half of a tile edge ===\n');
+{
+  const def = WINDOW_TYPES.casementWindow;
+  const leftLayout = windowOpeningLayout('n', 0, def);
+  const rightLayout = windowOpeningLayout('n', 2, def);
+  assert(leftLayout.openingWidth === TILE_SIZE / 2 && leftLayout.center === -TILE_SIZE / 4,
+    'off=0 resolves to an exact half-tile aperture on the first side');
+  assert(rightLayout.openingWidth === TILE_SIZE / 2 && rightLayout.center === TILE_SIZE / 4,
+    'off=2 resolves to an exact half-tile aperture on the second side');
+  assert(windowOpeningLayout('s', 2, def).center === leftLayout.center,
+    'mirrored edge order plus mirrored offset resolves to the same world position');
+
+  const buildCompact = (off) => {
+    const group = makeGroup();
+    const wb = new WallBuilder(null);
+    wb.build(
+      [{ col: 8, row: 8, edge: 'n', type: 'officeWall', baseY: { a: 0, b: 0 } }],
+      [],
+      [{ col: 8, row: 8, edge: 'n', type: 'casementWindow', variant: 0, off,
+        baseY: { a: 0, b: 0 } }],
+      group,
+      'up',
+      null,
+    );
+    return group.children.find(m => m.material.emissive === 0xffd9a0);
+  };
+  const leftGlass = buildCompact(0);
+  const rightGlass = buildCompact(2);
+  const edgeMidX = 8 * TILE_SIZE + TILE_SIZE / 2;
+  assert(Math.abs(leftGlass.position.x - (edgeMidX - TILE_SIZE / 4)) < 1e-9,
+    'off=0 glass is rendered in the first half, not centered');
+  assert(Math.abs(rightGlass.position.x - (edgeMidX + TILE_SIZE / 4)) < 1e-9,
+    'off=2 glass is rendered in the second half, not centered');
+  assert(Math.abs(leftGlass.geometry.parameters.width - (TILE_SIZE / 2 - 0.12)) < 1e-9,
+    'compact glass uses the half-tile aperture width minus its frame');
 }
 
 // ---------------------------------------------------------------------------

@@ -80,7 +80,9 @@ export function isMirroredKey(key, col, row, edge) {
 // `off`: the integer index of the first slot its opening covers, measured
 // from the edge's FIRST-listed corner in buildWalls' corner order:
 //   'n' = NW -> NE   'e' = NE -> SE   's' = SE -> SW   'w' = SW -> NW
-// A single door is 2 slots wide (off in 0..2), a double fills all 4 (off 0).
+// A single door is 2 slots wide; newly placed singles snap to either half of
+// the edge (off 0 or 2). The legacy centred off=1 remains valid so old saves
+// retain their authored geometry. A double fills all 4 slots (off 0).
 
 export const SUBTILES_PER_EDGE = 4;
 
@@ -106,14 +108,14 @@ export function clampDoorOff(doorDef, off) {
 
 /**
  * Quantize a fractional position along an edge (0 at the first-listed corner,
- * 1 at the second) into a door offset, centering the opening on the cursor
- * and clamping it inside the tile.
+ * 1 at the second) into the first or second tile half. Missing fractions keep
+ * the legacy centered default.
  */
 export function doorOffFromFrac(frac, doorDef) {
   const w = doorSubWidth(doorDef);
-  const f = Number.isFinite(frac) ? frac : 0.5;
-  const raw = Math.floor(f * SUBTILES_PER_EDGE - w / 2 + 0.5);
-  return Math.max(0, Math.min(SUBTILES_PER_EDGE - w, raw));
+  if (!Number.isFinite(frac)) return defaultDoorOff(doorDef);
+  if (w >= SUBTILES_PER_EDGE) return 0;
+  return frac < 0.5 ? 0 : SUBTILES_PER_EDGE - w;
 }
 
 /**
@@ -124,4 +126,35 @@ export function doorOffFromFrac(frac, doorDef) {
 export function mirrorDoorOff(off, doorDef) {
   const max = SUBTILES_PER_EDGE - doorSubWidth(doorDef);
   return max - clampDoorOff(doorDef, off);
+}
+
+// --- Compact windows along an edge ---------------------------------------
+// Only defs authored as `windowWidth: 'half'` use edge slots. Existing
+// narrow/single/double catalogue windows keep their centred continuous-width
+// geometry, while compact windows snap cleanly to the first or second half.
+
+export function windowSubWidth(windowDef) {
+  return windowDef?.windowWidth === 'half' ? 2 : SUBTILES_PER_EDGE;
+}
+
+export function defaultWindowOff(windowDef) {
+  return windowSubWidth(windowDef) >= SUBTILES_PER_EDGE ? 0 : 1;
+}
+
+export function clampWindowOff(windowDef, off) {
+  if (!Number.isFinite(off)) return defaultWindowOff(windowDef);
+  const max = SUBTILES_PER_EDGE - windowSubWidth(windowDef);
+  return Math.max(0, Math.min(max, Math.round(off)));
+}
+
+export function windowOffFromFrac(frac, windowDef) {
+  const w = windowSubWidth(windowDef);
+  if (!Number.isFinite(frac)) return defaultWindowOff(windowDef);
+  if (w >= SUBTILES_PER_EDGE) return 0;
+  return frac < 0.5 ? 0 : SUBTILES_PER_EDGE - w;
+}
+
+export function mirrorWindowOff(off, windowDef) {
+  const max = SUBTILES_PER_EDGE - windowSubWidth(windowDef);
+  return max - clampWindowOff(windowDef, off);
 }

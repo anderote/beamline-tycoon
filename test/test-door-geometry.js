@@ -290,6 +290,21 @@ console.log('\n=== 5. build(): the visible door panel ===\n');
   assert(near(office[0].position.x, TILE_SIZE / 2),
     'the panel is centred on the (off=1) opening');
 
+  const paired = panelsOf('doubleDoor', 0, 'structuralWall');
+  assert(paired.length === 2, 'a full-tile double door renders two physical panel leaves');
+  assert(paired.every(p => p.userData?.doorLeafCount === 2),
+    'both double-door meshes identify themselves as members of a two-leaf door');
+  assert(new Set(paired.map(p => p.userData?.doorLeafIndex)).size === 2,
+    'the two double-door leaves have distinct indices');
+  assert(paired[0].position.x !== paired[1].position.x,
+    'the two leaves sit on opposite sides of a visible centre seam');
+  assert(paired.every(p => near(p.geometry.parameters.width, (2 - 0.04 - 0.025) / 2)),
+    'the two leaves together fill the full-tile opening minus frame and meeting gaps');
+
+  const shutter = panelsOf('rollingShutter', 0, 'structuralWall');
+  assert(shutter.length === 1 && shutter[0].userData?.doorLeafCount === 1,
+    'a rolling shutter remains one full-width moving panel');
+
   assert(panelsOf('hallwayDoor', 0).length === 0,
     'hallwayDoor is an open passthrough — no panel leaf');
 
@@ -334,6 +349,17 @@ console.log('\n=== 5. build(): the visible door panel ===\n');
   assert(framedDoorBuilder._meshes.filter(m => m.userData?.glassWallFrame).length === 4,
     'a glass-wall doorway retains its two perimeter rails and outside posts');
 
+  const doubleGlassBuilder = new WallBuilder(null);
+  doubleGlassBuilder.build(
+    [{ col: 0, row: 0, edge: 'n', type: 'glassWall', variant: 0, baseY: { a: 0, b: 0 } }],
+    [{ col: 0, row: 0, edge: 'n', type: 'doubleGlassDoor', variant: 0, off: 0 }],
+    [], new Group(), 'up', null
+  );
+  assert(doubleGlassBuilder._meshes.filter(m => m.userData?.glassDoor).length === 2,
+    'a double glass door has two distinct glazed leaves');
+  assert(doubleGlassBuilder._meshes.filter(m => m.userData?.glassDoorHandle).length === 2,
+    'a double glass door has one pull handle on each leaf');
+
   // Panel offset tracks the opening, not the edge centre.
   const wb = new WallBuilder(null);
   const group = new Group();
@@ -359,11 +385,30 @@ console.log('\n=== 6. Lintel invariant: doorHeight + lintel fits the wall ===\n'
     const wall = def.wallHeight * HEIGHT_SCALE;
     assert(top <= wall + 1e-9,
       `${id}: opening + lintel (${def.doorHeight}+${lintelData}) fits its declared wall (${def.wallHeight})`);
+    if (def.doorWidth === 'double') {
+      assert(Number.isInteger(def.leafCount) && def.leafCount >= 0 && def.leafCount <= 2,
+        `${id}: full-tile opening declares whether it has zero, one, or two leaves`);
+    }
+  }
+
+  for (const id of [
+    'doubleDoor', 'doubleOfficeDoor', 'doubleGlassDoor', 'doubleLabDoor',
+    'doubleFireDoor', 'blastDoor',
+  ]) {
+    const def = DOOR_TYPES[id];
+    assert(def?.doorWidth === 'double' && def.leafCount === 2,
+      `${id} is a true full-tile pair rather than one stretched leaf`);
+    assert((def.variants?.length || 0) >= 3,
+      `${id} offers several finish or glazing variants`);
   }
 
   // ...and against the walls each door type is actually meant to hang on.
   const HOSTS = {
     doubleDoor: ['structuralWall'],
+    doubleOfficeDoor: ['officeWall', 'hallwayWall'],
+    doubleGlassDoor: ['officeWall', 'hallwayWall', 'glassWall'],
+    doubleLabDoor: ['officeWall', 'hallwayWall'],
+    doubleFireDoor: ['officeWall', 'hallwayWall'],
     securityDoor: ['structuralWall'],
     rollingShutter: ['structuralWall'],
     officeDoor: ['officeWall', 'hallwayWall'],

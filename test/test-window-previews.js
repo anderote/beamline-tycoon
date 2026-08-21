@@ -47,5 +47,44 @@ console.log('\n=== placement ghost state ===\n');
     'window ghost reflects the funding gate before click');
 }
 
+console.log('\n=== WindowTool half-edge snapping ===\n');
+{
+  let cursorEdge = { col: 4, row: 7, edge: 'n', frac: 0.2 };
+  let committed = null;
+  const ctx = {
+    game: {
+      _withUndo(fn) { return fn(); },
+      placeWindowPath(path, type, variant, off) {
+        committed = { path, type, variant, off };
+        return true;
+      },
+      state: { wallOccupied: { '4,7,n': 'officeWall' }, windowOccupied: {}, resources: { funding: 1e6 } },
+      _edgeAlias: () => ({ col: 4, row: 6, edge: 's' }),
+    },
+    input: {
+      _getNearestWallEdge: () => cursorEdge,
+      _hideDragCostTooltip() {},
+      _buildWallLine: start => [start],
+    },
+    renderer: { renderWindowPreview() {}, clearDragPreview() {} },
+  };
+  const tool = new WindowTool('casementWindow', 1);
+  tool.onMouseDown({ button: 0, clientX: 0, clientY: 0 }, ctx);
+  assert(tool._path[0].off === 0, 'a compact-window click in the first half previews off=0');
+  tool.onMouseUp({ button: 0 }, ctx);
+  assert(committed?.off === 0 && committed.path[0].off === 0,
+    'the compact-window first-half offset reaches placeWindowPath');
+
+  cursorEdge = { col: 4, row: 7, edge: 'n', frac: 0.8 };
+  tool.onMouseDown({ button: 0, clientX: 0, clientY: 0 }, ctx);
+  assert(tool._path[0].off === 2, 'a compact-window click in the second half previews off=2');
+  tool.onMouseUp({ button: 0 }, ctx);
+  assert(committed?.off === 2 && committed.path[0].off === 2,
+    'the compact-window second-half offset reaches placeWindowPath');
+
+  const broad = new WindowTool('officeWindow');
+  assert(broad._offFor(cursorEdge) === 0, 'existing broad windows remain centered regardless of cursor half');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

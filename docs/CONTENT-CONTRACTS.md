@@ -42,6 +42,22 @@ the short authoring contract.
 - `requiredEndpoint` lists the endpoints that can satisfy a mission. It does
   not imply that each listed placeable is currently researched.
 
+## Wall openings
+
+- A tile edge is four quarter-tile slots. A `doorWidth: 'single'` opening uses
+  two slots and newly placed singles snap to `off: 0` or `off: 2`; `off: 1`
+  remains a valid centered fallback for older saved records. A
+  `doorWidth: 'double'` opening spans all four slots and uses `off: 0`.
+- Every full-tile door definition declares `leafCount`: `2` for a true paired
+  double door, `1` for a single moving gate or shutter spanning the opening,
+  and `0` for an open hallway passthrough.
+- Only window definitions authored with `windowWidth: 'half'` use half-edge
+  offsets (`off: 0` or `off: 2`). Existing `narrow`, `single`, and `double`
+  windows remain centered continuous-width apertures.
+- A physical edge carries at most one opening. Half-edge placement chooses
+  where that opening sits; it does not permit two independent doors or windows
+  on the same edge. Mirrored edge spellings must mirror the stored offset.
+
 ## Utility ports and scenarios
 
 - Read ports through `getUtilityPortsV2(id)` when solver defaults and derived RF

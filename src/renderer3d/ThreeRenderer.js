@@ -17,7 +17,9 @@ import { CliffBuilder } from './cliff-builder.js';
 import { WildflowerBuilder } from './wildflower-builder.js';
 import { GrassTuftBuilder } from './grass-tuft-builder.js';
 import { FloorBuilder } from './floor-builder.js';
-import { WallBuilder, HEIGHT_SCALE, LINTEL_HEIGHT, doorOpeningLayout, TILE_SIZE as WALL_TILE_SIZE } from './wall-builder.js';
+import {
+  WallBuilder, HEIGHT_SCALE, LINTEL_HEIGHT, doorOpeningLayout, windowOpeningLayout,
+} from './wall-builder.js';
 import { ComponentBuilder, getAccentMaterial, isDetailedComponent, componentPose, getModelBounds, measureShellSurfaces, setGlowNightFactor } from './component-builder.js';
 import { PipeAttachmentBuilder } from './pipe-attachment-builder.js';
 import { BeamPipeBuilder } from './beam-pipe-builder.js';
@@ -71,9 +73,7 @@ import { WorldPhysicsPresentation } from './world-physics-presentation.js';
 import '../ui/hud.js';
 import '../ui/overlays.js';
 import { tileCenterIso, gridToIso } from '../renderer/grid.js';
-import {
-  WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, WINDOW_WIDTH_FRAC, windowOpeningHeight,
-} from '../data/structure.js';
+import { WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, windowOpeningHeight } from '../data/structure.js';
 import { ZONES } from '../data/facility.js';
 import { COMPONENTS } from '../data/components.js';
 import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
@@ -2697,22 +2697,35 @@ export class ThreeRenderer {
       const layout = doorOpeningLayout(seg.edge, seg.off, isDouble);
       const wallH = this._previewWallHeight(seg.col, seg.row, seg.edge, doorDef);
       const doorH = Math.max(0.1, Math.min(nominalH, wallH - LINTEL_HEIGHT));
-      const geo = isNS
-        ? new THREE.BoxGeometry(layout.openingWidth, doorH, 0.06)
-        : new THREE.BoxGeometry(0.06, doorH, layout.openingWidth);
-      const mesh = new THREE.Mesh(geo, mat);
       const pos = this._wallEdgePosition(seg.col, seg.row, seg.edge);
       const x = pos.x + (isNS ? layout.center : 0);
       const z = pos.z + (isNS ? 0 : layout.center);
       const ends = this._edgeEndpoints(seg.col, seg.row, seg.edge, 0);
-      // Terrain Y under the opening centre (not the edge midpoint).
-      const a = isNS ? ends.p0.x : ends.p0.z;
-      const b = isNS ? ends.p1.x : ends.p1.z;
-      const cur = isNS ? x : z;
-      const t = Math.abs(b - a) > 1e-6 ? (cur - a) / (b - a) : 0.5;
-      const baseY = ends.p0.y + (ends.p1.y - ends.p0.y) * t;
-      mesh.position.set(x, baseY + doorH / 2, z);
-      this._addPreviewMesh(mesh);
+      const yAt = (signedOffset) => {
+        const axisPos = (isNS ? pos.x : pos.z) + signedOffset;
+        const a = isNS ? ends.p0.x : ends.p0.z;
+        const b = isNS ? ends.p1.x : ends.p1.z;
+        const t = Math.abs(b - a) > 1e-6 ? (axisPos - a) / (b - a) : 0.5;
+        return ends.p0.y + (ends.p1.y - ends.p0.y) * t;
+      };
+      const previewLeafCount = (doorDef?.leafCount ?? (isDouble ? 2 : 1)) === 2 ? 2 : 1;
+      const meetingGap = previewLeafCount === 2 ? 0.025 : 0;
+      const leafWidth = (layout.openingWidth - meetingGap) / previewLeafCount;
+      const leafOffsets = previewLeafCount === 2
+        ? [-(leafWidth + meetingGap) / 2, (leafWidth + meetingGap) / 2]
+        : [0];
+      for (const leafOffset of leafOffsets) {
+        const geo = isNS
+          ? new THREE.BoxGeometry(leafWidth, doorH, 0.06)
+          : new THREE.BoxGeometry(0.06, doorH, leafWidth);
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(
+          x + (isNS ? leafOffset : 0),
+          yAt(layout.center + leafOffset) + doorH / 2,
+          z + (isNS ? 0 : leafOffset),
+        );
+        this._addPreviewMesh(mesh);
+      }
     }
   }
 
@@ -2753,8 +2766,9 @@ export class ThreeRenderer {
     // Sizing constants come from wall-builder.js itself, so a retune there
     // moves the ghost with the geometry it is previewing.
     const sill = (def?.sillHeight ?? 5) * HEIGHT_SCALE;
-    const width = WALL_TILE_SIZE * (WINDOW_WIDTH_FRAC[def?.windowWidth] ?? 0.5);
     for (const seg of path) {
+      const layout = windowOpeningLayout(seg.edge, seg.off, def);
+      const width = layout.openingWidth;
       const wallH = this._previewWallHeight(seg.col, seg.row, seg.edge, {
         wallHeight: def?.previewWallHeight ?? 14,
       });
@@ -2772,8 +2786,14 @@ export class ThreeRenderer {
         : new THREE.BoxGeometry(0.06, openH, width);
       const mesh = new THREE.Mesh(paneGeo, paneMat);
       const pos = this._wallEdgePosition(seg.col, seg.row, seg.edge);
+      pos.x += isNS ? layout.center : 0;
+      pos.z += isNS ? 0 : layout.center;
       const ends = this._edgeEndpoints(seg.col, seg.row, seg.edge, 0);
-      const midY = (ends.p0.y + ends.p1.y) / 2;
+      const a = isNS ? ends.p0.x : ends.p0.z;
+      const b = isNS ? ends.p1.x : ends.p1.z;
+      const cur = isNS ? pos.x : pos.z;
+      const t = Math.abs(b - a) > 1e-6 ? (cur - a) / (b - a) : 0.5;
+      const midY = ends.p0.y + (ends.p1.y - ends.p0.y) * t;
       mesh.position.set(pos.x, midY + sill + openH / 2, pos.z);
       this._addPreviewMesh(mesh);
 
@@ -2795,11 +2815,23 @@ export class ThreeRenderer {
       makeFrame(frameW, openH, -width / 2 - frameW / 2, centerY);
       makeFrame(frameW, openH, width / 2 + frameW / 2, centerY);
 
-      if (windowType === 'industrialSash') {
-        for (let i = 1; i <= 2; i++) {
-          makeFrame(frameW * 0.7, openH, -width / 2 + width * i / 3, centerY);
-          makeFrame(width, frameW * 0.7, 0, sill + openH * i / 3);
-        }
+      const verticalMullions = Math.max(0, Math.floor(def?.mullions?.vertical || 0));
+      const horizontalMullions = Math.max(0, Math.floor(def?.mullions?.horizontal || 0));
+      for (let i = 1; i <= verticalMullions; i++) {
+        makeFrame(
+          frameW * 0.7,
+          openH,
+          -width / 2 + width * i / (verticalMullions + 1),
+          centerY,
+        );
+      }
+      for (let i = 1; i <= horizontalMullions; i++) {
+        makeFrame(
+          width,
+          frameW * 0.7,
+          0,
+          sill + openH * i / (horizontalMullions + 1),
+        );
       }
     }
   }

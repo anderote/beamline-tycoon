@@ -14,6 +14,10 @@ import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
 import { COMPONENTS } from '../src/data/components.js';
 import { PARAM_DEFS } from '../src/beamline/component-physics.js';
 import { ZONE_FURNISHINGS } from '../src/data/facility.js';
+import {
+  windowSubWidth, defaultWindowOff, clampWindowOff, windowOffFromFrac, mirrorWindowOff,
+} from '../src/game/edge-keys.js';
+import { buildWorldSnapshot } from '../src/renderer3d/world-snapshot.js';
 
 globalThis.COMPONENTS = COMPONENTS;
 globalThis.PARAM_DEFS = PARAM_DEFS;
@@ -85,6 +89,8 @@ console.log('\n=== human-scale and factory-scale window proportions ===\n');
 
   assert(WINDOW_WIDTH_FRAC.single >= 0.7 && WINDOW_WIDTH_FRAC.narrow >= 0.6,
     'single and narrow apertures occupy most of a tile instead of reading as slits');
+  assert(WINDOW_WIDTH_FRAC.half === 0.5,
+    'compact window apertures occupy exactly half of a tile edge');
   assert(partition.sillHeight + windowOpeningHeight(partition, 24) > 19,
     'a glass partition in an interior wall rises above the 19-unit door/head line');
   assert(windowOpeningHeight(factory, 30) >= 24,
@@ -96,8 +102,10 @@ console.log('\n=== human-scale and factory-scale window proportions ===\n');
 console.log('\n=== expanded catalogue, in three subsections ===\n');
 {
   const ids = Object.keys(WINDOW_TYPES);
-  assert(ids.length === 9, `WINDOW_TYPES has nine entries (got ${ids.length})`);
-  for (const id of ['clerestoryWindow', 'conferenceWindow', 'ribbonWindow']) {
+  assert(ids.length === 11, `WINDOW_TYPES has eleven entries (got ${ids.length})`);
+  for (const id of [
+    'casementWindow', 'serviceWindow', 'clerestoryWindow', 'conferenceWindow', 'ribbonWindow',
+  ]) {
     assert(ids.includes(id), `${id} is included in the expanded catalogue`);
   }
 
@@ -107,6 +115,26 @@ console.log('\n=== expanded catalogue, in three subsections ===\n');
   }
   assert(Object.keys(bySubsection).length === 3,
     `entries span three subsections (got ${Object.keys(bySubsection).join(', ')})`);
+}
+
+console.log('\n=== compact-window half-edge offset contract ===\n');
+{
+  const compact = WINDOW_TYPES.casementWindow;
+  const broad = WINDOW_TYPES.officeWindow;
+  assert(windowSubWidth(compact) === 2, 'a compact window spans two of four edge slots');
+  assert(windowSubWidth(broad) === 4, 'existing continuous-width windows do not use edge offsets');
+  assert(defaultWindowOff(compact) === 1,
+    'an old compact-window record with no offset retains centered fallback geometry');
+  assert(windowOffFromFrac(0.1, compact) === 0 && windowOffFromFrac(0.49, compact) === 0,
+    'a cursor in the first half selects off=0');
+  assert(windowOffFromFrac(0.5, compact) === 2 && windowOffFromFrac(0.9, compact) === 2,
+    'a cursor in the second half selects off=2');
+  assert(windowOffFromFrac(0.1, broad) === 0 && windowOffFromFrac(0.9, broad) === 0,
+    'broader centered windows ignore cursor offsets');
+  assert(clampWindowOff(compact, 99) === 2 && clampWindowOff(compact, -4) === 0,
+    'compact-window offsets clamp inside the tile edge');
+  assert(mirrorWindowOff(0, compact) === 2 && mirrorWindowOff(2, compact) === 0,
+    'compact-window offsets mirror across the two spellings of one physical edge');
 }
 
 console.log('\n=== MODES.structure.categories.windows ===\n');
@@ -147,6 +175,33 @@ console.log('\n=== wall lookup accepts either edge alias ===\n');
   assert(g.placeWindow(50, 50, 'e', 'officeWindow'), 'placeWindow finds the wall under its edge alias');
   assert(g.state.windowOccupied['50,50,e'] === 'officeWindow',
     'window is stored under the representation placeWindow was called with');
+}
+
+console.log('\n=== compact windows place and move between tile halves ===\n');
+{
+  const g = makeGame(41);
+  assert(g.placeWall(80, 10, 'n', 'officeWall'), 'setup: officeWall at 80,10,n');
+  assert(g.placeWindow(80, 10, 'n', 'casementWindow', 0, 0),
+    'a compact window places on the first tile half');
+  assert(g.state.windows[0].off === 0, 'the first-half offset is stored on the window record');
+  const fundingBeforeMove = g.state.resources.funding;
+  assert(g.placeWindow(80, 10, 'n', 'casementWindow', 0, 2),
+    'placing the same compact type on the second half moves it');
+  assert(g.state.windows.length === 1 && g.state.windows[0].off === 2,
+    'moving a compact window changes its offset without stacking another opening');
+  assert(g.state.resources.funding === fundingBeforeMove,
+    'moving a same-type compact window on its edge is free');
+
+  assert(g.placeWindow(80, 9, 's', 'casementWindow', 0, 2),
+    'the same compact window can be addressed from the opposite tile');
+  assert(g.state.windows.length === 1 && g.state.windows[0].off === 0,
+    'an aliased second-half request is mirrored into the stored edge order');
+
+  const snap = buildWorldSnapshot(g);
+  assert(snap.windows[0].off === 0, 'world snapshots expose a compact window offset');
+  delete g.state.windows[0].off;
+  assert(buildWorldSnapshot(g).windows[0].off === 1,
+    'snapshots give records authored before window offsets the centered fallback');
 }
 
 console.log('\n=== fit rule ===\n');
@@ -532,6 +587,9 @@ console.log('\n=== windowOccupied rebuilt after a save round-trip ===\n');
   const g = makeGame(6);
   assert(g.placeWall(40, 40, 'e', 'officeWall'), 'setup: wall at 40,40,e');
   assert(g.placeWindow(40, 40, 'e', 'officeWindow', 1), 'setup: window placed with variant 1');
+  assert(g.placeWall(41, 40, 'e', 'officeWall'), 'setup: second wall at 41,40,e');
+  assert(g.placeWindow(41, 40, 'e', 'casementWindow', 2, 2),
+    'setup: compact window placed with variant 2 at off=2');
   g.save();
 
   const gB = makeGame(7); // different seed: load must fully replace starter state
@@ -540,6 +598,9 @@ console.log('\n=== windowOccupied rebuilt after a save round-trip ===\n');
     'windowOccupied is rebuilt from windows after load()');
   const loaded = gB.state.windows.find(w => w.col === 40 && w.row === 40 && w.edge === 'e');
   assert(!!loaded && loaded.variant === 1, 'the loaded window entry keeps its variant');
+  const compact = gB.state.windows.find(w => w.col === 41 && w.row === 40 && w.edge === 'e');
+  assert(!!compact && compact.variant === 2 && compact.off === 2,
+    'the loaded compact window keeps its variant and half-edge offset');
 }
 
 console.log('\n=== rooms stay separate across a window, merge across a door ===\n');

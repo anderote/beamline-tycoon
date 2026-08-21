@@ -142,8 +142,8 @@ console.log('\n=== edge-keys: quantizing the cursor fraction ===\n');
 {
   const s = DOOR_TYPES[SINGLE];
   const d = DOOR_TYPES[DOUBLE];
-  // off = clamp(floor(frac*4 - width/2 + 0.5), 0, 4-width)
-  assertOk(doorOffFromFrac(0.5, s) === 1, 'a centered cursor gives the centered single (off=1)');
+  assertOk(doorOffFromFrac(0.5, s) === 2,
+           'the midpoint belongs to the second half; new singles never straddle both halves');
   assertOk(doorOffFromFrac(0.0, s) === 0, 'frac=0 pins the single to the first corner');
   assertOk(doorOffFromFrac(1.0, s) === 2, 'frac=1 pins the single to the far corner');
   assertOk(doorOffFromFrac(0.1, s) === 0, 'frac=0.1 clamps inside the tile');
@@ -160,7 +160,11 @@ console.log('\n=== edge-keys: quantizing the cursor fraction ===\n');
     if (!Number.isInteger(os) || os < 0 || os > 2) inRange = false;
     if (od !== 0) inRange = false;
   }
-  assertOk(inRange, 'every frac in [0,1] yields a single off in [0,2] and a double off of 0');
+  assertOk(inRange, 'every frac in [0,1] yields a legal single off and a double off of 0');
+  assertOk(
+    Array.from({ length: 101 }, (_, i) => doorOffFromFrac(i / 100, s)).every(off => off === 0 || off === 2),
+    'every finite cursor fraction snaps a single door to one tile half',
+  );
 }
 
 {
@@ -169,6 +173,7 @@ console.log('\n=== edge-keys: quantizing the cursor fraction ===\n');
   // produces from either side must be mirror images of each other.
   let consistent = true;
   for (let i = 0; i <= 100; i++) {
+    if (i === 50) continue; // the exact midpoint has one deterministic owner
     const f = i / 100;
     const near = doorOffFromFrac(f, s);
     const far = doorOffFromFrac(1 - f, s);

@@ -32,7 +32,9 @@ import {
   FLOOR_INTERFACE_HOVER_THRESHOLD,
 } from './floor-wall-paths.js';
 import { FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, WALL_PAINTS } from '../data/structure.js';
-import { doorOffFromFrac, findWallKey, findEdgeKey } from '../game/edge-keys.js';
+import {
+  doorOffFromFrac, windowOffFromFrac, findWallKey, findEdgeKey,
+} from '../game/edge-keys.js';
 import { canAffordFunding } from '../game/affordability.js';
 import { isoToGrid } from '../renderer/grid.js';
 
@@ -640,8 +642,8 @@ export class DoorTool extends Tool {
   /**
    * Subtile offset of the opening for the edge under the cursor.
    * _getNearestWallEdge hands back a raw along-edge fraction (it can't know
-   * how wide this door is); doorOffFromFrac centers the opening on the cursor
-   * and clamps it inside the tile. Quantizing here rather than in
+   * how wide this door is); doorOffFromFrac selects the cursor's tile half.
+   * Quantizing here rather than in
    * _getNearestWallEdge keeps the door-width knowledge on the tool, which is
    * the only place that knows which door is armed.
    */
@@ -730,18 +732,24 @@ export class WindowTool extends Tool {
     this._drawing = false;
     this._start = null;
     this._path = [];
+    this._off = null;
   }
 
   onExit(ctx) {
     this._drawing = false;
     this._start = null;
     this._path = [];
+    this._off = null;
     ctx.renderer.clearDragPreview();
     ctx.input._hideDragCostTooltip();
   }
 
   // Off-canvas release / focus loss: drop the drag without committing.
   cancelGesture(ctx) { this.onExit(ctx); }
+
+  _offFor(edge) {
+    return windowOffFromFrac(edge?.frac, WINDOW_TYPES[this.windowType]);
+  }
 
   // Keep the ghost honest before the click: this mirrors Game.placeWindow's
   // wall/height/funding gates, including the free same-type repaint case.
@@ -776,9 +784,10 @@ export class WindowTool extends Tool {
   onMouseDown(e, ctx) {
     if (e.button !== 0) return false;
     const edge = ctx.input._getNearestWallEdge(e.clientX, e.clientY);
+    this._off = this._offFor(edge);
     this._drawing = true;
     this._start = edge;
-    this._path = [edge];
+    this._path = [{ ...edge, off: this._off }];
     this._renderPreview(ctx, this._path);
     return true;
   }
@@ -788,7 +797,9 @@ export class WindowTool extends Tool {
     const renderer = ctx.renderer;
     const edge = input._getNearestWallEdge(e.clientX, e.clientY);
     if (this._drawing) {
-      this._path = input._buildWallLine(this._start, edge);
+      if (edge && edge.edge === this._start.edge) this._off = this._offFor(edge);
+      this._path = input._buildWallLine(this._start, edge)
+        .map(pt => ({ ...pt, off: this._off }));
       this._renderPreview(ctx, this._path);
       return true;
     }
@@ -802,9 +813,10 @@ export class WindowTool extends Tool {
     input.lastMouseWorldY = world.y;
     input._lastScreenX = e.clientX;
     input._lastScreenY = e.clientY;
+    this._off = this._offFor(edge);
     // Unlike the old tiny crosshair, hovering a window tool renders the
     // actual framed opening snapped to the nearest real wall.
-    this._renderPreview(ctx, [edge]);
+    this._renderPreview(ctx, [{ ...edge, off: this._off }]);
     if (input._hoverTooltipTarget) input._hideTooltip();
     return true;
   }
@@ -816,7 +828,9 @@ export class WindowTool extends Tool {
     // right-click-to-deselect never ran.
     if (e.button !== 0) return false;
     if (this._drawing && this._path.length > 0) {
-      ctx.game._withUndo(() => ctx.game.placeWindowPath(this._path, this.windowType, this.variant));
+      ctx.game._withUndo(
+        () => ctx.game.placeWindowPath(this._path, this.windowType, this.variant, this._off)
+      );
       this._drawing = false;
       this._start = null;
       this._path = [];
