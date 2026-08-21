@@ -881,21 +881,14 @@ export class ThreeRenderer {
 
     this._animate();
     // Most palette entries have static thumbnails. Fetch the small classic
-    // renderer for the remaining entries only when the player first reaches
-    // for the palette, then redraw the active category. This keeps its second
-    // Three.js graph out of sessions that never open the build menu.
-    const paletteEl = document.getElementById('component-palette');
-    let thumbnailLoadStarted = false;
-    const loadLiveThumbnails = () => {
-      if (thumbnailLoadStarted) return;
-      thumbnailLoadStarted = true;
-      loadLegacyThumbnailRenderer().then((ready) => {
-        if (ready && this._refreshPalette) this._refreshPalette();
-      });
-    };
-    paletteEl?.addEventListener('pointerenter', loadLiveThumbnails, { once: true, passive: true });
-    paletteEl?.addEventListener('pointerdown', loadLiveThumbnails, { once: true, passive: true });
-    paletteEl?.addEventListener('focusin', loadLiveThumbnails, { once: true });
+    // renderer for the remaining entries after the first playable frame, then
+    // redraw the active category. Waiting for palette interaction leaves the
+    // initial fallback blocks in place indefinitely when the pointer is
+    // already over the build menu or the player navigates elsewhere first.
+    // The dynamic import remains off the blocking initialization path.
+    loadLegacyThumbnailRenderer().then((ready) => {
+      if (ready && this._refreshPalette) this._refreshPalette();
+    });
     // Rapier is a large WASM chunk and ordinary construction never needs it.
     // Warm it after the first playable frame instead of blocking init/title.
     this._physicsPresentation.scheduleInit(this.scene);
