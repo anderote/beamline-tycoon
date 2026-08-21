@@ -68,6 +68,15 @@ import { SaveSlots } from './SaveSlots.js';
 import { scheduleBrowserIdle } from './idle-work.js';
 import { tickDataSystems } from './data-systems.js';
 import { placeableMutationEvent } from './placeable-events.js';
+
+// Floor replacement normally changes only the surface beneath a placed item.
+// Concrete is the one deliberate exception: preparing a foundation clears
+// vegetation, but it must leave non-plant decorations (benches, fountains,
+// etc.) in place.
+function floorDestroysDecoration(infraType, decoration) {
+  return infraType === 'concrete'
+    && DECORATIONS[decoration?.type]?.category === 'treesPlants';
+}
 import {
   mergeWorldChangePayloads,
   WORLD_CHANGED_EVENT,
@@ -1290,19 +1299,19 @@ export class Game {
         return false;
       }
     }
-    // Auto-remove any decoration (including trees) — include removal cost.
-    // Destruction, not dismantle: skip the normal 50% refund.
-    // Surfaces flagged `preservesDecorations` (natural grass variants) place
-    // under trees instead of clearing them.
+    // Floor placement normally leaves everything above the tile intact.
+    // Concrete is the deliberate vegetation-clearing exception; destruction,
+    // not dismantling, so skip the normal 50% refund.
     const tileCost = infra.variantCosts?.[variant] ?? infra.cost;
     let totalCost = tileCost;
-    const existingDec = infra.preservesDecorations ? null : this._decorationAtTile(col, row);
-    if (existingDec) {
-      const def = DECORATIONS[existingDec.type];
+    const existingDec = this._decorationAtTile(col, row);
+    const destroyedDec = floorDestroysDecoration(infraType, existingDec) ? existingDec : null;
+    if (destroyedDec) {
+      const def = DECORATIONS[destroyedDec.type];
       totalCost += def ? (def.removeCost || 0) : 0;
     }
     if (!free && !this.canAfford({ funding: totalCost })) return false;
-    if (existingDec) this.removeDecoration(col, row, { skipRefund: true });
+    if (destroyedDec) this.removeDecoration(col, row, { skipRefund: true });
     // Track foundation for surface tiles placed on top of a foundation
     let foundation = null;
     if (infra.requiresFoundation && existing) {
@@ -1374,12 +1383,11 @@ export class Game {
         }
         newTiles++;
         totalCost += tileCost;
-        if (!infra.preservesDecorations) {
-          const existingDec = this._decorationAtTile(c, r);
-          if (existingDec) {
-            const def = DECORATIONS[existingDec.type];
-            totalCost += def ? (def.removeCost || 0) : 0;
-          }
+        const existingDec = this._decorationAtTile(c, r);
+        const destroyedDec = floorDestroysDecoration(infraType, existingDec) ? existingDec : null;
+        if (destroyedDec) {
+          const def = DECORATIONS[destroyedDec.type];
+          totalCost += def ? (def.removeCost || 0) : 0;
         }
       }
     }
@@ -1485,14 +1493,14 @@ export class Game {
             const baseType = existingTile?.foundation || existing;
             if (baseType !== infra.requiresFoundation) continue;
           }
-          // Auto-remove any decoration (including trees). Charge the tree's
-          // removeCost on top of the tile cost; destruction skips the normal
-          // 50% refund so the actual spend matches the preview total.
-          // Natural grass variants set preservesDecorations: trees stay.
+          // Floor placement normally leaves decorations in place. Concrete
+          // clears only vegetation; charge its removal cost as destruction,
+          // without the normal 50% refund.
           let perTileExtra = 0;
-          const existingDec = infra.preservesDecorations ? null : this._decorationAtTile(c, r);
-          if (existingDec) {
-            const decDef = DECORATIONS[existingDec.type];
+          const existingDec = this._decorationAtTile(c, r);
+          const destroyedDec = floorDestroysDecoration(infraType, existingDec) ? existingDec : null;
+          if (destroyedDec) {
+            const decDef = DECORATIONS[destroyedDec.type];
             perTileExtra = decDef ? (decDef.removeCost || 0) : 0;
             this.removeDecoration(c, r, { skipRefund: true });
           }
