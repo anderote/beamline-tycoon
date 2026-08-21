@@ -13,6 +13,7 @@
 //   6. removePipe(pipeId) → pipe gone, placements gone.
 //   7. drawPipe rejects a corner path (delegates to pipe-drawing).
 //   8. placeOnPipe('insert') against a full pipe returns null (delegates).
+//  12. extendPipeToPort grows and binds one exact source connection atomically.
 
 import { BeamlineSystem } from '../src/beamline/BeamlineSystem.js';
 import { flattenPath } from '../src/beamline/flattener.js';
@@ -454,6 +455,63 @@ console.log('\n--- Test 11: attachPipeEnd binds an open terminal ---');
     'a port already claimed by another pipe is refused');
   assert(logs.some(l => l.type === 'bad' && /already connected/i.test(l.msg)),
     'port_taken logged');
+}
+
+// ==========================================================================
+// Test 12: extendPipeToPort is one geometry + topology mutation.
+// ==========================================================================
+console.log('\n--- Test 12: extending onto a source also claims its port ---');
+{
+  const { system, state, events } = mockSystem();
+  const srcId = system.placeJunction({ type: 'ecrIonSource', col: 2, row: 2, dir: 0 });
+  state.beamPipes.push({
+    id: 'bp_existing',
+    start: null,
+    end: { junctionId: 'downstream', portName: 'entry' },
+    path: [{ col: 2, row: 4 }, { col: 2, row: 8 }],
+    subL: 16,
+    placements: [],
+  });
+
+  // ECR is 3 m long: at row=2 its +Z/front port is path-space row=3.0.
+  // The additional path is authored outward from the pipe's open start.
+  events.length = 0;
+  const result = system.extendPipeToPort(
+    'bp_existing', [{ col: 2, row: 4 }, { col: 2, row: 3 }], srcId, 'exit',
+  );
+  const connected = state.beamPipes.find(pipe => pipe.id === 'bp_existing');
+  assert(result === 'bp_existing', 'the existing pipe id is preserved');
+  assert(connected.start?.junctionId === srcId && connected.start?.portName === 'exit',
+    'the extended terminal claims the ECR exit in the same mutation');
+  assert(connected.path[0].col === 2 && connected.path[0].row === 3,
+    'the new pipe terminal lands on the exact authored ECR port');
+  assert(events.filter(event => event.ev === 'beamlineChanged').length === 1,
+    'the combined extension publishes one beamline change');
+}
+{
+  const { system, state, events, logs } = mockSystem();
+  const srcId = system.placeJunction({ type: 'ecrIonSource', col: 2, row: 2, dir: 0 });
+  const original = {
+    id: 'bp_near_miss',
+    start: null,
+    end: { junctionId: 'downstream', portName: 'entry' },
+    path: [{ col: 2, row: 4 }, { col: 2, row: 8 }],
+    subL: 16,
+    placements: [],
+  };
+  state.beamPipes.push(original);
+  const before = JSON.stringify(original);
+  events.length = 0;
+  logs.length = 0;
+
+  const miss = system.extendPipeToPort(
+    'bp_near_miss', [{ col: 2, row: 4 }, { col: 2, row: 3.25 }], srcId, 'exit',
+  );
+  assert(miss === null, 'a same-axis extension that stops short of the port is refused');
+  assert(JSON.stringify(original) === before, 'the refused near miss does not mutate the pipe');
+  assert(events.length === 0, 'the refused near miss emits no world change');
+  assert(logs.some(entry => /reach the selected beam port/.test(entry.msg)),
+    'the near miss explains that the terminal did not reach the port');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

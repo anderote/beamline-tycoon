@@ -671,6 +671,11 @@ export class BeamlineInputController {
     // anchors at `_drawOrigin` (the open end's point) and moves outward to the
     // cursor, matching validateExtendPipe's expected direction.
     if (anchorStart?.kind === 'openEnd') {
+      if (portEnd) {
+        return this.game.beamline.extendPipeToPort(
+          anchorStart.pipeId, path, portEnd.junctionId, portEnd.portName,
+        );
+      }
       return this.game.beamline.extendPipe(anchorStart.pipeId, path);
     }
 
@@ -688,17 +693,15 @@ export class BeamlineInputController {
       );
     }
 
-    // Port → existing pipe's open end → extend that pipe. validateExtendPipe
-    // expects additionalPath to flow OUTWARD from the open end, so reverse
-    // the drawn path (which flows origin→cursor = port→openEnd = inward).
-    // Caveat: extendPipe preserves existing anchors, so the origin port is
-    // NOT claimed by the resulting pipe. The pipe visually reaches the port
-    // but the port remains marked "available". This is the behaviour the
-    // plan calls for ("extends rather than creates a disconnected pipe");
-    // claiming the port on extend is a future enhancement.
+    // Port → existing pipe's open end → extend that pipe and claim the
+    // origin port atomically. validateExtendPipe expects additionalPath to flow
+    // OUTWARD from the open end, so reverse the drawn path (which flows
+    // origin→cursor = port→openEnd = inward).
     if (openEndHit) {
       const reversed = path.slice().reverse();
-      return this.game.beamline.extendPipe(openEndHit.pipeId, reversed);
+      return this.game.beamline.extendPipeToPort(
+        openEndHit.pipeId, reversed, anchorStart.junctionId, anchorStart.portName,
+      );
     }
 
     // Open-ended pipe (from port, terminates in empty space).

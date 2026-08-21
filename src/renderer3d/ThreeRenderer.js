@@ -25,6 +25,9 @@ import { ComponentBuilder, getAccentMaterial, isDetailedComponent, componentPose
 import { PipeAttachmentBuilder } from './pipe-attachment-builder.js';
 import { BeamPipeBuilder } from './beam-pipe-builder.js';
 import { pipePathRuns } from '../beamline/pipe-geometry.js';
+import {
+  BEAM_AXIS_HEIGHT, BEAM_PIPE_RADIUS, BEAM_FLANGE_RADIUS, BEAM_FLANGE_WIDTH,
+} from '../beamline/visual-geometry.js';
 import { setModelBoundsProvider, setShellMeasureProvider } from '../utility/port-anchors.js';
 import { BeamBuilder } from './beam-builder.js';
 import { EquipmentBuilder } from './equipment-builder.js';
@@ -5102,8 +5105,6 @@ export class ThreeRenderer {
     const isRemove = mode === 'remove';
     const wireColor = isRemove ? 0xff4444 : 0x44ff44;
 
-    const PIPE_RADIUS = 0.06;
-    const PIPE_Y = 1.0;
     const STAND_W = 0.06;
 
     const pipeMat = new THREE.MeshStandardMaterial({
@@ -5132,10 +5133,12 @@ export class ThreeRenderer {
       const length = Math.sqrt(dx * dx + dz * dz);
       if (length < 0.01) return;
 
-      const pipeGeo = new THREE.CylinderGeometry(PIPE_RADIUS, PIPE_RADIUS, length, 8);
+      const pipeGeo = new THREE.CylinderGeometry(
+        BEAM_PIPE_RADIUS, BEAM_PIPE_RADIUS, length, 8,
+      );
       pipeGeo.rotateZ(Math.PI / 2);
       const pipe = new THREE.Mesh(pipeGeo, pipeMat);
-      pipe.position.set((x1 + x2) / 2, PIPE_Y, (z1 + z2) / 2);
+      pipe.position.set((x1 + x2) / 2, BEAM_AXIS_HEIGHT, (z1 + z2) / 2);
       pipe.rotation.y = -Math.atan2(dz, dx);
       this.previewGroup.add(pipe);
       this._beamPipePreviewMeshes.push(pipe);
@@ -5146,7 +5149,9 @@ export class ThreeRenderer {
       this._beamPipePreviewMeshes.push(pipeWire);
 
       // CF flanges at each end + every 2m (1 tile) along the run
-      const flangeGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.045, 8);
+      const flangeGeo = new THREE.CylinderGeometry(
+        BEAM_FLANGE_RADIUS, BEAM_FLANGE_RADIUS, BEAM_FLANGE_WIDTH, 8,
+      );
       flangeGeo.rotateZ(Math.PI / 2);
       const flangePositions = [[x1, z1], [x2, z2]];
       const MAX_UNFLANGED = 2;
@@ -5159,14 +5164,14 @@ export class ThreeRenderer {
       }
       for (const [fx, fz] of flangePositions) {
         const flange = new THREE.Mesh(flangeGeo, flangeMat);
-        flange.position.set(fx, PIPE_Y, fz);
+        flange.position.set(fx, BEAM_AXIS_HEIGHT, fz);
         flange.rotation.y = -Math.atan2(dz, dx);
         this.previewGroup.add(flange);
         this._beamPipePreviewMeshes.push(flange);
       }
 
       // Support stands every ~2 world units along the run
-      const standH = PIPE_Y - PIPE_RADIUS;
+      const standH = BEAM_AXIS_HEIGHT - BEAM_PIPE_RADIUS;
       const standGeo = new THREE.BoxGeometry(STAND_W, standH, STAND_W);
       const nStands = Math.max(1, Math.round(length / 2));
       for (let k = 0; k < nStands; k++) {

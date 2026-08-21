@@ -5,6 +5,12 @@
 import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { BEAMLINE_COMPONENTS_RAW } from '../data/beamline-components.raw.js';
+import {
+  BEAM_AXIS_HEIGHT as BEAM_HEIGHT,
+  BEAM_PIPE_RADIUS as PIPE_R,
+  BEAM_FLANGE_RADIUS as FLANGE_R,
+  BEAM_FLANGE_WIDTH as FLANGE_H,
+} from '../beamline/visual-geometry.js';
 import { roleBuilderFallbacks } from '../data/validate.js';
 import { MATERIALS } from './materials/index.js';
 import { DECALS } from './materials/decals.js';
@@ -154,10 +160,6 @@ const SEGS = 16;      // cylinder segment count for smooth round shapes
 // ── Standard beamline geometry constants ─────────────────────────────
 // All components share these so the beam pipe looks continuous when
 // components are placed end-to-end.
-const BEAM_HEIGHT  = 1.0;   // beam axis height above floor (m) — industry standard ~1m
-const PIPE_R       = 0.08;  // beam pipe outer radius (~6.3" OD, typical small-bore vacuum pipe)
-const FLANGE_R     = 0.16;  // CF flange radius (~2× pipe radius)
-const FLANGE_H     = 0.045; // flange thickness
 const PIPE_COLOR   = 0x99aabb;  // stainless steel blue-gray
 const FLANGE_COLOR = 0xbbbbbb;  // bright steel
 const STAND_COLOR  = 0x555555;  // dark gray support structure
@@ -658,28 +660,9 @@ function _buildSource() {
     group.add(endRing);
   }
 
-  // ── Beam exit pipe through solenoid to tile edge ──
-  const portEnd = 1.0;
+  // ── Beam exit pipe through solenoid to the authored exit port ──
   const portStart = -0.2 + chamberH / 2 + 0.12;
-  const portL = portEnd - portStart;
-  {
-    const g = new THREE.CylinderGeometry(PIPE_R, PIPE_R, portL, SEGS);
-    applyTiledCylinderUVs(g, PIPE_R, portL, SEGS);
-    const port = _addShadow(new THREE.Mesh(g, _mat(PIPE_COLOR, 0.3, 0.5)));
-    port.rotation.x = Math.PI / 2;
-    port.position.set(0, BEAM_HEIGHT, (portStart + portEnd) / 2);
-    group.add(port);
-  }
-
-  // Exit flange at tile edge
-  {
-    const g = new THREE.CylinderGeometry(FLANGE_R, FLANGE_R, FLANGE_H, SEGS);
-    applyTiledCylinderUVs(g, FLANGE_R, FLANGE_H, SEGS);
-    const fl = _addShadow(new THREE.Mesh(g, _mat(FLANGE_COLOR, 0.3, 0.5)));
-    fl.rotation.x = Math.PI / 2;
-    fl.position.set(0, BEAM_HEIGHT, portEnd);
-    group.add(fl);
-  }
+  _addSourceExit(group, 'source', portStart);
 
   // ── Cooling water fittings on chamber sides ──
   for (const xSign of [-1, 1]) {
@@ -806,6 +789,9 @@ function _buildDuoplasmatron() {
 
   _addBeamSupport(group, bodyZ - 0.28);
   _addBeamSupport(group, bodyZ + 0.28);
+  // The extraction electrodes stop well inside the footprint. Continue with
+  // a real vacuum tube to the same edge coordinate used by beam-pipe input.
+  _addSourceExit(group, 'ionSource', 0.57);
 
   return group;
 }
@@ -905,6 +891,10 @@ function _buildEcrIonSource() {
 
   _addBeamSupport(group, chZ - 0.35);
   _addBeamSupport(group, chZ + 0.35);
+  // ECR's 3 m footprint puts its authored exit at local z=1.5 m. Previously
+  // the visible model stopped at the last extraction plate (z=0.69 m), leaving
+  // a conspicuous gap even though the pipe state began at the correct port.
+  _addSourceExit(group, 'ecrIonSource', 0.69);
 
   return group;
 }
@@ -922,15 +912,19 @@ function _addAxialCylinder(group, {
   return mesh;
 }
 
-function _addSourceExit(group, startZ, endZ = 1.0) {
-  _addAxialCylinder(group, {
-    radius: PIPE_R, length: endZ - startZ, z: (startZ + endZ) / 2,
+function _addSourceExit(group, sourceType, startZ) {
+  const def = BEAMLINE_COMPONENTS_RAW[sourceType];
+  const endZ = (def?.subL || 4) * SUB_UNIT / 2;
+  const pipe = _addAxialCylinder(group, {
+    radius: PIPE_R, length: Math.max(0.001, endZ - startZ), z: (startZ + endZ) / 2,
     color: PIPE_COLOR, roughness: 0.3, metalness: 0.55,
   });
-  _addAxialCylinder(group, {
+  pipe.userData.beamPortName = 'exit';
+  const flange = _addAxialCylinder(group, {
     radius: FLANGE_R, length: FLANGE_H, z: endZ,
     color: FLANGE_COLOR, roughness: 0.28, metalness: 0.6,
   });
+  flange.userData.beamPortName = 'exit';
 }
 
 function _addSourceGlowDisc(group, id, color, radius, z, facing = 1) {
@@ -996,7 +990,7 @@ function _buildDcPhotoGun() {
   _addAxialCylinder(group, { radius: 0.18, length: 0.035, z: -0.22, color: 0xb87333, roughness: 0.3, metalness: 0.72 });
   _addAxialCylinder(group, { radius: 0.15, length: 0.035, z: 0.28, color: 0xb87333, roughness: 0.3, metalness: 0.72 });
   _addSourceGlowDisc(group, 'dcPhotoGun', 0x7be8ff, 0.075, -0.198);
-  _addSourceExit(group, 0.37);
+  _addSourceExit(group, 'dcPhotoGun', 0.37);
   _addBeamSupport(group, -0.42);
   _addBeamSupport(group, 0.22);
   return group;
@@ -1038,7 +1032,7 @@ function _buildNcRfGun() {
   }
 
   _addSourceGlowDisc(group, 'ncRfGun', 0xffb34e, 0.075, -0.605, -1);
-  _addSourceExit(group, 0.3);
+  _addSourceExit(group, 'ncRfGun', 0.3);
   _addBeamSupport(group, -0.38);
   _addBeamSupport(group, 0.13);
   return group;
@@ -1085,7 +1079,7 @@ function _buildSrfGun() {
   group.add(coupler);
 
   _addSourceGlowDisc(group, 'srfGun', 0x8ec8ff, 0.07, -0.835, -1);
-  _addSourceExit(group, 0.73, 1.5);
+  _addSourceExit(group, 'srfGun', 0.73);
   _addBeamSupport(group, -0.55);
   _addBeamSupport(group, 0.45);
   return group;
@@ -1129,7 +1123,7 @@ function _buildPenningIonSource() {
   for (const z of [0.35, 0.43]) {
     _addAxialCylinder(group, { radius: z === 0.35 ? 0.18 : 0.13, length: 0.035, z, color: 0xb87333, roughness: 0.3, metalness: 0.7 });
   }
-  _addSourceExit(group, 0.46);
+  _addSourceExit(group, 'penningIonSource', 0.46);
   _addBeamSupport(group, -0.38);
   _addBeamSupport(group, 0.2);
   return group;
