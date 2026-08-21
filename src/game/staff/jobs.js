@@ -90,6 +90,8 @@ export const JOB_TYPES = {
   analyze:    { id: 'analyze',    name: 'Analysis',      professions: ['scientist'],              usesSpecialty: false, basePriority: 30,   workTicks: 100, interruptible: true },
   paperwork:  { id: 'paperwork',  name: 'Paperwork',     professions: ['admin'],                  usesSpecialty: false, basePriority: 20,   workTicks: 80,  interruptible: true },
   meet:       { id: 'meet',       name: 'Meeting',       professions: Object.keys(PROFESSIONS), usesSpecialty: false, basePriority: 10,   workTicks: 60,  interruptible: true },
+  officeWork: { id: 'officeWork', name: 'Office Work', professions: Object.keys(PROFESSIONS), usesSpecialty: false, basePriority: 15, workTicks: 120, interruptible: true },
+  privateOfficeWork: { id: 'privateOfficeWork', name: 'Private Office Work', professions: ['admin', 'scientist'], usesSpecialty: false, basePriority: 25, workTicks: 120, interruptible: true },
 };
 
 // A repair/commission node's priority-per-health-point term (see JOB_TYPES'
@@ -467,7 +469,7 @@ function commissionOffers(nodes, state) {
 // slot of that job type. labWork/takeData additionally carry the specialty
 // of the zone the station sits in (StationRef.zoneType, read from
 // state.zoneOccupied at index-build time — see stations.js).
-const PLAIN_STATION_JOBS = ['fabricate', 'labWork', 'takeData', 'analyze', 'paperwork'];
+const PLAIN_STATION_JOBS = ['fabricate', 'labWork', 'takeData', 'analyze', 'paperwork', 'officeWork', 'privateOfficeWork'];
 const ZONE_SPECIALTY_JOBS = new Set(['labWork', 'takeData']);
 
 function plainStationOffers(index, reservations) {
@@ -657,6 +659,21 @@ export function eligibleFor(member, offer, game) {
     const index = getStationIndex(state);
     const ref = index.byKey[offer.stationKey];
     if (!ref) return { ok: false, reason: 'That station is gone.' };
+
+    // A desk is a real work assignment, not just a visual destination. Shared
+    // office desks are available as overflow work for any profession, while a
+    // private office must be deliberately assigned and is limited to roles
+    // that plausibly use one.
+    if (offer.jobType === 'privateOfficeWork') {
+      if (member.assignment?.zoneId !== 'privateOffice' || ref.zoneType !== 'privateOffice') {
+        return { ok: false, reason: `${memberLabel(member)} is not assigned to that private office.` };
+      }
+    } else if (offer.jobType === 'officeWork' && ref.zoneType !== 'officeSpace') {
+      return { ok: false, reason: 'That is not a shared office desk.' };
+    } else if ((offer.jobType === 'labWork' || offer.jobType === 'takeData')
+        && member.assignment?.zoneId && member.assignment.zoneId !== ref.zoneType) {
+      return { ok: false, reason: `${memberLabel(member)} is assigned to ${member.assignment.zoneId}, not ${ref.zoneType}.` };
+    }
 
     const reservations = state.stationReservations || {};
     const heldBy = reservations[ref.key];

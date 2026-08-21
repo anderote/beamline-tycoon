@@ -46,7 +46,7 @@ export const KNOWN_KINDS = new Set([
 // this same set as its source of truth.
 export const JOB_IDS = new Set([
   'runBeam', 'repair', 'labWork', 'commission', 'takeData', 'analyze',
-  'fabricate', 'paperwork', 'meet', 'eat', 'rest',
+  'fabricate', 'paperwork', 'meet', 'eat', 'rest', 'officeWork', 'privateOfficeWork',
 ]);
 const STATION_SEATED_VALUES = new Set(['required', 'preferred', 'never']);
 const FACINGS = new Set(['n', 'e', 's', 'w']);

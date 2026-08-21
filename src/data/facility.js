@@ -15,6 +15,7 @@ export const ZONES = {
   coolingLab:  { id: 'coolingLab',  name: 'Cooling Lab',    color: 0x33aaaa, requiredFloor: 'labFloor',    gatesCategory: 'cooling',      subsection: 'laboratories' },
   vacuumLab:   { id: 'vacuumLab',   name: 'Vacuum Lab',     color: 0x7744aa, requiredFloor: 'labFloor',    gatesCategory: 'vacuum',       subsection: 'laboratories' },
   officeSpace: { id: 'officeSpace', name: 'Office Space',   color: 0x4466aa, requiredFloor: 'officeFloor', gatesCategory: null,           subsection: 'operations'   },
+  privateOffice: { id: 'privateOffice', name: 'Private Office', color: 0x665588, requiredFloor: 'officeFloor', gatesCategory: null, subsection: 'operations' },
   controlRoom: { id: 'controlRoom', name: 'Control Room',   color: 0x44aa66, requiredFloor: 'officeFloor', gatesCategory: 'dataControls', subsection: 'operations'   },
   // gatesCategory is matched against a component's `category`, i.e. a palette
   // tab id — not a mode id. The machine shop gates every beamline tab, so it
@@ -36,6 +37,7 @@ const ZONE_DESCS = {
   coolingLab: 'Water and cryo test space — bring a jacket. Paint over Lab Flooring; growth unlocks Cooling tiers.',
   vacuumLab: 'Leak-checking and bake-out country. Paint over Lab Flooring; growth unlocks Vacuum tiers.',
   officeSpace: 'Where grad students photosynthesize under fluorescent light. Paint over Office Flooring.',
+  privateOffice: 'Quiet rooms for directors, senior scientists, and anyone whose calendar has become a weapon. Paint over Office Flooring.',
   controlRoom: 'Mission control for the machine. Paint over Office Flooring; growth unlocks Data & Controls tiers.',
   machineShop: 'Chips fly, parts appear. Paint over Lab Flooring; growth unlocks Beamline component tiers.',
   maintenance: 'Staging for carts, crates, and things that "worked yesterday". Paint over bare Concrete; growth unlocks Ops tiers.',

@@ -73,6 +73,8 @@ const CHAIR_SEAT_Y = {
 const EXPECTED_STATIONS = {
   operatorConsole: { jobs: ['runBeam'], slots: 1 },
   monitorBank: { jobs: ['runBeam'], slots: 1 },
+  sharedDesk: { jobs: ['officeWork'], slots: 1 },
+  privateOfficeDesk: { jobs: ['privateOfficeWork'], slots: 1 },
   desk: { jobs: ['analyze', 'paperwork'], slots: 1 },
   workstation: { jobs: ['analyze', 'paperwork'], slots: 1 },
   receptionDesk: { jobs: ['paperwork'], slots: 1 },
@@ -141,7 +143,7 @@ const DEVIATING_ANCHORS = {
 
 const EXPECTED_JOB_IDS = [
   'runBeam', 'repair', 'labWork', 'commission', 'takeData', 'analyze',
-  'fabricate', 'paperwork', 'meet', 'eat', 'rest',
+  'fabricate', 'paperwork', 'meet', 'eat', 'rest', 'officeWork', 'privateOfficeWork',
 ];
 
 function sameSet(a, b) {

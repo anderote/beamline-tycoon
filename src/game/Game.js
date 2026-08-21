@@ -5419,6 +5419,14 @@ export class Game {
     return true;
   }
 
+  // Office assignments use the same zone contract as lab and shop
+  // assignments. Keeping this as a named public command gives UI/tools a
+  // stable seam without teaching them about the assignment object shape.
+  assignStaffToOffice(staffId, officeZone = 'officeSpace') {
+    if (officeZone !== 'officeSpace' && officeZone !== 'privateOffice') return false;
+    return this.assignStaff(staffId, officeZone);
+  }
+
   hireStaff(profession) {
     // compat: generate a random member of that profession
     if (!this.state.staff[profession] && this.state.staff[profession] !== 0) return false;
