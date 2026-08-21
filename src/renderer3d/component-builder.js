@@ -82,6 +82,8 @@ import {
   _buildWaveguideManifoldRoles,
 } from './builders/rf-builder.js';
 import {
+  _buildSolenoidRoles,
+  _buildCollimatorRoles,
   _buildApertureRoles,
   _buildVelocitySelectorRoles,
   _buildEmittanceFilterRoles,
@@ -1517,6 +1519,8 @@ function _buildQuadrupoleRoles() {
 }
 ROLE_BUILDERS.quadrupole = _buildQuadrupoleRoles;
 ROLE_BUILDERS.sextupole = _buildSextupoleRoles;
+ROLE_BUILDERS.solenoid = _buildSolenoidRoles;
+ROLE_BUILDERS.collimator = _buildCollimatorRoles;
 ROLE_BUILDERS.aperture = _buildApertureRoles;
 ROLE_BUILDERS.velocitySelector = _buildVelocitySelectorRoles;
 ROLE_BUILDERS.emittanceFilter = _buildEmittanceFilterRoles;
