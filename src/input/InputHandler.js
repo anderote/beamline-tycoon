@@ -74,10 +74,16 @@ import { renderHoverTooltipDetail } from '../ui/hover-tooltip-detail.js';
 import { placeableMutationEvent } from '../game/placeable-events.js';
 import {
   floorSelectionKey,
+  isSelectionCategory,
   physicalEdgeSelectionKey,
   selectionTargetByKey,
   selectionTargetForPlaceable,
 } from '../game/selection-targets.js';
+import {
+  loadMouseSelectionCategories,
+  mouseSelectionCategoryEnabled,
+  saveMouseSelectionCategories,
+} from './selection-preferences.js';
 
 // === BEAMLINE TYCOON: INPUT HANDLER ===
 
@@ -137,6 +143,7 @@ export class InputHandler {
     // toggles only change selectedPlaceableIds, so a disabled category can be
     // re-enabled without drawing the marquee again.
     this._selectionCandidatesByKey = new Map();
+    this._mouseSelectionCategories = loadMouseSelectionCategories();
     this._marquee = null;
     this._marqueeEl = null;
     this._deferredUtilityPortDrag = new DeferredUtilityPortDrag();
@@ -950,6 +957,19 @@ export class InputHandler {
     };
   }
 
+  /** Category defaults used by direct clicks and each newly drawn marquee. */
+  mouseSelectionCategories() {
+    return new Set(this._mouseSelectionCategories);
+  }
+
+  setMouseSelectionCategory(category, enabled) {
+    if (!isSelectionCategory(category)) return false;
+    if (enabled) this._mouseSelectionCategories.add(category);
+    else this._mouseSelectionCategories.delete(category);
+    saveMouseSelectionCategories(this._mouseSelectionCategories);
+    return true;
+  }
+
   /** Public command seam for SelectionWindow; UI code never reaches internals. */
   dispatchSelectionPanelAction(action, value = null) {
     if (action === 'move') return this._beginSelectionPlacement('move');
@@ -1061,6 +1081,9 @@ export class InputHandler {
       if (!target?.key) continue;
       const candidate = { ...target, rootObj: match.rootObj || target.rootObj || null };
       this._selectionCandidatesByKey?.set?.(target.key, candidate);
+      if (!mouseSelectionCategoryEnabled(
+        this._mouseSelectionCategories, target.selectionCategory,
+      )) continue;
       this.selectedPlaceableIds.add(target.key);
       if (candidate.rootObj) this._selectedRootsById.set(target.key, candidate.rootObj);
     }
@@ -1249,6 +1272,10 @@ export class InputHandler {
       ? this.game.getPlaceable(info.nodeId)
       : null;
     if (entry) {
+      const target = selectionTargetForPlaceable(entry, info.rootObj || null);
+      if (!mouseSelectionCategoryEnabled(
+        this._mouseSelectionCategories, target?.selectionCategory,
+      )) return true;
       return this._selectPlaceable(entry, info.rootObj || null, { additive });
     }
 
@@ -1256,12 +1283,18 @@ export class InputHandler {
       const target = selectionTargetByKey(
         this.game.state, `attachment:${info.attachmentId}`,
       );
+      if (target && !mouseSelectionCategoryEnabled(
+        this._mouseSelectionCategories, target.selectionCategory,
+      )) return true;
       if (target) return this._selectLogicalTarget(target, info.rootObj || null, { additive });
     }
     if (info?.group === 'wall') {
       const edge = this._getNearestWallEdge(screenX, screenY);
       const key = physicalEdgeSelectionKey(edge.col, edge.row, edge.edge);
       const target = selectionTargetByKey(this.game.state, key);
+      if (target && !mouseSelectionCategoryEnabled(
+        this._mouseSelectionCategories, target.selectionCategory,
+      )) return true;
       if (target) return this._selectLogicalTarget(target, null, { additive });
     }
 
@@ -1272,6 +1305,9 @@ export class InputHandler {
 
     const floorKey = floorSelectionKey(grid.col, grid.row);
     const floor = selectionTargetByKey(this.game.state, floorKey);
+    if (floor && !mouseSelectionCategoryEnabled(
+      this._mouseSelectionCategories, floor.selectionCategory,
+    )) return true;
     return floor ? this._selectLogicalTarget(floor, null, { additive }) : false;
   }
 

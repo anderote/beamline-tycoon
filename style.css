@@ -5966,6 +5966,12 @@ body {
   text-shadow: 1px 1px 0 #000;
 }
 
+.opt-section-note {
+  margin: 6px 0 2px;
+  font-size: 10px;
+  color: #7a80a8;
+}
+
 .opt-row {
   display: flex;
   align-items: center;
