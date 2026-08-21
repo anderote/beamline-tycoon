@@ -5,7 +5,7 @@
 // state it is handed, not the draft nodes, not the component registry. Same
 // house contract as pipe-drawing.js / pipe-placements.js / pipe-splice.js.
 //
-//   planDesignerApply(state, { sourceId, draftNodes, originalNodes })
+//   planDesignerApply(state, { sourceId, draftNodes, originalNodes, prepareSite })
 //     → { ok, ops, summary, blockers }
 //
 // The draft is a statement of the DESIRED END STATE of one linear beam path,
@@ -15,7 +15,7 @@
 // other.
 //
 // ---------------------------------------------------------------------------
-// OP FORMAT — the contract the executor (BeamlineDesigner._planAndApply) reads
+// OP FORMAT — the contract the public designer-apply coordinator reads
 // ---------------------------------------------------------------------------
 //
 // Every op is `{ kind, nodeIndex, ...args }`. `nodeIndex` is the index in
@@ -50,6 +50,14 @@
 //
 // Op kinds, and the BeamlineSystem call each maps onto:
 //
+//   bulldozePlaceable { placeableId }
+//       → game.removePlaceable(placeableId)
+//   bulldozeWall { col, row, edge }
+//       → game.removeWall(...) until the wall and its layers are gone
+//   clearDecoration { placeableId, removalCost }
+//       → charge clearing cost, then removePlaceable(..., {skipRefund:true})
+//   placeConcrete { col, row }
+//       → game.placeInfraTile(col, row, 'concrete')
 //   removeFromPipe { pipeId, placementId }
 //       → beam.removeFromPipe(pipeId, placementId)
 //   removeJunction { junctionId }
@@ -82,9 +90,10 @@
 // ORDERING. Ops are listed in EXECUTION order, and the order is load-bearing.
 // The shape is removals → geometry → placements → tuneParams, spelled out:
 //
-//   1. removeFromPipe — first, so dropped attachments free pipe capacity and
+//   1. site demolition — ordinary obstructions and walls pay their refunds.
+//   2. removeFromPipe — so dropped attachments free pipe capacity and
 //                       pay their refunds before anything is charged.
-//   2. mergePipes     — BEFORE the junction removals, not after. This is the
+//   3. mergePipes     — BEFORE the junction removals, not after. This is the
 //                       one inversion in the list and it is not cosmetic:
 //                       validateMergePipes proves two pipes are adjacent by
 //                       the junction reference they SHARE. removeJunction
@@ -92,12 +101,13 @@
 //                       whole junction-length apart, so a merge planned after
 //                       the removal would be rejected as `not_adjacent` at
 //                       execution time.
-//   3. removeJunction — now referenced by nothing; frees its sub-grid cells
+//   4. removeJunction — now referenced by nothing; frees its sub-grid cells
 //                       before anything is placed into them.
-//   4. geometry       — splitPipe, trimPipe, drawPipe, extendPipe.
-//   5. placements     — placeJunction, placeOnPipe. A placeJunction consumes
+//   5. destructive clearing, then concrete foundation — after all refunds.
+//   6. geometry       — splitPipe, trimPipe, drawPipe, extendPipe.
+//   7. placements     — placeJunction, placeOnPipe. A placeJunction consumes
 //                       the `$head`/`$tail` symbols its splitPipe declared.
-//   6. tuneParams     — last; pure field writes that cannot fail.
+//   8. tuneParams     — last; pure field writes that cannot fail.
 //
 //   One further exception: a `drawPipe` anchored to a junction this same plan
 //   creates is emitted in step 5, immediately after the `placeJunction` that
@@ -136,8 +146,9 @@
 //
 //   no_space                 — the change does not fit without moving hardware
 //                              that phase 2 will not move
-//   collision                — a new junction's footprint hits an occupied
-//                              cell, a wall, or an existing pipe
+//   collision                — strict mode hits an occupied cell/wall/pipe,
+//                              or decisive mode hits protected beamline
+//                              hardware that site preparation will not erase
 //   not_straight             — the resulting pipe would not be a legal straight
 //                              run, or the module has no straight through-axis
 //   unaffordable             — the netted cost exceeds available funding
@@ -147,6 +158,7 @@
 
 import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
+import { FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, variantCost } from '../data/structure.js';
 import { flattenPath } from './flattener.js';
 import { validateSplitPipe, validateMergePipes, validateTrimPipe } from './pipe-splice.js';
 import { validateDrawPipe, validateExtendPipe } from './pipe-drawing.js';
@@ -154,7 +166,7 @@ import { findSlot, placementSpanSubL } from './pipe-placements.js';
 import { pipeCost, pipeRefund } from './BeamlineSystem.js';
 import { portSide, portWorldPosition } from './junctions.js';
 import { moduleBeamAxis, axisMatchesDirection } from './module-axis.js';
-import { canPlace } from '../game/placement.js';
+import { canPlace, physicalWallKey } from '../game/placement.js';
 
 const SUB_PER_TILE = 4;
 // 1 sub-unit is a quarter tile; a pipe waypoint always lands on that grid.
@@ -199,6 +211,62 @@ function displayName(type) {
 function costFunding(type) {
   const def = compDef(type);
   return (def && def.cost && typeof def.cost.funding === 'number') ? def.cost.funding : 0;
+}
+
+function placeableFunding(type) {
+  const cost = PLACEABLES[type]?.cost;
+  if (typeof cost === 'number') return cost;
+  return (cost && typeof cost.funding === 'number') ? cost.funding : 0;
+}
+
+function placeableName(type) {
+  return PLACEABLES[type]?.name || displayName(type);
+}
+
+function parseEdgeKey(key) {
+  const parts = String(key || '').split(',');
+  if (parts.length !== 3 || !['n', 'e', 's', 'w'].includes(parts[2])) return null;
+  const col = Number(parts[0]);
+  const row = Number(parts[1]);
+  return Number.isFinite(col) && Number.isFinite(row)
+    ? { col, row, edge: parts[2] }
+    : null;
+}
+
+function cellKey(c) {
+  return `${c.col},${c.row},${c.subCol},${c.subRow}`;
+}
+
+function occupantId(value) {
+  if (typeof value === 'string') return value;
+  return value && typeof value.id === 'string' ? value.id : null;
+}
+
+/** Wall records crossed by the interior of `cells`, plus inset shielding walls. */
+function footprintWallSites(shadow, cells) {
+  const sites = new Map();
+  const set = new Set(cells.map(cellKey));
+  const addKey = (key) => {
+    if (!key || !shadow.wallOccupied?.[key]) return;
+    const site = parseEdgeKey(key);
+    if (site) sites.set(physicalWallKey({ ...site, off: 0 }), site);
+  };
+
+  for (const c of cells) {
+    if (c.subCol === 3
+        && set.has(cellKey({ col: c.col + 1, row: c.row, subCol: 0, subRow: c.subRow }))) {
+      addKey(`${c.col},${c.row},e`);
+      addKey(`${c.col + 1},${c.row},w`);
+    }
+    if (c.subRow === 3
+        && set.has(cellKey({ col: c.col, row: c.row + 1, subCol: c.subCol, subRow: 0 }))) {
+      addKey(`${c.col},${c.row},s`);
+      addKey(`${c.col},${c.row + 1},n`);
+    }
+    const id = occupantId(shadow.subgridOccupied?.[cellKey(c)]);
+    if (id?.startsWith('shielding-wall:')) addKey(id.slice('shielding-wall:'.length));
+  }
+  return [...sites.values()];
 }
 
 // Both removePlaceable and removeFromPipe pay the same flat 50%.
@@ -330,6 +398,14 @@ function makeShadow(state) {
     })),
     subgridOccupied: { ...(s.subgridOccupied || {}) },
     wallOccupied: { ...(s.wallOccupied || {}) },
+    infraOccupied: { ...(s.infraOccupied || {}) },
+    zoneOccupied: { ...(s.zoneOccupied || {}) },
+    floors: (s.floors || []).map(f => ({ ...f })),
+    zones: (s.zones || []).map(z => ({ ...z })),
+    walls: (s.walls || []).map(w => ({ ...w })),
+    wallOverlays: (s.wallOverlays || []).map(w => ({ ...w })),
+    doors: (s.doors || []).map(d => ({ ...d })),
+    windows: (s.windows || []).map(w => ({ ...w })),
     resources: { ...(s.resources || {}) },
   };
 }
@@ -436,11 +512,16 @@ class Planner {
     this.shadow = makeShadow(state);
     this.sourceId = opts.sourceId;
     this.draft = opts.draftNodes || [];
+    this.prepareSite = opts.prepareSite === true;
+    this.protectedPlaceableIds = new Set();
 
     // One bucket per execution phase — see the ORDERING note in the header.
+    this.siteDemolitions = [];   // refundable placeables / wall structures
     this.removals = [];          // removeFromPipe
     this.merges = [];            // mergePipes (before the junction removals!)
     this.junctionRemovals = [];  // removeJunction
+    this.siteDestruction = [];   // trees/decorations with a clearing cost
+    this.siteFoundations = [];   // concrete after every available refund
     this.geometry = [];          // splitPipe / trimPipe / drawPipe / extendPipe
     this.placements = [];        // placeJunction / placeOnPipe
     this.tunes = [];             // tuneParams
@@ -448,6 +529,11 @@ class Planner {
 
     this.adds = new Map();     // type → { type, count, cost, metres }
     this.removes = new Map();  // type → { type, count, refund }
+    this.warnings = new Map();
+
+    this._preparedPlaceables = new Set();
+    this._preparedWalls = new Set();
+    this._preparedTiles = new Set();
 
     this._sym = 0;
   }
@@ -458,22 +544,192 @@ class Planner {
     this.blockers.push({ code, nodeIndex, message });
   }
 
-  addCost(type, funding, metres = 0) {
-    const row = this.adds.get(type) || { type, count: 0, cost: 0, metres: 0 };
+  addCost(type, funding, metres = 0, label = null) {
+    const key = type || `label:${label}`;
+    const row = this.adds.get(key) || {
+      ...(type ? { type } : {}), ...(label ? { label } : {}),
+      count: 0, cost: 0, metres: 0,
+    };
     row.count += 1;
     row.cost += funding;
     row.metres += metres;
-    this.adds.set(type, row);
+    this.adds.set(key, row);
   }
 
-  addRefund(type, funding) {
-    const row = this.removes.get(type) || { type, count: 0, refund: 0 };
+  addRefund(type, funding, label = null) {
+    const key = type || `label:${label}`;
+    const row = this.removes.get(key) || {
+      ...(type ? { type } : {}), ...(label ? { label } : {}),
+      count: 0, refund: 0,
+    };
     row.count += 1;
     row.refund += funding;
-    this.removes.set(type, row);
+    this.removes.set(key, row);
+  }
+
+  warn(key, label) {
+    this.warnings.set(key, { label });
   }
 
   // --- op emission + shadow bookkeeping ------------------------------------
+
+  _removeShadowPlaceable(id) {
+    const p = shadowPlaceable(this.shadow, id);
+    if (!p) return;
+    for (const c of p.cells || []) {
+      const key = cellKey(c);
+      if (occupantId(this.shadow.subgridOccupied[key]) === id) {
+        delete this.shadow.subgridOccupied[key];
+      }
+    }
+    this.shadow.placeables = this.shadow.placeables.filter(x => x.id !== id);
+  }
+
+  _emitSitePlaceable(id, nodeIndex) {
+    if (this._preparedPlaceables.has(id)) return true;
+    const p = shadowPlaceable(this.shadow, id);
+    if (!p) return false;
+    const def = PLACEABLES[p.type];
+    if (!def || def.kind === 'beamline' || this.protectedPlaceableIds.has(id)) {
+      return false;
+    }
+
+    // A bulldoze takes the complete stack. Children first prevents the normal
+    // collapse rule from dropping a benchtop item back onto the cells the new
+    // module is about to claim.
+    for (const childId of [...(p.stackChildren || [])]) {
+      if (!this._emitSitePlaceable(childId, nodeIndex)) return false;
+    }
+
+    this._preparedPlaceables.add(id);
+    const destructive = def.kind === 'decoration';
+    const removalCost = destructive ? (def.removeCost || 0) : 0;
+    const op = {
+      kind: destructive ? 'clearDecoration' : 'bulldozePlaceable',
+      nodeIndex, placeableId: id,
+      destructive, removalCost,
+    };
+    (destructive ? this.siteDestruction : this.siteDemolitions).push(op);
+    if (destructive) {
+      this.addRefund(null, 0, placeableName(p.type));
+      if (removalCost) this.addCost(null, removalCost, 0, 'Site clearing');
+    } else {
+      this.addRefund(
+        COMPONENTS[p.type] ? p.type : null,
+        Math.floor(placeableFunding(p.type) * 0.5),
+        COMPONENTS[p.type] ? null : placeableName(p.type),
+      );
+    }
+    this._removeShadowPlaceable(id);
+    return true;
+  }
+
+  _emitSiteWall(site, nodeIndex) {
+    const physical = physicalWallKey({ ...site, off: 0 });
+    if (!physical || this._preparedWalls.has(physical)) return true;
+    const same = entry => physicalWallKey({ ...entry, off: 0 }) === physical;
+    const hosts = this.shadow.walls.filter(same);
+    if (hosts.length === 0) return false;
+
+    this._preparedWalls.add(physical);
+    this.siteDemolitions.push({ kind: 'bulldozeWall', nodeIndex, ...site });
+
+    for (const wall of hosts) {
+      const def = WALL_TYPES[wall.type];
+      this.addRefund(null, Math.floor(variantCost(def, wall.variant ?? 0) * 0.5),
+        def?.name || 'Wall');
+    }
+    for (const layer of this.shadow.wallOverlays.filter(same)) {
+      const def = WALL_TYPES[layer.type];
+      this.addRefund(null, Math.floor(variantCost(def, layer.variant ?? 0) * 0.5),
+        def?.name || 'Wall layer');
+    }
+    for (const door of this.shadow.doors.filter(same)) {
+      const def = DOOR_TYPES[door.type];
+      this.addRefund(null, Math.floor((def?.cost || 0) * 0.5), def?.name || 'Door');
+    }
+    for (const win of this.shadow.windows.filter(same)) {
+      const def = WINDOW_TYPES[win.type];
+      this.addRefund(null, Math.floor(variantCost(def, win.variant ?? 0) * 0.5),
+        def?.name || 'Window');
+    }
+    for (const fixture of this.shadow.placeables.filter(p => p.wallMount && same(p.wallMount))) {
+      const def = PLACEABLES[fixture.type];
+      this._preparedPlaceables.add(fixture.id);
+      this.addRefund(null, Math.floor(placeableFunding(fixture.type) * 0.5),
+        def?.name || fixture.type);
+      this._removeShadowPlaceable(fixture.id);
+    }
+
+    this.shadow.walls = this.shadow.walls.filter(w => !same(w));
+    this.shadow.wallOverlays = this.shadow.wallOverlays.filter(w => !same(w));
+    this.shadow.doors = this.shadow.doors.filter(d => !same(d));
+    this.shadow.windows = this.shadow.windows.filter(w => !same(w));
+    for (const key of Object.keys(this.shadow.wallOccupied || {})) {
+      const parsed = parseEdgeKey(key);
+      if (parsed && physicalWallKey({ ...parsed, off: 0 }) === physical) {
+        delete this.shadow.wallOccupied[key];
+      }
+    }
+    for (const [key, occ] of Object.entries(this.shadow.subgridOccupied || {})) {
+      const id = occupantId(occ);
+      if (id?.startsWith('shielding-wall:')) {
+        const parsed = parseEdgeKey(id.slice('shielding-wall:'.length));
+        if (parsed && physicalWallKey({ ...parsed, off: 0 }) === physical) {
+          delete this.shadow.subgridOccupied[key];
+        }
+      }
+    }
+    return true;
+  }
+
+  _prepareFootprint(cells, nodeIndex, typeName) {
+    const ids = new Set();
+    for (const c of cells) {
+      const id = occupantId(this.shadow.subgridOccupied?.[cellKey(c)]);
+      if (id && !id.startsWith('shielding-wall:')) ids.add(id);
+    }
+    for (const id of ids) {
+      if (this._preparedPlaceables.has(id)) continue;
+      if (!this._emitSitePlaceable(id, nodeIndex)) {
+        this.block(COLLISION, nodeIndex,
+          `${typeName} would overlap beamline hardware that cannot be site-cleared safely.`);
+        return false;
+      }
+    }
+    for (const site of footprintWallSites(this.shadow, cells)) {
+      if (!this._emitSiteWall(site, nodeIndex)) {
+        this.block(COLLISION, nodeIndex, `${typeName} would run through a wall that cannot be cleared.`);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  _prepareFoundation(cells, nodeIndex) {
+    const concrete = FLOORS.concrete;
+    const cost = variantCost(concrete, 0);
+    for (const c of cells) {
+      const key = `${c.col},${c.row}`;
+      if (this._preparedTiles.has(key) || this.shadow.infraOccupied[key] === 'concrete') continue;
+      this._preparedTiles.add(key);
+      if (this.shadow.infraOccupied[key]) {
+        this.warn('replaced-floor', 'Existing floor finishes under the new beamline will be replaced');
+      }
+      if (this.shadow.zoneOccupied[key]) {
+        this.warn('cleared-zone', 'Room zoning under the new beamline will be cleared');
+        delete this.shadow.zoneOccupied[key];
+        this.shadow.zones = this.shadow.zones.filter(z => `${z.col},${z.row}` !== key);
+      }
+      this.siteFoundations.push({
+        kind: 'placeConcrete', nodeIndex, col: c.col, row: c.row,
+      });
+      this.shadow.floors = this.shadow.floors.filter(f => `${f.col},${f.row}` !== key);
+      this.shadow.floors.push({ type: 'concrete', col: c.col, row: c.row, variant: 0 });
+      this.shadow.infraOccupied[key] = 'concrete';
+      this.addCost(null, cost, 0, concrete?.name || 'Concrete Pad');
+    }
+  }
 
   emitRemoveFromPipe(pipeId, placementId, type) {
     this.removals.push({ kind: 'removeFromPipe', nodeIndex: -1, pipeId, placementId });
@@ -606,10 +862,17 @@ class Planner {
       this.block(COLLISION, nodeIndex, `${displayName(type)} cannot be placed on the map.`);
       return null;
     }
-    const geo = canPlace(
+    let geo = canPlace(
       { state: this.shadow }, placeable,
       anchor.col, anchor.row, anchor.subCol, anchor.subRow, dir,
     );
+    if (!geo.ok && this.prepareSite) {
+      if (!this._prepareFootprint(geo.cells, nodeIndex, displayName(type))) return null;
+      geo = canPlace(
+        { state: this.shadow }, placeable,
+        anchor.col, anchor.row, anchor.subCol, anchor.subRow, dir,
+      );
+    }
     if (!geo.ok) {
       this.block(COLLISION, nodeIndex,
         geo.wallBlocked
@@ -617,6 +880,7 @@ class Planner {
           : `${displayName(type)} would land on something already there.`);
       return null;
     }
+    if (this.prepareSite) this._prepareFoundation(geo.cells, nodeIndex);
 
     const symbol = this.sym('j');
     this.placements.push({
@@ -801,9 +1065,12 @@ class Planner {
 
   ops() {
     return [
+      ...this.siteDemolitions,
       ...this.removals,
       ...this.merges,
       ...this.junctionRemovals,
+      ...this.siteDestruction,
+      ...this.siteFoundations,
       ...this.geometry,
       ...this.placements,
       ...this.tunes,
@@ -866,11 +1133,16 @@ function isAddition(p, node) {
  *   opened. Accepted for symmetry with the designer's own bookkeeping and
  *   ignored: the MAP, re-walked here with flattenPath, is authoritative — the
  *   world can have changed since the designer opened.
+ * @param {boolean} [opts.prepareSite=false] emit priced demolition and
+ *   concrete-foundation ops for ordinary facility conflicts. Beamline
+ *   hardware and illegal beam geometry remain blockers.
  * @returns {{ok:boolean, ops:Array, summary:Object, blockers:Array}}
  */
 export function planDesignerApply(state, opts = {}) {
   const { sourceId, draftNodes } = opts;
-  const p = new Planner(state, { sourceId, draftNodes });
+  const p = new Planner(state, {
+    sourceId, draftNodes, prepareSite: opts.prepareSite === true,
+  });
 
   if (!sourceId) {
     p.block(SOURCE_IMMOVABLE, -1, 'This beamline has no source to plan against.');
@@ -884,6 +1156,7 @@ export function planDesignerApply(state, opts = {}) {
   }
   const segs = partitionRun(entries);
   const mapModules = segs.filter(s => s.kind === 'module').map(s => s.entry);
+  p.protectedPlaceableIds = new Set(mapModules.map(m => m.id));
 
   if (detectMultiBranch(p, segs)) return finish(p);
   if (!checkSourceInvariants(p, mapModules)) return finish(p);
@@ -1420,11 +1693,15 @@ function appendJunction(p, state, node, index, inTail) {
 
 function finish(p) {
   const adds = [...p.adds.values()].map(r => ({
-    type: r.type, count: r.count, cost: r.cost,
+    ...(r.type ? { type: r.type } : {}),
+    ...(r.label ? { label: r.label } : {}),
+    count: r.count, cost: r.cost,
     ...(r.metres ? { metres: Math.round(r.metres * 100) / 100 } : {}),
   }));
   const removes = [...p.removes.values()].map(r => ({
-    type: r.type, count: r.count, refund: r.refund,
+    ...(r.type ? { type: r.type } : {}),
+    ...(r.label ? { label: r.label } : {}),
+    count: r.count, refund: r.refund,
   }));
   const totalCost = adds.reduce((s, r) => s + r.cost, 0)
     - removes.reduce((s, r) => s + r.refund, 0);
@@ -1445,6 +1722,7 @@ function finish(p) {
       movedCount: 0,
       movedDistanceM: 0,
       danglingLineCount: 0,
+      warnings: [...p.warnings.values()],
       totalCost,
     },
     blockers: p.blockers,
