@@ -28,6 +28,7 @@ globalThis.document = {
 };
 
 const { PLACEABLES } = await import('../src/data/placeables/index.js');
+const { BEAMLINE_COMPONENTS_RAW } = await import('../src/data/beamline-components.raw.js');
 const { COMPONENTS } = await import('../src/data/components.js');
 const { ComponentBuilder, isDetailedComponent } =
   await import('../src/renderer3d/component-builder.js');
@@ -53,7 +54,7 @@ function glowMeshes(object) {
   return meshes;
 }
 
-test('every actual generic placeable fallback is covered by the visual-detail audit', () => {
+test('every beamline component has dedicated geometry and every actual generic fallback is audited', () => {
   // ROLE_BUILDERS register as direct assignments.  The small legacy map is
   // intentionally explicit, making additions to either renderer path visible
   // in this coverage test without exporting renderer internals just for tests.
@@ -63,8 +64,19 @@ test('every actual generic placeable fallback is covered by the visual-detail au
     'source', 'dcPhotoGun', 'ncRfGun', 'srfGun',
     'penningIonSource', 'ionSource', 'ecrIonSource', 'drift',
   ]);
+  const missingBeamlineBuilders = Object.values(BEAMLINE_COMPONENTS_RAW)
+    .filter(def => !detailed.has(def.id))
+    .map(def => def.id);
+  assert.deepEqual(missingBeamlineBuilders, [],
+    `beamline component(s) missing dedicated geometry: ${missingBeamlineBuilders.join(', ')}`);
+
+  const obsoleteBeamlineProfiles = Object.keys(PLACEABLE_VISUAL_PROFILES)
+    .filter(id => BEAMLINE_COMPONENTS_RAW[id]);
+  assert.deepEqual(obsoleteBeamlineProfiles, [],
+    `dedicated beamline component(s) must not retain fallback profiles: ${obsoleteBeamlineProfiles.join(', ')}`);
+
   const missingComponentProfiles = Object.values(PLACEABLES)
-    .filter(def => (def.kind === 'beamline' || def.kind === 'infrastructure') && !detailed.has(def.id))
+    .filter(def => def.kind === 'infrastructure' && !detailed.has(def.id))
     .filter(def => !PLACEABLE_VISUAL_PROFILES[def.id])
     .map(def => def.id);
   assert.deepEqual(missingComponentProfiles, [],
@@ -94,8 +106,9 @@ test('every reviewed profile creates physical geometry beyond the fallback housi
 });
 
 test('component and facility render paths both retain their housing and add detail meshes', () => {
-  const component = new ComponentBuilder()._createFallbackMesh(PLACEABLES.cyclotron30);
-  assert.ok(meshCount(component) > 2, 'cyclotron fallback gains a body, rings, and support details');
+  const component = new ComponentBuilder()._createFallbackMesh(PLACEABLES.bakeoutSystem);
+  assert.ok(meshCount(component) > 2,
+    'infrastructure fallback retains its housing and gains reviewed mechanical details');
 
   const parent = new THREE.Group();
   const equipment = new EquipmentBuilder();

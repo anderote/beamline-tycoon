@@ -11,13 +11,6 @@ import { configureGlowMesh, getGlowMaterial } from './machine-glow.js';
 // This is deliberately an inventory, not a heuristic.  Adding a new generic
 // box to the catalogue means it is visible here during art review.
 export const PLACEABLE_VISUAL_PROFILES = Object.freeze({
-  // Beamline modules without a dedicated role builder.
-  cyclotron30: 'cyclotron', cyclotron70: 'cyclotron', cyclotron230: 'cyclotron',
-  lwfaStation: 'laserBay', positronSource: 'targetStation',
-  injectionSeptum: 'magnet', combinedFunctionMagnet: 'magnet',
-  industrialLinac: 'linac', protonLinacFrontEnd: 'linac', dtl: 'linac',
-  cryomodule: 'cryomodule', collisionPoint: 'collision',
-
   // Infrastructure modules without a dedicated role builder.
   bakeoutSystem: 'cabinet',
   rackIoc: 'rack', ppsInterlock: 'rack', mps: 'rack', timingSystem: 'rack',

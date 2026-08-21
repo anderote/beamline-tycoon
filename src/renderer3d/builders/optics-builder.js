@@ -85,6 +85,308 @@ function buildPedestals(buckets, zPositions, topY, { width = 0.24, depth = 0.16 
   }
 }
 
+function buildBox(bucket, w, h, l, {
+  x = 0, y = BEAM_HEIGHT, z = 0, rotateX = 0, rotateY = 0, rotateZ = 0,
+} = {}) {
+  const g = new THREE.BoxGeometry(w, h, l);
+  applyTiledBoxUVs(g, w, h, l);
+  const rotation = new THREE.Matrix4();
+  if (rotateX) rotation.multiply(new THREE.Matrix4().makeRotationX(rotateX));
+  if (rotateY) rotation.multiply(new THREE.Matrix4().makeRotationY(rotateY));
+  if (rotateZ) rotation.multiply(new THREE.Matrix4().makeRotationZ(rotateZ));
+  pushT(bucket, g, mul(trans(x, y, z), rotation));
+}
+
+function buildCylX(bucket, radius, length, {
+  x = 0, y = BEAM_HEIGHT, z = 0, segs = SEGS,
+} = {}) {
+  const g = new THREE.CylinderGeometry(radius, radius, length, segs);
+  applyTiledCylinderUVs(g, radius, length, segs);
+  pushT(bucket, g, mul(trans(x, y, z), rotZ(Math.PI / 2)));
+}
+
+function buildCylZ(bucket, radius, length, {
+  x = 0, y = BEAM_HEIGHT, z = 0, segs = SEGS,
+} = {}) {
+  const g = new THREE.CylinderGeometry(radius, radius, length, segs);
+  applyTiledCylinderUVs(g, radius, length, segs);
+  pushT(bucket, g, mul(trans(x, y, z), rotX(Math.PI / 2)));
+}
+
+function buildSegment(bucket, a, b, radius, segs = 10) {
+  const from = new THREE.Vector3(...a);
+  const to = new THREE.Vector3(...b);
+  const delta = to.clone().sub(from);
+  const length = delta.length();
+  if (length < 1e-6) return;
+  const g = new THREE.CylinderGeometry(radius, radius, length, segs);
+  applyTiledCylinderUVs(g, radius, length, segs);
+  const rotation = new THREE.Quaternion().setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    delta.normalize(),
+  );
+  pushT(bucket, g, new THREE.Matrix4().compose(
+    from.add(to).multiplyScalar(0.5),
+    rotation,
+    new THREE.Vector3(1, 1, 1),
+  ));
+}
+
+function buildSideFlange(bucket, x, z = 0) {
+  buildCylX(bucket, FLANGE_R, FLANGE_H, { x, z });
+}
+
+// ── Injection Septum ────────────────────────────────────────────────
+// Three real beam ports: the stored-beam channel crosses left-to-right while
+// the injected line enters from -Z and merges across a thin copper septum.
+export function _buildInjectionSeptumRoles() {
+  const b = makeBuckets();
+  const half = 0.5;
+
+  buildCylX(b.pipe, PIPE_R, 1.0);
+  buildCylZ(b.pipe, PIPE_R, 0.32, { x: -0.16, z: -0.34 });
+  buildSegment(b.pipe,
+    [-0.16, BEAM_HEIGHT, -0.18],
+    [0.12, BEAM_HEIGHT, 0], PIPE_R);
+  buildSideFlange(b.detail, -half);
+  buildSideFlange(b.detail, half);
+  buildCylZ(b.detail, FLANGE_R, FLANGE_H, { x: -0.16, z: -half });
+
+  for (const sign of [-1, 1]) {
+    buildBox(b.accent, 0.72, 0.10, 0.58, {
+      y: BEAM_HEIGHT + sign * 0.30,
+      z: -0.02,
+    });
+    buildBox(b.copper, 0.46, 0.055, 0.50, {
+      y: BEAM_HEIGHT + sign * 0.21,
+      z: -0.02,
+    });
+  }
+  buildBox(b.iron, 0.10, 0.50, 0.58, { x: 0.31, z: -0.02 });
+  buildBox(b.copper, 0.035, 0.40, 0.50, {
+    x: -0.055,
+    z: -0.055,
+    rotateY: -0.48,
+  });
+  buildBox(b.detail, 0.15, 0.18, 0.22, {
+    x: 0.35,
+    y: BEAM_HEIGHT + 0.38,
+    z: 0.10,
+  });
+  buildPedestals(b, [-0.20, 0.20], BEAM_HEIGHT - 0.35, { width: 0.18, depth: 0.12 });
+  return b;
+}
+
+// ── Combined-function magnet ────────────────────────────────────────
+// The asymmetric stepped pole faces expose its field gradient instead of
+// borrowing the ordinary dipole silhouette.
+export function _buildCombinedFunctionMagnetRoles() {
+  const b = makeBuckets();
+  const halfLength = 1.0;
+  buildPipeSegment(b, 4);
+  buildFlanges(b, halfLength);
+
+  for (const sign of [-1, 1]) {
+    buildBox(b.accent, 0.82, 0.11, 1.72, { y: BEAM_HEIGHT + sign * 0.35 });
+    for (let i = 0; i < 4; i++) {
+      const z = -0.63 + i * 0.42;
+      const poleW = 0.28 + i * 0.055;
+      buildBox(b.iron, poleW, 0.16, 0.34, {
+        y: BEAM_HEIGHT + sign * 0.20,
+        z,
+      });
+      buildBox(b.copper, poleW + 0.10, 0.045, 0.30, {
+        y: BEAM_HEIGHT + sign * 0.285,
+        z,
+      });
+    }
+  }
+  for (const x of [-0.36, 0.36]) buildBox(b.accent, 0.10, 0.60, 1.72, { x });
+  buildBox(b.detail, 0.18, 0.20, 0.34, {
+    x: 0.39,
+    y: BEAM_HEIGHT + 0.44,
+    z: -0.52,
+  });
+  buildPedestals(b, [-0.65, 0.65], BEAM_HEIGHT - 0.405, { width: 0.22, depth: 0.18 });
+  return b;
+}
+
+// ── Four-dipole bunch compressor ────────────────────────────────────
+export function _buildChicaneRoles() {
+  const b = makeBuckets();
+  const halfLength = 2.0;
+  const points = [
+    [0, BEAM_HEIGHT, -halfLength],
+    [0, BEAM_HEIGHT, -1.45],
+    [-0.50, BEAM_HEIGHT, -0.78],
+    [-0.50, BEAM_HEIGHT, 0.78],
+    [0, BEAM_HEIGHT, 1.45],
+    [0, BEAM_HEIGHT, halfLength],
+  ];
+  for (let i = 0; i < points.length - 1; i++) {
+    buildSegment(b.pipe, points[i], points[i + 1], PIPE_R);
+  }
+  buildFlanges(b, halfLength);
+
+  const magnets = [
+    { x: -0.12, z: -1.27, yaw: -0.46 },
+    { x: -0.43, z: -0.73, yaw: -0.46 },
+    { x: -0.43, z: 0.73, yaw: 0.46 },
+    { x: -0.12, z: 1.27, yaw: 0.46 },
+  ];
+  for (const m of magnets) {
+    for (const sign of [-1, 1]) {
+      buildBox(b.accent, 0.66, 0.11, 0.46, {
+        x: m.x,
+        y: BEAM_HEIGHT + sign * 0.27,
+        z: m.z,
+        rotateY: m.yaw,
+      });
+      buildBox(b.copper, 0.42, 0.05, 0.48, {
+        x: m.x,
+        y: BEAM_HEIGHT + sign * 0.19,
+        z: m.z,
+        rotateY: m.yaw,
+      });
+    }
+    buildBox(b.iron, 0.10, 0.44, 0.44, {
+      x: m.x + 0.28,
+      z: m.z,
+      rotateY: m.yaw,
+    });
+    buildPedestals(b, [m.z], BEAM_HEIGHT - 0.33, { width: 0.18, depth: 0.16 });
+  }
+  buildBox(b.detail, 0.24, 0.18, 0.36, {
+    x: 0.69,
+    y: BEAM_HEIGHT + 0.20,
+    z: 0,
+  });
+  return b;
+}
+
+// ── Undulator ────────────────────────────────────────────────────────
+export function _buildUndulatorRoles() {
+  const b = makeBuckets();
+  const halfLength = 2.5;
+  buildPipeSegment(b, 10);
+  buildFlanges(b, halfLength);
+
+  const periods = 18;
+  for (let i = 0; i < periods; i++) {
+    const z = -2.18 + i * (4.36 / (periods - 1));
+    const role = i % 2 ? b.accent : b.iron;
+    for (const sign of [-1, 1]) {
+      buildBox(role, 0.46, 0.12, 0.17, {
+        y: BEAM_HEIGHT + sign * 0.18,
+        z,
+      });
+    }
+  }
+  buildBox(b.iron, 0.66, 0.10, 4.55, { y: BEAM_HEIGHT + 0.38 });
+  buildBox(b.iron, 0.66, 0.10, 4.55, { y: BEAM_HEIGHT - 0.38 });
+  for (const z of [-2.20, 2.20]) {
+    buildBox(b.copper, 0.72, 0.08, 0.16, { y: BEAM_HEIGHT + 0.29, z });
+    buildBox(b.copper, 0.72, 0.08, 0.16, { y: BEAM_HEIGHT - 0.29, z });
+    buildBox(b.detail, 0.08, 0.78, 0.15, { x: 0.37, z });
+  }
+  buildPedestals(b, [-1.65, 0, 1.65], BEAM_HEIGHT - 0.43, { width: 0.24, depth: 0.18 });
+  return b;
+}
+
+// ── Energy degrader and selection line ──────────────────────────────
+export function _buildEnergyDegraderRoles() {
+  const b = makeBuckets();
+  const halfLength = 3.0;
+  buildPipeSegment(b, 12);
+  buildFlanges(b, halfLength);
+
+  for (const sign of [-1, 1]) {
+    buildBox(b.copper, 0.34, 0.28, 0.36, {
+      x: sign * 0.21,
+      y: BEAM_HEIGHT + sign * 0.15,
+      z: -2.20,
+      rotateZ: sign * 0.25,
+    });
+  }
+  buildCylX(b.detail, 0.035, 1.25, {
+    x: 0,
+    y: BEAM_HEIGHT + 0.45,
+    z: -2.20,
+    segs: 8,
+  });
+  buildBox(b.accent, 0.32, 0.22, 0.42, {
+    x: 0.72,
+    y: BEAM_HEIGHT + 0.45,
+    z: -2.20,
+  });
+
+  for (const [i, z] of [-1.35, -0.48, 0.48, 1.35].entries()) {
+    const x = (i < 2 ? -1 : 1) * 0.34;
+    for (const sign of [-1, 1]) {
+      buildBox(b.accent, 0.70, 0.10, 0.44, {
+        x,
+        y: BEAM_HEIGHT + sign * 0.26,
+        z,
+      });
+      buildBox(b.copper, 0.44, 0.045, 0.40, {
+        x,
+        y: BEAM_HEIGHT + sign * 0.18,
+        z,
+      });
+    }
+    buildBox(b.iron, 0.10, 0.42, 0.42, {
+      x: x + (x < 0 ? -0.30 : 0.30),
+      z,
+    });
+    buildPedestals(b, [z], BEAM_HEIGHT - 0.32, { width: 0.20, depth: 0.16 });
+  }
+
+  for (const z of [2.08, 2.52]) {
+    for (const sign of [-1, 1]) {
+      buildBox(b.iron, 0.16, 0.34, 0.16, { x: sign * 0.20, z });
+      buildCylX(b.detail, 0.022, 0.28, { x: sign * 0.38, z, segs: 8 });
+    }
+    buildBox(b.accent, 0.62, 0.07, 0.20, { y: BEAM_HEIGHT + 0.28, z });
+    buildBox(b.accent, 0.62, 0.07, 0.20, { y: BEAM_HEIGHT - 0.28, z });
+  }
+  return b;
+}
+
+// ── Orthogonal scanning-magnet pair ─────────────────────────────────
+export function _buildScanningMagnetRoles() {
+  const b = makeBuckets();
+  const halfLength = 1.0;
+  buildPipeSegment(b, 4);
+  buildFlanges(b, halfLength);
+
+  for (const sign of [-1, 1]) {
+    buildBox(b.accent, 0.78, 0.12, 0.58, {
+      y: BEAM_HEIGHT + sign * 0.25,
+      z: -0.43,
+    });
+    buildBox(b.copper, 0.54, 0.055, 0.54, {
+      y: BEAM_HEIGHT + sign * 0.17,
+      z: -0.43,
+    });
+    buildBox(b.accent, 0.12, 0.78, 0.58, {
+      x: sign * 0.25,
+      z: 0.43,
+    });
+    buildBox(b.copper, 0.055, 0.54, 0.54, {
+      x: sign * 0.17,
+      z: 0.43,
+    });
+  }
+  buildBox(b.iron, 0.11, 0.52, 0.56, { x: 0.34, z: -0.43 });
+  buildBox(b.iron, 0.52, 0.11, 0.56, { y: BEAM_HEIGHT + 0.34, z: 0.43 });
+  buildBox(b.detail, 0.42, 0.52, 0.54, { x: 0.68, y: 0.92, z: 0 });
+  for (const z of [-0.18, 0.18]) {
+    buildCylZ(b.copper, 0.032, 0.95, { x: 0.48, y: 1.26, z });
+  }
+  buildPedestals(b, [-0.43, 0.43], BEAM_HEIGHT - 0.34, { width: 0.22, depth: 0.18 });
+  return b;
+}
+
 // ── Solenoid ──────────────────────────────────────────────────────────
 // subL=2 subW=2 subH=2 → 1m long, 1m wide, 1m click volume
 // Exposed copper windings around a straight beam tube, retained between
