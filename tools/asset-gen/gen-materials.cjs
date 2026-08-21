@@ -448,6 +448,158 @@ function gen_wallCinderblock(name, seed) {
 
 // ── Main ─────────────────────────────────────────────────────────────
 
+// ── Wallpapers ──────────────────────────────────────────────────────────
+//
+// Interior wall FINISHES, applied per wall face by WALL_PAINTS entries that
+// carry a `texture`. Unlike the flat paints (which tint the wall's own base
+// material) these replace it, so the pattern has to survive being tiled by
+// the wall material's repeat — every lattice period below divides 64, and
+// nothing is anchored to a fixed height. That rules out wainscot, chair
+// rails and borders: they would seam the moment the wall is taller or
+// shorter than one tile.
+//
+// Palette stays desaturated for the same reason the rest of this file does —
+// these sit behind equipment and under coloured fixture light, and saturated
+// wallpaper would fight both.
+
+/** Two-tone vertical pinstripe. `period` must divide SIZE. */
+function gen_wallpaperPinstripe(name, bgRGB, stripeRGB, period, seed) {
+  const png = makePng();
+  const rand = mulberry32(seed);
+  for (let y = 0; y < SIZE; y += CHUNK) {
+    for (let x = 0; x < SIZE; x += CHUNK) {
+      const onStripe = (x % period) < CHUNK;
+      const c = onStripe ? stripeRGB : bgRGB;
+      const n = (rand() - 0.5) * (onStripe ? 5 : 9);
+      setBlock(png, x, y, c[0] + n, c[1] + n, c[2] + n, CHUNK);
+    }
+  }
+  writePng(png, name);
+}
+
+/** Gingham check: two overlaid bands, darkest where they cross. */
+function gen_wallpaperGingham(name, lightRGB, midRGB, darkRGB, band, seed) {
+  const png = makePng();
+  const rand = mulberry32(seed);
+  for (let y = 0; y < SIZE; y += CHUNK) {
+    for (let x = 0; x < SIZE; x += CHUNK) {
+      const bx = Math.floor(x / band) % 2 === 0;
+      const by = Math.floor(y / band) % 2 === 0;
+      const c = (bx && by) ? darkRGB : (bx || by) ? midRGB : lightRGB;
+      const n = (rand() - 0.5) * 7;
+      setBlock(png, x, y, c[0] + n, c[1] + n, c[2] + n, CHUNK);
+    }
+  }
+  writePng(png, name);
+}
+
+/** Glazed subway tile in running bond, with a soft top highlight per tile. */
+function gen_wallpaperSubway(name, tileRGB, groutRGB, seed) {
+  const png = makePng();
+  const rand = mulberry32(seed);
+  const BW = 16, BH = 8;
+  for (let y = 0; y < SIZE; y += CHUNK) {
+    for (let x = 0; x < SIZE; x += CHUNK) {
+      const row = Math.floor(y / BH);
+      const offset = (row % 2 === 0) ? 0 : BW / 2;
+      const xx = ((x - offset) % SIZE + SIZE) % SIZE;
+      const tx = xx % BW;
+      const ty = y % BH;
+      if (tx === BW - CHUNK || ty === BH - CHUNK) {
+        const n = (rand() - 0.5) * 6;
+        setBlock(png, x, y, groutRGB[0] + n, groutRGB[1] + n, groutRGB[2] + n, CHUNK);
+        continue;
+      }
+      // Glaze: brighter along the top edge, faintly darker at the bottom.
+      const glaze = ty < CHUNK ? 12 : (ty >= BH - 2 * CHUNK ? -6 : 0);
+      const n = (rand() - 0.5) * 5;
+      setBlock(png, x, y,
+        tileRGB[0] + glaze + n, tileRGB[1] + glaze + n, tileRGB[2] + glaze + n, CHUNK);
+    }
+  }
+  writePng(png, name);
+}
+
+/** Seventies diamond lattice — solid core, contrasting outline. */
+function gen_wallpaperGeometric(name, bgRGB, coreRGB, edgeRGB, cell, seed) {
+  const png = makePng();
+  const rand = mulberry32(seed);
+  const half = cell / 2;
+  for (let y = 0; y < SIZE; y += CHUNK) {
+    for (let x = 0; x < SIZE; x += CHUNK) {
+      const lx = x % cell, ly = y % cell;
+      const d = Math.abs(lx - half) + Math.abs(ly - half);
+      let c = bgRGB;
+      if (d <= half - 3) c = coreRGB;
+      else if (d <= half - 1) c = edgeRGB;
+      const n = (rand() - 0.5) * 6;
+      setBlock(png, x, y, c[0] + n, c[1] + n, c[2] + n, CHUNK);
+    }
+  }
+  writePng(png, name);
+}
+
+/**
+ * Damask: a half-drop medallion lattice. Built from overlapping ellipses
+ * rather than sampled art so it stays seamless and re-tintable.
+ */
+function gen_wallpaperDamask(name, bgRGB, motifRGB, accentRGB, seed) {
+  const png = makePng();
+  const rand = mulberry32(seed);
+  const CELL = 32, H = CELL / 2;
+  const ell = (dx, dy, rx, ry) => (dx * dx) / (rx * rx) + (dy * dy) / (ry * ry) <= 1;
+  for (let y = 0; y < SIZE; y += CHUNK) {
+    for (let x = 0; x < SIZE; x += CHUNK) {
+      const rowIdx = Math.floor(y / CELL);
+      const offset = (rowIdx % 2 === 0) ? 0 : H;          // half-drop
+      const lx = (((x - offset) % CELL) + CELL) % CELL;
+      const ly = y % CELL;
+      const dx = lx - H, dy = ly - H;
+      let c = null;
+      // Ornament, drawn inner-to-outer. Deliberately NO filled surrounding
+      // cartouche: a big background ellipse merges every element into one
+      // lozenge and the motif stops reading as damask at pixel scale.
+      if (ell(dx, dy, 4, 9)) c = motifRGB;                                  // body
+      else if (ell(dx, dy, 6, 11)) c = accentRGB;                           // body outline
+      else if (ell(dx - 7, dy + 4, 3, 4) || ell(dx + 7, dy + 4, 3, 4)) c = motifRGB;  // upper scrolls
+      else if (ell(dx - 6, dy - 5, 2, 3) || ell(dx + 6, dy - 5, 2, 3)) c = accentRGB; // lower scrolls
+      else if (Math.abs(dx) + Math.abs(dy - 13) <= 3) c = motifRGB;         // top finial
+      else if (Math.abs(dx) + Math.abs(dy + 13) <= 2) c = accentRGB;        // bottom finial
+      const base = c || bgRGB;
+      const n = (rand() - 0.5) * (c ? 5 : 8);
+      setBlock(png, x, y, base[0] + n, base[1] + n, base[2] + n, CHUNK);
+    }
+  }
+  writePng(png, name);
+}
+
+/** Small floral sprig on a half-drop lattice: stem, leaves, three petals. */
+function gen_wallpaperFloral(name, bgRGB, stemRGB, petalRGB, seed) {
+  const png = makePng();
+  const rand = mulberry32(seed);
+  const CELL = 16, H = CELL / 2;
+  for (let y = 0; y < SIZE; y += CHUNK) {
+    for (let x = 0; x < SIZE; x += CHUNK) {
+      const rowIdx = Math.floor(y / CELL);
+      const offset = (rowIdx % 2 === 0) ? 0 : H;
+      const lx = (((x - offset) % CELL) + CELL) % CELL;
+      const ly = y % CELL;
+      let c = null;
+      // Stem rising from the cell floor, with a leaf either side.
+      if (lx === H && ly >= H && ly < CELL - CHUNK) c = stemRGB;
+      else if ((lx === H - CHUNK || lx === H + CHUNK) && ly === H + 2 * CHUNK) c = stemRGB;
+      // Three-petal head above the stem.
+      else if ((lx === H && ly === H - 2 * CHUNK)
+        || (lx === H - CHUNK && ly === H - CHUNK)
+        || (lx === H + CHUNK && ly === H - CHUNK)) c = petalRGB;
+      const base = c || bgRGB;
+      const n = (rand() - 0.5) * (c ? 4 : 8);
+      setBlock(png, x, y, base[0] + n, base[1] + n, base[2] + n, CHUNK);
+    }
+  }
+  writePng(png, name);
+}
+
 if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
 
 // Metals
@@ -493,5 +645,13 @@ gen_wallCinderblock('wall_cinderblock', 24);
 // Fences — RGBA with true transparent holes.
 gen_wallChainLink('wall_chain_link', 30, false);
 gen_wallChainLink('wall_barbed_wire', 31, true);
+
+// Interior wallpapers (WALL_PAINTS entries carrying a `texture`).
+gen_wallpaperPinstripe('wallpaper_pinstripe', [222, 216, 202], [176, 166, 146], 8, 60);
+gen_wallpaperGingham('wallpaper_gingham', [226, 222, 212], [178, 190, 186], [138, 158, 156], 8, 61);
+gen_wallpaperSubway('wallpaper_subway', [222, 224, 220], [168, 168, 162], 62);
+gen_wallpaperGeometric('wallpaper_geometric', [206, 190, 160], [150, 106, 74], [186, 148, 96], 16, 63);
+gen_wallpaperDamask('wallpaper_damask', [198, 190, 176], [124, 114, 102], [158, 148, 134], 64);
+gen_wallpaperFloral('wallpaper_floral', [228, 222, 214], [126, 140, 118], [186, 148, 158], 65);
 
 console.log('done.');

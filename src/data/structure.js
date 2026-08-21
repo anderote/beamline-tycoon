@@ -39,14 +39,66 @@ export function variantCost(def, variant = 0) {
 // Cosmetic finishes apply to one face of an existing wall. They deliberately
 // live outside WALL_TYPES: painting never changes a wall's construction cost,
 // height, collision, or shielding properties.
+// A finish is one of two things, distinguished by `texture`:
+//
+//   no texture  → PAINT. `color` multiplies the wall's own base material, so
+//                 brick stays brick and drywall stays drywall underneath.
+//   texture     → WALLPAPER. The named MATERIALS entry REPLACES the wall's
+//                 base map and `color` is only the palette swatch. The
+//                 material tiles with the wall, so a papered pattern must be
+//                 seamless in both axes — which is why nothing here is
+//                 positional (no wainscot, chair rails or borders; they would
+//                 seam on any wall that isn't exactly one tile tall).
+//
+// `kind` drives nothing but the HUD grouping; `texture` is the real switch.
 export const WALL_PAINTS = {
+  // ---- Flat paints -------------------------------------------------------
   cleanWhite:  { id: 'cleanWhite',  name: 'Clean White',  color: 0xe9e5dc },
   labBlue:     { id: 'labBlue',     name: 'Lab Blue',     color: 0x5f91b8 },
   controlTeal: { id: 'controlTeal', name: 'Control Teal', color: 0x4b8f8b },
   safetyGreen: { id: 'safetyGreen', name: 'Safety Green', color: 0x5d9a68 },
   utilityGray: { id: 'utilityGray', name: 'Utility Gray', color: 0x777d84 },
   warmOchre:   { id: 'warmOchre',   name: 'Warm Ochre',   color: 0xb68b55 },
+  deepNavy:    { id: 'deepNavy',    name: 'Deep Navy',    color: 0x3a4a68 },
+  charcoal:    { id: 'charcoal',    name: 'Charcoal',     color: 0x4a4d52 },
+  oxideRed:    { id: 'oxideRed',    name: 'Oxide Red',    color: 0x9a5348 },
+  creamBeige:  { id: 'creamBeige',  name: 'Cream',        color: 0xded2b8 },
+  mintGreen:   { id: 'mintGreen',   name: 'Mint',         color: 0x8fbfa4 },
+  dustyRose:   { id: 'dustyRose',   name: 'Dusty Rose',   color: 0xc09a99 },
+  slateViolet: { id: 'slateViolet', name: 'Slate Violet', color: 0x6f6a86 },
+  mustard:     { id: 'mustard',     name: 'Mustard',      color: 0xc0a049 },
+
+  // ---- Patterned wallpapers ---------------------------------------------
+  paperPinstripe: {
+    id: 'paperPinstripe', name: 'Pinstripe', kind: 'wallpaper',
+    texture: 'wallpaper_pinstripe', color: 0xded8ca,
+  },
+  paperGingham: {
+    id: 'paperGingham', name: 'Gingham', kind: 'wallpaper',
+    texture: 'wallpaper_gingham', color: 0xb2beba,
+  },
+  paperSubway: {
+    id: 'paperSubway', name: 'Subway Tile', kind: 'wallpaper',
+    texture: 'wallpaper_subway', color: 0xdee0dc,
+  },
+  paperGeometric: {
+    id: 'paperGeometric', name: 'Geometric', kind: 'wallpaper',
+    texture: 'wallpaper_geometric', color: 0xcebea0,
+  },
+  paperDamask: {
+    id: 'paperDamask', name: 'Damask', kind: 'wallpaper',
+    texture: 'wallpaper_damask', color: 0xc6beb0,
+  },
+  paperFloral: {
+    id: 'paperFloral', name: 'Floral Sprig', kind: 'wallpaper',
+    texture: 'wallpaper_floral', color: 0xe4ded6,
+  },
 };
+
+/** True when this finish replaces the wall's base map rather than tinting it. */
+export function isWallpaper(paint) {
+  return !!paint?.texture;
+}
 
 // All floor types — placed as full tiles. Indoor floors require a
 // concrete foundation; outdoor floors can sit directly on bare ground

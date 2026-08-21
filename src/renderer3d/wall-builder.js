@@ -465,14 +465,23 @@ export class WallBuilder {
       // `inside` paint faces its own tile; `outside` faces the neighbouring
       // tile, letting the two rooms use independent finishes.
       const faceMaterial = (paintId) => {
-        if (!paintId || !WALL_PAINTS[paintId]) return matCache[matKey];
+        const paint = paintId ? WALL_PAINTS[paintId] : null;
+        if (!paint) return matCache[matKey];
         const paintKey = `${matKey}:paint:${paintId}`;
         if (!matCache[paintKey]) {
-          const paintTextureName = def?.variantTextures?.[variant] ?? def?.texture;
-          const paintBaseMat = paintTextureName ? MATERIALS[paintTextureName] : null;
+          // Two kinds of finish (see WALL_PAINTS in data/structure.js):
+          // a wallpaper carries its own `texture` and REPLACES the wall's base
+          // map, so brick papered over stops looking like brick — its `color`
+          // is only the HUD swatch and must not tint the pattern. A flat paint
+          // has no texture and keeps the wall's own material, tinted.
+          const papered = !!paint.texture;
+          const textureName = papered
+            ? paint.texture
+            : (def?.variantTextures?.[variant] ?? def?.texture);
+          const baseMat = textureName ? MATERIALS[textureName] : null;
           matCache[paintKey] = createWallMaterial(
-            paintBaseMat,
-            WALL_PAINTS[paintId].color,
+            baseMat,
+            papered ? 0xffffff : paint.color,
             wallTransparent,
             useAlpha,
           );

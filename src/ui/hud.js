@@ -1038,7 +1038,9 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
     for (const subKey of subKeys) {
       const subDef = subsections[subKey];
       const subItems = wallKeys.filter(k => WALL_TYPES[k]?.subsection === subKey);
-      if (subItems.length === 0 && subKey !== 'paint') continue;
+      // 'paint' and 'wallpaper' draw from WALL_PAINTS, not WALL_TYPES, so an
+      // empty subItems list is expected for them rather than a reason to skip.
+      if (subItems.length === 0 && subKey !== 'paint' && subKey !== 'wallpaper') continue;
 
       if (renderedSections > 0) {
         const divider = document.createElement('div');
@@ -1056,8 +1058,13 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
       const itemsContainer = document.createElement('div');
       itemsContainer.className = 'palette-subsection-items';
 
-      if (subKey === 'paint') {
-        for (const paint of Object.values(WALL_PAINTS)) {
+      if (subKey === 'paint' || subKey === 'wallpaper') {
+        // One loop, two sections: a finish carrying a `texture` is wallpaper,
+        // everything else is flat paint (see WALL_PAINTS in data/structure.js).
+        const wantWallpaper = subKey === 'wallpaper';
+        const finishes = Object.values(WALL_PAINTS)
+          .filter(p => !!p.texture === wantWallpaper);
+        for (const paint of finishes) {
           const item = document.createElement('div');
           item.className = 'palette-item';
           item.dataset.paletteIndex = paletteIdx;
@@ -1066,7 +1073,12 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
           const idx = paletteIdx++;
           const previewEl = document.createElement('div');
           previewEl.className = 'palette-preview';
-          previewEl.innerHTML = `<div style="width:48px;height:32px;background:#${paint.color.toString(16).padStart(6, '0')};border-radius:3px"></div>`;
+          // Wallpaper shows the actual pattern rather than a flat chip — a
+          // solid swatch tells you nothing about a pattern. image-rendering
+          // keeps the 64x64 source crisp instead of smearing it.
+          previewEl.innerHTML = paint.texture
+            ? `<div style="width:48px;height:32px;border-radius:3px;background-image:url('assets/textures/materials/${paint.texture}.png');background-size:32px 32px;background-repeat:repeat;image-rendering:pixelated"></div>`
+            : `<div style="width:48px;height:32px;background:#${paint.color.toString(16).padStart(6, '0')};border-radius:3px"></div>`;
           item.appendChild(previewEl);
           const nameEl = document.createElement('div');
           nameEl.className = 'palette-name';
@@ -1074,10 +1086,12 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
           item.appendChild(nameEl);
           const hintEl = document.createElement('div');
           hintEl.className = 'palette-cost';
-          hintEl.textContent = 'face paint';
+          hintEl.textContent = paint.texture ? 'wallpaper' : 'face paint';
           item.appendChild(hintEl);
           this._attachSimpleHoverPreview(item, paint.name,
-            'Click a floor tile to paint its adjacent wall faces. Shift-click to paint all inward-facing walls bounding that interior.',
+            paint.texture
+              ? 'Click a floor tile to paper its adjacent wall faces. Shift-click to paper all inward-facing walls bounding that interior. Right-click strips the finish.'
+              : 'Click a floor tile to paint its adjacent wall faces. Shift-click to paint all inward-facing walls bounding that interior.',
             [['Placement', 'Tile walls'], ['Shift', 'Interior boundary']]);
           item.addEventListener('click', () => {
             if (this._onPaletteClick) this._onPaletteClick(idx);

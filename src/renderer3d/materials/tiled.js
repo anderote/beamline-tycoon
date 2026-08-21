@@ -43,6 +43,15 @@ export const MATERIALS = {
   wall_cinderblock:    makeMat('wall_cinderblock.png',    { roughness: 0.95, metalness: 0.0 }),
   wall_chain_link:     makeMat('wall_chain_link.png',     { roughness: 0.5, metalness: 0.6 }),
   wall_barbed_wire:    makeMat('wall_barbed_wire.png',    { roughness: 0.5, metalness: 0.6 }),
+  // Interior wallpapers — WALL_PAINTS entries that carry a `texture` swap the
+  // wall's own base map for one of these instead of tinting it. Papered
+  // surfaces are matte; the glazed subway tile is the one exception.
+  wallpaper_pinstripe: makeMat('wallpaper_pinstripe.png', { roughness: 0.9, metalness: 0.0 }),
+  wallpaper_gingham:   makeMat('wallpaper_gingham.png',   { roughness: 0.9, metalness: 0.0 }),
+  wallpaper_subway:    makeMat('wallpaper_subway.png',    { roughness: 0.45, metalness: 0.0 }),
+  wallpaper_geometric: makeMat('wallpaper_geometric.png', { roughness: 0.9, metalness: 0.0 }),
+  wallpaper_damask:    makeMat('wallpaper_damask.png',    { roughness: 0.92, metalness: 0.0 }),
+  wallpaper_floral:    makeMat('wallpaper_floral.png',    { roughness: 0.92, metalness: 0.0 }),
   // Fencing + hedges (used for Grounds > Fencing walls)
   fence_hedge:         makeMat('fence_hedge.png',         { roughness: 0.9, metalness: 0.0 }),
   fence_hedge_alt:     makeMat('fence_hedge_alt.png',     { roughness: 0.9, metalness: 0.0 }),
