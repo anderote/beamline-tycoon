@@ -82,7 +82,7 @@ test('shadow scheduler parks disabled, daylight, and inactive slots', () => {
 });
 
 test('every fixture exposes a complete finite lighting profile', () => {
-  assert.equal(LIGHTING_DEFS.length, 15);
+  assert.equal(LIGHTING_DEFS.length, 28);
   for (const def of LIGHTING_DEFS) {
     assert.deepEqual(validateLightingDef(def), [], `${def.id} profile is valid`);
     assert.ok(def.light.sourceRadius > 0, `${def.id} has an apparent source size`);

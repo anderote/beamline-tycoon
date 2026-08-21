@@ -23,6 +23,16 @@ the short authoring contract.
 - Floor coverings use `mount: 'floor'`. They retain a placement footprint for
   rendering, selection, rotation, and area demolition, but do not claim the
   ordinary furnishing occupancy layer, so desks and chairs can sit on them.
+- Lighting fixtures use `mount` for physical placement and `subsection` for
+  build-palette ownership. Indoor floor lamps use `mount: 'ground'` so their
+  bases claim ordinary furnishing occupancy, while the `floorLamps`
+  subsection keeps them under Structure → Lights. Every light-bearing def in
+  a grouped lighting category must name one of that category's declared
+  subsections. Off-centre emitters may declare local-space `sourceOffsetX` /
+  `sourceOffsetZ`; the shared projection path rotates those offsets with the
+  fixture so painted pools and real lights remain attached to the model.
+  Warning and wayfinding fixtures may declare a normalized `light.dayFloor`
+  so their emitter remains visible independently of the day/night cycle.
 - Electrical wall feedthroughs use `mount: 'wall'` and
   `wallPassThrough: true`. They reserve the matching quarter-wall slot on both
   faces and declare exactly two passive front/back ports of one electrical

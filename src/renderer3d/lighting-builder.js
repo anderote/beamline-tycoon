@@ -134,6 +134,9 @@ export function fixtureLightTag(def, { id, dir = 0 } = {}) {
     targetDistance: light.targetDistance ?? 0,
     maxGroundRange: light.maxGroundRange ?? 0,
     emitterY: light.emitterY ?? 0,
+    dayFloor: light.dayFloor ?? 0,
+    sourceOffsetX: light.sourceOffsetX ?? 0,
+    sourceOffsetZ: light.sourceOffsetZ ?? 0,
     sourceOffsetY: light.sourceOffsetY ?? 0,
     mount: def.mount ?? 'ground',
     penumbra: light.penumbra,
@@ -686,6 +689,300 @@ function _buildPortableWorkLight(def) {
   return group;
 }
 
+// --- Indoor floor lamps ----------------------------------------------------
+
+function _buildFloorLamp(def) {
+  const group = new THREE.Group();
+  const metalMat = _mat(0x6a5747, { metalness: 0.42, roughness: 0.5 });
+  const shadeMat = _mat(0xd9c3a4, { metalness: 0.02, roughness: 0.9 });
+  const glowMat = _emitterMat(def.light.color);
+  const emitterY = def.light.emitterY;
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.045, 16), metalMat);
+  base.position.y = 0.023;
+  base.castShadow = true;
+  group.add(base);
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.02, emitterY - 0.18, 8), metalMat);
+  pole.position.y = (emitterY - 0.18) / 2 + 0.05;
+  pole.castShadow = true;
+  group.add(pole);
+  const shade = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.23, 0.28, 16, 1, true), shadeMat);
+  shade.position.y = emitterY;
+  shade.castShadow = true;
+  group.add(shade);
+  const glow = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 8), glowMat);
+  glow.position.y = emitterY - 0.02;
+  group.add(glow);
+  group.userData.emitterMaterial = glowMat;
+  return group;
+}
+
+function _buildArcFloorLamp(def) {
+  const group = new THREE.Group();
+  const metalMat = _mat(0x55585c, { metalness: 0.76, roughness: 0.32 });
+  const shadeMat = _mat(0x34363a, { metalness: 0.58, roughness: 0.42 });
+  const glowMat = _emitterMat(def.light.color);
+  const emitterY = def.light.emitterY;
+  const emitterX = def.light.sourceOffsetX ?? 0.38;
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.2, 0.055, 16), metalMat);
+  base.position.y = 0.028;
+  base.castShadow = true;
+  group.add(base);
+  const segments = [
+    { h: 1.25, x: 0.02, y: 0.68, rz: -0.035 },
+    { h: 0.62, x: 0.13, y: 1.56, rz: -0.34 },
+    { h: 0.42, x: 0.31, y: 1.82, rz: -1.02 },
+  ];
+  for (const seg of segments) {
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.018, seg.h, 8), metalMat);
+    arm.position.set(seg.x, seg.y, 0);
+    arm.rotation.z = seg.rz;
+    arm.castShadow = true;
+    group.add(arm);
+  }
+  const shade = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.2, 0.18, 16), shadeMat);
+  shade.position.set(emitterX, emitterY + 0.04, 0);
+  shade.castShadow = true;
+  group.add(shade);
+  const glow = new THREE.Mesh(new THREE.CircleGeometry(0.16, 16), glowMat);
+  glow.rotation.x = Math.PI / 2;
+  glow.position.set(emitterX, emitterY - 0.055, 0);
+  group.add(glow);
+  group.userData.emitterMaterial = glowMat;
+  return group;
+}
+
+function _buildTorchiere(def) {
+  const group = new THREE.Group();
+  const metalMat = _mat(0x4e5660, { metalness: 0.68, roughness: 0.4 });
+  const glowMat = _emitterMat(def.light.color);
+  const emitterY = def.light.emitterY;
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 0.045, 14), metalMat);
+  base.position.y = 0.023;
+  base.castShadow = true;
+  group.add(base);
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.019, emitterY - 0.12, 8), metalMat);
+  pole.position.y = (emitterY - 0.12) / 2 + 0.045;
+  pole.castShadow = true;
+  group.add(pole);
+  const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.08, 0.12, 16), metalMat);
+  bowl.position.y = emitterY - 0.03;
+  bowl.castShadow = true;
+  group.add(bowl);
+  const glow = new THREE.Mesh(new THREE.CircleGeometry(0.17, 16), glowMat);
+  glow.rotation.x = -Math.PI / 2;
+  glow.position.y = emitterY + 0.035;
+  group.add(glow);
+  group.userData.emitterMaterial = glowMat;
+  return group;
+}
+
+// --- Additional desk/task lamps -------------------------------------------
+
+function _buildBankerLamp(def) {
+  const group = new THREE.Group();
+  const brass = _mat(0x8c6a30, { metalness: 0.72, roughness: 0.34 });
+  const greenGlass = _mat(0x2f754f, { metalness: 0.08, roughness: 0.32 });
+  const glowMat = _emitterMat(def.light.color);
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 0.035, 16), brass);
+  base.position.y = 0.018;
+  base.castShadow = true;
+  group.add(base);
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.016, 0.25, 8), brass);
+  stem.position.y = 0.16;
+  group.add(stem);
+  const shade = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.11, 0.13), greenGlass);
+  shade.position.y = 0.36;
+  shade.rotation.z = -0.08;
+  shade.castShadow = true;
+  group.add(shade);
+  const glow = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.012, 0.1), glowMat);
+  glow.position.y = 0.302;
+  glow.rotation.z = -0.08;
+  group.add(glow);
+  group.userData.emitterMaterial = glowMat;
+  return group;
+}
+
+function _buildMagnifierTaskLamp(def) {
+  const group = new THREE.Group();
+  const metalMat = _mat(0xb7bdc2, { metalness: 0.7, roughness: 0.34 });
+  const lensMat = _mat(0x7ba8b8, { metalness: 0.05, roughness: 0.18, transparent: true, opacity: 0.36 });
+  const glowMat = _emitterMat(def.light.color);
+  const clamp = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.14), metalMat);
+  clamp.position.y = 0.04;
+  group.add(clamp);
+  for (const [x, y, rz, len] of [[0.055, 0.23, -0.32, 0.34], [0.16, 0.48, 0.38, 0.31]]) {
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, len, 7), metalMat);
+    arm.position.set(x, y, 0);
+    arm.rotation.z = rz;
+    group.add(arm);
+  }
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.022, 8, 20), glowMat);
+  ring.position.set(0.22, 0.63, 0);
+  ring.rotation.y = Math.PI / 2;
+  group.add(ring);
+  const lens = new THREE.Mesh(new THREE.CircleGeometry(0.095, 20), lensMat);
+  lens.position.set(0.22, 0.63, 0);
+  lens.rotation.y = Math.PI / 2;
+  group.add(lens);
+  group.userData.emitterMaterial = glowMat;
+  return group;
+}
+
+// --- Additional ceiling lights --------------------------------------------
+
+function _buildRecessedDownlight(def) {
+  const group = new THREE.Group();
+  const trimMat = _mat(0xd8dadd, { metalness: 0.22, roughness: 0.62 });
+  const glowMat = _emitterMat(def.light.color);
+  const trim = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.035, 18), trimMat);
+  trim.position.y = -0.012;
+  trim.castShadow = true;
+  group.add(trim);
+  const glow = new THREE.Mesh(new THREE.CircleGeometry(0.1, 18), glowMat);
+  glow.rotation.x = Math.PI / 2;
+  glow.position.y = -0.031;
+  group.add(glow);
+  group.userData.emitterMaterial = glowMat;
+  return group;
+}
+
+function _buildCeilingBatten(def) {
+  const group = new THREE.Group();
+  const frameMat = _mat(0xbec5ca, { metalness: 0.22, roughness: 0.7 });
+  const glowMat = _emitterMat(def.light.color);
+  const housing = new THREE.Mesh(new THREE.BoxGeometry(1.08, 0.08, 0.15), frameMat);
+  housing.position.y = -0.035;
+  housing.castShadow = true;
+  group.add(housing);
+  const glow = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.012, 0.11), glowMat);
+  glow.position.y = -0.081;
+  group.add(glow);
+  group.userData.emitterMaterial = glowMat;
+  return group;
+}
+
+function _buildEmergencyCeilingLight(def) {
+  const group = new THREE.Group();
+  const bodyMat = _mat(0xd0d2d0, { metalness: 0.16, roughness: 0.68 });
+  const glowMat = _emitterMat(def.light.color);
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.055, 0.18), bodyMat);
+  plate.position.y = -0.028;
+  plate.castShadow = true;
+  group.add(plate);
+  for (const x of [-0.09, 0.09]) {
+    const head = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 0.08, 10), bodyMat);
+    head.position.set(x, -0.09, 0);
+    group.add(head);
+    const lens = new THREE.Mesh(new THREE.CircleGeometry(0.043, 10), glowMat);
+    lens.rotation.x = Math.PI / 2;
+    lens.position.set(x, -0.134, 0);
+    group.add(lens);
+  }
+  group.userData.emitterMaterial = glowMat;
+  return group;
+}
+
+// --- Wall accents and warning devices -------------------------------------
+
+function _buildPictureLight(def) {
+  const group = new THREE.Group();
+  const brass = _mat(0x8d6e3d, { metalness: 0.66, roughness: 0.38 });
+  const glowMat = _emitterMat(def.light.color);
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, 0.02), brass);
+  plate.position.z = 0.01;
+  group.add(plate);
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.025, 0.15), brass);
+  arm.position.z = 0.085;
+  group.add(arm);
+  const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.38, 10), brass);
+  bar.rotation.z = Math.PI / 2;
+  bar.position.set(0, -0.04, 0.17);
+  bar.castShadow = true;
+  group.add(bar);
+  const glow = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.045, 0.025), glowMat);
+  glow.position.set(0, -0.075, 0.17);
+  group.add(glow);
+  group.userData.emitterMaterial = glowMat;
+  return group;
+}
+
+function _buildKlaxonStrobe(def) {
+  const group = new THREE.Group();
+  const bodyMat = _mat(0x7c858a, { metalness: 0.58, roughness: 0.45 });
+  const darkMat = _mat(0x30363a, { metalness: 0.5, roughness: 0.48 });
+  const glowMat = _emitterMat(def.light.color);
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.24, 0.035), bodyMat);
+  plate.position.z = 0.018;
+  plate.castShadow = true;
+  group.add(plate);
+  const horn = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.11, 0.16, 12, 1, true), darkMat);
+  horn.rotation.x = Math.PI / 2;
+  horn.position.set(-0.045, -0.025, 0.11);
+  horn.castShadow = true;
+  group.add(horn);
+  const strobe = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.075, 0.1, 12), glowMat);
+  strobe.position.set(0.055, 0.08, 0.07);
+  group.add(strobe);
+  group.userData.emitterMaterial = glowMat;
+  return group;
+}
+
+function _buildRotatingBeacon(def) {
+  const group = new THREE.Group();
+  const baseMat = _mat(0x33383b, { metalness: 0.62, roughness: 0.4 });
+  const glowMat = _emitterMat(def.light.color);
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.055, 14), baseMat);
+  base.position.y = 0.028;
+  base.castShadow = true;
+  group.add(base);
+  const dome = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.09, 0.18, 14), glowMat);
+  dome.position.y = 0.145;
+  group.add(dome);
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.066, 12, 7), glowMat);
+  cap.scale.y = 0.55;
+  cap.position.y = 0.238;
+  group.add(cap);
+  group.userData.emitterMaterial = glowMat;
+  return group;
+}
+
+function _buildSignalTower(def) {
+  const group = new THREE.Group();
+  const baseMat = _mat(0x34383b, { metalness: 0.58, roughness: 0.42 });
+  const red = _mat(0xbb302b, { emissive: 0x240503, emissiveIntensity: 0.35, roughness: 0.34 });
+  const amber = _mat(0xc87b24, { emissive: 0x241005, emissiveIntensity: 0.35, roughness: 0.34 });
+  const glowMat = _emitterMat(def.light.color);
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.055, 12), baseMat);
+  base.position.y = 0.028;
+  group.add(base);
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.08, 7), baseMat);
+  stem.position.y = 0.095;
+  group.add(stem);
+  for (const [y, mat] of [[0.18, glowMat], [0.27, amber], [0.36, red]]) {
+    const segment = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.075, 12), mat);
+    segment.position.y = y;
+    group.add(segment);
+  }
+  group.userData.emitterMaterial = glowMat;
+  return group;
+}
+
+function _buildExitLight(def) {
+  const group = new THREE.Group();
+  const frameMat = _mat(0x3e4744, { metalness: 0.45, roughness: 0.5 });
+  const glowMat = _emitterMat(def.light.color);
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.2, 0.04), frameMat);
+  frame.position.z = 0.02;
+  frame.castShadow = true;
+  group.add(frame);
+  const face = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.14, 0.015), glowMat);
+  face.position.z = 0.048;
+  group.add(face);
+  group.userData.emitterMaterial = glowMat;
+  return group;
+}
+
 // --- Dispatch ----------------------------------------------------------------
 
 const BUILDERS = {
@@ -704,7 +1001,24 @@ const BUILDERS = {
   cleanroomPanel: _buildCleanroomPanel,
   deskLamp: _buildDeskLamp,
   portableWorkLight: _buildPortableWorkLight,
+  floorLamp: _buildFloorLamp,
+  arcFloorLamp: _buildArcFloorLamp,
+  torchiere: _buildTorchiere,
+  bankerLamp: _buildBankerLamp,
+  magnifierTaskLamp: _buildMagnifierTaskLamp,
+  recessedDownlight: _buildRecessedDownlight,
+  ceilingBatten: _buildCeilingBatten,
+  emergencyCeilingLight: _buildEmergencyCeilingLight,
+  pictureLight: _buildPictureLight,
+  klaxonStrobe: _buildKlaxonStrobe,
+  rotatingBeacon: _buildRotatingBeacon,
+  signalTower: _buildSignalTower,
+  exitLight: _buildExitLight,
 };
+
+export function hasLightFixtureBuilder(id) {
+  return typeof BUILDERS[id] === 'function';
+}
 
 /**
  * Build one lighting fixture's geometry.
