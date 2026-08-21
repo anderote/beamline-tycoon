@@ -1,4 +1,13 @@
 // Placement modes — each mode has its own set of category tabs
+export const ROOM_FURNITURE_GROUPS = {
+  seating: { name: 'Seating' },
+  tables: { name: 'Tables & Counters' },
+  storage: { name: 'Storage & Shelves' },
+  hospitality: { name: 'Coffee & Snacks' },
+  decor: { name: 'Decor & Accessories' },
+  other: { name: 'Other Furniture' },
+};
+
 export const MODES = {
   beamline: {
     name: 'Beamline',
@@ -58,14 +67,14 @@ export const MODES = {
       machineShop: { name: 'Machine Shop',   color: '#865', isZoneTab: true, zoneType: 'machineShop',  group: 'labs' },
       maintenance: { name: 'Maintenance',    color: '#a63', isZoneTab: true, zoneType: 'maintenance',  group: 'labs' },
       // --- Rooms ---
-      controlRoom: { name: 'Control Room',   color: '#4a6', isZoneTab: true, zoneType: 'controlRoom',  group: 'rooms', utilityLineTools: ['dataFiber', 'powerCable'] },
-      officeSpace: { name: 'Office',         color: '#46a', isZoneTab: true, zoneType: 'officeSpace',  group: 'rooms' },
-      privateOffice: { name: 'Private Office', color: '#658', isZoneTab: true, zoneType: 'privateOffice', group: 'rooms' },
-      reception:   { name: 'Reception',      color: '#b85', isZoneTab: true, zoneType: 'reception',    group: 'rooms' },
-      meetingRoom: { name: 'Meeting',        color: '#649', isZoneTab: true, zoneType: 'meetingRoom',  group: 'rooms' },
-      facultyLounge: { name: 'Faculty Lounge', color: '#865', isZoneTab: true, zoneType: 'facultyLounge', group: 'rooms' },
-      cafeteria:   { name: 'Cafeteria',      color: '#a64', isZoneTab: true, zoneType: 'cafeteria',    group: 'rooms' },
-      storageRoom: { name: 'Storage',        color: '#687', isZoneTab: true, zoneType: 'storageRoom',  group: 'rooms' },
+      controlRoom: { name: 'Control Room',   color: '#4a6', isZoneTab: true, zoneType: 'controlRoom',  group: 'rooms', utilityLineTools: ['dataFiber', 'powerCable'], furnitureGroups: ROOM_FURNITURE_GROUPS },
+      officeSpace: { name: 'Office',         color: '#46a', isZoneTab: true, zoneType: 'officeSpace',  group: 'rooms', furnitureGroups: ROOM_FURNITURE_GROUPS },
+      privateOffice: { name: 'Private Office', color: '#658', isZoneTab: true, zoneType: 'privateOffice', group: 'rooms', furnitureGroups: ROOM_FURNITURE_GROUPS },
+      reception:   { name: 'Reception',      color: '#b85', isZoneTab: true, zoneType: 'reception',    group: 'rooms', furnitureGroups: ROOM_FURNITURE_GROUPS },
+      meetingRoom: { name: 'Meeting',        color: '#649', isZoneTab: true, zoneType: 'meetingRoom',  group: 'rooms', furnitureGroups: ROOM_FURNITURE_GROUPS },
+      facultyLounge: { name: 'Faculty Lounge', color: '#865', isZoneTab: true, zoneType: 'facultyLounge', group: 'rooms', furnitureGroups: ROOM_FURNITURE_GROUPS },
+      cafeteria:   { name: 'Cafeteria',      color: '#a64', isZoneTab: true, zoneType: 'cafeteria',    group: 'rooms', furnitureGroups: ROOM_FURNITURE_GROUPS },
+      storageRoom: { name: 'Storage',        color: '#687', isZoneTab: true, zoneType: 'storageRoom',  group: 'rooms', furnitureGroups: ROOM_FURNITURE_GROUPS },
     },
   },
   structure: {

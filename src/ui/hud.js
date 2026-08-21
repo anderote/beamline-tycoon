@@ -2135,24 +2135,34 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
       palette.appendChild(utilitySection);
     }
 
-    // Furnishings section
-    const furnEntries = Object.entries(ZONE_FURNISHINGS).filter(([, f]) => itemMatchesZone(f, zoneType));
-    if (furnEntries.length > 0) {
+    // Room furniture is grouped by authored furnitureGroup so a large shared
+    // catalogue stays scannable. Legacy entries fall into Other Furniture.
+    const groupDefs = zoneCatDef.furnitureGroups || { other: { name: 'Furniture' } };
+    const groupedFurniture = new Map(Object.keys(groupDefs).map(key => [key, []]));
+    for (const [key, furn] of Object.entries(ZONE_FURNISHINGS)) {
+      if (!itemMatchesZone(furn, zoneType)) continue;
+      const group = furn.furnitureGroup || 'other';
+      if (!groupedFurniture.has(group)) groupedFurniture.set(group, []);
+      groupedFurniture.get(group).push([key, furn]);
+    }
+    const furnGroups = [...groupedFurniture].filter(([, entries]) => entries.length > 0);
+    if (furnGroups.length > 0) {
       const divider = document.createElement('div');
       divider.className = 'palette-subsection-divider';
       palette.appendChild(divider);
 
-      const furnSection = document.createElement('div');
-      furnSection.className = 'palette-subsection';
-      const furnLabel = document.createElement('div');
-      furnLabel.className = 'palette-subsection-label';
-      furnLabel.textContent = 'Furnishings';
-      furnSection.appendChild(furnLabel);
+      for (const [group, furnEntries] of furnGroups) {
+        const furnSection = document.createElement('div');
+        furnSection.className = 'palette-subsection';
+        const furnLabel = document.createElement('div');
+        furnLabel.className = 'palette-subsection-label';
+        furnLabel.textContent = groupDefs[group]?.name || group;
+        furnSection.appendChild(furnLabel);
 
-      const furnItems = document.createElement('div');
-      furnItems.className = 'palette-subsection-items';
+        const furnItems = document.createElement('div');
+        furnItems.className = 'palette-subsection-items';
 
-      for (const [key, furn] of furnEntries) {
+        for (const [key, furn] of furnEntries) {
         const item = document.createElement('div');
         item.className = 'palette-item';
         item.dataset.paletteIndex = paletteIdx;
@@ -2259,8 +2269,9 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         furnItems.appendChild(item);
       }
 
-      furnSection.appendChild(furnItems);
-      palette.appendChild(furnSection);
+        furnSection.appendChild(furnItems);
+        palette.appendChild(furnSection);
+      }
     }
     return;
   }
