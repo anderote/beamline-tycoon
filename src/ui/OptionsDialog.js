@@ -16,12 +16,14 @@
 import { makeDraggable } from './draggable.js';
 import { pushEscHandler } from './esc-stack.js';
 import { openWikiWindow } from './WikiWindow.js';
+import { SELECTION_CATEGORIES } from '../game/selection-targets.js';
 
 export class OptionsDialog {
-  constructor({ game, renderer, musicPlayer }) {
+  constructor({ game, renderer, musicPlayer, inputHandler = null }) {
     this.game = game;
     this.renderer = renderer;
     this.musicPlayer = musicPlayer;
+    this.inputHandler = inputHandler;
     this.el = null;
   }
 
@@ -88,6 +90,11 @@ export class OptionsDialog {
 
     this.el.querySelector('#opt-dev-mode').checked = !!this.game.devMode;
     this.el.querySelector('#opt-sandbox-mode').checked = !!this.game.sandboxMode;
+    const selectionCategories = this.inputHandler?.mouseSelectionCategories?.() || new Set();
+    for (const category of SELECTION_CATEGORIES) {
+      const control = this.el.querySelector(`[data-mouse-selection-category="${category.key}"]`);
+      if (control) control.checked = selectionCategories.has(category.key);
+    }
   }
 
   _updateVolReadout() {
@@ -97,6 +104,13 @@ export class OptionsDialog {
   }
 
   _build() {
+    const selectionRows = SELECTION_CATEGORIES.map(category => `
+      <div class="opt-row">
+        <label class="opt-label" for="opt-select-${category.key}">${category.label}</label>
+        <input type="checkbox" id="opt-select-${category.key}" class="opt-check"
+          data-mouse-selection-category="${category.key}">
+      </div>
+    `).join('');
     const el = document.createElement('div');
     el.id = 'options-dialog';
     el.classList.add('hidden');
@@ -163,6 +177,10 @@ export class OptionsDialog {
           <label class="opt-label" for="opt-sandbox-mode">Balance sandbox (free build, live income/upkeep)</label>
           <input type="checkbox" id="opt-sandbox-mode" class="opt-check">
         </div>
+
+        <div class="opt-section-title">Mouse selection</div>
+        <div class="opt-section-note">Categories selected by clicks and new drag boxes</div>
+        ${selectionRows}
 
         <div class="opt-section-title">Help</div>
         <div class="opt-row">
@@ -251,6 +269,15 @@ export class OptionsDialog {
     el.querySelector('#opt-sandbox-mode').addEventListener('change', (e) => {
       this.game.setSandboxMode(e.target.checked);
     });
+
+    for (const control of el.querySelectorAll('[data-mouse-selection-category]')) {
+      control.addEventListener('change', (e) => {
+        this.inputHandler?.setMouseSelectionCategory?.(
+          e.target.dataset.mouseSelectionCategory,
+          e.target.checked,
+        );
+      });
+    }
 
     // Draggable by header (same pattern as WelcomeDialog / SaveLoadDialog).
     makeDraggable(el, el.querySelector('.opt-header'), {

@@ -488,7 +488,7 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
   // Options dialog (Menu > Options) — music / view / gameplay settings.
   // Declared after musicPlayer; the menu click handler above only runs
   // post-init, so the binding is live by then.
-  const optionsDialog = new OptionsDialog({ game, renderer, musicPlayer });
+  const optionsDialog = new OptionsDialog({ game, renderer, musicPlayer, inputHandler: input });
 
   // Debug fallback: open a utility inspector for a given line id from the
   // browser console. Unblocks Phase 6 playtesting if the 3D click path
