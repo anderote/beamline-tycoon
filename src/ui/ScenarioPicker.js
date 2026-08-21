@@ -143,9 +143,19 @@ export class ScenarioPicker {
 
     this.game.save();
     SaveSlots.preserveActive(`Before ${scenario.name}`);
-    this.storage.removeItem('beamlineTycoon');
-    stageScenarioSelection(id, this.storage);
-    this.sessionStorage.setItem(SKIP_TITLE_SESSION_KEY, '1');
+    try {
+      // The pending selection is verified before the active save is removed.
+      // If storage is unavailable, stay put with the current game intact.
+      const staged = stageScenarioSelection(id, this.storage);
+      if (!staged) throw new Error('The selected scenario is unavailable');
+      this.sessionStorage.setItem(SKIP_TITLE_SESSION_KEY, '1');
+      this.storage.removeItem('beamlineTycoon');
+    } catch (error) {
+      try { stageScenarioSelection('sandbox', this.storage); } catch (_) {}
+      try { this.sessionStorage.removeItem(SKIP_TITLE_SESSION_KEY); } catch (_) {}
+      this.game.log?.(`NEW GAME FAILED — ${error.message || 'the scenario could not be staged'}.`, 'bad');
+      return;
+    }
     this.location.reload();
   }
 }

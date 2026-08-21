@@ -151,6 +151,13 @@ the short authoring contract.
 - Scenario Admin's **Save** action updates the open local scenario. **Save As**
   can deliberately overwrite a selected local scenario or create another one;
   each saved scenario remains independently editable and playable.
+- Scenario Admin's **Load** action accepts its exported `.scenario.json` and
+  emergency `.scenario-backup.json` payloads, validates their world shape, and
+  opens them as unsaved work. Import never overwrites a catalogue entry until
+  the author chooses a destination through **Save As**.
+- Export preserves the current scenario id when its display name is unchanged.
+  Publishing updates the payload and catalogue index as one verified operation;
+  a failed write rolls both keys back to their prior values.
 - App startup migrates the retired single local-scenario slot into the current
   catalogue. The old payload remains the recovery source until both the new
   per-scenario payload and catalogue index have been written and verified.

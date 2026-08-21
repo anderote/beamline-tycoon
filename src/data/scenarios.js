@@ -36,11 +36,27 @@ function parseStoredScenario(raw) {
   } catch (_) { return null; }
 }
 
-function readCustomScenarioIndex(storage) {
+function parseCustomScenarioIndex(raw, { strict = false } = {}) {
   try {
-    const parsed = JSON.parse(storage?.getItem(CUSTOM_SCENARIO_INDEX_KEY) || '[]');
-    return Array.isArray(parsed) ? parsed.filter(entry => entry?.id) : [];
-  } catch (_) { return []; }
+    const parsed = JSON.parse(raw || '[]');
+    if (!Array.isArray(parsed)) throw new Error('Scenario catalogue index is not an array');
+    if (strict && parsed.some(entry => !entry || typeof entry !== 'object' || !entry.id)) {
+      throw new Error('Scenario catalogue index contains an invalid entry');
+    }
+    return parsed.filter(entry => entry?.id);
+  } catch (error) {
+    if (strict) throw error;
+    return [];
+  }
+}
+
+function readCustomScenarioIndex(storage, options) {
+  try {
+    return parseCustomScenarioIndex(storage?.getItem(CUSTOM_SCENARIO_INDEX_KEY), options);
+  } catch (error) {
+    if (options?.strict) throw error;
+    return [];
+  }
 }
 
 function writeCustomScenarioIndex(storage, index) {
@@ -49,6 +65,85 @@ function writeCustomScenarioIndex(storage, index) {
 
 function customScenarioStorageKey(id) {
   return CUSTOM_SCENARIO_PREFIX + encodeURIComponent(id);
+}
+
+const REQUIRED_SCENARIO_ARRAYS = ['floors', 'zones', 'walls', 'doors', 'placeables'];
+const OPTIONAL_SCENARIO_ARRAYS = [
+  'wallOverlays',
+  'windows',
+  'beamPipes',
+  'utilityLines',
+  'cornerHeights',
+  'infraBlockers',
+];
+const SCENARIO_COUNTER_DEFAULTS = {
+  placeableNextId: 1,
+  beamPipeNextId: 1,
+  placementNextId: 0,
+  utilityNextId: 1,
+};
+
+/**
+ * Validate and detach a downloaded Scenario Admin payload before it reaches
+ * Game.applyScenario. The returned object contains only JSON data, so applying
+ * it cannot mutate the caller's parsed file object.
+ */
+export function normalizeScenarioExport(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('The file does not contain a scenario object');
+  }
+  const id = typeof payload.id === 'string' ? payload.id.trim() : '';
+  const name = typeof payload.name === 'string' ? payload.name.trim() : '';
+  if (!id) throw new Error('The scenario is missing an id');
+  if (!name) throw new Error('The scenario is missing a name');
+  if (!payload.data || typeof payload.data !== 'object' || Array.isArray(payload.data)) {
+    throw new Error('The scenario is missing its world data');
+  }
+
+  // Scenario files are JSON by contract. Cloning here also rejects values
+  // that cannot survive the same export/import round trip used by the UI.
+  let data;
+  try { data = JSON.parse(JSON.stringify(payload.data)); }
+  catch (_) { throw new Error('The scenario world data is not valid JSON'); }
+
+  for (const field of REQUIRED_SCENARIO_ARRAYS) {
+    if (!Array.isArray(data[field])) {
+      throw new Error(`The scenario world data has no valid ${field} array`);
+    }
+  }
+  for (const field of OPTIONAL_SCENARIO_ARRAYS) {
+    if (data[field] == null) data[field] = [];
+    else if (!Array.isArray(data[field])) {
+      throw new Error(`The scenario world data has no valid ${field} array`);
+    }
+  }
+  if (data.utilityLines.some(entry => !Array.isArray(entry) || entry.length !== 2)) {
+    throw new Error('The scenario utilityLines array is not a list of map entries');
+  }
+  if (data.cornerHeights.some(entry => !Array.isArray(entry) || entry.length !== 2)) {
+    throw new Error('The scenario cornerHeights array is not a list of map entries');
+  }
+  for (const [field, fallback] of Object.entries(SCENARIO_COUNTER_DEFAULTS)) {
+    if (data[field] == null) data[field] = fallback;
+    if (!Number.isInteger(data[field]) || data[field] < 0) {
+      throw new Error(`The scenario world data has an invalid ${field}`);
+    }
+  }
+
+  return {
+    id,
+    name,
+    desc: typeof payload.desc === 'string' ? payload.desc : '',
+    sandbox: payload.sandbox !== false,
+    data,
+  };
+}
+
+export function parseScenarioExport(text) {
+  let payload;
+  try { payload = JSON.parse(String(text)); }
+  catch (_) { throw new Error('The selected file is not valid JSON'); }
+  return normalizeScenarioExport(payload);
 }
 
 function isNewGameBuiltInScenario(scenario) {
@@ -163,9 +258,13 @@ export function saveCustomScenario(payload, {
     sandbox: payload.sandbox !== false,
     updatedAt: Date.now(),
   };
-  storage.setItem(customScenarioStorageKey(stored.id), JSON.stringify(stored));
-
-  const index = readCustomScenarioIndex(storage);
+  const payloadKey = customScenarioStorageKey(stored.id);
+  // Saving spans two localStorage keys. Keep the exact prior strings so any
+  // failed or unverifiable write can roll back instead of orphaning a payload,
+  // dropping the catalogue, or destroying the previous version on overwrite.
+  const previousPayload = storage.getItem(payloadKey);
+  const previousIndex = storage.getItem(CUSTOM_SCENARIO_INDEX_KEY);
+  const index = parseCustomScenarioIndex(previousIndex, { strict: true });
   const existing = index.find(entry => entry.id === stored.id);
   const metadata = {
     id: stored.id,
@@ -176,8 +275,28 @@ export function saveCustomScenario(payload, {
   };
   if (existing) Object.assign(existing, metadata);
   else index.push(metadata);
-  writeCustomScenarioIndex(storage, index);
-  return stored;
+  const payloadText = JSON.stringify(stored);
+  const indexText = JSON.stringify(index);
+  try {
+    storage.setItem(payloadKey, payloadText);
+    storage.setItem(CUSTOM_SCENARIO_INDEX_KEY, indexText);
+    if (storage.getItem(payloadKey) !== payloadText
+      || storage.getItem(CUSTOM_SCENARIO_INDEX_KEY) !== indexText) {
+      throw new Error(`Could not verify saved scenario "${stored.id}"`);
+    }
+    return stored;
+  } catch (error) {
+    const restore = (key, previous) => {
+      if (previous == null) storage.removeItem(key);
+      else storage.setItem(key, previous);
+    };
+    // Roll back in reverse write order. Preserve the original error so quota
+    // recovery can recognize it and retry after evicting an autosave.
+    // Restore unconditionally: a storage adapter may write and then throw.
+    try { restore(CUSTOM_SCENARIO_INDEX_KEY, previousIndex); } catch (_) {}
+    try { restore(payloadKey, previousPayload); } catch (_) {}
+    throw error;
+  }
 }
 
 // Resolve a scenario id (registry id or a browser-local reference) to a
@@ -215,8 +334,18 @@ export function listPlayableScenarios(storage = globalThis.localStorage) {
 export function stageScenarioSelection(id, storage = globalThis.localStorage) {
   const scenario = resolveScenario(id, storage);
   if (!scenario) return null;
-  if (scenario.generator) storage?.setItem(PENDING_SCENARIO_KEY, scenario.id);
-  else storage?.removeItem(PENDING_SCENARIO_KEY);
+  if (!storage) throw new Error('Storage is unavailable');
+  if (scenario.generator) {
+    storage.setItem(PENDING_SCENARIO_KEY, scenario.id);
+    if (storage.getItem(PENDING_SCENARIO_KEY) !== scenario.id) {
+      throw new Error(`Could not stage scenario "${scenario.name}"`);
+    }
+  } else {
+    storage.removeItem(PENDING_SCENARIO_KEY);
+    if (storage.getItem(PENDING_SCENARIO_KEY) != null) {
+      throw new Error('Could not clear the previously staged scenario');
+    }
+  }
   return scenario;
 }
 
