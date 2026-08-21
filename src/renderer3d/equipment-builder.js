@@ -1,6 +1,6 @@
 // src/renderer3d/equipment-builder.js
-// Renders equipment and zone furnishings as 3D boxes with per-face
-// textured materials. Each box uses a 6-entry material array (one per
+// Renders equipment and zone furnishings from authored box/cylinder/sphere/
+// torus/cone parts. Fallback boxes use a 6-entry material array (one per
 // face) so a face can independently use a tiled MATERIAL or a DECAL.
 // THREE is a CDN global — do NOT import it.
 
@@ -18,6 +18,7 @@ import { configureGlowMesh, getGlowMaterial } from './machine-glow.js';
 const FACE_INDEX = { '+X': 0, '-X': 1, '+Y': 2, '-Y': 3, '+Z': 4, '-Z': 5 };
 
 const SUB_UNIT = 0.5;
+const PRIMITIVE_SEGMENTS = 16;
 
 // Cache per (compType + faceKey + base + override) -> material so identical
 // face configs share. Module-level cache lives across rebuilds and instances.
@@ -47,6 +48,60 @@ function _partMaterial(baseName, colorHex) {
 }
 
 /**
+ * Build one authored equipment part inside an exact w/h/l bounding box.
+ * `box` remains the backwards-compatible default; the small primitive set
+ * lets catalogue-authored lab apparatus use coils, domes, tanks, and horns
+ * without adding an id-specific renderer for every prop.
+ */
+export function createEquipmentPartGeometry(part, width, height, length) {
+  const shape = part?.shape || 'box';
+  if (shape === 'box') {
+    const geometry = new THREE.BoxGeometry(width, height, length);
+    applyTiledBoxUVs(geometry, width, height, length);
+    return geometry;
+  }
+
+  let geometry;
+  if (shape === 'cylinder') {
+    geometry = new THREE.CylinderGeometry(0.5, 0.5, 1, PRIMITIVE_SEGMENTS);
+  } else if (shape === 'sphere') {
+    geometry = new THREE.SphereGeometry(0.5, PRIMITIVE_SEGMENTS, 12);
+  } else if (shape === 'torus') {
+    geometry = new THREE.TorusGeometry(0.35, 0.15, 10, 24);
+  } else if (shape === 'cone') {
+    const topScale = Number.isFinite(part.topScale) ? part.topScale : 0;
+    geometry = new THREE.CylinderGeometry(0.5 * topScale, 0.5, 1, PRIMITIVE_SEGMENTS);
+  } else {
+    // Validation rejects unknown shapes. Keep production rendering resilient
+    // if malformed content nevertheless reaches this path.
+    geometry = new THREE.BoxGeometry(1, 1, 1);
+  }
+
+  // Cylinder/cone axes describe their long axis; a torus axis describes its
+  // hole normal. Sphere orientation is harmless and intentionally ignored.
+  const axis = part?.axis || (shape === 'torus' ? 'z' : 'y');
+  if (shape === 'torus') {
+    if (axis === 'y') geometry.rotateX(Math.PI / 2);
+    if (axis === 'x') geometry.rotateY(Math.PI / 2);
+  } else if (shape !== 'sphere') {
+    if (axis === 'x') geometry.rotateZ(Math.PI / 2);
+    if (axis === 'z') geometry.rotateX(Math.PI / 2);
+  }
+
+  // Normalize the primitive's post-axis bounding box before applying the
+  // authored dimensions. This makes w/h/l mean the same exact visual bounds
+  // for every shape and preserves the existing bottom-based y convention.
+  geometry.computeBoundingBox();
+  const size = geometry.boundingBox.getSize(new THREE.Vector3());
+  geometry.scale(
+    width / Math.max(size.x, 1e-9),
+    height / Math.max(size.y, 1e-9),
+    length / Math.max(size.z, 1e-9),
+  );
+  return geometry;
+}
+
+/**
  * Convert semantically-authored part names into presentation-light intent.
  * This keeps the raw catalogue renderer-agnostic while allowing every screen,
  * trace, rack LED, and alarm window to use the lighting engine consistently.
@@ -65,6 +120,12 @@ export function equipmentPartGlowSpec(compDef, part) {
     return {
       color, profile: 'screen', priority: 3,
       light: { intensity: 0.16, distance: 1.3, daylightFloor: 0.15 },
+    };
+  }
+  if (/(?:arcGlow|sparkGlow)/i.test(name)) {
+    return {
+      color, profile: 'statusBlink', priority: 5,
+      light: { intensity: 0.32, distance: 2.4, daylightFloor: 0.16 },
     };
   }
   const serverLed = id === 'serverRack' && /^s\d+[acd]$/i.test(name);
@@ -193,7 +254,8 @@ export class EquipmentBuilder {
       // If the def lists `parts`, build a Group with one Mesh per part.
       // Part coords are in SUBTILES, centered on the footprint, with
       // y=0 at the floor and y increasing upward. w/h/l are subtile-
-      // unit sizes. Each part may override baseMaterial/color.
+      // unit sizes. Parts default to boxes and may opt into the validated
+      // primitive vocabulary. Each part may override baseMaterial/color.
       if (Array.isArray(compDef?.parts) && compDef.parts.length > 0) {
         const group = new THREE.Group();
         // Variant overrides: per-part { material?, color? } merged over the
@@ -214,8 +276,7 @@ export class EquipmentBuilder {
           const pw = (part.w || 1) * SUB_UNIT;
           const ph = (part.h || 1) * SUB_UNIT;
           const pl = (part.l || 1) * SUB_UNIT;
-          const geo = new THREE.BoxGeometry(pw, ph, pl);
-          applyTiledBoxUVs(geo, pw, ph, pl);
+          const geo = createEquipmentPartGeometry(part, pw, ph, pl);
           const ov = partOverrides?.[part.name];
           const partMatName = (ov && 'material' in ov) ? ov.material : part.material;
           const partColorHex = (ov && 'color' in ov) ? ov.color : part.color;
@@ -226,6 +287,8 @@ export class EquipmentBuilder {
             ? getGlowMaterial(`${compDef.id}:parts`, glowSpec.color)
             : _partMaterial(partBase, partColor);
           const mesh = new THREE.Mesh(geo, mat);
+          mesh.userData.partName = part.name || null;
+          mesh.userData.partShape = part.shape || 'box';
           mesh.castShadow = true;
           mesh.receiveShadow = true;
           // Part position: (x, z) is the part's center in the footprint-
@@ -236,6 +299,9 @@ export class EquipmentBuilder {
             ((part.y || 0) + (part.h || 1) / 2) * SUB_UNIT,
             (part.z || 0) * SUB_UNIT,
           );
+          if (Array.isArray(part.rotation)) {
+            mesh.rotation.set(part.rotation[0], part.rotation[1], part.rotation[2]);
+          }
           mesh.matrixAutoUpdate = false;
           mesh.updateMatrix();
           if (glowSpec) {

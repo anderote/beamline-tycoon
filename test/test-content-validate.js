@@ -150,6 +150,14 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
       energyCost: 0,
       light: { color: '#fff', intensity: 1, radius: 3, shape: 'point', emitterY: 1 },
     },
+    malformedPrimitive: {
+      id: 'malformedPrimitive', kind: 'equipment',
+      subW: 1, subL: 1, subH: 1,
+      parts: [{
+        name: 'badPrimitive', shape: 'banana', w: 0, h: 1, l: 1,
+        axis: 'diagonal', rotation: [0, 1], topScale: 2,
+      }],
+    },
   };
   const badPorts = {
     // Dangling ref: no such component in any registry.
@@ -202,6 +210,16 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     'light-bearing def with no mount reported');
   assert(hasProblem(problems, 'darkFixture', 'energyCost'),
     'light-bearing def with energyCost 0 reported');
+  assert(hasProblem(problems, 'malformedPrimitive', 'parts[0].shape', "'banana'"),
+    'unknown authored primitive shape reported');
+  assert(hasProblem(problems, 'malformedPrimitive', 'parts[0].w', 'positive number'),
+    'non-positive primitive dimensions reported');
+  assert(hasProblem(problems, 'malformedPrimitive', 'parts[0].axis', 'x, y, z'),
+    'unknown primitive axis reported');
+  assert(hasProblem(problems, 'malformedPrimitive', 'parts[0].rotation', 'three finite radians'),
+    'malformed primitive rotation reported');
+  assert(hasProblem(problems, 'malformedPrimitive', 'parts[0].topScale', 'only valid on cones'),
+    'invalid primitive top scale reported');
   assert(hasProblem(problems, 'phantomComponent', 'utilityPorts'),
     'dangling utility-port ref reported');
   assert(hasProblem(problems, 'mysteryModule', 'utilityPorts.weird', "'steamPipe'"),
