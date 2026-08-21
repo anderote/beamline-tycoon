@@ -3,7 +3,9 @@
 // The renderer never touches game.* directly — it reads only from this snapshot.
 
 import { FLOORS, DOOR_TYPES, WALL_TYPES, WINDOW_TYPES } from '../data/structure.js';
-import { defaultDoorOff, defaultWindowOff, findWallKey } from '../game/edge-keys.js';
+import {
+  defaultDoorOff, defaultWindowOff, doorRecordEdges, doorTileSpan, findWallKey,
+} from '../game/edge-keys.js';
 import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { getTileCornersY, sampleCornersTriangulated } from '../game/terrain.js';
@@ -276,15 +278,27 @@ function buildWalls(game) {
  * climbs the hill.
  */
 function buildDoors(game) {
-  return (game.state.doors || []).map(d => ({
-    col: d.col,
-    row: d.row,
-    edge: d.edge,
-    type: d.type,
-    variant: d.variant || 0,
-    off: d.off ?? defaultDoorOff(DOOR_TYPES[d.type]),
-    baseY: edgeBaseY(game.state, d.col, d.row, d.edge),
-  }));
+  return (game.state.doors || []).map(d => {
+    const def = DOOR_TYPES[d.type];
+    const segments = doorRecordEdges(d, def);
+    const first = segments[0] || d;
+    const last = segments[segments.length - 1] || first;
+    const firstBase = edgeBaseY(game.state, first.col, first.row, first.edge);
+    const lastBase = edgeBaseY(game.state, last.col, last.row, last.edge);
+    return {
+      col: first.col,
+      row: first.row,
+      edge: first.edge,
+      type: d.type,
+      variant: d.variant || 0,
+      off: d.off ?? defaultDoorOff(def),
+      tileSpan: doorTileSpan(def),
+      segments,
+      // Multi-tile records are canonical n/e runs, so their first `a` and
+      // final `b` are the outer terrain endpoints of the complete opening.
+      baseY: { a: firstBase.a, b: lastBase.b },
+    };
+  });
 }
 
 // Windows share the door pass's edge slot but never its occupancy map — a

@@ -37,7 +37,8 @@ import {
 } from './floor-wall-paths.js';
 import { FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, WALL_PAINTS } from '../data/structure.js';
 import {
-  doorOffFromFrac, windowOffFromFrac, findWallKey, findEdgeKey,
+  doorOffFromFrac, doorTileSpan, doorSpanPath, doorRecordCoversEdge,
+  windowOffFromFrac, findWallKey, findEdgeKey,
 } from '../game/edge-keys.js';
 import { canAffordFunding } from '../game/affordability.js';
 import { demolishRefund } from './demolishScopes.js';
@@ -79,6 +80,11 @@ function edgeEntryAt(game, kind, edge) {
     : kind === 'wall' ? s.walls
     : kind === 'door' ? s.doors : s.windows;
   if (!list || !edge) return null;
+  if (kind === 'door') {
+    return list.find(entry => doorRecordCoversEdge(
+      entry, DOOR_TYPES[entry.type], edge.col, edge.row, edge.edge,
+    )) || null;
+  }
   const alias = game._edgeAlias(edge.col, edge.row, edge.edge);
   return list.find(x => (x.col === edge.col && x.row === edge.row && x.edge === edge.edge)
     || (x.col === alias.col && x.row === alias.row && x.edge === alias.edge)) || null;
@@ -93,9 +99,11 @@ function edgeEntryAt(game, kind, edge) {
  */
 function edgePathRefund(game, kind, path) {
   let refund = 0, count = 0;
+  const seen = new Set();
   for (const pt of path || []) {
     const entry = edgeEntryAt(game, kind, pt);
-    if (!entry) continue;
+    if (!entry || seen.has(entry)) continue;
+    seen.add(entry);
     count++;
     refund += demolishRefund(EDGE_DEFS[kind][entry.type], entry.variant ?? 0);
   }
@@ -943,6 +951,14 @@ export class DoorTool extends Tool {
     return doorOffFromFrac(edge?.frac, DOOR_TYPES[this.doorType]);
   }
 
+  _pathFor(input, start, end) {
+    const span = doorTileSpan(DOOR_TYPES[this.doorType]);
+    if (span === 1) return input._buildWallLine(start, end);
+    const horizontal = start.edge === 'n' || start.edge === 's';
+    const delta = horizontal ? (end?.col ?? start.col) - start.col : (end?.row ?? start.row) - start.row;
+    return doorSpanPath(start, span, delta < 0 ? -1 : 1);
+  }
+
   /** Placement ghost + no quote, or demolish red + refund. */
   _preview(ctx, path, screenX = null, screenY = null) {
     if (this._erasing) {
@@ -962,7 +978,8 @@ export class DoorTool extends Tool {
     this._erasing = eraseHeld(e, ctx.input);
     this._drawing = true;
     this._start = edge;
-    this._path = [{ ...edge, off: this._off }];
+    this._path = this._pathFor(ctx.input, edge, edge)
+      .map(pt => ({ ...pt, off: this._off }));
     this._preview(ctx, this._path);
     return true;
   }
@@ -978,7 +995,7 @@ export class DoorTool extends Tool {
       // the same side as the start (n/s vs e/w): `frac` runs along whichever
       // edge produced it, so a perpendicular edge's frac is meaningless here.
       if (edge && edge.edge === this._start.edge) this._off = this._offFor(edge);
-      this._path = input._buildWallLine(this._start, edge)
+      this._path = this._pathFor(input, this._start, edge)
         .map(pt => ({ ...pt, off: this._off }));
       this._preview(ctx, this._path, e.clientX, e.clientY);
       return true;

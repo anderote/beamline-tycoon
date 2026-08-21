@@ -85,21 +85,24 @@ export const SUBTILE_SIZE = TILE_SIZE / SUBTILES_PER_EDGE; // 0.5 world units
  * @param {number|null|undefined} off
  * @param {boolean} isDouble
  */
-export function doorOpeningLayout(edge, off, isDouble) {
-  const openingWidth = isDouble ? TILE_SIZE : TILE_SIZE * 0.5;
-  const maxOff = Math.round((TILE_SIZE - openingWidth) / SUBTILE_SIZE);
+export function doorOpeningLayout(edge, off, isDouble, tileSpan = 1) {
+  const span = Math.max(1, Math.round(Number(tileSpan) || 1));
+  const edgeWidth = TILE_SIZE * span;
+  const openingWidth = span > 1 ? edgeWidth : (isDouble ? TILE_SIZE : TILE_SIZE * 0.5);
+  const maxOff = Math.round((edgeWidth - openingWidth) / SUBTILE_SIZE);
   const raw = Number.isFinite(off) ? Math.round(off) : (isDouble ? 0 : 1);
   const slot = Math.max(0, Math.min(maxOff, raw));
 
   const leftWidth = slot * SUBTILE_SIZE;
-  const rightWidth = TILE_SIZE - leftWidth - openingWidth;
+  const rightWidth = edgeWidth - leftWidth - openingWidth;
   const dir = (edge === 'n' || edge === 'e') ? 1 : -1;
-  const half = TILE_SIZE / 2;
+  const half = edgeWidth / 2;
   // Distance measured from the first-listed corner -> signed offset from mid.
   const at = (d) => dir * (d - half);
 
   return {
     off: slot,
+    edgeWidth,
     openingWidth,
     leftWidth,
     rightWidth,
@@ -171,13 +174,13 @@ function mirrorEdgeKey(col, row, edge) {
  * layout's axis direction: +1 when baseY.a sits at the low world coordinate
  * ('n'/'e'), -1 when it sits at the high one ('s'/'w').
  */
-function baseYAtOffset(baseY, dir, signedOffset) {
+function baseYAtOffset(baseY, dir, signedOffset, edgeWidth = TILE_SIZE) {
   const a = baseY?.a || 0;
   const b = baseY?.b || 0;
   if (a === b) return a;
-  const half = TILE_SIZE / 2;
+  const half = edgeWidth / 2;
   // Distance from the FIRST-listed corner, normalized to [0,1].
-  const t = dir === 1 ? (signedOffset + half) / TILE_SIZE : (half - signedOffset) / TILE_SIZE;
+  const t = dir === 1 ? (signedOffset + half) / edgeWidth : (half - signedOffset) / edgeWidth;
   return a + (b - a) * Math.max(0, Math.min(1, t));
 }
 
@@ -353,9 +356,11 @@ export class WallBuilder {
     // name the same physical edge, so at most one of them holds a wall.
     const openingEdgeSet = new Set();
     for (const d of (doorData || [])) {
-      openingEdgeSet.add(`${d.col},${d.row},${d.edge}`);
-      const m = mirrorEdgeKey(d.col, d.row, d.edge);
-      if (m) openingEdgeSet.add(m);
+      for (const segment of (d.segments?.length ? d.segments : [d])) {
+        openingEdgeSet.add(`${segment.col},${segment.row},${segment.edge}`);
+        const m = mirrorEdgeKey(segment.col, segment.row, segment.edge);
+        if (m) openingEdgeSet.add(m);
+      }
     }
     for (const w of (windowData || [])) {
       openingEdgeSet.add(`${w.col},${w.row},${w.edge}`);
@@ -600,8 +605,11 @@ export class WallBuilder {
       const { col, row, edge, type } = d;
       const variant = d.variant ?? 0;
 
+      const doorSegments = d.segments?.length ? d.segments : [d];
       const isDoorCutaway = wallVisibility === 'cutaway' && !!cutawayRoom &&
-        this._wallBordersRoom(col, row, edge, cutawayRoom);
+        doorSegments.some(segment =>
+          this._wallBordersRoom(segment.col, segment.row, segment.edge, cutawayRoom)
+        );
 
       const isNS = edge === 'n' || edge === 's';
       const rawEdgeCenter = this._edgeCenter(col, row, edge);
@@ -611,7 +619,7 @@ export class WallBuilder {
       const isDouble = doorDef ? doorDef.doorWidth === 'double' : true;
       // Where the opening sits along the edge. `off` comes from the door
       // record; missing data falls back to the historic centred placement.
-      const layout = doorOpeningLayout(edge, d.off, isDouble);
+      const layout = doorOpeningLayout(edge, d.off, isDouble, d.tileSpan);
       const doorOpeningWidth = layout.openingWidth;
       // Signed offsets along the edge's varying world axis.
       const openX = isNS ? layout.center : 0;
@@ -621,7 +629,8 @@ export class WallBuilder {
       // geometry; door parts are boxes placed at a y, so they take theirs
       // from the terrain height at their own point along the edge. Absent
       // baseY (older snapshots) reads as flat ground at 0.
-      const baseAt = (signedOffset) => baseYAtOffset(d.baseY, layout.dir, signedOffset);
+      const baseAt = (signedOffset) =>
+        baseYAtOffset(d.baseY, layout.dir, signedOffset, layout.edgeWidth);
       const openingBaseY = baseAt(layout.center);
 
       // Find the wall type on this edge to match height/thickness/color
@@ -637,6 +646,9 @@ export class WallBuilder {
       const wallDef = wallType ? WALL_TYPES[wallType] : null;
       const wallColor = wallDef ? wallDef.color : 0xcccccc;
       const edgeCenter = this._offsetEdgeCenter(rawEdgeCenter, wallEntry?.wall);
+      const spanShift = (Math.max(1, d.tileSpan || 1) - 1) * TILE_SIZE / 2;
+      if (isNS) edgeCenter.x += spanShift;
+      else edgeCenter.z += spanShift;
       const wallHeight = wallDef
         ? wallDef.wallHeight * HEIGHT_SCALE
         : (doorDef?.wallHeight ? doorDef.wallHeight * HEIGHT_SCALE : DEFAULT_WALL_HEIGHT);

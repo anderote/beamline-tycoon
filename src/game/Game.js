@@ -26,6 +26,8 @@ import { UtilityGate, declaredSinkQualityFloor } from './utility-gate.js';
 import {
   edgeKey, parseEdgeKey, findWallKey, findEdgeKey, isMirroredKey,
   clampDoorOff, defaultDoorOff, mirrorDoorOff,
+  doorTileSpan, doorSpanPath, normalizeDoorSpanPath,
+  doorRecordEdges, doorRecordCoversEdge,
   clampWindowOff, defaultWindowOff, mirrorWindowOff,
 } from './edge-keys.js';
 import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
@@ -1639,7 +1641,7 @@ export class Game {
     if (includeDoorOpening) return cells;
     const doorKey = findEdgeKey(this.state.doorOccupied, wall.col, wall.row, wall.edge);
     if (!doorKey) return cells;
-    const door = this.state.doors.find(d => edgeKey(d.col, d.row, d.edge) === doorKey);
+    const door = this._doorRecordAtKey(doorKey);
     const dt = door && DOOR_TYPES[door.type];
     if (!door || !dt) return cells;
     let off = door.off ?? defaultDoorOff(dt);
@@ -1894,13 +1896,8 @@ export class Game {
     // either spelling of the edge (see edge-keys.js), so resolve before
     // deleting — an unresolved lookup used to strand the door on a wall that
     // no longer exists.
-    const doorKey = findEdgeKey(this.state.doorOccupied, col, row, edge);
-    if (doorKey) {
-      const dt = DOOR_TYPES[this.state.doorOccupied[doorKey]];
-      if (dt) this.refundConstruction({ funding: dt.cost });
-      this.state.doors = this.state.doors.filter(d => edgeKey(d.col, d.row, d.edge) !== doorKey);
-      delete this.state.doorOccupied[doorKey];
-      this.emit('doorsChanged');
+    if (findEdgeKey(this.state.doorOccupied, col, row, edge)) {
+      this.removeDoor(col, row, edge);
     }
     // Remove any orphaned window on this edge — a window is a hole in a
     // wall, not a free-standing pane, so it cannot survive the wall going.
@@ -1983,7 +1980,7 @@ export class Game {
 
   /** Apply variant/off to an already-placed door. Returns true if it changed. */
   _updateDoorRecord(key, variant, off) {
-    const existing = this.state.doors.find(d => edgeKey(d.col, d.row, d.edge) === key);
+    const existing = this._doorRecordAtKey(key);
     if (!existing) return false;
     let changed = false;
     if (existing.variant !== variant) { existing.variant = variant; changed = true; }
@@ -1991,9 +1988,117 @@ export class Game {
     return changed;
   }
 
+  _doorRecordAtKey(key) {
+    const site = parseEdgeKey(key);
+    if (!site) return null;
+    return this.state.doors.find(d =>
+      doorRecordCoversEdge(d, DOOR_TYPES[d.type], site.col, site.row, site.edge)
+    ) || null;
+  }
+
+  _doorRecordKeys(record) {
+    return doorRecordEdges(record, DOOR_TYPES[record?.type])
+      .map(site => edgeKey(site.col, site.row, site.edge));
+  }
+
+  _indexDoorRecord(record) {
+    for (const key of this._doorRecordKeys(record)) this.state.doorOccupied[key] = record.type;
+  }
+
+  _dropDoorRecord(record) {
+    if (!record) return false;
+    this.state.doors = this.state.doors.filter(d => d !== record);
+    for (const key of this._doorRecordKeys(record)) delete this.state.doorOccupied[key];
+    return true;
+  }
+
+  _rebuildDoorIndex() {
+    this.state.doorOccupied = {};
+    for (const door of this.state.doors || []) this._indexDoorRecord(door);
+  }
+
+  _placeWideDoorPath(path, doorType, variant = 0) {
+    const dt = DOOR_TYPES[doorType];
+    const sites = normalizeDoorSpanPath(path, dt);
+    if (!dt || !sites) {
+      this.log(`A ${dt?.name || 'wide door'} needs exactly ${doorTileSpan(dt)} consecutive wall edges`, 'bad');
+      return false;
+    }
+
+    for (const site of sites) {
+      const wallKey = findWallKey(this.state.wallOccupied, site.col, site.row, site.edge);
+      if (!wallKey) {
+        this.log(`A ${dt.name} needs an unbroken run of ${sites.length} wall edges`, 'bad');
+        return false;
+      }
+      if (findEdgeKey(this.state.wallOverlayOccupied, site.col, site.row, site.edge)) {
+        this.log(`Remove the wall sheeting before cutting a ${dt.name} opening`, 'bad');
+        return false;
+      }
+    }
+
+    const existing = this._doorRecordAtKey(
+      findEdgeKey(this.state.doorOccupied, sites[0].col, sites[0].row, sites[0].edge) || ''
+    );
+    const wantedKeys = sites.map(site => edgeKey(site.col, site.row, site.edge));
+    const existingKeys = existing ? this._doorRecordKeys(existing) : [];
+    if (existing?.type === doorType
+        && existingKeys.length === wantedKeys.length
+        && existingKeys.every((key, index) => key === wantedKeys[index])) {
+      if ((existing.variant ?? 0) !== variant) {
+        existing.variant = variant;
+        this.emit('doorsChanged');
+      }
+      return true;
+    }
+
+    if (!this.canAfford({ funding: dt.cost })) {
+      this.log(`Not enough funding for a ${dt.name} ($${dt.cost})`, 'bad');
+      return false;
+    }
+
+    const displaced = new Set();
+    for (const site of sites) {
+      const heldKey = findEdgeKey(this.state.doorOccupied, site.col, site.row, site.edge);
+      const held = heldKey ? this._doorRecordAtKey(heldKey) : null;
+      if (held) displaced.add(held);
+    }
+    for (const record of displaced) this._dropDoorRecord(record);
+
+    for (const site of sites) {
+      const windowKey = findEdgeKey(this.state.windowOccupied, site.col, site.row, site.edge);
+      const windowSite = windowKey && parseEdgeKey(windowKey);
+      if (windowSite) this.removeWindow(windowSite.col, windowSite.row, windowSite.edge);
+    }
+
+    this.chargeConstruction(dt.cost);
+    const first = sites[0];
+    const record = {
+      type: doorType,
+      col: first.col,
+      row: first.row,
+      edge: first.edge,
+      segments: sites.map(site => ({ ...site })),
+      variant,
+      off: 0,
+    };
+    this.state.doors.push(record);
+    this._indexDoorRecord(record);
+    this._refreshWallInsetOccupancy();
+    this._markNavDirty();
+    this.log(`Placed ${dt.name} across ${sites.length} wall edges ($${dt.cost})`, 'good');
+    this.emit('doorsChanged');
+    return true;
+  }
+
   placeDoor(col, row, edge, doorType, variant = 0, off = null) {
     const dt = DOOR_TYPES[doorType];
     if (!dt) return false;
+    if (doorTileSpan(dt) > 1) {
+      return this._placeWideDoorPath(
+        doorSpanPath({ col, row, edge }, doorTileSpan(dt)), doorType, variant,
+      );
+    }
     const site = this._resolveDoorSite(col, row, edge, dt, off);
     if (!site) {
       this.log(`No wall on that edge — a ${dt.name} has to hang on a wall`, 'bad');
@@ -2019,7 +2124,7 @@ export class Game {
       return false;
     }
     if (this.state.doorOccupied[site.key]) {
-      this.state.doors = this.state.doors.filter(d => edgeKey(d.col, d.row, d.edge) !== site.key);
+      this._dropDoorRecord(this._doorRecordAtKey(site.key));
     }
     // Exactly one opening per edge, always: a window here is demolished (with
     // its usual refund) the same way removeWall() clears an orphaned door.
@@ -2049,6 +2154,7 @@ export class Game {
   placeDoorPath(path, doorType, variant = 0, off = null) {
     const dt = DOOR_TYPES[doorType];
     if (!dt) return false;
+    if (doorTileSpan(dt) > 1) return this._placeWideDoorPath(path, doorType, variant);
     let placed = 0;
     let updated = 0;
     let noWall = 0;
@@ -2063,7 +2169,7 @@ export class Game {
       }
       if (!this.canAfford({ funding: dt.cost })) { brokeOnFunding = true; break; }
       if (this.state.doorOccupied[site.key]) {
-        this.state.doors = this.state.doors.filter(d => edgeKey(d.col, d.row, d.edge) !== site.key);
+        this._dropDoorRecord(this._doorRecordAtKey(site.key));
       }
       // Exactly one opening per edge, always — see placeDoor. Check both
       // edge representations; a window may be stored under either.
@@ -2098,9 +2204,12 @@ export class Game {
   removeDoor(col, row, edge) {
     const key = findEdgeKey(this.state.doorOccupied, col, row, edge);
     if (!key) return false;
-    const wallKey = findWallKey(this.state.wallOccupied, col, row, edge);
-    const wall = wallKey ? this._wallAt(wallKey) : null;
-    if (wall && WALL_TYPES[wall.type]?.insetSubtiles) {
+    const record = this._doorRecordAtKey(key);
+    if (!record) return false;
+    for (const site of doorRecordEdges(record, DOOR_TYPES[record.type])) {
+      const wallKey = findWallKey(this.state.wallOccupied, site.col, site.row, site.edge);
+      const wall = wallKey ? this._wallAt(wallKey) : null;
+      if (!wall || !WALL_TYPES[wall.type]?.insetSubtiles) continue;
       const id = this._wallInsetOccupantId(wall);
       const blocked = this._wallInsetCells(wall, true).some(cell => {
         const occ = this.state.subgridOccupied?.[`${cell.col},${cell.row},${cell.subCol},${cell.subRow}`];
@@ -2111,11 +2220,10 @@ export class Game {
         return false;
       }
     }
-    const doorType = this.state.doorOccupied[key];
+    const doorType = record.type;
     const dt = DOOR_TYPES[doorType];
     if (dt) this.refundConstruction({ funding: dt.cost });
-    this.state.doors = this.state.doors.filter(d => edgeKey(d.col, d.row, d.edge) !== key);
-    delete this.state.doorOccupied[key];
+    this._dropDoorRecord(record);
     this._refreshWallInsetOccupancy();
     this._markNavDirty();
     this.emit('doorsChanged');
@@ -5590,9 +5698,7 @@ export class Game {
     for (const z of this.state.zones)
       this.state.zoneOccupied[z.col + ',' + z.row] = z.type;
     this._rebuildWallLayerIndexes();
-    this.state.doorOccupied = {};
-    for (const d of this.state.doors)
-      this.state.doorOccupied[`${d.col},${d.row},${d.edge}`] = d.type;
+    this._rebuildDoorIndex();
     this._refreshWallInsetOccupancy();
     this.state.windowOccupied = {};
     for (const w of this.state.windows)
@@ -6165,10 +6271,7 @@ export class Game {
     // (_detectRoom, networks/rooms.js, the renderer's cutaway) reads it too,
     // so a stale index silently walls off every doorway.
     this.state.doors = this.state.doors || [];
-    this.state.doorOccupied = {};
-    for (const d of this.state.doors) {
-      this.state.doorOccupied[`${d.col},${d.row},${d.edge}`] = d.type;
-    }
+    this._rebuildDoorIndex();
     this._refreshWallInsetOccupancy();
     // Load/undo/redo all replace infraOccupied, wallOccupied, doorOccupied
     // and placeables wholesale above — the nav grid must rebuild against the

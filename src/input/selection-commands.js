@@ -28,7 +28,7 @@ function copyWallPaint(game, wall) {
   }
 }
 
-function placeEdgeCopy(game, assembly) {
+function placeEdgeCopy(game, assembly, { includeDoor = true } = {}) {
   const wall = assembly?.wall;
   if (!wall || !game.placeWall(
     wall.col, wall.row, wall.edge, wall.type, wall.variant ?? 0,
@@ -40,7 +40,7 @@ function placeEdgeCopy(game, assembly) {
     overlay.col, overlay.row, overlay.edge, overlay.type, overlay.variant ?? 0,
   )) return false;
 
-  const door = assembly.door;
+  const door = includeDoor && assembly.door;
   if (door && !game.placeDoor(
     door.col, door.row, door.edge, door.type, door.variant ?? 0, door.off,
   )) return false;
@@ -72,7 +72,23 @@ export function copySelectionGroup(game, payload, preview) {
           }
         }
         for (const assembly of preview.edgeTargets || []) {
-          if (!placeEdgeCopy(game, assembly)) {
+          if (!placeEdgeCopy(game, assembly, { includeDoor: false })) {
+            game.restoreBeamlineState(rollback);
+            return false;
+          }
+        }
+        // Doors follow the wall pass. Multi-tile doors depend on every host
+        // segment existing before their one atomic placement can validate.
+        const placedDoors = new Set();
+        for (const assembly of preview.edgeTargets || []) {
+          const door = assembly.door;
+          if (!door) continue;
+          const doorKey = `${door.type}:${door.col},${door.row},${door.edge}`;
+          if (placedDoors.has(doorKey)) continue;
+          placedDoors.add(doorKey);
+          if (!game.placeDoor(
+            door.col, door.row, door.edge, door.type, door.variant ?? 0, door.off,
+          )) {
             game.restoreBeamlineState(rollback);
             return false;
           }

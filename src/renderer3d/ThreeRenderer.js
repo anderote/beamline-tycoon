@@ -41,6 +41,7 @@ import { buildPortFitting, buildPortFittings, portFittingSignature } from './bui
 import { UTILITY_TYPES } from '../utility/registry.js';
 import { StaffPawns } from './StaffPawns.js';
 import { sampleSurfaceYAt, getTileCornersY } from '../game/terrain.js';
+import { doorTileSpan, normalizeDoorSpanPath } from '../game/edge-keys.js';
 import { PLACE_UNAFFORDABLE } from '../game/placement.js';
 import { DAY_LENGTH_TICKS } from '../game/Game.js';
 import { dayNightGrade, MOON_COLOR } from './day-night.js';
@@ -2791,21 +2792,32 @@ export class ThreeRenderer {
     const mat = this._previewMat(0x88ff88, 0.4);
     const doorDef = doorType ? DOOR_TYPES[doorType] : null;
     const isDouble = doorDef ? doorDef.doorWidth === 'double' : false;
+    const tileSpan = doorTileSpan(doorDef);
     const nominalH = doorDef?.doorHeight
       ? doorDef.doorHeight * HEIGHT_SCALE
       : 0.6;
-    for (const seg of path) {
+    const wideSites = tileSpan > 1 ? normalizeDoorSpanPath(path, doorDef) : null;
+    const previewPath = wideSites
+      ? [{ ...wideSites[0], tileSpan, last: wideSites[wideSites.length - 1] }]
+      : path;
+    for (const seg of previewPath) {
       const isNS = seg.edge === 'n' || seg.edge === 's';
       // Same opening the wall builder will cut: real height, real width,
       // real subtile offset — and the same clamp against the host wall so a
       // tall door previewed on a short wall doesn't promise a taller opening.
-      const layout = doorOpeningLayout(seg.edge, seg.off, isDouble);
+      const layout = doorOpeningLayout(seg.edge, seg.off, isDouble, seg.tileSpan);
       const wallH = this._previewWallHeight(seg.col, seg.row, seg.edge, doorDef);
       const doorH = Math.max(0.1, Math.min(nominalH, wallH - LINTEL_HEIGHT));
       const pos = this._wallEdgePosition(seg.col, seg.row, seg.edge);
+      const spanShift = (Math.max(1, seg.tileSpan || 1) - 1) * 2 / 2;
+      if (isNS) pos.x += spanShift;
+      else pos.z += spanShift;
       const x = pos.x + (isNS ? layout.center : 0);
       const z = pos.z + (isNS ? 0 : layout.center);
-      const ends = this._edgeEndpoints(seg.col, seg.row, seg.edge, 0);
+      const firstEnds = this._edgeEndpoints(seg.col, seg.row, seg.edge, 0);
+      const last = seg.last || seg;
+      const lastEnds = this._edgeEndpoints(last.col, last.row, last.edge, 0);
+      const ends = { p0: firstEnds.p0, p1: lastEnds.p1 };
       const yAt = (signedOffset) => {
         const axisPos = (isNS ? pos.x : pos.z) + signedOffset;
         const a = isNS ? ends.p0.x : ends.p0.z;

@@ -510,9 +510,15 @@ export function previewSelectionGroup(game, payload, anchorPose) {
       }
       addCost(structureCost, { funding: variantCost(FLOORS[floor.type], floor.variant ?? 0) });
     }
+    const pricedDoors = new Set();
     for (const assembly of payload.edges || []) {
       for (const record of [assembly.wall, assembly.overlay, assembly.door, assembly.window]) {
         if (!record) continue;
+        if (DOOR_TYPES[record.type]) {
+          const key = `${record.type}:${record.col},${record.row},${record.edge}`;
+          if (pricedDoors.has(key)) continue;
+          pricedDoors.add(key);
+        }
         const def = WALL_TYPES[record.type] || DOOR_TYPES[record.type] || WINDOW_TYPES[record.type];
         addCost(structureCost, { funding: variantCost(def, record.variant ?? 0) });
       }
