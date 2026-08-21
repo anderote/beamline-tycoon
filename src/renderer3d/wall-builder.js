@@ -163,6 +163,22 @@ const WINDOW_FRAME_FALLBACK_COLOR = 0xb0b0b0;
 // The two shielded types draw a heavier frame (design doc, "Catalogue").
 const HEAVY_FRAME_TYPES = new Set(['leadedObservation', 'hutchViewport']);
 
+function createArchitecturalGlassMaterial(def, variant = 0, ghosted = false) {
+  const color = def?.variantGlassColors?.[variant] ?? def?.glassColor ?? 0xcfe8f5;
+  const baseOpacity = def?.variantGlassOpacities?.[variant] ?? def?.glassOpacity ?? 0.2;
+  return new THREE.MeshStandardMaterial({
+    color,
+    roughness: 0.12,
+    metalness: 0.08,
+    transparent: true,
+    opacity: ghosted ? Math.min(baseOpacity, GHOST_OPACITY) : baseOpacity,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    emissive: GLASS_EMISSIVE,
+    emissiveIntensity: 0,
+  });
+}
+
 /**
  * The other name for the same physical tile edge. Every edge has exactly two
  * representations — (col,row,'n') is the same seam as (col,row-1,'s') — and
@@ -299,7 +315,9 @@ export class WallBuilder {
       // run by whether its FIRST tile happened to border the room.
       const isCutawayWall = w.cutaway ?? (wallVisibility === 'cutaway' && !!cutawayRoom &&
         this._wallBordersRoom(col, row, edge, cutawayRoom));
-      const wallTransparent = isTransparent || isCutawayWall;
+      const viewGhosted = isTransparent || isCutawayWall;
+      const isGlassWall = def?.isGlassWall === true;
+      const wallTransparent = viewGhosted || isGlassWall;
 
       // Materials cache keyed by type+variant+cutaway so walls placed
       // with different variants (e.g. exterior wall cement vs brick)
@@ -307,18 +325,23 @@ export class WallBuilder {
       const matKey = `${type}:${variant}${isCutawayWall ? ':cutaway' : ''}`;
       const useAlpha = def?.hasAlpha === true;
       if (!matCache[matKey]) {
-        const textureName = def?.variantTextures?.[variant] ?? def?.texture;
-        const baseMat = textureName ? MATERIALS[textureName] : null;
-        // Alpha-cutout materials (chain-link, barbed wire): the PNG has
-        // fully transparent holes, so use alphaTest to discard hole
-        // pixels and render wire strands as opaque from both sides. The
-        // helper scales that threshold in transparent/cutaway wall views.
-        matCache[matKey] = createWallMaterial(
-          baseMat,
-          baseMat ? 0xffffff : color, // white keeps a texture's authored colour
-          wallTransparent,
-          useAlpha,
-        );
+        if (isGlassWall) {
+          matCache[matKey] = createArchitecturalGlassMaterial(def, variant, viewGhosted);
+          this._glassMaterials.push(matCache[matKey]);
+        } else {
+          const textureName = def?.variantTextures?.[variant] ?? def?.texture;
+          const baseMat = textureName ? MATERIALS[textureName] : null;
+          // Alpha-cutout materials (chain-link, barbed wire): the PNG has
+          // fully transparent holes, so use alphaTest to discard hole
+          // pixels and render wire strands as opaque from both sides. The
+          // helper scales that threshold in transparent/cutaway wall views.
+          matCache[matKey] = createWallMaterial(
+            baseMat,
+            baseMat ? 0xffffff : color, // white keeps a texture's authored colour
+            wallTransparent,
+            useAlpha,
+          );
+        }
       }
 
       const isNS = edge === 'n' || edge === 's';
@@ -403,8 +426,10 @@ export class WallBuilder {
         }
         return matCache[paintKey];
       };
-      const insidePaint = w.facePaint?.inside;
-      const outsidePaint = w.facePaint?.outside;
+      // Glass remains glass on both faces; wall paint applies only to solid
+      // architectural surfaces.
+      const insidePaint = isGlassWall ? null : w.facePaint?.inside;
+      const outsidePaint = isGlassWall ? null : w.facePaint?.outside;
       let meshMaterial = matCache[matKey];
       if (insidePaint || outsidePaint) {
         const materials = Array(6).fill(matCache[matKey]);
@@ -434,6 +459,17 @@ export class WallBuilder {
       mesh.updateMatrix();
       parentGroup.add(mesh);
       this._meshes.push(mesh);
+      if (isGlassWall) {
+        mesh.userData ||= {};
+        mesh.userData.glassWall = true;
+        mesh.layers?.enable(SOFT_GLOW_LAYER);
+        mesh.renderOrder = 2;
+        this._buildGlassWallFrame({
+          wall: w, def, span: span || 1, height, thickness,
+          center: pos, yLow, yHigh, ghosted: viewGhosted,
+          matCache, parentGroup,
+        });
+      }
     }
 
     // --- Doors ---
@@ -471,6 +507,7 @@ export class WallBuilder {
     // One material per (door type, variant, ghost) so every leaf of the same
     // kind shares an instance instead of allocating per door.
     const panelMatCache = {};
+    const doorFrameMatCache = {};
 
     for (const d of (doorData || [])) {
       const { col, row, edge, type } = d;
@@ -532,15 +569,10 @@ export class WallBuilder {
       // Get or create wall material for wall segments around the door.
       // Match the main wall material — tint white if textured so the map shows
       // true colors, and disable depthWrite when transparent for consistent sort.
-      const fillTransparent = isTransparent || isDoorCutaway;
-      if (wallMatKey && !matCache[wallMatKey]) {
-        const textureName = wallDef?.variantTextures?.[wallVariant] ?? wallDef?.texture;
-        const baseMat = textureName ? MATERIALS[textureName] : null;
-        matCache[wallMatKey] = createWallMaterial(
-          baseMat,
-          baseMat ? 0xffffff : wallColor,
-          fillTransparent,
-          wallDef?.hasAlpha === true,
+      const fillTransparent = isTransparent || isDoorCutaway || wallDef?.isGlassWall === true;
+      if (wallMatKey) {
+        this._ensureOpeningWallMaterial(
+          wallType, wallDef, wallVariant, isDoorCutaway, matCache, isTransparent,
         );
       }
 
@@ -551,7 +583,24 @@ export class WallBuilder {
       const halfOpening = doorOpeningWidth / 2;
 
       // Post A
-      const activeDoorMat = isDoorCutaway ? doorMatTransparent : doorMat;
+      let activeDoorMat = isDoorCutaway ? doorMatTransparent : doorMat;
+      if (doorDef?.isGlassDoor) {
+        const ghost = isTransparent || isDoorCutaway;
+        const frameKey = `${doorDef.frameTexture || '__none'}:${ghost ? 'ghost' : 'solid'}`;
+        if (!doorFrameMatCache[frameKey]) {
+          const baseMat = doorDef.frameTexture ? MATERIALS[doorDef.frameTexture] : null;
+          doorFrameMatCache[frameKey] = new THREE.MeshStandardMaterial({
+            map: baseMat ? baseMat.map : null,
+            color: baseMat ? 0xffffff : (doorDef.topColor ?? 0x9fb0b8),
+            roughness: 0.48,
+            metalness: 0.5,
+            transparent: ghost,
+            opacity: ghost ? GHOST_OPACITY : 1,
+            depthWrite: !ghost,
+          });
+        }
+        activeDoorMat = doorFrameMatCache[frameKey];
+      }
       const postA = new THREE.Mesh(postGeo, activeDoorMat);
       postA.position.set(
         edgeCenter.x + openX + (isNS ? -halfOpening : 0),
@@ -660,34 +709,39 @@ export class WallBuilder {
       }
 
       // --- Door panel (the visible leaf) ---
-      // Textured types get a leaf filling the opening. Types with no texture
-      // are open passthroughs (hallwayDoor) and render as a bare frame.
-      if (doorDef && doorDef.texture) {
+      // Textured and glazed types get a leaf filling the opening. Types with
+      // neither (hallwayDoor) remain an open passthrough with a bare frame.
+      if (doorDef && (doorDef.texture || doorDef.isGlassDoor)) {
         const ghost = isTransparent || isDoorCutaway;
         const matKey = `${type}:${variant}:${ghost ? 'ghost' : 'solid'}`;
         if (!panelMatCache[matKey]) {
-          const baseMat = MATERIALS[doorDef.texture] || null;
-          const tint = doorDef.variantTints?.[variant] ?? null;
-          const opts = {
-            map: baseMat ? baseMat.map : null,
-            // Textured panels tint white so the map shows true colors; a
-            // variant tint multiplies over it (that's what variantTints are).
-            color: tint ?? (baseMat ? 0xffffff : (doorDef.color ?? 0x8b7355)),
-            roughness: baseMat ? baseMat.roughness : 0.7,
-            metalness: baseMat ? baseMat.metalness : 0.0,
-            transparent: ghost,
-            opacity: ghost ? 0.3 : 1.0,
-            depthWrite: !ghost,
-          };
-          if (baseMat && baseMat.alphaTest > 0) {
-            // Cutout textures (chain link, security gate) keep their holes.
-            // alphaTest compares against opacity * map alpha, so the ghost
-            // pass has to scale the threshold or the whole leaf is discarded.
-            opts.alphaTest = ghost ? baseMat.alphaTest * opts.opacity : baseMat.alphaTest;
-            opts.transparent = true;
-            opts.side = THREE.DoubleSide;
+          if (doorDef.isGlassDoor) {
+            panelMatCache[matKey] = createArchitecturalGlassMaterial(doorDef, variant, ghost);
+            this._glassMaterials.push(panelMatCache[matKey]);
+          } else {
+            const baseMat = MATERIALS[doorDef.texture] || null;
+            const tint = doorDef.variantTints?.[variant] ?? null;
+            const opts = {
+              map: baseMat ? baseMat.map : null,
+              // Textured panels tint white so the map shows true colors; a
+              // variant tint multiplies over it (that's what variantTints are).
+              color: tint ?? (baseMat ? 0xffffff : (doorDef.color ?? 0x8b7355)),
+              roughness: baseMat ? baseMat.roughness : 0.7,
+              metalness: baseMat ? baseMat.metalness : 0.0,
+              transparent: ghost,
+              opacity: ghost ? 0.3 : 1.0,
+              depthWrite: !ghost,
+            };
+            if (baseMat && baseMat.alphaTest > 0) {
+              // Cutout textures (chain link, security gate) keep their holes.
+              // alphaTest compares against opacity * map alpha, so the ghost
+              // pass has to scale the threshold or the whole leaf is discarded.
+              opts.alphaTest = ghost ? baseMat.alphaTest * opts.opacity : baseMat.alphaTest;
+              opts.transparent = true;
+              opts.side = THREE.DoubleSide;
+            }
+            panelMatCache[matKey] = new THREE.MeshStandardMaterial(opts);
           }
-          panelMatCache[matKey] = new THREE.MeshStandardMaterial(opts);
         }
 
         const panelW = Math.max(0.01, doorOpeningWidth - PANEL_GAP * 2);
@@ -704,12 +758,63 @@ export class WallBuilder {
           openingBaseY + panelH / 2,
           edgeCenter.z + openZ
         );
-        panel.castShadow = !ghost;
-        panel.receiveShadow = true;
+        panel.castShadow = !ghost && !doorDef.isGlassDoor;
+        panel.receiveShadow = !doorDef.isGlassDoor;
+        if (doorDef.isGlassDoor) {
+          panel.layers?.enable(SOFT_GLOW_LAYER);
+          panel.userData ||= {};
+          panel.userData.glassDoor = true;
+          panel.renderOrder = 2;
+        }
         panel.matrixAutoUpdate = false;
         panel.updateMatrix();
         parentGroup.add(panel);
         this._meshes.push(panel);
+
+        if (doorDef.isGlassDoor) {
+          const handleGeo = isNS
+            ? new THREE.BoxGeometry(0.04 * M, doorHeight * 0.34, 0.06 * M)
+            : new THREE.BoxGeometry(0.06 * M, doorHeight * 0.34, 0.04 * M);
+          const handleOffset = doorOpeningWidth * 0.28;
+          const handle = new THREE.Mesh(handleGeo, activeDoorMat);
+          handle.position.set(
+            edgeCenter.x + openX + (isNS ? handleOffset : 0),
+            openingBaseY + doorHeight * 0.5,
+            edgeCenter.z + openZ + (isNS ? 0 : handleOffset),
+          );
+          handle.castShadow = !ghost;
+          handle.userData ||= {};
+          handle.userData.glassDoorHandle = true;
+          handle.matrixAutoUpdate = false;
+          handle.updateMatrix();
+          parentGroup.add(handle);
+          this._meshes.push(handle);
+        }
+      }
+
+      // The main wall pass is skipped anywhere a door opens, so a glazed host
+      // wall would otherwise lose its perimeter rails and outside posts on
+      // this segment. Rebuild those four members here; the door's own posts
+      // and lintel supply the frame around the opening itself.
+      if (wallDef?.isGlassWall && wallEntry?.wall) {
+        const wallBaseY = wallEntry.wall.baseY || { a: 0, b: 0 };
+        const wallEdge = wallEntry.wall.edge;
+        const yLow = wallEdge === 'n' || wallEdge === 'e' ? wallBaseY.a : wallBaseY.b;
+        const yHigh = wallEdge === 'n' || wallEdge === 'e' ? wallBaseY.b : wallBaseY.a;
+        this._buildGlassWallFrame({
+          wall: wallEntry.wall,
+          def: wallDef,
+          span: 1,
+          height: wallHeight,
+          thickness: wallThickness,
+          center: { x: edgeCenter.x, y: 0, z: edgeCenter.z },
+          yLow,
+          yHigh,
+          ghosted: isTransparent || isDoorCutaway,
+          matCache,
+          parentGroup,
+          includeMullions: false,
+        });
       }
     }
 
@@ -751,15 +856,20 @@ export class WallBuilder {
     const key = `${wallType}:${wallVariant}${isCutaway ? ':cutaway' : ''}`;
     if (matCache[key]) return key;
     const ghost = isTransparent || isCutaway;
-    const textureName = wallDef?.variantTextures?.[wallVariant] ?? wallDef?.texture;
-    const baseMat = textureName ? MATERIALS[textureName] : null;
-    const wallColor = wallDef ? wallDef.color : 0xcccccc;
-    matCache[key] = createWallMaterial(
-      baseMat,
-      baseMat ? 0xffffff : wallColor,
-      ghost,
-      wallDef?.hasAlpha === true,
-    );
+    if (wallDef?.isGlassWall) {
+      matCache[key] = createArchitecturalGlassMaterial(wallDef, wallVariant, ghost);
+      this._glassMaterials.push(matCache[key]);
+    } else {
+      const textureName = wallDef?.variantTextures?.[wallVariant] ?? wallDef?.texture;
+      const baseMat = textureName ? MATERIALS[textureName] : null;
+      const wallColor = wallDef ? wallDef.color : 0xcccccc;
+      matCache[key] = createWallMaterial(
+        baseMat,
+        baseMat ? 0xffffff : wallColor,
+        ghost,
+        wallDef?.hasAlpha === true,
+      );
+    }
     return key;
   }
 
@@ -806,6 +916,7 @@ export class WallBuilder {
 
     // Resolved lazily so an opening that emits no fill never allocates the
     // untextured fallback material (which nothing would ever dispose).
+    const fillTransparent = isTransparent || wallDef?.isGlassWall === true;
     const fillMaterial = () =>
       matCache[matKey] || this._defaultFillMat(matCache, wallColor, isTransparent);
 
@@ -822,7 +933,7 @@ export class WallBuilder {
       }
       const mesh = new THREE.Mesh(geo, fillMaterial());
       mesh.position.set(edgeCenter.x, base + y0 + h / 2, edgeCenter.z);
-      mesh.castShadow = !isTransparent;
+      mesh.castShadow = !fillTransparent;
       mesh.receiveShadow = true;
       mesh.matrixAutoUpdate = false;
       mesh.updateMatrix();
@@ -852,7 +963,7 @@ export class WallBuilder {
           base + wallHeight / 2,
           edgeCenter.z + (isNS ? 0 : off)
         );
-        side.castShadow = !isTransparent;
+        side.castShadow = !fillTransparent;
         side.receiveShadow = true;
         side.matrixAutoUpdate = false;
         side.updateMatrix();
@@ -999,14 +1110,20 @@ export class WallBuilder {
         addBar(sign * (halfOpening - frameW / 2), jambY, frameW, jambH, frameDepth);
       }
 
-      // industrialSash: a 3x3 grid of tall factory panes — two vertical
-      // mullions and two horizontal transoms.
-      if (def.id === 'industrialSash') {
+      // Optional catalogue-authored pane divisions. Keeping the counts on the
+      // definition lets clerestory, conference, ribbon, and factory windows
+      // share one geometry path while retaining distinct silhouettes.
+      const verticalMullions = Math.max(0, Math.floor(def.mullions?.vertical || 0));
+      const horizontalMullions = Math.max(0, Math.floor(def.mullions?.horizontal || 0));
+      if (verticalMullions || horizontalMullions) {
         const mullionDepth = Math.max(frameDepth * 0.7, GLASS_THICKNESS * 2);
-        for (const k of [-1, 1]) {
-          addBar(k * openingWidth / 6, jambY, WINDOW_MULLION_W, jambH, mullionDepth);
-          addBar(0, jambY + k * openingHeight / 6,
-            openingWidth - 2 * frameW, WINDOW_MULLION_W, mullionDepth);
+        for (let i = 1; i <= verticalMullions; i++) {
+          const u = -halfOpening + openingWidth * i / (verticalMullions + 1);
+          addBar(u, jambY, WINDOW_MULLION_W, jambH, mullionDepth);
+        }
+        for (let i = 1; i <= horizontalMullions; i++) {
+          const y = openingBottom + openingHeight * i / (horizontalMullions + 1);
+          addBar(0, y, openingWidth - 2 * frameW, WINDOW_MULLION_W, mullionDepth);
         }
       }
 
@@ -1104,6 +1221,76 @@ export class WallBuilder {
       });
     }
     return matCache[key];
+  }
+
+  _buildGlassWallFrame({
+    wall, def, span, height, thickness, center, yLow, yHigh,
+    ghosted, matCache, parentGroup, includeMullions = true,
+  }) {
+    const frameKey = `__glassWallFrame:${def.frameTexture || '__none'}:${ghosted ? 'ghost' : 'solid'}`;
+    if (!matCache[frameKey]) {
+      const baseMat = def.frameTexture ? MATERIALS[def.frameTexture] : null;
+      matCache[frameKey] = new THREE.MeshStandardMaterial({
+        map: baseMat ? baseMat.map : null,
+        color: baseMat ? 0xffffff : (def.topColor ?? 0x9fb0b8),
+        roughness: 0.48,
+        metalness: 0.5,
+        transparent: ghosted,
+        opacity: ghosted ? GHOST_OPACITY : 1,
+        depthWrite: !ghosted,
+      });
+    }
+    const frameMat = matCache[frameKey];
+    const isNS = wall.edge === 'n' || wall.edge === 's';
+    const length = span * TILE_SIZE;
+    const rise = yHigh - yLow;
+    const railLength = Math.hypot(length, rise);
+    const railW = 0.055 * M;
+    const frameDepth = Math.max(thickness * 1.8, 0.07 * M);
+    const baseMid = (yLow + yHigh) / 2;
+    const slope = Math.atan2(rise, length);
+
+    const addFrame = (geo, x, y, z, rotation = null) => {
+      const mesh = new THREE.Mesh(geo, frameMat);
+      mesh.position.set(x, y, z);
+      if (rotation) mesh.rotation.set(rotation.x || 0, rotation.y || 0, rotation.z || 0);
+      mesh.castShadow = !ghosted;
+      mesh.receiveShadow = true;
+      mesh.userData ||= {};
+      mesh.userData.glassWallFrame = true;
+      mesh.matrixAutoUpdate = false;
+      mesh.updateMatrix();
+      parentGroup.add(mesh);
+      this._meshes.push(mesh);
+    };
+
+    const railGeo = isNS
+      ? new THREE.BoxGeometry(railLength, railW, frameDepth)
+      : new THREE.BoxGeometry(frameDepth, railW, railLength);
+    const railRotation = isNS ? { z: slope } : { x: -slope };
+    addFrame(railGeo, center.x, baseMid + railW / 2, center.z, railRotation);
+    addFrame(railGeo.clone(), center.x, baseMid + height - railW / 2, center.z, railRotation);
+
+    const postHeight = Math.max(0.05, height - railW * 2);
+    const postGeo = isNS
+      ? new THREE.BoxGeometry(railW, postHeight, frameDepth)
+      : new THREE.BoxGeometry(frameDepth, postHeight, railW);
+    const offsets = [];
+    for (let i = 0; i <= span; i++) offsets.push(-length / 2 + i * TILE_SIZE);
+    if (includeMullions) {
+      for (let i = 0; i < span; i++) offsets.push(-length / 2 + (i + 0.5) * TILE_SIZE);
+    }
+    for (const offset of offsets) {
+      const t = length > 0 ? offset / length + 0.5 : 0.5;
+      const base = yLow + rise * t;
+      addFrame(
+        postGeo.clone(),
+        center.x + (isNS ? offset : 0),
+        base + railW + postHeight / 2,
+        center.z + (isNS ? 0 : offset),
+      );
+    }
+    postGeo.dispose();
   }
 
   _wallGeometry(edge, height = DEFAULT_WALL_HEIGHT, thickness = DEFAULT_WALL_THICKNESS) {
@@ -1230,7 +1417,16 @@ export class WallBuilder {
     const isTransparent = wallVisibility === 'transparent';
     const hasCutaway = wallVisibility === 'cutaway' && cutawayRoom;
     if (!isTransparent && !hasCutaway) {
-      return wallData.map(w => ({ ...w, span: 1 }));
+      // Glazing is transparent even while the rest of the building is fully
+      // up. Merge only those runs so adjacent panels share their boundary
+      // post instead of drawing two coincident frames; leave opaque wall
+      // behavior and ordering otherwise unchanged.
+      const glassWalls = wallData.filter(w => WALL_TYPES[w.type]?.isGlassWall);
+      if (glassWalls.length === 0) return wallData.map(w => ({ ...w, span: 1 }));
+      const solidWalls = wallData
+        .filter(w => !WALL_TYPES[w.type]?.isGlassWall)
+        .map(w => ({ ...w, span: 1 }));
+      return [...solidWalls, ...this._mergeWalls(glassWalls, 'transparent', null)];
     }
 
     // Group walls by (edge, type, variant, face paint, cutaway, and the axis-perpendicular

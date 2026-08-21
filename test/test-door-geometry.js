@@ -59,6 +59,8 @@ class Mesh {
   constructor(geometry, material) {
     this.geometry = geometry; this.material = material;
     this.position = new Vector3();
+    this.rotation = new Vector3();
+    this.layers = { enable() {} };
     this.castShadow = false; this.receiveShadow = false;
     this.matrixAutoUpdate = true;
   }
@@ -308,6 +310,30 @@ console.log('\n=== 5. build(): the visible door panel ===\n');
   assert(gateGhost.material.alphaTest < gateGhost.material.opacity,
     'the transparent pass scales alphaTest below the opacity so the leaf survives');
 
+  const glass = panelsOf('glassDoor', 0, 'glassWall')[0];
+  assert(glass?.userData?.glassDoor === true,
+    'a glass door emits a visible glazed leaf instead of an open passthrough');
+  assert(glass.material.transparent === true && glass.material.depthWrite === false,
+    'the glass door uses an order-safe transparent material');
+  assert(glass.material.color === DOOR_TYPES.glassDoor.variantGlassColors[0]
+      && near(glass.material.opacity, DOOR_TYPES.glassDoor.variantGlassOpacities[0]),
+    'the clear glass door leaf uses its authored color and opacity');
+  const smokedGlass = panelsOf('glassDoor', 2, 'glassWall')[0];
+  assert(smokedGlass.material.color === DOOR_TYPES.glassDoor.variantGlassColors[2]
+      && near(smokedGlass.material.opacity, DOOR_TYPES.glassDoor.variantGlassOpacities[2]),
+    'glass door variants produce visibly distinct glazing');
+
+  const framedDoorBuilder = new WallBuilder(null);
+  framedDoorBuilder.build(
+    [{ col: 0, row: 0, edge: 'n', type: 'glassWall', variant: 0, baseY: { a: 0, b: 0 } }],
+    [{ col: 0, row: 0, edge: 'n', type: 'glassDoor', variant: 0, off: 1 }],
+    [], new Group(), 'up', null
+  );
+  assert(framedDoorBuilder._meshes.some(m => m.userData?.glassDoorHandle),
+    'the glass door includes a metal pull handle');
+  assert(framedDoorBuilder._meshes.filter(m => m.userData?.glassWallFrame).length === 4,
+    'a glass-wall doorway retains its two perimeter rails and outside posts');
+
   // Panel offset tracks the opening, not the edge centre.
   const wb = new WallBuilder(null);
   const group = new Group();
@@ -341,6 +367,7 @@ console.log('\n=== 6. Lintel invariant: doorHeight + lintel fits the wall ===\n'
     securityDoor: ['structuralWall'],
     rollingShutter: ['structuralWall'],
     officeDoor: ['officeWall', 'hallwayWall'],
+    glassDoor: ['officeWall', 'hallwayWall', 'glassWall'],
     acousticDoor: ['officeWall', 'hallwayWall'],
     cleanroomDoor: ['officeWall', 'hallwayWall'],
     panicExit: ['officeWall', 'hallwayWall'],
@@ -369,7 +396,53 @@ console.log('\n=== 6. Lintel invariant: doorHeight + lintel fits the wall ===\n'
 }
 
 // ---------------------------------------------------------------------------
-console.log('\n=== 7. Wall heights match furnishing and human scale ===\n');
+console.log('\n=== 7. Glass wall material and frame ===\n');
+{
+  const buildGlassWall = (variant, visibility = 'up') => {
+    const wb = new WallBuilder(null);
+    wb.build(
+      [
+        { col: 3, row: 4, edge: 'n', type: 'glassWall', variant,
+          baseY: { a: 0, b: 0 } },
+        { col: 4, row: 4, edge: 'n', type: 'glassWall', variant,
+          baseY: { a: 0, b: 0 } },
+      ],
+      [], [], new Group(), visibility, null
+    );
+    return wb;
+  };
+
+  // Glass runs merge even while walls are fully up, eliminating duplicate
+  // coincident posts while retaining one mullion per two-metre panel.
+  const clear = buildGlassWall(0);
+  const pane = clear._meshes.find(m => m.userData?.glassWall);
+  const frames = clear._meshes.filter(m => m.userData?.glassWallFrame);
+  assert(pane?.material?.transparent === true && pane.material.depthWrite === false,
+    'the glass wall slab uses an order-safe transparent material');
+  assert(pane.material.color === WALL_TYPES.glassWall.variantGlassColors[0]
+      && near(pane.material.opacity, WALL_TYPES.glassWall.variantGlassOpacities[0]),
+    'the clear glass wall uses its authored color and opacity');
+  assert(clear.glassMaterials().includes(pane.material),
+    'the glass wall participates in the shared after-dark glow ramp');
+  assert(frames.length === 7,
+    'a two-segment glass wall gets two rails, edge posts, and one mullion per segment');
+  assert(frames.every(m => m.material.metalness > 0 && m.material.transparent === false),
+    'glass wall framing remains opaque and metallic');
+
+  const ghostedFrames = buildGlassWall(0, 'transparent')._meshes
+    .filter(m => m.userData?.glassWallFrame);
+  assert(ghostedFrames.every(m => m.material.opacity === 0.3),
+    'glass wall framing follows transparent-view opacity');
+
+  const smoked = buildGlassWall(2);
+  const smokedPane = smoked._meshes.find(m => m.userData?.glassWall);
+  assert(smokedPane.material.color === WALL_TYPES.glassWall.variantGlassColors[2]
+      && near(smokedPane.material.opacity, WALL_TYPES.glassWall.variantGlassOpacities[2]),
+    'the smoked glass wall variant changes both tint and opacity');
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n=== 8. Wall heights match furnishing and human scale ===\n');
 {
   // TILE_SIZE is 2 world units and 2 m real, so one data unit maps to
   // HEIGHT_SCALE metres.
@@ -394,7 +467,7 @@ console.log('\n=== 7. Wall heights match furnishing and human scale ===\n');
 }
 
 // ---------------------------------------------------------------------------
-console.log('\n=== 8. A tall door on a short wall is clamped, not poked through ===\n');
+console.log('\n=== 9. A tall door on a short wall is clamped, not poked through ===\n');
 {
   const wb = new WallBuilder(null);
   const group = new Group();
@@ -420,7 +493,7 @@ console.log('\n=== 8. A tall door on a short wall is clamped, not poked through 
 }
 
 // ---------------------------------------------------------------------------
-console.log('\n=== 9. Door parts sit on the terrain, not at y=0 ===\n');
+console.log('\n=== 10. Door parts sit on the terrain, not at y=0 ===\n');
 {
   // A gate in a fence on ground raised to y=2. Walls bake their base Y into
   // the geometry; door parts are placed boxes, so they carry theirs in the
@@ -462,7 +535,7 @@ console.log('\n=== 9. Door parts sit on the terrain, not at y=0 ===\n');
 }
 
 // ---------------------------------------------------------------------------
-console.log('\n=== 10. Cutaway ghosts exactly the walls that border the room ===\n');
+console.log('\n=== 11. Cutaway ghosts exactly the walls that border the room ===\n');
 {
   // Six colinear walls; only cols 0-2 border the opened room. Merging used to
   // ignore that and paint the whole run by whichever tile sorted first —
@@ -490,7 +563,7 @@ console.log('\n=== 10. Cutaway ghosts exactly the walls that border the room ===
 }
 
 // ---------------------------------------------------------------------------
-console.log('\n=== 11. Cutaway ghosts the wall around a door too ===\n');
+console.log('\n=== 12. Cutaway ghosts the wall around a door too ===\n');
 {
   // The door loop keyed its wall material without the cutaway suffix, so the
   // side fills and the band above the opening stayed opaque — a solid plug in
@@ -510,7 +583,7 @@ console.log('\n=== 11. Cutaway ghosts the wall around a door too ===\n');
 }
 
 // ---------------------------------------------------------------------------
-console.log('\n=== 12. A wall stored under the mirrored key never seals the door ===\n');
+console.log('\n=== 13. A wall stored under the mirrored key never seals the door ===\n');
 {
   // "5,5,s" and "5,6,n" are the same edge. Game.placeWall now resolves that,
   // but a snapshot carrying both spellings (older save, hand-built fixture)
@@ -545,7 +618,7 @@ console.log('\n=== 12. A wall stored under the mirrored key never seals the door
 }
 
 // ---------------------------------------------------------------------------
-console.log('\n=== 13. Wall paint selects the two physical faces independently ===\n');
+console.log('\n=== 14. Wall paint selects the two physical faces independently ===\n');
 {
   const wb = new WallBuilder(null);
   wb.build(
@@ -565,7 +638,7 @@ console.log('\n=== 13. Wall paint selects the two physical faces independently =
 }
 
 // ---------------------------------------------------------------------------
-console.log('\n=== 14. Painted walls survive the next wall rebuild ===\n');
+console.log('\n=== 15. Painted walls survive the next wall rebuild ===\n');
 {
   const wb = new WallBuilder(null);
   const group = new Group();

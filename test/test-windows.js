@@ -68,6 +68,12 @@ for (const [id, w] of Object.entries(WINDOW_TYPES)) {
         `${id}: ${field} has the same length as variants (${n})`);
     }
   }
+  if (w.mullions) {
+    assert(Number.isInteger(w.mullions.vertical) && w.mullions.vertical >= 0,
+      `${id}: vertical mullion count is a non-negative integer`);
+    assert(Number.isInteger(w.mullions.horizontal) && w.mullions.horizontal >= 0,
+      `${id}: horizontal mullion count is a non-negative integer`);
+  }
 }
 
 console.log('\n=== human-scale and factory-scale window proportions ===\n');
@@ -87,10 +93,13 @@ console.log('\n=== human-scale and factory-scale window proportions ===\n');
     'both shielded observation panes fill most of their 14-unit host walls');
 }
 
-console.log('\n=== six catalogue types, in three subsections ===\n');
+console.log('\n=== expanded catalogue, in three subsections ===\n');
 {
   const ids = Object.keys(WINDOW_TYPES);
-  assert(ids.length === 6, `WINDOW_TYPES has six entries (got ${ids.length})`);
+  assert(ids.length === 9, `WINDOW_TYPES has nine entries (got ${ids.length})`);
+  for (const id of ['clerestoryWindow', 'conferenceWindow', 'ribbonWindow']) {
+    assert(ids.includes(id), `${id} is included in the expanded catalogue`);
+  }
 
   const bySubsection = {};
   for (const w of Object.values(WINDOW_TYPES)) {

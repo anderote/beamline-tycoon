@@ -3622,7 +3622,11 @@ export class Game {
     for (let i = 0; i < furnishings.length; i++) {
       const entry = furnishings[i];
       const def = ZONE_FURNISHINGS[entry.type];
-      if (!def) continue;
+      // Floor coverings live below the ordinary furnishing occupancy layer.
+      // Leaving them in this legacy hit grid would make a rug placed after a
+      // desk hide the desk from old sub-tile selection/demolish paths even
+      // though the authoritative subgrid correctly lets both coexist.
+      if (!def || !usesFloorOccupancy(def)) continue;
       const key = entry.col + ',' + entry.row;
       if (!subgrids[key]) {
         subgrids[key] = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
