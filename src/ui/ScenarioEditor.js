@@ -16,6 +16,8 @@ import { serializeCornerHeights } from '../game/terrain.js';
 import {
   customScenarioRef,
   listCustomScenarios,
+  normalizeScenarioExport,
+  parseScenarioExport,
   saveCustomScenario,
   stageScenarioSelection,
 } from '../data/scenarios.js';
@@ -128,6 +130,7 @@ export class ScenarioEditor {
     };
     mk('Save', 'Update this playable scenario and keep editing', () => this.saveDesign());
     mk('Save As', 'Overwrite a selected local scenario or create a new playable scenario', () => this.openSaveAsDialog());
+    mk('Load', 'Load an exported .scenario.json file as unsaved editor work', () => this.chooseScenarioFile());
     mk('Export', 'Export Scenario — download .json + copy a .js generator module to clipboard/console', () => this.exportScenario());
     mk('Save + Playtest', 'Save this scenario and playtest with free construction plus real operating economics', () => this.playScenario());
     mk('Exit', 'Exit Editor — saved scenarios remain available from New Game', () => this.exit());
@@ -170,7 +173,13 @@ export class ScenarioEditor {
   _promptExportMeta() {
     const name = prompt('Scenario name:', this._lastName);
     if (!name) return null;
-    return { id: scenarioIdFromName(name), name };
+    // A display name is not an identity. In particular, exporting a saved
+    // `majorLab2` named "Major Lab" must remain `majorLab2` so the file can be
+    // loaded without unexpectedly targeting a different catalogue entry.
+    const id = this._lastId && name.trim() === this._lastName.trim()
+      ? this._lastId
+      : scenarioIdFromName(name);
+    return { id, name: name.trim() };
   }
 
   _currentSnapshot() {
@@ -179,6 +188,98 @@ export class ScenarioEditor {
 
   hasUnsavedChanges() {
     return this._savedSnapshot !== this._currentSnapshot();
+  }
+
+  // === IMPORT ===
+
+  /** Open the native file chooser for a Scenario Admin export or backup. */
+  chooseScenarioFile() {
+    const doc = globalThis.document;
+    if (!doc?.body) return null;
+    const input = doc.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json,.json';
+    input.hidden = true;
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      try {
+        if (file) await this.loadScenarioFile(file);
+      } finally {
+        input.remove();
+      }
+    }, { once: true });
+    doc.body.appendChild(input);
+    input.click();
+    return input;
+  }
+
+  /** Read, validate, and load a browser File selected by the author. */
+  async loadScenarioFile(file) {
+    const filename = file?.name || 'selected file';
+    if (!file || typeof file.text !== 'function') {
+      this.game.log?.(`LOAD FAILED — ${filename} could not be read.`, 'bad');
+      return null;
+    }
+    let payload;
+    try {
+      payload = parseScenarioExport(await file.text());
+    } catch (error) {
+      this.game.log?.(`LOAD FAILED — ${error.message}`, 'bad');
+      return null;
+    }
+    return this.loadScenarioPayload(payload, { sourceName: filename });
+  }
+
+  /**
+   * Replace the editor world with a validated export as UNSAVED work. The
+   * imported id is retained as an export hint, but Save deliberately routes
+   * through Save As so a file never overwrites a local scenario by surprise.
+   */
+  loadScenarioPayload(payload, {
+    sourceName = 'scenario file',
+    confirmReplace = message => globalThis.confirm?.(message) !== false,
+  } = {}) {
+    let imported;
+    try { imported = normalizeScenarioExport(payload); }
+    catch (error) {
+      this.game.log?.(`LOAD FAILED — ${error.message}`, 'bad');
+      return null;
+    }
+    if (typeof this.game.applyScenario !== 'function') {
+      this.game.log?.('LOAD FAILED — the editor cannot apply scenario data.', 'bad');
+      return null;
+    }
+
+    const previous = this.collectScenarioData();
+    const worldFields = ['floors', 'zones', 'walls', 'doors', 'windows', 'placeables', 'beamPipes', 'utilityLines'];
+    const currentHasContent = worldFields.some(field => previous[field]?.length)
+      || previous.cornerHeights?.length;
+    if (currentHasContent && !confirmReplace(
+      `Load “${imported.name}” from ${sourceName}?\n\nThis replaces the current editor workspace. Any scenario you previously saved remains in New Game.`,
+    )) return null;
+
+    try {
+      this.game.applyScenario(imported.data);
+    } catch (error) {
+      // Game.applyScenario touches several indexes. Restore the complete prior
+      // editor snapshot if any later rebuild rejects the imported data.
+      try { this.game.applyScenario(previous); } catch (_) {}
+      this.game.log?.(`LOAD FAILED — ${error.message || 'the scenario could not be applied'}`, 'bad');
+      return null;
+    }
+
+    this._lastId = imported.id;
+    this._lastName = imported.name;
+    this._hasSavedDesign = false;
+    this._savedSnapshot = null;
+    this._lastDraftSnapshot = null;
+    // Bank the imported workspace immediately; a crash before the one-minute
+    // timer must not make the author repeat the import and subsequent edits.
+    this.autosaveDraft({ force: true });
+    const badge = globalThis.document?.getElementById('editor-badge');
+    if (badge) badge.textContent = 'SCENARIO ADMIN · IMPORTED';
+    this.game.log?.(`Loaded “${imported.name}” from ${sourceName} as unsaved work. Use Save As to publish it.`, 'good');
+    return imported;
   }
 
   _save(meta) {
@@ -473,26 +574,26 @@ export class ScenarioEditor {
     const data = this.collectScenarioData();
     const payload = { id: meta.id, name: meta.name, data };
 
-    // 1) Download as .json
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${meta.id}.scenario.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    // 1) Download as .json through the same guarded path used for emergency
+    // backups. Export must report a browser failure instead of claiming that a
+    // file exists when no download was actually started.
+    const downloaded = downloadTextFile(
+      `${meta.id}.scenario.json`,
+      JSON.stringify(payload, null, 2),
+    );
 
     // 2) Ready-to-paste generator module (matches src/data/scenarios/*.js style)
     const js = this._buildGeneratorModule(meta, data);
     console.log(`[ScenarioEditor] Generator module for src/data/scenarios/${meta.id}.js:\n\n${js}`);
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(js)
-        .then(() => this.game.log('Exported: .json downloaded, .js module copied to clipboard (also in console).', 'good'))
-        .catch(() => this.game.log('Exported: .json downloaded, .js module logged to console (clipboard unavailable).', 'good'));
+    const downloadStatus = downloaded
+      ? 'Exported: .json downloaded'
+      : 'EXPORT WARNING — the .json download could not be started';
+    if (globalThis.navigator?.clipboard?.writeText) {
+      globalThis.navigator.clipboard.writeText(js)
+        .then(() => this.game.log(`${downloadStatus}, .js module copied to clipboard (also in console).`, downloaded ? 'good' : 'bad'))
+        .catch(() => this.game.log(`${downloadStatus}, .js module logged to console (clipboard unavailable).`, downloaded ? 'good' : 'bad'));
     } else {
-      this.game.log('Exported: .json downloaded, .js module logged to console.', 'good');
+      this.game.log(`${downloadStatus}, .js module logged to console.`, downloaded ? 'good' : 'bad');
     }
     return payload;
   }
@@ -527,12 +628,25 @@ export class ScenarioEditor {
   _launchPlaytest(stored) {
     this._leaving = true;
     this.stopDraftAutosave();
-    this.storage.removeItem('beamlineTycoon');
-    stageScenarioSelection(customScenarioRef(stored.id), this.storage);
-    sessionStorage.setItem(SKIP_TITLE_SESSION_KEY, '1');
+    // Stage and verify before removing the active game. A failed localStorage
+    // write must leave the author in the editor with the prior game intact.
+    try {
+      const staged = stageScenarioSelection(customScenarioRef(stored.id), this.storage);
+      if (!staged) throw new Error('The saved scenario is unavailable');
+      sessionStorage.setItem(SKIP_TITLE_SESSION_KEY, '1');
+      this.storage.removeItem('beamlineTycoon');
+    } catch (error) {
+      try { stageScenarioSelection('sandbox', this.storage); } catch (_) {}
+      try { sessionStorage.removeItem(SKIP_TITLE_SESSION_KEY); } catch (_) {}
+      this._leaving = false;
+      this.startDraftAutosave();
+      this.game.log?.(`PLAYTEST FAILED — ${error.message || 'the saved scenario could not be staged'}.`, 'bad');
+      return false;
+    }
     // Reload WITHOUT the editor flag → sandbox construction with the real
     // tick economy (the stored scenario carries sandbox: true).
     location.href = location.pathname;
+    return true;
   }
 
   // === EXIT ===

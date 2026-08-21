@@ -13,6 +13,7 @@ import {
   listPlayableScenarios,
   loadCustomScenarioById,
   migrateLegacyCustomScenario,
+  parseScenarioExport,
   resolveScenario,
   saveCustomScenario,
   stageScenarioSelection,
@@ -81,12 +82,62 @@ assert.equal(listCustomScenarios(storage).length, 2,
   'selecting an existing Save As destination overwrites rather than duplicates');
 assert.deepEqual(loadCustomScenarioById('balanceLab', storage)?.data, revisedData);
 
+// A scenario save is a two-key transaction: if the catalogue write fails,
+// neither a new payload nor a destructive overwrite may remain behind.
+const atomicStorage = memoryStorage();
+saveCustomScenario({ id: 'atomicLab', name: 'Atomic Lab', data: baseData }, { storage: atomicStorage });
+const atomicPayloadKey = `${CUSTOM_SCENARIO_PREFIX}atomicLab`;
+const atomicPayloadBefore = atomicStorage.getItem(atomicPayloadKey);
+const atomicIndexBefore = atomicStorage.getItem(CUSTOM_SCENARIO_INDEX_KEY);
+const atomicSetItem = atomicStorage.setItem;
+let refuseIndexOnce = true;
+atomicStorage.setItem = (key, value) => {
+  if (key === CUSTOM_SCENARIO_INDEX_KEY && refuseIndexOnce) {
+    refuseIndexOnce = false;
+    throw new DOMException('quota exceeded', 'QuotaExceededError');
+  }
+  atomicSetItem(key, value);
+};
+assert.throws(() => saveCustomScenario({
+  id: 'atomicLab',
+  name: 'Broken Overwrite',
+  data: revisedData,
+}, { storage: atomicStorage }), /quota/i);
+assert.equal(atomicStorage.getItem(atomicPayloadKey), atomicPayloadBefore,
+  'a failed overwrite restores the previous complete scenario');
+assert.equal(atomicStorage.getItem(CUSTOM_SCENARIO_INDEX_KEY), atomicIndexBefore,
+  'a failed overwrite restores the previous catalogue index');
+
+refuseIndexOnce = true;
+assert.throws(() => saveCustomScenario({
+  id: 'orphanLab',
+  name: 'Orphan Lab',
+  data: revisedData,
+}, { storage: atomicStorage }), /quota/i);
+assert.equal(atomicStorage.getItem(`${CUSTOM_SCENARIO_PREFIX}orphanLab`), null,
+  'a failed new save does not leave an unlisted payload behind');
+atomicStorage.setItem = atomicSetItem;
+
 assert.equal(stageScenarioSelection(balanceRef, storage)?.id, balanceRef);
 assert.equal(storage.getItem(PENDING_SCENARIO_KEY), balanceRef,
   'a local picker choice stages its stable catalogue reference');
 assert.equal(stageScenarioSelection('sandbox', storage)?.id, 'sandbox');
 assert.equal(storage.getItem(PENDING_SCENARIO_KEY), null,
   'the explicit Sandbox picker choice clears pending scenario data for a blank map');
+
+const unreliableStageStorage = memoryStorage();
+saveCustomScenario({ id: 'unstageableLab', name: 'Unstageable Lab', data: baseData }, {
+  storage: unreliableStageStorage,
+});
+const reliableStageSetItem = unreliableStageStorage.setItem;
+unreliableStageStorage.setItem = (key, value) => {
+  if (key !== PENDING_SCENARIO_KEY) reliableStageSetItem(key, value);
+};
+assert.throws(
+  () => stageScenarioSelection(customScenarioRef('unstageableLab'), unreliableStageStorage),
+  /Could not stage/,
+  'launch refuses to proceed when browser storage silently drops the pending scenario',
+);
 
 // Existing users' old single custom slot migrates into the multi-scenario
 // catalogue instead of disappearing after the feature upgrade.
@@ -135,6 +186,25 @@ assert.equal(scenarioIdFromName('My Cool Lab'), 'myCoolLab');
 assert.equal(scenarioIdFromName('42 MeV Starter'), 'custom42MevStarter');
 assert.equal(uniqueScenarioId('My Cool Lab', ['myCoolLab', 'myCoolLab2']), 'myCoolLab3');
 
+// Exported and emergency-backup files share one strict import boundary.
+const parsedExport = parseScenarioExport(JSON.stringify({
+  id: 'majorLab',
+  name: 'Major Lab',
+  data: baseData,
+}));
+assert.equal(parsedExport.id, 'majorLab');
+assert.deepEqual(parsedExport.data.floors, baseData.floors);
+assert.deepEqual(parsedExport.data.cornerHeights, [],
+  'older valid exports receive safe defaults for optional world arrays');
+assert.equal(parsedExport.data.beamPipeNextId, 1);
+assert.throws(() => parseScenarioExport('{not json'), /not valid JSON/);
+assert.throws(() => parseScenarioExport(JSON.stringify({
+  id: 'brokenLab', name: 'Broken Lab', data: { ...baseData, floors: null },
+})), /floors array/);
+assert.throws(() => parseScenarioExport(JSON.stringify({
+  id: 'brokenLines', name: 'Broken Lines', data: { ...baseData, utilityLines: [{}] },
+})), /utilityLines/);
+
 const editorStorage = memoryStorage();
 const editorLog = [];
 const editorState = {
@@ -167,6 +237,103 @@ editor.saveAs({ id: 'secondDraft', name: 'Second Draft' });
 assert.equal(listCustomScenarios(editorStorage).length, 2,
   'the editor can publish another scenario without deleting the first');
 
+// Loading a file replaces only the editor workspace. It remains deliberately
+// unsaved until Save As chooses a catalogue destination.
+const importStorage = memoryStorage();
+const importLog = [];
+const importState = {
+  floors: [], zones: [], walls: [], wallOverlays: [], doors: [], windows: [], placeables: [],
+  placeableNextId: 1, cornerHeights: new Map(), beamPipes: [], beamPipeNextId: 1,
+  placementNextId: 0, utilityLines: new Map(), utilityNextId: 1,
+};
+const importGame = {
+  state: importState,
+  log: (message, type) => importLog.push({ message, type }),
+  applyScenario(data) {
+    importState.floors = data.floors;
+    importState.zones = data.zones;
+    importState.walls = data.walls;
+    importState.wallOverlays = data.wallOverlays || [];
+    importState.doors = data.doors;
+    importState.windows = data.windows || [];
+    importState.placeables = data.placeables;
+    importState.placeableNextId = data.placeableNextId;
+    importState.cornerHeights = new Map(data.cornerHeights || []);
+    importState.beamPipes = data.beamPipes || [];
+    importState.beamPipeNextId = data.beamPipeNextId || 1;
+    importState.placementNextId = data.placementNextId || 0;
+    importState.utilityLines = new Map(data.utilityLines || []);
+    importState.utilityNextId = data.utilityNextId || 1;
+  },
+};
+const importEditor = new ScenarioEditor(importGame, null, { fresh: true, storage: importStorage });
+const loaded = importEditor.loadScenarioPayload(parsedExport, { sourceName: 'majorLab.scenario.json' });
+assert.equal(loaded?.name, 'Major Lab');
+assert.deepEqual(importState.floors, baseData.floors);
+assert.equal(listCustomScenarios(importStorage).length, 0,
+  'Load does not silently publish or overwrite a local scenario');
+assert.equal(importEditor.hasUnsavedChanges(), true,
+  'the imported world is explicitly unsaved work');
+assert.match(importLog.at(-1).message, /Use Save As/);
+assert.ok(importEditor.saveAs({ id: 'majorLab2', name: 'Major Lab' }));
+assert.deepEqual(loadCustomScenarioById('majorLab2', importStorage)?.data.floors, baseData.floors,
+  'Save As publishes the imported world under the chosen identity');
+
+importState.floors.push({ type: 'concrete', col: 9, row: 9 });
+const retainedFloors = JSON.stringify(importState.floors);
+assert.equal(importEditor.loadScenarioPayload(parsedExport, { confirmReplace: () => false }), null);
+assert.equal(JSON.stringify(importState.floors), retainedFloors,
+  'declining Load keeps current editor work untouched');
+assert.equal(await importEditor.loadScenarioFile({
+  name: 'damaged.scenario.json',
+  text: async () => '{damaged',
+}), null);
+assert.match(importLog.at(-1).message, /LOAD FAILED/,
+  'an unreadable export is rejected through the visible game log');
+
+// Export keeps a saved scenario's stable id when its display name is unchanged.
+const exportState = {
+  ...editorState,
+  floors: [...baseData.floors],
+  cornerHeights: new Map(),
+  utilityLines: new Map(),
+};
+const exportLog = [];
+const exportEditor = new ScenarioEditor({
+  state: exportState,
+  log: (message, type) => exportLog.push({ message, type }),
+}, { id: 'majorLab2', name: 'Major Lab', data: baseData }, { storage: memoryStorage() });
+const downloads = [];
+const realBlob = globalThis.Blob;
+const realURL = globalThis.URL;
+const realDocument = globalThis.document;
+const realPrompt = globalThis.prompt;
+const realConsoleLog = console.log;
+globalThis.Blob = class { constructor(parts) { this.parts = parts; } };
+globalThis.URL = {
+  createObjectURL: blob => { downloads.push(blob.parts.join('')); return 'blob:scenario'; },
+  revokeObjectURL: () => {},
+};
+globalThis.document = {
+  body: { appendChild: () => {} },
+  createElement: () => ({ click: () => {}, remove: () => {} }),
+  getElementById: () => null,
+};
+globalThis.prompt = () => 'Major Lab';
+console.log = () => {};
+try {
+  const exported = exportEditor.exportScenario();
+  assert.equal(exported.id, 'majorLab2',
+    'Export does not regenerate a different id from an unchanged display name');
+  assert.equal(JSON.parse(downloads[0]).id, 'majorLab2');
+} finally {
+  globalThis.Blob = realBlob;
+  globalThis.URL = realURL;
+  globalThis.document = realDocument;
+  globalThis.prompt = realPrompt;
+  console.log = realConsoleLog;
+}
+
 // This is intentionally a source-level composition assertion: DOM interaction
 // remains in the owner-run browser lane, while the non-browser gate pins that
 // both New Game surfaces route to the same picker coordinator.
@@ -184,5 +351,8 @@ assert.doesNotMatch(titleSource, /addBtn\('Scenarios'/,
   'the separate title Scenarios action is folded into New Game');
 assert.doesNotMatch(htmlSource, /data-action="scenarios"/,
   'the in-game menu exposes one unambiguous New Game picker action');
+const editorSource = readFileSync(new URL('../src/ui/ScenarioEditor.js', import.meta.url), 'utf8');
+assert.match(editorSource, /mk\('Load'.*chooseScenarioFile/,
+  'Scenario Admin exposes the file Load action in its yellow toolbar');
 
 console.log('Scenario construction persistence: all assertions passed');
