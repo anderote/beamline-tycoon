@@ -195,6 +195,9 @@ export class WallBatcher {
       batch.computeBoundingBox();
       batch.computeBoundingSphere();
 
+      // MUST happen before any draw range is computed — see the helper.
+      freezeIndexElementSize(batch.geometry);
+
       // Prime the multi-draw ranges. The shadow map renders before any
       // onBeforeRender runs for the view camera, so without this the walls
       // cast no shadow for the first frame after every rebuild.
@@ -209,6 +212,41 @@ export class WallBatcher {
     this._buckets.clear();
     return batches;
   }
+}
+
+/**
+ * Widen a batch's index buffer to Uint32 so its element size can never change
+ * after draw ranges have been computed from it.
+ *
+ * BatchedMesh sizes its own index buffer at Uint16 whenever the batch holds
+ * 65535 vertices or fewer (BatchedMesh._initializeGeometry), and
+ * onBeforeRender turns each geometry's element-space range into a BYTE offset
+ * with `index.array.BYTES_PER_ELEMENT`. Meanwhile three's WebGPU backend
+ * rewrites every non-normalized Uint16 attribute to Uint32 the first time it
+ * uploads it — `WebGPUAttributeUtils.createAttribute` assigns
+ * `bufferAttribute.array = new Uint32Array( array )`, mutating the geometry
+ * the batch is still reading from.
+ *
+ * So the element size silently doubles between the first range computation
+ * and every draw that follows it. A batch that recomputes its ranges every
+ * frame (transparent walls, which sort) corrects itself on the next frame and
+ * looks fine; an opaque batch computes ranges exactly once and then draws
+ * forever from byte offsets that are half what they should be — each instance
+ * renders some other wall's triangles under its own matrix, which is what
+ * "walls at the wrong height and orientation" looked like in the 'up' view.
+ *
+ * Promoting the index up front costs one extra copy of an index buffer the
+ * backend was going to widen anyway, and makes the range arithmetic stable.
+ * The 0xffff primitive-restart remap three does during its own conversion is
+ * not needed here: an index buffer only stays Uint16 when the batch has at
+ * most 65535 vertices, so 0xffff is never a valid vertex index in it.
+ *
+ * @param {THREE.BufferGeometry} geometry
+ */
+function freezeIndexElementSize(geometry) {
+  const index = geometry?.getIndex?.();
+  if (!index || !index.array || index.array.BYTES_PER_ELEMENT >= 4) return;
+  geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(index.array), 1));
 }
 
 /**
