@@ -28,6 +28,7 @@ the short authoring contract.
   `wallSpan` from 1–4 to reserve consecutive quarter-wall slots; the default is
   one slot. Placement stores the resolved span on `wallMount` so render poses,
   overlap checks, moves, and save/load agree.
+
 - Electrical wall feedthroughs use `mount: 'wall'` and
   `wallPassThrough: true`. They reserve the matching quarter-wall slot on both
   faces and declare exactly two passive front/back ports of one electrical
@@ -44,6 +45,20 @@ the short authoring contract.
   thin beam element. Inline anchors snap at half-subtile intervals (alternating
   subtile centres and edges), may share an ordinary component boundary, and
   may not sit inside an ordinary component or share another inline anchor.
+
+## Structure flooring
+
+- `requiredFloor` on a Facility zone remains its canonical auto-brush/default
+  surface. A finish family may satisfy that contract by listing the canonical
+  id in `compatibleZoneFloors`; all placement, brush, and replacement logic
+  must use `floorSupportsZone()` instead of comparing floor ids directly.
+- Floors shown under Structure > Flooring declare `structureFloor: true`.
+  Grounds surfaces continue to declare `groundsSurface: true`; do not maintain
+  a second hard-coded palette/search list.
+- A finish family with variants keeps `variants`, `variantTextures`,
+  `variantTints`, `variantPreviewColors`, and `variantCosts` index-aligned.
+  Every texture id must be registered in `renderer3d/materials/tiled.js` and
+  backed by a committed PNG under `assets/textures/materials/`.
 
 ## Beamline missions and research
 

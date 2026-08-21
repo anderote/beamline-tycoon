@@ -4,7 +4,10 @@
 import { isFacilityCategory } from '../renderer/Renderer.js';
 import { UIHost } from './UIHost.js';
 import { COMPONENTS } from '../data/components.js';
-import { FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, WALL_PAINTS, variantCost } from '../data/structure.js';
+import {
+  FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, WALL_PAINTS, variantCost,
+  floorRequirementLabel,
+} from '../data/structure.js';
 import { ZONES, ZONE_FURNISHINGS, ZONE_TIER_THRESHOLDS, itemMatchesZone } from '../data/facility.js';
 import { MODES, INFRA_DISTRIBUTION } from '../data/modes.js';
 import { getBeamlineType } from '../data/beamline-types.js';
@@ -1564,7 +1567,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
   }
 
   if (compCategory === 'flooring') {
-    const flooringKeys = ['labFloor', 'officeFloor', 'concrete', 'hallway', 'roof'];
+    const flooringKeys = Object.keys(FLOORS).filter(key => FLOORS[key].structureFloor);
     const catDef = MODES.structure.categories.flooring;
     const subsections = catDef.subsections;
     const subKeys = Object.keys(subsections);
@@ -1599,12 +1602,13 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         item.dataset.paletteKind = 'floor';
         const idx = paletteIdx++;
 
-        const affordable = this.game.state.resources.funding >= _costVal(infra.cost);
+        const rememberedVi = recallVariant(key);
+        const selectedCost = variantCost(infra, rememberedVi);
+        const affordable = this.game.state.resources.funding >= selectedCost;
         if (!affordable) item.classList.add('unaffordable');
 
         // Tile preview — use the remembered variant so the thumbnail
         // reflects the user's last choice, not always variant 0.
-        const rememberedVi = recallVariant(key);
         const previewEl = document.createElement('div');
         previewEl.className = 'palette-preview';
         const tilePath2 = this.sprites.getTilePath(key, rememberedVi);
@@ -1630,11 +1634,11 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
 
         const costEl = document.createElement('div');
         costEl.className = 'palette-cost';
-        costEl.textContent = `${_costLabel(infra.cost)}/tile`;
+        costEl.textContent = `${_costLabel(selectedCost)}/tile`;
         item.appendChild(costEl);
 
         const floorStats = [
-          ['Cost', `${_costLabel(infra.cost)}/tile`],
+          ['Cost', `${_costLabel(selectedCost)}/tile`],
           ['Placement', infra.isRoofPlacement ? 'Click an enclosed room' : infra.isLinePlacement ? 'Drag a line' : 'Drag an area'],
         ];
         if (infra.requiresFoundation) {
@@ -1656,7 +1660,8 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
               vBtn.className = 'param-flyout-btn';
               const swatch = makeVariantSwatch(resolveVariantPreview(infra, vi));
               if (swatch) vBtn.appendChild(swatch);
-              vBtn.appendChild(document.createTextNode(infra.variants[vi]));
+              const optionCost = variantCost(infra, vi);
+              vBtn.appendChild(document.createTextNode(`${infra.variants[vi]} — ${_costLabel(optionCost)}/tile`));
               const variantIdx = vi;
               if (vi === defaultVi) vBtn.classList.add('active');
               vBtn.addEventListener('click', (e) => {
@@ -1674,6 +1679,8 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
                   previewElNow.querySelectorAll('div').forEach(d => d.remove());
                   applyPreviewTint(previewElNow, infra, variantIdx);
                 }
+                costEl.textContent = `${_costLabel(optionCost)}/tile`;
+                item.classList.toggle('unaffordable', this.game.state.resources.funding < optionCost);
                 flyout.querySelectorAll('.param-flyout-btn').forEach(b => b.classList.remove('active'));
                 vBtn.classList.add('active');
                 this._removeParamFlyout();
@@ -2108,11 +2115,11 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
 
     const zoneDesc = document.createElement('div');
     zoneDesc.className = 'palette-cost';
-    zoneDesc.textContent = `Requires: ${FLOORS[zone.requiredFloor]?.name || zone.requiredFloor} (drag)`;
+    zoneDesc.textContent = `Requires: ${floorRequirementLabel(zone.requiredFloor)} (drag)`;
     zoneItem.appendChild(zoneDesc);
 
     this._attachSimpleHoverPreview(zoneItem, zone.name, zone.desc, [
-      ['Requires', FLOORS[zone.requiredFloor]?.name || zone.requiredFloor],
+      ['Requires', floorRequirementLabel(zone.requiredFloor)],
       ['Placement', 'Drag an area'],
     ]);
 
@@ -3885,7 +3892,7 @@ UIHost.prototype._bindPaletteSearch = function() {
 // requires.
 UIHost.prototype._searchResultCostLabel = function(kind, def) {
   if (kind === 'zone') {
-    return `Requires ${FLOORS[def.requiredFloor]?.name || def.requiredFloor}`;
+    return `Requires ${floorRequirementLabel(def.requiredFloor)}`;
   }
   if (kind === 'component' || kind === 'facility' || kind === 'furnishing') {
     return Object.entries(def.cost || {}).map(([r, a]) =>
@@ -4048,7 +4055,7 @@ UIHost.prototype._buildSearchResultItem = function(result, idx) {
     item.addEventListener('mouseleave', () => this._hidePalettePreview());
   } else if (kind === 'zone') {
     this._attachSimpleHoverPreview(item, def.name, def.desc, [
-      ['Requires', FLOORS[def.requiredFloor]?.name || def.requiredFloor],
+      ['Requires', floorRequirementLabel(def.requiredFloor)],
     ]);
   } else {
     this._attachSimpleHoverPreview(item, def.name, def.desc, [

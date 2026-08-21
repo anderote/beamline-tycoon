@@ -1,5 +1,8 @@
 import { COMPONENTS, commissioningSpecialtyFor } from '../data/components.js';
-import { FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, variantCost } from '../data/structure.js';
+import {
+  FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, variantCost,
+  floorSupportsZone, floorRequirementLabel,
+} from '../data/structure.js';
 import { findRoofRegion, isRoofedRegion, roofKey } from './roofing.js';
 import { ZONES, ZONE_TIER_THRESHOLDS, ZONE_FURNISHINGS, itemMatchesZone, matchingZoneForPlacement, zoneTierFromStaffedOutput, LABWORK_CAPABLE_ZONES } from '../data/facility.js';
 import { RESEARCH, RESEARCH_PHYSICS_EFFECT_KEYS } from '../data/research.js';
@@ -1320,6 +1323,7 @@ export class Game {
     if (destroyedDec) this.removeDecoration(col, row, { skipRefund: true });
     // Track foundation for surface tiles placed on top of a foundation
     let foundation = null;
+    let zoneRemoved = false;
     if (infra.requiresFoundation && existing) {
       const existingTile = this.state.floors.find(t => t.col === col && t.row === row);
       foundation = existingTile?.foundation || existing;
@@ -1329,11 +1333,14 @@ export class Game {
       this.state.floors = this.state.floors.filter(
         t => !(t.col === col && t.row === row)
       );
-      // Remove zone on this tile since floor is changing
+      // A cosmetic finish swap may keep the room's zone when the new finish
+      // satisfies the same floor contract. Incompatible surfaces still evict
+      // the zone, matching the historical floor-replacement behavior.
       const hadZone = this.state.zoneOccupied?.[key];
-      if (hadZone) {
+      if (hadZone && !floorSupportsZone(infraType, ZONES[hadZone]?.requiredFloor)) {
         delete this.state.zoneOccupied[key];
         this.state.zones = this.state.zones.filter(z => !(z.col === col && z.row === row));
+        zoneRemoved = true;
       }
     }
 
@@ -1347,9 +1354,10 @@ export class Game {
     if (infraType === 'concrete') {
       setTileCorners(this.state, col, row, { nw: 0, ne: 0, se: 0, sw: 0 });
     }
-    if (infraType === 'hallway') {
+    if (infraType === 'hallway' || zoneRemoved) {
       this.recomputeZoneConnectivity();
     }
+    if (zoneRemoved) this.emit('zonesChanged');
     this.validateInfrastructure();
     return true;
   }
@@ -1473,6 +1481,7 @@ export class Game {
     // removeInfraRect's sweep; the post-loop 'infrastructureChanged' is
     // deduped into the same single dispatch.
     let placed = 0;
+    let zonesRemoved = false;
     this._batchEvents(() => {
       for (let c = minCol; c <= maxCol; c++) {
         for (let r = minRow; r <= maxRow; r++) {
@@ -1521,10 +1530,12 @@ export class Game {
             this.state.floors = this.state.floors.filter(
               t => !(t.col === c && t.row === r)
             );
-            // Remove zone on this tile since floor is changing
-            if (this.state.zoneOccupied?.[key]) {
+            // Preserve the zone across compatible finish changes.
+            const hadZone = this.state.zoneOccupied?.[key];
+            if (hadZone && !floorSupportsZone(infraType, ZONES[hadZone]?.requiredFloor)) {
               delete this.state.zoneOccupied[key];
               this.state.zones = this.state.zones.filter(z => !(z.col === c && z.row === r));
+              zonesRemoved = true;
             }
           }
           this.chargeConstruction(tileCostForVariant + perTileExtra);
@@ -1545,8 +1556,8 @@ export class Game {
         this._markNavDirty();
         this.log(`Placed ${placed} ${infra.name} tiles ($${placed * tileCostForVariant})`, 'good');
         this.emit('infrastructureChanged');
-        // Hallway changes affect zone connectivity
-        if (infraType === 'hallway') {
+        // Hallway changes and zone eviction both affect connectivity.
+        if (infraType === 'hallway' || zonesRemoved) {
           this.recomputeZoneConnectivity();
           this.emit('zonesChanged');
         }
@@ -2498,7 +2509,7 @@ export class Game {
     const key = col + ',' + row;
     // Must have the right flooring underneath
     const floor = this.state.infraOccupied[key];
-    if (floor !== zone.requiredFloor) return false;
+    if (!floorSupportsZone(floor, zone.requiredFloor)) return false;
     // Overwrite existing zone if different type; skip if same type
     if (this.state.zoneOccupied[key]) {
       if (this.state.zoneOccupied[key] === zoneType) return false;
@@ -2526,7 +2537,7 @@ export class Game {
       for (let r = minRow; r <= maxRow; r++) {
         const key = c + ',' + r;
         const floor = this.state.infraOccupied[key];
-        if (floor !== zone.requiredFloor) continue;
+        if (!floorSupportsZone(floor, zone.requiredFloor)) continue;
         if (this.state.zoneOccupied[key] === zoneType) continue;
         if (this.state.zoneOccupied[key]) {
           // Overwrite existing zone
@@ -2546,7 +2557,7 @@ export class Game {
       this.recomputeZoneConnectivity();
       this.emit('zonesChanged');
     } else {
-      const floorName = FLOORS[zone.requiredFloor]?.name || zone.requiredFloor;
+      const floorName = floorRequirementLabel(zone.requiredFloor);
       this.log(`${zone.name} needs ${floorName} underneath`, 'bad');
     }
     return placed > 0;
@@ -2561,7 +2572,7 @@ export class Game {
 
   _ensureFloorForBrush(col, row, requiredFloor) {
     const key = col + ',' + row;
-    if (this.state.infraOccupied[key] === requiredFloor) return true;
+    if (floorSupportsZone(this.state.infraOccupied[key], requiredFloor)) return true;
     const def = FLOORS[requiredFloor];
     if (!def) return false;
     // If the surface needs a concrete foundation, ensure it exists first.
@@ -2582,7 +2593,7 @@ export class Game {
         // placeInfraTile for the surface will handle replacing foundation.
       }
     }
-    if (this.state.infraOccupied[key] === requiredFloor) return true;
+    if (floorSupportsZone(this.state.infraOccupied[key], requiredFloor)) return true;
     return this.placeInfraTile(col, row, requiredFloor, 0);
   }
 
@@ -2596,11 +2607,11 @@ export class Game {
     const key = col + ',' + row;
     if (this.state.zoneOccupied[key] === zoneType) return false;
     // Ensure floor exists — auto-place if missing.
-    if (this.state.infraOccupied[key] !== zone.requiredFloor) {
+    if (!floorSupportsZone(this.state.infraOccupied[key], zone.requiredFloor)) {
       const ok = this._ensureFloorForBrush(col, row, zone.requiredFloor);
       if (!ok) {
         // If floor placement failed (e.g. insufficient funds), don't paint zone.
-        if (this.state.infraOccupied[key] !== zone.requiredFloor) return false;
+        if (!floorSupportsZone(this.state.infraOccupied[key], zone.requiredFloor)) return false;
       }
     }
     // Overwrite different zone type.
@@ -2635,9 +2646,9 @@ export class Game {
         const key = c + ',' + r;
         if (this.state.zoneOccupied[key] === zoneType) continue;
         const beforeFloor = this.state.infraOccupied[key];
-        if (beforeFloor !== zone.requiredFloor) {
+        if (!floorSupportsZone(beforeFloor, zone.requiredFloor)) {
           const ok = this._ensureFloorForBrush(c, r, zone.requiredFloor);
-          if (!ok && this.state.infraOccupied[key] !== zone.requiredFloor) continue;
+          if (!ok && !floorSupportsZone(this.state.infraOccupied[key], zone.requiredFloor)) continue;
           if (this.state.infraOccupied[key] !== beforeFloor) infraChanged = true;
         }
         if (this.state.zoneOccupied[key] && this.state.zoneOccupied[key] !== zoneType) {
@@ -2681,7 +2692,7 @@ export class Game {
         if (this.state.zoneOccupied[key] === zoneType) continue;
         newTiles++;
         const requiredFloor = zone.requiredFloor;
-        if (this.state.infraOccupied[key] === requiredFloor) continue;
+        if (floorSupportsZone(this.state.infraOccupied[key], requiredFloor)) continue;
         const def = FLOORS[requiredFloor];
         if (!def) continue;
         const tileCost = def.variantCosts?.[0] ?? def.cost;

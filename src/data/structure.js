@@ -123,6 +123,7 @@ export const FLOORS = {
     topColor: 0x999999,
     subH: 0,
     isDragPlacement: true,
+    structureFloor: true,
     subsection: 'foundations',
     variants: ['Standard', 'Light', 'Dark', 'Warm'],
     variantPreviewColors: [0x999999, 0xbbbbbb, 0x666666, 0xa89a88],
@@ -137,6 +138,7 @@ export const FLOORS = {
     color: 0x4e535a,
     topColor: 0x697078,
     subsection: 'roofs',
+    structureFloor: true,
     isRoofPlacement: true,
     roofHeight: 3.35,
   },
@@ -149,6 +151,7 @@ export const FLOORS = {
     topColor: 0xeeeeee,
     subH: 0,
     isDragPlacement: true,
+    structureFloor: true,
     subsection: 'surfaces',
     requiresFoundation: 'concrete',
     noGrid: true,
@@ -179,6 +182,7 @@ export const FLOORS = {
     topColor: 0xa8703c,
     subH: 0,
     isDragPlacement: true,
+    structureFloor: true,
     orientable: true,
     subsection: 'surfaces',
     requiresFoundation: 'concrete',
@@ -192,6 +196,148 @@ export const FLOORS = {
     variantPreviewColors: [0xe4d0a5, 0xbe8a54, 0xa8c4e0, 0xb4d8b0, 0xdca8a8],
     variantCosts: [12, 20, 15, 15, 15],
     texture: 'tile_hardwood_birch',
+  },
+  carpetFloor: {
+    id: 'carpetFloor',
+    name: 'Carpet',
+    desc: 'Soft commercial carpet for offices, lounges, and meeting rooms. Requires concrete foundation.',
+    cost: 10,
+    color: 0x777b80,
+    topColor: 0x92979d,
+    subH: 0,
+    isDragPlacement: true,
+    structureFloor: true,
+    subsection: 'surfaces',
+    requiresFoundation: 'concrete',
+    compatibleZoneFloors: ['officeFloor'],
+    variants: [
+      'Slate Broadloom', 'Navy Broadloom', 'Burgundy Broadloom',
+      'Natural Berber', 'Charcoal Berber',
+      'Blue Diamond', 'Green Diamond', 'Graphite Carpet Tile',
+    ],
+    variantTextures: [
+      'tile_carpet_plain', 'tile_carpet_plain', 'tile_carpet_plain',
+      'tile_carpet_berber', 'tile_carpet_berber',
+      'tile_carpet_diamond', 'tile_carpet_diamond', 'tile_carpet_tile',
+    ],
+    variantTints: [
+      0x9ba1a8, 0x536c91, 0x955e66,
+      0xcbbd9e, 0x67696b,
+      0xa8c4e0, 0xb4d8b0, 0x737980,
+    ],
+    variantPreviewColors: [
+      0x7f858c, 0x3e587c, 0x824b54,
+      0xb9a987, 0x505254,
+      0xa8c4e0, 0xb4d8b0, 0x60666d,
+    ],
+    variantCosts: [10, 12, 12, 15, 15, 15, 15, 18],
+    texture: 'tile_carpet_plain',
+  },
+  hardwoodFloor: {
+    id: 'hardwoodFloor',
+    name: 'Hardwood',
+    desc: 'Strip or parquet hardwood for offices and public rooms. Requires concrete foundation; F rotates the grain.',
+    cost: 18,
+    color: 0xb78955,
+    topColor: 0xd0a66e,
+    subH: 0,
+    isDragPlacement: true,
+    structureFloor: true,
+    orientable: true,
+    subsection: 'surfaces',
+    requiresFoundation: 'concrete',
+    compatibleZoneFloors: ['officeFloor'],
+    variants: [
+      'Birch Strip', 'Oak Strip', 'Maple Strip', 'Walnut Strip',
+      'Oak Parquet', 'Walnut Parquet',
+    ],
+    variantTextures: [
+      'tile_hardwood_birch', 'tile_hardwood_oak',
+      'tile_hardwood_maple', 'tile_hardwood_walnut',
+      'tile_hardwood_herringbone_oak', 'tile_hardwood_herringbone_walnut',
+    ],
+    variantTints: [null, null, null, null, null, null],
+    variantPreviewColors: [0xe4d0a5, 0xbe8a54, 0xd9b77c, 0x70452f, 0xc18c55, 0x6a4030],
+    variantCosts: [18, 20, 21, 28, 30, 36],
+    texture: 'tile_hardwood_birch',
+  },
+  resilientFloor: {
+    id: 'resilientFloor',
+    name: 'Resilient Flooring',
+    desc: 'Easy-clean vinyl, linoleum, and cork for labs or office rooms. Requires concrete foundation.',
+    cost: 10,
+    color: 0xaeb0ad,
+    topColor: 0xc7c9c5,
+    subH: 0,
+    isDragPlacement: true,
+    structureFloor: true,
+    subsection: 'surfaces',
+    requiresFoundation: 'concrete',
+    compatibleZoneFloors: ['labFloor', 'officeFloor'],
+    variants: [
+      'Gray Speckled Vinyl', 'Cream Speckled Vinyl', 'Blue Speckled Vinyl',
+      'Sage Linoleum', 'Terracotta Linoleum', 'Natural Cork',
+    ],
+    variantTextures: [
+      'tile_vinyl_speckle', 'tile_vinyl_speckle', 'tile_vinyl_speckle',
+      'tile_linoleum_marbled', 'tile_linoleum_marbled', 'tile_cork',
+    ],
+    variantTints: [0xc4c7c8, 0xe1d8bf, 0xa9c2d4, 0xacc2a1, 0xc4876b, null],
+    variantPreviewColors: [0xa9adaf, 0xd8ceb4, 0x91aec3, 0x95ad89, 0xb66f54, 0xb78d62],
+    variantCosts: [10, 11, 12, 14, 14, 20],
+    texture: 'tile_vinyl_speckle',
+  },
+  terrazzoFloor: {
+    id: 'terrazzoFloor',
+    name: 'Terrazzo & Tile',
+    desc: 'Polished aggregate and ceramic tile for labs, lobbies, and public rooms. Requires concrete foundation.',
+    cost: 20,
+    color: 0xc5c3bb,
+    topColor: 0xdad8d0,
+    subH: 0,
+    isDragPlacement: true,
+    structureFloor: true,
+    subsection: 'surfaces',
+    requiresFoundation: 'concrete',
+    compatibleZoneFloors: ['labFloor', 'officeFloor'],
+    variants: [
+      'White Terrazzo', 'Warm Terrazzo', 'Blue-Gray Terrazzo', 'Green Terrazzo',
+      'White Ceramic Tile', 'Navy Ceramic Tile',
+    ],
+    variantTextures: [
+      'tile_terrazzo', 'tile_terrazzo', 'tile_terrazzo', 'tile_terrazzo',
+      'tile_ceramic_square', 'tile_ceramic_square',
+    ],
+    variantTints: [0xf1eee5, 0xdcc8ac, 0xb8c8ce, 0xb7c9b5, 0xf2f2ee, 0x71849c],
+    variantPreviewColors: [0xe4e0d5, 0xcdb698, 0xa7bac1, 0xa5b9a2, 0xe9e9e4, 0x526781],
+    variantCosts: [20, 22, 22, 24, 18, 21],
+    texture: 'tile_terrazzo',
+  },
+  rubberFloor: {
+    id: 'rubberFloor',
+    name: 'Rubber Flooring',
+    desc: 'Durable anti-slip rubber for workshops and technical labs. Requires concrete foundation.',
+    cost: 16,
+    color: 0x42474a,
+    topColor: 0x5a6063,
+    subH: 0,
+    isDragPlacement: true,
+    structureFloor: true,
+    subsection: 'surfaces',
+    requiresFoundation: 'concrete',
+    compatibleZoneFloors: ['labFloor'],
+    variants: [
+      'Black Coin', 'Blue Coin', 'Safety Red Coin',
+      'Black Speckle', 'Gray Speckle', 'Green Speckle',
+    ],
+    variantTextures: [
+      'tile_rubber_coin', 'tile_rubber_coin', 'tile_rubber_coin',
+      'tile_rubber_speckle', 'tile_rubber_speckle', 'tile_rubber_speckle',
+    ],
+    variantTints: [0x55585a, 0x607b9b, 0xa85f59, 0x4e5153, 0x969a9b, 0x66836c],
+    variantPreviewColors: [0x343638, 0x496683, 0x934842, 0x303234, 0x7d8182, 0x4f6d56],
+    variantCosts: [16, 18, 18, 17, 18, 19],
+    texture: 'tile_rubber_coin',
   },
   groomedGrass: {
     id: 'groomedGrass',
@@ -334,6 +480,7 @@ export const FLOORS = {
     topColor: 0xeeeeee,
     subH: 0,
     isLinePlacement: true,
+    structureFloor: true,
     subsection: 'surfaces',
     requiresFoundation: 'concrete',
     variants: ['Gray Checked', 'Cream Checked', 'Blue Checked', 'Green Checked'],
@@ -351,6 +498,23 @@ export const FLOORS = {
     texture: 'tile_hallway',
   },
 };
+
+/**
+ * Whether a placed floor satisfies a Facility zone's canonical requiredFloor.
+ * `requiredFloor` remains the auto-brush/default surface for save compatibility;
+ * finish families opt into that contract through compatibleZoneFloors.
+ */
+export function floorSupportsZone(floorType, requiredFloor) {
+  if (!floorType || !requiredFloor) return false;
+  if (floorType === requiredFloor) return true;
+  return FLOORS[floorType]?.compatibleZoneFloors?.includes(requiredFloor) || false;
+}
+
+export function floorRequirementLabel(requiredFloor) {
+  if (requiredFloor === 'officeFloor') return 'Office-compatible flooring';
+  if (requiredFloor === 'labFloor') return 'Lab-compatible flooring';
+  return FLOORS[requiredFloor]?.name || requiredFloor;
+}
 
 // Structure walls — interior, exterior, shielding. Hedges and fencing
 // live in grounds.js but are merged into WALL_TYPES below.

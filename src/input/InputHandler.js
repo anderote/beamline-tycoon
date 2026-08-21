@@ -1,5 +1,7 @@
 import { COMPONENTS } from '../data/components.js';
-import { FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, variantCost } from '../data/structure.js';
+import {
+  FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, variantCost, floorRequirementLabel,
+} from '../data/structure.js';
 import { ZONES, ZONE_FURNISHINGS } from '../data/facility.js';
 import { DECORATIONS } from '../data/decorations.js';
 import { MODES } from '../data/modes.js';
@@ -4585,7 +4587,7 @@ export class InputHandler {
         const zone = ZONES[key];
         if (!zone) { this._hidePreview(); return; }
         this._renderPreview(zone.name, zone.desc || '', [
-          ['Requires', FLOORS[zone.requiredFloor]?.name || zone.requiredFloor],
+          ['Requires', floorRequirementLabel(zone.requiredFloor)],
           ['Placement', 'Drag area'],
         ]);
         return;
