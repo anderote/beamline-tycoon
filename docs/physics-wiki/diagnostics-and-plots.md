@@ -98,6 +98,23 @@ Non-zero dispersion at an undulator or interaction point is bad — it increases
 
 ---
 
+### Bunch Evolution
+
+**Quick Tip:** Shows RMS bunch duration (sigma_t) and relative energy spread (sigma_E/E) along the beamline.
+
+**How It Works:**
+
+The cyan line is the bunch's duration, automatically shown in fs, ps, or ns as appropriate. A falling line means the bunch is getting shorter. The magenta dashed line is RMS energy spread, shown as percent or ppm. Together they explain whether longitudinal manipulation is improving the beam or merely trading one problem for another.
+
+- **Shorter bunch plus higher Peak Current** — compression is working
+- **Shorter bunch plus rapidly growing energy spread** — compression works, but beam quality may be degrading
+- **Energy-spread jump in a bend or chicane** — coherent synchrotron radiation may be the cause
+- **No change through a chicane** — check the incoming RF chirp and the chicane's R56
+
+Overlay **Peak Current** to see the compression relationship directly: as bunch duration falls, peak current should rise when bunch charge is preserved. This plot follows those summary quantities over distance; use **Longitudinal Phase Space** at a probe pin to inspect the time-energy ellipse and chirp at one specific point.
+
+---
+
 ### Beam Beta & Acceptance
 
 **Quick Tip:** Shows the beam's relativistic velocity beta = v/c against each accelerating component's usable beta window.

@@ -64,6 +64,10 @@ console.log('\n--- Fixed range validation and display units ---');
   const power = designerPlotPrimaryAxis('beam-power', [0.02, 0.12]);
   check(power.scale === 1000 && power.unit === 'kW',
     'beam power bounds use the same smart units as the visible primary axis');
+
+  const bunch = designerPlotPrimaryAxis('bunch-evolution', [0.25e-12, 1e-12]);
+  check(bunch.scale === 1e12 && bunch.unit === 'ps',
+    'bunch-duration bounds use the same smart units as the visible primary axis');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

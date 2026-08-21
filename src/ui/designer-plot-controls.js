@@ -73,6 +73,15 @@ export function designerPlotPrimaryAxis(type, domain) {
     if (ref >= 1e-3) return { scale: 1e3, unit: 'kW' };
     return { scale: 1e6, unit: 'W' };
   }
+  if (type === 'bunch-evolution') {
+    const ref = Math.max(Math.abs(Number(domain?.[0]) || 0), Math.abs(Number(domain?.[1]) || 0));
+    if (ref >= 1) return { scale: 1, unit: 's' };
+    if (ref >= 1e-3) return { scale: 1e3, unit: 'ms' };
+    if (ref >= 1e-6) return { scale: 1e6, unit: 'µs' };
+    if (ref >= 1e-9) return { scale: 1e9, unit: 'ns' };
+    if (ref >= 1e-12) return { scale: 1e12, unit: 'ps' };
+    return { scale: 1e15, unit: 'fs' };
+  }
   const units = {
     'beam-envelope': 'mm',
     'current-loss': 'mA',
