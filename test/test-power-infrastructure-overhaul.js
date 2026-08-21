@@ -1,0 +1,252 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import { COMPONENTS } from '../src/data/components.js';
+import { PLACEABLES } from '../src/data/placeables/index.js';
+import { getUtilityPortsV2 } from '../src/data/utility-ports-v2.js';
+import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
+import { Game } from '../src/game/Game.js';
+import { PowerReliabilityCoordinator, GENERATOR_REFUEL_COST } from '../src/game/power-reliability.js';
+import { UtilityLineSystem } from '../src/utility/UtilityLineSystem.js';
+import { validateDrawLine } from '../src/utility/line-drawing.js';
+import { discoverNetworks, makeDefaultPortLookup } from '../src/utility/network-discovery.js';
+import { UtilityRegistry } from '../src/utility/registry.js';
+import { SolveRunner } from '../src/utility/solve-runner.js';
+
+function placed(id, type, col = 0, row = 0) {
+  return { id, type, kind: PLACEABLES[type]?.kind, col, row, subCol: 0, subRow: 0, dir: 0 };
+}
+
+function ref(placeableId, portName) {
+  return { placeableId, portName };
+}
+
+function line(id, utilityType, start, end, row = 0) {
+  return {
+    id, utilityType, start, end,
+    path: [{ col: 0, row }, { col: 1, row }],
+    cablePath: [{ col: 0, row }, { col: 1, row }],
+    subL: 4,
+  };
+}
+
+function world(placeables, lines = []) {
+  return {
+    placeables,
+    beamPipes: [],
+    utilityLines: new Map(lines.map(item => [item.id, item])),
+    utilityNetworkState: new Map(),
+    powerReliability: { devices: {} },
+    wallOccupied: {},
+    resources: { funding: 1000000 },
+  };
+}
+
+function runnerFor(state) {
+  return new SolveRunner({
+    state,
+    registry: UtilityRegistry,
+    getDefinition: type => COMPONENTS[type] || PLACEABLES[type] || null,
+  });
+}
+
+function reliabilityFor(state, options = {}) {
+  return new PowerReliabilityCoordinator({
+    state,
+    rng: options.rng || (() => 0.5),
+    log: options.log || (() => {}),
+    markTopologyDirty: options.markTopologyDirty || (() => {}),
+    canAfford: options.canAfford || (cost => state.resources.funding >= cost.funding),
+    spend: options.spend || (cost => { state.resources.funding -= cost.funding; }),
+  });
+}
+
+test('the power catalog covers service, routing, metering, and resilience', () => {
+  for (const id of [
+    'gridServicePoint', 'poleMountTransformer', 'meterMain', 'disconnectSwitch',
+    'cableTray', 'cableRiser', 'hvDuctBankVault', 'automaticTransferSwitch',
+    'ups', 'backupGenerator',
+  ]) {
+    assert.ok(PLACEABLES[id], id);
+    assert.ok(Object.keys(getUtilityPortsV2(id)).length > 0, `${id} has connectors`);
+  }
+  assert.equal(COMPONENTS.laserSystem.category, 'experimentalSystems');
+  assert.equal(COMPONENTS.petawattLaser.category, 'experimentalSystems');
+  assert.equal(PLACEABLES.overheadPowerSpan.deprecated, true);
+});
+
+test('utility service, pole, service transformer, and branch load solve end to end', () => {
+  const state = world([
+    placed('grid', 'gridServicePoint'),
+    placed('pole', 'utilityPole'),
+    placed('xfmr', 'poleMountTransformer'),
+    placed('load', 'quadrupole'),
+  ], [
+    line('hv_a', 'hvCable', ref('grid', 'hv_out_1'), ref('pole', 'hv_in'), 0),
+    line('hv_b', 'hvCable', ref('pole', 'hv_out'), ref('xfmr', 'hv_in'), 2),
+    line('pwr', 'powerCable', ref('xfmr', 'pwr_out_1'), ref('load', 'pwr_in'), 4),
+  ]);
+  reliabilityFor(state);
+  const runner = runnerFor(state);
+  const solved = runner.runSolve(state);
+  assert.equal(solved.errors.filter(error => error.severity === 'hard').length, 0);
+
+  const hvFlow = [...state.utilityNetworkData.get('hvCable').values()][0];
+  const branchFlow = [...state.utilityNetworkData.get('powerCable').values()][0];
+  assert.equal(hvFlow.totalCapacity, 1200);
+  assert.equal(hvFlow.totalDemand, 100);
+  assert.equal(branchFlow.totalCapacity, 100);
+  assert.equal(branchFlow.totalDemand, 10);
+
+  state.powerReliability.devices.grid.outageTicksRemaining = 2;
+  runner.runSolve(state);
+  assert.equal([...state.utilityNetworkData.get('hvCable').values()][0].totalCapacity, 0);
+});
+
+test('an open disconnect divides its HV feeder immediately', () => {
+  const state = world([
+    placed('supply', 'facilityTransformer'),
+    placed('switch', 'disconnectSwitch'),
+    placed('panel', 'powerPanel'),
+  ], [
+    line('a', 'hvCable', ref('supply', 'hv_out_1'), ref('switch', 'hv_in'), 0),
+    line('b', 'hvCable', ref('switch', 'hv_out'), ref('panel', 'hv_in'), 2),
+  ]);
+  reliabilityFor(state);
+  assert.equal(discoverNetworks('hvCable', state.utilityLines, makeDefaultPortLookup(state)).length, 1);
+  state.powerReliability.devices.switch.switchClosed = false;
+  assert.equal(discoverNetworks('hvCable', state.utilityLines, makeDefaultPortLookup(state)).length, 2);
+});
+
+test('a cable tray keeps its numbered circuits electrically isolated', () => {
+  const state = world([
+    placed('panel_a', 'powerPanel'), placed('panel_b', 'powerPanel'),
+    placed('tray', 'cableTray'),
+    placed('load_a', 'quadrupole'), placed('load_b', 'quadrupole'),
+  ], [
+    line('a1', 'powerCable', ref('panel_a', 'pwr_out_1'), ref('tray', 'pwr_in_1'), 0),
+    line('a2', 'powerCable', ref('tray', 'pwr_out_1'), ref('load_a', 'pwr_in'), 2),
+    line('b1', 'powerCable', ref('panel_b', 'pwr_out_1'), ref('tray', 'pwr_in_2'), 10),
+    line('b2', 'powerCable', ref('tray', 'pwr_out_2'), ref('load_b', 'pwr_in'), 12),
+  ]);
+  const networks = discoverNetworks(
+    'powerCable', state.utilityLines, makeDefaultPortLookup(state),
+  );
+  assert.equal(networks.length, 2);
+  assert.ok(networks.every(network => network.sources.length === 4));
+  assert.ok(networks.every(network => network.sinks.length === 1));
+});
+
+test('vault-to-vault HV lines are stored as buried duct-bank runs', () => {
+  const state = world([
+    placed('vault_a', 'hvDuctBankVault', 0, 0),
+    placed('vault_b', 'hvDuctBankVault', 5, 0),
+  ]);
+  const system = new UtilityLineSystem({
+    state,
+    nextLineId: () => 'buried_1',
+  });
+  const id = system.addLine({
+    utilityType: 'hvCable',
+    start: ref('vault_a', 'hv_out'),
+    end: ref('vault_b', 'hv_in'),
+    path: [{ col: 0, row: 0 }, { col: 5, row: 0 }],
+    cablePath: [{ col: 0, row: 0 }, { col: 5, row: 0 }],
+  });
+  assert.equal(id, 'buried_1');
+  assert.equal(state.utilityLines.get(id).buried, true);
+  assert.equal(state.utilityLines.get(id).routeHeightMeters, -0.18);
+});
+
+test('generator power can enter only an ATS backup terminal and auto-transfer feeds the load', () => {
+  const placeables = [
+    placed('normal', 'powerPanel'), placed('gen', 'backupGenerator'),
+    placed('ats', 'automaticTransferSwitch'), placed('load', 'quadrupole'),
+  ];
+  const validationState = world(placeables);
+  const draw = (start, end) => validateDrawLine(validationState, {
+    utilityType: 'powerCable', start, end,
+    path: [{ col: 0, row: 0 }, { col: 1, row: 0 }],
+    cablePath: [{ col: 0, row: 0 }, { col: 1, row: 0 }],
+  });
+  assert.equal(draw(ref('gen', 'pwr_out'), ref('load', 'pwr_in')).reason, 'invalid_port_pair');
+  assert.equal(draw(ref('gen', 'pwr_out'), ref('ats', 'backup_in')).ok, true);
+  assert.equal(draw(ref('normal', 'pwr_out_1'), ref('ats', 'normal_in')).ok, true);
+  assert.equal(draw(ref('ats', 'pwr_out'), ref('load', 'pwr_in')).ok, true);
+
+  const state = world(placeables, [
+    line('normal_line', 'powerCable', ref('normal', 'pwr_out_1'), ref('ats', 'normal_in'), 0),
+    line('backup_line', 'powerCable', ref('gen', 'pwr_out'), ref('ats', 'backup_in'), 3),
+    line('load_line', 'powerCable', ref('ats', 'pwr_out'), ref('load', 'pwr_in'), 6),
+  ]);
+  let dirty = 0;
+  const reliability = reliabilityFor(state, { markTopologyDirty: () => dirty++ });
+  const runner = runnerFor(state);
+  runner.runSolve(state);
+  assert.equal(reliability.afterSolve({ advance: false }).requiresResolve, true);
+  assert.equal(state.powerReliability.devices.ats.transferActive, 'backup');
+  assert.equal(dirty, 1);
+  runner.markTopologyDirty();
+  runner.runSolve(state);
+  const loadNetwork = state.utilityNetworks.get('powerCable').find(network =>
+    network.ports.some(port => port.placeableId === 'load'));
+  const loadFlow = state.utilityNetworkData.get('powerCable').get(loadNetwork.id);
+  assert.equal(loadFlow.totalCapacity, 250);
+  assert.equal(loadFlow.perSinkQuality['load:pwr_in'], 1);
+});
+
+test('outages, breakers, UPS charge, generator fuel, and refueling are saved device state', () => {
+  const gridState = world([placed('grid', 'gridServicePoint')]);
+  const gridReliability = reliabilityFor(gridState, { rng: () => 0 });
+  assert.equal(gridReliability.beforeSolve().requiresResolve, true);
+  assert.equal(gridState.powerReliability.devices.grid.outageTicksRemaining, 12);
+
+  gridState.utilityNetworks = new Map([['hvCable', [{
+    id: 'overloaded', ports: [{ placeableId: 'grid', portName: 'hv_out_1' }],
+  }]]]);
+  gridState.utilityNetworkData = new Map([['hvCable', new Map([['overloaded', {
+    totalCapacity: 1200, totalDemand: 1400,
+  }]])]]);
+  for (let i = 0; i < 5; i++) gridReliability.afterSolve();
+  assert.equal(gridState.powerReliability.devices.grid.breakerTripped, true);
+
+  const upsState = world([placed('ups_1', 'ups')]);
+  const upsReliability = reliabilityFor(upsState);
+  upsState.nodeQualities = { ups_1: { hvQuality: 0 } };
+  upsState.utilityNetworks = new Map([['powerCable', [{
+    id: 'critical', ports: [{ placeableId: 'ups_1', portName: 'pwr_out_1' }],
+  }]]]);
+  upsState.utilityNetworkData = new Map([['powerCable', new Map([['critical', {
+    totalCapacity: 100, totalDemand: 50,
+  }]])]]);
+  upsReliability.afterSolve();
+  assert.equal(upsState.powerReliability.devices.ups_1.batteryChargeTicks, 29.5);
+
+  const genState = world([placed('gen', 'backupGenerator')]);
+  const genReliability = reliabilityFor(genState);
+  genState.utilityNetworks = new Map([['powerCable', [{
+    id: 'standby', ports: [{ placeableId: 'gen', portName: 'pwr_out' }],
+  }]]]);
+  genState.utilityNetworkData = new Map([['powerCable', new Map([['standby', {
+    totalCapacity: 250, totalDemand: 125,
+  }]])]]);
+  genReliability.afterSolve();
+  assert.equal(genState.powerReliability.devices.gen.generatorFuelTicks, 299.5);
+  const result = genReliability.dispatch('gen', 'refuelGenerator');
+  assert.equal(result.resourcesChanged, true);
+  assert.equal(genState.powerReliability.devices.gen.generatorFuelTicks, 300);
+  assert.equal(genState.resources.funding, 1000000 - GENERATOR_REFUEL_COST);
+});
+
+test('Game serialization persists operational electrical state', () => {
+  const game = new Game(new BeamlineRegistry(), { seed: 817 });
+  const generator = placed('saved_generator', 'backupGenerator');
+  game.state.placeables.push(generator);
+  game.powerReliability.onPlaceablePlaced(generator);
+  game.state.powerReliability.devices.saved_generator.generatorFuelTicks = 123.5;
+  game.state.powerReliability.devices.saved_generator.generatorEnabled = false;
+
+  const saved = JSON.parse(game.serialize());
+  assert.equal(saved.state.powerReliability.devices.saved_generator.generatorFuelTicks, 123.5);
+  assert.equal(saved.state.powerReliability.devices.saved_generator.generatorEnabled, false);
+});

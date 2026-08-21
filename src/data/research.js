@@ -667,6 +667,27 @@ export const RESEARCH = {
     unlocks: ['deionizer'],
     requires: 'controlSystems',
   },
+  electricalDistribution: {
+    id: 'electricalDistribution', category: 'data',
+    name: 'Electrical Distribution',
+    desc: 'Engineer a real facility service from utility takeoff to building entrance: protected HV distribution, service transformers, metering, isolation, overhead tray, risers, and underground duct banks.',
+    cost: { data: 228, funding: 6700000 },
+    duration: 60,
+    unlocks: [
+      'gridServicePoint', 'poleMountTransformer', 'meterMain', 'disconnectSwitch',
+      'cableTray', 'cableRiser', 'hvDuctBankVault', 'utilityPole',
+    ],
+    requires: 'facilitySystems',
+  },
+  resilientPower: {
+    id: 'resilientPower', category: 'data',
+    name: 'Resilient Power',
+    desc: 'Protect critical loads with coordinated breakers, stored energy, automatic source transfer, and a fuel-backed standby supply that carries the facility through utility outages.',
+    cost: { data: 278, funding: 8900000, reputation: 600 },
+    duration: 75,
+    unlocks: ['automaticTransferSwitch', 'ups', 'backupGenerator'],
+    requires: 'electricalDistribution',
+  },
   machineLearning: {
     id: 'machineLearning', category: 'data',
     name: 'Machine Learning',

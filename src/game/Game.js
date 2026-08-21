@@ -27,6 +27,7 @@ import { portWorldPosition } from '../utility/ports.js';
 import { UtilityRegistry } from '../utility/registry.js';
 import { SolveRunner } from '../utility/solve-runner.js';
 import { UtilityGate, declaredSinkQualityFloor } from './utility-gate.js';
+import { PowerReliabilityCoordinator } from './power-reliability.js';
 import {
   edgeKey, parseEdgeKey, findWallKey, findEdgeKey, isMirroredKey,
   clampDoorOff, defaultDoorOff, mirrorDoorOff,
@@ -126,7 +127,7 @@ const SERIALIZED_FIELDS = [
   'placeables', 'placeableNextId',
   'beamPipes', 'beamPipeNextId', 'placementNextId', 'placementMode',
   // utilities
-  'utilityLines', 'utilityNextId', 'utilityNetworkState',
+  'utilityLines', 'utilityNextId', 'utilityNetworkState', 'powerReliability',
   // designer library
   'savedDesigns', 'savedDesignNextId', 'beamlineDesignerWorkspaces',
 ];
@@ -165,6 +166,9 @@ const UNDO_PRESERVED_FIELDS = [
   // with the key still live and the staffer still rostered, which
   // sanitizeStationReservations has no way to detect or clean.
   'stationReservations',
+  // Outages, stored energy, fuel, and tripped protection are simulation
+  // progress. Undoing a build must not rewind them.
+  'powerReliability',
 ];
 
 // Per-beamline sim accumulators on registry entries. Same rule as
@@ -446,6 +450,7 @@ export class Game {
       utilityNetworkState: new Map(),
       utilityNetworkData: null,
       utilityNetworks: null,   // derived: discovery output published by solveRunner
+      powerReliability: { devices: {} },
       // System-level infrastructure stats (computed by computeSystemStats)
       systemStats: null,
       // What the last tick actually charged, and the net-per-tick window
@@ -576,6 +581,7 @@ export class Game {
     this.solveRunner = new SolveRunner({
       state: this.state,
       registry: UtilityRegistry,
+      getDefinition: (type) => COMPONENTS[type] || PLACEABLES[type] || null,
     });
 
     // Topology-dirty seam. All utilityLines mutations flow through
@@ -615,6 +621,14 @@ export class Game {
       getPorts: getUtilityPortsV2,
       rng: () => this.rng(),
       log: (msg, kind) => this.log(msg, kind),
+    });
+    this.powerReliability = new PowerReliabilityCoordinator({
+      state: this.state,
+      rng: () => this.rng(),
+      log: (msg, kind) => this.log(msg, kind),
+      markTopologyDirty: () => this.solveRunner.markTopologyDirty(),
+      canAfford: (cost) => this.canAfford(cost),
+      spend: (cost) => this.spend(cost),
     });
     // Signature of the nodeQualities the last full physics pass was built
     // against (see _syncPhysicsToNodeQualities). '' is the signature of "no
@@ -3175,6 +3189,7 @@ export class Game {
 
     this.state.placeables.push(entry);
     this.state.placeableIndex[id] = this.state.placeables.length - 1;
+    this.powerReliability?.onPlaceablePlaced(entry);
 
     if (stackTarget) {
       entry.placeY = stackTarget.placeY;
@@ -3558,6 +3573,7 @@ export class Game {
 
     // Remove from array
     this.state.placeables.splice(idx, 1);
+    this.powerReliability?.onPlaceableRemoved(placeableId);
 
     // Rebuild index
     this._rebuildPlaceableIndex();
@@ -3667,6 +3683,7 @@ export class Game {
     }
 
     this.state.placeables.splice(idx, 1);
+    this.powerReliability?.onPlaceableRemoved(placeableId);
     this._rebuildPlaceableIndex();
     this._markNavDirty();
 
@@ -4382,7 +4399,7 @@ export class Game {
    */
   _ensureNodeQualitiesSolved() {
     if (this.state.nodeQualities || !this.utilityGate) return;
-    this.utilityGate.run();
+    this._runUtilityGate();
   }
 
   /**
@@ -5245,7 +5262,8 @@ export class Game {
     // Utility gating (src/game/utility-gate.js): run the network solve,
     // synthesize unconnected-sink + staffing hard errors, and derive
     // state.infraBlockers / infraCanRun / nodeQualities.
-    this.utilityGate.run();
+    this.powerReliability?.beforeSolve();
+    this._runUtilityGate({ advanceReliability: true });
 
     // The gate is the only writer of state.nodeQualities and it runs here, at
     // the end of the tick — after the physics pass that reads them. Propagate
@@ -5489,13 +5507,41 @@ export class Game {
    * first — tick() is the only other caller, and it does not run while paused.
    */
   refreshInfrastructureGate() {
-    if (this.utilityGate) this.utilityGate.run();
+    this._runUtilityGate();
     // Same invariant tick() keeps: wherever the gate runs, the physics pass
     // follows it. Without this, starting a beam while paused (toggleBeam
     // refreshes the gate) left every element on the fail-closed floor until
     // the player unpaused.
     this._syncPhysicsToNodeQualities();
     this.emit('infrastructureValidated');
+  }
+
+  _runUtilityGate({ advanceReliability = false } = {}) {
+    if (!this.utilityGate) return;
+    this.utilityGate.run();
+    const reliability = this.powerReliability?.afterSolve({ advance: advanceReliability });
+    if (reliability?.requiresResolve) this.utilityGate.run();
+  }
+
+  getPowerDeviceStatus(placeableId) {
+    return this.powerReliability?.status(placeableId) || null;
+  }
+
+  getPowerDeviceActions(placeableId) {
+    return this.powerReliability?.actions(placeableId) || [];
+  }
+
+  dispatchPowerDeviceAction(placeableId, action) {
+    const result = this.powerReliability?.dispatch(placeableId, action) || { ok: false };
+    if (!result.ok) {
+      if (result.reason === 'unaffordable') this.log('Not enough funding to refuel.', 'bad');
+      return result;
+    }
+    this._runUtilityGate();
+    this._syncPhysicsToNodeQualities();
+    if (result.resourcesChanged) this.emit('resourcesChanged');
+    this.emit('infrastructureValidated');
+    return result;
   }
 
   // === WEAR & REPAIR ===
@@ -5726,6 +5772,8 @@ export class Game {
     this.state.windows = scenarioData.windows || [];
     this.state.placeables = scenarioData.placeables;
     this.state.placeableNextId = scenarioData.placeableNextId;
+    this.state.powerReliability = { devices: {} };
+    this.powerReliability?.initializeAll();
     if (scenarioData.staff) this.state.staff = scenarioData.staff;
     if (scenarioData.resources) Object.assign(this.state.resources, scenarioData.resources);
 
@@ -6116,6 +6164,10 @@ export class Game {
       Object.assign(this.state, preserved);
       this.state.resources = resources;
     }
+    if (!opts.preserveSim
+        && !Object.prototype.hasOwnProperty.call(data.state || {}, 'powerReliability')) {
+      this.state.powerReliability = { devices: {} };
+    }
 
     // The economy breakdown is derived and unsaved, so a load would otherwise
     // leave the previous session's numbers on screen until the first tick.
@@ -6249,6 +6301,10 @@ export class Game {
     if (!this.state.placeableNextId) this.state.placeableNextId = 1;
     if (!this.state.beamPipes) this.state.beamPipes = [];
     if (!this.state.beamPipeNextId) this.state.beamPipeNextId = 1;
+    if (!this.state.powerReliability || typeof this.state.powerReliability !== 'object') {
+      this.state.powerReliability = { devices: {} };
+    }
+    this.powerReliability?.initializeAll();
 
     // Ensure RimWorld-like staff state exists. Pre-release, no save
     // compatibility: a save with no staffMembers just gets reseeded rather

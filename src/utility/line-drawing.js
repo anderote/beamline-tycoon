@@ -394,7 +394,20 @@ function portsCanConnect(startSpec, endSpec, utilityType) {
       || oneOfPair(a, b, 'powerPassThroughOut', 'powerLoadIn')
       || oneOfPair(a, b, 'powerPassThroughOut', 'powerFieldIn')
       || oneOfPair(a, b, 'powerPassThroughOut', 'powerFieldPort')
-      || oneOfPair(a, b, 'powerPassThroughOut', 'powerPassThroughIn');
+      || oneOfPair(a, b, 'powerPassThroughOut', 'powerPassThroughIn')
+      // A transfer switch keeps normal and standby sources physically
+      // separate. Only its selected internal contact joins one input to the
+      // protected output; the line validator never permits a source-to-source
+      // tie outside the device.
+      || oneOfPair(a, b, 'powerDistributionOut', 'powerTransferNormalIn')
+      || oneOfPair(a, b, 'powerFieldOut', 'powerTransferNormalIn')
+      || oneOfPair(a, b, 'powerFieldPort', 'powerTransferNormalIn')
+      || oneOfPair(a, b, 'powerPassThroughOut', 'powerTransferNormalIn')
+      || oneOfPair(a, b, 'powerAlternateSourceOut', 'powerTransferBackupIn')
+      || oneOfPair(a, b, 'powerTransferOut', 'powerLoadIn')
+      || oneOfPair(a, b, 'powerTransferOut', 'powerFieldIn')
+      || oneOfPair(a, b, 'powerTransferOut', 'powerFieldPort')
+      || oneOfPair(a, b, 'powerTransferOut', 'powerPassThroughIn');
   }
   return true;
 }

@@ -32,7 +32,7 @@ export default {
   // being an artificial way to avoid punitive cable prices.
   costPerSubUnit: 24,
   persistentStateDefaults: {},
-  solve(network, persistent, worldState) {
+  solve(network, persistent, worldState, context = {}) {
     // A distribution panel delivers only what its own feeder gives it.
     //
     // The HV network and this branch network are separate networks of separate
@@ -46,7 +46,8 @@ export default {
     // result rather than the previous one. A device with no hv_in at all
     // defaults to 1: it is a supply in its own right, not a panel.
     const suppliedCapacity = network.sources.reduce(
-      (a, s) => a + (s.capacity || 0) * hvFeedFactor(worldState, s.placeableId), 0);
+      (a, s) => a + (s.capacity || 0)
+        * hvFeedFactor(worldState, s.placeableId, new Set(), context.getDefinition), 0);
     // A field distributor is passive, so it cannot appear as another source
     // without duplicating the upstream panel's capacity. Its rated throughput
     // instead caps the branch network it belongs to. Reading every pass port

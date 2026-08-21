@@ -215,7 +215,7 @@ export default {
   // connects. Ladder: powerCable.js.
   costPerSubUnit: 72,
   persistentStateDefaults: {},
-  solve(network, persistent, worldState) {
+  solve(network, persistent, worldState, context = {}) {
     const errors = [];
     const perSinkQuality = {};
     const perSinkPower = {};
@@ -248,7 +248,8 @@ export default {
     for (const s of network.sources) {
       const bands = (s.params && s.params.bands) || [];
       if (!servedBand || !bands.includes(servedBand)) continue;
-      const cap = (s.capacity || 0) * powerFeedFactor(worldState, s.placeableId);
+      const cap = (s.capacity || 0)
+        * powerFeedFactor(worldState, s.placeableId, context.getDefinition);
       nameplateCapacity += cap;
       dutyWeighted += cap * ((s.params && s.params.dutyFactor) || 1.0);
       dutyTotalCap += cap;

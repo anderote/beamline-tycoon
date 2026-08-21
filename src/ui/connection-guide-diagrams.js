@@ -92,8 +92,22 @@ export const CONNECTION_GUIDE_SCHEMATICS = Object.freeze({
       connection([[398, 92], [494, 92]], 'RF WAVEGUIDE', [446, 70]),
     ],
   },
+  experimentalSystems: {
+    code: 'LAS-04',
+    nodes: [
+      node(['POWER', 'PANEL'], 'BRANCH CAPACITY', 20, 18, 142, 62, { tag: '01' }),
+      node(['COOLING', 'PLANT'], 'WATER LOOP', 20, 108, 142, 58, { tag: '02' }),
+      node(['LASER', 'SYSTEM'], 'FACILITY LOAD', 250, 50, 154, 86, { tag: '03' }),
+      node(['CONTROL', 'RACK'], 'TIMING DATA', 490, 64, 130, 58, { tag: '04' }),
+    ],
+    connections: [
+      connection([[162, 49], [214, 49], [214, 78], [250, 78]], 'POWER CABLE', [206, 26]),
+      connection([[162, 137], [214, 137], [214, 108], [250, 108]], 'COOLING WATER', [205, 160]),
+      connection([[490, 93], [404, 93]], 'DATA FIBER', [447, 70]),
+    ],
+  },
   cooling: {
-    code: 'CLG-04',
+    code: 'CLG-05',
     nodes: [
       node('STORAGE', 'WATER INVENTORY', 20, 67, 136, 60, { tag: '01' }),
       node('CHILLER', 'PROCESS COOLING', 216, 20, 140, 62, { tag: '02' }),
@@ -108,7 +122,7 @@ export const CONNECTION_GUIDE_SCHEMATICS = Object.freeze({
     ],
   },
   dataControls: {
-    code: 'DAT-05',
+    code: 'DAT-06',
     nodes: [
       node(['CONTROL RACK', '/ SWITCH'], 'BANDWIDTH SOURCE', 20, 53, 168, 80, { tag: '01' }),
       node(['EQUIPMENT', '01'], '', 520, 14, 100, 44, { compact: true }),
@@ -123,7 +137,7 @@ export const CONNECTION_GUIDE_SCHEMATICS = Object.freeze({
     ],
   },
   ops: {
-    code: 'OPS-06',
+    code: 'OPS-07',
     boundaries: [
       { label: 'SHIELDED LOSS AREA', x: 224, y: 30, w: 220, h: 126 },
     ],

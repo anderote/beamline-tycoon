@@ -83,15 +83,15 @@ export default {
   // null distinguishes a brand-new network from a genuinely drained one.
   // The first solve resolves it against the network's authored storage.
   persistentStateDefaults: { reservoirVolumeL: null, reservoirCapacityL: 0 },
-  solve(network, persistent, worldState) {
+  solve(network, persistent, worldState, context = {}) {
     const chillers = network.sources.filter(s => (s.params?.capacity || 0) > 0);
     const rejectors = network.sources.filter(s => (s.params?.heatRejectionCapacity || 0) > 0);
     const chillerCapacity = chillers.reduce(
       (a, s) => a + ((s.params && s.params.capacity) || 0)
-        * powerFeedFactor(worldState, s.placeableId), 0);
+        * powerFeedFactor(worldState, s.placeableId, context.getDefinition), 0);
     const rejectionCapacity = rejectors.reduce(
       (a, s) => a + ((s.params && s.params.heatRejectionCapacity) || 0)
-        * powerFeedFactor(worldState, s.placeableId), 0);
+        * powerFeedFactor(worldState, s.placeableId, context.getDefinition), 0);
     const { supplyRateLPerTick, storageCapacityL } = waterInventoryForNetwork(network);
     const plantComplete = storageCapacityL > 0 && chillers.length > 0 && rejectors.length > 0;
     const totalCapacity = plantComplete ? Math.min(chillerCapacity, rejectionCapacity) : 0;

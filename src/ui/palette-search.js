@@ -77,7 +77,7 @@ export function buildPaletteIndex(game) {
   // fall out of this loop naturally and are picked up once, correctly,
   // via ZONE_FURNISHINGS below.
   for (const [id, comp] of Object.entries(COMPONENTS)) {
-    if (!comp.category) continue;
+    if (!comp.category || comp.deprecated) continue;
     const mode = getModeForCategory(comp.category);
     if (!mode) continue; // no live tab for this category — nothing to land on
     if (game && typeof game.isComponentUnlocked === 'function' && !game.isComponentUnlocked(comp)) continue;
@@ -120,9 +120,10 @@ export function buildPaletteIndex(game) {
   // Structure. Mounted lights and Hangings are building fabric, while trees,
   // benches, and other free-standing decorations remain under Grounds.
   for (const [id, dec] of Object.entries(DECORATIONS)) {
-    if (!dec.category) continue;
+    if (!dec.category || dec.deprecated) continue;
     const mode = getModeForCategory(dec.category);
     if (!mode) continue;
+    if (game && typeof game.isComponentUnlocked === 'function' && !game.isComponentUnlocked(dec)) continue;
     index.push({
       id, name: dec.name || id, desc: dec.desc || '',
       mode, category: dec.category, kind: 'decoration', source: 'decorations',

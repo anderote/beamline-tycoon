@@ -263,7 +263,7 @@ export function buildSoftCableWorldPoints(line, placeablesById, previewAnchors =
   const laidTrace = Array.isArray(line.cablePath) && line.cablePath.length >= 2
     ? line.cablePath
     : line.path;
-  const runY = utilityLineHeight(line.utilityType);
+  const runY = utilityLineHeight(line.utilityType, line.routeHeightMeters);
   const start = anchorTip(previewAnchors?.start || anchorFor(line.start, placeablesById));
   const end = anchorTip(previewAnchors?.end || anchorFor(line.end, placeablesById));
   const trace = draggedCablePath(laidTrace, {

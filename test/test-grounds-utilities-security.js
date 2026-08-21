@@ -24,6 +24,9 @@ const UTILITY_DECORATIONS = [
   'backupGenerator',
 ];
 
+const VISIBLE_UTILITY_DECORATIONS = UTILITY_DECORATIONS
+  .filter(id => !DECORATIONS[id].deprecated);
+
 const SECURITY_DECORATIONS = [
   'guardTower',
   'securityGatehouse',
@@ -33,11 +36,14 @@ const SECURITY_DECORATIONS = [
 ];
 
 const LINKED_UTILITY_EQUIPMENT = [
+  'gridServicePoint',
   'padMountTransformer',
   'facilityTransformer',
   'hvTransformer',
   'gridIntertieTransformer',
+  'poleMountTransformer',
   'disconnectSwitch',
+  'hvDuctBankVault',
   'waterTank',
   'facilityWaterSupply',
   'bulkWaterTank',
@@ -80,7 +86,7 @@ test('collection tabs reuse working equipment without changing primary ownership
     'utilities', MODES.grounds.categories.utilities,
     { decorations: DECORATIONS, components: COMPONENTS },
   );
-  assert.deepEqual(utilities.decorations.map(([id]) => id), UTILITY_DECORATIONS);
+  assert.deepEqual(utilities.decorations.map(([id]) => id), VISIBLE_UTILITY_DECORATIONS);
   assert.deepEqual(utilities.components.map(([id]) => id), LINKED_UTILITY_EQUIPMENT);
   assert.deepEqual(utilities.utilityLineTools, ['hvCable', 'powerCable', 'coolingWater']);
 
@@ -164,7 +170,7 @@ test('global search keeps reused placeables single-homed', () => {
 
   assert.equal(index.filter(item => item.id === 'floodLight').length, 1);
   assert.equal(index.find(item => item.id === 'floodLight')?.category, 'lighting');
-  for (const id of [...UTILITY_DECORATIONS, ...SECURITY_DECORATIONS]) {
+  for (const id of [...VISIBLE_UTILITY_DECORATIONS, ...SECURITY_DECORATIONS]) {
     const entry = index.find(item => item.id === id);
     assert.equal(entry?.mode, 'grounds');
     assert.equal(entry?.category, PLACEABLES[id].category);

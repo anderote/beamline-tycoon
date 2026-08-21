@@ -25,6 +25,7 @@ import {
 } from './route-elevation.js';
 import { roundedCableTilePath, usesFreeformTopology } from './soft-cable.js';
 import { listUtilityEndpoints } from './utility-endpoints.js';
+import { electricalInternalPortGroups } from './electrical-state.js';
 
 function portKey(ref) { return `${ref.placeableId}:${ref.portName}`; }
 
@@ -322,6 +323,8 @@ function bridgeablePortKeys(listPorts, placeableId, utilityType) {
  * `.busTargets(placeableId, utilityType)` reports the on-pipe sink port keys a
  * distribution bus covers (see computeBusService), and `.neighbors(placeableId)`
  * reports the endpoints it physically touches (see computeAdjacency).
+ * `.internalPortGroups(placeableId, utilityType, passNames)` resolves static
+ * isolated conductors and live switch/transfer state.
  */
 export function makeDefaultPortLookup(state) {
   const endpoints = listUtilityEndpoints(state);
@@ -349,6 +352,12 @@ export function makeDefaultPortLookup(state) {
   };
   lookup.neighbors = function (placeableId) {
     return adjacency.get(placeableId) || [];
+  };
+  lookup.internalPortGroups = function (placeableId, utilityType, passNames) {
+    const placeable = byId.get(placeableId);
+    if (!placeable) return [];
+    const def = COMPONENTS[placeable.type];
+    return electricalInternalPortGroups(state, placeable, def, utilityType, passNames);
   };
   return lookup;
 }
@@ -474,11 +483,25 @@ export function discoverNetworks(utilityType, lines, portLookup) {
         if (spec.through) throughNames.push(name);
         else if (spec.role === 'source') sourceNames.push(name);
       }
-      // Pass-through ports: logically continuous within the device.
+      // Passive conductors are continuous only inside their declared group.
+      // Ordinary fittings return one group containing every pass port; cable
+      // trays return one pair per circuit; live disconnect/transfer state may
+      // return no group at all. The latter is why switch changes invalidate
+      // discovery even though no utility line was added or removed.
       if (passNames.length >= 2) {
-        const keys = passNames.map(n => `${pid}:${n}`);
-        for (const k of keys) allPortKeys.add(k);
-        for (let i = 1; i < keys.length; i++) dsu.union(keys[0], keys[i]);
+        const groups = typeof portLookup.internalPortGroups === 'function'
+          ? portLookup.internalPortGroups(pid, utilityType, passNames)
+          : [passNames];
+        for (const group of groups || []) {
+          const keys = group.map(n => `${pid}:${n}`);
+          // Multi-circuit carriers may declare spare conductors. Only bring a
+          // conductor into discovery after a real line touches one end;
+          // otherwise an unused four-way tray creates three phantom networks
+          // containing no line, source, or load.
+          if (!keys.some(k => allPortKeys.has(k))) continue;
+          for (const k of keys) allPortKeys.add(k);
+          for (let i = 1; i < keys.length; i++) dsu.union(keys[0], keys[i]);
+        }
       }
       // Explicit hydraulic continuity for staged plant equipment. This is
       // intentionally opt-in: ordinary source/sink pairs remain isolated.

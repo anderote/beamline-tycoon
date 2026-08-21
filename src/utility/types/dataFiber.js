@@ -29,12 +29,13 @@ export default {
   // $48/tile — the cheapest run to pull. Ladder: powerCable.js.
   costPerSubUnit: 12,
   persistentStateDefaults: {},
-  solve(network, persistent, worldState) {
-    const poweredSources = network.sources.filter(s => powerFeedFactor(worldState, s.placeableId) > 0);
+  solve(network, persistent, worldState, context = {}) {
+    const poweredSources = network.sources.filter(s =>
+      powerFeedFactor(worldState, s.placeableId, context.getDefinition) > 0);
     const hasSource = poweredSources.length > 0;
     const totalCapacity = poweredSources.reduce(
       (a, s) => a + ((s.params && s.params.capacity) || 0)
-        * powerFeedFactor(worldState, s.placeableId), 0);
+        * powerFeedFactor(worldState, s.placeableId, context.getDefinition), 0);
     const totalDemand = network.sinks.reduce(
       (a, s) => a + ((s.params && s.params.demand) || 0), 0);
     const perSinkQuality = {};

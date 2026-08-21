@@ -133,13 +133,13 @@ function endpointPoint(rec) {
   };
 }
 
-function pumpInventory(network, worldState) {
+function pumpInventory(network, worldState, getDefinition) {
   const pumps = [];
   const byId = endpointsById(worldState);
   for (const source of (network.sources || [])) {
     const p = source.params || {};
     if (!(p.pumpSpeed > 0)) continue;
-    const power = powerFeedFactor(worldState, source.placeableId);
+    const power = powerFeedFactor(worldState, source.placeableId, getDefinition);
     // Descriptor-level callers and old saves may carry only `pumpSpeed`.
     // Treat that legacy shape as a roughing source; every real catalogue pump
     // now declares an explicit stage.
@@ -284,7 +284,10 @@ function gaugeReading(type, pressure, powered) {
   return { reading: pressure, status: 'ok' };
 }
 
-function collectGauges(lines, active, stage, totalOutgas, networkPressure, ultimatePressure, worldState) {
+function collectGauges(
+  lines, active, stage, totalOutgas, networkPressure, ultimatePressure,
+  worldState, getDefinition,
+) {
   const gauges = [];
   for (const line of lines) {
     for (const att of (line.attachments || [])) {
@@ -294,7 +297,8 @@ function collectGauges(lines, active, stage, totalOutgas, networkPressure, ultim
       const speed = localEffectiveSpeed(active, target, stage);
       const equilibrium = speed > 0 ? totalOutgas / speed + ultimatePressure : ATMOSPHERE_MBAR;
       const localPressure = Math.min(ATMOSPHERE_MBAR, Math.max(networkPressure, equilibrium));
-      const powered = att.type === 'piraniGauge' || powerFeedFactor(worldState, att.id) > 0;
+      const powered = att.type === 'piraniGauge'
+        || powerFeedFactor(worldState, att.id, getDefinition) > 0;
       const measured = gaugeReading(att.type, localPressure, powered);
       gauges.push({
         id: att.id,
@@ -472,7 +476,7 @@ export default {
   // volume is known. Storing gas inventory (an extensive quantity) lets the
   // generic split/join reconciler conserve gas across topology edits.
   persistentStateDefaults: { gasInventoryMbarL: null, pressureHistory: [] },
-  solve(network, persistent, worldState) {
+  solve(network, persistent, worldState, context = {}) {
     const byId = endpointsById(worldState);
     const baked = isBaked(network, byId);
     const pipe = beamPipeStats(network, byId, worldState);
@@ -489,7 +493,7 @@ export default {
     const previousPressure = volumeL > 0 && Number.isFinite(storedInventory)
       ? Math.max(0, storedInventory / volumeL)
       : ATMOSPHERE_MBAR;
-    const pumps = pumpInventory(network, worldState);
+    const pumps = pumpInventory(network, worldState, context.getDefinition);
     const stack = activePumpStack(pumps, previousPressure);
     const effectiveSpeed = conductanceLimitedSpeed(stack.active, lines, stack.stage);
     const equilibriumPressure = effectiveSpeed > 0
@@ -530,7 +534,7 @@ export default {
 
     const gauges = collectGauges(
       lines, stack.active, stack.stage, totalOutgas, pressure,
-      stack.ultimatePressure, worldState,
+      stack.ultimatePressure, worldState, context.getDefinition,
     );
     const tick = Number.isFinite(worldState?.tick) ? worldState.tick : 0;
     const pressureHistory = nextHistory(
