@@ -261,6 +261,8 @@ export class WallBuilder {
     this._meshes = [];
     /** Batched draw-call meshes actually parented to the wall group. */
     this._batches = [];
+    /** Authored door-frame/leaf meshes used for perspective-correct picking. */
+    this._doorPickMeshes = [];
     /** Collects `_meshes` into batches during a build; null when unbatched. */
     this._batcher = null;
     this._cacheKey = null;
@@ -296,6 +298,16 @@ export class WallBuilder {
   occluderMeshes() {
     for (const mesh of this._meshes) mesh.updateMatrixWorld(true);
     return this._meshes;
+  }
+
+  /**
+   * Visible door assembly pieces as tight raycast targets. These source
+   * meshes retain per-door edge identity even when their rendered triangles
+   * have been folded into facility-wide BatchedMeshes.
+   */
+  doorPickMeshes() {
+    for (const mesh of this._doorPickMeshes) mesh.updateMatrixWorld?.(true);
+    return this._doorPickMeshes;
   }
 
   /**
@@ -606,6 +618,13 @@ export class WallBuilder {
       const variant = d.variant ?? 0;
 
       const doorSegments = d.segments?.length ? d.segments : [d];
+      const doorEdge = { col, row, edge };
+      const markDoorPick = (mesh) => {
+        mesh.userData ||= {};
+        mesh.userData.doorEdge = doorEdge;
+        this._doorPickMeshes.push(mesh);
+        return mesh;
+      };
       const isDoorCutaway = wallVisibility === 'cutaway' && !!cutawayRoom &&
         doorSegments.some(segment =>
           this._wallBordersRoom(segment.col, segment.row, segment.edge, cutawayRoom)
@@ -713,6 +732,7 @@ export class WallBuilder {
       postA.castShadow = !(isTransparent || isDoorCutaway);
       postA.matrixAutoUpdate = false;
       postA.updateMatrix();
+      markDoorPick(postA);
       this._emit(postA, parentGroup);
 
       // Post B
@@ -725,6 +745,7 @@ export class WallBuilder {
       postB.castShadow = !(isTransparent || isDoorCutaway);
       postB.matrixAutoUpdate = false;
       postB.updateMatrix();
+      markDoorPick(postB);
       this._emit(postB, parentGroup);
 
       // Lintel across the opening
@@ -740,6 +761,7 @@ export class WallBuilder {
       lintel.castShadow = !(isTransparent || isDoorCutaway);
       lintel.matrixAutoUpdate = false;
       lintel.updateMatrix();
+      markDoorPick(lintel);
       this._emit(lintel, parentGroup);
 
       // Fill the wall on whichever sides of the opening still have room. With
@@ -877,6 +899,7 @@ export class WallBuilder {
           }
           panel.matrixAutoUpdate = false;
           panel.updateMatrix();
+          markDoorPick(panel);
           this._emit(panel, parentGroup);
         }
 
@@ -905,6 +928,7 @@ export class WallBuilder {
             handle.userData.doorLeafIndex = handleIndex;
             handle.matrixAutoUpdate = false;
             handle.updateMatrix();
+            markDoorPick(handle);
             this._emit(handle, parentGroup);
           }
         }
@@ -1712,5 +1736,6 @@ export class WallBuilder {
     for (const mat of mats) mat.dispose();
 
     this._meshes = [];
+    this._doorPickMeshes = [];
   }
 }

@@ -646,8 +646,7 @@ export class InputHandler {
     // Highlight the matched edge; with Shift held in Building mode,
     // preview the whole connected run.
     if (!found && (dt === 'demolishBuilding' || dt === 'demolishAll')) {
-      const nearest = this._getNearestEdge?.(screenX, screenY);
-      const hit = nearest && this._findWallOrDoorAtEdge(nearest);
+      const hit = this.findDemolishableEdgeAtScreen(screenX, screenY);
       if (hit) {
         const { edge, overlayType, wallType, doorType, windowType } = hit;
         if (this._shiftDown && dt === 'demolishBuilding') {
@@ -1343,6 +1342,24 @@ export class InputHandler {
     if (min === dS) return { col, row, edge: 's' };
     if (min === dE) return { col, row, edge: 'e' };
     return { col, row, edge: 'w' };
+  }
+
+  /**
+   * Resolve the building edge visibly under the cursor. Door geometry wins
+   * through its dedicated 3D pick path; walls/windows keep the established
+   * ground-edge lookup so transparent walls remain click-through outside
+   * building demolition.
+   */
+  findDemolishableEdgeAtScreen(screenX, screenY) {
+    const doorHit = this.renderer.raycastDoorScreen?.(
+      screenX, screenY, OBJECT_PICK_TOLERANCE_PX,
+    );
+    const doorEdge = doorHit?.object?.userData?.doorEdge;
+    if (doorEdge) {
+      const found = this._findWallOrDoorAtEdge(doorEdge);
+      if (found?.doorType) return found;
+    }
+    return this._findWallOrDoorAtEdge(this._getNearestEdge(screenX, screenY));
   }
 
   /**

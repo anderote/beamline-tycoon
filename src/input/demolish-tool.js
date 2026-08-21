@@ -43,6 +43,7 @@ export class DemolishTool extends Tool {
     this._edgeStart = null; // origin edge of the edge-path drag
     this._edgePath = [];    // [{ col, row, edge }]
     this._pipeSweep = null; // { pipeId, index } anchor of a pipe-section drag
+    this._pressedDoorEdge = null; // catch-all click on visible raised door geometry
   }
 
   onExit(ctx) {
@@ -53,6 +54,7 @@ export class DemolishTool extends Tool {
     this._edgeStart = null;
     this._edgePath = [];
     this._pipeSweep = null;
+    this._pressedDoorEdge = null;
     ctx.renderer.clearDragPreview();
     ctx.input._hideDemolishTooltip();
   }
@@ -83,7 +85,7 @@ export class DemolishTool extends Tool {
       // Edge-first: starting on a wall/door edge begins an edge-path drag
       // (removes walls AND doors along the path); otherwise fall through to
       // the tile-rect drag below.
-      const found = input._findWallOrDoorAtEdge(input._getNearestEdge(e.clientX, e.clientY));
+      const found = input.findDemolishableEdgeAtScreen(e.clientX, e.clientY);
       if (found) {
         if (input._shiftDown) {
           // Shift-click: delete the whole connected run at once.
@@ -114,6 +116,10 @@ export class DemolishTool extends Tool {
         this._edgePath = [found.edge];
         return true;
       }
+    }
+    if (this.demolishType === 'demolishAll') {
+      const found = input.findDemolishableEdgeAtScreen?.(e.clientX, e.clientY);
+      this._pressedDoorEdge = found?.doorType ? found.edge : null;
     }
     // Beamline/equipment demolish is click-on-object; utility demolish is
     // click-on-line. Neither uses the tile-rect drag.
@@ -297,12 +303,15 @@ export class DemolishTool extends Tool {
           // A rect drag is unchanged: sweeping an area IS the "level it all"
           // gesture, and the palette card says so.
           const singleTile = minCol === maxCol && minRow === maxRow;
-          const found = singleTile
+          const pressedDoorEdge = singleTile ? this._pressedDoorEdge : null;
+          const found = singleTile && !pressedDoorEdge
             ? input._findDeletablePlaceable(
               { x: world.x, y: world.y }, { col: minCol, row: minRow },
               e.clientX, e.clientY, DEMOLISH_PLACEABLE_SCOPE.demolishAll)
             : null;
-          if (found) {
+          if (pressedDoorEdge) {
+            input._removeWallAndDoorAtEdge(pressedDoorEdge);
+          } else if (found) {
             game.demolishTarget(found);
           } else {
             for (let c = minCol; c <= maxCol; c++) {
@@ -316,6 +325,7 @@ export class DemolishTool extends Tool {
       this._dragging = false;
       this._dragStart = null;
       this._dragEnd = null;
+      this._pressedDoorEdge = null;
       ctx.renderer.clearDragPreview();
       return true;
     }
@@ -372,7 +382,7 @@ export class DemolishTool extends Tool {
       }
       if (dt === 'demolishBuilding') {
         // Edge-first: a wall or door under the cursor wins over the tile.
-        const found = input._findWallOrDoorAtEdge(input._getNearestEdge(screenX, screenY));
+        const found = input.findDemolishableEdgeAtScreen(screenX, screenY);
         if (found) {
           if (found.overlayType || found.wallType) {
             // Route through the shared helper (matches the shift-click and
@@ -396,7 +406,9 @@ export class DemolishTool extends Tool {
           game.removeInfraTile(col, row);
         }
       } else if (dt === 'demolishAll') {
-        input._demolishEverythingAt(col, row);
+        const found = input.findDemolishableEdgeAtScreen?.(screenX, screenY);
+        if (found?.doorType) input._removeWallAndDoorAtEdge(found.edge);
+        else input._demolishEverythingAt(col, row);
       }
       return true;
     });
@@ -426,8 +438,8 @@ export class DemolishTool extends Tool {
       return;
     }
     if (this.demolishType !== 'demolishBuilding') return;
-    const found = input._findWallOrDoorAtEdge(
-      input._getNearestEdge(input._lastScreenX, input._lastScreenY),
+    const found = input.findDemolishableEdgeAtScreen(
+      input._lastScreenX, input._lastScreenY,
     );
     if (!found) return;
     const { edge, overlayType, wallType, doorType } = found;
