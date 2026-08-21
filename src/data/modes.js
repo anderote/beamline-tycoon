@@ -62,6 +62,7 @@ export const MODES = {
       officeSpace: { name: 'Office',         color: '#46a', isZoneTab: true, zoneType: 'officeSpace',  group: 'rooms' },
       reception:   { name: 'Reception',      color: '#b85', isZoneTab: true, zoneType: 'reception',    group: 'rooms' },
       meetingRoom: { name: 'Meeting',        color: '#649', isZoneTab: true, zoneType: 'meetingRoom',  group: 'rooms' },
+      facultyLounge: { name: 'Faculty Lounge', color: '#865', isZoneTab: true, zoneType: 'facultyLounge', group: 'rooms' },
       cafeteria:   { name: 'Cafeteria',      color: '#a64', isZoneTab: true, zoneType: 'cafeteria',    group: 'rooms' },
       storageRoom: { name: 'Storage',        color: '#687', isZoneTab: true, zoneType: 'storageRoom',  group: 'rooms' },
     },

@@ -454,6 +454,79 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     ],
   },
 
+  // ── Faculty lounge ─────────────────────────────────────────────────
+
+  clubChair: {
+    id: 'clubChair', name: 'Leather Club Chair', zoneType: 'facultyLounge', cost: { funding: 900 }, energyCost: 0,
+    spriteColor: 0x5b2f22, gridW: 1, gridH: 1, subH: 2, spriteKey: 'clubChair', effects: { morale: 3 }, baseMaterial: null, hasSurface: false,
+    parts: [
+      { name: 'seatBase', x: 0, y: 0.12, z: 0, w: 0.88, h: 0.12, l: 0.82, color: 0x3b241d }, { name: 'seat', x: 0, y: 0.72, z: -0.08, w: 0.86, h: 0.28, l: 0.72, color: 0x6a3829 },
+      { name: 'back', x: 0, y: 1.32, z: 0.28, w: 0.88, h: 1.12, l: 0.22, color: 0x5a2f24 }, { name: 'armL', x: -0.42, y: 0.92, z: 0.02, w: 0.16, h: 0.66, l: 0.78, color: 0x5f3226 }, { name: 'armR', x: 0.42, y: 0.92, z: 0.02, w: 0.16, h: 0.66, l: 0.78, color: 0x5f3226 },
+      { name: 'studL1', x: -0.43, y: 1.46, z: 0.14, w: 0.06, h: 0.06, l: 0.04, color: 0xc19a55 }, { name: 'studL2', x: -0.43, y: 1.08, z: 0.14, w: 0.06, h: 0.06, l: 0.04, color: 0xc19a55 }, { name: 'studR1', x: 0.43, y: 1.46, z: 0.14, w: 0.06, h: 0.06, l: 0.04, color: 0xc19a55 }, { name: 'studR2', x: 0.43, y: 1.08, z: 0.14, w: 0.06, h: 0.06, l: 0.04, color: 0xc19a55 },
+      { name: 'legL', x: -0.3, y: 0, z: -0.25, w: 0.12, h: 0.18, l: 0.12, color: 0x2b211b }, { name: 'legR', x: 0.3, y: 0, z: -0.25, w: 0.12, h: 0.18, l: 0.12, color: 0x2b211b },
+    ],
+  },
+  tuftedSofa: {
+    id: 'tuftedSofa', name: 'Tufted Leather Sofa', zoneType: 'facultyLounge', cost: { funding: 2200 }, energyCost: 0,
+    spriteColor: 0x45271f, gridW: 3, gridH: 1, subH: 2, spriteKey: 'tuftedSofa', effects: { morale: 5 }, baseMaterial: null, hasSurface: false,
+    parts: [
+      { name: 'base', x: 0, y: 0.15, z: 0, w: 2.8, h: 0.28, l: 0.86, color: 0x34211c }, { name: 'seat', x: 0, y: 0.7, z: -0.08, w: 2.62, h: 0.3, l: 0.7, color: 0x5a3027 }, { name: 'back', x: 0, y: 1.3, z: 0.28, w: 2.72, h: 1.08, l: 0.22, color: 0x4d2922 },
+      { name: 'armL', x: -1.34, y: 0.88, z: 0, w: 0.2, h: 0.78, l: 0.86, color: 0x542c23 }, { name: 'armR', x: 1.34, y: 0.88, z: 0, w: 0.2, h: 0.78, l: 0.86, color: 0x542c23 },
+      { name: 'tuft1', x: -0.7, y: 1.34, z: 0.14, w: 0.12, h: 0.12, l: 0.04, color: 0x704236 }, { name: 'tuft2', x: 0, y: 1.34, z: 0.14, w: 0.12, h: 0.12, l: 0.04, color: 0x704236 }, { name: 'tuft3', x: 0.7, y: 1.34, z: 0.14, w: 0.12, h: 0.12, l: 0.04, color: 0x704236 },
+      { name: 'footL', x: -1, y: 0, z: -0.22, w: 0.18, h: 0.2, l: 0.18, color: 0x2b211b }, { name: 'footR', x: 1, y: 0, z: -0.22, w: 0.18, h: 0.2, l: 0.18, color: 0x2b211b },
+    ],
+  },
+  clawFootTable: {
+    id: 'clawFootTable', name: 'Claw-Foot Cocktail Table', zoneType: 'facultyLounge', cost: { funding: 1250 }, energyCost: 0,
+    spriteColor: 0x6a482d, gridW: 2, gridH: 2, subH: 2, surfaceY: 1.25, spriteKey: 'clawFootTable', effects: { morale: 2 }, baseMaterial: 'tile_hardwood',
+    parts: [
+      { name: 'top', x: 0, y: 1.25, z: 0, w: 1.72, h: 0.12, l: 1.72, color: 0x754d2d }, { name: 'inlay', x: 0, y: 1.32, z: 0, w: 1.34, h: 0.03, l: 1.34, color: 0xc39a55 }, { name: 'pedestal', x: 0, y: 0.38, z: 0, w: 0.28, h: 1, l: 0.28, color: 0x4d3021 },
+      { name: 'footN', x: 0, y: 0.08, z: 0.45, w: 0.18, h: 0.16, l: 0.8, color: 0x4d3021 }, { name: 'footS', x: 0, y: 0.08, z: -0.45, w: 0.18, h: 0.16, l: 0.8, color: 0x4d3021 }, { name: 'footE', x: 0.45, y: 0.08, z: 0, w: 0.8, h: 0.16, l: 0.18, color: 0x4d3021 }, { name: 'footW', x: -0.45, y: 0.08, z: 0, w: 0.8, h: 0.16, l: 0.18, color: 0x4d3021 },
+      { name: 'clawN', x: 0, y: 0.18, z: 0.75, w: 0.22, h: 0.24, l: 0.22, color: 0x8a633b }, { name: 'clawS', x: 0, y: 0.18, z: -0.75, w: 0.22, h: 0.24, l: 0.22, color: 0x8a633b },
+    ],
+  },
+  drinksCabinet: {
+    id: 'drinksCabinet', name: 'Drinks Cabinet', zoneType: 'facultyLounge', cost: { funding: 1800 }, energyCost: 0.15,
+    spriteColor: 0x4c3025, gridW: 2, gridH: 1, subH: 3, spriteKey: 'drinksCabinet', effects: { morale: 4 }, baseMaterial: 'tile_hardwood', hasSurface: false,
+    parts: [
+      { name: 'body', x: 0, y: 0.08, z: 0, w: 1.8, h: 2.72, l: 0.72, color: 0x553324 }, { name: 'top', x: 0, y: 2.8, z: 0, w: 1.94, h: 0.12, l: 0.82, color: 0x754d2d }, { name: 'glassL', x: -0.47, y: 1.82, z: -0.38, w: 0.72, h: 1.32, l: 0.03, color: 0x8299a1 }, { name: 'glassR', x: 0.47, y: 1.82, z: -0.38, w: 0.72, h: 1.32, l: 0.03, color: 0x8299a1 },
+      { name: 'shelf', x: 0, y: 1.35, z: -0.18, w: 1.55, h: 0.06, l: 0.42, color: 0x321f19 }, { name: 'bottle1', x: -0.42, y: 1.52, z: -0.28, w: 0.16, h: 0.58, l: 0.16, color: 0x9c6b34 }, { name: 'bottle2', x: -0.12, y: 1.52, z: -0.28, w: 0.16, h: 0.7, l: 0.16, color: 0x6b8b55 }, { name: 'bottle3', x: 0.3, y: 1.52, z: -0.28, w: 0.16, h: 0.52, l: 0.16, color: 0x8c4b39 },
+      { name: 'drawerL', x: -0.48, y: 0.52, z: -0.38, w: 0.68, h: 0.48, l: 0.04, color: 0x69432b }, { name: 'drawerR', x: 0.48, y: 0.52, z: -0.38, w: 0.68, h: 0.48, l: 0.04, color: 0x69432b },
+    ],
+  },
+  facultyBar: {
+    id: 'facultyBar', name: 'Faculty Bar', zoneType: 'facultyLounge', cost: { funding: 2600 }, energyCost: 0.1,
+    spriteColor: 0x7a4d2d, gridW: 4, gridH: 2, subH: 2, surfaceY: 1.5, spriteKey: 'facultyBar', effects: { morale: 5 }, baseMaterial: 'tile_hardwood',
+    parts: [
+      { name: 'counter', x: 0, y: 1.45, z: 0, w: 3.8, h: 0.18, l: 0.82, color: 0x8a5a32 }, { name: 'front', x: 0, y: 0.7, z: 0.3, w: 3.6, h: 1.38, l: 0.14, color: 0x563322 }, { name: 'rail', x: 0, y: 0.48, z: -0.42, w: 3.4, h: 0.08, l: 0.08, color: 0xc19a55 }, { name: 'legL', x: -1.65, y: 0, z: 0.2, w: 0.14, h: 1.4, l: 0.14, color: 0x3b281d }, { name: 'legR', x: 1.65, y: 0, z: 0.2, w: 0.14, h: 1.4, l: 0.14, color: 0x3b281d },
+      { name: 'bottle1', x: -1.05, y: 1.62, z: 0.06, w: 0.16, h: 0.52, l: 0.16, color: 0x6b8b55 }, { name: 'bottle2', x: -0.72, y: 1.62, z: 0.06, w: 0.16, h: 0.68, l: 0.16, color: 0x9c6b34 }, { name: 'bottle3', x: 0.84, y: 1.62, z: 0.06, w: 0.16, h: 0.6, l: 0.16, color: 0x8c4b39 }, { name: 'glass1', x: 1.2, y: 1.57, z: -0.18, w: 0.18, h: 0.18, l: 0.18, color: 0xc2d7d2 }, { name: 'glass2', x: 1.48, y: 1.57, z: -0.18, w: 0.18, h: 0.18, l: 0.18, color: 0xc2d7d2 },
+    ],
+  },
+  chalkboard: {
+    id: 'chalkboard', name: 'Chalkboard', zoneType: 'facultyLounge', cost: { funding: 320 }, energyCost: 0,
+    spriteColor: 0x243b32, gridW: 3, gridH: 1, subH: 3, spriteKey: 'chalkboard', effects: { morale: 1, research: 0.03 }, baseMaterial: 'tile_hardwood', hasSurface: false,
+    parts: [
+      { name: 'board', x: 0, y: 1.65, z: 0, w: 2.72, h: 2.1, l: 0.1, color: 0x243b32 }, { name: 'frameTop', x: 0, y: 2.75, z: -0.02, w: 2.9, h: 0.12, l: 0.16, color: 0x6d4a2e }, { name: 'frameBottom', x: 0, y: 0.55, z: -0.02, w: 2.9, h: 0.12, l: 0.16, color: 0x6d4a2e },
+      { name: 'chalk1', x: -0.82, y: 2, z: -0.08, w: 0.8, h: 0.04, l: 0.03, color: 0xe8e2c9 }, { name: 'chalk2', x: 0.12, y: 1.6, z: -0.08, w: 0.62, h: 0.04, l: 0.03, color: 0xcadbe0 }, { name: 'chalk3', x: 0.52, y: 2.22, z: -0.08, w: 0.5, h: 0.04, l: 0.03, color: 0xe6d1a7 }, { name: 'chalkTray', x: 0, y: 0.42, z: -0.12, w: 2.55, h: 0.1, l: 0.3, color: 0x5b3c28 },
+      { name: 'legL', x: -1.1, y: 0, z: 0, w: 0.12, h: 0.52, l: 0.12, color: 0x4b3425 }, { name: 'legR', x: 1.1, y: 0, z: 0, w: 0.12, h: 0.52, l: 0.12, color: 0x4b3425 },
+    ],
+  },
+  newspaperStand: {
+    id: 'newspaperStand', name: 'Newspaper Stand', zoneType: 'facultyLounge', cost: { funding: 260 }, energyCost: 0,
+    spriteColor: 0x80603d, gridW: 1, gridH: 1, subH: 2, spriteKey: 'newspaperStand', effects: { morale: 2 }, baseMaterial: 'tile_hardwood', hasSurface: false,
+    parts: [
+      { name: 'base', x: 0, y: 0.04, z: 0, w: 0.82, h: 0.08, l: 0.5, color: 0x513521 }, { name: 'post', x: 0, y: 0.12, z: 0.12, w: 0.1, h: 1.45, l: 0.1, color: 0x6d4a2e }, { name: 'rack', x: 0, y: 1.2, z: 0, w: 0.9, h: 0.8, l: 0.5, color: 0x765234 },
+      { name: 'paperA', x: -0.2, y: 1.42, z: -0.28, w: 0.26, h: 0.52, l: 0.03, color: 0xe8e3d2 }, { name: 'paperB', x: 0.12, y: 1.38, z: -0.28, w: 0.28, h: 0.58, l: 0.03, color: 0xd9e1e5 }, { name: 'paperC', x: 0.37, y: 1.35, z: -0.28, w: 0.22, h: 0.48, l: 0.03, color: 0xe6d2b6 },
+    ],
+  },
+  cigarAshtray: {
+    id: 'cigarAshtray', name: 'Cigar Ashtray', zoneType: 'facultyLounge', cost: { funding: 140 }, energyCost: 0,
+    spriteColor: 0x8f9398, gridW: 1, gridH: 1, subH: 1, spriteKey: 'cigarAshtray', effects: { morale: 1 }, baseMaterial: null, stackable: true,
+    parts: [
+      { name: 'dish', x: 0, y: 0.08, z: 0, w: 0.58, h: 0.12, l: 0.58, color: 0x9da3a7 }, { name: 'rim', x: 0, y: 0.17, z: 0, w: 0.48, h: 0.06, l: 0.48, color: 0xc1a35e }, { name: 'cigar', x: 0.06, y: 0.23, z: 0, w: 0.12, h: 0.08, l: 0.46, color: 0x9b4e2d }, { name: 'ember', x: 0.27, y: 0.24, z: 0, w: 0.08, h: 0.08, l: 0.08, color: 0xe06a32 },
+    ],
+  },
+
   // ── Reception ─────────────────────────────────────────────────────
 
   waitingBench: {
@@ -1481,6 +1554,14 @@ const ROOM_FURNISHING_DESCS = {
   executiveChair: 'High-backed leather chair for PI-grade sitting. Office Space.',
   operatorChair: '24/7-rated seating for around-the-clock shifts. Control Room.',
   meetingChair: 'Stackable chair, comfortable for exactly one hour. Meeting Room or Reception.',
+  clubChair: 'Studded leather club chair for reading, arguing, or holding court. Faculty Lounge.',
+  tuftedSofa: 'Deep button-tufted leather sofa for post-seminar decompression. Faculty Lounge.',
+  clawFootTable: 'Polished cocktail table with ornate claw feet and brass inlay. Faculty Lounge.',
+  drinksCabinet: 'Glazed cabinet stocked with bottles, glasses, and questionable provenance. Faculty Lounge.',
+  facultyBar: 'A proper faculty bar for after-hours discussion and suspiciously good morale. Faculty Lounge.',
+  chalkboard: 'A chalkboard for equations, agendas, and ideas that become grant proposals. Faculty Lounge.',
+  newspaperStand: 'Fresh journals and newspapers, arranged for maximum professorial browsing. Faculty Lounge.',
+  cigarAshtray: 'Brass-edged ashtray for the era before smoke alarms acquired opinions. Faculty Lounge.',
   barStool: 'Tall counter seating with a foot rail. Cafeteria.',
   cafeteriaChair: 'Simple cafeteria seating; wipes clean. Cafeteria.',
 };
