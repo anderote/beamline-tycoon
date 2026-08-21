@@ -13,6 +13,7 @@
     "test:fast": "node scripts/run-tests.mjs --fast",
     "test:simulation": "node scripts/run-tests.mjs --simulation",
     "benchmark:ten-large": "node scripts/benchmark-ten-large.mjs",
+    "benchmark:staff": "node scripts/benchmark-staff-scale.mjs",
     "assets": "node tools/asset-gen/server.cjs",
     "test:browser": "playwright test",
     "test:browser:headed": "playwright test --headed"

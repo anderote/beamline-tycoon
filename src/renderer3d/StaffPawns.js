@@ -1,8 +1,10 @@
 // src/renderer3d/StaffPawns.js — little walking 3D people for hired staff.
 //
 // Each hired StaffMember gets a low-poly figurine built by
-// builders/staff-builder.js: a lit, shadow-casting THREE.Group of boxes and
-// faceted prisms, in the same 3D scene as the machines. (These used to be flat
+// builders/staff-builder.js: a lit THREE.Group of boxes and faceted prisms,
+// in the same 3D scene as the machines. One low-poly proxy casts the whole
+// figure's shadow; a second one-mesh silhouette replaces the rig at far LOD.
+// (These used to be flat
 // camera-facing sprites with a hard black outline, which read as a completely
 // different art style; that whole path — canvas frames, texture swapping,
 // SpriteMaterial — is gone.)
@@ -16,12 +18,12 @@
 // lives entirely in the builder's style config; this file renders whatever
 // DEFAULT_STAFF_STYLE currently points at and never hardcodes a color.
 //
-// Movement now goes through the subtile navigator (src/game/staff/nav.js):
-// every walk — to a work station or just ambient wandering — is a path of
-// subtile nodes, followed node-to-node, so pawns go around walls and through
-// doors instead of in a straight line through them. The station index
-// (src/game/staff/stations.js) supplies reservable work slots; a pawn walks
-// to a slot's node, faces its facing, and adopts the slot's pose.
+// Movement routes are simulation-owned (src/game/staff/staffMovement.js).
+// Each one-second sim step publishes the two or fewer subtile nodes it crossed;
+// this file interpolates that tiny snapshot at frame rate. It therefore draws
+// the exact wall/door-aware route without paying for a duplicate renderer A*.
+// The old setDestination/sendToStation renderer seams retain local pathfinding
+// for their direct callers, but production jobs and wandering never use it.
 //
 // Pawn motion is a pure function of `member.job` (src/game/staff/jobRunner.js)
 // — see _syncJob, the one place this file reads it. The SIM decides what to
@@ -31,19 +33,15 @@
 // target-addressed job with no StationRef at all — repair/commission — the
 // nearest reachable subtile just outside the target's real footprint, via
 // jobs.js's own wall-aware perimeter walk), and tickJobs times the work and
-// completes/abandons it. This file never asks which kind of job it is: it
-// walks the pawn to `job.destNode`, full stop. Arrival, `job.phase`, and
+// completes/abandons it. This file never asks which kind of job it is. Arrival, `job.phase`, and
 // `member.fromNode` are simulation state owned by jobRunner/staffMovement;
 // this renderer never writes them. It still releases station RESERVATIONS
 // (releaseStation/releaseAllFor) on pawn teardown and via the raw
 // sendToStation/setDestination seam, Plan 2 machinery that predates the
 // job system entirely and is unrelated to job.phase (see
-// _releaseStationFor's and _destroyPawn's own comments). A member with no
-// job ambles: _chooseAmbientTarget picks a random reachable subtile and
-// walks there, exactly like a job-driven walk mechanically, but
-// never touches member.job at all. (An earlier version of this file drove
-// pawns itself — grab any reachable station, hold it 20-60s, release,
-// repeat — before the job board existed; that throwaway driver is gone.)
+// _releaseStationFor's and _destroyPawn's own comments). Jobless ambient
+// wandering is likewise authored by the simulation and arrives through the
+// same published-node channel.
 //
 // Animation is fully procedural — no frames:
 //   - Facing: the figure's front is +Z, so heading = atan2(dx, dz) points it
@@ -77,6 +75,7 @@ import {
   staffPalette,
   staffStyleHipHeight,
   applyPose,
+  setStaffFigureDetail,
   DEFAULT_STAFF_STYLE,
 } from './builders/staff-builder.js';
 import { staffPoseFor } from './staff-pose.js';
@@ -105,6 +104,24 @@ const BOB_AMP = 0.022;        // world units of vertical body bob at full swing
 // Exponential easing time constants (seconds to ~63% of the way there).
 const TURN_TAU = 0.06;        // ~0.15s to settle a turn
 const SWING_TAU = 0.10;       // idle damping of the limb swing
+
+// Camera-target-relative animation LOD. Orthographic camera distance itself
+// is nearly constant, so the renderer passes its ground focus + zoom instead.
+// Near figures retain frame-smooth walking; mid/far figures advance in larger
+// time slices, and far figures swap their articulated rig for one mesh.
+export const STAFF_VISUAL_INTERVALS = Object.freeze({ near: 0, mid: 0.10, far: 0.25 });
+const STAFF_NEAR_SCREEN_DISTANCE = 16;
+const STAFF_FAR_SCREEN_DISTANCE = 36;
+
+export function staffVisualLevel(pawn, view = null) {
+  if (!view || !Number.isFinite(view.x) || !Number.isFinite(view.z)) return 'near';
+  const zoom = Math.max(0.2, Number(view.zoom) || 1);
+  if (zoom < 0.45) return 'far';
+  const screenDistance = Math.hypot(pawn.x - view.x, pawn.z - view.z) * Math.max(0.75, zoom);
+  if (screenDistance > STAFF_FAR_SCREEN_DISTANCE) return 'far';
+  if (zoom < 0.9 || screenDistance > STAFF_NEAR_SCREEN_DISTANCE) return 'mid';
+  return 'near';
+}
 
 // Heading (radians) that faces each cardinal facing letter, given front is
 // +Z and rotation.y = atan2(dx, dz) — same convention stations.js's
@@ -295,6 +312,14 @@ export class StaffPawns {
       // have changed. See _syncJob.
       jobAttemptDest: null,
       jobAttemptRevision: -1,
+      // Short presentation queue copied from simulation-owned movement
+      // snapshots. Unlike `path`, this is never produced by renderer A*.
+      simPath: [],
+      simPathIndex: 0,
+      publishedSequence: member._staffPresentation?.sequence || 0,
+      publishedNode: member.fromNode ? { ...member.fromNode } : null,
+      visualLevel: 'near',
+      logicAccumulator: 0,
       visualAccumulator: 0,
     };
     figure.group.rotation.y = pawn.heading;
@@ -397,7 +422,10 @@ export class StaffPawns {
   // see that method's own doc comment for the state machine it drives.
 
   /**
-   * Reconcile this pawn's walk/pose state with `member.job`. Three cases:
+   * Reconcile this pawn's walk/pose state with `member.job`. Production staff
+   * take the published-simulation branch first. The three cases documented
+   * below describe the retained no-fromNode compatibility path used only by
+   * direct renderer seams and older headless fixtures:
    *
    *   - `job == null`: nothing to walk toward. If THIS method was the one
    *     driving the pawn's current tracking (`pawn.jobTracking`), drop it
@@ -446,6 +474,16 @@ export class StaffPawns {
   _syncJob(pawn, member) {
     const state = this.game?.state;
     const job = member?.job || null;
+
+    // Production staff always have a simulation-owned fromNode before a job
+    // can be assigned. Follow the simulation's published micro-route instead
+    // of running a second renderer-side A*. The fallback below remains only
+    // for the old direct renderer seams and legacy headless fixtures that do
+    // not model simulation position at all.
+    if (member?.fromNode) {
+      this._syncPublishedState(pawn, member, job, state);
+      return;
+    }
 
     if (!job) {
       if (pawn.jobTracking) {
@@ -536,6 +574,117 @@ export class StaffPawns {
     }
   }
 
+  _enqueuePublishedMotion(pawn, member) {
+    const append = (node) => {
+      if (!node) return;
+      const tail = pawn.simPath.length
+        ? pawn.simPath[pawn.simPath.length - 1]
+        : pawn.publishedNode;
+      if (!sameNode(tail, node)) pawn.simPath.push({ ...node });
+    };
+
+    const snapshot = member?._staffPresentation;
+    if (snapshot && snapshot.sequence !== pawn.publishedSequence) {
+      pawn.publishedSequence = snapshot.sequence;
+      for (const node of snapshot.nodes || []) append(node);
+    }
+    // A load, test fixture, or very fast catch-up can publish only the latest
+    // authoritative node. Preserve correctness with one short interpolation;
+    // ordinary live movement takes the exact corner sequence above.
+    append(member?.fromNode);
+    pawn.publishedNode = member?.fromNode ? { ...member.fromNode } : pawn.publishedNode;
+  }
+
+  _syncPublishedState(pawn, member, job, state) {
+    // Preserve the public/manual renderer seam. It is intentionally separate
+    // from real staff jobs and therefore has no simulation route to follow.
+    if (!job && pawn.mode === 'pathWalk' && !pawn.jobTracking) return;
+
+    const wasTracking = pawn.jobTracking;
+    this._enqueuePublishedMotion(pawn, member);
+
+    if (!job) {
+      if (wasTracking) {
+        pawn.jobTracking = false;
+        pawn.jobDestNode = null;
+        pawn.stationKey = null;
+        pawn.pendingStation = null;
+        pawn.path = null;
+        pawn.pathIndex = 0;
+      }
+      pawn.mode = pawn.simPathIndex < pawn.simPath.length ? 'simTravel' : 'idle';
+      return;
+    }
+
+    const ref = job.stationKey ? getStationIndex(state).byKey[job.stationKey] : null;
+    if ((job.stationKey && !ref) || !job.destNode) {
+      pawn.jobTracking = true;
+      pawn.jobDestNode = null;
+      pawn.stationKey = null;
+      pawn.pendingStation = null;
+      pawn.simPath.length = 0;
+      pawn.simPathIndex = 0;
+      pawn.mode = 'idle';
+      return;
+    }
+
+    pawn.jobTracking = true;
+    pawn.jobDestNode = job.destNode;
+    pawn.stationKey = job.stationKey || null;
+    pawn.pendingStation = ref;
+
+    if (job.phase === 'work') {
+      // Work is an authoritative arrival boundary. In ordinary play the
+      // interpolated pawn is already here; after a hidden tab, very high game
+      // speed, or headless catch-up it may have a presentation backlog. Drop
+      // that stale backlog and snap rather than replaying travel while the sim
+      // is already publishing productive work.
+      this._snapToJobDest(pawn, job, ref);
+      return;
+    }
+
+    pawn.mode = pawn.simPathIndex < pawn.simPath.length ? 'simTravel' : 'travelWait';
+  }
+
+  _advancePublishedWalk(pawn, member, dt) {
+    if (pawn.simPathIndex >= pawn.simPath.length) {
+      pawn.mode = member?.job?.phase === 'travel' ? 'travelWait' : 'idle';
+      return 0;
+    }
+
+    const node = pawn.simPath[pawn.simPathIndex];
+    const targetXZ = subtileToWorld(node);
+    const dx = targetXZ.x - pawn.x;
+    const dz = targetXZ.z - pawn.z;
+    const dist = Math.hypot(dx, dz);
+    const step = pawn.speed * dt * (this.game?.state?.speed || 1);
+    let moved = 0;
+
+    if (dist <= step || dist < ARRIVE_EPS) {
+      moved = dist;
+      pawn.x = targetXZ.x;
+      pawn.z = targetXZ.z;
+      pawn.simPathIndex++;
+      if (pawn.simPathIndex >= pawn.simPath.length) {
+        pawn.simPath.length = 0;
+        pawn.simPathIndex = 0;
+        const job = member?.job;
+        if (job?.phase === 'work' && job.destNode) {
+          this._snapToJobDest(pawn, job, pawn.pendingStation);
+        } else {
+          pawn.mode = job?.phase === 'travel' ? 'travelWait' : 'idle';
+        }
+      }
+    } else {
+      moved = step;
+      pawn.x += (dx / dist) * step;
+      pawn.z += (dz / dist) * step;
+      pawn.heading += angleDelta(pawn.heading, Math.atan2(dx, dz))
+        * (1 - Math.exp(-dt / TURN_TAU));
+    }
+    return moved;
+  }
+
   /** Teleport the pawn straight onto `job.destNode` (and `ref`'s facing,
    * when a station resolved one) — used only by _syncJob to resync a pawn
    * whose job is already (or becomes) phase: 'work' without this pawn
@@ -551,6 +700,8 @@ export class StaffPawns {
     pawn.mode = 'working';
     pawn.path = null;
     pawn.pathIndex = 0;
+    pawn.simPath.length = 0;
+    pawn.simPathIndex = 0;
   }
 
   /**
@@ -772,7 +923,7 @@ export class StaffPawns {
 
   // --- Per-frame update ----------------------------------------------------
 
-  update(dt) {
+  update(dt, view = null) {
     if (!this._pawns.size) return;
     // Keep presentation frozen with the simulation while paused.
     if (this.game?.state?.paused) return;
@@ -787,6 +938,17 @@ export class StaffPawns {
       // pose, so pathing/procedural animation must not fight it.
       if (pawn.ragdolled) continue;
 
+      const nextLevel = staffVisualLevel(pawn, view);
+      if (nextLevel !== pawn.visualLevel) {
+        pawn.visualLevel = nextLevel;
+        setStaffFigureDetail(pawn.figure, nextLevel);
+      }
+      pawn.logicAccumulator += dt;
+      const logicInterval = STAFF_VISUAL_INTERVALS[nextLevel];
+      if (logicInterval > 0 && pawn.logicAccumulator < logicInterval) continue;
+      const logicDt = pawn.logicAccumulator;
+      pawn.logicAccumulator = 0;
+
       // Reconcile walk/pose state with member.job FIRST, before anything
       // mode-based below runs this frame — see _syncJob's own doc comment
       // for the three-way split (no job / travel / work) this drives.
@@ -797,12 +959,14 @@ export class StaffPawns {
         // job, even one _syncJob couldn't find anything to walk toward for
         // (see its target-addressed-job case), stays put rather than
         // wandering off from its own assignment.
-        if (!member?.job) {
-          pawn.idleT -= dt;
+        if (!member?.job && !member?.fromNode) {
+          pawn.idleT -= logicDt;
           if (pawn.idleT <= 0) this._chooseAmbientTarget(pawn, member);
         }
       } else if (pawn.mode === 'pathWalk') {
-        moved = this._advancePathWalk(pawn, member, dt);
+        moved = this._advancePathWalk(pawn, member, logicDt);
+      } else if (pawn.mode === 'simTravel') {
+        moved = this._advancePublishedWalk(pawn, member, logicDt);
       } else if (pawn.mode === 'working') {
         this._advanceWorking(pawn);
       }
@@ -810,7 +974,7 @@ export class StaffPawns {
       const nextPose = this._poseFor(pawn, member);
       const poseChanged = nextPose !== pawn.pose;
       pawn.pose = nextPose;
-      pawn.visualAccumulator += dt;
+      pawn.visualAccumulator += logicDt;
       // Walking remains frame-smooth. Stationary rigs only need 20 Hz while
       // easing into a pose; this avoids rewriting every limb matrix at 60 Hz
       // for an idle roster while keeping job/arrival logic frame-current.
@@ -843,21 +1007,23 @@ export class StaffPawns {
    * lets a pawn ease from walk into sit without a discontinuity.
    */
   _animate(pawn, dt, moved) {
-    const walking = pawn.mode === 'pathWalk';
+    const walking = pawn.mode === 'pathWalk' || pawn.mode === 'simTravel';
     if (walking) pawn.phase += moved * PHASE_PER_UNIT;
 
     // Ease the swing amplitude in and out so stopping settles rather than snaps.
     const targetSwing = walking ? SWING_AMP : 0;
     pawn.swing += (targetSwing - pawn.swing) * (1 - Math.exp(-dt / SWING_TAU));
 
-    applyPose(pawn.figure, pawn.pose, dt);
+    if (pawn.visualLevel !== 'far') applyPose(pawn.figure, pawn.pose, dt);
 
     const angle = pawn.swing * Math.sin(pawn.phase);
     const fig = pawn.figure;
-    fig.leftLeg.rotation.x += angle;
-    fig.rightLeg.rotation.x += -angle;
-    fig.leftArm.rotation.x += -angle;   // arms counter-phase their same-side leg
-    fig.rightArm.rotation.x += angle;
+    if (pawn.visualLevel !== 'far') {
+      fig.leftLeg.rotation.x += angle;
+      fig.rightLeg.rotation.x += -angle;
+      fig.leftArm.rotation.x += -angle;   // arms counter-phase their same-side leg
+      fig.rightArm.rotation.x += angle;
+    }
 
     // Bob at twice the stride frequency, phased so it never dips below 0 —
     // the figure rises off its planted foot rather than sinking into the slab.

@@ -104,6 +104,11 @@ export class StaffMember {
     // loaded or serialized; fromNode + the destination are enough to rebuild
     // it after load or a navigation revision.
     this._staffMotion = null;
+    // Transient presentation snapshot published by staffMovement whenever the
+    // simulation advances along a route. Renderers may read this short node
+    // sequence to interpolate the authoritative trip, but never acknowledge or
+    // mutate it. Like _staffMotion it intentionally does not survive save/load.
+    this._staffPresentation = null;
     // Work progress a need pre-emption bumped this member off of — `{
     // jobType, progress, target }` or null. Set only by jobRunner.js's
     // tryTakeNeedJob (never for eat/rest itself — there's nothing useful to

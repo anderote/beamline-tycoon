@@ -12,6 +12,10 @@ integration worktree; none require the stable server on port 8000.
 | Browser | `npm run test:browser` | Rendering, startup, and real interaction paths |
 | Build | `npm run build` | Vite dependency/export resolution and production bundling |
 
+Staff scale work also runs `npm run benchmark:staff`; see
+[`docs/STAFF-SCALE-VALIDATION.md`](STAFF-SCALE-VALIDATION.md) for its contract
+and the owner-only browser/profile checklist.
+
 The simulation lane is required for changes to economy, staffing, utility
 topology, scripted scenarios, or catalogue operating costs. The repository does
 not model a prescribed full-career synthetic player. Browser tests are required

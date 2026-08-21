@@ -3975,7 +3975,13 @@ export class ThreeRenderer {
     // Update moving visual instances/proxies before LightRig ranks those
     // proxies, so physical lights follow the current-frame pulse positions.
     this._effectSystem?.update(_dt, this._darkness ?? 0);
-    if (this.staffPawns) this.staffPawns.update(_dt);
+    if (this.staffPawns) {
+      this.staffPawns.update(_dt, {
+        x: this._panX || 0,
+        z: this._panY || 0,
+        zoom: this.zoom || 1,
+      });
+    }
     // Real lights: fixture spots/shadows, ambient glow points, flash decay.
     // See light-rig.js — nightFactor was computed this same frame by
     // _updateSunCycle() above.
