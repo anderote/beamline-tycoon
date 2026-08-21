@@ -40,7 +40,7 @@ export class ApplyPreviewDialog {
   /**
    * @param {Object} summary  planDesignerApply().summary
    * @param {{name?: string, title?: string, applyLabel?: string,
-   *          backLabel?: string}} [opts]
+   *          backLabel?: string, freeConstruction?: boolean}} [opts]
    * @returns {Promise<'apply'|'back'>}
    */
   open(summary, opts = {}) {
@@ -144,9 +144,13 @@ export class ApplyPreviewDialog {
     const deletions = [];
     for (const rm of summary.removes || []) {
       deletions.push(this._row('−', 'apv-remove', this._label(rm),
-        `+${money(rm.refund)} refund`));
+        opts.freeConstruction ? 'destroyed · no sandbox refund' : `+${money(rm.refund)} refund`));
     }
     const notices = [];
+    if (opts.freeConstruction) {
+      notices.push(this._row('◇', 'apv-move',
+        'Free construction is on — the quoted price will not be charged', ''));
+    }
     if (summary.movedCount > 0) {
       const d = summary.movedDistanceM;
       notices.push(this._row('↕', 'apv-move',
@@ -171,7 +175,7 @@ export class ApplyPreviewDialog {
       ${this._section('Deleted', deletions)}
       ${notices.length ? this._section('Other changes', notices, '') : ''}
       <div class="apv-total">
-        <span class="apv-total-label">Net cost</span>
+        <span class="apv-total-label">${opts.freeConstruction ? 'Nominal net cost' : 'Net cost'}</span>
         <span class="apv-total-value ${total > 0 ? 'apv-cost' : 'apv-credit'}">${esc(totalText)}</span>
       </div>`;
   }
