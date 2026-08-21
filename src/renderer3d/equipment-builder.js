@@ -48,6 +48,126 @@ function _partMaterial(baseName, colorHex) {
   return m;
 }
 
+// ── Static-part merging ──────────────────────────────────────────────
+// A placeable authored from `parts` used to render one Mesh per part: a
+// cafeteria chair cost 10 draw calls, a workstation 16. Nothing about those
+// boxes is dynamic — they never move relative to their wrapper — so they are
+// baked into ONE merged BufferGeometry per resolved surface (same idea as
+// floor-builder, which merges 1,793 floor tiles into 22 meshes).
+//
+// Grouping key is the surface, not the colour: parts that differ only by a
+// flat colour are merged into a single geometry whose per-vertex `color`
+// attribute carries what used to be `material.color`. MeshStandardMaterial
+// multiplies material.color (white here) by the vertex colour, so the shaded
+// result is bit-identical to the per-part material. Vertex colours are read
+// in the working colour space, and THREE.Color/`material.color` already live
+// there, so we copy .r/.g/.b straight across (same trick as floor-builder's
+// per-tile tint).
+//
+// What is NOT merged: glow parts. They carry userData.role === 'glow', which
+// light-rig.js traverses for to attach real PointLights, VisualEffectSystem
+// clones their material per mesh to animate them independently, and the
+// bloom pass selects them by layer. They stay one mesh per part.
+
+/** Cache of merged-surface materials, keyed by map + roughness + metalness. */
+const _mergedPartMatCache = new Map();
+
+function _mergedSurfaceKey(mat) {
+  return `${mat.map ? mat.map.uuid : '-'}|${mat.roughness}|${mat.metalness}`;
+}
+
+/**
+ * Vertex-colour twin of a resolved per-part material: same map and shading
+ * constants, but the flat colour moves onto the geometry.
+ */
+function _mergedPartMaterial(sourceMat) {
+  const key = _mergedSurfaceKey(sourceMat);
+  let m = _mergedPartMatCache.get(key);
+  if (m) return m;
+  m = new THREE.MeshStandardMaterial({
+    map: sourceMat.map,
+    color: 0xffffff,
+    roughness: sourceMat.roughness,
+    metalness: sourceMat.metalness,
+    vertexColors: true,
+  });
+  _mergedPartMatCache.set(key, m);
+  return m;
+}
+
+/**
+ * Concatenate already-transformed part geometries into one indexed
+ * BufferGeometry, stamping each part's flat colour into a `color` attribute.
+ *
+ * @param {Array<{ geometry: THREE.BufferGeometry, color: THREE.Color }>} entries
+ * @returns {THREE.BufferGeometry}
+ */
+function _mergePartGeometries(entries) {
+  let vertexTotal = 0;
+  let indexTotal = 0;
+  let haveNormals = true;
+  let haveUVs = true;
+  for (const { geometry } of entries) {
+    const position = geometry.attributes.position;
+    vertexTotal += position.count;
+    indexTotal += geometry.index ? geometry.index.count : position.count;
+    if (!geometry.attributes.normal) haveNormals = false;
+    if (!geometry.attributes.uv) haveUVs = false;
+  }
+
+  const positions = new Float32Array(vertexTotal * 3);
+  const normals = haveNormals ? new Float32Array(vertexTotal * 3) : null;
+  const uvs = haveUVs ? new Float32Array(vertexTotal * 2) : null;
+  const colors = new Float32Array(vertexTotal * 3);
+  const indices = vertexTotal > 65535
+    ? new Uint32Array(indexTotal)
+    : new Uint16Array(indexTotal);
+
+  let vertexOffset = 0;
+  let indexOffset = 0;
+  // Index window of each source part. The physics mass integrator reads these
+  // back (geometry-mass-properties.js) so a merged prop still measures as the
+  // set of closed shells it was authored as, not as one non-manifold soup.
+  const ranges = [];
+  for (const { geometry, color } of entries) {
+    const position = geometry.attributes.position;
+    const count = position.count;
+    positions.set(position.array.subarray(0, count * 3), vertexOffset * 3);
+    if (normals) {
+      normals.set(geometry.attributes.normal.array.subarray(0, count * 3), vertexOffset * 3);
+    }
+    if (uvs) {
+      uvs.set(geometry.attributes.uv.array.subarray(0, count * 2), vertexOffset * 2);
+    }
+    const r = color.r, g = color.g, b = color.b;
+    for (let k = 0; k < count; k++) {
+      const o = (vertexOffset + k) * 3;
+      colors[o] = r; colors[o + 1] = g; colors[o + 2] = b;
+    }
+    const rangeStart = indexOffset;
+    if (geometry.index) {
+      const src = geometry.index.array;
+      for (let k = 0; k < src.length; k++) indices[indexOffset + k] = src[k] + vertexOffset;
+      indexOffset += src.length;
+    } else {
+      for (let k = 0; k < count; k++) indices[indexOffset + k] = vertexOffset + k;
+      indexOffset += count;
+    }
+    ranges.push({ start: rangeStart, count: indexOffset - rangeStart });
+    vertexOffset += count;
+  }
+
+  const merged = new THREE.BufferGeometry();
+  merged.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  if (normals) merged.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  if (uvs) merged.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  merged.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  merged.setIndex(new THREE.BufferAttribute(indices, 1));
+  merged.userData.shellRanges = ranges;
+  if (!normals) merged.computeVertexNormals();
+  return merged;
+}
+
 /**
  * Build one authored equipment part inside an exact w/h/l bounding box.
  * `box` remains the backwards-compatible default; the small primitive set
@@ -273,6 +393,16 @@ export class EquipmentBuilder {
             physicalGlowIndex = i;
           }
         }
+        // Static parts collect into per-surface buckets and become one merged
+        // mesh each; glow parts stay individual (see the merging notes above).
+        /** @type {Map<string, { material: THREE.Material, entries: Array, manifest: Array }>} */
+        const staticBuckets = new Map();
+        const partMatrix = new THREE.Matrix4();
+        const partEuler = new THREE.Euler();
+        const partQuat = new THREE.Quaternion();
+        const partPos = new THREE.Vector3();
+        const partScale = new THREE.Vector3(1, 1, 1);
+
         for (const [partIndex, part] of compDef.parts.entries()) {
           const pw = (part.w || 1) * SUB_UNIT;
           const ph = (part.h || 1) * SUB_UNIT;
@@ -284,33 +414,72 @@ export class EquipmentBuilder {
           const partBase = partMatName ?? baseName;
           const partColor = partColorHex ?? (partBase ? null : fallbackColor);
           const glowSpec = equipmentPartGlowSpec(compDef, { ...part, color: partColorHex });
-          const mat = glowSpec
-            ? getGlowMaterial(`${compDef.id}:parts`, glowSpec.color)
-            : _partMaterial(partBase, partColor);
-          const mesh = new THREE.Mesh(geo, mat);
-          mesh.userData.partName = part.name || null;
-          mesh.userData.partShape = part.shape || 'box';
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
           // Part position: (x, z) is the part's center in the footprint-
           // centered plane; y is its BOTTOM (easier to author), so we
           // lift by h/2 to get the BoxGeometry center.
-          mesh.position.set(
+          partPos.set(
             (part.x || 0) * SUB_UNIT,
             ((part.y || 0) + (part.h || 1) / 2) * SUB_UNIT,
             (part.z || 0) * SUB_UNIT,
           );
           if (Array.isArray(part.rotation)) {
-            mesh.rotation.set(part.rotation[0], part.rotation[1], part.rotation[2]);
+            partEuler.set(part.rotation[0], part.rotation[1], part.rotation[2]);
+          } else {
+            partEuler.set(0, 0, 0);
           }
-          mesh.matrixAutoUpdate = false;
-          mesh.updateMatrix();
+
           if (glowSpec) {
+            const mesh = new THREE.Mesh(
+              geo, getGlowMaterial(`${compDef.id}:parts`, glowSpec.color),
+            );
+            mesh.userData.partName = part.name || null;
+            mesh.userData.partShape = part.shape || 'box';
+            mesh.userData.parts = [{ name: part.name || null, shape: part.shape || 'box' }];
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            mesh.position.copy(partPos);
+            mesh.rotation.copy(partEuler);
+            mesh.matrixAutoUpdate = false;
+            mesh.updateMatrix();
             configureGlowMesh(mesh, {
               profile: glowSpec.profile,
               light: partIndex === physicalGlowIndex ? glowSpec.light : false,
             });
+            group.add(mesh);
+            continue;
           }
+
+          // Static part: bake the local transform into the geometry and file
+          // it under its resolved surface. `_partMaterial` stays the single
+          // source of truth for how map/colour/roughness resolve — we merely
+          // read the answer back off the material it hands us.
+          const sourceMat = _partMaterial(partBase, partColor);
+          partQuat.setFromEuler(partEuler);
+          partMatrix.compose(partPos, partQuat, partScale);
+          geo.applyMatrix4(partMatrix);
+          const key = _mergedSurfaceKey(sourceMat);
+          let bucket = staticBuckets.get(key);
+          if (!bucket) {
+            bucket = { material: _mergedPartMaterial(sourceMat), entries: [], manifest: [] };
+            staticBuckets.set(key, bucket);
+          }
+          bucket.entries.push({ geometry: geo, color: sourceMat.color });
+          bucket.manifest.push({ name: part.name || null, shape: part.shape || 'box' });
+        }
+
+        for (const bucket of staticBuckets.values()) {
+          const merged = _mergePartGeometries(bucket.entries);
+          for (const entry of bucket.entries) entry.geometry.dispose();
+          const mesh = new THREE.Mesh(merged, bucket.material);
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          mesh.matrixAutoUpdate = false;
+          mesh.updateMatrix();
+          // The individual parts no longer exist as objects; keep their
+          // identity as a manifest so catalogue tests and debugging can still
+          // ask what went into this surface.
+          mesh.userData.parts = bucket.manifest;
+          mesh.userData.mergedPartCount = bucket.manifest.length;
           group.add(mesh);
         }
         group.position.set(centerX, baseY, centerZ);

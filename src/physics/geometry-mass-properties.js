@@ -34,16 +34,41 @@ function visibleGeometry(mesh) {
   return !materials.length || materials.some((material) => material?.visible !== false);
 }
 
-function triangleIndices(geometry, visit) {
+/**
+ * Visit the triangles of one shell. `range` is a {start, count} window into
+ * the geometry's index (or, unindexed, into its vertices); omit it for the
+ * whole geometry.
+ */
+function triangleIndices(geometry, visit, range = null) {
   const position = geometry.attributes.position;
   const index = geometry.index;
   if (index) {
-    for (let i = 0; i + 2 < index.count; i += 3) {
+    const start = range ? range.start : 0;
+    const end = Math.min(index.count, range ? range.start + range.count : index.count);
+    for (let i = start; i + 2 < end; i += 3) {
       visit(index.getX(i), index.getX(i + 1), index.getX(i + 2), position);
     }
   } else {
-    for (let i = 0; i + 2 < position.count; i += 3) visit(i, i + 1, i + 2, position);
+    const start = range ? range.start : 0;
+    const end = Math.min(position.count, range ? range.start + range.count : position.count);
+    for (let i = start; i + 2 < end; i += 3) visit(i, i + 1, i + 2, position);
   }
+}
+
+/**
+ * The shells inside one mesh. Normally a mesh IS one shell, but renderers that
+ * bake several authored parts into a single BufferGeometry to save draw calls
+ * (see equipment-builder's static-part merging) publish the index range of
+ * each original part as `geometry.userData.shellRanges`. Integrating those
+ * ranges separately keeps a merged prop measuring exactly like the loose parts
+ * it replaced: two boxes stacked flush share an edge, so the union's edges are
+ * counted four times and the whole merged mesh would otherwise fail the
+ * watertightness test and collapse to its bounding box.
+ */
+function shellRanges(geometry) {
+  const declared = geometry.userData?.shellRanges;
+  if (!Array.isArray(declared) || declared.length === 0) return [null];
+  return declared;
 }
 
 function weldedVertexKey(point) {
@@ -82,54 +107,56 @@ export function geometryMassProperties(root, options = {}) {
     if (!visibleGeometry(mesh)) return;
     meshCount++;
     _relative.multiplyMatrices(_rootInverse, mesh.matrixWorld);
-    let signedVolume = 0;
-    const signedCentroid = new Vector3();
-    const meshBounds = new Box3().makeEmpty();
-    const edges = new Map();
+    for (const range of shellRanges(mesh.geometry)) {
+      let signedVolume = 0;
+      const signedCentroid = new Vector3();
+      const meshBounds = new Box3().makeEmpty();
+      const edges = new Map();
 
-    triangleIndices(mesh.geometry, (ia, ib, ic, position) => {
-      _a.fromBufferAttribute(position, ia).applyMatrix4(_relative);
-      _b.fromBufferAttribute(position, ib).applyMatrix4(_relative);
-      _c.fromBufferAttribute(position, ic).applyMatrix4(_relative);
-      meshBounds.expandByPoint(_a);
-      meshBounds.expandByPoint(_b);
-      meshBounds.expandByPoint(_c);
-      bounds.expandByPoint(_a);
-      bounds.expandByPoint(_b);
-      bounds.expandByPoint(_c);
-      const ka = weldedVertexKey(_a);
-      const kb = weldedVertexKey(_b);
-      const kc = weldedVertexKey(_c);
-      countEdge(edges, ka, kb);
-      countEdge(edges, kb, kc);
-      countEdge(edges, kc, ka);
-      const tetraVolume = _a.dot(_cross.crossVectors(_b, _c)) / 6;
-      signedVolume += tetraVolume;
-      _centroid.copy(_a).add(_b).add(_c).multiplyScalar(tetraVolume / 4);
-      signedCentroid.add(_centroid);
-      triangleCount++;
-    });
+      triangleIndices(mesh.geometry, (ia, ib, ic, position) => {
+        _a.fromBufferAttribute(position, ia).applyMatrix4(_relative);
+        _b.fromBufferAttribute(position, ib).applyMatrix4(_relative);
+        _c.fromBufferAttribute(position, ic).applyMatrix4(_relative);
+        meshBounds.expandByPoint(_a);
+        meshBounds.expandByPoint(_b);
+        meshBounds.expandByPoint(_c);
+        bounds.expandByPoint(_a);
+        bounds.expandByPoint(_b);
+        bounds.expandByPoint(_c);
+        const ka = weldedVertexKey(_a);
+        const kb = weldedVertexKey(_b);
+        const kc = weldedVertexKey(_c);
+        countEdge(edges, ka, kb);
+        countEdge(edges, kb, kc);
+        countEdge(edges, kc, ka);
+        const tetraVolume = _a.dot(_cross.crossVectors(_b, _c)) / 6;
+        signedVolume += tetraVolume;
+        _centroid.copy(_a).add(_b).add(_c).multiplyScalar(tetraVolume / 4);
+        signedCentroid.add(_centroid);
+        triangleCount++;
+      }, range);
 
-    // A non-zero signed tetrahedron sum alone does not prove enclosure: an
-    // open, off-origin triangle soup can also produce a plausible-looking
-    // pseudo-volume. Welding coincident seam vertices and requiring every
-    // undirected edge exactly twice distinguishes closed authored shells from
-    // open/non-manifold art before its volume is trusted.
-    const closed = edges.size > 0 && [...edges.values()].every((count) => count === 2);
-    if (closed && Math.abs(signedVolume) > EPSILON_VOLUME) {
-      const shellVolume = Math.abs(signedVolume);
-      signedCentroid.multiplyScalar(1 / signedVolume);
-      weightedCentroid.addScaledVector(signedCentroid, shellVolume);
-      volume += shellVolume;
-      closedMeshCount++;
-    } else if (!meshBounds.isEmpty()) {
-      usedBoundsFallback = true;
-      fallbackMeshCount++;
-      const meshSize = meshBounds.getSize(new Vector3());
-      const fallbackVolume = meshSize.x * meshSize.y * meshSize.z;
-      if (fallbackVolume > EPSILON_VOLUME) {
-        weightedCentroid.addScaledVector(meshBounds.getCenter(new Vector3()), fallbackVolume);
-        volume += fallbackVolume;
+      // A non-zero signed tetrahedron sum alone does not prove enclosure: an
+      // open, off-origin triangle soup can also produce a plausible-looking
+      // pseudo-volume. Welding coincident seam vertices and requiring every
+      // undirected edge exactly twice distinguishes closed authored shells from
+      // open/non-manifold art before its volume is trusted.
+      const closed = edges.size > 0 && [...edges.values()].every((count) => count === 2);
+      if (closed && Math.abs(signedVolume) > EPSILON_VOLUME) {
+        const shellVolume = Math.abs(signedVolume);
+        signedCentroid.multiplyScalar(1 / signedVolume);
+        weightedCentroid.addScaledVector(signedCentroid, shellVolume);
+        volume += shellVolume;
+        closedMeshCount++;
+      } else if (!meshBounds.isEmpty()) {
+        usedBoundsFallback = true;
+        fallbackMeshCount++;
+        const meshSize = meshBounds.getSize(new Vector3());
+        const fallbackVolume = meshSize.x * meshSize.y * meshSize.z;
+        if (fallbackVolume > EPSILON_VOLUME) {
+          weightedCentroid.addScaledVector(meshBounds.getCenter(new Vector3()), fallbackVolume);
+          volume += fallbackVolume;
+        }
       }
     }
   });

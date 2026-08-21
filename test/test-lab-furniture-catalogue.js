@@ -198,43 +198,49 @@ builder.build(
 );
 assert.equal(parent.children.length, TESTED_FURNITURE.length,
   'every new lab furnishing builds through the production equipment renderer');
+// EquipmentBuilder bakes the static parts of a placeable into one merged
+// geometry per surface, so "detailed" is a count of the authored parts that
+// went into the object (userData.parts), not a count of meshes.
+const authoredParts = (object) => {
+  const parts = [];
+  object.traverse(child => {
+    if (child.isMesh && Array.isArray(child.userData.parts)) parts.push(...child.userData.parts);
+  });
+  return parts;
+};
 for (const object of parent.children) {
-  let meshes = 0;
-  object.traverse(child => { if (child.isMesh) meshes++; });
-  assert.ok(meshes >= 4, `${object.userData.placeableType} renders as a detailed multi-mesh object`);
+  assert.ok(authoredParts(object).length >= 4,
+    `${object.userData.placeableType} renders as a detailed multi-part object`);
 }
 
 const experimentalObjects = parent.children.filter(object =>
   EXPERIMENTAL_RF.includes(object.userData.placeableType));
 const primitiveShapes = new Set();
 for (const object of experimentalObjects) {
-  object.traverse(child => {
-    if (child.isMesh) primitiveShapes.add(child.userData.partShape);
-  });
+  for (const part of authoredParts(object)) primitiveShapes.add(part.shape);
 }
 assert.deepEqual([...primitiveShapes].sort(), ['box', 'cone', 'cylinder', 'sphere', 'torus'],
   'experimental RF apparatus exercises the complete authored primitive vocabulary');
 
 const teslaObject = parent.children.find(object => object.userData.placeableType === 'teslaCoil');
-const teslaParts = new Map();
+const teslaShapes = new Map(authoredParts(teslaObject).map(part => [part.name, part.shape]));
+// Glow parts are never merged — light-rig and the effect system need them as
+// individual objects — so the arc is still findable as its own mesh.
+const teslaMeshes = new Map();
 teslaObject.traverse(child => {
-  if (child.isMesh) teslaParts.set(child.userData.partName, child);
+  if (child.isMesh && child.userData.partName) teslaMeshes.set(child.userData.partName, child);
 });
-assert.equal(teslaParts.get('topToroid')?.userData.partShape, 'torus',
+assert.equal(teslaShapes.get('topToroid'), 'torus',
   'the Tesla coil terminates in a real toroidal mesh');
-assert.ok(teslaParts.get('arcGlow1')?.userData.role === 'glow',
+assert.ok(teslaMeshes.get('arcGlow1')?.userData.role === 'glow',
   'the Tesla coil arc reaches the shared emissive-effects pipeline');
-assert.ok(Math.abs(teslaParts.get('arcGlow1')?.rotation.z) > 0.5,
+assert.ok(Math.abs(teslaMeshes.get('arcGlow1')?.rotation.z) > 0.5,
   'the Tesla coil arc preserves its authored diagonal rotation');
 
 const vanDeGraaffObject = parent.children.find(object =>
   object.userData.placeableType === 'vanDeGraaffGenerator');
-let hasSphericalDome = false;
-vanDeGraaffObject.traverse(child => {
-  if (child.userData.partName === 'dome' && child.userData.partShape === 'sphere') {
-    hasSphericalDome = true;
-  }
-});
+const hasSphericalDome = authoredParts(vanDeGraaffObject)
+  .some(part => part.name === 'dome' && part.shape === 'sphere');
 assert.equal(hasSphericalDome, true, 'the Van de Graaff uses a spherical terminal dome');
 
 const computerDesk = parent.children.find(object =>

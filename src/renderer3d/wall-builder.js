@@ -18,6 +18,7 @@ import {
 import { MATERIALS } from './materials/index.js';
 import { applyTiledBoxUVs } from './uv-utils.js';
 import { contentKey } from './content-hash.js';
+import { WallBatcher, canBatchWalls } from './wall-batcher.js';
 
 // Exported so callers that must size geometry to match what this builder
 // emits (e.g. ThreeRenderer.renderWindowPreview's drag ghost) read the same
@@ -247,9 +248,42 @@ function _offsetUVsU(geo, du) {
 export class WallBuilder {
   constructor(textureManager) {
     this._textureManager = textureManager;
+    // Every piece this builder authors, whether or not it is itself parented
+    // to the scene. When batching is active these are the SOURCE meshes: they
+    // stay detached (their triangles live in the BatchedMeshes below) but they
+    // remain the per-wall record used for teardown and for the physics
+    // presentation's per-wall colliders, which must not see one facility-sized
+    // box in place of 600 wall slabs.
     /** @type {THREE.Mesh[]} */
     this._meshes = [];
+    /** Batched draw-call meshes actually parented to the wall group. */
+    this._batches = [];
+    /** Collects `_meshes` into batches during a build; null when unbatched. */
+    this._batcher = null;
     this._cacheKey = null;
+  }
+
+  /**
+   * Visit every authored wall piece, batched or not. The physics presentation
+   * builds one static collider per visited mesh, so it must be handed the
+   * per-wall sources rather than the wall group's (possibly batched) children.
+   * @param {(mesh: THREE.Mesh) => void} visit
+   */
+  forEachSourceMesh(visit) {
+    for (const mesh of this._meshes) visit(mesh);
+  }
+
+  /**
+   * Parent a freshly authored piece, or hand it to the batcher when one is
+   * open. Callers must have composed the mesh's local matrix already
+   * (matrixAutoUpdate = false + updateMatrix()), which every site does.
+   * @param {THREE.Mesh} mesh
+   * @param {THREE.Group} parentGroup
+   */
+  _emit(mesh, parentGroup) {
+    this._meshes.push(mesh);
+    if (this._batcher && this._batcher.add(mesh)) return;
+    parentGroup.add(mesh);
   }
 
   /**
@@ -272,6 +306,7 @@ export class WallBuilder {
     if (newKey === this._cacheKey && this._meshes.length > 0) return;
 
     this._cleanup(parentGroup);
+    this._batcher = canBatchWalls() ? new WallBatcher() : null;
 
     const isTransparent = wallVisibility === 'transparent';
 
@@ -475,12 +510,16 @@ export class WallBuilder {
       mesh.receiveShadow = true;
       mesh.matrixAutoUpdate = false;
       mesh.updateMatrix();
-      parentGroup.add(mesh);
-      this._meshes.push(mesh);
+      // Stamped BEFORE the mesh is handed over: the batcher buckets by
+      // renderOrder, so a glazed pane that gains renderOrder 2 afterwards
+      // would be batched as if it were ordinary opaque wall.
       if (isGlassWall) {
         mesh.userData ||= {};
         mesh.userData.glassWall = true;
         mesh.renderOrder = 2;
+      }
+      this._emit(mesh, parentGroup);
+      if (isGlassWall) {
         this._buildGlassWallFrame({
           wall: w, def, span: span || 1, height, thickness,
           center: pos, yLow, yHigh, ghosted: viewGhosted,
@@ -627,8 +666,7 @@ export class WallBuilder {
       postA.castShadow = !(isTransparent || isDoorCutaway);
       postA.matrixAutoUpdate = false;
       postA.updateMatrix();
-      parentGroup.add(postA);
-      this._meshes.push(postA);
+      this._emit(postA, parentGroup);
 
       // Post B
       const postB = new THREE.Mesh(postGeo.clone(), activeDoorMat);
@@ -640,8 +678,7 @@ export class WallBuilder {
       postB.castShadow = !(isTransparent || isDoorCutaway);
       postB.matrixAutoUpdate = false;
       postB.updateMatrix();
-      parentGroup.add(postB);
-      this._meshes.push(postB);
+      this._emit(postB, parentGroup);
 
       // Lintel across the opening
       const lintelGeo = isNS
@@ -656,8 +693,7 @@ export class WallBuilder {
       lintel.castShadow = !(isTransparent || isDoorCutaway);
       lintel.matrixAutoUpdate = false;
       lintel.updateMatrix();
-      parentGroup.add(lintel);
-      this._meshes.push(lintel);
+      this._emit(lintel, parentGroup);
 
       // Fill the wall on whichever sides of the opening still have room. With
       // a subtile offset the two sides are no longer symmetric: off=0 and
@@ -690,8 +726,7 @@ export class WallBuilder {
         sideMesh.receiveShadow = true;
         sideMesh.matrixAutoUpdate = false;
         sideMesh.updateMatrix();
-        parentGroup.add(sideMesh);
-        this._meshes.push(sideMesh);
+        this._emit(sideMesh, parentGroup);
       }
 
       // Wall segment above the door (from lintel top to wall top)
@@ -721,8 +756,7 @@ export class WallBuilder {
         aboveMesh.receiveShadow = true;
         aboveMesh.matrixAutoUpdate = false;
         aboveMesh.updateMatrix();
-        parentGroup.add(aboveMesh);
-        this._meshes.push(aboveMesh);
+        this._emit(aboveMesh, parentGroup);
       }
 
       // --- Door panels (the visible leaves) ---
@@ -796,8 +830,7 @@ export class WallBuilder {
           }
           panel.matrixAutoUpdate = false;
           panel.updateMatrix();
-          parentGroup.add(panel);
-          this._meshes.push(panel);
+          this._emit(panel, parentGroup);
         }
 
         if (doorDef.isGlassDoor) {
@@ -825,8 +858,7 @@ export class WallBuilder {
             handle.userData.doorLeafIndex = handleIndex;
             handle.matrixAutoUpdate = false;
             handle.updateMatrix();
-            parentGroup.add(handle);
-            this._meshes.push(handle);
+            this._emit(handle, parentGroup);
           }
         }
       }
@@ -862,6 +894,11 @@ export class WallBuilder {
       windowData, wallTypeByEdge, matCache, isTransparent,
       wallVisibility, cutawayRoom, parentGroup,
     });
+
+    if (this._batcher) {
+      this._batches = this._batcher.flush(parentGroup);
+      this._batcher = null;
+    }
 
     this._cacheKey = newKey;
   }
@@ -966,8 +1003,7 @@ export class WallBuilder {
       mesh.receiveShadow = true;
       mesh.matrixAutoUpdate = false;
       mesh.updateMatrix();
-      parentGroup.add(mesh);
-      this._meshes.push(mesh);
+      this._emit(mesh, parentGroup);
     };
 
     // 1. Fill beside the opening (sub-tile widths only). Compact windows can
@@ -1004,8 +1040,7 @@ export class WallBuilder {
       side.receiveShadow = true;
       side.matrixAutoUpdate = false;
       side.updateMatrix();
-      parentGroup.add(side);
-      this._meshes.push(side);
+      this._emit(side, parentGroup);
     }
 
     // 2. Fill above the opening (head to wall top).
@@ -1133,8 +1168,7 @@ export class WallBuilder {
         mesh.receiveShadow = true;
         mesh.matrixAutoUpdate = false;
         mesh.updateMatrix();
-        parentGroup.add(mesh);
-        this._meshes.push(mesh);
+        this._emit(mesh, parentGroup);
       };
 
       const halfOpening = openingWidth / 2;
@@ -1185,8 +1219,7 @@ export class WallBuilder {
       glass.renderOrder = 2;
       glass.matrixAutoUpdate = false;
       glass.updateMatrix();
-      parentGroup.add(glass);
-      this._meshes.push(glass);
+      this._emit(glass, parentGroup);
     }
   }
 
@@ -1293,8 +1326,7 @@ export class WallBuilder {
       mesh.userData.glassWallFrame = true;
       mesh.matrixAutoUpdate = false;
       mesh.updateMatrix();
-      parentGroup.add(mesh);
-      this._meshes.push(mesh);
+      this._emit(mesh, parentGroup);
     };
 
     const railGeo = isNS
@@ -1562,8 +1594,19 @@ export class WallBuilder {
   }
 
   _cleanup(parentGroup) {
+    this._batcher = null;
+    // Batches own copies of the source vertex data plus their own matrix /
+    // indirect textures; dispose them before the shared materials go.
+    for (const batch of this._batches) {
+      parentGroup.remove(batch);
+      batch.dispose?.();
+      batch.geometry?.dispose?.();
+    }
+    this._batches = [];
+
     const mats = new Set();
     for (const mesh of this._meshes) {
+      // A no-op when the piece was batched rather than parented.
       parentGroup.remove(mesh);
       mesh.geometry.dispose();
       // Painted walls use BoxGeometry's six-material array so each room-facing

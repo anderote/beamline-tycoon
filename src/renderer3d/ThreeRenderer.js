@@ -200,7 +200,14 @@ export class ThreeRenderer {
       equipmentMeshes: () => this.equipmentBuilder?._meshes,
       componentMeshes: () => this.componentBuilder?._meshMap,
       decorationGroups: () => this.decorationBuilder?._groups,
-      forEachWallMesh: (visit) => this.wallGroup?.traverse?.(visit),
+      // Wall pieces, not the wall group's children: the builder batches its
+      // slabs into a few BatchedMeshes, and a collider fitted to one of those
+      // would be a facility-sized box. The builder keeps the per-wall source
+      // meshes for exactly this.
+      forEachWallMesh: (visit) => {
+        if (this.wallBuilder) this.wallBuilder.forEachSourceMesh(visit);
+        else this.wallGroup?.traverse?.(visit);
+      },
       terrainMesh: () => this._terrainMesh,
     });
 
