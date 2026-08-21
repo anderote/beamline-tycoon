@@ -27,6 +27,7 @@ import { PROFESSIONS, SPECIALTY_AXES, professionDef } from '../../data/professio
 import { ZONES } from '../../data/facility.js';
 import { flattenPath } from '../../beamline/flattener.js';
 import { placementPose } from '../../beamline/pipe-placements.js';
+import { levelOf, subtileKey as storeySubtileKey, withLevel } from '../storeys.js';
 
 // --- Job type table ---------------------------------------------------
 
@@ -166,25 +167,28 @@ function makeOffer(jobType, target, specialty, priority, stationKey) {
 // walls only ever live on tile edges, never mid-tile.
 function neighborsOf(n) {
   const out = [];
-  if (n.subCol > 0) out.push({ node: { col: n.col, row: n.row, subCol: n.subCol - 1, subRow: n.subRow } });
-  else out.push({ node: { col: n.col - 1, row: n.row, subCol: 3, subRow: n.subRow }, edge: 'w' });
-  if (n.subCol < 3) out.push({ node: { col: n.col, row: n.row, subCol: n.subCol + 1, subRow: n.subRow } });
-  else out.push({ node: { col: n.col + 1, row: n.row, subCol: 0, subRow: n.subRow }, edge: 'e' });
-  if (n.subRow > 0) out.push({ node: { col: n.col, row: n.row, subCol: n.subCol, subRow: n.subRow - 1 } });
-  else out.push({ node: { col: n.col, row: n.row - 1, subCol: n.subCol, subRow: 3 }, edge: 'n' });
-  if (n.subRow < 3) out.push({ node: { col: n.col, row: n.row, subCol: n.subCol, subRow: n.subRow + 1 } });
-  else out.push({ node: { col: n.col, row: n.row + 1, subCol: n.subCol, subRow: 0 }, edge: 's' });
+  const atLevel = node => withLevel(node, levelOf(n));
+  if (n.subCol > 0) out.push({ node: atLevel({ col: n.col, row: n.row, subCol: n.subCol - 1, subRow: n.subRow }) });
+  else out.push({ node: atLevel({ col: n.col - 1, row: n.row, subCol: 3, subRow: n.subRow }), edge: 'w' });
+  if (n.subCol < 3) out.push({ node: atLevel({ col: n.col, row: n.row, subCol: n.subCol + 1, subRow: n.subRow }) });
+  else out.push({ node: atLevel({ col: n.col + 1, row: n.row, subCol: 0, subRow: n.subRow }), edge: 'e' });
+  if (n.subRow > 0) out.push({ node: atLevel({ col: n.col, row: n.row, subCol: n.subCol, subRow: n.subRow - 1 }) });
+  else out.push({ node: atLevel({ col: n.col, row: n.row - 1, subCol: n.subCol, subRow: 3 }), edge: 'n' });
+  if (n.subRow < 3) out.push({ node: atLevel({ col: n.col, row: n.row, subCol: n.subCol, subRow: n.subRow + 1 }) });
+  else out.push({ node: atLevel({ col: n.col, row: n.row + 1, subCol: n.subCol, subRow: 0 }), edge: 's' });
   return out;
 }
 
-function subtileKey(n) { return `${n.col},${n.row},${n.subCol},${n.subRow}`; }
+function subtileKey(n) {
+  return storeySubtileKey(n.col, n.row, n.subCol, n.subRow, levelOf(n));
+}
 
 function nodeSubtile(placeable) {
   if (!placeable || !Number.isFinite(placeable.col) || !Number.isFinite(placeable.row)) return null;
-  return {
+  return withLevel({
     col: placeable.col, row: placeable.row,
     subCol: placeable.subCol || 0, subRow: placeable.subRow || 0,
-  };
+  }, levelOf(placeable));
 }
 
 // The footprint to walk the perimeter of: a placed entry's real `.cells`
@@ -199,7 +203,9 @@ function nodeSubtile(placeable) {
 // reachability — reused as-is, not reimplemented, so "can a technician
 // reach this component" and "where should they stand" never drift apart.
 export function footprintCellsOf(placeable) {
-  if (Array.isArray(placeable?.cells) && placeable.cells.length) return placeable.cells;
+  if (Array.isArray(placeable?.cells) && placeable.cells.length) {
+    return placeable.cells.map(cell => withLevel({ ...cell }, levelOf(placeable)));
+  }
   const single = nodeSubtile(placeable);
   return single ? [single] : [];
 }
@@ -277,7 +283,7 @@ export function approachCandidates(nav, state, cells) {
       const key = subtileKey(node);
       if (footprint.has(key) || seen.has(key)) continue;
       seen.add(key);
-      if (edge && isBlocked(cell.col, cell.row, edge, state)) continue;
+      if (edge && isBlocked(cell.col, cell.row, edge, state, levelOf(cell))) continue;
       if (!nav.passable.has(key)) continue;
       out.push(node);
     }

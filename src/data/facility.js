@@ -83,14 +83,14 @@ export function itemMatchesZone(def, zoneType) {
 // Placement and core equipment behavior do not use this helper: zones are a
 // bonus layer. Research/zone-output bonuses do use it so straddling a room
 // boundary cannot activate an item that is only partly inside its bonus zone.
-export function matchingZoneForPlacement(def, placed, zoneOccupied) {
+export function matchingZoneForPlacement(def, placed, zoneOccupied, keyForCell = null) {
   if (!def || !placed || !zoneOccupied) return null;
   const tiles = new Set();
   const cells = Array.isArray(placed.cells) && placed.cells.length
     ? placed.cells : [{ col: placed.col, row: placed.row }];
   for (const cell of cells) {
     if (cell?.col == null || cell?.row == null) return null;
-    tiles.add(`${cell.col},${cell.row}`);
+    tiles.add(keyForCell ? keyForCell(cell, placed) : `${cell.col},${cell.row}`);
   }
 
   let matched = null;

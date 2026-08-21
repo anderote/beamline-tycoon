@@ -6,6 +6,9 @@
 // same staffing simulation.
 
 import { getNavGrid, findPath, isReachable } from './nav.js';
+import {
+  levelOf, parseTileKey, subtileKey, withLevel,
+} from '../storeys.js';
 
 export const STAFF_TRAVEL_SUBTILES_PER_TICK = 2;
 
@@ -22,19 +25,22 @@ const SUBTILE_ORDER = [
 ];
 
 function nodeKey(node) {
-  return `${node.col},${node.row},${node.subCol},${node.subRow}`;
+  return subtileKey(
+    node.col, node.row, node.subCol, node.subRow, levelOf(node),
+  );
 }
 
 function copyNode(node) {
-  return node ? {
+  return node ? withLevel({
     col: node.col, row: node.row, subCol: node.subCol, subRow: node.subRow,
-  } : null;
+  }, levelOf(node)) : null;
 }
 
 export function sameStaffNode(a, b) {
   return !!a && !!b
     && a.col === b.col && a.row === b.row
-    && a.subCol === b.subCol && a.subRow === b.subRow;
+    && a.subCol === b.subCol && a.subRow === b.subRow
+    && levelOf(a) === levelOf(b);
 }
 
 function tileKeysForZone(state, zoneId) {
@@ -46,10 +52,10 @@ function tileKeysForZone(state, zoneId) {
 
 function firstPassableInTiles(nav, keys) {
   for (const key of keys) {
-    const [col, row] = key.split(',').map(Number);
+    const { col, row, level } = parseTileKey(key);
     if (!Number.isFinite(col) || !Number.isFinite(row)) continue;
     for (const [subCol, subRow] of SUBTILE_ORDER) {
-      const node = { col, row, subCol, subRow };
+      const node = withLevel({ col, row, subCol, subRow }, level);
       if (nav.passable.has(nodeKey(node))) return node;
     }
   }
@@ -223,19 +229,19 @@ function chooseWanderDestination(game, member) {
       && randomValue(game, member, attempt * 5) < ZONE_WANDER_BIAS;
     if (useZone) {
       const key = zoneKeys[Math.floor(randomValue(game, member, attempt * 5 + 1) * zoneKeys.length) % zoneKeys.length];
-      const [col, row] = key.split(',').map(Number);
-      node = {
+      const { col, row, level } = parseTileKey(key);
+      node = withLevel({
         col, row,
         subCol: Math.floor(randomValue(game, member, attempt * 5 + 2) * 4),
         subRow: Math.floor(randomValue(game, member, attempt * 5 + 3) * 4),
-      };
+      }, level);
     } else {
-      node = {
+      node = withLevel({
         col: from.col + Math.round((randomValue(game, member, attempt * 5 + 1) * 2 - 1) * WANDER_RADIUS_TILES),
         row: from.row + Math.round((randomValue(game, member, attempt * 5 + 2) * 2 - 1) * WANDER_RADIUS_TILES),
         subCol: Math.floor(randomValue(game, member, attempt * 5 + 3) * 4),
         subRow: Math.floor(randomValue(game, member, attempt * 5 + 4) * 4),
-      };
+      }, levelOf(from));
     }
     if (!sameStaffNode(from, node) && isReachable(nav, from, node)) return node;
   }

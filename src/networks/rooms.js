@@ -6,16 +6,17 @@
 
 import { EDGE_DELTAS, edgeKey, mirrorEdge } from '../game/edge-keys.js';
 import { roofedTiles } from '../game/roofing.js';
+import { levelOf, parseTileKey, tileKey, withLevel } from '../game/storeys.js';
 
 /**
  * Check if movement from (col, row) in direction `edge` is blocked by a wall
  * (and not opened by a door).
  */
-export function isBlocked(col, row, edge, state) {
+export function isBlocked(col, row, edge, state, level = 0) {
   // Either spelling of the edge can hold the segment — see edge-keys.js.
-  const m = mirrorEdge(col, row, edge);
-  const wallKey1 = edgeKey(col, row, edge);
-  const wallKey2 = edgeKey(m.col, m.row, m.edge);
+  const m = mirrorEdge(col, row, edge, level);
+  const wallKey1 = edgeKey(col, row, edge, level);
+  const wallKey2 = edgeKey(m.col, m.row, m.edge, level);
 
   const hasWall = !!(state.wallOccupied[wallKey1] || state.wallOccupied[wallKey2]);
   if (!hasWall) return false;
@@ -57,18 +58,18 @@ export function detectRooms(state) {
 
     while (queue.length > 0) {
       const cur = queue.shift();
-      const [cc, cr] = cur.split(',').map(Number);
-      tiles.push({ col: cc, row: cr });
+      const { col: cc, row: cr, level } = parseTileKey(cur);
+      tiles.push(withLevel({ col: cc, row: cr }, level));
 
       for (const edge of ['n', 'e', 's', 'w']) {
         const { dc, dr } = EDGE_DELTAS[edge];
         const nc = cc + dc;
         const nr = cr + dr;
-        const nk = nc + ',' + nr;
+        const nk = tileKey(nc, nr, level);
 
         if (!allTileKeys.has(nk)) continue;
         if (visited.has(nk)) continue;
-        if (isBlocked(cc, cr, edge, ctx)) continue;
+        if (isBlocked(cc, cr, edge, ctx, level)) continue;
 
         visited.add(nk);
         queue.push(nk);
@@ -76,14 +77,14 @@ export function detectRooms(state) {
     }
 
     // Build room object
-    const tileSet = new Set(tiles.map(t => t.col + ',' + t.row));
+    const tileSet = new Set(tiles.map(t => tileKey(t.col, t.row, t.level)));
 
     // Boundary tiles: tiles that have a wall on any edge
     const boundaryTiles = tiles.filter(t => {
       for (const edge of ['n', 'e', 's', 'w']) {
-        const wk1 = edgeKey(t.col, t.row, edge);
-        const m = mirrorEdge(t.col, t.row, edge);
-        const wk2 = edgeKey(m.col, m.row, m.edge);
+        const wk1 = edgeKey(t.col, t.row, edge, t.level);
+        const m = mirrorEdge(t.col, t.row, edge, t.level);
+        const wk2 = edgeKey(m.col, m.row, m.edge, t.level);
         if (wallOccupied[wk1] || wallOccupied[wk2]) return true;
       }
       return false;
@@ -92,7 +93,7 @@ export function detectRooms(state) {
     // Flooring breakdown
     const flooringBreakdown = {};
     for (const t of tiles) {
-      const type = infraOccupied[t.col + ',' + t.row];
+      const type = infraOccupied[tileKey(t.col, t.row, t.level)];
       flooringBreakdown[type] = (flooringBreakdown[type] || 0) + 1;
     }
     const total = tiles.length;
@@ -104,7 +105,7 @@ export function detectRooms(state) {
     const zoneTypes = [];
     const seenZones = new Set();
     for (const t of tiles) {
-      const zt = zoneOccupied[t.col + ',' + t.row];
+      const zt = zoneOccupied[tileKey(t.col, t.row, t.level)];
       if (zt && !seenZones.has(zt)) {
         seenZones.add(zt);
         zoneTypes.push(zt);
@@ -121,8 +122,10 @@ export function detectRooms(state) {
       flooringBreakdown,
       roomType,
       zoneTypes,
-      roofed: tiles.every(t => roofTiles.has(`${t.col},${t.row}`)),
-      roofedTileCount: tiles.filter(t => roofTiles.has(`${t.col},${t.row}`)).length,
+      roofed: tiles.every(t => roofTiles.has(tileKey(t.col, t.row, levelOf(t)))),
+      roofedTileCount: tiles.filter(
+        t => roofTiles.has(tileKey(t.col, t.row, levelOf(t))),
+      ).length,
     });
   }
 
@@ -142,7 +145,7 @@ function classifyRoom(flooringBreakdown, zoneTypes, tileSet, state) {
     const beamline = state.beamline || [];
     const hasBeamline = beamline.some(node => {
       const nodeTiles = node.tiles || [{ col: node.col, row: node.row }];
-      return nodeTiles.some(t => tileSet.has(t.col + ',' + t.row));
+      return nodeTiles.some(t => tileSet.has(tileKey(t.col, t.row, levelOf(p))));
     });
     if (hasBeamline) return 'beamHall';
 
@@ -160,7 +163,8 @@ function classifyRoom(flooringBreakdown, zoneTypes, tileSet, state) {
  * the room's boundary tiles, excluding tiles inside the room.
  */
 export function computeRoomReach(room) {
-  const roomTileSet = new Set(room.tiles.map(t => t.col + ',' + t.row));
+  const roomLevel = levelOf(room.tiles[0]);
+  const roomTileSet = new Set(room.tiles.map(t => tileKey(t.col, t.row, levelOf(t))));
   const reach = new Set();
 
   for (const t of room.boundaryTiles) {
@@ -168,7 +172,7 @@ export function computeRoomReach(room) {
       const { dc, dr } = EDGE_DELTAS[edge];
       const nc = t.col + dc;
       const nr = t.row + dr;
-      const nk = nc + ',' + nr;
+      const nk = tileKey(nc, nr, roomLevel);
       if (!roomTileSet.has(nk)) {
         reach.add(nk);
       }

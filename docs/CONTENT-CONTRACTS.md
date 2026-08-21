@@ -28,6 +28,10 @@ the short authoring contract.
   `wallSpan` from 1–4 to reserve consecutive quarter-wall slots; the default is
   one slot. Placement stores the resolved span on `wallMount` so render poses,
   overlap checks, moves, and save/load agree.
+- A placeable that moves staff between storeys declares `verticalConnector`
+  with `toLevelDelta: 1` and a positive subtile `travelCost`. It is authored
+  on the lower storey; placement requires finished floors at both landings,
+  and no connector may start on the third floor.
 - Lighting fixtures use `mount` for physical placement and `subsection` for
   build-palette ownership. Indoor floor lamps use `mount: 'ground'` so their
   bases claim ordinary furnishing occupancy, while the `floorLamps`

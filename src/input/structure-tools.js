@@ -43,6 +43,28 @@ import {
 import { canAffordFunding } from '../game/affordability.js';
 import { demolishRefund } from './demolishScopes.js';
 import { isoToGrid } from '../renderer/grid.js';
+import { edgeKey } from '../game/edge-keys.js';
+import { levelOf, sameLevel, tileKey } from '../game/storeys.js';
+
+function activeLevel(game) { return game?.activeLevel || 0; }
+
+function floorView(game) {
+  const level = activeLevel(game);
+  const view = {};
+  for (const tile of game.state.floors || []) {
+    if (sameLevel(tile, level)) view[`${tile.col},${tile.row}`] = tile.type;
+  }
+  return view;
+}
+
+function wallView(game) {
+  const level = activeLevel(game);
+  const view = {};
+  for (const wall of game.state.walls || []) {
+    if (sameLevel(wall, level)) view[`${wall.col},${wall.row},${wall.edge}`] = wall.type;
+  }
+  return view;
+}
 
 // --- Ctrl/Cmd: the erase modifier -------------------------------------------
 //
@@ -83,11 +105,12 @@ function edgeEntryAt(game, kind, edge) {
   if (kind === 'door') {
     return list.find(entry => doorRecordCoversEdge(
       entry, DOOR_TYPES[entry.type], edge.col, edge.row, edge.edge,
-    )) || null;
+    ) && sameLevel(entry, activeLevel(game))) || null;
   }
   const alias = game._edgeAlias(edge.col, edge.row, edge.edge);
-  return list.find(x => (x.col === edge.col && x.row === edge.row && x.edge === edge.edge)
-    || (x.col === alias.col && x.row === alias.row && x.edge === alias.edge)) || null;
+  return list.find(x => sameLevel(x, activeLevel(game)) && (
+    (x.col === edge.col && x.row === edge.row && x.edge === edge.edge)
+    || (x.col === alias.col && x.row === alias.row && x.edge === alias.edge))) || null;
 }
 
 /**
@@ -118,7 +141,7 @@ function edgePathRefund(game, kind, path) {
 function floorTilesRefund(game, tiles) {
   let refund = 0, count = 0;
   for (const t of tiles || []) {
-    const type = game.state.infraOccupied[`${t.col},${t.row}`];
+    const type = game.state.infraOccupied[tileKey(t.col, t.row, activeLevel(game))];
     if (!type) continue;
     count++;
     refund += Math.floor((FLOORS[type]?.cost || 0) * 0.5);
@@ -169,7 +192,7 @@ export class FloorTool extends Tool {
   _roofRegion(ctx, screenX, screenY) {
     const world = ctx.renderer.screenToWorld(screenX, screenY);
     const grid = isoToGrid(world.x, world.y);
-    return ctx.game.roofRegionAt(grid.col, grid.row);
+    return ctx.game.roofRegionAt(grid.col, grid.row, activeLevel(ctx.game));
   }
 
   onEnter(ctx) {
@@ -192,7 +215,9 @@ export class FloorTool extends Tool {
 
   _showRectCost(ctx, screenX, screenY, c0, r0, c1, r1) {
     const infra = this._def();
-    const cost = ctx.game.computeInfraRectCost(c0, r0, c1, r1, this.floorType, this.variant);
+    const cost = ctx.game.computeInfraRectCost(
+      c0, r0, c1, r1, this.floorType, this.variant, activeLevel(ctx.game),
+    );
     ctx.input._showDragCostTooltip(cost.totalCost, screenX, screenY, {
       skippedNoFoundation: cost.skippedNoFoundation,
       foundationName: infra?.requiresFoundation
@@ -228,7 +253,10 @@ export class FloorTool extends Tool {
     const region = this._roofRegion(ctx, screenX, screenY);
     const profile = ctx.game.roofProfileForRegion?.(region);
     ctx.renderer.renderRoofPreview?.(region, this._def(), profile);
-    const newTiles = region.filter(tile => !(ctx.game.state.roofs || []).some(r => r.col === tile.col && r.row === tile.row)).length;
+    const level = activeLevel(ctx.game);
+    const newTiles = region.filter(tile => !(ctx.game.state.roofs || []).some(
+      r => r.col === tile.col && r.row === tile.row && sameLevel(r, level),
+    )).length;
     ctx.input._showDragCostTooltip((this._def()?.cost || 0) * newTiles, screenX, screenY, {
       note: region.length ? `${region.length} enclosed tiles` : 'Walls must fully enclose the room',
       insufficientFunding: !canAffordFunding(ctx.game, (this._def()?.cost || 0) * newTiles),
@@ -248,7 +276,9 @@ export class FloorTool extends Tool {
       return;
     }
     const infra = this._def();
-    const lineCost = ctx.game.computeInfraLineCost(this._linePath, this.floorType, this.variant);
+    const lineCost = ctx.game.computeInfraLineCost(
+      this._linePath, this.floorType, this.variant, activeLevel(ctx.game),
+    );
     ctx.input._showDragCostTooltip(lineCost.totalCost, screenX, screenY, {
       skippedNoFoundation: lineCost.skippedNoFoundation,
       foundationName: infra?.requiresFoundation
@@ -261,7 +291,7 @@ export class FloorTool extends Tool {
   /** Hover under Ctrl: the tile this click would clear, and its refund. */
   _previewEraseHover(ctx, grid, screenX, screenY) {
     ctx.renderer.renderDemolishTileOutline(grid.col, grid.row);
-    const type = ctx.game.state.infraOccupied[`${grid.col},${grid.row}`];
+    const type = ctx.game.state.infraOccupied[tileKey(grid.col, grid.row, activeLevel(ctx.game))];
     const { refund } = floorTilesRefund(ctx.game, [grid]);
     showEraseTooltip(ctx, screenX, screenY,
       type ? (FLOORS[type]?.name || type) : 'No flooring here', refund);
@@ -351,8 +381,10 @@ export class FloorTool extends Tool {
       // 'infrastructureChanged' (and 'zonesChanged' for hallways) per tile.
       game._withUndo(() => game._batchEvents(() => {
         for (const pt of this._linePath) {
-          if (this._erasing) game.removeInfraTile(pt.col, pt.row);
-          else game.placeInfraTile(pt.col, pt.row, this.floorType, this.variant);
+          if (this._erasing) game.removeInfraTile(pt.col, pt.row, activeLevel(game));
+          else game.placeInfraTile(pt.col, pt.row, this.floorType, this.variant, {
+            level: activeLevel(game),
+          });
         }
         game.emit('infrastructureChanged');
       }));
@@ -370,6 +402,7 @@ export class FloorTool extends Tool {
         ? game.removeInfraRect(
           this._dragStart.col, this._dragStart.row,
           this._dragEnd.col, this._dragEnd.row,
+          activeLevel(game),
         )
         : game.placeInfraRect(
           this._dragStart.col, this._dragStart.row,
@@ -377,6 +410,7 @@ export class FloorTool extends Tool {
           this.floorType,
           this.variant,
           this.orientationOverride,
+          activeLevel(game),
         )));
       this._dragging = false;
       this._dragStart = null;
@@ -399,8 +433,10 @@ export class FloorTool extends Tool {
       const grid = isoToGrid(world.x, world.y);
       const erase = eraseHeld(e, ctx.input);
       ctx.game._withUndo(() => {
-        if (erase) ctx.game.removeRoofRegion(grid.col, grid.row);
-        else ctx.game.placeRoofRegion(grid.col, grid.row, this.floorType, this.variant);
+        if (erase) ctx.game.removeRoofRegion(grid.col, grid.row, activeLevel(ctx.game));
+        else ctx.game.placeRoofRegion(
+          grid.col, grid.row, this.floorType, this.variant, activeLevel(ctx.game),
+        );
       });
       ctx.renderer.clearDragPreview();
       ctx.input._hideDragCostTooltip();
@@ -415,8 +451,10 @@ export class FloorTool extends Tool {
       ctx.game._withUndo(() => {
         if (erase) {
           // removeInfraTile emits 'infrastructureChanged' itself.
-          ctx.game.removeInfraTile(grid.col, grid.row);
-        } else if (ctx.game.placeInfraTile(grid.col, grid.row, this.floorType, this.variant)) {
+          ctx.game.removeInfraTile(grid.col, grid.row, activeLevel(ctx.game));
+        } else if (ctx.game.placeInfraTile(
+          grid.col, grid.row, this.floorType, this.variant, { level: activeLevel(ctx.game) },
+        )) {
           ctx.game.emit('infrastructureChanged');
         }
       });
@@ -460,7 +498,10 @@ export class FloorTool extends Tool {
       const infra = this._def();
       ctx.game._withUndo(() => {
         if (infra && !infra.isDragPlacement && !infra.isLinePlacement) {
-          if (ctx.game.placeInfraTile(ctx.renderer.hoverCol, ctx.renderer.hoverRow, this.floorType, this.variant)) {
+          if (ctx.game.placeInfraTile(
+            ctx.renderer.hoverCol, ctx.renderer.hoverRow, this.floorType, this.variant,
+            { level: activeLevel(ctx.game) },
+          )) {
             ctx.game.emit('infrastructureChanged');
           }
         }
@@ -489,14 +530,16 @@ export class WallPaintTool extends Tool {
   }
 
   _paint(edge, ctx, paintId = this.paintId) {
-    return ctx.game.paintWallFace(edge.col, edge.row, edge.edge, paintId);
+    return ctx.game.paintWallFace(
+      edge.col, edge.row, edge.edge, paintId, activeLevel(ctx.game),
+    );
   }
 
   _selectionAt(screenX, screenY, ctx, expanded = false) {
     const world = ctx.renderer.screenToWorld(screenX, screenY);
     const tile = isoToGrid(world.x, world.y);
-    const infraOccupied = ctx.game.state.infraOccupied;
-    const wallOccupied = ctx.game.state.wallOccupied;
+    const infraOccupied = floorView(ctx.game);
+    const wallOccupied = wallView(ctx.game);
     const cacheKey = `${tile.col},${tile.row}:${expanded ? 'interior' : 'tile'}`;
     if (this._selectionCache?.infraOccupied === infraOccupied
       && this._selectionCache?.wallOccupied === wallOccupied
@@ -518,7 +561,8 @@ export class WallPaintTool extends Tool {
 
   _existingWallFaces(path, ctx) {
     const occupied = ctx.game.state.wallOccupied;
-    return path.filter(edge => findWallKey(occupied, edge.col, edge.row, edge.edge));
+    const level = activeLevel(ctx.game);
+    return path.filter(edge => findWallKey(occupied, edge.col, edge.row, edge.edge, level));
   }
 
   _renderPreview(screenX, screenY, ctx, expanded = false) {
@@ -627,8 +671,8 @@ export class WallTool extends Tool {
     // WallBuilder teardown + rebuild of every wall on the map.
     game._withUndo(() => game._batchEvents(() => {
       for (const pt of path) {
-        if (overlay) game._removeWallOverlay(pt.col, pt.row, pt.edge);
-        else game.removeWall(pt.col, pt.row, pt.edge);
+        if (overlay) game._removeWallOverlay(pt.col, pt.row, pt.edge, activeLevel(game));
+        else game.removeWall(pt.col, pt.row, pt.edge, activeLevel(game));
       }
     }));
   }
@@ -668,13 +712,15 @@ export class WallTool extends Tool {
     let count = 0;
     for (const pt of path) {
       if (wt.wallOverlay) {
-        if (!findWallKey(occupied, pt.col, pt.row, pt.edge)) continue;
-        const overlayKey = findEdgeKey(overlays, pt.col, pt.row, pt.edge);
+        if (!findWallKey(occupied, pt.col, pt.row, pt.edge, activeLevel(ctx.game))) continue;
+        const overlayKey = findEdgeKey(
+          overlays, pt.col, pt.row, pt.edge, activeLevel(ctx.game),
+        );
         if (overlayKey && overlays[overlayKey] === this.wallType) continue;
         count++;
         continue;
       }
-      const key = findWallKey(occupied, pt.col, pt.row, pt.edge);
+      const key = findWallKey(occupied, pt.col, pt.row, pt.edge, activeLevel(ctx.game));
       if (key && occupied[key] === this.wallType) continue;
       count++;
     }
@@ -707,7 +753,7 @@ export class WallTool extends Tool {
     // Cache that stable selection so a large floor region is not flood-filled
     // for every pixel of mouse movement. Undo/load replaces the occupancy map,
     // which naturally invalidates the cached result.
-    const occupied = ctx.game.state.infraOccupied;
+    const occupied = floorView(ctx.game);
     const proximity = (edge.dist ?? Infinity) <= FLOOR_INTERFACE_HOVER_THRESHOLD ? 'near' : 'inside';
     const key = `${edge.col},${edge.row},${edge.edge},${proximity}`;
     if (this._smartCache
@@ -839,7 +885,9 @@ export class WallTool extends Tool {
     if (this._shiftPending) {
       if (this._path.length > 0) {
         if (this._erasing) this._commitErase(ctx, this._path);
-        else game._withUndo(() => game.placeWallPath(this._path, this.wallType, this.variant));
+        else game._withUndo(() => game.placeWallPath(
+          this._path, this.wallType, this.variant, activeLevel(game),
+        ));
       }
       this._shiftPending = false;
       this._shiftDragStart = null;
@@ -852,7 +900,9 @@ export class WallTool extends Tool {
     }
     if (this._drawing && this._path.length > 0) {
       if (this._erasing) this._commitErase(ctx, this._path);
-      else game._withUndo(() => game.placeWallPath(this._path, this.wallType, this.variant));
+      else game._withUndo(() => game.placeWallPath(
+        this._path, this.wallType, this.variant, activeLevel(game),
+      ));
       this._drawing = false;
       this._path = [];
       this._start = null;
@@ -870,7 +920,9 @@ export class WallTool extends Tool {
     // a shared edge and also cleans up dependent doors/windows.
     const edge = ctx.input._getNearestFloorEdge(e.clientX, e.clientY);
     if (!edge) return false;
-    ctx.game._withUndo(() => ctx.game.removeWall(edge.col, edge.row, edge.edge));
+    ctx.game._withUndo(() => ctx.game.removeWall(
+      edge.col, edge.row, edge.edge, activeLevel(ctx.game),
+    ));
     return true;
   }
 
@@ -1073,12 +1125,16 @@ export class DoorTool extends Tool {
         // Batched like placeDoorPath: each removeDoor emits 'wallsChanged',
         // and every one of those rebuilds the map's walls.
         ctx.game._withUndo(() => ctx.game._batchEvents(() => {
-          for (const pt of this._path) ctx.game.removeDoor(pt.col, pt.row, pt.edge);
+          for (const pt of this._path) {
+            ctx.game.removeDoor(pt.col, pt.row, pt.edge, activeLevel(ctx.game));
+          }
         }));
       } else {
         // Each path point carries its own `off`; this._off is the fallback.
         ctx.game._withUndo(
-          () => ctx.game.placeDoorPath(this._path, this.doorType, this.variant, this._off)
+          () => ctx.game.placeDoorPath(
+            this._path, this.doorType, this.variant, this._off, activeLevel(ctx.game),
+          )
         );
       }
       this._drawing = false;
@@ -1098,7 +1154,9 @@ export class DoorTool extends Tool {
     // Ctrl+left-click collision there.)
     const edge = ctx.input._getNearestWallEdge(_e.clientX, _e.clientY);
     if (!edge) return false;
-    ctx.game._withUndo(() => ctx.game.removeDoor(edge.col, edge.row, edge.edge));
+    ctx.game._withUndo(() => ctx.game.removeDoor(
+      edge.col, edge.row, edge.edge, activeLevel(ctx.game),
+    ));
     return true;
   }
 
@@ -1154,9 +1212,10 @@ export class WindowTool extends Tool {
   _previewStatus(game, edge) {
     const def = WINDOW_TYPES[this.windowType];
     if (!def || !edge) return { valid: false, reason: 'Unknown window type' };
-    const key = `${edge.col},${edge.row},${edge.edge}`;
+    const level = activeLevel(game);
+    const key = edgeKey(edge.col, edge.row, edge.edge, level);
     const alias = game._edgeAlias(edge.col, edge.row, edge.edge);
-    const aliasKey = `${alias.col},${alias.row},${alias.edge}`;
+    const aliasKey = edgeKey(alias.col, alias.row, alias.edge, level);
     const wallType = game.state.wallOccupied[key] || game.state.wallOccupied[aliasKey];
     if (!wallType) return { valid: false, reason: 'Requires an existing wall' };
     const wall = WALL_TYPES[wallType];
@@ -1246,9 +1305,10 @@ export class WindowTool extends Tool {
    * giving up (the same belt _removeWallAndDoorAtEdge's comment describes).
    */
   _removeWindowAt(game, pt) {
-    if (game.removeWindow(pt.col, pt.row, pt.edge)) return true;
+    const level = activeLevel(game);
+    if (game.removeWindow(pt.col, pt.row, pt.edge, level)) return true;
     const alias = game._edgeAlias(pt.col, pt.row, pt.edge);
-    return game.removeWindow(alias.col, alias.row, alias.edge);
+    return game.removeWindow(alias.col, alias.row, alias.edge, level);
   }
 
   onMouseUp(e, ctx) {
@@ -1266,7 +1326,9 @@ export class WindowTool extends Tool {
         }));
       } else {
         ctx.game._withUndo(
-          () => ctx.game.placeWindowPath(this._path, this.windowType, this.variant, this._off)
+          () => ctx.game.placeWindowPath(
+            this._path, this.windowType, this.variant, this._off, activeLevel(ctx.game),
+          )
         );
       }
       this._drawing = false;

@@ -22,8 +22,9 @@ import {
 } from '../game/placement.js';
 import { findStackTarget } from '../game/stacking.js';
 import {
-  mirrorEdge, findWallKey, findEdgeKey, doorRecordCoversEdge,
+  edgeKey, mirrorEdge, findWallKey, findEdgeKey, doorRecordCoversEdge,
 } from '../game/edge-keys.js';
+import { levelOf, sameLevel, subtileKey, tileKey } from '../game/storeys.js';
 import { wallFixtureDir } from '../game/wall-fixture-geometry.js';
 import { BeamlineInputController } from './BeamlineInputController.js';
 import { UtilityLineInputController } from './UtilityLineInputController.js';
@@ -538,7 +539,7 @@ export class InputHandler {
    */
   _updateDemolishHover(world, grid, screenX, screenY, policyOrType, pipeSweep = null) {
     const col = grid.col, row = grid.row;
-    const key = col + ',' + row;
+    const key = tileKey(col, row, this.game.activeLevel);
     const policy = typeof policyOrType === 'string'
       ? legacyDemolishPolicy(policyOrType)
       : policyOrType;
@@ -803,7 +804,7 @@ export class InputHandler {
     // Find a beamline placeable whose cells cover this tile
     for (const p of this.game.state.placeables) {
       const def = COMPONENTS[p.type];
-      if (!def || def.category !== 'beamline') continue;
+      if (!def || def.category !== 'beamline' || !sameLevel(p, this.game.activeLevel)) continue;
       const cells = p.cells || [{ col: p.col, row: p.row }];
       if (cells.some(c => c.col === col && c.row === row)) {
         return p;
@@ -1299,7 +1300,9 @@ export class InputHandler {
     }
     if (info?.group === 'wall') {
       const edge = this._getNearestWallEdge(screenX, screenY);
-      const key = physicalEdgeSelectionKey(edge.col, edge.row, edge.edge);
+      const key = physicalEdgeSelectionKey(
+        edge.col, edge.row, edge.edge, this.game.activeLevel,
+      );
       const target = selectionTargetByKey(this.game.state, key);
       if (target && !mouseSelectionCategoryEnabled(
         this._mouseSelectionCategories, target.selectionCategory,
@@ -1312,7 +1315,7 @@ export class InputHandler {
     // hit may fall through to the logical floor beneath the cursor.
     if (info) return false;
 
-    const floorKey = floorSelectionKey(grid.col, grid.row);
+    const floorKey = floorSelectionKey(grid.col, grid.row, this.game.activeLevel);
     const floor = selectionTargetByKey(this.game.state, floorKey);
     if (floor && !mouseSelectionCategoryEnabled(
       this._mouseSelectionCategories, floor.selectionCategory,
@@ -1377,7 +1380,7 @@ export class InputHandler {
    * demolish lookups must check both.
    */
   _edgeAlias(pt) {
-    return mirrorEdge(pt.col, pt.row, pt.edge);
+    return mirrorEdge(pt.col, pt.row, pt.edge, this?.game?.activeLevel ?? 0);
   }
 
   /**
@@ -1389,12 +1392,12 @@ export class InputHandler {
    */
   _findWallOrDoorAtEdge(edge) {
     for (const e of [edge, this._edgeAlias(edge)]) {
-      const k = `${e.col},${e.row},${e.edge}`;
+      const k = edgeKey(e.col, e.row, e.edge, this.game.activeLevel);
       const overlayType = this.game.state.wallOverlayOccupied?.[k] || null;
       if (overlayType) return { edge: e, overlayType, wallType: null, doorType: null, windowType: null };
     }
     for (const e of [edge, this._edgeAlias(edge)]) {
-      const k = `${e.col},${e.row},${e.edge}`;
+      const k = edgeKey(e.col, e.row, e.edge, this.game.activeLevel);
       const wallType = this.game.state.wallOccupied?.[k] || null;
       const doorType = this.game.state.doorOccupied?.[k] || null;
       const windowType = this.game.state.windowOccupied?.[k] || null;
@@ -1417,9 +1420,10 @@ export class InputHandler {
     const found = kind === 'door'
       ? (list || []).find(x => doorRecordCoversEdge(
         x, DOOR_TYPES[x.type], edge.col, edge.row, edge.edge,
-      ))
+      ) && sameLevel(x, this.game.activeLevel))
       : (list || []).find(
-        x => x.col === edge.col && x.row === edge.row && x.edge === edge.edge
+        x => sameLevel(x, this.game.activeLevel)
+          && x.col === edge.col && x.row === edge.row && x.edge === edge.edge
       );
     return found?.variant ?? 0;
   }
@@ -1435,9 +1439,9 @@ export class InputHandler {
     // Every game mutator is alias-aware. Calling each side used to be a
     // harmless compatibility belt-and-suspenders, but layered walls turn it
     // into two destructive actions (peel copper, then delete its host).
-    this.game.removeWall(pt.col, pt.row, pt.edge);
-    this.game.removeDoor(pt.col, pt.row, pt.edge);
-    this.game.removeWindow(pt.col, pt.row, pt.edge);
+    this.game.removeWall(pt.col, pt.row, pt.edge, this.game.activeLevel);
+    this.game.removeDoor(pt.col, pt.row, pt.edge, this.game.activeLevel);
+    this.game.removeWindow(pt.col, pt.row, pt.edge, this.game.activeLevel);
   }
 
   /** Return the full exposed perimeter of the contiguous floor region. */
@@ -3100,7 +3104,7 @@ export class InputHandler {
       const sc = Math.floor(sub.subCol);
       const sr = Math.floor(sub.subRow);
       if (sc >= 0 && sc < 4 && sr >= 0 && sr < 4) {
-        const k = grid.col + ',' + grid.row + ',' + sc + ',' + sr;
+        const k = subtileKey(grid.col, grid.row, sc, sr, this.game.activeLevel);
         const occ = this.game.state.subgridOccupied[k];
         if (occ && scope.has(occ.kind)) {
           const entry = this.game.getPlaceable(occ.id);
@@ -3129,6 +3133,7 @@ export class InputHandler {
     if (grid && grid.col !== undefined && grid.row !== undefined) {
       for (const p of this.game.state.placeables) {
         if (p.category !== 'beamline' && p.category !== 'infrastructure') continue;
+        if (!sameLevel(p, this.game.activeLevel)) continue;
         if (!allowsEntry(p)) continue;
         if (!p.cells) continue;
         if (p.cells.some(c => c.col === grid.col && c.row === grid.row)) {
@@ -3220,7 +3225,7 @@ export class InputHandler {
     const row = Math.floor(worldZ / 2);
     const subCol = Math.max(0, Math.min(3, Math.floor((worldX - col * 2) / 0.5)));
     const subRow = Math.max(0, Math.min(3, Math.floor((worldZ - row * 2) / 0.5)));
-    const k = col + ',' + row + ',' + subCol + ',' + subRow;
+    const k = subtileKey(col, row, subCol, subRow, this.game.activeLevel);
     const occ = this.game.state.subgridOccupied[k];
     if (occ) return this.game.getPlaceable(occ.id);
     return null;
@@ -3285,8 +3290,8 @@ export class InputHandler {
       ? movePayload.placeableId
       : (movePayload?.kind === 'component' ? movePayload.nodeId : null);
     const previewOptions = ignorePlaceableId
-      ? { ignorePlaceableId, free: true }
-      : {};
+      ? { ignorePlaceableId, free: true, level: this.game.activeLevel }
+      : { level: this.game.activeLevel };
 
     // Beamline junction/placement hover is handled by BeamlineInputController.
     const selDef = COMPONENTS[armedId];
@@ -3334,6 +3339,7 @@ export class InputHandler {
         row: edge.row,
         edge: edge.edge,
         off: wallFixtureOffFromFrac(edge.frac, placeable.wallSpan),
+        level: this.game.activeLevel,
       } : null;
       const geometric = canPlaceWallFixture(
         this.game, placeable, wallMount, ignorePlaceableId,
@@ -3356,6 +3362,7 @@ export class InputHandler {
         placeY: 0,
         stackTargetId: null,
         wallMount: geometric.wallMount,
+        level: this.game.activeLevel,
         variant: this.selectedPlaceableVariant,
         valid: ok,
         reason,
@@ -3384,7 +3391,12 @@ export class InputHandler {
       const st = findStackTarget(
         placeable, snap.col, snap.row, snap.subCol, snap.subRow, this.placementDir,
         this.game.state.subgridOccupied, getEntry, getDef,
-        { ignoreEntryId: ignorePlaceableId },
+        {
+          ignoreEntryId: ignorePlaceableId,
+          keyForCell: c => subtileKey(
+            c.col, c.row, c.subCol, c.subRow, this.game.activeLevel,
+          ),
+        },
       );
       if (st) {
         placeY = st.placeY;
@@ -3434,6 +3446,7 @@ export class InputHandler {
       mapEdgeConnection,
       valid: ok,
       reason,
+      level: this.game.activeLevel,
     };
     this.renderer.renderPlaceableGhost(this.hoverPlaceable, ok, reason);
     if (ignorePlaceableId) {
@@ -3487,6 +3500,7 @@ export class InputHandler {
         wallMount: this.hoverPlaceable.wallMount,
         params: this.selectedParamOverrides,
         variant: this.selectedPlaceableVariant,
+        level: this.game.activeLevel,
       });
       // Auto-switch to beam pipe tool after placing a source.
       if (placedId && comp?.isSource) {
@@ -3529,7 +3543,9 @@ export class InputHandler {
       );
       const blockerNames = new Set();
       for (const cell of cells) {
-        const key = `${cell.col},${cell.row},${cell.subCol},${cell.subRow}`;
+        const key = subtileKey(
+          cell.col, cell.row, cell.subCol, cell.subRow, this.game.activeLevel,
+        );
         const occupant = this.game?.state?.subgridOccupied?.[key];
         const entry = occupant?.id ? this.game.getPlaceable?.(occupant.id) : null;
         const def = entry ? (PLACEABLES[entry.type] || COMPONENTS[entry.type]) : null;
@@ -3599,6 +3615,7 @@ export class InputHandler {
         this.game, pl,
         snap.col, snap.row, snap.subCol, snap.subRow,
         this.placementDir,
+        { level: this.game.activeLevel },
       );
 
       let overlapsEarlier = false;
@@ -3640,6 +3657,7 @@ export class InputHandler {
           // _finishLinePlaceDecoration commits selectedPlaceableVariant, so
           // the ghosts have to carry it or the drag previews the wrong swatch.
           variant: this.selectedPlaceableVariant,
+          level: this.game.activeLevel,
         },
         valid: fits && affordable,
         reason: fits ? (affordable ? null : PLACE_UNAFFORDABLE) : null,
@@ -3697,6 +3715,7 @@ export class InputHandler {
             dir: h.hover.dir,
             params: this.selectedParamOverrides,
             variant: this.selectedPlaceableVariant,
+            level: this.game.activeLevel,
           });
         }
       }));
@@ -3717,7 +3736,8 @@ export class InputHandler {
   _demolishEverythingAt(col, row, policy = createDemolishPolicy([
     'structure', 'beamline', 'infra', 'facility', 'grounds',
   ])) {
-    const key = col + ',' + row;
+    const level = this.game.activeLevel;
+    const key = tileKey(col, row, level);
     // Remove beamline components
     const node = this._getNodeAtGrid(col, row);
     if (node && policy.allowsPlaceable(node)) this.game.removePlaceable(node.id);
@@ -3726,7 +3746,7 @@ export class InputHandler {
     const idsOnTile = new Set();
     for (let sr = 0; sr < 4; sr++) {
       for (let sc = 0; sc < 4; sc++) {
-        const occ = this.game.state.subgridOccupied[key + ',' + sc + ',' + sr];
+        const occ = this.game.state.subgridOccupied[subtileKey(col, row, sc, sr, level)];
         if (occ && occ.id) idsOnTile.add(occ.id);
       }
     }
@@ -3735,7 +3755,10 @@ export class InputHandler {
     for (const entry of this.game.state.placeables) {
       const def = PLACEABLES[entry.type];
       if (usesFloorOccupancy(def)) continue;
-      if ((entry.cells || []).some(c => c.col === col && c.row === row)) idsOnTile.add(entry.id);
+      if (sameLevel(entry, level)
+          && (entry.cells || []).some(c => c.col === col && c.row === row)) {
+        idsOnTile.add(entry.id);
+      }
     }
     for (const id of idsOnTile) {
       const entry = this.game.getPlaceable(id);
@@ -3757,7 +3780,7 @@ export class InputHandler {
     }
     // Remove zones
     if (policy.allowsCategory('facility') && this.game.state.zoneOccupied[key]) {
-      this.game.removeZoneTile(col, row);
+      this.game.removeZoneTile(col, row, level);
     }
     // Remove walls and doors on every edge of this tile (segments may be
     // stored under either alias of any of the four edge keys)
@@ -3769,7 +3792,7 @@ export class InputHandler {
     }
     // Remove floor last
     const floorType = this.game.state.infraOccupied[key];
-    if (floorType && policy.allowsFloor(floorType)) this.game.removeInfraTile(col, row);
+    if (floorType && policy.allowsFloor(floorType)) this.game.removeInfraTile(col, row, level);
   }
 
   // --- Move mode (MoveTool) ---
@@ -4131,7 +4154,7 @@ export class InputHandler {
       hitEntry = this._getNodeAtGrid(col, row);
       for (let sr = 0; sr < 4 && !hitEntry; sr++) {
         for (let sc = 0; sc < 4 && !hitEntry; sc++) {
-          const k = col + ',' + row + ',' + sc + ',' + sr;
+          const k = subtileKey(col, row, sc, sr, this.game.activeLevel);
           const occ = this.game.state.subgridOccupied[k];
           if (occ) hitEntry = this.game.getPlaceable(occ.id);
         }
@@ -4152,6 +4175,7 @@ export class InputHandler {
         originCol: hitEntry.col,
         originRow: hitEntry.row,
         portsFlipped: hitEntry.portsFlipped === true,
+        level: levelOf(hitEntry),
       };
     }
 
@@ -4169,6 +4193,7 @@ export class InputHandler {
         variant: hitEntry.variant ?? 0,
         dir: hitEntry.dir || 0,
         portsFlipped: hitEntry.portsFlipped === true,
+        level: levelOf(hitEntry),
       };
     }
 
@@ -4229,6 +4254,7 @@ export class InputHandler {
           subRow: hp.subRow,
           dir: hp.dir ?? this.placementDir ?? placeable.dir ?? 0,
           portsFlipped: hp.portsFlipped === true,
+          level: this.game.activeLevel,
         });
         if (!moved) return false;
         this.game._deriveBeamGraph();
@@ -4260,6 +4286,7 @@ export class InputHandler {
         variant: p.variant,
         free: true,
         silent: true,
+        level: this.game.activeLevel,
       });
       if (placedId) this.renderer.dropPortablePlaceable?.(placedId);
       return placedId !== false;
@@ -4276,6 +4303,7 @@ export class InputHandler {
           dir: hp.dir ?? this.placementDir ?? entry.dir ?? 0,
           portsFlipped: hp.portsFlipped === true,
           wallMount: hp.wallMount,
+          level: this.game.activeLevel,
         });
         if (!moved) return false;
         if (entry.category === 'beamline') {

@@ -79,6 +79,9 @@ import {
   DEFAULT_STAFF_STYLE,
 } from './builders/staff-builder.js';
 import { staffPoseFor } from './staff-pose.js';
+import {
+  levelOf, levelWorldY, parseTileKey, subtileKey, tileKey, withLevel,
+} from '../game/storeys.js';
 
 // Skin/hair/coat choices and the per-role accents both live in the builder,
 // keyed by the style's palette, so a style change (e.g. RCT2's sampled palette
@@ -173,7 +176,8 @@ function angleDelta(from, to) {
  * node — see _syncJob's own doc comment. */
 function sameNode(a, b) {
   if (!a || !b) return a === b;
-  return a.col === b.col && a.row === b.row && a.subCol === b.subCol && a.subRow === b.subRow;
+  return a.col === b.col && a.row === b.row && a.subCol === b.subCol
+    && a.subRow === b.subRow && levelOf(a) === levelOf(b);
 }
 
 // --- StaffPawns ------------------------------------------------------------
@@ -213,6 +217,8 @@ export class StaffPawns {
       if (!seen.has(id)) {
         this._destroyPawn(pawn);
         this._pawns.delete(id);
+      } else {
+        pawn.figure.group.visible = pawn.level === (this.game?.activeLevel || 0);
       }
     }
   }
@@ -265,6 +271,7 @@ export class StaffPawns {
       figure,
       x: spawn.x,
       z: spawn.z,
+      level: levelOf(member.fromNode || spawn),
       mode: 'idle',
       idleT: IDLE_MIN + Math.random() * (IDLE_MAX - IDLE_MIN),
       speed: WALK_SPEED_MIN + rng() * WALK_SPEED_VAR,
@@ -350,9 +357,11 @@ export class StaffPawns {
 
     const nav = state ? getNavGrid(state) : null;
     for (let i = 0; i < SPAWN_TRIES && pool.length; i++) {
-      const [col, row] = pool[Math.floor(rng() * pool.length)].split(',').map(Number);
-      const node = { col, row, subCol: Math.floor(rng() * 4), subRow: Math.floor(rng() * 4) };
-      if (!nav || nav.passable.has(`${node.col},${node.row},${node.subCol},${node.subRow}`)) {
+      const { col, row, level } = parseTileKey(pool[Math.floor(rng() * pool.length)]);
+      const node = withLevel({
+        col, row, subCol: Math.floor(rng() * 4), subRow: Math.floor(rng() * 4),
+      }, level);
+      if (!nav || nav.passable.has(subtileKey(col, row, node.subCol, node.subRow, level))) {
         return subtileToWorld(node);
       }
     }
@@ -368,7 +377,7 @@ export class StaffPawns {
     const state = this.game?.state;
     if (!state) return null;
     const nav = getNavGrid(state);
-    const from = worldToSubtile(pawn.x, pawn.z);
+    const from = worldToSubtile(pawn.x, pawn.z, pawn.level);
     const zid = member?.assignment?.zoneId;
     const zoneOcc = state.zoneOccupied || {};
     const zoneKeys = zid ? Object.keys(zoneOcc).filter(k => zoneOcc[k] === zid) : null;
@@ -376,14 +385,18 @@ export class StaffPawns {
     for (let i = 0; i < WANDER_TRIES; i++) {
       let node;
       if (zoneKeys && zoneKeys.length && Math.random() < ZONE_BIAS) {
-        const [col, row] = zoneKeys[Math.floor(Math.random() * zoneKeys.length)].split(',').map(Number);
-        node = { col, row, subCol: (Math.random() * 4) | 0, subRow: (Math.random() * 4) | 0 };
+        const { col, row, level } = parseTileKey(
+          zoneKeys[Math.floor(Math.random() * zoneKeys.length)],
+        );
+        node = withLevel({
+          col, row, subCol: (Math.random() * 4) | 0, subRow: (Math.random() * 4) | 0,
+        }, level);
       } else {
-        node = {
+        node = withLevel({
           col: from.col + Math.round((Math.random() * 2 - 1) * WANDER_RADIUS),
           row: from.row + Math.round((Math.random() * 2 - 1) * WANDER_RADIUS),
           subCol: (Math.random() * 4) | 0, subRow: (Math.random() * 4) | 0,
-        };
+        }, levelOf(from));
       }
       if (isReachable(nav, from, node)) return node;
     }
@@ -664,6 +677,7 @@ export class StaffPawns {
       moved = dist;
       pawn.x = targetXZ.x;
       pawn.z = targetXZ.z;
+      pawn.level = levelOf(node);
       pawn.simPathIndex++;
       if (pawn.simPathIndex >= pawn.simPath.length) {
         pawn.simPath.length = 0;
@@ -693,6 +707,7 @@ export class StaffPawns {
     const world = subtileToWorld(job.destNode);
     pawn.x = world.x;
     pawn.z = world.z;
+    pawn.level = levelOf(job.destNode);
     if (ref) pawn.heading = FACING_HEADING[ref.facing] ?? pawn.heading;
     pawn.jobDestNode = job.destNode;
     pawn.stationKey = job.stationKey || null;
@@ -772,7 +787,7 @@ export class StaffPawns {
   _beginPathWalk(pawn, node) {
     const state = this.game.state;
     const nav = getNavGrid(state);
-    const from = worldToSubtile(pawn.x, pawn.z);
+    const from = worldToSubtile(pawn.x, pawn.z, pawn.level);
     const path = findPath(nav, from, node);
     if (!path) return false;
     pawn.path = path;
@@ -821,7 +836,7 @@ export class StaffPawns {
       }
       const finalNode = pawn.path[pawn.path.length - 1];
       const nav = getNavGrid(state);
-      const from = worldToSubtile(pawn.x, pawn.z);
+      const from = worldToSubtile(pawn.x, pawn.z, pawn.level);
       const path = findPath(nav, from, finalNode);
       if (!path) {
         this._releaseStationFor(pawn);
@@ -849,6 +864,7 @@ export class StaffPawns {
       moved = dist;
       pawn.x = targetXZ.x;
       pawn.z = targetXZ.z;
+      pawn.level = levelOf(node);
       if (pawn.pathIndex < pawn.path.length - 1) {
         pawn.pathIndex++;
       } else {
@@ -902,6 +918,7 @@ export class StaffPawns {
       const world = subtileToWorld(ref.node);
       pawn.x = world.x;
       pawn.z = world.z;
+      pawn.level = levelOf(ref.node);
       pawn.heading = FACING_HEADING[ref.facing] ?? pawn.heading;
       pawn.mode = 'working';
       pawn.workNavRevision = state?.navRevision || 0;
@@ -1043,11 +1060,14 @@ export class StaffPawns {
     const row = Math.floor(pawn.z / 2);
     // Concrete pads render as flat foundations at y=0 regardless of terrain
     // (see world-snapshot.buildFloors) — match that so feet stay on the slab.
-    const isConcrete = state?.infraOccupied?.[col + ',' + row] === 'concrete';
-    const groundY = isConcrete ? 0 : sampleSurfaceYAt(state, pawn.x, pawn.z);
+    const isConcrete = state?.infraOccupied?.[tileKey(col, row, pawn.level)] === 'concrete';
+    const groundY = pawn.level > 0
+      ? levelWorldY(pawn.level)
+      : (isConcrete ? 0 : sampleSurfaceYAt(state, pawn.x, pawn.z));
     const seated = pawn.mode === 'working' && !!pawn.pendingStation?.seated;
     const yOffset = seated ? this._seatedYOffset(state, pawn.pendingStation) : 0.01;
     pawn.figure.group.position.set(pawn.x, groundY + yOffset, pawn.z);
+    pawn.figure.group.visible = pawn.level === (this.game?.activeLevel || 0);
   }
 
   /**

@@ -128,10 +128,10 @@ export function collapsePlan(entryId, getEntry, getDef) {
  */
 export function findStackTarget(
   stackableDef, col, row, subCol, subRow, dir, subgridOccupied, getEntry, getDef,
-  { ignoreEntryId = null } = {},
+  { ignoreEntryId = null, keyForCell = cellKey } = {},
 ) {
   const cells = stackableDef.footprintCells(col, row, subCol, subRow, dir);
-  const stackKeys = cells.map(cellKey);
+  const stackKeys = cells.map(keyForCell);
 
   // Step 1: resolve the ground occupant (or null for a purely-empty footprint).
   let groundId = null;

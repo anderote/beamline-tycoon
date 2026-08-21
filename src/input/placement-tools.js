@@ -175,7 +175,9 @@ export class ZonePaintTool extends Tool {
   }
 
   _showCost(ctx, e, c0, r0, c1, r1) {
-    const cost = ctx.game.computeFacilityBrushCost(c0, r0, c1, r1, this.zoneType);
+    const cost = ctx.game.computeFacilityBrushCost(
+      c0, r0, c1, r1, this.zoneType, ctx.game.activeLevel,
+    );
     ctx.input._showDragCostTooltip(cost.totalCost, e.clientX, e.clientY, {
       insufficientFunding: !canAffordFunding(ctx.game, cost.totalCost),
     });
@@ -235,6 +237,7 @@ export class ZonePaintTool extends Tool {
       this._dragStart.col, this._dragStart.row,
       this._dragEnd.col, this._dragEnd.row,
       this.zoneType,
+      ctx.game.activeLevel,
     ));
     this._dragging = false;
     this._dragStart = null;
@@ -250,7 +253,9 @@ export class ZonePaintTool extends Tool {
     const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
     const grid = isoToGrid(world.x, world.y);
     ctx.game._withUndo(() => {
-      if (ctx.game.placeFacilityZoneBrushTile(grid.col, grid.row, this.zoneType)) {
+      if (ctx.game.placeFacilityZoneBrushTile(
+        grid.col, grid.row, this.zoneType, ctx.game.activeLevel,
+      )) {
         ctx.game.emit('zonesChanged');
       }
     });
@@ -263,7 +268,9 @@ export class ZonePaintTool extends Tool {
     // Keep the brush armed so painting and corrections stay in one workflow.
     const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
     const grid = isoToGrid(world.x, world.y);
-    ctx.game.runUndoableMutation(() => ctx.game.removeZoneTile(grid.col, grid.row));
+    ctx.game.runUndoableMutation(() => ctx.game.removeZoneTile(
+      grid.col, grid.row, ctx.game.activeLevel,
+    ));
     return true;
   }
 }

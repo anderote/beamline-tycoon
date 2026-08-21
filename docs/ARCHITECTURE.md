@@ -28,6 +28,7 @@ One line per area: what it owns, and what it must not own.
 | `aggregates.js` | **One definition per derived quantity.** Every accessor here replaced a value computed at two call sites that had already drifted into a shipped balance bug (`aggregates.js:1-30`). | Any variant logic — a caller that needs a variant passes an argument, it does not re-derive. |
 | `economy.js` | The `ECON` tuning table, per-tick income/upkeep functions, and the canonical per-beamline gross-revenue breakdown used by billing and projections. | Its own derivations of draw/pumps/uptime — it imports them from `aggregates.js` (`economy.js:3-6`). |
 | `terrain.js` | Sparse per-corner heightmap + the within-tile invariant. | Cross-tile cascade (deliberately absent, `terrain.js:8-10`). |
+| `storeys.js` | The three-floor cap, vertical datum, and level-aware tile/subtile/edge key contract. Ground-level keys deliberately retain their legacy shapes. | Construction mutation or renderer policy. |
 | `utility-gate.js` | Per-tick gating **policy**: which unwired sinks trip the beam, staffing, `nodeQualities`. | Topology knowledge — that is `network-discovery.js`. |
 | `stacking.js` | Pure stack legality (`canStack`, `findStackTarget`, `collapsePlan`). | State mutation; callers apply the plan. |
 | `research.js`, `objectives.js` | Thin tick-time delegates over the `src/data` tables. | Registry knowledge beyond the tables. |

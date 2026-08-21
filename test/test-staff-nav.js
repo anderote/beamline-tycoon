@@ -500,5 +500,43 @@ console.log('\n=== 17. KNOWN LIMITATION: a closed ring of decorations outside th
     'the limitation is bounded: findPath still runs real A* and correctly finds no path into the sealed pocket');
 }
 
+console.log('\n=== 18. Internal stairs connect roof-supported upper floors ===\n');
+{
+  const state = makeState({ mapHalfExtent: 8 });
+  for (let row = 0; row <= 1; row++) {
+    state.infraOccupied[`0,${row}`] = 'hallway';
+    state.infraOccupied[`1|0,${row}`] = 'hallway';
+  }
+  const def = PLACEABLES.internalStairs;
+  const cells = def.footprintCells(0, 0, 0, 0, 0);
+  const entry = {
+    id: 'stairs_1', type: 'internalStairs', kind: 'infrastructure',
+    category: 'infrastructure', col: 0, row: 0, subCol: 0, subRow: 0,
+    dir: 0, cells,
+  };
+  state.placeableIndex[entry.id] = 0;
+  state.placeables.push(entry);
+  for (const cell of cells) {
+    state.subgridOccupied[
+      `${cell.col},${cell.row},${cell.subCol},${cell.subRow}`
+    ] = { id: entry.id, kind: entry.kind };
+  }
+
+  const nav = buildNavGrid(state);
+  const lower = { col: 0, row: 0, subCol: 0, subRow: 0 };
+  const upper = { col: 0, row: 1, subCol: 3, subRow: 3, level: 1 };
+  assertOk(subtileToWorld(upper).level === 1,
+    'world-space spawn coordinates retain their storey identity');
+  const path = findPath(nav, lower, upper);
+  assertOk(!!path, 'a path reaches the second floor through the stair connector');
+  assertOk(path?.some(node => node.level === 1), 'the route contains second-floor nodes');
+
+  state.placeables = [];
+  state.placeableIndex = {};
+  state.subgridOccupied = {};
+  const disconnected = buildNavGrid(state);
+  assertOk(!isReachable(disconnected, lower, upper), 'upper floor is unreachable after stairs are removed');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
