@@ -453,6 +453,36 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     }
   }
 
+  // Off-map services carry both a placement rule and renderer-authored lead
+  // dimensions. Validate the shared contract here so a typo cannot silently
+  // make the item unplaceable or generate NaN conductor geometry.
+  function checkMapEdgeConnection(id, def) {
+    if (def.mapEdgeConnection == null) return;
+    const spec = def.mapEdgeConnection;
+    if (!spec || typeof spec !== 'object' || Array.isArray(spec)) {
+      problem(id, 'mapEdgeConnection', 'must be an object');
+      return;
+    }
+    if (!Number.isInteger(spec.maxDistanceTiles) || spec.maxDistanceTiles < 1) {
+      problem(id, 'mapEdgeConnection.maxDistanceTiles',
+        `must be a positive integer, got ${JSON.stringify(spec.maxDistanceTiles)}`);
+    }
+    if (!Number.isInteger(spec.conductorCount)
+        || spec.conductorCount < 1 || spec.conductorCount > 6) {
+      problem(id, 'mapEdgeConnection.conductorCount',
+        `must be an integer from 1 to 6, got ${JSON.stringify(spec.conductorCount)}`);
+    }
+    for (const field of [
+      'leadHeightMeters', 'conductorSpacingMeters', 'conductorRadiusMeters', 'sagMeters',
+    ]) {
+      const value = spec[field];
+      if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+        problem(id, `mapEdgeConnection.${field}`,
+          `must be a positive finite number, got ${JSON.stringify(value)}`);
+      }
+    }
+  }
+
   // Authored facility parts default to boxes. Non-box primitives share the
   // same exact w/h/l bounding-box contract in EquipmentBuilder, so malformed
   // dimensions, axes, or rotations would otherwise produce invisible or NaN
@@ -716,6 +746,7 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     checkBeamPorts(id, def);
     checkWallPassThrough(id, def);
     checkElectrical(id, def);
+    checkMapEdgeConnection(id, def);
   }
 
   // ── Furnishings + equipment (zone-scoped) ─────────────────────────

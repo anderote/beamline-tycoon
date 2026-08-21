@@ -155,6 +155,19 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
       placement: 'module', requiredConnections: [],
       electricalGroups: { powerCable: [['in', 'missing'], ['in', 'out']] },
     },
+    badEdgeService: {
+      id: 'badEdgeService', name: 'Bad Edge Service', category: 'power',
+      cost: { funding: 100 }, subW: 1, subL: 1, subH: 1,
+      placement: 'module', requiredConnections: [],
+      mapEdgeConnection: {
+        maxDistanceTiles: 0,
+        conductorCount: 9,
+        leadHeightMeters: NaN,
+        conductorSpacingMeters: 0,
+        conductorRadiusMeters: -1,
+        sagMeters: 'low',
+      },
+    },
   };
   const badDecorations = {
     freebie: {
@@ -295,6 +308,12 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     'carrier groups may reference only real passive ports');
   assert(hasProblem(problems, 'badCableCarrier', 'electricalGroups.powerCable[1]', 'more than one'),
     'one port cannot belong to two isolated conductor groups');
+  assert(hasProblem(problems, 'badEdgeService', 'mapEdgeConnection.maxDistanceTiles', 'positive integer'),
+    'map-edge services require a positive placement distance');
+  assert(hasProblem(problems, 'badEdgeService', 'mapEdgeConnection.conductorCount', '1 to 6'),
+    'map-edge services bound their conductor count');
+  assert(hasProblem(problems, 'badEdgeService', 'mapEdgeConnection.leadHeightMeters', 'positive finite'),
+    'map-edge service lead dimensions must be finite and positive');
 }
 
 // ==========================================================================

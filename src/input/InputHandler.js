@@ -18,7 +18,7 @@ import { PLACEABLES } from '../data/placeables/index.js';
 import {
   snapForPlaceable, canPlace, canPlaceWallFixture, previewPlacement,
   canAffordCost, componentCostFor, usesFloorOccupancy, wallFixtureOffFromFrac,
-  PLACE_BLOCKED, PLACE_WALL, PLACE_UNAFFORDABLE,
+  PLACE_BLOCKED, PLACE_WALL, PLACE_MAP_EDGE, PLACE_UNAFFORDABLE,
 } from '../game/placement.js';
 import { findStackTarget } from '../game/stacking.js';
 import {
@@ -3345,6 +3345,7 @@ export class InputHandler {
     let stackTargetId = null;
     let ok = false;
     let reason = null;
+    let mapEdgeConnection = null;
 
     if (placeable.stackable) {
       const getEntry = (id) => {
@@ -3377,6 +3378,7 @@ export class InputHandler {
         );
         ok = result.ok;
         reason = result.reason;
+        mapEdgeConnection = result.mapEdgeConnection;
       }
     } else {
       const result = previewPlacement(
@@ -3387,6 +3389,7 @@ export class InputHandler {
       );
       ok = result.ok;
       reason = result.reason;
+      mapEdgeConnection = result.mapEdgeConnection;
     }
 
     this.hoverPlaceable = {
@@ -3400,6 +3403,7 @@ export class InputHandler {
       placeY,
       stackTargetId,
       variant: this.selectedPlaceableVariant,
+      mapEdgeConnection,
       valid: ok,
       reason,
     };
@@ -3481,6 +3485,10 @@ export class InputHandler {
       return placeable?.mount === 'wall'
         ? `Can't place ${name}: it needs a free wall face.`
         : `Can't place ${name}: its footprint crosses a wall.`;
+    }
+    if (hover?.reason === PLACE_MAP_EDGE) {
+      const distance = placeable?.mapEdgeConnection?.maxDistanceTiles || 4;
+      return `Can't place ${name}: it must be fully on the map and within ${distance} tiles of the map edge.`;
     }
     if (hover?.reason === PLACE_UNAFFORDABLE) {
       const cost = componentCostFor(placeable);
@@ -3986,6 +3994,9 @@ export class InputHandler {
       return 'Utility connections would overlap here';
     }
     if (reason === 'wall') return 'Selection intersects a wall';
+    if (reason === PLACE_MAP_EDGE) {
+      return 'Utility service points must remain within four tiles of the map edge';
+    }
     return 'Selection does not fit here';
   }
 

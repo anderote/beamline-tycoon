@@ -11,6 +11,7 @@ import {
   physicalWallFixtureSlotKeys,
   wallFixtureFaceOffset,
 } from './wall-fixture-geometry.js';
+import { resolveMapEdgeConnection } from './map-edge-connection.js';
 
 /**
  * Snap a world (x,y) to the nearest subtile center, no clamping.
@@ -185,7 +186,8 @@ function footprintCrossesWall(wallOccupied, cells) {
 
 /**
  * Check whether the placeable can be placed at (col,row,subCol,subRow,dir).
- * Constraints: subtile footprint collision + wall intersection.
+ * Constraints: subtile footprint collision, wall intersection, and any
+ * authored map-edge service band.
  * A move preview/commit may name its existing placeable ID so those owned
  * cells are transparent without weakening collisions against anything else.
  */
@@ -203,7 +205,20 @@ export function canPlace(
     }
   }
   const wallBlocked = usesFloor && footprintCrossesWall(game.state.wallOccupied, cells);
-  return { ok: blocked.length === 0 && !wallBlocked, blockedCells: blocked, cells, wallBlocked };
+  const mapEdgeConnection = placeable.mapEdgeConnection
+    ? resolveMapEdgeConnection(
+        cells, game?.state?.mapHalfExtent, placeable.mapEdgeConnection,
+      )
+    : null;
+  const mapEdgeBlocked = !!mapEdgeConnection && !mapEdgeConnection.valid;
+  return {
+    ok: blocked.length === 0 && !wallBlocked && !mapEdgeBlocked,
+    blockedCells: blocked,
+    cells,
+    wallBlocked,
+    mapEdgeBlocked,
+    mapEdgeConnection,
+  };
 }
 
 /**
@@ -212,6 +227,7 @@ export function canPlace(
  */
 export const PLACE_BLOCKED = 'blocked';
 export const PLACE_WALL = 'wall';
+export const PLACE_MAP_EDGE = 'map_edge';
 export const PLACE_UNAFFORDABLE = 'unaffordable';
 
 /**
@@ -273,7 +289,9 @@ export function previewPlacement(
   // merely because the player could not afford to buy the item again.
   const affordable = options.free === true || canAffordCost(game, cost);
   const reason = !geo.ok
-    ? (geo.wallBlocked ? PLACE_WALL : PLACE_BLOCKED)
+    ? (geo.wallBlocked
+        ? PLACE_WALL
+        : (geo.blockedCells.length > 0 ? PLACE_BLOCKED : PLACE_MAP_EDGE))
     : (affordable ? null : PLACE_UNAFFORDABLE);
   return { ...geo, ok: geo.ok && affordable, affordable, reason, cost };
 }

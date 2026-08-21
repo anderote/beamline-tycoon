@@ -48,6 +48,7 @@ import { StaffPawns } from './StaffPawns.js';
 import { sampleSurfaceYAt, getTileCornersY } from '../game/terrain.js';
 import { doorTileSpan, normalizeDoorSpanPath } from '../game/edge-keys.js';
 import { PLACE_UNAFFORDABLE } from '../game/placement.js';
+import { syncMapEdgeServiceLeadVisual } from './map-edge-service-lead.js';
 import { DAY_LENGTH_TICKS } from '../game/Game.js';
 import { dayNightGrade, MOON_COLOR } from './day-night.js';
 import { CINEMATIC_LIGHTING } from './lighting-tuning.js';
@@ -3334,7 +3335,14 @@ export class ThreeRenderer {
       y = fixtureMountY(placeable, placeYOffset + surfaceY);
     }
     obj.position.set(px, y, pz);
-    obj.rotation.y = wallPose?.yaw ?? (-(hover.dir || 0) * (Math.PI / 2));
+    const rotY = wallPose?.yaw ?? (-(hover.dir || 0) * (Math.PI / 2));
+    obj.rotation.y = rotY;
+    syncMapEdgeServiceLeadVisual(
+      obj,
+      hover.mapEdgeConnection,
+      { x: px, y, z: pz, rotY },
+      { ghost: true, color: tintHex },
+    );
     obj.renderOrder = 999;
     this.previewGroup.add(obj);
 
