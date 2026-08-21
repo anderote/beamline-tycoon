@@ -36,6 +36,28 @@ const POST_WIDTH = 0.1 * M;      // 10cm posts
 export const LINTEL_HEIGHT = 0.15 * M;   // 15cm lintel
 const PANEL_THICKNESS = 0.04 * M; // 4cm door panel
 const PANEL_GAP = 0.02 * M;       // gap between panel and frame
+const GHOST_OPACITY = 0.3;
+const CUTOUT_ALPHA_TEST = 0.5;
+
+/**
+ * Build the material shared by ordinary wall slabs and the pieces rebuilt
+ * around an opening. THREE applies alphaTest after multiplying texture alpha
+ * by material opacity, so a ghosted cutout cannot keep the solid-mode 0.5
+ * threshold: at opacity 0.3 even a fully opaque fence pixel would be dropped.
+ */
+function createWallMaterial(baseMat, color, ghost, cutout) {
+  const opacity = ghost ? GHOST_OPACITY : 1;
+  return new THREE.MeshStandardMaterial({
+    map: baseMat ? baseMat.map : null,
+    color,
+    roughness: 0.8,
+    transparent: ghost || cutout,
+    alphaTest: cutout ? CUTOUT_ALPHA_TEST * opacity : 0,
+    opacity,
+    depthWrite: cutout ? true : !ghost,
+    side: cutout ? THREE.DoubleSide : THREE.FrontSide,
+  });
+}
 
 // An edge is divided into 4 subtile slots; a door's `off` counts slots from
 // the edge's FIRST-listed corner. Mirrors SUBTILES_PER_EDGE in game/edge-keys.js
@@ -289,17 +311,14 @@ export class WallBuilder {
         const baseMat = textureName ? MATERIALS[textureName] : null;
         // Alpha-cutout materials (chain-link, barbed wire): the PNG has
         // fully transparent holes, so use alphaTest to discard hole
-        // pixels and render wire strands as opaque from both sides.
-        matCache[matKey] = new THREE.MeshStandardMaterial({
-          map: baseMat ? baseMat.map : null,
-          color: baseMat ? 0xffffff : color, // tint white if textured so map shows true colors
-          roughness: 0.8,
-          transparent: wallTransparent || useAlpha,
-          alphaTest: useAlpha ? 0.5 : 0,
-          opacity: wallTransparent ? 0.3 : 1.0,
-          depthWrite: useAlpha ? true : !wallTransparent,
-          side: useAlpha ? THREE.DoubleSide : THREE.FrontSide,
-        });
+        // pixels and render wire strands as opaque from both sides. The
+        // helper scales that threshold in transparent/cutaway wall views.
+        matCache[matKey] = createWallMaterial(
+          baseMat,
+          baseMat ? 0xffffff : color, // white keeps a texture's authored colour
+          wallTransparent,
+          useAlpha,
+        );
       }
 
       const isNS = edge === 'n' || edge === 's';
@@ -375,16 +394,12 @@ export class WallBuilder {
         if (!matCache[paintKey]) {
           const paintTextureName = def?.variantTextures?.[variant] ?? def?.texture;
           const paintBaseMat = paintTextureName ? MATERIALS[paintTextureName] : null;
-          matCache[paintKey] = new THREE.MeshStandardMaterial({
-            map: paintBaseMat ? paintBaseMat.map : null,
-            color: WALL_PAINTS[paintId].color,
-            roughness: 0.8,
-            transparent: wallTransparent || useAlpha,
-            alphaTest: useAlpha ? 0.5 : 0,
-            opacity: wallTransparent ? 0.3 : 1.0,
-            depthWrite: useAlpha ? true : !wallTransparent,
-            side: useAlpha ? THREE.DoubleSide : THREE.FrontSide,
-          });
+          matCache[paintKey] = createWallMaterial(
+            paintBaseMat,
+            WALL_PAINTS[paintId].color,
+            wallTransparent,
+            useAlpha,
+          );
         }
         return matCache[paintKey];
       };
@@ -521,14 +536,12 @@ export class WallBuilder {
       if (wallMatKey && !matCache[wallMatKey]) {
         const textureName = wallDef?.variantTextures?.[wallVariant] ?? wallDef?.texture;
         const baseMat = textureName ? MATERIALS[textureName] : null;
-        matCache[wallMatKey] = new THREE.MeshStandardMaterial({
-          map: baseMat ? baseMat.map : null,
-          color: baseMat ? 0xffffff : wallColor,
-          roughness: 0.8,
-          transparent: fillTransparent,
-          opacity: fillTransparent ? 0.3 : 1.0,
-          depthWrite: !fillTransparent,
-        });
+        matCache[wallMatKey] = createWallMaterial(
+          baseMat,
+          baseMat ? 0xffffff : wallColor,
+          fillTransparent,
+          wallDef?.hasAlpha === true,
+        );
       }
 
       const postGeo = new THREE.BoxGeometry(POST_WIDTH, doorHeight, POST_WIDTH);
@@ -741,14 +754,12 @@ export class WallBuilder {
     const textureName = wallDef?.variantTextures?.[wallVariant] ?? wallDef?.texture;
     const baseMat = textureName ? MATERIALS[textureName] : null;
     const wallColor = wallDef ? wallDef.color : 0xcccccc;
-    matCache[key] = new THREE.MeshStandardMaterial({
-      map: baseMat ? baseMat.map : null,
-      color: baseMat ? 0xffffff : wallColor,
-      roughness: 0.8,
-      transparent: ghost,
-      opacity: ghost ? 0.3 : 1.0,
-      depthWrite: !ghost,
-    });
+    matCache[key] = createWallMaterial(
+      baseMat,
+      baseMat ? 0xffffff : wallColor,
+      ghost,
+      wallDef?.hasAlpha === true,
+    );
     return key;
   }
 
