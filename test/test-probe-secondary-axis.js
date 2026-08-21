@@ -142,13 +142,69 @@ console.log('\n--- Cursor values at shared distance ---');
     cursorS: 0,
     cursorY: 120,
     pinned: true,
+    pinLabel: 'A',
+    pinColor: '#ffcb6b',
     yDomain: [[0.002, 0.007]],
   });
   check(pinned?.s === 0
-    && events.text.some(event => event.text.startsWith('PIN · s=0')),
-  'a pinned cursor can redraw from physical distance without a live pointer X');
-  check(events.paths.some(event => event.strokeStyle === 'rgba(255, 203, 107, 0.9)'),
-    'the persistent marker uses a distinct high-contrast plot line');
+    && events.text.some(event => event.text.startsWith('TAG A · s=0')),
+  'tag A can redraw from physical distance without a live pointer X');
+  check(events.paths.some(event => event.strokeStyle === '#ffcb6b'),
+    'a persistent tag uses its assigned high-contrast plot line');
+}
+
+console.log('\n--- Two tags, hover, and bottom-right delta ---');
+{
+  const { canvas, events } = recordingCanvas();
+  const yDomain = [[0.002, 0.007]];
+  const hover = ProbePlots.drawCursor(canvas, 'energy', envelope, [0, 10], {
+    cursorX: 300,
+    cursorY: 180,
+    yDomain,
+  });
+  const tagA = ProbePlots.drawCursor(canvas, 'energy', envelope, [0, 10], {
+    cursorS: 0,
+    cursorY: 100,
+    pinned: true,
+    pinLabel: 'A',
+    pinColor: '#ffcb6b',
+    yDomain,
+  });
+  const tagB = ProbePlots.drawCursor(canvas, 'energy', envelope, [0, 10], {
+    cursorS: 10,
+    cursorY: 210,
+    pinned: true,
+    pinLabel: 'B',
+    pinColor: '#5de6ff',
+    yDomain,
+  });
+  const delta = ProbePlots.drawCursorDelta(canvas, tagA, tagB);
+  check(hover && tagA && tagB
+    && events.text.some(event => event.text.startsWith('TAG A ·'))
+    && events.text.some(event => event.text.startsWith('TAG B ·')),
+  'the live hover and both persistent tag cards remain in the same canvas layer');
+  check(events.paths.some(event => event.strokeStyle === '#ffcb6b')
+    && events.paths.some(event => event.strokeStyle === '#5de6ff'),
+  'A and B retain distinct line colours');
+  check(delta?.distanceDelta === 10
+    && delta.rows.some(row => row.includes('Energy') && row.includes('+100%'))
+    && events.text.some(event => event.text.includes('A→B · Δs +10.0 m')),
+  'the comparison reports distance and visible-series change from A to B');
+  const deltaBox = events.strokeRects.at(-1)?.args;
+  check(deltaBox && Math.abs(deltaBox[0] + deltaBox[2] - 628) < 0.01
+    && Math.abs(deltaBox[1] + deltaBox[3] - 338) < 0.01,
+  'the A-to-B comparison is anchored at the bottom right of the plot area');
+
+  const bunchDomain = ProbePlots.yDomainFor('bunch-evolution', envelope, null, [], 0);
+  const bunchA = ProbePlots.drawCursor(canvas, 'bunch-evolution', envelope, [0, 10], {
+    cursorS: 0, pinned: true, pinLabel: 'A', yDomain: bunchDomain,
+  });
+  const bunchB = ProbePlots.drawCursor(canvas, 'bunch-evolution', envelope, [0, 10], {
+    cursorS: 10, pinned: true, pinLabel: 'B', yDomain: bunchDomain,
+  });
+  check(ProbePlots.drawCursorDelta(canvas, bunchA, bunchB)?.rows
+    .some(row => row.includes('Bunch Length') && row.includes('-75.0%')),
+  'relative differences remain accurate for sub-picosecond solver values');
 }
 
 console.log('\n--- Secondary metric catalogue ---');
@@ -406,8 +462,9 @@ console.log('\n--- Designer controls ---');
     && controller.includes("canvas.addEventListener('click'"),
   'designer canvases track hover positions and pin a readout on click');
   check(html.includes('id="dsgn-clear-plot-marker"')
-    && controller.includes('this.plotPin = null'),
-  'the persistent plot marker has an explicit clear action');
+    && html.includes('Clear Plot Tags')
+    && controller.includes('this.plotTags.clear()'),
+  'persistent plot tags have an explicit clear action');
   check((html.match(/class="dsgn-plot-y-controls"/g) || []).length === 3
     && (html.match(/class="dsgn-range-btn dsgn-plot-y-mode"/g) || []).length === 3
     && (html.match(/class="dsgn-plot-y-bound"/g) || []).length === 6,
@@ -431,8 +488,9 @@ console.log('\n--- Designer controls ---');
     && styles.match(/\.dsgn-plot-mission-metric\.revenue strong\s*\{[^}]*font-size:\s*14px/s),
   'performance values use prominent BLT typography with extra emphasis on revenue');
   check(renderer.includes('ProbePlots.drawCursor(off, plotType, solid, xRange')
+    && renderer.includes('ProbePlots.drawCursorDelta(')
     && renderer.includes('overlays: overlays.map'),
-  'the renderer composes the cursor readout after all active channels');
+  'the renderer composes hover, tags, and their delta after all active channels');
   check(renderer.includes('const rect = canvas.getBoundingClientRect()')
     && renderer.includes("panel.classList.toggle('dsgn-plot-panel--radar', plotType === 'eic-triangle')"),
   'plot sizing excludes the control row and radar styling follows the selected plot');

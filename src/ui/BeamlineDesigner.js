@@ -27,8 +27,10 @@ import { buildDesignerPhysicsElements } from '../beamline/physics-payload.js';
 import { summarizeDesignerPlacement } from '../beamline/designer-placement-preview.js';
 import { computeBeamlineRevenueBreakdown } from '../game/economy.js';
 import {
+  addDesignerPlotTag,
   createDesignerPlotYRanges,
   designerPlotPrimaryAxis,
+  designerPlotTagCount,
   formatDesignerPlotBound,
   suggestDesignerFixedYRange,
   validateDesignerFixedYRange,
@@ -199,7 +201,7 @@ export class BeamlineDesigner {
     this.plotReference = 'mission'; // 'mission' | 'none'
     this._plotHoverPositions = new Map(); // panel id -> normalized canvas x/y
     this._plotHoverFrame = null;
-    this.plotPin = null; // { panel, s, x, y } persistent solver-sample readout
+    this.plotTags = new Map(); // panel id -> up to two persistent solver-sample readouts
     this.tuningPanelExpanded = true;
 
     // Opt-in automatic matching. It is a session preference rather than a
@@ -721,16 +723,19 @@ export class BeamlineDesigner {
       });
       canvas.addEventListener('click', (e) => {
         if (!this.isOpen) return;
+        // At-a-point plots have no distance cursor to attach a tag to.
+        if (canvas.closest('.dsgn-plot-panel')?.classList.contains('dsgn-plot-panel--geometric')) {
+          return;
+        }
         const rect = canvas.getBoundingClientRect();
         const panel = canvas.dataset.panel || '0';
-        this.plotPin = {
-          panel,
+        addDesignerPlotTag(this.plotTags, panel, {
           s: null,
           x: Math.max(0, Math.min(1, (e.clientX - rect.left) / (rect.width || 1))),
           y: Math.max(0, Math.min(1, (e.clientY - rect.top) / (rect.height || 1))),
-        };
-        // Let the pinned style win immediately; later pointer movement can
-        // temporarily inspect another sample until the pointer leaves.
+        });
+        // Avoid drawing the same sample twice on the click frame. The next
+        // pointer movement adds a separate live preview without hiding tags.
         this._plotHoverPositions.delete(panel);
         this._renderPlots();
       });
@@ -746,8 +751,8 @@ export class BeamlineDesigner {
     const clearPlotMarker = document.getElementById('dsgn-clear-plot-marker');
     if (clearPlotMarker) {
       clearPlotMarker.addEventListener('click', () => {
-        if (!this.isOpen || !this.plotPin) return;
-        this.plotPin = null;
+        if (!this.isOpen || designerPlotTagCount(this.plotTags) === 0) return;
+        this.plotTags.clear();
         this._renderPlots();
       });
     }
@@ -830,7 +835,7 @@ export class BeamlineDesigner {
     this.plotYAxisModes = ['linear', 'linear', 'linear'];
     this.plotReference = 'mission';
     this._plotHoverPositions.clear();
-    this.plotPin = null;
+    this.plotTags.clear();
 
     this._updateTotalLength();
     this._recalcDraft();
@@ -1188,7 +1193,7 @@ export class BeamlineDesigner {
     this.plotYAxisModes = ['linear', 'linear', 'linear'];
     this.plotReference = 'mission';
     this._plotHoverPositions.clear();
-    this.plotPin = null;
+    this.plotTags.clear();
     this._nextTempId = this.draftNodes.length;
 
     this._updateTotalLength();
@@ -1626,7 +1631,7 @@ export class BeamlineDesigner {
     this._lastTuningKey = null;
     this._plotHoverPositions.clear();
     this._lastAutoPlotYDomains.clear();
-    this.plotPin = null;
+    this.plotTags.clear();
     if (this._plotHoverFrame) {
       cancelAnimationFrame(this._plotHoverFrame);
       this._plotHoverFrame = null;
@@ -2863,10 +2868,10 @@ export class BeamlineDesigner {
     }
   }
 
-  /** Enable the global clear action only while a persistent plot readout exists. */
+  /** Enable the global clear action only while a persistent plot tag exists. */
   syncPlotPinControl() {
     const button = document.getElementById('dsgn-clear-plot-marker');
-    if (button) button.disabled = !this.plotPin;
+    if (button) button.disabled = designerPlotTagCount(this.plotTags) === 0;
   }
 
   _updateInsertButtons() {
