@@ -40,11 +40,11 @@ import { DECORATIONS, computeMoraleMultiplier, getReputationTier } from '../data
 import { PLACEABLES } from '../data/placeables/index.js';
 
 import {
-  computeSystemStats, computeTickIncomeBreakdown, computeBeamIncomeBreakdown,
+  computeSystemStats, computeTickIncomeBreakdown, computeBeamlineRevenueBreakdown,
   computeTickUpkeep,
 } from './economy.js';
 import {
-  hardwareNodeCount, beamlineUptime, facilityUptime, billedDataRate,
+  beamlineUptime, facilityUptime,
 } from './aggregates.js';
 import * as research from './research.js';
 import { checkObjectives } from './objectives.js';
@@ -58,7 +58,6 @@ import { nextLandParcel } from '../data/land.js';
 import { serializeCornerHeights, deserializeCornerHeights, setTileCorners } from './terrain.js';
 import { SaveSlots } from './SaveSlots.js';
 import { scheduleBrowserIdle } from './idle-work.js';
-import { computeEndpointService } from './endpoint-economy.js';
 import { tickDataSystems } from './data-systems.js';
 
 // Every game.state key that persists in saves. Everything else on state is
@@ -5111,42 +5110,20 @@ export class Game {
 
     const blNodes = entry.sourceId ? flattenPath(this.state, entry.sourceId) : [];
 
-    // Funding from running beam (MVP loop closure: beam on = income).
-    // Scales with beam quality AND machine size — see economy.js ECON.
-    // hardwareNodeCount, never blNodes.length: the flattener also emits a
-    // synthetic 'drift' entry per gap between placements, so billing raw
-    // entries paid ~$100/tick for every gap — spacing identical hardware
-    // further apart minted income at zero cost.
-    const nodeCount = hardwareNodeCount(blNodes);
-
-    // Apply data fiber network quality. In the Phase 6 utility model,
-    // dataFiber quality is 1.0 when a detector port is connected to an
-    // IOC/control-room source through a data-fiber line, and 0 otherwise,
-    // so this term alone captures "connected to control room".
-    //
-    // Derated BEFORE income, not after: billing the raw bs.dataRate paid the
-    // player full data fees for a detector whose fiber had been cut, i.e. for
-    // science that demonstrably produced no `data` resource that tick. The
-    // derated value is published on beamState so panels quote the number the
-    // player is actually paid for rather than re-deriving it.
-    const connectedDataRate = billedDataRate(bs, this._dataConnectivityFactor(blNodes));
+    // The shared breakdown is also what the Designer uses for its explicitly
+    // labelled projection. Keeping the composition here prevents a preview
+    // from drifting away from the amount this tick actually credits.
+    const earned = computeBeamlineRevenueBreakdown(entry.typeId, bs, blNodes, {
+      dataConnectivity: this._dataConnectivityFactor(blNodes),
+    });
+    const connectedDataRate = earned.effectiveDataRate;
     bs.effectiveDataRate = connectedDataRate;
+    bs.serviceRevenue = earned.serviceRevenue;
+    bs.serviceContract = earned.serviceContract;
+    bs.serviceBandScore = earned.serviceBandScore;
+    bs.servicePerformanceScore = earned.servicePerformanceScore;
+    bs.serviceBeamPowerKw = earned.serviceBeamPowerKw;
 
-    // Commercial endpoints pay directly for useful beam delivery. Irradiation
-    // and isotope contracts scale with E*I; medical/EUV availability contracts
-    // are capped and reward reliable in-band operation instead of over-driving.
-    const service = computeEndpointService(entry.typeId, bs, blNodes);
-    bs.serviceRevenue = service.revenue;
-    bs.serviceContract = service.contractName;
-    bs.serviceBandScore = service.bandScore;
-    bs.servicePerformanceScore = service.performanceScore;
-    bs.serviceBeamPowerKw = service.beamPowerKw || 0;
-
-    const earned = computeBeamIncomeBreakdown(
-      connectedDataRate === bs.dataRate ? bs : { ...bs, dataRate: connectedDataRate },
-      nodeCount,
-      { typed: !!entry.typeId, serviceRevenue: service.revenue },
-    );
     this.state.resources.funding += earned.total;
     if (econ) {
       econ.beam += earned.beam;
@@ -5161,7 +5138,7 @@ export class Game {
       + Math.max(0, bs.photonRate || 0) * 0.1 * Math.max(0, bs.beamQuality || 0);
     if (rawRate > 0) {
       if (!Array.isArray(this._pendingDataInputs)) this._pendingDataInputs = [];
-      this._pendingDataInputs.push({ entry, rate: rawRate, workload: service.workload });
+      this._pendingDataInputs.push({ entry, rate: rawRate, workload: earned.serviceWorkload });
     }
 
     // User beam hours from photon ports
@@ -5173,9 +5150,8 @@ export class Game {
       // a term of its own: it is beam-on revenue, and leaving it out would
       // make the reported net disagree with the balance on any facility that
       // has a photon port.
-      const userFees = photonPorts.length * 2 * bs.beamQuality;
-      this.state.resources.funding += userFees;
-      if (econ) econ.beam += userFees;
+      // Funding was included in the canonical revenue breakdown above; this
+      // block owns only the beam-hours and reputation side effects.
       this.state.resources.reputation += photonPorts.length * 0.001;
     }
 

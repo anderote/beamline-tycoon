@@ -25,6 +25,7 @@ import { planDesignerAutoTune } from '../beamline/designer-auto-tuning.js';
 import { seedComponentParams } from '../beamline/component-params.js';
 import { buildDesignerPhysicsElements } from '../beamline/physics-payload.js';
 import { summarizeDesignerPlacement } from '../beamline/designer-placement-preview.js';
+import { computeBeamlineRevenueBreakdown } from '../game/economy.js';
 import {
   createDesignerPlotYRanges,
   designerPlotPrimaryAxis,
@@ -127,6 +128,9 @@ export class BeamlineDesigner {
     this.originalNodes = [];    // snapshot for diffing
     this.draftEnvelope = null;  // physics result for draft
     this.draftPhysicsResult = null; // terminal metrics used by the plot mission readout
+    // Published alongside the physics result so the renderer only formats a
+    // canonical economy projection; it never assembles revenue terms itself.
+    this.draftRevenueProjection = null;
     // Physics result for originalNodes — the beamline as actually built, so the
     // plots can show what the draft changes rather than only where it lands.
     // Null in sandbox mode (openDesign), where there is no "current" at all.
@@ -1578,6 +1582,7 @@ export class BeamlineDesigner {
     this.originalNodes = [];
     this.draftEnvelope = null;
     this.draftPhysicsResult = null;
+    this.draftRevenueProjection = null;
     this.baselineEnvelope = null;
     this.baselinePhysicsResult = null;
     this._baselinePending = false;
@@ -2509,6 +2514,7 @@ export class BeamlineDesigner {
   async _recalcDraft() {
     const revision = ++this._draftPhysicsRevision;
     this.physicsPending = this.draftNodes.length > 0;
+    this.draftRevenueProjection = null;
     // The full result, not just the envelope: the advisor reads
     // dispersionWarnings off it, and re-running physics to fetch them would
     // double the cost of every keystroke in a slider drag.
@@ -2546,6 +2552,19 @@ export class BeamlineDesigner {
     }
 
     this.draftPhysicsResult = draftResult;
+    this.draftRevenueProjection = draftResult
+      ? computeBeamlineRevenueBreakdown(
+        this._designerBeamlineTypeId?.(),
+        draftResult,
+        this.draftNodes,
+        {
+          // The Designer models the machine rather than its external utility
+          // wiring, so quote fully connected gross earning potential.
+          dataConnectivity: 1,
+          nodeCount: this.draftNodes.filter(node => node.type !== 'drift').length,
+        },
+      )
+      : null;
     this.physicsPending = false;
     this.draftEnvelope = draftResult ? draftResult.envelope : null;
     this.draftDispersionWarnings = draftResult?.dispersionWarnings || [];

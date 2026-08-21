@@ -92,6 +92,11 @@ test('mission targets annotate performance plots without changing their scale', 
       summaryLabel: summary?.getAttribute('aria-label') || '',
       targets: [...(summary?.querySelectorAll('.dsgn-plot-mission-metric') || [])]
         .map(metric => metric.getAttribute('title')),
+      projectedRevenue: summary?.querySelector('.dsgn-plot-mission-metric.revenue')
+        ?.textContent.replace(/\s+/g, ' ').trim() || '',
+      projectedRevenueFontSize: parseFloat(getComputedStyle(
+        summary?.querySelector('.dsgn-plot-mission-metric.revenue strong'),
+      ).fontSize || '0'),
       assignedType: window.game.registry.getBySourceId(window.game._designer.editSourceId)?.typeId,
     };
   });
@@ -136,6 +141,9 @@ test('mission targets annotate performance plots without changing their scale', 
   expect(layout.summaryText).toContain('Current');
   expect(layout.summaryText).toContain('Beam power');
   expect(layout.summaryText).toContain('Quality');
+  expect(layout.summaryText).toContain('Est. revenue');
+  expect(layout.projectedRevenue).toContain('Est. revenue');
+  expect(layout.projectedRevenueFontSize).toBeGreaterThanOrEqual(14);
   expect(layout.summaryLabel).toContain('target 3.00 MeV–12.0 MeV');
   expect(layout.targets).toContain('Energy target: 3.00 MeV–12.0 MeV');
   expect(layout.targets).toContain('Current target: 20 mA–100 mA');
