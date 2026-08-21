@@ -16,7 +16,9 @@ const LEGACY_FURNITURE_GROUPS = {
   tables: ['desk', 'sharedDesk', 'privateOfficeDesk', 'receptionDesk', 'coffeeTable', 'loungeTable', 'collaborationTable', 'diningTable', 'cafeTable', 'conferenceTable', 'packingTable', 'breakfastBar', 'servingCounter'],
   storage: ['filingCabinet', 'bookshelf', 'utilityShelving', 'palletRack', 'partsBinRack', 'lockerBank', 'cafeteriaRefrigerator'],
   hospitality: ['coffeeMachine', 'vendingMachine', 'microwave', 'waterCooler', 'sinkCounter', 'condimentStation', 'wasteStation'],
-  decor: ['whiteboard', 'pottedPlant', 'floorPlant', 'faxMachine', 'printer', 'acousticPod', 'beamlineDisplayCase', 'areaRug', 'runnerRug', 'visitorKiosk', 'brochureRack', 'coatRack', 'supplyCart', 'projector', 'phoneUnit', 'whiteboardLarge', 'monitorBank', 'serverRack', 'dataAppliance', 'dataStorageRack', 'cpuComputeRack', 'gpuComputeRack', 'operatorConsole', 'alarmPanel'],
+  presentation: ['whiteboard', 'beamlineDisplayCase', 'acousticPod', 'projector', 'phoneUnit', 'whiteboardLarge', 'monitorBank', 'alarmPanel'],
+  support: ['faxMachine', 'printer', 'areaRug', 'runnerRug', 'visitorKiosk', 'brochureRack', 'coatRack', 'supplyCart', 'serverRack', 'dataAppliance', 'dataStorageRack', 'cpuComputeRack', 'gpuComputeRack', 'operatorConsole'],
+  decor: ['pottedPlant', 'floorPlant'],
 };
 const LEGACY_GROUP_BY_ID = Object.fromEntries(
   Object.entries(LEGACY_FURNITURE_GROUPS).flatMap(([group, ids]) => ids.map(id => [id, group])),

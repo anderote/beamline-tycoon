@@ -923,6 +923,15 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
     return;
   }
 
+  const paletteExpandToggle = document.getElementById('palette-expand-toggle');
+  if (paletteExpandToggle && !paletteExpandToggle.dataset.bound) {
+    paletteExpandToggle.dataset.bound = '1';
+    paletteExpandToggle.addEventListener('click', () => {
+      const expanded = !document.getElementById('bottom-hud')?.classList.contains('palette-expanded');
+      this._setPaletteExpanded(expanded);
+    });
+  }
+
   const compCategory = tabCategory;
 
   let paletteIdx = 0;
@@ -2401,6 +2410,19 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
       palette.appendChild(item);
     }
   }
+};
+
+UIHost.prototype._setPaletteExpanded = function(expanded) {
+  const bottomHud = document.getElementById('bottom-hud');
+  const palette = document.getElementById('component-palette');
+  const toggle = document.getElementById('palette-expand-toggle');
+  if (!bottomHud || !palette || !toggle) return;
+  bottomHud.classList.toggle('palette-expanded', expanded);
+  palette.classList.toggle('palette-expanded', expanded);
+  toggle.setAttribute('aria-expanded', String(expanded));
+  toggle.title = expanded ? 'Hide second build row' : 'Show second build row';
+  const text = toggle.querySelector('span[aria-hidden="true"]');
+  if (text) text.textContent = expanded ? '⌄' : '⌃';
 };
 
 UIHost.prototype._applyPaletteHotkeyBadges = function() {

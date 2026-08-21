@@ -4,7 +4,9 @@ export const ROOM_FURNITURE_GROUPS = {
   tables: { name: 'Tables & Counters' },
   storage: { name: 'Storage & Shelves' },
   hospitality: { name: 'Coffee & Snacks' },
+  presentation: { name: 'Presentation & Communication' },
   decor: { name: 'Decor & Accessories' },
+  support: { name: 'Support & Operations' },
   other: { name: 'Other Furniture' },
 };
 
