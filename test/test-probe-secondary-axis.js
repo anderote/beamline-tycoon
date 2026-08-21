@@ -135,6 +135,18 @@ console.log('\n--- Cursor values at shared distance ---');
   check(threeChannel?.rows.some(row => row.includes('2·Current'))
     && threeChannel?.rows.some(row => row.includes('3·Beam β')),
   'the hover readout reports both independently scaled overlay channels');
+
+  const pinned = ProbePlots.drawCursor(canvas, 'energy', envelope, [0, 10], {
+    cursorS: 0,
+    cursorY: 120,
+    pinned: true,
+    yDomain: [[0.002, 0.007]],
+  });
+  check(pinned?.s === 0
+    && events.text.some(event => event.text.startsWith('PIN · s=0')),
+  'a pinned cursor can redraw from physical distance without a live pointer X');
+  check(events.paths.some(event => event.strokeStyle === 'rgba(255, 203, 107, 0.9)'),
+    'the persistent marker uses a distinct high-contrast plot line');
 }
 
 console.log('\n--- Secondary metric catalogue ---');
@@ -197,6 +209,19 @@ console.log('\n--- Beam optics plot traces and units ---');
   check(power.events.text.some(event => event.text === 'P (kW)')
     && powerReadout?.rows.some(row => row.includes('Beam Power') && row.includes('120 kW')),
   'beam power uses the solver-published E times I value with readable power units');
+}
+
+console.log('\n--- Fixed primary-axis drawing ---');
+{
+  const { canvas, events } = recordingCanvas();
+  ProbePlots.draw(canvas, 'energy', envelope, [], 0, [0, 10], null, {
+    yDomain: [[0.001, 0.01]],
+    yAxisMode: 'log',
+    fixedYDomain: true,
+  });
+  const leftTicks = events.text.filter(event => event.x === 43).map(event => event.text);
+  check(leftTicks.includes('1.00') && leftTicks.includes('10.0'),
+    'fixed logarithmic bounds remain exact instead of expanding with autoscale padding');
 }
 
 console.log('\n--- Shared distance pixels, independent right axis ---');
@@ -338,8 +363,19 @@ console.log('\n--- Designer controls ---');
   check((html.match(/<option value="beam-power">Beam Power<\/option>/g) || []).length === 7,
     'beam power appears in every primary and overlay Designer plot catalogue');
   check(controller.includes("canvas.addEventListener('mousemove'")
-    && controller.includes("canvas.addEventListener('mouseleave'"),
-  'designer canvases track and clear pointer positions for hover readouts');
+    && controller.includes("canvas.addEventListener('mouseleave'")
+    && controller.includes("canvas.addEventListener('click'"),
+  'designer canvases track hover positions and pin a readout on click');
+  check(html.includes('id="dsgn-clear-plot-marker"')
+    && controller.includes('this.plotPin = null'),
+  'the persistent plot marker has an explicit clear action');
+  check((html.match(/class="dsgn-plot-y-controls"/g) || []).length === 3
+    && (html.match(/class="dsgn-range-btn dsgn-plot-y-mode"/g) || []).length === 3
+    && (html.match(/class="dsgn-plot-y-bound"/g) || []).length === 6,
+  'each panel provides its own Auto/Fixed toggle and min/max entries');
+  check(!html.includes('dsgn-yrange-btn')
+    && renderer.includes('applyDesignerPlotYRange('),
+  'the old shared Y presets are replaced by explicit primary-axis domains');
   check(controller.includes('.dsgn-plot-tertiary-select'),
     'third-channel selectors trigger a plot redraw');
   check(controller.includes("document.querySelectorAll('.dsgn-plot-scale-select')")

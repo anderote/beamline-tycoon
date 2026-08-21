@@ -42,6 +42,7 @@ export const ProbePlots = (() => {
       yd: null,
       targets: (opts && opts.targets) || null,
       yAxisMode: opts && opts.yAxisMode === 'log' ? 'log' : 'linear',
+      fixedYDomain: opts && opts.fixedYDomain === true,
       rightInset: opts && Number.isFinite(opts.rightInset)
         ? Math.max(0, opts.rightInset)
         : null,
@@ -318,6 +319,12 @@ export const ProbePlots = (() => {
     const logSpan = Math.max(Math.log10(hi) - Math.log10(lo), 0.1);
     const pad = logSpan * 0.04;
     return [10 ** (Math.log10(lo) - pad), 10 ** (Math.log10(hi) + pad)];
+  }
+
+  function _primaryLogDomain(o, domain, values) {
+    if (o?.yAxisMode !== 'log') return null;
+    if (o.fixedYDomain && domain[0] > 0 && domain[1] > domain[0]) return [...domain];
+    return _positiveDomain(domain, values);
   }
 
   function _yFraction(value, yMin, yMax, logY) {
@@ -657,11 +664,9 @@ export const ProbePlots = (() => {
     const scaled = env.map(d => ({ ...d, sx_mm: (d.sigma_x || 0) * 1000, sy_mm: (d.sigma_y || 0) * 1000 }));
     const target = o?.targetBand || o?.targets?.spotSizeMm;
     let [yMin, yMax] = _chan(o, 0, [0, 1]);
-    const logDomain = o?.yAxisMode === 'log'
-      ? _positiveDomain([yMin, yMax], [
-        ...scaled.flatMap(d => [d.sx_mm, d.sy_mm]),
-      ])
-      : null;
+    const logDomain = _primaryLogDomain(o, [yMin, yMax], [
+      ...scaled.flatMap(d => [d.sx_mm, d.sy_mm]),
+    ]);
     const logY = !!logDomain;
     if (logDomain) [yMin, yMax] = logDomain;
     if (!ghost) _axes(ctx, a, 's (m)', 'mm', yMin, yMax, logY);
@@ -679,11 +684,9 @@ export const ProbePlots = (() => {
     const ghost = o && o.ghost;
     const target = o?.targetBand || o?.targets?.currentMA;
     let [yMin, yMax] = _chan(o, 0, [0, 1]);
-    const logDomain = o?.yAxisMode === 'log'
-      ? _positiveDomain([yMin, yMax], [
-        ...env.map(d => d.current),
-      ])
-      : null;
+    const logDomain = _primaryLogDomain(o, [yMin, yMax], [
+      ...env.map(d => d.current),
+    ]);
     const logY = !!logDomain;
     if (logDomain) [yMin, yMax] = logDomain;
     if (!ghost) _axes(ctx, a, 's (m)', 'mA', yMin, yMax, logY);
@@ -710,9 +713,8 @@ export const ProbePlots = (() => {
     const a = _area(canvas, o);
     const [xMin, xMax] = xRange || _xRange(env);
     let [yMin, yMax] = _chan(o, 0, [0, 1]);
-    const logDomain = o?.yAxisMode === 'log'
-      ? _positiveDomain([yMin, yMax], env.flatMap(d => [d.emit_nx, d.emit_ny]))
-      : null;
+    const logDomain = _primaryLogDomain(
+      o, [yMin, yMax], env.flatMap(d => [d.emit_nx, d.emit_ny]));
     const logY = !!logDomain;
     if (logDomain) [yMin, yMax] = logDomain;
     if (o && o.ghost) {
@@ -733,9 +735,7 @@ export const ProbePlots = (() => {
     const [xMin, xMax] = xRange || _xRange(env);
     let [yMin, yMax] = _chan(o, 0, [0, 1]);
     const values = env.flatMap(d => [d.beta_x, d.beta_y]);
-    const logDomain = o?.yAxisMode === 'log'
-      ? _positiveDomain([yMin, yMax], values)
-      : null;
+    const logDomain = _primaryLogDomain(o, [yMin, yMax], values);
     const logY = !!logDomain;
     if (logDomain) [yMin, yMax] = logDomain;
     const ghost = !!o?.ghost;
@@ -760,9 +760,7 @@ export const ProbePlots = (() => {
     }));
     let [yMin, yMax] = _chan(o, 0, [0, 1]);
     const values = plotted.flatMap(d => [d._phaseXDeg, d._phaseYDeg]);
-    const logDomain = o?.yAxisMode === 'log'
-      ? _positiveDomain([yMin, yMax], values)
-      : null;
+    const logDomain = _primaryLogDomain(o, [yMin, yMax], values);
     const logY = !!logDomain;
     if (logDomain) [yMin, yMax] = logDomain;
     const ghost = !!o?.ghost;
@@ -782,9 +780,7 @@ export const ProbePlots = (() => {
     const [xMin, xMax] = xRange || _xRange(env);
     let [yMin, yMax] = _chan(o, 0, [0, 1]);
     const values = env.map(d => d.rigidity_t_m);
-    const logDomain = o?.yAxisMode === 'log'
-      ? _positiveDomain([yMin, yMax], values)
-      : null;
+    const logDomain = _primaryLogDomain(o, [yMin, yMax], values);
     const logY = !!logDomain;
     if (logDomain) [yMin, yMax] = logDomain;
     const ghost = !!o?.ghost;
@@ -809,11 +805,9 @@ export const ProbePlots = (() => {
     const scaledEnergyTarget = energyTarget
       ? energyTarget.map(v => v == null ? null : v * eScale)
       : null;
-    const logDomain = o?.yAxisMode === 'log'
-      ? _positiveDomain([eMin, eMax], [
-        ...env.map(d => d.energy == null ? null : d.energy * eScale),
-      ])
-      : null;
+    const logDomain = _primaryLogDomain(o, [eMin, eMax], [
+      ...env.map(d => d.energy == null ? null : d.energy * eScale),
+    ]);
     const logY = !!logDomain;
     if (logDomain) [eMin, eMax] = logDomain;
     const ghost = !!o?.ghost;
@@ -839,9 +833,7 @@ export const ProbePlots = (() => {
     const { scale, unit } = _powerDisplay(powerDomainMw);
     let [yMin, yMax] = powerDomainMw.map(value => value * scale);
     const values = env.map(d => d.beam_power_mw == null ? null : d.beam_power_mw * scale);
-    const logDomain = o?.yAxisMode === 'log'
-      ? _positiveDomain([yMin, yMax], values)
-      : null;
+    const logDomain = _primaryLogDomain(o, [yMin, yMax], values);
     const logY = !!logDomain;
     if (logDomain) [yMin, yMax] = logDomain;
     const ghost = !!o?.ghost;
@@ -873,11 +865,9 @@ export const ProbePlots = (() => {
     const scaledEnergyTarget = energyTarget
       ? energyTarget.map(v => v == null ? null : v * eScale)
       : null;
-    const logDomain = o?.yAxisMode === 'log'
-      ? _positiveDomain([eMin, eMax], [
-        ...env.map(d => d.energy == null ? null : d.energy * eScale),
-      ])
-      : null;
+    const logDomain = _primaryLogDomain(o, [eMin, eMax], [
+      ...env.map(d => d.energy == null ? null : d.energy * eScale),
+    ]);
     const logY = !!logDomain;
     if (logDomain) [eMin, eMax] = logDomain;
 
@@ -959,11 +949,10 @@ export const ProbePlots = (() => {
     }
 
     const [minVal, maxVal] = _chan(o, 0, [Math.min(...vals), Math.max(...vals)]);
-    const logDomain = o?.yAxisMode === 'log'
-      ? _positiveDomain([minVal, maxVal], vals)
-      : null;
+    const logDomain = _primaryLogDomain(o, [minVal, maxVal], vals);
     const logY = !!logDomain;
-    const [yMin, yMax] = logDomain || _range([minVal, maxVal]);
+    const [yMin, yMax] = logDomain
+      || (o?.fixedYDomain ? [minVal, maxVal] : _range([minVal, maxVal]));
     if (!ghost) _axes(ctx, a, 's (m)', 'I_peak (A)', yMin, yMax, logY);
     _line(ctx, a, env, 'peak_current', '#ee55ee', xMin, xMax, yMin, yMax, false, ghost, logY);
     if (ghost) return;
@@ -1243,14 +1232,16 @@ export const ProbePlots = (() => {
     return { id, label, value: Number(value), text, color, domain, logY };
   }
 
-  function _primaryCursorItems(type, env, index, yDomain, yAxisMode) {
+  function _primaryCursorItems(type, env, index, yDomain, yAxisMode, fixedYDomain = false) {
     const d = env[index];
     const yd = _normYD(yDomain) || yDomainFor(type, env, null, [], 0);
     if (!d || !yd) return [];
     let domain = yd[0];
     let logY = false;
     const positive = values => {
-      const adjusted = yAxisMode === 'log' ? _positiveDomain(domain, values) : null;
+      const adjusted = yAxisMode === 'log'
+        ? (fixedYDomain ? [...domain] : _positiveDomain(domain, values))
+        : null;
       if (adjusted) { domain = adjusted; logY = true; }
     };
     let items = [];
@@ -1340,9 +1331,11 @@ export const ProbePlots = (() => {
     } else if (type === 'peak-current') {
       const values = env.map(row => row.peak_current)
         .filter(value => value != null && isFinite(value) && value > 0);
-      const adjusted = yAxisMode === 'log' ? _positiveDomain(domain, values) : null;
+      const adjusted = yAxisMode === 'log'
+        ? (fixedYDomain ? [...domain] : _positiveDomain(domain, values))
+        : null;
       if (adjusted) { domain = adjusted; logY = true; }
-      else domain = _range(domain);
+      else domain = fixedYDomain ? domain : _range(domain);
       items = [_cursorItem('primary-peak', 'I_peak', d.peak_current,
         _cursorText(d.peak_current, 'A'), '#ee55ee', domain, logY)];
     }
@@ -1409,25 +1402,30 @@ export const ProbePlots = (() => {
     ctx.fill();
   }
 
-  /** Draw the final hover layer for an along-distance plot. The cursor snaps
-   *  to the closest solver sample, marks every visible curve at that distance,
-   *  and reports primary plus optional secondary values on the shared x-axis. */
+  /** Draw the final hover or pinned layer for an along-distance plot. The cursor
+   *  snaps to the closest solver sample, marks every visible curve at that
+   *  distance, and reports all visible values on the shared x-axis. A cursorS
+   *  keeps a clicked readout attached to the same physical sample after redraws. */
   function drawCursor(canvas, type, envelope, xRange, opts = {}) {
     const ctx = canvas.getContext('2d');
     if (!ctx || !isDistancePlot(type) || !envelope || envelope.length < 2) return null;
-    const cursorX = Number(opts.cursorX);
-    if (!isFinite(cursorX)) return null;
     const a = _area(canvas, { rightInset: opts.rightInset });
-    if (cursorX < a.x || cursorX > a.x + a.w) return null;
     const [xMin, xMax] = xRange || _xRange(envelope);
-    const targetS = xMin + ((cursorX - a.x) / (a.w || 1)) * (xMax - xMin);
+    const hasPinnedS = Number.isFinite(opts.cursorS);
+    const cursorX = Number(opts.cursorX);
+    if (!hasPinnedS && !isFinite(cursorX)) return null;
+    if (!hasPinnedS && (cursorX < a.x || cursorX > a.x + a.w)) return null;
+    const targetS = hasPinnedS
+      ? Number(opts.cursorS)
+      : xMin + ((cursorX - a.x) / (a.w || 1)) * (xMax - xMin);
     const index = _nearestDatumIndex(envelope, targetS);
     if (index < 0) return null;
     const snapS = _datumS(envelope[index], index);
     if (snapS < xMin || snapS > xMax) return null;
     const x = a.x + ((snapS - xMin) / (xMax - xMin || 1)) * a.w;
     const solidItems = [
-      ..._primaryCursorItems(type, envelope, index, opts.yDomain, opts.yAxisMode),
+      ..._primaryCursorItems(
+        type, envelope, index, opts.yDomain, opts.yAxisMode, opts.fixedYDomain === true),
       ..._cursorOverlayItems(opts, envelope, index),
     ];
     if (solidItems.length === 0) return null;
@@ -1438,7 +1436,8 @@ export const ProbePlots = (() => {
       const ghostIndex = _nearestDatumIndex(ghost, snapS);
       if (ghostIndex >= 0) {
         ghostItems = [
-          ..._primaryCursorItems(type, ghost, ghostIndex, opts.yDomain, opts.yAxisMode),
+          ..._primaryCursorItems(
+            type, ghost, ghostIndex, opts.yDomain, opts.yAxisMode, opts.fixedYDomain === true),
           ..._cursorOverlayItems(opts, ghost, ghostIndex),
         ];
       }
@@ -1456,9 +1455,10 @@ export const ProbePlots = (() => {
     });
 
     ctx.save();
-    ctx.setLineDash([2, 3]);
-    ctx.strokeStyle = 'rgba(210, 210, 240, 0.42)';
-    ctx.lineWidth = 0.75;
+    const pinned = opts.pinned === true;
+    ctx.setLineDash(pinned ? [] : [2, 3]);
+    ctx.strokeStyle = pinned ? 'rgba(255, 203, 107, 0.9)' : 'rgba(210, 210, 240, 0.42)';
+    ctx.lineWidth = pinned ? 1.25 : 0.75;
     ctx.beginPath();
     ctx.moveTo(x, a.y);
     ctx.lineTo(x, a.y + a.h);
@@ -1469,7 +1469,7 @@ export const ProbePlots = (() => {
       if (row.ghostItem) _drawCursorDot(ctx, a, x, row.ghostItem, true);
     }
 
-    const header = `s=${_fmtPlotValue(snapS)} m${comparing ? `  ${solidTag}/${ghostTag}` : ''}`;
+    const header = `${pinned ? 'PIN · ' : ''}s=${_fmtPlotValue(snapS)} m${comparing ? `  ${solidTag}/${ghostTag}` : ''}`;
     const lineHeight = 11;
     const pad = 5;
     ctx.font = FONT.readout;
@@ -1485,12 +1485,12 @@ export const ProbePlots = (() => {
     boxY = Math.max(a.y + 2, Math.min(a.y + a.h - boxH - 2, boxY));
     ctx.fillStyle = 'rgba(5, 7, 18, 0.92)';
     ctx.fillRect(boxX, boxY, boxW, boxH);
-    ctx.strokeStyle = 'rgba(180, 190, 230, 0.58)';
-    ctx.lineWidth = 0.75;
+    ctx.strokeStyle = pinned ? 'rgba(255, 203, 107, 0.82)' : 'rgba(180, 190, 230, 0.58)';
+    ctx.lineWidth = pinned ? 1 : 0.75;
     ctx.strokeRect(boxX, boxY, boxW, boxH);
     ctx.textAlign = 'left';
     ctx.font = FONT.readoutHeader;
-    ctx.fillStyle = 'rgba(225, 230, 250, 0.96)';
+    ctx.fillStyle = pinned ? '#ffcb6b' : 'rgba(225, 230, 250, 0.96)';
     ctx.fillText(header, boxX + pad, boxY + pad + 7);
     ctx.font = FONT.readout;
     rows.forEach((row, rowIndex) => {
@@ -1498,7 +1498,7 @@ export const ProbePlots = (() => {
       ctx.fillText(row.text, boxX + pad, boxY + pad + 7 + (rowIndex + 1) * lineHeight);
     });
     ctx.restore();
-    return { s: snapS, index, rows: rows.map(row => row.text) };
+    return { s: snapS, index, x, rows: rows.map(row => row.text) };
   }
 
   // --- "At this point" plots ---

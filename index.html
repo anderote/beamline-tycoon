@@ -270,11 +270,8 @@
           <button class="dsgn-range-btn dsgn-xrange-btn" data-range="30">30m</button>
           <button class="dsgn-range-btn dsgn-xrange-btn" data-range="9">9m</button>
           <span class="dsgn-range-sep">|</span>
-          <span class="dsgn-range-label">Y:</span>
-          <button class="dsgn-range-btn dsgn-yrange-btn active" data-yrange="full">Full</button>
-          <button class="dsgn-range-btn dsgn-yrange-btn" data-yrange="half">½</button>
-          <button class="dsgn-range-btn dsgn-yrange-btn" data-yrange="30">30m</button>
-          <button class="dsgn-range-btn dsgn-yrange-btn" data-yrange="9">9m</button>
+          <button type="button" class="dsgn-range-btn" id="dsgn-clear-plot-marker"
+                  title="Remove the pinned plot value readout" disabled>Clear Plot Marker</button>
           <!-- Which beamline the plots draw: the draft, the as-built line, or
                both on shared axes. Grouped in one span (and hidden by default)
                because sandbox mode has no as-built line to compare against —
@@ -354,6 +351,17 @@
                 <option value="linear" selected>Lin</option>
                 <option value="log">Log</option>
               </select>
+              <div class="dsgn-plot-y-controls" data-panel="0" data-axis-scale="1">
+                <button type="button" class="dsgn-range-btn dsgn-plot-y-mode" data-panel="0"
+                        aria-pressed="false">Auto Scale</button>
+                <span class="dsgn-plot-y-bounds" hidden>
+                  <label>Min <input class="dsgn-plot-y-bound" data-bound="min" type="number"
+                                    step="any" aria-label="Panel 1 fixed Y minimum"></label>
+                  <label>Max <input class="dsgn-plot-y-bound" data-bound="max" type="number"
+                                    step="any" aria-label="Panel 1 fixed Y maximum"></label>
+                  <span class="dsgn-plot-y-unit" aria-hidden="true"></span>
+                </span>
+              </div>
             </div>
             <canvas class="dsgn-plot-canvas" data-panel="0"></canvas>
           </div>
@@ -412,6 +420,17 @@
                 <option value="linear" selected>Lin</option>
                 <option value="log">Log</option>
               </select>
+              <div class="dsgn-plot-y-controls" data-panel="1" data-axis-scale="1">
+                <button type="button" class="dsgn-range-btn dsgn-plot-y-mode" data-panel="1"
+                        aria-pressed="false">Auto Scale</button>
+                <span class="dsgn-plot-y-bounds" hidden>
+                  <label>Min <input class="dsgn-plot-y-bound" data-bound="min" type="number"
+                                    step="any" aria-label="Panel 2 fixed Y minimum"></label>
+                  <label>Max <input class="dsgn-plot-y-bound" data-bound="max" type="number"
+                                    step="any" aria-label="Panel 2 fixed Y maximum"></label>
+                  <span class="dsgn-plot-y-unit" aria-hidden="true"></span>
+                </span>
+              </div>
             </div>
             <canvas class="dsgn-plot-canvas" data-panel="1"></canvas>
           </div>
@@ -441,6 +460,17 @@
                 <option value="linear" selected>Lin</option>
                 <option value="log">Log</option>
               </select>
+              <div class="dsgn-plot-y-controls" data-panel="2" data-axis-scale="1">
+                <button type="button" class="dsgn-range-btn dsgn-plot-y-mode" data-panel="2"
+                        aria-pressed="false">Auto Scale</button>
+                <span class="dsgn-plot-y-bounds" hidden>
+                  <label>Min <input class="dsgn-plot-y-bound" data-bound="min" type="number"
+                                    step="any" aria-label="Panel 3 fixed Y minimum"></label>
+                  <label>Max <input class="dsgn-plot-y-bound" data-bound="max" type="number"
+                                    step="any" aria-label="Panel 3 fixed Y maximum"></label>
+                  <span class="dsgn-plot-y-unit" aria-hidden="true"></span>
+                </span>
+              </div>
             </div>
             <canvas class="dsgn-plot-canvas" data-panel="2"></canvas>
           </div>

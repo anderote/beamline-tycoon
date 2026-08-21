@@ -13,6 +13,10 @@ import { isFacilityCategory } from './Renderer.js';
 import { beamlineTypeHidesComponent } from '../ui/BeamlineTypePicker.js';
 import { getBeamlineType } from '../data/beamline-types.js';
 import { ProbePlots } from '../ui/probe-plots.js';
+import {
+  applyDesignerPlotYRange,
+  validateDesignerFixedYRange,
+} from '../ui/designer-plot-controls.js';
 import { paletteUtilityMetrics } from '../ui/utility-supply.js';
 import {
   appendRequiredPortRequirements,
@@ -1015,9 +1019,11 @@ function _drawNoDataPlaceholder(ctx, w, h, designer) {
 
 BeamlineDesigner.prototype._renderPlots = function() {
   this._renderPlotMissionSummary();
-  // Compute the x/y ranges based on plot range modes
+  this.syncPlotPinControl();
+  // The shared X window still follows the range bar. Primary Y domains are
+  // resolved independently per panel below; overlay channels remain automatic.
   const xRange = this._getPlotXRange();
-  const yScale = this._getPlotYScale();
+  const yScale = null;
   const targets = this.plotReference === 'none'
     ? null
     : (this._missionPlotTargets?.() || null);
@@ -1071,6 +1077,7 @@ BeamlineDesigner.prototype._renderPlots = function() {
     if (plotW < 10 || plotH < 10) return;
 
     const plotType = select.value;
+    const panelId = canvas.dataset.panel || '0';
     const distancePlot = ProbePlots.isDistancePlot(plotType);
     panel.classList.toggle('dsgn-plot-panel--geometric', !distancePlot);
     panel.classList.toggle('dsgn-plot-panel--radar', plotType === 'eic-triangle');
@@ -1108,7 +1115,9 @@ BeamlineDesigner.prototype._renderPlots = function() {
         .filter(overlay => overlay.type !== overlaySelects[0]?.options[0]?.value)
         .map((overlay, axisSlot) => ({ ...overlay, axisSlot }))
       : [];
-    const hover = this._plotHoverPositions?.get(canvas.dataset.panel || '0') || null;
+    const hover = this._plotHoverPositions?.get(panelId) || null;
+    const pin = this.plotPin?.panel === panelId ? this.plotPin : null;
+    const cursor = hover || pin;
     const primaryRightInset = plotType === 'energy-dispersion'
       ? ENERGY_RIGHT_AXIS_INSET
       : 0;
@@ -1120,6 +1129,7 @@ BeamlineDesigner.prototype._renderPlots = function() {
     off.width = plotW;
     off.height = plotH;
 
+    let autoYDomain = null;
     if (!solid) {
       _drawNoDataPlaceholder(off.getContext('2d'), plotW, plotH, this);
     } else {
@@ -1127,10 +1137,21 @@ BeamlineDesigner.prototype._renderPlots = function() {
       // would autoscale to its own envelope and the two curves would be drawn
       // to different y-axes on the same pixels — a comparison that reads as a
       // difference in beam size when it is only a difference in scale.
-      const yDomain = ProbePlots.unionYDomain(
+      autoYDomain = ProbePlots.unionYDomain(
         ProbePlots.yDomainFor(plotType, solid, yScale, pins, 0),
         ghost ? ProbePlots.yDomainFor(plotType, ghost, yScale, pins, 0) : null,
       );
+      const panelYRange = this.plotYRanges?.[Number(panelId)];
+      const fixedYDomain = distancePlot
+        && panelYRange?.mode === 'fixed'
+        && validateDesignerFixedYRange(panelYRange, yAxisMode).valid;
+      const yDomain = distancePlot
+        ? applyDesignerPlotYRange(
+          autoYDomain,
+          panelYRange,
+          yAxisMode,
+        )
+        : autoYDomain;
       const targetDomain = ProbePlots.targetYDomain(plotType, targets);
       const targetBand = targetDomain?.[0] || null;
       for (const overlay of overlays) {
@@ -1145,7 +1166,7 @@ BeamlineDesigner.prototype._renderPlots = function() {
       // the proposal and the as-built line would read as the real one.
       if (ghost) {
         ProbePlots.draw(off, plotType, ghost, pins, 0, xRange, yScale,
-          { yDomain, targetBand, ghost: true, targets, yAxisMode, rightInset });
+          { yDomain, targetBand, ghost: true, targets, yAxisMode, fixedYDomain, rightInset });
         for (const overlay of overlays) {
           if (!overlay.domain) continue;
           ProbePlots.drawSecondary(off, overlay.type, ghost, xRange, yScale, {
@@ -1159,7 +1180,7 @@ BeamlineDesigner.prototype._renderPlots = function() {
         }
       }
       ProbePlots.draw(off, plotType, solid, pins, 0, xRange, yScale,
-        { yDomain, targetBand, noClear: !!ghost, targets, yAxisMode, rightInset });
+        { yDomain, targetBand, noClear: !!ghost, targets, yAxisMode, fixedYDomain, rightInset });
       for (const overlay of overlays) {
         if (!overlay.domain) continue;
         ProbePlots.drawSecondary(off, overlay.type, solid, xRange, yScale, {
@@ -1170,10 +1191,12 @@ BeamlineDesigner.prototype._renderPlots = function() {
           seriesIndex: overlay.seriesIndex,
         });
       }
-      if (hover && distancePlot) {
-        ProbePlots.drawCursor(off, plotType, solid, xRange, {
-          cursorX: hover.x * plotW,
-          cursorY: hover.y * plotH,
+      if (cursor && distancePlot) {
+        const readout = ProbePlots.drawCursor(off, plotType, solid, xRange, {
+          cursorX: cursor.x * plotW,
+          cursorY: cursor.y * plotH,
+          cursorS: !hover && Number.isFinite(pin?.s) ? pin.s : undefined,
+          pinned: !hover && !!pin,
           yDomain,
           overlays: overlays.map(overlay => ({
             type: overlay.type,
@@ -1184,10 +1207,16 @@ BeamlineDesigner.prototype._renderPlots = function() {
           solidLabel: source === 'current' ? 'C' : 'P',
           ghostLabel: 'C',
           yAxisMode,
+          fixedYDomain,
           rightInset,
         });
+        if (!hover && pin && readout) pin.s = readout.s;
+        if (!hover && pin && !readout && !Number.isFinite(pin.s)) this.plotPin = null;
       }
     }
+
+    this._lastAutoPlotYDomains.set(panelId, autoYDomain);
+    this.syncPlotYRangeControl(panelId, plotType, autoYDomain, distancePlot);
 
     // Scale up to display canvas with nearest-neighbor (crispy pixels)
     canvas.width = Math.floor(rect.width);
@@ -1197,6 +1226,7 @@ BeamlineDesigner.prototype._renderPlots = function() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(off, 0, 0, plotW, plotH, 0, 0, canvas.width, canvas.height);
   });
+  this.syncPlotPinControl();
 };
 
 /** Compute the plot x-range based on the selected range mode. */
@@ -1214,16 +1244,6 @@ BeamlineDesigner.prototype._getPlotXRange = function() {
   if (hi > this.totalLength) { lo -= (hi - this.totalLength); hi = this.totalLength; }
   lo = Math.max(0, lo);
   return [lo, hi];
-};
-
-/** Compute the y-axis scale factor from the selected y-range mode.
- *  Returns a number that _range() results get multiplied by:
- *  'full' = null (auto), 'half' = 0.5, '30' / '9' = fixed max in meters. */
-BeamlineDesigner.prototype._getPlotYScale = function() {
-  const mode = this.plotYRangeMode || 'full';
-  if (mode === 'full') return null;
-  if (mode === 'half') return 0.5;
-  return parseFloat(mode);  // fixed range in meters
 };
 
 // ---- Click detection on schematic ----
