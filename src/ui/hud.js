@@ -3089,6 +3089,52 @@ UIHost.prototype._bindHUDEvents = function() {
     });
   });
 
+  // Presentation-only world layer visibility. These switches delegate to the
+  // renderer's public coordinator and never mutate game or snapshot state.
+  const layerControl = document.getElementById('layer-visibility-control');
+  const layerToggle = document.getElementById('layer-visibility-toggle');
+  const layerPanel = document.getElementById('layer-visibility-panel');
+  const layerButtons = [...document.querySelectorAll('[data-world-layer]')];
+  const syncLayerButton = (button, visible) => {
+    const id = button.dataset.worldLayer || '';
+    const label = id === 'infra'
+      ? 'Infrastructure'
+      : `${id.slice(0, 1).toUpperCase()}${id.slice(1)}`;
+    button.classList.toggle('active', visible);
+    button.setAttribute('aria-pressed', String(visible));
+    button.title = `${visible ? 'Hide' : 'Show'} ${label} layer`;
+  };
+  const closeLayerPanel = () => {
+    layerPanel?.classList.add('hidden');
+    layerToggle?.setAttribute('aria-expanded', 'false');
+    if (layerToggle) layerToggle.title = 'Show world layer visibility';
+  };
+  if (layerToggle && layerPanel) {
+    layerToggle.addEventListener('click', () => {
+      const opening = layerPanel.classList.contains('hidden');
+      layerPanel.classList.toggle('hidden', !opening);
+      layerToggle.setAttribute('aria-expanded', String(opening));
+      layerToggle.title = `${opening ? 'Hide' : 'Show'} world layer visibility`;
+    });
+  }
+  for (const button of layerButtons) {
+    const id = button.dataset.worldLayer;
+    syncLayerButton(button, this.renderer.isWorldLayerVisible(id));
+    button.addEventListener('click', () => {
+      const visible = this.renderer.toggleWorldLayer(id);
+      if (visible !== null) syncLayerButton(button, visible);
+    });
+  }
+  const layerReset = document.getElementById('layer-visibility-reset');
+  if (layerReset) {
+    layerReset.addEventListener('click', () => {
+      const state = this.renderer.resetWorldLayers();
+      for (const button of layerButtons) {
+        syncLayerButton(button, state[button.dataset.worldLayer] !== false);
+      }
+    });
+  }
+
   // Wall visibility mode buttons
   document.querySelectorAll('.wall-vis-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -3107,6 +3153,12 @@ UIHost.prototype._bindHUDEvents = function() {
   if (wallVisControl && this.game.viewRouter) {
     this.game.viewRouter.on((view) => {
       wallVisControl.classList.toggle('hidden', view !== 'game');
+    });
+  }
+  if (layerControl && this.game.viewRouter) {
+    this.game.viewRouter.on((view) => {
+      layerControl.classList.toggle('hidden', view !== 'game');
+      if (view !== 'game') closeLayerPanel();
     });
   }
 

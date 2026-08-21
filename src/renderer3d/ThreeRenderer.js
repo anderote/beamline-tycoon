@@ -74,6 +74,10 @@ import { fixtureActivationFactor } from './fixture-activation.js';
 import { disposeLightCookies } from './light-cookie.js';
 import { UIHost } from '../ui/UIHost.js';
 import { WorldPhysicsPresentation } from './world-physics-presentation.js';
+import {
+  SceneLayerVisibility,
+  sceneLayerTargets,
+} from './scene-layer-visibility.js';
 // Side-effect imports: attach UI methods to UIHost.prototype.
 // Must run before `new UIHost(...)` is ever evaluated.
 import '../ui/hud.js';
@@ -234,6 +238,13 @@ export class ThreeRenderer {
     this.componentGroup = null;
     this.beamPipeGroup = null;
     this.decorationGroup = null;
+    this.groundsLayerGroup = null;
+    this.structureLayerGroup = null;
+    this.facilityLayerGroup = null;
+    this.beamlineComponentGroup = null;
+    this.infrastructureComponentGroup = null;
+    this.beamEffectGroup = null;
+    this.volumetricLightGroup = null;
     // Registry (not a scene Group — lighting fixtures render as children of
     // decorationGroup like any other decoration, so demolish/hover/move
     // raycasting keeps working unchanged) of the lighting fixtures built by
@@ -365,6 +376,9 @@ export class ThreeRenderer {
     this._zoneLabelFontRetry = false;
     this.activeMode = 'beamline';
     this.nodeSprites = {};
+    this._sceneLayerVisibility = new SceneLayerVisibility(
+      () => sceneLayerTargets(this),
+    );
 
     // PixiJS layers — stubs for code that references them directly
     this.grassLayer = null;
@@ -615,31 +629,44 @@ export class ThreeRenderer {
       enabled: this._volumetricEnabled,
       modern: this._rendererBackend.mode === 'modern',
     });
+    this.volumetricLightGroup = this._volumePool.group;
     this._lightFocus = new THREE.Vector3();
 
     // Scene groups
+    this.groundsLayerGroup = new THREE.Group();
+    this.groundsLayerGroup.name = 'layer-grounds';
+    this.scene.add(this.groundsLayerGroup);
+
     this.terrainGroup = new THREE.Group();
     this.terrainGroup.name = 'terrain';
-    this.scene.add(this.terrainGroup);
+    this.groundsLayerGroup.add(this.terrainGroup);
     this.wildflowerBuilder.add(this.terrainGroup);
     this.grassTuftBuilder.add(this.terrainGroup);
 
+    this.structureLayerGroup = new THREE.Group();
+    this.structureLayerGroup.name = 'layer-structure';
+    this.scene.add(this.structureLayerGroup);
+
     this.floorGroup = new THREE.Group();
     this.floorGroup.name = 'floors';
-    this.scene.add(this.floorGroup);
+    this.structureLayerGroup.add(this.floorGroup);
 
     this.roofGroup = new THREE.Group();
     this.roofGroup.name = 'roofs';
     this.roofGroup.visible = roofVisibleForWallMode(this.wallVisibilityMode);
-    this.scene.add(this.roofGroup);
+    this.structureLayerGroup.add(this.roofGroup);
 
     this.wallGroup = new THREE.Group();
     this.wallGroup.name = 'walls';
-    this.scene.add(this.wallGroup);
+    this.structureLayerGroup.add(this.wallGroup);
+
+    this.facilityLayerGroup = new THREE.Group();
+    this.facilityLayerGroup.name = 'layer-facility';
+    this.scene.add(this.facilityLayerGroup);
 
     this.zoneGroup = new THREE.Group();
     this.zoneGroup.name = 'zones';
-    this.scene.add(this.zoneGroup);
+    this.facilityLayerGroup.add(this.zoneGroup);
 
     this.connectionGroup = new THREE.Group();
     this.connectionGroup.name = 'connections';
@@ -670,11 +697,20 @@ export class ThreeRenderer {
 
     this.equipmentGroup = new THREE.Group();
     this.equipmentGroup.name = 'equipment';
-    this.scene.add(this.equipmentGroup);
+    this.facilityLayerGroup.add(this.equipmentGroup);
 
     this.componentGroup = new THREE.Group();
     this.componentGroup.name = 'components';
     this.scene.add(this.componentGroup);
+    this.beamlineComponentGroup = new THREE.Group();
+    this.beamlineComponentGroup.name = 'layer-beamline-components';
+    this.componentGroup.add(this.beamlineComponentGroup);
+    this.infrastructureComponentGroup = new THREE.Group();
+    this.infrastructureComponentGroup.name = 'layer-infrastructure-components';
+    this.componentGroup.add(this.infrastructureComponentGroup);
+    this.beamEffectGroup = new THREE.Group();
+    this.beamEffectGroup.name = 'layer-beam-effects';
+    this.componentGroup.add(this.beamEffectGroup);
 
     this.pipeAttachmentGroup = new THREE.Group();
     this.pipeAttachmentGroup.name = 'pipeAttachments';
@@ -686,7 +722,7 @@ export class ThreeRenderer {
 
     this.decorationGroup = new THREE.Group();
     this.decorationGroup.name = 'decorations';
-    this.scene.add(this.decorationGroup);
+    this.groundsLayerGroup.add(this.decorationGroup);
 
     // Task 6 fake-lighting layer — see the constructor field comment above
     // lightPoolGroup/lightHaloGroup. Separate from decorationGroup: neither
@@ -732,6 +768,7 @@ export class ThreeRenderer {
     // Staff pawns — little walking pixel-people for hired staff
     this.staffPawns = new StaffPawns(this.game, this.scene);
     this._physicsPresentation.attachStaff(this.staffPawns, this.scene);
+    this._sceneLayerVisibility.apply();
     window.addEventListener('resize', this._boundOnResize);
 
     // Durable world mutations are accumulated until _animate drains them.
@@ -961,8 +998,7 @@ export class ThreeRenderer {
       // into the air next to any beamline module. (Same guard as
       // _outlineObject.)
       for (const h of raycaster.intersectObjects(g.children, true)) {
-        const mat = Array.isArray(h.object.material) ? h.object.material[0] : h.object.material;
-        if (mat && mat.visible === false) continue;
+        if (!isVisiblePickObject(h.object)) continue;
         hits.push(h);
       }
     }
@@ -1080,7 +1116,9 @@ export class ThreeRenderer {
     let obj = hit.object;
     // Walk up parents to find the group
     while (obj.parent) {
-      if (obj.parent === this.componentGroup) {
+      if (obj.parent === this.componentGroup
+          || obj.parent === this.beamlineComponentGroup
+          || obj.parent === this.infrastructureComponentGroup) {
         // Wrapper Groups carry their id in userData.nodeId (stamped by
         // ComponentBuilder.build) — no _meshMap scan needed.
         if (obj.userData.nodeId != null) {
@@ -1544,6 +1582,23 @@ export class ThreeRenderer {
     this.zoneOverlayVisible = !this.zoneOverlayVisible;
     if (this.zoneGroup) this.zoneGroup.visible = this.zoneOverlayVisible;
     return this.zoneOverlayVisible;
+  }
+
+  /** Presentation-only world layer controls used by the lower-left HUD. */
+  setWorldLayerVisible(id, visible) {
+    return this._sceneLayerVisibility.setVisible(id, visible);
+  }
+
+  toggleWorldLayer(id) {
+    return this._sceneLayerVisibility.toggle(id);
+  }
+
+  isWorldLayerVisible(id) {
+    return this._sceneLayerVisibility.isVisible(id);
+  }
+
+  resetWorldLayers() {
+    return this._sceneLayerVisibility.reset();
   }
 
   /**
@@ -2359,22 +2414,27 @@ export class ThreeRenderer {
     const state = this._liveState();
     const rootsById = new Map();
     for (const group of [
-      this.componentGroup, this.equipmentGroup, this.decorationGroup,
+      this.beamlineComponentGroup, this.infrastructureComponentGroup,
+      this.equipmentGroup, this.decorationGroup,
       this.pipeAttachmentGroup,
     ]) {
       for (const root of (group?.children || [])) {
-        if (root.userData?.nodeId != null) rootsById.set(root.userData.nodeId, root);
+        if (root.userData?.nodeId != null && isVisiblePickObject(root)) {
+          rootsById.set(root.userData.nodeId, root);
+        }
       }
     }
 
     const results = [];
     const box = new THREE.Box3();
     for (const target of selectionTargetsForState(state)) {
+      if (this.isWorldLayerVisible(target.selectionCategory) === false) continue;
       if (target.targetKind === 'placeable'
           && (target.entry?.stackParentId || (target.entry?.stackChildren || []).length > 0)) continue;
       const rootObj = target.targetKind === 'beamlineAttachment'
         ? this.pipeAttachmentBuilder?.getGroup?.(target.id) || null
         : this.decorationBuilder?.getGroup?.(target.id) || rootsById.get(target.id) || null;
+      if (rootObj && !isVisiblePickObject(rootObj)) continue;
       const projected = [];
       if (rootObj) {
         rootObj.updateWorldMatrix?.(true, true);
@@ -4280,12 +4340,17 @@ export class ThreeRenderer {
       cutawayRoom = this._detectCutawayRegion(this.hoverCol, this.hoverRow);
     }
     this.wallBuilder.build(snapshot.walls, snapshot.doors, snapshot.windows, this.wallGroup, this.wallVisibilityMode, cutawayRoom);
-    this.componentBuilder.build(snapshot.components, this.componentGroup);
+    this.componentBuilder.build(snapshot.components, this.componentGroup, {
+      categoryGroups: {
+        beamline: this.beamlineComponentGroup,
+        infrastructure: this.infrastructureComponentGroup,
+      },
+    });
     this.componentBuilder.setDetailLevel(this.zoom >= 2.0);
     this._effectSystem?.syncSurfaceGlows('components', this.componentGroup);
     this.pipeAttachmentBuilder.build(snapshot.pipeAttachments || [], this.pipeAttachmentGroup);
     this.pipeAttachmentBuilder.setDetailLevel(this.zoom >= 2.0);
-    this.beamBuilder.build(snapshot.beamPaths, this.componentGroup);
+    this.beamBuilder.build(snapshot.beamPaths, this.beamEffectGroup);
     this.beamBuilder.setDetailLevel(this.zoom >= 2.0);
     this.equipmentBuilder.build(snapshot.equipment, snapshot.furnishings, this.equipmentGroup);
     this._effectSystem?.syncSurfaceGlows('equipment', this.equipmentGroup);
@@ -4303,6 +4368,7 @@ export class ThreeRenderer {
     this._refreshZones();
     this._invalidateGridOverlay();
     this._markPhysicsBodiesDirty();
+    this._sceneLayerVisibility.apply();
   }
 
   _markPhysicsBodiesDirty() {
@@ -4343,6 +4409,7 @@ export class ThreeRenderer {
     if (plan.portFittings) this._refreshPortFittings();
     if (plan.physicsBodies) this._markPhysicsBodiesDirty();
     if (plan.palette && this._refreshPalette) this._refreshPalette();
+    this._sceneLayerVisibility.apply();
   }
 
   _ensurePhysicsBodies() {
@@ -4749,6 +4816,7 @@ export class ThreeRenderer {
     // light-rig.js's setFixtureRegistry(); this is what replaced the dead
     // userData.lightFixture scene-traversal lookup.
     if (this._lightRig) this._lightRig.setFixtureRegistry(this.lightingGroup);
+    this._sceneLayerVisibility.apply();
   }
 
   /**
@@ -5353,7 +5421,7 @@ export class ThreeRenderer {
 
   _refreshBeam() {
     const snap = this._updateSnapshot(['beamPaths']);
-    this.beamBuilder.build(snap.beamPaths, this.componentGroup);
+    this.beamBuilder.build(snap.beamPaths, this.beamEffectGroup);
     this.beamBuilder.setDetailLevel(this.zoom >= 2.0);
   }
 
@@ -5367,7 +5435,12 @@ export class ThreeRenderer {
     try {
     const sections = pipeAttachments ? ['components', 'pipeAttachments'] : ['components'];
     const snap = this._updateSnapshot(sections, changeSet);
-    this.componentBuilder.build(snap.components, this.componentGroup);
+    this.componentBuilder.build(snap.components, this.componentGroup, {
+      categoryGroups: {
+        beamline: this.beamlineComponentGroup,
+        infrastructure: this.infrastructureComponentGroup,
+      },
+    });
     this.componentBuilder.setDetailLevel(this.zoom >= 2.0);
     this._effectSystem?.syncSurfaceGlows('components', this.componentGroup);
     if (pipeAttachments) {
@@ -5420,6 +5493,7 @@ export class ThreeRenderer {
     if (this._volumePool) {
       this._volumePool.dispose();
       this._volumePool = null;
+      this.volumetricLightGroup = null;
     }
     disposeLightCookies();
     this.renderer.dispose();

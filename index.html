@@ -126,6 +126,28 @@
     <!-- Camera view-cube widget (lower-right, above wall visibility) -->
     <div id="view-cube-widget"></div>
 
+    <!-- World layer visibility (lower-left, above bottom HUD) -->
+    <div id="layer-visibility-control">
+      <button id="layer-visibility-toggle" type="button" aria-expanded="false" aria-controls="layer-visibility-panel" title="Show world layer visibility">
+        <span aria-hidden="true">◉</span> Layers
+      </button>
+      <div id="layer-visibility-panel" class="hidden" role="group" aria-label="World layer visibility">
+        <div class="layer-visibility-header">
+          <span>Layer Visibility</span>
+          <button id="layer-visibility-reset" type="button" title="Show every world layer">All On</button>
+        </div>
+        <div class="layer-visibility-grid">
+          <button class="layer-visibility-btn active" type="button" data-world-layer="lights" aria-pressed="true"><span aria-hidden="true">●</span>Lights</button>
+          <button class="layer-visibility-btn active" type="button" data-world-layer="beamline" aria-pressed="true"><span aria-hidden="true">●</span>Beamline</button>
+          <button class="layer-visibility-btn active" type="button" data-world-layer="infra" aria-pressed="true"><span aria-hidden="true">●</span>Infra</button>
+          <button class="layer-visibility-btn active" type="button" data-world-layer="facility" aria-pressed="true"><span aria-hidden="true">●</span>Facility</button>
+          <button class="layer-visibility-btn active" type="button" data-world-layer="structure" aria-pressed="true"><span aria-hidden="true">●</span>Structure</button>
+          <button class="layer-visibility-btn active" type="button" data-world-layer="grounds" aria-pressed="true"><span aria-hidden="true">●</span>Grounds</button>
+          <button class="layer-visibility-btn active" type="button" data-world-layer="staff" aria-pressed="true"><span aria-hidden="true">●</span>Staff</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Wall visibility control (lower-right, above bottom HUD) -->
     <div id="wall-visibility-control">
       <button class="wall-vis-btn" data-wall-mode="roof" title="Show Roof">

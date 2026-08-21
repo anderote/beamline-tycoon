@@ -4808,7 +4808,7 @@ export class ComponentBuilder {
    * Build or update meshes for all components in the snapshot.
    * Removes stale meshes for components no longer present.
    */
-  build(componentData, parentGroup) {
+  build(componentData, parentGroup, { categoryGroups = null } = {}) {
     if (!componentData || !parentGroup) return;
 
     const seen = new Set();
@@ -4851,10 +4851,12 @@ export class ComponentBuilder {
         obj.userData.utilityLineId = comp.utilityLineId || null;
         obj.userData.isPlaceholder = !!usePlaceholder;
         this._meshMap.set(id, obj);
-        parentGroup.add(obj);
       }
 
       const obj = this._meshMap.get(id);
+      const targetGroup = categoryGroups?.[comp.category] || parentGroup;
+      if (obj.parent !== targetGroup) targetGroup.add(obj);
+      obj.userData.presentationCategory = comp.category || null;
       obj.userData.effectState = comp.effectState || 'on';
 
       // Position + rotation. Shared with the design-placement ghost via
@@ -4926,7 +4928,8 @@ export class ComponentBuilder {
    */
   dispose(parentGroup) {
     for (const [, obj] of this._meshMap) {
-      if (parentGroup) parentGroup.remove(obj);
+      if (obj.parent) obj.parent.remove(obj);
+      else if (parentGroup) parentGroup.remove(obj);
       this._disposeWrapper(obj);
     }
     this._meshMap.clear();
