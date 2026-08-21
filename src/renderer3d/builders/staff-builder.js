@@ -448,10 +448,35 @@ function _figureMaterial(color, style) {
   return m;
 }
 
+let _shadowProxyMat = null;
+
+/**
+ * One invisible color-pass material shared by every staff shadow proxy.
+ * The proxy still participates in shadow passes, but writes neither color nor
+ * depth in the main scene. This turns an 18-20 draw shadow silhouette into one
+ * deliberately simple caster without adding a visible dark shape to the pawn.
+ */
+function _shadowProxyMaterial() {
+  if (_shadowProxyMat) return _shadowProxyMat;
+  _shadowProxyMat = new THREE.MeshStandardMaterial({
+    color: '#000000',
+    roughness: 1,
+    metalness: 0,
+    colorWrite: false,
+    depthWrite: false,
+  });
+  // Test doubles and older Three material constructors may only copy known
+  // options, so stamp these explicitly as the contract the renderer relies on.
+  _shadowProxyMat.colorWrite = false;
+  _shadowProxyMat.depthWrite = false;
+  return _shadowProxyMat;
+}
+
 function _mesh(geo, mat, x, y, z) {
   const m = new THREE.Mesh(geo, mat);
-  m.castShadow = true;      // receiveShadow stays off: figures are small and
-                            // self-shadowing just muddies them at this scale.
+  // Visible body parts never cast independently. buildStaffFigure adds one
+  // low-poly proxy for the whole person after the authored rig is complete.
+  m.castShadow = false;
   m.position.set(x, y, z);
   return m;
 }
@@ -483,6 +508,8 @@ function _mesh(geo, mat, x, y, z) {
  * @property {THREE.Mesh} leftShin  child of leftLeg — rotate .rotation.x to swing from the knee
  * @property {THREE.Mesh} rightShin child of rightLeg
  * @property {THREE.Mesh[]} parts   every mesh, in build order (hands/feet included)
+ * @property {THREE.Mesh} farProxy  one-mesh silhouette used at far LOD
+ * @property {THREE.Mesh} shadowProxy the figure's only shadow caster
  * @property {StaffStyle} style     the style it was built from
  */
 
@@ -616,6 +643,32 @@ export function buildStaffFigure(look, style = DEFAULT_STAFF_STYLE) {
       0, p.headTop - p.headH * 0.4, -(p.headD / 2 + 0.005)));
   }
 
+  // Far LOD: one role-coloured tapered silhouette replaces the entire
+  // articulated hierarchy. At the projected size where this is used, the
+  // profession color and human-sized outline survive while hands, face and
+  // joint meshes only cost draw submissions. It is hidden by default.
+  const farProxy = _mesh(
+    _prismGeo(p.torsoRTop * 0.9, p.legRBot * 1.35, p.H * 0.82, 5),
+    bodyMat,
+    0, p.H * 0.43, 0,
+  );
+  farProxy.name = 'staffFarProxy';
+  farProxy.visible = false;
+  farProxy.userData.staffAuxiliary = 'far';
+  group.add(farProxy);
+
+  // Exactly one simple caster per employee. It is independent of the body
+  // hierarchy so seated/working joint animation never multiplies shadow work.
+  const shadowProxy = _mesh(
+    _prismGeo(p.torsoRTop * 0.92, p.legRBot * 1.3, p.H * 0.78, 5),
+    _shadowProxyMaterial(),
+    0, p.H * 0.42, 0,
+  );
+  shadowProxy.name = 'staffShadowProxy';
+  shadowProxy.castShadow = true;
+  shadowProxy.userData.staffAuxiliary = 'shadow';
+  group.add(shadowProxy);
+
   const scale = look.heightScale ?? 1;
   if (scale !== 1) group.scale.setScalar(scale);
 
@@ -624,8 +677,18 @@ export function buildStaffFigure(look, style = DEFAULT_STAFF_STYLE) {
     leftArm: arms[0], rightArm: arms[1],
     leftLeg: legs[0], rightLeg: legs[1],
     leftShin: shins[0], rightShin: shins[1],
-    parts, style,
+    parts, farProxy, shadowProxy, detail: 'near', style,
   };
+}
+
+/** Swap between the articulated figure and its one-mesh far silhouette. */
+export function setStaffFigureDetail(figure, detail = 'near') {
+  if (!figure) return;
+  const next = detail === 'far' ? 'far' : 'near';
+  if (figure.detail === next) return;
+  figure.detail = next;
+  figure.body.visible = next !== 'far';
+  figure.farProxy.visible = next === 'far';
 }
 
 // ── Poses ────────────────────────────────────────────────────────────

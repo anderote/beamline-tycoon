@@ -148,14 +148,21 @@ console.log('\n=== Staff position/routine state survives save-load without path 
       travelPathIndex: 1, travelPathRevision: 2,
     },
   });
+  member._staffPresentation = {
+    sequence: 3,
+    nodes: [{ col: 3, row: 4, subCol: 2, subRow: 2 }],
+  };
   const json = member.toJSON();
   const loaded = StaffMember.fromJSON(json);
   assert(JSON.stringify(loaded.fromNode) === JSON.stringify(member.fromNode),
     'authoritative position round-trips');
   assert(loaded.routineUntil === 77 && loaded.routineMealTaken === true,
     'soft routine state round-trips');
-  assert(!('travelPath' in json.job) && loaded._staffMotion === null,
-    'transient path caches are not serialized');
+  assert(!('travelPath' in json.job)
+      && !('_staffPresentation' in json)
+      && loaded._staffMotion === null
+      && loaded._staffPresentation === null,
+    'transient path and presentation caches are not serialized');
 }
 
 console.log('\n=== Visible poses distinguish desks, seats, benches and walking ===\n');
@@ -168,6 +175,8 @@ console.log('\n=== Visible poses distinguish desks, seats, benches and walking =
     'standing technical work uses benchWork');
   assert(staffPoseFor({ mode: 'pathWalk', seated: true, jobType: 'paperwork' }) === 'walk',
     'travel always uses the walk pose');
+  assert(staffPoseFor({ mode: 'simTravel', seated: false, jobType: 'repair' }) === 'walk',
+    'simulation-published travel uses the same walking pose');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

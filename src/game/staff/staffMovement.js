@@ -100,6 +100,16 @@ export function clearStaffMotion(member) {
   member._staffMotion = null;
 }
 
+/** Whether the next travel step must pay for a fresh A* route. */
+export function staffTravelNeedsRoute(state, member, destination, kind = 'job') {
+  const from = ensureStaffPosition(state, member);
+  if (!from || !destination || sameStaffNode(from, destination)) return false;
+  const motion = member._staffMotion;
+  return !motion || motion.kind !== kind
+    || motion.navRevision !== (state.navRevision || 0)
+    || !sameStaffNode(motion.destination, destination);
+}
+
 function rebuildMotion(state, member, destination, kind) {
   const from = ensureStaffPosition(state, member);
   if (!from || !destination) return null;
@@ -121,31 +131,60 @@ function rebuildMotion(state, member, destination, kind) {
  * Advance one member toward a destination. Returns
  * `{ arrived, moved, blocked }` and updates member.fromNode in the sim.
  */
-export function advanceStaffTravel(state, member, destination, kind = 'job') {
+export function advanceStaffTravel(
+  state,
+  member,
+  destination,
+  kind = 'job',
+  { allowRouteStart = true } = {},
+) {
   const from = ensureStaffPosition(state, member);
-  if (!from || !destination) return { arrived: false, moved: false, blocked: true };
+  if (!from || !destination) return {
+    arrived: false, moved: false, blocked: true, deferred: false,
+  };
   if (sameStaffNode(from, destination)) {
     clearStaffMotion(member);
-    return { arrived: true, moved: false, blocked: false };
+    return { arrived: true, moved: false, blocked: false, deferred: false };
   }
 
   const revision = state.navRevision || 0;
   let motion = member._staffMotion;
   if (!motion || motion.kind !== kind || motion.navRevision !== revision
       || !sameStaffNode(motion.destination, destination)) {
+    if (!allowRouteStart) {
+      return { arrived: false, moved: false, blocked: false, deferred: true };
+    }
     motion = rebuildMotion(state, member, destination, kind);
   }
-  if (!motion) return { arrived: false, moved: false, blocked: true };
+  if (!motion) return {
+    arrived: false, moved: false, blocked: true, deferred: false,
+  };
 
+  const startNode = copyNode(member.fromNode);
+  const startIndex = motion.pathIndex;
   const nextIndex = Math.min(
     motion.path.length - 1,
     motion.pathIndex + STAFF_TRAVEL_SUBTILES_PER_TICK,
   );
   motion.pathIndex = nextIndex;
   member.fromNode = copyNode(motion.path[nextIndex]);
+  if (nextIndex > startIndex) {
+    member._staffPresentation = {
+      sequence: (member._staffPresentation?.sequence || 0) + 1,
+      kind,
+      navRevision: revision,
+      tick: state.tick || 0,
+      // At most three nodes at today's speed: the prior authoritative node
+      // plus the one/two traversed nodes. This is enough for exact corner
+      // interpolation without serializing or retaining an entire A* result.
+      nodes: [startNode, ...motion.path.slice(startIndex + 1, nextIndex + 1)]
+        .filter(Boolean)
+        .map(copyNode),
+    };
+  }
   const arrived = nextIndex >= motion.path.length - 1;
   if (arrived) clearStaffMotion(member);
-  return { arrived, moved: true, blocked: false };
+  return { arrived, moved: true, blocked: false, deferred: false };
 }
 
 function hashText(text) {
@@ -204,7 +243,14 @@ function chooseWanderDestination(game, member) {
 }
 
 /** Advance safe, jobless ambient wandering by one simulation tick. */
-export function tickStaffWander(game, member) {
+export function staffWanderNeedsRoute(member) {
+  const current = member?._staffMotion;
+  if (!current) return true;
+  if (current.kind === 'wander-wait') return current.waitTicks <= 1;
+  return current.kind !== 'wander';
+}
+
+export function tickStaffWander(game, member, { allowRouteStart = true } = {}) {
   ensureStaffPosition(game.state, member);
   const current = member._staffMotion;
   if (current?.kind === 'wander-wait') {
@@ -215,13 +261,20 @@ export function tickStaffWander(game, member) {
 
   let motion = member._staffMotion;
   if (!motion || motion.kind !== 'wander') {
+    if (!allowRouteStart) return false;
     const destination = chooseWanderDestination(game, member);
     if (!destination) return false;
     motion = rebuildMotion(game.state, member, destination, 'wander');
     if (!motion) return false;
   }
 
-  const result = advanceStaffTravel(game.state, member, motion.destination, 'wander');
+  const result = advanceStaffTravel(
+    game.state,
+    member,
+    motion.destination,
+    'wander',
+    { allowRouteStart },
+  );
   if (result.arrived) {
     member._staffMotion = {
       kind: 'wander-wait',

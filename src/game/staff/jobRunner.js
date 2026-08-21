@@ -22,6 +22,7 @@ import { getStationIndex, findStation, reserveStation, releaseStation } from './
 import { getNavGrid, findPath, isReachable } from './nav.js';
 import {
   advanceStaffTravel, clearStaffMotion, ensureStaffPosition, tickStaffWander,
+  staffTravelNeedsRoute, staffWanderNeedsRoute,
   STAFF_TRAVEL_SUBTILES_PER_TICK,
 } from './staffMovement.js';
 import { countBeamlines } from '../utility-gate.js';
@@ -48,6 +49,12 @@ import { LABWORK_CAPABLE_ZONES, zoneTierFromStaffedOutput } from '../../data/fac
 // drift.
 export const NEEDS_THRESHOLD = 0.8;
 export const STAFF_DOWNTIME_TICKS = 90;
+// Route construction is the only staffing operation with a map-sized worst
+// case. Bound both offer assignment and actual A* starts so a 50/100-person
+// roster cannot put every route search on the same one-second simulation tick.
+export const STAFF_ASSIGNMENT_STARTS_PER_TICK = 12;
+export const STAFF_ROUTE_STARTS_PER_TICK = 12;
+const STAFF_ASSIGNMENT_WAIT_REASON = 'Waiting for the next assignment pass.';
 // Balance fix round 2: slower than HUNGER_PER_TICK/FATIGUE_PER_TICK
 // (staffSystem.js), not faster — the round-1 rates (0.02/0.05, the old
 // cafeteria-less onBreak branch's own numbers) recovered FASTER than the
@@ -798,7 +805,8 @@ export function assignJobs(game, { breaksEnabled = true, routinesEnabled = false
   const caps = capsFor(game);
   const holders = currentHolders(members);
   const claimedTargets = claimedTargetsByType(members);
-
+  const tick = state.tick || 0;
+  const pending = [];
   for (const member of members) {
     if (member.job != null) continue;
     if (member.status !== 'working') {
@@ -806,16 +814,44 @@ export function assignJobs(game, { breaksEnabled = true, routinesEnabled = false
       continue;
     }
 
-    const tick = state.tick || 0;
     if (routinesEnabled && member.routineUntil > tick) {
-      if (!member.routineMealTaken) tryAssignRoutineMeal(member, game);
-      if (!member.job) member.idleReason = 'Taking a short break.';
-      continue;
-    }
-    if (member.routineUntil) {
+      if (member.routineMealTaken) {
+        member.idleReason = 'Taking a short break.';
+        continue;
+      }
+    } else if (member.routineUntil) {
       member.routineUntil = 0;
       member.routineMealTaken = false;
       clearStaffMotion(member);
+    }
+    pending.push(member);
+  }
+
+  // Rotate a bounded window through roster order. Ordinary rosters retain
+  // their historical ordering; large bursts spread offer scans and their
+  // path tie-break searches over consecutive ticks without starving the tail.
+  const selected = [];
+  if (pending.length <= STAFF_ASSIGNMENT_STARTS_PER_TICK) {
+    selected.push(...pending);
+  } else {
+    const start = (tick * STAFF_ASSIGNMENT_STARTS_PER_TICK) % pending.length;
+    for (let i = 0; i < STAFF_ASSIGNMENT_STARTS_PER_TICK; i++) {
+      selected.push(pending[(start + i) % pending.length]);
+    }
+    const selectedIds = new Set(selected.map(member => member.id));
+    for (const member of pending) {
+      if (!selectedIds.has(member.id) && !member.idleReason) {
+        member.idleReason = STAFF_ASSIGNMENT_WAIT_REASON;
+      }
+    }
+  }
+
+  for (const member of selected) {
+    if (member.idleReason === STAFF_ASSIGNMENT_WAIT_REASON) member.idleReason = null;
+    if (routinesEnabled && member.routineUntil > tick) {
+      tryAssignRoutineMeal(member, game);
+      if (!member.job) member.idleReason = 'Taking a short break.';
+      continue;
     }
 
     const { offer, reason, fallbackReason } = pickBestOffer(member, offers, game, caps, holders, claimedTargets);
@@ -938,7 +974,14 @@ function worstCaseMapSubtiles(state) {
 function computeTravelBudget(game, member, node) {
   const state = game.state;
   let subtiles;
-  if (node && member.fromNode) {
+  const motion = member._staffMotion;
+  if (motion?.kind === 'job'
+      && motion.navRevision === (state.navRevision || 0)
+      && motion.path?.length) {
+    // The movement coordinator already paid for this route. Reuse it instead
+    // of immediately running the identical A* a second time for the watchdog.
+    subtiles = Math.max(1, motion.path.length - motion.pathIndex);
+  } else if (node && member.fromNode) {
     const nav = getNavGrid(state);
     const path = findPath(nav, member.fromNode, node);
     subtiles = path ? path.length : worstCaseMapSubtiles(state);
@@ -1011,6 +1054,7 @@ export function tickJobs(game, { routinesEnabled = false } = {}) {
   //     the formula rather than needing a separate special case.
   const zoneBoosts = {};
   let takeDataEfficiencySum = 0;
+  let routeStarts = 0;
   for (const member of (state.staffMembers || [])) {
     const job = member.job;
     if (!job) continue;
@@ -1026,7 +1070,17 @@ export function tickJobs(game, { routinesEnabled = false } = {}) {
       // already carry the approach node chosen at assignment. Both then use
       // the same simulation movement path.
       const node = currentStationNode(state, job) || job.destNode;
-      const travel = advanceStaffTravel(state, member, node, 'job');
+      const needsRoute = staffTravelNeedsRoute(state, member, node, 'job');
+      const allowRouteStart = !needsRoute || routeStarts < STAFF_ROUTE_STARTS_PER_TICK;
+      if (needsRoute && allowRouteStart) routeStarts++;
+      const travel = advanceStaffTravel(
+        state,
+        member,
+        node,
+        'job',
+        { allowRouteStart },
+      );
+      if (travel.deferred) continue;
       if (travel.blocked) {
         abandonJob(member, game, 'The path there was lost.');
         continue;
@@ -1084,7 +1138,11 @@ export function tickJobs(game, { routinesEnabled = false } = {}) {
 
   if (routinesEnabled) {
     for (const member of (state.staffMembers || [])) {
-      if (!member.job && member.status === 'working') tickStaffWander(game, member);
+      if (member.job || member.status !== 'working') continue;
+      const needsRoute = staffWanderNeedsRoute(member);
+      const allowRouteStart = !needsRoute || routeStarts < STAFF_ROUTE_STARTS_PER_TICK;
+      if (needsRoute && allowRouteStart) routeStarts++;
+      tickStaffWander(game, member, { allowRouteStart });
     }
   }
 
@@ -1095,6 +1153,7 @@ export function tickJobs(game, { routinesEnabled = false } = {}) {
   // tick, whether or not zoneBoosts names it — see updateZoneStaffedOutput's
   // own header for why a zone with no boost still has to decay.
   updateZoneStaffedOutput(state, zoneBoosts);
+  return { routeStarts };
 }
 
 /**

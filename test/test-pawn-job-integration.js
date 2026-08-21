@@ -23,8 +23,9 @@
 // stationKey/path fields or the member's own job/fromNode fields — never
 // against mesh world transforms the stub can't compute.
 
-import { StaffPawns } from '../src/renderer3d/StaffPawns.js';
+import { StaffPawns, staffVisualLevel } from '../src/renderer3d/StaffPawns.js';
 import { subtileToWorld } from '../src/game/staff/nav.js';
+import { advanceStaffTravel } from '../src/game/staff/staffMovement.js';
 import { getStationIndex, reserveStation } from '../src/game/staff/stations.js';
 import { PLACEABLES } from '../src/data/placeables/index.js';
 
@@ -513,6 +514,63 @@ console.log('\n=== 9. A SECOND job at the SAME destination (the ordinary "job co
   while (pawn.mode !== 'working' && steps < 4000) { pawns.update(0.02); steps++; }
   assertOk(pawn.mode === 'working' && member.job.phase === 'travel',
     `job B visually arrives without mutating the new job — the staffer does a SECOND job (after ${steps} steps)`);
+}
+
+console.log('\n=== 10. Real staff interpolate simulation-published route nodes without renderer A* ===\n');
+{
+  const state = makeState({ speed: 1, tick: 0 });
+  floorRect(state, 0, 8, 0, 8);
+  const startNode = { col: 0, row: 0, subCol: 0, subRow: 0 };
+  const destNode = { col: 7, row: 7, subCol: 3, subRow: 3 };
+  const member = {
+    id: 'sim-published', profession: 'technician', fromNode: { ...startNode },
+    job: {
+      jobType: 'repair', target: null, specialty: null, stationKey: null,
+      destNode, phase: 'travel', progress: 0,
+    },
+    _staffMotion: null,
+    _staffPresentation: null,
+  };
+  state.staffMembers = [member];
+  bump(state);
+
+  const pawns = makePawns(state);
+  pawns.sync();
+  const pawn = pawns._pawns.get(member.id);
+  pawns.update(0.02);
+  assertOk(pawn.mode === 'travelWait', 'before the first sim step, presentation waits in place');
+  assertOk(pawn.path === null, 'a simulation-positioned job never creates a renderer A* path');
+
+  let simTicks = 0;
+  while (member.job.phase === 'travel' && simTicks < 100) {
+    state.tick++;
+    const travel = advanceStaffTravel(state, member, destNode, 'job');
+    if (travel.arrived) member.job.phase = 'work';
+    for (let frame = 0; frame < 100; frame++) pawns.update(0.02);
+    assertOk(pawn.path === null, `tick ${state.tick}: renderer path stays null`);
+    simTicks++;
+  }
+
+  for (let frame = 0; frame < 200 && pawn.mode !== 'working'; frame++) pawns.update(0.02);
+  const dest = subtileToWorld(destNode);
+  assertOk(member.job.phase === 'work', 'only the simulation flips the job to work');
+  assertOk(member._staffPresentation?.sequence > 0, 'simulation published movement snapshots');
+  assertOk(pawn.mode === 'working', 'the visual pawn catches the published destination');
+  assertOk(Math.hypot(pawn.x - dest.x, pawn.z - dest.z) < 1e-6,
+    'presentation lands exactly on the authoritative destination');
+}
+
+console.log('\n=== 11. Staff visual levels respond to focus distance and zoom ===\n');
+{
+  const pawn = { x: 0, z: 0 };
+  assertOk(staffVisualLevel(pawn, { x: 0, z: 0, zoom: 1 }) === 'near',
+    'a centered pawn at normal zoom uses full detail');
+  assertOk(staffVisualLevel({ x: 24, z: 0 }, { x: 0, z: 0, zoom: 1 }) === 'mid',
+    'a farther pawn uses throttled articulated detail');
+  assertOk(staffVisualLevel({ x: 50, z: 0 }, { x: 0, z: 0, zoom: 1 }) === 'far',
+    'a distant pawn uses the one-mesh silhouette');
+  assertOk(staffVisualLevel(pawn, { x: 0, z: 0, zoom: 0.3 }) === 'far',
+    'a fully zoomed-out view simplifies the whole roster');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

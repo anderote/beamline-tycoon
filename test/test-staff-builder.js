@@ -20,6 +20,7 @@ import {
   STAFF_STYLE_LIST,
   STAFF_PALETTES,
   staffPalette,
+  setStaffFigureDetail,
   DEFAULT_STAFF_STYLE,
   POSES,
   applyPose,
@@ -177,6 +178,10 @@ function bounds(figure) {
   };
 }
 
+function authoredMeshes(figure) {
+  return walkMeshes(figure.group).filter(p => !p.mesh.userData.staffAuxiliary);
+}
+
 // --- Tests -----------------------------------------------------------------
 
 test('figure builds a group with head, torso, four limbs and their extremities', () => {
@@ -187,8 +192,9 @@ test('figure builds a group with head, torso, four limbs and their extremities',
   // 2 thighs + 2 shins + 2 boots + torso + collar + 2 arms + 2 hands + head
   // + hair cap + back-of-head panel = 15.
   assert.equal(fig.parts.length, 15, 'unexpected part count for the plain-hair build');
-  assert.equal(walkMeshes(fig.group).length, 15, 'parts[] must list every mesh in the tree');
-  assert.equal(fig.group.children.length, 1, 'group holds exactly the bob node');
+  assert.equal(authoredMeshes(fig).length, 15, 'parts[] must list every authored mesh');
+  assert.equal(walkMeshes(fig.group).length, 17, 'the tree adds one far proxy and one shadow proxy');
+  assert.equal(fig.group.children.length, 3, 'group holds the bob node plus two scale proxies');
 });
 
 test('the shin is a child of the thigh, pivoting at the knee, and the foot is a child of the shin', () => {
@@ -217,12 +223,17 @@ test('long hair adds side panels', () => {
   assert.equal(longHair.parts.length, plain.parts.length + 2);
 });
 
-test('every mesh casts a shadow and none receive one', () => {
+test('each figure uses exactly one shared-shape shadow proxy', () => {
   for (const style of STAFF_STYLE_LIST) {
     for (const hardHat of [false, true]) {
       const fig = buildStaffFigure(look({ hardHat }), style);
-      for (const p of walkMeshes(fig.group)) {
-        assert.equal(p.mesh.castShadow, true, `${style.id}: a mesh does not cast a shadow`);
+      const meshes = walkMeshes(fig.group);
+      const casters = meshes.filter(p => p.mesh.castShadow);
+      assert.equal(casters.length, 1, `${style.id}: expected one shadow caster`);
+      assert.equal(casters[0].mesh, fig.shadowProxy, `${style.id}: caster must be the proxy`);
+      assert.equal(fig.shadowProxy.material.colorWrite, false);
+      assert.equal(fig.shadowProxy.material.depthWrite, false);
+      for (const p of meshes) {
         assert.equal(p.mesh.receiveShadow, false, `${style.id}: a mesh receives shadows`);
       }
     }
@@ -252,11 +263,11 @@ test('role variation: hard hat replaces the hair cap, and the brim overhangs the
   // Pinned to a style with saturation 1 and no face, so material colors come
   // through untinted and the only non-look colors up top are the hat's.
   const bare = buildStaffFigure(look({ hardHat: false }), STAFF_STYLES.osrsClassic);
-  const hairParts = walkMeshes(bare.group).filter(p => p.color === LOOK.hair);
+  const hairParts = authoredMeshes(bare).filter(p => p.color === LOOK.hair);
   assert.ok(hairParts.length >= 2, 'non-hard-hat roles should get hair parts');
 
   const hatted = buildStaffFigure(look({ hardHat: true }), STAFF_STYLES.osrsClassic);
-  const hatMeshes = walkMeshes(hatted.group);
+  const hatMeshes = authoredMeshes(hatted);
   assert.equal(hatMeshes.filter(p => p.color === LOOK.hair).length, 0,
     'a hard hat must replace the hair, not sit on top of it');
 
@@ -272,17 +283,17 @@ test('role variation: hard hat replaces the hair cap, and the brim overhangs the
 });
 
 test('style config drives limb construction', () => {
-  const faceted = walkMeshes(buildStaffFigure(look(), STAFF_STYLES.osrsClassic).group);
+  const faceted = authoredMeshes(buildStaffFigure(look(), STAFF_STYLES.osrsClassic));
   assert.ok(faceted.some(p => p.kind === 'cyl'), 'the faceted style should use cylinders');
   assert.ok(faceted.filter(p => p.kind === 'cyl').every(p => p.mesh.geometry.segs <= 6),
     'OSRS Classic limbs should stay at 6 facets');
 
-  const blocky = walkMeshes(buildStaffFigure(look(), STAFF_STYLES.blockyMinifig).group);
+  const blocky = authoredMeshes(buildStaffFigure(look(), STAFF_STYLES.blockyMinifig));
   // The collar band is a ring in every style; limbs and torso are the boxes.
   assert.equal(blocky.filter(p => p.kind === 'cyl').length, 1,
     'the all-box style should only keep the collar ring as a cylinder');
 
-  const smooth = walkMeshes(buildStaffFigure(look(), STAFF_STYLES.smoothSoft).group);
+  const smooth = authoredMeshes(buildStaffFigure(look(), STAFF_STYLES.smoothSoft));
   assert.ok(smooth.filter(p => p.kind === 'cyl').every(p => p.mesh.geometry.segs === 12),
     'the smooth style should raise the segment count');
   assert.equal(smooth[0].mesh.material.flatShading, false);
@@ -312,6 +323,19 @@ test('geometries and materials are shared between figures', () => {
   const b = buildStaffFigure(look());
   assert.equal(a.torso.geometry, b.torso.geometry, 'geometry cache should be shared');
   assert.equal(a.torso.material, b.torso.material, 'material cache should be shared');
+});
+
+test('far detail swaps the articulated rig for one visible silhouette mesh', () => {
+  const fig = buildStaffFigure(look());
+  assert.equal(fig.body.visible ?? true, true);
+  assert.equal(fig.farProxy.visible, false);
+  setStaffFigureDetail(fig, 'far');
+  assert.equal(fig.body.visible, false);
+  assert.equal(fig.farProxy.visible, true);
+  assert.equal(fig.shadowProxy.visible ?? true, true, 'the one caster remains available');
+  setStaffFigureDetail(fig, 'mid');
+  assert.equal(fig.body.visible, true);
+  assert.equal(fig.farProxy.visible, false);
 });
 
 test('disposeStaffFigure detaches without freeing the shared caches', () => {
