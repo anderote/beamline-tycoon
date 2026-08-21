@@ -1,7 +1,11 @@
 import {
+  addDesignerPlotTag,
   applyDesignerPlotYRange,
   createDesignerPlotYRanges,
+  DESIGNER_PLOT_TAG_LIMIT,
+  designerPlotCursorLayers,
   designerPlotPrimaryAxis,
+  designerPlotTagCount,
   formatDesignerPlotBound,
   suggestDesignerFixedYRange,
   validateDesignerFixedYRange,
@@ -17,6 +21,35 @@ function check(condition, message) {
     failed++;
     console.log(`  FAIL: ${message}`);
   }
+}
+
+console.log('\n--- Persistent plot tags and live hover ---');
+{
+  const tagsByPanel = new Map();
+  const first = addDesignerPlotTag(tagsByPanel, '0', { x: 0.2, y: 0.3 });
+  const second = addDesignerPlotTag(tagsByPanel, '0', { x: 0.7, y: 0.6 });
+  addDesignerPlotTag(tagsByPanel, '1', { x: 0.4, y: 0.5 });
+  check(tagsByPanel.get('0').length === DESIGNER_PLOT_TAG_LIMIT
+    && tagsByPanel.get('1').length === 1,
+  'each plot independently retains up to two clicked tags');
+  check(first.slot === 0 && second.slot === 1 && designerPlotTagCount(tagsByPanel) === 3,
+    'tags receive stable A/B slots and the global control counts every panel');
+
+  const retainedSecond = tagsByPanel.get('0')[1];
+  const replacement = addDesignerPlotTag(tagsByPanel, '0', { x: 0.9, y: 0.8 });
+  check(tagsByPanel.get('0').length === 2
+    && tagsByPanel.get('0')[0] === retainedSecond
+    && replacement.slot === first.slot,
+  'a third click replaces only the oldest tag and reuses its comparison slot');
+
+  const hover = { x: 0.55, y: 0.45 };
+  const layers = designerPlotCursorLayers(tagsByPanel.get('0'), hover);
+  check(layers.length === 3
+    && layers[0].kind === 'hover'
+    && layers.slice(1).every(layer => layer.kind === 'tag'),
+  'live hover and both persistent tags are composed together');
+  check(layers[1].cursor.slot === 0 && layers[2].cursor.slot === 1,
+    'persistent A/B tags draw after hover in stable slot order');
 }
 
 console.log('\n--- Per-panel Designer Y ranges ---');

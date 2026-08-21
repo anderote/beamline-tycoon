@@ -1548,8 +1548,9 @@ export const ProbePlots = (() => {
 
     ctx.save();
     const pinned = opts.pinned === true;
+    const pinColor = opts.pinColor || '#ffcb6b';
     ctx.setLineDash(pinned ? [] : [2, 3]);
-    ctx.strokeStyle = pinned ? 'rgba(255, 203, 107, 0.9)' : 'rgba(210, 210, 240, 0.42)';
+    ctx.strokeStyle = pinned ? pinColor : 'rgba(210, 210, 240, 0.42)';
     ctx.lineWidth = pinned ? 1.25 : 0.75;
     ctx.beginPath();
     ctx.moveTo(x, a.y);
@@ -1561,7 +1562,10 @@ export const ProbePlots = (() => {
       if (row.ghostItem) _drawCursorDot(ctx, a, x, row.ghostItem, true);
     }
 
-    const header = `${pinned ? 'PIN · ' : ''}s=${_fmtPlotValue(snapS)} m${comparing ? `  ${solidTag}/${ghostTag}` : ''}`;
+    const pinPrefix = pinned
+      ? (opts.pinLabel ? `TAG ${opts.pinLabel} · ` : 'PIN · ')
+      : '';
+    const header = `${pinPrefix}s=${_fmtPlotValue(snapS)} m${comparing ? `  ${solidTag}/${ghostTag}` : ''}`;
     const lineHeight = 11;
     const pad = 5;
     ctx.font = FONT.readout;
@@ -1577,12 +1581,12 @@ export const ProbePlots = (() => {
     boxY = Math.max(a.y + 2, Math.min(a.y + a.h - boxH - 2, boxY));
     ctx.fillStyle = 'rgba(5, 7, 18, 0.92)';
     ctx.fillRect(boxX, boxY, boxW, boxH);
-    ctx.strokeStyle = pinned ? 'rgba(255, 203, 107, 0.82)' : 'rgba(180, 190, 230, 0.58)';
+    ctx.strokeStyle = pinned ? pinColor : 'rgba(180, 190, 230, 0.58)';
     ctx.lineWidth = pinned ? 1 : 0.75;
     ctx.strokeRect(boxX, boxY, boxW, boxH);
     ctx.textAlign = 'left';
     ctx.font = FONT.readoutHeader;
-    ctx.fillStyle = pinned ? '#ffcb6b' : 'rgba(225, 230, 250, 0.96)';
+    ctx.fillStyle = pinned ? pinColor : 'rgba(225, 230, 250, 0.96)';
     ctx.fillText(header, boxX + pad, boxY + pad + 7);
     ctx.font = FONT.readout;
     rows.forEach((row, rowIndex) => {
@@ -1590,7 +1594,81 @@ export const ProbePlots = (() => {
       ctx.fillText(row.text, boxX + pad, boxY + pad + 7 + (rowIndex + 1) * lineHeight);
     });
     ctx.restore();
-    return { s: snapS, index, x, rows: rows.map(row => row.text) };
+    return {
+      s: snapS,
+      index,
+      x,
+      label: opts.pinLabel || null,
+      items: solidItems.map(item => ({
+        id: item.id,
+        label: item.label,
+        value: item.value,
+        color: item.color,
+      })),
+      rows: rows.map(row => row.text),
+    };
+  }
+
+  function _cursorDeltaText(fromValue, toValue) {
+    const delta = toValue - fromValue;
+    const epsilon = Math.max(Math.abs(fromValue), Math.abs(toValue)) * 1e-12;
+    if (Math.abs(delta) <= epsilon) return '0%';
+    if (fromValue === 0) return 'from 0';
+    const percent = delta / Math.abs(fromValue) * 100;
+    return `${percent > 0 ? '+' : ''}${_fmtPlotValue(percent)}%`;
+  }
+
+  /** Draw a compact bottom-right comparison for two persistent cursor tags. */
+  function drawCursorDelta(canvas, first, second, opts = {}) {
+    const ctx = canvas.getContext('2d');
+    if (!ctx || !first || !second || !Array.isArray(first.items) || !Array.isArray(second.items)) {
+      return null;
+    }
+    const secondById = new Map(second.items.map(item => [item.id, item]));
+    const rows = first.items.flatMap(item => {
+      const other = secondById.get(item.id);
+      if (!other || !Number.isFinite(item.value) || !Number.isFinite(other.value)) return [];
+      return [{
+        id: item.id,
+        label: item.label,
+        color: item.color,
+        text: `${item.label}  ${_cursorDeltaText(item.value, other.value)}`,
+      }];
+    });
+    if (rows.length === 0) return null;
+
+    const firstLabel = first.label || 'A';
+    const secondLabel = second.label || 'B';
+    const distanceDelta = second.s - first.s;
+    const distanceText = `${distanceDelta > 0 ? '+' : ''}${_fmtPlotValue(distanceDelta)} m`;
+    const header = `TAG Δ · ${firstLabel}→${secondLabel} · Δs ${distanceText}`;
+    const a = _area(canvas, { rightInset: opts.rightInset });
+    const lineHeight = 11;
+    const pad = 5;
+    ctx.save();
+    ctx.font = FONT.readout;
+    const textWidth = Math.max(ctx.measureText(header).width,
+      ...rows.map(row => ctx.measureText(row.text).width));
+    const boxW = textWidth + pad * 2;
+    const boxH = (rows.length + 1) * lineHeight + pad * 2 - 2;
+    const boxX = Math.max(a.x + 2, a.x + a.w - boxW - 2);
+    const boxY = Math.max(a.y + 2, a.y + a.h - boxH - 2);
+    ctx.fillStyle = 'rgba(5, 7, 18, 0.95)';
+    ctx.fillRect(boxX, boxY, boxW, boxH);
+    ctx.strokeStyle = 'rgba(190, 210, 235, 0.72)';
+    ctx.lineWidth = 0.75;
+    ctx.strokeRect(boxX, boxY, boxW, boxH);
+    ctx.textAlign = 'left';
+    ctx.font = FONT.readoutHeader;
+    ctx.fillStyle = 'rgba(235, 240, 255, 0.96)';
+    ctx.fillText(header, boxX + pad, boxY + pad + 7);
+    ctx.font = FONT.readout;
+    rows.forEach((row, rowIndex) => {
+      ctx.fillStyle = row.color;
+      ctx.fillText(row.text, boxX + pad, boxY + pad + 7 + (rowIndex + 1) * lineHeight);
+    });
+    ctx.restore();
+    return { distanceDelta, rows: rows.map(row => row.text) };
   }
 
   // --- "At this point" plots ---
@@ -1923,6 +2001,7 @@ export const ProbePlots = (() => {
     draw,
     drawSecondary,
     drawCursor,
+    drawCursorDelta,
     isDistancePlot,
     secondaryYDomain,
     yDomainFor,

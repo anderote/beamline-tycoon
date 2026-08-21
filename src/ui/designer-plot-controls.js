@@ -1,5 +1,53 @@
 const DEFAULT_RANGE = Object.freeze([0, 1]);
 
+export const DESIGNER_PLOT_TAG_LIMIT = 2;
+export const DESIGNER_PLOT_TAG_COLORS = Object.freeze(['#ffcb6b', '#5de6ff']);
+
+/**
+ * Add a persistent plot tag without coupling the pointer event path to the
+ * canvas renderer. Tags are capped independently per panel. Once both slots
+ * are occupied, the next click replaces the oldest tag while retaining that
+ * tag's A/B slot and colour; the other comparison endpoint stays put.
+ */
+export function addDesignerPlotTag(tagsByPanel, panelId, position) {
+  if (!(tagsByPanel instanceof Map) || !position) return null;
+  const panel = String(panelId ?? '0');
+  const tags = [...(tagsByPanel.get(panel) || [])];
+  let slot;
+  if (tags.length >= DESIGNER_PLOT_TAG_LIMIT) {
+    slot = tags.shift()?.slot ?? 0;
+  } else {
+    const used = new Set(tags.map(tag => tag.slot));
+    slot = used.has(0) ? 1 : 0;
+  }
+  const tag = {
+    slot,
+    s: Number.isFinite(position.s) ? Number(position.s) : null,
+    x: Number(position.x),
+    y: Number(position.y),
+  };
+  tags.push(tag);
+  tagsByPanel.set(panel, tags);
+  return tag;
+}
+
+/** Hover draws first; persistent tags draw afterwards and therefore stay on top. */
+export function designerPlotCursorLayers(tags, hover = null) {
+  const layers = hover ? [{ kind: 'hover', cursor: hover }] : [];
+  return layers.concat(
+    [...(tags || [])]
+      .sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0))
+      .map(tag => ({ kind: 'tag', cursor: tag })),
+  );
+}
+
+export function designerPlotTagCount(tagsByPanel) {
+  if (!(tagsByPanel instanceof Map)) return 0;
+  let count = 0;
+  for (const tags of tagsByPanel.values()) count += tags?.length || 0;
+  return count;
+}
+
 /** Create independent Y-range settings for each Designer plot panel. */
 export function createDesignerPlotYRanges(panelCount = 3) {
   return Array.from({ length: panelCount }, () => ({

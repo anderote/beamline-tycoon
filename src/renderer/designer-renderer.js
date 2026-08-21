@@ -15,6 +15,8 @@ import { getBeamlineType } from '../data/beamline-types.js';
 import { ProbePlots } from '../ui/probe-plots.js';
 import {
   applyDesignerPlotYRange,
+  DESIGNER_PLOT_TAG_COLORS,
+  designerPlotCursorLayers,
   validateDesignerFixedYRange,
 } from '../ui/designer-plot-controls.js';
 import { paletteUtilityMetrics } from '../ui/utility-supply.js';
@@ -1134,8 +1136,8 @@ BeamlineDesigner.prototype._renderPlots = function() {
         .map((overlay, axisSlot) => ({ ...overlay, axisSlot }))
       : [];
     const hover = this._plotHoverPositions?.get(panelId) || null;
-    const pin = this.plotPin?.panel === panelId ? this.plotPin : null;
-    const cursor = hover || pin;
+    const tags = this.plotTags?.get(panelId) || [];
+    const cursorLayers = designerPlotCursorLayers(tags, hover);
     const primaryRightInset = ['energy-dispersion', 'bunch-evolution'].includes(plotType)
       ? PRIMARY_RIGHT_AXIS_INSET
       : 0;
@@ -1209,27 +1211,50 @@ BeamlineDesigner.prototype._renderPlots = function() {
           seriesIndex: overlay.seriesIndex,
         });
       }
-      if (cursor && distancePlot) {
-        const readout = ProbePlots.drawCursor(off, plotType, solid, xRange, {
-          cursorX: cursor.x * plotW,
-          cursorY: cursor.y * plotH,
-          cursorS: !hover && Number.isFinite(pin?.s) ? pin.s : undefined,
-          pinned: !hover && !!pin,
-          yDomain,
-          overlays: overlays.map(overlay => ({
-            type: overlay.type,
-            domain: overlay.domain,
-            seriesIndex: overlay.seriesIndex,
-          })),
-          ghostEnvelope: ghost,
-          solidLabel: source === 'current' ? 'C' : 'P',
-          ghostLabel: 'C',
-          yAxisMode,
-          fixedYDomain,
-          rightInset,
-        });
-        if (!hover && pin && readout) pin.s = readout.s;
-        if (!hover && pin && !readout && !Number.isFinite(pin.s)) this.plotPin = null;
+      if (cursorLayers.length > 0 && distancePlot) {
+        const tagReadouts = [];
+        for (const layer of cursorLayers) {
+          const cursor = layer.cursor;
+          const pinned = layer.kind === 'tag';
+          const slot = pinned ? cursor.slot : null;
+          const readout = ProbePlots.drawCursor(off, plotType, solid, xRange, {
+            cursorX: cursor.x * plotW,
+            // Keep A and B vertically separated. Hover continues to follow the
+            // pointer while the pinned cards remain stable between redraws.
+            cursorY: pinned
+              ? plotH * (slot === 0 ? 0.27 : 0.58)
+              : cursor.y * plotH,
+            cursorS: pinned && Number.isFinite(cursor.s) ? cursor.s : undefined,
+            pinned,
+            pinLabel: pinned ? (slot === 0 ? 'A' : 'B') : undefined,
+            pinColor: pinned ? DESIGNER_PLOT_TAG_COLORS[slot] : undefined,
+            yDomain,
+            overlays: overlays.map(overlay => ({
+              type: overlay.type,
+              domain: overlay.domain,
+              seriesIndex: overlay.seriesIndex,
+            })),
+            ghostEnvelope: ghost,
+            solidLabel: source === 'current' ? 'C' : 'P',
+            ghostLabel: 'C',
+            yAxisMode,
+            fixedYDomain,
+            rightInset,
+          });
+          if (!pinned) continue;
+          if (readout) {
+            cursor.s = readout.s;
+            tagReadouts.push(readout);
+          } else if (!Number.isFinite(cursor.s)) {
+            // A click outside the plotted distance area never became a tag.
+            const index = tags.indexOf(cursor);
+            if (index >= 0) tags.splice(index, 1);
+            if (tags.length === 0) this.plotTags.delete(panelId);
+          }
+        }
+        if (tagReadouts.length === 2) {
+          ProbePlots.drawCursorDelta(off, tagReadouts[0], tagReadouts[1], { rightInset });
+        }
       }
     }
 
