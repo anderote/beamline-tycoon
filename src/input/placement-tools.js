@@ -225,8 +225,8 @@ export class ZonePaintTool extends Tool {
   onMouseUp(e, ctx) {
     // Only the left button commits a drag. A right release mid-drag used to
     // run this commit path (onMouseDown guards `e.button !== 0`, onMouseUp
-    // did not), firing the gesture early AND consuming the event so
-    // right-click-to-deselect never ran.
+    // did not), firing the gesture early AND consuming the event before the
+    // zone eraser could run.
     if (e.button !== 0) return false;
     if (!this._dragging || !this._dragStart || !this._dragEnd) return false;
     // _withUndo: a rect that changes nothing (all tiles already this zone,
@@ -257,9 +257,13 @@ export class ZonePaintTool extends Tool {
     return true;
   }
 
-  onRightClick(_e, ctx) {
-    // Right-click deselects the brush (legacy deselectZoneTool behavior).
-    ctx.input.clearTool();
+  onRightClick(e, ctx) {
+    // The armed zone brush doubles as an eraser: right-click clears whichever
+    // zone is under the cursor, regardless of the zone type currently selected.
+    // Keep the brush armed so painting and corrections stay in one workflow.
+    const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
+    const grid = isoToGrid(world.x, world.y);
+    ctx.game.runUndoableMutation(() => ctx.game.removeZoneTile(grid.col, grid.row));
     return true;
   }
 }

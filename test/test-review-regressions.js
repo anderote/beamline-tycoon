@@ -16,6 +16,7 @@ import { PLACEABLES } from '../src/data/placeables/index.js';
 import { flattenPath } from '../src/beamline/flattener.js';
 import { portSide } from '../src/beamline/junctions.js';
 import { ProbeWindow } from '../src/ui/probe.js';
+import { tileCenterIso } from '../src/renderer/grid.js';
 
 globalThis.COMPONENTS = COMPONENTS;
 globalThis.PARAM_DEFS = PARAM_DEFS;
@@ -214,7 +215,7 @@ console.log('\n=== 3. A second mouse button cannot hijack a pipe gesture ===\n')
 console.log('\n=== 4. Drag tools only commit on the left button ===\n');
 // Regression: onMouseDown guarded `e.button !== 0` but onMouseUp did not, so a
 // right release mid-drag committed the rect early AND consumed the event, so
-// right-click-to-deselect silently did nothing.
+// the release-time right-click action silently did nothing.
 {
   const g = makeGame(103);
   const renderer = { renderDragPreview() {}, renderInfraHoverCursor() {}, updateHover() {}, clearDragPreview() {}, screenToWorld: (x, y) => ({ x, y }) };
@@ -236,7 +237,7 @@ console.log('\n=== 4. Drag tools only commit on the left button ===\n');
   assert(consumed === false, 'right release does not consume the drag commit');
   assert(commits === 0, 'right release commits nothing');
   assert(tool._dragging === true, 'the left-button drag is still in flight');
-  assert(input.cleared === false, 'right-click-to-deselect was not swallowed');
+  assert(input.cleared === false, 'the release-time right-click action was not swallowed');
 
   const leftConsumed = tool.onMouseUp({ button: 0, clientX: 0, clientY: 0 }, ctx);
   assert(leftConsumed === true && commits === 1, 'the left release still commits the rect');
@@ -256,6 +257,42 @@ console.log('\n=== 4. Drag tools only commit on the left button ===\n');
   tool.cancelGesture({ game: g, renderer, input });
   assert(tool._dragging === false, 'cancelGesture drops the drag');
   assert((g.state.zones || []).length === zonesBefore, 'cancelGesture commits nothing');
+}
+
+// With a zone brush armed, right-click is an eraser for any zone type rather
+// than a request to leave zone-paint mode.
+{
+  const g = makeGame(1050);
+  const tile = { col: 7, row: 9 };
+  const key = `${tile.col},${tile.row}`;
+  g.state.zones.push({ type: 'opticsLab', ...tile });
+  g.state.zoneOccupied[key] = 'opticsLab';
+
+  const screen = tileCenterIso(tile.col, tile.row);
+  const renderer = { screenToWorld: () => screen };
+  const input = {
+    cleared: false,
+    clearTool() { input.cleared = true; },
+  };
+  const ctx = { game: g, renderer, input };
+  const tool = new ZonePaintTool('rfLab');
+  const undoBefore = g._undoStack.length;
+
+  const consumed = tool.onRightClick({ clientX: 0, clientY: 0 }, ctx);
+  assert(consumed === true, 'right-click with a zone brush is consumed');
+  assert(!g.state.zoneOccupied[key], 'an RF Lab brush clears a different lab zone');
+  assert(input.cleared === false && tool.zoneType === 'rfLab',
+    'the selected zone brush stays armed after erasing');
+  assert(g._undoStack.length === undoBefore + 1, 'erasing a zone pushes one undo entry');
+  g.undo();
+  assert(g.state.zoneOccupied[key] === 'opticsLab', 'undo restores the cleared zone');
+
+  const empty = tileCenterIso(tile.col + 1, tile.row);
+  renderer.screenToWorld = () => empty;
+  const undoAfterRestore = g._undoStack.length;
+  tool.onRightClick({ clientX: 0, clientY: 0 }, ctx);
+  assert(g._undoStack.length === undoAfterRestore,
+    'right-clicking an unzoned tile does not add an undo entry');
 }
 
 // ---------------------------------------------------------------------------
