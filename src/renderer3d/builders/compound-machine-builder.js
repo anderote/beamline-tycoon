@@ -5,10 +5,12 @@
 // THREE is a CDN global — do NOT import it.
 
 import { applyTiledBoxUVs, applyTiledCylinderUVs } from '../uv-utils.js';
+import {
+  BEAM_AXIS_HEIGHT as BEAM_HEIGHT,
+  BEAM_PIPE_RADIUS as PIPE_R,
+  BEAM_FLANGE_RADIUS as FLANGE_R,
+} from '../../beamline/visual-geometry.js';
 
-const BEAM_HEIGHT = 1.0;
-const PIPE_R = 0.08;
-const FLANGE_R = 0.16;
 const SEGS = 16;
 
 function buckets() {

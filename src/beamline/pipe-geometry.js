@@ -9,6 +9,7 @@
 // coordinates may be fractional. Functions here must handle that.
 
 import { isoToGridFloat } from '../renderer/grid.js';
+import { BEAM_AXIS_HEIGHT } from './visual-geometry.js';
 
 const EPS = 1e-6;
 const STEP = 0.25;
@@ -16,7 +17,7 @@ const STEP = 0.25;
 // Beam transport, source exit flanges, and the pipe preview all share this
 // physical axis. Input must pick against the same plane or the dimetric camera
 // makes the pipe land visibly above the cursor.
-export const BEAM_PIPE_Y = 1.0;
+export const BEAM_PIPE_Y = BEAM_AXIS_HEIGHT;
 
 /** Collapse waypoints into maximal collinear runs. */
 export function pipePathRuns(path) {

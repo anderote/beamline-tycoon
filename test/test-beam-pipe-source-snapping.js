@@ -8,7 +8,8 @@
 //   3. Hover and drag previews land on the exact port coordinate.
 //   4. A casual diagonal hand motion stays locked to the source's beam axis.
 //   5. A source placement can prime a live, draggable pipe ghost.
-//   6. BeamlineTool picks down/move/up on the plane where pipes are rendered.
+//   6. Snapping onto an existing open pipe extends and binds it atomically.
+//   7. BeamlineTool picks down/move/up on the plane where pipes are rendered.
 
 import { BeamlineInputController } from '../src/input/BeamlineInputController.js';
 import { BeamlineTool } from '../src/input/beamline-tool.js';
@@ -35,9 +36,9 @@ function projectedRenderer(scale = 10) {
   };
 }
 
-function controllerWith(placeables, renderer = projectedRenderer()) {
+function controllerWith(placeables, renderer = projectedRenderer(), beamPipes = []) {
   return new BeamlineInputController({
-    game: { state: { placeables, beamPipes: [] }, log() {} },
+    game: { state: { placeables, beamPipes }, log() {} },
     renderer,
     inputHandler: { placementDir: 0 },
   });
@@ -160,7 +161,66 @@ console.log('\n--- 4. A new source primes a draggable pipe ghost ---');
   assert(!ctrl.isActive(), 'the committed automatic gesture returns to idle pipe-tool hover');
 }
 
-console.log('\n--- 5. The beamline tool picks on the rendered pipe plane ---');
+console.log('\n--- 5. A source snaps onto an existing pipe as a real connection ---');
+{
+  const source = placeable('ecr', 'ecrIonSource', 2, 2);
+  const renderer = projectedRenderer();
+  const exit = beamPortPoint(source, 'exit');
+  const openPoint = { col: exit.path.col, row: exit.path.row + 2 };
+  const pipe = {
+    id: 'existing',
+    start: null,
+    end: { junctionId: 'downstream', portName: 'entry' },
+    path: [openPoint, { col: openPoint.col, row: openPoint.row + 2 }],
+    subL: 8,
+    placements: [],
+  };
+  const ctrl = controllerWith([source], renderer, [pipe]);
+  const exitPx = renderer.worldToScreen(exit.pos.x, BEAM_PIPE_Y, exit.pos.z);
+  const openPx = renderer.worldToScreen(
+    openPoint.col * 2 + 1, BEAM_PIPE_Y, openPoint.row * 2 + 1,
+  );
+  let connected = null;
+  ctrl.game.commitGesture = ({ mutate }) => mutate();
+  ctrl.game.beamline = {
+    extendPipeToPort(pipeId, path, junctionId, portName) {
+      connected = { pipeId, path, junctionId, portName };
+      return pipeId;
+    },
+  };
+
+  ctrl.onMouseDown(exit.iso.x, exit.iso.y, 0, 'drift', exitPx);
+  const openIso = gridToIso((openPoint.col * 2 + 1) / 2, (openPoint.row * 2 + 1) / 2);
+  ctrl.onMouseMove(openIso.x, openIso.y, openPx);
+  ctrl.onMouseUp(openIso.x, openIso.y, 0, openPx);
+
+  assert(connected?.pipeId === pipe.id, 'the existing pipe is extended instead of duplicating it');
+  assert(connected?.junctionId === source.id && connected?.portName === 'exit',
+    'the snapped extension also claims the source exit');
+  assert(connected?.path.at(-1)?.col === exit.path.col
+    && connected?.path.at(-1)?.row === exit.path.row,
+  'the reversed extension path terminates exactly on the source flange');
+
+  let openFirst = null;
+  const reverseCtrl = controllerWith([source], renderer, [pipe]);
+  reverseCtrl.game.commitGesture = ({ mutate }) => mutate();
+  reverseCtrl.game.beamline = {
+    extendPipeToPort(pipeId, path, junctionId, portName) {
+      openFirst = { pipeId, path, junctionId, portName };
+      return pipeId;
+    },
+  };
+  reverseCtrl.onMouseDown(openIso.x, openIso.y, 0, 'drift', openPx);
+  reverseCtrl.onMouseMove(exit.iso.x, exit.iso.y, exitPx);
+  reverseCtrl.onMouseUp(exit.iso.x, exit.iso.y, 0, exitPx);
+  assert(openFirst?.junctionId === source.id && openFirst?.portName === 'exit',
+    'starting at the open pipe and dragging onto the source binds the same connection');
+  assert(openFirst?.path.at(-1)?.col === exit.path.col
+    && openFirst?.path.at(-1)?.row === exit.path.row,
+  'the open-end-first gesture also lands exactly on the source flange');
+}
+
+console.log('\n--- 6. The beamline tool picks on the rendered pipe plane ---');
 {
   const heights = [];
   let active = false;

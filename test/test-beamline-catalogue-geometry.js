@@ -32,6 +32,10 @@ const {
   componentPose,
   isDetailedComponent,
 } = await import('../src/renderer3d/component-builder.js');
+const { BeamPipeBuilder } = await import('../src/renderer3d/beam-pipe-builder.js');
+const {
+  BEAM_PIPE_RADIUS, BEAM_FLANGE_RADIUS, BEAM_FLANGE_WIDTH,
+} = await import('../src/beamline/visual-geometry.js');
 const { PLACEABLE_VISUAL_PROFILES } =
   await import('../src/renderer3d/placeable-visual-details.js');
 
@@ -39,6 +43,12 @@ const SOURCE_IDS = [
   'cyclotron30', 'cyclotron70', 'cyclotron230',
   'protonLinacFrontEnd', 'lwfaStation', 'positronSource',
 ];
+const ROLE_SOURCE_IDS = [...SOURCE_IDS, 'vanDeGraaff', 'cockcroftWalton'];
+const LEGACY_SOURCE_IDS = [
+  'source', 'dcPhotoGun', 'ncRfGun', 'srfGun',
+  'penningIonSource', 'ionSource', 'ecrIonSource',
+];
+const ALL_SOURCE_IDS = [...LEGACY_SOURCE_IDS, ...ROLE_SOURCE_IDS];
 const OPTICS_IDS = [
   'injectionSeptum', 'combinedFunctionMagnet', 'chicane',
   'undulator', 'energyDegrader', 'scanningMagnet',
@@ -135,6 +145,61 @@ test('beam tubes cross the shared one-metre axis and reach every physical beam p
     'injectionSeptum injected channel must reach its rear port');
   assert.ok(septumPipe.min.x <= -0.5 + 1e-6 && septumPipe.max.x >= 0.5 - 1e-6,
     'injectionSeptum circulating channel must reach both side ports');
+});
+
+test('every source model carries a visible extraction tube to its authored exit', () => {
+  const catalogueSources = Object.values(COMPONENTS)
+    .filter(def => def.isSource)
+    .map(def => def.id)
+    .sort();
+  assert.deepEqual([...ALL_SOURCE_IDS].sort(), catalogueSources,
+    'the visual contract must name every source in the catalogue');
+
+  for (const id of ALL_SOURCE_IDS) {
+    const def = COMPONENTS[id];
+    const visual = visualFor(id);
+    const rolePipe = role(visual, 'pipe');
+    let exitBox;
+    if (rolePipe) {
+      exitBox = geometryBox(rolePipe);
+    } else {
+      visual.updateMatrixWorld(true);
+      exitBox = new THREE.Box3();
+      visual.traverse((child) => {
+        if (child.isMesh && child.userData.beamPortName === 'exit') {
+          exitBox.union(new THREE.Box3().setFromObject(child));
+        }
+      });
+    }
+    assert.equal(exitBox.isEmpty(), false, `${id} must render an identifiable exit tube`);
+    assert.ok(exitBox.min.y < 1 && exitBox.max.y > 1,
+      `${id} extraction tube must straddle the shared 1 m beam axis`);
+    assert.ok(exitBox.max.z >= def.subL * 0.25 - 1e-6,
+      `${id} extraction tube must reach its +Z footprint-edge port`);
+  }
+});
+
+test('standalone beam pipes use the same tube and flange dimensions as components', () => {
+  const parent = new THREE.Group();
+  const builder = new BeamPipeBuilder();
+  builder.build({
+    beamPipes: [{
+      id: 'pipe',
+      path: [{ col: 0, row: 0 }, { col: 0, row: 2 }],
+      openStart: false,
+      openEnd: false,
+    }],
+    moduleSubTiles: [],
+  }, parent);
+
+  const tube = parent.getObjectByName('beam-pipe-runs');
+  const flange = parent.getObjectByName('beam-pipe-flanges');
+  assert.equal(tube.geometry.parameters.radiusTop, BEAM_PIPE_RADIUS);
+  assert.equal(tube.geometry.parameters.radiusBottom, BEAM_PIPE_RADIUS);
+  assert.equal(flange.geometry.parameters.radiusTop, BEAM_FLANGE_RADIUS);
+  assert.equal(flange.geometry.parameters.radiusBottom, BEAM_FLANGE_RADIUS);
+  assert.equal(flange.geometry.parameters.height, BEAM_FLANGE_WIDTH);
+  builder.dispose(parent);
 });
 
 test('the authored catalogue families retain their identifying geometry', () => {

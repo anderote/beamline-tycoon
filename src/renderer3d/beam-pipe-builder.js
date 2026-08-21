@@ -3,11 +3,11 @@
 import {
   BEAM_PIPE_Y, pipePathRuns, splitRunExcludingModules,
 } from '../beamline/pipe-geometry.js';
+import {
+  BEAM_PIPE_RADIUS, BEAM_FLANGE_RADIUS, BEAM_FLANGE_WIDTH,
+} from '../beamline/visual-geometry.js';
 import { contentKey } from './content-hash.js';
 
-const PIPE_RADIUS = 0.06;
-const FLANGE_R = 0.12;
-const FLANGE_W = 0.045;
 const STAND_W = 0.06;
 
 function isModuleAt(moduleTiles, col, row) {
@@ -51,7 +51,7 @@ const MESH_SPECS = Object.freeze([
   {
     name: 'beam-pipe-runs', source: 'tubes', castShadow: true,
     geometry: () => {
-      const geometry = new THREE.CylinderGeometry(PIPE_RADIUS, PIPE_RADIUS, 1, 8);
+      const geometry = new THREE.CylinderGeometry(BEAM_PIPE_RADIUS, BEAM_PIPE_RADIUS, 1, 8);
       geometry.rotateZ(Math.PI / 2);
       return geometry;
     },
@@ -62,7 +62,9 @@ const MESH_SPECS = Object.freeze([
   {
     name: 'beam-pipe-flanges', source: 'flanges',
     geometry: () => {
-      const geometry = new THREE.CylinderGeometry(FLANGE_R, FLANGE_R, FLANGE_W, 8);
+      const geometry = new THREE.CylinderGeometry(
+        BEAM_FLANGE_RADIUS, BEAM_FLANGE_RADIUS, BEAM_FLANGE_WIDTH, 8,
+      );
       geometry.rotateZ(Math.PI / 2);
       return geometry;
     },
@@ -72,7 +74,9 @@ const MESH_SPECS = Object.freeze([
   },
   {
     name: 'beam-pipe-supports', source: 'supports',
-    geometry: () => new THREE.BoxGeometry(STAND_W, BEAM_PIPE_Y - PIPE_RADIUS, STAND_W),
+    geometry: () => new THREE.BoxGeometry(
+      STAND_W, BEAM_PIPE_Y - BEAM_PIPE_RADIUS, STAND_W,
+    ),
     material: () => new THREE.MeshStandardMaterial({
       color: 0x555555, roughness: 0.7, metalness: 0.1,
     }),
@@ -81,7 +85,7 @@ const MESH_SPECS = Object.freeze([
     name: 'beam-pipe-open-caps', source: 'caps',
     geometry: () => {
       const geometry = new THREE.CylinderGeometry(
-        PIPE_RADIUS * 2.2, PIPE_RADIUS * 2.2, 0.04, 12,
+        BEAM_PIPE_RADIUS * 2.2, BEAM_PIPE_RADIUS * 2.2, 0.04, 12,
       );
       geometry.rotateZ(Math.PI / 2);
       return geometry;
@@ -158,7 +162,7 @@ function buildPipeFragment(pipe, moduleTiles, endpointCounts) {
         }
       }
 
-      const standH = BEAM_PIPE_Y - PIPE_RADIUS;
+      const standH = BEAM_PIPE_Y - BEAM_PIPE_RADIUS;
       const standCount = Math.max(1, Math.round(pose.length / 2));
       for (let k = 0; k < standCount; k++) {
         const t = (k + 0.5) / standCount;

@@ -25,7 +25,7 @@ import {
 } from './pipe-splice.js';
 import { findSlot, placementContainsPosition } from './pipe-placements.js';
 import { seedComponentParams } from './component-params.js';
-import { portSide, availablePorts } from './junctions.js';
+import { portSide, portWorldPosition, availablePorts } from './junctions.js';
 import { placeableMutationEvent } from '../game/placeable-events.js';
 
 // 4 sub-units per tile: path distance is measured in tiles, subL in sub-units.
@@ -91,6 +91,7 @@ const REASON_MESSAGES = {
   end_taken: 'that pipe end is already attached to a module',
   invalid_junction: 'module missing or invalid',
   port_not_found: 'that module has no such beam port',
+  port_position_mismatch: "pipe end doesn't reach the selected beam port",
 };
 
 function reasonMessage(reason) {
@@ -367,6 +368,97 @@ export class BeamlineSystem {
   }
 
   /**
+   * Extend an existing open pipe all the way to a junction port and bind that
+   * terminal in the same mutation. This is the direct-manipulation counterpart
+   * to drawPipe(start, end, path): the geometry and topology either both land
+   * or neither does.
+   *
+   * Unlike the older attachPipeEnd primitive used by Designer plans, this path
+   * also requires the extended terminal to coincide with the authored port.
+   * The pointer controller snaps to that exact coordinate before calling us,
+   * so accepting a direction-only near miss here would preserve a visually
+   * connected but logically ambiguous pipe.
+   */
+  extendPipeToPort(pipeId, additionalPath, junctionId, portName) {
+    const fail = (prefix, reason) => {
+      this.log(`Can't ${prefix} pipe: ${reasonMessage(reason)}`, 'bad');
+      return null;
+    };
+    const pipes = this.state?.beamPipes || [];
+    const idx = pipes.findIndex(pipe => pipe?.id === pipeId);
+    if (idx < 0) return fail('extend', 'pipe_not_found');
+    const current = pipes[idx];
+
+    // validateExtendPipe prefers the end terminal when both ends are open.
+    // Mirror that rule so we bind the same side the validator extended.
+    const extendedEnd = current.end == null ? 'end' : 'start';
+    const result = validateExtendPipe(this.state, pipeId, additionalPath);
+    if (!result.ok) return fail('extend', result.reason);
+
+    const attachReason = this._pipeEndAttachmentProblem(
+      result.pipe, extendedEnd, junctionId, portName, { requirePosition: true },
+    );
+    if (attachReason) return fail('attach', attachReason);
+
+    const oldSubL = current.subL || 0;
+    const addedSubL = Math.max(0, (result.pipe.subL || 0) - oldSubL);
+    const cost = pipeCost(addedSubL / SUB_PER_TILE);
+    if (!this.canAfford(cost)) {
+      this.log("Can't afford beam pipe!", 'bad');
+      return null;
+    }
+
+    this.spend(cost);
+    result.pipe[extendedEnd] = { junctionId, portName };
+    pipes[idx] = result.pipe;
+    this.emit('beamlineChanged');
+    return pipeId;
+  }
+
+  _pipeEndAttachmentProblem(
+    pipe, end, junctionId, portName, { requirePosition = false } = {},
+  ) {
+    if (end !== 'start' && end !== 'end') return 'invalid_end_side';
+    if (!pipe) return 'pipe_not_found';
+    if (pipe[end]) return 'end_taken';
+
+    const state = this.state;
+    const pipes = state?.beamPipes || [];
+    const junction = (state?.placeables || []).find(p => p?.id === junctionId);
+    if (!junction) return 'invalid_junction';
+
+    const side = portSide(junction, portName);
+    if (!side) return 'port_not_found';
+    if (!availablePorts(junction, pipes).includes(portName)) return 'port_taken';
+
+    const path = pipe.path || [];
+    if (path.length < 2) return 'invalid_path';
+    const approach = end === 'start'
+      ? segmentDirection(path[0], path[1])
+      : segmentDirection(path[path.length - 2], path[path.length - 1]);
+    if (!approach) return 'not_straight';
+    const outward = end === 'start'
+      ? approach
+      : { dCol: -approach.dCol, dRow: -approach.dRow };
+    const vec = SIDE_VEC[side];
+    if (!vec || vec.dCol !== outward.dCol || vec.dRow !== outward.dRow) {
+      return 'port_mismatch';
+    }
+
+    if (requirePosition) {
+      const world = portWorldPosition(junction, portName);
+      const terminal = end === 'start' ? path[0] : path[path.length - 1];
+      const expected = world && { col: (world.x - 1) / 2, row: (world.z - 1) / 2 };
+      if (!expected
+          || Math.abs(terminal.col - expected.col) > DIR_EPS
+          || Math.abs(terminal.row - expected.row) > DIR_EPS) {
+        return 'port_position_mismatch';
+      }
+    }
+    return null;
+  }
+
+  /**
    * Bind one OPEN terminal of an existing pipe to a junction port.
    * Returns true on success, false on failure.
    *
@@ -394,39 +486,11 @@ export class BeamlineSystem {
       this.log("Can't attach pipe: " + reasonMessage(reason), 'bad');
       return false;
     };
-    if (end !== 'start' && end !== 'end') return fail('invalid_end_side');
-
     const state = this.state;
     const pipes = (state && state.beamPipes) || [];
     const pipe = pipes.find(p => p && p.id === pipeId);
-    if (!pipe) return fail('pipe_not_found');
-    if (pipe[end]) return fail('end_taken');
-
-    const junction = ((state && state.placeables) || []).find(p => p && p.id === junctionId);
-    if (!junction) return fail('invalid_junction');
-
-    // portSide() answers null for an unknown port and for a component with no
-    // ports at all, which is the same "there is nothing to bind to" answer.
-    const side = portSide(junction, portName);
-    if (!side) return fail('port_not_found');
-    if (!availablePorts(junction, pipes).includes(portName)) return fail('port_taken');
-
-    const path = pipe.path || [];
-    if (path.length < 2) return fail('invalid_path');
-    // A port faces OUTWARD from its junction. At the pipe's start the pipe
-    // leaves along that outward vector; at its end the pipe arrives against
-    // it, so the approach direction is negated before comparing.
-    const approach = end === 'start'
-      ? segmentDirection(path[0], path[1])
-      : segmentDirection(path[path.length - 2], path[path.length - 1]);
-    if (!approach) return fail('not_straight');
-    const outward = end === 'start'
-      ? approach
-      : { dCol: -approach.dCol, dRow: -approach.dRow };
-    const vec = SIDE_VEC[side];
-    if (!vec || vec.dCol !== outward.dCol || vec.dRow !== outward.dRow) {
-      return fail('port_mismatch');
-    }
+    const problem = this._pipeEndAttachmentProblem(pipe, end, junctionId, portName);
+    if (problem) return fail(problem);
 
     pipe[end] = { junctionId, portName };
     this.emit('beamlineChanged');
