@@ -19,6 +19,7 @@ import { wallFixtureFaceOffset } from './fixture-light-math.js';
 import { utilityAttachmentPose } from '../utility/line-attachments.js';
 import { utilityLineHeight } from '../utility/registry.js';
 import { isWorldChangeSet } from '../game/world-change-set.js';
+import { findRoofRegion, roofKey, roofProfileForRegion } from '../game/roofing.js';
 
 /**
  * How far the drawn ground reaches — always exactly the map the player owns,
@@ -221,13 +222,39 @@ function buildFloors(game) {
 }
 
 function buildRoofs(game) {
+  const state = game.state;
+  const profileByTile = new Map();
+  const roofKeys = new Set((state.roofs || []).map(tile => roofKey(tile.col, tile.row)));
+
+  // Resolve each enclosed room once, then share its semantic ceiling profile
+  // across every roof tile in that room. Door edges split regions, so a large
+  // connected facility can mix office ceilings and structural high bays.
+  for (const tile of state.roofs || []) {
+    const startKey = roofKey(tile.col, tile.row);
+    if (profileByTile.has(startKey)) continue;
+    const region = findRoofRegion(state, tile.col, tile.row);
+    const profile = roofProfileForRegion(state, region);
+    if (!region.length) {
+      profileByTile.set(startKey, profile);
+      continue;
+    }
+    for (const member of region) {
+      const key = roofKey(member.col, member.row);
+      if (roofKeys.has(key)) profileByTile.set(key, profile);
+    }
+  }
+
   return (game.state.roofs || []).map(tile => {
     const def = FLOORS[tile.type] || FLOORS.roof;
     const corners = getTileCornersY(game.state, tile.col, tile.row);
+    const profile = profileByTile.get(roofKey(tile.col, tile.row)) || def.roofProfiles?.highBay;
     return {
       col: tile.col, row: tile.row, type: tile.type || 'roof', variant: tile.variant ?? 0,
       x: (tile.col + 0.5) * 2, z: (tile.row + 0.5) * 2,
-      y: (corners.nw + corners.ne + corners.se + corners.sw) / 4 + (def.roofHeight ?? 3.35),
+      y: (corners.nw + corners.ne + corners.se + corners.sw) / 4 +
+        (profile?.height ?? def.roofHeight ?? 3.35),
+      profile: profile?.id ?? 'highBay',
+      texture: profile?.texture ?? null,
     };
   });
 }

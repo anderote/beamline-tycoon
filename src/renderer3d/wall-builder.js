@@ -317,7 +317,7 @@ export class WallBuilder {
    * @param {Array<{ col: number, row: number, edge: string, type: string }>} doorData
    * @param {Array<{ col: number, row: number, edge: string, type: string, variant?: number }>} windowData
    * @param {THREE.Group} parentGroup
-   * @param {'up'|'transparent'|'cutaway'|'down'} wallVisibility
+   * @param {'roof'|'up'|'transparent'|'cutaway'|'down'} wallVisibility
    * @param {Set<string>|null} cutawayRoom  Set of "col,row" strings for cutaway mode
    */
   build(wallData, doorData, windowData, parentGroup, wallVisibility, cutawayRoom = null) {

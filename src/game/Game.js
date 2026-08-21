@@ -1,6 +1,6 @@
 import { COMPONENTS, commissioningSpecialtyFor } from '../data/components.js';
 import { FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, variantCost } from '../data/structure.js';
-import { findRoofRegion, isRoofedRegion, roofKey } from './roofing.js';
+import { findRoofRegion, isRoofedRegion, roofKey, roofProfileForRegion } from './roofing.js';
 import { ZONES, ZONE_TIER_THRESHOLDS, ZONE_FURNISHINGS, itemMatchesZone, matchingZoneForPlacement, zoneTierFromStaffedOutput, LABWORK_CAPABLE_ZONES } from '../data/facility.js';
 import { RESEARCH, RESEARCH_PHYSICS_EFFECT_KEYS } from '../data/research.js';
 import { PARAM_DEFS } from '../beamline/component-physics.js';
@@ -1559,6 +1559,11 @@ export class Game {
   /** Return the enclosed floor footprint that the auto-roof tool would cover. */
   roofRegionAt(col, row) {
     return findRoofRegion(this.state, col, row);
+  }
+
+  /** Return the ceiling/high-bay treatment the renderer will use for a region. */
+  roofProfileForRegion(region) {
+    return roofProfileForRegion(this.state, region);
   }
 
   isRoomRoofedAt(col, row) {

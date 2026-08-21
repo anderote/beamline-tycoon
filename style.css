@@ -761,15 +761,15 @@ body {
 /* === CAMERA VIEW-CUBE WIDGET === */
 /* 96px wide. Cube canvas (96x96) on top; Q/E rotate-arrow SVG (96x22) sits
  * just below, slightly overlapping the cube's lower edge. */
-/* Horizontally centered over the (now 15% narrower) wall-visibility control.
- * wall-visibility = 4×20px buttons (+1px border each) + 3×2px gaps
- *                  + 2×3px padding + 2×1px container border = 102px wide.
- * right: 12px → center at 63px from right. Cube widget is 86px wide
- * → right = 63 - 43 = 20px to center. */
+/* Horizontally centered over the five-button wall/roof visibility control.
+ * wall-visibility = 5×20px buttons (+1px border each) + 4×2px gaps
+ *                  + 2×3px padding + 2×1px container border = 126px wide.
+ * right: 12px → center at 75px from right. Cube widget is 86px wide
+ * → right = 75 - 43 = 32px to center. */
 #view-cube-widget {
   position: absolute;
   bottom: calc(var(--hud-bottom-height) + 50px);
-  right: 20px;
+  right: 32px;
   width: 86px;
   height: 110px;
   z-index: 101;
