@@ -31,6 +31,7 @@ import { summarizeDesignerPlacement } from '../beamline/designer-placement-previ
 import { computeBeamlineRevenueBreakdown } from '../game/economy.js';
 import {
   addDesignerPlotTag,
+  clearDesignerPlotTags,
   createDesignerPlotYRanges,
   designerPlotPrimaryAxis,
   designerPlotTagCount,
@@ -744,6 +745,13 @@ export class BeamlineDesigner {
         // Avoid drawing the same sample twice on the click frame. The next
         // pointer movement adds a separate live preview without hiding tags.
         this._plotHoverPositions.delete(panel);
+        this._renderPlots();
+      });
+      canvas.addEventListener('contextmenu', (e) => {
+        if (!this.isOpen) return;
+        e.preventDefault();
+        const panel = canvas.dataset.panel || '0';
+        if (!clearDesignerPlotTags(this.plotTags, panel)) return;
         this._renderPlots();
       });
       canvas.addEventListener('wheel', (e) => {

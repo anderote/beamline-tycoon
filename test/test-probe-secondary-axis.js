@@ -459,8 +459,11 @@ console.log('\n--- Designer controls ---');
     'bunch evolution appears in every primary Designer catalogue without posing as one-axis overlay');
   check(controller.includes("canvas.addEventListener('mousemove'")
     && controller.includes("canvas.addEventListener('mouseleave'")
-    && controller.includes("canvas.addEventListener('click'"),
-  'designer canvases track hover positions and pin a readout on click');
+    && controller.includes("canvas.addEventListener('click'")
+    && controller.includes("canvas.addEventListener('contextmenu'")
+    && controller.includes('clearDesignerPlotTags(this.plotTags, panel)')
+    && controller.includes('e.preventDefault()'),
+  'designer canvases track hover, pin on click, and clear that plot on right-click');
   check(html.includes('id="dsgn-clear-plot-marker"')
     && html.includes('Clear Plot Tags')
     && controller.includes('this.plotTags.clear()'),

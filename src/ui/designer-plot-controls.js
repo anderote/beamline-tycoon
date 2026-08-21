@@ -48,6 +48,15 @@ export function designerPlotTagCount(tagsByPanel) {
   return count;
 }
 
+/** Clear the persistent cursor tags owned by one Designer plot panel. */
+export function clearDesignerPlotTags(tagsByPanel, panelId) {
+  if (!(tagsByPanel instanceof Map)) return false;
+  const panel = String(panelId ?? '0');
+  const hadTags = (tagsByPanel.get(panel)?.length || 0) > 0;
+  tagsByPanel.delete(panel);
+  return hadTags;
+}
+
 /** Create independent Y-range settings for each Designer plot panel. */
 export function createDesignerPlotYRanges(panelCount = 3) {
   return Array.from({ length: panelCount }, () => ({
