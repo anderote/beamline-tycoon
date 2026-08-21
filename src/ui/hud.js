@@ -2473,6 +2473,10 @@ UIHost.prototype._setPaletteExpanded = function(expanded) {
   toggle.title = expanded ? 'Hide second build row' : 'Show second build row';
   const text = toggle.querySelector('span[aria-hidden="true"]');
   if (text) text.textContent = expanded ? '⌄' : '⌃';
+  const label = toggle.querySelector('.palette-expand-label');
+  if (label) label.textContent = expanded ? '1 Row' : '2 Rows';
+  const accessibleText = toggle.querySelector('.sr-only');
+  if (accessibleText) accessibleText.textContent = toggle.title;
 };
 
 UIHost.prototype._applyPaletteHotkeyBadges = function() {
