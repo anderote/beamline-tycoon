@@ -120,6 +120,33 @@ function gen_grid(name, bgRGB, lineRGB, cellSize, seed) {
   writePng(png, name);
 }
 
+// Interior architectural walls. Each style uses the same subdued painted
+// base but carries the room's construction cues at a glance: office panels
+// and timber trim, a corridor crash rail/wayfinding band, or sealed lab
+// panels with clean blue joints.
+function gen_interiorWall(name, style, baseRGB, seed) {
+  const png = makePng();
+  const rand = mulberry32(seed);
+  for (let y = 0; y < SIZE; y += CHUNK) {
+    for (let x = 0; x < SIZE; x += CHUNK) {
+      const n = (rand() - 0.5) * 8;
+      let color = baseRGB.map(v => v + n);
+      if (style === 'office') {
+        if (x % 16 === 0) color = [198, 192, 178];
+        if (y % 32 === 28) color = [139, 116, 88];
+      } else if (style === 'hallway') {
+        if (y % 32 === 16 || y % 32 === 18) color = [102, 132, 154];
+        else if (y % 32 > 18) color = color.map(v => v - 10);
+      } else if (style === 'lab') {
+        if (x % 16 === 0 || y % 16 === 0) color = [151, 174, 184];
+        if (y % 32 === 2) color = [93, 147, 172];
+      }
+      setBlock(png, x, y, color[0], color[1], color[2], CHUNK);
+    }
+  }
+  writePng(png, name);
+}
+
 function gen_mesh(name, darkRGB, lightRGB, slotW, seed) {
   const png = makePng();
   const rand = mulberry32(seed);
@@ -612,6 +639,15 @@ gen_brushed('copper',              [180, 110, 50], 4);
 gen_speckled('concrete_floor',     [150, 148, 142], [100, 98, 92], 0.04, 5);
 gen_speckled('concrete_wall',      [180, 178, 172], [130, 128, 122], 0.03, 6);
 gen_solidNoise('drywall_painted',  [232, 230, 224], 10, 7);
+gen_interiorWall('wall_office', 'office', [230, 225, 213], 70);
+gen_interiorWall('wall_hallway', 'hallway', [222, 222, 214], 71);
+gen_interiorWall('wall_lab', 'lab', [226, 235, 238], 72);
+
+// Ceiling treatments used by Auto Roof. Ordinary rooms get a suspended
+// acoustic-tile grid; structural-only rooms expose a darker corrugated
+// high-bay deck.
+gen_grid('ceiling_acoustic_tile', [224, 224, 218], [157, 160, 158], 16, 73);
+gen_corrugated('ceiling_highbay', [118, 125, 130], 74);
 
 // Rubber
 gen_solidNoise('rubber_mat',       [40, 42, 44], 14, 8);

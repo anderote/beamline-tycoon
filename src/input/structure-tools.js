@@ -226,7 +226,8 @@ export class FloorTool extends Tool {
 
   _previewRoof(ctx, screenX, screenY) {
     const region = this._roofRegion(ctx, screenX, screenY);
-    ctx.renderer.renderRoofPreview?.(region, this._def());
+    const profile = ctx.game.roofProfileForRegion?.(region);
+    ctx.renderer.renderRoofPreview?.(region, this._def(), profile);
     const newTiles = region.filter(tile => !(ctx.game.state.roofs || []).some(r => r.col === tile.col && r.row === tile.row)).length;
     ctx.input._showDragCostTooltip((this._def()?.cost || 0) * newTiles, screenX, screenY, {
       note: region.length ? `${region.length} enclosed tiles` : 'Walls must fully enclose the room',

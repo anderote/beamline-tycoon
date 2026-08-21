@@ -18,6 +18,7 @@ import { WildflowerBuilder } from './wildflower-builder.js';
 import { GrassTuftBuilder } from './grass-tuft-builder.js';
 import { FloorBuilder } from './floor-builder.js';
 import { RoofBuilder } from './roof-builder.js';
+import { roofVisibleForWallMode } from './roof-visibility.js';
 import {
   WallBuilder, HEIGHT_SCALE, LINTEL_HEIGHT, doorOpeningLayout, windowOpeningLayout,
 } from './wall-builder.js';
@@ -625,6 +626,7 @@ export class ThreeRenderer {
 
     this.roofGroup = new THREE.Group();
     this.roofGroup.name = 'roofs';
+    this.roofGroup.visible = roofVisibleForWallMode(this.wallVisibilityMode);
     this.scene.add(this.roofGroup);
 
     this.wallGroup = new THREE.Group();
@@ -2527,13 +2529,14 @@ export class ThreeRenderer {
 
   clearDragPreview() { this._clearPreview(); }
 
-  renderRoofPreview(region, roofDef = null) {
+  renderRoofPreview(region, roofDef = null, profile = null) {
     this._clearPreview();
     if (!region?.length) return;
     const mat = this._previewMat(roofDef?.topColor || 0x88bbff, 0.42);
     for (const tile of region) {
       this._addPreviewMesh(new THREE.Mesh(
-        this._terrainTileQuad(tile.col, tile.row, (roofDef?.roofHeight || 3.35) + 0.02),
+        this._terrainTileQuad(tile.col, tile.row,
+          (profile?.height ?? roofDef?.roofHeight ?? 3.35) + 0.02),
         mat,
       ));
     }
@@ -3739,6 +3742,7 @@ export class ThreeRenderer {
 
   // Wall/door visibility — triggers a 3D wall rebuild with current mode
   _applyWallVisibility() {
+    if (this.roofGroup) this.roofGroup.visible = roofVisibleForWallMode(this.wallVisibilityMode);
     this._refreshWalls();
   }
   _applyDoorVisibility() {
