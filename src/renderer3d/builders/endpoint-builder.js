@@ -59,6 +59,73 @@ function _addPedestal(buckets, zPos, topY, colW = 0.22, colD = 0.16) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Collision Point — two opposing beam entries, concentric tracker and
+// calorimeter layers, and a compact cradle. The old shared profile placed
+// this entire interaction region at 0.5 m; this builder owns the 1 m axis.
+// ═══════════════════════════════════════════════════════════════════════
+export function _buildCollisionPointRoles() {
+  const buckets = _makeBuckets();
+  const halfLength = 0.5;
+
+  // Opposing beam pipes meet at the detector centre.
+  {
+    const g = new THREE.CylinderGeometry(PIPE_R, PIPE_R, 1.0, SEGS);
+    applyTiledCylinderUVs(g, PIPE_R, 1.0, SEGS);
+    const rotation = new THREE.Matrix4().makeRotationX(Math.PI / 2);
+    const position = new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT, 0);
+    _pushTransformed(buckets.pipe, g, new THREE.Matrix4().multiplyMatrices(position, rotation));
+  }
+  for (const sign of [-1, 1]) {
+    const g = new THREE.CylinderGeometry(FLANGE_R, FLANGE_R, FLANGE_H, SEGS);
+    applyTiledCylinderUVs(g, FLANGE_R, FLANGE_H, SEGS);
+    const rotation = new THREE.Matrix4().makeRotationX(Math.PI / 2);
+    const position = new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT, sign * halfLength);
+    _pushTransformed(buckets.detail, g, new THREE.Matrix4().multiplyMatrices(position, rotation));
+  }
+
+  // Silicon vertex detector around the crossing, followed by three visible
+  // barrel layers. TorusGeometry faces the beam axis by default.
+  {
+    const g = new THREE.CylinderGeometry(0.11, 0.11, 0.42, 16);
+    applyTiledCylinderUVs(g, 0.11, 0.42, 16);
+    const rotation = new THREE.Matrix4().makeRotationX(Math.PI / 2);
+    const position = new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT, 0);
+    _pushTransformed(buckets.copper, g, new THREE.Matrix4().multiplyMatrices(position, rotation));
+  }
+  for (const [role, radius, z] of [
+    ['detail', 0.19, -0.14],
+    ['accent', 0.27, 0],
+    ['detail', 0.35, 0.14],
+  ]) {
+    const g = new THREE.TorusGeometry(radius, 0.045, 8, 24);
+    _pushTransformed(buckets[role], g, new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT, z));
+  }
+
+  // Twelve calorimeter sectors wrap the tracker while leaving the bore open.
+  const sectorRadius = 0.34;
+  for (let i = 0; i < 12; i++) {
+    const angle = (i / 12) * Math.PI * 2;
+    const w = 0.13;
+    const h = 0.15;
+    const l = 0.34;
+    const g = new THREE.BoxGeometry(w, h, l);
+    applyTiledBoxUVs(g, w, h, l);
+    const rotation = new THREE.Matrix4().makeRotationZ(angle);
+    const position = new THREE.Matrix4().makeTranslation(
+      Math.cos(angle) * sectorRadius,
+      BEAM_HEIGHT + Math.sin(angle) * sectorRadius,
+      0,
+    );
+    _pushTransformed(buckets.iron, g, new THREE.Matrix4().multiplyMatrices(position, rotation));
+  }
+
+  // Low cradle and two feet support the detector without moving its centre.
+  _addPedestal(buckets, -0.16, BEAM_HEIGHT - 0.43, 0.22, 0.12);
+  _addPedestal(buckets, 0.16, BEAM_HEIGHT - 0.43, 0.22, 0.12);
+  return buckets;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Faraday Cup — subW=2, subL=4 → 1m × 2m
 //
 // A real Faraday cup is a small metal cup inside a vacuum housing that

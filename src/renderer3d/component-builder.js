@@ -82,6 +82,12 @@ import {
   _buildWaveguideManifoldRoles,
 } from './builders/rf-builder.js';
 import {
+  _buildInjectionSeptumRoles,
+  _buildCombinedFunctionMagnetRoles,
+  _buildChicaneRoles,
+  _buildUndulatorRoles,
+  _buildEnergyDegraderRoles,
+  _buildScanningMagnetRoles,
   _buildSolenoidRoles,
   _buildCollimatorRoles,
   _buildApertureRoles,
@@ -104,6 +110,7 @@ import {
   _buildSpiderBoxRoles,
 } from './builders/power-builder.js';
 import {
+  _buildCollisionPointRoles,
   _buildFaradayCupRoles,
   _buildBeamStopRoles,
   _buildDetectorRoles,
@@ -123,6 +130,19 @@ import {
   _buildVanDeGraaffRoles,
   _buildCockcroftWaltonRoles,
 } from './builders/compound-machine-builder.js';
+import {
+  _buildIndustrialLinacRoles,
+  _buildDtlRoles,
+  _buildCryomoduleRoles,
+} from './builders/accelerator-builder.js';
+import {
+  _buildCyclotron30Roles,
+  _buildCyclotron70Roles,
+  _buildCyclotron230Roles,
+  _buildProtonLinacFrontEndRoles,
+  _buildLwfaStationRoles,
+  _buildPositronSourceRoles,
+} from './builders/source-machine-builder.js';
 // Phase 6: utility-port-builder and carrier-rack modules removed. Port stub
 // rendering was already commented-out at call sites; carrierRack is no longer
 // a placeable.
@@ -1519,6 +1539,12 @@ function _buildQuadrupoleRoles() {
 }
 ROLE_BUILDERS.quadrupole = _buildQuadrupoleRoles;
 ROLE_BUILDERS.sextupole = _buildSextupoleRoles;
+ROLE_BUILDERS.injectionSeptum = _buildInjectionSeptumRoles;
+ROLE_BUILDERS.combinedFunctionMagnet = _buildCombinedFunctionMagnetRoles;
+ROLE_BUILDERS.chicane = _buildChicaneRoles;
+ROLE_BUILDERS.undulator = _buildUndulatorRoles;
+ROLE_BUILDERS.energyDegrader = _buildEnergyDegraderRoles;
+ROLE_BUILDERS.scanningMagnet = _buildScanningMagnetRoles;
 ROLE_BUILDERS.solenoid = _buildSolenoidRoles;
 ROLE_BUILDERS.collimator = _buildCollimatorRoles;
 ROLE_BUILDERS.aperture = _buildApertureRoles;
@@ -1657,6 +1683,15 @@ ROLE_BUILDERS.powerBus = _buildPowerBusRoles;
 ROLE_BUILDERS.spiderBox = _buildSpiderBoxRoles;
 ROLE_BUILDERS.vanDeGraaff = _buildVanDeGraaffRoles;
 ROLE_BUILDERS.cockcroftWalton = _buildCockcroftWaltonRoles;
+ROLE_BUILDERS.cyclotron30 = _buildCyclotron30Roles;
+ROLE_BUILDERS.cyclotron70 = _buildCyclotron70Roles;
+ROLE_BUILDERS.cyclotron230 = _buildCyclotron230Roles;
+ROLE_BUILDERS.protonLinacFrontEnd = _buildProtonLinacFrontEndRoles;
+ROLE_BUILDERS.lwfaStation = _buildLwfaStationRoles;
+ROLE_BUILDERS.positronSource = _buildPositronSourceRoles;
+ROLE_BUILDERS.industrialLinac = _buildIndustrialLinacRoles;
+ROLE_BUILDERS.dtl = _buildDtlRoles;
+ROLE_BUILDERS.cryomodule = _buildCryomoduleRoles;
 
 // Phase 6: carrierRack removed with the legacy rack-paint system. The role
 // builder and its constants are gone.
@@ -3913,6 +3948,7 @@ ROLE_BUILDERS.hawkingDetector = _buildHawkingDetectorRoles;
 
 // ── Endpoint builders ───────────────────────────────────────────────
 ROLE_BUILDERS.faradayCup = _buildFaradayCupRoles;
+ROLE_BUILDERS.collisionPoint = _buildCollisionPointRoles;
 ROLE_BUILDERS.beamStop   = _buildBeamStopRoles;
 ROLE_BUILDERS.detector   = _buildDetectorRoles;
 ROLE_BUILDERS.target     = _buildTargetRoles;
