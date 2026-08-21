@@ -1580,9 +1580,9 @@ function _securityGatehouse(footW, footL, totalH) {
   _siteBox(group, [bodyW * 0.28, bodyH * 0.7, 0.045], [-footW * 0.12 - bodyW * 0.2, bodyH * 0.42, bodyL / 2 + 0.025], trim);
   const pivotX = footW * 0.37;
   _siteBox(group, [0.26, 0.8, 0.3], [pivotX, 0.5, footL * 0.24], trim);
-  _siteBox(group, [footW * 0.55, 0.1, 0.12], [pivotX - footW * 0.26, 0.92, footL * 0.24], arm, [0, 0, 0.08]);
+  _siteBox(group, [footW * 0.55, 0.1, 0.12], [pivotX + footW * 0.26, 0.92, footL * 0.24], arm, [0, 0, 0.08]);
   for (let i = 0; i < 4; i++) {
-    _siteBox(group, [0.24, 0.105, 0.125], [pivotX - 0.22 - i * 0.34, 0.92 + i * 0.027, footL * 0.24 - 0.002], _siteMat(0xd45a43));
+    _siteBox(group, [0.24, 0.105, 0.125], [pivotX + 0.22 + i * 0.34, 0.92 + i * 0.027, footL * 0.24 - 0.002], _siteMat(0xd45a43));
   }
   return group;
 }
