@@ -24,15 +24,20 @@ const primary = html.slice(primaryStart, infoStart);
 const info = html.slice(infoStart, infoEnd);
 
 assert(primary.includes('id="game-title"') && primary.includes('id="music-player"')
-    && primary.includes('id="sim-controls"') && primary.includes('id="btn-hire"'),
+    && primary.includes('id="sim-controls"'),
   'top row aligns the game title with music and compact simulation controls');
 assert(primary.indexOf('id="game-title"') < primary.indexOf('id="music-player"'),
   'music begins immediately after the Beamline Tycoon title');
-assert(!primary.includes('id="resources"') && !primary.includes('id="staff-bar"'),
+assert(!primary.includes('id="resources"') && !primary.includes('id="staff-bar"')
+    && !primary.includes('id="btn-hire"'),
   'top row contains identity and compact controls rather than facility information');
 assert(info.includes('id="top-buttons"') && info.includes('id="resources"') && info.includes('id="staff-bar"')
     && info.includes('id="beam-summary"') && info.includes('id="beam-stats-panel"'),
   'second row owns navigation, resources, staff, beam status, and facility statistics');
+assert(info.indexOf('id="btn-economy"') < info.indexOf('id="btn-hire"')
+    && info.indexOf('id="btn-hire"') < info.indexOf('id="btn-build-forward"')
+    && /id="btn-hire"[^>]*>Staff<\/button>/.test(info),
+  'Staff navigation sits between Economy and Build Forward');
 assert(info.indexOf('id="btn-designer"') < info.indexOf('id="resources"')
     && info.indexOf('id="resources"') < info.indexOf('id="beam-stats-panel"'),
   'second row flows from Beamline Designer actions into statistics');
