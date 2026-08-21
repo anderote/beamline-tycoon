@@ -129,6 +129,17 @@ export const FLOORS = {
     variantTints: [null, 0xf0f0ee, 0x6a6a6a, 0xc8b8a0],
     texture: 'tile_concrete',
   },
+  roof: {
+    id: 'roof',
+    name: 'Auto Roof',
+    desc: 'Roof the enclosed wall region under the cursor. Roofs cast shadows over the room.',
+    cost: 18,
+    color: 0x4e535a,
+    topColor: 0x697078,
+    subsection: 'roofs',
+    isRoofPlacement: true,
+    roofHeight: 3.35,
+  },
   labFloor: {
     id: 'labFloor',
     name: 'Lab Flooring',
