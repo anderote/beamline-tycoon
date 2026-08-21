@@ -14,7 +14,7 @@
 //      person works from" isn't the brief's +Z/facing:'n' example) are
 //      pinned to their exact coordinates, so a later edit can't silently
 //      flip one back without a red test.
-//   5. All six chairs carry a seat facing exactly 'n' (their backrests are
+//   5. All seven chairs carry a seat facing exactly 'n' (their backrests are
 //      all authored at local +Z), and (5b) the exact seatY read off each
 //      chair's own 'seat' part.
 //   6. No chair carries a station (chairs are matched by adjacency).
@@ -51,7 +51,7 @@ function hasProblem(problems, id, field, messagePart) {
 
 const CHAIR_IDS = [
   'officeChair', 'ergonomicChair', 'executiveChair',
-  'operatorChair', 'meetingChair', 'cafeteriaChair',
+  'operatorChair', 'meetingChair', 'barStool', 'cafeteriaChair',
 ];
 
 // seat.seatY per chair (subtiles — the same coordinate space as the def's
@@ -63,7 +63,7 @@ const CHAIR_IDS = [
 // hip world-Y test for the placement math this schema data feeds).
 const CHAIR_SEAT_Y = {
   officeChair: 0.8, ergonomicChair: 0.8, executiveChair: 0.8,
-  operatorChair: 0.82, meetingChair: 0.82, cafeteriaChair: 0.82,
+  operatorChair: 0.82, meetingChair: 0.82, barStool: 1.15, cafeteriaChair: 0.82,
 };
 
 // Assignment table from task-3-brief.md. Stackable benchtop instruments
@@ -77,6 +77,8 @@ const EXPECTED_STATIONS = {
   receptionDesk: { jobs: ['paperwork'], slots: 1 },
   conferenceTable: { jobs: ['meet'], slots: 6 },
   diningTable: { jobs: ['eat'], slots: 4 },
+  cafeTable: { jobs: ['eat'], slots: 2 },
+  breakfastBar: { jobs: ['eat'], slots: 3 },
   labBench: { jobs: ['labWork'], slots: 2 },
   testChamber: { jobs: ['labWork'], slots: 1 },
   rga: { jobs: ['labWork'], slots: 1 },
