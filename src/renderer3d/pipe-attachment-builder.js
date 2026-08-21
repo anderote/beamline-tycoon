@@ -13,6 +13,26 @@ function triangles(geometry) {
   return (geometry.index?.count || geometry.attributes.position.count) / 3;
 }
 
+/**
+ * Build the cheap silhouette shared by every far-LOD instance of a type.
+ *
+ * The catalogue already distinguishes cylindrical beam hardware from cabinet-
+ * shaped hardware through `geometryType`; the old far path discarded that
+ * contract and reduced both to boxes. Twelve radial segments keep cavities,
+ * magnets and diagnostics recognizable while remaining tiny beside their
+ * authored near geometry.
+ */
+function makeFarGeometry(def, width, height, depth) {
+  if (def.geometryType === 'cylinder') {
+    const radius = width / 2;
+    const geometry = new THREE.CylinderGeometry(radius, radius, depth, 12);
+    geometry.rotateX(Math.PI / 2); // THREE cylinders are Y-axis by default.
+    geometry.scale(1, height / width, 1);
+    return geometry;
+  }
+  return new THREE.BoxGeometry(width, height, depth);
+}
+
 function makeRoot(comp, def, pose) {
   const root = new THREE.Group();
   root.position.set(pose.x, pose.y, pose.z);
@@ -179,7 +199,7 @@ export class PipeAttachmentBuilder {
       const width = Math.max(SUB, (def.subW || 2) * SUB);
       const height = Math.max(SUB, (def.subH || 2) * SUB);
       const depth = Math.max(SUB, (def.subL || 2) * SUB);
-      const geometry = new THREE.BoxGeometry(width, height, depth);
+      const geometry = makeFarGeometry(def, width, height, depth);
       const material = new THREE.MeshStandardMaterial({
         color: def.spriteColor ?? 0x778899,
         roughness: 0.7,
