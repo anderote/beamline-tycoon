@@ -10,6 +10,8 @@ import { UtilityLineInputController } from '../src/input/UtilityLineInputControl
 import {
   captureSelectionGroup,
   previewSelectionGroup,
+  selectionEdgeTargets,
+  selectionFloorTargets,
   selectionTargets,
   transformSelectionGroup,
 } from '../src/input/selection-group.js';
@@ -17,6 +19,10 @@ import { copySelectionGroup, moveSelectionGroup } from '../src/input/selection-c
 import { findUtilityEndpoint } from '../src/utility/utility-endpoints.js';
 import { portWorldPosition } from '../src/utility/ports.js';
 import { gridToIso } from '../src/renderer/grid.js';
+import {
+  floorSelectionKey,
+  physicalEdgeSelectionKey,
+} from '../src/game/selection-targets.js';
 
 globalThis.COMPONENTS = COMPONENTS;
 globalThis.PARAM_DEFS = PARAM_DEFS;
@@ -157,6 +163,76 @@ console.log('\n=== Selection groups ===\n');
     'one undo removes the copied formation and its utility line together');
 }
 
+{
+  const game = new Game(new BeamlineRegistry(), { seed: 559 });
+  game.state.resources.funding = 1e9;
+  game.placeInfraTile(30, 30, 'concrete');
+  game.placeInfraTile(30, 30, 'labFloor');
+  game.placeWall(30, 30, 'n', 'officeWall');
+  game.placeDoor(30, 30, 'n', 'officeDoor', 1, 2);
+  game.placeWall(30, 30, 'e', 'officeWall');
+  game.placeWindow(30, 30, 'e', 'officeWindow', 2);
+
+  const keys = [
+    floorSelectionKey(30, 30),
+    physicalEdgeSelectionKey(30, 30, 'n'),
+    physicalEdgeSelectionKey(30, 30, 'e'),
+  ];
+  const captured = captureSelectionGroup(game, keys, {
+    operation: 'copy', primaryId: keys[0],
+  });
+  assert(captured.ok && captured.payload.items.length === 0
+      && captured.payload.floors.length === 1 && captured.payload.edges.length === 2,
+  'structure-only capture includes a floor and complete physical edge assemblies');
+
+  const rotated = transformSelectionGroup(captured.payload, { quarterTurns: 1 });
+  const rotatedEdges = selectionEdgeTargets(rotated, rotated.anchor);
+  assert(rotatedEdges.length === 2
+      && rotatedEdges.some(edge => edge.wall.edge === 'e' || edge.wall.edge === 'w'),
+  'structure-only formations rotate their physical edges');
+  const fourTurns = [0, 1, 2, 3].reduce(
+    payload => transformSelectionGroup(payload, { quarterTurns: 1 }),
+    captured.payload,
+  );
+  const twoMirrors = transformSelectionGroup(
+    transformSelectionGroup(captured.payload, { mirror: true }),
+    { mirror: true },
+  );
+  assert(JSON.stringify(fourTurns.floors) === JSON.stringify(captured.payload.floors)
+      && JSON.stringify(fourTurns.edges) === JSON.stringify(captured.payload.edges),
+  'four rotations return structural tiles and edge assemblies exactly');
+  assert(JSON.stringify(twoMirrors.floors) === JSON.stringify(captured.payload.floors)
+      && JSON.stringify(twoMirrors.edges) === JSON.stringify(captured.payload.edges),
+  'mirroring twice returns structural tiles and edge assemblies exactly');
+
+  const destination = { ...captured.payload.anchor, col: 60, row: 60 };
+  const preview = previewSelectionGroup(game, captured.payload, destination);
+  assert(preview.ok && preview.floorTargets.length === 1 && preview.edgeTargets.length === 2,
+    'a structure-only copy previews at a clear tile-aligned destination');
+  assert((preview.structureCost.funding || 0) > 0,
+    'structure preview includes floor, foundation, wall, door, and window costs');
+  const copied = copySelectionGroup(game, captured.payload, preview);
+  const copiedFloor = selectionFloorTargets(captured.payload, destination)[0];
+  assert(copied.ok && game.state.infraOccupied[`${copiedFloor.col},${copiedFloor.row}`] === 'labFloor',
+    'structure copy commits the floor and its foundation');
+  assert(game.state.walls.length === 4 && game.state.doors.length === 2
+      && game.state.windows.length === 2,
+  'structure copy commits walls with their door/window openings');
+  game.undo();
+  assert(game.state.walls.length === 2 && game.state.doors.length === 1
+      && game.state.windows.length === 1,
+  'one undo removes the complete copied structure');
+}
+
+{
+  const game = new Game(new BeamlineRegistry(), { seed: 560 });
+  game.state.resources.funding = 1e9;
+  const sourceId = game.placePlaceable({ type: 'source', col: 80, row: 80 });
+  const captured = captureSelectionGroup(game, [sourceId], { operation: 'copy' });
+  assert(captured.ok === false && captured.reason.includes('Deselect Beamline'),
+    'beamline candidates stay selectable but must be filtered out before formation copy');
+}
+
 
 {
   const selectedFrames = [];
@@ -198,6 +274,70 @@ console.log('\n=== Selection groups ===\n');
   assert(closedWindows.includes('old') && closedWindows.includes('a')
       && !closedWindows.includes('b'),
   'marquee leaves one group panel instead of stale per-item windows');
+}
+
+{
+  const candidates = [
+    {
+      key: 'desk', id: 'desk', targetKind: 'placeable', selectionCategory: 'facility',
+      entry: { id: 'desk', type: 'officeDesk', kind: 'furnishing' },
+    },
+    {
+      key: 'floor:4,5', targetKind: 'floor', selectionCategory: 'structure',
+      col: 4, row: 5, name: 'Lab floor',
+    },
+    {
+      key: 'tree', id: 'tree', targetKind: 'placeable', selectionCategory: 'grounds',
+      entry: { id: 'tree', type: 'oakTree', kind: 'decoration' },
+    },
+  ];
+  const outlined = [];
+  const anchors = [];
+  const input = {
+    game: {
+      state: { placeables: [], beamPipes: [], floors: [], walls: [] },
+      getPlaceable: () => null,
+    },
+    renderer: {
+      setSelectionTargets: targets => outlined.push(targets.map(target => target.key)),
+      openSelectionWindow: target => anchors.push(target.key),
+      closeSelectionWindow() {},
+      closePlaceableInfoWindow() {},
+      refreshContextWindows() {},
+    },
+    selectedNodeId: null,
+    selectedPlaceableId: 'tree',
+    selectedPlaceableIds: new Set(candidates.map(target => target.key)),
+    _selectedRootsById: new Map(),
+    _selectionCandidatesByKey: new Map(candidates.map(target => [target.key, target])),
+    _selectionTarget: InputHandler.prototype._selectionTarget,
+    _selectionTargets: InputHandler.prototype._selectionTargets,
+    _renderSelectionOutlines: InputHandler.prototype._renderSelectionOutlines,
+    _reconcileSelectionWindow: InputHandler.prototype._reconcileSelectionWindow,
+    _toggleSelectionCategory: InputHandler.prototype._toggleSelectionCategory,
+  };
+  InputHandler.prototype.dispatchSelectionPanelAction.call(input, 'toggleCategory', 'structure');
+  assert(!input.selectedPlaceableIds.has('floor:4,5')
+      && input.selectedPlaceableIds.has('desk') && input.selectedPlaceableIds.has('tree'),
+  'clicking a category excludes only that category from the active selection');
+
+  InputHandler.prototype.dispatchSelectionPanelAction.call(input, 'toggleCategory', 'facility');
+  InputHandler.prototype.dispatchSelectionPanelAction.call(input, 'toggleCategory', 'grounds');
+  assert(input.selectedPlaceableIds.size === 0 && anchors.at(-1) === 'tree',
+    'the category panel remains open when every category is temporarily excluded');
+
+  InputHandler.prototype.dispatchSelectionPanelAction.call(input, 'toggleCategory', 'structure');
+  assert(input.selectedPlaceableIds.size === 1
+      && input.selectedPlaceableIds.has('floor:4,5')
+      && outlined.at(-1).join(',') === 'floor:4,5',
+  'an excluded category can be re-enabled without drawing a new marquee');
+
+  input._selectionClipboard = { items: [], floors: [{}], edges: [{}] };
+  input._selectionSlots = { 3: { items: [{}], floors: [], edges: [] } };
+  const panelState = InputHandler.prototype.selectionPanelState.call(input);
+  assert(panelState.candidates.length === 3 && panelState.entries.length === 1
+      && panelState.clipboardCount === 2 && panelState.slots[3] === 1,
+  'the public selection-panel model exposes candidates, active entries, and saved counts');
 }
 
 {

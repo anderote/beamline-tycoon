@@ -7,6 +7,7 @@ import {
 } from '../src/ui/EquipmentWindow.js';
 import { reconcileSelectionWindow } from '../src/input/selection-window.js';
 import { COMPONENTS } from '../src/data/components.js';
+import { SelectionWindow, selectionCategoryRows } from '../src/ui/SelectionWindow.js';
 
 let passed = 0;
 let failed = 0;
@@ -22,6 +23,51 @@ function assert(ok, label) {
 }
 
 console.log('\n=== Multi-selection window ===\n');
+
+{
+  const candidates = [
+    { key: 'beam', selectionCategory: 'beamline' },
+    { key: 'cable', selectionCategory: 'infra' },
+    { key: 'desk', selectionCategory: 'facility' },
+    { key: 'wall', selectionCategory: 'structure' },
+    { key: 'floor', selectionCategory: 'structure' },
+    { key: 'tree', selectionCategory: 'grounds' },
+  ];
+  const rows = selectionCategoryRows(candidates, new Set(['desk', 'wall', 'floor']));
+  assert(rows.map(row => row.label).join(',')
+      === 'Beamline,Infra,Facility,Structure,Grounds',
+  'category controls use the requested stable order');
+  assert(rows.find(row => row.key === 'structure')?.selectedCount === 2
+      && rows.find(row => row.key === 'structure')?.enabled === true,
+  'category rows count active structural targets');
+  assert(rows.find(row => row.key === 'beamline')?.count === 1
+      && rows.find(row => row.key === 'beamline')?.enabled === false,
+  'an excluded category keeps its candidates available for re-enabling');
+}
+
+{
+  let actions = [];
+  const panel = {
+    game: { sandboxMode: false },
+    _selected: () => [{
+      key: 'edge:1,1,n', targetKind: 'edge', selectionCategory: 'structure',
+    }],
+    selectionActions: { getClipboardCount: () => 0 },
+    ctx: { setActions(next) { actions = next; } },
+  };
+  SelectionWindow.prototype._updateActions.call(panel);
+  assert(actions.find(action => action.label === 'Copy')?.disabled === false
+      && actions.find(action => action.label === 'Move selection')?.disabled === true,
+  'structure-only selections can be copied but cannot be picked up');
+
+  panel._selected = () => [{
+    key: 'source', targetKind: 'placeable', selectionCategory: 'beamline',
+  }];
+  SelectionWindow.prototype._updateActions.call(panel);
+  assert(actions.find(action => action.label === 'Copy')?.disabled === true
+      && actions.find(action => action.label === 'Copy')?.title.includes('Designer'),
+  'beamline hardware remains selectable while unsafe formation copy is explained');
+}
 
 {
   const entries = new Map([

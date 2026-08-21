@@ -7478,6 +7478,63 @@ body {
   letter-spacing: 0.7px;
   text-transform: uppercase;
 }
+.selection-category-list {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+}
+.selection-category {
+  display: grid;
+  grid-template-columns: 13px minmax(0, 1fr);
+  grid-template-areas:
+    "check name"
+    "count count";
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 5px 4px;
+  border: 1px solid rgba(75, 88, 130, 0.45);
+  border-radius: 3px;
+  background: rgba(21, 24, 45, 0.84);
+  color: #6f7695;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 6px;
+  cursor: pointer;
+}
+.selection-category:hover:not(:disabled) {
+  border-color: rgba(95, 190, 240, 0.7);
+  color: #bddcff;
+}
+.selection-category.active {
+  border-color: rgba(76, 193, 240, 0.88);
+  background: rgba(31, 80, 111, 0.75);
+  color: #def5ff;
+  box-shadow: inset 0 0 7px rgba(46, 179, 235, 0.16);
+}
+.selection-category:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.selection-category-check {
+  grid-area: check;
+  color: #7ce0ff;
+  font-size: 8px;
+  text-align: center;
+}
+.selection-category-name {
+  grid-area: name;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.selection-category-count {
+  grid-area: count;
+  color: #7784aa;
+  font-size: 5px;
+  text-align: center;
+}
+.selection-panel-items-heading {
+  margin-top: 3px;
+}
 .selection-panel-save-heading {
   margin-top: 5px;
   padding-top: 9px;
@@ -7508,6 +7565,17 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.selection-panel-category-heading {
+  margin-top: 5px;
+  color: #93a7cf;
+  font-size: 7px;
+}
+.selection-panel-category-heading.disabled {
+  color: #555b73;
+}
+.selection-panel-item.excluded {
+  opacity: 0.38;
+}
 .selection-panel-item-kind,
 .selection-panel-item-position {
   color: #777d9c;
@@ -7536,6 +7604,10 @@ body {
   border-color: rgba(105, 190, 245, 0.75);
   background: rgba(42, 63, 91, 0.88);
   color: #d9e7ff;
+}
+.selection-panel-slot:disabled {
+  opacity: 0.38;
+  cursor: default;
 }
 .selection-panel-slot-key {
   display: inline-flex;
