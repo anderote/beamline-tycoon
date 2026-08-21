@@ -23,6 +23,20 @@ the short authoring contract.
 - Floor coverings use `mount: 'floor'`. They retain a placement footprint for
   rendering, selection, rotation, and area demolition, but do not claim the
   ordinary furnishing occupancy layer, so desks and chairs can sit on them.
+
+## Structure flooring
+
+- `requiredFloor` on a Facility zone remains its canonical auto-brush/default
+  surface. A finish family may satisfy that contract by listing the canonical
+  id in `compatibleZoneFloors`; all placement, brush, and replacement logic
+  must use `floorSupportsZone()` instead of comparing floor ids directly.
+- Floors shown under Structure > Flooring declare `structureFloor: true`.
+  Grounds surfaces continue to declare `groundsSurface: true`; do not maintain
+  a second hard-coded palette/search list.
+- A finish family with variants keeps `variants`, `variantTextures`,
+  `variantTints`, `variantPreviewColors`, and `variantCosts` index-aligned.
+  Every texture id must be registered in `renderer3d/materials/tiled.js` and
+  backed by a committed PNG under `assets/textures/materials/`.
 - Electrical wall feedthroughs use `mount: 'wall'` and
   `wallPassThrough: true`. They reserve the matching quarter-wall slot on both
   faces and declare exactly two passive front/back ports of one electrical

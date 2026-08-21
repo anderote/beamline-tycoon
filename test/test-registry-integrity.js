@@ -162,7 +162,9 @@ const LISTS = [
   ['src/data/modes.js INFRA_DISTRIBUTION keys', Object.keys(INFRA_DISTRIBUTION),                 R.INFRA_CATS],
   ['src/ui/overlays.js facilityCategories', sourceList('src/ui/overlays.js', 'facilityCategories'), R.INFRA_CATS],
   ['src/input/InputHandler.js modeOrder',   sourceList('src/input/InputHandler.js', 'modeOrder'), R.MODES],
-  ['src/ui/hud.js flooringKeys',            sourceList('src/ui/hud.js', 'flooringKeys'),         R.FLOORS],
+  ['src/data/structure.js structureFloor ids', Object.entries(FLOORS)
+    .filter(([, floor]) => floor.structureFloor)
+    .map(([id]) => id),                                                                         R.FLOORS],
   ['src/data/modes.js facility zoneType',   Object.values(MODES.facility.categories).map(c => c.zoneType).filter(Boolean), R.ZONES],
 
   // --- zone ↔ palette back-references ---

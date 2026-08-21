@@ -731,6 +731,55 @@ function gen_hardwoodOak() {
   ]);
 }
 
+function gen_hardwoodMaple() {
+  gen_hardwoodVariant('tile_hardwood_maple', 1030, [
+    [218, 182, 122], [232, 198, 138], [207, 168, 108], [240, 207, 148],
+    [224, 188, 126], [214, 176, 115], [235, 201, 141], [205, 166, 106],
+  ]);
+}
+
+function gen_hardwoodWalnut() {
+  gen_hardwoodVariant('tile_hardwood_walnut', 1040, [
+    [105, 66, 45], [121, 76, 50], [91, 54, 38], [132, 84, 55],
+    [112, 69, 46], [82, 48, 35], [126, 79, 52], [98, 59, 41],
+  ]);
+}
+
+// Chunky parquet weave: alternating 16px blocks contain narrow boards whose
+// grain runs north/south or east/west. The 4x4 block cadence tiles exactly.
+function gen_hardwoodHerringbone(name, seed, palette) {
+  const png = makePng();
+  const rand = mulberry32(seed);
+  const CHUNK = 2;
+  for (let y = 0; y < SIZE; y += CHUNK) {
+    for (let x = 0; x < SIZE; x += CHUNK) {
+      const bx = Math.floor(x / 16);
+      const by = Math.floor(y / 16);
+      const vertical = (bx + by) % 2 === 0;
+      const board = vertical ? Math.floor((x % 16) / 4) : Math.floor((y % 16) / 4);
+      const along = vertical ? y : x;
+      const seam = (vertical ? x : y) % 4 === 0 || along % 16 === 0;
+      const [r, g, b] = palette[(board + bx * 3 + by * 5) % palette.length];
+      const grain = Math.sin(along * 0.85 + board * 1.7) * 4;
+      const n = (rand() - 0.5) * 8;
+      const shade = seam ? -30 : 0;
+      setBlock(png, x, y, r + grain + n + shade, g + grain * 0.7 + n + shade,
+        b + grain * 0.45 + n + shade, CHUNK);
+    }
+  }
+  writePng(png, name);
+}
+
+function gen_hardwoodHerringboneOak() {
+  gen_hardwoodHerringbone('tile_hardwood_herringbone_oak', 1050,
+    [[190, 140, 82], [211, 160, 98], [172, 120, 68], [199, 148, 88]]);
+}
+
+function gen_hardwoodHerringboneWalnut() {
+  gen_hardwoodHerringbone('tile_hardwood_herringbone_walnut', 1060,
+    [[112, 69, 47], [132, 82, 54], [91, 54, 39], [121, 74, 49]]);
+}
+
 // ── tile_carpet_diamond: tintable diamond-lattice carpet ─────────────
 // 64×64 with a 4×4 grid of 16×16 diamond cells. Each cell draws a
 // diamond outline (white-ish) on a light-gray base, with a small cross
@@ -768,6 +817,154 @@ function gen_carpetDiamond() {
     }
   }
   writePng(png, 'tile_carpet_diamond');
+}
+
+function gen_carpetPlain() {
+  const png = makePng();
+  const rand = mulberry32(1121);
+  for (let y = 0; y < SIZE; y += 2) {
+    for (let x = 0; x < SIZE; x += 2) {
+      const n = (rand() - 0.5) * 26;
+      const stripe = ((x + (y % 4)) % 8 === 0) ? 8 : 0;
+      setBlock(png, x, y, 178 + n + stripe, 180 + n + stripe, 184 + n + stripe, 2);
+    }
+  }
+  writePng(png, 'tile_carpet_plain');
+}
+
+function gen_carpetBerber() {
+  const png = makePng();
+  const rand = mulberry32(1131);
+  for (let y = 0; y < SIZE; y += 2) {
+    for (let x = 0; x < SIZE; x += 2) {
+      const loop = ((x / 2 + y / 2) % 3 === 0) ? 18 : -5;
+      const fleck = rand() < 0.09 ? -42 : 0;
+      const n = (rand() - 0.5) * 14;
+      setBlock(png, x, y, 183 + loop + fleck + n, 180 + loop + fleck + n,
+        174 + loop + fleck + n, 2);
+    }
+  }
+  writePng(png, 'tile_carpet_berber');
+}
+
+function gen_carpetTile() {
+  const png = makePng();
+  const rand = mulberry32(1141);
+  for (let y = 0; y < SIZE; y += 2) {
+    for (let x = 0; x < SIZE; x += 2) {
+      const seam = x % 32 === 0 || y % 32 === 0;
+      const tileAlt = (Math.floor(x / 32) + Math.floor(y / 32)) % 2 ? 8 : -4;
+      const rib = Math.floor(x / 4) % 2 ? 5 : -3;
+      const n = (rand() - 0.5) * 12;
+      const v = seam ? 128 : 176 + tileAlt + rib + n;
+      setBlock(png, x, y, v, v + 2, v + 5, 2);
+    }
+  }
+  writePng(png, 'tile_carpet_tile');
+}
+
+function gen_vinylSpeckle() {
+  const png = makePng();
+  const rand = mulberry32(1151);
+  for (let y = 0; y < SIZE; y += 2) {
+    for (let x = 0; x < SIZE; x += 2) {
+      const roll = rand();
+      const fleck = roll < 0.07 ? -45 : roll > 0.94 ? 28 : 0;
+      const n = (rand() - 0.5) * 12;
+      setBlock(png, x, y, 194 + fleck + n, 195 + fleck + n, 194 + fleck + n, 2);
+    }
+  }
+  writePng(png, 'tile_vinyl_speckle');
+}
+
+function gen_linoleumMarbled() {
+  const png = makePng();
+  const rand = mulberry32(1161);
+  for (let y = 0; y < SIZE; y += 2) {
+    for (let x = 0; x < SIZE; x += 2) {
+      const wave = Math.sin(x * 0.22 + Math.sin(y * 0.16) * 2.5) * 13;
+      const vein = Math.abs(Math.sin(x * 0.13 + y * 0.09)) > 0.92 ? -24 : 0;
+      const n = (rand() - 0.5) * 10;
+      setBlock(png, x, y, 190 + wave + vein + n, 192 + wave + vein + n,
+        187 + wave + vein + n, 2);
+    }
+  }
+  writePng(png, 'tile_linoleum_marbled');
+}
+
+function gen_cork() {
+  const png = makePng();
+  const rand = mulberry32(1171);
+  for (let y = 0; y < SIZE; y += 2) {
+    for (let x = 0; x < SIZE; x += 2) {
+      const pit = rand() < 0.12 ? -45 : 0;
+      const n = (rand() - 0.5) * 28;
+      setBlock(png, x, y, 184 + pit + n, 139 + pit + n * 0.7,
+        92 + pit + n * 0.45, 2);
+    }
+  }
+  writePng(png, 'tile_cork');
+}
+
+function gen_terrazzo() {
+  const png = makePng();
+  const rand = mulberry32(1181);
+  for (let y = 0; y < SIZE; y += 2) {
+    for (let x = 0; x < SIZE; x += 2) {
+      const roll = rand();
+      let v = 207 + (rand() - 0.5) * 10;
+      if (roll < 0.08) v = 104 + rand() * 30;
+      else if (roll < 0.18) v = 156 + rand() * 25;
+      else if (roll > 0.96) v = 236;
+      setBlock(png, x, y, v, v + 1, v + 2, 2);
+    }
+  }
+  writePng(png, 'tile_terrazzo');
+}
+
+function gen_ceramicSquare() {
+  const png = makePng();
+  const rand = mulberry32(1191);
+  for (let y = 0; y < SIZE; y += 2) {
+    for (let x = 0; x < SIZE; x += 2) {
+      const grout = x % 16 === 0 || y % 16 === 0;
+      const edge = x % 16 === 2 || y % 16 === 2;
+      const n = (rand() - 0.5) * 8;
+      const v = grout ? 126 : edge ? 185 : 220 + n;
+      setBlock(png, x, y, v, v, v + 2, 2);
+    }
+  }
+  writePng(png, 'tile_ceramic_square');
+}
+
+function gen_rubberCoin() {
+  const png = makePng();
+  const rand = mulberry32(1201);
+  for (let y = 0; y < SIZE; y += 2) {
+    for (let x = 0; x < SIZE; x += 2) {
+      const dx = ((x + 4) % 8) - 4;
+      const dy = ((y + 4) % 8) - 4;
+      const coin = dx * dx + dy * dy <= 7;
+      const n = (rand() - 0.5) * 8;
+      const v = coin ? 205 + n : 150 + n;
+      setBlock(png, x, y, v, v + 1, v + 2, 2);
+    }
+  }
+  writePng(png, 'tile_rubber_coin');
+}
+
+function gen_rubberSpeckle() {
+  const png = makePng();
+  const rand = mulberry32(1211);
+  for (let y = 0; y < SIZE; y += 2) {
+    for (let x = 0; x < SIZE; x += 2) {
+      const roll = rand();
+      const fleck = roll < 0.1 ? 50 : roll > 0.94 ? -34 : 0;
+      const n = (rand() - 0.5) * 12;
+      setBlock(png, x, y, 157 + fleck + n, 159 + fleck + n, 160 + fleck + n, 2);
+    }
+  }
+  writePng(png, 'tile_rubber_speckle');
 }
 
 // ── Lab check generators ─────────────────────────────────────────────
@@ -856,7 +1053,21 @@ const TILES = {
   tallgrass: gen_tallgrass,
   hardwoodBirch: gen_hardwoodBirch,
   hardwoodOak: gen_hardwoodOak,
+  hardwoodMaple: gen_hardwoodMaple,
+  hardwoodWalnut: gen_hardwoodWalnut,
+  hardwoodHerringboneOak: gen_hardwoodHerringboneOak,
+  hardwoodHerringboneWalnut: gen_hardwoodHerringboneWalnut,
   carpetDiamond: gen_carpetDiamond,
+  carpetPlain: gen_carpetPlain,
+  carpetBerber: gen_carpetBerber,
+  carpetTile: gen_carpetTile,
+  vinylSpeckle: gen_vinylSpeckle,
+  linoleumMarbled: gen_linoleumMarbled,
+  cork: gen_cork,
+  terrazzo: gen_terrazzo,
+  ceramicSquare: gen_ceramicSquare,
+  rubberCoin: gen_rubberCoin,
+  rubberSpeckle: gen_rubberSpeckle,
   labCheckBlack: gen_labCheckBlack,
   labCheckRed: gen_labCheckRed,
   labHoundstoothBW: gen_labHoundstoothBW,

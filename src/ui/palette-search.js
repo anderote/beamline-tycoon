@@ -24,15 +24,8 @@ import { ZONES, ZONE_FURNISHINGS } from '../data/facility.js';
 import { MODES } from '../data/modes.js';
 import { isFacilityCategory, getModeForCategory } from '../renderer/Renderer.js';
 
-// Structure > Flooring only ever shows these four FLOORS keys (see
-// hud.js _renderPaletteImpl's `flooringKeys` list) — every other floor
-// either lives under Grounds > Surfaces (groundsSurface: true) or, like
-// 'path', isn't reachable from any tab today and is skipped rather than
-// indexed as a dead link.
-const STRUCTURE_FLOORING_KEYS = new Set(['labFloor', 'officeFloor', 'concrete', 'hallway']);
-
 function floorHome(id, floor) {
-  if (STRUCTURE_FLOORING_KEYS.has(id)) return { mode: 'structure', category: 'flooring' };
+  if (floor.structureFloor) return { mode: 'structure', category: 'flooring' };
   if (floor.groundsSurface) return { mode: 'grounds', category: 'surfaces' };
   return null;
 }
