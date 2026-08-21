@@ -65,6 +65,18 @@ Loss is not currently a trip condition — a beamline that loses 99% of its curr
 
 ---
 
+### Beam Power
+
+**Quick Tip:** Shows the beam's average power along the beamline, calculated by the physics solver as kinetic energy times surviving current.
+
+**How It Works:**
+
+Beam power combines the two quantities that determine how much energy the beam can deliver: `P = E × I`. With the envelope's units, `1 GeV × 1 mA = 1 MW`. The plot automatically displays W, kW, MW, or GW so low-energy injectors and high-energy machines remain readable on the same plot type.
+
+Power rises when RF adds energy, falls when particles are lost, and can do both across a lossy accelerating section. Compare it with Energy and Current & Loss to tell those cases apart. This is average beam power; Peak Current describes the much larger within-bunch current used for FEL and collective-effect calculations.
+
+---
+
 ### Energy & Dispersion
 
 **Quick Tip:** Dual-axis plot showing beam energy (GeV, left) and horizontal dispersion (eta_x in metres, right).

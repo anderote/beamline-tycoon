@@ -66,6 +66,7 @@ export const ProbePlots = (() => {
       'phase-advance': _drawPhaseAdvance,
       'rigidity': _drawRigidity,
       'energy': _drawEnergy,
+      'beam-power': _drawBeamPower,
       'energy-dispersion': _drawEnergyDispersion,
       'beta-acceptance': _drawBetaAcceptance,
       'peak-current': _drawPeakCurrent,
@@ -170,6 +171,9 @@ export const ProbePlots = (() => {
 
     'energy': (env) => [_range(
       env.map(d => d.energy).filter(v => v != null && isFinite(v)))],
+
+    'beam-power': (env, yScale) => [_applyYScale(
+      ..._range(env.map(d => d.beam_power_mw).filter(v => v != null && isFinite(v))), yScale)],
 
     // Dual axis: [energy (GeV, pre unit-scaling), dispersion (m)]
     'energy-dispersion': (env) => {
@@ -335,6 +339,16 @@ export const ProbePlots = (() => {
     return abs > 0 && (abs < 0.001 || abs >= 10000)
       ? value.toExponential(2)
       : value.toPrecision(3);
+  }
+
+  /** Envelope beam power is published in MW. Select a readable display unit
+   *  without changing the physical domain shared by comparison passes. */
+  function _powerDisplay(domain) {
+    const ref = Math.max(Math.abs(domain?.[0] || 0), Math.abs(domain?.[1] || 0));
+    if (ref >= 1000) return { scale: 1e-3, unit: 'GW' };
+    if (ref >= 1) return { scale: 1, unit: 'MW' };
+    if (ref >= 1e-3) return { scale: 1e3, unit: 'kW' };
+    return { scale: 1e6, unit: 'W' };
   }
 
   function _axes(ctx, a, xLbl, yLbl, yMin, yMax, logY = false) {
@@ -818,6 +832,28 @@ export const ProbePlots = (() => {
     _legend(ctx, a, [{ color: '#55f29a', label: 'Energy' }]);
   }
 
+  function _drawBeamPower(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
+    const a = _area(canvas, o);
+    const [xMin, xMax] = xRange || _xRange(env);
+    const powerDomainMw = _chan(o, 0, [0, 1]);
+    const { scale, unit } = _powerDisplay(powerDomainMw);
+    let [yMin, yMax] = powerDomainMw.map(value => value * scale);
+    const values = env.map(d => d.beam_power_mw == null ? null : d.beam_power_mw * scale);
+    const logDomain = o?.yAxisMode === 'log'
+      ? _positiveDomain([yMin, yMax], values)
+      : null;
+    const logY = !!logDomain;
+    if (logDomain) [yMin, yMax] = logDomain;
+    const ghost = !!o?.ghost;
+
+    if (!ghost) _axes(ctx, a, 's (m)', `P (${unit})`, yMin, yMax, logY);
+    _lineScaled(ctx, a, env, 'beam_power_mw', '#ff7a66', xMin, xMax,
+      yMin, yMax, false, scale, ghost, logY);
+    if (ghost) return;
+    _pinMarkers(ctx, a, env, pins, xMin, xMax);
+    _legend(ctx, a, [{ color: '#ff7a66', label: 'Beam Power' }]);
+  }
+
   function _drawEnergyDispersion(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
     // This plot already owns one right axis for dispersion. Callers composing
     // another metric can reserve additional room while keeping every trace on
@@ -942,7 +978,7 @@ export const ProbePlots = (() => {
   // the overlay one honest y-axis while both selections use exactly the same
   // physical distance coordinates.
   const SECONDARY_DISTANCE_TYPES = new Set([
-    'energy', 'dispersion', 'rel-beta', 'twiss-beta', 'phase-advance', 'rigidity',
+    'energy', 'beam-power', 'dispersion', 'rel-beta', 'twiss-beta', 'phase-advance', 'rigidity',
     'beam-envelope', 'current-loss', 'emittance', 'peak-current',
   ]);
 
@@ -952,7 +988,7 @@ export const ProbePlots = (() => {
   });
 
   function isDistancePlot(type) {
-    return ['energy', 'energy-dispersion', 'beta-acceptance', 'twiss-beta', 'phase-advance',
+    return ['energy', 'beam-power', 'energy-dispersion', 'beta-acceptance', 'twiss-beta', 'phase-advance',
       'rigidity', 'beam-envelope', 'current-loss', 'emittance', 'peak-current']
       .includes(type);
   }
@@ -963,6 +999,10 @@ export const ProbePlots = (() => {
     let values;
     let applyScale = false;
     if (type === 'energy') values = envelope.map(d => d.energy);
+    else if (type === 'beam-power') {
+      values = envelope.map(d => d.beam_power_mw);
+      applyScale = true;
+    }
     else if (type === 'dispersion') values = envelope.map(d => d.eta_x);
     else if (type === 'rel-beta') values = envelope.map(d => d.rel_beta);
     else if (type === 'twiss-beta') {
@@ -1005,6 +1045,18 @@ export const ProbePlots = (() => {
         axisLabel: `E (${unit})`,
         scale,
         channels: [{ key: '_secondaryA', color: primary, label: `${channel}Energy` }],
+      };
+    }
+    if (type === 'beam-power') {
+      const { scale, unit } = _powerDisplay(domain);
+      return {
+        data: env.map(d => ({ ...d,
+          _secondaryA: d.beam_power_mw == null ? null : d.beam_power_mw * scale,
+        })),
+        domain: domain.map(value => value * scale),
+        axisLabel: `P (${unit})`,
+        scale,
+        channels: [{ key: '_secondaryA', color: primary, label: `${channel}Beam Power` }],
       };
     }
     if (type === 'dispersion') {
@@ -1250,6 +1302,12 @@ export const ProbePlots = (() => {
       positive(env.map(row => row.energy));
       items = [_cursorItem('primary-energy', 'Energy', d.energy, _eicFmtEnergy(d.energy),
         '#55f29a', domain, logY)];
+    } else if (type === 'beam-power') {
+      positive(env.map(row => row.beam_power_mw));
+      const { scale, unit } = _powerDisplay(domain);
+      items = [_cursorItem('primary-beam-power', 'Beam Power', d.beam_power_mw,
+        _cursorText(d.beam_power_mw == null ? null : d.beam_power_mw * scale, unit),
+        '#ff7a66', domain, logY)];
     } else if (type === 'energy-dispersion') {
       positive(env.map(row => row.energy));
       items = [
@@ -1303,6 +1361,7 @@ export const ProbePlots = (() => {
     if (adjusted) domain = adjusted;
     const unit = type === 'energy'
       ? (spec.axisLabel.match(/\(([^)]+)\)/)?.[1] || '')
+      : type === 'beam-power' ? (spec.axisLabel.match(/\(([^)]+)\)/)?.[1] || '')
       : type === 'dispersion' ? 'm'
       : type === 'rel-beta' ? ''
       : type === 'twiss-beta' ? 'm'

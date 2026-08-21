@@ -106,6 +106,10 @@ class TestGameplayBridge(unittest.TestCase):
         self.assertIn("envelope", result)
         self.assertTrue(result["envelope"])
         self.assertTrue(all("bunch_frequency" in point for point in result["envelope"]))
+        self.assertTrue(all("beam_power_mw" in point for point in result["envelope"]))
+        for point in result["envelope"]:
+            self.assertAlmostEqual(point["beam_power_mw"],
+                                   point["energy"] * point["current"])
         self.assertTrue(all("rel_beta" in point for point in result["envelope"]))
         self.assertTrue(all("beta_x" in point and "beta_y" in point
                             for point in result["envelope"]))
