@@ -87,11 +87,17 @@ export const MODES = {
       doors:       { name: 'Doors',         color: '#689', subsections: { interior: { name: 'Interior' }, exterior: { name: 'Exterior' }, gates: { name: 'Fence Gates' } } },
       windows:     { name: 'Windows',       color: '#8cf', subsections: { interior: { name: 'Interior' }, exterior: { name: 'Exterior' }, shielded: { name: 'Shielded' } } },
       hangings:    { name: 'Hangings',      color: '#b88', isDecorationTab: true },
-      // Wall- and ceiling-mounted fixtures (mount !== 'ground') — building
-      // fabric, unlike Grounds' `lighting` tab which is free-standing
-      // fixtures planted outdoors. Key deliberately distinct from grounds'
-      // `lighting` so a category-keyed lookup can never collide across tabs.
-      structureLights: { name: 'Lights',    color: '#a98', isDecorationTab: true },
+      // Indoor floor, wall, ceiling, and task fixtures are building fabric,
+      // unlike Grounds' outdoor lamp families. The key is deliberately
+      // distinct so category-keyed lookups cannot collide across tabs.
+      structureLights: { name: 'Lights',    color: '#a98', isDecorationTab: true,
+                         subsections: {
+                           floorLamps: { name: 'Floor Lamps' },
+                           deskTask: { name: 'Desk & Task Lamps' },
+                           ceilingLights: { name: 'Ceiling Lights' },
+                           wallLights: { name: 'Wall Lights' },
+                           utilityWarning: { name: 'Utility & Warning Lights' },
+                         } },
     },
   },
   grounds: {
@@ -102,7 +108,11 @@ export const MODES = {
       fencing:     { name: 'Fencing',        color: '#5a5', isWallTab: true,
                      subsections: { hedges: { name: 'Hedges' }, fencing: { name: 'Fences' } } },
       furniture:   { name: 'Furniture',      color: '#864', isDecorationTab: true },
-      lighting:    { name: 'Lighting',       color: '#aa8', isDecorationTab: true },
+      lighting:    { name: 'Lighting',       color: '#aa8', isDecorationTab: true,
+                     subsections: {
+                       pathLandscape: { name: 'Path & Landscape Lights' },
+                       areaSecurity: { name: 'Area & Security Lights' },
+                     } },
       utilities:   { name: 'Utilities',      color: '#789', isDecorationTab: true,
                      utilityLineTools: ['hvCable', 'powerCable', 'coolingWater'],
                      linkedPlaceables: [

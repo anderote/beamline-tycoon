@@ -38,3 +38,20 @@ export function resolvePaletteCollection(categoryKey, categoryDef, {
     utilityLineTools: [...new Set(categoryDef?.utilityLineTools || [])],
   };
 }
+
+/**
+ * Preserve authored subsection order while keeping the renderer DOM-free.
+ * Entries without a subsection belong to the first section, matching the
+ * established component-palette convention.
+ */
+export function groupDecorationPaletteEntries(entries = [], subsections = {}) {
+  const keys = Object.keys(subsections);
+  if (keys.length === 0) return [];
+  return keys.map((key, index) => ({
+    key,
+    name: subsections[key]?.name || key,
+    entries: entries.filter(([, def]) => def?.subsection
+      ? def.subsection === key
+      : index === 0),
+  })).filter(section => section.entries.length > 0);
+}

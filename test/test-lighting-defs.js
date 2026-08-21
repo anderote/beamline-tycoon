@@ -5,10 +5,9 @@
 // src/data/placeables/index.js.
 //
 //   1. All catalogue ids exist in PLACEABLES with the spec's mount, and
-//      each def's `category` follows the documented mount -> category rule
-//      (ground -> 'lighting', wall/overhead/surface -> 'structureLights') rather
-//      than a hardcoded per-id value, so this keeps working if a fixture's
-//      mount is reassigned or new fixtures are added. Which palette tab
+//      each def's category follows the documented palette-subsection rule.
+//      Outdoor ground fixtures go to Grounds; indoor floor lamps deliberately
+//      retain the same occupying ground mount but live under Structure. Which palette tab
 //      each category actually renders under, that all fixtures are covered with
 //      none orphaned, and that every category key exists in MODES is
 //      test/test-lighting-palette-split.js's job, not this file's — this
@@ -64,20 +63,22 @@ console.log('\n--- Test 1: catalogue fixtures present with correct mount ---');
     cleanroomPanel: 'overhead',
     deskLamp: 'surface',
     portableWorkLight: 'surface',
+    floorLamp: 'ground',
+    arcFloorLamp: 'ground',
+    torchiere: 'ground',
+    bankerLamp: 'surface',
+    magnifierTaskLamp: 'surface',
+    recessedDownlight: 'overhead',
+    ceilingBatten: 'overhead',
+    emergencyCeilingLight: 'overhead',
+    pictureLight: 'wall',
+    klaxonStrobe: 'wall',
+    rotatingBeacon: 'surface',
+    signalTower: 'surface',
+    exitLight: 'wall',
   };
 
-  // Mirrors lighting.js's own CATEGORY_BY_MOUNT (not imported — it's a
-  // private module const) so this asserts the *rule* — category is derived
-  // from mount — rather than hardcoding each fixture's category, the same
-  // way Test 5 mirrors buildDecorations' derivation instead of re-deriving
-  // it ad hoc. Which tab a category actually renders under is
-  // test-lighting-palette-split.js's job.
-  const EXPECTED_CATEGORY_BY_MOUNT = {
-    ground: 'lighting',
-    wall: 'structureLights',
-    overhead: 'structureLights',
-    surface: 'structureLights',
-  };
+  const OUTDOOR_SUBSECTIONS = new Set(['pathLandscape', 'areaSecurity']);
 
   for (const [id, mount] of Object.entries(EXPECTED_MOUNTS)) {
     const def = PLACEABLES[id];
@@ -85,8 +86,9 @@ console.log('\n--- Test 1: catalogue fixtures present with correct mount ---');
     if (def) {
       assert(def.mount === mount, `'${id}' has mount '${mount}' (got '${def.mount}')`);
       assert(def.kind === 'decoration', `'${id}' has kind 'decoration' (got '${def.kind}')`);
-      assert(def.category === EXPECTED_CATEGORY_BY_MOUNT[mount],
-        `'${id}' (mount '${mount}') has category '${EXPECTED_CATEGORY_BY_MOUNT[mount]}' per the mount->category rule (got '${def.category}')`);
+      const category = OUTDOOR_SUBSECTIONS.has(def.subsection) ? 'lighting' : 'structureLights';
+      assert(def.category === category,
+        `'${id}' (${def.subsection}) resolves to '${category}' (got '${def.category}')`);
     }
   }
 }
@@ -99,7 +101,7 @@ console.log('\n--- Test 2: light blocks are well-formed ---');
   const LIGHT_MOUNTS = new Set(['ground', 'wall', 'overhead', 'surface']);
   const lit = Object.values(PLACEABLES).filter(p => p.light != null);
 
-  assert(lit.length === 15, `exactly 15 placeables carry a light block (got ${lit.length})`);
+  assert(lit.length === 28, `exactly 28 placeables carry a light block (got ${lit.length})`);
 
   for (const def of lit) {
     assert(LIGHT_MOUNTS.has(def.mount), `${def.id}: mount '${def.mount}' is valid`);

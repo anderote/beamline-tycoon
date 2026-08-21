@@ -154,7 +154,7 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
       id: 'darkFixture', kind: 'decoration', category: 'lighting',
       subW: 1, subL: 1, subH: 1, cost: { funding: 1 },
       energyCost: 0,
-      light: { color: '#fff', intensity: 1, radius: 3, shape: 'point', emitterY: 1 },
+      light: { color: '#fff', intensity: 1, radius: 3, shape: 'point', emitterY: 1, dayFloor: 2 },
     },
     badHanging: {
       id: 'badHanging', kind: 'decoration', category: 'hangings', mount: 'wall',
@@ -227,6 +227,10 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     'wall hanging span outside the quarter-wall range reported');
   assert(hasProblem(problems, 'badHanging', 'mountY', 'positive'),
     'non-light wall hanging without a mounting height reported');
+  assert(hasProblem(problems, 'darkFixture', 'subsection', 'missing subsection'),
+    'light-bearing def in a grouped palette requires an authored subsection');
+  assert(hasProblem(problems, 'darkFixture', 'light.dayFloor', '[0, 1]'),
+    'out-of-range daytime fixture activation is rejected');
   assert(hasProblem(problems, 'malformedPrimitive', 'parts[0].shape', "'banana'"),
     'unknown authored primitive shape reported');
   assert(hasProblem(problems, 'malformedPrimitive', 'parts[0].w', 'positive number'),

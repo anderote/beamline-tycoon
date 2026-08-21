@@ -811,6 +811,9 @@ export class LightRig {
       mount: tag.mount || 'ground',
       light: {
         emitterY: tag.emitterY ?? tag.offsetY ?? 0,
+        dayFloor: tag.dayFloor ?? 0,
+        sourceOffsetX: tag.sourceOffsetX ?? 0,
+        sourceOffsetZ: tag.sourceOffsetZ ?? 0,
         sourceOffsetY: tag.sourceOffsetY ?? 0,
         radius: tag.poolRadius ?? tag.radius ?? 0,
         shape: tag.shape,

@@ -86,6 +86,14 @@ function subsectionsOf(modeKey, category) {
   return cat?.subsections ? new Set(Object.keys(cat.subsections)) : null;
 }
 
+function decorationSubsectionsOf(category) {
+  for (const mode of Object.values(MODES)) {
+    const subsections = mode.categories?.[category]?.subsections;
+    if (subsections) return new Set(Object.keys(subsections));
+  }
+  return null;
+}
+
 /**
  * Beamline component ids that have no bespoke 3D geometry (no entry in the
  * renderer's ROLE_BUILDERS/DETAIL_BUILDERS maps) and therefore render as a
@@ -172,6 +180,18 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     if (def.subsection == null) return; // optional — palette defaults to first subsection
     const subs = subsectionsOf(modeKey, def.category);
     if (subs && !subs.has(def.subsection)) {
+      problem(id, 'subsection', `unknown subsection '${def.subsection}' for category '${def.category}' (known: ${[...subs].join(', ')})`);
+    }
+  }
+
+  function checkDecorationSubsection(id, def, { required = false } = {}) {
+    const subs = decorationSubsectionsOf(def.category);
+    if (!subs) return;
+    if (def.subsection == null) {
+      if (required) problem(id, 'subsection', `missing subsection for category '${def.category}'`);
+      return;
+    }
+    if (!subs.has(def.subsection)) {
       problem(id, 'subsection', `unknown subsection '${def.subsection}' for category '${def.category}' (known: ${[...subs].join(', ')})`);
     }
   }
@@ -263,7 +283,7 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     if (typeof def.energyCost !== 'number' || !Number.isFinite(def.energyCost) || def.energyCost <= 0) {
       problem(id, 'energyCost', `energyCost must be a positive number (kW), got ${JSON.stringify(def.energyCost)}`);
     }
-    const { shape, radius, coneDeg, tiltDeg } = def.light;
+    const { shape, radius, coneDeg, tiltDeg, dayFloor } = def.light;
     if (typeof radius !== 'number' || !Number.isFinite(radius) || radius <= 0) {
       problem(id, 'light.radius', `light.radius must be a positive number, got ${JSON.stringify(radius)}`);
     }
@@ -276,6 +296,10 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
       if (typeof tiltDeg !== 'number' || !Number.isFinite(tiltDeg)) {
         problem(id, 'light.tiltDeg', `cone lights require a numeric tiltDeg, got ${JSON.stringify(tiltDeg)}`);
       }
+    }
+    if (dayFloor != null && (typeof dayFloor !== 'number' || !Number.isFinite(dayFloor)
+        || dayFloor < 0 || dayFloor > 1)) {
+      problem(id, 'light.dayFloor', `light.dayFloor must be a finite number in [0, 1], got ${JSON.stringify(dayFloor)}`);
     }
   }
 
@@ -568,6 +592,7 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
   for (const [id, def] of Object.entries(decorations)) {
     checkCommon(id, def);
     checkCategory(id, def, DECORATION_CATEGORIES, 'decoration');
+    checkDecorationSubsection(id, def);
   }
 
   // ── PLACEABLES wrapper layer ──────────────────────────────────────
@@ -586,6 +611,7 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     // palette (see file header).
     if (p.kind === 'decoration' && p.light != null) {
       checkCategory(id, p, DECORATION_CATEGORIES, 'decoration');
+      checkDecorationSubsection(id, p, { required: true });
     }
     checkStation(id, p);
   }

@@ -21,7 +21,10 @@ import { renderDecorationThumbnail } from '../renderer3d/decoration-builder.js';
 import { windowPreviewDataUrl } from './window-preview.js';
 import { DEMOLISH_BUTTONS } from '../input/demolishScopes.js';
 import { buildPaletteIndex, searchPalette } from './palette-search.js';
-import { resolvePaletteCollection } from './palette-collection.js';
+import {
+  groupDecorationPaletteEntries,
+  resolvePaletteCollection,
+} from './palette-collection.js';
 import { ContextWindow } from './ContextWindow.js';
 import { openWikiWindow } from './WikiWindow.js';
 import { openStaffInspector } from './StaffInspector.js';
@@ -1943,7 +1946,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
     if (decItems.length === 0 && collection.components.length === 0
         && collection.utilityLineTools.length === 0) return;
 
-    for (const [key, dec] of decItems) {
+    const appendDecorationItem = (key, dec, target) => {
       const item = document.createElement('div');
       item.className = 'palette-item';
       item.dataset.paletteIndex = paletteIdx;
@@ -2057,7 +2060,33 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         });
       }
 
-      palette.appendChild(item);
+      target.appendChild(item);
+    };
+
+    const subsections = decCatDef.subsections;
+    if (subsections && Object.keys(subsections).length > 0) {
+      const sections = groupDecorationPaletteEntries(decItems, subsections);
+      for (let sectionIndex = 0; sectionIndex < sections.length; sectionIndex++) {
+        const grouped = sections[sectionIndex];
+        if (sectionIndex > 0) {
+          const divider = document.createElement('div');
+          divider.className = 'palette-subsection-divider';
+          palette.appendChild(divider);
+        }
+        const section = document.createElement('div');
+        section.className = 'palette-subsection';
+        const label = document.createElement('div');
+        label.className = 'palette-subsection-label';
+        label.textContent = grouped.name;
+        section.appendChild(label);
+        const items = document.createElement('div');
+        items.className = 'palette-subsection-items';
+        for (const [key, dec] of grouped.entries) appendDecorationItem(key, dec, items);
+        section.appendChild(items);
+        palette.appendChild(section);
+      }
+    } else {
+      for (const [key, dec] of decItems) appendDecorationItem(key, dec, palette);
     }
 
     for (const utilityType of collection.utilityLineTools) {

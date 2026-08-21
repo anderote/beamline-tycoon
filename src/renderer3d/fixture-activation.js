@@ -14,9 +14,12 @@ function clamp01(value) {
  */
 export function fixtureActivationFactor(def, darkness, context = {}) {
   const night = clamp01(darkness);
-  if (context.indoors) return Math.max(night, CINEMATIC_LIGHTING.fixtures.interiorDayFloor);
+  const authoredDayFloor = clamp01(def?.light?.dayFloor);
+  if (context.indoors) return Math.max(
+    night, authoredDayFloor, CINEMATIC_LIGHTING.fixtures.interiorDayFloor,
+  );
   if (def?.mount === 'overhead') {
-    return Math.max(night, CINEMATIC_LIGHTING.fixtures.overheadDayFloor);
+    return Math.max(night, authoredDayFloor, CINEMATIC_LIGHTING.fixtures.overheadDayFloor);
   }
-  return night;
+  return Math.max(night, authoredDayFloor);
 }
