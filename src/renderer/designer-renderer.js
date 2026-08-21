@@ -1402,6 +1402,7 @@ export function designerPaletteDetails(key, comp) {
 }
 
 BeamlineDesigner.prototype._hideDesignerPaletteHover = function() {
+  this._designerPaletteHoverRevision = (this._designerPaletteHoverRevision || 0) + 1;
   if (this._designerPaletteHover?.isConnected) this._designerPaletteHover.remove();
   this._designerPaletteHover = null;
 };
@@ -1425,6 +1426,21 @@ BeamlineDesigner.prototype._showDesignerPaletteHover = function(card, key, comp)
     popup.appendChild(description);
   }
 
+  // Placement-specific physics goes first: catalogue facts answer what the
+  // hardware is, while this section answers whether it belongs at the current
+  // blue marker. It is filled asynchronously from the same worker result the
+  // Designer plots consume.
+  const placementSection = document.createElement('div');
+  placementSection.className = 'dsgn-palette-hover-section dsgn-palette-hover-placement';
+  const placementHeading = document.createElement('div');
+  placementHeading.className = 'dsgn-palette-hover-heading';
+  placementHeading.textContent = 'Placement impact';
+  const placementStatus = document.createElement('div');
+  placementStatus.className = 'dsgn-palette-hover-placement-status';
+  placementStatus.textContent = 'Calculating with the beam solver\u2026';
+  placementSection.append(placementHeading, placementStatus);
+  popup.appendChild(placementSection);
+
   const addRows = (label, rows) => {
     if (!rows.length) return;
     const section = document.createElement('div');
@@ -1438,6 +1454,7 @@ BeamlineDesigner.prototype._showDesignerPaletteHover = function(card, key, comp)
     for (const row of rows) {
       const line = document.createElement('div');
       line.className = 'dsgn-palette-hover-row';
+      if (row.tone && row.tone !== 'neutral') line.classList.add(`is-${row.tone}`);
       const rowLabel = document.createElement('span');
       rowLabel.textContent = row.label;
       const rowValue = document.createElement('strong');
@@ -1455,18 +1472,52 @@ BeamlineDesigner.prototype._showDesignerPaletteHover = function(card, key, comp)
   appendRequiredPortRequirements(popup, details.requiredPorts);
 
   document.body.appendChild(popup);
-  const cardRect = card.getBoundingClientRect();
-  const popupRect = popup.getBoundingClientRect();
-  const margin = 10;
-  const left = Math.max(margin, Math.min(
-    cardRect.left + cardRect.width / 2 - popupRect.width / 2,
-    window.innerWidth - popupRect.width - margin,
-  ));
-  let top = cardRect.top - popupRect.height - margin;
-  if (top < margin) top = Math.min(window.innerHeight - popupRect.height - margin, cardRect.bottom + margin);
-  popup.style.left = `${left}px`;
-  popup.style.top = `${Math.max(margin, top)}px`;
+  const positionPopup = () => {
+    if (!popup.isConnected || !card.isConnected) return;
+    const cardRect = card.getBoundingClientRect();
+    const popupRect = popup.getBoundingClientRect();
+    const margin = 10;
+    const left = Math.max(margin, Math.min(
+      cardRect.left + cardRect.width / 2 - popupRect.width / 2,
+      window.innerWidth - popupRect.width - margin,
+    ));
+    let top = cardRect.top - popupRect.height - margin;
+    if (top < margin) top = Math.min(window.innerHeight - popupRect.height - margin, cardRect.bottom + margin);
+    popup.style.left = `${left}px`;
+    popup.style.top = `${Math.max(margin, top)}px`;
+  };
+  positionPopup();
   this._designerPaletteHover = popup;
+  const previewRevision = this._designerPaletteHoverRevision;
+  Promise.resolve(this.previewComponentPlacement(key)).then(preview => {
+    if (!popup.isConnected || this._designerPaletteHover !== popup
+        || this._designerPaletteHoverRevision !== previewRevision) return;
+    placementStatus.remove();
+    if (!preview) {
+      const unavailable = document.createElement('div');
+      unavailable.className = 'dsgn-palette-hover-placement-status';
+      unavailable.textContent = 'Placement preview unavailable';
+      placementSection.appendChild(unavailable);
+      positionPopup();
+      return;
+    }
+    placementHeading.textContent = `Placement impact \u00b7 ${preview.heading}`;
+    for (const row of preview.rows || []) {
+      const line = document.createElement('div');
+      line.className = 'dsgn-palette-hover-row';
+      if (row.tone && row.tone !== 'neutral') line.classList.add(`is-${row.tone}`);
+      const rowLabel = document.createElement('span');
+      rowLabel.textContent = row.label;
+      const rowValue = document.createElement('strong');
+      rowValue.textContent = row.value;
+      line.append(rowLabel, rowValue);
+      placementSection.appendChild(line);
+    }
+    positionPopup();
+  }).catch(() => {
+    if (!popup.isConnected || this._designerPaletteHover !== popup) return;
+    placementStatus.textContent = 'Placement preview unavailable';
+  });
 };
 
 BeamlineDesigner.prototype._createDesignerPaletteCard = function(key, comp) {

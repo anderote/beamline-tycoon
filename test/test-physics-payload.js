@@ -19,8 +19,12 @@
 //   2. subL fallback chain: node → component default → 4.
 //   3. infraQuality fail-closed floor, with and without solved qualities.
 //   4. extractionEnergy precedence: computed wins over the type's value.
+//   5. Designer drafts share catalogue physics while assuming ideal services.
 
-import { buildPhysicsElements } from '../src/beamline/physics-payload.js';
+import {
+  buildDesignerPhysicsElements,
+  buildPhysicsElements,
+} from '../src/beamline/physics-payload.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -91,6 +95,7 @@ const EXPECTED = [
     id: 'q1',
     type: 'quadrupole',
     subL: 2,
+    apertureRadius: 48,
     stats: { focusStrength: 5.996 },
     params: { gradient: 20, polarity: 1 },
     infraQuality: {
@@ -105,6 +110,7 @@ const EXPECTED = [
     id: 'dip1',
     type: 'dipole',
     subL: 2,
+    apertureRadius: 48,
     stats: { bendAngle: 90, maxMomentum: 0.6870909879208832 },
     params: { fieldStrength: 1.2 },
     infraQuality: {
@@ -127,6 +133,7 @@ const EXPECTED = [
     id: 'bpm1',
     type: 'bpm',
     subL: 1,
+    apertureRadius: 40,
     stats: { beamQuality: 0.02 },
     params: {},
     infraQuality: {
@@ -142,6 +149,7 @@ const EXPECTED = [
     subL: 3,
     stats: { energyGain: 0.0375, gradient: 25 },
     betaAcceptance: { min: 0.85, design: 0.999, max: 1.0 },
+    apertureRadius: 56,
     params: {},
     infraQuality: {
       powerQuality: 0,
@@ -158,6 +166,7 @@ const EXPECTED = [
     id: 'cyc1',
     type: 'cyclotron30',
     subL: 8,
+    apertureRadius: 40,
     stats: { beamCurrent: 0.35, emittance: 6 },
     params: {},
     extractionEnergy: 0.03,
@@ -191,6 +200,8 @@ console.log('\n--- Test 1: payload snapshot ---');
     'a flattener drift entry becomes type "drift" and carries no id');
   assert(out[4].id === 'cav1',
     'ids round-trip so per-cavity results can be written back to the placeable');
+  assert(out[0].apertureRadius === 48 && out[4].apertureRadius === 56,
+    'authored aperture radii cross the JS/Python payload boundary');
 }
 
 // ==========================================================================
@@ -273,6 +284,24 @@ console.log('\n--- Test 4: extractionEnergy precedence ---');
     [{ kind: 'module', id: 'b1', type: 'bpm' }], {});
   assert(!('extractionEnergy' in bpm),
     'a component with neither carries no extractionEnergy key');
+}
+
+// ==========================================================================
+// Test 5: Designer drafts share catalogue physics without pretending their
+// not-yet-built utility endpoints are disconnected.
+// ==========================================================================
+console.log('\n--- Test 5: Designer ideal-services payload ---');
+{
+  const [cavity] = buildDesignerPhysicsElements([{
+    id: 'preview', type: 'ellipticalSrfCavity', subL: 3,
+    params: { rfFrequency: 1300, gradient: 25, rfPhase: 0 },
+  }]);
+  assert(cavity.apertureRadius === 56,
+    'Designer preview publishes the same authored aperture as production');
+  assert(cavity.betaAcceptance?.min === 0.85 && cavity.betaAcceptance?.max === 1,
+    'Designer preview publishes the same beta-acceptance window as production');
+  assert(!('infraQuality' in cavity),
+    'Designer draft assumes ideal services until components have map endpoints');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -4,6 +4,7 @@
 
 import { COMPONENTS } from '../src/data/components.js';
 import { designerPaletteDetails } from '../src/renderer/designer-renderer.js';
+import { readFileSync } from 'node:fs';
 
 let passed = 0;
 let failed = 0;
@@ -32,6 +33,18 @@ assertOk(buncher.connections.includes('Power Cable')
 assertOk(buncher.requiredPorts.every(port => /^#[0-9a-f]{6}$/i.test(port.color)),
   'required ports publish their utility marker colors');
 assertOk(buncher.params.some(row => row.label === 'Voltage' && row.value === '0.1 MV'), 'includes default tunable parameters and units');
+
+const css = readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+const renderer = readFileSync(new URL('../src/renderer/designer-renderer.js', import.meta.url), 'utf8');
+assertOk(/\.dsgn-plot-select\s*\{[^}]*font-size:\s*12px/s.test(css),
+  'primary plot data-source labels are larger than overlay selectors');
+assertOk(/\.dsgn-source-btn\s*\{[^}]*padding:\s*5px 10px/s.test(css)
+  && css.includes('.dsgn-palette-hover-row.is-good > strong')
+  && css.includes('.dsgn-palette-hover-row.is-bad > strong'),
+'plot source controls are larger and placement outcomes have green/red emphasis');
+assertOk(renderer.includes('this.previewComponentPlacement(key)')
+  && renderer.includes("placementHeading.textContent = `Placement impact"),
+'hover cards request and render the public solver-backed placement preview');
 
 console.log(`\n${passed}/${passed + failed} assertions passed`);
 process.exit(failed > 0 ? 1 : 0);

@@ -66,10 +66,13 @@ const COMMISSIONING_DERATE = 0.7;
  *   per-placeable solved utility qualities keyed by node id. May be absent
  *   (before the first gate pass); declared sinks still get their 0 floor.
  * @returns {Array} elements: { id?, type, subL, stats, params,
- *   extractionEnergy?, infraQuality? }
+ *   betaAcceptance?, apertureRadius?, extractionEnergy?, infraQuality? }
  */
-export function buildPhysicsElements(orderedNodes, ctx = {}) {
-  const nodeQualities = ctx.nodeQualities;
+function _buildPhysicsElements(orderedNodes, {
+  nodeQualities,
+  includeInfrastructure = true,
+  applyCommissioning = true,
+} = {}) {
   return orderedNodes.map(el => {
     const t = COMPONENTS[el.type];
     if (!t) {
@@ -89,7 +92,7 @@ export function buildPhysicsElements(orderedNodes, ctx = {}) {
     if (computed) {
       Object.assign(effectiveStats, computed);
     }
-    if (el.needsCommissioning) {
+    if (applyCommissioning && el.needsCommissioning) {
       for (const k of Object.keys(effectiveStats)) {
         if (typeof effectiveStats[k] === 'number') effectiveStats[k] *= COMMISSIONING_DERATE;
       }
@@ -109,16 +112,47 @@ export function buildPhysicsElements(orderedNodes, ctx = {}) {
     if (t.betaAcceptance) {
       physEl.betaAcceptance = { ...t.betaAcceptance };
     }
+    // Authored physical half-aperture, in millimetres. gameplay.py converts it
+    // to metres before the aperture-loss module runs. Omitting this field makes
+    // every component silently inherit the old 50 mm global default, defeating
+    // both the authored aperture ladder and any placement preview of beam loss.
+    if (Number.isFinite(t.apertureRadius) && t.apertureRadius > 0) {
+      physEl.apertureRadius = t.apertureRadius;
+    }
     if (computed && computed.extractionEnergy !== undefined) {
       physEl.extractionEnergy = computed.extractionEnergy;
     } else if (t.extractionEnergy !== undefined) {
       physEl.extractionEnergy = t.extractionEnergy;
     }
-    const nq = nodeQualities?.[el.id];
-    const floor = declaredSinkQualityFloor(el.type);
-    if (floor || nq) {
-      physEl.infraQuality = floor ? { ...floor, ...nq } : nq;
+    if (includeInfrastructure) {
+      const nq = nodeQualities?.[el.id];
+      const floor = declaredSinkQualityFloor(el.type);
+      if (floor || nq) {
+        physEl.infraQuality = floor ? { ...floor, ...nq } : nq;
+      }
     }
     return physEl;
+  });
+}
+
+export function buildPhysicsElements(orderedNodes, ctx = {}) {
+  return _buildPhysicsElements(orderedNodes, {
+    nodeQualities: ctx.nodeQualities,
+    includeInfrastructure: true,
+    applyCommissioning: true,
+  });
+}
+
+/**
+ * Build an ideal-services payload for an unsaved Beamline Designer draft.
+ * Draft nodes have no map utility endpoints yet, so applying the production
+ * fail-closed utility floor would report every hovered component as unpowered.
+ * All catalogue/parameter physics fields still go through the same builder as
+ * the live game, including beta acceptance and physical aperture.
+ */
+export function buildDesignerPhysicsElements(draftNodes) {
+  return _buildPhysicsElements(draftNodes, {
+    includeInfrastructure: false,
+    applyCommissioning: false,
   });
 }

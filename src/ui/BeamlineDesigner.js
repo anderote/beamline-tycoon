@@ -5,7 +5,7 @@ import { COMPONENTS } from '../data/components.js';
 import { getBeamlineType } from '../data/beamline-types.js';
 import { RESEARCH_PHYSICS_EFFECT_KEYS } from '../data/research.js';
 import { BeamPhysics } from '../beamline/physics.js';
-import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
+import { PARAM_DEFS } from '../beamline/component-physics.js';
 import { ContextWindow } from './ContextWindow.js';
 import { flattenPath } from '../beamline/flattener.js';
 import { planDesignerApply } from '../beamline/designer-plan.js';
@@ -22,6 +22,9 @@ import {
   recommendedQuadrupoleGradient,
 } from '../beamline/designer-placement-hints.js';
 import { planDesignerAutoTune } from '../beamline/designer-auto-tuning.js';
+import { seedComponentParams } from '../beamline/component-params.js';
+import { buildDesignerPhysicsElements } from '../beamline/physics-payload.js';
+import { summarizeDesignerPlacement } from '../beamline/designer-placement-preview.js';
 
 /**
  * Physical length (in sub-units) of one draft node.
@@ -75,6 +78,25 @@ function _localOpticsDefaults(designer, type) {
       step: gradientDef.step,
     }),
   };
+}
+
+function _designerComponentParams(designer, type, initialParams = null) {
+  const params = seedComponentParams(type);
+  Object.assign(params, _localOpticsDefaults(designer, type));
+
+  // Physics hints may supply a starting point, but only for a declared,
+  // non-derived control and only inside its authored range.
+  if (initialParams && typeof initialParams === 'object') {
+    const defs = PARAM_DEFS[type] || {};
+    for (const [key, value] of Object.entries(initialParams)) {
+      const def = defs[key];
+      if (!def || def.derived || !Number.isFinite(value)) continue;
+      const lo = Number.isFinite(def.min) ? def.min : value;
+      const hi = Number.isFinite(def.max) ? def.max : value;
+      params[key] = Math.max(lo, Math.min(hi, value));
+    }
+  }
+  return params;
 }
 
 export class BeamlineDesigner {
@@ -1536,19 +1558,10 @@ export class BeamlineDesigner {
 
     const node = this.draftNodes[index];
     node.type = newType;
-    // Reset params for new type
-    node.params = {};
-    if (PARAM_DEFS[newType]) {
-      for (const [k, def] of Object.entries(PARAM_DEFS[newType])) {
-        if (!def.derived) node.params[k] = def.default;
-      }
-    }
-    if (comp.params) {
-      for (const [k, v] of Object.entries(comp.params)) {
-        if (!(k in node.params)) node.params[k] = v;
-      }
-    }
-    Object.assign(node.params, _localOpticsDefaults(this, newType));
+    // Reset through the same canonical seeder used by both map placement
+    // paths. The hover preview calls this helper too, so preview and click
+    // cannot start the component with different controls.
+    node.params = _designerComponentParams(this, newType);
     node.computedStats = null;
 
     this._updateTotalLength();
@@ -1574,34 +1587,9 @@ export class BeamlineDesigner {
       type: type,
       col: 0, row: 0, dir: 0, entryDir: 0,
       parentId: null, bendDir: null, tiles: [],
-      params: {},
+      params: _designerComponentParams(this, type, initialParams),
       computedStats: null,
     };
-    if (PARAM_DEFS[type]) {
-      for (const [k, def] of Object.entries(PARAM_DEFS[type])) {
-        if (!def.derived) newNode.params[k] = def.default;
-      }
-    }
-    if (comp.params) {
-      for (const [k, v] of Object.entries(comp.params)) {
-        if (!(k in newNode.params)) newNode.params[k] = v;
-      }
-    }
-    Object.assign(newNode.params, _localOpticsDefaults(this, type));
-    // Advisor insertions travel through this same public draft operation, but
-    // may carry a physics-derived starting point (for example quadrupole
-    // polarity). Only declared, non-derived controls may be initialized — a
-    // hint cannot smuggle arbitrary state onto a component.
-    if (initialParams && typeof initialParams === 'object') {
-      const defs = PARAM_DEFS[type] || {};
-      for (const [key, value] of Object.entries(initialParams)) {
-        const def = defs[key];
-        if (!def || def.derived || !Number.isFinite(value)) continue;
-        const lo = Number.isFinite(def.min) ? def.min : value;
-        const hi = Number.isFinite(def.max) ? def.max : value;
-        newNode.params[key] = Math.max(lo, Math.min(hi, value));
-      }
-    }
 
     if (this.editSourceId && comp.placement === 'attachment') {
       newNode._pipeKind = 'placement';
@@ -1702,6 +1690,57 @@ export class BeamlineDesigner {
     }
 
     return false;
+  }
+
+  /**
+   * Run a non-mutating solver preview for the palette component at the exact
+   * insert/replace location a click would use. This is the public read seam for
+   * designer-renderer.js; it never writes draft state or pushes undo.
+   */
+  async previewComponentPlacement(componentType) {
+    if (!this.isOpen) return null;
+    const component = COMPONENTS[componentType];
+    if (!component) return null;
+
+    const revision = this._draftPhysicsRevision;
+    const nodes = this.draftNodes.map(node => this._cloneNode(node));
+    const lengths = this._compPhysLengths();
+    let componentIndex;
+    let positionS = 0;
+    let action;
+
+    if (this.insertMode) {
+      const target = this._findClosestEdge();
+      componentIndex = target.position === 'before' ? target.index : target.index + 1;
+      componentIndex = Math.max(0, Math.min(nodes.length, componentIndex));
+      positionS = lengths.slice(0, componentIndex).reduce((sum, length) => sum + length, 0);
+      nodes.splice(componentIndex, 0, {
+        id: '__designer_hover_preview__',
+        type: componentType,
+        params: _designerComponentParams(this, componentType),
+        computedStats: null,
+      });
+      action = 'insert';
+    } else {
+      if (this.selectedIndex < 0 || this.selectedIndex >= nodes.length) return null;
+      componentIndex = this.selectedIndex;
+      positionS = lengths.slice(0, componentIndex).reduce((sum, length) => sum + length, 0);
+      nodes[componentIndex].type = componentType;
+      nodes[componentIndex].params = _designerComponentParams(this, componentType);
+      nodes[componentIndex].computedStats = null;
+      action = 'replace';
+    }
+
+    const previewResult = await this._computePhysics(nodes, 'designer:placement-preview');
+    if (!this.isOpen || revision !== this._draftPhysicsRevision) return null;
+    return summarizeDesignerPlacement({
+      component,
+      componentIndex,
+      beforeResult: this.draftPhysicsResult,
+      previewResult,
+      action,
+      positionS,
+    });
   }
 
   /** Find the closest component boundary to the current marker position.
@@ -2296,31 +2335,13 @@ export class BeamlineDesigner {
   async _computePhysics(nodes, lane = 'designer:draft') {
     if (!nodes || nodes.length === 0) return null;
 
-    // Build physics beamline from nodes (same format as Game.recalcBeamline)
-    const physicsBeamline = nodes.map(node => {
-      const comp = COMPONENTS[node.type];
-      if (!comp) return null;
-      const effectiveStats = { ...(comp.stats || {}) };
-      let computed = node.computedStats;
-      if (!computed && PARAM_DEFS[node.type] && node.params) {
-        computed = computeStats(node.type, node.params);
-      }
-      if (computed) {
-        Object.assign(effectiveStats, computed);
-      }
-      const el = {
-        type: node.type,
-        subL: _nodeSubL(node),
-        stats: effectiveStats,
-        params: node.params || {},
-      };
-      if (computed && computed.extractionEnergy !== undefined) {
-        el.extractionEnergy = computed.extractionEnergy;
-      } else if (comp.extractionEnergy !== undefined) {
-        el.extractionEnergy = comp.extractionEnergy;
-      }
-      return el;
-    }).filter(Boolean);
+    // Drafts assume ideal services because their components do not have map
+    // endpoints yet. Catalogue physics fields still share the production
+    // payload builder so beta acceptance and physical aperture cannot drift.
+    const physicsBeamline = buildDesignerPhysicsElements(nodes.map(node => ({
+      ...node,
+      subL: _nodeSubL(node),
+    })));
 
     // Gather research effects
     const researchEffects = {};
