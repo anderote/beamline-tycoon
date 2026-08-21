@@ -1010,6 +1010,43 @@ const INFRA_UTILITY_PORTS = {
   // becomes the feed and the remaining three can serve loads.
   powerBus:            buswayPorts(160, 10),
   spiderBox:           fieldDistributionPorts(3, { capacity: 30, interchangeable: true }),
+  // Wall feedthroughs split one physical crossing into two terminated cable
+  // runs. Pass roles make the terminals continuous inside the fitting without
+  // inventing supply or demand; the dedicated connection kinds preserve the
+  // radial electrical hierarchy across one or several walls.
+  powerWallPassThrough: {
+    pwr_in: {
+      utility: 'powerCable', side: 'front', offsetAlong: 0.5,
+      role: 'pass', connectionKind: 'powerPassThroughIn', params: {},
+    },
+    pwr_out: {
+      utility: 'powerCable', side: 'back', offsetAlong: 0.5,
+      role: 'pass', connectionKind: 'powerPassThroughOut', params: {},
+    },
+  },
+  hvWallPassThrough: {
+    hv_in: {
+      utility: 'hvCable', side: 'front', offsetAlong: 0.5,
+      role: 'pass', connectionKind: 'hvPassThroughIn', params: {},
+    },
+    hv_out: {
+      utility: 'hvCable', side: 'back', offsetAlong: 0.5,
+      role: 'pass', connectionKind: 'hvPassThroughOut', params: {},
+    },
+  },
+  // Grounds owns the pole visually, but these are real HV endpoints. Local
+  // back/front lie along the conductor run; rotating a pole turns both the
+  // crossarm and its incoming/outgoing cable direction together.
+  utilityPole: {
+    hv_in: {
+      utility: 'hvCable', side: 'back', offsetAlong: 0.5,
+      role: 'pass', connectionKind: 'hvPassThroughIn', params: {},
+    },
+    hv_out: {
+      utility: 'hvCable', side: 'front', offsetAlong: 0.5,
+      role: 'pass', connectionKind: 'hvPassThroughOut', params: {},
+    },
+  },
   coolingManifold:     busPorts('coolingWater',  8),
   vacuumManifold:      vacuumManifoldPorts(4, 5),
   vacuumManifold8:     vacuumManifoldPorts(8, 7),

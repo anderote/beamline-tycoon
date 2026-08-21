@@ -4,7 +4,8 @@
 //   - role:'junction' components place standalone on open ground (all 4 dirs)
 //   - role:'placement' components must be REJECTED on open ground — they can
 //     only be placed ON a beam pipe (Game routes them away by design)
-//   - infrastructure placeables place on open ground
+//   - floor infrastructure placeables place on open ground; wall-mounted
+//     infrastructure requires a real wall slot
 //   - everything placed can be removed
 
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
@@ -117,7 +118,7 @@ for (const type of placementTypes) {
   });
 }
 
-// --- infrastructure placeables place on open ground ---
+// --- infrastructure placeables honor their authored mount ---
 console.log('\n--- Infrastructure placeables ---\n');
 
 const infraTypes = Object.values(PLACEABLES)
@@ -125,12 +126,18 @@ const infraTypes = Object.values(PLACEABLES)
   .map(p => p.id);
 
 for (const type of infraTypes) {
-  test(`${type} (infra) — places on open ground`, () => {
+  const def = PLACEABLES[type];
+  test(`${type} (infra) — places on its authored mount`, () => {
+    const wallMount = def.mount === 'wall'
+      ? { col: colOffset, row: 0, edge: 'n', off: 1 }
+      : undefined;
+    if (wallMount) game.state.wallOccupied[`${colOffset},0,n`] = 'officeWall';
     const result = game.placePlaceable({
       type,
       col: colOffset, row: 0,
       subCol: 0, subRow: 0,
       dir: 0,
+      wallMount,
       free: true,
       silent: true,
     });

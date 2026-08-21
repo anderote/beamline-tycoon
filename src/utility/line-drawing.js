@@ -38,9 +38,11 @@ import { findUtilityEndpoint } from './utility-endpoints.js';
 import {
   cablePathLengthSubUnits,
   isSoftCable,
+  roundedCableTilePath,
   sanitizeCablePath,
   softCableSkipsOverlap,
 } from './soft-cable.js';
+import { pathCrossesWall } from './wall-crossings.js';
 
 const EPS = 1e-6;
 
@@ -367,7 +369,12 @@ function portsCanConnect(startSpec, endSpec, utilityType) {
     return oneOfPair(a, b, 'hvSupplyOut', 'hvDistributionIn')
       || oneOfPair(a, b, 'hvDistributionOut', 'hvDistributionIn')
       || oneOfPair(a, b, 'hvSupplyOut', 'hvLoadIn')
-      || oneOfPair(a, b, 'hvDistributionOut', 'hvLoadIn');
+      || oneOfPair(a, b, 'hvDistributionOut', 'hvLoadIn')
+      || oneOfPair(a, b, 'hvSupplyOut', 'hvPassThroughIn')
+      || oneOfPair(a, b, 'hvDistributionOut', 'hvPassThroughIn')
+      || oneOfPair(a, b, 'hvPassThroughOut', 'hvDistributionIn')
+      || oneOfPair(a, b, 'hvPassThroughOut', 'hvLoadIn')
+      || oneOfPair(a, b, 'hvPassThroughOut', 'hvPassThroughIn');
   }
   if (utilityType === 'powerCable') {
     const a = connectionKind(startSpec, utilityType);
@@ -380,7 +387,14 @@ function portsCanConnect(startSpec, endSpec, utilityType) {
       // load. Field-port to field-port stays illegal, preserving the radial
       // no-chaining/no-backfeed rule.
       || oneOfPair(a, b, 'powerDistributionOut', 'powerFieldPort')
-      || oneOfPair(a, b, 'powerFieldPort', 'powerLoadIn');
+      || oneOfPair(a, b, 'powerFieldPort', 'powerLoadIn')
+      || oneOfPair(a, b, 'powerDistributionOut', 'powerPassThroughIn')
+      || oneOfPair(a, b, 'powerFieldOut', 'powerPassThroughIn')
+      || oneOfPair(a, b, 'powerFieldPort', 'powerPassThroughIn')
+      || oneOfPair(a, b, 'powerPassThroughOut', 'powerLoadIn')
+      || oneOfPair(a, b, 'powerPassThroughOut', 'powerFieldIn')
+      || oneOfPair(a, b, 'powerPassThroughOut', 'powerFieldPort')
+      || oneOfPair(a, b, 'powerPassThroughOut', 'powerPassThroughIn');
   }
   return true;
 }
@@ -438,6 +452,17 @@ export function validateDrawLine(state, {
   if (totalDist < EPS && utilityType !== 'powerCable') return reject('invalid_path');
 
   const descriptor = UTILITY_TYPES[utilityType] || {};
+  const freeform = isSoftCable(utilityType) ? sanitizeCablePath(cablePath) : [];
+  // Flexible electrical routes are physical where the cable is visibly laid.
+  // The hidden Manhattan compatibility route must not let a freehand cable
+  // pass through a wall (or reject one whose visible trace went around it).
+  const physicalPath = freeform.length >= 2
+    ? roundedCableTilePath(freeform, utilityType)
+    : path;
+  if (descriptor.requiresWallPassThrough
+      && pathCrossesWall(state?.wallOccupied, physicalPath)) {
+    return reject('wall_pass_through_required');
+  }
   if (!hasMinimumBendClearance(path, descriptor.minStraightTiles || 0)) {
     return reject('bend_too_tight');
   }
@@ -528,7 +553,6 @@ export function validateDrawLine(state, {
     ignoreSharedSource = ignoreSharedSource || {};
     ignoreSharedSource[side] = ref;
   }
-  const freeform = isSoftCable(utilityType) ? sanitizeCablePath(cablePath) : [];
   // Loose electrical cords may cross on the floor without joining. Cooling
   // hoses are equally smooth, but remain plumbed networks and retain the
   // hidden grid route for deterministic overlap/tap-clearance validation.
@@ -618,6 +642,7 @@ export const REASONS = Object.freeze({
   overlap_same_type: 'overlap_same_type',
   overlap_rigid_service: 'overlap_rigid_service',
   blocked_by_equipment: 'blocked_by_equipment',
+  wall_pass_through_required: 'wall_pass_through_required',
   bend_too_tight: 'bend_too_tight',
   invalid_start: 'invalid_start',
   invalid_end: 'invalid_end',

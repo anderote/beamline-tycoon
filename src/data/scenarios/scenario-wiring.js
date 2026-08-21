@@ -12,7 +12,7 @@
 // (world/2), matching UtilityLineInputController's paths.
 
 import { COMPONENTS } from '../components.js';
-import { portSide, portWorldPosition } from '../../utility/ports.js';
+import { portApproachVec, portWorldPosition } from '../../utility/ports.js';
 import { findUtilityEndpoint } from '../../utility/utility-endpoints.js';
 import { resolveUtilityPortName } from '../../utility/port-contracts.js';
 import { UTILITY_TYPES } from '../../utility/registry.js';
@@ -22,13 +22,6 @@ import {
 } from '../../utility/line-geometry.js';
 import { validateDrawLine } from '../../utility/line-drawing.js';
 import { buildRigidRouteObstacles } from '../../utility/route-obstacles.js';
-
-const SIDE_VEC = {
-  N: { dCol: 0, dRow: -1 },
-  E: { dCol: 1, dRow: 0 },
-  S: { dCol: 0, dRow: 1 },
-  W: { dCol: -1, dRow: 0 },
-};
 
 function portAnchor(state, utilityType, ref, defaultRole) {
   // Endpoints, not state.placeables: components carried on beam pipes declare
@@ -40,8 +33,7 @@ function portAnchor(state, utilityType, ref, defaultRole) {
   const portName = resolveUtilityPortName(def, utilityType, ref, defaultRole);
   if (!portName) return null;
   const wp = portWorldPosition(p, def, portName);
-  const side = portSide(def, portName, p.dir || 0);
-  const vec = side ? SIDE_VEC[side] : null;
+  const vec = portApproachVec(p, def, portName);
   if (!wp || !vec) return null;
   // 1 tile = 2 world metres (4 subtiles of 0.5 m).
   return { portName, tile: { col: wp.x / 2, row: wp.z / 2 }, vec };

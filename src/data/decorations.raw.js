@@ -257,7 +257,7 @@ const DECORATION_DESCS = {
   fountain: 'Ornamental fountain — the only unscheduled water feature allowed on site.',
   statue: 'Commemorates the founder, or possibly the first working klystron.',
   propaneTank: 'Horizontal propane vessel on concrete saddles for heating and emergency plant. Decorative site utility.',
-  utilityPole: 'Single distribution pole with crossarm and insulators. Shift-drag to line a service route.',
+  utilityPole: 'Functional HV distribution pole with an incoming and outgoing crossarm terminal. Draw HV feeders between rotated poles to hang real, sagging conductors.',
   overheadPowerSpan: 'Two-pole overhead distribution span with three conductors. Decorative; use real cable tools for powered networks.',
   outdoorPipeRack: 'Elevated rack carrying color-coded campus service pipes. Decorative site utility.',
   backupGenerator: 'Weatherproof standby-generator enclosure with radiator bank and exhaust stack. Decorative; it does not generate power.',

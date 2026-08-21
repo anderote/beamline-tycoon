@@ -13,6 +13,11 @@
 
 import { COMPONENTS } from '../data/components.js';
 import { UTILITY_TYPES } from './registry.js';
+import {
+  wallFixtureDir,
+  wallFixturePose,
+  wallPassThroughTerminalOffset,
+} from '../game/wall-fixture-geometry.js';
 
 const SIDE_TO_COMPASS = { back: 'N', front: 'S', left: 'W', right: 'E' };
 const OPPOSITE_SIDE = { back: 'front', front: 'back', left: 'right', right: 'left' };
@@ -25,6 +30,14 @@ const SIDE_VEC = {
 };
 
 function normalizeDir(d) { return ((((d | 0) % 4) + 4) % 4); }
+
+/** Wall-mounted hardware always faces away from its actual supporting edge. */
+export function placeableDirection(placeable, def = null) {
+  if (placeable?.wallMount && def?.mount === 'wall') {
+    return wallFixtureDir(placeable.wallMount);
+  }
+  return normalizeDir(placeable?.dir || 0);
+}
 
 function rotateCompass(side, dir) {
   const i = COMPASS_CW.indexOf(side);
@@ -104,7 +117,7 @@ export function availablePorts(placeable, def, utilityType, lines) {
 export function portApproachVec(placeable, def, portName) {
   const side = portSide(
     def, portName,
-    (placeable && placeable.dir) || 0,
+    placeableDirection(placeable, def),
     placeable?.portsFlipped === true,
   );
   return (side && SIDE_VEC[side]) || null;
@@ -113,7 +126,7 @@ export function portApproachVec(placeable, def, portName) {
 export function portMatchesApproach(placeable, def, portName, approachDir, isEnd) {
   const side = portSide(
     def, portName,
-    placeable && placeable.dir || 0,
+    placeableDirection(placeable, def),
     placeable?.portsFlipped === true,
   );
   if (!side) return false;
@@ -166,7 +179,13 @@ export function placeableCenterWorld(placeable, def) {
   if (Number.isFinite(placeable.worldX) && Number.isFinite(placeable.worldZ)) {
     return { x: placeable.worldX, z: placeable.worldZ };
   }
-  const dir = normalizeDir(placeable.dir || 0);
+  if (placeable.wallMount && def?.mount === 'wall') {
+    const pose = def.wallPassThrough === true
+      ? wallFixturePose(placeable.wallMount, 0)
+      : wallFixturePose(placeable.wallMount);
+    if (pose) return { x: pose.x, z: pose.z };
+  }
+  const dir = placeableDirection(placeable, def);
   const subL = (def && def.subL) || 2;
   const subW = (def && def.subW) || 2;
   const swap = (dir === 1 || dir === 3);
@@ -245,7 +264,11 @@ export function portWorldPosition(placeable, def, portName) {
   if (!centre) return null;
 
   const half = footprintHalfExtents(def);
-  const lat = local.sign * (local.axis === 'x' ? half.x : half.z);
+  const halfLat = local.axis === 'x' ? half.x : half.z;
+  const lateralExtent = def?.wallPassThrough === true && placeable.wallMount
+    ? wallPassThroughTerminalOffset(placeable.wallMount)
+    : halfLat;
+  const lat = local.sign * lateralExtent;
   // offsetAlong advances clockwise around the unrotated footprint. For an
   // outward normal (x,z), that tangent is (-z,x), scaled by the face length.
   const slide = alongOffset(spec);
@@ -258,7 +281,7 @@ export function portWorldPosition(placeable, def, portName) {
     : { x: -normal.z * slide * faceLength, z: lat };
   const off = rotateLocalOffset(
     localOffset,
-    placeable.dir || 0,
+    placeableDirection(placeable, def),
   );
   return { x: centre.x + off.x, z: centre.z + off.z };
 }

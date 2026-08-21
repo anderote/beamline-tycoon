@@ -59,6 +59,7 @@ import {
   canPlace, canPlaceWallFixture, normalizeWallMount, physicalWallKey,
   usesFloorOccupancy,
 } from './placement.js';
+import { wallFixtureDir } from './wall-fixture-geometry.js';
 import { generateStartingMap, generateAnnulus, DEFAULT_MAP_HALF_EXTENT } from './map-generator.js';
 import { nextLandParcel } from '../data/land.js';
 import {
@@ -2841,6 +2842,7 @@ export class Game {
     const normalizedWallMount = placeable.mount === 'wall'
       ? normalizeWallMount(wallMount)
       : null;
+    let resolvedWallMount = normalizedWallMount;
     if (placeable.mount === 'wall') {
       const wallResult = canPlaceWallFixture(this, placeable, normalizedWallMount);
       if (!wallResult.hasWall) {
@@ -2851,7 +2853,11 @@ export class Game {
         this.log('That wall face is occupied!', 'bad');
         return false;
       }
+      resolvedWallMount = wallResult.wallMount;
     }
+    const placementDir = placeable.mount === 'wall'
+      ? wallFixtureDir(resolvedWallMount)
+      : dir;
 
     // --- Stack target resolution ---
     let stackTarget = null;
@@ -2862,12 +2868,14 @@ export class Game {
       };
       const getDef = (t) => PLACEABLES[t] || null;
       stackTarget = findStackTarget(
-        placeable, col, row, subCol || 0, subRow || 0, dir,
+        placeable, col, row, subCol || 0, subRow || 0, placementDir,
         this.state.subgridOccupied, getEntry, getDef,
       );
     }
 
-    const cells = placeable.footprintCells(col, row, subCol || 0, subRow || 0, dir);
+    const cells = placeable.footprintCells(
+      col, row, subCol || 0, subRow || 0, placementDir,
+    );
     const usesFloor = usesFloorOccupancy(placeable);
 
     if (stackTarget) {
@@ -2950,7 +2958,7 @@ export class Game {
       row,
       subCol: subCol || 0,
       subRow: subRow || 0,
-      dir,
+      dir: placementDir,
       // Utility-port mirroring is shared by beamline, infrastructure and
       // equipment placeables. Kinds without utility ports harmlessly retain
       // false, keeping one stable instance shape across the registry.
@@ -2961,7 +2969,7 @@ export class Game {
       placeY: 0,
       stackParentId: null,
       stackChildren: [],
-      wallMount: normalizedWallMount,
+      wallMount: resolvedWallMount,
     };
 
     // Beamline param init (was previously inline; only kind that needs it).
@@ -3110,7 +3118,7 @@ export class Game {
     }
     const subCol = pose.subCol || 0;
     const subRow = pose.subRow || 0;
-    const dir = (pose.dir === undefined || pose.dir === null)
+    let dir = (pose.dir === undefined || pose.dir === null)
       ? (entry.dir || 0)
       : pose.dir;
 
@@ -3134,6 +3142,8 @@ export class Game {
         this.log(`Can't move ${def.name}: that wall face is occupied`, 'bad');
         return false;
       }
+      wallMount = wallResult.wallMount;
+      dir = wallFixtureDir(wallMount);
     }
 
     const getEntry = (id) => {

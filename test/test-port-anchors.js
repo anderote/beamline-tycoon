@@ -101,7 +101,10 @@ console.log('\n--- 2. Every utility port resolves to a usable height ---');
   for (const { type, def, name } of utilityPorts) {
     const anchor = portAnchor3D(place(type), def, name);
     if (!anchor) { unresolved++; continue; }
-    if (!(anchor.y > 0) || anchor.y > 3) bad++;
+    // Utility poles deliberately terminate at crossarm height so the cable
+    // renderer can hang conductors above the yard instead of along the floor.
+    const maxY = type === 'utilityPole' ? 8 : 3;
+    if (!(anchor.y > 0) || anchor.y > maxY) bad++;
   }
   assert(unresolved === 0, `no utility port fails to resolve (${unresolved} did)`);
   assert(bad === 0, `no anchor is underground or on a roof (${bad} were)`);
@@ -186,7 +189,8 @@ console.log('\n--- 3. Derivation, overrides, and the headless fallback ---');
   for (const [type, entry] of Object.entries(PORT_ANCHOR_OVERRIDES)) {
     for (const [port, spec] of Object.entries(entry)) {
       if (!spec || !Number.isFinite(spec.y)) continue;
-      if (spec.y < 0.1 || spec.y > 2.5) outOfBand.push(`${type}.${port}=${spec.y}`);
+      const maxY = type === 'utilityPole' ? 8 : 2.5;
+      if (spec.y < 0.1 || spec.y > maxY) outOfBand.push(`${type}.${port}=${spec.y}`);
     }
   }
   assert(outOfBand.length === 0,

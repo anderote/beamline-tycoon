@@ -6,7 +6,11 @@
 import { isoToGridFloat } from '../renderer/grid.js';
 import { findWallKey, mirrorEdge } from './edge-keys.js';
 import { WALL_TYPES } from '../data/structure.js';
-import { wallFixtureFaceOffset } from '../renderer3d/fixture-light-math.js';
+import { PLACEABLES } from '../data/placeables/index.js';
+import {
+  physicalWallFixtureSlotKey,
+  wallFixtureFaceOffset,
+} from './wall-fixture-geometry.js';
 
 /**
  * Snap a world (x,y) to the nearest subtile center, no clamping.
@@ -107,9 +111,16 @@ export function canPlaceWallFixture(game, placeable, site, ignoreId = null) {
   const wallType = wallKey ? game.state.wallOccupied[wallKey] : null;
   const hasWall = !!wallKey;
   const key = wallFixtureMountKey(mount);
-  const occupied = (game?.state?.placeables || []).some((entry) =>
-    entry.id !== ignoreId && wallFixtureMountKey(entry.wallMount) === key
-  );
+  const physicalSlot = physicalWallFixtureSlotKey(mount);
+  const occupied = (game?.state?.placeables || []).some((entry) => {
+    if (entry.id === ignoreId || !entry.wallMount) return false;
+    if (wallFixtureMountKey(entry.wallMount) === key) return true;
+    // An ordinary light occupies one face. A cable feedthrough pierces the
+    // slab and therefore reserves the matching slot on both faces.
+    const otherDef = PLACEABLES[entry.type];
+    return (placeable.wallPassThrough === true || otherDef?.wallPassThrough === true)
+      && physicalWallFixtureSlotKey(entry.wallMount) === physicalSlot;
+  });
   return {
     ok: hasWall && !occupied,
     hasWall,

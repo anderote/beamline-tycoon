@@ -134,6 +134,12 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
       placement: 'module', requiredConnections: [],
       autoConnectRadius: 5,
     },
+    badFeedthrough: {
+      id: 'badFeedthrough', name: 'Bad Feedthrough', category: 'power',
+      cost: { funding: 100 }, subW: 1, subL: 1, subH: 1,
+      placement: 'module', requiredConnections: [],
+      mount: 'floor', wallPassThrough: true,
+    },
   };
   const badDecorations = {
     freebie: {
@@ -167,6 +173,9 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     // Bad spec shapes on a real-ish id.
     mysteryModule: {
       weird: { utility: 'steamPipe', side: 'top', offsetAlong: 7, role: 'both' },
+    },
+    badFeedthrough: {
+      only: { utility: 'powerCable', side: 'front', offsetAlong: 0.5, role: 'sink' },
     },
   };
 
@@ -238,6 +247,10 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     'an unknown assisted-wiring utility is rejected');
   assert(hasProblem(problems, 'portlessAutoPanel', 'autoConnectUtility', 'source port'),
     'assisted wiring requires a real source port of its selected utility');
+  assert(hasProblem(problems, 'badFeedthrough', 'wallPassThrough', "mount: 'wall'"),
+    'wall pass-throughs must use the wall placement layer');
+  assert(hasProblem(problems, 'badFeedthrough', 'wallPassThrough', 'exactly two passive'),
+    'wall pass-throughs require two passive ports on opposite faces');
 }
 
 // ==========================================================================

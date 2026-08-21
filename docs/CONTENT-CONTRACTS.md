@@ -23,6 +23,11 @@ the short authoring contract.
 - Floor coverings use `mount: 'floor'`. They retain a placement footprint for
   rendering, selection, rotation, and area demolition, but do not claim the
   ordinary furnishing occupancy layer, so desks and chairs can sit on them.
+- Electrical wall feedthroughs use `mount: 'wall'` and
+  `wallPassThrough: true`. They reserve the matching quarter-wall slot on both
+  faces and declare exactly two passive front/back ports of one electrical
+  utility. A line terminates on each face; same-device pass-port continuity is
+  the only connection through the wall.
 - A `requiredConnections` entry must have a matching sink in
   `src/data/utility-ports-v2.js`.
 - If an item is research-gated, its gate and the research node's `unlocks` list
@@ -91,6 +96,10 @@ the short authoring contract.
   the source connector height and rises only as needed, so parallel or crossing
   runs may share X/Z coordinates while remaining physically separate. A named
   tap is a real fitting and therefore inherits the trunk's route height.
+- A utility descriptor with `requiresWallPassThrough: true` validates the
+  physical rendered route against `wallOccupied`. Power and HV cable opt in;
+  their freehand `cablePath` is authoritative when present. Fabricated pipe,
+  waveguide, cooling, and cryogenic services retain direct wall crossing.
 - Cooling supply displays use heat-rejection capacity when it is declared;
   reservoir volume is inventory, not cooling power.
 - Cooling-water ports author make-up flow as `supplyRateLPerTick` and tank

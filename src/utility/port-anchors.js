@@ -44,6 +44,7 @@
 import {
   portApproachVec,
   portLocalAxis,
+  placeableDirection,
   placeableCenterWorld,
   footprintHalfExtents,
   rotateLocalOffset,
@@ -296,7 +297,8 @@ export function portAnchor3D(placeable, def, portName) {
   // the simulation endpoint. This also preserves the sim's clockwise
   // offsetAlong convention on opposite faces; measured model anchors use
   // their authored local coordinates instead.
-  const simFallback = (!_boundsProvider && !_measureProvider && !onPipe)
+  const simFallback = (def?.wallPassThrough === true
+    || (!_boundsProvider && !_measureProvider && !onPipe))
     ? portWorldPosition(placeable, def, portName)
     : null;
 
@@ -313,7 +315,7 @@ export function portAnchor3D(placeable, def, portName) {
   const lat = local.sign * mount.lat;
   const offset = rotateLocalOffset(
     local.axis === 'x' ? { x: lat, z: mount.along } : { x: mount.along, z: lat },
-    placeable.dir || 0,
+    placeableDirection(placeable, def),
   );
 
   return {

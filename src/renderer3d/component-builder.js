@@ -13,6 +13,7 @@ import { buildPlaceableVisualDetails } from './placeable-visual-details.js';
 import { BLOOM_LAYER } from './glow-pipeline.js';
 import { getGlowMaterial, setGlowNightFactor } from './machine-glow.js';
 export { getGlowMaterial, setGlowNightFactor } from './machine-glow.js';
+import { wallFixturePose } from '../game/wall-fixture-geometry.js';
 import {
   _buildBPMRoles,
   _buildICTRoles,
@@ -4036,6 +4037,11 @@ export function isDetailedComponent(compType, compDef) {
  */
 export function componentPose(compDef, inst, isDetailed) {
   const direction = inst.direction || 0;
+  const wallPose = compDef?.mount === 'wall'
+    ? (compDef.wallPassThrough === true
+        ? wallFixturePose(inst.wallMount, 0)
+        : wallFixturePose(inst.wallMount))
+    : null;
   // gridW/gridH store sub-cell counts (1 sub-cell = 0.5 world units).
   const gwRaw = compDef.gridW || compDef.subW || 4;
   const ghRaw = compDef.gridH || compDef.subL || 4;
@@ -4063,10 +4069,11 @@ export function componentPose(compDef, inst, isDetailed) {
   }
 
   return {
-    x, z,
+    x: wallPose?.x ?? x,
+    z: wallPose?.z ?? z,
     y: (isDetailed ? 0 : ((compDef.subH || 2) * SUB_UNIT) / 2)
       + (Number.isFinite(inst.yOffset) ? inst.yOffset : 0),
-    rotY: -direction * (Math.PI / 2),
+    rotY: wallPose?.yaw ?? (-direction * (Math.PI / 2)),
   };
 }
 

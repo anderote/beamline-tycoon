@@ -162,16 +162,19 @@ for (const scenario of SCENARIOS) {
     'three pillbox cavities on the pipe');
 
   // Wiring: transformer → main panel, RF source and the room panel are three
-  // HV feeders. Seven main-panel branches serve beam/support loads; three room
+  // HV branches. The RF branch is two cable runs around a wall feedthrough.
+  // Seven main-panel branches serve beam/support loads; three room
   // branches serve the console, display and capture rack. Vacuum/RF/cooling
   // retain their bus/stub layout, while four data runs cover science endpoints
-  // and the two control-room consumers: 24 lines total.
-  assert((state.utilityLines?.size || 0) === 24,
-    `twenty-four utility lines wire beam and control-room services (got ${state.utilityLines?.size})`);
+  // and the two control-room consumers: 25 lines total.
+  assert((state.utilityLines?.size || 0) === 25,
+    `twenty-five utility lines wire beam and control-room services (got ${state.utilityLines?.size})`);
   const hvLines = [...(state.utilityLines?.values() || [])]
     .filter(l => l.utilityType === 'hvCable');
-  assert(hvLines.length === 3,
-    `transformer feeds main distribution, RF and the room panel (got ${hvLines.length})`);
+  assert(hvLines.length === 4,
+    `three HV branches include two terminated runs at the RF wall feedthrough (got ${hvLines.length})`);
+  assert(state.placeables.some(p => p.type === 'hvWallPassThrough'),
+    'starter facility demonstrates an HV wall feedthrough');
   const branch = [...(state.utilityLines?.values() || [])]
     .filter(l => l.utilityType === 'powerCable');
   assert(new Set(branch.map(l => `${l.start.placeableId}:${l.start.portName}`)).size === branch.length,

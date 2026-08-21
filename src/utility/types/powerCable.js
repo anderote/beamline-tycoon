@@ -19,6 +19,9 @@ export default {
   // decides how much distribution gear a facility needs and where it sits.
   allowsTap: false,
   fansOut: false,
+  // Flexible conductors cannot be routed through building fabric. A wall
+  // crossing is made as two cables terminated on a wall feedthrough.
+  requiresWallPassThrough: true,
   // A plug is an explicit port-to-port connection. Distribution is modeled by
   // panels and busways, never by two cabinets merely touching on the floor.
   bridgesAdjacent: false,

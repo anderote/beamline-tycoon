@@ -20,6 +20,7 @@ import {
 } from '../game/placement.js';
 import { findStackTarget } from '../game/stacking.js';
 import { mirrorEdge, findWallKey, findEdgeKey } from '../game/edge-keys.js';
+import { wallFixtureDir } from '../game/wall-fixture-geometry.js';
 import { BeamlineInputController } from './BeamlineInputController.js';
 import { UtilityLineInputController } from './UtilityLineInputController.js';
 import { PlaceableTool, ZonePaintTool } from './placement-tools.js';
@@ -3261,7 +3262,8 @@ export class InputHandler {
         row: wallMount?.row ?? 0,
         subCol: 0,
         subRow: 0,
-        dir: this.placementDir,
+        dir: wallFixtureDir(geometric.wallMount),
+        portsFlipped: this.placementPortsFlipped === true,
         placeY: 0,
         stackTargetId: null,
         wallMount: geometric.wallMount,
