@@ -219,9 +219,14 @@
     </div>
 
     <!-- Designs Library overlay (hidden by default) -->
-    <div id="designs-overlay" class="overlay hidden">
-      <div class="overlay-header">
-        <span class="overlay-title">Designs</span>
+    <div id="designs-overlay" class="overlay designs-overlay blt-panel hidden"
+         role="dialog" aria-labelledby="designs-title" aria-describedby="designs-subtitle">
+      <div class="overlay-header designs-header">
+        <div class="designs-header-copy">
+          <span class="designs-kicker">BEAMLINE ARCHIVE // SAVED STACKUPS</span>
+          <span class="overlay-title" id="designs-title">Beamline Designs</span>
+          <span class="designs-subtitle" id="designs-subtitle">Edit, duplicate, or place a proven stackup.</span>
+        </div>
         <button class="overlay-close" data-close="designs-overlay">&times;</button>
       </div>
       <div class="designs-category-tabs" id="designs-category-tabs"></div>

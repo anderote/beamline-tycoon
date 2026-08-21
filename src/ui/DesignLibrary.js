@@ -79,6 +79,15 @@ export class DesignLibrary {
     }
     this.overlay.classList.remove('hidden');
     this.overlay.classList.toggle('designs-modal', this._modal);
+    this.overlay.setAttribute('aria-modal', String(this._modal));
+    const title = document.getElementById('designs-title');
+    const subtitle = document.getElementById('designs-subtitle');
+    if (title) title.textContent = this._modal ? 'Load Beamline Design' : 'Beamline Designs';
+    if (subtitle) {
+      subtitle.textContent = this._modal
+        ? 'Choose a saved stackup to continue editing, or begin a new design.'
+        : 'Edit, duplicate, or place a proven stackup.';
+    }
     this._renderTabs();
     this._renderGrid();
     if (!this._modal) window.location.hash = 'designs';
@@ -133,9 +142,20 @@ export class DesignLibrary {
     }
 
     // "New Design" card
-    const newCard = document.createElement('div');
+    const newCard = document.createElement('button');
+    newCard.type = 'button';
     newCard.className = 'design-card design-card-new';
-    newCard.textContent = '+ New Design';
+    const newIcon = document.createElement('span');
+    newIcon.className = 'design-card-new-icon';
+    newIcon.setAttribute('aria-hidden', 'true');
+    newIcon.innerHTML = '<i></i><b>+</b><i></i>';
+    newCard.appendChild(newIcon);
+    const newTitle = document.createElement('strong');
+    newTitle.textContent = 'New Design';
+    newCard.appendChild(newTitle);
+    const newHint = document.createElement('span');
+    newHint.textContent = 'Start from an empty beamline stackup';
+    newCard.appendChild(newHint);
     newCard.addEventListener('click', () => {
       this.close();
       this.designer.openDesign(null);
@@ -153,15 +173,9 @@ export class DesignLibrary {
     const card = document.createElement('div');
     card.className = 'design-card';
 
-    // Mini schematic preview
-    const preview = document.createElement('div');
-    preview.className = 'design-card-preview';
-    const canvas = document.createElement('canvas');
-    canvas.width = 220;
-    canvas.height = 60;
-    this._drawMiniSchematic(canvas, design);
-    preview.appendChild(canvas);
-    card.appendChild(preview);
+    // Large schematic preview: this is the card's main identifying icon, not
+    // a decorative strip, so keep enough backing resolution for long designs.
+    card.appendChild(this._createPreview(design));
 
     // Body
     const body = document.createElement('div');
@@ -183,7 +197,11 @@ export class DesignLibrary {
       const comp = COMPONENTS[c.type];
       return sum + (comp?.cost?.funding || 0);
     }, 0);
-    meta.textContent = `${compCount} parts \u00b7 ${totalLength.toFixed(1)}m \u00b7 $${totalCost.toLocaleString()}`;
+    this._appendMetaSpecs(meta, [
+      `${compCount} parts`,
+      `${totalLength.toFixed(1)} m`,
+      `$${totalCost.toLocaleString()}`,
+    ]);
     body.appendChild(meta);
 
     // Actions
@@ -191,7 +209,8 @@ export class DesignLibrary {
     actions.className = 'design-card-actions';
 
     const editBtn = document.createElement('button');
-    editBtn.textContent = 'Edit';
+    editBtn.className = 'design-card-primary';
+    editBtn.textContent = this._modal ? 'Load in Designer' : 'Edit';
     editBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       this.close();
@@ -258,14 +277,7 @@ export class DesignLibrary {
     const card = document.createElement('div');
     card.className = 'design-card design-card-stock';
 
-    const preview = document.createElement('div');
-    preview.className = 'design-card-preview';
-    const canvas = document.createElement('canvas');
-    canvas.width = 220;
-    canvas.height = 60;
-    this._drawMiniSchematic(canvas, design);
-    preview.appendChild(canvas);
-    card.appendChild(preview);
+    card.appendChild(this._createPreview(design));
 
     const body = document.createElement('div');
     body.className = 'design-card-body';
@@ -286,12 +298,12 @@ export class DesignLibrary {
     const type = getBeamlineType(design.typeId);
     const meta = document.createElement('div');
     meta.className = 'design-card-meta';
-    meta.textContent = [
+    this._appendMetaSpecs(meta, [
       type ? type.name : design.typeId,
       `T${design.tier}`,
       `${design.components.length} parts`,
       `$${stockDesignCost(design).toLocaleString()}`,
-    ].join(' · ');
+    ]);
     body.appendChild(meta);
 
     // Only ever the measured figure, never a derived one — a blueprint with no
@@ -350,31 +362,86 @@ export class DesignLibrary {
     return card;
   }
 
+  _createPreview(design) {
+    const preview = document.createElement('div');
+    preview.className = 'design-card-preview';
+    const canvas = document.createElement('canvas');
+    canvas.width = 360;
+    canvas.height = 104;
+    canvas.setAttribute('role', 'img');
+    canvas.setAttribute('aria-label', `Schematic preview of ${design.name}`);
+    this._drawMiniSchematic(canvas, design);
+    preview.appendChild(canvas);
+    return preview;
+  }
+
+  _appendMetaSpecs(container, values) {
+    for (const value of values) {
+      const spec = document.createElement('span');
+      spec.className = 'design-card-spec';
+      spec.textContent = value;
+      container.appendChild(spec);
+    }
+  }
+
   _drawMiniSchematic(canvas, design) {
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#0a0a1a';
+    ctx.fillStyle = '#080b17';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     if (design.components.length === 0) return;
 
-    const compW = Math.min(40, (canvas.width - 20) / design.components.length);
-    const compH = 20;
+    // A quiet drafting grid and dotted beam path tie the preview to the BLT
+    // schematic language used by the Designer and connection guide.
+    ctx.strokeStyle = 'rgba(105, 137, 172, 0.09)';
+    ctx.lineWidth = 1;
+    for (let x = 12.5; x < canvas.width; x += 24) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, canvas.height);
+      ctx.stroke();
+    }
+    for (let y = 8.5; y < canvas.height; y += 24) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvas.width, y);
+      ctx.stroke();
+    }
+
+    const components = design.components.filter(c => COMPONENTS[c.type]);
+    if (components.length === 0) return;
+    const gap = Math.max(2, Math.min(6, 30 / components.length));
+    const compW = Math.max(3, Math.min(56,
+      (canvas.width - 36 - gap * (components.length - 1)) / components.length));
+    const compH = 34;
     const y = (canvas.height - compH) / 2;
-    let x = 10;
+    const totalW = compW * components.length + gap * (components.length - 1);
+    let x = (canvas.width - totalW) / 2;
 
-    for (const c of design.components) {
+    ctx.strokeStyle = 'rgba(142, 205, 242, 0.46)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([3, 4]);
+    ctx.beginPath();
+    ctx.moveTo(12, canvas.height / 2);
+    ctx.lineTo(canvas.width - 12, canvas.height / 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    for (const c of components) {
       const comp = COMPONENTS[c.type];
-      if (!comp) continue;
-
       const color = this._getCategoryColor(comp.category);
       ctx.fillStyle = color;
-      ctx.fillRect(x, y, compW - 2, compH);
+      ctx.fillRect(x, y, Math.max(3, compW), compH);
 
-      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+      ctx.strokeStyle = 'rgba(210,230,255,0.34)';
       ctx.lineWidth = 1;
-      ctx.strokeRect(x, y, compW - 2, compH);
+      ctx.strokeRect(x + 0.5, y + 0.5, Math.max(2, compW - 1), compH - 1);
+      if (compW >= 12) {
+        ctx.fillStyle = 'rgba(230,245,255,0.18)';
+        ctx.fillRect(x + compW / 2 - 1, y + 4, 2, compH - 8);
+      }
 
-      x += compW;
+      x += compW + gap;
     }
   }
 
