@@ -1918,8 +1918,8 @@ ROLE_BUILDERS.rfCavity = _buildRFCavityRoles;
  *
  * Visually distinct from rfCavity: a long smooth copper tube densely
  * populated with thin disk rings (disk-loaded TW structure), with a
- * prominent coupler cell at each end and RF waveguides on opposite
- * sides — input upstream, output downstream. Footprint: 2 m × 3 m.
+ * prominent coupler cell at each end and one compact waveguide launcher
+ * at the declared RF input. Footprint: 2 m × 3 m.
  */
 function _buildSbandStructureRoles() {
   /** @type {Record<string, THREE.BufferGeometry[]>} */
@@ -1964,22 +1964,31 @@ function _buildSbandStructureRoles() {
     _pushTransformed(buckets.copper, g, new THREE.Matrix4().multiplyMatrices(trans, rot));
   }
 
-  // RF waveguides — input on -X side at the upstream coupler, output on
-  // +X side at the downstream coupler (opposite sides is the standard TW
-  // layout so the power flow is obvious).
-  const wgW = 0.3, wgH = 0.17, wgL = 0.48;
-  const endZ = bodyL / 2 + couplerL / 2;
-  for (const side of [{ x: -1, z: -1 }, { x: 1, z: 1 }]) {
-    const wgX = side.x * (couplerR + wgL / 2);
-    const wgZ = side.z * endZ;
+  // One real RF input, at the same high +X mount declared by rf_in. The old
+  // model drew two 300 x 170 mm red ducts on opposite couplers even though the
+  // component exposes only one routable waveguide port. Besides reading as two
+  // connections, those ducts were roughly three times the routed guide's
+  // 100 x 70 mm section and never met its fitting.
+  //
+  // The copper root is the cell-to-guide transformer. Its short red launch is
+  // exactly the routed guide section, so the always-on waveguide flange and a
+  // connected utility run continue the same silhouette instead of landing on
+  // a separate decorative block.
+  const wgY = 1.35;
+  const wgZ = 0.914;
+  const adapterL = 0.18, adapterH = 0.13, adapterW = 0.16;
+  {
+    const g = new THREE.BoxGeometry(adapterL, adapterH, adapterW);
+    applyTiledBoxUVs(g, adapterL, adapterH, adapterW);
+    _pushTransformed(buckets.copper, g,
+      new THREE.Matrix4().makeTranslation(0.25, wgY, wgZ));
+  }
+  const wgL = 0.30, wgH = 0.07, wgW = 0.10;
+  {
     const g = new THREE.BoxGeometry(wgL, wgH, wgW);
     applyTiledBoxUVs(g, wgL, wgH, wgW);
-    _pushTransformed(buckets.accent, g, new THREE.Matrix4().makeTranslation(wgX, BEAM_HEIGHT, wgZ));
-    const capW = 0.38, capH = 0.25, capL = 0.06;
-    const capG = new THREE.BoxGeometry(capL, capH, capW);
-    applyTiledBoxUVs(capG, capL, capH, capW);
-    const capX = wgX + side.x * (wgL / 2 + capL / 2);
-    _pushTransformed(buckets.detail, capG, new THREE.Matrix4().makeTranslation(capX, BEAM_HEIGHT, wgZ));
+    _pushTransformed(buckets.accent, g,
+      new THREE.Matrix4().makeTranslation(0.49, wgY, wgZ));
   }
 
   // Beam pipe stubs + flanges at tile edges
