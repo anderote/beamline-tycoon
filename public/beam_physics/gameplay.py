@@ -630,6 +630,11 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
                 "sigma_x": s["beam_size_x"],
                 "sigma_y": s["beam_size_y"],
                 "energy": max(s["energy"] - beam_mass, 0.0),
+                # Kinetic energy [GeV] times average current [mA] is beam
+                # power [MW]. Publish it with the envelope so presentation
+                # layers never grow a second definition of this beam metric.
+                "beam_power_mw": (max(s["energy"] - beam_mass, 0.0)
+                                  * max(s["current"], 0.0)),
                 "rel_beta": s["rel_beta"],
                 "rel_gamma": s["rel_gamma"],
                 "momentum_gev_c": s["momentum_gev_c"],

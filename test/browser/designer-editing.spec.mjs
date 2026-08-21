@@ -103,7 +103,7 @@ test('mission targets annotate performance plots without changing their scale', 
   expect(layout.secondaryPlotTypes).toEqual(['current-loss', 'emittance']);
   expect(layout.tertiaryPlotTypes).toEqual(['rel-beta', 'current-loss']);
   expect(layout.secondaryPlotOptions).toEqual([
-    'CH-2 // None', 'Energy', 'Dispersion', 'Beam β', 'Twiss βx / βy',
+    'CH-2 // None', 'Energy', 'Beam Power', 'Dispersion', 'Beam β', 'Twiss βx / βy',
     'Phase Advance μx / μy', 'Magnetic Rigidity', 'Beam Envelope', 'Beam Current',
     'Emittance', 'Peak Current',
   ]);
@@ -120,7 +120,7 @@ test('mission targets annotate performance plots without changing their scale', 
   'each plot control row sits above rather than on top of its canvas').toBe(true);
   expect(layout.thirdPlotDisabled, 'the right plot selector is interactive').toBe(false);
   expect(layout.thirdPlotOptions).toEqual([
-    'eic-triangle', 'energy', 'energy-dispersion', 'beta-acceptance',
+    'eic-triangle', 'energy', 'beam-power', 'energy-dispersion', 'beta-acceptance',
     'twiss-beta', 'phase-advance', 'rigidity', 'beam-envelope', 'current-loss',
     'emittance', 'peak-current', 'phase-space', 'longitudinal',
   ]);
