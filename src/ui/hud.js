@@ -19,7 +19,7 @@ import { formatEnergy, UNITS } from '../data/units.js';
 import { renderComponentThumbnail } from '../renderer3d/component-builder.js';
 import { renderDecorationThumbnail } from '../renderer3d/decoration-builder.js';
 import { windowPreviewDataUrl } from './window-preview.js';
-import { DEMOLISH_BUTTONS } from '../input/demolishScopes.js';
+import { DEMOLISH_FILTERS, defaultDemolishFilters } from '../input/demolishScopes.js';
 import { buildPaletteIndex, searchPalette } from './palette-search.js';
 import {
   groupDecorationPaletteEntries,
@@ -2335,38 +2335,51 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
     return;
   }
 
-  // Demolish mode tools
+  // One demolition cursor, modified live by category checkboxes.
   if (compCategory === 'demolish') {
-    const demolishTools = DEMOLISH_BUTTONS;
+    const active = this.renderer._inputHandler?.getDemolishFilters?.()
+      || defaultDemolishFilters();
+    const group = document.createElement('div');
+    group.className = 'demolish-filter-bar';
 
-    for (const tool of demolishTools) {
-      const item = document.createElement('div');
-      item.className = 'palette-item';
-      item.dataset.paletteIndex = paletteIdx;
-      item.dataset.paletteKey = tool.key;
-      item.dataset.paletteKind = 'demolish';
-      const idx = paletteIdx++;
-      item.style.borderLeft = `4px solid ${tool.color}`;
+    const intro = document.createElement('div');
+    intro.className = 'demolish-filter-intro';
+    intro.innerHTML = '<strong>DEMOLISH</strong><span>Drag to clear only checked categories</span>';
+    group.appendChild(intro);
 
-      const nameEl = document.createElement('div');
-      nameEl.className = 'palette-name';
-      nameEl.textContent = tool.cardName || tool.name;
-      item.appendChild(nameEl);
+    for (const filter of DEMOLISH_FILTERS) {
+      const label = document.createElement('label');
+      label.className = 'demolish-filter';
+      label.style.setProperty('--demolish-filter-color', filter.color);
+      label.title = filter.desc;
 
-      const descEl = document.createElement('div');
-      descEl.className = 'palette-cost';
-      descEl.textContent = tool.sub || tool.desc;
-      item.appendChild(descEl);
-
-      this._attachSimpleHoverPreview(item, tool.name, tool.desc);
-
-      item.addEventListener('click', () => {
-        if (this._onPaletteClick) this._onPaletteClick(idx);
-        this._selectPaletteTool('demolish', tool.key);
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = active.has(filter.key);
+      checkbox.dataset.demolishFilter = filter.key;
+      checkbox.addEventListener('change', () => {
+        const accepted = this._setDemolishFilter(filter.key, checkbox.checked);
+        checkbox.checked = accepted ?? checkbox.checked;
+        label.classList.toggle('active', checkbox.checked);
       });
+      label.classList.toggle('active', checkbox.checked);
 
-      palette.appendChild(item);
+      const mark = document.createElement('span');
+      mark.className = 'demolish-filter-check';
+      mark.setAttribute('aria-hidden', 'true');
+
+      const copy = document.createElement('span');
+      copy.className = 'demolish-filter-copy';
+      const name = document.createElement('strong');
+      name.textContent = filter.label;
+      const desc = document.createElement('span');
+      desc.textContent = filter.desc;
+      copy.append(name, desc);
+
+      label.append(checkbox, mark, copy);
+      group.appendChild(label);
     }
+    palette.appendChild(group);
     return;
   }
 

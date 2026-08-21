@@ -1,16 +1,14 @@
-// Demolish mode definitions. Each demolish tool maps to a scope (the set
-// of placeable kinds it can delete), a display label, a description, and
-// a swatch color used by the HUD palette.
-//
-// Four tools (RCT-style):
-//   demolishAll      — catch-all: everything on the hovered/dragged tile
-//   demolishBeamline — beamline components + pipes + equipment (click-on-object)
-//   demolishBuilding — walls, doors, flooring & zone overlays
-//   demolishUtility  — utility lines (click a pipe/cable to remove it)
+// Demolish mode definitions. Demolition is one tool whose five filters mirror
+// the player-facing selection categories. Keeping this classification aligned
+// with selection is important: an indoor light must not become Grounds merely
+// because its Placeable kind is `decoration`, and a transformer linked into a
+// Grounds palette still belongs to Infra.
 
 import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
-import { variantCost } from '../data/structure.js';
+import { GROUNDS_WALLS } from '../data/grounds.js';
+import { DOOR_TYPES, FLOORS, variantCost } from '../data/structure.js';
+import { selectionCategoryForPlaceable } from '../game/selection-targets.js';
 
 /**
  * 50% refund of a placeable/component definition's funding cost.
@@ -30,37 +28,87 @@ export function demolishRefund(compOrDef, variant = 0) {
   return Math.floor(variantCost(compOrDef, variant) * 0.5);
 }
 
-// Placeable-kind scopes for the click-on-object delete path.
-//   demolishAll      — everything (also sweeps tiles/edges via its own handlers)
-//   demolishBeamline — union of the old demolishBeamline + demolishEquipment
-export const DEMOLISH_PLACEABLE_SCOPE = {
-  demolishAll:       new Set(['beamline', 'infrastructure', 'equipment', 'furnishing', 'decoration']),
-  demolishBeamline:  new Set(['beamline', 'infrastructure', 'equipment', 'furnishing', 'decoration']),
-};
-
-// Standalone (non-cascading) demolish modes. These never route through the
-// placeable-scope click path.
-export const DEMOLISH_STANDALONE = new Set([
-  'demolishBuilding',
-  'demolishUtility',
+export const DEMOLISH_FILTERS = Object.freeze([
+  Object.freeze({
+    key: 'structure', label: 'Structure', defaultEnabled: false, color: '#a88666',
+    desc: 'Building floors, walls, doors, windows, and indoor fixtures',
+  }),
+  Object.freeze({
+    key: 'beamline', label: 'Beamline', defaultEnabled: true, color: '#cc5555',
+    desc: 'Beamline modules, beam pipes, and pipe-mounted hardware',
+  }),
+  Object.freeze({
+    key: 'infra', label: 'Infra', defaultEnabled: true, color: '#cc8844',
+    desc: 'Infrastructure modules, utility lines, and line attachments',
+  }),
+  Object.freeze({
+    key: 'facility', label: 'Facility', defaultEnabled: true, color: '#889966',
+    desc: 'Facility equipment, furnishings, and room zones',
+  }),
+  Object.freeze({
+    key: 'grounds', label: 'Grounds', defaultEnabled: false, color: '#668866',
+    desc: 'Outdoor surfaces, fences, gates, and scenery',
+  }),
 ]);
 
-// HUD palette button definitions, in display order. Slot order matters:
-// the palette hotkey badges map slots 0-3 to Z/X/C/V. `sub` is the short
-// card subtitle; `desc` is the longer preview-panel description.
-// `cardName` is the short label on the palette card (the cards live inside
-// the Demolish tab, so the prefix is redundant there and would truncate);
-// `name` is the full tool name for the preview panel.
-export const DEMOLISH_BUTTONS = [
-  { key: 'demolishAll',      name: 'Demolish',          cardName: 'Demolish', sub: 'Everything on the tile',
-    desc: 'Clear everything under the cursor — components, equipment, walls, floors, zones. Drag to sweep an area.', color: '#c22' },
-  { key: 'demolishBeamline', name: 'Demolish Beamline', cardName: 'Beamline', sub: 'Components, pipes & equipment',
-    desc: 'Beamline components, beam pipes and placed equipment. Click an object to remove it. Beam pipes cut section by section — drag along one to take out a longer stretch, or Shift-click for the whole run (50% refund).', color: '#c44' },
-  { key: 'demolishBuilding', name: 'Demolish Building', cardName: 'Building', sub: 'Walls, doors, floors & zones',
-    desc: 'Walls, doors, flooring and zone overlays. Drag along a wall to clear a run, or drag a rectangle over floors.', color: '#a86' },
-  { key: 'demolishUtility',  name: 'Demolish Utility',  cardName: 'Utility', sub: 'Pipes & cables',
-    desc: 'Utility pipes and cables. Click a line to remove it.', color: '#c84' },
-];
+const DEMOLISH_FILTER_KEYS = new Set(DEMOLISH_FILTERS.map(filter => filter.key));
+
+export function defaultDemolishFilters() {
+  return new Set(DEMOLISH_FILTERS
+    .filter(filter => filter.defaultEnabled)
+    .map(filter => filter.key));
+}
+
+export function normalizeDemolishFilters(filters) {
+  const values = filters instanceof Set ? filters : new Set(filters || []);
+  return new Set([...values].filter(key => DEMOLISH_FILTER_KEYS.has(key)));
+}
+
+/**
+ * Immutable demolition decision surface shared by hover, clicks, and area
+ * sweeps. `has(kind)` deliberately matches Set's API so the existing object
+ * picker can cheaply reject entire Placeable families before applying the
+ * finer Structure/Grounds decoration split.
+ */
+export function createDemolishPolicy(filters = defaultDemolishFilters()) {
+  const enabled = normalizeDemolishFilters(filters);
+  const placeableKinds = new Set();
+  if (enabled.has('beamline')) placeableKinds.add('beamline');
+  if (enabled.has('infra')) placeableKinds.add('infrastructure');
+  if (enabled.has('facility')) {
+    placeableKinds.add('equipment');
+    placeableKinds.add('furnishing');
+  }
+  if (enabled.has('structure') || enabled.has('grounds')) placeableKinds.add('decoration');
+
+  return Object.freeze({
+    enabled,
+    has: kind => placeableKinds.has(kind),
+    allowsCategory: category => enabled.has(category),
+    allowsPlaceable(entry, def = PLACEABLES[entry?.type] || COMPONENTS[entry?.type]) {
+      return enabled.has(selectionCategoryForPlaceable(entry, def));
+    },
+    allowsFloor(type) {
+      const def = FLOORS[type];
+      return !!def && enabled.has(def.groundsSurface ? 'grounds' : 'structure');
+    },
+    allowsEdge(hit) {
+      if (!hit) return false;
+      const groundsEdge = !!GROUNDS_WALLS[hit.wallType]
+        || DOOR_TYPES[hit.doorType]?.subsection === 'gates';
+      return enabled.has(groundsEdge ? 'grounds' : 'structure');
+    },
+  });
+}
+
+// Compatibility policies for older saved input paths and focused tool tests.
+// Production demolition always uses the filtered policy above.
+export function legacyDemolishPolicy(type) {
+  if (type === 'demolishBuilding') return createDemolishPolicy(['structure', 'grounds', 'facility']);
+  if (type === 'demolishBeamline') return createDemolishPolicy(['beamline']);
+  if (type === 'demolishUtility') return createDemolishPolicy(['infra']);
+  return createDemolishPolicy(['structure', 'beamline', 'infra', 'facility', 'grounds']);
+}
 
 /**
  * Compute the refund for a deletable target (the shape returned by

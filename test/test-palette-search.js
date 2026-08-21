@@ -14,6 +14,7 @@ import { Game } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
 import { COMPONENTS } from '../src/data/components.js';
 import { PARAM_DEFS } from '../src/beamline/component-physics.js';
+import { DEMOLISH_FILTERS } from '../src/input/demolishScopes.js';
 import { buildPaletteIndex, searchPalette, matchesWordPrefix } from '../src/ui/palette-search.js';
 
 globalThis.COMPONENTS = COMPONENTS;
@@ -54,8 +55,9 @@ function makeGame() {
   assertOk(bySource('facility').some(e => e.kind === 'furnishing'), 'facility: at least one furnishing is indexed');
   assertOk(bySource('facility').some(e => e.kind === 'zone'), 'facility: the zone paint tools are indexed');
 
-  // DEMOLISH_BUTTONS are tools, not placeables — deliberately excluded.
-  assertOk(!index.some(e => e.id === 'demolishAll'), 'demolish tool buttons are excluded from the index');
+  // Demolish filters are controls, not placeables — deliberately excluded.
+  assertOk(DEMOLISH_FILTERS.every(filter => !index.some(e => e.id === filter.key)),
+    'demolish filters are excluded from the index');
 
   // Every entry must resolve to a mode + category a player can actually
   // land on — a dangling entry would arm a tool and then fail to switch

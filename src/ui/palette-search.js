@@ -13,9 +13,8 @@
 // because desks are scattered across room-type tabs the player would have
 // to guess at.
 //
-// DEMOLISH_BUTTONS (src/input/demolishScopes.js) is deliberately excluded —
-// those are click-to-delete tool scopes, not things you build, so they have
-// no place in a build-item search.
+// Demolish category filters (src/input/demolishScopes.js) are deliberately
+// excluded — they modify the delete cursor rather than build an item.
 
 import { COMPONENTS } from '../data/components.js';
 import { FLOORS, WALL_TYPES, DOOR_TYPES } from '../data/structure.js';

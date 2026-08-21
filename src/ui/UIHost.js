@@ -66,6 +66,10 @@ export class UIHost {
   _selectPaletteTool(kind, key, variant) {
     this.renderer._inputHandler?.selectPaletteTool(kind, key, variant);
   }
+
+  _setDemolishFilter(key, enabled) {
+    return this.renderer._inputHandler?.setDemolishFilter(key, enabled);
+  }
 }
 
 // --- Pass-through properties: reads/writes delegate to the renderer. ---
