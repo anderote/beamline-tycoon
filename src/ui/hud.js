@@ -18,6 +18,7 @@ import { renderDecorationThumbnail } from '../renderer3d/decoration-builder.js';
 import { windowPreviewDataUrl } from './window-preview.js';
 import { DEMOLISH_BUTTONS } from '../input/demolishScopes.js';
 import { buildPaletteIndex, searchPalette } from './palette-search.js';
+import { resolvePaletteCollection } from './palette-collection.js';
 import { ContextWindow } from './ContextWindow.js';
 import { openWikiWindow } from './WikiWindow.js';
 import { openStaffInspector } from './StaffInspector.js';
@@ -1903,8 +1904,13 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
   // "Lights" tab is a decoration tab too, just living under a different mode.
   const decCatDef = MODES[this.activeMode]?.categories?.[compCategory];
   if (decCatDef?.isDecorationTab) {
-    const decItems = Object.entries(DECORATIONS).filter(([, d]) => d.category === compCategory);
-    if (decItems.length === 0) return;
+    const collection = resolvePaletteCollection(compCategory, decCatDef, {
+      decorations: DECORATIONS,
+      components: COMPONENTS,
+    });
+    const decItems = collection.decorations;
+    if (decItems.length === 0 && collection.components.length === 0
+        && collection.utilityLineTools.length === 0) return;
 
     for (const [key, dec] of decItems) {
       const item = document.createElement('div');
@@ -2020,6 +2026,17 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         });
       }
 
+      palette.appendChild(item);
+    }
+
+    for (const utilityType of collection.utilityLineTools) {
+      appendUtilityLineItem(palette, utilityType);
+    }
+
+    for (const [key, comp] of collection.components) {
+      const item = this._createPaletteItem(key, comp, paletteIdx);
+      if (!item) continue;
+      paletteIdx++;
       palette.appendChild(item);
     }
     return;

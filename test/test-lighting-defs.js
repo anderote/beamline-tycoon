@@ -153,7 +153,7 @@ console.log('\n--- Test 4: reworked fixtures removed from DECORATIONS_RAW ---');
 // confirms `spotLight` is gone, and Test 1/2 confirm `floodLight` exists
 // with a well-formed light block under its new id.
 // ==========================================================================
-console.log('\n--- Test 5: PLACEABLES lookup matches old DECORATIONS_RAW lookup (all 24) ---');
+console.log('\n--- Test 5: PLACEABLES lookup matches every raw decoration plus moved fixtures ---');
 {
   // Pre-existing values for the two ids that moved out of DECORATIONS_RAW
   // and into lighting.js, exactly as decorations.raw.js declared them
@@ -165,8 +165,8 @@ console.log('\n--- Test 5: PLACEABLES lookup matches old DECORATIONS_RAW lookup 
 
   const rawIds = Object.keys(DECORATIONS_RAW);
   const ids = [...new Set([...rawIds, ...Object.keys(MOVED_OLD_VALUES)])];
-  assert(ids.length === 23,
-    `23 pre-existing decoration ids covered: 21 still in DECORATIONS_RAW + lamppost + bollardLight ` +
+  assert(ids.length === rawIds.length + Object.keys(MOVED_OLD_VALUES).length,
+    `${rawIds.length} raw decoration ids plus lamppost + bollardLight are covered ` +
     `(spotLight excluded — renamed, not moved id-for-id) (got ${ids.length})`);
   assert(!ids.includes('spotLight'), "'spotLight' is excluded from this comparison, not silently missing");
 

@@ -139,6 +139,70 @@ export const DECORATIONS_RAW = {
   // six new ones) now live in src/data/placeables/lighting.js, which feeds
   // ALL_DEFS directly — see that file for the single source of truth.
 
+  // === Utilities ===
+  propaneTank: {
+    id: 'propaneTank', name: 'Propane Tank', cost: { funding: 12000 }, removeCost: 1000,
+    morale: 0, placement: 'outdoor', spriteKey: 'propane_tank',
+    blocksBuild: true, category: 'utilities',
+    subW: 6, subL: 3, subH: 4,
+  },
+  utilityPole: {
+    id: 'utilityPole', name: 'Utility Pole', cost: { funding: 4500 }, removeCost: 500,
+    morale: 0, placement: 'outdoor', spriteKey: 'utility_pole',
+    blocksBuild: true, category: 'utilities',
+    subW: 1, subL: 1, subH: 16,
+  },
+  overheadPowerSpan: {
+    id: 'overheadPowerSpan', name: 'Overhead Power Line', cost: { funding: 18000 }, removeCost: 1500,
+    morale: 0, placement: 'outdoor', spriteKey: 'overhead_power_span',
+    blocksBuild: true, category: 'utilities',
+    subW: 12, subL: 2, subH: 16,
+  },
+  outdoorPipeRack: {
+    id: 'outdoorPipeRack', name: 'Outdoor Pipe Rack', cost: { funding: 22000 }, removeCost: 2000,
+    morale: 0, placement: 'outdoor', spriteKey: 'outdoor_pipe_rack',
+    blocksBuild: true, category: 'utilities',
+    subW: 8, subL: 3, subH: 6,
+  },
+  backupGenerator: {
+    id: 'backupGenerator', name: 'Backup Generator', cost: { funding: 45000 }, removeCost: 4000,
+    morale: 0, placement: 'outdoor', spriteKey: 'backup_generator',
+    blocksBuild: true, category: 'utilities',
+    subW: 6, subL: 4, subH: 5,
+  },
+
+  // === Security ===
+  guardTower: {
+    id: 'guardTower', name: 'Guard Tower', cost: { funding: 65000 }, removeCost: 6000,
+    morale: 0.5, placement: 'outdoor', spriteKey: 'guard_tower',
+    blocksBuild: true, category: 'security',
+    subW: 6, subL: 6, subH: 18,
+  },
+  securityGatehouse: {
+    id: 'securityGatehouse', name: 'Security Gatehouse', cost: { funding: 35000 }, removeCost: 3000,
+    morale: 0.25, placement: 'outdoor', spriteKey: 'security_gatehouse',
+    blocksBuild: true, category: 'security',
+    subW: 6, subL: 5, subH: 6,
+  },
+  securityCameraMast: {
+    id: 'securityCameraMast', name: 'Camera Mast', cost: { funding: 12000 }, removeCost: 1000,
+    morale: 0, placement: 'outdoor', spriteKey: 'security_camera_mast',
+    blocksBuild: true, category: 'security',
+    subW: 2, subL: 2, subH: 12,
+  },
+  vehicleBarrier: {
+    id: 'vehicleBarrier', name: 'Vehicle Barrier', cost: { funding: 8000 }, removeCost: 700,
+    morale: 0, placement: 'outdoor', spriteKey: 'vehicle_barrier',
+    blocksBuild: true, category: 'security',
+    subW: 6, subL: 2, subH: 3,
+  },
+  securityBollard: {
+    id: 'securityBollard', name: 'Security Bollard', cost: { funding: 1200 }, removeCost: 100,
+    morale: 0, placement: 'outdoor', spriteKey: 'security_bollard',
+    blocksBuild: true, category: 'security',
+    subW: 1, subL: 1, subH: 3,
+  },
+
   // === Bins & Signs ===
   trashCan: {
     id: 'trashCan', name: 'Trash Can', cost: { funding: 5 }, removeCost: 0,
@@ -192,6 +256,16 @@ const DECORATION_DESCS = {
   picnicTable: 'Outdoor table for group lunches and journal club in the sun.',
   fountain: 'Ornamental fountain — the only unscheduled water feature allowed on site.',
   statue: 'Commemorates the founder, or possibly the first working klystron.',
+  propaneTank: 'Horizontal propane vessel on concrete saddles for heating and emergency plant. Decorative site utility.',
+  utilityPole: 'Single distribution pole with crossarm and insulators. Shift-drag to line a service route.',
+  overheadPowerSpan: 'Two-pole overhead distribution span with three conductors. Decorative; use real cable tools for powered networks.',
+  outdoorPipeRack: 'Elevated rack carrying color-coded campus service pipes. Decorative site utility.',
+  backupGenerator: 'Weatherproof standby-generator enclosure with radiator bank and exhaust stack. Decorative; it does not generate power.',
+  guardTower: 'Raised perimeter watch tower with enclosed cabin, railings, ladder, and an excellent view of the switchyard.',
+  securityGatehouse: 'Glazed checkpoint booth with canopy and vehicle-control arm.',
+  securityCameraMast: 'Tall camera mast with three directional surveillance heads.',
+  vehicleBarrier: 'Heavy concrete traffic barrier for protected approaches and checkpoint lanes.',
+  securityBollard: 'Impact-rated steel bollard. Shift-drag to protect a curb or entrance.',
   trashCan: 'Keeps the campus tidy. Contents: mostly coffee cups.',
   recyclingBin: 'For paper drafts v1 through v47.',
   infoSign: 'Campus map board so visitors can get lost with confidence.',
