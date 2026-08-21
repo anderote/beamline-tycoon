@@ -883,6 +883,11 @@ body {
   padding: 6px 12px 8px;
 }
 
+/* The expanded palette is intentionally positioned above the fixed HUD rail. */
+#bottom-hud.palette-expanded {
+  overflow: visible;
+}
+
 #shift-hint {
   position: absolute;
   left: 50%;
@@ -1624,20 +1629,37 @@ body {
   gap: 6px;
 }
 
+/* Categories and search results without named subsections still gain the same
+   two-row layout. */
+#component-palette.palette-expanded:not(:has(.palette-subsection)) {
+  display: grid;
+  grid-template-rows: repeat(2, 184px);
+  grid-auto-flow: column;
+  grid-auto-columns: 140px;
+}
+
 #palette-expand-toggle {
-  position: absolute;
-  left: 12px;
-  bottom: 2px;
-  z-index: 2;
-  width: 32px;
-  height: 22px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 31px;
+  padding: 0 10px;
   border: 1px solid rgba(110, 110, 170, 0.55);
-  border-radius: 3px 3px 0 0;
+  border-radius: 3px;
   background: rgba(42, 42, 72, 0.96);
   color: #d9c483;
-  font-size: 15px;
-  line-height: 16px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
+}
+
+#palette-expand-toggle .palette-expand-label {
+  font-size: 8px;
+  text-transform: uppercase;
 }
 
 #palette-expand-toggle:hover {
