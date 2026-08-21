@@ -146,6 +146,9 @@ export class BeamlineDesigner {
     this.mode = 'edit';
     this.designId = null;       // ID of saved design being edited (design mode only)
     this.designName = '';       // editable name for design mode
+    this.draftWorkspaceId = null;       // beamline-owned persistent workspace
+    this.activeWorkspaceDraftId = null; // Current or Design N tab
+    this._activeDraftOpenSnapshot = null;
 
     // Viewport (shared between schematic and along-s plots)
     this.viewX = 0;             // horizontal pan offset in beamline-meters
@@ -228,6 +231,16 @@ export class BeamlineDesigner {
     });
     document.getElementById('dsgn-save-as').addEventListener('click', () => {
       Promise.resolve(this.saveDesignAs()).catch(err => console.error('[designer] save-as failed', err));
+    });
+    const workspaceTabs = document.getElementById('dsgn-workspace-tabs');
+    workspaceTabs?.addEventListener('click', (event) => {
+      const button = event.target.closest('button');
+      if (!button) return;
+      if (button.dataset.action === 'new-draft') {
+        this._createWorkspaceAlternative();
+      } else if (button.dataset.draftId) {
+        this._switchWorkspaceDraft(button.dataset.draftId);
+      }
     });
     const autoTune = document.getElementById('dsgn-auto-tune');
     if (autoTune) {
@@ -686,6 +699,10 @@ export class BeamlineDesigner {
    */
   openFromSource(sourceId, endpointId = null) {
     if (!sourceId) return;
+    // Router-driven switches can replace one open Designer session without
+    // calling close(). Checkpoint the outgoing beamline before any of its
+    // fields are overwritten by the new source.
+    if (this.isOpen) this._saveActiveWorkspaceDraft();
 
     this.isOpen = true;
     this._pushEsc();
@@ -699,10 +716,8 @@ export class BeamlineDesigner {
     this.editEndpointId = endpointId;
 
     this._syncDraftFromMap();
+    this._openBeamlineDraftWorkspace();
 
-    this.selectedIndex = this.draftNodes.length > 0 ? 0 : -1;
-    this.viewX = 0;
-    this.viewZoom = 0.7;
     this.markerS = 0;
     this.focusRow = 0;
     this.designerPaletteIndex = -1;
@@ -740,6 +755,211 @@ export class BeamlineDesigner {
     this._renderAll();
 
     window.location.hash = `designer?src=${sourceId}`;
+  }
+
+  /** Plain save-safe shape shared by closed workspaces and open-session aux. */
+  _draftPayload(nodes = this.draftNodes) {
+    return {
+      draftNodes: (nodes || []).map(n => ({
+        id: n.id,
+        type: n.type,
+        params: n.params ? { ...n.params } : {},
+        bendDir: n.bendDir || null,
+        subL: n.subL,
+        _pipeKind: n._pipeKind,
+        _sourceRef: n._sourceRef ? { ...n._sourceRef } : undefined,
+        _targetPipeId: n._targetPipeId,
+        _targetPosition: n._targetPosition,
+        _insertMode: n._insertMode,
+      })),
+      selectedIndex: this.selectedIndex,
+      viewX: this.viewX,
+      viewZoom: this.viewZoom,
+      autoTuneEnabled: this.autoTuneEnabled === true,
+      hasChanges: this.mode === 'edit' && this._nodesDiffer(nodes, this.originalNodes),
+    };
+  }
+
+  _inflateDraftNodes(nodes) {
+    return (nodes || []).map(n => ({
+      id: n.id,
+      type: n.type,
+      col: 0, row: 0, dir: 0, entryDir: 0,
+      parentId: null, bendDir: n.bendDir || null, tiles: [],
+      params: n.params ? { ...n.params } : {},
+      computedStats: null,
+      subL: n.subL,
+      _pipeKind: n._pipeKind,
+      _sourceRef: n._sourceRef ? { ...n._sourceRef } : (n._pipeKind ? {} : undefined),
+      _targetPipeId: n._targetPipeId,
+      _targetPosition: n._targetPosition,
+      _insertMode: n._insertMode,
+    }));
+  }
+
+  _loadWorkspaceDraft(draft) {
+    if (!draft) return;
+    this.draftNodes = this._inflateDraftNodes(draft.draftNodes);
+    this.selectedIndex = Number.isInteger(draft.selectedIndex)
+      ? Math.max(-1, Math.min(draft.selectedIndex, this.draftNodes.length - 1))
+      : (this.draftNodes.length ? 0 : -1);
+    this.viewX = Number.isFinite(draft.viewX) ? draft.viewX : 0;
+    this.viewZoom = Number.isFinite(draft.viewZoom) ? draft.viewZoom : 0.7;
+    this.autoTuneEnabled = draft.autoTuneEnabled === true;
+    this._nextTempId = this.draftNodes.length;
+    this._undoStack = [];
+    this._activeDraftOpenSnapshot = this._draftPayload();
+  }
+
+  /** Attach edit mode to this beamline's saved Current/Design N workspace. */
+  _openBeamlineDraftWorkspace() {
+    const entry = this.game.registry?.getBySourceId?.(this.editSourceId) || null;
+    this.draftWorkspaceId = entry?.id || `source:${this.editSourceId}`;
+
+    const existing = this.game.getBeamlineDesignerWorkspace?.(this.draftWorkspaceId);
+    const currentPayload = {
+      ...this._draftPayload(this.originalNodes),
+      selectedIndex: this.originalNodes.length ? 0 : -1,
+      viewX: 0,
+      viewZoom: 0.7,
+      autoTuneEnabled: false,
+    };
+    const workspace = this.game.ensureBeamlineDesignerWorkspace?.({
+      workspaceId: this.draftWorkspaceId,
+      beamlineId: entry?.id || null,
+      sourceId: this.editSourceId,
+      currentDraft: currentPayload,
+    });
+    if (!workspace) {
+      this.activeWorkspaceDraftId = null;
+      this.selectedIndex = this.draftNodes.length ? 0 : -1;
+      this.viewX = 0;
+      this.viewZoom = 0.7;
+      return;
+    }
+
+    // Import the old global single-draft slot once, so upgrading does not
+    // discard precisely the unplaceable draft this feature is meant to keep.
+    const legacy = this.game.state.designerState;
+    if (!existing && legacy?.mode === 'edit'
+        && legacy.editSourceId === this.editSourceId && legacy.draftNodes?.length) {
+      this.game.saveBeamlineDesignerDraft?.(
+        this.draftWorkspaceId,
+        'current',
+        { ...legacy, hasChanges: true },
+      );
+    } else if (existing) {
+      // Current follows the map whenever it had no pending edits. Without
+      // this refresh, an ordinary map-side beamline change made while the
+      // Designer was closed would turn a formerly clean tab into an
+      // accidental proposal to revert the change.
+      const current = workspace.drafts.find(draft => draft.id === 'current');
+      if (current && current.hasChanges !== true) {
+        this.game.saveBeamlineDesignerDraft?.(
+          this.draftWorkspaceId,
+          'current',
+          { ...currentPayload, hasChanges: false },
+        );
+      }
+    }
+
+    this.activeWorkspaceDraftId = workspace.activeDraftId || 'current';
+    const active = workspace.drafts.find(draft => draft.id === this.activeWorkspaceDraftId)
+      || workspace.drafts[0];
+    this.activeWorkspaceDraftId = active?.id || 'current';
+    this._loadWorkspaceDraft(active);
+  }
+
+  _saveActiveWorkspaceDraft() {
+    if (this.mode !== 'edit' || !this.draftWorkspaceId || !this.activeWorkspaceDraftId) {
+      return null;
+    }
+    return this.game.saveBeamlineDesignerDraft?.(
+      this.draftWorkspaceId,
+      this.activeWorkspaceDraftId,
+      this._draftPayload(),
+    ) || null;
+  }
+
+  _switchWorkspaceDraft(draftId) {
+    if (this.mode !== 'edit' || !this.draftWorkspaceId
+        || draftId === this.activeWorkspaceDraftId) return;
+    this._saveActiveWorkspaceDraft();
+    if (!this.game.selectBeamlineDesignerDraft?.(this.draftWorkspaceId, draftId)) return;
+    const workspace = this.game.getBeamlineDesignerWorkspace?.(this.draftWorkspaceId);
+    const draft = workspace?.drafts?.find(candidate => candidate.id === draftId);
+    if (!draft) return;
+    this.activeWorkspaceDraftId = draft.id;
+    this._loadWorkspaceDraft(draft);
+    this.markerS = 0;
+    this._lastTuningKey = null;
+    this._updateTotalLength();
+    this._recalcDraft();
+    this._updateDraftBar();
+    this._renderAll();
+  }
+
+  _createWorkspaceAlternative() {
+    if (this.mode !== 'edit' || !this.draftWorkspaceId) return;
+    this._saveActiveWorkspaceDraft();
+    // Alternatives branch from the installed machine, not from another
+    // speculative tab. That keeps each option independently comparable to
+    // Current and avoids accidentally nesting one proposal inside another.
+    const baseline = {
+      ...this._draftPayload(this.originalNodes),
+      selectedIndex: this.originalNodes.length ? 0 : -1,
+      viewX: 0,
+      viewZoom: 0.7,
+      autoTuneEnabled: false,
+      hasChanges: false,
+    };
+    const draft = this.game.createBeamlineDesignerAlternative?.(
+      this.draftWorkspaceId,
+      baseline,
+    );
+    if (!draft) return;
+    this.activeWorkspaceDraftId = draft.id;
+    this._loadWorkspaceDraft(draft);
+    this.markerS = 0;
+    this._lastTuningKey = null;
+    this._updateTotalLength();
+    this._recalcDraft();
+    this._updateDraftBar();
+    this._renderAll();
+  }
+
+  _renderWorkspaceTabs() {
+    const root = document.getElementById('dsgn-workspace-tabs');
+    if (!root) return;
+    root.innerHTML = '';
+    root.classList.toggle('hidden', this.mode !== 'edit' || !this.draftWorkspaceId);
+    if (this.mode !== 'edit' || !this.draftWorkspaceId) return;
+    const workspace = this.game.getBeamlineDesignerWorkspace?.(this.draftWorkspaceId);
+    for (const draft of (workspace?.drafts || [])) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'dsgn-workspace-tab';
+      button.dataset.draftId = draft.id;
+      button.textContent = draft.name;
+      button.classList.toggle('active', draft.id === this.activeWorkspaceDraftId);
+      button.setAttribute('role', 'tab');
+      button.setAttribute('aria-selected', String(draft.id === this.activeWorkspaceDraftId));
+      if (draft.id === this.activeWorkspaceDraftId && this._hasDraftChanges()) {
+        button.classList.add('has-changes');
+      }
+      button.title = draft.id === 'current'
+        ? 'Working draft for the installed beamline — auto-saved on exit'
+        : `${draft.name} — auto-saved alternative`;
+      root.appendChild(button);
+    }
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'dsgn-workspace-tab dsgn-workspace-add';
+    add.dataset.action = 'new-draft';
+    add.textContent = '+';
+    add.title = 'New alternative from the installed beamline';
+    add.setAttribute('aria-label', 'New beamline design alternative');
+    root.appendChild(add);
   }
 
   /**
@@ -799,10 +1019,16 @@ export class BeamlineDesigner {
   }
 
   openDesign(design = null) {
+    // Same route-switch seam as openFromSource: leaving an edit workspace for
+    // the standalone library must retain the beamline draft first.
+    if (this.isOpen) this._saveActiveWorkspaceDraft();
     this.mode = 'design';
     this.beamlineId = null;
     this.isOpen = true;
     this._pushEsc();
+    this.draftWorkspaceId = null;
+    this.activeWorkspaceDraftId = null;
+    this._activeDraftOpenSnapshot = null;
 
     // Check for saved draft state for this design
     const savedDraft = this.game.state.designerState;
@@ -1106,8 +1332,11 @@ export class BeamlineDesigner {
   cancel() {
     if (!this.isOpen) return;
 
-    // Cancel discards the draft and reverts
-    if (this._hasDraftChanges() && !confirm('Discard draft changes?')) {
+    // Cancel discards only edits made since this tab was opened/selected. Its
+    // last auto-saved version remains in the beamline workspace.
+    const openedNodes = this._activeDraftOpenSnapshot?.draftNodes || this.originalNodes;
+    const changedSinceOpen = this._nodesDiffer(this.draftNodes, openedNodes);
+    if (changedSinceOpen && !confirm('Discard changes made since this draft was opened?')) {
       return;
     }
     this._clearDraftState();
@@ -1115,7 +1344,9 @@ export class BeamlineDesigner {
   }
 
   _saveDraftState() {
-    // Persist draft to game state so it survives close/reload
+    // Beamline drafts live in the per-beamline workspace; designerState only
+    // remembers the last transient session for runtime routing/reload.
+    this._saveActiveWorkspaceDraft();
     this.game.state.designerState = this.serializeState();
   }
 
@@ -1141,6 +1372,9 @@ export class BeamlineDesigner {
    * or executed off the main task.
    */
   async _planAndApply() {
+    // A blocked or rejected Apply is still valuable design work. Persist it
+    // before planning so any later exit always has an exact recovery point.
+    this._saveActiveWorkspaceDraft();
     const plan = planDesignerApply(this.game.state, {
       sourceId: this.editSourceId,
       draftNodes: this.draftNodes,
@@ -1200,6 +1434,19 @@ export class BeamlineDesigner {
     this._syncDraftFromMap();
     this._updateTotalLength();
     this._recalcBaseline();
+
+    if (this.draftWorkspaceId) {
+      this.game.replaceCurrentBeamlineDesignerDraft?.(
+        this.draftWorkspaceId,
+        {
+          ...this._draftPayload(this.draftNodes),
+          selectedIndex: this.draftNodes.length ? 0 : -1,
+          viewX: 0,
+          viewZoom: 0.7,
+        },
+      );
+      this.activeWorkspaceDraftId = 'current';
+    }
 
     this._clearDraftState();
     this._cleanup();
@@ -1468,6 +1715,9 @@ export class BeamlineDesigner {
     this._escUnsub?.();
     this._escUnsub = null;
     this.beamlineId = null;
+    this.draftWorkspaceId = null;
+    this.activeWorkspaceDraftId = null;
+    this._activeDraftOpenSnapshot = null;
     this.editSourceId = null;
     this.editEndpointId = null;
     this.availableEndpoints = [];
@@ -1515,6 +1765,7 @@ export class BeamlineDesigner {
     this._suppressHashUpdate = false;
     // Restore normal palette tabs
     this._restoreNormalTabs();
+    this._renderWorkspaceTabs();
   }
 
   // --- Undo ---
@@ -2573,14 +2824,18 @@ export class BeamlineDesigner {
     this.game?.log?.(`${name} inserted from physics hint`, 'good');
   }
 
-  _hasDraftChanges() {
-    if (this.draftNodes.length !== this.originalNodes.length) return true;
-    for (let i = 0; i < this.draftNodes.length; i++) {
-      if (this.draftNodes[i].type !== this.originalNodes[i].type) return true;
-      if (this.draftNodes[i].id !== this.originalNodes[i].id) return true;
-      if (JSON.stringify(this.draftNodes[i].params) !== JSON.stringify(this.originalNodes[i].params)) return true;
+  _nodesDiffer(draftNodes, originalNodes) {
+    if ((draftNodes || []).length !== (originalNodes || []).length) return true;
+    for (let i = 0; i < draftNodes.length; i++) {
+      if (draftNodes[i].type !== originalNodes[i].type) return true;
+      if (draftNodes[i].id !== originalNodes[i].id) return true;
+      if (JSON.stringify(draftNodes[i].params) !== JSON.stringify(originalNodes[i].params)) return true;
     }
     return false;
+  }
+
+  _hasDraftChanges() {
+    return this._nodesDiffer(this.draftNodes, this.originalNodes);
   }
 
   _calcCostDelta() {
@@ -2592,6 +2847,7 @@ export class BeamlineDesigner {
   }
 
   _updateDraftBar() {
+    this._renderWorkspaceTabs();
     if (this.mode === 'design') {
       this.summaryEl.textContent = `${this.draftNodes.length} components · ${this.totalLength.toFixed(1)}m`;
       return;
@@ -2707,24 +2963,15 @@ export class BeamlineDesigner {
       editEndpointId: this.editEndpointId || null,
       designId: this.designId,
       designName: this.designName,
+      draftWorkspaceId: this.draftWorkspaceId,
+      activeWorkspaceDraftId: this.activeWorkspaceDraftId,
       // The map back-references ride along in edit mode. They are what the
       // planner aligns the draft against, so a draft restored without them
       // reads as "every module is new, including the source" and Apply refuses
       // the whole thing as source_immovable. subL travels for the same reason
       // _nodeSubL exists: a drift's real length is on the node, not the
       // component template.
-      draftNodes: this.draftNodes.map(n => ({
-        id: n.id,
-        type: n.type,
-        params: n.params ? { ...n.params } : {},
-        bendDir: n.bendDir || null,
-        subL: n.subL,
-        _pipeKind: n._pipeKind,
-        _sourceRef: n._sourceRef ? { ...n._sourceRef } : undefined,
-        _targetPipeId: n._targetPipeId,
-        _targetPosition: n._targetPosition,
-        _insertMode: n._insertMode,
-      })),
+      draftNodes: this._draftPayload().draftNodes,
       selectedIndex: this.selectedIndex,
       viewX: this.viewX,
       viewZoom: this.viewZoom,
@@ -2738,23 +2985,15 @@ export class BeamlineDesigner {
     if (state.mode === 'edit' && state.editSourceId) {
       this.autoTuneEnabled = state.autoTuneEnabled === true;
       this.openFromSource(state.editSourceId, state.editEndpointId);
+      if (state.activeWorkspaceDraftId && this.draftWorkspaceId) {
+        this.game.selectBeamlineDesignerDraft?.(
+          this.draftWorkspaceId,
+          state.activeWorkspaceDraftId,
+        );
+        this.activeWorkspaceDraftId = state.activeWorkspaceDraftId;
+      }
       if (state.draftNodes?.length) {
-        this.draftNodes = state.draftNodes.map(n => ({
-          id: n.id,
-          type: n.type,
-          col: 0, row: 0, dir: 0, entryDir: 0,
-          parentId: null, bendDir: n.bendDir || null, tiles: [],
-          params: n.params ? { ...n.params } : {},
-          computedStats: null,
-          subL: n.subL,
-          // Carried through so the restored draft still knows which map
-          // objects its nodes stand for — see serializeState.
-          _pipeKind: n._pipeKind,
-          _sourceRef: n._sourceRef ? { ...n._sourceRef } : (n._pipeKind ? {} : undefined),
-          _targetPipeId: n._targetPipeId,
-          _targetPosition: n._targetPosition,
-          _insertMode: n._insertMode,
-        }));
+        this.draftNodes = this._inflateDraftNodes(state.draftNodes);
         this.selectedIndex = state.selectedIndex;
         this.viewX = state.viewX;
         this.viewZoom = state.viewZoom;
@@ -2762,6 +3001,7 @@ export class BeamlineDesigner {
         this._recalcDraft();
         this._updateDraftBar();
         this._renderAll();
+        this._activeDraftOpenSnapshot = this._draftPayload();
       }
     } else if (state.mode === 'design') {
       this.autoTuneEnabled = state.autoTuneEnabled === true;

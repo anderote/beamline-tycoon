@@ -11,6 +11,10 @@ import { buildPhysicsElements } from '../beamline/physics-payload.js';
 import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
 import { getBeamlineType } from '../data/beamline-types.js';
 import { flattenPath } from '../beamline/flattener.js';
+import {
+  createDesignerAlternative, ensureDesignerWorkspace, getDesignerWorkspace,
+  replaceCurrentDesignerDraft, saveDesignerDraft, selectDesignerDraft,
+} from '../beamline/designer-workspaces.js';
 import { moduleBeamAxis, axisMatchesDirection } from '../beamline/module-axis.js';
 import { BeamlineSystem, pipeRefund, missingResourceLabel } from '../beamline/BeamlineSystem.js';
 import { METRES_PER_SUB } from '../beamline/pipe-geometry.js';
@@ -97,7 +101,7 @@ const SERIALIZED_FIELDS = [
   // utilities
   'utilityLines', 'utilityNextId', 'utilityNetworkState',
   // designer library
-  'savedDesigns', 'savedDesignNextId',
+  'savedDesigns', 'savedDesignNextId', 'beamlineDesignerWorkspaces',
 ];
 
 // State the sim owns, which undo/redo must not rewind. The tick loop keeps
@@ -107,16 +111,16 @@ const SERIALIZED_FIELDS = [
 // (see _syncResourceLedger): undo restores the snapshot's balance plus every
 // non-gesture credit/debit since, so a build's cost comes back without also
 // reclaiming the upkeep the facility paid while the build stood.
-// `savedDesigns` is not sim state but is equally outside the undo model: the
-// designer library saves/deletes outside any gesture (no commitGesture), so
-// restoring it would silently destroy a design saved after the last snapshot
-// (and resurrect one deleted after it).
+// Saved designs and per-beamline Designer workspaces are not sim state but are
+// equally outside the undo model: they save outside any world gesture (no
+// commitGesture), so restoring them would silently destroy design work authored
+// after the last snapshot (and resurrect content deleted after it).
 const UNDO_PRESERVED_FIELDS = [
   'tick', 'timeOfDay', 'paused', 'speed', 'log',
   'activeResearch', 'researchProgress', 'completedResearch',
   'completedObjectives', 'discoveries',
   'staffCosts', 'staffMembers', 'staffNextId', 'staffCandidates', 'staffHireDiscount',
-  'savedDesigns', 'savedDesignNextId',
+  'savedDesigns', 'savedDesignNextId', 'beamlineDesignerWorkspaces',
   // zoneConnectivity's staffedOutput/peakTier are sim-accumulated staffing
   // progress (task 6, staff-professions-3, jobs-and-gates) — the same
   // category as componentHealth (BEAMSTATE_PRESERVED_FIELDS, one level
@@ -426,6 +430,10 @@ export class Game {
       // Saved beamline designs
       savedDesigns: [],
       savedDesignNextId: 1,
+      // Persistent working drafts and alternatives, keyed by beamline id.
+      // Unlike designerState (the currently open overlay), these are player
+      // content and survive closing the Designer and saving the game.
+      beamlineDesignerWorkspaces: {},
       // Designer session state (persisted for reload)
       designerState: null,
       // Tutorial
@@ -829,8 +837,9 @@ export class Game {
   //     plus BEAMSTATE_PRESERVED_FIELDS on each registry entry)
   //   - the RNG stream position (see _applyState) — rewinding it would let
   //     undo/redo re-roll wear failures and discoveries
-  //   - the designer library (savedDesigns), which is saved outside any
-  //     gesture and so has no undo entry of its own
+  //   - player-authored Designer content (savedDesigns and per-beamline draft
+  //     workspaces), which is saved outside any gesture and so has no undo
+  //     entry of its own
 
   /**
    * Snapshot payload for the undo stacks, and the thing gestures diff to
@@ -5374,6 +5383,30 @@ export class Game {
 
   // === SAVED DESIGNS ===
 
+  getBeamlineDesignerWorkspace(workspaceId) {
+    return getDesignerWorkspace(this.state, workspaceId);
+  }
+
+  ensureBeamlineDesignerWorkspace(opts) {
+    return ensureDesignerWorkspace(this.state, opts);
+  }
+
+  saveBeamlineDesignerDraft(workspaceId, draftId, payload) {
+    return saveDesignerDraft(this.state, workspaceId, draftId, payload);
+  }
+
+  createBeamlineDesignerAlternative(workspaceId, payload) {
+    return createDesignerAlternative(this.state, workspaceId, payload);
+  }
+
+  selectBeamlineDesignerDraft(workspaceId, draftId) {
+    return selectDesignerDraft(this.state, workspaceId, draftId);
+  }
+
+  replaceCurrentBeamlineDesignerDraft(workspaceId, payload) {
+    return replaceCurrentDesignerDraft(this.state, workspaceId, payload);
+  }
+
   addDesign({ name, category, components }) {
     const id = this.state.savedDesignNextId++;
     const now = Date.now();
@@ -6051,6 +6084,11 @@ export class Game {
     // Ensure saved designs exist
     if (!this.state.savedDesigns) this.state.savedDesigns = [];
     if (!this.state.savedDesignNextId) this.state.savedDesignNextId = 1;
+    if (!this.state.beamlineDesignerWorkspaces
+        || typeof this.state.beamlineDesignerWorkspaces !== 'object'
+        || Array.isArray(this.state.beamlineDesignerWorkspaces)) {
+      this.state.beamlineDesignerWorkspaces = {};
+    }
     // Ensure designerState exists
     if (!this.state.designerState) this.state.designerState = null;
 
