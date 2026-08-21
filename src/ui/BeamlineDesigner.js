@@ -179,7 +179,7 @@ export class BeamlineDesigner {
     this.plotRangeMode = 'full';   // x: 'full', '30', '9'
     this.plotYRangeMode = 'full';  // y: 'full', 'half', '30', '9'
     this.plotSource = 'proposed';  // 'proposed' | 'current' | 'both'
-    this.plotYAxisMode = 'linear'; // 'linear' | 'log'
+    this.plotYAxisModes = ['linear', 'linear', 'linear'];
     this.plotReference = 'mission'; // 'mission' | 'none'
     this._plotHoverPositions = new Map(); // panel id -> normalized canvas x/y
     this._plotHoverFrame = null;
@@ -589,14 +589,15 @@ export class BeamlineDesigner {
       });
     });
 
-    const yScaleSelect = document.getElementById('dsgn-y-scale-select');
-    if (yScaleSelect) {
-      yScaleSelect.addEventListener('change', () => {
+    document.querySelectorAll('.dsgn-plot-scale-select').forEach(select => {
+      select.addEventListener('change', () => {
         if (!this.isOpen) return;
-        this.plotYAxisMode = yScaleSelect.value === 'log' ? 'log' : 'linear';
+        const panelIndex = Number.parseInt(select.dataset.panel, 10);
+        if (!Number.isInteger(panelIndex) || panelIndex < 0) return;
+        this.plotYAxisModes[panelIndex] = select.value === 'log' ? 'log' : 'linear';
         this._renderPlots();
       });
-    }
+    });
 
     const referenceSelect = document.getElementById('dsgn-plot-reference-select');
     if (referenceSelect) {
@@ -710,7 +711,7 @@ export class BeamlineDesigner {
     this.plotRangeMode = 'full';
     this.plotYRangeMode = 'full';
     this.plotSource = 'proposed';
-    this.plotYAxisMode = 'linear';
+    this.plotYAxisModes = ['linear', 'linear', 'linear'];
     this.plotReference = 'mission';
     this._plotHoverPositions.clear();
 
@@ -855,7 +856,7 @@ export class BeamlineDesigner {
     this.plotRangeMode = 'full';
     this.plotYRangeMode = 'full';
     this.plotSource = 'proposed';
-    this.plotYAxisMode = 'linear';
+    this.plotYAxisModes = ['linear', 'linear', 'linear'];
     this.plotReference = 'mission';
     this._plotHoverPositions.clear();
     this._nextTempId = this.draftNodes.length;

@@ -81,9 +81,10 @@ test('mission targets annotate performance plots without changing their scale', 
       thirdPlotDisabled: document.querySelector('.dsgn-plot-select[data-panel="2"]')?.disabled,
       thirdPlotOptions: [...(document.querySelector('.dsgn-plot-select[data-panel="2"]')?.options || [])]
         .map(option => option.value),
-      yScale: document.getElementById('dsgn-y-scale-select')?.value,
-      yScaleOptions: [...(document.getElementById('dsgn-y-scale-select')?.options || [])]
-        .map(option => option.textContent),
+      yScales: [...document.querySelectorAll('.dsgn-plot-scale-select')]
+        .map(select => select.value),
+      yScaleOptions: [...document.querySelectorAll('.dsgn-plot-scale-select')]
+        .map(select => [...select.options].map(option => option.textContent)),
       reference: document.getElementById('dsgn-plot-reference-select')?.value,
       referenceOptions: [...(document.getElementById('dsgn-plot-reference-select')?.options || [])]
         .map(option => option.textContent),
@@ -124,8 +125,10 @@ test('mission targets annotate performance plots without changing their scale', 
     'twiss-beta', 'phase-advance', 'rigidity', 'beam-envelope', 'current-loss',
     'emittance', 'peak-current', 'phase-space', 'longitudinal',
   ]);
-  expect(layout.yScale).toBe('linear');
-  expect(layout.yScaleOptions).toEqual(['Linear', 'Log']);
+  expect(layout.yScales).toEqual(['linear', 'linear', 'linear']);
+  expect(layout.yScaleOptions).toEqual([
+    ['Lin', 'Log'], ['Lin', 'Log'], ['Lin', 'Log'],
+  ]);
   expect(layout.reference).toBe('mission');
   expect(layout.referenceOptions).toEqual(['Mission Target', 'None']);
   expect(layout.summaryText).toContain('E-beam Processing Line');
@@ -212,9 +215,9 @@ test('mission targets annotate performance plots without changing their scale', 
   expect(leftCurrentOverlay.rightInset).toBe(72);
   expect(leftCurrentOverlay.axisOffset).toBe(0);
 
-  // The reference and axis mode are independent controls. Hiding the mission
-  // reference removes its guides and edge annotations, while Log is forwarded
-  // to each panel's positive primary y channel.
+  // The reference and axis modes are independent controls. Hiding the mission
+  // reference removes its guides and edge annotations, while changing one
+  // panel to Log leaves the other two panels linear.
   const logWithoutMission = await page.evaluate(async () => {
     const { ProbePlots } = await import('/src/ui/probe-plots.js');
     const d = window.game._designer;
@@ -242,7 +245,7 @@ test('mission targets annotate performance plots without changing their scale', 
       return origFillText.apply(this, arguments);
     };
     try {
-      const scale = document.getElementById('dsgn-y-scale-select');
+      const scale = document.querySelector('.dsgn-plot-scale-select[data-panel="0"]');
       scale.value = 'log';
       scale.dispatchEvent(new Event('change', { bubbles: true }));
     } finally {
@@ -253,21 +256,19 @@ test('mission targets annotate performance plots without changing their scale', 
       calls,
       targetLabels,
       logAxisLabels,
-      plotYAxisMode: d.plotYAxisMode,
+      plotYAxisModes: d.plotYAxisModes,
       plotReference: d.plotReference,
     };
   });
-  expect(logWithoutMission.plotYAxisMode).toBe('log');
+  expect(logWithoutMission.plotYAxisModes).toEqual(['log', 'linear', 'linear']);
   expect(logWithoutMission.plotReference).toBe('none');
   expect(logWithoutMission.calls).toHaveLength(3);
-  expect(logWithoutMission.calls.every(call => call.yAxisMode === 'log')).toBe(true);
+  expect(logWithoutMission.calls.map(call => call.yAxisMode))
+    .toEqual(['log', 'linear', 'linear']);
   expect(logWithoutMission.calls.every(call => call.targets === null)).toBe(true);
   expect(logWithoutMission.calls.every(call => call.targetBand === null)).toBe(true);
   expect(logWithoutMission.targetLabels).toEqual([]);
-  expect(logWithoutMission.logAxisLabels).toEqual([
-    'E (keV) · LOG',
-    'ε_n (m·rad) · LOG',
-  ]);
+  expect(logWithoutMission.logAxisLabels).toEqual(['E (keV) · LOG']);
 
   errors.checkAll('designer mission plot strip');
 });
