@@ -291,6 +291,7 @@ console.log('\n--- Designer controls ---');
   const primarySelectors = html.match(/class="dsgn-plot-select"/g) || [];
   const secondarySelectors = html.match(/class="dsgn-plot-secondary-select"/g) || [];
   const tertiarySelectors = html.match(/class="dsgn-plot-tertiary-select"/g) || [];
+  const scaleSelectors = html.match(/class="dsgn-plot-scale-select"/g) || [];
   const thirdPanelStart = html.indexOf('aria-label="Plot options for panel 3"');
   const thirdPanelEnd = html.indexOf('<canvas class="dsgn-plot-canvas" data-panel="2">');
   const thirdPanelControls = html.slice(thirdPanelStart, thirdPanelEnd);
@@ -309,6 +310,11 @@ console.log('\n--- Designer controls ---');
     'both distance panels expose second and third channel dropdowns');
   check(primarySelectors.length === 3,
     'all three panels expose a primary plot dropdown');
+  check(scaleSelectors.length === 3
+    && !html.includes('id="dsgn-y-scale-select"')
+    && html.includes('aria-label="Y-axis scale for plot 1"')
+    && html.includes('aria-label="Y-axis scale for plot 3"'),
+  'each plot exposes its own accessible Lin/Log selector instead of one global control');
   check(html.includes('<option value="energy" selected>Energy</option>')
     && html.includes('<option value="current-loss" selected>Beam Current</option>')
     && html.includes('<option value="rel-beta" selected>Beam &beta;</option>'),
@@ -336,6 +342,10 @@ console.log('\n--- Designer controls ---');
   'designer canvases track and clear pointer positions for hover readouts');
   check(controller.includes('.dsgn-plot-tertiary-select'),
     'third-channel selectors trigger a plot redraw');
+  check(controller.includes("document.querySelectorAll('.dsgn-plot-scale-select')")
+    && controller.includes('this.plotYAxisModes[panelIndex]')
+    && renderer.includes('this.plotYAxisModes?.[panelIndex]'),
+  'plot scale changes are stored and rendered by panel index');
   check(renderer.includes('ProbePlots.drawCursor(off, plotType, solid, xRange')
     && renderer.includes('overlays: overlays.map'),
   'the renderer composes the cursor readout after all active channels');

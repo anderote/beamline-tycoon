@@ -3504,7 +3504,7 @@ body {
   position: relative;
   z-index: 5;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr)) 48px;
   gap: 5px;
   flex: 0 0 auto;
   min-width: 0;
@@ -3513,7 +3513,7 @@ body {
   background: rgba(4, 12, 20, 0.96);
 }
 .dsgn-plot-options--single {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 48px;
 }
 .dsgn-plot-select,
 .dsgn-plot-secondary-select,
@@ -3543,6 +3543,18 @@ body {
 .dsgn-plot-tertiary-select {
   color: #71ddea;
   border-color: rgba(93, 230, 255, 0.38);
+}
+.dsgn-plot-scale-select {
+  width: 100%;
+  min-width: 0;
+  padding: 5px 3px;
+  border: 1px solid rgba(113, 221, 234, 0.38);
+  border-radius: 1px;
+  background: rgba(4, 12, 20, 0.92);
+  color: #8fc8ca;
+  font: 700 9px/1.35 var(--ui-font-display);
+  letter-spacing: .35px;
+  text-transform: uppercase;
 }
 .dsgn-plot-secondary-select:disabled,
 .dsgn-plot-tertiary-select:disabled {

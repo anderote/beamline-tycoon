@@ -288,15 +288,6 @@
           </span>
           <label class="dsgn-plot-control">
             <span class="dsgn-range-sep">|</span>
-            <span class="dsgn-range-label">Scale:</span>
-            <select class="dsgn-plot-control-select" id="dsgn-y-scale-select"
-                    aria-label="Plot Y scale">
-              <option value="linear" selected>Linear</option>
-              <option value="log">Log</option>
-            </select>
-          </label>
-          <label class="dsgn-plot-control">
-            <span class="dsgn-range-sep">|</span>
             <span class="dsgn-range-label">Reference:</span>
             <select class="dsgn-plot-control-select" id="dsgn-plot-reference-select"
                     aria-label="Plot reference overlay">
@@ -357,6 +348,12 @@
                 <option value="emittance">Emittance</option>
                 <option value="peak-current">Peak Current</option>
               </select>
+              <select class="dsgn-plot-scale-select" data-panel="0"
+                      aria-label="Y-axis scale for plot 1"
+                      title="Y-axis scale for this plot">
+                <option value="linear" selected>Lin</option>
+                <option value="log">Log</option>
+              </select>
             </div>
             <canvas class="dsgn-plot-canvas" data-panel="0"></canvas>
           </div>
@@ -409,6 +406,12 @@
                 <option value="emittance">Emittance</option>
                 <option value="peak-current">Peak Current</option>
               </select>
+              <select class="dsgn-plot-scale-select" data-panel="1"
+                      aria-label="Y-axis scale for plot 2"
+                      title="Y-axis scale for this plot">
+                <option value="linear" selected>Lin</option>
+                <option value="log">Log</option>
+              </select>
             </div>
             <canvas class="dsgn-plot-canvas" data-panel="1"></canvas>
           </div>
@@ -431,6 +434,12 @@
                 <option value="peak-current">Peak Current</option>
                 <option value="phase-space">Phase Space</option>
                 <option value="longitudinal">Longitudinal PS</option>
+              </select>
+              <select class="dsgn-plot-scale-select" data-panel="2"
+                      aria-label="Y-axis scale for plot 3"
+                      title="Y-axis scale for this plot">
+                <option value="linear" selected>Lin</option>
+                <option value="log">Log</option>
               </select>
             </div>
             <canvas class="dsgn-plot-canvas" data-panel="2"></canvas>

@@ -94,9 +94,6 @@ function _missionMetricValue(type, result) {
 }
 
 BeamlineDesigner.prototype._renderPlotMissionSummary = function() {
-  const yScaleSelect = document.getElementById('dsgn-y-scale-select');
-  if (yScaleSelect) yScaleSelect.value = this.plotYAxisMode === 'log' ? 'log' : 'linear';
-
   const summary = document.getElementById('dsgn-plot-mission-summary');
   if (!summary) return;
 
@@ -1021,7 +1018,6 @@ BeamlineDesigner.prototype._renderPlots = function() {
   // Compute the x/y ranges based on plot range modes
   const xRange = this._getPlotXRange();
   const yScale = this._getPlotYScale();
-  const yAxisMode = this.plotYAxisMode === 'log' ? 'log' : 'linear';
   const targets = this.plotReference === 'none'
     ? null
     : (this._missionPlotTargets?.() || null);
@@ -1056,11 +1052,15 @@ BeamlineDesigner.prototype._renderPlots = function() {
   const panels = document.querySelectorAll('.dsgn-plot-panel');
   panels.forEach((panel) => {
     const select = panel.querySelector('.dsgn-plot-select');
+    const scaleSelect = panel.querySelector('.dsgn-plot-scale-select');
     const overlaySelects = [...panel.querySelectorAll(
       '.dsgn-plot-secondary-select, .dsgn-plot-tertiary-select'
     )];
     const canvas = panel.querySelector('.dsgn-plot-canvas');
     if (!select || !canvas) return;
+    const panelIndex = Number.parseInt(canvas.dataset.panel, 10);
+    const yAxisMode = this.plotYAxisModes?.[panelIndex] === 'log' ? 'log' : 'linear';
+    if (scaleSelect) scaleSelect.value = yAxisMode;
 
     // The selectors live in a dedicated panel header. Size from the canvas
     // itself so the renderer never relies on a guessed control-row height or
