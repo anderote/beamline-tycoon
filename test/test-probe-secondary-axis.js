@@ -433,13 +433,14 @@ console.log('\n--- Designer controls ---');
     && html.includes('aria-label="Y-axis scale for plot 1"')
     && html.includes('aria-label="Y-axis scale for plot 3"'),
   'each plot exposes its own accessible Lin/Log selector instead of one global control');
-  check(html.includes('<option value="beam-power" selected>Beam Power</option>')
-    && html.includes('<option value="current-loss" selected>Beam Current</option>')
-    && html.includes('<option value="rel-beta" selected>Beam &beta;</option>'),
-  'the left panel defaults to Beam Power, Current, and Beam beta');
   check(html.includes('<option value="beam-envelope" selected>Beam Envelope</option>')
+    && html.includes('<option value="current-loss" selected>Beam Current</option>')
     && html.includes('<option value="emittance" selected>Emittance</option>'),
-  'the middle panel defaults to Envelope, Emittance, and Current');
+  'the left panel defaults to Envelope, Current, and Emittance');
+  check(html.includes('<option value="bunch-evolution" selected>Bunch Evolution</option>')
+    && html.includes('<option value="peak-current" selected>Peak Current</option>')
+    && html.includes('<option value="beam-power" selected>Beam Power</option>'),
+  'the middle panel defaults to Bunch Evolution, Peak Current, and Beam Power');
   check(thirdPanelControls.includes('data-panel="2"')
     && thirdPanelControls.includes('<option value="eic-triangle" selected>')
     && thirdPanelControls.includes('<option value="phase-space">Phase Space</option>')
@@ -456,7 +457,7 @@ console.log('\n--- Designer controls ---');
   'all three new optics quantities appear in the designer plot catalogue');
   check((html.match(/<option value="beam-power"(?: selected)?\s*>Beam Power<\/option>/g) || []).length === 7,
     'beam power appears in every primary and overlay Designer plot catalogue');
-  check((html.match(/<option value="bunch-evolution">Bunch Evolution<\/option>/g) || []).length === 3,
+  check((html.match(/<option value="bunch-evolution"(?: selected)?\s*>Bunch Evolution<\/option>/g) || []).length === 3,
     'bunch evolution appears in every primary Designer catalogue without posing as one-axis overlay');
   check(controller.includes("canvas.addEventListener('mousemove'")
     && controller.includes("canvas.addEventListener('mouseleave'")
