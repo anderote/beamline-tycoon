@@ -982,7 +982,7 @@ BeamlineDesigner.prototype._getEnvelopeAtSelected = function() {
 
 // Plot downscale factor — render at 1/PLOT_SCALE of display size for chunky pixel look
 const PLOT_SCALE = 1.2;
-const ENERGY_RIGHT_AXIS_INSET = 30;
+const PRIMARY_RIGHT_AXIS_INSET = 30;
 const SECONDARY_RIGHT_AXIS_INSET = 36;
 
 // An envelope the plot renderers can actually draw (they need two samples to
@@ -1136,8 +1136,8 @@ BeamlineDesigner.prototype._renderPlots = function() {
     const hover = this._plotHoverPositions?.get(panelId) || null;
     const pin = this.plotPin?.panel === panelId ? this.plotPin : null;
     const cursor = hover || pin;
-    const primaryRightInset = plotType === 'energy-dispersion'
-      ? ENERGY_RIGHT_AXIS_INSET
+    const primaryRightInset = ['energy-dispersion', 'bunch-evolution'].includes(plotType)
+      ? PRIMARY_RIGHT_AXIS_INSET
       : 0;
     const rightInset = primaryRightInset
       + overlays.length * SECONDARY_RIGHT_AXIS_INSET;

@@ -68,6 +68,7 @@ export const ProbePlots = (() => {
       'rigidity': _drawRigidity,
       'energy': _drawEnergy,
       'beam-power': _drawBeamPower,
+      'bunch-evolution': _drawBunchEvolution,
       'energy-dispersion': _drawEnergyDispersion,
       'beta-acceptance': _drawBetaAcceptance,
       'peak-current': _drawPeakCurrent,
@@ -175,6 +176,19 @@ export const ProbePlots = (() => {
 
     'beam-power': (env, yScale) => [_applyYScale(
       ..._range(env.map(d => d.beam_power_mw).filter(v => v != null && isFinite(v))), yScale)],
+
+    // Dual axis: [RMS bunch duration (s), RMS relative energy spread (fraction)].
+    'bunch-evolution': (env) => {
+      const timeValues = env.map(d => d.bunch_length)
+        .filter(v => v != null && isFinite(v) && v >= 0);
+      const spreadValues = env.map(d => d.energy_spread)
+        .filter(v => v != null && isFinite(v) && v >= 0);
+      if (timeValues.length === 0 && spreadValues.length === 0) return null;
+      return [
+        _range(timeValues.length > 0 ? timeValues : [0]),
+        _range(spreadValues.length > 0 ? spreadValues : [0]),
+      ];
+    },
 
     // Dual axis: [energy (GeV, pre unit-scaling), dispersion (m)]
     'energy-dispersion': (env) => {
@@ -356,6 +370,27 @@ export const ProbePlots = (() => {
     if (ref >= 1) return { scale: 1, unit: 'MW' };
     if (ref >= 1e-3) return { scale: 1e3, unit: 'kW' };
     return { scale: 1e6, unit: 'W' };
+  }
+
+  /** Bunch duration is published in seconds; keep compressed and long bunches
+   *  readable without changing the raw domain shared by comparison passes. */
+  function _bunchTimeDisplay(domain) {
+    const ref = Math.max(Math.abs(domain?.[0] || 0), Math.abs(domain?.[1] || 0));
+    if (ref >= 1) return { scale: 1, unit: 's' };
+    if (ref >= 1e-3) return { scale: 1e3, unit: 'ms' };
+    if (ref >= 1e-6) return { scale: 1e6, unit: 'µs' };
+    if (ref >= 1e-9) return { scale: 1e9, unit: 'ns' };
+    if (ref >= 1e-12) return { scale: 1e12, unit: 'ps' };
+    return { scale: 1e15, unit: 'fs' };
+  }
+
+  /** Relative energy spread is published as a fraction. Percent reads well
+   *  for ordinary beams; ppm preserves meaning for exceptionally cold beams. */
+  function _energySpreadDisplay(domain) {
+    const ref = Math.max(Math.abs(domain?.[0] || 0), Math.abs(domain?.[1] || 0));
+    return ref >= 1e-4
+      ? { scale: 100, unit: '%' }
+      : { scale: 1e6, unit: 'ppm' };
   }
 
   function _axes(ctx, a, xLbl, yLbl, yMin, yMax, logY = false) {
@@ -846,6 +881,47 @@ export const ProbePlots = (() => {
     _legend(ctx, a, [{ color: '#ff7a66', label: 'Beam Power' }]);
   }
 
+  function _drawBunchEvolution(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
+    // Bunch Evolution owns a right axis for relative energy spread. Callers
+    // can reserve more room beyond it for Peak Current or another overlay.
+    const aR = _area(canvas, {
+      rightInset: o?.rightInset == null ? 30 : o.rightInset,
+    });
+    const [xMin, xMax] = xRange || _xRange(env);
+
+    const timeDomain = _chan(o, 0, [0, 1]);
+    const timeDisplay = _bunchTimeDisplay(timeDomain);
+    let [timeMin, timeMax] = timeDomain.map(value => value * timeDisplay.scale);
+    const timeValues = env.map(d => d.bunch_length == null
+      ? null
+      : d.bunch_length * timeDisplay.scale);
+    const logDomain = _primaryLogDomain(o, [timeMin, timeMax], timeValues);
+    const logY = !!logDomain;
+    if (logDomain) [timeMin, timeMax] = logDomain;
+
+    const spreadDomain = _chan(o, 1, [0, 1]);
+    const spreadDisplay = _energySpreadDisplay(spreadDomain);
+    const [spreadMin, spreadMax] = spreadDomain.map(value => value * spreadDisplay.scale);
+    const ghost = !!o?.ghost;
+
+    if (!ghost) {
+      _axesDual(
+        ctx, aR, 's (m)', `σ_t (${timeDisplay.unit})`, timeMin, timeMax,
+        `σ_E/E (${spreadDisplay.unit})`, spreadMin, spreadMax, logY,
+      );
+    }
+    _lineScaled(ctx, aR, env, 'bunch_length', '#5de6ff', xMin, xMax,
+      timeMin, timeMax, false, timeDisplay.scale, ghost, logY);
+    _lineScaled(ctx, aR, env, 'energy_spread', '#ff5ec4', xMin, xMax,
+      spreadMin, spreadMax, true, spreadDisplay.scale, ghost);
+    if (ghost) return;
+    _pinMarkers(ctx, aR, env, pins, xMin, xMax);
+    _legend(ctx, aR, [
+      { color: '#5de6ff', label: 'Bunch Length' },
+      { color: '#ff5ec4', label: 'Energy Spread' },
+    ]);
+  }
+
   function _drawEnergyDispersion(ctx, canvas, env, pins, activePin, xRange, yScale, o) {
     // This plot already owns one right axis for dispersion. Callers composing
     // another metric can reserve additional room while keeping every trace on
@@ -977,8 +1053,9 @@ export const ProbePlots = (() => {
   });
 
   function isDistancePlot(type) {
-    return ['energy', 'beam-power', 'energy-dispersion', 'beta-acceptance', 'twiss-beta', 'phase-advance',
-      'rigidity', 'beam-envelope', 'current-loss', 'emittance', 'peak-current']
+    return ['energy', 'beam-power', 'bunch-evolution', 'energy-dispersion', 'beta-acceptance',
+      'twiss-beta', 'phase-advance', 'rigidity', 'beam-envelope', 'current-loss', 'emittance',
+      'peak-current']
       .includes(type);
   }
 
@@ -1299,6 +1376,21 @@ export const ProbePlots = (() => {
       items = [_cursorItem('primary-beam-power', 'Beam Power', d.beam_power_mw,
         _cursorText(d.beam_power_mw == null ? null : d.beam_power_mw * scale, unit),
         '#ff7a66', domain, logY)];
+    } else if (type === 'bunch-evolution') {
+      positive(env.map(row => row.bunch_length));
+      const timeDisplay = _bunchTimeDisplay(domain);
+      const spreadDomain = yd[1];
+      const spreadDisplay = _energySpreadDisplay(spreadDomain);
+      items = [
+        _cursorItem('primary-bunch-length', 'Bunch Length', d.bunch_length,
+          _cursorText(d.bunch_length == null ? null : d.bunch_length * timeDisplay.scale,
+            timeDisplay.unit),
+          '#5de6ff', domain, logY),
+        _cursorItem('primary-energy-spread', 'Energy Spread', d.energy_spread,
+          _cursorText(d.energy_spread == null ? null : d.energy_spread * spreadDisplay.scale,
+            spreadDisplay.unit),
+          '#ff5ec4', spreadDomain),
+      ];
     } else if (type === 'energy-dispersion') {
       positive(env.map(row => row.energy));
       items = [

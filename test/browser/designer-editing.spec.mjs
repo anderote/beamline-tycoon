@@ -126,7 +126,7 @@ test('mission targets annotate performance plots without changing their scale', 
   'each plot control row sits above rather than on top of its canvas').toBe(true);
   expect(layout.thirdPlotDisabled, 'the right plot selector is interactive').toBe(false);
   expect(layout.thirdPlotOptions).toEqual([
-    'eic-triangle', 'energy', 'beam-power', 'energy-dispersion', 'beta-acceptance',
+    'eic-triangle', 'energy', 'beam-power', 'bunch-evolution', 'energy-dispersion', 'beta-acceptance',
     'twiss-beta', 'phase-advance', 'rigidity', 'beam-envelope', 'current-loss',
     'emittance', 'peak-current', 'phase-space', 'longitudinal',
   ]);

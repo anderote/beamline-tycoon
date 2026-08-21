@@ -59,11 +59,13 @@ function recordingCanvas() {
 const envelope = [
   { s: 0, energy: 0.003, beam_power_mw: 0.03, eta_x: 0.02, current: 10,
     sigma_x: 0.001, sigma_y: 0.002, emit_nx: 1e-6, emit_ny: 2e-6,
-    peak_current: 4, rel_beta: 0.4, beta_x: 4, beta_y: 7,
+    peak_current: 4, bunch_length: 1e-12, energy_spread: 0.001,
+    rel_beta: 0.4, beta_x: 4, beta_y: 7,
     phase_advance_x: 0.1, phase_advance_y: 0.2, rigidity_t_m: 0.012 },
   { s: 10, energy: 0.006, beam_power_mw: 0.12, eta_x: 0.08, current: 20,
     sigma_x: 0.002, sigma_y: 0.003, emit_nx: 2e-6, emit_ny: 3e-6,
-    peak_current: 8, rel_beta: 0.9, beta_x: 9, beta_y: 5,
+    peak_current: 8, bunch_length: 0.25e-12, energy_spread: 0.002,
+    rel_beta: 0.9, beta_x: 9, beta_y: 5,
     phase_advance_x: 0.8, phase_advance_y: 1.0, rigidity_t_m: 0.024 },
 ];
 
@@ -168,6 +170,9 @@ console.log('\n--- Secondary metric catalogue ---');
   check(ProbePlots.isDistancePlot('beam-power')
     && ProbePlots.secondaryYDomain('beam-power', envelope, null),
   'beam power is available as both a primary distance plot and an overlay');
+  check(ProbePlots.isDistancePlot('bunch-evolution')
+    && ProbePlots.yDomainFor('bunch-evolution', envelope, null, [], 0)?.length === 2,
+  'bunch evolution exposes independent duration and energy-spread domains');
 }
 
 console.log('\n--- Beam optics plot traces and units ---');
@@ -209,6 +214,35 @@ console.log('\n--- Beam optics plot traces and units ---');
   check(power.events.text.some(event => event.text === 'P (kW)')
     && powerReadout?.rows.some(row => row.includes('Beam Power') && row.includes('120 kW')),
   'beam power uses the solver-published E times I value with readable power units');
+
+  const bunch = recordingCanvas();
+  const bunchDomain = ProbePlots.yDomainFor('bunch-evolution', envelope, null, [], 0);
+  ProbePlots.draw(bunch.canvas, 'bunch-evolution', envelope, [], 0, [0, 10], null,
+    { yDomain: bunchDomain });
+  const bunchReadout = ProbePlots.drawCursor(
+    bunch.canvas, 'bunch-evolution', envelope, [0, 10], {
+      cursorX: 460, cursorY: 180, yDomain: bunchDomain,
+    });
+  check(bunch.events.text.some(event => event.text === 'σ_t (ps)')
+    && bunch.events.text.some(event => event.text === 'σ_E/E (%)'),
+  'bunch evolution labels duration and relative spread in readable smart units');
+  check(bunch.events.paths.some(event => event.strokeStyle === '#5de6ff')
+    && bunch.events.paths.some(event => event.strokeStyle === '#ff5ec4'),
+  'bunch evolution renders distinct bunch-length and energy-spread traces');
+  check(bunchReadout?.rows.some(row => row.includes('Bunch Length') && row.includes('0.250 ps'))
+    && bunchReadout?.rows.some(row => row.includes('Energy Spread') && row.includes('0.200 %')),
+  'bunch evolution hover reports both physical quantities at the shared distance');
+
+  const coldBunch = recordingCanvas();
+  const coldEnvelope = envelope.map((row, index) => ({
+    ...row,
+    bunch_length: (50 + index * 25) * 1e-15,
+    energy_spread: (5 + index * 10) * 1e-6,
+  }));
+  ProbePlots.draw(coldBunch.canvas, 'bunch-evolution', coldEnvelope, [], 0, [0, 10], null);
+  check(coldBunch.events.text.some(event => event.text === 'σ_t (fs)')
+    && coldBunch.events.text.some(event => event.text === 'σ_E/E (ppm)'),
+  'bunch evolution switches to femtoseconds and ppm for ultrashort, low-spread beams');
 }
 
 console.log('\n--- Fixed primary-axis drawing ---');
@@ -365,6 +399,8 @@ console.log('\n--- Designer controls ---');
   'all three new optics quantities appear in the designer plot catalogue');
   check((html.match(/<option value="beam-power">Beam Power<\/option>/g) || []).length === 7,
     'beam power appears in every primary and overlay Designer plot catalogue');
+  check((html.match(/<option value="bunch-evolution">Bunch Evolution<\/option>/g) || []).length === 3,
+    'bunch evolution appears in every primary Designer catalogue without posing as one-axis overlay');
   check(controller.includes("canvas.addEventListener('mousemove'")
     && controller.includes("canvas.addEventListener('mouseleave'")
     && controller.includes("canvas.addEventListener('click'"),

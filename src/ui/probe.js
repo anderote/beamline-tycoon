@@ -12,6 +12,7 @@ const PROBE_PLOT_TYPES = [
   { id: 'beam-envelope', name: 'Beam Envelope' },
   { id: 'current-loss', name: 'Current & Loss' },
   { id: 'beam-power', name: 'Beam Power' },
+  { id: 'bunch-evolution', name: 'Bunch Evolution' },
   { id: 'emittance', name: 'Emittance' },
   { id: 'twiss-beta', name: 'Twiss βx / βy' },
   { id: 'phase-advance', name: 'Phase Advance μx / μy' },
