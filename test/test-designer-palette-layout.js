@@ -52,8 +52,14 @@ check(/#bottom-hud\.designer-active\s*\{[^}]*height:\s*var\(--designer-hud-botto
   && /#bottom-hud\.designer-active #hud-top-row\s*\{[^}]*display:\s*none/s.test(css)
   && /#bottom-hud\.designer-active #hud-controls\s*\{[^}]*flex-basis:\s*39px/s.test(css),
 'Designer mode collapses the unused mode row and compacts the HUD');
-check(/\.dsgn-body\s*\{[^}]*padding-bottom:\s*240px/s.test(css),
-  'the Designer body stays put so the shorter HUD reveals more of its tuning area');
+const tuningRowStart = html.indexOf('id="dsgn-tuning-row"');
+const optimizerStart = html.indexOf('id="dsgn-optimizer-launch"');
+check(tuningRowStart >= 0 && optimizerStart > tuningRowStart
+  && /<\/div>\s*<section id="dsgn-optimizer-launch"/.test(html.slice(tuningRowStart, optimizerStart + 50)),
+'the optimizer launcher follows the tuning row inside the Designer body');
+check(/\.dsgn-body\s*\{[^}]*padding-bottom:\s*var\(--designer-hud-bottom-height\)/s.test(css)
+  && /\.dsgn-body > \.dsgn-optimizer-launch\s*\{[^}]*position:\s*relative[^}]*flex:\s*0 0 auto[^}]*margin:\s*8px 12px/s.test(css),
+'the in-flow optimizer launcher reserves its own strip above the compact HUD');
 
 const activeAdds = designer.match(/bottomHud\.classList\.add\('designer-active'\)/g) || [];
 const activeRemoves = designer.match(/bottomHud\.classList\.remove\('designer-active'\)/g) || [];
