@@ -79,6 +79,10 @@ the short authoring contract.
   to the scenario. Renaming a connector should otherwise not break balance runs.
 - RF frequency bands live in `src/data/rf-bands.js`, a dependency-neutral data
   module shared by port authoring and the RF solver descriptor.
+- Reuse the narrow connector placements in `src/data/rf-port-standards.js` for
+  ordinary centred NC feeds and single-output RF sources. Long structures,
+  cryomodules, manifolds, and multi-output flange banks keep their physically
+  authored exceptions rather than being forced onto the common mount.
 - RF waveguides and cryogenic transfer lines use the `rectilinear` routing
   profile: their paths must be axis-aligned with 90-degree bends, but do not
   reserve rigid equipment or service-clearance aisles.

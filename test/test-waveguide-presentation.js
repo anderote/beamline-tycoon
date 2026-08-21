@@ -12,6 +12,12 @@ import {
 globalThis.THREE = THREE_NS;
 
 const { COMPONENTS } = await import('../src/data/components.js');
+const { RF_PORT_STANDARDS } = await import('../src/data/rf-port-standards.js');
+const {
+  portAnchor3D,
+  setModelBoundsProvider,
+  setShellMeasureProvider,
+} = await import('../src/utility/port-anchors.js');
 const { portWorldPosition } = await import('../src/utility/ports.js');
 const { utilityLineHeight } = await import('../src/utility/registry.js');
 const { buildWorldPoints, default: UtilityLineBuilderV2 } = await import(
@@ -127,6 +133,84 @@ console.log('\n--- 4. The committed builder uses drops and physical support grou
   parent.traverse(object => { if (object.userData?.isUtilitySupport) supports++; });
   assert(supports > 0, `the long committed guide owns support frames (${supports})`);
   builder.dispose(parent);
+}
+
+console.log('\n--- 5. Common RF ports use predictable standard placements ---');
+{
+  for (const type of RF_PORT_STANDARDS.standardFeed.types) {
+    const standard = RF_PORT_STANDARDS.standardFeed;
+    const spec = COMPONENTS[type]?.ports?.[standard.portName];
+    const anchor = portAnchor3D({
+      id: type, type, col: 0, row: 0, subCol: 0, subRow: 0, dir: 0,
+    }, COMPONENTS[type], standard.portName);
+    assert(spec?.side === standard.placement.side
+      && near(spec?.offsetAlong, standard.placement.offsetAlong)
+      && near(anchor?.y, standard.heightMeters),
+    `${type} uses the centred ${standard.heightMeters} m standard RF feed`);
+  }
+  for (const type of RF_PORT_STANDARDS.singleOutput.types) {
+    const standard = RF_PORT_STANDARDS.singleOutput;
+    const spec = COMPONENTS[type]?.ports?.[standard.portName];
+    assert(spec?.side === standard.placement.side
+      && near(spec?.offsetAlong, standard.placement.offsetAlong),
+    `${type} uses the centred single-output RF placement`);
+  }
+  assert(COMPONENTS.sbandStructure.ports.rf_in.offsetAlong === 0.8
+      && COMPONENTS.cryomodule.ports.rf_in.offsetAlong === 0.8,
+    'long warm structures and cryomodules retain their end-mounted couplers');
+}
+
+console.log('\n--- 6. An aligned klystron and NC cavity build one straight guide ---');
+{
+  // Model-bound anchors sit inboard of the logical footprint edge. Exercise
+  // that renderer-backed shape here: it was the two-point case that used to
+  // retain both old endpoints and visibly double back through its launchers.
+  setModelBoundsProvider(() => ({
+    minX: -0.5, maxX: 0.5, minY: 0, maxY: 2,
+    minZ: -1.4, maxZ: 1.4,
+  }));
+  setShellMeasureProvider((_type, requests) => new Map(
+    requests.map(request => [request.key, 0.35]),
+  ));
+  const klystron = {
+    id: 'aligned-kly', type: 'pulsedKlystron',
+    worldX: 0, worldZ: 0, subCol: 0, subRow: 0, dir: 0,
+  };
+  const cavity = {
+    id: 'aligned-cavity', type: 'rfCavity',
+    worldX: 3, worldZ: 0, subCol: 0, subRow: 0, dir: 0,
+    portsFlipped: true,
+  };
+  const klyDef = COMPONENTS[klystron.type];
+  const cavityDef = COMPONENTS[cavity.type];
+  const start = portWorldPosition(klystron, klyDef, 'rf_out');
+  const end = portWorldPosition(cavity, cavityDef, 'rf_in');
+  const startAnchor = portAnchor3D(klystron, klyDef, 'rf_out');
+  const endAnchor = portAnchor3D(cavity, cavityDef, 'rf_in');
+  assert(near(start.z, end.z) && near(startAnchor.y, endAnchor.y)
+      && near(startAnchor.y, RF_PORT_STANDARDS.standardFeed.heightMeters),
+    'tile-aligned endpoints share a plan centerline and connector height');
+
+  const line = {
+    id: 'rf-aligned', utilityType: 'rfWaveguide',
+    start: { placeableId: klystron.id, portName: 'rf_out' },
+    end: { placeableId: cavity.id, portName: 'rf_in' },
+    path: [
+      { col: start.x / 2, row: start.z / 2 },
+      { col: end.x / 2, row: end.z / 2 },
+    ],
+    routeHeightMeters: RF_PORT_STANDARDS.standardFeed.heightMeters,
+  };
+  const points = buildWorldPoints(line, new Map([
+    [klystron.id, klystron], [cavity.id, cavity],
+  ]));
+  assert(points.length >= 4
+      && points.every(point => near(point.y, startAnchor.y) && near(point.z, start.z)),
+    'the complete launcher-to-launcher guide stays level on one plan axis');
+  assert(points.every((point, index) => index === 0 || point.x >= points[index - 1].x - 1e-6),
+    'the straight two-point route never doubles back through either launcher');
+  setModelBoundsProvider(null);
+  setShellMeasureProvider(null);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -31,6 +31,10 @@
 //
 // A `_default` entry applies to every utility port on that type.
 
+import { RF_PORT_STANDARDS } from './rf-port-standards.js';
+
+const STANDARD_RF_FEED_Y = RF_PORT_STANDARDS.standardFeed.heightMeters;
+
 export const PORT_ANCHOR_OVERRIDES = {
   // --- on-pipe modules -----------------------------------------------------
   // These straddle the beam pipe, whose centreline is ~1 m up; their services
@@ -43,10 +47,10 @@ export const PORT_ANCHOR_OVERRIDES = {
 
   // RF structures take their waveguide high on the body and their cooling low,
   // which is the one place the two ports genuinely want different heights.
-  pillboxCavity: { _default: { y: 0.95 }, rf_in: { y: 1.25 }, cool_in: { y: 0.55 } },
+  pillboxCavity: { _default: { y: 0.95 }, rf_in: { y: STANDARD_RF_FEED_Y }, cool_in: { y: 0.55 } },
   ellipticalSrfCavity: { _default: { y: 1.0 }, rf_in: { y: 1.3 }, cool_in: { y: 0.6 } },
   spokeCavity: { _default: { y: 0.95 }, rf_in: { y: 1.25 } },
-  buncher: { _default: { y: 0.9 }, rf_in: { y: 1.2 } },
+  buncher: { _default: { y: 0.9 }, rf_in: { y: STANDARD_RF_FEED_Y } },
   cryomodule: { _default: { y: 1.15 }, cryo_in: { y: 0.7 }, rf_in: { y: 1.45 } },
 
   // --- support plant -------------------------------------------------------
@@ -200,7 +204,7 @@ export const PORT_ANCHOR_OVERRIDES = {
   // --- accelerating structures --------------------------------------------
   // Same split the pillbox already documents: waveguide onto the run along
   // the top of the structure, cooling onto the manifold just above the stand.
-  rfCavity: { _default: { y: 0.95 }, rf_in: { y: 1.45 }, cool_in: { y: 0.6 } },       // cells 0.5..1.5, WG 1.5..1.72
+  rfCavity: { _default: { y: 0.95 }, rf_in: { y: STANDARD_RF_FEED_Y }, cool_in: { y: 0.6 } }, // centred standard feed on the 0.5..1.5 m cell body
   rfq: { _default: { y: 1.0 }, rf_in: { y: 1.5 }, cool_in: { y: 0.55 } },             // vanes 0.4..1.6, WG 1.55..1.9
   sbandStructure: { _default: { y: 0.95 }, rf_in: { y: 1.35 }, cool_in: { y: 0.6 } }, // copper 0.48..1.52
   cbandStructure: { _default: { y: 0.95 }, rf_in: { y: 1.3 }, cool_in: { y: 0.65 } }, // copper 0.56..1.44
@@ -239,7 +243,7 @@ export const PORT_ANCHOR_OVERRIDES = {
   cyclotron230: { _default: { y: 0.9 }, cool_in: { y: 0.6 } },                   // 4 m yoke
   positronSource: { _default: { y: 0.9 }, rf_in: { y: 1.4 }, cool_in: { y: 0.6 } },
   lwfaStation: { _default: { y: 0.9 }, cool_in: { y: 0.6 }, data_in: { y: 1.1 } },
-  industrialLinac: { _default: { y: 0.85 }, rf_in: { y: 1.2 }, cool_in: { y: 0.7 } },  // 0.94 m tube centred on the axis
+  industrialLinac: { _default: { y: 0.85 }, rf_in: { y: STANDARD_RF_FEED_Y }, cool_in: { y: 0.7 } }, // 0.94 m tube centred on the axis
 
   // --- support plant -------------------------------------------------------
   // The other two bus heads, so all four read alike: powerBus 0.5 and

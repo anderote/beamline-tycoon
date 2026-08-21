@@ -42,6 +42,10 @@ import { BEAMLINE_COMPONENTS_RAW } from './beamline-components.raw.js';
 import { INFRASTRUCTURE_RAW } from './infrastructure.raw.js';
 import { COOLING_WATER_INVENTORY } from './cooling-water-inventory.js';
 import { bandForFrequencyHz } from './rf-bands.js';
+import { RF_PORT_STANDARDS } from './rf-port-standards.js';
+
+const STANDARD_RF_FEED = RF_PORT_STANDARDS.standardFeed.placement;
+const SINGLE_RF_OUTPUT = RF_PORT_STANDARDS.singleOutput.placement;
 
 // ---------------------------------------------------------------------------
 // Per-utility fallback params (safety net only — ports declare their own).
@@ -309,7 +313,7 @@ const BEAMLINE_UTILITY_PORTS = {
   // for the same conversion twice.
   buncher: {
     pwr_in: { utility: 'powerCable',  side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 1 } },
-    rf_in:  { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.7, role: 'sink', params: { demand: 2 } },
+    rf_in:  { utility: 'rfWaveguide', ...STANDARD_RF_FEED, role: 'sink', params: { demand: 2 } },
   },
   rfq: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 6 } },
@@ -323,13 +327,16 @@ const BEAMLINE_UTILITY_PORTS = {
   },
   pillboxCavity: {
     pwr_in: { utility: 'powerCable',  side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 3 } },
-    rf_in:  { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.7, role: 'sink', params: { demand: 5 } },
+    rf_in:  { utility: 'rfWaveguide', ...STANDARD_RF_FEED, role: 'sink', params: { demand: 5 } },
   },
   // Copper structures guzzle RF and dump most of it into the water loop.
   rfCavity: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 20 } },
-    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 120 } },
-    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 40 } },
+    // Reserve the face midpoint for the standard RF flange. Cooling stays on
+    // the same service side but moves forward so the two fittings remain
+    // independently routable.
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.8, role: 'sink', params: { heatLoad: 120 } },
+    rf_in:   { utility: 'rfWaveguide',  ...STANDARD_RF_FEED, role: 'sink', params: { demand: 40 } },
   },
   sbandStructure: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 15 } },
@@ -392,8 +399,8 @@ const BEAMLINE_UTILITY_PORTS = {
   // proportionally the heaviest part: this thing runs all shift.
   industrialLinac: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 8 } },
-    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 45 } },
-    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 20 } },
+    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.8, role: 'sink', params: { heatLoad: 45 } },
+    rf_in:   { utility: 'rfWaveguide',  ...STANDARD_RF_FEED, role: 'sink', params: { demand: 20 } },
   },
 
   // ── RF — superconducting (pwr + cryo + rf) ────────────────────────
@@ -1047,12 +1054,12 @@ const INFRA_UTILITY_PORTS = {
   // it. Make it wide and it becomes a strictly better panel.
   ups:                 distributionPorts(100, 2, { outletSide: 'front' }),
   // rf (capacity kW = raw params.power)
-  magnetron:           { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 5, dutyFactor: 0.01 } } },
-  widebandDriverAmp:   { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 5, dutyFactor: 1.0 } } },
+  magnetron:           { rf_out:   { utility: 'rfWaveguide', ...SINGLE_RF_OUTPUT, role: 'source', params: { capacity: 5, dutyFactor: 0.01 } } },
+  widebandDriverAmp:   { rf_out:   { utility: 'rfWaveguide', ...SINGLE_RF_OUTPUT, role: 'source', params: { capacity: 5, dutyFactor: 1.0 } } },
   // A single clean 10 kW output: enough for the first VHF buncher/pillbox
   // network, while the 35 kW rack below earns its four independently flanged
   // outputs when a real front end begins to fan out.
-  lowBandBuncherAmp:   { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 10, dutyFactor: 1.0 } } },
+  lowBandBuncherAmp:   { rf_out:   { utility: 'rfWaveguide', ...SINGLE_RF_OUTPUT, role: 'source', params: { capacity: 10, dutyFactor: 1.0 } } },
   // Four independently flanged 8.75 kW outputs. They are one 35 kW combiner
   // internally (discovery unites same-device source ports), but keeping each
   // client on its own port avoids an unnecessary tee and its VSWR penalty.
@@ -1062,18 +1069,18 @@ const INFRA_UTILITY_PORTS = {
     rf_out_3: { utility: 'rfWaveguide', side: 'left', offsetAlong: 0.60, role: 'source', params: { capacity: 35 / 4, dutyFactor: 1.0 } },
     rf_out_4: { utility: 'rfWaveguide', side: 'left', offsetAlong: 0.80, role: 'source', params: { capacity: 35 / 4, dutyFactor: 1.0 } },
   },
-  twt:                 { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 20, dutyFactor: 0.05 } } },
+  twt:                 { rf_out:   { utility: 'rfWaveguide', ...SINGLE_RF_OUTPUT, role: 'source', params: { capacity: 20, dutyFactor: 0.05 } } },
   // The beginner rung into pulsed peak power. At $10,000/kW it matches the
   // magnetron and undercuts the Pulsed Klystron's $30,000/kW threefold, but it
   // is worse per tile (4.2 vs 6.25 kW) and covers S-band alone, so it never
   // makes the bigger tube redundant.
-  slac5045Klystron:    { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 25, dutyFactor: 0.001 } } },
-  pulsedKlystron:      { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 50, dutyFactor: 0.001 } } },
-  cwKlystron:          { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 50, dutyFactor: 1.0 } } },
-  iot:                 { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 80, dutyFactor: 1.0 } } },
-  multibeamKlystron:   { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 200, dutyFactor: 0.005 } } },
-  highPowerSSA:        { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 300, dutyFactor: 1.0 } } },
-  gyrotron:            { rf_out:   { utility: 'rfWaveguide', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 1000, dutyFactor: 1.0 } } },
+  slac5045Klystron:    { rf_out:   { utility: 'rfWaveguide', ...SINGLE_RF_OUTPUT, role: 'source', params: { capacity: 25, dutyFactor: 0.001 } } },
+  pulsedKlystron:      { rf_out:   { utility: 'rfWaveguide', ...SINGLE_RF_OUTPUT, role: 'source', params: { capacity: 50, dutyFactor: 0.001 } } },
+  cwKlystron:          { rf_out:   { utility: 'rfWaveguide', ...SINGLE_RF_OUTPUT, role: 'source', params: { capacity: 50, dutyFactor: 1.0 } } },
+  iot:                 { rf_out:   { utility: 'rfWaveguide', ...SINGLE_RF_OUTPUT, role: 'source', params: { capacity: 80, dutyFactor: 1.0 } } },
+  multibeamKlystron:   { rf_out:   { utility: 'rfWaveguide', ...SINGLE_RF_OUTPUT, role: 'source', params: { capacity: 200, dutyFactor: 0.005 } } },
+  highPowerSSA:        { rf_out:   { utility: 'rfWaveguide', ...SINGLE_RF_OUTPUT, role: 'source', params: { capacity: 300, dutyFactor: 1.0 } } },
+  gyrotron:            { rf_out:   { utility: 'rfWaveguide', ...SINGLE_RF_OUTPUT, role: 'source', params: { capacity: 1000, dutyFactor: 1.0 } } },
   // One cooling-water network carries plant and process water. A working loop
   // contains finite storage, a chiller, and a heat rejector; compact units
   // carry all three roles on their shared six-connection header.
