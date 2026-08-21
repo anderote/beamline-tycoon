@@ -119,6 +119,32 @@ test('component and facility render paths both retain their housing and add deta
   equipment.dispose(parent);
 });
 
+test('equipment reconciliation preserves unchanged geometry by stable id', () => {
+  const parent = new THREE.Group();
+  const builder = new EquipmentBuilder();
+  const first = { id: 'eq_1', type: 'oscilloscope', col: 0, row: 0 };
+  const second = { id: 'eq_2', type: 'flowMeter', col: 2, row: 0 };
+  builder.build([first, second], [], parent);
+  const firstObject = builder._objectsById.get('equipment:eq_1');
+  const secondObject = builder._objectsById.get('equipment:eq_2');
+
+  builder.build([first, { ...second, col: 3 }], [], parent, {
+    changes: new Map([['eq_2', { id: 'eq_2', kind: 'equipment', action: 'updated' }]]),
+  });
+  assert.strictEqual(builder._objectsById.get('equipment:eq_1'), firstObject,
+    'unchanged detailed equipment remains attached');
+  assert.notStrictEqual(builder._objectsById.get('equipment:eq_2'), secondObject,
+    'only the moved equipment is replaced');
+  assert.equal(parent.children.length, 2);
+
+  builder.build([first], [], parent, {
+    changes: new Map([['eq_2', { id: 'eq_2', kind: 'equipment', action: 'removed' }]]),
+  });
+  assert.strictEqual(builder._objectsById.get('equipment:eq_1'), firstObject);
+  assert.equal(parent.children.length, 1, 'removed equipment alone is detached');
+  builder.dispose(parent);
+});
+
 test('reviewed electronic profiles expose emissive screens, dials, and indicators to bloom', () => {
   for (const id of ['oscilloscope', 'flowMeter', 'rackIoc', 'areaMonitor', 'projector']) {
     const def = PLACEABLES[id];

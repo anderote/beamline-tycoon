@@ -66,6 +66,12 @@ import { SaveSlots } from './SaveSlots.js';
 import { scheduleBrowserIdle } from './idle-work.js';
 import { tickDataSystems } from './data-systems.js';
 import { placeableMutationEvent } from './placeable-events.js';
+import {
+  mergeWorldChangePayloads,
+  WORLD_CHANGED_EVENT,
+  worldChangeForEvent,
+  worldChangePayload,
+} from './world-change-set.js';
 
 // Every game.state key that persists in saves. Everything else on state is
 // derived — occupancy/index maps, aggregate beam stats, morale, systemStats,
@@ -772,15 +778,39 @@ export class Game {
     if (idx !== -1) this.listeners.splice(idx, 1);
   }
   emit(event, data) {
-    if (this._eventBatch) { this._eventBatch.set(event, data); return; }
+    const canonical = worldChangeForEvent(event, data);
+    if (this._eventBatch) {
+      const previous = this._eventBatch.get(event);
+      this._eventBatch.set(
+        event,
+        previous === undefined ? data : mergeWorldChangePayloads(previous, data),
+      );
+      if (canonical && event !== WORLD_CHANGED_EVENT) {
+        const worldPayload = worldChangePayload(canonical, { event });
+        const priorWorld = this._eventBatch.get(WORLD_CHANGED_EVENT);
+        this._eventBatch.set(
+          WORLD_CHANGED_EVENT,
+          priorWorld === undefined
+            ? worldPayload
+            : mergeWorldChangePayloads(priorWorld, worldPayload),
+        );
+      }
+      return;
+    }
     this.listeners.forEach(fn => fn(event, data));
+    if (canonical && event !== WORLD_CHANGED_EVENT) {
+      const worldPayload = worldChangePayload(canonical, { event });
+      this.listeners.forEach(fn => fn(WORLD_CHANGED_EVENT, worldPayload));
+    }
   }
 
   /**
    * Coalesce emits while `fn` runs. Per-tile helpers (removeInfraTile,
    * removeZoneTile, removePlaceable, ...) each emit their own events, so a
    * rect sweep would otherwise trigger a full renderer rebuild per tile.
-   * Events are deduped by name (last data wins, first-seen order) and
+   * Events are deduped by name (first-seen order). Canonical world change-sets
+   * are unioned so the batch retains every entity edit; legacy event payloads
+   * retain the historical last-data-wins behavior. The merged events are
    * dispatched once after `fn` returns. Nested calls flush at the outermost
    * batch. Listeners re-read state, so dedup is safe: log lines still land
    * in state.log, and the UI re-renders from state on the single dispatch.
@@ -794,7 +824,12 @@ export class Game {
     } finally {
       const batch = this._eventBatch;
       this._eventBatch = null;
-      for (const [event, data] of batch) this.emit(event, data);
+      // Dispatch the already-canonicalized batch directly. Re-entering emit()
+      // here would derive a second worldChanged event for every compatibility
+      // event that was just merged into the queued canonical one.
+      for (const [event, data] of batch) {
+        this.listeners.forEach(fn => fn(event, data));
+      }
     }
     return result;
   }
@@ -3318,9 +3353,11 @@ export class Game {
 
     this.computeSystemStats();
     this._syncLegacyPlaceableState();
-    this.emit('placeableChanged');
-    if (entry.category === 'equipment') this.emit('facilityChanged');
-    if (entry.category === 'furnishing') this.emit('zonesChanged');
+    const affectedEntries = (updates || []).map(({ id }) => getEntry(id)).filter(Boolean);
+    const mutationEvent = placeableMutationEvent(entry, 'removed', { affectedEntries });
+    this.emit('placeableChanged', mutationEvent);
+    if (entry.category === 'equipment') this.emit('facilityChanged', mutationEvent);
+    if (entry.category === 'furnishing') this.emit('zonesChanged', mutationEvent);
     // Connected pipes were pruned above; only 'beamlineChanged' triggers the
     // renderer's beam-pipe refresh, so without it the deleted pipes' meshes
     // linger as unclickable ghosts until the next full refresh.
@@ -3421,9 +3458,11 @@ export class Game {
 
     this.computeSystemStats();
     this._syncLegacyPlaceableState();
-    this.emit('placeableChanged');
-    if (entry.category === 'equipment') this.emit('facilityChanged');
-    if (entry.category === 'furnishing') this.emit('zonesChanged');
+    const affectedEntries = (updates || []).map(({ id }) => getEntry(id)).filter(Boolean);
+    const mutationEvent = placeableMutationEvent(entry, 'removed', { affectedEntries });
+    this.emit('placeableChanged', mutationEvent);
+    if (entry.category === 'equipment') this.emit('facilityChanged', mutationEvent);
+    if (entry.category === 'furnishing') this.emit('zonesChanged', mutationEvent);
     return true;
   }
 
@@ -3477,9 +3516,10 @@ export class Game {
     }
 
     this._syncLegacyPlaceableState();
-    this.emit('placeableChanged');
-    if (entry.category === 'equipment') this.emit('facilityChanged');
-    if (entry.category === 'furnishing') this.emit('zonesChanged');
+    const mutationEvent = placeableMutationEvent(entry, 'lifted');
+    this.emit('placeableChanged', mutationEvent);
+    if (entry.category === 'equipment') this.emit('facilityChanged', mutationEvent);
+    if (entry.category === 'furnishing') this.emit('zonesChanged', mutationEvent);
     return snapshot;
   }
 
@@ -3543,7 +3583,9 @@ export class Game {
         this.recalcAllBeamlines();
         this.computeSystemStats();
         this.emit('beamlineChanged');
-        this.emit('placeableChanged');
+        // Each removePlaceable call above already published its exact removal
+        // into the frame-coalesced world change-set. A final unscoped event
+        // would throw those IDs away and force the legacy all-placeables path.
         return true;
       }
       case 'beampipe':

@@ -16,6 +16,7 @@ import { beamVisualPath } from './beam-visual-path.js';
 import { wallFixtureFaceOffset } from './fixture-light-math.js';
 import { utilityAttachmentPose } from '../utility/line-attachments.js';
 import { utilityLineHeight } from '../utility/registry.js';
+import { isWorldChangeSet } from '../game/world-change-set.js';
 
 /**
  * How far the drawn ground reaches — always exactly the map the player owns,
@@ -322,56 +323,57 @@ function buildWallOccupancy(game) {
 }
 
 function buildComponents(game) {
-  const editingId = game.editingBeamlineId;
-
   // All beamline + infrastructure placeables
   const placeables = (game.state.placeables || []).filter(
     p => p.category === 'beamline' || p.category === 'infrastructure'
   );
 
-  const result = placeables.map(p => {
-    const entry = p.beamlineId ? game.registry.get(p.beamlineId) : null;
-    const accentColor = entry ? entry.accentColor : 0xc62828;
+  return placeables.map(p => componentSnapshotEntry(game, p));
+}
 
-    // Dimmed: node belongs to a different beamline than the one being edited
-    let dimmed = false;
-    if (editingId && entry && entry.id !== editingId) {
-      dimmed = true;
-    }
+function componentSnapshotEntry(game, p) {
+  const editingId = game.editingBeamlineId;
+  const entry = p.beamlineId ? game.registry.get(p.beamlineId) : null;
+  const accentColor = entry ? entry.accentColor : 0xc62828;
 
-    const health = typeof game.getComponentHealth === 'function'
-      ? game.getComponentHealth(p.id)
-      : undefined;
+  // Dimmed: node belongs to a different beamline than the one being edited
+  let dimmed = false;
+  if (editingId && entry && entry.id !== editingId) dimmed = true;
 
-    return {
-      id: p.id,
-      type: p.type,
-      category: p.category ?? null,
-      col: p.col,
-      row: p.row,
-      subCol: p.subCol ?? null,
-      subRow: p.subRow ?? null,
-      direction: p.dir ?? null,
-      portsFlipped: p.portsFlipped === true,
-      tiles: p.cells ? p.cells.map(c => ({ col: c.col, row: c.row })) : [{ col: p.col, row: p.row }],
-      dimmed,
-      health,
-      // Presentation state is data, not a renderer inference. Future machine
-      // controllers may publish p.visualState directly; broken hardware has a
-      // useful default today.
-      effectState: p.visualState || (Number.isFinite(health) && health <= 0 ? 'off' : 'on'),
-      beamlineId: p.beamlineId ?? null,
-      accentColor,
-    };
-  });
+  const health = typeof game.getComponentHealth === 'function'
+    ? game.getComponentHealth(p.id)
+    : undefined;
 
-  return result;
+  return {
+    id: p.id,
+    type: p.type,
+    category: p.category ?? null,
+    col: p.col,
+    row: p.row,
+    subCol: p.subCol ?? null,
+    subRow: p.subRow ?? null,
+    direction: p.dir ?? null,
+    portsFlipped: p.portsFlipped === true,
+    tiles: p.cells ? p.cells.map(c => ({ col: c.col, row: c.row })) : [{ col: p.col, row: p.row }],
+    dimmed,
+    health,
+    // Presentation state is data, not a renderer inference. Future machine
+    // controllers may publish p.visualState directly; broken hardware has a
+    // useful default today.
+    effectState: p.visualState || (Number.isFinite(health) && health <= 0 ? 'off' : 'on'),
+    beamlineId: p.beamlineId ?? null,
+    accentColor,
+  };
 }
 
 function buildEquipment(game) {
   const equip = (game.state.placeables || []).filter(p => p.category === 'equipment');
 
-  return equip.map(eq => ({
+  return equip.map(equipmentSnapshotEntry);
+}
+
+function equipmentSnapshotEntry(eq) {
+  return {
     key: eq.col + ',' + eq.row,
     id: eq.id,
     type: eq.type ?? null,
@@ -383,7 +385,7 @@ function buildEquipment(game) {
     portsFlipped: eq.portsFlipped === true,
     placeY: eq.placeY || 0,
     effectState: eq.visualState || 'on',
-  }));
+  };
 }
 
 function buildDecorations(game) {
@@ -573,7 +575,11 @@ function buildPipeAttachments(game) {
 }
 
 function buildFurnishings(game) {
-  return (game.state.zoneFurnishings || []).map(f => ({
+  return (game.state.zoneFurnishings || []).map(furnishingSnapshotEntry);
+}
+
+function furnishingSnapshotEntry(f) {
+  return {
     id: f.id ?? null,
     col: f.col,
     row: f.row,
@@ -584,7 +590,7 @@ function buildFurnishings(game) {
     placeY: f.placeY || 0,
     variant: f.variant ?? 0,
     effectState: f.visualState || 'on',
-  }));
+  };
 }
 
 /**
@@ -667,6 +673,71 @@ export function buildWorldSnapshot(game, opts = {}) {
     snapshot[name] = SECTION_BUILDERS[name](game);
   }
   return snapshot;
+}
+
+const PATCHABLE_PLACEABLE_KINDS = Object.freeze({
+  components: new Set(['beamline', 'infrastructure']),
+  equipment: new Set(['equipment']),
+  furnishings: new Set(['furnishing']),
+});
+
+function patchSnapshotArray(current, changes, acceptedKinds, findLive, mapEntry) {
+  if (!Array.isArray(current)) return null;
+  const byId = new Map(current.map(entry => [entry.id, entry]));
+  for (const change of changes.values()) {
+    if (!acceptedKinds.has(change.kind)) continue;
+    byId.delete(change.id);
+    if (change.action === 'removed') continue;
+    const live = findLive(change.id);
+    if (live) byId.set(change.id, mapEntry(live));
+  }
+  return Array.from(byId.values());
+}
+
+/**
+ * Build selected sections, incrementally patching the stable-id placeable
+ * arrays when a canonical change-set proves exactly which entries changed.
+ * Sections with derived cross-entity context (terrain, rooms, decorations,
+ * pipes) deliberately retain their safe full-section builders.
+ */
+export function updateWorldSnapshot(game, current, opts = {}) {
+  const only = opts.only ? new Set(opts.only) : null;
+  const changeSet = opts.changeSet;
+  if (!current || !only || !isWorldChangeSet(changeSet)
+      || changeSet.full || changeSet.placeables.size === 0) {
+    return buildWorldSnapshot(game, opts);
+  }
+
+  const partial = { cornerHeightsRevision: game.state.cornerHeightsRevision | 0 };
+  const placeableById = id => {
+    const idx = game.state.placeableIndex?.[id];
+    return idx === undefined ? null : game.state.placeables?.[idx] || null;
+  };
+  const furnishingById = id => (game.state.zoneFurnishings || [])
+    .find(entry => entry.id === id) || null;
+
+  for (const name of only) {
+    const acceptedKinds = PATCHABLE_PLACEABLE_KINDS[name];
+    if (!acceptedKinds) {
+      const builder = SECTION_BUILDERS[name];
+      if (builder) partial[name] = builder(game);
+      continue;
+    }
+    const hasUnknownKind = Array.from(changeSet.placeables.values())
+      .some(change => change.kind == null);
+    if (hasUnknownKind) {
+      partial[name] = SECTION_BUILDERS[name](game);
+      continue;
+    }
+    const findLive = name === 'furnishings' ? furnishingById : placeableById;
+    const mapEntry = name === 'components'
+      ? entry => componentSnapshotEntry(game, entry)
+      : name === 'equipment' ? equipmentSnapshotEntry : furnishingSnapshotEntry;
+    partial[name] = patchSnapshotArray(
+      current[name], changeSet.placeables, acceptedKinds, findLive, mapEntry,
+    ) ?? SECTION_BUILDERS[name](game);
+  }
+  return partial;
 }
 
 function buildUtilityLines(game) {

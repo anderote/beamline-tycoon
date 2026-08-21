@@ -29,7 +29,7 @@ import { DecorationBuilder } from './decoration-builder.js';
 import { UtilityLineBuilderV2 } from './utility-line-builder-v2.js';
 import { tickFlow } from './utility-flow.js';
 import { utilityLineVisualSignature } from './utility-visual-signature.js';
-import { buildWorldSnapshot } from './world-snapshot.js';
+import { buildWorldSnapshot, updateWorldSnapshot } from './world-snapshot.js';
 import { disposeGroupChildren, disposeSceneObject } from './dispose-utils.js';
 import { listUtilityEndpoints, makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
 import { utilityPortIssues } from '../utility/port-issues.js';
@@ -113,7 +113,8 @@ import {
   appendPlacementGridDots,
   placementGridAlphaAt,
 } from './placement-grid-style.js';
-import { placeableRefreshPlan } from './placeable-refresh-plan.js';
+import { worldRefreshPlan } from './world-refresh-plan.js';
+import { WorldInvalidationScheduler } from './world-invalidation-scheduler.js';
 
 // Closest the camera may get. Detail meshes (userData.lod === 'detail') switch
 // on at zoom 2.0, so anything above that is inside the high-detail band.
@@ -707,7 +708,14 @@ export class ThreeRenderer {
     this._physicsPresentation.attachStaff(this.staffPawns, this.scene);
     window.addEventListener('resize', this._boundOnResize);
 
-    // Game event listener — rebuilds relevant 3D sections and updates DOM HUD.
+    // Durable world mutations are accumulated until _animate drains them.
+    // Compatibility events from one action can therefore update the DOM
+    // immediately without rebuilding the same 3D section more than once.
+    this._worldInvalidationScheduler = new WorldInvalidationScheduler(
+      plan => this._applyWorldRefreshPlan(plan),
+    );
+
+    // Game event listener — queues relevant 3D sections and updates DOM HUD.
     // Wrapped in try/catch so rendering errors never crash game logic.
     this.game.on((event, data) => {
       try {
@@ -716,55 +724,36 @@ export class ThreeRenderer {
       if (this._sunShadowScheduler && SHADOW_GEOMETRY_EVENTS.has(event)) {
         this._sunShadowScheduler.markAllDirty();
       }
+      const worldPlan = event === 'worldChanged' ? worldRefreshPlan(event, data) : null;
+      if (worldPlan && !worldPlan.full) {
+        this._worldInvalidationScheduler.enqueue(worldPlan);
+      }
       switch (event) {
         case 'beamlineChanged':
-          this._refreshBeamlineWorld();
-          break;
+        case 'infrastructureChanged':
+        case 'decorationsChanged':
+        case 'zonesChanged':
+        case 'placeableChanged':
+        case 'facilityChanged':
+        case 'wallsChanged':
+        case 'doorsChanged':
+        case 'windowsChanged':
+        case 'connectionsChanged':
+        case 'utilityLinesChanged':
+          break; // queued above; drained once at the start of the next frame
         case 'loaded':
         case 'restored':   // undo/redo snapshot restore
+          this._worldInvalidationScheduler.clear();
           this.refresh(); // full 3D rebuild
           // The research overlay is a snapshot render baked at init(), before
           // game.load() runs, so refresh it after restored research arrives.
           if (this._renderTechTree) this._renderTechTree();
-          break;
-        case 'infrastructureChanged':
-          this._refreshTerrain();
-          this._refreshInfra();
           break;
         case 'worldExplosion':
           this.explodeWorld(data?.position || data, data?.options || {});
           break;
         case 'worldPhysicsUndo':
           this.undoLastPhysicsIncident();
-          break;
-        case 'decorationsChanged':
-          this._refreshTerrain();
-          this._refreshDecorations();
-          this._markPhysicsBodiesDirty();
-          break;
-        case 'zonesChanged':
-        case 'placeableChanged':
-        case 'facilityChanged':
-          this._applyPlaceableRefreshPlan(placeableRefreshPlan(event, data));
-          break;
-        case 'wallsChanged':
-        case 'doorsChanged':
-        case 'windowsChanged':
-          this._refreshWalls();
-          this._markPhysicsBodiesDirty();
-          break;
-        case 'connectionsChanged':
-          this._refreshConnections();
-          this._refreshComponents();
-          this._markPhysicsBodiesDirty();
-          break;
-        case 'utilityLinesChanged':
-          this._refreshUtilityLinesV2();
-          this._refreshUtilityPortIssueMarkers();
-          // Utility runs can now own instruments with ports of their own.
-          // Their connector fittings must appear/disappear in the same frame
-          // as the mounted model, not wait for an unrelated placeable edit.
-          this._refreshPortFittings();
           break;
         // The gate reran (beam toggle while paused, or a beamline recalc), so
         // published port qualities may have changed without a tick — and while
@@ -793,7 +782,7 @@ export class ThreeRenderer {
           {
             const sig = utilityLineVisualSignature(this._liveState());
             if (sig !== null && sig !== this._utilityLineVisualSig) {
-              this._refreshUtilityLinesV2();
+              this._refreshUtilityLinesV2({ pipeAttachments: false });
             }
           }
           // Guarded on the issue signature — a steady world costs one short
@@ -3691,6 +3680,7 @@ export class ThreeRenderer {
   _animate() {
     this._animFrameId = requestAnimationFrame(() => this._animate());
     try {
+    this._worldInvalidationScheduler?.flush();
     this._tickViewRotation();
     this._tickFreeOrbitSnap();
     this._tickCameraFocus();
@@ -3980,8 +3970,11 @@ export class ThreeRenderer {
    * merged snapshot. Partial refreshes (_refreshX) use this so reading one
    * section never pays for the full-map terrain walk.
    */
-  _updateSnapshot(sections) {
-    const partial = buildWorldSnapshot(this.game, { only: sections });
+  _updateSnapshot(sections, changeSet = null) {
+    const partial = updateWorldSnapshot(this.game, this._snapshot, {
+      only: sections,
+      changeSet,
+    });
     if (!this._snapshot) this._snapshot = partial;
     else Object.assign(this._snapshot, partial);
     return this._snapshot;
@@ -4029,7 +4022,7 @@ export class ThreeRenderer {
     // light-rig.js's setFixtureRegistry(); this is what replaced the dead
     // userData.lightFixture scene-traversal lookup.
     if (this._lightRig) this._lightRig.setFixtureRegistry(this.lightingGroup);
-    this._refreshUtilityLinesV2();
+    this._refreshUtilityLinesV2({ pipeAttachments: false });
     this._refreshUtilityPortIssueMarkers(true);
     this._refreshPortFittings();
     this._refreshBeamPipes();
@@ -4042,16 +4035,34 @@ export class ThreeRenderer {
     this._physicsPresentation.markBodiesDirty();
   }
 
-  _applyPlaceableRefreshPlan(plan) {
+  _applyWorldRefreshPlan(plan) {
     if (!plan) return;
+    if (plan.full) {
+      this.refresh();
+      return;
+    }
     if (plan.terrain) this._refreshTerrain();
+    if (plan.infrastructure) this._refreshInfra();
     if (plan.zones) this._refreshZones();
-    if (plan.equipment) this._refreshEquipment();
+    if (plan.walls) this._refreshWalls();
+    if (plan.connections) this._refreshConnections();
+    if (plan.equipment) this._refreshEquipment(plan.changeSet);
     // Fixture room context is authored by zones, so a real zone mutation
     // continues to refresh decorations and the derived light registry.
-    if (plan.decorations) this._refreshDecorations();
-    if (plan.components) this._refreshComponents();
-    if (plan.utilityLines) this._refreshUtilityLinesV2();
+    if (plan.decorations) this._refreshDecorations(plan.changeSet);
+    if (plan.components) {
+      this._refreshComponents({
+        pipeAttachments: plan.pipeAttachments === true,
+        changeSet: plan.changeSet,
+      });
+    } else if (plan.pipeAttachments) {
+      this._refreshPipeAttachments();
+    }
+    if (plan.beamPipes) this._refreshBeamPipes();
+    if (plan.beam) this._refreshBeam();
+    if (plan.utilityLines) {
+      this._refreshUtilityLinesV2({ pipeAttachments: plan.pipeAttachments !== true });
+    }
     if (plan.utilityIssues) {
       this._refreshUtilityPortIssueMarkers(plan.utilityIssues === 'force');
     }
@@ -4086,7 +4097,7 @@ export class ThreeRenderer {
     this._refreshComponents();
     this._refreshBeamPipes();
     this._refreshBeam();
-    this._refreshUtilityLinesV2();
+    this._refreshUtilityLinesV2({ pipeAttachments: false });
     this._refreshUtilityPortIssueMarkers(true);
     this._refreshPortFittings();
     this._markPhysicsBodiesDirty();
@@ -4441,14 +4452,16 @@ export class ThreeRenderer {
     return true;
   }
 
-  _refreshEquipment() {
-    const snap = this._updateSnapshot(['equipment', 'furnishings']);
-    this.equipmentBuilder.build(snap.equipment, snap.furnishings, this.equipmentGroup);
+  _refreshEquipment(changeSet = null) {
+    const snap = this._updateSnapshot(['equipment', 'furnishings'], changeSet);
+    this.equipmentBuilder.build(snap.equipment, snap.furnishings, this.equipmentGroup, {
+      changes: changeSet?.placeables || null,
+    });
     this._effectSystem?.syncSurfaceGlows('equipment', this.equipmentGroup);
   }
 
-  _refreshDecorations() {
-    const snap = this._updateSnapshot(['decorations']);
+  _refreshDecorations(changeSet = null) {
+    const snap = this._updateSnapshot(['decorations'], changeSet);
     this.decorationBuilder.build(snap.decorations, this.decorationGroup);
     this.lightingGroup = this.decorationBuilder.getLightingFixtures();
     this._rebuildLightPools();
@@ -4611,7 +4624,7 @@ export class ThreeRenderer {
     if (this._utilityDragPreview?.sig === sig) return;
     this._utilityDragPreview = { placeableId, pose: { ...pose }, sig };
     this.utilityLineBuilderV2?.setDraggedPlaceableId(placeableId);
-    this._refreshUtilityLinesV2();
+    this._refreshUtilityLinesV2({ pipeAttachments: false });
   }
 
   clearPlaceableUtilityDragPreview() {
@@ -4621,7 +4634,7 @@ export class ThreeRenderer {
     }
     this._utilityDragPreview = null;
     this.utilityLineBuilderV2?.setDraggedPlaceableId(null);
-    this._refreshUtilityLinesV2();
+    this._refreshUtilityLinesV2({ pipeAttachments: false });
   }
 
   /**
@@ -4629,9 +4642,10 @@ export class ThreeRenderer {
    * Called on 'utilityLinesChanged' and 'placeableChanged' (the latter so
    * lines follow placeables that are moved).
    */
-  _refreshUtilityLinesV2() {
+  _refreshUtilityLinesV2({ pipeAttachments = true } = {}) {
     if (!this.utilityLineGroup || !this.utilityLineBuilderV2) return;
-    const snap = this._updateSnapshot(['utilityLines', 'pipeAttachments']);
+    const sections = pipeAttachments ? ['utilityLines', 'pipeAttachments'] : ['utilityLines'];
+    const snap = this._updateSnapshot(sections);
     // Live read (documented accessor): the builder pins line endpoints to
     // portWorldPosition of live placeables and joins the sim-published
     // utilityNetworks/utilityNetworkData maps for per-network error glow
@@ -4656,8 +4670,10 @@ export class ThreeRenderer {
     this.utilityLineBuilderV2.build(snap.utilityLines, placeablesById, this.utilityLineGroup, {
       state,
     });
-    this.pipeAttachmentBuilder.build(snap.pipeAttachments || [], this.pipeAttachmentGroup);
-    this.pipeAttachmentBuilder.setDetailLevel(this.zoom >= 2.0);
+    if (pipeAttachments) {
+      this.pipeAttachmentBuilder.build(snap.pipeAttachments || [], this.pipeAttachmentGroup);
+      this.pipeAttachmentBuilder.setDetailLevel(this.zoom >= 2.0);
+    }
     this._effectSystem?.syncFromGroup('utility-lines', this.utilityLineGroup);
     this._utilityLineVisualSig = utilityLineVisualSignature(state);
   }
@@ -5023,14 +5039,23 @@ export class ThreeRenderer {
     this.beamBuilder.setDetailLevel(this.zoom >= 2.0);
   }
 
-  _refreshComponents() {
+  _refreshPipeAttachments() {
+    const snap = this._updateSnapshot(['pipeAttachments']);
+    this.pipeAttachmentBuilder.build(snap.pipeAttachments || [], this.pipeAttachmentGroup);
+    this.pipeAttachmentBuilder.setDetailLevel(this.zoom >= 2.0);
+  }
+
+  _refreshComponents({ pipeAttachments = true, changeSet = null } = {}) {
     try {
-    const snap = this._updateSnapshot(['components', 'pipeAttachments']);
+    const sections = pipeAttachments ? ['components', 'pipeAttachments'] : ['components'];
+    const snap = this._updateSnapshot(sections, changeSet);
     this.componentBuilder.build(snap.components, this.componentGroup);
     this.componentBuilder.setDetailLevel(this.zoom >= 2.0);
     this._effectSystem?.syncSurfaceGlows('components', this.componentGroup);
-    this.pipeAttachmentBuilder.build(snap.pipeAttachments || [], this.pipeAttachmentGroup);
-    this.pipeAttachmentBuilder.setDetailLevel(this.zoom >= 2.0);
+    if (pipeAttachments) {
+      this.pipeAttachmentBuilder.build(snap.pipeAttachments || [], this.pipeAttachmentGroup);
+      this.pipeAttachmentBuilder.setDetailLevel(this.zoom >= 2.0);
+    }
     } catch(e) { console.error('[_refreshComponents] CRASH:', e); }
   }
 
@@ -5043,6 +5068,7 @@ export class ThreeRenderer {
   }
 
   dispose() {
+    this._worldInvalidationScheduler?.clear();
     if (this._animFrameId !== null) {
       cancelAnimationFrame(this._animFrameId);
       this._animFrameId = null;

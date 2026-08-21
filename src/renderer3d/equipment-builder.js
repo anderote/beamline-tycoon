@@ -10,6 +10,7 @@ import { DECALS } from './materials/decals.js';
 import { applyTiledBoxUVs } from './uv-utils.js';
 import { buildPlaceableVisualDetails } from './placeable-visual-details.js';
 import { configureGlowMesh, getGlowMaterial } from './machine-glow.js';
+import { contentKey } from './content-hash.js';
 // Phase 6: utility-port-builder removed; all buildPortStubs call sites in
 // this file were already commented out.
 
@@ -138,6 +139,8 @@ export class EquipmentBuilder {
   constructor() {
     /** @type {THREE.Mesh[]} */
     this._meshes = [];
+    this._objectsById = new Map();
+    this._signaturesById = new Map();
   }
 
   /**
@@ -146,9 +149,7 @@ export class EquipmentBuilder {
    * @param {Array} furnishingData
    * @param {THREE.Group} parentGroup
    */
-  build(equipmentData, furnishingData, parentGroup) {
-    this.dispose(parentGroup);
-
+  build(equipmentData, furnishingData, parentGroup, { changes = null } = {}) {
     const FACE_KEYS = ['+X', '-X', '+Y', '-Y', '+Z', '-Z'];
 
     const placeOne = (item, isFurnishing) => {
@@ -260,9 +261,7 @@ export class EquipmentBuilder {
         //   );
         //   if (portStubs) group.add(portStubs);
         // }
-        parentGroup.add(group);
-        this._meshes.push(group);
-        return;
+        return group;
       }
 
       // ── Single-box path ──────────────────────────────────────────
@@ -323,12 +322,78 @@ export class EquipmentBuilder {
       wrapper.updateMatrix();
       stampPhysicsIdentity(wrapper);
 
-      parentGroup.add(wrapper);
-      this._meshes.push(wrapper);
+      return wrapper;
     };
 
-    if (equipmentData) for (const eq of equipmentData) placeOne(eq, false);
-    if (furnishingData) for (const furn of furnishingData) placeOne(furn, true);
+    const desiredEntry = (item, isFurnishing) => {
+      const fallbackId = `${item.type}:${item.col}:${item.row}:${item.subCol ?? 0}:${item.subRow ?? 0}`;
+      const id = `${isFurnishing ? 'furnishing' : 'equipment'}:${item.id ?? fallbackId}`;
+      return [id, { item, isFurnishing, signature: contentKey([isFurnishing, item]) }];
+    };
+    const replace = (id, wanted) => {
+      const existing = this._objectsById.get(id);
+      if (existing && wanted && this._signaturesById.get(id) === wanted.signature) return;
+      if (existing) this._disposeObject(existing, parentGroup);
+      if (!wanted) {
+        this._objectsById.delete(id);
+        this._signaturesById.delete(id);
+        return;
+      }
+      const object = placeOne(wanted.item, wanted.isFurnishing);
+      if (object) {
+        parentGroup.add(object);
+        this._objectsById.set(id, object);
+        this._signaturesById.set(id, wanted.signature);
+      } else {
+        this._objectsById.delete(id);
+        this._signaturesById.delete(id);
+      }
+    };
+
+    // Exact mutation patch: snapshot reconciliation retained every untouched
+    // item, so avoid hashing or visiting all of their detailed child meshes.
+    if (changes instanceof Map && changes.size > 0) {
+      const equipmentById = new Map((equipmentData || []).map(item => [item.id, item]));
+      const furnishingsById = new Map((furnishingData || []).map(item => [item.id, item]));
+      for (const change of changes.values()) {
+        const isFurnishing = change.kind === 'furnishing';
+        if (!isFurnishing && change.kind !== 'equipment') continue;
+        const id = `${isFurnishing ? 'furnishing' : 'equipment'}:${change.id}`;
+        const item = (isFurnishing ? furnishingsById : equipmentById).get(change.id);
+        replace(id, item ? desiredEntry(item, isFurnishing)[1] : null);
+      }
+      this._meshes = Array.from(this._objectsById.values());
+      return;
+    }
+
+    const desired = new Map();
+    const collect = (item, isFurnishing) => {
+      const [id, entry] = desiredEntry(item, isFurnishing);
+      desired.set(id, entry);
+    };
+    if (equipmentData) for (const eq of equipmentData) collect(eq, false);
+    if (furnishingData) for (const furn of furnishingData) collect(furn, true);
+
+    // Reconcile by stable id. Unchanged tables, racks, consoles, and their
+    // detailed child meshes remain attached; only added/updated/removed
+    // entries allocate or dispose geometry.
+    for (const [id, wanted] of desired) {
+      replace(id, wanted);
+    }
+    for (const [id, object] of this._objectsById) {
+      if (desired.has(id)) continue;
+      this._disposeObject(object, parentGroup);
+      this._objectsById.delete(id);
+      this._signaturesById.delete(id);
+    }
+    this._meshes = Array.from(this._objectsById.values());
+  }
+
+  _disposeObject(obj, parentGroup) {
+    parentGroup.remove(obj);
+    obj.traverse((child) => {
+      if (child.isMesh && child.geometry) child.geometry.dispose();
+    });
   }
 
   /**
@@ -338,12 +403,9 @@ export class EquipmentBuilder {
    * @param {THREE.Group} parentGroup
    */
   dispose(parentGroup) {
-    for (const obj of this._meshes) {
-      parentGroup.remove(obj);
-      obj.traverse((child) => {
-        if (child.isMesh && child.geometry) child.geometry.dispose();
-      });
-    }
+    for (const obj of this._objectsById.values()) this._disposeObject(obj, parentGroup);
+    this._objectsById.clear();
+    this._signaturesById.clear();
     this._meshes = [];
   }
 }

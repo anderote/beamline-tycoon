@@ -67,6 +67,7 @@ import {
   utilityNetworkHoverInfo,
 } from '../ui/hover-info.js';
 import { renderHoverTooltipDetail } from '../ui/hover-tooltip-detail.js';
+import { placeableMutationEvent } from '../game/placeable-events.js';
 
 // === BEAMLINE TYCOON: INPUT HANDLER ===
 
@@ -3883,7 +3884,9 @@ export class InputHandler {
         this.game._deriveBeamGraph();
         this.game.recalcAllBeamlines();
         this.game.reanchorUtilityLinesForPlaceable(p.nodeId);
-        this.game.emit('placeableChanged');
+        this.game.emit('placeableChanged', placeableMutationEvent(
+          placeable, 'moved', { terrainChanged: true },
+        ));
         return true;
       });
     }
@@ -3932,9 +3935,12 @@ export class InputHandler {
         }
         const dangled = this.game.reanchorUtilityLinesForPlaceable(p.placeableId);
         this.game.computeSystemStats();
-        this.game.emit('placeableChanged');
-        if (entry.category === 'equipment') this.game.emit('facilityChanged');
-        if (entry.category === 'furnishing') this.game.emit('zonesChanged');
+        const mutationEvent = placeableMutationEvent(
+          entry, 'moved', { terrainChanged: true },
+        );
+        this.game.emit('placeableChanged', mutationEvent);
+        if (entry.category === 'equipment') this.game.emit('facilityChanged', mutationEvent);
+        if (entry.category === 'furnishing') this.game.emit('zonesChanged', mutationEvent);
         this.renderer.dropPortablePlaceable?.(p.placeableId);
         this._showToast(dangled
           ? `Moved — ${dangled} utility ${dangled === 1 ? 'line needs' : 'lines need'} rewiring`
