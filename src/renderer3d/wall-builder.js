@@ -274,6 +274,28 @@ export class WallBuilder {
   }
 
   /**
+   * The authored pieces as a raycast target set, with world matrices current.
+   *
+   * Raycasting the wall GROUP once batching is on is a performance trap: a
+   * BatchedMesh's bounding sphere spans every instance it holds — the whole
+   * facility — so no ray can ever be rejected cheaply, and each one descends
+   * into hundreds of per-instance tests. The unbatched pieces each carry a
+   * tight bounding sphere, so a ray near one lamppost rejects almost all of
+   * them outright. That difference is what made the light-pool tracer (32
+   * rays per fixture, re-run on every wall rebuild) freeze the world.
+   *
+   * These are detached from the scene graph, so nothing else updates their
+   * matrixWorld; with no parent, updateMatrixWorld copies the local matrix
+   * every emit site already composed.
+   *
+   * @returns {THREE.Mesh[]}
+   */
+  occluderMeshes() {
+    for (const mesh of this._meshes) mesh.updateMatrixWorld(true);
+    return this._meshes;
+  }
+
+  /**
    * Parent a freshly authored piece, or hand it to the batcher when one is
    * open. Callers must have composed the mesh's local matrix already
    * (matrixAutoUpdate = false + updateMatrix()), which every site does.

@@ -4692,8 +4692,16 @@ export class ThreeRenderer {
       return;
     }
     this.wallGroup?.updateMatrixWorld?.(true);
+    // Trace against the per-wall sources, never the wall group. Once walls are
+    // batched the group holds a couple of dozen BatchedMeshes whose bounding
+    // spheres each cover the entire facility, so every one of these rays would
+    // descend into every batch and test every instance — see
+    // WallBuilder.occluderMeshes for the full reasoning.
+    const occluders = this.wallBuilder?.occluderMeshes
+      ? this.wallBuilder.occluderMeshes()
+      : this.wallGroup;
     const poolMesh = buildLightPools(fixtures, {
-      occluders: this.wallGroup,
+      occluders,
       fragmentCache: this._lightPoolFragmentCache,
     });
     if (poolMesh) this.lightPoolGroup.add(poolMesh);
