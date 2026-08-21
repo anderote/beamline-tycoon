@@ -167,11 +167,13 @@ export function computeBeamIncomeBreakdown(beamState, nodeCount = 0, options = {
   // machine from becoming literally valueless while it is tuned. Untyped
   // legacy/scenario lines retain the old node-count economy for save and
   // balance compatibility.
-  const beam = options.typed
-    ? q * (20 + 10 * nodeCount) + Math.max(0, options.serviceRevenue || 0)
+  const operations = options.typed
+    ? q * (20 + 10 * nodeCount)
     : q * (ECON.beamIncomeBase + ECON.beamIncomePerNode * nodeCount);
+  const service = options.typed ? Math.max(0, options.serviceRevenue || 0) : 0;
+  const beam = operations + service;
   const dataFees = dataFeeIncome(beamState.dataRate);
-  return { beam, dataFees, total: beam + dataFees };
+  return { operations, service, beam, dataFees, total: beam + dataFees };
 }
 
 /** The breakdown's total, which is the amount one running beamline is paid. */
@@ -214,10 +216,17 @@ export function computeBeamlineRevenueBreakdown(
     beam: earned.beam + photonUserFees,
     dataFees: earned.dataFees,
     total: earned.total + photonUserFees,
+    operationsRevenue: earned.operations,
     effectiveDataRate: billedRate,
+    serviceEndpointId: service.endpointId,
+    serviceBaseRevenue: service.baseRevenue,
+    serviceDriverLabel: service.driverLabel,
+    serviceDescription: service.description,
     serviceRevenue: service.revenue,
     serviceContract: service.contractName,
     serviceWorkload: service.workload,
+    serviceEnergyScore: service.energyScore,
+    serviceCurrentScore: service.currentScore,
     serviceBandScore: service.bandScore,
     servicePerformanceScore: service.performanceScore,
     serviceBeamPowerKw: service.beamPowerKw || 0,

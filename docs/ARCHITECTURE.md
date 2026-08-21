@@ -138,7 +138,10 @@ snapshot of charged money. `BeamlineDesigner` publishes `draftRevenueProjection`
 through the same `computeBeamlineRevenueBreakdown` function used by
 `Game._tickBeamline`; the renderer only formats it. Because a draft has no
 external utility topology, the projection is labelled as gross earning
-potential at full data connectivity and excludes facility upkeep.
+potential at full data connectivity and excludes facility upkeep. The same
+projection publishes the exact operation, endpoint-service, data-fee, and
+photon-port terms plus the endpoint contract's band and delivery factors; the
+Designer's hover disclosure names those values but never recomputes them.
 
 **S6. Facility uptime is the **mean** of per-beamline uptimes, not summed ticks over wall clock.**
 `aggregates.js:112-118`. The summed form runs up to N with N beamlines and once paid out the `highAvailability` objective for a facility whose beams were down.

@@ -3469,6 +3469,8 @@ body {
   color: #bbc;
 }
 .dsgn-plot-range-bar {
+  position: relative;
+  z-index: 20;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -3550,13 +3552,14 @@ body {
   opacity: 0.65;
 }
 .dsgn-plot-mission-summary {
+  position: relative;
   display: flex;
   align-items: stretch;
   gap: 4px;
   min-width: 0;
   margin-left: auto;
   padding: 4px 5px;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid rgba(93, 230, 255, 0.22);
   border-radius: 2px;
   background:
@@ -3622,6 +3625,148 @@ body {
   color: #ffe094;
   font-size: 14px;
   text-shadow: 0 0 8px rgba(255, 208, 104, 0.2);
+}
+.dsgn-revenue-disclosure {
+  position: relative;
+  padding-right: 20px;
+  cursor: help;
+  outline: none;
+}
+.dsgn-revenue-disclosure:hover,
+.dsgn-revenue-disclosure:focus-visible,
+.dsgn-revenue-disclosure:focus-within {
+  border-color: #ffe094;
+  background: linear-gradient(180deg, rgba(126, 92, 29, 0.38), rgba(52, 39, 16, 0.3));
+  box-shadow: inset 0 0 12px rgba(227, 188, 97, 0.14), 0 0 10px rgba(227, 188, 97, 0.12);
+}
+.dsgn-revenue-chevron {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  color: #c8a85f !important;
+  font-size: 10px !important;
+  line-height: 1 !important;
+}
+.dsgn-revenue-breakdown {
+  position: absolute;
+  top: calc(100% + 5px);
+  right: -6px;
+  z-index: 80;
+  display: flex;
+  visibility: hidden;
+  width: min(360px, calc(100vw - 32px));
+  padding: 13px;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid rgba(238, 196, 99, 0.58);
+  border-radius: 3px;
+  background:
+    linear-gradient(180deg, rgba(25, 27, 31, 0.99), rgba(11, 14, 18, 0.995)),
+    repeating-linear-gradient(90deg, transparent 0 23px, rgba(238, 196, 99, 0.03) 23px 24px);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.72), inset 0 0 22px rgba(238, 196, 99, 0.05);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0.12s;
+  white-space: normal;
+}
+.dsgn-revenue-disclosure:hover .dsgn-revenue-breakdown,
+.dsgn-revenue-disclosure:focus .dsgn-revenue-breakdown,
+.dsgn-revenue-disclosure:focus-within .dsgn-revenue-breakdown {
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(0);
+}
+.dsgn-revenue-breakdown,
+.dsgn-revenue-breakdown span,
+.dsgn-revenue-breakdown strong {
+  overflow: visible;
+  max-width: none;
+  color: inherit;
+  font-family: var(--ui-font-display);
+  letter-spacing: normal;
+  line-height: 1.35;
+  text-align: left;
+  text-overflow: clip;
+  text-transform: none;
+}
+.dsgn-revenue-kicker {
+  display: block;
+  color: #a88f57 !important;
+  font-size: 8px !important;
+  letter-spacing: .12em !important;
+  text-transform: uppercase !important;
+}
+.dsgn-revenue-endpoint {
+  display: block;
+  color: #ffe09a !important;
+  font-size: 13px !important;
+  font-weight: 700;
+}
+.dsgn-revenue-contract {
+  display: block;
+  color: #c6d4d8 !important;
+  font-size: 10px !important;
+}
+.dsgn-revenue-story {
+  display: block;
+  padding: 7px 0 8px;
+  border-bottom: 1px solid rgba(238, 196, 99, 0.16);
+  color: #8fa2a8 !important;
+  font: 10px/1.55 monospace !important;
+}
+.dsgn-revenue-factors,
+.dsgn-revenue-terms {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.dsgn-revenue-factors {
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(238, 196, 99, 0.16);
+}
+.dsgn-revenue-factor,
+.dsgn-revenue-term,
+.dsgn-revenue-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+.dsgn-revenue-factor span,
+.dsgn-revenue-term span,
+.dsgn-revenue-total span {
+  color: #82969c !important;
+  font-size: 9px !important;
+}
+.dsgn-revenue-factor strong {
+  color: #b8c9cd !important;
+  font-size: 9px !important;
+  font-weight: 600;
+}
+.dsgn-revenue-term strong {
+  color: #e6d29c !important;
+  font-size: 10px !important;
+}
+.dsgn-revenue-total {
+  margin-top: 2px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(238, 196, 99, 0.32);
+}
+.dsgn-revenue-total span {
+  color: #d0b66f !important;
+  letter-spacing: .08em !important;
+  text-transform: uppercase !important;
+}
+.dsgn-revenue-total strong {
+  color: #ffe094 !important;
+  font-size: 14px !important;
+  text-shadow: 0 0 8px rgba(255, 208, 104, 0.18);
+}
+.dsgn-revenue-assumption {
+  display: block;
+  color: #627176 !important;
+  font: 8px/1.45 monospace !important;
 }
 .dsgn-plot-mission-empty { color: #667681; font-size: 8px; }
 .dsgn-plots-row {
