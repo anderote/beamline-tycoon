@@ -349,7 +349,7 @@ test('every visible palette card adds to the draft in edit mode', async ({ page 
   errors.checkAll('designer edit-mode palette');
 });
 
-test('lower-right auto matcher retunes magnets and restores RF phase and frequency', async ({ page }) => {
+test('solver workbench opens from a selected component and previews a measured sweep', async ({ page }) => {
   const errors = createErrorCollector(page);
   await page.setViewportSize({ width: 1600, height: 950 });
   await bootFreshGame(page);
@@ -367,101 +367,50 @@ test('lower-right auto matcher retunes magnets and restores RF phase and frequen
   expect(sourceId, 'designer opened from a placed source').toBeTruthy();
   await frames(page, 3);
 
-  const setup = await page.evaluate(() => {
+  await page.evaluate(() => {
     const d = window.game._designer;
     d.insertComponent(d.draftNodes.length - 1, 'cbandStructure', 'after');
     d.insertComponent(d.draftNodes.length - 1, 'quadrupole', 'after');
-    const rfIndex = d.draftNodes.findIndex(n => n.type === 'cbandStructure');
     const quadIndex = d.draftNodes.findIndex(n => n.type === 'quadrupole');
-    Object.assign(d.draftNodes[rfIndex].params, { gradient: 40, rfPhase: -33, rfFrequency: 1300 });
     Object.assign(d.draftNodes[quadIndex].params, { gradient: 20, polarity: 1 });
     d.selectedIndex = quadIndex;
     d._lastTuningKey = null;
     d._recalcDraft();
     d._renderAll();
-    return { rfIndex, quadIndex };
   });
 
-  const control = page.locator('#dsgn-auto-tune-control');
-  await expect(control).toBeVisible();
-  await page.check('#dsgn-auto-tune');
-  await frames(page, 2);
+  const selectedOptimize = page.locator('[data-designer-optimize-selected]');
+  await expect(selectedOptimize).toBeVisible();
+  await expect(page.locator('#dsgn-open-optimizer')).toBeEnabled();
+  await selectedOptimize.click();
 
-  const matched = await page.evaluate(({ rfIndex, quadIndex }) => {
-    const d = window.game._designer;
-    const rf = d.draftNodes[rfIndex];
-    const quad = d.draftNodes[quadIndex];
-    const root = document.getElementById('dsgn-auto-tune-control').getBoundingClientRect();
-    const overlay = document.getElementById('designer-overlay').getBoundingClientRect();
-    const hud = document.getElementById('bottom-hud').getBoundingClientRect();
-    return {
-      enabled: d.autoTuneEnabled,
-      rf: { ...rf.params },
-      quad: { ...quad.params },
-      status: document.getElementById('dsgn-auto-tune-status').textContent,
-      gradientDisabled: document.querySelector('#dsgn-tuning-params input[data-param="gradient"]')?.disabled,
-      polarityDisabled: [...document.querySelectorAll('#dsgn-tuning-params [data-toggle-param="polarity"] button')]
-        .every(button => button.disabled),
-      rightGap: Math.abs(overlay.right - root.right),
-      hudGap: hud.top - root.bottom,
-    };
-  }, setup);
+  const dialog = page.locator('#dsgn-optimizer-dialog');
+  await expect(dialog).toBeVisible();
+  await expect(page.locator('#dsgn-optimizer-scope')).toHaveValue('selected');
+  await expect(page.locator('#dsgn-optimizer-scope option[value="same-type"]'))
+    .toContainText('All Quad components');
+  await expect(page.locator('[data-optimizer-target="transmission"]')).toBeChecked();
 
-  expect(matched.enabled).toBe(true);
-  expect(matched.rf.rfFrequency).toBe(5712);
-  expect(matched.rf.rfPhase).toBe(0);
-  expect(matched.rf.gradient, 'valid RF amplitude stays player-controlled').toBe(40);
-  expect(matched.quad.gradient, 'the 20 T/m default was rematched').toBeLessThan(1);
-  expect([0, 1]).toContain(matched.quad.polarity);
-  expect(matched.gradientDisabled, 'auto-owned quad strength is locked').toBe(true);
-  expect(matched.polarityDisabled, 'auto-owned polarity is locked').toBe(true);
-  expect(matched.status).toMatch(/1 MAG .* 1 RF/);
-  expect(matched.rightGap, 'the checkbox sits at the Designer right edge').toBeLessThanOrEqual(14);
-  expect(matched.hudGap, 'the checkbox sits just above the lower palette').toBeGreaterThanOrEqual(6);
-  expect(matched.hudGap).toBeLessThanOrEqual(12);
-
-  // RF amplitude remains a manual energy target. Changing it must trigger a
-  // new local-rigidity match for the downstream quad while auto mode is on.
-  const before = await page.evaluate(({ rfIndex, quadIndex }) => {
-    const d = window.game._designer;
-    d.selectedIndex = rfIndex;
-    d._lastTuningKey = null;
-    d._renderTuning();
-    return {
-      quadGradient: d.draftNodes[quadIndex].params.gradient,
-      energy: d.draftPhysicsResult.beamEnergy,
-    };
-  }, setup);
-  const rfGradient = page.locator('#dsgn-tuning-params input[data-param="gradient"]');
-  await expect(rfGradient).toBeEnabled();
-  await rfGradient.evaluate((input) => {
-    input.value = '10';
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+  await page.locator('#dsgn-optimizer-preset').selectOption('focus');
+  await page.locator('#dsgn-optimizer-run').click();
+  await expect(page.locator('#dsgn-optimizer-progress-label')).toContainText(/SOLUTION FOUND/i, {
+    timeout: 120_000,
   });
-  await expect.poll(() => page.evaluate(({ quadIndex }) =>
-    window.game._designer.draftNodes[quadIndex].params.gradient, setup))
-    .toBeLessThan(before.quadGradient);
+  await expect(page.locator('.dsgn-optimizer-result-head')).toBeVisible();
+  const report = await page.evaluate(() => ({
+    resultRows: document.querySelectorAll('.dsgn-optimizer-result-row').length,
+    summary: document.querySelector('.dsgn-optimizer-result-summary')?.textContent,
+    before: [...document.querySelectorAll('.dsgn-optimizer-result-row')]
+      .map(row => row.children[1]?.textContent),
+    after: [...document.querySelectorAll('.dsgn-optimizer-result-row')]
+      .map(row => row.children[3]?.textContent),
+  }));
+  expect(report.resultRows).toBeGreaterThanOrEqual(3);
+  expect(report.summary).toMatch(/solves .* controls/);
+  expect(report.before.every(Boolean)).toBe(true);
+  expect(report.after.every(Boolean)).toBe(true);
 
-  const atTen = await page.evaluate(({ quadIndex }) => ({
-    quadGradient: window.game._designer.draftNodes[quadIndex].params.gradient,
-    energy: window.game._designer.draftPhysicsResult.beamEnergy,
-  }), setup);
-  expect(atTen.energy).toBeLessThan(before.energy);
-
-  // Unchecked means manual: another upstream RF change recomputes physics but
-  // does not rewrite the magnet setting.
-  await page.uncheck('#dsgn-auto-tune');
-  await rfGradient.evaluate((input) => {
-    input.value = '50';
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-  });
-  await expect.poll(() => page.evaluate(() => window.game._designer.draftPhysicsResult.beamEnergy))
-    .toBeGreaterThan(atTen.energy);
-  const manualQuad = await page.evaluate(({ quadIndex }) =>
-    window.game._designer.draftNodes[quadIndex].params.gradient, setup);
-  expect(manualQuad).toBe(atTen.quadGradient);
-
-  errors.checkAll('designer auto matcher');
+  errors.checkAll('designer solver workbench');
 });
 
 // Proposed-vs-Current comparison. The failure mode this guards is silent: two
