@@ -1,23 +1,43 @@
 // src/ui/ScenarioEditor.js — dev-only in-game Scenario Editor mode.
 //
-// Entered via ?editor=1 to resume or ?editor=new for a blank project. main.js only imports
-// this module behind `import.meta.env.DEV`, so none of it ships in the
-// production bundle. The editor session:
-//   - runs on a fresh blank world, or the existing local default for revision
+// Entered via ?editor=<local-id> to revise a scenario or ?editor=new for a
+// blank project. main.js only imports this module behind `import.meta.env.DEV`,
+// so none of it ships in the production bundle. The editor session:
+//   - runs on a fresh blank world, or an existing local scenario for revision
 //   - never writes the active save (game.suppressAutosave)
 //   - has sandbox economics + all research unlocked, so nothing is
 //     placement-locked while designing
 //   - exports the built world as scenario data: a downloadable .json, a
 //     ready-to-paste .js generator module (console + clipboard), and a
-//     localStorage custom-scenario slot for immediate play-testing.
+//     localStorage scenario catalogue for immediate play-testing.
 
 import { RESEARCH } from '../data/research.js';
 import { serializeCornerHeights } from '../game/terrain.js';
 import {
-  CUSTOM_SCENARIO_ID,
-  PENDING_SCENARIO_KEY,
+  customScenarioRef,
+  listCustomScenarios,
   saveCustomScenario,
+  stageScenarioSelection,
 } from '../data/scenarios.js';
+
+export function scenarioIdFromName(name) {
+  const words = String(name || '').replace(/[^a-zA-Z0-9 ]/g, ' ').trim().split(/\s+/).filter(Boolean);
+  let id = words.map((word, index) => {
+    const lower = word.toLowerCase();
+    return index === 0 ? lower : lower.charAt(0).toUpperCase() + lower.slice(1);
+  }).join('');
+  if (!id || /^[0-9]/.test(id)) id = 'custom' + (id || 'Scenario');
+  return id;
+}
+
+export function uniqueScenarioId(name, existingIds = []) {
+  const base = scenarioIdFromName(name);
+  const taken = new Set(existingIds);
+  if (!taken.has(base)) return base;
+  let suffix = 2;
+  while (taken.has(`${base}${suffix}`)) suffix++;
+  return `${base}${suffix}`;
+}
 
 export class ScenarioEditor {
   constructor(game, existingScenario = null, {
@@ -27,7 +47,7 @@ export class ScenarioEditor {
     this.game = game;
     this.storage = storage;
     this._lastName = fresh
-      ? 'Untitled Default World'
+      ? 'Untitled Scenario'
       : existingScenario?.name || 'Local Balance Sandbox';
     this._lastId = fresh ? null : existingScenario?.id || null;
     this._hasSavedDesign = !fresh && !!existingScenario?.data;
@@ -54,7 +74,7 @@ export class ScenarioEditor {
     this._mountBadge();
     this._mountToolbar();
     if (this._hasSavedDesign) this._savedSnapshot = this._currentSnapshot();
-    g.log('SCENARIO CONSTRUCTION — free build; operating income and upkeep remain live. Save Design keeps this project available to resume later.', 'info');
+    g.log('SCENARIO CONSTRUCTION — free build; operating income and upkeep remain live. Save As publishes a playable New Game scenario.', 'info');
   }
 
   // === UI ===
@@ -82,10 +102,11 @@ export class ScenarioEditor {
       bar.appendChild(b);
       return b;
     };
-    mk('Save Design', 'Save this default-world design locally and keep editing', () => this.saveDesign());
+    mk('Save', 'Update this playable scenario and keep editing', () => this.saveDesign());
+    mk('Save As', 'Overwrite a selected local scenario or create a new playable scenario', () => this.openSaveAsDialog());
     mk('Export', 'Export Scenario — download .json + copy a .js generator module to clipboard/console', () => this.exportScenario());
-    mk('Save + Playtest', 'Save as the local New Game default and playtest with free construction plus real operating economics', () => this.playScenario());
-    mk('Exit', 'Exit Editor — saved designs can be resumed from Scenarios', () => this.exit());
+    mk('Save + Playtest', 'Save this scenario and playtest with free construction plus real operating economics', () => this.playScenario());
+    mk('Exit', 'Exit Editor — saved scenarios remain available from New Game', () => this.exit());
     // Sit inline in the top bar, right after the EDITOR MODE badge.
     const badge = document.getElementById('editor-badge');
     if (badge) badge.after(bar);
@@ -107,6 +128,7 @@ export class ScenarioEditor {
       floors: strip(s.floors),
       zones: strip(s.zones),
       walls: strip(s.walls),
+      wallOverlays: strip(s.wallOverlays || []),
       doors: strip(s.doors),
       windows: strip(s.windows || []),
       placeables: strip(s.placeables),
@@ -121,19 +143,10 @@ export class ScenarioEditor {
     };
   }
 
-  _promptMeta() {
+  _promptExportMeta() {
     const name = prompt('Scenario name:', this._lastName);
     if (!name) return null;
-    this._lastName = name;
-    // Derive a camelCase id from the name: "My Cool Lab" -> "myCoolLab"
-    const words = name.replace(/[^a-zA-Z0-9 ]/g, ' ').trim().split(/\s+/);
-    let id = words.map((w, i) => {
-      const lw = w.toLowerCase();
-      return i === 0 ? lw : lw.charAt(0).toUpperCase() + lw.slice(1);
-    }).join('');
-    if (!id || /^[0-9]/.test(id)) id = 'custom' + (id || 'Scenario');
-    this._lastId = id;
-    return { id, name };
+    return { id: scenarioIdFromName(name), name };
   }
 
   _currentSnapshot() {
@@ -155,7 +168,7 @@ export class ScenarioEditor {
       this._lastName = stored.name;
       this._savedSnapshot = JSON.stringify(data);
       const badge = globalThis.document?.getElementById('editor-badge');
-      if (badge) badge.textContent = 'SCENARIO ADMIN · CURRENT';
+      if (badge) badge.textContent = 'SCENARIO ADMIN · SAVED';
       return stored;
     } catch (e) {
       alert('Could not store the scenario in localStorage (quota?): ' + e.message);
@@ -167,18 +180,104 @@ export class ScenarioEditor {
   saveDesign(meta = null) {
     const selectedMeta = meta || (this._hasSavedDesign && this._lastId
       ? { id: this._lastId, name: this._lastName }
-      : this._promptMeta());
-    if (!selectedMeta) return null;
+      : null);
+    if (!selectedMeta) {
+      this.openSaveAsDialog();
+      return null;
+    }
     this._lastName = selectedMeta.name;
     const stored = this._save(selectedMeta);
     if (stored) {
-      this.game.log(`Saved "${stored.name}" as the current default-world design. You can keep editing or resume it later from Scenarios.`, 'good');
+      this.game.log(`Saved "${stored.name}". It is playable from New Game.`, 'good');
     }
     return stored;
   }
 
+  /** Save under an explicit identity; used by the dialog and headless tests. */
+  saveAs(meta) {
+    if (!meta?.id || !meta?.name) return null;
+    const stored = this._save(meta);
+    if (stored) this.game.log(`Saved "${stored.name}" as a playable New Game scenario.`, 'good');
+    return stored;
+  }
+
+  openSaveAsDialog({ playAfterSave = false } = {}) {
+    const doc = globalThis.document;
+    if (!doc) return null;
+    doc.getElementById('scenario-save-as-dialog')?.remove();
+
+    const scenarios = listCustomScenarios(this.storage);
+    const overlay = doc.createElement('div');
+    overlay.id = 'scenario-save-as-dialog';
+    overlay.className = 'ui-modal-backdrop';
+    const panel = doc.createElement('form');
+    panel.className = 'scenario-panel scenario-save-panel';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-modal', 'true');
+    panel.setAttribute('aria-labelledby', 'scenario-save-as-title');
+
+    let html = '<div class="scenario-header"><h2 class="scenario-title" id="scenario-save-as-title">Save Scenario As</h2></div>';
+    html += '<div class="scenario-body scenario-save-body">';
+    html += '<label class="scenario-save-label" for="scenario-save-target">Destination</label>';
+    html += '<select class="scenario-save-control" id="scenario-save-target">';
+    html += '<option value="">Create a new playable scenario</option>';
+    for (const scenario of scenarios) {
+      html += `<option value="${this._escapeAttribute(scenario.id)}">Overwrite: ${this._escapeText(scenario.name)}</option>`;
+    }
+    html += '</select>';
+    html += '<label class="scenario-save-label" for="scenario-save-name">Scenario name</label>';
+    html += `<input class="scenario-save-control" id="scenario-save-name" maxlength="80" required value="${this._escapeAttribute(this._hasSavedDesign ? `${this._lastName} Copy` : this._lastName)}">`;
+    html += '<p class="scenario-save-help">Saved scenarios appear immediately in the New Game picker. Choosing an existing destination replaces its starting layout.</p>';
+    html += '</div>';
+    html += '<div class="scenario-footer scenario-save-footer"><button type="button" class="ui-button" data-save-as-cancel>Cancel</button><button type="submit" class="ui-button">Save As</button></div>';
+    panel.innerHTML = html;
+    overlay.appendChild(panel);
+    doc.body.appendChild(overlay);
+
+    const target = panel.querySelector('#scenario-save-target');
+    const nameInput = panel.querySelector('#scenario-save-name');
+    target.addEventListener('change', () => {
+      const selected = scenarios.find(scenario => scenario.id === target.value);
+      nameInput.value = selected?.name || (this._hasSavedDesign ? `${this._lastName} Copy` : this._lastName);
+      nameInput.focus();
+      nameInput.select();
+    });
+    panel.querySelector('[data-save-as-cancel]').addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove(); });
+    panel.addEventListener('submit', event => {
+      event.preventDefault();
+      const name = nameInput.value.trim();
+      if (!name) return;
+      const destination = target.value;
+      const id = destination || uniqueScenarioId(name, scenarios.map(scenario => scenario.id));
+      const replacing = scenarios.find(scenario => scenario.id === destination);
+      if (replacing && !confirm(`Replace “${replacing.name}” with the current starting situation?`)) return;
+      if (playAfterSave && !confirm(`Save “${name}” and start a sandbox playtest now?\n\nConstruction stays free, while income and recurring operating costs remain real.`)) return;
+      const stored = this.saveAs({ id, name });
+      if (!stored) return;
+      overlay.remove();
+      if (playAfterSave) this._launchPlaytest(stored);
+    });
+    nameInput.focus();
+    nameInput.select();
+    return overlay;
+  }
+
+  _escapeText(value) {
+    return String(value ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  _escapeAttribute(value) {
+    return this._escapeText(value);
+  }
+
   exportScenario() {
-    const meta = this._promptMeta();
+    const meta = this._promptExportMeta();
     if (!meta) return;
     const data = this.collectScenarioData();
     const payload = { id: meta.id, name: meta.name, data };
@@ -225,12 +324,18 @@ export class ScenarioEditor {
   // === PLAY-TEST LOOP ===
 
   playScenario() {
-    const meta = this._promptMeta();
-    if (!meta) return;
-    if (!confirm(`Save "${meta.name}" as the local default and start a sandbox playtest now?\n\nConstruction stays free, while income and recurring operating costs remain real.`)) return;
-    if (!this._save(meta)) return;
+    if (!this._hasSavedDesign || !this._lastId) {
+      this.openSaveAsDialog({ playAfterSave: true });
+      return;
+    }
+    if (!confirm(`Save “${this._lastName}” and start a sandbox playtest now?\n\nConstruction stays free, while income and recurring operating costs remain real.`)) return;
+    const stored = this.saveDesign();
+    if (stored) this._launchPlaytest(stored);
+  }
+
+  _launchPlaytest(stored) {
     this.storage.removeItem('beamlineTycoon');
-    this.storage.setItem(PENDING_SCENARIO_KEY, CUSTOM_SCENARIO_ID);
+    stageScenarioSelection(customScenarioRef(stored.id), this.storage);
     sessionStorage.setItem('beamlineTycoon.skipTitle', '1');
     // Reload WITHOUT the editor flag → sandbox construction with the real
     // tick economy (the stored scenario carries sandbox: true).
@@ -241,8 +346,8 @@ export class ScenarioEditor {
 
   exit() {
     const message = this.hasUnsavedChanges()
-      ? 'Exit the Scenario Editor?\n\nUnsaved changes will be lost. Use Save Design if you want to resume this version later.'
-      : 'Exit the Scenario Editor and resume your previous game?\n\nYour saved default-world design will remain available under Scenarios.';
+      ? 'Exit the Scenario Editor?\n\nUnsaved changes will be lost. Use Save or Save As if you want to keep this version.'
+      : 'Exit the Scenario Editor and resume your previous game?\n\nYour saved scenario will remain available under New Game.';
     if (!confirm(message)) return;
     location.href = location.pathname;
   }

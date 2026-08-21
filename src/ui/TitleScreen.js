@@ -352,7 +352,7 @@ export class TitleScreen {
     this._showMenu(cfg);
   }
 
-  _showMenu({ hasSave, onContinue, onNewGame, onScenarios }) {
+  _showMenu({ hasSave, onContinue, onNewGame }) {
     if (this._dismissed) return;
     this.loadingEl.classList.add('hidden');
     this.menuEl.innerHTML = '';
@@ -368,7 +368,6 @@ export class TitleScreen {
 
     if (hasSave) addBtn('Continue', onContinue);
     addBtn('New Game', onNewGame);
-    addBtn('Scenarios', onScenarios);
     // The manual reads fine before a game exists — it is pure reference
     // content. raiseAboveTitle lifts the window container over this overlay.
     addBtn('Manual', () => openWikiWindow({ raiseAboveTitle: true }));

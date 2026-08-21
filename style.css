@@ -6761,6 +6761,28 @@ body {
   cursor: pointer;
 }
 .scenario-card:hover { border-color: var(--ui-border-light) var(--ui-border-dark) var(--ui-border-dark) var(--ui-border-light); background: #2b2b4a; }
+.scenario-card-row {
+  display: flex;
+  align-items: stretch;
+  gap: 7px;
+  margin-bottom: 8px;
+}
+.scenario-card-row .scenario-card { flex: 1; min-width: 0; margin-bottom: 0; }
+.scenario-edit-action {
+  flex: none;
+  width: 54px;
+  border: 1px solid rgba(232, 194, 90, 0.42);
+  border-radius: var(--ui-radius);
+  background: rgba(68, 51, 23, 0.72);
+  color: #ffe9b0;
+  font-family: var(--ui-font-display);
+  font-size: 7px;
+  cursor: pointer;
+}
+.scenario-edit-action:hover {
+  border-color: rgba(255, 220, 120, 0.8);
+  background: rgba(95, 70, 28, 0.9);
+}
 .scenario-admin-section {
   margin-top: 12px;
   padding: 10px 12px 12px;
@@ -6822,6 +6844,30 @@ body {
 }
 .scenario-description { color: var(--ui-text-muted); font-size: 10px; line-height: 1.45; }
 .scenario-footer { display: flex; justify-content: flex-end; padding: 10px 16px 14px; }
+.scenario-save-panel { width: min(460px, 100%); }
+.scenario-save-body { display: flex; flex-direction: column; gap: 7px; padding-bottom: 14px; }
+.scenario-save-label {
+  margin-top: 3px;
+  color: var(--ui-gold-muted);
+  font-family: var(--ui-font-display);
+  font-size: 7px;
+  text-transform: uppercase;
+}
+.scenario-save-control {
+  width: 100%;
+  min-height: 32px;
+  padding: 7px 8px;
+  border: 2px solid;
+  border-color: #12121f #3c3c60 #3c3c60 #12121f;
+  border-radius: var(--ui-radius);
+  background: #17172a;
+  color: var(--ui-text);
+  font-family: var(--ui-font-body);
+  font-size: 10px;
+}
+.scenario-save-control:focus { outline: 1px solid var(--ui-gold); }
+.scenario-save-help { margin-top: 3px; color: var(--ui-text-faint); font-size: 9px; line-height: 1.5; }
+.scenario-save-footer { gap: 8px; }
 
 /* Staff and hiring inspectors */
 .staff-need-value { width: 32px; color: var(--ui-text-faint); font-size: 7px; text-align: right; }

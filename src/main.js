@@ -22,26 +22,23 @@ import { ViewRouter } from './ui/ViewRouter.js';
 import { MODES } from './data/modes.js';
 import { COMPONENTS } from './data/components.js';
 import {
-  SCENARIOS,
-  CUSTOM_SCENARIO_ID,
   PENDING_SCENARIO_KEY,
   loadCustomScenario,
-  loadDefaultStartingScenarioId,
+  loadCustomScenarioById,
   resolveScenario,
-  stageDefaultStartingScenario,
 } from './data/scenarios.js';
 import { MusicPlayer } from './ui/MusicPlayer.js';
 import { TitleScreen } from './ui/TitleScreen.js';
 import { WelcomeDialog } from './ui/WelcomeDialog.js';
 import { SaveLoadDialog } from './ui/SaveLoadDialog.js';
 import { CloudSaves } from './game/CloudSaves.js';
-import { SaveSlots } from './game/SaveSlots.js';
 import { OptionsDialog } from './ui/OptionsDialog.js';
 import { UtilityInspector } from './ui/UtilityInspector.js';
 import { EconomyWindow } from './ui/EconomyWindow.js';
 import { AdvisorEngine, ADVICE_LEVEL_STORAGE_KEY } from './advisor/engine.js';
 import { buildAdvisorContext } from './advisor/context.js';
 import { Stubby } from './ui/Stubby.js';
+import { ScenarioPicker } from './ui/ScenarioPicker.js';
 import { discoverNetworks, makeDefaultPortLookup } from './utility/network-discovery.js';
 import { wireUtility } from './data/scenarios/scenario-wiring.js';
 
@@ -53,132 +50,6 @@ window.PARAM_DEFS = PARAM_DEFS;
 // Clear old saves from the grid-based version
 const oldSave = localStorage.getItem('beamlineCowboy');
 if (oldSave) localStorage.removeItem('beamlineCowboy');
-
-function escapeScenarioText(value) {
-  return String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
-
-function showScenarioPicker(game) {
-  // Remove existing dialog if any
-  const existing = document.getElementById('scenario-dialog');
-  if (existing) { existing.remove(); return; }
-
-  const overlay = document.createElement('div');
-  overlay.id = 'scenario-dialog';
-  overlay.className = 'ui-modal-backdrop';
-
-  const panel = document.createElement('div');
-  panel.className = 'scenario-panel';
-  panel.setAttribute('role', 'dialog');
-  panel.setAttribute('aria-modal', 'true');
-  panel.setAttribute('aria-labelledby', 'scenario-dialog-title');
-
-  let html = '<div class="scenario-header"><h2 class="scenario-title" id="scenario-dialog-title">Scenarios</h2></div>';
-  html += '<div class="scenario-body">';
-  html += '<p class="scenario-intro">Start a new game with a pre-built scenario. Current progress will be lost.</p>';
-
-  // Editor-exported custom scenario (localStorage slot), if present.
-  const customScenario = loadCustomScenario();
-  const defaultScenarioId = loadDefaultStartingScenarioId();
-  const pickerScenarios = customScenario
-    ? [{
-        id: CUSTOM_SCENARIO_ID,
-        name: customScenario.name || 'Untitled Local Scenario',
-        desc: defaultScenarioId === CUSTOM_SCENARIO_ID
-          ? 'Your local New Game default. Starts in balance sandbox: construction is free, recurring costs and income are real.'
-          : 'Locally constructed scenario. Starts in balance sandbox for play-testing.',
-        difficulty: defaultScenarioId === CUSTOM_SCENARIO_ID ? 'Default · Sandbox' : 'Sandbox',
-      }, ...SCENARIOS]
-    : SCENARIOS;
-
-  for (const sc of pickerScenarios) {
-    html += `<button type="button" class="scenario-card" data-id="${sc.id}">`;
-    html += `<span class="scenario-card-header">`;
-    html += `<strong class="scenario-card-name">${escapeScenarioText(sc.name)}</strong>`;
-    html += `<span class="scenario-difficulty">${escapeScenarioText(sc.difficulty)}</span>`;
-    html += `</span>`;
-    html += `<span class="scenario-description">${escapeScenarioText(sc.desc)}</span>`;
-    html += `</button>`;
-  }
-
-  if (import.meta.env.DEV) {
-    html += '<section class="scenario-admin-section" aria-labelledby="scenario-admin-title">';
-    html += '<span class="scenario-card-header">';
-    html += '<strong class="scenario-card-name" id="scenario-admin-title">Default World Editor</strong>';
-    html += '<span class="scenario-difficulty">Admin · Local</span>';
-    html += '</span>';
-    html += `<p class="scenario-description">${customScenario
-      ? `The current saved design is “${escapeScenarioText(customScenario.name || 'Untitled Local Scenario')}”. Save while editing, then resume it here later.`
-      : 'Build a reusable starting world with every technology unlocked, then save it as the local New Game default.'}</p>`;
-    html += '<div class="scenario-admin-actions">';
-    if (customScenario) {
-      html += '<button type="button" class="scenario-admin-action" data-scenario-action="edit-current">';
-      html += '<strong>Edit Current</strong><span>Resume the saved default-world design.</span>';
-      html += '</button>';
-    }
-    html += '<button type="button" class="scenario-admin-action" data-scenario-action="start-new">';
-    html += `<strong>Start New</strong><span>${customScenario
-      ? 'Open a blank design; the current one stays safe until you save over it.'
-      : 'Open a blank default-world design.'}</span>`;
-    html += '</button>';
-    html += '</div>';
-    html += '</section>';
-  }
-
-  html += '</div>';
-  html += '<div class="scenario-footer"><button type="button" id="scenario-cancel" class="ui-button">Cancel</button></div>';
-
-  panel.innerHTML = html;
-  overlay.appendChild(panel);
-  document.body.appendChild(overlay);
-
-  // Card click
-  panel.addEventListener('click', (e) => {
-    const adminAction = e.target.closest('[data-scenario-action]')?.dataset.scenarioAction;
-    if (adminAction && import.meta.env.DEV) {
-      const startNew = adminAction === 'start-new';
-      const message = startNew && customScenario
-        ? `Start a new default-world design?\n\n“${customScenario.name || 'Untitled Local Scenario'}” will remain saved and playable until you use Save Design in the new project. Saving the new project will replace it.`
-        : startNew
-          ? 'Start a new default-world design?\n\nYour current game will be saved and kept in recovery saves.'
-          : `Resume editing “${customScenario?.name || 'Untitled Local Scenario'}”?\n\nYour current game will be saved and kept in recovery saves.`;
-      if (!confirm(message)) return;
-      game.save();
-      SaveSlots.preserveActive('Before scenario construction');
-      location.href = location.pathname + (startNew ? '?editor=new' : '?editor=1');
-      return;
-    }
-
-    const card = e.target.closest('.scenario-card');
-    if (!card) return;
-    const id = card.dataset.id;
-    // resolveScenario also handles the custom (editor-exported) slot.
-    const scenario = resolveScenario(id);
-    if (!scenario) return;
-
-    if (!confirm(`Start "${scenario.name}"? Your current game will be kept in recovery saves.`)) return;
-
-    // Clear current save, set pending scenario, reload.
-    // skipTitle makes the post-selection reload go straight into the game.
-    game.save();
-    SaveSlots.preserveActive('Before ' + scenario.name);
-    localStorage.removeItem('beamlineTycoon');
-    if (scenario.generator) {
-      localStorage.setItem(PENDING_SCENARIO_KEY, id);
-    } else localStorage.removeItem(PENDING_SCENARIO_KEY);
-    sessionStorage.setItem('beamlineTycoon.skipTitle', '1');
-    location.reload();
-  });
-
-  // Cancel / overlay click
-  document.getElementById('scenario-cancel').addEventListener('click', () => overlay.remove());
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-}
 
 (async function main() {
   // Capture save existence BEFORE game.load()/start() can autosave.
@@ -208,6 +79,7 @@ function showScenarioPicker(game) {
 
   const registry = new BeamlineRegistry();
   const game = new Game(registry);
+  const scenarioPicker = new ScenarioPicker(game);
 
   // Cloud-save detection (Deep Tech Week deployment). Non-blocking — local
   // dev has no API and stays in local mode. The Save/Load dialog reads
@@ -387,10 +259,16 @@ function showScenarioPicker(game) {
   // normal boot path picks the save right back up.
   if (IS_EDITOR) {
     const { ScenarioEditor } = await import('./ui/ScenarioEditor.js');
-    const freshEditorProject = bootParams.get('editor') === 'new';
-    // Re-entering Scenario Admin restores the saved default-world project.
-    // Starting new leaves that stored project untouched until Save Design.
-    const existingScenario = freshEditorProject ? null : loadCustomScenario();
+    const editorTarget = bootParams.get('editor');
+    const requestedFreshProject = editorTarget === 'new';
+    // A local id reopens exactly that playable scenario. `editor=1` keeps old
+    // bookmarks working by opening the newest migrated single-slot project.
+    const existingScenario = requestedFreshProject
+      ? null
+      : editorTarget === '1'
+        ? loadCustomScenario()
+        : loadCustomScenarioById(editorTarget);
+    const freshEditorProject = requestedFreshProject || !existingScenario;
     if (existingScenario?.data) game.applyScenario(existingScenario.data);
     const scenarioEditor = new ScenarioEditor(game, existingScenario, {
       fresh: freshEditorProject,
@@ -571,27 +449,13 @@ function showScenarioPicker(game) {
     menuDropdown.classList.add('hidden');
     switch (action) {
       case 'new-game':
-        if (confirm('Start a new game? Your current game will be kept in recovery saves.')) {
-          // skipTitle so the reload lands in a fresh game rather than on the
-          // title screen — which, with the save just deleted, would show no
-          // Continue button and force a second New Game click.
-          sessionStorage.setItem('beamlineTycoon.skipTitle', '1');
-          game.save();
-          SaveSlots.preserveActive('Before new game');
-          localStorage.removeItem('beamlineTycoon');
-          if (import.meta.env.DEV) stageDefaultStartingScenario();
-          else localStorage.removeItem(PENDING_SCENARIO_KEY);
-          location.reload();
-        }
+        scenarioPicker.open();
         break;
       case 'save-game':
         saveLoadDialog.open('save');
         break;
       case 'load-game':
         saveLoadDialog.open('load');
-        break;
-      case 'scenarios':
-        showScenarioPicker(game);
         break;
       case 'options':
         optionsDialog.open();
@@ -643,7 +507,7 @@ function showScenarioPicker(game) {
   // First-run welcome popup: only once the player is actually looking at
   // the game. With no title screen (New Game reload / demo / scenario boot)
   // that's right now; otherwise it's hooked into onContinue below. The other
-  // title-screen paths (New Game / Scenarios) reload with skipTitle set and
+  // title-screen New Game choices reload with skipTitle set and
   // land in the immediate branch on the next boot.
   const maybeShowWelcome = () => {
     if (!game.state.welcomeSeen) welcomeDialog.open();
@@ -660,19 +524,7 @@ function showScenarioPicker(game) {
         if (!pausedBeforeTitle) game.resume();
         maybeShowWelcome();
       },
-      onNewGame: () => {
-        // Mirrors the menu-dropdown 'new-game' action (clear save, reload),
-        // with skipTitle set so the reload goes straight into the game.
-        if (hadSave && !confirm('Start a new game? Your current game will be kept in recovery saves.')) return;
-        sessionStorage.setItem('beamlineTycoon.skipTitle', '1');
-        game.save();
-        SaveSlots.preserveActive('Before new game');
-        localStorage.removeItem('beamlineTycoon');
-        if (import.meta.env.DEV) stageDefaultStartingScenario();
-        else localStorage.removeItem(PENDING_SCENARIO_KEY);
-        location.reload();
-      },
-      onScenarios: () => showScenarioPicker(game),
+      onNewGame: () => scenarioPicker.open(),
     });
   }
 

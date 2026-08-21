@@ -73,14 +73,16 @@ the short authoring contract.
 
 - A scripted build must check every placement and line result. Do not let a
   rejected wire silently become a later economy or progression imbalance.
-- The dev-only Scenario Admin persists one browser-local custom layout as the
-  New Game default. Its balance sandbox waives capital construction and
-  demolition refunds, but recurring salaries, power, pump service, reservoir
-  refills, income, research, and physics continue through their normal paths.
-- Scenario Admin's **Save Design** action updates that local layout without
-  leaving the editor. **Edit Current** restores it later; **Start New** opens a
-  blank project without deleting the current saved layout until the new project
-  is explicitly saved over it.
+- The dev-only Scenario Admin publishes browser-local starting situations to
+  the same picker as source-authored scenarios. Their balance sandbox waives
+  capital construction and demolition refunds, but recurring salaries, power,
+  pump service, reservoir refills, income, research, and physics continue
+  through their normal paths.
+- Scenario Admin's **Save** action updates the open local scenario. **Save As**
+  can deliberately overwrite a selected local scenario or create another one;
+  each saved scenario remains independently editable and playable.
+- **New Game** always opens the scenario picker. The `sandbox` registry entry is
+  the explicit blank-map path; do not add a second implicit blank-game flow.
 - Separate networks that cannot physically bridge (notably RF and cryogenics)
   instead of relying on adjacency.
 - Keep balance assertions about player outcomes and physical constraints. When

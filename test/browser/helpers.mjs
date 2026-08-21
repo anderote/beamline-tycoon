@@ -277,9 +277,9 @@ export function autoAcceptDialogs(page) {
  * Boot straight into a fresh game, skipping the title screen.
  *
  * Used by every spec except the smoke walk, which drives the title screen
- * itself. The skipTitle session flag is the same one main.js sets for the
- * "New Game" reload, so this is the app's own fast path, not a test-only
- * back door.
+ * itself. The skipTitle session flag is the same one the scenario picker sets
+ * after a New Game choice, so this is the app's own post-selection fast path,
+ * not a test-only back door.
  */
 export async function bootFreshGame(page, options = {}) {
   await blockRemoteDrive(page);

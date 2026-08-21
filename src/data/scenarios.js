@@ -1,4 +1,4 @@
-// Scenario definitions — selectable from the Scenarios menu.
+// Scenario definitions — selectable from the New Game picker.
 // Each scenario has metadata for the picker UI and a generator function
 // that returns the map data (floors, zones, walls, doors, placeables).
 // An optional setup(game) runs AFTER game.applyScenario(mapData): it builds
@@ -9,18 +9,23 @@
 import { generateRealLab, setupRealLab } from './scenarios/realLab.js';
 import { generateSmallBeamlineFacility, setupSmallBeamlineFacility } from './scenarios/smallBeamlineFacility.js';
 
-// Custom-scenario slot: the in-game Scenario Editor (dev-only) exports the
-// built world here so it can be play-tested without editing source files.
-// Slot payload: { id, name, data } where data is the scenario map shape
-// (floors, zones, walls, doors, placeables, beamPipes, utilityLines, ...).
+// Browser-local scenario catalogue: the dev-only Scenario Editor publishes
+// complete playable starting situations here without requiring a source-code
+// edit. The index stays small while each (potentially large) map payload gets
+// its own localStorage entry.
+//
+// CUSTOM_SCENARIO_KEY / CUSTOM_SCENARIO_ID are retained only to migrate and
+// resolve layouts saved by the old single-slot implementation.
 export const CUSTOM_SCENARIO_KEY = 'beamlineTycoon.customScenario';
 export const CUSTOM_SCENARIO_ID = '__custom__';
+export const CUSTOM_SCENARIO_INDEX_KEY = 'beamlineTycoon.customScenarioIndex';
+export const CUSTOM_SCENARIO_PREFIX = 'beamlineTycoon.customScenarios.';
+// Exported for storage migration compatibility; New Game no longer reads it.
 export const DEFAULT_STARTING_SCENARIO_KEY = 'beamlineTycoon.defaultStartingScenario';
 export const PENDING_SCENARIO_KEY = 'beamlineTycoon.pendingScenario';
 
-export function loadCustomScenario(storage = globalThis.localStorage) {
+function parseStoredScenario(raw) {
   try {
-    const raw = storage?.getItem(CUSTOM_SCENARIO_KEY);
     if (!raw) return null;
     const obj = JSON.parse(raw);
     if (!obj || typeof obj !== 'object' || !obj.data) return null;
@@ -28,61 +33,168 @@ export function loadCustomScenario(storage = globalThis.localStorage) {
   } catch (_) { return null; }
 }
 
+function readCustomScenarioIndex(storage) {
+  try {
+    const parsed = JSON.parse(storage?.getItem(CUSTOM_SCENARIO_INDEX_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed.filter(entry => entry?.id) : [];
+  } catch (_) { return []; }
+}
+
+function writeCustomScenarioIndex(storage, index) {
+  storage.setItem(CUSTOM_SCENARIO_INDEX_KEY, JSON.stringify(index));
+}
+
+function customScenarioStorageKey(id) {
+  return CUSTOM_SCENARIO_PREFIX + encodeURIComponent(id);
+}
+
+/** Stable picker/launch id for a browser-local scenario. */
+export function customScenarioRef(id) {
+  return `${CUSTOM_SCENARIO_ID}:${encodeURIComponent(id)}`;
+}
+
+export function customScenarioIdFromRef(ref) {
+  const prefix = `${CUSTOM_SCENARIO_ID}:`;
+  if (typeof ref !== 'string' || !ref.startsWith(prefix)) return null;
+  try { return decodeURIComponent(ref.slice(prefix.length)); }
+  catch (_) { return null; }
+}
+
+function migrateLegacyCustomScenario(storage) {
+  if (!storage) return;
+  let legacy = null;
+  try { legacy = parseStoredScenario(storage.getItem(CUSTOM_SCENARIO_KEY)); }
+  catch (_) { return; }
+  if (!legacy) {
+    storage.removeItem(DEFAULT_STARTING_SCENARIO_KEY);
+    return;
+  }
+
+  const id = String(legacy.id || 'customScenario');
+  const index = readCustomScenarioIndex(storage);
+  const existing = index.find(entry => entry.id === id);
+  const existingPayload = parseStoredScenario(storage.getItem(customScenarioStorageKey(id)));
+  if (!existing || !existingPayload) {
+    const stored = {
+      id,
+      name: legacy.name || 'Custom Scenario',
+      desc: legacy.desc || '',
+      data: legacy.data,
+      sandbox: legacy.sandbox !== false,
+      updatedAt: legacy.updatedAt || Date.now(),
+    };
+    storage.setItem(customScenarioStorageKey(id), JSON.stringify(stored));
+    const metadata = {
+      id: stored.id,
+      name: stored.name,
+      desc: stored.desc,
+      sandbox: stored.sandbox,
+      updatedAt: stored.updatedAt,
+    };
+    if (existing) Object.assign(existing, metadata);
+    else index.push(metadata);
+    writeCustomScenarioIndex(storage, index);
+  }
+  storage.removeItem(CUSTOM_SCENARIO_KEY);
+  storage.removeItem(DEFAULT_STARTING_SCENARIO_KEY);
+}
+
+/** Return every valid browser-local playable scenario, newest first. */
+export function listCustomScenarios(storage = globalThis.localStorage) {
+  try { migrateLegacyCustomScenario(storage); }
+  catch (_) { /* A read should still degrade to an empty catalogue. */ }
+  return readCustomScenarioIndex(storage)
+    .map(entry => parseStoredScenario(storage?.getItem(customScenarioStorageKey(entry.id))))
+    .filter(Boolean)
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+}
+
+/** Compatibility helper: return the newest local scenario, if one exists. */
+export function loadCustomScenario(storage = globalThis.localStorage) {
+  return listCustomScenarios(storage)[0] || null;
+}
+
+export function loadCustomScenarioById(id, storage = globalThis.localStorage) {
+  if (!id) return null;
+  try {
+    migrateLegacyCustomScenario(storage);
+    return parseStoredScenario(storage?.getItem(customScenarioStorageKey(id)));
+  } catch (_) { return null; }
+}
+
 /**
- * Persist the dev-authored scenario and optionally make it the layout used by
- * New Game. The payload keeps the sandbox flag with the scenario instead of
- * relying on whichever global Options setting happened to be active while it
- * was authored.
+ * Publish one editor-authored starting situation to the local playable
+ * catalogue. Saving the same id overwrites that scenario; a new id creates a
+ * second picker entry. Sandbox behavior belongs to the scenario payload.
  */
 export function saveCustomScenario(payload, {
   storage = globalThis.localStorage,
-  makeDefault = true,
 } = {}) {
   if (!storage || !payload?.data) throw new Error('Scenario data is required');
+  if (!payload.id) throw new Error('Scenario id is required');
   const stored = {
-    id: payload.id || 'customScenario',
+    id: String(payload.id),
     name: payload.name || 'Custom Scenario',
+    desc: payload.desc || '',
     data: payload.data,
     sandbox: payload.sandbox !== false,
+    updatedAt: Date.now(),
   };
-  storage.setItem(CUSTOM_SCENARIO_KEY, JSON.stringify(stored));
-  if (makeDefault) storage.setItem(DEFAULT_STARTING_SCENARIO_KEY, CUSTOM_SCENARIO_ID);
+  storage.setItem(customScenarioStorageKey(stored.id), JSON.stringify(stored));
+
+  const index = readCustomScenarioIndex(storage);
+  const existing = index.find(entry => entry.id === stored.id);
+  const metadata = {
+    id: stored.id,
+    name: stored.name,
+    desc: stored.desc,
+    sandbox: stored.sandbox,
+    updatedAt: stored.updatedAt,
+  };
+  if (existing) Object.assign(existing, metadata);
+  else index.push(metadata);
+  writeCustomScenarioIndex(storage, index);
   return stored;
 }
 
-// Resolve a scenario id (registry id or the custom slot) to a
+// Resolve a scenario id (registry id or a browser-local reference) to a
 // { id, name, generator } shape usable by the boot path and picker.
 export function resolveScenario(id, storage = globalThis.localStorage) {
-  if (id === CUSTOM_SCENARIO_ID) {
-    const custom = loadCustomScenario(storage);
+  const localId = customScenarioIdFromRef(id);
+  if (localId != null || id === CUSTOM_SCENARIO_ID) {
+    const custom = localId != null
+      ? loadCustomScenarioById(localId, storage)
+      : loadCustomScenario(storage);
     if (!custom) return null;
     return {
-      id: CUSTOM_SCENARIO_ID,
+      id: customScenarioRef(custom.id),
+      localId: custom.id,
       name: custom.name || 'Custom Scenario',
+      desc: custom.desc || 'A locally created starting situation.',
+      difficulty: custom.sandbox === true ? 'Custom · Sandbox' : 'Custom',
       generator: () => custom.data,
       sandbox: custom.sandbox === true,
+      local: true,
     };
   }
   return SCENARIOS.find(s => s.id === id) || null;
 }
 
-/** Return a valid locally configured New Game scenario, or null. */
-export function loadDefaultStartingScenarioId(storage = globalThis.localStorage) {
-  try {
-    const id = storage?.getItem(DEFAULT_STARTING_SCENARIO_KEY);
-    return id && resolveScenario(id, storage) ? id : null;
-  } catch (_) { return null; }
+/** All scenarios shown by New Game, with local creations first. */
+export function listPlayableScenarios(storage = globalThis.localStorage) {
+  const local = listCustomScenarios(storage)
+    .map(scenario => resolveScenario(customScenarioRef(scenario.id), storage))
+    .filter(Boolean);
+  return [...local, ...SCENARIOS];
 }
 
-/**
- * Stage the local default for the normal pending-scenario boot path. Keeping
- * this decision here makes title-screen and in-game New Game behave alike.
- */
-export function stageDefaultStartingScenario(storage = globalThis.localStorage) {
-  const id = loadDefaultStartingScenarioId(storage);
-  if (id) storage?.setItem(PENDING_SCENARIO_KEY, id);
+/** Stage a picker selection for the existing post-reload scenario boot path. */
+export function stageScenarioSelection(id, storage = globalThis.localStorage) {
+  const scenario = resolveScenario(id, storage);
+  if (!scenario) return null;
+  if (scenario.generator) storage?.setItem(PENDING_SCENARIO_KEY, scenario.id);
   else storage?.removeItem(PENDING_SCENARIO_KEY);
-  return id;
+  return scenario;
 }
 
 export const SCENARIOS = [
