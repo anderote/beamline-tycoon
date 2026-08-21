@@ -6,6 +6,7 @@ import { COMPONENTS } from '../src/data/components.js';
 import { PARAM_DEFS } from '../src/beamline/component-physics.js';
 import { itemMatchesZone } from '../src/data/facility.js';
 import { PLACEABLES } from '../src/data/placeables/index.js';
+import { MODES, ROOM_FURNITURE_GROUPS } from '../src/data/modes.js';
 import { DOOR_TYPES, WALL_TYPES, WINDOW_TYPES, windowOpeningHeight } from '../src/data/structure.js';
 import { canPlace, usesFloorOccupancy } from '../src/game/placement.js';
 
@@ -29,6 +30,21 @@ const cellKey = (cell) => `${cell.col},${cell.row},${cell.subCol},${cell.subRow}
 console.log('\n=== office and meeting-room catalogue ===\n');
 
 console.log('\n=== faculty lounge catalogue ===\n');
+
+console.log('\n=== shared furniture catalogue and grouping ===\n');
+for (const id of ['sharedCounter', 'coffeeStation', 'snackTable', 'bookcaseWide', 'glassBookcase', 'sideboard', 'endTable']) {
+  const def = PLACEABLES[id];
+  assertOk(!!def && def.kind === 'furnishing', `${id} is registered as a furnishing`);
+  assertOk(def?.furnitureGroup && ROOM_FURNITURE_GROUPS[def.furnitureGroup],
+    `${id} has a palette furniture group`);
+  assertOk(['officeSpace', 'privateOffice', 'meetingRoom', 'reception'].every(zone => itemMatchesZone(def, zone)),
+    `${id} is shared across core room types`);
+}
+for (const [id, category] of Object.entries(MODES.facility.categories)) {
+  if (!category.isZoneTab || !category.furnitureGroups) continue;
+  assertOk(category.furnitureGroups === ROOM_FURNITURE_GROUPS, `${id} uses the shared furniture group order`);
+}
+
 for (const id of ['clubChair', 'tuftedSofa', 'clawFootTable', 'drinksCabinet', 'facultyBar', 'chalkboard', 'newspaperStand', 'cigarAshtray']) {
   const def = PLACEABLES[id];
   assertOk(!!def && def.kind === 'furnishing', `${id} is registered as a furnishing`);
