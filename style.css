@@ -6263,6 +6263,14 @@ body {
   background: none;
   border-color: rgba(110, 120, 145, 0.3);
 }
+.stubby-btn-off {
+  color: rgba(238, 170, 170, 0.86);
+  border-color: rgba(190, 105, 105, 0.38);
+}
+.stubby-btn-off:hover {
+  color: #ffd0d0;
+  background: rgba(150, 65, 65, 0.2);
+}
 
 /* One-shot attention grab when new advice arrives. */
 .stubby.stubby-perk .stubby-sprite { animation: stubby-perk 0.9s ease-out; }
