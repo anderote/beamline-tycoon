@@ -60,8 +60,10 @@ export const MODES = {
       // --- Rooms ---
       controlRoom: { name: 'Control Room',   color: '#4a6', isZoneTab: true, zoneType: 'controlRoom',  group: 'rooms', utilityLineTools: ['dataFiber', 'powerCable'] },
       officeSpace: { name: 'Office',         color: '#46a', isZoneTab: true, zoneType: 'officeSpace',  group: 'rooms' },
+      reception:   { name: 'Reception',      color: '#b85', isZoneTab: true, zoneType: 'reception',    group: 'rooms' },
       meetingRoom: { name: 'Meeting',        color: '#649', isZoneTab: true, zoneType: 'meetingRoom',  group: 'rooms' },
       cafeteria:   { name: 'Cafeteria',      color: '#a64', isZoneTab: true, zoneType: 'cafeteria',    group: 'rooms' },
+      storageRoom: { name: 'Storage',        color: '#687', isZoneTab: true, zoneType: 'storageRoom',  group: 'rooms' },
     },
   },
   structure: {
