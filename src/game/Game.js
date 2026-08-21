@@ -26,6 +26,7 @@ import { UtilityGate, declaredSinkQualityFloor } from './utility-gate.js';
 import {
   edgeKey, parseEdgeKey, findWallKey, findEdgeKey, isMirroredKey,
   clampDoorOff, defaultDoorOff, mirrorDoorOff,
+  clampWindowOff, defaultWindowOff, mirrorWindowOff,
 } from './edge-keys.js';
 import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
 import { StaffMember } from './staff/StaffMember.js';
@@ -2155,9 +2156,10 @@ export class Game {
     }
   }
 
-  placeWindow(col, row, edge, windowType, variant = 0) {
+  placeWindow(col, row, edge, windowType, variant = 0, off = null) {
     const wt = WINDOW_TYPES[windowType];
     if (!wt) return false;
+    const wantedOff = clampWindowOff(wt, off ?? defaultWindowOff(wt));
     const segCost = wt.variantCosts?.[variant] ?? wt.cost;
     const key = `${col},${row},${edge}`;
     const alias = this._edgeAlias(col, row, edge);
@@ -2188,8 +2190,10 @@ export class Game {
       const existing = this.state.windows.find(
         w => w.col === held.col && w.row === held.row && w.edge === held.edge
       );
-      if (existing && existing.variant !== variant) {
+      const storedOff = heldKey === key ? wantedOff : mirrorWindowOff(wantedOff, wt);
+      if (existing && (existing.variant !== variant || existing.off !== storedOff)) {
         existing.variant = variant;
+        existing.off = storedOff;
         this.emit('windowsChanged');
       }
       return true;
@@ -2218,17 +2222,18 @@ export class Game {
     // against — only lookups (here, and in placeDoor's mirror-image check)
     // are alias-aware. Mirrors placeDoor/placeWall, which don't normalize
     // either.
-    this.state.windows.push({ type: windowType, col, row, edge, variant });
+    this.state.windows.push({ type: windowType, col, row, edge, variant, off: wantedOff });
     this.state.windowOccupied[key] = windowType;
     this.emit('windowsChanged');
     return true;
   }
 
-  placeWindowPath(path, windowType, variant = 0) {
+  placeWindowPath(path, windowType, variant = 0, off = null) {
     const wt = WINDOW_TYPES[windowType];
     if (!wt) return false;
     const segCost = wt.variantCosts?.[variant] ?? wt.cost;
     let placed = 0;
+    let updated = 0;
     for (const pt of path) {
       if (findEdgeKey(this.state.wallOverlayOccupied, pt.col, pt.row, pt.edge)) continue;
       const key = `${pt.col},${pt.row},${pt.edge}`;
@@ -2246,7 +2251,22 @@ export class Game {
         ? { col: pt.col, row: pt.row, edge: pt.edge }
         : (this.state.windowOccupied[aliasKey] ? alias : null);
       const heldKey = held ? `${held.col},${held.row},${held.edge}` : null;
-      if (held && this.state.windowOccupied[heldKey] === windowType) continue;
+      const wantedOff = clampWindowOff(
+        wt,
+        pt.off ?? off ?? defaultWindowOff(wt),
+      );
+      if (held && this.state.windowOccupied[heldKey] === windowType) {
+        const existing = this.state.windows.find(
+          w => w.col === held.col && w.row === held.row && w.edge === held.edge
+        );
+        const storedOff = heldKey === key ? wantedOff : mirrorWindowOff(wantedOff, wt);
+        if (existing && (existing.variant !== variant || existing.off !== storedOff)) {
+          existing.variant = variant;
+          existing.off = storedOff;
+          updated++;
+        }
+        continue;
+      }
       if (!this.canAfford({ funding: segCost })) break;
       if (held) {
         this.state.windows = this.state.windows.filter(
@@ -2258,15 +2278,24 @@ export class Game {
       if (this.state.doorOccupied[key]) this.removeDoor(pt.col, pt.row, pt.edge);
       else if (this.state.doorOccupied[aliasKey]) this.removeDoor(alias.col, alias.row, alias.edge);
       this.chargeConstruction(segCost);
-      this.state.windows.push({ type: windowType, col: pt.col, row: pt.row, edge: pt.edge, variant });
+      this.state.windows.push({
+        type: windowType,
+        col: pt.col,
+        row: pt.row,
+        edge: pt.edge,
+        variant,
+        off: wantedOff,
+      });
       this.state.windowOccupied[key] = windowType;
       placed++;
     }
     if (placed > 0) {
       this.log(`Placed ${placed} ${wt.name} segment${placed > 1 ? 's' : ''} ($${placed * segCost})`, 'good');
+    }
+    if (placed > 0 || updated > 0) {
       this.emit('windowsChanged');
     }
-    return placed > 0;
+    return placed > 0 || updated > 0;
   }
 
   removeWindow(col, row, edge) {

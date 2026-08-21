@@ -2,8 +2,8 @@
 // Builds a flat, serializable snapshot of game state for consumption by the Three.js renderer.
 // The renderer never touches game.* directly — it reads only from this snapshot.
 
-import { FLOORS, DOOR_TYPES, WALL_TYPES } from '../data/structure.js';
-import { defaultDoorOff, findWallKey } from '../game/edge-keys.js';
+import { FLOORS, DOOR_TYPES, WALL_TYPES, WINDOW_TYPES } from '../data/structure.js';
+import { defaultDoorOff, defaultWindowOff, findWallKey } from '../game/edge-keys.js';
 import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { getTileCornersY, sampleCornersTriangulated } from '../game/terrain.js';
@@ -297,6 +297,7 @@ function buildWindows(game) {
     edge: w.edge,
     type: w.type,
     variant: w.variant || 0,
+    off: w.off ?? defaultWindowOff(WINDOW_TYPES[w.type]),
     // Same endpoint heights walls and doors carry, so a window in a wall on
     // sloped ground sits on the terrain instead of at world zero.
     baseY: edgeBaseY(game.state, w.col, w.row, w.edge),
