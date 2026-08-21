@@ -82,6 +82,14 @@ const EXPECTED_STATIONS = {
   breakfastBar: { jobs: ['eat'], slots: 3 },
   labBench: { jobs: ['labWork'], slots: 2 },
   labTable: { jobs: ['labWork'], slots: 2 },
+  labComputerDesk: { jobs: ['labWork', 'analyze', 'paperwork'], slots: 1 },
+  rfElectronicsBench: { jobs: ['labWork'], slots: 2 },
+  coolingServiceBench: { jobs: ['labWork'], slots: 2 },
+  vacuumAssemblyBench: { jobs: ['labWork'], slots: 2 },
+  opticsAlignmentBench: { jobs: ['labWork', 'takeData'], slots: 2 },
+  diagnosticsBench: { jobs: ['labWork', 'takeData'], slots: 2 },
+  fabricationWorkbench: { jobs: ['fabricate'], slots: 2 },
+  maintenanceWorkbench: { jobs: ['repair'], slots: 2 },
   rfTestRack: { jobs: ['labWork'], slots: 1 },
   waveguideWorkstand: { jobs: ['labWork'], slots: 1 },
   testChamber: { jobs: ['labWork'], slots: 1 },
@@ -104,6 +112,13 @@ const EXPECTED_STATIONS = {
 const STACKABLE_NO_STATION_IDS = [
   'oscilloscope', 'spectrumAnalyzer', 'networkAnalyzer', 'flowMeter', 'scopeStation',
   'solderingStation', 'frequencyCounter', 'rfPowerMeter', 'rfDummyLoad', 'rfShieldBox',
+  'ruggedLabLaptop', 'labLabelPrinter', 'sampleOrganizer',
+  'pressureGaugeSet', 'thermalCamera', 'coolantSampleKit',
+  'vacuumGaugeController', 'flangePartsTray', 'ionGaugeTube',
+  'lensTray', 'alignmentCamera', 'fiberSpool',
+  'logicAnalyzer', 'calibrationPulser', 'detectorModule',
+  'benchVise', 'precisionScale', 'colletSet',
+  'digitalMultimeter', 'powerToolCharger', 'portableToolCase',
 ];
 
 // The defs whose anchor deviates from the brief's +Z/facing:'n' example
