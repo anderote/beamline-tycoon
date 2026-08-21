@@ -140,6 +140,10 @@ class RFAccelerationModule(PhysicsModule):
         phase_deg = element.get("rfPhase", 0.0)
         phase_rad = np.radians(phase_deg)
         f_rf = element.get("rfFrequency", DEFAULT_RF_FREQ)
+        current_before = float(beam.current)
+        bunch_length_before = float(beam.bunch_length())
+        peak_current_before = float(beam.peak_current)
+        bunch_frequency_before = float(beam.bunch_frequency)
 
         # Phase-dependent energy gain
         dE = dE_nominal * np.cos(phase_rad)
@@ -191,6 +195,8 @@ class RFAccelerationModule(PhysicsModule):
         beam.update_relativistic()
 
         # First RF element establishes the bunch structure
+        capture_efficiency = None
+        captured_dc = False
         if not context.bunch_frequency_set:
             was_dc = beam.bunch_frequency <= 0
             beam.bunch_frequency = f_rf
@@ -198,6 +204,8 @@ class RFAccelerationModule(PhysicsModule):
             capture = CAPTURE_EFFICIENCY.get(game_type, 0.5)
             beam.current *= capture
             beam.initial_current = beam.current
+            capture_efficiency = float(capture)
+            captured_dc = bool(was_dc)
             # Capturing a DC beam sets its bunch LENGTH as well as its
             # frequency: the captured charge occupies a slice of RF phase, so
             # the bunch is a fraction of the RF period. Lower frequency means
@@ -223,29 +231,65 @@ class RFAccelerationModule(PhysicsModule):
             beam.sigma[:, 3] *= ratio
             beam.sigma = 0.5 * (beam.sigma + beam.sigma.T)
 
-        # RF-induced energy spread: bunch samples different RF phases
-        # δ_rms = 2π f_rf × V_acc × |sin(φ)| × σ_t / E
-        sigma_t = beam.bunch_length()
-        if sigma_t > 0 and beam.energy > 0 and abs(phase_rad) > 1e-6:
-            delta_rf = (2.0 * np.pi * f_rf * dE_nominal
-                        * abs(np.sin(phase_rad)) * sigma_t / beam.energy)
-            beam.sigma[5, 5] += delta_rf ** 2
-
-        # Chirp
-        V_acc = dE_nominal
+        # Longitudinal chirp. `energyGain` is the on-crest mean voltage for
+        # most cavities, while a buncher also carries explicit `rfVoltage` so
+        # its -90 degree setting can have zero mean acceleration and still
+        # impose a real head-tail energy modulation.
+        V_acc = element.get("rfVoltage", dE_nominal)
         h = (2.0 * np.pi * f_rf * V_acc * np.sin(phase_rad)) / (beam.energy * SPEED_OF_LIGHT)
         context.chirp += h
+        # BeamState stores dt in seconds, so the covariance needs dδ/dt rather
+        # than the metre-based chirp used by a chicane's R56. The sign follows
+        # V*cos(phi + omega*t): a -90 degree buncher gives the tail more energy,
+        # and the negative low-energy time-of-flight R56 then compresses it.
+        h_time = (-2.0 * np.pi * f_rf * V_acc * np.sin(phase_rad)
+                  / max(float(energy_before), 1e-15))
+        context.time_chirp += h_time
 
-        if abs(h) > 1e-15:
-            beam.sigma[4, 5] += h * beam.sigma[4, 4]
+        if abs(h_time) > 1e-15:
+            sigma_tt = float(beam.sigma[4, 4])
+            sigma_td = float(beam.sigma[4, 5])
+            beam.sigma[5, 5] += 2.0 * h_time * sigma_td + h_time ** 2 * sigma_tt
+            beam.sigma[4, 5] = sigma_td + h_time * sigma_tt
             beam.sigma[5, 4] = beam.sigma[4, 5]
+            beam.sigma = 0.5 * (beam.sigma + beam.sigma.T)
 
         beam._update_bunch_properties()
-
-        return EffectReport(
-            module=self.name,
-            element_index=context.element_index,
-            details={"energy_gain": dE, "phase_deg": phase_deg,
-                     "chirp_added": h, "total_chirp": context.chirp,
-                     "rf_frequency": f_rf, **context.beta_match},
-        )
+        details = {
+            "energy_gain": float(dE),
+            "phase_deg": float(phase_deg),
+            "chirp_added": float(h),
+            "total_chirp": float(context.chirp),
+            "time_chirp_added": float(h_time),
+            "total_time_chirp": float(context.time_chirp),
+            "rf_frequency": float(f_rf),
+            "capture_efficiency": capture_efficiency,
+            "captured_dc": captured_dc,
+            "current_before": current_before,
+            "current_after": float(beam.current),
+            "bunch_frequency_before": bunch_frequency_before,
+            "bunch_frequency_after": float(beam.bunch_frequency),
+            "bunch_length_before": bunch_length_before,
+            "bunch_length_after": float(beam.bunch_length()),
+            "peak_current_before": peak_current_before,
+            "peak_current_after": float(beam.peak_current),
+            **context.beta_match,
+        }
+        # Prefix fields on snapshots so their ownership remains obvious beside
+        # generic beam values such as `current` and `bunch_length`.
+        context.rf_event = {
+            "rf_capture_efficiency": details["capture_efficiency"],
+            "rf_captured_dc": details["captured_dc"],
+            "rf_current_before": details["current_before"],
+            "rf_current_after": details["current_after"],
+            "rf_bunch_frequency_before": details["bunch_frequency_before"],
+            "rf_bunch_frequency_after": details["bunch_frequency_after"],
+            "rf_bunch_length_before": details["bunch_length_before"],
+            "rf_bunch_length_after": details["bunch_length_after"],
+            "rf_peak_current_before": details["peak_current_before"],
+            "rf_peak_current_after": details["peak_current_after"],
+            "rf_time_chirp_added": details["time_chirp_added"],
+            "rf_energy_gain": details["energy_gain"],
+            "rf_phase_deg": details["phase_deg"],
+        }
+        return EffectReport(self.name, context.element_index, details)

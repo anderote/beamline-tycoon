@@ -351,8 +351,12 @@ export const PARAM_DEFS = {
 
   // ---- Buncher cavity ----
   buncher: {
-    voltage:         { min: 0.01, max: 0.5, default: 0.1, unit: 'MV', step: 0.01 },
+    // Ten kilovolts gives a useful velocity chirp to a 25-300 keV electron
+    // beam without over-compressing it inside the buncher's own one-metre
+    // footprint. Higher settings remain available for a longer/harder scan.
+    voltage:         { min: 0.01, max: 0.5, default: 0.01, unit: 'MV', step: 0.01 },
     rfPhase:         { min: -90, max: 0, default: -90, unit: 'deg', step: 1 },
+    energyGain:      { derived: true, unit: 'GeV' },
     bunchCompression: { derived: true, unit: '' },
   },
 
@@ -892,8 +896,9 @@ function computePlasmaAfterburner(params) {
 function computeBuncher(params) {
   const V       = params.voltage; // MV
   const phi_rad = params.rfPhase * Math.PI / 180;
+  const energyGain = V * Math.cos(phi_rad) / 1000;
   const bunchCompression = Math.min(0.8, 0.3 * V * Math.abs(Math.sin(phi_rad)));
-  return { bunchCompression };
+  return { energyGain, bunchCompression };
 }
 
 /**

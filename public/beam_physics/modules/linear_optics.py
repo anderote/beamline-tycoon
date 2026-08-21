@@ -1,6 +1,7 @@
 import numpy as np
 from beam_physics.modules.base import PhysicsModule
 from beam_physics.context import EffectReport
+from beam_physics.constants import SPEED_OF_LIGHT
 
 
 def _block_diag_6x6(Rx, Ry, Rlong=None):
@@ -163,6 +164,22 @@ def _propagate_dispersion(context, R, d):
 P_REF_GEV = 1.0
 
 
+def _time_of_flight_r56(beam, length):
+    """dt response to fractional total-energy error through a straight section.
+
+    BeamState's longitudinal coordinate is seconds and sigma[5] is fractional
+    energy error. Differentiating L/(beta*c) gives
+    R_tδ = -L/(beta^3 gamma^2 c). It is negligible once the beam is
+    relativistic and dominant in exactly the injector regime where a buncher
+    needs a following drift to turn velocity modulation into shorter bunches.
+    """
+    beta = float(getattr(beam, "beta", 0.0))
+    gamma = float(getattr(beam, "gamma", 1.0))
+    if length <= 0 or beta <= 0 or gamma <= 0:
+        return 0.0
+    return -length / (beta ** 3 * gamma ** 2 * SPEED_OF_LIGHT)
+
+
 def _momentum_gev(beam):
     """p = sqrt(E_total^2 - m^2), GeV/c. Zero for a beam at rest."""
     return beam.momentum_gev()
@@ -222,9 +239,18 @@ class LinearOpticsModule(PhysicsModule):
             R_edge = dipole_edge_matrix(element.get("bendAngle", 0.0), length)
             R = R_edge @ R @ R_edge
 
+        # Every finite-length element advances particles in time. The old
+        # matrices either left this block as identity or (for solenoids and
+        # chicanes) wrote metres into a coordinate stored in seconds. Use the
+        # beam-energy-dependent time-of-flight term consistently; specialised
+        # chicane compression remains in BunchCompressionModule.
+        if length > 0:
+            R[4, 5] = _time_of_flight_r56(beam, length)
+
         # Apply full transfer matrix
         beam.sigma = R @ beam.sigma @ R.T
         beam.sigma = 0.5 * (beam.sigma + beam.sigma.T)
+        beam._update_bunch_properties()
 
         context.phase_advance[0] += _plane_phase_advance(
             R[0:2, 0:2], beta_x_in, alpha_x_in, beam.beta_x(), length)
@@ -240,6 +266,7 @@ class LinearOpticsModule(PhysicsModule):
             element_index=context.element_index,
             details={"dispersion_x": float(context.dispersion[0]),
                      "dispersion_xp": float(context.dispersion[1]),
+                     "time_of_flight_r56_s": float(R[4, 5]),
                      "phase_advance_x": float(context.phase_advance[0]),
                      "phase_advance_y": float(context.phase_advance[1])},
         )

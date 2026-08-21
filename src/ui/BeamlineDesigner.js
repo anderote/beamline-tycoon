@@ -22,6 +22,11 @@ import {
   recommendedQuadrupoleGradient,
 } from '../beamline/designer-placement-hints.js';
 import { planDesignerAutoTune } from '../beamline/designer-auto-tuning.js';
+import {
+  commissioningReport,
+  inferInjectorTargetS,
+  optimizeInjectorMagnets,
+} from '../beamline/injector-commissioning.js';
 import { seedComponentParams } from '../beamline/component-params.js';
 import { buildDesignerPhysicsElements } from '../beamline/physics-payload.js';
 import { summarizeDesignerPlacement } from '../beamline/designer-placement-preview.js';
@@ -105,6 +110,24 @@ function _designerComponentParams(designer, type, initialParams = null) {
     }
   }
   return params;
+}
+
+function _commissioningPercent(value) {
+  return Number.isFinite(value) ? `${Math.round(value * 100)}%` : '--';
+}
+
+function _commissioningDuration(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '--';
+  if (seconds < 1e-12) return `${(seconds * 1e15).toFixed(0)} fs`;
+  if (seconds < 1e-9) return `${(seconds * 1e12).toFixed(0)} ps`;
+  return `${(seconds * 1e9).toFixed(1)} ns`;
+}
+
+function _commissioningTone(value, good, watch) {
+  if (!Number.isFinite(value)) return '';
+  if (value >= good) return 'good';
+  if (value >= watch) return 'watch';
+  return 'bad';
 }
 
 export class BeamlineDesigner {
@@ -207,6 +230,11 @@ export class BeamlineDesigner {
     // saved/applied. The summary feeds the compact lower-right status readout.
     this.autoTuneEnabled = false;
     this._lastAutoTuneSummary = null;
+    this.commissioningBusy = false;
+    this._commissioningRun = 0;
+    this._commissioningProgress = null;
+    this._lastCommissioningResult = null;
+    this._commissioningApplying = false;
 
     // DOM references
     this.overlay = document.getElementById('designer-overlay');
@@ -262,6 +290,12 @@ export class BeamlineDesigner {
         this._setAutoTuneEnabled(autoTune.checked);
       });
     }
+    const commission = document.getElementById('dsgn-commissioning-optimize');
+    commission?.addEventListener('click', () => {
+      Promise.resolve(this._optimizeInjectorSection()).catch(err => {
+        console.error('[designer] injector commissioning failed', err);
+      });
+    });
     const tuningToggle = document.getElementById('dsgn-tuning-toggle');
     if (tuningToggle) {
       tuningToggle.addEventListener('click', () => {
@@ -2550,6 +2584,7 @@ export class BeamlineDesigner {
 
   async _recalcDraft() {
     const revision = ++this._draftPhysicsRevision;
+    if (!this._commissioningApplying) this._lastCommissioningResult = null;
     this.physicsPending = this.draftNodes.length > 0;
     this.draftRevenueProjection = null;
     // The full result, not just the envelope: the advisor reads
@@ -2912,6 +2947,123 @@ export class BeamlineDesigner {
     const magnets = this._lastAutoTuneSummary?.managedMagnets || 0;
     const rf = this._lastAutoTuneSummary?.managedRf || 0;
     status.textContent = `${magnets} MAG · ${rf} RF`;
+  }
+
+  _commissioningTargetS() {
+    return inferInjectorTargetS(this.draftEnvelope || []);
+  }
+
+  _updateCommissioningPanel() {
+    const root = document.getElementById('dsgn-commissioning-control');
+    const status = document.getElementById('dsgn-commissioning-status');
+    const metrics = document.getElementById('dsgn-commissioning-metrics');
+    const button = document.getElementById('dsgn-commissioning-optimize');
+    if (!root || !status || !metrics || !button) return;
+
+    const report = commissioningReport(this.draftEnvelope || [], {
+      targetS: this._commissioningTargetS(),
+    });
+    const hasMagnets = this.draftNodes.some(node =>
+      ['solenoid', 'quadrupole', 'scQuad'].includes(node?.type));
+    button.disabled = this.commissioningBusy || this.physicsPending || !report || !hasMagnets;
+    button.textContent = this.commissioningBusy ? 'Scanning…' : 'Match section';
+
+    if (!report) {
+      status.textContent = this.physicsPending ? 'SOLVING BEAM…' : 'WAITING FOR BEAM';
+      metrics.innerHTML = '<span class="dsgn-commissioning-metric"><span>Add a source and beamline to begin</span></span>';
+      return;
+    }
+
+    if (this.commissioningBusy && this._commissioningProgress) {
+      const { evaluations, total } = this._commissioningProgress;
+      status.textContent = `SOLVING ${Math.min(evaluations, total)} / ${total}`;
+    } else {
+      const score = Math.round(report.score * 100);
+      const previous = this._lastCommissioningResult?.before?.score;
+      const gain = Number.isFinite(previous)
+        ? Math.max(0, Math.round((report.score - previous) * 100))
+        : 0;
+      status.textContent = `0–${report.targetS.toFixed(1)} M · ${score}/100${gain ? ` · +${gain}` : ''}`;
+    }
+
+    const capture = report.captureEfficiency;
+    const margin = report.minFocusMargin;
+    const rows = [
+      ['Capture', _commissioningPercent(capture), _commissioningTone(capture, 0.6, 0.4)],
+      ['Transmit', _commissioningPercent(report.transmission), _commissioningTone(report.transmission, 0.8, 0.55)],
+      ['ε keep', _commissioningPercent(report.emittancePreservation), _commissioningTone(report.emittancePreservation, 0.95, 0.8)],
+      ['Aperture', _commissioningPercent(margin), _commissioningTone(margin, 0.5, 0.2)],
+      ['Bunch', _commissioningDuration(report.bunchLength), report.bunchFrequency > 0 ? 'good' : 'watch'],
+      ['I peak', Number.isFinite(report.peakCurrent) ? `${report.peakCurrent.toFixed(2)} A` : '--', ''],
+    ];
+    metrics.innerHTML = rows.map(([label, value, tone]) =>
+      `<span class="dsgn-commissioning-metric ${tone}"><span>${label}</span><strong>${value}</strong></span>`
+    ).join('');
+  }
+
+  /** Scan the current source-to-5 MeV section through the authoritative worker
+   * solver. This is deliberately an explicit action rather than continuous:
+   * one run can evaluate dozens of candidates, while the lightweight Auto mode
+   * remains suitable for every slider drag and structural edit. */
+  async _optimizeInjectorSection() {
+    if (this.commissioningBusy || this.physicsPending || !this.draftEnvelope?.length) return;
+    const run = ++this._commissioningRun;
+    const startingRevision = this._draftPhysicsRevision;
+    const targetS = this._commissioningTargetS();
+    this.commissioningBusy = true;
+    this._commissioningProgress = { evaluations: 0, total: 1 };
+    this._updateCommissioningPanel();
+
+    try {
+      const result = await optimizeInjectorMagnets({
+        nodes: this.draftNodes,
+        initialEnvelope: this.draftEnvelope,
+        targetS,
+        evaluate: nodes => this._computePhysics(nodes, 'designer:commissioning'),
+        onProgress: progress => {
+          if (run !== this._commissioningRun) return;
+          this._commissioningProgress = progress;
+          this._updateCommissioningPanel();
+        },
+      });
+      // A structural edit or another run supersedes this scan. Candidate
+      // solves are read-only, so abandoning their answer needs no rollback.
+      if (!this.isOpen || run !== this._commissioningRun
+          || startingRevision !== this._draftPhysicsRevision) return;
+
+      if (result.updates.length) {
+        this._pushUndo();
+        for (const update of result.updates) {
+          const node = this.draftNodes[update.index];
+          if (!node) continue;
+          node.params = { ...(node.params || {}), ...update.params };
+          node.computedStats = null;
+        }
+        // The continuous rigidity heuristic owns the same controls and would
+        // immediately overwrite a solved section match. Leave the optimized
+        // setpoints in manual mode so they remain the values the scan proved.
+        this.autoTuneEnabled = false;
+        this._lastAutoTuneSummary = null;
+        this._lastTuningKey = null;
+        this._commissioningApplying = true;
+        await this._recalcDraft();
+        this._commissioningApplying = false;
+        this._lastCommissioningResult = {
+          ...result,
+          after: commissioningReport(this.draftEnvelope || [], { targetS }),
+        };
+        this._updateDraftBar();
+      } else {
+        this._lastCommissioningResult = result;
+      }
+    } finally {
+      if (run === this._commissioningRun) {
+        this.commissioningBusy = false;
+        this._commissioningApplying = false;
+        this._commissioningProgress = null;
+        this._renderAll();
+      }
+    }
   }
 
   serializeState() {

@@ -86,6 +86,25 @@ class TestKnownTypesResolve(unittest.TestCase):
         result = propagate(elements, machine_type="testStand")
         self.assertGreater(result["summary"]["event_rate"], 0)
 
+    def test_buncher_voltage_survives_as_rf_modulation(self):
+        """The gameplay seam must not erase a -90 degree buncher's voltage.
+
+        Its computed mean energy gain is essentially zero at that phase, but
+        the same voltage still creates the head-tail chirp used for ballistic
+        bunching in the following drift.
+        """
+        elements = beamline_config_from_game([
+            {"type": "source", "physicsType": "source", "subL": 4,
+             "stats": {}},
+            {"type": "buncher", "physicsType": "rfCavity", "subL": 2,
+             "stats": {"energyGain": 0.0},
+             "params": {"voltage": 0.02, "rfPhase": -90.0}},
+        ])
+        buncher = elements[1]
+        self.assertAlmostEqual(buncher["rfVoltage"], 2e-5)
+        self.assertAlmostEqual(buncher["energyGain"], 2e-5)
+        self.assertAlmostEqual(buncher["rfPhase"], -90.0)
+
 
 class TestRawFileDeclarations(unittest.TestCase):
     """Cross-language guard: every entry in beamline-components.raw.js must

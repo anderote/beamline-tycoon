@@ -21,6 +21,7 @@ class PropagationContext:
         # the transport-line quantity; a ring tune would be mu per turn / 2pi.
         self.phase_advance = np.zeros(2)
         self.chirp = 0.0               # energy-time correlation (1/m)
+        self.time_chirp = 0.0          # fractional-energy slope versus dt (1/s)
         self.bunch_frequency_set = False  # True after first RF element sets bunch structure
         self.active_modules = []       # list of PhysicsModule, sorted by order
         self.element_index = 0
@@ -30,6 +31,10 @@ class PropagationContext:
         # copies it into the corresponding snapshot, making the component's
         # authored beta window and the solver's TTF visible to gameplay/UI.
         self.beta_match = None
+        # RFAccelerationModule replaces this for each RF sub-step. Unlike the
+        # beta window, this explains the longitudinal operation: capture loss,
+        # bunch length, peak current and time chirp before/after the cavity.
+        self.rf_event = None
 
     def record(self, report):
         """Record an EffectReport from a module."""

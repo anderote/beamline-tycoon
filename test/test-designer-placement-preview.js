@@ -148,7 +148,7 @@ console.log('\n--- Public Designer preview seam ---');
   const original = JSON.stringify(designer.draftNodes);
   const summary = await designer.previewComponentPlacement('buncher');
   check(solvedNodes?.[1]?.type === 'buncher'
-    && solvedNodes[1].params.voltage === 0.1,
+    && solvedNodes[1].params.voltage === 0.01,
   'public preview inserts the hovered component with canonical default params');
   check(summary?.heading === 'Insert at s=2.0 m',
     'public preview uses the exact marker edge a click would use');
