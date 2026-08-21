@@ -12,7 +12,9 @@ import {
   DOOR_TYPES, FLOORS, WALL_TYPES, WINDOW_TYPES,
 } from '../data/structure.js';
 import { placementPose } from '../beamline/pipe-placements.js';
-import { edgeKey, mirrorEdge, parseEdgeKey } from './edge-keys.js';
+import {
+  edgeKey, mirrorEdge, parseEdgeKey, doorRecordCoversEdge,
+} from './edge-keys.js';
 
 export const SELECTION_CATEGORIES = Object.freeze([
   Object.freeze({ key: 'beamline', label: 'Beamline' }),
@@ -107,7 +109,9 @@ function samePhysicalEdge(a, b) {
 
 function edgeTarget(state, wall) {
   const overlay = (state.wallOverlays || []).find(entry => samePhysicalEdge(entry, wall)) || null;
-  const door = (state.doors || []).find(entry => samePhysicalEdge(entry, wall)) || null;
+  const door = (state.doors || []).find(entry => doorRecordCoversEdge(
+    entry, DOOR_TYPES[entry.type], wall.col, wall.row, wall.edge,
+  )) || null;
   const window = (state.windows || []).find(entry => samePhysicalEdge(entry, wall)) || null;
   const wallDef = WALL_TYPES[wall.type] || {};
   const feature = window || door || overlay || wall;

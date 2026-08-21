@@ -61,6 +61,10 @@ the short authoring contract.
 - Every full-tile door definition declares `leafCount`: `2` for a true paired
   double door, `1` for a single moving gate or shutter spanning the opening,
   and `0` for an open hallway passthrough.
+- A multi-tile door declares an integer `tileSpan > 1` and is one atomic,
+  fixed-length opening across that many consecutive colinear wall edges. Its
+  cost and demolition refund apply once to the whole door, while every covered
+  edge is entered in `doorOccupied` for room detection and staff navigation.
 - Only window definitions authored with `windowWidth: 'half'` use half-edge
   offsets (`off: 0` or `off: 2`). Existing `narrow`, `single`, and `double`
   windows remain centered continuous-width apertures.

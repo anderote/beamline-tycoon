@@ -128,6 +128,85 @@ export function mirrorDoorOff(off, doorDef) {
   return max - clampDoorOff(doorDef, off);
 }
 
+// --- Multi-tile doors ----------------------------------------------------
+
+/** Number of whole tile edges occupied by one door record. */
+export function doorTileSpan(doorDef) {
+  const raw = Number(doorDef?.tileSpan);
+  return Number.isInteger(raw) && raw > 1 ? raw : 1;
+}
+
+/**
+ * Give a physical edge one stable spelling. Horizontal seams use `n` and
+ * vertical seams use `e`, so a multi-tile opening always grows toward
+ * increasing col/row regardless of which side of its wall was clicked.
+ */
+export function canonicalEdge(col, row, edge) {
+  if (edge === 'n' || edge === 'e') return { col, row, edge };
+  if (edge === 's' || edge === 'w') return mirrorEdge(col, row, edge);
+  return null;
+}
+
+/** A fixed-length colinear edge run, including `start`. */
+export function doorSpanPath(start, span, direction = 1) {
+  const count = Math.max(1, Math.round(Number(span) || 1));
+  const step = direction < 0 ? -1 : 1;
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    out.push({
+      col: start.col + ((start.edge === 'n' || start.edge === 's') ? i * step : 0),
+      row: start.row + ((start.edge === 'e' || start.edge === 'w') ? i * step : 0),
+      edge: start.edge,
+    });
+  }
+  return out;
+}
+
+/**
+ * Canonicalize, sort, and validate a requested run for one multi-tile door.
+ * Returns null when it is not exactly the authored length on one straight
+ * physical wall line.
+ */
+export function normalizeDoorSpanPath(path, doorDef) {
+  const span = doorTileSpan(doorDef);
+  const sites = (path || []).map(pt => canonicalEdge(pt.col, pt.row, pt.edge));
+  if (sites.length !== span || sites.some(site => !site)) return null;
+  const edge = sites[0].edge;
+  if (sites.some(site => site.edge !== edge)) return null;
+  sites.sort(edge === 'n'
+    ? (a, b) => a.col - b.col || a.row - b.row
+    : (a, b) => a.row - b.row || a.col - b.col);
+  for (let i = 0; i < sites.length; i++) {
+    const expectedCol = sites[0].col + (edge === 'n' ? i : 0);
+    const expectedRow = sites[0].row + (edge === 'e' ? i : 0);
+    if (sites[i].col !== expectedCol || sites[i].row !== expectedRow) return null;
+  }
+  return sites;
+}
+
+/** Every physical edge claimed by a saved door record. */
+export function doorRecordEdges(record, doorDef) {
+  if (doorTileSpan(doorDef) === 1) {
+    return record && EDGE_DELTAS[record.edge]
+      ? [{ col: record.col, row: record.row, edge: record.edge }]
+      : [];
+  }
+  const authored = Array.isArray(record?.segments) && record.segments.length
+    ? record.segments
+    : doorSpanPath(record, doorTileSpan(doorDef));
+  return authored.map(pt => canonicalEdge(pt.col, pt.row, pt.edge)).filter(Boolean);
+}
+
+/** True when a record owns the requested physical edge. */
+export function doorRecordCoversEdge(record, doorDef, col, row, edge) {
+  const wanted = canonicalEdge(col, row, edge);
+  if (!wanted) return false;
+  return doorRecordEdges(record, doorDef).some(site => {
+    const held = canonicalEdge(site.col, site.row, site.edge);
+    return held?.col === wanted.col && held?.row === wanted.row && held?.edge === wanted.edge;
+  });
+}
+
 // --- Compact windows along an edge ---------------------------------------
 // Only defs authored as `windowWidth: 'half'` use edge slots. Existing
 // narrow/single/double catalogue windows keep their centred continuous-width

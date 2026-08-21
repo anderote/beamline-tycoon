@@ -121,6 +121,12 @@ console.log('\n=== 1. doorOpeningLayout: off -> world-space opening ===\n');
   assert(dbl.leftWidth === 0 && dbl.rightWidth === 0 && dbl.center === 0,
     'a double has no side fills and stays centred');
 
+  const hangar = doorOpeningLayout('n', 0, true, 6);
+  assert(hangar.openingWidth === TILE_SIZE * 6,
+    'a 6×1 door creates one continuous six-edge opening');
+  assert(hangar.leftWidth === 0 && hangar.rightWidth === 0 && hangar.center === 0,
+    'a multi-tile full-width door has no interior wall fills or offset');
+
   assert(SUBTILES_PER_EDGE === 4 && SUBTILE_SIZE === 0.5,
     'the edge is 4 subtiles of 0.5 world units');
 }
@@ -407,6 +413,9 @@ console.log('\n=== 6. Lintel invariant: doorHeight + lintel fits the wall ===\n'
 
   // ...and against the walls each door type is actually meant to hang on.
   const HOSTS = {
+    hangarDoor3: ['structuralWall'],
+    hangarDoor4: ['structuralWall'],
+    hangarDoor6: ['structuralWall'],
     doubleDoor: ['structuralWall'],
     doubleOfficeDoor: ['officeWall', 'hallwayWall'],
     doubleGlassDoor: ['officeWall', 'hallwayWall', 'glassWall'],
@@ -441,6 +450,38 @@ console.log('\n=== 6. Lintel invariant: doorHeight + lintel fits the wall ===\n'
   }
   assert(Object.keys(HOSTS).length === Object.keys(DOOR_TYPES).length,
     'every door type is covered by the host table');
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n=== 6b. Multi-tile doors render as one continuous assembly ===\n');
+{
+  const wb = new WallBuilder(null);
+  const group = new Group();
+  const walls = Array.from({ length: 6 }, (_, col) => ({
+    col, row: 0, edge: 'n', type: 'structuralWall', variant: 0,
+    baseY: { a: 0, b: 0 },
+  }));
+  const segments = walls.map(({ col, row, edge }) => ({ col, row, edge }));
+  wb.build(walls, [{
+    col: 0, row: 0, edge: 'n', type: 'hangarDoor6', variant: 0, off: 0,
+    tileSpan: 6, segments, baseY: { a: 0, b: 0 },
+  }], [], group, 'up', null);
+  const leaves = wb._meshes.filter(mesh => mesh.userData?.doorLeaf);
+  assert(leaves.length === 2,
+    'a 6×1 hangar opening has two continuous leaves, not twelve tile leaves');
+  const leafXs = leaves.map(mesh => mesh.position.x).sort((a, b) => a - b);
+  assert(leafXs[0] > 2.9 && leafXs[0] < 3.1 && leafXs[1] > 8.9 && leafXs[1] < 9.1,
+    'the paired leaves occupy the two halves of the complete six-tile opening');
+  const lintels = wb._meshes.filter(mesh => near(mesh.geometry.parameters?.height ?? -1, LINTEL_HEIGHT));
+  assert(lintels.length === 1 && near(lintels[0].geometry.parameters.width, TILE_SIZE * 6),
+    'one lintel spans the complete opening without tile seams');
+  const fullWallSlabs = wb._meshes.filter(mesh => {
+    const p = mesh.geometry.parameters;
+    return p && near(p.height, WALL_TYPES.structuralWall.wallHeight * HEIGHT_SCALE)
+      && near(p.depth, WALL_TYPES.structuralWall.thickness * 0.05);
+  });
+  assert(fullWallSlabs.length === 0,
+    'all six host-wall slabs are cut away behind the continuous door');
 }
 
 // ---------------------------------------------------------------------------

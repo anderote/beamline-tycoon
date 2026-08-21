@@ -19,7 +19,9 @@ import {
   PLACE_BLOCKED, PLACE_WALL, PLACE_UNAFFORDABLE,
 } from '../game/placement.js';
 import { findStackTarget } from '../game/stacking.js';
-import { mirrorEdge, findWallKey, findEdgeKey } from '../game/edge-keys.js';
+import {
+  mirrorEdge, findWallKey, findEdgeKey, doorRecordCoversEdge,
+} from '../game/edge-keys.js';
 import { wallFixtureDir } from '../game/wall-fixture-geometry.js';
 import { BeamlineInputController } from './BeamlineInputController.js';
 import { UtilityLineInputController } from './UtilityLineInputController.js';
@@ -1349,9 +1351,13 @@ export class InputHandler {
   _placedEdgeVariant(kind, edge) {
     const s = this.game.state;
     const list = kind === 'overlay' ? s.wallOverlays : kind === 'wall' ? s.walls : kind === 'door' ? s.doors : s.windows;
-    const found = (list || []).find(
-      x => x.col === edge.col && x.row === edge.row && x.edge === edge.edge
-    );
+    const found = kind === 'door'
+      ? (list || []).find(x => doorRecordCoversEdge(
+        x, DOOR_TYPES[x.type], edge.col, edge.row, edge.edge,
+      ))
+      : (list || []).find(
+        x => x.col === edge.col && x.row === edge.row && x.edge === edge.edge
+      );
     return found?.variant ?? 0;
   }
 
