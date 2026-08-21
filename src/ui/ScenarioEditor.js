@@ -20,6 +20,21 @@ import {
   stageScenarioSelection,
 } from '../data/scenarios.js';
 import { SKIP_TITLE_SESSION_KEY } from './main-menu-navigation.js';
+import { evictOldestAutosave } from '../game/SaveSlots.js';
+import {
+  downloadTextFile,
+  isQuotaError,
+  runWithQuotaRecovery,
+  setItemWithRecovery,
+} from '../game/storageQuota.js';
+
+// Crash/quota recovery for in-progress editor work. Deliberately NOT under
+// CUSTOM_SCENARIO_PREFIX: a periodic draft must never overwrite a scenario the
+// author published on purpose, and must never appear in the New Game picker.
+export const SCENARIO_RECOVERY_KEY = 'beamlineTycoon.scenarioEditorRecovery';
+// A single key, rewritten in place, so the recovery copy costs one scenario's
+// worth of storage no matter how long the session runs.
+export const SCENARIO_AUTOSAVE_INTERVAL = 60 * 1000;
 
 export function scenarioIdFromName(name) {
   const words = String(name || '').replace(/[^a-zA-Z0-9 ]/g, ' ').trim().split(/\s+/).filter(Boolean);
@@ -53,6 +68,12 @@ export class ScenarioEditor {
     this._lastId = fresh ? null : existingScenario?.id || null;
     this._hasSavedDesign = !fresh && !!existingScenario?.data;
     this._savedSnapshot = null;
+    // Recovery-draft bookkeeping.
+    this._autosaveTimer = null;
+    this._beforeUnload = null;
+    this._lastDraftSnapshot = null;
+    this._draftFailureReported = false;
+    this._leaving = false;
   }
 
   init() {
@@ -76,6 +97,8 @@ export class ScenarioEditor {
     this._mountToolbar();
     if (this._hasSavedDesign) this._savedSnapshot = this._currentSnapshot();
     g.log('SCENARIO CONSTRUCTION — free build; operating income and upkeep remain live. Save As publishes a playable New Game scenario.', 'info');
+    this.offerRecoveryRestore();
+    this.startDraftAutosave();
   }
 
   // === UI ===
@@ -160,21 +183,188 @@ export class ScenarioEditor {
 
   _save(meta) {
     const data = this.collectScenarioData();
-    try {
-      const stored = saveCustomScenario({ ...meta, data, sandbox: true }, {
-        storage: this.storage,
-      });
-      this._hasSavedDesign = true;
-      this._lastId = stored.id;
-      this._lastName = stored.name;
-      this._savedSnapshot = JSON.stringify(data);
-      const badge = globalThis.document?.getElementById('editor-badge');
-      if (badge) badge.textContent = 'SCENARIO ADMIN · SAVED';
-      return stored;
-    } catch (e) {
-      alert('Could not store the scenario in localStorage (quota?): ' + e.message);
+    // A full quota is recoverable: recovery autosaves of the *played* game are
+    // expendable next to an authored scenario, so evict the oldest and retry.
+    // Named save slots, the active save, and other scenarios are never touched.
+    const result = runWithQuotaRecovery(
+      () => saveCustomScenario({ ...meta, data, sandbox: true }, { storage: this.storage }),
+      { reclaim: () => evictOldestAutosave({ storage: this.storage }) },
+    );
+    if (!result.ok) {
+      // The scenario key is unwritable, but the recovery key may still take
+      // the work: overwriting a value reuses the space it already occupies,
+      // which a new or growing key cannot do. Quietly, because the save
+      // failure below is the message that matters.
+      this.autosaveDraft({ force: true, quiet: true });
+      this._reportSaveFailure(result.error, meta, data);
       return null;
     }
+    const stored = result.value;
+    this._hasSavedDesign = true;
+    this._lastId = stored.id;
+    this._lastName = stored.name;
+    this._savedSnapshot = JSON.stringify(data);
+    this._draftFailureReported = false;
+    // A deliberate save supersedes the crash copy; keeping it would offer a
+    // stale restore on the next boot.
+    this.clearRecoveryDraft();
+    const badge = globalThis.document?.getElementById('editor-badge');
+    if (badge) badge.textContent = 'SCENARIO ADMIN · SAVED';
+    return stored;
+  }
+
+  /**
+   * The scenario could not be persisted. Never leave the author with nothing:
+   * say what to do, and hand them the world as a file (a Blob object URL needs
+   * no storage at all). The periodic recovery draft is deliberately left in
+   * place so the next editor boot can still offer it.
+   */
+  _reportSaveFailure(error, meta, data) {
+    const quota = isQuotaError(error);
+    const payload = JSON.stringify({ id: meta.id, name: meta.name, data }, null, 2);
+    const downloaded = downloadTextFile(`${meta.id}.scenario-backup.json`, payload);
+    if (!downloaded) console.error('[ScenarioEditor] Scenario backup payload:', payload);
+    const advice = downloaded
+      ? 'A .json backup was downloaded — keep it.'
+      : 'The full scenario JSON was logged to the console — copy it out.';
+    this.game.log?.(quota
+      ? `SAVE FAILED — browser storage is full. ${advice} Delete old saves from LOAD to free space, then press Save again.`
+      : `SAVE FAILED — ${error?.message || 'storage is unavailable'}. ${advice}`, 'bad');
+  }
+
+  // === RECOVERY DRAFT (crash / quota insurance) ===
+
+  /**
+   * Persist the working scenario under the recovery key when it differs from
+   * the last saved scenario. One key, rewritten in place: the draft cannot
+   * grow without bound and so cannot cause the quota problem it guards against.
+   * Returns the stored draft, or null when nothing needed writing.
+   */
+  autosaveDraft({ force = false, quiet = false } = {}) {
+    if (!this.storage) return null;
+    // One serialization per autosave: the world can be half a megabyte, and
+    // this runs on a timer, so dirty-checking reuses the same snapshot rather
+    // than calling hasUnsavedChanges() (which would serialize a second time).
+    const snapshot = this._currentSnapshot();
+    if (!force && snapshot === this._savedSnapshot) return null;
+    if (!force && snapshot === this._lastDraftSnapshot) return null;
+    const savedAt = Date.now();
+    // Assembled textually so the (potentially half-megabyte) world is
+    // serialized once per autosave rather than twice.
+    const payload = `{"id":${JSON.stringify(this._lastId ?? null)},`
+      + `"name":${JSON.stringify(this._lastName || 'Untitled Scenario')},`
+      + `"savedAt":${savedAt},"data":${snapshot}}`;
+    const result = setItemWithRecovery(SCENARIO_RECOVERY_KEY, payload, {
+      storage: this.storage,
+      reclaim: () => evictOldestAutosave({ storage: this.storage }),
+    });
+    if (!result.ok) {
+      // Do NOT drop the previous draft: a stale recovery copy beats none.
+      if (!quiet && !this._draftFailureReported) {
+        this._draftFailureReported = true;
+        this.game.log?.(isQuotaError(result.error)
+          ? 'SCENARIO AUTOSAVE FAILED — browser storage is full. Use Export to download this scenario before it is lost.'
+          : 'SCENARIO AUTOSAVE FAILED — local storage is unavailable. Use Export to download this scenario.', 'bad');
+      }
+      return null;
+    }
+    this._lastDraftSnapshot = snapshot;
+    this._draftFailureReported = false;
+    return { id: this._lastId ?? null, name: this._lastName, savedAt, data: JSON.parse(snapshot) };
+  }
+
+  /** The stored recovery draft, or null when there is none / it is unusable. */
+  readRecoveryDraft() {
+    try {
+      const raw = this.storage?.getItem(SCENARIO_RECOVERY_KEY);
+      if (!raw) return null;
+      const draft = JSON.parse(raw);
+      return draft?.data ? draft : null;
+    } catch (_) { return null; }
+  }
+
+  clearRecoveryDraft() {
+    try { this.storage?.removeItem(SCENARIO_RECOVERY_KEY); } catch (_) {}
+    this._lastDraftSnapshot = null;
+  }
+
+  /** Load a recovery draft into the live editor world as UNSAVED work. */
+  restoreRecoveryDraft(draft = this.readRecoveryDraft()) {
+    if (!draft?.data) return false;
+    // applyScenario is the only supported way into the world; a blind
+    // Object.assign would drop the Map-backed state the editor depends on and
+    // silently corrupt the very work being recovered.
+    if (typeof this.game.applyScenario !== 'function') {
+      this.game.log?.('Could not restore the recovery draft — the world could not accept it. It is still stored; use Export after reloading.', 'bad');
+      return false;
+    }
+    this.game.applyScenario(draft.data);
+    if (draft.id) this._lastId = draft.id;
+    if (draft.name) this._lastName = draft.name;
+    // The restored world is explicitly dirty — it was never saved — but it
+    // already matches the stored draft, so the next timer tick has nothing to
+    // rewrite. `_savedSnapshot` is deliberately left alone.
+    this._lastDraftSnapshot = this._currentSnapshot();
+    this.game.log?.(`Restored unsaved scenario work from ${this._formatDraftTime(draft.savedAt)}. Press Save to publish it.`, 'good');
+    return true;
+  }
+
+  /** Boot-time prompt: restore the draft, or discard it and keep the stored scenario. */
+  offerRecoveryRestore() {
+    const draft = this.readRecoveryDraft();
+    if (!draft) return false;
+    // Identical to what is already loaded — nothing to recover.
+    if (JSON.stringify(draft.data) === this._currentSnapshot()) {
+      this.clearRecoveryDraft();
+      return false;
+    }
+    const message = `Unsaved Scenario Admin work from ${this._formatDraftTime(draft.savedAt)} was recovered`
+      + `${draft.name ? ` ("${draft.name}")` : ''}.\n\nRestore it?\n\nCancel keeps the stored scenario and discards the recovery copy.`;
+    // Called through globalThis, not via a detached reference: browsers reject
+    // an unbound window.confirm with "Illegal invocation".
+    if (typeof globalThis.confirm === 'function' && !globalThis.confirm(message)) {
+      this.clearRecoveryDraft();
+      return false;
+    }
+    return this.restoreRecoveryDraft(draft);
+  }
+
+  _formatDraftTime(savedAt) {
+    if (!savedAt) return 'an earlier session';
+    try { return new Date(savedAt).toLocaleString(); }
+    catch (_) { return 'an earlier session'; }
+  }
+
+  startDraftAutosave() {
+    const win = globalThis.window;
+    if (win?.addEventListener && !this._beforeUnload) {
+      this._beforeUnload = (event) => {
+        if (this._leaving || !this.hasUnsavedChanges()) return;
+        // Last chance to bank the work before the tab goes away.
+        this.autosaveDraft({ force: true });
+        event.preventDefault();
+        event.returnValue = '';
+        return '';
+      };
+      win.addEventListener('beforeunload', this._beforeUnload);
+    }
+    if (this._autosaveTimer == null && typeof setInterval === 'function') {
+      this._autosaveTimer = setInterval(() => this.autosaveDraft(), SCENARIO_AUTOSAVE_INTERVAL);
+      this._autosaveTimer?.unref?.();
+    }
+    return this._autosaveTimer;
+  }
+
+  stopDraftAutosave() {
+    if (this._autosaveTimer != null) {
+      clearInterval(this._autosaveTimer);
+      this._autosaveTimer = null;
+    }
+    const win = globalThis.window;
+    if (this._beforeUnload && win?.removeEventListener) {
+      win.removeEventListener('beforeunload', this._beforeUnload);
+    }
+    this._beforeUnload = null;
   }
 
   /** Save the current design without leaving Scenario Admin. */
@@ -335,6 +525,8 @@ export class ScenarioEditor {
   }
 
   _launchPlaytest(stored) {
+    this._leaving = true;
+    this.stopDraftAutosave();
     this.storage.removeItem('beamlineTycoon');
     stageScenarioSelection(customScenarioRef(stored.id), this.storage);
     sessionStorage.setItem(SKIP_TITLE_SESSION_KEY, '1');
@@ -346,10 +538,16 @@ export class ScenarioEditor {
   // === EXIT ===
 
   exit() {
-    const message = this.hasUnsavedChanges()
-      ? 'Exit the Scenario Editor?\n\nUnsaved changes will be lost. Use Save or Save As if you want to keep this version.'
+    const dirty = this.hasUnsavedChanges();
+    // Bank the work first: if the author leaves anyway, the next editor boot
+    // offers it back instead of losing the session.
+    if (dirty) this.autosaveDraft({ force: true });
+    const message = dirty
+      ? 'Exit the Scenario Editor?\n\nThese changes are NOT published to New Game. They are kept as a recovery draft and offered the next time you open Scenario Admin — use Save or Save As to publish them properly.'
       : 'Exit the Scenario Editor and resume your previous game?\n\nYour saved scenario will remain available under New Game.';
     if (!confirm(message)) return;
+    this._leaving = true;
+    this.stopDraftAutosave();
     location.href = location.pathname;
   }
 }

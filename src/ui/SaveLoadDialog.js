@@ -3,10 +3,16 @@
 // Load Game. Styled to match the welcome/guide dialog (pixel bevel panel,
 // Press Start 2P headers, gold accents); draggable by its header.
 
-import { SaveSlots } from '../game/SaveSlots.js';
+import { SaveSlots, setActiveSave } from '../game/SaveSlots.js';
+import { downloadTextFile, isQuotaError } from '../game/storageQuota.js';
 import { CloudSaves, CloudAuthError } from '../game/CloudSaves.js';
 import { makeDraggable } from './draggable.js';
 import { pushEscHandler } from './esc-stack.js';
+
+// A save name is player-typed; keep it usable as a filename.
+function saveFileName(name) {
+  return String(name || 'beamline-save').replace(/[^a-zA-Z0-9-_]+/g, '-').replace(/^-+|-+$/g, '') || 'beamline-save';
+}
 import { fmtMoney, escapeHtml as esc } from './format.js';
 
 const CLOUD_SLOT_COUNT = 3;
@@ -173,7 +179,18 @@ export class SaveLoadDialog {
   }
 
   _doSave(slotId, name) {
-    const id = SaveSlots.saveTo(slotId, name, this.game.serialize(), this._buildMeta());
+    const payload = this.game.serialize();
+    const id = SaveSlots.saveTo(slotId, name, payload, this._buildMeta());
+    if (!id) {
+      // Storage is full even after evicting recovery autosaves. Never leave
+      // the player with nothing: hand them the save as a file.
+      const downloaded = downloadTextFile(`${saveFileName(name)}.beamline-save.json`, payload);
+      this.game.log(downloaded
+        ? 'SAVE FAILED — browser storage is full. A backup file was downloaded instead. Delete old saves here to free space, then save again.'
+        : 'SAVE FAILED — browser storage is full. Delete old saves here to free space, then save again.', 'bad');
+      this._render();
+      return null;
+    }
     // Keep the autosave/active key fresh too — matches the old quick-save feel.
     this.game.save();
     this.game.log('Game saved.', 'good');
@@ -277,8 +294,20 @@ export class SaveLoadDialog {
       if (!rec || typeof rec.payload !== 'string' || !rec.payload) {
         throw new Error('empty payload');
       }
-      // Mirror the local flow: write into the active key and reload.
-      localStorage.setItem('beamlineTycoon', rec.payload);
+      // Mirror the local flow: write into the active key and reload. A full
+      // origin evicts recovery autosaves first — the save the player asked to
+      // load outranks this session's own history.
+      const write = setActiveSave(rec.payload);
+      if (!write.ok) {
+        // The payload is already in hand; never drop it on the floor.
+        const downloaded = downloadTextFile(`${saveFileName(entry.name)}.beamline-save.json`, rec.payload);
+        c.error = isQuotaError(write.error)
+          ? `Local storage is full, so "${entry.name}" could not be installed.${downloaded ? ' A backup file was downloaded.' : ''} Delete local saves to free space, then load again.`
+          : 'This browser is not allowing local storage, so the cloud save could not be installed.';
+        c.busy = null;
+        this._renderCloud();
+        return;
+      }
       sessionStorage.setItem('beamlineTycoon.skipTitle', '1');
       location.reload();
       return;
