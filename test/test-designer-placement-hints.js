@@ -25,6 +25,7 @@ function envelope(totalS, opts = {}) {
     return {
       s,
       energy: opts.energy ?? 0.001,
+      current: opts.current ?? 1,
       bunch_frequency: opts.bunchFrequency ?? 1.625e8,
       focus_margin: 0.8 - s / Math.max(totalS, 1),
       focus_urgency: opts.focused ? 0.1 : Math.min(1, s / 20),
@@ -112,6 +113,60 @@ console.log('3. a DC proton front end gets an RFQ capture hint');
   check('it chooses the proton RFQ', capture?.componentType === 'rfq', capture?.componentType);
   check('it is a one-click insertion recipe', Number.isInteger(capture?.nodeIndex) &&
     capture?.position === 'after');
+}
+
+console.log('3b. a high-current DC source gets extraction before RF capture');
+{
+  const hints = computePlacementHints({
+    nodes: [{ type: 'ecrIonSource' }, ...drifts(3), { type: 'protonTherapyGantry' }],
+    envelope: envelope(8, {
+      energy: 0.00004, current: 400, bunchFrequency: 0, focused: true,
+    }),
+    beamlineType: {
+      id: 'therapy', particle: 'p+', spec: { energyGeV: [0.07, 0.25] },
+    },
+    isAvailable: type => ['dcInjector', 'rfq', 'spokeCavity'].includes(type),
+  });
+  const extraction = hints.find(h => h.kind === 'extraction');
+  const capture = hints.find(h => h.kind === 'longitudinal');
+  check('the extraction hint exists', !!extraction);
+  check('it chooses the high-voltage injector', extraction?.componentType === 'dcInjector');
+  check('it inserts directly after the source', extraction?.nodeIndex === 0 &&
+    extraction?.position === 'after');
+  check('it outranks capture at the same boundary', extraction?.priority > capture?.priority);
+  check('the hint describes measured current and energy',
+    extraction?.state.includes('400 mA') && extraction?.state.includes('keV'), extraction?.state);
+}
+
+console.log('3c. extraction is not recommended for an already accelerated or low-current beam');
+{
+  const common = {
+    nodes: [{ type: 'ionSource' }, ...drifts(2)],
+    beamlineType: { id: 'therapy', particle: 'p+', spec: {} },
+    isAvailable: () => true,
+  };
+  const lowCurrent = computePlacementHints({
+    ...common,
+    envelope: envelope(6, { energy: 0.00004, current: 10, bunchFrequency: 0, focused: true }),
+  });
+  const accelerated = computePlacementHints({
+    ...common,
+    envelope: envelope(6, { energy: 0.002, current: 50, bunchFrequency: 0, focused: true }),
+  });
+  const equipped = computePlacementHints({
+    ...common,
+    nodes: [{ type: 'ionSource' }, { type: 'dcInjector' }, ...drifts(2)],
+    envelope: envelope(8, { energy: 0.00004, current: 50, bunchFrequency: 0, focused: true }),
+  });
+  const rfGun = computePlacementHints({
+    ...common,
+    nodes: [{ type: 'ncRfGun' }, ...drifts(2)],
+    envelope: envelope(6, { energy: 0.0005, current: 50, bunchFrequency: 0, focused: true }),
+  });
+  check('low current gets no injector hint', !lowCurrent.some(h => h.kind === 'extraction'));
+  check('MeV beam gets no injector hint', !accelerated.some(h => h.kind === 'extraction'));
+  check('an existing injector is not duplicated', !equipped.some(h => h.kind === 'extraction'));
+  check('an RF gun does not get DC extraction', !rfGun.some(h => h.kind === 'extraction'));
 }
 
 console.log('4. an already-bunched beam does not get redundant capture hardware');

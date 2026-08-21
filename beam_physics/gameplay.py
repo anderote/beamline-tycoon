@@ -76,7 +76,7 @@ DIAGNOSTIC_TYPES = {"bpm", "screen", "ict", "wireScanner", "bunchLengthMonitor",
 KNOWN_PHYSICS_TYPES = {
     "source", "drift", "quadrupole", "dipole", "combined_function",
     "rfCavity", "cryomodule", "sextupole", "collimator", "undulator",
-    "solenoid", "chicane", "detector", "target", "beamStop",
+    "solenoid", "dcAccelerator", "chicane", "detector", "target", "beamStop",
 }
 
 # Scaling factors: convert game stat values to physically reasonable parameters
@@ -255,6 +255,19 @@ def beamline_config_from_game(game_beamline):
             particle = comp.get("params", {}).get("particleType")
             if particle is not None:
                 el["particleType"] = particle
+            radius_mm = comp.get("sourceBeamRadiusMm")
+            if radius_mm is not None and radius_mm > 0:
+                el["sourceBeamRadius"] = radius_mm * 1e-3
+            source_compensation = comp.get("sourceSpaceChargeCompensation")
+            if source_compensation is not None:
+                el["sourceSpaceChargeCompensation"] = max(
+                    0.0, min(float(source_compensation), 0.999))
+
+        elif physics_type == "dcAccelerator":
+            el["energyGain"] = stats.get("energyGain", 0.0)
+            el["focusStrength"] = max(0.0, stats.get("focusStrength", 0.0))
+            el["spaceChargeCompensation"] = max(0.0, min(
+                stats.get("spaceChargeCompensation", 0.0) / 100.0, 0.999))
 
         elif physics_type == "quadrupole":
             raw_k = stats.get("focusStrength",
@@ -321,6 +334,9 @@ def beamline_config_from_game(game_beamline):
                         or stats.get("rfFrequency", None))
             if raw_freq is not None:
                 el["rfFrequency"] = float(raw_freq) * 1e6
+            if ctype == "rfq":
+                el["focusStrength"] = max(
+                    0.0, stats.get("focusStrength", 0.0))
 
         elif physics_type == "sextupole":
             el["focusStrength"] = stats.get("focusStrength",
@@ -679,6 +695,11 @@ def physics_to_game(physics_result, research_effects=None, elements=None):
                 # state the RF module propagated. Zero means DC/unbunched;
                 # the first RF element replaces it with its bucket frequency.
                 "bunch_frequency": s.get("bunch_frequency", 0),
+                # Neutralization belongs to the propagated physics state, not
+                # a UI-side guess.  It is non-zero only through the DC LEBT and
+                # is cleared by the first RF capture element.
+                "space_charge_compensation": s.get(
+                    "space_charge_compensation", 0),
                 "focus_margin": s.get("focus_margin", 1.0),
                 "focus_urgency": s.get("focus_urgency", 0.0),
                 # RF velocity match. Null outside accelerating structures;
@@ -803,6 +824,11 @@ def extract_source_params(elements, game_beamline):
         # Extraction energy from the source component (GeV)
         if "extractionEnergy" in el:
             source_params["energy"] = el["extractionEnergy"]
+        if el.get("sourceBeamRadius", 0) > 0:
+            source_params["beam_radius"] = el["sourceBeamRadius"]
+        if el.get("sourceSpaceChargeCompensation") is not None:
+            source_params["space_charge_compensation"] = el[
+                "sourceSpaceChargeCompensation"]
         # Set mass for proton sources. Species comes from the component's
         # params.particleType (carried through beamline_config_from_game);
         # game_type is kept as a fallback for hand-built configs.

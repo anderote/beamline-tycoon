@@ -22,6 +22,7 @@ A capability declared beside the module list cannot drift, because both are
 read from this one config.
 """
 from beam_physics.modules.linear_optics import LinearOpticsModule
+from beam_physics.modules.dc_acceleration import DCElectrostaticAccelerationModule
 from beam_physics.modules.rf_acceleration import RFAccelerationModule
 from beam_physics.modules.synchrotron_rad import SynchrotronRadiationModule
 from beam_physics.modules.synchrotron_light import SynchrotronLightModule
@@ -47,6 +48,7 @@ CAPABILITIES = frozenset({
 # Modules are stateless — they read the beam and the element and return a
 # report — so one instance per module is shared by every config that runs it.
 _LINEAR_OPTICS = LinearOpticsModule()
+_DC_ACCELERATION = DCElectrostaticAccelerationModule()
 _RF_ACCELERATION = RFAccelerationModule()
 _SPACE_CHARGE = SpaceChargeModule()
 _BEAM_GAS = BeamGasModule()
@@ -63,6 +65,7 @@ _BEAM_BEAM = BeamBeamModule()
 # can opt out of, named once so each config below reads as "transport, plus
 # exactly this". Per-type lists extend this set; they never extend each other.
 _TRANSPORT = [
+    _DC_ACCELERATION,
     _LINEAR_OPTICS,
     _RF_ACCELERATION,
     _SPACE_CHARGE,

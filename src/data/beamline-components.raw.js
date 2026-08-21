@@ -43,6 +43,10 @@ export const BEAMLINE_COMPONENTS_RAW = {
     stats: { beamCurrent: 250, emittance: 1.35 },
     energyCost: 15,
     apertureRadius: 40,
+    // RMS beam radius at the source exit. The backend derives Twiss beta from
+    // this and the live normalized emittance instead of assigning every source
+    // the same 10 m beta function.
+    sourceBeamRadiusMm: 5,
     subL: 4,
     subW: 4,
     subH: 4, gridW: 4, gridH: 4, geometryType: 'box',
@@ -169,6 +173,8 @@ export const BEAMLINE_COMPONENTS_RAW = {
     stats: { beamCurrent: 25 },
     energyCost: 18,
     apertureRadius: 24,
+    sourceBeamRadiusMm: 5,
+    sourceSpaceChargeCompensation: 0.95,
     subL: 4,
     subW: 4,
     subH: 4, gridW: 4, gridH: 4, geometryType: 'box',
@@ -198,6 +204,8 @@ export const BEAMLINE_COMPONENTS_RAW = {
     stats: { beamCurrent: 50 },
     energyCost: 25,
     apertureRadius: 32,
+    sourceBeamRadiusMm: 6,
+    sourceSpaceChargeCompensation: 0.95,
     subL: 4,
     subW: 4,
     subH: 4, gridW: 4, gridH: 4, geometryType: 'box',
@@ -234,6 +242,8 @@ export const BEAMLINE_COMPONENTS_RAW = {
     stats: { beamCurrent: 400 },
     energyCost: 60,
     apertureRadius: 40,
+    sourceBeamRadiusMm: 10,
+    sourceSpaceChargeCompensation: 0.98,
     subL: 6,
     subW: 4,
     subH: 4, gridW: 4, gridH: 6, geometryType: 'box',
@@ -260,6 +270,35 @@ export const BEAMLINE_COMPONENTS_RAW = {
     rfBand: 'sband',
     // Sized for the 6 kW top end of the microwave-power control.
     rfPowerRequired: 6,
+  },
+
+  dcInjector: {
+    id: 'dcInjector',
+    physicsType: 'dcAccelerator',
+    name: 'High-Voltage DC Injector',
+    desc: 'A high-voltage electrostatic acceleration column followed by an einzel-lens, gas-compensated low-energy beam transport section. It pushes an unbunched source beam rapidly out of the worst space-charge regime and matches it toward an RFQ or first cavity without pretending that RF capture has already happened.',
+    category: 'source',
+    subsection: 'transport',
+    cost: { funding: 1500000 },
+    stats: { energyGain: 0.00075, focusStrength: 0.9, spaceChargeCompensation: 99 },
+    energyCost: 400,
+    apertureRadius: 50,
+    subL: 4,
+    subW: 4,
+    subH: 5, gridW: 4, gridH: 4, geometryType: 'cylinder',
+    interiorVolume: 8,
+    unlocked: true,
+    spriteKey: 'dcInjector',
+    spriteColor: 0xd7a843,
+    accentColor: 0x55a8d8,
+    params: { terminalVoltage: 750, lensVoltage: 30 },
+    placement: 'attachment',
+    role: 'placement',
+    ports: {
+      entry: { side: 'back' },
+      exit: { side: 'front' },
+    },
+    requiredConnections: ['powerCable', 'coolingWater'],
   },
 
   // ── Compound machines ───────────────────────────────────────────────────
@@ -341,6 +380,8 @@ export const BEAMLINE_COMPONENTS_RAW = {
     stats: { beamCurrent: 30, emittance: 12 },
     energyCost: 40,
     apertureRadius: 32,
+    sourceBeamRadiusMm: 12,
+    sourceSpaceChargeCompensation: 0.98,
     subL: 6,
     subW: 6,
     subH: 8, gridW: 6, gridH: 6, geometryType: 'box',
@@ -1691,7 +1732,11 @@ export const BEAMLINE_COMPONENTS_RAW = {
     category: 'rf',
     subsection: 'normalConducting',
     cost: { funding: 1500000 },
-    stats: { energyGain: 0.003, bunchCompression: 0.5, gradient: 1.0 },
+    // An RFQ is also a strong alternating-gradient channel.  The previous
+    // drift-only model threw away nearly every captured high-current ion in
+    // its real 6 mm bore; this smooth-focusing strength represents the
+    // distributed vane field while keeping the physical aperture honest.
+    stats: { energyGain: 0.003, bunchCompression: 0.5, gradient: 1.0, focusStrength: 60 },
     // RFQ vane modulation is the deliberate hand-off from a source at a few
     // thousandths of c to a bunched beam near beta=0.08. It is the first rung,
     // not a magic jump to beta=1; the DTL and spoke sections continue the climb.

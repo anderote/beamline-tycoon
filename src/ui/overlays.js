@@ -1012,6 +1012,41 @@ UIHost.prototype._schematicDrawers = {
     }
   },
 
+  // === HIGH-VOLTAGE DC INJECTOR / LEBT ===
+  dcInjector(p, px, dot, W, H, cy, C) {
+    _drawBeamPipe(px, dot, W, cy, C);
+
+    // Alternating ceramic spacers and copper grading electrodes.
+    for (let x = 12; x <= 42; x += 5) {
+      px(x, cy - 10, 2, 21, '#d7a843');
+      px(x + 2, cy - 8, 1, 17, C.coil);
+    }
+
+    // Three-electrode einzel lens on the high-energy end.
+    for (const x of [48, 53, 58]) {
+      px(x, cy - (x === 53 ? 10 : 8), 2, x === 53 ? 21 : 17, C.wallHi);
+    }
+
+    // DC accelerating field: steady arrows rather than an RF sine wave.
+    const field = '#55a8d8';
+    for (const y of [cy - 3, cy + 3]) {
+      px(16, y, 22, 1, field);
+      dot(38, y, field);
+      dot(37, y - 1, field);
+      dot(37, y + 1, field);
+    }
+    for (let x = 4; x < W - 4; x++) dot(x, cy, C.beam);
+
+    // Lens matching arrows converge on the exit axis.
+    for (const sign of [-1, 1]) {
+      const y = cy + sign * 7;
+      dot(55, y, '#ff6688');
+      dot(55, y - sign, '#ff6688');
+      dot(54, y, '#ff6688');
+      dot(56, y, '#ff6688');
+    }
+  },
+
   // === SOLENOID ===
   solenoid(p, px, dot, W, H, cy, C) {
     _drawBeamPipe(px, dot, W, cy, C);

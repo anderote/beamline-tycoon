@@ -37,6 +37,25 @@ def quadrupole_matrix(k, length):
         return _block_diag_6x6(Rd, Rf)
 
 
+def axisymmetric_focusing_matrix(k, length):
+    """Equal linear focusing in both transverse planes.
+
+    This is the paraxial channel approximation used for an electrostatic
+    einzel-lens train and for the alternating vane field of an RFQ. It keeps
+    those devices distinct from a solenoid, whose coupled x/y rotation is
+    already modeled by ``solenoid_matrix``.
+    """
+    if k <= 1e-12:
+        return drift_matrix(length)
+    sqrt_k = np.sqrt(k)
+    phi = sqrt_k * length
+    plane = np.array([
+        [np.cos(phi), np.sin(phi) / sqrt_k],
+        [-sqrt_k * np.sin(phi), np.cos(phi)],
+    ])
+    return _block_diag_6x6(plane, plane)
+
+
 def dipole_matrix(bend_angle_deg, length):
     theta = np.radians(bend_angle_deg)
     if abs(theta) < 1e-10:
@@ -329,6 +348,14 @@ class LinearOpticsModule(PhysicsModule):
             # wrong by 2.4x at 50 keV, which is exactly the regime solenoids
             # exist for.
             return solenoid_matrix(B, _momentum_gev(beam), length)
+
+        if etype == "dcAccelerator":
+            return axisymmetric_focusing_matrix(
+                max(0.0, element.get("focusStrength", 0.0)), length)
+
+        if etype == "rfCavity" and element.get("game_type") == "rfq":
+            return axisymmetric_focusing_matrix(
+                max(0.0, element.get("focusStrength", 0.0)), length)
 
         if etype == "chicane":
             R = drift_matrix(length)

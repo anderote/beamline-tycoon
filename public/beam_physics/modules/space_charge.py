@@ -4,6 +4,10 @@ from beam_physics.context import EffectReport
 from beam_physics.constants import ALFVEN_CURRENT, ELECTRON_MASS
 
 GAMMA_THRESHOLD = 200
+# For a round RMS envelope the generalized perveance term is K/(4 sigma).
+# Expressing that as a linear defocusing kick gives
+# x' <- x' + K L x / (4 sigma^2).
+RMS_ENVELOPE_FACTOR = 0.25
 
 
 class SpaceChargeModule(PhysicsModule):
@@ -23,7 +27,9 @@ class SpaceChargeModule(PhysicsModule):
         if length <= 0:
             return EffectReport(self.name, context.element_index)
 
-        I_peak = beam.peak_current
+        compensation = (beam.space_charge_compensation
+                        if beam.bunch_frequency <= 0 else 0.0)
+        I_peak = beam.peak_current * (1.0 - compensation)
         if I_peak <= 0:
             return EffectReport(self.name, context.element_index, {"K": 0.0})
 
@@ -40,26 +46,22 @@ class SpaceChargeModule(PhysicsModule):
         sigma_x = beam.beam_size_x()
         sigma_y = beam.beam_size_y()
 
-        # The envelope equation gives sigma'' = K / sigma, so over a length L the
-        # DIVERGENCE grows by d_sigma' = (K / sigma) * L. sigma[1,1] is <x'^2>,
-        # a variance in rad^2, so what gets added is that angle SQUARED.
-        #
-        # This used to add (K * length / sigma_x) straight into sigma[1,1] —
-        # an angle into a variance. Because these quantities are far below 1,
-        # dropping the square inflated the result rather than shrinking it: for
-        # a 250 keV / 20 mA beam it turned a correct 4.2e-4 rad of divergence
-        # into 2.0e-2 rad, ~49x too much, compounding at every sub-step. The
-        # beam blew from 2 mm to 98 mm in half a metre and was scraped away by
-        # the aperture. That single term is why low-energy front ends were
-        # unusable: the shipped ionSource transmitted 1e-141 of its beam, the
-        # stock electron gun 2e-69, and smallBeamlineFacility ran at
-        # totalLossFraction 1.0 with beamQuality 0.
+        # Space charge is a coherent envelope force, not random scattering.
+        # Adding d_sigma'^2 directly to <x'^2> made the kick irreversible
+        # emittance growth, so no solenoid or RFQ focusing channel could ever
+        # counter it. Apply the equivalent linear defocusing map instead. It
+        # grows the envelope while preserving phase-space area, allowing real
+        # focusing hardware to trade against it; beam-gas and radiation remain
+        # the modules that add incoherent emittance.
+        R = np.eye(6)
         if sigma_x > 1e-15:
-            d_xp = K * length / sigma_x
-            beam.sigma[1, 1] += d_xp * d_xp
+            R[1, 0] = RMS_ENVELOPE_FACTOR * K * length / (sigma_x * sigma_x)
         if sigma_y > 1e-15:
-            d_yp = K * length / sigma_y
-            beam.sigma[3, 3] += d_yp * d_yp
-
+            R[3, 2] = RMS_ENVELOPE_FACTOR * K * length / (sigma_y * sigma_y)
+        beam.sigma = R @ beam.sigma @ R.T
         beam.sigma = 0.5 * (beam.sigma + beam.sigma.T)
-        return EffectReport(self.name, context.element_index, {"K": K, "I_peak": I_peak})
+        return EffectReport(self.name, context.element_index, {
+            "K": K,
+            "I_peak": I_peak,
+            "space_charge_compensation": compensation,
+        })

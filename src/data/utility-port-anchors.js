@@ -235,6 +235,7 @@ export const PORT_ANCHOR_OVERRIDES = {
   // on the floor and tops out at the beam line, so the derived 0.35 was down
   // by the skirt. Match the quadrupole/dipole family instead.
   solenoid: { _default: { y: 0.8 } },
+  dcInjector: { _default: { y: 0.9 }, pwr_in: { y: 0.45 }, cool_in: { y: 0.55 } },
   collimator: { _default: { y: 0.8 }, cool_in: { y: 0.6 } },
   chicane: { _default: { y: 0.8 } },
   undulator: { _default: { y: 0.8 }, cool_in: { y: 0.6 } },

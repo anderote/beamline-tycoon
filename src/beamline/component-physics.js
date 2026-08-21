@@ -68,6 +68,22 @@ export const PARAM_DEFS = {
     extractionEnergy: { derived: true, unit: 'GeV' },
   },
 
+  // ---- High-voltage DC injector / compensated LEBT ----
+  // The terminal voltage adds kinetic energy without imposing an RF bucket.
+  // The einzel-lens voltage controls an axisymmetric electrostatic channel;
+  // its derived strength is passed to the backend in m^-2.
+  dcInjector: {
+    terminalVoltage: {
+      min: 100, max: 1000, default: 750, unit: 'kV', step: 25,
+    },
+    lensVoltage: {
+      min: 0, max: 80, default: 30, unit: 'kV', step: 1,
+    },
+    energyGain:              { derived: true, unit: 'GeV' },
+    focusStrength:           { derived: true, unit: 'm⁻²' },
+    spaceChargeCompensation: { derived: true, unit: '%' },
+  },
+
   // ---- Penning ion source ----
   penningIonSource: {
     extractionVoltage: {
@@ -521,6 +537,31 @@ function computeEcrIonSource(params) {
   const confinement = Math.min(1.2, Math.sqrt(params.magnetCurrent / ECR_DESIGN_MAGNET_A));
   const beamCurrent = params.microwavePower * ECR_MA_PER_W * confinement; // mA
   return { beamCurrent, extractionEnergy };
+}
+
+// A Cockcroft-Walton-style terminal followed by an einzel-lens matching
+// section. The beam remains DC; RF capture belongs to the RFQ/buncher that
+// follows. Electrostatic lens strength scales with lens voltage and inversely
+// with terminal voltage because the stiffer outgoing beam needs more lens
+// voltage for the same phase advance. The 99% compensation is representative
+// of a deliberately gas-neutralized ion LEBT; the backend applies it only to
+// unbunched beams, so it disappears at RF capture rather than leaking into the
+// accelerator proper.
+function computeDcInjector(params) {
+  const energyGain = params.terminalVoltage * 1e-6; // kV -> GeV
+  const voltageRatio = params.terminalVoltage > 0
+    ? 750 / params.terminalVoltage
+    : 0;
+  // Calibrated against the authored 6 mm RFQ bore: the 30 kV default forms
+  // an ECR-sized beam waist at the RFQ entrance without making a low-current
+  // electron gun unusably stiff.  The inverse terminal-voltage dependence is
+  // the expected electrostatic-lens scaling with beam rigidity.
+  const focusStrength = 0.9 * (params.lensVoltage / 30) * voltageRatio;
+  return {
+    energyGain,
+    focusStrength,
+    spaceChargeCompensation: 99,
+  };
 }
 
 // Penning source: discharge current sets the available plasma density while
@@ -1030,6 +1071,7 @@ const COMPUTE_STATS = {
   penningIonSource: computePenningIonSource,
   ionSource:    computeIonSource,
   ecrIonSource: computeEcrIonSource,
+  dcInjector:   computeDcInjector,
   dcPhotoGun: computeDcPhotoGun,
   ncRfGun:    computeNcRfGun,
   srfGun:     computeSrfGun,

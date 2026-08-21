@@ -148,6 +148,7 @@ const EXPECTED = [
     type: 'ellipticalSrfCavity',
     subL: 3,
     stats: { energyGain: 0.0375, gradient: 25 },
+    rfFrequency: 1300,
     betaAcceptance: { min: 0.85, design: 0.999, max: 1.0 },
     apertureRadius: 56,
     params: {},
@@ -302,6 +303,29 @@ console.log('\n--- Test 5: Designer ideal-services payload ---');
     'Designer preview publishes the same beta-acceptance window as production');
   assert(!('infraQuality' in cavity),
     'Designer draft assumes ideal services until components have map endpoints');
+}
+
+// ==========================================================================
+// Test 6: source exit conditions and authored RF frequency survive the JS /
+// Python boundary.  These are top-level fields, not recomputed UI values.
+// ==========================================================================
+console.log('\n--- Test 6: front-end physics fields ---');
+{
+  const [source, injector, rfq] = buildDesignerPhysicsElements([
+    { id: 'ecr', type: 'ecrIonSource' },
+    { id: 'hv', type: 'dcInjector', params: { terminalVoltage: 750, lensVoltage: 30 } },
+    { id: 'rfq', type: 'rfq' },
+  ]);
+  assert(source.sourceBeamRadiusMm === 10,
+    'ECR measured RMS source radius crosses the payload boundary');
+  assert(source.sourceSpaceChargeCompensation === 0.98,
+    'ECR source neutralization crosses the payload boundary');
+  assert(injector.stats.energyGain === 0.00075 && injector.stats.focusStrength === 0.9,
+    'DC injector controls publish electrostatic energy and lens strength');
+  assert(injector.stats.spaceChargeCompensation === 99,
+    'DC injector publishes its neutralized LEBT fraction');
+  assert(rfq.rfFrequency === 162.5,
+    'RFQ authored 162.5 MHz reaches Python instead of falling back to 1.3 GHz');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

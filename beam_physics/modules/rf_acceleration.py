@@ -219,6 +219,9 @@ class RFAccelerationModule(PhysicsModule):
             # start long here and are shortened later by a chicane, which is
             # the real order of operations.
             if was_dc:
+                # A bunched beam no longer carries the slow positive/negative
+                # compensation cloud of a neutralized DC transport section.
+                beam.space_charge_compensation = 0.0
                 sigma_t = BUNCH_PHASE_SIGMA_RAD / (2.0 * np.pi * f_rf)
                 beam.sigma[4, 4] = sigma_t ** 2
 
