@@ -563,7 +563,7 @@ test('plot source Both draws draft over baseline on one shared y-domain', async 
     const pins = markerIdx >= 0
       ? [{ elementIndex: markerIdx, s: d.markerS, color: '#4488ff' }]
       : [];
-    const yScale = d._getPlotYScale();
+    const yScale = null;
     const expectedUnion = ProbePlots.unionYDomain(
       ProbePlots.yDomainFor(type, d.draftEnvelope, yScale, pins, 0),
       ProbePlots.yDomainFor(type, d.baselineEnvelope, yScale, pins, 0),

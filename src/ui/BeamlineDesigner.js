@@ -25,6 +25,13 @@ import { planDesignerAutoTune } from '../beamline/designer-auto-tuning.js';
 import { seedComponentParams } from '../beamline/component-params.js';
 import { buildDesignerPhysicsElements } from '../beamline/physics-payload.js';
 import { summarizeDesignerPlacement } from '../beamline/designer-placement-preview.js';
+import {
+  createDesignerPlotYRanges,
+  designerPlotPrimaryAxis,
+  formatDesignerPlotBound,
+  suggestDesignerFixedYRange,
+  validateDesignerFixedYRange,
+} from './designer-plot-controls.js';
 
 /**
  * Physical length (in sub-units) of one draft node.
@@ -175,14 +182,17 @@ export class BeamlineDesigner {
     this._undoStack = [];
     this._UNDO_MAX = 3;
 
-    // Plot range modes
+    // Plot range modes. Each panel owns its primary Y-axis bounds because the
+    // panels may show quantities with unrelated units.
     this.plotRangeMode = 'full';   // x: 'full', '30', '9'
-    this.plotYRangeMode = 'full';  // y: 'full', 'half', '30', '9'
+    this.plotYRanges = createDesignerPlotYRanges();
+    this._lastAutoPlotYDomains = new Map();
     this.plotSource = 'proposed';  // 'proposed' | 'current' | 'both'
     this.plotYAxisMode = 'linear'; // 'linear' | 'log'
     this.plotReference = 'mission'; // 'mission' | 'none'
     this._plotHoverPositions = new Map(); // panel id -> normalized canvas x/y
     this._plotHoverFrame = null;
+    this.plotPin = null; // { panel, s, x, y } persistent solver-sample readout
     this.tuningPanelExpanded = true;
 
     // Opt-in automatic matching. It is a session preference rather than a
@@ -567,14 +577,66 @@ export class BeamlineDesigner {
       });
     });
 
-    // Plot y-range buttons
-    document.querySelectorAll('.dsgn-yrange-btn').forEach(btn => {
+    // Each panel toggles independently between its current solver autoscale and
+    // explicit primary-axis bounds. Fixed mode is seeded from the last drawn
+    // auto domain so the toggle itself does not move the trace.
+    document.querySelectorAll('.dsgn-plot-y-mode').forEach(btn => {
       btn.addEventListener('click', () => {
         if (!this.isOpen) return;
-        this.plotYRangeMode = btn.dataset.yrange;
-        document.querySelectorAll('.dsgn-yrange-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
+        const panel = Number(btn.dataset.panel);
+        const current = this.plotYRanges[panel] || { mode: 'auto', min: null, max: null };
+        if (current.mode === 'fixed') {
+          this.plotYRanges[panel] = { ...current, mode: 'auto' };
+        } else {
+          this.plotYRanges[panel] = suggestDesignerFixedYRange(
+            this._lastAutoPlotYDomains.get(String(panel))?.[0],
+            this.plotYAxisMode,
+          );
+        }
         this._renderPlots();
+      });
+    });
+
+    document.querySelectorAll('.dsgn-plot-y-bound').forEach(input => {
+      const applyBound = () => {
+        if (!this.isOpen) return;
+        const controls = input.closest('.dsgn-plot-y-controls');
+        const panel = Number(controls?.dataset.panel);
+        const minInput = controls?.querySelector('[data-bound="min"]');
+        const maxInput = controls?.querySelector('[data-bound="max"]');
+        const scale = Number(controls?.dataset.axisScale) || 1;
+        const minText = minInput?.value.trim() || '';
+        const maxText = maxInput?.value.trim() || '';
+        const candidate = {
+          mode: 'fixed',
+          min: minText === '' ? NaN : Number(minText) / scale,
+          max: maxText === '' ? NaN : Number(maxText) / scale,
+        };
+        const validation = validateDesignerFixedYRange(candidate, this.plotYAxisMode);
+        for (const boundInput of [minInput, maxInput]) {
+          if (!boundInput) continue;
+          boundInput.setCustomValidity(validation.error);
+          boundInput.setAttribute('aria-invalid', validation.valid ? 'false' : 'true');
+        }
+        if (!validation.valid) return;
+        this.plotYRanges[panel] = candidate;
+        this._renderPlots();
+      };
+      input.addEventListener('input', applyBound);
+      input.addEventListener('blur', () => {
+        const controls = input.closest('.dsgn-plot-y-controls');
+        const panel = Number(controls?.dataset.panel);
+        const plotType = controls?.closest('.dsgn-plot-options')
+          ?.querySelector('.dsgn-plot-select')?.value;
+        this.syncPlotYRangeControl(
+          String(panel),
+          plotType,
+          this._lastAutoPlotYDomains.get(String(panel)),
+          true,
+        );
+      });
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') input.blur();
       });
     });
 
@@ -594,6 +656,16 @@ export class BeamlineDesigner {
       yScaleSelect.addEventListener('change', () => {
         if (!this.isOpen) return;
         this.plotYAxisMode = yScaleSelect.value === 'log' ? 'log' : 'linear';
+        if (this.plotYAxisMode === 'log') {
+          this.plotYRanges = this.plotYRanges.map((range, panel) => {
+            if (range.mode !== 'fixed'
+              || validateDesignerFixedYRange(range, 'log').valid) return range;
+            return suggestDesignerFixedYRange(
+              this._lastAutoPlotYDomains.get(String(panel))?.[0],
+              'log',
+            );
+          });
+        }
         this._renderPlots();
       });
     }
@@ -629,6 +701,21 @@ export class BeamlineDesigner {
         this._plotHoverPositions.delete(canvas.dataset.panel || '0');
         if (this.isOpen) this._renderPlots();
       });
+      canvas.addEventListener('click', (e) => {
+        if (!this.isOpen) return;
+        const rect = canvas.getBoundingClientRect();
+        const panel = canvas.dataset.panel || '0';
+        this.plotPin = {
+          panel,
+          s: null,
+          x: Math.max(0, Math.min(1, (e.clientX - rect.left) / (rect.width || 1))),
+          y: Math.max(0, Math.min(1, (e.clientY - rect.top) / (rect.height || 1))),
+        };
+        // Let the pinned style win immediately; later pointer movement can
+        // temporarily inspect another sample until the pointer leaves.
+        this._plotHoverPositions.delete(panel);
+        this._renderPlots();
+      });
       canvas.addEventListener('wheel', (e) => {
         if (!this.isOpen) return;
         e.preventDefault();
@@ -637,6 +724,15 @@ export class BeamlineDesigner {
         this.zoomAt(e.deltaY, fraction);
       }, { passive: false });
     });
+
+    const clearPlotMarker = document.getElementById('dsgn-clear-plot-marker');
+    if (clearPlotMarker) {
+      clearPlotMarker.addEventListener('click', () => {
+        if (!this.isOpen || !this.plotPin) return;
+        this.plotPin = null;
+        this._renderPlots();
+      });
+    }
 
     // Stop propagation on overlay to prevent game input underneath
     this.overlay.addEventListener('mousedown', (e) => e.stopPropagation());
@@ -708,11 +804,13 @@ export class BeamlineDesigner {
     this.designerPaletteIndex = -1;
     this.insertMode = 'nearest';
     this.plotRangeMode = 'full';
-    this.plotYRangeMode = 'full';
+    this.plotYRanges = createDesignerPlotYRanges();
+    this._lastAutoPlotYDomains.clear();
     this.plotSource = 'proposed';
     this.plotYAxisMode = 'linear';
     this.plotReference = 'mission';
     this._plotHoverPositions.clear();
+    this.plotPin = null;
 
     this._updateTotalLength();
     this._recalcDraft();
@@ -853,11 +951,13 @@ export class BeamlineDesigner {
     this.designerPaletteIndex = -1;
     this.insertMode = 'nearest';
     this.plotRangeMode = 'full';
-    this.plotYRangeMode = 'full';
+    this.plotYRanges = createDesignerPlotYRanges();
+    this._lastAutoPlotYDomains.clear();
     this.plotSource = 'proposed';
     this.plotYAxisMode = 'linear';
     this.plotReference = 'mission';
     this._plotHoverPositions.clear();
+    this.plotPin = null;
     this._nextTempId = this.draftNodes.length;
 
     this._updateTotalLength();
@@ -1483,6 +1583,8 @@ export class BeamlineDesigner {
     this.selectedIndex = -1;
     this._lastTuningKey = null;
     this._plotHoverPositions.clear();
+    this._lastAutoPlotYDomains.clear();
+    this.plotPin = null;
     if (this._plotHoverFrame) {
       cancelAnimationFrame(this._plotHoverFrame);
       this._plotHoverFrame = null;
@@ -2646,6 +2748,63 @@ export class BeamlineDesigner {
     document.querySelectorAll('.dsgn-source-btn').forEach(b => {
       b.classList.toggle('active', b.dataset.source === this.plotSource);
     });
+  }
+
+  /** Keep one panel's Auto/Fixed controls aligned with its published plot domain. */
+  syncPlotYRangeControl(panelId, plotType, autoDomain, enabled = true) {
+    const controls = document.querySelector(`.dsgn-plot-y-controls[data-panel="${panelId}"]`);
+    if (!controls) return;
+    controls.hidden = !enabled;
+    if (!enabled) return;
+
+    const panel = Number(panelId);
+    const range = this.plotYRanges[panel] || { mode: 'auto', min: null, max: null };
+    const fixed = range.mode === 'fixed';
+    const modeButton = controls.querySelector('.dsgn-plot-y-mode');
+    const bounds = controls.querySelector('.dsgn-plot-y-bounds');
+    if (modeButton) {
+      modeButton.textContent = fixed ? 'Fixed Y' : 'Auto Scale';
+      modeButton.classList.toggle('active', fixed);
+      modeButton.setAttribute('aria-pressed', fixed ? 'true' : 'false');
+      modeButton.title = fixed
+        ? 'Use solver autoscale for this plot'
+        : 'Set explicit minimum and maximum for this plot';
+    }
+    if (bounds) bounds.hidden = !fixed;
+
+    const primaryDomain = fixed ? [range.min, range.max] : autoDomain?.[0];
+    const unit = controls.querySelector('.dsgn-plot-y-unit');
+    const focusedBound = document.activeElement?.classList?.contains('dsgn-plot-y-bound')
+      && controls.contains(document.activeElement);
+    // Keep the editing unit stable until blur. Otherwise crossing, for example,
+    // MeV -> GeV mid-keystroke would reinterpret the rest of the typed number.
+    const axis = focusedBound
+      ? {
+        scale: Number(controls.dataset.axisScale) || 1,
+        unit: unit?.textContent || '',
+      }
+      : designerPlotPrimaryAxis(plotType, primaryDomain);
+    if (!focusedBound) {
+      controls.dataset.axisScale = String(axis.scale);
+      if (unit) unit.textContent = axis.unit;
+    }
+
+    if (!fixed) return;
+    for (const bound of ['min', 'max']) {
+      const input = controls.querySelector(`[data-bound="${bound}"]`);
+      if (!input) continue;
+      input.setCustomValidity('');
+      input.setAttribute('aria-invalid', 'false');
+      if (document.activeElement !== input) {
+        input.value = formatDesignerPlotBound(range[bound], axis.scale);
+      }
+    }
+  }
+
+  /** Enable the global clear action only while a persistent plot readout exists. */
+  syncPlotPinControl() {
+    const button = document.getElementById('dsgn-clear-plot-marker');
+    if (button) button.disabled = !this.plotPin;
   }
 
   _updateInsertButtons() {

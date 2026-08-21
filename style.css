@@ -3376,6 +3376,10 @@ body {
   border-color: rgba(68, 136, 255, 0.5);
   color: #aaccff;
 }
+.dsgn-range-btn:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
 .dsgn-range-sep {
   color: rgba(80, 80, 120, 0.4);
   font: 11px var(--ui-font-display);
@@ -3549,6 +3553,64 @@ body {
   color: #667;
   border-color: rgba(80, 80, 120, 0.2);
   opacity: 0.7;
+}
+.dsgn-plot-y-controls {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.dsgn-plot-y-controls[hidden] {
+  display: none;
+}
+.dsgn-plot-y-mode {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+.dsgn-plot-y-bounds {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: #718996;
+  font: 9px/1.2 var(--ui-font-display);
+  text-transform: uppercase;
+}
+.dsgn-plot-y-bounds[hidden] {
+  display: none;
+}
+.dsgn-plot-y-bounds label {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.dsgn-plot-y-bound {
+  box-sizing: border-box;
+  width: 72px;
+  padding: 3px 4px;
+  border: 1px solid rgba(75, 153, 153, 0.42);
+  border-radius: 2px;
+  outline: none;
+  background: rgba(2, 8, 15, 0.9);
+  color: #c9f0ed;
+  font: 10px/1.2 monospace;
+}
+.dsgn-plot-y-bound:focus {
+  border-color: rgba(93, 230, 197, 0.75);
+}
+.dsgn-plot-y-bound[aria-invalid="true"] {
+  border-color: rgba(235, 95, 86, 0.85);
+  color: #ff9b91;
+}
+.dsgn-plot-y-unit {
+  overflow: hidden;
+  color: #8fb5b2;
+  font-family: monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .dsgn-plot-canvas {
   flex: 1 1 0;
