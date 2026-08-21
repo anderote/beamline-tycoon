@@ -18,7 +18,6 @@ import {
 import { MATERIALS } from './materials/index.js';
 import { applyTiledBoxUVs } from './uv-utils.js';
 import { contentKey } from './content-hash.js';
-import { SOFT_GLOW_LAYER } from './glow-pipeline.js';
 
 // Exported so callers that must size geometry to match what this builder
 // emits (e.g. ThreeRenderer.renderWindowPreview's drag ghost) read the same
@@ -154,10 +153,6 @@ const WINDOW_MULLION_W = 0.03 * M;      // industrialSash grid bars
 // wall's thickness) so the frame reads as a frame from either face.
 const WINDOW_FRAME_DEPTH_SCALE = 1.25;
 const GLASS_THICKNESS = 0.02 * M;
-// Warm interior light seen through the pane after dark. Set once at build
-// time; ThreeRenderer._updateLightingRamp only ever writes the scalar
-// emissiveIntensity (see glassGlowForDarkness in lighting-builder.js).
-const GLASS_EMISSIVE = 0xffd9a0;
 // Frame texture used when a window def names one that isn't in MATERIALS.
 const WINDOW_FRAME_FALLBACK_COLOR = 0xb0b0b0;
 // The two shielded types draw a heavier frame (design doc, "Catalogue").
@@ -174,8 +169,6 @@ function createArchitecturalGlassMaterial(def, variant = 0, ghosted = false) {
     opacity: ghosted ? Math.min(baseOpacity, GHOST_OPACITY) : baseOpacity,
     depthWrite: false,
     side: THREE.DoubleSide,
-    emissive: GLASS_EMISSIVE,
-    emissiveIntensity: 0,
   });
 }
 
@@ -221,15 +214,6 @@ export class WallBuilder {
     this._textureManager = textureManager;
     /** @type {THREE.Mesh[]} */
     this._meshes = [];
-    /**
-     * Every glass material created by the most recent build, deduped by
-     * type+variant+transparency. ThreeRenderer._updateLightingRamp() walks
-     * this each frame and writes emissiveIntensity — nothing else. Cleared
-     * by _cleanup (the materials themselves are disposed there too, since
-     * they are all attached to meshes in this._meshes).
-     * @type {THREE.Material[]}
-     */
-    this._glassMaterials = [];
     this._cacheKey = null;
   }
 
@@ -327,7 +311,6 @@ export class WallBuilder {
       if (!matCache[matKey]) {
         if (isGlassWall) {
           matCache[matKey] = createArchitecturalGlassMaterial(def, variant, viewGhosted);
-          this._glassMaterials.push(matCache[matKey]);
         } else {
           const textureName = def?.variantTextures?.[variant] ?? def?.texture;
           const baseMat = textureName ? MATERIALS[textureName] : null;
@@ -462,7 +445,6 @@ export class WallBuilder {
       if (isGlassWall) {
         mesh.userData ||= {};
         mesh.userData.glassWall = true;
-        mesh.layers?.enable(SOFT_GLOW_LAYER);
         mesh.renderOrder = 2;
         this._buildGlassWallFrame({
           wall: w, def, span: span || 1, height, thickness,
@@ -717,7 +699,6 @@ export class WallBuilder {
         if (!panelMatCache[matKey]) {
           if (doorDef.isGlassDoor) {
             panelMatCache[matKey] = createArchitecturalGlassMaterial(doorDef, variant, ghost);
-            this._glassMaterials.push(panelMatCache[matKey]);
           } else {
             const baseMat = MATERIALS[doorDef.texture] || null;
             const tint = doorDef.variantTints?.[variant] ?? null;
@@ -761,7 +742,6 @@ export class WallBuilder {
         panel.castShadow = !ghost && !doorDef.isGlassDoor;
         panel.receiveShadow = !doorDef.isGlassDoor;
         if (doorDef.isGlassDoor) {
-          panel.layers?.enable(SOFT_GLOW_LAYER);
           panel.userData ||= {};
           panel.userData.glassDoor = true;
           panel.renderOrder = 2;
@@ -827,16 +807,6 @@ export class WallBuilder {
     this._cacheKey = newKey;
   }
 
-  /**
-   * Every glass material created by the last build. ThreeRenderer's per-frame
-   * darkness ramp writes `emissiveIntensity` on each of these and nothing
-   * else. Returns the live array — do not mutate it.
-   * @returns {THREE.Material[]}
-   */
-  glassMaterials() {
-    return this._glassMaterials;
-  }
-
   // --- Openings (doors + windows) ---------------------------------------
 
   /**
@@ -858,7 +828,6 @@ export class WallBuilder {
     const ghost = isTransparent || isCutaway;
     if (wallDef?.isGlassWall) {
       matCache[key] = createArchitecturalGlassMaterial(wallDef, wallVariant, ghost);
-      this._glassMaterials.push(matCache[key]);
     } else {
       const textureName = wallDef?.variantTextures?.[wallVariant] ?? wallDef?.texture;
       const baseMat = textureName ? MATERIALS[textureName] : null;
@@ -1135,9 +1104,8 @@ export class WallBuilder {
         ? new THREE.BoxGeometry(glassW, glassH, GLASS_THICKNESS)
         : new THREE.BoxGeometry(GLASS_THICKNESS, glassH, glassW);
       const glass = new THREE.Mesh(glassGeo, glassMat);
-      glass.layers?.enable(SOFT_GLOW_LAYER);
       glass.userData ||= {};
-      glass.userData.glowProfile = 'soft';
+      glass.userData.windowGlass = true;
       glass.position.set(edgeCenter.x, base + jambY, edgeCenter.z);
       glass.castShadow = false;
       glass.receiveShadow = false;
@@ -1166,12 +1134,7 @@ export class WallBuilder {
     return cache[key];
   }
 
-  /**
-   * Glass material for a window def + variant. Registered on
-   * `this._glassMaterials` so ThreeRenderer's darkness ramp can raise
-   * `emissiveIntensity` at night; the warm emissive colour itself is set
-   * once, here.
-   */
+  /** Glass material for a window def + variant. */
   _windowGlassMaterial(def, variant, cache, ghosted) {
     const key = `${def.id}:${variant}:${ghosted ? 'g' : 'o'}`;
     if (cache[key]) return cache[key];
@@ -1188,11 +1151,8 @@ export class WallBuilder {
       opacity,
       depthWrite: false,
       side: THREE.DoubleSide,
-      emissive: GLASS_EMISSIVE,
-      emissiveIntensity: 0, // ramped per frame from darkness; 0 = broad daylight
     });
     cache[key] = mat;
-    this._glassMaterials.push(mat);
     return mat;
   }
   /**
@@ -1546,9 +1506,5 @@ export class WallBuilder {
     for (const mat of mats) mat.dispose();
 
     this._meshes = [];
-    // Every glass material was attached to a mesh above, so it has already
-    // been disposed — just drop the registry so the darkness ramp stops
-    // walking dead materials.
-    this._glassMaterials = [];
   }
 }

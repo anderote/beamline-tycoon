@@ -1133,20 +1133,14 @@ export function fixtureUsesBillboardHalo(def) {
 // --- Darkness ramp (Task 6) --------------------------------------------------
 // Every visual channel that "switches a light on" reads the SAME darkness
 // value (ThreeRenderer's this._darkness, ultimately day-night.js's
-// dayNightGrade().darkness) through these four pure lerps, so pools, halos,
-// fixture emissive intensity and window glass move in lockstep — do not
-// invent a second darkness curve. Retune the end points here, not at the
-// call sites. A new channel belongs in this block too.
+// dayNightGrade().darkness) through these pure lerps, so pools, halos and
+// fixture emissive intensity move in lockstep — do not invent a second
+// darkness curve. Retune the end points here, not at the call sites. A new
+// channel belongs in this block too.
 
 export const EMITTER_MAX_INTENSITY = 2.6; // emissiveIntensity at full darkness (vs EMITTER_BASE_INTENSITY by day)
 export const POOL_MAX_OPACITY = 0.55;     // merged pool mesh opacity at full darkness (0 by day)
 export const HALO_MAX_OPACITY = 0.85;     // halo sprite opacity at full darkness (0 by day)
-// Window-pane emissiveIntensity at full darkness (0 by day — glass is inert
-// in sunlight). Higher than EMITTER_MAX_INTENSITY on purpose: a pane is a
-// TRANSPARENT material, so its emissive contribution is scaled down by its
-// own opacity (0.12–0.65 across the catalogue). A clear pane at 0.15 opacity
-// needs the extra headroom to read as "lit from inside" at all.
-export const GLASS_MAX_GLOW = 3.0;
 
 function _lerp(a, b, t) { return a + (b - a) * t; }
 
@@ -1163,14 +1157,4 @@ export function poolOpacityForDarkness(darkness) {
 /** Halo sprite opacity for a given darkness [0,1]. Pure. */
 export function haloOpacityForDarkness(darkness) {
   return HALO_MAX_OPACITY * darkness;
-}
-
-/**
- * Window-glass `emissiveIntensity` for a given darkness [0,1]. Pure.
- * Lives here rather than in wall-builder.js so every darkness ramp in the
- * game shares one file of taste knobs — retune GLASS_MAX_GLOW above, not the
- * call site in ThreeRenderer._updateLightingRamp.
- */
-export function glassGlowForDarkness(darkness) {
-  return GLASS_MAX_GLOW * darkness;
 }

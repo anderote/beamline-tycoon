@@ -46,7 +46,6 @@ import { CINEMATIC_LIGHTING } from './lighting-tuning.js';
 import {
   buildLightPools, buildLightHalos, applyPoolSuppression,
   emitterIntensityForDarkness, poolOpacityForDarkness, haloOpacityForDarkness,
-  glassGlowForDarkness,
 } from './lighting-builder.js';
 import { OverlayShim } from './overlay-shim.js';
 import { GlowPipeline } from './glow-pipeline.js';
@@ -4503,11 +4502,10 @@ export class ThreeRenderer {
 
   /**
    * Per-frame darkness ramp for the Task 6 fake-lighting layer: fixture
-   * emissiveIntensity, pool mesh opacity, halo sprite opacity, and window
-   * glass emissiveIntensity. All four read the SAME this._darkness (set by
-   * _updateSunCycle from dayNightGrade()) so they move in lockstep — no
-   * geometry work here, only scalar material properties, safe to run every
-   * frame even at sixty lamps and a glazed facade.
+   * emissiveIntensity, pool mesh opacity, and halo sprite opacity. All three
+   * read the SAME this._darkness (set by _updateSunCycle from dayNightGrade())
+   * so they move in lockstep — no geometry work here, only scalar material
+   * properties, safe to run every frame even at sixty lamps.
    *
    * Also applies the light rig's pool SUPPRESSION: a fixture currently holding
    * one of the 4 real shadow spots must hide its own painted pool, or it reads
@@ -4577,15 +4575,6 @@ export class ThreeRenderer {
           child.material.opacity = haloOpacityForDarkness(activation);
         }
       });
-    }
-    // Window panes come up warm from the outside as night falls. The builder
-    // hands back one material per (window type, variant, ghosted) combination
-    // — a facade of twenty identical windows is one write, not twenty — and
-    // the array is empty until a window is actually placed.
-    const glassMats = this.wallBuilder ? this.wallBuilder.glassMaterials() : null;
-    if ((groupChanged || darknessChanged) && glassMats && glassMats.length) {
-      const glow = glassGlowForDarkness(darkness);
-      for (const mat of glassMats) mat.emissiveIntensity = glow;
     }
   }
 

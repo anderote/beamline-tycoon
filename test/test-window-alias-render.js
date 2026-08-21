@@ -106,6 +106,7 @@ class Mesh {
     this.receiveShadow = false;
     this.renderOrder = 0;
     this.matrixAutoUpdate = true;
+    this.layers = { enabled: new Set([0]), enable(layer) { this.enabled.add(layer); } };
   }
   updateMatrix() {}
 }
@@ -310,10 +311,16 @@ console.log('\n=== adaptive aperture proportions follow the host wall ===\n');
     null
   );
 
-  const glass = group.children.find(m => m.material.emissive === 0xffd9a0);
+  const glass = group.children.find(m => m.userData?.windowGlass);
   const expectedGlassHeight = WINDOW_TYPES.industrialSash.maxOpeningHeight * HEIGHT_SCALE - 0.12;
   assert(!!glass && Math.abs(glass.geometry.parameters.height - expectedGlassHeight) < 1e-9,
     'industrial sash glass expands to its 24-unit factory height in a structural wall');
+  assert(glass.material.transparent === true && glass.material.depthWrite === false,
+    'window glass remains normally transparent with order-safe depth handling');
+  assert(glass.material.roughness > 0 && glass.material.emissive === undefined,
+    'window glass keeps its slight roughness without an authored emissive glow');
+  assert(glass.layers.enabled.size === 1 && glass.layers.enabled.has(0),
+    'window glass stays on the normal render layer instead of a glow layer');
 
   const factoryGridBars = group.children.filter(m => {
     const p = m.geometry.parameters;
@@ -343,7 +350,7 @@ console.log('\n=== shielded observation panes are no longer letterbox slits ===\
     null
   );
 
-  const glass = group.children.filter(m => m.material.emissive === 0xffd9a0);
+  const glass = group.children.filter(m => m.userData?.windowGlass);
   const leaded = glass.find(m => m.geometry.parameters.width > 1.5);
   const viewport = glass.find(m => m.geometry.parameters.width < 1.5);
   assert(!!leaded && leaded.geometry.parameters.height > 0.95,

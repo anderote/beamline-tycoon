@@ -60,7 +60,7 @@ class Mesh {
     this.geometry = geometry; this.material = material;
     this.position = new Vector3();
     this.rotation = new Vector3();
-    this.layers = { enable() {} };
+    this.layers = { enabled: new Set([0]), enable(layer) { this.enabled.add(layer); } };
     this.castShadow = false; this.receiveShadow = false;
     this.matrixAutoUpdate = true;
   }
@@ -318,6 +318,9 @@ console.log('\n=== 5. build(): the visible door panel ===\n');
   assert(glass.material.color === DOOR_TYPES.glassDoor.variantGlassColors[0]
       && near(glass.material.opacity, DOOR_TYPES.glassDoor.variantGlassOpacities[0]),
     'the clear glass door leaf uses its authored color and opacity');
+  assert(glass.material.roughness > 0 && glass.material.emissive === undefined
+      && glass.layers.enabled.size === 1 && glass.layers.enabled.has(0),
+    'the glass door keeps a soft rough surface on the normal render layer without an authored glow');
   const smokedGlass = panelsOf('glassDoor', 2, 'glassWall')[0];
   assert(smokedGlass.material.color === DOOR_TYPES.glassDoor.variantGlassColors[2]
       && near(smokedGlass.material.opacity, DOOR_TYPES.glassDoor.variantGlassOpacities[2]),
@@ -422,8 +425,10 @@ console.log('\n=== 7. Glass wall material and frame ===\n');
   assert(pane.material.color === WALL_TYPES.glassWall.variantGlassColors[0]
       && near(pane.material.opacity, WALL_TYPES.glassWall.variantGlassOpacities[0]),
     'the clear glass wall uses its authored color and opacity');
-  assert(clear.glassMaterials().includes(pane.material),
-    'the glass wall participates in the shared after-dark glow ramp');
+  assert(pane.material.roughness > 0 && pane.material.emissive === undefined,
+    'the glass wall keeps a soft rough surface without an authored glow');
+  assert(pane.layers.enabled.size === 1 && pane.layers.enabled.has(0),
+    'the glass wall stays on the normal render layer instead of a glow layer');
   assert(frames.length === 7,
     'a two-segment glass wall gets two rails, edge posts, and one mullion per segment');
   assert(frames.every(m => m.material.metalness > 0 && m.material.transparent === false),
