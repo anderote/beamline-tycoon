@@ -674,6 +674,10 @@ export class WallBuilder {
           wallType, wallDef, wallVariant, isDoorCutaway, matCache, isTransparent,
         );
       }
+      const openingFillMaterial = this._openingFillMaterial(
+        wallMatKey, wallDef, wallVariant, wallEntry?.wall, edge,
+        isDoorCutaway, isTransparent, matCache,
+      );
 
       const postGeo = new THREE.BoxGeometry(POST_WIDTH, doorHeight, POST_WIDTH);
 
@@ -748,7 +752,7 @@ export class WallBuilder {
       ].filter(s => s.width > SIDE_EPS);
 
       for (const side of sideFills) {
-        const sideMat = matCache[wallMatKey] || this._defaultFillMat(matCache, wallColor, fillTransparent);
+        const sideMat = openingFillMaterial || this._defaultFillMat(matCache, wallColor, fillTransparent);
         const sideGeo = isNS
           ? new THREE.BoxGeometry(side.width, wallHeight, wallThickness)
           : new THREE.BoxGeometry(wallThickness, wallHeight, side.width);
@@ -776,7 +780,7 @@ export class WallBuilder {
       const aboveDoorBottom = doorHeight + LINTEL_HEIGHT;
       const aboveDoorHeight = wallHeight - aboveDoorBottom;
       if (aboveDoorHeight > 0.001) {
-        const aboveMat = matCache[wallMatKey] || this._defaultFillMat(matCache, wallColor, fillTransparent);
+        const aboveMat = openingFillMaterial || this._defaultFillMat(matCache, wallColor, fillTransparent);
         // Spans only the opening: the side fills already run the full wall
         // height beside it, so a full-tile band here would double up (and
         // compound opacity in transparent mode). For doubles the opening is
@@ -982,6 +986,45 @@ export class WallBuilder {
   }
 
   /**
+   * Opening surrounds are still wall faces. Preserve independent inside and
+   * outside finishes on the replacement boxes just as the ordinary wall pass
+   * does. A single material here was the reason doors and windows appeared to
+   * erase paint around their jambs and lintels.
+   */
+  _openingFillMaterial(matKey, wallDef, wallVariant, wallRecord, edge,
+    isCutaway, isTransparent, matCache) {
+    if (!matKey || !wallRecord?.facePaint || wallDef?.isGlassWall) return matCache[matKey] || null;
+    const wallTransparent = isTransparent || isCutaway || matKey.endsWith(':cutaway') || wallDef?.isGlassWall === true;
+    const useAlpha = wallDef?.hasAlpha === true;
+    const base = matCache[matKey];
+    const faceMaterial = (paintId) => {
+      const paint = paintId ? WALL_PAINTS[paintId] : null;
+      if (!paint) return base;
+      const key = `${matKey}:paint:${paintId}`;
+      if (!matCache[key]) {
+        const papered = !!paint.texture;
+        const textureName = papered
+          ? paint.texture
+          : (wallDef?.variantTextures?.[wallVariant] ?? wallDef?.texture);
+        const baseMat = textureName ? MATERIALS[textureName] : null;
+        matCache[key] = createWallMaterial(
+          baseMat,
+          papered ? 0xffffff : paint.color,
+          wallTransparent,
+          useAlpha,
+        );
+      }
+      return matCache[key];
+    };
+    const materials = Array(6).fill(base);
+    const insideFace = edge === 'n' ? 4 : edge === 's' ? 5 : edge === 'e' ? 1 : 0;
+    const outsideFace = edge === 'n' ? 5 : edge === 's' ? 4 : edge === 'e' ? 0 : 1;
+    materials[insideFace] = faceMaterial(wallRecord.facePaint.inside);
+    materials[outsideFace] = faceMaterial(wallRecord.facePaint.outside);
+    return materials;
+  }
+
+  /**
    * Rebuild the wall around an opening on one edge: the fills BESIDE it
    * (sub-tile widths only), the band ABOVE it, and the band BELOW it. The
    * edge's own wall segment was dropped from the main loop, so this is the
@@ -1026,8 +1069,12 @@ export class WallBuilder {
     // Resolved lazily so an opening that emits no fill never allocates the
     // untextured fallback material (which nothing would ever dispose).
     const fillTransparent = isTransparent || wallDef?.isGlassWall === true;
+    const openingFillMaterial = this._openingFillMaterial(
+      matKey, wallDef, wallRecord?.variant ?? 0, wallRecord, edge,
+      false, isTransparent, matCache,
+    );
     const fillMaterial = () =>
-      matCache[matKey] || this._defaultFillMat(matCache, wallColor, isTransparent);
+      openingFillMaterial || matCache[matKey] || this._defaultFillMat(matCache, wallColor, isTransparent);
 
     // One full-tile-width horizontal band spanning [y0, y0 + h].
     const addBand = (y0, h) => {

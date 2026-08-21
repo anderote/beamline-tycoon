@@ -140,5 +140,19 @@ console.log('\n=== wide hangings reserve their real wall span ===\n');
     'committed hanging geometry uses its authored mounting height');
 }
 
+console.log('\n=== wall hangings do not mutate painted wall faces ===\n');
+{
+  const game = makeGame(902);
+  assertOk(game.placeWall(30, 30, 'n', 'officeWall'), 'painted hanging setup wall is built');
+  assertOk(game.paintWallFace(30, 30, 'n', 'labBlue'), 'setup wall face is painted');
+  const hangingId = game.placePlaceable({
+    type: 'abstractPainting', col: 30, row: 30, subCol: 0, subRow: 0,
+    wallMount: { col: 30, row: 30, edge: 'n', off: 0 },
+  });
+  const wall = game.state.walls.find(w => w.col === 30 && w.row === 30 && w.edge === 'n');
+  assertOk(!!hangingId && wall?.facePaint?.inside === 'labBlue',
+    'placing a wall hanging preserves the painted wall face');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

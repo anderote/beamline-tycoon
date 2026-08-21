@@ -87,7 +87,7 @@ const {
   WallBuilder, doorOpeningLayout, HEIGHT_SCALE, LINTEL_HEIGHT,
   SUBTILES_PER_EDGE, SUBTILE_SIZE,
 } = await import('../src/renderer3d/wall-builder.js');
-const { DOOR_TYPES, WALL_TYPES, WALL_PAINTS } = await import('../src/data/structure.js');
+const { DOOR_TYPES, WINDOW_TYPES, WALL_TYPES, WALL_PAINTS } = await import('../src/data/structure.js');
 const { PLACEABLES } = await import('../src/data/placeables/index.js');
 
 const TILE_SIZE = 2;
@@ -756,6 +756,36 @@ console.log('\n=== 15. Painted walls survive the next wall rebuild ===\n');
     `a refresh after painting does not fail while disposing face materials${rebuildError ? ` (${rebuildError.message})` : ''}`);
   assert(group.children.length === 2,
     'the refreshed structural-wall run remains attached to the scene');
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n=== 16. Door and window surrounds preserve wall paint ===\n');
+{
+  const paintedWall = {
+    col: 2, row: 2, edge: 'n', type: 'officeWall', variant: 0,
+    facePaint: { inside: 'labBlue', outside: 'utilityGray' }, baseY: { a: 0, b: 0 },
+  };
+  const doorBuilder = new WallBuilder(null);
+  doorBuilder.build(
+    [paintedWall],
+    [{ col: 2, row: 2, edge: 'n', type: 'officeDoor', variant: 0, off: 1, baseY: { a: 0, b: 0 } }],
+    [], new Group(), 'up', null,
+  );
+  const doorPainted = doorBuilder._meshes.find(mesh => Array.isArray(mesh.material));
+  assert(doorPainted?.material[4].color === WALL_PAINTS.labBlue.color
+    && doorPainted.material[5].color === WALL_PAINTS.utilityGray.color,
+  'door surround keeps the wall inside/outside finishes');
+
+  const windowBuilder = new WallBuilder(null);
+  windowBuilder.build(
+    [paintedWall], [],
+    [{ col: 2, row: 2, edge: 'n', type: 'officeWindow', variant: 0, off: 1, baseY: { a: 0, b: 0 } }],
+    new Group(), 'up', null,
+  );
+  const windowPainted = windowBuilder._meshes.find(mesh => Array.isArray(mesh.material));
+  assert(windowPainted?.material[4].color === WALL_PAINTS.labBlue.color
+    && windowPainted.material[5].color === WALL_PAINTS.utilityGray.color,
+  'window surround keeps the wall inside/outside finishes');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
