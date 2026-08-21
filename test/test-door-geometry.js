@@ -557,5 +557,35 @@ console.log('\n=== 13. Wall paint selects the two physical faces independently =
   'north-edge inside/outside paint maps to opposite visible wall faces');
 }
 
+// ---------------------------------------------------------------------------
+console.log('\n=== 14. Painted walls survive the next wall rebuild ===\n');
+{
+  const wb = new WallBuilder(null);
+  const group = new Group();
+  const painted = [{
+    col: 2, row: 2, edge: 'n', type: 'structuralWall', variant: 0,
+    facePaint: { inside: 'labBlue' }, baseY: { a: 0, b: 0 },
+  }];
+
+  wb.build(painted, [], [], group, 'up', null);
+  let rebuildError = null;
+  try {
+    wb.build(
+      [...painted, {
+        col: 3, row: 2, edge: 'n', type: 'structuralWall', variant: 0,
+        baseY: { a: 0, b: 0 },
+      }],
+      [], [], group, 'up', null,
+    );
+  } catch (error) {
+    rebuildError = error;
+  }
+
+  assert(!rebuildError,
+    `a refresh after painting does not fail while disposing face materials${rebuildError ? ` (${rebuildError.message})` : ''}`);
+  assert(group.children.length === 2,
+    'the refreshed structural-wall run remains attached to the scene');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

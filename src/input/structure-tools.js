@@ -263,21 +263,21 @@ export class WallPaintTool extends Tool {
       const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
       const grid = isoToGrid(world.x, world.y);
       const path = ctx.input._buildFloorBoundaryRegion({ col: grid.col, row: grid.row }).path;
-      ctx.game._withUndo(() => {
+      ctx.game.runUndoableMutation(() => ctx.game.batchEvents(() => {
         for (const edge of path) this._paint(edge, ctx);
-      });
+      }));
       return true;
     }
     const edge = ctx.input._getNearestWallEdge(e.clientX, e.clientY);
     if (!edge) return false;
-    ctx.game._withUndo(() => this._paint(edge, ctx));
+    ctx.game.runUndoableMutation(() => this._paint(edge, ctx));
     return true;
   }
 
   onRightClick(e, ctx) {
     const edge = ctx.input._getNearestWallEdge(e.clientX, e.clientY);
     if (!edge) return false;
-    ctx.game._withUndo(() => this._paint(edge, ctx, null));
+    ctx.game.runUndoableMutation(() => this._paint(edge, ctx, null));
     return true;
   }
 }

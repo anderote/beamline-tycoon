@@ -34,6 +34,7 @@ import { MoveTool } from '../src/input/mode-tools.js';
 import { InputHandler } from '../src/input/InputHandler.js';
 import { BeamlineWindow } from '../src/ui/BeamlineWindow.js';
 import { tileCenterIso } from '../src/renderer/grid.js';
+import { WallPaintTool } from '../src/input/structure-tools.js';
 
 globalThis.COMPONENTS = COMPONENTS;
 globalThis.PARAM_DEFS = PARAM_DEFS;
@@ -117,6 +118,34 @@ console.log('\n=== 1. Demolish edge paths rebuild walls once, not per edge ===\n
   assertOk(g.state.walls.length === 0, 'the dragged edge path was deleted');
   assertOk((counts.wallsChanged || 0) === 1,
     `one wallsChanged for the whole drag (got ${counts.wallsChanged || 0}, ${RUN} edges)`);
+}
+
+console.log('\n=== 1b. Shift-paint rebuilds the wall scene once ===\n');
+
+{
+  const g = makeGame(143);
+  const path = [];
+  for (let col = 4; col < 12; col++) path.push({ col, row: 9, edge: 'n' });
+  for (const pt of path) g.placeWall(pt.col, pt.row, pt.edge, 'structuralWall');
+
+  const ctx = {
+    game: g,
+    input: { _buildFloorBoundaryRegion: () => ({ path }) },
+    renderer: { screenToWorld: () => ({ x: 0, y: 0 }) },
+  };
+  const counts = {};
+  g.on((ev) => { counts[ev] = (counts[ev] || 0) + 1; });
+
+  new WallPaintTool('labBlue').onClick(
+    { shiftKey: true, clientX: 0, clientY: 0 },
+    ctx,
+  );
+
+  assertOk(g.state.walls.every(w => w.facePaint?.inside === 'labBlue'),
+    'the full selected structural-wall run is painted');
+  assertOk((counts.wallsChanged || 0) === 1,
+    `one wallsChanged for the paint sweep (got ${counts.wallsChanged || 0}, ${path.length} edges)`);
+  assertOk(g._undoStack.length === 1, 'the paint sweep pushes exactly one undo entry');
 }
 
 console.log('\n=== 2. Undo while carrying does not duplicate the object ===\n');
