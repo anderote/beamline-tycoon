@@ -36,6 +36,7 @@ const ALL_LABS = [
 const GENERAL_FURNITURE = [
   'labTable', 'labStool', 'labStorageCabinet', 'mobileLabCart',
   'labSink', 'safetyStation', 'labWasteBin', 'labShelving',
+  'labComputerDesk', 'ruggedLabLaptop', 'labLabelPrinter', 'sampleOrganizer',
 ];
 
 const RF_FURNITURE = [
@@ -50,7 +51,43 @@ const EXPERIMENTAL_RF = [
   'hornAntennaStand', 'antennaTurntable', 'helmholtzCoilStand', 'rfAnechoicChamber',
 ];
 
-for (const id of [...GENERAL_FURNITURE, ...RF_FURNITURE]) {
+const LAB_BENCHES = {
+  rfElectronicsBench: 'rfLab',
+  coolingServiceBench: 'coolingLab',
+  vacuumAssemblyBench: 'vacuumLab',
+  opticsAlignmentBench: 'opticsLab',
+  diagnosticsBench: 'diagnosticsLab',
+  fabricationWorkbench: 'machineShop',
+  maintenanceWorkbench: 'maintenance',
+};
+
+const BENCH_SIGNATURE_PARTS = {
+  rfElectronicsBench: 'solderSpool',
+  coolingServiceBench: 'hoseBlue',
+  vacuumAssemblyBench: 'chamber',
+  opticsAlignmentBench: 'mirror1',
+  diagnosticsBench: 'daqModule',
+  fabricationWorkbench: 'builtInViseBody',
+  maintenanceWorkbench: 'socketRail',
+};
+
+const SMALL_LAB_ITEMS = {
+  coolingLab: ['pressureGaugeSet', 'thermalCamera', 'coolantSampleKit'],
+  vacuumLab: ['vacuumGaugeController', 'flangePartsTray', 'ionGaugeTube'],
+  opticsLab: ['lensTray', 'alignmentCamera', 'fiberSpool'],
+  diagnosticsLab: ['logicAnalyzer', 'calibrationPulser', 'detectorModule'],
+  machineShop: ['benchVise', 'precisionScale', 'colletSet'],
+  maintenance: ['digitalMultimeter', 'powerToolCharger', 'portableToolCase'],
+};
+
+const LAB_EXPANSION = [
+  ...Object.keys(LAB_BENCHES),
+  ...Object.values(SMALL_LAB_ITEMS).flat(),
+];
+
+const TESTED_FURNITURE = [...GENERAL_FURNITURE, ...RF_FURNITURE, ...LAB_EXPANSION];
+
+for (const id of TESTED_FURNITURE) {
   const def = PLACEABLES[id];
   assert.ok(def, `${id} is registered as a placeable`);
   assert.equal(def.kind, 'equipment', `${id} stays in the lab-equipment family`);
@@ -71,6 +108,45 @@ for (const id of RF_FURNITURE.filter(id => id !== 'solderingStation')) {
   assert.equal(itemMatchesZone(PLACEABLES[id], 'coolingLab'), false,
     `${id} does not clutter unrelated lab palettes`);
 }
+
+for (const [id, zoneType] of Object.entries(LAB_BENCHES)) {
+  assert.equal(itemMatchesZone(PLACEABLES[id], zoneType), true,
+    `${id} is available in its ${zoneType} palette`);
+  assert.equal(PLACEABLES[id].station?.slots, 2,
+    `${id} provides two authored work positions`);
+  assert.equal(PLACEABLES[id].hasSurface, false,
+    `${id} reserves its top for built-in lab-specific equipment`);
+  assert.ok(PLACEABLES[id].parts.some(part => part.name === BENCH_SIGNATURE_PARTS[id]),
+    `${id} carries its lab-specific ${BENCH_SIGNATURE_PARTS[id]} geometry`);
+  for (const otherZone of ALL_LABS.filter(zone => zone !== zoneType)) {
+    assert.equal(itemMatchesZone(PLACEABLES[id], otherZone), false,
+      `${id} stays out of the ${otherZone} palette`);
+  }
+}
+
+for (const [zoneType, ids] of Object.entries(SMALL_LAB_ITEMS)) {
+  for (const id of ids) {
+    assert.equal(itemMatchesZone(PLACEABLES[id], zoneType), true,
+      `${id} is available in its ${zoneType} palette`);
+    assert.equal(PLACEABLES[id].stackable, true, `${id} is a benchtop placeable`);
+    assert.equal(PLACEABLES[id].portable, true, `${id} has portable drop presentation`);
+    assert.equal(PLACEABLES[id].station, undefined,
+      `${id} delegates work positions to its host bench or table`);
+  }
+}
+
+for (const id of ['ruggedLabLaptop', 'labLabelPrinter', 'sampleOrganizer']) {
+  assert.equal(PLACEABLES[id].stackable, true, `${id} can be arranged on any lab surface`);
+  assert.equal(PLACEABLES[id].portable, true, `${id} remains individually movable`);
+}
+
+assert.deepEqual(new Set(PLACEABLES.labComputerDesk.station.jobs),
+  new Set(['labWork', 'analyze', 'paperwork']),
+  'the Lab Computer Desk supports lab work, analysis, and documentation');
+assert.equal(PLACEABLES.labComputerDesk.station.seated, 'preferred',
+  'the Lab Computer Desk uses adjacent lab seating when available');
+assert.equal(PLACEABLES.labComputerDesk.parts.filter(part => /^screen[LR]$/.test(part.name)).length, 2,
+  'the Lab Computer Desk visibly carries two computer displays');
 
 const table = PLACEABLES.labTable;
 const bench = PLACEABLES.labBench;
@@ -109,7 +185,7 @@ for (const primitive of [
 const parent = new THREE.Group();
 const builder = new EquipmentBuilder();
 builder.build(
-  [...GENERAL_FURNITURE, ...RF_FURNITURE].map((type, index) => ({
+  TESTED_FURNITURE.map((type, index) => ({
     id: `lab-furniture-${index}`,
     type,
     col: index * 3,
@@ -120,7 +196,7 @@ builder.build(
   [],
   parent,
 );
-assert.equal(parent.children.length, GENERAL_FURNITURE.length + RF_FURNITURE.length,
+assert.equal(parent.children.length, TESTED_FURNITURE.length,
   'every new lab furnishing builds through the production equipment renderer');
 for (const object of parent.children) {
   let meshes = 0;
@@ -160,6 +236,17 @@ vanDeGraaffObject.traverse(child => {
   }
 });
 assert.equal(hasSphericalDome, true, 'the Van de Graaff uses a spherical terminal dome');
+
+const computerDesk = parent.children.find(object =>
+  object.userData.placeableType === 'labComputerDesk');
+let glowingComputerScreens = 0;
+computerDesk.traverse(child => {
+  if (/^screen[LR]$/.test(child.userData.partName) && child.userData.role === 'glow') {
+    glowingComputerScreens++;
+  }
+});
+assert.equal(glowingComputerScreens, 2,
+  'both Lab Computer Desk displays use the shared emissive screen pipeline');
 builder.dispose(parent);
 
-console.log(`Lab furniture catalogue tests passed (${GENERAL_FURNITURE.length} general + ${RF_FURNITURE.length} RF items).`);
+console.log(`Lab furniture catalogue tests passed (${GENERAL_FURNITURE.length} general + ${RF_FURNITURE.length} RF + ${LAB_EXPANSION.length} other lab items).`);
