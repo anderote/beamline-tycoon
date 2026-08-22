@@ -128,7 +128,7 @@ Equipment power demand is its own energy cost, so the panel and the bill can nev
 | Fan-Coil Cooler | 1 | Direct air heat rejection | 20 kW |
 | Dry Cooler Bank | 5 | Heat rejection | 500 kW |
 | Cooling Tower | 4 | Heat rejection | 800 kW |
-| Cooling Manifold | | Distribution bus, 8-cell reach | |
+| LCW Manifold | | 4 cold + 4 hot flexible branches to paired rigid headers | |
 | Deionizer | 1 | Water treatment | |
 | Emergency Cooling | 0.1 | Backup support | |
 | Water Load | | RF support load | |

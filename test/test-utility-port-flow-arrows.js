@@ -123,6 +123,27 @@ test('distribution-panel fittings inherit their declared in/out roles', () => {
     'the four branch circuits are visibly outputs');
 });
 
+test('equipment water fittings expose blue cold and red hot circuits', () => {
+  const endpoints = [
+    { id: 'quad', type: 'quadrupole', col: 0, row: 0, subCol: 0, subRow: 0, dir: 0 },
+    { id: 'tower', type: 'coolingTower', col: 4, row: 0, subCol: 0, subRow: 0, dir: 0 },
+    { id: 'manifold', type: 'coolingManifold', col: 8, row: 0, subCol: 0, subRow: 0, dir: 0 },
+  ];
+  const { group } = buildPortFittings(endpoints);
+  const fittings = new Map(fittingsOf(group).map(fitting => [
+    `${fitting.userData.placeableId}:${fitting.userData.portName}`, fitting,
+  ]));
+  const hex = fitting => `#${fitting.material.color.getHexString()}`;
+
+  assert.equal(hex(fittings.get('quad:cool_in')), '#287fc4');
+  assert.equal(hex(fittings.get('quad:hot_out')), '#c45b42');
+  assert.equal(hex(fittings.get('tower:supply_hot_1')), '#c45b42');
+  assert.equal(hex(fittings.get('manifold:supply_cold')), '#287fc4');
+  assert.equal(hex(fittings.get('manifold:supply_hot')), '#c45b42');
+  assert.equal(hex(fittings.get('manifold:cold_1')), '#287fc4');
+  assert.equal(hex(fittings.get('manifold:hot_1')), '#c45b42');
+});
+
 test('supports and symmetric HV wall feedthrough terminals stay nondirectional', () => {
   assert.equal(portFlowArrowRole('hv_in', 'pass'), 'sink');
   assert.equal(portFlowArrowRole('hv_out_4', 'pass'), 'source');

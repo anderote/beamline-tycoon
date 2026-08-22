@@ -17,13 +17,14 @@ import { isoToGrid } from '../renderer/grid.js';
 import { UTILITY_TYPES, utilityLineHeight } from '../utility/registry.js';
 
 export class UtilityLineTool extends Tool {
-  constructor(utilityType) {
+  constructor(utilityType, waterCircuit = null) {
     super(`utility:${utilityType}`, 'utility');
     this.utilityType = utilityType;
+    this.waterCircuit = waterCircuit;
   }
 
   onEnter(ctx) {
-    ctx.input.utilityLineController.setUtilityType(this.utilityType);
+    ctx.input.utilityLineController.setUtilityType(this.utilityType, this.waterCircuit);
     // Show the subtile grid around the cursor now that the tool is armed.
     ctx.renderer._renderCursors?.();
   }

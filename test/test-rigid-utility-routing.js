@@ -113,29 +113,58 @@ console.log('\n--- 1. Utility services use fixed utility elevations ---');
       && vacuumPortLed.line.routeHeightMeters === utilityLineHeight('vacuumPipe'),
     'vacuum always resolves to its fixed service datum');
 
-  const stackedLines = new Map([['vac', {
-    id: 'vac', utilityType: 'vacuumPipe', start: null, end: null,
-    path: [{ col: 0, row: 4 }, { col: 4, row: 4 }],
-    routeHeightMeters: 0.24,
-  }]]);
+  const stackPath = [{ col: 0, row: 4 }, { col: 4, row: 4 }];
+  const stackedLines = new Map();
   const stackedState = { placeables: [], beamPipes: [], utilityLines: stackedLines };
-  const rf = validateDrawLine(stackedState, {
-    utilityType: 'rfWaveguide', start: null, end: null,
-    path: [{ col: 0, row: 4 }, { col: 4, row: 4 }],
-  });
-  stackedLines.set('rf', { id: 'rf', ...rf.line });
-  const cryo = validateDrawLine(stackedState, {
-    utilityType: 'cryoTransfer', start: null, end: null,
-    path: [{ col: 0, row: 4 }, { col: 4, row: 4 }],
-  });
-  assert(rf.ok && cryo.ok,
-    'vacuum, RF, and cryo may all occupy the same parallel X/Z route');
-  const stacked = [...stackedLines.values(), { id: 'cryo', ...cryo.line }];
+  const services = [
+    ['cryoTransfer', null],
+    ['waterSupplyPipe', 'cold'],
+    ['waterSupplyPipe', 'hot'],
+    ['rfWaveguide', null],
+    ['vacuumPipe', null],
+  ];
+  let allAccepted = true;
+  for (let index = 0; index < services.length; index++) {
+    const [utilityType, waterCircuit] = services[index];
+    const checked = validateDrawLine(stackedState, {
+      utilityType, waterCircuit, start: null, end: null, path: stackPath,
+    });
+    allAccepted &&= checked.ok;
+    if (checked.ok) stackedLines.set(`stack-${index}`, {
+      id: `stack-${index}`, ...checked.line,
+    });
+  }
+  assert(allAccepted && stackedLines.size === services.length,
+    'cryo, cold water, hot water, RF, and vacuum share one parallel X/Z route');
+  const stacked = [...stackedLines.values()];
   assert(stacked.every((line, index) => stacked.slice(index + 1).every(other =>
     !routeHeightsConflict(
       line.utilityType, routeHeightForLine(line),
       other.utilityType, routeHeightForLine(other),
     ))), 'every stacked service has physical vertical clearance');
+}
+
+console.log('\n--- 1b. Water equipment clearance follows the selected circuit height ---');
+{
+  const state = {
+    defs: { blocker: { subW: 4, subL: 8, ports: {} } },
+    placeables: [{ id: 'machine', type: 'blocker', col: 2, row: -1, dir: 0 }],
+    beamPipes: [], utilityLines: new Map(),
+  };
+  const coldY = UTILITY_TYPES.waterSupplyPipe.runHeightsByWaterCircuit.cold;
+  setUtilityCollisionProvider((type, envelope) => type === 'blocker'
+    && envelope.minY < coldY && envelope.maxY > coldY);
+  const cold = validateDrawLine(state, {
+    utilityType: 'waterSupplyPipe', waterCircuit: 'cold', start: null, end: null,
+    path: [{ col: 0, row: 0 }, { col: 5, row: 0 }],
+  });
+  const hot = validateDrawLine(state, {
+    utilityType: 'waterSupplyPipe', waterCircuit: 'hot', start: null, end: null,
+    path: [{ col: 0, row: 0 }, { col: 5, row: 0 }],
+  });
+  assert(!cold.ok && cold.reason === 'blocked_by_equipment' && hot.ok,
+    'cold-level equipment blocks cold pipe without forcing a clear hot pipe to detour');
+  setUtilityCollisionProvider(null);
 }
 
 console.log('\n--- 2. Same-service runs are joinable route space, not obstacles ---');
@@ -317,9 +346,9 @@ console.log('\n--- 4. Every utility publishes the shared flexible subtile contra
   'all utilities publish the same flexible subtile routing profile');
   assert(UTILITY_TYPE_LIST.every(type => !Object.hasOwn(UTILITY_TYPES[type], 'portClearance')),
     'no utility declares a port-clearance exception');
-  assert(['vacuumPipe', 'rfWaveguide', 'cryoTransfer'].every(type =>
+  assert(['vacuumPipe', 'rfWaveguide', 'cryoTransfer', 'waterSupplyPipe'].every(type =>
     UTILITY_TYPES[type].joinsOnContact === true),
-  'vacuum, RF, and cryogenic services publish automatic contact joins');
+  'all fabricated pipe services publish automatic contact joins');
   assert(rf.bendStyle === 'mitered' && rf.miterLengthMeters > rf.pipeRadiusMeters,
     'RF publishes a compact mitered-elbow presentation contract');
   assert(rf.fixedRouteHeight && cryo.fixedRouteHeight,

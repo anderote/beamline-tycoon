@@ -47,17 +47,19 @@ Carries RF power from sources to accelerating cavities. Band-matched: a source d
 - **Bus:** Waveguide Manifold, $160k, 6-cell service radius
 - **Support equipment (flavour only — no mechanical effect):** Modulator, Circulator, High-power Coupler, LLRF Controller
 
-### Cooling Water (blue)
+### Cooling Water (blue/red)
 Flexible equipment hose for ordinary cooled components. Every run is tagged as
-cold supply or hot return, and flexible Water Lines cannot cross walls.
+cold supply or hot return, and flexible Water Lines cannot cross walls. Choose
+Cold Water or Hot Water from the Water Line palette flyout; directly dragging a
+colored port infers the same choice.
 
-- **Color:** Blue (0x4488ff)
+- **Color:** Blue cold supply / red hot return
 - **Network type:** Capacity-based (kW cooling vs heat load), producing a temperature rise at each sink
 - **Process-cooling equipment:** Package Chiller, LCW Skid, Dual-Circuit Chiller, Chiller
-- **Distribution:** 2-Line and 4-Line Dual Water Distributors (add no capacity)
+- **Distribution:** 2-Line and 4-Line Dual Water Distributors, plus the LCW Manifold with four cold and four hot branches (all add no capacity)
 - **Consumers:** Magnets, normal-conducting RF structures, beam absorbers (target, beam stop), the detector, the electron gun and ion sources, and the He compressor
 - **Cost:** $900/sub-unit ($3,600/tile)
-- **Bus:** Cooling Manifold, $80k, 8-cell service radius
+- **LCW Manifold:** $80k; requires explicit hoses and rigid headers, with no implicit service radius
 - **Support equipment:** Deionizer, Heat Exchanger, Water Load, Emergency Cooling
 
 ### Water Supply Pipe (blue/red)
@@ -107,7 +109,7 @@ A component with more than one sink of the same utility can therefore be fed by 
 
 ### Distribution Buses
 
-Wiring a FODO cell means a dozen individual quadrupole stubs, so each utility has a **bus** — a distribution component that stands in for the per-component stub to every on-pipe sink within its service radius (measured in grid cells; one cell is 2 m).
+Several utilities retain a **bus** — a distribution component that stands in for the per-component stub to every on-pipe sink within its service radius (measured in grid cells; one cell is 2 m). Cooling is deliberately physical: its LCW manifold uses eight real flexible connections and two real rigid headers.
 
 A bus adds **no capacity**. It only changes how many lines you have to draw. Draw one line to a wired bus and every covered sink on the pipe counts as connected.
 

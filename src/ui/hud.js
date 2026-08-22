@@ -972,12 +972,20 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
 
     const previewEl = document.createElement('div');
     previewEl.className = 'palette-preview';
-    const hex = descriptor.color || '#ffffff';
     const swatch = document.createElement('div');
-    // Keep even black cables visible against the palette chrome.
-    swatch.style.cssText = `width:36px;height:6px;background:${hex};border-radius:3px;`
-      + `margin:9px auto;border:1px solid rgba(255,255,255,0.4);box-sizing:border-box;`
-      + `box-shadow:0 0 6px ${hex};`;
+    const variantColor = (vi) => {
+      const preview = resolveVariantPreview(descriptor, vi);
+      if (typeof preview === 'number') return `#${preview.toString(16).padStart(6, '0')}`;
+      return descriptor.color || '#ffffff';
+    };
+    const paintSwatch = (vi) => {
+      const hex = variantColor(vi);
+      // Keep even black cables visible against the palette chrome.
+      swatch.style.cssText = `width:36px;height:6px;background:${hex};border-radius:3px;`
+        + `margin:9px auto;border:1px solid rgba(255,255,255,0.4);box-sizing:border-box;`
+        + `box-shadow:0 0 6px ${hex};`;
+    };
+    paintSwatch(recallVariant(utilityType));
     previewEl.appendChild(swatch);
     item.appendChild(previewEl);
 
@@ -992,13 +1000,56 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
       item.appendChild(descEl);
     }
 
-    item.addEventListener('click', () => {
+    const armUtilityVariant = (variant = 0) => {
       if (this._onPaletteClick) this._onPaletteClick(idx);
       document.querySelectorAll('.palette-item.util-line-active')
         .forEach(el => el.classList.remove('util-line-active'));
       item.classList.add('util-line-active');
-      this._selectPaletteTool('utility', utilityType);
-    });
+      this._selectPaletteTool('utility', utilityType, variant);
+    };
+    const hasVariants = Array.isArray(descriptor.variants) && descriptor.variants.length > 1;
+    if (hasVariants) {
+      item.addEventListener('click', () => {
+        this._removeParamFlyout();
+        const defaultVi = recallVariant(utilityType);
+        armUtilityVariant(defaultVi);
+
+        const flyout = document.createElement('div');
+        flyout.className = 'param-flyout';
+        for (let vi = 0; vi < descriptor.variants.length; vi++) {
+          const vBtn = document.createElement('div');
+          vBtn.className = 'param-flyout-btn';
+          const variantSwatch = makeVariantSwatch(resolveVariantPreview(descriptor, vi));
+          if (variantSwatch) vBtn.appendChild(variantSwatch);
+          vBtn.appendChild(document.createTextNode(descriptor.variants[vi]));
+          if (vi === defaultVi) vBtn.classList.add('active');
+          vBtn.addEventListener('click', (event) => {
+            event.stopPropagation();
+            rememberVariant(utilityType, vi);
+            paintSwatch(vi);
+            armUtilityVariant(vi);
+            this._removeParamFlyout();
+          });
+          flyout.appendChild(vBtn);
+        }
+
+        document.body.appendChild(flyout);
+        const rect = item.getBoundingClientRect();
+        flyout.style.left = (rect.left + rect.width / 2 - flyout.offsetWidth / 2) + 'px';
+        flyout.style.top = (rect.top - flyout.offsetHeight - 4) + 'px';
+        this._activeParamFlyout = flyout;
+
+        const closeHandler = (event) => {
+          if (!flyout.contains(event.target) && !item.contains(event.target)) {
+            this._removeParamFlyout();
+            document.removeEventListener('click', closeHandler, true);
+          }
+        };
+        setTimeout(() => document.addEventListener('click', closeHandler, true), 0);
+      });
+    } else {
+      item.addEventListener('click', () => armUtilityVariant(0));
+    }
     item.addEventListener('mouseenter', () => this._showUtilityLinePreview(descriptor));
     item.addEventListener('mouseleave', () => this._hidePalettePreview());
     container.appendChild(item);

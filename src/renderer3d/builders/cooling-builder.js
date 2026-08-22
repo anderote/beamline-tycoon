@@ -24,7 +24,10 @@ function rotX(angle) {
 }
 
 function makeBuckets() {
-  return { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [] };
+  return {
+    accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [],
+    coldWater: [], hotWater: [],
+  };
 }
 
 // ── Cryogenics ──────────────────────────────────────────────────────
@@ -2139,8 +2142,8 @@ export function _buildEmergencyCoolingRoles() {
  * handwheel isolation valves where branches leave and blanked-off tees where
  * they have not been run yet. It must not read as a block — the open air
  * between and under the two runs is the whole point — so the stands are
- * deliberately thin and the runs sit clear above them. Supply is brushed
- * pipe and return is copper so the pair never merges into one fat header.
+ * deliberately thin and the runs sit clear above them. Cold supply is blue
+ * and hot return is red so the two circuits remain legible at game scale.
  *
  * Footprint 0.5 m (X) × 2.0 m (Z): nothing may pass x = ±0.25 or z = ±1.00.
  * Widest features: the valve bodies at x = ±0.215 and the end flanges at
@@ -2179,7 +2182,7 @@ export function _buildCoolingManifoldRoles() {
     const hR = 0.06, hL = 1.90;
     const g = new THREE.CylinderGeometry(hR, hR, hL, SEGS);
     applyTiledCylinderUVs(g, hR, hL, SEGS);
-    pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+    pushT(b.coldWater, g, new THREE.Matrix4().multiplyMatrices(
       trans(SUPPLY_X, runY, 0), rotX(Math.PI / 2),
     ));
   }
@@ -2187,12 +2190,13 @@ export function _buildCoolingManifoldRoles() {
     const hR = 0.055, hL = 1.90;
     const g = new THREE.CylinderGeometry(hR, hR, hL, SEGS);
     applyTiledCylinderUVs(g, hR, hL, SEGS);
-    pushT(b.copper, g, new THREE.Matrix4().multiplyMatrices(
+    pushT(b.hotWater, g, new THREE.Matrix4().multiplyMatrices(
       trans(RETURN_X, runY, 0), rotX(Math.PI / 2),
     ));
   }
 
   for (const hx of [SUPPLY_X, RETURN_X]) {
+    const waterBucket = hx === SUPPLY_X ? b.coldWater : b.hotWater;
     // Blank end flanges — the run terminates here, it does not carry on.
     for (const ez of [-0.965, 0.965]) {
       const fR = 0.085, fH = 0.03;
@@ -2209,7 +2213,7 @@ export function _buildCoolingManifoldRoles() {
         const vR = 0.085, vH = 0.11;
         const g = new THREE.CylinderGeometry(vR, vR, vH, SEGS);
         applyTiledCylinderUVs(g, vR, vH, SEGS);
-        pushT(b.accent, g, new THREE.Matrix4().multiplyMatrices(
+        pushT(waterBucket, g, new THREE.Matrix4().multiplyMatrices(
           trans(hx, runY, vz), rotX(Math.PI / 2),
         ));
       }
@@ -2233,7 +2237,7 @@ export function _buildCoolingManifoldRoles() {
         const tR = 0.075, tH = 0.07;
         const g = new THREE.CylinderGeometry(tR, tR, tH, SEGS);
         applyTiledCylinderUVs(g, tR, tH, SEGS);
-        pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+        pushT(waterBucket, g, new THREE.Matrix4().multiplyMatrices(
           trans(hx, runY, tz), rotX(Math.PI / 2),
         ));
       }
@@ -2241,7 +2245,7 @@ export function _buildCoolingManifoldRoles() {
         const sR = 0.035, sH = 0.14;
         const g = new THREE.CylinderGeometry(sR, sR, sH, 8);
         applyTiledCylinderUVs(g, sR, sH, 8);
-        pushT(b.pipe, g, trans(hx, 0.79, tz));
+        pushT(waterBucket, g, trans(hx, 0.79, tz));
       }
       {
         const cR = 0.05, cH = 0.03;
@@ -2256,7 +2260,7 @@ export function _buildCoolingManifoldRoles() {
       const dR = 0.03, dH = 0.09;
       const g = new THREE.CylinderGeometry(dR, dR, dH, 8);
       applyTiledCylinderUVs(g, dR, dH, 8);
-      pushT(b.accent, g, trans(hx, 0.58, -0.86));
+      pushT(waterBucket, g, trans(hx, 0.58, -0.86));
     }
   }
 

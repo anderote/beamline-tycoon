@@ -12,6 +12,7 @@ import {
 } from '../service-heights.js';
 import {
   WATER_CIRCUIT_COLD,
+  WATER_CIRCUIT_COLORS,
   WATER_CIRCUIT_HOT,
   lineWaterCircuit,
   portWaterCircuit,
@@ -33,8 +34,8 @@ function circuitForNetwork(network, worldState) {
 export default {
   type: 'waterSupplyPipe',
   displayName: 'Water Supply Pipe',
-  color: '#287fc4',
-  hotColor: '#c45b42',
+  color: WATER_CIRCUIT_COLORS[WATER_CIRCUIT_COLD],
+  hotColor: WATER_CIRCUIT_COLORS[WATER_CIRCUIT_HOT],
   markerColor: '#64b9ef',
   geometryStyle: 'jacketedCylinder',
   routingProfile: FLEXIBLE_SUBTILE_ROUTING_PROFILE,

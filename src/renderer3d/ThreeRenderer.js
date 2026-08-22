@@ -60,6 +60,7 @@ import { utilityPortIssues } from '../utility/port-issues.js';
 import { placeableCenterWorld, portWorldPosition } from '../utility/ports.js';
 import { portAnchor3D } from '../utility/port-anchors.js';
 import { buildPortFitting, buildPortFittings, portFittingSignature, portFlowArrowRole } from './builders/port-fitting-builder.js';
+import { portWaterCircuit } from '../utility/water-circuits.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
 import { StaffPawns } from './StaffPawns.js';
 import { sampleSurfaceYAt, getTileCornersY } from '../game/terrain.js';
@@ -3778,12 +3779,17 @@ export class ThreeRenderer {
       const anchor = portAnchor3D(endpoint, portDef, portName);
       if (!anchor) continue;
       const fitting = buildPortFitting(
-        anchor, spec.utility, spec.role, portFlowArrowRole(portName, spec.role));
+        anchor, spec.utility, spec.role, portFlowArrowRole(portName, spec.role),
+        portWaterCircuit(spec));
       fitting.scale.setScalar(1.35);
       fitting.renderOrder = 1002;
       this.previewGroup.add(fitting);
-      const color = UTILITY_TYPES[spec.utility]?.markerColor
-        || UTILITY_TYPES[spec.utility]?.color || '#ffff88';
+      const circuit = portWaterCircuit(spec);
+      const descriptor = UTILITY_TYPES[spec.utility];
+      const isWaterPort = spec.utility === 'waterSupplyPipe' || spec.utility === 'coolingWater';
+      const color = isWaterPort && circuit
+        ? (circuit === 'hot' ? descriptor?.hotColor : descriptor?.color) || '#ffff88'
+        : descriptor?.markerColor || descriptor?.color || '#ffff88';
       const glow = new THREE.Mesh(
         new THREE.SphereGeometry(0.11, 10, 8),
         new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.98, depthTest: false, depthWrite: false }),
@@ -4536,6 +4542,7 @@ export class ThreeRenderer {
       this.utilityLineBuilderV2.setPreview(utilCtrl.preview, this.utilityLinePreviewGroup);
       this.utilityLineBuilderV2.setHoverPort(utilCtrl.hoverPort, this.utilityLinePreviewGroup);
       const activeType = utilCtrl.utilityType || null;
+      const activeWaterCircuit = utilCtrl.waterCircuit || null;
       if (activeType) {
         // Port markers depend on world data (placeables, utility lines) that
         // changes only on game events, plus the interactive hover/draw
@@ -4543,7 +4550,7 @@ export class ThreeRenderer {
         // or the interactive signature changed — not unconditionally per rAF.
         const hp = utilCtrl.hoverPort;
         const ds = utilCtrl.drawStart || null;
-        const sig = activeType
+        const sig = activeType + '|' + (activeWaterCircuit || '')
           + '|' + (hp ? `${hp.placeableId}:${hp.portName}` : '')
           + '|' + (ds ? `${ds.placeableId}:${ds.portName}` : '');
         if (this._portMarkersDirty || sig !== this._portMarkersSig) {
@@ -4556,7 +4563,7 @@ export class ThreeRenderer {
           // declare utility ports too (see utility/utility-endpoints.js).
           this.utilityLineBuilderV2.setAvailablePorts(
             activeType, state ? listUtilityEndpoints(state) : [], state?.utilityLines,
-            hp, ds, this.utilityLinePreviewGroup,
+            hp, ds, this.utilityLinePreviewGroup, activeWaterCircuit,
           );
         }
       } else if (this._portMarkersSig !== null) {

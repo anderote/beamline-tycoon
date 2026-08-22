@@ -132,11 +132,15 @@ function physicalEndpointCenterWorld(placeable, def) {
 
 function addEquipmentObstacles(
   out, state, utilityType, ignoredPlaceableIds, equipmentPoints = null,
+  routeHeightMeters = null,
 ) {
   if (!hasUtilityCollisionProvider()) return;
   const descriptor = UTILITY_TYPES[utilityType] || {};
   const clearance = 0;
-  const runY = utilityLineHeight(utilityType);
+  // Water supply pipe owns two fixed datums. Routing and commit validation
+  // must test the circuit's actual elevation; falling back to the descriptor's
+  // cold datum makes a clear hot return detour around cold-level equipment.
+  const runY = utilityLineHeight(utilityType, routeHeightMeters);
   const bodyHalfHeight = routeBodyHalfHeight(utilityType);
   const radius = descriptor.pipeRadiusMeters || 0.02;
   const bodyHalfWidth = descriptor.geometryStyle === 'jacketedCylinder'
@@ -216,7 +220,8 @@ export function buildUtilityRouteObstacles(state, utilityType, opts = {}) {
   if (opts.includeLines !== false) addLineObstacles(blocked, state, utilityType, opts);
   if (opts.includeEquipment !== false) {
     addEquipmentObstacles(
-      blocked, state, utilityType, ignored, opts.equipmentPoints || null);
+      blocked, state, utilityType, ignored, opts.equipmentPoints || null,
+      opts.routeHeightMeters ?? null);
   }
   return {
     blocked,

@@ -21,7 +21,7 @@ wall penetrations, and high-flow machines.
 | **Make-up supply** | Make-up Water Tank, Water Replenishment Plant | Replaces evaporated water at a finite rate. The replenishment plant has the larger flow but no onboard storage. |
 | **Storage** | Make-up Water Tank, Bulk Water Storage Tanks | Sets how many litres the network can hold. Bulk tanks are passive and never generate water. |
 | **Water & treatment** | Deionizer | Keeps the loop clean; it does not add cooling capacity. |
-| **Distribution** | 2-Line Water Distributor, 4-Line Dual Water Distributor, legacy LCW Manifold | Converts flexible branches to rigid headers without adding capacity. |
+| **Distribution** | 2-Line Water Distributor, 4-Line Dual Water Distributor, LCW Manifold | Converts flexible branches to rigid headers without adding capacity. The LCW Manifold pairs four blue cold and four red hot hoses with one rigid header of each circuit. |
 
 Every water run is either a **cold supply** or **hot return** circuit. The two
 may cross, but they never join. A cooled beamline component has one cold inlet
@@ -30,6 +30,12 @@ rigid cold outlet and rigid water inlet; tanks and make-up plants expose a
 room-temperature rigid outlet that can feed that inlet. Heat rejectors accept the collected
 hot circuit through rigid pipe. Large high-flow machines such as the 70 and
 230 MeV cyclotrons connect directly to paired rigid cold/hot ports.
+
+Click **Water Line** in the build palette and choose **Cold Water** (blue) or
+**Hot Water** (red), just like choosing a furnishing color. The selected
+variant shows only compatible ports and is stored on every committed hose;
+starting a drag directly from a blue or red equipment port selects that circuit
+automatically.
 
 The compact 2:1 distributor converts two flexible lines to one rigid pipe. The
 4:2 distributor contains two isolated 2:1 headers, so it can carry a cold/hot

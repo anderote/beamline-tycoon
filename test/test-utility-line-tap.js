@@ -105,7 +105,7 @@ function withTrunk() {
     category: 'infrastructure', col: 12, row: 1, subCol: 0, subRow: 0, dir: 0,
   });
   drag(game, portTile(game, 'src_1', 'cool_out_a'),
-    portTile(game, 'tap_header', 'bus_left'));
+    portTile(game, 'tap_header', 'cold_1'));
   const trunk = coolingLines(game)[0];
   return { game, trunk };
 }
@@ -245,6 +245,29 @@ console.log('\n--- 1d. A broad cryo jacket gets a cryo-specific pickup halo ---'
       && Math.abs(hover.worldPos.z / 2 - 16) < 1e-9,
     `the generous hover still commits an exact on-line contact (${JSON.stringify(
       hover?.worldPos)})`);
+}
+
+console.log('\n--- 1e. Stacked water headers snap to the requested circuit ---');
+{
+  const game = makeGame();
+  game.state.utilityLines.set('cold-header', {
+    id: 'cold-header', utilityType: 'waterSupplyPipe', waterCircuit: 'cold',
+    start: null, end: null,
+    routeHeightMeters: 0.6,
+    path: [{ col: 5, row: 5 }, { col: 10, row: 5 }],
+  });
+  game.state.utilityLines.set('hot-header', {
+    id: 'hot-header', utilityType: 'waterSupplyPipe', waterCircuit: 'hot',
+    start: null, end: null,
+    routeHeightMeters: 0.9,
+    path: [{ col: 5, row: 5 }, { col: 10, row: 5 }],
+  });
+  const ctrl = ctrlFor(game, 'waterSupplyPipe');
+  const cursor = gridToIso(7.5, 5);
+  const cold = ctrl.nearestLine(cursor.x, cursor.y, 0.65, null, 'cold');
+  const hot = ctrl.nearestLine(cursor.x, cursor.y, 0.65, null, 'hot');
+  assert(cold?.lineId === 'cold-header' && hot?.lineId === 'hot-header',
+    'a stacked header tap resolves by circuit instead of insertion order or height');
 }
 
 console.log('\n--- 2. A drag onto the trunk commits, and joins its network ---');

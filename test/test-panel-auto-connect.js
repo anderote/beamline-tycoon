@@ -372,7 +372,7 @@ console.log('\n--- 10. Storage and rejection equipment never auto-connect to fle
   }
 }
 
-console.log('\n--- 11. Integrated plants extend to loads and distribution only ---');
+console.log('\n--- 11. Integrated plants extend only to their flexible loads ---');
 {
   const game = new Game(new BeamlineRegistry(), { seed: 95 });
   game.state.resources.funding = 1e9;
@@ -385,42 +385,40 @@ console.log('\n--- 11. Integrated plants extend to loads and distribution only -
   );
   const plan = planPanelAutoConnect(game.state, 'package');
   const ends = plan.stubs.map(stub => stub.end.placeableId);
-  const manifoldStub = plan.stubs.find(stub => stub.end.placeableId === 'manifold');
-  assert(plan.candidates === 2 && ends.includes('magnet'),
-    `the integrated package sees its cold-water load and header (got ${ends.join(',')})`);
+  assert(plan.candidates === 1 && ends.includes('magnet'),
+    `the integrated package sees only its cold-water load (got ${ends.join(',')})`);
   assert(!ends.includes('tank') && !ends.includes('rejector'),
     'the integrated package does not add redundant storage or heat rejection');
-  assert(manifoldStub === undefined
-      || ['cool_out_a', 'cool_out_b', 'cool_out_c', 'cool_out_d']
-        .includes(manifoldStub.start.portName),
-  'a cold manifold can only consume a package cold-supply branch');
+  assert(!ends.includes('manifold'),
+    'rigid supply pipe, rather than a flexible package branch, feeds the manifold');
 }
 
-console.log('\n--- 12. A manifold plans one upstream connection and no sink hoses ---');
+console.log('\n--- 12. The LCW manifold pairs blue and red hoses to four loads ---');
 {
   const game = new Game(new BeamlineRegistry(), { seed: 96 });
   game.state.resources.funding = 1e9;
   game.state.placeables.push(
     item('manifold', 'coolingManifold', 10, 10),
-    item('tank', 'waterTank', 11, 10),
-    item('central', 'chiller', 12, 10),
-    item('package', 'packageChiller', 13, 10),
-    item('magnet_1', 'quadrupole', 10, 11),
-    item('magnet_2', 'quadrupole', 10, 12),
+    item('magnet_1', 'quadrupole', 12, 8),
+    item('magnet_2', 'quadrupole', 13, 10),
+    item('magnet_3', 'quadrupole', 13, 12),
+    item('magnet_4', 'quadrupole', 12, 14),
   );
   const plan = planPanelAutoConnect(game.state, 'manifold');
-  assert(plan.candidates >= 1 && plan.stubs.every(stub =>
-    ['central', 'package'].includes(stub.end.placeableId)
-      && stub.end.portName.startsWith('cool_out')
-      && !['cool_out_5', 'cool_out_6', 'cool_out_side', 'cool_out_side_2']
-        .includes(stub.end.portName)),
-  'the cold manifold considers only chiller cold-supply branches');
-  assert(!plan.stubs.some(stub => stub.end.portName === 'cool_in'),
-    'the manifold relies on service-radius coverage instead of individual sink hoses');
+  const coldStubs = plan.stubs.filter(stub => stub.start.portName.startsWith('cold_'));
+  const hotStubs = plan.stubs.filter(stub => stub.start.portName.startsWith('hot_'));
+  assert(plan.candidates === 4 && plan.outlets === 8 && plan.stubs.length === 8,
+    `four loads receive eight physical hoses (got ${plan.stubs.length})`);
+  assert(coldStubs.length === 4
+      && coldStubs.every(stub => stub.end.portName === 'cool_in'),
+  'all four blue branches terminate on cold inlets');
+  assert(hotStubs.length === 4
+      && hotStubs.every(stub => stub.end.portName === 'hot_out'),
+  'all four red branches terminate on hot outlets');
   commitPanelAutoConnect(game, plan);
   const repeat = planPanelAutoConnect(game.state, 'manifold');
   assert(repeat.stubs.length === 0,
-    'a manifold with an upstream connection does not add another on repeated auto-connect');
+    'all eight occupied manifold connectors stay consumed on repeated auto-connect');
 }
 
 console.log('\n--- 13. Network switches fan out once per nearby data device ---');

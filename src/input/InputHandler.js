@@ -2749,7 +2749,10 @@ export class InputHandler {
       this._updatePlacementKeyHint(e.clientX, e.clientY);
       const deferredPortDrag = this._deferredUtilityPortDrag.update(e);
       if (deferredPortDrag) {
-        this.setTool(new UtilityLineTool(deferredPortDrag.port.utilityType));
+        this.setTool(new UtilityLineTool(
+          deferredPortDrag.port.utilityType,
+          deferredPortDrag.port.waterCircuit || null,
+        ));
         // Replay the original press so the line stays anchored on the port,
         // then advance the newly armed tool to the current cursor in the same
         // event. This makes the threshold invisible in the preview geometry.
@@ -3181,7 +3184,11 @@ export class InputHandler {
       case 'furnishing': this.setTool(new PlaceableTool('furnishing', key, variant)); break;
       case 'decoration': this.setTool(new PlaceableTool('decoration', key, variant)); break;
       case 'demolish':   this.setTool(new DemolishTool('demolishFiltered', this.demolishFilters)); break;
-      case 'utility':    this.setTool(new UtilityLineTool(key)); break;
+      case 'utility': {
+        const waterCircuit = UTILITY_TYPES[key]?.variantWaterCircuits?.[variant] || null;
+        this.setTool(new UtilityLineTool(key, waterCircuit));
+        break;
+      }
       default:
         console.warn('[InputHandler] unknown palette kind:', kind, key);
     }

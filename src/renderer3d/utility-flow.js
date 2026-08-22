@@ -211,11 +211,12 @@ const _patchedMaterials = new Set();
  * blend the lit surface colour toward their flow tint, preserving the motion
  * cue without bloom or emitted light.
  */
-export function patchFlowMaterial(material, utilityType, flowState) {
+export function patchFlowMaterial(material, utilityType, flowState, colorOverride = null) {
   const params = FLOW_PARAMS[utilityType];
   if (!params) return material;
   const mods = FLOW_STATE_MODS[flowState] || FLOW_STATE_MODS.ok;
-  const colorHex = params.color || (UTILITY_TYPES[utilityType] && UTILITY_TYPES[utilityType].color) || '#ffffff';
+  const colorHex = colorOverride || params.color
+    || (UTILITY_TYPES[utilityType] && UTILITY_TYPES[utilityType].color) || '#ffffff';
 
   const uniforms = {
     uTime:      { value: 0 },
