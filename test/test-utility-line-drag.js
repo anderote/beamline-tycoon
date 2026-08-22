@@ -459,6 +459,46 @@ console.log('\n--- 5. Tool picking follows each utility\'s placement contract --
     'a rigid port-to-port run uses the higher connector lane in either draw direction');
 }
 
+{
+  // Cryogenic transfer lines are the exception to endpoint-height routing.
+  // A top cryomodule bayonet owns a short outside-the-body drop; lifting the
+  // entire plant network to that fitting used up almost every stacking lane.
+  const game = makeGame();
+  const controller = new UtilityLineInputController({ game, renderer: {} });
+  controller.setUtilityType('cryoTransfer');
+  const plant = { open: true, worldPos: { x: 0, z: 0 }, anchor: { y: 0.8 } };
+  const topBayonet = { open: true, worldPos: { x: 4, z: 2 }, anchor: { y: 2.45 } };
+
+  controller._drawStart = plant;
+  const toBayonet = controller._dragGeometry(0, 0, topBayonet);
+  controller._drawStart = topBayonet;
+  const fromBayonet = controller._dragGeometry(0, 0, plant);
+
+  assert(toBayonet.routeHeightMeters === utilityLineHeight('cryoTransfer')
+      && fromBayonet.routeHeightMeters === utilityLineHeight('cryoTransfer'),
+    'cryo routes on its low rack in either draw direction');
+  controller._preview = null;
+  assert(controller.drawHeight === utilityLineHeight('cryoTransfer'),
+    'the cryo cursor follows the low rack immediately after grabbing a top bayonet');
+
+  game.state.utilityLines.set('cryo_trunk', {
+    id: 'cryo_trunk', utilityType: 'cryoTransfer', start: null, end: null,
+    routeHeightMeters: 0.9,
+    path: [{ col: -2, row: 0 }, { col: 2, row: 0 }],
+  });
+  controller._drawStart = {
+    open: true, tap: true, lineId: 'cryo_trunk',
+    worldPos: { x: 0, z: 0 }, routeHeightMeters: 0.9,
+  };
+  const tappedBranch = controller._dragGeometry(0, 0, {
+    ...topBayonet,
+    worldPos: { x: 0, z: 4 },
+  });
+  controller._preview = tappedBranch;
+  assert(tappedBranch.routeHeightMeters === 0.9 && controller.drawHeight === 0.9,
+    'an explicit cryo tap still inherits and follows its elevated trunk lane');
+}
+
 console.log('\n--- 6. Right-click erases a line of the armed utility ---');
 {
   const game = makeGame();

@@ -190,6 +190,12 @@ export class UtilityLineInputController {
     const descriptor = UTILITY_TYPES[this._utilityType];
     if (!descriptor?.verticalRouteLanes) return utilityLineHeight(this._utilityType);
     const previewHeight = this._preview?.routeHeightMeters;
+    if (descriptor.routeAtBaseHeight) {
+      return utilityLineHeight(
+        this._utilityType,
+        Number.isFinite(previewHeight) ? previewHeight : null,
+      );
+    }
     const startHeight = this._drawStart?.routeHeightMeters ?? this._drawStart?.anchor?.y;
     return utilityLineHeight(
       this._utilityType,
@@ -575,8 +581,9 @@ export class UtilityLineInputController {
       .map(anchor => anchor?.routeHeightMeters ?? anchor?.anchor?.y)
       .filter(Number.isFinite);
     const preferredRouteHeightMeters = descriptor.verticalRouteLanes
-      && endpointRouteHeights.length > 0
-      ? Math.max(...endpointRouteHeights)
+      ? (descriptor.routeAtBaseHeight
+          ? utilityLineHeight(this._utilityType)
+          : (endpointRouteHeights.length > 0 ? Math.max(...endpointRouteHeights) : null))
       : null;
     for (let i = 0; i < limit; i++) {
       const path = snapPath(candidates[i]);
