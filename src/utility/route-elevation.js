@@ -71,7 +71,13 @@ export function routeHeightCandidates(utilityType, preferredHeight) {
     0.05,
     descriptor.routeLaneSpacingMeters ?? DEFAULT_LANE_SPACING_METERS,
   );
-  const requested = finite(preferredHeight) ? preferredHeight : base;
+  // Some fabricated services own a fixed low rack and use endpoint risers to
+  // reach fittings at arbitrary authored heights. Keep that policy here, at
+  // the lane authority, so ordinary drags, bulk wiring, copying, and headless
+  // callers cannot accidentally invent a different ladder from port Y.
+  const requested = descriptor.routeAtBaseHeight
+    ? base
+    : (finite(preferredHeight) ? preferredHeight : base);
   // An authored connector above the ordinary rack search limit still owns its
   // first lane. The limit caps automatic stacking; it must not pull a route
   // downward from the physical port that starts it.

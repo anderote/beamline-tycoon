@@ -256,9 +256,9 @@ the short authoring contract.
   That one projected point also drives hover, tooltips, snapping, erasing, and
   release; the utility tool does not derive a second point from terrain.
 - Vacuum pipe, RF waveguide, and cryogenic transfer line are fabricated rigid
-  services with vertical route lanes. Vacuum and RF begin at the higher endpoint
-  connector; cryogenic transfer begins on its low service rack because the
-  renderer routes elevated bayonet drops outside the cryostat body. All three
+  services with vertical route lanes. RF begins at the higher endpoint
+  connector. Vacuum and cryogenic transfer begin on their fixed low service
+  racks; endpoint risers reach fittings at other authored heights. All three
   rise only as needed, so parallel or crossing runs may share X/Z coordinates
   while remaining physically separate. A named tap is a real fitting and
   therefore inherits the trunk's route height.

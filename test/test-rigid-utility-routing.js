@@ -11,7 +11,7 @@ import {
   routeHeightForLine,
   routeHeightsConflict,
 } from '../src/utility/route-elevation.js';
-import { UTILITY_TYPES, UTILITY_TYPE_LIST } from '../src/utility/registry.js';
+import { UTILITY_TYPES, UTILITY_TYPE_LIST, utilityLineHeight } from '../src/utility/registry.js';
 import { portWorldPosition } from '../src/utility/ports.js';
 import { UtilityLineInputController } from '../src/input/UtilityLineInputController.js';
 import { gridToIso } from '../src/renderer/grid.js';
@@ -84,8 +84,19 @@ console.log('\n--- 1. Rigid services share plan routes on automatic height lanes
     preferredRouteHeightMeters: 0.72,
     path: [{ col: 0, row: 8 }, { col: 4, row: 8 }],
   });
-  assert(portLed.ok && portLed.line.routeHeightMeters === 0.72,
-    'an unobstructed fabricated run adopts its starting connector height');
+  assert(portLed.ok && portLed.line.routeHeightMeters === utilityLineHeight('cryoTransfer'),
+    'a base-routed fabricated service ignores an elevated connector preference');
+
+  const vacuumPortLed = validateDrawLine({
+    placeables: [], beamPipes: [], utilityLines: new Map(),
+  }, {
+    utilityType: 'vacuumPipe', start: null, end: null,
+    preferredRouteHeightMeters: 0.72,
+    path: [{ col: 0, row: 10 }, { col: 4, row: 10 }],
+  });
+  assert(vacuumPortLed.ok
+      && vacuumPortLed.line.routeHeightMeters === utilityLineHeight('vacuumPipe'),
+    'vacuum starts on its stable low rack instead of inventing a connector-height lane');
 
   const stackedLines = new Map([['vac', {
     id: 'vac', utilityType: 'vacuumPipe', start: null, end: null,
