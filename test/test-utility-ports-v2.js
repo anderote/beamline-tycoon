@@ -239,8 +239,8 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
 {
   // Power comes in two tiers now: SUPPLY holds the capacity and hands out HV
   // feeders, DISTRIBUTION takes one feeder and hands out branch circuits. The
-  // ladder is therefore over the supplies; a panel's rating is what it draws,
-  // not what it makes.
+  // ladder is therefore over the supplies; a panel's rating caps its live
+  // downstream draw rather than adding capacity.
   const pad = getUtilityPortsV2('padMountTransformer');
   const facility = getUtilityPortsV2('facilityTransformer');
   const hv = getUtilityPortsV2('hvTransformer');
@@ -262,8 +262,10 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   assert(hv.hv_in.connectionKind === 'hvLoadIn'
       && grid.hv_in.connectionKind === 'hvLoadIn'
       && hv.hv_in.params.demand === 1500
-      && grid.hv_in.params.demand === 6000,
-    'large transformers require matching upstream HV inputs');
+      && grid.hv_in.params.demand === 6000
+      && hv.hv_in.params.tracksDownstreamDemand === true
+      && grid.hv_in.params.tracksDownstreamDemand === true,
+    'large transformer inputs track downstream demand up to their nameplate ratings');
   assert(pad.hv_out_1.params.capacity < facility.hv_out_1.params.capacity
       && facility.hv_out_1.params.capacity < hv.hv_out_1.params.capacity
       && hv.hv_out_1.params.capacity < grid.hv_out_1.params.capacity,
@@ -274,6 +276,7 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
     .filter(p => p.connectionKind === 'hvDistributionOut');
   assert(compactGear.hv_in?.connectionKind === 'hvDistributionIn'
       && compactGear.hv_in.params.demand === 200
+      && compactGear.hv_in.params.tracksDownstreamDemand === true
       && compactHvDistributorOutputs.length === 2
       && compactHvDistributorOutputs.every(p => p.params.capacity === 100),
     'Compact HV Distributor has one 200 kW input and two protected 100 kW outputs');
@@ -283,6 +286,7 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
     .filter(p => p.connectionKind === 'hvDistributionOut');
   assert(gear.hv_in?.connectionKind === 'hvDistributionIn'
       && gear.hv_in.params.demand === 400
+      && gear.hv_in.params.tracksDownstreamDemand === true
       && hvDistributorOutputs.length === 4
       && hvDistributorOutputs.every(p => p.params.capacity === 100),
     'HV Distributor Box has one 400 kW input and four protected 100 kW outputs');
@@ -294,8 +298,9 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   const section = getUtilityPortsV2('sectionDistributionPanel');
   const main = getUtilityPortsV2('mainDistributionPanel');
   assert(panel.hv_in.params.demand < section.hv_in.params.demand
-      && section.hv_in.params.demand < main.hv_in.params.demand,
-    'distribution ladder: compact < section < main panel');
+      && section.hv_in.params.demand < main.hv_in.params.demand
+      && [panel, section, main].every(ports => ports.hv_in.params.tracksDownstreamDemand === true),
+    'distribution ladder ratings cap dynamic draw: compact < section < main panel');
   const outlets = (t) => Object.keys(getUtilityPortsV2(t))
     .filter(n => n.startsWith('pwr_out')).length;
   assert(outlets('powerPanel') < outlets('sectionDistributionPanel')

@@ -148,8 +148,8 @@ function sinkEffect(utility, klass, params, comp) {
     case 'hvCable':
       // The one sink on the HV side is a distribution device's feeder inlet.
       return 'Hard gate: this is the feeder inlet of a distribution device. It '
-        + 'draws its full rating from the supply whether or not every socket is '
-        + 'in use — you size the feeder for the panel — and with no live feeder '
+        + 'draws the load currently connected to its downstream sockets, up to '
+        + 'its nameplate rating, and with no live feeder '
         + 'behind it the device\'s outlets deliver nothing, which starves every '
         + 'machine plugged into them.';
 

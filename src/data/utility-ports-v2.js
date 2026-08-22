@@ -820,7 +820,8 @@ function transformerPorts(capacity, count) {
   return {
     hv_in: {
       utility: 'hvCable', side: 'back', offsetAlong: 0.5, role: 'sink',
-      connectionKind: 'hvLoadIn', params: { demand: capacity },
+      connectionKind: 'hvLoadIn',
+      params: { demand: capacity, tracksDownstreamDemand: true },
     },
     ...supplyPorts(capacity, count),
   };
@@ -837,7 +838,8 @@ function hvDistributionPorts(rating, count) {
   const out = {
     hv_in: {
       utility: 'hvCable', side: 'back', offsetAlong: 0.5,
-      role: 'sink', connectionKind: 'hvDistributionIn', params: { demand: rating },
+      role: 'sink', connectionKind: 'hvDistributionIn',
+      params: { demand: rating, tracksDownstreamDemand: true },
     },
   };
   for (let i = 0; i < count; i++) {
@@ -852,16 +854,16 @@ function hvDistributionPorts(rating, count) {
 }
 
 /**
- * A distribution device: one HV inlet drawing `rating` kW, and `count` branch
- * outlets. The outlets declare the rating as their capacity, but the panel is
- * transparent to the facility's power budget — the SUPPLY still has to cover
- * every panel it feeds, because each panel's hv_in demands its full rating.
+ * A distribution device: one HV inlet drawing its connected downstream load,
+ * capped at `rating`, and `count` branch outlets. The panel is transparent to
+ * the facility's power budget: it adds no capacity or intrinsic demand.
  */
 function distributionPorts(rating, count, { outletSide = null } = {}) {
   const out = {
     hv_in: {
       utility: 'hvCable', side: 'back', offsetAlong: 0.5,
-      role: 'sink', connectionKind: 'hvDistributionIn', params: { demand: rating },
+      role: 'sink', connectionKind: 'hvDistributionIn',
+      params: { demand: rating, tracksDownstreamDemand: true },
     },
   };
   for (let i = 0; i < count; i++) {
@@ -1183,9 +1185,9 @@ const INFRA_UTILITY_PORTS = {
   // false), so a 4-way panel feeds four machines and the fifth needs another
   // panel, somewhere near what it serves.
   //
-  // A distribution device's hv_in demand is its own rating, not its live draw:
-  // you size the feeder for the panel. That keeps the HV solve local and makes
-  // an oversized panel cost something instead of being a free upgrade.
+  // A distribution device's hv_in draws its connected downstream load, capped
+  // by its rating. Buying a larger panel adds outlets and headroom; it does not
+  // consume unused electrical capacity.
   gridServicePoint:         supplyPorts(1500, 2),
   gridServicePointHighCapacity: supplyPorts(6000, 4),
   padMountTransformer:      transformerPorts(150, 1),

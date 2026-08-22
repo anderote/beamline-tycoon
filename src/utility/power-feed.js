@@ -10,6 +10,7 @@ import {
   electricalDeviceState,
   electricalSourceAvailability,
 } from './electrical-state.js';
+import { resolvedElectricalSinkDemand } from './electrical-demand.js';
 
 function placeableForId(worldState, placeableId) {
   for (const p of (worldState?.placeables || [])) {
@@ -52,7 +53,8 @@ function hvNetworkQuality(worldState, network, visiting, getDefinition) {
   const totalCapacity = (network.sources || []).reduce(
     (sum, source) => sum + (source.capacity || 0)
       * hvFeedFactor(worldState, source.placeableId, visiting, getDefinition), 0);
-  const totalDemand = (network.sinks || []).reduce((sum, sink) => sum + (sink.demand || 0), 0);
+  const totalDemand = (network.sinks || []).reduce(
+    (sum, sink) => sum + resolvedElectricalSinkDemand(worldState, sink), 0);
   visiting.delete(network.id);
   if (totalDemand <= 0) return totalCapacity > 0 ? 1 : 0;
   return totalCapacity <= 0 ? 0 : Math.min(1, totalCapacity / totalDemand);

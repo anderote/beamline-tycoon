@@ -19,6 +19,7 @@
 // unaffected by whether discovery ran from cache or from scratch.
 
 import { discoverAll, makeDefaultPortLookup } from './network-discovery.js';
+import { computeElectricalSinkDemands } from './electrical-demand.js';
 
 function cloneDefaults(defaults) {
   if (defaults == null) return {};
@@ -109,6 +110,12 @@ export class SolveRunner {
     // mapping — can reuse it instead of re-running discovery. Derived like
     // utilityNetworkData: never serialized, repopulated every solve pass.
     state.utilityNetworks = networksByType;
+
+    // HV must solve before branch power so panels receive same-tick feeder
+    // quality. Their upstream draw, however, is the connected downstream load
+    // rather than nameplate rating. Resolve that topology-only quantity before
+    // either electrical solver runs to avoid a circular solve-order dependency.
+    state.electricalSinkDemands = computeElectricalSinkDemands(networksByType);
 
     state.utilityNetworkData = new Map();
     const allErrors = [];

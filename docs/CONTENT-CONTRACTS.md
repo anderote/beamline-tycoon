@@ -159,6 +159,9 @@ the short authoring contract.
   lines from real free source ports. `autoConnectUtility` defaults to
   `powerCable`; set it to `hvCable` for HV distributors. The authored utility
   must exist and the device must expose a matching source port.
+- Electrical distributors and transformers add no demand of their own. Their
+  HV inlet draws the actual connected downstream HV/branch load, capped by the
+  device rating; unused nameplate capacity does not consume upstream supply.
 - Port identity is `<placeableId>:<portName>`, but scenario scripts should call
   `wireUtility` with capability selectors such as `{ id, role: 'sink' }` or
   `{ id, role: 'pass', side: 'left' }`. Add `index` only when several otherwise

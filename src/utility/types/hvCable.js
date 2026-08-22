@@ -18,6 +18,7 @@
 // connection, and how many distribution points" is the decision.
 
 import { hvFeedFactor } from '../power-feed.js';
+import { resolvedElectricalSinkDemand } from '../electrical-demand.js';
 
 export default {
   type: 'hvCable',
@@ -53,11 +54,9 @@ export default {
   /**
    * Supply capacity against the connected distribution devices' draw.
    *
-   * A distribution device declares `demand` on its hv_in equal to its own
-   * rating: you size the feeder for the panel, not for whatever happens to be
-   * plugged into it today. That keeps this solve local — no cross-network
-   * coupling — and makes an oversized panel a real cost rather than a free
-   * upgrade.
+   * Distribution inlets draw their connected downstream load, capped by their
+   * nameplate rating. SolveRunner publishes that topology-derived demand before
+   * HV runs, so this stays same-tick even though branch power solves afterward.
    */
   solve(network, persistent, worldState, context = {}) {
     // A transformer or switchgear cabinet is downstream equipment, not a
@@ -71,7 +70,11 @@ export default {
       .filter(limit => Number.isFinite(limit) && limit > 0))];
     const fieldCapacity = fieldLimits.length > 0 ? Math.min(...fieldLimits) : Infinity;
     const totalCapacity = Math.min(suppliedCapacity, fieldCapacity);
-    const totalDemand = network.sinks.reduce((a, s) => a + (s.demand || 0), 0);
+    const sinkDemands = new Map(network.sinks.map(sink => [
+      sink.portKey, resolvedElectricalSinkDemand(worldState, sink),
+    ]));
+    const totalDemand = network.sinks.reduce(
+      (sum, sink) => sum + (sinkDemands.get(sink.portKey) || 0), 0);
     const errors = [];
     const perSinkQuality = {};
     let utilization = 0;

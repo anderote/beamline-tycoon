@@ -96,7 +96,8 @@ test('utility service, pole, service transformer, and branch load solve end to e
   const hvFlow = [...state.utilityNetworkData.get('hvCable').values()][0];
   const branchFlow = [...state.utilityNetworkData.get('powerCable').values()][0];
   assert.equal(hvFlow.totalCapacity, 1500);
-  assert.equal(hvFlow.totalDemand, 100);
+  assert.equal(hvFlow.totalDemand, 10,
+    'the 100 kW pole transformer draws only its connected 10 kW load');
   assert.equal(branchFlow.totalCapacity, 100);
   assert.equal(branchFlow.totalDemand, 10);
 
@@ -110,23 +111,73 @@ test('utility service point energizes transformer HV outputs only through its HV
     placed('service', 'gridServicePoint'),
     placed('xfmr', 'hvTransformer'),
     placed('panel', 'mainDistributionPanel'),
+    placed('load', 'quadrupole'),
   ], [
     line('service_to_xfmr', 'hvCable', ref('service', 'hv_out_1'), ref('xfmr', 'hv_in'), 0),
     line('xfmr_to_panel', 'hvCable', ref('xfmr', 'hv_out_1'), ref('panel', 'hv_in'), 2),
+    line('panel_to_load', 'powerCable', ref('panel', 'pwr_out_1'), ref('load', 'pwr_in'), 4),
   ]);
   reliabilityFor(state);
   const runner = runnerFor(state);
   runner.runSolve(state);
   const hvNetworks = [...state.utilityNetworkData.get('hvCable').values()];
-  const downstream = hvNetworks.find(flow => flow.totalDemand === 400);
+  assert.ok(hvNetworks.every(flow => flow.totalDemand === 10),
+    'both transformer stages propagate the actual 10 kW downstream draw');
+  const downstream = hvNetworks.find(flow => flow.totalCapacity === 1500);
   assert.equal(downstream?.totalCapacity, 1500);
 
   state.utilityLines.delete('service_to_xfmr');
   runner.markTopologyDirty();
   runner.runSolve(state);
   const starved = [...state.utilityNetworkData.get('hvCable').values()]
-    .find(flow => flow.totalDemand === 400);
+    .find(flow => flow.totalDemand === 10);
   assert.equal(starved?.totalCapacity, 0);
+});
+
+test('a distribution panel caps upstream draw at its rating when downstream is overloaded', () => {
+  const state = world([
+    placed('service', 'gridServicePoint'),
+    placed('panel', 'mainDistributionPanel'),
+    placed('laser_a', 'petawattLaser'),
+    placed('laser_b', 'petawattLaser'),
+  ], [
+    line('feed', 'hvCable', ref('service', 'hv_out_1'), ref('panel', 'hv_in'), 0),
+    line('load_a', 'powerCable', ref('panel', 'pwr_out_1'), ref('laser_a', 'pwr_in'), 2),
+    line('load_b', 'powerCable', ref('panel', 'pwr_out_2'), ref('laser_b', 'pwr_in'), 4),
+  ]);
+  reliabilityFor(state);
+  const runner = runnerFor(state);
+  runner.runSolve(state);
+
+  const hvFlow = [...state.utilityNetworkData.get('hvCable').values()][0];
+  const branchFlow = [...state.utilityNetworkData.get('powerCable').values()][0];
+  assert.equal(branchFlow.totalDemand, 640);
+  assert.equal(branchFlow.totalCapacity, 400);
+  assert.equal(hvFlow.totalDemand, 400,
+    'the overloaded 400 kW panel cannot pull more than its nameplate rating');
+});
+
+test('an HV distributor propagates mixed panel and dedicated downstream demand', () => {
+  const state = world([
+    placed('service', 'gridServicePoint'),
+    placed('gear', 'switchgear'),
+    placed('panel', 'mainDistributionPanel'),
+    placed('load', 'quadrupole'),
+    placed('cooler', 'dryCoolerBank'),
+  ], [
+    line('service_to_gear', 'hvCable', ref('service', 'hv_out_1'), ref('gear', 'hv_in'), 0),
+    line('gear_to_panel', 'hvCable', ref('gear', 'hv_out_1'), ref('panel', 'hv_in'), 2),
+    line('gear_to_cooler', 'hvCable', ref('gear', 'hv_out_2'), ref('cooler', 'hv_in'), 4),
+    line('panel_to_load', 'powerCable', ref('panel', 'pwr_out_1'), ref('load', 'pwr_in'), 6),
+  ]);
+  reliabilityFor(state);
+  const runner = runnerFor(state);
+  runner.runSolve(state);
+
+  const hvFlows = [...state.utilityNetworkData.get('hvCable').values()];
+  assert.equal(hvFlows.length, 2);
+  assert.ok(hvFlows.every(flow => flow.totalDemand === 15),
+    '10 kW branch load plus 5 kW dedicated HV load propagates through both stages');
 });
 
 test('an open disconnect divides its HV feeder immediately', () => {

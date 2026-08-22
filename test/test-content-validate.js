@@ -209,7 +209,10 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     },
     // Bad spec shapes on a real-ish id.
     mysteryModule: {
-      weird: { utility: 'steamPipe', side: 'top', offsetAlong: 7, role: 'both', maxConnections: 0 },
+      weird: {
+        utility: 'steamPipe', side: 'top', offsetAlong: 7, role: 'both', maxConnections: 0,
+        params: { tracksDownstreamDemand: false },
+      },
     },
     badFeedthrough: {
       only: { utility: 'powerCable', side: 'front', offsetAlong: 0.5, role: 'sink' },
@@ -293,6 +296,8 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     'out-of-range offsetAlong reported');
   assert(hasProblem(problems, 'mysteryModule', 'utilityPorts.weird', 'maxConnections'),
     'non-positive connection capacity reported');
+  assert(hasProblem(problems, 'mysteryModule', 'utilityPorts.weird', 'tracksDownstreamDemand'),
+    'dynamic downstream demand is restricted to rated HV sink ports');
   // mysteryModule requires powerCable but its only port spec is invalid →
   // no powerCable sink.
   assert(hasProblem(problems, 'mysteryModule', 'requiredConnections', "'powerCable'"),
