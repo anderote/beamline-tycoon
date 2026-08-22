@@ -284,6 +284,19 @@ function anchorTip(anchor) {
   };
 }
 
+// A top-facing cryogenic bayonet cannot use the ordinary port riser: dropping
+// at the anchor's X/Z sends the transfer line vertically through the cryostat.
+// Its simulation port remains on the authored footprint side, which is an
+// ideal presentation-only landing point for the descent outside the vessel.
+function cryoSideDropLanding(utilityType, ref, placeablesById, anchor) {
+  if (utilityType !== 'cryoTransfer' || !ref || !placeablesById || !anchor) return null;
+  if (!anchor.out || anchor.out.y < 0.5) return null;
+  const rec = placeablesById.get(ref.placeableId);
+  const def = rec && COMPONENTS[rec.type];
+  const landing = rec && def ? portWorldPosition(rec, def, ref.portName) : null;
+  return landing ? { x: landing.x, z: landing.z } : null;
+}
+
 /** HV spans shed drawn slack when either end is held by tensioning hardware. */
 export function isTensionedHvCable(line, placeablesById) {
   if (line?.utilityType !== 'hvCable') return false;
@@ -385,8 +398,21 @@ export function buildWorldPoints(line, placeablesById, tapAnchors = null) {
   if (line.utilityType === 'rfWaveguide') {
     return attachWaveguideTransitions(points, startAnchor, endAnchor, runY, descriptor);
   }
-  alignTerminalToTarget(points, 'start', startAnchor);
-  alignTerminalToTarget(points, 'end', endAnchor);
+  const startSideDrop = cryoSideDropLanding(
+    line.utilityType, line.start, placeablesById, startAnchor);
+  const endSideDrop = cryoSideDropLanding(
+    line.utilityType, line.end, placeablesById, endAnchor);
+  const alignedShortRun = (startSideDrop || endSideDrop)
+    && alignTwoPointRunToTargets(
+      points,
+      startSideDrop || startAnchor,
+      endSideDrop || endAnchor,
+      runY,
+    );
+  if (!alignedShortRun) {
+    alignTerminalToTarget(points, 'start', startSideDrop || startAnchor);
+    alignTerminalToTarget(points, 'end', endSideDrop || endAnchor);
+  }
 
   // At each end the floor run reaches the connector's X/Z, climbs the device,
   // and steps out into its fitting. Two-point legacy lines cannot slide a
@@ -395,11 +421,13 @@ export function buildWorldPoints(line, placeablesById, tapAnchors = null) {
   const startRunPoint = points[0];
   const endRunPoint = points[points.length - 1];
   const startRiser = line.start
-    ? portRiser(line.start, placeablesById, runY, startRunPoint, startAnchor)
+    ? portRiser(
+        line.start, placeablesById, runY, startRunPoint, startAnchor, startSideDrop)
     : busTapRiser(tapAnchors?.start, runY, startRunPoint);
   if (startRiser) points.splice(0, 1, ...startRiser.slice().reverse());
   const endRiser = line.end
-    ? portRiser(line.end, placeablesById, runY, endRunPoint, endAnchor)
+    ? portRiser(
+        line.end, placeablesById, runY, endRunPoint, endAnchor, endSideDrop)
     : busTapRiser(tapAnchors?.end, runY, endRunPoint);
   if (endRiser && points.length > 0) points.splice(points.length - 1, 1, ...endRiser);
   return points;
@@ -434,7 +462,9 @@ function busTapRiser(anchor, runY, runPoint) {
 // shifting its opposite endpoint. It reconciles that mismatch without a
 // diagonal or a U-turn through the old endpoint.
 // Ordered run-first; the start end reverses it.
-function portRiser(ref, placeablesById, runY, runPoint, resolvedAnchor) {
+function portRiser(
+  ref, placeablesById, runY, runPoint, resolvedAnchor, sideDropLanding = null,
+) {
   if (!ref || !placeablesById) return null;
   const rec = placeablesById.get(ref.placeableId);
   if (!rec) return null;
@@ -454,6 +484,16 @@ function portRiser(ref, placeablesById, runY, runPoint, resolvedAnchor) {
   };
 
   pushDistinct(logical.x, runY, logical.z);
+  if (sideDropLanding && out.y > 0.5) {
+    // Ordered run-first: rise outside the footprint, cross above the roof, and
+    // terminate at the top of the bayonet. Reversing this list at a start port
+    // naturally produces the requested "out to the side, then down" shape.
+    const tipY = anchor.y + out.y * d;
+    pushDistinct(logical.x, tipY, logical.z);
+    pushDistinct(anchor.x, tipY, logical.z);
+    pushDistinct(anchor.x, tipY, anchor.z);
+    return tail;
+  }
   // Move tangentially while still on the footprint boundary, then radially
   // inward to the shell. `out` is cardinal, so every emitted leg changes one
   // coordinate only. The boundary route also keeps the bridge out from under

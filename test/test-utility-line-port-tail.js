@@ -133,6 +133,45 @@ console.log('\n--- 3. A shared L corner absorbs both measured endpoints ---');
   assert(isOrthogonal(points), 'moving both ends keeps the shared corner Manhattan');
 }
 
+console.log('\n--- 4. A top cryo bayonet drops outside its cryostat ---');
+{
+  const cryostat = {
+    id: 'cryo', type: 'srf650Cryomodule', category: 'beamline',
+    col: 10, row: 10, subCol: -0.5, subRow: -2.5, dir: 0, isPlacement: true,
+  };
+  const cryoDef = COMPONENTS[cryostat.type];
+  const cryoRef = { placeableId: cryostat.id, portName: 'cryo_in' };
+  const cryoAnchor = portAnchor3D(cryostat, cryoDef, cryoRef.portName);
+  const sideLanding = portWorldPosition(cryostat, cryoDef, cryoRef.portName);
+  const anchorTile = { col: cryoAnchor.x / 2, row: cryoAnchor.z / 2 };
+  const cryoEndpoints = new Map([[cryostat.id, cryostat]]);
+  const points = buildWorldPoints({
+    utilityType: 'cryoTransfer', start: null, end: cryoRef,
+    path: [
+      { col: anchorTile.col - 3, row: anchorTile.row - 2 },
+      { col: anchorTile.col - 1, row: anchorTile.row - 2 },
+      { col: anchorTile.col - 1, row: anchorTile.row },
+      anchorTile,
+    ],
+  }, cryoEndpoints);
+  const tipY = cryoAnchor.y + cryoAnchor.out.y * cryoAnchor.standoff;
+  const verticals = points.slice(1).map((point, index) => [points[index], point])
+    .filter(([a, b]) => Math.abs(a.y - b.y) > 1e-6);
+
+  assert(isOrthogonal(points), 'the side-drop transition remains fully orthogonal');
+  assert(points.some(point => Math.abs(point.x - cryoAnchor.x) < 1e-6
+      && Math.abs(point.y - tipY) < 1e-6
+      && Math.abs(point.z - cryoAnchor.z) < 1e-6),
+    'the line still terminates on the visible top bayonet');
+  assert(verticals.length === 1
+      && Math.abs(verticals[0][0].x - sideLanding.x) < 1e-6
+      && Math.abs(verticals[0][0].z - sideLanding.z) < 1e-6,
+    `the only descent is at the footprint side (${sideLanding.x}, ${sideLanding.z})`);
+  assert(verticals.every(([a]) => Math.abs(a.x - cryoAnchor.x) > 1e-6
+      || Math.abs(a.z - cryoAnchor.z) > 1e-6),
+    'no vertical transfer-line segment passes through the cryostat body');
+}
+
 setModelBoundsProvider(null);
 setShellMeasureProvider(null);
 
