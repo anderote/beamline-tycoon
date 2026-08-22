@@ -215,7 +215,7 @@ export function canPlace(
     }
     // The universal bus is a drawn connection rather than a placeable, so it
     // has no entry in subgridOccupied. Its floor-standing service spine still
-    // owns the narrow strip beneath the tray; equipment remains free to build
+    // owns the narrow strip beneath the rack; equipment remains free to build
     // flush alongside that strip.
     if (level === 0) {
       const blockedKeys = new Set(blocked.map(cellKey));

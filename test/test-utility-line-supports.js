@@ -84,23 +84,23 @@ for (const utilityType of ['rfWaveguide', 'cryoTransfer', 'vacuumPipe']) {
   builder.dispose(parent);
 }
 
-console.log('\n--- 4. Elevated route lanes carry their geometry and supports upward ---');
+console.log('\n--- 4. Fixed datums ignore retired per-line lane values ---');
 {
   const elevatedHeight = 1.14;
   const { builder, parent } = build('vacuumPipe', 4, elevatedHeight);
   const supports = collect(parent, object => object.userData?.isUtilitySupport);
   assert(supports.length > 0 && supports.every(
-    support => support.userData.centerlineHeight === elevatedHeight
-      && support.userData.legHeight > elevatedHeight / 2,
-  ), 'auto-placed vacuum support struts rise to the selected rack lane');
+    support => support.userData.centerlineHeight === utilityLineHeight('vacuumPipe'),
+  ), 'vacuum support struts stay on the canonical service datum');
 
   const points = buildWorldPoints({
     utilityType: 'vacuumPipe', routeHeightMeters: elevatedHeight,
     start: null, end: null,
     path: [{ col: 0, row: 0 }, { col: 4, row: 0 }],
   }, new Map());
-  assert(points.length >= 2 && points.every(point => point.y === elevatedHeight),
-    'the rigid line centerline renders at its stored route elevation');
+  assert(points.length >= 2
+      && points.every(point => point.y === utilityLineHeight('vacuumPipe')),
+    'the rigid line centerline ignores its obsolete stored route elevation');
   builder.dispose(parent);
 }
 
@@ -115,8 +115,8 @@ console.log('\n--- 4. Elevated route lanes carry their geometry and supports upw
   }, parent);
   const supports = collect(parent, object => object.userData?.isUtilitySupport);
   assert(supports.length > 0 && supports.every(
-    support => support.userData.centerlineHeight === elevatedHeight,
-  ), 'the live cryogenic preview shows struts at its proposed lane height');
+    support => support.userData.centerlineHeight === utilityLineHeight('cryoTransfer'),
+  ), 'the live cryogenic preview stays on its fixed datum');
   builder.dispose(parent);
 }
 

@@ -205,9 +205,12 @@ console.log('\n--- 6. An aligned klystron and NC cavity build one straight guide
   const points = buildWorldPoints(line, new Map([
     [klystron.id, klystron], [cavity.id, cavity],
   ]));
-  assert(points.length >= 4
-      && points.every(point => near(point.y, startAnchor.y) && near(point.z, start.z)),
-    'the complete launcher-to-launcher guide stays level on one plan axis');
+  assert(points.length >= 6
+      && points.every(point => near(point.z, start.z))
+      && points.some(point => near(point.y, utilityLineHeight('rfWaveguide')))
+      && near(points[0].y, startAnchor.y)
+      && near(points.at(-1).y, endAnchor.y),
+    'aligned launchers transition locally to the fixed RF route datum');
   assert(points.every((point, index) => index === 0 || point.x >= points[index - 1].x - 1e-6),
     'the straight two-point route never doubles back through either launcher');
   setModelBoundsProvider(null);

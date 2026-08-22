@@ -19,6 +19,8 @@ import { UTILITY_TYPES, UTILITY_TYPE_LIST, utilityLineHeight } from '../utility/
 import {
   UNIVERSAL_BUS_DECK_Y,
   UNIVERSAL_BUS_HALF_WIDTH_METERS,
+  UNIVERSAL_BUS_LANE_LIST,
+  UNIVERSAL_RACK_TOP_Y,
   universalBusLane,
 } from '../utility/universal-bus-layout.js';
 import { UTILITY_LINE_Y } from '../utility/line-geometry.js';
@@ -108,23 +110,35 @@ function buildUniversalBusPreview(points, valid = true) {
     const ox = -dz / length * UNIVERSAL_BUS_HALF_WIDTH;
     const oz = dx / length * UNIVERSAL_BUS_HALF_WIDTH;
     for (const side of [-1, 1]) {
-      const rail = buildRectSegment(
-        new THREE.Vector3(a.x + ox * side, a.y + 0.06, a.z + oz * side),
-        new THREE.Vector3(b.x + ox * side, b.y + 0.06, b.z + oz * side),
-        0.06, 0.16, material,
-      );
-      if (rail) group.add(rail);
+      for (const y of [UNIVERSAL_BUS_DECK_Y, UNIVERSAL_RACK_TOP_Y]) {
+        const rail = buildRectSegment(
+          new THREE.Vector3(a.x + ox * side, y, a.z + oz * side),
+          new THREE.Vector3(b.x + ox * side, y, b.z + oz * side),
+          0.045, 0.07, material,
+        );
+        if (rail) group.add(rail);
+      }
     }
-    const rungCount = Math.max(1, Math.floor(length));
-    for (let rung = 0; rung <= rungCount; rung++) {
-      const t = rung / rungCount;
+    const frameCount = Math.max(1, Math.floor(length));
+    for (let frame = 0; frame <= frameCount; frame++) {
+      const t = frame / frameCount;
       const x = a.x + dx * t, z = a.z + dz * t;
-      const crossbar = buildRectSegment(
-        new THREE.Vector3(x - ox * 1.25, a.y, z - oz * 1.25),
-        new THREE.Vector3(x + ox * 1.25, a.y, z + oz * 1.25),
-        0.055, 0.045, material,
-      );
-      if (crossbar) group.add(crossbar);
+      for (const side of [-1, 1]) {
+        const post = buildRectSegment(
+          new THREE.Vector3(x + ox * side, 0.03, z + oz * side),
+          new THREE.Vector3(x + ox * side, UNIVERSAL_RACK_TOP_Y, z + oz * side),
+          0.045, 0.045, material,
+        );
+        if (post) group.add(post);
+      }
+      for (const lane of UNIVERSAL_BUS_LANE_LIST) {
+        const crossbar = buildRectSegment(
+          new THREE.Vector3(x - ox, lane.runY - 0.10, z - oz),
+          new THREE.Vector3(x + ox, lane.runY - 0.10, z + oz),
+          0.04, 0.04, material,
+        );
+        if (crossbar) group.add(crossbar);
+      }
     }
   }
   return group.children.length > 0 ? group : null;
@@ -433,8 +447,8 @@ export function buildWorldPoints(line, placeablesById, tapAnchors = null) {
   return points;
 }
 
-// The rack's logical tap is an open line endpoint, but its visible socket is
-// raised above the tray. Give rigid branches the same orthogonal rise that a
+// The rack's logical tap is an open line endpoint, but its visible socket sits
+// on a vertical service slot. Give branches the same orthogonal transition a
 // component port receives so the pipe visibly plugs into the populated lane.
 function busTapRiser(anchor, runY, runPoint) {
   if (!anchor || !runPoint) return null;
@@ -1125,7 +1139,7 @@ function busTapAnchor(line, which, lineById) {
   const dx = last.col - first.col, dz = last.row - first.row;
   const length = Math.hypot(dx, dz) || 1;
   const lane = universalBusLane(backbone.utilityType);
-  const offset = lane?.lateral ?? 0;
+  const offset = lane?.portLateral ?? lane?.lateral ?? 0;
   const endpoint = which === 'start' ? branchPath[0] : branchPath[branchPath.length - 1];
   return {
     x: endpoint.col * 2 - dz / length * offset,
@@ -1149,6 +1163,7 @@ function buildLineGroup(
     : buildWorldPoints(line, placeablesById, tapAnchors));
   if (points.length < 2) return null;
   let busOffsetX = 0, busOffsetZ = 0;
+  let busPortOffsetX = 0, busPortOffsetZ = 0;
   const busLane = busChannel ? universalBusLane(line.utilityType) : null;
   if (busChannel) {
     const offset = busLane?.lateral ?? 0;
@@ -1157,6 +1172,8 @@ function buildLineGroup(
     const length = Math.hypot(dx, dz) || 1;
     busOffsetX = -dz / length * offset;
     busOffsetZ = dx / length * offset;
+    busPortOffsetX = -dz / length * (busLane?.portLateral ?? offset);
+    busPortOffsetZ = dx / length * (busLane?.portLateral ?? offset);
     for (const point of points) {
       point.x += busOffsetX;
       point.z += busOffsetZ;
@@ -1176,7 +1193,7 @@ function buildLineGroup(
     ...(busChannel ? {
       isUniversalUtilityBus: true,
       busId: line.manifold.busId,
-      channelSlot: line.manifold.slot,
+      channelSlot: busLane?.slot ?? line.manifold.slot,
       busLaneTier: busLane?.tier || null,
     } : {}),
   };
@@ -1332,39 +1349,50 @@ function buildLineGroup(
       if (!point) continue;
       const x = (point.col + (point.subCol || 0) / 4) * 2 + busOffsetX;
       const z = (point.row + (point.subRow || 0) / 4) * 2 + busOffsetZ;
-      const baseY = busChannel ? (busLane?.runY ?? 0.79) : runY;
-      const portTopY = busChannel ? (busLane?.portY ?? 0.95) : runY + 0.12;
+      const baseY = busChannel ? (busLane?.runY ?? runY) : runY;
+      const portTopY = busChannel ? (busLane?.portY ?? runY) : runY + 0.12;
       const port = new THREE.Group();
       port.userData = {
         isUtilityManifoldTap: true,
         isUniversalUtilityBusPort: busChannel,
         utilityType: line.utilityType,
         busId: line.manifold.busId || null,
-        channelSlot: line.manifold.slot ?? null,
+        channelSlot: busLane?.slot ?? line.manifold.slot ?? null,
         tapId: tap.id || null,
       };
+      const portX = busChannel ? x + busPortOffsetX : x;
+      const portZ = busChannel ? z + busPortOffsetZ : z;
       const stem = buildCylinderSegment(
         new THREE.Vector3(x, baseY, z),
-        new THREE.Vector3(x, portTopY, z),
+        new THREE.Vector3(portX, portTopY, portZ),
         Math.max(0.018, radius * 0.48), hardwareMat,
       );
       if (stem) port.add(stem);
       if (style === 'rectWaveguide') {
-        const socket = new THREE.Mesh(
-          new THREE.BoxGeometry(Math.max(0.1, radius * 2.5), 0.045,
-            Math.max(0.075, radius * 1.9)),
-          hardwareMat,
+        const direction = new THREE.Vector3(
+          busChannel ? busPortOffsetX : 0,
+          busChannel ? 0 : portTopY - baseY,
+          busChannel ? busPortOffsetZ : 0,
+        ).normalize();
+        const socket = buildRectSegment(
+          new THREE.Vector3(portX, portTopY, portZ).addScaledVector(direction, -0.035),
+          new THREE.Vector3(portX, portTopY, portZ).addScaledVector(direction, 0.035),
+          Math.max(0.1, radius * 2.5), Math.max(0.075, radius * 1.9), hardwareMat,
         );
-        socket.position.set(x, portTopY, z);
-        port.add(socket);
+        if (socket) port.add(socket);
       } else {
         const socketRadius = Math.max(0.04, radius * 1.32);
-        const socket = new THREE.Mesh(
-          new THREE.CylinderGeometry(socketRadius, socketRadius, 0.04, 12),
-          hardwareMat,
+        const direction = new THREE.Vector3(
+          busChannel ? busPortOffsetX : 0,
+          busChannel ? 0 : portTopY - baseY,
+          busChannel ? busPortOffsetZ : 0,
+        ).normalize();
+        const socket = buildCylinderSegment(
+          new THREE.Vector3(portX, portTopY, portZ).addScaledVector(direction, -0.025),
+          new THREE.Vector3(portX, portTopY, portZ).addScaledVector(direction, 0.025),
+          socketRadius, hardwareMat,
         );
-        socket.position.set(x, portTopY, z);
-        port.add(socket);
+        if (socket) port.add(socket);
       }
       group.add(port);
     }
@@ -1903,31 +1931,23 @@ export class UtilityLineBuilderV2 {
       if (old) { parentGroup.remove(old); this._disposeGroup(old); }
       const group = new THREE.Group();
       const material = universalBusMaterial();
-      const y = UNIVERSAL_BUS_DECK_Y;
       for (let i = 0; i < bus.path.length - 1; i++) {
         const aw = tileToWorld(bus.path[i]), bw = tileToWorld(bus.path[i + 1]);
-        const a = new THREE.Vector3(aw.x, y, aw.z);
-        const b = new THREE.Vector3(bw.x, y, bw.z);
+        const a = new THREE.Vector3(aw.x, 0, aw.z);
+        const b = new THREE.Vector3(bw.x, 0, bw.z);
         const dx = b.x - a.x, dz = b.z - a.z;
         const length = Math.hypot(dx, dz) || 1;
         const ox = -dz / length * UNIVERSAL_BUS_HALF_WIDTH;
         const oz = dx / length * UNIVERSAL_BUS_HALF_WIDTH;
         for (const side of [-1, 1]) {
-          group.add(buildRectSegment(
-            new THREE.Vector3(a.x + ox * side, y + 0.06, a.z + oz * side),
-            new THREE.Vector3(b.x + ox * side, y + 0.06, b.z + oz * side),
-            0.06, 0.16, material,
-          ));
-        }
-        const rungCount = Math.max(1, Math.floor(length));
-        for (let rung = 0; rung <= rungCount; rung++) {
-          const t = rung / rungCount;
-          const x = a.x + dx * t, z = a.z + dz * t;
-          group.add(buildRectSegment(
-            new THREE.Vector3(x - ox * 1.04, y - 0.04, z - oz * 1.04),
-            new THREE.Vector3(x + ox * 1.04, y - 0.04, z + oz * 1.04),
-            0.055, 0.045, material,
-          ));
+          for (const railY of [UNIVERSAL_BUS_DECK_Y, UNIVERSAL_RACK_TOP_Y]) {
+            const rail = buildRectSegment(
+              new THREE.Vector3(a.x + ox * side, railY, a.z + oz * side),
+              new THREE.Vector3(b.x + ox * side, railY, b.z + oz * side),
+              0.045, 0.07, material,
+            );
+            if (rail) group.add(rail);
+          }
         }
       }
       for (const tap of bus.taps || []) {
@@ -1940,8 +1960,9 @@ export class UtilityLineBuilderV2 {
         const hanger = new THREE.Group();
         hanger.userData.isUniversalUtilityBusHanger = true;
         for (const lateral of [-UNIVERSAL_BUS_HALF_WIDTH, UNIVERSAL_BUS_HALF_WIDTH]) {
-          const rod = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.62, 0.045), material);
-          rod.position.set(vertical ? w.x + lateral : w.x, 0.31,
+          const rodHeight = UNIVERSAL_RACK_TOP_Y - 0.04;
+          const rod = new THREE.Mesh(new THREE.BoxGeometry(0.045, rodHeight, 0.045), material);
+          rod.position.set(vertical ? w.x + lateral : w.x, 0.04 + rodHeight / 2,
             vertical ? w.z : w.z + lateral);
           hanger.add(rod);
           const foot = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.04, 0.18), material);
@@ -1949,10 +1970,14 @@ export class UtilityLineBuilderV2 {
             vertical ? w.z : w.z + lateral);
           hanger.add(foot);
         }
-        const trapeze = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.045, 0.055), material);
-        trapeze.position.set(w.x, 0.64, w.z);
-        if (vertical) trapeze.rotation.y = Math.PI / 2;
-        hanger.add(trapeze);
+        for (const lane of UNIVERSAL_BUS_LANE_LIST) {
+          const shelf = new THREE.Mesh(new THREE.BoxGeometry(
+            UNIVERSAL_BUS_HALF_WIDTH * 2 + 0.08, 0.04, 0.055), material);
+          shelf.position.set(w.x, Math.max(0.10, lane.runY - 0.10), w.z);
+          if (vertical) shelf.rotation.y = Math.PI / 2;
+          shelf.userData.universalRackSlot = lane.slot;
+          hanger.add(shelf);
+        }
         group.add(hanger);
       }
       group.userData = { isUniversalUtilityBus: true, busId: bus.id };

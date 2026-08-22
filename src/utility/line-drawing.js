@@ -4,7 +4,7 @@
 // shape of src/beamline/pipe-drawing.js but with these differences:
 //   - Paths may contain 90° Manhattan bends (no diagonals).
 //   - Loose utilities overlap independently; fabricated rigid services may
-//     share plan routes when their explicit vertical lanes have clearance.
+//     share plan routes when their fixed utility elevations have clearance.
 //   - Endpoints reference placeables via `placeableId` (not `junctionId`).
 //   - Rejection reasons are utility-specific and distinguish start/end port
 //     alignment failures.
@@ -15,7 +15,7 @@
 //   port_mismatch_start, port_mismatch_end.
 
 import { COMPONENTS } from '../data/components.js';
-import { UTILITY_TYPES } from './registry.js';
+import { UTILITY_TYPES, utilityLineHeight } from './registry.js';
 import {
   getPortSpec,
   availablePorts,
@@ -29,11 +29,9 @@ import {
 } from './line-geometry.js';
 import { buildRigidRouteObstacles, rigidUtilitiesConflict } from './route-obstacles.js';
 import {
-  routeHeightCandidates,
   routeHeightForLine,
   routeHeightsConflict,
-  tappedRouteHeight,
-  usesVerticalRouteLanes,
+  usesFixedRouteHeight,
 } from './route-elevation.js';
 import { findUtilityEndpoint } from './utility-endpoints.js';
 import {
@@ -177,11 +175,11 @@ function pathOverlapReason(newPath, lines, utilityType, opts = {}) {
     if (!line) continue;
     const sameType = line.utilityType === utilityType;
     const rigidConflict = rigidUtilitiesConflict(utilityType, line.utilityType);
-    const lanePair = usesVerticalRouteLanes(utilityType)
-      && usesVerticalRouteLanes(line.utilityType);
-    const physicalConflict = rigidConflict || lanePair;
+    const fixedHeightPair = usesFixedRouteHeight(utilityType)
+      && usesFixedRouteHeight(line.utilityType);
+    const physicalConflict = rigidConflict || fixedHeightPair;
     if (!sameType && !physicalConflict) continue;
-    if (lanePair && Number.isFinite(newRouteHeight)
+    if (fixedHeightPair && Number.isFinite(newRouteHeight)
         && !routeHeightsConflict(
           utilityType, newRouteHeight,
           line.utilityType, routeHeightForLine(line),
@@ -239,9 +237,9 @@ function pathOverlapReason(newPath, lines, utilityType, opts = {}) {
     // for that existing line.
     // Loose lines may share a tray out of a common source. A rigid service may
     // share the connector point but cannot be laid invisibly inside an already
-    // installed pipe/guide; its next subtile must choose another lane.
+    // installed pipe/guide; its next subtile must choose another plan route.
     if (skipEndpoint && !newDescriptor.avoidRigidIntersections
-        && !usesVerticalRouteLanes(utilityType)) continue;
+        && !usesFixedRouteHeight(utilityType)) continue;
     const existing = expandPath(line.path || []);
     for (let k = 0; k < sharedExistingIndices.length; k++) {
       if (sharedExistingIndices[k] < 0) sharedExistingIndices[k] = existing.length - 1;
@@ -441,7 +439,6 @@ function portConnectionCount(state, placeableId, portName) {
 
 export function validateDrawLine(state, {
   utilityType, start, end, path, tapLineIds, cablePath,
-  routeHeightMeters, preferredRouteHeightMeters,
 } = {}) {
   // Path shape.
   if (!Array.isArray(path) || path.length < 2) return reject('invalid_path');
@@ -568,38 +565,15 @@ export function validateDrawLine(state, {
   // Their visible route owns the actual network join position in discovery.
   let resolvedRouteHeight = null;
   if (!softCableSkipsOverlap(utilityType)) {
-    if (usesVerticalRouteLanes(utilityType)) {
-      const tapped = tappedRouteHeight(lines, tapLineIds, utilityType);
-      if (tapped.mismatch) return reject('route_height_mismatch');
-      if (Number.isFinite(routeHeightMeters)
-          && Number.isFinite(tapped.height)
-          && Math.abs(routeHeightMeters - tapped.height) > EPS) {
-        return reject('route_height_mismatch');
-      }
-      const candidates = Number.isFinite(routeHeightMeters)
-        ? [routeHeightMeters]
-        : Number.isFinite(tapped.height)
-          ? [tapped.height]
-          : routeHeightCandidates(utilityType, preferredRouteHeightMeters);
-      const autoSelectingLane = !Number.isFinite(routeHeightMeters)
-        && !Number.isFinite(tapped.height);
-      let overlapReason = null;
-      for (const candidate of candidates) {
-        const reason = pathOverlapReason(path, lines, utilityType, {
-          ignoreSharedSource, tapLineIds, start, end, routeHeightMeters: candidate,
-        });
-        if (!reason) {
-          resolvedRouteHeight = candidate;
-          overlapReason = null;
-          break;
-        }
-        overlapReason = overlapReason || reason;
-      }
-      if (overlapReason || !Number.isFinite(resolvedRouteHeight)) {
-        return reject(autoSelectingLane
-          ? 'route_height_exhausted'
-          : (overlapReason || 'route_height_exhausted'));
-      }
+    if (usesFixedRouteHeight(utilityType)) {
+      // Ignore caller- or save-authored lane values. One utility means one
+      // physical elevation; endpoint hardware meets it through a local riser.
+      resolvedRouteHeight = utilityLineHeight(utilityType);
+      const overlapReason = pathOverlapReason(path, lines, utilityType, {
+        ignoreSharedSource, tapLineIds, start, end,
+        routeHeightMeters: resolvedRouteHeight,
+      });
+      if (overlapReason) return reject(overlapReason);
     } else {
       const overlapReason = pathOverlapReason(
         path, lines, utilityType, { ignoreSharedSource, tapLineIds, start, end });
@@ -660,6 +634,4 @@ export const REASONS = Object.freeze({
   port_mismatch_start: 'port_mismatch_start',
   port_mismatch_end: 'port_mismatch_end',
   invalid_port_pair: 'invalid_port_pair',
-  route_height_mismatch: 'route_height_mismatch',
-  route_height_exhausted: 'route_height_exhausted',
 });

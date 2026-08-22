@@ -148,8 +148,6 @@ export const REASON_MESSAGES = {
   not_manhattan:        'path must use 90° bends only',
   overlap_same_type:    'another line of this type already runs here',
   overlap_rigid_service:'a rigid service already occupies that route',
-  route_height_mismatch:'those tapped services are on different height lanes',
-  route_height_exhausted:'the service rack has no free height lane',
   blocked_by_equipment: 'that route passes through installed equipment',
   wall_pass_through_required: 'electrical cables need a wall feedthrough here',
   bend_too_tight:       'waveguide elbows need a longer straight approach',

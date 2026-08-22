@@ -67,7 +67,7 @@ const PORT_SNAP_RADIUS_PX = 42;
 // would steal clicks meant for the port at the end of it.
 const TAP_SNAP_RADIUS_TILES = 0.65;
 // Rack access points are one tile apart. A radius above half that pitch makes
-// the whole visible tray magnetic instead of leaving frustrating dead strips
+// the whole visible rack magnetic instead of leaving frustrating dead strips
 // between adjacent rungs when mesh raycasting is unavailable.
 const BUS_SNAP_RADIUS_TILES = 0.65;
 
@@ -182,24 +182,14 @@ export class UtilityLineInputController {
   // and `cost` for the drag tooltip.
   get runPlan() { return this._runPlan; }
 
-  // Plane used by UtilityLineTool while a rigid service is being drawn. A
-  // port-anchored route begins at that connector's measured height; once the
-  // validator lifts it over an occupied run, the cursor follows the selected
-  // lane so preview and pointer do not drift apart under the isometric camera.
+  // Plane used by UtilityLineTool while a service is being drawn. Fixed rigid
+  // utilities always return their facility datum; flexible bus channels may
+  // temporarily supply the rack slot height through the preview.
   get drawHeight() {
-    const descriptor = UTILITY_TYPES[this._utilityType];
-    if (!descriptor?.verticalRouteLanes) return utilityLineHeight(this._utilityType);
     const previewHeight = this._preview?.routeHeightMeters;
-    if (descriptor.routeAtBaseHeight) {
-      return utilityLineHeight(
-        this._utilityType,
-        Number.isFinite(previewHeight) ? previewHeight : null,
-      );
-    }
-    const startHeight = this._drawStart?.routeHeightMeters ?? this._drawStart?.anchor?.y;
     return utilityLineHeight(
       this._utilityType,
-      Number.isFinite(previewHeight) ? previewHeight : startHeight,
+      Number.isFinite(previewHeight) ? previewHeight : null,
     );
   }
 
@@ -569,28 +559,11 @@ export class UtilityLineInputController {
     // having anyway — past that the shapes are getting long and ugly enough
     // that refusing and saying why beats committing one of them.
     const limit = Math.min(candidates.length, MAX_ROUTE_CANDIDATES);
-    // A port-to-port fabricated run belongs to both connectors, so its first
-    // rack lane must not depend on which end the player happened to grab.
-    // Starting at a lower RF source (notably the compact TWT) used to choose
-    // that output's height even when the cavity input was higher; the guide
-    // visibly dropped toward the deck only to climb again at the sink. Prefer
-    // the higher endpoint so the free run clears both fittings. Explicit line
-    // taps remain authoritative in validateDrawLine and pin the branch to the
-    // tapped trunk's saved lane.
-    const endpointRouteHeights = [this._drawStart, endAnchor]
-      .map(anchor => anchor?.routeHeightMeters ?? anchor?.anchor?.y)
-      .filter(Number.isFinite);
-    const preferredRouteHeightMeters = descriptor.verticalRouteLanes
-      ? (descriptor.routeAtBaseHeight
-          ? utilityLineHeight(this._utilityType)
-          : (endpointRouteHeights.length > 0 ? Math.max(...endpointRouteHeights) : null))
-      : null;
     for (let i = 0; i < limit; i++) {
       const path = snapPath(candidates[i]);
       const res = validateDrawLine(this.game.state, {
         utilityType: this._utilityType, start: startRef, end: endRef, path, tapLineIds,
         cablePath: isSoftCable(this._utilityType) ? this._cableTrace : null,
-        preferredRouteHeightMeters,
       });
       if (res.ok) {
         chosen = path;
@@ -624,7 +597,6 @@ export class UtilityLineInputController {
         const path = snapPath(detour);
         const res = validateDrawLine(this.game.state, {
           utilityType: this._utilityType, start: startRef, end: endRef, path, tapLineIds,
-          preferredRouteHeightMeters,
         });
         if (res.ok) {
           chosen = path;
@@ -645,7 +617,7 @@ export class UtilityLineInputController {
       startTile, endTile, endAnchor, startRef, endRef, tapLineIds, busTapIds,
       path: chosen || routedFallback,
       routeHeightMeters: chosenRouteHeight
-        ?? (descriptor.verticalRouteLanes ? preferredRouteHeightMeters : null),
+        ?? (descriptor.fixedRouteHeight ? utilityLineHeight(this._utilityType) : null),
     };
   }
 
@@ -766,7 +738,7 @@ export class UtilityLineInputController {
   _snapToNearest(worldX, worldY, screen) {
     const port = this._snapToNearestPort(worldX, worldY, screen);
     if (port) return port;
-    // The rack rides above the floor. A click on its visible mesh projects to
+    // The rack rises above the floor. A click on its visible mesh projects to
     // a different ground coordinate in an isometric camera, so resolve that
     // mesh hit before using the plan-view proximity fallback. Any utility tool
     // can claim the resulting access point; UniversalUtilityBusSystem assigns

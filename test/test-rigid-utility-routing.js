@@ -26,7 +26,7 @@ function pointKey(point) {
   return `${Math.round(point.col * 4)}:${Math.round(point.row * 4)}`;
 }
 
-console.log('\n--- 1. Rigid services share plan routes on automatic height lanes ---');
+console.log('\n--- 1. Rigid services use fixed utility elevations ---');
 {
   const state = {
     placeables: [], beamPipes: [],
@@ -39,8 +39,10 @@ console.log('\n--- 1. Rigid services share plan routes on automatic height lanes
     utilityType: 'vacuumPipe', start: null, end: null,
     path: [{ col: 0, row: 0 }, { col: 4, row: 0 }],
   });
-  assert(crossed.ok && crossed.line.routeHeightMeters > routeHeightForLine(state.utilityLines.get('rf')),
-    `vacuum automatically lifts over the waveguide (${crossed.line.routeHeightMeters} m)`);
+  assert(crossed.ok
+      && crossed.line.routeHeightMeters === utilityLineHeight('vacuumPipe')
+      && crossed.line.routeHeightMeters > routeHeightForLine(state.utilityLines.get('rf')),
+    `vacuum crosses RF on its fixed datum (${crossed.line.routeHeightMeters} m)`);
 
   const cable = validateDrawLine(state, {
     utilityType: 'powerCable', start: null, end: null,
@@ -59,9 +61,8 @@ console.log('\n--- 1. Rigid services share plan routes on automatic height lanes
     utilityType: 'vacuumPipe', start: null, end: null,
     path: [{ col: 2, row: -2 }, { col: 2, row: 2 }],
   });
-  assert(duplicateVacuum.ok
-      && duplicateVacuum.line.routeHeightMeters > routeHeightForLine(vacuumState.utilityLines.get('trunk')),
-    `a second vacuum run takes the next support-rack lane (${duplicateVacuum.line.routeHeightMeters} m)`);
+  assert(!duplicateVacuum.ok && duplicateVacuum.reason === 'overlap_same_type',
+    'an unrelated same-utility crossing is rejected instead of inventing another height');
   const tee = validateDrawLine(vacuumState, {
     utilityType: 'vacuumPipe', start: null, end: null,
     path: [{ col: 2, row: 0 }, { col: 2, row: 2 }],
@@ -81,22 +82,20 @@ console.log('\n--- 1. Rigid services share plan routes on automatic height lanes
     placeables: [], beamPipes: [], utilityLines: new Map(),
   }, {
     utilityType: 'cryoTransfer', start: null, end: null,
-    preferredRouteHeightMeters: 0.72,
     path: [{ col: 0, row: 8 }, { col: 4, row: 8 }],
   });
   assert(portLed.ok && portLed.line.routeHeightMeters === utilityLineHeight('cryoTransfer'),
-    'a base-routed fabricated service ignores an elevated connector preference');
+    'cryo always resolves to its fixed service datum');
 
   const vacuumPortLed = validateDrawLine({
     placeables: [], beamPipes: [], utilityLines: new Map(),
   }, {
     utilityType: 'vacuumPipe', start: null, end: null,
-    preferredRouteHeightMeters: 0.72,
     path: [{ col: 0, row: 10 }, { col: 4, row: 10 }],
   });
   assert(vacuumPortLed.ok
       && vacuumPortLed.line.routeHeightMeters === utilityLineHeight('vacuumPipe'),
-    'vacuum starts on its stable low rack instead of inventing a connector-height lane');
+    'vacuum always resolves to its fixed service datum');
 
   const stackedLines = new Map([['vac', {
     id: 'vac', utilityType: 'vacuumPipe', start: null, end: null,
@@ -138,8 +137,8 @@ console.log('\n--- 2. Board-aware search finds the service aisle around a blocke
     { col: 4, row: 0 }, null,
     { blocked: obstacles.isBlocked, bendPenalty: 1.5 },
   );
-  assert(route && route.length === 2,
-    `installed service lines no longer force a 2D detour (${JSON.stringify(route)})`);
+  assert(route && route.length > 2,
+    `same-utility service lines force a 2D detour (${JSON.stringify(route)})`);
   assert(route && expandPath(route).every(point => !obstacles.isBlocked(point.col, point.row)),
     'every detour centreline point clears the installed guide');
   const committed = validateDrawLine(state, {
@@ -218,13 +217,13 @@ console.log('\n--- 3b. The ordinary drag controller invokes the detour search --
   ctrl._drawStart = { open: true, worldPos: { x: 0, z: 0 } };
   const cursor = gridToIso(4, 0);
   const geometry = ctrl._dragGeometry(cursor.x, cursor.y, null);
-  assert(geometry.path?.length === 2 && ctrl.dragReject === null,
-    `one normal drag keeps the direct plan route (${JSON.stringify(geometry.path)})`);
-  assert(geometry.routeHeightMeters > routeHeightForLine(state.utilityLines.get('pipe')),
-    `the controller preview assigns the clear upper lane (${geometry.routeHeightMeters} m)`);
+  assert(geometry.path?.length > 2 && ctrl.dragReject === null,
+    `one normal drag routes around an independent vacuum run (${JSON.stringify(geometry.path)})`);
+  assert(geometry.routeHeightMeters === utilityLineHeight('vacuumPipe'),
+    `the detour stays on the fixed vacuum datum (${geometry.routeHeightMeters} m)`);
 }
 
-console.log('\n--- 3c. Visible stacked lanes remain individually tappable ---');
+console.log('\n--- 3c. Obsolete saved lane values canonicalize on read ---');
 {
   const lower = {
     id: 'lower', utilityType: 'vacuumPipe', start: null, end: null,
@@ -232,24 +231,9 @@ console.log('\n--- 3c. Visible stacked lanes remain individually tappable ---');
     path: [{ col: 0, row: 0 }, { col: 4, row: 0 }],
   };
   const upper = { ...lower, id: 'upper', routeHeightMeters: 0.84 };
-  const state = {
-    placeables: [], beamPipes: [],
-    utilityLines: new Map([[lower.id, lower], [upper.id, upper]]),
-  };
-  let hitId = lower.id;
-  const renderer = {
-    raycastUtilityLine: () => ({ lineId: hitId, utilityType: 'vacuumPipe' }),
-    screenToWorldAtHeight: () => gridToIso(2, 0),
-  };
-  const ctrl = new UtilityLineInputController({ game: { state }, renderer });
-  ctrl._utilityType = 'vacuumPipe';
-  const lowerTap = ctrl._snapToNearest(999, 999, { x: 10, y: 20 });
-  hitId = upper.id;
-  const upperTap = ctrl._snapToNearest(999, 999, { x: 10, y: 20 });
-  assert(lowerTap?.lineId === lower.id && lowerTap.routeHeightMeters === 0.24,
-    'a mesh hit on the lower run selects the lower route lane');
-  assert(upperTap?.lineId === upper.id && upperTap.routeHeightMeters === 0.84,
-    'a mesh hit on the upper run selects the upper route lane');
+  assert(routeHeightForLine(lower) === utilityLineHeight('vacuumPipe')
+      && routeHeightForLine(upper) === utilityLineHeight('vacuumPipe'),
+    'retired saved lane values cannot move vacuum runs off their standard datum');
 }
 
 console.log('\n--- 4. RF and cryo enforce shape, not physical clearance ---');
@@ -264,8 +248,8 @@ console.log('\n--- 4. RF and cryo enforce shape, not physical clearance ---');
     'RF publishes a compact mitered-elbow presentation contract');
   assert(!rf.avoidRigidIntersections && !cryo.avoidRigidIntersections,
     'RF and cryo do not reserve rigid service aisles');
-  assert(rf.verticalRouteLanes && cryo.verticalRouteLanes,
-    'RF and cryo opt into fabricated vertical routing lanes');
+  assert(rf.fixedRouteHeight && cryo.fixedRouteHeight,
+    'RF and cryo publish mandatory fixed route elevations');
   const tight = [
     { col: 0, row: 0 },
     { col: 0.25, row: 0 },

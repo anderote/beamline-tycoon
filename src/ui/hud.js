@@ -2617,14 +2617,14 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
     ? renderDecorationThumbnail(key, 96)
     : renderComponentThumbnail(key, 96);
   if (isUniversalBus) {
-    const tray = document.createElement('div');
-    tray.setAttribute('aria-hidden', 'true');
-    tray.style.cssText = 'position:relative;width:52px;height:20px;margin:4px auto;'
-      + 'border-top:4px solid #9aa5ad;border-bottom:4px solid #68747c;'
-      + 'box-sizing:border-box;transform:skewX(-20deg);'
-      + 'background:repeating-linear-gradient(90deg,transparent 0 8px,#89959d 8px 11px);'
+    const rack = document.createElement('div');
+    rack.setAttribute('aria-hidden', 'true');
+    rack.style.cssText = 'position:relative;width:44px;height:32px;margin:0 auto;'
+      + 'border-left:4px solid #68747c;border-right:4px solid #9aa5ad;'
+      + 'box-sizing:border-box;transform:skewY(-8deg);'
+      + 'background:repeating-linear-gradient(0deg,transparent 0 3px,#89959d 3px 5px);'
       + 'filter:drop-shadow(0 2px 2px rgba(0,0,0,.55));';
-    previewEl.appendChild(tray);
+    previewEl.appendChild(rack);
   } else if (thumbUrl) {
     const img = document.createElement('img');
     img.src = thumbUrl;
@@ -2722,7 +2722,7 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
   const costEl = document.createElement('div');
   costEl.className = 'palette-cost';
   const costs = isUniversalBus
-    ? `$${this._fmt(comp.universalUtilityBus.costPerSubtile)} / 0.5m · drag to draw tray`
+    ? `$${this._fmt(comp.universalUtilityBus.costPerSubtile)} / 0.5m · drag to draw rack`
     : Object.entries(comp.cost).map(([r, a]) =>
     r === 'funding' ? `$${this._fmt(a)}` : `${this._fmt(a)} ${r}`
   ).join(', ');

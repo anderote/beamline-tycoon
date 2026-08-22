@@ -13,6 +13,7 @@ import { buildWorldSnapshot } from '../src/renderer3d/world-snapshot.js';
 import { InputHandler } from '../src/input/InputHandler.js';
 import { BeamlineTool } from '../src/input/beamline-tool.js';
 import { gridToIso } from '../src/renderer/grid.js';
+import { utilityLineHeight } from '../src/utility/registry.js';
 
 let passed = 0, failed = 0;
 function assert(condition, message) {
@@ -165,8 +166,8 @@ console.log('\n=== 5. Gauges mount, render, save, wire, and refund as line equip
   const rendered = snap.pipeAttachments.find(a => a.id === id);
   assert(rendered?.utilityLineId === 'ul_vac',
     'renderer snapshot identifies the owning utility run');
-  assert(Math.abs(rendered.yOffset - (vacuumLine.routeHeightMeters - 1)) < 1e-9,
-    'gauge mounting spool follows its vacuum pipe onto an elevated rack lane');
+  assert(Math.abs(rendered.yOffset - (utilityLineHeight('vacuumPipe') - 1)) < 1e-9,
+    'gauge mounting spool follows the fixed vacuum service datum');
 
   const afterFirst = game.state.resources.funding;
   const idCounterBeforeOverlap = game.state.placementNextId;
@@ -180,8 +181,10 @@ console.log('\n=== 5. Gauges mount, render, save, wire, and refund as line equip
   const savedLine = save.state.utilityLines.find(([lineId]) => lineId === 'ul_vac')?.[1];
   assert(savedLine?.attachments?.[0]?.id === id,
     'nested line instruments survive serialization');
-  assert(savedLine?.routeHeightMeters === vacuumLine.routeHeightMeters,
-    'the fabricated route elevation survives serialization with the line');
+  assert(savedLine?.routeHeightMeters === vacuumLine.routeHeightMeters
+      && utilityLineHeight('vacuumPipe', savedLine.routeHeightMeters)
+        === utilityLineHeight('vacuumPipe'),
+    'legacy saved elevations survive harmlessly but cannot override the fixed datum');
 
   game.state.utilityLines.set('ul_power', {
     id: 'ul_power', utilityType: 'powerCable', path: [{ col: 2, row: 2 }, { col: 2, row: 3 }],

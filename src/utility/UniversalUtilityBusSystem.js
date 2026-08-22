@@ -1,7 +1,7 @@
 // Universal utility bus mutation/coordinator.
 //
-// The physical tray is utility-neutral. Each distinct utility connected to it
-// occupies its designated lane. A lane is represented by a real open-ended
+// The physical rack is utility-neutral. Each distinct utility connected to it
+// occupies its designated height slot. A slot is represented by a real open-ended
 // utility line along the rack path, so existing discovery/solvers account for
 // source capacity and sink demand without a second network implementation.
 
@@ -80,7 +80,7 @@ export class UniversalUtilityBusSystem {
 
   connectLine({ utilityType, line, busTapIds = {} } = {}) {
     // Dragging from one access point to another on the same carrier is the
-    // explicit "lay this utility in the tray" interaction. The channel itself
+    // explicit "lay this utility in the rack" interaction. The channel itself
     // is already the full physical backbone, so do not add a second line over
     // part of the same path; that duplicate is both visually redundant and
     // correctly illegal under the normal overlap rules.

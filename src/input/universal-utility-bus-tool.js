@@ -1,4 +1,4 @@
-// Click-drag construction tool for the utility-neutral multi-service wire tray.
+// Click-drag construction tool for the utility-neutral vertical service rack.
 
 import { Tool } from './Tool.js';
 import { COMPONENTS } from '../data/components.js';

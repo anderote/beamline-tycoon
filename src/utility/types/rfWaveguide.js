@@ -30,6 +30,7 @@
 import { powerFeedFactor } from '../power-feed.js';
 import { expandPath } from '../line-geometry.js';
 import { RF_BANDS, bandForFrequencyHz } from '../../data/rf-bands.js';
+import { RIGID_UTILITY_SERVICE_HEIGHTS } from '../service-heights.js';
 
 // Compatibility export for existing UI and tests. New data-layer consumers
 // should import the neutral module directly.
@@ -175,17 +176,15 @@ export default {
   // slab. High equipment ports use a short horizontal launch and a sloped
   // dogleg down to this deck height; the renderer derives the exact drop from
   // the measured connector, so authored/model misalignments remain harmless.
-  runHeightMeters: 0.22,
+  runHeightMeters: RIGID_UTILITY_SERVICE_HEIGHTS.rfWaveguide,
   dropLaunchMeters: 0.28,
   dropMinRampMeters: 0.35,
   dropMaxRampMeters: 1.35,
   dropRunPerRise: 1,
   supportSpacingMeters: 3,
   supportMinimumRunMeters: 3,
-  verticalRouteLanes: true,
-  routeLaneSpacingMeters: 0.30,
+  fixedRouteHeight: true,
   routeVerticalClearanceMeters: 0.06,
-  maxRouteHeightMeters: 3.0,
   // Keep waveguide routing readable without making gallery layout a puzzle:
   // paths stay rectilinear, but may turn immediately at a fitting and cross
   // equipment/other services like the existing cryogenic transfer-line
