@@ -903,7 +903,7 @@ function distributionPorts(rating, count, { outletSide = null } = {}) {
       side: outletSide || OUTLET_SIDES[i % OUTLET_SIDES.length],
       // Keep footprint-level route endpoints evenly spread along the face so
       // every branch remains independently approachable. Presentation anchors
-      // arrange the visible cable ends on roof-mounted terminal banks.
+      // arrange the visible cable ends on front-mounted terminal banks.
       // Other field equipment keeps spreading outlets around its footprint.
       offsetAlong: outletSide
         ? (i + 1) / (count + 1)
@@ -1292,7 +1292,7 @@ const INFRA_UTILITY_PORTS = {
   // saves retain the same placed object and utility-line endpoint ids.
   switchgear:               hvDistributionPorts(1200, 4),
   // Logical sides keep coarse routing endpoints independently approachable;
-  // presentation anchors land the cable tails on the visible roof terminals.
+  // presentation anchors land the cable tails on visible front terminals.
   powerPanel:          distributionPorts(40, 4, { outletSide: 'front' }),
   sectionDistributionPanel: distributionPorts(200, 8, { outletSide: 'front' }),
   mainDistributionPanel: distributionPorts(400, 8, { outletSide: 'front' }),

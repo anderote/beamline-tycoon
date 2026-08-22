@@ -43,7 +43,10 @@
 
 import { RF_PORT_STANDARDS } from './rf-port-standards.js';
 import { BEAMLINE_COMPONENTS_RAW } from './beamline-components.raw.js';
-import { DISTRIBUTION_TOP_TERMINAL_LAYOUTS } from './distribution-output-layout.js';
+import {
+  DISTRIBUTION_FRONT_TERMINAL_LAYOUTS,
+  DISTRIBUTION_TOP_INPUT_LAYOUTS,
+} from './distribution-output-layout.js';
 
 const STANDARD_RF_FEED_Y = RF_PORT_STANDARDS.standardFeed.heightMeters;
 
@@ -54,27 +57,31 @@ function roofTerminalAnchor({ x, y, z }) {
   };
 }
 
-function roofTerminalAnchorBank(type, prefix) {
-  const layout = DISTRIBUTION_TOP_TERMINAL_LAYOUTS[type];
+function frontTerminalAnchor({ x, y, z }) {
   return {
-    hv_in: roofTerminalAnchor(layout.input),
-    ...Object.fromEntries(layout.outputs.map((terminal, index) => [
-      `${prefix}_${index + 1}`, roofTerminalAnchor(terminal),
-    ])),
+    y, localX: x, localZ: z,
+    normal: { x: 0, y: 0, z: 1 },
   };
+}
+
+function frontTerminalAnchorBank(type, prefix) {
+  return Object.fromEntries(DISTRIBUTION_FRONT_TERMINAL_LAYOUTS[type]
+    .map((terminal, index) => [
+      `${prefix}_${index + 1}`, frontTerminalAnchor(terminal),
+    ]));
 }
 
 const TOP_NORMAL = Object.freeze({ x: 0, y: 1, z: 0 });
 
 // The compact pad transformer keeps a reachable service-height roof bushing.
-// Distribution cabinets themselves remain on their model-specific roof caps.
+// Distribution inputs remain on their model-specific roof caps.
 const COMPACT_HV_INPUT_Y = 1.55;
 
 // All six straight-rack cable attachments share the crossbar terminal height.
 export const INDOOR_HV_RACK_TERMINAL_Y = 2.00;
 
 export const POWER_HV_INPUT_MOUNTS = Object.freeze({
-  ...Object.fromEntries(Object.entries(DISTRIBUTION_TOP_TERMINAL_LAYOUTS)
+  ...Object.fromEntries(Object.entries(DISTRIBUTION_TOP_INPUT_LAYOUTS)
     .map(([type, layout]) => [type, Object.freeze(roofTerminalAnchor(layout.input))])),
   padMountTransformer: Object.freeze({
     y: COMPACT_HV_INPUT_Y, localX: 0, localZ: -0.20, normal: TOP_NORMAL,
@@ -297,9 +304,9 @@ export const PORT_ANCHOR_OVERRIDES = {
 
   // --- support plant -------------------------------------------------------
   // Electrical hardware uses readable terminal banks rather than model-bound
-  // midpoints. Distribution inputs and outputs terminate on the metal caps of
-  // visible roof insulators; transformer inputs do the same on their actual
-  // roof bushings. Front faces remain breaker/control panels only. These are
+  // midpoints. Distribution inputs terminate on roof insulators, while branch
+  // outputs terminate at visible glands beside their front breaker controls.
+  // Transformer inputs remain on their actual roof bushings. These are
   // presentation mounts only.
   padMountTransformer: {
     _default: { y: 0.78, lat: 0.42 },
@@ -312,7 +319,8 @@ export const PORT_ANCHOR_OVERRIDES = {
   },
   poleMountTransformer: {
     _default: { y: 0.72, lat: 0.43 },
-    ...roofTerminalAnchorBank('poleMountTransformer', 'pwr_out'),
+    hv_in: POWER_HV_INPUT_MOUNTS.poleMountTransformer,
+    ...frontTerminalAnchorBank('poleMountTransformer', 'pwr_out'),
   },
   facilityTransformer: {
     _default: { y: 1.55, lat: 0.82 },
@@ -335,31 +343,38 @@ export const PORT_ANCHOR_OVERRIDES = {
   },
   compactHvDistributor: {
     _default: { y: 0.45, lat: 0.21 },
-    ...roofTerminalAnchorBank('compactHvDistributor', 'hv_out'),
+    hv_in: POWER_HV_INPUT_MOUNTS.compactHvDistributor,
+    ...frontTerminalAnchorBank('compactHvDistributor', 'hv_out'),
   },
   switchgear: {
     _default: { y: 0.7, lat: 0.66 },
-    ...roofTerminalAnchorBank('switchgear', 'hv_out'),
+    hv_in: POWER_HV_INPUT_MOUNTS.switchgear,
+    ...frontTerminalAnchorBank('switchgear', 'hv_out'),
   },
   powerPanel: {
     _default: { y: 0.5, lat: 0.19 },
-    ...roofTerminalAnchorBank('powerPanel', 'pwr_out'),
+    hv_in: POWER_HV_INPUT_MOUNTS.powerPanel,
+    ...frontTerminalAnchorBank('powerPanel', 'pwr_out'),
   },
   sectionDistributionPanel: {
     _default: { y: 0.5, lat: 0.24 },
-    ...roofTerminalAnchorBank('sectionDistributionPanel', 'pwr_out'),
+    hv_in: POWER_HV_INPUT_MOUNTS.sectionDistributionPanel,
+    ...frontTerminalAnchorBank('sectionDistributionPanel', 'pwr_out'),
   },
   mainDistributionPanel: {
     _default: { y: 0.5, lat: 0.26 },
-    ...roofTerminalAnchorBank('mainDistributionPanel', 'pwr_out'),
+    hv_in: POWER_HV_INPUT_MOUNTS.mainDistributionPanel,
+    ...frontTerminalAnchorBank('mainDistributionPanel', 'pwr_out'),
   },
   mcc: {
     _default: { y: 0.7, lat: 0.41 },
-    ...roofTerminalAnchorBank('mcc', 'pwr_out'),
+    hv_in: POWER_HV_INPUT_MOUNTS.mcc,
+    ...frontTerminalAnchorBank('mcc', 'pwr_out'),
   },
   ups: {
     _default: { y: 0.7, lat: 0.41 },
-    ...roofTerminalAnchorBank('ups', 'pwr_out'),
+    hv_in: POWER_HV_INPUT_MOUNTS.ups,
+    ...frontTerminalAnchorBank('ups', 'pwr_out'),
   },
   powerBus: {
     _default: { y: 0.84, lat: 0.21 }, pwr_in: { y: 0.92, lat: 0.71, along: 0 },
