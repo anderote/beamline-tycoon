@@ -11,6 +11,7 @@ import {
   relaxedCableControlPoints,
   sanitizeCablePath,
   softCableControlPoints,
+  tautCableControlPoints,
 } from '../src/utility/soft-cable.js';
 
 let passed = 0, failed = 0;
@@ -69,6 +70,17 @@ assert(short[0].y === 1 && short[short.length - 1].y === 1,
   'cable terminates at both true 3D plug heights');
 assert(shortMiddle.y < 1 && shortMiddle.y > 0.03,
   'a short span bows under gravity without falling through the floor');
+
+const taut = tautCableControlPoints(
+  { x: -1, y: 6.4, z: 2 },
+  { x: 7, y: 1.45, z: -3 },
+);
+assert(taut.length >= 8 && taut.every((point, index) => {
+  const t = index / (taut.length - 1);
+  return Math.abs(point.x - (-1 + 8 * t)) < 1e-9
+    && Math.abs(point.y - (6.4 + (1.45 - 6.4) * t)) < 1e-9
+    && Math.abs(point.z - (2 - 5 * t)) < 1e-9;
+}), 'taut supports discard slack and sample the straight 3D chord');
 
 const pooled = softCableControlPoints(trace, {
   start: { x: 0, y: 0.8, z: 0 },

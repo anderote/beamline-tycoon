@@ -103,7 +103,8 @@ console.log('\n--- 2. Every utility port resolves to a usable height ---');
     if (!anchor) { unresolved++; continue; }
     // Utility poles deliberately terminate at crossarm height so the cable
     // renderer can hang conductors above the yard instead of along the floor.
-    const maxY = type === 'utilityPole' ? 8 : 3;
+    const maxY = type === 'transmissionTower' ? 18
+      : type === 'utilityPole' ? 8 : 3;
     if (!(anchor.y > 0) || anchor.y > maxY) bad++;
   }
   assert(unresolved === 0, `no utility port fails to resolve (${unresolved} did)`);
@@ -189,7 +190,8 @@ console.log('\n--- 3. Derivation, overrides, and the headless fallback ---');
   for (const [type, entry] of Object.entries(PORT_ANCHOR_OVERRIDES)) {
     for (const [port, spec] of Object.entries(entry)) {
       if (!spec || !Number.isFinite(spec.y)) continue;
-      const maxY = type === 'utilityPole' ? 8 : 2.5;
+      const maxY = type === 'transmissionTower' ? 18
+        : type === 'utilityPole' ? 8 : 2.5;
       if (spec.y < 0.1 || spec.y > maxY) outOfBand.push(`${type}.${port}=${spec.y}`);
     }
   }

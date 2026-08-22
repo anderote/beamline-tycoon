@@ -28,6 +28,7 @@ const { COMPONENTS } = await import('../src/data/components.js');
 const {
   buildPortFitting,
   buildPortFittings,
+  portFlowArrowRole,
 } = await import('../src/renderer3d/builders/port-fitting-builder.js');
 const { portAnchor3D } = await import('../src/utility/port-anchors.js');
 
@@ -35,6 +36,15 @@ const anchor = { x: 3, y: 1.2, z: -4, out: { x: 0, z: 1 }, standoff: 0.03 };
 
 function arrowOf(fitting) {
   return fitting.children.find(child => child.userData?.isUtilityFlowArrow);
+}
+
+function fittingsOf(group) {
+  return group.children.filter(child => child.userData?.isUtilityPortFitting);
+}
+
+function equipmentArrowOf(group, placeableId) {
+  return group.children.find(child => child.userData?.isUtilityEquipmentFlowArrow
+    && child.userData.placeableId === placeableId);
 }
 
 test('physical port arrows encode source, sink and passive flow roles', () => {
@@ -88,6 +98,58 @@ test('distribution-panel fittings inherit their declared in/out roles', () => {
     'the HV feeder is visibly the one input');
   assert.equal(group.children.filter(f => f.userData.portRole === 'source').length, 4,
     'the four branch circuits are visibly outputs');
+});
+
+test('named inlet and outlet ports make passive pole and pass-through arrows directional', () => {
+  assert.equal(portFlowArrowRole('hv_in', 'pass'), 'sink');
+  assert.equal(portFlowArrowRole('hv_out_4', 'pass'), 'source');
+  assert.equal(portFlowArrowRole('bus_1', 'pass'), 'pass');
+  const pole = {
+    id: 'pole', type: 'utilityPole',
+    col: 1, row: 2, subCol: 0, subRow: 0, dir: 1,
+  };
+  const feed = {
+    id: 'feed', type: 'hvWallPassThrough', col: 4, row: 5,
+    subCol: 0, subRow: 0, dir: 3,
+    wallMount: { col: 4, row: 5, edge: 'n', off: 1, faceOffset: 0.0625 },
+  };
+  const { group } = buildPortFittings([pole, feed]);
+  const fittings = new Map(fittingsOf(group).map(fitting => [
+    `${fitting.userData.placeableId}:${fitting.userData.portName}`, fitting,
+  ]));
+  for (const id of ['pole', 'feed']) {
+    assert.equal(arrowOf(fittings.get(`${id}:hv_in`))?.userData.flowRole, 'sink');
+    assert.equal(arrowOf(fittings.get(`${id}:hv_out`))?.userData.flowRole, 'source');
+    assert.equal(fittings.get(`${id}:hv_in`)?.userData.portRole, 'pass',
+      'visual direction does not change the pass-through topology role');
+  }
+});
+
+test('rotated poles, wall pass-throughs and transformers carry inlet-to-outlet body arrows', () => {
+  const endpoints = [
+    { id: 'pole', type: 'utilityPole', col: 1, row: 2, subCol: 0, subRow: 0, dir: 1 },
+    { id: 'tower', type: 'transmissionTower', col: 12, row: 8, subCol: 0, subRow: 0, dir: 2 },
+    {
+      id: 'feed', type: 'hvWallPassThrough', col: 4, row: 5,
+      subCol: 0, subRow: 0, dir: 3,
+      wallMount: { col: 4, row: 5, edge: 'n', off: 1, faceOffset: 0.0625 },
+    },
+    { id: 'xfmr', type: 'facilityTransformer', col: 8, row: 3, subCol: 0, subRow: 0, dir: 1 },
+  ];
+  const { group } = buildPortFittings(endpoints);
+  for (const endpoint of endpoints) {
+    const marker = equipmentArrowOf(group, endpoint.id);
+    assert.ok(marker, `${endpoint.type} has a body-level direction arrow`);
+    assert.ok(marker.userData.fromPortNames.every(name => name.includes('_in')),
+      'arrow origins are authored inlet ports');
+    assert.ok(marker.userData.toPortNames.every(name => name.includes('_out')),
+      'arrow destinations are authored outlet ports');
+    const worldForward = new THREE_REAL.Vector3(1, 0, 0)
+      .applyQuaternion(marker.quaternion);
+    const expected = marker.userData.flowDirection;
+    assert.ok(worldForward.dot(new THREE_REAL.Vector3(expected.x, 0, expected.z)) > 0.999,
+      'the painted arrow rotates toward the equipment outlets');
+  }
 });
 
 test('control-room ports and flow arrows live on the visible rear panel', () => {

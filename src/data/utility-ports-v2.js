@@ -1111,6 +1111,16 @@ const INFRA_UTILITY_PORTS = {
       role: 'pass', connectionKind: 'hvPassThroughOut', params: {},
     },
   },
+  transmissionTower: {
+    hv_in: {
+      utility: 'hvCable', side: 'back', offsetAlong: 0.5,
+      role: 'pass', connectionKind: 'hvPassThroughIn', params: {},
+    },
+    hv_out: {
+      utility: 'hvCable', side: 'front', offsetAlong: 0.5,
+      role: 'pass', connectionKind: 'hvPassThroughOut', params: {},
+    },
+  },
   cableTray: {
     pwr_in_1: { utility: 'powerCable', side: 'back', offsetAlong: 0.20, role: 'pass', connectionKind: 'powerPassThroughIn', params: { fieldCapacity: 160 } },
     pwr_in_2: { utility: 'powerCable', side: 'back', offsetAlong: 0.40, role: 'pass', connectionKind: 'powerPassThroughIn', params: { fieldCapacity: 160 } },

@@ -153,6 +153,15 @@ export const DECORATIONS_RAW = {
     subW: 1, subL: 1, subH: 16,
     requires: 'electricalDistribution',
   },
+  transmissionTower: {
+    id: 'transmissionTower', name: 'HV Transmission Tower',
+    cost: { funding: 42000 }, removeCost: 4500,
+    morale: 0, placement: 'outdoor', spriteKey: 'utility_pole',
+    blocksBuild: true, category: 'utilities', paletteOrder: 2,
+    // Four tiles square: the broad base is part of the tower's safety envelope.
+    subW: 8, subL: 8, subH: 36,
+    requires: 'electricalDistribution',
+  },
   overheadPowerSpan: {
     id: 'overheadPowerSpan', name: 'Overhead Power Line', cost: { funding: 18000 }, removeCost: 1500,
     morale: 0, placement: 'outdoor', spriteKey: 'overhead_power_span',
@@ -333,7 +342,8 @@ const DECORATION_DESCS = {
   fountain: 'Ornamental fountain — the only unscheduled water feature allowed on site.',
   statue: 'Commemorates the founder, or possibly the first working klystron.',
   propaneTank: 'Horizontal propane vessel on concrete saddles for heating and emergency plant. Decorative site utility.',
-  utilityPole: 'Functional HV distribution pole with an incoming and outgoing crossarm terminal. Draw HV feeders between rotated poles to hang real, sagging conductors.',
+  utilityPole: 'Functional HV distribution pole with an incoming and outgoing crossarm terminal. Attached HV feeders are pulled taut between the pole hardware and their other support.',
+  transmissionTower: 'Four-by-four-tile steel lattice transmission tower with three projecting crossarm tiers, hanging insulators, and elevated HV terminals that pull attached feeders taut.',
   overheadPowerSpan: 'Legacy decorative two-pole span retained for old saves. Use functional Utility Poles and real HV feeders for new construction.',
   outdoorPipeRack: 'Elevated rack carrying color-coded campus service pipes. Decorative site utility.',
   backupGenerator: '250 kW standby generator with finite fuel. Connect it to the backup terminal of an Automatic Transfer Switch; refuel and enable it from its equipment window.',

@@ -39,6 +39,7 @@ import { planUtilityRun, runPreviewPath, runWiringCost } from './utility-run-wir
 import { isoToGridFloat } from '../renderer/grid.js';
 import {
   cablePathLengthSubUnits,
+  isHvCableTensionAnchor,
   isSoftCable,
   roundedCableTilePath,
   sanitizeCablePath,
@@ -274,6 +275,11 @@ export class UtilityLineInputController {
         : null,
       startAnchor: this._drawStart?.anchor || null,
       endAnchor: snap?.anchor || null,
+      tensioned: this._utilityType === 'hvCable' && [this._drawStart, snap].some(handle => {
+        const endpoint = handle?.placeableId
+          ? findUtilityEndpoint(this.game.state, handle.placeableId) : null;
+        return isHvCableTensionAnchor(COMPONENTS[endpoint?.type]);
+      }),
       routeHeightMeters: this._runPlan?.stubs?.[0]?.routeHeightMeters
         ?? geom.routeHeightMeters,
       color: UTILITY_TYPES[this._utilityType]?.color || '#ffffff',

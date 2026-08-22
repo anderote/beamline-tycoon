@@ -51,8 +51,9 @@ const {
   makeDefaultPortLookup,
 } = await import('../src/utility/network-discovery.js');
 const {
-  softCableControlPoints,
-} = await import('../src/utility/soft-cable.js');
+  buildSoftCableWorldPoints,
+  isTensionedHvCable,
+} = await import('../src/renderer3d/utility-line-builder-v2.js');
 const {
   componentPose,
 } = await import('../src/renderer3d/component-builder.js');
@@ -282,7 +283,7 @@ test('Feedthrough and pole connection kinds preserve the radial electrical chain
   assert.ok(networks[0].sinks.some(port => port.placeableId === 'panel'));
 });
 
-test('Utility-pole terminals sit high and produce a suspended sagging span', () => {
+test('Utility-pole terminals pull an HV span straight and taut', () => {
   const def = COMPONENTS.utilityPole;
   const a = { id: 'a', type: 'utilityPole', col: 0, row: 0, subCol: 0, subRow: 0, dir: 0 };
   const b = { id: 'b', type: 'utilityPole', col: 0, row: 6, subCol: 0, subRow: 0, dir: 0 };
@@ -290,13 +291,69 @@ test('Utility-pole terminals sit high and produce a suspended sagging span', () 
   const end = portAnchor3D(b, def, 'hv_in');
   assert.equal(start.y, 6.4);
   assert.equal(end.y, 6.4);
-  const cable = softCableControlPoints([
-    { col: start.x / 2, row: start.z / 2 },
-    { col: end.x / 2, row: end.z / 2 },
-  ], { start, end, groundY: 0.06, bendRadiusMeters: 0.8 });
+  const line = {
+    utilityType: 'hvCable',
+    start: { placeableId: 'a', portName: 'hv_out' },
+    end: { placeableId: 'b', portName: 'hv_in' },
+    path: [{ col: 0, row: 0 }, { col: 4, row: 3 }, { col: 0, row: 6 }],
+    cablePath: [{ col: 0, row: 0 }, { col: 4, row: 3 }, { col: 0, row: 6 }],
+  };
+  const endpoints = new Map([['a', a], ['b', b]]);
+  assert.equal(isTensionedHvCable(line, endpoints), true);
+  const cable = buildSoftCableWorldPoints(line, endpoints);
   assert.ok(cable.length >= 8);
-  assert.ok(cable[Math.floor(cable.length / 2)].y < start.y,
-    'the span bows below the crossarms');
-  assert.ok(cable[Math.floor(cable.length / 2)].y > 0.06,
-    'an ordinary pole span remains suspended above the ground');
+  const first = cable[0];
+  const last = cable[cable.length - 1];
+  for (let index = 0; index < cable.length; index++) {
+    const t = index / (cable.length - 1);
+    assert.ok(cable[index].distanceTo(first.clone().lerp(last, t)) < 1e-8,
+      'every sample remains on the straight support-to-support chord');
+  }
+});
+
+test('An HV wall pass-through tensions its attached feeder', () => {
+  const feed = {
+    id: 'feed', type: 'hvWallPassThrough', col: 3, row: 5,
+    subCol: 0, subRow: 0, dir: 3,
+    wallMount: { col: 3, row: 5, edge: 'n', off: 1, faceOffset: 0.0625 },
+  };
+  const transformer = {
+    id: 'transformer', type: 'padMountTransformer',
+    col: 3, row: 1, subCol: 0, subRow: 0, dir: 1,
+  };
+  const line = {
+    utilityType: 'hvCable',
+    start: { placeableId: 'transformer', portName: 'hv_out_1' },
+    end: { placeableId: 'feed', portName: 'hv_in' },
+    path: [{ col: 3, row: 1 }, { col: 8, row: 3 }, { col: 3, row: 5 }],
+    cablePath: [{ col: 3, row: 1 }, { col: 8, row: 3 }, { col: 3, row: 5 }],
+  };
+  const endpoints = new Map([['feed', feed], ['transformer', transformer]]);
+  assert.equal(isTensionedHvCable(line, endpoints), true);
+  const cable = buildSoftCableWorldPoints(line, endpoints);
+  const first = cable[0];
+  const last = cable[cable.length - 1];
+  assert.ok(cable.every((point, index) => point.distanceTo(
+    first.clone().lerp(last, index / (cable.length - 1)),
+  ) < 1e-8), 'the pass-through removes drawn slack and holds the cable taut');
+});
+
+test('A live HV draw from a tower stays taut to its open cursor end', () => {
+  const tower = {
+    id: 'tower', type: 'transmissionTower',
+    col: 0, row: 0, subCol: 0, subRow: 0, dir: 0,
+  };
+  const line = {
+    utilityType: 'hvCable', tensioned: true,
+    path: [{ col: 0, row: 0 }, { col: 3, row: 4 }],
+    cablePath: [{ col: 0, row: 0 }, { col: 2, row: 5 }, { col: 3, row: 4 }],
+  };
+  const start = portAnchor3D(tower, COMPONENTS.transmissionTower, 'hv_out');
+  const cable = buildSoftCableWorldPoints(line, null, { start, end: null });
+  const first = cable[0];
+  const last = cable[cable.length - 1];
+  assert.ok(cable.every((point, index) => point.distanceTo(
+    first.clone().lerp(last, index / (cable.length - 1)),
+  ) < 1e-8), 'the draw preview ignores mouse-trace slack at a tension support');
+  assert.ok(first.y > last.y, 'the straight preview reaches down from tower height to the cursor plane');
 });
