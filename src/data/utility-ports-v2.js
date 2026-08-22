@@ -78,7 +78,11 @@ const SINK_DEFAULTS = {
 const SOURCE_DEFAULTS = {
   powerCable:   { capacity: 100 },
   coolingWater: { capacity: 100 },
-  cryoTransfer: { coldCapacityW: 500 },
+  // Cryogenic source ports carry several independent plant capabilities
+  // (storage, cold production, heat rejection, recovery). Defaulting every
+  // source to a 500 W cold box made a passive tank or recovery header create
+  // refrigeration merely by acquiring a port, so cryo fails closed instead.
+  cryoTransfer: { coldCapacityW: 0 },
   rfWaveguide:  { capacity: 20 },
   vacuumPipe:   { pumpSpeed: 100 },
   dataFiber:    { capacity: 10 },
@@ -1348,9 +1352,61 @@ const INFRA_UTILITY_PORTS = {
   }),
   dualCircuitChiller:    coolingPlantPorts({ capacity: 175 }),
   chiller:               coolingPlantPorts({ capacity: 300 }),
-  // cryo
-  coldBox4K:           { cryo_out: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'source', params: { coldCapacityW: 500 } } },
-  coldBox2K:           { cryo_out: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'source', params: { coldCapacityW: 800 } } },
+  // cryo — storage, refrigeration, warm-end heat rejection and recovery are
+  // separate network capabilities, mirroring cooling water's tank/chiller/
+  // rejector model. Every buildable cryogenic plant item has a real bayonet;
+  // merely placing it elsewhere in the facility contributes nothing.
+  ln2Dewar: {
+    cryo_out: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'source',
+      params: { coldCapacityW: 0, ln2Reservoir: true } },
+  },
+  cryocooler: {
+    cryo_out: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'source',
+      params: {
+        coldCapacityW: 90, heatRejectionCapacityW: 90,
+        storageCapacityL: 50, sealedInventory: true, designTempK: 4.5,
+      } },
+  },
+  ln2Precooler: {
+    cryo_out: { utility: 'cryoTransfer', side: 'front', offsetAlong: 0.5, role: 'source',
+      params: { coldCapacityW: 0, preCoolingFraction: 0.15 } },
+  },
+  heCompressor: {
+    cryo_out: { utility: 'cryoTransfer', side: 'front', offsetAlong: 0.75, role: 'source',
+      params: { coldCapacityW: 0, heatRejectionCapacityW: 800 } },
+  },
+  coldBox4K: {
+    cryo_out: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'source',
+      params: { coldCapacityW: 500, designTempK: 4.5 } },
+  },
+  coldBox2K: {
+    cryo_out: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'source',
+      params: { coldCapacityW: 800, designTempK: 2.0 } },
+  },
+  cryomoduleHousing: {
+    cryo_out: { utility: 'cryoTransfer', side: 'front', offsetAlong: 0.5, role: 'source',
+      params: { coldCapacityW: 0, staticHeatReductionFraction: 0.05 } },
+  },
+  heRecovery: {
+    cryo_out: { utility: 'cryoTransfer', side: 'front', offsetAlong: 0.6, role: 'source',
+      params: { coldCapacityW: 0, storageCapacityL: 2000, recoveryStorage: true } },
+  },
+  heRecoveryHeader: {
+    cryo_out: { utility: 'cryoTransfer', side: 'front', offsetAlong: 0.5, role: 'source',
+      params: { coldCapacityW: 0, recoveryContribution: 0.25 } },
+  },
+  heGasBag: {
+    cryo_out: { utility: 'cryoTransfer', side: 'back', offsetAlong: 0.5, role: 'source',
+      params: { coldCapacityW: 0, recoveryContribution: 0.15 } },
+  },
+  hePurifier: {
+    cryo_out: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'source',
+      params: { coldCapacityW: 0, recoveryContribution: 0.20 } },
+  },
+  heLiquefier: {
+    cryo_out: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.75, role: 'source',
+      params: { coldCapacityW: 0, recoveryContribution: 0.30, liquefactionRateLPerTick: 1 } },
+  },
   // vacuum
   roughingPump:        { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 15, roughingSpeed: 15, vacuumStage: 'rough', ultimatePressure: 1e-3 } } },
   roughingPumpCart:    { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 60, roughingSpeed: 60, vacuumStage: 'rough', ultimatePressure: 1e-3 } } },

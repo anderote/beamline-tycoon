@@ -44,7 +44,9 @@ import { endpointsById } from '../endpoint-lookup.js';
 import { powerFeedFactor } from '../power-feed.js';
 
 export const BOILOFF_PER_W_PER_TICK = 0.0005;
-export const RESERVOIR_MAX_L = 500;
+// Compatibility export for callers that mean the central recovery/storage
+// unit. Actual capacity is summed from connected cryogenic storage ports.
+export const RESERVOIR_MAX_L = 2000;
 export const QUENCH_THRESHOLD_L = 20;
 // Balance (Phase 7): a 250 W cryomodule boils ~0.125 L/tick — a ~$24k LHe
 // refill every ~3800 ticks. Rare but painful, as LHe should be.
@@ -65,13 +67,12 @@ export const LHE_COST_PER_L = 50;
 // that actually leave the reservoir change, which is exactly the line item the
 // refill bill reads.
 //
-// WHY FACILITY-WIDE AND KEYED ON TYPE. A recovery plant is one plant. The
-// return header, the bag, the purifier and the liquefier are a chain, and a
-// facility has one of them serving every cryomodule in the building — it is
-// not per-network hardware and there is nothing on a cryo line to attach it
-// to. Each TYPE therefore contributes once: five gas bags are five bags on one
-// plant, not five plants. The reward is for completing the chain, which is the
-// real engineering, rather than for stamping out the cheapest rung.
+// Recovery is local to the cryogenic network carrying the returned gas. Every
+// stage therefore exposes a real cryo port, and powered stages count only while
+// their electrical feed is live. Each TYPE contributes once per network: five
+// gas bags are parallel vessels on one chain, not five complete plants. The
+// reward is for completing the process chain rather than stamping out the
+// cheapest rung.
 //
 // No recovery plant is closed. Cool-down and warm-up transients, relief lifts,
 // purge losses and the purifier's own vent all leave through the roof, and a
@@ -105,8 +106,9 @@ export const HE_RECOVERY_CAP_NO_STORAGE = 0.70;
 export const HE_STORAGE_TYPE = 'heRecovery';
 
 /**
- * Recovery fraction from an iterable of installed component type ids.
- * Duplicates are ignored by construction — the set is of TYPES, not units.
+ * Pure recovery-chain arithmetic retained for tests and callers that already
+ * have a validated set of live, network-local component type ids. The solver
+ * obtains that set through networkHeRecovery().
  */
 export function heRecoveryFraction(types) {
   const set = new Set(types || []);
@@ -119,8 +121,9 @@ export function heRecoveryFraction(types) {
 }
 
 /**
- * Recovery fraction for a whole facility. Walks every placeable rather than
- * the network's own ports: none of this hardware sits on a cryo line.
+ * Legacy aggregate helper for reports/tests that intentionally ask what a set
+ * of placed types could contribute. The live solver uses networkHeRecovery()
+ * so disconnected or unpowered stages never affect production state.
  */
 export function facilityHeRecoveryFraction(worldState) {
   if (!worldState) return 0;
@@ -129,6 +132,42 @@ export function facilityHeRecoveryFraction(worldState) {
     if (p && p.type) types.push(p.type);
   }
   return heRecoveryFraction(types);
+}
+
+function positive(value) {
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+/** Physical liquid-helium capacity installed on one solved network. */
+export function cryoInventoryForNetwork(network) {
+  return {
+    storageCapacityL: (network?.sources || []).reduce(
+      (sum, source) => sum + positive(source.params?.storageCapacityL), 0),
+  };
+}
+
+/** Keep persistent inventory inside the capacity of the tanks actually wired. */
+export function boundCryoPersistentState(persistent, network) {
+  const { storageCapacityL } = cryoInventoryForNetwork(network);
+  const rawVolume = persistent?.lheVolumeL;
+  const lheVolumeL = Number.isFinite(rawVolume)
+    ? Math.max(0, Math.min(storageCapacityL, rawVolume))
+    : storageCapacityL;
+  return {
+    ...(persistent || {}),
+    lheVolumeL,
+    reservoirCapacityL: storageCapacityL,
+  };
+}
+
+function coolingFeedFactor(worldState, placeableId) {
+  if (!worldState?.utilityNetworks?.get) return 1;
+  const key = `${placeableId}:cool_in`;
+  for (const flow of worldState.utilityNetworkData?.get?.('coolingWater')?.values?.() || []) {
+    const quality = flow?.perSinkQuality?.[key];
+    if (Number.isFinite(quality)) return Math.max(0, Math.min(1, quality));
+  }
+  return 0;
 }
 
 // --- Thermal model ---
@@ -147,12 +186,6 @@ export const THERMAL_MASS = 20000;
 // two operating points, which is where the 750 vs 250 W/W figures in
 // economy.js come from.
 export const COLD_CAPACITY_EXPONENT = 1.3;
-
-/** Components that define a network's design temperature. */
-const PLANT_DESIGN_TEMP = {
-  coldBox2K: T_SUPERFLUID,
-  coldBox4K: T_NORMAL,
-};
 
 /**
  * Useful cooling power at `tempK` from plant rated `ratedW` at its design
@@ -206,17 +239,103 @@ function collectCavities(network, worldState) {
   return cavities;
 }
 
-/** Coldest design temperature among the plants feeding this network. */
-function designTemp(network, worldState, getDefinition) {
+/**
+ * Network-local plant roles. Unlike the retired model, no role is implied by
+ * merely having a cryogenic line: storage, refrigeration and warm-end heat
+ * rejection are authored independently and all three must be present.
+ */
+export function cryoPlantCapabilities(network, worldState, getDefinition = () => null) {
   const byId = endpointsById(worldState);
-  let coldest = null;
-  for (const src of network.sources) {
-    if (powerFeedFactor(worldState, src.placeableId, getDefinition) <= 0) continue;
-    const rec = byId.get(src.placeableId);
-    const t = rec && PLANT_DESIGN_TEMP[rec.type];
-    if (t != null && (coldest === null || t < coldest)) coldest = t;
+  let coldCapacityW = 0;
+  let heatRejectionCapacityW = 0;
+  let designTempK = null;
+  let hasLn2Reservoir = false;
+  let preCoolingFraction = 0;
+  let staticHeatReductionFraction = 0;
+  let allColdSourcesSealed = true;
+  let allStorageSealed = true;
+  let coldSourceCount = 0;
+
+  for (const source of (network?.sources || [])) {
+    const params = source.params || {};
+    const rec = byId.get(source.placeableId);
+    const type = rec?.type;
+    const powered = powerFeedFactor(worldState, source.placeableId, getDefinition);
+    const cold = positive(params.coldCapacityW) * powered;
+    if (cold > 0) {
+      coldCapacityW += cold;
+      coldSourceCount++;
+      if (!params.sealedInventory) allColdSourcesSealed = false;
+      const t = positive(params.designTempK);
+      if (t > 0 && (designTempK === null || t < designTempK)) designTempK = t;
+    }
+    let rejectFactor = powered;
+    // The central compressor's aftercooler is a real cooling-water load. Its
+    // cryogenic heat-rejection role therefore fails closed if that loop is
+    // absent or starved; integrated cryocoolers reject directly to air.
+    if (type === 'heCompressor') {
+      rejectFactor *= coolingFeedFactor(worldState, source.placeableId);
+    }
+    heatRejectionCapacityW += positive(params.heatRejectionCapacityW) * rejectFactor;
+    if (positive(params.storageCapacityL) > 0 && !params.sealedInventory) {
+      allStorageSealed = false;
+    }
+    if (params.ln2Reservoir) hasLn2Reservoir = true;
+    if (powered > 0) {
+      preCoolingFraction += positive(params.preCoolingFraction);
+      staticHeatReductionFraction += positive(params.staticHeatReductionFraction);
+    }
   }
-  return coldest === null ? T_DEFAULT : coldest;
+
+  if (!hasLn2Reservoir) preCoolingFraction = 0;
+  preCoolingFraction = Math.min(0.30, preCoolingFraction);
+  staticHeatReductionFraction = Math.min(0.25, staticHeatReductionFraction);
+  const { storageCapacityL } = cryoInventoryForNetwork(network);
+  const enhancedColdCapacityW = coldCapacityW * (1 + preCoolingFraction);
+  return {
+    storageCapacityL,
+    coldCapacityW,
+    enhancedColdCapacityW,
+    heatRejectionCapacityW,
+    designTempK: designTempK ?? T_DEFAULT,
+    preCoolingFraction,
+    staticHeatReductionFraction,
+    sealedPlant: coldSourceCount > 0 && allColdSourcesSealed && allStorageSealed,
+    plantComplete: storageCapacityL > 0
+      && enhancedColdCapacityW > 0 && heatRejectionCapacityW > 0,
+  };
+}
+
+/** Recovery/refill stages must be wired into this network and powered. */
+export function networkHeRecovery(network, worldState, getDefinition = () => null) {
+  const byId = endpointsById(worldState);
+  const contributions = new Map();
+  let hasPoweredStorage = false;
+  let liquefactionRateLPerTick = 0;
+  for (const source of (network?.sources || [])) {
+    const params = source.params || {};
+    const rec = byId.get(source.placeableId);
+    const key = rec?.type || source.placeableId || source.portKey;
+    const powered = powerFeedFactor(worldState, source.placeableId, getDefinition);
+    if (params.recoveryStorage && powered > 0) hasPoweredStorage = true;
+    if (positive(params.recoveryContribution) > 0 && powered > 0) {
+      contributions.set(key, Math.max(
+        contributions.get(key) || 0,
+        positive(params.recoveryContribution),
+      ));
+    }
+    if (powered > 0) {
+      liquefactionRateLPerTick += positive(params.liquefactionRateLPerTick);
+    }
+  }
+  const rawFraction = [...contributions.values()].reduce((sum, value) => sum + value, 0);
+  const ceiling = hasPoweredStorage ? HE_RECOVERY_CAP : HE_RECOVERY_CAP_NO_STORAGE;
+  return {
+    fraction: Math.min(ceiling, rawFraction),
+    ceiling,
+    liquefactionRateLPerTick,
+    stageCount: contributions.size,
+  };
 }
 
 export default {
@@ -262,29 +381,39 @@ export default {
   // $640/tile — a vacuum-jacketed LHe transfer line remains the outlier, but
   // cryo plant rather than short routing runs is the real capital decision.
   costPerSubUnit: 160,
-  persistentStateDefaults: { lheVolumeL: RESERVOIR_MAX_L, tempK: T_DEFAULT },
+  // null distinguishes a newly commissioned network from a drained one. The
+  // first solve resolves inventory against the storage ports actually wired.
+  persistentStateDefaults: {
+    lheVolumeL: null, reservoirCapacityL: 0, tempK: null,
+  },
+  persistentIntensiveFields: ['tempK'],
   solve(network, persistent, worldState, context = {}) {
-    const ratedCapacity = network.sources.reduce(
-      (a, s) => a + ((s.params && s.params.coldCapacityW) || 0)
-        * powerFeedFactor(worldState, s.placeableId, context.getDefinition), 0);
+    const plant = cryoPlantCapabilities(network, worldState, context.getDefinition);
+    const ratedCapacity = plant.enhancedColdCapacityW;
+    const boundedPersistent = boundCryoPersistentState(persistent, network);
     // Declared srfHeatW is the STATIC load — vessel, transfer line and
     // radiation heat a cavity leaks whether or not it is powered. Taken at
     // face value: it is what the inspector renders as the sink's demand, so
     // rescaling it here would make the panel disagree with the solve. The
     // dynamic RF wall loss, which dominates while running, is computed from
     // the achieved gradient and added below.
-    const staticLoad = network.sinks.reduce(
+    const rawStaticLoad = network.sinks.reduce(
       (a, s) => a + ((s.params && s.params.srfHeatW) || 0), 0);
-    const currentLhe = (persistent && persistent.lheVolumeL) || 0;
-    const designTempK = designTemp(network, worldState, context.getDefinition);
-    const prevTemp = (persistent && persistent.tempK) || designTempK;
+    const staticLoad = rawStaticLoad * (1 - plant.staticHeatReductionFraction);
+    const currentLhe = boundedPersistent.lheVolumeL;
+    const designTempK = plant.designTempK;
+    const prevTemp = Number.isFinite(boundedPersistent.tempK)
+      ? boundedPersistent.tempK : designTempK;
 
     const cavities = collectCavities(network, worldState);
     const errors = [];
     const perSinkQuality = {};
     const perSinkTemp = {};
 
-    const lheQuench = currentLhe < QUENCH_THRESHOLD_L && network.sinks.length > 0;
+    const hasLoads = network.sinks.length > 0;
+    const plantOffline = !plant.plantComplete && hasLoads;
+    const lheQuench = plant.plantComplete
+      && currentLhe < QUENCH_THRESHOLD_L && hasLoads;
 
     // --- Thermal step ---
     // Net heat into the bath drives temperature. Positive net warms; negative
@@ -295,28 +424,46 @@ export default {
     // the operator recover. Without this the quench LATCHES — Q0 falls to the
     // copper value, dissipation goes to megawatts, and the temperature can
     // never come back down no matter what the player does.
-    const wasQuenched = prevTemp >= T_CRITICAL;
+    const wasQuenched = plantOffline || prevTemp >= T_CRITICAL;
     const liveCavities = wasQuenched ? [] : cavities;
 
     const loadNow = staticLoad + dynamicLoadAt(prevTemp, liveCavities);
-    const capNow = capacityAt(prevTemp, ratedCapacity, designTempK);
-    let tempK = prevTemp + (loadNow - capNow) / THERMAL_MASS;
-    if (lheQuench) tempK = T_CRITICAL;
+    const capNow = Math.min(
+      capacityAt(prevTemp, ratedCapacity, designTempK),
+      plant.heatRejectionCapacityW,
+    );
+    let tempK = plantOffline
+      ? T_CRITICAL
+      : prevTemp + (loadNow - capNow) / THERMAL_MASS;
+    if (lheQuench || plantOffline) tempK = T_CRITICAL;
     tempK = Math.max(designTempK, Math.min(T_CRITICAL, tempK));
 
     const dynamicLoad = dynamicLoadAt(tempK, liveCavities);
     const totalLoad = staticLoad + dynamicLoad;
-    const availableCapacity = capacityAt(tempK, ratedCapacity, designTempK);
+    const availableCapacity = plant.plantComplete
+      ? Math.min(
+        capacityAt(tempK, ratedCapacity, designTempK),
+        plant.heatRejectionCapacityW,
+      )
+      : 0;
     const warming = totalLoad > availableCapacity;
 
     // Thermal quench is a second, independent cause alongside the dry
     // reservoir: a cavity driven past what the plant can remove warms until it
     // loses superconductivity, with the reservoir still full.
-    const thermalQuench = tempK >= T_CRITICAL;
-    const quenched = lheQuench || thermalQuench;
+    const thermalQuench = plant.plantComplete && tempK >= T_CRITICAL;
+    const quenched = plantOffline || lheQuench || thermalQuench;
 
     let quality;
-    if (quenched) {
+    if (plantOffline) {
+      quality = 0;
+      errors.push({
+        severity: 'hard',
+        code: 'cryo_plant_offline',
+        message: 'Cryo network needs helium storage, refrigeration, and heat rejection.',
+        location: { networkId: network.id },
+      });
+    } else if (lheQuench || thermalQuench) {
       quality = 0;
       errors.push({
         severity: 'hard',
@@ -324,14 +471,6 @@ export default {
         message: lheQuench
           ? `LHe reservoir below quench threshold (${currentLhe.toFixed(1)} L < ${QUENCH_THRESHOLD_L} L).`
           : `Cavities quenched at ${tempK.toFixed(2)} K — plant cannot remove ${totalLoad.toFixed(0)} W.`,
-        location: { networkId: network.id },
-      });
-    } else if (ratedCapacity === 0 && totalLoad > 0) {
-      quality = 0;
-      errors.push({
-        severity: 'soft',
-        code: 'cryo_starved',
-        message: 'Cryo network has no cold-box capacity.',
         location: { networkId: network.id },
       });
     } else {
@@ -353,12 +492,28 @@ export default {
       perSinkTemp[s.portKey] = tempK;
     }
 
-    // Boil-off is what the heat load evaporates; net loss is what the player
-    // has to buy back. A recovery plant only ever moves the second number.
-    const boiloff = quenched ? 0 : BOILOFF_PER_W_PER_TICK * totalLoad;
-    const recoveryFraction = facilityHeRecoveryFraction(worldState);
-    const netLoss = boiloff * (1 - recoveryFraction);
-    const nextLhe = Math.max(0, currentLhe - netLoss);
+    // Boil-off is what the heat load evaporates. Only recovery hardware wired
+    // into this network can return it; an unwired or unpowered purifier or
+    // liquefier is inert. A sealed cryocooler is the packaged exception.
+    const boiloff = (!plant.plantComplete || quenched)
+      ? 0 : BOILOFF_PER_W_PER_TICK * totalLoad;
+    const recovery = networkHeRecovery(network, worldState, context.getDefinition);
+    let recoveredL = plant.sealedPlant ? boiloff : boiloff * recovery.fraction;
+    if (!plant.sealedPlant && recovery.liquefactionRateLPerTick > 0) {
+      recoveredL = Math.min(recoveredL, recovery.liquefactionRateLPerTick);
+    }
+    const netLoss = Math.max(0, boiloff - recoveredL);
+    // The liquefier is the cryogenic equivalent of cooling-water make-up: it
+    // turns the site's stored high-pressure gas into liquid inventory. It can
+    // therefore restore a depleted central reservoir even while the beam is
+    // idle, but never overfills the physical tank and never feeds the sealed
+    // charge inside an integrated cryocooler.
+    const afterLoss = Math.max(0, currentLhe - netLoss);
+    const makeupL = plant.sealedPlant ? 0 : Math.min(
+      recovery.liquefactionRateLPerTick,
+      Math.max(0, plant.storageCapacityL - afterLoss),
+    );
+    const nextLhe = afterLoss + makeupL;
 
     return {
       flowState: {
@@ -376,32 +531,69 @@ export default {
         tempK,
         designTempK,
         staticLoad,
+        rawStaticLoad,
         dynamicLoad,
         ratedCapacity,
+        coldCapacityW: plant.coldCapacityW,
+        heatRejectionCapacityW: plant.heatRejectionCapacityW,
+        storageCapacityL: plant.storageCapacityL,
+        reservoirVolumeL: currentLhe,
+        plantComplete: plant.plantComplete,
+        sealedPlant: plant.sealedPlant,
+        preCoolingFraction: plant.preCoolingFraction,
+        staticHeatReductionFraction: plant.staticHeatReductionFraction,
         warming,
-        // Litres per tick, before and after recovery, plus the fraction that
-        // separates them. Reported separately so a panel can show what the
-        // plant is saving rather than only the number that survived it; the
-        // HUD's own row is derived from the placed types in economy.js, since
-        // recovery is facility-wide and exists whether or not a cryo network
-        // has solved yet.
+        // Litres per tick, before and after network-local recovery, plus the
+        // fraction that separates them. Reported separately so production UI
+        // can display solver-published values without recreating plant logic.
         boiloffL: boiloff,
+        recoveredL,
+        makeupL,
         netLheLossL: netLoss,
-        heRecoveryFraction: recoveryFraction,
+        heRecoveryFraction: plant.sealedPlant ? 1 : recovery.fraction,
+        heRecoveryCeiling: plant.sealedPlant ? 1 : recovery.ceiling,
+        liquefactionRateLPerTick: recovery.liquefactionRateLPerTick,
+        recoveryStageCount: recovery.stageCount,
         perSegmentLoad: [],
         perSinkQuality,
         perSinkTemp,
         errors: [...errors],
       },
-      nextPersistentState: { ...persistent, lheVolumeL: nextLhe, tempK },
+      nextPersistentState: {
+        ...boundedPersistent,
+        lheVolumeL: nextLhe,
+        reservoirCapacityL: plant.storageCapacityL,
+        tempK,
+      },
       errors,
     };
   },
-  renderInspector() { return null; },
+  renderInspector(_network, flow, persistent) {
+    const capacity = positive(flow?.storageCapacityL ?? persistent?.reservoirCapacityL);
+    const current = Math.max(0, Math.min(
+      capacity,
+      Number.isFinite(persistent?.lheVolumeL) ? persistent.lheVolumeL : capacity,
+    ));
+    const pct = capacity > 0 ? current / capacity * 100 : 0;
+    const stage = flow?.plantComplete ? 'online' : 'incomplete';
+    return `<div><strong>Plant:</strong> ${stage} (storage + refrigerator + heat rejection)</div>`
+      + `<div><strong>LHe inventory:</strong> ${current.toFixed(1)} / ${capacity.toFixed(1)} L (${pct.toFixed(0)}%)</div>`
+      + `<div><strong>Cold / rejection:</strong> ${positive(flow?.coldCapacityW).toFixed(0)} / ${positive(flow?.heatRejectionCapacityW).toFixed(0)} W</div>`
+      + `<div><strong>Recovery / make-up:</strong> ${positive(flow?.recoveredL).toFixed(3)} / ${positive(flow?.makeupL).toFixed(3)} L/tick (${Math.round(positive(flow?.heRecoveryFraction) * 100)}%)</div>`;
+  },
   refillCost(persistent) {
-    const current = (persistent && persistent.lheVolumeL) || 0;
-    const missing = RESERVOIR_MAX_L - current;
+    const capacity = positive(persistent?.reservoirCapacityL);
+    const current = Math.max(0, Math.min(
+      capacity,
+      Number.isFinite(persistent?.lheVolumeL) ? persistent.lheVolumeL : 0,
+    ));
+    const missing = capacity - current;
     if (missing < 1) return null;
     return { funding: Math.ceil(missing * LHE_COST_PER_L) };
   },
+  refilledPersistentState(persistent) {
+    const capacity = positive(persistent?.reservoirCapacityL);
+    return { ...(persistent || {}), lheVolumeL: capacity };
+  },
+  boundPersistentState: boundCryoPersistentState,
 };

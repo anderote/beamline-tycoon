@@ -25,7 +25,11 @@ const TESLA = CAVITY_SPECS.cryomodule;
 // A world with one cryomodule on one pipe, plus a cold box, wired together.
 function makeWorld({ gradient, plant = 'coldBox2K' }) {
   return {
-    placeables: [{ id: 'plant1', type: plant }],
+    placeables: [
+      { id: 'plant1', type: plant },
+      { id: 'store1', type: 'heRecovery' },
+      { id: 'reject1', type: 'heCompressor' },
+    ],
     beamPipes: [{
       id: 'pipe1',
       subL: 40,
@@ -34,13 +38,19 @@ function makeWorld({ gradient, plant = 'coldBox2K' }) {
   };
 }
 
-function makeNetwork(capacityW, staticW) {
+function makeNetwork(capacityW, staticW, designTempK = T_SUPERFLUID) {
   return {
     id: 'n1',
     utilityType: 'cryoTransfer',
     ports: [],
-    sources: [{ portKey: 'plant1:cryo_out', placeableId: 'plant1', portName: 'cryo_out',
-                params: { coldCapacityW: capacityW } }],
+    sources: [
+      { portKey: 'plant1:cryo_out', placeableId: 'plant1', portName: 'cryo_out',
+        params: { coldCapacityW: capacityW, designTempK } },
+      { portKey: 'store1:cryo_out', placeableId: 'store1', portName: 'cryo_out',
+        params: { coldCapacityW: 0, storageCapacityL: 2000 } },
+      { portKey: 'reject1:cryo_out', placeableId: 'reject1', portName: 'cryo_out',
+        params: { coldCapacityW: 0, heatRejectionCapacityW: 2000 } },
+    ],
     sinks: [{ portKey: 'cav1:cryo_in', placeableId: 'cav1', portName: 'cryo_in',
               params: { srfHeatW: staticW } }],
   };
@@ -60,10 +70,9 @@ function runTicks(net, world, n, persistent = { lheVolumeL: 500, tempK: T_SUPERF
 // --- Design temperature ---------------------------------------------------
 console.log('\n--- Design temperature comes from the plant hardware ---');
 {
-  const net = makeNetwork(800, 10);
-  const cold = desc.solve(net, { lheVolumeL: 500 },
+  const cold = desc.solve(makeNetwork(800, 10, T_SUPERFLUID), { lheVolumeL: 500 },
     makeWorld({ gradient: 0, plant: 'coldBox2K' }));
-  const warm = desc.solve(net, { lheVolumeL: 500 },
+  const warm = desc.solve(makeNetwork(800, 10, T_NORMAL), { lheVolumeL: 500 },
     makeWorld({ gradient: 0, plant: 'coldBox4K' }));
   assert(cold.flowState.designTempK === T_SUPERFLUID,
     `2 K sub-cooler gives a 2 K bath (got ${cold.flowState.designTempK})`);

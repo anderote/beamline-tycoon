@@ -258,12 +258,11 @@ export const RESEARCH = {
     desc: 'Research superconducting RF cavity technology — niobium cavities cooled to 2-4K that achieve quality factors of 10^10, meaning almost zero RF power is lost to wall heating. This enables efficient CW acceleration at high gradients. A transformative technology that also requires cryogenic infrastructure (helium compressors, cold boxes, transfer lines).',
     cost: { data: 325, funding: 10000000, reputation: 600 },
     duration: 90,
-    // The two passive rungs of the helium recovery chain land here, with the
-    // plant they collect from: a return header and a gas bag are plumbing, and
-    // there is no reason to hold them behind the optimisation node that gates
-    // the powered end of the chain (purifier, liquefier).
+    // Central storage and the two passive recovery rungs land with the plant
+    // they serve. A cold box without physical helium inventory is not an
+    // operational refrigerator.
     unlocks: ['cryomodule', 'cryomoduleHousing', 'heCompressor', 'coldBox4K', 'ln2Precooler',
-      'heRecoveryHeader', 'heGasBag'],
+      'heRecovery', 'heRecoveryHeader', 'heGasBag'],
     requires: 'cwRfSystems',
   },
   superconducting: {
@@ -469,7 +468,7 @@ export const RESEARCH = {
     desc: 'Optimize the entire cryogenic chain — improved helium recovery and purification systems to minimize costly helium losses, better thermal shielding to reduce static heat loads, and advanced process control to match cooling capacity to dynamic beam loading. Reduces overall cryogenic system losses by 30%, significantly cutting operating costs for SRF-based facilities.',
     cost: { data: 370, funding: 13000000 },
     duration: 100,
-    unlocks: ['heRecovery', 'hePurifier', 'heLiquefier'],
+    unlocks: ['hePurifier', 'heLiquefier'],
     effect: { cryoEfficiencyMult: 0.7 },
     requires: 'highQSrf',
   },

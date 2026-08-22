@@ -30,6 +30,9 @@ const EXTRA_SOURCE = {
   rfWaveguide: { bands: ['lband'] },
   // Staged cooling publishes usable capacity only for a complete plant.
   coolingWater: { storageCapacityL: 500, heatRejectionCapacity: CAP },
+  // Cryogenic chilling likewise needs physical inventory and warm-end heat
+  // rejection. This synthetic integrated source declares all three roles.
+  cryoTransfer: { storageCapacityL: 500, heatRejectionCapacityW: CAP },
 };
 const EXTRA_SINK = { rfWaveguide: { frequency: 1300e6 } };
 

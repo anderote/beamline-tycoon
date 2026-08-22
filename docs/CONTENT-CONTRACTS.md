@@ -265,6 +265,16 @@ the short authoring contract.
 - Cooling-water ports author make-up flow as `supplyRateLPerTick` and tank
   volume as `storageCapacityL`. These are independent capabilities: a source
   must not imply storage, and passive storage must not imply water generation.
+- Central cryogenic plants author three independent capabilities on connected
+  cryo ports: `storageCapacityL` (reservoir), `coldCapacityW` (chiller), and
+  `heatRejectionCapacityW` (warm-end rejector). A network serving SRF hardware
+  must have all three; no capability may be inferred from another. A sealed
+  cryocooler may explicitly author all three as an integrated starter plant.
+- Powered cryogenic stages count only with a live electrical feed. A helium
+  compressor's heat-rejection capability additionally requires its authored
+  cooling-water connection. Recovery, liquefaction, LN2 precooling, and
+  cryomodule heat-intercept bonuses apply only to the cryo network to which the
+  corresponding hardware is physically connected.
 
 ## Scenario validity
 

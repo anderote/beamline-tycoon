@@ -524,7 +524,7 @@ export const INFRASTRUCTURE_RAW = {
   ln2Dewar: {
     id: 'ln2Dewar',
     name: 'LN2 Dewar',
-    desc: 'Basic liquid nitrogen storage vessel. LN2 at 77K is the cheapest cryogen — use it for pre-cooling, cold traps on vacuum systems, or cooling detector electronics. Every cryo system starts here. Simple, cheap, and always useful.',
+    desc: 'Basic liquid nitrogen storage vessel. Wire it into a Cryo Transfer network with an LN2 pre-cooler to intercept warm-end heat before it reaches the helium refrigerator. It does not store liquid helium and cannot replace the network\'s Helium Recovery/Storage reservoir.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
     cost: { funding: 40000 },
@@ -544,22 +544,23 @@ export const INFRASTRUCTURE_RAW = {
   cryocooler: {
     id: 'cryocooler',
     name: 'Cryocooler',
-    desc: 'Compact closed-cycle refrigerator that reaches 40-80K without consumable cryogens. Uses a Gifford-McMahon or pulse-tube cycle. Good for cooling individual components — detector cold fingers, small magnets, or thermal shields. Self-contained and low maintenance.',
+    desc: 'Compact closed-cycle 4.5 K refrigerator for one small superconducting load. Its sealed helium charge, cold head, compressor and air-cooled heat rejection form a complete 90 W starter plant: connect power and one Cryo Transfer line. Larger SRF loads need separate storage, a cold box and a helium compressor.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
     cost: { funding: 500000 },
     stats: {},
-    energyCost: 2,
+    // Roughly 275 W at the wall per watt removed at 4.5 K, including the
+    // packaged compressor and air-cooled rejector.
+    energyCost: 25,
     subL: 2, subW: 2, subH: 4, gridW: 2, gridH: 2, geometryType: 'box',
     baseMaterial: 'cryo_frost',
     zoneTier: 2,
-    // GATED: closed-cycle 40K cooling with no consumables is the step past the
-    // free ln2Dewar, and it is what makes SC magnets practical — scMagnets is
-    // the node that claims it.
+    // GATED: the integrated starter plant is what makes the first SC magnet
+    // practical before the central SRF refrigerator is researched.
     requires: 'scMagnets',
     spriteKey: 'cryocooler',
     spriteColor: 0x2fbccc,
-    params: { temperature: 40, coolingCapacity: 20 },
+    params: { temperature: 4.5, coolingCapacity: 90 },
     placement: 'module',
     ports: {},
 
@@ -585,12 +586,12 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
 
-    requiredConnections: [],
+    requiredConnections: ['powerCable'],
   },
   heCompressor: {
     id: 'heCompressor',
     name: 'Helium Compressor',
-    desc: 'Main 20 kW compressor for the helium refrigeration cycle. This is the workhorse of your cryo plant — it compresses warm helium gas returning from the cold boxes. Place as the foundation of your cryogenic infrastructure. Its industrial motor takes a direct HV feed and rejects its compression heat into Cooling Water.',
+    desc: 'Warm-end compressor and heat-rejection stage for up to 800 W of cold-box capacity. A central cryogenic network remains offline without one. Its industrial motor takes a direct HV feed and its aftercooler must also be served by a complete Cooling Water network.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
     cost: { funding: 5000000 },
@@ -612,7 +613,7 @@ export const INFRASTRUCTURE_RAW = {
   coldBox4K: {
     id: 'coldBox4K',
     name: '4K Cold Box',
-    desc: 'Refrigeration unit that cools helium to 4.5 Kelvin (-269°C) with 500 W cooling capacity. Removing heat this close to absolute zero costs about 250 W at the wall per watt of cooling, so the nameplate plant draws 125 kW through a direct HV feed. Connect it to cryomodules via Cryo Transfer lines.',
+    desc: 'Refrigeration unit that cools helium to 4.5 Kelvin (-269°C) with 500 W cooling capacity. Connect it by Cryo Transfer line to Helium Recovery/Storage, a powered and water-cooled Helium Compressor, and the superconducting loads. Its direct HV feed carries the cold-box process load.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
     cost: { funding: 8000000 },
@@ -634,7 +635,7 @@ export const INFRASTRUCTURE_RAW = {
   coldBox2K: {
     id: 'coldBox2K',
     name: '2K Cold Box',
-    desc: 'Industrial-scale cold box producing superfluid helium at 2 Kelvin using sub-atmospheric pumping, with 800 W of cooling capacity. The roughly 750 W-at-the-wall cost of removing one watt at 2 K makes this a 600 kW direct-HV load. Cavities run far more efficiently at 2 K, but the refrigerator itself is serious plant. Requires High-Q SRF research.',
+    desc: 'Industrial-scale cold box producing superfluid helium at 2 Kelvin using sub-atmospheric pumping, with 800 W of cooling capacity. It needs Helium Recovery/Storage and a powered, water-cooled Helium Compressor on the same Cryo Transfer network. The 600 kW cold-box process load takes a direct HV feed.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
     cost: { funding: 15000000 },
@@ -656,7 +657,7 @@ export const INFRASTRUCTURE_RAW = {
   cryomoduleHousing: {
     id: 'cryomoduleHousing',
     name: 'Cryomodule Housing',
-    desc: 'Insulated vacuum vessel that surrounds SRF cavities, providing thermal shielding between the 2-4K cavity and the room-temperature environment. Each cryomodule on your beamline needs a housing in the Facility layer. Connect via Cryo Transfer lines.',
+    desc: 'Auxiliary insulated vacuum vessel and thermal-intercept package for an SRF cryogenic loop. When wired into that Cryo Transfer network it reduces the network\'s static heat leak; its instrumentation and vacuum controls require branch power.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
     cost: { funding: 3000000 },
@@ -671,12 +672,12 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
 
-    requiredConnections: [],
+    requiredConnections: ['powerCable'],
   },
   heRecovery: {
     id: 'heRecovery',
     name: 'Helium Recovery/Storage',
-    desc: 'The high-pressure tube trailers and medium-pressure vessels that hold recovered helium until the liquefier can take it. Bulk storage does not capture anything by itself — it raises the ceiling on how much the rest of the plant can keep. Without it the recovery chain saturates at 70% no matter how complete it is, because gas you have nowhere to put is gas you vent; with it the chain reaches 90%. The last piece you buy and the one that finishes the plant. Requires Cryo Optimization research.',
+    desc: 'The central helium reservoir: 2,000 L of liquid-equivalent inventory plus high-pressure storage for recovered boil-off. Every separate cold-box network needs this storage, while a connected recovery header, gas bag, purifier and liquefier progressively return boiled-off helium. Its powered controls raise a complete recovery chain from a 70% to a 90% ceiling.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
     cost: { funding: 4000000 },
@@ -684,7 +685,7 @@ export const INFRASTRUCTURE_RAW = {
     energyCost: 3,
     subL: 6, subW: 3, subH: 4, gridW: 3, gridH: 6, geometryType: 'cylinder',
     baseMaterial: 'cryo_frost',
-    requires: 'cryoOptimization',
+    requires: 'srfTechnology',
     spriteKey: 'heRecovery',
     spriteColor: 0x2fbccc,
     placement: 'module',
@@ -695,16 +696,17 @@ export const INFRASTRUCTURE_RAW = {
   // ── Helium recovery chain ─────────────────────────────────────────
   // Four rungs that make the recovery fraction in
   // src/utility/types/cryoTransfer.js worth building out. Each TYPE counts
-  // once, facility-wide, and together they sum to 0.90 — but the ceiling is
-  // 0.70 until the Helium Recovery/Storage block above is also built, because
-  // storage is what makes the recovered gas keepable. See
+  // once per connected cryo network, and together they sum to 0.90 — but the
+  // ceiling is 0.70 until that network also contains the Helium
+  // Recovery/Storage block above, because storage is what makes recovered gas
+  // keepable. See
   // HE_RECOVERY_CONTRIBUTION there for the table and the reasoning. Recovery
   // does not change boil-off, which is physics; it changes how much of the
   // boiled-off gas you buy back.
   heRecoveryHeader: {
     id: 'heRecoveryHeader',
     name: 'He Recovery Header',
-    desc: 'The vacuum-jacketed return manifold that ties every cryomodule relief line, every valve-box vent and every transfer-line burst disc back to one low-pressure header running to the plant. Sized for the whole building rather than one machine, because retro-fitting a second header means breaking vacuum on the first. On its own it does nothing at all: it collects gas and has nowhere to put it, so without a bag downstream it simply vents in a tidier place than before.',
+    desc: 'The vacuum-jacketed return manifold that ties relief and boil-off flow back to the plant. It contributes recovery only when its bayonet is physically connected to the same Cryo Transfer network as the reservoir and loads; duplicates on one network do not stack.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
     cost: { funding: 350000 },
@@ -726,7 +728,7 @@ export const INFRASTRUCTURE_RAW = {
   heGasBag: {
     id: 'heGasBag',
     name: 'He Gas Bag',
-    desc: 'A rubberised fabric balloon in a steel cage, hung in the roof space and holding a few hundred cubic metres at barely above atmospheric pressure. It is the buffer the rest of the plant is sized against: a cryomodule ramp-down dumps gas far faster than any compressor can swallow it, and without somewhere for that surge to go the relief valves lift and the inventory goes out the roof. Low technology, visually unimpressive, and the single component that saves the most helium per dollar in the building.',
+    desc: 'A low-pressure surge buffer for recovered helium. Wire it into the Cryo Transfer network downstream of a recovery header so ramp-down gas is captured instead of lifting relief valves. Duplicates on one network do not stack.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
     cost: { funding: 450000 },
@@ -747,7 +749,7 @@ export const INFRASTRUCTURE_RAW = {
   hePurifier: {
     id: 'hePurifier',
     name: 'He Purifier',
-    desc: 'Charcoal adsorber beds at 80 K with a molecular-sieve drier ahead of them, cleaning recovered gas back to better than 99.999% before it is allowed near the liquefier. Recovered helium is never clean: every relief lift breathes room air back down the header, and every warm-up carries moisture off the vessel walls. Feed that to a liquefier and the nitrogen and water freeze out in the heat exchanger, which then plugs solid and takes the plant down for a warm-up and a purge — days of downtime to save an afternoon.',
+    desc: 'Powered charcoal adsorber beds and molecular-sieve driers that clean recovered gas before liquefaction. It contributes recovery only while both its power input and Cryo Transfer bayonet are connected to the network.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
     cost: { funding: 1200000 },
@@ -768,7 +770,7 @@ export const INFRASTRUCTURE_RAW = {
   heLiquefier: {
     id: 'heLiquefier',
     name: 'He Liquefier',
-    desc: 'Turbine-expander cold box that takes clean recovered gas at room temperature and hands back liquid at 4.2 K, closing the loop the rest of the chain only ever prepared for. Two expansion turbines, a Joule-Thomson stage and a dewar to catch what comes out the bottom. It is the largest and hungriest thing in the recovery plant, it unlocks nothing, and it will never show up as a capability — only as a helium bill that stops growing. Buy it because the machine is going to run for years, not because anything is currently broken.',
+    desc: 'Powered turbine-expander plant that re-liquefies clean recovered gas at 4.2 K and returns it to the connected reservoir. It is the refiller stage of the recovery chain: its effect and recovered-flow readout exist only on the Cryo Transfer network it is wired into.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
     cost: { funding: 3500000 },

@@ -57,15 +57,17 @@ correction — it is pure beam physics with no game-mechanics claims.
 
 | Claim | Old | New | Source |
 |---|---|---|---|
-| Compressor requirement | *"Cold boxes produce zero capacity without a helium compressor in the same network."* | **No compressor check exists.** A cold box produces its rated capacity alone. | `src/utility/types/cryoTransfer.js` — capacity is `sum(coldCapacityW)` over sources, nothing else |
-| Cryocooler as a source | Listed as cryo source equipment (40-80 K) | Declares **no** cryo source port, so contributes zero capacity | `getUtilityPortsV2('cryocooler')` returns only `pwr_in` |
+| Compressor requirement | Cold box acted as a complete plant by itself | Central plants require connected storage, chilling, and live heat rejection. The compressor provides heat rejection only while powered and cooling-water-fed. | `cryoTransfer.js` `cryoPlantCapabilities()` |
+| Cryocooler as a source | Declared no cryo source port and contributed zero capacity | Powered integrated starter plant: 90 W chilling/rejection and sealed 50 L inventory | `getUtilityPortsV2('cryocooler')`; `cryoPlantCapabilities()` |
+| Reservoir | Every network received an implicit fixed 500 L | Capacity is summed from connected `storageCapacityL` ports: 2,000 L central storage or 50 L integrated Cryocooler | `cryoInventoryForNetwork()`; `boundCryoPersistentState()` |
+| Recovery | Facility-wide by placed type, even unwired/unpowered | Network-local through real cryo ports; powered stages require live feeds | `networkHeRecovery()` |
 | Heat load | Static only | Static (declared `srfHeatW`) **plus** dynamic wall dissipation computed from last tick's achieved gradient at the current bath temperature | `cryoTransfer.js` `dynamicLoadAt()`, `collectCavities()`; write-back in `Game.js` `_writeBackCavityResults()` |
 | Plant capacity | Fixed rating | `min(rated x (T/T_design)^1.3, rated x 3)` — a plant run warmer delivers more | `cryoTransfer.js` `capacityAt()`, `COLD_CAPACITY_EXPONENT = 1.3` |
 | Consumers list | Included Tesla 9-cell, SC Quad, SC Dipole, SRF Gun | Half-Wave Resonator, Spoke Cavity, 9-cell Elliptical SRF, TESLA Cryomodule — the only four that exist | `src/data/beamline-components.raw.js`, `utility-ports-v2.js` |
 | Quench recovery | Not described | Quench does not latch: a quenched cavity drops its RF and contributes no dynamic load, so the plant can pull the bath back down | `cryoTransfer.js` `wasQuenched` / `liveCavities` |
 | Q0 / gradient math | Absent | Full BCS table added, calibrated against TESLA 9-cell, with per-component `f`, `R/Q`, `G`, `L_act`, `n_cav` | `beam_physics/srf.py` `CAVITY_SPECS`, `r_bcs()`, `q0()` |
 
-Correct and retained: 4K cold box 500 W / $8M, 2K cold box 800 W / $15M, boil-off 0.0005 L/W/tick, 500 L reservoir, 20 L quench threshold, $50/L, Carnot 250 vs 750 W/W.
+Correct and retained: 4K cold box 500 W / $8M, 2K cold box 800 W / $15M, boil-off 0.0005 L/W/tick, 20 L quench threshold, $50/L, Carnot 250 vs 750 W/W.
 
 ---
 

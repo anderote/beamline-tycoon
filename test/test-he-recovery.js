@@ -42,12 +42,45 @@ const CHAIN = ['heRecoveryHeader', 'heGasBag', 'hePurifier', 'heLiquefier'];
 /** The chain plus the bulk-storage block that raises the ceiling to 0.90. */
 const CHAIN_PLUS_STORAGE = [...CHAIN, HE_STORAGE_TYPE];
 
-function mkNetwork(overrides) {
+function mkNetwork(overrides = {}, recoveryTypes = []) {
+  const sources = [
+    { portKey: 'cold:cryo', placeableId: 'cold', portName: 'cryo',
+      params: { coldCapacityW: 400, designTempK: 4.5 } },
+    { portKey: 'store:cryo', placeableId: 'store', portName: 'cryo',
+      params: { coldCapacityW: 0, storageCapacityL: RESERVOIR_MAX_L } },
+    { portKey: 'reject:cryo', placeableId: 'reject', portName: 'cryo',
+      params: { coldCapacityW: 0, heatRejectionCapacityW: 400 } },
+  ];
+  recoveryTypes.forEach((type, i) => {
+    const params = { ...(COMPONENTS[type]?.ports?.cryo_out?.params || {}) };
+    // The fixture already owns a fixed-size physical reservoir. heRecovery's
+    // recoveryStorage flag still raises the recovery ceiling without doubling
+    // inventory and distorting the refill-cost comparison below. Liquefier
+    // make-up has its own plant-contract test; this file isolates recovery so
+    // the fraction-to-inventory arithmetic remains observable.
+    delete params.storageCapacityL;
+    delete params.liquefactionRateLPerTick;
+    sources.push({
+      portKey: `recovery${i}:cryo_out`, placeableId: `recovery${i}`,
+      portName: 'cryo_out', params,
+    });
+  });
   return {
     id: 'net_x', utilityType: 'cryoTransfer', lineIds: [], ports: [],
-    sources: [{ portKey: 's1', placeableId: 'p1', portName: 'cryo', params: { coldCapacityW: 400 } }],
+    sources,
     sinks:   [{ portKey: 'k1', placeableId: 'p2', portName: 'cryo', params: { srfHeatW: 250 } }],
     ...overrides,
+  };
+}
+
+function mkSolveWorld(types) {
+  return {
+    placeables: [
+      { id: 'cold', type: 'coldBox4K' },
+      { id: 'store', type: 'syntheticStorage' },
+      { id: 'reject', type: 'syntheticRejector' },
+      ...types.map((type, i) => ({ id: `recovery${i}`, type })),
+    ],
   };
 }
 /** A facility holding `types`, one placeable each unless `n` says otherwise. */
@@ -168,10 +201,10 @@ console.log('\n--- Test 3: duplicates do not stack ---');
 // ==========================================================================
 console.log('\n--- Test 4: boil-off unchanged, net loss reduced ---');
 {
-  const bare = desc.solve(mkNetwork(), { lheVolumeL: 400 }, mkWorld([]));
-  const full = desc.solve(mkNetwork(), { lheVolumeL: 400 }, mkWorld(CHAIN_PLUS_STORAGE));
+  const bare = desc.solve(mkNetwork({}, []), { lheVolumeL: 400 }, mkSolveWorld([]));
+  const full = desc.solve(mkNetwork({}, CHAIN_PLUS_STORAGE), { lheVolumeL: 400 }, mkSolveWorld(CHAIN_PLUS_STORAGE));
   // Same machine, chain complete but no bulk storage: capped at 0.70.
-  const noStore = desc.solve(mkNetwork(), { lheVolumeL: 400 }, mkWorld(CHAIN));
+  const noStore = desc.solve(mkNetwork({}, CHAIN), { lheVolumeL: 400 }, mkSolveWorld(CHAIN));
 
   assert(approx(bare.flowState.boiloffL, full.flowState.boiloffL),
     `boil-off identical with and without recovery (${bare.flowState.boiloffL})`);
@@ -209,10 +242,10 @@ console.log('\n--- Test 5: refill spend ---');
   // Run the same machine for the same 400 ticks in two facilities and price
   // the top-up each one needs at the end.
   function spendAfter(ticks, types) {
-    const world = mkWorld(types);
+    const world = mkSolveWorld(types);
     let persistent = { lheVolumeL: RESERVOIR_MAX_L, tempK: 4.5 };
     for (let i = 0; i < ticks; i++) {
-      persistent = desc.solve(mkNetwork(), persistent, world).nextPersistentState;
+      persistent = desc.solve(mkNetwork({}, types), persistent, world).nextPersistentState;
     }
     const cost = desc.refillCost(persistent);
     return { lhe: persistent.lheVolumeL, funding: cost ? cost.funding : 0 };
@@ -246,7 +279,7 @@ console.log('\n--- Test 5: refill spend ---');
 // ==========================================================================
 console.log('\n--- Test 6: quench short-circuits both numbers ---');
 {
-  const r = desc.solve(mkNetwork(), { lheVolumeL: 5 }, mkWorld(CHAIN));
+  const r = desc.solve(mkNetwork({}, CHAIN), { lheVolumeL: 5 }, mkSolveWorld(CHAIN));
   assert(r.flowState.quenched, 'dry reservoir quenches');
   assert(r.flowState.boiloffL === 0, 'no boil-off while quenched');
   assert(r.flowState.netLheLossL === 0, 'and no net loss');
@@ -270,7 +303,7 @@ console.log('\n--- Test 7: the chain exists as components ---');
   // "it does nothing once the chain is done" the expensive kind of bug.
   const store = COMPONENTS[HE_STORAGE_TYPE] || {};
   assert(store.cost && store.cost.funding === 4000000, 'heRecovery still costs $4M');
-  assert(store.requires === 'cryoOptimization', 'heRecovery is gated on cryoOptimization');
+  assert(store.requires === 'srfTechnology', 'heRecovery is gated with the central SRF plant');
   for (const [id, want] of Object.entries(EXPECT)) {
     const c = COMPONENTS[id] || {};
     assert(c.cost && c.cost.funding === want.cost, `${id} costs $${want.cost}`);
