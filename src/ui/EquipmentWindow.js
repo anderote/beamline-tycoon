@@ -20,8 +20,8 @@ export function equipmentAutoConnectAction(plan, fallbackUtilityType = 'powerCab
       ? `Auto-connect ${count} ($${funding.toLocaleString()}) · Tab`
       : 'Auto-connect nearby · Tab',
     title: inRange > 0
-      ? `${inRange} unconnected ${autoConnectTargetLabel(utilityType, inRange)} in range; Tab draws ${count} routable line${count === 1 ? '' : 's'} using free connectors`
-      : `No routable ${autoConnectTargetLabel(utilityType, 2)} are currently in range`,
+      ? `${inRange} unconnected ${autoConnectTargetLabel(utilityType, inRange)} in range; Tab draws ${count} routable line${count === 1 ? '' : 's'} using free connectors; Ctrl+Tab removes all utility connections`
+      : `No routable ${autoConnectTargetLabel(utilityType, 2)} are currently in range; Ctrl+Tab removes all utility connections`,
     disabled: count === 0,
   };
 }
@@ -214,6 +214,7 @@ export class EquipmentWindow {
         || comp.autoConnectUtility || 'powerCable';
       html += `<div class="equipment-utility">Unconnected ${autoConnectTargetLabel(utilityType, inRange)} in range: ${inRange}</div>`;
       html += `<div class="equipment-utility">Routable with free connectors: ${ready}</div>`;
+      html += '<div class="equipment-utility">Ctrl+Tab: remove all utility connections</div>';
     }
 
     // Stats / effects

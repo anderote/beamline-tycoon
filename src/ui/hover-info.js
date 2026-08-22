@@ -99,7 +99,8 @@ export function componentHoverInfo(comp, { autoConnectPlan = null } = {}) {
         `${candidates} unconnected ${autoConnectTargetLabel(
           autoConnectPlan.utilityType || comp.autoConnectUtility || 'powerCable', candidates,
         )} in range`
-          + ` · Tab connects ${connectable}`,
+          + ` · Tab connects ${connectable}`
+          + ' · Ctrl+Tab disconnects all',
       ),
     };
   }

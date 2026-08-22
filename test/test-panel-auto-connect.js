@@ -8,6 +8,8 @@ import { COMPONENTS } from '../src/data/components.js';
 import { PARAM_DEFS } from '../src/beamline/component-physics.js';
 import {
   commitPanelAutoConnect,
+  connectedUtilityLineIds,
+  disconnectAutoConnectDevice,
   planPanelAutoConnect,
   utilityAutoConnectProfile,
 } from '../src/input/panel-auto-connect.js';
@@ -159,6 +161,7 @@ console.log('\n--- 5. A hovered distribution panel owns Tab without selection --
     _selectedAutoConnectPanelId: InputHandler.prototype._selectedAutoConnectPanelId,
     panelAutoConnectTargetId: InputHandler.prototype.panelAutoConnectTargetId,
     _autoConnectPanel: id => { input.connectedPanelId = id; },
+    _disconnectAutoConnectPanel: id => { input.disconnectedPanelId = id; },
   };
   let prevented = 0;
   const handled = InputHandler.prototype.handlePanelAutoConnectKey.call(input, {
@@ -167,6 +170,13 @@ console.log('\n--- 5. A hovered distribution panel owns Tab without selection --
   });
   assert(handled && prevented === 1 && input.connectedPanelId === 'panel',
     'plain Tab auto-connects a hovered panel without selecting or opening it');
+
+  const disconnectHandled = InputHandler.prototype.handlePanelAutoConnectKey.call(input, {
+    key: 'Tab', shiftKey: false, ctrlKey: true, metaKey: false, altKey: false,
+    repeat: false, preventDefault: () => { prevented++; },
+  });
+  assert(disconnectHandled && input.disconnectedPanelId === 'panel',
+    'Ctrl+Tab disconnects every line from the hovered auto-connect device');
 
   input._hoverTooltipTarget = 'placeable:near_1';
   input.selectedPlaceableId = 'panel';
@@ -189,7 +199,44 @@ console.log('\n--- 5. A hovered distribution panel owns Tab without selection --
     'multi-selection leaves Tab available to cycle palette categories');
 }
 
-console.log('\n--- 6. HV distributors auto-connect ordinary HV feeders ---');
+console.log('\n--- 6. Ctrl+Tab removal spans utilities and is one undo step ---');
+{
+  const game = makeGame();
+  game.state.utilityLines.set('panel_power', {
+    id: 'panel_power', utilityType: 'powerCable',
+    start: { placeableId: 'panel', portName: 'pwr_out_1' },
+    end: { placeableId: 'near_1', portName: 'pwr_in' },
+    path: [{ col: 10.5, row: 10.5 }, { col: 11.25, row: 10.5 }],
+  });
+  game.state.utilityLines.set('panel_hv', {
+    id: 'panel_hv', utilityType: 'hvCable',
+    start: { placeableId: 'upstream', portName: 'hv_out' },
+    end: { placeableId: 'panel', portName: 'hv_in' },
+    path: [{ col: 8, row: 10.5 }, { col: 10.5, row: 10.5 }],
+  });
+  game.state.utilityLines.set('unrelated', {
+    id: 'unrelated', utilityType: 'dataFiber',
+    start: { placeableId: 'near_2', portName: 'data' },
+    end: { placeableId: 'near_3', portName: 'data' },
+    path: [{ col: 12, row: 10 }, { col: 13, row: 10 }],
+  });
+  const undoBefore = game._undoStack.length;
+  assert(connectedUtilityLineIds(game.state, 'panel').sort().join(',') === 'panel_hv,panel_power',
+    'all incident utility types are included in the disconnect set');
+  const removed = disconnectAutoConnectDevice(game, 'panel');
+  assert(removed.length === 2 && game.state.utilityLines.size === 1
+      && game.state.utilityLines.has('unrelated'),
+  'disconnect-all destroys only lines terminating on the target device');
+  assert(game._undoStack.length === undoBefore + 1,
+    'all removed connections share one undo entry');
+  game.undo();
+  assert(game.state.utilityLines.size === 3
+      && game.state.utilityLines.has('panel_power')
+      && game.state.utilityLines.has('panel_hv'),
+  'one undo restores every disconnected line');
+}
+
+console.log('\n--- 7. HV distributors auto-connect ordinary HV feeders ---');
 {
   assert(COMPONENTS.compactHvDistributor.autoConnectUtility === 'hvCable'
       && COMPONENTS.switchgear.autoConnectUtility === 'hvCable',
@@ -224,7 +271,7 @@ console.log('\n--- 6. HV distributors auto-connect ordinary HV feeders ---');
     'the HV action commits real HV feeder lines');
 }
 
-console.log('\n--- 7. Utility sources and peer distributors opt in by capability ---');
+console.log('\n--- 8. Utility sources and peer distributors opt in by capability ---');
 {
   const profiles = [
     ['chiller', 'coolingWater'],
@@ -243,7 +290,7 @@ console.log('\n--- 7. Utility sources and peer distributors opt in by capability
     'sink-only beamline equipment remains a target rather than an origin');
 }
 
-console.log('\n--- 8. Chillers connect nearby cooling loads with ordinary hoses ---');
+console.log('\n--- 9. Chillers connect nearby cooling loads with ordinary hoses ---');
 {
   const game = new Game(new BeamlineRegistry(), { seed: 93 });
   game.state.resources.funding = 1e9;
@@ -268,7 +315,7 @@ console.log('\n--- 8. Chillers connect nearby cooling loads with ordinary hoses 
     'the chiller action commits real cooling-water lines');
 }
 
-console.log('\n--- 9. Network switches fan out once per nearby data device ---');
+console.log('\n--- 10. Network switches fan out once per nearby data device ---');
 {
   const game = new Game(new BeamlineRegistry(), { seed: 94 });
   game.state.resources.funding = 1e9;
@@ -289,7 +336,7 @@ console.log('\n--- 9. Network switches fan out once per nearby data device ---')
     'already-linked data devices are not offered again on repeated auto-connect');
 }
 
-console.log('\n--- 10. Utility poles build aligned multi-conductor peer spans ---');
+console.log('\n--- 11. Utility poles build aligned multi-conductor peer spans ---');
 {
   const game = new Game(new BeamlineRegistry(), { seed: 95 });
   game.state.resources.funding = 1e9;

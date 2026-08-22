@@ -89,6 +89,47 @@ export function panelAutoConnectUtility(def) {
   return utilityAutoConnectProfile(def)?.utilityType || null;
 }
 
+/** Every real utility run terminating on one endpoint, across all utilities. */
+export function connectedUtilityLineIds(state, endpointId) {
+  if (!state || !endpointId) return [];
+  return iterLines(state.utilityLines)
+    .filter(line => line?.start?.placeableId === endpointId
+      || line?.end?.placeableId === endpointId)
+    .map(line => line.id)
+    .filter(Boolean);
+}
+
+/** Remove all utility runs on one auto-connect-capable device as one undo step. */
+export function disconnectAutoConnectDevice(game, endpointId) {
+  const endpoint = findUtilityEndpoint(game?.state, endpointId);
+  const def = COMPONENTS[endpoint?.type];
+  if (!game || !endpoint || !utilityAutoConnectProfile(def)) return [];
+
+  // Snapshot first: removing a run can also dangle lines connected to an
+  // instrument mounted on it, so never iterate the live Map while mutating it.
+  const lineIds = connectedUtilityLineIds(game.state, endpointId);
+  if (lineIds.length === 0) return [];
+
+  const removed = [];
+  game.commitGesture({
+    mutate: () => game.batchEvents(() => {
+      for (const lineId of lineIds) {
+        if (game.removeUtilityLine(lineId)) removed.push(lineId);
+      }
+      return removed.length > 0 ? removed : null;
+    }),
+    failed: result => !result,
+  });
+
+  if (removed.length > 0) {
+    game.log(
+      `Removed ${removed.length} utility connection${removed.length === 1 ? '' : 's'} from ${def.name || endpoint.type}`,
+      'info',
+    );
+  }
+  return removed;
+}
+
 function rolesCanAutoConnect(originSpec, targetSpec, utilityType) {
   if (!originSpec || !targetSpec) return false;
   if (originSpec.role === 'source') {
