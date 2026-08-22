@@ -14,6 +14,7 @@ const {
   hasDedicatedDecorationGeometry,
 } = await import('../src/renderer3d/decoration-builder.js');
 const {
+  componentPaletteEntries,
   resolvePaletteCollection,
   standardPaletteKind,
 } = await import('../src/ui/palette-collection.js');
@@ -48,7 +49,6 @@ const LINKED_UTILITY_EQUIPMENT = [
   'gridIntertieTransformer',
   'poleMountTransformer',
   'disconnectSwitch',
-  'hvDuctBankVault',
   'waterTank',
   'facilityWaterSupply',
   'bulkWaterTank',
@@ -117,10 +117,10 @@ test('functional overhead supports are linked into Infra Power and keep decorati
   const tower = PLACEABLES.transmissionTower;
   const powerSubsections = MODES.infra.categories.power.subsections;
 
-  assert.deepEqual(Object.keys(powerSubsections).slice(0, 2),
-    ['transport', 'routingHardware']);
-  assert.equal(powerSubsections.routingHardware.name, 'Routing Hardware');
-  assert.deepEqual(powerSubsections.routingHardware.linkedPlaceables,
+  assert.deepEqual(Object.keys(powerSubsections).slice(0, 5),
+    ['transport', 'gridSupply', 'transformers', 'overhead', 'routingHardware']);
+  assert.equal(powerSubsections.routingHardware.name, 'Wall Feedthroughs');
+  assert.deepEqual(powerSubsections.overhead.linkedPlaceables,
     ['utilityPole', 'transmissionTower']);
   assert.equal(pole.kind, 'decoration');
   assert.equal(pole.category, 'utilities');
@@ -133,6 +133,20 @@ test('functional overhead supports are linked into Infra Power and keep decorati
   assert.equal(tower.subW, 4);
   assert.equal(tower.subL, 4);
   assert.equal(standardPaletteKind(COMPONENTS.transmissionTower), 'decoration');
+});
+
+test('retired power routing props stay loadable but leave every build palette', () => {
+  const retired = ['cableTray', 'cableRiser', 'hvDuctBankVault'];
+  const activePower = componentPaletteEntries(COMPONENTS, 'power').map(({ key }) => key);
+  const searchIds = new Set(buildPaletteIndex(null).map(entry => entry.id));
+  for (const id of retired) {
+    assert.ok(PLACEABLES[id], `${id} remains registered for old saves`);
+    assert.equal(PLACEABLES[id].deprecated, true);
+    assert.equal(activePower.includes(id), false, `${id} is absent from Infra Power`);
+    assert.equal(searchIds.has(id), false, `${id} is absent from global search`);
+  }
+  assert.equal(PLACEABLES.overheadPowerSpan.deprecated, true,
+    'the legacy prefab overhead span remains retired too');
 });
 
 test('transmission tower has a tall lattice silhouette and projecting crossarms', () => {

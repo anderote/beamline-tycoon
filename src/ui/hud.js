@@ -22,6 +22,7 @@ import { windowPreviewDataUrl } from './window-preview.js';
 import { DEMOLISH_FILTERS, defaultDemolishFilters } from '../input/demolishScopes.js';
 import { buildPaletteIndex, searchPalette } from './palette-search.js';
 import {
+  componentPaletteEntries,
   groupDecorationPaletteEntries,
   resolvePaletteCollection,
   standardPaletteKind,
@@ -2402,11 +2403,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
   );
 
   // Collect components for this category
-  const catComps = [];
-  for (const [key, comp] of Object.entries(COMPONENTS)) {
-    if (comp.category !== compCategory && !linkedComponentIds.has(key)) continue;
-    catComps.push({ key, comp });
-  }
+  const catComps = componentPaletteEntries(COMPONENTS, compCategory, linkedComponentIds);
   // Catalogues normally retain their authored order. Power explicitly carries
   // a capacity/cost ladder, though, so honour its local palette order without
   // forcing the raw registry to be physically arranged around the UI.

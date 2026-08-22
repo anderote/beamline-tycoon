@@ -670,12 +670,12 @@ export const RESEARCH = {
   electricalDistribution: {
     id: 'electricalDistribution', category: 'data',
     name: 'Electrical Distribution',
-    desc: 'Engineer a real facility service from utility takeoff to building entrance: protected HV distribution, service transformers, metering, isolation, overhead tray, risers, and underground duct banks.',
+    desc: 'Engineer a real facility service from utility takeoff to building entrance: protected HV distribution, service transformers, metering, isolation, overhead supports, and wall feedthroughs.',
     cost: { data: 228, funding: 6700000 },
     duration: 60,
     unlocks: [
       'gridServicePoint', 'gridServicePointHighCapacity', 'poleMountTransformer', 'meterMain', 'disconnectSwitch',
-      'cableTray', 'cableRiser', 'hvDuctBankVault', 'utilityPole', 'transmissionTower',
+      'utilityPole', 'transmissionTower',
     ],
     requires: 'facilitySystems',
   },

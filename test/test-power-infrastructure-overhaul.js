@@ -61,11 +61,10 @@ function reliabilityFor(state, options = {}) {
   });
 }
 
-test('the power catalog covers service, routing, metering, and resilience', () => {
+test('the active power catalog covers service, metering, and resilience', () => {
   for (const id of [
     'gridServicePoint', 'gridServicePointHighCapacity', 'poleMountTransformer', 'meterMain', 'disconnectSwitch',
-    'cableTray', 'cableRiser', 'hvDuctBankVault', 'automaticTransferSwitch',
-    'ups', 'backupGenerator',
+    'automaticTransferSwitch', 'ups', 'backupGenerator',
   ]) {
     assert.ok(PLACEABLES[id], id);
     assert.ok(Object.keys(getUtilityPortsV2(id)).length > 0, `${id} has connectors`);
@@ -73,6 +72,9 @@ test('the power catalog covers service, routing, metering, and resilience', () =
   assert.equal(COMPONENTS.laserSystem.category, 'experimentalSystems');
   assert.equal(COMPONENTS.petawattLaser.category, 'experimentalSystems');
   assert.equal(PLACEABLES.overheadPowerSpan.deprecated, true);
+  for (const id of ['cableTray', 'cableRiser', 'hvDuctBankVault']) {
+    assert.equal(PLACEABLES[id].deprecated, true, `${id} is retained only for old saves`);
+  }
 });
 
 test('utility service, pole, service transformer, and branch load solve end to end', () => {
