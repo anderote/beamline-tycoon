@@ -20,7 +20,7 @@ export const PLACEABLE_VISUAL_PROFILES = Object.freeze({
   shielding: 'shieldedCell', targetHandling: 'handling', beamDump: 'dump',
   radWasteStorage: 'storage', laserSystem: 'laserBay', petawattLaser: 'laserBay',
   powerPanel: 'cabinet', powerBus: 'powerBus', spiderBox: 'powerBus',
-  waterTank: 'storage', facilityWaterSupply: 'pump', bulkWaterTank: 'storage',
+  waterTank: 'storage', facilityWaterSupply: 'waterReplenishment', bulkWaterTank: 'storage',
 
   // Office furnishings that had no parts list.
   whiteboard: 'whiteboard', whiteboardLarge: 'whiteboard', coffeeMachine: 'coffeeMachine',
@@ -197,6 +197,28 @@ export function buildPlaceableVisualDetails(compDef, { width, height, length, co
       cyl(Math.min(width, length) * 0.08, height * 0.32, steel, width * 0.29, bottom + height * 0.35, -length * 0.18);
       glowSphere(indicatorR, 0x44ff66, width * 0.29, bottom + height * 0.53,
         front + 0.025, 'statusBlink', STATUS_LIGHT);
+      break;
+    }
+    case 'waterReplenishment': {
+      // A compact municipal-water booster/treatment plant: twin stainless
+      // filter vessels, a low pump manifold and an unmistakable control face.
+      box(width * 0.92, 0.10, length * 0.78, dark, 0, bottom - 0.02, 0);
+      for (const x of [-width * 0.23, width * 0.23]) {
+        cyl(Math.min(width, height) * 0.15, height * 0.66, steel,
+          x, bottom + height * 0.38, -length * 0.10);
+        torus(Math.min(width, height) * 0.17, 0.025, paint,
+          x, bottom + height * 0.22, -length * 0.10, [Math.PI / 2, 0, 0]);
+      }
+      cyl(Math.min(width, height) * 0.075, width * 0.78, copper,
+        0, bottom + height * 0.18, length * 0.12, 'x');
+      box(width * 0.38, height * 0.42, 0.08, paint,
+        0, bottom + height * 0.50, front + 0.02);
+      glowBox(width * 0.20, height * 0.12, 0.045, 0x28bce8,
+        0, bottom + height * 0.57, front + 0.075, 'screen', SCREEN_LIGHT);
+      for (const x of [-width * 0.10, 0, width * 0.10]) {
+        glowSphere(indicatorR * 0.75, x === 0 ? 0x44ff66 : 0xffc04a,
+          x, bottom + height * 0.39, front + 0.08, 'statusBlink');
+      }
       break;
     }
     case 'heatExchanger': {

@@ -380,7 +380,7 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   const solidStateAmp = getUtilityPortsV2('solidStateAmp');
   const tower = getUtilityPortsV2('coolingTower');
   const tank = getUtilityPortsV2('waterTank');
-  const waterMain = getUtilityPortsV2('facilityWaterSupply');
+  const replenishmentPlant = getUtilityPortsV2('facilityWaterSupply');
   const bulkTank = getUtilityPortsV2('bulkWaterTank');
   const coolingSources = ports => Object.entries(ports)
     .filter(([, port]) => port.utility === 'coolingWater' && port.role === 'source');
@@ -434,10 +434,13 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   assert(Math.abs(total(tank, 'supplyRateLPerTick') - 1) < 1e-9
       && Math.abs(total(tank, 'storageCapacityL') - 500) < 1e-9,
     'make-up tank authors independent 1 L/tick supply and 500 L storage');
-  assert(total(waterMain, 'capacity') === 0
-      && Math.abs(total(waterMain, 'supplyRateLPerTick') - 20) < 1e-9
-      && total(waterMain, 'storageCapacityL') === 0,
-    'facility water supply has the larger flow rate and no storage capacity');
+  assert(INFRASTRUCTURE_RAW.facilityWaterSupply.name === 'Water Replenishment Plant'
+      && INFRASTRUCTURE_RAW.facilityWaterSupply.subsection === 'waterSupply',
+    'the dedicated replenishment building is discoverable under Water Supply');
+  assert(total(replenishmentPlant, 'capacity') === 0
+      && Math.abs(total(replenishmentPlant, 'supplyRateLPerTick') - 20) < 1e-9
+      && total(replenishmentPlant, 'storageCapacityL') === 0,
+    'water replenishment plant adds make-up flow without cooling or storage');
   assert(total(bulkTank, 'capacity') === 0
       && total(bulkTank, 'supplyRateLPerTick') === 0
       && Math.abs(total(bulkTank, 'storageCapacityL') - 5000) < 1e-9,

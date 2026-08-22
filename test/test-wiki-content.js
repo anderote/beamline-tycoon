@@ -350,7 +350,7 @@ console.log('\n--- Test 7: cavity performance tracks cavity-specs ---');
     'make-up tank wiki page publishes both water capabilities');
   assert(mainPage.performance.some(p => p.label === 'Make-up flow' && p.value === 20)
       && !mainPage.performance.some(p => p.label === 'Water storage'),
-    'facility water wiki page publishes flow without storage');
+    'water replenishment plant wiki page publishes flow without storage');
   assert(bulkPage.performance.some(p => p.label === 'Water storage' && p.value === 5000)
       && !bulkPage.performance.some(p => p.label === 'Make-up flow'),
     'bulk tank wiki page publishes passive storage without generation');
