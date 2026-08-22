@@ -466,7 +466,7 @@ export const PORT_ANCHOR_OVERRIDES = {
   roughingPump: { _default: { y: 0.5 } },
   roughingPumpCart: { _default: { y: 0.98, lat: 0.24, along: 0.24 } },
   turboPumpCart: { _default: { y: 0.90, lat: 0.24, along: 0.24 } },
-  vacuumCart: { _default: { y: 1.0, lat: 0.88, along: 0.34 } },
+  vacuumCart: { _default: { y: 1.0, lat: 0.70, along: 0.42 } },
   highCapacityVacuumStation: { _default: { y: 1.05, lat: 1.4, along: 1.38 } },
   ionPump: { _default: { y: 0.6 } },
   vacuumManifold: { _default: { y: 0.6 } },
