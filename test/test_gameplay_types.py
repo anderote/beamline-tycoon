@@ -42,6 +42,19 @@ class TestPhysicsTypeValidation(unittest.TestCase):
 
 
 class TestKnownTypesResolve(unittest.TestCase):
+    def test_resampled_envelope_starts_at_zero_before_source_length(self):
+        """The plotted envelope must include the beam at the machine origin."""
+        elements = beamline_config_from_game([
+            {"type": "source", "physicsType": "source", "subL": 4,
+             "stats": {}},
+            {"type": "drift", "physicsType": "drift", "subL": 4,
+             "stats": {}},
+        ])
+        result = propagate(elements, machine_type="linac")
+        envelope = result["snapshots"]
+        self.assertEqual(envelope[0]["s"], 0.0)
+        self.assertGreater(envelope[-1]["s"], envelope[0]["s"])
+
     def test_every_known_type_propagates_on_every_tier(self):
         """Each declared physicsType must survive config mapping and
         propagation through every machine tier's module list."""

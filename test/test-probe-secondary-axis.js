@@ -352,12 +352,12 @@ console.log('\n--- Shared distance pixels, independent right axis ---');
     && event.fillStyle === '#ff5ec4'),
   'the independent right axis is labelled in the secondary trace colour');
   check(events.text.some(event => event.text === 'I (mA)'
-    && event.font === 'bold 9px monospace'),
+    && event.font === 'bold 10px monospace'),
   'the independent right-axis label uses the larger plot font');
   check(events.text.some(event => event.text === '2·Current'),
     'the overlaid trace receives a distinct secondary legend');
   check(events.text.some(event => event.text === '2·Current'
-    && event.font === '8px monospace'),
+    && event.font === '10px monospace'),
   'the secondary legend uses the larger plot font');
   check(events.text.some(event => event.text === 's (m)'
     && event.font === '9px monospace'),
