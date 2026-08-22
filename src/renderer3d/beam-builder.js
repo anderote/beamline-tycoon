@@ -53,15 +53,33 @@ function makeInstancedMesh(name, geometry, material, entries, dynamic = false) {
   return mesh;
 }
 
+function hashUnit(value) {
+  const text = String(value ?? 'beam');
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 0xffffffff;
+}
+
+function paletteColor(palette, seed) {
+  return palette[Math.floor(hashUnit(seed) * palette.length) % palette.length];
+}
+
 export class BeamBuilder {
   constructor() {
     this._meshes = [];
     this._packetRuns = [];
+    this._specialParticles = [];
+    this._time = 0;
     this._showDetail = true;
     this._motionAxis = new THREE.Vector3(0, 1, 0);
     this._motionPosition = new THREE.Vector3();
     this._motionRotation = new THREE.Quaternion();
     this._motionScale = new THREE.Vector3();
+    this._specialDirection = new THREE.Vector3();
+    this._specialXAxis = new THREE.Vector3(1, 0, 0);
   }
 
   build(beamPathData, parentGroup) {
@@ -69,9 +87,13 @@ export class BeamBuilder {
     if (!beamPathData?.length) return;
 
     this._tuning = particleEffectProfile('beamline');
+    this._targetTuning = particleEffectProfile('targetRadiation');
+    this._synchrotronTuning = particleEffectProfile('synchrotronRadiation');
+    this._sourceTuning = particleEffectProfile('sourceFlow');
 
     const segmentBuckets = new Map();
     const packetBuckets = new Map();
+    const specialBuckets = new Map();
     for (const path of beamPathData) {
       const points = routedPoints(path);
       if (points.length < 2) continue;
@@ -107,6 +129,10 @@ export class BeamBuilder {
       const run = this._makePacketRun(points, profile, mode);
       if (!run) continue;
       this._packetRuns.push(run);
+      this._addRadiationParticles(
+        run, path.radiationEvents || [], specialBuckets, opacityScale,
+      );
+      this._addSourceParticles(run, path.sourceEffect, specialBuckets, opacityScale);
 
       const movingStyles = [];
       if (hasBunched) {
@@ -153,6 +179,7 @@ export class BeamBuilder {
         transparent: true,
         opacity: bucket.opacity,
         depthWrite: false,
+        depthTest: false,
         blending: THREE.AdditiveBlending,
         toneMapped: false,
       });
@@ -160,14 +187,46 @@ export class BeamBuilder {
         const point = this._pointAt(run, packet.distance);
         const motion = this._motionAt(run, packet.distance);
         const matrix = this._motionMatrix(
-          point, motion, bucket.role, bucket.xScale, new THREE.Matrix4(),
+          point, motion, bucket.role, bucket.xScale, new THREE.Matrix4(), packet.phase,
         );
         return { matrix, color };
       });
       const mesh = makeInstancedMesh(`beam-${bucket.role}`, geometry, material, entries, true);
       mesh.layers.enable(BLOOM_LAYER);
+      // Beam pixels are an intentional x-ray overlay: beamline hardware does
+      // not hide the contents of its own vacuum aperture.
+      mesh.renderOrder = 40;
       bucket.entries.forEach(({ packet }, index) => {
         packet.instances[bucket.role] = { mesh, index, xScale: bucket.xScale };
+      });
+      parentGroup.add(mesh);
+      this._meshes.push(mesh);
+    }
+
+    for (const bucket of specialBuckets.values()) {
+      if (!bucket.entries.length) continue;
+      const geometry = new THREE.BoxGeometry(
+        bucket.elongated ? 1 : bucket.size,
+        bucket.size,
+        bucket.size,
+      );
+      const material = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: bucket.opacity,
+        depthWrite: false,
+        depthTest: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
+      });
+      const entries = bucket.entries.map(({ particle, color }) => ({
+        matrix: this._specialMatrix(particle, new THREE.Matrix4()), color,
+      }));
+      const mesh = makeInstancedMesh(`beam-${bucket.role}`, geometry, material, entries, true);
+      mesh.layers.enable(BLOOM_LAYER);
+      mesh.renderOrder = 41;
+      bucket.entries.forEach(({ particle }, index) => {
+        particle.instance = { mesh, index };
       });
       parentGroup.add(mesh);
       this._meshes.push(mesh);
@@ -190,7 +249,7 @@ export class BeamBuilder {
     const packets = [];
     for (let i = 0; i < dcCount; i++) {
       packets.push({
-        kind: 'dc', distance: (i / dcCount) * total, instances: {},
+        kind: 'dc', distance: (i / dcCount) * total, phase: i / dcCount, instances: {},
       });
     }
     // Adjacent pixels read as one compact bunch; the large empty gap to
@@ -202,6 +261,7 @@ export class BeamBuilder {
         packets.push({
           kind: 'bunch',
           distance: (center + (pixel - (bunchSize - 1) / 2) * 0.075 + total) % total,
+          phase: group / bunchCount + pixel * 0.015,
           instances: {},
         });
       }
@@ -210,6 +270,121 @@ export class BeamBuilder {
       points, lengths, total, profile, fallbackMode,
       packets,
     };
+  }
+
+  _addRadiationParticles(run, events, buckets, opacityScale) {
+    for (const event of events || []) {
+      const origin = this._pointAt(run, Math.max(0, Math.min(1, event.u || 0)) * run.total);
+      const tangentX = origin.tangentX || 1;
+      const tangentZ = origin.tangentZ || 0;
+      const sideX = -tangentZ;
+      const sideZ = tangentX;
+      const strength = Math.max(0.05, Math.min(1, Number(event.strength) || 0.55));
+      if (event.kind === 'impact') {
+        const tuning = this._targetTuning;
+        const count = Math.max(6, Math.min(72,
+          Math.round((16 + 28 * strength) * tuning.density)));
+        const bucket = bucketFor(buckets, `secondary-radiation:${opacityScale}`, {
+          role: 'secondary-radiation', size: tuning.size,
+          opacity: tuning.brightness * opacityScale, elongated: false,
+        });
+        const colors = event.endpointType === 'target'
+          ? [0xffffff, 0xffe36a, 0x70edff, 0xb77aff]
+          : [0xffffff, 0x74eaff, 0x8c9dff, 0xffbd55];
+        for (let i = 0; i < count; i++) {
+          const seed = `${event.elementId}:impact:${i}`;
+          const angle = i * 2.399963 + hashUnit(seed) * 0.5;
+          const spread = tuning.spread * (0.32 + hashUnit(`${seed}:spread`) * 0.68);
+          const backward = -0.12 - hashUnit(`${seed}:back`) * 0.52;
+          const dx = tangentX * backward + sideX * Math.cos(angle) * spread;
+          const dy = Math.sin(angle) * spread * 0.62
+            + (hashUnit(`${seed}:up`) - 0.35) * 0.42;
+          const dz = tangentZ * backward + sideZ * Math.cos(angle) * spread;
+          const invLength = 1 / Math.max(1e-6, Math.hypot(dx, dy, dz));
+          const particle = {
+            kind: 'impact', origin, direction: {
+              x: dx * invLength, y: dy * invLength, z: dz * invLength,
+            },
+            phase: i / count,
+            speed: (1.2 + 2.7 * strength) * tuning.speed
+              * (0.72 + hashUnit(`${seed}:speed`) * 0.56),
+            lifetime: tuning.lifetime * (0.6 + hashUnit(`${seed}:life`) * 0.4),
+            strength,
+          };
+          this._specialParticles.push(particle);
+          bucket.entries.push({ particle, color: paletteColor(colors, seed) });
+        }
+      } else if (event.kind === 'synchrotron') {
+        const tuning = this._synchrotronTuning;
+        const count = Math.max(3, Math.min(36,
+          Math.round((4 + 15 * strength) * tuning.density)));
+        const bucket = bucketFor(buckets, `synchrotron-streak:${opacityScale}`, {
+          role: 'synchrotron-streak', size: tuning.size,
+          opacity: tuning.brightness * opacityScale, elongated: true,
+        });
+        const colors = [0xffffff, 0x78edff, 0x8fa0ff, 0xc47cff];
+        for (let i = 0; i < count; i++) {
+          const seed = `${event.elementId}:synch:${i}`;
+          const lateral = (hashUnit(`${seed}:side`) - 0.5) * tuning.spread;
+          const vertical = (hashUnit(`${seed}:up`) - 0.5) * tuning.spread * 0.55;
+          const dx = tangentX + sideX * lateral;
+          const dy = vertical;
+          const dz = tangentZ + sideZ * lateral;
+          const invLength = 1 / Math.max(1e-6, Math.hypot(dx, dy, dz));
+          const particle = {
+            kind: 'synchrotron', origin, direction: {
+              x: dx * invLength, y: dy * invLength, z: dz * invLength,
+            },
+            phase: i / count,
+            speed: (3 + 2.8 * (event.beta || 0.66)) * tuning.speed,
+            lifetime: tuning.lifetime * (0.72 + hashUnit(`${seed}:life`) * 0.28),
+            streakLength: tuning.streakLength,
+            strength,
+          };
+          this._specialParticles.push(particle);
+          bucket.entries.push({ particle, color: paletteColor(colors, seed) });
+        }
+      }
+    }
+  }
+
+  _addSourceParticles(run, effect, buckets, opacityScale) {
+    if (!effect) return;
+    const tuning = this._sourceTuning;
+    const countBase = effect.kind === 'cyclotronSpiral' ? 38 : 30;
+    const count = Math.max(8, Math.min(96, Math.round(countBase * tuning.density)));
+    const role = effect.kind === 'cyclotronSpiral' ? 'cyclotron-flow' : 'ecr-plasma-flow';
+    const bucket = bucketFor(buckets, `${role}:${opacityScale}`, {
+      role, size: tuning.size, opacity: tuning.brightness * opacityScale, elongated: false,
+    });
+    const exit = this._pointAt(run, 0);
+    const tangentX = exit.tangentX || 1;
+    const tangentZ = exit.tangentZ || 0;
+    const centre = {
+      x: exit.x - tangentX * effect.sourceLength * 0.5,
+      y: exit.y,
+      z: exit.z - tangentZ * effect.sourceLength * 0.5,
+    };
+    const colors = effect.kind === 'cyclotronSpiral'
+      ? [0xffffff, 0x69edff, 0x6fa2ff]
+      : [0xffffff, 0xc05cff, 0x6d8cff, 0x58ecff];
+    for (let i = 0; i < count; i++) {
+      const seed = `${effect.elementId}:source:${i}`;
+      const particle = {
+        kind: effect.kind,
+        phase: i / count + hashUnit(seed) * 0.02,
+        exit,
+        centre,
+        tangentX,
+        tangentZ,
+        radius: effect.radius,
+        sourceLength: effect.sourceLength,
+        speed: tuning.speed * (0.82 + hashUnit(`${seed}:speed`) * 0.36),
+        slosh: tuning.slosh,
+      };
+      this._specialParticles.push(particle);
+      bucket.entries.push({ particle, color: paletteColor(colors, seed) });
+    }
   }
 
   setDetailLevel(showDetail) {
@@ -224,20 +399,31 @@ export class BeamBuilder {
   /** Advance all packet instances, updating one GPU buffer per shared style. */
   update(dtSeconds) {
     if (!Number.isFinite(dtSeconds) || dtSeconds <= 0) return;
+    this._time += Math.min(dtSeconds, 0.1);
     const touched = new Set();
     const matrix = new THREE.Matrix4();
     for (const run of this._packetRuns) {
       for (const packet of run.packets) {
         const motion = this._motionAt(run, packet.distance);
-        packet.distance = (packet.distance + dtSeconds * motion.speed) % run.total;
+        const liquidSpeed = 1 + 0.08 * (this._tuning?.slosh || 0)
+          * Math.sin(this._time * 2.7 + packet.phase * Math.PI * 2);
+        packet.distance = (packet.distance + dtSeconds * motion.speed * liquidSpeed) % run.total;
         const nextPoint = this._pointAt(run, packet.distance);
         const nextMotion = this._motionAt(run, packet.distance);
         for (const [role, instance] of Object.entries(packet.instances)) {
-          this._motionMatrix(nextPoint, nextMotion, role, instance.xScale, matrix);
+          this._motionMatrix(
+            nextPoint, nextMotion, role, instance.xScale, matrix, packet.phase,
+          );
           instance.mesh.setMatrixAt(instance.index, matrix);
           touched.add(instance.mesh);
         }
       }
+    }
+    for (const particle of this._specialParticles) {
+      if (!particle.instance) continue;
+      this._specialMatrix(particle, matrix);
+      particle.instance.mesh.setMatrixAt(particle.instance.index, matrix);
+      touched.add(particle.instance.mesh);
     }
     for (const mesh of touched) mesh.instanceMatrix.needsUpdate = true;
   }
@@ -254,6 +440,8 @@ export class BeamBuilder {
           y: a.y + (b.y - a.y) * t,
           z: a.z + (b.z - a.z) * t,
           rotationY: -Math.atan2(b.z - a.z, b.x - a.x),
+          tangentX: (b.x - a.x) / Math.max(1e-6, Math.hypot(b.x - a.x, b.z - a.z)),
+          tangentZ: (b.z - a.z) / Math.max(1e-6, Math.hypot(b.x - a.x, b.z - a.z)),
         };
       }
       previousEnd = end;
@@ -267,14 +455,95 @@ export class BeamBuilder {
     return { ...motion, speed: motion.speed * (this._tuning?.speed || 1) };
   }
 
-  _motionMatrix(point, motion, role, xScale, matrix) {
+  _motionMatrix(point, motion, role, xScale, matrix, phase = 0) {
     const visibility = role.startsWith('bunch-') ? motion.bunch : 1 - motion.bunch;
     // Scaling to almost zero gives a soft geometry crossfade between the
     // continuous crest and packet train without per-instance materials.
     const visibleScale = Math.max(0.0001, visibility);
-    this._motionPosition.set(point.x, point.y, point.z);
+    const slosh = this._tuning?.slosh || 0;
+    const wave = Math.sin(this._time * 3.1 + phase * Math.PI * 2);
+    const cross = wave * 0.024 * slosh;
+    this._motionPosition.set(
+      point.x - (point.tangentZ || 0) * cross,
+      point.y + Math.sin(this._time * 2.2 + phase * 11.7) * 0.014 * slosh,
+      point.z + (point.tangentX || 1) * cross,
+    );
     this._motionRotation.setFromAxisAngle(this._motionAxis, point.rotationY || 0);
     this._motionScale.set(xScale * visibleScale, visibleScale, visibleScale);
+    return matrix.compose(this._motionPosition, this._motionRotation, this._motionScale);
+  }
+
+  _specialMatrix(particle, matrix) {
+    const cycle = particle.kind === 'impact' || particle.kind === 'synchrotron'
+      ? this._time / Math.max(0.05, particle.lifetime)
+      : this._time * 0.24 * particle.speed;
+    const progress = ((cycle + particle.phase) % 1 + 1) % 1;
+    let x, y, z, scale = 1;
+    if (particle.kind === 'impact' || particle.kind === 'synchrotron') {
+      const distance = progress * particle.speed * particle.lifetime;
+      x = particle.origin.x + particle.direction.x * distance;
+      y = particle.origin.y + particle.direction.y * distance;
+      z = particle.origin.z + particle.direction.z * distance;
+      scale = Math.max(0.02, (1 - progress) * (0.55 + particle.strength * 0.65));
+      this._motionPosition.set(x, y, z);
+      if (particle.kind === 'synchrotron') {
+        this._specialDirection.set(
+          particle.direction.x, particle.direction.y, particle.direction.z,
+        );
+        this._motionRotation.setFromUnitVectors(this._specialXAxis, this._specialDirection);
+        this._motionScale.set(
+          particle.streakLength * (0.65 + particle.strength) * scale,
+          scale,
+          scale,
+        );
+      } else {
+        this._motionRotation.identity();
+        this._motionScale.setScalar(scale);
+      }
+      return matrix.compose(this._motionPosition, this._motionRotation, this._motionScale);
+    }
+
+    const sideX = -particle.tangentZ;
+    const sideZ = particle.tangentX;
+    if (particle.kind === 'cyclotronSpiral') {
+      const orbitEnd = 0.78;
+      const q = Math.min(1, progress / orbitEnd);
+      const finalAngle = Math.atan2(0.72, 0.22);
+      const angle = finalAngle - (1 - q) * Math.PI * 8
+        + Math.sin(this._time * 1.9 + particle.phase * 17) * 0.08 * particle.slosh;
+      const radius = particle.radius * q;
+      const orbitX = particle.centre.x
+        + sideX * Math.cos(angle) * radius + particle.tangentX * Math.sin(angle) * radius;
+      const orbitZ = particle.centre.z
+        + sideZ * Math.cos(angle) * radius + particle.tangentZ * Math.sin(angle) * radius;
+      if (progress <= orbitEnd) {
+        x = orbitX; z = orbitZ;
+      } else {
+        const extract = (progress - orbitEnd) / (1 - orbitEnd);
+        const outerX = particle.centre.x
+          + sideX * particle.radius * 0.22 + particle.tangentX * particle.radius * 0.72;
+        const outerZ = particle.centre.z
+          + sideZ * particle.radius * 0.22 + particle.tangentZ * particle.radius * 0.72;
+        x = outerX + (particle.exit.x - outerX) * extract;
+        z = outerZ + (particle.exit.z - outerZ) * extract;
+      }
+      y = particle.centre.y
+        + Math.sin(angle * 0.5 + this._time * 2) * 0.035 * particle.slosh;
+      scale = 0.68 + 0.32 * Math.sin(progress * Math.PI);
+    } else {
+      const angle = progress * Math.PI * 12 + this._time * 2.4
+        + particle.phase * Math.PI * 2;
+      const radius = particle.radius * Math.pow(1 - progress, 0.68)
+        * (0.78 + 0.22 * Math.sin(this._time * 2.1 + particle.phase * 19) * particle.slosh);
+      const axial = (-0.25 + progress * 0.75) * particle.sourceLength;
+      x = particle.centre.x + particle.tangentX * axial + sideX * Math.cos(angle) * radius;
+      z = particle.centre.z + particle.tangentZ * axial + sideZ * Math.cos(angle) * radius;
+      y = particle.centre.y + Math.sin(angle) * radius * 0.72;
+      scale = 0.72 + 0.28 * Math.sin(progress * Math.PI);
+    }
+    this._motionPosition.set(x, y, z);
+    this._motionRotation.identity();
+    this._motionScale.setScalar(scale);
     return matrix.compose(this._motionPosition, this._motionRotation, this._motionScale);
   }
 
@@ -287,5 +556,6 @@ export class BeamBuilder {
     }
     this._meshes = [];
     this._packetRuns = [];
+    this._specialParticles = [];
   }
 }

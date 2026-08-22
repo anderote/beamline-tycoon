@@ -23,6 +23,13 @@ test('live beam motion uses glowing pixel instances without allocating lights', 
       { u: 0.55, beta: 0.3, speed: 2.55, bunch: 1 },
       { u: 1, beta: 0.9, speed: 3.84, bunch: 1 },
     ],
+    radiationEvents: [
+      { kind: 'synchrotron', elementId: 'bend', u: 0.55, strength: 0.8, beta: 0.9 },
+      { kind: 'impact', elementId: 'stop', endpointType: 'target', u: 1, strength: 0.9 },
+    ],
+    sourceEffect: {
+      kind: 'cyclotronSpiral', elementId: 'source', radius: 0.9, sourceLength: 2,
+    },
     color: 0x44ff88,
   }], parent);
 
@@ -32,6 +39,13 @@ test('live beam motion uses glowing pixel instances without allocating lights', 
   assert.equal(dc.geometry.type, 'BoxGeometry');
   assert.equal(bunch.geometry.type, 'BoxGeometry');
   assert.ok(bunch.count % 4 === 0, 'bunched beam pixels are emitted in compact groups of four');
+  assert.equal(dc.material.depthTest, false,
+    'beam pixels remain visible through beamline equipment');
+  assert.equal(bunch.material.depthTest, false,
+    'bunched pixels remain visible through beamline equipment');
+  assert.ok(parent.getObjectByName('beam-synchrotron-streak')?.isInstancedMesh);
+  assert.ok(parent.getObjectByName('beam-secondary-radiation')?.isInstancedMesh);
+  assert.ok(parent.getObjectByName('beam-cyclotron-flow')?.isInstancedMesh);
   let lights = 0;
   parent.traverse(object => { if (object.isLight) lights++; });
   assert.equal(lights, 0, 'beam glow is emissive colour/bloom, not a physical light source');

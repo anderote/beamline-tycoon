@@ -17,6 +17,9 @@ import { flattenPath } from '../beamline/flattener.js';
 import { getBeamlineType } from '../data/beamline-types.js';
 import { beamVisualMode, beamVisualProfile } from './beam-visual-mode.js';
 import { beamVisualPath } from './beam-visual-path.js';
+import {
+  beamRadiationEvents, beamSourceEffect,
+} from './beam-radiation-presentation.js';
 import { wallFixtureFaceOffset } from './fixture-light-math.js';
 import { utilityAttachmentPose } from '../utility/line-attachments.js';
 import { utilityLineHeight } from '../utility/registry.js';
@@ -623,6 +626,16 @@ function buildBeamPaths(game) {
     const dimmed = !!(editingId && entry.id !== editingId);
 
     const beamlineType = getBeamlineType(entry.typeId);
+    const visualElements = flat.map(element => {
+      const def = COMPONENTS[element.type];
+      return {
+        ...element,
+        physicsType: def?.physicsType || null,
+        isDipole: def?.isDipole === true,
+        isEndpoint: def?.isEndpoint === true,
+        subW: def?.subW || def?.gridW || null,
+      };
+    });
     beamPaths.push({
       beamlineId: entry.id,
       hardwareIds: flat.filter(node => node.kind !== 'drift' && node.id).map(node => node.id),
@@ -636,6 +649,10 @@ function buildBeamPaths(game) {
       visualProfile: beamVisualProfile(
         beamlineType, flat, entry.beamState?.physicsEnvelope,
       ),
+      radiationEvents: beamRadiationEvents(
+        visualElements, entry.beamState?.physicsEnvelope, beamlineType,
+      ),
+      sourceEffect: beamSourceEffect(visualElements),
       color: entry.accentColor || 0x44ff44,
       worldPoints: beamVisualPath(flat, game.state.beamPipes),
     });
