@@ -247,10 +247,12 @@ the short authoring contract.
   utility's current route-height plane for every utility type, including HV.
   Terrain projection remains a hover concern and does not place the route.
 - Vacuum pipe, RF waveguide, and cryogenic transfer line are fabricated rigid
-  services with vertical route lanes. Their saved `routeHeightMeters` starts at
-  the source connector height and rises only as needed, so parallel or crossing
-  runs may share X/Z coordinates while remaining physically separate. A named
-  tap is a real fitting and therefore inherits the trunk's route height.
+  services with vertical route lanes. Vacuum and RF begin at the higher endpoint
+  connector; cryogenic transfer begins on its low service rack because the
+  renderer routes elevated bayonet drops outside the cryostat body. All three
+  rise only as needed, so parallel or crossing runs may share X/Z coordinates
+  while remaining physically separate. A named tap is a real fitting and
+  therefore inherits the trunk's route height.
 - A utility descriptor with `requiresWallPassThrough: true` validates the
   physical rendered route against `wallOccupied`. Power and HV cable opt in;
   their freehand `cablePath` is authoritative when present. Fabricated pipe,

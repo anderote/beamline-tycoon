@@ -357,6 +357,13 @@ export default {
   // Stand legs are presentation geometry derived from this centreline height;
   // topology and priced path length remain the authored 2D route.
   runHeightMeters: 0.30,
+  // Cryomodule bayonets frequently sit 2–2.5 m above the deck. Carrying that
+  // height across the whole facility left only one or two automatic stacking
+  // lanes before the 3 m ceiling and made dense cryogenic routing needlessly
+  // fragile. The endpoint renderer already moves the vertical drop outside
+  // the cryostat body, so ordinary runs belong on this low service rack.
+  // Explicit taps still inherit their trunk's saved elevation.
+  routeAtBaseHeight: true,
   supportSpacingMeters: 3,
   supportMinimumRunMeters: 3,
   verticalRouteLanes: true,
