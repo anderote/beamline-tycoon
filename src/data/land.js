@@ -18,9 +18,11 @@
 // axes (a straight run may lie along either one, so square growth buys as much
 // straight-run budget as an elongated map would, for a much smaller change).
 //
-// COSTS ARE PROVISIONAL. They span $500M to $15B against a game whose late
-// research costs $41M; that gap is deliberate, but it is the number most likely
-// to move. Settle it in scripts/balance-sim.mjs, not by feel.
+// Land is a simple, legible cash purchase: every click buys the next square
+// site for the same $500k. Keeping one price lets the four map-corner purchase
+// arrows state the whole rule without a separate ladder panel.
+
+export const LAND_PARCEL_COST = 500_000;
 
 export const LAND_PARCELS = [
   {
@@ -28,7 +30,7 @@ export const LAND_PARCELS = [
     name: 'Land Acquisition',
     halfExtent: 60,
     tilesPerSide: 121,
-    cost: 500_000_000,
+    cost: LAND_PARCEL_COST,
     // What the purchase is FOR, in the player's terms. Kept next to the price
     // so a card can say what the money buys rather than how big a square it is.
     unlocks: 'Z-pole collider',
@@ -39,7 +41,7 @@ export const LAND_PARCELS = [
     name: 'Compulsory Purchase',
     halfExtent: 90,
     tilesPerSide: 181,
-    cost: 3_000_000_000,
+    cost: LAND_PARCEL_COST,
     unlocks: 'Higgs factory',
     desc: 'The county exercises eminent domain on your behalf. Nobody is happy.',
   },
@@ -48,7 +50,7 @@ export const LAND_PARCELS = [
     name: 'Site Condemnation',
     halfExtent: 120,
     tilesPerSide: 241,
-    cost: 15_000_000_000,
+    cost: LAND_PARCEL_COST,
     unlocks: 'TeV collider · Black Hole Factory',
     desc: 'Everything to the horizon becomes national scientific infrastructure.',
   },

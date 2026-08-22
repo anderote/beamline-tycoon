@@ -129,6 +129,7 @@ import {
 import { worldRefreshPlan } from './world-refresh-plan.js';
 import { WorldInvalidationScheduler } from './world-invalidation-scheduler.js';
 import { selectionTargetsForState } from '../game/selection-targets.js';
+import { LandPurchaseMarkers } from './land-purchase-markers.js';
 
 // Closest the camera may get. The renderer intentionally keeps the high-detail
 // presentation at every zoom; low-detail meshes made the world less readable.
@@ -784,6 +785,12 @@ export class ThreeRenderer {
     this.gridOverlayGroup.renderOrder = 997;
     this.scene.add(this.gridOverlayGroup);
 
+    // Repeated at all four owned-map corners so the land purchase stays
+    // discoverable from every camera heading. It is a standalone coordinator:
+    // ThreeRenderer only routes scene lifecycle and screen rays to it.
+    this.landPurchaseMarkers = new LandPurchaseMarkers(this.game, this.scene);
+    this.landPurchaseMarkers.sync();
+
     // Staff pawns — little walking pixel-people for hired staff
     this.staffPawns = new StaffPawns(this.game, this.scene);
     this._physicsPresentation.attachStaff(this.staffPawns, this.scene);
@@ -880,6 +887,10 @@ export class ThreeRenderer {
           break;
         case 'researchChanged':
           if (this._renderTechTree) this._renderTechTree();
+          break;
+        case 'mapExpanded':
+        case 'resourcesChanged':
+          this.landPurchaseMarkers?.sync();
           break;
         case 'staffChanged':
           if (this._renderStaffBar) this._renderStaffBar();
@@ -1114,6 +1125,30 @@ export class ThreeRenderer {
     };
 
     return pickWithScreenTolerance(screenX, screenY, tolerancePx, castAt);
+  }
+
+  /** World-control picking stays separate from placeable picking so the big
+   * corner arrows can never masquerade as decorations or build targets. */
+  isLandPurchaseMarkerAtScreen(screenX, screenY) {
+    if (!this.landPurchaseMarkers) return false;
+    const { raycaster } = this._screenRay(screenX, screenY);
+    return this.landPurchaseMarkers.hitTest(raycaster);
+  }
+
+  updateLandPurchaseHover(screenX, screenY) {
+    const hit = this.isLandPurchaseMarkerAtScreen(screenX, screenY);
+    this.landPurchaseMarkers?.setHovered(hit);
+    return hit;
+  }
+
+  clearLandPurchaseHover() {
+    this.landPurchaseMarkers?.setHovered(false);
+  }
+
+  purchaseLandAtScreen(screenX, screenY) {
+    if (!this.isLandPurchaseMarkerAtScreen(screenX, screenY)) return false;
+    this.landPurchaseMarkers.purchase();
+    return true;
   }
 
   /**
@@ -4551,6 +4586,7 @@ export class ThreeRenderer {
     const snapshot = buildWorldSnapshot(this.game);
     this.applySnapshot(snapshot);
     if (this.staffPawns) this.staffPawns.sync();
+    this.landPurchaseMarkers?.sync();
   }
 
   _refreshBeamlineWorld() {
@@ -5599,6 +5635,10 @@ export class ThreeRenderer {
     if (this._viewCube) {
       this._viewCube.dispose();
       this._viewCube = null;
+    }
+    if (this.landPurchaseMarkers) {
+      this.landPurchaseMarkers.dispose();
+      this.landPurchaseMarkers = null;
     }
     if (this._glowPipeline) {
       this._glowPipeline.dispose();

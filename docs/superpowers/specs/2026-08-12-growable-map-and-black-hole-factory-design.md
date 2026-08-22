@@ -51,17 +51,15 @@ The map stays square. Growth is symmetric on both axes — simpler than an elong
 
 ### B. Land is purchasable
 
-A tycoon-genre land purchase, in RCT2's shape: **pure money, no research gate**, escalating per chunk. It is the only large late-game cash sink in the game and the only route to the tier-5 and tier-6 machines.
+A tycoon-genre land purchase, in RCT2's shape: **pure money, no research gate**. Four large arrows sit just outside the owned map corners; clicking any one buys the next full square site. Each purchase costs **$500k**. It is the route to the tier-5 and tier-6 machines.
 
-Costs escalate steeply because each chunk is a bigger annulus of land than the last (the area added by +15 half-extent grows linearly with the current extent):
+Each step adds a larger annulus of land than the last, but the player-facing purchase price stays flat and predictable:
 
 | purchase | half-extent | tiles/side | cost | unlocks |
 |---|---|---|---|---|
-| Land Acquisition | 60 | 121 | $500M | Z-pole collider |
-| Compulsory Purchase | 90 | 181 | $3B | Higgs factory |
-| *Site Condemnation* | 120 | 241 | $15B | TeV collider · Black Hole Factory |
-
-Provisional, per the project's standing rule: measure against the economy in `scripts/balance-sim.mjs` before shipping.
+| Land Acquisition | 60 | 121 | $500k | Z-pole collider |
+| Compulsory Purchase | 90 | 181 | $500k | Higgs factory |
+| *Site Condemnation* | 120 | 241 | $500k | TeV collider · Black Hole Factory |
 
 **Terrain for newly-bought land is generated on purchase**, from the existing `terrainSeed` and `terrainBlobs`, so the annulus is deterministic and matches what the generator would have produced had the map always been that size. A save records only `mapHalfExtent`; the ground regenerates.
 

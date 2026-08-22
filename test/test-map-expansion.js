@@ -35,7 +35,9 @@ import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
 import {
   generateStartingMap, generateAnnulus, DEFAULT_MAP_HALF_EXTENT,
 } from '../src/game/map-generator.js';
-import { LAND_PARCELS, nextLandParcel, MAX_MAP_HALF_EXTENT } from '../src/data/land.js';
+import {
+  LAND_PARCELS, LAND_PARCEL_COST, nextLandParcel, MAX_MAP_HALF_EXTENT,
+} from '../src/data/land.js';
 import { STOCK_DESIGNS } from '../src/data/stock-designs.js';
 import { DesignPlacer } from '../src/ui/DesignPlacer.js';
 
@@ -180,14 +182,14 @@ console.log('\n=== annulus generation is deterministic and order-independent ===
 console.log('\n=== the land ladder ===\n');
 {
   assert(LAND_PARCELS.length === 3, `three parcels (got ${LAND_PARCELS.length})`);
-  let prevExtent = DEFAULT_MAP_HALF_EXTENT, prevCost = 0;
+  let prevExtent = DEFAULT_MAP_HALF_EXTENT;
   for (const p of LAND_PARCELS) {
     assert(p.halfExtent > prevExtent, `${p.id}: half-extent ascends (${p.halfExtent})`);
-    assert(p.cost > prevCost, `${p.id}: cost ascends ($${p.cost})`);
+    assert(p.cost === LAND_PARCEL_COST, `${p.id}: costs $500k`);
     assert(p.tilesPerSide === p.halfExtent * 2 + 1,
       `${p.id}: tilesPerSide matches half-extent (${p.tilesPerSide})`);
     assert(typeof p.name === 'string' && p.name.length > 0, `${p.id}: has a name`);
-    prevExtent = p.halfExtent; prevCost = p.cost;
+    prevExtent = p.halfExtent;
   }
   assert(MAX_MAP_HALF_EXTENT === LAND_PARCELS[LAND_PARCELS.length - 1].halfExtent,
     `MAX_MAP_HALF_EXTENT is the last parcel (${MAX_MAP_HALF_EXTENT})`);
@@ -195,6 +197,14 @@ console.log('\n=== the land ladder ===\n');
     'the first parcel is what a new site is offered');
   assert(nextLandParcel(MAX_MAP_HALF_EXTENT) === null,
     'nothing is offered past the last parcel');
+
+  const g = newGame(77);
+  g.state.resources.funding = LAND_PARCEL_COST - 1;
+  assert(g.getLandPurchaseStatus().affordable === false,
+    'published land status reports a shortfall');
+  g.state.resources.funding = LAND_PARCEL_COST;
+  assert(g.getLandPurchaseStatus().affordable === true,
+    'published land status uses the canonical affordability rule');
 }
 
 // ==========================================================================
