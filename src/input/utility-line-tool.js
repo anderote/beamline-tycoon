@@ -134,6 +134,17 @@ export class UtilityLineTool extends Tool {
   _cableWorld(e, ctx) {
     const r = ctx.renderer;
     const ctrl = ctx.input.utilityLineController;
+    // HV wall clearance is a plan-view rule: the cable is blocked only when
+    // its footprint crosses an authored wall edge. Picking its cursor on the
+    // cable's slightly elevated render plane makes that footprint camera-angle
+    // dependent — a screen ray that passes over a wall can land on the far
+    // side of the edge even though the player's ground route stays beside it.
+    // Keep HV drawing on the ground pick used by the wall grid. The renderer
+    // still raises the saved path by utilityLineHeight(), so this changes only
+    // input/validation coordinates, not the visible cable elevation.
+    if (this.utilityType === 'hvCable') {
+      return r.screenToWorld(e.clientX, e.clientY);
+    }
     const height = ctrl?.isActive?.()
       ? ctrl.drawHeight : utilityLineHeight(this.utilityType);
     return r.screenToWorldAtHeight
