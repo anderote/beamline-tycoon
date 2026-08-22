@@ -32,7 +32,7 @@ export const MODES = {
       // beside it but is the less frequently selected transport tool.
       power:        { name: 'Power',           color: '#4c4',
                       utilityLineTools: ['powerCable', 'hvCable'],
-                      subsections: { transport: { name: 'Transport' }, hvSupply: { name: 'HV Supply' }, distribution: { name: 'Distribution' }, fieldDistribution: { name: 'Field Distribution' }, specialty: { name: 'Specialty' } } },
+                      subsections: { transport: { name: 'Transport' }, routingHardware: { name: 'Routing Hardware', linkedPlaceables: ['utilityPole'] }, hvSupply: { name: 'HV Supply' }, distribution: { name: 'Distribution' }, fieldDistribution: { name: 'Field Distribution' }, specialty: { name: 'Specialty' } } },
       rfPower:      { name: 'RF Power',        color: '#c44',
                       utilityLineTools: ['rfWaveguide', 'hvCable'],
                       subsections: { transport: { name: 'Transport' }, supply: { name: 'RF Sources' }, distribution: { name: 'Distribution' }, controls: { name: 'Controls' } } },

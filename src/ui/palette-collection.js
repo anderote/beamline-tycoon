@@ -55,3 +55,14 @@ export function groupDecorationPaletteEntries(entries = [], subsections = {}) {
       : index === 0),
   })).filter(section => section.entries.length > 0);
 }
+
+/**
+ * A decoration with live utility ports is intentionally also present in the
+ * COMPONENTS compatibility registry. Standard Infra palettes must still arm
+ * its unified decoration placement tool rather than treating it as beamline
+ * hardware merely because that registry supplied the entry.
+ */
+export function standardPaletteKind(def, isFacility = false) {
+  if (def?.kind === 'decoration') return 'decoration';
+  return isFacility ? 'facility' : 'component';
+}

@@ -13,7 +13,10 @@ const {
   buildDecorationGroup,
   hasDedicatedDecorationGeometry,
 } = await import('../src/renderer3d/decoration-builder.js');
-const { resolvePaletteCollection } = await import('../src/ui/palette-collection.js');
+const {
+  resolvePaletteCollection,
+  standardPaletteKind,
+} = await import('../src/ui/palette-collection.js');
 const { buildPaletteIndex } = await import('../src/ui/palette-search.js');
 
 const UTILITY_DECORATIONS = [
@@ -106,6 +109,19 @@ test('collection tabs reuse working equipment without changing primary ownership
     [...SECURITY_DECORATIONS, 'floodLight'],
   );
   assert.deepEqual(security.components, []);
+});
+
+test('functional utility pole is linked into Infra Power and keeps decoration placement', () => {
+  const pole = PLACEABLES.utilityPole;
+  const powerSubsections = MODES.infra.categories.power.subsections;
+
+  assert.deepEqual(Object.keys(powerSubsections).slice(0, 2),
+    ['transport', 'routingHardware']);
+  assert.equal(powerSubsections.routingHardware.name, 'Routing Hardware');
+  assert.deepEqual(powerSubsections.routingHardware.linkedPlaceables, ['utilityPole']);
+  assert.equal(pole.kind, 'decoration');
+  assert.equal(pole.category, 'utilities');
+  assert.equal(standardPaletteKind(COMPONENTS.utilityPole), 'decoration');
 });
 
 test('new utility and security props use bespoke multi-part 3D models', () => {

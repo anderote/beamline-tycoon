@@ -64,6 +64,10 @@ function makeGame() {
   // the palette anywhere sensible.
   const allHaveHome = index.every(e => e.mode && e.category && e.kind && e.id);
   assertOk(allHaveHome, 'every index entry has a mode, category, kind and id');
+
+  const poleEntries = index.filter(e => e.id === 'utilityPole');
+  assertOk(poleEntries.length === 0,
+    'research-locked utility pole is absent rather than duplicated through COMPONENTS and DECORATIONS');
 }
 
 // === 2. Research-locked components are excluded ===========================
@@ -82,6 +86,15 @@ function makeGame() {
   game.state.completedResearch.push('srfGunTech');
   const index2 = buildPaletteIndex(game);
   assertOk(index2.some(e => e.id === 'srfGun'), 'newly-unlocked component appears once the index is rebuilt');
+
+  game.state.completedResearch.push('electricalDistribution');
+  const index3 = buildPaletteIndex(game);
+  const poleEntries = index3.filter(e => e.id === 'utilityPole');
+  assertOk(poleEntries.length === 1
+      && poleEntries[0].kind === 'decoration'
+      && poleEntries[0].mode === 'grounds'
+      && poleEntries[0].category === 'utilities',
+    'linked utility pole keeps one searchable primary Grounds entry');
 }
 
 // === 3. Ranking order ======================================================
