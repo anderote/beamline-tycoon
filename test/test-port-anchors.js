@@ -41,7 +41,9 @@ import {
   portAnchorOverride,
   PORT_ANCHOR_OVERRIDES,
   POWER_HV_INPUT_MOUNTS,
+  HV_LOAD_TAP_MOUNTS,
 } from '../src/data/utility-port-anchors.js';
+import { HV_LOAD_TAP_IDS } from '../src/data/hv-load-taps.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -213,6 +215,18 @@ console.log('\n--- 3. Derivation, overrides, and the headless fallback ---');
   });
   assert(nonStandardPowerInputs.length === 0,
     `every Power HV input uses explicit upper insulated hardware (${nonStandardPowerInputs.join(',') || 'all covered'})`);
+  const invalidLoadTapMounts = HV_LOAD_TAP_IDS.filter((type) => {
+    const mount = portAnchorOverride(type, 'hv_in');
+    return mount !== HV_LOAD_TAP_MOUNTS[type]
+      && (!mount || mount.y !== HV_LOAD_TAP_MOUNTS[type]?.y
+        || mount.localX !== HV_LOAD_TAP_MOUNTS[type]?.localX
+        || mount.localZ !== HV_LOAD_TAP_MOUNTS[type]?.localZ
+        || mount.normal?.y !== 1 || mount.out !== 0.14
+        || mount.fittingStyle !== 'hvInsulator');
+  });
+  assert(Object.keys(HV_LOAD_TAP_MOUNTS).length === HV_LOAD_TAP_IDS.length
+      && invalidLoadTapMounts.length === 0,
+    `every two-cable HV load tap lands on explicit insulated roof hardware (${invalidLoadTapMounts.join(',') || 'all covered'})`);
   const sectorBanks = [
     ['cwCryomodule', [0, -1.728, 1.728], [1.728, -1.728, 0]],
     ['nbSnCryomodule', [1.296, -1.296], [1.296, -1.296]],
@@ -238,7 +252,7 @@ console.log('\n--- 3. Derivation, overrides, and the headless fallback ---');
     for (const [port, spec] of Object.entries(entry)) {
       if (!spec || !Number.isFinite(spec.y)) continue;
       const maxY = type === 'transmissionTower' ? 18
-        : type === 'utilityPole' ? 8 : 2.5;
+        : type === 'utilityPole' ? 8 : type === 'coolingTower' ? 3 : 2.5;
       if (spec.y < 0.1 || spec.y > maxY) outOfBand.push(`${type}.${port}=${spec.y}`);
     }
   }

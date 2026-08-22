@@ -406,8 +406,10 @@ function oneOfPair(a, b, x, y) {
   return (a === x && b === y) || (a === y && b === x);
 }
 
-function isHvDistributionTap(spec) {
-  return spec?.role === 'sink' && spec.connectionKind === 'hvDistributionTap';
+function isHvTrunkTap(spec) {
+  return spec?.role === 'sink'
+    && (spec.connectionKind === 'hvDistributionTap'
+      || spec.connectionKind === 'hvLoadTap');
 }
 
 function portsCanConnect(startSpec, endSpec, utilityType) {
@@ -420,11 +422,10 @@ function portsCanConnect(startSpec, endSpec, utilityType) {
     // ordinary terminal loads still cannot be tied together.
     if (startSpec.role === 'source' && endSpec.role === 'source') return false;
     if (startSpec.role === 'sink' && endSpec.role === 'sink') {
-      // An HV distributor's roof terminal is authored as a two-segment trunk
-      // tap. It may continue the feeder to another sink while drawing the
-      // cabinet's own downstream load. Ordinary load and panel inlets remain
-      // terminal ends and still cannot be daisy-chained.
-      return isHvDistributionTap(startSpec) || isHvDistributionTap(endSpec);
+      // An authored HV roof terminal may be a two-segment trunk tap. It may
+      // continue the feeder to another sink while drawing its own equipment or
+      // downstream load. Ordinary load and panel inlets remain terminal ends.
+      return isHvTrunkTap(startSpec) || isHvTrunkTap(endSpec);
     }
     return true;
   }
@@ -601,7 +602,7 @@ export function validateDrawLine(state, {
     return reject('invalid_port_pair');
   }
 
-  // The second attachment on an HV distributor is a downstream continuation,
+  // The second attachment on an HV trunk tap is a downstream continuation,
   // never a second incoming supply. Reject the direct source-paralleling case
   // before the generic source -> sink role pairing accepts it.
   if (utilityType === 'hvCable') {
@@ -609,7 +610,7 @@ export function validateDrawLine(state, {
       [start, startSpec, endSpec],
       [end, endSpec, startSpec],
     ]) {
-      if (!isHvDistributionTap(tapSpec) || peerSpec?.role !== 'source') continue;
+      if (!isHvTrunkTap(tapSpec) || peerSpec?.role !== 'source') continue;
       if (connectedPeerSpecs(state, tapRef, utilityType)
         .some(spec => spec.role === 'source')) return reject('invalid_port_pair');
     }

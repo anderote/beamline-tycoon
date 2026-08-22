@@ -398,13 +398,9 @@ export function _buildSolidStateAmpRoles() {
     wgFlange(b, { axis: 'x', x: -0.50, y, z, bw: 0.12, bh: 0.12, t: 0.025 });
   }
 
-  // AC feed conduit at the front corner, opposite the RF combining wall.
-  boxAt(b.detail, 0.06, 0.55, 0.07, 0.43, 0.37, 0.30);
-  // Dedicated HV cable gland on that conduit. The persistent utility-port
-  // fitting sits over this collar, making the input distinct from the copper
-  // RF combining spine and its four output flanges on the opposite face.
-  cylX(b.accent, 0.055, 0.10, 0.46, 0.37, 0.30, 10);
-  cylX(b.copper, 0.027, 0.14, 0.50, 0.37, 0.30, 8);
+  // HV enters through the persistent porcelain roof bushing authored by the
+  // utility-port fitting layer. Keeping the cabinet face clear avoids showing
+  // a second, non-connectable side gland for the same electrical input.
 
   return b;
 }

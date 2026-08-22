@@ -10,7 +10,7 @@
 // machine and should be legible when no tool is armed at all. Without them a
 // cable arrives at a blank wall of geometry.
 //
-// ── Why six shapes instead of one ────────────────────────────────────
+// ── Why distinct shapes instead of one ────────────────────────────
 // Every port used to get the same collar-and-spigot, so a cryogenic transfer
 // line, an RF waveguide and a power feed were three identical grey lumps and
 // the only thing distinguishing them was a tint most players never decode. A
@@ -30,14 +30,15 @@
 // the old collar+spigot cost two, and no per-fitting geometry allocation at all.
 //
 // Everything stays inside roughly the old envelope (~0.075 m radius, ~0.1 m of
-// projection along the normal) and stays desaturated. These are hardware
-// detail, not UI: a hundred of them on screen must still read as a machine
-// hall, not as a scatter of markers.
+// projection along the normal), except the deliberately taller 0.2 m HV roof
+// bushing, and stays desaturated. These are hardware detail, not UI: a hundred
+// of them on screen must still read as a machine hall, not as markers.
 //
 // THREE is loaded as a CDN global — do NOT import it.
 
 import { COMPONENTS } from '../../data/components.js';
 import { portAnchor3D } from '../../utility/port-anchors.js';
+import { portAnchorOverride } from '../../data/utility-port-anchors.js';
 import { isIndoorHvRackSupport } from '../../utility/soft-cable.js';
 import { UTILITY_TYPES } from '../../utility/registry.js';
 import { portWaterCircuit } from '../../utility/water-circuits.js';
@@ -62,21 +63,24 @@ const _flowMatCache = new Map();
 const _flowGeoCache = new Map();
 let _equipmentFlowGeometry = null;
 
-function getFittingMaterial(color) {
-  if (_matCache.has(color)) return _matCache.get(color);
+function getFittingMaterial(color, style = null) {
+  const key = `${style || 'utility'}:${color}`;
+  if (_matCache.has(key)) return _matCache.get(key);
+  const porcelain = style === 'hvInsulator';
+  const materialColor = porcelain ? '#d8d2bc' : color;
   const mat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(color),
-    roughness: 0.45,
-    metalness: 0.55,
+    color: new THREE.Color(materialColor),
+    roughness: porcelain ? 0.62 : 0.45,
+    metalness: porcelain ? 0.08 : 0.55,
     // Just enough glow to stay readable against a dark shell, far below the
     // port markers — these are hardware, not a highlight.
-    emissive: new THREE.Color(color),
-    emissiveIntensity: 0.18,
+    emissive: new THREE.Color(materialColor),
+    emissiveIntensity: porcelain ? 0.06 : 0.18,
   });
   // The renderer's teardown path disposes any material it finds on a fitting
   // unless this flag is set; these are cached and reused across every rebuild.
   mat.userData.__shared = true;
-  _matCache.set(color, mat);
+  _matCache.set(key, mat);
   return mat;
 }
 
@@ -349,6 +353,26 @@ function _stylePowerGland() {
 }
 
 /**
+ * A compact porcelain HV roof bushing, authored along local +X.
+ *
+ * The broad skirts make the creepage path legible at game scale. A short base
+ * flange bites into the cabinet roof and the cable lands on the capped outer
+ * stud, so this reads as insulated HV hardware rather than a generic gland.
+ */
+function _styleHvInsulator() {
+  const parts = [];
+  parts.push(_axial(0.055, 0.055, 0.018, 10, 0.005 - EMBED));
+  parts.push(_axial(0.026, 0.034, 0.035, 10, 0.029));
+  for (const [x, radius] of [[0.057, 0.064], [0.095, 0.070], [0.133, 0.060]]) {
+    parts.push(_axial(radius * 0.72, radius, 0.018, 12, x));
+    parts.push(_axial(radius * 0.72, radius * 0.72, 0.020, 12, x + 0.019));
+  }
+  parts.push(_axial(0.024, 0.030, 0.034, 10, 0.169));
+  parts.push(_axial(0.033, 0.033, 0.014, 10, 0.193));
+  return parts;
+}
+
+/**
  * coolingWater — a manifold plate carrying twin supply/return hose barbs.
  *
  * Cooling is never one line: it is a flow and a return, so the connector is a
@@ -507,6 +531,7 @@ const STYLE_OF = {
 
 const STYLE_BUILDERS = {
   gland: _stylePowerGland,
+  hvInsulator: _styleHvInsulator,
   barbs: _styleHoseBarbs,
   bayonet: _styleCryoBayonet,
   waveguide: _styleWaveguideFlange,
@@ -526,10 +551,11 @@ function _checkEnvelope(style, geo) {
   const bb = geo.boundingBox;
   if (!bb) return;
   const lat = Math.max(Math.abs(bb.min.y), Math.abs(bb.max.y), Math.abs(bb.min.z), Math.abs(bb.max.z));
-  if (lat > ENVELOPE_R + 1e-6 || bb.max.x > ENVELOPE_L + 1e-6) {
+  const maxLength = style === 'hvInsulator' ? 0.205 : ENVELOPE_L;
+  if (lat > ENVELOPE_R + 1e-6 || bb.max.x > maxLength + 1e-6) {
     console.warn(
       `[port-fitting] style "${style}" exceeds the fitting envelope: ` +
-      `lateral ${lat.toFixed(3)}m (max ${ENVELOPE_R}), projection ${bb.max.x.toFixed(3)}m (max ${ENVELOPE_L})`
+      `lateral ${lat.toFixed(3)}m (max ${ENVELOPE_R}), projection ${bb.max.x.toFixed(3)}m (max ${maxLength})`
     );
   }
 }
@@ -538,8 +564,8 @@ function _checkEnvelope(style, geo) {
  * The merged, cached geometry for a utility's connector style, facing +X.
  * Built on first demand — a save with no cryo plant never pays for a bayonet.
  */
-function getFittingGeometry(utilityType) {
-  const style = STYLE_OF[utilityType] || 'generic';
+function getFittingGeometry(utilityType, styleOverride = null) {
+  const style = styleOverride || STYLE_OF[utilityType] || 'generic';
   const cached = _geoCache.get(style);
   if (cached) return cached;
   const parts = (STYLE_BUILDERS[style] || _styleGenericCollar)();
@@ -562,9 +588,13 @@ function getFittingGeometry(utilityType) {
  */
 export function buildPortFitting(
   anchor, utilityType, role = 'pass', flowRole = role, waterCircuit = null,
+  fittingStyle = null,
 ) {
   const color = waterAwareColor(utilityType, waterCircuit);
-  const mesh = new THREE.Mesh(getFittingGeometry(utilityType), getFittingMaterial(color));
+  const mesh = new THREE.Mesh(
+    getFittingGeometry(utilityType, fittingStyle),
+    getFittingMaterial(color, fittingStyle),
+  );
 
   const out = anchor.out || { x: 0, y: 0, z: 0 };
   // Geometry is authored along +X. Horizontal normals still produce the old
@@ -581,6 +611,7 @@ export function buildPortFitting(
     isUtilityPortFitting: true,
     utilityType,
     waterCircuit,
+    fittingStyle: fittingStyle || STYLE_OF[utilityType] || 'generic',
     portRole: role,
     // Shared by reference with every other fitting of this utility; teardown
     // paths must not dispose it. Same contract as component-builder's role
@@ -612,7 +643,8 @@ export function buildPortFittings(endpoints) {
         anchor, spec.utility, spec.role,
         isCableSupport(def) || def.utilityFlowPresentation === 'symmetric'
           ? 'pass' : portFlowArrowRole(name, spec.role),
-        portWaterCircuit(spec));
+        portWaterCircuit(spec),
+        portAnchorOverride(ep.type, name)?.fittingStyle || null);
       fitting.userData.placeableId = ep.id;
       fitting.userData.portName = name;
       group.add(fitting);

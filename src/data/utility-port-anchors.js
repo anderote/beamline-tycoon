@@ -24,6 +24,7 @@
 //          horizontal side direction. `{ x: 0, y: 1, z: 0 }` mounts a fitting
 //          on top-facing hardware. X/Z rotate with the placeable; Y does not.
 //   out    extra stand-off along the port's outward normal, in metres
+//   fittingStyle  optional presentation-only connector shape override
 //   lat    distance from the component's centreline out to the connector, in
 //          LOCAL metres (the unrotated frame: the axis the port's side faces).
 //          Overrides the raycast, so author it when the ray misses — a port
@@ -43,6 +44,7 @@
 
 import { RF_PORT_STANDARDS } from './rf-port-standards.js';
 import { BEAMLINE_COMPONENTS_RAW } from './beamline-components.raw.js';
+import { HV_LOAD_TAP_IDS } from './hv-load-taps.js';
 import {
   DISTRIBUTION_FRONT_TERMINAL_LAYOUTS,
   DISTRIBUTION_TOP_INPUT_LAYOUTS,
@@ -102,6 +104,38 @@ export const POWER_HV_INPUT_MOUNTS = Object.freeze({
     y: 1.85, localX: 0, localZ: -0.35, normal: TOP_NORMAL,
   }),
 });
+
+function insulatedHvRoofTap({ x, y, z }) {
+  return Object.freeze({
+    y, localX: x, localZ: z,
+    normal: TOP_NORMAL,
+    // The cable endpoint sits at the cap of the taller porcelain fitting.
+    out: 0.14,
+    fittingStyle: 'hvInsulator',
+  });
+}
+
+// Model-specific clear roof patches for two-segment HV load taps. Keeping the
+// coordinates here preserves the presentation/simulation boundary: the port's
+// logical side and route point remain in utility-ports-v2.js.
+export const HV_LOAD_TAP_MOUNTS = Object.freeze({
+  heCompressor: insulatedHvRoofTap({ x: -0.44, y: 1.30, z: -0.80 }),
+  coldBox4K: insulatedHvRoofTap({ x: -0.76, y: 0.95, z: -0.60 }),
+  coldBox2K: insulatedHvRoofTap({ x: -0.87, y: 1.14, z: -0.90 }),
+  dualCircuitChiller: insulatedHvRoofTap({ x: 0, y: 1.00, z: 0.20 }),
+  chiller: insulatedHvRoofTap({ x: 0.45, y: 1.61, z: 0.15 }),
+  dryCoolerBank: insulatedHvRoofTap({ x: 0.55, y: 1.48, z: 1.35 }),
+  coolingTower: insulatedHvRoofTap({ x: 0.82, y: 2.62, z: 0 }),
+  magnetron: insulatedHvRoofTap({ x: 0, y: 1.50, z: 0 }),
+  lowBandBuncherAmp: insulatedHvRoofTap({ x: 0.28, y: 1.84, z: 0.25 }),
+  solidStateAmp: insulatedHvRoofTap({ x: 0.28, y: 1.84, z: 0.25 }),
+  highPowerSSA: insulatedHvRoofTap({ x: 0.30, y: 1.81, z: 0.62 }),
+});
+
+if (HV_LOAD_TAP_IDS.some(id => !HV_LOAD_TAP_MOUNTS[id])
+    || Object.keys(HV_LOAD_TAP_MOUNTS).some(id => !HV_LOAD_TAP_IDS.includes(id))) {
+  throw new Error('HV load tap topology and roof mounts must cover the same equipment');
+}
 
 export const INDOOR_HV_RACK_TAP_MOUNTS = Object.freeze({
   hv_tap_left: Object.freeze({
@@ -230,6 +264,7 @@ export const PORT_ANCHOR_OVERRIDES = {
   },
   heCompressor: {
     _default: { y: 0.8 },
+    hv_in: HV_LOAD_TAP_MOUNTS.heCompressor,
     cryo_out: {
       y: 0.30, localX: 0.86, localZ: 1.48,
       normal: { x: 0, y: 0, z: 1 },
@@ -237,6 +272,7 @@ export const PORT_ANCHOR_OVERRIDES = {
   },
   coldBox4K: {
     _default: { y: 0.8 },
+    hv_in: HV_LOAD_TAP_MOUNTS.coldBox4K,
     cryo_out: {
       y: 0.62, localX: 0.49, localZ: 1.32,
       normal: { x: 1, y: 0, z: 0 },
@@ -244,6 +280,7 @@ export const PORT_ANCHOR_OVERRIDES = {
   },
   coldBox2K: {
     _default: { y: 0.8 },
+    hv_in: HV_LOAD_TAP_MOUNTS.coldBox2K,
     cryo_out: {
       y: 0.78, localX: 0.15, localZ: 0.95,
       normal: { x: 1, y: 0, z: 0 },
@@ -489,12 +526,23 @@ export const PORT_ANCHOR_OVERRIDES = {
   vacuumManifold8: { _default: { y: 0.6 } },
 
   waveguideManifold: { _default: { y: 1.1 } },
+  magnetron: {
+    _default: { y: 0.90 },
+    hv_in: HV_LOAD_TAP_MOUNTS.magnetron,
+  },
+  lowBandBuncherAmp: {
+    _default: { y: 0.95, lat: 0.48 },
+    hv_in: HV_LOAD_TAP_MOUNTS.lowBandBuncherAmp,
+  },
   solidStateAmp: {
     _default: { y: 0.95, lat: 0.48 },
-    // Dedicated low front HV gland, opposite the four rear RF flanges.
-    hv_in: { y: 0.37, along: 0.30 },
+    hv_in: HV_LOAD_TAP_MOUNTS.solidStateAmp,
     rf_out_1: { y: 0.78, along: -0.30 }, rf_out_2: { y: 0.78, along: -0.10 },
     rf_out_3: { y: 1.12, along: 0.10 }, rf_out_4: { y: 1.12, along: 0.30 },
+  },
+  highPowerSSA: {
+    _default: { y: 1.0 },
+    hv_in: HV_LOAD_TAP_MOUNTS.highPowerSSA,
   },
   // The RF flange sits on the output cavity above the solenoid midpoint. Keep
   // the HV gland at the ordinary service height while routing the rectangular
@@ -503,9 +551,6 @@ export const PORT_ANCHOR_OVERRIDES = {
   pulsedKlystron: { _default: { y: 1.0 }, rf_out: { y: 1.2 } },
   cwKlystron: { _default: { y: 1.0 }, rf_out: { y: 1.2 } },
   multibeamKlystron: { _default: { y: 1.0 }, rf_out: { y: 1.2 } },
-  chiller: { _default: { y: 0.8 } },
-  coolingTower: { _default: { y: 1.0 } },
-
   // === Measured against the 3D models ======================================
   // Everything below was authored after walking each type's ROLE_BUILDERS
   // output headless and reading the real world-space extents of its sub-meshes
@@ -717,12 +762,14 @@ export const PORT_ANCHOR_OVERRIDES = {
   },
   dualCircuitChiller: {
     _default: { y: 0.54, lat: 0.72 },
+    hv_in: HV_LOAD_TAP_MOUNTS.dualCircuitChiller,
     cool_out: { along: -0.50 }, cool_out_2: { along: -0.17 },
     cool_out_3: { along: 0.17 }, cool_out_4: { along: 0.50 },
     cool_out_5: { along: -0.25 }, cool_out_6: { along: 0.25 },
   },
   chiller: {
     _default: { y: 0.74, lat: 0.72 },
+    hv_in: HV_LOAD_TAP_MOUNTS.chiller,
     cool_out: { along: -0.72 }, cool_out_2: { along: -0.30 },
     cool_out_3: { along: 0.15 }, cool_out_4: { along: 0.60 },
     cool_out_5: { along: -0.35 }, cool_out_6: { along: 0.35 },
@@ -733,10 +780,12 @@ export const PORT_ANCHOR_OVERRIDES = {
   },
   dryCoolerBank: {
     _default: { y: 0.68, lat: 1.36 },
+    hv_in: HV_LOAD_TAP_MOUNTS.dryCoolerBank,
     cool_out: { along: -0.45 }, cool_out_2: { along: 0.45 },
   },
   coolingTower: {
     _default: { y: 0.15, lat: 0.95 },
+    hv_in: HV_LOAD_TAP_MOUNTS.coolingTower,
     cool_out: { along: -0.80 }, cool_out_2: { along: 0.80 },
   },
   bakeoutSystem: { _default: { y: 0.5 } },  // 1 m trolley; its box's mid-shell is already 0.5

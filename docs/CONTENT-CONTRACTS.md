@@ -216,8 +216,12 @@ the short authoring contract.
   device rating; unused nameplate capacity does not consume upstream supply.
   The Compact HV Distributor and HV Distributor Box specialize that inlet as
   a two-attachment roof tap: one segment arrives and one may continue the same
-  trunk while the cabinet feeds its protected outputs. Ordinary panel/load
-  inlets remain single-ended, and a distributor tap may not parallel sources.
+  trunk while the cabinet feeds its protected outputs. HV-fed cooling plant
+  and roof-compatible RF cabinets use the same two-attachment topology on a
+  visible porcelain roof bushing, but remain ordinary demand-counted loads and
+  add no output capacity. Exposed-tube RF sources remain single-ended. Other
+  ordinary panel/load inlets also remain single-ended, and no tap may parallel
+  live sources.
 - Any electrical sink with demand strictly above 50 kW must use `hvCable`.
   Loads at or below 50 kW may remain on the green `powerCable`; purpose-built
   equipment may still use an authored HV connection below that threshold.
@@ -299,8 +303,8 @@ the short authoring contract.
   mandatory facility-wide route datums: cryogenic at 0.30 m, cold water at
   0.60 m, hot water at 0.90 m, RF at 1.20 m, and vacuum at 1.50 m. Authored
   equipment fittings remain on their visible hardware and use short local
-  transitions to these datums. Every rigid descriptor uses the shared 3 m
-  support spacing and 3 m minimum supported-run threshold, so co-located runs
+  transitions to these datums. Every rigid descriptor uses the shared 2 m
+  support spacing and 2 m minimum supported-run threshold, so co-located runs
   form an aligned vertical stack on consolidated rack frames. Route planning
   and equipment collision must use the selected water circuit's height rather
   than the descriptor's default cold height. Runs remain independent by

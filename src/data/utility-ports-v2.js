@@ -43,6 +43,7 @@ import { BEAMLINE_COMPONENTS_RAW } from './beamline-components.raw.js';
 import { INFRASTRUCTURE_RAW } from './infrastructure.raw.js';
 import { COOLING_AUTO_CONNECT_CLASS } from './cooling-auto-connect-classes.js';
 import { COOLING_WATER_INVENTORY } from './cooling-water-inventory.js';
+import { HV_LOAD_TAP_IDS } from './hv-load-taps.js';
 import { bandForFrequencyHz } from './rf-bands.js';
 import { RF_PORT_STANDARDS } from './rf-port-standards.js';
 
@@ -1657,20 +1658,32 @@ const INFRA_UTILITY_PORTS = {
 // the opposite side from the source ports above so a unit that both consumes
 // and produces doesn't stack two ports on one edge.
 const INFRA_SINK_SHAPE = {
-  // Large, dedicated loads land directly on the facility HV service. They
-  // remain terminal loads: only distribution gear exposes an HV output.
+  // Large, dedicated loads land directly on the facility HV service. Most are
+  // terminal loads; selected cabinet/plant roof bushings specialize this shape
+  // below so the same physical terminal can continue one feeder segment.
   hvCable:      { name: 'hv_in',   side: 'left',  offsetAlong: 0.3, param: 'demand', connectionKind: 'hvLoadIn' },
   powerCable:   { name: 'pwr_in',  side: 'left',  offsetAlong: 0.3, param: 'demand' },
   coolingWater: { name: 'cool_in', side: 'front', offsetAlong: 0.5, param: 'heatLoad' },
   dataFiber:    { name: 'data_in', side: 'back',  offsetAlong: 0.5, param: 'demand' },
 };
 
-// Exceptional cabinet layouts can move a derived sink without duplicating
-// its load. The SSA's demand therefore remains tied to energyCost while its HV
-// feed occupies the face opposite the four RF outputs.
-const INFRA_SINK_SHAPE_OVERRIDES = {
-  solidStateAmp: { hvCable: { side: 'right', offsetAlong: 0.80 } },
-};
+// A load tap is still a sink and retains its ordinary demand. It differs only
+// in connection geometry: one arriving plus one continuing HV cable may claim
+// the same omnidirectional insulated terminal.
+const HV_LOAD_TAP_SHAPE = Object.freeze({
+  connectionKind: 'hvLoadTap',
+  omnidirectional: true,
+  maxConnections: 2,
+});
+
+const INFRA_SINK_SHAPE_OVERRIDES = Object.fromEntries(
+  HV_LOAD_TAP_IDS.map(id => [id, { hvCable: {
+    ...HV_LOAD_TAP_SHAPE,
+    // Preserve the SSA's historical simulation-side datum. Its exact roof
+    // terminal position is presentation-only in utility-port-anchors.js.
+    ...(id === 'solidStateAmp' ? { side: 'right', offsetAlong: 0.80 } : {}),
+  } }]),
+);
 
 // Loads not implied by energyCost. beamDump absorbs beam power, not wall
 // power; heCompressor dumps its compression heat into the water loop.
@@ -1706,6 +1719,9 @@ function buildInfraSinkPorts() {
         offsetAlong: shape.offsetAlong,
         role: 'sink',
         ...(shape.connectionKind ? { connectionKind: shape.connectionKind } : {}),
+        ...(shape.omnidirectional ? { omnidirectional: true } : {}),
+        ...(Number.isInteger(shape.maxConnections)
+          ? { maxConnections: shape.maxConnections } : {}),
         params: { [shape.param]: load },
       };
     }

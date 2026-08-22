@@ -13,6 +13,7 @@ import {
   coolingAutoConnectClass,
 } from '../src/data/cooling-auto-connect-classes.js';
 import { INFRASTRUCTURE_RAW } from '../src/data/infrastructure.raw.js';
+import { HV_LOAD_TAP_IDS } from '../src/data/hv-load-taps.js';
 import { portSide } from '../src/utility/ports.js';
 
 let passed = 0, failed = 0;
@@ -219,7 +220,8 @@ console.log('\n--- Test 9: RF source bands & ladder ---');
   assert(ssa.hv_in?.utility === 'hvCable'
       && ssa.hv_in.role === 'sink'
       && ssa.hv_in.side === 'right'
-      && ssa.hv_in.connectionKind === 'hvLoadIn'
+      && ssa.hv_in.connectionKind === 'hvLoadTap'
+      && ssa.hv_in.maxConnections === 2
       && ssa.hv_in.params.demand === 70,
     'solid-state RF source exposes its required 70 kW HV input opposite its RF outputs');
 
@@ -498,6 +500,21 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   'solid-state amplifier exposes four left-side RF outputs totaling 35 kW');
   assert(solidStateAmp.hv_in.side === 'right',
     'solid-state amplifier keeps its HV input on the side opposite its RF outputs');
+  const invalidLoadTaps = HV_LOAD_TAP_IDS.filter((type) => {
+    const port = getUtilityPortsV2(type).hv_in;
+    return port?.utility !== 'hvCable' || port.role !== 'sink'
+      || port.connectionKind !== 'hvLoadTap'
+      || port.omnidirectional !== true || port.maxConnections !== 2
+      || !(port.params.demand > 0);
+  });
+  assert(invalidLoadTaps.length === 0,
+    `cooling and cabinet RF roof taps remain two-cable HV loads (${invalidLoadTaps.join(',') || 'all covered'})`);
+  for (const type of ['widebandDriverAmp', 'slac5045Klystron', 'pulsedKlystron',
+    'cwKlystron', 'iot', 'multibeamKlystron', 'gyrotron']) {
+    const hv = getUtilityPortsV2(type).hv_in;
+    assert(hv.connectionKind === 'hvLoadIn' && hv.maxConnections == null,
+      `${type} keeps its single-ended tube-source HV inlet`);
+  }
   assert(Math.abs(totalSources(tower, 'heatRejectionCapacity') - 800) < 1e-9,
     'cooling tower provides heat rejection on hot Water Supply Pipe');
   assert(coolingSources(tank).every(([, port]) => port.params.storageCapacityL > 0
@@ -533,10 +550,11 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
     const ports = getUtilityPortsV2(id);
     assert(ports.hv_in?.utility === 'hvCable'
         && ports.hv_in.role === 'sink'
-        && ports.hv_in.connectionKind === 'hvLoadIn'
+        && ports.hv_in.connectionKind === 'hvLoadTap'
+        && ports.hv_in.maxConnections === 2
         && ports.hv_in.params.demand === demand
         && !ports.pwr_in,
-      `${id}: ${demand} kW plant load uses one direct HV input`);
+      `${id}: ${demand} kW plant demand stays on one two-cable HV load tap`);
   }
   assert(cb4.hv_in.params.demand === cb4.cryo_out.params.coldCapacityW * 250 / 1000,
     '4 K cold-box draw applies the published 250 W_wall/W_cold penalty');
