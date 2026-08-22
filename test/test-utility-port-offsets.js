@@ -198,7 +198,11 @@ console.log('\n--- Test 5: real registry has no co-located utility ports ---');
 
   for (const [id, def] of Object.entries(COMPONENTS)) {
     if (!def || !def.ports) continue;
-    const util = Object.entries(def.ports).filter(([, s]) => s && s.utility);
+    // Compatibility-only connector identities may deliberately occupy the
+    // exact hardware position of their canonical replacement. They remain
+    // resolvable for attached save lines but are not separate visible ports.
+    const util = Object.entries(def.ports)
+      .filter(([, s]) => s && s.utility && !s.legacyOnly);
     if (util.length < 2) continue;
     facesChecked++;
     for (const dir of [0, 1, 2, 3]) {

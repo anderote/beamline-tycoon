@@ -146,6 +146,14 @@ export function automaticWallPassThroughInterval(placeable) {
 }
 
 function automaticWallPassThroughsConflict(a, b) {
+  const aSpec = a?.automaticWallPassThrough;
+  const bSpec = b?.automaticWallPassThrough;
+  const pairedRigidWater = aSpec?.utilityType === 'waterSupplyPipe'
+    && bSpec?.utilityType === 'waterSupplyPipe'
+    && new Set([aSpec.waterCircuit, bSpec.waterCircuit]).size === 2
+    && [aSpec.waterCircuit, bSpec.waterCircuit].every(circuit =>
+      circuit === 'cold' || circuit === 'hot');
+  if (pairedRigidWater) return false;
   const ia = automaticWallPassThroughInterval(a);
   const ib = automaticWallPassThroughInterval(b);
   if (!ia || !ib) return true;
@@ -189,8 +197,10 @@ export function canPlaceWallFixture(game, placeable, site, ignoreId = null) {
     if (!sameFaceOverlap
         && (!(placeable.wallPassThrough === true || otherDef?.wallPassThrough === true)
           || !physicalOverlap)) return false;
-    // Automatic 1×1 sleeves form a vertical service stack in one physical
-    // quarter-wall slot. Only their real collar envelopes collide; manual
+    // Automatic sleeves form a service stack in one physical wall station.
+    // Only their real collar envelopes collide; the laterally separated cold
+    // and hot rigid-water pair deliberately shares one elevation and station.
+    // Manual
     // fittings (including 4×4 HV and 2×2 water assemblies) continue to reserve
     // their full authored span on both faces.
     if (physicalOverlap && placeable.automaticWallPassThrough

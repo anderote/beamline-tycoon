@@ -31,24 +31,29 @@ function portIso(record, portName) {
   return gridToIso(pos.x / 2, pos.z / 2);
 }
 
-test('Water Line publishes remembered cold/blue and hot/red palette variants', () => {
-  const descriptor = UTILITY_TYPES.coolingWater;
-  assert.deepEqual(descriptor.variants, ['Cold Water', 'Hot Water']);
-  assert.deepEqual(descriptor.variantWaterCircuits, ['cold', 'hot']);
-  assert.deepEqual(descriptor.variantPreviewColors, [0x287fc4, 0xc45b42]);
+test('Water Line has no cosmetic temperature picker', () => {
+  for (const utilityType of ['coolingWater', 'waterSupplyPipe']) {
+    const descriptor = UTILITY_TYPES[utilityType];
+    assert.equal(descriptor.variants, undefined, utilityType);
+    assert.equal(descriptor.variantWaterCircuits, undefined, utilityType);
+    assert.equal(descriptor.variantPreviewColors, undefined, utilityType);
+  }
 });
 
-test('UtilityLineTool passes the selected water circuit into the gesture controller', () => {
-  const calls = [];
+test('the gesture controller ignores a remembered legacy palette circuit', () => {
+  let controller;
   const ctx = {
-    input: { utilityLineController: { setUtilityType: (...args) => calls.push(args) } },
+    input: { utilityLineController: new UtilityLineInputController({
+      game: { state: { utilityLines: new Map() } }, renderer: {},
+    }) },
     renderer: { _renderCursors() {} },
   };
+  controller = ctx.input.utilityLineController;
   new UtilityLineTool('coolingWater', 'hot').onEnter(ctx);
-  assert.deepEqual(calls, [['coolingWater', 'hot']]);
+  assert.equal(controller.waterCircuit, null);
 });
 
-test('the selected variant filters ports and commits the designated circuit', () => {
+test('connected ports automatically color and classify hot and cold Water Lines', () => {
   const game = new Game(new BeamlineRegistry(), { seed: 141 });
   game.state.resources.funding = 1e9;
   const manifold = endpoint('manifold', 'coolingManifold', 2, 2);
@@ -56,7 +61,7 @@ test('the selected variant filters ports and commits the designated circuit', ()
   game.state.placeables.push(manifold, quad);
 
   const ctrl = new UtilityLineInputController({ game, renderer: {} });
-  ctrl.setUtilityType('coolingWater', 'hot');
+  ctrl.setUtilityType('coolingWater');
   const hotStart = portIso(manifold, 'hot_1');
   const hotEnd = portIso(quad, 'hot_out');
   ctrl.onHover(hotStart.x, hotStart.y);
@@ -64,6 +69,10 @@ test('the selected variant filters ports and commits the designated circuit', ()
   assert.equal(ctrl.hoverPort?.waterCircuit, 'hot');
 
   ctrl.onMouseDown(hotStart.x, hotStart.y, 0, {});
+  const incompatibleColdEnd = portIso(quad, 'cool_in');
+  ctrl.onMouseMove(incompatibleColdEnd.x, incompatibleColdEnd.y, {});
+  assert.notEqual(ctrl.hoverPort?.portName, 'cool_in',
+    'after the hot start port, the gesture stops offering cold destinations');
   ctrl.onMouseMove(hotEnd.x, hotEnd.y, {});
   ctrl.onMouseUp(hotEnd.x, hotEnd.y, 0, {});
   const line = [...game.state.utilityLines.values()][0];
@@ -71,8 +80,14 @@ test('the selected variant filters ports and commits the designated circuit', ()
   assert.equal(line?.start?.portName, 'hot_1');
   assert.equal(line?.end?.portName, 'hot_out');
 
-  ctrl.setUtilityType('coolingWater', 'cold');
-  ctrl.onHover(hotStart.x, hotStart.y);
-  assert.notEqual(ctrl.hoverPort?.waterCircuit, 'hot',
-    'cold mode does not offer a nearby red fitting even inside the magnetic halo');
+  ctrl.setUtilityType('coolingWater');
+  const coldStart = portIso(manifold, 'cold_1');
+  const coldEnd = portIso(quad, 'cool_in');
+  ctrl.onHover(coldStart.x, coldStart.y);
+  assert.equal(ctrl.hoverPort?.waterCircuit, 'cold');
+  ctrl.onMouseDown(coldStart.x, coldStart.y, 0, {});
+  ctrl.onMouseMove(coldEnd.x, coldEnd.y, {});
+  ctrl.onMouseUp(coldEnd.x, coldEnd.y, 0, {});
+  const circuits = [...game.state.utilityLines.values()].map(entry => entry.waterCircuit).sort();
+  assert.deepEqual(circuits, ['cold', 'hot']);
 });

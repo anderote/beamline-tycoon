@@ -50,9 +50,9 @@ Carries RF power from sources to accelerating cavities. Band-matched: a source d
 ### Cooling Water (blue/red)
 Flexible equipment hose for ordinary cooled components. Every run is tagged as
 cold supply or hot return and never passes directly through a wall; drawing
-across one automatically installs the matching blue or red sleeve. Choose Cold
-Water or Hot Water from the Water Line palette flyout; directly dragging a
-colored port infers the same choice.
+across one automatically installs the matching blue or red sleeve. The first
+connected colored port automatically sets the circuit; there is no color or
+temperature flyout.
 
 - **Color:** Blue cold supply / red hot return
 - **Network type:** Capacity-based (kW cooling vs heat load), producing a temperature rise at each sink
@@ -65,15 +65,15 @@ colored port infers the same choice.
 
 ### Water Supply Pipe (blue/green/red)
 Rigid fabricated bulk-water header, modeled like cryogenic transfer pipe. Cold
-supply is blue at 0.60 m, hot return is red at 0.90 m, and the separate
-room-temperature plant-transfer leg is green at 1.80 m.
+supply and hot return share the 0.75 m elevation and render as a side-by-side
+twin when co-routed. The separate lukewarm plant-transfer leg is green at 1.80 m.
 
-- **Network type:** Capacity-based, with cold, room-temperature, and hot circuits kept isolated
+- **Network type:** Capacity-based, with cold, lukewarm, and hot circuits kept isolated
 - **Cold source:** Central chiller rigid cold outlet
-- **Plant chain:** Beamline cold inlet → beamline hot outlet → heat-rejector hot inlet → heat-rejector room-temperature outlet → chiller room-temperature inlet → chiller cold outlet
+- **Plant chain:** Beamline cold inlet → beamline hot outlet → heat-rejector hot inlet → heat-rejector lukewarm outlet → reservoir lukewarm in/out → chiller lukewarm inlet → chiller cold outlet
 - **Consumers:** High-flow equipment such as the 70 and 230 MeV cyclotrons, or flexible Water Lines through a distributor
 - **Wall crossings:** 1x1 and 2x2 Water Pipe Penetrations
-- **Supports:** Same 1 m support stations as cryo, RF, and vacuum, so independent runs can stack vertically
+- **Supports:** Same 1 m support stations as cryo, RF, and vacuum; co-routed cold/hot pipes share one widened shelf and two brackets while remaining independently selectable
 
 SRF cavities are **not** cooling-water consumers. Their thermal path is cryogenics.
 

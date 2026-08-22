@@ -21,20 +21,22 @@ There are eight connection types, each forming its own independent networks:
 - **Vacuum Pipe** (gray) — carries pumping speed
 - **RF Waveguide** (red) — carries RF power
 - **Cooling Water** (blue/red) — flexible cold supply or hot return branches
-- **Water Supply Pipe** (blue/green/red) — rigid cold supply, room-temperature transfer, or hot return
+- **Water Supply Pipe** (blue/green/red) — rigid cold supply, lukewarm transfer, or hot return
 - **Cryo Transfer** (cyan) — carries cryogenic cooling
 - **Data/Fiber** (white) — carries control signals and data
 
 Vacuum pipe, RF waveguide, cryogenic transfer, and rigid water pipe share the
-same forgiving quarter-tile construction rules. Their different standard
-heights let them follow the same plan route. Co-located supports consolidate
-into one multi-level rack, but every line remains an independent network.
-Cold water is blue, room-temperature water is green, and hot water is red on
+same forgiving quarter-tile construction rules. Their standard service datums
+let them follow the same plan route; cold and hot rigid water deliberately
+share one elevation and separate laterally as a twin. Co-located supports
+consolidate into one multi-level rack, but every line remains an independent
+network.
+Cold water is blue, lukewarm water is green, and hot water is red on
 pipes, port markers, equipment fittings, and wall sleeves.
 
 No utility line passes directly through a wall. Draw the intended route across
 the wall and construction automatically installs the matching compact sleeve,
-then terminates and restarts the line on its two ports. Cryo, cold/room/hot rigid
+then terminates and restarts the line on its two ports. Cryo, cold/lukewarm/hot rigid
 water, and RF snap to one of two 1 m stations along each wall tile. Their
 orthogonal approaches align vertically at their standard service heights, so
 several services can share one neat wall-stack position. Vacuum and smaller
@@ -53,7 +55,7 @@ Each network type produces both a 0-1 quality scalar and a **physical quantity**
 | Vacuum | Pump speed (L/s), gas load (mbar·L/s) | pressure (mbar) per sink |
 | RF | Per-frequency buckets, forward power (kW), duty | peak power (W) per sink |
 | Cooling | Capacity (kW), heat load (kW), margin | temperature rise (K) per sink |
-| Water Supply Pipe | Capacity/rejection (kW), circuit | cold, room-temperature, or hot service |
+| Water Supply Pipe | Capacity/rejection (kW), circuit | cold, lukewarm, or hot service |
 | Cryo | Capacity (W), static + dynamic load (W) | bath temperature (K) per sink |
 | Data/Fiber | Directionless bus: at least two peer devices connected | binary quality scalar (scales data income) |
 

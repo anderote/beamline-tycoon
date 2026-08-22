@@ -29,7 +29,7 @@ const families = [
   ['coolingWater', 'cold', 'coldWaterLineWallPassThrough'],
   ['coolingWater', 'hot', 'hotWaterLineWallPassThrough'],
   ['waterSupplyPipe', 'cold', 'coldWaterSupplyWallPassThrough'],
-  ['waterSupplyPipe', 'room', 'roomWaterSupplyWallPassThrough'],
+  ['waterSupplyPipe', 'lukewarm', 'roomWaterSupplyWallPassThrough'],
   ['waterSupplyPipe', 'hot', 'hotWaterSupplyWallPassThrough'],
   ['cryoTransfer', null, 'cryoWallPassThrough'],
   ['rfWaveguide', null, 'rfWallPassThrough'],
@@ -124,7 +124,7 @@ test('HV, cryo, RF and rigid supply water snap crossings to one-metre wall stati
       ['cryoTransfer', null],
       ['rfWaveguide', null],
       ['waterSupplyPipe', 'cold'],
-      ['waterSupplyPipe', 'room'],
+      ['waterSupplyPipe', 'lukewarm'],
       ['waterSupplyPipe', 'hot'],
     ]) {
       const path = [{ col: 0.5, row }, { col: 2.5, row }];
@@ -195,6 +195,10 @@ test('independent rigid services stack in one wall slot', () => {
     PLACEABLES[placeable.type]?.automaticWallPassThrough);
   assert.equal(fittings.length, 5);
   assert.deepEqual(new Set(fittings.map(fitting => fitting.wallMount.off)), new Set([2]));
+  const waterFittings = fittings.filter(fitting =>
+    PLACEABLES[fitting.type]?.automaticWallPassThrough?.utilityType === 'waterSupplyPipe');
+  assert.deepEqual(waterFittings.map(fitting =>
+    PLACEABLES[fitting.type].automaticWallPassThrough.waterCircuit).sort(), ['cold', 'hot']);
 });
 
 test('a manually placed 4×4 HV fitting is reused instead of replaced', () => {

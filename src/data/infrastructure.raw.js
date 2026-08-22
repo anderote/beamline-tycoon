@@ -81,7 +81,7 @@
 // collars and port anchor on one datum makes a crossing a straight continuation
 // of the run instead of a decorative cabinet with a hidden vertical dogleg.
 function automaticWallSleeveParts({
-  heightMeters, radiusMeters, color, rectangular = false,
+  heightMeters, radiusMeters, color, rectangular = false, alongMeters = 0,
 }) {
   const diameterSub = radiusMeters * 4;
   const centreSub = heightMeters * 2;
@@ -91,17 +91,17 @@ function automaticWallSleeveParts({
   const boreY = centreSub - diameterSub / 2;
   const bore = rectangular
     ? { shape: 'box', w: Math.max(0.38, diameterSub * 1.8), h: Math.max(0.24, diameterSub), l: 2.50,
-        x: 0, y: centreSub - Math.max(0.24, diameterSub) / 2, z: 0, color }
+        x: alongMeters * 2, y: centreSub - Math.max(0.24, diameterSub) / 2, z: 0, color }
     : { shape: 'cylinder', axis: 'z', w: diameterSub, h: diameterSub, l: 2.50,
-        x: 0, y: boreY, z: 0, color };
+        x: alongMeters * 2, y: boreY, z: 0, color };
   return [
-    { shape: 'box', w: plateW, h: plateH, l: 0.12, x: 0, y: plateY, z: -1.16, color: 0x52616a },
-    { shape: 'box', w: plateW, h: plateH, l: 0.12, x: 0, y: plateY, z: 1.16, color: 0x52616a },
+    { shape: 'box', w: plateW, h: plateH, l: 0.12, x: alongMeters * 2, y: plateY, z: -1.16, color: 0x52616a },
+    { shape: 'box', w: plateW, h: plateH, l: 0.12, x: alongMeters * 2, y: plateY, z: 1.16, color: 0x52616a },
     bore,
     { shape: rectangular ? 'box' : 'cylinder', axis: 'z',
       w: rectangular ? Math.max(0.46, diameterSub * 2.05) : diameterSub + 0.12,
       h: rectangular ? Math.max(0.30, diameterSub * 1.20) : diameterSub + 0.12,
-      l: 0.16, x: 0,
+      l: 0.16, x: alongMeters * 2,
       y: rectangular
         ? centreSub - Math.max(0.30, diameterSub * 1.20) / 2
         : centreSub - (diameterSub + 0.12) / 2,
@@ -109,7 +109,7 @@ function automaticWallSleeveParts({
     { shape: rectangular ? 'box' : 'cylinder', axis: 'z',
       w: rectangular ? Math.max(0.46, diameterSub * 2.05) : diameterSub + 0.12,
       h: rectangular ? Math.max(0.30, diameterSub * 1.20) : diameterSub + 0.12,
-      l: 0.16, x: 0,
+      l: 0.16, x: alongMeters * 2,
       y: rectangular
         ? centreSub - Math.max(0.30, diameterSub * 1.20) / 2
         : centreSub - (diameterSub + 0.12) / 2,
@@ -121,6 +121,7 @@ function automaticWallPassThrough({
   id, name, desc, category, utilityType, ports, cost, heightMeters,
   radiusMeters, color, rectangular = false, deprecated = false,
   connectionGroups = 'utilityGroups', wallSpan = 1,
+  waterCircuit = null, alongMeters = 0,
 }) {
   return {
     id, name, desc,
@@ -131,6 +132,7 @@ function automaticWallPassThrough({
     mount: 'wall', wallPassThrough: true, wallSpan,
     automaticWallPassThrough: {
       utilityType, portPairs: [ports], heightMeters, radiusMeters,
+      ...(waterCircuit ? { waterCircuit } : {}),
     },
     subL: 1, subW: wallSpan,
     subH: Math.max(1, Math.ceil(heightMeters * 2 + radiusMeters * 4)),
@@ -138,7 +140,9 @@ function automaticWallPassThrough({
     baseMaterial: 'metal_brushed', spriteKey: 'powerPanel', spriteColor: color,
     accentColor: color, hasSurface: false, placement: 'module', ports: {},
     [connectionGroups]: { [utilityType]: [ports] },
-    parts: automaticWallSleeveParts({ heightMeters, radiusMeters, color, rectangular }),
+    parts: automaticWallSleeveParts({
+      heightMeters, radiusMeters, color, rectangular, alongMeters,
+    }),
     requiredConnections: [],
   };
 }
@@ -1359,31 +1363,31 @@ export const INFRASTRUCTURE_RAW = {
   }),
   coldWaterSupplyWallPassThrough: automaticWallPassThrough({
     id: 'coldWaterSupplyWallPassThrough', name: 'Automatic Cold-Water Supply Sleeve',
-    desc: 'Blue rigid-water sleeve automatically installed on the cold 0.60 m supply-pipe datum.',
+    desc: 'Blue rigid-water sleeve automatically installed on the shared 0.75 m supply/return datum.',
     category: 'cooling', utilityType: 'waterSupplyPipe',
     ports: ['supply_front', 'supply_back'], cost: 9000,
-    heightMeters: 0.60, radiusMeters: 0.065, color: 0x287fc4,
-    wallSpan: 2,
+    heightMeters: 0.75, radiusMeters: 0.065, color: 0x287fc4,
+    wallSpan: 2, waterCircuit: 'cold', alongMeters: -0.12,
   }),
   hotWaterSupplyWallPassThrough: automaticWallPassThrough({
     id: 'hotWaterSupplyWallPassThrough', name: 'Automatic Hot-Water Return Sleeve',
-    desc: 'Red rigid-water sleeve automatically installed on the hot 0.90 m return-pipe datum.',
+    desc: 'Red rigid-water sleeve automatically installed on the shared 0.75 m supply/return datum.',
     category: 'cooling', utilityType: 'waterSupplyPipe',
     ports: ['supply_front', 'supply_back'], cost: 9000,
-    heightMeters: 0.90, radiusMeters: 0.065, color: 0xc45b42,
-    wallSpan: 2,
+    heightMeters: 0.75, radiusMeters: 0.065, color: 0xc45b42,
+    wallSpan: 2, waterCircuit: 'hot', alongMeters: 0.12,
   }),
   roomWaterSupplyWallPassThrough: automaticWallPassThrough({
-    id: 'roomWaterSupplyWallPassThrough', name: 'Automatic Room-Temperature Water Sleeve',
-    desc: 'Green rigid-water sleeve automatically installed on the 1.80 m room-temperature transfer-pipe datum.',
+    id: 'roomWaterSupplyWallPassThrough', name: 'Automatic Lukewarm Water Sleeve',
+    desc: 'Green rigid-water sleeve automatically installed on the 1.80 m lukewarm transfer-pipe datum.',
     category: 'cooling', utilityType: 'waterSupplyPipe',
     ports: ['supply_front', 'supply_back'], cost: 9000,
     heightMeters: 1.80, radiusMeters: 0.065, color: 0x4f9b72,
-    wallSpan: 2,
+    wallSpan: 2, waterCircuit: 'lukewarm',
   }),
   waterSupplyWallPassThrough1x1: {
     id: 'waterSupplyWallPassThrough1x1', name: '1×1 Water Pipe Penetration',
-    desc: 'One sealed rigid-water pipe sleeve through an existing wall. Terminate the supply pipe on both faces; the sleeve preserves the connected cold, room-temperature, or hot circuit.',
+    desc: 'One sealed rigid-water pipe sleeve through an existing wall. Terminate the supply pipe on both faces; the sleeve preserves the connected cold, lukewarm, or hot circuit.',
     category: 'cooling', subsection: 'transport', paletteOrder: 3,
     // Save/scenario compatibility for facilities that authored the old
     // circuit-neutral sleeve. New crossings use the circuit-specific hidden
@@ -1432,7 +1436,7 @@ export const INFRASTRUCTURE_RAW = {
   fanCoilCooler: {
     id: 'fanCoilCooler',
     name: 'Air-Cooled Condenser',
-    desc: 'Small air-cooled heat rejector for a starter cooling plant. Its red inlet accepts hot return water and its green outlet sends room-temperature water to a chiller. It rejects 50 kW to hall air.',
+    desc: 'Small air-cooled heat rejector for a starter cooling plant. Its red inlet accepts hot return water and its green outlet sends lukewarm water to a chiller. It rejects 50 kW to hall air.',
     coolingRole: 'heatRejection',
     category: 'cooling', subsection: 'heatRejection',
     accentColor: 0x2fbccc,
@@ -1507,7 +1511,7 @@ export const INFRASTRUCTURE_RAW = {
   dualCircuitChiller: {
     id: 'dualCircuitChiller',
     name: 'Dual-Circuit Chiller',
-    desc: 'Two independent refrigerant circuits on one frame turn room-temperature plant water into 175 kW of cold process water for about 35 kW of electrical input at full load. Separate compressors and evaporator passes let the magnet and RF loops use different setpoints; one circuit keeps roughly 85 kW alive while the other is locked out. The compressor package takes a direct HV feed.',
+    desc: 'Two independent refrigerant circuits on one frame turn lukewarm plant water into 175 kW of cold process water for about 35 kW of electrical input at full load. Separate compressors and evaporator passes let the magnet and RF loops use different setpoints; one circuit keeps roughly 85 kW alive while the other is locked out. The compressor package takes a direct HV feed.',
     coolingRole: 'processCooling',
     category: 'cooling', subsection: 'processCooling',
     accentColor: 0x2fbccc,
@@ -1531,7 +1535,7 @@ export const INFRASTRUCTURE_RAW = {
   chiller: {
     id: 'chiller',
     name: 'Chiller',
-    desc: 'Precision 300 kW chilled-water system with a green room-temperature inlet and blue cold-water outlet. It draws about 60 kW at full load (COP 5) while maintaining water temperature to +/- 0.1°C. Feed the compressor plant directly from HV and distribute its cold output to temperature-sensitive RF and magnet loads.',
+    desc: 'Precision 300 kW chilled-water system with a green lukewarm inlet and blue cold-water outlet. It draws about 60 kW at full load (COP 5) while maintaining water temperature to +/- 0.1°C. Feed the compressor plant directly from HV and distribute its cold output to temperature-sensitive RF and magnet loads.',
     coolingRole: 'processCooling',
     category: 'cooling', subsection: 'processCooling',
     accentColor: 0x2fbccc,
@@ -1556,7 +1560,7 @@ export const INFRASTRUCTURE_RAW = {
   dryCoolerBank: {
     id: 'dryCoolerBank',
     name: 'Dry Cooler Bank',
-    desc: 'A row of V-configuration finned coils under axial fans on a steel frame. Its red inlet accepts hot return water and its green outlet sends room-temperature water to a chiller while rejecting 500 kW straight to outdoor air. No basin, no make-up water, no biocide dosing, no water-treatment contract and no Legionella sampling programme — every reason a facility reaches for one of these before it commits to a real evaporative tower. The rating is at design ambient, and that is the whole weakness: capacity sags as the air warms, so the August heat wave that has every magnet at full current is exactly when this bank has least to give.',
+    desc: 'A row of V-configuration finned coils under axial fans on a steel frame. Its red inlet accepts hot return water and its green outlet sends lukewarm water to a chiller while rejecting 500 kW straight to outdoor air. No basin, no make-up water, no biocide dosing, no water-treatment contract and no Legionella sampling programme — every reason a facility reaches for one of these before it commits to a real evaporative tower. The rating is at design ambient, and that is the whole weakness: capacity sags as the air warms, so the August heat wave that has every magnet at full current is exactly when this bank has least to give.',
     coolingRole: 'heatRejection',
     category: 'cooling', subsection: 'heatRejection',
     accentColor: 0x2fbccc,
@@ -1578,7 +1582,7 @@ export const INFRASTRUCTURE_RAW = {
   coolingTower: {
     id: 'coolingTower',
     name: 'Cooling Tower',
-    desc: 'Large evaporative tower with a red hot-water inlet and green room-temperature outlet. It rejects up to 800 kW of facility heat using roughly 20 kW of fan and circulation power. Its motor controls take a direct HV feed.',
+    desc: 'Large evaporative tower with a red hot-water inlet and green lukewarm outlet. It rejects up to 800 kW of facility heat using roughly 20 kW of fan and circulation power. Its motor controls take a direct HV feed.',
     coolingRole: 'heatRejection',
     category: 'cooling', subsection: 'heatRejection',
     accentColor: 0x2fbccc,

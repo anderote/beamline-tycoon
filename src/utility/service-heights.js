@@ -11,9 +11,9 @@
 
 export const RIGID_UTILITY_SERVICE_HEIGHTS = Object.freeze({
   cryoTransfer: 0.30,
-  waterSupplyPipeCold: 0.60,
+  waterSupplyPipeCold: 0.75,
   waterSupplyPipeRoom: 1.80,
-  waterSupplyPipeHot: 0.90,
+  waterSupplyPipeHot: 0.75,
   rfWaveguide: 1.20,
   vacuumPipe: 1.50,
 });

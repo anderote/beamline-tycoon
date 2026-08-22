@@ -41,7 +41,11 @@ import {
   waveguideDropProfile,
   waveguideTransitionPoints,
 } from './waveguide-presentation.js';
-import { portWaterCircuit, waterCircuitColor } from '../utility/water-circuits.js';
+import {
+  lineWaterCircuit,
+  portWaterCircuit,
+  waterCircuitColor,
+} from '../utility/water-circuits.js';
 import { utilityLineJunctions } from '../utility/line-junctions.js';
 
 // DEFAULT line centerline height. Per-utility heights come from
@@ -57,6 +61,7 @@ const FLEXIBLE_RELAX_DURATION_SECONDS = 0.9;
 const UNIVERSAL_BUS_HALF_WIDTH = UNIVERSAL_BUS_HALF_WIDTH_METERS;
 const JOIN_ON_CONTACT_TYPES = new Set(UTILITY_TYPE_LIST.filter(
   utilityType => UTILITY_TYPES[utilityType]?.joinsOnContact === true));
+export const WATER_TWIN_CENTER_SPACING_METERS = 0.24;
 
 // Material cache keyed by (utilityType, errorStatus) — 'ok' | 'soft' | 'hard'.
 // Keeps identical materials shared across lines for the same descriptor+state.
@@ -509,6 +514,82 @@ export function buildWorldPoints(line, placeablesById, tapAnchors = null) {
     : busTapRiser(tapAnchors?.end, runY, endRunPoint);
   if (endRiser && points.length > 0) points.splice(points.length - 1, 1, ...endRiser);
   return points;
+}
+
+function canonicalPlanNormal(dx, dz) {
+  const length = Math.hypot(dx, dz);
+  if (length < 1e-6) return null;
+  let tx = dx / length;
+  let tz = dz / length;
+  // Draw order is not flow direction. Canonicalizing the tangent keeps a cold
+  // and hot run on opposite sides even when the player drew one backwards.
+  if (tx < -1e-6 || (Math.abs(tx) <= 1e-6 && tz < 0)) {
+    tx *= -1;
+    tz *= -1;
+  }
+  return { x: -tz, z: tx };
+}
+
+/**
+ * Give rigid cold/hot water a stable side-by-side presentation at their shared
+ * elevation. The saved path stays untouched and each circuit remains its own
+ * selectable/topological line. Coincident routes therefore read as a factory
+ * twin while isolated and diverging routes remain ordinary independent runs.
+ */
+export function twinWaterPresentationPoints(points, line) {
+  const circuit = lineWaterCircuit(line);
+  if (line?.utilityType !== 'waterSupplyPipe'
+      || (circuit !== 'cold' && circuit !== 'hot')
+      || !Array.isArray(points) || points.length < 2) return points;
+  const runY = utilityLineHeight(line.utilityType, line.routeHeightMeters);
+  const side = circuit === 'cold' ? -1 : 1;
+  const offset = WATER_TWIN_CENTER_SPACING_METERS * 0.5 * side;
+  const shifted = points.map((point, index) => {
+    if (Math.abs(point.y - runY) > 1e-5) return point.clone();
+    const normals = [];
+    for (const neighborIndex of [index - 1, index + 1]) {
+      const neighbor = points[neighborIndex];
+      if (!neighbor || Math.abs(neighbor.y - runY) > 1e-5) continue;
+      const normal = canonicalPlanNormal(neighbor.x - point.x, neighbor.z - point.z);
+      if (normal) normals.push(normal);
+    }
+    if (normals.length === 0) return point.clone();
+    let nx = normals.reduce((sum, normal) => sum + normal.x, 0);
+    let nz = normals.reduce((sum, normal) => sum + normal.z, 0);
+    const length = Math.hypot(nx, nz);
+    if (length < 1e-6) ({ x: nx, z: nz } = normals[0]);
+    else { nx /= length; nz /= length; }
+    // Miter the offset at a 90-degree bend so both straight pipe sections meet
+    // the same elbow instead of narrowing toward one another at the corner.
+    const projection = Math.abs(nx * normals[0].x + nz * normals[0].z);
+    const miter = Math.min(Math.SQRT2, projection > 1e-5 ? 1 / projection : 1);
+    return new THREE.Vector3(
+      point.x + nx * offset * miter,
+      point.y,
+      point.z + nz * offset * miter,
+    );
+  });
+
+  // Keep the final connector tail orthogonal and attached to its fitting.
+  // A short cross-piece at the route datum bridges from the centered riser to
+  // the laterally offset long run.
+  const result = [];
+  for (let i = 0; i < shifted.length; i++) {
+    const point = points[i];
+    const presented = shifted[i];
+    const previous = points[i - 1];
+    const next = points[i + 1];
+    const hasVerticalNeighbor = [previous, next].some(neighbor => neighbor
+      && Math.hypot(neighbor.x - point.x, neighbor.z - point.z) < 1e-6
+      && Math.abs(neighbor.y - point.y) > 1e-6);
+    const moved = Math.hypot(presented.x - point.x, presented.z - point.z) > 1e-6;
+    if (moved && hasVerticalNeighbor && previous
+        && Math.abs(previous.y - point.y) > 1e-6) result.push(point.clone());
+    result.push(presented);
+    if (moved && hasVerticalNeighbor && next
+        && Math.abs(next.y - point.y) > 1e-6) result.push(point.clone());
+  }
+  return result;
 }
 
 // The rack's logical tap is an open line endpoint, but its visible socket sits
@@ -1308,7 +1389,18 @@ function addCryostatIdentificationBands(group, start, end, descriptor, material)
 // built in a +Z local run direction, then turned onto the actual segment. Its
 // top bar touches the underside of the guide, pipe, or outer cryogenic jacket;
 // feet always remain on y=0 and the legs fill the measured gap between them.
-function buildUtilitySupport(frame, descriptor, utilityType, materialOverride = null) {
+function addTwinWaterBrackets(support, shelfY, material) {
+  for (const side of [-1, 1]) {
+    const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.025, 0.10), material);
+    bracket.position.set(side * WATER_TWIN_CENTER_SPACING_METERS * 0.5, shelfY + 0.0125, 0);
+    bracket.userData.utilitySupportPart = 'water-twin-bracket';
+    support.add(bracket);
+  }
+}
+
+function buildUtilitySupport(
+  frame, descriptor, utilityType, materialOverride = null, supportMeta = null,
+) {
   if (!frame?.point || !frame?.direction) return null;
   const radius = descriptor?.pipeRadiusMeters || 0.05;
   const style = descriptor?.geometryStyle || 'cylinder';
@@ -1324,7 +1416,13 @@ function buildUtilitySupport(frame, descriptor, utilityType, materialOverride = 
 
   const material = materialOverride || getUtilitySupportMaterial();
   const support = new THREE.Group();
-  const saddleWidth = Math.max(0.24, bodyHalfWidth * 4.5);
+  const waterCircuits = [...(supportMeta?.waterCircuits || [])];
+  const isTwinWaterSupport = waterCircuits.includes('cold') && waterCircuits.includes('hot');
+  const saddleWidth = Math.max(
+    0.24,
+    bodyHalfWidth * 4.5,
+    isTwinWaterSupport ? WATER_TWIN_CENTER_SPACING_METERS + bodyHalfWidth * 3 : 0,
+  );
   const depth = 0.13;
   const foot = new THREE.Mesh(
     new THREE.BoxGeometry(saddleWidth + 0.10, footH, depth + 0.07), material);
@@ -1337,6 +1435,7 @@ function buildUtilitySupport(frame, descriptor, utilityType, materialOverride = 
   bar.position.y = barBottom + barH * 0.5;
   bar.userData.utilitySupportPart = 'saddle';
   support.add(bar);
+  if (isTwinWaterSupport) addTwinWaterBrackets(support, barTop, material);
 
   const legH = barBottom - footH;
   const legOffset = saddleWidth * 0.5 - 0.035;
@@ -1376,6 +1475,8 @@ function buildUtilitySupport(frame, descriptor, utilityType, materialOverride = 
     centerlineHeight: centerlineY,
     legHeight: legH,
     groundY: 0,
+    isTwinWaterSupport,
+    waterCircuits: [...waterCircuits],
   };
   return support;
 }
@@ -1415,7 +1516,7 @@ function buildStackedUtilitySupport(entries) {
   if (entries.length === 1) {
     const entry = entries[0];
     const support = buildUtilitySupport(
-      entry.frame, entry.descriptor, entry.utilityType);
+      entry.frame, entry.descriptor, entry.utilityType, null, entry);
     if (support) support.userData.lineIds = [...entry.lineIds];
     return support;
   }
@@ -1435,6 +1536,7 @@ function buildStackedUtilitySupport(entries) {
       lineIds: [...entry.lineIds],
       centerlineHeight: entry.frame.point.y,
       presentationStyle: entry.descriptor?.presentationStyle || null,
+      waterCircuits: [...(entry.waterCircuits || [])],
     });
   }
   shelves.sort((a, b) => a.y - b.y);
@@ -1448,6 +1550,8 @@ function buildStackedUtilitySupport(entries) {
       existing.bodyHalfWidth = Math.max(existing.bodyHalfWidth, shelf.bodyHalfWidth);
       existing.utilityTypes.push(...shelf.utilityTypes);
       existing.lineIds.push(...shelf.lineIds);
+      existing.waterCircuits.push(...shelf.waterCircuits);
+      if (!existing.presentationStyle) existing.presentationStyle = shelf.presentationStyle;
     } else uniqueShelves.push(shelf);
   }
 
@@ -1456,7 +1560,12 @@ function buildStackedUtilitySupport(entries) {
   const barH = 0.032;
   const saddleWidth = Math.max(
     0.52,
-    ...uniqueShelves.map(shelf => shelf.bodyHalfWidth * 4.5),
+    ...uniqueShelves.map(shelf => Math.max(
+      shelf.bodyHalfWidth * 4.5,
+      shelf.waterCircuits.includes('cold') && shelf.waterCircuits.includes('hot')
+        ? WATER_TWIN_CENTER_SPACING_METERS + shelf.bodyHalfWidth * 3
+        : 0,
+    )),
   );
   const depth = 0.13;
   const foot = new THREE.Mesh(
@@ -1495,6 +1604,9 @@ function buildStackedUtilitySupport(entries) {
       };
       support.add(clamp);
     }
+    if (shelf.waterCircuits.includes('cold') && shelf.waterCircuits.includes('hot')) {
+      addTwinWaterBrackets(support, shelf.y, material);
+    }
   }
 
   const top = Math.max(...uniqueShelves.map(shelf => shelf.y - barH));
@@ -1510,6 +1622,7 @@ function buildStackedUtilitySupport(entries) {
   const first = entries[0];
   const utilityTypes = [...new Set(entries.map(entry => entry.utilityType))];
   const lineIds = [...new Set(entries.flatMap(entry => [...entry.lineIds]))];
+  const waterCircuits = [...new Set(entries.flatMap(entry => [...(entry.waterCircuits || [])]))];
   support.position.set(first.frame.point.x, 0, first.frame.point.z);
   support.rotation.y = Math.atan2(first.frame.direction.x, first.frame.direction.z);
   support.userData = {
@@ -1522,6 +1635,8 @@ function buildStackedUtilitySupport(entries) {
     stackedServiceCount: uniqueShelves.length,
     legHeight: legH,
     groundY: 0,
+    isTwinWaterSupport: waterCircuits.includes('cold') && waterCircuits.includes('hot'),
+    waterCircuits,
   };
   return support;
 }
@@ -1774,11 +1889,12 @@ function buildLineGroup(
   // remain flexible and are held at their lane height by each post.
   const flexible = (isSoftCable(line.utilityType) && !line.manifold)
     || suspendedBusChannel;
-  const points = pointOverride || (suspendedBusChannel
+  let points = pointOverride || (suspendedBusChannel
     ? buildSuspendedUniversalBusWorldPoints(line)
     : flexible
       ? buildSoftCableWorldPoints(line, placeablesById, tapAnchors)
       : buildWorldPoints(line, placeablesById, tapAnchors));
+  points = twinWaterPresentationPoints(points, line);
   if (points.length < 2) return null;
   let busOffsetX = 0, busOffsetZ = 0;
   let busPortOffsetX = 0, busPortOffsetZ = 0;
@@ -2803,7 +2919,11 @@ export class UtilityLineBuilderV2 {
           descriptor,
           utilityType: line.utilityType,
           lineIds: new Set([line.id]),
+          waterCircuits: new Set(),
         });
+        const entry = sameShelf || list[list.length - 1];
+        const waterCircuit = lineWaterCircuit(line);
+        if (waterCircuit) entry.waterCircuits.add(waterCircuit);
         stations.set(key, list);
       }
     }

@@ -444,13 +444,13 @@ export const PORT_ANCHOR_OVERRIDES = {
     _default: { y: 0.05, lat: 0.10, along: 0, out: 0.04 },
   },
   coldWaterSupplyWallPassThrough: {
-    _default: { y: 0.60, lat: 0.10, along: 0, out: 0.06 },
+    _default: { y: 0.75, lat: 0.10, along: -0.12, out: 0.06 },
   },
   roomWaterSupplyWallPassThrough: {
     _default: { y: 1.80, lat: 0.10, along: 0, out: 0.06 },
   },
   hotWaterSupplyWallPassThrough: {
-    _default: { y: 0.90, lat: 0.10, along: 0, out: 0.06 },
+    _default: { y: 0.75, lat: 0.10, along: 0.12, out: 0.06 },
   },
   cryoWallPassThrough: {
     _default: { y: 0.30, lat: 0.10, along: 0, out: 0.06 },

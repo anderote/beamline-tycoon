@@ -3822,7 +3822,7 @@ export class ThreeRenderer {
   _addGhostUtilityPorts(endpoint, portDef) {
     if (!portDef?.ports) return;
     for (const [portName, spec] of Object.entries(portDef.ports)) {
-      if (!spec?.utility) continue;
+      if (!spec?.utility || spec.legacyOnly) continue;
       const anchor = portAnchor3D(endpoint, portDef, portName);
       if (!anchor) continue;
       const fitting = buildPortFitting(

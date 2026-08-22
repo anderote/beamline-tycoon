@@ -636,7 +636,7 @@ export function buildPortFittings(endpoints) {
     if (!def || !def.ports) continue;
     const endpointPorts = [];
     for (const [name, spec] of Object.entries(def.ports)) {
-      if (!spec || !spec.utility) continue;
+      if (!spec || !spec.utility || spec.legacyOnly) continue;
       const anchor = portAnchor3D(ep, def, name);
       if (!anchor) continue;
       const fitting = buildPortFitting(

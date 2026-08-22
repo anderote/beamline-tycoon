@@ -100,7 +100,7 @@ export function availablePorts(placeable, def, utilityType, lines) {
     }
   }
   const candidates = Object.entries(def.ports)
-    .filter(([_, spec]) => spec && spec.utility === utilityType)
+    .filter(([_, spec]) => spec && spec.utility === utilityType && !spec.legacyOnly)
     .map(([name, spec]) => ({ name, spec }));
   return candidates
     .filter(({ name, spec }) => {

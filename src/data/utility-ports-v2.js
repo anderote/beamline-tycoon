@@ -179,7 +179,7 @@ const BEAMLINE_UTILITY_PORTS = {
   cyclotron70: {
     hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.3, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 380 } },
     cool_in: { utility: 'waterSupplyPipe', side: 'right', offsetAlong: 0.35, role: 'sink', params: { heatLoad: 310, waterCircuit: 'cold' } },
-    hot_out: { utility: 'waterSupplyPipe', side: 'right', offsetAlong: 0.65, role: 'sink', params: { heatLoad: 310, waterCircuit: 'hot' } },
+    hot_out: { utility: 'waterSupplyPipe', side: 'right', offsetAlong: 0.65, role: 'sink', flowRole: 'source', params: { heatLoad: 310, waterCircuit: 'hot' } },
   },
   // RFQ + low-beta SRF front end delivered as one commissioned tunnel sector.
   // Unlike a cyclotron it exposes both RF and cryogenic plant to the player.
@@ -201,7 +201,7 @@ const BEAMLINE_UTILITY_PORTS = {
   cyclotron230: {
     hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.3, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 420 } },
     cool_in: { utility: 'waterSupplyPipe', side: 'right', offsetAlong: 0.35, role: 'sink', params: { heatLoad: 400, waterCircuit: 'cold' } },
-    hot_out: { utility: 'waterSupplyPipe', side: 'right', offsetAlong: 0.65, role: 'sink', params: { heatLoad: 400, waterCircuit: 'hot' } },
+    hot_out: { utility: 'waterSupplyPipe', side: 'right', offsetAlong: 0.65, role: 'sink', flowRole: 'source', params: { heatLoad: 400, waterCircuit: 'hot' } },
   },
   // NO rf_in and NO cryo_in — the absence is the design. A plasma stage has
   // no cavity to drive and nothing to keep at 2 K. What it has instead is a
@@ -708,6 +708,7 @@ for (const ports of Object.values(BEAMLINE_UTILITY_PORTS)) {
         ? Math.min(0.9, (cold.offsetAlong ?? 0.5) + 0.25)
         : Math.max(0.1, (cold.offsetAlong ?? 0.5) - 0.25),
       role: 'sink',
+      flowRole: 'source',
       params: {
         heatLoad: cold.params.heatLoad,
         waterCircuit: 'hot',
@@ -1123,7 +1124,7 @@ function coolingPlantPorts(params, names = [
 }
 
 function heatRejectorPorts(heatRejectionCapacity, side = 'right') {
-  // A rejector accepts the hot return and emits room-temperature water. Its
+  // A rejector accepts the hot return and emits lukewarm water. Its
   // two circuit nameplates are equal because they describe the same exchanger,
   // not two additive sources on one network. The hot port remains a solver
   // source because heat-rejection capacity serves hot-return loads; flowRole
@@ -1137,7 +1138,7 @@ function heatRejectorPorts(heatRejectionCapacity, side = 'right') {
     room_out: {
       utility: 'waterSupplyPipe', side, offsetAlong: 0.67,
       role: 'source',
-      params: { capacity: heatRejectionCapacity, heatRejectionCapacity: 0, waterCircuit: 'room' },
+      params: { capacity: heatRejectionCapacity, heatRejectionCapacity: 0, waterCircuit: 'lukewarm' },
     },
   };
 }
@@ -1155,7 +1156,7 @@ function centralChillerPorts(capacity) {
   }
   out.room_in = {
     utility: 'waterSupplyPipe', side: 'left', offsetAlong: 0.33,
-    role: 'sink', params: { heatLoad: capacity, waterCircuit: 'room' },
+    role: 'sink', params: { heatLoad: capacity, waterCircuit: 'lukewarm' },
   };
   out.supply_cold_out = {
     utility: 'waterSupplyPipe', side: 'left', offsetAlong: 0.67,
@@ -1168,7 +1169,7 @@ function labChillerPorts(capacity) {
   return {
     room_in: {
       utility: 'waterSupplyPipe', side: 'left', offsetAlong: 0.33,
-      role: 'sink', params: { heatLoad: capacity, waterCircuit: 'room' },
+      role: 'sink', params: { heatLoad: capacity, waterCircuit: 'lukewarm' },
     },
     cold_out: {
       utility: 'waterSupplyPipe', side: 'left', offsetAlong: 0.67,
@@ -1178,16 +1179,45 @@ function labChillerPorts(capacity) {
 }
 
 function waterInventoryPorts(params) {
-  return {
-    ...coolingPlantPorts({ capacity: 0, ...params }, undefined, {
-      primaryClass: COOLING_AUTO_CONNECT_CLASS.PLANT_LINK,
-    }),
-    water_supply_out: {
-      utility: 'waterSupplyPipe', side: 'left', offsetAlong: 0.5,
-      role: 'source', params: {
-        capacity: 0, ...params, waterCircuit: 'room',
+  // Old saves may still have flexible cooling hoses attached to these names.
+  // Keep them resolvable, but exclude them from new construction: reservoirs
+  // now sit in the rigid lukewarm transfer circuit, with four outlets and two
+  // returns on the same physical 4+2 header layout.
+  const legacyCoolingPorts = coolingPlantPorts({ capacity: 0, ...params }, undefined, {
+    primaryClass: COOLING_AUTO_CONNECT_CLASS.PLANT_LINK,
+  });
+  for (const spec of Object.values(legacyCoolingPorts)) spec.legacyOnly = true;
+
+  const out = { ...legacyCoolingPorts };
+  const outputOffsets = COOLING_PRIMARY_OFFSETS;
+  for (let i = 0; i < outputOffsets.length; i++) {
+    out[`lukewarm_out_${i + 1}`] = {
+      utility: 'waterSupplyPipe', side: 'right', offsetAlong: outputOffsets[i],
+      role: 'source', through: true,
+      params: {
+        capacity: 0,
+        supplyRateLPerTick: (params.supplyRateLPerTick || 0) / outputOffsets.length,
+        storageCapacityL: (params.storageCapacityL || 0) / outputOffsets.length,
+        waterCircuit: 'lukewarm',
       },
-    },
+    };
+  }
+  for (let i = 0; i < COOLING_SECONDARY_OFFSETS.length; i++) {
+    out[`lukewarm_in_${i + 1}`] = {
+      utility: 'waterSupplyPipe', side: 'left', offsetAlong: COOLING_SECONDARY_OFFSETS[i],
+      role: 'pass', flowRole: 'sink', through: true,
+      params: { heatLoad: 0, waterCircuit: 'lukewarm' },
+    };
+  }
+  // Preserve the former single rigid outlet identity for attached save lines;
+  // new port pickers and assisted wiring ignore legacy-only fittings.
+  out.water_supply_out = {
+    utility: 'waterSupplyPipe', side: 'left', offsetAlong: 0.5,
+    role: 'source', legacyOnly: true,
+    params: { capacity: 0, ...params, waterCircuit: 'lukewarm' },
+  };
+  return {
+    ...out,
   };
 }
 
@@ -1204,6 +1234,7 @@ function waterDistributorPorts(flexibleCount, supplyCount) {
       utility: 'coolingWater', side: 'right',
       offsetAlong: branchOffsets[i],
       role: 'pass', autoConnectClass: COOLING_AUTO_CONNECT_CLASS.LOAD_BRANCH,
+      flowRole: waterCircuit === 'cold' ? 'source' : 'sink',
       params: { waterCircuit },
     };
   }
@@ -1212,6 +1243,7 @@ function waterDistributorPorts(flexibleCount, supplyCount) {
     out[`supply_pipe_${i + 1}`] = {
       utility: 'waterSupplyPipe', side: 'left',
       offsetAlong: (i + 1) / (supplyCount + 1), role: 'pass',
+      flowRole: waterCircuit === 'cold' ? 'sink' : 'source',
       params: { waterCircuit },
     };
   }
@@ -1226,11 +1258,11 @@ function lcwManifoldPorts() {
   const out = {
     supply_cold: {
       utility: 'waterSupplyPipe', side: 'left', offsetAlong: 0.73,
-      role: 'pass', params: { waterCircuit: 'cold' },
+      role: 'pass', flowRole: 'sink', params: { waterCircuit: 'cold' },
     },
     supply_hot: {
       utility: 'waterSupplyPipe', side: 'left', offsetAlong: 0.27,
-      role: 'pass', params: { waterCircuit: 'hot' },
+      role: 'pass', flowRole: 'source', params: { waterCircuit: 'hot' },
     },
   };
   for (const [circuit, offsetIndex] of [['cold', 0], ['hot', 4]]) {
@@ -1239,6 +1271,7 @@ function lcwManifoldPorts() {
         utility: 'coolingWater', side: 'right',
         offsetAlong: branchOffsets[offsetIndex + index - 1],
         role: 'source', autoConnectClass: COOLING_AUTO_CONNECT_CLASS.LOAD_BRANCH,
+        flowRole: circuit === 'cold' ? 'source' : 'sink',
         params: { waterCircuit: circuit },
       };
     }
@@ -1285,8 +1318,8 @@ const INFRA_UTILITY_PORTS = {
     supply_back: { utility: 'waterSupplyPipe', side: 'back', role: 'pass', params: { waterCircuit: 'hot' } },
   },
   roomWaterSupplyWallPassThrough: {
-    supply_front: { utility: 'waterSupplyPipe', side: 'front', role: 'pass', params: { waterCircuit: 'room' } },
-    supply_back: { utility: 'waterSupplyPipe', side: 'back', role: 'pass', params: { waterCircuit: 'room' } },
+    supply_front: { utility: 'waterSupplyPipe', side: 'front', role: 'pass', params: { waterCircuit: 'lukewarm' } },
+    supply_back: { utility: 'waterSupplyPipe', side: 'back', role: 'pass', params: { waterCircuit: 'lukewarm' } },
   },
   waterSupplyWallPassThrough1x1: {
     supply_front: { utility: 'waterSupplyPipe', side: 'front', offsetAlong: 0.5, role: 'pass', params: {} },
@@ -1599,7 +1632,7 @@ const INFRA_UTILITY_PORTS = {
   highPowerSSA:        { rf_out:   { utility: 'rfWaveguide', ...SINGLE_RF_OUTPUT, role: 'source', params: { capacity: 300, dutyFactor: 1.0 } } },
   gyrotron:            { rf_out:   { utility: 'rfWaveguide', ...SINGLE_RF_OUTPUT, role: 'source', params: { capacity: 1000, dutyFactor: 1.0 } } },
   // Legacy compact plant retains its flexible-water header for compatibility.
-  // Central plant uses separate hot, room-temperature, and cold circuits connected by rigid
+  // Central plant uses separate hot, lukewarm, and cold circuits connected by rigid
   // supply pipe, with flexible water lines reserved for local equipment runs.
   // The compact 5/25 kW packages buy an affordable start; the 175/300 kW
   // central chillers buy scale but need separate storage and heat rejection.

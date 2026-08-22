@@ -47,6 +47,7 @@ import { pathCrossesWall, pathRunsAlongWall } from './wall-crossings.js';
 import {
   isWaterUtility,
   lineWaterCircuit,
+  normalizeWaterCircuit,
   portWaterCircuit,
   WATER_CIRCUIT_COLD,
   WATER_CIRCUIT_HOT,
@@ -631,7 +632,9 @@ export function validateDrawLine(state, {
   // All water temperatures share the same construction tools but are distinct
   // hydraulic circuits. Infer a new run from its exact terminal or tapped
   // trunk, then refuse any gesture that would short temperatures together.
-  let resolvedWaterCircuit = isWaterUtility(utilityType) ? waterCircuit : null;
+  let resolvedWaterCircuit = isWaterUtility(utilityType)
+    ? normalizeWaterCircuit(waterCircuit)
+    : null;
   if (isWaterUtility(utilityType)) {
     const circuits = new Set();
     for (const circuit of [
