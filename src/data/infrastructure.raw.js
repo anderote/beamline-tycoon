@@ -2455,7 +2455,7 @@ export const INFRASTRUCTURE_RAW = {
   compactHvDistributor: {
     id: 'compactHvDistributor',
     name: 'Compact HV Distributor',
-    desc: 'Small protected 1-to-2 high-voltage splitter. One incoming 200 kW HV feeder fans out to two independently wired 100 kW HV feeders. It fits in a single subtile and distributes existing capacity without generating any.',
+    desc: 'Small protected 1-to-2 high-voltage splitter. One incoming 600 kW HV feeder fans out to two independently wired 300 kW HV feeders. It fits in a single subtile and distributes existing capacity without generating any.',
     category: 'power', subsection: 'distribution',
     paletteOrder: 4,
     cost: { funding: 180000 },
@@ -2472,7 +2472,7 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
     electricalControl: {
-      breaker: { utility: 'hvCable', rating: 200, tripDelayTicks: 5 },
+      breaker: { utility: 'hvCable', rating: 600, tripDelayTicks: 5 },
     },
     requiredConnections: [],
   },

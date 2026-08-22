@@ -41,7 +41,7 @@ console.log('\n--- Test 1: source components report correct supply ---');
 {
   const POWER = {
     gridServicePoint: 3000, hvTransformer: 1500,
-    switchgear: 1200, compactHvDistributor: 200, mcc: 250,
+    switchgear: 1200, compactHvDistributor: 600, mcc: 250,
     padMountTransformer: 150, ups: 100, powerPanel: 40,
   };
   for (const [id, cap] of Object.entries(POWER)) {
@@ -184,10 +184,10 @@ console.log('\n--- Test 7: palette metrics expose placement requirements ---');
     'fan coil: compact palette tag shows its cooling output');
 
   const compactHvMetrics = paletteUtilityMetrics(COMPONENTS.compactHvDistributor);
-  assert(compactHvMetrics.some(r => r.label === 'Power draw' && r.value === '200 kW'),
-    'compact HV distributor: palette shows its 200 kW incoming feeder rating');
-  assert(compactHvMetrics.some(r => r.label === 'Power capacity' && r.value === '200 kW'),
-    'compact HV distributor: palette shows two outputs totaling 200 kW');
+  assert(compactHvMetrics.some(r => r.label === 'Power draw' && r.value === '600 kW'),
+    'compact HV distributor: palette shows its 600 kW incoming feeder rating');
+  assert(compactHvMetrics.some(r => r.label === 'Power capacity' && r.value === '600 kW'),
+    'compact HV distributor: palette shows two outputs totaling 600 kW');
 
   const hvDistributorMetrics = paletteUtilityMetrics(COMPONENTS.switchgear);
   assert(hvDistributorMetrics.some(r => r.label === 'Power draw' && r.value === '1,200 kW'),
