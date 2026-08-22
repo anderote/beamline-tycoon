@@ -30,6 +30,7 @@ globalThis.document = {
 
 const { COMPONENTS } = await import('../src/data/components.js');
 const { PLACEABLES } = await import('../src/data/placeables/index.js');
+const { WALL_TYPES } = await import('../src/data/structure.js');
 const { getUtilityPortsV2 } = await import('../src/data/utility-ports-v2.js');
 const {
   canPlaceWallFixture,
@@ -366,6 +367,45 @@ test('Power and HV inspect the visible cable trace and refuse wall crossings', (
     cablePath: hiddenRouteAroundWall,
   }).ok, true,
   'a visibly routed cable around the wall is legal even if its hidden compatibility path crosses');
+});
+
+test('HV spans between overhead supports may cross every wall and fence family', () => {
+  const supports = [
+    { id: 'pole', type: 'utilityPole', col: 0, row: 0, subCol: 0, subRow: 0, dir: 0 },
+    { id: 'tower', type: 'transmissionTower', col: 3, row: 0, subCol: 0, subRow: 0, dir: 0 },
+  ];
+  const start = { placeableId: 'pole', portName: 'hv_out' };
+  const end = { placeableId: 'tower', portName: 'hv_in' };
+  const wallTypes = Object.keys(WALL_TYPES);
+  assert.ok(wallTypes.length > 10, 'test covers the complete registered wall/fence catalogue');
+  for (const wallType of wallTypes) {
+    const state = openState({
+      placeables: supports,
+      wallOccupied: { '1,0,e': wallType },
+    });
+    const result = validateDrawLine(state, {
+      utilityType: 'hvCable', start, end,
+      path: directCrossing, cablePath: directCrossing,
+    });
+    assert.equal(result.ok, true, `${wallType}: ${result.reason || 'ok'}`);
+  }
+});
+
+test('The overhead crossing exception requires two HV supports', () => {
+  const state = openState({
+    placeables: [
+      { id: 'source', type: 'facilityTransformer', col: 0, row: 0, subCol: 0, subRow: 0, dir: 0 },
+      { id: 'pole', type: 'utilityPole', col: 3, row: 0, subCol: 0, subRow: 0, dir: 0 },
+    ],
+    wallOccupied: crossingWall,
+  });
+  const result = validateDrawLine(state, {
+    utilityType: 'hvCable',
+    start: { placeableId: 'source', portName: 'hv_out_1' },
+    end: { placeableId: 'pole', portName: 'hv_in' },
+    path: directCrossing, cablePath: directCrossing,
+  });
+  assert.equal(result.reason, 'wall_pass_through_required');
 });
 
 test('Fabricated pipes, waveguides and cryogenic services retain wall crossing', () => {
