@@ -140,7 +140,9 @@ For a normal-conducting cavity, that temperature rise causes thermal expansion, 
 - Add a chiller when you add NC RF structures — they are where the heat actually is
 - Cooling tower for large facilities with many heat-producing systems
 - Use 2:1 or 4:2 distributors where flexible equipment branches meet the rigid plant headers
-- Draw wall crossings where the automatic sleeve stack has room; use the manual 2×2 Water Pipe Penetration for paired rigid circuits
+- Draw rigid-water wall crossings near the desired half of a wall tile; the
+  route snaps to that 1 m sleeve station. Use the manual 2×2 Water Pipe
+  Penetration for paired rigid circuits.
 - Watch the reservoir, not just the capacity bar. Big heat loads drink water fast, and an empty reservoir is a hard beam trip.
 
 ## The Math

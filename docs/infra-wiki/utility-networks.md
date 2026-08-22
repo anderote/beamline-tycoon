@@ -35,10 +35,13 @@ pipes, port markers, equipment fittings, and wall sleeves.
 No utility line passes directly through a wall. Draw the intended route across
 the wall and construction automatically installs the matching compact sleeve,
 then terminates and restarts the line on its two ports. Cryo, cold/room/hot rigid
-water, RF, and vacuum sleeves align vertically at their standard service
-heights, so several services can share one neat wall-stack position. Manual
-4×4 HV and 2×2 water assemblies remain useful when several circuits need one
-planned penetration.
+water, and RF snap to one of two 1 m stations along each wall tile. Their
+orthogonal approaches align vertically at their standard service heights, so
+several services can share one neat wall-stack position. Vacuum and smaller
+cable sleeves retain the finer quarter-wall positions. Automatic HV entry uses
+the elevated 2.00 m indoor-rack datum and tensions the cable on both faces.
+Manual 4×4 HV and 2×2 water assemblies remain useful when several circuits
+need one planned penetration.
 
 ### Network Properties
 

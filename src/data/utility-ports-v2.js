@@ -1313,11 +1313,13 @@ const INFRA_UTILITY_PORTS = {
   hvWallPassThrough: {
     hv_in: {
       utility: 'hvCable', side: 'front', offsetAlong: 0.5,
-      role: 'pass', connectionKind: 'hvPassThrough', omnidirectional: true, params: {},
+      role: 'pass', connectionKind: 'hvPassThrough', omnidirectional: true,
+      tensionsCable: true, params: {},
     },
     hv_out: {
       utility: 'hvCable', side: 'back', offsetAlong: 0.5,
-      role: 'pass', connectionKind: 'hvPassThrough', omnidirectional: true, params: {},
+      role: 'pass', connectionKind: 'hvPassThrough', omnidirectional: true,
+      tensionsCable: true, params: {},
     },
   },
   hvWallPassThrough4x4: Object.fromEntries([
