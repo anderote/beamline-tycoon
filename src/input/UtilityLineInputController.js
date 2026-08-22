@@ -63,7 +63,7 @@ const PORT_SNAP_RADIUS_PX = 42;
 // grab it, in tiles. Tighter than the port radius: ports are the primary
 // target and a trunk usually runs right past one, so a generous tap radius
 // would steal clicks meant for the port at the end of it.
-const TAP_SNAP_RADIUS_TILES = 0.4;
+const TAP_SNAP_RADIUS_TILES = 0.65;
 // Rack access points are one tile apart. A radius above half that pitch makes
 // the whole visible tray magnetic instead of leaving frustrating dead strips
 // between adjacent rungs when mesh raycasting is unavailable.
@@ -766,9 +766,9 @@ export class UtilityLineInputController {
     }
     tap = tap || this.nearestLine(worldX, worldY, TAP_SNAP_RADIUS_TILES);
     if (!tap) return null;
-    // Power, data and waveguide runs normally cannot be casually tee'd. A
-    // committed continuous carrier is the explicit fitting that makes that
-    // branch legal, so it remains tappable even for those utilities.
+    // Power and HV runs cannot be casually tee'd. A committed continuous
+    // carrier is the explicit distribution fitting that makes that branch
+    // legal, so it remains tappable even for those electrical utilities.
     if (!ordinaryTapAllowed && !tap.manifold) return null;
     return {
       open: true,
@@ -838,10 +838,12 @@ export class UtilityLineInputController {
     for (const line of iter) {
       if (!line || line.utilityType !== this._utilityType) continue;
       if (onlyLineId && line.id !== onlyLineId) continue;
-      const visual = isSoftCable(line.utilityType) && Array.isArray(line.cablePath)
+      const freeformTopology = isSoftCable(line.utilityType) && Array.isArray(line.cablePath);
+      const visual = freeformTopology
         ? roundedCableTilePath(line.cablePath, line.utilityType)
         : expandPath(line.path || []);
-      for (const pt of visual) {
+      const candidates = freeformTopology ? visual : this._lineSnapCandidates(visual, cursor);
+      for (const pt of candidates) {
         const dx = pt.col * 2 - cursor.x;
         const dz = pt.row * 2 - cursor.z;
         const d = Math.hypot(dx, dz);
@@ -862,6 +864,42 @@ export class UtilityLineInputController {
       }
     }
     return best;
+  }
+
+  /**
+   * Candidate contact points on a grid-routed line. `expandPath` gives stable
+   * quarter-tile topology points, but checking only those points makes the
+   * magnetic target pulse as the cursor travels along a long segment. Project
+   * onto every segment and quantise the result back to the same topology grid,
+   * so the whole visible run is one continuous target and the saved tee still
+   * lands on a point network discovery can reproduce exactly.
+   *
+   * Cooling-water hoses intentionally keep their rounded sampled path: their
+   * visible freeform trace is also their topology path, and projecting a new
+   * point between those samples could create a visually near-but-not-touching
+   * explicit join.
+   */
+  _lineSnapCandidates(path, cursorWorld) {
+    if (!Array.isArray(path) || path.length === 0) return [];
+    const cursor = { col: cursorWorld.x / 2, row: cursorWorld.z / 2 };
+    const candidates = path.map(point => ({ col: point.col, row: point.row }));
+    for (let i = 0; i < path.length - 1; i++) {
+      const a = path[i], b = path[i + 1];
+      const dc = b.col - a.col;
+      const dr = b.row - a.row;
+      if (Math.abs(dc) > 1e-9 && Math.abs(dr) <= 1e-9) {
+        candidates.push({
+          col: Math.max(Math.min(a.col, b.col), Math.min(Math.max(a.col, b.col), snapQ(cursor.col))),
+          row: a.row,
+        });
+      } else if (Math.abs(dr) > 1e-9 && Math.abs(dc) <= 1e-9) {
+        candidates.push({
+          col: a.col,
+          row: Math.max(Math.min(a.row, b.row), Math.min(Math.max(a.row, b.row), snapQ(cursor.row))),
+        });
+      }
+    }
+    return candidates;
   }
 
   /**

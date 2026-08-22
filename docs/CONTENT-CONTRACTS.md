@@ -217,6 +217,12 @@ the short authoring contract.
 - RF waveguides and cryogenic transfer lines use the `rectilinear` routing
   profile: their paths must be axis-aligned with 90-degree bends, but do not
   reserve rigid equipment or service-clearance aisles.
+- Free-drag endpoints may snap to an existing compatible vacuum, cooling, RF,
+  cryogenic-transfer, or data run and commit a named `tapLineIds` T-junction.
+  The branch must meet the trunk at one point, inherit its physical route lane,
+  and render a real service fitting. Collinear duplicate runs remain invalid.
+  Power and HV cable do not allow casual tees; use distribution equipment or a
+  utility bus so electrical branching retains protected physical outlets.
 - Vacuum pipe, RF waveguide, and cryogenic transfer line are fabricated rigid
   services with vertical route lanes. Their saved `routeHeightMeters` starts at
   the source connector height and rises only as needed, so parallel or crossing

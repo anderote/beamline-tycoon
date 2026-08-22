@@ -240,10 +240,12 @@ export default {
   routingProfile: 'rectilinear',
   portClearance: false,
   capacityUnit: 'W@4K',
-  // Cryogenic transfer is run port-to-port through a valve box; an improvised
-  // tee would be a heat leak and is not a player routing shortcut.
-  allowsTap: false,
-  fansOut: false,
+  // A free-drag branch fabricates a real vacuum-jacketed tee at the contact,
+  // using the same explicit tap topology as RF and vacuum. Valve boxes remain
+  // useful as high-density four-way headers; they are no longer mandatory for
+  // every single branch in a small cryogenic distribution tree.
+  allowsTap: true,
+  fansOut: true,
   // No adjacency bridging: a vacuum-jacketed LHe line is not something you get
   // by pushing two cryostats together — every cryo sink is wired explicitly.
   bridgesAdjacent: false,

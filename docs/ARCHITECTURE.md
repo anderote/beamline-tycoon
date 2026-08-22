@@ -320,6 +320,14 @@ routing topology, and pricing continue to use the canonical footprint point.
 The bounds provider is injected with `setModelBoundsProvider` so anchor
 resolution remains usable headless.
 
+**T11. A free-drag tee is explicit topology, not accidental geometric contact.**
+The input controller snaps a compatible line endpoint to a named installed run
+and persists that relationship in `tapLineIds`. Validation exempts only that
+single contact point and inherits the tapped run's elevation; network discovery
+unions the named line ids. Vacuum, cooling, RF, cryogenic transfer, and data
+services allow these branches. Power and HV remain radial and require authored
+distribution hardware rather than casual line-to-line tees.
+
 ### B — Beam physics bridge
 
 **B1. `flattenPath` is the single source of truth for element ordering — but the physics envelope is *not* parallel to it.**
