@@ -74,7 +74,14 @@ export function createDemolishPolicy(filters = defaultDemolishFilters()) {
   const enabled = normalizeDemolishFilters(filters);
   const placeableKinds = new Set();
   if (enabled.has('beamline')) placeableKinds.add('beamline');
-  if (enabled.has('infra')) placeableKinds.add('infrastructure');
+  if (enabled.has('infra')) {
+    placeableKinds.add('infrastructure');
+    // A small number of renderer-owned outdoor models (notably HV poles and
+    // towers) are stored as decoration-kind placeables but explicitly belong
+    // to the Infra selection category. Let the picker inspect decorations;
+    // allowsPlaceable() still rejects ordinary Grounds scenery.
+    placeableKinds.add('decoration');
+  }
   if (enabled.has('facility')) {
     placeableKinds.add('equipment');
     placeableKinds.add('furnishing');

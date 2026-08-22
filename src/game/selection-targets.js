@@ -36,6 +36,7 @@ export function isSelectionCategory(value) {
 }
 
 export function selectionCategoryForPlaceable(entry, def = PLACEABLES[entry?.type]) {
+  if (isSelectionCategory(def?.selectionCategory)) return def.selectionCategory;
   const kind = entry?.kind || entry?.category || def?.kind;
   if (kind === 'beamline') return 'beamline';
   if (kind === 'infrastructure') return 'infra';
