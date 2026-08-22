@@ -100,6 +100,11 @@ export const MODES = {
       walls:       { name: 'Walls',         color: '#887', subsections: { walls: { name: 'Walls' }, exterior: { name: 'Exterior Surfaces' }, shielding: { name: 'Shielding' }, paint: { name: 'Paint' }, wallpaper: { name: 'Wallpaper' } } },
       doors:       { name: 'Doors',         color: '#689', subsections: { interior: { name: 'Interior' }, exterior: { name: 'Exterior' }, gates: { name: 'Fence Gates' } } },
       windows:     { name: 'Windows',       color: '#8cf', subsections: { interior: { name: 'Interior' }, exterior: { name: 'Exterior' }, shielded: { name: 'Shielded' } } },
+      verticalAccess: { name: 'Vertical Access', color: '#7a9',
+                        subsections: {
+                          stairs: { name: 'Stairs', linkedPlaceables: ['internalStairs'] },
+                          elevators: { name: 'Elevators & Lifts' },
+                        } },
       hangings:    { name: 'Hangings',      color: '#b88', isDecorationTab: true },
       // Indoor floor, wall, ceiling, and task fixtures are building fabric,
       // unlike Grounds' outdoor lamp families. The key is deliberately
