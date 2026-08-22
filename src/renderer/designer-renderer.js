@@ -14,6 +14,12 @@ import { beamlineTypeHidesComponent } from '../ui/BeamlineTypePicker.js';
 import { getBeamlineType } from '../data/beamline-types.js';
 import { ProbePlots } from '../ui/probe-plots.js';
 import {
+  beamVisualIntensity,
+  beamVisualProfile,
+  sampleBeamEnvelope,
+  sampleBeamVisualProfile,
+} from '../renderer3d/beam-visual-mode.js';
+import {
   applyDesignerPlotYRange,
   DESIGNER_PLOT_TAG_COLORS,
   designerPlotCursorLayers,
@@ -237,6 +243,12 @@ BeamlineDesigner.prototype._renderSchematic = function() {
   const railY = beamY + schematicH / 2 + 2;
   const supportH = 20 * effectiveZoom;   // support height scales with zoom
   const floorY = railY + supportH;
+
+  // The component glyphs are hardware drawings. The beam itself is rendered
+  // separately from the solved envelope so current and bunching can change
+  // without baking physics into every catalogue illustration.
+  this._renderLiveBeam(ctx, beamY, 20 + panOffsetPx,
+    20 + panOffsetPx + totalPixelWidth * effectiveZoom, effectiveZoom);
 
   // Draw each component (edge-to-edge, no gaps)
   let xPos = 20 + panOffsetPx;
@@ -503,6 +515,62 @@ BeamlineDesigner.prototype._renderSchematic = function() {
   }
 
   ctx.restore();
+
+  // Keep packet motion alive without re-running plots, tuning panels, or
+  // physics. Geometry changes still enter through the normal render path.
+  if (this.draftEnvelope?.length && this.isOpen
+      && typeof requestAnimationFrame === 'function' && !this._liveBeamFrame) {
+    this._liveBeamFrame = requestAnimationFrame(() => {
+      this._liveBeamFrame = null;
+      if (this.isOpen) this._renderSchematic();
+    });
+  }
+};
+
+BeamlineDesigner.prototype._renderLiveBeam = function(ctx, beamY, startX, endX, zoom) {
+  const envelope = this.draftEnvelope;
+  if (!Array.isArray(envelope) || envelope.length === 0 || endX <= startX) return;
+
+  const type = getBeamlineType(this._designerBeamlineTypeId?.());
+  const profile = beamVisualProfile(type, this.draftNodes || [], envelope);
+  const maxCurrent = Math.max(0, ...envelope.map(d => Number(d?.current) || 0));
+  const maxPeak = Math.max(0, ...envelope.map(d => Number(d?.peak_current) || 0));
+  const now = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+  const span = endX - startX;
+  const width = Math.max(1, Math.round(span));
+
+  ctx.save();
+  ctx.lineCap = 'round';
+  for (let px = 0; px < width; px++) {
+    const x = startX + px;
+    const u = px / Math.max(1, width - 1);
+    const datum = sampleBeamEnvelope(envelope, u) || {};
+    const physicsState = sampleBeamVisualProfile(profile, u);
+    const current = Math.max(0, Number(datum.current) || 0);
+    const peak = Math.max(current, Number(datum.peak_current) || 0);
+    const averageBrightness = beamVisualIntensity(current, maxCurrent);
+    const peakBrightness = beamVisualIntensity(peak, maxPeak || maxCurrent);
+    const bunched = physicsState.bunch > 0.5;
+
+    // Keep a dim core everywhere the beam survives. Bunched beams add moving
+    // packets whose brightness follows peak current rather than average current.
+    let alpha = averageBrightness * (bunched ? 0.28 : 0.72);
+    let radius = 0;
+    if (bunched) {
+      const packetSpacing = Math.max(12, Math.min(42, 18 + 8 * physicsState.bunch));
+      const packetWidth = Math.max(2, packetSpacing * 0.22);
+      const phase = ((x - now * (24 + 16 * physicsState.speed)) % packetSpacing + packetSpacing)
+        % packetSpacing;
+      const distance = Math.min(phase, packetSpacing - phase);
+      if (distance < packetWidth) {
+        alpha = Math.max(alpha, peakBrightness * 0.95);
+        radius = 1;
+      }
+    }
+    ctx.fillStyle = `rgba(68, 238, 136, ${Math.min(1, alpha).toFixed(3)})`;
+    ctx.fillRect(x, beamY - radius, 1, radius * 2 + 1);
+  }
+  ctx.restore();
 };
 
 function _placementHintColor(hint) {
@@ -617,7 +685,10 @@ BeamlineDesigner.prototype._drawComponentOffscreen = function(componentType, par
   tiny.height = SCHEM_PH;
   tiny.style.width = pw + 'px';
   tiny.style.height = SCHEM_PH + 'px';
-  this.renderer.drawSchematic(tiny, componentType, params, { pixelWidth: pw });
+  this.renderer.drawSchematic(tiny, componentType, params, {
+    pixelWidth: pw,
+    suppressBeam: true,
+  });
 
   this._schematicCache[cacheKey] = tiny;
   return tiny;
