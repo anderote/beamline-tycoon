@@ -201,26 +201,39 @@ console.log('\n--- 1b. A rigid run is one continuous, forgiving magnetic target 
       hover?.worldPos)})`);
 }
 
-console.log('\n--- 1c. Cooling-water hoses share data cable\'s forgiving pickup halo ---');
+console.log('\n--- 1c. Water runs use a tighter pickup halo than data cable ---');
 {
   const game = makeGame();
-  for (const [utilityType, row] of [['coolingWater', 14], ['dataFiber', 16]]) {
+  for (const [utilityType, row] of [
+    ['coolingWater', 14],
+    ['waterSupplyPipe', 16],
+  ]) {
     const lineId = game.utilityLineSystem.addLine({
       utilityType, start: null, end: null,
       path: [{ col: 2, row }, { col: 12, row }],
     });
     const ctrl = ctrlFor(game, utilityType);
 
-    let iso = gridToIso(7.37, row + 0.55);
+    let iso = gridToIso(7.25, row + 0.25);
     ctrl.onHover(iso.x, iso.y);
     assert(ctrl.hoverPort?.tap === true && ctrl.hoverPort.lineId === lineId,
-      `${utilityType} attracts a free-drag endpoint from the shared pickup halo`);
+      `${utilityType} still attracts a deliberately close endpoint`);
 
-    iso = gridToIso(7.37, row + 0.7);
+    iso = gridToIso(7.25, row + 0.4);
     ctrl.onHover(iso.x, iso.y);
     assert(!ctrl.hoverPort,
-      `${utilityType} leaves clearly distant cursor input unsnapped`);
+      `${utilityType} leaves a nearby parallel routing lane unsnapped`);
   }
+
+  const dataLineId = game.utilityLineSystem.addLine({
+    utilityType: 'dataFiber', start: null, end: null,
+    path: [{ col: 2, row: 18 }, { col: 12, row: 18 }],
+  });
+  const dataCtrl = ctrlFor(game, 'dataFiber');
+  const dataIso = gridToIso(7.25, 18.55);
+  dataCtrl.onHover(dataIso.x, dataIso.y);
+  assert(dataCtrl.hoverPort?.tap === true && dataCtrl.hoverPort.lineId === dataLineId,
+    'data cable retains the shared forgiving pickup halo');
 }
 
 console.log('\n--- 1d. A broad cryo jacket gets a cryo-specific pickup halo ---');

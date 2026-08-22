@@ -57,6 +57,10 @@ export default {
   capacityParam: 'capacity',
   demandParam: 'heatLoad',
   allowsTap: true,
+  // Hot, cold, and plant-transfer headers are often laid in parallel. A
+  // quarter-tile-plus halo still makes an intentional tee easy to acquire but
+  // does not magnetize the adjacent routing lane.
+  tapSnapRadiusTiles: 0.3,
   joinsOnContact: true,
   fansOut: true,
   bridgesAdjacent: false,

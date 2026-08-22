@@ -103,8 +103,10 @@ export default {
   capacityUnit: 'kW',
   // Pipework: tees and manifolds, same as vacuum.
   allowsTap: true,
-  // Use the shared forgiving pickup halo also used by data cable. Cooling
-  // branches are still explicit named tees; this changes only cursor assist.
+  // Water hoses are commonly routed close together as paired supply/return
+  // runs. Keep taps discoverable without pulling a parallel run sideways from
+  // the shared, more generous utility-line pickup halo.
+  tapSnapRadiusTiles: 0.3,
   fansOut: true,
   // Flexible water lines are equipment hoses. They never pass directly through
   // a slab; the input coordinator installs a circuit-colored wall sleeve and
