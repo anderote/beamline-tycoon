@@ -27,7 +27,15 @@ function humanize(value) {
 }
 
 export function autoConnectTargetLabel(utilityType, count) {
-  const singular = utilityType === 'hvCable' ? 'HV feeder input' : 'power plug';
+  const singular = {
+    powerCable: 'power connection',
+    hvCable: 'HV connection',
+    vacuumPipe: 'vacuum connection',
+    rfWaveguide: 'RF connection',
+    coolingWater: 'cooling connection',
+    cryoTransfer: 'cryo connection',
+    dataFiber: 'data peer',
+  }[utilityType] || 'utility connection';
   return `${singular}${count === 1 ? '' : 's'}`;
 }
 
@@ -79,7 +87,8 @@ export function componentHoverInfo(comp, { autoConnectPlan = null } = {}) {
   const title = comp.name || humanize(comp.id) || 'Object';
   const detailWithHints = detail => `${detail}${linePlacementHint(comp)}`;
 
-  if (Number(comp.autoConnectRadius) > 0 && autoConnectPlan) {
+  if (autoConnectPlan
+      && Number(autoConnectPlan.radius || comp.autoConnectRadius) > 0) {
     const candidates = Math.max(0, Number(autoConnectPlan.candidates) || 0);
     const connectable = Array.isArray(autoConnectPlan.stubs)
       ? autoConnectPlan.stubs.length
@@ -87,7 +96,9 @@ export function componentHoverInfo(comp, { autoConnectPlan = null } = {}) {
     return {
       title,
       detail: detailWithHints(
-        `${candidates} unconnected ${autoConnectTargetLabel(autoConnectPlan.utilityType, candidates)} in range`
+        `${candidates} unconnected ${autoConnectTargetLabel(
+          autoConnectPlan.utilityType || comp.autoConnectUtility || 'powerCable', candidates,
+        )} in range`
           + ` · Tab connects ${connectable}`,
       ),
     };

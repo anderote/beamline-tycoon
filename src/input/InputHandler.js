@@ -44,6 +44,7 @@ import { DeferredUtilityPortDrag } from './deferred-port-drag.js';
 import {
   commitPanelAutoConnect,
   planPanelAutoConnect,
+  utilityAutoConnectProfile,
 } from './panel-auto-connect.js';
 import { portAnchor3D } from '../utility/port-anchors.js';
 import { portWorldPosition } from '../utility/ports.js';
@@ -1151,7 +1152,7 @@ export class InputHandler {
     return true;
   }
 
-  /** Current paid cable plan for a distribution panel's context action. */
+  /** Current paid line plan for a utility device's context action. */
   _panelAutoConnectPlan(panelId) {
     const revision = this.game.solveRunner?.topologyRevision;
     if (Number.isFinite(revision)) {
@@ -1179,32 +1180,32 @@ export class InputHandler {
     return plan;
   }
 
-  /** Dynamic world-hover copy for panels; ordinary machines stay catalogue-only. */
+  /** Dynamic world-hover copy for utility devices; ordinary loads stay catalogue-only. */
   _componentHoverInfo(entry, def) {
-    const autoConnectPlan = entry?.id && Number(def?.autoConnectRadius) > 0
+    const autoConnectPlan = entry?.id && utilityAutoConnectProfile(def)
       ? this._panelAutoConnectPlan(entry.id)
       : null;
     return componentHoverInfo(def, { autoConnectPlan });
   }
 
-  /** Resolve a distribution panel from the current world-hover tooltip. */
+  /** Resolve an auto-connect utility device from the current world-hover tooltip. */
   _hoveredAutoConnectPanelId() {
     const match = /^(?:placeable|equip):(.+)$/.exec(this._hoverTooltipTarget || '');
     if (!match) return null;
     const panel = this.game.getPlaceable?.(match[1])
       || this.game.state?.placeables?.find?.(entry => entry.id === match[1]);
     const def = panel && (COMPONENTS[panel.type] || PLACEABLES[panel.type]);
-    return Number(def?.autoConnectRadius) > 0 ? panel.id : null;
+    return utilityAutoConnectProfile(def) ? panel.id : null;
   }
 
-  /** A single selected distribution panel is the fallback Tab target. */
+  /** A single selected utility device is the fallback Tab target. */
   _selectedAutoConnectPanelId() {
     const ids = this._selectionIdsForAnchor(this.selectedPlaceableId);
     if (ids.length !== 1) return null;
     const panel = this.game.getPlaceable?.(ids[0])
       || this.game.state?.placeables?.find?.(entry => entry.id === ids[0]);
     const def = panel && (COMPONENTS[panel.type] || PLACEABLES[panel.type]);
-    return Number(def?.autoConnectRadius) > 0 ? panel.id : null;
+    return utilityAutoConnectProfile(def) ? panel.id : null;
   }
 
   /** The hovered panel wins; selection preserves the existing keyboard path. */
@@ -1228,10 +1229,11 @@ export class InputHandler {
   _autoConnectPanel(panelId) {
     const plan = this._panelAutoConnectPlan(panelId);
     if (!plan.stubs.length) {
-      if (plan.outlets === 0) this._showToast('No free outlets on this panel');
+      const label = UTILITY_TYPES[plan.utilityType]?.displayName || 'utility';
+      if (plan.outlets === 0) this._showToast(`No free ${label} connectors`);
       else if (plan.candidates === 0) {
-        this._showToast(`No unconnected power plugs within ${plan.radius} tiles`);
-      } else this._showToast('No clear cable routes to nearby plugs');
+        this._showToast(`No unconnected ${label} devices within ${plan.radius} tiles`);
+      } else this._showToast(`No clear ${label} routes to nearby devices`);
       return [];
     }
     const committed = commitPanelAutoConnect(this.game, plan);

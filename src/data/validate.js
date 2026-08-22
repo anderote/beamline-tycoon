@@ -274,23 +274,30 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
   }
 
   // Assisted wiring still commits ordinary utility lines, so its authored
-  // utility must exist and the device needs a real source connector to start
-  // each promised run. autoConnectUtility defaults to powerCable for the
-  // original low-voltage distribution panels.
+  // utility must exist and the device needs a real source or passive peer
+  // connector to start each promised run. autoConnectUtility defaults to
+  // powerCable for the original low-voltage distribution panels.
   function checkAutoConnect(id, def) {
     if (def.autoConnectRadius == null && def.autoConnectUtility == null) return;
     const radius = def.autoConnectRadius;
-    if (typeof radius !== 'number' || !Number.isFinite(radius) || radius <= 0) {
+    if (radius != null
+        && (typeof radius !== 'number' || !Number.isFinite(radius) || radius <= 0)) {
       problem(id, 'autoConnectRadius', `autoConnectRadius must be a positive number, got ${JSON.stringify(radius)}`);
     }
-    const utility = def.autoConnectUtility || 'powerCable';
+    const ports = utilityPorts[id] || {};
+    const originUtilities = new Set(Object.values(ports)
+      .filter(port => port && (port.role === 'source' || port.role === 'pass'))
+      .map(port => port.utility)
+      .filter(utility => UTILITIES.has(utility)));
+    const utility = def.autoConnectUtility
+      || (originUtilities.size === 1 ? [...originUtilities][0] : 'powerCable');
     if (!UTILITIES.has(utility)) {
       problem(id, 'autoConnectUtility', `unknown utility '${utility}' (known: ${[...UTILITIES].join(', ')})`);
       return;
     }
-    const ports = utilityPorts[id] || {};
-    if (!Object.values(ports).some(port => port.utility === utility && port.role === 'source')) {
-      problem(id, 'autoConnectUtility', `auto-connects '${utility}' but has no '${utility}' source port in utility-ports-v2.js`);
+    if (!Object.values(ports).some(port => port.utility === utility
+        && (port.role === 'source' || port.role === 'pass'))) {
+      problem(id, 'autoConnectUtility', `auto-connects '${utility}' but has no '${utility}' source or passive port in utility-ports-v2.js`);
     }
   }
 

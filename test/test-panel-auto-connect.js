@@ -9,6 +9,7 @@ import { PARAM_DEFS } from '../src/beamline/component-physics.js';
 import {
   commitPanelAutoConnect,
   planPanelAutoConnect,
+  utilityAutoConnectProfile,
 } from '../src/input/panel-auto-connect.js';
 import { validateDrawLine } from '../src/utility/line-drawing.js';
 import { InputHandler } from '../src/input/InputHandler.js';
@@ -221,6 +222,95 @@ console.log('\n--- 6. HV distributors auto-connect ordinary HV feeders ---');
   const committed = commitPanelAutoConnect(game, plan);
   assert(committed.length === 2 && linesOf(game, 'hvCable').length === 2,
     'the HV action commits real HV feeder lines');
+}
+
+console.log('\n--- 7. Utility sources and peer distributors opt in by capability ---');
+{
+  const profiles = [
+    ['chiller', 'coolingWater'],
+    ['roughingPump', 'vacuumPipe'],
+    ['solidStateAmp', 'rfWaveguide'],
+    ['coldBox4K', 'cryoTransfer'],
+    ['networkSwitch', 'dataFiber'],
+    ['utilityPole', 'hvCable'],
+  ];
+  for (const [type, utilityType] of profiles) {
+    const profile = utilityAutoConnectProfile(COMPONENTS[type]);
+    assert(profile?.utilityType === utilityType && profile.radius > 0,
+      `${type} derives ${utilityType} auto-connect capability`);
+  }
+  assert(utilityAutoConnectProfile(COMPONENTS.quadrupole) === null,
+    'sink-only beamline equipment remains a target rather than an origin');
+}
+
+console.log('\n--- 8. Chillers connect nearby cooling loads with ordinary hoses ---');
+{
+  const game = new Game(new BeamlineRegistry(), { seed: 93 });
+  game.state.resources.funding = 1e9;
+  game.state.placeables.push(
+    item('plant', 'chiller', 10, 10),
+    item('magnet_1', 'quadrupole', 13, 10),
+    item('magnet_2', 'quadrupole', 15, 10),
+    item('rejector', 'fanCoilCooler', 10, 15),
+  );
+  const plan = planPanelAutoConnect(game.state, 'plant');
+  assert(plan.utilityType === 'coolingWater' && plan.candidates === 3,
+    `the chiller finds nearby cooling loads and plant peers (got ${plan.candidates})`);
+  assert(plan.stubs.length === 3
+      && plan.stubs.filter(stub => stub.end.portName === 'cool_in').length === 2
+      && plan.stubs.some(stub => stub.end.placeableId === 'rejector'),
+  `the chiller plans cooling hoses to loads and the heat rejector (got ${plan.stubs.length})`);
+  assert(plan.stubs.every(stub => validateDrawLine(game.state, {
+    utilityType: 'coolingWater', start: stub.start, end: stub.end, path: stub.path,
+  }).ok), 'chiller auto-connect routes pass through the normal cooling validator');
+  commitPanelAutoConnect(game, plan);
+  assert(linesOf(game, 'coolingWater').length === 3,
+    'the chiller action commits real cooling-water lines');
+}
+
+console.log('\n--- 9. Network switches fan out once per nearby data device ---');
+{
+  const game = new Game(new BeamlineRegistry(), { seed: 94 });
+  game.state.resources.funding = 1e9;
+  game.state.placeables.push(
+    item('switch_a', 'networkSwitch', 10, 10),
+    item('switch_b', 'networkSwitch', 13, 10),
+    item('bpm_1', 'bpm', 10, 13),
+  );
+  const plan = planPanelAutoConnect(game.state, 'switch_a');
+  const switchLinks = plan.stubs.filter(stub => stub.end.placeableId === 'switch_b');
+  assert(plan.utilityType === 'dataFiber' && plan.candidates === 2,
+    `the switch finds a peer switch and a data sink (got ${plan.candidates})`);
+  assert(plan.stubs.length === 2 && switchLinks.length === 1,
+    `eight peer ports do not create duplicate switch-to-switch links (got ${switchLinks.length})`);
+  commitPanelAutoConnect(game, plan);
+  const repeat = planPanelAutoConnect(game.state, 'switch_a');
+  assert(repeat.candidates === 0 && repeat.stubs.length === 0,
+    'already-linked data devices are not offered again on repeated auto-connect');
+}
+
+console.log('\n--- 10. Utility poles build aligned multi-conductor peer spans ---');
+{
+  const game = new Game(new BeamlineRegistry(), { seed: 95 });
+  game.state.resources.funding = 1e9;
+  game.state.placeables.push(
+    item('pole_a', 'utilityPole', 10, 10),
+    item('pole_b', 'utilityPole', 16, 10),
+  );
+  const lane = { hv_in: 0, hv_out: 0.5, hv_3: 1, hv_4: 1.5 };
+  const portPosition = (endpoint, _def, portName) => ({
+    x: endpoint.col * 2,
+    z: endpoint.row * 2 + lane[portName],
+  });
+  const plan = planPanelAutoConnect(game.state, 'pole_a', { portPosition });
+  assert(plan.utilityType === 'hvCable' && plan.candidates === 1,
+    'a pole prioritizes the nearby overhead peer as one target');
+  assert(plan.stubs.length === 4
+      && plan.stubs.every(stub => stub.start.portName === stub.end.portName),
+  `the pole span aligns all four matching terminals (got ${plan.stubs.length})`);
+  assert(plan.stubs.every(stub => validateDrawLine(game.state, {
+    utilityType: 'hvCable', start: stub.start, end: stub.end, path: stub.path,
+  }).ok), 'every aligned overhead conductor is a valid ordinary HV line');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
