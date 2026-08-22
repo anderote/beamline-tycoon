@@ -228,8 +228,8 @@ for (const scenario of SCENARIOS) {
   // with a separate dedicated feeder for the RF source.
   const hvFlows = state.utilityNetworkData?.get?.('hvCable');
   const hvFlowValues = hvFlows ? [...hvFlows.values()] : [];
-  // Main-panel branches 77 + control-room branches 4.3 + dedicated SSA 70.
-  const expectedHvDemand = 151.3;
+  // Main-panel branches 79 + control-room branches 4.3 + dedicated SSA 70.
+  const expectedHvDemand = 153.3;
   assert(hvFlowValues.length === 2
     && hvFlowValues.some(f => f.totalCapacity === 3000)
     && hvFlowValues.some(f => f.totalCapacity === 1500)
@@ -242,10 +242,10 @@ for (const scenario of SCENARIOS) {
   assert(!!flow && flow.totalCapacity === 160,
     `the busway applies its 160 kW field rating (got ${flow?.totalCapacity})`);
   // gun 50 + cup 1 + buncher 1 + 3x cavity 3 + quad 10 + bpm 1
-  //   + skid 3 + ioc 0.5 + roughing 0.5 + turbo 1. The SSA's 70 kW runs
+  //   + skid 5 + ioc 0.5 + roughing 0.5 + turbo 1. The SSA's 70 kW runs
   // on its own dedicated HV feeder, not through the branch-power bus.
-  assert(!!flow && flow.totalDemand === 77,
-    `branch-power demand = 77 kW (got ${flow?.totalDemand})`);
+  assert(!!flow && flow.totalDemand === 79,
+    `branch-power demand = 79 kW (got ${flow?.totalDemand})`);
 
   // The 162.5 MHz cavities have an RF source that actually covers their band
   // (the SSA) — a frequency mismatch is only a SOFT error, so it would

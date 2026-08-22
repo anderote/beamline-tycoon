@@ -590,7 +590,7 @@ export const INFRASTRUCTURE_RAW = {
   heCompressor: {
     id: 'heCompressor',
     name: 'Helium Compressor',
-    desc: 'Main compressor for the helium refrigeration cycle. This is the workhorse of your cryo plant — it compresses warm helium gas returning from the cold boxes. Place as the foundation of your cryogenic infrastructure. High energy cost but required for any SRF operation.',
+    desc: 'Main 20 kW compressor for the helium refrigeration cycle. This is the workhorse of your cryo plant — it compresses warm helium gas returning from the cold boxes. Place as the foundation of your cryogenic infrastructure. Its industrial motor takes a direct HV feed and rejects its compression heat into Cooling Water.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
     cost: { funding: 5000000 },
@@ -607,17 +607,18 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
 
-    requiredConnections: ['powerCable', 'coolingWater'],
+    requiredConnections: ['hvCable', 'coolingWater'],
   },
   coldBox4K: {
     id: 'coldBox4K',
     name: '4K Cold Box',
-    desc: 'Refrigeration unit that cools helium to 4.5 Kelvin (-269°C) with 500W cooling capacity. Connect to cryomodules via Cryo Transfer lines. Standard temperature for most SRF cavities. Pair with a Helium Compressor to complete the cryogenic loop.',
+    desc: 'Refrigeration unit that cools helium to 4.5 Kelvin (-269°C) with 500 W cooling capacity. Removing heat this close to absolute zero costs about 250 W at the wall per watt of cooling, so the nameplate plant draws 125 kW through a direct HV feed. Connect it to cryomodules via Cryo Transfer lines.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
     cost: { funding: 8000000 },
     stats: {},
-    energyCost: 15,
+    // 500 W cold x 250 W_wall/W_cold = 125 kW wall power.
+    energyCost: 125,
     subL: 8, subW: 4, subH: 5, gridW: 4, gridH: 8, geometryType: 'box',
     baseMaterial: 'cryo_frost',
     // No `faces` decal: role-built (see _buildColdBox4KRoles).
@@ -628,17 +629,18 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
 
-    requiredConnections: ['powerCable'],
+    requiredConnections: ['hvCable'],
   },
   coldBox2K: {
     id: 'coldBox2K',
     name: '2K Cold Box',
-    desc: 'Industrial-scale cold box producing superfluid helium at 2 Kelvin using sub-atmospheric pumping, with 800W of cooling capacity. Cavities at 2K have dramatically lower RF losses — this is the plant that feeds a multi-cryomodule SRF linac. Requires High-Q SRF research.',
+    desc: 'Industrial-scale cold box producing superfluid helium at 2 Kelvin using sub-atmospheric pumping, with 800 W of cooling capacity. The roughly 750 W-at-the-wall cost of removing one watt at 2 K makes this a 600 kW direct-HV load. Cavities run far more efficiently at 2 K, but the refrigerator itself is serious plant. Requires High-Q SRF research.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
     cost: { funding: 15000000 },
     stats: {},
-    energyCost: 25,
+    // 800 W cold x 750 W_wall/W_cold = 600 kW wall power.
+    energyCost: 600,
     subL: 8, subW: 4, subH: 5, gridW: 4, gridH: 8, geometryType: 'box',
     baseMaterial: 'cryo_frost',
     // No `faces` decal: role-built (see _buildColdBox2KRoles).
@@ -649,7 +651,7 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
 
-    requiredConnections: ['powerCable'],
+    requiredConnections: ['hvCable'],
   },
   cryomoduleHousing: {
     id: 'cryomoduleHousing',
@@ -1253,13 +1255,14 @@ export const INFRASTRUCTURE_RAW = {
   lcwSkid: {
     id: 'lcwSkid',
     name: 'LCW Skid',
-    desc: 'Self-contained 25 kW low-conductivity-water skid with six independently routable connections: four on its primary header and two opposite. Its own reservoir, pump, chiller, air-cooled rejector and slow automatic make-up water feed are packaged together: connect power, then run Cooling Water to magnets and warm RF. Outgrow it into a central chiller plus separate reservoir and heat rejection when the facility gets large.',
+    desc: 'Self-contained 25 kW low-conductivity-water skid drawing 5 kW at full load, with six independently routable connections: four on its primary header and two opposite. Its own reservoir, pump, chiller, air-cooled rejector and slow automatic make-up water feed are packaged together: connect power, then run Cooling Water to magnets and warm RF.',
     coolingRole: 'integratedCooling',
     category: 'cooling', subsection: 'integratedCooling',
     accentColor: 0x2fbccc,
     cost: { funding: 600000 },
     stats: {},
-    energyCost: 3,
+    // COP 5 at nameplate, including the packaged pump and condenser fans.
+    energyCost: 5,
     // No `faces` decal: a ROLE_BUILDERS entry (_buildLcwSkidRoles in
     // cooling-builder.js) supplies the geometry, and the role path never
     // reads compDef.faces — same as coolingTower and deionizer.
@@ -1282,13 +1285,14 @@ export const INFRASTRUCTURE_RAW = {
   dualCircuitChiller: {
     id: 'dualCircuitChiller',
     name: 'Dual-Circuit Chiller',
-    desc: 'Two independent refrigerant circuits on one frame — separate compressors, separate evaporator passes, separate setpoints — so the magnet loop can sit at 28°C while the RF cavities get their own 32°C water off the same skid. Losing a compressor now degrades the plant instead of killing it: one circuit keeps roughly 85 kW alive while the other is locked out for service. The trap is planning around the full 175 kW, which quietly buys a machine that cannot survive its own maintenance window.',
+    desc: 'Two independent refrigerant circuits on one frame deliver 175 kW of process cooling for about 35 kW of electrical input at full load. Separate compressors and evaporator passes let the magnet and RF loops use different setpoints; one circuit keeps roughly 85 kW alive while the other is locked out. The compressor package takes a direct HV feed.',
     coolingRole: 'processCooling',
     category: 'cooling', subsection: 'processCooling',
     accentColor: 0x2fbccc,
     cost: { funding: 900000 },
     stats: {},
-    energyCost: 4,
+    // COP 5 at the 175 kW nameplate condition.
+    energyCost: 35,
     // No `faces` decal: a ROLE_BUILDERS entry (cooling-builder.js) supplies
     // the geometry, and the role path never reads compDef.faces.
     subL: 3, subW: 3, subH: 3, gridW: 3, gridH: 3, geometryType: 'box',
@@ -1299,18 +1303,19 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
 
-    requiredConnections: ['powerCable'],
+    requiredConnections: ['hvCable'],
   },
   chiller: {
     id: 'chiller',
     name: 'Chiller',
-    desc: 'Precision chilled water system that maintains water temperature to +/- 0.1°C. Required for temperature-sensitive components like RF cavities where thermal drift changes the resonant frequency. Place centrally and distribute via Cooling Water connections.',
+    desc: 'Precision 300 kW chilled-water system that draws about 60 kW at full load (COP 5) while maintaining water temperature to +/- 0.1°C. Feed the compressor plant directly from HV and distribute its output through Cooling Water connections to temperature-sensitive RF and magnet loads.',
     coolingRole: 'processCooling',
     category: 'cooling', subsection: 'processCooling',
     accentColor: 0x2fbccc,
     cost: { funding: 1200000 },
     stats: {},
-    energyCost: 5,
+    // COP 5 at the 300 kW nameplate condition.
+    energyCost: 60,
     // No `faces` decal: a ROLE_BUILDERS entry (_buildChillerRoles in
     // cooling-builder.js) supplies the geometry, and the role path never
     // reads compDef.faces.
@@ -1322,7 +1327,7 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
 
-    requiredConnections: ['powerCable'],
+    requiredConnections: ['hvCable'],
   },
   dryCoolerBank: {
     id: 'dryCoolerBank',
@@ -1349,13 +1354,14 @@ export const INFRASTRUCTURE_RAW = {
   coolingTower: {
     id: 'coolingTower',
     name: 'Cooling Tower',
-    desc: 'Large evaporative tower that dumps waste heat from your entire facility into the atmosphere. All cooling loops ultimately reject their heat here. One tower can serve the whole facility — place outdoors. Higher capacity than chillers.',
+    desc: 'Large evaporative tower that rejects up to 800 kW of facility heat using roughly 20 kW of fan and circulation power. Its motor controls take a direct HV feed. Place it outdoors and connect it to the same Cooling Water network as the central chillers and reservoir.',
     coolingRole: 'heatRejection',
     category: 'cooling', subsection: 'heatRejection',
     accentColor: 0x2fbccc,
     cost: { funding: 2000000 },
     stats: {},
-    energyCost: 4,
+    // Fan plus circulation power at the 800 kW heat-rejection rating.
+    energyCost: 20,
     subL: 6, subW: 4, subH: 6, gridW: 4, gridH: 6, geometryType: 'cylinder',
     baseMaterial: 'metal_corrugated',
     zoneTier: 3,
@@ -1365,7 +1371,7 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
 
-    requiredConnections: ['powerCable'],
+    requiredConnections: ['hvCable'],
   },
   deionizer: {
     id: 'deionizer',

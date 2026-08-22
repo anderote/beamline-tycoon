@@ -471,6 +471,31 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   const cb2 = getUtilityPortsV2('coldBox2K');
   assert(cb4.cryo_out.params.coldCapacityW < cb2.cryo_out.params.coldCapacityW,
     'cryo ladder: coldBox4K < coldBox2K');
+
+  const realisticPlantLoads = [
+    ['heCompressor', 20],
+    ['dualCircuitChiller', 35],
+    ['chiller', 60],
+    ['coldBox4K', 125],
+    ['coldBox2K', 600],
+    ['coolingTower', 20],
+  ];
+  for (const [id, demand] of realisticPlantLoads) {
+    const ports = getUtilityPortsV2(id);
+    assert(ports.hv_in?.utility === 'hvCable'
+        && ports.hv_in.role === 'sink'
+        && ports.hv_in.connectionKind === 'hvLoadIn'
+        && ports.hv_in.params.demand === demand
+        && !ports.pwr_in,
+      `${id}: ${demand} kW plant load uses one direct HV input`);
+  }
+  assert(cb4.hv_in.params.demand === cb4.cryo_out.params.coldCapacityW * 250 / 1000,
+    '4 K cold-box draw applies the published 250 W_wall/W_cold penalty');
+  assert(cb2.hv_in.params.demand === cb2.cryo_out.params.coldCapacityW * 750 / 1000,
+    '2 K cold-box draw applies the published 750 W_wall/W_cold penalty');
+  assert(getUtilityPortsV2('lcwSkid').pwr_in.params.demand === 5
+      && !getUtilityPortsV2('lcwSkid').hv_in,
+    '25 kW LCW skid stays a 5 kW branch load at COP 5');
 }
 
 // ==========================================================================

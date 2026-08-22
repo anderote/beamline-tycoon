@@ -113,7 +113,7 @@ console.log('\n--- Test 2: no source port -> no supply row ---');
 // ==========================================================================
 console.log('\n--- Test 3: draw + supply coexist ---');
 {
-  const BOTH = { ups: [2, 100, 'kW'], chiller: [5, 300, 'kW thermal'], coolingTower: [4, 800, 'kW thermal'], mcc: [1, 250, 'kW'] };
+  const BOTH = { ups: [2, 100, 'kW'], chiller: [60, 300, 'kW thermal'], coolingTower: [20, 800, 'kW thermal'], mcc: [1, 250, 'kW'] };
   for (const [id, [draw, supply, unit]] of Object.entries(BOTH)) {
     const d = drawRows(id);
     const s = supplyRows(id);
@@ -168,7 +168,7 @@ console.log('\n--- Test 7: palette metrics expose placement requirements ---');
     'source: palette shows its 30 kW thermal cooling draw');
 
   const chillerMetrics = paletteUtilityMetrics(COMPONENTS.chiller);
-  assert(chillerMetrics.some(r => r.label === 'Power draw' && r.value === '5 kW'),
+  assert(chillerMetrics.some(r => r.label === 'Power draw' && r.value === '60 kW'),
     'chiller: palette shows its electrical draw');
   assert(chillerMetrics.some(r => r.label === 'Cooling capacity' && r.value === '300 kW thermal'),
     'chiller: palette shows its cooling capacity');
