@@ -39,10 +39,25 @@ test('bathroom walls retain their fixed finish and cubicle fixtures are not pain
 });
 
 test('bathroom stall walls and doors have authored cubicle geometry', () => {
+  const partition = PLACEABLES.toiletStall;
   const wall = PLACEABLES.toiletStallWall;
   const door = PLACEABLES.toiletStallDoor;
-  assert.ok(wall.parts.some(part => part.name === 'panel' && part.h >= 3.8));
-  assert.ok(door.parts.some(part => part.name === 'doorLeaf' && part.h >= 3.8));
+  const part = (def, name) => def.parts.find(candidate => candidate.name === name);
+  const bottomMeters = authoredPart => authoredPart.y * 0.5;
+  const topMeters = authoredPart => (authoredPart.y + authoredPart.h) * 0.5;
+  for (const [def, panelName] of [
+    [partition, 'partition'], [wall, 'panel'], [door, 'doorLeaf'],
+  ]) {
+    const panel = part(def, panelName);
+    assert.equal(bottomMeters(panel), 0.25,
+      `${def.id} leaves a realistic privacy-panel floor gap`);
+    assert.equal(topMeters(panel), 1.85,
+      `${def.id} privacy panel stays below ordinary room partitions`);
+  }
+  assert.equal(topMeters(part(wall, 'frontPost')), 1.9,
+    'stall posts terminate at the top rail instead of extending toward the ceiling');
+  assert.ok(Math.abs(topMeters(part(door, 'topRail')) - 1.9) < 1e-9,
+    'stall door rail aligns with the wall posts');
   assert.ok(door.parts.some(part => part.name === 'latch'));
 });
 
