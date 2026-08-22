@@ -674,7 +674,7 @@ export const RESEARCH = {
     duration: 60,
     unlocks: [
       'gridServicePoint', 'gridServicePointHighCapacity', 'poleMountTransformer', 'meterMain', 'disconnectSwitch',
-      'utilityPole', 'transmissionTower',
+      'utilityPole2Way', 'utilityPole', 'transmissionTower',
     ],
     requires: 'facilitySystems',
   },

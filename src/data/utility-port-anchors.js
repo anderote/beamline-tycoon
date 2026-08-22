@@ -502,6 +502,20 @@ export const PORT_ANCHOR_OVERRIDES = {
     hv_4: { y: 5.3536, along: 0.91 },
     hv_tap: UTILITY_POLE_HV_TAP_MOUNT,
   },
+  // Half of the full wood pole: two conductors occupy the same projected
+  // side of the pole at the full pole's upper and lower service levels.
+  utilityPole2Way: {
+    _default: { allowOutsideFootprint: true },
+    hv_in: {
+      y: 6.4064, localX: 0.91, localZ: 0,
+      normal: { x: 0, y: 1, z: 0 },
+    },
+    hv_out: {
+      y: 5.3536, localX: 0.91, localZ: 0,
+      normal: { x: 0, y: 1, z: 0 },
+    },
+    hv_tap: UTILITY_POLE_HV_TAP_MOUNT,
+  },
   // Six hanging-insulator tips across the tower's three conductor tiers.
   transmissionTower: {
     _default: { lat: 0.05, out: 0, allowOutsideFootprint: true },

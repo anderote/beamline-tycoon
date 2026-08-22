@@ -1445,6 +1445,33 @@ function _utilityPoleModel(footW, _footL, totalH) {
   return group;
 }
 
+function _utilityPole2WayModel(_footW, _footL, totalH) {
+  const group = new THREE.Group();
+  const wood = _siteMat(0x75512f, { roughness: 0.92 });
+  const metal = _siteMat(0x667078, { metalness: 0.72, roughness: 0.42 });
+  const ceramic = _siteMat(0xd7e0e4, { roughness: 0.24 });
+  const poleH = totalH * 0.94;
+  const armEnd = 0.91;
+  _siteCylinder(group, 0.075, 0.12, poleH, [0, poleH / 2, 0], wood, 'y', 10);
+
+  // The two short arms are literally the positive-side half of the full wood
+  // pole's two crossarms. Their terminal caps match the authored presentation
+  // anchors at 6.4064 m and 5.3536 m.
+  for (const y of [poleH * 0.82, poleH * 0.68]) {
+    _siteBox(group, [armEnd + 0.08, 0.10, 0.12],
+      [(armEnd - 0.08) / 2, y, 0], wood);
+    _siteCylinder(group, 0.045, 0.055, 0.18,
+      [armEnd, y + 0.14, 0], ceramic, 'y', 10);
+    _siteSphere(group, 0.055, [armEnd, y + 0.24, 0], metal);
+  }
+
+  const tapY = UTILITY_POLE_HV_TAP_MOUNT.y;
+  _siteBox(group, [0.12, 0.16, 0.16], [0, tapY, 0.10], metal);
+  _siteCylinder(group, 0.055, 0.065, 0.16, [0, tapY, 0.20], ceramic, 'z', 10);
+  _siteSphere(group, 0.055, [0, tapY, 0.30], metal);
+  return group;
+}
+
 function _transmissionTowerModel(footW, footL, totalH) {
   const group = new THREE.Group();
   const steel = _siteMat(0x707980, { metalness: 0.82, roughness: 0.38 });
@@ -1745,6 +1772,7 @@ const ITEM_BUILDERS = {
   directionSign: _directionSign,
   flagpole:      _flagpole,
   propaneTank:   _propaneTank,
+  utilityPole2Way: _utilityPole2WayModel,
   utilityPole:   _utilityPoleModel,
   transmissionTower: _transmissionTowerModel,
   overheadPowerSpan: _overheadPowerSpan,

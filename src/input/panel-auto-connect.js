@@ -181,9 +181,9 @@ function autoConnectCircuitsMatch(originSpec, targetSpec, utilityType) {
   return !originCircuit || !targetCircuit || originCircuit === targetCircuit;
 }
 
-// The utility pole's side fitting is authored specifically as the service
+// Each wood utility pole's side fitting is authored specifically as the service
 // drop into the compact green pad-mount transformer. Keep it reserved for that
-// exact assisted-wiring pair; pole-to-pole spans continue to align the four
+// exact assisted-wiring pair; pole-to-pole spans continue to align matching
 // overhead conductors, and manual wiring remains free to use any valid port.
 function assistedOutletMatchesTarget(
   originDef,
@@ -192,7 +192,8 @@ function assistedOutletMatchesTarget(
   targetPortName,
   utilityType,
 ) {
-  if (utilityType !== 'hvCable' || originDef?.id !== 'utilityPole') return true;
+  const dedicatedTap = getPortSpec(originDef, 'hv_tap')?.connectionKind === 'hvDistributionTap';
+  if (utilityType !== 'hvCable' || !dedicatedTap) return true;
   if (targetDef?.id === 'padMountTransformer') {
     return outletPortName === 'hv_tap' && targetPortName === 'hv_in';
   }
