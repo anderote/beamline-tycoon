@@ -886,6 +886,15 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
         problem(id, `utilityPorts.${portName}`,
           `maxConnections must be a positive integer, got ${JSON.stringify(spec.maxConnections)}`);
       }
+      if (spec.params?.tracksDownstreamDemand != null
+          && (spec.params.tracksDownstreamDemand !== true
+            || spec.utility !== 'hvCable'
+            || spec.role !== 'sink'
+            || !Number.isFinite(spec.params.demand)
+            || spec.params.demand <= 0)) {
+        problem(id, `utilityPorts.${portName}`,
+          'tracksDownstreamDemand is only valid as true on an HV sink with a positive demand cap');
+      }
     }
   }
 

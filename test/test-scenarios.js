@@ -228,8 +228,12 @@ for (const scenario of SCENARIOS) {
   // with a separate dedicated feeder for the RF source.
   const hvFlows = state.utilityNetworkData?.get?.('hvCable');
   const hvFlowValues = hvFlows ? [...hvFlows.values()] : [];
-  assert(hvFlowValues.some(f => f.totalCapacity === 1500 && f.totalDemand === 510),
-    `transformer feeds main distribution, RF and room panel at 510 kW (${JSON.stringify(hvFlowValues)})`);
+  // Main-panel branches 77 + control-room branches 4.3 + dedicated SSA 70.
+  const expectedHvDemand = 151.3;
+  assert(hvFlowValues.length === 2 && hvFlowValues.every(f =>
+    f.totalCapacity === 1500 && Math.abs(f.totalDemand - expectedHvDemand) < 1e-9),
+  `service and transformer feeders each carry the actual ${expectedHvDemand} kW downstream load `
+    + `(${JSON.stringify(hvFlowValues)})`);
 
   const powerFlows = state.utilityNetworkData?.get?.('powerCable');
   const flow = powerFlows && [...powerFlows.values()][0];

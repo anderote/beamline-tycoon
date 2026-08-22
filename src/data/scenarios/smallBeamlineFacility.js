@@ -209,8 +209,9 @@ export function setupSmallBeamlineFacility(game) {
 
   // Power runs supply → main distribution → branches.
   //
-  // The transformer carries the facility's 1.5 MW nameplate. The matching main panel
-  // turns one HV feeder into eight 50 kW branch circuits; it adds no capacity.
+  // The transformer can carry up to its 1.5 MW nameplate. The matching main
+  // panel turns one HV feeder into eight 50 kW branch circuits; it adds no
+  // capacity and draws only the load connected to those branches.
   if (xfmr && mainPanel) wire('hvCable', { id: xfmr, port: 'hv_out_1' }, { id: mainPanel, port: 'hv_in' });
   // RF sources are dedicated high-voltage loads, not branch-circuit loads.
   if (xfmr && ssa && ssaFeedthrough) {

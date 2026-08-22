@@ -9,7 +9,7 @@ Seven types of pipes and cables connect facility equipment to the beamline. Each
 Carries high-voltage power from a transformer to main/local distribution. It is the upstream half of the radial electrical tree.
 
 - **Color:** Black (0x141418)
-- **Network type:** Capacity-based (kW supply vs rated distribution demand)
+- **Network type:** Capacity-based (kW supply vs live downstream demand, capped by each distribution device's rating)
 - **Source equipment:** Pad-Mount, Facility, HV and Grid Intertie transformers; the Compact HV Distributor turns one incoming feeder into two protected outgoing feeders, while the HV Distributor Box turns one into four
 - **Consumers:** Compact HV Distributor, HV Distributor Box, compact/section/main distribution panels, RF sources, and other dedicated HV loads
 - **Cost:** $1,200/sub-unit ($4,800/tile)
