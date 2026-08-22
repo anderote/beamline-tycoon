@@ -15,6 +15,7 @@ import { YAW_STEP } from './renderer3d/free-orbit-math.js';
 import { InputHandler } from './input/InputHandler.js';
 import { BeamlineDesigner } from './ui/BeamlineDesigner.js';
 import { GuidedBeamlineSetup } from './ui/GuidedBeamlineSetup.js';
+import { UtilityPlantGuide } from './ui/UtilityPlantGuide.js';
 import { DesignLibrary } from './ui/DesignLibrary.js';
 import { DesignPlacer } from './ui/DesignPlacer.js';
 import { ProbeWindow } from './ui/probe.js';
@@ -132,6 +133,8 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
   game._designer = designer;
   const guidedSetup = new GuidedBeamlineSetup(game, renderer, input);
   game._guidedSetup = guidedSetup;
+  const utilityPlantGuide = new UtilityPlantGuide(game);
+  game._utilityPlantGuide = utilityPlantGuide;
   const designLibrary = new DesignLibrary(game, designer, renderer);
   const designPlacer = new DesignPlacer(game, renderer);
   game._designPlacer = designPlacer;
@@ -215,6 +218,10 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
   game.registerSerializer('guidedSetup', {
     save: () => guidedSetup.toJSON(),
     load: (data) => guidedSetup.fromJSON(data),
+  });
+  game.registerSerializer('utilityPlantGuide', {
+    save: () => utilityPlantGuide.toJSON(),
+    load: (data) => utilityPlantGuide.fromJSON(data),
   });
 
   game.on((event) => {
