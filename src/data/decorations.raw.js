@@ -149,7 +149,7 @@ export const DECORATIONS_RAW = {
   utilityPole: {
     id: 'utilityPole', name: 'Utility Pole', cost: { funding: 4500 }, removeCost: 500,
     morale: 0, placement: 'outdoor', spriteKey: 'utility_pole',
-    blocksBuild: true, category: 'utilities',
+    blocksBuild: true, category: 'utilities', paletteOrder: 1,
     subW: 1, subL: 1, subH: 16,
     requires: 'electricalDistribution',
   },

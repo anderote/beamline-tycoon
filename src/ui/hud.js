@@ -24,6 +24,7 @@ import { buildPaletteIndex, searchPalette } from './palette-search.js';
 import {
   groupDecorationPaletteEntries,
   resolvePaletteCollection,
+  standardPaletteKind,
 } from './palette-collection.js';
 import { ContextWindow } from './ContextWindow.js';
 import { openWikiWindow } from './WikiWindow.js';
@@ -2396,11 +2397,14 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
   const mode = MODES[this.activeMode];
   const catDef = mode?.categories?.[compCategory];
   const subsections = catDef?.subsections;
+  const linkedComponentIds = new Set(
+    Object.values(subsections || {}).flatMap(sub => sub.linkedPlaceables || []),
+  );
 
   // Collect components for this category
   const catComps = [];
   for (const [key, comp] of Object.entries(COMPONENTS)) {
-    if (comp.category !== compCategory) continue;
+    if (comp.category !== compCategory && !linkedComponentIds.has(key)) continue;
     catComps.push({ key, comp });
   }
   // Catalogues normally retain their authored order. Power explicitly carries
@@ -2416,6 +2420,8 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
     subKeys.forEach((subKey, subIdx) => {
       const subDef = subsections[subKey];
       const subComps = catComps.filter(({ comp }) => {
+        const linkedHere = subDef.linkedPlaceables?.includes(comp.id);
+        if (comp.category !== compCategory) return linkedHere;
         if (comp.subsection) return comp.subsection === subKey;
         return subIdx === 0; // default to first subsection
       });
@@ -2561,6 +2567,7 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
   if (this._beamlineTypeHidesComponent(key, comp)) return null;
 
   const isFacility = isFacilityCategory(comp.category);
+  const paletteKind = standardPaletteKind(comp, isFacility);
 
   // Zone-tier check for facility items
   let zoneBlocked = false;
@@ -2574,7 +2581,7 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
   item.className = 'palette-item';
   item.dataset.paletteIndex = idx;
   item.dataset.paletteKey = key;
-  item.dataset.paletteKind = isFacility ? 'facility' : 'component';
+  item.dataset.paletteKind = paletteKind;
 
   const affordable = this.game.canAfford(comp.cost);
   if (!affordable) item.classList.add('unaffordable');
@@ -2599,7 +2606,9 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
   // Sprite preview — use 3D thumbnail if available, otherwise isometric box swatch
   const previewEl = document.createElement('div');
   previewEl.className = 'palette-preview';
-  const thumbUrl = renderComponentThumbnail(key, 96);
+  const thumbUrl = paletteKind === 'decoration'
+    ? renderDecorationThumbnail(key, 96)
+    : renderComponentThumbnail(key, 96);
   if (thumbUrl) {
     const img = document.createElement('img');
     img.src = thumbUrl;
@@ -2733,7 +2742,7 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
             this._selectedParamOverrides[key][pk] = comp.params?.[pk] ?? opts[0];
           }
         }
-        this._selectPaletteTool(isFacility ? 'facility' : 'component', key);
+        this._selectPaletteTool(paletteKind, key);
         // Toggle flyout — remove any existing one first
         this._removeParamFlyout();
         const flyout = document.createElement('div');
@@ -2759,7 +2768,7 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
               flyout.querySelectorAll('.param-flyout-btn').forEach(b => b.classList.remove('active'));
               btn.classList.add('active');
               // Select the tool
-              this._selectPaletteTool(isFacility ? 'facility' : 'component', key);
+              this._selectPaletteTool(paletteKind, key);
               this._removeParamFlyout();
             });
             flyout.appendChild(btn);
@@ -2787,7 +2796,7 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
         if (this._onPaletteClick) this._onPaletteClick(idx);
         // (The old comp.isRack → infra-select branch died with the rack
         // system in Phase 6 — no COMPONENTS entry sets isRack anymore.)
-        this._selectPaletteTool(isFacility ? 'facility' : 'component', key);
+        this._selectPaletteTool(paletteKind, key);
       });
     }
   }

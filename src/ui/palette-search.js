@@ -77,6 +77,10 @@ export function buildPaletteIndex(game) {
   // via ZONE_FURNISHINGS below.
   for (const [id, comp] of Object.entries(COMPONENTS)) {
     if (!comp.category || comp.deprecated) continue;
+    // Port-bearing decorations also enter COMPONENTS for legacy utility
+    // consumers. DECORATIONS below owns their one searchable palette entry
+    // and preserves the decoration placement tool.
+    if (comp.kind === 'decoration') continue;
     const mode = getModeForCategory(comp.category);
     if (!mode) continue; // no live tab for this category — nothing to land on
     if (game && typeof game.isComponentUnlocked === 'function' && !game.isComponentUnlocked(comp)) continue;
