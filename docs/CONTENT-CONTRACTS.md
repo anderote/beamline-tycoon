@@ -246,6 +246,8 @@ the short authoring contract.
   cryogenic-transfer, or data run and commit a named `tapLineIds` T-junction.
   The branch must meet the trunk at one point on the utility's fixed datum and
   render a real service fitting. Collinear duplicate runs remain invalid.
+  Cooling-water hoses use the same forgiving magnetic pickup halo as data
+  cables; their connection still commits as an explicit plumbing tee.
   Power and HV cable do not allow casual tees; use distribution equipment or a
   utility bus so electrical branching retains protected physical outlets.
 - Every utility route may turn immediately at a port. Port facing selects the

@@ -172,24 +172,26 @@ console.log('\n--- 1b. A rigid run is one continuous, forgiving magnetic target 
       hover?.worldPos)})`);
 }
 
-console.log('\n--- 1c. Thin cooling-water lines keep a local pickup halo ---');
+console.log('\n--- 1c. Cooling-water hoses share data cable\'s forgiving pickup halo ---');
 {
   const game = makeGame();
-  const lineId = game.utilityLineSystem.addLine({
-    utilityType: 'coolingWater', start: null, end: null,
-    path: [{ col: 2, row: 14 }, { col: 12, row: 14 }],
-  });
-  const ctrl = ctrlFor(game);
+  for (const [utilityType, row] of [['coolingWater', 14], ['dataFiber', 16]]) {
+    const lineId = game.utilityLineSystem.addLine({
+      utilityType, start: null, end: null,
+      path: [{ col: 2, row }, { col: 12, row }],
+    });
+    const ctrl = ctrlFor(game, utilityType);
 
-  let iso = gridToIso(7.37, 14.55);
-  ctrl.onHover(iso.x, iso.y);
-  assert(!ctrl.hoverPort,
-    'a cursor over half a tile away is not pulled onto a thin water line');
+    let iso = gridToIso(7.37, row + 0.55);
+    ctrl.onHover(iso.x, iso.y);
+    assert(ctrl.hoverPort?.tap === true && ctrl.hoverPort.lineId === lineId,
+      `${utilityType} attracts a free-drag endpoint from the shared pickup halo`);
 
-  iso = gridToIso(7.37, 14.3);
-  ctrl.onHover(iso.x, iso.y);
-  assert(ctrl.hoverPort?.tap === true && ctrl.hoverPort.lineId === lineId,
-    'a cursor close to the visible water line can still build a tee');
+    iso = gridToIso(7.37, row + 0.7);
+    ctrl.onHover(iso.x, iso.y);
+    assert(!ctrl.hoverPort,
+      `${utilityType} leaves clearly distant cursor input unsnapped`);
+  }
 }
 
 console.log('\n--- 1d. A broad cryo jacket gets a cryo-specific pickup halo ---');
@@ -422,9 +424,9 @@ console.log('\n--- 6. Vacuum pipes join pipe-to-pipe at arbitrary mid-span point
     networks.map(network => network.lineIds))})`);
 }
 
-console.log('\n--- 7. RF and cryogenic runs both build named line-to-line tees ---');
+console.log('\n--- 7. Cooling, RF and cryogenic runs build named line-to-line tees ---');
 {
-  for (const utilityType of ['rfWaveguide', 'cryoTransfer']) {
+  for (const utilityType of ['coolingWater', 'rfWaveguide', 'cryoTransfer']) {
     const game = makeGame();
     const upperId = game.utilityLineSystem.addLine({
       utilityType, start: null, end: null,

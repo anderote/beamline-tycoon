@@ -79,10 +79,8 @@ export default {
   capacityUnit: 'kW',
   // Pipework: tees and manifolds, same as vacuum.
   allowsTap: true,
-  // Thin hoses should accept a deliberate tee without pulling in a cursor
-  // aimed more than half a tile away. Fabricated rigid services use the wider
-  // shared pickup halo.
-  tapSnapRadiusTiles: 0.4,
+  // Use the shared forgiving pickup halo also used by data cable. Cooling
+  // branches are still explicit named tees; this changes only cursor assist.
   fansOut: true,
   // Adjacency bridging: touching components share the loop — a skid manifolds
   // straight into the unit bolted next to it.
