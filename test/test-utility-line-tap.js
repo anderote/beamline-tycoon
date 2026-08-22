@@ -281,6 +281,18 @@ console.log('\n--- 1e. Stacked water headers snap to the requested circuit ---')
   const hot = ctrl.nearestLine(cursor.x, cursor.y, 0.65, null, 'hot');
   assert(cold?.lineId === 'cold-header' && hot?.lineId === 'hot-header',
     'a stacked header tap resolves by circuit instead of insertion order or height');
+
+  const renderer = {
+    raycastUtilityLine: () => ({
+      lineId: 'hot-header', utilityType: 'waterSupplyPipe',
+    }),
+    screenToWorldAtHeight: () => cursor,
+  };
+  const hitCtrl = new UtilityLineInputController({ game, renderer });
+  hitCtrl.setUtilityType('waterSupplyPipe');
+  const hotTap = hitCtrl._snapToNearest(cursor.x, cursor.y, { x: 100, y: 100 });
+  assert(hotTap?.lineId === 'hot-header' && hotTap.waterCircuit === 'hot',
+    'a mesh-selected stacked pipe carries its temperature circuit into the new draw');
 }
 
 console.log('\n--- 2. A drag onto the trunk commits, and joins its network ---');

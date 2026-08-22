@@ -534,7 +534,7 @@ export class UtilityLineInputController {
     const endTile = { col: snapQ(endTileRaw.col), row: snapQ(endTileRaw.row) };
     const startRef = this._anchorRef(this._drawStart);
     const endRef = this._anchorRef(endAnchor);
-    const waterCircuit = this._waterCircuitForRefs(startRef, endRef);
+    const waterCircuit = this._waterCircuitForAnchors(this._drawStart, endAnchor);
     // A tap end is an open end that is allowed to touch one specific line, at
     // exactly the subtile it lands on. Everything else about it is ordinary.
     const tapLineIds = {
@@ -706,6 +706,14 @@ export class UtilityLineInputController {
     return null;
   }
 
+  /** Water circuit carried by a tapped line or an anchored equipment port. */
+  _waterCircuitForAnchors(...anchors) {
+    for (const anchor of anchors) {
+      if (anchor?.waterCircuit) return anchor.waterCircuit;
+    }
+    return this._waterCircuitForRefs(...anchors.map(anchor => this._anchorRef(anchor)));
+  }
+
   _lineColor(waterCircuit = this._selectedWaterCircuit) {
     const descriptor = UTILITY_TYPES[this._utilityType];
     if ((this._utilityType === 'waterSupplyPipe' || this._utilityType === 'coolingWater')
@@ -760,7 +768,7 @@ export class UtilityLineInputController {
         portName: this._drawStart.portName,
       },
       runPath: trace,
-      waterCircuit: this._waterCircuitForRefs(this._anchorRef(this._drawStart)),
+      waterCircuit: this._waterCircuitForAnchors(this._drawStart),
       preferVerticalFirst: this._preferVerticalFirst,
       // Bulk wiring must use the same endpoint geometry as an ordinary drag.
       // Otherwise Shift-drawing reintroduces the footprint-sized U-turns the
@@ -868,8 +876,7 @@ export class UtilityLineInputController {
       open: true, busTap: true, busId: bus.busId, worldPos: bus.worldPos,
     };
     const descriptor = UTILITY_TYPES[this._utilityType];
-    const requestedWaterCircuit = this._waterCircuitForRefs(
-      this._anchorRef(this._drawStart));
+    const requestedWaterCircuit = this._waterCircuitForAnchors(this._drawStart);
     const ordinaryTapAllowed = descriptor?.allowsTap !== false;
     // Bulky fabricated services can opt into a slightly wider pickup halo.
     // This changes only cursor assistance: the committed contact is still
@@ -912,6 +919,7 @@ export class UtilityLineInputController {
       lineId: tap.lineId,
       worldPos: tap.worldPos,
       routeHeightMeters: tap.routeHeightMeters,
+      waterCircuit: tap.waterCircuit,
     };
   }
 
@@ -1074,7 +1082,7 @@ export class UtilityLineInputController {
 
     let best = null;
     const activeWaterCircuit = this._drawing
-      ? this._waterCircuitForRefs(this._anchorRef(this._drawStart))
+      ? this._waterCircuitForAnchors(this._drawStart)
       : this._selectedWaterCircuit;
     // Two different metrics, so two different budgets: pixels when projecting,
     // world metres on the fallback path.

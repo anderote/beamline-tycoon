@@ -322,6 +322,11 @@ export function planAutomaticWallPassThroughs(game, opts = {}) {
   if (ordinary.reason !== 'wall_pass_through_required') return ordinary;
   const permissive = validateDrawLine(state, { ...opts, allowAutomaticWallPassThrough: true });
   if (!permissive.ok) return permissive;
+  // validateDrawLine is the authority that resolves a water circuit and its
+  // route height from ports or named line taps. A draw that begins on an
+  // existing hot/lukewarm pipe need not redundantly repeat that metadata.
+  const resolvedWaterCircuit = permissive.line.waterCircuit ?? opts.waterCircuit;
+  const resolvedRouteHeight = permissive.line.routeHeightMeters ?? opts.routeHeightMeters;
 
   const soft = isSoftCable(opts.utilityType)
     && Array.isArray(opts.cablePath) && opts.cablePath.length >= 2;
@@ -346,14 +351,14 @@ export function planAutomaticWallPassThroughs(game, opts = {}) {
   const probeGame = { ...game, state: probeState };
   const feedthroughs = [];
   const selections = [];
-  const fittingType = automaticWallPassThroughType(opts.utilityType, opts.waterCircuit);
+  const fittingType = automaticWallPassThroughType(opts.utilityType, resolvedWaterCircuit);
   if (!fittingType) return { ok: false, reason: 'select a water-temperature circuit before crossing a wall' };
   const powerForward = powerStartsUpstream(state, opts);
 
   for (let index = 0; index < crossings.length; index++) {
     const crossing = crossings[index];
     let selected = findExistingPassThrough(
-      probeState, crossing, opts.utilityType, opts.waterCircuit,
+      probeState, crossing, opts.utilityType, resolvedWaterCircuit,
     );
     let entry;
     let def;
@@ -437,8 +442,8 @@ export function planAutomaticWallPassThroughs(game, opts = {}) {
       end,
       path: soft ? compatibilityPath(physicalSlice) : routedSlice,
       ...(soft ? { cablePath: physicalSlice } : {}),
-      waterCircuit: opts.waterCircuit,
-      routeHeightMeters: opts.routeHeightMeters,
+      waterCircuit: resolvedWaterCircuit,
+      routeHeightMeters: resolvedRouteHeight,
       tapLineIds: {
         start: index === 0 ? opts.tapLineIds?.start || null : null,
         end: index === selections.length ? opts.tapLineIds?.end || null : null,
