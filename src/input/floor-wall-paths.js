@@ -62,11 +62,18 @@ export function buildInteriorWallBoundary(infraOccupied, wallOccupied, origin) {
   const visited = new Set([startKey]);
   const tiles = [{ col: origin.col, row: origin.row }];
   const path = [];
+  // A partial partition can reconnect to the same floor region around its
+  // end. In that case the flood reaches both tiles beside one physical wall;
+  // keep the first (selected-region) face instead of painting both faces.
+  const seenWalls = new Set();
 
   for (let i = 0; i < tiles.length; i++) {
     const tile = tiles[i];
     for (const side of SIDES) {
-      if (findWallKey(wallOccupied, tile.col, tile.row, side.edge)) {
+      const wallKey = findWallKey(wallOccupied, tile.col, tile.row, side.edge);
+      if (wallKey) {
+        if (seenWalls.has(wallKey)) continue;
+        seenWalls.add(wallKey);
         path.push({ col: tile.col, row: tile.row, edge: side.edge });
         continue;
       }

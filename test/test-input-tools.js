@@ -263,6 +263,35 @@ console.log('\n=== 1c. Shift-paint rebuilds the wall scene once ===\n');
   assertOk(g._undoStack.length === 1, 'the paint sweep pushes exactly one undo entry');
 }
 
+console.log('\n=== 1d. Shift-wallpaper paints one face per physical wall ===\n');
+
+{
+  const g = makeGame(144);
+  for (let row = 9; row <= 10; row++) {
+    for (let col = 4; col <= 6; col++) g.placeInfraTile(col, row, 'concrete');
+  }
+  // This partial partition reconnects around its south end. Before the
+  // regression fix, the flood emitted both spellings and papered both faces.
+  g.placeWall(5, 9, 'e', 'structuralWall');
+  g.placeWall(4, 9, 'n', 'structuralWall');
+  const ctx = {
+    game: g,
+    input: {},
+    renderer: { screenToWorld: () => tileCenterIso(4, 9) },
+  };
+
+  new WallPaintTool('paperPinstripe').onClick(
+    { shiftKey: true, clientX: 0, clientY: 0 },
+    ctx,
+  );
+
+  const partition = g.state.walls.find(w => w.col === 5 && w.row === 9 && w.edge === 'e');
+  assertOk(partition?.facePaint?.outside === undefined,
+    'shift-wallpaper does not paint the opposite face of a reconnecting partition');
+  assertOk(partition?.facePaint?.inside === 'paperPinstripe',
+    'shift-wallpaper keeps the selected-side face on the partition');
+}
+
 console.log('\n=== 2. Undo while carrying does not duplicate the object ===\n');
 
 {
