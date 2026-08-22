@@ -870,6 +870,11 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
       if (spec.offsetAlong != null && (typeof spec.offsetAlong !== 'number' || spec.offsetAlong < 0 || spec.offsetAlong > 1)) {
         problem(id, `utilityPorts.${portName}`, `offsetAlong must be a number in [0, 1], got ${JSON.stringify(spec.offsetAlong)}`);
       }
+      if (spec.maxConnections != null
+          && (!Number.isInteger(spec.maxConnections) || spec.maxConnections < 1)) {
+        problem(id, `utilityPorts.${portName}`,
+          `maxConnections must be a positive integer, got ${JSON.stringify(spec.maxConnections)}`);
+      }
     }
   }
 

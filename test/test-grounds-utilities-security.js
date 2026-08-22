@@ -132,7 +132,20 @@ test('functional overhead supports are linked into Infra Power and keep decorati
   assert.equal(tower.name, '4×4 HV Transmission Tower');
   assert.equal(tower.subW, 4);
   assert.equal(tower.subL, 4);
+  assert.equal(tower.subH, 18, 'the metal tower is half the former 18 m height');
   assert.equal(standardPaletteKind(COMPONENTS.transmissionTower), 'decoration');
+});
+
+test('wood pole draws exactly four physical insulators', () => {
+  const def = PLACEABLES.utilityPole;
+  const model = buildDecorationGroup(
+    def.id, def.category, def.subW * 0.5, def.subL * 0.5, def.subH * 0.5,
+  );
+  let insulators = 0;
+  model.traverse(child => {
+    if (child.isMesh && child.material?.color?.getHex() === 0xd7e0e4) insulators++;
+  });
+  assert.equal(insulators, 4);
 });
 
 test('transmission tower has a tall lattice silhouette and projecting crossarms', () => {
@@ -144,7 +157,8 @@ test('transmission tower has a tall lattice silhouette and projecting crossarms'
   let meshCount = 0;
   model.traverse(child => { if (child.isMesh) meshCount++; });
   assert.ok(meshCount >= 70, `the tower is visibly latticed (${meshCount} meshes)`);
-  assert.ok(bounds.max.y >= 17.9, `the ground-wire peak reaches full height (${bounds.max.y})`);
+  assert.ok(bounds.max.y >= 8.9 && bounds.max.y <= 9.1,
+    `the half-height tower peak reaches 9 m (${bounds.max.y})`);
   const footprintWidth = def.subW * 0.5;
   assert.ok(bounds.max.x - bounds.min.x > footprintWidth + 0.4,
     `crossarms project beyond the 4×4 footprint (${bounds.max.x - bounds.min.x})`);

@@ -179,14 +179,16 @@ the short authoring contract.
   physical rendered route against `wallOccupied`. Power and HV cable opt in;
   their freehand `cablePath` is authoritative when present. Fabricated pipe,
   waveguide, cooling, and cryogenic services retain direct wall crossing.
-- Utility poles and transmission towers are passive HV supports with named
-  `hv_in` / `hv_out` terminals at their conductor elevation. An HV cable with
-  either end on one of these supports, or on an electrical wall feedthrough,
-  renders as a straight tensioned span; other soft cables retain drawn slack.
+- Utility poles and transmission towers expose one passive HV port at every
+  visible insulator. Each port accepts two wire attachments; those two lines
+  share one conductor, while different insulator ports remain isolated. An HV
+  cable with either end on one of these supports, or on an electrical wall
+  feedthrough, renders as a straight tensioned span; other soft cables retain
+  drawn slack.
 - Passive inlet/outlet fittings keep their `pass` topology role but derive
-  their physical arrow direction from the port name. Poles, transmission
-  towers, wall feedthroughs, and transformers also carry one body-level arrow
-  derived from the world-space inlet and outlet anchor centroids.
+  their physical arrow direction from the port name. Isolated pole and tower
+  insulators remain nondirectional; wall feedthroughs and transformers carry a
+  body-level arrow derived from the world-space inlet/outlet anchor centroids.
 - Cooling supply displays use heat-rejection capacity when it is declared;
   reservoir volume is inventory, not cooling power.
 - Cooling-water ports author make-up flow as `supplyRateLPerTick` and tank

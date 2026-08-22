@@ -16,12 +16,13 @@
 //   4. An out-of-range declaration is clamped and cannot push a port off its
 //      own footprint.
 //   5. Against the real registry: no two utility ports on a face share a point
-//      any more, at any rotation. Dense socket banks may share the coarse
+//      unless their authored 3D anchors put them at different heights. Dense socket banks may share the coarse
 //      0.5 m routing grid while retaining distinct physical anchors and port
 //      identities.
 
 import { portWorldPosition } from '../src/utility/ports.js';
 import { COMPONENTS } from '../src/data/components.js';
+import { portAnchorOverride } from '../src/data/utility-port-anchors.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -191,6 +192,7 @@ console.log('\n--- Test 5: real registry has no co-located utility ports ---');
 {
   const snapQ = (v) => Math.round(v * 4) / 4;
   let exactMerges = 0;
+  let verticalMerges = 0;
   let sameTypeSnapMerges = 0;
   let facesChecked = 0;
 
@@ -208,8 +210,15 @@ console.log('\n--- Test 5: real registry has no co-located utility ports ---');
         if (!w) continue;
         const ek = `${w.x.toFixed(6)},${w.z.toFixed(6)}`;
         if (exact.has(ek)) {
-          exactMerges++;
-          console.log(`      ${id} dir=${dir}: ${name} and ${exact.get(ek)} share the point ${ek}`);
+          const other = exact.get(ek);
+          const y = portAnchorOverride(id, name)?.y;
+          const otherY = portAnchorOverride(id, other)?.y;
+          if (Number.isFinite(y) && Number.isFinite(otherY) && !approx(y, otherY)) {
+            verticalMerges++;
+          } else {
+            exactMerges++;
+            console.log(`      ${id} dir=${dir}: ${name} and ${other} share the point ${ek}`);
+          }
         } else exact.set(ek, name);
         // Dense socket banks can share this coarse 0.5 m routing cell. The
         // rendered anchors remain separate, and endpoint identities retain the
@@ -223,7 +232,10 @@ console.log('\n--- Test 5: real registry has no co-located utility ports ---');
     }
   }
   assert(facesChecked > 50, `checked a real registry (${facesChecked} components with 2+ utility ports)`);
-  assert(exactMerges === 0, `no two utility ports resolve to the same world point (${exactMerges} found)`);
+  assert(exactMerges === 0,
+    `no two utility ports resolve to the same 3D connector point (${exactMerges} found)`);
+  assert(verticalMerges > 0,
+    `stacked overhead connectors may share plan coordinates at distinct heights (${verticalMerges} found)`);
   assert(sameTypeSnapMerges >= 0,
     `dense same-utility outlet banks may share a routing cell (${sameTypeSnapMerges} found)`);
 }

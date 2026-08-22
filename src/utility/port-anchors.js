@@ -159,8 +159,10 @@ function resolveAlong(spec, override, bounds, perpAxis, halfPerp) {
     const fraction = clamp(spec.offsetAlong, 0.1, 0.9);
     along = -halfPerp + (halfPerp * 2) * fraction;
   }
-  // Never past the footprint: a connector that pokes into the neighbouring
-  // tile reads as belonging to whatever is placed there.
+  // Projecting support hardware (crossarms) may deliberately carry terminals
+  // beyond the small placement footprint. Ordinary equipment stays clamped so
+  // its connectors cannot read as belonging to a neighbouring placeable.
+  if (override?.allowOutsideFootprint === true) return along;
   return clamp(along, -halfPerp, halfPerp);
 }
 
@@ -186,6 +188,7 @@ function resolveLat(override, bounds, measured, axis, sign, halfLat) {
   // The footprint edge is the last resort and the headless answer, and it must
   // survive the clamp untouched — hence min/max rather than any rescaling.
   if (lat == null) lat = halfLat;
+  if (override?.allowOutsideFootprint === true) return Math.max(MIN_LATERAL, lat);
   return clamp(lat, MIN_LATERAL, halfLat);
 }
 

@@ -186,9 +186,12 @@ function getEquipmentFlowGeometry() {
 }
 
 function isDirectionalEquipment(def) {
-  return def?.id === 'utilityPole' || def?.id === 'transmissionTower'
-    || def?.wallPassThrough === true
+  return def?.wallPassThrough === true
     || /Transformer$/.test(def?.id || '');
+}
+
+function isOverheadSupport(def) {
+  return def?.id === 'utilityPole' || def?.id === 'transmissionTower';
 }
 
 function averageAnchor(entries) {
@@ -591,7 +594,8 @@ export function buildPortFittings(endpoints) {
       const anchor = portAnchor3D(ep, def, name);
       if (!anchor) continue;
       const fitting = buildPortFitting(
-        anchor, spec.utility, spec.role, portFlowArrowRole(name, spec.role));
+        anchor, spec.utility, spec.role,
+        isOverheadSupport(def) ? 'pass' : portFlowArrowRole(name, spec.role));
       fitting.userData.placeableId = ep.id;
       fitting.userData.portName = name;
       group.add(fitting);
