@@ -2,6 +2,7 @@
 // THREE is loaded as a CDN global — do NOT import it.
 
 import { sampleBeamVisualProfile } from './beam-visual-mode.js';
+import { BLOOM_LAYER } from './glow-pipeline.js';
 
 function routedPoints(path) {
   const authored = (path.worldPoints || []).map(point => ({
@@ -104,26 +105,24 @@ export class BeamBuilder {
       const movingStyles = [];
       if (hasBunched) {
         movingStyles.push(
-          { role: 'packet-core', radius: 0.052, segments: 8, rings: 6,
-            xScale: 2.8, opacity: 0.92 * opacityScale },
-          { role: 'packet-halo', radius: 0.14, segments: 10, rings: 8,
-            xScale: 2.2, opacity: 0.18 * opacityScale },
+          { role: 'bunch-pixel', packetKind: 'bunch', radius: 0.052,
+            xScale: 1, opacity: 0.96 * opacityScale },
         );
       }
       if (hasContinuous) {
-        // Long, soft crests slide over an unbroken core. They communicate
-        // direction/speed like utility flow without turning a CW beam into a
-        // dotted line.
+        // Closely spaced pixels slide over the unbroken low-opacity core. The
+        // core keeps DC delivery visually steady while the pixels communicate
+        // direction and the beta-derived speed.
         movingStyles.push(
-          { role: 'flow-core', radius: 0.045, segments: 8, rings: 6,
-            xScale: 12, opacity: 0.48 * opacityScale },
-          { role: 'flow-halo', radius: 0.14, segments: 10, rings: 8,
-            xScale: 7, opacity: 0.13 * opacityScale },
+          { role: 'dc-pixel', packetKind: 'dc', radius: 0.036,
+            xScale: 1, opacity: 0.74 * opacityScale },
         );
       }
       for (const style of movingStyles) {
         const bucket = bucketFor(packetBuckets, `${style.role}:${opacityScale}`, style);
-        for (const packet of run.packets) bucket.entries.push({ run, packet, color });
+        for (const packet of run.packets) {
+          if (packet.kind === style.packetKind) bucket.entries.push({ run, packet, color });
+        }
       }
     }
 
@@ -141,9 +140,8 @@ export class BeamBuilder {
 
     for (const bucket of packetBuckets.values()) {
       if (!bucket.entries.length) continue;
-      const geometry = new THREE.SphereGeometry(
-        bucket.radius, bucket.segments, bucket.rings,
-      );
+      const size = bucket.radius * 2;
+      const geometry = new THREE.BoxGeometry(size, size, size);
       const material = new THREE.MeshBasicMaterial({
         color: 0xffffff,
         transparent: true,
@@ -161,6 +159,7 @@ export class BeamBuilder {
         return { matrix, color };
       });
       const mesh = makeInstancedMesh(`beam-${bucket.role}`, geometry, material, entries, true);
+      mesh.layers.enable(BLOOM_LAYER);
       bucket.entries.forEach(({ packet }, index) => {
         packet.instances[bucket.role] = { mesh, index, xScale: bucket.xScale };
       });
@@ -179,20 +178,36 @@ export class BeamBuilder {
       lengths.push(total);
     }
     if (total < 0.01) return null;
-    const count = Math.max(2, Math.min(12, Math.ceil(total / 1.6)));
+    const dcCount = Math.max(8, Math.min(56, Math.ceil(total / 0.34)));
+    const bunchCount = Math.max(2, Math.min(14, Math.ceil(total / 1.65)));
+    const packets = [];
+    for (let i = 0; i < dcCount; i++) {
+      packets.push({
+        kind: 'dc', distance: (i / dcCount) * total, instances: {},
+      });
+    }
+    // Four adjacent pixels read as one compact bunch; the large empty gap to
+    // the next group makes RF capture immediately legible at world scale.
+    for (let group = 0; group < bunchCount; group++) {
+      const center = (group / bunchCount) * total;
+      for (let pixel = 0; pixel < 4; pixel++) {
+        packets.push({
+          kind: 'bunch',
+          distance: (center + (pixel - 1.5) * 0.075 + total) % total,
+          instances: {},
+        });
+      }
+    }
     return {
       points, lengths, total, profile, fallbackMode,
-      packets: Array.from({ length: count }, (_, i) => ({
-        distance: (i / count) * total,
-        instances: {},
-      })),
+      packets,
     };
   }
 
   setDetailLevel(showDetail) {
     this._showDetail = !!showDetail;
     for (const mesh of this._meshes) {
-      if (mesh.name.includes('glow') || mesh.name.includes('halo')) {
+      if (mesh.name.includes('glow')) {
         mesh.visible = this._showDetail;
       }
     }
@@ -244,7 +259,7 @@ export class BeamBuilder {
   }
 
   _motionMatrix(point, motion, role, xScale, matrix) {
-    const visibility = role.startsWith('packet-') ? motion.bunch : 1 - motion.bunch;
+    const visibility = role.startsWith('bunch-') ? motion.bunch : 1 - motion.bunch;
     // Scaling to almost zero gives a soft geometry crossfade between the
     // continuous crest and packet train without per-instance materials.
     const visibleScale = Math.max(0.0001, visibility);

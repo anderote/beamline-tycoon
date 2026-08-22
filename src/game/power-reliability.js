@@ -375,9 +375,11 @@ export class PowerReliabilityCoordinator {
     const live = entry && control && this.onPlaceablePlaced(entry);
     if (!live) return { ok: false };
     let topologyChanged = false;
+    let poweredOn = false;
     if (action === 'toggleSwitch' && control.kind === 'disconnect') {
       live.switchClosed = live.switchClosed === false;
       topologyChanged = true;
+      poweredOn = live.switchClosed !== false;
     } else if (action === 'cycleTransfer' && control.kind === 'transfer') {
       const index = TRANSFER_MODES.indexOf(live.transferMode || 'auto');
       live.transferMode = TRANSFER_MODES[(index + 1) % TRANSFER_MODES.length];
@@ -389,8 +391,10 @@ export class PowerReliabilityCoordinator {
       live.overloadTicks = 0;
       live.breakerRetryTicks = 0;
       topologyChanged = control.kind === 'disconnect' || control.kind === 'transfer';
+      poweredOn = true;
     } else if (action === 'toggleGenerator' && control.source?.kind === 'generator') {
       live.generatorEnabled = live.generatorEnabled === false;
+      poweredOn = live.generatorEnabled !== false;
     } else if (action === 'refuelGenerator' && control.source?.kind === 'generator') {
       const cost = { funding: GENERATOR_REFUEL_COST };
       if (!this.canAfford(cost)) return { ok: false, reason: 'unaffordable' };
@@ -401,7 +405,7 @@ export class PowerReliabilityCoordinator {
       return { ok: false };
     }
     if (topologyChanged) this.markTopologyDirty();
-    return { ok: true, topologyChanged, requiresResolve: true };
+    return { ok: true, topologyChanged, requiresResolve: true, poweredOn };
   }
 }
 

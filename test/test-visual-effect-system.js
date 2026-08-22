@@ -294,3 +294,24 @@ test('burst packets can form a flattened pressure wave', () => {
     'the pressure packet can omit the redundant floor spill');
   system.dispose();
 });
+
+test('spark bursts use one bounded glowing-pixel pool and never request lights', () => {
+  const scene = new Three.Scene();
+  const system = new VisualEffectSystem(scene, {
+    pulseBudget: 0, kineticBudget: 5, lightProxyBudget: 0, random: () => 0.5,
+  });
+  const flashes = [];
+  system.setFlashHandler((...args) => flashes.push(args));
+  const result = system.emit({
+    kind: 'particleBurst', position: { x: 1, y: 1, z: 1 },
+    normal: { x: 1, y: 0, z: 0 }, count: 9, color: 0xffaa44,
+  });
+  assert.deepEqual(result, { emitted: 5, requested: 9 });
+  system.update(0.02, 1);
+  assert.equal(system._kineticMesh.count, 5);
+  assert.equal(system._kineticMesh.geometry.type, 'BoxGeometry');
+  assert.equal(system._kineticMesh.name, 'glowingPixelParticleInstances');
+  assert.equal(flashes.length, 0, 'particle pixels never borrow a pooled physical light');
+  assert.equal(system.getStats().droppedKineticParticles, 4);
+  system.dispose();
+});

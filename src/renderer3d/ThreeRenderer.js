@@ -73,6 +73,10 @@ import { createRendererRecovery, createWorldRenderer } from './renderer-backend.
 import { FramePacer } from './frame-pacer.js';
 import { LightRig } from './light-rig.js';
 import { VisualEffectSystem } from './visual-effect-system.js';
+import {
+  equipmentPowerUpSparkProfile,
+  utilityConnectionSparkProfile,
+} from './spark-presentation.js';
 import { fixtureMountY, wallFixturePose } from './fixture-light-math.js';
 import {
   DYNAMIC_POINT_LIGHT_FLASH_RESERVE, MAX_DYNAMIC_POINT_LIGHTS,
@@ -831,6 +835,7 @@ export class ThreeRenderer {
       if (worldPlan && !worldPlan.full) {
         this._worldInvalidationScheduler.enqueue(worldPlan);
       }
+      if (event === 'utilityLinesChanged') this._emitUtilityConnectionSparks(data);
       switch (event) {
         case 'beamlineChanged':
         case 'infrastructureChanged':
@@ -883,9 +888,13 @@ export class ThreeRenderer {
           if (this._updateBeamSummary) this._updateBeamSummary();
           break;
         case 'beamToggled':
+          if (data?.started === true) this._emitBeamlinePowerUpSparks(data.beamlineId);
           this._refreshBeam();
           this._inputHandler?.refreshSelectionPresentation?.();
           if (this._updateBeamSummary) this._updateBeamSummary();
+          break;
+        case 'powerDeviceChanged':
+          if (data?.poweredOn === true) this._emitPlaceablePowerUpSparks(data.placeableId);
           break;
         case 'physicsUpdated':
           // Beam speed/structure comes from the newly published per-line
@@ -1891,6 +1900,112 @@ export class ThreeRenderer {
   /** Generic gameplay-facing one-shot effect entry point. */
   emitVisualEffect(descriptor) {
     return this._effectSystem?.emit(descriptor) ?? null;
+  }
+
+  _utilitySparkAnchor(ref) {
+    if (!ref?.placeableId || !ref.portName) return null;
+    const endpoint = makeUtilityEndpointIndex(this._liveState()).get(ref.placeableId);
+    const def = endpoint && (COMPONENTS[endpoint.type] || PLACEABLES[endpoint.type]);
+    const anchor = endpoint && def ? portAnchor3D(endpoint, def, ref.portName) : null;
+    if (!anchor) return null;
+    const out = anchor.out || { x: 0, y: 1, z: 0 };
+    const offset = Math.max(0.03, Number(anchor.standoff) || 0.05);
+    return {
+      position: {
+        x: anchor.x + out.x * offset,
+        y: anchor.y + out.y * offset,
+        z: anchor.z + out.z * offset,
+      },
+      normal: out,
+    };
+  }
+
+  /** Electrical cable commits/removals produce coloured pixels, never lights. */
+  _emitUtilityConnectionSparks(data) {
+    const line = data?.line;
+    if (!line || !['added', 'removed'].includes(data.action)) return;
+    const profile = utilityConnectionSparkProfile(line);
+    if (!profile) return;
+    const anchor = this._utilitySparkAnchor(line.end) || this._utilitySparkAnchor(line.start);
+    if (!anchor) return;
+    this.emitVisualEffect({
+      kind: 'particleBurst',
+      ...anchor,
+      ...profile,
+      physicalLight: false,
+    });
+  }
+
+  _objectSparkOrigin(object) {
+    if (!object) return null;
+    object.updateWorldMatrix?.(true, true);
+    const box = new THREE.Box3().setFromObject(object);
+    if (box.isEmpty()) return object.getWorldPosition?.(new THREE.Vector3()) || null;
+    const center = box.getCenter(new THREE.Vector3());
+    center.y = box.min.y + (box.max.y - box.min.y) * 0.72;
+    return center;
+  }
+
+  _emitPlaceablePowerUpSparks(placeableId, count = 10) {
+    if (!placeableId) return;
+    const object = this.componentBuilder?.getGroup?.(placeableId)
+      || this.pipeAttachmentBuilder?.getGroup?.(placeableId)
+      || this.equipmentBuilder?.getGroup?.(placeableId)
+      || this.decorationBuilder?.getGroup?.(placeableId);
+    const position = this._objectSparkOrigin(object);
+    if (!position) return;
+    this.emitVisualEffect({
+      kind: 'particleBurst', position, normal: { x: 0, y: 1, z: 0 },
+      ...equipmentPowerUpSparkProfile(count),
+      physicalLight: false,
+    });
+  }
+
+  _emitBeamlinePowerUpSparks(beamlineId) {
+    if (!beamlineId) return;
+    // Limit a huge machine to one bounded startup cascade. Each component
+    // emits only a few pixels, so this reads as contactors energizing down the
+    // line without consuming the full transient particle pool.
+    const path = (this._snapshot?.beamPaths || [])
+      .find(candidate => candidate.beamlineId === beamlineId);
+    for (const id of (path?.hardwareIds || []).slice(0, 24)) {
+      this._emitPlaceablePowerUpSparks(id, 4);
+    }
+  }
+
+  _syncParticleCollisionWorld() {
+    if (!this._effectSystem || typeof THREE === 'undefined') return;
+    const boxes = [];
+    const addObject = (object) => {
+      if (!object || object.visible === false) return;
+      object.updateWorldMatrix?.(true, true);
+      const box = new THREE.Box3().setFromObject(object);
+      if (box.isEmpty()) return;
+      boxes.push({
+        min: { x: box.min.x, y: box.min.y, z: box.min.z },
+        max: { x: box.max.x, y: box.max.y, z: box.max.z },
+      });
+    };
+    const addPlaceableRoots = (root) => {
+      root?.traverse?.((object) => {
+        if (object === root || object.userData?.nodeId == null) return;
+        let parent = object.parent;
+        while (parent && parent !== root) {
+          if (parent.userData?.nodeId != null) return;
+          parent = parent.parent;
+        }
+        addObject(object);
+      });
+    };
+    addPlaceableRoots(this.componentGroup);
+    addPlaceableRoots(this.pipeAttachmentGroup);
+    addPlaceableRoots(this.equipmentGroup);
+    addPlaceableRoots(this.decorationGroup);
+    this.wallBuilder?.forEachSourceMesh?.(addObject);
+    this._effectSystem.setParticleCollisionWorld({
+      boxes,
+      floorY: levelWorldY(this.game.activeLevel || 0) + 0.022,
+    });
   }
 
   /**
@@ -4685,6 +4800,7 @@ export class ThreeRenderer {
     this.lowerStoreyPresentation?.sync(snapshot);
     this._invalidateGridOverlay();
     this._markPhysicsBodiesDirty();
+    this._syncParticleCollisionWorld();
     this._sceneLayerVisibility.apply();
   }
 
@@ -4726,6 +4842,9 @@ export class ThreeRenderer {
     if (plan.portFittings) this._refreshPortFittings();
     if (plan.physicsBodies) this._markPhysicsBodiesDirty();
     if (plan.palette && this._refreshPalette) this._refreshPalette();
+    if (plan.components || plan.equipment || plan.decorations || plan.walls || plan.terrain) {
+      this._syncParticleCollisionWorld();
+    }
     this.lowerStoreyPresentation?.sync(this._snapshot);
     this._sceneLayerVisibility.apply();
     if (this._selectedBeamlineFocus

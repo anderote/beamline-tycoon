@@ -622,6 +622,7 @@ function buildBeamPaths(game) {
     const beamlineType = getBeamlineType(entry.typeId);
     beamPaths.push({
       beamlineId: entry.id,
+      hardwareIds: flat.filter(node => node.kind !== 'drift' && node.id).map(node => node.id),
       nodePositions: nodes.map(n => ({
         col: n.col,
         row: n.row,

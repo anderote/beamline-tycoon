@@ -24,10 +24,10 @@ builder.build([{
 }], parent);
 
 assert.deepEqual(parent.children.map(child => child.name).sort(), [
-  'beam-core', 'beam-flow-core', 'beam-flow-halo', 'beam-glow',
+  'beam-core', 'beam-dc-pixel', 'beam-glow',
 ]);
 
-const flowCore = parent.children.find(child => child.name === 'beam-flow-core');
+const flowCore = parent.children.find(child => child.name === 'beam-dc-pixel');
 const slowBefore = matrixPosition(flowCore, 0);
 const fastBefore = matrixPosition(flowCore, 3);
 builder.update(0.1);
@@ -54,8 +54,7 @@ builder.build([{
 }], mixedParent);
 
 assert.deepEqual(mixedParent.children.map(child => child.name).sort(), [
-  'beam-core', 'beam-flow-core', 'beam-flow-halo', 'beam-glow',
-  'beam-packet-core', 'beam-packet-halo',
+  'beam-bunch-pixel', 'beam-core', 'beam-dc-pixel', 'beam-glow',
 ]);
 builder.dispose(mixedParent);
 

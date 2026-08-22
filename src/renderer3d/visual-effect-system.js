@@ -11,11 +11,14 @@ import {
   positiveModulo, prepareEffectPath, sampleEffectPath, surfaceGlowFactor,
   travellingPulseDistances,
 } from './effect-math.js';
+import { particleCollisionWorld, stepKineticParticle } from './kinetic-particles.js';
 
 export const MAX_EFFECT_PULSES = 512;
 export const MAX_AMBIENT_PARTICLES = 512;
+export const MAX_KINETIC_PARTICLES = 384;
 const DEFAULT_PATH_PULSE_BUDGET = 384;
 const DEFAULT_AMBIENT_PARTICLE_BUDGET = 192;
+const DEFAULT_KINETIC_PARTICLE_BUDGET = 192;
 const DEFAULT_LIGHT_PROXY_BUDGET = 96;
 const FLOOR_Y = 0.022;
 
@@ -61,6 +64,18 @@ function makeAmbientMaterial() {
   });
 }
 
+function makeKineticParticleMaterial() {
+  return new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.96,
+    depthWrite: false,
+    toneMapped: false,
+    vertexColors: true,
+    blending: THREE.AdditiveBlending,
+  });
+}
+
 function stableHashUnit(value) {
   const text = String(value ?? 'effect');
   let hash = 2166136261;
@@ -87,15 +102,25 @@ export class VisualEffectSystem {
     this._ambientBudget = Math.min(MAX_AMBIENT_PARTICLES, Math.max(
       0, Math.floor(ambientBudget),
     ));
+    const kineticBudget = opts.kineticBudget
+      ?? (opts.pulseBudget == null
+        ? DEFAULT_KINETIC_PARTICLE_BUDGET : Math.ceil(opts.pulseBudget / 2));
+    this._kineticBudget = Math.min(MAX_KINETIC_PARTICLES, Math.max(
+      0, Math.floor(kineticBudget),
+    ));
+    this._random = typeof opts.random === 'function' ? opts.random : Math.random;
     this._effects = new Map();
     this._surfaceEffects = new Map();
     this._bursts = [];
+    this._kineticParticles = [];
+    this._particleWorld = particleCollisionWorld();
     this._flashHandler = null;
     this._time = 0;
     this._stats = {
       descriptors: 0, surfaceGlows: 0, pathPulses: 0, bursts: 0,
-      ambientParticles: 0, lightCandidates: 0, droppedPulses: 0,
+      ambientParticles: 0, kineticParticles: 0, lightCandidates: 0, droppedPulses: 0,
       droppedAmbientParticles: 0,
+      droppedKineticParticles: 0,
     };
 
     this.group = new THREE.Group();
@@ -130,6 +155,21 @@ export class VisualEffectSystem {
     this._ambientMesh.frustumCulled = false;
     this._ambientMesh.instanceMatrix.setUsage?.(THREE.DynamicDrawUsage);
     this.group.add(this._ambientMesh);
+
+    // One draw call for every short-lived spark. Cubes intentionally read as
+    // hot pixels at the game's scale. Bloom makes their colour glow on screen;
+    // they are never registered as LightRig emitters and illuminate nothing.
+    this._kineticMesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      makeKineticParticleMaterial(),
+      MAX_KINETIC_PARTICLES,
+    );
+    this._kineticMesh.name = 'glowingPixelParticleInstances';
+    this._kineticMesh.count = 0;
+    this._kineticMesh.frustumCulled = false;
+    this._kineticMesh.instanceMatrix.setUsage?.(THREE.DynamicDrawUsage);
+    this._kineticMesh.layers.enable(BLOOM_LAYER);
+    this.group.add(this._kineticMesh);
 
     this._matrix = new THREE.Matrix4();
     this._position = new THREE.Vector3();
@@ -179,6 +219,7 @@ export class VisualEffectSystem {
    */
   emit(raw) {
     if (!this.enabled || !raw?.position) return null;
+    if (raw.kind === 'particleBurst') return this._emitParticleBurst(raw);
     if (raw.kind !== 'burst' && raw.kind !== 'flash') return null;
     const durationMs = Math.max(1, Number(raw.durationMs) || 450);
     const burst = {
@@ -198,6 +239,59 @@ export class VisualEffectSystem {
       );
     }
     return burst;
+  }
+
+  /** Replace the conservative scene collision model used by transient pixels. */
+  setParticleCollisionWorld(world = {}) {
+    this._particleWorld = particleCollisionWorld(world);
+  }
+
+  _emitParticleBurst(raw) {
+    const count = Math.max(1, Math.floor(Number(raw.count) || 12));
+    const available = Math.max(0, this._kineticBudget - this._kineticParticles.length);
+    const emitted = Math.min(count, available);
+    const normal = raw.normal || { x: 0, y: 1, z: 0 };
+    const normalLength = Math.hypot(normal.x || 0, normal.y || 0, normal.z || 0) || 1;
+    const nx = (normal.x || 0) / normalLength;
+    const ny = (normal.y || 0) / normalLength;
+    const nz = (normal.z || 0) / normalLength;
+    const speedMin = Math.max(0, Number(raw.speedMin) || 2.2);
+    const speedMax = Math.max(speedMin, Number(raw.speedMax) || 7.5);
+    const spread = Math.max(0, Number(raw.spread) || 0.95);
+    const colors = Array.isArray(raw.colors) && raw.colors.length
+      ? raw.colors : [raw.color ?? 0xffd36a, 0xff8a2a, 0xffffff];
+    for (let i = 0; i < emitted; i++) {
+      const jitterX = (this._random() * 2 - 1) * spread;
+      const jitterY = this._random() * spread;
+      const jitterZ = (this._random() * 2 - 1) * spread;
+      const dx = nx + jitterX;
+      const dy = ny + jitterY + (Number(raw.upwardBias) || 0.35);
+      const dz = nz + jitterZ;
+      const directionLength = Math.hypot(dx, dy, dz) || 1;
+      const speed = speedMin + (speedMax - speedMin) * this._random();
+      const lifetimeMin = Math.max(0.05, Number(raw.lifetimeMin) || 0.38);
+      const lifetimeMax = Math.max(lifetimeMin, Number(raw.lifetimeMax) || 1.05);
+      const radius = Math.max(0.012, (Number(raw.size) || 0.055)
+        * (0.65 + this._random() * 0.7));
+      this._kineticParticles.push({
+        x: Number(raw.position.x) || 0,
+        y: Number(raw.position.y) || 0,
+        z: Number(raw.position.z) || 0,
+        vx: dx / directionLength * speed,
+        vy: dy / directionLength * speed,
+        vz: dz / directionLength * speed,
+        age: 0,
+        lifetime: lifetimeMin + (lifetimeMax - lifetimeMin) * this._random(),
+        radius,
+        gravity: Math.max(0, Number(raw.gravity) || 9.81),
+        drag: Math.max(0, Number(raw.drag) || 0.7),
+        restitution: Math.max(0, Math.min(1, Number(raw.restitution) || 0.58)),
+        friction: Math.max(0, Math.min(1, Number(raw.friction) || 0.18)),
+        color: colors[Math.floor(this._random() * colors.length) % colors.length],
+      });
+    }
+    this._stats.droppedKineticParticles += count - emitted;
+    return { emitted, requested: count };
   }
 
   /** Replace one named producer scope atomically (e.g. all utility lines). */
@@ -316,6 +410,10 @@ export class VisualEffectSystem {
       0, Math.floor(quality.ambientParticleCount
         ?? Math.ceil((quality.effectPulseCount ?? this._ambientBudget * 2) / 2)),
     ));
+    this._kineticBudget = Math.min(MAX_KINETIC_PARTICLES, Math.max(
+      0, Math.floor(quality.kineticParticleCount
+        ?? Math.ceil((quality.effectPulseCount ?? this._kineticBudget * 2) / 2)),
+    ));
   }
 
   getStats() {
@@ -323,6 +421,7 @@ export class VisualEffectSystem {
       ...this._stats,
       pulseBudget: this._pulseBudget,
       ambientBudget: this._ambientBudget,
+      kineticBudget: this._kineticBudget,
       lightProxyBudget: this._proxyBudget,
     };
   }
@@ -408,6 +507,7 @@ export class VisualEffectSystem {
     this._pulseMesh.count = instanceIndex;
     this._spillMesh.count = spillIndex;
     this._ambientMesh.count = ambientIndex;
+    this._updateKineticParticles(dt);
     this._pulseMesh.instanceMatrix.needsUpdate = true;
     this._spillMesh.instanceMatrix.needsUpdate = true;
     this._ambientMesh.instanceMatrix.needsUpdate = true;
@@ -421,6 +521,30 @@ export class VisualEffectSystem {
     this._stats.droppedPulses = Math.max(0, requested - instanceIndex);
     this._stats.droppedAmbientParticles = Math.max(0, requestedAmbient - ambientIndex);
     this._updateSurfaceGlows();
+  }
+
+  _updateKineticParticles(dt) {
+    const live = [];
+    let index = 0;
+    for (const particle of this._kineticParticles) {
+      if (!stepKineticParticle(particle, dt, this._particleWorld)) continue;
+      live.push(particle);
+      if (index >= this._kineticBudget) continue;
+      const life = Math.max(0, 1 - particle.age / particle.lifetime);
+      const size = particle.radius * 2 * (0.65 + 0.35 * life);
+      this._position.set(particle.x, particle.y, particle.z);
+      this._scale.set(size, size, size);
+      this._matrix.compose(this._position, this._burstQuat, this._scale);
+      this._kineticMesh.setMatrixAt(index, this._matrix);
+      this._color.set(effectColor(particle.color)).multiplyScalar(Math.max(0.24, life));
+      this._kineticMesh.setColorAt(index, this._color);
+      index++;
+    }
+    this._kineticParticles = live;
+    this._kineticMesh.count = index;
+    this._kineticMesh.instanceMatrix.needsUpdate = true;
+    if (this._kineticMesh.instanceColor) this._kineticMesh.instanceColor.needsUpdate = true;
+    this._stats.kineticParticles = live.length;
   }
 
   _writeMistParticles(effect, startIndex) {
@@ -624,7 +748,9 @@ export class VisualEffectSystem {
     this._pulseMesh.count = 0;
     this._spillMesh.count = 0;
     this._ambientMesh.count = 0;
+    this._kineticMesh.count = 0;
     this._bursts.length = 0;
+    this._kineticParticles.length = 0;
     for (const proxy of this._lightProxies) {
       proxy.visible = false;
       proxy.userData.effectLightEmitter = null;
@@ -639,8 +765,11 @@ export class VisualEffectSystem {
     this._spillMesh.material.dispose();
     this._ambientMesh.geometry.dispose();
     this._ambientMesh.material.dispose();
+    this._kineticMesh.geometry.dispose();
+    this._kineticMesh.material.dispose();
     this._effects.clear();
     this._bursts.length = 0;
+    this._kineticParticles.length = 0;
     for (const record of this._surfaceEffects.values()) {
       if (record.mesh.material === record.material) record.mesh.material = record.sourceMaterial;
       record.material.dispose?.();
