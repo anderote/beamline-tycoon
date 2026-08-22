@@ -305,6 +305,82 @@ test('indoor HV rack is a six-point bus with inset overhead terminals and two cr
     'a crossbar-height side tap applies the same cable tension as a utility-pole support');
 });
 
+test('compact indoor HV rack is an L-frame three-point bus for two overhead wires', () => {
+  const def = PLACEABLES.indoorHvCableRack2Way;
+  const ports = getUtilityPortsV2(def.id);
+  assert.equal(def.kind, 'infrastructure');
+  assert.equal(def.category, 'power');
+  assert.equal(def.subsection, 'routingHardware');
+  assert.equal(def.mount, 'overhead');
+  assert.equal(def.hvCableSupport, 'indoorRack');
+  assert.equal(def.subW, 2);
+  assert.equal(def.subL, 2);
+  assert.equal(def.subH, 5);
+  assert.deepEqual(Object.keys(ports), ['hv_1', 'hv_2', 'hv_tap_left']);
+  assert.ok(['hv_1', 'hv_2'].every(name => {
+    const port = ports[name];
+    return port.utility === 'hvCable' && port.role === 'pass'
+      && port.omnidirectional === true && port.maxConnections === 2;
+  }), 'both hanging terminals support two cable segments');
+  assert.equal(ports.hv_tap_left.connectionKind, 'hvDistributionTap');
+  assert.equal(ports.hv_tap_left.maxConnections, 1);
+  assert.deepEqual(def.electricalGroups.hvCable, [[
+    'hv_1', 'hv_2', 'hv_tap_left',
+  ]], 'both conductors and the side tap share one passive HV bus');
+
+  assert.equal(def.parts.filter(part => part.name === 'upright').length, 1);
+  assert.equal(def.parts.filter(part => part.name === 'foot').length, 1);
+  assert.equal(def.parts.filter(part => /^insulator-\d+-stem$/.test(part.name)).length, 2);
+  assert.equal(def.parts.filter(part => part.name === 'hv-tap-left-cap').length, 1);
+  const upright = def.parts.find(part => part.name === 'upright');
+  const crossbar = def.parts.find(part => part.name === 'crossbar');
+  assert.ok(upright.x < 0 && crossbar.x + crossbar.w / 2 > 0.9,
+    'one edge upright and a cantilevered crossbar form the compact L-frame');
+
+  const rack = {
+    id: 'rack-2-way', type: def.id, col: 0, row: 0,
+    subCol: 0, subRow: 0, dir: 0,
+  };
+  setModelBoundsProvider(() => ({
+    minX: -0.5, maxX: 0.5, minY: 0, maxY: 2.45, minZ: -0.5, maxZ: 0.5,
+  }));
+  const overheadAnchors = ['hv_1', 'hv_2']
+    .map(name => portAnchor3D(rack, COMPONENTS[def.id], name));
+  assert.deepEqual(overheadAnchors.map(anchor => anchor.x), [0.4, 0.8]);
+  assert.ok(overheadAnchors.every(anchor => anchor.y === 2.00 && anchor.z === 0.5),
+    'the two visible insulator tips carry the overhead wires at rack height');
+  const tapAnchor = portAnchor3D(rack, COMPONENTS[def.id], 'hv_tap_left');
+  assert.ok(Math.abs(tapAnchor.x - 0.01) < 1e-9
+    && tapAnchor.y === 2.00 && tapAnchor.z === 0.5,
+  'the single side tap lands on the outside cap of the upright');
+  setModelBoundsProvider(null);
+
+  const lines = new Map([
+    ['wire-1', {
+      id: 'wire-1', utilityType: 'hvCable',
+      start: { placeableId: rack.id, portName: 'hv_1' }, end: null,
+      path: [{ col: 0, row: 0 }, { col: 1, row: 0 }],
+    }],
+    ['wire-2', {
+      id: 'wire-2', utilityType: 'hvCable',
+      start: { placeableId: rack.id, portName: 'hv_2' }, end: null,
+      path: [{ col: 0, row: 1 }, { col: 1, row: 1 }],
+    }],
+    ['tap', {
+      id: 'tap', utilityType: 'hvCable',
+      start: { placeableId: rack.id, portName: 'hv_tap_left' }, end: null,
+      path: [{ col: -1, row: 0 }, { col: 0, row: 0 }],
+    }],
+  ]);
+  const state = openState({ placeables: [rack], utilityLines: lines });
+  const networks = discoverNetworks('hvCable', lines, makeDefaultPortLookup(state));
+  assert.equal(networks.length, 1,
+    'either overhead conductor or the side tap energizes the complete compact rack');
+  assert.ok([...lines.values()].every(line => (
+    isTensionedHvCable(line, new Map([[rack.id, rack]]))
+  )), 'all three elevated rack attachments use suspended HV tension and sag');
+});
+
 test('45-degree indoor HV rack turns four isolated suspended cables around corners', () => {
   const def = PLACEABLES.indoorHvCableCornerRack;
   const ports = getUtilityPortsV2(def.id);
