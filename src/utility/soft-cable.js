@@ -46,7 +46,8 @@ export function isOverheadHvSupport(def) {
 }
 
 export function isHvCableTensionAnchor(def) {
-  return isOverheadHvSupport(def) || def?.wallPassThrough === true;
+  return isOverheadHvSupport(def) || def?.id === 'indoorHvCableRack'
+    || def?.wallPassThrough === true;
 }
 
 /**

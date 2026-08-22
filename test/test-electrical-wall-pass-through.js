@@ -209,6 +209,62 @@ test('4×4 HV wall feedthrough keeps four omnidirectional, un-rated conductors i
   assert.equal(networks.length, 4, 'each numbered front/back pair is isolated from the other three');
 });
 
+test('indoor HV rack carries four isolated cables in one head-height flat row', () => {
+  const def = PLACEABLES.indoorHvCableRack;
+  const ports = getUtilityPortsV2(def.id);
+  assert.equal(def.kind, 'infrastructure');
+  assert.equal(def.category, 'power');
+  assert.equal(def.subsection, 'routingHardware');
+  assert.equal(def.subW, 4);
+  assert.equal(def.subL, 2);
+  assert.equal(def.subH, 5, 'the full bracket stays inside a 2.5 m envelope');
+  assert.deepEqual(Object.keys(ports), ['hv_1', 'hv_2', 'hv_3', 'hv_4']);
+  assert.ok(Object.values(ports).every(port =>
+    port.utility === 'hvCable' && port.role === 'pass'
+      && port.omnidirectional === true && port.maxConnections === 2),
+  'every saddle is a two-segment omnidirectional HV support');
+  assert.deepEqual(def.electricalGroups.hvCable, [],
+    'the four supported cables do not become one shared bus');
+
+  const rack = {
+    id: 'rack', type: def.id, col: 0, row: 0,
+    subCol: 0, subRow: 0, dir: 0,
+  };
+  setModelBoundsProvider(() => ({
+    minX: -1, maxX: 1, minY: 0, maxY: 2.45, minZ: -0.5, maxZ: 0.5,
+  }));
+  const anchors = Object.keys(ports).map(name => portAnchor3D(rack, COMPONENTS[def.id], name));
+  assert.deepEqual(anchors.map(anchor => anchor.x), [0.25, 0.75, 1.25, 1.75],
+    'the flat row uses the four-way wall feedthrough spacing');
+  assert.ok(anchors.every(anchor => anchor.y === 2.35),
+    'all four cables sit above head height in one flat row');
+  const visualTop = Math.max(...def.parts.map(part => ((part.y || 0) + (part.h || 1)) * 0.5));
+  assert.ok(visualTop > 2.35 && visualTop < 2.5,
+    'the metal bracket clears its cables but remains below the indoor ceiling envelope');
+  setModelBoundsProvider(null);
+
+  const lines = new Map();
+  for (let index = 1; index <= 4; index++) {
+    for (let segment = 0; segment < 2; segment++) {
+      const id = `cable-${index}-${segment}`;
+      lines.set(id, {
+        id, utilityType: 'hvCable',
+        start: { placeableId: rack.id, portName: `hv_${index}` }, end: null,
+        path: [
+          { col: segment * 3, row: index * 3 },
+          { col: segment * 3 + 1, row: index * 3 },
+        ],
+      });
+    }
+  }
+  const state = openState({ placeables: [rack], utilityLines: lines });
+  const networks = discoverNetworks('hvCable', lines, makeDefaultPortLookup(state));
+  assert.equal(networks.length, 4,
+    'two segments meet through each saddle while all four carried cables remain isolated');
+  assert.equal(isTensionedHvCable(lines.get('cable-1-0'), new Map([[rack.id, rack]])), true,
+    'the indoor bracket applies the suspended HV tension-and-sag presentation');
+});
+
 test('2×2 utility pole and 4×4 transmission tower accept every HV approach', () => {
   const paths = [
     [{ col: 0, row: 0 }, { col: 1, row: 0 }],
@@ -395,17 +451,22 @@ test('The overhead crossing exception requires two HV supports', () => {
   const state = openState({
     placeables: [
       { id: 'source', type: 'facilityTransformer', col: 0, row: 0, subCol: 0, subRow: 0, dir: 0 },
+      { id: 'rack', type: 'indoorHvCableRack', col: 0, row: 0, subCol: 0, subRow: 0, dir: 0 },
       { id: 'pole', type: 'utilityPole', col: 3, row: 0, subCol: 0, subRow: 0, dir: 0 },
     ],
     wallOccupied: crossingWall,
   });
-  const result = validateDrawLine(state, {
-    utilityType: 'hvCable',
-    start: { placeableId: 'source', portName: 'hv_out_1' },
-    end: { placeableId: 'pole', portName: 'hv_in' },
-    path: directCrossing, cablePath: directCrossing,
-  });
-  assert.equal(result.reason, 'wall_pass_through_required');
+  for (const start of [
+    { placeableId: 'source', portName: 'hv_out_1' },
+    { placeableId: 'rack', portName: 'hv_1' },
+  ]) {
+    const result = validateDrawLine(state, {
+      utilityType: 'hvCable', start,
+      end: { placeableId: 'pole', portName: 'hv_in' },
+      path: directCrossing, cablePath: directCrossing,
+    });
+    assert.equal(result.reason, 'wall_pass_through_required', start.placeableId);
+  }
 });
 
 test('Fabricated pipes, waveguides and cryogenic services retain wall crossing', () => {

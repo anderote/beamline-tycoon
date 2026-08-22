@@ -119,7 +119,7 @@ test('functional overhead supports are linked into Infra Power and keep decorati
 
   assert.deepEqual(Object.keys(powerSubsections).slice(0, 5),
     ['transport', 'gridSupply', 'transformers', 'overhead', 'routingHardware']);
-  assert.equal(powerSubsections.routingHardware.name, 'Wall Feedthroughs');
+  assert.equal(powerSubsections.routingHardware.name, 'Cable Routing');
   assert.deepEqual(powerSubsections.overhead.linkedPlaceables,
     ['utilityPole', 'transmissionTower']);
   assert.equal(pole.kind, 'decoration');

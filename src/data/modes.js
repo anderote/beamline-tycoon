@@ -37,7 +37,7 @@ export const MODES = {
                         gridSupply: { name: 'Grid Supply' },
                         transformers: { name: 'Transformers' },
                         overhead: { name: 'Overhead HV', linkedPlaceables: ['utilityPole', 'transmissionTower'] },
-                        routingHardware: { name: 'Wall Feedthroughs' },
+                        routingHardware: { name: 'Cable Routing' },
                         distribution: { name: 'Distribution' },
                         fieldDistribution: { name: 'Field Distribution' },
                         specialty: { name: 'Protection & Backup' },

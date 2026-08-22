@@ -115,12 +115,18 @@ test('isolated pole terminals stay nondirectional while pass-through arrows foll
     subCol: 0, subRow: 0, dir: 3,
     wallMount: { col: 4, row: 5, edge: 'n', off: 1, faceOffset: 0.0625 },
   };
-  const { group } = buildPortFittings([pole, feed]);
+  const rack = {
+    id: 'rack', type: 'indoorHvCableRack',
+    col: 7, row: 2, subCol: 0, subRow: 0, dir: 0,
+  };
+  const { group } = buildPortFittings([pole, rack, feed]);
   const fittings = new Map(fittingsOf(group).map(fitting => [
     `${fitting.userData.placeableId}:${fitting.userData.portName}`, fitting,
   ]));
   assert.equal(arrowOf(fittings.get('pole:hv_in'))?.userData.flowRole, 'pass');
   assert.equal(arrowOf(fittings.get('pole:hv_out'))?.userData.flowRole, 'pass');
+  assert.equal(arrowOf(fittings.get('rack:hv_1'))?.userData.flowRole, 'pass');
+  assert.equal(arrowOf(fittings.get('rack:hv_4'))?.userData.flowRole, 'pass');
   assert.equal(arrowOf(fittings.get('feed:hv_in'))?.userData.flowRole, 'sink');
   assert.equal(arrowOf(fittings.get('feed:hv_out'))?.userData.flowRole, 'source');
   assert.equal(fittings.get('feed:hv_in')?.userData.portRole, 'pass',
@@ -157,6 +163,7 @@ test('wall pass-throughs and transformers carry body arrows but isolated support
   const endpoints = [
     { id: 'pole', type: 'utilityPole', col: 1, row: 2, subCol: 0, subRow: 0, dir: 1 },
     { id: 'tower', type: 'transmissionTower', col: 12, row: 8, subCol: 0, subRow: 0, dir: 2 },
+    { id: 'rack', type: 'indoorHvCableRack', col: 10, row: 2, subCol: 0, subRow: 0, dir: 0 },
     {
       id: 'feed', type: 'hvWallPassThrough', col: 4, row: 5,
       subCol: 0, subRow: 0, dir: 3,
@@ -165,11 +172,11 @@ test('wall pass-throughs and transformers carry body arrows but isolated support
     { id: 'xfmr', type: 'facilityTransformer', col: 8, row: 3, subCol: 0, subRow: 0, dir: 1 },
   ];
   const { group } = buildPortFittings(endpoints);
-  for (const endpoint of endpoints.slice(0, 2)) {
+  for (const endpoint of endpoints.slice(0, 3)) {
     assert.equal(equipmentArrowOf(group, endpoint.id), undefined,
       `${endpoint.type} has no misleading cross-insulator body arrow`);
   }
-  for (const endpoint of endpoints.slice(2)) {
+  for (const endpoint of endpoints.slice(3)) {
     const marker = equipmentArrowOf(group, endpoint.id);
     assert.ok(marker, `${endpoint.type} has a body-level direction arrow`);
     assert.ok(marker.userData.fromPortNames.every(name => name.includes('_in')),
