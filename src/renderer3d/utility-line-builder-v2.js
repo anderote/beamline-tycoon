@@ -22,10 +22,12 @@ import { BLOOM_LAYER } from './glow-pipeline.js';
 import { computeLineOrientations } from '../utility/line-orientation.js';
 import {
   draggedCablePath,
+  isHvCableTensionAnchor,
   isSoftCable,
   relaxedCableControlPoints,
   softCableBendRadiusMeters,
   softCableControlPoints,
+  tautCableControlPoints,
 } from '../utility/soft-cable.js';
 import {
   utilitySupportFrames,
@@ -228,6 +230,17 @@ function anchorTip(anchor) {
   };
 }
 
+/** HV spans become straight when either end is held by tensioning hardware. */
+export function isTensionedHvCable(line, placeablesById) {
+  if (line?.utilityType !== 'hvCable') return false;
+  if (line.tensioned === true) return true;
+  if (!placeablesById) return false;
+  return [line.start, line.end].some(ref => {
+    const endpoint = ref ? placeablesById.get(ref.placeableId) : null;
+    return isHvCableTensionAnchor(COMPONENTS[endpoint?.type]);
+  });
+}
+
 function waveguideDropOptions(descriptor) {
   return {
     launchMeters: descriptor?.dropLaunchMeters,
@@ -276,6 +289,14 @@ export function buildSoftCableWorldPoints(line, placeablesById, previewAnchors =
   const runY = utilityLineHeight(line.utilityType, line.routeHeightMeters);
   const start = anchorTip(previewAnchors?.start || anchorFor(line.start, placeablesById));
   const end = anchorTip(previewAnchors?.end || anchorFor(line.end, placeablesById));
+  if (isTensionedHvCable(line, placeablesById)) {
+    const first = laidTrace?.[0];
+    const last = laidTrace?.[laidTrace.length - 1];
+    const tautStart = start || (first ? { x: first.col * 2, y: runY, z: first.row * 2 } : null);
+    const tautEnd = end || (last ? { x: last.col * 2, y: runY, z: last.row * 2 } : null);
+    return tautCableControlPoints(tautStart, tautEnd)
+      .map(point => new THREE.Vector3(point.x, point.y, point.z));
+  }
   const trace = draggedCablePath(laidTrace, {
     start: start ? { col: start.x / 2, row: start.z / 2 } : null,
     end: end ? { col: end.x / 2, row: end.z / 2 } : null,
@@ -1187,6 +1208,7 @@ function buildPreviewLine(preview) {
         cablePath: preview.cablePath,
         start: null,
         end: null,
+        tensioned: preview.tensioned === true,
       }, null, { start: preview.startAnchor, end: preview.endAnchor })
     : preview.path.map(p => {
         const w = tileToWorld(p);
@@ -1520,12 +1542,13 @@ export class UtilityLineBuilderV2 {
       };
       if (isSoftCable(line.utilityType)) {
         const initialPoints = buildSoftCableWorldPoints(line, placeablesById);
+        const tensioned = isTensionedHvCable(line, placeablesById);
         const floorY = utilityLineHeight(line.utilityType);
         const bendRadius = softCableBendRadiusMeters(line.utilityType);
-        const finalPoints = relaxedCableControlPoints(initialPoints, {
+        const finalPoints = (tensioned ? initialPoints : relaxedCableControlPoints(initialPoints, {
           floorY,
           bendStiffness: 0.08 + Math.min(0.08, bendRadius * 0.1),
-        }).map(point => new THREE.Vector3(point.x, point.y, point.z));
+        }).map(point => new THREE.Vector3(point.x, point.y, point.z)));
         const previousDrag = this._dragCableStates.get(line.id);
         const previousPoints = previousDrag?.points || oldControlPoints;
         const dragPoints = isDraggedLine
@@ -1553,7 +1576,7 @@ export class UtilityLineBuilderV2 {
         } else if (!isDraggedLine) {
           this._dragCableStates.delete(line.id);
         }
-        const animate = !dragAnimate && this._hasBuiltOnce && isNewLine
+        const animate = !tensioned && !dragAnimate && this._hasBuiltOnce && isNewLine
           && initialPoints.length === finalPoints.length && initialPoints.length >= 3;
         if (!dragAnimate) pointOverride = animate ? initialPoints : finalPoints;
         if (animate) {

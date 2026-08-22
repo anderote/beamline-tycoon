@@ -155,6 +155,11 @@ export const PORT_ANCHOR_OVERRIDES = {
   utilityPole: {
     _default: { y: 6.40, lat: 0.18, out: 0.08 },
   },
+  // The game's one HV feeder represents the tower's three-phase conductor
+  // bundle and terminates at the upper crossarm elevation.
+  transmissionTower: {
+    _default: { y: 15.20, lat: 0.42, out: 0.10 },
+  },
   cableTray: {
     _default: { y: 2.35, lat: 0.46, out: 0.02 },
   },

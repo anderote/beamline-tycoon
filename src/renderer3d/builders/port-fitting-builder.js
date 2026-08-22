@@ -58,6 +58,7 @@ const _matCache = new Map();
 const _geoCache = new Map();
 const _flowMatCache = new Map();
 const _flowGeoCache = new Map();
+let _equipmentFlowGeometry = null;
 
 function getFittingMaterial(color) {
   if (_matCache.has(color)) return _matCache.get(color);
@@ -152,6 +153,83 @@ function buildFlowArrow(utilityType, role) {
     isUtilityFlowArrow: true,
     flowRole: normalized,
     flowDirection: normalized === 'source' ? 1 : normalized === 'sink' ? -1 : 0,
+    sharedGeometry: true,
+  };
+  return arrow;
+}
+
+/** Passive transfer fittings still have a visually meaningful named direction. */
+export function portFlowArrowRole(portName, declaredRole = 'pass') {
+  if (declaredRole === 'source' || declaredRole === 'sink') return declaredRole;
+  if (/(^|_)in(?:_|$)/.test(portName || '')) return 'sink';
+  if (/(^|_)out(?:_|$)/.test(portName || '')) return 'source';
+  return 'pass';
+}
+
+function getEquipmentFlowGeometry() {
+  if (_equipmentFlowGeometry) return _equipmentFlowGeometry;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([
+    -0.42, 0, -0.07,  0.10, 0, -0.07,  0.10, 0, -0.20,
+    -0.42, 0, -0.07,  0.10, 0, -0.20,  0.48, 0, 0,
+    -0.42, 0,  0.07,  0.10, 0,  0.20,  0.10, 0, 0.07,
+    -0.42, 0,  0.07,  0.48, 0,  0.00,  0.10, 0, 0.20,
+  ], 3));
+  geometry.computeVertexNormals();
+  _equipmentFlowGeometry = geometry;
+  return geometry;
+}
+
+function isDirectionalEquipment(def) {
+  return def?.id === 'utilityPole' || def?.id === 'transmissionTower'
+    || def?.wallPassThrough === true
+    || /Transformer$/.test(def?.id || '');
+}
+
+function averageAnchor(entries) {
+  if (entries.length === 0) return null;
+  return entries.reduce((sum, entry) => ({
+    x: sum.x + entry.anchor.x / entries.length,
+    y: sum.y + entry.anchor.y / entries.length,
+    z: sum.z + entry.anchor.z / entries.length,
+  }), { x: 0, y: 0, z: 0 });
+}
+
+function buildEquipmentFlowArrow(endpoint, def, ports) {
+  if (!isDirectionalEquipment(def)) return null;
+  const inputs = ports.filter(port => /(^|_)in(?:_|$)/.test(port.name));
+  const outputs = ports.filter(port => /(^|_)out(?:_|$)/.test(port.name));
+  const from = averageAnchor(inputs);
+  const to = averageAnchor(outputs);
+  if (!from || !to) return null;
+  let dx = to.x - from.x;
+  let dz = to.z - from.z;
+  if (Math.hypot(dx, dz) < 1e-5) {
+    const inOut = inputs[0].anchor.out || { x: 0, z: 0 };
+    const outOut = outputs[0].anchor.out || { x: 0, z: 0 };
+    dx = outOut.x - inOut.x;
+    dz = outOut.z - inOut.z;
+  }
+  const length = Math.hypot(dx, dz);
+  if (length < 1e-5) return null;
+  dx /= length;
+  dz /= length;
+
+  const descriptor = UTILITY_TYPES.hvCable;
+  const color = descriptor?.markerColor || descriptor?.color || '#ffd34e';
+  const arrow = new THREE.Mesh(getEquipmentFlowGeometry(), getFlowArrowMaterial(color));
+  arrow.position.set(
+    (from.x + to.x) / 2,
+    def.wallPassThrough ? (from.y + to.y) / 2 + 0.16 : 0.035,
+    (from.z + to.z) / 2,
+  );
+  arrow.rotation.y = Math.atan2(-dz, dx);
+  arrow.userData = {
+    isUtilityEquipmentFlowArrow: true,
+    placeableId: endpoint.id,
+    fromPortNames: inputs.map(port => port.name),
+    toPortNames: outputs.map(port => port.name),
+    flowDirection: { x: dx, z: dz },
     sharedGeometry: true,
   };
   return arrow;
@@ -459,7 +537,7 @@ function getFittingGeometry(utilityType) {
  * @param {string} utilityType key into UTILITY_TYPES; unknown → generic collar
  * @param {'source'|'sink'|'pass'} [role] direction of flow through the port
  */
-export function buildPortFitting(anchor, utilityType, role = 'pass') {
+export function buildPortFitting(anchor, utilityType, role = 'pass', flowRole = role) {
   const color = UTILITY_TYPES[utilityType]?.color || '#999999';
   const mesh = new THREE.Mesh(getFittingGeometry(utilityType), getFittingMaterial(color));
 
@@ -476,7 +554,7 @@ export function buildPortFitting(anchor, utilityType, role = 'pass') {
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), axis);
 
   mesh.position.set(anchor.x, anchor.y, anchor.z);
-  mesh.add(buildFlowArrow(utilityType, role));
+  mesh.add(buildFlowArrow(utilityType, flowRole));
   mesh.userData = {
     isUtilityPortFitting: true,
     utilityType,
@@ -502,16 +580,21 @@ export function buildPortFittings(endpoints) {
   for (const ep of endpoints || []) {
     const def = COMPONENTS[ep.type];
     if (!def || !def.ports) continue;
+    const endpointPorts = [];
     for (const [name, spec] of Object.entries(def.ports)) {
       if (!spec || !spec.utility) continue;
       const anchor = portAnchor3D(ep, def, name);
       if (!anchor) continue;
-      const fitting = buildPortFitting(anchor, spec.utility, spec.role);
+      const fitting = buildPortFitting(
+        anchor, spec.utility, spec.role, portFlowArrowRole(name, spec.role));
       fitting.userData.placeableId = ep.id;
       fitting.userData.portName = name;
       group.add(fitting);
+      endpointPorts.push({ name, spec, anchor });
       count++;
     }
+    const equipmentArrow = buildEquipmentFlowArrow(ep, def, endpointPorts);
+    if (equipmentArrow) group.add(equipmentArrow);
   }
   return { group, count };
 }
@@ -526,7 +609,9 @@ export function portFittingSignature(endpoints) {
     const def = COMPONENTS[ep.type];
     if (!def || !def.ports) continue;
     if (!Object.values(def.ports).some(s => s && s.utility)) continue;
-    parts.push(`${ep.id}:${ep.type}:${ep.col},${ep.row},${ep.subCol || 0},${ep.subRow || 0},${ep.dir || 0},${ep.portsFlipped ? 1 : 0}`);
+    const wall = ep.wallMount
+      ? `${ep.wallMount.edge || ''},${ep.wallMount.off || 0},${ep.wallMount.span || 0},${ep.wallMount.faceOffset || 0}` : '';
+    parts.push(`${ep.id}:${ep.type}:${ep.col},${ep.row},${ep.subCol || 0},${ep.subRow || 0},${ep.dir || 0},${ep.portsFlipped ? 1 : 0},${wall}`);
   }
   return parts.join(';');
 }

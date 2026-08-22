@@ -22,6 +22,7 @@ const { buildPaletteIndex } = await import('../src/ui/palette-search.js');
 const UTILITY_DECORATIONS = [
   'propaneTank',
   'utilityPole',
+  'transmissionTower',
   'overheadPowerSpan',
   'outdoorPipeRack',
   'backupGenerator',
@@ -111,17 +112,37 @@ test('collection tabs reuse working equipment without changing primary ownership
   assert.deepEqual(security.components, []);
 });
 
-test('functional utility pole is linked into Infra Power and keeps decoration placement', () => {
+test('functional overhead supports are linked into Infra Power and keep decoration placement', () => {
   const pole = PLACEABLES.utilityPole;
+  const tower = PLACEABLES.transmissionTower;
   const powerSubsections = MODES.infra.categories.power.subsections;
 
   assert.deepEqual(Object.keys(powerSubsections).slice(0, 2),
     ['transport', 'routingHardware']);
   assert.equal(powerSubsections.routingHardware.name, 'Routing Hardware');
-  assert.deepEqual(powerSubsections.routingHardware.linkedPlaceables, ['utilityPole']);
+  assert.deepEqual(powerSubsections.routingHardware.linkedPlaceables,
+    ['utilityPole', 'transmissionTower']);
   assert.equal(pole.kind, 'decoration');
   assert.equal(pole.category, 'utilities');
   assert.equal(standardPaletteKind(COMPONENTS.utilityPole), 'decoration');
+  assert.equal(tower.kind, 'decoration');
+  assert.equal(tower.subW, 8);
+  assert.equal(tower.subL, 8);
+  assert.equal(standardPaletteKind(COMPONENTS.transmissionTower), 'decoration');
+});
+
+test('transmission tower has a tall lattice silhouette and projecting crossarms', () => {
+  const def = PLACEABLES.transmissionTower;
+  const model = buildDecorationGroup(
+    def.id, def.category, def.subW * 0.5, def.subL * 0.5, def.subH * 0.5,
+  );
+  const bounds = new THREE.Box3().setFromObject(model);
+  let meshCount = 0;
+  model.traverse(child => { if (child.isMesh) meshCount++; });
+  assert.ok(meshCount >= 70, `the tower is visibly latticed (${meshCount} meshes)`);
+  assert.ok(bounds.max.y >= 17.9, `the ground-wire peak reaches full height (${bounds.max.y})`);
+  assert.ok(bounds.max.x - bounds.min.x > 4.5,
+    `crossarms project beyond the four-metre base (${bounds.max.x - bounds.min.x})`);
 });
 
 test('new utility and security props use bespoke multi-part 3D models', () => {

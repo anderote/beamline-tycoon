@@ -1429,6 +1429,86 @@ function _utilityPoleModel(footW, _footL, totalH) {
   return group;
 }
 
+function _transmissionTowerModel(footW, footL, totalH) {
+  const group = new THREE.Group();
+  const steel = _siteMat(0x707980, { metalness: 0.82, roughness: 0.38 });
+  const darkSteel = _siteMat(0x41494f, { metalness: 0.86, roughness: 0.34 });
+  const concrete = _siteMat(0x858985, { roughness: 0.94 });
+  const ceramic = _siteMat(0xd8e0e2, { roughness: 0.24 });
+  const towerH = totalH * 0.93;
+  const baseX = footW * 0.40;
+  const baseZ = footL * 0.40;
+  const topX = footW * 0.09;
+  const topZ = footL * 0.09;
+  const legRadius = 0.055;
+  const braceRadius = 0.026;
+
+  const corner = (sx, sz, t) => [
+    sx * (baseX + (topX - baseX) * t),
+    0.22 + towerH * t,
+    sz * (baseZ + (topZ - baseZ) * t),
+  ];
+
+  // Four flared lattice legs on individual concrete footings.
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      _siteBox(group, [0.48, 0.22, 0.48], [sx * baseX, 0.11, sz * baseZ], concrete);
+      _siteBeam(group, corner(sx, sz, 0), corner(sx, sz, 1), legRadius, darkSteel, 7);
+    }
+  }
+
+  // Horizontal rings and crossed diagonals turn the tapered frame into a
+  // readable steel lattice instead of a four-legged pylon silhouette.
+  const levels = [0, 0.18, 0.37, 0.57, 0.75, 0.89, 1];
+  for (let index = 0; index < levels.length; index++) {
+    const t = levels[index];
+    const points = [corner(-1, -1, t), corner(1, -1, t), corner(1, 1, t), corner(-1, 1, t)];
+    for (let side = 0; side < 4; side++) {
+      _siteBeam(group, points[side], points[(side + 1) % 4], braceRadius, steel, 6);
+    }
+    if (index === levels.length - 1) continue;
+    const nextT = levels[index + 1];
+    // X braces on all four faces, alternating over every vertical bay.
+    for (const zSign of [-1, 1]) {
+      _siteBeam(group, corner(-1, zSign, t), corner(1, zSign, nextT), braceRadius, steel, 6);
+      _siteBeam(group, corner(1, zSign, t), corner(-1, zSign, nextT), braceRadius, steel, 6);
+    }
+    for (const xSign of [-1, 1]) {
+      _siteBeam(group, corner(xSign, -1, t), corner(xSign, 1, nextT), braceRadius, steel, 6);
+      _siteBeam(group, corner(xSign, 1, t), corner(xSign, -1, nextT), braceRadius, steel, 6);
+    }
+  }
+
+  // Three broad conductor tiers, stepped inward toward the peak like the
+  // reference tower. Triangular underslung braces support each crossarm.
+  const armTiers = [
+    { t: 0.62, width: footW * 1.18 },
+    { t: 0.78, width: footW * 1.00 },
+    { t: 0.92, width: footW * 0.82 },
+  ];
+  for (const { t, width } of armTiers) {
+    const y = 0.22 + towerH * t;
+    const half = width / 2;
+    _siteBeam(group, [-half, y, 0], [half, y, 0], 0.052, darkSteel, 7);
+    _siteBeam(group, [-half, y, 0], [-topX, y - 0.75, 0], 0.034, steel, 6);
+    _siteBeam(group, [half, y, 0], [topX, y - 0.75, 0], 0.034, steel, 6);
+    for (const x of [-half, half]) {
+      // A short chain of ceramic sheds hangs the conductor below each arm.
+      _siteBeam(group, [x, y, 0], [x, y - 0.68, 0], 0.028, darkSteel, 6);
+      for (let shed = 0; shed < 4; shed++) {
+        _siteCylinder(group, 0.09, 0.09, 0.035,
+          [x, y - 0.15 - shed * 0.14, 0], ceramic, 'y', 10);
+      }
+      _siteSphere(group, 0.065, [x, y - 0.72, 0], darkSteel);
+    }
+  }
+
+  // Peaked earth-wire mast above the phase-conductor arms.
+  _siteBeam(group, [-topX, towerH + 0.22, 0], [0, totalH, 0], 0.035, darkSteel, 6);
+  _siteBeam(group, [topX, towerH + 0.22, 0], [0, totalH, 0], 0.035, darkSteel, 6);
+  return group;
+}
+
 function _overheadPowerSpan(footW, footL, totalH) {
   const group = new THREE.Group();
   const wood = _siteMat(0x6d4a2c, { roughness: 0.94 });
@@ -1650,6 +1730,7 @@ const ITEM_BUILDERS = {
   flagpole:      _flagpole,
   propaneTank:   _propaneTank,
   utilityPole:   _utilityPoleModel,
+  transmissionTower: _transmissionTowerModel,
   overheadPowerSpan: _overheadPowerSpan,
   outdoorPipeRack: _outdoorPipeRack,
   backupGenerator: _backupGenerator,

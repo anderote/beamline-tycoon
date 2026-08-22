@@ -40,6 +40,32 @@ export function softCableBendRadiusMeters(utilityType) {
   return SOFT_CABLE_BEND_RADIUS_METERS[utilityType] || 0;
 }
 
+/** Components that mechanically support and tension an attached HV feeder. */
+export function isHvCableTensionAnchor(def) {
+  return def?.id === 'utilityPole' || def?.id === 'transmissionTower'
+    || def?.wallPassThrough === true;
+}
+
+/** A sampled straight 3D span between two mechanical cable supports. */
+export function tautCableControlPoints(start, end, {
+  sampleSpacing = 0.24,
+  maxSamples = 192,
+} = {}) {
+  if (![start, end].every(point => point && Number.isFinite(point.x)
+    && Number.isFinite(point.y) && Number.isFinite(point.z))) return [];
+  const length = Math.hypot(end.x - start.x, end.y - start.y, end.z - start.z);
+  if (length < EPS) return [];
+  const count = Math.max(8, Math.min(maxSamples, Math.ceil(length / sampleSpacing) + 1));
+  return Array.from({ length: count }, (_, index) => {
+    const t = index / (count - 1);
+    return {
+      x: start.x + (end.x - start.x) * t,
+      y: start.y + (end.y - start.y) * t,
+      z: start.z + (end.z - start.z) * t,
+    };
+  });
+}
+
 /** Copy a finite freeform tile path, removing coincident samples. */
 export function sanitizeCablePath(path, maxPoints = SOFT_CABLE_MAX_POINTS) {
   if (!Array.isArray(path)) return [];
