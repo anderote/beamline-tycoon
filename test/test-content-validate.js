@@ -137,6 +137,12 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
       placement: 'module', requiredConnections: [],
       autoConnectRadius: 5,
     },
+    passiveAutoPeer: {
+      id: 'passiveAutoPeer', name: 'Passive Auto Peer', category: 'power',
+      cost: { funding: 100 }, subW: 1, subL: 1, subH: 1,
+      placement: 'module', requiredConnections: [],
+      autoConnectRadius: 5,
+    },
     badFeedthrough: {
       id: 'badFeedthrough', name: 'Bad Feedthrough', category: 'power',
       cost: { funding: 100 }, subW: 1, subL: 1, subH: 1,
@@ -158,6 +164,9 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
       cost: { funding: 100 }, subW: 1, subL: 1, subH: 1,
       placement: 'module', requiredConnections: [],
       electricalGroups: { powerCable: [['in', 'missing'], ['in', 'out']] },
+    },
+    passiveAutoPeer: {
+      peer: { utility: 'powerCable', side: 'front', offsetAlong: 0.5, role: 'pass' },
     },
     badEdgeService: {
       id: 'badEdgeService', name: 'Bad Edge Service', category: 'power',
@@ -323,8 +332,11 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     'the sink-port rule also covers infrastructure entries');
   assert(hasProblem(problems, 'badAutoUtility', 'autoConnectUtility', "'steamPipe'"),
     'an unknown assisted-wiring utility is rejected');
-  assert(hasProblem(problems, 'portlessAutoPanel', 'autoConnectUtility', 'source port'),
-    'assisted wiring requires a real source port of its selected utility');
+  assert(hasProblem(problems, 'portlessAutoPanel', 'autoConnectUtility', 'source or passive port'),
+    'assisted wiring requires a real source or passive port of its selected utility');
+  assert(!problems.some(problem => problem.id === 'passiveAutoPeer'
+      && problem.field === 'autoConnectUtility'),
+  'passive peer ports are valid assisted-wiring origins');
   assert(hasProblem(problems, 'badFeedthrough', 'wallPassThrough', "mount: 'wall'"),
     'wall pass-throughs must use the wall placement layer');
   assert(hasProblem(problems, 'badFeedthrough', 'wallPassThrough', 'matching passive'),

@@ -20,7 +20,7 @@ export function equipmentAutoConnectAction(plan, fallbackUtilityType = 'powerCab
       ? `Auto-connect ${count} ($${funding.toLocaleString()}) · Tab`
       : 'Auto-connect nearby · Tab',
     title: inRange > 0
-      ? `${inRange} unconnected ${autoConnectTargetLabel(utilityType, inRange)} in range; Tab draws ${count} routable line${count === 1 ? '' : 's'} using free outlets`
+      ? `${inRange} unconnected ${autoConnectTargetLabel(utilityType, inRange)} in range; Tab draws ${count} routable line${count === 1 ? '' : 's'} using free connectors`
       : `No routable ${autoConnectTargetLabel(utilityType, 2)} are currently in range`,
     disabled: count === 0,
   };
@@ -176,7 +176,8 @@ export class EquipmentWindow {
 
     let html = '<div class="equipment-details">';
     html += `<div class="equipment-name">${comp.name}</div>`;
-    const autoConnectAction = comp.autoConnectRadius > 0
+    const autoConnectRadius = Number(this._autoConnectPlan?.radius || comp.autoConnectRadius);
+    const autoConnectAction = autoConnectRadius > 0
       ? equipmentAutoConnectAction(
           this._autoConnectPlan,
           comp.autoConnectUtility || 'powerCable',
@@ -205,14 +206,14 @@ export class EquipmentWindow {
         html += `<div class="equipment-utility">${escapeHtml(row.label)}: ${escapeHtml(row.value)}</div>`;
       }
     }
-    if (comp.autoConnectRadius > 0) {
+    if (autoConnectRadius > 0) {
       const ready = this._autoConnectPlan?.stubs?.length || 0;
       const inRange = this._autoConnectPlan?.candidates || 0;
-      html += `<div class="equipment-utility">Auto-connect radius: ${comp.autoConnectRadius} tiles</div>`;
+      html += `<div class="equipment-utility">Auto-connect radius: ${autoConnectRadius} tiles</div>`;
       const utilityType = this._autoConnectPlan?.utilityType
         || comp.autoConnectUtility || 'powerCable';
       html += `<div class="equipment-utility">Unconnected ${autoConnectTargetLabel(utilityType, inRange)} in range: ${inRange}</div>`;
-      html += `<div class="equipment-utility">Routable with free outlets: ${ready}</div>`;
+      html += `<div class="equipment-utility">Routable with free connectors: ${ready}</div>`;
     }
 
     // Stats / effects

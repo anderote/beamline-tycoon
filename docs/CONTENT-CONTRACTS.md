@@ -177,10 +177,16 @@ the short authoring contract.
 
 - Read ports through `getUtilityPortsV2(id)` when solver defaults and derived RF
   band information matter. The flat table is raw authoring data.
-- Assisted distribution wiring uses `autoConnectRadius` and commits real paid
-  lines from real free source ports. `autoConnectUtility` defaults to
-  `powerCable`; set it to `hvCable` for HV distributors. The authored utility
-  must exist and the device must expose a matching source port.
+- Assisted utility wiring commits real paid lines from real free connectors.
+  A definition whose source/pass connectors belong to one utility opts in
+  automatically; this covers utility supplies, manifolds, network switches,
+  and HV supports. `autoConnectRadius` overrides that utility's default reach,
+  while `autoConnectUtility` resolves definitions with more than one possible
+  origin utility. An authored utility must exist and the device must expose a
+  matching source or passive port. Sink-only equipment remains a target.
+- Passive peer wiring connects a device pair only once. Overhead HV supports
+  are the exception: the nearest pole/tower peer receives an aligned bundle of
+  matching free terminals so parallel conductors do not criss-cross.
 - Electrical distributors and transformers add no demand of their own. Their
   HV inlet draws the actual connected downstream HV/branch load, capped by the
   device rating; unused nameplate capacity does not consume upstream supply.

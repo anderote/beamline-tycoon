@@ -52,13 +52,13 @@ assert(panel.detail === 'Power: 40 kW consumed · 40 kW produced',
 const actionablePanel = componentHoverInfo(COMPONENTS.powerPanel, {
   autoConnectPlan: { candidates: 5, stubs: [{}, {}, {}, {}] },
 });
-assert(actionablePanel.detail === '5 unconnected power plugs in range · Tab connects 4',
+assert(actionablePanel.detail === '5 unconnected power connections in range · Tab connects 4',
   `placed panel hover reports both nearby plugs and Tab capacity (${actionablePanel.detail})`);
 
 const actionableHvDistributor = componentHoverInfo(COMPONENTS.compactHvDistributor, {
   autoConnectPlan: { utilityType: 'hvCable', candidates: 2, stubs: [{}] },
 });
-assert(actionableHvDistributor.detail === '2 unconnected HV feeder inputs in range · Tab connects 1',
+assert(actionableHvDistributor.detail === '2 unconnected HV connections in range · Tab connects 1',
   `HV distributor hover names feeder inputs (${actionableHvDistributor.detail})`);
 
 const packageChiller = componentHoverInfo(COMPONENTS.packageChiller);

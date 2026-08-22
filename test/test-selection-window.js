@@ -215,8 +215,8 @@ console.log('\n=== Multi-selection window ===\n');
     cost: { funding: 960 },
   });
   assert(action.label === 'Auto-connect 2 ($960) · Tab'
-      && action.title.includes('2 unconnected HV feeder inputs'),
-  'HV distributor action copy identifies feeder inputs');
+      && action.title.includes('2 unconnected HV connections'),
+  'HV distributor action copy identifies compatible connections');
 
   let footerActions = [];
   const panel = {

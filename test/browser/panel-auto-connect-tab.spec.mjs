@@ -41,7 +41,7 @@ test('hovered distribution panel owns Tab without opening its info window', asyn
 
   await page.mouse.move(panelPoint.x, panelPoint.y);
   await expect(page.locator('.hover-tooltip-detail')).toHaveText(
-    '3 unconnected power plugs in range · Tab connects 3',
+    '3 unconnected power connections in range · Tab connects 3',
   );
 
   const categoryBefore = await page.evaluate(() =>
