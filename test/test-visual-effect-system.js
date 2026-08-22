@@ -155,6 +155,52 @@ test('path effects honor utility-specific silhouettes and can opt out of room li
   system.dispose();
 });
 
+test('utility ambient effects share one bounded instanced particle draw', () => {
+  const scene = new Three.Scene();
+  const system = new VisualEffectSystem(scene, {
+    pulseBudget: 0, ambientBudget: 12, lightProxyBudget: 0,
+  });
+  system.syncScope('utilities', [
+    {
+      id: 'cryo-1', kind: 'ambientMist',
+      path: [{ x: 0, y: 0.4, z: 0 }, { x: 6, y: 0.4, z: 0 }],
+      spacing: 2, particlesPerEmitter: 2, cycle: 4,
+    },
+    {
+      id: 'water-1', kind: 'ambientDrip',
+      path: [{ x: 0, y: 1.2, z: 2 }, { x: 8, y: 1.2, z: 2 }],
+      spacing: 2, cycle: 3, fallDuration: 0.8,
+    },
+  ]);
+
+  system.update(0, 0);
+  assert.equal(system._ambientMesh.count, 8,
+    'mist sources along the pipe fit inside the shared ambient budget');
+  assert.equal(system.getStats().ambientBudget, 12);
+  assert.equal(system.group.children.filter(child => child.name === 'ambientUtilityParticleInstances').length, 1,
+    'all mist and drips use one instanced mesh rather than per-particle scene objects');
+
+  let sawDrip = false;
+  for (let i = 0; i < 80 && !sawDrip; i++) {
+    system.update(0.1, 0);
+    if (system._ambientMesh.count <= 8) continue;
+    const matrix = new Three.Matrix4();
+    const position = new Three.Vector3();
+    const rotation = new Three.Quaternion();
+    const scale = new Three.Vector3();
+    system._ambientMesh.getMatrixAt(8, matrix);
+    matrix.decompose(position, rotation, scale);
+    sawDrip = scale.y > scale.x * 1.5 && position.y >= 0.025;
+  }
+  assert.equal(sawDrip, true, 'occasional water particles fall as narrow vertical droplets');
+
+  system.setQuality({ effectPulseCount: 4 });
+  system.update(0.1, 0);
+  assert.ok(system._ambientMesh.count <= 2,
+    'lighting quality also bounds the ambient particle pool');
+  system.dispose();
+});
+
 test('surface glows animate independently while retaining shared shader structure', () => {
   const scene = new Three.Scene();
   const root = new Three.Group();

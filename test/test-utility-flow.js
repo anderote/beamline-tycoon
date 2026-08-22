@@ -407,6 +407,21 @@ console.log('\n--- 4. FLOW_PARAMS covers every utility ---');
   }
   assert(!buildFlowLine('dataFiber').group.userData.visualEffects,
     'data fiber uses only its moving line colour, with no shape or room-light effect');
+
+  const cryoEffects = buildFlowLine('cryoTransfer').group.userData.visualEffects;
+  const cryoMist = cryoEffects?.find(effect => effect.kind === 'ambientMist');
+  assert(cryoMist?.path?.length === 3
+      && cryoMist.particlesPerEmitter === 2
+      && cryoMist.spacing > 1,
+    'cryo lines publish restrained mist sources along the pipe and both connectors');
+
+  const waterEffects = buildFlowLine('coolingWater').group.userData.visualEffects;
+  const waterDrips = waterEffects?.find(effect => effect.kind === 'ambientDrip');
+  assert(waterDrips?.path?.length >= 3
+      && waterDrips.cycle > waterDrips.fallDuration * 5
+      && waterDrips.spacing >= 3,
+    'cooling lines publish sparse intermittent drips instead of a continuous leak');
+
   const dataCables = flexibleMeshes(buildFlowLine('dataFiber').group);
   assert(dataCables.length === 1
       && dataCables[0].geometry instanceof TubeGeometry,
