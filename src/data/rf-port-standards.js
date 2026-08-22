@@ -1,8 +1,8 @@
 // A few shared RF connector placements.
 //
 // RF hardware is not uniform enough for one universal port: long accelerating
-// structures have couplers near a particular cell, cryomodules carry high
-// couplers, and multi-output transmitters need visible flange banks. The two
+// structures have couplers near a particular cell, cryomodules carry window
+// banks, and multi-output transmitters need visible flange banks. The two
 // common cases below are deliberately narrower:
 //
 //   standardFeed   compact, ordinary NC loads with one centred side feed
@@ -22,7 +22,7 @@ function standard(types, portName, side, offsetAlong, heightMeters = null) {
 
 export const RF_PORT_STANDARDS = Object.freeze({
   standardFeed: standard(
-    ['buncher', 'pillboxCavity', 'rfCavity', 'industrialLinac'],
+    ['buncher', 'pillboxCavity', 'rfCavity'],
     'rf_in',
     'right',
     0.5,

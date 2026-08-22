@@ -162,6 +162,11 @@ the short authoring contract.
   ordinary centred NC feeds and single-output RF sources. Long structures,
   cryomodules, manifolds, and multi-output flange banks keep their physically
   authored exceptions rather than being forced onto the common mount.
+- Every beamline RF sink authors its 3D `rf_in` anchor on the visible inlet
+  window/coupler hardware. Sector-scale cryomodules use a representative
+  centre-adjacent window at the model's real beam-height coupler row; do not
+  place their single logical feed high on the vacuum jacket or at a generic
+  footprint fraction.
 - RF waveguides and cryogenic transfer lines use the `rectilinear` routing
   profile: their paths must be axis-aligned with 90-degree bends, but do not
   reserve rigid equipment or service-clearance aisles.

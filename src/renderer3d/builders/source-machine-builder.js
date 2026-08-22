@@ -301,6 +301,11 @@ export function _buildPositronSourceRoles() {
     sphere(b.copper, 0.28, { z, sz: 0.70 });
     cylZ(b.detail, 0.32, 0.035, { z });
   }
+  // The compound source exposes one external RF feed for the capture linac.
+  // Give that logical port a real waveguide transformer/window instead of
+  // letting its fitting float high on the capture-solenoid silhouette.
+  box(b.accent, 0.38, 0.16, 0.24, { x: 0.47, y: BEAM_HEIGHT + 0.05, z: 0 });
+  box(b.detail, 0.06, 0.23, 0.31, { x: 0.69, y: BEAM_HEIGHT + 0.05, z: 0 });
   cylZ(b.pipe, PIPE_R, 6.15, { z: 0.72 });
   exitPipe(b, halfLength, 3.30);
 

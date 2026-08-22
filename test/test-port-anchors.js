@@ -237,11 +237,12 @@ const FAKE_BOUNDS = { minX: -0.5, maxX: 0.5, minY: 0, maxY: 2.0, minZ: -3.6, max
 const SHELL = 0.45;
 
 // bounds.minZ + 7.2 * offsetAlong, per port. Hand-computed, not derived.
-const ALONG = { pwr_in: -2.16, cryo_in: 0, rf_in: 2.16, vac_in: 1.44 };
+const ALONG = { pwr_in: -2.16, cryo_in: 0, rf_in: 0.390625, vac_in: 1.44 };
 // Straight out of PORT_ANCHOR_OVERRIDES.cryomodule (_default 1.15).
-const Y = { pwr_in: 1.15, cryo_in: 0.7, rf_in: 1.45, vac_in: 1.15 };
+const Y = { pwr_in: 1.15, cryo_in: 0.7, rf_in: 1.0, vac_in: 1.15 };
 // spec.side: left is local -x, right is local +x.
-const SIGN = { pwr_in: -1, vac_in: -1, cryo_in: 1, rf_in: 1 };
+const SIGN = { pwr_in: -1, vac_in: -1, cryo_in: 1, rf_in: -1 };
+const LAT = { pwr_in: SHELL, vac_in: SHELL, cryo_in: SHELL, rf_in: 0.76 };
 const CM_PORTS = Object.keys(ALONG);
 
 const TOL = 1e-9;
@@ -329,7 +330,7 @@ console.log('\n--- 5. With a renderer, the anchor lands on the measured shell --
   // `offsetAlong` of the model's 7.2 m length from its back end.
   for (const port of CM_PORTS) {
     const a = anchors[port];
-    const wantX = 7 + SIGN[port] * SHELL;
+    const wantX = 7 + SIGN[port] * LAT[port];
     const wantZ = 12 + ALONG[port];
     assert(a && near(a.x, wantX) && near(a.y, Y[port]) && near(a.z, wantZ),
       `cryomodule.${port} mounts at (${wantX}, ${Y[port]}, ${wantZ}) — got ${fmtA(a)}`);
@@ -338,10 +339,10 @@ console.log('\n--- 5. With a renderer, the anchor lands on the measured shell --
   // The sim uses the footprint for its longitudinal fraction while the
   // renderer uses measured model bounds.
   const sim = portWorldPosition(place(CM), CM_DEF, 'rf_in');
-  assert(near(sim.x, 8) && near(sim.z, 14.4),
+  assert(near(sim.x, 6) && near(sim.z, 11.6),
     `portWorldPosition uses the footprint edge and authored offset (${sim.x}, ${sim.z})`);
-  assert(near(anchors.rf_in.x - 7, SHELL) && (8 - 7) > SHELL,
-    'and the drawn anchor is inboard of it, on the same side');
+  assert(near(7 - anchors.rf_in.x, LAT.rf_in) && (7 - 6) > LAT.rf_in,
+    'and the drawn RF anchor is inboard of it, on the visible coupler side');
 }
 
 console.log('\n--- 6. A connector never leaves the footprint, or enters the beam ---');
@@ -353,7 +354,9 @@ console.log('\n--- 6. A connector never leaves the footprint, or enters the beam
   useProviders(FAKE_BOUNDS, 99);
   for (const port of ['pwr_in', 'rf_in']) {
     const a = portAnchor3D(place(CM), CM_DEF, port);
-    const wantX = 7 + SIGN[port] * 1.0;   // footprint half-extent, subW 4 * 0.25
+    const wantX = port === 'rf_in'
+      ? 7 + SIGN[port] * LAT[port]
+      : 7 + SIGN[port] * 1.0;   // footprint half-extent, subW 4 * 0.25
     assert(near(a.x, wantX),
       `a 99 m surface clamps ${port} back to the footprint edge ${wantX} (got ${a.x})`);
   }
@@ -375,18 +378,18 @@ console.log('\n--- 6. A connector never leaves the footprint, or enters the beam
   useProviders({ ...FAKE_BOUNDS, minZ: -50, maxZ: 50 }, null);
   const back = portAnchor3D(place(CM), CM_DEF, 'pwr_in');
   const front = portAnchor3D(place(CM), CM_DEF, 'rf_in');
-  assert(near(back.z, 8) && near(front.z, 16),
-    `a 100 m model still clamps its ports to the footprint ends, z 8 and 16 `
+  assert(near(back.z, 8) && near(front.z, 12.390625),
+    `a 100 m model keeps the ordinary port at the footprint end and RF on its authored window `
     + `(got ${back.z} and ${front.z})`);
-  assert(near(back.x, 6.5) && near(front.x, 7.5),
-    `with no raycast the lateral comes from the model box, x 6.5 and 7.5 `
+  assert(near(back.x, 6.5) && near(front.x, 6.24),
+    `with no raycast the ordinary lateral comes from the model box while RF keeps its window `
     + `(got ${back.x} and ${front.x})`);
 }
 
 console.log('\n--- 7. offsetAlong finally displaces along the machine ---');
 {
   // The bug this half of the change fixes: `offsetAlong` is declared on nearly
-  // every port and was never read, so cryo_in (0.5) and rf_in (0.8) resolved to
+  // every port and was never read, so cryo_in and rf_in resolved to
   // the same point on an 8 m machine — two connectors in the same place, four
   // metres from the coupler either belongs to.
   useProviders(null, null);
@@ -401,10 +404,11 @@ console.log('\n--- 7. offsetAlong finally displaces along the machine ---');
     `measured, the four ports take four distinct points along it (${CM_PORTS.map(p => z[p]).join(',')})`);
   assert(near(z.cryo_in, 12), `offsetAlong 0.5 is the middle of the model, z 12 (got ${z.cryo_in})`);
   assert(near(z.pwr_in, 9.84), `offsetAlong 0.2 is 2.16 m toward the back, z 9.84 (got ${z.pwr_in})`);
-  assert(near(z.rf_in, 14.16), `offsetAlong 0.8 is 2.16 m toward the front, z 14.16 (got ${z.rf_in})`);
+  assert(near(z.rf_in, 12.390625),
+    `rf_in lands on the visible coupler window at z 12.390625 (got ${z.rf_in})`);
   assert(near(z.vac_in, 13.44), `offsetAlong 0.7 is 1.44 m toward the front, z 13.44 (got ${z.vac_in})`);
-  assert(near(z.rf_in - 12, 12 - z.pwr_in),
-    '0.2 and 0.8 are mirror images about the centre, as the model is');
+  assert(z.rf_in > z.cryo_in && z.rf_in < z.vac_in,
+    'the RF inlet uses the first centre-adjacent window rather than the far end of the vessel');
 }
 
 console.log('\n--- 8. An authored mount beats the measurement ---');
@@ -424,7 +428,7 @@ console.log('\n--- 8. An authored mount beats the measurement ---');
       + `(7.3, 0.7, 10.75) — got ${fmtA(a)}`);
     // Its neighbour, unauthored, is untouched by the entry.
     const rf = portAnchor3D(place(CM), CM_DEF, 'rf_in');
-    assert(near(rf.x, 7.45) && near(rf.z, 14.16),
+    assert(near(rf.x, 6.24) && near(rf.z, 12.390625),
       `and the port next to it still takes the measurement (${fmtA(rf)})`);
   } finally {
     if (saved) entry.cryo_in = saved; else delete entry.cryo_in;
@@ -441,15 +445,15 @@ console.log('\n--- 9. The mount is local: it turns with the placeable ---');
   // sitting on the axis would land in the same place under a transposed or
   // mirrored turn.
   useProviders(FAKE_BOUNDS, SHELL);
-  const lat = SHELL, along = 2.16;
+  const lat = LAT.rf_in, along = ALONG.rf_in;
   // Centres: dir 1/3 swap the footprint (4x16 sub-cells becomes 16x4), so the
   // centre itself moves. Offsets are the quarter turns of (lat, along) that
   // rotateCompass and the renderer's rotY = -dir * PI/2 both describe.
   const expect = [
-    { c: [7, 12], o: [lat, along] },
-    { c: [10, 9], o: [-along, lat] },
-    { c: [7, 12], o: [-lat, -along] },
-    { c: [10, 9], o: [along, -lat] },
+    { c: [7, 12], o: [-lat, along] },
+    { c: [10, 9], o: [-along, -lat] },
+    { c: [7, 12], o: [lat, -along] },
+    { c: [10, 9], o: [along, lat] },
   ];
   const seen = new Set();
   for (let dir = 0; dir < 4; dir++) {
@@ -465,7 +469,52 @@ console.log('\n--- 9. The mount is local: it turns with the placeable ---');
   assert(seen.size === 4, `four rotations, four distinct anchors (${[...seen].join(' | ')})`);
 }
 
-console.log('\n--- 10. Every real component port lands on rendered geometry ---');
+console.log('\n--- 10. Every beamline RF sink lands on its visible inlet hardware ---');
+{
+  useProviders(null, null);
+  const inletWindows = [
+    ['ncRfGun', 0.63, 1.08, 0.02],
+    ['srfGun', 0.76, 1.05, 0.38],
+    ['ecrIonSource', -0.77, 1.05, -0.49],
+    ['protonLinacFrontEnd', -0.92, 1.08, -1.25],
+    ['positronSource', 0.72, 1.05, 0],
+    ['buncher', 0.5, 1.2, 0],
+    ['pillboxCavity', 0.5, 1.2, 0],
+    ['rfCavity', 0.46, 1.2, 0],
+    ['sbandStructure', 0.64, 1.35, 0.914],
+    ['cbandStructure', -0.90, 1.0, -1.22],
+    ['xbandStructure', 0, 1.42, -1.445],
+    ['industrialLinac', -0.49, 1.05, -0.18],
+    ['rfq', -1.0, 1.0, -0.77],
+    ['dtl', -0.73, 1.12, -0.78],
+    ['twoBeamModule', 0.385, 1.15, -4.76],
+    ['halfWaveResonator', 0.75, 1.0, 0],
+    ['spokeCavity', 0.75, 1.0, 0.465],
+    ['ellipticalSrfCavity', 0.75, 1.0, -0.468],
+    ['srf650Cryomodule', 1.0, 1.0, 0],
+    ['srf805Cryomodule', 0.94, 1.0, 1.296],
+    ['cryomodule', -0.76, 1.0, 0.390625],
+    ['cwCryomodule', 0.95, 1.0, 0],
+    ['nbSnCryomodule', 0.95, 1.0, 1.296],
+    ['srfLinacSector', 0.90, 1.0, 0],
+  ];
+  const actualRfSinks = Object.entries(COMPONENTS).filter(([, def]) =>
+    Object.values(def.ports || {}).some(port =>
+      port.utility === 'rfWaveguide' && port.role === 'sink'));
+  assert(inletWindows.length === actualRfSinks.length,
+    `the inlet audit covers all ${actualRfSinks.length} beamline RF sinks`);
+  for (const [type, localX, y, localZ] of inletWindows) {
+    const def = COMPONENTS[type];
+    const p = place(type, { col: 0, row: 0, subCol: null, subRow: null, dir: 0 });
+    const centre = { x: 1, z: 1 };
+    const anchor = portAnchor3D(p, def, 'rf_in');
+    assert(anchor && near(anchor.x, centre.x + localX)
+        && near(anchor.y, y) && near(anchor.z, centre.z + localZ),
+      `${type}.rf_in sits on its visible inlet hardware (${fmtA(anchor)})`);
+  }
+}
+
+console.log('\n--- 11. Every real component port lands on rendered geometry ---');
 {
   // The synthetic sections above prove the coordinate arithmetic. This pass
   // supplies the real renderer and asks every declared utility port on every
