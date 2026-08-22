@@ -2,100 +2,12 @@
 
 import { COMPONENTS } from '../data/components.js';
 import { FLOORS } from '../data/structure.js';
-import { DIR, DIR_DELTA, turnLeft, reverseDir } from '../data/directions.js';
-import { portSide } from '../beamline/junctions.js';
+import { DIR } from '../data/directions.js';
 import { pipeCost, pipeTileDist } from '../beamline/BeamlineSystem.js';
 import { layoutDesign } from '../beamline/design-layout.js';
+import { planDesignPlacementGeometry } from '../beamline/design-placement-geometry.js';
 import { placementPose } from '../beamline/pipe-placements.js';
 import { applyPreviewDialog } from './ApplyPreviewDialog.js';
-
-// DIR_DELTA index -> compass side, and back. DIR_DELTA[0..3] are
-// (0,-1)/(1,0)/(0,1)/(-1,0) = N/E/S/W, which is exactly the clockwise compass
-// order junctions.portSide() rotates in.
-const DIR_TO_COMPASS = ['N', 'E', 'S', 'W'];
-function dirFromCompass(side) {
-  const i = DIR_TO_COMPASS.indexOf(side);
-  return i < 0 ? null : i;
-}
-
-/**
- * The name of the port an arriving pipe should land on.
- *
- * Almost every junction calls it `entry`. The two-beam endpoints do not:
- * `collisionPoint` and `blackHoleChamber` are the shape the engine already
- * supports for a collider — two counter-propagating arms terminating on
- * entryA and entryB — and neither publishes a plain `entry`. Falling back to
- * the first `entry`-prefixed port is what lets a design walk into one, and it
- * is deliberately a NAME fallback rather than a geometric one: the arm a
- * design arrives on is decided by the layout walk, not by which side happens
- * to face the pipe, and picking geometrically would silently reorder the two
- * arms of a collider.
- */
-function _entryPortName(compType) {
-  const ports = COMPONENTS[compType]?.ports || {};
-  if (ports.entry) return 'entry';
-  // Ring injection is the one three-port merger whose incoming linac port is
-  // named by function rather than with the generic entry prefix.
-  if (ports.linacEntry) return 'linacEntry';
-  const named = Object.keys(ports).filter(k => k.startsWith('entry')).sort();
-  return named[0] || 'entry';
-}
-
-/** The forward port a sequential design should leave through. */
-function _exitPortName(compType) {
-  const ports = COMPONENTS[compType]?.ports || {};
-  if (ports.exit) return 'exit';
-  if (ports.ringExit) return 'ringExit';
-  const named = Object.keys(ports).filter(k => /exit/i.test(k)).sort();
-  return named[0] || 'exit';
-}
-
-/**
- * The junction `dir` a module must be placed at so that its `entry` port faces
- * the pipe arriving along `travelDir`.
- *
- * `dir` and travel direction are NOT the same quantity: portSide() puts a
- * dir=0 module's 'front' (its exit) on compass S while DIR_DELTA[0] points N,
- * so a module placed with dir === travelDir has its exit facing exactly
- * backwards and validateDrawPipe rejects every connecting pipe with
- * port_mismatch. Entry is on 'back' (N at dir=0), i.e. compass index dir, and
- * a pipe travelling along `travelDir` approaches from the opposite side.
- */
-function junctionDirForTravel(travelDir) {
-  return reverseDir(travelDir);
-}
-
-/**
- * Travel direction of the pipe leaving `type`'s exit port when the module is
- * placed at junction `dir`. Straight modules give back the incoming direction;
- * a dipole's exit sits on the yoke's open side, so this is where its 90° bend
- * actually points — the design's stored `bendDir` cannot override it, because
- * fixing the entry side fixes the rotation.
- */
-function exitTravelDir(type, dir, fallback) {
-  const side = portSide({ type, dir }, _exitPortName(type));
-  const d = side ? dirFromCompass(side) : null;
-  return d === null ? fallback : d;
-}
-
-/**
- * Tile gap to leave after the module at `i` — i.e. the length of the pipe that
- * follows it in the layout.
- *
- * This used to be the literal constant 1. Pipes are now sized to whatever is
- * mounted on them (see design-layout.pipeTilesFor), because a one-tile run is
- * 4 sub-units and a single cryomodule is 16, so anything longer than half a
- * pipe simply could not be placed. Both the quote walk and the placement walk
- * read the gap from the same entry, and _buildPipePath derives the path from
- * the two modules' actual coordinates, so all three stay in step automatically.
- *
- * The trailing module has no pipe after it; the 1 it falls back to is never
- * used for anything but the final cursor advance.
- */
-function gapTilesAfter(sequence, i) {
-  const next = sequence[i + 1];
-  return next && next.kind === 'pipe' ? next.tiles : 1;
-}
 
 export class DesignPlacer {
   constructor(game, renderer) {
@@ -118,14 +30,14 @@ export class DesignPlacer {
     // about the hardware that rides the pipes (which occupies no tiles).
     //
     //   previewModules: [{ kind: 'module'|'onPipe', type, col, row, dir, subL? }]
-    //     'module' — integer anchor tile + the junction `dir` confirm() will
-    //                pass to placeJunction.
+    //     'module' — sub-grid anchor + the junction `dir` confirm() will pass
+    //                to placeJunction.
     //     'onPipe' — fractional pipe-space col/row and the travel-derived dir,
     //                from the SAME placementPose() the world snapshot uses for
     //                committed attachments, so the ghost and the built thing
     //                land on the same point.
-    //   previewPipes: [{ from: {col,row}, to: {col,row} }] — the face-to-face
-    //                runs _buildPipePath will draw between consecutive modules.
+    //   previewPipes: [{ from: {col,row}, to: {col,row} }] — exact port-to-port
+    //                runs the placement geometry will draw between modules.
     this.previewModules = [];
     this.previewPipes = [];
     this.totalCost = 0;
@@ -177,7 +89,7 @@ export class DesignPlacer {
    * NOTE: currently inert. It used to flip each dipole's stored `bendDir`, but
    * a dipole's exit sits on a fixed side of its yoke, so once the entry port is
    * aligned with the incoming pipe the rotation — and therefore the bend
-   * direction — is fully determined (see exitTravelDir). Mirroring a design
+   * direction — is fully determined by its beam ports. Mirroring a design
    * needs a mirrored dipole component, not a flag.
    */
   reflect() {
@@ -207,10 +119,6 @@ export class DesignPlacer {
     // never touches.
     this.valid = true;
 
-    let col = this.startCol;
-    let row = this.startRow;
-    let dir = this.direction;
-
     const concreteCost = FLOORS.concrete?.cost || 10;
     let componentCost = 0;
     let foundationCost = 0;
@@ -220,6 +128,16 @@ export class DesignPlacer {
     // shared with confirm() so the quote can never describe a different
     // beamline than the one the click builds — see design-layout.js.
     const layout = layoutDesign(this.design);
+    const geometry = planDesignPlacementGeometry(layout, {
+      startCol: this.startCol,
+      startRow: this.startRow,
+      direction: this.direction,
+    });
+    if (!geometry.ok) {
+      this.valid = false;
+      this.invalidReason = geometry.reason;
+      return;
+    }
 
     // Discarded attachments are still charged for. That is deliberate rather
     // than an oversight: confirm() charges the same total, so exempting them
@@ -229,14 +147,15 @@ export class DesignPlacer {
       componentCost += funding;
     }
 
-    for (let i = 0; i < layout.sequence.length; i++) {
-      const item = layout.sequence[i];
+    const plannedSubgrid = new Set();
+    const plannedFoundation = new Set();
+    for (const item of geometry.sequence) {
       if (item.kind === 'pipe') {
         // Beam pipe between this module and the previous one. drawPipe charges
         // for it at confirm time, so the quote has to include it or the price
         // the player is shown is not the price they pay.
-        // Modules sit trackLen + item.tiles apart and the pipe runs face to
-        // face, so the connecting run is exactly item.tiles (_buildPipePath).
+        // Placement geometry gives the pipe exactly item.tiles between the
+        // authoritative module ports.
         pipeQuote += pipeCost(item.tiles).funding;
         // Attachments don't occupy grid tiles — they live on pipes.
         // Still add their cost to the total.
@@ -244,131 +163,54 @@ export class DesignPlacer {
           const funding = COMPONENTS[att.type]?.cost?.funding || 0;
           componentCost += funding;
         }
-        continue;
-      }
-
-      const comp = COMPONENTS[item.type];
-      const delta = DIR_DELTA[dir];
-      const trackLen = item.trackLen;
-      const trackW = item.trackW;
-      const perpDir = turnLeft(dir);
-      const perpDelta = DIR_DELTA[perpDir];
-
-      // Integer offsets only. `j - (trackW - 1) / 2` produced ±0.5 for
-      // even-width modules, so the collision probe looked up subgrid keys like
-      // "12,10.5,0,0" that can never exist — detection failed open — and
-      // confirm() then poured concrete at fractional coordinates that no
-      // demolish tool can target.
-      const widthOffsets = [];
-      for (let j = 0; j < trackW; j++) {
-        widthOffsets.push(j - Math.floor((trackW - 1) / 2));
-      }
-
-      // Module footprint tiles
-      for (let i = 0; i < trackLen; i++) {
-        for (const wOff of widthOffsets) {
-          const tc = col + delta.dc * i + perpDelta.dc * wOff;
-          const tr = row + delta.dr * i + perpDelta.dr * wOff;
-          this.previewTiles.push({ col: tc, row: tr, type: item.type });
-
-          // On-site check. Nothing else in the placement path knows where the
-          // ground ends: `valid` below checks occupancy and affordability, and
-          // validateDrawPipe checks ports, straightness and pipe overlap.
-          // Without this a 204-tile collider lays itself out past the edge of
-          // the generated world on the starting site, which would make the
-          // whole land ladder decorative — the parcels exist precisely so that
-          // the machines which cannot fold have somewhere to go.
-          const ext = this.game.state.mapHalfExtent;
-          if (Math.abs(tc) > ext || Math.abs(tr) > ext) {
-            this.valid = false;
-            this.invalidReason = 'off-site';
-            break;
-          }
-
-          // Collision check via sub-grid placeables
-          const key = tc + ',' + tr;
-          for (let sc = 0; sc < 4; sc++) {
-            for (let sr = 0; sr < 4; sr++) {
-              const k = `${tc},${tr},${sc},${sr}`;
-              if (this.game.state.subgridOccupied && this.game.state.subgridOccupied[k]) {
-                this.valid = false;
-                break;
-              }
-            }
-            if (!this.valid) break;
-          }
-
-          // Foundation check
-          const hasFoundation = this.game.state.infraOccupied[key];
-          if (!hasFoundation) {
-            const alreadyPlanned = this.foundationTiles.some(f => f.col === tc && f.row === tr);
-            if (!alreadyPlanned) {
-              this.foundationTiles.push({ col: tc, row: tr });
-              foundationCost += concreteCost;
-            }
-          }
-        }
-      }
-
-      {
-        const funding = comp?.cost?.funding || 0;
-        componentCost += funding;
-      }
-
-      // The rotation this module will actually be built at. Hoisted out of the
-      // exitTravelDir() call below rather than recomputed, so the ghost preview
-      // and confirm()'s placeJunction can never be shown different facings —
-      // the whole point of publishing a pose instead of a tile list.
-      const junctionDir = junctionDirForTravel(dir);
-      this.previewModules.push({
-        kind: 'module', type: item.type, col, row, dir: junctionDir,
-      });
-
-      // Outgoing direction is whatever the module's exit port actually faces
-      // at the rotation it will be placed at (straight-through for most,
-      // a 90° turn for a dipole).
-      dir = exitTravelDir(item.type, junctionDir, dir);
-
-      // Advance cursor past this module PLUS the gap the following pipe needs.
-      const advDelta = DIR_DELTA[dir];
-      const gap = gapTilesAfter(layout.sequence, i);
-      const nextCol = col + advDelta.dc * (trackLen + gap);
-      const nextRow = row + advDelta.dr * (trackLen + gap);
-
-      // The connecting pipe and everything mounted on it. Reconstructed here
-      // from the two modules' anchors using the SAME face-to-face arithmetic
-      // _buildPipePath runs at confirm time (this module's face is trackLen -
-      // 0.5 tiles along the travel direction; the next module's is 0.5 tiles
-      // short of its anchor), so the preview cannot drift from what gets built.
-      // On-pipe hardware occupies no grid tiles, so previewTiles has never had
-      // anything to say about it — half a beamline was invisible until commit.
-      const next = layout.sequence[i + 1];
-      if (next && next.kind === 'pipe') {
-        const from = {
-          col: col + advDelta.dc * (trackLen - 0.5),
-          row: row + advDelta.dr * (trackLen - 0.5),
-        };
-        const to = {
-          col: nextCol - advDelta.dc * 0.5,
-          row: nextRow - advDelta.dr * 0.5,
-        };
-        this.previewPipes.push({ from, to });
-        for (const att of next.attachments) {
-          // placementPose is what world-snapshot.buildPipeAttachments calls for
-          // committed placements; feeding it the path and subL the layout sized
-          // the pipe to gives the ghost the exact point the real mesh will
-          // occupy, including the half-length offset that centres it.
-          const pose = placementPose({ path: [from, to], subL: next.subL }, att);
+        this.previewPipes.push({ from: item.path[0], to: item.path[1] });
+        for (const att of item.attachments) {
+          const pose = placementPose({ path: item.path, subL: item.subL }, att);
           if (!pose) continue;
           this.previewModules.push({
             kind: 'onPipe', type: att.type,
             col: pose.col, row: pose.row, dir: pose.dir, subL: att.subL,
           });
         }
+        continue;
       }
 
-      col = nextCol;
-      row = nextRow;
+      const comp = COMPONENTS[item.type];
+      const pose = item.pose;
+      const cells = comp?.footprintCells?.(
+        pose.col, pose.row, pose.subCol, pose.subRow, pose.dir,
+      ) || [];
+      const moduleTiles = new Set();
+
+      for (const cell of cells) {
+        const cellKey = `${cell.col},${cell.row},${cell.subCol},${cell.subRow}`;
+        const tileKey = `${cell.col},${cell.row}`;
+        moduleTiles.add(tileKey);
+
+        const ext = this.game.state.mapHalfExtent;
+        if (Math.abs(cell.col) > ext || Math.abs(cell.row) > ext) {
+          this.valid = false;
+          this.invalidReason = 'off-site';
+        }
+        if (this.game.state.subgridOccupied?.[cellKey] || plannedSubgrid.has(cellKey)) {
+          this.valid = false;
+          this.invalidReason = 'occupied';
+        }
+        plannedSubgrid.add(cellKey);
+      }
+
+      for (const key of moduleTiles) {
+        const [tc, tr] = key.split(',').map(Number);
+        this.previewTiles.push({ col: tc, row: tr, type: item.type });
+        if (!this.game.state.infraOccupied[key] && !plannedFoundation.has(key)) {
+          plannedFoundation.add(key);
+          this.foundationTiles.push({ col: tc, row: tr });
+          foundationCost += concreteCost;
+        }
+      }
+
+      componentCost += comp?.cost?.funding || 0;
+      this.previewModules.push({ kind: 'module', ...pose });
     }
 
     this.pipeQuote = pipeQuote;
@@ -521,38 +363,39 @@ export class DesignPlacer {
       }
     }
 
-    // Walk the design and emit modules + pipes + attachments
-    let col = this.startCol;
-    let row = this.startRow;
-    let dir = this.direction;
+    // Walk the design and emit modules + exact port-to-port pipes + attachments.
     let prevModuleId = null;
     let prevModuleExitPort = null;
     // The pipe entry precedes the module it feeds in the layout, but the pipe
     // itself can only be drawn once BOTH junctions exist, so its attachments
     // wait here for one iteration.
-    let pendingAttachments = [];
+    let pendingPipe = null;
     let lastPipeId = null;
 
-    // Same walk as _recompute — same discards, same attachment positions.
+    // Same geometry coordinator as _recompute — the committed sub-grid anchors
+    // and pipe endpoints are exactly the poses the ghost collision-checked.
     const layout = layoutDesign(this.design);
+    const geometry = planDesignPlacementGeometry(layout, {
+      startCol: this.startCol,
+      startRow: this.startRow,
+      direction: this.direction,
+    });
+    if (!geometry.ok) return fail(`Design placement failed: ${geometry.reason}`);
 
-    for (let i = 0; i < layout.sequence.length; i++) {
-      const item = layout.sequence[i];
+    for (const item of geometry.sequence) {
       if (item.kind === 'pipe') {
-        pendingAttachments = item.attachments;
+        pendingPipe = item;
         continue;
       }
 
-      // Place the module as a junction via BeamlineSystem, rotated so its
-      // entry port faces the incoming pipe (see junctionDirForTravel).
-      const junctionDir = junctionDirForTravel(dir);
+      const pose = item.pose;
       const placeableId = this.game.beamline.placeJunction({
         type: item.type,
-        col,
-        row,
-        subCol: 0,
-        subRow: 0,
-        dir: junctionDir,
+        col: pose.col,
+        row: pose.row,
+        subCol: pose.subCol,
+        subRow: pose.subRow,
+        dir: pose.dir,
         params: item.params,
         // `this.totalCost` already includes every module's cost (see
         // _recompute) and is deducted once at the end — same reason the
@@ -568,19 +411,13 @@ export class DesignPlacer {
 
       // Connect to previous module via a pipe
       if (prevModuleId) {
-        const pipePath = this._buildPipePath(prevModuleId, placeableId, dir);
-        // The exit side has always resolved its port name; the entry side used
-        // to hardcode 'entry', which silently made every two-entry endpoint
-        // unplaceable. `collisionPoint` and `blackHoleChamber` publish entryA
-        // and entryB and no `entry` at all, so validateDrawPipe rejected with
-        // port_mismatch at every origin on every map size — the collider and
-        // the black hole factory could be designed, costed and previewed, and
-        // then refused to build, with the failure reading as "couldn't
-        // connect" rather than "this endpoint has no port by that name".
+        if (!pendingPipe?.path) {
+          return fail(`Design placement failed: no pipe geometry for ${item.type}`);
+        }
         const pipeId = this.game.beamline.drawPipe(
           { junctionId: prevModuleId, portName: prevModuleExitPort || 'exit' },
-          { junctionId: placeableId, portName: _entryPortName(item.type) },
-          pipePath,
+          { junctionId: placeableId, portName: item.entryPort },
+          pendingPipe.path,
         );
         // A design that cannot be wired up is not a design — bail rather than
         // leave the player disconnected junctions they paid full price for.
@@ -591,7 +428,7 @@ export class DesignPlacer {
 
         // Drain the attachments layoutDesign assigned to this pipe, at the
         // positions it computed.
-        for (const att of pendingAttachments) {
+        for (const att of pendingPipe.attachments) {
           const plId = this.game.beamline.placeOnPipe(lastPipeId, {
             type: att.type,
             position: att.position,
@@ -620,7 +457,7 @@ export class DesignPlacer {
             return fail(`Design placement failed: couldn't mount ${att.type}`);
           }
         }
-        pendingAttachments = [];
+        pendingPipe = null;
       } else if (layout.discardedLeading.length > 0) {
         // Attachments before any module — discard with a warning. This branch
         // only runs for the first module, which is the only one with no
@@ -629,19 +466,7 @@ export class DesignPlacer {
       }
 
       prevModuleId = placeableId;
-      prevModuleExitPort = _exitPortName(item.type);
-
-      // Outgoing direction = where this module's exit port actually points at
-      // the rotation it was placed at. Mirrors _recompute.
-      dir = exitTravelDir(item.type, junctionDir, dir);
-
-      // Advance cursor past this module plus the following pipe's gap. Must
-      // match _recompute exactly, or the footprint that was collision-checked
-      // and priced is not the one that gets built.
-      const delta = DIR_DELTA[dir];
-      const gap = gapTilesAfter(layout.sequence, i);
-      col += delta.dc * (item.trackLen + gap);
-      row += delta.dr * (item.trackLen + gap);
+      prevModuleExitPort = item.exitPort;
     }
 
     // Attachments after the last module (or in a design with no modules at
@@ -666,28 +491,4 @@ export class DesignPlacer {
     return true;
   }
 
-  /**
-   * Straight path for the pipe connecting `fromId`'s exit face to `toId`'s
-   * entry face, along `travelDir`.
-   *
-   * It runs face-to-face, not anchor-to-anchor: an anchor-to-anchor path ends
-   * ON the next module's tile and the following pipe starts there, so from the
-   * third module onward validateDrawPipe rejected every pipe as `overlap`.
-   *
-   * The length falls out of the two modules' coordinates: the walk advanced the
-   * cursor by trackLen + <the pipe's tile count>, so face to face is exactly
-   * that tile count and validateDrawPipe derives the same subL the layout sized
-   * the placements against. Nothing here needs to know the number.
-   */
-  _buildPipePath(fromId, toId, travelDir) {
-    const from = this.game.getPlaceable(fromId);
-    const to = this.game.getPlaceable(toId);
-    if (!from || !to) return [];
-    const d = DIR_DELTA[travelDir];
-    const fromLen = Math.ceil((COMPONENTS[from.type]?.subL || 4) / 4);
-    return [
-      { col: from.col + d.dc * (fromLen - 0.5), row: from.row + d.dr * (fromLen - 0.5) },
-      { col: to.col - d.dc * 0.5, row: to.row - d.dr * 0.5 },
-    ];
-  }
 }
