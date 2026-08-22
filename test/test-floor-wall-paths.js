@@ -50,6 +50,20 @@ console.log('\n=== smart floor wall geometry ===\n');
 }
 
 {
+  const occ = {
+    '0,0': 'labFloor', '1,0': 'labFloor', '2,0': 'labFloor',
+    '0,1': 'labFloor', '1,1': 'labFloor', '2,1': 'labFloor',
+  };
+  const walls = {
+    '1,0,e': 'officeWall',
+    '0,0,n': 'officeWall', '1,0,n': 'officeWall', '2,0,n': 'officeWall',
+  };
+  const result = buildInteriorWallBoundary(occ, walls, { col: 0, row: 0 });
+  assertOk(result.path.filter(point => point.col === 1 && point.edge === 'e').length === 1,
+    'a reconnecting floor region emits a partial partition only once');
+}
+
+{
   const occ = { '0,0': 'labFloor', '1,0': 'officeFloor' };
   const walls = {
     '0,0,n': 'officeWall', '0,0,s': 'officeWall', '0,0,w': 'officeWall',
