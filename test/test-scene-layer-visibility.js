@@ -56,6 +56,10 @@ assert.deepEqual(WORLD_LAYER_IDS, [
     lightPoolGroup: object(),
     lightHaloGroup: object(),
     volumetricLightGroup: object(),
+    lowerStoreyPresentation: {
+      beamlineGroups: [object(), object()],
+      infrastructureGroups: [object()],
+    },
     _zoneLabelMeshes: [object(), object()],
     lightingGroup: [{ group: object() }],
   };
@@ -80,6 +84,11 @@ assert.deepEqual(WORLD_LAYER_IDS, [
   }
   assert.equal(renderer.infrastructureComponentGroup.visible, true,
     'beamline visibility does not affect infrastructure hardware');
+  assert(renderer.lowerStoreyPresentation.beamlineGroups.every(group => group.visible === false),
+    'lower-storey beamline context follows the beamline layer switch');
+  controller.setVisible('infra', false);
+  assert(renderer.lowerStoreyPresentation.infrastructureGroups.every(group => group.visible === false),
+    'lower-storey infrastructure context follows the infrastructure layer switch');
   controller.setVisible('zoneLabels', false);
   assert(renderer._zoneLabelMeshes.every(label => label.visible === false),
     'zone label visibility leaves the rest of the zone overlay untouched');

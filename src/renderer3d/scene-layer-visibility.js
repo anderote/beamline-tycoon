@@ -76,6 +76,7 @@ export function sceneLayerTargets(renderer) {
     renderer.beamEffectGroup,
     renderer.beamPipeGroup,
     renderer.pipeAttachmentGroup,
+    renderer.lowerStoreyPresentation?.beamlineGroups,
   );
   add(['infra'],
     renderer.infrastructureComponentGroup,
@@ -83,6 +84,7 @@ export function sceneLayerTargets(renderer) {
     renderer.utilityLineGroup,
     renderer.utilityPortIssueGroup,
     renderer.portFittingGroup,
+    renderer.lowerStoreyPresentation?.infrastructureGroups,
   );
   add(['facility'], renderer.facilityLayerGroup);
   add(['structure'], renderer.structureLayerGroup);

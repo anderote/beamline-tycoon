@@ -47,6 +47,7 @@ import { UtilityLineBuilderV2 } from './utility-line-builder-v2.js';
 import { tickFlow } from './utility-flow.js';
 import { utilityLineVisualSignature } from './utility-visual-signature.js';
 import { buildWorldSnapshot, updateWorldSnapshot } from './world-snapshot.js';
+import { LowerStoreyPresentation } from './lower-storey-presentation.js';
 import { disposeGroupChildren, disposeSceneObject } from './dispose-utils.js';
 import { listUtilityEndpoints, makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
 import { utilityPortIssues } from '../utility/port-issues.js';
@@ -348,6 +349,7 @@ export class ThreeRenderer {
     this.portFittingGroup = null;
     this.wallVisibilityMode = 'transparent';
     this._snapshot = null;
+    this.lowerStoreyPresentation = null;
 
     // Utility sink-port alert memo. A steady solve never pays for the anchor
     // resolution and geometry rebuild the markers need.
@@ -797,6 +799,17 @@ export class ThreeRenderer {
     this.gridOverlayGroup.name = 'gridOverlay';
     this.gridOverlayGroup.renderOrder = 997;
     this.scene.add(this.gridOverlayGroup);
+
+    this.lowerStoreyPresentation = new LowerStoreyPresentation(
+      this.game,
+      this.textureManager,
+      {
+        structure: this.structureLayerGroup,
+        facility: this.facilityLayerGroup,
+        grounds: this.groundsLayerGroup,
+        scene: this.scene,
+      },
+    );
 
     // Repeated at all four owned-map edges so the land purchase stays
     // discoverable from every camera heading. It is a standalone coordinator:
@@ -4689,6 +4702,7 @@ export class ThreeRenderer {
     this._refreshPortFittings();
     this._refreshBeamPipes();
     this._refreshZones();
+    this.lowerStoreyPresentation?.sync(snapshot);
     this._invalidateGridOverlay();
     this._markPhysicsBodiesDirty();
     this._sceneLayerVisibility.apply();
@@ -4732,6 +4746,7 @@ export class ThreeRenderer {
     if (plan.portFittings) this._refreshPortFittings();
     if (plan.physicsBodies) this._markPhysicsBodiesDirty();
     if (plan.palette && this._refreshPalette) this._refreshPalette();
+    this.lowerStoreyPresentation?.sync(this._snapshot);
     this._sceneLayerVisibility.apply();
     if (this._selectedBeamlineFocus
         && (plan.components || plan.beamPipes || plan.utilityLines)) {
@@ -5794,6 +5809,8 @@ export class ThreeRenderer {
     }
     window.removeEventListener('resize', this._boundOnResize);
     this._clearDesignGhost();
+    this.lowerStoreyPresentation?.dispose();
+    this.lowerStoreyPresentation = null;
     if (this.utilityLineBuilderV2 && this.utilityLineGroup) {
       this.utilityLineBuilderV2.dispose(this.utilityLineGroup);
     }
