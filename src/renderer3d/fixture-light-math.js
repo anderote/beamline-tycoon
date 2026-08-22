@@ -1,5 +1,5 @@
 // Pure fixture-light projection math. No THREE imports: painted pools, real
-// spots, volumetric proxies, and Node tests all consume the same calculation.
+// spots, projected pools, and Node tests all consume the same calculation.
 
 import {
   wallFixtureFaceOffset,

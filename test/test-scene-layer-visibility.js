@@ -55,7 +55,6 @@ assert.deepEqual(WORLD_LAYER_IDS, [
     staffPawns: { group: object() },
     lightPoolGroup: object(),
     lightHaloGroup: object(),
-    volumetricLightGroup: object(),
     lowerStoreyPresentation: {
       beamlineGroups: [object(), object()],
       infrastructureGroups: [object()],

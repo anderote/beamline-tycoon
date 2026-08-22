@@ -85,7 +85,6 @@ export class OptionsDialog {
     this.el.querySelector('#opt-zone-labels').checked =
       this.renderer.showZoneLabels !== false;
     this.el.querySelector('#opt-glow').checked = this.renderer.glowEnabled;
-    this.el.querySelector('#opt-volumetric').checked = this.renderer.volumetricEnabled;
     this.el.querySelector('#opt-lighting-quality').value = this.renderer.lightingQuality;
 
     this.el.querySelector('#opt-dev-mode').checked = !!this.game.devMode;
@@ -152,10 +151,6 @@ export class OptionsDialog {
         <div class="opt-row">
           <label class="opt-label" for="opt-glow">Glow &amp; dynamic lighting</label>
           <input type="checkbox" id="opt-glow" class="opt-check">
-        </div>
-        <div class="opt-row">
-          <label class="opt-label" for="opt-volumetric">Volumetric atmosphere</label>
-          <input type="checkbox" id="opt-volumetric" class="opt-check">
         </div>
         <div class="opt-row">
           <label class="opt-label" for="opt-lighting-quality">Lighting quality</label>
@@ -241,10 +236,6 @@ export class OptionsDialog {
     el.querySelector('#opt-glow').addEventListener('change', (e) => {
       this.renderer.setGlowEnabled(e.target.checked);
       try { localStorage.setItem('beamlineTycoon.glow', e.target.checked ? '1' : '0'); } catch (_) {}
-    });
-    el.querySelector('#opt-volumetric').addEventListener('change', (e) => {
-      this.renderer.setVolumetricEnabled(e.target.checked);
-      try { localStorage.setItem('beamlineTycoon.volumetricLighting', e.target.checked ? '1' : '0'); } catch (_) {}
     });
     el.querySelector('#opt-lighting-quality').addEventListener('change', (e) => {
       this.renderer.setLightingQuality(e.target.value);

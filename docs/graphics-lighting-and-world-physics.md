@@ -41,10 +41,9 @@ unselected fixtures still read as illuminated. It is not a light source and
 does not shade arbitrary geometry or cast shadows. The modern 64-light path is
 the real-light layer; projected pools are optional presentation support.
 
-Overhead fixtures no longer draw visible volumetric cone meshes. Their softer
-source radii and wider penumbrae keep the illumination while removing the
-distracting cone-shaped volume. Wall and effect fixtures can still opt into a
-volume profile where the beam itself is part of the art direction.
+Fixtures do not draw visible volumetric cone meshes. Real lights, emissive
+sources, bloom, halos, cookies, shadows, and projected surface pools provide
+the illumination without placing translucent cone geometry in clear air.
 
 Current maximum budgets:
 
@@ -53,7 +52,6 @@ Current maximum budgets:
 | Real fixture lights | 64 | Camera-ranked, packed GPU data |
 | Shadowed fixture lights | 12 | Cached shared depth array |
 | Dynamic point/effect lights | 32 | 30 camera-ranked utility-flow/machine-glow slots plus 2 flash reserves |
-| Volumetric fixture meshes | 8 | Independent presentation budget |
 
 Use `window.dev.lightingStats()` to inspect the selected backend, candidates,
 assigned lights, shadow layers, and update work. Use `?renderer=legacy` to

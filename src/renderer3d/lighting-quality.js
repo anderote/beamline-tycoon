@@ -16,7 +16,6 @@ export const MAX_FIXTURE_LIGHTS = 64;
 export const MAX_FIXTURE_SHADOWS = 12;
 export const MAX_DYNAMIC_POINT_LIGHTS = 32;
 export const DYNAMIC_POINT_LIGHT_FLASH_RESERVE = 2;
-export const MAX_VOLUMETRIC_BEAMS = 8;
 export const MAX_SHADOW_TEXTURE_BUDGET_BYTES = 64 * 1024 * 1024;
 
 /** Worst-case persistent shadow texture bytes for the modern renderer.
@@ -66,7 +65,6 @@ const PRESETS = {
     glowScale: 0.25,
     softGlow: false,
     effectPulseCount: 128,
-    volumetricCount: 0,
     contactAOStrength: 0,
     contactAOSamples: 4,
     contactAOScale: 0.25,
@@ -82,7 +80,6 @@ const PRESETS = {
     glowScale: 0.35,
     softGlow: true,
     effectPulseCount: 256,
-    volumetricCount: 1,
     contactAOStrength: 0.48,
     contactAOSamples: 6,
     contactAOScale: 0.3,
@@ -98,7 +95,6 @@ const PRESETS = {
     glowScale: 0.5,
     softGlow: true,
     effectPulseCount: 384,
-    volumetricCount: 3,
     contactAOStrength: 0.65,
     contactAOSamples: 8,
     contactAOScale: 0.4,
@@ -114,7 +110,6 @@ const PRESETS = {
     glowScale: 0.5,
     softGlow: true,
     effectPulseCount: 512,
-    volumetricCount: 8,
     contactAOStrength: 0.72,
     contactAOSamples: 12,
     contactAOScale: 0.5,

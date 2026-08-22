@@ -76,11 +76,10 @@ import { VisualEffectSystem } from './visual-effect-system.js';
 import { fixtureMountY, wallFixturePose } from './fixture-light-math.js';
 import {
   DYNAMIC_POINT_LIGHT_FLASH_RESERVE, MAX_DYNAMIC_POINT_LIGHTS,
-  MAX_FIXTURE_LIGHTS, MAX_FIXTURE_SHADOWS, MAX_VOLUMETRIC_BEAMS, fixtureShadowTopologyLimit,
+  MAX_FIXTURE_LIGHTS, MAX_FIXTURE_SHADOWS, fixtureShadowTopologyLimit,
   normalizeLightingQuality, resolveLightingQuality,
 } from './lighting-quality.js';
 import { ShadowScheduler } from './shadow-scheduler.js';
-import { VolumetricLightPool } from './volumetric-light-pool.js';
 import { fixtureDynamicFactor } from './light-dynamics.js';
 import { fixtureActivationFactor } from './fixture-activation.js';
 import { disposeLightCookies } from './light-cookie.js';
@@ -270,7 +269,6 @@ export class ThreeRenderer {
     this.beamlineComponentGroup = null;
     this.infrastructureComponentGroup = null;
     this.beamEffectGroup = null;
-    this.volumetricLightGroup = null;
     // Registry (not a scene Group — lighting fixtures render as children of
     // decorationGroup like any other decoration, so demolish/hover/move
     // raycasting keeps working unchanged) of the lighting fixtures built by
@@ -655,16 +653,6 @@ export class ThreeRenderer {
       (position, color, intensity, durationMs) =>
         this._lightRig?.flash(position, color, intensity, durationMs) ?? null,
     );
-    let volumeStored;
-    try { volumeStored = localStorage.getItem('beamlineTycoon.volumetricLighting'); } catch (_) { volumeStored = null; }
-    this._volumetricEnabled = volumeStored !== '0' && glowStored !== '0';
-    this._volumePool = new VolumetricLightPool(this.scene, {
-      maxCount: MAX_VOLUMETRIC_BEAMS,
-      activeCount: this._lightingQuality.volumetricCount,
-      enabled: this._volumetricEnabled,
-      modern: this._rendererBackend.mode === 'modern',
-    });
-    this.volumetricLightGroup = this._volumePool.group;
     this._lightFocus = new THREE.Vector3();
 
     // Scene groups
@@ -1829,20 +1817,10 @@ export class ThreeRenderer {
     if (this._glowPipeline) this._glowPipeline.setEnabled(enabled);
     if (this._effectSystem) this._effectSystem.setEnabled(enabled);
     if (this._lightRig) this._lightRig.setEnabled(enabled);
-    if (this._volumePool) this._volumePool.setEnabled(enabled && this._volumetricEnabled);
   }
 
   get glowEnabled() {
     return this._glowPipeline ? this._glowPipeline.enabled : true;
-  }
-
-  setVolumetricEnabled(enabled) {
-    this._volumetricEnabled = !!enabled;
-    if (this._volumePool) this._volumePool.setEnabled(this._volumetricEnabled && this.glowEnabled);
-  }
-
-  get volumetricEnabled() {
-    return this._volumetricEnabled !== false;
   }
 
   setLightingQuality(value) {
@@ -1855,7 +1833,6 @@ export class ThreeRenderer {
     });
     if (this._lightRig) this._lightRig.setQuality(this._lightingQuality);
     if (this._effectSystem) this._effectSystem.setQuality(this._lightingQuality);
-    if (this._volumePool) this._volumePool.setQuality(this._lightingQuality);
     if (this._sunShadowScheduler) {
       this._sunShadowScheduler.configure({ hz: this._lightingQuality.sunShadowHz, maxUpdatesPerFrame: 1 });
       this._sunShadowScheduler.markAllDirty();
@@ -1883,7 +1860,6 @@ export class ThreeRenderer {
       ...(this._lightRig?.getStats() || {}),
       ...(this._framePacer?.getStats() || {}),
       effects: this._effectSystem?.getStats?.() || null,
-      ...(this._volumePool?.getStats() || {}),
     };
   }
 
@@ -4462,7 +4438,6 @@ export class ThreeRenderer {
         // exactly the frames that can least afford them.
         { freezeAssignment: this._viewRotating || this._snapping || this._freeOrbiting },
       );
-      this._volumePool?.update(this._lightRig, this._darkness ?? 0, _dt);
     }
     this._physicsPresentation.update(_dt);
     // Everything above is simulation and state: it runs every frame so the
@@ -5843,11 +5818,6 @@ export class ThreeRenderer {
     if (this._effectSystem) {
       this._effectSystem.dispose();
       this._effectSystem = null;
-    }
-    if (this._volumePool) {
-      this._volumePool.dispose();
-      this._volumePool = null;
-      this.volumetricLightGroup = null;
     }
     disposeLightCookies();
     this.renderer.dispose();
