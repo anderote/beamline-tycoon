@@ -46,21 +46,31 @@ export function isHvCableTensionAnchor(def) {
     || def?.wallPassThrough === true;
 }
 
-/** A sampled straight 3D span between two mechanical cable supports. */
+/**
+ * A direct, tensioned span between two mechanical cable supports.
+ *
+ * Tension removes the player's excess route length and lateral bends, but a
+ * suspended conductor is never a rigid rod. Keep a shallow gravity bow that
+ * scales with span length while remaining visibly tighter than a loose cable.
+ */
 export function tautCableControlPoints(start, end, {
   sampleSpacing = 0.24,
   maxSamples = 192,
+  sagRatio = 0.018,
+  minSag = 0.08,
+  maxSag = 0.65,
 } = {}) {
   if (![start, end].every(point => point && Number.isFinite(point.x)
     && Number.isFinite(point.y) && Number.isFinite(point.z))) return [];
   const length = Math.hypot(end.x - start.x, end.y - start.y, end.z - start.z);
   if (length < EPS) return [];
   const count = Math.max(8, Math.min(maxSamples, Math.ceil(length / sampleSpacing) + 1));
+  const sagDepth = Math.min(maxSag, Math.max(minSag, length * sagRatio));
   return Array.from({ length: count }, (_, index) => {
     const t = index / (count - 1);
     return {
       x: start.x + (end.x - start.x) * t,
-      y: start.y + (end.y - start.y) * t,
+      y: start.y + (end.y - start.y) * t - sagDepth * 4 * t * (1 - t),
       z: start.z + (end.z - start.z) * t,
     };
   });

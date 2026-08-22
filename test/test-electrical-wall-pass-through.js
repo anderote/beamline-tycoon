@@ -283,7 +283,7 @@ test('Feedthrough and pole connection kinds preserve the radial electrical chain
   assert.ok(networks[0].sinks.some(port => port.placeableId === 'panel'));
 });
 
-test('Utility-pole terminals pull an HV span straight and taut', () => {
+test('Utility-pole terminals take up HV slack but retain shallow suspension sag', () => {
   const def = COMPONENTS.utilityPole;
   const a = { id: 'a', type: 'utilityPole', col: 0, row: 0, subCol: 0, subRow: 0, dir: 0 };
   const b = { id: 'b', type: 'utilityPole', col: 0, row: 6, subCol: 0, subRow: 0, dir: 0 };
@@ -306,9 +306,13 @@ test('Utility-pole terminals pull an HV span straight and taut', () => {
   const last = cable[cable.length - 1];
   for (let index = 0; index < cable.length; index++) {
     const t = index / (cable.length - 1);
-    assert.ok(cable[index].distanceTo(first.clone().lerp(last, t)) < 1e-8,
-      'every sample remains on the straight support-to-support chord');
+    const chord = first.clone().lerp(last, t);
+    assert.ok(Math.hypot(cable[index].x - chord.x, cable[index].z - chord.z) < 1e-8,
+      'every sample remains on the direct support-to-support plan path');
   }
+  const middle = cable[Math.floor(cable.length / 2)];
+  assert.ok(middle.y < first.y && middle.y > first.y - 0.66,
+    'the conductor hangs in a shallow bow rather than a rigid straight line');
 });
 
 test('An HV wall pass-through tensions its attached feeder', () => {
@@ -333,9 +337,15 @@ test('An HV wall pass-through tensions its attached feeder', () => {
   const cable = buildSoftCableWorldPoints(line, endpoints);
   const first = cable[0];
   const last = cable[cable.length - 1];
-  assert.ok(cable.every((point, index) => point.distanceTo(
-    first.clone().lerp(last, index / (cable.length - 1)),
-  ) < 1e-8), 'the pass-through removes drawn slack and holds the cable taut');
+  assert.ok(cable.every((point, index) => {
+    const chord = first.clone().lerp(last, index / (cable.length - 1));
+    return Math.hypot(point.x - chord.x, point.z - chord.z) < 1e-8;
+  }), 'the pass-through removes drawn lateral slack');
+  const middleIndex = Math.floor(cable.length / 2);
+  const middleChord = first.clone().lerp(last, middleIndex / (cable.length - 1));
+  assert.ok(cable[middleIndex].y < middleChord.y
+      && cable[middleIndex].y > middleChord.y - 0.66,
+    'the pass-through-supported conductor remains suspended with shallow sag');
 });
 
 test('A live HV draw from a tower stays taut to its open cursor end', () => {
@@ -352,8 +362,13 @@ test('A live HV draw from a tower stays taut to its open cursor end', () => {
   const cable = buildSoftCableWorldPoints(line, null, { start, end: null });
   const first = cable[0];
   const last = cable[cable.length - 1];
-  assert.ok(cable.every((point, index) => point.distanceTo(
-    first.clone().lerp(last, index / (cable.length - 1)),
-  ) < 1e-8), 'the draw preview ignores mouse-trace slack at a tension support');
-  assert.ok(first.y > last.y, 'the straight preview reaches down from tower height to the cursor plane');
+  assert.ok(cable.every((point, index) => {
+    const chord = first.clone().lerp(last, index / (cable.length - 1));
+    return Math.hypot(point.x - chord.x, point.z - chord.z) < 1e-8;
+  }), 'the draw preview ignores mouse-trace slack at a tension support');
+  const middleIndex = Math.floor(cable.length / 2);
+  const middleChord = first.clone().lerp(last, middleIndex / (cable.length - 1));
+  assert.ok(cable[middleIndex].y < middleChord.y,
+    'the live tensioned preview includes the suspended bow');
+  assert.ok(first.y > last.y, 'the preview reaches down from tower height to the cursor plane');
 });
