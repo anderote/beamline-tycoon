@@ -4893,6 +4893,11 @@ body.palette-expanded {
   white-space: nowrap;
   box-shadow: 0 2px 8px rgba(0,0,0,0.5);
 }
+.hover-tooltip:not(.demolish-tooltip):not(.drag-cost-tooltip) {
+  width: 240px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .hover-tooltip-title {
   color: #eeeeff;
   font-weight: bold;

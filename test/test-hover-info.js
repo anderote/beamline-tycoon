@@ -11,6 +11,7 @@ import {
   HOVER_DETAIL_TONE_CLASSES,
   renderHoverTooltipDetail,
 } from '../src/ui/hover-tooltip-detail.js';
+import { readFileSync } from 'node:fs';
 
 let passed = 0;
 let failed = 0;
@@ -159,6 +160,10 @@ assert(detailElement.textContent === warningNetwork.detail,
 assert(detailElement.children[0].className === HOVER_DETAIL_TONE_CLASSES.supply
     && detailElement.children[2].className === HOVER_DETAIL_TONE_CLASSES.warning,
   'network detail renderer applies supply and underpower color classes');
+
+const styles = readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+assert(/\.hover-tooltip:not\(\.demolish-tooltip\):not\(\.drag-cost-tooltip\)\s*\{[^}]*width:\s*240px[^}]*white-space:\s*normal[^}]*overflow-wrap:\s*anywhere/s.test(styles),
+  'world hover tooltips have a stable wrapping width');
 
 const furnishing = furnishingHoverInfo({
   name: 'Operator Desk',
