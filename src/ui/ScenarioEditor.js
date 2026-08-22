@@ -16,6 +16,7 @@ import { serializeCornerHeights } from '../game/terrain.js';
 import {
   customScenarioRef,
   listCustomScenarios,
+  MINOR_LAB_SCENARIO_ID,
   normalizeScenarioExport,
   parseScenarioExport,
   saveCustomScenario,
@@ -232,8 +233,10 @@ export class ScenarioEditor {
 
   /**
    * Replace the editor world with a validated export as UNSAVED work. The
-   * imported id is retained as an export hint, but Save deliberately routes
+   * imported id is retained as an export hint, but Save normally routes
    * through Save As so a file never overwrites a local scenario by surprise.
+   * Minor Lab is the deliberate exception: it is a single revisable baseline,
+   * so old `minorLab2`/`minorLab4` exports target the canonical `minorLab` slot.
    */
   loadScenarioPayload(payload, {
     sourceName = 'scenario file',
@@ -268,9 +271,11 @@ export class ScenarioEditor {
       return null;
     }
 
-    this._lastId = imported.id;
+    const replacesMinorLab = imported.id === MINOR_LAB_SCENARIO_ID
+      || imported.name.trim().toLowerCase() === 'minor lab';
+    this._lastId = replacesMinorLab ? MINOR_LAB_SCENARIO_ID : imported.id;
     this._lastName = imported.name;
-    this._hasSavedDesign = false;
+    this._hasSavedDesign = replacesMinorLab;
     this._savedSnapshot = null;
     this._lastDraftSnapshot = null;
     // Bank the imported workspace immediately; a crash before the one-minute
@@ -278,7 +283,9 @@ export class ScenarioEditor {
     this.autosaveDraft({ force: true });
     const badge = globalThis.document?.getElementById('editor-badge');
     if (badge) badge.textContent = 'SCENARIO ADMIN · IMPORTED';
-    this.game.log?.(`Loaded “${imported.name}” from ${sourceName} as unsaved work. Use Save As to publish it.`, 'good');
+    this.game.log?.(replacesMinorLab
+      ? `Loaded “${imported.name}” from ${sourceName}. Press Save to replace the Minor Lab starting situation.`
+      : `Loaded “${imported.name}” from ${sourceName} as unsaved work. Use Save As to publish it.`, 'good');
     return imported;
   }
 

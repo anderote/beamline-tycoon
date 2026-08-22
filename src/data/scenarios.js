@@ -24,6 +24,7 @@ export const CUSTOM_SCENARIO_KEY = 'beamlineTycoon.customScenario';
 export const CUSTOM_SCENARIO_ID = '__custom__';
 export const CUSTOM_SCENARIO_INDEX_KEY = 'beamlineTycoon.customScenarioIndex';
 export const CUSTOM_SCENARIO_PREFIX = 'beamlineTycoon.customScenarios.';
+export const MINOR_LAB_SCENARIO_ID = 'minorLab';
 // Exported for storage migration compatibility; New Game no longer reads it.
 export const DEFAULT_STARTING_SCENARIO_KEY = 'beamlineTycoon.defaultStartingScenario';
 export const PENDING_SCENARIO_KEY = 'beamlineTycoon.pendingScenario';
@@ -66,6 +67,106 @@ function writeCustomScenarioIndex(storage, index) {
 
 function customScenarioStorageKey(id) {
   return CUSTOM_SCENARIO_PREFIX + encodeURIComponent(id);
+}
+
+function isMinorLabName(name) {
+  return String(name || '').trim().toLowerCase() === 'minor lab';
+}
+
+function isMinorLabEntry(entry) {
+  return entry?.id === MINOR_LAB_SCENARIO_ID || isMinorLabName(entry?.name);
+}
+
+/**
+ * Collapse old Scenario Admin revisions named "Minor Lab" into the one stable
+ * local override for the built-in scenario. Older editor versions derived a
+ * fresh id (`minorLab2`, `minorLab3`, ...) on Save As, which left several
+ * identically named cards in New Game and allowed the stock starter to reappear.
+ *
+ * The newest valid payload wins. The canonical payload and cleaned index are
+ * written and verified before obsolete payload keys are removed, so a storage
+ * failure cannot destroy the only copy of the authored world.
+ */
+export function consolidateMinorLabScenarios(storage = globalThis.localStorage) {
+  if (!storage) return null;
+  const previousIndex = storage.getItem(CUSTOM_SCENARIO_INDEX_KEY);
+  const index = parseCustomScenarioIndex(previousIndex, { strict: true });
+  const candidates = index.map((entry, order) => ({
+    entry,
+    order,
+    payload: parseStoredScenario(storage.getItem(customScenarioStorageKey(entry.id))),
+  })).filter(candidate => isMinorLabEntry(candidate.entry) || isMinorLabEntry(candidate.payload));
+  if (!candidates.length) return null;
+  if (candidates.length === 1
+    && candidates[0].entry.id === MINOR_LAB_SCENARIO_ID
+    && candidates[0].payload?.id === MINOR_LAB_SCENARIO_ID
+    && candidates[0].payload?.data) {
+    return candidates[0].payload;
+  }
+
+  const valid = candidates.filter(candidate => candidate.payload?.data);
+  const canonicalKey = customScenarioStorageKey(MINOR_LAB_SCENARIO_ID);
+  const previousCanonical = storage.getItem(canonicalKey);
+  const cleanedIndex = index.filter(entry => !candidates.some(candidate => candidate.entry === entry));
+
+  if (!valid.length) {
+    const cleanedText = JSON.stringify(cleanedIndex);
+    storage.setItem(CUSTOM_SCENARIO_INDEX_KEY, cleanedText);
+    if (storage.getItem(CUSTOM_SCENARIO_INDEX_KEY) !== cleanedText) {
+      throw new Error('Could not verify the cleaned Minor Lab catalogue');
+    }
+    for (const candidate of candidates) {
+      try { storage.removeItem(customScenarioStorageKey(candidate.entry.id)); } catch (_) {}
+    }
+    return null;
+  }
+
+  valid.sort((a, b) => {
+    const aTime = a.payload.updatedAt || a.entry.updatedAt || 0;
+    const bTime = b.payload.updatedAt || b.entry.updatedAt || 0;
+    return bTime - aTime || b.order - a.order;
+  });
+  const winner = valid[0].payload;
+  const canonical = {
+    ...winner,
+    id: MINOR_LAB_SCENARIO_ID,
+    name: 'Minor Lab',
+    updatedAt: winner.updatedAt || valid[0].entry.updatedAt || Date.now(),
+  };
+  cleanedIndex.push({
+    id: canonical.id,
+    name: canonical.name,
+    desc: canonical.desc || '',
+    sandbox: canonical.sandbox !== false,
+    updatedAt: canonical.updatedAt,
+  });
+  const payloadText = JSON.stringify(canonical);
+  const indexText = JSON.stringify(cleanedIndex);
+
+  try {
+    storage.setItem(canonicalKey, payloadText);
+    storage.setItem(CUSTOM_SCENARIO_INDEX_KEY, indexText);
+    if (storage.getItem(canonicalKey) !== payloadText
+      || storage.getItem(CUSTOM_SCENARIO_INDEX_KEY) !== indexText) {
+      throw new Error('Could not verify the consolidated Minor Lab scenario');
+    }
+  } catch (error) {
+    try {
+      if (previousCanonical == null) storage.removeItem(canonicalKey);
+      else storage.setItem(canonicalKey, previousCanonical);
+    } catch (_) {}
+    try {
+      if (previousIndex == null) storage.removeItem(CUSTOM_SCENARIO_INDEX_KEY);
+      else storage.setItem(CUSTOM_SCENARIO_INDEX_KEY, previousIndex);
+    } catch (_) {}
+    throw error;
+  }
+
+  for (const candidate of candidates) {
+    if (candidate.entry.id === MINOR_LAB_SCENARIO_ID) continue;
+    try { storage.removeItem(customScenarioStorageKey(candidate.entry.id)); } catch (_) {}
+  }
+  return canonical;
 }
 
 const REQUIRED_SCENARIO_ARRAYS = ['floors', 'zones', 'walls', 'doors', 'placeables'];
@@ -222,6 +323,8 @@ export function migrateLegacyCustomScenario(storage = globalThis.localStorage) {
 export function listCustomScenarios(storage = globalThis.localStorage) {
   try { migrateLegacyCustomScenario(storage); }
   catch (_) { /* A read should still degrade to an empty catalogue. */ }
+  try { consolidateMinorLabScenarios(storage); }
+  catch (_) { /* Keep the last verified catalogue readable on cleanup failure. */ }
   return readCustomScenarioIndex(storage)
     .map(entry => parseStoredScenario(storage?.getItem(customScenarioStorageKey(entry.id))))
     .filter(Boolean)
@@ -237,7 +340,13 @@ export function loadCustomScenarioById(id, storage = globalThis.localStorage) {
   if (!id) return null;
   try {
     migrateLegacyCustomScenario(storage);
-    return parseStoredScenario(storage?.getItem(customScenarioStorageKey(id)));
+    consolidateMinorLabScenarios(storage);
+    const direct = parseStoredScenario(storage?.getItem(customScenarioStorageKey(id)));
+    if (direct) return direct;
+    if (/^minorLab\d*$/.test(String(id))) {
+      return parseStoredScenario(storage?.getItem(customScenarioStorageKey(MINOR_LAB_SCENARIO_ID)));
+    }
+    return null;
   } catch (_) { return null; }
 }
 
@@ -251,9 +360,11 @@ export function saveCustomScenario(payload, {
 } = {}) {
   if (!storage || !payload?.data) throw new Error('Scenario data is required');
   if (!payload.id) throw new Error('Scenario id is required');
+  consolidateMinorLabScenarios(storage);
+  const canonicalMinorLab = payload.id === MINOR_LAB_SCENARIO_ID || isMinorLabName(payload.name);
   const stored = {
-    id: String(payload.id),
-    name: payload.name || 'Custom Scenario',
+    id: canonicalMinorLab ? MINOR_LAB_SCENARIO_ID : String(payload.id),
+    name: canonicalMinorLab ? 'Minor Lab' : (payload.name || 'Custom Scenario'),
     desc: payload.desc || '',
     data: payload.data,
     sandbox: payload.sandbox !== false,
@@ -354,9 +465,9 @@ export function stageScenarioSelection(id, storage = globalThis.localStorage) {
 
 export const SCENARIOS = [
   {
-    id: 'minorLab',
+    id: MINOR_LAB_SCENARIO_ID,
     name: 'Minor Lab',
-    desc: 'A compact, powered control nook with staff-care basics. Edit it into your own starting facility, then Save + Playtest locally.',
+    desc: 'A complete working laboratory campus authored in Scenario Admin. Edit it, then Save to replace this same Minor Lab starting situation.',
     difficulty: 'Editable',
     generator: generateMinorLab,
     setup: setupMinorLab,
