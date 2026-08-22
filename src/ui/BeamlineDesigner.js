@@ -1875,7 +1875,11 @@ export class BeamlineDesigner {
     let action;
 
     if (this.insertMode) {
-      const target = this._findClosestEdge();
+      // Palette hover is a preview of where the player is pointing on the
+      // schematic, not necessarily where the blue inspection marker was last
+      // left. Keep the marker as the fallback when the pointer is elsewhere.
+      const cursorS = this._schematicCursorS();
+      const target = this._findClosestEdge(cursorS == null ? this.markerS : cursorS);
       componentIndex = target.position === 'before' ? target.index : target.index + 1;
       componentIndex = Math.max(0, Math.min(nodes.length, componentIndex));
       positionS = lengths.slice(0, componentIndex).reduce((sum, length) => sum + length, 0);
@@ -1908,9 +1912,36 @@ export class BeamlineDesigner {
     });
   }
 
-  /** Find the closest component boundary to the current marker position.
+  /** Convert the current schematic pointer to physical beamline position. */
+  _schematicCursorS() {
+    if (!Number.isFinite(this._hoverSchematicX)
+        || !Array.isArray(this._compRegions) || this._compRegions.length === 0
+        || this.draftNodes.length === 0) return null;
+
+    const lengths = this._compPhysLengths();
+    const x = this._hoverSchematicX;
+    const first = this._compRegions[0];
+    const last = this._compRegions[this._compRegions.length - 1];
+    if (x <= first.x) return 0;
+    if (x >= last.x + last.w) return this.totalLength;
+
+    for (const region of this._compRegions) {
+      if (x < region.x || x > region.x + region.w) continue;
+      const length = lengths[region.index] || 0;
+      const fraction = region.w > 0
+        ? (x - region.x) / region.w
+        : 0.5;
+      let s = 0;
+      for (let i = 0; i < region.index; i++) s += lengths[i];
+      return Math.max(0, Math.min(this.totalLength, s + fraction * length));
+    }
+
+    return null;
+  }
+
+  /** Find the closest component boundary to a physical beamline position.
    *  Returns { index, position } for use with insertComponent. */
-  _findClosestEdge() {
+  _findClosestEdge(positionS = this.markerS) {
     if (this.draftNodes.length === 0) {
       return { index: 0, position: 'before' };
     }
@@ -1921,13 +1952,13 @@ export class BeamlineDesigner {
     let bestPos = 'before';
 
     // Check left edge of first component
-    const d0 = Math.abs(this.markerS);
+    const d0 = Math.abs(positionS);
     if (d0 < bestDist) { bestDist = d0; bestIdx = 0; bestPos = 'before'; }
 
     for (let i = 0; i < this.draftNodes.length; i++) {
       cumS += lengths[i];
       // Right edge of component i = left edge of i+1
-      const dist = Math.abs(this.markerS - cumS);
+      const dist = Math.abs(positionS - cumS);
       if (dist < bestDist) {
         bestDist = dist;
         bestIdx = i;
