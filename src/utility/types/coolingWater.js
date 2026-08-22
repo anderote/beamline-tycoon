@@ -57,6 +57,15 @@ export function boundCoolingWaterPersistentState(persistent, network) {
   };
 }
 
+function reservoirLevel(persistent) {
+  const capacity = positive(persistent?.reservoirCapacityL);
+  const current = Math.max(0, Math.min(
+    capacity,
+    Number.isFinite(persistent?.reservoirVolumeL) ? persistent.reservoirVolumeL : 0,
+  ));
+  return { current, capacity };
+}
+
 export default {
   type: 'coolingWater',
   displayName: 'Cooling Water',
@@ -199,11 +208,7 @@ export default {
       + `<div><strong>Evaporation:</strong> ${evaporation.toFixed(1)} L/tick</div>`;
   },
   refillCost(persistent) {
-    const capacity = positive(persistent?.reservoirCapacityL);
-    const current = Math.max(0, Math.min(
-      capacity,
-      Number.isFinite(persistent?.reservoirVolumeL) ? persistent.reservoirVolumeL : 0,
-    ));
+    const { current, capacity } = reservoirLevel(persistent);
     const missing = capacity - current;
     if (missing < 1) return null;
     return { funding: Math.ceil(missing * WATER_COST_PER_L) };
@@ -212,5 +217,6 @@ export default {
     const capacity = positive(persistent?.reservoirCapacityL);
     return { ...(persistent || {}), reservoirVolumeL: capacity };
   },
+  reservoirLevel,
   boundPersistentState: boundCoolingWaterPersistentState,
 };

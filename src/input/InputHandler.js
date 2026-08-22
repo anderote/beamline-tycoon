@@ -1326,6 +1326,11 @@ export class InputHandler {
       if (!mouseSelectionCategoryEnabled(
         this._mouseSelectionCategories, target?.selectionCategory,
       )) return true;
+      // A normal click on physical storage is also the emergency dry-loop
+      // action: if its solved network is at exactly zero, buy a full refill
+      // before opening the equipment window. Shift-click remains selection-
+      // only so adding a tank to a group can never spend money unexpectedly.
+      if (!additive) this.game.refillEmptyReservoirForPlaceable?.(entry.id);
       return this._selectPlaceable(entry, info.rootObj || null, { additive });
     }
 
@@ -2836,6 +2841,7 @@ export class InputHandler {
         if (equip) {
           const comp = COMPONENTS[equip.type];
           if (comp) {
+            if (!shiftKey) this.game.refillEmptyReservoirForPlaceable?.(equip.id);
             this.renderer.showNetworkOverlay(facId);
             this.renderer.openEquipmentWindow(equip);
             return;

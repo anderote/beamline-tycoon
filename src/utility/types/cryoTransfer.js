@@ -160,6 +160,15 @@ export function boundCryoPersistentState(persistent, network) {
   };
 }
 
+function reservoirLevel(persistent) {
+  const capacity = positive(persistent?.reservoirCapacityL);
+  const current = Math.max(0, Math.min(
+    capacity,
+    Number.isFinite(persistent?.lheVolumeL) ? persistent.lheVolumeL : 0,
+  ));
+  return { current, capacity };
+}
+
 function coolingFeedFactor(worldState, placeableId) {
   if (!worldState?.utilityNetworks?.get) return 1;
   const key = `${placeableId}:cool_in`;
@@ -582,11 +591,7 @@ export default {
       + `<div><strong>Recovery / make-up:</strong> ${positive(flow?.recoveredL).toFixed(3)} / ${positive(flow?.makeupL).toFixed(3)} L/tick (${Math.round(positive(flow?.heRecoveryFraction) * 100)}%)</div>`;
   },
   refillCost(persistent) {
-    const capacity = positive(persistent?.reservoirCapacityL);
-    const current = Math.max(0, Math.min(
-      capacity,
-      Number.isFinite(persistent?.lheVolumeL) ? persistent.lheVolumeL : 0,
-    ));
+    const { current, capacity } = reservoirLevel(persistent);
     const missing = capacity - current;
     if (missing < 1) return null;
     return { funding: Math.ceil(missing * LHE_COST_PER_L) };
@@ -595,5 +600,6 @@ export default {
     const capacity = positive(persistent?.reservoirCapacityL);
     return { ...(persistent || {}), lheVolumeL: capacity };
   },
+  reservoirLevel,
   boundPersistentState: boundCryoPersistentState,
 };
