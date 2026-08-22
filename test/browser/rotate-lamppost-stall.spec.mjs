@@ -161,7 +161,6 @@ function installProbe() {
   w(r._worldInvalidationScheduler, 'flush', 'scheduler.flush');
   w(r._glowPipeline, 'render', '_glowPipeline.render');
   w(r._effectSystem, 'update', '_effectSystem.update');
-  w(r._volumePool, 'update', '_volumePool.update');
   w(r._physicsPresentation, 'update', '_physics.update');
   w(r.staffPawns, 'update', 'staffPawns.update');
   w(g, 'tick', 'game.tick');

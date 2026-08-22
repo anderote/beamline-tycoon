@@ -8,7 +8,7 @@ function clamp01(value) {
 
 /**
  * Shared activation policy for emitter surfaces, painted pools, analytic
- * lights, and volumetrics. Outdoor fixtures follow the sun. A fixture placed
+ * lights, pools, and halos. Outdoor fixtures follow the sun. A fixture placed
  * in an authored room zone stays useful during the day, while an unzoned
  * overhead fixture keeps a faint practical floor for partially built halls.
  */

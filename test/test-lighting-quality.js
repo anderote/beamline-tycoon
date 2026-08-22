@@ -86,7 +86,9 @@ test('every fixture exposes a complete finite lighting profile', () => {
   for (const def of LIGHTING_DEFS) {
     assert.deepEqual(validateLightingDef(def), [], `${def.id} profile is valid`);
     assert.ok(def.light.sourceRadius > 0, `${def.id} has an apparent source size`);
-    assert.ok(def.light.bloomProfile && def.light.volumeProfile && def.light.dynamicProfile);
+    assert.ok(def.light.bloomProfile && def.light.dynamicProfile);
+    assert.equal('volumeProfile' in def.light, false,
+      `${def.id} does not opt into removed cone geometry`);
   }
 });
 

@@ -93,7 +93,6 @@ export function sceneLayerTargets(renderer) {
   add(['lights'],
     renderer.lightPoolGroup,
     renderer.lightHaloGroup,
-    renderer.volumetricLightGroup,
   );
   add(['zoneLabels'], renderer._zoneLabelMeshes);
 

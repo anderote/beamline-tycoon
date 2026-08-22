@@ -143,7 +143,6 @@ export function fixtureLightTag(def, { id, dir = 0 } = {}) {
     sourceRadius: light.sourceRadius ?? 0.1,
     shadowSoftness: light.shadowSoftness ?? light.penumbra ?? 0.5,
     bloomProfile: light.bloomProfile ?? 'soft',
-    volumeProfile: light.volumeProfile ?? 'none',
     dynamicProfile: light.dynamicProfile ?? 'steady',
     cookieProfile: light.cookieProfile ?? 'soft',
     aimed,
@@ -1454,8 +1453,8 @@ export function buildLightHalos(fixtures) {
     // as a large, circular aura wrapped around the housing. Overhead lights
     // already have an emissive diffuser for a tight source glint, a projected
     // pool on the floor, a real downward SpotLight when one is available, and
-    // a budgeted volumetric cone. Do not lay the omnidirectional billboard on
-    // top of those directional cues.
+    // a broad projected pool. Do not lay the omnidirectional billboard on top
+    // of those directional cues.
     if (!fixtureUsesBillboardHalo(fx.def)) continue;
 
     const size = HALO_BASE_SIZE + (light.sourceRadius ?? 0.1) * HALO_SOURCE_FACTOR;

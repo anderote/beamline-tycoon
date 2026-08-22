@@ -199,7 +199,7 @@ export class LightRig {
       //             the min-hold test.
       this._spotSlots.push({
         light, target, assignedRef: null, weight: 0, releasing: false, heldSinceMs: 0,
-        projection: null, volumePacket: {}, castsShadow,
+        projection: null, castsShadow,
       });
     }
     this._sharedShadowArray = this._modernRenderer && this._shadowSpotCount > 0
@@ -268,7 +268,6 @@ export class LightRig {
     });
     this._shadowAssignmentKeys = new Array(this._shadowSpotCount).fill(null);
     this._shadowUpdatesLastFrame = 0;
-    this._volumeCandidates = [];
     this._effectTimeMs = 0;
     this._fixtureRankCache = [];
     this._fixtureRankDirty = true;
@@ -360,16 +359,6 @@ export class LightRig {
       assignedAmbientPointLights,
       activePointFlashes,
     };
-  }
-
-  getVolumeCandidates(limit = this._activeShadowSpotCount) {
-    this._volumeCandidates.length = 0;
-    for (let i = 0; i < this._activeFixtureLightCount && this._volumeCandidates.length < limit; i++) {
-      const slot = this._spotSlots[i];
-      if (!slot.assignedRef || !slot.projection || slot.volumePacket.volumeProfile === 'none') continue;
-      this._volumeCandidates.push(slot.volumePacket);
-    }
-    return this._volumeCandidates;
   }
 
   /** Supply the canonical [{id, def, group}] fixture registry. */
@@ -809,7 +798,6 @@ export class LightRig {
     slot.weight = 0;
     slot.releasing = false;
     slot.projection = null;
-    slot.volumePacket.volumeProfile = 'none';
     this._shadowAssignmentKeys[index] = null;
   }
 
@@ -862,7 +850,6 @@ export class LightRig {
         penumbra: tag.penumbra,
         sourceRadius: tag.sourceRadius,
         shadowSoftness: tag.shadowSoftness,
-        volumeProfile: tag.volumeProfile,
         dynamicProfile: tag.dynamicProfile,
         cookieProfile: tag.cookieProfile,
       },
@@ -908,15 +895,6 @@ export class LightRig {
     light.intensity = FIXTURE_SPOT_INTENSITY * (tag.intensity ?? 1)
       * activation * slot.weight * dynamicFactor;
     slot.projection = projection;
-    Object.assign(slot.volumePacket, {
-      id: tag.id,
-      projection,
-      color: tag.color != null ? tag.color : DEFAULT_FIXTURE_COLOR,
-      weight: slot.weight * dynamicFactor,
-      activation,
-      volumeProfile: tag.volumeProfile || 'none',
-      cookieProfile: tag.cookieProfile || 'soft',
-    });
   }
 
   _assignPoints(camPos, nightFactor) {
