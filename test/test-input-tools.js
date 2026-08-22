@@ -12,9 +12,10 @@
 //      under it. (Regression: the pick-up pushed an undo snapshot, so Ctrl+Z
 //      mid-carry put the object back in the world while the tool still held
 //      it — the next drop minted a free second copy.)
-//   3. P on a selected item closes its info window before entering move mode.
+//   3. Moving a selected item closes its info window before entering move mode.
 //   3b. Delete/Backspace remove ordinary selections while beamlines remain
-//       protected; D pans, 6 demolishes, and C/M/P are contextual modes.
+//       protected; D pans, 6 demolishes, C/M are contextual modes, and P
+//       triggers a selected-placeable explosion.
 //   4. Shift-drag decoration line placement emits one rebuild event.
 //   5. Preview lifecycle around arming and committing: a keyboard-armed tool
 //      must show its ghost before the mouse moves, the variant must not
@@ -382,7 +383,7 @@ console.log('\n=== 2. Undo while carrying does not duplicate the object ===\n');
     `object restored exactly once (got ${countOf('flowerBed')}, want ${before})`);
 }
 
-console.log('\n=== 3. P-selected move closes the item info window ===\n');
+console.log('\n=== 3. Selected move closes the item info window ===\n');
 
 {
   const entry = { id: 'selected_1', type: 'flowerBed', category: 'grounds', dir: 2 };
@@ -399,7 +400,7 @@ console.log('\n=== 3. P-selected move closes the item info window ===\n');
     _showToast() {},
   };
   const began = InputHandler.prototype._beginSelectedMove.call(input);
-  assertOk(began && input.activeTool?.kind === 'move', 'P-selected path enters move mode');
+  assertOk(began && input.activeTool?.kind === 'move', 'selected move command enters move mode');
   assertOk(closed === entry, 'moving a selected item closes that item\'s info window first');
   assertOk(input.activeTool.payload?.placeableId === entry.id,
     'the selected item is armed as the move payload');
@@ -468,6 +469,30 @@ console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines
     'Delete immediately demolishes an ordinary selected item');
   assertOk(closedId === itemId && input.selectedPlaceableId === null,
     'Delete closes the item window and clears the selection');
+}
+
+{
+  const target = {
+    key: 'equipment-1', id: 'equipment-1', targetKind: 'placeable',
+    name: 'Oscilloscope', rootObj: { id: 'visible-object' },
+  };
+  let exploded = null;
+  let toast = '';
+  const input = {
+    selectedPlaceableId: target.id,
+    _selectionTarget: () => target,
+    renderer: { explodeSelectionTarget: value => { exploded = value; return true; } },
+    _showToast: message => { toast = message; },
+  };
+  input._explodeSelectedFromKeyboard = InputHandler.prototype._explodeSelectedFromKeyboard;
+  assertOk(input._explodeSelectedFromKeyboard() === true && exploded === target,
+    'P command routes the primary logical selection to the public renderer incident API');
+  assertOk(/Boom: Oscilloscope/.test(toast),
+    'a successful selected explosion reports the affected item');
+
+  input.selectedPlaceableId = null;
+  assertOk(input._explodeSelectedFromKeyboard() === false && /Select a placeable/.test(toast),
+    'the explosion command is a safe no-op when nothing is selected');
 }
 
 {
@@ -541,7 +566,6 @@ console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines
   };
   let deletes = 0;
   const selectionModes = [];
-  let moveModes = 0;
   const slots = [];
   const input = {
     keysDown: new Set(),
@@ -552,8 +576,7 @@ console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines
     _toggleContextDemolish() {},
     _selectionIdsForAnchor: () => [],
     _toggleSelectionActionMode: mode => selectionModes.push(mode),
-    _beginSelectedMove: () => false,
-    _toggleMoveMode: () => { moveModes++; },
+    _explodeSelectedFromKeyboard: () => false,
     handleDisconnectSelectedUtilitiesKey: () => false,
     _saveSelectionSlot: slot => slots.push(`save:${slot}`),
     _recallSelectionSlot: slot => slots.push(`recall:${slot}`),
@@ -581,17 +604,19 @@ console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines
   assertOk(input.keysDown.has('d'), 'D remains the camera pan-right key');
   assertOk(selectionModes.join(',') === 'copy,mirror',
     'C and M enter click-to-target modes when nothing is selected');
-  assertOk(moveModes === 1, 'P enters click-to-move mode when nothing is selected');
   const selectedActions = [];
   input.selectedPlaceableId = 'selected';
   input._selectionIdsForAnchor = () => ['selected'];
   input._beginSelectedCopy = id => { selectedActions.push(`copy:${id}`); return true; };
   input._beginSelectedMirror = id => { selectedActions.push(`mirror:${id}`); return true; };
-  input._beginSelectedMove = () => { selectedActions.push('move:selected'); return true; };
+  input._explodeSelectedFromKeyboard = () => {
+    selectedActions.push('explode:selected');
+    return true;
+  };
   keydown(event('c'));
   keydown(event('m'));
   keydown(event('p'));
-  assertOk(selectedActions.join(',') === 'copy:selected,mirror:selected,move:selected',
+  assertOk(selectedActions.join(',') === 'copy:selected,mirror:selected,explode:selected',
     'C, M, and P act immediately on the current selection');
   assertOk(modeClicks.join(',') === 'demolish',
     '6 enters the full Demolish build mode through its visible menu button');

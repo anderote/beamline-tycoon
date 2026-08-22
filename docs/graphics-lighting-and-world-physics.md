@@ -105,6 +105,12 @@ game.emit('worldExplosion', {
 game.emit('worldPhysicsUndo');
 ```
 
+For effect development, selecting a rendered placeable and pressing `P`
+triggers the same reversible incident at the object's visual center. It does
+not remove the canonical placeable or write damage into the save; persistent
+fire, blast damage, and chain reactions belong to a future simulation-owned
+incident system.
+
 For development, the equivalent helpers are
 `window.dev.explode(position, options)`, `window.dev.undoPhysics()`, and
 `window.dev.physicsStats()`.

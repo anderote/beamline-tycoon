@@ -2460,14 +2460,14 @@ export class InputHandler {
           this.game.log(`Zone labels ${visible ? 'shown' : 'hidden'}`, 'info');
           break;
         }
-        // P owns movement. With a selected placeable it immediately picks up
-        // that item; otherwise it toggles the general click-to-pick-up mode.
-        // Pause remains available from the top-bar button.
+        // P is the incident-development hotkey: blow up the primary selected
+        // placeable through the renderer's reversible physics presentation.
+        // Persistent fire/damage belongs to simulation state and is
+        // deliberately not inferred from this visual tuning command.
         case 'p': case 'P': {
           if (e.ctrlKey || e.metaKey || e.altKey) break; // keep Cmd/Ctrl+P (print)
           e.preventDefault();
-          if (this._beginSelectedMove()) break;
-          this._toggleMoveMode();
+          this._explodeSelectedFromKeyboard();
           break;
         }
         case '7': case '8': case '9': {
@@ -4352,6 +4352,21 @@ export class InputHandler {
     if (!ids.length) return [];
     this._clearSelection();
     return ids;
+  }
+
+  /** Trigger the reversible renderer incident for the primary selection. */
+  _explodeSelectedFromKeyboard(anchorId = this.selectedPlaceableId) {
+    const target = anchorId ? this._selectionTarget(anchorId) : null;
+    if (!target || target.targetKind !== 'placeable') {
+      this._showToast('Select a placeable to blow up');
+      return false;
+    }
+    if (!this.renderer.explodeSelectionTarget?.(target)) {
+      this._showToast('That selection has no explosion target');
+      return false;
+    }
+    this._showToast(`Boom: ${target.name}`);
+    return true;
   }
 
   /**

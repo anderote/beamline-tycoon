@@ -324,6 +324,13 @@ export class EquipmentBuilder {
     this._signaturesById = new Map();
   }
 
+  /** Public lookup for picking, selection, and incident coordinators. */
+  getGroup(id) {
+    return this._objectsById.get(`equipment:${id}`)
+      || this._objectsById.get(`furnishing:${id}`)
+      || null;
+  }
+
   /**
    * Build equipment and furnishing meshes from snapshot data.
    * @param {Array} equipmentData

@@ -202,3 +202,26 @@ test('one-shot effects combine instanced visuals with an optional physical flash
   assert.equal(system.getStats().bursts, 0, 'transient visuals expire without scene add/remove churn');
   system.dispose();
 });
+
+test('burst packets can form a flattened pressure wave', () => {
+  const scene = new Three.Scene();
+  const system = new VisualEffectSystem(scene, { pulseBudget: 4, lightProxyBudget: 0 });
+  system.emit({
+    kind: 'burst', position: { x: 0, y: 1, z: 0 }, durationMs: 500,
+    radius: 1, horizontalScale: 1.8, verticalScale: 0.15,
+    physicalLight: false, groundSpill: false,
+  });
+  system.update(0.1, 1);
+
+  const matrix = new Three.Matrix4();
+  const position = new Three.Vector3();
+  const rotation = new Three.Quaternion();
+  const scale = new Three.Vector3();
+  system._pulseMesh.getMatrixAt(0, matrix);
+  matrix.decompose(position, rotation, scale);
+  assert.ok(scale.x > scale.y * 10 && Math.abs(scale.x - scale.z) < 1e-6,
+    'horizontal and vertical burst scales produce a broad, flat visual packet');
+  assert.equal(system._spillMesh.count, 0,
+    'the pressure packet can omit the redundant floor spill');
+  system.dispose();
+});
