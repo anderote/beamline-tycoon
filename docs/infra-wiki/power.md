@@ -17,8 +17,8 @@ Power sources form a capacity ladder — upgrading is a real decision:
 |--------|----------|------|------|
 | Pad-Mount Transformer | 150 kW | $200k | Starter workhorse — feeds a small beamline |
 | Facility Transformer | 400 kW | $400k | Medium facility service with two HV feeders |
-| HV Transformer | 1200 kW | $800k | Industrial — anchors a serious facility |
-| Grid Intertie Transformer | 3000 kW | $1.8M | Campus-scale supply for several accelerator halls |
+| HV Transformer | 1.5 MW / 4 HV feeders | $800k | Industrial transformer fed by the 1.5 MW utility service |
+| Grid Intertie Transformer | 6 MW / 6 HV feeders | $1.8M | Campus-scale transformer fed by the 6 MW utility service |
 
 One pad-mount transformer covers a starter beamline. Larger facilities need a
 larger source and enough protected feeder outlets to reach their local

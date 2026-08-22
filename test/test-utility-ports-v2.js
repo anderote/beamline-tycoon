@@ -245,17 +245,29 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   const facility = getUtilityPortsV2('facilityTransformer');
   const hv = getUtilityPortsV2('hvTransformer');
   const grid = getUtilityPortsV2('gridIntertieTransformer');
+  const service = getUtilityPortsV2('gridServicePoint');
+  const highService = getUtilityPortsV2('gridServicePointHighCapacity');
   const hvOutlets = ports => Object.values(ports)
     .filter(port => port.utility === 'hvCable' && port.role === 'source');
+  assert([service, highService].map(ports => hvOutlets(ports).length).join(',') === '2,4',
+    'utility service tiers expose two and four physical HV feeder outlets');
+  assert([service, highService].map(ports => hvOutlets(ports)
+    .reduce((sum, port) => sum + port.params.capacity, 0)).join(',') === '1500,6000',
+    'utility service tiers provide 1.5 MW and 6 MW nameplate capacity');
   assert([pad, facility, hv, grid].map(ports => hvOutlets(ports).length).join(',') === '1,2,4,6',
-    'larger HV sources expose progressively more physical feeder outlets (1, 2, 4, 6)');
+    'transformer tiers expose one, two, four, and six downstream HV outlets');
   assert([pad, facility, hv, grid].map(ports => hvOutlets(ports)
-    .reduce((sum, port) => sum + port.params.capacity, 0)).join(',') === '150,400,1200,3000',
+    .reduce((sum, port) => sum + port.params.capacity, 0)).join(',') === '150,400,1500,6000',
     'split outlet ratings add back to each transformer nameplate capacity');
+  assert(hv.hv_in.connectionKind === 'hvLoadIn'
+      && grid.hv_in.connectionKind === 'hvLoadIn'
+      && hv.hv_in.params.demand === 1500
+      && grid.hv_in.params.demand === 6000,
+    'large transformers require matching upstream HV inputs');
   assert(pad.hv_out_1.params.capacity < facility.hv_out_1.params.capacity
       && facility.hv_out_1.params.capacity < hv.hv_out_1.params.capacity
       && hv.hv_out_1.params.capacity < grid.hv_out_1.params.capacity,
-    'HV supply ladder: pad-mount < facility < HV < grid intertie');
+    'HV transformer ladder: pad-mount < facility < 1.5 MW < 6 MW');
 
   const compactGear = getUtilityPortsV2('compactHvDistributor');
   const compactHvDistributorOutputs = Object.values(compactGear)

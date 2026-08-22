@@ -118,7 +118,7 @@ export const MODES = {
       utilities:   { name: 'Utilities',      color: '#789', isDecorationTab: true,
                      utilityLineTools: ['hvCable', 'powerCable', 'coolingWater'],
                      linkedPlaceables: [
-                       'gridServicePoint', 'padMountTransformer', 'facilityTransformer',
+                       'gridServicePoint', 'gridServicePointHighCapacity', 'padMountTransformer', 'facilityTransformer',
                        'hvTransformer', 'gridIntertieTransformer', 'poleMountTransformer',
                        'disconnectSwitch', 'hvDuctBankVault',
                        'waterTank', 'facilityWaterSupply', 'bulkWaterTank',

@@ -101,10 +101,14 @@ export function generateRealLab() {
 }
 
 // Bring the furnished control room up on real services. The small pad-mount
-// supply stays outside the west wall, so its HV feeder terminates on a rated
-// wall bushing before a second cable continues to the panel inside.
+// transformer stays outside the west wall, fed by the map-edge 1.5 MW service
+// point; its HV feeder then terminates on a rated wall bushing before a second
+// cable continues to the panel inside.
 export function setupRealLab(game) {
   const funding0 = game.state.resources.funding;
+  const servicePoint = game.placePlaceable({
+    type: 'gridServicePoint', col: -26, row: 4, free: true, silent: true,
+  });
   const pad = game.placePlaceable({
     type: 'padMountTransformer', col: -8, row: 4, free: true, silent: true,
   });
@@ -124,6 +128,12 @@ export function setupRealLab(game) {
   const captureId = game.state.placeables.find(p => p.type === 'serverRack')?.id;
   const wire = (utilityType, from, to) => wireUtility(game, utilityType, from, to);
 
+  // Open the deliberate west-wall service entrance for the off-map feeder.
+  delete game.state.wallOccupied['-8,4,w'];
+  delete game.state.wallOccupied['-8,3,w'];
+  if (servicePoint && pad) {
+    wire('hvCable', { id: servicePoint, port: 'hv_out_1' }, { id: pad, port: 'hv_in' });
+  }
   if (pad && panel && hvFeedthrough) {
     wire('hvCable', { id: pad, port: 'hv_out_1' }, { id: hvFeedthrough, port: 'hv_in' });
     wire('hvCable', { id: hvFeedthrough, port: 'hv_out' }, { id: panel, port: 'hv_in' });

@@ -40,7 +40,7 @@ function drawRows(id) {
 console.log('\n--- Test 1: source components report correct supply ---');
 {
   const POWER = {
-    hvTransformer: 1200, switchgear: 400, compactHvDistributor: 200, mcc: 250,
+    hvTransformer: 1500, switchgear: 400, compactHvDistributor: 200, mcc: 250,
     padMountTransformer: 150, ups: 100, powerPanel: 40,
   };
   for (const [id, cap] of Object.entries(POWER)) {

@@ -1,8 +1,9 @@
 // Shared gate for a device that turns an upstream HV feeder into downstream
-// capacity. A transformer has no hv_in and is a genuine source; switchgear,
-// panels, MCCs and UPSs do, so they must contribute exactly zero until their
-// own feeder is live. Keeping this here makes the two hops (HV -> HV and
-// HV -> branch power) obey the same fail-closed rule.
+// capacity. A utility service point has no hv_in and is a genuine source;
+// transformers, switchgear, panels, MCCs and UPSs do, so they must contribute
+// exactly zero until their own feeder is live. Keeping this here makes the two
+// hops (service HV -> transformer HV, then HV -> branch power) obey the same
+// fail-closed rule.
 
 import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
 import {

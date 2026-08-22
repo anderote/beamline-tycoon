@@ -37,6 +37,7 @@ const SECURITY_DECORATIONS = [
 
 const LINKED_UTILITY_EQUIPMENT = [
   'gridServicePoint',
+  'gridServicePointHighCapacity',
   'padMountTransformer',
   'facilityTransformer',
   'hvTransformer',

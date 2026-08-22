@@ -248,6 +248,7 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   //     see the TODO(balance) on the waveguide wiring below;
   //   cooling 586 kW -> two 300 kW chillers;
   //   data 41 -> a 40-capacity network switch alongside the IOC.
+  const servicePoint = place('gridServicePoint', -26, 8);
   const hv   = place('hvTransformer', -6, 8);
   const mbk  = place('multibeamKlystron', -3, 8);
   // Keep the VHF source west of the S-band gallery so their waveguide trunks
@@ -303,6 +304,7 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   // Power runs supply -> HV -> distribution -> branch circuits. The two RF
   // sources are dedicated HV loads; the remaining ten branch loads need two
   // MCCs and their point-to-point sockets.
+  if (servicePoint && hv) wire('hvCable', { id: servicePoint, port: 'hv_out_1' }, { id: hv, port: 'hv_in' });
   if (hv && mcc1) wire('hvCable', sourcePort(hv, 0), sinkPort(mcc1));
   if (hv && mcc2) wire('hvCable', sourcePort(hv, 1), sinkPort(mcc2));
   if (hv && mbk) wire('hvCable', sourcePort(hv, 2), sinkPort(mbk));
