@@ -712,10 +712,10 @@ function buildPipeAttachments(game) {
 function buildFurnishings(game) {
   return (game.state.zoneFurnishings || [])
     .filter(f => sameLevel(f, game.activeLevel))
-    .map(furnishingSnapshotEntry);
+    .map(f => furnishingSnapshotEntry(game, f));
 }
 
-function furnishingSnapshotEntry(f) {
+function furnishingSnapshotEntry(game, f) {
   return {
     id: f.id ?? null,
     col: f.col,
@@ -724,6 +724,7 @@ function furnishingSnapshotEntry(f) {
     subRow: f.subRow ?? null,
     type: f.type,
     dir: f.dir ?? 0,
+    wallMount: wallMountSnapshot(game, f.wallMount),
     placeY: (f.placeY || 0) + levelWorldY(levelOf(f)) / 0.5,
     variant: f.variant ?? 0,
     effectState: f.visualState || 'on',
@@ -908,7 +909,7 @@ export function updateWorldSnapshot(game, current, opts = {}) {
       ? entry => componentSnapshotEntry(game, entry)
       : name === 'equipment' ? equipmentSnapshotEntry
         : name === 'decorations' ? entry => decorationSnapshotEntry(game, entry)
-          : furnishingSnapshotEntry;
+          : entry => furnishingSnapshotEntry(game, entry);
     partial[name] = patchSnapshotArray(
       current[name], changeSet.placeables, acceptedKinds, findLive, mapEntry,
     ) ?? SECTION_BUILDERS[name](game);
