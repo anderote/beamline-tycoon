@@ -119,7 +119,7 @@ console.log('\n--- 1. Utility services use fixed utility elevations ---');
   const services = [
     ['cryoTransfer', null],
     ['waterSupplyPipe', 'cold'],
-    ['waterSupplyPipe', 'room'],
+    ['waterSupplyPipe', 'lukewarm'],
     ['waterSupplyPipe', 'hot'],
     ['rfWaveguide', null],
     ['vacuumPipe', null],
@@ -136,13 +136,17 @@ console.log('\n--- 1. Utility services use fixed utility elevations ---');
     });
   }
   assert(allAccepted && stackedLines.size === services.length,
-    'cryo, cold/room/hot water, RF, and vacuum share one parallel X/Z route');
+    'cryo, cold/lukewarm/hot water, RF, and vacuum share one parallel X/Z route');
   const stacked = [...stackedLines.values()];
-  assert(stacked.every((line, index) => stacked.slice(index + 1).every(other =>
-    !routeHeightsConflict(
+  assert(stacked.every((line, index) => stacked.slice(index + 1).every(other => {
+    const pairedWater = line.utilityType === 'waterSupplyPipe'
+      && other.utilityType === 'waterSupplyPipe'
+      && new Set([line.waterCircuit, other.waterCircuit]).size === 2
+      && [line.waterCircuit, other.waterCircuit].every(circuit => ['cold', 'hot'].includes(circuit));
+    return pairedWater || !routeHeightsConflict(
       line.utilityType, routeHeightForLine(line),
-      other.utilityType, routeHeightForLine(other),
-    ))), 'every stacked service has physical vertical clearance');
+      other.utilityType, routeHeightForLine(other));
+  })), 'every stacked service has clearance except the intentional side-by-side water twin');
 }
 
 console.log('\n--- 1b. Water equipment clearance follows the selected circuit height ---');
@@ -163,8 +167,13 @@ console.log('\n--- 1b. Water equipment clearance follows the selected circuit he
     utilityType: 'waterSupplyPipe', waterCircuit: 'hot', start: null, end: null,
     path: [{ col: 0, row: 0 }, { col: 5, row: 0 }],
   });
-  assert(!cold.ok && cold.reason === 'blocked_by_equipment' && hot.ok,
-    'cold-level equipment blocks cold pipe without forcing a clear hot pipe to detour');
+  const lukewarm = validateDrawLine(state, {
+    utilityType: 'waterSupplyPipe', waterCircuit: 'lukewarm', start: null, end: null,
+    path: [{ col: 0, row: 0 }, { col: 5, row: 0 }],
+  });
+  assert(!cold.ok && cold.reason === 'blocked_by_equipment'
+      && !hot.ok && hot.reason === 'blocked_by_equipment' && lukewarm.ok,
+  'equipment at the twin datum blocks cold and hot while a clear lukewarm header passes above');
   setUtilityCollisionProvider(null);
 }
 

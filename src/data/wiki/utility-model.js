@@ -22,6 +22,7 @@ import {
 } from '../../utility/types/cryoTransfer.js';
 import { T_CRITICAL } from '../../beamline/cavity-specs.js';
 import { RF_BANDS } from '../../utility/types/rfWaveguide.js';
+import { normalizeWaterCircuit } from '../../utility/water-circuits.js';
 
 /** 'lband' → 'L-band'. Reads the live band table so it can never drift. */
 function bandLabel(id) {
@@ -191,13 +192,14 @@ function sinkEffect(utility, klass, params, comp) {
     }
 
     case 'waterSupplyPipe': {
-      const circuit = params.waterCircuit === 'hot'
+      const waterCircuit = normalizeWaterCircuit(params.waterCircuit);
+      const circuit = waterCircuit === 'hot'
         ? 'hot return'
-        : params.waterCircuit === 'room'
-          ? 'room-temperature transfer'
+        : waterCircuit === 'lukewarm'
+          ? 'lukewarm transfer'
           : 'cold supply';
       return `Rigid ${circuit} header carrying ${fmt(params.heatLoad)} kW for high-flow equipment. `
-        + 'Cold, room-temperature, and hot circuits are solved independently and must never be joined.';
+        + 'Cold, lukewarm, and hot circuits are solved independently and must never be joined.';
     }
 
     case 'cryoTransfer': {

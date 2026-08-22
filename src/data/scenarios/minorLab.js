@@ -128,7 +128,7 @@ export function setupMinorLab(game) {
 
   const hotPipe = { waterCircuit: 'hot' };
   const coldPipe = { waterCircuit: 'cold' };
-  const roomPipe = { waterCircuit: 'room' };
+  const lukewarmPipe = { waterCircuit: 'lukewarm' };
   wireUtility(game, 'waterSupplyPipe',
     { id: 'in_90', port: 'supply_cold_out' },
     { id: upperColdDistributor, port: 'supply_pipe_1' }, coldPipe);
@@ -172,20 +172,20 @@ export function setupMinorLab(game) {
   connectHotHeaders(lowerHeaders, lowerSleeves, lowerRejection);
 
   // Close the central plant chain: each heat-rejection bank returns green
-  // room-temperature water to the matching chiller, which then produces the
+  // lukewarm water to the matching chiller, which then produces the
   // blue cold header used above.
   wireUtility(game, 'waterSupplyPipe',
     { id: 'in_112', port: 'room_out' },
-    { id: 'in_90', port: 'room_in' }, roomPipe);
+    { id: 'in_90', port: 'room_in' }, lukewarmPipe);
   wireUtility(game, 'waterSupplyPipe',
     { id: 'in_113', port: 'room_out' },
-    { id: 'in_91', port: 'room_in' }, roomPipe);
+    { id: 'in_91', port: 'room_in' }, lukewarmPipe);
   wireUtility(game, 'waterSupplyPipe',
     { id: 'in_116', port: 'room_out' },
-    { id: 'in_234', port: 'room_in' }, roomPipe);
+    { id: 'in_234', port: 'room_in' }, lukewarmPipe);
   wireUtility(game, 'waterSupplyPipe',
     { id: 'in_117', port: 'room_out' },
-    { id: 'in_235', port: 'room_in' }, roomPipe);
+    { id: 'in_235', port: 'room_in' }, lukewarmPipe);
 
   return powerRepair;
 }

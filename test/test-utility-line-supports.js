@@ -6,7 +6,12 @@ import * as THREE_NS from 'three';
 globalThis.THREE = THREE_NS;
 
 const { UTILITY_TYPES, utilityLineHeight } = await import('../src/utility/registry.js');
-const { UtilityLineBuilderV2, buildWorldPoints } =
+const {
+  UtilityLineBuilderV2,
+  WATER_TWIN_CENTER_SPACING_METERS,
+  buildWorldPoints,
+  twinWaterPresentationPoints,
+} =
   await import('../src/renderer3d/utility-line-builder-v2.js');
 
 let passed = 0, failed = 0;
@@ -112,8 +117,9 @@ console.log('\n--- 4. Co-located independent services form one aligned vertical 
   assert(new Set(stations).size === 1,
     'all rigid services place support frames at identical plan stations');
   const heights = supports.map(items => items[0]?.userData.centerlineHeight);
-  assert(new Set(heights).size === services.length,
-    'cryo, cold water, hot water, RF, and vacuum keep distinct vertical datums');
+  assert(new Set(heights).size === services.length - 1
+      && coldHeight === hotHeight,
+  'cold and hot water share one elevation while other rigid services retain distinct datums');
   for (const entry of built) entry.builder.dispose(entry.parent);
 
   const builder = new UtilityLineBuilderV2();
@@ -135,12 +141,34 @@ console.log('\n--- 4. Co-located independent services form one aligned vertical 
   const expectedStations = Math.floor(8 / UTILITY_TYPES.vacuumPipe.supportSpacingMeters);
   assert(racks.length === expectedStations,
     `five co-located services consolidate into ${expectedStations} shared rack frames`);
-  assert(racks.every(rack => rack.userData.stackedServiceCount === services.length
-      && new Set(rack.userData.centerlineHeights).size === services.length
+  assert(racks.every(rack => rack.userData.stackedServiceCount === services.length - 1
+      && new Set(rack.userData.centerlineHeights).size === services.length - 1
       && collect(rack, object => object.userData?.utilitySupportPart === 'saddle').length
-        === services.length),
-  'each shared rack has one shelf at every independent service datum');
+        === services.length - 1
+      && rack.userData.isTwinWaterSupport
+      && collect(rack, object => object.userData?.utilitySupportPart
+        === 'water-twin-bracket').length === 2),
+  'each shared rack gives cold/hot one integrated shelf with two brackets');
   builder.dispose(parent);
+}
+
+console.log('\n--- 4b. Coincident cold and hot routes render as an independent side-by-side twin ---');
+{
+  const y = UTILITY_TYPES.waterSupplyPipe.runHeightsByWaterCircuit.cold;
+  const centered = [
+    new THREE_NS.Vector3(0, y, 0),
+    new THREE_NS.Vector3(8, y, 0),
+  ];
+  const cold = twinWaterPresentationPoints(centered, {
+    utilityType: 'waterSupplyPipe', waterCircuit: 'cold', routeHeightMeters: y,
+  });
+  const hot = twinWaterPresentationPoints(centered.slice().reverse(), {
+    utilityType: 'waterSupplyPipe', waterCircuit: 'hot', routeHeightMeters: y,
+  });
+  assert(cold.every(point => point.y === y) && hot.every(point => point.y === y),
+    'both circuits stay on the common elevation');
+  assert(Math.abs(Math.abs(cold[0].z - hot[1].z) - WATER_TWIN_CENTER_SPACING_METERS) < 1e-6,
+    'opposite draw directions still produce the canonical twin spacing');
 }
 
 console.log('\n--- 5. Fixed datums ignore retired per-line lane values ---');

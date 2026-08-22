@@ -27,6 +27,7 @@ import {
   sanitizeCablePath,
 } from './soft-cable.js';
 import { snapUtilityRouteCoordinate } from './routing-contract.js';
+import { normalizeWaterCircuit } from './water-circuits.js';
 
 const EPS = 1e-7;
 
@@ -50,14 +51,16 @@ const AUTOMATIC_FITTING_TYPES = Object.freeze({
   }),
   waterSupplyPipe: Object.freeze({
     cold: 'coldWaterSupplyWallPassThrough',
-    room: 'roomWaterSupplyWallPassThrough',
+    lukewarm: 'roomWaterSupplyWallPassThrough',
     hot: 'hotWaterSupplyWallPassThrough',
   }),
 });
 
 export function automaticWallPassThroughType(utilityType, waterCircuit = null) {
   const mapped = AUTOMATIC_FITTING_TYPES[utilityType];
-  return typeof mapped === 'string' ? mapped : mapped?.[waterCircuit] || null;
+  return typeof mapped === 'string'
+    ? mapped
+    : mapped?.[normalizeWaterCircuit(waterCircuit)] || null;
 }
 
 export function combineConstructionCosts(...costs) {

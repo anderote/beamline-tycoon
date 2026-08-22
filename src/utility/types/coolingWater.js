@@ -21,12 +21,18 @@ import {
   WATER_CIRCUIT_COLORS,
   WATER_CIRCUIT_HOT,
 } from '../water-circuits.js';
+import {
+  EVAP_PER_KW_PER_TICK,
+  WATER_COST_PER_L,
+  boundWaterPersistentState,
+  waterInventoryForNetwork,
+  waterReservoirLevel,
+} from '../water-inventory.js';
 
-export const EVAP_PER_KW_PER_TICK = 0.02;
+export { EVAP_PER_KW_PER_TICK, WATER_COST_PER_L, waterInventoryForNetwork };
 // Compatibility export for callers that mean the original LCW-skid / make-up
 // tank capacity. Actual network capacity is now summed from connected ports.
 export const RESERVOIR_MAX_L = COOLING_WATER_INVENTORY.waterTank.storageCapacityL;
-export const WATER_COST_PER_L = 12;
 
 // Temperature rise, in kelvin, at a sink whose heat is not being removed.
 // MAX_DELTA_T is what a fully starved loop reaches; a partially served loop
@@ -40,40 +46,7 @@ function positive(value) {
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
-export function waterInventoryForNetwork(network) {
-  const sources = network?.sources || [];
-  return {
-    supplyRateLPerTick: sources.reduce(
-      (sum, source) => sum + positive(source.params?.supplyRateLPerTick), 0),
-    storageCapacityL: sources.reduce(
-      (sum, source) => sum + positive(source.params?.storageCapacityL), 0),
-  };
-}
-
-export function boundCoolingWaterPersistentState(persistent, network) {
-  const { storageCapacityL } = waterInventoryForNetwork(network);
-  const rawVolume = persistent?.reservoirVolumeL;
-  const reservoirVolumeL = Number.isFinite(rawVolume)
-    ? Math.max(0, Math.min(storageCapacityL, rawVolume))
-    // A newly commissioned standalone loop starts with its authored tanks
-    // full. Once numeric state exists, topology migration carries the actual
-    // contents and newly-added empty capacity is never filled for free.
-    : storageCapacityL;
-  return {
-    ...(persistent || {}),
-    reservoirVolumeL,
-    reservoirCapacityL: storageCapacityL,
-  };
-}
-
-function reservoirLevel(persistent) {
-  const capacity = positive(persistent?.reservoirCapacityL);
-  const current = Math.max(0, Math.min(
-    capacity,
-    Number.isFinite(persistent?.reservoirVolumeL) ? persistent.reservoirVolumeL : 0,
-  ));
-  return { current, capacity };
-}
+export const boundCoolingWaterPersistentState = boundWaterPersistentState;
 
 function circuitForNetwork(network, worldState) {
   const circuits = new Set();
@@ -118,9 +91,6 @@ function convertedSupplyCapacity(network, circuit, worldState, context) {
 export default {
   type: 'coolingWater',
   displayName: 'Water Line',
-  variants: ['Cold Water', 'Hot Water'],
-  variantWaterCircuits: [WATER_CIRCUIT_COLD, WATER_CIRCUIT_HOT],
-  variantPreviewColors: [0x287fc4, 0xc45b42],
   color: WATER_CIRCUIT_COLORS[WATER_CIRCUIT_COLD],
   hotColor: WATER_CIRCUIT_COLORS[WATER_CIRCUIT_HOT],
   geometryStyle: 'cylinder',
@@ -317,7 +287,7 @@ export default {
       + `<div><strong>Evaporation:</strong> ${evaporation.toFixed(1)} L/tick</div>`;
   },
   refillCost(persistent) {
-    const { current, capacity } = reservoirLevel(persistent);
+    const { current, capacity } = waterReservoirLevel(persistent);
     const missing = capacity - current;
     if (missing < 1) return null;
     return { funding: Math.ceil(missing * WATER_COST_PER_L) };
@@ -326,6 +296,6 @@ export default {
     const capacity = positive(persistent?.reservoirCapacityL);
     return { ...(persistent || {}), reservoirVolumeL: capacity };
   },
-  reservoirLevel,
+  reservoirLevel: waterReservoirLevel,
   boundPersistentState: boundCoolingWaterPersistentState,
 };

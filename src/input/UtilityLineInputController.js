@@ -135,9 +135,10 @@ export class UtilityLineInputController {
 
   setUtilityType(type, waterCircuit = null) {
     this._utilityType = type || null;
-    this._selectedWaterCircuit = this._utilityType === 'coolingWater'
-      ? waterCircuit || null
-      : null;
+    // Water temperature belongs to the connected equipment port, never to a
+    // cosmetic palette choice. Keep accepting the second argument for tool
+    // and save compatibility, but deliberately do not constrain the gesture.
+    this._selectedWaterCircuit = null;
     this._cancelDraw();
     this._hoverPort = null;
   }
@@ -175,7 +176,7 @@ export class UtilityLineInputController {
   // Public: current utility type (null if no tool armed).
   get utilityType() { return this._utilityType; }
 
-  // Explicit cold/hot Water Line variant selected in the palette.
+  // Compatibility accessor. Water tools no longer preselect a circuit.
   get waterCircuit() { return this._selectedWaterCircuit; }
 
   // Public: start-anchor while mid-draw ({placeableId, portName, worldPos}).
@@ -263,8 +264,8 @@ export class UtilityLineInputController {
       utilityType: this._utilityType,
       path: [],
       valid: true,
-      waterCircuit: this._selectedWaterCircuit,
-      color: this._lineColor(),
+      waterCircuit: snap?.waterCircuit || null,
+      color: this._lineColor(snap?.waterCircuit),
     };
     return true;
   }
@@ -754,7 +755,7 @@ export class UtilityLineInputController {
         portName: this._drawStart.portName,
       },
       runPath: trace,
-      waterCircuit: this._selectedWaterCircuit,
+      waterCircuit: this._waterCircuitForRefs(this._anchorRef(this._drawStart)),
       preferVerticalFirst: this._preferVerticalFirst,
       // Bulk wiring must use the same endpoint geometry as an ordinary drag.
       // Otherwise Shift-drawing reintroduces the footprint-sized U-turns the
@@ -1067,6 +1068,9 @@ export class UtilityLineInputController {
       && typeof this.renderer.worldToScreen === 'function');
 
     let best = null;
+    const activeWaterCircuit = this._drawing
+      ? this._waterCircuitForRefs(this._anchorRef(this._drawStart))
+      : this._selectedWaterCircuit;
     // Two different metrics, so two different budgets: pixels when projecting,
     // world metres on the fallback path.
     let bestDist = canProject ? PORT_SNAP_RADIUS_PX : PORT_SNAP_RADIUS_WORLD;
@@ -1084,8 +1088,8 @@ export class UtilityLineInputController {
         const availableNames = availablePorts(placeable, def, type, lines);
         for (const name of availableNames) {
           const candidateCircuit = portWaterCircuit(def.ports[name]);
-          if (this._selectedWaterCircuit && candidateCircuit
-              && candidateCircuit !== this._selectedWaterCircuit) continue;
+          if (activeWaterCircuit && candidateCircuit
+              && candidateCircuit !== activeWaterCircuit) continue;
         // The endpoint REFERENCE is what the solver reads; the path geometry
         // should start where the connector is actually drawn. On-pipe hardware
         // can reserve a footprint several metres wider than its model, so

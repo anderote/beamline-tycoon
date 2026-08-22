@@ -154,7 +154,7 @@ the short authoring contract.
 
 ### Independent rigid utility stacks
 
-- Cryogenic transfer, cold-water supply, room-temperature water transfer,
+- Cryogenic transfer, cold-water supply, lukewarm water transfer,
   hot-water return, RF waveguide, and
   vacuum pipe are independent fabricated services. They may follow the same
   plan route because each owns a distinct facility-wide elevation. Sharing X/Z
@@ -163,12 +163,13 @@ the short authoring contract.
   Manhattan paths, immediate bends at fittings, automatic same-service contact
   joins, measured 3D equipment clearance at the service's actual datum, and
   vertical coexistence with every other fabricated service. Water retains its
-  explicit wall-penetration rule and cold/room/hot circuit isolation.
+  explicit wall-penetration rule and cold/lukewarm/hot circuit isolation.
 - All fabricated rigid services use the same support spacing and minimum-run
   threshold. Identical plan paths therefore put every H-frame at the same plan
-  station. Coincident frames consolidate into one multi-level support rack with
-  one shelf per occupied datum, without introducing a bus object or shared
-  carrier network. The supported lines remain independently selectable.
+  station. Coincident frames consolidate into one support rack with one shelf
+  per occupied datum. Cold supply and hot return share one elevation and render
+  side-by-side on a widened twin saddle with separate brackets; each stored line
+  remains independently selectable, routable, and topologically isolated.
 - `universalUtilityBus` is retired compatibility content. It remains registered
   with `deprecated: true` only so older facilities can load and be demolished;
   palettes, linked collections, search, and research rewards must not advertise
@@ -311,16 +312,17 @@ the short authoring contract.
   That one projected point also drives hover, tooltips, snapping, erasing, and
   release; the utility tool does not derive a second point from terrain.
 - Cryogenic transfer, rigid water supply, RF waveguide, and vacuum pipe use
-  mandatory facility-wide route datums: cryogenic at 0.30 m, cold water at
-  0.60 m, hot water at 0.90 m, RF at 1.20 m, and vacuum at 1.50 m. Authored
+  mandatory facility-wide route datums: cryogenic at 0.30 m, paired cold/hot
+  water at 0.75 m, RF at 1.20 m, vacuum at 1.50 m, and lukewarm water at
+  1.80 m. Authored
   equipment fittings remain on their visible hardware and use short local
   transitions to these datums. Every rigid descriptor uses the shared 1 m
   support spacing and 3 m minimum supported-run threshold, so co-located runs
   form an aligned vertical stack on consolidated rack frames. Route planning
-  and equipment collision must use the selected water circuit's height rather
-  than the descriptor's default cold height. Runs remain independent by
-  utility and water circuit. Retired saved `routeHeightMeters` values cannot override a fixed
-  datum, except the two authored water-circuit datums are both valid.
+  and equipment collision use the connected port's water circuit. A cold and
+  hot line may occupy the same logical X/Z path: presentation offsets their
+  bodies laterally into a twin while topology and selection stay independent.
+  Retired saved `routeHeightMeters` values cannot override a fixed datum.
 - Every routed utility descriptor sets `requiresWallPassThrough: true` and
   validates its physical rendered route against `wallOccupied`. A player draw
   that crosses a wall is one transaction: routing installs or reuses a matching
@@ -335,7 +337,7 @@ the short authoring contract.
   penetration carries two isolated sleeves. Routing may reuse a free pair in
   either assembly.
 - Automatic fitting hardware remains compact around its bore. HV, cryo, RF,
-  and cold/room/hot rigid-water crossings reserve one of the wall tile's two
+  and cold/lukewarm/hot rigid-water crossings reserve one of the wall tile's two
   1 m stations (`wallSpan: 2`, `off: 0|2`); routing moves the physical crossing
   and its orthogonal approach to that station centre. Compact power, data,
   flexible-water, and vacuum sleeves retain quarter-wall placement. Rigid
@@ -344,13 +346,22 @@ the short authoring contract.
   their independent runs. Manual multi-circuit fittings continue to reserve
   their complete wall span.
 - Water line bodies, previews, flow arrows, equipment fittings, and available
-  port markers use blue for `cold` and red for `hot`. The LCW manifold's
-  detailed model carries the same blue supply and red return header colors.
-- The Water Line palette item exposes remembered `Cold Water` and `Hot Water`
-  variants. That selection is a circuit constraint, not cosmetic tint: it
-  filters port markers, snapping, run-wiring targets, previews, taps, and the
-  committed line's `waterCircuit`. Directly dragging an unarmed water port
-  infers the same variant from that port.
+  port markers use blue for `cold`, green for `lukewarm`, and red for `hot`.
+  The LCW manifold's detailed model carries the same blue supply and red return
+  header colors.
+- Water Line and Water Supply Pipe expose no cosmetic color/temperature picker.
+  A gesture inherits its circuit from its first connected equipment port, then
+  filters snapping, run-wiring targets, taps, previews, and the committed
+  line's `waterCircuit` to compatible ports. Cold/hot flexible lines and
+  cold/lukewarm/hot rigid pipes therefore color themselves automatically.
+- Reservoirs expose four rigid lukewarm outlets and two rigid lukewarm inputs.
+  Their former flexible 4+2 connector identities remain resolvable only for
+  existing saves and are excluded from new port selection. Heat rejectors take
+  hot water and emit lukewarm water; chillers take lukewarm water and emit cold
+  water. On the LCW manifold and water distributors, cold flows from rigid pipe
+  to flexible branches while hot flows from flexible returns to the rigid-pipe
+  outlet; solver roles may remain capacity-oriented but `flowRole` must publish
+  that physical direction.
 - An HV cable whose two endpoints are overhead terminals on utility poles or
   transmission towers is an elevated span and may cross any wall or fence in
   plan view. The exception requires two overhead support ports; the pole's

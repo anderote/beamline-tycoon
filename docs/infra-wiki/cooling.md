@@ -17,27 +17,26 @@ wall penetrations, and high-flow machines.
 | Role | Equipment | What it does |
 |------|-----------|--------------|
 | **Process cooling** | Lab Chiller Unit, Package Chiller, LCW Skid, Dual-Circuit Chiller, Chiller | Conditions and circulates water for the beamline loop. These are the normal starting points for a blue-pipe network. |
-| **Heat rejection** | Lab Heat Exchanger, Fan-Coil Cooler, Dry Cooler Bank, Cooling Tower | Converts hot return to room-temperature water. The 1 kW lab exchanger is a demonstration unit; the other rejectors dispose of that heat to room/outdoor air. |
+| **Heat rejection** | Lab Heat Exchanger, Fan-Coil Cooler, Dry Cooler Bank, Cooling Tower | Converts hot return to lukewarm water. The 1 kW lab exchanger is a demonstration unit; the other rejectors dispose of that heat to room/outdoor air. |
 | **Make-up supply** | Make-up Water Tank, Water Replenishment Plant | Replaces evaporated water at a finite rate. The replenishment plant has the larger flow but no onboard storage. |
 | **Storage** | Make-up Water Tank, Bulk Water Storage Tanks | Sets how many litres the network can hold. Bulk tanks are passive and never generate water. |
 | **Water & treatment** | Deionizer | Keeps the loop clean; it does not add cooling capacity. |
 | **Distribution** | 2-Line Water Distributor, 4-Line Dual Water Distributor, LCW Manifold | Converts flexible branches to rigid headers without adding capacity. The LCW Manifold pairs four blue cold and four red hot hoses with one rigid header of each circuit. |
 
 Flexible load water uses a **cold supply** and **hot return** pair. Rigid plant
-pipe adds a third **room-temperature transfer** circuit; all three may cross,
+pipe adds a third **lukewarm transfer** circuit; all three may cross,
 but they never join. A cooled beamline component has one blue cold inlet and
 one red hot outlet. Heat rejectors have a red hot inlet and green
-room-temperature outlet; central chillers have a green room-temperature inlet
-and blue cold outlet. Tanks and make-up plants expose a green room-temperature
-outlet. The Cooling Lab heat exchanger and chiller unit use the same port
+lukewarm outlet; central chillers have a green lukewarm inlet
+and blue cold outlet. Tanks and make-up plants expose four green lukewarm
+outlets and two green lukewarm inputs. The Cooling Lab heat exchanger and chiller unit use the same port
 contracts at a deliberately tiny 1 kW demonstration rating. Large high-flow machines such as the 70 and
 230 MeV cyclotrons connect directly to paired rigid cold/hot ports.
 
-Click **Water Line** in the build palette and choose **Cold Water** (blue) or
-**Hot Water** (red), just like choosing a furnishing color. The selected
-variant shows only compatible ports and is stored on every committed hose;
-starting a drag directly from a blue or red equipment port selects that circuit
-automatically.
+Click **Water Line** or **Water Supply Pipe** and start from a colored equipment
+port. There is no color picker: the first connected port selects the circuit,
+the preview takes that color, and only compatible destinations and taps remain
+available for the rest of the gesture.
 
 The compact 2-line distributor carries one cold and one hot branch. The 4-line
 distributor carries two cold and two hot branches. Their matching rigid ports
@@ -45,7 +44,9 @@ are authored the same blue/red colors, and every drawn line inherits its
 circuit from the selected port. Flexible Water Lines never pass directly
 through wall slabs: drawing one across a wall automatically builds a compact
 red or blue sleeve and splits the hose through its two terminals. Rigid supply
-pipe does the same at its cold, room-temperature, or hot service elevation. The larger 2×2 Water
+pipe does the same at its cold, lukewarm, or hot service elevation. Cold and hot
+rigid runs share the 0.75 m elevation; when they reuse a plan route they render
+side-by-side on one widened saddle with separate brackets. The larger 2×2 Water
 Pipe Penetration stays in the palette for a deliberately planned paired
 cold/hot crossing.
 
@@ -76,7 +77,7 @@ In a real facility, the hierarchy is: cooling tower dumps heat to atmosphere, ch
 
 ### Cooling Networks
 
-Cold, room-temperature, and hot water form isolated networks. A chiller only cools components
+Cold, lukewarm, and hot water form isolated networks. A chiller only cools components
 connected to its cold circuit, and every heated component needs a separate hot
 return to rejection. Distributors transfer capacity between flexible and rigid
 water without shorting the two temperature circuits together.
@@ -92,7 +93,7 @@ This means you need to plan both halves of the loop. A common strategy:
 - Run a rigid cold header from the chiller to distributors near the beamline
 - Use short flexible cold and hot Water Lines at each component
 - Collect returns through distributors into a rigid hot header to heat rejection
-- Run the green room-temperature outlet from heat rejection back to the chiller
+- Run the green lukewarm outlet from heat rejection through reservoirs and back to the chiller
 - Keep RF and magnet circuits separate when their capacity or temperature needs differ
 
 ### Heat Load
@@ -124,9 +125,9 @@ For a normal-conducting cavity, that temperature rise causes thermal expansion, 
 
 **Deionizer/Water Treatment** — keeps cooling water resistivity high (>1 MOhm-cm). Without it, dissolved ions cause electrical leakage and corrosion. Flavour only in gameplay: it adds no capacity and has no mechanical effect.
 
-**Heat Exchanger** — the Cooling Lab demonstration unit accepts one red hot-water pipe and emits one green room-temperature (lukewarm) pipe. Its 1 kW rating is for tiny test loops; facility rejectors use the same hot-to-room contract at useful scale.
+**Heat Exchanger** — the Cooling Lab demonstration unit accepts one red hot-water pipe and emits one green lukewarm pipe. Its 1 kW rating is for tiny test loops; facility rejectors use the same hot-to-lukewarm contract at useful scale.
 
-**Chiller Unit** — the complementary 1 kW Cooling Lab test appliance: one green room-temperature inlet and one blue cold-water outlet.
+**Chiller Unit** — the complementary 1 kW Cooling Lab test appliance: one green lukewarm inlet and one blue cold-water outlet.
 
 **High-Power Water Load** — absorbs reflected RF power as heat. Place near circulators.
 
