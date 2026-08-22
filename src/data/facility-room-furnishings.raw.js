@@ -115,7 +115,10 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
       { name: 'monStand', x: 0, y: 1.48, z: 0.3, w: 0.25, h: 0.06, l: 0.2, color: 0x2a2c34 },
       { name: 'monNeck', x: 0, y: 1.54, z: 0.35, w: 0.08, h: 0.5, l: 0.08, color: 0x2a2c34 },
       { name: 'monBezel', x: 0, y: 2.04, z: 0.38, w: 1.2, h: 0.75, l: 0.06, color: 0x2a2c34 },
-      { name: 'monScreen', x: 0, y: 2.08, z: 0.36, w: 1.1, h: 0.65, l: 0.02, color: 0x1a3a5a },
+      // Pull the display face slightly toward the sitter so it does not share
+      // the bezel's front plane at z=0.35 (which causes angle-dependent
+      // depth fighting in the orthographic camera).
+      { name: 'monScreen', x: 0, y: 2.08, z: 0.33, w: 1.1, h: 0.65, l: 0.02, color: 0x1a3a5a },
       // Keyboard
       { name: 'keyboard', x: -0.1, y: 1.50, z: -0.3, w: 0.9, h: 0.03, l: 0.28, color: 0x303640 },
       // Mouse + pad
@@ -222,7 +225,9 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
       { name: 'monStand', x: -0.5, y: 1.48, z: 0.3, w: 0.2, h: 0.04, l: 0.15, color: 0x2a2c34 },
       { name: 'monNeck', x: -0.5, y: 1.52, z: 0.32, w: 0.06, h: 0.35, l: 0.06, color: 0x2a2c34 },
       { name: 'monBezel', x: -0.5, y: 1.87, z: 0.34, w: 0.9, h: 0.6, l: 0.05, color: 0x2a2c34 },
-      { name: 'monScreen', x: -0.5, y: 1.9, z: 0.32, w: 0.82, h: 0.5, l: 0.02, color: 0x1a3a5a },
+      // Keep the display face in front of the bezel's front plane at z=0.315
+      // to avoid z-fighting while the camera rotates.
+      { name: 'monScreen', x: -0.5, y: 1.9, z: 0.29, w: 0.82, h: 0.5, l: 0.02, color: 0x1a3a5a },
       // Keyboard on work surface
       { name: 'keyboard', x: -0.5, y: 1.49, z: -0.05, w: 0.7, h: 0.03, l: 0.22, color: 0x303640 },
       // Decorative sign strip on front

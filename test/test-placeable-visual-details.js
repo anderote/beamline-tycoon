@@ -28,6 +28,8 @@ globalThis.document = {
 };
 
 const { PLACEABLES } = await import('../src/data/placeables/index.js');
+const { FACILITY_ROOM_FURNISHINGS_RAW } =
+  await import('../src/data/facility-room-furnishings.raw.js');
 const { BEAMLINE_COMPONENTS_RAW } = await import('../src/data/beamline-components.raw.js');
 const { COMPONENTS } = await import('../src/data/components.js');
 const { ComponentBuilder, isDetailedComponent } =
@@ -193,6 +195,18 @@ test('part-light classification is semantic and leaves ordinary structure unlit'
   assert.equal(equipmentPartGlowSpec(PLACEABLES.serverRack, { name: 's3a', color: 0x44ff66 }).profile, 'statusBlink');
   assert.equal(equipmentPartGlowSpec(PLACEABLES.alarmPanel, { name: 'c2', color: 0xffaa40 }).profile, 'statusBlink');
   assert.equal(equipmentPartGlowSpec(PLACEABLES.desk, { name: 'top', color: 0x886644 }), null);
+});
+
+test('desk monitor screens sit in front of their bezels', () => {
+  for (const id of ['workstation', 'receptionDesk']) {
+    const parts = FACILITY_ROOM_FURNISHINGS_RAW[id].parts;
+    const bezel = parts.find(part => part.name === 'monBezel');
+    const screen = parts.find(part => part.name === 'monScreen');
+    const bezelFront = bezel.z - bezel.l / 2;
+    const screenFront = screen.z - screen.l / 2;
+    assert.ok(screenFront < bezelFront,
+      `${id} screen must project toward the viewer instead of sharing the bezel plane`);
+  }
 });
 
 test('every source family has bespoke, mechanically detailed 3D geometry', () => {
