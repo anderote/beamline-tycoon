@@ -14,7 +14,7 @@ import {
   UtilityLineInputController,
 } from '../src/input/UtilityLineInputController.js';
 import { UtilityLineTool } from '../src/input/utility-line-tool.js';
-import { utilityLineHeight } from '../src/utility/registry.js';
+import { utilityLineHeight, UTILITY_TYPE_LIST } from '../src/utility/registry.js';
 import { buildPortRoutedPath } from '../src/utility/line-geometry.js';
 import { validateDrawLine } from '../src/utility/line-drawing.js';
 import { portWorldPosition, portSide, portApproachVec } from '../src/utility/ports.js';
@@ -352,24 +352,31 @@ console.log('\n--- 5. Tool picking follows each utility\'s placement contract --
 }
 
 {
-  // HV wall crossings are checked against authored edges on the ground grid.
-  // Its cursor route must therefore use the ground projection too: using the
-  // elevated render plane makes the route shift across an edge with camera
-  // angle when the mouse line of sight merely passes over a wall.
-  const game = makeGame();
-  const tool = new UtilityLineTool('hvCable');
-  const ctrl = new UtilityLineInputController({ game, renderer: {} });
-  ctrl.setUtilityType('hvCable');
-  const seen = [];
-  const ground = { x: 111, y: 222 };
-  const renderer = {
-    screenToWorld: () => { seen.push('ground'); return ground; },
-    screenToWorldAtHeight: () => { seen.push('plane'); return { x: 333, y: 444 }; },
-  };
-  const ctx = { game, renderer, input: { utilityLineController: ctrl } };
-  const picked = tool._cableWorld({ clientX: 10, clientY: 20 }, ctx);
-  assert(picked === ground && seen.join(',') === 'ground',
-    'HV drawing follows the ground-grid route used by wall crossing validation');
+  // Placement follows the camera ray on the visible route plane for every
+  // utility. Ground projection is reserved for hover/tooltips and must never
+  // move even an HV route away from the cursor.
+  const failures = [];
+  for (const utilityType of UTILITY_TYPE_LIST) {
+    const game = makeGame();
+    const tool = new UtilityLineTool(utilityType);
+    const ctrl = new UtilityLineInputController({ game, renderer: {} });
+    ctrl.setUtilityType(utilityType);
+    const seen = [];
+    const plane = { x: 333, y: 444 };
+    const renderer = {
+      screenToWorld: () => { seen.push('ground'); return { x: 111, y: 222 }; },
+      screenToWorldAtHeight: (x, y, height) => {
+        seen.push(['plane', height]);
+        return plane;
+      },
+    };
+    const ctx = { game, renderer, input: { utilityLineController: ctrl } };
+    const picked = tool._cableWorld({ clientX: 10, clientY: 20 }, ctx);
+    if (picked !== plane || seen.length !== 1 || seen[0][0] !== 'plane'
+      || seen[0][1] !== utilityLineHeight(utilityType)) failures.push(utilityType);
+  }
+  assert(failures.length === 0,
+    `all utility placement follows line of sight, never terrain (${failures.join(',') || 'all'})`);
 }
 
 {
