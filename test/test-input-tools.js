@@ -13,8 +13,8 @@
 //      mid-carry put the object back in the world while the tool still held
 //      it — the next drop minted a free second copy.)
 //   3. Moving a selected item closes its info window before entering move mode.
-//   3b. Delete/Backspace remove ordinary selections while beamlines remain
-//       protected; D pans, 6 demolishes, C/M are contextual modes, and P
+//   3b. Delete removes ordinary selections while beamlines remain protected;
+//       D pans, 6 demolishes, C/M/P are contextual modes, and Backspace
 //       triggers a selected-placeable explosion.
 //   4. Shift-drag decoration line placement emits one rebuild event.
 //   5. Preview lifecycle around arming and committing: a keyboard-armed tool
@@ -486,7 +486,7 @@ console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines
   };
   input._explodeSelectedFromKeyboard = InputHandler.prototype._explodeSelectedFromKeyboard;
   assertOk(input._explodeSelectedFromKeyboard() === true && exploded === target,
-    'P command routes the primary logical selection to the public renderer incident API');
+    'Backspace command routes the primary logical selection to the public renderer incident API');
   assertOk(/Boom: Oscilloscope/.test(toast),
     'a successful selected explosion reports the affected item');
 
@@ -565,7 +565,9 @@ console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines
     },
   };
   let deletes = 0;
+  let explosions = 0;
   const selectionModes = [];
+  let moveModes = 0;
   const slots = [];
   const input = {
     keysDown: new Set(),
@@ -576,7 +578,9 @@ console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines
     _toggleContextDemolish() {},
     _selectionIdsForAnchor: () => [],
     _toggleSelectionActionMode: mode => selectionModes.push(mode),
-    _explodeSelectedFromKeyboard: () => false,
+    _beginSelectedMove: () => false,
+    _toggleMoveMode: () => { moveModes++; },
+    _explodeSelectedFromKeyboard: () => { explosions++; return false; },
     handleDisconnectSelectedUtilitiesKey: () => false,
     _saveSelectionSlot: slot => slots.push(`save:${slot}`),
     _recallSelectionSlot: slot => slots.push(`recall:${slot}`),
@@ -599,16 +603,18 @@ console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines
   keydown(event('6'));
   keydown(event('1', { code: 'Digit1', ctrlKey: true }));
   keydown(event('!', { code: 'Digit1', shiftKey: true }));
-  assertOk(deletes === 2,
-    'Delete and Mac Backspace use contextual selection deletion');
+  assertOk(deletes === 1, 'Delete uses contextual selection deletion');
+  assertOk(explosions === 1, 'Backspace triggers the selected explosion command');
   assertOk(input.keysDown.has('d'), 'D remains the camera pan-right key');
   assertOk(selectionModes.join(',') === 'copy,mirror',
     'C and M enter click-to-target modes when nothing is selected');
+  assertOk(moveModes === 1, 'P enters click-to-move mode when nothing is selected');
   const selectedActions = [];
   input.selectedPlaceableId = 'selected';
   input._selectionIdsForAnchor = () => ['selected'];
   input._beginSelectedCopy = id => { selectedActions.push(`copy:${id}`); return true; };
   input._beginSelectedMirror = id => { selectedActions.push(`mirror:${id}`); return true; };
+  input._beginSelectedMove = () => { selectedActions.push('move:selected'); return true; };
   input._explodeSelectedFromKeyboard = () => {
     selectedActions.push('explode:selected');
     return true;
@@ -616,8 +622,10 @@ console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines
   keydown(event('c'));
   keydown(event('m'));
   keydown(event('p'));
-  assertOk(selectedActions.join(',') === 'copy:selected,mirror:selected,explode:selected',
-    'C, M, and P act immediately on the current selection');
+  keydown(event('Backspace'));
+  assertOk(selectedActions.join(',')
+      === 'copy:selected,mirror:selected,move:selected,explode:selected',
+  'C, M, P, and Backspace act immediately on the current selection');
   assertOk(modeClicks.join(',') === 'demolish',
     '6 enters the full Demolish build mode through its visible menu button');
   assertOk(slots.join(',') === 'save:1,recall:1',

@@ -2230,7 +2230,8 @@ export class InputHandler {
 
       // Contextual selection shortcuts. With a selection they immediately
       // act on it; without one, Copy and Mirror become click-to-target modes.
-      // D remains camera pan-right; Delete/Backspace own selection deletion.
+      // D remains camera pan-right; Delete owns selection deletion and
+      // Backspace owns the reversible selected-placeable explosion.
       if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey
           && (e.key === 'c' || e.key === 'C')) {
         e.preventDefault();
@@ -2460,14 +2461,14 @@ export class InputHandler {
           this.game.log(`Zone labels ${visible ? 'shown' : 'hidden'}`, 'info');
           break;
         }
-        // P is the incident-development hotkey: blow up the primary selected
-        // placeable through the renderer's reversible physics presentation.
-        // Persistent fire/damage belongs to simulation state and is
-        // deliberately not inferred from this visual tuning command.
+        // P owns movement. With a selected placeable it immediately picks up
+        // that item; otherwise it toggles the general click-to-pick-up mode.
+        // Pause remains available from the top-bar button.
         case 'p': case 'P': {
           if (e.ctrlKey || e.metaKey || e.altKey) break; // keep Cmd/Ctrl+P (print)
           e.preventDefault();
-          this._explodeSelectedFromKeyboard();
+          if (this._beginSelectedMove()) break;
+          this._toggleMoveMode();
           break;
         }
         case '7': case '8': case '9': {
@@ -2478,7 +2479,11 @@ export class InputHandler {
           this._showToast(`Speed: ${mult}x`);
           break;
         }
-        case 'Delete': case 'Backspace':
+        case 'Backspace':
+          e.preventDefault();
+          this._explodeSelectedFromKeyboard();
+          break;
+        case 'Delete':
           e.preventDefault();
           // Delete the current ordinary selection immediately. A selected
           // beamline is deliberately protected: removing one of its anchor
@@ -4370,7 +4375,7 @@ export class InputHandler {
   }
 
   /**
-   * Handle Delete/Backspace when one or more world items are selected.
+   * Handle Delete when one or more world items are selected.
    * Returns false only when there is no selection, allowing the key to keep
    * its legacy "toggle demolish tool" behavior in that case.
    *
