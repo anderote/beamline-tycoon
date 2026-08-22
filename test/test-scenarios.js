@@ -93,6 +93,17 @@ for (const scenario of SCENARIOS) {
   const furnishingSnapshot = buildWorldSnapshot(game, { only: ['furnishings'] }).furnishings;
   assert(furnishingSnapshot.length === furnishings.length,
     `renderer snapshot includes every scenario furnishing (${furnishingSnapshot.length}/${furnishings.length})`);
+  if (scenario.id === 'minorLab') {
+    const rendered = buildWorldSnapshot(game, {
+      only: ['components', 'equipment', 'furnishings', 'decorations'],
+    });
+    const renderedPlaceableCount = rendered.components.length
+      + rendered.equipment.length
+      + rendered.furnishings.length
+      + rendered.decorations.length;
+    assert(renderedPlaceableCount === state.placeables.length,
+      `Minor Lab renderer receives every authored placeable (${renderedPlaceableCount}/${state.placeables.length})`);
+  }
 
   // Blocker-free is not the same as served. Unwired sinks fail CLOSED to
   // quality 0, and dataFiber never hard-blocks at all, so a scenario could be

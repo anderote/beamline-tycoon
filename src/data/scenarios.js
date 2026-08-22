@@ -25,6 +25,7 @@ export const CUSTOM_SCENARIO_ID = '__custom__';
 export const CUSTOM_SCENARIO_INDEX_KEY = 'beamlineTycoon.customScenarioIndex';
 export const CUSTOM_SCENARIO_PREFIX = 'beamlineTycoon.customScenarios.';
 export const MINOR_LAB_SCENARIO_ID = 'minorLab';
+export const MINOR_LAB_BASELINE_VERSION = '2026-08-22-minorLab4-3';
 // Exported for storage migration compatibility; New Game no longer reads it.
 export const DEFAULT_STARTING_SCENARIO_KEY = 'beamlineTycoon.defaultStartingScenario';
 export const PENDING_SCENARIO_KEY = 'beamlineTycoon.pendingScenario';
@@ -78,14 +79,16 @@ function isMinorLabEntry(entry) {
 }
 
 /**
- * Collapse old Scenario Admin revisions named "Minor Lab" into the one stable
- * local override for the built-in scenario. Older editor versions derived a
- * fresh id (`minorLab2`, `minorLab3`, ...) on Save As, which left several
- * identically named cards in New Game and allowed the stock starter to reappear.
+ * Remove legacy Scenario Admin revisions named "Minor Lab" and retain at most
+ * the one stable local override created against the current built-in baseline.
+ * Older editor versions derived a fresh id (`minorLab2`, `minorLab3`, ...) on
+ * Save As. A prior migration preserved the newest of those revisions, which
+ * could still supersede the committed baseline with a partially loaded world.
  *
- * The newest valid payload wins. The canonical payload and cleaned index are
- * written and verified before obsolete payload keys are removed, so a storage
- * failure cannot destroy the only copy of the authored world.
+ * Unversioned revisions are deliberately retired: the repository baseline is
+ * the recovery copy and must be the first Minor Lab loaded after this upgrade.
+ * Subsequent saves carry MINOR_LAB_BASELINE_VERSION and overwrite one canonical
+ * slot. The cleaned index is verified before obsolete payload keys are removed.
  */
 export function consolidateMinorLabScenarios(storage = globalThis.localStorage) {
   if (!storage) return null;
@@ -100,20 +103,30 @@ export function consolidateMinorLabScenarios(storage = globalThis.localStorage) 
   if (candidates.length === 1
     && candidates[0].entry.id === MINOR_LAB_SCENARIO_ID
     && candidates[0].payload?.id === MINOR_LAB_SCENARIO_ID
+    && candidates[0].payload?.minorLabBaselineVersion === MINOR_LAB_BASELINE_VERSION
     && candidates[0].payload?.data) {
     return candidates[0].payload;
   }
 
-  const valid = candidates.filter(candidate => candidate.payload?.data);
+  const valid = candidates.filter(candidate => candidate.payload?.data
+    && candidate.payload.minorLabBaselineVersion === MINOR_LAB_BASELINE_VERSION);
   const canonicalKey = customScenarioStorageKey(MINOR_LAB_SCENARIO_ID);
   const previousCanonical = storage.getItem(canonicalKey);
   const cleanedIndex = index.filter(entry => !candidates.some(candidate => candidate.entry === entry));
 
   if (!valid.length) {
     const cleanedText = JSON.stringify(cleanedIndex);
-    storage.setItem(CUSTOM_SCENARIO_INDEX_KEY, cleanedText);
-    if (storage.getItem(CUSTOM_SCENARIO_INDEX_KEY) !== cleanedText) {
-      throw new Error('Could not verify the cleaned Minor Lab catalogue');
+    try {
+      storage.setItem(CUSTOM_SCENARIO_INDEX_KEY, cleanedText);
+      if (storage.getItem(CUSTOM_SCENARIO_INDEX_KEY) !== cleanedText) {
+        throw new Error('Could not verify the cleaned Minor Lab catalogue');
+      }
+    } catch (error) {
+      try {
+        if (previousIndex == null) storage.removeItem(CUSTOM_SCENARIO_INDEX_KEY);
+        else storage.setItem(CUSTOM_SCENARIO_INDEX_KEY, previousIndex);
+      } catch (_) {}
+      throw error;
     }
     for (const candidate of candidates) {
       try { storage.removeItem(customScenarioStorageKey(candidate.entry.id)); } catch (_) {}
@@ -131,6 +144,7 @@ export function consolidateMinorLabScenarios(storage = globalThis.localStorage) 
     ...winner,
     id: MINOR_LAB_SCENARIO_ID,
     name: 'Minor Lab',
+    minorLabBaselineVersion: MINOR_LAB_BASELINE_VERSION,
     updatedAt: winner.updatedAt || valid[0].entry.updatedAt || Date.now(),
   };
   cleanedIndex.push({
@@ -370,6 +384,7 @@ export function saveCustomScenario(payload, {
     sandbox: payload.sandbox !== false,
     updatedAt: Date.now(),
   };
+  if (canonicalMinorLab) stored.minorLabBaselineVersion = MINOR_LAB_BASELINE_VERSION;
   const payloadKey = customScenarioStorageKey(stored.id);
   // Saving spans two localStorage keys. Keep the exact prior strings so any
   // failed or unverifiable write can roll back instead of orphaning a payload,
