@@ -1784,6 +1784,33 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
       { name: 'postBack', x: 0, y: 1.9, z: 1.35, w: 0.16, h: 3.8, l: 0.16, material: 'metal_brushed' },
     ],
   },
+  toiletStallWall: {
+    id: 'toiletStallWall', name: 'Toilet Stall Wall', zoneType: 'bathroom', furnitureGroup: 'hygiene',
+    cost: { funding: 280 }, energyCost: 0, spriteColor: 0x8ca3ae,
+    gridW: 1, gridH: 3, subH: 4, spriteKey: 'toiletStallWall', effects: {}, baseMaterial: 'metal_painted_white', hasSurface: false,
+    // A free-standing divider: rotate it to build the side and rear walls of
+    // an accessible-sized stall around the toilet fixture.
+    parts: [
+      { name: 'panel', x: 0, y: 1.9, z: 0, w: 0.12, h: 3.8, l: 2.9, color: 0x8ca3ae },
+      { name: 'frontPost', x: 0, y: 1.9, z: -1.35, w: 0.16, h: 3.8, l: 0.16, material: 'metal_brushed' },
+      { name: 'rearPost', x: 0, y: 1.9, z: 1.35, w: 0.16, h: 3.8, l: 0.16, material: 'metal_brushed' },
+      { name: 'topRail', x: 0, y: 3.78, z: 0, w: 0.16, h: 0.1, l: 3.0, material: 'metal_brushed' },
+    ],
+  },
+  toiletStallDoor: {
+    id: 'toiletStallDoor', name: 'Toilet Stall Door', zoneType: 'bathroom', furnitureGroup: 'hygiene',
+    cost: { funding: 340 }, energyCost: 0, spriteColor: 0x78909c,
+    gridW: 2, gridH: 1, subH: 4, spriteKey: 'toiletStallDoor', effects: {}, baseMaterial: 'metal_painted_white', hasSurface: false,
+    // The door is a room furnishing rather than a building opening: it
+    // visually completes a cubicle and can be rotated to face its partition.
+    parts: [
+      { name: 'doorLeaf', x: 0, y: 1.9, z: 0, w: 1.82, h: 3.8, l: 0.12, color: 0x78909c },
+      { name: 'hingePost', x: -0.86, y: 1.9, z: 0, w: 0.14, h: 3.8, l: 0.16, material: 'metal_brushed' },
+      { name: 'topRail', x: 0, y: 3.78, z: 0, w: 2.0, h: 0.1, l: 0.16, material: 'metal_brushed' },
+      { name: 'latch', x: 0.62, y: 1.9, z: -0.09, w: 0.18, h: 0.13, l: 0.08, material: 'metal_brushed' },
+      { name: 'vacantIndicator', x: 0.38, y: 2.28, z: -0.09, w: 0.22, h: 0.22, l: 0.04, color: 0x4d9d69 },
+    ],
+  },
   paperTowelBin: {
     id: 'paperTowelBin', name: 'Paper Towel Bin', zoneType: 'bathroom', furnitureGroup: 'hygiene',
     cost: { funding: 90 }, energyCost: 0, spriteColor: 0x6c7375,
@@ -1897,6 +1924,8 @@ const ROOM_FURNISHING_DESCS = {
   bathroomMirror: 'Wide, durable mirror above the sinks. Bathroom.',
   handDryer: 'Automatic hand dryer; no towel-roll logistics required. Bathroom.',
   toiletStall: 'Privacy partition for arranging individual restroom stalls. Bathroom.',
+  toiletStallWall: 'Freestanding partition wall for building individual restroom cubicles. Bathroom.',
+  toiletStallDoor: 'Locking cubicle door that completes a toilet stall. Bathroom.',
   paperTowelBin: 'Small stainless bin for the inevitable paper-towel backup. Bathroom.',
 };
 for (const [id, desc] of Object.entries(ROOM_FURNISHING_DESCS)) {
