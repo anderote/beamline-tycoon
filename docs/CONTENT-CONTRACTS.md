@@ -52,7 +52,9 @@ the short authoring contract.
   ports of one electrical utility. Multi-conductor fittings keep each authored
   inlet/outlet pair in its own `electricalGroups` entry. A line terminates on
   each face; same-device pair continuity is the only connection through the
-  wall.
+  wall. HV feedthroughs set `utilityFlowPresentation: 'symmetric'`: both faces
+  use passive, double-headed terminal arrows and the body carries no preferred
+  flow arrow, because either face may be upstream.
 - An off-map service uses `mapEdgeConnection` with a positive integer
   `maxDistanceTiles` plus validated conductor presentation dimensions. Its
   complete footprint must remain on the map and inside that boundary band at
@@ -250,11 +252,11 @@ the short authoring contract.
   wall feedthrough, removes drawn lateral slack but retains a visible, shallow
   gravity sag while suspended between its endpoints; other soft cables retain
   drawn slack.
-- Passive inlet/outlet fittings keep their `pass` topology role but derive
-  their physical arrow direction from the port name. Isolated pole, tower, and
-  indoor-rack supports remain nondirectional; wall feedthroughs and
-  transformers carry a body-level arrow derived from the world-space
-  inlet/outlet anchor centroids.
+- Passive inlet/outlet fittings keep their `pass` topology role but normally
+  derive their physical arrow direction from the port name. Isolated pole,
+  tower, indoor-rack supports, and symmetric HV wall feedthroughs remain
+  nondirectional. Directional wall feedthroughs and transformers carry a
+  body-level arrow derived from the world-space inlet/outlet anchor centroids.
 - Cooling supply displays use heat-rejection capacity when it is declared;
   reservoir volume is inventory, not cooling power.
 - Cooling-water ports author make-up flow as `supplyRateLPerTick` and tank

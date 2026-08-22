@@ -104,6 +104,12 @@ test('Power palette provides two real wall-mounted electrical feedthroughs', () 
       port.utility === utility && port.role === 'pass'));
     assert.deepEqual(new Set(Object.values(ports).map(port => port.side)),
       new Set(['front', 'back']));
+    if (utility === 'hvCable') {
+      assert.equal(def.utilityFlowPresentation, 'symmetric');
+      assert.deepEqual(new Set(Object.values(ports).map(port => port.connectionKind)),
+        new Set(['hvPassThrough']),
+        'both HV faces publish the same passive connection kind');
+    }
   }
 });
 
@@ -227,9 +233,11 @@ test('4×4 HV wall feedthrough keeps four omnidirectional, un-rated conductors i
   const def = PLACEABLES.hvWallPassThrough4x4;
   const ports = getUtilityPortsV2(def.id);
   assert.equal(def.wallSpan, 4);
+  assert.equal(def.utilityFlowPresentation, 'symmetric');
   assert.equal(Object.keys(ports).length, 8);
   assert.ok(Object.values(ports).every(port =>
     port.utility === 'hvCable' && port.role === 'pass'
+      && port.connectionKind === 'hvPassThrough'
       && port.omnidirectional === true && Object.keys(port.params).length === 0),
   'the bushing publishes no internal power or capacity limit');
   assert.deepEqual(def.electricalGroups.hvCable, [
@@ -257,11 +265,13 @@ test('2×2 HV wall feedthrough scales the 4×4 fitting down to two isolated cond
   const def = PLACEABLES.hvWallPassThrough2x2;
   const ports = getUtilityPortsV2(def.id);
   assert.equal(def.wallSpan, 2);
+  assert.equal(def.utilityFlowPresentation, 'symmetric');
   assert.equal(def.subW, 2);
   assert.equal(Object.keys(ports).length, 4);
   assert.deepEqual(Object.values(ports).map(port => port.offsetAlong), [0.25, 0.25, 0.75, 0.75]);
   assert.ok(Object.values(ports).every(port =>
     port.utility === 'hvCable' && port.role === 'pass'
+      && port.connectionKind === 'hvPassThrough'
       && port.omnidirectional === true && Object.keys(port.params).length === 0),
   'the half-wall bushing publishes no internal power or capacity limit');
   assert.deepEqual(def.electricalGroups.hvCable, [

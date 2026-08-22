@@ -298,6 +298,15 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
   // wall-mounted prop. Both faces expose the same number of passive ports of
   // one cable type so network discovery can bridge separately terminated runs.
   function checkWallPassThrough(id, def) {
+    if (def.utilityFlowPresentation != null
+        && def.utilityFlowPresentation !== 'symmetric') {
+      problem(id, 'utilityFlowPresentation',
+        "utilityFlowPresentation must be 'symmetric' when declared");
+    }
+    if (def.utilityFlowPresentation === 'symmetric' && def.wallPassThrough !== true) {
+      problem(id, 'utilityFlowPresentation',
+        'symmetric utility flow presentation requires a wall pass-through');
+    }
     if (def.wallPassThrough == null) return;
     if (def.wallPassThrough !== true) {
       problem(id, 'wallPassThrough', 'wallPassThrough must be true when declared');
@@ -316,6 +325,12 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
         || ports.some(port => port.role !== 'pass')
         || !sides.has('front') || !sides.has('back') || frontCount !== backCount) {
       problem(id, 'wallPassThrough', 'requires matching passive front/back ports of one electrical cable type');
+    }
+    if (def.utilityFlowPresentation === 'symmetric'
+        && (utilities.size !== 1 || !utilities.has('hvCable')
+          || new Set(ports.map(port => port.connectionKind)).size !== 1)) {
+      problem(id, 'utilityFlowPresentation',
+        'symmetric wall pass-throughs require one shared HV connection kind on both faces');
     }
   }
 

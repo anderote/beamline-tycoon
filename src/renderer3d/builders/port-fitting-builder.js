@@ -188,8 +188,9 @@ function getEquipmentFlowGeometry() {
 }
 
 function isDirectionalEquipment(def) {
-  return def?.wallPassThrough === true
-    || /Transformer$/.test(def?.id || '');
+  return def?.utilityFlowPresentation !== 'symmetric'
+    && (def?.wallPassThrough === true
+      || /Transformer$/.test(def?.id || ''));
 }
 
 function isCableSupport(def) {
@@ -595,7 +596,8 @@ export function buildPortFittings(endpoints) {
       if (!anchor) continue;
       const fitting = buildPortFitting(
         anchor, spec.utility, spec.role,
-        isCableSupport(def) ? 'pass' : portFlowArrowRole(name, spec.role));
+        isCableSupport(def) || def.utilityFlowPresentation === 'symmetric'
+          ? 'pass' : portFlowArrowRole(name, spec.role));
       fitting.userData.placeableId = ep.id;
       fitting.userData.portName = name;
       group.add(fitting);

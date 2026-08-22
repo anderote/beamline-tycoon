@@ -142,6 +142,7 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
       cost: { funding: 100 }, subW: 1, subL: 1, subH: 1,
       placement: 'module', requiredConnections: [],
       mount: 'floor', wallPassThrough: true,
+      utilityFlowPresentation: 'one-way',
     },
     badDisconnect: {
       id: 'badDisconnect', name: 'Bad Disconnect', category: 'power',
@@ -328,6 +329,8 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     'wall pass-throughs must use the wall placement layer');
   assert(hasProblem(problems, 'badFeedthrough', 'wallPassThrough', 'matching passive'),
     'wall pass-throughs require two passive ports on opposite faces');
+  assert(hasProblem(problems, 'badFeedthrough', 'utilityFlowPresentation', "'symmetric'"),
+    'unknown utility flow presentation modes are rejected');
   assert(hasProblem(problems, 'badDisconnect', 'electricalControl.breaker.utility'),
     'electrical breakers reject non-electrical utility types');
   assert(hasProblem(problems, 'badDisconnect', 'electricalControl.breaker.rating'),

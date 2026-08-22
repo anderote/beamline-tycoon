@@ -1106,11 +1106,11 @@ const INFRA_UTILITY_PORTS = {
   hvWallPassThrough: {
     hv_in: {
       utility: 'hvCable', side: 'front', offsetAlong: 0.5,
-      role: 'pass', connectionKind: 'hvPassThroughIn', omnidirectional: true, params: {},
+      role: 'pass', connectionKind: 'hvPassThrough', omnidirectional: true, params: {},
     },
     hv_out: {
       utility: 'hvCable', side: 'back', offsetAlong: 0.5,
-      role: 'pass', connectionKind: 'hvPassThroughOut', omnidirectional: true, params: {},
+      role: 'pass', connectionKind: 'hvPassThrough', omnidirectional: true, params: {},
     },
   },
   hvWallPassThrough2x2: Object.fromEntries([
@@ -1118,11 +1118,11 @@ const INFRA_UTILITY_PORTS = {
   ].flatMap(([index, offsetAlong]) => [
     [`hv_in_${index}`, {
       utility: 'hvCable', side: 'front', offsetAlong, role: 'pass',
-      connectionKind: 'hvPassThroughIn', omnidirectional: true, params: {},
+      connectionKind: 'hvPassThrough', omnidirectional: true, params: {},
     }],
     [`hv_out_${index}`, {
       utility: 'hvCable', side: 'back', offsetAlong, role: 'pass',
-      connectionKind: 'hvPassThroughOut', omnidirectional: true, params: {},
+      connectionKind: 'hvPassThrough', omnidirectional: true, params: {},
     }],
   ])),
   hvWallPassThrough4x4: Object.fromEntries([
@@ -1130,11 +1130,11 @@ const INFRA_UTILITY_PORTS = {
   ].flatMap(([index, offsetAlong]) => [
     [`hv_in_${index}`, {
       utility: 'hvCable', side: 'front', offsetAlong, role: 'pass',
-      connectionKind: 'hvPassThroughIn', omnidirectional: true, params: {},
+      connectionKind: 'hvPassThrough', omnidirectional: true, params: {},
     }],
     [`hv_out_${index}`, {
       utility: 'hvCable', side: 'back', offsetAlong, role: 'pass',
-      connectionKind: 'hvPassThroughOut', omnidirectional: true, params: {},
+      connectionKind: 'hvPassThrough', omnidirectional: true, params: {},
     }],
   ])),
   indoorHvCableRack: Object.fromEntries([
