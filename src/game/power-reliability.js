@@ -11,6 +11,7 @@ import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
 import { TRANSFER_MODES } from '../utility/electrical-state.js';
 
 export const GENERATOR_REFUEL_COST = 25000;
+export const BREAKER_AUTO_RETRY_TICKS = 15;
 
 function rootState(state) {
   if (!state.powerReliability || typeof state.powerReliability !== 'object') {
@@ -35,6 +36,7 @@ export function initialPowerDeviceState(def) {
   if (control.breaker) {
     out.breakerTripped = false;
     out.overloadTicks = 0;
+    out.breakerRetryTicks = 0;
   }
   if (control.battery) {
     out.batteryChargeTicks = control.battery.capacityTicks;
@@ -194,7 +196,18 @@ export class PowerReliabilityCoordinator {
 
   _tickBreaker(entry, def, live) {
     const breaker = def.electricalControl?.breaker;
-    if (!breaker || live.breakerTripped) return false;
+    if (!breaker) return false;
+    if (live.breakerTripped) {
+      const remaining = Number.isFinite(live.breakerRetryTicks) && live.breakerRetryTicks > 0
+        ? live.breakerRetryTicks
+        : BREAKER_AUTO_RETRY_TICKS;
+      live.breakerRetryTicks = Math.max(0, remaining - 1);
+      if (live.breakerRetryTicks > 0) return false;
+      live.breakerTripped = false;
+      live.overloadTicks = 0;
+      this.log(`${def.name}: breaker attempting automatic reset.`, 'warn');
+      return true;
+    }
     const { flow } = monitoredFlow(this.state, entry, def, breaker.utility);
     const capacity = flow?.totalCapacity || 0;
     const demand = flow?.totalDemand || 0;
@@ -202,6 +215,7 @@ export class PowerReliabilityCoordinator {
     live.overloadTicks = overloaded ? (live.overloadTicks || 0) + 1 : 0;
     if (live.overloadTicks < (breaker.tripDelayTicks || 5)) return false;
     live.breakerTripped = true;
+    live.breakerRetryTicks = BREAKER_AUTO_RETRY_TICKS;
     this.log(`${def.name}: breaker tripped after sustained overload.`, 'bad');
     return true;
   }
@@ -280,6 +294,16 @@ export class PowerReliabilityCoordinator {
     }
     if (control.breaker) {
       rows.push({ label: 'Breaker', value: live.breakerTripped ? 'TRIPPED' : 'Closed' });
+      if (live.breakerTripped) {
+        const retryTicks = Number.isFinite(live.breakerRetryTicks)
+          && live.breakerRetryTicks > 0
+          ? live.breakerRetryTicks
+          : BREAKER_AUTO_RETRY_TICKS;
+        rows.push({
+          label: 'Auto retry',
+          value: `${Math.ceil(retryTicks)} s`,
+        });
+      }
       const { flow } = monitoredFlow(this.state, entry, def, control.breaker.utility);
       if (flow) {
         rows.push({ label: 'Measured demand', value: `${Math.round(flow.totalDemand || 0)} kW` });
@@ -363,6 +387,7 @@ export class PowerReliabilityCoordinator {
     } else if (action === 'resetBreaker' && live.breakerTripped) {
       live.breakerTripped = false;
       live.overloadTicks = 0;
+      live.breakerRetryTicks = 0;
       topologyChanged = control.kind === 'disconnect' || control.kind === 'transfer';
     } else if (action === 'toggleGenerator' && control.source?.kind === 'generator') {
       live.generatorEnabled = live.generatorEnabled === false;
