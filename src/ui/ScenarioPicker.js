@@ -61,7 +61,7 @@ export class ScenarioPicker {
     html += '<p class="scenario-intro">Choose a starting situation. Your current game is kept in recovery saves after you confirm a choice.</p>';
 
     for (const scenario of scenarios) {
-      if (scenario.local) html += '<div class="scenario-card-row">';
+      if (scenario.local || scenario.editable) html += '<div class="scenario-card-row">';
       html += `<button type="button" class="scenario-card" data-id="${escapeText(scenario.id)}">`;
       html += '<span class="scenario-card-header">';
       html += `<strong class="scenario-card-name">${escapeText(scenario.name)}</strong>`;
@@ -69,9 +69,10 @@ export class ScenarioPicker {
       html += '</span>';
       html += `<span class="scenario-description">${escapeText(scenario.desc)}</span>`;
       html += '</button>';
-      if (scenario.local) {
+      if (scenario.local || scenario.editable) {
         if (this.editorEnabled) {
-          html += `<button type="button" class="scenario-edit-action" data-edit-scenario="${escapeText(scenario.localId)}" aria-label="Edit ${escapeText(scenario.name)}">Edit</button>`;
+          const editId = scenario.local ? scenario.localId : `builtin:${scenario.id}`;
+          html += `<button type="button" class="scenario-edit-action" data-edit-scenario="${escapeText(editId)}" aria-label="Edit ${escapeText(scenario.name)}">Edit</button>`;
         }
         html += '</div>';
       }
@@ -125,14 +126,19 @@ export class ScenarioPicker {
   }
 
   _openEditor(localId) {
-    const scenario = localId ? resolveScenario(customScenarioRef(localId), this.storage) : null;
+    const builtInId = localId?.startsWith('builtin:') ? localId.slice('builtin:'.length) : null;
+    const scenario = builtInId
+      ? resolveScenario(builtInId, this.storage)
+      : localId ? resolveScenario(customScenarioRef(localId), this.storage) : null;
     const message = scenario
       ? `Edit “${scenario.name}”?\n\nYour current game will be saved and kept in recovery saves.`
       : 'Create a new starting situation?\n\nYour current game will be saved and kept in recovery saves.';
     if (!this.confirm(message)) return;
     this.game.save();
     SaveSlots.preserveActive('Before scenario construction');
-    const editorTarget = localId ? encodeURIComponent(localId) : 'new';
+    const editorTarget = builtInId
+      ? `builtin:${encodeURIComponent(builtInId)}`
+      : localId ? encodeURIComponent(localId) : 'new';
     this.location.href = `${this.location.pathname}?editor=${editorTarget}`;
   }
 

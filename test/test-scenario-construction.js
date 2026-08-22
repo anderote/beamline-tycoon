@@ -61,12 +61,22 @@ assert.equal(listPlayableScenarios(storage).filter(scenario => scenario.local).l
   'every local scenario is included in the New Game catalogue');
 assert.deepEqual(
   listPlayableScenarios(storage).filter(scenario => !scenario.local).map(scenario => scenario.id),
-  ['sandbox'],
-  'New Game has no source-authored choices beyond blank Sandbox');
+  ['minorLab', 'sandbox'],
+  'New Game exposes Minor Lab as its stock editable starting situation plus Sandbox');
+assert.equal(resolveScenario('minorLab', storage)?.name, 'Minor Lab',
+  'the stock Minor Lab is launchable from New Game');
 assert.equal(resolveScenario('realLab', storage), null,
   'the former Real Lab fixture is not launchable from New Game');
 assert.equal(resolveScenario('smallBeamlineFacility', storage), null,
   'the former Small Beamline Facility fixture is not launchable from New Game');
+
+const minorOverrideStorage = memoryStorage();
+saveCustomScenario({ id: 'minorLab', name: 'Minor Lab', data: baseData }, {
+  storage: minorOverrideStorage,
+});
+assert.deepEqual(listPlayableScenarios(minorOverrideStorage).map(scenario => scenario.id),
+  [customScenarioRef('minorLab'), 'sandbox'],
+  'saving an edited Minor Lab replaces the stock card instead of duplicating it');
 
 const balanceRef = customScenarioRef('balanceLab');
 const resolved = resolveScenario(balanceRef, storage);
@@ -160,8 +170,8 @@ assert.ok(legacyStorage.getItem(`${CUSTOM_SCENARIO_PREFIX}legacyLab`),
 assert.equal(resolveScenario(CUSTOM_SCENARIO_ID, legacyStorage)?.name, 'Legacy Lab',
   'old pending custom-scenario references still resolve after migration');
 assert.deepEqual(listPlayableScenarios(legacyStorage).map(scenario => scenario.name),
-  ['Legacy Lab', 'Sandbox'],
-  'a migrated starter and Sandbox are the only New Game choices');
+  ['Legacy Lab', 'Minor Lab', 'Sandbox'],
+  'a migrated starter, stock Minor Lab, and Sandbox are the New Game choices');
 
 // The old slot remains the recovery source until the new catalogue index is
 // safely committed. A quota/write failure may leave an orphan target payload,
