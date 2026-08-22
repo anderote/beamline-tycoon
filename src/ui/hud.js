@@ -2480,6 +2480,7 @@ UIHost.prototype._setPaletteExpanded = function(expanded) {
   const palette = document.getElementById('component-palette');
   const toggle = document.getElementById('palette-expand-toggle');
   if (!bottomHud || !palette || !toggle) return;
+  document.body.classList.toggle('palette-expanded', expanded);
   bottomHud.classList.toggle('palette-expanded', expanded);
   palette.classList.toggle('palette-expanded', expanded);
   toggle.setAttribute('aria-expanded', String(expanded));

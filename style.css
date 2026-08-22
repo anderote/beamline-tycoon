@@ -41,6 +41,10 @@
      changes height when content or active build categories change. */
   --hud-topbar-height: 98px;
   --hud-bottom-height: 296px;
+  /* Two 184px palette rows + their 6px inter-row gap, palette padding,
+     controls, and HUD padding. This remains a shared token so every
+     bottom-anchored world control follows the expanded rail. */
+  --hud-expanded-bottom-height: 481px;
   --designer-hud-bottom-height: 257px;
   --hud-topbar-bottom: var(--hud-topbar-height);
 }
@@ -1040,9 +1044,14 @@ body {
   padding: 6px 12px 8px;
 }
 
-/* The expanded palette is intentionally positioned above the fixed HUD rail. */
+/* Expansion is a real second bottom-HUD rail, not an overlay. Keep the
+   shared height token on the body so sibling world controls move with it. */
+body.palette-expanded {
+  --hud-bottom-height: var(--hud-expanded-bottom-height);
+}
+
 #bottom-hud.palette-expanded {
-  overflow: visible;
+  overflow: hidden;
 }
 
 #shift-hint {
@@ -1871,16 +1880,13 @@ body {
   align-items: stretch;
 }
 
-/* The expanded build bar is an upward overlay: it does not resize the game
-   world or move the stable bottom HUD rail. Category sections retain their
-   horizontal order, while each section fills a two-row block top-to-bottom. */
+/* The expanded build bar stays in flow at the bottom of the taller HUD.
+   Category sections retain their horizontal order, while each section fills
+   a two-row block top-to-bottom. */
 #component-palette.palette-expanded {
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 100%;
-  height: 398px;
-  min-height: 398px;
+  flex: 0 0 388px;
+  height: 388px;
+  min-height: 388px;
   overflow-x: auto;
   overflow-y: hidden;
   align-items: flex-start;

@@ -16,10 +16,10 @@ assert.match(html, /id="hud-category-row"[\s\S]*?id="palette-expand-toggle"[\s\S
   'labeled expand toggle is visible beside palette search');
 assert.match(html, /class="palette-expand-label">2 Rows<\/span>/,
   'collapsed toggle clearly advertises the two-row layout');
-assert.match(css, /#bottom-hud\.palette-expanded\s*\{[^}]*overflow:\s*visible/s,
-  'bottom HUD does not clip the upward expanded palette');
-assert.match(css, /#component-palette\.palette-expanded\s*\{[^}]*position:\s*absolute/s,
-  'expanded palette is an upward overlay');
+assert.match(css, /body\.palette-expanded\s*\{[^}]*--hud-bottom-height:\s*var\(--hud-expanded-bottom-height\)/s,
+  'expanded palette raises the shared HUD height for sibling controls');
+assert.match(css, /#component-palette\.palette-expanded\s*\{[^}]*flex:\s*0 0 388px/s,
+  'expanded palette occupies an in-flow two-row rail at the bottom');
 assert.match(css, /#component-palette\.palette-expanded \.palette-subsection-items\s*\{[^}]*grid-template-rows:\s*repeat\(2,\s*184px\)/s,
   'expanded category sections use two rows');
 assert.match(css, /grid-auto-flow:\s*column/,
@@ -28,6 +28,8 @@ assert.match(css, /#component-palette\.palette-expanded:not\(:has\(\.palette-sub
   'flat categories and search results also use two rows');
 assert.match(hud, /UIHost\.prototype\._setPaletteExpanded\s*=\s*function/,
   'HUD owns expand/collapse state');
+assert.match(hud, /document\.body\.classList\.toggle\('palette-expanded',\s*expanded\)/,
+  'HUD synchronizes the shared expanded-height state');
 assert.match(hud, /toggle\.setAttribute\('aria-expanded',\s*String\(expanded\)\)/,
   'HUD synchronizes the accessibility state');
 assert.match(hud, /label\.textContent\s*=\s*expanded\s*\?\s*'1 Row'\s*:\s*'2 Rows'/,
