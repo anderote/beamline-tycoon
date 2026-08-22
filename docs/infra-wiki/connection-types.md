@@ -10,8 +10,8 @@ Carries high-voltage power from a transformer to main/local distribution. It is 
 
 - **Color:** Black (0x141418)
 - **Network type:** Capacity-based (kW supply vs live downstream demand, capped by each distribution device's rating)
-- **Source equipment:** Pad-Mount, Facility, HV and Grid Intertie transformers; the Compact HV Distributor taps a continuing trunk into two protected outgoing feeders, while the HV Distributor Box taps it into four
-- **Consumers:** Compact HV Distributor and HV Distributor Box through their two-wire roof taps; compact/section/main distribution panels, RF sources, and other dedicated HV loads remain terminal connections
+- **Source equipment:** Pad-Mount, Facility, HV and Grid Intertie transformers; the Compact HV Distributor provides two protected feeders, the Section Distribution Panel one, and the Main Distribution Panel two
+- **Consumers:** Compact HV Distributor and compact/section/main distribution panels through their two-connection tensioning roof taps; RF sources and other dedicated HV loads remain terminal connections
 - **Cost:** $1,200/sub-unit ($4,800/tile)
 
 ### Power Cable (green)
@@ -19,7 +19,7 @@ Carries low-voltage branch power from distribution panels to field distribution 
 
 - **Color:** Green (0x44cc44)
 - **Network type:** Capacity-based (kW supply vs demand)
-- **Source equipment:** Compact, Section and Main Distribution Panels
+- **Source equipment:** Compact, Section and Main Distribution Panels, with 4, 6 and 12 independently wired green outlets respectively
 - **Consumers:** Nearly every beamline component, plus every piece of facility equipment with an energy cost
 - **Cost:** $600/sub-unit ($2,400/tile)
 - **Field distribution:** Beamline Busway ($70k, eight taps, 160 kW) and Spider Box (four interchangeable sockets, 30 kW). Connect a panel to any spider-box socket and use the remaining three for loads. Both add no capacity and cannot be chained.

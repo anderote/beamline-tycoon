@@ -603,7 +603,7 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
     for (let c = 0; c <= 9; c++) for (const r of [13, 14]) {
       const d = game._decorationAtTile?.(c, r); if (d) game.removeDecoration(c, r, {skipRefund:true});
     }
-    const gear = game.placePlaceable({type:'switchgear', col:0, row:14});
+    const panel = game.placePlaceable({type:'mainDistributionPanel', col:0, row:14});
     const pump = game.placePlaceable({type:'turboPump', col:2, row:14});
     const ioc  = game.placePlaceable({type:'rackIoc', col:4, row:14});
     const chil = game.placePlaceable({type:'chiller', col:6, row:14});
@@ -617,8 +617,10 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
     const wire = (util, fromId, fromPort, toId, toPort) => {
       if (fromId && toId) wireUtility(game, util, {id:fromId, port:fromPort}, {id:toId, port:toPort});
     };
-    for (const [id, port] of [[src,'pwr_in'],[far,'pwr_in'],[pump,'pwr_in'],[ioc,'pwr_in'],
-      [chil,'pwr_in'],[kly,'pwr_in'],[pwrBus,'bus_left']]) wire('powerCable', gear,'pwr_out', id, port);
+    for (const [index, [id, port]] of [[src,'pwr_in'],[far,'pwr_in'],[pump,'pwr_in'],[ioc,'pwr_in'],
+      [chil,'pwr_in'],[kly,'pwr_in'],[pwrBus,'bus_left']].entries()) {
+      wire('powerCable', panel, `pwr_out_${index + 1}`, id, port);
+    }
     for (const [id, port] of [[src,'vac_in'],[far,'vac_in'],[vacBus,'bus_left']])
       wire('vacuumPipe', pump,'vac_out', id, port);
     wire('rfWaveguide', kly,'rf_out', rfBus,'bus_left');

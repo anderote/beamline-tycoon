@@ -46,7 +46,8 @@ import { RF_PORT_STANDARDS } from './rf-port-standards.js';
 import { BEAMLINE_COMPONENTS_RAW } from './beamline-components.raw.js';
 import { HV_LOAD_TAP_IDS } from './hv-load-taps.js';
 import {
-  DISTRIBUTION_FRONT_TERMINAL_LAYOUTS,
+  DISTRIBUTION_HV_FRONT_TERMINAL_LAYOUTS,
+  DISTRIBUTION_POWER_FRONT_TERMINAL_LAYOUTS,
   DISTRIBUTION_TOP_INPUT_LAYOUTS,
 } from './distribution-output-layout.js';
 
@@ -66,8 +67,8 @@ function frontTerminalAnchor({ x, y, z }) {
   };
 }
 
-function frontTerminalAnchorBank(type, prefix) {
-  return Object.fromEntries(DISTRIBUTION_FRONT_TERMINAL_LAYOUTS[type]
+function frontTerminalAnchorBank(layouts, type, prefix) {
+  return Object.fromEntries((layouts[type] || [])
     .map((terminal, index) => [
       `${prefix}_${index + 1}`, frontTerminalAnchor(terminal),
     ]));
@@ -364,7 +365,7 @@ export const PORT_ANCHOR_OVERRIDES = {
   poleMountTransformer: {
     _default: { y: 0.16, lat: 0.31 },
     hv_in: POWER_HV_INPUT_MOUNTS.poleMountTransformer,
-    ...frontTerminalAnchorBank('poleMountTransformer', 'pwr_out'),
+    ...frontTerminalAnchorBank(DISTRIBUTION_POWER_FRONT_TERMINAL_LAYOUTS, 'poleMountTransformer', 'pwr_out'),
   },
   facilityTransformer: {
     _default: { y: 1.55, lat: 0.82 },
@@ -388,37 +389,34 @@ export const PORT_ANCHOR_OVERRIDES = {
   compactHvDistributor: {
     _default: { y: 0.45, lat: 0.21 },
     hv_in: POWER_HV_INPUT_MOUNTS.compactHvDistributor,
-    ...frontTerminalAnchorBank('compactHvDistributor', 'hv_out'),
-  },
-  switchgear: {
-    _default: { y: 0.7, lat: 0.66 },
-    hv_in: POWER_HV_INPUT_MOUNTS.switchgear,
-    ...frontTerminalAnchorBank('switchgear', 'hv_out'),
+    ...frontTerminalAnchorBank(DISTRIBUTION_HV_FRONT_TERMINAL_LAYOUTS, 'compactHvDistributor', 'hv_out'),
   },
   powerPanel: {
     _default: { y: 0.5, lat: 0.19 },
     hv_in: POWER_HV_INPUT_MOUNTS.powerPanel,
-    ...frontTerminalAnchorBank('powerPanel', 'pwr_out'),
+    ...frontTerminalAnchorBank(DISTRIBUTION_POWER_FRONT_TERMINAL_LAYOUTS, 'powerPanel', 'pwr_out'),
   },
   sectionDistributionPanel: {
     _default: { y: 0.5, lat: 0.24 },
     hv_in: POWER_HV_INPUT_MOUNTS.sectionDistributionPanel,
-    ...frontTerminalAnchorBank('sectionDistributionPanel', 'pwr_out'),
+    ...frontTerminalAnchorBank(DISTRIBUTION_POWER_FRONT_TERMINAL_LAYOUTS, 'sectionDistributionPanel', 'pwr_out'),
+    ...frontTerminalAnchorBank(DISTRIBUTION_HV_FRONT_TERMINAL_LAYOUTS, 'sectionDistributionPanel', 'hv_out'),
   },
   mainDistributionPanel: {
     _default: { y: 0.5, lat: 0.26 },
     hv_in: POWER_HV_INPUT_MOUNTS.mainDistributionPanel,
-    ...frontTerminalAnchorBank('mainDistributionPanel', 'pwr_out'),
+    ...frontTerminalAnchorBank(DISTRIBUTION_POWER_FRONT_TERMINAL_LAYOUTS, 'mainDistributionPanel', 'pwr_out'),
+    ...frontTerminalAnchorBank(DISTRIBUTION_HV_FRONT_TERMINAL_LAYOUTS, 'mainDistributionPanel', 'hv_out'),
   },
   mcc: {
     _default: { y: 0.7, lat: 0.41 },
     hv_in: POWER_HV_INPUT_MOUNTS.mcc,
-    ...frontTerminalAnchorBank('mcc', 'pwr_out'),
+    ...frontTerminalAnchorBank(DISTRIBUTION_POWER_FRONT_TERMINAL_LAYOUTS, 'mcc', 'pwr_out'),
   },
   ups: {
     _default: { y: 0.7, lat: 0.41 },
     hv_in: POWER_HV_INPUT_MOUNTS.ups,
-    ...frontTerminalAnchorBank('ups', 'pwr_out'),
+    ...frontTerminalAnchorBank(DISTRIBUTION_POWER_FRONT_TERMINAL_LAYOUTS, 'ups', 'pwr_out'),
   },
   powerBus: {
     _default: { y: 0.84, lat: 0.21 }, pwr_in: { y: 0.92, lat: 0.71, along: 0 },

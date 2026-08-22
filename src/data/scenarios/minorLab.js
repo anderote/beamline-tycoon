@@ -3,8 +3,11 @@
 // Source: the newest Minor Lab Scenario Admin export in Downloads on
 // 2026-08-22 (`minorLab4.scenario (3).json`, SHA-256
 // 794e9189b7583f66d1aba1b11a1b1fef3d6f879c0e342f30f68eee251206b97a).
-// Only the top-level scenario id was changed, from `minorLab4` to the stable
-// built-in identity `minorLab`; the complete exported world data is preserved.
+// The top-level scenario id was changed from `minorLab4` to the stable built-in
+// identity `minorLab`. Its power distribution nodes were subsequently migrated
+// to the current panel topology; the authored facility layout remains otherwise
+// preserved (data graph SHA-256
+// 4dc3972a1de6dcc5598f5a734b7dcb460f380800f70b39bfb3324251f10a6337).
 
 import MINOR_LAB_BASE from './minorLab.base.json' with { type: 'json' };
 import { wireUtility } from './scenario-wiring.js';

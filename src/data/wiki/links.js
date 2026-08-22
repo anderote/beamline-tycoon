@@ -28,7 +28,8 @@ export const NAVIGATION_ARTICLES = new Set(['infra-README', 'physics-README']);
 export const ARTICLE_COMPONENTS = {
   'infra-power': [
     'powerPanel', 'ups', 'padMountTransformer', 'facilityTransformer',
-    'hvTransformer', 'gridIntertieTransformer', 'mcc', 'switchgear',
+    'hvTransformer', 'gridIntertieTransformer', 'mcc', 'compactHvDistributor',
+    'sectionDistributionPanel', 'mainDistributionPanel',
     'powerBus', 'spiderBox', 'disconnectSwitch',
   ],
   'infra-vacuum': [

@@ -34,18 +34,16 @@ transformer → HV feeder → distribution panel → branch circuit → field di
 ```
 
 - **Compact HV Distributor**: a two-wire roof tap draws up to 600 kW from a continuing HV trunk and feeds two protected 300 kW outputs; 1×1-subtile footprint.
-- **HV Distributor Box**: a two-wire roof tap draws up to 1,200 kW from a continuing HV trunk and feeds four protected 300 kW outputs.
-- **Compact Distribution Panel**: 40 kW, one HV feed, four 10 kW branch outlets.
-- **Section Distribution Panel**: 200 kW, one HV feed, eight 25 kW branch outlets.
-- **Main Distribution Panel**: 400 kW, one HV feed, eight 50 kW branch outlets.
+- **Compact Distribution Panel**: 40 kW, four 10 kW green branch outlets; its cabinet is the same compact size as the Compact HV Distributor.
+- **Section Distribution Panel**: 600 kW total, six 50 kW green branch outlets plus one protected 300 kW HV outlet.
+- **Main Distribution Panel**: 1,200 kW total, twelve 50 kW green branch outlets plus two protected 300 kW HV outlets.
 - **Beamline Busway**: 160 kW field limit, one branch feed, eight plug-in taps.
 - **Spider Box**: 30 kW field limit and four interchangeable sockets. Connect
   any socket to a panel; the other three become local taps.
 
-Distribution equipment adds no capacity. Ordinary panels accept exactly one
-upstream feed. The two HV distributor cabinets instead accept two cable
-segments on their roof tap, letting the trunk continue through the terminal;
-only one segment may lead to a live source. A field distributor cannot feed
+Distribution equipment adds no capacity. Every distribution cabinet accepts
+two cable segments on its tensioning roof tap, letting the trunk continue
+through the terminal; only one segment may lead to a live source. A field distributor cannot feed
 another field distributor. A spider box does not care which physical socket
 receives its feed, but wiring a second live feed is still invalid. Redundant
 feeds require an explicit transfer switch rather than silently paralleling two

@@ -243,7 +243,7 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   // Service row (8), two north of the line. Sizing, all of it forced by the
   // on-pipe demands that now gate individually:
   //   power ~960 kW (240 of it the four rfCavities, 380 the RF plant) -> the
-  //     1500 kW HV transformer plus an HV distributor for the plant feeders;
+  //     1500 kW HV transformer plus two main panels tapped onto one HV trunk;
   //     distribution gear does not add supply;
   //   RF at two frequencies — 2856 MHz cavities and a 162.5 MHz buncher — so a
   //     multibeam klystron for the cavities plus an SSA for the buncher;
@@ -252,8 +252,6 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   //   data -> an eight-port network switch alongside the IOC.
   const servicePoint = place('gridServicePoint', -26, 8);
   const hv   = place('hvTransformer', -6, 8);
-  const hvGear = place('switchgear', -15, 11);
-  const dedicatedHv = place('switchgear', -20, 11);
   const mbk  = place('multibeamKlystron', -3, 8);
   // Keep the VHF source west of the S-band gallery so their waveguide trunks
   // leave on different corridors and never join by accidental overlap.
@@ -282,14 +280,15 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   // physical LCW manifolds, each carrying four paired cold/hot hoses between
   // one rigid chiller supply and one rigid heat-rejection return.
   const pwrBus2  = place('powerBus', 0, 9);
-  // Two distribution panels keep eight branch loads near their respective
-  // service areas; the three large cooling-plant loads bypass them on HV.
-  const mcc1     = place('mcc', -6, 11);
+  // Two main panels keep the branch loads near their respective service areas.
+  // Their roof taps share one tensioned HV trunk; their protected HV outputs
+  // feed the four large cooling-plant and detector loads.
+  const westPanel = place('mainDistributionPanel', -6, 11);
   // The second panel sits with the plant it feeds. Circuits are point to point
   // now, so a panel on the far side of the hall means several long runs sharing one
   // aisle — put distribution where its loads are, which is the decision the
   // chain exists to create.
-  const mcc2     = place('mcc', 2, 12);
+  const eastPanel = place('mainDistributionPanel', 2, 12);
   const coolW2   = place('coolingManifold', 1, 9);
   const coolE2   = place('coolingManifold', 5, 11);
   const vacW2    = place('vacuumManifold', -3, 9);
@@ -306,26 +305,25 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   const sourcePort = (id, index = 0) => ({ id, role: 'source', index });
   const sinkPort = id => ({ id, role: 'sink' });
   const passPort = (id, side) => ({ id, role: 'pass', side });
-  // Power runs supply -> transformer -> HV distribution -> dedicated plant
-  // loads/panels -> branch circuits. Chillers, the detector, and the authored
-  // cooling-tower service use direct HV inputs, so they do not consume MCC
-  // branch sockets. The extra distributor supplies enough dedicated feeders.
+  // Power runs supply -> transformer -> one shared panel roof trunk ->
+  // dedicated HV plant loads and green branch circuits. Chillers, detector,
+  // and the authored cooling-tower service use the panels' protected HV
+  // outputs, so they do not consume green branch sockets.
   if (servicePoint && hv) wire('hvCable', { id: servicePoint, port: 'hv_out_1' }, { id: hv, port: 'hv_in' });
-  if (hv && hvGear) wire('hvCable', sourcePort(hv, 0), sinkPort(hvGear));
+  if (hv && westPanel) wire('hvCable', sourcePort(hv, 0), { id: westPanel, port: 'hv_in' });
+  if (westPanel && eastPanel) wire('hvCable',
+    { id: westPanel, port: 'hv_in' }, { id: eastPanel, port: 'hv_in' });
   if (hv && mbk) wire('hvCable', sourcePort(hv, 1), sinkPort(mbk));
   if (hv && ssa2) wire('hvCable', sourcePort(hv, 2), sinkPort(ssa2));
   if (hv && tower) wire('hvCable', sourcePort(hv, 3), sinkPort(tower));
-  if (hvGear && mcc1) wire('hvCable', sourcePort(hvGear, 0), sinkPort(mcc1));
-  if (hvGear && mcc2) wire('hvCable', sourcePort(hvGear, 1), sinkPort(mcc2));
-  if (hvGear && ch1) wire('hvCable', sourcePort(hvGear, 2), sinkPort(ch1));
-  if (hvGear && dedicatedHv) wire('hvCable', sourcePort(hvGear, 3), sinkPort(dedicatedHv));
-  if (dedicatedHv && ch2) wire('hvCable', sourcePort(dedicatedHv, 0), sinkPort(ch2));
-  if (dedicatedHv && det) wire('hvCable', sourcePort(dedicatedHv, 1), sinkPort(det));
-  if (dedicatedHv && tower2) wire('hvCable', sourcePort(dedicatedHv, 2), sinkPort(tower2));
+  if (westPanel && ch1) wire('hvCable', sourcePort(westPanel, 0), sinkPort(ch1));
+  if (westPanel && tower2) wire('hvCable', sourcePort(westPanel, 1), sinkPort(tower2));
+  if (eastPanel && ch2) wire('hvCable', sourcePort(eastPanel, 0), sinkPort(ch2));
+  if (eastPanel && det) wire('hvCable', sourcePort(eastPanel, 1), sinkPort(det));
   const westLoads = [sinkPort(src2), sinkPort(tp), sinkPort(ioc2), sinkPort(nsw),
     passPort(pwrBus2, 'back'), sinkPort(secondConsole)];
   const eastLoads = [sinkPort(rp)];
-  for (const [panel, loads] of [[mcc1, westLoads], [mcc2, eastLoads]]) {
+  for (const [panel, loads] of [[westPanel, westLoads], [eastPanel, eastLoads]]) {
     loads.forEach((target, i) => {
       if (target.id && panel) wire('powerCable', sourcePort(panel, i), target);
     });

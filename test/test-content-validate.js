@@ -239,6 +239,7 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     mysteryModule: {
       weird: {
         utility: 'steamPipe', side: 'top', offsetAlong: 7, role: 'both', maxConnections: 0,
+        tensionsCable: 'yes',
         params: { tracksDownstreamDemand: false },
       },
     },
@@ -344,6 +345,8 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     'out-of-range offsetAlong reported');
   assert(hasProblem(problems, 'mysteryModule', 'utilityPorts.weird', 'maxConnections'),
     'non-positive connection capacity reported');
+  assert(hasProblem(problems, 'mysteryModule', 'utilityPorts.weird', 'tensionsCable'),
+    'malformed cable-tension capability reported');
   assert(hasProblem(problems, 'mysteryModule', 'utilityPorts.weird', 'tracksDownstreamDemand'),
     'dynamic downstream demand is restricted to rated HV sink ports');
   assert(hasProblem(problems, 'oversizedBranchLoad', 'utilityPorts.pwr_in', 'must use hvCable'),

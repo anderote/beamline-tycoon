@@ -41,13 +41,18 @@ console.log('\n--- Test 1: source components report correct supply ---');
 {
   const POWER = {
     gridServicePoint: 3000, hvTransformer: 1500,
-    switchgear: 1200, compactHvDistributor: 600, mcc: 250,
+    compactHvDistributor: 600, mcc: 250,
     padMountTransformer: 150, ups: 100, powerPanel: 40,
   };
   for (const [id, cap] of Object.entries(POWER)) {
     const rows = supplyRows(id);
     assert(rows.length === 1, `${id}: exactly one supply row`);
     assert(rows[0]?.value === `${cap} kW`, `${id}: supplies ${cap} kW (got "${rows[0]?.value}")`);
+  }
+  for (const [id, perUtility] of [['sectionDistributionPanel', 300], ['mainDistributionPanel', 600]]) {
+    const rows = supplyRows(id);
+    assert(rows.length === 2 && rows.every(row => row.value === `${perUtility} kW`),
+      `${id}: independently supplies ${perUtility} kW of branch power and HV`);
   }
 
   const COOLING = { lcwSkid: 25, chiller: 300, coolingTower: 800 };
@@ -95,8 +100,9 @@ console.log('\n--- Test 1: source components report correct supply ---');
   const totalSourceIds = [
     ...Object.keys(POWER), ...Object.keys(COOLING), ...Object.keys(CRYO),
     ...Object.keys(VACUUM), ...Object.keys(RF),
+    'sectionDistributionPanel', 'mainDistributionPanel',
   ];
-  assert(totalSourceIds.length === 33, `33 source components covered (got ${totalSourceIds.length})`);
+  assert(totalSourceIds.length === 34, `34 source components covered (got ${totalSourceIds.length})`);
 }
 
 // ==========================================================================
@@ -127,7 +133,8 @@ console.log('\n--- Test 3: draw + supply coexist ---');
 // ==========================================================================
 console.log('\n--- Test 4: zero draw -> no draw row ---');
 {
-  for (const id of ['hvTransformer', 'compactHvDistributor', 'switchgear', 'padMountTransformer', 'powerPanel']) {
+  for (const id of ['hvTransformer', 'compactHvDistributor', 'sectionDistributionPanel',
+    'mainDistributionPanel', 'padMountTransformer', 'powerPanel']) {
     assert(COMPONENTS[id].energyCost === 0, `${id}: fixture assumption — energyCost is 0`);
     assert(drawRows(id).length === 0, `${id}: no draw row when energyCost is 0`);
   }
@@ -189,11 +196,15 @@ console.log('\n--- Test 7: palette metrics expose placement requirements ---');
   assert(compactHvMetrics.some(r => r.label === 'Power capacity' && r.value === '600 kW'),
     'compact HV distributor: palette shows two outputs totaling 600 kW');
 
-  const hvDistributorMetrics = paletteUtilityMetrics(COMPONENTS.switchgear);
-  assert(hvDistributorMetrics.some(r => r.label === 'Power draw' && r.value === '1,200 kW'),
-    'HV Distributor Box: palette shows its 1,200 kW incoming feeder rating');
-  assert(hvDistributorMetrics.some(r => r.label === 'Power capacity' && r.value === '1,200 kW'),
-    'HV Distributor Box: palette shows four outputs totaling 1,200 kW');
+  const sectionMetrics = paletteUtilityMetrics(COMPONENTS.sectionDistributionPanel);
+  assert(sectionMetrics.some(r => r.label === 'Power draw' && r.value === '600 kW')
+      && sectionMetrics.filter(r => r.label === 'Power capacity' && r.value === '300 kW').length === 2,
+    'section panel shows its 600 kW input and two 300 kW output banks');
+  const mainMetrics = paletteUtilityMetrics(COMPONENTS.mainDistributionPanel);
+  assert(mainMetrics.some(r => r.label === 'Power draw' && r.value === '1,200 kW')
+      && mainMetrics.filter(r => r.label === 'Power capacity' && r.value === '600 kW').length === 2,
+    'main panel shows its 1,200 kW input and two 600 kW output banks');
+  assert(!COMPONENTS.switchgear, 'HV Distributor Box no longer appears in component displays');
 }
 
 // ======================================================================

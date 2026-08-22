@@ -900,7 +900,7 @@ function hvDistributionPorts(rating, count) {
     hv_in: {
       utility: 'hvCable', side: 'back', offsetAlong: 0.5,
       role: 'sink', connectionKind: 'hvDistributionTap',
-      omnidirectional: true, maxConnections: 2,
+      omnidirectional: true, maxConnections: 2, tensionsCable: true,
       params: { demand: rating, tracksDownstreamDemand: true },
     },
   };
@@ -920,11 +920,20 @@ function hvDistributionPorts(rating, count) {
  * capped at `rating`, and `count` branch outlets. The panel is transparent to
  * the facility's power budget: it adds no capacity or intrinsic demand.
  */
-function distributionPorts(rating, count, { outletSide = null } = {}) {
+function distributionPorts(rating, count, {
+  outletSide = null,
+  branchCapacity = rating / count,
+  hvCount = 0,
+  hvOutputCapacity = 300,
+  trunkTap = false,
+} = {}) {
   const out = {
     hv_in: {
       utility: 'hvCable', side: 'back', offsetAlong: 0.5,
-      role: 'sink', connectionKind: 'hvDistributionIn',
+      role: 'sink', connectionKind: trunkTap ? 'hvDistributionTap' : 'hvDistributionIn',
+      ...(trunkTap ? {
+        omnidirectional: true, maxConnections: 2, tensionsCable: true,
+      } : {}),
       params: { demand: rating, tracksDownstreamDemand: true },
     },
   };
@@ -941,11 +950,19 @@ function distributionPorts(rating, count, { outletSide = null } = {}) {
         : 0.25 + 0.5 * (Math.floor(i / OUTLET_SIDES.length) % 2),
       role: 'source',
       connectionKind: 'powerDistributionOut',
-      // rating/N per outlet: discovery unites a device's outlets into one
-      // busbar, so these add back up to exactly the panel's rating no matter
-      // how many of them are in use. Declaring the full rating on each would
-      // make a 4-way panel four full-rating supplies.
-      params: { capacity: rating / count },
+      // Same-utility outlets are one busbar in discovery. Compact panels put
+      // their full rating into this green bank; hybrid section/main panels
+      // split the nameplate rating between this bank and their HV bank below.
+      params: { capacity: branchCapacity },
+    };
+  }
+  for (let i = 0; i < hvCount; i++) {
+    out[`hv_out_${i + 1}`] = {
+      utility: 'hvCable',
+      side: outletSide || 'front',
+      offsetAlong: (i + 1) / (hvCount + 1),
+      role: 'source', connectionKind: 'hvDistributionOut',
+      params: { capacity: hvOutputCapacity },
     };
   }
   return out;
@@ -1493,14 +1510,17 @@ const INFRA_UTILITY_PORTS = {
   hvTransformer:            transformerPorts(1500, 4),
   gridIntertieTransformer:  transformerPorts(6000, 6),
   compactHvDistributor:     hvDistributionPorts(600, 2),
-  // UI name: HV Distributor Box. The stable id remains `switchgear` so older
-  // saves retain the same placed object and utility-line endpoint ids.
-  switchgear:               hvDistributionPorts(1200, 4),
   // Logical sides keep coarse routing endpoints independently approachable;
   // presentation anchors land the cable tails on visible front terminals.
-  powerPanel:          distributionPorts(40, 4, { outletSide: 'front' }),
-  sectionDistributionPanel: distributionPorts(200, 8, { outletSide: 'front' }),
-  mainDistributionPanel: distributionPorts(400, 8, { outletSide: 'front' }),
+  powerPanel: distributionPorts(40, 4, {
+    outletSide: 'front', branchCapacity: 10, trunkTap: true,
+  }),
+  sectionDistributionPanel: distributionPorts(600, 6, {
+    outletSide: 'front', branchCapacity: 50, hvCount: 1, trunkTap: true,
+  }),
+  mainDistributionPanel: distributionPorts(1200, 12, {
+    outletSide: 'front', branchCapacity: 50, hvCount: 2, trunkTap: true,
+  }),
   poleMountTransformer: distributionPorts(100, 4, { outletSide: 'front' }),
   mcc:                 distributionPorts(250, 8, { outletSide: 'front' }),
   // Two outlets: the UPS's identity is that only the critical circuits go on

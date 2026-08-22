@@ -329,6 +329,7 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
       && compactGear.hv_in.role === 'sink'
       && compactGear.hv_in.omnidirectional === true
       && compactGear.hv_in.maxConnections === 2
+      && compactGear.hv_in.tensionsCable === true
       && compactGear.hv_in.params.demand === 600
       && compactGear.hv_in.params.tracksDownstreamDemand === true
       && compactHvDistributorOutputs.length === 2
@@ -336,44 +337,50 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
     'Compact HV Distributor taps a two-wire trunk into two protected 300 kW outputs');
   assert(INFRASTRUCTURE_RAW.compactHvDistributor.electricalControl?.breaker?.rating === 600,
     'Compact HV Distributor breaker matches its 600 kW feeder rating');
-
-  const gear = getUtilityPortsV2('switchgear');
-  const hvDistributorOutputs = Object.values(gear)
-    .filter(p => p.connectionKind === 'hvDistributionOut');
-  assert(gear.hv_in?.connectionKind === 'hvDistributionTap'
-      && gear.hv_in.role === 'sink'
-      && gear.hv_in.omnidirectional === true
-      && gear.hv_in.maxConnections === 2
-      && gear.hv_in.params.demand === 1200
-      && gear.hv_in.params.tracksDownstreamDemand === true
-      && hvDistributorOutputs.length === 4
-      && hvDistributorOutputs.every(p => p.params.capacity === 300),
-    'HV Distributor Box taps a two-wire trunk into four protected 300 kW outputs');
-  assert(INFRASTRUCTURE_RAW.switchgear.electricalControl?.breaker?.rating === 1200,
-    'HV Distributor Box breaker matches its 1,200 kW feeder rating');
-  assert(compactHvDistributorOutputs.length < hvDistributorOutputs.length
-      && compactGear.hv_in.params.demand < gear.hv_in.params.demand,
-    'compact HV distribution is the smaller 1-to-2 rung below the 1-to-4 box');
+  assert(!INFRASTRUCTURE_RAW.switchgear
+      && Object.keys(getUtilityPortsV2('switchgear')).length === 0,
+    'the redundant HV Distributor Box is absent from the catalogue and port table');
 
   const panel = getUtilityPortsV2('powerPanel');
   const section = getUtilityPortsV2('sectionDistributionPanel');
   const main = getUtilityPortsV2('mainDistributionPanel');
   assert(panel.hv_in.params.demand < section.hv_in.params.demand
       && section.hv_in.params.demand < main.hv_in.params.demand
-      && [panel, section, main].every(ports => ports.hv_in.params.tracksDownstreamDemand === true),
+      && [panel, section, main].every(ports => ports.hv_in.params.tracksDownstreamDemand === true
+        && ports.hv_in.connectionKind === 'hvDistributionTap'
+        && ports.hv_in.omnidirectional === true
+        && ports.hv_in.maxConnections === 2
+        && ports.hv_in.tensionsCable === true),
     'distribution ladder ratings cap dynamic draw: compact < section < main panel');
   const outlets = (t) => Object.keys(getUtilityPortsV2(t))
     .filter(n => n.startsWith('pwr_out')).length;
   assert([outlets('powerPanel'), outlets('sectionDistributionPanel'), outlets('mainDistributionPanel')]
-    .join(',') === '4,8,8',
-  'compact, section, and main panels expose 4, 8, and 8 physical outlets');
+    .join(',') === '4,6,12',
+  'compact, section, and main panels expose 4, 6, and 12 green branch outlets');
   const sectionOutputs = Object.entries(section)
     .filter(([name]) => name.startsWith('pwr_out'))
     .map(([, spec]) => spec);
-  assert(section.hv_in.params.demand === 200
-      && sectionOutputs.every(spec => spec.params.capacity === 25)
-      && INFRASTRUCTURE_RAW.sectionDistributionPanel.electricalControl?.breaker?.rating === 200,
-  'section panel has eight 25 kW circuits behind one 200 kW feeder breaker');
+  const sectionHvOutputs = Object.values(section)
+    .filter(spec => spec.connectionKind === 'hvDistributionOut');
+  const mainPowerOutputs = Object.entries(main)
+    .filter(([name]) => name.startsWith('pwr_out'))
+    .map(([, spec]) => spec);
+  const mainHvOutputs = Object.values(main)
+    .filter(spec => spec.connectionKind === 'hvDistributionOut');
+  assert(section.hv_in.params.demand === 600
+      && sectionOutputs.length === 6
+      && sectionOutputs.every(spec => spec.params.capacity === 50)
+      && sectionHvOutputs.length === 1
+      && sectionHvOutputs[0].params.capacity === 300
+      && INFRASTRUCTURE_RAW.sectionDistributionPanel.electricalControl?.breaker?.rating === 600,
+  'section panel has six green 50 kW circuits plus one 300 kW HV feeder (600 kW total)');
+  assert(main.hv_in.params.demand === 1200
+      && mainPowerOutputs.length === 12
+      && mainPowerOutputs.every(spec => spec.params.capacity === 50)
+      && mainHvOutputs.length === 2
+      && mainHvOutputs.every(spec => spec.params.capacity === 300)
+      && INFRASTRUCTURE_RAW.mainDistributionPanel.electricalControl?.breaker?.rating === 1200,
+  'main panel has twelve green 50 kW circuits plus two 300 kW HV feeders (1,200 kW total)');
   const panelOutputs = Object.entries(panel)
     .filter(([name]) => name.startsWith('pwr_out'))
     .map(([, spec]) => spec);
@@ -381,7 +388,7 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
       && panelOutputs.every(spec => spec.side === 'front')
       && new Set(panelOutputs.map(spec => spec.offsetAlong)).size === 4,
     'power panel exposes four evenly spaced front-face branch sockets');
-  assert(panel.hv_in.side === 'back', 'power panel HV feeder enters through the rear');
+  assert(panel.hv_in.side === 'back', 'power panel HV feeder keeps its logical rear route point');
   const bus = getUtilityPortsV2('powerBus');
   const spider = getUtilityPortsV2('spiderBox');
   assert(bus.pwr_in?.connectionKind === 'powerFieldIn'
@@ -646,7 +653,7 @@ console.log('\n--- Test: infrastructure requiredConnections have sink ports ---'
 // ==========================================================================
 console.log('\n--- Distribution cabinet port layout ---');
 {
-  for (const [id, count] of [['powerPanel', 4], ['sectionDistributionPanel', 8], ['mainDistributionPanel', 8]]) {
+  for (const [id, count] of [['powerPanel', 4], ['sectionDistributionPanel', 6], ['mainDistributionPanel', 12]]) {
     const ports = getUtilityPortsV2(id);
     const outlets = Object.entries(ports)
       .filter(([name]) => name.startsWith('pwr_out_'))
@@ -656,7 +663,9 @@ console.log('\n--- Distribution cabinet port layout ---');
       `${id} branch outlets all occupy its front face`);
     assert(new Set(outlets.map(([, p]) => p.offsetAlong)).size === count,
       `${id} branch outlets are spaced to distinct positions`);
-    assert(ports.hv_in.side === 'back', `${id} HV feed enters through the rear`);
+    assert(ports.hv_in.side === 'back', `${id} HV feed keeps its logical rear route point`);
+    assert(ports.hv_in.maxConnections === 2 && ports.hv_in.tensionsCable === true,
+      `${id} roof terminal accepts and tensions two HV cable segments`);
   }
 }
 

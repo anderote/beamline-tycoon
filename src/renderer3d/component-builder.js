@@ -109,7 +109,6 @@ import {
   _buildHVTransformerRoles,
   _buildDisconnectSwitchRoles,
   _buildCompactHvDistributorRoles,
-  _buildSwitchgearRoles,
   _buildPadMountTransformerRoles,
   _buildMCCRoles,
   _buildUPSRoles,
@@ -1719,7 +1718,6 @@ ROLE_BUILDERS.facilityTransformer = () => _buildHVTransformerRoles(false);
 ROLE_BUILDERS.gridIntertieTransformer = () => _buildHVTransformerRoles(false);
 ROLE_BUILDERS.disconnectSwitch = _buildDisconnectSwitchRoles;
 ROLE_BUILDERS.compactHvDistributor = _buildCompactHvDistributorRoles;
-ROLE_BUILDERS.switchgear = _buildSwitchgearRoles;
 ROLE_BUILDERS.padMountTransformer = _buildPadMountTransformerRoles;
 ROLE_BUILDERS.mcc = _buildMCCRoles;
 ROLE_BUILDERS.ups = _buildUPSRoles;

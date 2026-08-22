@@ -187,6 +187,9 @@ the short authoring contract.
 
 - Read ports through `getUtilityPortsV2(id)` when solver defaults and derived RF
   band information matter. The flat table is raw authoring data.
+- An HV port with `tensionsCable: true` is a mechanical cable anchor: an
+  attached span discards drawn lateral slack and keeps only its shallow gravity
+  sag. The field is boolean and is invalid on every other utility.
 - Assisted utility wiring commits real paid lines from real free connectors.
   A definition whose source/pass connectors belong to one utility opts in
   automatically; this covers utility supplies, manifolds, network switches,
@@ -214,13 +217,14 @@ the short authoring contract.
 - Electrical distributors and transformers add no demand of their own. Their
   HV inlet draws the actual connected downstream HV/branch load, capped by the
   device rating; unused nameplate capacity does not consume upstream supply.
-  The Compact HV Distributor and HV Distributor Box specialize that inlet as
-  a two-attachment roof tap: one segment arrives and one may continue the same
-  trunk while the cabinet feeds its protected outputs. HV-fed cooling plant
+  The Compact HV Distributor and compact/section/main distribution panels
+  specialize that inlet as a two-attachment, cable-tensioning roof tap: one
+  segment arrives and one may continue the same trunk while the cabinet feeds
+  its protected outputs. HV-fed cooling plant
   and roof-compatible RF cabinets use the same two-attachment topology on a
   visible porcelain roof bushing, but remain ordinary demand-counted loads and
   add no output capacity. Exposed-tube RF sources remain single-ended. Other
-  ordinary panel/load inlets also remain single-ended, and no tap may parallel
+  other ordinary load inlets remain single-ended, and no tap may parallel
   live sources.
 - Any electrical sink with demand strictly above 50 kW must use `hvCable`.
   Loads at or below 50 kW may remain on the green `powerCable`; purpose-built
@@ -343,8 +347,8 @@ the short authoring contract.
   pad-transformer tap, a transformer, panel, open end, or wall feedthrough at
   either end keeps the ordinary wall-pass-through requirement.
 - Every Power-category `hv_in` presentation anchor lands on visible insulated
-  hardware at the equipment roof or upper shoulder. Distribution panels, HV
-  distributor cabinets, MCCs, and UPS cabinets use model-specific roof-cap
+  hardware at the equipment roof or upper shoulder. Distribution panels, the
+  Compact HV Distributor, MCCs, and UPS cabinets use model-specific roof-cap
   heights; transformer inputs land on their actual roof-bushing caps. This is
   a presentation contract only and does not change the simulation port side.
 - Distribution-equipment outputs terminate at visible, independently selectable

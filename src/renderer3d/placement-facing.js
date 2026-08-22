@@ -5,7 +5,6 @@ import { reverseDir } from '../data/directions.js';
 // their marker follows that physical service face.
 const POSITIVE_Z_FACING_PLACEABLES = new Set([
   'compactHvDistributor',
-  'switchgear',
 ]);
 
 /** Direction used by the floor arrow shown while placing a placeable. */

@@ -332,7 +332,7 @@ console.log('\n--- the tier-1 pair are cheap to run, the big ones are not ---');
   assert(demand('cyclotron30') > 50 && electrical('cyclotron30')?.utility === 'hvCable',
     `cyclotron30 draws ${demand('cyclotron30')} kW from HV`);
   assert(demand('cyclotron70') > 250,
-    `cyclotron70 draws ${demand('cyclotron70')} kW — past an MCC, needs switchgear or better`);
+    `cyclotron70 draws ${demand('cyclotron70')} kW — past an MCC, needs a section/main panel HV outlet`);
   assert(demand('lwfaStation') > 400,
     `lwfaStation draws ${demand('lwfaStation')} kW before its drive laser is even switched on`);
 

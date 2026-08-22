@@ -44,7 +44,6 @@ const expectedPower = {
   hvTransformer: [3, 4],
   gridIntertieTransformer: [4, 6],
   compactHvDistributor: [1, 1],
-  switchgear: [2, 3],
   mcc: [4, 2],
   ups: [3, 2],
   powerBus: [1, 3],
@@ -57,9 +56,11 @@ for (const [id, [w, l]] of Object.entries(expectedPower)) {
 }
 assert(PLACEABLES.compactHvDistributor.subH === 2,
   'compact HV distributor is only two half-metre subtiles tall');
-assert(PLACEABLES.compactHvDistributor.subW * PLACEABLES.compactHvDistributor.subL
-    < PLACEABLES.switchgear.subW * PLACEABLES.switchgear.subL,
-  'compact HV distributor occupies less floor area than the four-way box');
+assert(PLACEABLES.powerPanel.subW === PLACEABLES.compactHvDistributor.subW
+    && PLACEABLES.powerPanel.subL === PLACEABLES.compactHvDistributor.subL
+    && PLACEABLES.powerPanel.subH === PLACEABLES.compactHvDistributor.subH,
+  'power distribution panel matches the compact HV distributor envelope');
+assert(!PLACEABLES.switchgear, 'the HV Distributor Box has been removed from the placeable registry');
 
 console.log('\n--- Wide SRF hardware includes its side couplers ---');
 for (const id of ['halfWaveResonator', 'spokeCavity', 'ellipticalSrfCavity']) {
