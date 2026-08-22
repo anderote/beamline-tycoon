@@ -250,8 +250,10 @@ the short authoring contract.
   rendered with sag and rounded bends.
 - Free-drag endpoints may snap to an existing compatible vacuum, cooling, RF,
   cryogenic-transfer, or data run and commit a named `tapLineIds` T-junction.
-  The branch must meet the trunk at one point on the utility's fixed datum and
-  render a real service fitting. Collinear duplicate runs remain invalid.
+  Vacuum, RF, and cryogenic transfer also join automatically wherever an
+  authored route touches an existing run of the same type, including a
+  mid-route crossing or collinear shared trunk. Cooling and data still require
+  the explicit endpoint tap.
   Cooling-water hoses use the same forgiving magnetic pickup halo as data
   cables; their connection still commits as an explicit plumbing tee.
   Power and HV cable do not allow casual tees; use distribution equipment or a
@@ -280,9 +282,10 @@ the short authoring contract.
   at 0.60 m, and vacuum at 0.90 m. Authored equipment fittings remain on their
   visible hardware and use short local transitions to these datums. Different
   rigid utilities may share X/Z coordinates because their bodies have vertical
-  clearance. Independent runs of the same utility may not cross or overlap;
-  the player must route around them or create an explicit named tap. Retired
-  saved `routeHeightMeters` values cannot override a fixed utility datum.
+  clearance. Runs of the same rigid utility automatically form one network at
+  every exact route contact, so drawing across or along a compatible installed
+  service never produces a same-type occupancy error. Retired saved
+  `routeHeightMeters` values cannot override a fixed utility datum.
 - A utility descriptor with `requiresWallPassThrough: true` validates the
   physical rendered route against `wallOccupied`. Power and HV cable opt in;
   their shared subtile `path` is authoritative for newly drawn lines.

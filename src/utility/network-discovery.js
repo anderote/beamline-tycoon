@@ -416,15 +416,16 @@ export function discoverNetworks(utilityType, lines, portLookup) {
   }
 
   // Spatial union: lines that meet END-ON merge. A run that ENDS on another
-  // run is a tee — the two are one network. A run that CROSSES another mid-span
-  // is not: one passes over the other, and merging them would silently wire
-  // together two networks that only happen to share a floor tile.
+  // run is a tee — the two are one network. For ordinary tappable utilities,
+  // a run that CROSSES another mid-span is not joined: one passes over the
+  // other. Fabricated services with joinsOnContact deliberately make every
+  // exact same-type contact a junction, including mid-span crossings and a
+  // reused collinear trunk.
   //
-  // Line-drawing enforces the same distinction geometrically (a crossing must
-  // be perpendicular and interior to both; an end-on contact is legal only for
-  // a utility that allows taps), so by the time geometry reaches here, an
-  // endpoint contact is always a deliberate join.
+  // Line-drawing consumes the same descriptor switch, so validation and
+  // discovery agree about whether interior contact is a crossing or a join.
   if (UTILITY_TYPES[utilityType]?.allowsTap === true) {
+    const joinsOnContact = UTILITY_TYPES[utilityType]?.joinsOnContact === true;
     const subtileToLines = new Map();
     for (const line of lineArr) {
       // Legacy cooling hoses can be physically routed by a visible freehand
@@ -452,8 +453,9 @@ export function discoverNetworks(utilityType, lines, portLookup) {
       for (let a = 0; a < hits.length; a++) {
         for (let b = a + 1; b < hits.length; b++) {
           if (hits[a].id === hits[b].id) continue;
-          // At least one of the two has to END here for this to be a join.
-          if (!hits[a].terminal && !hits[b].terminal) continue;
+          // Ordinary tees require at least one line to END here. Services that
+          // join on contact also union interior/interior intersections.
+          if (!joinsOnContact && !hits[a].terminal && !hits[b].terminal) continue;
           // Fixed-height fabricated services cannot have a legal endpoint
           // contact without a fitting: validation rejects every unrequested
           // same-utility crossing before it reaches discovery.

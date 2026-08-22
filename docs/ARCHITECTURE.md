@@ -277,8 +277,9 @@ RF, and vacuum services use the mandatory datums in `service-heights.js`
 hardware may sit elsewhere, but its transition is local to the endpoint. The
 input tool always follows the armed utility's datum, so preview and pointer do
 not drift under the isometric camera. Different fixed-height utilities may cross when
-`route-elevation.js` proves body clearance; a same-utility crossing is rejected
-unless it is an explicit tap.
+`route-elevation.js` proves body clearance. Vacuum, cryogenic, and RF services
+join automatically at every exact same-utility route contact; the other
+utilities retain their descriptor-specific crossing and tap rules.
 
 **U8. A footprint is only the broad phase for utility/equipment collision.**
 All seven utilities publish `flexibleSubtile` and author quarter-tile Manhattan
@@ -339,12 +340,13 @@ routing topology, and pricing continue to use the canonical footprint point.
 The bounds provider is injected with `setModelBoundsProvider` so anchor
 resolution remains usable headless.
 
-**T11. A free-drag tee is explicit topology, not accidental geometric contact.**
-The input controller snaps a compatible line endpoint to a named installed run
-and persists that relationship in `tapLineIds`. Validation exempts only that
-single contact point and inherits the tapped run's elevation; network discovery
-unions the named line ids. Vacuum, cooling, RF, cryogenic transfer, and data
-services allow these branches. Power and HV remain radial and require authored
+**T11. Utility contact semantics come from the descriptor.**
+The input controller can snap a compatible line endpoint to a named installed
+run and persist that relationship in `tapLineIds`. Vacuum, RF, and cryogenic
+transfer additionally declare `joinsOnContact`: validation accepts any exact
+same-type route contact and network discovery spatially unions the lines,
+including interior crossings and collinear shared trunks. Cooling and data
+retain explicit endpoint taps. Power and HV remain radial and require authored
 distribution hardware rather than casual line-to-line tees.
 
 ### B — Beam physics bridge

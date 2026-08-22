@@ -66,11 +66,13 @@ function distributePower(sinks, capKw, demandTotal, peakFactor) {
   return out;
 }
 
-// A waveguide tee is not transparent: each unmatched branch is an impedance
-// discontinuity. Count real T-junctions (a line end landing on another line's
-// interior) plus any source connector used by more than one run. Dedicated
+// A waveguide junction is not transparent: each point with three or more
+// outgoing route directions is an impedance discontinuity. This catches a
+// classic endpoint-on-trunk tee and an automatic interior crossing, while a
+// collinear shared trunk has only two directions and adds no false penalty.
+// Also count any source connector used by more than one run. Dedicated
 // multi-output hardware, such as the four-output solid-state amplifier, has
-// one line per port and therefore does not pay this penalty.
+// one line per port and therefore does not pay that source-fanout penalty.
 function branchTopology(network, worldState) {
   const lineMap = worldState?.utilityLines;
   const ids = new Set(network.lineIds || []);
@@ -79,27 +81,38 @@ function branchTopology(network, worldState) {
     ? lineMap.get(id)
     : (Array.isArray(lineMap) ? lineMap.find(line => line?.id === id) : lineMap[id]);
   const pointKey = point => `${Math.round(point.col * 4)}:${Math.round(point.row * 4)}`;
-  const interiorAt = new Map();
-  const endsAt = new Map();
+  const contactsAt = new Map();
   const sourceKeys = new Set((network.sources || []).map(source => source.portKey));
   const sourceUses = new Map();
+
+  const directionFrom = (point, neighbor) => {
+    const dc = neighbor.col - point.col;
+    const dr = neighbor.row - point.row;
+    if (Math.abs(dc) > Math.abs(dr)) return dc > 0 ? 'h+' : 'h-';
+    if (Math.abs(dr) > 0) return dr > 0 ? 'v+' : 'v-';
+    return null;
+  };
 
   for (const id of ids) {
     const line = getLine(id);
     if (!line || line.utilityType !== 'rfWaveguide') continue;
     const path = expandPath(line.path || []);
     if (path.length < 2) continue;
-    for (let i = 1; i < path.length - 1; i++) {
+    for (let i = 0; i < path.length; i++) {
       const key = pointKey(path[i]);
-      let lines = interiorAt.get(key);
-      if (!lines) { lines = new Set(); interiorAt.set(key, lines); }
-      lines.add(id);
+      let contact = contactsAt.get(key);
+      if (!contact) {
+        contact = { lineIds: new Set(), directions: new Set() };
+        contactsAt.set(key, contact);
+      }
+      contact.lineIds.add(id);
+      if (i > 0) contact.directions.add(directionFrom(path[i], path[i - 1]));
+      if (i < path.length - 1) {
+        contact.directions.add(directionFrom(path[i], path[i + 1]));
+      }
+      contact.directions.delete(null);
     }
-    for (const [index, ref] of [[0, line.start], [path.length - 1, line.end]]) {
-      const key = pointKey(path[index]);
-      let lines = endsAt.get(key);
-      if (!lines) { lines = new Set(); endsAt.set(key, lines); }
-      lines.add(id);
+    for (const ref of [line.start, line.end]) {
       if (ref) {
         const portKey = `${ref.placeableId}:${ref.portName}`;
         if (sourceKeys.has(portKey)) sourceUses.set(portKey, (sourceUses.get(portKey) || 0) + 1);
@@ -108,9 +121,8 @@ function branchTopology(network, worldState) {
   }
 
   let taps = 0;
-  for (const [key, endLines] of endsAt) {
-    const interiors = interiorAt.get(key);
-    if (interiors && [...endLines].some(id => !interiors.has(id))) taps++;
+  for (const contact of contactsAt.values()) {
+    if (contact.lineIds.size >= 2 && contact.directions.size >= 3) taps++;
   }
   let sourceFanouts = 0;
   for (const uses of sourceUses.values()) sourceFanouts += Math.max(0, uses - 1);
@@ -202,6 +214,10 @@ export default {
   // Waveguide may tee, but every tee introduces a modeled impedance mismatch.
   // Extra branches show up as reflected power and worse VSWR in the RF panel.
   allowsTap: true,
+  // Any exact contact with another guide on this fixed datum is a network
+  // junction. This keeps branching easy while the RF solver still models the
+  // electrical consequences of sharing one guide network.
+  joinsOnContact: true,
   // Ports still fan out, though. Socket-counting is a POWER mechanic — it is
   // what makes distribution panels a decision — and applying it here would
   // mean re-authoring every amplifier and IOC with a port per client for no

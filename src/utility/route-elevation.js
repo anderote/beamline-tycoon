@@ -3,8 +3,8 @@
 // Routing and pricing remain two-dimensional: a saved line still owns one
 // Manhattan X/Z path. Vacuum pipe, cryogenic transfer line, and RF waveguide
 // each own one facility-wide Y datum. Different fixed-height utilities may therefore
-// share plan routes; independent runs of the same utility may not cross unless
-// the player creates an explicit tap.
+// share plan routes. Vacuum, cryogenic, and RF runs on their own datum join
+// automatically wherever their exact plan routes touch.
 
 import { UTILITY_TYPES, utilityLineHeight } from './registry.js';
 

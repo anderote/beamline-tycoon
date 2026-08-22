@@ -361,7 +361,7 @@ export default {
   runHeightMeters: RIGID_UTILITY_SERVICE_HEIGHTS.cryoTransfer,
   // Cryomodule bayonets frequently sit 2–2.5 m above the deck. The endpoint
   // renderer keeps that transition outside the cryostat body, while every
-  // ordinary run and explicit tap stays on this low service datum.
+  // ordinary run and automatic same-type join stays on this low service datum.
   fixedRouteHeight: true,
   supportSpacingMeters: 3,
   supportMinimumRunMeters: 3,
@@ -378,11 +378,13 @@ export default {
   fittingStyle: 'cryoBayonet',
   couplerSpacingMeters: 4,
   capacityUnit: 'W@4K',
-  // A free-drag branch fabricates a real vacuum-jacketed tee at the contact,
-  // using the same explicit tap topology as RF and vacuum. Valve boxes remain
-  // useful as high-density four-way headers; they are no longer mandatory for
-  // every single branch in a small cryogenic distribution tree.
+  // A free-drag branch fabricates a real vacuum-jacketed tee at the contact.
+  // Valve boxes remain useful as high-density four-way headers; they are no
+  // longer mandatory for every branch in a small distribution tree.
   allowsTap: true,
+  // Same-type contact fabricates a joined vacuum-jacketed header, including a
+  // crossing or a collinear stretch shared with an existing route.
+  joinsOnContact: true,
   fansOut: true,
   // No adjacency bridging: a vacuum-jacketed LHe line is not something you get
   // by pushing two cryostats together — every cryo sink is wired explicitly.

@@ -93,15 +93,16 @@ function pointsOverlap(a, b, clearanceTiles = 0.25, inclusive = false) {
 //                                                declares allowsTap, and then
 //                                                only via the tapLineIds
 //                                                exemption.
-//   interior of both, perpendicular              a crossing: one passes over
-//                                                the other, never joined.
-//                                                Legal when their service
-//                                                bodies have vertical clearance.
-//   interior of both, collinear                  laying down an existing run.
-//                                                Never legal.
+//   interior of both, perpendicular              normally a crossing: one
+//                                                passes over the other. For a
+//                                                joinsOnContact service it is
+//                                                instead a fabricated junction.
+//   interior of both, collinear                  normally a duplicate run. A
+//                                                joinsOnContact service reuses
+//                                                that shared trunk geometry.
 //
-// discoverNetworks' spatial union is narrowed to match (endpoint contact only),
-// so a crossing cannot silently merge two networks.
+// discoverNetworks consumes the same descriptor switch, so validation and
+// topology cannot disagree about whether contact joins two runs.
 // ---------------------------------------------------------------------------
 
 /** 'h' | 'v' | null for the segment a→b. */
@@ -167,6 +168,13 @@ function pathOverlapReason(newPath, lines, utilityType, opts = {}) {
       && usesFixedRouteHeight(line.utilityType);
     const physicalConflict = fixedHeightPair;
     if (!sameType && !physicalConflict) continue;
+    // Fabricated vacuum, cryogenic, and RF services are deliberately easy to
+    // extend: drawing through any installed run of the same service means
+    // "join here", including a shared collinear trunk. Network discovery
+    // unions every exact shared route coordinate for the same descriptor.
+    // Different rigid services still pass through the ordinary height/body
+    // clearance check below.
+    if (sameType && newDescriptor.joinsOnContact === true) continue;
     if (fixedHeightPair && Number.isFinite(newRouteHeight)
         && !routeHeightsConflict(
           utilityType, newRouteHeight,

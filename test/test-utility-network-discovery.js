@@ -318,9 +318,9 @@ console.log('\n--- Test 8: merge via bridge line ---');
 }
 
 // ==========================================================================
-// Test 9: Fixed-height fabricated services join only at endpoint fittings.
+// Test 9: Fabricated services automatically join at every exact contact.
 // ==========================================================================
-console.log('\n--- Test 9: fixed-height rigid fittings remain explicit ---');
+console.log('\n--- Test 9: fabricated service contact is topology ---');
 {
   const lower = {
     id: 'vac_lower', utilityType: 'vacuumPipe', start: null, end: null,
@@ -340,8 +340,30 @@ console.log('\n--- Test 9: fixed-height rigid fittings remain explicit ---');
     lower,
     { ...upper, path: [{ col: 2, row: 0 }, { col: 2, row: 4 }] },
   ], () => null);
-  assert(crossed.length === 2,
-    `an interior/interior plan crossing is not an implicit tee (got ${crossed.length})`);
+  assert(crossed.length === 1,
+    `an interior/interior vacuum crossing is an automatic join (got ${crossed.length})`);
+
+  for (const utilityType of ['rfWaveguide', 'cryoTransfer']) {
+    const lines = [
+      { ...lower, id: `${utilityType}_a`, utilityType },
+      {
+        ...upper, id: `${utilityType}_b`, utilityType,
+        path: [{ col: 2, row: 0 }, { col: 2, row: 4 }],
+      },
+    ];
+    assert(discoverNetworks(utilityType, lines, () => null).length === 1,
+      `${utilityType} also unions an interior crossing`);
+  }
+
+  const coolingCrossing = [
+    { ...lower, id: 'cool_a', utilityType: 'coolingWater' },
+    {
+      ...upper, id: 'cool_b', utilityType: 'coolingWater',
+      path: [{ col: 2, row: 0 }, { col: 2, row: 4 }],
+    },
+  ];
+  assert(discoverNetworks('coolingWater', coolingCrossing, () => null).length === 2,
+    'cooling still requires an explicit endpoint tap');
 }
 
 // ==========================================================================
