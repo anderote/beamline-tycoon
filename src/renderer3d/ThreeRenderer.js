@@ -2006,10 +2006,14 @@ export class ThreeRenderer {
     return this._effectSystem?.emit(descriptor) ?? null;
   }
 
-  /** Apply workshop tuning; live beam pixels rebuild immediately. */
+  /** Apply workshop tuning; live beam and radiation pixels rebuild immediately. */
   setParticleEffectTuning(id, values) {
     const profile = setParticleEffectProfile(id, values);
-    if (profile && id === 'beamline') this._refreshBeam();
+    if (profile && [
+      'beamline', 'targetRadiation', 'synchrotronRadiation', 'sourceFlow',
+    ].includes(id)) {
+      this._refreshBeam();
+    }
     return profile;
   }
 

@@ -14,9 +14,13 @@ test('workshop exposes independent slider contracts for all requested effects', 
   const defs = particleEffectDefinitions();
   assert.deepEqual(Object.keys(defs), [
     'hvConnection', 'powerConnection', 'explosion', 'beamline',
+    'targetRadiation', 'synchrotronRadiation', 'sourceFlow',
   ]);
   assert.ok(Object.keys(defs.hvConnection.fields).length >= 6);
   assert.ok(Object.keys(defs.beamline.fields).includes('density'));
+  assert.ok(Object.keys(defs.targetRadiation.fields).includes('spread'));
+  assert.ok(Object.keys(defs.synchrotronRadiation.fields).includes('streakLength'));
+  assert.ok(Object.keys(defs.sourceFlow.fields).includes('slosh'));
 });
 
 test('electrical defaults produce small, slow, numerous, long-lived falling pixels', () => {
@@ -44,6 +48,15 @@ test('beam preview is a directed zero-gravity pixel stream', () => {
   assert.equal(descriptor.gravity, 0);
   assert.equal(descriptor.upwardBias, 0);
   assert.deepEqual(descriptor.normal, { x: 1, y: 0, z: 0 });
+});
+
+test('radiation previews are directed zero-gravity particle showers', () => {
+  for (const id of ['targetRadiation', 'synchrotronRadiation', 'sourceFlow']) {
+    const [descriptor] = previewParticleDescriptors(id, { x: 1, y: 2, z: 3 });
+    assert.equal(descriptor.kind, 'particleBurst');
+    assert.equal(descriptor.gravity, 0);
+    assert.ok(descriptor.count > 0);
+  }
 });
 
 test('effect preview tool consumes clicks through public renderer commands', () => {
