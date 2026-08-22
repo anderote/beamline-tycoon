@@ -146,12 +146,28 @@ export const DECORATIONS_RAW = {
     blocksBuild: true, category: 'utilities',
     subW: 6, subL: 3, subH: 4,
   },
-  utilityPole: {
-    id: 'utilityPole', name: '2×2 Utility Pole', cost: { funding: 4500 }, removeCost: 500,
+  utilityPole2Way: {
+    id: 'utilityPole2Way', name: '2×2 Wood Utility Pole',
+    cost: { funding: 3000 }, removeCost: 350,
     morale: 0, placement: 'outdoor', spriteKey: 'utility_pole',
     blocksBuild: true, category: 'utilities', paletteOrder: 1,
     selectionCategory: 'infra',
     subW: 2, subL: 2, subH: 16,
+    hvCableSupport: 'outdoorPole',
+    // Two one-sided overhead terminals and the transformer tap share one
+    // passive HV bus. Each overhead terminal carries a through conductor.
+    electricalGroups: {
+      hvCable: [['hv_in', 'hv_out', 'hv_tap']],
+    },
+    requires: 'electricalDistribution',
+  },
+  utilityPole: {
+    id: 'utilityPole', name: '4×4 Wood Utility Pole', cost: { funding: 4500 }, removeCost: 500,
+    morale: 0, placement: 'outdoor', spriteKey: 'utility_pole',
+    blocksBuild: true, category: 'utilities', paletteOrder: 2,
+    selectionCategory: 'infra',
+    subW: 2, subL: 2, subH: 16,
+    hvCableSupport: 'outdoorPole',
     // The pad-transformer tap and all four overhead terminals share one
     // passive HV bus.
     electricalGroups: {
@@ -160,12 +176,13 @@ export const DECORATIONS_RAW = {
     requires: 'electricalDistribution',
   },
   transmissionTower: {
-    id: 'transmissionTower', name: '4×4 HV Transmission Tower',
+    id: 'transmissionTower', name: '6×6 HV Transmission Tower',
     cost: { funding: 42000 }, removeCost: 4500,
     morale: 0, placement: 'outdoor', spriteKey: 'utility_pole',
-    blocksBuild: true, category: 'utilities', paletteOrder: 2,
+    blocksBuild: true, category: 'utilities', paletteOrder: 3,
     selectionCategory: 'infra',
     subW: 4, subL: 4, subH: 18,
+    hvCableSupport: 'outdoorPole',
     electricalGroups: { hvCable: [] },
     requires: 'electricalDistribution',
   },
@@ -349,8 +366,9 @@ const DECORATION_DESCS = {
   fountain: 'Ornamental fountain — the only unscheduled water feature allowed on site.',
   statue: 'Commemorates the founder, or possibly the first working klystron.',
   propaneTank: 'Horizontal propane vessel on concrete saddles for heating and emergency plant. Decorative site utility.',
-  utilityPole: 'Compact 2×2 functional HV distribution pole with four overhead insulator terminals and one side tap for a pad-mount transformer on a shared passive bus. Each overhead terminal accepts two wires and tensions suspended spans.',
-  transmissionTower: 'Half-height 4×4 steel lattice tower with six isolated hanging-insulator terminals and room for two wires on each. It takes up drawn cable slack while leaving a shallow suspended sag.',
+  utilityPole2Way: 'Compact 2×2 wood HV pole: two through-conductor insulators sit on one side at two levels, with one lower tap for a pole-mount service transformer. All three terminals share one passive bus.',
+  utilityPole: 'Full 4×4 wood HV distribution pole with four overhead insulator terminals and one side tap for a pole-mount transformer on a shared passive bus. Each overhead terminal accepts two wire segments and tensions suspended spans.',
+  transmissionTower: 'Half-height 6×6 steel lattice tower with six isolated hanging-insulator terminals and room for two wire segments on each. It takes up drawn cable slack while leaving a shallow suspended sag.',
   overheadPowerSpan: 'Legacy decorative two-pole span retained for old saves. Use functional Utility Poles and real HV feeders for new construction.',
   outdoorPipeRack: 'Elevated rack carrying color-coded campus service pipes. Decorative site utility.',
   backupGenerator: '250 kW standby generator with finite fuel. Connect it to the backup terminal of an Automatic Transfer Switch; refuel and enable it from its equipment window.',

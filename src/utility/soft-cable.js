@@ -50,7 +50,7 @@ export function isHvDistributionTapPort(portName) {
 /** Components/ports that mechanically support and tension an attached HV feeder. */
 export function isOverheadHvSupport(def, portName = null) {
   return !isHvDistributionTapPort(portName)
-    && (def?.id === 'utilityPole' || def?.id === 'transmissionTower');
+    && def?.hvCableSupport === 'outdoorPole';
 }
 
 export function isIndoorHvRackSupport(def) {

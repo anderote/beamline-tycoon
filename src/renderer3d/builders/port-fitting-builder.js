@@ -208,7 +208,7 @@ function isDirectionalEquipment(def) {
 }
 
 function isCableSupport(def) {
-  return def?.id === 'utilityPole' || def?.id === 'transmissionTower'
+  return def?.hvCableSupport === 'outdoorPole'
     || isIndoorHvRackSupport(def);
 }
 

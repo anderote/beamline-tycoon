@@ -484,7 +484,7 @@ test('45-degree indoor HV rack turns four isolated suspended cables around corne
     'the corner rack tensions attached HV spans');
 });
 
-test('2×2 utility pole and 4×4 transmission tower accept every HV approach', () => {
+test('outdoor poles and the transmission tower accept every HV approach', () => {
   const paths = [
     [{ col: 0, row: 0 }, { col: 1, row: 0 }],
     [{ col: 0, row: 0 }, { col: -1, row: 0 }],
@@ -492,15 +492,17 @@ test('2×2 utility pole and 4×4 transmission tower accept every HV approach', (
     [{ col: 0, row: 0 }, { col: 0, row: -1 }],
   ];
   for (const [type, expectedSize] of [
-    ['utilityPole', 2], ['transmissionTower', 4],
+    ['utilityPole2Way', 2], ['utilityPole', 2], ['transmissionTower', 4],
   ]) {
     const def = PLACEABLES[type];
     const ports = getUtilityPortsV2(type);
     assert.equal(def.subW, expectedSize);
     assert.equal(def.subL, expectedSize);
-    const expectedNames = type === 'utilityPole'
-      ? ['hv_in', 'hv_out', 'hv_3', 'hv_4', 'hv_tap']
-      : ['hv_in', 'hv_out', 'hv_3', 'hv_4', 'hv_5', 'hv_6'];
+    const expectedNames = type === 'utilityPole2Way'
+      ? ['hv_in', 'hv_out', 'hv_tap']
+      : type === 'utilityPole'
+        ? ['hv_in', 'hv_out', 'hv_3', 'hv_4', 'hv_tap']
+        : ['hv_in', 'hv_out', 'hv_3', 'hv_4', 'hv_5', 'hv_6'];
     assert.deepEqual(Object.keys(ports), expectedNames);
     const overheadNames = expectedNames.filter(name => name !== 'hv_tap');
     assert.ok(overheadNames.every(name =>
@@ -610,6 +612,9 @@ test('each pole insulator accepts two wires and all terminals share the transfor
 test('overhead support anchors coincide with every visible insulator terminal', () => {
   setModelBoundsProvider(() => ({ minX: -2, maxX: 2, minY: 0, maxY: 10, minZ: -1, maxZ: 1 }));
   const cases = {
+    utilityPole2Way: {
+      hv_in: [0.91, 6.4064], hv_out: [0.91, 5.3536],
+    },
     utilityPole: {
       hv_in: [-0.91, 6.4064], hv_out: [0.91, 6.4064],
       hv_3: [-0.91, 5.3536], hv_4: [0.91, 5.3536],
@@ -622,14 +627,26 @@ test('overhead support anchors coincide with every visible insulator terminal', 
   };
   for (const [type, expected] of Object.entries(cases)) {
     const support = { id: type, type, col: 0, row: 0, subCol: 0, subRow: 0, dir: 0 };
-    const centre = type === 'utilityPole' ? 0.5 : 1;
+    const centre = type === 'transmissionTower' ? 1 : 0.5;
     for (const [name, [x, y]] of Object.entries(expected)) {
       const anchor = portAnchor3D(support, COMPONENTS[type], name);
       assert.ok(Math.abs(anchor.x - (centre + x)) < 1e-8, `${type}.${name} x`);
       assert.ok(Math.abs(anchor.y - y) < 1e-8, `${type}.${name} y`);
-      assert.ok(Math.abs(Math.abs(anchor.z - centre) - 0.05) < 1e-8, `${type}.${name} z`);
+      const expectedZOffset = type === 'utilityPole2Way' ? 0 : 0.05;
+      assert.ok(Math.abs(Math.abs(anchor.z - centre) - expectedZOffset) < 1e-8,
+        `${type}.${name} z`);
     }
   }
+  const halfPoleTap = portAnchor3D(
+    { id: 'half-pole', type: 'utilityPole2Way', col: 0, row: 0, subCol: 0, subRow: 0, dir: 0 },
+    COMPONENTS.utilityPole2Way,
+    'hv_tap',
+  );
+  assert.deepEqual(
+    [halfPoleTap.x, halfPoleTap.y, halfPoleTap.z, halfPoleTap.out.x, halfPoleTap.out.y, halfPoleTap.out.z],
+    [0.5, 1.55, 0.8, 0, 0, 1],
+    'the compact-pole tap lands on its visible transformer feeder insulator',
+  );
   const poleTap = portAnchor3D(
     { id: 'pole', type: 'utilityPole', col: 0, row: 0, subCol: 0, subRow: 0, dir: 0 },
     COMPONENTS.utilityPole,
@@ -681,7 +698,7 @@ test('Power and HV inspect the visible cable trace and refuse wall crossings', (
 
 test('HV spans between overhead supports may cross every wall and fence family', () => {
   const supports = [
-    { id: 'pole', type: 'utilityPole', col: 0, row: 0, subCol: 0, subRow: 0, dir: 0 },
+    { id: 'pole', type: 'utilityPole2Way', col: 0, row: 0, subCol: 0, subRow: 0, dir: 0 },
     { id: 'tower', type: 'transmissionTower', col: 3, row: 0, subCol: 0, subRow: 0, dir: 0 },
   ];
   const start = { placeableId: 'pole', portName: 'hv_out' };
@@ -699,6 +716,38 @@ test('HV spans between overhead supports may cross every wall and fence family',
     });
     assert.equal(result.ok, true, `${wallType}: ${result.reason || 'ok'}`);
   }
+});
+
+test('2×2 wood pole buses both one-sided conductor levels to one transformer tap', () => {
+  const support = {
+    id: 'half-pole', type: 'utilityPole2Way', col: 0, row: 0,
+    subCol: 0, subRow: 0, dir: 0,
+  };
+  const ports = getUtilityPortsV2('utilityPole2Way');
+  assert.deepEqual(Object.keys(ports), ['hv_in', 'hv_out', 'hv_tap']);
+  assert.equal(ports.hv_in.maxConnections, 2);
+  assert.equal(ports.hv_out.maxConnections, 2);
+  assert.equal(ports.hv_tap.connectionKind, 'hvDistributionTap');
+  assert.equal(ports.hv_tap.maxConnections, 1);
+  assert.deepEqual(PLACEABLES.utilityPole2Way.electricalGroups.hvCable,
+    [['hv_in', 'hv_out', 'hv_tap']]);
+
+  const lines = new Map([
+    ['upper', {
+      id: 'upper', utilityType: 'hvCable',
+      start: { placeableId: support.id, portName: 'hv_in' }, end: null,
+      path: [{ col: 0, row: 0 }, { col: 1, row: 0 }],
+    }],
+    ['lower', {
+      id: 'lower', utilityType: 'hvCable',
+      start: { placeableId: support.id, portName: 'hv_out' }, end: null,
+      path: [{ col: 0, row: 0 }, { col: -1, row: 0 }],
+    }],
+  ]);
+  const state = openState({ placeables: [support], utilityLines: lines });
+  assert.equal(discoverNetworks(
+    'hvCable', lines, makeDefaultPortLookup(state),
+  ).length, 1, 'both conductor levels belong to the tap bus');
 });
 
 test('The overhead crossing exception requires two HV supports', () => {

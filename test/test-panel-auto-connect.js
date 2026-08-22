@@ -5,6 +5,7 @@
 import { Game } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
 import { COMPONENTS } from '../src/data/components.js';
+import { getUtilityPortsV2 } from '../src/data/utility-ports-v2.js';
 import { PARAM_DEFS } from '../src/beamline/component-physics.js';
 import {
   commitPanelAutoConnect,
@@ -306,6 +307,7 @@ console.log('\n--- 8. Utility sources and peer distributors opt in by capability
     ['solidStateAmp', 'rfWaveguide'],
     ['coldBox4K', 'cryoTransfer'],
     ['networkSwitch', 'dataFiber'],
+    ['utilityPole2Way', 'hvCable'],
     ['utilityPole', 'hvCable'],
   ];
   for (const [type, utilityType] of profiles) {
@@ -501,12 +503,15 @@ console.log('\n--- 14. Network switches fan out once per nearby data device ---'
 }
 
 console.log('\n--- 15. Utility poles build aligned multi-conductor peer spans ---');
-{
+for (const [poleType, expectedConductors] of [
+  ['utilityPole2Way', 2],
+  ['utilityPole', 4],
+]) {
   const game = new Game(new BeamlineRegistry(), { seed: 98 });
   game.state.resources.funding = 1e9;
   game.state.placeables.push(
-    item('pole_a', 'utilityPole', 10, 10),
-    item('pole_b', 'utilityPole', 16, 10),
+    item('pole_a', poleType, 10, 10),
+    item('pole_b', poleType, 16, 10),
   );
   const lane = { hv_in: 0, hv_out: 0.5, hv_3: 1, hv_4: 1.5 };
   const portPosition = (endpoint, _def, portName) => ({
@@ -516,20 +521,23 @@ console.log('\n--- 15. Utility poles build aligned multi-conductor peer spans --
   const plan = planPanelAutoConnect(game.state, 'pole_a', { portPosition });
   assert(plan.utilityType === 'hvCable' && plan.candidates === 1,
     'a pole prioritizes the nearby overhead peer as one target');
-  assert(plan.stubs.length === 4
+  assert(plan.stubs.length === expectedConductors
       && plan.stubs.every(stub => stub.start.portName === stub.end.portName),
-  `the pole span aligns all four matching terminals (got ${plan.stubs.length})`);
+  `${poleType} aligns its ${expectedConductors} matching overhead terminals (got ${plan.stubs.length})`);
   assert(plan.stubs.every(stub => validateDrawLine(game.state, {
     utilityType: 'hvCable', start: stub.start, end: stub.end, path: stub.path,
   }).ok), 'every aligned overhead conductor is a valid ordinary HV line');
 }
 
 console.log('\n--- 16. Utility poles reserve their side tap for pad-mount transformers ---');
-{
+for (const [poleType, expectedThroughConductors] of [
+  ['utilityPole2Way', 2],
+  ['utilityPole', 4],
+]) {
   const game = new Game(new BeamlineRegistry(), { seed: 99 });
   game.state.resources.funding = 1e9;
   game.state.placeables.push(
-    item('pole', 'utilityPole', 10, 10),
+    item('pole', poleType, 10, 10),
     item('green_transformer', 'padMountTransformer', 14, 10),
   );
   const plan = planPanelAutoConnect(game.state, 'pole');
@@ -538,7 +546,11 @@ console.log('\n--- 16. Utility poles reserve their side tap for pad-mount transf
   assert(plan.stubs.length === 1
       && plan.stubs[0].start.portName === 'hv_tap'
       && plan.stubs[0].end.portName === 'hv_in',
-  'assisted wiring pairs utilityPole.hv_tap directly with padMountTransformer.hv_in');
+  `assisted wiring pairs ${poleType}.hv_tap directly with padMountTransformer.hv_in`);
+  const throughPorts = Object.entries(getUtilityPortsV2(poleType))
+    .filter(([name]) => name !== 'hv_tap');
+  assert(throughPorts.length === expectedThroughConductors,
+    `${poleType} keeps ${expectedThroughConductors} overhead conductors separate from its tap selection`);
   assert(validateDrawLine(game.state, {
     utilityType: 'hvCable',
     start: plan.stubs[0]?.start,

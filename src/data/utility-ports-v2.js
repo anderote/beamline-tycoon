@@ -1380,8 +1380,25 @@ const INFRA_UTILITY_PORTS = {
     },
   },
   // One passive, two-wire connector per visible overhead insulator plus one
-  // single-feeder pad-transformer tap. The Utility Pole's electricalGroups
-  // entry buses all five; the transmission tower keeps six isolated conductors.
+  // single-feeder pole-transformer tap. Wood-pole electricalGroups bus their
+  // terminals; the transmission tower keeps six isolated conductors.
+  utilityPole2Way: {
+    hv_in: {
+      utility: 'hvCable', side: 'back', offsetAlong: 0.5,
+      role: 'pass', connectionKind: 'hvPassThroughIn', omnidirectional: true,
+      maxConnections: 2, params: {},
+    },
+    hv_out: {
+      utility: 'hvCable', side: 'front', offsetAlong: 0.5,
+      role: 'pass', connectionKind: 'hvPassThroughOut', omnidirectional: true,
+      maxConnections: 2, params: {},
+    },
+    hv_tap: {
+      utility: 'hvCable', side: 'front', offsetAlong: 0.5,
+      role: 'pass', connectionKind: 'hvDistributionTap',
+      omnidirectional: true, maxConnections: 1, params: {},
+    },
+  },
   utilityPole: {
     hv_in: {
       utility: 'hvCable', side: 'back', offsetAlong: 0.5,

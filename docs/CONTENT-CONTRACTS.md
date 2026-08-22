@@ -364,8 +364,11 @@ the short authoring contract.
   Every rack attachment shares the 2.00 m crossbar-terminal height and tensions
   attached cables. Overhead rows use 0.4 m spacing so the hanging insulators
   clear their uprights.
-  The 2×2 Utility Pole likewise buses its four overhead terminals to one front
-  `hv_tap` at 1.55 m. The Pole-Mount Service Transformer is a compact
+  The 2×2 Wood Utility Pole carries two through-conductor terminals on one
+  side at two levels and buses them to one front `hv_tap` at 1.55 m. The full
+  4×4 Wood Utility Pole likewise buses its four overhead terminals to one
+  front tap. The 6×6 HV Transmission Tower keeps six conductors isolated.
+  The Pole-Mount Service Transformer is a compact
   port-mounted 100 kW box: placement snaps its `hv_in` directly onto any free
   `hvDistributionTap` capability on a wood pole or straight indoor rack and
   creates the internal HV topology connection. Its four `powerCable` outlets

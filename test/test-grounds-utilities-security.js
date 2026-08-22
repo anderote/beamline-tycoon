@@ -22,6 +22,7 @@ const { buildPaletteIndex } = await import('../src/ui/palette-search.js');
 
 const UTILITY_DECORATIONS = [
   'propaneTank',
+  'utilityPole2Way',
   'utilityPole',
   'transmissionTower',
   'overheadPowerSpan',
@@ -121,15 +122,21 @@ test('functional overhead supports are linked into Infra Power and keep decorati
     ['transport', 'gridSupply', 'transformers', 'overhead', 'routingHardware']);
   assert.equal(powerSubsections.routingHardware.name, 'Cable Routing');
   assert.deepEqual(powerSubsections.overhead.linkedPlaceables,
-    ['utilityPole', 'transmissionTower']);
+    ['utilityPole2Way', 'utilityPole', 'transmissionTower']);
+  const halfPole = PLACEABLES.utilityPole2Way;
+  assert.equal(halfPole.kind, 'decoration');
+  assert.equal(halfPole.category, 'utilities');
+  assert.equal(halfPole.name, '2×2 Wood Utility Pole');
+  assert.equal(halfPole.subW, 2);
+  assert.equal(halfPole.subL, 2);
   assert.equal(pole.kind, 'decoration');
   assert.equal(pole.category, 'utilities');
-  assert.equal(pole.name, '2×2 Utility Pole');
+  assert.equal(pole.name, '4×4 Wood Utility Pole');
   assert.equal(pole.subW, 2);
   assert.equal(pole.subL, 2);
   assert.equal(standardPaletteKind(COMPONENTS.utilityPole), 'decoration');
   assert.equal(tower.kind, 'decoration');
-  assert.equal(tower.name, '4×4 HV Transmission Tower');
+  assert.equal(tower.name, '6×6 HV Transmission Tower');
   assert.equal(tower.subW, 4);
   assert.equal(tower.subL, 4);
   assert.equal(tower.subH, 18, 'the metal tower is half the former 18 m height');
@@ -167,6 +174,26 @@ test('wood pole draws four overhead insulators plus one low HV tap insulator', (
     if (child.isMesh && child.material?.color?.getHex() === 0xd7e0e4) insulators++;
   });
   assert.equal(insulators, 5);
+});
+
+test('2×2 wood pole is the one-sided two-level half of the full pole', () => {
+  const def = PLACEABLES.utilityPole2Way;
+  const model = buildDecorationGroup(
+    def.id, def.category, def.subW * 0.5, def.subL * 0.5, def.subH * 0.5,
+  );
+  const ceramicPositions = [];
+  model.traverse(child => {
+    if (child.isMesh && child.material?.color?.getHex() === 0xd7e0e4) {
+      ceramicPositions.push(child.position.clone());
+    }
+  });
+  assert.equal(ceramicPositions.length, 3, 'two overhead insulators plus one tap');
+  const overhead = ceramicPositions.filter(position => position.y > 5);
+  assert.equal(overhead.length, 2);
+  assert.ok(overhead.every(position => position.x > 0),
+    'both overhead conductors sit on the same side of the pole');
+  assert.equal(new Set(overhead.map(position => position.y.toFixed(4))).size, 2,
+    'the two conductors occupy separate vertical levels');
 });
 
 test('transmission tower has a tall lattice silhouette and projecting crossarms', () => {

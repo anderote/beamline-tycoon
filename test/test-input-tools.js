@@ -991,7 +991,7 @@ console.log('\n=== 7. Utility demolition removes HV support placeables ===\n');
 // but are player-facing Infra objects. The utility demolish shortcut used to
 // skip placeable picking entirely, then look only for a cable or bus under the
 // cursor, making both supports effectively undeletable from that tool.
-for (const [index, type] of ['utilityPole', 'transmissionTower'].entries()) {
+for (const [index, type] of ['utilityPole2Way', 'utilityPole', 'transmissionTower'].entries()) {
   const g = makeGame(100 + index);
   const col = 12 + index * 4;
   const row = 12;
