@@ -444,9 +444,11 @@ export default {
   runHeightMeters: VACUUM_LINE_MOUNT_Y,
   supportSpacingMeters: 3,
   supportMinimumRunMeters: 3,
-  // Parallel rigid services may share an X/Z route by occupying successive
-  // support-rack elevations. The first lane follows the source connector when
-  // input supplies its measured height; later lanes stack upward as needed.
+  // Vacuum fittings span several authored heights, from floor pumps to the
+  // 1 m beam axis. The long process pipe stays on one stable low rack and its
+  // endpoint risers meet those fittings; later lanes stack upward only when a
+  // real route conflict requires it.
+  routeAtBaseHeight: true,
   verticalRouteLanes: true,
   routeLaneSpacingMeters: 0.30,
   routeVerticalClearanceMeters: 0.06,

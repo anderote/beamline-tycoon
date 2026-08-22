@@ -453,8 +453,8 @@ console.log('\n--- 5. Tool picking follows each utility\'s placement contract --
   const tool = new UtilityLineTool('vacuumPipe');
   const ctrl = new UtilityLineInputController({ game, renderer: {} });
   ctrl.setUtilityType('vacuumPipe');
-  // These are the public draw states produced by a measured connector and by
-  // a validator that has lifted the route above an occupied lower lane.
+  // Vacuum fittings sit at several authored heights, but the long process
+  // pipe belongs on one stable low rack. Only a real route conflict lifts it.
   ctrl._drawing = true;
   ctrl._drawStart = { anchor: { y: 0.72 }, worldPos: { x: 0, z: 0 } };
   const seen = [];
@@ -467,10 +467,27 @@ console.log('\n--- 5. Tool picking follows each utility\'s placement contract --
     input: { utilityLineController: ctrl },
   };
   tool._cableWorld({ clientX: 1, clientY: 2 }, ctx);
-  ctrl._preview = { routeHeightMeters: 1.02 };
+  ctrl._preview = { routeHeightMeters: 0.54 };
   tool._cableWorld({ clientX: 3, clientY: 4 }, ctx);
-  assert(seen[0] === 0.72 && seen[1] === 1.02,
-    `a rigid draw follows its start port and then its resolved rack lane (${seen.join(' m → ')} m)`);
+  assert(seen[0] === utilityLineHeight('vacuumPipe') && seen[1] === 0.54,
+    `vacuum drawing starts on its low rack and follows a resolved upper lane (${seen.join(' m → ')} m)`);
+}
+
+{
+  const game = makeGame();
+  const controller = new UtilityLineInputController({ game, renderer: {} });
+  controller.setUtilityType('vacuumPipe');
+  const lowFitting = { open: true, worldPos: { x: 0, z: 0 }, anchor: { y: 0.72 } };
+  const beamAxisFitting = { open: true, worldPos: { x: 4, z: 2 }, anchor: { y: 1.0 } };
+
+  controller._drawStart = lowFitting;
+  const lowToBeam = controller._dragGeometry(0, 0, beamAxisFitting);
+  controller._drawStart = beamAxisFitting;
+  const beamToLow = controller._dragGeometry(0, 0, lowFitting);
+
+  assert(lowToBeam.routeHeightMeters === utilityLineHeight('vacuumPipe')
+      && beamToLow.routeHeightMeters === utilityLineHeight('vacuumPipe'),
+    'vacuum uses the same low rack lane in either draw direction');
 }
 
 {

@@ -2204,8 +2204,8 @@ export class InputHandler {
       if (mirrorHandled) return;
 
       // Contextual selection shortcuts. With a selection they immediately
-      // act on it; without one, Copy and Mirror become click-to-target modes
-      // and Delete arms the ordinary filtered demolish cursor.
+      // act on it; without one, Copy and Mirror become click-to-target modes.
+      // D remains camera pan-right; Delete/Backspace own selection deletion.
       if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey
           && (e.key === 'c' || e.key === 'C')) {
         e.preventDefault();
@@ -2222,13 +2222,6 @@ export class InputHandler {
         else this._toggleSelectionActionMode('mirror');
         return;
       }
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey
-          && (e.key === 'd' || e.key === 'D')) {
-        e.preventDefault();
-        if (!this._deleteSelectedFromKeyboard()) this._activateDemolishMode();
-        return;
-      }
-
       // Arrow keys → palette navigation
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         e.preventDefault();
@@ -2236,24 +2229,22 @@ export class InputHandler {
         return;
       }
 
-      // Track pan keys for continuous movement. D now owns contextual Delete,
-      // so rightward keyboard pan remains available through ArrowRight.
+      // Track pan keys for continuous movement (WASD only).
       // Normalize to lowercase so Shift toggling mid-press doesn't strand
       // an uppercase entry in the set.
       const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-      if (k === 'w' || k === 'a' || k === 's') {
+      if (k === 'w' || k === 'a' || k === 's' || k === 'd') {
         this.keysDown.add(k);
         this._startPanLoop?.();
         e.preventDefault();
         return;
       }
 
-      // Mode hotkeys: 1..5 activate the build menus. Demolish is D so the
-      // visible menu label and the actual shortcut use the same key.
+      // Mode hotkeys: 1..6 activate the top-row build menus.
       // Skip when modifiers are held so browser shortcuts pass through.
       if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey
-          && e.key >= '1' && e.key <= '5') {
-        const modeOrder = ['beamline', 'infra', 'facility', 'structure', 'grounds'];
+          && e.key >= '1' && e.key <= '6') {
+        const modeOrder = ['beamline', 'infra', 'facility', 'structure', 'grounds', 'demolish'];
         const mode = modeOrder[parseInt(e.key, 10) - 1];
         const btn = mode && document.querySelector(`.mode-btn[data-mode="${mode}"]`);
         if (btn) {
@@ -4650,17 +4641,6 @@ export class InputHandler {
     // Activate the same filtered cursor in-place without changing mode/menu.
     this.setTool(new DemolishTool('demolishFiltered', this.demolishFilters));
     this._renderPreview('Demolish', 'Uses the active Demolish-category filters', []);
-  }
-
-  /** Enter the same full Demolish mode as the bottom build-menu button. */
-  _activateDemolishMode() {
-    const button = document.querySelector?.('.mode-btn[data-mode="demolish"]');
-    if (button?.click) {
-      button.click();
-      return true;
-    }
-    this.setActiveMode('demolish');
-    return true;
   }
 
   /**
