@@ -1735,16 +1735,32 @@ export class BeamlineDesigner {
     this._renderAll();
   }
 
-  insertComponent(index, type, position, initialParams = null) {
+  insertComponent(index, type, position, initialParams = null, insertOptions = null) {
     const comp = COMPONENTS[type];
     if (!comp) return;
     this._pushUndo();
+
+    // A physics hint is a continuous beam position, not a component edge.
+    // Long stretches of drawn pipe are represented by one synthetic drift
+    // node, so inserting "after" that node would move the hardware to the
+    // far end of the whole stretch. Split the draft drift around the hinted
+    // component and retain the exact pipe coordinate for the planner.
+    let pipeCtxOverride = null;
+    if (insertOptions?.targetS != null
+      && this.editSourceId && comp.placement === 'attachment') {
+      const split = this._splitDriftForInsertion(index, type, insertOptions.targetS);
+      if (split) {
+        index = split.index;
+        position = split.position;
+        pipeCtxOverride = split.pipeCtx;
+      }
+    }
 
     // Pick the target pipe and the fractional-s position on it, using the
     // neighbouring draft node (which was derived from the flattener and so
     // carries a pipeId).
     const pipeCtx = this.editSourceId
-      ? this._resolvePipeContextForInsert(index, position)
+      ? (pipeCtxOverride || this._resolvePipeContextForInsert(index, position))
       : null;
 
     const newNode = {
@@ -1778,6 +1794,85 @@ export class BeamlineDesigner {
     this._recalcDraft();
     this._updateDraftBar();
     this._renderAll();
+  }
+
+  /**
+   * Split a synthetic drift at a physics hint's beam position. The two drift
+   * halves keep the same pipe reference; they are still one physical pipe to
+   * the apply planner, with the new attachment occupying the gap between them.
+   */
+  _splitDriftForInsertion(index, type, targetS) {
+    const drift = this.draftNodes[index];
+    if (!drift || drift.type !== 'drift' || !drift._sourceRef?.pipeId) return null;
+    const startS = Number.isFinite(drift.beamStart)
+      ? drift.beamStart
+      : this.draftNodes.slice(0, index)
+        .reduce((sum, node) => sum + _nodeSubL(node) * 0.5, 0);
+    const driftLengthM = _nodeSubL(drift) * 0.5;
+    const componentLengthM = Math.max(0, _nodeSubL({ type } ) * 0.5);
+    if (!(driftLengthM > componentLengthM)) return null;
+
+    // Hints mark the desired component centre. Keep the whole component
+    // inside the drift and let the planner validate the resulting slot.
+    const componentStartS = Math.max(
+      startS,
+      Math.min(startS + driftLengthM - componentLengthM, targetS - componentLengthM / 2),
+    );
+    const beforeSubL = Math.max(0, Math.round((componentStartS - startS) * 2));
+    // Keep the full drawn-pipe length in the draft. On-pipe hardware occupies
+    // that span on the map; it does not shorten the pipe itself. The planner
+    // uses the unchanged total drift length to avoid emitting a spurious trim
+    // operation against a downstream junction.
+    const afterSubL = Math.max(0, drift.subL - beforeSubL);
+    if (beforeSubL <= 0 && afterSubL <= 0) return null;
+
+    const halves = [];
+    if (beforeSubL > 0) {
+      const before = this._cloneNode(drift);
+      before.id = -(this._nextTempId = (this._nextTempId || 0) + 1);
+      before.subL = beforeSubL;
+      halves.push(before);
+    }
+    if (afterSubL > 0) {
+      const after = this._cloneNode(drift);
+      after.id = -(this._nextTempId = (this._nextTempId || 0) + 1);
+      after.subL = afterSubL;
+      halves.push(after);
+    }
+    this.draftNodes.splice(index, 1, ...halves);
+
+    const pipeCtx = this._pipeContextAtBeamS(
+      drift._sourceRef.pipeId, componentStartS, componentLengthM,
+    );
+    return {
+      index,
+      position: beforeSubL > 0 ? 'after' : 'before',
+      pipeCtx,
+    };
+  }
+
+  /** Convert a beam-travel distance into the authored pipe position. */
+  _pipeContextAtBeamS(pipeId, startS, componentLengthM) {
+    const pipe = this.game?.state?.beamPipes?.find(item => item?.id === pipeId);
+    if (!pipe || !(pipe.subL > 0)) return null;
+    const pipeNodes = this.draftNodes.filter(node => node._sourceRef?.pipeId === pipeId);
+    const pipeBeamStart = pipeNodes.length
+      ? Math.min(...pipeNodes.map(node => Number.isFinite(node.beamStart) ? node.beamStart : Infinity))
+      : startS;
+    const offsetSubL = Math.max(0, Math.min(pipe.subL, (startS - pipeBeamStart) * 2));
+    const componentSubL = Math.max(0, componentLengthM * 2);
+    const previousModule = this.draftNodes
+      .slice(0, Math.max(0, this.draftNodes.findIndex(node => node._sourceRef?.pipeId === pipeId)))
+      .reverse()
+      .find(node => node._pipeKind === 'module');
+    const forward = !previousModule || pipe.start?.junctionId === previousModule._sourceRef?.placeableId;
+    const position = forward
+      ? offsetSubL / pipe.subL
+      : (pipe.subL - offsetSubL - componentSubL) / pipe.subL;
+    return {
+      pipeId,
+      position: Math.max(0, Math.min(1 - componentSubL / pipe.subL, position)),
+    };
   }
 
   /**
@@ -2718,6 +2813,7 @@ export class BeamlineDesigner {
       hint.componentType,
       hint.position || 'after',
       hint.params || null,
+      { targetS: hint.s },
     );
     const name = COMPONENTS[hint.componentType]?.name || hint.componentType;
     this.game?.log?.(`${name} inserted from physics hint`, 'good');

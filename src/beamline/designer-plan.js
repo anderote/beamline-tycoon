@@ -1588,9 +1588,22 @@ function appendAttachment(p, state, node, index, inTail) {
   const dir = directionOf(pipe, state.upstreamId);
   const subL = subLOf(node.type);
   const span = freeSpanFrom(pipe, state.cursor, dir);
-  const centreOffset = Math.max(state.cursor, (span.lo + span.hi) / 2 - subL / 2) + subL / 2;
-  const centreFraction = beamOffsetToPathFraction(pipe, centreOffset - subL / 2, subL, dir)
-    + (subL / pipe.subL) / 2;
+  const requestedPosition = Number.isFinite(node._targetPosition)
+    ? node._targetPosition
+    : null;
+  const requestedOffset = requestedPosition == null
+    ? null
+    : placementBeamStart(pipe, {
+      position: requestedPosition,
+      subL,
+    }, dir);
+  const centreOffset = requestedOffset == null
+    ? Math.max(state.cursor, (span.lo + span.hi) / 2 - subL / 2) + subL / 2
+    : requestedOffset + subL / 2;
+  const centreFraction = requestedPosition == null
+    ? beamOffsetToPathFraction(pipe, centreOffset - subL / 2, subL, dir)
+      + (subL / pipe.subL) / 2
+    : requestedPosition + (subL / pipe.subL) / 2;
   const mode = node._insertMode || 'insert';
 
   // At an open end there is always somewhere to put it: buy the pipe it needs.
@@ -1607,7 +1620,8 @@ function appendAttachment(p, state, node, index, inTail) {
     return true;
   }
 
-  if (!p.emitPlaceOnPipe(state.workingId, node, index, centreFraction, mode)) return false;
+  if (!p.emitPlaceOnPipe(state.workingId, node, index,
+    requestedPosition == null ? centreFraction : requestedPosition, mode)) return false;
   state.cursor = centreOffset + subL / 2;
   return true;
 }

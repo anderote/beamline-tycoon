@@ -8,6 +8,9 @@ import {
 } from '../src/beamline/designer-placement-hints.js';
 import { BeamlineDesigner } from '../src/ui/BeamlineDesigner.js';
 import { ProbePlots } from '../src/ui/probe-plots.js';
+import { Game } from '../src/game/Game.js';
+import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
+import { planDesignerApply } from '../src/beamline/designer-plan.js';
 
 let failures = 0;
 function check(name, condition, detail = '') {
@@ -246,6 +249,51 @@ console.log('6b. manual designer insertion uses the local-energy quad default');
   const explicit = designer.draftNodes[2];
   check('an explicit caller gradient overrides the local default', explicit?.params?.gradient === 2);
   check('an explicit caller polarity overrides the declared default', explicit?.params?.polarity === 1);
+}
+
+console.log('6c. a hint keeps its location inside a long pipe section');
+{
+  const game = new Game(new BeamlineRegistry(), { seed: 17 });
+  game.state.resources.funding = 1e9;
+  game.state.resources.spares = 1e9;
+  const source = game.beamline.placeJunction({
+    type: 'source', col: -10, row: 20, dir: 3, free: true, silent: true,
+  });
+  const endpoint = game.beamline.placeJunction({
+    type: 'faradayCup', col: 10, row: 20, dir: 3, free: true, silent: true,
+  });
+  game.beamline.drawPipe(
+    { junctionId: source, portName: 'exit' },
+    { junctionId: endpoint, portName: 'entry' },
+    [{ col: -10, row: 20 }, { col: 10, row: 20 }],
+  );
+
+  const designer = Object.create(BeamlineDesigner.prototype);
+  Object.assign(designer, {
+    game, editSourceId: source, insertMode: 'nearest', _nextTempId: 0,
+    _undoStack: [], _UNDO_MAX: 3,
+    _recalcDraft() {}, _updateDraftBar() {}, _renderAll() {},
+  });
+  designer._syncDraftFromMap();
+  designer._updateTotalLength();
+  const driftIndex = designer.draftNodes.findIndex(node => node.type === 'drift');
+  const targetS = designer.draftNodes[driftIndex].beamStart + 3;
+  designer.insertComponent(driftIndex, 'quadrupole', 'after', null, { targetS });
+  const insertedIndex = designer.draftNodes.findIndex(node => node.type === 'quadrupole');
+  const plan = planDesignerApply(game.state, {
+    sourceId: source,
+    draftNodes: designer.draftNodes,
+    originalNodes: designer.originalNodes,
+    freeConstruction: true,
+  });
+  const placeOp = plan.ops.find(op => op.kind === 'placeOnPipe');
+  check('the long drift is split around the hinted component',
+    insertedIndex > driftIndex && designer.draftNodes[insertedIndex - 1].type === 'drift'
+      && designer.draftNodes[insertedIndex + 1].type === 'drift');
+  check('the apply plan remains valid after the split', plan.ok, plan.blockers?.[0]?.message);
+  check('the apply plan preserves the hinted pipe coordinate',
+    placeOp?.position === designer.draftNodes[insertedIndex]._targetPosition,
+    `${placeOp?.position} vs ${designer.draftNodes[insertedIndex]._targetPosition}`);
 }
 
 console.log('7. mission bands feed the relevant plots');
