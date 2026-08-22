@@ -256,6 +256,12 @@ console.log('\n--- 5. Cryo renders as an opaque fabricated cryostat ---');
   assert(jackets.length === 2 && jackets.every(mesh =>
     mesh.material.transparent !== true && mesh.material.metalness >= 0.8),
   `${jackets.length} opaque stainless vacuum-jacket segments replace the translucent sleeve`);
+  assert(jackets.every(mesh => {
+    const flow = mesh.material.userData?.flowUniforms;
+    return mesh.layers.mask !== 1
+      && flow?.uFlowColor?.value?.getHexString() === '8de7f2'
+      && flow?.uBaseGlow?.value >= 0.18;
+  }), 'the opaque cryostat jacket carries the restored cool-blue bloom');
   assert(elbows.length === 1 && elbows[0].geometry instanceof THREE_NS.TubeGeometry,
     `one continuous outer vacuum vessel sweeps through the bend (${elbows.length})`);
   assert(fittings.length >= 3 && fittings.every(fitting =>

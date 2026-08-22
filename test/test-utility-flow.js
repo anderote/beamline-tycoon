@@ -406,6 +406,9 @@ console.log('\n--- 4. FLOW_PARAMS covers every utility ---');
   assert(FLOW_PARAMS.powerCable.lightIntensity > FLOW_PARAMS.coolingWater.lightIntensity * 1.5
       && FLOW_PARAMS.hvCable.lightIntensity > FLOW_PARAMS.powerCable.lightIntensity * 1.7,
     'power and HV cast stronger local light than support-service flow');
+  assert(FLOW_PARAMS.cryoTransfer.baseGlow >= 0.18
+      && FLOW_PARAMS.cryoTransfer.strength >= 0.4,
+    'cryo restores its steady cool-blue frost glow over the jacketed line');
   for (const type of [
     'hvCable', 'powerCable', 'vacuumPipe', 'rfWaveguide', 'coolingWater', 'cryoTransfer',
   ]) {
