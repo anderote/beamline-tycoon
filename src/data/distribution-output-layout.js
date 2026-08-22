@@ -3,13 +3,16 @@
 // fronts. HV inputs retain their separately authored roof bushings.
 
 /**
- * Lay out `count` outputs from the bottom up, with at most four per row.
- * Six-way banks become 4+2 and eight-way banks become 4+4; a shorter final
- * row is centred over the full-width rows.
+ * Lay out `count` outputs from the bottom up. Banks default to four per row,
+ * while compact cabinets may request a narrower grid. A shorter final row is
+ * centred over the full-width rows.
  */
-export function horizontalOutputRows(count, { span, bottomY, rowGap = 0 }) {
+export function horizontalOutputRows(count, {
+  span, bottomY, rowGap = 0, maxPerRow = 4,
+}) {
   if (!Number.isInteger(count) || count < 1 || !Number.isFinite(span)
-      || !Number.isFinite(bottomY) || !Number.isFinite(rowGap)) {
+      || !Number.isFinite(bottomY) || !Number.isFinite(rowGap)
+      || !Number.isInteger(maxPerRow) || maxPerRow < 1) {
     throw new TypeError('horizontal output rows require a positive count and finite dimensions');
   }
 
@@ -17,7 +20,7 @@ export function horizontalOutputRows(count, { span, bottomY, rowGap = 0 }) {
   let remaining = count;
   let row = 0;
   while (remaining > 0) {
-    const rowCount = Math.min(4, remaining);
+    const rowCount = Math.min(maxPerRow, remaining);
     for (let col = 0; col < rowCount; col++) {
       positions.push({
         x: rowCount === 1 ? 0 : -span / 2 + col * (span / (rowCount - 1)),
@@ -32,7 +35,9 @@ export function horizontalOutputRows(count, { span, bottomY, rowGap = 0 }) {
 
 const POWER_OUTPUT_SPECS = Object.freeze({
   poleMountTransformer: Object.freeze({ count: 4, span: 0.45, bottomY: 0.16, frontZ: 0.31 }),
-  powerPanel: Object.freeze({ count: 4, span: 0.30, bottomY: 0.30, frontZ: 0.21 }),
+  powerPanel: Object.freeze({
+    count: 4, maxPerRow: 2, span: 0.20, bottomY: 0.30, rowGap: 0.20, frontZ: 0.21,
+  }),
   sectionDistributionPanel: Object.freeze({ count: 6, span: 0.70, bottomY: 0.38, rowGap: 0.32, frontZ: 0.24 }),
   mainDistributionPanel: Object.freeze({ count: 12, span: 1.04, bottomY: 0.32, rowGap: 0.34, frontZ: 0.26 }),
   mcc: Object.freeze({ count: 8, span: 1.26, bottomY: 0.48, rowGap: 0.82, frontZ: 0.41 }),
@@ -40,7 +45,9 @@ const POWER_OUTPUT_SPECS = Object.freeze({
 });
 
 const HV_OUTPUT_SPECS = Object.freeze({
-  compactHvDistributor: Object.freeze({ count: 2, span: 0.20, bottomY: 0.48, frontZ: 0.21 }),
+  compactHvDistributor: Object.freeze({
+    count: 2, maxPerRow: 1, span: 0.20, bottomY: 0.36, rowGap: 0.20, frontZ: 0.21,
+  }),
   sectionDistributionPanel: Object.freeze({ count: 1, span: 0.70, bottomY: 1.08, frontZ: 0.24 }),
   mainDistributionPanel: Object.freeze({ count: 2, span: 0.48, bottomY: 1.40, frontZ: 0.26 }),
 });
