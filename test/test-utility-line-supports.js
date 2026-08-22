@@ -41,8 +41,8 @@ console.log('\n--- 1. Every rigid service receives the common periodic supports 
 for (const utilityType of ['rfWaveguide', 'cryoTransfer', 'waterSupplyPipe', 'vacuumPipe']) {
   const { builder, parent } = build(utilityType);
   const supports = collect(parent, object => object.userData?.isUtilitySupport);
-  assert(UTILITY_TYPES[utilityType].supportSpacingMeters === 1,
-    `${utilityType} uses the dense one-metre support pitch`);
+  assert(UTILITY_TYPES[utilityType].supportSpacingMeters === 2,
+    `${utilityType} uses the two-metre support pitch`);
   const expected = Math.floor(8 / UTILITY_TYPES[utilityType].supportSpacingMeters);
   assert(supports.length === expected,
     `${utilityType} gets ${expected} evenly-spaced supports on an 8 m run (${supports.length})`);
@@ -56,6 +56,12 @@ for (const utilityType of ['rfWaveguide', 'cryoTransfer', 'waterSupplyPipe', 'va
       && collect(support,
         object => object.userData?.utilitySupportPart === 'leg').length === 2),
   `${utilityType} supports have one ground foot and two legs`);
+  const supportParts = supports.flatMap(support => collect(support,
+    object => object.userData?.utilitySupportPart));
+  assert(supportParts.every(part => part.material?.color?.getHex() === 0x99aabb
+      && part.material.roughness === 0.3
+      && part.material.metalness === 0.5),
+  `${utilityType} supports use the light-grey beam-pipe metal finish`);
   builder.dispose(parent);
 }
 

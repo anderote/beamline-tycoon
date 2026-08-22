@@ -303,7 +303,7 @@ the short authoring contract.
   mandatory facility-wide route datums: cryogenic at 0.30 m, cold water at
   0.60 m, hot water at 0.90 m, RF at 1.20 m, and vacuum at 1.50 m. Authored
   equipment fittings remain on their visible hardware and use short local
-  transitions to these datums. Every rigid descriptor uses the shared 1 m
+  transitions to these datums. Every rigid descriptor uses the shared 2 m
   support spacing and 3 m minimum supported-run threshold, so co-located runs
   form an aligned vertical stack on consolidated rack frames. Route planning
   and equipment collision must use the selected water circuit's height rather
