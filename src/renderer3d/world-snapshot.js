@@ -942,6 +942,7 @@ function buildUtilityLines(game) {
     out.push({
       id: l.id,
       utilityType: l.utilityType,
+      waterCircuit: l.waterCircuit,
       start: l.start || null,
       end: l.end || null,
       path: (l.path || []).map(p => ({ col: p.col, row: p.row })),
