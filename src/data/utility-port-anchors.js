@@ -438,10 +438,10 @@ export const PORT_ANCHOR_OVERRIDES = {
     _default: { y: 0.035, lat: 0.10, along: 0, out: 0.03 },
   },
   coldWaterLineWallPassThrough: {
-    _default: { y: 0.05, lat: 0.10, along: 0, out: 0.04 },
+    _default: { y: 0.05, lat: 0.10, along: -0.06, out: 0.04 },
   },
   hotWaterLineWallPassThrough: {
-    _default: { y: 0.05, lat: 0.10, along: 0, out: 0.04 },
+    _default: { y: 0.05, lat: 0.10, along: 0.06, out: 0.04 },
   },
   coldWaterSupplyWallPassThrough: {
     _default: { y: 0.75, lat: 0.10, along: -0.12, out: 0.06 },

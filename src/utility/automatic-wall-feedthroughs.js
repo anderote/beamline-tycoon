@@ -27,7 +27,7 @@ import {
   sanitizeCablePath,
 } from './soft-cable.js';
 import { snapUtilityRouteCoordinate } from './routing-contract.js';
-import { normalizeWaterCircuit } from './water-circuits.js';
+import { normalizeWaterCircuit, portWaterCircuit } from './water-circuits.js';
 
 const EPS = 1e-7;
 
@@ -88,10 +88,13 @@ function portClaims(state, placeableId, portName) {
   return claims;
 }
 
-function availablePair(state, entry, def, utilityType, pair) {
+function availablePair(state, entry, def, utilityType, pair, waterCircuit = null) {
+  const wantedCircuit = normalizeWaterCircuit(waterCircuit);
   return pair.length === 2 && pair.every((portName) => {
     const spec = getPortSpec(def, portName);
+    const pairCircuit = portWaterCircuit(spec);
     return spec?.utility === utilityType
+      && (!wantedCircuit || !pairCircuit || pairCircuit === wantedCircuit)
       && portClaims(state, entry.id, portName) < utilityPortConnectionLimit(spec, utilityType);
   });
 }
@@ -128,14 +131,14 @@ function pairDistance(entry, def, pair, point) {
   return Math.hypot(col - point.col, row - point.row);
 }
 
-function findExistingPassThrough(state, crossing, utilityType) {
+function findExistingPassThrough(state, crossing, utilityType, waterCircuit = null) {
   const candidates = [];
   for (const entry of state?.placeables || []) {
     if (!entry?.wallMount || !samePhysicalSlot(entry, crossing)) continue;
     const def = COMPONENTS[entry.type];
     if (!def?.wallPassThrough) continue;
     for (const pair of passThroughPairs(def, utilityType)) {
-      if (!availablePair(state, entry, def, utilityType, pair)) continue;
+      if (!availablePair(state, entry, def, utilityType, pair, waterCircuit)) continue;
       candidates.push({
         entry, def, pair,
         distance: pairDistance(entry, def, pair, crossing.point),
@@ -349,7 +352,9 @@ export function planAutomaticWallPassThroughs(game, opts = {}) {
 
   for (let index = 0; index < crossings.length; index++) {
     const crossing = crossings[index];
-    let selected = findExistingPassThrough(probeState, crossing, opts.utilityType);
+    let selected = findExistingPassThrough(
+      probeState, crossing, opts.utilityType, opts.waterCircuit,
+    );
     let entry;
     let def;
     let pair;
