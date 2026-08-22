@@ -826,6 +826,7 @@ export const DOOR_TYPES = {
     variants: ['Aluminum', 'Bronze', 'Blue', 'Black', 'White', 'Safety Yellow'],
     variantPreviewColors: [0x8899aa, 0xa89868, 0x6688bb, 0x3f464d, 0xd8d8d2, 0xd3ad3f],
     variantTints: [null, 0xc8a868, 0x88aadd, 0x535a61, 0xe2e2dc, 0xe0ba42],
+    doorWindow: { width: 0.78, height: 0.42, centerY: 0.7, glassColor: 0xcfe8f5, glassOpacity: 0.2 },
   },
   securityDoor: {
     id: 'securityDoor',
@@ -946,6 +947,7 @@ export const DOOR_TYPES = {
     variants: ['White', 'Blue', 'Clean Green'],
     variantPreviewColors: [0xe3e6e4, 0x93b7d1, 0x9fc9b5],
     variantTints: [0xeeeeea, 0xa1c3de, 0xa8d5bd],
+    doorWindow: { width: 0.6, height: 0.4, centerY: 0.7, glassColor: 0xcfe8f5, glassOpacity: 0.2 },
   },
   doubleLabDoor: {
     id: 'doubleLabDoor', name: 'Double Laboratory Door',
@@ -956,6 +958,7 @@ export const DOOR_TYPES = {
     variants: ['Clean White', 'Laboratory Blue', 'Clean Green', 'Stainless'],
     variantPreviewColors: [0xe3e6e4, 0x93b7d1, 0x9fc9b5, 0xaeb7bc],
     variantTints: [0xeeeeea, 0xa1c3de, 0xa8d5bd, 0xbac3c7],
+    doorWindow: { width: 0.6, height: 0.4, centerY: 0.7, glassColor: 0xcfe8f5, glassOpacity: 0.2 },
   },
   panicExit: {
     id: 'panicExit', name: 'Panic-Bar Exit',
@@ -966,6 +969,7 @@ export const DOOR_TYPES = {
     variants: ['Safety Red', 'Emergency Green', 'Signal Yellow'],
     variantPreviewColors: [0xd95d52, 0x5fa87a, 0xe2bd4c],
     variantTints: [null, 0x6fbc88, 0xf0c852],
+    doorWindow: { width: 0.3, height: 0.22, centerY: 0.7, glassColor: 0xc9d9d7, glassOpacity: 0.28 },
   },
   hallwayDoor: {
     id: 'hallwayDoor',
@@ -999,6 +1003,7 @@ export const DOOR_TYPES = {
     variants: ['Red', 'Gray', 'Orange'],
     variantPreviewColors: [0xdd7766, 0x999999, 0xdd9944],
     variantTints: [null, 0x999999, 0xdd9944],
+    doorWindow: { width: 0.3, height: 0.22, centerY: 0.7, glassColor: 0xc9d9d7, glassOpacity: 0.28 },
   },
   doubleFireDoor: {
     id: 'doubleFireDoor',
@@ -1018,6 +1023,7 @@ export const DOOR_TYPES = {
     variants: ['Safety Red', 'Industrial Gray', 'Signal Orange', 'Safety Yellow'],
     variantPreviewColors: [0xdd7766, 0x999999, 0xdd9944, 0xd5b542],
     variantTints: [null, 0x999999, 0xdd9944, 0xe1bf48],
+    doorWindow: { width: 0.3, height: 0.22, centerY: 0.7, glassColor: 0xc9d9d7, glassOpacity: 0.28 },
   },
   labDoor: {
     id: 'labDoor',
@@ -1036,6 +1042,7 @@ export const DOOR_TYPES = {
     variants: ['Blue', 'White', 'Green'],
     variantPreviewColors: [0xbbccdd, 0xdddddd, 0x88ccaa],
     variantTints: [null, 0xdddddd, 0x88ccaa],
+    doorWindow: { width: 0.6, height: 0.4, centerY: 0.7, glassColor: 0xcfe8f5, glassOpacity: 0.2 },
   },
   chainLinkGate: {
     id: 'chainLinkGate',

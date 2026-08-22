@@ -211,6 +211,49 @@ function createArchitecturalGlassMaterial(def, variant = 0, ghosted = false) {
   });
 }
 
+const doorWindowMaskCache = new Map();
+
+/**
+ * Alpha mask for an ordinary door leaf with a glazed aperture. The authored
+ * door texture still supplies the frame, handle and finish; this mask removes
+ * only the pixels inside the pane so the separate glass mesh can show through.
+ */
+function doorWindowMask(windowDef) {
+  const width = Math.max(0.01, Math.min(0.98, windowDef?.width ?? 0.5));
+  const height = Math.max(0.01, Math.min(0.98, windowDef?.height ?? 0.35));
+  const centerX = Math.max(width / 2, Math.min(1 - width / 2, windowDef?.centerX ?? 0.5));
+  const centerY = Math.max(height / 2, Math.min(1 - height / 2, windowDef?.centerY ?? 0.68));
+  const key = `${width}:${height}:${centerX}:${centerY}`;
+  if (doorWindowMaskCache.has(key)) return doorWindowMaskCache.get(key);
+
+  const size = 64;
+  const data = new Uint8Array(size * size * 4);
+  const minX = Math.floor((centerX - width / 2) * size);
+  const maxX = Math.ceil((centerX + width / 2) * size);
+  const minY = Math.floor((centerY - height / 2) * size);
+  const maxY = Math.ceil((centerY + height / 2) * size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const solid = x < minX || x >= maxX || y < minY || y >= maxY;
+      const value = solid ? 255 : 0;
+      const i = (y * size + x) * 4;
+      data[i] = value;
+      data[i + 1] = value;
+      data[i + 2] = value;
+      data[i + 3] = 255;
+    }
+  }
+  const texture = new THREE.DataTexture(
+    data, size, size, THREE.RGBAFormat, THREE.UnsignedByteType,
+  );
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestFilter;
+  texture.generateMipmaps = false;
+  texture.needsUpdate = true;
+  doorWindowMaskCache.set(key, texture);
+  return texture;
+}
+
 /**
  * The other name for the same physical tile edge. Every edge has exactly two
  * representations — (col,row,'n') is the same seam as (col,row-1,'s') — and
@@ -621,6 +664,7 @@ export class WallBuilder {
     // kind shares an instance instead of allocating per door.
     const panelMatCache = {};
     const doorFrameMatCache = {};
+    const doorWindowGlassMatCache = {};
 
     for (const d of (doorData || [])) {
       const { col, row, edge, type } = d;
@@ -852,6 +896,7 @@ export class WallBuilder {
           } else {
             const baseMat = MATERIALS[doorDef.texture] || null;
             const tint = doorDef.variantTints?.[variant] ?? null;
+            const hasWindow = !!doorDef.doorWindow;
             const opts = {
               map: baseMat ? baseMat.map : null,
               // Textured panels tint white so the map shows true colors; a
@@ -863,6 +908,11 @@ export class WallBuilder {
               opacity: ghost ? 0.3 : 1.0,
               depthWrite: !ghost,
             };
+            if (hasWindow) {
+              opts.alphaMap = doorWindowMask(doorDef.doorWindow);
+              opts.alphaTest = CUTOUT_ALPHA_TEST * opts.opacity;
+              opts.side = THREE.DoubleSide;
+            }
             if (baseMat && baseMat.alphaTest > 0) {
               // Cutout textures (chain link, security gate) keep their holes.
               // alphaTest compares against opacity * map alpha, so the ghost
@@ -911,6 +961,48 @@ export class WallBuilder {
           panel.updateMatrix();
           markDoorPick(panel);
           this._emit(panel, parentGroup);
+
+          if (doorDef.doorWindow) {
+            const glassKey = `${type}:${variant}:${ghost ? 'ghost' : 'solid'}`;
+            if (!doorWindowGlassMatCache[glassKey]) {
+              doorWindowGlassMatCache[glassKey] = createArchitecturalGlassMaterial(
+                doorDef.doorWindow, variant, ghost,
+              );
+            }
+            const windowDef = doorDef.doorWindow;
+            const glassW = panelW * Math.max(0.01, Math.min(0.98, windowDef.width ?? 0.5));
+            const glassH = panelH * Math.max(0.01, Math.min(0.98, windowDef.height ?? 0.35));
+            const centerX = Math.max(
+              glassW / panelW / 2,
+              Math.min(1 - glassW / panelW / 2, windowDef.centerX ?? 0.5),
+            );
+            const centerY = Math.max(
+              glassH / panelH / 2,
+              Math.min(1 - glassH / panelH / 2, windowDef.centerY ?? 0.68),
+            );
+            const glassLocalOffset = (centerX - 0.5) * panelW;
+            const glassSignedOffset = signedOffset + glassLocalOffset;
+            const glassGeo = isNS
+              ? new THREE.BoxGeometry(glassW, glassH, GLASS_THICKNESS)
+              : new THREE.BoxGeometry(GLASS_THICKNESS, glassH, glassW);
+            const glass = new THREE.Mesh(glassGeo, doorWindowGlassMatCache[glassKey]);
+            glass.position.set(
+              edgeCenter.x + (isNS ? glassSignedOffset : 0),
+              baseAt(glassSignedOffset) + panelH * centerY,
+              edgeCenter.z + (isNS ? 0 : glassSignedOffset),
+            );
+            glass.castShadow = false;
+            glass.receiveShadow = false;
+            glass.renderOrder = 2;
+            glass.userData ||= {};
+            glass.userData.doorWindowGlass = true;
+            glass.userData.doorLeafIndex = leafIndex;
+            glass.userData.doorLeafCount = leafCount;
+            glass.matrixAutoUpdate = false;
+            glass.updateMatrix();
+            markDoorPick(glass);
+            this._emit(glass, parentGroup);
+          }
         }
 
         if (doorDef.isGlassDoor) {
