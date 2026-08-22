@@ -2950,12 +2950,11 @@ function _srfCryomoduleRoles(opts) {
   }
 
   // --- Fundamental power couplers -----------------------------------------
-  // The catalogue utility contract exposes one `rf_in` for the complete
-  // placement.  The cell-by-cell coupler row is useful on a cutaway of one
-  // physical cavity, but it is misleading on sector abstractions: every box
-  // looks like another place where a waveguide can attach. Keep a small set of
-  // representative couplers for scale and leave the actual hookup to the
-  // single utility port fitting.
+  // Sector-scale placements expose every representative coupler below as a
+  // real rf_in utility port. The 650/805 MHz module rungs may still choose a
+  // smaller representative count than their physical cavity count; the
+  // sector entries keep this rendered bank and their authored port contract
+  // in lockstep.
   const boxL = 0.16, capL = 0.05;
   // The 650 MHz vessel is widest. Shorten only its coax neck enough to keep
   // the inlet-window flange on the common 2 m-wide reserved footprint.

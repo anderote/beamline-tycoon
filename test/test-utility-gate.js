@@ -234,6 +234,29 @@ console.log('\n--- Test 4: nodeQualities aggregation ---');
   assert(nq?.cryoQuality === 0.2, 'cryo quality mapped');
   assert(nq?.cryoQuenched === true, 'quench flag exposed');
 }
+{
+  const state = makeState({ lines: CONNECT_BOTH });
+  const solveRunner = {
+    runSolve() {
+      state.utilityNetworkData = new Map([
+        ['rfWaveguide', new Map([
+          ['netA', {
+            perSinkQuality: { 'p1:rf_in': 0.9, 'p1:rf_in_2': 0.7 },
+            perSinkPower: { 'p1:rf_in': 120000, 'p1:rf_in_2': 80000 },
+          }],
+        ])],
+      ]);
+      return { errors: [] };
+    },
+  };
+  makeGate(state, { solveRunner }).run();
+
+  const nq = state.nodeQualities?.p1;
+  assert(nq?.rfQuality === 0.7,
+    `a multi-coupler device keeps worst-feed RF quality (got ${nq?.rfQuality})`);
+  assert(nq?.rfPowerW === 200000,
+    `a multi-coupler device sums delivered RF power (got ${nq?.rfPowerW})`);
+}
 
 // ==========================================================================
 // Test 5: quench flag with the REAL cryoTransfer descriptor output —

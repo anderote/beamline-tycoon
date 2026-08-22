@@ -92,7 +92,10 @@ export const UTILITY_TO_QUALITY_FIELD = {
 // the fail-closed value for a declared-but-unsolved sink, chosen so that
 // forgetting to wire something is never better than wiring it badly.
 export const UTILITY_PHYSICAL_FIELDS = [
-  { utility: 'rfWaveguide',  field: 'rfPowerW',        flowKey: 'perSinkPower',    worst: 0, reduce: 'min' },
+  // RF power is extensive: sector-scale devices expose several independently
+  // fed couplers, and their delivered watts add back up at the component.
+  // Quality remains worst-feed-wins in the scalar aggregation above.
+  { utility: 'rfWaveguide',  field: 'rfPowerW',        flowKey: 'perSinkPower',    worst: 0, reduce: 'sum' },
   { utility: 'cryoTransfer', field: 'cryoTempK',       flowKey: 'perSinkTemp',     worst: 300, reduce: 'max' },
   { utility: 'coolingWater', field: 'coolingDeltaT',   flowKey: 'perSinkDeltaT',   worst: 100, reduce: 'max' },
   { utility: 'vacuumPipe',   field: 'vacuumPressure',  flowKey: 'perSinkPressure', worst: 1013, reduce: 'max' },
@@ -596,7 +599,8 @@ export class UtilityGate {
             const prior = nodeQualities[placeableId][phys.field];
             nodeQualities[placeableId][phys.field] = prior === undefined
               ? v
-              : (phys.reduce === 'max' ? Math.max(prior, v) : Math.min(prior, v));
+              : phys.reduce === 'sum' ? prior + v
+                : (phys.reduce === 'max' ? Math.max(prior, v) : Math.min(prior, v));
           }
         }
       }

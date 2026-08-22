@@ -319,13 +319,29 @@ export const PORT_ANCHOR_OVERRIDES = {
     _default: { y: 1.15 }, rf_in: { y: 1.0, lat: 0.94, along: 1.296 }, cryo_in: { y: 0.7 },
   },
   cwCryomodule: {
-    _default: { y: 1.15 }, rf_in: { y: 1.0, lat: 0.95, along: 0 }, cryo_in: { y: 0.7 },
+    _default: { y: 1.15 }, cryo_in: { y: 0.7 },
+    rf_in: { y: 1.0, lat: 0.95, along: 0 },
+    rf_in_2: { y: 1.0, lat: 0.95, along: -1.728 },
+    rf_in_3: { y: 1.0, lat: 0.95, along: 1.728 },
+    vac_in: { y: 1.0, along: 1.728 },
+    vac_in_2: { y: 1.0, along: -1.728 },
+    vac_in_3: { y: 1.0, along: 0 },
   },
   nbSnCryomodule: {
-    _default: { y: 1.1 }, rf_in: { y: 1.0, lat: 0.95, along: 1.296 }, cryo_in: { y: 0.7 },
+    _default: { y: 1.1 }, cryo_in: { y: 0.7 },
+    rf_in: { y: 1.0, lat: 0.95, along: 1.296 },
+    rf_in_2: { y: 1.0, lat: 0.95, along: -1.296 },
+    vac_in: { y: 1.0, along: 1.296 },
+    vac_in_2: { y: 1.0, along: -1.296 },
   },
   srfLinacSector: {
-    _default: { y: 1.15 }, rf_in: { y: 1.0, lat: 0.90, along: 0 }, cryo_in: { y: 0.7 },
+    _default: { y: 1.15 }, cryo_in: { y: 0.7 },
+    rf_in: { y: 1.0, lat: 0.90, along: 0 },
+    rf_in_2: { y: 1.0, lat: 0.90, along: -3.312 },
+    rf_in_3: { y: 1.0, lat: 0.90, along: 3.312 },
+    vac_in: { y: 1.0, along: 3.312 },
+    vac_in_2: { y: 1.0, along: -3.312 },
+    vac_in_3: { y: 1.0, along: 0 },
   },
 
   // --- endpoints and big machines -----------------------------------------

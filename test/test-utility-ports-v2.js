@@ -232,6 +232,38 @@ console.log('\n--- RF band injection ---');
     `iot covers uhf,lband (got ${iot.rf_out.params.bands.join(',')})`);
 }
 
+// Sector-scale SRF placements render banks of fundamental-power couplers.
+// Every visible sector coupler is a distinct routable sink, while splitting
+// the old aggregate loads keeps catalogue balance unchanged. Vacuum gets the
+// same distributed hookup treatment on the opposite service side.
+console.log('\n--- SRF sector multi-port banks ---');
+{
+  const sectors = [
+    ['cwCryomodule', 3, 100, 6e-6],
+    ['nbSnCryomodule', 2, 200, 6e-6],
+    ['srfLinacSector', 3, 600, 8e-6],
+  ];
+  for (const [id, count, rfDemand, outgassing] of sectors) {
+    const ports = getUtilityPortsV2(id);
+    const rf = Object.entries(ports)
+      .filter(([, port]) => port.utility === 'rfWaveguide' && port.role === 'sink');
+    const vacuum = Object.entries(ports)
+      .filter(([, port]) => port.utility === 'vacuumPipe' && port.role === 'sink');
+    assert(rf.length === count,
+      `${id} exposes all ${count} rendered RF couplers (got ${rf.map(([name]) => name).join(',')})`);
+    assert(vacuum.length === count,
+      `${id} exposes ${count} distributed vacuum hookups (got ${vacuum.map(([name]) => name).join(',')})`);
+    assert(Math.abs(rf.reduce((sum, [, port]) => sum + port.params.demand, 0) - rfDemand) < 1e-9,
+      `${id} preserves its ${rfDemand} kW total RF demand`);
+    assert(Math.abs(vacuum.reduce((sum, [, port]) => sum + port.params.outgassing, 0) - outgassing) < 1e-15,
+      `${id} preserves its ${outgassing} mbar·L/s total outgassing`);
+    assert(new Set(rf.map(([, port]) => port.offsetAlong)).size === count,
+      `${id} RF ports occupy distinct routable positions`);
+    assert(new Set(vacuum.map(([, port]) => port.offsetAlong)).size === count,
+      `${id} vacuum ports occupy distinct routable positions`);
+  }
+}
+
 // ==========================================================================
 // Test 10: source capacity ladders per utility.
 // ==========================================================================
