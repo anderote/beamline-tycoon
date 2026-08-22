@@ -6,7 +6,11 @@ import { PLACEABLES } from '../src/data/placeables/index.js';
 import { getUtilityPortsV2 } from '../src/data/utility-ports-v2.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
 import { Game } from '../src/game/Game.js';
-import { PowerReliabilityCoordinator, GENERATOR_REFUEL_COST } from '../src/game/power-reliability.js';
+import {
+  BREAKER_AUTO_RETRY_TICKS,
+  GENERATOR_REFUEL_COST,
+  PowerReliabilityCoordinator,
+} from '../src/game/power-reliability.js';
 import { UtilityLineSystem } from '../src/utility/UtilityLineSystem.js';
 import { validateDrawLine } from '../src/utility/line-drawing.js';
 import { discoverNetworks, makeDefaultPortLookup } from '../src/utility/network-discovery.js';
@@ -286,6 +290,10 @@ test('outages, breakers, UPS charge, generator fuel, and refueling are saved dev
   }]])]]);
   for (let i = 0; i < 5; i++) gridReliability.afterSolve();
   assert.equal(gridState.powerReliability.devices.grid.breakerTripped, true);
+  assert.equal(
+    gridState.powerReliability.devices.grid.breakerRetryTicks,
+    BREAKER_AUTO_RETRY_TICKS,
+  );
 
   const upsState = world([placed('ups_1', 'ups')]);
   const upsReliability = reliabilityFor(upsState);
@@ -313,6 +321,48 @@ test('outages, breakers, UPS charge, generator fuel, and refueling are saved dev
   assert.equal(result.resourcesChanged, true);
   assert.equal(genState.powerReliability.devices.gen.generatorFuelTicks, 300);
   assert.equal(genState.resources.funding, 1000000 - GENERATOR_REFUEL_COST);
+});
+
+test('a tripped breaker retries after 15 seconds and trips again if overload remains', () => {
+  const state = world([placed('grid', 'gridServicePoint')]);
+  let dirty = 0;
+  const messages = [];
+  const reliability = reliabilityFor(state, {
+    log: message => messages.push(message),
+    markTopologyDirty: () => dirty++,
+  });
+  state.utilityNetworks = new Map([['hvCable', [{
+    id: 'overloaded', ports: [{ placeableId: 'grid', portName: 'hv_out_1' }],
+  }]]]);
+  state.utilityNetworkData = new Map([['hvCable', new Map([['overloaded', {
+    totalCapacity: 1200, totalDemand: 1400,
+  }]])]]);
+
+  for (let i = 0; i < 5; i++) reliability.afterSolve();
+  const live = () => state.powerReliability.devices.grid;
+  assert.equal(live().breakerTripped, true);
+
+  for (let i = 1; i < BREAKER_AUTO_RETRY_TICKS; i++) {
+    assert.equal(reliability.afterSolve().requiresResolve, false);
+    assert.equal(live().breakerTripped, true, `breaker remains open through retry second ${i}`);
+  }
+  assert.equal(live().breakerRetryTicks, 1);
+  assert.equal(reliability.afterSolve().requiresResolve, true);
+  assert.equal(live().breakerTripped, false);
+  assert.equal(live().breakerRetryTicks, 0);
+  assert.ok(messages.some(message => message.includes('attempting automatic reset')));
+
+  for (let i = 0; i < 5; i++) reliability.afterSolve();
+  assert.equal(live().breakerTripped, true,
+    'the normal sustained-overload delay trips a failed retry again');
+  assert.equal(dirty, 3, 'initial trip, automatic reset, and repeat trip invalidate the solve');
+
+  state.utilityNetworkData.get('hvCable').get('overloaded').totalDemand = 1000;
+  for (let i = 0; i < BREAKER_AUTO_RETRY_TICKS; i++) reliability.afterSolve();
+  assert.equal(live().breakerTripped, false, 'the next automatic reset closes after load is reduced');
+  for (let i = 0; i < 5; i++) reliability.afterSolve();
+  assert.equal(live().breakerTripped, false, 'a recovered circuit remains closed');
+  assert.equal(dirty, 4, 'the successful automatic reset invalidates the solve once');
 });
 
 test('Game serialization persists operational electrical state', () => {

@@ -63,6 +63,14 @@ Facility equipment draws power too, and its demand is its own `energyCost` — t
 
 If total draw exceeds total capacity in a network, every component on it derates (quality = capacity/demand). That derate is **linear on magnet focusing strength, and that is physically correct**: field goes as coil current, which goes as supply power. Power is the one utility where a linear scalar is the right model.
 
+### Breaker Protection
+
+Breakers trip after a sustained overload and interrupt their protected output.
+A tripped breaker automatically attempts to reset after 15 simulation seconds.
+If the overload is still present, it trips again after its normal overload
+delay; reducing or disconnecting the excess load lets the automatic reset hold.
+You can also reset a tripped breaker immediately from its equipment controls.
+
 ### Networks
 
 Power cables form isolated radial networks. A transformer's capacity is only
