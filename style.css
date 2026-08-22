@@ -8375,6 +8375,155 @@ body.palette-expanded {
 .equipment-system-stat { color: #aaaaff; }
 .equipment-position { margin-top: 4px; color: var(--ui-text-faint); }
 
+.ctx-window[data-ctx-id="networks-overview"] {
+  width: 560px;
+  max-width: calc(100vw - 24px);
+}
+.ctx-window[data-ctx-id="networks-overview"] .ctx-body {
+  height: min(600px, calc(100vh - 150px));
+}
+.utility-networks-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--ui-text);
+  font: 10px/1.4 var(--ui-font-body);
+}
+.utility-networks-help {
+  padding: 8px 9px;
+  border: 1px solid rgba(90, 115, 160, 0.28);
+  border-radius: var(--ui-radius);
+  background: rgba(28, 42, 68, 0.42);
+  color: var(--ui-text-muted);
+  font-size: 9px;
+}
+.utility-network-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.utility-network-group-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 20px;
+  color: var(--ui-blue);
+  font: 8px var(--ui-font-display);
+  letter-spacing: 0.45px;
+  text-transform: uppercase;
+}
+.utility-network-group-heading > span:last-child {
+  margin-left: auto;
+  color: var(--ui-text-faint);
+  font: 7px var(--ui-font-display);
+}
+.utility-network-swatch {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 2px;
+  background: var(--utility-color);
+  box-shadow: 0 0 7px color-mix(in srgb, var(--utility-color) 48%, transparent);
+}
+.utility-network-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.utility-network-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.9fr) minmax(270px, 1.5fr);
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(70, 82, 125, 0.36);
+  border-radius: var(--ui-radius);
+  background: rgba(17, 18, 39, 0.78);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.utility-network-row:hover {
+  border-color: rgba(132, 169, 225, 0.65);
+  background: rgba(28, 38, 67, 0.86);
+}
+.utility-network-row:focus-visible {
+  outline: 1px solid var(--ui-blue);
+  outline-offset: 1px;
+}
+.utility-network-row-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+  padding: 8px 9px;
+  border-right: 1px solid rgba(70, 82, 125, 0.3);
+}
+.utility-network-index {
+  grid-row: 1 / span 2;
+  align-self: stretch;
+  min-width: 29px;
+  padding-top: 2px;
+  color: var(--ui-text-faint);
+  font: 8px var(--ui-font-display);
+}
+.utility-network-topology {
+  min-width: 0;
+}
+.utility-network-topology strong,
+.utility-network-topology small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.utility-network-topology strong { color: var(--ui-text-strong); font-size: 10px; }
+.utility-network-topology small { margin-top: 2px; color: var(--ui-text-faint); font-size: 7px; }
+.utility-network-status {
+  justify-self: start;
+  padding: 2px 5px;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  font-size: 7px;
+  opacity: 0.82;
+}
+.utility-network-status-good { color: var(--ui-good); }
+.utility-network-status-soft { color: var(--ui-warn); }
+.utility-network-status-hard { color: var(--ui-bad); }
+.utility-network-status-pending { color: var(--ui-text-faint); }
+.utility-network-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  min-width: 0;
+}
+.utility-network-metrics > span {
+  min-width: 0;
+  padding: 7px 8px;
+}
+.utility-network-metrics small,
+.utility-network-metrics strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.utility-network-metrics small {
+  margin-bottom: 3px;
+  color: var(--ui-text-faint);
+  font: 6px var(--ui-font-display);
+  letter-spacing: 0.25px;
+  text-transform: uppercase;
+}
+.utility-network-metrics strong { color: var(--ui-text); font-size: 10px; }
+.utility-network-metrics em { color: var(--ui-text-faint); font-size: 7px; font-style: normal; }
+.utility-networks-empty { padding: 30px 12px; line-height: 1.8; }
+
 .ctx-window[data-ctx-id^="util-"] {
   width: 600px;
   max-width: calc(100vw - 24px);
@@ -8418,6 +8567,44 @@ body.palette-expanded {
   background: rgba(25, 100, 50, 0.2);
   color: var(--ui-good);
   font: 6px var(--ui-font-display);
+}
+.utility-topology-summary {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) 62px 62px minmax(150px, 1.3fr);
+  align-items: center;
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid rgba(76, 98, 143, 0.32);
+  border-radius: var(--ui-radius);
+  background: rgba(76, 98, 143, 0.22);
+}
+.utility-topology-summary > span {
+  align-self: stretch;
+  min-width: 0;
+  padding: 7px 8px;
+  background: rgba(14, 17, 36, 0.82);
+}
+.utility-topology-summary small,
+.utility-topology-summary strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.utility-topology-summary small {
+  margin-bottom: 2px;
+  color: var(--ui-text-faint);
+  font: 6px var(--ui-font-display);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+.utility-topology-summary strong { color: var(--ui-text); font-size: 9px; }
+.utility-topology-summary .utility-topology-note {
+  display: flex;
+  align-items: center;
+  color: var(--ui-text-faint);
+  font-size: 8px;
+  line-height: 1.35;
 }
 .utility-summary-grid {
   display: grid;
@@ -8654,6 +8841,10 @@ body.palette-expanded {
 .utility-refill-wrap { margin-top: 4px; }
 
 @media (max-width: 700px) {
+  .utility-network-row { grid-template-columns: 1fr; }
+  .utility-network-row-main { border-right: 0; border-bottom: 1px solid rgba(70, 82, 125, 0.3); }
+  .utility-topology-summary { grid-template-columns: minmax(120px, 1fr) 55px 55px; }
+  .utility-topology-summary .utility-topology-note { display: none; }
   .utility-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .vacuum-physics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .utility-endpoint-row { grid-template-columns: minmax(0, 1fr) auto; }

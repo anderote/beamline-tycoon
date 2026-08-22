@@ -19,6 +19,7 @@ import { escapeHtml } from './format.js';
 import { renderRfSpectrum } from './rf-spectrum.js';
 import { DEFAULT_VACUUM_HISTORY_RANGE_TICKS } from '../utility/types/vacuumPipe.js';
 import { bindVacuumPressureRangeControls } from './vacuum-pressure-controls.js';
+import { waterCircuitLabel } from '../utility/water-circuits.js';
 
 // Titlebar accent derives from the utility's registry color (the single
 // source of truth for utility hues), darkened so the title gradient stays
@@ -209,6 +210,20 @@ export class UtilityInspector {
       <code>${escapeHtml(this.networkId)}</code>
       <span class="utility-live-badge">LIVE</span>
     </div>`;
+    const circuit = flow.waterCircuit === 'mixed'
+      ? 'Mixed circuits'
+      : flow.waterCircuit
+        ? waterCircuitLabel(flow.waterCircuit).replace(/^./, char => char.toUpperCase())
+        : null;
+    const topologyLabel = circuit || (desc.topology === 'bus' ? 'Bidirectional bus' : 'Connected topology');
+    const lineCount = network.lineIds?.length || 0;
+    const portCount = network.ports?.length || 0;
+    html += `<div class="utility-topology-summary">
+      <span><small>Topology</small><strong>${escapeHtml(topologyLabel)}</strong></span>
+      <span><small>Runs</small><strong>${lineCount}</strong></span>
+      <span><small>Ports</small><strong>${portCount}</strong></span>
+      <span class="utility-topology-note">Only physically connected runs and ports are included in this network.</span>
+    </div>`;
     if (topologyOnly) {
       const connected = (flow.connectedNodeCount || 0) >= 2;
       html += `<div class="utility-summary-grid">
@@ -222,7 +237,7 @@ export class UtilityInspector {
         <div class="utility-summary-stat"><span>Capacity</span><strong>${fmtQty(totalCapacity)}</strong><small>${escapeHtml(desc.capacityUnit || '')}</small></div>
         <div class="utility-summary-stat"><span>Demand</span><strong>${fmtQty(totalDemand)}</strong><small>${escapeHtml(desc.demandUnit || desc.capacityUnit || '')}</small></div>
         <div class="utility-summary-stat"><span>Sources</span><strong>${network.sources?.length || 0}</strong><small>connected</small></div>
-        <div class="utility-summary-stat"><span>Sinks</span><strong>${network.sinks?.length || 0}</strong><small>connected</small></div>
+        <div class="utility-summary-stat"><span>Loads</span><strong>${network.sinks?.length || 0}</strong><small>connected</small></div>
       </div>`;
     }
     if (!topologyOnly && (comparable || worstQuality !== null)) {
@@ -306,10 +321,10 @@ export class UtilityInspector {
       html += '</div></section>';
     }
 
-    // Sinks
+    // Loads (solver-facing name: sinks)
     if (!topologyOnly && network.sinks && network.sinks.length) {
       html += `<section class="utility-inspector-section">
-        <div class="utility-section-heading"><strong>Sinks</strong><span>${network.sinks.length}</span></div>
+        <div class="utility-section-heading"><strong>Loads</strong><span>${network.sinks.length}</span></div>
         <div class="utility-endpoint-list">`;
       const demParam = desc.demandParam || 'demand';
       for (const s of network.sinks) {
