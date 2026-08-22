@@ -43,8 +43,15 @@
 
 import { RF_PORT_STANDARDS } from './rf-port-standards.js';
 import { BEAMLINE_COMPONENTS_RAW } from './beamline-components.raw.js';
+import { DISTRIBUTION_OUTPUT_LAYOUTS } from './distribution-output-layout.js';
 
 const STANDARD_RF_FEED_Y = RF_PORT_STANDARDS.standardFeed.heightMeters;
+
+function outputAnchorBank(type, prefix) {
+  return Object.fromEntries(DISTRIBUTION_OUTPUT_LAYOUTS[type].map(({ x, y }, index) => [
+    `${prefix}_${index + 1}`, { y, along: x },
+  ]));
+}
 
 export const PORT_GEOMETRY_CLASS = Object.freeze({
   EXPLICIT_HARDWARE: 'explicit-hardware',
@@ -171,8 +178,9 @@ export const PORT_ANCHOR_OVERRIDES = {
   // --- support plant -------------------------------------------------------
   // Electrical hardware uses readable terminal banks rather than model-bound
   // midpoints. Transformer secondaries sit high on the front cable side;
-  // panels put branch plugs in a vertical front-edge strip and isolate the HV
-  // gland low on the rear. These are presentation mounts only.
+  // distribution outputs run in horizontal rows of four (or two) across the
+  // front while the HV gland remains isolated low on the rear. These are
+  // presentation mounts only.
   padMountTransformer: {
     _default: { y: 0.78, lat: 0.42 },
     hv_out_1: { along: 0 },
@@ -184,8 +192,7 @@ export const PORT_ANCHOR_OVERRIDES = {
   poleMountTransformer: {
     _default: { y: 0.72, lat: 0.43 },
     hv_in: { y: 1.42, along: -0.28 },
-    pwr_out_1: { y: 0.42, along: -0.30 }, pwr_out_2: { y: 0.72, along: -0.10 },
-    pwr_out_3: { y: 0.72, along: 0.10 }, pwr_out_4: { y: 0.42, along: 0.30 },
+    ...outputAnchorBank('poleMountTransformer', 'pwr_out'),
   },
   facilityTransformer: {
     _default: { y: 1.55, lat: 0.82 },
@@ -206,42 +213,32 @@ export const PORT_ANCHOR_OVERRIDES = {
   compactHvDistributor: {
     _default: { y: 0.45, lat: 0.21 },
     hv_in: { y: 0.30, along: -0.10 },
-    hv_out_1: { y: 0.36, along: 0.10 }, hv_out_2: { y: 0.66, along: 0.10 },
+    ...outputAnchorBank('compactHvDistributor', 'hv_out'),
   },
   switchgear: {
     _default: { y: 0.7, lat: 0.66 },
     hv_in: { y: 0.42, along: -0.28 },
-    hv_out_1: { y: 0.55, along: 0.27 }, hv_out_2: { y: 0.92, along: 0.27 },
-    hv_out_3: { y: 1.29, along: 0.27 }, hv_out_4: { y: 1.66, along: 0.27 },
+    ...outputAnchorBank('switchgear', 'hv_out'),
   },
   powerPanel: {
     _default: { y: 0.5, lat: 0.19 }, hv_in: { y: 0.30, along: -0.15 },
-    pwr_out_1: { y: 0.30, along: 0.15 }, pwr_out_2: { y: 0.62, along: 0.15 },
-    pwr_out_3: { y: 0.94, along: 0.15 }, pwr_out_4: { y: 1.26, along: 0.15 },
+    ...outputAnchorBank('powerPanel', 'pwr_out'),
   },
   sectionDistributionPanel: {
     _default: { y: 0.5, lat: 0.24 }, hv_in: { y: 0.32, along: -0.38 },
-    pwr_out_1: { y: 0.32, along: 0.38 }, pwr_out_2: { y: 0.55, along: 0.38 },
-    pwr_out_3: { y: 0.78, along: 0.38 }, pwr_out_4: { y: 1.01, along: 0.38 },
-    pwr_out_5: { y: 1.24, along: 0.38 }, pwr_out_6: { y: 1.47, along: 0.38 },
+    ...outputAnchorBank('sectionDistributionPanel', 'pwr_out'),
   },
   mainDistributionPanel: {
     _default: { y: 0.5, lat: 0.26 }, hv_in: { y: 0.32, along: -0.56 },
-    pwr_out_1: { y: 0.32, along: 0.56 }, pwr_out_2: { y: 0.52, along: 0.56 },
-    pwr_out_3: { y: 0.72, along: 0.56 }, pwr_out_4: { y: 0.92, along: 0.56 },
-    pwr_out_5: { y: 1.12, along: 0.56 }, pwr_out_6: { y: 1.32, along: 0.56 },
-    pwr_out_7: { y: 1.52, along: 0.56 }, pwr_out_8: { y: 1.72, along: 0.56 },
+    ...outputAnchorBank('mainDistributionPanel', 'pwr_out'),
   },
   mcc: {
     _default: { y: 0.7, lat: 0.41 }, hv_in: { y: 0.34, along: -0.68 },
-    pwr_out_1: { y: 0.42, along: -0.58 }, pwr_out_2: { y: 0.78, along: -0.58 },
-    pwr_out_3: { y: 1.14, along: -0.58 }, pwr_out_4: { y: 1.50, along: -0.58 },
-    pwr_out_5: { y: 0.42, along: 0.58 }, pwr_out_6: { y: 0.78, along: 0.58 },
-    pwr_out_7: { y: 1.14, along: 0.58 }, pwr_out_8: { y: 1.50, along: 0.58 },
+    ...outputAnchorBank('mcc', 'pwr_out'),
   },
   ups: {
     _default: { y: 0.7, lat: 0.41 }, hv_in: { y: 0.34, along: -0.48 },
-    pwr_out_1: { y: 0.72, along: 0.48 }, pwr_out_2: { y: 1.38, along: 0.48 },
+    ...outputAnchorBank('ups', 'pwr_out'),
   },
   powerBus: {
     _default: { y: 0.84, lat: 0.21 }, pwr_in: { y: 0.92, lat: 0.71, along: 0 },

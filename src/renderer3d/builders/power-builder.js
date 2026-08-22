@@ -8,6 +8,7 @@
 //   - THREE is a CDN global — do NOT import it.
 
 import { applyTiledBoxUVs, applyTiledCylinderUVs } from '../uv-utils.js';
+import { DISTRIBUTION_OUTPUT_LAYOUTS } from '../../data/distribution-output-layout.js';
 
 const SEGS = 16;
 
@@ -262,9 +263,9 @@ export function _buildCompactHvDistributorRoles() {
     ));
   }
 
-  // Two independently wireable 100 kW outlets on the front face.
-  for (const y of [0.36, 0.66]) {
-    const x = 0.10, z = frontZ + 0.018;
+  // Two independently wireable 100 kW outlets in one horizontal front row.
+  for (const { x, y } of DISTRIBUTION_OUTPUT_LAYOUTS.compactHvDistributor) {
+    const z = frontZ + 0.018;
     addBox(b.detail, 0.15, 0.15, 0.025, x, y, z);
     addBox(b.pipe, 0.08, 0.035, 0.018, x, y + 0.042, z + 0.023);
     const gland = new THREE.CylinderGeometry(0.038, 0.038, 0.075, 10);
@@ -354,12 +355,12 @@ export function _buildSwitchgearRoles() {
     ));
   }
 
-  // Four output breaker/gland pairs stacked on the front face, matching the
-  // four independently claimable hv_out ports and their presentation anchors.
-  for (const y of [0.55, 0.92, 1.29, 1.66]) {
-    const x = 0.27, z = encD / 2 + 0.025;
-    const plate = new THREE.BoxGeometry(0.22, 0.19, 0.035);
-    applyTiledBoxUVs(plate, 0.22, 0.19, 0.035);
+  // Four output breaker/gland pairs in one horizontal row across the front,
+  // matching the independently claimable ports and presentation anchors.
+  for (const { x, y } of DISTRIBUTION_OUTPUT_LAYOUTS.switchgear) {
+    const z = encD / 2 + 0.025;
+    const plate = new THREE.BoxGeometry(0.17, 0.19, 0.035);
+    applyTiledBoxUVs(plate, 0.17, 0.19, 0.035);
     pushT(b.detail, plate, trans(x, y, z));
     const gland = new THREE.CylinderGeometry(0.045, 0.045, 0.09, 10);
     applyTiledCylinderUVs(gland, 0.045, 0.09, 10);
@@ -592,7 +593,7 @@ export function _buildUPSRoles() {
 // ── Distribution panels ───────────────────────────────────────────
 // Green NEMA-style panels: the player reads the capacity rung from their
 // physical scale, rather than from three unrelated cabinet types.
-function _buildDistributionPanelRoles({ width, height, depth, columns, rows }) {
+function _buildDistributionPanelRoles({ type, width, height, depth, doorCount }) {
   const b = makeBuckets();
   const baseH = 0.08;
 
@@ -619,7 +620,6 @@ function _buildDistributionPanelRoles({ width, height, depth, columns, rows }) {
   // Proud, hinged front doors with a gasket frame. Larger rungs have two bays;
   // the compact panel stays a single familiar breaker cabinet.
   const faceZ = depth / 2;
-  const doorCount = columns;
   const doorGap = 0.024;
   const doorSpan = width * 0.90;
   const doorW = (doorSpan - doorGap * (doorCount - 1)) / doorCount;
@@ -652,22 +652,17 @@ function _buildDistributionPanelRoles({ width, height, depth, columns, rows }) {
       doorX + doorW * 0.34, doorY, doorFaceZ + 0.038);
   }
 
-  // The front is a grid of recessed breaker handles and paper circuit labels:
-  // more rows/columns means visibly more separately protected circuits.
-  const usableW = width * 0.78;
-  const usableH = height * 0.68;
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < columns; col++) {
-      const x = columns === 1 ? 0 : -usableW / 2 + col * (usableW / (columns - 1));
-      const y = baseH + height * 0.56 + (row - (rows - 1) / 2) * (usableH / rows);
-      const bayW = width / (columns * 2.8);
-      const bayH = usableH / (rows * 3.0);
-      addBox(b.iron, bayW, bayH, 0.022, x, y, doorFaceZ + 0.041);
-      addBox(b.pipe, bayW * 0.20, bayH * 0.58, 0.018,
-        x - bayW * 0.20, y, doorFaceZ + 0.061);
-      addBox(b.stand, bayW * 0.34, bayH * 0.36, 0.014,
-        x + bayW * 0.17, y, doorFaceZ + 0.059);
-    }
+  // Breaker handles and circuit labels follow the same horizontal rows as
+  // the real output fittings: four across, with a centred pair when a six-way
+  // panel needs a shorter second row.
+  const bayW = Math.min(width * 0.18, 0.18);
+  const bayH = Math.min(height * 0.09, 0.13);
+  for (const { x, y } of DISTRIBUTION_OUTPUT_LAYOUTS[type]) {
+    addBox(b.iron, bayW, bayH, 0.022, x, y, doorFaceZ + 0.041);
+    addBox(b.pipe, bayW * 0.20, bayH * 0.58, 0.018,
+      x - bayW * 0.20, y, doorFaceZ + 0.061);
+    addBox(b.stand, bayW * 0.34, bayH * 0.36, 0.014,
+      x + bayW * 0.17, y, doorFaceZ + 0.059);
   }
 
   // Main breaker / metering strip and three restrained pilot lamps. The lamps
@@ -701,8 +696,8 @@ function _buildDistributionPanelRoles({ width, height, depth, columns, rows }) {
     applyTiledBoxUVs(g, width * 0.72, 0.025, depth * 0.62);
     pushT(b.detail, g, trans(0, baseH + height + 0.013, 0));
   }
-  for (let i = 0; i < Math.min(columns + 1, 4); i++) {
-    const x = (i - (Math.min(columns + 1, 4) - 1) / 2) * 0.13;
+  for (let i = 0; i < Math.min(doorCount + 1, 4); i++) {
+    const x = (i - (Math.min(doorCount + 1, 4) - 1) / 2) * 0.13;
     const g = new THREE.CylinderGeometry(0.022, 0.022, 0.12, 8);
     applyTiledCylinderUVs(g, 0.022, 0.12, 8);
     pushT(b.pipe, g, trans(x, baseH + height + 0.085, 0));
@@ -711,15 +706,21 @@ function _buildDistributionPanelRoles({ width, height, depth, columns, rows }) {
 }
 
 export function _buildCompactDistributionPanelRoles() {
-  return _buildDistributionPanelRoles({ width: 0.46, height: 1.35, depth: 0.38, columns: 1, rows: 4 });
+  return _buildDistributionPanelRoles({
+    type: 'powerPanel', width: 0.46, height: 1.35, depth: 0.38, doorCount: 1,
+  });
 }
 
 export function _buildSectionDistributionPanelRoles() {
-  return _buildDistributionPanelRoles({ width: 1.0, height: 1.65, depth: 0.48, columns: 2, rows: 3 });
+  return _buildDistributionPanelRoles({
+    type: 'sectionDistributionPanel', width: 1.0, height: 1.65, depth: 0.48, doorCount: 2,
+  });
 }
 
 export function _buildMainDistributionPanelRoles() {
-  return _buildDistributionPanelRoles({ width: 1.45, height: 1.85, depth: 0.52, columns: 2, rows: 5 });
+  return _buildDistributionPanelRoles({
+    type: 'mainDistributionPanel', width: 1.45, height: 1.85, depth: 0.52, doorCount: 2,
+  });
 }
 
 // ── Field distribution ────────────────────────────────────────────

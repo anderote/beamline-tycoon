@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
+import { DISTRIBUTION_OUTPUT_LAYOUTS } from '../src/data/distribution-output-layout.js';
+import { portAnchorOverride } from '../src/data/utility-port-anchors.js';
 
 globalThis.THREE = THREE;
 
@@ -24,6 +26,40 @@ function disposeBuckets(buckets) {
     for (const geometry of parts) geometry.dispose();
   }
 }
+
+test('electrical distribution outputs use horizontal rows of four or two', () => {
+  const expectedRows = {
+    poleMountTransformer: [4],
+    compactHvDistributor: [2],
+    switchgear: [4],
+    powerPanel: [4],
+    sectionDistributionPanel: [4, 2],
+    mainDistributionPanel: [4, 4],
+    mcc: [4, 4],
+    ups: [2],
+  };
+
+  for (const [type, rowCounts] of Object.entries(expectedRows)) {
+    const prefix = type === 'compactHvDistributor' || type === 'switchgear'
+      ? 'hv_out' : 'pwr_out';
+    const positions = DISTRIBUTION_OUTPUT_LAYOUTS[type];
+    const rows = [...new Set(positions.map(({ y }) => y))];
+    assert.deepEqual(rows.map(y => positions.filter(pos => pos.y === y).length), rowCounts,
+      `${type} uses the expected horizontal output rows`);
+
+    for (const [index, position] of positions.entries()) {
+      const anchor = portAnchorOverride(type, `${prefix}_${index + 1}`);
+      assert.equal(anchor.along, position.x, `${type} output ${index + 1} has the row's X position`);
+      assert.equal(anchor.y, position.y, `${type} output ${index + 1} has the row's height`);
+    }
+
+    for (const y of rows) {
+      const xs = positions.filter(pos => pos.y === y).map(({ x }) => x);
+      assert.deepEqual(xs, [...xs].sort((a, b) => a - b),
+        `${type} outputs run left-to-right within each row`);
+    }
+  }
+});
 
 test('HV transformer feeder rack supports all four existing cable anchors', () => {
   const transformer = _buildHVTransformerRoles();
