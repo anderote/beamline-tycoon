@@ -530,10 +530,10 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
   },
   credenza: {
     id: 'credenza', name: 'Credenza', zoneTypes: ['officeSpace', 'privateOffice', 'meetingRoom', 'reception', 'facultyLounge'], furnitureGroup: 'storage',
-    cost: { funding: 880 }, energyCost: 0, spriteColor: 0x70482d, gridW: 3, gridH: 1, subH: 2, spriteKey: 'credenza', effects: { morale: 1 }, baseMaterial: 'tile_hardwood',
+    cost: { funding: 880 }, energyCost: 0, spriteColor: 0x70482d, gridW: 3, gridH: 1, subH: 2, surfaceY: 1.34, spriteKey: 'credenza', effects: { morale: 1 }, baseMaterial: 'tile_hardwood',
     parts: [
-      { name: 'body', x: 0, y: 0.6, z: 0, w: 2.8, h: 1.1, l: 0.72, color: 0x70482d }, { name: 'top', x: 0, y: 1.22, z: 0, w: 2.94, h: 0.12, l: 0.82, color: 0x9b6638 },
-      { name: 'doorL', x: -0.94, y: 0.6, z: -0.38, w: 0.78, h: 0.8, l: 0.04, color: 0x805333 }, { name: 'doorC', x: 0, y: 0.6, z: -0.38, w: 0.78, h: 0.8, l: 0.04, color: 0x805333 }, { name: 'doorR', x: 0.94, y: 0.6, z: -0.38, w: 0.78, h: 0.8, l: 0.04, color: 0x805333 },
+      { name: 'body', x: 0, y: 0.24, z: 0, w: 2.8, h: 1.1, l: 0.72, color: 0x70482d }, { name: 'top', x: 0, y: 1.22, z: 0, w: 2.94, h: 0.12, l: 0.82, color: 0x9b6638 },
+      { name: 'doorL', x: -0.94, y: 0.34, z: -0.38, w: 0.78, h: 0.8, l: 0.04, color: 0x805333 }, { name: 'doorC', x: 0, y: 0.34, z: -0.38, w: 0.78, h: 0.8, l: 0.04, color: 0x805333 }, { name: 'doorR', x: 0.94, y: 0.34, z: -0.38, w: 0.78, h: 0.8, l: 0.04, color: 0x805333 },
       { name: 'footL', x: -1.05, y: 0, z: 0, w: 0.14, h: 0.24, l: 0.14, color: 0x34251d }, { name: 'footR', x: 1.05, y: 0, z: 0, w: 0.14, h: 0.24, l: 0.14, color: 0x34251d },
     ],
   },
@@ -688,9 +688,9 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
   },
   sideboard: {
     id: 'sideboard', name: 'Sideboard', zoneTypes: ['officeSpace', 'privateOffice', 'meetingRoom', 'reception', 'facultyLounge'], furnitureGroup: 'storage',
-    cost: { funding: 720 }, energyCost: 0, spriteColor: 0x74482d, gridW: 3, gridH: 1, subH: 2, spriteKey: 'sideboard', effects: { morale: 1 }, baseMaterial: 'tile_hardwood',
+    cost: { funding: 720 }, energyCost: 0, spriteColor: 0x74482d, gridW: 3, gridH: 1, subH: 2, surfaceY: 1.32, spriteKey: 'sideboard', effects: { morale: 1 }, baseMaterial: 'tile_hardwood',
     parts: [
-      { name: 'body', x: 0, y: 0.58, z: 0, w: 2.78, h: 1.08, l: 0.72, color: 0x74482d }, { name: 'top', x: 0, y: 1.2, z: 0, w: 2.92, h: 0.12, l: 0.82, color: 0x9a6538 }, { name: 'doorL', x: -0.86, y: 0.62, z: -0.38, w: 0.74, h: 0.78, l: 0.04, color: 0x815333 }, { name: 'doorC', x: 0, y: 0.62, z: -0.38, w: 0.74, h: 0.78, l: 0.04, color: 0x815333 }, { name: 'doorR', x: 0.86, y: 0.62, z: -0.38, w: 0.74, h: 0.78, l: 0.04, color: 0x815333 },
+      { name: 'body', x: 0, y: 0.24, z: 0, w: 2.78, h: 1.08, l: 0.72, color: 0x74482d }, { name: 'top', x: 0, y: 1.2, z: 0, w: 2.92, h: 0.12, l: 0.82, color: 0x9a6538 }, { name: 'doorL', x: -0.86, y: 0.35, z: -0.38, w: 0.74, h: 0.78, l: 0.04, color: 0x815333 }, { name: 'doorC', x: 0, y: 0.35, z: -0.38, w: 0.74, h: 0.78, l: 0.04, color: 0x815333 }, { name: 'doorR', x: 0.86, y: 0.35, z: -0.38, w: 0.74, h: 0.78, l: 0.04, color: 0x815333 },
       { name: 'footL', x: -1.05, y: 0, z: 0, w: 0.14, h: 0.25, l: 0.14, color: 0x35271d }, { name: 'footR', x: 1.05, y: 0, z: 0, w: 0.14, h: 0.25, l: 0.14, color: 0x35271d },
     ],
   },

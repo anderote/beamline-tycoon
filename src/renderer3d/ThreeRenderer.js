@@ -31,7 +31,7 @@ import {
 } from '../beamline/visual-geometry.js';
 import { setModelBoundsProvider, setShellMeasureProvider } from '../utility/port-anchors.js';
 import { BeamBuilder } from './beam-builder.js';
-import { EquipmentBuilder } from './equipment-builder.js';
+import { EquipmentBuilder, createEquipmentObject } from './equipment-builder.js';
 import { DecorationBuilder } from './decoration-builder.js';
 import { UtilityLineBuilderV2 } from './utility-line-builder-v2.js';
 import { tickFlow } from './utility-flow.js';
@@ -3463,6 +3463,14 @@ export class ThreeRenderer {
       // a different tree pops in on click.
       obj = this.decorationBuilder._createGhost(hover.id, placeable, hover.variant ?? 0, hover);
     }
+    if (!obj && (placeable.kind === 'equipment' || placeable.kind === 'furnishing')) {
+      obj = createEquipmentObject({
+        id: `ghost:${hover.id}`,
+        type: hover.id,
+        variant: hover.variant ?? 0,
+        effectState: 'on',
+      }, placeable.kind === 'furnishing');
+    }
     if (!obj) {
       obj = this.componentBuilder.createObject(placeable);
     }
@@ -3503,7 +3511,12 @@ export class ThreeRenderer {
     // Decoration geometry (trees, shrubs) already has its origin at the floor,
     // just like detailed beamline components — skip the h/2 vertical offset.
     const isDetailed = isDetailedComponent(hover.id, placeable)
-      || placeable.kind === 'decoration';
+      || placeable.kind === 'decoration'
+      // EquipmentBuilder authors both its parts path and fallback box around
+      // a floor-relative wrapper. Its preview therefore never needs the
+      // beamline fallback's extra half-height lift.
+      || placeable.kind === 'equipment'
+      || placeable.kind === 'furnishing';
     const SUB_UNIT = 0.5;
     const gwRaw = placeable.gridW || placeable.subW || 4;
     const ghRaw = placeable.gridH || placeable.subL || placeable.subH || 4;
