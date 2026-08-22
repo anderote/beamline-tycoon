@@ -313,18 +313,11 @@ function compactPath(path, max = 3) {
 }
 
 function missionBriefHtml(typeCount) {
-  return '<section class="bltype-brief blt-panel">'
-    + '<div class="bltype-brief-kicker">MISSION PROFILE // OPEN ROSTER</div>'
-    + '<div class="bltype-brief-row">'
-    + '<strong>Choose what the beamline is for.</strong>'
-    + `<span>${typeCount} compatible missions</span>`
-    + '</div>'
-    + '<div class="bltype-brief-path" aria-hidden="true">'
-    + '<i></i><b></b><i></i><b></b><i></i>'
-    + '</div>'
-    + '<p>Research unlocks components, better cavities and performance upgrades — '
-    + 'never the mission itself.</p>'
-    + '</section>';
+  return '<div class="bltype-roster-head">'
+    + '<div><span class="bltype-brief-kicker">BEAMLINE TYPES</span>'
+    + '<strong>Choose a mission</strong></div>'
+    + `<span>${typeCount} types · scroll for advanced machines</span>`
+    + '</div>';
 }
 
 const TYPE_COST_CAVEAT =
@@ -344,6 +337,7 @@ export function beamlineTypeCardHtml(type, selected = false) {
   const approxCost = beamlineTypeApproxCost(type.id);
 
   let html = `<div class="${cls.join(' ')}" data-type-id="${esc(type.id)}"`
+    + ` role="button" tabindex="0" aria-pressed="${selected ? 'true' : 'false'}"`
     + ` style="--bltype-accent:${accent};">`;
   html += '<div class="bltype-card-head">';
   html += `<span class="bltype-name">${esc(type.name)}</span>`;
@@ -384,19 +378,32 @@ export function blueprintPanelHtml(type, selectedDesignId, researchState) {
     return '<div class="blueprint-empty">Pick a machine type to see the beamlines it ships with.</div>';
   }
 
-  const designs = stockDesignsFor(type.id);
+  // The shelf is a price ladder, not a capability-tier ladder. Those usually
+  // agree, but a smarter higher-energy lattice can occasionally cost slightly
+  // less than the entry design; the labels and left-to-right order must still
+  // tell the truth about what the player will spend.
+  const designs = stockDesignsFor(type.id)
+    .sort((a, b) => stockDesignCost(a) - stockDesignCost(b));
   let html = '<div class="blueprint-panel">';
-  html += `<div class="blueprint-panel-head">Prebuilt — ${esc(type.name)}</div>`;
-  html += '<div class="blueprint-list">';
+  html += '<div class="blueprint-panel-head">';
+  html += `<div><span>Recommended builds</span><strong>${esc(type.name)}</strong></div>`;
+  html += '<small>Budget · Balanced · Premium</small>';
+  html += '</div>';
+  html += '<div class="blueprint-list blueprint-recommendations">';
 
-  for (const d of designs) {
+  for (const [index, d] of designs.entries()) {
     const sel = selectedDesignId === d.id ? ' selected' : '';
     const unlockPath = designUnlockPath(d, researchState);
     const locked = unlockPath.length ? ' locked' : '';
     const cost = stockDesignCost(d);
     const perf = formatMeasuredPerformance(d.id);
 
-    html += `<div class="blueprint-card${sel}${locked}" data-design-id="${esc(d.id)}">`;
+    const position = ['Budget', 'Balanced', 'Premium'][index] || `Option ${index + 1}`;
+    html += `<div class="blueprint-card${sel}${locked}" data-design-id="${esc(d.id)}"`
+      + ` role="button" tabindex="${unlockPath.length ? '-1' : '0'}"`
+      + ` aria-disabled="${unlockPath.length ? 'true' : 'false'}"`
+      + ` aria-pressed="${selectedDesignId === d.id ? 'true' : 'false'}">`;
+    html += `<div class="blueprint-position">${position}</div>`;
     html += '<div class="blueprint-head">';
     html += `<span class="blueprint-name">${esc(d.name)}</span>`;
     html += '<span class="blueprint-head-meta">';
@@ -422,15 +429,16 @@ export function blueprintPanelHtml(type, selectedDesignId, researchState) {
     html += '</div>';
   }
 
+  html += '</div>';
+
   const customSel = selectedDesignId ? '' : ' selected';
-  html += `<div class="blueprint-card blueprint-card-custom${customSel}" data-design-id="">`;
+  html += `<div class="blueprint-card blueprint-card-custom${customSel}" data-design-id=""`
+    + ` role="button" tabindex="0" aria-pressed="${selectedDesignId ? 'false' : 'true'}">`;
   html += '<div class="blueprint-head">';
   html += '<span class="blueprint-name">Custom — build it yourself</span>';
   html += '</div>';
   html += '<div class="bltype-blurb">Filters the palette to this type and nothing else: '
     + 'place your own source and lay the line out by hand.</div>';
-  html += '</div>';
-
   html += '</div></div>';
   return html;
 }
@@ -468,8 +476,15 @@ export function openBeamlineTypePicker(game, {
   const sourceDef = sourceType ? COMPONENTS[sourceType] : null;
   const sourceCompatible = (typeId) => !Array.isArray(sourceDef?.beamlineTypes)
     || sourceDef.beamlineTypes.includes(typeId);
+  const types = Object.values(BEAMLINE_TYPES)
+    .filter(t => sourceCompatible(t.id))
+    .sort((a, b) => a.tier - b.tier);
   let selected = game.getActiveBeamlineTypeId?.() || null;
   if (selected && !sourceCompatible(selected)) selected = null;
+  // The ordinary New Beamline flow opens with a useful answer already in
+  // view. The entry mission is the first roster item; source-led designation
+  // still waits for an explicit choice because it has no blueprint gallery.
+  if (!selected && showBlueprints) selected = types[0]?.id || null;
   // '' means Custom. RCT2 opens a track type on its stock designs rather than
   // on an empty editor, so the lowest tier is the default where one exists.
   let selectedDesignId = showBlueprints ? defaultDesignFor(selected) : '';
@@ -481,34 +496,37 @@ export function openBeamlineTypePicker(game, {
   }
 
   function render(container) {
-    // Selecting a type re-renders the whole body, and the blueprint panel sits
-    // below a nine-tile grid that does not fit the window — without this the
-    // list you just asked for scrolls away from you as it appears.
-    const scroll = container.scrollTop;
-    const types = Object.values(BEAMLINE_TYPES).filter(t => sourceCompatible(t.id));
-    let html = missionBriefHtml(types.length);
-    html += '<div class="bltype-grid">';
-
-    for (const t of types) {
-      html += beamlineTypeCardHtml(t, selected === t.id);
-    }
-
-    html += '</div>';
+    // The recommendation shelf stays put while the roster is independently
+    // scrollable. Preserve that inner scroll when selection rebuilds the DOM.
+    const scroll = container.querySelector('.bltype-roster-scroll')?.scrollTop || 0;
+    let html = '<div class="bltype-picker-layout">';
     if (showBlueprints) {
       html += blueprintPanelHtml(
         selected ? getBeamlineType(selected) : null,
         selectedDesignId,
         game.state,
       );
-    } else {
+    }
+    html += '<section class="bltype-roster">';
+    html += missionBriefHtml(types.length);
+    html += '<div class="bltype-roster-scroll"><div class="bltype-grid">';
+
+    for (const t of types) {
+      html += beamlineTypeCardHtml(t, selected === t.id);
+    }
+
+    html += '</div>';
+    if (!showBlueprints) {
       html += '<div class="bltype-source-note">The choice sets target bands, '
         + 'recommended hardware and the Designer’s mission plots. No hardware is added yet.</div>';
     }
+    html += '</div></section></div>';
     container.innerHTML = html;
-    container.scrollTop = scroll;
+    const rosterScroll = container.querySelector('.bltype-roster-scroll');
+    if (rosterScroll) rosterScroll.scrollTop = scroll;
 
     container.querySelectorAll('.bltype-card').forEach(card => {
-      card.addEventListener('click', () => {
+      const choose = () => {
         // Re-rendering replaces the node under the cursor, and a replaced node
         // never receives the second click — so a card that is already selected
         // must be left alone or dblclick below can never fire.
@@ -517,6 +535,12 @@ export function openBeamlineTypePicker(game, {
         selectedDesignId = defaultDesignFor(selected);
         render(container);
         syncActions();
+      };
+      card.addEventListener('click', choose);
+      card.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        choose();
       });
       // Double-click is the shortcut for "this one, go" — and it means what it
       // always meant: arm the palette for this type, custom build. Letting it
@@ -531,12 +555,18 @@ export function openBeamlineTypePicker(game, {
 
     container.querySelectorAll('.blueprint-card').forEach(card => {
       if (card.classList.contains('locked')) return;
-      card.addEventListener('click', () => {
+      const choose = () => {
         const id = card.dataset.designId || '';
         if (id === selectedDesignId) return;   // see the type-card click above
         selectedDesignId = id;
         render(container);
         syncActions();
+      };
+      card.addEventListener('click', choose);
+      card.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        choose();
       });
       card.addEventListener('dblclick', () => {
         selectedDesignId = card.dataset.designId || '';

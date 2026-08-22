@@ -354,9 +354,9 @@ console.log('\n=== Missions stay open while hardware remains gated ===\n');
 }
 
 {
-  // Headless style contract: the picker opts into the shared BLT panel tokens,
-  // carries the schematic mission brief, has no family-card lock state, and
-  // publishes each stock tier's price in its top-right header cluster.
+  // Headless style contract: recommendations occupy a fixed three-rung shelf,
+  // while the mission roster below is independently scrollable and uses large
+  // single-column rows. Hardware locks still apply only to stock designs.
   const css = readFileSync(new URL('../style.css', import.meta.url), 'utf8');
   const picker = readFileSync(new URL('../src/ui/BeamlineTypePicker.js', import.meta.url), 'utf8');
   assert(css.includes('.bltype-brief') && css.includes('var(--blt-panel-bg)'),
@@ -382,6 +382,23 @@ console.log('\n=== Missions stay open while hardware remains gated ===\n');
     'the prominent cost sits at the far right of the tier header');
   assert(css.includes('.blueprint-cost') && css.includes('.blueprint-head-meta'),
     'the tier header gives its cost a dedicated prominent badge');
+  assert(panel.includes('class="blueprint-list blueprint-recommendations"')
+    && panel.includes('class="blueprint-position">Budget')
+    && panel.includes('class="blueprint-position">Balanced')
+    && panel.includes('class="blueprint-position">Premium'),
+  'the selected mission surfaces its budget, balanced and premium builds together');
+  assert(css.includes('grid-template-columns: repeat(3, minmax(0, 1fr))'),
+    'the three recommended builds render as a top-row price ladder');
+  const irradiationByPrice = stockDesignsFor('isotopeIrradiation')
+    .sort((a, b) => stockDesignCost(a) - stockDesignCost(b));
+  const irradiationPanel = blueprintPanelHtml(BEAMLINE_TYPES.isotopeIrradiation, '', {});
+  assert(irradiationByPrice.every((design, index) => index === 0
+    || irradiationPanel.indexOf(`data-design-id="${irradiationByPrice[index - 1].id}"`)
+      < irradiationPanel.indexOf(`data-design-id="${design.id}"`)),
+  'budget, balanced and premium are ordered by actual hardware price, not assumed tier');
+  assert(css.includes('.bltype-roster-scroll') && css.includes('overflow-y: auto')
+    && css.includes('.bltype-picker-layout'),
+  'advanced mission types scroll independently below the recommendation shelf');
 
   const mission = BEAMLINE_TYPES.testStand;
   const missionHtml = beamlineTypeCardHtml(mission);
@@ -399,6 +416,9 @@ console.log('\n=== Missions stay open while hardware remains gated ===\n');
   'mission cards publish a compact approximate starting cost');
   assert(css.includes('.bltype-requirement strong') && css.includes('font-size: 9px'),
     'requirement values have a larger dedicated type treatment');
+  assert(missionHtml.includes('role="button"') && missionHtml.includes('aria-pressed="false"')
+    && css.includes('.bltype-name { color: var(--blt-heading); font-size: 13px'),
+  'beamline types are keyboard-focusable rows with larger titles');
 }
 
 {
