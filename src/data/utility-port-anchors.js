@@ -398,6 +398,14 @@ export const PORT_ANCHOR_OVERRIDES = {
     hv_3: { along: 0.20 }, hv_4: { along: 0.60 },
     ...INDOOR_HV_RACK_TAP_MOUNTS,
   },
+  indoorHvCableRack2Way: {
+    _default: { y: INDOOR_HV_RACK_TERMINAL_Y, lat: 0, out: -0.06 },
+    hv_1: { along: -0.10 }, hv_2: { along: 0.30 },
+    hv_tap_left: {
+      y: INDOOR_HV_RACK_TERMINAL_Y, localX: -0.49, localZ: 0,
+      normal: { x: -1, y: 0, z: 0 },
+    },
+  },
   indoorHvCableCornerRack: {
     _default: { y: 2.00, out: -0.06 },
     hv_1: { lat: 0.75 / Math.SQRT2, along: -0.75 / Math.SQRT2 },

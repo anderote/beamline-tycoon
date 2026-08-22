@@ -311,10 +311,12 @@ the short authoring contract.
   passive HV port at every visible insulator or saddle. Each accepts two wire
   attachments; lines sharing one named port are continuous, while the other
   support ports remain isolated.
-- The straight 4-way indoor HV rack is instead one six-point passive bus: four
-  overhead terminals plus one insulated tap on each leg. All six attachments
-  share the 2.00 m crossbar-terminal height and tension attached cables. Its
-  overhead row uses 0.4 m spacing so the outer hanging insulators clear the
+- The straight indoor HV racks are passive buses. The 4-way rack is one
+  six-point bus with four overhead terminals plus one insulated tap on each
+  leg. The compact 2-way rack is a three-point L-frame bus with two overhead
+  terminals plus one insulated tap on the upright's outside face. Every rack
+  attachment shares the 2.00 m crossbar-terminal height and tensions attached
+  cables. Overhead rows use 0.4 m spacing so the hanging insulators clear their
   uprights.
   The 2×2 Utility Pole likewise buses its four overhead terminals to one front
   `hv_tap` at the Pad-Mount Transformer's 1.55 m primary-bushing height.

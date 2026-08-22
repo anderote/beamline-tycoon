@@ -2046,6 +2046,44 @@ export const INFRASTRUCTURE_RAW = {
     ],
     requiredConnections: [],
   },
+  indoorHvCableRack2Way: {
+    id: 'indoorHvCableRack2Way',
+    name: '2-Way Indoor HV Cable Rack',
+    desc: 'Compact L-frame HV distribution rack. Two hanging terminals and one insulated side tap share the crossbar height, tension attached feeders, and form one live HV bus.',
+    category: 'power', subsection: 'routingHardware',
+    paletteOrder: 3.375,
+    cost: { funding: 22000 },
+    stats: {}, energyCost: 0,
+    // A single upright anchors the cantilevered overhead conductor row while
+    // leaving the ordinary equipment-placement layer beneath it available.
+    mount: 'overhead',
+    subL: 2, subW: 2, subH: 5, gridW: 2, gridH: 2,
+    geometryType: 'box', baseMaterial: 'metal_dark',
+    spriteKey: 'switchgear', spriteColor: 0x5f686d, accentColor: 0xd2a93d,
+    hasSurface: false, placement: 'module', ports: {},
+    hvCableSupport: 'indoorRack',
+    electricalGroups: {
+      hvCable: [['hv_1', 'hv_2', 'hv_tap_left']],
+    },
+    parts: [
+      // The upright and its deep foot form the vertical stroke of the L; the
+      // full-width crossbar cantilevers to the right over both conductors.
+      { name: 'foot', shape: 'box', w: 0.46, h: 0.18, l: 1.72, x: -0.62, y: 0, z: 0, color: 0x4c555a },
+      { name: 'upright', shape: 'box', w: 0.28, h: 4.55, l: 0.38, x: -0.62, y: 0.16, z: 0, color: 0x687278 },
+      { name: 'crossbar', shape: 'box', w: 1.86, h: 0.30, l: 0.52, x: 0, y: 4.42, z: 0, color: 0x788389 },
+      { name: 'crossbar-cap', shape: 'box', w: 1.62, h: 0.12, l: 0.70, x: 0.10, y: 4.72, z: 0, color: 0xd2a93d },
+      ...[-0.20, 0.60].flatMap((x, index) => [
+        { name: `insulator-${index + 1}-stem`, shape: 'cylinder', w: 0.14, h: 0.44, l: 0.14, x, y: 4.00, z: 0, color: 0x252a2e },
+        { name: `insulator-${index + 1}-skirt-a`, shape: 'cylinder', w: 0.30, h: 0.08, l: 0.30, x, y: 4.08, z: 0, color: 0x343b40 },
+        { name: `insulator-${index + 1}-skirt-b`, shape: 'cylinder', w: 0.26, h: 0.08, l: 0.26, x, y: 4.28, z: 0, color: 0x343b40 },
+      ]),
+      // One outward-facing tap sits on the outside of the upright.
+      { name: 'hv-tap-left-stem', shape: 'cylinder', axis: 'x', w: 0.34, h: 0.14, l: 0.14, x: -0.79, y: 3.93, z: 0, color: 0x343b40 },
+      { name: 'hv-tap-left-skirt', shape: 'cylinder', axis: 'x', w: 0.08, h: 0.28, l: 0.28, x: -0.89, y: 3.86, z: 0, color: 0x343b40 },
+      { name: 'hv-tap-left-cap', shape: 'cylinder', axis: 'x', w: 0.08, h: 0.18, l: 0.18, x: -0.92, y: 3.91, z: 0, color: 0xd2a93d },
+    ],
+    requiredConnections: [],
+  },
   indoorHvCableCornerRack: {
     id: 'indoorHvCableCornerRack',
     name: '4-Way Indoor HV Corner Rack (45°)',
