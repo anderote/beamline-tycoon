@@ -87,6 +87,7 @@ export const INFRASTRUCTURE_RAW = {
     geometryType: 'box', baseMaterial: 'metal_brushed',
     spriteKey: 'powerPanel', spriteColor: 0x8a8f96, accentColor: 0xb9c2ca,
     hasSurface: false, placement: 'module', ports: {}, requiredConnections: [],
+    isDrawnConnection: true,
     universalUtilityBus: {
       slotCount: 4, tapSpacingSubtiles: 4, minLengthSubtiles: 4,
       maxLengthSubtiles: 256, costPerSubtile: 5000,

@@ -63,6 +63,7 @@ export function groupDecorationPaletteEntries(entries = [], subsections = {}) {
  * hardware merely because that registry supplied the entry.
  */
 export function standardPaletteKind(def, isFacility = false) {
+  if (def?.universalUtilityBus) return 'utilityBus';
   if (def?.kind === 'decoration') return 'decoration';
   return isFacility ? 'facility' : 'component';
 }

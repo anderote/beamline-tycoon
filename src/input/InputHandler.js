@@ -2949,6 +2949,7 @@ export class InputHandler {
   selectPaletteTool(kind, key, variant = 0) {
     switch (kind) {
       case 'component':  this.selectComponentTool(key); break;
+      case 'utilityBus': this.setTool(new UniversalUtilityBusTool(key)); break;
       case 'facility':   this.setTool(new PlaceableTool('facility', key, variant)); break;
       case 'floor':      this.setTool(new FloorTool(key, variant)); break;
       case 'wall':       this.setTool(new WallTool(key, variant)); break;
@@ -2993,7 +2994,7 @@ export class InputHandler {
     if (this.game._designer?.isOpen && this.game._designer.handlePaletteClick?.(key)) {
       return;
     }
-    const placeable = PLACEABLES[key];
+    const placeable = PLACEABLES[key] || COMPONENTS[key];
     if (placeable?.universalUtilityBus) {
       this.setTool(new UniversalUtilityBusTool(key));
       return;

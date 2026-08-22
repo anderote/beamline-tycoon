@@ -51,6 +51,7 @@ const _jacketMatCache = new Map();
 const _hardwareMatCache = new Map();
 let _utilitySupportMaterial = null;
 let _universalBusMaterial = null;
+const _universalBusPreviewMaterials = new Map();
 
 function matKey(utilityType, errorStatus) {
   return `${utilityType}|${errorStatus || 'ok'}`;
@@ -72,6 +73,52 @@ function universalBusMaterial() {
     }));
   }
   return _universalBusMaterial;
+}
+
+function universalBusPreviewMaterial(valid = true) {
+  const key = valid ? 'valid' : 'blocked';
+  if (_universalBusPreviewMaterials.has(key)) return _universalBusPreviewMaterials.get(key);
+  const color = valid ? 0xaab5bc : 0xff4f38;
+  const material = shared(new THREE.MeshStandardMaterial({
+    color, roughness: 0.3, metalness: 0.72,
+    transparent: true, opacity: 0.72,
+    emissive: color, emissiveIntensity: valid ? 0.12 : 0.35,
+  }));
+  _universalBusPreviewMaterials.set(key, material);
+  return material;
+}
+
+function buildUniversalBusPreview(points, valid = true) {
+  const group = new THREE.Group();
+  group.userData = { isUtilityLinePreview: true, isUniversalUtilityBusPreview: true };
+  const material = universalBusPreviewMaterial(valid);
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i], b = points[i + 1];
+    const dx = b.x - a.x, dz = b.z - a.z;
+    const length = Math.hypot(dx, dz);
+    if (length < 1e-4) continue;
+    const ox = -dz / length * 0.22, oz = dx / length * 0.22;
+    for (const side of [-1, 1]) {
+      const rail = buildRectSegment(
+        new THREE.Vector3(a.x + ox * side, a.y, a.z + oz * side),
+        new THREE.Vector3(b.x + ox * side, b.y, b.z + oz * side),
+        0.09, 0.08, material,
+      );
+      if (rail) group.add(rail);
+    }
+    const rungCount = Math.max(1, Math.floor(length / 2));
+    for (let rung = 0; rung <= rungCount; rung++) {
+      const t = rung / rungCount;
+      const x = a.x + dx * t, z = a.z + dz * t;
+      const crossbar = buildRectSegment(
+        new THREE.Vector3(x - ox * 1.25, a.y, z - oz * 1.25),
+        new THREE.Vector3(x + ox * 1.25, a.y, z + oz * 1.25),
+        0.09, 0.07, material,
+      );
+      if (crossbar) group.add(crossbar);
+    }
+  }
+  return group.children.length > 0 ? group : null;
 }
 
 // A line's colour is its UTILITY, always and only.
@@ -1202,6 +1249,7 @@ function buildPreviewLine(preview) {
     isUtilityLinePreview: true,
     routeHeightMeters: previewY,
   };
+  if (preview.rack) return buildUniversalBusPreview(points, preview.valid !== false);
   const radius = preview.rack ? 0.13
     : (descriptor.pipeRadiusMeters || 0.04) * (preview.manifold ? 2.58 : 1.1);
   const style = descriptor.geometryStyle || 'cylinder';
@@ -1888,6 +1936,7 @@ export class UtilityLineBuilderV2 {
         preview.path.map(p => `${p.col},${p.row},${p.subCol ?? 0},${p.subRow ?? 0}`).join(';') + '|'
         + (preview.cablePath || []).map(p => `${p.col},${p.row}`).join(';') + '|'
         + (preview.endpointTransitions === false ? 'flat|' : 'drops|')
+        + (preview.rack ? 'rack|' : 'line|')
         + [preview.startAnchor, preview.endAnchor]
           .map(a => a ? `${a.x},${a.y},${a.z}` : '-').join('|')
       : null;
