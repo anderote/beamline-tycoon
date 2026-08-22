@@ -56,6 +56,8 @@ test('physical port arrows encode source, sink and passive flow roles', () => {
     'source arrow points outward along the fitting normal');
   assert.equal(arrowOf(sink)?.userData.flowDirection, -1,
     'sink arrow points inward against the fitting normal');
+  assert.equal(arrowOf(sink)?.userData.arrowheadPosition, 'outer',
+    'the inlet arrowhead stays outside the enclosure where it cannot be hidden');
   assert.equal(arrowOf(pass)?.userData.flowDirection, 0,
     'pass-through fitting carries the double-headed arrow geometry');
   assert.notEqual(arrowOf(source).geometry, arrowOf(sink).geometry,
@@ -122,6 +124,32 @@ test('named inlet and outlet ports make passive pole and pass-through arrows dir
     assert.equal(arrowOf(fittings.get(`${id}:hv_out`))?.userData.flowRole, 'source');
     assert.equal(fittings.get(`${id}:hv_in`)?.userData.portRole, 'pass',
       'visual direction does not change the pass-through topology role');
+  }
+});
+
+test('every 4x4 wall feedthrough pair points in one world-space inlet-to-outlet direction', () => {
+  const feed = {
+    id: 'feed-4x4', type: 'hvWallPassThrough4x4', col: 4, row: 5,
+    subCol: 0, subRow: 0, dir: 3,
+    wallMount: { col: 4, row: 5, edge: 'n', off: 0, span: 4, faceOffset: 0.0625 },
+  };
+  const { group } = buildPortFittings([feed]);
+  const fittings = new Map(fittingsOf(group).map(fitting => [
+    fitting.userData.portName, fitting,
+  ]));
+  const worldDirection = (fitting) => {
+    const sign = arrowOf(fitting).userData.flowDirection;
+    return new THREE_REAL.Vector3(sign, 0, 0).applyQuaternion(fitting.quaternion).normalize();
+  };
+  for (let index = 1; index <= 4; index++) {
+    const inlet = fittings.get(`hv_in_${index}`);
+    const outlet = fittings.get(`hv_out_${index}`);
+    const inletDirection = worldDirection(inlet);
+    const outletDirection = worldDirection(outlet);
+    assert.ok(inletDirection.dot(outletDirection) > 0.999,
+      `pair ${index} points through the wall from inlet to outlet`);
+    assert.equal(arrowOf(inlet).userData.arrowheadPosition, 'outer',
+      `pair ${index} inlet arrowhead remains visible outside the wall box`);
   }
 });
 
