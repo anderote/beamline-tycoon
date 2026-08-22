@@ -238,6 +238,14 @@ export default {
   // Transfer lines share the forgiving rectilinear routing contract with RF:
   // horizontal/vertical runs and 90-degree bends, without rigid clearances.
   routingProfile: 'rectilinear',
+  // Vacuum-jacketed transfer line is visually broad, so let the cursor acquire
+  // it across most of a tile before projecting the actual tee onto the run.
+  tapSnapRadiusTiles: 0.9,
+  // Compact formed elbows and bayonet collars keep the two-layer jacket
+  // continuous through turns and make fabricated joints readable at a glance.
+  bendRadiusMeters: 0.30,
+  fittingStyle: 'cryoBayonet',
+  couplerSpacingMeters: 4,
   portClearance: false,
   capacityUnit: 'W@4K',
   // A free-drag branch fabricates a real vacuum-jacketed tee at the contact,

@@ -1246,7 +1246,7 @@ function buildLineGroup(
     if (joint) group.add(joint);
     if (jointJacketMat) {
       const jacketJoint = buildCornerJoint(
-        prev, at, next, style, radius * 1.6, jointJacketMat);
+        prev, at, next, style, radius * 1.6, jointJacketMat, descriptor);
       if (jacketJoint) group.add(jacketJoint);
     }
     const bend = cornerBendInfo(prev, at, next, descriptor);

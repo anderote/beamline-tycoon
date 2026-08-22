@@ -107,5 +107,35 @@ console.log('\n--- 4. A tapped branch renders as a tee, not a dangling cap ---')
   assert(caps.length === 1, 'only the genuinely open far end receives an open cap');
 }
 
+console.log('\n--- 5. Cryo preserves its jacket through formed bends and tees ---');
+{
+  const parent = build([
+    {
+      id: 'cryo-trunk', utilityType: 'cryoTransfer', start: null, end: null,
+      path: [{ col: 0, row: 0 }, { col: 4, row: 0 }],
+    },
+    {
+      id: 'cryo-branch', utilityType: 'cryoTransfer', start: null, end: null,
+      tapLineIds: { start: 'cryo-trunk', end: null },
+      path: [
+        { col: 2, row: 0 }, { col: 2, row: 2 }, { col: 4, row: 2 },
+      ],
+    },
+  ]);
+  const branch = parent.children.find(group => group.userData?.lineId === 'cryo-branch');
+  const elbows = collect(branch, object => object.userData?.isUtilitySweepElbow);
+  const fittings = collect(branch, object => object.userData?.fittingStyle === 'cryoBayonet');
+  const tees = collect(branch, object => object.userData?.isUtilityTeeFitting);
+  const caps = collect(branch, object => object.userData?.isUtilityOpenCap);
+  assert(elbows.length === 2
+      && elbows.every(mesh => mesh.geometry instanceof THREE_NS.TubeGeometry),
+    `the core and outer jacket both sweep continuously through the bend (${elbows.length})`);
+  assert(fittings.length >= 3
+      && fittings.every(mesh => mesh.geometry instanceof THREE_NS.TorusGeometry),
+    `${fittings.length} round bayonet collars mark the bend and tee`);
+  assert(tees.length === 1 && caps.length === 1,
+    'the joined cryo end receives a bayonet tee while only the open end is capped');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

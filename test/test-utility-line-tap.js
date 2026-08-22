@@ -167,6 +167,30 @@ console.log('\n--- 1b. A rigid run is one continuous, forgiving magnetic target 
       hover?.worldPos)})`);
 }
 
+console.log('\n--- 1c. A broad cryo jacket gets a cryo-specific pickup halo ---');
+{
+  const game = makeGame();
+  const lineId = game.utilityLineSystem.addLine({
+    utilityType: 'cryoTransfer', start: null, end: null,
+    path: [{ col: 2, row: 16 }, { col: 12, row: 16 }],
+  });
+  const ctrl = new UtilityLineInputController({ game, renderer: {} });
+  ctrl.setUtilityType('cryoTransfer');
+
+  // Farther than the shared 0.65-tile halo, but still visually aimed at the
+  // much broader vacuum-jacketed service. The saved join itself remains on
+  // the trunk's quarter-tile topology point.
+  const iso = gridToIso(7.37, 16.8);
+  ctrl.onHover(iso.x, iso.y);
+  const hover = ctrl.hoverPort;
+  assert(hover?.tap === true && hover.lineId === lineId,
+    'a nearby cryo endpoint is pulled onto the existing transfer line');
+  assert(hover && Math.abs(hover.worldPos.x / 2 - 7.25) < 1e-9
+      && Math.abs(hover.worldPos.z / 2 - 16) < 1e-9,
+    `the generous hover still commits an exact on-line contact (${JSON.stringify(
+      hover?.worldPos)})`);
+}
+
 console.log('\n--- 2. A drag onto the trunk commits, and joins its network ---');
 {
   const { game, trunk } = withTrunk();

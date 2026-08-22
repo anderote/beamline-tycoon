@@ -740,7 +740,12 @@ export class UtilityLineInputController {
     if (bus) return {
       open: true, busTap: true, busId: bus.busId, worldPos: bus.worldPos,
     };
-    const ordinaryTapAllowed = UTILITY_TYPES[this._utilityType]?.allowsTap !== false;
+    const descriptor = UTILITY_TYPES[this._utilityType];
+    const ordinaryTapAllowed = descriptor?.allowsTap !== false;
+    // Bulky fabricated services can opt into a slightly wider pickup halo.
+    // This changes only cursor assistance: the committed contact is still
+    // projected onto the quarter-tile topology grid and validated normally.
+    const tapSnapRadius = descriptor?.tapSnapRadiusTiles ?? TAP_SNAP_RADIUS_TILES;
     // Stacked runs project to different screen positions. If the cursor
     // actually hit a mesh, re-project onto THAT line's elevation and restrict
     // the subtile snap to its id; otherwise a plan-view tie would always grab
@@ -761,10 +766,10 @@ export class UtilityLineInputController {
           );
         }
         tap = this.nearestLine(
-          lineWorld.x, lineWorld.y, TAP_SNAP_RADIUS_TILES, rayHit.lineId);
+          lineWorld.x, lineWorld.y, tapSnapRadius, rayHit.lineId);
       }
     }
-    tap = tap || this.nearestLine(worldX, worldY, TAP_SNAP_RADIUS_TILES);
+    tap = tap || this.nearestLine(worldX, worldY, tapSnapRadius);
     if (!tap) return null;
     // Power and HV runs cannot be casually tee'd. A committed continuous
     // carrier is the explicit distribution fitting that makes that branch
