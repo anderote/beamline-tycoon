@@ -119,10 +119,12 @@ function automaticWallSleeveParts({
 
 function automaticWallPassThrough({
   id, name, desc, category, utilityType, ports, cost, heightMeters,
-  radiusMeters, color, rectangular = false, connectionGroups = 'utilityGroups',
+  radiusMeters, color, rectangular = false, deprecated = false,
+  connectionGroups = 'utilityGroups',
 }) {
   return {
     id, name, desc,
+    ...(deprecated ? { deprecated: true } : {}),
     category, subsection: category === 'power' ? 'routingHardware' : 'transport',
     paletteHidden: true,
     cost: { funding: cost }, stats: {}, energyCost: 0,
@@ -2082,6 +2084,7 @@ export const INFRASTRUCTURE_RAW = {
     desc: 'Compact low-voltage cable gland automatically installed when a power cable crosses a wall.',
     category: 'power', utilityType: 'powerCable', ports: ['pwr_in', 'pwr_out'],
     cost: 6000, heightMeters: 0.03, radiusMeters: 0.02, color: 0x58b86a,
+    deprecated: true,
     connectionGroups: 'electricalGroups',
   }),
   meterMain: {
