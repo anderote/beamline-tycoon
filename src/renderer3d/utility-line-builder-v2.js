@@ -1149,8 +1149,8 @@ function busTapAnchor(line, which, lineById) {
 }
 
 function buildLineGroup(
-  line, placeablesById, errorStatus, reversed, pointOverride = null, joinedOpenEnds = null,
-  tapAnchors = null,
+  line, placeablesById, errorStatus, flowState, reversed, pointOverride = null,
+  joinedOpenEnds = null, tapAnchors = null,
 ) {
   const descriptor = UTILITY_TYPES[line.utilityType];
   if (!descriptor) return null;
@@ -1190,6 +1190,7 @@ function buildLineGroup(
     utilityType: line.utilityType,
     routeHeightMeters: runY,
     errorStatus: errorStatus || 'ok',
+    flowState: flowState || 'ok',
     ...(busChannel ? {
       isUniversalUtilityBus: true,
       busId: line.manifold.busId,
@@ -1199,11 +1200,11 @@ function buildLineGroup(
   };
   const radius = (descriptor.pipeRadiusMeters || 0.04)
     * (busChannel ? 0.85 : line.manifold ? 2.35 : 1);
-  const mat = getLineMaterial(line.utilityType, errorStatus);
+  const mat = getLineMaterial(line.utilityType, flowState);
   const hardwareMat = getLineHardwareMaterial(line.utilityType);
   const style = descriptor.geometryStyle || 'cylinder';
   const flow = FLOW_PARAMS[line.utilityType];
-  const flowing = !!flow;
+  const flowing = !!flow && flowState !== 'off';
   // Electrical lines keep their animated colour variation in ordinary PBR
   // shading. Only utilities whose flow is actually emissive enter the bloom
   // pass; otherwise a non-emissive cable could still acquire a false halo.
@@ -1261,7 +1262,7 @@ function buildLineGroup(
       // Inner opaque cylinder + translucent outer jacket — both baked off the
       // same runDist so a flow-patched jacket stays in phase with its core.
       mesh = buildCylinderSegment(a, b, radius, mat, runDist);
-      const jacketMat = getJacketMaterial(line.utilityType, errorStatus);
+      const jacketMat = getJacketMaterial(line.utilityType, flowState);
       const jacket = buildCylinderSegment(a, b, radius * 1.6, jacketMat, runDist);
       if (jacket) {
         // The darken pass (glow-pipeline.js) swaps any non-bloom object's
@@ -1299,7 +1300,7 @@ function buildLineGroup(
   // the port normal — are interior waypoints of this same polyline, so they get
   // their elbows from this loop with no special case.
   const jointJacketMat = style === 'jacketedCylinder'
-    ? getJacketMaterial(line.utilityType, errorStatus) : null;
+    ? getJacketMaterial(line.utilityType, flowState) : null;
   for (let i = 1; !flexible && i < points.length - 1; i++) {
     const prev = points[i - 1], at = points[i], next = points[i + 1];
     const joint = buildCornerJoint(prev, at, next, style, radius, mat, descriptor);
@@ -1427,7 +1428,7 @@ function buildLineGroup(
       period: flow.period,
       crest: false,
       groundSpill: false,
-      state: errorStatus || 'ok',
+      state: flowState || 'ok',
       light: {
         intensity: flow.lightIntensity ?? 0.16,
         distance: flow.lightDistance ?? 1.55,
@@ -1778,12 +1779,14 @@ export class UtilityLineBuilderV2 {
    * @param {THREE.Group} parentGroup
    * @param {object} [opts]
    * @param {object} [opts.state] - game state; used to compute per-line
-   *        errorStatus from state.utilityNetworkData. Optional for tests.
+   *        error and energized states from state.utilityNetworkData.
    */
   build(utilityLines, placeablesById, parentGroup, opts = {}) {
     const seen = new Set();
     const lines = utilityLines || new Map();
     const errorByLineId = opts.state ? this._buildErrorMap(opts.state) : new Map();
+    const energizedRfLineIds = opts.state
+      ? this._buildEnergizedRfLineIds(opts.state) : new Set();
     const orientationByLineId = opts.state ? this._buildOrientationMap(opts.state, lines) : new Map();
     const records = typeof lines.values === 'function' ? Array.from(lines.values()) : Array.from(lines);
     const lineById = new Map(records.map(line => [line?.id, line]));
@@ -1792,6 +1795,13 @@ export class UtilityLineBuilderV2 {
       if (!line || !line.id) continue;
       seen.add(line.id);
       const errorStatus = errorByLineId.get(line.id) || 'ok';
+      // RF glow represents a real energized field, not merely the presence of
+      // copper waveguide. Solver output is the source of truth: an unpowered,
+      // disconnected, or frequency-incompatible source publishes zero
+      // capacity, so the guide remains ordinary dark metal even if its
+      // diagnostic severity is only soft.
+      const flowState = line.utilityType === 'rfWaveguide'
+        && !energizedRfLineIds.has(line.id) ? 'off' : errorStatus;
       // Draw order (line.start -> line.end) isn't necessarily source -> sink
       // — computeLineOrientations resolves that from network topology.
       // Included in the hash: rewiring a network (a new source appearing, a
@@ -1806,7 +1816,7 @@ export class UtilityLineBuilderV2 {
         const anchor = tapAnchors[which];
         return anchor ? `${anchor.x},${anchor.y},${anchor.z}` : '-';
       }).join(':');
-      const hash = this._hashLine(line, placeablesById) + '|' + errorStatus + '|'
+      const hash = this._hashLine(line, placeablesById) + '|' + errorStatus + '|' + flowState + '|'
         + (reversed ? 'rev' : 'fwd') + '|' + tapAnchorHash;
       const prevHash = this._lineHashes.get(line.id);
       if (prevHash === hash && this._lineGroups.has(line.id)) continue;
@@ -1884,6 +1894,7 @@ export class UtilityLineBuilderV2 {
             line,
             placeablesById,
             errorStatus,
+            flowState,
             reversed,
             joinedOpenEnds,
             parentGroup,
@@ -1891,7 +1902,8 @@ export class UtilityLineBuilderV2 {
         }
       }
       const group = buildLineGroup(
-        line, placeablesById, errorStatus, reversed, pointOverride, joinedOpenEnds, tapAnchors);
+        line, placeablesById, errorStatus, flowState, reversed,
+        pointOverride, joinedOpenEnds, tapAnchors);
       if (group) {
         parentGroup.add(group);
         this._lineGroups.set(line.id, group);
@@ -2122,6 +2134,7 @@ export class UtilityLineBuilderV2 {
         state.line,
         state.placeablesById,
         state.errorStatus,
+        state.flowState,
         state.reversed,
         state.finalPoints,
         state.joinedOpenEnds,
@@ -2175,6 +2188,27 @@ export class UtilityLineBuilderV2 {
       }
     }
     return out;
+  }
+
+  /**
+   * Return the RF lines whose solved network has usable forward power.
+   *
+   * This deliberately joins the renderer to the published solver value
+   * rather than re-evaluating equipment power feeds. Missing/stale solve data
+   * therefore fails closed: a waveguide cannot advertise RF energy until the
+   * simulation has actually published non-zero delivered capacity.
+   */
+  _buildEnergizedRfLineIds(state) {
+    const energized = new Set();
+    const networks = state?.utilityNetworks?.get?.('rfWaveguide') || [];
+    const flowByNetwork = state?.utilityNetworkData?.get?.('rfWaveguide');
+    if (!flowByNetwork || typeof flowByNetwork.get !== 'function') return energized;
+    for (const network of networks) {
+      const flow = flowByNetwork.get(network.id);
+      if (!(Number(flow?.totalCapacity) > 0)) continue;
+      for (const lineId of network.lineIds || []) energized.add(lineId);
+    }
+    return energized;
   }
 
   /**

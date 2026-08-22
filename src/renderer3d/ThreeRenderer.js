@@ -857,6 +857,16 @@ export class ThreeRenderer {
         // paused there is no tick to repaint the HUD side of it either.
         case 'infrastructureValidated':
           this._refreshUtilityPortIssueMarkers();
+          // Validation can publish a changed RF power state while the clock is
+          // paused. There may be no later tick to swap the waveguide between
+          // its dark-metal and energized materials, so honor the same visual
+          // signature used by the tick path immediately.
+          {
+            const sig = utilityLineVisualSignature(this._liveState());
+            if (sig !== null && sig !== this._utilityLineVisualSig) {
+              this._refreshUtilityLinesV2({ pipeAttachments: false });
+            }
+          }
           if (this._updateBeamSummary) this._updateBeamSummary();
           break;
         case 'beamToggled':

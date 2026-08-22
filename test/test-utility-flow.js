@@ -196,7 +196,14 @@ function buildFlowLine(utilityType) {
   const builder = new UtilityLineBuilderV2();
   const parent = new Obj3();
   const lines = new Map([[line.id, line]]);
-  builder.build(lines, new Map(), parent, { state: {} });
+  const network = { id: 'net_flow', utilityType, lineIds: [line.id] };
+  const state = {
+    utilityNetworks: new Map([[utilityType, [network]]]),
+    utilityNetworkData: new Map([[utilityType, new Map([
+      [network.id, { totalCapacity: 1, errors: [] }],
+    ])]]),
+  };
+  builder.build(lines, new Map(), parent, { state });
   return { group: parent.children[0] };
 }
 
@@ -411,10 +418,12 @@ console.log('\n--- 5. getLineMaterial: distinct per flowState, cached, tagged __
   const ok = getLineMaterial('coolingWater', 'ok');
   const soft = getLineMaterial('coolingWater', 'soft');
   const hard = getLineMaterial('coolingWater', 'hard');
-  assert(ok !== soft && soft !== hard && ok !== hard,
-    'ok / soft / hard are three distinct material instances');
-  assert(ok.userData.__shared && soft.userData.__shared && hard.userData.__shared,
-    'all three are tagged __shared');
+  const off = getLineMaterial('coolingWater', 'off');
+  assert(new Set([ok, soft, hard, off]).size === 4,
+    'ok / soft / hard / off are four distinct material instances');
+  assert(ok.userData.__shared && soft.userData.__shared
+      && hard.userData.__shared && off.userData.__shared,
+    'all four are tagged __shared');
 
   const okAgain = getLineMaterial('coolingWater', 'ok');
   const softAgain = getLineMaterial('coolingWater', 'soft');
@@ -441,6 +450,9 @@ console.log('\n--- 5. getLineMaterial: distinct per flowState, cached, tagged __
   assert(hard.userData.flowUniforms.uStrength.value === 0
     && hard.userData.flowUniforms.uBaseGlow.value === 0,
     'hard-faulted material has its pulse strength and base glow zeroed (no motion)');
+  assert(off.userData.flowUniforms.uStrength.value === 0
+    && off.userData.flowUniforms.uBaseGlow.value === 0,
+    'off material has its pulse strength and base glow zeroed');
   assert(soft.userData.flowUniforms.uStrength.value > 0
     && soft.userData.flowUniforms.uStrength.value < ok.userData.flowUniforms.uStrength.value,
     'soft-faulted material pulses dimmer than a healthy one, not off');
@@ -448,6 +460,49 @@ console.log('\n--- 5. getLineMaterial: distinct per flowState, cached, tagged __
   const vac = getLineMaterial('vacuumPipe', 'ok');
   assert(vac.userData.flowUniforms, 'vacuumPipe gets a gas-flow patch');
   assert(vac.userData.__shared, 'but is still cached/shared like any other line material');
+}
+
+console.log('\n--- 5b. RF waveguide glow follows published forward power ---');
+{
+  const line = {
+    id: 'rf_power_state', utilityType: 'rfWaveguide', start: null, end: null,
+    path: [{ col: 0, row: 0 }, { col: 3, row: 0 }],
+  };
+  const network = {
+    id: 'rf_net', utilityType: 'rfWaveguide', lineIds: [line.id],
+  };
+  const state = {
+    utilityNetworks: new Map([['rfWaveguide', [network]]]),
+    utilityNetworkData: new Map([['rfWaveguide', new Map([[
+      network.id, { totalCapacity: 0, errors: [{ severity: 'soft' }] },
+    ]])]]),
+  };
+  const builder = new UtilityLineBuilderV2();
+  const parent = new Obj3();
+  const lines = new Map([[line.id, line]]);
+
+  builder.build(lines, new Map(), parent, { state });
+  let group = parent.children[0];
+  let segment = boxMeshes(group)[0];
+  assert(group.userData.errorStatus === 'soft' && group.userData.flowState === 'off',
+    'zero-capacity RF keeps its diagnostic while publishing an off visual state');
+  assert(segment.material.userData.flowUniforms.uStrength.value === 0
+      && segment.material.userData.flowUniforms.uBaseGlow.value === 0,
+    'unpowered RF has neither moving emissive strength nor base glow');
+  assert(segment.layers.mask === 1 && !group.userData.visualEffects,
+    'unpowered RF stays out of bloom and publishes no moving light');
+
+  state.utilityNetworkData.get('rfWaveguide').set(network.id, {
+    totalCapacity: 300, errors: [],
+  });
+  builder.build(lines, new Map(), parent, { state });
+  group = parent.children[0];
+  segment = boxMeshes(group)[0];
+  assert(group.userData.flowState === 'ok'
+      && segment.material.userData.flowUniforms.uStrength.value > 0,
+    'positive solved RF capacity rebuilds the guide with energized flow');
+  assert(segment.layers.mask !== 1 && group.userData.visualEffects?.length === 1,
+    'powered RF enters bloom and publishes its bounded moving light');
 }
 
 console.log('\n--- 6b. Vacuum visually flows from chamber to pump ---');
