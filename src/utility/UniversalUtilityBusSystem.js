@@ -9,6 +9,7 @@ import {
   UNIVERSAL_BUS_LANE_COUNT,
   universalBusLane,
 } from './universal-bus-layout.js';
+import { canBuildUniversalBus } from './universal-bus-clearance.js';
 
 export const UNIVERSAL_BUS_MAX_CHANNELS = UNIVERSAL_BUS_LANE_COUNT;
 
@@ -23,6 +24,7 @@ export class UniversalUtilityBusSystem {
 
   addBus({ path, taps = [], costFunding = 0 } = {}) {
     if (!Array.isArray(path) || path.length < 2) return null;
+    if (!canBuildUniversalBus(this.state, path).ok) return null;
     const id = this.nextBusId();
     if (!Array.isArray(this.state.utilityBuses)) this.state.utilityBuses = [];
     this.state.utilityBuses.push({
