@@ -13,7 +13,9 @@ import {
 } from './effect-math.js';
 
 export const MAX_EFFECT_PULSES = 512;
+export const MAX_AMBIENT_PARTICLES = 512;
 const DEFAULT_PATH_PULSE_BUDGET = 384;
+const DEFAULT_AMBIENT_PARTICLE_BUDGET = 192;
 const DEFAULT_LIGHT_PROXY_BUDGET = 96;
 const FLOOR_Y = 0.022;
 
@@ -48,6 +50,27 @@ function makeSpillMaterial() {
   });
 }
 
+function makeAmbientMaterial() {
+  return new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.42,
+    depthWrite: false,
+    toneMapped: false,
+    vertexColors: true,
+  });
+}
+
+function stableHashUnit(value) {
+  const text = String(value ?? 'effect');
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 0xffffffff;
+}
+
 export class VisualEffectSystem {
   constructor(scene, opts = {}) {
     this.scene = scene;
@@ -58,6 +81,12 @@ export class VisualEffectSystem {
     this._proxyBudget = Math.max(0, Math.floor(
       opts.lightProxyBudget ?? DEFAULT_LIGHT_PROXY_BUDGET,
     ));
+    const ambientBudget = opts.ambientBudget
+      ?? (opts.pulseBudget == null
+        ? DEFAULT_AMBIENT_PARTICLE_BUDGET : Math.ceil(opts.pulseBudget / 2));
+    this._ambientBudget = Math.min(MAX_AMBIENT_PARTICLES, Math.max(
+      0, Math.floor(ambientBudget),
+    ));
     this._effects = new Map();
     this._surfaceEffects = new Map();
     this._bursts = [];
@@ -65,7 +94,8 @@ export class VisualEffectSystem {
     this._time = 0;
     this._stats = {
       descriptors: 0, surfaceGlows: 0, pathPulses: 0, bursts: 0,
-      lightCandidates: 0, droppedPulses: 0,
+      ambientParticles: 0, lightCandidates: 0, droppedPulses: 0,
+      droppedAmbientParticles: 0,
     };
 
     this.group = new THREE.Group();
@@ -91,6 +121,15 @@ export class VisualEffectSystem {
     this._spillMesh.instanceMatrix.setUsage?.(THREE.DynamicDrawUsage);
     this._spillMesh.layers.enable(SOFT_GLOW_LAYER);
     this.group.add(this._spillMesh);
+
+    this._ambientMesh = new THREE.InstancedMesh(
+      new THREE.SphereGeometry(1, 10, 7), makeAmbientMaterial(), MAX_AMBIENT_PARTICLES,
+    );
+    this._ambientMesh.name = 'ambientUtilityParticleInstances';
+    this._ambientMesh.count = 0;
+    this._ambientMesh.frustumCulled = false;
+    this._ambientMesh.instanceMatrix.setUsage?.(THREE.DynamicDrawUsage);
+    this.group.add(this._ambientMesh);
 
     this._matrix = new THREE.Matrix4();
     this._position = new THREE.Vector3();
@@ -168,7 +207,7 @@ export class VisualEffectSystem {
       if (key.startsWith(prefix)) this._effects.delete(key);
     }
     for (const raw of descriptors || []) {
-      if (!raw?.id || raw.kind !== 'pathPulse') continue;
+      if (!raw?.id || !['pathPulse', 'ambientMist', 'ambientDrip'].includes(raw.kind)) continue;
       const path = prepareEffectPath(raw.path);
       if (path.length <= 0) continue;
       const id = `${prefix}${raw.id}`;
@@ -181,6 +220,12 @@ export class VisualEffectSystem {
   _assignLightProxyRanges() {
     const requests = [];
     for (const effect of this._effects.values()) {
+      if (effect.kind !== 'pathPulse') {
+        effect.proxyStart = 0;
+        effect.proxyCount = 0;
+        effect.proxyCycleCount = 0;
+        continue;
+      }
       const desired = effect.light === false
         ? 0 : Math.max(1, Math.ceil(effect.path.length / Math.max(0.05, effect.period || 1)) + 1);
       requests.push({ effect, desired, assigned: 0 });
@@ -267,10 +312,19 @@ export class VisualEffectSystem {
     this._pulseBudget = Math.min(MAX_EFFECT_PULSES, Math.max(
       0, Math.floor(quality.effectPulseCount ?? this._pulseBudget),
     ));
+    this._ambientBudget = Math.min(MAX_AMBIENT_PARTICLES, Math.max(
+      0, Math.floor(quality.ambientParticleCount
+        ?? Math.ceil((quality.effectPulseCount ?? this._ambientBudget * 2) / 2)),
+    ));
   }
 
   getStats() {
-    return { ...this._stats, pulseBudget: this._pulseBudget, lightProxyBudget: this._proxyBudget };
+    return {
+      ...this._stats,
+      pulseBudget: this._pulseBudget,
+      ambientBudget: this._ambientBudget,
+      lightProxyBudget: this._proxyBudget,
+    };
   }
 
   update(dtSeconds, darkness = 0) {
@@ -282,6 +336,8 @@ export class VisualEffectSystem {
     let spillIndex = 0;
     let activeProxyCount = 0;
     let requested = 0;
+    let ambientIndex = 0;
+    let requestedAmbient = 0;
     for (const proxy of this._lightProxies) {
       proxy.visible = false;
       proxy.userData.effectLightEmitter = null;
@@ -307,7 +363,20 @@ export class VisualEffectSystem {
     const burstInstanceCount = instanceIndex;
 
     for (const effect of this._effects.values()) {
-      if (effect.enabled === false || effect.state === 'hard') continue;
+      if (effect.enabled === false) continue;
+      if (effect.kind === 'ambientMist') {
+        const result = this._writeMistParticles(effect, ambientIndex);
+        ambientIndex = result.nextIndex;
+        requestedAmbient += result.requested;
+        continue;
+      }
+      if (effect.kind === 'ambientDrip') {
+        const result = this._writeDripParticles(effect, ambientIndex);
+        ambientIndex = result.nextIndex;
+        requestedAmbient += result.requested;
+        continue;
+      }
+      if (effect.state === 'hard') continue;
       // Some effects need only their moving light proxy. Utility lines use
       // this to add bounded nearby illumination without drawing a travelling
       // shape over the animated colour already carried by the line material.
@@ -338,15 +407,94 @@ export class VisualEffectSystem {
 
     this._pulseMesh.count = instanceIndex;
     this._spillMesh.count = spillIndex;
+    this._ambientMesh.count = ambientIndex;
     this._pulseMesh.instanceMatrix.needsUpdate = true;
     this._spillMesh.instanceMatrix.needsUpdate = true;
+    this._ambientMesh.instanceMatrix.needsUpdate = true;
     if (this._pulseMesh.instanceColor) this._pulseMesh.instanceColor.needsUpdate = true;
     if (this._spillMesh.instanceColor) this._spillMesh.instanceColor.needsUpdate = true;
+    if (this._ambientMesh.instanceColor) this._ambientMesh.instanceColor.needsUpdate = true;
     this._stats.pathPulses = pathPulseCount;
     this._stats.bursts = this._bursts.length;
+    this._stats.ambientParticles = ambientIndex;
     this._stats.lightCandidates = activeProxyCount;
     this._stats.droppedPulses = Math.max(0, requested - instanceIndex);
+    this._stats.droppedAmbientParticles = Math.max(0, requestedAmbient - ambientIndex);
     this._updateSurfaceGlows();
+  }
+
+  _writeMistParticles(effect, startIndex) {
+    const spacing = Math.max(0.5, Number(effect.spacing) || 1.8);
+    const emitterCount = Math.max(2, Math.ceil(effect.path.length / spacing) + 1);
+    const particlesPerEmitter = Math.max(1, Math.min(3,
+      Math.floor(Number(effect.particlesPerEmitter) || 2)));
+    const cycle = Math.max(1, Number(effect.cycle) || 3.6);
+    const rise = Math.max(0.05, Number(effect.rise) || 0.42);
+    const drift = Math.max(0, Number(effect.drift) || 0.16);
+    const baseRadius = Math.max(0.025, Number(effect.radius) || 0.11);
+    let index = startIndex;
+    let requested = 0;
+    for (let emitter = 0; emitter < emitterCount; emitter++) {
+      const distance = effect.path.length * emitter / Math.max(1, emitterCount - 1);
+      const origin = sampleEffectPath(effect.path, distance, this._sample);
+      if (!origin) continue;
+      for (let particle = 0; particle < particlesPerEmitter; particle++) {
+        requested++;
+        if (index >= this._ambientBudget) continue;
+        const seed = stableHashUnit(`${effect.id}:${emitter}:${particle}`);
+        const age = positiveModulo(this._time / cycle
+          + seed + particle / particlesPerEmitter, 1);
+        const angle = seed * Math.PI * 2 + age * 1.7;
+        const outward = drift * (0.25 + age * 0.75);
+        this._position.set(
+          origin.x + Math.cos(angle) * outward,
+          origin.y + age * rise,
+          origin.z + Math.sin(angle) * outward,
+        );
+        const radius = baseRadius * (0.55 + age * 1.35);
+        this._scale.set(radius * 1.25, radius * 0.72, radius * 1.25);
+        this._matrix.compose(this._position, this._burstQuat, this._scale);
+        this._ambientMesh.setMatrixAt(index, this._matrix);
+        const fade = Math.max(0.16, 0.82 * (1 - age));
+        this._color.set(effectColor(effect.color || '#dceff5')).multiplyScalar(fade);
+        this._ambientMesh.setColorAt(index, this._color);
+        index++;
+      }
+    }
+    return { nextIndex: index, requested };
+  }
+
+  _writeDripParticles(effect, startIndex) {
+    const spacing = Math.max(1, Number(effect.spacing) || 3.4);
+    const emitterCount = Math.max(1, Math.ceil(effect.path.length / spacing));
+    const fallDuration = Math.max(0.2, Number(effect.fallDuration) || 0.72);
+    const baseCycle = Math.max(fallDuration + 0.5, Number(effect.cycle) || 4.4);
+    const floorY = Number.isFinite(effect.floorY) ? effect.floorY : FLOOR_Y;
+    const radius = Math.max(0.01, Number(effect.radius) || 0.026);
+    let index = startIndex;
+    let requested = 0;
+    for (let emitter = 0; emitter < emitterCount; emitter++) {
+      const seed = stableHashUnit(`${effect.id}:${emitter}`);
+      const distance = effect.path.length * (emitter + 0.5) / emitterCount;
+      const origin = sampleEffectPath(effect.path, distance, this._sample);
+      if (!origin || origin.y <= floorY + radius) continue;
+      const cycle = baseCycle * (0.82 + seed * 0.42);
+      const ageSeconds = positiveModulo(this._time + seed * cycle, cycle);
+      if (ageSeconds > fallDuration) continue;
+      requested++;
+      if (index >= this._ambientBudget) continue;
+      const fall = ageSeconds / fallDuration;
+      const y = origin.y + (floorY - origin.y) * fall * fall;
+      this._position.set(origin.x, Math.max(floorY + radius, y), origin.z);
+      this._scale.set(radius, radius * (2.8 - fall * 1.1), radius);
+      this._matrix.compose(this._position, this._burstQuat, this._scale);
+      this._ambientMesh.setMatrixAt(index, this._matrix);
+      this._color.set(effectColor(effect.color || '#78bfff'))
+        .multiplyScalar(0.72 + fall * 0.28);
+      this._ambientMesh.setColorAt(index, this._color);
+      index++;
+    }
+    return { nextIndex: index, requested };
   }
 
   _updateSurfaceGlows() {
@@ -471,6 +619,7 @@ export class VisualEffectSystem {
   _parkAll() {
     this._pulseMesh.count = 0;
     this._spillMesh.count = 0;
+    this._ambientMesh.count = 0;
     this._bursts.length = 0;
     for (const proxy of this._lightProxies) {
       proxy.visible = false;
@@ -484,6 +633,8 @@ export class VisualEffectSystem {
     this._pulseMesh.material.dispose();
     this._spillMesh.geometry.dispose();
     this._spillMesh.material.dispose();
+    this._ambientMesh.geometry.dispose();
+    this._ambientMesh.material.dispose();
     this._effects.clear();
     this._bursts.length = 0;
     for (const record of this._surfaceEffects.values()) {

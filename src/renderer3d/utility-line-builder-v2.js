@@ -1413,13 +1413,14 @@ function buildLineGroup(
     }
   }
 
+  const visualEffects = [];
   // The animated material is the only visible flow treatment. Publish only an
   // invisible, bounded light-proxy path for utilities that illuminate nearby
   // surfaces; VisualEffectSystem must never add travelling crest geometry or
   // projected floor circles over utility lines.
   if (flowing && flow.light !== false) {
     const effectPoints = reversed ? points.slice().reverse() : points;
-    group.userData.visualEffects = [{
+    visualEffects.push({
       id: `utility-flow:${line.id}`,
       kind: 'pathPulse',
       path: effectPoints.map((p) => ({ x: p.x, y: p.y, z: p.z })),
@@ -1434,8 +1435,37 @@ function buildLineGroup(
         distance: flow.lightDistance ?? 1.55,
         daylightFloor: flow.daylightFloor ?? 0.25,
       },
-    }];
+    });
   }
+
+  const ambientPath = points.map((p) => ({ x: p.x, y: p.y, z: p.z }));
+  if (line.utilityType === 'cryoTransfer') {
+    visualEffects.push({
+      id: `cryo-mist:${line.id}`,
+      kind: 'ambientMist',
+      path: ambientPath,
+      color: '#dceff5',
+      spacing: 1.9,
+      particlesPerEmitter: 2,
+      cycle: 4.1,
+      rise: 0.38,
+      drift: 0.15,
+      radius: 0.105,
+    });
+  } else if (line.utilityType === 'coolingWater') {
+    visualEffects.push({
+      id: `cooling-drips:${line.id}`,
+      kind: 'ambientDrip',
+      path: ambientPath,
+      color: '#78bfff',
+      spacing: 3.6,
+      cycle: 5.2,
+      fallDuration: 0.72,
+      radius: 0.022,
+      floorY: 0.025,
+    });
+  }
+  if (visualEffects.length > 0) group.userData.visualEffects = visualEffects;
 
   return group;
 }
