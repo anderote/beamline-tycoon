@@ -84,7 +84,8 @@ function getFittingMaterial(color) {
 // machine. Put a small arrow just above the connector in that same local frame
 // and the port's role becomes readable without arming a utility tool:
 //   source → points +X, away from the enclosure
-//   sink   → points -X, into the enclosure
+//   sink   → points -X, into the enclosure; its head stays at the outer end so
+//            the enclosure cannot hide the part that communicates direction
 //   pass   ↔ double-headed, because either side may be the feed
 // These remain depth-tested, translucent machine markings — not UI badges.
 
@@ -116,8 +117,8 @@ function getFlowArrowGeometry(role) {
   if (cached) return cached;
 
   const parts = [];
-  const shaftStart = normalized === 'sink' ? FLOW_ARROW_INNER_X + 0.045 : FLOW_ARROW_INNER_X;
-  const shaftEnd = normalized === 'source' ? FLOW_ARROW_OUTER_X - 0.045 : FLOW_ARROW_OUTER_X;
+  const shaftStart = normalized === 'pass' ? FLOW_ARROW_INNER_X + 0.045 : FLOW_ARROW_INNER_X;
+  const shaftEnd = FLOW_ARROW_OUTER_X - 0.045;
   const shaft = new THREE.BoxGeometry(shaftEnd - shaftStart, 0.012, 0.012);
   shaft.translate((shaftStart + shaftEnd) / 2, FLOW_ARROW_Y, 0);
   parts.push(shaft);
@@ -130,8 +131,11 @@ function getFlowArrowGeometry(role) {
     head.translate(x, FLOW_ARROW_Y, 0);
     parts.push(head);
   };
-  if (normalized !== 'sink') addHead(FLOW_ARROW_OUTER_X, 1);
-  if (normalized !== 'source') addHead(FLOW_ARROW_INNER_X, -1);
+  if (normalized === 'source' || normalized === 'pass') {
+    addHead(FLOW_ARROW_OUTER_X, 1);
+  }
+  if (normalized === 'sink') addHead(FLOW_ARROW_OUTER_X, -1);
+  if (normalized === 'pass') addHead(FLOW_ARROW_INNER_X, -1);
 
   const merged = _mergeGeometries(parts);
   for (const part of parts) part.dispose?.();
@@ -153,6 +157,7 @@ function buildFlowArrow(utilityType, role) {
     isUtilityFlowArrow: true,
     flowRole: normalized,
     flowDirection: normalized === 'source' ? 1 : normalized === 'sink' ? -1 : 0,
+    arrowheadPosition: normalized === 'pass' ? 'both' : 'outer',
     sharedGeometry: true,
   };
   return arrow;
