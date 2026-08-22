@@ -42,7 +42,11 @@
 import { CAVITY_SPECS, T_CRITICAL, pDiss } from '../../beamline/cavity-specs.js';
 import { endpointsById } from '../endpoint-lookup.js';
 import { powerFeedFactor } from '../power-feed.js';
-import { RIGID_UTILITY_SERVICE_HEIGHTS } from '../service-heights.js';
+import {
+  RIGID_UTILITY_SERVICE_HEIGHTS,
+  RIGID_UTILITY_SUPPORT_MINIMUM_RUN_METERS,
+  RIGID_UTILITY_SUPPORT_SPACING_METERS,
+} from '../service-heights.js';
 import { FLEXIBLE_SUBTILE_ROUTING_PROFILE } from '../routing-contract.js';
 
 export const BOILOFF_PER_W_PER_TICK = 0.0005;
@@ -363,8 +367,8 @@ export default {
   // renderer keeps that transition outside the cryostat body, while every
   // ordinary run and automatic same-type join stays on this low service datum.
   fixedRouteHeight: true,
-  supportSpacingMeters: 3,
-  supportMinimumRunMeters: 3,
+  supportSpacingMeters: RIGID_UTILITY_SUPPORT_SPACING_METERS,
+  supportMinimumRunMeters: RIGID_UTILITY_SUPPORT_MINIMUM_RUN_METERS,
   routeVerticalClearanceMeters: 0.06,
   // Transfer lines share the universal flexible subtile routing contract:
   // horizontal/vertical runs and immediate 90-degree bends.

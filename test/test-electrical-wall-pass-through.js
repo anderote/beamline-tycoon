@@ -681,14 +681,27 @@ test('The overhead crossing exception requires two HV supports', () => {
     'two pole-base taps render as a loose ground feeder');
 });
 
-test('Fabricated pipes, waveguides and cryogenic services retain wall crossing', () => {
+test('Fabricated vacuum, waveguide and cryogenic services retain wall crossing', () => {
   const state = openState({ wallOccupied: crossingWall });
   for (const utilityType of [
-    'vacuumPipe', 'rfWaveguide', 'coolingWater', 'cryoTransfer',
+    'vacuumPipe', 'rfWaveguide', 'cryoTransfer',
   ]) {
     const result = validateDrawLine(state, { utilityType, path: directCrossing });
     assert.equal(result.ok, true, `${utilityType}: ${result.reason || 'ok'}`);
   }
+});
+
+test('Flexible water lines cannot cross walls', () => {
+  const state = openState({ wallOccupied: crossingWall });
+  const result = validateDrawLine(state, {
+    utilityType: 'coolingWater',
+    start: null,
+    end: null,
+    path: directCrossing,
+    cablePath: directCrossing,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'wall_pass_through_required');
 });
 
 test('Feedthrough and pole connection kinds preserve the radial electrical chain', () => {

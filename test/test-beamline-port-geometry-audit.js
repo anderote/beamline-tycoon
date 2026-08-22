@@ -26,7 +26,7 @@ const beamlinePorts = Object.keys(BEAMLINE_COMPONENTS_RAW).flatMap((type) => {
 test('every beamline utility port has an intentional geometry classification', () => {
   const unreviewed = beamlinePorts.filter(({ type, portName, spec }) =>
     portGeometryClassification(type, portName, spec) === PORT_GEOMETRY_CLASS.UNREVIEWED);
-  assert.equal(beamlinePorts.length, 272, 'audit population changes loudly with catalogue growth');
+  assert.equal(beamlinePorts.length, 323, 'audit population changes loudly with catalogue growth');
   assert.deepEqual(unreviewed.map(p => `${p.type}.${p.portName}`), []);
 });
 
@@ -48,7 +48,7 @@ test('every RF and cryogenic sink is pinned to exact visible hardware', () => {
 test('remaining beamline services intentionally generate utility-specific terminals', () => {
   const generated = beamlinePorts.filter(({ spec }) =>
     spec.utility !== 'rfWaveguide' && spec.utility !== 'cryoTransfer');
-  assert.equal(generated.length, 231);
+  assert.equal(generated.length, 282);
   for (const { type, portName, spec } of generated) {
     assert.equal(
       portGeometryClassification(type, portName, spec),

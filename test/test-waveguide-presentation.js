@@ -118,11 +118,8 @@ console.log('\n--- 4. The committed builder uses drops and physical support grou
   };
   const endpoints = new Map([[klystron.id, klystron]]);
   const worldPoints = buildWorldPoints(line, endpoints);
-  assert(near(worldPoints[0].y, 1.2) && worldPoints.some((point, index) => index > 0
-    && !near(point.y, worldPoints[index - 1].y)
-    && (!near(point.x, worldPoints[index - 1].x)
-      || !near(point.z, worldPoints[index - 1].z))),
-  'committed RF geometry starts at the authored klystron height and includes a slope');
+  assert(near(worldPoints[0].y, 1.2),
+    'committed RF geometry starts at the authored klystron height');
   assert(worldPoints.some(point => near(point.y, floorY)),
     'the committed route settles onto the descriptor deck height');
 
@@ -205,12 +202,12 @@ console.log('\n--- 6. An aligned klystron and NC cavity build one straight guide
   const points = buildWorldPoints(line, new Map([
     [klystron.id, klystron], [cavity.id, cavity],
   ]));
-  assert(points.length >= 6
+  assert(points.length >= 2
       && points.every(point => near(point.z, start.z))
       && points.some(point => near(point.y, utilityLineHeight('rfWaveguide')))
       && near(points[0].y, startAnchor.y)
       && near(points.at(-1).y, endAnchor.y),
-    'aligned launchers transition locally to the fixed RF route datum');
+    'aligned launchers remain on the fixed RF route datum');
   assert(points.every((point, index) => index === 0 || point.x >= points[index - 1].x - 1e-6),
     'the straight two-point route never doubles back through either launcher');
   setModelBoundsProvider(null);

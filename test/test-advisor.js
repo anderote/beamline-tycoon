@@ -182,8 +182,8 @@ console.log('2. every rule fires when it should and not when it should not');
     check(`${id} stays quiet on a healthy facility`, !rule.when(quietContext()));
   }
 
-  check('the table has 13 rules (7 blockers, 4 warnings, 2 tips)',
-    ADVICE_RULES.length === 13, `got ${ADVICE_RULES.length}`);
+  check('the table has 14 rules (8 blockers, 4 warnings, 2 tips)',
+    ADVICE_RULES.length === 14, `got ${ADVICE_RULES.length}`);
   check('every rule declares a known severity',
     ADVICE_RULES.every(r => SEVERITY_RANK[r.severity] > 0),
     ADVICE_RULES.filter(r => !SEVERITY_RANK[r.severity]).map(r => r.id).join(','));

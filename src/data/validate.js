@@ -30,6 +30,7 @@ import {
   COOLING_AUTO_CONNECT_CLASSES,
 } from './cooling-auto-connect-classes.js';
 import { UTILITY_TYPE_LIST } from '../utility/registry.js';
+import { UNIVERSAL_BUS_LANE_COUNT } from '../utility/universal-bus-layout.js';
 
 // Mirror of beam_physics/gameplay.py KNOWN_PHYSICS_TYPES. Kept as a JS
 // constant so content validation runs without Python; the sync is guarded
@@ -265,9 +266,9 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
         problem(id, `universalUtilityBus.${field}`, `${field} must be a positive integer`);
       }
     }
-    if (bus.slotCount !== UTILITY_TYPE_LIST.length) {
+    if (bus.slotCount !== UNIVERSAL_BUS_LANE_COUNT) {
       problem(id, 'universalUtilityBus.slotCount',
-        `the universal bus must expose one lane for each of the ${UTILITY_TYPE_LIST.length} utilities`);
+        `the universal bus must expose all ${UNIVERSAL_BUS_LANE_COUNT} designated utility lanes`);
     }
     if (Number.isInteger(bus.minLengthSubtiles) && Number.isInteger(bus.maxLengthSubtiles)
         && bus.minLengthSubtiles > bus.maxLengthSubtiles) {
@@ -328,7 +329,9 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
       problem(id, 'wallPassThrough', "wall pass-throughs must declare mount: 'wall'");
     }
     const ports = Object.values(utilityPorts[id] || {})
-      .filter(port => port?.utility === 'powerCable' || port?.utility === 'hvCable');
+      .filter(port => port?.utility === 'powerCable'
+        || port?.utility === 'hvCable'
+        || port?.utility === 'waterSupplyPipe');
     const utilities = new Set(ports.map(port => port.utility));
     const sides = new Set(ports.map(port => port.side));
     const frontCount = ports.filter(port => port.side === 'front').length;
@@ -336,7 +339,7 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     if (ports.length < 2 || utilities.size !== 1
         || ports.some(port => port.role !== 'pass')
         || !sides.has('front') || !sides.has('back') || frontCount !== backCount) {
-      problem(id, 'wallPassThrough', 'requires matching passive front/back ports of one electrical cable type');
+      problem(id, 'wallPassThrough', 'requires matching passive front/back ports of one supported utility type');
     }
     if (def.utilityFlowPresentation === 'symmetric'
         && (utilities.size !== 1 || !utilities.has('hvCable')

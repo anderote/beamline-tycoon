@@ -34,6 +34,7 @@ export function autoConnectTargetLabel(utilityType, count) {
     vacuumPipe: 'vacuum connection',
     rfWaveguide: 'RF connection',
     coolingWater: 'cooling connection',
+    waterSupplyPipe: 'rigid water-pipe connection',
     cryoTransfer: 'cryo connection',
     dataFiber: 'data peer',
   }[utilityType] || 'utility connection';

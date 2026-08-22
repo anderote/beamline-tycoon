@@ -78,6 +78,7 @@ export function wireUtility(game, utilityType, from, to, opts = {}) {
   const candidates = buildPortRoutedPaths(routeStart, a.vec, routeEnd, b.vec, routeOpts);
   let path = candidates.find(candidate => validateDrawLine(state, {
     utilityType, start, end, path: candidate,
+    waterCircuit: opts.waterCircuit,
   }).ok) || null;
   if (!path && usesFlexibleSubtileRouting(descriptor)) {
     const obstacles = buildUtilityRouteObstacles(state, utilityType, {
@@ -93,6 +94,7 @@ export function wireUtility(game, utilityType, from, to, opts = {}) {
     });
     if (detour && validateDrawLine(state, {
       utilityType, start, end, path: detour,
+      waterCircuit: opts.waterCircuit,
     }).ok) path = detour;
   }
   // Unknown/legacy utilities retain the deterministic ranked candidates above;
@@ -106,6 +108,7 @@ export function wireUtility(game, utilityType, from, to, opts = {}) {
     start,
     end,
     path,
+    waterCircuit: opts.waterCircuit,
   });
   if (!id) {
     console.warn('[scenario-wiring] addLine rejected', utilityType, from, to, path);

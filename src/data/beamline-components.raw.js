@@ -509,7 +509,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // 40 keV proton the transit-time factor floors at 0.01 and a 3.5 GeV
     // sector delivers 35 MeV over sixteen metres.
     beamlineTypes: ['isotopeIrradiation', 'therapy', 'blackHoleFactory'],
-    requiredConnections: ['hvCable', 'coolingWater'],
+    requiredConnections: ['hvCable', 'waterSupplyPipe'],
   },
   protonLinacFrontEnd: {
     id: 'protonLinacFrontEnd',
@@ -627,7 +627,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // goes as the seventh root of sqrt(s), so 4.7x the energy buys 1.55x the
     // yield while swapping the front end buys five orders of magnitude.
     beamlineTypes: ['therapy', 'blackHoleFactory'],
-    requiredConnections: ['hvCable', 'coolingWater'],
+    requiredConnections: ['hvCable', 'waterSupplyPipe'],
   },
   lwfaStation: {
     id: 'lwfaStation',

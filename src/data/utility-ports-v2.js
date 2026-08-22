@@ -4,7 +4,7 @@
 //
 // Port spec shape (see src/utility/ports.js):
 //   {
-//     utility:     'powerCable' | 'coolingWater' | 'cryoTransfer' |
+//     utility:     'powerCable' | 'coolingWater' | 'waterSupplyPipe' | 'cryoTransfer' |
 //                  'rfWaveguide' | 'vacuumPipe' | 'dataFiber',
 //     side:        'back' | 'front' | 'left' | 'right',
 //     offsetAlong: number in [0.1, 0.9],
@@ -71,6 +71,7 @@ function rawRfBands(id) {
 const SINK_DEFAULTS = {
   powerCable:   { demand: 10 },
   coolingWater: { heatLoad: 10 },
+  waterSupplyPipe: { heatLoad: 10 },
   cryoTransfer: { srfHeatW: 20 },
   rfWaveguide:  { demand: 10 },
   vacuumPipe:   { outgassing: 5e-7 },
@@ -80,6 +81,7 @@ const SINK_DEFAULTS = {
 const SOURCE_DEFAULTS = {
   powerCable:   { capacity: 100 },
   coolingWater: { capacity: 100 },
+  waterSupplyPipe: { capacity: 100 },
   // Cryogenic source ports carry several independent plant capabilities
   // (storage, cold production, heat rejection, recovery). Defaulting every
   // source to a 500 W cold box made a passive tank or recovery header create
@@ -175,7 +177,8 @@ const BEAMLINE_UTILITY_PORTS = {
   // past a single cooling tower, so it forces distribution planning.
   cyclotron70: {
     hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.3, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 380 } },
-    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 310 } },
+    cool_in: { utility: 'waterSupplyPipe', side: 'right', offsetAlong: 0.35, role: 'sink', params: { heatLoad: 310, waterCircuit: 'cold' } },
+    hot_out: { utility: 'waterSupplyPipe', side: 'right', offsetAlong: 0.65, role: 'sink', params: { heatLoad: 310, waterCircuit: 'hot' } },
   },
   // RFQ + low-beta SRF front end delivered as one commissioned tunnel sector.
   // Unlike a cyclotron it exposes both RF and cryogenic plant to the player.
@@ -196,7 +199,8 @@ const BEAMLINE_UTILITY_PORTS = {
   // the 70 MeV machine, so it forces the same distribution planning.
   cyclotron230: {
     hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.3, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 420 } },
-    cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 400 } },
+    cool_in: { utility: 'waterSupplyPipe', side: 'right', offsetAlong: 0.35, role: 'sink', params: { heatLoad: 400, waterCircuit: 'cold' } },
+    hot_out: { utility: 'waterSupplyPipe', side: 'right', offsetAlong: 0.65, role: 'sink', params: { heatLoad: 400, waterCircuit: 'hot' } },
   },
   // NO rf_in and NO cryo_in — the absence is the design. A plasma stage has
   // no cavity to drive and nothing to keep at 2 K. What it has instead is a
@@ -686,6 +690,31 @@ const VACUUM_OUTGASSING = {
   lwfaStation: 8e-6,
 };
 
+// Equipment-level cooling is a real supply-and-return pair. Ordinary magnets,
+// warm cavities and diagnostics retain flexible hoses; only the explicitly
+// high-flow machines above use fabricated waterSupplyPipe ports directly.
+// Keep the existing `cool_in` identity for save compatibility and add one
+// independently connectable hot outlet carrying the same thermal load.
+for (const ports of Object.values(BEAMLINE_UTILITY_PORTS)) {
+  const cold = ports?.cool_in;
+  if (cold?.utility !== 'coolingWater' || cold.role !== 'sink') continue;
+  cold.params = { ...(cold.params || {}), waterCircuit: 'cold' };
+  if (!ports.hot_out) {
+    ports.hot_out = {
+      utility: 'coolingWater',
+      side: cold.side,
+      offsetAlong: (cold.offsetAlong ?? 0.5) <= 0.5
+        ? Math.min(0.9, (cold.offsetAlong ?? 0.5) + 0.25)
+        : Math.max(0.1, (cold.offsetAlong ?? 0.5) - 0.25),
+      role: 'sink',
+      params: {
+        heatLoad: cold.params.heatLoad,
+        waterCircuit: 'hot',
+      },
+    };
+  }
+}
+
 // Inject vacuum sinks for all beamline modules that lack one — every segment
 // of beam pipe needs vacuum, so the utility solver can trip the beam via
 // vacuum_no_pump when no pump is connected. Keep existing vac_in if present.
@@ -1047,6 +1076,17 @@ function coolingPlantPorts(params, names = [
   }
   names.forEach((name, i) => {
     const primary = i < COOLING_PRIMARY_OFFSETS.length;
+    const waterCircuit = primary ? 'cold' : 'hot';
+    const circuitCount = primary
+      ? Math.min(names.length, COOLING_PRIMARY_OFFSETS.length)
+      : Math.max(1, names.length - COOLING_PRIMARY_OFFSETS.length);
+    const circuitParams = {
+      waterCircuit,
+      ...(primary && typeof params.capacity === 'number'
+        ? { capacity: params.capacity / circuitCount } : {}),
+      ...(!primary && typeof params.heatRejectionCapacity === 'number'
+        ? { heatRejectionCapacity: params.heatRejectionCapacity / circuitCount } : {}),
+    };
     out[name] = {
       utility: 'coolingWater',
       side: primary ? 'right' : 'left',
@@ -1055,7 +1095,9 @@ function coolingPlantPorts(params, names = [
         : COOLING_SECONDARY_OFFSETS[i - COOLING_PRIMARY_OFFSETS.length],
       role: 'source',
       autoConnectClass: primary ? primaryClass : secondaryClass,
-      params: { ...splitParams },
+      params: primary
+        ? { ...splitParams, ...circuitParams, heatRejectionCapacity: 0 }
+        : { ...splitParams, ...circuitParams, capacity: 0 },
     };
   });
   return out;
@@ -1070,17 +1112,72 @@ function heatRejectorPorts(heatRejectionCapacity, side = 'right') {
     heatRejectionCapacity: heatRejectionCapacity / 2,
   };
   return {
-    cool_out: {
-      utility: 'coolingWater', side, offsetAlong: 0.33,
-      role: 'source', autoConnectClass: COOLING_AUTO_CONNECT_CLASS.PLANT_LINK,
-      params: { ...params },
+    supply_hot_1: {
+      utility: 'waterSupplyPipe', side, offsetAlong: 0.33,
+      role: 'source',
+      params: { heatRejectionCapacity: heatRejectionCapacity / 2, waterCircuit: 'hot' },
     },
-    cool_out_2: {
-      utility: 'coolingWater', side, offsetAlong: 0.67,
-      role: 'source', autoConnectClass: COOLING_AUTO_CONNECT_CLASS.PLANT_LINK,
-      params: { ...params },
+    supply_hot_2: {
+      utility: 'waterSupplyPipe', side, offsetAlong: 0.67,
+      role: 'source',
+      params: { heatRejectionCapacity: heatRejectionCapacity / 2, waterCircuit: 'hot' },
     },
   };
+}
+
+function centralChillerPorts(capacity) {
+  const out = {};
+  const names = ['cool_out', 'cool_out_2', 'cool_out_3', 'cool_out_4'];
+  for (let i = 0; i < 4; i++) {
+    out[names[i]] = {
+      utility: 'coolingWater', side: 'right',
+      offsetAlong: COOLING_PRIMARY_OFFSETS[i], role: 'source',
+      autoConnectClass: COOLING_AUTO_CONNECT_CLASS.LOAD_BRANCH,
+      params: { capacity: capacity / 4, waterCircuit: 'cold' },
+    };
+  }
+  out.water_in = {
+    utility: 'waterSupplyPipe', side: 'left', offsetAlong: 0.33,
+    role: 'pass', params: { waterCircuit: 'hot' },
+  };
+  out.supply_cold_out = {
+    utility: 'waterSupplyPipe', side: 'left', offsetAlong: 0.67,
+    role: 'source', params: { capacity, waterCircuit: 'cold' },
+  };
+  return out;
+}
+
+function waterInventoryPorts(params) {
+  return {
+    ...coolingPlantPorts({ capacity: 0, ...params }, undefined, {
+      primaryClass: COOLING_AUTO_CONNECT_CLASS.PLANT_LINK,
+    }),
+    water_supply_out: {
+      utility: 'waterSupplyPipe', side: 'left', offsetAlong: 0.5,
+      role: 'source', params: {
+        capacity: 0, ...params, waterCircuit: 'hot',
+      },
+    },
+  };
+}
+
+function waterDistributorPorts(flexibleCount, supplyCount) {
+  const out = {};
+  for (let i = 0; i < flexibleCount; i++) {
+    out[`water_line_${i + 1}`] = {
+      utility: 'coolingWater', side: i % 2 ? 'front' : 'back',
+      offsetAlong: (Math.floor(i / 2) + 1) / (Math.ceil(flexibleCount / 2) + 1),
+      role: 'pass', autoConnectClass: COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION,
+      params: {},
+    };
+  }
+  for (let i = 0; i < supplyCount; i++) {
+    out[`supply_pipe_${i + 1}`] = {
+      utility: 'waterSupplyPipe', side: 'left',
+      offsetAlong: (i + 1) / (supplyCount + 1), role: 'pass', params: {},
+    };
+  }
+  return out;
 }
 
 const INFRA_UTILITY_PORTS = {
@@ -1104,6 +1201,16 @@ const INFRA_UTILITY_PORTS = {
       utility: 'powerCable', side: 'back', offsetAlong: 0.5,
       role: 'pass', connectionKind: 'powerPassThroughOut', params: {},
     },
+  },
+  waterSupplyWallPassThrough1x1: {
+    supply_front: { utility: 'waterSupplyPipe', side: 'front', offsetAlong: 0.5, role: 'pass', params: {} },
+    supply_back: { utility: 'waterSupplyPipe', side: 'back', offsetAlong: 0.5, role: 'pass', params: {} },
+  },
+  waterSupplyWallPassThrough2x2: {
+    supply_front_1: { utility: 'waterSupplyPipe', side: 'front', offsetAlong: 0.33, role: 'pass', params: {} },
+    supply_back_1: { utility: 'waterSupplyPipe', side: 'back', offsetAlong: 0.33, role: 'pass', params: {} },
+    supply_front_2: { utility: 'waterSupplyPipe', side: 'front', offsetAlong: 0.67, role: 'pass', params: {} },
+    supply_back_2: { utility: 'waterSupplyPipe', side: 'back', offsetAlong: 0.67, role: 'pass', params: {} },
   },
   meterMain: {
     pwr_in: {
@@ -1270,9 +1377,13 @@ const INFRA_UTILITY_PORTS = {
       params: { fieldCapacity: 250 },
     },
   },
-  coolingManifold:     busPorts(
+  coolingManifold: Object.fromEntries(Object.entries(busPorts(
     'coolingWater', 8, COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION,
-  ),
+  )).map(([name, spec]) => [name, {
+    ...spec, params: { ...(spec.params || {}), waterCircuit: 'cold' },
+  }])),
+  waterDistributor2: waterDistributorPorts(2, 1),
+  waterDistributor4: waterDistributorPorts(4, 2),
   vacuumManifold:      vacuumManifoldPorts(4, 5),
   vacuumManifold8:     vacuumManifoldPorts(8, 7),
   waveguideManifold:   busPorts('rfWaveguide',   6),
@@ -1349,30 +1460,18 @@ const INFRA_UTILITY_PORTS = {
   multibeamKlystron:   { rf_out:   { utility: 'rfWaveguide', ...SINGLE_RF_OUTPUT, role: 'source', params: { capacity: 200, dutyFactor: 0.005 } } },
   highPowerSSA:        { rf_out:   { utility: 'rfWaveguide', ...SINGLE_RF_OUTPUT, role: 'source', params: { capacity: 300, dutyFactor: 1.0 } } },
   gyrotron:            { rf_out:   { utility: 'rfWaveguide', ...SINGLE_RF_OUTPUT, role: 'source', params: { capacity: 1000, dutyFactor: 1.0 } } },
-  // One cooling-water network carries plant and process water. A working loop
-  // contains finite storage, a chiller, and a heat rejector; compact units
-  // carry all three roles on their shared six-connection header.
+  // Legacy compact plant retains its flexible-water header for compatibility.
+  // Central plant uses separate hot and cold circuits connected by rigid
+  // supply pipe, with flexible water lines reserved for local equipment runs.
   // The compact 5/25 kW packages buy an affordable start; the 175/300 kW
   // central chillers buy scale but need separate storage and heat rejection.
   // Water inventory is two independent capabilities. The make-up tank has a
   // small float-valve feed plus storage, the replenishment plant has a larger
   // feed and no storage, and the bulk tanks have storage but never generate water.
   // Explicit process capacity:0 keeps every one out of the cooling ladder.
-  waterTank:             coolingPlantPorts({
-    capacity: 0, ...COOLING_WATER_INVENTORY.waterTank,
-  }, undefined, {
-    primaryClass: COOLING_AUTO_CONNECT_CLASS.PLANT_LINK,
-  }),
-  facilityWaterSupply:   coolingPlantPorts({
-    capacity: 0, ...COOLING_WATER_INVENTORY.facilityWaterSupply,
-  }, undefined, {
-    primaryClass: COOLING_AUTO_CONNECT_CLASS.PLANT_LINK,
-  }),
-  bulkWaterTank:         coolingPlantPorts({
-    capacity: 0, ...COOLING_WATER_INVENTORY.bulkWaterTank,
-  }, undefined, {
-    primaryClass: COOLING_AUTO_CONNECT_CLASS.PLANT_LINK,
-  }),
+  waterTank:             waterInventoryPorts(COOLING_WATER_INVENTORY.waterTank),
+  facilityWaterSupply:   waterInventoryPorts(COOLING_WATER_INVENTORY.facilityWaterSupply),
+  bulkWaterTank:         waterInventoryPorts(COOLING_WATER_INVENTORY.bulkWaterTank),
   // These authored faces follow the visible pipe pairs on each model.
   fanCoilCooler:         heatRejectorPorts(50, 'back'),
   dryCoolerBank:         heatRejectorPorts(500, 'back'),
@@ -1400,8 +1499,8 @@ const INFRA_UTILITY_PORTS = {
   }, undefined, {
     secondaryClass: COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION_FEED,
   }),
-  dualCircuitChiller:    coolingPlantPorts({ capacity: 175 }),
-  chiller:               coolingPlantPorts({ capacity: 300 }),
+  dualCircuitChiller:    centralChillerPorts(175),
+  chiller:               centralChillerPorts(300),
   // cryo — storage, refrigeration, warm-end heat rejection and recovery are
   // separate network capabilities, mirroring cooling water's tank/chiller/
   // rejector model. Every buildable cryogenic plant item has a real bayonet;

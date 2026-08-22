@@ -49,7 +49,7 @@ export const MODES = {
                       utilityLineTools: ['vacuumPipe'],
                       subsections: { transport: { name: 'Transport' }, supply: { name: 'Pumps & Supply' }, distribution: { name: 'Distribution' }, instruments: { name: 'Instruments' }, hardware: { name: 'Hardware' } } },
       cooling:      { name: 'Cooling',         color: '#48c',
-                      utilityLineTools: ['coolingWater', 'cryoTransfer'],
+                      utilityLineTools: ['coolingWater', 'waterSupplyPipe', 'cryoTransfer'],
                       subsections: {
                         transport: { name: 'Pipes' },
                         waterSupply: { name: 'Water Supply' },

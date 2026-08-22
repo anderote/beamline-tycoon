@@ -1,7 +1,7 @@
 # Connection Types
 
 ## Quick Tip
-Seven types of pipes and cables connect facility equipment to the beamline. Each carries a different utility, and each is drawn port-to-port.
+Eight types of pipes and cables connect facility equipment to the beamline. Each carries a different utility, and each is drawn port-to-port.
 
 ## Connection Types
 
@@ -48,17 +48,28 @@ Carries RF power from sources to accelerating cavities. Band-matched: a source d
 - **Support equipment (flavour only — no mechanical effect):** Modulator, Circulator, High-power Coupler, LLRF Controller
 
 ### Cooling Water (blue)
-Carries cooling capacity from chillers and LCW systems to heat-producing components. Forms cooling networks with capacity budgets.
+Flexible equipment hose for ordinary cooled components. Every run is tagged as
+cold supply or hot return, and flexible Water Lines cannot cross walls.
 
 - **Color:** Blue (0x4488ff)
 - **Network type:** Capacity-based (kW cooling vs heat load), producing a temperature rise at each sink
 - **Process-cooling equipment:** Package Chiller, LCW Skid, Dual-Circuit Chiller, Chiller
-- **Heat-rejection equipment:** Fan-Coil Cooler (direct air), Dry Cooler Bank, Cooling Tower
-- **Distribution:** LCW Manifold (adds no capacity)
+- **Distribution:** 2-Line and 4-Line Dual Water Distributors (add no capacity)
 - **Consumers:** Magnets, normal-conducting RF structures, beam absorbers (target, beam stop), the detector, the electron gun and ion sources, and the He compressor
 - **Cost:** $900/sub-unit ($3,600/tile)
 - **Bus:** Cooling Manifold, $80k, 8-cell service radius
 - **Support equipment:** Deionizer, Heat Exchanger, Water Load, Emergency Cooling
+
+### Water Supply Pipe (blue/red)
+Rigid fabricated bulk-water header, modeled like cryogenic transfer pipe. Cold
+supply uses the blue 0.60 m lane; hot return uses the red 0.90 m lane.
+
+- **Network type:** Capacity-based, with hot and cold circuits kept isolated
+- **Cold source:** Central chiller rigid cold outlet
+- **Hot rejection:** Fan-Coil Cooler, Dry Cooler Bank, Cooling Tower
+- **Consumers:** High-flow equipment such as the 70 and 230 MeV cyclotrons, or flexible Water Lines through a distributor
+- **Wall crossings:** 1x1 and 2x2 Water Pipe Penetrations
+- **Supports:** Same 3 m support stations as cryo, RF, and vacuum, so independent runs can stack vertically
 
 SRF cavities are **not** cooling-water consumers. Their thermal path is cryogenics.
 

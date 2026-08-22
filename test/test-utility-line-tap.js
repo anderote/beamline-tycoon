@@ -94,10 +94,18 @@ function coolingLines(game) {
     .filter(l => l.utilityType === 'coolingWater');
 }
 
-// The trunk every case here branches off: chiller → the first quad.
+// The trunk every case here branches off: chiller → a cold distribution
+// header. Keeping the backbone clear of the paired hot/cold ports on beamline
+// equipment makes this a tap-selection fixture rather than a port-priority
+// fixture (port priority is asserted separately below).
 function withTrunk() {
   const game = makeGame();
-  drag(game, portTile(game, 'src_1', 'cool_out_a'), portTile(game, 'pl_1', 'cool_in'));
+  game.state.placeables.push({
+    id: 'tap_header', type: 'coolingManifold', kind: 'infrastructure',
+    category: 'infrastructure', col: 12, row: 1, subCol: 0, subRow: 0, dir: 0,
+  });
+  drag(game, portTile(game, 'src_1', 'cool_out_a'),
+    portTile(game, 'tap_header', 'bus_left'));
   const trunk = coolingLines(game)[0];
   return { game, trunk };
 }
@@ -126,10 +134,28 @@ function longestSegment(path) {
 
 const trunkMid = (trunk) => {
   const visible = trunk.cablePath?.length >= 2
-    ? roundedCableTilePath(trunk.cablePath, trunk.utilityType)
+    ? trunk.cablePath
     : expandPath(trunk.path || []);
-  return visible[Math.floor(visible.length / 2)];
+  return longestSegment(visible).mid;
 };
+
+function hittableTrunkPoint(game, trunk, ctrl = ctrlFor(game)) {
+  const visible = trunk.cablePath?.length >= 2
+    ? trunk.cablePath : expandPath(trunk.path || []);
+  for (let i = 0; i < visible.length - 1; i++) {
+    const a = visible[i], b = visible[i + 1];
+    for (const t of [0.5, 0.25, 0.75]) {
+      const point = {
+        col: a.col + (b.col - a.col) * t,
+        row: a.row + (b.row - a.row) * t,
+      };
+      const iso = gridToIso(point.col, point.row);
+      ctrl.onHover(iso.x, iso.y);
+      if (ctrl.hoverPort?.tap && ctrl.hoverPort.lineId === trunk.id) return point;
+    }
+  }
+  return trunkMid(trunk);
+}
 
 console.log('\n--- 1. The cursor can grab a line, and ports still win ---');
 {
@@ -137,7 +163,7 @@ console.log('\n--- 1. The cursor can grab a line, and ports still win ---');
   assert(!!trunk, 'a trunk to branch off');
   const ctrl = ctrlFor(game);
   // A point on the trunk, well away from either of its ports.
-  const mid = trunkMid(trunk);
+  const mid = hittableTrunkPoint(game, trunk, ctrl);
   const iso = gridToIso(mid.col, mid.row);
   ctrl.onHover(iso.x, iso.y);
   const hov = ctrl.hoverPort;
@@ -224,7 +250,7 @@ console.log('\n--- 1d. A broad cryo jacket gets a cryo-specific pickup halo ---'
 console.log('\n--- 2. A drag onto the trunk commits, and joins its network ---');
 {
   const { game, trunk } = withTrunk();
-  const mid = trunkMid(trunk);
+  const mid = hittableTrunkPoint(game, trunk);
   const before = coolingLines(game).length;
 
   drag(game, portTile(game, 'pl_2', 'cool_in'), { col: mid.col, row: mid.row });
@@ -246,8 +272,8 @@ console.log('\n--- 2. A drag onto the trunk commits, and joins its network ---')
   assert(withBoth.length === 1,
     `trunk and branch solve as ONE network (got ${withBoth.length})`);
   const keys = withBoth[0] ? withBoth[0].ports.map(p => p.placeableId) : [];
-  assert(keys.includes('src_1') && keys.includes('pl_1') && keys.includes('pl_2'),
-    `the source now feeds both quads (${keys.join(',')})`);
+  assert(keys.includes('src_1') && keys.includes('tap_header') && keys.includes('pl_2'),
+    `the source, header, and branch load share one network (${keys.join(',')})`);
 }
 
 console.log('\n--- 2b. Flexible data cables retain peer-bus taps ---');
@@ -300,7 +326,10 @@ console.log('\n--- 3. The exemption is exactly one point wide ---');
   // both a full tile of cable rather than one sub-unit.
   const seg = longestSegment(trunk.path);
   assert(seg && seg.len >= 1, `the trunk has a segment to run along (${seg && seg.len})`);
-  const mid = seg.mid;
+  const mid = {
+    col: Math.round(seg.mid.col * 4) / 4,
+    row: Math.round(seg.mid.row * 4) / 4,
+  };
   const perp = { col: seg.axis.row, row: seg.axis.col };
 
   // A path that RUNS ALONG the trunk and ends on it. Overlap must still
@@ -346,7 +375,7 @@ console.log('\n--- 3. The exemption is exactly one point wide ---');
 console.log('\n--- 4. A line of another utility is not tappable ---');
 {
   const { game, trunk } = withTrunk();
-  const mid = trunkMid(trunk);
+  const mid = hittableTrunkPoint(game, trunk);
   const iso = gridToIso(mid.col, mid.row);
   const ctrl = new UtilityLineInputController({ game, renderer: {} });
   ctrl.setUtilityType('powerCable');
@@ -387,7 +416,7 @@ console.log('\n--- 5. LCW skid connections share one 25 kW internal header ---')
     'three physical LCW outlets feed three loads through one network');
   const skidSources = nets[0]?.sources.filter(source => source.placeableId === 'lcw_1') || [];
   const capacity = skidSources.reduce((sum, source) => sum + (source.params?.capacity || 0), 0);
-  assert(skidSources.length === 6 && Math.abs(capacity - 25) < 1e-9,
+  assert(skidSources.length === 4 && Math.abs(capacity - 25) < 1e-9,
     `the shared outlets expose 25 kW once, not per socket (got ${capacity} kW)`);
 }
 

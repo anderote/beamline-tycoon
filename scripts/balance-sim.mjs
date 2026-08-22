@@ -232,6 +232,7 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   }
   const buncher2 = onPipe[0];
   const cavities2 = [onPipe[1], onPipe[2], onPipe[3], onPipe[5]];
+  const quads2 = [onPipe[4], onPipe[6]];
   const bpm2 = onPipe[7];
 
   const place = (type, col, row) => {
@@ -274,6 +275,9 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   const ch2  = place('chiller', 3, 11);
   const plantTank = place('waterTank', -2, 14);
   const tower = place('coolingTower', 6, 14);
+  const tower2 = place('coolingTower', 14, 16);
+  const returnDistributors = [-9, -5, 0, 4]
+    .map(col => place('waterDistributor2', col, 16));
 
   // Distribution row (9), hard against the line. One power bus and one
   // waveguide manifold span the run; vacuum only reaches 5 cells, so it takes
@@ -298,8 +302,8 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   // branch power and data like every other active control-room item.
   const secondConsole = place('operatorConsole', -30, 8);
 
-  const wire = (util, from, to) => {
-    const id = wireUtility(game, util, from, to);
+  const wire = (util, from, to, opts = {}) => {
+    const id = wireUtility(game, util, from, to, opts);
     if (!id) log('C: wire failed', util, from.id, '->', to.id);
   };
   const sourcePort = (id, index = 0) => ({ id, role: 'source', index });
@@ -320,6 +324,7 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   if (hvGear && dedicatedHv) wire('hvCable', sourcePort(hvGear, 3), sinkPort(dedicatedHv));
   if (dedicatedHv && ch2) wire('hvCable', sourcePort(dedicatedHv, 0), sinkPort(ch2));
   if (dedicatedHv && det) wire('hvCable', sourcePort(dedicatedHv, 1), sinkPort(det));
+  if (dedicatedHv && tower2) wire('hvCable', sourcePort(dedicatedHv, 2), sinkPort(tower2));
   const westLoads = [sinkPort(src2), sinkPort(tp), sinkPort(ioc2), sinkPort(nsw),
     passPort(pwrBus2, 'back'), sinkPort(secondConsole)];
   const eastLoads = [sinkPort(rp)];
@@ -343,19 +348,35 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
       if (cavity) wire('rfWaveguide', sourcePort(mbk), sinkPort(cavity));
     }
   }
-  // Reservoir, chillers, and heat rejection are roles on one cooling-water
-  // topology. Join all three plant stages to the same manifolded network.
-  // East chiller first: its drop runs along the same service row as the west
-  // chiller's feed to the detector, and lines of one utility may not overlap
-  // unless they share a source.
-  if (tower && ch2) wire('coolingWater', sourcePort(tower), sourcePort(ch2, 1));
+  // Cold supply remains flexible at ordinary beam equipment. The two chiller
+  // headers feed the nearby manifolds plus the source/detector junctions.
   if (ch2 && coolE2) wire('coolingWater', sourcePort(ch2), passPort(coolE2, 'left'));
-  if (plantTank && ch1) wire('coolingWater', sourcePort(plantTank), sourcePort(ch1, 1));
   if (ch1) {
     for (const target of [sinkPort(src2), sinkPort(det), passPort(coolW2, 'left')]) {
       if (target.id) wire('coolingWater', sourcePort(ch1), target);
     }
   }
+  // Every cooled load has a separate hot outlet. Pair them into return
+  // distributors, then carry each collected group on rigid pipe to one of the
+  // two tower banks. This benchmark now exercises the same architecture as a
+  // player-built central plant instead of the retired one-loop topology.
+  const hotLoads = [src2, ...cavities2, ...quads2, det].filter(Boolean);
+  hotLoads.forEach((id, index) => {
+    const distributor = returnDistributors[Math.floor(index / 2)];
+    wire('coolingWater', { id, port: 'hot_out' }, {
+      id: distributor, port: `water_line_${(index % 2) + 1}`,
+    }, { waterCircuit: 'hot' });
+  });
+  const rejectorPorts = [
+    [tower, 'supply_hot_1'], [tower, 'supply_hot_2'],
+    [tower2, 'supply_hot_1'], [tower2, 'supply_hot_2'],
+  ];
+  returnDistributors.forEach((distributor, index) => {
+    wire('waterSupplyPipe',
+      { id: rejectorPorts[index][0], port: rejectorPorts[index][1] },
+      { id: distributor, port: 'supply_pipe_1' },
+      { waterCircuit: 'hot' });
+  });
   if (nsw) {
     for (const [index, id] of [det, bpm2, secondConsole].entries()) {
       if (id) wire('dataFiber', { id: nsw, role: 'pass', index }, sinkPort(id));

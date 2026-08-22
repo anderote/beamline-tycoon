@@ -1,4 +1,7 @@
-// Canonical physical elevations for utility routing and the universal rack.
+// Canonical physical elevations and support geometry for independently routed
+// rigid utilities. Runs that share the same plan path form a service stack:
+// their centre lines stay vertically separated while their periodic support
+// frames land at the same stations.
 //
 // Fixed-height fabricated services own one facility-wide datum. Equipment may keep
 // physically authored fittings at another height; the renderer adds the short
@@ -8,14 +11,20 @@
 
 export const RIGID_UTILITY_SERVICE_HEIGHTS = Object.freeze({
   cryoTransfer: 0.30,
-  rfWaveguide: 0.60,
-  vacuumPipe: 0.90,
+  waterSupplyPipeCold: 0.60,
+  waterSupplyPipeHot: 0.90,
+  rfWaveguide: 1.20,
+  vacuumPipe: 1.50,
 });
 
+export const RIGID_UTILITY_SUPPORT_SPACING_METERS = 3;
+export const RIGID_UTILITY_SUPPORT_MINIMUM_RUN_METERS = 3;
+
 export const UNIVERSAL_RACK_SERVICE_HEIGHTS = Object.freeze({
-  cryoTransfer: RIGID_UTILITY_SERVICE_HEIGHTS.cryoTransfer,
-  rfWaveguide: RIGID_UTILITY_SERVICE_HEIGHTS.rfWaveguide,
-  vacuumPipe: RIGID_UTILITY_SERVICE_HEIGHTS.vacuumPipe,
+  // Legacy save compatibility only. New lines never use the universal rack.
+  cryoTransfer: 0.30,
+  rfWaveguide: 0.60,
+  vacuumPipe: 0.90,
   coolingWater: 1.18,
   powerCable: 1.38,
   dataFiber: 1.54,

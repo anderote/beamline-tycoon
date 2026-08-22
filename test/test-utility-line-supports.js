@@ -1,5 +1,5 @@
 // test/test-utility-line-supports.js — periodic ground supports for elevated
-// RF waveguide, cryogenic transfer lines, and vacuum service pipe.
+// RF waveguide, cryogenic transfer lines, rigid water headers, and vacuum pipe.
 
 import * as THREE_NS from 'three';
 
@@ -21,7 +21,7 @@ function collect(root, predicate) {
   return out;
 }
 
-function build(utilityType, lengthTiles = 4, routeHeightMeters = null) {
+function build(utilityType, lengthTiles = 4, routeHeightMeters = null, waterCircuit = null) {
   const line = {
     id: `supported-${utilityType}`,
     utilityType,
@@ -29,6 +29,7 @@ function build(utilityType, lengthTiles = 4, routeHeightMeters = null) {
     end: null,
     path: [{ col: 0, row: 0 }, { col: lengthTiles, row: 0 }],
     ...(Number.isFinite(routeHeightMeters) ? { routeHeightMeters } : {}),
+    ...(waterCircuit ? { waterCircuit } : {}),
   };
   const builder = new UtilityLineBuilderV2();
   const parent = new THREE_NS.Group();
@@ -36,8 +37,8 @@ function build(utilityType, lengthTiles = 4, routeHeightMeters = null) {
   return { builder, parent };
 }
 
-console.log('\n--- 1. All three rigid services receive periodic supports ---');
-for (const utilityType of ['rfWaveguide', 'cryoTransfer', 'vacuumPipe']) {
+console.log('\n--- 1. Every rigid service receives the common periodic supports ---');
+for (const utilityType of ['rfWaveguide', 'cryoTransfer', 'waterSupplyPipe', 'vacuumPipe']) {
   const { builder, parent } = build(utilityType);
   const supports = collect(parent, object => object.userData?.isUtilitySupport);
   const expected = Math.floor(8 / UTILITY_TYPES[utilityType].supportSpacingMeters);
@@ -69,7 +70,7 @@ console.log('\n--- 2. Unsupported cables and short rigid runs stay uncluttered -
 }
 
 console.log('\n--- 3. The live draw preview includes the same support pattern ---');
-for (const utilityType of ['rfWaveguide', 'cryoTransfer', 'vacuumPipe']) {
+for (const utilityType of ['rfWaveguide', 'cryoTransfer', 'waterSupplyPipe', 'vacuumPipe']) {
   const builder = new UtilityLineBuilderV2();
   const parent = new THREE_NS.Group();
   builder.setPreview({
@@ -84,7 +85,31 @@ for (const utilityType of ['rfWaveguide', 'cryoTransfer', 'vacuumPipe']) {
   builder.dispose(parent);
 }
 
-console.log('\n--- 4. Fixed datums ignore retired per-line lane values ---');
+console.log('\n--- 4. Co-located independent services form one aligned vertical stack ---');
+{
+  const coldHeight = UTILITY_TYPES.waterSupplyPipe.runHeightsByWaterCircuit.cold;
+  const hotHeight = UTILITY_TYPES.waterSupplyPipe.runHeightsByWaterCircuit.hot;
+  const services = [
+    ['cryoTransfer', null, null],
+    ['waterSupplyPipe', coldHeight, 'cold'],
+    ['waterSupplyPipe', hotHeight, 'hot'],
+    ['rfWaveguide', null, null],
+    ['vacuumPipe', null, null],
+  ];
+  const built = services.map(([type, height, circuit]) => build(type, 4, height, circuit));
+  const supports = built.map(({ parent }) => collect(parent,
+    object => object.userData?.isUtilitySupport));
+  const stations = supports.map(items => items.map(item =>
+    `${item.position.x.toFixed(6)},${item.position.z.toFixed(6)}`).join('|'));
+  assert(new Set(stations).size === 1,
+    'all rigid services place support frames at identical plan stations');
+  const heights = supports.map(items => items[0]?.userData.centerlineHeight);
+  assert(new Set(heights).size === services.length,
+    'cryo, cold water, hot water, RF, and vacuum keep distinct vertical datums');
+  for (const entry of built) entry.builder.dispose(entry.parent);
+}
+
+console.log('\n--- 5. Fixed datums ignore retired per-line lane values ---');
 {
   const elevatedHeight = 1.14;
   const { builder, parent } = build('vacuumPipe', 4, elevatedHeight);

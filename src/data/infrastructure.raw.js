@@ -78,8 +78,9 @@
 export const INFRASTRUCTURE_RAW = {
   universalUtilityBus: {
     id: 'universalUtilityBus',
-    name: 'Universal Utility Bus',
-    desc: 'A draggable vertical service rack with one designated height for every utility. Cryogenic, RF, and vacuum channels reuse their facility-wide route datums; flexible HV, power, cooling, and data runs rise locally into their own slots. Connect sources and loads through frequent side-facing access points.',
+    name: 'Universal Utility Bus (Legacy)',
+    desc: 'Retained only so older facilities can load. New facilities stack independent rigid utility runs on their standardized service heights and aligned supports.',
+    deprecated: true,
     category: 'power', subsection: 'transport', paletteOrder: -100,
     cost: { funding: 20000 },
     stats: {}, energyCost: 0,
@@ -1201,6 +1202,88 @@ export const INFRASTRUCTURE_RAW = {
     ports: {},
     requiredConnections: [],
   },
+  waterDistributor2: {
+    id: 'waterDistributor2', name: '2-Line Water Distributor',
+    desc: 'Compact configurable header converting two flexible water lines to one rigid water-supply pipe. The connected pipe decides whether the isolated header carries cold supply or hot return water.',
+    category: 'cooling', subsection: 'distribution', paletteOrder: 1,
+    accentColor: 0x2fbccc, cost: { funding: 45000 }, stats: {}, energyCost: 0,
+    subL: 2, subW: 2, subH: 2, gridW: 2, gridH: 2, geometryType: 'box',
+    baseMaterial: 'metal_painted_blue', spriteKey: 'waterLoad', spriteColor: 0x2fbccc,
+    placement: 'module', ports: {}, requiredConnections: [],
+    waterConverterGroups: [{
+      waterLinePorts: ['water_line_1', 'water_line_2'],
+      supplyPipePorts: ['supply_pipe_1'],
+    }],
+    utilityGroups: {
+      coolingWater: [['water_line_1', 'water_line_2']],
+      waterSupplyPipe: [['supply_pipe_1']],
+    },
+    parts: [
+      { shape: 'box', w: 0.88, h: 0.42, l: 0.88, x: 0, y: 0.30, z: 0, color: 0x277a9c },
+      { shape: 'cylinder', axis: 'x', w: 0.16, h: 0.16, l: 1.18, x: 0, y: 0.62, z: 0, color: 0x87b9cf },
+      { shape: 'cylinder', axis: 'z', w: 0.09, h: 0.09, l: 0.92, x: 0, y: 0.48, z: 0, color: 0x2fbccc },
+    ],
+  },
+  waterDistributor4: {
+    id: 'waterDistributor4', name: '4-Line Dual Water Distributor',
+    desc: 'Two isolated 2-to-1 headers on one frame. Each half independently converts two flexible water lines to one rigid supply pipe, allowing a paired cold/hot station or two same-temperature circuits.',
+    category: 'cooling', subsection: 'distribution', paletteOrder: 2,
+    accentColor: 0x2fbccc, cost: { funding: 85000 }, stats: {}, energyCost: 0,
+    subL: 3, subW: 2, subH: 2, gridW: 2, gridH: 3, geometryType: 'box',
+    baseMaterial: 'metal_painted_blue', spriteKey: 'waterLoad', spriteColor: 0x2fbccc,
+    placement: 'module', ports: {}, requiredConnections: [],
+    waterConverterGroups: [
+      { waterLinePorts: ['water_line_1', 'water_line_2'], supplyPipePorts: ['supply_pipe_1'] },
+      { waterLinePorts: ['water_line_3', 'water_line_4'], supplyPipePorts: ['supply_pipe_2'] },
+    ],
+    utilityGroups: {
+      coolingWater: [
+        ['water_line_1', 'water_line_2'], ['water_line_3', 'water_line_4'],
+      ],
+      waterSupplyPipe: [['supply_pipe_1'], ['supply_pipe_2']],
+    },
+    parts: [
+      { shape: 'box', w: 0.94, h: 0.48, l: 1.38, x: 0, y: 0.32, z: 0, color: 0x277a9c },
+      { shape: 'cylinder', axis: 'z', w: 0.16, h: 0.16, l: 1.72, x: -0.24, y: 0.66, z: 0, color: 0x87b9cf },
+      { shape: 'cylinder', axis: 'z', w: 0.16, h: 0.16, l: 1.72, x: 0.24, y: 0.66, z: 0, color: 0x87b9cf },
+    ],
+  },
+  waterSupplyWallPassThrough1x1: {
+    id: 'waterSupplyWallPassThrough1x1', name: '1×1 Water Pipe Penetration',
+    desc: 'One sealed rigid-water pipe sleeve through an existing wall. Terminate the supply pipe on both faces; the sleeve preserves the connected hot or cold circuit.',
+    category: 'cooling', subsection: 'transport', paletteOrder: 3,
+    cost: { funding: 9000 }, stats: {}, energyCost: 0,
+    mount: 'wall', wallPassThrough: true, wallSpan: 1,
+    subL: 1, subW: 1, subH: 2, gridW: 1, gridH: 1, geometryType: 'box',
+    baseMaterial: 'metal_brushed', spriteKey: 'waterLoad', spriteColor: 0x5a8fa8,
+    placement: 'module', ports: {}, requiredConnections: [],
+    utilityGroups: { waterSupplyPipe: [['supply_front', 'supply_back']] },
+    parts: [
+      { shape: 'cylinder', axis: 'z', w: 0.30, h: 0.30, l: 1.25, x: 0, y: 1.45, z: 0, color: 0x778d98 },
+      { shape: 'cylinder', axis: 'z', w: 0.44, h: 0.44, l: 0.16, x: 0, y: 1.45, z: 0.56, color: 0x324b58 },
+      { shape: 'cylinder', axis: 'z', w: 0.44, h: 0.44, l: 0.16, x: 0, y: 1.45, z: -0.56, color: 0x324b58 },
+    ],
+  },
+  waterSupplyWallPassThrough2x2: {
+    id: 'waterSupplyWallPassThrough2x2', name: '2×2 Water Pipe Penetration',
+    desc: 'Two isolated sealed rigid-water sleeves through a half-wall span, sized to carry cold supply and hot return together without joining them.',
+    category: 'cooling', subsection: 'transport', paletteOrder: 4,
+    cost: { funding: 18000 }, stats: {}, energyCost: 0,
+    mount: 'wall', wallPassThrough: true, wallSpan: 2,
+    subL: 1, subW: 2, subH: 2, gridW: 2, gridH: 1, geometryType: 'box',
+    baseMaterial: 'metal_brushed', spriteKey: 'waterLoad', spriteColor: 0x5a8fa8,
+    placement: 'module', ports: {}, requiredConnections: [],
+    utilityGroups: { waterSupplyPipe: [
+      ['supply_front_1', 'supply_back_1'],
+      ['supply_front_2', 'supply_back_2'],
+    ] },
+    parts: [
+      { shape: 'box', w: 0.92, h: 0.72, l: 0.18, x: 0, y: 1.35, z: 0.58, color: 0x526874 },
+      { shape: 'box', w: 0.92, h: 0.72, l: 0.18, x: 0, y: 1.35, z: -0.58, color: 0x526874 },
+      { shape: 'cylinder', axis: 'z', w: 0.25, h: 0.25, l: 1.24, x: -0.23, y: 1.35, z: 0, color: 0x2f79a1 },
+      { shape: 'cylinder', axis: 'z', w: 0.25, h: 0.25, l: 1.24, x: 0.23, y: 1.35, z: 0, color: 0xa85a45 },
+    ],
+  },
   // The bottom two rungs of the cooling ladder. Every other utility had a
   // cheap way in (powerPanel $60k, roughingPump $50k, patchPanel $25k) while
   // cooling started at the $600k skid — and almost every beamline component
@@ -1304,6 +1387,7 @@ export const INFRASTRUCTURE_RAW = {
     spriteColor: 0x2fbccc,
     placement: 'module',
     ports: {},
+    autoConnectUtility: 'coolingWater',
 
     requiredConnections: ['hvCable'],
   },
@@ -1328,6 +1412,7 @@ export const INFRASTRUCTURE_RAW = {
     spriteColor: 0x2fbccc,
     placement: 'module',
     ports: {},
+    autoConnectUtility: 'coolingWater',
 
     requiredConnections: ['hvCable'],
   },

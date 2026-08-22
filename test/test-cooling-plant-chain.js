@@ -28,28 +28,34 @@ assert.equal(process.flowState.perSinkQuality['magnet:cool_in'], 1, 'one-pipe lo
 assert.equal(process.flowState.storageCapacityL, 500, 'tank contributes finite network storage');
 assert.equal(process.flowState.supplyRateLPerTick, 1, 'tank contributes its authored make-up flow');
 
-// The rejector has an inlet and outlet, but is one hydraulic stage. Discovery
-// must unite those explicitly-marked through ports into one ordered plant.
+// New construction keeps cold flexible supply, hot flexible return, and the
+// rigid rejection header as three explicit pieces. The distributor converts
+// the hot hose to pipe without joining it to the cold circuit.
 const topology = {
   placeables: [
-    { id: 'tank', type: 'waterTank', col: 0, row: 0 },
-    { id: 'tower', type: 'coolingTower', col: 3, row: 0 },
-    { id: 'chiller', type: 'chiller', col: 6, row: 0 },
+    { id: 'chiller', type: 'chiller', col: 0, row: 0 },
+    { id: 'load', type: 'source', col: 3, row: 0 },
+    { id: 'dist', type: 'waterDistributor2', col: 6, row: 0 },
+    { id: 'tower', type: 'coolingTower', col: 9, row: 0 },
   ],
   utilityLines: new Map([
-    ['tank-tower', { id: 'tank-tower', utilityType: 'coolingWater', start: { placeableId: 'tank', portName: 'cool_out' }, end: { placeableId: 'tower', portName: 'cool_out' }, path: [{ col: 0, row: 0 }, { col: 3, row: 0 }] }],
-    ['tower-chiller', { id: 'tower-chiller', utilityType: 'coolingWater', start: { placeableId: 'tower', portName: 'cool_out' }, end: { placeableId: 'chiller', portName: 'cool_out' }, path: [{ col: 3, row: 0 }, { col: 6, row: 0 }] }],
+    ['cold', { id: 'cold', utilityType: 'coolingWater', waterCircuit: 'cold', start: { placeableId: 'chiller', portName: 'cool_out' }, end: { placeableId: 'load', portName: 'cool_in' }, path: [{ col: 0, row: 0 }, { col: 3, row: 0 }] }],
+    ['hot', { id: 'hot', utilityType: 'coolingWater', waterCircuit: 'hot', start: { placeableId: 'load', portName: 'hot_out' }, end: { placeableId: 'dist', portName: 'water_line_1' }, path: [{ col: 3, row: 1 }, { col: 6, row: 1 }] }],
+    ['header', { id: 'header', utilityType: 'waterSupplyPipe', waterCircuit: 'hot', start: { placeableId: 'tower', portName: 'supply_hot_1' }, end: { placeableId: 'dist', portName: 'supply_pipe_1' }, path: [{ col: 6, row: 2 }, { col: 9, row: 2 }] }],
   ]),
 };
 const discovered = discoverNetworks('coolingWater', topology.utilityLines, makeDefaultPortLookup(topology));
-assert.equal(discovered.length, 1, 'tank, rejector and chiller form one Cooling Water network');
+assert.equal(discovered.length, 2, 'cold supply and hot return remain separate water-line networks');
+assert.equal(discoverNetworks('waterSupplyPipe', topology.utilityLines,
+  makeDefaultPortLookup(topology)).length, 1, 'heat rejection travels on one rigid hot-water header');
 
 const noTank = coolingWater.solve({ ...plantNetwork, sources: plantNetwork.sources.slice(1) }, { reservoirVolumeL: 500 }, state);
 assert.equal(noTank.flowState.totalCapacity, 0, 'missing reservoir takes the plant offline');
 assert(noTank.errors.some(e => e.code === 'cooling_plant_offline'), 'missing plant role is reported');
 
-// An integrated package exposes six physical outlets. Discovery joins those
-// same-device sources into one header without multiplying its 5 kW nameplate.
+// An integrated package exposes four cold outlets plus two independent hot
+// return connections. Discovery joins only the cold source group without
+// multiplying its 5 kW nameplate.
 const fanoutTopology = {
   placeables: [
     { id: 'package', type: 'packageChiller', col: 0, row: 0 },
@@ -67,18 +73,18 @@ const fanoutTopology = {
 const packageProcessNetworks = discoverNetworks(
   'coolingWater', fanoutTopology.utilityLines, makeDefaultPortLookup(fanoutTopology));
 assert.equal(packageProcessNetworks.length, 1, 'package chiller outlets are one cooling-water network');
-assert.equal(packageProcessNetworks[0].sources.length, 6, 'all six package connections join the shared header');
+assert.equal(packageProcessNetworks[0].sources.length, 4, 'the four cold package connections join the shared header');
 assert(Math.abs(packageProcessNetworks[0].sources.reduce(
   (sum, source) => sum + source.params.capacity, 0) - 5) < 1e-9,
-  'six package connections still total exactly 5 kW');
+  'four cold package connections still total exactly 5 kW');
 assert(Math.abs(packageProcessNetworks[0].sources.reduce(
-  (sum, source) => sum + source.params.heatRejectionCapacity, 0) - 5) < 1e-9,
-  'six package connections do not duplicate integrated heat rejection');
+  (sum, source) => sum + source.params.heatRejectionCapacity, 0)) < 1e-9,
+  'cold package connections do not leak hot-return rejection capacity');
 assert(Math.abs(packageProcessNetworks[0].sources.reduce(
-  (sum, source) => sum + source.params.storageCapacityL, 0) - 100) < 1e-9,
-  'six package connections add back to one finite 100 L buffer');
+  (sum, source) => sum + source.params.storageCapacityL, 0) - (100 * 4 / 6)) < 1e-9,
+  'cold package connections retain their circuit share of finite storage');
 assert(Math.abs(packageProcessNetworks[0].sources.reduce(
-  (sum, source) => sum + source.params.supplyRateLPerTick, 0) - 0.1) < 1e-9,
-  'six package connections add back to the integrated 0.1 L/tick make-up feed');
+  (sum, source) => sum + source.params.supplyRateLPerTick, 0) - (0.1 * 4 / 6)) < 1e-9,
+  'cold package connections retain their circuit share of make-up feed');
 
 console.log('cooling plant chain: PASS');

@@ -72,6 +72,10 @@ export const FLOW_PARAMS = {
     speed: 0.62, period: 2.6, width: 0.72, strength: 0.82, baseGlow: 0.075,
     lightIntensity: 0.10, lightDistance: 1.35, daylightFloor: 0.18,
   },
+  waterSupplyPipe: {
+    speed: 0.48, period: 3.1, width: 0.82, strength: 0.62, baseGlow: 0.045,
+    lightIntensity: 0.075, lightDistance: 1.1, daylightFloor: 0.14,
+  },
   cryoTransfer: {
     // Very slow drift plus a small always-on baseGlow — the "faint constant
     // frost glow" the brief calls for. Applied to both the core AND the

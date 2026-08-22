@@ -34,6 +34,7 @@ function accentColor(utilityType) {
 const ICONS = {
   powerCable:   '\u26A1',
   coolingWater: '\uD83D\uDCA7',
+  waterSupplyPipe: '\uD83D\uDCA7',
   cryoTransfer: '\u2744\uFE0F',
   rfWaveguide:  '\uD83D\uDCE1',
   vacuumPipe:   '\uD83C\uDF00',
