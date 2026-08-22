@@ -1230,12 +1230,12 @@ export const INFRASTRUCTURE_RAW = {
   },
   waterDistributor2: {
     id: 'waterDistributor2', name: '2-Line Water Distributor',
-    desc: 'Compact configurable header converting two flexible water lines to one rigid water-supply pipe. The connected pipe decides whether the isolated header carries cold supply or hot return water.',
+    desc: 'Compact configurable header converting two flexible water lines to one rigid water-supply pipe. The connected pipe decides whether the isolated header carries cold supply or hot return water; assisted wiring then connects nearby matching equipment ports.',
     category: 'cooling', subsection: 'distribution', paletteOrder: 1,
     accentColor: 0x2fbccc, cost: { funding: 45000 }, stats: {}, energyCost: 0,
     subL: 2, subW: 2, subH: 2, gridW: 2, gridH: 2, geometryType: 'box',
     baseMaterial: 'metal_painted_blue', spriteKey: 'waterLoad', spriteColor: 0x2fbccc,
-    placement: 'module', ports: {}, requiredConnections: [],
+    placement: 'module', ports: {}, autoConnectUtility: 'coolingWater', requiredConnections: [],
     waterConverterGroups: [{
       waterLinePorts: ['water_line_1', 'water_line_2'],
       supplyPipePorts: ['supply_pipe_1'],
@@ -1252,12 +1252,12 @@ export const INFRASTRUCTURE_RAW = {
   },
   waterDistributor4: {
     id: 'waterDistributor4', name: '4-Line Dual Water Distributor',
-    desc: 'Two isolated 2-to-1 headers on one frame. Each half independently converts two flexible water lines to one rigid supply pipe, allowing a paired cold/hot station or two same-temperature circuits.',
+    desc: 'Two isolated 2-to-1 headers on one frame. Each half independently converts two flexible water lines to one rigid supply pipe, allowing a paired cold/hot station or two same-temperature circuits; assisted wiring follows each pipe circuit.',
     category: 'cooling', subsection: 'distribution', paletteOrder: 2,
     accentColor: 0x2fbccc, cost: { funding: 85000 }, stats: {}, energyCost: 0,
     subL: 3, subW: 2, subH: 2, gridW: 2, gridH: 3, geometryType: 'box',
     baseMaterial: 'metal_painted_blue', spriteKey: 'waterLoad', spriteColor: 0x2fbccc,
-    placement: 'module', ports: {}, requiredConnections: [],
+    placement: 'module', ports: {}, autoConnectUtility: 'coolingWater', requiredConnections: [],
     waterConverterGroups: [
       { waterLinePorts: ['water_line_1', 'water_line_2'], supplyPipePorts: ['supply_pipe_1'] },
       { waterLinePorts: ['water_line_3', 'water_line_4'], supplyPipePorts: ['supply_pipe_2'] },

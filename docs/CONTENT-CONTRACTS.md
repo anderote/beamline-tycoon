@@ -206,6 +206,11 @@ the short authoring contract.
   hot header. Assisted wiring pairs ports by `waterCircuit` and may connect both
   circuits on one load. These classes guide assisted routing only; they do not
   change published capacity.
+- Configurable 2-line and 4-line water distributors auto-connect only their
+  flexible `coolingLoadBranch` ports. Each isolated converter group inherits
+  hot/cold identity from its connected rigid water-supply pipe; a group with no
+  single resolved pipe circuit remains unavailable to assisted wiring. Passive
+  distributor branches never create cooling capacity.
 - Electrical distributors and transformers add no demand of their own. Their
   HV inlet draws the actual connected downstream HV/branch load, capped by the
   device rating; unused nameplate capacity does not consume upstream supply.

@@ -1168,7 +1168,7 @@ function waterDistributorPorts(flexibleCount, supplyCount) {
     out[`water_line_${i + 1}`] = {
       utility: 'coolingWater', side: i % 2 ? 'front' : 'back',
       offsetAlong: (Math.floor(i / 2) + 1) / (Math.ceil(flexibleCount / 2) + 1),
-      role: 'pass', autoConnectClass: COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION,
+      role: 'pass', autoConnectClass: COOLING_AUTO_CONNECT_CLASS.LOAD_BRANCH,
       params: {},
     };
   }
