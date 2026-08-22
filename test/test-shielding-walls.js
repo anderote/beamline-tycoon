@@ -1,6 +1,7 @@
 import { Game } from '../src/game/Game.js';
-import { WALL_TYPES } from '../src/data/structure.js';
+import { WALL_PAINTS, WALL_TYPES } from '../src/data/structure.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
+import { existsSync, readFileSync } from 'node:fs';
 
 const saveStore = new Map();
 globalThis.localStorage = {
@@ -128,6 +129,52 @@ console.log('\n=== generic interior walls accept face finishes ===\n');
   assertOk(game.paintWallFace(28, 27, 's', 'labBlue'),
     'paint applies independently to the opposite interior face');
   assertOk(game.placeWall(29, 29, 'n', 'leadWall'), 'shielding wall places');
+}
+
+console.log('\n=== shielding is a paid, face-specific material layer ===\n');
+{
+  assertOk(WALL_PAINTS.leadLining.subsection === 'shielding'
+      && WALL_PAINTS.leadLining.thickness > 0,
+    'lead shielding is authored as a thick face finish');
+  assertOk(WALL_PAINTS.copperLining.subsection === 'shielding'
+      && WALL_PAINTS.copperLining.thickness > 0,
+    'copper shielding is authored as a thick face finish');
+  assertOk(WALL_TYPES.leadWall.deprecated && WALL_TYPES.copperSheeting.deprecated,
+    'legacy standalone shielding is hidden from the build palette');
+
+  const game = richGame();
+  game.placeWall(32, 32, 'n', 'interiorWall');
+  const before = game.state.resources.funding;
+  assertOk(game.paintWallFace(32, 32, 'n', 'leadLining'),
+    'lead lining applies to the selected wall face');
+  assertOk(game.paintWallFace(32, 31, 's', 'copperLining'),
+    'copper lining applies independently to the opposite face');
+  const wall = game.state.walls[0];
+  assertOk(wall.facePaint?.inside === 'leadLining'
+      && wall.facePaint?.outside === 'copperLining',
+    'both shielding layers persist on their own physical face');
+  assertOk(before - game.state.resources.funding
+      === WALL_PAINTS.leadLining.cost + WALL_PAINTS.copperLining.cost,
+    'material layers charge their authored per-segment construction costs');
+
+  const beforeStrip = game.state.resources.funding;
+  assertOk(game.paintWallFace(32, 32, 'n', null), 'the selected lead layer strips cleanly');
+  assertOk(game.state.resources.funding - beforeStrip
+      === Math.floor(WALL_PAINTS.leadLining.cost * 0.5),
+    'stripping a paid layer returns its demolition refund');
+}
+
+console.log('\n=== exterior finish catalogue is backed by tiled materials ===\n');
+{
+  const materialSource = readFileSync('src/renderer3d/materials/tiled.js', 'utf8');
+  for (const id of ['exteriorStucco', 'exteriorMetal', 'exteriorPrecast']) {
+    const finish = WALL_PAINTS[id];
+    assertOk(finish?.subsection === 'exterior' && finish.thickness > 0 && finish.cost > 0,
+      `${id} is a priced, thick exterior face finish`);
+    assertOk(materialSource.includes(`${finish.texture}:`)
+        && existsSync(`assets/textures/materials/${finish.texture}.png`),
+      `${id} texture is registered and committed`);
+  }
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -1066,9 +1066,10 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
     for (const subKey of subKeys) {
       const subDef = subsections[subKey];
       const subItems = wallKeys.filter(k => WALL_TYPES[k]?.subsection === subKey && !WALL_TYPES[k]?.deprecated);
-      // 'paint' and 'wallpaper' draw from WALL_PAINTS, not WALL_TYPES, so an
+      // Face-finish sections draw from WALL_PAINTS, not WALL_TYPES, so an
       // empty subItems list is expected for them rather than a reason to skip.
-      if (subItems.length === 0 && subKey !== 'paint' && subKey !== 'wallpaper') continue;
+      const isFinishSection = ['exterior', 'shielding', 'paint', 'wallpaper'].includes(subKey);
+      if (subItems.length === 0 && !isFinishSection) continue;
 
       if (renderedSections > 0) {
         const divider = document.createElement('div');
@@ -1086,15 +1087,14 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
       const itemsContainer = document.createElement('div');
       itemsContainer.className = 'palette-subsection-items';
 
-      if (subKey === 'paint' || subKey === 'wallpaper') {
-        // One loop, two sections: a finish carrying a `texture` is wallpaper,
-        // everything else is flat paint (see WALL_PAINTS in data/structure.js).
-        const wantWallpaper = subKey === 'wallpaper';
+      if (isFinishSection) {
         const finishes = Object.values(WALL_PAINTS)
-          .filter(p => !!p.texture === wantWallpaper);
+          .filter(p => (p.subsection ?? (p.texture ? 'wallpaper' : 'paint')) === subKey);
         for (const paint of finishes) {
           const item = document.createElement('div');
           item.className = 'palette-item';
+          const finishCost = paint.cost ?? 0;
+          if (!canAffordFunding(this.game, finishCost)) item.classList.add('unaffordable');
           item.dataset.paletteIndex = paletteIdx;
           item.dataset.paletteKey = paint.id;
           item.dataset.paletteKind = 'wallPaint';
@@ -1114,23 +1114,32 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
           item.appendChild(nameEl);
           const hintEl = document.createElement('div');
           hintEl.className = 'palette-cost';
-          hintEl.textContent = paint.texture ? 'wallpaper' : 'face paint';
+          hintEl.textContent = paint.thickness
+            ? `${paint.thickness.toFixed(2)}m layer · ${fmtMoney(paint.cost)}/seg`
+            : (subKey === 'wallpaper' ? 'wallpaper' : 'face paint');
           item.appendChild(hintEl);
           this._attachSimpleHoverPreview(item, paint.name,
-            paint.texture
-              ? 'Click a floor tile to paper its adjacent wall faces. Shift-click to paper all inward-facing walls bounding that interior. Right-click strips the finish.'
-              : 'Click a floor tile to paint its adjacent wall faces. Shift-click to paint all inward-facing walls bounding that interior.',
-            [['Placement', 'Tile walls'], ['Shift', 'Interior boundary']]);
+            paint.thickness
+              ? 'Click a floor tile to apply this material to its adjacent wall faces. Shift-click applies it around the interior boundary. Right-click strips the layer.'
+              : (paint.texture
+                ? 'Click a floor tile to paper its adjacent wall faces. Shift-click to paper all inward-facing walls bounding that interior. Right-click strips the finish.'
+                : 'Click a floor tile to paint its adjacent wall faces. Shift-click to paint all inward-facing walls bounding that interior.'),
+            [
+              ...(finishCost ? [['Cost', `${fmtMoney(finishCost)}/segment`]] : []),
+              ['Placement', 'Tile walls'], ['Shift', 'Interior boundary'],
+            ]);
           item.addEventListener('click', () => {
             if (this._onPaletteClick) this._onPaletteClick(idx);
             this._selectPaletteTool('wallPaint', paint.id);
           });
           itemsContainer.appendChild(item);
         }
-        section.appendChild(itemsContainer);
-        palette.appendChild(section);
-        renderedSections++;
-        continue;
+        if (subItems.length === 0) {
+          section.appendChild(itemsContainer);
+          palette.appendChild(section);
+          renderedSections++;
+          continue;
+        }
       }
 
       for (const key of subItems) {

@@ -7,7 +7,7 @@
 
 import { PLACEABLES } from '../data/placeables/index.js';
 import {
-  DOOR_TYPES, FLOORS, WALL_TYPES, WINDOW_TYPES, variantCost,
+  DOOR_TYPES, FLOORS, WALL_PAINTS, WALL_TYPES, WINDOW_TYPES, variantCost,
 } from '../data/structure.js';
 import {
   canPlace,
@@ -535,6 +535,9 @@ export function previewSelectionGroup(game, payload, anchorPose) {
         }
         const def = WALL_TYPES[record.type] || DOOR_TYPES[record.type] || WINDOW_TYPES[record.type];
         addCost(structureCost, { funding: variantCost(def, record.variant ?? 0) });
+      }
+      for (const finishId of Object.values(assembly.wall?.facePaint || {})) {
+        addCost(structureCost, { funding: WALL_PAINTS[finishId]?.cost ?? 0 });
       }
     }
     for (const line of payload.connections || []) {

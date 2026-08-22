@@ -22,18 +22,19 @@ function placeFloorCopy(game, floor) {
 }
 
 function copyWallPaint(game, wall) {
-  if (!wall?.facePaint) return;
+  if (!wall?.facePaint) return true;
   if (wall.facePaint.inside) {
-    game.paintWallFace(
+    if (!game.paintWallFace(
       wall.col, wall.row, wall.edge, wall.facePaint.inside, levelOf(wall),
-    );
+    )) return false;
   }
   if (wall.facePaint.outside) {
     const mirror = mirrorEdge(wall.col, wall.row, wall.edge, levelOf(wall));
-    if (mirror) game.paintWallFace(
+    if (!mirror || !game.paintWallFace(
       mirror.col, mirror.row, mirror.edge, wall.facePaint.outside, levelOf(wall),
-    );
+    )) return false;
   }
+  return true;
 }
 
 function placeEdgeCopy(game, assembly, { includeDoor = true } = {}) {
@@ -41,7 +42,7 @@ function placeEdgeCopy(game, assembly, { includeDoor = true } = {}) {
   if (!wall || !game.placeWall(
     wall.col, wall.row, wall.edge, wall.type, wall.variant ?? 0, levelOf(wall),
   )) return false;
-  copyWallPaint(game, wall);
+  if (!copyWallPaint(game, wall)) return false;
 
   const overlay = assembly.overlay;
   if (overlay && !game.placeWall(
