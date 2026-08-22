@@ -1,5 +1,5 @@
 import {
-  ArrayCamera, DepthTexture, GreaterEqualCompare, LessEqualCompare,
+  DepthTexture, GreaterEqualCompare, LessEqualCompare,
   RedFormat, RendererUtils, VSMShadowMap,
 } from 'three/webgpu';
 import {
@@ -10,14 +10,28 @@ const { resetRendererAndSceneState, restoreRendererAndSceneState } = RendererUti
 let _rendererState;
 
 /**
- * Texture-array layers are positional, so a gap cannot be filtered out. Render
- * only through the last live light: one newly placed fixture costs one shadow
- * camera, while a sparse assignment still preserves every layer index.
+ * Which layers are lit AND dirty, in round-robin order starting at `cursor`.
+ *
+ * Layers are refreshed individually now, so this returns a SET of layer
+ * indices rather than a prefix length: a sparse assignment refreshes exactly
+ * the sparse layers instead of everything below the highest one. The rotation
+ * matters because a per-frame budget smaller than the pending count would
+ * otherwise always spend itself on the lowest indices and starve the rest.
  */
-export function activeShadowPrefixLength(lights, activeCount = lights.length) {
-  let count = Math.max(0, Math.min(lights.length, Math.floor(activeCount || 0)));
-  while (count > 0 && !(lights[count - 1]?.intensity > 0)) count--;
-  return count;
+export function pendingShadowLayers(lights, activeCount = lights.length, cursor = 0) {
+  const count = Math.max(0, Math.min(lights.length, Math.floor(activeCount || 0)));
+  const out = [];
+  if (count === 0) return out;
+  const start = ((Math.floor(cursor) % count) + count) % count;
+  for (let step = 0; step < count; step++) {
+    const i = (start + step) % count;
+    const light = lights[i];
+    if (!(light?.intensity > 0)) continue;
+    const lightShadow = light.shadow;
+    if (!lightShadow) continue;
+    if (lightShadow.needsUpdate || lightShadow.autoUpdate) out.push(i);
+  }
+  return out;
 }
 
 /**
@@ -26,25 +40,58 @@ export function activeShadowPrefixLength(lights, activeCount = lights.length) {
  * Each SpotLight still has its own projection matrix and shadow sampling node,
  * but all nodes bind the same texture and select their layer. That turns N
  * texture/sampler bindings into one and makes 12 cached fixture shadows fit a
- * normal WebGPU pipeline layout. The array is refreshed as one multiview pass
- * at the scheduler cadence, then reused between refreshes.
+ * normal WebGPU pipeline layout.
+ *
+ * REFRESH IS PER LAYER, AND THAT IS THE WHOLE DESIGN. This class used to
+ * refresh the array as a single ArrayCamera pass covering every layer from 0
+ * through the highest live one, which had three compounding problems:
+ *
+ *   * COST. One dirty fixture re-rendered the facility once per live layer.
+ *     Measured on the Major Lab the moment twelve lampposts pushed the live
+ *     prefix from 4 to 11: 504 draws / 30,768 triangles per refresh became
+ *     2,321 draws / 119,900 triangles, and the light rig had no way to ask for
+ *     less because all the layers shared one scheduler slot.
+ *   * A RENDER-TARGET TEARDOWN MID-PLAY. Three's WebGPU backend caches a pass
+ *     descriptor per render target, and the ArrayCamera path's cache key does
+ *     not include the number of sub-cameras, so a pass that grew from four
+ *     live layers to eleven had to dispose the whole 768x768x12 colour+depth
+ *     array to invalidate it. That landed in the middle of a camera rotation:
+ *     two texture allocations, three shader modules and five shadow pipelines
+ *     inside one frame.
+ *   * A VALIDATION FAILURE RIGHT AFTER IT. Once the pass widened, Dawn
+ *     rejected every shadow draw ("bound with size 256 ... requires at least
+ *     768 bytes", against renderBundleArrayCamera_*), because the camera-index
+ *     uniform had been sized for the narrower pass. Fixture shadows silently
+ *     stopped rendering — the frame got faster because the work was being
+ *     thrown away.
+ *
+ * Rendering one layer at a time removes all three at once. Three keys its pass
+ * descriptor cache on `activeCubeFace` (see WebGPUBackend._getRenderPassDescriptor),
+ * so `setRenderTarget(target, layer)` yields a correctly cached single-layer
+ * colour and depth view per layer, nothing ever has to grow, and no ArrayCamera
+ * or render bundle is involved. Each pass clears only its own layer, so layers
+ * that are not being refreshed keep the shadow they already had.
  */
 export class SharedSpotShadowArray {
-  constructor(lights, mapSize = 1024) {
+  /**
+   * @param {Array<THREE.SpotLight>} lights the fixture spots, in layer order.
+   * @param {number} [mapSize=1024] one square shadow map per layer.
+   * @param {object} [options]
+   * @param {number} [options.maxLayersPerFrame=2] hard ceiling on layers
+   *        refreshed in one frame. The light rig's ShadowScheduler is the real
+   *        cadence owner; this is the backstop for the bulk invalidations
+   *        (setActiveCount, setMapSize) that the scheduler does not mediate,
+   *        so a quality change spreads over a few frames instead of spiking.
+   */
+  constructor(lights, mapSize = 1024, options = {}) {
     this.lights = lights;
     this.mapSize = mapSize;
     this.shadowMap = null;
     this.depthTexture = null;
     this.activeCount = lights.length;
+    this.maxLayersPerFrame = Math.max(1, Math.floor(options.maxLayersPerFrame ?? 2));
     this._lastFrameId = -1;
-    // Three's WebGPU backend caches the color-attachment layer views from
-    // the first ArrayCamera render. That cache key does not include the
-    // number of sub-cameras, so a pass that grows from one live shadow layer
-    // to two otherwise reuses a one-view descriptor and throws while reading
-    // descriptor.colorAttachments[1]. Track the largest prefix the current
-    // target has rendered so updateBefore can invalidate that backend cache
-    // before the prefix grows.
-    this._renderLayerCapacity = 0;
+    this._cursor = 0;
     this._nodes = [];
 
     lights.forEach((light, layer) => {
@@ -86,12 +133,7 @@ export class SharedSpotShadowArray {
 
   setMapSize(size) {
     this.mapSize = Math.max(128, Math.floor(size || 1024));
-    if (this.shadowMap) {
-      this.shadowMap.setSize(this.mapSize, this.mapSize, this.lights.length);
-      // setSize disposes the target when the dimensions change, which also
-      // discards the backend's cached layer views.
-      this._renderLayerCapacity = 0;
-    }
+    if (this.shadowMap) this.shadowMap.setSize(this.mapSize, this.mapSize, this.lights.length);
     for (let i = 0; i < this.lights.length; i++) {
       this.lights[i].shadow.needsUpdate = i < this.activeCount;
     }
@@ -107,17 +149,17 @@ export class SharedSpotShadowArray {
     }
   }
 
+  /** Backstop cadence for bulk invalidations; see the constructor. */
+  setMaxLayersPerFrame(count) {
+    this.maxLayersPerFrame = Math.max(1, Math.floor(count || 1));
+  }
+
   updateBefore(frame) {
     if (!this.shadowMap || this._lastFrameId === frame.frameId) return;
     this._lastFrameId = frame.frameId;
 
-    const renderCount = activeShadowPrefixLength(this.lights, this.activeCount);
-    if (renderCount === 0) return;
-    const renderLights = this.lights.slice(0, renderCount);
-    const needsUpdate = renderLights.some((light) => (
-      light.intensity > 0 && (light.shadow.needsUpdate || light.shadow.autoUpdate)
-    ));
-    if (!needsUpdate) return;
+    const pending = pendingShadowLayers(this.lights, this.activeCount, this._cursor);
+    if (pending.length === 0) return;
 
     const { renderer, scene, camera } = frame;
     const shadowType = renderer.shadowMap.type;
@@ -126,58 +168,42 @@ export class SharedSpotShadowArray {
       return;
     }
 
-    const cameras = [];
-    const previousLayers = [];
-    for (let i = 0; i < renderLights.length; i++) {
-      const light = renderLights[i];
-      const lightShadow = light.shadow;
-      previousLayers.push(lightShadow.camera.layers.mask);
-      if ((lightShadow.camera.layers.mask & 0xFFFFFFFE) === 0) {
-        lightShadow.camera.layers.mask = camera.layers.mask;
-      }
-      lightShadow.updateMatrices(light);
-      lightShadow.camera.userData.fixtureShadowLayer = i;
-      cameras.push(lightShadow.camera);
-    }
+    const layers = pending.slice(0, Math.min(pending.length, this.maxLayersPerFrame));
+    this._cursor = (layers[layers.length - 1] + 1) % Math.max(1, this.activeCount);
 
     const currentRenderObjectFunction = renderer.getRenderObjectFunction();
     const currentMRT = renderer.getMRT();
     const useVelocity = currentMRT ? currentMRT.has('velocity') : false;
-    const referenceShadow = this.lights[0].shadow;
-
-    this._ensureRenderLayerCapacity(renderer, renderCount);
 
     _rendererState = resetRendererAndSceneState(renderer, scene, _rendererState);
     scene.overrideMaterial = getShadowMaterial(this.lights[0]);
-    renderer.setRenderObjectFunction(
-      getShadowRenderObjectFunction(renderer, referenceShadow, shadowType, useVelocity),
-    );
     renderer.setClearColor(0x000000, 0);
+    // Keep the array at full topology depth. Every layer index has to stay
+    // addressable even while only a couple of them are being refreshed.
     this.shadowMap.setSize(this.mapSize, this.mapSize, this.lights.length);
-    renderer.setRenderTarget(this.shadowMap);
-    renderer.render(scene, new ArrayCamera(cameras));
+
+    for (const layer of layers) {
+      const light = this.lights[layer];
+      const lightShadow = light.shadow;
+      const previousLayerMask = lightShadow.camera.layers.mask;
+      if ((lightShadow.camera.layers.mask & 0xFFFFFFFE) === 0) {
+        lightShadow.camera.layers.mask = camera.layers.mask;
+      }
+      lightShadow.updateMatrices(light);
+      // Per-light, not a shared reference: the render-object function bakes in
+      // this shadow's bias/radius, and reusing lights[0]'s for every layer
+      // gave every fixture the first fixture's depth offsets.
+      renderer.setRenderObjectFunction(
+        getShadowRenderObjectFunction(renderer, lightShadow, shadowType, useVelocity),
+      );
+      renderer.setRenderTarget(this.shadowMap, layer);
+      renderer.render(scene, lightShadow.camera);
+      lightShadow.camera.layers.mask = previousLayerMask;
+      lightShadow.needsUpdate = false;
+    }
+
     renderer.setRenderObjectFunction(currentRenderObjectFunction);
     restoreRendererAndSceneState(renderer, scene, _rendererState);
-
-    for (let i = 0; i < renderLights.length; i++) {
-      const light = renderLights[i];
-      light.shadow.camera.layers.mask = previousLayers[i];
-      light.shadow.needsUpdate = false;
-    }
-  }
-
-  /**
-   * Invalidate Three's WebGPU render-target descriptor cache before an array
-   * shadow pass grows beyond the number of layer views it first created.
-   * Disposing the target releases only GPU-side attachments; the RenderTarget
-   * and shared DepthTexture objects stay live and are rebuilt by the nested
-   * render below. Shrinking needs no reset because the cached prefix already
-   * contains every smaller layer view.
-   */
-  _ensureRenderLayerCapacity(renderer, renderCount) {
-    if (!renderer?.backend?.isWebGPUBackend || renderCount <= this._renderLayerCapacity) return;
-    if (this._renderLayerCapacity > 0) this.shadowMap?.dispose();
-    this._renderLayerCapacity = renderCount;
   }
 
   dispose() {
@@ -188,7 +214,6 @@ export class SharedSpotShadowArray {
     this.shadowMap?.dispose();
     this.shadowMap = null;
     this.depthTexture = null;
-    this._renderLayerCapacity = 0;
     this._nodes.length = 0;
   }
 }

@@ -59,6 +59,7 @@ import {
 import { OverlayShim } from './overlay-shim.js';
 import { GlowPipeline } from './glow-pipeline.js';
 import { createRendererRecovery, createWorldRenderer } from './renderer-backend.js';
+import { FramePacer } from './frame-pacer.js';
 import { LightRig } from './light-rig.js';
 import { VisualEffectSystem } from './visual-effect-system.js';
 import { fixtureMountY, wallFixturePose } from './fixture-light-math.js';
@@ -212,6 +213,7 @@ export class ThreeRenderer {
 
     this._frustumSize = 20;
     this._animFrameId = null;
+    this._framePacer = null;
 
     this.renderer = null;
     this.scene = null;
@@ -590,6 +592,13 @@ export class ThreeRenderer {
       enabled: glowStored !== '0',
       quality: this._lightingQuality,
     });
+
+    // GPU back-pressure. WebGPU's render() submits and returns, so without
+    // this the rAF loop happily queues frames the device has not started yet;
+    // the queue then grows until the compositor stalls it, which reads to the
+    // player as a frozen world with a still-responsive UI. See frame-pacer.js.
+    // Inert on the WebGL2 fallback backend, which has no device queue.
+    this._framePacer = new FramePacer(this.renderer);
 
     // Declarative presentation effects: scalable instanced pulses/spill and
     // per-machine emissive animation. Builders publish descriptors; this is
@@ -1771,6 +1780,7 @@ export class ThreeRenderer {
       fixtureCandidates: this.lightingGroup?.length || 0,
       sunShadowUpdate: !!this._sunLight?.shadow?.needsUpdate,
       ...(this._lightRig?.getStats() || {}),
+      ...(this._framePacer?.getStats() || {}),
       effects: this._effectSystem?.getStats?.() || null,
       ...(this._volumePool?.getStats() || {}),
     };
@@ -4223,11 +4233,24 @@ export class ThreeRenderer {
       this._lightRig.update(
         this.camera, this._darkness ?? 0, _dt, this._lightFocus,
         this._lightingEffectTimeMs ?? 0,
+        // Q/E rotation, view-mode snap and free orbit all sweep the camera
+        // frustum, which is an input to fixture ranking. Re-ranking mid-sweep
+        // buys nothing the player can see and costs shadow refreshes on
+        // exactly the frames that can least afford them.
+        { freezeAssignment: this._viewRotating || this._snapping || this._freeOrbiting },
       );
       this._volumePool?.update(this._lightRig, this._darkness ?? 0, _dt);
     }
     this._physicsPresentation.update(_dt);
-    this._glowPipeline.render();
+    // Everything above is simulation and state: it runs every frame so the
+    // sim, the camera animation and the HUD never stutter. Only the GPU
+    // submission below is skippable, and only while the device is already
+    // holding more frames than it should. Shadow refreshes scheduled this
+    // frame stay marked and land on the next frame that does render.
+    if (!this._framePacer || this._framePacer.shouldRender()) {
+      this._glowPipeline.render();
+      this._framePacer?.frameSubmitted();
+    }
     if (this._viewCube) this._viewCube.update();
     } catch (e) { console.error('[ThreeRenderer] animate error:', e); }
   }
@@ -5572,6 +5595,10 @@ export class ThreeRenderer {
     if (this._glowPipeline) {
       this._glowPipeline.dispose();
       this._glowPipeline = null;
+    }
+    if (this._framePacer) {
+      this._framePacer.dispose();
+      this._framePacer = null;
     }
     if (this._lightRig) {
       this._lightRig.dispose();

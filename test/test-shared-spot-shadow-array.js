@@ -3,22 +3,87 @@ import { test } from 'node:test';
 import { SpotLight } from 'three/webgpu';
 import {
   SharedSpotShadowArray,
-  activeShadowPrefixLength,
+  pendingShadowLayers,
 } from '../src/renderer3d/lighting/shared-spot-shadow-array.js';
 
-test('shared fixture shadows render only through the last assigned layer', () => {
-  const lights = Array.from({ length: 12 }, () => ({ intensity: 0 }));
-  lights[0].intensity = 1;
-  assert.equal(activeShadowPrefixLength(lights, 12), 1,
-    'the first placed light renders one camera, not the whole quality budget');
+/**
+ * Minimal stand-in for WebGPURenderer covering exactly what three's
+ * RendererUtils.resetRendererAndSceneState touches plus the render-target
+ * layer selection this class depends on. `renders` records (layer, camera)
+ * per pass, which is the whole contract under test.
+ */
+function stubRenderer() {
+  let layer = null;
+  const renders = [];
+  return {
+    renders,
+    backend: { isWebGPUBackend: true },
+    shadowMap: { type: 1 },
+    toneMapping: 0,
+    toneMappingExposure: 1,
+    outputColorSpace: 'srgb',
+    autoClear: true,
+    getRenderTarget: () => null,
+    getActiveCubeFace: () => 0,
+    getActiveMipmapLevel: () => 0,
+    getRenderObjectFunction: () => null,
+    setRenderObjectFunction() {},
+    getPixelRatio: () => 1,
+    setPixelRatio() {},
+    getMRT: () => null,
+    setMRT() {},
+    getClearColor: (target) => target,
+    getClearAlpha: () => 1,
+    setClearColor() {},
+    getScissorTest: () => false,
+    setScissorTest() {},
+    setRenderTarget(_target, activeCubeFace = 0) { layer = activeCubeFace; },
+    render(_scene, camera) { renders.push({ layer, camera }); },
+  };
+}
 
-  lights[3].intensity = 1;
-  assert.equal(activeShadowPrefixLength(lights, 12), 4,
-    'a sparse layer keeps the positional prefix required by the texture array');
+function stubScene() {
+  return { background: null, backgroundNode: null, overrideMaterial: null };
+}
 
-  lights[11].intensity = 1;
-  assert.equal(activeShadowPrefixLength(lights, 6), 4,
-    'lights outside the active quality budget cannot expand the pass');
+test('only lit, dirty layers are pending — a sparse assignment stays sparse', () => {
+  const mk = (intensity, needsUpdate) => ({
+    intensity,
+    shadow: { needsUpdate, autoUpdate: false },
+  });
+  const lights = Array.from({ length: 12 }, () => mk(0, false));
+
+  assert.deepEqual(pendingShadowLayers(lights, 12), [],
+    'an unlit rig refreshes nothing at all');
+
+  lights[0] = mk(1, true);
+  lights[7] = mk(1, true);
+  assert.deepEqual(pendingShadowLayers(lights, 12), [0, 7],
+    'layer 7 is refreshed on its own — layers 1..6 are not dragged along with it');
+
+  lights[7].shadow.needsUpdate = false;
+  assert.deepEqual(pendingShadowLayers(lights, 12), [0],
+    'a clean layer keeps the shadow it already has');
+
+  lights[7].shadow.needsUpdate = true;
+  assert.deepEqual(pendingShadowLayers(lights, 4), [0],
+    'layers outside the active quality budget are never refreshed');
+
+  lights[0].intensity = 0;
+  assert.deepEqual(pendingShadowLayers(lights, 12), [7],
+    'a dark fixture costs no shadow pass however dirty it is');
+});
+
+test('the pending cursor round-robins so a per-frame budget cannot starve a layer', () => {
+  const lights = Array.from({ length: 4 }, () => ({
+    intensity: 1,
+    shadow: { needsUpdate: true, autoUpdate: false },
+  }));
+  assert.deepEqual(pendingShadowLayers(lights, 4, 0), [0, 1, 2, 3]);
+  assert.deepEqual(pendingShadowLayers(lights, 4, 2), [2, 3, 0, 1],
+    'resuming at the cursor reaches the high layers before revisiting the low ones');
+  assert.deepEqual(pendingShadowLayers(lights, 4, 9), [1, 2, 3, 0],
+    'the cursor wraps rather than running off the end');
 });
 
 test('shared fixture shadow array activates only the selected prefix of layers', () => {
@@ -48,33 +113,68 @@ test('shared fixture shadow array activates only the selected prefix of layers',
   assert.equal(lights.every((light) => light.shadow.shadowNode === null), true);
 });
 
-test('WebGPU array target cache is reset only when its rendered prefix grows', () => {
-  const lights = Array.from({ length: 6 }, () => new SpotLight());
-  const array = new SharedSpotShadowArray(lights, 1024);
-  let disposeCalls = 0;
-  array.shadowMap = { dispose() { disposeCalls++; }, setSize() {} };
-  const webgpu = { backend: { isWebGPUBackend: true } };
+test('a refresh renders one pass per dirty layer, into that layer, and clears only it', () => {
+  const lights = Array.from({ length: 6 }, () => {
+    const light = new SpotLight();
+    light.castShadow = true;
+    light.intensity = 1;
+    light.shadow.needsUpdate = false;
+    light.shadow.autoUpdate = false;
+    return light;
+  });
+  const array = new SharedSpotShadowArray(lights, 512, { maxLayersPerFrame: 2 });
+  // Stand in for the target the node builder would have created.
+  array.shadowMap = { setSize() {}, dispose() {} };
 
-  array._ensureRenderLayerCapacity(webgpu, 1);
-  assert.equal(disposeCalls, 0, 'the first pass establishes capacity without disposing a fresh target');
-  assert.equal(array._renderLayerCapacity, 1);
+  const renderer = stubRenderer();
+  const renders = renderer.renders;
+  const frame = { frameId: 1, renderer, scene: stubScene(), camera: { layers: { mask: 0xffffffff } } };
 
-  array._ensureRenderLayerCapacity(webgpu, 1);
-  array._ensureRenderLayerCapacity(webgpu, 2);
-  assert.equal(disposeCalls, 1, 'growing from one layer to two invalidates the stale one-view descriptor');
-  assert.equal(array._renderLayerCapacity, 2);
+  lights[1].shadow.needsUpdate = true;
+  lights[4].shadow.needsUpdate = true;
+  array.updateBefore(frame);
 
-  array._ensureRenderLayerCapacity(webgpu, 1);
-  assert.equal(disposeCalls, 1, 'shrinking reuses the already-cached prefix views');
+  assert.deepEqual(renders.map((r) => r.layer), [1, 4],
+    'each dirty layer gets its own single-camera pass targeting its own array layer');
+  assert.equal(renders[0].camera, lights[1].shadow.camera,
+    'a layer renders through its own shadow camera, not a shared ArrayCamera');
+  assert.deepEqual(lights.map((l) => l.shadow.needsUpdate),
+    [false, false, false, false, false, false]);
 
-  array._ensureRenderLayerCapacity(webgpu, 6);
-  assert.equal(disposeCalls, 2, 'a later growth beyond capacity invalidates exactly once more');
+  // Same frame id: the node fires updateBefore once per light, and only the
+  // first of those may do the work.
+  renders.length = 0;
+  lights[2].shadow.needsUpdate = true;
+  array.updateBefore(frame);
+  assert.deepEqual(renders, [], 'a second call within one frame is a no-op');
 
-  array.setMapSize(512);
-  assert.equal(array._renderLayerCapacity, 0, 'resizing forgets views discarded with the old target');
-  array._ensureRenderLayerCapacity(webgpu, 2);
-  assert.equal(disposeCalls, 2, 'the first pass after a resize establishes a fresh capacity');
+  array.dispose();
+});
 
-  array._ensureRenderLayerCapacity({ backend: { isWebGPUBackend: false } }, 7);
-  assert.equal(disposeCalls, 2, 'the WebGL backend is not coupled to WebGPU descriptor caching');
+test('the per-frame layer budget caps a bulk invalidation without dropping layers', () => {
+  const lights = Array.from({ length: 6 }, () => {
+    const light = new SpotLight();
+    light.castShadow = true;
+    light.intensity = 1;
+    light.shadow.needsUpdate = true;
+    light.shadow.autoUpdate = false;
+    return light;
+  });
+  const array = new SharedSpotShadowArray(lights, 512, { maxLayersPerFrame: 2 });
+  array.shadowMap = { setSize() {}, dispose() {} };
+
+  const renderer = stubRenderer();
+  const scene = stubScene();
+  const camera = { layers: { mask: 0xffffffff } };
+
+  for (let frameId = 1; frameId <= 3; frameId++) {
+    array.updateBefore({ frameId, renderer, scene, camera });
+  }
+  const rendered = renderer.renders.map((r) => r.layer);
+  assert.equal(rendered.length, 6, 'two layers per frame, so six layers take three frames');
+  assert.deepEqual([...rendered].sort((a, b) => a - b), [0, 1, 2, 3, 4, 5],
+    'every layer is refreshed exactly once — the cursor never strands one');
+  assert.equal(lights.every((l) => l.shadow.needsUpdate === false), true);
+
+  array.dispose();
 });
