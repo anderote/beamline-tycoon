@@ -80,11 +80,12 @@ function candidate(state, utilityType, start, end) {
   });
 }
 
-test('Power palette provides two real wall-mounted electrical feedthroughs', () => {
+test('Power palette retires the low-voltage feedthrough and keeps HV wall entry', () => {
   assert.equal(PLACEABLES.hvWallPassThrough2x2, undefined,
     'the retired half-wall HV feedthrough is absent from the catalogue');
+  assert.equal(PLACEABLES.powerWallPassThrough.deprecated, true,
+    'old low-voltage fittings remain loadable only for save compatibility');
   for (const [id, utility, names] of [
-    ['powerWallPassThrough', 'powerCable', ['pwr_in', 'pwr_out']],
     ['hvWallPassThrough', 'hvCable', ['hv_in', 'hv_out']],
   ]) {
     const def = PLACEABLES[id];
@@ -303,6 +304,58 @@ test('indoor HV rack is a six-point bus with inset overhead terminals and two cr
     'the indoor bracket applies the suspended HV tension-and-sag presentation');
   assert.equal(isTensionedHvCable(lines.get('tap-left'), new Map([[rack.id, rack]])), true,
     'a crossbar-height side tap applies the same cable tension as a utility-pole support');
+});
+
+test('one-way indoor HV rack is one pole with one top-supported conductor', () => {
+  const def = PLACEABLES.indoorHvCableRack1Way;
+  const ports = getUtilityPortsV2(def.id);
+  assert.equal(def.kind, 'infrastructure');
+  assert.equal(def.category, 'power');
+  assert.equal(def.subsection, 'routingHardware');
+  assert.equal(def.mount, 'overhead');
+  assert.equal(def.hvCableSupport, 'indoorRack');
+  assert.equal(def.subW, 1);
+  assert.equal(def.subL, 2);
+  assert.equal(def.subH, 5);
+  assert.deepEqual(Object.keys(ports), ['hv_1']);
+  assert.deepEqual(ports.hv_1, {
+    utility: 'hvCable', side: 'front', offsetAlong: 0.5,
+    role: 'pass', omnidirectional: true, maxConnections: 2, params: {},
+  });
+
+  assert.equal(def.parts.filter(part => part.name === 'upright').length, 1);
+  assert.equal(def.parts.filter(part => part.name === 'foot').length, 1);
+  assert.equal(def.parts.filter(part => part.name === 'insulator-stem').length, 1);
+  assert.equal(def.parts.filter(part => part.name === 'terminal-cap').length, 1);
+  assert.equal(def.parts.some(part => /crossbar|hv-tap/.test(part.name)), false,
+    'the one-way support is only a pole and top insulator');
+
+  const rack = {
+    id: 'rack-1-way', type: def.id, col: 0, row: 0,
+    subCol: 0, subRow: 0, dir: 0,
+  };
+  setModelBoundsProvider(() => ({
+    minX: -0.25, maxX: 0.25, minY: 0, maxY: 2.05, minZ: -0.5, maxZ: 0.5,
+  }));
+  const anchor = portAnchor3D(rack, COMPONENTS[def.id], 'hv_1');
+  assert.deepEqual({ x: anchor.x, y: anchor.y, z: anchor.z }, { x: 0.25, y: 2.00, z: 0.5 },
+    'the HV cable lands on the insulator cap at the pole top');
+  assert.deepEqual(anchor.out, { x: 0, y: 1, z: 0 },
+    'the terminal fitting faces upward along the top-mounted insulator');
+  setModelBoundsProvider(null);
+
+  const lines = new Map([0, 1].map(segment => [`wire-${segment}`, {
+    id: `wire-${segment}`, utilityType: 'hvCable',
+    start: { placeableId: rack.id, portName: 'hv_1' }, end: null,
+    path: [{ col: segment * 2, row: 0 }, { col: segment * 2 + 1, row: 0 }],
+  }]));
+  const state = openState({ placeables: [rack], utilityLines: lines });
+  const networks = discoverNetworks('hvCable', lines, makeDefaultPortLookup(state));
+  assert.equal(networks.length, 1,
+    'both cable segments remain continuous through the single support point');
+  assert.ok([...lines.values()].every(line => (
+    isTensionedHvCable(line, new Map([[rack.id, rack]]))
+  )), 'both attachments use suspended HV tension and sag');
 });
 
 test('compact indoor HV rack is an L-frame three-point bus for two overhead wires', () => {

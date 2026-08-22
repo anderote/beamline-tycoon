@@ -156,6 +156,30 @@
       </div>
     </div>
 
+    <!-- Presentation-only pixel effect authoring and preview tool -->
+    <div id="effects-workshop-control">
+      <button id="effects-workshop-toggle" type="button" aria-expanded="false"
+              aria-controls="effects-workshop-panel" title="Tune and preview particle effects">
+        <span aria-hidden="true">✦</span> FX Workshop
+      </button>
+      <section id="effects-workshop-panel" class="hidden" aria-label="Effects workshop">
+        <header class="effects-workshop-header">
+          <div>
+            <span class="effects-workshop-kicker">PIXEL PARTICLE LAB</span>
+            <h2>Effects Workshop</h2>
+          </div>
+          <button id="effects-workshop-close" type="button" aria-label="Close effects workshop">×</button>
+        </header>
+        <div id="effects-workshop-tabs" role="group" aria-label="Effect type"></div>
+        <p id="effects-workshop-description"></p>
+        <div id="effects-workshop-sliders"></div>
+        <footer class="effects-workshop-footer">
+          <span id="effects-workshop-status">CLICK THE WORLD TO CREATE THE EFFECT</span>
+          <button id="effects-workshop-reset" type="button">Reset preset</button>
+        </footer>
+      </section>
+    </div>
+
     <!-- Wall visibility control (lower-right, above bottom HUD) -->
     <div id="wall-visibility-control">
       <button type="button" class="wall-vis-btn" data-wall-mode="roof" title="Show all stories and roofs" aria-label="Show all stories and roofs" aria-pressed="false">

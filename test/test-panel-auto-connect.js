@@ -421,7 +421,65 @@ console.log('\n--- 12. The LCW manifold pairs blue and red hoses to four loads -
     'all eight occupied manifold connectors stay consumed on repeated auto-connect');
 }
 
-console.log('\n--- 13. Network switches fan out once per nearby data device ---');
+console.log('\n--- 13. Water distributors inherit pipe circuits before fanning out hoses ---');
+{
+  for (const type of ['waterDistributor2', 'waterDistributor4']) {
+    const profile = utilityAutoConnectProfile(COMPONENTS[type]);
+    assert(profile?.utilityType === 'coolingWater' && profile.radius > 0,
+      `${type} opts into flexible water-line assisted wiring`);
+  }
+
+  const unresolved = new Game(new BeamlineRegistry(), { seed: 97 });
+  unresolved.state.placeables.push(
+    item('dist', 'waterDistributor2', 10, 10),
+    item('magnet', 'quadrupole', 12, 10),
+  );
+  const unresolvedPlan = planPanelAutoConnect(unresolved.state, 'dist');
+  assert(unresolvedPlan.outlets === 0 && unresolvedPlan.stubs.length === 0,
+    'a configurable header never guesses hot versus cold before its rigid pipe is connected');
+
+  const game = new Game(new BeamlineRegistry(), { seed: 98 });
+  game.state.resources.funding = 1e9;
+  game.state.placeables.push(
+    item('dist', 'waterDistributor4', 10, 10),
+    item('chiller', 'chiller', 6, 9),
+    item('tower', 'coolingTower', 6, 13),
+    item('magnet_1', 'quadrupole', 13, 9),
+    item('magnet_2', 'quadrupole', 13, 12),
+  );
+  game.state.utilityLines.set('cold_pipe', {
+    id: 'cold_pipe', utilityType: 'waterSupplyPipe', waterCircuit: 'cold',
+    start: { placeableId: 'chiller', portName: 'supply_cold_out' },
+    end: { placeableId: 'dist', portName: 'supply_pipe_1' },
+    path: [{ col: 7, row: 10 }, { col: 10, row: 10 }],
+  });
+  game.state.utilityLines.set('hot_pipe', {
+    id: 'hot_pipe', utilityType: 'waterSupplyPipe', waterCircuit: 'hot',
+    start: { placeableId: 'tower', portName: 'supply_hot_1' },
+    end: { placeableId: 'dist', portName: 'supply_pipe_2' },
+    path: [{ col: 7, row: 13 }, { col: 10, row: 13 }],
+  });
+
+  const plan = planPanelAutoConnect(game.state, 'dist');
+  const coldStubs = plan.stubs.filter(stub =>
+    ['water_line_1', 'water_line_2'].includes(stub.start.portName));
+  const hotStubs = plan.stubs.filter(stub =>
+    ['water_line_3', 'water_line_4'].includes(stub.start.portName));
+  assert(plan.utilityType === 'coolingWater' && plan.candidates === 2
+      && plan.outlets === 4 && plan.stubs.length === 4,
+  `the dual distributor plans four flexible hoses to two loads (got ${plan.stubs.length})`);
+  assert(coldStubs.length === 2
+      && coldStubs.every(stub => stub.end.portName === 'cool_in'),
+  'the header on the rigid cold pipe connects only equipment cold inlets');
+  assert(hotStubs.length === 2
+      && hotStubs.every(stub => stub.end.portName === 'hot_out'),
+  'the header on the rigid hot pipe connects only equipment hot returns');
+  const committed = commitPanelAutoConnect(game, plan);
+  assert(committed.length === 4 && linesOf(game, 'coolingWater').length === 4,
+    'the distributor commits four ordinary paid flexible water lines');
+}
+
+console.log('\n--- 14. Network switches fan out once per nearby data device ---');
 {
   const game = new Game(new BeamlineRegistry(), { seed: 97 });
   game.state.resources.funding = 1e9;
@@ -442,7 +500,7 @@ console.log('\n--- 13. Network switches fan out once per nearby data device ---'
     'already-linked data devices are not offered again on repeated auto-connect');
 }
 
-console.log('\n--- 14. Utility poles build aligned multi-conductor peer spans ---');
+console.log('\n--- 15. Utility poles build aligned multi-conductor peer spans ---');
 {
   const game = new Game(new BeamlineRegistry(), { seed: 98 });
   game.state.resources.funding = 1e9;
@@ -466,7 +524,7 @@ console.log('\n--- 14. Utility poles build aligned multi-conductor peer spans --
   }).ok), 'every aligned overhead conductor is a valid ordinary HV line');
 }
 
-console.log('\n--- 15. Utility poles reserve their side tap for pad-mount transformers ---');
+console.log('\n--- 16. Utility poles reserve their side tap for pad-mount transformers ---');
 {
   const game = new Game(new BeamlineRegistry(), { seed: 99 });
   game.state.resources.funding = 1e9;

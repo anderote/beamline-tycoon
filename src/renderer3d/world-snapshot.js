@@ -472,6 +472,9 @@ function componentSnapshotEntry(game, p) {
     direction: p.dir ?? null,
     portsFlipped: p.portsFlipped === true,
     wallMount: wallMountSnapshot(game, p.wallMount),
+    utilityMount: p.utilityMount ? { ...p.utilityMount } : null,
+    worldX: Number.isFinite(p.worldX) ? p.worldX : undefined,
+    worldZ: Number.isFinite(p.worldZ) ? p.worldZ : undefined,
     tiles: p.cells ? p.cells.map(c => ({ col: c.col, row: c.row })) : [{ col: p.col, row: p.row }],
     dimmed,
     health,
@@ -482,7 +485,7 @@ function componentSnapshotEntry(game, p) {
     beamlineId: p.beamlineId ?? null,
     accentColor,
     mapEdgeConnection,
-    yOffset: levelWorldY(levelOf(p)),
+    yOffset: Number.isFinite(p.mountY) ? p.mountY : levelWorldY(levelOf(p)),
   };
 }
 

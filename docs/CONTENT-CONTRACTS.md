@@ -62,6 +62,10 @@ the short authoring contract.
   wall. HV feedthroughs set `utilityFlowPresentation: 'symmetric'`: both faces
   use passive, double-headed terminal arrows and the body carries no preferred
   flow arrow, because either face may be upstream.
+- `powerWallPassThrough` is retired compatibility content. Existing saves may
+  load and demolish it, but new low-voltage wall entry uses a meter-main or
+  other active distribution equipment and no build palette advertises the old
+  passive fitting.
 - An off-map service uses `mapEdgeConnection` with a positive integer
   `maxDistanceTiles` plus validated conductor presentation dimensions. Its
   complete footprint must remain on the map and inside that boundary band at
@@ -202,6 +206,11 @@ the short authoring contract.
   hot header. Assisted wiring pairs ports by `waterCircuit` and may connect both
   circuits on one load. These classes guide assisted routing only; they do not
   change published capacity.
+- Configurable 2-line and 4-line water distributors auto-connect only their
+  flexible `coolingLoadBranch` ports. Each isolated converter group inherits
+  hot/cold identity from its connected rigid water-supply pipe; a group with no
+  single resolved pipe circuit remains unavailable to assisted wiring. Passive
+  distributor branches never create cooling capacity.
 - Electrical distributors and transformers add no demand of their own. Their
   HV inlet draws the actual connected downstream HV/branch load, capped by the
   device rating; unused nameplate capacity does not consume upstream supply.
@@ -255,6 +264,12 @@ the short authoring contract.
   freehand `cablePath` the player drew. The freehand trace owns their visible
   geometry, length/cost, wall checks, and solid-equipment collision; cooling
   additionally uses it for spatial topology.
+- Moving connected equipment pulls flexible HV cable, ordinary power cable,
+  and cooling-water hose with a generous coiled-lead strain allowance. These
+  rugged services should remain connected through ordinary layout edits and
+  only dangle after an extreme move exceeds their physical leash. Fabricated
+  vacuum, RF, cryogenic, and water-supply services keep the conservative rigid
+  re-anchor limit.
 - Free-drag endpoints may snap to an existing compatible vacuum, cooling, RF,
   cryogenic-transfer, or data run and commit a named `tapLineIds` T-junction.
   Vacuum, RF, and cryogenic transfer also join automatically wherever an
@@ -323,29 +338,43 @@ the short authoring contract.
 - Distribution-equipment outputs terminate at visible, independently selectable
   front-face glands aligned with their breaker rows. Moving an HV input onto its
   insulated roof bushing must not move the device's branch outputs off the front.
-- Transmission towers and the 45-degree indoor HV corner rack expose one
-  passive HV port at every visible insulator or saddle. Each accepts two wire
-  attachments; lines sharing one named port are continuous, while the other
-  support ports remain isolated.
-- The straight indoor HV racks are passive buses. The 4-way rack is one
-  six-point bus with four overhead terminals plus one insulated tap on each
-  leg. The compact 2-way rack is a three-point L-frame bus with two overhead
-  terminals plus one insulated tap on the upright's outside face. Every rack
-  attachment shares the 2.00 m crossbar-terminal height and tensions attached
-  cables. Overhead rows use 0.4 m spacing so the hanging insulators clear their
-  uprights.
+- Transmission towers expose one passive HV port at every visible insulator.
+  Each accepts two wire attachments; lines sharing one named port are
+  continuous, while the other support ports remain isolated. The former
+  45-degree indoor HV corner rack remains registered only to load old saves
+  and is absent from construction palettes and search.
+- The straight indoor HV racks support one, two, or four overhead conductors.
+  The 1-way rack is a single pole with one top-mounted insulated terminal; its
+  one port accepts two segments of the same continuous conductor. The 4-way
+  rack is one six-point bus with four overhead terminals plus one insulated tap
+  on each leg. The compact 2-way rack is a three-point L-frame bus with two
+  overhead terminals plus one insulated tap on the upright's outside face.
+  Every rack attachment shares the 2.00 m crossbar-terminal height and tensions
+  attached cables. Overhead rows use 0.4 m spacing so the hanging insulators
+  clear their uprights.
   The 2×2 Utility Pole likewise buses its four overhead terminals to one front
-  `hv_tap` at the Pad-Mount Transformer's 1.55 m primary-bushing height.
-  Assisted wiring reserves that tap for `padMountTransformer.hv_in`, while
-  pole-to-pole spans retain the four overhead conductors. Sources remain the
-  sole capacity authority. The transformer tap does not tension cables or
-  qualify a line for the elevated wall-crossing exception.
+  `hv_tap` at 1.55 m. The Pole-Mount Service Transformer is a compact
+  port-mounted 100 kW box: placement snaps its `hv_in` directly onto any free
+  `hvDistributionTap` capability on a wood pole or straight indoor rack and
+  creates the internal HV topology connection. Its four `powerCable` outlets
+  remain independently selectable. A host cannot move out from under mounted
+  equipment, and removing it cascades through the mounted transformer's normal
+  removal path. Sources remain the sole capacity authority. A transformer tap
+  does not tension cables or qualify a line for the elevated wall-crossing
+  exception.
   Indoor HV racks use overhead placement occupancy: their footprint anchors
   the frame but does not prevent ordinary equipment from being built beneath
   it. An HV cable with either end on an elevated support terminal, or on an
   electrical wall feedthrough, removes drawn lateral slack but retains a
   visible, shallow gravity sag while suspended between its endpoints; the pole
   transformer tap and other soft cables retain drawn slack.
+- The active Elevated Wire Tray is an overhead, stilt-mounted mixed-utility
+  carrier. Its cable deck and connector band are exactly 1.78 m above the
+  local floor, below the indoor HV rack's 2.00 m insulators. Four numbered
+  `powerCable` inlet/outlet pairs are isolated conductor groups; the paired
+  `dataFiber` connectors share one data pathway. It owns no floor occupancy
+  and is linked into both Power / Cable Routing and Data & Controls / Transport.
+  The former `cableTray` remains registered only for old saves.
 - Passive inlet/outlet fittings keep their `pass` topology role but normally
   derive their physical arrow direction from the port name. Pole, tower,
   indoor-rack support ports, and symmetric HV wall feedthroughs remain

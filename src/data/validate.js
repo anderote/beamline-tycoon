@@ -936,9 +936,9 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
           problem(id, `utilityPorts.${portName}`,
             'coolingLoad is only valid on cooling-water sink ports');
         } else if (spec.autoConnectClass === COOLING_AUTO_CONNECT_CLASS.LOAD_BRANCH
-            && spec.role !== 'source') {
+            && spec.role !== 'source' && spec.role !== 'pass') {
           problem(id, `utilityPorts.${portName}`,
-            'coolingLoadBranch is only valid on cooling-water source ports');
+            'coolingLoadBranch is only valid on cooling-water source or passive ports');
         } else if (spec.autoConnectClass === COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION
             && spec.role !== 'pass') {
           problem(id, `utilityPorts.${portName}`,

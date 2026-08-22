@@ -64,7 +64,7 @@ test('electrical distribution breaker controls use horizontal rows of four or tw
   }
 });
 
-test('distribution inputs stay on top while outputs terminate on visible front glands', () => {
+test('distribution inputs meet explicit inlet hardware while outputs use front glands', () => {
   const builders = {
     compactHvDistributor: _buildCompactHvDistributorRoles,
     switchgear: _buildSwitchgearRoles,
@@ -100,8 +100,11 @@ test('distribution inputs stay on top while outputs terminate on visible front g
     assert.equal(outputLayout.length, outputs.length, `${type} lays out every physical output`);
 
     const inputAnchor = portAnchorOverride(type, 'hv_in');
-    assert.deepEqual(inputAnchor.normal, { x: 0, y: 1, z: 0 },
-      `${type}.hv_in faces upward`);
+    const expectedInputNormal = type === 'poleMountTransformer'
+      ? { x: 0, y: 0, z: -1 }
+      : { x: 0, y: 1, z: 0 };
+    assert.deepEqual(inputAnchor.normal, expectedInputNormal,
+      `${type}.hv_in faces its physical supply connection`);
     assert.equal(inputAnchor.localX, inputLayout.input.x, `${type}.hv_in uses its cap X`);
     assert.equal(inputAnchor.localZ, inputLayout.input.z, `${type}.hv_in uses its cap Z`);
     assert.equal(inputAnchor.y, inputLayout.input.y, `${type}.hv_in lands on the cap top`);
@@ -126,7 +129,7 @@ test('distribution inputs stay on top while outputs terminate on visible front g
         && Math.abs(inputCap.x * 0.5 - inputLayout.input.x) < 1e-6
         && Math.abs((inputCap.y + inputCap.h) * 0.5 - inputLayout.input.y) < 1e-6
         && Math.abs(inputCap.z * 0.5 - inputLayout.input.z) < 1e-6,
-      `${type} authors one visible top input cap`);
+      `${type} authors one visible input cap`);
 
       const outputCaps = INFRASTRUCTURE_RAW[type].parts
         .filter(part => part.utilityOutputTerminalCap === true);
