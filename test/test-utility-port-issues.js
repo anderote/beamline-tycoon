@@ -8,12 +8,18 @@ const endpointIndex = new Map([
   ['zero', { id: 'zero', type: 'device' }],
   ['healthy', { id: 'healthy', type: 'device' }],
   ['hard', { id: 'hard', type: 'device' }],
+  ['multi', { id: 'multi', type: 'multiDevice' }],
 ]);
 
 const ports = {
   device: {
     pwr_in: { utility: 'powerCable', role: 'sink' },
     data_in: { utility: 'dataFiber', role: 'sink' },
+  },
+  multiDevice: {
+    rf_in: { utility: 'rfWaveguide', role: 'sink' },
+    rf_in_2: { utility: 'rfWaveguide', role: 'sink' },
+    rf_in_3: { utility: 'rfWaveguide', role: 'sink' },
   },
 };
 
@@ -70,6 +76,40 @@ test('partial service is warning, zero service is critical, and healthy ports ar
       placeableId: 'zero',
       portName: 'pwr_in',
       utilityType: 'powerCable',
+      severity: 'critical',
+    },
+  ]);
+});
+
+test('a satisfied port clears independently when same-utility sibling ports remain unwired', () => {
+  const network = {
+    id: 'rf-net',
+    sinks: [{
+      portKey: 'multi:rf_in', placeableId: 'multi', portName: 'rf_in',
+    }],
+  };
+  const state = {
+    // The gate's public summary intentionally stays coarse: at least one RF
+    // port on this component is still unwired.
+    unwiredSinks: { multi: { rfWaveguide: true } },
+    utilityNetworks: new Map([['rfWaveguide', [network]]]),
+    utilityNetworkData: new Map([['rfWaveguide', new Map([['rf-net', {
+      perSinkQuality: { 'multi:rf_in': 1 },
+      errors: [],
+    }]])]]),
+  };
+
+  assert.deepEqual(utilityPortIssues(state, endpointIndex, type => ports[type]), [
+    {
+      placeableId: 'multi',
+      portName: 'rf_in_2',
+      utilityType: 'rfWaveguide',
+      severity: 'critical',
+    },
+    {
+      placeableId: 'multi',
+      portName: 'rf_in_3',
+      utilityType: 'rfWaveguide',
       severity: 'critical',
     },
   ]);
