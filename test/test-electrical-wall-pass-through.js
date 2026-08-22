@@ -34,6 +34,7 @@ const { WALL_TYPES } = await import('../src/data/structure.js');
 const { getUtilityPortsV2 } = await import('../src/data/utility-ports-v2.js');
 const {
   canPlaceWallFixture,
+  wallFixtureOffFromFrac,
 } = await import('../src/game/placement.js');
 const {
   wallFixturePose,
@@ -177,6 +178,48 @@ test('HV wall feedthrough terminals accept cables from every cardinal direction'
       }).ok, true, `${portName} accepts ${JSON.stringify(path[1])}`);
     }
   }
+});
+
+test('2×2 HV wall feedthrough occupies two selectable wall subslots', () => {
+  const def = PLACEABLES.hvWallPassThrough2x2;
+  assert.equal(def.wallSpan, 2);
+  assert.equal(def.subW, 2);
+  assert.deepEqual([
+    wallFixtureOffFromFrac(0.13, def.wallSpan),
+    wallFixtureOffFromFrac(0.50, def.wallSpan),
+    wallFixtureOffFromFrac(0.87, def.wallSpan),
+  ], [0, 1, 2], 'cursor placement reaches every valid two-subslot origin');
+
+  const game = {
+    state: {
+      wallOccupied: { '4,4,n': 'officeWall' },
+      placeables: [],
+    },
+  };
+  const left = canPlaceWallFixture(game, def, {
+    col: 4, row: 4, edge: 'n', off: 0,
+  });
+  const right = canPlaceWallFixture(game, def, {
+    col: 4, row: 4, edge: 'n', off: 2,
+  });
+  assert.equal(left.ok, true);
+  assert.equal(right.ok, true);
+  assert.equal(left.wallMount.span, 2);
+  assert.equal(right.wallMount.off, 2,
+    'the half-wall fitting can snap to the other two-subslot position');
+
+  game.state.placeables.push({
+    id: 'feed-2x2', type: def.id, wallMount: right.wallMount,
+  });
+  assert.equal(canPlaceWallFixture(game, PLACEABLES.wallSconce, {
+    col: 4, row: 4, edge: 'n', off: 0,
+  }).ok, true, 'the unused half of the wall remains available');
+  assert.equal(canPlaceWallFixture(game, PLACEABLES.wallSconce, {
+    col: 4, row: 4, edge: 'n', off: 2,
+  }).ok, false, 'the feedthrough reserves its selected subslots');
+  assert.equal(canPlaceWallFixture(game, PLACEABLES.wallSconce, {
+    col: 4, row: 3, edge: 's', off: 1,
+  }).ok, false, 'the same physical subslot is reserved on the far wall face');
 });
 
 test('4×4 HV wall feedthrough keeps four omnidirectional, un-rated conductors isolated', () => {

@@ -99,7 +99,7 @@ test('utility service, pole, service transformer, and branch load solve end to e
 
   const hvFlow = [...state.utilityNetworkData.get('hvCable').values()][0];
   const branchFlow = [...state.utilityNetworkData.get('powerCable').values()][0];
-  assert.equal(hvFlow.totalCapacity, 1500);
+  assert.equal(hvFlow.totalCapacity, 3000);
   assert.equal(hvFlow.totalDemand, 10,
     'the 100 kW pole transformer draws only its connected 10 kW load');
   assert.equal(branchFlow.totalCapacity, 100);

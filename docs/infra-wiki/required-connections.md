@@ -155,6 +155,7 @@ Recovery is facility-wide and counts each type once. The four contributing parts
 ### Power
 | Equipment | Provides |
 |-----------|----------|
+| Utility Service Point | 3 MW HV supply, 2 feeders |
 | Pad-Mount Transformer | 150 kW HV supply, 1 feeder |
 | Facility Transformer | 400 kW HV supply, 2 feeders |
 | HV Transformer | 1.5 MW HV input, 4 feeders |

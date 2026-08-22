@@ -650,8 +650,9 @@ export function computeSystemStats(state) {
   const laserSystems = counts.laserSystem || 0;
 
   // Capacity is the sum of every placed SUPPLY's HV outlets — the same ladder
-  // the utility solver gates on (padMount 150 → facility 400 → HV 1200 → grid
-  // intertie 3000). Switchgear and distribution panels are deliberately not counted: they add no
+  // the utility solver gates on (padMount 150 → facility 400 → HV 1500 → grid
+  // intertie 6000, plus the 3000/6000 kW map-edge service tiers). Switchgear
+  // and distribution panels are deliberately not counted: they add no
   // capacity, they convert one feeder into sockets, so counting their ratings
   // here would tell the player they had more power than the solver will give
   // them. (This used to read `state.maxElectricalPower`, a field whose only

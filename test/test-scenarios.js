@@ -230,8 +230,10 @@ for (const scenario of SCENARIOS) {
   const hvFlowValues = hvFlows ? [...hvFlows.values()] : [];
   // Main-panel branches 77 + control-room branches 4.3 + dedicated SSA 70.
   const expectedHvDemand = 151.3;
-  assert(hvFlowValues.length === 2 && hvFlowValues.every(f =>
-    f.totalCapacity === 1500 && Math.abs(f.totalDemand - expectedHvDemand) < 1e-9),
+  assert(hvFlowValues.length === 2
+    && hvFlowValues.some(f => f.totalCapacity === 3000)
+    && hvFlowValues.some(f => f.totalCapacity === 1500)
+    && hvFlowValues.every(f => Math.abs(f.totalDemand - expectedHvDemand) < 1e-9),
   `service and transformer feeders each carry the actual ${expectedHvDemand} kW downstream load `
     + `(${JSON.stringify(hvFlowValues)})`);
 

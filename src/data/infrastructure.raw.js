@@ -1957,7 +1957,7 @@ export const INFRASTRUCTURE_RAW = {
   hvWallPassThrough2x2: {
     id: 'hvWallPassThrough2x2',
     name: '2×2 HV Cable Wall Feedthrough',
-    desc: 'Two isolated, shielded HV cable passages through one half-wall span. Each numbered terminal pair is omnidirectional and carries no authored power rating: source and downstream equipment remain the only capacity limits.',
+    desc: 'Two isolated, shielded HV cable passages through two consecutive wall subslots. Each numbered terminal pair is omnidirectional, letting two feeders cross a wall without consuming the full four-subslot span.',
     category: 'power', subsection: 'routingHardware',
     paletteOrder: 3.125,
     cost: { funding: 44000 },
@@ -2052,14 +2052,14 @@ export const INFRASTRUCTURE_RAW = {
   gridServicePoint: {
     id: 'gridServicePoint',
     name: 'Utility Service Point',
-    desc: 'Map-edge metered utility takeoff that supplies 1.5 MW through two HV terminals. Place it within four tiles of the property boundary; its incoming conductors terminate at the edge to represent the off-map grid. It is cheaper than a packaged on-site substation, but the external grid can suffer brief outages — add a transformer downstream to distribute the service into your facility.',
+    desc: 'Map-edge metered utility takeoff that supplies 3 MW through two HV terminals. Place it within four tiles of the property boundary; its incoming conductors terminate at the edge to represent the off-map grid. It is cheaper than a packaged on-site substation, but the external grid can suffer brief outages — add a transformer downstream to distribute the service into your facility.',
     category: 'power', subsection: 'gridSupply',
     paletteOrder: 10,
     cost: { funding: 520000 },
     requires: 'electricalDistribution',
     stats: {},
     energyCost: 0,
-    powerCapacity: 1500,
+    powerCapacity: 3000,
     subL: 3, subW: 4, subH: 5, gridW: 4, gridH: 3,
     geometryType: 'box',
     baseMaterial: 'metal_dark',
@@ -2079,7 +2079,7 @@ export const INFRASTRUCTURE_RAW = {
     ports: {},
     electricalControl: {
       source: { kind: 'grid', outageChancePerTick: 0.00055, outageMinTicks: 12, outageMaxTicks: 35 },
-      breaker: { utility: 'hvCable', rating: 1500, tripDelayTicks: 5 },
+      breaker: { utility: 'hvCable', rating: 3000, tripDelayTicks: 5 },
     },
     parts: [
       { w: 4.0, h: 0.28, l: 3.0, x: 0, y: 0, z: 0, color: 0x555d64 },
