@@ -44,6 +44,7 @@ import { BeamBuilder } from './beam-builder.js';
 import { EquipmentBuilder, createEquipmentObject } from './equipment-builder.js';
 import { DecorationBuilder } from './decoration-builder.js';
 import { UtilityLineBuilderV2 } from './utility-line-builder-v2.js';
+import { utilityDetailForZoom } from './utility-lod.js';
 import { tickFlow } from './utility-flow.js';
 import { utilityLineVisualSignature } from './utility-visual-signature.js';
 import { buildWorldSnapshot, updateWorldSnapshot } from './world-snapshot.js';
@@ -608,6 +609,7 @@ export class ThreeRenderer {
     this._sunSnapTarget = new THREE.Vector3();
     this._lastAnimTime = performance.now();
     this._lastLodDetail = undefined; // force first detail-state update
+    this._lastUtilityLodDetail = undefined;
 
     // Selective bloom / glow post-processing. Reads the persisted toggle so
     // the setting survives a reload; defaults on. Constructed here (renderer
@@ -4776,27 +4778,32 @@ export class ThreeRenderer {
     } catch (e) { console.error('[ThreeRenderer] animate error:', e); }
   }
 
-  /**
-   * Keep the high-detail geometry active at every zoom. The builders still own
-   * their detail state, but there is no low-resolution zoom band to switch to.
-   */
+  /** Keep general scene detail authored while utilities get a scoped far LOD. */
   _updateLOD() {
     const showDetail = true;
-    if (showDetail === this._lastLodDetail) return;
-    this._lastLodDetail = showDetail;
-    const groups = [this.decorationGroup];
-    for (const g of groups) {
-      if (!g) continue;
-      g.traverse((child) => {
-        if (child.isMesh && child.userData.lod === 'detail') {
-          child.visible = showDetail;
-        }
-      });
+    if (showDetail !== this._lastLodDetail) {
+      this._lastLodDetail = showDetail;
+      const groups = [this.decorationGroup];
+      for (const g of groups) {
+        if (!g) continue;
+        g.traverse((child) => {
+          if (child.isMesh && child.userData.lod === 'detail') {
+            child.visible = showDetail;
+          }
+        });
+      }
+      this.componentBuilder?.setDetailLevel?.(showDetail);
+      this.pipeAttachmentBuilder?.setDetailLevel?.(showDetail);
+      this.beamPipeBuilder?.setDetailLevel?.(showDetail);
+      this.beamBuilder?.setDetailLevel?.(showDetail);
     }
-    this.componentBuilder?.setDetailLevel?.(showDetail);
-    this.pipeAttachmentBuilder?.setDetailLevel?.(showDetail);
-    this.beamPipeBuilder?.setDetailLevel?.(showDetail);
-    this.beamBuilder?.setDetailLevel?.(showDetail);
+
+    const showUtilityDetail = utilityDetailForZoom(
+      this.zoom, this._lastUtilityLodDetail);
+    if (showUtilityDetail === this._lastUtilityLodDetail) return;
+    this._lastUtilityLodDetail = showUtilityDetail;
+    this.utilityLineBuilderV2?.setDetailLevel?.(showUtilityDetail);
+    this._effectSystem?.setScopeEnabled?.('utility-lines', showUtilityDetail);
   }
 
   _updateSunCycle() {
