@@ -87,6 +87,11 @@ test('Power palette provides two real wall-mounted electrical feedthroughs', () 
     assert.equal(def.wallPassThrough, true);
     assert.ok(def.cost.funding > 0);
     assert.ok(Array.isArray(def.parts) && def.parts.length >= 4);
+    // A wall edge is divided into four 0.5 m mounting slots. Parts are
+    // authored in half-metre sub-units, so a one-slot face must stay <= 1.0
+    // sub-units wide or it visually collides with neighboring wall hardware.
+    assert.ok(def.parts.every(part => (part.w || 1) <= 1.0),
+      `${id} face hardware fits one wall slot`);
     const ports = getUtilityPortsV2(id);
     assert.deepEqual(Object.keys(ports), names);
     assert.ok(Object.values(ports).every(port =>
