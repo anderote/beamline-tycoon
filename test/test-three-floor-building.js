@@ -91,6 +91,22 @@ assert.ok(
   secondFloor.components.some(component => component.type === 'internalStairs'),
   'the upper landing view includes stairs authored on the floor below',
 );
+assert.equal(
+  secondFloor.components.find(component => component.type === 'internalStairs').level,
+  0,
+  'snapshot entries preserve the authored level when a connector reaches upward',
+);
+
+const groundContext = buildWorldSnapshot(game, {
+  level: 0,
+  only: ['floors', 'walls', 'components'],
+});
+assert.equal(game.activeLevel, 1, 'building lower-storey context does not change the active floor');
+assert.equal(groundContext.floors.length, 2, 'an explicit snapshot level exposes the floor below');
+assert.ok(
+  groundContext.components.some(component => component.type === 'internalStairs'),
+  'lower-storey context includes its authored connector geometry',
+);
 
 game.setActiveLevel(99);
 assert.equal(game.activeLevel, 2, 'the active construction view clamps to the third floor');

@@ -23,7 +23,7 @@ import { isWorldChangeSet } from '../game/world-change-set.js';
 import { findRoofRegion, roofKey, roofProfileForRegion } from '../game/roofing.js';
 import { resolveMapEdgeConnection } from '../game/map-edge-connection.js';
 import {
-  STOREY_HEIGHT, levelOf, levelWorldY, sameLevel, tileKey,
+  STOREY_HEIGHT, levelOf, levelWorldY, normalizeLevel, sameLevel, tileKey,
 } from '../game/storeys.js';
 
 /**
@@ -462,6 +462,7 @@ function componentSnapshotEntry(game, p) {
     id: p.id,
     type: p.type,
     category: p.category ?? null,
+    level: levelOf(p),
     col: p.col,
     row: p.row,
     subCol: p.subCol ?? null,
@@ -660,6 +661,7 @@ function buildPipeAttachments(game) {
       result.push({
         id: att.id,
         type: att.type,
+        category: 'beamline',
         col,
         row,
         subCol: null,
@@ -688,6 +690,7 @@ function buildPipeAttachments(game) {
       result.push({
         id: att.id,
         type: att.type,
+        category: 'infrastructure',
         col: pose.col,
         row: pose.row,
         worldX: pose.worldX,
@@ -834,14 +837,19 @@ const SECTION_BUILDERS = {
  *        SECTION_BUILDERS). Omitted sections are absent from the result, so
  *        partial refreshes skip the expensive terrain walk entirely.
  *        `cornerHeightsRevision` is always included (cheap scalar).
+ * @param {number} [opts.level] - Storey to snapshot without changing the
+ *        game's active construction level.
  * @returns {object} snapshot
  */
 export function buildWorldSnapshot(game, opts = {}) {
+  const sourceGame = opts.level == null || normalizeLevel(opts.level) === game.activeLevel
+    ? game
+    : Object.assign(Object.create(game), { activeLevel: normalizeLevel(opts.level) });
   const only = opts.only ? new Set(opts.only) : null;
   const snapshot = { cornerHeightsRevision: game.state.cornerHeightsRevision | 0 };
   for (const name of Object.keys(SECTION_BUILDERS)) {
     if (only && !only.has(name)) continue;
-    snapshot[name] = SECTION_BUILDERS[name](game);
+    snapshot[name] = SECTION_BUILDERS[name](sourceGame);
   }
   return snapshot;
 }
