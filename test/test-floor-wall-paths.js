@@ -1,5 +1,6 @@
 import {
   buildFloorTileWallPath,
+  buildWallFaceRun,
   buildInteriorWallBoundary,
   buildFloorRegionPerimeter,
   buildFloorInterfaceRun,
@@ -24,6 +25,15 @@ function has(path, col, row, edge) {
 }
 
 console.log('\n=== smart floor wall geometry ===\n');
+
+{
+  const walls = {
+    '1,0,n': 'officeWall', '2,0,n': 'officeWall', '3,0,n': 'officeWall',
+  };
+  const run = buildWallFaceRun(walls, { col: 2, row: 0, edge: 'n' });
+  assertOk(run.length === 3 && run[0].col === 1 && run[2].col === 3,
+    'Ctrl wall paint expands a contiguous wall run from the selected tile');
+}
 
 {
   const path = buildFloorTileWallPath({ col: 3, row: 5 });
