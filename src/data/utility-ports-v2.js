@@ -894,9 +894,10 @@ function distributionPorts(rating, count, { outletSide = null } = {}) {
     out[`pwr_out_${i + 1}`] = {
       utility: 'powerCable',
       side: outletSide || OUTLET_SIDES[i % OUTLET_SIDES.length],
-      // A face-mounted panel presents its sockets as one evenly spaced row.
-      // Other distribution equipment keeps spreading outlets around its
-      // footprint, including the second row used by 8-way cabinets.
+      // Keep footprint-level route endpoints evenly spread along the face so
+      // every branch remains independently approachable. Presentation anchors
+      // arrange the visible sockets in horizontal rows of four or two.
+      // Other field equipment keeps spreading outlets around its footprint.
       offsetAlong: outletSide
         ? (i + 1) / (count + 1)
         : 0.25 + 0.5 * (Math.floor(i / OUTLET_SIDES.length) % 2),
@@ -1268,12 +1269,10 @@ const INFRA_UTILITY_PORTS = {
   // UI name: HV Distributor Box. The stable id remains `switchgear` so older
   // saves retain the same placed object and utility-line endpoint ids.
   switchgear:               hvDistributionPorts(1200, 4),
-  // This cabinet is only 0.5 m wide, so four outlets on its front collapse
-  // into two routing cells. Spread the logical connectors around the cabinet
-  // so every branch remains independently wireable.
   // Face-mounted circuit breakers and sockets all live on the front face.
-  // `offsetAlong` gives every visible fitting an independent, evenly-spaced
-  // anchor, so a cable leaves the socket it appears to be plugged into.
+  // Distinct `offsetAlong` values keep their coarse routing endpoints
+  // independently wireable; presentation anchors place the cable tails on the
+  // visible horizontal output rows.
   powerPanel:          distributionPorts(40, 4, { outletSide: 'front' }),
   sectionDistributionPanel: distributionPorts(150, 6, { outletSide: 'front' }),
   mainDistributionPanel: distributionPorts(400, 8, { outletSide: 'front' }),
