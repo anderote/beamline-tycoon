@@ -937,9 +937,10 @@ export class WallBuilder {
           let panelGeo = isNS
             ? new THREE.BoxGeometry(panelW, panelH, PANEL_THICKNESS)
             : new THREE.BoxGeometry(PANEL_THICKNESS, panelH, panelW);
-          // The paired leaves face one another instead of repeating the same
-          // handed artwork. Mirroring UVs leaves the physical geometry intact.
-          if (leafCount === 2 && leafIndex === 0) panelGeo = mirrorGeometryU(panelGeo);
+          // Source door art puts its knob/reader on the right. Keep that art
+          // on the left leaf and mirror the right leaf so both controls meet
+          // at the centre seam instead of landing on the outside jambs.
+          if (leafCount === 2 && leafIndex === 1) panelGeo = mirrorGeometryU(panelGeo);
           const panel = new THREE.Mesh(panelGeo, panelMatCache[matKey]);
           const signedOffset = layout.center + leafOffset;
           panel.position.set(

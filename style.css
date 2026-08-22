@@ -2051,6 +2051,77 @@ body.palette-expanded {
   image-rendering: pixelated;
 }
 
+.door-palette-icon {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 1px;
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+  border: 3px solid #8899aa;
+  border-bottom-width: 2px;
+  background: rgba(8, 12, 18, 0.72);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.45);
+}
+
+.door-palette-icon-open::after {
+  content: '';
+  position: absolute;
+  inset: 5px 6px 0;
+  border: 1px dashed rgba(190, 220, 235, 0.25);
+}
+
+.door-palette-leaf {
+  flex: 1 1 0;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.palette-item .palette-preview .door-palette-leaf img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: fill;
+}
+
+.palette-item .palette-preview .door-palette-leaf-mirrored {
+  transform: scaleX(-1);
+}
+
+.door-palette-leaf-glass {
+  border: 2px solid rgba(205, 220, 226, 0.9);
+  box-shadow: inset 4px 0 rgba(255, 255, 255, 0.12);
+}
+
+.door-palette-window {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid rgba(225, 240, 245, 0.75);
+  box-shadow: inset 2px 0 rgba(255, 255, 255, 0.16);
+  pointer-events: none;
+}
+
+.door-palette-handle {
+  position: absolute;
+  top: 52%;
+  z-index: 2;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #e4d18a;
+  border: 1px solid rgba(35, 31, 22, 0.75);
+  box-shadow: 0 0 1px rgba(255, 245, 190, 0.8);
+  transform: translateY(-50%);
+}
+
+.door-palette-handle-right { right: 2px; }
+.door-palette-handle-left { left: 2px; }
+
 .palette-item .palette-rf-band {
   position: absolute;
   top: 3px;

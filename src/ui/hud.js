@@ -19,6 +19,7 @@ import { formatEnergy, UNITS } from '../data/units.js';
 import { renderComponentThumbnail } from '../renderer3d/component-builder.js';
 import { renderDecorationThumbnail } from '../renderer3d/decoration-builder.js';
 import { windowPreviewDataUrl } from './window-preview.js';
+import { renderDoorPalettePreview } from './door-palette-preview.js';
 import { DEMOLISH_FILTERS, defaultDemolishFilters } from '../input/demolishScopes.js';
 import { buildPaletteIndex, searchPalette } from './palette-search.js';
 import {
@@ -1336,22 +1337,12 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         const rememberedVi = recallVariant(key);
         const previewEl = document.createElement('div');
         previewEl.className = 'palette-preview';
-        const tilePath2 = this.sprites.getTilePath(key, rememberedVi);
-        if (tilePath2) {
-          const img = document.createElement('img');
-          img.src = tilePath2;
-          img.alt = door.name;
-          previewEl.appendChild(img);
-          applyPreviewTint(previewEl, door, rememberedVi);
-        } else {
-          const swatch = document.createElement('div');
-          const previewColor = resolveVariantPreview(door, rememberedVi);
-          const c = Array.isArray(previewColor)
-            ? previewColor[0]
-            : (previewColor ?? door.topColor ?? door.color ?? 0x888888);
-          swatch.style.cssText = `width:48px;height:32px;background:#${c.toString(16).padStart(6,'0')};clip-path:polygon(50% 0%,100% 30%,100% 80%,50% 100%,0% 80%,0% 30%);`;
-          previewEl.appendChild(swatch);
-        }
+        const renderPreview = (variantIdx) => {
+          const tilePath = this.sprites.getTilePath(key, variantIdx);
+          renderDoorPalettePreview(previewEl, door, tilePath, variantIdx);
+          applyPreviewTint(previewEl, door, variantIdx);
+        };
+        renderPreview(rememberedVi);
         item.appendChild(previewEl);
 
         const nameEl = document.createElement('div');
@@ -1392,18 +1383,10 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
                 rememberVariant(key, variantIdx);
                 this._selectPaletteTool('door', key, variantIdx);
                 const previewElNow = item.querySelector('.palette-preview');
-                const previewImg = previewElNow?.querySelector('img');
-                if (previewImg) {
-                  const newPath = this.sprites.getTilePath(key, variantIdx);
-                  if (newPath) previewImg.src = newPath;
-                  previewElNow.querySelectorAll('div').forEach(d => d.remove());
+                if (previewElNow) {
+                  const tilePath = this.sprites.getTilePath(key, variantIdx);
+                  renderDoorPalettePreview(previewElNow, door, tilePath, variantIdx);
                   applyPreviewTint(previewElNow, door, variantIdx);
-                } else if (previewElNow?.firstElementChild) {
-                  const previewColor = resolveVariantPreview(door, variantIdx);
-                  const c = Array.isArray(previewColor)
-                    ? previewColor[0]
-                    : (previewColor ?? door.topColor ?? door.color ?? 0x888888);
-                  previewElNow.firstElementChild.style.background = `#${c.toString(16).padStart(6, '0')}`;
                 }
                 flyout.querySelectorAll('.param-flyout-btn').forEach(b => b.classList.remove('active'));
                 vBtn.classList.add('active');
@@ -4116,7 +4099,12 @@ UIHost.prototype._buildSearchResultPreview = function(result, def) {
     img.height = 64;
     img.style.objectFit = 'contain';
     previewEl.appendChild(img);
-  } else if (kind === 'floor' || kind === 'wall' || kind === 'door') {
+  } else if (kind === 'door') {
+    const vi = recallVariant(id);
+    const tilePath = this.sprites.getTilePath(id, vi);
+    renderDoorPalettePreview(previewEl, def, tilePath, vi);
+    applyPreviewTint(previewEl, def, vi);
+  } else if (kind === 'floor' || kind === 'wall') {
     const vi = recallVariant(id);
     const tilePath = this.sprites.getTilePath(id, vi);
     if (tilePath) {
