@@ -4806,12 +4806,14 @@ UIHost.prototype._bindTreeEvents = function() {
 
 UIHost.prototype._openBeamlineWindow = function(beamlineId, anchorNode) {
   if (!this._beamlineWindows) this._beamlineWindows = {};
-  if (this._beamlineWindows[beamlineId]) {
-    this._beamlineWindows[beamlineId].ctx.focus();
-    return;
+  let bw = this._beamlineWindows[beamlineId];
+  if (bw) {
+    if (anchorNode) bw.selectComponent(anchorNode);
+    bw.ctx.focus();
+  } else {
+    bw = new BeamlineWindow(this.game, beamlineId, anchorNode);
+    this._beamlineWindows[beamlineId] = bw;
   }
-  const bw = new BeamlineWindow(this.game, beamlineId);
-  this._beamlineWindows[beamlineId] = bw;
 
   // Anchor the window: to the clicked node if provided, else the beamline's
   // centroid (fallback for programmatic opens that don't know a click origin).
@@ -4839,11 +4841,14 @@ UIHost.prototype._openBeamlineWindow = function(beamlineId, anchorNode) {
     }
   }
 
-  const origClose = bw.ctx._onClose;
-  bw.ctx._onClose = () => {
-    delete this._beamlineWindows[beamlineId];
-    if (origClose) origClose();
-  };
+  if (!bw._selectionCloseWrapped) {
+    bw._selectionCloseWrapped = true;
+    const origClose = bw.ctx._onClose;
+    bw.ctx._onClose = () => {
+      delete this._beamlineWindows[beamlineId];
+      if (origClose) origClose();
+    };
+  }
 };
 
 // --- Equipment context windows ---

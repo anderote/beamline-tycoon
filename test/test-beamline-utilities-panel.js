@@ -16,7 +16,12 @@
 // _utilityStatus is called off the prototype with a stub `this`: it reads only
 // this.game.state, so the tab's status logic is testable without a DOM.
 
-import { BeamlineWindow } from '../src/ui/BeamlineWindow.js';
+import { COMPONENTS } from '../src/data/components.js';
+import {
+  BeamlineWindow,
+  beamlineComponentStatBreakdown,
+  beamlineComponentUtilityBreakdown,
+} from '../src/ui/BeamlineWindow.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -242,6 +247,97 @@ console.log('\n--- Test 7: overview pressure history ---');
   assert(html.includes('vacuum-pressure-chart') && html.includes('-10d')
       && html.includes('>10d</button>') && html.includes('Network'),
     'overview renders the shared rolling pressure graph at its widest range');
+}
+
+// ===========================================================================
+// Test 8: a clicked component gets catalogue, saved, and published live stats.
+// ===========================================================================
+console.log('\n--- Test 8: selected component stat breakdown ---');
+{
+  const node = {
+    id: 'gun', type: 'source', params: { extractionVoltage: 75, cathodeTemperature: 1350 },
+    computedStats: { beamCurrent: 310, extractionEnergy: 0.000075 },
+  };
+  const rows = beamlineComponentStatBreakdown(COMPONENTS.source, node);
+  assert(rows.design.some(row => row.label === 'Beam Current' && row.value.includes('mA')),
+    'catalogue design stats retain their authored units');
+  assert(rows.settings.some(row => row.label === 'Extraction Voltage' && row.value === '75.0 kV'),
+    'the component tab reports the selected instance current settings');
+  assert(rows.operating.some(row => row.label === 'Beam Current' && row.value === '310.0 mA')
+      && rows.operating.some(row => row.label === 'Extraction Energy' && row.value.includes('keV')),
+  'published live outputs remain separate from nominal catalogue specs');
+}
+
+// ===========================================================================
+// Test 9: selected-component utilities expose need, network supply, and delivery.
+// ===========================================================================
+console.log('\n--- Test 9: selected component utility breakdown ---');
+{
+  const sink = { portKey: 'gun:pwr_in', placeableId: 'gun', portName: 'pwr_in' };
+  const network = { id: 'net_powerCable_gun', ports: [sink], sinks: [sink] };
+  const flow = {
+    totalCapacity: 120, totalDemand: 80,
+    perSinkQuality: { 'gun:pwr_in': 0.75 }, errors: [],
+  };
+  const state = {
+    nodeQualities: {
+      gun: { powerQuality: 0.75, vacuumQuality: 0.9, vacuumPressure: 2e-7 },
+    },
+    unwiredSinks: {},
+    utilityNetworks: new Map([['powerCable', [network]]]),
+    utilityNetworkData: new Map([['powerCable', new Map([[network.id, flow]])]]),
+  };
+  const rows = beamlineComponentUtilityBreakdown(state, { id: 'gun', type: 'source' });
+  const power = rows.find(row => row.utilityType === 'powerCable');
+  const vacuum = rows.find(row => row.utilityType === 'vacuumPipe');
+  assert(power?.inputs.some(metric => metric.label === 'Demand')
+      && power.totalDemand === 80 && power.totalCapacity === 120,
+  'power need and solver-published network demand/supply appear together');
+  assert(power?.status === 'connected' && power.quality === 0.75,
+    'component delivery uses the gate-published quality for that node');
+  assert(vacuum?.physical.some(metric => metric.label === 'Pressure'
+      && metric.value.includes('mbar')),
+  'utility-specific physical delivery values are included when published');
+
+  state.unwiredSinks = { gun: { powerCable: true } };
+  const unwired = beamlineComponentUtilityBreakdown(state, { id: 'gun', type: 'source' })
+    .find(row => row.utilityType === 'powerCable');
+  assert(unwired?.status === 'unwired',
+    'an explicit unwired verdict outranks stale solved-network data');
+}
+
+{
+  let switched = null;
+  const panel = {
+    ctx: { switchTab(tab) { switched = tab; }, update() {} },
+    selectedComponentId: null,
+    _selectedComponentFallback: null,
+  };
+  const node = { id: 'quad-2', type: 'quadrupole' };
+  const selected = BeamlineWindow.prototype.selectComponent.call(panel, node);
+  assert(selected && panel.selectedComponentId === node.id && switched === 'component',
+    'clicking another node in an open beamline window focuses its component breakdown');
+}
+
+{
+  const node = {
+    id: 'gun', type: 'source', col: 4, row: 7,
+    params: { extractionVoltage: 50, cathodeTemperature: 1200 },
+  };
+  const panel = Object.create(BeamlineWindow.prototype);
+  panel.beamlineId = 'bl-1';
+  panel.game = {
+    state: { nodeQualities: {}, unwiredSinks: {}, utilityNetworks: new Map(), utilityNetworkData: new Map() },
+    registry: { get: () => ({ beamState: { componentHealth: { gun: 82 } } }) },
+  };
+  panel._selectedComponent = () => node;
+  const container = { innerHTML: '' };
+  panel._renderComponent(container);
+  assert(container.innerHTML.includes('Design specifications')
+      && container.innerHTML.includes('Current settings')
+      && container.innerHTML.includes('Network supply')
+      && container.innerHTML.includes('82.0%'),
+  'the component tab renders specs, controls, live utility supply, and health together');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
