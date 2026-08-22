@@ -215,7 +215,12 @@ function buildFlowLine(utilityType, waterCircuit = null) {
 function cylinderMeshes(group) {
   const out = [];
   const walk = (o) => {
-    if (o.isMesh && o.geometry instanceof CylinderGeometry) out.push(o);
+    // Vacuum CF plates and bolt heads are cylinders too. The builder publishes
+    // the traversable-run role explicitly; flow tests must not mistake
+    // decorative hardware for a distance-baked transport segment.
+    if (o.isMesh
+      && o.geometry instanceof CylinderGeometry
+      && o.userData?.isUtilityLineSegment) out.push(o);
     for (const c of o.children || []) walk(c);
   };
   walk(group);

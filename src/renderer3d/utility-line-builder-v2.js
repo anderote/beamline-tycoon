@@ -42,6 +42,7 @@ import {
   waveguideTransitionPoints,
 } from './waveguide-presentation.js';
 import { portWaterCircuit, waterCircuitColor } from '../utility/water-circuits.js';
+import { utilityLineJunctions } from '../utility/line-junctions.js';
 
 // DEFAULT line centerline height. Per-utility heights come from
 // utilityLineHeight (registry): a power cord lies on the floor while a vacuum
@@ -54,6 +55,8 @@ const PIPE_Y = UTILITY_LINE_Y;
 const SEGS = 12;     // cylinder radial segments
 const FLEXIBLE_RELAX_DURATION_SECONDS = 0.9;
 const UNIVERSAL_BUS_HALF_WIDTH = UNIVERSAL_BUS_HALF_WIDTH_METERS;
+const JOIN_ON_CONTACT_TYPES = new Set(UTILITY_TYPE_LIST.filter(
+  utilityType => UTILITY_TYPES[utilityType]?.joinsOnContact === true));
 
 // Material cache keyed by (utilityType, errorStatus) — 'ok' | 'soft' | 'hard'.
 // Keeps identical materials shared across lines for the same descriptor+state.
@@ -61,6 +64,7 @@ const _matCache = new Map();
 const _jacketMatCache = new Map();
 const _hardwareMatCache = new Map();
 let _utilitySupportMaterial = null;
+let _vacuumGasketMaterial = null;
 let _universalBusMaterial = null;
 const _universalBusPreviewMaterials = new Map();
 
@@ -232,6 +236,16 @@ function getUtilitySupportMaterial() {
     metalness: 0.5,
   }));
   return _utilitySupportMaterial;
+}
+
+function getVacuumGasketMaterial() {
+  if (_vacuumGasketMaterial) return _vacuumGasketMaterial;
+  _vacuumGasketMaterial = shared(new THREE.MeshStandardMaterial({
+    color: 0xb87333,
+    roughness: 0.24,
+    metalness: 0.88,
+  }));
+  return _vacuumGasketMaterial;
 }
 
 // Convert a tile-coord waypoint to 3D world (x,z). 1 tile = 2 world meters,
@@ -696,21 +710,32 @@ function cornerBendInfo(prev, at, next, descriptor) {
   return {
     incoming,
     outgoing,
+    authored,
     trim,
     start: new THREE.Vector3(at.x - incoming.x * trim, at.y - incoming.y * trim, at.z - incoming.z * trim),
     end: new THREE.Vector3(at.x + outgoing.x * trim, at.y + outgoing.y * trim, at.z + outgoing.z * trim),
     at,
+    compact: trim < authored * 0.78
+      || Math.abs(incoming.y) > 1e-4 || Math.abs(outgoing.y) > 1e-4,
   };
 }
 
-function trimmedSegment(points, index, descriptor) {
+function junctionAtWorldPoint(point, junctionTopology, runY) {
+  if (!point || Math.abs(point.y - runY) > 1e-4) return null;
+  return (junctionTopology?.junctions || []).find(spec =>
+    Math.abs(point.x - spec.point.col * 2) < 1e-4
+      && Math.abs(point.z - spec.point.row * 2) < 1e-4) || null;
+}
+
+function trimmedSegment(points, index, descriptor, junctionTopology = null, runY = null) {
   let start = points[index].clone();
   let end = points[index + 1].clone();
-  if (index > 0) {
+  if (index > 0 && !junctionAtWorldPoint(points[index], junctionTopology, runY)) {
     const bend = cornerBendInfo(points[index - 1], points[index], points[index + 1], descriptor);
     if (bend) start = bend.end;
   }
-  if (index + 1 < points.length - 1) {
+  if (index + 1 < points.length - 1
+      && !junctionAtWorldPoint(points[index + 1], junctionTopology, runY)) {
     const bend = cornerBendInfo(points[index], points[index + 1], points[index + 2], descriptor);
     if (bend) end = bend.start;
   }
@@ -743,6 +768,45 @@ function buildRoundSweepElbow(info, radius, material) {
   const mesh = new THREE.Mesh(geo, material);
   mesh.userData = { isUtilityJoint: true, isUtilitySweepElbow: true, bendRadius: info.trim };
   return mesh;
+}
+
+// A short formed elbow cannot absorb assembly tolerance. Real vacuum systems
+// put a hydroformed bellows at those compressed/vertical transitions, while
+// retaining smooth elbows on roomy deck turns. The corrugations follow the
+// local curve tangent so this remains a continuous closed tube, not rings
+// floating around an empty corner.
+function buildVacuumBellowsElbow(info, radius, bodyMaterial, hardwareMaterial, count = 7) {
+  const curve = elbowCurve(info);
+  if (!curve || !THREE.TubeGeometry || !THREE.TorusGeometry) return null;
+  const group = new THREE.Group();
+  const sleeve = new THREE.Mesh(
+    new THREE.TubeGeometry(curve, 12, radius * 0.88, SEGS, false), bodyMaterial);
+  sleeve.userData.isUtilityJoint = true;
+  group.add(sleeve);
+  const forward = new THREE.Vector3(0, 0, 1);
+  for (let index = 0; index < count; index++) {
+    const t = (index + 1) / (count + 1);
+    const point = curve.getPoint(t);
+    const tangent = curve.getTangent(t).normalize();
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(radius * 1.08, Math.max(0.008, radius * 0.16), 6, 14),
+      hardwareMaterial,
+    );
+    ring.position.copy(point);
+    ring.quaternion.copy(new THREE.Quaternion().setFromUnitVectors(forward, tangent));
+    ring.matrixAutoUpdate = false;
+    ring.updateMatrix();
+    ring.userData.utilityBellowsPart = 'corrugation';
+    group.add(ring);
+  }
+  group.userData = {
+    isUtilityJoint: true,
+    isUtilitySweepElbow: true,
+    isVacuumBellows: true,
+    bendRadius: info.trim,
+    corrugationCount: count,
+  };
+  return group;
 }
 
 // Rectangular sweep for the H-plane bends that dominate floor-routed
@@ -891,6 +955,83 @@ function buildServiceFitting(point, direction, descriptor, material) {
   let mesh;
   if (descriptor.fittingStyle === 'waveguideFlange') {
     mesh = buildRectSegment(a, b, radius * 2.65, radius * 1.95, material);
+  } else if (descriptor.fittingStyle === 'vacuumFlange') {
+    const group = new THREE.Group();
+    const axis = direction.clone().normalize();
+    const plate = buildCylinderSegment(a, b, radius * 1.58, material);
+    if (plate) {
+      plate.userData.utilityFlangePart = 'plate';
+      group.add(plate);
+    }
+    const forward = new THREE.Vector3(0, 0, 1);
+    const flangeRotation = new THREE.Quaternion().setFromUnitVectors(forward, axis);
+    const rim = new THREE.Mesh(
+      new THREE.TorusGeometry(radius * 1.46, Math.max(0.009, radius * 0.15), 6, 16), material);
+    rim.position.copy(point);
+    rim.quaternion.copy(flangeRotation);
+    rim.matrixAutoUpdate = false;
+    rim.updateMatrix();
+    rim.userData.utilityFlangePart = 'stainlessRim';
+    group.add(rim);
+    const gasket = new THREE.Mesh(
+      new THREE.TorusGeometry(radius * 1.18, Math.max(0.006, radius * 0.095), 6, 16),
+      getVacuumGasketMaterial());
+    gasket.position.set(
+      point.x + axis.x * depth * 0.53,
+      point.y + axis.y * depth * 0.53,
+      point.z + axis.z * depth * 0.53,
+    );
+    gasket.quaternion.copy(flangeRotation);
+    gasket.matrixAutoUpdate = false;
+    gasket.updateMatrix();
+    gasket.userData = { utilityFlangePart: 'copperGasket', isVacuumCopperGasket: true };
+    group.add(gasket);
+
+    const reference = Math.abs(axis.y) < 0.9
+      ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+    const rawU = {
+      x: axis.y * reference.z - axis.z * reference.y,
+      y: axis.z * reference.x - axis.x * reference.z,
+      z: axis.x * reference.y - axis.y * reference.x,
+    };
+    const uLength = Math.hypot(rawU.x, rawU.y, rawU.z) || 1;
+    const u = { x: rawU.x / uLength, y: rawU.y / uLength, z: rawU.z / uLength };
+    const rawV = {
+      x: axis.y * u.z - axis.z * u.y,
+      y: axis.z * u.x - axis.x * u.z,
+      z: axis.x * u.y - axis.y * u.x,
+    };
+    const vLength = Math.hypot(rawV.x, rawV.y, rawV.z) || 1;
+    const v = { x: rawV.x / vLength, y: rawV.y / vLength, z: rawV.z / vLength };
+    const boltCircle = radius * 1.28;
+    for (let index = 0; index < 8; index++) {
+      const angle = index * Math.PI / 4;
+      const cosOffset = Math.cos(angle) * boltCircle;
+      const sinOffset = Math.sin(angle) * boltCircle;
+      const boltCenter = new THREE.Vector3(
+        point.x + u.x * cosOffset + v.x * sinOffset,
+        point.y + u.y * cosOffset + v.y * sinOffset,
+        point.z + u.z * cosOffset + v.z * sinOffset,
+      );
+      const bolt = buildCylinderSegment(
+        new THREE.Vector3(
+          boltCenter.x - axis.x * depth * 0.72,
+          boltCenter.y - axis.y * depth * 0.72,
+          boltCenter.z - axis.z * depth * 0.72,
+        ),
+        new THREE.Vector3(
+          boltCenter.x + axis.x * depth * 0.72,
+          boltCenter.y + axis.y * depth * 0.72,
+          boltCenter.z + axis.z * depth * 0.72,
+        ),
+        Math.max(0.006, radius * 0.105), material,
+      );
+      if (bolt) {
+        bolt.userData.utilityFlangePart = 'bolt';
+        group.add(bolt);
+      }
+    }
+    mesh = group;
   } else if (THREE.TorusGeometry) {
     const geo = new THREE.TorusGeometry(radius * 1.38, radius * 0.22, 6, 14);
     mesh = new THREE.Mesh(geo, material);
@@ -909,6 +1050,70 @@ function buildServiceFitting(point, direction, descriptor, material) {
     fittingStyle: descriptor.fittingStyle,
   };
   return mesh;
+}
+
+function directionVector(key) {
+  const [x, z] = String(key).split(',').map(Number);
+  return new THREE.Vector3(x || 0, 0, z || 0);
+}
+
+function buildTappedJunction(point, spec, descriptor, bodyMaterial, hardwareMaterial) {
+  if (!point || !spec?.renderHardware) return null;
+  const group = new THREE.Group();
+  const radius = descriptor?.pipeRadiusMeters || 0.04;
+  group.userData = {
+    isUtilityJunctionFitting: true,
+    isUtilityTeeFitting: spec.kind === 'tee',
+    isUtilityCrossFitting: spec.kind === 'cross',
+    utilityJunctionKind: spec.kind,
+    utilityJunctionDegree: spec.degree,
+    targetLineId: spec.targetLineId,
+  };
+
+  if (descriptor?.fittingStyle === 'vacuumFlange') {
+    if (spec.kind === 'coupling') {
+      const direction = directionVector(spec.directions?.[0] || '1,0');
+      const flange = buildServiceFitting(point, direction, descriptor, hardwareMaterial);
+      if (flange) group.add(flange);
+      return group.children.length > 0 ? group : null;
+    }
+    if (spec.kind === 'elbow' && spec.directions?.length === 2) {
+      const first = directionVector(spec.directions[0]);
+      const second = directionVector(spec.directions[1]);
+      const trim = descriptor.bendRadiusMeters || radius * 3;
+      const bend = {
+        incoming: new THREE.Vector3(-first.x, 0, -first.z),
+        outgoing: second,
+        trim,
+        start: new THREE.Vector3(
+          point.x + first.x * trim, point.y, point.z + first.z * trim),
+        end: new THREE.Vector3(
+          point.x + second.x * trim, point.y, point.z + second.z * trim),
+        at: point,
+      };
+      const elbow = buildRoundSweepElbow(bend, radius, bodyMaterial);
+      if (elbow) group.add(elbow);
+    }
+    // The intersecting run meshes already make the welded tube body. Place a
+    // CF joint on every arm, offset from the weld, so the result reads as a
+    // fabricated tee/cross rather than the old luminous endpoint sphere.
+    for (const key of spec.directions || []) {
+      const direction = directionVector(key);
+      if (direction.lengthSq() < 0.5) continue;
+      const flangePoint = new THREE.Vector3(
+        point.x + direction.x * radius * 2.05,
+        point.y + direction.y * radius * 2.05,
+        point.z + direction.z * radius * 2.05,
+      );
+      const flange = buildServiceFitting(flangePoint, direction, descriptor, hardwareMaterial);
+      if (flange) group.add(flange);
+    }
+  } else {
+    const direction = directionVector(spec.directions?.[0] || '1,0');
+    const fitting = buildServiceFitting(point, direction, descriptor, hardwareMaterial);
+    if (fitting) group.add(fitting);
+  }
+  return group.children.length > 0 ? group : null;
 }
 
 function addInlineCouplers(group, start, end, descriptor, material) {
@@ -1179,7 +1384,12 @@ function buildCornerJoint(prev, at, next, style, radius, material, descriptor = 
   const bend = cornerBendInfo(prev, at, next, descriptor);
   if (bend) {
     let formed;
-    if (style === 'rectWaveguide' && descriptor?.bendStyle === 'mitered') {
+    if (descriptor?.compactBendStyle === 'bellows' && bend.compact) {
+      formed = buildVacuumBellowsElbow(
+        bend, radius, material, getLineHardwareMaterial('vacuumPipe'),
+        descriptor?.bellowsCorrugations || 7,
+      );
+    } else if (style === 'rectWaveguide' && descriptor?.bendStyle === 'mitered') {
       formed = buildRectMiterElbow(bend, radius * 2, radius * 1.4, material);
     } else if (style === 'rectWaveguide') {
       formed = buildRectSweepElbow(bend, radius * 2, radius * 1.4, material);
@@ -1441,7 +1651,7 @@ function buildLineGroup(
     group.add(flexibleMesh);
   }
   for (let i = 0; !flexibleMesh && i < points.length - 1; i++) {
-    const trimmed = trimmedSegment(points, i, descriptor);
+    const trimmed = trimmedSegment(points, i, descriptor, joinedOpenEnds, runY);
     const a = trimmed.start;
     const b = trimmed.end;
     const segLen = segLens[i];
@@ -1505,6 +1715,7 @@ function buildLineGroup(
     ? getJacketMaterial(line.utilityType, flowState, line.waterCircuit) : null;
   for (let i = 1; !flexible && i < points.length - 1; i++) {
     const prev = points[i - 1], at = points[i], next = points[i + 1];
+    if (junctionAtWorldPoint(at, joinedOpenEnds, runY)) continue;
     const joint = buildCornerJoint(prev, at, next, style, radius, mat, descriptor);
     if (joint) group.add(joint);
     if (jointJacketMat) {
@@ -1614,19 +1825,14 @@ function buildLineGroup(
       group.add(port);
     }
   }
-  // A branch endpoint that lands on a trunk is a tee, not a dangling glowing
-  // ball. Its collar is deliberately the same fitting vocabulary as an elbow
-  // so the network reads as assembled hardware from any camera angle.
-  for (const which of ['start', 'end']) {
-    if (!joinedOpenEnds?.[which] || points.length < 2) continue;
-    const index = which === 'start' ? 0 : points.length - 1;
-    const neighbor = which === 'start' ? 1 : points.length - 2;
-    const direction = new THREE.Vector3().subVectors(points[index], points[neighbor]).normalize();
-    const fitting = buildServiceFitting(points[index], direction, descriptor, hardwareMat);
-    if (fitting) {
-      fitting.userData.isUtilityTeeFitting = true;
-      group.add(fitting);
-    }
+  // Endpoint taps and interior shared-header divergences use the same
+  // topology-aware fitting. One deterministic line owns each physical mesh.
+  for (const junction of (joinedOpenEnds?.junctions || [])) {
+    if (!junction.renderHardware) continue;
+    const point = new THREE.Vector3(
+      junction.point.col * 2, runY, junction.point.row * 2);
+    const fitting = buildTappedJunction(point, junction, descriptor, mat, hardwareMat);
+    if (fitting) group.add(fitting);
   }
 
   const visualEffects = [];
@@ -2051,7 +2257,9 @@ export class UtilityLineBuilderV2 {
     const orientationByLineId = opts.state ? this._buildOrientationMap(opts.state, lines) : new Map();
     const records = typeof lines.values === 'function' ? Array.from(lines.values()) : Array.from(lines);
     const lineById = new Map(records.map(line => [line?.id, line]));
-    const installedLineIds = new Set(records.map(line => line?.id).filter(Boolean));
+    const junctionsByLineId = utilityLineJunctions(lineById, {
+      joinsOnContactTypes: JOIN_ON_CONTACT_TYPES,
+    });
     for (const line of records) {
       if (!line || !line.id) continue;
       seen.add(line.id);
@@ -2077,8 +2285,14 @@ export class UtilityLineBuilderV2 {
         const anchor = tapAnchors[which];
         return anchor ? `${anchor.x},${anchor.y},${anchor.z}` : '-';
       }).join(':');
+      const joinedOpenEnds = junctionsByLineId.get(line.id) || {};
+      const junctionHash = [
+        ...['start', 'end'].map(which => joinedOpenEnds[which]?.signature || '-'),
+        ...(joinedOpenEnds.junctions || []).map(junction =>
+          `${junction.signature}:${junction.renderHardware ? 'owner' : 'peer'}`).sort(),
+      ].join('|');
       const hash = this._hashLine(line, placeablesById) + '|' + errorStatus + '|' + flowState + '|'
-        + (reversed ? 'rev' : 'fwd') + '|' + tapAnchorHash;
+        + (reversed ? 'rev' : 'fwd') + '|' + tapAnchorHash + '|' + junctionHash;
       const prevHash = this._lineHashes.get(line.id);
       if (prevHash === hash && this._lineGroups.has(line.id)) continue;
       const isNewLine = prevHash === undefined;
@@ -2101,10 +2315,6 @@ export class UtilityLineBuilderV2 {
       }
       let pointOverride = null;
       let relaxation = null;
-      const joinedOpenEnds = {
-        start: !!line.tapLineIds?.start && installedLineIds.has(line.tapLineIds.start),
-        end: !!line.tapLineIds?.end && installedLineIds.has(line.tapLineIds.end),
-      };
       // Ordinary flexible runs settle from the player's freehand trace. A
       // universal-bus channel instead gets its deterministic post-to-post
       // spans inside buildLineGroup; running it through the floor-rope solve
