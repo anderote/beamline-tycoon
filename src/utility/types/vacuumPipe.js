@@ -455,10 +455,9 @@ export default {
   // component's broad 2D footprint alone never blocks the pipe.
   routingProfile: FLEXIBLE_SUBTILE_ROUTING_PROFILE,
   bendRadiusMeters: 0.20,
-  // Full-radius elbows are formed stainless tube. Only compressed equipment
-  // transitions use bellows, where real systems need alignment compliance.
-  compactBendStyle: 'bellows',
-  bellowsCorrugations: 7,
+  // Keep all routed bends as formed stainless tube. Inline beamline bellows
+  // remain their own authored component; automatic corrugations multiplied
+  // geometry rapidly on ordinary service transitions.
   bendPenalty: 1.5,
   fittingStyle: 'vacuumFlange',
   couplerSpacingMeters: 4,

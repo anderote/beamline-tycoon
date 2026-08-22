@@ -58,10 +58,28 @@ import { utilityLineJunctions } from '../utility/line-junctions.js';
 const PIPE_Y = UTILITY_LINE_Y;
 const SEGS = 12;     // cylinder radial segments
 const FLEXIBLE_RELAX_DURATION_SECONDS = 0.9;
+const UTILITY_LOD_DETAIL = 'detail';
 const UNIVERSAL_BUS_HALF_WIDTH = UNIVERSAL_BUS_HALF_WIDTH_METERS;
 const JOIN_ON_CONTACT_TYPES = new Set(UTILITY_TYPE_LIST.filter(
   utilityType => UTILITY_TYPES[utilityType]?.joinsOnContact === true));
 export const WATER_TWIN_CENTER_SPACING_METERS = 0.24;
+
+function markUtilityDetail(object) {
+  if (object) object.userData = { ...object.userData, utilityLodRole: UTILITY_LOD_DETAIL };
+  return object;
+}
+
+function applyUtilityDetailLevel(root, showDetail) {
+  root?.traverse?.(object => {
+    if (object.userData?.utilityLodRole === UTILITY_LOD_DETAIL) {
+      object.visible = !!showDetail;
+    }
+    const geometries = object.userData?.utilityLodGeometries;
+    if (geometries?.detail && geometries?.far) {
+      object.geometry = showDetail ? geometries.detail : geometries.far;
+    }
+  });
+}
 
 // Material cache keyed by (utilityType, errorStatus) — 'ok' | 'soft' | 'hard'.
 // Keeps identical materials shared across lines for the same descriptor+state.
@@ -725,6 +743,7 @@ function buildFiberBundleSegment(p0, p1, descriptor, material, runDist) {
     if (!strand) continue;
     strand.userData.isUtilityLineSegment = true;
     strand.userData.fiberBundleStrand = index;
+    if (index !== 1) markUtilityDetail(strand);
     group.add(strand);
     count++;
   }
@@ -737,7 +756,9 @@ function buildFiberBundleSegment(p0, p1, descriptor, material, runDist) {
 // One continuous flexible sheath. TubeGeometry's uv.x advances along the
 // spline (uv.y goes around its circumference), so copy that distance into
 // uv.y for the existing travelling-power shader.
-function buildFlexibleCableGeometry(points, radius, reversed = false, floorY = null) {
+function buildFlexibleCableGeometry(
+  points, radius, reversed = false, floorY = null, quality = null,
+) {
   if (points.length < 2 || !THREE.CatmullRomCurve3 || !THREE.TubeGeometry) return null;
   const spline = new THREE.CatmullRomCurve3(points, false, 'centripetal', 0.5);
   // Catmull-Rom can undershoot between a descending control point and a run
@@ -754,8 +775,14 @@ function buildFlexibleCableGeometry(points, radius, reversed = false, floorY = n
   }
   let length = 0;
   for (let i = 1; i < points.length; i++) length += points[i - 1].distanceTo(points[i]);
-  const tubularSegments = Math.max(16, Math.min(512, Math.ceil(length * 8)));
-  const geometry = new THREE.TubeGeometry(curve, tubularSegments, radius, 8, false);
+  const samplesPerMeter = quality?.samplesPerMeter || 8;
+  const minimumSegments = quality?.minimumSegments || 16;
+  const maximumSegments = quality?.maximumSegments || 512;
+  const radialSegments = quality?.radialSegments || 8;
+  const tubularSegments = Math.max(
+    minimumSegments, Math.min(maximumSegments, Math.ceil(length * samplesPerMeter)));
+  const geometry = new THREE.TubeGeometry(
+    curve, tubularSegments, radius, radialSegments, false);
   const uv = geometry.attributes?.uv;
   if (uv?.array) {
     for (let i = 0; i < uv.array.length; i += 2) {
@@ -768,12 +795,53 @@ function buildFlexibleCableGeometry(points, radius, reversed = false, floorY = n
 }
 
 function buildFlexibleCable(points, radius, material, reversed = false, floorY = null) {
-  const geometry = buildFlexibleCableGeometry(points, radius, reversed, floorY);
-  if (!geometry) return null;
-  const mesh = new THREE.Mesh(geometry, material);
+  const detailGeometry = buildFlexibleCableGeometry(points, radius, reversed, floorY);
+  if (!detailGeometry) return null;
+  // Flexible lines can carry hundreds of longitudinal samples. Keep one mesh
+  // and swap only its geometry at the utility LOD boundary, avoiding both a
+  // second draw call and duplicate visible cables during the transition.
+  const farGeometry = buildFlexibleCableGeometry(points, radius, reversed, floorY, {
+    samplesPerMeter: 1.5,
+    minimumSegments: 8,
+    maximumSegments: 96,
+    radialSegments: 4,
+  });
+  const mesh = new THREE.Mesh(detailGeometry, material);
   mesh.userData.isFlexibleUtilityCable = true;
   mesh.userData.flexibleControlPoints = points.map(point => point.clone());
+  if (farGeometry) {
+    mesh.userData.utilityLodGeometries = {
+      detail: detailGeometry,
+      far: farGeometry,
+    };
+  }
   return mesh;
+}
+
+function replaceFlexibleCableLodGeometries(
+  mesh, points, radius, reversed, floorY, showDetail,
+) {
+  if (!mesh) return false;
+  const old = mesh.userData?.utilityLodGeometries;
+  const detail = buildFlexibleCableGeometry(points, radius, reversed, floorY);
+  const far = buildFlexibleCableGeometry(points, radius, reversed, floorY, {
+    samplesPerMeter: 1.5,
+    minimumSegments: 8,
+    maximumSegments: 96,
+    radialSegments: 4,
+  });
+  if (!detail || !far) {
+    detail?.dispose?.();
+    far?.dispose?.();
+    return false;
+  }
+  for (const geometry of new Set([
+    mesh.geometry, old?.detail, old?.far,
+  ].filter(Boolean))) geometry.dispose?.();
+  mesh.userData.utilityLodGeometries = { detail, far };
+  mesh.geometry = showDetail ? detail : far;
+  mesh.userData.flexibleControlPoints = points.map(point => point.clone());
+  return true;
 }
 
 // One box segment between two 3D points for rectangular waveguide geometry.
@@ -886,45 +954,6 @@ function buildRoundSweepElbow(info, radius, material) {
   const mesh = new THREE.Mesh(geo, material);
   mesh.userData = { isUtilityJoint: true, isUtilitySweepElbow: true, bendRadius: info.trim };
   return mesh;
-}
-
-// A short formed elbow cannot absorb assembly tolerance. Real vacuum systems
-// put a hydroformed bellows at those compressed/vertical transitions, while
-// retaining smooth elbows on roomy deck turns. The corrugations follow the
-// local curve tangent so this remains a continuous closed tube, not rings
-// floating around an empty corner.
-function buildVacuumBellowsElbow(info, radius, bodyMaterial, hardwareMaterial, count = 7) {
-  const curve = elbowCurve(info);
-  if (!curve || !THREE.TubeGeometry || !THREE.TorusGeometry) return null;
-  const group = new THREE.Group();
-  const sleeve = new THREE.Mesh(
-    new THREE.TubeGeometry(curve, 12, radius * 0.88, SEGS, false), bodyMaterial);
-  sleeve.userData.isUtilityJoint = true;
-  group.add(sleeve);
-  const forward = new THREE.Vector3(0, 0, 1);
-  for (let index = 0; index < count; index++) {
-    const t = (index + 1) / (count + 1);
-    const point = curve.getPoint(t);
-    const tangent = curve.getTangent(t).normalize();
-    const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(radius * 1.08, Math.max(0.008, radius * 0.16), 6, 14),
-      hardwareMaterial,
-    );
-    ring.position.copy(point);
-    ring.quaternion.copy(new THREE.Quaternion().setFromUnitVectors(forward, tangent));
-    ring.matrixAutoUpdate = false;
-    ring.updateMatrix();
-    ring.userData.utilityBellowsPart = 'corrugation';
-    group.add(ring);
-  }
-  group.userData = {
-    isUtilityJoint: true,
-    isUtilitySweepElbow: true,
-    isVacuumBellows: true,
-    bendRadius: info.trim,
-    corrugationCount: count,
-  };
-  return group;
 }
 
 // Rectangular sweep for the H-plane bends that dominate floor-routed
@@ -1234,12 +1263,15 @@ function buildServiceFitting(point, direction, descriptor, material, errorStatus
   } else {
     mesh = buildCylinderSegment(a, b, radius * 1.62, material);
   }
-  if (mesh) mesh.userData = {
-    ...mesh.userData,
-    isUtilityJoint: true,
-    isUtilityFitting: true,
-    fittingStyle: descriptor.fittingStyle,
-  };
+  if (mesh) {
+    mesh.userData = {
+      ...mesh.userData,
+      isUtilityJoint: true,
+      isUtilityFitting: true,
+      fittingStyle: descriptor.fittingStyle,
+    };
+    markUtilityDetail(mesh);
+  }
   return mesh;
 }
 
@@ -1381,6 +1413,7 @@ function addCryostatIdentificationBands(group, start, end, descriptor, material)
       isCryostatIdentificationBand: true,
       cryostatPart: 'identification-band',
     };
+    markUtilityDetail(band);
     group.add(band);
   }
 }
@@ -1478,6 +1511,7 @@ function buildUtilitySupport(
     isTwinWaterSupport,
     waterCircuits: [...waterCircuits],
   };
+  markUtilityDetail(support);
   return support;
 }
 
@@ -1638,6 +1672,7 @@ function buildStackedUtilitySupport(entries) {
     isTwinWaterSupport: waterCircuits.includes('cold') && waterCircuits.includes('hot'),
     waterCircuits,
   };
+  markUtilityDetail(support);
   return support;
 }
 
@@ -1707,12 +1742,7 @@ function buildCornerJoint(prev, at, next, style, radius, material, descriptor = 
   const bend = cornerBendInfo(prev, at, next, descriptor);
   if (bend) {
     let formed;
-    if (descriptor?.compactBendStyle === 'bellows' && bend.compact) {
-      formed = buildVacuumBellowsElbow(
-        bend, radius, material, getLineHardwareMaterial('vacuumPipe'),
-        descriptor?.bellowsCorrugations || 7,
-      );
-    } else if (style === 'rectWaveguide' && descriptor?.bendStyle === 'mitered') {
+    if (style === 'rectWaveguide' && descriptor?.bendStyle === 'mitered') {
       formed = buildRectMiterElbow(bend, radius * 2, radius * 1.4, material);
     } else if (style === 'rectWaveguide') {
       formed = buildRectSweepElbow(bend, radius * 2, radius * 1.4, material);
@@ -2036,6 +2066,7 @@ function buildLineGroup(
         // on BLOOM_LAYER too keeps it rendering (and, per getJacketMaterial,
         // glowing) normally in the bloom pass instead of occluding.
         if (emissiveFlow) jacket.layers.enable(BLOOM_LAYER);
+        markUtilityDetail(jacket);
         group.add(jacket);
       }
     } else {
@@ -2082,7 +2113,10 @@ function buildLineGroup(
     if (jointJacketMat) {
       const jacketJoint = buildCornerJoint(
         prev, at, next, style, radius * 1.6, jointJacketMat, descriptor);
-      if (jacketJoint) group.add(jacketJoint);
+      if (jacketJoint) {
+        markUtilityDetail(jacketJoint);
+        group.add(jacketJoint);
+      }
     }
     const bend = cornerBendInfo(prev, at, next, descriptor);
     if (bend && descriptor.fittingStyle) {
@@ -2163,6 +2197,7 @@ function buildLineGroup(
         channelSlot: busLane?.slot ?? line.manifold.slot ?? null,
         tapId: tap.id || null,
       };
+      markUtilityDetail(port);
       const portX = busChannel ? x + busPortOffsetX : x;
       const portZ = busChannel ? z + busPortOffsetZ : z;
       if (suspendedBusChannel) {
@@ -2176,6 +2211,7 @@ function buildLineGroup(
         );
         if (tensionSupport) {
           tensionSupport.userData.isUniversalUtilityBusTensionSupport = true;
+          markUtilityDetail(tensionSupport);
           group.add(tensionSupport);
         }
       }
@@ -2620,6 +2656,7 @@ export class UtilityLineBuilderV2 {
     this._rigidSupportGroup = null;
     this._rigidSupportHash = null;
     this._focusLineIds = null;
+    this._showDetail = true;
     // line.id → one short-lived interpolation from the just-drawn hand shape
     // to its deterministic, gravity-settled rope solve.
     this._relaxations = new Map();
@@ -2790,6 +2827,7 @@ export class UtilityLineBuilderV2 {
         line, placeablesById, errorStatus, flowState, reversed,
         pointOverride, joinedOpenEnds, tapAnchors, false);
       if (group) {
+        applyUtilityDetailLevel(group, this._showDetail);
         parentGroup.add(group);
         this._lineGroups.set(line.id, group);
         this._lineHashes.set(line.id, hash);
@@ -2940,6 +2978,8 @@ export class UtilityLineBuilderV2 {
       isRigidUtilitySupportGroup: true,
       lineIds: [...allLineIds],
     };
+    markUtilityDetail(group);
+    applyUtilityDetailLevel(group, this._showDetail);
     parentGroup.add(group);
     this._rigidSupportGroup = group;
   }
@@ -2948,6 +2988,22 @@ export class UtilityLineBuilderV2 {
   setFocus(lineIds = null) {
     this._focusLineIds = lineIds == null ? null : new Set(lineIds);
     this._applyFocus();
+  }
+
+  /**
+   * Keep route silhouettes visible while switching optional utility hardware
+   * and flexible-line tessellation as one coordinated zoom presentation.
+   */
+  setDetailLevel(showDetail) {
+    const next = !!showDetail;
+    this._showDetail = next;
+    for (const group of this._lineGroups.values()) {
+      applyUtilityDetailLevel(group, next);
+    }
+    for (const group of this._busGroups.values()) {
+      applyUtilityDetailLevel(group, next);
+    }
+    applyUtilityDetailLevel(this._rigidSupportGroup, next);
   }
 
   _buildUtilityBuses(buses, parentGroup) {
@@ -2989,6 +3045,7 @@ export class UtilityLineBuilderV2 {
         const vertical = bus.path[0].col === bus.path[bus.path.length - 1].col;
         const hanger = new THREE.Group();
         hanger.userData.isUniversalUtilityBusHanger = true;
+        markUtilityDetail(hanger);
         for (const lateral of [-UNIVERSAL_BUS_HALF_WIDTH, UNIVERSAL_BUS_HALF_WIDTH]) {
           const rodHeight = UNIVERSAL_RACK_TOP_Y - 0.04;
           const rod = new THREE.Mesh(new THREE.BoxGeometry(0.045, rodHeight, 0.045), material);
@@ -3011,6 +3068,7 @@ export class UtilityLineBuilderV2 {
         group.add(hanger);
       }
       group.userData = { isUniversalUtilityBus: true, busId: bus.id };
+      applyUtilityDetailLevel(group, this._showDetail);
       parentGroup.add(group);
       this._busGroups.set(bus.id, group);
       this._busHashes.set(bus.id, hash);
@@ -3089,12 +3147,8 @@ export class UtilityLineBuilderV2 {
         if (!mesh && object.userData?.isFlexibleUtilityCable) mesh = object;
       });
       if (!mesh) continue;
-      const geometry = buildFlexibleCableGeometry(
-        state.points, state.radius, state.reversed, state.floorY);
-      if (!geometry) continue;
-      mesh.geometry?.dispose?.();
-      mesh.geometry = geometry;
-      mesh.userData.flexibleControlPoints = state.points.map(point => point.clone());
+      replaceFlexibleCableLodGeometries(
+        mesh, state.points, state.radius, state.reversed, state.floorY, this._showDetail);
     }
     return finishedAny;
   }
@@ -3134,12 +3188,8 @@ export class UtilityLineBuilderV2 {
           if (!mesh && object.userData?.isFlexibleUtilityCable) mesh = object;
         });
         if (mesh) {
-          const geometry = buildFlexibleCableGeometry(
-            points, state.radius, state.reversed, state.floorY);
-          if (geometry) {
-            mesh.geometry?.dispose?.();
-            mesh.geometry = geometry;
-          }
+          replaceFlexibleCableLodGeometries(
+            mesh, points, state.radius, state.reversed, state.floorY, this._showDetail);
         }
         continue;
       }
@@ -3158,6 +3208,7 @@ export class UtilityLineBuilderV2 {
         state.joinedOpenEnds,
       );
       if (replacement) {
+        applyUtilityDetailLevel(replacement, this._showDetail);
         state.parentGroup.add(replacement);
         this._lineGroups.set(lineId, replacement);
       } else {
@@ -3528,7 +3579,10 @@ export class UtilityLineBuilderV2 {
     if (!group) return;
     group.traverse(obj => {
       if (obj.isMesh) {
-        if (obj.geometry) obj.geometry.dispose();
+        const lodGeometries = obj.userData?.utilityLodGeometries;
+        for (const geometry of new Set([
+          obj.geometry, lodGeometries?.detail, lodGeometries?.far,
+        ].filter(Boolean))) geometry.dispose?.();
         // Cached materials (tagged __shared) are reused across builds and
         // must survive; anything else is owned by this group.
         const m = obj.material;

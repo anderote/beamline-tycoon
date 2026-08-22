@@ -115,6 +115,7 @@ export class VisualEffectSystem {
     ));
     this._random = typeof opts.random === 'function' ? opts.random : Math.random;
     this._effects = new Map();
+    this._scopeEnabled = new Map();
     this._surfaceEffects = new Map();
     this._bursts = [];
     this._kineticParticles = [];
@@ -310,7 +311,7 @@ export class VisualEffectSystem {
       const path = prepareEffectPath(raw.path);
       if (path.length <= 0) continue;
       const id = `${prefix}${raw.id}`;
-      this._effects.set(id, { ...raw, id, path });
+      this._effects.set(id, { ...raw, id, path, scopeId });
     }
     this._assignLightProxyRanges();
     this._stats.descriptors = this._effects.size;
@@ -319,6 +320,12 @@ export class VisualEffectSystem {
   _assignLightProxyRanges() {
     const requests = [];
     for (const effect of this._effects.values()) {
+      if (this._scopeEnabled.get(effect.scopeId) === false) {
+        effect.proxyStart = 0;
+        effect.proxyCount = 0;
+        effect.proxyCycleCount = 0;
+        continue;
+      }
       if (effect.kind !== 'pathPulse') {
         effect.proxyStart = 0;
         effect.proxyCount = 0;
@@ -365,6 +372,13 @@ export class VisualEffectSystem {
       if (Array.isArray(list)) descriptors.push(...list);
     });
     this.syncScope(scopeId, descriptors);
+  }
+
+  /** Park one declarative producer without affecting one-shot gameplay FX. */
+  setScopeEnabled(scopeId, enabled) {
+    if (!scopeId) return;
+    this._scopeEnabled.set(scopeId, enabled !== false);
+    this._assignLightProxyRanges();
   }
 
   /**
@@ -467,6 +481,7 @@ export class VisualEffectSystem {
     const burstInstanceCount = instanceIndex;
 
     for (const effect of this._effects.values()) {
+      if (this._scopeEnabled.get(effect.scopeId) === false) continue;
       if (effect.enabled === false) continue;
       if (effect.kind === 'ambientMist') {
         const result = this._writeMistParticles(effect, ambientIndex);
@@ -778,6 +793,7 @@ export class VisualEffectSystem {
     this._kineticMesh.geometry.dispose();
     this._kineticMesh.material.dispose();
     this._effects.clear();
+    this._scopeEnabled.clear();
     this._bursts.length = 0;
     this._kineticParticles.length = 0;
     for (const record of this._surfaceEffects.values()) {

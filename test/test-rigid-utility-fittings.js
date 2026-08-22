@@ -177,7 +177,7 @@ console.log('\n--- 4b. Opposed branches fabricate one four-way vacuum cross ---'
     'the vacuum cross exposes one copper gasket at each demountable arm');
 }
 
-console.log('\n--- 4c. Compact equipment transitions use corrugated vacuum bellows ---');
+console.log('\n--- 4c. Compact vacuum transitions stay smooth and geometry-light ---');
 {
   const pump = {
     id: 'pump', type: 'roughingPump',
@@ -195,10 +195,14 @@ console.log('\n--- 4c. Compact equipment transitions use corrugated vacuum bello
   const bellows = collect(parent, object => object.userData?.isVacuumBellows);
   const corrugations = bellows.flatMap(bellowsGroup => collect(bellowsGroup,
     object => object.userData?.utilityBellowsPart === 'corrugation'));
-  assert(bellows.length > 0,
-    `the short vertical-to-service transition receives bellows (${bellows.length})`);
-  assert(corrugations.length === bellows.length * 7,
-    `${corrugations.length} formed corrugations make the flexible section readable`);
+  const elbows = collect(parent, object => object.userData?.isUtilitySweepElbow);
+  assert(bellows.length === 0 && corrugations.length === 0,
+    'vacuum routes no longer multiply corrugation meshes at compact transitions');
+  assert(elbows.length > 0 && elbows.every(elbow => elbow.geometry instanceof THREE_NS.TubeGeometry),
+    `${elbows.length} compact transitions retain continuous formed-tube elbows`);
+  assert(UTILITY_TYPES.vacuumPipe.compactBendStyle == null
+      && UTILITY_TYPES.vacuumPipe.bellowsCorrugations == null,
+    'the vacuum descriptor no longer opts into automatic bellows decoration');
 }
 
 console.log('\n--- 4d. A run peeling off a shared header is a tee, not an elbow ---');

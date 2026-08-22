@@ -131,6 +131,33 @@ test('path effects can keep moving light proxies without crest objects', () => {
   system.dispose();
 });
 
+test('one producer scope can be parked for distance LOD without disabling gameplay effects', () => {
+  const scene = new Three.Scene();
+  const system = new VisualEffectSystem(scene, { pulseBudget: 8, lightProxyBudget: 4 });
+  const path = [{ x: 0, y: 0.5, z: 0 }, { x: 4, y: 0.5, z: 0 }];
+  system.syncScope('utility-lines', [{
+    id: 'vacuum-1', kind: 'pathPulse', crest: false, path,
+    speed: 0.3, period: 2, light: { intensity: 0.1, distance: 1 },
+  }]);
+  system.syncScope('machines', [{
+    id: 'status-1', kind: 'pathPulse', path,
+    speed: 1, period: 2, light: false,
+  }]);
+
+  system.setScopeEnabled('utility-lines', false);
+  system.update(0, 1);
+  assert.equal(system.getStats().lightCandidates, 0,
+    'far utility scope releases its moving-light proxy allocation');
+  assert.ok(system._pulseMesh.count > 0,
+    'unrelated machine/gameplay effects remain active');
+
+  system.setScopeEnabled('utility-lines', true);
+  system.update(0, 1);
+  assert.ok(system.getStats().lightCandidates > 0,
+    'near utility detail restores its bounded light proxies');
+  system.dispose();
+});
+
 test('path effects honor utility-specific silhouettes and can opt out of room light', () => {
   const scene = new Three.Scene();
   const system = new VisualEffectSystem(scene, { pulseBudget: 8, lightProxyBudget: 4 });
