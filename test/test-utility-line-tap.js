@@ -167,7 +167,27 @@ console.log('\n--- 1b. A rigid run is one continuous, forgiving magnetic target 
       hover?.worldPos)})`);
 }
 
-console.log('\n--- 1c. A broad cryo jacket gets a cryo-specific pickup halo ---');
+console.log('\n--- 1c. Thin cooling-water lines keep a local pickup halo ---');
+{
+  const game = makeGame();
+  const lineId = game.utilityLineSystem.addLine({
+    utilityType: 'coolingWater', start: null, end: null,
+    path: [{ col: 2, row: 14 }, { col: 12, row: 14 }],
+  });
+  const ctrl = ctrlFor(game);
+
+  let iso = gridToIso(7.37, 14.55);
+  ctrl.onHover(iso.x, iso.y);
+  assert(!ctrl.hoverPort,
+    'a cursor over half a tile away is not pulled onto a thin water line');
+
+  iso = gridToIso(7.37, 14.3);
+  ctrl.onHover(iso.x, iso.y);
+  assert(ctrl.hoverPort?.tap === true && ctrl.hoverPort.lineId === lineId,
+    'a cursor close to the visible water line can still build a tee');
+}
+
+console.log('\n--- 1d. A broad cryo jacket gets a cryo-specific pickup halo ---');
 {
   const game = makeGame();
   const lineId = game.utilityLineSystem.addLine({
