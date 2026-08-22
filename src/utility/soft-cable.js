@@ -63,6 +63,14 @@ export function isHvCableTensionAnchor(def, portName = null) {
     || def?.wallPassThrough === true;
 }
 
+/** True only when both ends of one HV span are mechanical tension anchors. */
+export function isHvCableTensionSpan(endpoints) {
+  return Array.isArray(endpoints) && endpoints.length === 2
+    && endpoints.every(endpoint => (
+      isHvCableTensionAnchor(endpoint?.def, endpoint?.portName)
+    ));
+}
+
 /**
  * A direct, tensioned span between two mechanical cable supports.
  *

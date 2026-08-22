@@ -29,7 +29,7 @@ import { BLOOM_LAYER } from './glow-pipeline.js';
 import { computeLineOrientations } from '../utility/line-orientation.js';
 import {
   draggedCablePath,
-  isHvCableTensionAnchor,
+  isHvCableTensionSpan,
   isSoftCable,
   relaxedCableControlPoints,
   softCableBendRadiusMeters,
@@ -398,15 +398,16 @@ function topPortSideDropLanding(ref, placeablesById, anchor) {
   return landing ? { x: landing.x, z: landing.z } : null;
 }
 
-/** HV spans shed drawn slack when either end is held by tensioning hardware. */
+/** HV spans shed drawn slack only between two mechanical tension supports. */
 export function isTensionedHvCable(line, placeablesById) {
   if (line?.utilityType !== 'hvCable') return false;
-  if (line.tensioned === true) return true;
-  if (!placeablesById) return false;
-  return [line.start, line.end].some(ref => {
+  // Live previews have no placeable references here; the input controller has
+  // already evaluated both snapped endpoints before setting this flag.
+  if (!placeablesById) return line.tensioned === true;
+  return isHvCableTensionSpan([line.start, line.end].map(ref => {
     const endpoint = ref ? placeablesById.get(ref.placeableId) : null;
-    return isHvCableTensionAnchor(COMPONENTS[endpoint?.type], ref?.portName);
-  });
+    return { def: COMPONENTS[endpoint?.type], portName: ref?.portName };
+  }));
 }
 
 function waveguideDropOptions(descriptor) {
