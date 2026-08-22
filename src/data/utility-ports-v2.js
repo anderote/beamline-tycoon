@@ -127,7 +127,7 @@ const BEAMLINE_UTILITY_PORTS = {
   ecrIonSource: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 60 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 40 } },
-    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 6 } },
+    rf_in:   { utility: 'rfWaveguide',  side: 'left', offsetAlong: 0.66, role: 'sink', params: { demand: 6 } },
   },
   // The default 750 kV stage adds up to 300 kW of beam power at the ECR's
   // 400 mA design current. The electrical sink is intentionally substation-
@@ -325,12 +325,12 @@ const BEAMLINE_UTILITY_PORTS = {
   rfq: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 6 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 60 } },
-    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 25 } },
+    rf_in:   { utility: 'rfWaveguide',  side: 'left', offsetAlong: 0.76, role: 'sink', params: { demand: 25 } },
   },
   dtl: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 22 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 140 } },
-    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 45 } },
+    rf_in:   { utility: 'rfWaveguide',  side: 'left', offsetAlong: 0.76, role: 'sink', params: { demand: 45 } },
   },
   pillboxCavity: {
     pwr_in: { utility: 'powerCable',  side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 3 } },
@@ -359,12 +359,12 @@ const BEAMLINE_UTILITY_PORTS = {
   cbandStructure: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 45 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 220 } },
-    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 110 } },
+    rf_in:   { utility: 'rfWaveguide',  side: 'left', offsetAlong: 0.90, role: 'sink', params: { demand: 110 } },
   },
   xbandStructure: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 90 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 480 } },
-    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 240 } },
+    rf_in:   { utility: 'rfWaveguide',  side: 'back', offsetAlong: 0.50, role: 'sink', params: { demand: 240 } },
   },
   // Five CLIC modules' worth of hardware, but the waveguide demand is the ONE
   // number that does not scale with the energy: the drive beam carries the
@@ -374,7 +374,7 @@ const BEAMLINE_UTILITY_PORTS = {
   twoBeamModule: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 120 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 780 } },
-    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 400 } },
+    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.10, role: 'sink', params: { demand: 400 } },
   },
   // NO rf_in and NO cryo_in, exactly like lwfaStation — the absence is the
   // design. There is no cavity to drive and nothing to hold at 2 K. What
@@ -407,7 +407,7 @@ const BEAMLINE_UTILITY_PORTS = {
   industrialLinac: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 8 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.8, role: 'sink', params: { heatLoad: 45 } },
-    rf_in:   { utility: 'rfWaveguide',  ...STANDARD_RF_FEED, role: 'sink', params: { demand: 20 } },
+    rf_in:   { utility: 'rfWaveguide',  side: 'left', offsetAlong: 0.68, role: 'sink', params: { demand: 20 } },
   },
 
   // ── RF — superconducting (pwr + cryo + rf) ────────────────────────
@@ -432,7 +432,8 @@ const BEAMLINE_UTILITY_PORTS = {
   cryomodule: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 12 } },
     cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'sink', params: { srfHeatW: 250 } },
-    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 40 } },
+    // The rendered TESLA fundamental-power-coupler row is on local -X.
+    rf_in:   { utility: 'rfWaveguide',  side: 'left', offsetAlong: 0.55, role: 'sink', params: { demand: 40 } },
   },
   // The SRF ladder above the TESLA cryomodule. Cryo load scales with the
   // number of modules the placement stands for, NOT with its energy gain —

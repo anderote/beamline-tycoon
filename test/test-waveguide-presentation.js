@@ -156,8 +156,9 @@ console.log('\n--- 5. Common RF ports use predictable standard placements ---');
     `${type} uses the centred single-output RF placement`);
   }
   assert(COMPONENTS.sbandStructure.ports.rf_in.offsetAlong === 0.8
-      && COMPONENTS.cryomodule.ports.rf_in.offsetAlong === 0.8,
-    'long warm structures and cryomodules retain their end-mounted couplers');
+      && COMPONENTS.cryomodule.ports.rf_in.side === 'left'
+      && COMPONENTS.cryomodule.ports.rf_in.offsetAlong === 0.55,
+    'warm structures retain their end feed while the TESLA module uses its visible coupler row');
 }
 
 console.log('\n--- 6. An aligned klystron and NC cavity build one straight guide ---');

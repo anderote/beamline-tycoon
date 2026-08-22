@@ -1802,7 +1802,7 @@ function _buildRFQRoles() {
   // RF drive waveguide — rectangular stub sticking out the -X side near
   // the upstream (-Z) end, ending in a flanged coupling box.
   {
-    const wgW = 0.34, wgH = 0.18, wgL = 0.5;
+    const wgW = 0.34, wgH = 0.18, wgL = 0.39;
     const wgZ = -bodyL / 2 + 0.6;
     const wgX = -(bodyR + wgL / 2);
     const g = new THREE.BoxGeometry(wgL, wgH, wgW);
@@ -2140,7 +2140,7 @@ function _buildHalfWaveResonatorRoles() {
   {
     const cW = 0.26;   // Z extent (along beam) — short coupler
     const cH = 0.26;   // Y extent
-    const cL = 0.42;   // X extent (how far it sticks out)
+    const cL = 0.29;   // X extent; cap lands on the 0.75 m footprint edge
     const g = new THREE.BoxGeometry(cL, cH, cW);
     applyTiledBoxUVs(g, cL, cH, cW);
     _pushTransformed(buckets.accent, g, new THREE.Matrix4().makeTranslation(vesselW / 2 + cL / 2, BEAM_HEIGHT, 0));
@@ -2259,7 +2259,7 @@ function _buildSpokeCavityRoles() {
   // spaced along Z so each spoke cell gets its own drive.
   const couplerZs = [-vesselL * 0.25, vesselL * 0.25];
   for (const zc of couplerZs) {
-    const cW = 0.26, cH = 0.26, cL = 0.42;
+    const cW = 0.26, cH = 0.26, cL = 0.26;
     const g = new THREE.BoxGeometry(cL, cH, cW);
     applyTiledBoxUVs(g, cL, cH, cW);
     _pushTransformed(buckets.accent, g, new THREE.Matrix4().makeTranslation(vesselW / 2 + cL / 2, BEAM_HEIGHT, zc));
@@ -2356,7 +2356,8 @@ function _buildPillboxCavityRoles() {
     _pushTransformed(buckets.detail, fg, new THREE.Matrix4().multiplyMatrices(ftrans, frot));
   }
 
-  // Top RF coupler — chunky cylindrical stub with a flange cap
+  // Top pickup/tuning coupler — the routed high-power inlet is the
+  // rectangular side window below.
   {
     const couplerR = 0.1, couplerH = 0.3;
     const g = new THREE.CylinderGeometry(couplerR, couplerR, couplerH, SEGS);
@@ -2369,6 +2370,9 @@ function _buildPillboxCavityRoles() {
     const capTrans = new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT + cellR + couplerH + 0.02, 0);
     _pushTransformed(buckets.detail, capGeo, capTrans);
   }
+
+  _gBox(buckets.accent, 0.10, 0.09, 0.14, { x: 0.45, y: 1.2, z: 0 });
+  _gBox(buckets.detail, 0.03, 0.15, 0.20, { x: 0.485, y: 1.2, z: 0 });
 
   // Bottom pickup probe — smaller stub on the underside
   {
@@ -2483,7 +2487,7 @@ function _buildBuncherRoles() {
     _pushTransformed(buckets.detail, fg, new THREE.Matrix4().multiplyMatrices(ftrans, frot));
   }
 
-  // Small top RF coupler — single stub, no cap
+  // Small top field probe — the routed RF inlet is the side window below.
   {
     const couplerR = 0.06, couplerH = 0.18;
     const g = new THREE.CylinderGeometry(couplerR, couplerR, couplerH, SEGS);
@@ -2491,6 +2495,9 @@ function _buildBuncherRoles() {
     const trans = new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT + cellR + couplerH / 2, 0);
     _pushTransformed(buckets.copper, g, trans);
   }
+
+  _gBox(buckets.accent, 0.18, 0.08, 0.12, { x: 0.37, y: 1.2, z: 0 });
+  _gBox(buckets.detail, 0.04, 0.14, 0.18, { x: 0.48, y: 1.2, z: 0 });
 
   // Single compact support pedestal — centered under the cell
   {
@@ -2614,7 +2621,7 @@ function _buildEllipticalSrfCavityRoles() {
   const fpcZ = -activeL / 2 + cellPeriod * 0.6;
   {
     const coaxR = 0.09;
-    const coaxL = 0.30;
+    const coaxL = 0.28;
     const coaxX = jacketR + coaxL / 2;
     const g = new THREE.CylinderGeometry(coaxR, coaxR, coaxL, SEGS);
     applyTiledCylinderUVs(g, coaxR, coaxL, SEGS);
@@ -2949,7 +2956,10 @@ function _srfCryomoduleRoles(opts) {
   // looks like another place where a waveguide can attach. Keep a small set of
   // representative couplers for scale and leave the actual hookup to the
   // single utility port fitting.
-  const coaxL = 0.20, boxL = 0.16, capL = 0.05;
+  const boxL = 0.16, capL = 0.05;
+  // The 650 MHz vessel is widest. Shorten only its coax neck enough to keep
+  // the inlet-window flange on the common 2 m-wide reserved footprint.
+  const coaxL = Math.min(0.20, 1.0 - vesselR - boxL - capL);
   const visibleCouplerZs = Number.isFinite(couplerCount) && couplerCount > 0
     ? _gSpread(Math.floor(couplerCount), stringL * 0.72)
     : cellZs;

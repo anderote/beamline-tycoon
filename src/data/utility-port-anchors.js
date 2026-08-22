@@ -47,11 +47,26 @@ export const PORT_ANCHOR_OVERRIDES = {
 
   // RF structures take their waveguide high on the body and their cooling low,
   // which is the one place the two ports genuinely want different heights.
-  pillboxCavity: { _default: { y: 0.95 }, rf_in: { y: STANDARD_RF_FEED_Y }, cool_in: { y: 0.55 } },
-  ellipticalSrfCavity: { _default: { y: 1.0 }, rf_in: { y: 1.3 }, cool_in: { y: 0.6 } },
-  spokeCavity: { _default: { y: 0.95 }, rf_in: { y: 1.25 } },
-  buncher: { _default: { y: 0.9 }, rf_in: { y: STANDARD_RF_FEED_Y } },
-  cryomodule: { _default: { y: 1.15 }, cryo_in: { y: 0.7 }, rf_in: { y: 1.45 } },
+  pillboxCavity: {
+    _default: { y: 0.95 }, rf_in: { y: STANDARD_RF_FEED_Y, lat: 0.5, along: 0 }, cool_in: { y: 0.55 },
+  },
+  ellipticalSrfCavity: {
+    _default: { y: 1.0 }, rf_in: { y: 1.0, lat: 0.75, along: -0.468 }, cool_in: { y: 0.6 },
+  },
+  spokeCavity: { _default: { y: 0.95 }, rf_in: { y: 1.0, lat: 0.75, along: 0.465 } },
+  buncher: { _default: { y: 0.9 }, rf_in: { y: STANDARD_RF_FEED_Y, lat: 0.5, along: 0 } },
+  ncRfGun: { _default: { y: 0.9 }, rf_in: { y: 1.08, lat: 0.63, along: 0.02 } },
+  srfGun: { _default: { y: 1.0 }, rf_in: { y: 1.05, lat: 0.76, along: 0.38 } },
+  ecrIonSource: { _default: { y: 0.9 }, rf_in: { y: 1.05, lat: 0.77, along: -0.49 } },
+  // The TESLA module's visible fundamental-power-coupler row is on local -X
+  // at beam height. The one routable feed lands on the first window beside
+  // the module centre instead of floating above the vacuum jacket near its
+  // downstream end.
+  cryomodule: {
+    _default: { y: 1.15 },
+    cryo_in: { y: 0.7 },
+    rf_in: { y: 1.0, lat: 0.76, along: 0.390625 },
+  },
 
   // --- support plant -------------------------------------------------------
   // Electrical hardware uses readable terminal banks rather than model-bound
@@ -258,22 +273,48 @@ export const PORT_ANCHOR_OVERRIDES = {
   // --- accelerating structures --------------------------------------------
   // Same split the pillbox already documents: waveguide onto the run along
   // the top of the structure, cooling onto the manifold just above the stand.
-  rfCavity: { _default: { y: 0.95 }, rf_in: { y: STANDARD_RF_FEED_Y }, cool_in: { y: 0.6 } }, // centred standard feed on the 0.5..1.5 m cell body
-  rfq: { _default: { y: 1.0 }, rf_in: { y: 1.5 }, cool_in: { y: 0.55 } },             // vanes 0.4..1.6, WG 1.55..1.9
-  sbandStructure: { _default: { y: 0.95 }, rf_in: { y: 1.35 }, cool_in: { y: 0.6 } }, // copper 0.48..1.52
-  cbandStructure: { _default: { y: 0.95 }, rf_in: { y: 1.3 }, cool_in: { y: 0.65 } }, // copper 0.56..1.44
-  xbandStructure: { _default: { y: 0.95 }, rf_in: { y: 1.25 }, cool_in: { y: 0.75 } },// copper 0.66..1.34, tall 0.9 stand
-  twoBeamModule: { _default: { y: 1.1 }, rf_in: { y: 1.45 }, cool_in: { y: 0.7 } },   // drive+main stack 0.81..1.9
+  rfCavity: {
+    _default: { y: 0.95 }, rf_in: { y: STANDARD_RF_FEED_Y, lat: 0.46, along: 0 }, cool_in: { y: 0.6 },
+  },
+  protonLinacFrontEnd: { _default: { y: 0.9 }, rf_in: { y: 1.08, lat: 0.92, along: -1.25 } },
+  rfq: { _default: { y: 1.0 }, rf_in: { y: 1.0, lat: 1.0, along: -0.77 }, cool_in: { y: 0.55 } },
+  dtl: { _default: { y: 0.95 }, rf_in: { y: 1.12, lat: 0.73, along: -0.78 } },
+  sbandStructure: {
+    _default: { y: 0.95 }, rf_in: { y: 1.35, lat: 0.64, along: 0.914 }, cool_in: { y: 0.6 },
+  },
+  cbandStructure: {
+    _default: { y: 0.95 }, rf_in: { y: 1.0, lat: 0.90, along: -1.22 }, cool_in: { y: 0.65 },
+  },
+  xbandStructure: {
+    _default: { y: 0.95 }, rf_in: { y: 1.42, lat: 1.445, along: 0 }, cool_in: { y: 0.75 },
+  },
+  twoBeamModule: {
+    _default: { y: 1.1 }, rf_in: { y: 1.15, lat: 0.385, along: -4.76 }, cool_in: { y: 0.7 },
+  },
 
-  // Cryostats. The vessel is the tall part; the transfer line lands low where
-  // the cold end and the valve box are, the coupler high on the shell — the
-  // same shape as the `cryomodule` entry above.
-  halfWaveResonator: { _default: { y: 1.1 }, rf_in: { y: 1.55 }, cryo_in: { y: 0.7 } },  // vessel 0.06..2.26
-  srf650Cryomodule: { _default: { y: 1.15 }, rf_in: { y: 1.45 }, cryo_in: { y: 0.7 } },  // vessel 0.36..1.96
-  srf805Cryomodule: { _default: { y: 1.15 }, rf_in: { y: 1.45 }, cryo_in: { y: 0.7 } },  // vessel 0.47..1.85
-  cwCryomodule: { _default: { y: 1.15 }, rf_in: { y: 1.45 }, cryo_in: { y: 0.7 } },      // vessel 0.46..1.86
-  nbSnCryomodule: { _default: { y: 1.1 }, rf_in: { y: 1.4 }, cryo_in: { y: 0.7 } },      // vessel 0.55..1.76
-  srfLinacSector: { _default: { y: 1.15 }, rf_in: { y: 1.45 }, cryo_in: { y: 0.7 } },    // vessel 0.51..1.81
+  // Cryostats. Cryogenic transfer lands low at the valve box. RF lands on an
+  // actual rectangular fundamental-power-coupler window: those windows are
+  // centred at beam height in _srfCryomoduleRoles, not high on the jacket.
+  // `lat` is the outer flange face and `along` selects one of the rendered
+  // representative windows (the centre window where an odd bank has one).
+  halfWaveResonator: {
+    _default: { y: 1.1 }, rf_in: { y: 1.0, lat: 0.75, along: 0 }, cryo_in: { y: 0.7 },
+  },
+  srf650Cryomodule: {
+    _default: { y: 1.15 }, rf_in: { y: 1.0, lat: 1.0, along: 0 }, cryo_in: { y: 0.7 },
+  },
+  srf805Cryomodule: {
+    _default: { y: 1.15 }, rf_in: { y: 1.0, lat: 0.94, along: 1.296 }, cryo_in: { y: 0.7 },
+  },
+  cwCryomodule: {
+    _default: { y: 1.15 }, rf_in: { y: 1.0, lat: 0.95, along: 0 }, cryo_in: { y: 0.7 },
+  },
+  nbSnCryomodule: {
+    _default: { y: 1.1 }, rf_in: { y: 1.0, lat: 0.95, along: 1.296 }, cryo_in: { y: 0.7 },
+  },
+  srfLinacSector: {
+    _default: { y: 1.15 }, rf_in: { y: 1.0, lat: 0.90, along: 0 }, cryo_in: { y: 0.7 },
+  },
 
   // --- endpoints and big machines -----------------------------------------
   // A dump or a target is a squat block of shielding: the water goes in low
@@ -295,9 +336,11 @@ export const PORT_ANCHOR_OVERRIDES = {
   cyclotron30: { _default: { y: 0.9 }, cool_in: { y: 0.6 } },                    // 3 m yoke
   cyclotron70: { _default: { y: 0.9 }, cool_in: { y: 0.6 } },                    // 4 m yoke
   cyclotron230: { _default: { y: 0.9 }, cool_in: { y: 0.6 } },                   // 4 m yoke
-  positronSource: { _default: { y: 0.9 }, rf_in: { y: 1.4 }, cool_in: { y: 0.6 } },
+  positronSource: { _default: { y: 0.9 }, rf_in: { y: 1.05, lat: 0.72, along: 0 }, cool_in: { y: 0.6 } },
   lwfaStation: { _default: { y: 0.9 }, cool_in: { y: 0.6 }, data_in: { y: 1.1 } },
-  industrialLinac: { _default: { y: 0.85 }, rf_in: { y: STANDARD_RF_FEED_Y }, cool_in: { y: 0.7 } }, // 0.94 m tube centred on the axis
+  industrialLinac: {
+    _default: { y: 0.85 }, rf_in: { y: 1.05, lat: 0.49, along: -0.18 }, cool_in: { y: 0.7 },
+  },
 
   // --- support plant -------------------------------------------------------
   // The other two bus heads, so all four read alike: powerBus 0.5 and
