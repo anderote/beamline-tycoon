@@ -64,6 +64,45 @@ function roofTerminalAnchorBank(type, prefix) {
   };
 }
 
+const TOP_NORMAL = Object.freeze({ x: 0, y: 1, z: 0 });
+
+// Low distribution taps share this reachable service datum. Cabinet inputs
+// themselves remain on the roof caps defined by their model-specific layouts.
+export const HV_DISTRIBUTION_TAP_Y = 1.55;
+
+export const POWER_HV_INPUT_MOUNTS = Object.freeze({
+  ...Object.fromEntries(Object.entries(DISTRIBUTION_TOP_TERMINAL_LAYOUTS)
+    .map(([type, layout]) => [type, Object.freeze(roofTerminalAnchor(layout.input))])),
+  padMountTransformer: Object.freeze({
+    y: HV_DISTRIBUTION_TAP_Y, localX: 0, localZ: -0.20, normal: TOP_NORMAL,
+  }),
+  hvTransformer: Object.freeze({
+    y: 1.85, localX: 0, localZ: -0.35, normal: TOP_NORMAL,
+  }),
+  facilityTransformer: Object.freeze({
+    y: 1.85, localX: 0, localZ: -0.35, normal: TOP_NORMAL,
+  }),
+  gridIntertieTransformer: Object.freeze({
+    y: 1.85, localX: 0, localZ: -0.35, normal: TOP_NORMAL,
+  }),
+});
+
+export const INDOOR_HV_RACK_TAP_MOUNTS = Object.freeze({
+  hv_tap_left: Object.freeze({
+    y: HV_DISTRIBUTION_TAP_Y, localX: -0.98, localZ: 0,
+    normal: Object.freeze({ x: -1, y: 0, z: 0 }),
+  }),
+  hv_tap_right: Object.freeze({
+    y: HV_DISTRIBUTION_TAP_Y, localX: 0.98, localZ: 0,
+    normal: Object.freeze({ x: 1, y: 0, z: 0 }),
+  }),
+});
+
+export const UTILITY_POLE_HV_TAP_MOUNT = Object.freeze({
+  y: 0.75, localX: 0, localZ: 0.30,
+  normal: Object.freeze({ x: 0, y: 0, z: 1 }),
+});
+
 export const PORT_GEOMETRY_CLASS = Object.freeze({
   EXPLICIT_HARDWARE: 'explicit-hardware',
   GENERATED_HARDWARE: 'generated-hardware',
@@ -256,10 +295,12 @@ export const PORT_ANCHOR_OVERRIDES = {
   // --- support plant -------------------------------------------------------
   // Electrical hardware uses readable terminal banks rather than model-bound
   // midpoints. Distribution inputs and outputs terminate on the metal caps of
-  // visible roof insulators; front faces remain breaker/control panels only.
-  // These are presentation mounts only.
+  // visible roof insulators; transformer inputs do the same on their actual
+  // roof bushings. Front faces remain breaker/control panels only. These are
+  // presentation mounts only.
   padMountTransformer: {
     _default: { y: 0.78, lat: 0.42 },
+    hv_in: POWER_HV_INPUT_MOUNTS.padMountTransformer,
     hv_out_1: { along: 0 },
   },
   gridServicePoint: {
@@ -272,16 +313,19 @@ export const PORT_ANCHOR_OVERRIDES = {
   },
   facilityTransformer: {
     _default: { y: 1.55, lat: 0.82 },
+    hv_in: POWER_HV_INPUT_MOUNTS.facilityTransformer,
     hv_out_1: { along: -0.25 }, hv_out_2: { along: 0.25 },
   },
   hvTransformer: {
     _default: { y: 1.42, lat: 0.82 },
+    hv_in: POWER_HV_INPUT_MOUNTS.hvTransformer,
     // Match the 4×4 wall feedthrough: one 1.45 m-high row at 0.5 m centres.
     hv_out_1: { y: 1.45, along: -0.75 }, hv_out_2: { y: 1.45, along: -0.25 },
     hv_out_3: { y: 1.45, along: 0.25 }, hv_out_4: { y: 1.45, along: 0.75 },
   },
   gridIntertieTransformer: {
     _default: { y: 1.38, lat: 0.82 },
+    hv_in: POWER_HV_INPUT_MOUNTS.gridIntertieTransformer,
     hv_out_1: { y: 1.22, along: -0.36 }, hv_out_2: { y: 1.22, along: 0 },
     hv_out_3: { y: 1.22, along: 0.36 }, hv_out_4: { y: 1.58, along: -0.36 },
     hv_out_5: { y: 1.58, along: 0 }, hv_out_6: { y: 1.58, along: 0.36 },
@@ -332,8 +376,9 @@ export const PORT_ANCHOR_OVERRIDES = {
   },
   indoorHvCableRack: {
     _default: { y: 2.00, lat: 0, out: -0.06 },
-    hv_1: { along: -0.75 }, hv_2: { along: -0.25 },
-    hv_3: { along: 0.25 }, hv_4: { along: 0.75 },
+    hv_1: { along: -0.60 }, hv_2: { along: -0.20 },
+    hv_3: { along: 0.20 }, hv_4: { along: 0.60 },
+    ...INDOOR_HV_RACK_TAP_MOUNTS,
   },
   indoorHvCableCornerRack: {
     _default: { y: 2.00, out: -0.06 },
@@ -357,6 +402,7 @@ export const PORT_ANCHOR_OVERRIDES = {
     hv_out: { y: 6.4064, along: 0.91 },
     hv_3: { y: 5.3536, along: -0.91 },
     hv_4: { y: 5.3536, along: 0.91 },
+    hv_tap: UTILITY_POLE_HV_TAP_MOUNT,
   },
   // Six hanging-insulator tips across the tower's three conductor tiers.
   transmissionTower: {

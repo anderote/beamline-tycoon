@@ -266,29 +266,39 @@ the short authoring contract.
   physical rendered route against `wallOccupied`. Power and HV cable opt in;
   their freehand `cablePath` is authoritative when present. Fabricated pipe,
   waveguide, cooling, and cryogenic services retain direct wall crossing.
-- An HV cable whose two endpoints are utility poles or transmission towers is
-  an elevated span and may cross any wall or fence in plan view. The exception
-  requires two overhead supports; a transformer, panel, open end, or wall
-  feedthrough at either end keeps the ordinary wall-pass-through requirement.
-- Utility poles, transmission towers, and freestanding indoor HV racks expose
-  one passive HV port at every visible insulator or saddle. Each port accepts
-  two wire attachments; those two lines share one conductor, while different
-  support ports remain isolated. Indoor racks carry four hanging insulators
-  below their crosspieces and below the standard facility ceiling, using the
-  same 0.5 m spacing as the four-way wall feedthrough. The straight rack's
-  attachment row is perpendicular to its footprint; the corner rack sets that
-  row at 45 degrees so four parallel suspended feeders can turn together.
+- An HV cable whose two endpoints are overhead terminals on utility poles or
+  transmission towers is an elevated span and may cross any wall or fence in
+  plan view. The exception requires two overhead support ports; a low pole tap,
+  transformer, panel, open end, or wall feedthrough at either end keeps the
+  ordinary wall-pass-through requirement.
+- Every Power-category `hv_in` presentation anchor lands on visible insulated
+  hardware at the equipment roof or upper shoulder. Distribution panels, HV
+  distributor cabinets, MCCs, and UPS cabinets use model-specific roof-cap
+  heights; transformer inputs land on their actual roof-bushing caps. The
+  straight rack leg taps use a reachable 1.55 m service datum. This is a
+  presentation contract only and does not change the simulation port side.
+- Transmission towers and the 45-degree indoor HV corner rack expose one
+  passive HV port at every visible insulator or saddle. Each accepts two wire
+  attachments; lines sharing one named port are continuous, while the other
+  support ports remain isolated.
+- The straight 4-way indoor HV rack is instead one six-point passive bus: four
+  overhead terminals plus one 1.55 m insulated tap on each leg. Its overhead
+  row uses 0.4 m spacing so the outer hanging insulators clear the uprights.
+  The 2×2 Utility Pole likewise buses its four overhead terminals to one low
+  front `hv_tap`. Sources remain the sole capacity authority. Low tap ports do
+  not tension cables or qualify a line for the elevated wall-crossing exception.
   Indoor HV racks use overhead placement occupancy: their footprint anchors
   the frame but does not prevent ordinary equipment from being built beneath
-  it. An HV cable with either end on one of these supports, or on an electrical
-  wall feedthrough, removes drawn lateral slack but retains a visible, shallow
-  gravity sag while suspended between its endpoints; other soft cables retain
-  drawn slack.
+  it. An HV cable with either end on an elevated support terminal, or on an
+  electrical wall feedthrough, removes drawn lateral slack but retains a
+  visible, shallow gravity sag while suspended between its endpoints; low tap
+  feeders and other soft cables retain drawn slack.
 - Passive inlet/outlet fittings keep their `pass` topology role but normally
-  derive their physical arrow direction from the port name. Isolated pole,
-  tower, indoor-rack supports, and symmetric HV wall feedthroughs remain
-  nondirectional. Directional wall feedthroughs and transformers carry a
-  body-level arrow derived from the world-space inlet/outlet anchor centroids.
+  derive their physical arrow direction from the port name. Pole, tower,
+  indoor-rack support ports, and symmetric HV wall feedthroughs remain
+  nondirectional regardless of whether their device is isolated or bused.
+  Directional wall feedthroughs and transformers carry a body-level arrow
+  derived from the world-space inlet/outlet anchor centroids.
 - Cooling supply displays use heat-rejection capacity when it is declared;
   reservoir volume is inventory, not cooling power.
 - Cooling-water ports author make-up flow as `supplyRateLPerTick` and tank

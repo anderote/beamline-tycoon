@@ -220,7 +220,7 @@ test('4×4 HV wall feedthrough keeps four omnidirectional, un-rated conductors i
   assert.equal(networks.length, 4, 'each numbered front/back pair is isolated from the other three');
 });
 
-test('indoor HV rack carries four isolated cables on hanging insulators', () => {
+test('indoor HV rack is a six-point bus with inset overhead terminals and two low taps', () => {
   const def = PLACEABLES.indoorHvCableRack;
   const ports = getUtilityPortsV2(def.id);
   assert.equal(def.kind, 'infrastructure');
@@ -229,13 +229,21 @@ test('indoor HV rack carries four isolated cables on hanging insulators', () => 
   assert.equal(def.subW, 4);
   assert.equal(def.subL, 2);
   assert.equal(def.subH, 5, 'the full bracket stays inside a 2.5 m envelope');
-  assert.deepEqual(Object.keys(ports), ['hv_1', 'hv_2', 'hv_3', 'hv_4']);
-  assert.ok(Object.values(ports).every(port =>
+  assert.deepEqual(Object.keys(ports), [
+    'hv_1', 'hv_2', 'hv_3', 'hv_4', 'hv_tap_left', 'hv_tap_right',
+  ]);
+  assert.ok(Object.values(ports).slice(0, 4).every(port =>
     port.utility === 'hvCable' && port.role === 'pass'
       && port.omnidirectional === true && port.maxConnections === 2),
   'every saddle is a two-segment omnidirectional HV support');
-  assert.deepEqual(def.electricalGroups.hvCable, [],
-    'the four supported cables do not become one shared bus');
+  assert.ok(Object.values(ports).slice(4).every(port =>
+    port.utility === 'hvCable' && port.role === 'pass'
+      && port.connectionKind === 'hvDistributionTap'
+      && port.omnidirectional === true && port.maxConnections === 1),
+  'both leg taps accept one ordinary HV feeder');
+  assert.deepEqual(def.electricalGroups.hvCable, [[
+    'hv_1', 'hv_2', 'hv_3', 'hv_4', 'hv_tap_left', 'hv_tap_right',
+  ]], 'all six rack terminals share one passive HV bus');
 
   const rack = {
     id: 'rack', type: def.id, col: 0, row: 0,
@@ -244,11 +252,18 @@ test('indoor HV rack carries four isolated cables on hanging insulators', () => 
   setModelBoundsProvider(() => ({
     minX: -1, maxX: 1, minY: 0, maxY: 2.45, minZ: -0.5, maxZ: 0.5,
   }));
-  const anchors = Object.keys(ports).map(name => portAnchor3D(rack, COMPONENTS[def.id], name));
-  assert.deepEqual(anchors.map(anchor => anchor.x), [0.25, 0.75, 1.25, 1.75],
-    'the flat row uses the four-way wall feedthrough spacing');
-  assert.ok(anchors.every(anchor => anchor.y === 2.00 && anchor.z === 0.5),
+  const overheadAnchors = ['hv_1', 'hv_2', 'hv_3', 'hv_4']
+    .map(name => portAnchor3D(rack, COMPONENTS[def.id], name));
+  assert.deepEqual(overheadAnchors.map(anchor => anchor.x), [0.4, 0.8, 1.2, 1.6],
+    'the inset row keeps a uniform 0.4 m pitch clear of the uprights');
+  assert.ok(overheadAnchors.every(anchor => anchor.y === 2.00 && anchor.z === 0.5),
     'all cable attachments sit at the hanging-insulator tips below the crossbar centreline');
+  const lowTaps = ['hv_tap_left', 'hv_tap_right']
+    .map(name => portAnchor3D(rack, COMPONENTS[def.id], name));
+  assert.ok(lowTaps.every((anchor, index) =>
+    Math.abs(anchor.x - [0.02, 1.98][index]) < 1e-9));
+  assert.ok(lowTaps.every(anchor => anchor.y === 1.55 && anchor.z === 0.5),
+    'both leg taps share the cabinet HV input height');
   const visualTop = Math.max(...def.parts.map(part => ((part.y || 0) + (part.h || 1)) * 0.5));
   assert.ok(visualTop > 2.35 && visualTop < 2.5,
     'the metal bracket clears its cables but remains below the indoor ceiling envelope');
@@ -268,12 +283,21 @@ test('indoor HV rack carries four isolated cables on hanging insulators', () => 
       });
     }
   }
+  for (const side of ['left', 'right']) {
+    lines.set(`tap-${side}`, {
+      id: `tap-${side}`, utilityType: 'hvCable',
+      start: { placeableId: rack.id, portName: `hv_tap_${side}` }, end: null,
+      path: [{ col: side === 'left' ? -3 : 3, row: 0 }, { col: 0, row: 0 }],
+    });
+  }
   const state = openState({ placeables: [rack], utilityLines: lines });
   const networks = discoverNetworks('hvCable', lines, makeDefaultPortLookup(state));
-  assert.equal(networks.length, 4,
-    'two segments meet through each saddle while all four carried cables remain isolated');
+  assert.equal(networks.length, 1,
+    'a live feeder on any overhead terminal or low tap reaches all six rack points');
   assert.equal(isTensionedHvCable(lines.get('cable-1-0'), new Map([[rack.id, rack]])), true,
     'the indoor bracket applies the suspended HV tension-and-sag presentation');
+  assert.equal(isTensionedHvCable(lines.get('tap-left'), new Map([[rack.id, rack]])), false,
+    'a low rack tap lays an ordinary feeder instead of tensioning it overhead');
 });
 
 test('45-degree indoor HV rack turns four isolated suspended cables around corners', () => {
@@ -299,7 +323,7 @@ test('45-degree indoor HV rack turns four isolated suspended cables around corne
     anchor.z - anchors[index].z,
   ));
   assert.ok(spacings.every(spacing => Math.abs(spacing - 0.5) < 1e-9),
-    'the diagonal row keeps the straight rack\'s 0.5 m conductor spacing');
+    'the diagonal corner row retains its own 0.5 m conductor spacing');
   assert.ok(anchors.every((anchor, index) => index === 0
     || Math.abs((anchor.x - anchors[index - 1].x)
       - (anchor.z - anchors[index - 1].z)) < 1e-9),
@@ -341,10 +365,11 @@ test('2×2 utility pole and 4×4 transmission tower accept every HV approach', (
     assert.equal(def.subW, expectedSize);
     assert.equal(def.subL, expectedSize);
     const expectedNames = type === 'utilityPole'
-      ? ['hv_in', 'hv_out', 'hv_3', 'hv_4']
+      ? ['hv_in', 'hv_out', 'hv_3', 'hv_4', 'hv_tap']
       : ['hv_in', 'hv_out', 'hv_3', 'hv_4', 'hv_5', 'hv_6'];
     assert.deepEqual(Object.keys(ports), expectedNames);
-    assert.ok(expectedNames.every(name =>
+    const overheadNames = expectedNames.filter(name => name !== 'hv_tap');
+    assert.ok(overheadNames.every(name =>
       ports[name].omnidirectional === true && ports[name].maxConnections === 2));
     const state = openState({
       placeables: [{ id: 'support', type, col: 0, row: 0, subCol: 0, subRow: 0, dir: 1 }],
@@ -385,7 +410,7 @@ test('2×2 utility pole and 4×4 transmission tower accept every HV approach', (
   }
 });
 
-test('each overhead insulator accepts two connected wires and stays isolated from the others', () => {
+test('each pole insulator accepts two wires and all terminals share the low-tap bus', () => {
   const support = {
     id: 'pole', type: 'utilityPole', col: 0, row: 0,
     subCol: 0, subRow: 0, dir: 0,
@@ -430,8 +455,15 @@ test('each overhead insulator accepts two connected wires and stays isolated fro
   const networks = discoverNetworks(
     'hvCable', state.utilityLines, makeDefaultPortLookup(state),
   );
-  assert.equal(networks.length, 2,
-    'the two lines on each insulator share a net, while separate insulators do not');
+  assert.equal(networks.length, 1,
+    'separate overhead terminals share the pole bus');
+
+  const tap = getUtilityPortsV2('utilityPole').hv_tap;
+  assert.equal(tap.connectionKind, 'hvDistributionTap');
+  assert.equal(tap.maxConnections, 1);
+  assert.deepEqual(PLACEABLES.utilityPole.electricalGroups.hvCable, [[
+    'hv_in', 'hv_out', 'hv_3', 'hv_4', 'hv_tap',
+  ]], 'the low utility-pole tap reaches every live overhead terminal');
 });
 
 test('overhead support anchors coincide with every visible insulator terminal', () => {
@@ -457,6 +489,16 @@ test('overhead support anchors coincide with every visible insulator terminal', 
       assert.ok(Math.abs(Math.abs(anchor.z - centre) - 0.05) < 1e-8, `${type}.${name} z`);
     }
   }
+  const poleTap = portAnchor3D(
+    { id: 'pole', type: 'utilityPole', col: 0, row: 0, subCol: 0, subRow: 0, dir: 0 },
+    COMPONENTS.utilityPole,
+    'hv_tap',
+  );
+  assert.deepEqual(
+    [poleTap.x, poleTap.y, poleTap.z, poleTap.out.x, poleTap.out.y, poleTap.out.z],
+    [0.5, 0.75, 0.8, 0, 0, 1],
+    'the utility-pole tap lands on its visible low front insulator',
+  );
   setModelBoundsProvider(null);
 });
 
@@ -514,6 +556,7 @@ test('The overhead crossing exception requires two HV supports', () => {
       { id: 'source', type: 'facilityTransformer', col: 0, row: 0, subCol: 0, subRow: 0, dir: 0 },
       { id: 'rack', type: 'indoorHvCableRack', col: 0, row: 0, subCol: 0, subRow: 0, dir: 0 },
       { id: 'pole', type: 'utilityPole', col: 3, row: 0, subCol: 0, subRow: 0, dir: 0 },
+      { id: 'pole-b', type: 'utilityPole', col: 6, row: 0, subCol: 0, subRow: 0, dir: 0 },
     ],
     wallOccupied: crossingWall,
   });
@@ -528,6 +571,16 @@ test('The overhead crossing exception requires two HV supports', () => {
     });
     assert.equal(result.reason, 'wall_pass_through_required', start.placeableId);
   }
+  const lowTapSpan = {
+    id: 'low-tap-span', utilityType: 'hvCable',
+    start: { placeableId: 'pole', portName: 'hv_tap' },
+    end: { placeableId: 'pole-b', portName: 'hv_tap' },
+    path: directCrossing,
+  };
+  assert.equal(validateDrawLine(state, lowTapSpan).reason, 'wall_pass_through_required',
+    'two pole-base taps do not gain the elevated wall-crossing exception');
+  assert.equal(isTensionedHvCable(lowTapSpan, new Map(state.placeables.map(p => [p.id, p]))), false,
+    'two pole-base taps render as a loose ground feeder');
 });
 
 test('Fabricated pipes, waveguides and cryogenic services retain wall crossing', () => {

@@ -7,13 +7,17 @@ import {
 } from '../src/data/distribution-output-layout.js';
 import { INFRASTRUCTURE_RAW } from '../src/data/infrastructure.raw.js';
 import { getUtilityPortsV2 } from '../src/data/utility-ports-v2.js';
-import { portAnchorOverride } from '../src/data/utility-port-anchors.js';
+import {
+  portAnchorOverride,
+  POWER_HV_INPUT_MOUNTS,
+} from '../src/data/utility-port-anchors.js';
 
 globalThis.THREE = THREE;
 
 const {
   _buildCompactHvDistributorRoles,
   _buildHVTransformerRoles,
+  _buildPadMountTransformerRoles,
   _buildSwitchgearRoles,
   _buildMCCRoles,
   _buildUPSRoles,
@@ -125,6 +129,39 @@ test('distribution cables terminate on visible top insulator caps', () => {
     });
     assert.equal(caps.length, terminals.length,
       `${type} renders one metal cap per input/output anchor`);
+    disposeBuckets(buckets);
+  }
+});
+
+test('transformer HV inputs terminate on visible roof-bushing caps', () => {
+  const builders = {
+    padMountTransformer: _buildPadMountTransformerRoles,
+    hvTransformer: _buildHVTransformerRoles,
+    facilityTransformer: () => _buildHVTransformerRoles(false),
+    gridIntertieTransformer: () => _buildHVTransformerRoles(false),
+  };
+
+  for (const [type, build] of Object.entries(builders)) {
+    const mount = POWER_HV_INPUT_MOUNTS[type];
+    const anchor = portAnchorOverride(type, 'hv_in');
+    assert.equal(anchor.y, mount.y, `${type}.hv_in uses its standardized height`);
+    assert.equal(anchor.localX, mount.localX, `${type}.hv_in uses its standardized X`);
+    assert.equal(anchor.localZ, mount.localZ, `${type}.hv_in uses its standardized Z`);
+    assert.deepEqual(anchor.normal, mount.normal,
+      `${type}.hv_in uses its standardized normal`);
+    assert.deepEqual(mount.normal, { x: 0, y: 1, z: 0 },
+      `${type}.hv_in faces upward`);
+
+    const buckets = build();
+    const cap = buckets.copper.find(geometry => {
+      geometry.computeBoundingBox();
+      const center = geometry.boundingBox.getCenter(new THREE.Vector3());
+      return Math.abs(center.x - mount.localX) < 1e-6
+        && Math.abs(center.z - mount.localZ) < 1e-6
+        && Math.abs(geometry.boundingBox.max.y - mount.y) < 1e-6;
+    });
+    assert.ok(cap, `${type}.hv_in lands on a visible metal cap`);
+    assert.ok(buckets.accent.length > 0, `${type}.hv_in has visible ceramic insulation`);
     disposeBuckets(buckets);
   }
 });

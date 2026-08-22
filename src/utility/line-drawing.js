@@ -329,7 +329,7 @@ function isOverheadHvSupportSpan(state, utilityType, start, end) {
   if (utilityType !== 'hvCable' || !start || !end) return false;
   return [start, end].every((ref) => {
     const endpoint = findPlaceable(state, ref.placeableId);
-    return endpoint && isOverheadHvSupport(lookupDef(state, endpoint.type));
+    return endpoint && isOverheadHvSupport(lookupDef(state, endpoint.type), ref.portName);
   });
 }
 

@@ -12,6 +12,7 @@ import {
   DISTRIBUTION_OUTPUT_LAYOUTS,
   DISTRIBUTION_TOP_TERMINAL_LAYOUTS,
 } from '../../data/distribution-output-layout.js';
+import { POWER_HV_INPUT_MOUNTS } from '../../data/utility-port-anchors.js';
 
 const SEGS = 16;
 
@@ -70,6 +71,24 @@ function addDistributionRoofTerminals(b, type) {
     const capH = 0.035;
     addCylinder(b.copper, radius, capH, x, y - capH / 2, z, null, SEGS);
   }
+}
+
+// Transformer primary feeders terminate at the metal cap of a vertical roof
+// bushing. The authored anchor table shares the same mount coordinate so the
+// rendered cable lands on the hardware instead of on the enclosure shell.
+function addVerticalHvInputBushing(b, mount, baseY) {
+  const capH = 0.035;
+  const ceramicTop = mount.y - capH;
+  const stemH = Math.max(0.10, ceramicTop - baseY);
+  const stemY = baseY + stemH / 2;
+  addCylinder(b.accent, 0.030, stemH,
+    mount.localX, stemY, mount.localZ, null, SEGS);
+  for (const fraction of [0.24, 0.52, 0.80]) {
+    addCylinder(b.accent, 0.065, 0.018,
+      mount.localX, baseY + stemH * fraction, mount.localZ, null, SEGS);
+  }
+  addCylinder(b.copper, 0.045, capH,
+    mount.localX, mount.y - capH / 2, mount.localZ, null, SEGS);
 }
 
 // ── HV Transformer ────────────────────────────────────────────────
@@ -157,18 +176,8 @@ export function _buildHVTransformerRoles(includeSecondaryRack = true) {
     }
   }
 
-  // Rear primary HV input. The authored `hv_in` port is deliberately on the
-  // back service plane so the incoming feeder reads separately from the
-  // transformer’s front secondary outlets.
-  {
-    const z = -tankD / 2 - 0.06;
-    addBox(b.detail, 0.18, 0.18, 0.04, 0, tankBase + tankH * 0.58, z);
-    const gland = new THREE.CylinderGeometry(0.055, 0.055, 0.10, SEGS);
-    applyTiledCylinderUVs(gland, 0.055, 0.10, SEGS);
-    pushT(b.copper, gland, new THREE.Matrix4().multiplyMatrices(
-      trans(0, tankBase + tankH * 0.58, z - 0.05), rotX(Math.PI / 2),
-    ));
-  }
+  // The rear-most roof bushing is the shared primary `hv_in` attachment for
+  // the HV, facility, and grid-intertie transformer tiers.
 
   // Conservator tank on top (small horizontal cylinder)
   {
@@ -422,12 +431,18 @@ export function _buildPadMountTransformerRoles() {
     pushT(b.iron, g, trans(0, 0.1 + bodyH + 0.02, 0));
   }
 
-  // 2 cable risers on top
-  for (const zOff of [-0.2, 0.2]) {
+  // Rear primary input gains a full ceramic bushing; the front secondary
+  // retains its compact plain riser.
+  addVerticalHvInputBushing(
+    b,
+    POWER_HV_INPUT_MOUNTS.padMountTransformer,
+    0.1 + bodyH + 0.04,
+  );
+  {
     const riserR = 0.03, riserH = 0.2;
     const g = new THREE.CylinderGeometry(riserR, riserR, riserH, 8);
     applyTiledCylinderUVs(g, riserR, riserH, 8);
-    pushT(b.copper, g, trans(0, 0.1 + bodyH + 0.04 + riserH / 2, zOff));
+    pushT(b.copper, g, trans(0, 0.1 + bodyH + 0.04 + riserH / 2, 0.2));
   }
 
   // Padlock hasp on front (detail)
