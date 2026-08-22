@@ -9,6 +9,7 @@
 //     side:        'back' | 'front' | 'left' | 'right',
 //     offsetAlong: number in [0.1, 0.9],
 //     role:        'source' | 'sink' | 'pass',
+//     autoConnectClass: optional assisted-routing circuit class,
 //     params:      { /* utility-specific, declared per component */ },
 //   }
 //
@@ -40,6 +41,7 @@
 
 import { BEAMLINE_COMPONENTS_RAW } from './beamline-components.raw.js';
 import { INFRASTRUCTURE_RAW } from './infrastructure.raw.js';
+import { COOLING_AUTO_CONNECT_CLASS } from './cooling-auto-connect-classes.js';
 import { COOLING_WATER_INVENTORY } from './cooling-water-inventory.js';
 import { bandForFrequencyHz } from './rf-bands.js';
 import { RF_PORT_STANDARDS } from './rf-port-standards.js';
@@ -777,11 +779,12 @@ for (const [id, comp] of Object.entries(BEAMLINE_COMPONENTS_RAW)) {
 
 const BUS_PORT_SIDES = { bus_back: 'back', bus_front: 'front', bus_left: 'left', bus_right: 'right' };
 
-function busPorts(utility, serviceRadius) {
+function busPorts(utility, serviceRadius, autoConnectClass = null) {
   const out = {};
   for (const [name, side] of Object.entries(BUS_PORT_SIDES)) {
     out[name] = {
       utility, side, offsetAlong: 0.5, role: 'pass',
+      ...(autoConnectClass ? { autoConnectClass } : {}),
       bus: true, params: { serviceRadius },
     };
   }
@@ -1016,10 +1019,11 @@ function networkSwitchPorts() {
   return out;
 }
 
-// Cooling plant uses a consistent, mirrorable header layout. Process-water
-// suppliers, make-up sources and storage expose four branches on the primary (+X/right)
-// header and two on the opposite header. Heat rejectors only need their
-// physical supply/return pair, kept together on one authored face.
+// Cooling plant uses a consistent, mirrorable header layout. Process chillers
+// expose four load branches on the primary (+X/right) header and two plant or
+// distribution links opposite. Storage and make-up equipment uses the same
+// physical 4+2 layout but classifies all six sockets as plant links. Heat
+// rejectors only need their physical supply/return pair, together on one face.
 //
 // All sockets on one source are internally united by network discovery, so a
 // numeric nameplate must be divided across them. The parts add back to the
@@ -1030,7 +1034,10 @@ const COOLING_SECONDARY_OFFSETS = [0.33, 0.67];
 function coolingPlantPorts(params, names = [
   'cool_out', 'cool_out_2', 'cool_out_3',
   'cool_out_4', 'cool_out_5', 'cool_out_6',
-]) {
+], {
+  primaryClass = COOLING_AUTO_CONNECT_CLASS.LOAD_BRANCH,
+  secondaryClass = COOLING_AUTO_CONNECT_CLASS.PLANT_LINK,
+} = {}) {
   const out = {};
   const splitParams = { ...params };
   for (const key of [
@@ -1047,6 +1054,7 @@ function coolingPlantPorts(params, names = [
         ? COOLING_PRIMARY_OFFSETS[i]
         : COOLING_SECONDARY_OFFSETS[i - COOLING_PRIMARY_OFFSETS.length],
       role: 'source',
+      autoConnectClass: primary ? primaryClass : secondaryClass,
       params: { ...splitParams },
     };
   });
@@ -1064,11 +1072,13 @@ function heatRejectorPorts(heatRejectionCapacity, side = 'right') {
   return {
     cool_out: {
       utility: 'coolingWater', side, offsetAlong: 0.33,
-      role: 'source', params: { ...params },
+      role: 'source', autoConnectClass: COOLING_AUTO_CONNECT_CLASS.PLANT_LINK,
+      params: { ...params },
     },
     cool_out_2: {
       utility: 'coolingWater', side, offsetAlong: 0.67,
-      role: 'source', params: { ...params },
+      role: 'source', autoConnectClass: COOLING_AUTO_CONNECT_CLASS.PLANT_LINK,
+      params: { ...params },
     },
   };
 }
@@ -1229,7 +1239,9 @@ const INFRA_UTILITY_PORTS = {
       params: { fieldCapacity: 250 },
     },
   },
-  coolingManifold:     busPorts('coolingWater',  8),
+  coolingManifold:     busPorts(
+    'coolingWater', 8, COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION,
+  ),
   vacuumManifold:      vacuumManifoldPorts(4, 5),
   vacuumManifold8:     vacuumManifoldPorts(8, 7),
   waveguideManifold:   busPorts('rfWaveguide',   6),
@@ -1319,12 +1331,18 @@ const INFRA_UTILITY_PORTS = {
   // Explicit process capacity:0 keeps every one out of the cooling ladder.
   waterTank:             coolingPlantPorts({
     capacity: 0, ...COOLING_WATER_INVENTORY.waterTank,
+  }, undefined, {
+    primaryClass: COOLING_AUTO_CONNECT_CLASS.PLANT_LINK,
   }),
   facilityWaterSupply:   coolingPlantPorts({
     capacity: 0, ...COOLING_WATER_INVENTORY.facilityWaterSupply,
+  }, undefined, {
+    primaryClass: COOLING_AUTO_CONNECT_CLASS.PLANT_LINK,
   }),
   bulkWaterTank:         coolingPlantPorts({
     capacity: 0, ...COOLING_WATER_INVENTORY.bulkWaterTank,
+  }, undefined, {
+    primaryClass: COOLING_AUTO_CONNECT_CLASS.PLANT_LINK,
   }),
   // These authored faces follow the visible pipe pairs on each model.
   fanCoilCooler:         heatRejectorPorts(50, 'back'),
@@ -1343,12 +1361,15 @@ const INFRA_UTILITY_PORTS = {
       'cool_out_a', 'cool_out_b', 'cool_out_c', 'cool_out_d',
       'cool_out_side', 'cool_out_side_2',
     ],
+    { secondaryClass: COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION_FEED },
   ),
   // Preserve the legacy `cool_out` and three previously added branch names;
   // discovery unites all same-device sources into one internal header.
   lcwSkid:               coolingPlantPorts({
     capacity: 25, heatRejectionCapacity: 25,
     ...COOLING_WATER_INVENTORY.lcwSkid,
+  }, undefined, {
+    secondaryClass: COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION_FEED,
   }),
   dualCircuitChiller:    coolingPlantPorts({ capacity: 175 }),
   chiller:               coolingPlantPorts({ capacity: 300 }),

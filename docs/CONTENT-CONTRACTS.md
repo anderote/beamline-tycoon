@@ -193,6 +193,14 @@ the short authoring contract.
 - Passive peer wiring connects a device pair only once. Overhead HV supports
   are the exception: the nearest pole/tower peer receives an aligned bundle of
   matching free terminals so parallel conductors do not criss-cross.
+- Cooling-water assisted wiring uses `autoConnectClass` in addition to the
+  solver's source/sink/pass role. `coolingLoadBranch` feeds ordinary cooling
+  sinks; `coolingPlantLink` joins chillers, storage, make-up and heat rejection;
+  `coolingDistributionFeed` joins an integrated package plant to a
+  `coolingDistribution` manifold. A manifold plans one upstream connection and
+  relies on its service radius instead of drawing a separate hose to each load.
+  These classes guide assisted routing only: they do not split the component's
+  internally shared cooling header or change its published capacity.
 - Electrical distributors and transformers add no demand of their own. Their
   HV inlet draws the actual connected downstream HV/branch load, capped by the
   device rating; unused nameplate capacity does not consume upstream supply.

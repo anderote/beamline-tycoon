@@ -8,6 +8,10 @@
 //   - params: utility-specific defaults (non-empty for sink/source)
 
 import { getUtilityPortsV2 } from '../src/data/utility-ports-v2.js';
+import {
+  COOLING_AUTO_CONNECT_CLASS,
+  coolingAutoConnectClass,
+} from '../src/data/cooling-auto-connect-classes.js';
 import { INFRASTRUCTURE_RAW } from '../src/data/infrastructure.raw.js';
 import { portSide } from '../src/utility/ports.js';
 
@@ -83,6 +87,16 @@ console.log('\n--- Test 4: chiller ---');
   assert(ports.cool_out.role === 'source', `cool_out.role === 'source' (got ${ports.cool_out.role})`);
   assert(ports.cool_out.params.capacity > 0,
     `cool_out.params.capacity > 0 (got ${ports.cool_out.params.capacity})`);
+  const names = ['cool_out', 'cool_out_2', 'cool_out_3', 'cool_out_4', 'cool_out_5', 'cool_out_6'];
+  assert(names.slice(0, 4).every(name => ports[name].autoConnectClass
+      === COOLING_AUTO_CONNECT_CLASS.LOAD_BRANCH),
+  'the four primary chiller sockets are assisted-wiring load branches');
+  assert(names.slice(4).every(name => ports[name].autoConnectClass
+      === COOLING_AUTO_CONNECT_CLASS.PLANT_LINK),
+  'the opposite chiller pair is reserved for plant equipment');
+  assert(coolingAutoConnectClass(getUtilityPortsV2('dipole').cool_in)
+      === COOLING_AUTO_CONNECT_CLASS.LOAD,
+  'an ordinary cooling sink derives the load target class');
 }
 
 // ==========================================================================
@@ -504,6 +518,27 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   assert(getUtilityPortsV2('lcwSkid').pwr_in.params.demand === 5
       && !getUtilityPortsV2('lcwSkid').hv_in,
     '25 kW LCW skid stays a 5 kW branch load at COP 5');
+
+  for (const id of ['packageChiller', 'lcwSkid']) {
+    const coolingSources = Object.values(getUtilityPortsV2(id))
+      .filter(port => port.utility === 'coolingWater' && port.role === 'source');
+    assert(coolingSources.slice(0, 4).every(port => port.autoConnectClass
+        === COOLING_AUTO_CONNECT_CLASS.LOAD_BRANCH)
+        && coolingSources.slice(4).every(port => port.autoConnectClass
+          === COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION_FEED),
+    `${id} reserves four load branches and two distribution feeds`);
+  }
+  for (const id of ['waterTank', 'facilityWaterSupply', 'bulkWaterTank',
+    'fanCoilCooler', 'dryCoolerBank', 'coolingTower']) {
+    const coolingSources = Object.values(getUtilityPortsV2(id))
+      .filter(port => port.utility === 'coolingWater' && port.role === 'source');
+    assert(coolingSources.length > 0 && coolingSources.every(port => port.autoConnectClass
+        === COOLING_AUTO_CONNECT_CLASS.PLANT_LINK),
+    `${id} exposes only plant-side assisted-wiring connections`);
+  }
+  assert(Object.values(getUtilityPortsV2('coolingManifold')).every(port =>
+    port.autoConnectClass === COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION),
+  'the cooling manifold exposes only distribution connections');
 }
 
 // ==========================================================================
