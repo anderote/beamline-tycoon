@@ -525,12 +525,65 @@ export function _mergeGeometries(geometries) {
 // component's footprint center, Y=0 at floor level.
 // Beam travels along +Z in local space (rotated later by direction).
 
+// Shared visual language for the compact source family. These machines are
+// read from a dimetric gameplay camera, so the skid, service cabinet, and
+// extraction train do more work than tiny instrumentation details.
+function _addSourceSkid(group, {
+  width = 1.35, depth = 1.45, y = 0.05, color = STAND_COLOR,
+} = {}) {
+  const plate = new THREE.Mesh(
+    new THREE.BoxGeometry(width, 0.10, depth),
+    _mat(color, 0.72, 0.22),
+  );
+  plate.position.set(0, y, -0.05);
+  group.add(_addShadow(plate));
+  for (const x of [-width / 2 + 0.12, width / 2 - 0.12]) {
+    const rail = new THREE.Mesh(
+      new THREE.BoxGeometry(0.10, 0.18, depth - 0.16),
+      _mat(color, 0.72, 0.22),
+    );
+    rail.position.set(x, y + 0.14, -0.05);
+    group.add(_addShadow(rail));
+  }
+}
+
+function _addSourceCabinet(group, {
+  x = 0.58, z = -0.42, width = 0.24, height = 0.72, depth = 0.62,
+  color = 0x56636b, accent = 0x2e9aa8,
+} = {}) {
+  const cabinet = new THREE.Mesh(
+    new THREE.BoxGeometry(width, height, depth),
+    _mat(color, 0.48, 0.52),
+  );
+  cabinet.position.set(x, height / 2 + 0.10, z);
+  group.add(_addShadow(cabinet));
+  for (const y of [0.25, 0.43, 0.61]) {
+    const strip = new THREE.Mesh(
+      new THREE.BoxGeometry(width + 0.012, 0.025, 0.035),
+      _mat(accent, 0.38, 0.45),
+    );
+    strip.position.set(x, y, z - depth / 2 - 0.018);
+    group.add(_addShadow(strip));
+  }
+}
+
+function _addSourceCoil(group, z, radius, color = 0x9a552b) {
+  const coil = new THREE.Mesh(
+    new THREE.TorusGeometry(radius, 0.035, 7, 22),
+    _mat(color, 0.38, 0.68),
+  );
+  coil.position.set(0, BEAM_HEIGHT, z);
+  group.add(_addShadow(coil));
+}
+
 function _buildSource() {
   const group = new THREE.Group();
-  const bodyColor    = 0x4a6b4a; // dark steel-green gun chamber
-  const insulatorC   = 0xcc8833; // ceramic amber for HV insulators
+  const bodyColor    = 0x65757d; // stainless source vessel
+  const insulatorC   = 0xd8c79d; // warm ceramic
   const copperC      = 0xb87333; // copper anode/cathode hardware
-  const solenoidC    = 0x8b4513; // dark copper solenoid winding
+
+  _addSourceSkid(group, { width: 1.35, depth: 1.45 });
+  _addSourceCabinet(group, { x: 0.56, z: -0.42, width: 0.25, height: 0.72 });
 
   // ── Gun vacuum chamber — main cylindrical vessel ──
   const chamberR = 0.4, chamberH = 0.9;
@@ -647,19 +700,15 @@ function _buildSource() {
   {
     const g = new THREE.CylinderGeometry(solR, solR, solH, SEGS);
     applyTiledCylinderUVs(g, solR, solH, SEGS);
-    const sol = _addShadow(new THREE.Mesh(g, _mat(solenoidC, 0.5, 0.3)));
+    const sol = _addShadow(new THREE.Mesh(g, _mat(0x59636a, 0.46, 0.55)));
     sol.rotation.x = Math.PI / 2;
     sol.position.set(0, BEAM_HEIGHT, solZ);
     group.add(sol);
   }
-  // Solenoid end rings
-  for (const zOff of [solZ - solH / 2, solZ + solH / 2]) {
-    const g = new THREE.CylinderGeometry(solR + 0.02, solR + 0.02, 0.02, SEGS);
-    applyTiledCylinderUVs(g, solR + 0.02, 0.02, SEGS);
-    const endRing = _addShadow(new THREE.Mesh(g, _mat(FLANGE_COLOR, 0.3, 0.5)));
-    endRing.rotation.x = Math.PI / 2;
-    endRing.position.set(0, BEAM_HEIGHT, zOff);
-    group.add(endRing);
+  // Spaced winding bands are legible at gameplay zoom; the old solid brown
+  // sleeve read as an arbitrary plug.
+  for (const zOff of [0.29, 0.37, 0.45, 0.53, 0.61]) {
+    _addSourceCoil(group, zOff, solR + 0.025);
   }
 
   // ── Beam exit pipe through solenoid to the authored exit port ──
@@ -714,10 +763,13 @@ function _buildSource() {
 
 function _buildDuoplasmatron() {
   const group = new THREE.Group();
-  const bodyColor   = 0x4a5b7a; // dark steel-blue, distinct from electron gun's green-grey
-  const magnetColor = 0x222222; // dark iron magnet collar
+  const bodyColor   = 0x71808a;
+  const magnetColor = 0x39434b;
   const cathodeC    = 0xff6633; // hot-cathode emissive orange
   const copperC     = 0xb87333; // copper extraction electrodes
+
+  _addSourceSkid(group, { width: 1.30, depth: 1.45 });
+  _addSourceCabinet(group, { x: 0.56, z: -0.42, width: 0.25, height: 0.68 });
 
   // ── Main body cylinder ──
   const bodyR = 0.4, bodyH = 1.0;
@@ -742,15 +794,11 @@ function _buildDuoplasmatron() {
     group.add(fl);
   }
 
-  // ── Magnet collar — torus around the body midpoint ──
-  {
-    const torusR = bodyR + 0.06; // ring radius around body
-    const tubeR  = 0.09;          // torus tube thickness
-    const g = new THREE.TorusGeometry(torusR, tubeR, 8, 24);
+  // Paired magnet collars give the discharge chamber a substantial identity.
+  for (const z of [bodyZ - 0.28, bodyZ + 0.28]) {
+    const g = new THREE.TorusGeometry(bodyR + 0.06, 0.09, 8, 24);
     const torus = _addShadow(new THREE.Mesh(g, _mat(magnetColor, 0.6, 0.6)));
-    // TorusGeometry lies in XY plane by default (axis along +Z) — already
-    // wrapping around the beam axis. Position at body midpoint.
-    torus.position.set(0, BEAM_HEIGHT, bodyZ);
+    torus.position.set(0, BEAM_HEIGHT, z);
     group.add(torus);
   }
 
@@ -801,9 +849,12 @@ function _buildDuoplasmatron() {
 function _buildEcrIonSource() {
   const group = new THREE.Group();
   const chamberColor   = 0x8a9aab; // light steel
-  const coilColor      = 0x884422; // dark copper coils
+  const coilColor      = 0x9a552b; // copper coils
   const waveguideColor = 0xc8b060; // brass waveguide
   const copperC        = 0xb87333; // copper extraction plates
+
+  _addSourceSkid(group, { width: 1.55, depth: 1.60 });
+  _addSourceCabinet(group, { x: 0.68, z: -0.43, width: 0.25, height: 0.78 });
 
   // ── Plasma chamber — central cylinder ──
   const chR = 0.5, chH = 1.2;
@@ -828,18 +879,10 @@ function _buildEcrIonSource() {
     group.add(fl);
   }
 
-  // ── Mirror solenoid coils — two large toruses near each end of chamber ──
-  {
-    const ringR = 0.55;  // ring radius
-    const tubeR = 0.12;  // tube thickness
-    const inset = 0.18;  // distance from chamber end inward
-    for (const zOff of [chZ - chH / 2 + inset, chZ + chH / 2 - inset]) {
-      const g = new THREE.TorusGeometry(ringR, tubeR, 10, 28);
-      const torus = _addShadow(new THREE.Mesh(g, _mat(coilColor, 0.55, 0.55)));
-      // TorusGeometry is in XY plane (axis along +Z), wraps the beam axis.
-      torus.position.set(0, BEAM_HEIGHT, zOff);
-      group.add(torus);
-    }
+  // Mirror solenoid winding pack — multiple bands read as a magnet rather
+  // than two oversized decorative donuts.
+  for (const zOff of [-0.62, -0.50, -0.38, -0.26, -0.14, -0.02, 0.10, 0.22]) {
+    _addSourceCoil(group, zOff, 0.55, coilColor);
   }
 
   // ── Microwave waveguide — rectangular box entering rear-left of chamber ──
@@ -1091,6 +1134,9 @@ function _buildPenningIonSource() {
   const group = new THREE.Group();
   const yoke = 0x493d64;
   const steel = 0x718398;
+
+  _addSourceSkid(group, { width: 1.25, depth: 1.40 });
+  _addSourceCabinet(group, { x: 0.55, z: -0.42, width: 0.24, height: 0.66 });
 
   // Rectangular permanent-magnet return yoke around a narrow discharge tube.
   for (const x of [-0.34, 0.34]) {
