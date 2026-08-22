@@ -116,6 +116,23 @@ function insulatedHvRoofTap({ x, y, z }) {
   });
 }
 
+// The incoming off-map conductors already terminate on the service cabinet's
+// roof. Keep the usable downstream feeder terminals on a separate,
+// facility-facing row of porcelain insulators so the source ports read as the
+// physical output hardware instead of as glands floating on the front panel.
+export const GRID_SERVICE_HV_OUTPUT_MOUNTS = Object.freeze({
+  gridServicePoint: Object.freeze([
+    insulatedHvRoofTap({ x: -0.34, y: 1.84, z: 0.42 }),
+    insulatedHvRoofTap({ x: 0.34, y: 1.84, z: 0.42 }),
+  ]),
+  gridServicePointHighCapacity: Object.freeze([
+    insulatedHvRoofTap({ x: -0.63, y: 2.22, z: 0.62 }),
+    insulatedHvRoofTap({ x: -0.21, y: 2.22, z: 0.62 }),
+    insulatedHvRoofTap({ x: 0.21, y: 2.22, z: 0.62 }),
+    insulatedHvRoofTap({ x: 0.63, y: 2.22, z: 0.62 }),
+  ]),
+});
+
 // Model-specific clear roof patches for two-segment HV load taps. Keeping the
 // coordinates here preserves the presentation/simulation boundary: the port's
 // logical side and route point remain in utility-ports-v2.js.
@@ -360,7 +377,13 @@ export const PORT_ANCHOR_OVERRIDES = {
   },
   gridServicePoint: {
     _default: { y: 1.25, lat: 0.72 },
-    hv_out_1: { along: -0.34 }, hv_out_2: { along: 0.34 },
+    ...Object.fromEntries(GRID_SERVICE_HV_OUTPUT_MOUNTS.gridServicePoint
+      .map((mount, index) => [`hv_out_${index + 1}`, mount])),
+  },
+  gridServicePointHighCapacity: {
+    _default: { y: 1.55, lat: 0.92 },
+    ...Object.fromEntries(GRID_SERVICE_HV_OUTPUT_MOUNTS.gridServicePointHighCapacity
+      .map((mount, index) => [`hv_out_${index + 1}`, mount])),
   },
   poleMountTransformer: {
     _default: { y: 0.16, lat: 0.31 },
