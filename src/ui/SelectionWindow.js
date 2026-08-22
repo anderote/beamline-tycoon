@@ -29,6 +29,32 @@ export function selectionCategoryRows(candidates, selectedKeys) {
   });
 }
 
+export function selectionActionAvailability(entries, clipboardCount = 0) {
+  const selected = entries || [];
+  const copyable = selected.filter(
+    target => target.selectionCategory !== 'beamline',
+  );
+  const movable = copyable.filter(target => target.targetKind === 'placeable');
+  return {
+    selectedCount: selected.length,
+    copyableCount: copyable.length,
+    movableCount: movable.length,
+    copyExcludedCount: selected.length - copyable.length,
+    moveExcludedCount: selected.length - movable.length,
+    clipboardCount: Number(clipboardCount) || 0,
+    hasBeamline: selected.some(target => target.selectionCategory === 'beamline'),
+  };
+}
+
+function compatibleActionTitle(action, included, excluded) {
+  const base = action === 'copy'
+    ? `Copy ${included} compatible item${included === 1 ? '' : 's'} to the formation clipboard`
+    : `${action} ${included} movable item${included === 1 ? '' : 's'}`;
+  return excluded > 0
+    ? `${base}; ${excluded} incompatible selected item${excluded === 1 ? '' : 's'} will be excluded`
+    : base;
+}
+
 export class SelectionWindow {
   constructor(game, anchor, selectionActions = {}) {
     this.game = game;
@@ -110,13 +136,17 @@ export class SelectionWindow {
     }
 
     const slots = this.selectionActions.getSelectionSlots?.() || {};
+    const availability = selectionActionAvailability(this._selected());
     const slotGrid = container.querySelector('.selection-panel-slots');
     for (let slot = 1; slot <= 9; slot++) {
       const savedCount = Number(slots[slot]) || 0;
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'selection-panel-slot';
-      button.disabled = selectedKeys.size === 0;
+      button.disabled = availability.copyableCount === 0;
+      button.title = compatibleActionTitle(
+        'copy', availability.copyableCount, availability.copyExcludedCount,
+      );
       button.innerHTML = `<span class="selection-panel-slot-key">${slot}</span>`
         + `<span>${savedCount ? `${savedCount} saved` : 'empty'}</span>`;
       button.addEventListener('click', () => {
@@ -129,23 +159,29 @@ export class SelectionWindow {
 
   _updateActions() {
     const entries = this._selected();
-    const count = entries.length;
     const clipboardCount = this.selectionActions.getClipboardCount?.() || 0;
-    const hasBeamline = entries.some(target => target.selectionCategory === 'beamline');
-    const placeablesOnly = count > 0 && entries.every(target => target.targetKind === 'placeable');
+    const availability = selectionActionAvailability(entries, clipboardCount);
+    const {
+      selectedCount, copyableCount, movableCount, copyExcludedCount,
+      moveExcludedCount,
+    } = availability;
     this.ctx.setActions([
       {
-        label: 'Move selection',
-        title: placeablesOnly ? 'Pick up the active categories together' : 'Walls and floors cannot be moved',
-        disabled: !placeablesOnly || hasBeamline,
+        label: moveExcludedCount > 0 && movableCount > 0
+          ? `Move compatible (${movableCount})`
+          : 'Move selection',
+        title: compatibleActionTitle('Move', movableCount, moveExcludedCount),
+        disabled: movableCount === 0,
         onClick: () => this.selectionActions.onPlace?.(),
       },
       {
-        label: 'Copy',
-        title: hasBeamline
-          ? 'Deselect Beamline first; beamline hardware copies through the Designer'
-          : 'Copy only the active categories to the formation clipboard',
-        disabled: count === 0 || hasBeamline,
+        label: copyExcludedCount > 0 && copyableCount > 0
+          ? `Copy compatible (${copyableCount})`
+          : 'Copy',
+        title: copyableCount === 0 && availability.hasBeamline
+          ? 'Beamline hardware copies through the Designer'
+          : compatibleActionTitle('copy', copyableCount, copyExcludedCount),
+        disabled: copyableCount === 0,
         onClick: () => {
           this.selectionActions.onCopyToClipboard?.();
           this.refresh();
@@ -158,18 +194,20 @@ export class SelectionWindow {
       },
       {
         label: 'Rotate group',
-        disabled: !placeablesOnly || hasBeamline,
+        title: compatibleActionTitle('Rotate', movableCount, moveExcludedCount),
+        disabled: movableCount === 0,
         onClick: () => this.selectionActions.onRotate?.(),
       },
       {
         label: 'Mirror group',
-        disabled: !placeablesOnly || hasBeamline,
+        title: compatibleActionTitle('Mirror', movableCount, moveExcludedCount),
+        disabled: movableCount === 0,
         onClick: () => this.selectionActions.onMirror?.(),
       },
       {
         label: this.game?.sandboxMode ? 'Demolish active (no refund)' : 'Demolish active (50% refund)',
         variant: 'danger',
-        disabled: count === 0 || hasBeamline,
+        disabled: selectedCount === 0 || availability.hasBeamline,
         onClick: () => {
           const removed = this.selectionActions.onDemolish?.() || [];
           if (removed.length) this.ctx.close();

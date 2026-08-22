@@ -409,6 +409,43 @@ console.log('\n=== Selection groups ===\n');
 }
 
 {
+  const targets = [
+    { key: 'beam', targetKind: 'beamlineAttachment', selectionCategory: 'beamline' },
+    { key: 'panel', targetKind: 'placeable', selectionCategory: 'infra' },
+    { key: 'wall', targetKind: 'edge', selectionCategory: 'structure' },
+  ];
+  const input = {
+    selectedPlaceableId: 'beam',
+    _selectionTargets: () => targets,
+  };
+  const copy = InputHandler.prototype._selectionIdsForPanelAction.call(input, 'copy');
+  const move = InputHandler.prototype._selectionIdsForPanelAction.call(input, 'move');
+  assert(copy.ids.join(',') === 'panel,wall' && copy.anchorId === 'wall',
+    'panel copy excludes beamline hardware and chooses a compatible anchor');
+  assert(move.ids.join(',') === 'panel' && move.anchorId === 'panel',
+    'panel move and transforms exclude both beamline hardware and building fabric');
+
+  const calls = [];
+  input._selectionIdsForPanelAction = InputHandler.prototype._selectionIdsForPanelAction;
+  input._copySelectionToClipboard = (anchorId, ids) => {
+    calls.push(['copy', anchorId, ids]);
+    return true;
+  };
+  input._beginSelectionPlacement = (operation, anchorId, ids) => {
+    calls.push([operation, anchorId, ids]);
+    return true;
+  };
+  InputHandler.prototype.dispatchSelectionPanelAction.call(input, 'copy');
+  InputHandler.prototype.dispatchSelectionPanelAction.call(input, 'move');
+  assert(calls[0][0] === 'copy' && calls[0][1] === 'wall'
+      && calls[0][2].join(',') === 'panel,wall',
+  'the public panel copy command forwards only its compatible subset');
+  assert(calls[1][0] === 'move' && calls[1][1] === 'panel'
+      && calls[1][2].join(',') === 'panel',
+  'the public panel move command forwards only movable placeables');
+}
+
+{
   const { game, sourceId, sinkId, line } = fixture(552);
   const originalPath = line.path.map(point => ({ ...point }));
   const originalCablePath = line.cablePath.map(point => ({ ...point }));
