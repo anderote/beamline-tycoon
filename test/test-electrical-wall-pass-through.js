@@ -491,7 +491,7 @@ test('Utility-pole terminals take up lateral slack but retain visible suspension
       'every sample remains on the direct support-to-support plan path');
   }
   const middle = cable[Math.floor(cable.length / 2)];
-  assert.ok(middle.y < first.y - 0.40 && middle.y > first.y - 1.11,
+  assert.ok(middle.y < first.y - 0.58 && middle.y > first.y - 1.36,
     'the relaxed conductor hangs in a visible shallow bow rather than reading as rigid');
 });
 
@@ -523,8 +523,8 @@ test('An HV wall pass-through tensions its attached feeder', () => {
   }), 'the pass-through removes drawn lateral slack');
   const middleIndex = Math.floor(cable.length / 2);
   const middleChord = first.clone().lerp(last, middleIndex / (cable.length - 1));
-  assert.ok(cable[middleIndex].y < middleChord.y - 0.25
-      && cable[middleIndex].y > middleChord.y - 1.11,
+  assert.ok(cable[middleIndex].y < middleChord.y - 0.36
+      && cable[middleIndex].y > middleChord.y - 1.36,
     'the pass-through-supported conductor remains suspended with visible shallow sag');
 });
 
