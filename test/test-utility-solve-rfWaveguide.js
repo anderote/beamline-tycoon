@@ -236,6 +236,17 @@ console.log('\n--- Test 7: RF tee mismatch ---');
   assert(approx(r.flowState.rfSpectrum.reflectedAveragePowerKw, 4),
     `spectrum publishes 4 kW reflected at one tee (got ${r.flowState.rfSpectrum.reflectedAveragePowerKw})`);
   assert(r.errors.some(e => e.code === 'rf_branch_mismatch'), 'tee reports RF mismatch / reflected power');
+
+  const crossingState = { utilityLines: new Map([
+    ['trunk', state.utilityLines.get('trunk')],
+    ['branch', {
+      ...state.utilityLines.get('branch'),
+      path: [{ col: 2, row: -2 }, { col: 2, row: 2 }],
+    }],
+  ]) };
+  const crossing = desc.solve(net, {}, crossingState);
+  assert(crossing.flowState.branchCount === 1,
+    `an automatic interior RF crossing carries one junction penalty (got ${crossing.flowState.branchCount})`);
 }
 
 // ==========================================================================

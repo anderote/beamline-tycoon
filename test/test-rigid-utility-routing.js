@@ -59,12 +59,25 @@ console.log('\n--- 1. Utility services use fixed utility elevations ---');
       path: [{ col: 0, row: 0 }, { col: 4, row: 0 }],
     }]]),
   };
-  const duplicateVacuum = validateDrawLine(vacuumState, {
-    utilityType: 'vacuumPipe', start: null, end: null,
-    path: [{ col: 2, row: -2 }, { col: 2, row: 2 }],
-  });
-  assert(!duplicateVacuum.ok && duplicateVacuum.reason === 'overlap_same_type',
-    'an unrelated same-utility crossing is rejected instead of inventing another height');
+  for (const utilityType of ['vacuumPipe', 'rfWaveguide', 'cryoTransfer']) {
+    const stateWithTrunk = {
+      placeables: [], beamPipes: [],
+      utilityLines: new Map([['trunk', {
+        id: 'trunk', utilityType, start: null, end: null,
+        path: [{ col: 0, row: 0 }, { col: 4, row: 0 }],
+      }]]),
+    };
+    const crossing = validateDrawLine(stateWithTrunk, {
+      utilityType, start: null, end: null,
+      path: [{ col: 2, row: -2 }, { col: 2, row: 2 }],
+    });
+    const sharedTrunk = validateDrawLine(stateWithTrunk, {
+      utilityType, start: null, end: null,
+      path: [{ col: 1, row: 0 }, { col: 3, row: 0 }],
+    });
+    assert(crossing.ok && sharedTrunk.ok,
+      `${utilityType} accepts crossing and collinear contact as automatic joins`);
+  }
   const tee = validateDrawLine(vacuumState, {
     utilityType: 'vacuumPipe', start: null, end: null,
     path: [{ col: 2, row: 0 }, { col: 2, row: 2 }],
@@ -73,12 +86,13 @@ console.log('\n--- 1. Utility services use fixed utility elevations ---');
   assert(tee.ok && tee.line.tapLineIds?.start === 'trunk'
       && tee.line.routeHeightMeters === routeHeightForLine(vacuumState.utilityLines.get('trunk')),
     'a named perpendicular vacuum tee inherits its trunk height and persists the join');
-  const hiddenDuplicate = validateDrawLine(vacuumState, {
+  const sharedHeader = validateDrawLine(vacuumState, {
     utilityType: 'vacuumPipe', start: null, end: null,
     path: [{ col: 2, row: 0 }, { col: 3, row: 0 }],
     tapLineIds: { start: 'trunk' },
   });
-  assert(!hiddenDuplicate.ok, 'a tap cannot license a collinear pipe hidden inside its trunk');
+  assert(sharedHeader.ok,
+    'a vacuum branch may reuse a collinear stretch of its installed header');
 
   const portLed = validateDrawLine({
     placeables: [], beamPipes: [], utilityLines: new Map(),
@@ -124,7 +138,7 @@ console.log('\n--- 1. Utility services use fixed utility elevations ---');
     ))), 'every stacked service has physical vertical clearance');
 }
 
-console.log('\n--- 2. Board-aware search finds the service aisle around a blocker ---');
+console.log('\n--- 2. Same-service runs are joinable route space, not obstacles ---');
 {
   const state = {
     placeables: [], beamPipes: [],
@@ -139,10 +153,10 @@ console.log('\n--- 2. Board-aware search finds the service aisle around a blocke
     { col: 4, row: 0 }, null,
     { blocked: obstacles.isBlocked, bendPenalty: 1.5 },
   );
-  assert(route && route.length > 2,
-    `same-utility service lines force a 2D detour (${JSON.stringify(route)})`);
-  assert(route && expandPath(route).every(point => !obstacles.isBlocked(point.col, point.row)),
-    'every detour centreline point clears the installed guide');
+  assert(route && route.length === 2,
+    `the router may cross an installed same-utility service (${JSON.stringify(route)})`);
+  assert(route && expandPath(route).some(point => point.col === 2 && point.row === 0),
+    'the direct route uses the shared coordinate as an automatic junction');
   const committed = validateDrawLine(state, {
     utilityType: 'vacuumPipe', start: null, end: null, path: route,
   });
@@ -232,7 +246,7 @@ console.log('\n--- 3a. On-pipe equipment blocks where its model is rendered ---'
   setUtilityCollisionProvider(null);
 }
 
-console.log('\n--- 3b. The ordinary drag controller invokes the detour search ---');
+console.log('\n--- 3b. The ordinary drag controller accepts an automatic join ---');
 {
   const state = {
     placeables: [], beamPipes: [],
@@ -246,10 +260,10 @@ console.log('\n--- 3b. The ordinary drag controller invokes the detour search --
   ctrl._drawStart = { open: true, worldPos: { x: 0, z: 0 } };
   const cursor = gridToIso(4, 0);
   const geometry = ctrl._dragGeometry(cursor.x, cursor.y, null);
-  assert(geometry.path?.length > 2 && ctrl.dragReject === null,
-    `one normal drag routes around an independent vacuum run (${JSON.stringify(geometry.path)})`);
+  assert(geometry.path?.length === 2 && ctrl.dragReject === null,
+    `one normal drag crosses and joins an installed vacuum run (${JSON.stringify(geometry.path)})`);
   assert(geometry.routeHeightMeters === utilityLineHeight('vacuumPipe'),
-    `the detour stays on the fixed vacuum datum (${geometry.routeHeightMeters} m)`);
+    `the joined route stays on the fixed vacuum datum (${geometry.routeHeightMeters} m)`);
 }
 
 console.log('\n--- 3c. Obsolete saved lane values canonicalize on read ---');
@@ -274,6 +288,9 @@ console.log('\n--- 4. Every utility publishes the shared flexible subtile contra
   'all utilities publish the same flexible subtile routing profile');
   assert(UTILITY_TYPE_LIST.every(type => !Object.hasOwn(UTILITY_TYPES[type], 'portClearance')),
     'no utility declares a port-clearance exception');
+  assert(['vacuumPipe', 'rfWaveguide', 'cryoTransfer'].every(type =>
+    UTILITY_TYPES[type].joinsOnContact === true),
+  'vacuum, RF, and cryogenic services publish automatic contact joins');
   assert(rf.bendStyle === 'mitered' && rf.miterLengthMeters > rf.pipeRadiusMeters,
     'RF publishes a compact mitered-elbow presentation contract');
   assert(rf.fixedRouteHeight && cryo.fixedRouteHeight,

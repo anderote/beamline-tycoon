@@ -455,6 +455,10 @@ export default {
   couplerSpacingMeters: 4,
   capacityUnit: 'L/s',
   allowsTap: true,
+  // Same-datum vacuum pipe that touches an installed run is fabricated into
+  // that header automatically. The player never has to hunt for a special tap
+  // gesture or route around an otherwise compatible pipe.
+  joinsOnContact: true,
   fansOut: true,
   bridgesAdjacent: true,
   demandUnit: 'mbar·L/s',

@@ -29,9 +29,12 @@ function lookupDef(state, type) {
   return COMPONENTS[type] || null;
 }
 
-/** Whether two installed service centre-lines must not cross or overlap. */
+/** Whether an installed same-type line remains an obstacle to this router. */
 function fixedHeightUtilitiesConflict(a, b) {
-  return a === b && usesFixedRouteHeight(a) && usesFixedRouteHeight(b);
+  return a === b
+    && UTILITY_TYPES[a]?.joinsOnContact !== true
+    && usesFixedRouteHeight(a)
+    && usesFixedRouteHeight(b);
 }
 
 function addClearanceDiskWithFittings(out, x, y, radiusSteps, sharedFittings) {

@@ -16,8 +16,8 @@
 //     (network-discovery.js:383-398)
 //   - spatial tap: an OPEN end lands on ANOTHER line's path — its own
 //     terminal, or a point along that line's interior (a branch off a
-//     header) — keyed by the same rounded-subtile scheme, unioned whenever
-//     at least one side is terminal there (network-discovery.js:401-431)
+//     header) — keyed by the same rounded-subtile scheme. Services authored
+//     with joinsOnContact also join at interior/interior intersections.
 //   - multi-port device continuity: a placeable with 2+ pass-through (or 2+
 //     source) ports of this utility is one busbar/manifold behind the
 //     faceplate, so lines landing on different named ports of it are as
@@ -144,6 +144,7 @@ export function computeLineOrientations(network, linesById, options = {}) {
   // "join" here never disagrees with what actually put these lines in one
   // network.
   if (UTILITY_TYPES[network.utilityType]?.allowsTap === true) {
+    const joinsOnContact = UTILITY_TYPES[network.utilityType]?.joinsOnContact === true;
     const subtileToLines = new Map();
     for (const l of lines) {
       const expanded = expandPath(l.path || []);
@@ -159,7 +160,8 @@ export function computeLineOrientations(network, linesById, options = {}) {
       for (let a = 0; a < hits.length; a++) {
         for (let b = a + 1; b < hits.length; b++) {
           if (hits[a].lineId === hits[b].lineId) continue;
-          if (hits[a].end === 'interior' && hits[b].end === 'interior') continue; // a crossing, not a join
+          if (!joinsOnContact
+              && hits[a].end === 'interior' && hits[b].end === 'interior') continue;
           addEdge(hits[a].lineId, hits[a].end, hits[b].lineId, hits[b].end);
         }
       }
