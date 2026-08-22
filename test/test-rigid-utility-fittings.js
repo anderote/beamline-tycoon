@@ -4,7 +4,9 @@ import * as THREE_NS from 'three';
 
 globalThis.THREE = THREE_NS;
 
-const { UtilityLineBuilderV2 } =
+const { COMPONENTS } = await import('../src/data/components.js');
+const { portWorldPosition } = await import('../src/utility/ports.js');
+const { buildWorldPoints, UtilityLineBuilderV2 } =
   await import('../src/renderer3d/utility-line-builder-v2.js');
 
 let passed = 0, failed = 0;
@@ -13,10 +15,10 @@ function assert(condition, message) {
   else { failed++; console.log('  FAIL:', message); }
 }
 
-function build(lines) {
+function build(lines, placeables = new Map()) {
   const builder = new UtilityLineBuilderV2();
   const parent = new THREE_NS.Group();
-  builder.build(new Map(lines.map(line => [line.id, line])), new Map(), parent, { state: {} });
+  builder.build(new Map(lines.map(line => [line.id, line])), placeables, parent, { state: {} });
   return parent;
 }
 
@@ -85,6 +87,35 @@ console.log('\n--- 3. RF preview matches installed miter hardware ---');
   assert(elbows.length === 1, 'the live draw preview uses the same miter elbow geometry');
   assert(waypointBeads.length === 2,
     `only the two preview endpoints use markers; the elbow stays visible (${waypointBeads.length})`);
+}
+
+console.log('\n--- 3b. Sloped RF transitions remain physically continuous ---');
+{
+  const source = {
+    id: 'rf-source', type: 'pulsedKlystron',
+    col: 0, row: 0, subCol: 0, subRow: 0, dir: 0,
+  };
+  const logical = portWorldPosition(source, COMPONENTS[source.type], 'rf_out');
+  const line = {
+    id: 'rf-drop', utilityType: 'rfWaveguide',
+    start: { placeableId: source.id, portName: 'rf_out' }, end: null,
+    path: [
+      { col: logical.x / 2, row: logical.z / 2 },
+      { col: logical.x / 2 + 1, row: logical.z / 2 },
+    ],
+  };
+  const placeables = new Map([[source.id, source]]);
+  const points = buildWorldPoints(line, placeables);
+  const parent = build([line], placeables);
+  const segments = collect(parent, object => object.userData?.isUtilityLineSegment);
+  const fittings = collect(parent, object => object.userData?.fittingStyle === 'waveguideFlange');
+  assert(segments.length === points.length - 1
+      && segments.every((segment, index) => Math.abs(
+        segment.geometry.parameters.depth - points[index].distanceTo(points[index + 1]),
+      ) < 1e-6),
+  'unsupported 3D turns keep full-length guide sections meeting at their butt joints');
+  assert(fittings.length === 0,
+    `sloped butt joints do not leave detached elbow collars behind (${fittings.length})`);
 }
 
 console.log('\n--- 4. A tapped branch renders as a tee, not a dangling cap ---');

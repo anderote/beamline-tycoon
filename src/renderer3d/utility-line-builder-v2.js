@@ -664,6 +664,14 @@ function cornerBendInfo(prev, at, next, descriptor) {
   outgoing.normalize();
   const dot = incoming.x * outgoing.x + incoming.y * outgoing.y + incoming.z * outgoing.z;
   if (dot > 0.9999 || dot < -0.9999) return null;
+  // Rectangular formed elbows below carry a stable broad-wall orientation
+  // only for deck-level turns. A sloped or vertical transition instead uses
+  // the compact butt-joint fallback in buildCornerJoint. Treating that
+  // fallback as a formed bend used to trim both adjoining guide sections by
+  // up to miterLengthMeters, while the small joint covered only the immediate
+  // waypoint. The uncovered trim read as a literal air gap on both sides.
+  if (descriptor?.geometryStyle === 'rectWaveguide'
+    && (Math.abs(incoming.y) > 1e-4 || Math.abs(outgoing.y) > 1e-4)) return null;
   const authored = descriptor?.bendStyle === 'mitered'
     ? descriptor?.miterLengthMeters || 0
     : descriptor?.bendRadiusMeters || 0;
