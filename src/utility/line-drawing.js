@@ -338,10 +338,11 @@ function portReusable(spec, utilityType) {
   return !d || d.fansOut !== false;
 }
 
-// Power is intentionally radial. The generic utility graph permits sources to
-// merge (correct for fluid headers and some RF layouts), but connecting two
-// live panel outputs is a backfeed, not a useful power run. The port table
-// expresses the stages; this validator makes them a real wiring rule.
+// Electrical distribution is intentionally radial. The generic utility graph
+// permits sources to merge (correct for fluid headers and some RF layouts),
+// but connecting two live outputs is a backfeed, not a useful power run. HV
+// uses source/sink/pass roles directly; branch power retains narrower stage
+// names for busways, field boxes and transfer switches.
 //
 // `connectionKind` is optional so old content and small test fixtures retain
 // their natural source -> sink behavior. Power infrastructure opts into the
@@ -364,17 +365,14 @@ function oneOfPair(a, b, x, y) {
 function portsCanConnect(startSpec, endSpec, utilityType) {
   if (!startSpec || !endSpec) return true; // open utility runs remain legal
   if (utilityType === 'hvCable') {
-    const a = connectionKind(startSpec, utilityType);
-    const b = connectionKind(endSpec, utilityType);
-    return oneOfPair(a, b, 'hvSupplyOut', 'hvDistributionIn')
-      || oneOfPair(a, b, 'hvDistributionOut', 'hvDistributionIn')
-      || oneOfPair(a, b, 'hvSupplyOut', 'hvLoadIn')
-      || oneOfPair(a, b, 'hvDistributionOut', 'hvLoadIn')
-      || oneOfPair(a, b, 'hvSupplyOut', 'hvPassThroughIn')
-      || oneOfPair(a, b, 'hvDistributionOut', 'hvPassThroughIn')
-      || oneOfPair(a, b, 'hvPassThroughOut', 'hvDistributionIn')
-      || oneOfPair(a, b, 'hvPassThroughOut', 'hvLoadIn')
-      || oneOfPair(a, b, 'hvPassThroughOut', 'hvPassThroughIn');
+    // HV validity follows electrical roles, not authored stage-name pairs.
+    // Passive terminals on poles, towers, switches, vaults and wall bushings
+    // are interchangeable conductor supports. Distribution gear retains its
+    // source/sink roles, so live outputs still cannot backfeed one another and
+    // two loads still cannot be tied together.
+    if (startSpec.role === 'source' && endSpec.role === 'source') return false;
+    if (startSpec.role === 'sink' && endSpec.role === 'sink') return false;
+    return true;
   }
   if (utilityType === 'powerCable') {
     const a = connectionKind(startSpec, utilityType);
@@ -532,7 +530,8 @@ export function validateDrawLine(state, {
   // specific to field ports so legacy same-device lines for other utilities
   // can still be re-anchored when their host moves.
   if (start && end && start.placeableId === end.placeableId
-      && (connectionKind(startSpec, utilityType) === 'powerFieldPort'
+      && (utilityType === 'hvCable'
+        || connectionKind(startSpec, utilityType) === 'powerFieldPort'
         || connectionKind(endSpec, utilityType) === 'powerFieldPort')) {
     return reject('invalid_port_pair');
   }

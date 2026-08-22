@@ -59,6 +59,8 @@ assert(candidate('hvCable', ref('gear', 'hv_out_1'), ref('panelA', 'hv_in')).ok,
   'HV Distributor Box -> panel is a valid protected downstream feeder');
 assert(candidate('hvCable', ref('xfmr', 'hv_out_1'), ref('xfmr', 'hv_out_2')).reason === 'invalid_port_pair',
   'two HV supply outputs cannot be tied together');
+assert(candidate('hvCable', ref('panelA', 'hv_in'), ref('panelB', 'hv_in')).reason === 'invalid_port_pair',
+  'two HV sinks cannot be tied together');
 assert(candidate('hvCable', ref('xfmr', 'hv_out_1'), ref('rfSource', 'hv_in')).ok,
   'transformer -> RF source is a valid dedicated HV feeder');
 assert(candidate('hvCable', ref('gear', 'hv_out_1'), ref('dryCooler', 'hv_in')).ok,

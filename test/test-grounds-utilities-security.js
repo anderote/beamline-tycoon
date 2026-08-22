@@ -124,10 +124,14 @@ test('functional overhead supports are linked into Infra Power and keep decorati
     ['utilityPole', 'transmissionTower']);
   assert.equal(pole.kind, 'decoration');
   assert.equal(pole.category, 'utilities');
+  assert.equal(pole.name, '2×2 Utility Pole');
+  assert.equal(pole.subW, 2);
+  assert.equal(pole.subL, 2);
   assert.equal(standardPaletteKind(COMPONENTS.utilityPole), 'decoration');
   assert.equal(tower.kind, 'decoration');
-  assert.equal(tower.subW, 8);
-  assert.equal(tower.subL, 8);
+  assert.equal(tower.name, '4×4 HV Transmission Tower');
+  assert.equal(tower.subW, 4);
+  assert.equal(tower.subL, 4);
   assert.equal(standardPaletteKind(COMPONENTS.transmissionTower), 'decoration');
 });
 
@@ -141,8 +145,9 @@ test('transmission tower has a tall lattice silhouette and projecting crossarms'
   model.traverse(child => { if (child.isMesh) meshCount++; });
   assert.ok(meshCount >= 70, `the tower is visibly latticed (${meshCount} meshes)`);
   assert.ok(bounds.max.y >= 17.9, `the ground-wire peak reaches full height (${bounds.max.y})`);
-  assert.ok(bounds.max.x - bounds.min.x > 4.5,
-    `crossarms project beyond the four-metre base (${bounds.max.x - bounds.min.x})`);
+  const footprintWidth = def.subW * 0.5;
+  assert.ok(bounds.max.x - bounds.min.x > footprintWidth + 0.4,
+    `crossarms project beyond the 4×4 footprint (${bounds.max.x - bounds.min.x})`);
 });
 
 test('new utility and security props use bespoke multi-part 3D models', () => {

@@ -1105,21 +1105,21 @@ const INFRA_UTILITY_PORTS = {
   utilityPole: {
     hv_in: {
       utility: 'hvCable', side: 'back', offsetAlong: 0.5,
-      role: 'pass', connectionKind: 'hvPassThroughIn', params: {},
+      role: 'pass', connectionKind: 'hvPassThroughIn', omnidirectional: true, params: {},
     },
     hv_out: {
       utility: 'hvCable', side: 'front', offsetAlong: 0.5,
-      role: 'pass', connectionKind: 'hvPassThroughOut', params: {},
+      role: 'pass', connectionKind: 'hvPassThroughOut', omnidirectional: true, params: {},
     },
   },
   transmissionTower: {
     hv_in: {
       utility: 'hvCable', side: 'back', offsetAlong: 0.5,
-      role: 'pass', connectionKind: 'hvPassThroughIn', params: {},
+      role: 'pass', connectionKind: 'hvPassThroughIn', omnidirectional: true, params: {},
     },
     hv_out: {
       utility: 'hvCable', side: 'front', offsetAlong: 0.5,
-      role: 'pass', connectionKind: 'hvPassThroughOut', params: {},
+      role: 'pass', connectionKind: 'hvPassThroughOut', omnidirectional: true, params: {},
     },
   },
   cableTray: {
