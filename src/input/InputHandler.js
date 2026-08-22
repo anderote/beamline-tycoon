@@ -2454,25 +2454,11 @@ export class InputHandler {
           break;
         }
         case 't': case 'T':
-          if (this.handleDisconnectSelectedUtilitiesKey(e)) break;
-          if (this.game._designer && !this.game._designer.isOpen) {
-            e.preventDefault();
-            const blId = this.game.selectedBeamlineId || this.game.editingBeamlineId;
-            if (blId) {
-              this.game._openDesignerForBeamline(blId);
-            } else {
-              // Reopen last designer session or open blank
-              const saved = this.game.state.designerState;
-              if (saved && saved.mode === 'edit' && saved.editSourceId) {
-                this.game._designer.openFromSource(saved.editSourceId, saved.editEndpointId);
-              } else if (saved && saved.mode === 'design') {
-                const design = saved.designId ? this.game.getDesign(saved.designId) : null;
-                this.game._designer.openDesign(design);
-              } else {
-                this.game._designer.openDesign(null);
-              }
-            }
-          }
+          // T is reserved for the contextual assisted-wiring disconnect.
+          // The Beamline Designer is intentionally available only through
+          // its explicit UI actions, so an ineligible selection cannot turn
+          // the same key into an unrelated full-screen navigation command.
+          this.handleDisconnectSelectedUtilitiesKey(e);
           break;
         case 'u': case 'U':
           // Toggle probe mode. setTool handles the exclusivity sweep.
