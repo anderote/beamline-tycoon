@@ -546,6 +546,22 @@ function decorationSnapshotEntry(game, d) {
   const y = levelOf(d) > 0
     ? levelWorldY(levelOf(d))
     : sampleCornersTriangulated(c, u, v);
+  let overheadMountY = null;
+  if (raw?.mount === 'overhead') {
+    const level = levelOf(d);
+    const roofKeyForTile = roofKey(d.col, d.row, level);
+    const roofed = (game.state.roofs || []).some(tile =>
+      sameLevel(tile, level) && roofKey(tile.col, tile.row, level) === roofKeyForTile,
+    );
+    if (roofed) {
+      const region = findRoofRegion(game.state, d.col, d.row, level);
+      const profile = roofProfileForRegion(game.state, region);
+      // RoofBuilder places a 0.12 m slab below the reported roof datum. Keep
+      // the fixture attachment just under that slab so even tall authored
+      // fixtures (high bays) remain inside the room.
+      overheadMountY = levelWorldY(level) + (profile?.height ?? FLOORS.roof.roofHeight) - 0.14;
+    }
+  }
   const wallMount = wallMountSnapshot(game, d.wallMount);
   const zoneOccupied = game.state.zoneOccupied || {};
   const roomKeys = [tileKey(d.col, d.row, levelOf(d))];
@@ -576,6 +592,7 @@ function decorationSnapshotEntry(game, d) {
     placeY: d.placeY || 0,
     wallMount,
     indoors: roomKeys.some((key) => !!zoneOccupied[key]),
+    overheadMountY,
     y,
   };
 }

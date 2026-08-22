@@ -832,6 +832,7 @@ export class LightRig {
     const projection = fixtureLightProjection(def, {
       origin: { x: p.x, y: p.y, z: p.z },
       yaw: tag.aimYaw || 0,
+      floorY: slot.assignedRef?.floorY,
     });
 
     light.position.set(projection.emitter.x, projection.emitter.y, projection.emitter.z);

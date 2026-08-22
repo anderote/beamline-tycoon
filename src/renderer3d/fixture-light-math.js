@@ -156,12 +156,15 @@ function projectAimedCone(emitter, floorY, direction, halfAngle, maxGroundRange)
  * overhead fixtures that origin is above the floor; for ground fixtures it is
  * on the floor. `yaw` follows the renderer's existing -dir*90 convention.
  */
-export function fixtureLightProjection(def, { origin = {}, yaw = 0 } = {}) {
+export function fixtureLightProjection(def, { origin = {}, yaw = 0, floorY: floorOverride } = {}) {
   const light = def?.light || {};
   const ox = Number.isFinite(origin.x) ? origin.x : 0;
   const oy = Number.isFinite(origin.y) ? origin.y : 0;
   const oz = Number.isFinite(origin.z) ? origin.z : 0;
-  const floorY = fixtureFloorY(def, oy);
+  // Roofed overhead fixtures can be mounted below the authored nominal
+  // height. Callers provide the actual supporting floor in that case so the
+  // light remains attached to the room it illuminates.
+  const floorY = Number.isFinite(floorOverride) ? floorOverride : fixtureFloorY(def, oy);
   const supported = def?.mount === 'ground' || def?.mount === 'surface';
   const nominalEmitterY = supported
     ? floorY + (light.emitterY ?? 0)
