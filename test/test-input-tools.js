@@ -601,10 +601,19 @@ console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines
   const selectionModes = [];
   let moveModes = 0;
   const slots = [];
+  let designerOpens = 0;
   const input = {
     keysDown: new Set(),
     activeTool: null,
-    game: { _designPlacer: null },
+    game: {
+      _designPlacer: null,
+      _designer: {
+        isOpen: false,
+        openDesign: () => { designerOpens++; },
+        openFromSource: () => { designerOpens++; },
+      },
+      state: { designerState: null },
+    },
     _toolConsumed: () => false,
     _deleteSelectedFromKeyboard: () => { deletes++; return true; },
     _toggleContextDemolish() {},
@@ -635,6 +644,8 @@ console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines
   keydown(event('6'));
   keydown(event('1', { code: 'Digit1', ctrlKey: true }));
   keydown(event('!', { code: 'Digit1', shiftKey: true }));
+  keydown(event('t'));
+  keydown(event('T'));
   assertOk(deletes === 1, 'Delete uses contextual selection deletion');
   assertOk(explosions === 1, 'Backspace triggers the selected explosion command');
   assertOk(input.keysDown.has('d'), 'D remains the camera pan-right key');
@@ -662,6 +673,8 @@ console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines
     '6 enters the full Demolish build mode through its visible menu button');
   assertOk(slots.join(',') === 'save:1,recall:1',
     'Ctrl+digit saves and Shift+digit recalls the same formation slot');
+  assertOk(designerOpens === 0,
+    'T never opens the Beamline Designer when no utility disconnect is available');
   if (priorWindow === undefined) delete globalThis.window;
   else globalThis.window = priorWindow;
   if (priorDocument === undefined) delete globalThis.document;
