@@ -104,6 +104,8 @@ console.log('\n--- Test 1: addLine valid ---');
   const ev = events.find(e => e.ev === 'utilityLinesChanged');
   assert(!!ev, 'utilityLinesChanged event emitted');
   assert(ev && ev.data && ev.data.utilityType === 'powerCable', 'event carries utilityType');
+  assert(ev?.data?.action === 'added' && ev.data.line?.id === id,
+    'add event carries a detached mutation snapshot for presentation effects');
   assert(logs.length === 0, `no logs (got ${logs.length})`);
 }
 
@@ -162,6 +164,8 @@ console.log('\n--- Test 4: removeLine ---');
   assert(!!ev, 'utilityLinesChanged emitted on remove');
   assert(ev && ev.data && ev.data.utilityType === 'powerCable',
     'remove event carries utilityType');
+  assert(ev?.data?.action === 'removed' && ev.data.line?.end?.placeableId === 'sink1',
+    'remove event preserves the unplug endpoint after deletion');
 }
 
 // ==========================================================================

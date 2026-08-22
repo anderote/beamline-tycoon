@@ -5063,7 +5063,12 @@ export class Game {
       entry.status = 'stopped';
       bs.continuousBeamTicks = 0;
       this.log('Beam TRIPPED -- too much loss! Fix your optics.', 'bad');
-      this.emit('beamToggled');
+      this.emit('beamToggled', {
+        beamlineId: entry.id,
+        status: entry.status,
+        started: false,
+        reason: 'physics-trip',
+      });
     }
   }
 
@@ -5140,6 +5145,7 @@ export class Game {
       return;
     }
 
+    let started = false;
     if (entry.status === 'running') {
       entry.status = 'stopped';
       entry.beamState.continuousBeamTicks = 0;
@@ -5191,9 +5197,14 @@ export class Game {
         return;
       }
       entry.status = 'running';
+      started = true;
       this.log('Beam ON!', 'good');
     }
-    this.emit('beamToggled');
+    this.emit('beamToggled', {
+      beamlineId: entry.id,
+      status: entry.status,
+      started,
+    });
   }
 
   // === RESEARCH (delegates to research module) ===
@@ -5904,6 +5915,9 @@ export class Game {
     this._runUtilityGate();
     this._syncPhysicsToNodeQualities();
     if (result.resourcesChanged) this.emit('resourcesChanged');
+    if (result.poweredOn) {
+      this.emit('powerDeviceChanged', { placeableId, action, poweredOn: true });
+    }
     this.emit('infrastructureValidated');
     return result;
   }

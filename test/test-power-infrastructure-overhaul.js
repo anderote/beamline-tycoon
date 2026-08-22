@@ -200,6 +200,13 @@ test('an open disconnect divides its HV feeder immediately', () => {
   assert.equal(discoverNetworks('hvCable', state.utilityLines, makeDefaultPortLookup(state)).length, 1);
   state.powerReliability.devices.switch.switchClosed = false;
   assert.equal(discoverNetworks('hvCable', state.utilityLines, makeDefaultPortLookup(state)).length, 2);
+  const reliability = reliabilityFor(state);
+  const close = reliability.dispatch('switch', 'toggleSwitch');
+  assert.equal(close.poweredOn, true,
+    'closing a disconnect publishes the power-on transition for presentation effects');
+  const open = reliability.dispatch('switch', 'toggleSwitch');
+  assert.equal(open.poweredOn, false,
+    'opening the same switch does not masquerade as equipment power-up');
 });
 
 test('a cable tray keeps its numbered circuits electrically isolated', () => {

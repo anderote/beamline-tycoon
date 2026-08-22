@@ -160,6 +160,30 @@ export const REASON_MESSAGES = {
 
 export function reasonMessage(r) { return REASON_MESSAGES[r] || r; }
 
+/**
+ * Mutation payload consumed by presentation effects as well as rebuild
+ * listeners. Keep a detached endpoint/path snapshot: on removal the line no
+ * longer exists by the time listeners run, but the unplug location still
+ * matters for sparks and sound.
+ */
+function lineMutationPayload(line, action) {
+  return {
+    utilityType: line.utilityType,
+    action,
+    line: {
+      id: line.id,
+      utilityType: line.utilityType,
+      start: line.start ? { ...line.start } : null,
+      end: line.end ? { ...line.end } : null,
+      path: (line.path || []).map(point => ({ ...point })),
+      cablePath: Array.isArray(line.cablePath)
+        ? line.cablePath.map(point => ({ ...point })) : null,
+      routeHeightMeters: line.routeHeightMeters,
+      buried: line.buried === true,
+    },
+  };
+}
+
 export class UtilityLineSystem {
   constructor(opts = {}) {
     this.state = opts.state;
@@ -202,7 +226,7 @@ export class UtilityLineSystem {
     }
     if (!this.state.utilityLines) this.state.utilityLines = new Map();
     this.state.utilityLines.set(line.id, line);
-    this.emit('utilityLinesChanged', { utilityType: line.utilityType });
+    this.emit('utilityLinesChanged', lineMutationPayload(line, 'added'));
     return line.id;
   }
 
@@ -222,7 +246,7 @@ export class UtilityLineSystem {
       this.onPlaceableRemoved(attachment.id);
     }
     lines.delete(id);
-    this.emit('utilityLinesChanged', { utilityType: line.utilityType });
+    this.emit('utilityLinesChanged', lineMutationPayload(line, 'removed'));
     return true;
   }
 
