@@ -25,6 +25,7 @@ import {
   designerOptimizableParams,
   optimizeDesignerBeamline,
 } from '../beamline/designer-optimizer.js';
+import { rankStackupSuggestions } from '../beamline/stackup-planner.js';
 import { seedComponentParams } from '../beamline/component-params.js';
 import { buildDesignerPhysicsElements } from '../beamline/physics-payload.js';
 import { summarizeDesignerPlacement } from '../beamline/designer-placement-preview.js';
@@ -148,6 +149,9 @@ export class BeamlineDesigner {
     this.baselinePhysicsResult = null;
     this._baselinePending = false;  // baseline deferred until physics is ready
     this.physicsPending = false;
+    this.stackupPlan = null;
+    this.stackupPlannerBusy = false;
+    this._stackupPlannerRun = 0;
     this._draftPhysicsRevision = 0;
     this._baselinePhysicsRevision = 0;
     // Utility lines a moveJunction op could not re-route, counted per apply.
@@ -271,6 +275,13 @@ export class BeamlineDesigner {
     });
     document.getElementById('dsgn-open-optimizer')?.addEventListener('click', () => {
       this._openDesignerOptimizer('all');
+    });
+    document.getElementById('dsgn-analyze-stackup')?.addEventListener('click', () => {
+      Promise.resolve(this._runStackupPlanner()).catch(err => {
+        console.error('[designer] stackup analysis failed', err);
+        this.stackupPlannerBusy = false;
+        this._updateStackupPlannerPanel('Analysis failed — try again');
+      });
     });
     const tuningToggle = document.getElementById('dsgn-tuning-toggle');
     if (tuningToggle) {
@@ -2706,6 +2717,7 @@ export class BeamlineDesigner {
     if (revision !== this._draftPhysicsRevision || !this.isOpen) return;
 
     this.draftPhysicsResult = draftResult;
+    this.stackupPlan = null;
     this.draftRevenueProjection = draftResult
       ? computeBeamlineRevenueBreakdown(
         this._designerBeamlineTypeId?.(),
@@ -2720,6 +2732,7 @@ export class BeamlineDesigner {
       )
       : null;
     this.physicsPending = false;
+    this._updateStackupPlannerPanel();
     this.draftEnvelope = draftResult ? draftResult.envelope : null;
     this.draftDispersionWarnings = draftResult?.dispersionWarnings || [];
     if (!this.draftEnvelope) {
@@ -2729,6 +2742,7 @@ export class BeamlineDesigner {
       this._placementHintCursor = -1;
       this._updateAdvisorReadout();
       this._renderAll?.();
+      this._updateStackupPlannerPanel();
       return;
     }
 
@@ -2756,6 +2770,7 @@ export class BeamlineDesigner {
     this._placementHintCursor = -1;
     this._updateAdvisorReadout();
     this._renderAll?.();
+    this._updateStackupPlannerPanel();
     // Optics advice is only meaningful against the current draft, and the
     // draft changes far faster than the tick Stubby normally runs on.
     this.game?._runAdvisor?.();
@@ -3011,6 +3026,59 @@ export class BeamlineDesigner {
     else if (!this.draftPhysicsResult) status.textContent = 'Add a source and beamline to begin';
     else if (controls === 0) status.textContent = 'No solver-backed controls in this draft';
     else status.textContent = `${tunable.length} tunable components · ${controls} controls · before/after preview`;
+  }
+
+  async _runStackupPlanner() {
+    if (this.stackupPlannerBusy || this.physicsPending || !this.draftPhysicsResult) return null;
+    const run = ++this._stackupPlannerRun;
+    const revision = this._draftPhysicsRevision;
+    this.stackupPlannerBusy = true;
+    this._updateStackupPlannerPanel('Testing registry components against the mission…');
+    try {
+      const typeId = this._designerBeamlineTypeId?.();
+      const plan = await rankStackupSuggestions({
+        nodes: this.draftNodes,
+        baselineResult: this.draftPhysicsResult,
+        typeId,
+        hints: this.placementHints,
+        isUnlocked: def => this.game?.isComponentUnlocked?.(def) !== false,
+        evaluate: nodes => this._computePhysics(nodes, 'designer:stackup-planner'),
+        maxResults: 4,
+      });
+      if (run !== this._stackupPlannerRun || revision !== this._draftPhysicsRevision) return null;
+      this.stackupPlan = plan;
+      return plan;
+    } finally {
+      if (run === this._stackupPlannerRun) {
+        this.stackupPlannerBusy = false;
+        this._updateStackupPlannerPanel();
+      }
+    }
+  }
+
+  _updateStackupPlannerPanel(status = null) {
+    const button = document.getElementById('dsgn-analyze-stackup');
+    const statusEl = document.getElementById('dsgn-stackup-planner-status');
+    const list = document.getElementById('dsgn-stackup-planner-list');
+    if (!button || !statusEl || !list) return;
+    button.disabled = this.stackupPlannerBusy || this.physicsPending || !this.draftPhysicsResult;
+    button.textContent = this.stackupPlannerBusy ? 'Analyzing…' : 'Analyze stackup';
+    if (status) statusEl.textContent = status;
+    else if (this.physicsPending) statusEl.textContent = 'Waiting for the current beam solve';
+    else if (!this.draftPhysicsResult) statusEl.textContent = 'Add a source and beamline first';
+    else if (!this.stackupPlan) statusEl.textContent = 'Compare complete stackups against the selected mission';
+    else statusEl.textContent = `${this.stackupPlan.evaluated} candidates tested · ranked by mission fit`;
+    list.replaceChildren();
+    for (const suggestion of this.stackupPlan?.suggestions || []) {
+      const item = document.createElement('div');
+      item.className = 'dsgn-stackup-suggestion';
+      const title = document.createElement('strong');
+      title.textContent = `${suggestion.label} · ${suggestion.confidence}`;
+      const detail = document.createElement('span');
+      detail.textContent = `${suggestion.position} at ${suggestion.s.toFixed(1)} m · ${suggestion.reason}`;
+      item.append(title, detail);
+      list.appendChild(item);
+    }
   }
 
   _optimizerEnergyTarget() {
