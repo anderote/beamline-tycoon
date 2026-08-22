@@ -77,13 +77,10 @@ export const FLOW_PARAMS = {
     lightIntensity: 0.075, lightDistance: 1.1, daylightFloor: 0.14,
   },
   cryoTransfer: {
-    // Very slow drift plus a small always-on baseGlow — the "faint constant
-    // frost glow" the brief calls for. Applied to both the core AND the
-    // jacket material (see getJacketMaterial in utility-line-builder-v2.js):
-    // frost forms on the OUTER jacket of a real cryo line, so the jacket
-    // carrying its own baseGlow instead of just occluding the core's is the
-    // physically-motivated fix, not just the convenient one.
-    speed: 0.16, period: 4.8, width: 1.35, strength: 0.42, baseGlow: 0.19,
+    // A restrained cold sheen drifts over the stainless vacuum vessel. The
+    // obvious cold cues are localized at bayonets and bellows by the cryostat
+    // builder, so the insulated straight jacket should never glow like hose.
+    speed: 0.16, period: 4.8, width: 1.35, strength: 0.30, baseGlow: 0.055,
     lightIntensity: 0.075, lightDistance: 1.15, daylightFloor: 0.2,
   },
   dataFiber: {

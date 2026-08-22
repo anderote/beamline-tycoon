@@ -554,7 +554,10 @@ export class VisualEffectSystem {
 
   _writeMistParticles(effect, startIndex) {
     const spacing = Math.max(0.5, Number(effect.spacing) || 1.8);
-    const emitterCount = Math.max(2, Math.ceil(effect.path.length / spacing) + 1);
+    const pointEmitters = effect.emitterMode === 'points';
+    const emitterCount = pointEmitters
+      ? effect.path.points.length
+      : Math.max(2, Math.ceil(effect.path.length / spacing) + 1);
     const particlesPerEmitter = Math.max(1, Math.min(3,
       Math.floor(Number(effect.particlesPerEmitter) || 2)));
     const cycle = Math.max(1, Number(effect.cycle) || 3.6);
@@ -567,7 +570,9 @@ export class VisualEffectSystem {
     let requested = 0;
     for (let emitter = 0; emitter < emitterCount; emitter++) {
       const distance = effect.path.length * emitter / Math.max(1, emitterCount - 1);
-      const origin = sampleEffectPath(effect.path, distance, this._sample);
+      const origin = pointEmitters
+        ? effect.path.points[emitter]
+        : sampleEffectPath(effect.path, distance, this._sample);
       if (!origin) continue;
       for (let particle = 0; particle < particlesPerEmitter; particle++) {
         const seed = stableHashUnit(`${effect.id}:${emitter}:${particle}`);

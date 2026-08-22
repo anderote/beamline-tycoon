@@ -6,6 +6,7 @@ globalThis.THREE = THREE_NS;
 
 const { COMPONENTS } = await import('../src/data/components.js');
 const { portWorldPosition } = await import('../src/utility/ports.js');
+const { UTILITY_TYPES } = await import('../src/utility/registry.js');
 const { buildWorldPoints, UtilityLineBuilderV2 } =
   await import('../src/renderer3d/utility-line-builder-v2.js');
 
@@ -138,7 +139,7 @@ console.log('\n--- 4. A tapped branch renders as a tee, not a dangling cap ---')
   assert(caps.length === 1, 'only the genuinely open far end receives an open cap');
 }
 
-console.log('\n--- 5. Cryo preserves its jacket through formed bends and tees ---');
+console.log('\n--- 5. Cryo renders as an opaque fabricated cryostat ---');
 {
   const parent = build([
     {
@@ -155,17 +156,61 @@ console.log('\n--- 5. Cryo preserves its jacket through formed bends and tees --
   ]);
   const branch = parent.children.find(group => group.userData?.lineId === 'cryo-branch');
   const elbows = collect(branch, object => object.userData?.isUtilitySweepElbow);
-  const fittings = collect(branch, object => object.userData?.fittingStyle === 'cryoBayonet');
+  const jackets = collect(branch, object => object.userData?.isCryostatVacuumJacket);
+  const fittings = collect(branch, object => object.userData?.isCryostatBayonet);
+  const bellows = collect(branch, object => object.userData?.cryostatPart === 'bellows-convolution');
+  const bands = collect(branch, object => object.userData?.cryostatPart === 'identification-band');
   const tees = collect(branch, object => object.userData?.isUtilityTeeFitting);
   const caps = collect(branch, object => object.userData?.isUtilityOpenCap);
-  assert(elbows.length === 2
-      && elbows.every(mesh => mesh.geometry instanceof THREE_NS.TubeGeometry),
-    `the core and outer jacket both sweep continuously through the bend (${elbows.length})`);
-  assert(fittings.length >= 3
-      && fittings.every(mesh => mesh.geometry instanceof THREE_NS.TorusGeometry),
-    `${fittings.length} round bayonet collars mark the bend and tee`);
+  assert(UTILITY_TYPES.cryoTransfer.geometryStyle === 'jacketedCylinder'
+      && UTILITY_TYPES.cryoTransfer.presentationStyle === 'cryostatLine',
+    'cryo keeps its physical jacket envelope and publishes a presentation-only cryostat style');
+  assert(jackets.length === 2 && jackets.every(mesh =>
+    mesh.material.transparent !== true && mesh.material.metalness >= 0.8),
+  `${jackets.length} opaque stainless vacuum-jacket segments replace the translucent sleeve`);
+  assert(elbows.length === 1 && elbows[0].geometry instanceof THREE_NS.TubeGeometry,
+    `one continuous outer vacuum vessel sweeps through the bend (${elbows.length})`);
+  assert(fittings.length >= 3 && fittings.every(fitting =>
+    collect(fitting, object => object.userData?.cryostatPart === 'bellows-convolution').length === 5
+      && collect(fitting, object => object.userData?.cryostatPart === 'bayonet-collar').length === 2),
+  `${fittings.length} fabricated bayonet cans carry double collars and five-part bellows`);
+  assert(bellows.length === fittings.length * 5 && bands.length > fittings.length,
+    'bellows convolutions and recurring cyan identification bands give the run a cryostat silhouette');
   assert(tees.length === 1 && caps.length === 1,
     'the joined cryo end receives a bayonet tee while only the open end is capped');
+}
+
+console.log('\n--- 6. Cryogenic ports terminate in demountable bayonet cans ---');
+{
+  const source = {
+    id: 'cold-box', type: 'coldBox4K',
+    col: 0, row: 0, subCol: 0, subRow: 0, dir: 0,
+  };
+  const logical = portWorldPosition(source, COMPONENTS[source.type], 'cryo_out');
+  const line = {
+    id: 'cryo-terminal', utilityType: 'cryoTransfer',
+    start: { placeableId: source.id, portName: 'cryo_out' }, end: null,
+    path: [
+      { col: logical.x / 2, row: logical.z / 2 },
+      { col: logical.x / 2 + 2, row: logical.z / 2 },
+    ],
+  };
+  const parent = build([line], new Map([[source.id, source]]));
+  const terminals = collect(parent, object => object.userData?.isCryostatTerminalFitting);
+  assert(terminals.length === 1 && terminals[0].userData.isCryostatBayonet,
+    'the connected cold-box port receives one purpose-built terminal bayonet');
+}
+
+console.log('\n--- 7. Cryostat preview exposes the installed jacket and coupling vocabulary ---');
+{
+  const parent = buildPreview({
+    utilityType: 'cryoTransfer', valid: true,
+    path: [{ col: 0, row: 0 }, { col: 4, row: 0 }, { col: 4, row: 3 }],
+  });
+  const jackets = collect(parent, object => object.userData?.isCryostatVacuumJacket);
+  const fittings = collect(parent, object => object.userData?.isCryostatBayonet);
+  assert(jackets.length === 2 && fittings.length >= 3,
+    'the live draw preview shows the broad jacket, expansion cans, and elbow bayonets');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

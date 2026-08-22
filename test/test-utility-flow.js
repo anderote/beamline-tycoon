@@ -415,11 +415,12 @@ console.log('\n--- 4. FLOW_PARAMS covers every utility ---');
 
   const cryoEffects = buildFlowLine('cryoTransfer').group.userData.visualEffects;
   const cryoMist = cryoEffects?.find(effect => effect.kind === 'ambientMist');
-  assert(cryoMist?.path?.length === 3
+  assert(cryoMist?.source === 'cryostat-fittings'
+      && cryoMist?.emitterMode === 'points'
+      && cryoMist?.path?.length >= 2
       && cryoMist.particlesPerEmitter === 1
-      && cryoMist.spacing >= 3
-      && cryoMist.activeFraction <= 0.35,
-    'cryo lines publish sparse intermittent mist along the pipe and both connectors');
+      && cryoMist.activeFraction <= 0.28,
+    'cryo lines publish sparse intermittent mist only at bayonets and bellows');
 
   const waterEffects = buildFlowLine('coolingWater').group.userData.visualEffects;
   const waterDrips = waterEffects?.find(effect => effect.kind === 'ambientDrip');

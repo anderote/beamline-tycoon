@@ -358,7 +358,13 @@ export default {
   displayName: 'Cryo Transfer',
   color: '#44aacc',
   geometryStyle: 'jacketedCylinder',
+  // Presentation-only specialization. The physical envelope stays a
+  // jacketedCylinder for routing/collision contracts, while the 3D builder
+  // replaces the generic translucent sleeve with fabricated cryostat hardware.
+  presentationStyle: 'cryostatLine',
   pipeRadiusMeters: 0.06,
+  jacketRadiusScale: 1.72,
+  identificationBandSpacingMeters: 2,
   // The outer vacuum jacket rides above the slab on periodic steel stands.
   // Stand legs are presentation geometry derived from this centreline height;
   // topology and priced path length remain the authored 2D route.
