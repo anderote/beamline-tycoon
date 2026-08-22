@@ -3,31 +3,32 @@
 // Pure validator for drawing a utility line between two ports. Mirrors the
 // shape of src/beamline/pipe-drawing.js but with these differences:
 //   - Paths may contain 90° Manhattan bends (no diagonals).
-//   - Loose utilities overlap independently; fabricated rigid services may
-//     share plan routes when their fixed utility elevations have clearance.
+//   - Every utility uses the same quarter-tile Manhattan routing freedom.
+//   - Equipment blocks only when measured 3D model geometry intersects the
+//     utility body at its actual route height.
 //   - Endpoints reference placeables via `placeableId` (not `junctionId`).
-//   - Rejection reasons are utility-specific and distinguish start/end port
-//     alignment failures.
+//   - Port normals guide route ranking but never make an otherwise valid path illegal.
 //
 // Rejection reasons:
 //   invalid_path, not_manhattan, overlap_same_type,
 //   invalid_start, invalid_end, port_type_mismatch, port_taken,
-//   port_mismatch_start, port_mismatch_end.
+//   off_subtile_grid, blocked_by_equipment.
 
 import { COMPONENTS } from '../data/components.js';
 import { UTILITY_TYPES, utilityLineHeight } from './registry.js';
 import {
   getPortSpec,
-  availablePorts,
-  portMatchesApproach,
   utilityPortConnectionLimit,
 } from './ports.js';
 import {
   pathLengthSubUnits,
   expandPath,
-  hasMinimumBendClearance,
 } from './line-geometry.js';
-import { buildRigidRouteObstacles, rigidUtilitiesConflict } from './route-obstacles.js';
+import { buildUtilityRouteObstacles } from './route-obstacles.js';
+import {
+  isUtilityRouteCoordinate,
+  usesFlexibleSubtileRouting,
+} from './routing-contract.js';
 import {
   routeHeightForLine,
   routeHeightsConflict,
@@ -64,18 +65,6 @@ function isManhattanPath(path) {
     if (Math.abs(dc) > EPS && Math.abs(dr) > EPS) return false;
   }
   return true;
-}
-
-function segmentDirection(a, b) {
-  const dCol = b.col - a.col;
-  const dRow = b.row - a.row;
-  if (Math.abs(dCol) > EPS && Math.abs(dRow) < EPS) {
-    return { dCol: Math.sign(dCol), dRow: 0 };
-  }
-  if (Math.abs(dRow) > EPS && Math.abs(dCol) < EPS) {
-    return { dCol: 0, dRow: Math.sign(dRow) };
-  }
-  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -174,10 +163,9 @@ function pathOverlapReason(newPath, lines, utilityType, opts = {}) {
   for (const line of iter) {
     if (!line) continue;
     const sameType = line.utilityType === utilityType;
-    const rigidConflict = rigidUtilitiesConflict(utilityType, line.utilityType);
     const fixedHeightPair = usesFixedRouteHeight(utilityType)
       && usesFixedRouteHeight(line.utilityType);
-    const physicalConflict = rigidConflict || fixedHeightPair;
+    const physicalConflict = fixedHeightPair;
     if (!sameType && !physicalConflict) continue;
     if (fixedHeightPair && Number.isFinite(newRouteHeight)
         && !routeHeightsConflict(
@@ -238,8 +226,7 @@ function pathOverlapReason(newPath, lines, utilityType, opts = {}) {
     // Loose lines may share a tray out of a common source. A rigid service may
     // share the connector point but cannot be laid invisibly inside an already
     // installed pipe/guide; its next subtile must choose another plan route.
-    if (skipEndpoint && !newDescriptor.avoidRigidIntersections
-        && !usesFixedRouteHeight(utilityType)) continue;
+    if (skipEndpoint && !usesFixedRouteHeight(utilityType)) continue;
     const existing = expandPath(line.path || []);
     for (let k = 0; k < sharedExistingIndices.length; k++) {
       if (sharedExistingIndices[k] < 0) sharedExistingIndices[k] = existing.length - 1;
@@ -253,14 +240,25 @@ function pathOverlapReason(newPath, lines, utilityType, opts = {}) {
         if (!pointsOverlap(np, existing[j], clearanceTiles, physicalConflict)) continue;
         if (physicalConflict && sharedNewIndices.length > 0) {
           let insideSharedFitting = false;
+          const fittingRadius = clearanceTiles * 2;
           for (let k = 0; k < sharedNewIndices.length; k++) {
             const newTerminal = newExpanded[sharedNewIndices[k]];
             const oldTerminal = existing[sharedExistingIndices[k]];
             if (!newTerminal || !oldTerminal) continue;
-            const newDistance = Math.abs(np.col - newTerminal.col) + Math.abs(np.row - newTerminal.row);
-            const oldDistance = Math.abs(existing[j].col - oldTerminal.col)
-              + Math.abs(existing[j].row - oldTerminal.row);
-            if (newDistance <= clearanceTiles + EPS && oldDistance <= clearanceTiles + EPS) {
+            // The physical fitting clearance itself is axis-aligned (the same
+            // square used by pointsOverlap), so its local exemption must use
+            // Chebyshev distance too. Manhattan distance incorrectly excluded
+            // the square's diagonal corner and boxed a second branch inside a
+            // shared source fitting.
+            const newDistance = Math.max(
+              Math.abs(np.col - newTerminal.col),
+              Math.abs(np.row - newTerminal.row),
+            );
+            const oldDistance = Math.max(
+              Math.abs(existing[j].col - oldTerminal.col),
+              Math.abs(existing[j].row - oldTerminal.row),
+            );
+            if (newDistance <= fittingRadius + EPS && oldDistance <= fittingRadius + EPS) {
               insideSharedFitting = true;
               break;
             }
@@ -290,7 +288,7 @@ function pathOverlapReason(newPath, lines, utilityType, opts = {}) {
           return sameType ? 'overlap_same_type' : 'overlap_rigid_service';
         }
         // Interior/interior: legal exactly when the runs cross.
-        // Installed rigid services occupy one physical elevation, so even a
+        // Installed fixed-height services occupy one physical elevation, so even a
         // perpendicular centreline crossing is a collision. Cables retain the
         // old bridge-over behavior.
         if (physicalConflict
@@ -442,6 +440,9 @@ export function validateDrawLine(state, {
 } = {}) {
   // Path shape.
   if (!Array.isArray(path) || path.length < 2) return reject('invalid_path');
+  if (path.some(point => !point
+      || !isUtilityRouteCoordinate(point.col)
+      || !isUtilityRouteCoordinate(point.row))) return reject('off_subtile_grid');
   if (!isManhattanPath(path)) return reject('not_manhattan');
 
   // Require at least one non-degenerate segment.
@@ -450,16 +451,16 @@ export function validateDrawLine(state, {
     totalDist += Math.abs(path[i + 1].col - path[i].col)
               + Math.abs(path[i + 1].row - path[i].row);
   }
-  // A power cable may be a zero-length jumper between directly adjacent /
-  // co-located fittings. Every other service retains a physical minimum run:
-  // a zero-length hose or waveguide is not meaningful geometry.
-  if (totalDist < EPS && utilityType !== 'powerCable') return reject('invalid_path');
+  // Co-located fittings can connect for every utility; their exact 3D anchors
+  // and local transitions still produce visible geometry. An open zero-length
+  // mark has no topology or useful presentation and remains invalid.
+  if (totalDist < EPS && !(start && end)) return reject('invalid_path');
 
   const descriptor = UTILITY_TYPES[utilityType] || {};
   const freeform = isSoftCable(utilityType) ? sanitizeCablePath(cablePath) : [];
-  // Flexible electrical routes are physical where the cable is visibly laid.
-  // The hidden Manhattan compatibility route must not let a freehand cable
-  // pass through a wall (or reject one whose visible trace went around it).
+  // Legacy freehand electrical routes remain physical where the cable was
+  // visibly laid. Their compatibility path must not let a saved cable pass
+  // through a wall (or reject one whose visible trace went around it).
   const physicalPath = freeform.length >= 2
     ? roundedCableTilePath(freeform, utilityType)
     : path;
@@ -468,10 +469,6 @@ export function validateDrawLine(state, {
       && pathCrossesWall(state?.wallOccupied, physicalPath)) {
     return reject('wall_pass_through_required');
   }
-  if (!hasMinimumBendClearance(path, descriptor.minStraightTiles || 0)) {
-    return reject('bend_too_tight');
-  }
-
   let startSpec = null;
   let endSpec = null;
 
@@ -489,12 +486,6 @@ export function validateDrawLine(state, {
     if (portConnectionCount(state, start.placeableId, start.portName)
         >= utilityPortConnectionLimit(spec, utilityType)) return reject('port_taken');
 
-    if (descriptor.requiresPortApproach) {
-      const dir = segmentDirection(path[0], path[1]);
-      if (!dir || !portMatchesApproach(p, def, start.portName, dir, false)) {
-        return reject('port_mismatch_start');
-      }
-    }
   }
 
   // Resolve end endpoint.
@@ -511,12 +502,6 @@ export function validateDrawLine(state, {
     if (portConnectionCount(state, end.placeableId, end.portName)
         >= utilityPortConnectionLimit(spec, utilityType)) return reject('port_taken');
 
-    if (descriptor.requiresPortApproach) {
-      const dir = segmentDirection(path[path.length - 2], path[path.length - 1]);
-      if (!dir || !portMatchesApproach(p, def, end.portName, dir, true)) {
-        return reject('port_mismatch_end');
-      }
-    }
   }
 
   // Interchangeable spider-box sockets would otherwise accept a meaningless
@@ -560,9 +545,9 @@ export function validateDrawLine(state, {
     ignoreSharedSource[side] = ref;
   }
   // Loose electrical and data cords may cross on the floor without joining.
-  // Cooling hoses are equally smooth, but remain plumbed networks and retain the
-  // hidden grid route for deterministic overlap/tap-clearance validation.
-  // Their visible route owns the actual network join position in discovery.
+  // Cooling hoses are equally smooth, but remain plumbed networks. Legacy
+  // cablePath saves use their grid route for deterministic clearance here and
+  // their visible route for the actual network join position in discovery.
   let resolvedRouteHeight = null;
   if (!softCableSkipsOverlap(utilityType)) {
     if (usesFixedRouteHeight(utilityType)) {
@@ -581,16 +566,19 @@ export function validateDrawLine(state, {
     }
   }
 
-  // A rigid route is physical floor hardware, not a graph edge painted over
-  // the board. Keep its centreline outside every non-endpoint footprint; the
-  // source and sink are exempt because their risers own that last transition.
-  if (descriptor.routingProfile === 'rigid') {
-    const obstacles = buildRigidRouteObstacles(state, utilityType, {
-      startRef: start, endRef: end, includeLines: false,
-    });
+  // Every service uses the same measured 3D collision check. A footprint is
+  // only the broad phase: empty space beneath/inside a compound beamline model
+  // remains routable, while a real mesh intersection asks the player/router to
+  // use the neighboring subtile. Endpoint models are exempt because their
+  // perimeter transition owns the final wrap into the fitting.
+  if (usesFlexibleSubtileRouting(descriptor)) {
     const expanded = expandPath(path);
-    for (let i = 1; i < expanded.length - 1; i++) {
-      if (obstacles.isBlocked(expanded[i].col, expanded[i].row)) {
+    const obstacles = buildUtilityRouteObstacles(state, utilityType, {
+      startRef: start, endRef: end, includeLines: false,
+      equipmentPoints: expanded,
+    });
+    for (const point of expanded) {
+      if (obstacles.isBlocked(point.col, point.row)) {
         return reject('blocked_by_equipment');
       }
     }
@@ -621,17 +609,15 @@ export function validateDrawLine(state, {
 // without magic strings.
 export const REASONS = Object.freeze({
   invalid_path: 'invalid_path',
+  off_subtile_grid: 'off_subtile_grid',
   not_manhattan: 'not_manhattan',
   overlap_same_type: 'overlap_same_type',
   overlap_rigid_service: 'overlap_rigid_service',
   blocked_by_equipment: 'blocked_by_equipment',
   wall_pass_through_required: 'wall_pass_through_required',
-  bend_too_tight: 'bend_too_tight',
   invalid_start: 'invalid_start',
   invalid_end: 'invalid_end',
   port_type_mismatch: 'port_type_mismatch',
   port_taken: 'port_taken',
-  port_mismatch_start: 'port_mismatch_start',
-  port_mismatch_end: 'port_mismatch_end',
   invalid_port_pair: 'invalid_port_pair',
 });

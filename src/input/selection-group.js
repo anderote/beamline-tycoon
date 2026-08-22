@@ -593,7 +593,7 @@ export function previewSelectionGroup(game, payload, anchorPose) {
             row: point.row + deltaRow,
           }))
         : undefined,
-      // Fixed rigid services are canonicalized by validateDrawLine. Preserve
+      // Fixed-height services are canonicalized by validateDrawLine. Preserve
       // explicit non-fixed elevations (for example a buried HV duct bank).
       ...(Number.isFinite(source.routeHeightMeters)
         ? { routeHeightMeters: source.routeHeightMeters }

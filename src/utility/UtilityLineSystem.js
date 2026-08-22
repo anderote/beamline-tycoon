@@ -145,18 +145,16 @@ export function utilityLineReachStatus(line, placeableId, newPortPos) {
 // BeamlineSystem.REASON_MESSAGES.
 export const REASON_MESSAGES = {
   invalid_path:         'path has fewer than 2 points',
+  off_subtile_grid:     'route must follow the subtile service grid',
   not_manhattan:        'path must use 90° bends only',
   overlap_same_type:    'another line of this type already runs here',
-  overlap_rigid_service:'a rigid service already occupies that route',
-  blocked_by_equipment: 'that route passes through installed equipment',
+  overlap_rigid_service:'another service body already occupies that route',
+  blocked_by_equipment: 'that route intersects installed 3D equipment geometry',
   wall_pass_through_required: 'electrical cables need a wall feedthrough here',
-  bend_too_tight:       'waveguide elbows need a longer straight approach',
   invalid_start:        'starting port is missing or invalid',
   invalid_end:          'ending port is missing or invalid',
   port_type_mismatch:   'port type does not match utility',
   port_taken:           'that port is already connected',
-  port_mismatch_start:  "line doesn't align with start port direction",
-  port_mismatch_end:    "line doesn't align with end port direction",
 };
 
 export function reasonMessage(r) { return REASON_MESSAGES[r] || r; }

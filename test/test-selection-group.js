@@ -69,6 +69,9 @@ function fixture(seed) {
     portTile(game, sinkId, 'pwr_in'),
   );
   const line = [...game.state.utilityLines.values()][0];
+  // Simulate a pre-unified-routing save. New lines do not author cablePath,
+  // but selection transforms must remain lossless for legacy freehand data.
+  if (line) line.cablePath = line.path.map(point => ({ ...point }));
   assert(!!sourceId && !!sinkId && !!line, 'fixture placed and wired two selectable objects');
   return { game, sourceId, sinkId, line };
 }

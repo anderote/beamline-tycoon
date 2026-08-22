@@ -12,6 +12,7 @@
 
 import { powerFeedFactor } from '../power-feed.js';
 import { COOLING_WATER_INVENTORY } from '../../data/cooling-water-inventory.js';
+import { FLEXIBLE_SUBTILE_ROUTING_PROFILE } from '../routing-contract.js';
 
 export const EVAP_PER_KW_PER_TICK = 0.02;
 // Compatibility export for callers that mean the original LCW-skid / make-up
@@ -71,6 +72,7 @@ export default {
   displayName: 'Cooling Water',
   color: '#4488ff',
   geometryStyle: 'cylinder',
+  routingProfile: FLEXIBLE_SUBTILE_ROUTING_PROFILE,
   pipeRadiusMeters: 0.04,
   // Capacity and heatLoad are both kW of heat moved (packageChiller 5 →
   // lcwSkid 25 → dualCircuitChiller 175 → chiller 300 →

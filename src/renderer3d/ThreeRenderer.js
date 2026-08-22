@@ -22,7 +22,16 @@ import { roofVisibleForWallMode } from './roof-visibility.js';
 import {
   WallBuilder, HEIGHT_SCALE, LINTEL_HEIGHT, doorOpeningLayout, windowOpeningLayout,
 } from './wall-builder.js';
-import { ComponentBuilder, getAccentMaterial, isDetailedComponent, componentPose, getModelBounds, measureShellSurfaces, setGlowNightFactor } from './component-builder.js';
+import {
+  ComponentBuilder,
+  componentPose,
+  getAccentMaterial,
+  getModelBounds,
+  isDetailedComponent,
+  measureShellSurfaces,
+  setGlowNightFactor,
+  utilityEnvelopeIntersectsModel,
+} from './component-builder.js';
 import { PipeAttachmentBuilder } from './pipe-attachment-builder.js';
 import { BeamPipeBuilder } from './beam-pipe-builder.js';
 import { pipePathRuns } from '../beamline/pipe-geometry.js';
@@ -30,6 +39,7 @@ import {
   BEAM_AXIS_HEIGHT, BEAM_PIPE_RADIUS, BEAM_FLANGE_RADIUS, BEAM_FLANGE_WIDTH,
 } from '../beamline/visual-geometry.js';
 import { setModelBoundsProvider, setShellMeasureProvider } from '../utility/port-anchors.js';
+import { setUtilityCollisionProvider } from '../utility/utility-collision.js';
 import { BeamBuilder } from './beam-builder.js';
 import { EquipmentBuilder, createEquipmentObject } from './equipment-builder.js';
 import { DecorationBuilder } from './decoration-builder.js';
@@ -322,6 +332,7 @@ export class ThreeRenderer {
     // utility/port-anchors.js stays headless-safe.
     setModelBoundsProvider(getModelBounds);
     setShellMeasureProvider(measureShellSurfaces);
+    setUtilityCollisionProvider(utilityEnvelopeIntersectsModel);
     this.pipeAttachmentBuilder = new PipeAttachmentBuilder();
     this.beamPipeBuilder = new BeamPipeBuilder();
     this.beamBuilder = new BeamBuilder();

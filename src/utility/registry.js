@@ -36,14 +36,14 @@ const GROUND_CLEARANCE = 0.01;
  * each rest ON the ground rather than one of them sinking into it. A
  * descriptor can still pin its own `runHeightMeters` for a service that is
  * genuinely carried overhead. Non-fixed lines may pass an explicit saved
- * `routeHeightMeters`; fixed rigid services always use their descriptor datum.
+ * `routeHeightMeters`; fixed-height services always use their descriptor datum.
  *
  * Used by the renderer AND by the input tool, which has to pick against the
  * plane it draws on — see UtilityLineTool._cableWorld.
  */
 export function utilityLineHeight(utilityType, routeHeightMeters = null) {
   const d = UTILITY_TYPES[utilityType];
-  // Fabricated rigid services own one facility-wide datum. Saved elevations
+  // Fixed-height services own one facility-wide datum. Saved elevations
   // from the retired automatic-lane system are deliberately ignored so old
   // runs immediately conform to the fixed-height contract after loading.
   if (d?.fixedRouteHeight === true && Number.isFinite(d.runHeightMeters)) {

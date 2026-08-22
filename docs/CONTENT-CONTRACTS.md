@@ -173,8 +173,8 @@ the short authoring contract.
   device belongs to the same internal peer node. Data service is binary
   connectivity to at least one other device; switches add real connection
   ports and fan-out, never throughput capacity or source direction.
-- Ordinary data runs use the same loose freehand cable routing and gravity
-  presentation as power cords, while retaining data's directionless bus
+- Ordinary data runs use the shared subtile routing contract and the same
+  rounded, gravity-affected presentation as power cords, while retaining data's directionless bus
   topology. Unless a port authors `maxConnections`, each physical data port
   accepts four cable attachments. Cable draw order never defines data flow.
 - `networkSwitch` exposes eight internally joined peer ports and is available
@@ -239,9 +239,11 @@ the short authoring contract.
   vacuum fittings meet the 1 m beam axis, cooling fittings use the low service
   band, and data fittings use the instrumentation band unless a per-port mount
   overrides them.
-- RF waveguides and cryogenic transfer lines use the `rectilinear` routing
-  profile: their paths must be axis-aligned with 90-degree bends, but do not
-  reserve rigid equipment or service-clearance aisles.
+- Every utility descriptor uses the `flexibleSubtile` routing profile. Newly
+  authored power, HV, cooling, data, vacuum, RF, and cryogenic runs all store
+  an axis-aligned path on quarter-tile coordinates and may turn on any such
+  coordinate. This is one construction topology even when a cable or hose is
+  rendered with sag and rounded bends.
 - Free-drag endpoints may snap to an existing compatible vacuum, cooling, RF,
   cryogenic-transfer, or data run and commit a named `tapLineIds` T-junction.
   The branch must meet the trunk at one point on the utility's fixed datum and
@@ -249,8 +251,20 @@ the short authoring contract.
   Power and HV cable do not allow casual tees; use distribution equipment or a
   utility bus so electrical branching retains protected physical outlets.
 - Every utility route may turn immediately at a port. Port facing selects the
-  visible fitting position and can guide route ranking, but no utility reserves
+  visible fitting position and ranks a one-subtile outward lead or perimeter
+  wrap, but no utility reserves
   a minimum straight lead-out or clearance strip in front of that fitting.
+  If no port-aligned candidate fits, another Manhattan arrival is legal.
+  Any utility may connect two real port anchors at the same plan coordinate;
+  that stored fitting has zero plan length.
+- Equipment footprints are only a cheap broad-phase lookup for route planning.
+  Within a candidate footprint cell, the utility body's envelope at its real
+  fixed Y datum is tested against triangles measured from the rendered model.
+  A footprint by itself never blocks a utility: routes may pass beneath a
+  beamline component, through an open stand, or around either side whenever
+  there is no 3D intersection. The source and destination components are
+  omitted from this obstacle lookup because their measured connector tails own
+  the local exterior transition and perimeter wrap.
 - Interactive drawing projects the pointer's camera ray onto the armed
   utility's current route-height plane for every utility type, including HV.
   That one projected point also drives hover, tooltips, snapping, erasing, and
@@ -265,8 +279,10 @@ the short authoring contract.
   saved `routeHeightMeters` values cannot override a fixed utility datum.
 - A utility descriptor with `requiresWallPassThrough: true` validates the
   physical rendered route against `wallOccupied`. Power and HV cable opt in;
-  their freehand `cablePath` is authoritative when present. Fabricated pipe,
-  waveguide, cooling, and cryogenic services retain direct wall crossing.
+  their shared subtile `path` is authoritative for newly drawn lines.
+  `cablePath` remains load/copy/render compatible for legacy saves only.
+  Fabricated pipe, waveguide, cooling, and cryogenic services retain direct
+  wall crossing.
 - An HV cable whose two endpoints are overhead terminals on utility poles or
   transmission towers is an elevated span and may cross any wall or fence in
   plan view. The exception requires two overhead support ports; a low pole tap,

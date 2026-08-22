@@ -31,6 +31,7 @@ import { powerFeedFactor } from '../power-feed.js';
 import { expandPath } from '../line-geometry.js';
 import { RF_BANDS, bandForFrequencyHz } from '../../data/rf-bands.js';
 import { RIGID_UTILITY_SERVICE_HEIGHTS } from '../service-heights.js';
+import { FLEXIBLE_SUBTILE_ROUTING_PROFILE } from '../routing-contract.js';
 
 // Compatibility export for existing UI and tests. New data-layer consumers
 // should import the neutral module directly.
@@ -189,7 +190,7 @@ export default {
   // paths stay rectilinear, but may turn immediately at a fitting and cross
   // equipment/other services like the existing cryogenic transfer-line
   // contract. Network topology still decides what is electrically connected.
-  routingProfile: 'rectilinear',
+  routingProfile: FLEXIBLE_SUBTILE_ROUTING_PROFILE,
   // Presentation only: use a compact 45-degree miter body at each 90-degree
   // turn. The renderer trims it to fit short legs; it does not impose a
   // minimum straight run or reject a compact route.

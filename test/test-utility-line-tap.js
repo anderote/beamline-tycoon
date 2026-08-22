@@ -22,6 +22,7 @@ import { gridToIso } from '../src/renderer/grid.js';
 import { portWorldPosition } from '../src/utility/ports.js';
 import { findUtilityEndpoint } from '../src/utility/utility-endpoints.js';
 import { roundedCableTilePath } from '../src/utility/soft-cable.js';
+import { expandPath } from '../src/utility/line-geometry.js';
 
 globalThis.COMPONENTS = COMPONENTS;
 globalThis.PARAM_DEFS = PARAM_DEFS;
@@ -124,7 +125,9 @@ function longestSegment(path) {
 }
 
 const trunkMid = (trunk) => {
-  const visible = roundedCableTilePath(trunk.cablePath, trunk.utilityType);
+  const visible = trunk.cablePath?.length >= 2
+    ? roundedCableTilePath(trunk.cablePath, trunk.utilityType)
+    : expandPath(trunk.path || []);
   return visible[Math.floor(visible.length / 2)];
 };
 
@@ -245,7 +248,7 @@ console.log('\n--- 2. A drag onto the trunk commits, and joins its network ---')
     `the source now feeds both quads (${keys.join(',')})`);
 }
 
-console.log('\n--- 2b. Flexible data cables retain peer-bus taps ---');
+console.log('\n--- 2b. Subtile-routed data cables retain peer-bus taps ---');
 {
   const game = new Game(new BeamlineRegistry(), { seed: 12 });
   game.state.resources.funding = 1e9;
@@ -262,18 +265,16 @@ console.log('\n--- 2b. Flexible data cables retain peer-bus taps ---');
     'dataFiber',
   );
   const trunk = dataLines(game)[0];
-  assert(trunk?.cablePath?.length >= 2,
-    'the committed data trunk stores the freehand flexible route');
+  assert(trunk?.path?.length >= 2 && !trunk.cablePath,
+    'the committed data trunk stores only the shared subtile route');
 
-  const mid = longestSegment(
-    roundedCableTilePath(trunk.cablePath, trunk.utilityType),
-  ).mid;
+  const mid = longestSegment(trunk.path).mid;
   const tapController = ctrlFor(game, 'dataFiber');
   const tapIso = gridToIso(mid.col, mid.row);
   tapController.onHover(tapIso.x, tapIso.y);
   assert(tapController.hoverPort?.tap === true
       && tapController.hoverPort.lineId === trunk.id,
-    `the visible data cable offers a trunk tap (${JSON.stringify(tapController.hoverPort)})`);
+    `the rendered data cable offers a trunk tap (${JSON.stringify(tapController.hoverPort)})`);
   drag(game, portTile(game, 'console', 'data_in'), mid, 'dataFiber');
   const branch = dataLines(game).find(line => line.id !== trunk.id);
   assert([branch?.tapLineIds?.start, branch?.tapLineIds?.end].includes(trunk.id),

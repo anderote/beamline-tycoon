@@ -17,6 +17,7 @@ import {
   expandPath,
 } from '../src/utility/line-geometry.js';
 import { UTILITY_TYPES, UTILITY_TYPE_LIST } from '../src/utility/registry.js';
+import { FLEXIBLE_SUBTILE_ROUTING_PROFILE } from '../src/utility/routing-contract.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -133,16 +134,35 @@ console.log('\n--- Test 9: ports have no minimum clearance ---');
 
   assert(UTILITY_TYPE_LIST.every(utilityType => !Object.hasOwn(UTILITY_TYPES[utilityType], 'portClearance')),
     'no registered utility declares a port-clearance exception');
-  for (const utilityType of ['rfWaveguide', 'cryoTransfer']) {
-    assert(UTILITY_TYPES[utilityType].routingProfile === 'rectilinear',
-      `${utilityType} explicitly uses forgiving rectilinear routing`);
-  }
+  assert(UTILITY_TYPE_LIST.every(utilityType =>
+    UTILITY_TYPES[utilityType].routingProfile === FLEXIBLE_SUBTILE_ROUTING_PROFILE),
+  'all registered utilities publish the same flexible subtile routing profile');
   const freeRoute = buildPortRoutedPaths(
     { col: 0.25, row: 0 }, null,
     { col: 0.25, row: 0.25 }, null,
   )[0];
   assertEq(freeRoute, [{ col: 0.25, row: 0 }, { col: 0.25, row: 0.25 }],
     'an ordinary utility run can use adjacent subtiles freely');
+}
+
+// ======================================================================
+// Test 10: authored port normals produce a perimeter wrap when useful.
+// ======================================================================
+console.log('\n--- Test 10: same-facing ports get a tidy outward wrap ---');
+{
+  const path = buildPortRoutedPaths(
+    { col: 0, row: 0 }, { dCol: 1, dRow: 0 },
+    { col: 2, row: 0 }, { dCol: 1, dRow: 0 },
+  )[0];
+  const first = path[1];
+  const beforeEnd = path[path.length - 2];
+  assert(first.col > path[0].col && first.row === path[0].row,
+    'route first leaves the source in its outward direction');
+  assert(beforeEnd.col > path.at(-1).col && beforeEnd.row === path.at(-1).row,
+    'route returns to the destination from outside its face');
+  assert(path.every(point => point.col * 4 === Math.round(point.col * 4)
+      && point.row * 4 === Math.round(point.row * 4)),
+    'the full wrap stays on quarter-tile service coordinates');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

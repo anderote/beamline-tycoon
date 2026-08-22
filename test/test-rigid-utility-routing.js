@@ -1,4 +1,4 @@
-// test/test-rigid-utility-routing.js — rigid vacuum and rectilinear RF/cryo rules.
+// test/test-rigid-utility-routing.js — shared subtile routing and 3D clearance rules.
 
 import {
   expandPath,
@@ -6,7 +6,7 @@ import {
   hasMinimumBendClearance,
 } from '../src/utility/line-geometry.js';
 import { validateDrawLine } from '../src/utility/line-drawing.js';
-import { buildRigidRouteObstacles } from '../src/utility/route-obstacles.js';
+import { buildUtilityRouteObstacles } from '../src/utility/route-obstacles.js';
 import {
   routeHeightForLine,
   routeHeightsConflict,
@@ -15,6 +15,8 @@ import { UTILITY_TYPES, UTILITY_TYPE_LIST, utilityLineHeight } from '../src/util
 import { portWorldPosition } from '../src/utility/ports.js';
 import { UtilityLineInputController } from '../src/input/UtilityLineInputController.js';
 import { gridToIso } from '../src/renderer/grid.js';
+import { FLEXIBLE_SUBTILE_ROUTING_PROFILE } from '../src/utility/routing-contract.js';
+import { setUtilityCollisionProvider } from '../src/utility/utility-collision.js';
 
 let passed = 0, failed = 0;
 function assert(condition, message) {
@@ -26,7 +28,7 @@ function pointKey(point) {
   return `${Math.round(point.col * 4)}:${Math.round(point.row * 4)}`;
 }
 
-console.log('\n--- 1. Rigid services use fixed utility elevations ---');
+console.log('\n--- 1. Utility services use fixed utility elevations ---');
 {
   const state = {
     placeables: [], beamPipes: [],
@@ -131,7 +133,7 @@ console.log('\n--- 2. Board-aware search finds the service aisle around a blocke
       path: [{ col: 2, row: -1 }, { col: 2, row: 1 }],
     }]]),
   };
-  const obstacles = buildRigidRouteObstacles(state, 'vacuumPipe');
+  const obstacles = buildUtilityRouteObstacles(state, 'vacuumPipe');
   const route = findObstacleAwareRoute(
     { col: 0, row: 0 }, null,
     { col: 4, row: 0 }, null,
@@ -147,7 +149,7 @@ console.log('\n--- 2. Board-aware search finds the service aisle around a blocke
   assert(committed.ok, `the pathfinder result is commit-valid (${committed.reason || 'ok'})`);
 }
 
-console.log('\n--- 3. Equipment footprints are solid to rigid routes ---');
+console.log('\n--- 3. Footprints are a broad phase; measured 3D geometry decides ---');
 {
   const state = {
     defs: { blocker: { subW: 4, subL: 8, ports: {} } },
@@ -155,13 +157,22 @@ console.log('\n--- 3. Equipment footprints are solid to rigid routes ---');
     beamPipes: [], utilityLines: new Map(),
   };
   const direct = [{ col: 0, row: 0 }, { col: 5, row: 0 }];
+  let geometryLookups = 0;
+  setUtilityCollisionProvider((type, envelope) => {
+    geometryLookups++;
+    return type === 'blocker'
+      && envelope.minY < utilityLineHeight('vacuumPipe')
+      && envelope.maxY > utilityLineHeight('vacuumPipe');
+  });
   const refused = validateDrawLine(state, {
     utilityType: 'vacuumPipe', start: null, end: null, path: direct,
   });
   assert(!refused.ok && refused.reason === 'blocked_by_equipment',
-    `a pipe does not pass under the machine (${refused.reason})`);
+    `a route intersecting measured component geometry is refused (${refused.reason})`);
+  assert(geometryLookups > 0,
+    'the footprint broad phase invokes the local 3D-envelope lookup');
 
-  const obstacles = buildRigidRouteObstacles(state, 'vacuumPipe');
+  const obstacles = buildUtilityRouteObstacles(state, 'vacuumPipe');
   const route = findObstacleAwareRoute(
     direct[0], null, direct[1], null,
     { blocked: obstacles.isBlocked, bendPenalty: 1.5 },
@@ -171,6 +182,14 @@ console.log('\n--- 3. Equipment footprints are solid to rigid routes ---');
   assert(route && validateDrawLine(state, {
     utilityType: 'vacuumPipe', start: null, end: null, path: route,
   }).ok, 'equipment detour validates');
+
+  setUtilityCollisionProvider(() => false);
+  const underneath = validateDrawLine(state, {
+    utilityType: 'vacuumPipe', start: null, end: null, path: direct,
+  });
+  assert(underneath.ok,
+    `the identical 2D route passes beneath a model when its 3D envelope is clear (${underneath.reason || 'ok'})`);
+  setUtilityCollisionProvider(null);
 }
 
 console.log('\n--- 3a. On-pipe equipment blocks where its model is rendered ---');
@@ -188,6 +207,15 @@ console.log('\n--- 3a. On-pipe equipment blocks where its model is rendered ---'
     }],
     utilityLines: new Map(),
   };
+  setUtilityCollisionProvider(() => false);
+  const underModel = validateDrawLine(state, {
+    utilityType: 'vacuumPipe', start: null, end: null,
+    path: [{ col: 0, row: 0.5 }, { col: 5, row: 0.5 }],
+  });
+  assert(underModel.ok,
+    `a route can cross the rendered footprint where measured 3D space is empty (${underModel.reason || 'ok'})`);
+
+  setUtilityCollisionProvider(type => type === 'buncher');
   const clearBesideModel = validateDrawLine(state, {
     utilityType: 'vacuumPipe', start: null, end: null,
     path: [{ col: 0, row: 0 }, { col: 5, row: 0 }],
@@ -200,7 +228,8 @@ console.log('\n--- 3a. On-pipe equipment blocks where its model is rendered ---'
     path: [{ col: 0, row: 0.5 }, { col: 5, row: 0.5 }],
   });
   assert(!throughModel.ok && throughModel.reason === 'blocked_by_equipment',
-    `a route through the attachment's rendered footprint is still refused (${throughModel.reason || 'ok'})`);
+    `a route through the attachment's measured body is refused (${throughModel.reason || 'ok'})`);
+  setUtilityCollisionProvider(null);
 }
 
 console.log('\n--- 3b. The ordinary drag controller invokes the detour search ---');
@@ -236,18 +265,17 @@ console.log('\n--- 3c. Obsolete saved lane values canonicalize on read ---');
     'retired saved lane values cannot move vacuum runs off their standard datum');
 }
 
-console.log('\n--- 4. RF and cryo enforce shape, not physical clearance ---');
+console.log('\n--- 4. Every utility publishes the shared flexible subtile contract ---');
 {
   const rf = UTILITY_TYPES.rfWaveguide;
   const cryo = UTILITY_TYPES.cryoTransfer;
-  assert(rf.routingProfile === 'rectilinear' && cryo.routingProfile === 'rectilinear',
-    'RF and cryo publish the same rectilinear routing profile');
+  assert(UTILITY_TYPE_LIST.every(type =>
+    UTILITY_TYPES[type].routingProfile === FLEXIBLE_SUBTILE_ROUTING_PROFILE),
+  'all utilities publish the same flexible subtile routing profile');
   assert(UTILITY_TYPE_LIST.every(type => !Object.hasOwn(UTILITY_TYPES[type], 'portClearance')),
     'no utility declares a port-clearance exception');
   assert(rf.bendStyle === 'mitered' && rf.miterLengthMeters > rf.pipeRadiusMeters,
     'RF publishes a compact mitered-elbow presentation contract');
-  assert(!rf.avoidRigidIntersections && !cryo.avoidRigidIntersections,
-    'RF and cryo do not reserve rigid service aisles');
   assert(rf.fixedRouteHeight && cryo.fixedRouteHeight,
     'RF and cryo publish mandatory fixed route elevations');
   const tight = [
@@ -256,7 +284,7 @@ console.log('\n--- 4. RF and cryo enforce shape, not physical clearance ---');
     { col: 0.25, row: 2 },
   ];
   assert(hasMinimumBendClearance(tight, 0),
-    'a compact quarter-tile elbow is valid rectilinear geometry');
+    'a compact quarter-tile elbow is valid shared utility geometry');
   for (const utilityType of ['rfWaveguide', 'cryoTransfer']) {
     const compact = validateDrawLine({ placeables: [], beamPipes: [], utilityLines: new Map() }, {
       utilityType, start: null, end: null, path: tight,
@@ -297,7 +325,7 @@ console.log('\n--- 4. RF and cryo enforce shape, not physical clearance ---');
     start: { placeableId: 'amp', portName: 'rf_out' }, end: null,
     path: [start, { col: start.col - 2, row: start.row }],
   });
-  assert(wrongWay.ok, 'waveguide may leave a fitting in any rectilinear direction');
+  assert(wrongWay.ok, 'waveguide may leave a fitting in any subtile direction');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

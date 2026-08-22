@@ -7,8 +7,14 @@
 //
 // One tile = 4 sub-units. A sub-unit = 0.5 world meters.
 
-const STEP = 0.25;
-const SUB_PER_TILE = 4;
+import {
+  UTILITY_PORT_LEAD_TILES,
+  UTILITY_ROUTE_STEP_TILES,
+  snapUtilityRouteCoordinate,
+} from './routing-contract.js';
+
+const STEP = UTILITY_ROUTE_STEP_TILES;
+const SUB_PER_TILE = 1 / UTILITY_ROUTE_STEP_TILES;
 const EPS = 1e-6;
 
 // Height in world metres at which utility lines run. Geometric rather than
@@ -44,7 +50,7 @@ export function buildManhattanPath(start, end, opts = {}) {
 const LANE_TILES = 0.5;
 
 /** Snap to the 0.25 sub-tile grid every stored path coordinate lives on. */
-function snapQ(v) { return Math.round(v * SUB_PER_TILE) / SUB_PER_TILE; }
+function snapQ(v) { return snapUtilityRouteCoordinate(v); }
 
 /**
  * Unit direction of a→b, or null when the segment is degenerate or diagonal.
@@ -176,16 +182,15 @@ function laneCandidates(v1, v2) {
 
 /**
  * A ranked set of Manhattan paths between two utility endpoints. Utility
- * routes may turn immediately at every fitting; port normals are geometry hints
- * for ranking equivalent routes and never impose a minimum straight segment.
+ * routes may turn immediately at every fitting. Port normals rank attractive
+ * one-subtile leads and perimeter wraps first, but never make a route illegal.
  *
  * This enumerates a candidate SET rather than emitting a fixed shape: the
  * straight run, both single-corner Ls, and every two-corner route through a
- * candidate cross-coordinate — the endpoints' own rows/cols, their midpoint,
- * and a lane half a tile to either side. Candidates that double back are thrown
- * out, and the survivors are RANKED: fewest corners first, then shortest, then
- * preferVerticalFirst to choose between genuinely equivalent routes so the R
- * key still does something.
+ * candidate cross-coordinate — both directly between endpoints and between
+ * one-subtile outward leads. Candidates that double back are discarded. The
+ * survivors are ranked by port alignment, corners, length, then the player's
+ * preferred first axis.
  *
  * The ranking is returned rather than just its winner because geometry is only
  * half of what makes a route usable — the other half is the rest of the board,
@@ -205,11 +210,10 @@ function laneCandidates(v1, v2) {
 export function buildPortRoutedPaths(start, startVec, end, endVec, opts = {}) {
   if (!start || !end) return [];
 
-  // Cables can join two fittings that occupy the same routing point (for
-  // example a compact distribution unit mounted directly against its load).
+  // Any service can join two fittings that occupy the same routing point.
   // Keep two waypoints so every downstream line consumer still sees a normal
-  // path, but deliberately give it zero physical length. Other services keep
-  // their non-zero physical-run rule.
+  // path, but deliberately give it zero plan length; the renderer still owns
+  // the true-height connector transition.
   if (opts.allowZeroLength
     && Math.abs(start.col - end.col) < EPS
     && Math.abs(start.row - end.row) < EPS) {
@@ -219,71 +223,84 @@ export function buildPortRoutedPaths(start, startVec, end, endVec, opts = {}) {
     ]];
   }
 
-  // Mid-routes are the interior waypoints between the endpoints: [] is the
-  // straight shot, one point is an L, two points is a jog through a lane.
-  const mids = [[]];
-  mids.push([{ col: end.col, row: start.row }]);
-  mids.push([{ col: start.col, row: end.row }]);
-  for (const mx of laneCandidates(start.col, end.col)) {
-    mids.push([{ col: mx, row: start.row }, { col: mx, row: end.row }]);
-  }
-  for (const my of laneCandidates(start.row, end.row)) {
-    mids.push([{ col: start.col, row: my }, { col: end.col, row: my }]);
+  const routeMids = (from, to) => {
+    const mids = [
+      [],
+      [{ col: to.col, row: from.row }],
+      [{ col: from.col, row: to.row }],
+    ];
+    for (const mx of laneCandidates(from.col, to.col)) {
+      mids.push([{ col: mx, row: from.row }, { col: mx, row: to.row }]);
+    }
+    for (const my of laneCandidates(from.row, to.row)) {
+      mids.push([{ col: from.col, row: my }, { col: to.col, row: my }]);
+    }
+    return mids;
+  };
+
+  const lead = (point, vec) => vec ? {
+    col: snapQ(point.col + vec.dCol * UTILITY_PORT_LEAD_TILES),
+    row: snapQ(point.row + vec.dRow * UTILITY_PORT_LEAD_TILES),
+  } : null;
+  const startLead = lead(start, startVec);
+  const endLead = lead(end, endVec);
+  const spans = [{ from: start, to: end, startLead: false, endLead: false }];
+  if (startLead) spans.push({ from: startLead, to: end, startLead: true, endLead: false });
+  if (endLead) spans.push({ from: start, to: endLead, startLead: false, endLead: true });
+  if (startLead && endLead) {
+    spans.push({ from: startLead, to: endLead, startLead: true, endLead: true });
   }
 
   const preferVertical = !!opts.preferVerticalFirst;
   const scored = [];
   const seen = new Set();
 
-  // An endpoint-facing hint can rank an already-aligned direct run first. The
-  // same direct geometry is still generated below when either fitting faces
-  // elsewhere, because facing never creates a clearance requirement.
-  const direct = buildManhattanPath(start, end, opts);
-  if (direct && direct.length === 2) {
-    const direction = unitDir(direct[0], direct[1]);
-    const leavesStart = !startVec
-      || (direction.dCol === startVec.dCol && direction.dRow === startVec.dRow);
-    const entersEnd = !endVec
-      || (-direction.dCol === endVec.dCol && -direction.dRow === endVec.dRow);
-    if (leavesStart && entersEnd) {
-      const length = Math.abs(end.col - start.col) + Math.abs(end.row - start.row);
-      scored.push({ path: direct, corners: 0, length, axisPenalty: 0, order: -1 });
-      seen.add(direct.map(p => `${p.col},${p.row}`).join(';'));
+  // Different lead/mid combinations collapse onto the same geometry often.
+  // Deduping keeps per-mousemove validation bounded.
+  for (const span of spans) {
+    for (const mid of routeMids(span.from, span.to)) {
+      const raw = [
+        start,
+        ...(span.startLead ? [span.from] : []),
+        ...mid,
+        ...(span.endLead ? [span.to] : []),
+        end,
+      ].map(p => ({ col: snapQ(p.col), row: snapQ(p.row) }));
+      const full = simplifyPath(raw);
+      if (full.length < 2) continue;
+      if (!isManhattan(full)) continue;
+      if (pathReversals(full) > 0) continue;
+      if (selfIntersects(full)) continue;
+      if (!hasMinimumBendClearance(full, opts.minStraightTiles || 0)) continue;
+
+      const key = full.map(p => `${p.col},${p.row}`).join(';');
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const firstDir = unitDir(full[0], full[1]);
+      const lastDir = unitDir(full[full.length - 2], full[full.length - 1]);
+      const startMismatch = startVec && (!firstDir
+        || firstDir.dCol !== startVec.dCol || firstDir.dRow !== startVec.dRow);
+      const endMismatch = endVec && (!lastDir
+        || lastDir.dCol !== -endVec.dCol || lastDir.dRow !== -endVec.dRow);
+      const portPenalty = Number(!!startMismatch) + Number(!!endMismatch);
+      const axis = firstDir ? (firstDir.dRow !== 0 ? 'v' : 'h') : null;
+      const axisPenalty = axis === null ? 1 : ((axis === 'v') === preferVertical ? 0 : 1);
+
+      let length = 0;
+      for (let i = 0; i < full.length - 1; i++) {
+        length += Math.abs(full[i + 1].col - full[i].col)
+          + Math.abs(full[i + 1].row - full[i].row);
+      }
+      scored.push({
+        path: full,
+        portPenalty,
+        corners: full.length - 2,
+        length,
+        axisPenalty,
+        order: scored.length,
+      });
     }
-  }
-
-  // Different mid-routes collapse onto the same geometry all the time — the
-  // lane through the endpoint's own column is the horizontal-first L.
-  // Deduping here is what stops a caller from running the validator
-  // repeatedly on one shape while it walks the list.
-  for (const mid of mids) {
-    const raw = [start, ...mid, end]
-      .map(p => ({ col: snapQ(p.col), row: snapQ(p.row) }));
-    const full = simplifyPath(raw);
-    if (full.length < 2) continue;
-    if (!isManhattan(full)) continue;
-    if (pathReversals(full) > 0) continue;
-    if (selfIntersects(full)) continue;
-    if (!hasMinimumBendClearance(full, opts.minStraightTiles || 0)) continue;
-
-    const key = full.map(p => `${p.col},${p.row}`).join(';');
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    // Which way the route leaves the start, for the R-key tie-break.
-    let axis = null;
-    const legs = [start, ...mid, end];
-    for (let i = 0; i < legs.length - 1 && !axis; i++) {
-      const d = unitDir(legs[i], legs[i + 1]);
-      if (d) axis = d.dRow !== 0 ? 'v' : 'h';
-    }
-    const axisPenalty = axis === null ? 1 : ((axis === 'v') === preferVertical ? 0 : 1);
-
-    let length = 0;
-    for (let i = 0; i < full.length - 1; i++) {
-      length += Math.abs(full[i + 1].col - full[i].col) + Math.abs(full[i + 1].row - full[i].row);
-    }
-    scored.push({ path: full, corners: full.length - 2, length, axisPenalty, order: scored.length });
   }
 
   if (scored.length === 0) {
@@ -293,7 +310,8 @@ export function buildPortRoutedPaths(start, startVec, end, endVec, opts = {}) {
   }
 
   scored.sort((x, y) => (
-    x.corners - y.corners
+    x.portPenalty - y.portPenalty
+    || x.corners - y.corners
     || x.length - y.length
     || x.axisPenalty - y.axisPenalty
     || x.order - y.order

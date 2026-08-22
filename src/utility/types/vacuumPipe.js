@@ -12,6 +12,7 @@ import { endpointsById } from '../endpoint-lookup.js';
 import { utilityAttachmentPose } from '../line-attachments.js';
 import { powerFeedFactor } from '../power-feed.js';
 import { RIGID_UTILITY_SERVICE_HEIGHTS } from '../service-heights.js';
+import { FLEXIBLE_SUBTILE_ROUTING_PROFILE } from '../routing-contract.js';
 
 export const BAKEOUT_FACTOR = Q_SPECIFIC_BAKED / Q_SPECIFIC_UNBAKED;
 export const VACUUM_TEMPERATURE_K = 300;
@@ -444,14 +445,10 @@ export default {
   supportMinimumRunMeters: 3,
   fixedRouteHeight: true,
   routeVerticalClearanceMeters: 0.06,
-  // Vacuum pipe is the forgiving rigid service: compact swept elbows and
-  // tees are ordinary catalogue fittings, so it may turn on the next service
-  // grid point. It still routes around machines and other independent vacuum
-  // runs; different fabricated utilities clear it on their own fixed datums.
-  routingProfile: 'rigid',
-  avoidRigidIntersections: true,
-  routeClearanceTiles: 0.25,
-  equipmentClearanceTiles: 0.125,
+  // Vacuum shares the same quarter-tile routing freedom as every utility.
+  // Its actual body radius still participates in measured 3D collisions; a
+  // component's broad 2D footprint alone never blocks the pipe.
+  routingProfile: FLEXIBLE_SUBTILE_ROUTING_PROFILE,
   bendRadiusMeters: 0.20,
   bendPenalty: 1.5,
   fittingStyle: 'vacuumFlange',

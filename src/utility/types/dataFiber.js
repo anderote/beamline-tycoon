@@ -5,11 +5,14 @@
 // is a peer. A required data port is live when its network reaches at least one
 // other device and disconnected otherwise.
 
+import { FLEXIBLE_SUBTILE_ROUTING_PROFILE } from '../routing-contract.js';
+
 export default {
   type: 'dataFiber',
   displayName: 'Data Fiber',
   color: '#eeeeee',
   geometryStyle: 'fiberBundle',
+  routingProfile: FLEXIBLE_SUBTILE_ROUTING_PROFILE,
   // Ordinary data runs are loose flexible cables, sized to remain legible at
   // normal map zoom. Channels installed on the universal utility bus retain
   // the bus's rigid vertical-rack presentation.
