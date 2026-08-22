@@ -16,6 +16,7 @@ import { buildBeamPipeSegment } from './diagnostic-builder.js';
 const SUB_UNIT    = 0.5;
 const BEAM_HEIGHT = 1.0;
 const PIPE_R      = 0.08;
+const VACUUM_SERVICE_PIPE_R = 0.06;
 const FLANGE_R    = 0.16;
 const FLANGE_H    = 0.045;
 const SEGS        = 16;
@@ -38,6 +39,52 @@ function makeBuckets() {
   return { accent: [], iron: [], copper: [], pipe: [], stand: [], detail: [], glow: [] };
 }
 
+// Shared vertical ConFlat takeoff for line-mounted gauges. The underlying
+// beam/vacuum run is rendered by its owning system, so gauge models contribute
+// only the welded nozzle and the removable instrument side of the joint. Two
+// stainless plates, eight bolts, and the exposed copper gasket make the mount
+// legible even at the game's normal oblique camera distance.
+function buildGaugeCFMount(b, flangeR) {
+  // Five millimetres of overlap avoids a light leak at the weld on the 60 mm
+  // utility run; on the 80 mm beam tube the nozzle simply penetrates farther
+  // into the parent wall, as a real welded takeoff does.
+  const pipeSurfaceY = BEAM_HEIGHT + VACUUM_SERVICE_PIPE_R - 0.005;
+  const nozzleR = Math.min(0.034, flangeR * 0.52);
+  const nozzleH = 0.075;
+  {
+    const g = new THREE.CylinderGeometry(nozzleR, nozzleR, nozzleH, 10);
+    applyTiledCylinderUVs(g, nozzleR, nozzleH, 10);
+    pushT(b.pipe, g, trans(0, pipeSurfaceY + nozzleH / 2, 0));
+  }
+  const plateH = 0.018;
+  const gasketGap = 0.012;
+  const lowerY = pipeSurfaceY + nozzleH + plateH / 2;
+  const upperY = lowerY + plateH + gasketGap;
+  for (const y of [lowerY, upperY]) {
+    const g = new THREE.CylinderGeometry(flangeR, flangeR, plateH, SEGS);
+    applyTiledCylinderUVs(g, flangeR, plateH, SEGS);
+    pushT(b.detail, g, trans(0, y, 0));
+  }
+  {
+    const g = new THREE.TorusGeometry(flangeR * 0.72, 0.006, 6, SEGS);
+    pushT(b.copper, g, new THREE.Matrix4().multiplyMatrices(
+      trans(0, lowerY + plateH / 2 + gasketGap / 2, 0), rotX(Math.PI / 2)));
+  }
+  const boltCircle = flangeR * 0.79;
+  const boltH = plateH * 2 + gasketGap + 0.012;
+  for (let index = 0; index < 8; index++) {
+    const angle = index * Math.PI / 4;
+    const g = new THREE.CylinderGeometry(0.006, 0.006, boltH, 6);
+    applyTiledCylinderUVs(g, 0.006, boltH, 6);
+    pushT(b.iron, g, trans(
+      Math.cos(angle) * boltCircle,
+      lowerY + plateH / 2 + gasketGap / 2,
+      Math.sin(angle) * boltCircle,
+    ));
+  }
+  return upperY + plateH / 2;
+}
+
 // ── Attachment builders (gauges + gate valve) ───────────────────────
 
 /**
@@ -46,22 +93,14 @@ function makeBuckets() {
  */
 export function _buildPiraniGaugeRoles() {
   const b = makeBuckets();
-  buildBeamPipeSegment(b, 1);
-
-  // Connection nipple at pipe surface
-  const nipR = 0.05, nipH = 0.025;
-  {
-    const g = new THREE.CylinderGeometry(nipR, nipR, nipH, 8);
-    applyTiledCylinderUVs(g, nipR, nipH, 8);
-    pushT(b.detail, g, trans(0, BEAM_HEIGHT + PIPE_R + nipH / 2, 0));
-  }
+  const mountTop = buildGaugeCFMount(b, 0.070);
 
   // Thin gauge tube
   const tubeR = 0.025, tubeH = 0.14;
   {
     const g = new THREE.CylinderGeometry(tubeR, tubeR, tubeH, 8);
     applyTiledCylinderUVs(g, tubeR, tubeH, 8);
-    pushT(b.pipe, g, trans(0, BEAM_HEIGHT + PIPE_R + nipH + tubeH / 2, 0));
+    pushT(b.pipe, g, trans(0, mountTop + tubeH / 2, 0));
   }
 
   // Readout head
@@ -69,7 +108,7 @@ export function _buildPiraniGaugeRoles() {
   {
     const g = new THREE.BoxGeometry(headW, headH, headD);
     applyTiledBoxUVs(g, headW, headH, headD);
-    pushT(b.accent, g, trans(0, BEAM_HEIGHT + PIPE_R + nipH + tubeH + headH / 2, 0));
+    pushT(b.accent, g, trans(0, mountTop + tubeH + headH / 2, 0));
   }
 
   return b;
@@ -81,19 +120,11 @@ export function _buildPiraniGaugeRoles() {
  */
 export function _buildColdCathodeGaugeRoles() {
   const b = makeBuckets();
-  buildBeamPipeSegment(b, 1);
-
-  // Base flange
-  const flangeR = 0.065, flangeH = 0.02;
-  {
-    const g = new THREE.CylinderGeometry(flangeR, flangeR, flangeH, SEGS);
-    applyTiledCylinderUVs(g, flangeR, flangeH, SEGS);
-    pushT(b.detail, g, trans(0, BEAM_HEIGHT + PIPE_R + flangeH / 2, 0));
-  }
+  const mountTop = buildGaugeCFMount(b, 0.082);
 
   // Gauge body cylinder
   const bodyR = 0.055, bodyH = 0.17;
-  const bodyBase = BEAM_HEIGHT + PIPE_R + flangeH;
+  const bodyBase = mountTop;
   {
     const g = new THREE.CylinderGeometry(bodyR, bodyR, bodyH, SEGS);
     applyTiledCylinderUVs(g, bodyR, bodyH, SEGS);
@@ -125,19 +156,11 @@ export function _buildColdCathodeGaugeRoles() {
  */
 export function _buildBAGaugeRoles() {
   const b = makeBuckets();
-  buildBeamPipeSegment(b, 1);
-
-  // Base flange
-  const flangeR = 0.05, flangeH = 0.02;
-  {
-    const g = new THREE.CylinderGeometry(flangeR, flangeR, flangeH, SEGS);
-    applyTiledCylinderUVs(g, flangeR, flangeH, SEGS);
-    pushT(b.detail, g, trans(0, BEAM_HEIGHT + PIPE_R + flangeH / 2, 0));
-  }
+  const mountTop = buildGaugeCFMount(b, 0.068);
 
   // Glass-like tubular envelope
   const envR = 0.032, envH = 0.20;
-  const envBase = BEAM_HEIGHT + PIPE_R + flangeH;
+  const envBase = mountTop;
   {
     const g = new THREE.CylinderGeometry(envR, envR, envH, SEGS);
     applyTiledCylinderUVs(g, envR, envH, SEGS);
