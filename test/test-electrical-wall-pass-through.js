@@ -341,7 +341,7 @@ test('Feedthrough and pole connection kinds preserve the radial electrical chain
   assert.ok(networks[0].sinks.some(port => port.placeableId === 'panel'));
 });
 
-test('Utility-pole terminals take up HV slack but retain shallow suspension sag', () => {
+test('Utility-pole terminals take up lateral slack but retain visible suspension sag', () => {
   const def = COMPONENTS.utilityPole;
   const a = { id: 'a', type: 'utilityPole', col: 0, row: 0, subCol: 0, subRow: 0, dir: 0 };
   const b = { id: 'b', type: 'utilityPole', col: 0, row: 6, subCol: 0, subRow: 0, dir: 0 };
@@ -369,8 +369,8 @@ test('Utility-pole terminals take up HV slack but retain shallow suspension sag'
       'every sample remains on the direct support-to-support plan path');
   }
   const middle = cable[Math.floor(cable.length / 2)];
-  assert.ok(middle.y < first.y && middle.y > first.y - 0.66,
-    'the conductor hangs in a shallow bow rather than a rigid straight line');
+  assert.ok(middle.y < first.y - 0.40 && middle.y > first.y - 1.11,
+    'the relaxed conductor hangs in a visible shallow bow rather than reading as rigid');
 });
 
 test('An HV wall pass-through tensions its attached feeder', () => {
@@ -401,9 +401,9 @@ test('An HV wall pass-through tensions its attached feeder', () => {
   }), 'the pass-through removes drawn lateral slack');
   const middleIndex = Math.floor(cable.length / 2);
   const middleChord = first.clone().lerp(last, middleIndex / (cable.length - 1));
-  assert.ok(cable[middleIndex].y < middleChord.y
-      && cable[middleIndex].y > middleChord.y - 0.66,
-    'the pass-through-supported conductor remains suspended with shallow sag');
+  assert.ok(cable[middleIndex].y < middleChord.y - 0.25
+      && cable[middleIndex].y > middleChord.y - 1.11,
+    'the pass-through-supported conductor remains suspended with visible shallow sag');
 });
 
 test('A live HV draw from a tower stays taut to its open cursor end', () => {
