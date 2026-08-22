@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { WorldPhysicsPresentation } from '../src/renderer3d/world-physics-presentation.js';
 
 const originalRequestIdleCallback = globalThis.requestIdleCallback;
@@ -130,6 +131,16 @@ try {
       && emittedEffects[2].verticalScale < 1
       && emittedEffects[2].groundSpill === false,
   'the pressure packet expands as a flat wave instead of a third fireball');
+
+  const rendererSource = readFileSync(
+    new URL('../src/renderer3d/ThreeRenderer.js', import.meta.url), 'utf8',
+  );
+  const selectedExplosionMethod = rendererSource.match(
+    /explodeSelectionTarget\(target, options = \{\}\) \{([\s\S]*?)\n  \}/,
+  )?.[1] || '';
+  assert.ok(selectedExplosionMethod.indexOf('this.undoLastPhysicsIncident()')
+      < selectedExplosionMethod.indexOf('new THREE.Box3().setFromObject(object)'),
+  'repeat explosions restore the canonical pose before sampling the next origin');
 
   console.log('World physics presentation tests passed.');
 } finally {

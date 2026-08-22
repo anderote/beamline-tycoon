@@ -1912,6 +1912,11 @@ export class ThreeRenderer {
       || null;
     if (!object) return false;
 
+    // A prior incident may have displaced this exact object. Restore its
+    // canonical authored pose before sampling the next blast origin; the
+    // physics coordinator's own rollback would otherwise happen only after
+    // we had captured the stale, thrown position.
+    this.undoLastPhysicsIncident();
     object.updateWorldMatrix?.(true, true);
     const bounds = new THREE.Box3().setFromObject(object);
     const position = bounds.isEmpty()
