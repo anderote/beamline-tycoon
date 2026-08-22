@@ -139,15 +139,18 @@ test('utility service point energizes transformer HV outputs only through its HV
 });
 
 test('a distribution panel caps upstream draw at its rating when downstream is overloaded', () => {
+  const loads = Array.from({ length: 6 }, (_, index) =>
+    placed(`load_${index + 1}`, 'source'));
   const state = world([
     placed('service', 'gridServicePoint'),
-    placed('panel', 'mainDistributionPanel'),
-    placed('laser_a', 'petawattLaser'),
-    placed('laser_b', 'petawattLaser'),
+    placed('panel', 'sectionDistributionPanel'),
+    ...loads,
   ], [
     line('feed', 'hvCable', ref('service', 'hv_out_1'), ref('panel', 'hv_in'), 0),
-    line('load_a', 'powerCable', ref('panel', 'pwr_out_1'), ref('laser_a', 'pwr_in'), 2),
-    line('load_b', 'powerCable', ref('panel', 'pwr_out_2'), ref('laser_b', 'pwr_in'), 4),
+    ...loads.map((load, index) => line(
+      `branch_${index + 1}`, 'powerCable',
+      ref('panel', `pwr_out_${index + 1}`), ref(load.id, 'pwr_in'), index + 2,
+    )),
   ]);
   reliabilityFor(state);
   const runner = runnerFor(state);
@@ -155,10 +158,10 @@ test('a distribution panel caps upstream draw at its rating when downstream is o
 
   const hvFlow = [...state.utilityNetworkData.get('hvCable').values()][0];
   const branchFlow = [...state.utilityNetworkData.get('powerCable').values()][0];
-  assert.equal(branchFlow.totalDemand, 640);
-  assert.equal(branchFlow.totalCapacity, 400);
-  assert.equal(hvFlow.totalDemand, 400,
-    'the overloaded 400 kW panel cannot pull more than its nameplate rating');
+  assert.equal(branchFlow.totalDemand, 300);
+  assert.equal(branchFlow.totalCapacity, 150);
+  assert.equal(hvFlow.totalDemand, 150,
+    'the overloaded 150 kW panel cannot pull more than its nameplate rating');
 });
 
 test('an HV distributor propagates mixed panel and dedicated downstream demand', () => {

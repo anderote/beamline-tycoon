@@ -312,21 +312,25 @@ for (const m of MACHINES) {
   assert(!(raw.requiredConnections || []).includes('vacuumPipe'),
     `${m.id} does not hand-declare vacuumPipe`);
 
-  const pwr = ports.find(p => p.utility === 'powerCable' && p.role === 'sink');
-  assert(pwr && pwr.params.demand > 0,
-    `${m.id} draws ${pwr?.params?.demand} kW — every compound machine is mains-fed`);
+  const electrical = ports.find(
+    p => ['powerCable', 'hvCable'].includes(p.utility) && p.role === 'sink');
+  assert(electrical && electrical.params.demand > 0,
+    `${m.id} draws ${electrical?.params?.demand} kW from its authored electrical service`);
+  assert(electrical?.params?.demand <= 50 || electrical.utility === 'hvCable',
+    `${m.id} uses HV when its draw exceeds 50 kW`);
 }
 
 console.log('\n--- the tier-1 pair are cheap to run, the big ones are not ---');
 {
-  const demand = id => Object.values(getUtilityPortsV2(id))
-    .find(p => p.utility === 'powerCable' && p.role === 'sink')?.params.demand ?? 0;
+  const electrical = id => Object.values(getUtilityPortsV2(id))
+    .find(p => ['powerCable', 'hvCable'].includes(p.utility) && p.role === 'sink');
+  const demand = id => electrical(id)?.params.demand ?? 0;
   // One powerPanel is 40 kW. The Van de Graaff has to fit behind one, or the
   // "plop it on tick 1" promise is false.
   assert(demand('vanDeGraaff') <= 40,
     `vanDeGraaff draws ${demand('vanDeGraaff')} kW — inside one powerPanel's 40 kW`);
-  assert(demand('cyclotron30') > 40 && demand('cyclotron30') <= 150,
-    `cyclotron30 draws ${demand('cyclotron30')} kW — past a panel, inside a padMountTransformer`);
+  assert(demand('cyclotron30') > 50 && electrical('cyclotron30')?.utility === 'hvCable',
+    `cyclotron30 draws ${demand('cyclotron30')} kW from HV`);
   assert(demand('cyclotron70') > 250,
     `cyclotron70 draws ${demand('cyclotron70')} kW — past an MCC, needs switchgear or better`);
   assert(demand('lwfaStation') > 400,
@@ -388,7 +392,7 @@ console.log('\n--- the drive laser is its own component, not the gun-drive one -
 
   const sinks = Object.values(getUtilityPortsV2('petawattLaser'))
     .filter(p => p.role === 'sink').map(p => p.utility);
-  for (const u of ['powerCable', 'coolingWater', 'dataFiber']) {
+  for (const u of ['hvCable', 'coolingWater', 'dataFiber']) {
     assert(sinks.includes(u), `petawattLaser sinks ${u}`);
   }
   // It is not a beamline component: no beam ever enters or leaves it.

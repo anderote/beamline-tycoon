@@ -1865,7 +1865,7 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
 
-    requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
+    requiredConnections: ['hvCable', 'coolingWater', 'dataFiber'],
   },
   powerWallPassThrough: {
     id: 'powerWallPassThrough',

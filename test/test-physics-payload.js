@@ -173,7 +173,7 @@ const EXPECTED = [
     params: {},
     extractionEnergy: 0.03,
     infraQuality: {
-      powerQuality: 0,
+      hvQuality: 0,
       coolingQuality: 0,
       coolingDeltaT: 100,
       vacuumQuality: 0,

@@ -30,7 +30,8 @@ console.log('\n--- Test 1: source ---');
   assert(p.role === 'sink', `pwr_in.role === 'sink' (got ${p.role})`);
   assert(['back', 'front', 'left', 'right'].includes(p.side), `pwr_in.side valid (got ${p.side})`);
   assert(p.offsetAlong >= 0.1 && p.offsetAlong <= 0.9, `offsetAlong in range (got ${p.offsetAlong})`);
-  assert(p.params && p.params.demand > 0, `pwr_in.params.demand > 0 (got ${p.params && p.params.demand})`);
+  assert(p.params?.demand === 50,
+    `exactly 50 kW remains on powerCable (got ${p.params && p.params.demand})`);
 }
 
 // ==========================================================================
@@ -143,8 +144,10 @@ console.log('\n--- Test 8: per-component differentiation ---');
   const det = getUtilityPortsV2('detector');
   assert(bpm.pwr_in.params.demand < dip.pwr_in.params.demand,
     `bpm demand (${bpm.pwr_in.params.demand}) < dipole demand (${dip.pwr_in.params.demand})`);
-  assert(dip.pwr_in.params.demand < det.pwr_in.params.demand,
-    `dipole demand (${dip.pwr_in.params.demand}) < detector demand (${det.pwr_in.params.demand})`);
+  assert(dip.pwr_in.params.demand < det.hv_in.params.demand,
+    `dipole demand (${dip.pwr_in.params.demand}) < detector demand (${det.hv_in.params.demand})`);
+  assert(det.hv_in.utility === 'hvCable' && !det.pwr_in,
+    'a detector drawing more than 50 kW uses a direct HV input');
 
   const cav = getUtilityPortsV2('ellipticalSrfCavity');
   const cm = getUtilityPortsV2('cryomodule');

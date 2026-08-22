@@ -252,6 +252,7 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   const servicePoint = place('gridServicePoint', -26, 8);
   const hv   = place('hvTransformer', -6, 8);
   const hvGear = place('switchgear', -15, 11);
+  const dedicatedHv = place('switchgear', -20, 11);
   const mbk  = place('multibeamKlystron', -3, 8);
   // Keep the VHF source west of the S-band gallery so their waveguide trunks
   // leave on different corridors and never join by accidental overlap.
@@ -305,8 +306,9 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   const sinkPort = id => ({ id, role: 'sink' });
   const passPort = (id, side) => ({ id, role: 'pass', side });
   // Power runs supply -> transformer -> HV distribution -> dedicated plant
-  // loads/panels -> branch circuits. Chillers at 60 kW and the 20 kW tower
-  // use direct HV inputs, so they no longer consume MCC branch sockets.
+  // loads/panels -> branch circuits. Chillers, the detector, and the authored
+  // cooling-tower service use direct HV inputs, so they do not consume MCC
+  // branch sockets. The extra distributor supplies enough dedicated feeders.
   if (servicePoint && hv) wire('hvCable', { id: servicePoint, port: 'hv_out_1' }, { id: hv, port: 'hv_in' });
   if (hv && hvGear) wire('hvCable', sourcePort(hv, 0), sinkPort(hvGear));
   if (hv && mbk) wire('hvCable', sourcePort(hv, 1), sinkPort(mbk));
@@ -315,10 +317,12 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   if (hvGear && mcc1) wire('hvCable', sourcePort(hvGear, 0), sinkPort(mcc1));
   if (hvGear && mcc2) wire('hvCable', sourcePort(hvGear, 1), sinkPort(mcc2));
   if (hvGear && ch1) wire('hvCable', sourcePort(hvGear, 2), sinkPort(ch1));
-  if (hvGear && ch2) wire('hvCable', sourcePort(hvGear, 3), sinkPort(ch2));
+  if (hvGear && dedicatedHv) wire('hvCable', sourcePort(hvGear, 3), sinkPort(dedicatedHv));
+  if (dedicatedHv && ch2) wire('hvCable', sourcePort(dedicatedHv, 0), sinkPort(ch2));
+  if (dedicatedHv && det) wire('hvCable', sourcePort(dedicatedHv, 1), sinkPort(det));
   const westLoads = [sinkPort(src2), sinkPort(tp), sinkPort(ioc2), sinkPort(nsw),
     passPort(pwrBus2, 'back'), sinkPort(secondConsole)];
-  const eastLoads = [sinkPort(det), sinkPort(rp)];
+  const eastLoads = [sinkPort(rp)];
   for (const [panel, loads] of [[mcc1, westLoads], [mcc2, eastLoads]]) {
     loads.forEach((target, i) => {
       if (target.id && panel) wire('powerCable', sourcePort(panel, i), target);

@@ -102,13 +102,13 @@ const BEAMLINE_UTILITY_PORTS = {
     data_in: { utility: 'dataFiber',  side: 'right', offsetAlong: 0.75, role: 'sink', params: { demand: 3 } },
   },
   ncRfGun: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 70 } },
+    hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.2, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 70 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.35, role: 'sink', params: { heatLoad: 70 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.65, role: 'sink', params: { demand: 12 } },
     data_in: { utility: 'dataFiber',    side: 'left',  offsetAlong: 0.8, role: 'sink', params: { demand: 4 } },
   },
   srfGun: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 110 } },
+    hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.2, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 110 } },
     cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.3, role: 'sink', params: { srfHeatW: 120 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.62, role: 'sink', params: { demand: 18 } },
     data_in: { utility: 'dataFiber',    side: 'left',  offsetAlong: 0.8, role: 'sink', params: { demand: 5 } },
@@ -125,7 +125,7 @@ const BEAMLINE_UTILITY_PORTS = {
   // ECR: mirror solenoids draw serious power; the 2.45 GHz feed is sized for
   // the source control's 6 kW high-current setting.
   ecrIonSource: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 60 } },
+    hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.2, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 60 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 40 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'left', offsetAlong: 0.66, role: 'sink', params: { demand: 6 } },
   },
@@ -133,7 +133,7 @@ const BEAMLINE_UTILITY_PORTS = {
   // 400 mA design current. The electrical sink is intentionally substation-
   // scale; the cooling loop carries column, lens, and intercepted-halo heat.
   dcInjector: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 400 } },
+    hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.3, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 400 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.7, role: 'sink', params: { heatLoad: 150 } },
   },
 
@@ -159,22 +159,22 @@ const BEAMLINE_UTILITY_PORTS = {
   // A cyclotron is a water heater that occasionally emits protons. 10 kW of
   // extracted beam against ~140 kW at the wall — RF, main coil, and the
   // fraction of the internal beam that never makes it to the stripper all
-  // end up in the loop. One padMountTransformer (150 kW) is exactly enough
-  // and one lcwSkid (25 kW) is exactly not.
+  // end up in the loop. It needs a direct HV feeder, and one lcwSkid (25 kW)
+  // is exactly not enough cooling.
   cyclotron30: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 140 } },
+    hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.3, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 140 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 115 } },
   },
   // Same physics, four times the machine: past a single switchgear feed and
   // past a single cooling tower, so it forces distribution planning.
   cyclotron70: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 380 } },
+    hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.3, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 380 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 310 } },
   },
   // RFQ + low-beta SRF front end delivered as one commissioned tunnel sector.
   // Unlike a cyclotron it exposes both RF and cryogenic plant to the player.
   protonLinacFrontEnd: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.15, role: 'sink', params: { demand: 600 } },
+    hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.15, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 600 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.35, role: 'sink', params: { heatLoad: 420 } },
     cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.62, role: 'sink', params: { srfHeatW: 500 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'left',  offsetAlong: 0.82, role: 'sink', params: { demand: 80 } },
@@ -189,7 +189,7 @@ const BEAMLINE_UTILITY_PORTS = {
   // vacuum chamber. Past a single tower and a single switchgear feed, same as
   // the 70 MeV machine, so it forces the same distribution planning.
   cyclotron230: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 420 } },
+    hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.3, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 420 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 400 } },
   },
   // NO rf_in and NO cryo_in — the absence is the design. A plasma stage has
@@ -200,7 +200,7 @@ const BEAMLINE_UTILITY_PORTS = {
   // the femtosecond timing link to petawattLaser: laser-to-plasma jitter is
   // what sets the energy jitter of every bunch this thing makes.
   lwfaStation: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 420 } },
+    hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.3, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 420 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 400 } },
     data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 8 } },
   },
@@ -211,7 +211,7 @@ const BEAMLINE_UTILITY_PORTS = {
   // block that has to survive it, plus the klystron plant behind the capture
   // structure. Almost none of the energy that goes in comes out as positrons.
   positronSource: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 800 } },
+    hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.3, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 800 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 760 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 60 } },
   },
@@ -281,7 +281,7 @@ const BEAMLINE_UTILITY_PORTS = {
   // A dozen small dipoles and their quads around a 6 m bypass — heavier than
   // the four-dipole chicane it is filed next to, lighter than a cryomodule.
   recirculationArc: {
-    pwr_in:  { utility: 'powerCable',   side: 'right', offsetAlong: 0.3, role: 'sink', params: { demand: 70 } },
+    hv_in:   { utility: 'hvCable',      side: 'right', offsetAlong: 0.3, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 70 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.7, role: 'sink', params: { heatLoad: 56 } },
   },
   // Four analysing dipoles on one girder, so it draws like a chicane. The
@@ -362,7 +362,7 @@ const BEAMLINE_UTILITY_PORTS = {
     rf_in:   { utility: 'rfWaveguide',  side: 'left', offsetAlong: 0.90, role: 'sink', params: { demand: 110 } },
   },
   xbandStructure: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 90 } },
+    hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.2, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 90 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 480 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'back', offsetAlong: 0.50, role: 'sink', params: { demand: 240 } },
   },
@@ -372,7 +372,7 @@ const BEAMLINE_UTILITY_PORTS = {
   // injector's share. The wall power and the water are where the real cost of
   // 6 GeV lands.
   twoBeamModule: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 120 } },
+    hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.2, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 120 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 780 } },
     rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.10, role: 'sink', params: { demand: 400 } },
   },
@@ -383,7 +383,7 @@ const BEAMLINE_UTILITY_PORTS = {
   // straight back as heat, plus the femtosecond timing fibre that keeps the
   // laser and the bunch in step.
   plasmaAfterburner: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 1400 } },
+    hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.2, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 1400 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 1350 } },
     data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 10 } },
   },
@@ -397,7 +397,7 @@ const BEAMLINE_UTILITY_PORTS = {
   // telemetry — it is the alignment interferometer running closed-loop, and
   // losing it means the crystal stops channeling and starts scattering.
   crystalChannelStage: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 2400 } },
+    hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.2, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 2400 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 2300 } },
     data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 60 } },
   },
@@ -520,7 +520,7 @@ const BEAMLINE_UTILITY_PORTS = {
     cool_in: { utility: 'coolingWater', side: 'left', offsetAlong: 0.5, role: 'sink', params: { heatLoad: 50 } },
   },
   detector: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.15, role: 'sink', params: { demand: 120 } },
+    hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.15, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 120 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.45, role: 'sink', params: { heatLoad: 60 } },
     data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.75, role: 'sink', params: { demand: 40 } },
   },
@@ -557,27 +557,27 @@ const BEAMLINE_UTILITY_PORTS = {
     data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.5, role: 'sink', params: { demand: 3 } },
   },
   protonTherapyGantry: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 180 } },
+    hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.2, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 180 } },
     cool_in: { utility: 'coolingWater', side: 'left',  offsetAlong: 0.55, role: 'sink', params: { heatLoad: 120 } },
     data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.5, role: 'sink', params: { demand: 5 } },
   },
   spallationNeutronTarget: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 450 } },
+    hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.2, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 450 } },
     cool_in: { utility: 'coolingWater', side: 'left',  offsetAlong: 0.55, role: 'sink', params: { heatLoad: 1000 } },
     data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.5, role: 'sink', params: { demand: 12 } },
   },
   photonScienceHutch: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 90 } },
+    hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.2, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 90 } },
     cool_in: { utility: 'coolingWater', side: 'left',  offsetAlong: 0.55, role: 'sink', params: { heatLoad: 60 } },
     data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.5, role: 'sink', params: { demand: 10 } },
   },
   xfelEndstation: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 220 } },
+    hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.2, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 220 } },
     cool_in: { utility: 'coolingWater', side: 'left',  offsetAlong: 0.55, role: 'sink', params: { heatLoad: 180 } },
     data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.5, role: 'sink', params: { demand: 25 } },
   },
   euvCollector: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 600 } },
+    hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.2, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 600 } },
     cool_in: { utility: 'coolingWater', side: 'left',  offsetAlong: 0.55, role: 'sink', params: { heatLoad: 700 } },
     data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.5, role: 'sink', params: { demand: 8 } },
   },
@@ -591,7 +591,7 @@ const BEAMLINE_UTILITY_PORTS = {
   // not a bare crossing point: it is a 4-pi vessel with its own final focus,
   // its own shielding and a debris load a 500 TeV collision actually makes.
   blackHoleChamber: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.25, role: 'sink', params: { demand: 600 } },
+    hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.25, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 600 } },
     cool_in: { utility: 'coolingWater', side: 'left',  offsetAlong: 0.65, role: 'sink', params: { heatLoad: 900 } },
     data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.5,  role: 'sink', params: { demand: 300 } },
   },
@@ -600,7 +600,7 @@ const BEAMLINE_UTILITY_PORTS = {
   // the product. Power and water are a hermetic calorimeter's front-end
   // electronics — large, but nothing next to the readout.
   hawkingDetector: {
-    pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.15, role: 'sink', params: { demand: 380 } },
+    hv_in:   { utility: 'hvCable',      side: 'left',  offsetAlong: 0.15, role: 'sink', connectionKind: 'hvLoadIn', params: { demand: 380 } },
     cool_in: { utility: 'coolingWater', side: 'right', offsetAlong: 0.45, role: 'sink', params: { heatLoad: 340 } },
     data_in: { utility: 'dataFiber',    side: 'right', offsetAlong: 0.75, role: 'sink', params: { demand: 900 } },
   },

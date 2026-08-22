@@ -179,6 +179,9 @@ the short authoring contract.
 - Electrical distributors and transformers add no demand of their own. Their
   HV inlet draws the actual connected downstream HV/branch load, capped by the
   device rating; unused nameplate capacity does not consume upstream supply.
+- Any electrical sink with demand strictly above 50 kW must use `hvCable`.
+  Loads at or below 50 kW may remain on the green `powerCable`; purpose-built
+  equipment may still use an authored HV connection below that threshold.
 - Port identity is `<placeableId>:<portName>`, but scenario scripts should call
   `wireUtility` with capability selectors such as `{ id, role: 'sink' }` or
   `{ id, role: 'pass', side: 'left' }`. Add `index` only when several otherwise
