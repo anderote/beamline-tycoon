@@ -10,7 +10,8 @@ import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { getTileCornersY, sampleCornersTriangulated } from '../game/terrain.js';
 import { inMapRegion, DEFAULT_MAP_HALF_EXTENT } from '../game/map-generator.js';
-import { placementPose } from '../beamline/pipe-placements.js';
+import { placementPose, placementSpanSubL } from '../beamline/pipe-placements.js';
+import { expandPipePath, pipeSubL } from '../beamline/pipe-geometry.js';
 import { flattenPath } from '../beamline/flattener.js';
 import { getBeamlineType } from '../data/beamline-types.js';
 import { beamVisualMode, beamVisualProfile } from './beam-visual-mode.js';
@@ -744,23 +745,53 @@ function buildBeamPipes(game) {
   }));
 }
 
+function pipePointSubTileKey(point) {
+  const adjCol = point.col + 0.5;
+  const adjRow = point.row + 0.5;
+  const col = Math.floor(adjCol + 1e-6);
+  const row = Math.floor(adjRow + 1e-6);
+  const subCol = Math.round((adjCol - col) * 4);
+  const subRow = Math.round((adjRow - row) * 4);
+  return `${col},${row},${subCol},${subRow}`;
+}
+
 /**
- * Subtile keys ("col,row,subCol,subRow") of every cell claimed by a placed
- * beamline module. Beam-pipe rendering carves pipe runs and skips flanges /
- * stands on these cells (modules render their own internal pipe geometry).
+ * Subtile keys ("col,row,subCol,subRow") where authored beamline hardware
+ * replaces the standalone pipe. Despite the legacy snapshot field name,
+ * this includes both free-grid modules and ordinary on-pipe placements.
+ * Every such model renders its own internal tube, so leaving the base pipe in
+ * the same span creates coincident cylinder surfaces and steep-angle flicker.
  */
 function buildModuleSubTiles(game) {
   if (game.activeLevel !== 0) return [];
-  const keys = [];
+  const keys = new Set();
   for (const p of (game.state.placeables || [])) {
     if (p.category !== 'beamline') continue;
     const def = COMPONENTS[p.type];
     if (!def || def.placement !== 'module' || def.isDrawnConnection) continue;
     for (const c of (p.cells || [])) {
-      keys.push(`${c.col},${c.row},${c.subCol},${c.subRow}`);
+      keys.add(`${c.col},${c.row},${c.subCol},${c.subRow}`);
     }
   }
-  return keys;
+
+  for (const pipe of (game.state.beamPipes || [])) {
+    const totalSubL = pipeSubL(pipe);
+    const densePath = expandPipePath(pipe.path || []);
+    if (densePath.length === 0) continue;
+    for (const placement of (pipe.placements || [])) {
+      const span = Math.round(placementSpanSubL(placement));
+      if (span <= 0) continue;
+      const start = Math.max(0, Math.min(totalSubL, Math.round(
+        (placement.position ?? 0) * totalSubL,
+      )));
+      const end = Math.min(totalSubL, start + span);
+      for (let index = start; index < end; index++) {
+        const point = densePath[Math.min(index, densePath.length - 1)];
+        if (point) keys.add(pipePointSubTileKey(point));
+      }
+    }
+  }
+  return [...keys];
 }
 
 // --- Main export ---

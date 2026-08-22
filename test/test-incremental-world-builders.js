@@ -22,6 +22,7 @@ const { BeamPipeBuilder } = await import('../src/renderer3d/beam-pipe-builder.js
 const { UtilityLineBuilderV2 } = await import('../src/renderer3d/utility-line-builder-v2.js');
 const { buildLightPools } = await import('../src/renderer3d/lighting-builder.js');
 const { LIGHTING_DEFS } = await import('../src/data/placeables/lighting.js');
+const { buildWorldSnapshot } = await import('../src/renderer3d/world-snapshot.js');
 
 function decoration(id, type, col, row, category = 'decor') {
   return {
@@ -178,6 +179,44 @@ test('beam-pipe reconciliation retains unchanged fragments and instanced meshes'
   assert.equal(joinedResult.reusedPipes, 2);
   assert.strictEqual(builder._meshesByName.get('beam-pipe-runs'), runMesh,
     'spare power-of-two capacity absorbs the added run without GPU reallocation');
+});
+
+test('beam pipes are carved beneath ordinary cavity placements', () => {
+  const game = {
+    activeLevel: 0,
+    state: {
+      placeables: [],
+      beamPipes: [{
+        id: 'cavity-run',
+        path: [{ col: 0, row: 0 }, { col: 3, row: 0 }],
+        subL: 12,
+        start: {},
+        end: {},
+        placements: [
+          { id: 'cavity', type: 'rfCavity', position: 0.25, subL: 6 },
+          { id: 'monitor', type: 'bpm', position: 0.75, subL: 1, inline: true },
+        ],
+      }],
+    },
+  };
+  const snapshot = buildWorldSnapshot(game, { only: ['beamPipes', 'moduleSubTiles'] });
+  assert.equal(snapshot.moduleSubTiles.length, 6,
+    'the six claimed cavity sub-units replace the base pipe; point attachments do not');
+
+  const builder = new BeamPipeBuilder();
+  const parent = new Three.Group();
+  builder.build(snapshot, parent);
+  assert.equal(builder.getStats().runs, 2,
+    'the standalone pipe stops at both edges of the cavity span');
+
+  const scales = builder._fragmentsById.get('cavity-run').tubes.map(entry => {
+    const scale = new Three.Vector3();
+    entry.matrix.decompose(new Three.Vector3(), new Three.Quaternion(), scale);
+    return Number(scale.x.toFixed(6));
+  });
+  assert.deepEqual(scales, [1.5, 1.5],
+    'only the three-metre cavity interval is removed from the six-metre run');
+  builder.dispose(parent);
 });
 
 test('utility-line reconciliation already preserves unchanged stable-id groups', () => {
