@@ -1,5 +1,7 @@
 // Immutable lighting budgets. Runtime preset changes only park pooled effects
 // or alter their refresh cadence; they never change shader light topology.
+// `fixtureShadowHz` is the aggregate queue service rate across every active
+// fixture shadow, not a per-light rate.
 
 // Modern renderer budgets: up to 64 real analytic fixture lights are kept in
 // DynamicLighting's uniform buffers. The nearest twelve also receive cached
@@ -89,7 +91,7 @@ const PRESETS = {
     fixtureShadowCount: 12,
     fixtureShadowMapSize: 768,
     fixtureShadowHz: 15,
-    fixtureShadowUpdatesPerFrame: 2,
+    fixtureShadowUpdatesPerFrame: 1,
     sunShadowMapSize: 2048,
     sunShadowHz: 15,
     glowScale: 0.5,

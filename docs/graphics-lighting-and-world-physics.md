@@ -27,10 +27,12 @@ packed uniform arrays rather than one GPU binding per light, avoiding common
 WebGPU binding-count limits.
 
 The nearest/highest-value subset of up to 12 lights casts real dynamic
-shadows. Those shadow maps live in one shared depth-texture array and are
-rendered with one array camera. The array is cached and cadence-throttled; each
-quality preset independently selects its active layer count, map size, and
-refresh rate. Assignment or scene changes force a refresh. A light can
+shadows. Those shadow maps live in one shared depth-texture array and each
+dirty layer is rendered independently. The array is cached and serviced by a
+global refresh queue; each quality preset independently selects its active
+layer count, map size, and aggregate refresh rate. New assignments and scene
+changes enter the same one-layer-per-frame queue, so dusk cannot recalculate
+every active fixture in one frame. A light can
 therefore remain visually real when it leaves the shadow subset instead of
 blinking out entirely, while its inactive shadow contribution is explicitly
 zeroed so it cannot sample a stale layer.
