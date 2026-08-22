@@ -39,11 +39,11 @@ function disposeBuckets(buckets) {
   }
 }
 
-test('electrical distribution breaker controls use horizontal rows of four or two', () => {
+test('electrical distribution breaker controls use their authored front grids', () => {
   const expectedRows = {
     poleMountTransformer: [4],
-    compactHvDistributor: [2],
-    powerPanel: [4],
+    compactHvDistributor: [1, 1],
+    powerPanel: [2, 2],
     sectionDistributionPanel: [4, 2, 1],
     mainDistributionPanel: [4, 4, 4, 2],
     mcc: [4, 4],
@@ -61,6 +61,18 @@ test('electrical distribution breaker controls use horizontal rows of four or tw
       assert.deepEqual(xs, [...xs].sort((a, b) => a - b),
         `${type} outputs run left-to-right within each row`);
     }
+  }
+
+  assert.ok(DISTRIBUTION_OUTPUT_LAYOUTS.compactHvDistributor.every(({ x }) => x === 0),
+    'compact HV outputs form one centered vertical stack');
+
+  const compactPowerColumns = [...new Set(
+    DISTRIBUTION_OUTPUT_LAYOUTS.powerPanel.map(({ x }) => x),
+  )];
+  assert.equal(compactPowerColumns.length, 2, 'compact power outputs use two columns');
+  for (const x of compactPowerColumns) {
+    assert.equal(DISTRIBUTION_OUTPUT_LAYOUTS.powerPanel.filter(pos => pos.x === x).length, 2,
+      'each compact power column contains two outputs');
   }
 });
 
