@@ -93,6 +93,9 @@ export function worldRefreshPlan(event, data) {
   if (!changeSet) return null;
   if (changeSet.full) return { full: true, changeSet };
   const plans = [planForDomains([...changeSet.domains])];
+  // Overhead fixture mounts are resolved against the room's roof profile, so
+  // a roof mutation also invalidates the decoration/light registry.
+  if (event === 'roofsChanged') plans.push({ decorations: true, physicsBodies: true });
   if (changeSet.placeables.size > 0 || changeSet.domains.has('placeables')) {
     plans.push(placeableRefreshPlan('placeableChanged', { changeSet }));
   }

@@ -1918,16 +1918,24 @@ export class DecorationBuilder {
     // definition's mount height even though all fixtures still share the
     // ordinary decoration placement store.
     const floorY = (dec.y ?? 0) + (dec.placeY || 0) * SUB;
-    const groupY = def?.mount === 'wall' || lightDef
+    const groupY = def?.mount === 'wall'
       ? fixtureMountY(def, floorY)
-      : floorY;
+      : lightDef?.mount === 'overhead' && Number.isFinite(dec.overheadMountY)
+        ? dec.overheadMountY
+        : lightDef
+          ? fixtureMountY(def, floorY)
+          : floorY;
     const wallPose = def?.mount === 'wall' ? wallFixturePose(dec.wallMount) : null;
     group.position.set(wallPose?.x ?? p.x, groupY, wallPose?.z ?? p.z);
     group.rotation.y = wallPose?.yaw
       ?? (lightDef ? lightingYaw(lightDef, p.rotY, p.seed) : p.rotY);
     if (lightDef) {
       const fixture = {
-        id: dec.id, def: lightDef, group, indoors: dec.indoors === true,
+        id: dec.id,
+        def: lightDef,
+        group,
+        floorY,
+        indoors: dec.indoors === true,
       };
       if (dec.id != null) this._fixturesById.set(dec.id, fixture);
       else this._anonymousFixtures.push(fixture);

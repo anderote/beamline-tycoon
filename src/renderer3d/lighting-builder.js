@@ -1240,6 +1240,7 @@ export function buildLightPools(fixtures, opts = {}) {
         const projection = fixtureLightProjection(def, {
           origin: fx.group.position,
           yaw: fx.group.rotation.y || 0,
+          floorY: fx.floorY,
         });
         const { rx, rz, offsetX, offsetZ } = projection.groundFootprint;
         if (rx > 0 && rz > 0) {

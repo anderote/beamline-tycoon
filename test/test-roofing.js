@@ -99,6 +99,15 @@ assert.equal(roofSnapshot.profile, 'dropCeiling', 'the roof snapshot publishes t
 assert.equal(roofSnapshot.texture, 'ceiling_acoustic_tile', 'the snapshot publishes the ceiling texture');
 assert.equal(roofSnapshot.y, 2.68, 'the suspended ceiling sits at its lower authored height');
 
+highBay.placeables = [{ id: 'ceiling-1', type: 'ceilingPanel', kind: 'decoration', col: 0, row: 0, subCol: 0, subRow: 0 }];
+const overheadSnapshot = buildWorldSnapshot({ state: highBay }, { only: ['decorations'] }).decorations[0];
+assert.equal(overheadSnapshot.overheadMountY, 2.54,
+  'a roofed drop-ceiling fixture mounts just below the slab instead of at its authored 3.0 m height');
+for (const key of Object.keys(highBay.wallOccupied)) highBay.wallOccupied[key] = 'structuralWall';
+const highBayOverhead = buildWorldSnapshot({ state: highBay }, { only: ['decorations'] }).decorations[0];
+assert.equal(highBayOverhead.overheadMountY, 3.21,
+  'a roofed high-bay fixture mounts just below the high-bay slab');
+
 assert.equal(roofVisibleForWallMode('roof'), true, 'the new roof mode shows roofs');
 for (const mode of ['up', 'cutaway', 'transparent', 'down']) {
   assert.equal(roofVisibleForWallMode(mode), false, `${mode} remains a roof-hidden wall mode`);
