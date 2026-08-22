@@ -1773,11 +1773,13 @@ export class ThreeRenderer {
 
   /** Presentation-only world layer controls used by the lower-left HUD. */
   setWorldLayerVisible(id, visible) {
-    return this._sceneLayerVisibility.setVisible(id, visible);
+    const result = this._sceneLayerVisibility.setVisible(id, visible);
+    if (id === 'zoneLabels' && result !== null) this.showZoneLabels = result;
+    return result;
   }
 
   toggleWorldLayer(id) {
-    return this._sceneLayerVisibility.toggle(id);
+    return this.setWorldLayerVisible(id, !this.isWorldLayerVisible(id));
   }
 
   isWorldLayerVisible(id) {
@@ -1785,7 +1787,9 @@ export class ThreeRenderer {
   }
 
   resetWorldLayers() {
-    return this._sceneLayerVisibility.reset();
+    const state = this._sceneLayerVisibility.reset();
+    this.showZoneLabels = state.zoneLabels;
+    return state;
   }
 
   /**
@@ -1796,9 +1800,7 @@ export class ThreeRenderer {
    * quads now and would be indistinguishable from the tint tiles by type.
    */
   toggleZoneLabels() {
-    this.showZoneLabels = !this.showZoneLabels;
-    for (const mesh of this._zoneLabelMeshes) mesh.visible = this.showZoneLabels;
-    return this.showZoneLabels;
+    return this.toggleWorldLayer('zoneLabels');
   }
 
   /**

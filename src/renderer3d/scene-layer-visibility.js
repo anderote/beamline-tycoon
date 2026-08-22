@@ -7,6 +7,7 @@
 
 export const WORLD_LAYER_IDS = Object.freeze([
   'lights',
+  'zoneLabels',
   'beamline',
   'infra',
   'facility',
@@ -92,6 +93,7 @@ export function sceneLayerTargets(renderer) {
     renderer.lightHaloGroup,
     renderer.volumetricLightGroup,
   );
+  add(['zoneLabels'], renderer._zoneLabelMeshes);
 
   // Fixture housings remain ordinary decoration-builder objects for picking
   // and demolition, but the Lights toggle should hide those meshes too.

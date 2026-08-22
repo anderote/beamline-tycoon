@@ -9,7 +9,7 @@ import {
 function object() { return { visible: true }; }
 
 assert.deepEqual(WORLD_LAYER_IDS, [
-  'lights', 'beamline', 'infra', 'facility', 'structure', 'grounds', 'staff',
+  'lights', 'zoneLabels', 'beamline', 'infra', 'facility', 'structure', 'grounds', 'staff',
 ]);
 
 {
@@ -56,6 +56,7 @@ assert.deepEqual(WORLD_LAYER_IDS, [
     lightPoolGroup: object(),
     lightHaloGroup: object(),
     volumetricLightGroup: object(),
+    _zoneLabelMeshes: [object(), object()],
     lightingGroup: [{ group: object() }],
   };
   const targets = sceneLayerTargets(renderer);
@@ -64,6 +65,8 @@ assert.deepEqual(WORLD_LAYER_IDS, [
   assert(targets.some(target => target.layers.includes('beamline')));
   assert(targets.some(target => target.layers.includes('infra')));
   assert(targets.some(target => target.layers.includes('staff')));
+  assert.equal(targets.filter(target => target.layers.includes('zoneLabels')).length, 2,
+    'each floor-painted zone label is independently controlled');
 
   const controller = new SceneLayerVisibility(() => sceneLayerTargets(renderer));
   controller.setVisible('beamline', false);
@@ -77,6 +80,9 @@ assert.deepEqual(WORLD_LAYER_IDS, [
   }
   assert.equal(renderer.infrastructureComponentGroup.visible, true,
     'beamline visibility does not affect infrastructure hardware');
+  controller.setVisible('zoneLabels', false);
+  assert(renderer._zoneLabelMeshes.every(label => label.visible === false),
+    'zone label visibility leaves the rest of the zone overlay untouched');
 }
 
 {
@@ -92,8 +98,12 @@ assert.deepEqual(WORLD_LAYER_IDS, [
     'layer control is anchored above the lower-left build bar');
   assert.match(hud, /this\.renderer\.toggleWorldLayer\(id\)/,
     'HUD delegates layer toggles through the renderer public API');
+  assert.match(hud, /if \(opening\)[\s\S]*isWorldLayerVisible\(button\.dataset\.worldLayer\)/,
+    'opening the panel refreshes switches changed by shortcuts or Options');
   assert.match(renderer, /obj\.parent === this\.beamlineComponentGroup/,
     'component picking recognizes the presentation subgroups');
+  assert.match(renderer, /toggleZoneLabels\(\)\s*\{\s*return this\.toggleWorldLayer\('zoneLabels'\)/,
+    'the layer panel, keyboard shortcut, and options dialog share one zone-label state');
 }
 
 console.log('scene layer visibility contract passed');
