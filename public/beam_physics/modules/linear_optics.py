@@ -232,6 +232,25 @@ def _plane_phase_advance(matrix, beta_in, alpha_in, beta_out, length):
     return float(max(length, 0.0) * 0.5 * (1.0 / beta_in + 1.0 / beta_out))
 
 
+def _active_region(element):
+    """Return the active field length and symmetric drift margins.
+
+    Catalogue geometry is the element's occupied longitudinal span.  A magnet
+    can have a smaller effective field length inside that span; representing
+    the margins as drift keeps the element at the right s-coordinate while
+    avoiding the false assumption that the field fills its housing.
+    """
+    total = max(float(element.get("length", 0.0)), 0.0)
+    active = element.get("activeLength", total)
+    try:
+        active = float(active)
+    except (TypeError, ValueError):
+        active = total
+    active = max(0.0, min(active, total))
+    margin = 0.5 * (total - active)
+    return active, margin
+
+
 class LinearOpticsModule(PhysicsModule):
     """Transfer matrix propagation and dispersion tracking."""
 
@@ -329,7 +348,10 @@ class LinearOpticsModule(PhysicsModule):
         if etype == "quadrupole":
             k = element.get("focusStrength", 1.0)
             polarity = element.get("polarity", 1)
-            return quadrupole_matrix(k * polarity * self._rigidity_scale(beam), length)
+            active, margin = _active_region(element)
+            body = quadrupole_matrix(
+                k * polarity * self._rigidity_scale(beam), active)
+            return drift_matrix(margin) @ body @ drift_matrix(margin)
 
         if etype == "dipole":
             return dipole_matrix(element.get("bendAngle", 15.0), length)
@@ -347,11 +369,15 @@ class LinearOpticsModule(PhysicsModule):
             # "approximate momentum ~ energy for relativistic" — true at 1 GeV,
             # wrong by 2.4x at 50 keV, which is exactly the regime solenoids
             # exist for.
-            return solenoid_matrix(B, _momentum_gev(beam), length)
+            active, margin = _active_region(element)
+            body = solenoid_matrix(B, _momentum_gev(beam), active)
+            return drift_matrix(margin) @ body @ drift_matrix(margin)
 
         if etype == "dcAccelerator":
-            return axisymmetric_focusing_matrix(
-                max(0.0, element.get("focusStrength", 0.0)), length)
+            active, margin = _active_region(element)
+            body = axisymmetric_focusing_matrix(
+                max(0.0, element.get("focusStrength", 0.0)), active)
+            return drift_matrix(margin) @ body @ drift_matrix(margin)
 
         if etype == "rfCavity" and element.get("game_type") == "rfq":
             return axisymmetric_focusing_matrix(

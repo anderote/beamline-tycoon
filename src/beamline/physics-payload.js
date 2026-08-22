@@ -110,6 +110,9 @@ function _buildPhysicsElements(orderedNodes, {
       stats: effectiveStats,
       params,
     };
+    if (Number.isFinite(t.activeLengthM) && t.activeLengthM >= 0) {
+      physEl.activeLengthM = t.activeLengthM;
+    }
     if (t.betaAcceptance) {
       physEl.betaAcceptance = { ...t.betaAcceptance };
     }

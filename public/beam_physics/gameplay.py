@@ -231,6 +231,14 @@ def beamline_config_from_game(game_beamline):
                 f"declare subL in beamline-components.raw.js"
             )
         el["length"] = sub_l * 0.5
+        # A component may occupy a larger map/beamline span than the region
+        # where its field acts. The lattice keeps `length` for longitudinal
+        # position and uses `activeLength` only for localized optics.
+        active_length = comp.get("activeLengthM")
+        if active_length is not None:
+            if active_length < 0:
+                raise ValueError(f"component '{ctype}' has negative activeLengthM")
+            el["activeLength"] = min(float(active_length), el["length"])
 
         # Endpoint data production is a catalogue capability, not a physics
         # type. Several purpose-built endpoints are thin drifts or targets but

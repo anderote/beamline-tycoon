@@ -287,6 +287,11 @@ export const BEAMLINE_COMPONENTS_RAW = {
     betaAcceptance: { min: 0.005, design: 0.04, max: 0.10 },
     energyCost: 400,
     apertureRadius: 50,
+    // The crate occupies 2 m of beamline, but the einzel lens is a compact
+    // active region inside the acceleration column. gameplay.py preserves the
+    // full housing length and the optics backend uses this as the focusing
+    // length, leaving the rest as drift.
+    activeLengthM: 0.35,
     subL: 4,
     subW: 4,
     subH: 5, gridW: 4, gridH: 4, geometryType: 'cylinder',
@@ -976,6 +981,9 @@ export const BEAMLINE_COMPONENTS_RAW = {
     stats: { focusStrength: 1 },
     energyCost: 6,
     apertureRadius: 48,
+    // Map footprint / beamline occupancy remains 1 m. The magnetic body is
+    // shorter; the rest is fringe/cryostat/drift space in the idealized model.
+    activeLengthM: 0.35,
     subL: 2,
     subW: 2,
     subH: 2, gridW: 2, gridH: 2, geometryType: 'cylinder',
@@ -1014,6 +1022,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     stats: { fieldStrength: 0.005 },
     energyCost: 1,
     apertureRadius: 40,
+    activeLengthM: 0.5,
     subL: 2,
     subW: 2,
     subH: 2, gridW: 2, gridH: 2, geometryType: 'cylinder',

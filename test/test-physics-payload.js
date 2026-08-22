@@ -95,6 +95,7 @@ const EXPECTED = [
     id: 'q1',
     type: 'quadrupole',
     subL: 2,
+    activeLengthM: 0.35,
     apertureRadius: 48,
     stats: { focusStrength: 5.996 },
     params: { gradient: 20, polarity: 1 },
@@ -203,6 +204,8 @@ console.log('\n--- Test 1: payload snapshot ---');
     'ids round-trip so per-cavity results can be written back to the placeable');
   assert(out[0].apertureRadius === 48 && out[4].apertureRadius === 56,
     'authored aperture radii cross the JS/Python payload boundary');
+  assert(out[0].activeLengthM === 0.35,
+    'authored active optics length crosses the JS/Python payload boundary');
 }
 
 // ==========================================================================
