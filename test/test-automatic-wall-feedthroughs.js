@@ -18,6 +18,7 @@ import {
   planAutomaticWallPassThroughs,
 } from '../src/utility/automatic-wall-feedthroughs.js';
 import { runWiringCost } from '../src/input/utility-run-wiring.js';
+import { physicalWallFixtureSlotKeys } from '../src/game/wall-fixture-geometry.js';
 
 const wallOccupied = { '1,0,e': 'officeWall' };
 const crossingPath = [{ col: 0.5, row: 0.5 }, { col: 2.5, row: 0.5 }];
@@ -199,6 +200,35 @@ test('independent rigid services stack in one wall slot', () => {
     PLACEABLES[fitting.type]?.automaticWallPassThrough?.utilityType === 'waterSupplyPipe');
   assert.deepEqual(waterFittings.map(fitting =>
     PLACEABLES[fitting.type].automaticWallPassThrough.waterCircuit).sort(), ['cold', 'hot']);
+});
+
+test('paired hot and cold cooling-water lines get separate sleeves in one wall slot', () => {
+  const state = blankState();
+  const game = { state };
+
+  const coldPlan = planAutomaticWallPassThroughs(
+    game, lineOpts('coolingWater', 'cold'),
+  );
+  assert.equal(coldPlan.ok, true, coldPlan.reason);
+  assert.equal(applyAutomaticWallPassThroughPlanToState(state, coldPlan), true);
+
+  const hotPlan = planAutomaticWallPassThroughs(
+    game, lineOpts('coolingWater', 'hot'),
+  );
+  assert.equal(hotPlan.ok, true, hotPlan.reason);
+  assert.deepEqual(
+    hotPlan.feedthroughs.map(fitting => fitting.type),
+    ['hotWaterLineWallPassThrough'],
+    'the hot line does not reuse the cold sleeve',
+  );
+  assert.equal(applyAutomaticWallPassThroughPlanToState(state, hotPlan), true);
+
+  const sleeves = state.placeables.filter(placeable =>
+    ['coldWaterLineWallPassThrough', 'hotWaterLineWallPassThrough'].includes(placeable.type));
+  assert.equal(sleeves.length, 2);
+  assert.deepEqual(new Set(sleeves.flatMap(sleeve =>
+    physicalWallFixtureSlotKeys(sleeve.wallMount))).size, 1,
+  'both temperature circuits share the intended physical wall station');
 });
 
 test('a manually placed 4×4 HV fitting is reused instead of replaced', () => {

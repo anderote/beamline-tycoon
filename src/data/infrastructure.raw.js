@@ -1353,6 +1353,7 @@ export const INFRASTRUCTURE_RAW = {
     category: 'cooling', utilityType: 'coolingWater',
     ports: ['water_front', 'water_back'], cost: 3500,
     heightMeters: 0.05, radiusMeters: 0.04, color: 0x287fc4,
+    waterCircuit: 'cold', alongMeters: -0.06,
   }),
   hotWaterLineWallPassThrough: automaticWallPassThrough({
     id: 'hotWaterLineWallPassThrough', name: 'Automatic Hot-Water Line Sleeve',
@@ -1360,6 +1361,7 @@ export const INFRASTRUCTURE_RAW = {
     category: 'cooling', utilityType: 'coolingWater',
     ports: ['water_front', 'water_back'], cost: 3500,
     heightMeters: 0.05, radiusMeters: 0.04, color: 0xc45b42,
+    waterCircuit: 'hot', alongMeters: 0.06,
   }),
   coldWaterSupplyWallPassThrough: automaticWallPassThrough({
     id: 'coldWaterSupplyWallPassThrough', name: 'Automatic Cold-Water Supply Sleeve',
