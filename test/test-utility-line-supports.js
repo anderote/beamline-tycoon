@@ -77,6 +77,25 @@ console.log('\n--- 2. Unsupported cables and short rigid runs stay uncluttered -
   shortVacuum.builder.dispose(shortVacuum.parent);
 }
 
+console.log('\n--- 2b. Cryogenic supports carry shoes and jacket clamps ---');
+{
+  const cryo = build('cryoTransfer');
+  const water = build('waterSupplyPipe', 4, null, 'cold');
+  const cryoSupports = collect(cryo.parent, object => object.userData?.isUtilitySupport);
+  const clamps = collect(cryo.parent,
+    object => object.userData?.utilitySupportPart === 'cryostat-clamp');
+  const shoes = collect(cryo.parent,
+    object => object.userData?.utilitySupportPart === 'cryostat-shoe');
+  const waterClamps = collect(water.parent,
+    object => object.userData?.utilitySupportPart === 'cryostat-clamp');
+  assert(clamps.length === cryoSupports.length && shoes.length === cryoSupports.length,
+    'every cryogenic H-frame adds one insulated shoe and one wraparound jacket clamp');
+  assert(waterClamps.length === 0,
+    'the cryostat clamp vocabulary does not leak onto generic jacketed water pipe');
+  cryo.builder.dispose(cryo.parent);
+  water.builder.dispose(water.parent);
+}
+
 console.log('\n--- 3. The live draw preview includes the same support pattern ---');
 for (const utilityType of ['rfWaveguide', 'cryoTransfer', 'waterSupplyPipe', 'vacuumPipe']) {
   const builder = new UtilityLineBuilderV2();
@@ -140,6 +159,9 @@ console.log('\n--- 4. Co-located independent services form one aligned vertical 
       && collect(rack, object => object.userData?.utilitySupportPart === 'saddle').length
         === services.length),
   'each shared rack has one shelf at every independent service datum');
+  assert(racks.every(rack => collect(rack,
+    object => object.userData?.utilitySupportPart === 'cryostat-clamp').length === 1),
+  'each shared multi-service rack retains one clamp around its cryogenic shelf');
   builder.dispose(parent);
 }
 

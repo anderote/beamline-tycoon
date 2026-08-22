@@ -224,6 +224,37 @@ test('mist descriptors can spend most of their cycle fully dormant', () => {
   system.dispose();
 });
 
+test('mist can use discrete hardware points instead of interpolating along a pipe', () => {
+  const scene = new Three.Scene();
+  const system = new VisualEffectSystem(scene, {
+    pulseBudget: 0, ambientBudget: 8, lightProxyBudget: 0,
+  });
+  system.syncScope('utilities', [{
+    id: 'cryo-fittings', kind: 'ambientMist', emitterMode: 'points',
+    path: [
+      { x: 0, y: 0.4, z: 0 },
+      { x: 5, y: 0.4, z: 0 },
+      { x: 20, y: 0.4, z: 0 },
+    ],
+    particlesPerEmitter: 1, cycle: 1, activeFraction: 1, drift: 0.001,
+  }]);
+
+  system.update(0, 0);
+  assert.equal(system._ambientMesh.count, 3,
+    'one mist emitter is allocated for each authored fitting point');
+  const positions = [];
+  for (let index = 0; index < 3; index++) {
+    const matrix = new Three.Matrix4();
+    const position = new Three.Vector3();
+    system._ambientMesh.getMatrixAt(index, matrix);
+    position.setFromMatrixPosition(matrix);
+    positions.push(position.x);
+  }
+  assert.ok(positions.every((x, index) => Math.abs(x - [0, 5, 20][index]) < 0.01),
+    'mist origins stay on the discrete fittings rather than filling their intervening spans');
+  system.dispose();
+});
+
 test('surface glows animate independently while retaining shared shader structure', () => {
   const scene = new Three.Scene();
   const root = new Three.Group();

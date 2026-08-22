@@ -62,6 +62,8 @@ const JOIN_ON_CONTACT_TYPES = new Set(UTILITY_TYPE_LIST.filter(
 // Keeps identical materials shared across lines for the same descriptor+state.
 const _matCache = new Map();
 const _jacketMatCache = new Map();
+const _cryostatJacketMatCache = new Map();
+const _cryostatBandMatCache = new Map();
 const _hardwareMatCache = new Map();
 let _utilitySupportMaterial = null;
 let _vacuumGasketMaterial = null;
@@ -210,6 +212,40 @@ function getJacketMaterial(utilityType, errorStatus, waterCircuit = null) {
   return mat;
 }
 
+// A transfer-line cryostat is read from the outside: an opaque stainless
+// vacuum vessel, not a visible cyan process tube inside a clear sleeve. The
+// restrained flow patch puts a cold-blue sheen on the metal without changing
+// its material identity. Hardware and identification bands remain unanimated.
+function getCryostatJacketMaterial(utilityType, errorStatus) {
+  const flowState = errorStatus || 'ok';
+  const key = `${utilityType}|${flowState}`;
+  if (_cryostatJacketMatCache.has(key)) return _cryostatJacketMatCache.get(key);
+  const mat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#b8c4c9'),
+    roughness: 0.22,
+    metalness: 0.86,
+  });
+  patchFlowMaterial(mat, utilityType, flowState, '#8de7f2');
+  _cryostatJacketMatCache.set(key, shared(mat));
+  return mat;
+}
+
+function getCryostatBandMaterial(errorStatus) {
+  const key = errorStatus || 'ok';
+  if (_cryostatBandMatCache.has(key)) return _cryostatBandMatCache.get(key);
+  const hard = key === 'hard' || key === 'off';
+  const color = hard ? '#42616b' : '#2387a5';
+  const mat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(color),
+    roughness: 0.31,
+    metalness: 0.48,
+    emissive: new THREE.Color(color),
+    emissiveIntensity: hard ? 0 : key === 'soft' ? 0.06 : 0.11,
+  });
+  _cryostatBandMatCache.set(key, shared(mat));
+  return mat;
+}
+
 // Elbow flanges and guide collars are hardware, not flowing contents. Keeping
 // them on a separate metallic material makes every joint legible even when the
 // service body is dark or carrying an emissive flow pulse.
@@ -217,6 +253,7 @@ function getLineHardwareMaterial(utilityType, waterCircuit = null) {
   const key = `${utilityType}|${waterCircuit || '-'}`;
   if (_hardwareMatCache.has(key)) return _hardwareMatCache.get(key);
   const color = utilityType === 'vacuumPipe' ? '#c4c9cc'
+    : utilityType === 'cryoTransfer' ? '#c7d0d3'
     : utilityType === 'rfWaveguide' ? '#b9783f'
       : utilityCircuitColor(utilityType, waterCircuit);
   const mat = new THREE.MeshStandardMaterial({
@@ -945,8 +982,81 @@ function buildRectMiterElbow(info, width, height, material) {
   return mesh;
 }
 
-function buildServiceFitting(point, direction, descriptor, material) {
+function buildCryostatBayonet(point, direction, descriptor, material, errorStatus) {
+  if (!THREE.TorusGeometry) return null;
+  const axis = direction.clone().normalize();
+  const radius = descriptor.pipeRadiusMeters || 0.06;
+  const jacketRadius = radius * (descriptor.jacketRadiusScale || 1.6);
+  const halfLength = Math.max(0.09, radius * 1.65);
+  const group = new THREE.Group();
+  group.position.copy(point);
+  group.quaternion.copy(new THREE.Quaternion().setFromUnitVectors(
+    new THREE.Vector3(0, 0, 1), axis));
+
+  const body = buildCylinderSegment(
+    new THREE.Vector3(0, 0, -halfLength),
+    new THREE.Vector3(0, 0, halfLength),
+    jacketRadius * 1.08,
+    material,
+  );
+  if (body) {
+    body.userData.cryostatPart = 'bayonet-body';
+    group.add(body);
+  }
+
+  // Five narrow convolutions give the joint a recognizable short expansion
+  // bellows. They sit proud of the vacuum vessel but remain inside the two
+  // heavier end collars.
+  const convolutionTube = Math.max(0.006, radius * 0.105);
+  for (let index = -2; index <= 2; index++) {
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(jacketRadius * 1.055, convolutionTube, 6, 16),
+      material,
+    );
+    ring.position.z = index * halfLength * 0.28;
+    ring.userData = {
+      cryostatPart: 'bellows-convolution',
+      cryostatBellowsIndex: index + 2,
+    };
+    group.add(ring);
+  }
+
+  for (const side of [-1, 1]) {
+    const collar = new THREE.Mesh(
+      new THREE.TorusGeometry(jacketRadius * 1.06, radius * 0.16, 7, 18),
+      material,
+    );
+    collar.position.z = side * halfLength * 0.82;
+    collar.userData.cryostatPart = 'bayonet-collar';
+    group.add(collar);
+  }
+
+  const bandHalfLength = Math.max(0.012, radius * 0.22);
+  const band = buildCylinderSegment(
+    new THREE.Vector3(0, 0, -bandHalfLength),
+    new THREE.Vector3(0, 0, bandHalfLength),
+    jacketRadius * 1.17,
+    getCryostatBandMaterial(errorStatus),
+  );
+  if (band) {
+    band.userData.cryostatPart = 'identification-band';
+    group.add(band);
+  }
+
+  group.userData = {
+    isUtilityJoint: true,
+    isUtilityFitting: true,
+    isCryostatBayonet: true,
+    fittingStyle: 'cryoBayonet',
+  };
+  return group;
+}
+
+function buildServiceFitting(point, direction, descriptor, material, errorStatus = 'ok') {
   if (!point || !direction || !descriptor?.fittingStyle) return null;
+  if (descriptor.fittingStyle === 'cryoBayonet') {
+    return buildCryostatBayonet(point, direction, descriptor, material, errorStatus);
+  }
   const radius = descriptor.pipeRadiusMeters || 0.04;
   const depth = descriptor.fittingStyle === 'waveguideFlange' ? 0.055 : 0.045;
   const half = direction.clone().normalize().multiplyScalar(depth * 0.5);
@@ -1057,7 +1167,9 @@ function directionVector(key) {
   return new THREE.Vector3(x || 0, 0, z || 0);
 }
 
-function buildTappedJunction(point, spec, descriptor, bodyMaterial, hardwareMaterial) {
+function buildTappedJunction(
+  point, spec, descriptor, bodyMaterial, hardwareMaterial, errorStatus = 'ok',
+) {
   if (!point || !spec?.renderHardware) return null;
   const group = new THREE.Group();
   const radius = descriptor?.pipeRadiusMeters || 0.04;
@@ -1073,7 +1185,8 @@ function buildTappedJunction(point, spec, descriptor, bodyMaterial, hardwareMate
   if (descriptor?.fittingStyle === 'vacuumFlange') {
     if (spec.kind === 'coupling') {
       const direction = directionVector(spec.directions?.[0] || '1,0');
-      const flange = buildServiceFitting(point, direction, descriptor, hardwareMaterial);
+      const flange = buildServiceFitting(
+        point, direction, descriptor, hardwareMaterial, errorStatus);
       if (flange) group.add(flange);
       return group.children.length > 0 ? group : null;
     }
@@ -1105,36 +1218,89 @@ function buildTappedJunction(point, spec, descriptor, bodyMaterial, hardwareMate
         point.y + direction.y * radius * 2.05,
         point.z + direction.z * radius * 2.05,
       );
-      const flange = buildServiceFitting(flangePoint, direction, descriptor, hardwareMaterial);
+      const flange = buildServiceFitting(
+        flangePoint, direction, descriptor, hardwareMaterial, errorStatus);
       if (flange) group.add(flange);
     }
   } else {
     const direction = directionVector(spec.directions?.[0] || '1,0');
-    const fitting = buildServiceFitting(point, direction, descriptor, hardwareMaterial);
+    const fitting = buildServiceFitting(
+      point, direction, descriptor, hardwareMaterial, errorStatus);
     if (fitting) group.add(fitting);
   }
   return group.children.length > 0 ? group : null;
 }
 
-function addInlineCouplers(group, start, end, descriptor, material) {
+function addInlineCouplers(
+  group, start, end, descriptor, material, errorStatus = 'ok', fittingPoints = null,
+) {
   const spacing = descriptor?.couplerSpacingMeters;
-  if (!(spacing > 0)) return;
+  if (!(spacing > 0)) return [];
   const direction = new THREE.Vector3().subVectors(end, start);
   const length = direction.length();
-  if (length < spacing * 1.35) return;
+  if (length < spacing * 1.35) return [];
   direction.normalize();
   // Centre the regular pattern on the segment so two adjacent couplers never
   // bunch against a corner flange.
   const count = Math.floor(length / spacing);
   const step = length / (count + 1);
+  const points = [];
   for (let i = 1; i <= count; i++) {
     const point = new THREE.Vector3(
       start.x + direction.x * step * i,
       start.y + direction.y * step * i,
       start.z + direction.z * step * i,
     );
-    const fitting = buildServiceFitting(point, direction, descriptor, material);
-    if (fitting) group.add(fitting);
+    const fitting = buildServiceFitting(
+      point, direction, descriptor, material, errorStatus);
+    if (fitting) {
+      group.add(fitting);
+      points.push(point);
+      if (Array.isArray(fittingPoints)) fittingPoints.push(point.clone());
+    }
+  }
+  return points;
+}
+
+function addCryostatIdentificationBands(group, start, end, descriptor, material) {
+  const spacing = descriptor?.identificationBandSpacingMeters;
+  if (!(spacing > 0)) return;
+  const direction = new THREE.Vector3().subVectors(end, start);
+  const length = direction.length();
+  if (length < spacing * 0.75) return;
+  direction.normalize();
+  const count = Math.max(1, Math.floor(length / spacing));
+  const step = length / (count + 1);
+  const radius = (descriptor.pipeRadiusMeters || 0.06)
+    * (descriptor.jacketRadiusScale || 1.6) * 1.025;
+  const halfWidth = 0.022;
+  for (let index = 1; index <= count; index++) {
+    const distance = step * index;
+    const point = new THREE.Vector3(
+      start.x + direction.x * distance,
+      start.y + direction.y * distance,
+      start.z + direction.z * distance,
+    );
+    const band = buildCylinderSegment(
+      new THREE.Vector3(
+        point.x - direction.x * halfWidth,
+        point.y - direction.y * halfWidth,
+        point.z - direction.z * halfWidth,
+      ),
+      new THREE.Vector3(
+        point.x + direction.x * halfWidth,
+        point.y + direction.y * halfWidth,
+        point.z + direction.z * halfWidth,
+      ),
+      radius,
+      material,
+    );
+    if (!band) continue;
+    band.userData = {
+      isCryostatIdentificationBand: true,
+      cryostatPart: 'identification-band',
+    };
+    group.add(band);
   }
 }
 
@@ -1146,7 +1312,8 @@ function buildUtilitySupport(frame, descriptor, utilityType, materialOverride = 
   if (!frame?.point || !frame?.direction) return null;
   const radius = descriptor?.pipeRadiusMeters || 0.05;
   const style = descriptor?.geometryStyle || 'cylinder';
-  const bodyHalfWidth = style === 'jacketedCylinder' ? radius * 1.6 : radius;
+  const jacketScale = descriptor?.jacketRadiusScale || 1.6;
+  const bodyHalfWidth = style === 'jacketedCylinder' ? radius * jacketScale : radius;
   const bodyHalfHeight = style === 'rectWaveguide' ? radius * 0.7 : bodyHalfWidth;
   const centerlineY = frame.point.y;
   const footH = 0.025;
@@ -1178,6 +1345,26 @@ function buildUtilitySupport(frame, descriptor, utilityType, materialOverride = 
     leg.position.set(side * legOffset, footH + legH * 0.5, 0);
     leg.userData.utilitySupportPart = 'leg';
     support.add(leg);
+  }
+
+  if (descriptor?.presentationStyle === 'cryostatLine' && THREE.TorusGeometry) {
+    const shoeH = 0.034;
+    const shoe = new THREE.Mesh(
+      new THREE.BoxGeometry(bodyHalfWidth * 1.65, shoeH, depth * 0.72), material);
+    shoe.position.y = barTop + shoeH * 0.5;
+    shoe.userData = {
+      utilitySupportPart: 'cryostat-shoe',
+      cryostatPart: 'insulated-pipe-shoe',
+    };
+    support.add(shoe);
+    const clamp = new THREE.Mesh(
+      new THREE.TorusGeometry(bodyHalfWidth * 1.045, 0.011, 6, 18), material);
+    clamp.position.y = centerlineY;
+    clamp.userData = {
+      utilitySupportPart: 'cryostat-clamp',
+      cryostatPart: 'vacuum-jacket-clamp',
+    };
+    support.add(clamp);
   }
 
   support.position.set(frame.point.x, 0, frame.point.z);
@@ -1237,7 +1424,8 @@ function buildStackedUtilitySupport(entries) {
   for (const entry of entries) {
     const radius = entry.descriptor?.pipeRadiusMeters || 0.05;
     const style = entry.descriptor?.geometryStyle || 'cylinder';
-    const bodyHalfWidth = style === 'jacketedCylinder' ? radius * 1.6 : radius;
+    const jacketScale = entry.descriptor?.jacketRadiusScale || 1.6;
+    const bodyHalfWidth = style === 'jacketedCylinder' ? radius * jacketScale : radius;
     const bodyHalfHeight = style === 'rectWaveguide' ? radius * 0.7 : bodyHalfWidth;
     shelves.push({
       y: entry.frame.point.y - bodyHalfHeight - 0.006,
@@ -1245,6 +1433,7 @@ function buildStackedUtilitySupport(entries) {
       utilityTypes: [entry.utilityType],
       lineIds: [...entry.lineIds],
       centerlineHeight: entry.frame.point.y,
+      presentationStyle: entry.descriptor?.presentationStyle || null,
     });
   }
   shelves.sort((a, b) => a.y - b.y);
@@ -1287,6 +1476,24 @@ function buildStackedUtilitySupport(entries) {
       centerlineHeight: shelf.centerlineHeight,
     };
     support.add(bar);
+    if (shelf.presentationStyle === 'cryostatLine' && THREE.TorusGeometry) {
+      const shoe = new THREE.Mesh(
+        new THREE.BoxGeometry(shelf.bodyHalfWidth * 1.65, 0.034, depth * 0.72), material);
+      shoe.position.y = shelf.y + 0.017;
+      shoe.userData = {
+        utilitySupportPart: 'cryostat-shoe',
+        cryostatPart: 'insulated-pipe-shoe',
+      };
+      support.add(shoe);
+      const clamp = new THREE.Mesh(
+        new THREE.TorusGeometry(shelf.bodyHalfWidth * 1.045, 0.011, 6, 18), material);
+      clamp.position.y = shelf.centerlineHeight;
+      clamp.userData = {
+        utilitySupportPart: 'cryostat-clamp',
+        cryostatPart: 'vacuum-jacket-clamp',
+      };
+      support.add(clamp);
+    }
   }
 
   const top = Math.max(...uniqueShelves.map(shelf => shelf.y - barH));
@@ -1600,6 +1807,9 @@ function buildLineGroup(
     routeHeightMeters: runY,
     errorStatus: errorStatus || 'ok',
     flowState: flowState || 'ok',
+    ...(descriptor.presentationStyle ? {
+      presentationStyle: descriptor.presentationStyle,
+    } : {}),
     ...(busChannel ? {
       isUniversalUtilityBus: true,
       busId: line.manifold.busId,
@@ -1613,6 +1823,22 @@ function buildLineGroup(
   const mat = getLineMaterial(line.utilityType, flowState, line.waterCircuit);
   const hardwareMat = getLineHardwareMaterial(line.utilityType, line.waterCircuit);
   const style = descriptor.geometryStyle || 'cylinder';
+  const cryostatPresentation = descriptor.presentationStyle === 'cryostatLine';
+  const cryostatJacketMat = cryostatPresentation
+    ? getCryostatJacketMaterial(line.utilityType, flowState) : null;
+  const cryostatBandMat = cryostatPresentation
+    ? getCryostatBandMaterial(flowState) : null;
+  const cryoColdSpots = [];
+  const addCryoColdSpot = point => {
+    if (!cryostatPresentation || !point) return;
+    if (cryoColdSpots.some(existing => {
+      const dx = existing.x - point.x;
+      const dy = existing.y - point.y;
+      const dz = existing.z - point.z;
+      return dx * dx + dy * dy + dz * dz < 1e-6;
+    })) return;
+    cryoColdSpots.push(point.clone());
+  };
   const flow = FLOW_PARAMS[line.utilityType];
   const flowing = !!flow && flowState !== 'off';
   // Electrical lines keep their animated colour variation in ordinary PBR
@@ -1669,6 +1895,15 @@ function buildLineGroup(
       mesh = buildRectSegment(a, b, radius * 2, radius * 1.4, mat, runDist);
     } else if (style === 'fiberBundle') {
       mesh = buildFiberBundleSegment(a, b, descriptor, mat, runDist);
+    } else if (cryostatPresentation) {
+      // A real transfer line presents one opaque vacuum vessel to the room.
+      // The process/return channels and multilayer insulation are sealed
+      // inside, so exposing a glowing cyan core would make the line read like
+      // clear hose rather than cryogenic plant.
+      const jacketRadius = radius * (descriptor.jacketRadiusScale || 1.6);
+      mesh = buildCylinderSegment(a, b, jacketRadius, cryostatJacketMat, runDist);
+      if (mesh) mesh.userData.isCryostatVacuumJacket = true;
+      addCryostatIdentificationBands(group, a, b, descriptor, cryostatBandMat);
     } else if (style === 'jacketedCylinder') {
       // Inner opaque cylinder + translucent outer jacket — both baked off the
       // same runDist so a flow-patched jacket stays in phase with its core.
@@ -1697,7 +1932,12 @@ function buildLineGroup(
       if (emissiveFlow) mesh.layers.enable(BLOOM_LAYER);
       group.add(mesh);
     }
-    if (descriptor.fittingStyle) addInlineCouplers(group, a, b, descriptor, hardwareMat);
+    if (descriptor.fittingStyle) {
+      addInlineCouplers(
+        group, a, b, descriptor, hardwareMat, flowState,
+        cryostatPresentation ? cryoColdSpots : null,
+      );
+    }
   }
 
   if (!busChannel && includeSupports) {
@@ -1711,12 +1951,16 @@ function buildLineGroup(
   // riser corners — under the port, and again where the tail steps out along
   // the port normal — are interior waypoints of this same polyline, so they get
   // their elbows from this loop with no special case.
-  const jointJacketMat = style === 'jacketedCylinder'
+  const jointJacketMat = style === 'jacketedCylinder' && !cryostatPresentation
     ? getJacketMaterial(line.utilityType, flowState, line.waterCircuit) : null;
   for (let i = 1; !flexible && i < points.length - 1; i++) {
     const prev = points[i - 1], at = points[i], next = points[i + 1];
     if (junctionAtWorldPoint(at, joinedOpenEnds, runY)) continue;
-    const joint = buildCornerJoint(prev, at, next, style, radius, mat, descriptor);
+    const jointRadius = cryostatPresentation
+      ? radius * (descriptor.jacketRadiusScale || 1.6) : radius;
+    const jointMaterial = cryostatPresentation ? cryostatJacketMat : mat;
+    const joint = buildCornerJoint(
+      prev, at, next, style, jointRadius, jointMaterial, descriptor);
     if (joint) group.add(joint);
     if (jointJacketMat) {
       const jacketJoint = buildCornerJoint(
@@ -1725,10 +1969,38 @@ function buildLineGroup(
     }
     const bend = cornerBendInfo(prev, at, next, descriptor);
     if (bend && descriptor.fittingStyle) {
-      const entry = buildServiceFitting(bend.start, bend.incoming, descriptor, hardwareMat);
-      const exit = buildServiceFitting(bend.end, bend.outgoing, descriptor, hardwareMat);
+      const entry = buildServiceFitting(
+        bend.start, bend.incoming, descriptor, hardwareMat, flowState);
+      const exit = buildServiceFitting(
+        bend.end, bend.outgoing, descriptor, hardwareMat, flowState);
       if (entry) group.add(entry);
       if (exit) group.add(exit);
+      if (entry) addCryoColdSpot(bend.start);
+      if (exit) addCryoColdSpot(bend.end);
+    }
+  }
+
+  // Authored cryogenic endpoints terminate in visible demountable bayonets.
+  // Open construction ends keep the conspicuous generic cap instead.
+  if (cryostatPresentation && line.start && points.length >= 2) {
+    const direction = new THREE.Vector3().subVectors(points[1], points[0]).normalize();
+    const fitting = buildServiceFitting(
+      points[0], direction, descriptor, hardwareMat, flowState);
+    if (fitting) {
+      fitting.userData.isCryostatTerminalFitting = true;
+      group.add(fitting);
+      addCryoColdSpot(points[0]);
+    }
+  }
+  if (cryostatPresentation && line.end && points.length >= 2) {
+    const last = points.length - 1;
+    const direction = new THREE.Vector3().subVectors(points[last], points[last - 1]).normalize();
+    const fitting = buildServiceFitting(
+      points[last], direction, descriptor, hardwareMat, flowState);
+    if (fitting) {
+      fitting.userData.isCryostatTerminalFitting = true;
+      group.add(fitting);
+      addCryoColdSpot(points[last]);
     }
   }
 
@@ -1831,8 +2103,12 @@ function buildLineGroup(
     if (!junction.renderHardware) continue;
     const point = new THREE.Vector3(
       junction.point.col * 2, runY, junction.point.row * 2);
-    const fitting = buildTappedJunction(point, junction, descriptor, mat, hardwareMat);
-    if (fitting) group.add(fitting);
+    const fitting = buildTappedJunction(
+      point, junction, descriptor, mat, hardwareMat, flowState);
+    if (fitting) {
+      group.add(fitting);
+      addCryoColdSpot(point);
+    }
   }
 
   const visualEffects = [];
@@ -1862,19 +2138,22 @@ function buildLineGroup(
 
   const ambientPath = points.map((p) => ({ x: p.x, y: p.y, z: p.z }));
   if (line.utilityType === 'cryoTransfer') {
-    visualEffects.push({
-      id: `cryo-mist:${line.id}`,
-      kind: 'ambientMist',
-      path: ambientPath,
-      color: '#dceff5',
-      spacing: 3.4,
-      particlesPerEmitter: 1,
-      cycle: 5.6,
-      activeFraction: 0.32,
-      rise: 0.38,
-      drift: 0.15,
-      radius: 0.105,
-    });
+    if (cryoColdSpots.length > 0) {
+      visualEffects.push({
+        id: `cryo-mist:${line.id}`,
+        kind: 'ambientMist',
+        path: cryoColdSpots.map((p) => ({ x: p.x, y: p.y, z: p.z })),
+        source: 'cryostat-fittings',
+        emitterMode: 'points',
+        color: '#dceff5',
+        particlesPerEmitter: 1,
+        cycle: 6.4,
+        activeFraction: flowState === 'soft' ? 0.28 : 0.18,
+        rise: 0.30,
+        drift: 0.12,
+        radius: 0.085,
+      });
+    }
   } else if (line.utilityType === 'coolingWater') {
     visualEffects.push({
       id: `cooling-drips:${line.id}`,
@@ -1964,6 +2243,10 @@ function buildPreviewLine(preview) {
     : (descriptor.pipeRadiusMeters || 0.04)
       * (busLane ? 0.85 : preview.manifold ? 2.58 : 1.1);
   const style = descriptor.geometryStyle || 'cylinder';
+  const cryostatPresentation = descriptor.presentationStyle === 'cryostatLine';
+  const renderedRadius = cryostatPresentation
+    ? radius * (descriptor.jacketRadiusScale || 1.6) : radius;
+  const previewState = preview.valid === false ? 'hard' : 'ok';
   const mat = getPreviewMaterial(
     preview.utilityType, preview.valid !== false, preview.waterCircuit);
   const hardwareMat = getLineHardwareMaterial(
@@ -1984,9 +2267,16 @@ function buildPreviewLine(preview) {
     } else if (style === 'fiberBundle') {
       mesh = buildFiberBundleSegment(a, b, descriptor, mat);
     } else {
-      mesh = buildCylinderSegment(a, b, radius, mat);
+      mesh = buildCylinderSegment(a, b, renderedRadius, mat);
     }
-    if (mesh) group.add(mesh);
+    if (mesh) {
+      if (cryostatPresentation) mesh.userData.isCryostatVacuumJacket = true;
+      group.add(mesh);
+    }
+    if (cryostatPresentation) {
+      addCryostatIdentificationBands(group, a, b, descriptor, mat);
+      addInlineCouplers(group, a, b, descriptor, hardwareMat, previewState);
+    }
   }
   if (!flexible && !busLane) {
     addUtilitySupports(
@@ -1994,12 +2284,15 @@ function buildPreviewLine(preview) {
   }
   for (let i = 1; !flexible && i < points.length - 1; i++) {
     const prev = points[i - 1], at = points[i], next = points[i + 1];
-    const joint = buildCornerJoint(prev, at, next, style, radius, mat, descriptor);
+    const joint = buildCornerJoint(
+      prev, at, next, style, renderedRadius, mat, descriptor);
     if (joint) group.add(joint);
     const bend = cornerBendInfo(prev, at, next, descriptor);
     if (bend && descriptor.fittingStyle) {
-      const entry = buildServiceFitting(bend.start, bend.incoming, descriptor, hardwareMat);
-      const exit = buildServiceFitting(bend.end, bend.outgoing, descriptor, hardwareMat);
+      const entry = buildServiceFitting(
+        bend.start, bend.incoming, descriptor, hardwareMat, previewState);
+      const exit = buildServiceFitting(
+        bend.end, bend.outgoing, descriptor, hardwareMat, previewState);
       if (entry) group.add(entry);
       if (exit) group.add(exit);
     }
@@ -2012,7 +2305,7 @@ function buildPreviewLine(preview) {
     : (descriptor.fittingStyle
         ? [points[0], points[points.length - 1]] : points);
   for (const p of markerPoints) {
-    const sg = new THREE.SphereGeometry(radius * 1.2, 10, 8);
+    const sg = new THREE.SphereGeometry(renderedRadius * 1.2, 10, 8);
     const sm = new THREE.Mesh(sg, sphereMat);
     sm.position.copy(p);
     group.add(sm);
