@@ -1954,6 +1954,35 @@ export const INFRASTRUCTURE_RAW = {
     ],
     requiredConnections: [],
   },
+  hvWallPassThrough2x2: {
+    id: 'hvWallPassThrough2x2',
+    name: '2×2 HV Cable Wall Feedthrough',
+    desc: 'Two isolated, shielded HV cable passages through one half-wall span. Each numbered terminal pair is omnidirectional and carries no authored power rating: source and downstream equipment remain the only capacity limits.',
+    category: 'power', subsection: 'routingHardware',
+    paletteOrder: 3.125,
+    cost: { funding: 44000 },
+    stats: {}, energyCost: 0,
+    mount: 'wall', wallPassThrough: true, wallSpan: 2,
+    subL: 1, subW: 2, subH: 4, gridW: 2, gridH: 1,
+    geometryType: 'box', baseMaterial: 'metal_dark',
+    spriteKey: 'switchgear', spriteColor: 0x59636b, accentColor: 0xd2a93d,
+    hasSurface: false, placement: 'module', ports: {},
+    // Two electrically isolated conductors: the fitting passes each feeder
+    // through the wall without combining them into a shared bus.
+    electricalGroups: {
+      hvCable: [
+        ['hv_in_1', 'hv_out_1'], ['hv_in_2', 'hv_out_2'],
+      ],
+    },
+    parts: [
+      { shape: 'box', w: 1.78, h: 1.50, l: 0.18, x: 0, y: 2.00, z: 0.60, color: 0x59636b },
+      { shape: 'box', w: 1.78, h: 1.50, l: 0.18, x: 0, y: 2.00, z: -0.60, color: 0x59636b },
+      { shape: 'box', w: 1.90, h: 0.18, l: 1.32, x: 0, y: 3.25, z: 0, color: 0xd2a93d },
+      { shape: 'box', w: 0.38, h: 0.38, l: 1.42, x: -0.45, y: 2.00, z: 0, color: 0x24282c },
+      { shape: 'box', w: 0.38, h: 0.38, l: 1.42, x: 0.45, y: 2.00, z: 0, color: 0x24282c },
+    ],
+    requiredConnections: [],
+  },
   hvWallPassThrough4x4: {
     id: 'hvWallPassThrough4x4',
     name: '4×4 HV Cable Wall Feedthrough',
