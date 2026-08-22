@@ -25,6 +25,14 @@ There are eight connection types, each forming its own independent networks:
 - **Cryo Transfer** (cyan) — carries cryogenic cooling
 - **Data/Fiber** (white) — carries control signals and data
 
+Vacuum pipe, RF waveguide, cryogenic transfer, and rigid water pipe share the
+same forgiving quarter-tile construction rules. Their different standard
+heights let them follow the same plan route. Co-located supports consolidate
+into one multi-level rack, but every line remains an independent network; hot
+and cold water also remain separate circuits and require water wall
+penetrations. Cold water is blue and hot water is red on pipes, hoses, port
+markers, and equipment fittings.
+
 **Distribution buses** shortcut the wiring without changing the physics: a wired bus stands in for the individual stub to every on-pipe sink of its utility within its service radius. It adds no capacity.
 
 ### Network Properties

@@ -26,6 +26,7 @@ import { buildPortRoutedPaths, pathLengthSubUnits } from '../utility/line-geomet
 import { validateDrawLine } from '../utility/line-drawing.js';
 import { isOverheadHvSupport } from '../utility/soft-cable.js';
 import { findUtilityEndpoint, listUtilityEndpoints } from '../utility/utility-endpoints.js';
+import { portWaterCircuit } from '../utility/water-circuits.js';
 import { runWiringCost } from './utility-run-wiring.js';
 
 export const PANEL_AUTO_CONNECT_UTILITY = 'powerCable';
@@ -171,6 +172,13 @@ function rolesCanAutoConnect(originSpec, targetSpec, utilityType) {
       || (utilityType !== 'powerCable' && utilityType !== 'hvCable');
   }
   return originSpec.role === 'pass';
+}
+
+function autoConnectCircuitsMatch(originSpec, targetSpec, utilityType) {
+  if (utilityType !== 'coolingWater') return true;
+  const originCircuit = portWaterCircuit(originSpec);
+  const targetCircuit = portWaterCircuit(targetSpec);
+  return !originCircuit || !targetCircuit || originCircuit === targetCircuit;
 }
 
 // The utility pole's side fitting is authored specifically as the service
@@ -339,6 +347,7 @@ export function planPanelAutoConnect(state, panelId, {
     for (const portName of availablePorts(endpoint, def, utilityType, lines)) {
       const spec = getPortSpec(def, portName);
       if (!outlets.some(outlet => rolesCanAutoConnect(outlet.spec, spec, utilityType)
+          && autoConnectCircuitsMatch(outlet.spec, spec, utilityType)
           && assistedOutletMatchesTarget(
             panelDef, def, outlet.portName, portName, utilityType,
           )
@@ -377,7 +386,8 @@ export function planPanelAutoConnect(state, panelId, {
   const stubs = [];
   let totalSubL = 0;
   const usedOutlets = new Set();
-  const connectedTargets = new Set();
+  const connectedTargetCircuits = new Set();
+  const connectedTargetDevices = new Set();
   const candidateTargets = new Set(candidates.map(candidate => candidate.placeableId));
   const distributionOnly = utilityType === 'coolingWater'
     && coolingOriginClasses.size === 1
@@ -396,7 +406,7 @@ export function planPanelAutoConnect(state, panelId, {
   const remainingCandidates = [...candidates];
 
   while (remainingCandidates.length > 0) {
-    if (connectedTargets.size >= targetLimit) break;
+    if (connectedTargetDevices.size >= targetLimit) break;
     let candidateIndex = 0;
     if (utilityType === 'coolingWater') {
       let bestRank = Infinity;
@@ -411,9 +421,14 @@ export function planPanelAutoConnect(state, panelId, {
       }
     }
     const [sink] = remainingCandidates.splice(candidateIndex, 1);
-    if (connectedTargets.has(sink.placeableId) && !sink.overheadPeer) continue;
+    const sinkCircuit = utilityType === 'coolingWater'
+      ? portWaterCircuit(sink.spec) || 'unspecified'
+      : 'default';
+    const sinkTargetKey = `${sink.placeableId}:${sinkCircuit}`;
+    if (connectedTargetCircuits.has(sinkTargetKey) && !sink.overheadPeer) continue;
     const outletIdx = outlets.findIndex((outlet, index) => !usedOutlets.has(index)
       && rolesCanAutoConnect(outlet.spec, sink.spec, utilityType)
+      && autoConnectCircuitsMatch(outlet.spec, sink.spec, utilityType)
       && assistedOutletMatchesTarget(
         panelDef,
         COMPONENTS[sink.targetType],
@@ -454,7 +469,8 @@ export function planPanelAutoConnect(state, panelId, {
     });
     totalSubL += subL;
     usedOutlets.add(outletIdx);
-    connectedTargets.add(sink.placeableId);
+    connectedTargetCircuits.add(sinkTargetKey);
+    connectedTargetDevices.add(sink.placeableId);
     if (utilityType === 'coolingWater') {
       for (const capability of coolingCapabilities(sink.spec)) {
         coveredCoolingCapabilities.add(capability);
@@ -469,7 +485,7 @@ export function planPanelAutoConnect(state, panelId, {
     candidates: candidateTargets.size,
     outlets: outlets.length,
     stubs,
-    skipped: Math.max(0, candidateTargets.size - connectedTargets.size),
+    skipped: Math.max(0, candidateTargets.size - connectedTargetDevices.size),
     totalSubL,
     cost: runWiringCost(utilityType, totalSubL),
   };

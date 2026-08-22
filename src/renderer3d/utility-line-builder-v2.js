@@ -41,6 +41,7 @@ import {
   waveguideDropProfile,
   waveguideTransitionPoints,
 } from './waveguide-presentation.js';
+import { portWaterCircuit } from '../utility/water-circuits.js';
 
 // DEFAULT line centerline height. Per-utility heights come from
 // utilityLineHeight (registry): a power cord lies on the floor while a vacuum
@@ -63,8 +64,17 @@ let _utilitySupportMaterial = null;
 let _universalBusMaterial = null;
 const _universalBusPreviewMaterials = new Map();
 
-function matKey(utilityType, errorStatus) {
-  return `${utilityType}|${errorStatus || 'ok'}`;
+function utilityCircuitColor(utilityType, waterCircuit = null) {
+  const descriptor = UTILITY_TYPES[utilityType];
+  if ((utilityType === 'waterSupplyPipe' || utilityType === 'coolingWater')
+      && waterCircuit === 'hot') {
+    return descriptor?.hotColor || '#c45b42';
+  }
+  return descriptor?.color || '#ffffff';
+}
+
+function matKey(utilityType, errorStatus, waterCircuit = null) {
+  return `${utilityType}|${errorStatus || 'ok'}|${waterCircuit || '-'}`;
 }
 
 // Every cached material is tagged shared so the disposers can tell it apart
@@ -157,18 +167,19 @@ function buildUniversalBusPreview(points, valid = true) {
 // 'ok' | 'soft' | 'hard' — so a faulted run keeps its colour but stutters,
 // dims or stops, which is why the cache key below is per-status again: this
 // is a distinct material variant, just not a distinct colour.
-export function getLineMaterial(utilityType, errorStatus) {
+export function getLineMaterial(utilityType, errorStatus, waterCircuit = null) {
   const flowState = errorStatus || 'ok';
-  const key = matKey(utilityType, flowState);
+  const key = matKey(utilityType, flowState, waterCircuit);
   if (_matCache.has(key)) return _matCache.get(key);
-  const descriptor = UTILITY_TYPES[utilityType];
-  const color = descriptor?.color || '#ffffff';
+  const color = utilityCircuitColor(utilityType, waterCircuit);
   const mat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(color),
     roughness: 0.4,
     metalness: 0.3,
   });
-  if (FLOW_PARAMS[utilityType]) patchFlowMaterial(mat, utilityType, flowState);
+  if (FLOW_PARAMS[utilityType]) {
+    patchFlowMaterial(mat, utilityType, flowState, color);
+  }
   _matCache.set(key, shared(mat));
   return mat;
 }
@@ -178,18 +189,19 @@ export function getLineMaterial(utilityType, errorStatus) {
 // (rather than just standing between the viewer and the core's) is the
 // physically-grounded read, and see buildLineGroup's BLOOM_LAYER handling for
 // why the jacket has to bloom too or it occludes the core it's wrapping.
-function getJacketMaterial(utilityType, errorStatus) {
+function getJacketMaterial(utilityType, errorStatus, waterCircuit = null) {
   const flowState = errorStatus || 'ok';
-  const key = matKey(utilityType, flowState);
+  const key = matKey(utilityType, flowState, waterCircuit);
   if (_jacketMatCache.has(key)) return _jacketMatCache.get(key);
-  const descriptor = UTILITY_TYPES[utilityType];
-  const color = descriptor?.color || '#ffffff';
+  const color = utilityCircuitColor(utilityType, waterCircuit);
   const mat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(color),
     roughness: 0.5, metalness: 0.1,
     transparent: true, opacity: 0.35,
   });
-  if (FLOW_PARAMS[utilityType]) patchFlowMaterial(mat, utilityType, flowState);
+  if (FLOW_PARAMS[utilityType]) {
+    patchFlowMaterial(mat, utilityType, flowState, color);
+  }
   _jacketMatCache.set(key, shared(mat));
   return mat;
 }
@@ -197,17 +209,18 @@ function getJacketMaterial(utilityType, errorStatus) {
 // Elbow flanges and guide collars are hardware, not flowing contents. Keeping
 // them on a separate metallic material makes every joint legible even when the
 // service body is dark or carrying an emissive flow pulse.
-function getLineHardwareMaterial(utilityType) {
-  if (_hardwareMatCache.has(utilityType)) return _hardwareMatCache.get(utilityType);
+function getLineHardwareMaterial(utilityType, waterCircuit = null) {
+  const key = `${utilityType}|${waterCircuit || '-'}`;
+  if (_hardwareMatCache.has(key)) return _hardwareMatCache.get(key);
   const color = utilityType === 'vacuumPipe' ? '#c4c9cc'
     : utilityType === 'rfWaveguide' ? '#b9783f'
-      : (UTILITY_TYPES[utilityType]?.color || '#aaaaaa');
+      : utilityCircuitColor(utilityType, waterCircuit);
   const mat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(color),
     roughness: 0.26,
     metalness: 0.78,
   });
-  _hardwareMatCache.set(utilityType, shared(mat));
+  _hardwareMatCache.set(key, shared(mat));
   return mat;
 }
 
@@ -995,6 +1008,111 @@ function addUtilitySupports(
   }
 }
 
+function supportStationKey(frame) {
+  const axis = Math.abs(frame.direction.x) >= Math.abs(frame.direction.z) ? 'x' : 'z';
+  return `${Math.round(frame.point.x * 1000)}:${Math.round(frame.point.z * 1000)}:${axis}`;
+}
+
+// Co-located rigid services are independent networks but share one physical
+// rack. Building a complete H-frame for every line puts coincident feet and
+// uprights on top of each other (and produces visible z-fighting). One rack
+// instead owns a shelf beneath each occupied service datum.
+function buildStackedUtilitySupport(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) return null;
+  if (entries.length === 1) {
+    const entry = entries[0];
+    const support = buildUtilitySupport(
+      entry.frame, entry.descriptor, entry.utilityType);
+    if (support) support.userData.lineIds = [...entry.lineIds];
+    return support;
+  }
+
+  const material = getUtilitySupportMaterial();
+  const shelves = [];
+  for (const entry of entries) {
+    const radius = entry.descriptor?.pipeRadiusMeters || 0.05;
+    const style = entry.descriptor?.geometryStyle || 'cylinder';
+    const bodyHalfWidth = style === 'jacketedCylinder' ? radius * 1.6 : radius;
+    const bodyHalfHeight = style === 'rectWaveguide' ? radius * 0.7 : bodyHalfWidth;
+    shelves.push({
+      y: entry.frame.point.y - bodyHalfHeight - 0.006,
+      bodyHalfWidth,
+      utilityTypes: [entry.utilityType],
+      lineIds: [...entry.lineIds],
+      centerlineHeight: entry.frame.point.y,
+    });
+  }
+  shelves.sort((a, b) => a.y - b.y);
+
+  // If two joined fragments happen to schedule a support at the same station,
+  // collapse their identical shelf instead of rendering duplicate steel.
+  const uniqueShelves = [];
+  for (const shelf of shelves) {
+    const existing = uniqueShelves.find(item => Math.abs(item.y - shelf.y) < 1e-5);
+    if (existing) {
+      existing.bodyHalfWidth = Math.max(existing.bodyHalfWidth, shelf.bodyHalfWidth);
+      existing.utilityTypes.push(...shelf.utilityTypes);
+      existing.lineIds.push(...shelf.lineIds);
+    } else uniqueShelves.push(shelf);
+  }
+
+  const support = new THREE.Group();
+  const footH = 0.025;
+  const barH = 0.032;
+  const saddleWidth = Math.max(
+    0.52,
+    ...uniqueShelves.map(shelf => shelf.bodyHalfWidth * 4.5),
+  );
+  const depth = 0.13;
+  const foot = new THREE.Mesh(
+    new THREE.BoxGeometry(saddleWidth + 0.10, footH, depth + 0.07), material);
+  foot.position.y = footH * 0.5;
+  foot.userData.utilitySupportPart = 'foot';
+  support.add(foot);
+
+  for (const shelf of uniqueShelves) {
+    const barBottom = shelf.y - barH;
+    if (barBottom <= footH + 0.015) continue;
+    const bar = new THREE.Mesh(
+      new THREE.BoxGeometry(saddleWidth + 0.04, barH, depth), material);
+    bar.position.y = barBottom + barH * 0.5;
+    bar.userData = {
+      utilitySupportPart: 'saddle',
+      utilityTypes: [...new Set(shelf.utilityTypes)],
+      centerlineHeight: shelf.centerlineHeight,
+    };
+    support.add(bar);
+  }
+
+  const top = Math.max(...uniqueShelves.map(shelf => shelf.y - barH));
+  const legH = top - footH;
+  const legOffset = saddleWidth * 0.5 - 0.035;
+  for (const side of [-1, 1]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.04, legH, 0.055), material);
+    leg.position.set(side * legOffset, footH + legH * 0.5, 0);
+    leg.userData.utilitySupportPart = 'leg';
+    support.add(leg);
+  }
+
+  const first = entries[0];
+  const utilityTypes = [...new Set(entries.map(entry => entry.utilityType))];
+  const lineIds = [...new Set(entries.flatMap(entry => [...entry.lineIds]))];
+  support.position.set(first.frame.point.x, 0, first.frame.point.z);
+  support.rotation.y = Math.atan2(first.frame.direction.x, first.frame.direction.z);
+  support.userData = {
+    isUtilitySupport: true,
+    isRigidUtilityRack: true,
+    utilityType: 'rigidUtilityStack',
+    utilityTypes,
+    lineIds,
+    centerlineHeights: uniqueShelves.map(shelf => shelf.centerlineHeight),
+    stackedServiceCount: uniqueShelves.length,
+    legHeight: legH,
+    groundY: 0,
+  };
+  return support;
+}
+
 // --- Elbows -------------------------------------------------------------
 //
 // Straight segments butt-joined at a waypoint leave a notch on the OUTSIDE of
@@ -1226,7 +1344,7 @@ export function buildSuspendedUniversalBusWorldPoints(line) {
 
 function buildLineGroup(
   line, placeablesById, errorStatus, flowState, reversed, pointOverride = null,
-  joinedOpenEnds = null, tapAnchors = null,
+  joinedOpenEnds = null, tapAnchors = null, includeSupports = true,
 ) {
   const descriptor = UTILITY_TYPES[line.utilityType];
   if (!descriptor) return null;
@@ -1282,8 +1400,8 @@ function buildLineGroup(
   };
   const radius = (descriptor.pipeRadiusMeters || 0.04)
     * (busChannel ? 0.85 : line.manifold ? 2.35 : 1);
-  const mat = getLineMaterial(line.utilityType, flowState);
-  const hardwareMat = getLineHardwareMaterial(line.utilityType);
+  const mat = getLineMaterial(line.utilityType, flowState, line.waterCircuit);
+  const hardwareMat = getLineHardwareMaterial(line.utilityType, line.waterCircuit);
   const style = descriptor.geometryStyle || 'cylinder';
   const flow = FLOW_PARAMS[line.utilityType];
   const flowing = !!flow && flowState !== 'off';
@@ -1345,7 +1463,8 @@ function buildLineGroup(
       // Inner opaque cylinder + translucent outer jacket — both baked off the
       // same runDist so a flow-patched jacket stays in phase with its core.
       mesh = buildCylinderSegment(a, b, radius, mat, runDist);
-      const jacketMat = getJacketMaterial(line.utilityType, flowState);
+      const jacketMat = getJacketMaterial(
+        line.utilityType, flowState, line.waterCircuit);
       const jacket = buildCylinderSegment(a, b, radius * 1.6, jacketMat, runDist);
       if (jacket) {
         // The darken pass (glow-pipeline.js) swaps any non-bloom object's
@@ -1371,7 +1490,7 @@ function buildLineGroup(
     if (descriptor.fittingStyle) addInlineCouplers(group, a, b, descriptor, hardwareMat);
   }
 
-  if (!busChannel) {
+  if (!busChannel && includeSupports) {
     addUtilitySupports(
       group, points, descriptor, line.utilityType, null, line.routeHeightMeters);
   }
@@ -1383,7 +1502,7 @@ function buildLineGroup(
   // the port normal — are interior waypoints of this same polyline, so they get
   // their elbows from this loop with no special case.
   const jointJacketMat = style === 'jacketedCylinder'
-    ? getJacketMaterial(line.utilityType, flowState) : null;
+    ? getJacketMaterial(line.utilityType, flowState, line.waterCircuit) : null;
   for (let i = 1; !flexible && i < points.length - 1; i++) {
     const prev = points[i - 1], at = points[i], next = points[i + 1];
     const joint = buildCornerJoint(prev, at, next, style, radius, mat, descriptor);
@@ -1521,7 +1640,7 @@ function buildLineGroup(
       id: `utility-flow:${line.id}`,
       kind: 'pathPulse',
       path: effectPoints.map((p) => ({ x: p.x, y: p.y, z: p.z })),
-      color: flow.color || descriptor.color || '#ffffff',
+      color: flow.color || utilityCircuitColor(line.utilityType, line.waterCircuit),
       speed: flow.speed,
       period: flow.period,
       crest: false,
@@ -1572,11 +1691,10 @@ function buildLineGroup(
 
 // Cached translucent materials for the draw preview, keyed by utility type.
 const _previewMatCache = new Map();
-function getPreviewMaterial(utilityType, valid = true) {
-  const key = `${utilityType}|${valid ? 'valid' : 'blocked'}`;
+function getPreviewMaterial(utilityType, valid = true, waterCircuit = null) {
+  const key = `${utilityType}|${valid ? 'valid' : 'blocked'}|${waterCircuit || '-'}`;
   if (_previewMatCache.has(key)) return _previewMatCache.get(key);
-  const descriptor = UTILITY_TYPES[utilityType];
-  const color = valid ? (descriptor?.color || '#ffffff') : '#ff4f38';
+  const color = valid ? utilityCircuitColor(utilityType, waterCircuit) : '#ff4f38';
   const mat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(color),
     roughness: 0.3, metalness: 0.1,
@@ -1640,8 +1758,10 @@ function buildPreviewLine(preview) {
     : (descriptor.pipeRadiusMeters || 0.04)
       * (busLane ? 0.85 : preview.manifold ? 2.58 : 1.1);
   const style = descriptor.geometryStyle || 'cylinder';
-  const mat = getPreviewMaterial(preview.utilityType, preview.valid !== false);
-  const hardwareMat = getLineHardwareMaterial(preview.utilityType);
+  const mat = getPreviewMaterial(
+    preview.utilityType, preview.valid !== false, preview.waterCircuit);
+  const hardwareMat = getLineHardwareMaterial(
+    preview.utilityType, preview.waterCircuit);
   const flexibleMesh = flexible
     ? buildFlexibleCable(points, radius, mat, false, suspendedBusLane ? null : previewY)
     : null;
@@ -1726,7 +1846,11 @@ function getPortMarkerMaterial(color, brightened) {
 // colour — identity matters — but a descriptor may override it when its cable
 // colour is unusable as UI. HV feeders are black so they read as trunk on the
 // hall floor; black port dots on dark equipment would be invisible.
-function markerColorFor(descriptor) {
+function markerColorFor(descriptor, waterCircuit = null) {
+  if ((descriptor?.type === 'waterSupplyPipe' || descriptor?.type === 'coolingWater')
+      && waterCircuit) {
+    return utilityCircuitColor(descriptor.type, waterCircuit);
+  }
   return (descriptor && (descriptor.markerColor || descriptor.color)) || '#ffff88';
 }
 
@@ -1764,7 +1888,7 @@ function buildPortMarker(anchor, color, brightened) {
 function buildHoverMarker(hoverPort) {
   if (!hoverPort || !hoverPort.worldPos) return null;
   const descriptor = hoverPort.utilityType ? UTILITY_TYPES[hoverPort.utilityType] : null;
-  const color = markerColorFor(descriptor);
+  const color = markerColorFor(descriptor, hoverPort.waterCircuit);
   // Tapping a trunk and grabbing a port are different commitments — one makes
   // a T-join on an existing run, the other claims a connector — so they must
   // not look alike. A ring around the line reads as "join here".
@@ -1876,6 +2000,8 @@ export class UtilityLineBuilderV2 {
     this._lineHashes = new Map();
     this._busGroups = new Map();
     this._busHashes = new Map();
+    this._rigidSupportGroup = null;
+    this._rigidSupportHash = null;
     this._focusLineIds = null;
     // line.id → one short-lived interpolation from the just-drawn hand shape
     // to its deterministic, gravity-settled rope solve.
@@ -2041,7 +2167,7 @@ export class UtilityLineBuilderV2 {
       }
       const group = buildLineGroup(
         line, placeablesById, errorStatus, flowState, reversed,
-        pointOverride, joinedOpenEnds, tapAnchors);
+        pointOverride, joinedOpenEnds, tapAnchors, false);
       if (group) {
         parentGroup.add(group);
         this._lineGroups.set(line.id, group);
@@ -2066,6 +2192,7 @@ export class UtilityLineBuilderV2 {
         this._dragCableStates.delete(id);
       }
     }
+    this._buildRigidUtilitySupports(records, placeablesById, lineById, parentGroup);
     this._buildUtilityBuses(opts.state?.utilityBuses || [], parentGroup);
     this._applyFocus();
     this._hasBuiltOnce = true;
@@ -2111,6 +2238,84 @@ export class UtilityLineBuilderV2 {
     for (const [busId, group] of this._busGroups) {
       this._setGroupFocusDimmed(group, !!focus && !focusedBusIds.has(busId));
     }
+    if (this._rigidSupportGroup) {
+      const lineIds = this._rigidSupportGroup.userData?.lineIds || [];
+      this._setGroupFocusDimmed(
+        this._rigidSupportGroup,
+        !!focus && !lineIds.some(lineId => focus.has(lineId)),
+      );
+    }
+  }
+
+  _buildRigidUtilitySupports(records, placeablesById, lineById, parentGroup) {
+    const rigid = records.filter(line => {
+      const descriptor = UTILITY_TYPES[line?.utilityType];
+      return line?.id && !line.manifold && descriptor?.fixedRouteHeight === true
+        && descriptor.supportSpacingMeters > 0
+        && descriptor.supportMinimumRunMeters > 0;
+    });
+    const hash = rigid.map(line => this._hashLine(line, placeablesById)).sort().join('|');
+    if (hash === this._rigidSupportHash && this._rigidSupportGroup) {
+      // A changed fault/flow state can rebuild a line group while the rack
+      // hash stays stable. Keep racks after line groups in scene order so
+      // render consumers never mistake support geometry for the rebuilt line.
+      parentGroup.remove(this._rigidSupportGroup);
+      parentGroup.add(this._rigidSupportGroup);
+      return;
+    }
+    if (this._rigidSupportGroup) {
+      parentGroup.remove(this._rigidSupportGroup);
+      this._disposeGroup(this._rigidSupportGroup);
+      this._rigidSupportGroup = null;
+    }
+    this._rigidSupportHash = hash;
+    if (rigid.length === 0) return;
+
+    const stations = new Map();
+    for (const line of rigid) {
+      const descriptor = UTILITY_TYPES[line.utilityType];
+      const tapAnchors = {
+        start: busTapAnchor(line, 'start', lineById),
+        end: busTapAnchor(line, 'end', lineById),
+      };
+      const points = buildWorldPoints(line, placeablesById, tapAnchors);
+      const runY = utilityLineHeight(line.utilityType, line.routeHeightMeters);
+      const frames = utilitySupportFrames(points, {
+        floorY: runY,
+        spacingMeters: descriptor.supportSpacingMeters,
+        minimumRunMeters: descriptor.supportMinimumRunMeters,
+      });
+      for (const frame of frames) {
+        const key = supportStationKey(frame);
+        const list = stations.get(key) || [];
+        const sameShelf = list.find(entry =>
+          entry.utilityType === line.utilityType
+          && Math.abs(entry.frame.point.y - frame.point.y) < 1e-5);
+        if (sameShelf) sameShelf.lineIds.add(line.id);
+        else list.push({
+          frame,
+          descriptor,
+          utilityType: line.utilityType,
+          lineIds: new Set([line.id]),
+        });
+        stations.set(key, list);
+      }
+    }
+
+    const group = new THREE.Group();
+    const allLineIds = new Set();
+    for (const entries of stations.values()) {
+      const support = buildStackedUtilitySupport(entries);
+      if (!support) continue;
+      for (const lineId of support.userData.lineIds || []) allLineIds.add(lineId);
+      group.add(support);
+    }
+    group.userData = {
+      isRigidUtilitySupportGroup: true,
+      lineIds: [...allLineIds],
+    };
+    parentGroup.add(group);
+    this._rigidSupportGroup = group;
   }
 
   /** Keep the utility runs serving a selected beamline fully opaque. */
@@ -2443,6 +2648,7 @@ export class UtilityLineBuilderV2 {
   setPreview(preview, parentGroup) {
     const sig = preview && preview.path && preview.path.length
       ? preview.utilityType + '|' + preview.valid + '|' +
+        (preview.waterCircuit || '-') + '|' +
         (Number.isFinite(preview.routeHeightMeters)
           ? preview.routeHeightMeters.toFixed(3) : 'default') + '|' +
         preview.path.map(p => `${p.col},${p.row},${p.subCol ?? 0},${p.subRow ?? 0}`).join(';') + '|'
@@ -2475,11 +2681,15 @@ export class UtilityLineBuilderV2 {
       : hoverPort?.tap
       ? `tap:${hoverPort.lineId}`
       : hoverPort ? `${hoverPort.placeableId}:${hoverPort.portName}` : null;
-    const anchor = key ? this._anchorByKey.get(key) : null;
-    const resolved = anchor ? { ...hoverPort, anchor } : hoverPort;
+    const cached = key ? this._anchorByKey.get(key) : null;
+    const resolved = cached ? {
+      ...hoverPort,
+      anchor: cached.anchor,
+      waterCircuit: hoverPort.waterCircuit || cached.waterCircuit,
+    } : hoverPort;
     const point = resolved?.anchor || resolved?.worldPos || resolved;
     const sig = key
-      ? `${key}|${point?.x ?? ''},${point?.y ?? ''},${point?.z ?? ''}|${resolved?.routeHeightMeters ?? ''}`
+      ? `${key}|${point?.x ?? ''},${point?.y ?? ''},${point?.z ?? ''}|${resolved?.routeHeightMeters ?? ''}|${resolved?.waterCircuit ?? ''}`
       : null;
     if (sig === this._hoverSig) return false;
     this._hoverSig = sig;
@@ -2507,8 +2717,12 @@ export class UtilityLineBuilderV2 {
    * @param {{placeableId, portName}|null} hoverPort currently-snapped port
    * @param {{placeableId, portName}|null} drawStart start-anchor (skip its marker)
    * @param {THREE.Group} parentGroup
+   * @param {'cold'|'hot'|null} selectedWaterCircuit palette-selected Water Line variant
    */
-  setAvailablePorts(utilityType, placeables, utilityLines, hoverPort, drawStart, parentGroup) {
+  setAvailablePorts(
+    utilityType, placeables, utilityLines, hoverPort, drawStart, parentGroup,
+    selectedWaterCircuit = null,
+  ) {
     // Clear old markers.
     if (this._portMarkerGroup) {
       parentGroup.remove(this._portMarkerGroup);
@@ -2520,7 +2734,6 @@ export class UtilityLineBuilderV2 {
     const group = new THREE.Group();
     group.userData = { isUtilityPortMarkers: true };
     const desc = UTILITY_TYPES[utilityType];
-    const color = markerColorFor(desc);
     const hoverKey = hoverPort
       ? `${hoverPort.placeableId}:${hoverPort.portName}`
       : null;
@@ -2532,12 +2745,16 @@ export class UtilityLineBuilderV2 {
       if (!def || !def.ports) continue;
       const avail = availablePortsFor(placeable, def, utilityType, utilityLines);
       for (const name of avail) {
+        const waterCircuit = portWaterCircuit(def.ports[name]);
+        if (selectedWaterCircuit && waterCircuit
+            && waterCircuit !== selectedWaterCircuit) continue;
         const key = `${placeable.id}:${name}`;
         const anchor = portAnchor3D(placeable, def, name);
         if (!anchor) continue;
+        const color = markerColorFor(desc, waterCircuit);
         // Cached for setHoverPort, which is handed a port identity by the
         // controller and has no endpoint record of its own to resolve against.
-        this._anchorByKey.set(key, anchor);
+        this._anchorByKey.set(key, { anchor, waterCircuit });
         if (key === startKey) continue; // don't show indicator on start anchor
         const marker = buildPortMarker(anchor, color, key === hoverKey);
         group.add(marker);
@@ -2604,6 +2821,12 @@ export class UtilityLineBuilderV2 {
     }
     this._busGroups.clear();
     this._busHashes.clear();
+    if (this._rigidSupportGroup) {
+      parentGroup.remove(this._rigidSupportGroup);
+      this._disposeGroup(this._rigidSupportGroup);
+      this._rigidSupportGroup = null;
+    }
+    this._rigidSupportHash = null;
     this._relaxations.clear();
     this._dragCableStates.clear();
     this._dragLineIds.clear();
@@ -2644,6 +2867,7 @@ export class UtilityLineBuilderV2 {
     const pathStr = (line.path || []).map(p => `${p.col},${p.row}`).join(';');
     const routeHeightStr = Number.isFinite(line.routeHeightMeters)
       ? line.routeHeightMeters.toFixed(3) : 'default';
+    const waterCircuitStr = line.waterCircuit || '-';
     const cableStr = (line.cablePath || []).map(p => `${p.col},${p.row}`).join(';');
     const tapStr = `${line.tapLineIds?.start || '-'}:${line.tapLineIds?.end || '-'}`;
     // Explicit "open" marker distinguishes a null endpoint (dangling) from
@@ -2671,7 +2895,7 @@ export class UtilityLineBuilderV2 {
       ? `${line.manifold.type || '-'}:${line.manifold.trayFamily || '-'}:`
         + (line.manifold.taps || []).map(t => `${t.point?.col},${t.point?.row},${t.point?.subCol},${t.point?.subRow}`).join(';')
       : '-';
-    return `${line.utilityType}|${routeHeightStr}|${pathStr}|${cableStr}|${tapStr}|${manifoldStr}|${startStr}|${endStr}`;
+    return `${line.utilityType}|${waterCircuitStr}|${routeHeightStr}|${pathStr}|${cableStr}|${tapStr}|${manifoldStr}|${startStr}|${endStr}`;
   }
 
   _disposeGroup(group) {

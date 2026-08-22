@@ -582,16 +582,19 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
     const far = game.beamline.placeJunction({type:'faradayCup', col:8, row:12, dir:3}); renderer.refresh(); await sleep(600);
     const pipe = game.beamline.drawPipe({junctionId:src,portName:'exit'},{junctionId:far,portName:'entry'},[{col:0,row:12},{col:8,row:12}]);
     renderer.refresh(); panTo(4,7,1.3); await sleep(800);
+    let demoQuad = null;
+    let demoCavity = null;
     let demoBpm = null;
     if (pipe) {
-      game.beamline.placeOnPipe(pipe,{type:'quadrupole',position:0.25,mode:'snap'}); renderer.refresh(); await sleep(500);
-      game.beamline.placeOnPipe(pipe,{type:'rfCavity',position:0.55,mode:'snap'}); renderer.refresh(); await sleep(500);
+      demoQuad = game.beamline.placeOnPipe(pipe,{type:'quadrupole',position:0.25,mode:'snap'}); renderer.refresh(); await sleep(500);
+      demoCavity = game.beamline.placeOnPipe(pipe,{type:'rfCavity',position:0.55,mode:'snap'}); renderer.refresh(); await sleep(500);
       demoBpm = game.beamline.placeOnPipe(pipe,{type:'bpm',position:0.85,mode:'snap'}); renderer.refresh(); await sleep(500);
     }
     // Utility gating: every ON-PIPE component is gated individually too, so
     // the showcase has to feed the quad / cavity / BPM as well as the two
-    // junctions. Row 13 is the distribution row (one bus per utility, each
-    // standing in for a handful of stubs), row 14 the service row. The
+    // junctions. Row 13 is the distribution row: power/vacuum/RF retain their
+    // compact distribution affordances, while cooling uses a physical paired
+    // cold/hot LCW manifold. Row 14 is the service row. The
     // 2856 MHz cavity needs a source covering S-band — an SSA stops at UHF,
     // and a frequency mismatch is only a soft error, so getting it wrong would
     // show a dead beam with no blocker to explain it.
@@ -617,10 +620,13 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
     for (const [id, port] of [[src,'vac_in'],[far,'vac_in'],[vacBus,'bus_left']])
       wire('vacuumPipe', pump,'vac_out', id, port);
     wire('rfWaveguide', kly,'rf_out', rfBus,'bus_left');
-    wire('coolingWater', tank,'cool_out', condenser,'cool_out');
-    wire('coolingWater', condenser,'cool_out', chil,'cool_out');
-    for (const [id, port] of [[src,'cool_in'],[coolBus,'bus_left']])
-      wire('coolingWater', chil,'cool_out', id, port);
+    wire('waterSupplyPipe', tank,'water_supply_out', chil,'water_in');
+    wire('waterSupplyPipe', chil,'supply_cold_out', coolBus,'supply_cold');
+    for (const [index, id] of [src, demoQuad, demoCavity].entries()) {
+      wire('coolingWater', coolBus,`cold_${index + 1}`, id,'cool_in');
+      wire('coolingWater', coolBus,`hot_${index + 1}`, id,'hot_out');
+    }
+    wire('waterSupplyPipe', coolBus,'supply_hot', condenser,'supply_hot_1');
     for (const [id, port] of [[far,'data_in'],[demoBpm,'data_in']])
       wire('dataFiber', ioc,'data_out', id, port);
     renderer.refresh(); await sleep(500);

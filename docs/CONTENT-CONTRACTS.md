@@ -150,10 +150,16 @@ the short authoring contract.
   vacuum pipe are independent fabricated services. They may follow the same
   plan route because each owns a distinct facility-wide elevation. Sharing X/Z
   coordinates never joins their topology or combines their capacity.
+- Fabricated services share one routing-permissibility contract: quarter-tile
+  Manhattan paths, immediate bends at fittings, automatic same-service contact
+  joins, measured 3D equipment clearance at the service's actual datum, and
+  vertical coexistence with every other fabricated service. Water retains its
+  explicit wall-penetration rule and hot/cold circuit isolation.
 - All fabricated rigid services use the same support spacing and minimum-run
   threshold. Identical plan paths therefore put every H-frame at the same plan
-  station, visually forming a vertical service rack without introducing a bus
-  object or shared carrier network.
+  station. Coincident frames consolidate into one multi-level support rack with
+  one shelf per occupied datum, without introducing a bus object or shared
+  carrier network. The supported lines remain independently selectable.
 - `universalUtilityBus` is retired compatibility content. It remains registered
   with `deprecated: true` only so older facilities can load and be demolished;
   palettes, linked collections, search, and research rewards must not advertise
@@ -190,11 +196,12 @@ the short authoring contract.
 - Cooling-water assisted wiring uses `autoConnectClass` in addition to the
   solver's source/sink/pass role. `coolingLoadBranch` feeds ordinary cooling
   sinks; `coolingPlantLink` joins chillers, storage, make-up and heat rejection;
-  `coolingDistributionFeed` joins an integrated package plant to a
-  `coolingDistribution` manifold. A manifold plans one upstream connection and
-  relies on its service radius instead of drawing a separate hose to each load.
-  These classes guide assisted routing only: they do not split the component's
-  internally shared cooling header or change its published capacity.
+  and `coolingDistributionFeed` is reserved for compatibility distribution
+  content. The LCW manifold has no service radius: it fans out four cold and
+  four hot `coolingLoadBranch` hoses from one rigid cold header and one rigid
+  hot header. Assisted wiring pairs ports by `waterCircuit` and may connect both
+  circuits on one load. These classes guide assisted routing only; they do not
+  change published capacity.
 - Electrical distributors and transformers add no demand of their own. Their
   HV inlet draws the actual connected downstream HV/branch load, capped by the
   device rating; unused nameplate capacity does not consume upstream supply.
@@ -275,8 +282,10 @@ the short authoring contract.
   equipment fittings remain on their visible hardware and use short local
   transitions to these datums. Every rigid descriptor uses the shared 3 m
   support spacing and 3 m minimum supported-run threshold, so co-located runs
-  form an aligned vertical stack. Runs remain independent by utility and water
-  circuit. Retired saved `routeHeightMeters` values cannot override a fixed
+  form an aligned vertical stack on consolidated rack frames. Route planning
+  and equipment collision must use the selected water circuit's height rather
+  than the descriptor's default cold height. Runs remain independent by
+  utility and water circuit. Retired saved `routeHeightMeters` values cannot override a fixed
   datum, except the two authored water-circuit datums are both valid.
 - A utility descriptor with `requiresWallPassThrough: true` validates the
   physical rendered route against `wallOccupied`. Power and HV cable opt in;
@@ -285,6 +294,14 @@ the short authoring contract.
   Flexible cooling-water lines also opt in and cannot cross walls directly.
   Rigid water supply pipe crosses only through a matching 1×1 or 2×2 water
   pipe penetration. Vacuum, RF, and cryogenic services retain direct crossing.
+- Water line bodies, previews, flow arrows, equipment fittings, and available
+  port markers use blue for `cold` and red for `hot`. The LCW manifold's
+  detailed model carries the same blue supply and red return header colors.
+- The Water Line palette item exposes remembered `Cold Water` and `Hot Water`
+  variants. That selection is a circuit constraint, not cosmetic tint: it
+  filters port markers, snapping, run-wiring targets, previews, taps, and the
+  committed line's `waterCircuit`. Directly dragging an unarmed water port
+  infers the same variant from that port.
 - An HV cable whose two endpoints are overhead terminals on utility poles or
   transmission towers is an elevated span and may cross any wall or fence in
   plan view. The exception requires two overhead support ports; the pole's

@@ -40,6 +40,7 @@ import {
   usesFlexibleSubtileRouting,
 } from '../utility/routing-contract.js';
 import { listUtilityEndpoints, findUtilityEndpoint } from '../utility/utility-endpoints.js';
+import { portWaterCircuit } from '../utility/water-circuits.js';
 
 // Half-width of the run corridor, in tiles. A sink port counts as "passed" if
 // it lies within this distance of the dragged path. Ports sit on the edge of a
@@ -138,6 +139,7 @@ export function buildRunStubPath(srcTile, srcVec, sinkTile, sinkVec, preferVerti
  */
 export function planUtilityRun(state, {
   utilityType,
+  waterCircuit = null,
   source,
   runPath,
   corridor = RUN_CORRIDOR_TILES,
@@ -158,6 +160,8 @@ export function planUtilityRun(state, {
   // The drag has to be anchored on a source port: a sink is claimed by the
   // first line and every later stub would reject with port_taken.
   if (!srcSpec || srcSpec.utility !== utilityType || srcSpec.role !== 'source') return empty;
+  const sourceCircuit = portWaterCircuit(srcSpec);
+  if (waterCircuit && sourceCircuit && sourceCircuit !== waterCircuit) return empty;
 
   // How many stubs this gesture can start, and from where.
   //
@@ -172,7 +176,11 @@ export function planUtilityRun(state, {
   const fanOut = (UTILITY_TYPES[utilityType] || {}).fansOut !== false;
   const outletNames = fanOut
     ? [source.portName]
-    : orderedFreeOutlets(srcEndpoint, srcDef, utilityType, state.utilityLines, source.portName);
+    : orderedFreeOutlets(srcEndpoint, srcDef, utilityType, state.utilityLines, source.portName)
+      .filter(name => {
+        const circuit = portWaterCircuit(getPortSpec(srcDef, name));
+        return !waterCircuit || !circuit || circuit === waterCircuit;
+      });
   const outlets = [];
   for (const name of outletNames) {
     const vec = portApproachVec(srcEndpoint, srcDef, name);
@@ -197,6 +205,8 @@ export function planUtilityRun(state, {
     for (const portName of availablePorts(endpoint, def, utilityType, lines)) {
       const spec = getPortSpec(def, portName);
       if (!spec || spec.role !== 'sink') continue;
+      const sinkCircuit = portWaterCircuit(spec);
+      if (waterCircuit && sinkCircuit && sinkCircuit !== waterCircuit) continue;
       const pos = resolvePortPosition(endpoint, def, portName);
       const vec = portApproachVec(endpoint, def, portName);
       if (!pos) continue;
@@ -255,6 +265,7 @@ export function planUtilityRun(state, {
         start,
         end,
         path,
+        waterCircuit,
       });
       if (checked.ok) {
         chosen = path;
@@ -277,6 +288,7 @@ export function planUtilityRun(state, {
           start,
           end,
           path,
+          waterCircuit,
         });
         if (checked.ok) {
           chosen = path;
@@ -291,6 +303,7 @@ export function planUtilityRun(state, {
       end,
       path: chosen,
       subL,
+      ...(waterCircuit ? { waterCircuit } : {}),
       ...(Number.isFinite(chosenRouteHeight)
         ? { routeHeightMeters: chosenRouteHeight }
         : {}),
@@ -301,6 +314,7 @@ export function planUtilityRun(state, {
       start,
       end,
       path: chosen,
+      ...(waterCircuit ? { waterCircuit } : {}),
       ...(Number.isFinite(chosenRouteHeight)
         ? { routeHeightMeters: chosenRouteHeight }
         : {}),

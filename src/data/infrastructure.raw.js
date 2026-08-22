@@ -1181,12 +1181,10 @@ export const INFRASTRUCTURE_RAW = {
 
     requiredConnections: [],
   },
-  // Distribution bus — serves every on-pipe cooling sink within reach on ONE
-  // pipe segment (see computeBusService in src/utility/network-discovery.js).
   coolingManifold: {
     id: 'coolingManifold',
     name: 'LCW Manifold',
-    desc: 'Supply-and-return header with isolation valves that feeds cooling water to every magnet and warm cavity within reach on a single beamline segment. One line in, a whole FODO cell cooled. Carries no capacity of its own — the skid or chiller upstream still has to absorb the heat.',
+    desc: 'Paired supply-and-return header converting one rigid cold supply and one rigid hot return into four blue cold-water hoses and four red hot-water hoses. Carries no capacity of its own; connect each beamline load to both circuits.',
     category: 'cooling', subsection: 'distribution',
     accentColor: 0x2fbccc,
     cost: { funding: 80000 },
@@ -1200,7 +1198,34 @@ export const INFRASTRUCTURE_RAW = {
     hasSurface: false,
     placement: 'module',
     ports: {},
+    autoConnectUtility: 'coolingWater',
     requiredConnections: [],
+    waterConverterGroups: [
+      {
+        waterLinePorts: ['cold_1', 'cold_2', 'cold_3', 'cold_4'],
+        supplyPipePorts: ['supply_cold'],
+      },
+      {
+        waterLinePorts: ['hot_1', 'hot_2', 'hot_3', 'hot_4'],
+        supplyPipePorts: ['supply_hot'],
+      },
+    ],
+    utilityGroups: {
+      coolingWater: [
+        ['cold_1', 'cold_2', 'cold_3', 'cold_4'],
+        ['hot_1', 'hot_2', 'hot_3', 'hot_4'],
+      ],
+      waterSupplyPipe: [['supply_cold'], ['supply_hot']],
+    },
+    parts: [
+      { shape: 'box', w: 0.42, h: 0.24, l: 1.70, x: 0, y: 0.16, z: 0, color: 0x3d4e57 },
+      { shape: 'cylinder', axis: 'z', w: 0.13, h: 0.13, l: 1.78, x: -0.13, y: 0.50, z: 0, color: 0x287fc4 },
+      { shape: 'cylinder', axis: 'z', w: 0.13, h: 0.13, l: 1.78, x: 0.13, y: 0.50, z: 0, color: 0xc45b42 },
+      { shape: 'box', w: 0.38, h: 0.10, l: 0.10, x: 0, y: 0.50, z: -0.66, color: 0x73838b },
+      { shape: 'box', w: 0.38, h: 0.10, l: 0.10, x: 0, y: 0.50, z: -0.22, color: 0x73838b },
+      { shape: 'box', w: 0.38, h: 0.10, l: 0.10, x: 0, y: 0.50, z: 0.22, color: 0x73838b },
+      { shape: 'box', w: 0.38, h: 0.10, l: 0.10, x: 0, y: 0.50, z: 0.66, color: 0x73838b },
+    ],
   },
   waterDistributor2: {
     id: 'waterDistributor2', name: '2-Line Water Distributor',

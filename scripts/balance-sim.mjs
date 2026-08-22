@@ -276,14 +276,11 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   const plantTank = place('waterTank', -2, 14);
   const tower = place('coolingTower', 6, 14);
   const tower2 = place('coolingTower', 14, 16);
-  const returnDistributors = [-9, -5, 0, 4]
-    .map(col => place('waterDistributor2', col, 16));
 
-  // Distribution row (9), hard against the line. One power bus and one
-  // waveguide manifold span the run; vacuum only reaches 5 cells, so it takes
-  // two manifolds. Cooling takes two as well, one per chiller — not for reach
-  // but so each chiller gets its own drop; both manifolds cover the same
-  // middle cavities, which unions them into a single 600 kW loop.
+  // Distribution row (9), hard against the line. One power bus spans the run;
+  // vacuum only reaches 5 cells, so it takes two manifolds. Cooling uses two
+  // physical LCW manifolds, each carrying four paired cold/hot hoses between
+  // one rigid chiller supply and one rigid heat-rejection return.
   const pwrBus2  = place('powerBus', 0, 9);
   // Two distribution panels keep eight branch loads near their respective
   // service areas; the three large cooling-plant loads bypass them on HV.
@@ -348,35 +345,39 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
       if (cavity) wire('rfWaveguide', sourcePort(mbk), sinkPort(cavity));
     }
   }
-  // Cold supply remains flexible at ordinary beam equipment. The two chiller
-  // headers feed the nearby manifolds plus the source/detector junctions.
-  if (ch2 && coolE2) wire('coolingWater', sourcePort(ch2), passPort(coolE2, 'left'));
-  if (ch1) {
-    for (const target of [sinkPort(src2), sinkPort(det), passPort(coolW2, 'left')]) {
-      if (target.id) wire('coolingWater', sourcePort(ch1), target);
-    }
-  }
-  // Every cooled load has a separate hot outlet. Pair them into return
-  // distributors, then carry each collected group on rigid pipe to one of the
-  // two tower banks. This benchmark now exercises the same architecture as a
-  // player-built central plant instead of the retired one-loop topology.
-  const hotLoads = [src2, ...cavities2, ...quads2, det].filter(Boolean);
-  hotLoads.forEach((id, index) => {
-    const distributor = returnDistributors[Math.floor(index / 2)];
-    wire('coolingWater', { id, port: 'hot_out' }, {
-      id: distributor, port: `water_line_${(index % 2) + 1}`,
-    }, { waterCircuit: 'hot' });
-  });
-  const rejectorPorts = [
-    [tower, 'supply_hot_1'], [tower, 'supply_hot_2'],
-    [tower2, 'supply_hot_1'], [tower2, 'supply_hot_2'],
+  // Every ordinary cooled load receives a blue cold hose and a red hot hose.
+  // Each four-load manifold converts those flexible branches to independent
+  // rigid cold and hot headers without any proximity/service-radius shortcut.
+  // Preserve beamline order so paired branches leave each linear manifold
+  // without crossing one another near the densely packed pipe hardware.
+  const coolingLoads = [
+    src2, ...cavities2.slice(0, 2), quads2[0], cavities2[2], cavities2[3], quads2[1], det,
+  ].filter(Boolean);
+  const coolingGroups = [
+    { chiller: ch1, manifold: coolW2, rejector: tower, loads: coolingLoads.slice(0, 4) },
+    { chiller: ch2, manifold: coolE2, rejector: tower2, loads: coolingLoads.slice(4, 8) },
   ];
-  returnDistributors.forEach((distributor, index) => {
+  for (const group of coolingGroups) {
+    if (!group.chiller || !group.manifold || !group.rejector) continue;
     wire('waterSupplyPipe',
-      { id: rejectorPorts[index][0], port: rejectorPorts[index][1] },
-      { id: distributor, port: 'supply_pipe_1' },
+      { id: group.chiller, port: 'supply_cold_out' },
+      { id: group.manifold, port: 'supply_cold' },
+      { waterCircuit: 'cold' });
+    group.loads.forEach((id, index) => {
+      wire('coolingWater',
+        { id: group.manifold, port: `cold_${index + 1}` },
+        { id, port: 'cool_in' },
+        { waterCircuit: 'cold' });
+      wire('coolingWater',
+        { id: group.manifold, port: `hot_${index + 1}` },
+        { id, port: 'hot_out' },
+        { waterCircuit: 'hot' });
+    });
+    wire('waterSupplyPipe',
+      { id: group.manifold, port: 'supply_hot' },
+      { id: group.rejector, port: 'supply_hot_1' },
       { waterCircuit: 'hot' });
-  });
+  }
   if (nsw) {
     for (const [index, id] of [det, bpm2, secondConsole].entries()) {
       if (id) wire('dataFiber', { id: nsw, role: 'pass', index }, sinkPort(id));

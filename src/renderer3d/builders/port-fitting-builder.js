@@ -40,6 +40,7 @@ import { COMPONENTS } from '../../data/components.js';
 import { portAnchor3D } from '../../utility/port-anchors.js';
 import { isIndoorHvRackSupport } from '../../utility/soft-cable.js';
 import { UTILITY_TYPES } from '../../utility/registry.js';
+import { portWaterCircuit } from '../../utility/water-circuits.js';
 import { _mergeGeometries } from '../component-builder.js';
 
 // Envelope. Nothing below may exceed these; they are the budget that keeps a
@@ -144,12 +145,21 @@ function getFlowArrowGeometry(role) {
   return merged;
 }
 
-function buildFlowArrow(utilityType, role) {
+function waterAwareColor(utilityType, waterCircuit = null) {
+  const descriptor = UTILITY_TYPES[utilityType];
+  if ((utilityType === 'waterSupplyPipe' || utilityType === 'coolingWater')
+      && waterCircuit === 'hot') return descriptor?.hotColor || '#c45b42';
+  return descriptor?.color || '#999999';
+}
+
+function buildFlowArrow(utilityType, role, waterCircuit = null) {
   const descriptor = UTILITY_TYPES[utilityType];
   if (descriptor?.directional === false) return null;
   // Black HV conduit is excellent scenery but an invisible arrow. Reuse its
   // authored marker colour when it has one, then fall back to line colour.
-  const color = descriptor?.markerColor || descriptor?.color || '#aaaaaa';
+  const color = waterCircuit
+    ? waterAwareColor(utilityType, waterCircuit)
+    : descriptor?.markerColor || descriptor?.color || '#aaaaaa';
   const normalized = role === 'source' || role === 'sink' ? role : 'pass';
   const arrow = new THREE.Mesh(
     getFlowArrowGeometry(normalized),
@@ -550,8 +560,10 @@ function getFittingGeometry(utilityType) {
  * @param {string} utilityType key into UTILITY_TYPES; unknown → generic collar
  * @param {'source'|'sink'|'pass'} [role] direction of flow through the port
  */
-export function buildPortFitting(anchor, utilityType, role = 'pass', flowRole = role) {
-  const color = UTILITY_TYPES[utilityType]?.color || '#999999';
+export function buildPortFitting(
+  anchor, utilityType, role = 'pass', flowRole = role, waterCircuit = null,
+) {
+  const color = waterAwareColor(utilityType, waterCircuit);
   const mesh = new THREE.Mesh(getFittingGeometry(utilityType), getFittingMaterial(color));
 
   const out = anchor.out || { x: 0, y: 0, z: 0 };
@@ -563,11 +575,12 @@ export function buildPortFitting(anchor, utilityType, role = 'pass', flowRole = 
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), axis);
 
   mesh.position.set(anchor.x, anchor.y, anchor.z);
-  const flowArrow = buildFlowArrow(utilityType, flowRole);
+  const flowArrow = buildFlowArrow(utilityType, flowRole, waterCircuit);
   if (flowArrow) mesh.add(flowArrow);
   mesh.userData = {
     isUtilityPortFitting: true,
     utilityType,
+    waterCircuit,
     portRole: role,
     // Shared by reference with every other fitting of this utility; teardown
     // paths must not dispose it. Same contract as component-builder's role
@@ -598,7 +611,8 @@ export function buildPortFittings(endpoints) {
       const fitting = buildPortFitting(
         anchor, spec.utility, spec.role,
         isCableSupport(def) || def.utilityFlowPresentation === 'symmetric'
-          ? 'pass' : portFlowArrowRole(name, spec.role));
+          ? 'pass' : portFlowArrowRole(name, spec.role),
+        portWaterCircuit(spec));
       fitting.userData.placeableId = ep.id;
       fitting.userData.portName = name;
       group.add(fitting);

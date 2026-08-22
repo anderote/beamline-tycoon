@@ -107,6 +107,32 @@ console.log('\n--- 4. Co-located independent services form one aligned vertical 
   assert(new Set(heights).size === services.length,
     'cryo, cold water, hot water, RF, and vacuum keep distinct vertical datums');
   for (const entry of built) entry.builder.dispose(entry.parent);
+
+  const builder = new UtilityLineBuilderV2();
+  const parent = new THREE_NS.Group();
+  const lines = new Map(services.map(([type, height, circuit], index) => {
+    const line = {
+      id: `stack-${index}`,
+      utilityType: type,
+      start: null,
+      end: null,
+      path: [{ col: 0, row: 0 }, { col: 4, row: 0 }],
+      ...(Number.isFinite(height) ? { routeHeightMeters: height } : {}),
+      ...(circuit ? { waterCircuit: circuit } : {}),
+    };
+    return [line.id, line];
+  }));
+  builder.build(lines, new Map(), parent);
+  const racks = collect(parent, object => object.userData?.isRigidUtilityRack);
+  const expectedStations = Math.floor(8 / UTILITY_TYPES.vacuumPipe.supportSpacingMeters);
+  assert(racks.length === expectedStations,
+    `five co-located services consolidate into ${expectedStations} shared rack frames`);
+  assert(racks.every(rack => rack.userData.stackedServiceCount === services.length
+      && new Set(rack.userData.centerlineHeights).size === services.length
+      && collect(rack, object => object.userData?.utilitySupportPart === 'saddle').length
+        === services.length),
+  'each shared rack has one shelf at every independent service datum');
+  builder.dispose(parent);
 }
 
 console.log('\n--- 5. Fixed datums ignore retired per-line lane values ---');

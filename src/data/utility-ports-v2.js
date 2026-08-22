@@ -1180,6 +1180,29 @@ function waterDistributorPorts(flexibleCount, supplyCount) {
   return out;
 }
 
+function lcwManifoldPorts() {
+  const out = {
+    supply_cold: {
+      utility: 'waterSupplyPipe', side: 'left', offsetAlong: 0.33,
+      role: 'pass', params: { waterCircuit: 'cold' },
+    },
+    supply_hot: {
+      utility: 'waterSupplyPipe', side: 'left', offsetAlong: 0.67,
+      role: 'pass', params: { waterCircuit: 'hot' },
+    },
+  };
+  for (const [circuit, side] of [['cold', 'back'], ['hot', 'front']]) {
+    for (let index = 1; index <= 4; index++) {
+      out[`${circuit}_${index}`] = {
+        utility: 'coolingWater', side, offsetAlong: index / 5,
+        role: 'source', autoConnectClass: COOLING_AUTO_CONNECT_CLASS.LOAD_BRANCH,
+        params: { waterCircuit: circuit },
+      };
+    }
+  }
+  return out;
+}
+
 const INFRA_UTILITY_PORTS = {
   // Field distribution is deliberately physical: a finite set of real
   // sockets, not a service-radius shortcut, and it cannot bridge another
@@ -1377,11 +1400,7 @@ const INFRA_UTILITY_PORTS = {
       params: { fieldCapacity: 250 },
     },
   },
-  coolingManifold: Object.fromEntries(Object.entries(busPorts(
-    'coolingWater', 8, COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION,
-  )).map(([name, spec]) => [name, {
-    ...spec, params: { ...(spec.params || {}), waterCircuit: 'cold' },
-  }])),
+  coolingManifold: lcwManifoldPorts(),
   waterDistributor2: waterDistributorPorts(2, 1),
   waterDistributor4: waterDistributorPorts(4, 2),
   vacuumManifold:      vacuumManifoldPorts(4, 5),

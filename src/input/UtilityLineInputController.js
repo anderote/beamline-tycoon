@@ -40,7 +40,10 @@ import {
 import { reasonMessage } from '../utility/UtilityLineSystem.js';
 import { UTILITY_TYPES, utilityLineHeight } from '../utility/registry.js';
 import { universalBusLane } from '../utility/universal-bus-layout.js';
-import { portWaterCircuit } from '../utility/water-circuits.js';
+import {
+  lineWaterCircuit,
+  portWaterCircuit,
+} from '../utility/water-circuits.js';
 import { listUtilityEndpoints, findUtilityEndpoint } from '../utility/utility-endpoints.js';
 import { planUtilityRun, runPreviewPath, runWiringCost } from './utility-run-wiring.js';
 import { isoToGridFloat } from '../renderer/grid.js';
@@ -51,7 +54,6 @@ import {
   roundedCableTilePath,
   sanitizeCablePath,
   SOFT_CABLE_MAX_POINTS,
-  usesFreeformTopology,
 } from '../utility/soft-cable.js';
 
 // Snap tolerance between cursor and a port's world position, in world meters.
@@ -106,6 +108,7 @@ export class UtilityLineInputController {
     this.renderer = renderer;
 
     this._utilityType = null;
+    this._selectedWaterCircuit = null;
     this._drawing = false;
     this._drawStart = null;  // {placeableId, portName, worldPos: {x, z}}
     this._drawPath = [];     // tile-coord path for preview
@@ -122,8 +125,11 @@ export class UtilityLineInputController {
     this._cableTrace = [];   // unsnapped hand path for flexible-line geometry
   }
 
-  setUtilityType(type) {
+  setUtilityType(type, waterCircuit = null) {
     this._utilityType = type || null;
+    this._selectedWaterCircuit = this._utilityType === 'coolingWater'
+      ? waterCircuit || null
+      : null;
     this._cancelDraw();
     this._hoverPort = null;
   }
@@ -160,6 +166,9 @@ export class UtilityLineInputController {
 
   // Public: current utility type (null if no tool armed).
   get utilityType() { return this._utilityType; }
+
+  // Explicit cold/hot Water Line variant selected in the palette.
+  get waterCircuit() { return this._selectedWaterCircuit; }
 
   // Public: start-anchor while mid-draw ({placeableId, portName, worldPos}).
   // Renderer uses this to skip the start port's indicator while dragging.
@@ -246,7 +255,8 @@ export class UtilityLineInputController {
       utilityType: this._utilityType,
       path: [],
       valid: true,
-      color: UTILITY_TYPES[this._utilityType]?.color || '#ffffff',
+      waterCircuit: this._selectedWaterCircuit,
+      color: this._lineColor(),
     };
     return true;
   }
@@ -298,7 +308,7 @@ export class UtilityLineInputController {
       routeHeightMeters: this._runPlan?.stubs?.[0]?.routeHeightMeters
         ?? geom.routeHeightMeters,
       waterCircuit: geom.waterCircuit || null,
-      color: UTILITY_TYPES[this._utilityType]?.color || '#ffffff',
+      color: this._lineColor(geom.waterCircuit),
     };
   }
 
@@ -597,8 +607,16 @@ export class UtilityLineInputController {
     // beamline hardware; a real collision produces a tidy perimeter wrap.
     let routedFallback = fallback;
     if (!chosen && !freeformPhysicalBlock && usesFlexibleSubtileRouting(descriptor)) {
+      const routeHeightMeters = descriptor.fixedRouteHeight
+        ? utilityLineHeight(
+            this._utilityType,
+            descriptor.runHeightsByWaterCircuit?.[waterCircuit]
+              ?? descriptor.runHeightMeters,
+          )
+        : null;
       const obstacles = buildUtilityRouteObstacles(this.game.state, this._utilityType, {
         startRef, endRef,
+        routeHeightMeters,
       });
       const detour = findObstacleAwareRoute(
         startTile, startVec, endTile, endVec, {
@@ -634,7 +652,13 @@ export class UtilityLineInputController {
       waterCircuit,
       path: chosen || routedFallback,
       routeHeightMeters: chosenRouteHeight
-        ?? (descriptor.fixedRouteHeight ? utilityLineHeight(this._utilityType) : null),
+        ?? (descriptor.fixedRouteHeight
+          ? utilityLineHeight(
+              this._utilityType,
+              descriptor.runHeightsByWaterCircuit?.[waterCircuit]
+                ?? descriptor.runHeightMeters,
+            )
+          : null),
     };
   }
 
@@ -645,6 +669,7 @@ export class UtilityLineInputController {
   }
 
   _waterCircuitForRefs(...refs) {
+    if (this._selectedWaterCircuit) return this._selectedWaterCircuit;
     for (const ref of refs) {
       if (!ref) continue;
       const endpoint = findUtilityEndpoint(this.game.state, ref.placeableId);
@@ -653,6 +678,26 @@ export class UtilityLineInputController {
       if (circuit) return circuit;
     }
     return null;
+  }
+
+  _lineColor(waterCircuit = this._selectedWaterCircuit) {
+    const descriptor = UTILITY_TYPES[this._utilityType];
+    if (waterCircuit === 'hot') return descriptor?.hotColor || '#c45b42';
+    return descriptor?.color || '#ffffff';
+  }
+
+  _waterCircuitForLine(line) {
+    const authored = lineWaterCircuit(line);
+    if (authored) return authored;
+    const circuits = new Set();
+    for (const ref of [line?.start, line?.end]) {
+      if (!ref) continue;
+      const endpoint = findUtilityEndpoint(this.game.state, ref.placeableId);
+      const spec = COMPONENTS[endpoint?.type]?.ports?.[ref.portName];
+      const circuit = portWaterCircuit(spec);
+      if (circuit) circuits.add(circuit);
+    }
+    return circuits.size === 1 ? [...circuits][0] : null;
   }
 
   _sameBusLaneGesture(endAnchor = this._hoverPort) {
@@ -686,6 +731,7 @@ export class UtilityLineInputController {
         portName: this._drawStart.portName,
       },
       runPath: trace,
+      waterCircuit: this._selectedWaterCircuit,
       preferVerticalFirst: this._preferVerticalFirst,
       // Bulk wiring must use the same endpoint geometry as an ordinary drag.
       // Otherwise Shift-drawing reintroduces the footprint-sized U-turns the
@@ -729,6 +775,7 @@ export class UtilityLineInputController {
             end: stub.end,
             path: stub.path,
             routeHeightMeters: stub.routeHeightMeters,
+            waterCircuit: stub.waterCircuit,
           });
           if (id) { committed.push(id); subL += stub.subL; }
         }
@@ -784,6 +831,8 @@ export class UtilityLineInputController {
       open: true, busTap: true, busId: bus.busId, worldPos: bus.worldPos,
     };
     const descriptor = UTILITY_TYPES[this._utilityType];
+    const requestedWaterCircuit = this._waterCircuitForRefs(
+      this._anchorRef(this._drawStart));
     const ordinaryTapAllowed = descriptor?.allowsTap !== false;
     // Bulky fabricated services can opt into a slightly wider pickup halo.
     // This changes only cursor assistance: the committed contact is still
@@ -809,10 +858,12 @@ export class UtilityLineInputController {
           );
         }
         tap = this.nearestLine(
-          lineWorld.x, lineWorld.y, tapSnapRadius, rayHit.lineId);
+          lineWorld.x, lineWorld.y, tapSnapRadius, rayHit.lineId,
+          requestedWaterCircuit);
       }
     }
-    tap = tap || this.nearestLine(worldX, worldY, tapSnapRadius);
+    tap = tap || this.nearestLine(
+      worldX, worldY, tapSnapRadius, null, requestedWaterCircuit);
     if (!tap) return null;
     // Power and HV runs cannot be casually tee'd. A committed continuous
     // carrier is the explicit distribution fitting that makes that branch
@@ -877,7 +928,9 @@ export class UtilityLineInputController {
    * @returns {{lineId, worldPos: {x, z}, routeHeightMeters, dist}|null}
    *          dist in world metres
    */
-  nearestLine(worldX, worldY, maxTiles = 0.5, onlyLineId = null) {
+  nearestLine(
+    worldX, worldY, maxTiles = 0.5, onlyLineId = null, waterCircuit = null,
+  ) {
     const lines = this.game.state.utilityLines;
     if (!lines || !this._utilityType) return null;
     const cursor = this._isoFloatToWorld(worldX, worldY);
@@ -887,13 +940,15 @@ export class UtilityLineInputController {
     for (const line of iter) {
       if (!line || line.utilityType !== this._utilityType) continue;
       if (onlyLineId && line.id !== onlyLineId) continue;
+      const lineCircuit = waterCircuit ? this._waterCircuitForLine(line) : null;
+      if (waterCircuit && lineCircuit && lineCircuit !== waterCircuit) continue;
       const flexibleVisual = isSoftCable(line.utilityType) && Array.isArray(line.cablePath);
       const visual = flexibleVisual
         ? roundedCableTilePath(line.cablePath, line.utilityType)
         : expandPath(line.path || []);
-      const candidates = usesFreeformTopology(line.utilityType)
-        ? visual
-        : this._lineSnapCandidates(visual, cursor, { quantize: !flexibleVisual });
+      const candidates = this._lineSnapCandidates(
+        visual, cursor, { quantize: !flexibleVisual },
+      );
       for (const pt of candidates) {
         const dx = pt.col * 2 - cursor.x;
         const dz = pt.row * 2 - cursor.z;
@@ -907,9 +962,10 @@ export class UtilityLineInputController {
           best = {
             lineId: line.id,
             worldPos: { x: pt.col * 2, z: pt.row * 2 },
-          routeHeightMeters,
-          manifold: !!line.manifold,
-          dist: d,
+            routeHeightMeters,
+            waterCircuit: this._waterCircuitForLine(line),
+            manifold: !!line.manifold,
+            dist: d,
           };
         }
       }
@@ -996,6 +1052,9 @@ export class UtilityLineInputController {
       for (const type of types) {
         const availableNames = availablePorts(placeable, def, type, lines);
         for (const name of availableNames) {
+          const candidateCircuit = portWaterCircuit(def.ports[name]);
+          if (this._selectedWaterCircuit && candidateCircuit
+              && candidateCircuit !== this._selectedWaterCircuit) continue;
         // The endpoint REFERENCE is what the solver reads; the path geometry
         // should start where the connector is actually drawn. On-pipe hardware
         // can reserve a footprint several metres wider than its model, so
@@ -1027,6 +1086,7 @@ export class UtilityLineInputController {
               portName: name,
               worldPos: routePos,
               utilityType: type,
+              waterCircuit: candidateCircuit,
               anchor: resolvedAnchor,
             };
           }

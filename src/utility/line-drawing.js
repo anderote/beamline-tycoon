@@ -665,6 +665,7 @@ export function validateDrawLine(state, {
     const obstacles = buildUtilityRouteObstacles(state, utilityType, {
       startRef: start, endRef: end, includeLines: false,
       equipmentPoints: expanded,
+      routeHeightMeters: resolvedRouteHeight,
     });
     for (const point of expanded) {
       if (obstacles.isBlocked(point.col, point.row)) {

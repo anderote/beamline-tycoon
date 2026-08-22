@@ -245,7 +245,7 @@ function _setInfraFaceUVsClamped(geometry, faceKey) {
 // bucketed into one of these roles. Each role maps to a shared material
 // (or a per-color cached material for 'accent').
 
-const ROLES = /** @type {const} */ (['accent', 'iron', 'copper', 'pipe', 'stand', 'detail', 'glow']);
+const ROLES = /** @type {const} */ (['accent', 'iron', 'copper', 'pipe', 'stand', 'detail', 'coldWater', 'hotWater', 'glow']);
 
 // Paint-on-iron for the accent role. The color is overridden per beamline;
 // this base exists only to be cloned.
@@ -266,6 +266,8 @@ const SHARED_MATERIALS = {
   pipe:   new THREE.MeshStandardMaterial({ map: MATERIALS.metal_brushed.map,       color: 0xffffff,    roughness: 0.3, metalness: 0.5 }),
   stand:  new THREE.MeshStandardMaterial({ map: MATERIALS.metal_painted_white.map, color: STAND_COLOR, roughness: 0.7, metalness: 0.1 }),
   detail: new THREE.MeshStandardMaterial({ map: MATERIALS.metal_dark.map,          color: 0xffffff,    roughness: 0.7, metalness: 0.3 }),
+  coldWater: new THREE.MeshStandardMaterial({ map: MATERIALS.metal_painted_white.map, color: 0x287fc4, roughness: 0.45, metalness: 0.25 }),
+  hotWater: new THREE.MeshStandardMaterial({ map: MATERIALS.metal_painted_white.map, color: 0xc45b42, roughness: 0.45, metalness: 0.25 }),
   glow:   new THREE.MeshStandardMaterial({ color: 0x0a0a0a, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.35, metalness: 0.1 }),
 };
 

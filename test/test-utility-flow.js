@@ -119,7 +119,11 @@ class TubeGeometry {
 
 globalThis.THREE = {
   Vector3: V3,
-  Color: class { constructor(c) { this.c = c; } multiplyScalar(s) { this.scale = s; return this; } },
+  Color: class {
+    constructor(c) { this.c = c; }
+    multiplyScalar(s) { this.scale = s; return this; }
+    getHexString() { return String(this.c).replace(/^#/, '').toLowerCase(); }
+  },
   Quaternion: class { setFromUnitVectors() { return this; } },
   Group: Obj3,
   Mesh: class extends Obj3 { constructor(geometry, material) { super(); this.isMesh = true; this.geometry = geometry; this.material = material; } },
@@ -476,6 +480,19 @@ console.log('\n--- 5. getLineMaterial: distinct per flowState, cached, tagged __
   const vac = getLineMaterial('vacuumPipe', 'ok');
   assert(vac.userData.flowUniforms, 'vacuumPipe gets a gas-flow patch');
   assert(vac.userData.__shared, 'but is still cached/shared like any other line material');
+
+  const coldRigid = getLineMaterial('waterSupplyPipe', 'ok', 'cold');
+  const hotRigid = getLineMaterial('waterSupplyPipe', 'ok', 'hot');
+  const coldHose = getLineMaterial('coolingWater', 'ok', 'cold');
+  const hotHose = getLineMaterial('coolingWater', 'ok', 'hot');
+  assert(coldRigid.color.getHexString() === '287fc4'
+      && coldHose.color.getHexString() === '287fc4',
+    'cold rigid pipe and flexible hose use the same blue circuit color');
+  assert(hotRigid.color.getHexString() === 'c45b42'
+      && hotHose.color.getHexString() === 'c45b42',
+    'hot rigid pipe and flexible hose use the same red circuit color');
+  assert(hotRigid !== coldRigid && hotHose !== coldHose,
+    'hot and cold circuits own distinct cached rendering materials');
 }
 
 console.log('\n--- 5b. RF waveguide glow follows published forward power ---');

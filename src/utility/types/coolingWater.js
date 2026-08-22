@@ -18,6 +18,7 @@ import {
   lineWaterCircuit,
   portWaterCircuit,
   WATER_CIRCUIT_COLD,
+  WATER_CIRCUIT_COLORS,
   WATER_CIRCUIT_HOT,
 } from '../water-circuits.js';
 
@@ -116,8 +117,12 @@ function convertedSupplyCapacity(network, circuit, worldState, context) {
 
 export default {
   type: 'coolingWater',
-  displayName: 'Cooling Water',
-  color: '#4488ff',
+  displayName: 'Water Line',
+  variants: ['Cold Water', 'Hot Water'],
+  variantWaterCircuits: [WATER_CIRCUIT_COLD, WATER_CIRCUIT_HOT],
+  variantPreviewColors: [0x287fc4, 0xc45b42],
+  color: WATER_CIRCUIT_COLORS[WATER_CIRCUIT_COLD],
+  hotColor: WATER_CIRCUIT_COLORS[WATER_CIRCUIT_HOT],
   geometryStyle: 'cylinder',
   routingProfile: FLEXIBLE_SUBTILE_ROUTING_PROFILE,
   pipeRadiusMeters: 0.04,

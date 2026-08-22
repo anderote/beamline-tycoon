@@ -563,9 +563,19 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
         && pipeSources.every(port => port.params.waterCircuit === 'hot'),
     `${id} exposes two rigid hot-water rejection connections`);
   }
-  assert(Object.values(getUtilityPortsV2('coolingManifold')).every(port =>
-    port.autoConnectClass === COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION),
-  'the cooling manifold exposes only distribution connections');
+  const manifoldPorts = Object.values(getUtilityPortsV2('coolingManifold'));
+  const manifoldRigid = manifoldPorts.filter(port => port.utility === 'waterSupplyPipe');
+  const manifoldFlexible = manifoldPorts.filter(port => port.utility === 'coolingWater');
+  assert(manifoldRigid.length === 2
+      && manifoldRigid.filter(port => port.params.waterCircuit === 'cold').length === 1
+      && manifoldRigid.filter(port => port.params.waterCircuit === 'hot').length === 1,
+  'the LCW manifold has one rigid cold header and one rigid hot header');
+  assert(manifoldFlexible.length === 8
+      && manifoldFlexible.filter(port => port.params.waterCircuit === 'cold').length === 4
+      && manifoldFlexible.filter(port => port.params.waterCircuit === 'hot').length === 4
+      && manifoldFlexible.every(port => port.autoConnectClass
+        === COOLING_AUTO_CONNECT_CLASS.LOAD_BRANCH),
+  'the LCW manifold exposes four blue and four red flexible load branches');
 }
 
 // ==========================================================================

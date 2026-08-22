@@ -4,6 +4,10 @@
 
 export const WATER_CIRCUIT_COLD = 'cold';
 export const WATER_CIRCUIT_HOT = 'hot';
+export const WATER_CIRCUIT_COLORS = Object.freeze({
+  [WATER_CIRCUIT_COLD]: '#287fc4',
+  [WATER_CIRCUIT_HOT]: '#c45b42',
+});
 export const WATER_CIRCUITS = Object.freeze([
   WATER_CIRCUIT_COLD,
   WATER_CIRCUIT_HOT,

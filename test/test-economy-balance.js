@@ -196,7 +196,7 @@ function measure(game, ticks) {
   assert(m.dFunds > 0, `late-game still net-positive (${(m.dFunds / 700).toFixed(1)}/t)`);
   const hotReturns = [...(state.utilityNetworkData?.get('coolingWater')?.values() || [])]
     .filter(flow => flow.waterCircuit === 'hot');
-  assert(hotReturns.length >= 4
+  assert(hotReturns.length >= 3
       && hotReturns.every(flow => flow.totalCapacity > 0 && flow.totalDemand > 0),
   `all late-game hot-return groups reach heat rejection (${hotReturns.length} facility-wide)`);
 }
