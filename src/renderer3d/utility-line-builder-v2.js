@@ -277,7 +277,7 @@ function anchorTip(anchor) {
   };
 }
 
-/** HV spans become straight when either end is held by tensioning hardware. */
+/** HV spans shed drawn slack when either end is held by tensioning hardware. */
 export function isTensionedHvCable(line, placeablesById) {
   if (line?.utilityType !== 'hvCable') return false;
   if (line.tensioned === true) return true;

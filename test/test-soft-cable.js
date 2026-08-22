@@ -78,9 +78,16 @@ const taut = tautCableControlPoints(
 assert(taut.length >= 8 && taut.every((point, index) => {
   const t = index / (taut.length - 1);
   return Math.abs(point.x - (-1 + 8 * t)) < 1e-9
-    && Math.abs(point.y - (6.4 + (1.45 - 6.4) * t)) < 1e-9
     && Math.abs(point.z - (2 - 5 * t)) < 1e-9;
-}), 'taut supports discard slack and sample the straight 3D chord');
+}), 'tension supports discard drawn slack and follow the direct planar chord');
+const tautMiddleIndex = Math.floor(taut.length / 2);
+const tautMiddleT = tautMiddleIndex / (taut.length - 1);
+const tautMiddleChordY = 6.4 + (1.45 - 6.4) * tautMiddleT;
+assert(Math.abs(taut[0].y - 6.4) < 1e-9
+    && Math.abs(taut[taut.length - 1].y - 1.45) < 1e-9
+    && taut[tautMiddleIndex].y < tautMiddleChordY
+    && taut[tautMiddleIndex].y > tautMiddleChordY - 0.66,
+  'a tensioned suspended span keeps its supports pinned with only shallow sag');
 
 const pooled = softCableControlPoints(trace, {
   start: { x: 0, y: 0.8, z: 0 },
