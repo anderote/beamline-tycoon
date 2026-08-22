@@ -3179,13 +3179,7 @@ UIHost.prototype._bindHUDEvents = function() {
   // Wall visibility mode buttons
   document.querySelectorAll('.wall-vis-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.wall-vis-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      this.wallVisibilityMode = btn.dataset.wallMode;
-      this._cutawayHoverKey = null; // force room re-detection
-      this._transparentHoverKey = null; // force tile region re-detection
-      this._applyWallVisibility();
-      this._applyDoorVisibility();
+      this.renderer.setStoreyWallMode(btn.dataset.wallMode);
     });
   });
 
