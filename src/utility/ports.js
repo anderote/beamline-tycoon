@@ -124,6 +124,12 @@ export function portApproachVec(placeable, def, portName) {
 }
 
 export function portMatchesApproach(placeable, def, portName, approachDir, isEnd) {
+  const spec = getPortSpec(def, portName);
+  // A rated wall bushing has a fixed connector location on each face, but
+  // flexible HV cable may leave that terminal in any cardinal direction.
+  // Keep its side for the rendered anchor while relaxing only draw-path
+  // approach validation.
+  if (spec?.omnidirectional === true) return true;
   const side = portSide(
     def, portName,
     placeableDirection(placeable, def),

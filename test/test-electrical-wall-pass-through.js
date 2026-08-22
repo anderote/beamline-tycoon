@@ -156,6 +156,55 @@ test('Feedthrough ports and committed component pose land on opposite wall faces
     'both terminals clear a thick shielding-wall slab');
 });
 
+test('HV wall feedthrough terminals accept cables from every cardinal direction', () => {
+  const state = openState({
+    placeables: [{ id: 'feed', type: 'hvWallPassThrough', col: 0, row: 0, subCol: 0, subRow: 0, dir: 0 }],
+  });
+  const paths = [
+    [{ col: 0, row: 0 }, { col: 1, row: 0 }],
+    [{ col: 0, row: 0 }, { col: -1, row: 0 }],
+    [{ col: 0, row: 0 }, { col: 0, row: 1 }],
+    [{ col: 0, row: 0 }, { col: 0, row: -1 }],
+  ];
+  for (const portName of ['hv_in', 'hv_out']) {
+    for (const path of paths) {
+      assert.equal(validateDrawLine(state, {
+        utilityType: 'hvCable', start: { placeableId: 'feed', portName }, path,
+      }).ok, true, `${portName} accepts ${JSON.stringify(path[1])}`);
+    }
+  }
+});
+
+test('4×4 HV wall feedthrough keeps four omnidirectional, un-rated conductors isolated', () => {
+  const def = PLACEABLES.hvWallPassThrough4x4;
+  const ports = getUtilityPortsV2(def.id);
+  assert.equal(def.wallSpan, 4);
+  assert.equal(Object.keys(ports).length, 8);
+  assert.ok(Object.values(ports).every(port =>
+    port.utility === 'hvCable' && port.role === 'pass'
+      && port.omnidirectional === true && Object.keys(port.params).length === 0),
+  'the bushing publishes no internal power or capacity limit');
+  assert.deepEqual(def.electricalGroups.hvCable, [
+    ['hv_in_1', 'hv_out_1'], ['hv_in_2', 'hv_out_2'],
+    ['hv_in_3', 'hv_out_3'], ['hv_in_4', 'hv_out_4'],
+  ]);
+
+  const state = openState({
+    placeables: [{ id: 'feed', type: def.id, col: 0, row: 0, subCol: 0, subRow: 0, dir: 0 }],
+    utilityLines: new Map(Array.from({ length: 4 }, (_, index) => {
+      const n = index + 1;
+      return [`line-${n}`, {
+        id: `line-${n}`, utilityType: 'hvCable',
+        start: { placeableId: 'feed', portName: `hv_in_${n}` },
+        end: { placeableId: 'feed', portName: `hv_out_${n}` },
+        path: [{ col: n * 3, row: 0 }, { col: n * 3 + 1, row: 0 }],
+      }];
+    })),
+  });
+  const networks = discoverNetworks('hvCable', state.utilityLines, makeDefaultPortLookup(state));
+  assert.equal(networks.length, 4, 'each numbered front/back pair is isolated from the other three');
+});
+
 test('Power and HV inspect the visible cable trace and refuse wall crossings', () => {
   const state = openState({ wallOccupied: crossingWall });
   for (const utilityType of ['powerCable', 'hvCable']) {
