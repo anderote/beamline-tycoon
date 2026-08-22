@@ -2,8 +2,9 @@
 
 import { ContextWindow } from './ContextWindow.js';
 import { COMPONENTS } from '../data/components.js';
-import { formatEnergy } from '../data/units.js';
+import { formatEnergy, UNITS } from '../data/units.js';
 import { CANONICAL_ACCENTS } from '../beamline/accent-colors.js';
+import { PARAM_DEFS } from '../beamline/component-physics.js';
 import { flattenPath } from '../beamline/flattener.js';
 import { hardwareNodes } from '../game/aggregates.js';
 import { dataFeeIncome } from '../game/economy.js';
@@ -20,6 +21,7 @@ import { bindVacuumPressureRangeControls } from './vacuum-pressure-controls.js';
 import { UTILITY_TO_QUALITY_FIELD } from '../game/utility-gate.js';
 import { getCavitySpec } from '../beamline/cavity-specs.js';
 import { beamlineRfOperatingInfo } from './hover-info.js';
+import { componentUtilityPortGroups } from './utility-port-details.js';
 
 // Utility type keys to display in the utilities tab
 const UTILITY_TYPES = [
@@ -52,6 +54,158 @@ function utilityQualityColor(quality) {
   if (quality >= 0.9) return '#44dd66';
   if (quality >= 0.5) return '#ddaa22';
   return '#ff4444';
+}
+
+function humanize(key) {
+  return String(key || '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .replace(/^./, char => char.toUpperCase());
+}
+
+function fmtComponentValue(value, unit = '') {
+  if (typeof value === 'string') return value;
+  if (!Number.isFinite(value)) return '--';
+  if (unit === 'GeV' || unit === 'GeV/c') {
+    const suffix = unit === 'GeV/c' ? '/c' : '';
+    const energy = formatEnergy(value, suffix);
+    return `${energy.val} ${energy.unit}`;
+  }
+  const shown = fmtUtilityQty(value);
+  return unit ? `${shown} ${unit}` : shown;
+}
+
+/**
+ * Display-only component values. Catalogue stats, saved controls, and
+ * solver-published operating fields remain separate so the panel never turns
+ * a nominal spec into a claim about live performance.
+ */
+export function beamlineComponentStatBreakdown(component, node) {
+  if (!component || !node) return { design: [], settings: [], operating: [] };
+  const design = Object.entries(component.stats || {}).map(([key, value]) => ({
+    label: humanize(key), value: fmtComponentValue(value, UNITS[key] || ''),
+  }));
+
+  const defs = PARAM_DEFS[node.type] || {};
+  const params = node.params || component.params || {};
+  const settings = Object.entries(defs)
+    .filter(([, def]) => !def.derived)
+    .map(([key, def]) => {
+      const raw = params[key] ?? def.default;
+      const value = def.labels?.[Math.round(raw)] || fmtComponentValue(raw, def.unit || '');
+      return { label: humanize(key), value };
+    });
+  for (const [key, value] of Object.entries(component.paramOptions || {})) {
+    const current = params[key] ?? component.params?.[key] ?? value?.[0];
+    if (current != null && !settings.some(row => row.label === humanize(key))) {
+      settings.push({ label: humanize(key), value: humanize(current) });
+    }
+  }
+
+  const operating = [];
+  const addOperating = (key, label, unit, transform = value => value) => {
+    if (!Number.isFinite(node[key])) return;
+    operating.push({ label, value: fmtComponentValue(transform(node[key]), unit) });
+  };
+  addOperating('gradientDemanded', 'Gradient demand', 'MV/m');
+  addOperating('gradientAchieved', 'Gradient achieved', 'MV/m');
+  addOperating('gradientAchievable', 'Available gradient', 'MV/m');
+  addOperating('reflectedFraction', 'Reflected RF', '%', value => value * 100);
+  addOperating('cavityQ0', 'Cavity Q₀', '');
+  for (const [key, value] of Object.entries(node.computedStats || {})) {
+    if (!Number.isFinite(value) || operating.some(row => row.label === humanize(key))) continue;
+    const def = defs[key];
+    operating.push({
+      label: humanize(key),
+      value: fmtComponentValue(value, def?.unit || UNITS[key] || ''),
+    });
+  }
+  return { design, settings, operating };
+}
+
+/** Published network totals and delivery for one selected component. */
+export function utilityNetworkSummary(state, utilityKey, nodeIds) {
+  const nodeSet = new Set(nodeIds);
+  const discovered = state.utilityNetworks && state.utilityNetworks.get
+    ? (state.utilityNetworks.get(utilityKey) || [])
+    : [];
+  const flowMap = state.utilityNetworkData && state.utilityNetworkData.get
+    ? state.utilityNetworkData.get(utilityKey)
+    : null;
+  const networks = [];
+  let totalCapacity = 0;
+  let totalDemand = 0;
+  let connectedNodeCount = 0;
+  let connectedLinkCount = 0;
+  let worstQuality = null;
+  const issues = [];
+
+  for (const network of discovered) {
+    if (!(network.ports || []).some(port => nodeSet.has(port.placeableId))) continue;
+    const flow = flowMap && flowMap.get ? flowMap.get(network.id) : null;
+    if (!flow) continue;
+    const beamlineSinks = (network.sinks || []).filter(sink => nodeSet.has(sink.placeableId));
+    for (const sink of beamlineSinks) {
+      const quality = flow.perSinkQuality && flow.perSinkQuality[sink.portKey];
+      if (!Number.isFinite(quality)) continue;
+      worstQuality = worstQuality === null ? quality : Math.min(worstQuality, quality);
+    }
+    if (Number.isFinite(flow.totalCapacity)) totalCapacity += flow.totalCapacity;
+    if (Number.isFinite(flow.totalDemand)) totalDemand += flow.totalDemand;
+    if (Number.isFinite(flow.connectedNodeCount)) connectedNodeCount += flow.connectedNodeCount;
+    if (Number.isFinite(flow.connectedLinkCount)) connectedLinkCount += flow.connectedLinkCount;
+    for (const issue of flow.errors || []) issues.push({ ...issue, networkId: network.id });
+    networks.push({ network, flow, beamlineSinkCount: beamlineSinks.length });
+  }
+
+  return {
+    networks, totalCapacity, totalDemand, connectedNodeCount, connectedLinkCount,
+    worstQuality, issues,
+  };
+}
+
+export function beamlineComponentUtilityBreakdown(state, node) {
+  if (!node) return [];
+  const grouped = new Map();
+  for (const group of componentUtilityPortGroups(node.type)) {
+    const row = grouped.get(group.utilityType) || {
+      utilityType: group.utilityType,
+      utilityLabel: group.utilityLabel,
+      color: group.color,
+      inputs: [], outputs: [], passThrough: [],
+    };
+    if (group.role === 'sink') row.inputs.push(...group.metrics);
+    else if (group.role === 'source') row.outputs.push(...group.metrics);
+    else row.passThrough.push(...group.metrics);
+    grouped.set(group.utilityType, row);
+  }
+
+  const qualities = state.nodeQualities?.[node.id] || {};
+  const unwired = state.unwiredSinks?.[node.id] || {};
+  return [...grouped.values()].map(row => {
+    const descriptor = UTILITY_DESCRIPTORS[row.utilityType] || {};
+    const qualityField = UTILITY_TO_QUALITY_FIELD[row.utilityType];
+    const quality = Number.isFinite(qualities[qualityField]) ? qualities[qualityField] : null;
+    const summary = utilityNetworkSummary(state, row.utilityType, [node.id]);
+    const requiresInput = row.inputs.length > 0;
+    let status = 'pass-through';
+    if (requiresInput) status = unwired[row.utilityType]
+      ? 'unwired' : summary.networks.length > 0 ? 'connected' : 'unsolved';
+    else if (row.outputs.length > 0) status = summary.networks.length > 0 ? 'supplying' : 'idle';
+
+    const physical = [];
+    const physicalFields = {
+      rfWaveguide: ['rfPowerW', 'RF delivered', 'W'],
+      cryoTransfer: ['cryoTempK', 'Delivered temperature', 'K'],
+      coolingWater: ['coolingDeltaT', 'Coolant ΔT', 'K'],
+      vacuumPipe: ['vacuumPressure', 'Pressure', 'mbar'],
+    };
+    const spec = physicalFields[row.utilityType];
+    if (spec && Number.isFinite(qualities[spec[0]])) {
+      physical.push({ label: spec[1], value: fmtComponentValue(qualities[spec[0]], spec[2]) });
+    }
+    return { ...row, descriptor, quality, status, physical, ...summary };
+  });
 }
 
 // Component color palette for schematic blocks
@@ -87,9 +241,11 @@ export class BeamlineWindow {
    * @param {object} game        - Game instance
    * @param {string} beamlineId  - Registry ID (e.g. 'bl-1')
    */
-  constructor(game, beamlineId) {
+  constructor(game, beamlineId, selectedNode = null) {
     this.game = game;
     this.beamlineId = beamlineId;
+    this.selectedComponentId = selectedNode?.id || null;
+    this._selectedComponentFallback = selectedNode || null;
     this._vacuumHistoryRangeTicks = DEFAULT_VACUUM_HISTORY_RANGE_TICKS;
 
     const entry = game.registry.get(beamlineId);
@@ -113,6 +269,7 @@ export class BeamlineWindow {
       accentColor: '#2a4a7f',
       tabs: [
         { key: 'overview',    label: 'Overview' },
+        { key: 'component',   label: 'Component' },
         { key: 'stats',       label: 'Stats' },
         { key: 'components',  label: 'Components' },
         { key: 'settings',    label: 'Settings' },
@@ -124,6 +281,7 @@ export class BeamlineWindow {
 
     // Register tab renderers
     ctx.onTabRender('overview',   (el) => this._renderOverview(el));
+    ctx.onTabRender('component',  (el) => this._renderComponent(el));
     ctx.onTabRender('stats',      (el) => this._renderStats(el));
     ctx.onTabRender('components', (el) => this._renderComponents(el));
     ctx.onTabRender('settings',   (el) => this._renderSettings(el));
@@ -132,6 +290,7 @@ export class BeamlineWindow {
 
     this._updateStatus();
     this._updateActions();
+    if (selectedNode) ctx.switchTab('component');
     ctx.update();
   }
 
@@ -202,6 +361,93 @@ export class BeamlineWindow {
   // ---------------------------------------------------------------------------
   // Tab renderers
   // ---------------------------------------------------------------------------
+
+  selectComponent(node, { activate = true } = {}) {
+    if (!node?.id) return false;
+    this.selectedComponentId = node.id;
+    this._selectedComponentFallback = node;
+    if (activate) this.ctx?.switchTab('component');
+    else this.ctx?.update();
+    return true;
+  }
+
+  _selectedComponent() {
+    if (!this.selectedComponentId) return null;
+    return endpointsById(this.game.state).get(this.selectedComponentId)
+      || this._selectedComponentFallback;
+  }
+
+  _renderComponent(el) {
+    const node = this._selectedComponent();
+    const component = node && COMPONENTS[node.type];
+    const beamline = this.game.registry.get(this.beamlineId);
+    if (!node || !component) {
+      el.innerHTML = '<div class="ctx-empty">Select a beamline component to inspect it.</div>';
+      return;
+    }
+
+    const health = beamline?.beamState?.componentHealth?.[node.id] ?? 100;
+    const commissioned = node.needsCommissioning === true ? 'Required' : 'Complete';
+    const healthColor = health > 60 ? '#44dd66' : health > 25 ? '#ddaa22' : '#ff4444';
+    const stats = beamlineComponentStatBreakdown(component, node);
+    const utilities = beamlineComponentUtilityBreakdown(this.game.state, node);
+    const grid = rows => rows.length
+      ? `<div class="ctx-stats-grid">${rows.map(row => `<div class="ctx-stat"><div class="ctx-stat-label">${escapeHtml(row.label)}</div><div class="ctx-stat-val neutral">${escapeHtml(row.value)}</div></div>`).join('')}</div>`
+      : '<div class="beamline-utility-note">No values published for this section.</div>';
+
+    let html = `<div class="equipment-details beamline-component-details">
+      <div class="equipment-name">${escapeHtml(component.name)}</div>
+      ${component.desc ? `<div class="equipment-meta">${escapeHtml(component.desc)}</div>` : ''}
+      <div class="ctx-section-label">Component state</div>
+      <div class="ctx-stats-grid three-col">
+        <div class="ctx-stat"><div class="ctx-stat-label">Health</div><div class="ctx-stat-val" style="color:${healthColor}">${fmtUtilityQty(health)}%</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Commissioning</div><div class="ctx-stat-val${node.needsCommissioning ? ' warn' : ''}">${commissioned}</div></div>
+        <div class="ctx-stat"><div class="ctx-stat-label">Position</div><div class="ctx-stat-val neutral">(${fmtUtilityQty(node.col)}, ${fmtUtilityQty(node.row)})</div></div>
+      </div>
+      <div class="ctx-section-label">Design specifications</div>${grid(stats.design)}`;
+
+    if (stats.settings.length) {
+      html += `<div class="ctx-section-label">Current settings</div>${grid(stats.settings)}`;
+    }
+    if (stats.operating.length) {
+      html += `<div class="ctx-section-label">Live operating values</div>${grid(stats.operating)}`;
+    }
+
+    html += '<div class="ctx-section-label">Utilities</div>';
+    if (!utilities.length) {
+      html += '<div class="beamline-utility-note">This component declares no utility ports.</div>';
+    }
+    for (const utility of utilities) {
+      const descriptor = utility.descriptor;
+      const unit = descriptor.demandUnit || descriptor.capacityUnit || '';
+      const statusText = {
+        connected: 'Connected', unwired: 'Not connected', unsolved: 'Awaiting solve',
+        supplying: 'Supplying network', idle: 'No connected network', 'pass-through': 'Pass-through',
+      }[utility.status] || utility.status;
+      const statusColor = utility.status === 'connected' || utility.status === 'supplying'
+        ? '#44dd66' : utility.status === 'unwired' ? '#ff4444' : '#ddaa22';
+      const authored = [
+        ...utility.inputs.map(metric => ({ label: `Need · ${metric.label}`, value: metric.value })),
+        ...utility.outputs.map(metric => ({ label: `Supply · ${metric.label}`, value: metric.value })),
+        ...utility.passThrough.map(metric => ({ label: metric.label, value: metric.value })),
+        ...utility.physical,
+      ];
+      html += `<section class="beamline-utility-card" style="--beamline-utility-color:${escapeHtml(utility.color)}">
+        <div class="beamline-utility-title"><strong>${escapeHtml(utility.utilityLabel)}</strong><span class="beamline-utility-connection" style="color:${statusColor}">${escapeHtml(statusText)}</span></div>
+        ${authored.length ? `<div class="beamline-utility-metrics">${authored.map(metric => `<div><span>${escapeHtml(metric.label)}</span><strong>${escapeHtml(metric.value)}</strong></div>`).join('')}</div>` : ''}`;
+      if (!descriptor.topologyOnly) {
+        html += `<div class="beamline-utility-metrics">
+          <div><span>Network demand</span><strong>${utility.networks.length ? fmtUtilityQty(utility.totalDemand) : '--'} ${escapeHtml(unit)}</strong></div>
+          <div><span>Network supply</span><strong>${utility.networks.length ? fmtUtilityQty(utility.totalCapacity) : '--'} ${escapeHtml(descriptor.capacityUnit || unit)}</strong></div>
+          <div><span>Delivered</span><strong style="color:${utility.quality === null ? '#8888aa' : utilityQualityColor(utility.quality)}">${utility.quality === null ? '--' : `${(utility.quality * 100).toFixed(0)}%`}</strong></div>
+        </div>`;
+      } else {
+        html += `<div class="beamline-utility-note">${utility.networks.length ? `${utility.connectedNodeCount || 0} connected devices · ${utility.connectedLinkCount || 0} links` : 'No connected data network.'}</div>`;
+      }
+      html += '</section>';
+    }
+    el.innerHTML = html + '</div>';
+  }
 
   _renderOverview(el) {
     const entry = this.game.registry.get(this.beamlineId);
@@ -552,44 +798,7 @@ export class BeamlineWindow {
    * here would make the shortfall impossible to explain.
    */
   _utilityNetworkSummary(utilityKey, nodeIds) {
-    const state = this.game.state;
-    const nodeSet = new Set(nodeIds);
-    const discovered = state.utilityNetworks && state.utilityNetworks.get
-      ? (state.utilityNetworks.get(utilityKey) || [])
-      : [];
-    const flowMap = state.utilityNetworkData && state.utilityNetworkData.get
-      ? state.utilityNetworkData.get(utilityKey)
-      : null;
-    const networks = [];
-    let totalCapacity = 0;
-    let totalDemand = 0;
-    let connectedNodeCount = 0;
-    let connectedLinkCount = 0;
-    let worstQuality = null;
-    const issues = [];
-
-    for (const network of discovered) {
-      if (!(network.ports || []).some(port => nodeSet.has(port.placeableId))) continue;
-      const flow = flowMap && flowMap.get ? flowMap.get(network.id) : null;
-      if (!flow) continue;
-      const beamlineSinks = (network.sinks || []).filter(sink => nodeSet.has(sink.placeableId));
-      for (const sink of beamlineSinks) {
-        const quality = flow.perSinkQuality && flow.perSinkQuality[sink.portKey];
-        if (!Number.isFinite(quality)) continue;
-        worstQuality = worstQuality === null ? quality : Math.min(worstQuality, quality);
-      }
-      if (Number.isFinite(flow.totalCapacity)) totalCapacity += flow.totalCapacity;
-      if (Number.isFinite(flow.totalDemand)) totalDemand += flow.totalDemand;
-      if (Number.isFinite(flow.connectedNodeCount)) connectedNodeCount += flow.connectedNodeCount;
-      if (Number.isFinite(flow.connectedLinkCount)) connectedLinkCount += flow.connectedLinkCount;
-      for (const issue of flow.errors || []) issues.push({ ...issue, networkId: network.id });
-      networks.push({ network, flow, beamlineSinkCount: beamlineSinks.length });
-    }
-
-    return {
-      networks, totalCapacity, totalDemand, connectedNodeCount, connectedLinkCount,
-      worstQuality, issues,
-    };
+    return utilityNetworkSummary(this.game.state, utilityKey, nodeIds);
   }
 
   _overviewVacuumHtml(nodeIds) {
