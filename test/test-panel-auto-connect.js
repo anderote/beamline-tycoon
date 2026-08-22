@@ -466,5 +466,28 @@ console.log('\n--- 14. Utility poles build aligned multi-conductor peer spans --
   }).ok), 'every aligned overhead conductor is a valid ordinary HV line');
 }
 
+console.log('\n--- 15. Utility poles reserve their side tap for pad-mount transformers ---');
+{
+  const game = new Game(new BeamlineRegistry(), { seed: 99 });
+  game.state.resources.funding = 1e9;
+  game.state.placeables.push(
+    item('pole', 'utilityPole', 10, 10),
+    item('green_transformer', 'padMountTransformer', 14, 10),
+  );
+  const plan = planPanelAutoConnect(game.state, 'pole');
+  assert(plan.utilityType === 'hvCable' && plan.candidates === 1,
+    'the nearby green pad-mount transformer is the pole feeder target');
+  assert(plan.stubs.length === 1
+      && plan.stubs[0].start.portName === 'hv_tap'
+      && plan.stubs[0].end.portName === 'hv_in',
+  'assisted wiring pairs utilityPole.hv_tap directly with padMountTransformer.hv_in');
+  assert(validateDrawLine(game.state, {
+    utilityType: 'hvCable',
+    start: plan.stubs[0]?.start,
+    end: plan.stubs[0]?.end,
+    path: plan.stubs[0]?.path,
+  }).ok, 'the dedicated pole-to-transformer feeder is a valid ordinary HV line');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

@@ -415,7 +415,7 @@ test('2×2 utility pole and 4×4 transmission tower accept every HV approach', (
   }
 });
 
-test('each pole insulator accepts two wires and all terminals share the low-tap bus', () => {
+test('each pole insulator accepts two wires and all terminals share the transformer-tap bus', () => {
   const support = {
     id: 'pole', type: 'utilityPole', col: 0, row: 0,
     subCol: 0, subRow: 0, dir: 0,
@@ -468,14 +468,14 @@ test('each pole insulator accepts two wires and all terminals share the low-tap 
   assert.equal(tap.maxConnections, 1);
   assert.deepEqual(PLACEABLES.utilityPole.electricalGroups.hvCable, [[
     'hv_in', 'hv_out', 'hv_3', 'hv_4', 'hv_tap',
-  ]], 'the low utility-pole tap reaches every live overhead terminal');
+  ]], 'the pad-transformer tap reaches every live overhead terminal');
   const tapLine = {
     id: 'pole-tap', utilityType: 'hvCable',
     start: { placeableId: 'pole', portName: 'hv_tap' }, end: null,
     path: [{ col: 0, row: 0 }, { col: 1, row: 0 }],
   };
   assert.equal(isTensionedHvCable(tapLine, new Map([[support.id, support]])), false,
-    'the deliberately low pole tap remains a slack service connection');
+    'the pole transformer tap remains a slack service connection');
 });
 
 test('overhead support anchors coincide with every visible insulator terminal', () => {
@@ -508,9 +508,19 @@ test('overhead support anchors coincide with every visible insulator terminal', 
   );
   assert.deepEqual(
     [poleTap.x, poleTap.y, poleTap.z, poleTap.out.x, poleTap.out.y, poleTap.out.z],
-    [0.5, 0.75, 0.8, 0, 0, 1],
-    'the utility-pole tap lands on its visible low front insulator',
+    [0.5, 1.55, 0.8, 0, 0, 1],
+    'the utility-pole tap lands on its visible pad-transformer feeder insulator',
   );
+  const transformerInput = portAnchor3D(
+    {
+      id: 'transformer', type: 'padMountTransformer', col: 2, row: 0,
+      subCol: 0, subRow: 0, dir: 0,
+    },
+    COMPONENTS.padMountTransformer,
+    'hv_in',
+  );
+  assert.equal(poleTap.y, transformerInput.y,
+    'the pole tap and green transformer primary bushing share one feeder height');
   setModelBoundsProvider(null);
 });
 

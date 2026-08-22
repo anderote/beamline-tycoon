@@ -173,6 +173,24 @@ function rolesCanAutoConnect(originSpec, targetSpec, utilityType) {
   return originSpec.role === 'pass';
 }
 
+// The utility pole's side fitting is authored specifically as the service
+// drop into the compact green pad-mount transformer. Keep it reserved for that
+// exact assisted-wiring pair; pole-to-pole spans continue to align the four
+// overhead conductors, and manual wiring remains free to use any valid port.
+function assistedOutletMatchesTarget(
+  originDef,
+  targetDef,
+  outletPortName,
+  targetPortName,
+  utilityType,
+) {
+  if (utilityType !== 'hvCable' || originDef?.id !== 'utilityPole') return true;
+  if (targetDef?.id === 'padMountTransformer') {
+    return outletPortName === 'hv_tap' && targetPortName === 'hv_in';
+  }
+  return outletPortName !== 'hv_tap';
+}
+
 function devicesDirectlyConnected(lines, utilityType, a, b) {
   return iterLines(lines).some(line => {
     if (!line || line.utilityType !== utilityType || !line.start || !line.end) return false;
@@ -321,6 +339,9 @@ export function planPanelAutoConnect(state, panelId, {
     for (const portName of availablePorts(endpoint, def, utilityType, lines)) {
       const spec = getPortSpec(def, portName);
       if (!outlets.some(outlet => rolesCanAutoConnect(outlet.spec, spec, utilityType)
+          && assistedOutletMatchesTarget(
+            panelDef, def, outlet.portName, portName, utilityType,
+          )
           && (!overheadPeer || (outlet.portName === portName
             && isOverheadHvSupport(panelDef, outlet.portName)
             && isOverheadHvSupport(def, portName))))) continue;
@@ -336,6 +357,7 @@ export function planPanelAutoConnect(state, panelId, {
         distance,
         deviceDistance,
         spec,
+        targetType: endpoint.type,
         overheadPeer,
       });
     }
@@ -391,6 +413,13 @@ export function planPanelAutoConnect(state, panelId, {
     if (connectedTargets.has(sink.placeableId) && !sink.overheadPeer) continue;
     const outletIdx = outlets.findIndex((outlet, index) => !usedOutlets.has(index)
       && rolesCanAutoConnect(outlet.spec, sink.spec, utilityType)
+      && assistedOutletMatchesTarget(
+        panelDef,
+        COMPONENTS[sink.targetType],
+        outlet.portName,
+        sink.portName,
+        utilityType,
+      )
       && (!sink.overheadPeer || outlet.portName === sink.portName));
     if (outletIdx < 0) continue;
     const outlet = outlets[outletIdx];
