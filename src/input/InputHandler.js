@@ -1454,20 +1454,45 @@ export class InputHandler {
     return { col, row, edge: 'w' };
   }
 
+  /** Resolve an opening at either spelling of a physical edge. */
+  _findOpeningAtEdge(edge, kind) {
+    const occupied = kind === 'door'
+      ? this.game.state.doorOccupied
+      : this.game.state.windowOccupied;
+    for (const e of [edge, this._edgeAlias(edge)]) {
+      const type = occupied?.[edgeKey(e.col, e.row, e.edge, this.game.activeLevel)];
+      if (!type) continue;
+      return {
+        edge: e,
+        overlayType: null,
+        wallType: null,
+        doorType: kind === 'door' ? type : null,
+        windowType: kind === 'window' ? type : null,
+      };
+    }
+    return null;
+  }
+
   /**
-   * Resolve the building edge visibly under the cursor. Door geometry wins
-   * through its dedicated 3D pick path; walls/windows keep the established
-   * ground-edge lookup so transparent walls remain click-through outside
-   * building demolition.
+   * Resolve the building edge visibly under the cursor. Door and window
+   * geometry wins through a dedicated 3D pick path; the ground-edge lookup is
+   * retained as the fallback for ordinary wall faces.
    */
   findDemolishableEdgeAtScreen(screenX, screenY) {
-    const doorHit = this.renderer.raycastDoorScreen?.(
+    const openingHit = this.renderer.raycastOpeningScreen?.(
+      screenX, screenY, OBJECT_PICK_TOLERANCE_PX,
+    ) || this.renderer.raycastDoorScreen?.(
       screenX, screenY, OBJECT_PICK_TOLERANCE_PX,
     );
-    const doorEdge = doorHit?.object?.userData?.doorEdge;
+    const doorEdge = openingHit?.object?.userData?.doorEdge;
     if (doorEdge) {
-      const found = this._findWallOrDoorAtEdge(doorEdge);
-      if (found?.doorType) return found;
+      const found = this._findOpeningAtEdge(doorEdge, 'door');
+      if (found) return found;
+    }
+    const windowEdge = openingHit?.object?.userData?.windowEdge;
+    if (windowEdge) {
+      const found = this._findOpeningAtEdge(windowEdge, 'window');
+      if (found) return found;
     }
     return this._findWallOrDoorAtEdge(this._getNearestEdge(screenX, screenY));
   }

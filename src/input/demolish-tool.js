@@ -7,6 +7,8 @@
 //   - demolishBeamline / demolishUtility: click-on-object (raycast) delete.
 //   - demolishBuilding: edge-first. Press on a wall/door/window edge starts
 //     an edge-path drag (Shift+click deletes the whole connected run);
+//     a gesture begun on visible opening geometry removes openings without
+//     taking their host walls;
 //     otherwise a tile-rect drag sweeps zones, floors, and wall/door/window
 //     edges.
 //   - demolishAll: catch-all — click or rect-drag levels everything.
@@ -51,7 +53,7 @@ export class DemolishTool extends Tool {
     this._edgeStart = null; // origin edge of the edge-path drag
     this._edgePath = [];    // [{ col, row, edge }]
     this._pipeSweep = null; // { pipeId, index } anchor of a pipe-section drag
-    this._pressedDoorEdge = null; // catch-all click on visible raised door geometry
+    this._pressedOpening = null; // click on visible raised door/window geometry
   }
 
   setFilters(filters) {
@@ -68,7 +70,7 @@ export class DemolishTool extends Tool {
     this._edgeStart = null;
     this._edgePath = [];
     this._pipeSweep = null;
-    this._pressedDoorEdge = null;
+    this._pressedOpening = null;
     ctx.renderer.clearDragPreview();
     ctx.input._hideDemolishTooltip();
   }
@@ -108,9 +110,14 @@ export class DemolishTool extends Tool {
               : input._buildWindowSegmentPath(edgeHit.edge);
           if (segment.length > 0) {
             game._withUndo(() => game._batchEvents(() => {
-              for (const pt of segment) {
-                const hit = input._findWallOrDoorAtEdge(pt);
-                if (hit && this.policy.allowsEdge(hit)) input._removeWallAndDoorAtEdge(pt);
+              const opening = this._openingTarget(edgeHit);
+              if (opening) {
+                this._removeOpeningRun(game, input, segment, opening.kind, this.policy);
+              } else {
+                for (const pt of segment) {
+                  const hit = input._findWallOrDoorAtEdge(pt);
+                  if (hit && this.policy.allowsEdge(hit)) input._removeWallAndDoorAtEdge(pt);
+                }
               }
             }));
             ctx.renderer.clearDragPreview();
@@ -118,6 +125,7 @@ export class DemolishTool extends Tool {
           }
           return true;
         }
+        this._pressedOpening = this._openingTarget(edgeHit);
         this._drawingEdges = true;
         this._edgeStart = edgeHit.edge;
         this._edgePath = [edgeHit.edge];
@@ -133,9 +141,9 @@ export class DemolishTool extends Tool {
       return true;
     }
     if (this.demolishType === 'demolishBuilding') {
-      // Edge-first: starting on a wall/door edge begins an edge-path drag
-      // (removes walls AND doors along the path); otherwise fall through to
-      // the tile-rect drag below.
+      // Edge-first: starting on visible opening geometry removes openings;
+      // starting on a wall removes complete wall edges. Otherwise fall
+      // through to the tile-rect drag below.
       const found = input.findDemolishableEdgeAtScreen(e.clientX, e.clientY);
       if (found) {
         if (input._shiftDown) {
@@ -153,8 +161,10 @@ export class DemolishTool extends Tool {
             // + rebuild of the map's walls — coalesce the whole run into a
             // single rebuild, like the tile-rect sweep below.
             game._withUndo(() => game._batchEvents(() => {
-              for (const pt of segment) {
-                input._removeWallAndDoorAtEdge(pt);
+              const opening = this._openingTarget(found);
+              if (opening) this._removeOpeningRun(game, input, segment, opening.kind);
+              else {
+                for (const pt of segment) input._removeWallAndDoorAtEdge(pt);
               }
             }));
             ctx.renderer.clearDragPreview();
@@ -162,6 +172,7 @@ export class DemolishTool extends Tool {
           }
           return true;
         }
+        this._pressedOpening = this._openingTarget(found);
         this._drawingEdges = true;
         this._edgeStart = found.edge;
         this._edgePath = [found.edge];
@@ -170,7 +181,7 @@ export class DemolishTool extends Tool {
     }
     if (this.demolishType === 'demolishAll') {
       const found = input.findDemolishableEdgeAtScreen?.(e.clientX, e.clientY);
-      this._pressedDoorEdge = found?.doorType ? found.edge : null;
+      this._pressedOpening = this._openingTarget(found);
     }
     // Beamline/equipment demolish is click-on-object; utility demolish is
     // click-on-line. Neither uses the tile-rect drag.
@@ -205,9 +216,16 @@ export class DemolishTool extends Tool {
     if (this._drawingEdges) {
       const edge = input._getNearestEdge(e.clientX, e.clientY);
       const path = input._buildWallLine(this._edgeStart, edge);
-      this._edgePath = this.filtered
-        ? path.filter(pt => this.policy.allowsEdge(input._findWallOrDoorAtEdge(pt)))
-        : path;
+      if (this._pressedOpening) {
+        this._edgePath = path.filter(pt => {
+          const hit = input._findOpeningAtEdge(pt, this._pressedOpening.kind);
+          return hit && (!this.filtered || this.policy.allowsEdge(hit));
+        });
+      } else {
+        this._edgePath = this.filtered
+          ? path.filter(pt => this.policy.allowsEdge(input._findWallOrDoorAtEdge(pt)))
+          : path;
+      }
       renderer.renderDemolishPathPreview(this._edgePath);
       return true;
     }
@@ -297,12 +315,20 @@ export class DemolishTool extends Tool {
       input._suppressNextClick = true;
       return true;
     }
-    // Edge-path end — clears walls AND doors along the path.
+    // Edge-path end. A gesture begun on visible opening geometry removes only
+    // that opening family; a wall gesture retains the complete-edge behavior.
     if (this._drawingEdges) {
       if (this._edgePath.length > 0) {
         // Batched for the same reason as the shift-click whole-run delete:
         // one wall rebuild for the drag, not one per edge.
         game._withUndo(() => game._batchEvents(() => {
+          if (this._pressedOpening) {
+            this._removeOpeningRun(
+              game, input, this._edgePath, this._pressedOpening.kind,
+              this.filtered ? this.policy : null,
+            );
+            return;
+          }
           for (const pt of this._edgePath) {
             if (!this.filtered) {
               input._removeWallAndDoorAtEdge(pt);
@@ -316,6 +342,7 @@ export class DemolishTool extends Tool {
       this._drawingEdges = false;
       this._edgeStart = null;
       this._edgePath = [];
+      this._pressedOpening = null;
       ctx.renderer.clearDragPreview();
       return true;
     }
@@ -367,14 +394,14 @@ export class DemolishTool extends Tool {
           // A rect drag is unchanged: sweeping an area IS the "level it all"
           // gesture, and the palette card says so.
           const singleTile = minCol === maxCol && minRow === maxRow;
-          const pressedDoorEdge = singleTile ? this._pressedDoorEdge : null;
-          const found = singleTile && !pressedDoorEdge
+          const pressedOpening = singleTile ? this._pressedOpening : null;
+          const found = singleTile && !pressedOpening
             ? input._findDeletablePlaceable(
               { x: world.x, y: world.y }, { col: minCol, row: minRow },
               e.clientX, e.clientY, this.policy)
             : null;
-          if (pressedDoorEdge) {
-            input._removeWallAndDoorAtEdge(pressedDoorEdge);
+          if (pressedOpening) {
+            this._removeOpening(game, pressedOpening);
           } else if (found) {
             game.demolishTarget(found);
           } else {
@@ -389,7 +416,7 @@ export class DemolishTool extends Tool {
       this._dragging = false;
       this._dragStart = null;
       this._dragEnd = null;
-      this._pressedDoorEdge = null;
+      this._pressedOpening = null;
       ctx.renderer.clearDragPreview();
       return true;
     }
@@ -528,7 +555,8 @@ export class DemolishTool extends Tool {
         }
       } else if (dt === 'demolishAll') {
         const found = input.findDemolishableEdgeAtScreen?.(screenX, screenY);
-        if (found?.doorType) input._removeWallAndDoorAtEdge(found.edge);
+        const opening = this._openingTarget(found);
+        if (opening) this._removeOpening(game, opening);
         else input._demolishEverythingAt(col, row);
       }
       return true;
@@ -540,6 +568,29 @@ export class DemolishTool extends Tool {
     ctx.input.clearTool();
     ctx.input._hidePreview();
     return true;
+  }
+
+  _openingTarget(hit) {
+    if (!hit || hit.overlayType || hit.wallType) return null;
+    if (hit.doorType) return { kind: 'door', edge: hit.edge };
+    if (hit.windowType) return { kind: 'window', edge: hit.edge };
+    return null;
+  }
+
+  _removeOpening(game, target) {
+    const { col, row, edge } = target.edge;
+    return target.kind === 'door'
+      ? game.removeDoor(col, row, edge)
+      : game.removeWindow(col, row, edge);
+  }
+
+  _removeOpeningRun(game, input, path, kind, policy = null) {
+    for (const pt of path) {
+      const hit = input._findOpeningAtEdge(pt, kind);
+      if (hit && (!policy || policy.allowsEdge(hit))) {
+        this._removeOpening(game, { kind, edge: hit.edge });
+      }
+    }
   }
 
   onShiftChange(down, ctx) {
