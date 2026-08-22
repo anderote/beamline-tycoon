@@ -74,6 +74,7 @@ export const PLANT_GUIDE_TYPES = Object.freeze({
     loadLabel: 'Superconducting load connected',
     loadMissing: 'Connect Cryo Transfer to an SRF cavity, cryomodule, or superconducting magnet.',
     onlineHint: 'Power the cold equipment; central compressors also require a working Cooling Water loop.',
+    sourceRaw: params => params?.ln2Reservoir === true,
   }),
 });
 
@@ -134,9 +135,12 @@ function rowDetail(requirement, status) {
  */
 export function plantGuideTypeForPlaceable(placeable) {
   const def = endpointDefinition(placeable);
-  if (!def) return null;
-  for (const utilityType of Object.keys(PLANT_GUIDE_TYPES)) {
-    if (sourcePortsForDefinition(def, utilityType).length > 0) return utilityType;
+  if (!def || def.plantGuide === false) return null;
+  for (const [utilityType, config] of Object.entries(PLANT_GUIDE_TYPES)) {
+    const startsPlant = sourcePortsForDefinition(def, utilityType).some(port =>
+      config.requirements.some(requirement => requirement.raw(port.params || {}))
+        || config.sourceRaw?.(port.params || {}));
+    if (startsPlant) return utilityType;
   }
   return null;
 }

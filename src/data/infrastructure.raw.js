@@ -1199,6 +1199,7 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
     autoConnectUtility: 'coolingWater',
+    plantGuide: false,
     requiredConnections: [],
     waterConverterGroups: [
       {
