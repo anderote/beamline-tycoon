@@ -99,6 +99,7 @@ export function buildPaletteIndex(game) {
 
   // --- WALL_TYPES (structure.js, merges grounds.js hedges/fencing)
   for (const [id, wall] of Object.entries(WALL_TYPES)) {
+    if (wall.deprecated) continue;
     const home = wallHome(wall);
     if (!home) continue;
     index.push({

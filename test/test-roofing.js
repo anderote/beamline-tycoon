@@ -116,13 +116,12 @@ const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 assert.ok(html.indexOf('data-wall-mode="roof"') < html.indexOf('data-wall-mode="up"'),
   'the triangular roof button sits immediately to the left of Walls Up');
 
-assert.equal(WALL_TYPES.officeWall.texture, 'wall_office', 'office walls have their own default texture');
-assert.equal(WALL_TYPES.hallwayWall.texture, 'wall_hallway', 'hallway walls have their own default texture');
-assert.equal(WALL_TYPES.labWall.texture, 'wall_lab', 'laboratory walls are available with a sealed-panel texture');
+assert.equal(WALL_TYPES.interiorWall.texture, undefined, 'interior walls have no unwanted default texture');
+assert.equal(WALL_TYPES.interiorWall.paintable, true, 'interior walls accept finishes');
+assert.equal(WALL_TYPES.officeWall.replacement, 'interiorWall', 'old office walls migrate to the generic interior wall');
+assert.equal(WALL_TYPES.hallwayWall.replacement, 'interiorWall', 'old hallway walls migrate to the generic interior wall');
+assert.equal(WALL_TYPES.labWall.replacement, 'interiorWall', 'old lab walls migrate to the generic interior wall');
 for (const texture of [
-  WALL_TYPES.officeWall.texture,
-  WALL_TYPES.hallwayWall.texture,
-  WALL_TYPES.labWall.texture,
   FLOORS.roof.roofProfiles.dropCeiling.texture,
   FLOORS.roof.roofProfiles.highBay.texture,
 ]) {

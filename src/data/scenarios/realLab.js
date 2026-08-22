@@ -55,12 +55,12 @@ export function generateRealLab() {
     for (let r = cafeRect.y0; r <= cafeRect.y1; r++) addZone('cafeteria', c, r);
   }
   for (let c = originCol; c < originCol + W; c++) {
-    addWall(c, originRow, 'n', 'officeWall');
-    addWall(c, originRow + H - 1, 's', 'officeWall');
+    addWall(c, originRow, 'n', 'interiorWall');
+    addWall(c, originRow + H - 1, 's', 'interiorWall');
   }
   for (let r = originRow; r < originRow + H; r++) {
-    addWall(originCol, r, 'w', 'officeWall');
-    addWall(originCol + W - 1, r, 'e', 'officeWall');
+    addWall(originCol, r, 'w', 'interiorWall');
+    addWall(originCol + W - 1, r, 'e', 'interiorWall');
   }
   addDoor(originCol + 3, hallRow, 's', 'officeDoor');
   addDoor(originCol + 9, hallRow, 's', 'officeDoor');
