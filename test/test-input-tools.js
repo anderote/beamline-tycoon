@@ -296,7 +296,39 @@ console.log('\n=== 1c. Shift-paint rebuilds the wall scene once ===\n');
   assertOk(g._undoStack.length === 1, 'the paint sweep pushes exactly one undo entry');
 }
 
-console.log('\n=== 1d. Shift-wallpaper stays on room boundaries ===\n');
+console.log('\n=== 1d. Mouse-release Shift reaches room paint ===\n');
+
+{
+  const g = makeGame(146);
+  g.placeInfraTile(4, 9, 'concrete');
+  g.placeInfraTile(5, 9, 'concrete');
+  for (const pt of [
+    { col: 4, row: 9, edge: 'n' }, { col: 5, row: 9, edge: 'n' },
+    { col: 5, row: 9, edge: 'e' }, { col: 4, row: 9, edge: 's' },
+    { col: 5, row: 9, edge: 's' }, { col: 4, row: 9, edge: 'w' },
+  ]) g.placeWall(pt.col, pt.row, pt.edge, 'structuralWall');
+
+  const handler = {
+    _suppressNextClick: false,
+    _shiftDown: false,
+    activeTool: new WallPaintTool('labBlue'),
+    game: g,
+    renderer: { screenToWorld: () => tileCenterIso(4, 9) },
+  };
+  handler._toolCtx = { game: g, renderer: handler.renderer, input: handler };
+  handler._toolConsumed = InputHandler.prototype._toolConsumed;
+
+  // The release event is the authoritative modifier snapshot. Keyboard
+  // tracking can be false after a focus transition even though the canvas
+  // release still reports Shift; dropping this flag reduced room paint to
+  // only the clicked tile's four adjacent faces.
+  InputHandler.prototype._handleClick.call(handler, 0, 0, { shiftKey: true });
+
+  assertOk(g.state.walls.every(wall => wall.facePaint?.inside === 'labBlue'),
+    'Shift from mouse release paints every inward-facing wall in the room');
+}
+
+console.log('\n=== 1e. Shift-wallpaper stays on room boundaries ===\n');
 
 {
   const g = makeGame(144);
@@ -323,7 +355,7 @@ console.log('\n=== 1d. Shift-wallpaper stays on room boundaries ===\n');
     'shift-wallpaper excludes a reconnecting partition instead of choosing its far-side face');
 }
 
-console.log('\n=== 1e. Ctrl-wallpaper paints one contiguous wall side ===\n');
+console.log('\n=== 1f. Ctrl-wallpaper paints one contiguous wall side ===\n');
 
 {
   const g = makeGame(145);
@@ -1185,8 +1217,8 @@ function countInfra(g, c0, r0, c1, r1) {
 
 {
   // FloorTool, click placement: Ctrl+click erases the tile the click would
-  // have laid. The synthesized click record carries no modifier flags at all
-  // (see InputHandler._handleClick), so this has to read _ctrlDown.
+  // have laid. The synthesized click record does not carry Ctrl/Cmd (see
+  // InputHandler._handleClick), so this has to read _ctrlDown.
   const g = makeGame(92);
   const ctx = structCtx(g);
   const tool = new FloorTool('path');

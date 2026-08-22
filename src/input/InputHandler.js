@@ -2931,7 +2931,12 @@ export class InputHandler {
     }
 
     // Active tool gets first claim on the click (placement commits).
-    if (this._toolConsumed('onClick', { clientX: screenX, clientY: screenY, button: 0 })) {
+    if (this._toolConsumed('onClick', {
+      clientX: screenX,
+      clientY: screenY,
+      button: 0,
+      shiftKey,
+    })) {
       return;
     }
 
