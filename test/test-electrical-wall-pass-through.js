@@ -34,7 +34,6 @@ const { WALL_TYPES } = await import('../src/data/structure.js');
 const { getUtilityPortsV2 } = await import('../src/data/utility-ports-v2.js');
 const {
   canPlaceWallFixture,
-  wallFixtureOffFromFrac,
 } = await import('../src/game/placement.js');
 const {
   wallFixturePose,
@@ -82,6 +81,8 @@ function candidate(state, utilityType, start, end) {
 }
 
 test('Power palette provides two real wall-mounted electrical feedthroughs', () => {
+  assert.equal(PLACEABLES.hvWallPassThrough2x2, undefined,
+    'the retired half-wall HV feedthrough is absent from the catalogue');
   for (const [id, utility, names] of [
     ['powerWallPassThrough', 'powerCable', ['pwr_in', 'pwr_out']],
     ['hvWallPassThrough', 'hvCable', ['hv_in', 'hv_out']],
@@ -187,48 +188,6 @@ test('HV wall feedthrough terminals accept cables from every cardinal direction'
   }
 });
 
-test('2×2 HV wall feedthrough occupies two selectable wall subslots', () => {
-  const def = PLACEABLES.hvWallPassThrough2x2;
-  assert.equal(def.wallSpan, 2);
-  assert.equal(def.subW, 2);
-  assert.deepEqual([
-    wallFixtureOffFromFrac(0.13, def.wallSpan),
-    wallFixtureOffFromFrac(0.50, def.wallSpan),
-    wallFixtureOffFromFrac(0.87, def.wallSpan),
-  ], [0, 1, 2], 'cursor placement reaches every valid two-subslot origin');
-
-  const game = {
-    state: {
-      wallOccupied: { '4,4,n': 'officeWall' },
-      placeables: [],
-    },
-  };
-  const left = canPlaceWallFixture(game, def, {
-    col: 4, row: 4, edge: 'n', off: 0,
-  });
-  const right = canPlaceWallFixture(game, def, {
-    col: 4, row: 4, edge: 'n', off: 2,
-  });
-  assert.equal(left.ok, true);
-  assert.equal(right.ok, true);
-  assert.equal(left.wallMount.span, 2);
-  assert.equal(right.wallMount.off, 2,
-    'the half-wall fitting can snap to the other two-subslot position');
-
-  game.state.placeables.push({
-    id: 'feed-2x2', type: def.id, wallMount: right.wallMount,
-  });
-  assert.equal(canPlaceWallFixture(game, PLACEABLES.wallSconce, {
-    col: 4, row: 4, edge: 'n', off: 0,
-  }).ok, true, 'the unused half of the wall remains available');
-  assert.equal(canPlaceWallFixture(game, PLACEABLES.wallSconce, {
-    col: 4, row: 4, edge: 'n', off: 2,
-  }).ok, false, 'the feedthrough reserves its selected subslots');
-  assert.equal(canPlaceWallFixture(game, PLACEABLES.wallSconce, {
-    col: 4, row: 3, edge: 's', off: 1,
-  }).ok, false, 'the same physical subslot is reserved on the far wall face');
-});
-
 test('4×4 HV wall feedthrough keeps four omnidirectional, un-rated conductors isolated', () => {
   const def = PLACEABLES.hvWallPassThrough4x4;
   const ports = getUtilityPortsV2(def.id);
@@ -259,39 +218,6 @@ test('4×4 HV wall feedthrough keeps four omnidirectional, un-rated conductors i
   });
   const networks = discoverNetworks('hvCable', state.utilityLines, makeDefaultPortLookup(state));
   assert.equal(networks.length, 4, 'each numbered front/back pair is isolated from the other three');
-});
-
-test('2×2 HV wall feedthrough scales the 4×4 fitting down to two isolated conductors', () => {
-  const def = PLACEABLES.hvWallPassThrough2x2;
-  const ports = getUtilityPortsV2(def.id);
-  assert.equal(def.wallSpan, 2);
-  assert.equal(def.utilityFlowPresentation, 'symmetric');
-  assert.equal(def.subW, 2);
-  assert.equal(Object.keys(ports).length, 4);
-  assert.deepEqual(Object.values(ports).map(port => port.offsetAlong), [0.25, 0.25, 0.75, 0.75]);
-  assert.ok(Object.values(ports).every(port =>
-    port.utility === 'hvCable' && port.role === 'pass'
-      && port.connectionKind === 'hvPassThrough'
-      && port.omnidirectional === true && Object.keys(port.params).length === 0),
-  'the half-wall bushing publishes no internal power or capacity limit');
-  assert.deepEqual(def.electricalGroups.hvCable, [
-    ['hv_in_1', 'hv_out_1'], ['hv_in_2', 'hv_out_2'],
-  ]);
-
-  const state = openState({
-    placeables: [{ id: 'feed', type: def.id, col: 0, row: 0, subCol: 0, subRow: 0, dir: 0 }],
-    utilityLines: new Map(Array.from({ length: 2 }, (_, index) => {
-      const n = index + 1;
-      return [`line-${n}`, {
-        id: `line-${n}`, utilityType: 'hvCable',
-        start: { placeableId: 'feed', portName: `hv_in_${n}` },
-        end: { placeableId: 'feed', portName: `hv_out_${n}` },
-        path: [{ col: n * 3, row: 0 }, { col: n * 3 + 1, row: 0 }],
-      }];
-    })),
-  });
-  const networks = discoverNetworks('hvCable', state.utilityLines, makeDefaultPortLookup(state));
-  assert.equal(networks.length, 2, 'each numbered front/back pair is isolated from the other');
 });
 
 test('indoor HV rack carries four isolated cables on hanging insulators', () => {

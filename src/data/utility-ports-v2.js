@@ -1113,18 +1113,6 @@ const INFRA_UTILITY_PORTS = {
       role: 'pass', connectionKind: 'hvPassThrough', omnidirectional: true, params: {},
     },
   },
-  hvWallPassThrough2x2: Object.fromEntries([
-    [1, 0.25], [2, 0.75],
-  ].flatMap(([index, offsetAlong]) => [
-    [`hv_in_${index}`, {
-      utility: 'hvCable', side: 'front', offsetAlong, role: 'pass',
-      connectionKind: 'hvPassThrough', omnidirectional: true, params: {},
-    }],
-    [`hv_out_${index}`, {
-      utility: 'hvCable', side: 'back', offsetAlong, role: 'pass',
-      connectionKind: 'hvPassThrough', omnidirectional: true, params: {},
-    }],
-  ])),
   hvWallPassThrough4x4: Object.fromEntries([
     [1, 0.125], [2, 0.375], [3, 0.625], [4, 0.875],
   ].flatMap(([index, offsetAlong]) => [
