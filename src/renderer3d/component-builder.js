@@ -4910,8 +4910,8 @@ export class ComponentBuilder {
    * For those we clone once per mesh on first dim and cache the clone on
    * userData, swapping between shared and clone as the dim state toggles.
    */
-  _setDimmed(obj, dimmed) {
-    const opacity = dimmed ? 0.3 : 1.0;
+  _setDimmed(obj, dimmed, opacity = 0.3) {
+    const targetOpacity = dimmed ? opacity : 1.0;
     obj.traverse((child) => {
       if (!child.isMesh) return;
       const role = child.userData.role;
@@ -4922,19 +4922,54 @@ export class ComponentBuilder {
             const clone = child.material.clone();
             clone.transparent = true;
             clone.opacity = opacity;
+            clone.depthWrite = false;
             child.userData._dimMat = clone;
             child.userData._baseMat = child.material;
           }
+          child.userData._dimMat.opacity = targetOpacity;
           child.material = child.userData._dimMat;
         } else if (child.userData._baseMat) {
           child.material = child.userData._baseMat;
         }
       } else {
         // Legacy / fallback meshes own their own material.
-        child.material.opacity = opacity;
-        child.material.transparent = dimmed;
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        if (dimmed && !child.userData._baseDimMaterialState) {
+          child.userData._baseDimMaterialState = materials.map(material => ({
+            opacity: material?.opacity,
+            transparent: material?.transparent,
+            depthWrite: material?.depthWrite,
+          }));
+        }
+        for (let i = 0; i < materials.length; i++) {
+          const material = materials[i];
+          if (!material) continue;
+          if (dimmed) {
+            material.opacity = targetOpacity;
+            material.transparent = true;
+            material.depthWrite = false;
+          } else if (child.userData._baseDimMaterialState) {
+            const base = child.userData._baseDimMaterialState[i];
+            material.opacity = base.opacity;
+            material.transparent = base.transparent;
+            material.depthWrite = base.depthWrite;
+          }
+        }
+        if (!dimmed) delete child.userData._baseDimMaterialState;
       }
     });
+  }
+
+  _applyDimState(obj) {
+    const focusDimmed = this._focusIds && !this._focusIds.has(obj.userData.nodeId);
+    const authoredDimmed = obj.userData.authoredDimmed === true;
+    this._setDimmed(obj, authoredDimmed || focusDimmed, focusDimmed ? 0.12 : 0.3);
+  }
+
+  /** Keep only selected-beamline hardware and its serving plant fully opaque. */
+  setFocus(focusedIds = null) {
+    this._focusIds = focusedIds == null ? null : new Set(focusedIds);
+    for (const obj of this._meshMap.values()) this._applyDimState(obj);
   }
 
   /**
@@ -4991,6 +5026,7 @@ export class ComponentBuilder {
       if (obj.parent !== targetGroup) targetGroup.add(obj);
       obj.userData.presentationCategory = comp.category || null;
       obj.userData.effectState = comp.effectState || 'on';
+      obj.userData.authoredDimmed = dimmed === true;
 
       // Position + rotation. Shared with the design-placement ghost via
       // componentPose so a preview can never claim a spot the commit will not
@@ -5001,7 +5037,7 @@ export class ComponentBuilder {
       syncMapEdgeServiceLeadVisual(obj, comp.mapEdgeConnection, pose);
 
       // Dimming
-      this._setDimmed(obj, dimmed);
+      this._applyDimState(obj);
 
       obj.updateMatrix();
     }

@@ -96,6 +96,7 @@ import {
   saveMouseSelectionCategories,
 } from './selection-preferences.js';
 import { OBJECT_PICK_TOLERANCE_PX } from './pick-tolerance.js';
+import { selectedBeamlineFocusModel } from '../renderer3d/selected-beamline-focus.js';
 
 // === BEAMLINE TYCOON: INPUT HANDLER ===
 
@@ -910,6 +911,20 @@ export class InputHandler {
       if (this.renderer.setSelectionOutlines) this.renderer.setSelectionOutlines(roots);
       else this.renderer.setSelectionOutline?.(roots[roots.length - 1] || null);
     }
+    const beamlineTarget = targets.length === 1
+      && targets[0]?.selectionCategory === 'beamline'
+      ? targets[0]
+      : null;
+    this.renderer.setSelectedBeamlineFocus?.(
+      beamlineTarget
+        ? selectedBeamlineFocusModel(this.game.state, this.game.registry, beamlineTarget)
+        : null,
+    );
+  }
+
+  /** Re-resolve transient selection presentation after status/topology changes. */
+  refreshSelectionPresentation() {
+    this._renderSelectionOutlines();
   }
 
   /** Open the inspector appropriate for one selected placeable. */

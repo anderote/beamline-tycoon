@@ -141,6 +141,7 @@ import { worldRefreshPlan } from './world-refresh-plan.js';
 import { WorldInvalidationScheduler } from './world-invalidation-scheduler.js';
 import { selectionTargetsForState } from '../game/selection-targets.js';
 import { LandPurchaseMarkers } from './land-purchase-markers.js';
+import { beamlineStatusPresentation } from './selected-beamline-focus.js';
 
 // Closest the camera may get. The renderer intentionally keeps the high-detail
 // presentation at every zoom; low-detail meshes made the world less readable.
@@ -882,6 +883,7 @@ export class ThreeRenderer {
           break;
         case 'beamToggled':
           this._refreshBeam();
+          this._inputHandler?.refreshSelectionPresentation?.();
           if (this._updateBeamSummary) this._updateBeamSummary();
           break;
         case 'physicsUpdated':
@@ -901,6 +903,7 @@ export class ThreeRenderer {
             const sig = utilityLineVisualSignature(this._liveState());
             if (sig !== null && sig !== this._utilityLineVisualSig) {
               this._refreshUtilityLinesV2({ pipeAttachments: false });
+              this._inputHandler?.refreshSelectionPresentation?.();
             }
           }
           // Guarded on the issue signature — a steady world costs one short
@@ -2606,6 +2609,77 @@ export class ThreeRenderer {
     }
   }
 
+  /** Apply the selected beamline's machine/utility spotlight and run state. */
+  setSelectedBeamlineFocus(model) {
+    this._selectedBeamlineFocus = model || null;
+    this.componentBuilder?.setFocus?.(model?.focusedComponentIds || null);
+    this.utilityLineBuilderV2?.setFocus?.(model?.utilityLineIds || null);
+    if (!model || !this.selectionGroup) return;
+
+    const presentation = beamlineStatusPresentation(model.status);
+    for (const nodeId of model.beamlineNodeIds || []) {
+      const root = this.componentBuilder?.getGroup?.(nodeId);
+      if (root) this._outlineObject(root, presentation.color, this.selectionGroup, 4);
+    }
+
+    const route = (model.routePoints || []).map(point => new THREE.Vector3(
+      point.col * 2 + 1, BEAM_AXIS_HEIGHT + 0.26, point.row * 2 + 1,
+    ));
+    if (route.length >= 2) {
+      const geometry = new THREE.BufferGeometry().setFromPoints(route);
+      const material = new THREE.LineDashedMaterial({
+        color: presentation.color,
+        transparent: true,
+        opacity: 0.98,
+        dashSize: model.status === 'running' ? 0.7 : 0.32,
+        gapSize: model.status === 'running' ? 0.18 : 0.28,
+        depthTest: false,
+        depthWrite: false,
+      });
+      const line = new THREE.Line(geometry, material);
+      line.name = 'selected-beamline-status-route';
+      line.computeLineDistances();
+      line.renderOrder = 1002;
+      this.selectionGroup.add(line);
+    }
+
+    const badgePoint = route[0] || new THREE.Vector3(
+      (model.anchor?.col || 0) * 2 + 1,
+      BEAM_AXIS_HEIGHT + 0.26,
+      (model.anchor?.row || 0) * 2 + 1,
+    );
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const cssColor = `#${presentation.color.toString(16).padStart(6, '0')}`;
+      ctx.fillStyle = 'rgba(5, 9, 14, 0.92)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = cssColor;
+      ctx.lineWidth = 6;
+      ctx.strokeRect(3, 3, canvas.width - 6, canvas.height - 6);
+      ctx.fillStyle = cssColor;
+      ctx.font = 'bold 30px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(presentation.label, canvas.width / 2, canvas.height / 2 + 1);
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.minFilter = THREE.NearestFilter;
+      texture.magFilter = THREE.NearestFilter;
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: texture, transparent: true, depthTest: false, depthWrite: false,
+      }));
+      sprite.name = 'selected-beamline-status-badge';
+      sprite.position.copy(badgePoint);
+      sprite.position.y += 1.35;
+      sprite.scale.set(3.2, 0.8, 1);
+      sprite.renderOrder = 1003;
+      this.selectionGroup.add(sprite);
+    }
+  }
+
   /**
    * Movable placeables whose projected model bounds overlap a screen marquee.
    * Beamline hardware and stacked objects stay out: the group-placement model
@@ -2745,11 +2819,13 @@ export class ThreeRenderer {
   }
 
   clearSelectionOutline() {
+    this.setSelectedBeamlineFocus(null);
     while (this.selectionGroup?.children?.length) {
       const child = this.selectionGroup.children[0];
       this.selectionGroup.remove(child);
       child.traverse?.((obj) => {
         obj.geometry?.dispose?.();
+        obj.material?.map?.dispose?.();
         obj.material?.dispose?.();
       });
     }
@@ -4654,6 +4730,10 @@ export class ThreeRenderer {
     if (plan.physicsBodies) this._markPhysicsBodiesDirty();
     if (plan.palette && this._refreshPalette) this._refreshPalette();
     this._sceneLayerVisibility.apply();
+    if (this._selectedBeamlineFocus
+        && (plan.components || plan.beamPipes || plan.utilityLines)) {
+      this._inputHandler?.refreshSelectionPresentation?.();
+    }
   }
 
   _ensurePhysicsBodies() {

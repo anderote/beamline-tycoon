@@ -1876,6 +1876,7 @@ export class UtilityLineBuilderV2 {
     this._lineHashes = new Map();
     this._busGroups = new Map();
     this._busHashes = new Map();
+    this._focusLineIds = null;
     // line.id → one short-lived interpolation from the just-drawn hand shape
     // to its deterministic, gravity-settled rope solve.
     this._relaxations = new Map();
@@ -2066,7 +2067,56 @@ export class UtilityLineBuilderV2 {
       }
     }
     this._buildUtilityBuses(opts.state?.utilityBuses || [], parentGroup);
+    this._applyFocus();
     this._hasBuiltOnce = true;
+  }
+
+  _setGroupFocusDimmed(group, dimmed) {
+    group?.traverse?.(object => {
+      if (!object.material) return;
+      const current = Array.isArray(object.material) ? object.material : [object.material];
+      if (dimmed) {
+        if (!object.userData._focusBaseMaterials) {
+          object.userData._focusBaseMaterials = current;
+          object.userData._focusDimMaterials = current.map(material => {
+            const clone = material.clone();
+            clone.transparent = true;
+            clone.opacity = Math.min(material.opacity ?? 1, 0.12);
+            clone.depthWrite = false;
+            return clone;
+          });
+        }
+        object.material = Array.isArray(object.material)
+          ? object.userData._focusDimMaterials
+          : object.userData._focusDimMaterials[0];
+      } else if (object.userData._focusBaseMaterials) {
+        for (const material of object.userData._focusDimMaterials || []) material.dispose?.();
+        object.material = Array.isArray(object.material)
+          ? object.userData._focusBaseMaterials
+          : object.userData._focusBaseMaterials[0];
+        delete object.userData._focusBaseMaterials;
+        delete object.userData._focusDimMaterials;
+      }
+    });
+  }
+
+  _applyFocus() {
+    const focus = this._focusLineIds;
+    const focusedBusIds = new Set();
+    for (const [lineId, group] of this._lineGroups) {
+      const isFocused = !focus || focus.has(lineId);
+      this._setGroupFocusDimmed(group, !isFocused);
+      if (isFocused && group.userData?.busId) focusedBusIds.add(group.userData.busId);
+    }
+    for (const [busId, group] of this._busGroups) {
+      this._setGroupFocusDimmed(group, !!focus && !focusedBusIds.has(busId));
+    }
+  }
+
+  /** Keep the utility runs serving a selected beamline fully opaque. */
+  setFocus(lineIds = null) {
+    this._focusLineIds = lineIds == null ? null : new Set(lineIds);
+    this._applyFocus();
   }
 
   _buildUtilityBuses(buses, parentGroup) {
