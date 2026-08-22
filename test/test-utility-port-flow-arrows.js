@@ -32,6 +32,7 @@ const {
 } = await import('../src/renderer3d/builders/port-fitting-builder.js');
 const { portAnchor3D } = await import('../src/utility/port-anchors.js');
 const { HV_LOAD_TAP_IDS } = await import('../src/data/hv-load-taps.js');
+const { GRID_SERVICE_HV_OUTPUT_MOUNTS } = await import('../src/data/utility-port-anchors.js');
 
 const anchor = { x: 3, y: 1.2, z: -4, out: { x: 0, z: 1 }, standoff: 0.03 };
 
@@ -121,6 +122,39 @@ test('cooling and cabinet RF load taps use tall porcelain roof bushings', () => 
     fitting.geometry.computeBoundingBox();
     assert.ok(fitting.geometry.boundingBox.max.x >= 0.19,
       `${type} uses the tall insulator silhouette`);
+  }
+});
+
+test('off-map utility service outputs are the porcelain insulators on top', () => {
+  const types = ['gridServicePoint', 'gridServicePointHighCapacity'];
+  const endpoints = types.map((type, index) => ({
+    id: `service-${index}`, type,
+    col: index * 4, row: 0, subCol: 0, subRow: 0, dir: 0,
+  }));
+  const { group } = buildPortFittings(endpoints);
+  const fittings = new Map(fittingsOf(group).map(fitting => [
+    `${fitting.userData.placeableId}:${fitting.userData.portName}`, fitting,
+  ]));
+
+  for (const [typeIndex, type] of types.entries()) {
+    const mounts = GRID_SERVICE_HV_OUTPUT_MOUNTS[type];
+    const outputNames = Object.entries(COMPONENTS[type].ports)
+      .filter(([, spec]) => spec.utility === 'hvCable' && spec.role === 'source')
+      .map(([name]) => name);
+    assert.equal(outputNames.length, mounts.length,
+      `${type} gives every feeder output its own roof insulator`);
+
+    for (const [portIndex, portName] of outputNames.entries()) {
+      const fitting = fittings.get(`service-${typeIndex}:${portName}`);
+      const resolved = portAnchor3D(endpoints[typeIndex], COMPONENTS[type], portName);
+      assert.ok(fitting, `${type}.${portName} has persistent output hardware`);
+      assert.equal(fitting.userData.fittingStyle, 'hvInsulator');
+      assert.equal(resolved.y, mounts[portIndex].y);
+      assert.equal(resolved.out.y, 1, `${type}.${portName} points up from the roof`);
+      const axis = new THREE_REAL.Vector3(1, 0, 0).applyQuaternion(fitting.quaternion);
+      assert.ok(axis.distanceTo(new THREE_REAL.Vector3(0, 1, 0)) < 1e-9,
+        `${type}.${portName} renders as a vertical porcelain insulator`);
+    }
   }
 });
 
