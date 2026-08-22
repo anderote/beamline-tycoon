@@ -144,7 +144,9 @@ globalThis.document = {
 const {
   WallBuilder, TILE_SIZE, HEIGHT_SCALE, _edgeAliasKey, windowOpeningLayout,
 } = await import('../src/renderer3d/wall-builder.js');
-const { WALL_TYPES, WINDOW_TYPES, windowOpeningHeight } = await import('../src/data/structure.js');
+const {
+  WALL_TYPES, WINDOW_TYPES, WALL_PAINTS, windowOpeningHeight,
+} = await import('../src/data/structure.js');
 
 // --- Fake parentGroup ----------------------------------------------------
 function makeGroup() {
@@ -208,6 +210,31 @@ console.log('\n=== crossed vs aligned produce the same mesh set, mesh-for-mesh =
   const alignedShapes = aligned.group.children.map(shape).sort();
   assert(JSON.stringify(crossedShapes) === JSON.stringify(alignedShapes),
     'the crossed and aligned mesh sets are identical (geometry dims, position, texture, color)');
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n=== crossed window surrounds keep finishes on their physical wall sides ===\n');
+{
+  const paintedWall = {
+    col: 5, row: 3, edge: 's', type: 'officeWall', variant: 0,
+    facePaint: { inside: 'paperSubway', outside: 'utilityGray' },
+    baseY: { a: 0, b: 0 },
+  };
+  const window = {
+    col: 5, row: 4, edge: 'n', type: 'officeWindow', variant: 0,
+    baseY: { a: 0, b: 0 },
+  };
+  const group = makeGroup();
+  const wb = new WallBuilder(null);
+  wb.build([paintedWall], [], [window], group, 'up', null);
+
+  const surround = group.children.find(mesh => Array.isArray(mesh.material));
+  const paperTexture = WALL_PAINTS.paperSubway.texture;
+  assert(!!surround, 'window opening emits a per-face painted surround');
+  assert(surround?.material[5]?.map?.path?.endsWith(`/${paperTexture}.png`),
+    'wall-record inside wallpaper stays on the same physical (-Z) face through the alias');
+  assert(surround?.material[4]?.color === WALL_PAINTS.utilityGray.color,
+    'wall-record outside paint stays on the opposite physical (+Z) face through the alias');
 }
 
 // ---------------------------------------------------------------------------

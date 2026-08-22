@@ -1043,8 +1043,21 @@ export class WallBuilder {
     const materials = Array(6).fill(base);
     const insideFace = edge === 'n' ? 4 : edge === 's' ? 5 : edge === 'e' ? 1 : 0;
     const outsideFace = edge === 'n' ? 5 : edge === 's' ? 4 : edge === 'e' ? 0 : 1;
-    materials[insideFace] = faceMaterial(wallRecord.facePaint.inside);
-    materials[outsideFace] = faceMaterial(wallRecord.facePaint.outside);
+    // facePaint is relative to the WALL record's tile, while opening boxes
+    // are oriented from the DOOR/WINDOW record. Those records may use the
+    // two mirrored spellings of one physical edge. In that case the opening's
+    // tile-facing side is the wall record's neighbouring side, so carrying
+    // `inside` straight across puts wallpaper outdoors and the exterior
+    // finish indoors.
+    const mirrored = wallRecord.edge !== edge;
+    const insidePaint = mirrored
+      ? wallRecord.facePaint.outside
+      : wallRecord.facePaint.inside;
+    const outsidePaint = mirrored
+      ? wallRecord.facePaint.inside
+      : wallRecord.facePaint.outside;
+    materials[insideFace] = faceMaterial(insidePaint);
+    materials[outsideFace] = faceMaterial(outsidePaint);
     return materials;
   }
 
