@@ -867,6 +867,25 @@ test('An HV wall pass-through tensions its attached feeder', () => {
     'the pass-through-supported conductor remains suspended with visible shallow sag');
 });
 
+test('Every distribution cabinet roof tap accepts two segments and tensions HV cable', () => {
+  for (const [index, type] of [
+    'compactHvDistributor', 'powerPanel', 'sectionDistributionPanel', 'mainDistributionPanel',
+  ].entries()) {
+    const panel = {
+      id: `panel_${index}`, type, col: index * 3, row: 0,
+      subCol: 0, subRow: 0, dir: 0,
+    };
+    const ports = getUtilityPortsV2(type);
+    assert.equal(ports.hv_in.maxConnections, 2, `${type} roof terminal accepts two cables`);
+    assert.equal(ports.hv_in.tensionsCable, true, `${type} roof terminal declares tension support`);
+    assert.equal(isTensionedHvCable({
+      utilityType: 'hvCable',
+      start: { placeableId: panel.id, portName: 'hv_in' },
+      end: null,
+    }, new Map([[panel.id, panel]])), true, `${type} tensions an attached span`);
+  }
+});
+
 test('A live HV draw from a tower stays taut to its open cursor end', () => {
   const tower = {
     id: 'tower', type: 'transmissionTower',

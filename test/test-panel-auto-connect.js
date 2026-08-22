@@ -263,14 +263,14 @@ console.log('\n--- 6. T removal spans selected devices and utilities in one undo
     'T claims the key for all selected auto-connect-capable devices');
 }
 
-console.log('\n--- 7. HV distributors auto-connect ordinary HV feeders ---');
+console.log('\n--- 7. The compact HV distributor auto-connects ordinary HV feeders ---');
 {
-  assert(COMPONENTS.compactHvDistributor.autoConnectUtility === 'hvCable'
-      && COMPONENTS.switchgear.autoConnectUtility === 'hvCable',
-  'both HV distribution tiers opt into feeder auto-connect');
-  assert(COMPONENTS.switchgear.autoConnectRadius
-      > COMPONENTS.compactHvDistributor.autoConnectRadius,
-  'the larger HV distributor has the longer assisted-wiring reach');
+  assert(COMPONENTS.compactHvDistributor.autoConnectUtility === 'hvCable',
+  'the compact HV distributor opts into feeder auto-connect');
+  assert(!COMPONENTS.switchgear
+      && COMPONENTS.sectionDistributionPanel.autoConnectUtility === 'powerCable'
+      && COMPONENTS.mainDistributionPanel.autoConnectUtility === 'powerCable',
+  'hybrid panels replace the old box while keeping branch-power assisted wiring');
 
   const game = new Game(new BeamlineRegistry(), { seed: 92 });
   game.state.resources.funding = 1e9;

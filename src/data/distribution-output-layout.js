@@ -30,35 +30,68 @@ export function horizontalOutputRows(count, { span, bottomY, rowGap = 0 }) {
   return positions;
 }
 
-const SPECS = Object.freeze({
+const POWER_OUTPUT_SPECS = Object.freeze({
   poleMountTransformer: Object.freeze({ count: 4, span: 0.45, bottomY: 0.16, frontZ: 0.31 }),
-  compactHvDistributor: Object.freeze({ count: 2, span: 0.20, bottomY: 0.48, frontZ: 0.21 }),
-  switchgear: Object.freeze({ count: 4, span: 0.60, bottomY: 0.58, frontZ: 0.66 }),
-  powerPanel: Object.freeze({ count: 4, span: 0.30, bottomY: 0.38, frontZ: 0.19 }),
-  sectionDistributionPanel: Object.freeze({ count: 8, span: 0.70, bottomY: 0.42, rowGap: 0.36, frontZ: 0.24 }),
-  mainDistributionPanel: Object.freeze({ count: 8, span: 1.04, bottomY: 0.48, rowGap: 0.42, frontZ: 0.26 }),
+  powerPanel: Object.freeze({ count: 4, span: 0.30, bottomY: 0.30, frontZ: 0.21 }),
+  sectionDistributionPanel: Object.freeze({ count: 6, span: 0.70, bottomY: 0.38, rowGap: 0.32, frontZ: 0.24 }),
+  mainDistributionPanel: Object.freeze({ count: 12, span: 1.04, bottomY: 0.32, rowGap: 0.34, frontZ: 0.26 }),
   mcc: Object.freeze({ count: 8, span: 1.26, bottomY: 0.48, rowGap: 0.82, frontZ: 0.41 }),
   ups: Object.freeze({ count: 2, span: 0.72, bottomY: 0.84, frontZ: 0.41 }),
 });
 
-export const DISTRIBUTION_OUTPUT_LAYOUTS = Object.freeze(Object.fromEntries(
-  Object.entries(SPECS).map(([id, spec]) => [
+const HV_OUTPUT_SPECS = Object.freeze({
+  compactHvDistributor: Object.freeze({ count: 2, span: 0.20, bottomY: 0.48, frontZ: 0.21 }),
+  sectionDistributionPanel: Object.freeze({ count: 1, span: 0.70, bottomY: 1.08, frontZ: 0.24 }),
+  mainDistributionPanel: Object.freeze({ count: 2, span: 0.48, bottomY: 1.40, frontZ: 0.26 }),
+});
+
+function layoutsFromSpecs(specs) {
+  return Object.freeze(Object.fromEntries(Object.entries(specs).map(([id, spec]) => [
     id,
     Object.freeze(horizontalOutputRows(spec.count, spec).map(Object.freeze)),
-  ]),
+  ])));
+}
+
+export const DISTRIBUTION_POWER_OUTPUT_LAYOUTS = layoutsFromSpecs(POWER_OUTPUT_SPECS);
+export const DISTRIBUTION_HV_OUTPUT_LAYOUTS = layoutsFromSpecs(HV_OUTPUT_SPECS);
+
+const DISTRIBUTION_TYPES = new Set([
+  ...Object.keys(POWER_OUTPUT_SPECS),
+  ...Object.keys(HV_OUTPUT_SPECS),
+]);
+
+export const DISTRIBUTION_OUTPUT_LAYOUTS = Object.freeze(Object.fromEntries(
+  [...DISTRIBUTION_TYPES].map(id => [id, Object.freeze([
+    ...(DISTRIBUTION_POWER_OUTPUT_LAYOUTS[id] || []),
+    ...(DISTRIBUTION_HV_OUTPUT_LAYOUTS[id] || []),
+  ])]),
 ));
 
 // Exact front-face attachment points for cable anchors and visible metal
 // glands. Keeping this derived from the breaker-row layout prevents controls,
 // terminals, and independently selectable output ports from drifting apart.
 export const DISTRIBUTION_FRONT_TERMINAL_LAYOUTS = Object.freeze(Object.fromEntries(
-  Object.entries(SPECS).map(([id, spec]) => [
+  [...DISTRIBUTION_TYPES].map(id => [
     id,
-    Object.freeze(horizontalOutputRows(spec.count, spec).map(({ x, y }) => Object.freeze({
-      x, y, z: spec.frontZ,
+    Object.freeze(DISTRIBUTION_OUTPUT_LAYOUTS[id].map(({ x, y }) => Object.freeze({
+      x, y, z: POWER_OUTPUT_SPECS[id]?.frontZ ?? HV_OUTPUT_SPECS[id].frontZ,
     }))),
   ]),
 ));
+
+function terminalLayouts(layouts, specs) {
+  return Object.freeze(Object.fromEntries(Object.entries(layouts).map(([id, positions]) => [
+    id,
+    Object.freeze(positions.map(({ x, y }) => Object.freeze({ x, y, z: specs[id].frontZ }))),
+  ])));
+}
+
+export const DISTRIBUTION_POWER_FRONT_TERMINAL_LAYOUTS = terminalLayouts(
+  DISTRIBUTION_POWER_OUTPUT_LAYOUTS, POWER_OUTPUT_SPECS,
+);
+export const DISTRIBUTION_HV_FRONT_TERMINAL_LAYOUTS = terminalLayouts(
+  DISTRIBUTION_HV_OUTPUT_LAYOUTS, HV_OUTPUT_SPECS,
+);
 
 export const DISTRIBUTION_TERMINAL_HEIGHT = 0.16;
 
@@ -76,8 +109,7 @@ function topInputLayout({ roofY, inputZ }) {
 const TOP_INPUT_SPECS = Object.freeze({
   poleMountTransformer: Object.freeze({ roofY: 0.39, inputZ: -0.25 }),
   compactHvDistributor: Object.freeze({ roofY: 0.895, inputZ: -0.10 }),
-  switchgear: Object.freeze({ roofY: 1.845, inputZ: -0.28 }),
-  powerPanel: Object.freeze({ roofY: 1.465, inputZ: -0.10 }),
+  powerPanel: Object.freeze({ roofY: 0.895, inputZ: -0.10 }),
   sectionDistributionPanel: Object.freeze({ roofY: 1.765, inputZ: -0.16 }),
   mainDistributionPanel: Object.freeze({ roofY: 1.965, inputZ: -0.17 }),
   mcc: Object.freeze({ roofY: 1.915, inputZ: -0.15 }),

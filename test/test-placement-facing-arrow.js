@@ -14,7 +14,6 @@ const COMPASS_BY_VECTOR = new Map([
 
 for (const [id, expectedOutputCount] of [
   ['compactHvDistributor', 2],
-  ['switchgear', 4],
 ]) {
   const distributor = { id, ports: getUtilityPortsV2(id) };
   const outputs = Object.entries(distributor.ports)

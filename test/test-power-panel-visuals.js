@@ -3,7 +3,9 @@ import { test } from 'node:test';
 import * as THREE from 'three';
 import {
   DISTRIBUTION_FRONT_TERMINAL_LAYOUTS,
+  DISTRIBUTION_HV_FRONT_TERMINAL_LAYOUTS,
   DISTRIBUTION_OUTPUT_LAYOUTS,
+  DISTRIBUTION_POWER_FRONT_TERMINAL_LAYOUTS,
   DISTRIBUTION_TOP_INPUT_LAYOUTS,
 } from '../src/data/distribution-output-layout.js';
 import { INFRASTRUCTURE_RAW } from '../src/data/infrastructure.raw.js';
@@ -19,7 +21,6 @@ const {
   _buildCompactHvDistributorRoles,
   _buildHVTransformerRoles,
   _buildPadMountTransformerRoles,
-  _buildSwitchgearRoles,
   _buildMCCRoles,
   _buildUPSRoles,
   _buildCompactDistributionPanelRoles,
@@ -42,10 +43,9 @@ test('electrical distribution breaker controls use horizontal rows of four or tw
   const expectedRows = {
     poleMountTransformer: [4],
     compactHvDistributor: [2],
-    switchgear: [4],
     powerPanel: [4],
-    sectionDistributionPanel: [4, 4],
-    mainDistributionPanel: [4, 4],
+    sectionDistributionPanel: [4, 2, 1],
+    mainDistributionPanel: [4, 4, 4, 2],
     mcc: [4, 4],
     ups: [2],
   };
@@ -67,7 +67,6 @@ test('electrical distribution breaker controls use horizontal rows of four or tw
 test('distribution inputs meet explicit inlet hardware while outputs use front glands', () => {
   const builders = {
     compactHvDistributor: _buildCompactHvDistributorRoles,
-    switchgear: _buildSwitchgearRoles,
     powerPanel: _buildCompactDistributionPanelRoles,
     sectionDistributionPanel: _buildSectionDistributionPanelRoles,
     mainDistributionPanel: _buildMainDistributionPanelRoles,
@@ -109,8 +108,12 @@ test('distribution inputs meet explicit inlet hardware while outputs use front g
     assert.equal(inputAnchor.localZ, inputLayout.input.z, `${type}.hv_in uses its cap Z`);
     assert.equal(inputAnchor.y, inputLayout.input.y, `${type}.hv_in lands on the cap top`);
 
-    for (const [[portName], terminal] of outputs.map((output, index) =>
-      [output, outputLayout[index]])) {
+    for (const [portName] of outputs) {
+      const match = portName.match(/_(\d+)$/);
+      const index = Number(match?.[1]) - 1;
+      const terminal = portName.startsWith('hv_out_')
+        ? DISTRIBUTION_HV_FRONT_TERMINAL_LAYOUTS[type]?.[index]
+        : DISTRIBUTION_POWER_FRONT_TERMINAL_LAYOUTS[type]?.[index];
       const anchor = portAnchorOverride(type, portName);
       assert.deepEqual(anchor.normal, { x: 0, y: 0, z: 1 },
         `${type}.${portName} faces forward`);
@@ -242,8 +245,8 @@ test('distribution panel rungs are detailed NEMA enclosures, not plain boxes', (
     `compact panel has doors, hinges, breakers, labels and vents (${totalParts(compact)} parts)`);
   assert.ok(totalParts(section) > totalParts(compact),
     'section panel visibly adds a second cabinet/breaker bank');
-  assert.equal(totalParts(main), totalParts(section),
-    'section and main panels both carry complete eight-breaker lineups');
+  assert.ok(totalParts(main) > totalParts(section),
+    'main panel visibly adds its twelve green and two HV output lineup');
 
   for (const [name, buckets] of [['compact', compact], ['section', section], ['main', main]]) {
     assert.ok(buckets.accent.length >= 3, `${name} panel has a cabinet, cap and proud door`);
@@ -254,9 +257,8 @@ test('distribution panel rungs are detailed NEMA enclosures, not plain boxes', (
   }
 });
 
-test('switchgear and MCC show serviceable electrical compartments', () => {
+test('compact HV distribution and MCC show serviceable electrical compartments', () => {
   const compactHv = _buildCompactHvDistributorRoles();
-  const switchgear = _buildSwitchgearRoles();
   const mcc = _buildMCCRoles();
 
   assert.ok(totalParts(compactHv) >= 20,
@@ -264,21 +266,12 @@ test('switchgear and MCC show serviceable electrical compartments', () => {
   assert.equal(compactHv.glow.length, 1, 'compact HV distributor has one restrained status lamp');
   assert.equal(compactHv.copper.length, 4,
     'compact HV distributor shows one inlet, two outlets and its grounding bond');
-  assert.ok(totalParts(compactHv) < totalParts(switchgear),
-    'compact 1-to-2 cabinet is visually simpler than the four-way switchgear');
-
-  assert.ok(totalParts(switchgear) >= 35,
-    `switchgear has a door, meter, breaker hardware and lifting eyes (${totalParts(switchgear)} parts)`);
-  assert.equal(switchgear.glow.length, 3, 'switchgear has three phase/status pilot lamps');
-  assert.ok(switchgear.copper.length >= 7, 'switchgear retains five terminal caps plus bonded metalwork');
-
   assert.ok(totalParts(mcc) >= 70,
     `MCC has eight individually legible starter buckets (${totalParts(mcc)} parts)`);
   assert.equal(mcc.glow.length, 8, 'each MCC starter bucket has one pilot lamp');
   assert.ok(mcc.accent.length >= 9, 'MCC enclosure carries eight proud compartment doors');
 
   disposeBuckets(compactHv);
-  disposeBuckets(switchgear);
   disposeBuckets(mcc);
 });
 

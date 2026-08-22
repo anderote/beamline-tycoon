@@ -74,9 +74,10 @@ assert.equal(resolveScenario('realLab', storage), null,
 assert.equal(resolveScenario('smallBeamlineFacility', storage), null,
   'the former Small Beamline Facility fixture is not launchable from New Game');
 
-// The stock Minor Lab is the exact latest Scenario Admin export, not the old
-// tiny hand-written control nook. Pin its complete data graph and make sure the
-// generator returns a detached copy for each New Game session.
+// The stock Minor Lab is the latest Scenario Admin export migrated to the
+// current content contracts, not the old tiny hand-written control nook. Pin
+// its complete data graph and make sure the generator returns a detached copy
+// for each New Game session.
 const minorLabBaseText = readFileSync(
   new URL('../src/data/scenarios/minorLab.base.json', import.meta.url), 'utf8',
 );
@@ -85,8 +86,8 @@ assert.equal(minorLabBase.id, MINOR_LAB_SCENARIO_ID);
 assert.equal(minorLabBase.name, 'Minor Lab');
 assert.equal(
   createHash('sha256').update(JSON.stringify(minorLabBase.data)).digest('hex'),
-  'cb138f0b4e2b709a87d18c3f86c2b8c5076a58ae534062d0bab1f3375a74495f',
-  'the complete latest Minor Lab export remains the built-in baseline',
+  '4dc3972a1de6dcc5598f5a734b7dcb460f380800f70b39bfb3324251f10a6337',
+  'the migrated Minor Lab data remains the built-in baseline',
 );
 const generatedMinorLab = resolveScenario('minorLab', memoryStorage()).generator();
 assert.deepEqual(generatedMinorLab, minorLabBase.data);

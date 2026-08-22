@@ -139,14 +139,16 @@ test('utility service point energizes transformer HV outputs only through its HV
 });
 
 test('a distribution panel caps upstream draw at its rating when downstream is overloaded', () => {
-  const loads = Array.from({ length: 8 }, (_, index) =>
+  const loads = Array.from({ length: 6 }, (_, index) =>
     placed(`load_${index + 1}`, 'source'));
   const state = world([
     placed('service', 'gridServicePoint'),
     placed('panel', 'sectionDistributionPanel'),
+    placed('hv_load', 'gyrotron'),
     ...loads,
   ], [
     line('feed', 'hvCable', ref('service', 'hv_out_1'), ref('panel', 'hv_in'), 0),
+    line('hv_branch', 'hvCable', ref('panel', 'hv_out_1'), ref('hv_load', 'hv_in'), 1),
     ...loads.map((load, index) => line(
       `branch_${index + 1}`, 'powerCable',
       ref('panel', `pwr_out_${index + 1}`), ref(load.id, 'pwr_in'), index + 2,
@@ -158,16 +160,16 @@ test('a distribution panel caps upstream draw at its rating when downstream is o
 
   const hvFlow = [...state.utilityNetworkData.get('hvCable').values()][0];
   const branchFlow = [...state.utilityNetworkData.get('powerCable').values()][0];
-  assert.equal(branchFlow.totalDemand, 400);
-  assert.equal(branchFlow.totalCapacity, 200);
-  assert.equal(hvFlow.totalDemand, 200,
-    'the overloaded 200 kW panel cannot pull more than its nameplate rating');
+  assert.equal(branchFlow.totalDemand, 300);
+  assert.equal(branchFlow.totalCapacity, 300);
+  assert.equal(hvFlow.totalDemand, 600,
+    'the overloaded mixed-output section panel cannot pull more than its 600 kW nameplate');
 });
 
-test('an HV distributor propagates mixed panel and dedicated downstream demand', () => {
+test('a main distribution panel propagates mixed panel and dedicated downstream demand', () => {
   const state = world([
     placed('service', 'gridServicePoint'),
-    placed('gear', 'switchgear'),
+    placed('gear', 'mainDistributionPanel'),
     placed('panel', 'mainDistributionPanel'),
     placed('load', 'quadrupole'),
     placed('cooler', 'dryCoolerBank'),

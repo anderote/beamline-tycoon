@@ -351,10 +351,11 @@ transfer additionally declare `joinsOnContact`: validation accepts any exact
 same-type route contact and network discovery spatially unions the lines,
 including interior crossings and collinear shared trunks. Cooling and data
 retain explicit endpoint taps. Power and HV remain radial and require authored
-distribution hardware rather than casual line-to-line tees. The two HV
-distributor cabinets are the authored exception: their demand-tracking roof
-inlet accepts two cable segments so a trunk can continue through the terminal
-while the cabinet taps its protected outputs; it cannot combine live sources.
+distribution hardware rather than casual line-to-line tees. The Compact HV
+Distributor and the compact/section/main distribution panels are the authored
+exceptions: each demand-tracking roof inlet accepts two cable segments and
+tensions the attached span, so a trunk can continue through the terminal while
+the cabinet taps its protected outputs; it cannot combine live sources.
 
 ### B — Beam physics bridge
 

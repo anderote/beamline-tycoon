@@ -313,97 +313,6 @@ export function _buildCompactHvDistributorRoles() {
   return b;
 }
 
-// ── HV Distributor Box ────────────────────────────────────────────
-// Outdoor metal-clad 1-to-4 cabinet: 1.5m L × 1.0m W × 2.0m H. The stable
-// content id remains `switchgear`, but the visible hardware states its role.
-export function _buildSwitchgearRoles() {
-  const b = makeBuckets();
-
-  // Base channel frame
-  const baseH = 0.1;
-  {
-    const g = new THREE.BoxGeometry(0.9, baseH, 1.4);
-    applyTiledBoxUVs(g, 0.9, baseH, 1.4);
-    pushT(b.stand, g, trans(0, baseH / 2, 0));
-  }
-
-  // Main enclosure
-  const encW = 0.85, encH = 1.7, encD = 1.3;
-  {
-    const g = new THREE.BoxGeometry(encW, encH, encD);
-    applyTiledBoxUVs(g, encW, encH, encD);
-    pushT(b.iron, g, trans(0, baseH + encH / 2, 0));
-  }
-
-  // Louver vents on both sides
-  const ventW = 0.02, ventH = 0.4, ventD = 0.5;
-  for (const xSign of [-1, 1]) {
-    for (let i = 0; i < 2; i++) {
-      const g = new THREE.BoxGeometry(ventW, ventH, ventD);
-      applyTiledBoxUVs(g, ventW, ventH, ventD);
-      pushT(b.detail, g, trans(
-        xSign * (encW / 2 + ventW / 2),
-        baseH + encH * 0.3 + i * 0.6,
-        0,
-      ));
-    }
-  }
-
-  // Four breaker controls and independently claimable output glands occupy the
-  // front. The common HV inlet remains insulated on the roof.
-  for (const { x, y } of DISTRIBUTION_OUTPUT_LAYOUTS.switchgear) {
-    const z = encD / 2 + 0.025;
-    const plate = new THREE.BoxGeometry(0.17, 0.19, 0.035);
-    applyTiledBoxUVs(plate, 0.17, 0.19, 0.035);
-    pushT(b.detail, plate, trans(x, y, z));
-  }
-
-  // Folded roof, front service door and inspection hardware. Keep the right
-  // strip clear for the four real output glands above; the left door is the
-  // protected breaker compartment an electrician would actually open.
-  const frontZ = encD / 2;
-  addBox(b.accent, encW + 0.07, 0.045, encD + 0.07,
-    0, baseH + encH + 0.022, 0);
-  addDistributionTerminals(b, 'switchgear');
-  addBox(b.accent, 0.47, 1.44, 0.030,
-    -0.14, baseH + encH * 0.51, frontZ + 0.022);
-  for (const sx of [-1, 1]) {
-    addBox(b.detail, 0.016, 1.44, 0.016,
-      -0.14 + sx * 0.227, baseH + encH * 0.51, frontZ + 0.044);
-  }
-  for (const sy of [-1, 1]) {
-    addBox(b.detail, 0.47, 0.016, 0.016,
-      -0.14, baseH + encH * 0.51 + sy * 0.712, frontZ + 0.044);
-  }
-  for (const y of [0.38, 0.92, 1.46]) {
-    addCylinder(b.iron, 0.013, 0.07, -0.38, y, frontZ + 0.052);
-  }
-  // Breaker mimic panel, mimic-bus strip and quarter-turn operating handle.
-  addBox(b.pipe, 0.26, 0.18, 0.022,
-    -0.18, 1.38, frontZ + 0.054);
-  addBox(b.copper, 0.22, 0.018, 0.020,
-    -0.18, 1.23, frontZ + 0.056);
-  addBox(b.iron, 0.035, 0.22, 0.035,
-    0.02, 0.88, frontZ + 0.062);
-  for (const x of [-0.25, -0.18, -0.11]) {
-    const lamp = new THREE.SphereGeometry(0.018, 8, 6);
-    lamp.translate(x, 1.52, frontZ + 0.072);
-    b.glow.push(lamp);
-  }
-  // Bonding strap and lifting eyes make this read as serviceable outdoor
-  // metal-clad gear rather than a generic building prop.
-  addBox(b.copper, 0.44, 0.020, 0.028,
-    -0.12, 0.18, -(frontZ + 0.018));
-  for (const x of [-0.28, 0.28]) {
-    const eye = new THREE.TorusGeometry(0.045, 0.010, 6, 10);
-    eye.rotateX(Math.PI / 2);
-    eye.translate(x, baseH + encH + 0.085, 0);
-    b.pipe.push(eye);
-  }
-
-  return b;
-}
-
 // ── Pad-Mount Transformer ─────────────────────────────────────────
 // Compact green box on concrete pad: 1.0m × 1.0m × 1.5m H
 export function _buildPadMountTransformerRoles() {
@@ -691,7 +600,7 @@ function _buildDistributionPanelRoles({ type, width, height, depth, doorCount })
 
 export function _buildCompactDistributionPanelRoles() {
   return _buildDistributionPanelRoles({
-    type: 'powerPanel', width: 0.46, height: 1.35, depth: 0.38, doorCount: 1,
+    type: 'powerPanel', width: 0.40, height: 0.80, depth: 0.38, doorCount: 1,
   });
 }
 

@@ -58,7 +58,8 @@ export function isIndoorHvRackSupport(def) {
 }
 
 export function isHvCableTensionAnchor(def, portName = null) {
-  return isOverheadHvSupport(def, portName) || isIndoorHvRackSupport(def, portName)
+  return def?.ports?.[portName]?.tensionsCable === true
+    || isOverheadHvSupport(def, portName) || isIndoorHvRackSupport(def, portName)
     || def?.wallPassThrough === true;
 }
 

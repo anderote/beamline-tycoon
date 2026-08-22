@@ -46,7 +46,7 @@ test('authored electrical hierarchy flows supply -> distribution -> loads', () =
   const state = {
     placeables: [
       { id: 'supply', type: 'hvTransformer', col: 0, row: 0 },
-      { id: 'hv_dist', type: 'switchgear', col: 8, row: 0 },
+      { id: 'hv_dist', type: 'mainDistributionPanel', col: 8, row: 0 },
       { id: 'panel', type: 'powerPanel', col: 16, row: 0 },
       { id: 'rf_source', type: 'magnetron', col: 16, row: 8 },
       { id: 'pump', type: 'turboPump', col: 24, row: 0 },

@@ -942,6 +942,13 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
         problem(id, `utilityPorts.${portName}`,
           `maxConnections must be a positive integer, got ${JSON.stringify(spec.maxConnections)}`);
       }
+      if (spec.tensionsCable != null && typeof spec.tensionsCable !== 'boolean') {
+        problem(id, `utilityPorts.${portName}`,
+          `tensionsCable must be a boolean, got ${JSON.stringify(spec.tensionsCable)}`);
+      } else if (spec.tensionsCable === true && spec.utility !== 'hvCable') {
+        problem(id, `utilityPorts.${portName}`,
+          'tensionsCable is only valid on HV cable ports');
+      }
       if (spec.autoConnectClass != null) {
         if (spec.utility !== 'coolingWater'
             || !COOLING_AUTO_CONNECT_CLASSES.has(spec.autoConnectClass)) {
