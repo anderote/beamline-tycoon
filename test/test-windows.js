@@ -214,10 +214,10 @@ console.log('\n=== fit rule ===\n');
   assert(g.placeWindow(20, 20, 'e', 'officeWindow'),
     'sillHeight(5)+openingHeight(6)+1 = 12 fits officeWall(14): placement succeeds');
 
-  assert(g.placeWall(21, 20, 'e', 'cubicleWall'), 'setup: cubicleWall (wallHeight 11) at 21,20,e');
+  assert(g.placeWall(21, 20, 'e', 'cubicleWall'), 'setup: cubicleWall (wallHeight 11.75) at 21,20,e');
   const fundingBefore = g.state.resources.funding;
   assert(!g.placeWindow(21, 20, 'e', 'officeWindow'),
-    'sillHeight(5)+openingHeight(6)+1 = 12 does not fit cubicleWall(11): no-op');
+    'sillHeight(5)+openingHeight(6)+1 = 12 does not fit cubicleWall(11.75): no-op');
   assert(g.state.resources.funding === fundingBefore, 'a fit-rule no-op charges no funding');
   assert(!g.state.windowOccupied['21,20,e'], 'a fit-rule no-op leaves windowOccupied untouched');
   assert(g.state.windows.every(w => !(w.col === 21 && w.row === 20 && w.edge === 'e')),
@@ -400,7 +400,7 @@ console.log('\n=== a shorter replacement wall evicts a window it cannot hold ===
   assert(g.placeWindow(60, 7, 'e', 'officeWindow'), 'setup: officeWindow (needs 12) on it');
 
   const before = g.state.resources.funding;
-  assert(g.placeWall(60, 7, 'e', 'cubicleWall'), 'replacing with cubicleWall (wallHeight 11) succeeds');
+  assert(g.placeWall(60, 7, 'e', 'cubicleWall'), 'replacing with cubicleWall (wallHeight 11.75) succeeds');
   assert(!g.state.windowOccupied['60,7,e'],
     'the window the new wall cannot hold is removed from windowOccupied');
   assert(g.state.windows.every(w => !(w.col === 60 && w.row === 7 && w.edge === 'e')),

@@ -548,6 +548,8 @@ console.log('\n=== 8. Wall heights match furnishing and human scale ===\n');
   const metres = (data) => data * HEIGHT_SCALE;
   const deskSurfaceMetres = PLACEABLES.desk.surfaceY * 0.5;
   const cubicleMetres = metres(WALL_TYPES.cubicleWall.wallHeight);
+  assert(WALL_TYPES.cubicleWall.wallHeight === 11.75,
+    'cubicle dividers use the taller authored height');
   assert(cubicleMetres >= deskSurfaceMetres * 1.5,
     `cubicle dividers provide seated privacy above a desk (${cubicleMetres.toFixed(2)} m wall vs ${deskSurfaceMetres.toFixed(2)} m desk)`);
   assert(WALL_TYPES.cubicleWall.wallHeight < WALL_TYPES.cinderblockWall.wallHeight,
