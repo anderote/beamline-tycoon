@@ -87,6 +87,7 @@ import { getStorage, isQuotaError } from './storageQuota.js';
 import { scheduleBrowserIdle } from './idle-work.js';
 import { tickDataSystems } from './data-systems.js';
 import { placeableMutationEvent } from './placeable-events.js';
+import { normalizePlaceableInstances } from './placeable-state.js';
 
 // Floor replacement normally changes only the surface beneath a placed item.
 // Concrete is the one deliberate exception: preparing a foundation clears
@@ -6113,8 +6114,8 @@ export class Game {
     this.state.wallOverlays = scenarioData.wallOverlays || [];
     this.state.doors = scenarioData.doors;
     this.state.windows = scenarioData.windows || [];
-    this.state.placeables = scenarioData.placeables;
-    this.state.placeableNextId = scenarioData.placeableNextId;
+    this.state.placeables = normalizePlaceableInstances(scenarioData.placeables);
+    this.state.placeableNextId = scenarioData.placeableNextId || 1;
     this.state.powerReliability = { devices: {} };
     this.powerReliability?.initializeAll();
     if (scenarioData.staff) this.state.staff = scenarioData.staff;
@@ -6748,6 +6749,12 @@ export class Game {
       }
     }
 
+    // Scenario payloads and older saves may carry the compact authored
+    // placeable shape (kind but no legacy category alias or derived cells).
+    // Complete it before rebuilding any render, collision, nav, or station
+    // views. This also repairs already-saved custom Minor Lab scenarios.
+    normalizePlaceableInstances(this.state.placeables);
+
     // Ensure stacking fields have defaults, then rebuild the derived
     // placeableIndex/subgridOccupied maps. Unconditional: the constructor
     // built them from the starter map, which load just replaced.
@@ -6757,6 +6764,7 @@ export class Game {
       if (!entry.stackChildren) entry.stackChildren = [];
     }
     this._rebuildPlaceableIndex();
+    this._syncLegacyPlaceableState();
 
     // Rebuild structural wall, overlay, and shielding-subtile state.
     this._rebuildWallLayerIndexes();

@@ -129,6 +129,33 @@ assertOk(logB[0].msg === 'Game loaded.' &&
 
 console.log('\n=== Staff round-trip ===\n');
 
+console.log('\n=== Compact scenario-placeable migration ===\n');
+
+// Saved Scenario Admin projects can contain the compact generator shape:
+// kind is present, while the legacy category alias and derived footprint are
+// absent. A prior load preserved that mismatch, leaving utilities and staff
+// stations live while the furnishing renderer received an empty array.
+{
+  const compact = makeGame(42);
+  compact.state.placeables = [{
+    id: 'fn_compact', type: 'operatorConsole', kind: 'furnishing',
+    col: 0, row: 0, subCol: 0, subRow: 0, dir: 1,
+  }];
+  compact.state.placeableNextId = 2;
+  compact.state.zoneFurnishings = [];
+  localStorage.setItem('beamlineTycoon', compact.serialize());
+
+  const migrated = makeGame(7);
+  assertOk(migrated.load(), 'load accepts a compact saved scenario placeable');
+  const consoleEntry = migrated.state.placeables.find(p => p.id === 'fn_compact');
+  assertOk(consoleEntry?.category === 'furnishing',
+    `load restores the instance category alias (got ${consoleEntry?.category})`);
+  assertOk(Array.isArray(consoleEntry?.cells) && consoleEntry.cells.length > 0,
+    'load reconstructs the placeable footprint');
+  assertOk(migrated.state.zoneFurnishings.some(p => p.id === 'fn_compact'),
+    'load rebuilds the furnishing render view from canonical placeables');
+}
+
 console.log('\n=== Legacy inline-attachment migration ===\n');
 {
   const legacy = makeGame(42);

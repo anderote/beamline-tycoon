@@ -23,6 +23,7 @@ import { TUTORIAL_STEPS } from '../src/data/tutorial.js';
 import { OBJECTIVES } from '../src/data/objectives.js';
 import { listUtilityEndpoints } from '../src/utility/utility-endpoints.js';
 import { declaredSinkQualityFloor, UTILITY_TO_QUALITY_FIELD } from '../src/game/utility-gate.js';
+import { buildWorldSnapshot } from '../src/renderer3d/world-snapshot.js';
 
 globalThis.COMPONENTS = COMPONENTS;
 globalThis.PARAM_DEFS = PARAM_DEFS;
@@ -76,6 +77,22 @@ for (const scenario of SCENARIOS) {
   assert(state.infraCanRun === true, 'infraCanRun true');
   assert((state.staffMembers || []).some(m => m.profession === 'operator'),
     'operator pawn seeded');
+
+  // Scenario generators may use compact placeable records. applyScenario is
+  // the contract boundary that must complete those records before renderer,
+  // collision/nav, and staff-station consumers see them. Minor Lab used to
+  // retain utility endpoints and a seated operator while rendering all ten
+  // furnishings as invisible because its records had kind but no category.
+  const furnishings = state.placeables.filter(p => p.kind === 'furnishing');
+  assert(furnishings.every(p => p.category === 'furnishing'),
+    'scenario furnishing instances have the canonical kind/category aliases');
+  assert(furnishings.every(p => Array.isArray(p.cells) && p.cells.length > 0),
+    'scenario furnishing footprints are reconstructed for collision and navigation');
+  assert(state.zoneFurnishings.length === furnishings.length,
+    `derived furnishing view includes every scenario furnishing (${state.zoneFurnishings.length}/${furnishings.length})`);
+  const furnishingSnapshot = buildWorldSnapshot(game, { only: ['furnishings'] }).furnishings;
+  assert(furnishingSnapshot.length === furnishings.length,
+    `renderer snapshot includes every scenario furnishing (${furnishingSnapshot.length}/${furnishings.length})`);
 
   // Blocker-free is not the same as served. Unwired sinks fail CLOSED to
   // quality 0, and dataFiber never hard-blocks at all, so a scenario could be
