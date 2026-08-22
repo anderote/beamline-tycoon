@@ -2365,7 +2365,7 @@ export const INFRASTRUCTURE_RAW = {
   gridServicePoint: {
     id: 'gridServicePoint',
     name: 'Utility Service Point',
-    desc: 'Map-edge metered utility takeoff that supplies 3 MW through two HV terminals. Place it within four tiles of the property boundary; its incoming conductors terminate at the edge to represent the off-map grid. It is cheaper than a packaged on-site substation, but the external grid can suffer brief outages — add a transformer downstream to distribute the service into your facility.',
+    desc: 'Map-edge metered utility takeoff that supplies 3 MW through four roof-mounted HV terminals. Place it within four tiles of the property boundary; its incoming conductors terminate at the edge to represent the off-map grid. It is cheaper than a packaged on-site substation, but the external grid can suffer brief outages — add a transformer downstream to distribute the service into your facility.',
     category: 'power', subsection: 'gridSupply',
     paletteOrder: 10,
     cost: { funding: 520000 },
@@ -2407,7 +2407,7 @@ export const INFRASTRUCTURE_RAW = {
   gridServicePointHighCapacity: {
     id: 'gridServicePointHighCapacity',
     name: 'Utility Service Point — 6 MW',
-    desc: 'High-capacity map-edge metered utility takeoff supplying 6 MW through four HV terminals. Place it within four tiles of the property boundary, then feed a matching high-capacity transformer for campus-scale distribution.',
+    desc: 'High-capacity map-edge metered utility takeoff supplying 6 MW through six roof-mounted HV terminals. Place it within four tiles of the property boundary, then feed a matching high-capacity transformer for campus-scale distribution.',
     category: 'power', subsection: 'gridSupply',
     paletteOrder: 20,
     cost: { funding: 1600000 },
@@ -2426,7 +2426,7 @@ export const INFRASTRUCTURE_RAW = {
     mapEdgeConnection: {
       maxDistanceTiles: 4,
       // Two three-phase circuits carry the high-capacity service from the
-      // off-map grid. The four HV ports below are downstream facility feeders,
+      // off-map grid. The six HV ports below are downstream facility feeders,
       // not a count of the incoming overhead conductors.
       conductorCount: 6,
       leadHeightMeters: 2.45,

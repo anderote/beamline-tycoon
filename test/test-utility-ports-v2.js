@@ -300,8 +300,8 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   const highService = getUtilityPortsV2('gridServicePointHighCapacity');
   const hvOutlets = ports => Object.values(ports)
     .filter(port => port.utility === 'hvCable' && port.role === 'source');
-  assert([service, highService].map(ports => hvOutlets(ports).length).join(',') === '2,4',
-    'utility service tiers expose two and four physical HV feeder outlets');
+  assert([service, highService].map(ports => hvOutlets(ports).length).join(',') === '4,6',
+    'utility service tiers expose four and six physical HV feeder outlets');
   assert([service, highService].map(ports => hvOutlets(ports)
     .reduce((sum, port) => sum + port.params.capacity, 0)).join(',') === '3000,6000',
     'utility service tiers provide 3 MW and 6 MW nameplate capacity');

@@ -15,7 +15,8 @@ Power sources form a capacity ladder — upgrading is a real decision:
 
 | Source | Capacity | Cost | Role |
 |--------|----------|------|------|
-| Utility Service Point | 3 MW / 2 HV feeders | $520k | Map-edge utility takeoff feeding facility transformers |
+| Utility Service Point | 3 MW / 4 HV feeders | $520k | Map-edge utility takeoff feeding facility transformers |
+| Utility Service Point — 6 MW | 6 MW / 6 HV feeders | $1.6M | High-capacity map-edge utility takeoff |
 | Pad-Mount Transformer | 150 kW | $200k | Starter workhorse — feeds a small beamline |
 | Facility Transformer | 400 kW | $400k | Medium facility service with two HV feeders |
 | HV Transformer | 1.5 MW / 4 HV feeders | $800k | Industrial transformer fed by the utility service |
