@@ -76,10 +76,11 @@ export const FLOW_PARAMS = {
     lightIntensity: 0.075, lightDistance: 1.1, daylightFloor: 0.14,
   },
   cryoTransfer: {
-    // A restrained cold sheen drifts over the stainless vacuum vessel. The
-    // obvious cold cues are localized at bayonets and bellows by the cryostat
-    // builder, so the insulated straight jacket should never glow like hose.
-    speed: 0.16, period: 4.8, width: 1.35, strength: 0.30, baseGlow: 0.055,
+    // Restore the cool-blue frost glow on the stainless vacuum vessel while
+    // keeping its drift broad and slow. Bayonets and bellows still carry the
+    // strongest localized cold cues; the jacket provides the familiar steady
+    // blue halo instead of falling back to visually inert bare metal.
+    speed: 0.16, period: 4.8, width: 1.35, strength: 0.42, baseGlow: 0.19,
     lightIntensity: 0.075, lightDistance: 1.15, daylightFloor: 0.2,
   },
   dataFiber: {
