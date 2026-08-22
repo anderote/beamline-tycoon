@@ -18,6 +18,50 @@ function clamp01(value) {
   return Math.max(0, Math.min(1, value));
 }
 
+/**
+ * Map a published beam current to a readable, non-zero visual brightness.
+ * The floor is intentional: a weak but surviving beam should remain visible
+ * without pretending that it has the same intensity as the design maximum.
+ */
+export function beamVisualIntensity(current, maximum, floor = 0.12) {
+  const value = Math.max(0, Number(current) || 0);
+  const ceiling = Math.max(value, Number(maximum) || 0);
+  if (!(ceiling > 0)) return clamp01(floor);
+
+  // Use a reference below the maximum so low-current sections still separate
+  // visibly while the upper end remains stable as the design changes.
+  const reference = Math.max(1e-6, ceiling * 0.05);
+  const fraction = Math.log1p(value / reference) / Math.log1p(ceiling / reference);
+  return clamp01(floor + (1 - floor) * fraction);
+}
+
+/** Interpolate a physics envelope datum at normalized beamline distance. */
+export function sampleBeamEnvelope(envelope, u) {
+  // Physics publishes the envelope in increasing s order. Avoid copying and
+  // sorting for every canvas column; this helper is called once per rendered
+  // pixel by the designer animation.
+  const samples = Array.isArray(envelope) ? envelope : [];
+  if (!samples.length) return null;
+  if (samples.length === 1) return { ...samples[0] };
+
+  const maxS = samples[samples.length - 1].s;
+  const target = clamp01(Number.isFinite(u) ? u : 0) * Math.max(maxS, 0);
+  if (target <= samples[0].s) return { ...samples[0] };
+  if (target >= maxS) return { ...samples[samples.length - 1] };
+
+  let hi = 1;
+  while (hi < samples.length && samples[hi].s < target) hi++;
+  const a = samples[hi - 1], b = samples[hi];
+  const t = (target - a.s) / Math.max(1e-9, b.s - a.s);
+  const out = { ...a };
+  for (const key of ['current', 'peak_current', 'bunch_frequency', 'bunch_length']) {
+    if (Number.isFinite(a[key]) && Number.isFinite(b[key])) {
+      out[key] = a[key] + (b[key] - a[key]) * t;
+    }
+  }
+  return out;
+}
+
 function particleMassGeV(beamlineType) {
   return String(beamlineType?.particle || '').startsWith('p')
     ? PROTON_MASS_GEV

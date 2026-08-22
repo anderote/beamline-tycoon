@@ -378,6 +378,14 @@ UIHost.prototype.drawSchematic = function(canvas, componentType, params, options
     pipeData:    '#eeeeee',
   };
   const cy = Math.floor(PH / 2);
+  const suppressBeam = !!options?.suppressBeam;
+
+  if (suppressBeam) {
+    // The designer supplies a solved full-line beam pass. Keep the hardware
+    // glyphs, but remove their illustrative beam strokes.
+    C.beam = 'rgba(0,0,0,0)';
+    C.beamDim = 'rgba(0,0,0,0)';
+  }
 
   // Clear
   px(0, 0, PW, PH, C.bg);
@@ -487,7 +495,7 @@ UIHost.prototype.drawSchematic = function(canvas, componentType, params, options
         }
       }
     }
-  } else {
+  } else if (!suppressBeam) {
     // Beam dashes (background, across whole width)
     for (let x = 2; x < PW - 2; x += 3) {
       dot(x, cy, C.beamDim);
