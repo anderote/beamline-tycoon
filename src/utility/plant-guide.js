@@ -135,6 +135,10 @@ function rowDetail(requirement, status) {
 export function plantGuideTypeForPlaceable(placeable) {
   const def = endpointDefinition(placeable);
   if (!def) return null;
+  // A rigid/flexible water converter publishes source-role hose branches so
+  // the solver can carry its upstream capacity through. It still creates no
+  // cooling capacity and is distribution hardware, not a plant-guide anchor.
+  if (Array.isArray(def.waterConverterGroups)) return null;
   for (const utilityType of Object.keys(PLANT_GUIDE_TYPES)) {
     if (sourcePortsForDefinition(def, utilityType).length > 0) return utilityType;
   }

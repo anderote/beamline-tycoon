@@ -137,7 +137,9 @@ test('functional overhead supports are linked into Infra Power and keep decorati
 });
 
 test('retired power routing props stay loadable but leave every build palette', () => {
-  const retired = ['cableTray', 'cableRiser', 'hvDuctBankVault'];
+  const retired = [
+    'powerWallPassThrough', 'cableTray', 'cableRiser', 'hvDuctBankVault',
+  ];
   const activePower = componentPaletteEntries(COMPONENTS, 'power').map(({ key }) => key);
   const searchIds = new Set(buildPaletteIndex(null).map(entry => entry.id));
   for (const id of retired) {
@@ -146,6 +148,10 @@ test('retired power routing props stay loadable but leave every build palette', 
     assert.equal(activePower.includes(id), false, `${id} is absent from Infra Power`);
     assert.equal(searchIds.has(id), false, `${id} is absent from global search`);
   }
+  assert.equal(activePower.includes('indoorHvCableRack1Way'), true,
+    'the single-conductor indoor rack is available from Infra Power');
+  assert.equal(searchIds.has('indoorHvCableRack1Way'), true,
+    'the single-conductor indoor rack is available from global search');
   assert.equal(PLACEABLES.overheadPowerSpan.deprecated, true,
     'the legacy prefab overhead span remains retired too');
 });

@@ -1985,6 +1985,9 @@ export const INFRASTRUCTURE_RAW = {
     desc: 'Paired low-voltage cable terminals through an existing wall. Mount it from the supply side, connect the incoming cable to the visible terminal, then continue from the terminal on the opposite face. Press M while placing to swap input and output faces.',
     category: 'power', subsection: 'routingHardware',
     paletteOrder: 2,
+    // Retained only so facilities authored before the meter-main replacement
+    // can still load and demolish their old low-voltage wall fittings.
+    deprecated: true,
     cost: { funding: 6000 },
     stats: {},
     energyCost: 0,
@@ -2153,6 +2156,33 @@ export const INFRASTRUCTURE_RAW = {
         { name: `hv-tap-${side < 0 ? 'left' : 'right'}-skirt`, shape: 'cylinder', axis: 'x', w: 0.08, h: 0.28, l: 0.28, x: side * 1.89, y: 3.86, z: 0, color: 0x343b40 },
         { name: `hv-tap-${side < 0 ? 'left' : 'right'}-cap`, shape: 'cylinder', axis: 'x', w: 0.08, h: 0.18, l: 0.18, x: side * 1.92, y: 3.91, z: 0, color: 0xd2a93d },
       ]),
+    ],
+    requiredConnections: [],
+  },
+  indoorHvCableRack1Way: {
+    id: 'indoorHvCableRack1Way',
+    name: '1-Way Indoor HV Cable Rack',
+    desc: 'Minimal indoor HV support with one insulated terminal on top of a freestanding pole. The terminal accepts two cable segments and tensions one continuous overhead conductor.',
+    category: 'power', subsection: 'routingHardware',
+    paletteOrder: 3.30,
+    cost: { funding: 12000 },
+    stats: {}, energyCost: 0,
+    // The narrow footprint anchors only the overhead support. Equipment may
+    // still claim the ordinary floor-occupancy layer beneath it.
+    mount: 'overhead',
+    subL: 2, subW: 1, subH: 5, gridW: 1, gridH: 2,
+    geometryType: 'box', baseMaterial: 'metal_dark',
+    spriteKey: 'switchgear', spriteColor: 0x5f686d, accentColor: 0xd2a93d,
+    hasSurface: false, placement: 'module', ports: {},
+    hvCableSupport: 'indoorRack',
+    parts: [
+      { name: 'foot', shape: 'box', w: 0.46, h: 0.18, l: 1.72, x: 0, y: 0, z: 0, color: 0x4c555a },
+      { name: 'upright', shape: 'box', w: 0.28, h: 3.30, l: 0.38, x: 0, y: 0.16, z: 0, color: 0x687278 },
+      { name: 'pole-cap', shape: 'box', w: 0.44, h: 0.12, l: 0.44, x: 0, y: 3.46, z: 0, color: 0x788389 },
+      { name: 'insulator-stem', shape: 'cylinder', w: 0.14, h: 0.50, l: 0.14, x: 0, y: 3.40, z: 0, color: 0x252a2e },
+      { name: 'insulator-skirt-a', shape: 'cylinder', w: 0.30, h: 0.10, l: 0.30, x: 0, y: 3.48, z: 0, color: 0x343b40 },
+      { name: 'insulator-skirt-b', shape: 'cylinder', w: 0.26, h: 0.10, l: 0.26, x: 0, y: 3.70, z: 0, color: 0x343b40 },
+      { name: 'terminal-cap', shape: 'cylinder', w: 0.16, h: 0.20, l: 0.16, x: 0, y: 3.90, z: 0, color: 0xd2a93d },
     ],
     requiredConnections: [],
   },

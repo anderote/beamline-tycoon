@@ -128,15 +128,18 @@ console.log('\n=== indoor HV supports leave their work area buildable ===\n');
 {
   const game = makeGame(703);
   const pose = { col: 16, row: 16, subCol: 0, subRow: 0, dir: 0 };
+  const singleDef = PLACEABLES.indoorHvCableRack1Way;
   const compactDef = PLACEABLES.indoorHvCableRack2Way;
   const straightDef = PLACEABLES.indoorHvCableRack;
   const cornerDef = PLACEABLES.indoorHvCableCornerRack;
 
-  assertOk([compactDef, straightDef, cornerDef].every(def => def.mount === 'overhead'),
-    'compact, straight, and corner indoor HV racks use overhead placement occupancy');
-  assertOk([compactDef, straightDef, cornerDef].every(def => !usesFloorOccupancy(def)),
+  assertOk([singleDef, compactDef, straightDef, cornerDef].every(def => def.mount === 'overhead'),
+    'single, compact, straight, and corner indoor HV racks use overhead placement occupancy');
+  assertOk([singleDef, compactDef, straightDef, cornerDef].every(def => !usesFloorOccupancy(def)),
     'indoor HV support footprints do not reserve the floor layer');
 
+  const singleId = game.placePlaceable({ type: singleDef.id, ...pose });
+  assertOk(!!singleId, 'the single-conductor indoor HV rack can be built');
   const compactId = game.placePlaceable({ type: compactDef.id, ...pose });
   assertOk(!!compactId, 'the compact indoor HV rack can be built');
   const straightId = game.placePlaceable({ type: straightDef.id, ...pose });
