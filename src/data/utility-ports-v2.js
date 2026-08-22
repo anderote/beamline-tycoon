@@ -1164,10 +1164,15 @@ function waterInventoryPorts(params) {
 
 function waterDistributorPorts(flexibleCount, supplyCount) {
   const out = {};
+  const branchOffsets = flexibleCount === 2
+    ? [0.2, 0.8]
+    : flexibleCount === 4
+      ? [0.1, 0.35, 0.65, 0.9]
+      : Array.from({ length: flexibleCount }, (_, i) => (i + 1) / (flexibleCount + 1));
   for (let i = 0; i < flexibleCount; i++) {
     out[`water_line_${i + 1}`] = {
-      utility: 'coolingWater', side: i % 2 ? 'front' : 'back',
-      offsetAlong: (Math.floor(i / 2) + 1) / (Math.ceil(flexibleCount / 2) + 1),
+      utility: 'coolingWater', side: 'right',
+      offsetAlong: branchOffsets[i],
       role: 'pass', autoConnectClass: COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION,
       params: {},
     };
@@ -1182,6 +1187,10 @@ function waterDistributorPorts(flexibleCount, supplyCount) {
 }
 
 function lcwManifoldPorts() {
+  const branchOffsets = {
+    cold: [0.1, 0.18, 0.26, 0.34],
+    hot: [0.66, 0.74, 0.82, 0.9],
+  };
   const out = {
     supply_cold: {
       utility: 'waterSupplyPipe', side: 'left', offsetAlong: 0.33,
@@ -1192,10 +1201,11 @@ function lcwManifoldPorts() {
       role: 'pass', params: { waterCircuit: 'hot' },
     },
   };
-  for (const [circuit, side] of [['cold', 'back'], ['hot', 'front']]) {
+  for (const circuit of ['cold', 'hot']) {
     for (let index = 1; index <= 4; index++) {
       out[`${circuit}_${index}`] = {
-        utility: 'coolingWater', side, offsetAlong: index / 5,
+        utility: 'coolingWater', side: 'right',
+        offsetAlong: branchOffsets[circuit][index - 1],
         role: 'source', autoConnectClass: COOLING_AUTO_CONNECT_CLASS.LOAD_BRANCH,
         params: { waterCircuit: circuit },
       };

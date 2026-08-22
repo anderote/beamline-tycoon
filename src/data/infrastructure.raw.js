@@ -1230,10 +1230,10 @@ export const INFRASTRUCTURE_RAW = {
   },
   waterDistributor2: {
     id: 'waterDistributor2', name: '2-Line Water Distributor',
-    desc: 'Compact configurable header converting two flexible water lines to one rigid water-supply pipe. The connected pipe decides whether the isolated header carries cold supply or hot return water.',
+    desc: 'Compact configurable header with two flexible water-line branches on one face and one rigid water-supply pipe on the opposite face. The connected pipe decides whether the isolated header carries cold supply or hot return water.',
     category: 'cooling', subsection: 'distribution', paletteOrder: 1,
     accentColor: 0x2fbccc, cost: { funding: 45000 }, stats: {}, energyCost: 0,
-    subL: 2, subW: 2, subH: 2, gridW: 2, gridH: 2, geometryType: 'box',
+    subL: 2, subW: 1, subH: 2, gridW: 1, gridH: 2, geometryType: 'box',
     baseMaterial: 'metal_painted_blue', spriteKey: 'waterLoad', spriteColor: 0x2fbccc,
     placement: 'module', ports: {}, requiredConnections: [],
     waterConverterGroups: [{
@@ -1252,10 +1252,10 @@ export const INFRASTRUCTURE_RAW = {
   },
   waterDistributor4: {
     id: 'waterDistributor4', name: '4-Line Dual Water Distributor',
-    desc: 'Two isolated 2-to-1 headers on one frame. Each half independently converts two flexible water lines to one rigid supply pipe, allowing a paired cold/hot station or two same-temperature circuits.',
+    desc: 'Two isolated 2-to-1 headers on a compact frame. Four flexible water-line branches share one face; the two rigid supply pipes sit opposite, allowing a paired cold/hot station or two same-temperature circuits.',
     category: 'cooling', subsection: 'distribution', paletteOrder: 2,
     accentColor: 0x2fbccc, cost: { funding: 85000 }, stats: {}, energyCost: 0,
-    subL: 3, subW: 2, subH: 2, gridW: 2, gridH: 3, geometryType: 'box',
+    subL: 3, subW: 1, subH: 2, gridW: 1, gridH: 3, geometryType: 'box',
     baseMaterial: 'metal_painted_blue', spriteKey: 'waterLoad', spriteColor: 0x2fbccc,
     placement: 'module', ports: {}, requiredConnections: [],
     waterConverterGroups: [
