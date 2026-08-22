@@ -61,6 +61,10 @@ for (const id of ['clubChair', 'tuftedSofa', 'clawFootTable', 'drinksCabinet', '
   assertOk(itemMatchesZone(def, 'facultyLounge'), `${id} is available in faculty lounges`);
   assertOk(Array.isArray(def?.parts) && def.parts.length >= 4, `${id} has authored 3D geometry`);
 }
+assertOk(PLACEABLES.clubChair.gridW === 2 && PLACEABLES.clubChair.gridH === 2,
+  'faculty lounge club chair occupies a full 2×2-subtile footprint');
+assertOk(PLACEABLES.clubChair.parts.some(part => part.name === 'back' && part.w >= 1.8),
+  'faculty lounge club chair upholstery fills its wider footprint');
 
 for (const id of ['standingDesk', 'acousticPod', 'beamlineDisplayCase', 'collaborationTable']) {
   const def = PLACEABLES[id];
