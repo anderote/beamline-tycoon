@@ -5,6 +5,8 @@ import { ZONES, itemMatchesZone } from '../src/data/facility.js';
 import { MODES, ROOM_FURNITURE_GROUPS } from '../src/data/modes.js';
 import { PLACEABLES } from '../src/data/placeables/index.js';
 import { floorSupportsZone } from '../src/data/structure.js';
+import { Game } from '../src/game/Game.js';
+import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
 
 const BATHROOM_FURNISHINGS = [
   'toilet', 'urinal', 'sinkVanity', 'bathroomMirror',
@@ -17,6 +19,23 @@ test('bathroom is a tile-floor Facility room zone', () => {
   assert.equal(MODES.facility.categories.bathroom?.group, 'rooms');
   assert.equal(floorSupportsZone('terrazzoFloor', ZONES.bathroom.requiredFloor), true);
   assert.equal(floorSupportsZone('officeFloor', ZONES.bathroom.requiredFloor), false);
+  assert.equal(ZONES.bathroom.wallPaintable, false);
+});
+
+test('bathroom walls retain their fixed finish and cubicle fixtures are not paint targets', () => {
+  const game = new Game(new BeamlineRegistry(), { seed: 91 });
+  game.state.resources.funding = 1e6;
+  assert.equal(game.placeFacilityZoneBrushTile(8, 8, 'bathroom'), true);
+  assert.equal(game.placeWall(8, 8, 'n', 'interiorWall'), true);
+  assert.equal(game.paintWallFace(8, 8, 'n', 'labBlue'), false,
+    'bathroom-facing wall rejects paint');
+  assert.equal(game.paintWallFace(8, 7, 's', 'labBlue'), false,
+    'the mirrored face of a bathroom wall also rejects paint');
+
+  const wallId = game.placePlaceable({ type: 'toiletStallWall', col: 8, row: 8, subCol: 1, subRow: 0 });
+  assert.ok(wallId);
+  assert.equal(game.state.wallOccupied['8,8,n'], 'interiorWall',
+    'cubicle wall stays a fixed-finish furnishing, not a paintable building wall');
 });
 
 test('bathroom stall walls and doors have authored cubicle geometry', () => {

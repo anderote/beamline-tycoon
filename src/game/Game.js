@@ -32,7 +32,7 @@ import { SolveRunner } from '../utility/solve-runner.js';
 import { UtilityGate, declaredSinkQualityFloor } from './utility-gate.js';
 import { PowerReliabilityCoordinator } from './power-reliability.js';
 import {
-  edgeKey, parseEdgeKey, findWallKey, findEdgeKey, isMirroredKey,
+  EDGE_DELTAS, edgeKey, parseEdgeKey, findWallKey, findEdgeKey, isMirroredKey,
   clampDoorOff, defaultDoorOff, mirrorDoorOff,
   doorTileSpan, doorSpanPath, normalizeDoorSpanPath,
   doorRecordEdges, doorRecordCoversEdge,
@@ -2096,6 +2096,10 @@ export class Game {
    */
   paintWallFace(col, row, edge, paintId = null, level = 0) {
     level = normalizeLevel(level);
+    // Bathroom walls use their fixed sanitary finish on both faces. This is
+    // checked at the mutation boundary, so tile-, run-, and fill-paint tools
+    // cannot bypass it by addressing the mirrored spelling of the same edge.
+    if (this._wallTouchesNonPaintableZone(col, row, edge, level)) return false;
     const key = findWallKey(this.state.wallOccupied, col, row, edge, level);
     const wall = key && this._wallAt(key);
     if (!wall) return false;
@@ -2120,6 +2124,27 @@ export class Game {
     }
     this.emit('wallsChanged');
     return true;
+  }
+
+  _wallTouchesNonPaintableZone(col, row, edge, level = 0) {
+    const delta = EDGE_DELTAS[edge];
+    if (!delta) return false;
+    return [
+      { col, row },
+      { col: col + delta.dc, row: row + delta.dr },
+    ].some(tile => ZONES[this.state.zoneOccupied[tileKey(tile.col, tile.row, level)]]?.wallPaintable === false);
+  }
+
+  _clearWallPaintAroundZoneTile(col, row, level = 0) {
+    let changed = false;
+    for (const edge of Object.keys(EDGE_DELTAS)) {
+      const key = findWallKey(this.state.wallOccupied, col, row, edge, level);
+      const wall = key && this._wallAt(key);
+      if (!wall?.facePaint) continue;
+      delete wall.facePaint;
+      changed = true;
+    }
+    return changed;
   }
 
   // === DOORS (EDGE-BASED) ===
@@ -2648,8 +2673,11 @@ export class Game {
 
     this.state.zones.push(withLevel({ type: zoneType, col, row }, level));
     this.state.zoneOccupied[key] = zoneType;
+    const wallPaintChanged = zone.wallPaintable === false
+      && this._clearWallPaintAroundZoneTile(col, row, level);
     this.recomputeZoneConnectivity();
     this.emit('zonesChanged');
+    if (wallPaintChanged) this.emit('wallsChanged');
     return true;
   }
 
@@ -2664,6 +2692,7 @@ export class Game {
     const maxRow = Math.max(startRow, endRow);
 
     let placed = 0;
+    let wallPaintChanged = false;
     for (let c = minCol; c <= maxCol; c++) {
       for (let r = minRow; r <= maxRow; r++) {
         const key = tileKey(c, r, level);
@@ -2679,6 +2708,9 @@ export class Game {
 
         this.state.zones.push(withLevel({ type: zoneType, col: c, row: r }, level));
         this.state.zoneOccupied[key] = zoneType;
+        if (zone.wallPaintable === false) {
+          wallPaintChanged = this._clearWallPaintAroundZoneTile(c, r, level) || wallPaintChanged;
+        }
         placed++;
       }
     }
@@ -2687,6 +2719,7 @@ export class Game {
       this.log(`Assigned ${placed} ${zone.name} tiles`, 'good');
       this.recomputeZoneConnectivity();
       this.emit('zonesChanged');
+      if (wallPaintChanged) this.emit('wallsChanged');
     } else {
       const floorName = floorRequirementLabel(zone.requiredFloor);
       this.log(`${zone.name} needs ${floorName} underneath`, 'bad');
@@ -2754,8 +2787,11 @@ export class Game {
     if (this.state.zoneOccupied[key] === zoneType) return false;
     this.state.zones.push(withLevel({ type: zoneType, col, row }, level));
     this.state.zoneOccupied[key] = zoneType;
+    const wallPaintChanged = zone.wallPaintable === false
+      && this._clearWallPaintAroundZoneTile(col, row, level);
     this.recomputeZoneConnectivity();
     this.emit('zonesChanged');
+    if (wallPaintChanged) this.emit('wallsChanged');
     // Infrastructure may have changed due to auto floor.
     this.emit('infrastructureChanged');
     return true;
@@ -2775,6 +2811,7 @@ export class Game {
     const maxRow = Math.max(startRow, endRow);
     let placed = 0;
     let infraChanged = false;
+    let wallPaintChanged = false;
     for (let c = minCol; c <= maxCol; c++) {
       for (let r = minRow; r <= maxRow; r++) {
         const key = tileKey(c, r, level);
@@ -2793,6 +2830,9 @@ export class Game {
         if (this.state.zoneOccupied[key] === zoneType) continue;
         this.state.zones.push(withLevel({ type: zoneType, col: c, row: r }, level));
         this.state.zoneOccupied[key] = zoneType;
+        if (zone.wallPaintable === false) {
+          wallPaintChanged = this._clearWallPaintAroundZoneTile(c, r, level) || wallPaintChanged;
+        }
         placed++;
       }
     }
@@ -2800,6 +2840,7 @@ export class Game {
       this.log(`Assigned ${placed} ${zone.name} tiles (auto-floored)`, 'good');
       this.recomputeZoneConnectivity();
       this.emit('zonesChanged');
+      if (wallPaintChanged) this.emit('wallsChanged');
       if (infraChanged) this.emit('infrastructureChanged');
       this.validateInfrastructure();
     }
