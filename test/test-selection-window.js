@@ -7,7 +7,11 @@ import {
 } from '../src/ui/EquipmentWindow.js';
 import { reconcileSelectionWindow } from '../src/input/selection-window.js';
 import { COMPONENTS } from '../src/data/components.js';
-import { SelectionWindow, selectionCategoryRows } from '../src/ui/SelectionWindow.js';
+import {
+  SelectionWindow,
+  selectionActionAvailability,
+  selectionCategoryRows,
+} from '../src/ui/SelectionWindow.js';
 
 let passed = 0;
 let failed = 0;
@@ -67,6 +71,20 @@ console.log('\n=== Multi-selection window ===\n');
   assert(actions.find(action => action.label === 'Copy')?.disabled === true
       && actions.find(action => action.label === 'Copy')?.title.includes('Designer'),
   'beamline hardware remains selectable while unsafe formation copy is explained');
+
+  panel._selected = () => [
+    { key: 'source', targetKind: 'placeable', selectionCategory: 'beamline' },
+    { key: 'panel', targetKind: 'placeable', selectionCategory: 'infra' },
+    { key: 'wall', targetKind: 'edge', selectionCategory: 'structure' },
+  ];
+  SelectionWindow.prototype._updateActions.call(panel);
+  assert(actions.find(action => action.label === 'Copy compatible (2)')?.disabled === false
+      && actions.find(action => action.label === 'Move compatible (1)')?.disabled === false,
+  'unsupported items no longer disable compatible formation actions');
+  const availability = selectionActionAvailability(panel._selected(), 3);
+  assert(availability.copyableCount === 2 && availability.movableCount === 1
+      && availability.clipboardCount === 3,
+  'action availability separates copyable and movable selection subsets');
 }
 
 {

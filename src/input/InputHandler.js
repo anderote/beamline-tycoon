@@ -992,15 +992,42 @@ export class InputHandler {
 
   /** Public command seam for SelectionWindow; UI code never reaches internals. */
   dispatchSelectionPanelAction(action, value = null) {
-    if (action === 'move') return this._beginSelectionPlacement('move');
-    if (action === 'copy') return this._copySelectionToClipboard();
+    const formationSelection = kind => this._selectionIdsForPanelAction(kind);
+    if (action === 'move') {
+      const selection = formationSelection('move');
+      return this._beginSelectionPlacement('move', selection.anchorId, selection.ids);
+    }
+    if (action === 'copy') {
+      const selection = formationSelection('copy');
+      return this._copySelectionToClipboard(selection.anchorId, selection.ids);
+    }
     if (action === 'paste') return this._pasteSelectionClipboard();
-    if (action === 'saveSlot') return this._saveSelectionSlot(value);
-    if (action === 'rotate') return this._beginSelectionTransform('rotate');
-    if (action === 'mirror') return this._beginSelectionTransform('mirror');
+    if (action === 'saveSlot') {
+      const selection = formationSelection('copy');
+      return this._saveSelectionSlot(value, selection.anchorId, selection.ids);
+    }
+    if (action === 'rotate' || action === 'mirror') {
+      const selection = formationSelection('move');
+      return this._beginSelectionTransform(action, selection.anchorId, selection.ids);
+    }
     if (action === 'demolish') return this._demolishSelected();
     if (action === 'toggleCategory') return this._toggleSelectionCategory(value);
     return false;
+  }
+
+  _selectionIdsForPanelAction(kind) {
+    const targets = this._selectionTargets();
+    const compatible = targets.filter(target => (
+      target.selectionCategory !== 'beamline'
+      && (kind !== 'move' || target.targetKind === 'placeable')
+    ));
+    const ids = compatible.map(target => target.key);
+    return {
+      ids,
+      anchorId: ids.includes(this.selectedPlaceableId)
+        ? this.selectedPlaceableId
+        : ids.at(-1) || null,
+    };
   }
 
   _toggleSelectionCategory(category) {
@@ -3874,15 +3901,15 @@ export class InputHandler {
     return payload == null ? payload : JSON.parse(JSON.stringify(payload));
   }
 
-  _captureSelectedCopy(anchorId = this.selectedPlaceableId) {
-    return captureSelectionGroup(this.game, this._selectionIdsForAnchor(anchorId), {
+  _captureSelectedCopy(anchorId = this.selectedPlaceableId, ids = null) {
+    return captureSelectionGroup(this.game, ids || this._selectionIdsForAnchor(anchorId), {
       operation: 'copy',
       primaryId: anchorId,
     });
   }
 
-  _saveSelectionSlot(slot, anchorId = this.selectedPlaceableId) {
-    const captured = this._captureSelectedCopy(anchorId);
+  _saveSelectionSlot(slot, anchorId = this.selectedPlaceableId, ids = null) {
+    const captured = this._captureSelectedCopy(anchorId, ids);
     if (!captured.ok) {
       this._showToast(captured.reason);
       return false;
@@ -3895,8 +3922,8 @@ export class InputHandler {
     return true;
   }
 
-  _copySelectionToClipboard(anchorId = this.selectedPlaceableId) {
-    const captured = this._captureSelectedCopy(anchorId);
+  _copySelectionToClipboard(anchorId = this.selectedPlaceableId, ids = null) {
+    const captured = this._captureSelectedCopy(anchorId, ids);
     if (!captured.ok) {
       this._showToast(captured.reason);
       return false;
@@ -3966,8 +3993,8 @@ export class InputHandler {
   }
 
   /** Arm a translated group for a move (Place) or a paid copy. */
-  _beginSelectionPlacement(operation, anchorId = this.selectedPlaceableId) {
-    const ids = this._selectionIdsForAnchor(anchorId);
+  _beginSelectionPlacement(operation, anchorId = this.selectedPlaceableId, selectedIds = null) {
+    const ids = selectedIds || this._selectionIdsForAnchor(anchorId);
     const captured = captureSelectionGroup(this.game, ids, {
       operation,
       primaryId: anchorId,
@@ -4014,8 +4041,8 @@ export class InputHandler {
     return true;
   }
 
-  _beginSelectionTransform(kind, anchorId = this.selectedPlaceableId) {
-    if (!this._beginSelectionPlacement('move', anchorId)) return false;
+  _beginSelectionTransform(kind, anchorId = this.selectedPlaceableId, ids = null) {
+    if (!this._beginSelectionPlacement('move', anchorId, ids)) return false;
     return this._transformActiveSelectionGroup(kind);
   }
 
