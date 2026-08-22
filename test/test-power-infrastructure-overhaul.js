@@ -187,6 +187,38 @@ test('an HV distributor propagates mixed panel and dedicated downstream demand',
     '10 kW branch load plus 5 kW dedicated HV load propagates through both stages');
 });
 
+test('an HV distributor roof tap continues the trunk and energizes its protected outputs', () => {
+  const state = world([
+    placed('service', 'gridServicePoint'),
+    placed('gear', 'compactHvDistributor'),
+    placed('panel', 'powerPanel'),
+    placed('load', 'quadrupole'),
+    placed('cooler', 'dryCoolerBank'),
+  ], [
+    line('trunk_in', 'hvCable', ref('service', 'hv_out_1'), ref('gear', 'hv_in'), 0),
+    line('trunk_out', 'hvCable', ref('gear', 'hv_in'), ref('panel', 'hv_in'), 2),
+    line('protected', 'hvCable', ref('gear', 'hv_out_1'), ref('cooler', 'hv_in'), 4),
+    line('branch', 'powerCable', ref('panel', 'pwr_out_1'), ref('load', 'pwr_in'), 6),
+  ]);
+  reliabilityFor(state);
+  const runner = runnerFor(state);
+  const solved = runner.runSolve(state);
+  assert.equal(solved.errors.filter(error => error.severity === 'hard').length, 0);
+
+  const hvNetworks = state.utilityNetworks.get('hvCable');
+  const trunk = hvNetworks.find(network => network.ports.some(port =>
+    port.placeableId === 'service'));
+  const protectedFeed = hvNetworks.find(network => network.ports.some(port =>
+    port.placeableId === 'cooler'));
+  const trunkFlow = state.utilityNetworkData.get('hvCable').get(trunk.id);
+  const protectedFlow = state.utilityNetworkData.get('hvCable').get(protectedFeed.id);
+  assert.equal(trunkFlow.totalDemand, 15,
+    'the trunk carries both the continued 10 kW panel load and the tapped 5 kW output load');
+  assert.equal(protectedFlow.totalCapacity, 600,
+    'the energized roof tap makes the compact distributor output bus live at nameplate capacity');
+  assert.equal(protectedFlow.perSinkQuality['cooler:hv_in'], 1);
+});
+
 test('an open disconnect divides its HV feeder immediately', () => {
   const state = world([
     placed('supply', 'facilityTransformer'),

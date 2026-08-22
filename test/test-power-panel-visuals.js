@@ -77,7 +77,8 @@ test('distribution inputs stay on top while outputs terminate on visible front g
 
   const authoredDistributionTypes = Object.keys(INFRASTRUCTURE_RAW).filter(type =>
     Object.values(getUtilityPortsV2(type)).some(port =>
-      port.connectionKind === 'hvDistributionIn'));
+      port.connectionKind === 'hvDistributionIn'
+        || (port.connectionKind === 'hvDistributionTap' && port.role === 'sink')));
   assert.deepEqual(
     Object.keys(DISTRIBUTION_TOP_INPUT_LAYOUTS).sort(),
     authoredDistributionTypes.sort(),

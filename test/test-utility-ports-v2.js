@@ -323,24 +323,30 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   const compactGear = getUtilityPortsV2('compactHvDistributor');
   const compactHvDistributorOutputs = Object.values(compactGear)
     .filter(p => p.connectionKind === 'hvDistributionOut');
-  assert(compactGear.hv_in?.connectionKind === 'hvDistributionIn'
+  assert(compactGear.hv_in?.connectionKind === 'hvDistributionTap'
+      && compactGear.hv_in.role === 'sink'
+      && compactGear.hv_in.omnidirectional === true
+      && compactGear.hv_in.maxConnections === 2
       && compactGear.hv_in.params.demand === 600
       && compactGear.hv_in.params.tracksDownstreamDemand === true
       && compactHvDistributorOutputs.length === 2
       && compactHvDistributorOutputs.every(p => p.params.capacity === 300),
-    'Compact HV Distributor has one 600 kW input and two protected 300 kW outputs');
+    'Compact HV Distributor taps a two-wire trunk into two protected 300 kW outputs');
   assert(INFRASTRUCTURE_RAW.compactHvDistributor.electricalControl?.breaker?.rating === 600,
     'Compact HV Distributor breaker matches its 600 kW feeder rating');
 
   const gear = getUtilityPortsV2('switchgear');
   const hvDistributorOutputs = Object.values(gear)
     .filter(p => p.connectionKind === 'hvDistributionOut');
-  assert(gear.hv_in?.connectionKind === 'hvDistributionIn'
+  assert(gear.hv_in?.connectionKind === 'hvDistributionTap'
+      && gear.hv_in.role === 'sink'
+      && gear.hv_in.omnidirectional === true
+      && gear.hv_in.maxConnections === 2
       && gear.hv_in.params.demand === 1200
       && gear.hv_in.params.tracksDownstreamDemand === true
       && hvDistributorOutputs.length === 4
       && hvDistributorOutputs.every(p => p.params.capacity === 300),
-    'HV Distributor Box has one 1,200 kW input and four protected 300 kW outputs');
+    'HV Distributor Box taps a two-wire trunk into four protected 300 kW outputs');
   assert(INFRASTRUCTURE_RAW.switchgear.electricalControl?.breaker?.rating === 1200,
     'HV Distributor Box breaker matches its 1,200 kW feeder rating');
   assert(compactHvDistributorOutputs.length < hvDistributorOutputs.length
