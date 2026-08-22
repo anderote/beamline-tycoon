@@ -41,6 +41,8 @@ console.log('\n--- 1. Every rigid service receives the common periodic supports 
 for (const utilityType of ['rfWaveguide', 'cryoTransfer', 'waterSupplyPipe', 'vacuumPipe']) {
   const { builder, parent } = build(utilityType);
   const supports = collect(parent, object => object.userData?.isUtilitySupport);
+  assert(UTILITY_TYPES[utilityType].supportSpacingMeters === 2,
+    `${utilityType} uses the dense two-metre support pitch`);
   const expected = Math.floor(8 / UTILITY_TYPES[utilityType].supportSpacingMeters);
   assert(supports.length === expected,
     `${utilityType} gets ${expected} evenly-spaced supports on an 8 m run (${supports.length})`);

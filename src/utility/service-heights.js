@@ -17,7 +17,10 @@ export const RIGID_UTILITY_SERVICE_HEIGHTS = Object.freeze({
   vacuumPipe: 1.50,
 });
 
-export const RIGID_UTILITY_SUPPORT_SPACING_METERS = 3;
+// Keep fabricated RF guides and pipework visibly carried throughout their
+// routes. A two-metre pitch matches the beam-pipe support cadence and avoids
+// long unsupported-looking spans between the shared service-stack frames.
+export const RIGID_UTILITY_SUPPORT_SPACING_METERS = 2;
 export const RIGID_UTILITY_SUPPORT_MINIMUM_RUN_METERS = 3;
 
 export const UNIVERSAL_RACK_SERVICE_HEIGHTS = Object.freeze({
