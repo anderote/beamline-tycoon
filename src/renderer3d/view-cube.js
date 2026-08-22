@@ -218,7 +218,8 @@ export class ViewCube {
     const face = this._faceAtPointer(e);
     if (!face) return;
     if (face === 'posY') {
-      // Toggle: in top-down → back to iso (last iso facing); else → top-down.
+      // Toggle between the cube's two primary faces. The middle-click control
+      // cycles all three preferred elevations, including the steeper view.
       if (this.renderer.viewMode === 'top') {
         this.renderer.setViewMode('iso', this.renderer._isoYawIdx);
       } else {
