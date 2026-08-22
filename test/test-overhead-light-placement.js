@@ -123,6 +123,41 @@ console.log('\n=== floor construction remains possible beneath an existing light
     'moving the light leaves floor occupancy intact');
 }
 
+console.log('\n=== indoor HV supports leave their work area buildable ===\n');
+
+{
+  const game = makeGame(703);
+  const pose = { col: 16, row: 16, subCol: 0, subRow: 0, dir: 0 };
+  const straightDef = PLACEABLES.indoorHvCableRack;
+  const cornerDef = PLACEABLES.indoorHvCableCornerRack;
+
+  assertOk(straightDef.mount === 'overhead' && cornerDef.mount === 'overhead',
+    'straight and corner indoor HV racks use overhead placement occupancy');
+  assertOk(!usesFloorOccupancy(straightDef) && !usesFloorOccupancy(cornerDef),
+    'indoor HV support footprints do not reserve the floor layer');
+
+  const straightId = game.placePlaceable({ type: straightDef.id, ...pose });
+  assertOk(!!straightId, 'the straight indoor HV rack can be built');
+  const floorId = game.placePlaceable({ type: 'source', ...pose });
+  assertOk(!!floorId, 'ordinary equipment can be built beneath an existing indoor HV rack');
+
+  const occupiedCell = PLACEABLES.source.footprintCells(
+    pose.col, pose.row, pose.subCol, pose.subRow, pose.dir,
+  )[0];
+  assertOk(game.state.subgridOccupied[key(occupiedCell)]?.id === floorId,
+    'the equipment beneath the rack owns its normal floor cell');
+
+  assertOk(canPlace(
+    game, cornerDef, pose.col, pose.row, pose.subCol, pose.subRow, pose.dir,
+  ).ok, 'an indoor corner rack can be previewed over occupied equipment');
+  const cornerId = game.placePlaceable({ type: cornerDef.id, ...pose });
+  assertOk(!!cornerId, 'an indoor corner rack can be built over occupied equipment');
+
+  game._rebuildPlaceableIndex();
+  assertOk(game.state.subgridOccupied[key(occupiedCell)]?.id === floorId,
+    'occupancy rebuild keeps both overhead HV racks off the floor layer');
+}
+
 console.log('\n=== floating fixtures remain directly interactive ===\n');
 
 {

@@ -2029,6 +2029,9 @@ export const INFRASTRUCTURE_RAW = {
     paletteOrder: 3.5,
     cost: { funding: 36000 },
     stats: {}, energyCost: 0,
+    // The footprint anchors the overhead conductor row; the support frame is
+    // intentionally pass-through for equipment placement beneath it.
+    mount: 'overhead',
     subL: 2, subW: 4, subH: 5, gridW: 4, gridH: 2,
     geometryType: 'box', baseMaterial: 'metal_dark',
     spriteKey: 'switchgear', spriteColor: 0x5f686d, accentColor: 0xd2a93d,
@@ -2065,6 +2068,7 @@ export const INFRASTRUCTURE_RAW = {
     paletteOrder: 3.625,
     cost: { funding: 42000 },
     stats: {}, energyCost: 0,
+    mount: 'overhead',
     subL: 4, subW: 4, subH: 5, gridW: 4, gridH: 4,
     geometryType: 'box', baseMaterial: 'metal_dark',
     spriteKey: 'switchgear', spriteColor: 0x5f686d, accentColor: 0xd2a93d,
