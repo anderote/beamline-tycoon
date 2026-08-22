@@ -494,6 +494,40 @@ function buildCylinderSegment(p0, p1, radius, material, runDist) {
   return mesh;
 }
 
+// Three slim data cables carried inside one routed envelope. On the ordinary
+// floor run the strands stack vertically, which keeps the same offsets through
+// every plan-view corner and makes all three silhouettes visible from the
+// isometric camera. Short vertical port risers spread them laterally instead
+// so an offset never points along the segment it is meant to separate.
+function fiberBundleOffsets(p0, p1, spacing) {
+  const vertical = Math.abs(p1.y - p0.y)
+    > Math.hypot(p1.x - p0.x, p1.z - p0.z);
+  return vertical
+    ? [-spacing, 0, spacing].map(x => ({ x, y: 0, z: 0 }))
+    : [-spacing, 0, spacing].map(y => ({ x: 0, y, z: 0 }));
+}
+
+function buildFiberBundleSegment(p0, p1, descriptor, material, runDist) {
+  const strandRadius = descriptor?.bundleStrandRadiusMeters || 0.008;
+  const spacing = descriptor?.bundleSpacingMeters || strandRadius * 1.75;
+  const group = new THREE.Group();
+  let count = 0;
+  for (const [index, offset] of fiberBundleOffsets(p0, p1, spacing).entries()) {
+    const a = new THREE.Vector3(p0.x + offset.x, p0.y + offset.y, p0.z + offset.z);
+    const b = new THREE.Vector3(p1.x + offset.x, p1.y + offset.y, p1.z + offset.z);
+    const strand = buildCylinderSegment(a, b, strandRadius, material, runDist);
+    if (!strand) continue;
+    strand.userData.isUtilityLineSegment = true;
+    strand.userData.fiberBundleStrand = index;
+    group.add(strand);
+    count++;
+  }
+  if (count === 0) return null;
+  group.userData.isUtilityLineSegment = true;
+  group.userData.isFiberBundle = true;
+  return group;
+}
+
 // One continuous flexible sheath. TubeGeometry's uv.x advances along the
 // spline (uv.y goes around its circumference), so copy that distance into
 // uv.y for the existing travelling-power shader.
@@ -927,6 +961,34 @@ function buildCornerJoint(prev, at, next, style, radius, material, descriptor = 
   const cosTurn = (ix * ox + iy * oy + iz * oz) / (inLen * outLen);
   if (cosTurn > COLLINEAR_DOT) return null;
 
+  if (style === 'fiberBundle') {
+    const strandRadius = descriptor?.bundleStrandRadiusMeters || 0.008;
+    const spacing = descriptor?.bundleSpacingMeters || strandRadius * 1.75;
+    const bothHorizontal = Math.abs(iy) < 1e-4 && Math.abs(oy) < 1e-4;
+    if (bothHorizontal) {
+      const joint = new THREE.Group();
+      for (const [index, y] of [-spacing, 0, spacing].entries()) {
+        const strandJoint = new THREE.Mesh(
+          new THREE.SphereGeometry(strandRadius * JOINT_SWELL, 8, 6), material);
+        strandJoint.position.set(at.x, at.y + y, at.z);
+        strandJoint.userData.fiberBundleStrand = index;
+        strandJoint.userData.isUtilityJoint = true;
+        joint.add(strandJoint);
+      }
+      joint.userData.isUtilityJoint = true;
+      joint.userData.isFiberBundle = true;
+      return joint;
+    }
+    // A compact shared boot hides the small orientation change where a
+    // horizontal bundle turns up toward an equipment port.
+    const boot = new THREE.Mesh(
+      new THREE.SphereGeometry(radius * JOINT_SWELL, 10, 8), material);
+    boot.position.copy(at);
+    boot.userData.isUtilityJoint = true;
+    boot.userData.isFiberBundleBoot = true;
+    return boot;
+  }
+
   const bend = cornerBendInfo(prev, at, next, descriptor);
   if (bend) {
     let formed;
@@ -1129,6 +1191,8 @@ function buildLineGroup(
       // see that function's doc comment in utility-flow.js for why a
       // BoxGeometry needs a different source (vertex position, not uv).
       mesh = buildRectSegment(a, b, radius * 2, radius * 1.4, mat, runDist);
+    } else if (style === 'fiberBundle') {
+      mesh = buildFiberBundleSegment(a, b, descriptor, mat, runDist);
     } else if (style === 'jacketedCylinder') {
       // Inner opaque cylinder + translucent outer jacket — both baked off the
       // same runDist so a flow-patched jacket stays in phase with its core.
@@ -1367,6 +1431,8 @@ function buildPreviewLine(preview) {
     let mesh = null;
     if (style === 'rectWaveguide') {
       mesh = buildRectSegment(a, b, radius * 2, radius * 1.4, mat);
+    } else if (style === 'fiberBundle') {
+      mesh = buildFiberBundleSegment(a, b, descriptor, mat);
     } else {
       mesh = buildCylinderSegment(a, b, radius, mat);
     }

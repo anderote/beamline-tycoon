@@ -121,7 +121,7 @@ const { getLineMaterial, UtilityLineBuilderV2 } =
   await import('../src/renderer3d/utility-line-builder-v2.js');
 const { FLOW_PARAMS, bakeRunDistanceUVs, bakeRunDistanceFromPositionZ } =
   await import('../src/renderer3d/utility-flow.js');
-const { UTILITY_TYPE_LIST } = await import('../src/utility/registry.js');
+const { UTILITY_TYPES, UTILITY_TYPE_LIST } = await import('../src/utility/registry.js');
 // Pure topology, no THREE — computeLineOrientations never touches the stub.
 const { computeLineOrientations } = await import('../src/utility/line-orientation.js');
 
@@ -344,6 +344,15 @@ console.log('\n--- 4. FLOW_PARAMS covers every utility ---');
   assert(FLOW_PARAMS.dataFiber.speed > FLOW_PARAMS.rfWaveguide.speed
       && FLOW_PARAMS.dataFiber.light === false,
     'data remains the fastest lightless packet train');
+  assert(FLOW_PARAMS.dataFiber.speed / FLOW_PARAMS.dataFiber.period <= 1.2
+      && FLOW_PARAMS.dataFiber.width >= 0.15,
+    'data uses broad packets at a restrained non-flashing cadence');
+  const fiber = UTILITY_TYPES.dataFiber;
+  assert(fiber.geometryStyle === 'fiberBundle'
+      && fiber.pipeRadiusMeters >= 0.025
+      && fiber.bundleStrandRadiusMeters > 0
+      && fiber.bundleSpacingMeters > fiber.bundleStrandRadiusMeters,
+    'data declares a thicker routed envelope containing distinct cable strands');
   assert(FLOW_PARAMS.hvCable.period >= 12
       && FLOW_PARAMS.powerCable.period >= 3.2,
     'power and HV highlights are spaced far enough apart to avoid glowing rows');
@@ -366,6 +375,11 @@ console.log('\n--- 4. FLOW_PARAMS covers every utility ---');
   }
   assert(!buildFlowLine('dataFiber').group.userData.visualEffects,
     'data fiber uses only its moving line colour, with no shape or room-light effect');
+  const fiberStrands = cylinderMeshes(buildFlowLine('dataFiber').group)
+    .filter(mesh => Number.isInteger(mesh.userData?.fiberBundleStrand));
+  assert(fiberStrands.length === 6
+      && new Set(fiberStrands.map(mesh => mesh.userData.fiberBundleStrand)).size === 3,
+    `a two-segment data run renders as three parallel cables (${fiberStrands.length} strand segments)`);
 }
 
 console.log('\n--- 5. getLineMaterial: distinct per flowState, cached, tagged __shared ---');
