@@ -211,10 +211,9 @@ export function computeBusService(endpoints, getPorts, getDef = t => COMPONENTS[
 //   2. A cluster is inert until a line reaches it. Adjacency spreads a supply
 //      that exists; it never invents one, and an unwired block of touching
 //      components still reports every sink as unconnected.
-//   3. A component that declares BOTH a source and a sink of the same utility
-//      (every dataFiber device with data_in + data_out) is a boundary and never
-//      bridges that utility — otherwise its own output would satisfy its own
-//      input, and a rack of them would need no supply at all.
+//   3. A component that declares BOTH a source and a sink of an ordinary
+//      directed utility is a boundary. Directionless bus networks are the
+//      exception: every same-utility port on one device is the same peer node.
 // ---------------------------------------------------------------------------
 
 // Largest gap that still counts as touching, in sub-units (1 = 0.25 tile =
@@ -307,7 +306,8 @@ function bridgeablePortKeys(listPorts, placeableId, utilityType) {
     .filter(({ spec }) => spec && spec.utility === utilityType);
   if (ports.length === 0) return [];
   const roles = new Set(ports.map(({ spec }) => spec.role));
-  if (roles.has('source') && roles.has('sink')) return [];
+  if (UTILITY_TYPES[utilityType]?.topology !== 'bus'
+      && roles.has('source') && roles.has('sink')) return [];
   return ports.map(({ name }) => `${placeableId}:${name}`);
 }
 
@@ -480,6 +480,14 @@ export function discoverNetworks(utilityType, lines, portLookup) {
   if (portLookup && typeof portLookup.listPorts === 'function') {
     for (const pid of touchedPlaceables) {
       const ports = portLookup.listPorts(pid) || [];
+      if (UTILITY_TYPES[utilityType]?.topology === 'bus') {
+        const keys = ports
+          .filter(({ spec }) => spec?.utility === utilityType)
+          .map(({ name }) => `${pid}:${name}`);
+        for (const key of keys) allPortKeys.add(key);
+        for (let i = 1; i < keys.length; i++) dsu.union(keys[0], keys[i]);
+        continue;
+      }
       const passNames = [];
       const throughNames = [];
       const sourceNames = [];
@@ -609,6 +617,7 @@ export function discoverNetworks(utilityType, lines, portLookup) {
   }
 
   const networks = [];
+  const busTopology = UTILITY_TYPES[utilityType]?.topology === 'bus';
   for (const g of groups.values()) {
     if (g.portKeys.size === 0 && g.lineIds.length === 0) continue;
     const sortedKeys = Array.from(g.portKeys).sort();
@@ -632,11 +641,11 @@ export function discoverNetworks(utilityType, lines, portLookup) {
       const entry = {
         placeableId,
         portName,
-        role: spec.role || 'pass',
+        role: busTopology ? 'peer' : (spec.role || 'pass'),
         params: spec.params || {},
       };
       ports.push(entry);
-      if (spec.role === 'source') {
+      if (spec.role === 'source' && !busTopology) {
         sources.push({
           portKey: k,
           placeableId,
@@ -654,7 +663,10 @@ export function discoverNetworks(utilityType, lines, portLookup) {
         });
       }
     }
-    networks.push({ id, utilityType, lineIds: g.lineIds, ports, sources, sinks });
+    networks.push({
+      id, utilityType, lineIds: g.lineIds, ports, sources, sinks,
+      ...(busTopology ? { peers: ports } : {}),
+    });
   }
   return networks;
 }

@@ -64,6 +64,7 @@ function subtileKey(pt) {
 export function computeLineOrientations(network, linesById, options = {}) {
   const result = new Map();
   if (!network || !linesById) return result;
+  if (UTILITY_TYPES[network.utilityType]?.directional === false) return result;
   const lineIds = network.lineIds || [];
   if (lineIds.length === 0) return result;
 

@@ -56,7 +56,6 @@ const PALETTE_METRIC_SPEC = {
   cryoTransfer: { draw: ['srfHeatW', 'Cryo draw', 'W'], capacity: ['coldCapacityW', 'Cryo capacity', 'W'] },
   rfWaveguide:  { draw: ['demand', 'RF draw', 'kW'], capacity: ['capacity', 'RF capacity', 'kW'] },
   vacuumPipe:   { draw: ['outgassing', 'Vacuum load', 'mbar·L/s'], capacity: ['pumpSpeed', 'Pumping capacity', 'L/s'] },
-  dataFiber:    { draw: ['demand', 'Data draw', 'Gbps'], capacity: ['capacity', 'Data capacity', 'Gbps'] },
 };
 
 const COOLING_INVENTORY_METRICS = [
@@ -135,7 +134,6 @@ const PALETTE_UTILITY_SPEC = {
   coolingWater: { key: 'cooling', label: 'C', param: ['heatRejectionCapacity', 'capacity'], unit: 'kW' },
   cryoTransfer: { key: 'cryo', label: 'K', param: 'coldCapacityW', unit: 'W' },
   vacuumPipe:   { key: 'vacuum', label: 'V', param: 'pumpSpeed', unit: 'L/s' },
-  dataFiber:    { key: 'data', label: 'D', param: 'capacity', unit: 'Gbps' },
 };
 const PALETTE_UTILITY_ORDER = ['power', 'cooling', 'rf', 'cryo', 'vacuum', 'data'];
 

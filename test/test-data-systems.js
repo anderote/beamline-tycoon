@@ -2,7 +2,7 @@ import { makeDefaultBeamState } from '../src/beamline/BeamlineRegistry.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
 import { Game } from '../src/game/Game.js';
 import { computeDataSystemCapacity, tickDataSystems } from '../src/game/data-systems.js';
-import { matchingZoneForPlacement } from '../src/data/facility.js';
+import { itemMatchesZone, matchingZoneForPlacement, ZONE_FURNISHINGS } from '../src/data/facility.js';
 import { MODES } from '../src/data/modes.js';
 import { PLACEABLES } from '../src/data/placeables/index.js';
 import { getUtilityPortsV2 } from '../src/data/utility-ports-v2.js';
@@ -39,6 +39,46 @@ function publishLiveNetworks(state, dataPortIds, poweredIds = dataPortIds) {
 }
 
 console.log('\n=== Facility data systems ===\n');
+
+{
+  const switchDef = PLACEABLES.networkSwitch;
+  const switchPorts = getUtilityPortsV2('networkSwitch');
+  const dataPorts = Object.values(switchPorts).filter(port => port.utility === 'dataFiber');
+  assert(switchDef.category === 'dataControls'
+      && itemMatchesZone(switchDef, 'controlRoom')
+      && ZONE_FURNISHINGS.networkSwitch === switchDef,
+  'the same Network Switch appears in Data & Controls and the Control Room catalogue');
+  assert(dataPorts.length === 8 && dataPorts.every(port => port.role === 'pass'),
+    'the Network Switch exposes eight interchangeable peer ports');
+  assert(!switchDef.requiredConnections.includes('dataFiber'),
+    'the switch needs power but no fictional upstream data source');
+
+  const state = {
+    placeables: [
+      { id: 'switch', type: 'networkSwitch', col: 0, row: 0 },
+      { id: 'display', type: 'monitorBank', col: 2, row: 0 },
+      { id: 'console', type: 'operatorConsole', col: 0, row: 2 },
+    ],
+  };
+  const lines = [
+    {
+      id: 'fiber_a', utilityType: 'dataFiber',
+      start: { placeableId: 'switch', portName: 'data_1' },
+      end: { placeableId: 'display', portName: 'data_in' },
+      path: [{ col: 0, row: 0 }, { col: 2, row: 0 }],
+    },
+    {
+      id: 'fiber_b', utilityType: 'dataFiber',
+      start: { placeableId: 'switch', portName: 'data_5' },
+      end: { placeableId: 'console', portName: 'data_in' },
+      path: [{ col: 0, row: 0 }, { col: 0, row: 2 }],
+    },
+  ];
+  const networks = discoverNetworks('dataFiber', lines, makeDefaultPortLookup(state));
+  assert(networks.length === 1 && networks[0].sources.length === 0
+      && networks[0].peers.every(port => port.role === 'peer'),
+  'different switch sockets join every attached device into one directionless peer fabric');
+}
 
 {
   const cells = [{ col: 4, row: 4 }, { col: 5, row: 4 }];
@@ -165,8 +205,8 @@ console.log('\n=== Facility data systems ===\n');
     && getUtilityPortsV2('cpuComputeRack').data_in?.role === 'sink'
     && getUtilityPortsV2('gpuComputeRack').data_in?.role === 'sink',
   'storage and compute racks expose physical data inputs without masquerading as sources');
-  assert(getUtilityPortsV2('serverRack').data_out?.role === 'source',
-    'the all-in-one capture rack remains a real capture gateway');
+  assert(getUtilityPortsV2('serverRack').data_out?.utility === 'dataFiber',
+    'the all-in-one capture rack remains a physical data peer');
   const expectedRearSides = {
     monitorBank: 'front', serverRack: 'front', operatorConsole: 'front',
     alarmPanel: 'front', daqRack: 'front',
@@ -184,7 +224,7 @@ console.log('\n=== Facility data systems ===\n');
   assert(activeControlRoomItems.every(def => {
     const ports = getUtilityPortsV2(def.id);
     return ports.pwr_in?.utility === 'powerCable'
-      && (ports.data_in || ports.data_out)?.utility === 'dataFiber';
+      && Object.values(ports).some(port => port.utility === 'dataFiber');
   }), 'every powered Control Room catalogue item exposes rear power and data ports');
   assert(MODES.facility.categories.controlRoom.utilityLineTools.join(',') === 'dataFiber,powerCable',
     'the Control Room palette exposes Data Fiber and Power Cable tools');

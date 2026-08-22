@@ -12,7 +12,7 @@ Two consequences worth knowing:
 - **Every beamline component needs vacuum.** A vacuum sink is injected automatically for every placeable beamline module, whether or not it has any other utility. Bellows and apertures need nothing but vacuum — and they do need it.
 - **Beam pipe (`drift`) is the exception.** It is a drawn connection, never a placeable, so it declares no ports at all. Its outgassing is charged directly by the vacuum solver to whichever pumps serve the components mounted on it.
 
-The numbers below are the declared loads: power in kW, cooling in kW of heat, RF in kW (with the frequency bucket), cryo in watts of static heat, data in Gbps, vacuum in mbar·L/s.
+The numbers below are the declared loads: power in kW, cooling in kW of heat, RF in kW (with the frequency bucket), cryo in watts of static heat, and vacuum in mbar·L/s. Data is a directionless bus and has no bandwidth load or capacity.
 
 ## Beamline Components
 
@@ -96,7 +96,7 @@ Equipment power demand is its own energy cost, so the panel and the bill can nev
 | Modulator | 3 | *nothing — inert* | | |
 | Circulator | | *nothing — inert* | | |
 | High-power Coupler | | *nothing — inert* | | |
-| LLRF Controller | 0.5 | 4 Gbps data | | 1 |
+| LLRF Controller | 0.5 | Data peer | | 1 |
 | Waveguide Manifold | | RF bus, 6-cell reach | | |
 
 ### Vacuum
@@ -174,13 +174,13 @@ There is no "Substation" component.
 ### Controls & Safety
 | Equipment | Power draw | Data in | Provides |
 |-----------|:----------:|:-------:|----------|
-| Rack/IOC | 0.5 | | 10 Gbps |
-| Network Switch | 0.2 | 1 | 40 Gbps |
-| Archiver | 0.5 | 1 | 20 Gbps |
-| BPM Electronics | 0.3 | 1 | 8 Gbps |
-| BLM Readout | 0.3 | 1 | 8 Gbps |
-| Timing System | 0.5 | 1 | 5 Gbps |
-| Patch Panel | | 1 | 2 Gbps |
+| Rack/IOC | 0.5 | | Data peer |
+| Network Switch | 0.2 | | 8-port data switch |
+| Archiver | 0.5 | 1 | Data peer |
+| BPM Electronics | 0.3 | 1 | Data peer |
+| BLM Readout | 0.3 | 1 | Data peer |
+| Timing System | 0.5 | 1 | Data peer |
+| Patch Panel | | 1 | Data peer |
 | Fiber Bus | | | Data bus, 12-cell reach |
 | MPS | 0.5 | 1 | Halves component wear facility-wide |
 | PPS Interlock | 0.2 | | *inert — no gating check exists* |

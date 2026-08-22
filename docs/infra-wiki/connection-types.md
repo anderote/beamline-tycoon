@@ -76,14 +76,14 @@ Carries cryogenic helium between cold boxes and SRF components. The network's ou
 The **He Compressor is not required** for a cold box to work — the solver has no compressor check. The **Cryocooler declares no cryo source port** and therefore contributes zero capacity.
 
 ### Data/Fiber (white)
-Carries control signals and measurement data between diagnostics and the control system. Binary connection: the network has a source or it doesn't.
+Carries control signals and measurement data between diagnostics and the control system. It is a directionless shared fabric: every data port is a peer, and a device is connected when its bus reaches at least one other device.
 
 - **Color:** White (0xeeeeee)
-- **Network type:** Binary connectivity
-- **Source equipment:** Rack/IOC, Network Switch, Archiver, Timing System, BPM Electronics, BLM Readout, LLRF Controller, Patch Panel
-- **Consumers:** BPM, screen, ICT, wire scanner, Faraday cup, detector, target, collision point, MPS
+- **Network type:** Directionless bus with binary peer connectivity
+- **Peer equipment:** Rack/IOC, Archiver, Timing System, BPM Electronics, BLM Readout, LLRF Controller, Patch Panel, diagnostics, endpoints, and control-room data hardware
+- **Switching:** Powered Network Switch with eight interchangeable ports, available in both Control Room and Data & Controls palettes
 - **Cost:** $300/sub-unit ($1,200/tile) — the cheapest run to pull
-- **Bus:** Fiber Bus, $35k, 12-cell service radius
+- **Bus:** Fiber Bus, $35k, 12-cell service radius; fiber runs may tee into the same shared network
 
 Data fiber is the one utility that is **not hard-gated**. An unwired BPM costs you data income; it does not trip the beam.
 

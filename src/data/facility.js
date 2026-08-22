@@ -67,7 +67,8 @@ export const FURNISHING_TIER_THRESHOLDS = [1, 3, 5]; // Tier 1: 1-2, Tier 2: 3-4
 // regardless of taxonomy, so both kinds are exposed here.
 export const ZONE_FURNISHINGS = {};
 for (const p of Object.values(PLACEABLES)) {
-  if (p.kind === 'furnishing' || p.kind === 'equipment') {
+  if (p.kind === 'furnishing' || p.kind === 'equipment'
+      || p.zoneType != null || Array.isArray(p.zoneTypes)) {
     ZONE_FURNISHINGS[p.id] = p;
   }
 }

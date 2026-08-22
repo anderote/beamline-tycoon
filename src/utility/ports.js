@@ -108,7 +108,8 @@ export function availablePorts(placeable, def, utilityType, lines) {
     .filter(({ name, spec }) => {
       const authoredLimit = Number.isInteger(spec.maxConnections)
         ? spec.maxConnections : null;
-      if (authoredLimit == null && fanOut && spec.role === 'source') return true;
+      if (authoredLimit == null && fanOut
+          && (spec.role === 'source' || UTILITY_TYPES[utilityType]?.topology === 'bus')) return true;
       const maxConnections = authoredLimit ?? 1;
       return (claims.get(name) || 0) < maxConnections;
     })

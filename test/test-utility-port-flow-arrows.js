@@ -64,6 +64,14 @@ test('physical port arrows encode source, sink and passive flow roles', () => {
     'opposite roles use opposite authored arrowheads');
 });
 
+test('data fittings are peer connectors with no directional arrow', () => {
+  for (const role of ['source', 'sink', 'pass']) {
+    const fitting = buildPortFitting(anchor, 'dataFiber', role);
+    assert.equal(arrowOf(fitting), undefined,
+      `legacy ${role} metadata does not put a direction arrow on a data peer`);
+  }
+});
+
 test('flow arrows stay faint, physical and attached to the fitting transform', () => {
   const fitting = buildPortFitting(anchor, 'hvCable', 'source');
   const arrow = arrowOf(fitting);
@@ -216,10 +224,10 @@ test('control-room ports and flow arrows live on the visible rear panel', () => 
   const fittings = new Map(group.children.map(fitting => [
     `${fitting.userData.placeableId}:${fitting.userData.portName}`, fitting,
   ]));
-  assert.equal(arrowOf(fittings.get('capture:data_out'))?.userData.flowDirection, 1,
-    'the capture data arrow points outward from its rear source port');
+  assert.equal(arrowOf(fittings.get('capture:data_out')), undefined,
+    'the capture data peer has no directional arrow');
   assert.equal(arrowOf(fittings.get('capture:pwr_in'))?.userData.flowDirection, -1,
     'the capture power arrow points inward through its rear input');
-  assert.equal(arrowOf(fittings.get('compute:data_in'))?.userData.flowDirection, -1,
-    'the compute data arrow points inward through its rear input');
+  assert.equal(arrowOf(fittings.get('compute:data_in')), undefined,
+    'the compute data peer has no directional arrow');
 });

@@ -247,7 +247,7 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   //     multibeam klystron for the cavities plus an SSA for the buncher;
   //     see the TODO(balance) on the waveguide wiring below;
   //   cooling 586 kW -> two 300 kW chillers;
-  //   data 41 -> a 40-capacity network switch alongside the IOC.
+  //   data -> an eight-port network switch alongside the IOC.
   const servicePoint = place('gridServicePoint', -26, 8);
   const hv   = place('hvTransformer', -6, 8);
   const mbk  = place('multibeamKlystron', -3, 8);
@@ -346,8 +346,8 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
     }
   }
   if (nsw) {
-    for (const id of [det, bpm2, secondConsole]) {
-      if (id) wire('dataFiber', sourcePort(nsw), sinkPort(id));
+    for (const [index, id] of [det, bpm2, secondConsole].entries()) {
+      if (id) wire('dataFiber', { id: nsw, role: 'pass', index }, sinkPort(id));
     }
   }
 

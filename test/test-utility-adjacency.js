@@ -9,9 +9,8 @@
 //   2. Only clusters a line actually reaches light up — adjacency spreads a
 //      supply, it never invents one.
 //   3. Per-utility opt-in: RF and cryo still need a real run.
-//   4. A component declaring both a source and a sink of one utility is a
-//      boundary and never bridges it, or its own output would feed its own
-//      input.
+//   4. Directionless data is the exception: every port on a device belongs to
+//      its shared fabric and adjacent data devices bridge as peers.
 //   5. findUnconnectedSinks agrees with discoverNetworks, or the gate would
 //      trip the beam on components the solver is demonstrably feeding.
 
@@ -38,8 +37,8 @@ const PORTS = {
   feeder:    { vac_out: { utility: 'vacuumPipe', role: 'source', side: 'right', params: { capacity: 100 } } },
   cryostat:  { cryo_in: { utility: 'cryoTransfer', role: 'sink', side: 'left', params: { demand: 5 } } },
   cryoPlant: { cryo_out: { utility: 'cryoTransfer', role: 'source', side: 'right', params: { capacity: 50 } } },
-  // Declares both directions of one utility: a converter, and therefore a
-  // boundary that must not bridge.
+  // Legacy directional metadata must still collapse into one peer fabric for
+  // data, because dataFiber's public topology contract is directionless.
   repeater:  {
     data_in: { utility: 'dataFiber', role: 'sink', side: 'left', params: { demand: 1 } },
     data_out: { utility: 'dataFiber', role: 'source', side: 'right', params: { capacity: 10 } },
@@ -200,10 +199,10 @@ console.log('\n--- 4. RF and cryo do not bridge ---');
     'and the touching cryostat is still reported unconnected');
 }
 
-console.log('\n--- 5. A converter is a boundary ---');
+console.log('\n--- 5. Data ports form one directionless peer fabric ---');
 {
-  // Two repeaters bolted together. Each declares data_in AND data_out, so
-  // bridging them would let either one answer its own demand.
+  // Two repeaters bolted together. Legacy in/out roles cannot split a data
+  // device or prevent the adjacent device from joining the shared bus.
   const eps = [at('rp1', 'repeater', 0, 0), at('rp2', 'repeater', 2, 0)];
   const lines = [{
     id: 'ul_x', utilityType: 'dataFiber',
@@ -212,13 +211,13 @@ console.log('\n--- 5. A converter is a boundary ---');
   }];
   const net = networkFor('dataFiber', eps, lines);
   const keys = net ? net.ports.map(p => `${p.placeableId}:${p.portName}`) : [];
-  assert(!keys.includes('rp1:data_out'),
-    `a converter's own output stays out of its input's network (got ${keys.join(',')})`);
-  assert(!keys.some(k => k.startsWith('rp2:')),
-    'and it does not bridge into the device bolted to it');
+  assert(keys.includes('rp1:data_out'),
+    `all ports on the touched data device share one fabric (got ${keys.join(',')})`);
+  assert(keys.some(k => k.startsWith('rp2:')),
+    'an adjacent data device joins that same peer fabric');
   const report = findUnconnectedSinks(eps, lines, getPorts, ['dataFiber']);
-  assert(report.length === 1 && report[0].placeableId === 'rp2',
-    `the neighbour is still reported unconnected (got ${JSON.stringify(report.map(r => r.placeableId))})`);
+  assert(report.length === 0,
+    `both peer devices are connected (got ${JSON.stringify(report.map(r => r.placeableId))})`);
 }
 
 console.log('\n--- 6. Bridging is stable and does not double-count ---');

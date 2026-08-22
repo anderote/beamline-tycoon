@@ -186,6 +186,7 @@ export class UtilityInspector {
 
     const totalCapacity = flow.totalCapacity || 0;
     const totalDemand = flow.totalDemand || 0;
+    const topologyOnly = desc.topologyOnly === true;
     // Only meaningful when capacity and demand are the same physical
     // quantity. vacuumPipe measures capacity in L/s and demand in mbar·L/s,
     // so their ratio is a pressure, not a fraction — rendering it as a
@@ -207,21 +208,44 @@ export class UtilityInspector {
       <code>${escapeHtml(this.networkId)}</code>
       <span class="utility-live-badge">LIVE</span>
     </div>`;
-    html += `<div class="utility-summary-grid">
-      <div class="utility-summary-stat"><span>Capacity</span><strong>${fmtQty(totalCapacity)}</strong><small>${escapeHtml(desc.capacityUnit || '')}</small></div>
-      <div class="utility-summary-stat"><span>Demand</span><strong>${fmtQty(totalDemand)}</strong><small>${escapeHtml(desc.demandUnit || desc.capacityUnit || '')}</small></div>
-      <div class="utility-summary-stat"><span>Sources</span><strong>${network.sources?.length || 0}</strong><small>connected</small></div>
-      <div class="utility-summary-stat"><span>Sinks</span><strong>${network.sinks?.length || 0}</strong><small>connected</small></div>
-    </div>`;
-    if (comparable || worstQuality !== null) {
+    if (topologyOnly) {
+      const connected = (flow.connectedNodeCount || 0) >= 2;
+      html += `<div class="utility-summary-grid">
+        <div class="utility-summary-stat"><span>Devices</span><strong>${flow.connectedNodeCount || 0}</strong><small>peers</small></div>
+        <div class="utility-summary-stat"><span>Links</span><strong>${flow.connectedLinkCount || 0}</strong><small>fiber runs</small></div>
+        <div class="utility-summary-stat"><span>Topology</span><strong>Bus</strong><small>bidirectional</small></div>
+        <div class="utility-summary-stat"><span>Status</span><strong>${connected ? 'Connected' : 'Isolated'}</strong><small>${connected ? 'shared fabric' : 'needs a peer'}</small></div>
+      </div>`;
+    } else {
+      html += `<div class="utility-summary-grid">
+        <div class="utility-summary-stat"><span>Capacity</span><strong>${fmtQty(totalCapacity)}</strong><small>${escapeHtml(desc.capacityUnit || '')}</small></div>
+        <div class="utility-summary-stat"><span>Demand</span><strong>${fmtQty(totalDemand)}</strong><small>${escapeHtml(desc.demandUnit || desc.capacityUnit || '')}</small></div>
+        <div class="utility-summary-stat"><span>Sources</span><strong>${network.sources?.length || 0}</strong><small>connected</small></div>
+        <div class="utility-summary-stat"><span>Sinks</span><strong>${network.sinks?.length || 0}</strong><small>connected</small></div>
+      </div>`;
+    }
+    if (!topologyOnly && (comparable || worstQuality !== null)) {
       html += '<div class="utility-health-grid">';
       if (comparable) html += `<div>${loadBar(util, 160)}</div>`;
       if (worstQuality !== null) html += `<div>${qualityBar(worstQuality, 160)}</div>`;
       html += '</div>';
     }
 
+    if (topologyOnly && network.peers && network.peers.length) {
+      html += `<section class="utility-inspector-section">
+        <div class="utility-section-heading"><strong>Peer ports</strong><span>${network.peers.length}</span></div>
+        <div class="utility-endpoint-list">`;
+      for (const peer of network.peers) {
+        html += `<div class="utility-endpoint-row">
+          <div class="utility-endpoint-name"><strong>${escapeHtml(this._placeableLabel(peer.placeableId))}</strong><span>data port</span></div>
+          <span class="utility-endpoint-value">peer</span>
+        </div>`;
+      }
+      html += '</div></section>';
+    }
+
     // Sources
-    if (network.sources && network.sources.length) {
+    if (!topologyOnly && network.sources && network.sources.length) {
       html += `<section class="utility-inspector-section">
         <div class="utility-section-heading"><strong>Sources</strong><span>${network.sources.length}</span></div>
         <div class="utility-endpoint-list">`;
@@ -254,7 +278,7 @@ export class UtilityInspector {
     }
 
     // Sinks
-    if (network.sinks && network.sinks.length) {
+    if (!topologyOnly && network.sinks && network.sinks.length) {
       html += `<section class="utility-inspector-section">
         <div class="utility-section-heading"><strong>Sinks</strong><span>${network.sinks.length}</span></div>
         <div class="utility-endpoint-list">`;

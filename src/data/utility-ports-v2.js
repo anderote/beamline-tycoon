@@ -712,8 +712,7 @@ for (const [id, comp] of Object.entries(BEAMLINE_COMPONENTS_RAW)) {
 //                        → coolingTower 800
 //   cryo    (W):    coldBox4K 500 → coldBox2K 800
 //   vacuum  (L/s):  roughing 15 → turbo 300 → tiSub 400 → NEG 500 → ion 600
-//   data    (Gbps): patchPanel 2 → timing 5 → rackIoc 10 → archiver 20
-//                   → networkSwitch 40
+//   data: directionless peer topology; there are no source capacities.
 //
 // RF sources: `bands` is filled from the raw `rfBands` array — a source has no
 // frequency of its own, only coverage (see types/rfWaveguide.js).
@@ -947,23 +946,44 @@ function buswayPorts(capacity, serviceRadius) {
 // their visible screens, faceplates and status LEDs. Most detailed control
 // furniture faces local -Z and therefore uses local +Z (`front` in the utility
 // side vocabulary) as its rear. The simple decal-built compute cabinets face
-// +Z and pass `rearSide: 'back'` instead. Capture gateways expose data_out;
-// downstream cabinets expose data_in so touching cabinets join through data
-// adjacency.
+// +Z and pass `rearSide: 'back'` instead. Capture gateways retain the authored
+// data_out socket name, but data fiber is a directionless peer fabric: the
+// socket is a pass port, not a source. Downstream cabinets retain data_in sink
+// ports so their required-connection and delivery-quality contracts remain
+// visible to topology checks.
 function controlElectronicsPorts({
-  powerDemand, dataRole, dataCapacity = 0, dataDemand = 0, rearSide = 'front',
+  powerDemand, dataPeer = false, rearSide = 'front',
 }) {
   return {
     pwr_in: {
       utility: 'powerCable', side: rearSide, offsetAlong: 0.3,
       role: 'sink', params: { demand: powerDemand },
     },
-    [dataRole === 'source' ? 'data_out' : 'data_in']: {
+    [dataPeer ? 'data_out' : 'data_in']: {
       utility: 'dataFiber', side: rearSide, offsetAlong: 0.7,
-      role: dataRole,
-      params: dataRole === 'source' ? { capacity: dataCapacity } : { demand: dataDemand },
+      role: dataPeer ? 'pass' : 'sink',
+      params: {},
     },
   };
+}
+
+/** Eight interchangeable Ethernet sockets on one internal switching fabric. */
+function networkSwitchPorts() {
+  const out = {
+    pwr_in: {
+      utility: 'powerCable', side: 'left', offsetAlong: 0.5,
+      role: 'sink', params: { demand: 0.2 },
+    },
+  };
+  const sides = ['back', 'front', 'left', 'right'];
+  for (let i = 0; i < 8; i++) {
+    out[`data_${i + 1}`] = {
+      utility: 'dataFiber', side: sides[Math.floor(i / 2)],
+      offsetAlong: i % 2 === 0 ? 0.3 : 0.7,
+      role: 'pass', maxConnections: 1, params: {},
+    };
+  }
+  return out;
 }
 
 // Cooling plant uses a consistent, mirrorable header layout. Process-water
@@ -1314,27 +1334,27 @@ const INFRA_UTILITY_PORTS = {
   // beam, and an optional upgrade must never do that.
   bakeoutSystem:       { vac_out:  { utility: 'vacuumPipe', side: 'right', offsetAlong: 0.5, role: 'source', params: { pumpSpeed: 0 } } },
   // data
-  rackIoc:             { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 10 } } },
-  timingSystem:        { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 5 } } },
-  networkSwitch:       { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 40 } } },
-  archiver:            { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 20 } } },
-  bpmElectronics:      { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 8 } } },
-  blmReadout:          { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 8 } } },
-  llrfController:      { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 4 } } },
-  patchPanel:          { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'source', params: { capacity: 2 } } },
+  rackIoc:             { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'pass', params: {} } },
+  timingSystem:        { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'pass', params: {} } },
+  networkSwitch:       networkSwitchPorts(),
+  archiver:            { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'pass', params: {} } },
+  bpmElectronics:      { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'pass', params: {} } },
+  blmReadout:          { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'pass', params: {} } },
+  llrfController:      { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'pass', params: {} } },
+  patchPanel:          { data_out: { utility: 'dataFiber', side: 'right', offsetAlong: 0.5, role: 'pass', params: {} } },
   // Control-room and diagnostics capture gateways terminate experimental
   // fiber. Their touching storage, compute, display and console cabinets join
   // the same physical backbone through the data adjacency bridge.
-  monitorBank:         controlElectronicsPorts({ powerDemand: 0.8, dataRole: 'sink', dataDemand: 1 }),
-  dataAppliance:       controlElectronicsPorts({ powerDemand: 1.2, dataRole: 'source', dataCapacity: 4, rearSide: 'back' }),
-  serverRack:          controlElectronicsPorts({ powerDemand: 3, dataRole: 'source', dataCapacity: 8 }),
-  dataStorageRack:     controlElectronicsPorts({ powerDemand: 4, dataRole: 'sink', rearSide: 'back' }),
-  cpuComputeRack:      controlElectronicsPorts({ powerDemand: 9, dataRole: 'sink', rearSide: 'back' }),
-  gpuComputeRack:      controlElectronicsPorts({ powerDemand: 16, dataRole: 'sink', rearSide: 'back' }),
-  operatorConsole:     controlElectronicsPorts({ powerDemand: 0.5, dataRole: 'sink', dataDemand: 1 }),
-  alarmPanel:          controlElectronicsPorts({ powerDemand: 0.1, dataRole: 'sink', dataDemand: 1 }),
-  daqRack:             controlElectronicsPorts({ powerDemand: 1.5, dataRole: 'source', dataCapacity: 40 }),
-  serverCluster:       controlElectronicsPorts({ powerDemand: 5, dataRole: 'source', dataCapacity: 12, rearSide: 'back' }),
+  monitorBank:         controlElectronicsPorts({ powerDemand: 0.8 }),
+  dataAppliance:       controlElectronicsPorts({ powerDemand: 1.2, dataPeer: true, rearSide: 'back' }),
+  serverRack:          controlElectronicsPorts({ powerDemand: 3, dataPeer: true }),
+  dataStorageRack:     controlElectronicsPorts({ powerDemand: 4, rearSide: 'back' }),
+  cpuComputeRack:      controlElectronicsPorts({ powerDemand: 9, rearSide: 'back' }),
+  gpuComputeRack:      controlElectronicsPorts({ powerDemand: 16, rearSide: 'back' }),
+  operatorConsole:     controlElectronicsPorts({ powerDemand: 0.5 }),
+  alarmPanel:          controlElectronicsPorts({ powerDemand: 0.1 }),
+  daqRack:             controlElectronicsPorts({ powerDemand: 1.5, dataPeer: true }),
+  serverCluster:       controlElectronicsPorts({ powerDemand: 5, dataPeer: true, rearSide: 'back' }),
 };
 
 // ---------------------------------------------------------------------------

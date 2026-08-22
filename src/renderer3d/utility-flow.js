@@ -83,11 +83,10 @@ export const FLOW_PARAMS = {
     lightIntensity: 0.075, lightDistance: 1.15, daylightFloor: 0.2,
   },
   dataFiber: {
-    // Tiny, rapid white packets are intentionally lightless: fibre carries
-    // information, so it should sparkle on the cable without illuminating
-    // the room like an energy service.
+    // Tiny white packets travel both ways at once: Ethernet is peer traffic,
+    // not a source-to-sink service. Fibre remains intentionally lightless.
     speed: 4.4, period: 0.50, width: 0.055, strength: 1.18, baseGlow: 0.025,
-    light: false,
+    bidirectional: true, light: false,
   },
 };
 
@@ -244,7 +243,16 @@ export function patchFlowMaterial(material, utilityType, flowState) {
     uniforms.uPeriod.node,
   );
   const flowEdge = min(flowCycle, uniforms.uPeriod.node.sub(flowCycle));
-  const flowPulse = smoothstep(0, uniforms.uWidth.node, flowEdge).oneMinus();
+  let flowPulse = smoothstep(0, uniforms.uWidth.node, flowEdge).oneMinus();
+  if (params.bidirectional) {
+    const reverseCycle = mod(
+      flowDist.add(uniforms.uTime.node.mul(uniforms.uSpeed.node)),
+      uniforms.uPeriod.node,
+    );
+    const reverseEdge = min(reverseCycle, uniforms.uPeriod.node.sub(reverseCycle));
+    const reversePulse = smoothstep(0, uniforms.uWidth.node, reverseEdge).oneMinus();
+    flowPulse = min(flowPulse.add(reversePulse), 1);
+  }
   const flowThrum = sin(uniforms.uTime.node.mul(6)).mul(0.5).add(0.5)
     .mul(0.28).add(0.72);
   const flowGate = uniforms.uStutter.node.greaterThan(0.5).select(flowThrum, 1);
@@ -273,6 +281,12 @@ export function patchFlowMaterial(material, utilityType, flowState) {
       'float flowCycle = mod( vFlowDist - uTime * uSpeed, uPeriod );',
       'float flowEdge = min( flowCycle, uPeriod - flowCycle );',
       'float flowPulse = 1.0 - smoothstep( 0.0, uWidth, flowEdge );',
+      ...(params.bidirectional ? [
+        'float reverseCycle = mod( vFlowDist + uTime * uSpeed, uPeriod );',
+        'float reverseEdge = min( reverseCycle, uPeriod - reverseCycle );',
+        'float reversePulse = 1.0 - smoothstep( 0.0, uWidth, reverseEdge );',
+        'flowPulse = min( 1.0, flowPulse + reversePulse );',
+      ] : []),
       // A soft fault thrums instead of square-wave blinking. The red fault
       // mark still communicates the problem; motion stays readable.
       'float flowThrum = 0.72 + 0.28 * ( 0.5 + 0.5 * sin( uTime * 6.0 ) );',
