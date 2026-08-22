@@ -25,7 +25,7 @@ test('lighting presets are immutable, bounded, and normalize unknown values to a
   assert.equal(resolveLightingQuality('ultra').fixtureLightCount, MAX_FIXTURE_LIGHTS);
   assert.ok(resolveLightingQuality('high').fixtureLightCount
     > resolveLightingQuality('high').fixtureShadowCount);
-  assert.equal(resolveLightingQuality('high').fixtureShadowUpdatesPerFrame, 2);
+  assert.equal(resolveLightingQuality('high').fixtureShadowUpdatesPerFrame, 1);
   assert.equal(resolveLightingQuality('ultra').fixtureShadowMapSize, 768);
   assert.equal(resolveLightingQuality('ultra').sunShadowMapSize, 2048);
   assert.equal(resolveLightingQuality('low').contactAOStrength, 0);
@@ -71,6 +71,42 @@ test('shadow scheduler immediately refreshes new assignments and staggers them',
   assert.deepEqual(seen.sort(), [0, 1, 2, 3]);
   assert.equal(s.step(args).length, 0, 'no map refresh occurs before its interval');
   assert.equal(s.step({ ...args, dtMs: 100 }).length, 1, 'periodic refresh remains staggered');
+});
+
+test('fixture shadow Hz is a queue-wide budget, not a per-light multiplier', () => {
+  const s = new ShadowScheduler(4, { hz: 10, maxUpdatesPerFrame: 1 });
+  const args = { activeCount: 4, enabled: true, dtMs: 0, assignmentKeys: ['a', 'b', 'c', 'd'] };
+
+  // Drain the four newly assigned layers first. Dirty work is prompt, but it
+  // is still one layer per frame.
+  for (let i = 0; i < 4; i++) assert.equal(s.step(args).length, 1);
+  assert.equal(s.pendingCount, 0);
+
+  let refreshes = 0;
+  for (let i = 0; i < 100; i++) {
+    refreshes += s.step({ ...args, dtMs: 10 }).length;
+  }
+  assert.equal(refreshes, 10,
+    'four active slots share ten refreshes per second instead of each receiving ten');
+});
+
+test('a large daylight backlog becomes a one-layer-per-frame dusk queue', () => {
+  const s = new ShadowScheduler(12, { hz: 15, maxUpdatesPerFrame: 1 });
+  const keys = Array.from({ length: 12 }, (_, i) => `fixture-${i}`);
+
+  assert.deepEqual(s.step({
+    activeCount: 12, enabled: false, dtMs: 1000, assignmentKeys: keys,
+  }), []);
+  assert.equal(s.pendingCount, 12, 'daylight retains dirty assignments without rendering them');
+
+  const perFrame = [];
+  for (let frame = 0; frame < 12; frame++) {
+    perFrame.push(s.step({
+      activeCount: 12, enabled: true, dtMs: 16, assignmentKeys: keys,
+    }).length);
+  }
+  assert.deepEqual(perFrame, new Array(12).fill(1));
+  assert.equal(s.pendingCount, 0, 'the full night set drains without an all-at-once frame');
 });
 
 test('shadow scheduler parks disabled, daylight, and inactive slots', () => {

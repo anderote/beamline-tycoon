@@ -117,8 +117,10 @@ export class LightRig {
    *        case (one or two simultaneous flashes) never disturbs the ambient
    *        pool at all.
    * @param {boolean} [opts.enabled=true]
-   * @param {number} [opts.shadowUpdatesPerFrame=1] refresh budget for moving
-   *        shadow casters and newly assigned fixtures.
+   * @param {number} [opts.shadowHz=15] aggregate shadow-refresh queue rate;
+   *        shared by every active fixture rather than multiplied per light.
+   * @param {number} [opts.shadowUpdatesPerFrame=1] hard refresh budget for
+   *        moving shadow casters and newly assigned fixtures.
    */
   constructor(scene, opts = {}) {
     this.scene = scene;
@@ -349,8 +351,10 @@ export class LightRig {
       assignedFixtureShadows: this._spotSlots.slice(0, this._activeShadowSpotCount)
         .filter((slot) => slot.assignedRef && slot.light.intensity > 0).length,
       shadowUpdatesLastFrame: this._shadowUpdatesLastFrame,
+      fixtureShadowQueuePending: this._shadowScheduler.pendingCount,
       fixtureShadowMapSize: this._shadowMapSize,
       fixtureShadowHz: this._shadowHz,
+      fixtureShadowQueueHz: this._shadowHz,
       fixtureShadowUpdatesPerFrame: this._shadowUpdatesPerFrame,
       sharedFixtureShadowArray: !!this._sharedShadowArray,
       fixtureShadowArrayLayers: this._sharedShadowArray?.lights.length ?? 0,
