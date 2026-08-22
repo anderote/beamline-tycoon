@@ -10,6 +10,10 @@
 // supports without another hand-maintained allow-list.
 
 import { COMPONENTS } from '../data/components.js';
+import {
+  COOLING_AUTO_CONNECT_CLASS,
+  coolingAutoConnectClass,
+} from '../data/cooling-auto-connect-classes.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
 import {
   availablePorts,
@@ -91,6 +95,24 @@ export function panelAutoConnectUtility(def) {
 
 function rolesCanAutoConnect(originSpec, targetSpec, utilityType) {
   if (!originSpec || !targetSpec) return false;
+  if (utilityType === 'coolingWater') {
+    const originClass = coolingAutoConnectClass(originSpec);
+    const targetClass = coolingAutoConnectClass(targetSpec);
+    switch (originClass) {
+      case COOLING_AUTO_CONNECT_CLASS.LOAD_BRANCH:
+        return targetClass === COOLING_AUTO_CONNECT_CLASS.LOAD;
+      case COOLING_AUTO_CONNECT_CLASS.PLANT_LINK:
+        return targetClass === COOLING_AUTO_CONNECT_CLASS.PLANT_LINK
+          || targetClass === COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION;
+      case COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION_FEED:
+        return targetClass === COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION;
+      case COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION:
+        return targetClass === COOLING_AUTO_CONNECT_CLASS.PLANT_LINK
+          || targetClass === COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION_FEED;
+      default:
+        return false;
+    }
+  }
   if (originSpec.role === 'source') {
     return targetSpec.role !== 'source'
       || (utilityType !== 'powerCable' && utilityType !== 'hvCable');
@@ -107,9 +129,61 @@ function devicesDirectlyConnected(lines, utilityType, a, b) {
   });
 }
 
+function directlyConnectedPeerPorts(state, lines, utilityType, placeableId) {
+  const peers = [];
+  for (const line of iterLines(lines)) {
+    if (!line || line.utilityType !== utilityType || !line.start || !line.end) continue;
+    let peerRef = null;
+    if (line.start.placeableId === placeableId) peerRef = line.end;
+    else if (line.end.placeableId === placeableId) peerRef = line.start;
+    if (!peerRef?.placeableId || !peerRef.portName) continue;
+    const peer = findUtilityEndpoint(state, peerRef.placeableId);
+    const spec = getPortSpec(COMPONENTS[peer?.type], peerRef.portName);
+    if (spec?.utility === utilityType) {
+      peers.push({ placeableId: peerRef.placeableId, spec });
+    }
+  }
+  return peers;
+}
+
+const COOLING_PLANT_CAPABILITY_PARAMS = Object.freeze([
+  'capacity',
+  'heatRejectionCapacity',
+  'storageCapacityL',
+  'supplyRateLPerTick',
+]);
+
+function coolingCapabilities(spec) {
+  const capabilities = new Set();
+  for (const param of COOLING_PLANT_CAPABILITY_PARAMS) {
+    if (Number(spec?.params?.[param]) > 0) capabilities.add(param);
+  }
+  return capabilities;
+}
+
+function coolingCandidateRank(candidate, originClasses, coveredCapabilities) {
+  const targetClass = coolingAutoConnectClass(candidate.spec);
+  const distributionOnly = originClasses.size === 1
+    && originClasses.has(COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION);
+  if (distributionOnly) {
+    if (targetClass === COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION_FEED) return -3;
+    if (Number(candidate.spec?.params?.capacity) > 0) return -2;
+    return -1;
+  }
+  if (!originClasses.has(COOLING_AUTO_CONNECT_CLASS.PLANT_LINK)) return 0;
+  if (targetClass === COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION) return 1;
+  if (targetClass !== COOLING_AUTO_CONNECT_CLASS.PLANT_LINK) return 0;
+  let newlyCovered = 0;
+  for (const capability of coolingCapabilities(candidate.spec)) {
+    if (!coveredCapabilities.has(capability)) newlyCovered++;
+  }
+  return newlyCovered > 0 ? -newlyCovered : 2;
+}
+
 /**
  * Plan real lines from one utility source/distributor to nearby compatible
- * devices. Nearest devices win when targets outnumber physical connectors.
+ * devices. Nearest devices normally win when targets outnumber connectors;
+ * cooling plant links first add capabilities the origin does not already have.
  */
 export function planPanelAutoConnect(state, panelId, {
   portPosition = portWorldPosition,
@@ -157,6 +231,26 @@ export function planPanelAutoConnect(state, panelId, {
       vec: portApproachVec(panel, panelDef, portName),
     };
   }).filter(Boolean);
+  const coolingOriginClasses = new Set(outlets
+    .map(outlet => coolingAutoConnectClass(outlet.spec))
+    .filter(Boolean));
+  const connectedCoolingPeers = utilityType === 'coolingWater'
+    ? directlyConnectedPeerPorts(state, lines, utilityType, panelId)
+    : [];
+  const coveredCoolingCapabilities = new Set();
+  if (utilityType === 'coolingWater') {
+    for (const spec of Object.values(panelDef.ports)) {
+      if (spec?.utility !== utilityType || spec.role !== 'source') continue;
+      for (const capability of coolingCapabilities(spec)) {
+        coveredCoolingCapabilities.add(capability);
+      }
+    }
+    for (const peer of connectedCoolingPeers) {
+      for (const capability of coolingCapabilities(peer.spec)) {
+        coveredCoolingCapabilities.add(capability);
+      }
+    }
+  }
 
   const candidates = [];
   for (const endpoint of listUtilityEndpoints(state)) {
@@ -208,8 +302,37 @@ export function planPanelAutoConnect(state, panelId, {
   const usedOutlets = new Set();
   const connectedTargets = new Set();
   const candidateTargets = new Set(candidates.map(candidate => candidate.placeableId));
+  const distributionOnly = utilityType === 'coolingWater'
+    && coolingOriginClasses.size === 1
+    && coolingOriginClasses.has(COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION);
+  const connectedDistributionFeeds = new Set(connectedCoolingPeers
+    .filter(peer => {
+      const peerClass = coolingAutoConnectClass(peer.spec);
+      return peerClass === COOLING_AUTO_CONNECT_CLASS.PLANT_LINK
+        || peerClass === COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION_FEED;
+    })
+    .map(peer => peer.placeableId));
+  const targetLimit = distributionOnly
+    ? Math.max(0, 1 - connectedDistributionFeeds.size)
+    : Infinity;
+  const remainingCandidates = [...candidates];
 
-  for (const sink of candidates) {
+  while (remainingCandidates.length > 0) {
+    if (connectedTargets.size >= targetLimit) break;
+    let candidateIndex = 0;
+    if (utilityType === 'coolingWater') {
+      let bestRank = Infinity;
+      for (let index = 0; index < remainingCandidates.length; index++) {
+        const rank = coolingCandidateRank(
+          remainingCandidates[index], coolingOriginClasses, coveredCoolingCapabilities,
+        );
+        if (rank < bestRank) {
+          bestRank = rank;
+          candidateIndex = index;
+        }
+      }
+    }
+    const [sink] = remainingCandidates.splice(candidateIndex, 1);
     if (connectedTargets.has(sink.placeableId) && !sink.overheadPeer) continue;
     const outletIdx = outlets.findIndex((outlet, index) => !usedOutlets.has(index)
       && rolesCanAutoConnect(outlet.spec, sink.spec, utilityType)
@@ -247,6 +370,11 @@ export function planPanelAutoConnect(state, panelId, {
     totalSubL += subL;
     usedOutlets.add(outletIdx);
     connectedTargets.add(sink.placeableId);
+    if (utilityType === 'coolingWater') {
+      for (const capability of coolingCapabilities(sink.spec)) {
+        coveredCoolingCapabilities.add(capability);
+      }
+    }
   }
 
   return {

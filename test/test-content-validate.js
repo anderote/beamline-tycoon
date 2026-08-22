@@ -186,6 +186,16 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
       cost: { funding: 100 }, subW: 1, subL: 1, subH: 1,
       placement: 'module', requiredConnections: ['powerCable'],
     },
+    missingCoolingClass: {
+      id: 'missingCoolingClass', name: 'Missing Cooling Class', category: 'cooling',
+      cost: { funding: 100 }, subW: 1, subL: 1, subH: 1,
+      placement: 'module', requiredConnections: [],
+    },
+    unknownCoolingClass: {
+      id: 'unknownCoolingClass', name: 'Unknown Cooling Class', category: 'cooling',
+      cost: { funding: 100 }, subW: 1, subL: 1, subH: 1,
+      placement: 'module', requiredConnections: [],
+    },
   };
   const badDecorations = {
     freebie: {
@@ -246,6 +256,18 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
       pwr_in: {
         utility: 'powerCable', side: 'left', offsetAlong: 0.5, role: 'sink',
         params: { demand: MAX_POWER_CABLE_DEMAND_KW + 1 },
+      },
+    },
+    missingCoolingClass: {
+      cool_out: {
+        utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source',
+        params: { capacity: 10 },
+      },
+    },
+    unknownCoolingClass: {
+      cool_out: {
+        utility: 'coolingWater', side: 'right', offsetAlong: 0.5, role: 'source',
+        autoConnectClass: 'coolingEverything', params: { capacity: 10 },
       },
     },
   };
@@ -324,6 +346,12 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     'dynamic downstream demand is restricted to rated HV sink ports');
   assert(hasProblem(problems, 'oversizedBranchLoad', 'utilityPorts.pwr_in', 'must use hvCable'),
     'branch-power loads above 50 kW are rejected');
+  assert(hasProblem(problems, 'missingCoolingClass', 'utilityPorts.cool_out',
+    'require an autoConnectClass'),
+  'cooling source ports must declare their assisted-wiring circuit role');
+  assert(hasProblem(problems, 'unknownCoolingClass', 'utilityPorts.cool_out',
+    "'coolingEverything'"),
+  'unknown cooling assisted-wiring circuit roles are rejected');
   // mysteryModule requires powerCable but its only port spec is invalid →
   // no powerCable sink.
   assert(hasProblem(problems, 'mysteryModule', 'requiredConnections', "'powerCable'"),

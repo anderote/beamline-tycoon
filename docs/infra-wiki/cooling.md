@@ -25,11 +25,20 @@ The current simulation expresses both process cooling and heat rejection as
 capacity on the same cooling-water network. The palette and equipment cards
 now label them separately so their physical jobs remain clear.
 
-Cooling suppliers, make-up sources and storage use one standard connection layout:
-four independently routable sockets on the primary header and two on the
-opposite side. Heat rejectors instead expose one supply/return pair together
-on a single side. The sockets on a component all share its one nameplate
-rating; extra connections simplify routing and do not multiply capacity.
+Process-cooling equipment uses four independently routable load branches on
+the primary header and two plant-side connections opposite. Assisted wiring
+reserves the four primary branches for magnets, warm RF and other cooling loads;
+the opposite pair joins storage, make-up, heat rejection or a distribution
+manifold. Integrated package chillers use that opposite pair for distribution,
+because their storage and rejection equipment is already onboard. Tanks,
+make-up supplies and heat rejectors stay on the plant side and do not
+auto-connect directly to beamline loads. A manifold makes one upstream
+connection and serves nearby loads through its header radius.
+
+The sockets on a component still share one nameplate rating and one simulated
+network node; these assisted-routing roles do not multiply capacity or create
+separate hydraulic circuits. Heat rejectors expose one supply/return pair
+together on a single side.
 Press **M** while placing to swap the headers to the opposite sides, or **F**
 to rotate the complete component.
 

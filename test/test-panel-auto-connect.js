@@ -243,34 +243,113 @@ console.log('\n--- 7. Utility sources and peer distributors opt in by capability
     'sink-only beamline equipment remains a target rather than an origin');
 }
 
-console.log('\n--- 8. Chillers connect nearby cooling loads with ordinary hoses ---');
+console.log('\n--- 8. Chillers reserve primary branches for loads and plant links for equipment ---');
 {
   const game = new Game(new BeamlineRegistry(), { seed: 93 });
   game.state.resources.funding = 1e9;
   game.state.placeables.push(
     item('plant', 'chiller', 10, 10),
-    item('magnet_1', 'quadrupole', 13, 10),
-    item('magnet_2', 'quadrupole', 15, 10),
-    item('rejector', 'fanCoilCooler', 10, 15),
+    item('tank', 'waterTank', 8, 9),
+    item('rejector', 'fanCoilCooler', 8, 12),
+    item('manifold', 'coolingManifold', 10, 12),
+    item('magnet_1', 'quadrupole', 12, 8),
+    item('magnet_2', 'quadrupole', 13, 10),
+    item('magnet_3', 'quadrupole', 13, 12),
+    item('magnet_4', 'quadrupole', 12, 14),
   );
   const plan = planPanelAutoConnect(game.state, 'plant');
-  assert(plan.utilityType === 'coolingWater' && plan.candidates === 3,
+  const loadStubs = plan.stubs.filter(stub => stub.end.portName === 'cool_in');
+  const plantStubs = plan.stubs.filter(stub => stub.end.portName !== 'cool_in');
+  assert(plan.utilityType === 'coolingWater' && plan.candidates === 7,
     `the chiller finds nearby cooling loads and plant peers (got ${plan.candidates})`);
-  assert(plan.stubs.length === 3
-      && plan.stubs.filter(stub => stub.end.portName === 'cool_in').length === 2
-      && plan.stubs.some(stub => stub.end.placeableId === 'rejector'),
-  `the chiller plans cooling hoses to loads and the heat rejector (got ${plan.stubs.length})`);
+  assert(loadStubs.length === 4
+      && loadStubs.every(stub => ['cool_out', 'cool_out_2', 'cool_out_3', 'cool_out_4']
+        .includes(stub.start.portName)),
+  'all four beamline loads use only the four primary load branches');
+  assert(plantStubs.length === 2
+      && plantStubs.every(stub => ['cool_out_5', 'cool_out_6'].includes(stub.start.portName))
+      && plantStubs.some(stub => stub.end.placeableId === 'tank')
+      && plantStubs.some(stub => stub.end.placeableId === 'rejector'),
+  'the opposite pair completes storage and heat rejection before distribution');
+  assert(!plan.stubs.some(stub => stub.end.placeableId === 'manifold') && plan.skipped === 1,
+    'a seventh target is reported but cannot steal a load or plant connector');
   assert(plan.stubs.every(stub => validateDrawLine(game.state, {
     utilityType: 'coolingWater', start: stub.start, end: stub.end, path: stub.path,
   }).ok), 'chiller auto-connect routes pass through the normal cooling validator');
   commitPanelAutoConnect(game, plan);
-  assert(linesOf(game, 'coolingWater').length === 3,
+  assert(linesOf(game, 'coolingWater').length === 6,
     'the chiller action commits real cooling-water lines');
 }
 
-console.log('\n--- 9. Network switches fan out once per nearby data device ---');
+console.log('\n--- 9. Storage and rejection equipment never auto-connect to loads ---');
 {
   const game = new Game(new BeamlineRegistry(), { seed: 94 });
+  game.state.resources.funding = 1e9;
+  game.state.placeables.push(
+    item('tank', 'waterTank', 10, 10),
+    item('plant', 'chiller', 13, 10),
+    item('rejector', 'coolingTower', 10, 13),
+    item('manifold', 'coolingManifold', 13, 13),
+    item('magnet_1', 'quadrupole', 11, 10),
+    item('magnet_2', 'quadrupole', 12, 10),
+  );
+  for (const origin of ['tank', 'rejector']) {
+    const plan = planPanelAutoConnect(game.state, origin);
+    const ends = plan.stubs.map(stub => stub.end.placeableId);
+    assert(!ends.includes('magnet_1') && !ends.includes('magnet_2'),
+      `${origin} ignores nearby beamline cooling sinks`);
+    assert(ends.includes('plant'), `${origin} can join the process chiller's plant header`);
+  }
+}
+
+console.log('\n--- 10. Integrated plants extend to loads and distribution only ---');
+{
+  const game = new Game(new BeamlineRegistry(), { seed: 95 });
+  game.state.resources.funding = 1e9;
+  game.state.placeables.push(
+    item('package', 'packageChiller', 10, 10),
+    item('tank', 'waterTank', 11, 10),
+    item('rejector', 'fanCoilCooler', 10, 11),
+    item('manifold', 'coolingManifold', 13, 10),
+    item('magnet', 'quadrupole', 13, 12),
+  );
+  const plan = planPanelAutoConnect(game.state, 'package');
+  const ends = plan.stubs.map(stub => stub.end.placeableId);
+  const manifoldStub = plan.stubs.find(stub => stub.end.placeableId === 'manifold');
+  assert(plan.candidates === 2 && ends.includes('magnet') && ends.includes('manifold'),
+    `the integrated package sees only its load and distributor (got ${ends.join(',')})`);
+  assert(!ends.includes('tank') && !ends.includes('rejector'),
+    'the integrated package does not add redundant storage or heat rejection');
+  assert(['cool_out_side', 'cool_out_side_2'].includes(manifoldStub?.start.portName),
+    'the manifold uses one of the package plant-side distribution feeds');
+}
+
+console.log('\n--- 11. A manifold plans one upstream connection and no sink hoses ---');
+{
+  const game = new Game(new BeamlineRegistry(), { seed: 96 });
+  game.state.resources.funding = 1e9;
+  game.state.placeables.push(
+    item('manifold', 'coolingManifold', 10, 10),
+    item('tank', 'waterTank', 11, 10),
+    item('central', 'chiller', 12, 10),
+    item('package', 'packageChiller', 13, 10),
+    item('magnet_1', 'quadrupole', 10, 11),
+    item('magnet_2', 'quadrupole', 10, 12),
+  );
+  const plan = planPanelAutoConnect(game.state, 'manifold');
+  assert(plan.stubs.length === 1 && plan.stubs[0].end.placeableId === 'package',
+    'the manifold prefers one integrated distribution feed over nearer incomplete plant peers');
+  assert(!plan.stubs.some(stub => stub.end.portName === 'cool_in'),
+    'the manifold relies on service-radius coverage instead of individual sink hoses');
+  commitPanelAutoConnect(game, plan);
+  const repeat = planPanelAutoConnect(game.state, 'manifold');
+  assert(repeat.stubs.length === 0,
+    'a manifold with an upstream connection does not add another on repeated auto-connect');
+}
+
+console.log('\n--- 12. Network switches fan out once per nearby data device ---');
+{
+  const game = new Game(new BeamlineRegistry(), { seed: 97 });
   game.state.resources.funding = 1e9;
   game.state.placeables.push(
     item('switch_a', 'networkSwitch', 10, 10),
@@ -289,9 +368,9 @@ console.log('\n--- 9. Network switches fan out once per nearby data device ---')
     'already-linked data devices are not offered again on repeated auto-connect');
 }
 
-console.log('\n--- 10. Utility poles build aligned multi-conductor peer spans ---');
+console.log('\n--- 13. Utility poles build aligned multi-conductor peer spans ---');
 {
-  const game = new Game(new BeamlineRegistry(), { seed: 95 });
+  const game = new Game(new BeamlineRegistry(), { seed: 98 });
   game.state.resources.funding = 1e9;
   game.state.placeables.push(
     item('pole_a', 'utilityPole', 10, 10),

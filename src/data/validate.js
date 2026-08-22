@@ -25,6 +25,10 @@
 //     test-content-validate.js parses gameplay.py and asserts equality).
 
 import { MODES } from './modes.js';
+import {
+  COOLING_AUTO_CONNECT_CLASS,
+  COOLING_AUTO_CONNECT_CLASSES,
+} from './cooling-auto-connect-classes.js';
 import { UTILITY_TYPE_LIST } from '../utility/registry.js';
 
 // Mirror of beam_physics/gameplay.py KNOWN_PHYSICS_TYPES. Kept as a JS
@@ -909,6 +913,34 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
           && (!Number.isInteger(spec.maxConnections) || spec.maxConnections < 1)) {
         problem(id, `utilityPorts.${portName}`,
           `maxConnections must be a positive integer, got ${JSON.stringify(spec.maxConnections)}`);
+      }
+      if (spec.autoConnectClass != null) {
+        if (spec.utility !== 'coolingWater'
+            || !COOLING_AUTO_CONNECT_CLASSES.has(spec.autoConnectClass)) {
+          problem(id, `utilityPorts.${portName}`,
+            `unknown cooling auto-connect class '${spec.autoConnectClass}'`);
+        } else if (spec.autoConnectClass === COOLING_AUTO_CONNECT_CLASS.LOAD
+            && spec.role !== 'sink') {
+          problem(id, `utilityPorts.${portName}`,
+            'coolingLoad is only valid on cooling-water sink ports');
+        } else if (spec.autoConnectClass === COOLING_AUTO_CONNECT_CLASS.LOAD_BRANCH
+            && spec.role !== 'source') {
+          problem(id, `utilityPorts.${portName}`,
+            'coolingLoadBranch is only valid on cooling-water source ports');
+        } else if (spec.autoConnectClass === COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION
+            && spec.role !== 'pass') {
+          problem(id, `utilityPorts.${portName}`,
+            'coolingDistribution is only valid on cooling-water passive ports');
+        } else if ((spec.autoConnectClass === COOLING_AUTO_CONNECT_CLASS.PLANT_LINK
+            || spec.autoConnectClass === COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION_FEED)
+            && spec.role !== 'source') {
+          problem(id, `utilityPorts.${portName}`,
+            `${spec.autoConnectClass} is only valid on cooling-water source ports`);
+        }
+      } else if (spec.utility === 'coolingWater'
+          && (spec.role === 'source' || spec.role === 'pass')) {
+        problem(id, `utilityPorts.${portName}`,
+          'cooling-water source/pass ports require an autoConnectClass');
       }
       if (spec.params?.tracksDownstreamDemand != null
           && (spec.params.tracksDownstreamDemand !== true
