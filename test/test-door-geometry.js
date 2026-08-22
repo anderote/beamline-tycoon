@@ -37,6 +37,7 @@ class BufferAttribute {
 class BufferGeometry {
   constructor() { this.attributes = {}; }
   setAttribute(n, a) { this.attributes[n] = a; return this; }
+  getAttribute(n) { return this.attributes[n]; }
   dispose() {} computeVertexNormals() {} computeBoundingBox() {} computeBoundingSphere() {}
 }
 class BoxGeometry extends BufferGeometry {
@@ -310,6 +311,13 @@ console.log('\n=== 5. build(): the visible door panel ===\n');
     'the two leaves sit on opposite sides of a visible centre seam');
   assert(paired.every(p => near(p.geometry.parameters.width, (2 - 0.04 - 0.025) / 2)),
     'the two leaves together fill the full-tile opening minus frame and meeting gaps');
+
+  const handedPair = panelsOf('doubleOfficeDoor', 0);
+  const leftLeaf = handedPair.find(p => p.userData?.doorLeafIndex === 0);
+  const rightLeaf = handedPair.find(p => p.userData?.doorLeafIndex === 1);
+  assert(leftLeaf.geometry.attributes.uv.getX(0) === 0
+      && rightLeaf.geometry.attributes.uv.getX(0) === 1,
+    'double-door artwork keeps the left knob on its right edge and mirrors the right knob toward the centre seam');
 
   const shutter = panelsOf('rollingShutter', 0, 'structuralWall');
   assert(shutter.length === 1 && shutter[0].userData?.doorLeafCount === 1,
