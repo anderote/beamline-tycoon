@@ -118,10 +118,70 @@ function floorSegment(a, b, floorY, tolerance) {
   return { a, b, length, direction: { x: dx / length, y: 0, z: dz / length } };
 }
 
+function mergeCollinearDeckSegments(segments) {
+  const merged = [];
+  let distanceAlongRun = 0;
+  for (const segment of segments) {
+    const previous = merged[merged.length - 1];
+    const sameDirection = previous
+      && previous.direction.x * segment.direction.x
+        + previous.direction.z * segment.direction.z > 1 - EPS;
+    const joined = previous
+      && Math.hypot(previous.b.x - segment.a.x, previous.b.z - segment.a.z) < EPS;
+    if (sameDirection && joined) {
+      previous.b = segment.b;
+      previous.length += segment.length;
+    } else {
+      merged.push({
+        ...segment,
+        direction: { ...segment.direction },
+        distanceAlongRun,
+      });
+    }
+    distanceAlongRun += segment.length;
+  }
+  return merged;
+}
+
+function worldLatticeSupportFrames(chain, floorY, spacing, phase, runLength) {
+  const frames = [];
+  const normalizedPhase = ((phase % spacing) + spacing) % spacing;
+  for (const segment of mergeCollinearDeckSegments(chain)) {
+    const axis = Math.abs(segment.direction.x) >= Math.abs(segment.direction.z) ? 'x' : 'z';
+    const start = segment.a[axis];
+    const end = segment.b[axis];
+    const low = Math.min(start, end);
+    const high = Math.max(start, end);
+    if (high - low < EPS) continue;
+
+    // Keep stations off connectors and corners. Collinear authored waypoints
+    // were merged above, so they cannot accidentally leave a hole in a run.
+    let index = Math.ceil((low - normalizedPhase + EPS) / spacing);
+    for (let coordinate = normalizedPhase + index * spacing;
+      coordinate < high - EPS;
+      coordinate = normalizedPhase + (++index) * spacing) {
+      const t = (coordinate - start) / (end - start);
+      frames.push({
+        point: {
+          x: segment.a.x + (segment.b.x - segment.a.x) * t,
+          y: floorY,
+          z: segment.a.z + (segment.b.z - segment.a.z) * t,
+        },
+        direction: { ...segment.direction },
+        distanceAlongRun: segment.distanceAlongRun + segment.length * t,
+        runLength,
+      });
+    }
+  }
+  return frames;
+}
+
 /**
  * Evenly spaced support locations for every long, contiguous deck-level run.
  * The spacing is a maximum span: `count = floor(length / spacing)` and then
  * equal subdivision keeps both end spans shorter than the requested spacing.
+ * Rigid service racks can instead opt into a shared world-space lattice so
+ * separately authored, partially overlapping lines reuse the same steelwork.
  */
 export function utilitySupportFrames(points, opts = {}) {
   if (!Array.isArray(points) || points.length < 2) return [];
@@ -131,6 +191,9 @@ export function utilitySupportFrames(points, opts = {}) {
     ? Math.max(spacing, opts.minimumRunMeters) : 5;
   const tolerance = finite(opts.heightToleranceMeters)
     ? Math.max(EPS, opts.heightToleranceMeters) : 0.025;
+  const worldStationLattice = opts.worldStationLattice === true;
+  const stationPhase = finite(opts.stationPhaseMeters)
+    ? opts.stationPhaseMeters : spacing * 0.5;
   const frames = [];
   let chain = [];
 
@@ -138,30 +201,36 @@ export function utilitySupportFrames(points, opts = {}) {
     if (chain.length === 0) return;
     const total = chain.reduce((sum, segment) => sum + segment.length, 0);
     if (total + EPS >= minimum) {
-      const count = Math.max(1, Math.floor(total / spacing));
-      const interval = total / (count + 1);
-      let segmentIndex = 0;
-      let segmentStart = 0;
-      for (let i = 1; i <= count; i++) {
-        const distance = interval * i;
-        while (segmentIndex < chain.length - 1
-          && segmentStart + chain[segmentIndex].length < distance - EPS) {
-          segmentStart += chain[segmentIndex].length;
-          segmentIndex++;
+      if (worldStationLattice) {
+        frames.push(...worldLatticeSupportFrames(
+          chain, floorY, spacing, stationPhase, total,
+        ));
+      } else {
+        const count = Math.max(1, Math.floor(total / spacing));
+        const interval = total / (count + 1);
+        let segmentIndex = 0;
+        let segmentStart = 0;
+        for (let i = 1; i <= count; i++) {
+          const distance = interval * i;
+          while (segmentIndex < chain.length - 1
+            && segmentStart + chain[segmentIndex].length < distance - EPS) {
+            segmentStart += chain[segmentIndex].length;
+            segmentIndex++;
+          }
+          const segment = chain[segmentIndex];
+          const t = Math.max(0, Math.min(1,
+            (distance - segmentStart) / segment.length));
+          frames.push({
+            point: {
+              x: segment.a.x + (segment.b.x - segment.a.x) * t,
+              y: floorY,
+              z: segment.a.z + (segment.b.z - segment.a.z) * t,
+            },
+            direction: { ...segment.direction },
+            distanceAlongRun: distance,
+            runLength: total,
+          });
         }
-        const segment = chain[segmentIndex];
-        const t = Math.max(0, Math.min(1,
-          (distance - segmentStart) / segment.length));
-        frames.push({
-          point: {
-            x: segment.a.x + (segment.b.x - segment.a.x) * t,
-            y: floorY,
-            z: segment.a.z + (segment.b.z - segment.a.z) * t,
-          },
-          direction: { ...segment.direction },
-          distanceAlongRun: distance,
-          runLength: total,
-        });
       }
     }
     chain = [];

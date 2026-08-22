@@ -37,6 +37,28 @@ function build(utilityType, lengthTiles = 4, routeHeightMeters = null, waterCirc
   return { builder, parent };
 }
 
+function rigidLine(id, utilityType, startCol, endCol, extra = {}) {
+  return {
+    id,
+    utilityType,
+    start: null,
+    end: null,
+    path: [{ col: startCol, row: 0 }, { col: endCol, row: 0 }],
+    ...extra,
+  };
+}
+
+function rackSignature(parent) {
+  return collect(parent, object => object.userData?.isUtilitySupport)
+    .map(support => ({
+      station: `${support.position.x.toFixed(6)},${support.position.z.toFixed(6)}`,
+      types: [...(support.userData.utilityTypes || [support.userData.utilityType])].sort(),
+      shelves: collect(support,
+        object => object.userData?.utilitySupportPart === 'saddle').length,
+    }))
+    .sort((a, b) => a.station.localeCompare(b.station));
+}
+
 console.log('\n--- 1. Every rigid service receives the common periodic supports ---');
 for (const utilityType of ['rfWaveguide', 'cryoTransfer', 'waterSupplyPipe', 'vacuumPipe']) {
   const { builder, parent } = build(utilityType);
@@ -163,6 +185,51 @@ console.log('\n--- 4. Co-located independent services form one aligned vertical 
     object => object.userData?.utilitySupportPart === 'cryostat-clamp').length === 1),
   'each shared multi-service rack retains one clamp around its cryogenic shelf');
   builder.dispose(parent);
+}
+
+console.log('\n--- 4b. Partial overlaps reuse the same rack regardless of build order ---');
+{
+  const water = rigidLine('long-water', 'waterSupplyPipe', 0, 6, {
+    waterCircuit: 'cold',
+  });
+  const vacuum = rigidLine('short-vacuum', 'vacuumPipe', 1, 5);
+
+  const waterFirstBuilder = new UtilityLineBuilderV2();
+  const waterFirstParent = new THREE_NS.Group();
+  waterFirstBuilder.build(new Map([[water.id, water]]), new Map(), waterFirstParent);
+  waterFirstBuilder.build(new Map([
+    [water.id, water],
+    [vacuum.id, vacuum],
+  ]), new Map(), waterFirstParent);
+  const waterFirst = rackSignature(waterFirstParent);
+  const sharedWaterFirst = waterFirst.filter(item => item.types.includes('waterSupplyPipe')
+    && item.types.includes('vacuumPipe'));
+
+  const vacuumFirstBuilder = new UtilityLineBuilderV2();
+  const vacuumFirstParent = new THREE_NS.Group();
+  vacuumFirstBuilder.build(new Map([[vacuum.id, vacuum]]), new Map(), vacuumFirstParent);
+  vacuumFirstBuilder.build(new Map([
+    [vacuum.id, vacuum],
+    [water.id, water],
+  ]), new Map(), vacuumFirstParent);
+  const vacuumFirst = rackSignature(vacuumFirstParent);
+  const sharedVacuumFirst = vacuumFirst.filter(item => item.types.includes('waterSupplyPipe')
+    && item.types.includes('vacuumPipe'));
+
+  const expectedSharedStations = Math.floor(
+    8 / UTILITY_TYPES.vacuumPipe.supportSpacingMeters,
+  );
+  assert(sharedWaterFirst.length === expectedSharedStations
+      && sharedWaterFirst.every(item => item.shelves === 2),
+  'vacuum built over the middle of a longer water run extends eight existing frames with a second shelf');
+  assert(sharedVacuumFirst.length === expectedSharedStations
+      && sharedVacuumFirst.every(item => item.shelves === 2),
+  'water built under an existing vacuum run produces the same eight shared frames');
+  assert(JSON.stringify(waterFirst) === JSON.stringify(vacuumFirst),
+    'the final support layout is independent of utility creation and map insertion order');
+
+  waterFirstBuilder.dispose(waterFirstParent);
+  vacuumFirstBuilder.dispose(vacuumFirstParent);
 }
 
 console.log('\n--- 5. Fixed datums ignore retired per-line lane values ---');
