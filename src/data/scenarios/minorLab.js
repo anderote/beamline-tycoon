@@ -148,44 +148,47 @@ export function setupMinorLab(game) {
     { id: lowerColdDistributor, port: 'water_line_2' },
     { id: 'in_130', port: 'cool_in' }, coldPipe);
 
-  const upperRejection = [
-    ['in_112', 'hot_in'],
-    ['in_112', 'hot_in'],
-    ['in_244', 'hot_in'],
+  const upperProcessReturns = [
+    ['in_90', 'return_hot_in'],
+    ['in_90', 'return_hot_in'],
+    ['in_234', 'return_hot_in'],
   ];
-  const lowerRejection = [
-    ['in_113', 'hot_in'],
-    ['in_113', 'hot_in'],
-    ['in_244', 'hot_in'],
+  const lowerProcessReturns = [
+    ['in_91', 'return_hot_in'],
+    ['in_91', 'return_hot_in'],
+    ['in_235', 'return_hot_in'],
   ];
-  const connectHotHeaders = (headers, sleeves, rejectors) => {
+  const connectHotHeaders = (headers, sleeves, chillers) => {
     headers.forEach((header, index) => {
       wireUtility(game, 'waterSupplyPipe',
         { id: header.id, port: header.supplyPort },
         { id: sleeves[index], port: 'supply_front' }, hotPipe);
       wireUtility(game, 'waterSupplyPipe',
-        { id: rejectors[index][0], port: rejectors[index][1] },
+        { id: chillers[index][0], port: chillers[index][1] },
         { id: sleeves[index], port: 'supply_back' }, hotPipe);
     });
   };
-  connectHotHeaders(upperHeaders, upperSleeves, upperRejection);
-  connectHotHeaders(lowerHeaders, lowerSleeves, lowerRejection);
 
-  // Close the central plant chain: each heat-rejection bank returns green
-  // lukewarm water to the matching chiller, which then produces the
-  // blue cold header used above.
-  wireUtility(game, 'waterSupplyPipe',
-    { id: 'in_112', port: 'room_out' },
-    { id: 'in_90', port: 'room_in' }, lukewarmPipe);
-  wireUtility(game, 'waterSupplyPipe',
-    { id: 'in_113', port: 'room_out' },
-    { id: 'in_91', port: 'room_in' }, lukewarmPipe);
-  wireUtility(game, 'waterSupplyPipe',
-    { id: 'in_116', port: 'room_out' },
-    { id: 'in_234', port: 'room_in' }, lukewarmPipe);
-  wireUtility(game, 'waterSupplyPipe',
-    { id: 'in_117', port: 'room_out' },
-    { id: 'in_235', port: 'room_in' }, lukewarmPipe);
+  // Close each water-cooled chiller's condenser loop. The yard rejector sends
+  // green condenser water to `room_in`; the chiller sends process heat plus
+  // compressor input back through its separate red reject outlet.
+  const connectCondenser = (chiller, rejector) => {
+    wireUtility(game, 'waterSupplyPipe',
+      { id: rejector, port: 'room_out' },
+      { id: chiller, port: 'room_in' }, lukewarmPipe);
+    wireUtility(game, 'waterSupplyPipe',
+      { id: chiller, port: 'reject_hot_out' },
+      { id: rejector, port: 'hot_in' }, hotPipe);
+  };
+  connectCondenser('in_90', 'in_112');
+  connectCondenser('in_91', 'in_113');
+  connectCondenser('in_234', 'in_244');
+  connectCondenser('in_235', 'in_244');
+
+  // Route process returns after the condenser mains so the denser beam-room
+  // headers detour around those mandatory plant connections.
+  connectHotHeaders(upperHeaders, upperSleeves, upperProcessReturns);
+  connectHotHeaders(lowerHeaders, lowerSleeves, lowerProcessReturns);
 
   return powerRepair;
 }

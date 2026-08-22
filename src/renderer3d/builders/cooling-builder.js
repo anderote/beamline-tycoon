@@ -1037,7 +1037,8 @@ export function _buildPackageChillerRoles() {
 /**
  * Dual-Circuit Chiller — 3×3 floor module, subH 3 (1.5 m tall).
  * The silhouette has to say "two of everything": two cabinets split by a
- * visible seam, two compressors, two roof fans, two supply/return pairs and
+ * visible seam, two compressors, two cabinet exhaust fans, separate process
+ * and condenser-water pairs, and
  * two control panels. That redundancy is the entire reason this rung exists
  * over the single-circuit package chiller below it.
  *
@@ -1077,7 +1078,8 @@ export function _buildDualCircuitChillerRoles() {
 
   const roofY = baseH + cabH;
   for (const cx of CIRCUITS) {
-    // Condenser fan shroud
+    // Cabinet exhaust shroud. Heat leaves through the separate water-cooled
+    // condenser pair below; these small fans only ventilate the compressor bay.
     {
       const shR = 0.27, shH = 0.10;
       const g = new THREE.CylinderGeometry(shR, shR, shH, SEGS);
@@ -1137,9 +1139,9 @@ export function _buildDualCircuitChillerRoles() {
     }
   }
 
-  // Both refrigerant circuits feed one six-branch process-water header for
-  // routing: four branches on +X, two on -X. Capacity remains one 175 kW
-  // nameplate even when every branch is connected.
+  // Both refrigerant circuits feed one process-water header: four flexible
+  // cold branches on +X, with the rigid hot return and cold supply on -X.
+  // Capacity remains one 175 kW nameplate even when every branch is connected.
   for (const [side, offsets] of [[1, [-0.50, -0.17, 0.17, 0.50]], [-1, [-0.25, 0.25]]]) {
     for (const zOff of offsets) {
       const pR = 0.04, pL = 0.10;
@@ -1150,6 +1152,16 @@ export function _buildDualCircuitChillerRoles() {
         new THREE.Matrix4().makeRotationZ(-side * Math.PI / 2),
       ));
     }
+  }
+
+  // Water-cooled condenser pair on +Z: green tower supply in, red reject out.
+  for (const xOff of [-0.25, 0.25]) {
+    const pR = 0.05, pL = 0.10;
+    const g = new THREE.CylinderGeometry(pR, pR, pL, 8);
+    applyTiledCylinderUVs(g, pR, pL, 8);
+    pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+      trans(xOff, 0.54, 0.67 + pL / 2), rotX(Math.PI / 2),
+    ));
   }
 
   return b;
@@ -1703,15 +1715,15 @@ export function _buildLcwSkidRoles() {
  * Chiller — 3×4 floor module, subH 4 (2.0 m tall).
  * The 300 kW sibling of the Package Chiller, and deliberately built from the
  * same parts list: skid frame, cabinet pushed to -Z, compressors standing in
- * the open strip, an evaporator, roof fans over a condenser, and a control
- * panel on the -Z face. Everything the small one has one of, this has two of
- * — two compressors, two roof fans, condenser coil on both flanks — and the
+ * the open strip, separate evaporator/condenser water circuits, compressor-bay
+ * ventilation, and a control panel on the -Z face. Everything the small one
+ * has one of, this has two of — two compressors and two refrigerant circuits — and the
  * evaporator has grown from a brazed-plate pack into a shell-and-tube barrel
  * with saddles. Seen side by side the package unit is a box with a fan on it,
  * and this is a plant room on a pallet.
  *
  * Footprint 1.5 m (X) × 2.0 m (Z): nothing may pass x = ±0.75 or z = ±1.00.
- * Widest features: the condenser fin banding at x = ±0.74 and the control
+ * Widest features: the cabinet louvre banding at x = ±0.74 and the control
  * panel lamps at z = -1.00.
  */
 export function _buildChillerRoles() {
@@ -1742,7 +1754,7 @@ export function _buildChillerRoles() {
     applyTiledBoxUVs(g, bW, bH, bD);
     pushT(b.accent, g, trans(0, skidTop + 0.06, cabZ));
   }
-  // Roof plenum the fans draw through.
+  // Roof plenum for compressor-cabinet ventilation.
   {
     const pW = 1.32, pH = 0.06, pD = 1.14;
     const g = new THREE.BoxGeometry(pW, pH, pD);
@@ -1750,8 +1762,7 @@ export function _buildChillerRoles() {
     pushT(b.iron, g, trans(0, roofY + pH / 2, cabZ));
   }
 
-  // Condenser coil on both flanks. The package chiller wears one plate stack
-  // on one side; this wears a full-height finned slab on each.
+  // Perforated service/louvre panels on both flanks.
   for (const side of [-1, 1]) {
     {
       const cW = 0.05, cH = 1.16, cD = 1.02;
@@ -1767,7 +1778,8 @@ export function _buildChillerRoles() {
     }
   }
 
-  // Two condenser fans in a row on the roof.
+  // Two cabinet exhaust fans in a row on the roof. Condenser heat leaves in
+  // water through the dedicated green/red pair, not through these fans.
   const fanTop = roofY + 0.06;
   for (const fz of [-0.62, -0.08]) {
     {
@@ -1877,8 +1889,8 @@ export function _buildChillerRoles() {
     }
   }
 
-  // Six independently routable chilled-water branches: four on +X and two
-  // on -X, all tied to the same shell-and-tube evaporator internally.
+  // Process-water connections: four flexible cold branches on +X, with the
+  // rigid hot return and cold supply on -X, all tied to the same evaporator.
   for (const [side, offsets] of [[1, [-0.72, -0.30, 0.15, 0.60]], [-1, [-0.35, 0.35]]]) {
     for (const zOff of offsets) {
       const wR = 0.06, wL = 0.10;
@@ -1897,6 +1909,23 @@ export function _buildChillerRoles() {
         new THREE.Matrix4().makeRotationZ(Math.PI / 2),
       ));
     }
+  }
+
+  // Water-cooled condenser pair on +Z: green tower supply in, red reject out.
+  for (const xOff of [-0.24, 0.24]) {
+    const wR = 0.06, wL = 0.10;
+    const g = new THREE.CylinderGeometry(wR, wR, wL, SEGS);
+    applyTiledCylinderUVs(g, wR, wL, SEGS);
+    pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+      trans(xOff, 0.74, 0.94 + wL / 2), rotX(Math.PI / 2),
+    ));
+
+    const fR = 0.085, fH = 0.03;
+    const f = new THREE.CylinderGeometry(fR, fR, fH, SEGS);
+    applyTiledCylinderUVs(f, fR, fH, SEGS);
+    pushT(b.detail, f, new THREE.Matrix4().multiplyMatrices(
+      trans(xOff, 0.74, 0.985), rotX(Math.PI / 2),
+    ));
   }
 
   // Control cabinet on the -Z face, with its lamp cluster.

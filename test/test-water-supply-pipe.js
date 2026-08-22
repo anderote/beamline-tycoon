@@ -52,7 +52,7 @@ console.log('\n--- paired equipment ports ---');
   assert.equal(Object.values(chiller)
     .filter(port => port.utility === 'coolingWater').length, 4);
   assert.equal(Object.values(chiller)
-    .filter(port => port.utility === 'waterSupplyPipe').length, 2);
+    .filter(port => port.utility === 'waterSupplyPipe').length, 4);
   const tank = getUtilityPortsV2('waterTank');
   const tankLukewarm = Object.entries(tank)
     .filter(([, port]) => port.utility === 'waterSupplyPipe'
@@ -65,6 +65,15 @@ console.log('\n--- paired equipment ports ---');
   assert.equal(tank.water_supply_out.legacyOnly, true);
   assert.equal(chiller.room_in.params.waterCircuit, 'lukewarm');
   assert.equal(chiller.room_in.role, 'sink');
+  assert.equal(chiller.return_hot_in.params.waterCircuit, 'hot');
+  assert.equal(chiller.return_hot_in.role, 'source');
+  assert.equal(chiller.return_hot_in.flowRole, 'sink');
+  assert.equal(chiller.return_hot_in.params.processReturnCapacity, 300);
+  assert.equal(chiller.reject_hot_out.params.waterCircuit, 'hot');
+  assert.equal(chiller.reject_hot_out.role, 'sink');
+  assert.equal(chiller.reject_hot_out.flowRole, 'source');
+  assert.equal(chiller.reject_hot_out.params.heatLoad, 360,
+    'condenser rejection includes the 300 kW process load and 60 kW compressor input');
   const tower = getUtilityPortsV2('coolingTower');
   assert.equal(tower.hot_in.params.waterCircuit, 'hot');
   assert.equal(tower.room_out.params.waterCircuit, 'lukewarm');
@@ -176,7 +185,7 @@ console.log('\n--- hot/cold topology and wall rules ---');
   'a legacy cold endpoint contact does not join the new hot return circuit');
 }
 
-console.log('\n--- rigid high-flow loop solves cold supply and hot rejection separately ---');
+console.log('\n--- rigid high-flow loop solves evaporator and condenser circuits separately ---');
 {
   const state = {
     placeables: [
@@ -198,8 +207,11 @@ console.log('\n--- rigid high-flow loop solves cold supply and hot rejection sep
     { placeableId: 'ch', portName: 'supply_cold_out' },
     { placeableId: 'cy', portName: 'cool_in' }, 'cold', 0));
   state.utilityLines.set('hot', line('hot', 'waterSupplyPipe',
-    { placeableId: 'tower', portName: 'hot_in' },
+    { placeableId: 'ch', portName: 'return_hot_in' },
     { placeableId: 'cy', portName: 'hot_out' }, 'hot', 1));
+  state.utilityLines.set('rejectHot', line('rejectHot', 'waterSupplyPipe',
+    { placeableId: 'tower', portName: 'hot_in' },
+    { placeableId: 'ch', portName: 'reject_hot_out' }, 'hot', 3));
   state.utilityLines.set('room', line('room', 'waterSupplyPipe',
     { placeableId: 'tower', portName: 'room_out' },
     { placeableId: 'tank', portName: 'lukewarm_in_1' }, 'lukewarm', 2));
@@ -210,22 +222,27 @@ console.log('\n--- rigid high-flow loop solves cold supply and hot rejection sep
     getDefinition: type => COMPONENTS[type] });
   runner.runSolve(state);
   const flows = [...state.utilityNetworkData.get('waterSupplyPipe').values()];
-  assert.deepEqual(flows.map(flow => flow.waterCircuit).sort(), ['cold', 'hot', 'lukewarm']);
+  assert.deepEqual(flows.map(flow => flow.waterCircuit).sort(), ['cold', 'hot', 'hot', 'lukewarm']);
   const cold = flows.find(flow => flow.waterCircuit === 'cold');
-  const hot = flows.find(flow => flow.waterCircuit === 'hot');
+  const hot = flows.find(flow => flow.waterCircuit === 'hot'
+    && flow.perSinkQuality['cy:hot_out'] != null);
+  const rejectHot = flows.find(flow => flow.waterCircuit === 'hot'
+    && flow.perSinkQuality['ch:reject_hot_out'] != null);
   const room = flows.find(flow => flow.waterCircuit === 'lukewarm');
   assert.equal(cold.totalCapacity, 300);
   assert.equal(cold.totalDemand, 310);
-  assert.equal(hot.totalCapacity, 800);
+  assert.equal(hot.totalCapacity, 300);
   assert.equal(hot.totalDemand, 310);
+  assert.equal(rejectHot.totalCapacity, 800);
+  assert.equal(rejectHot.totalDemand, 360);
   assert.equal(room.totalCapacity, 800);
-  assert.equal(room.totalDemand, 300);
+  assert.equal(room.totalDemand, 360);
   assert.equal(room.storageCapacityL, 500);
   assert.equal(room.supplyRateLPerTick, 1);
-  assert.equal(room.evaporationL, 6);
+  assert.equal(room.evaporationL, 7.2);
   const roomPersistent = state.utilityNetworkState.get(room.networkId);
-  assert.equal(roomPersistent.reservoirVolumeL, 495,
-    'the rigid lukewarm reservoir supplies one litre and loses six litres this tick');
+  assert.equal(roomPersistent.reservoirVolumeL, 493.8,
+    'the condenser reservoir supplies one litre and loses 7.2 litres of process-plus-compressor heat');
 }
 
 console.log('\n--- distributors bridge pipe capacity without joining hot and cold headers ---');
@@ -254,7 +271,7 @@ console.log('\n--- distributors bridge pipe capacity without joining hot and col
     { placeableId: 'coldDist', portName: 'water_line_1' },
     { placeableId: 'q', portName: 'cool_in' }, 'cold', 1));
   state.utilityLines.set('pipeHot', line('pipeHot', 'waterSupplyPipe',
-    { placeableId: 'tower', portName: 'hot_in' },
+    { placeableId: 'ch', portName: 'return_hot_in' },
     { placeableId: 'hotDist', portName: 'supply_pipe_2' }, 'hot', 2));
   state.utilityLines.set('lineHot', line('lineHot', 'coolingWater',
     { placeableId: 'hotDist', portName: 'water_line_2' },

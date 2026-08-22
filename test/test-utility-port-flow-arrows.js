@@ -170,6 +170,10 @@ test('equipment water fittings expose blue cold, green room, and red hot circuit
   assert.equal(arrowOf(fittings.get('tower:room_out'))?.userData.flowRole, 'source');
   assert.equal(hex(fittings.get('chiller:room_in')), '#4f9b72');
   assert.equal(hex(fittings.get('chiller:supply_cold_out')), '#287fc4');
+  assert.equal(hex(fittings.get('chiller:return_hot_in')), '#c45b42');
+  assert.equal(hex(fittings.get('chiller:reject_hot_out')), '#c45b42');
+  assert.equal(arrowOf(fittings.get('chiller:return_hot_in'))?.userData.flowRole, 'sink');
+  assert.equal(arrowOf(fittings.get('chiller:reject_hot_out'))?.userData.flowRole, 'source');
   assert.equal(hex(fittings.get('dist:water_line_1')), '#287fc4');
   assert.equal(hex(fittings.get('dist:water_line_2')), '#c45b42');
   assert.equal(hex(fittings.get('dist:supply_pipe_1')), '#287fc4');

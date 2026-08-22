@@ -1143,8 +1143,9 @@ function heatRejectorPorts(heatRejectionCapacity, side = 'right') {
   };
 }
 
-function centralChillerPorts(capacity) {
+function centralChillerPorts(capacity, compressorPower) {
   const out = {};
+  const rejectionLoad = capacity + compressorPower;
   const names = ['cool_out', 'cool_out_2', 'cool_out_3', 'cool_out_4'];
   for (let i = 0; i < 4; i++) {
     out[names[i]] = {
@@ -1154,13 +1155,30 @@ function centralChillerPorts(capacity) {
       params: { capacity: capacity / 4, waterCircuit: 'cold' },
     };
   }
-  out.room_in = {
+  // The evaporator and condenser are two independent water loops. The
+  // process side accepts the load's hot return and emits cold water; the
+  // condenser side accepts the tower's lukewarm supply and emits hot reject
+  // water. The condenser moves the process heat PLUS compressor input.
+  out.return_hot_in = {
     utility: 'waterSupplyPipe', side: 'left', offsetAlong: 0.33,
-    role: 'sink', params: { heatLoad: capacity, waterCircuit: 'lukewarm' },
+    role: 'source', flowRole: 'sink',
+    params: { capacity: 0, processReturnCapacity: capacity, waterCircuit: 'hot' },
   };
   out.supply_cold_out = {
     utility: 'waterSupplyPipe', side: 'left', offsetAlong: 0.67,
     role: 'source', params: { capacity, waterCircuit: 'cold' },
+  };
+  // Keep the historical `room_in` identity so existing tower-supply lines
+  // remain attached after loading. It is now explicitly the condenser inlet.
+  out.room_in = {
+    utility: 'waterSupplyPipe', side: 'front', offsetAlong: 0.33,
+    role: 'sink', flowRole: 'sink',
+    params: { heatLoad: rejectionLoad, waterCircuit: 'lukewarm' },
+  };
+  out.reject_hot_out = {
+    utility: 'waterSupplyPipe', side: 'front', offsetAlong: 0.67,
+    role: 'sink', flowRole: 'source',
+    params: { heatLoad: rejectionLoad, waterCircuit: 'hot' },
   };
   return out;
 }
@@ -1675,8 +1693,8 @@ const INFRA_UTILITY_PORTS = {
   }, undefined, {
     secondaryClass: COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION_FEED,
   }),
-  dualCircuitChiller:    centralChillerPorts(175),
-  chiller:               centralChillerPorts(300),
+  dualCircuitChiller:    centralChillerPorts(175, 35),
+  chiller:               centralChillerPorts(300, 60),
   // cryo — storage, refrigeration, warm-end heat rejection and recovery are
   // separate network capabilities, mirroring cooling water's tank/chiller/
   // rejector model. Every buildable cryogenic plant item has a real bayonet;

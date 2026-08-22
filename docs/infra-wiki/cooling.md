@@ -17,7 +17,7 @@ wall penetrations, and high-flow machines.
 | Role | Equipment | What it does |
 |------|-----------|--------------|
 | **Process cooling** | Lab Chiller Unit, Package Chiller, LCW Skid, Dual-Circuit Chiller, Chiller | Conditions and circulates water for the beamline loop. These are the normal starting points for a blue-pipe network. |
-| **Heat rejection** | Lab Heat Exchanger, Fan-Coil Cooler, Dry Cooler Bank, Cooling Tower | Converts hot return to lukewarm water. The 1 kW lab exchanger is a demonstration unit; the other rejectors dispose of that heat to room/outdoor air. |
+| **Heat rejection** | Lab Heat Exchanger, Fan-Coil Cooler, Dry Cooler Bank, Cooling Tower | Converts hot condenser return to lukewarm condenser water. The 1 kW lab exchanger is a demonstration unit; the other rejectors dispose of that heat to room/outdoor air. |
 | **Make-up supply** | Make-up Water Tank, Water Replenishment Plant | Replaces evaporated water at a finite rate. The replenishment plant has the larger flow but no onboard storage. |
 | **Storage** | Make-up Water Tank, Bulk Water Storage Tanks | Sets how many litres the network can hold. Bulk tanks are passive and never generate water. |
 | **Water & treatment** | Deionizer | Keeps the loop clean; it does not add cooling capacity. |
@@ -27,8 +27,11 @@ Flexible load water uses a **cold supply** and **hot return** pair. Rigid plant
 pipe adds a third **lukewarm transfer** circuit; all three may cross,
 but they never join. A cooled beamline component has one blue cold inlet and
 one red hot outlet. Heat rejectors have a red hot inlet and green
-lukewarm outlet; central chillers have a green lukewarm inlet
-and blue cold outlet. Tanks and make-up plants expose four green lukewarm
+lukewarm outlet. A central chiller has two separate water pairs: blue process
+supply/red process return on its evaporator, and green condenser-water
+supply/red hot reject on its condenser. The hot reject rating includes both
+the process load and compressor input (210 kW for the 175 kW chiller and
+360 kW for the 300 kW chiller). Tanks and make-up plants expose four green lukewarm
 outlets and two green lukewarm inputs. The Cooling Lab heat exchanger and chiller unit use the same port
 contracts at a deliberately tiny 1 kW demonstration rating. Large high-flow machines such as the 70 and
 230 MeV cyclotrons connect directly to paired rigid cold/hot ports.
@@ -67,7 +70,7 @@ cold/hot crossing.
 | Dry Cooler Bank | 500 kW | $1.55M | $3,100 | Air-blast outdoor rejection without a basin |
 | Cooling Tower | 800 kW | $2M | $2,500 | Industrial evaporative heat rejection |
 
-The package chiller and LCW skid are compact, self-contained ways into cooling. Central chillers become much cheaper per kilowatt once the machine grows, while heat rejectors are a separate requirement for those central plants.
+The package chiller and LCW skid are compact, self-contained ways into cooling. Central chillers become much cheaper per kilowatt once the machine grows, while their water-cooled condensers require a separate heat rejector and a second supply/return pair.
 
 Capacity per tile and wall power per kilowatt generally improve with central
 plant scale, so compact packages buy an affordable start while larger systems
@@ -77,9 +80,11 @@ In a real facility, the hierarchy is: cooling tower dumps heat to atmosphere, ch
 
 ### Cooling Networks
 
-Cold, lukewarm, and hot water form isolated networks. A chiller only cools components
-connected to its cold circuit, and every heated component needs a separate hot
-return to rejection. Distributors transfer capacity between flexible and rigid
+Cold, lukewarm, and hot water form isolated networks. Two physically separate
+hot networks may coexist: process return terminates at the chiller evaporator,
+while the chiller's condenser reject terminates at the tower or dry cooler. A
+chiller only cools components connected to its cold circuit, and every heated
+component needs a separate hot return to that chiller. Distributors transfer capacity between flexible and rigid
 water without shorting the two temperature circuits together.
 
 Water inventory is also local to that network. The **Make-up Water Tank**
@@ -92,8 +97,9 @@ several sources adds their flow rates.
 This means you need to plan both halves of the loop. A common strategy:
 - Run a rigid cold header from the chiller to distributors near the beamline
 - Use short flexible cold and hot Water Lines at each component
-- Collect returns through distributors into a rigid hot header to heat rejection
-- Run the green lukewarm outlet from heat rejection through reservoirs and back to the chiller
+- Collect process returns through distributors into a rigid hot header back to the chiller
+- Run the green condenser-water outlet from heat rejection through reservoirs to the chiller
+- Run the chiller's separate red hot-reject pipe back to the heat rejector
 - Keep RF and magnet circuits separate when their capacity or temperature needs differ
 
 ### Heat Load
@@ -198,6 +204,7 @@ flow_rate = C_network / (4.18 kJ/(kg*K) * 10 K) * 60 L/min
 ```
 
 **Hard gates:** either water port left unwired, a cold circuit with no chiller
-capacity, a hot circuit with no route to heat rejection, or a legacy loop whose
+capacity, a process-return circuit with no route back to the chiller, a condenser
+loop missing either its green supply or red reject leg, or a legacy loop whose
 stored water has run dry. Exceeding thermal capacity is a **soft** derate — the
 loop warms and NC cavities detune, but the beam keeps running.

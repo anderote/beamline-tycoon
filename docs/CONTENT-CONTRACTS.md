@@ -360,8 +360,11 @@ the short authoring contract.
 - Reservoirs expose four rigid lukewarm outlets and two rigid lukewarm inputs.
   Their former flexible 4+2 connector identities remain resolvable only for
   existing saves and are excluded from new port selection. Heat rejectors take
-  hot water and emit lukewarm water; chillers take lukewarm water and emit cold
-  water. On the LCW manifold and water distributors, cold flows from rigid pipe
+  hot condenser water and emit lukewarm condenser water. Central chillers keep
+  two independent pairs: the evaporator takes the process hot return and emits
+  cold supply, while the condenser takes lukewarm water and emits a separate hot
+  reject stream rated for process load plus compressor input. Compact integrated
+  packages may reject directly to air. On the LCW manifold and water distributors, cold flows from rigid pipe
   to flexible branches while hot flows from flexible returns to the rigid-pipe
   outlet; solver roles may remain capacity-oriented but `flowRole` must publish
   that physical direction.

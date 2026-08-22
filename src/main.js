@@ -629,8 +629,9 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
       wire('coolingWater', coolBus,`cold_${index + 1}`, id,'cool_in');
       wire('coolingWater', coolBus,`hot_${index + 1}`, id,'hot_out');
     }
-    wire('waterSupplyPipe', coolBus,'supply_hot', condenser,'hot_in');
+    wire('waterSupplyPipe', coolBus,'supply_hot', chil,'return_hot_in');
     wire('waterSupplyPipe', condenser,'room_out', chil,'room_in');
+    wire('waterSupplyPipe', chil,'reject_hot_out', condenser,'hot_in');
     for (const [id, port] of [[far,'data_in'],[demoBpm,'data_in']])
       wire('dataFiber', ioc,'data_out', id, port);
     renderer.refresh(); await sleep(500);

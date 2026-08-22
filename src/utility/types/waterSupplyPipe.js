@@ -83,13 +83,15 @@ export default {
     const circuit = circuitForNetwork(network, worldState);
     const errors = [];
     const perSinkQuality = {};
-    const capacityParam = circuit === WATER_CIRCUIT_HOT
-      ? 'heatRejectionCapacity'
-      : 'capacity';
     const demandParam = 'heatLoad';
-    const totalCapacity = network.sources.reduce((sum, source) =>
-      sum + (Number(source.params?.[capacityParam]) || 0)
-        * powerFeedFactor(worldState, source.placeableId, context.getDefinition), 0);
+    const totalCapacity = network.sources.reduce((sum, source) => {
+      const authoredCapacity = circuit === WATER_CIRCUIT_HOT
+        ? (Number(source.params?.heatRejectionCapacity) || 0)
+          + (Number(source.params?.processReturnCapacity) || 0)
+        : (Number(source.params?.capacity) || 0);
+      return sum + authoredCapacity
+        * powerFeedFactor(worldState, source.placeableId, context.getDefinition);
+    }, 0);
     const totalDemand = network.sinks.reduce(
       (sum, sink) => sum + (Number(sink.params?.[demandParam]) || 0), 0);
     const inventoryEnabled = circuit === WATER_CIRCUIT_LUKEWARM;
