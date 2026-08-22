@@ -411,16 +411,17 @@ console.log('\n--- 4. FLOW_PARAMS covers every utility ---');
   const cryoEffects = buildFlowLine('cryoTransfer').group.userData.visualEffects;
   const cryoMist = cryoEffects?.find(effect => effect.kind === 'ambientMist');
   assert(cryoMist?.path?.length === 3
-      && cryoMist.particlesPerEmitter === 2
-      && cryoMist.spacing > 1,
-    'cryo lines publish restrained mist sources along the pipe and both connectors');
+      && cryoMist.particlesPerEmitter === 1
+      && cryoMist.spacing >= 3
+      && cryoMist.activeFraction <= 0.35,
+    'cryo lines publish sparse intermittent mist along the pipe and both connectors');
 
   const waterEffects = buildFlowLine('coolingWater').group.userData.visualEffects;
   const waterDrips = waterEffects?.find(effect => effect.kind === 'ambientDrip');
   assert(waterDrips?.path?.length >= 3
-      && waterDrips.cycle > waterDrips.fallDuration * 5
-      && waterDrips.spacing >= 3,
-    'cooling lines publish sparse intermittent drips instead of a continuous leak');
+      && waterDrips.cycle <= waterDrips.fallDuration * 3.5
+      && waterDrips.spacing <= 2.5,
+    'cooling lines publish readable intermittent drips without becoming a continuous leak');
 
   const dataCables = flexibleMeshes(buildFlowLine('dataFiber').group);
   assert(dataCables.length === 1
