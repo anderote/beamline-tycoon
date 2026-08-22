@@ -27,6 +27,7 @@ const placeables = [
   ['load', 'quadrupole', 32, 0],
   ['rfSource', 'gyrotron', 32, 8],
   ['dryCooler', 'dryCoolerBank', 40, 8],
+  ['ssa', 'solidStateAmp', 48, 8],
 ].map(([id, type, col, row]) => ({ id, type, col, row, subCol: 0, subRow: 0, dir: 0 }));
 const state = { placeables, beamPipes: [], utilityLines: new Map() };
 
@@ -67,6 +68,33 @@ assert(candidate('hvCable', ref('gear', 'hv_out_1'), ref('dryCooler', 'hv_in')).
   'HV Distributor Box -> dry cooler bank is a valid dedicated HV feeder');
 assert(candidate('hvCable', ref('gear', 'hv_out_2'), ref('rfSource', 'hv_in')).ok,
   'a separate HV Distributor Box output can feed an RF source');
+
+const loadTapFeed = candidate(
+  'hvCable', ref('gear', 'hv_out_1'), ref('dryCooler', 'hv_in'),
+).line;
+loadTapFeed.id = 'load_tap_feed';
+const loadTapState = {
+  ...state,
+  utilityLines: new Map([[loadTapFeed.id, loadTapFeed]]),
+};
+const loadTapContinuation = candidate(
+  'hvCable', ref('dryCooler', 'hv_in'), ref('ssa', 'hv_in'), loadTapState,
+);
+assert(loadTapContinuation.ok,
+  'a cooling-equipment roof tap accepts a second cable continuing to a cabinet RF load');
+loadTapContinuation.line.id = 'load_tap_continuation';
+loadTapState.utilityLines.set(loadTapContinuation.line.id, loadTapContinuation.line);
+assert(candidate(
+  'hvCable', ref('dryCooler', 'hv_in'), ref('panelB', 'hv_in'), loadTapState,
+).reason === 'port_taken',
+  'the cooling-equipment roof tap rejects a third HV cable');
+const loadTapNetworks = discoverNetworks(
+  'hvCable', loadTapState.utilityLines, makeDefaultPortLookup(loadTapState),
+);
+assert(loadTapNetworks.length === 1
+    && loadTapNetworks[0].sinks.filter(sink => sink.portKey === 'dryCooler:hv_in').length === 1
+    && loadTapNetworks[0].sinks.filter(sink => sink.portKey === 'ssa:hv_in').length === 1,
+  'continued HV wiring forms one network and counts each tapped load once');
 
 const trunkFeed = candidate(
   'hvCable', ref('xfmr', 'hv_out_1'), ref('compactGear', 'hv_in'),

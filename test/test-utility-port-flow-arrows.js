@@ -31,6 +31,7 @@ const {
   portFlowArrowRole,
 } = await import('../src/renderer3d/builders/port-fitting-builder.js');
 const { portAnchor3D } = await import('../src/utility/port-anchors.js');
+const { HV_LOAD_TAP_IDS } = await import('../src/data/hv-load-taps.js');
 
 const anchor = { x: 3, y: 1.2, z: -4, out: { x: 0, z: 1 }, standoff: 0.03 };
 
@@ -97,6 +98,30 @@ test('top-mounted fittings orient their hardware and flow arrow vertically', () 
     'the +X-authored bayonet points along the exact +Y normal');
   assert.equal(arrowOf(top)?.parent, top,
     'the flow arrow inherits the same vertical fitting transform');
+});
+
+test('cooling and cabinet RF load taps use tall porcelain roof bushings', () => {
+  const endpoints = HV_LOAD_TAP_IDS.map((type, index) => ({
+    id: `tap-${index}`, type,
+    col: index * 4, row: 0, subCol: 0, subRow: 0, dir: index % 4,
+  }));
+  const { group } = buildPortFittings(endpoints);
+  const fittings = new Map(fittingsOf(group).map(fitting => [
+    `${fitting.userData.placeableId}:${fitting.userData.portName}`, fitting,
+  ]));
+
+  for (const [index, type] of HV_LOAD_TAP_IDS.entries()) {
+    const fitting = fittings.get(`tap-${index}:hv_in`);
+    assert.ok(fitting, `${type} has a persistent HV input fitting`);
+    assert.equal(fitting.userData.fittingStyle, 'hvInsulator');
+    assert.equal(`#${fitting.material.color.getHexString()}`, '#d8d2bc');
+    const axis = new THREE_REAL.Vector3(1, 0, 0).applyQuaternion(fitting.quaternion);
+    assert.ok(axis.distanceTo(new THREE_REAL.Vector3(0, 1, 0)) < 1e-9,
+      `${type} bushing points vertically from the roof`);
+    fitting.geometry.computeBoundingBox();
+    assert.ok(fitting.geometry.boundingBox.max.x >= 0.19,
+      `${type} uses the tall insulator silhouette`);
+  }
 });
 
 test('distribution-panel fittings inherit their declared in/out roles', () => {
