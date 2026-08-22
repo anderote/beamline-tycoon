@@ -167,12 +167,14 @@ export class ThreeRenderer {
     this._panY = 0;
     this.zoom = 1;
 
-    // Two canonical view modes: dimetric ('iso') and near-top-down ('top').
+    // Three canonical view modes: dimetric ('iso'), a steeper construction
+    // angle ('steep'), and near-top-down ('top').
     // Each mode remembers its own yaw index for view-cube navigation. The
     // middle-click elevation toggle deliberately carries the live heading
     // across instead, then updates the destination mode's remembered index.
     this.viewMode = 'iso';
     this._isoYawIdx = 0;
+    this._steepYawIdx = 0;
     this._topYawIdx = 0;
 
     // View rotation (RCT2-style Q/E 90° orbit). _viewRotationAngle is the
@@ -185,8 +187,7 @@ export class ThreeRenderer {
     this._viewRotating = false;
 
     // Free-orbit state (middle-mouse drag orbits yaw + pitch around the
-    // pan center; release animates back to nearest iso *or* top-down view
-    // depending on which preset pitch the player ended closer to).
+    // pan center; release animates back to the nearest preferred pitch.
     this._freeOrbiting = false;
     this._freeYaw = 0;
     this._freePitch = PITCH_REST;
@@ -1465,11 +1466,14 @@ export class ThreeRenderer {
   }
 
   _currentYawIdx() {
-    return this.viewMode === 'top' ? this._topYawIdx : this._isoYawIdx;
+    if (this.viewMode === 'top') return this._topYawIdx;
+    if (this.viewMode === 'steep') return this._steepYawIdx;
+    return this._isoYawIdx;
   }
 
   _setCurrentYawIdx(i) {
     if (this.viewMode === 'top') this._topYawIdx = i;
+    else if (this.viewMode === 'steep') this._steepYawIdx = i;
     else this._isoYawIdx = i;
   }
 
@@ -1479,7 +1483,7 @@ export class ThreeRenderer {
    * is active or any view animation is already in flight.
    */
   setViewMode(mode, yawIdx) {
-    if (mode !== 'iso' && mode !== 'top') return;
+    if (mode !== 'iso' && mode !== 'steep' && mode !== 'top') return;
     if (this._freeOrbiting || this._viewRotating || this._snapping) return;
     const fromYaw = this._viewRotationAngle;
     const fromPitch = this._effectivePitch();
@@ -1514,7 +1518,7 @@ export class ThreeRenderer {
   }
 
   /**
-   * Toggle between isometric and top-down without rotating the map.
+   * Cycle through preferred elevations without rotating the map.
    * Omitting setViewMode's yawIdx is intentional: its default destination is
    * the live rotation angle, rather than the other mode's remembered facing.
    */
@@ -1556,9 +1560,9 @@ export class ThreeRenderer {
   }
 
   /**
-   * End a free-orbit drag. Picks the closer preset (iso vs top-down) by
-   * release pitch and kicks off a 400ms easeInOutQuad animation back to
-   * that view. Yaw snaps to the nearest π/4 multiple. On completion,
+   * End a free-orbit drag. Picks the closest preferred preset by release
+   * pitch and kicks off a 400ms easeInOutQuad animation back to that view.
+   * Yaw snaps to the nearest π/4 multiple. On completion,
    * viewMode and the destination mode's yaw index are updated so Q/E
    * continues from the snapped pose.
    */

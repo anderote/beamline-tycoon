@@ -30,7 +30,8 @@ assert(isMiddleCameraDrag(origin, { x: 103, y: 103 }), 'diagonal movement uses t
 
 console.log('\n=== Elevation toggle preserves live yaw ===\n');
 
-assert(toggledViewMode('iso') === 'top', 'isometric toggles to top-down');
+assert(toggledViewMode('iso') === 'steep', 'isometric toggles to steep');
+assert(toggledViewMode('steep') === 'top', 'steep toggles to top-down');
 assert(toggledViewMode('top') === 'iso', 'top-down toggles to isometric');
 
 // Headless wiring check. Browser automation is owner-gated, so guard the DOM

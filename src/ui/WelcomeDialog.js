@@ -19,6 +19,7 @@ const CONTROL_ROWS = [
   ['WASD',   'pan camera (Shift = fast)'],
   ['Scroll', 'zoom in / out'],
   ['Q / E',  'rotate the view'],
+  ['Mid-click', 'cycle preferred camera angle'],
   ['Mid-drag', 'orbit the camera'],
   ['F',      'rotate item while placing'],
   ['M',      'mirror utility ports / a formation while placing'],

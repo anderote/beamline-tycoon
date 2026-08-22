@@ -2433,7 +2433,8 @@ export class InputHandler {
       // clicks, pans, and connector grabs all behave alike.
       this.renderer.ui?._dismissConnectionGuide?.();
 
-      // Middle mouse: a click toggles iso/top at the same heading; movement
+      // Middle mouse: a click cycles the preferred elevations at the same
+      // heading; movement
       // beyond the jitter threshold becomes the existing free-orbit drag.
       if (e.button === 1) {
         this.isFreeOrbiting = true;

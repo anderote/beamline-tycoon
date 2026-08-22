@@ -2,8 +2,8 @@
 
 import {
   PITCH_REST,
+  PITCH_STEEP,
   PITCH_TOP,
-  PITCH_THRESHOLD,
   pickSnapMode,
   targetPitchForMode,
   YAW_STEP,
@@ -20,23 +20,19 @@ function assert(cond, msg) {
   else      { failed++; console.log(`  FAIL: ${msg}`); }
 }
 
-console.log('PITCH_THRESHOLD');
-assert(
-  Math.abs(PITCH_THRESHOLD - (PITCH_REST + PITCH_TOP) / 2) < 1e-12,
-  'PITCH_THRESHOLD is the midpoint of PITCH_REST and PITCH_TOP'
-);
-
 console.log('pickSnapMode');
 assert(pickSnapMode(PITCH_REST) === 'iso', 'rest pitch picks iso');
+assert(pickSnapMode(PITCH_STEEP) === 'steep', 'steep pitch picks steep');
 assert(pickSnapMode(PITCH_TOP) === 'top', 'top pitch picks top');
-assert(pickSnapMode(PITCH_THRESHOLD - 0.001) === 'iso', 'just below threshold picks iso');
-assert(pickSnapMode(PITCH_THRESHOLD + 0.001) === 'top', 'just above threshold picks top');
-assert(pickSnapMode(PITCH_THRESHOLD) === 'top', 'exactly at threshold picks top (>= boundary)');
+assert(pickSnapMode((PITCH_REST + PITCH_STEEP) / 2 - 0.001) === 'iso', 'below steep midpoint picks iso');
+assert(pickSnapMode((PITCH_REST + PITCH_STEEP) / 2 + 0.001) === 'steep', 'above steep midpoint picks steep');
+assert(pickSnapMode((PITCH_STEEP + PITCH_TOP) / 2 + 0.001) === 'top', 'above top midpoint picks top');
 assert(pickSnapMode(0) === 'iso', 'pitch=0 picks iso');
 assert(pickSnapMode(Math.PI / 2) === 'top', 'pitch=π/2 picks top');
 
 console.log('targetPitchForMode');
 assert(targetPitchForMode('iso') === PITCH_REST, "'iso' -> PITCH_REST");
+assert(targetPitchForMode('steep') === PITCH_STEEP, "'steep' -> PITCH_STEEP");
 assert(targetPitchForMode('top') === PITCH_TOP, "'top' -> PITCH_TOP");
 assert(targetPitchForMode('garbage') === PITCH_REST, 'unknown mode falls back to PITCH_REST');
 
@@ -45,8 +41,8 @@ assert(YAW_STEP === Math.PI / 4, 'yaw step = π/4');
 assert(YAW_DIVISIONS === 8, 'yaw has 8 divisions');
 assert(Math.abs(YAW_STEP * YAW_DIVISIONS - 2 * Math.PI) < 1e-9, 'step × divisions = full turn');
 
-console.log('8-way rotation returns to start (iso and top-down share divisions)');
-for (const mode of ['iso', 'top']) {
+console.log('8-way rotation returns to start (all preferred views share divisions)');
+for (const mode of ['iso', 'steep', 'top']) {
   let idx = 0;
   for (let i = 0; i < YAW_DIVISIONS; i++) {
     idx = ((idx + 1) % YAW_DIVISIONS + YAW_DIVISIONS) % YAW_DIVISIONS;
