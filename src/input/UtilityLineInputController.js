@@ -64,6 +64,10 @@ const PORT_SNAP_RADIUS_PX = 42;
 // target and a trunk usually runs right past one, so a generous tap radius
 // would steal clicks meant for the port at the end of it.
 const TAP_SNAP_RADIUS_TILES = 0.4;
+// Rack access points are one tile apart. A radius above half that pitch makes
+// the whole visible tray magnetic instead of leaving frustrating dead strips
+// between adjacent rungs when mesh raycasting is unavailable.
+const BUS_SNAP_RADIUS_TILES = 0.65;
 
 // Run-wiring corridor sampling. The corridor is the polyline the cursor
 // actually traced, so it needs a floor on sample spacing (mouse jitter) and a
@@ -719,7 +723,20 @@ export class UtilityLineInputController {
   _snapToNearest(worldX, worldY, screen) {
     const port = this._snapToNearestPort(worldX, worldY, screen);
     if (port) return port;
-    const bus = this.nearestBus(worldX, worldY, TAP_SNAP_RADIUS_TILES);
+    // The rack rides above the floor. A click on its visible mesh projects to
+    // a different ground coordinate in an isometric camera, so resolve that
+    // mesh hit before using the plan-view proximity fallback. Any utility tool
+    // can claim the resulting access point; the four-channel limit is enforced
+    // transactionally by UniversalUtilityBusSystem when the line commits.
+    const rayHit = screen && this.renderer?.raycastUtilityLine?.(screen.x, screen.y);
+    const hitBus = rayHit?.busId
+      ? this.nearestBusAtWorld(
+          rayHit.worldPos || this._isoFloatToWorld(worldX, worldY),
+          Infinity,
+          rayHit.busId,
+        )
+      : null;
+    const bus = hitBus || this.nearestBus(worldX, worldY, BUS_SNAP_RADIUS_TILES);
     if (bus) return {
       open: true, busTap: true, busId: bus.busId, worldPos: bus.worldPos,
     };
@@ -729,7 +746,6 @@ export class UtilityLineInputController {
     // the subtile snap to its id; otherwise a plan-view tie would always grab
     // whichever lane happened to win insertion-order/highest-lane fallback.
     let tap = null;
-    const rayHit = screen && this.renderer?.raycastUtilityLine?.(screen.x, screen.y);
     if (rayHit?.lineId && rayHit.utilityType === this._utilityType) {
       const lines = this.game.state.utilityLines;
       const hitLine = typeof lines?.get === 'function'
@@ -765,10 +781,14 @@ export class UtilityLineInputController {
 
   /** Nearest access point on any utility-neutral rack. */
   nearestBus(worldX, worldY, maxTiles = 0.4) {
-    const cursor = this._isoFloatToWorld(worldX, worldY);
+    return this.nearestBusAtWorld(this._isoFloatToWorld(worldX, worldY), maxTiles);
+  }
+
+  nearestBusAtWorld(cursor, maxTiles = 0.65, onlyBusId = null) {
     let best = null;
     let bestDist = maxTiles * 2;
     for (const bus of this.game.state.utilityBuses || []) {
+      if (onlyBusId && bus.id !== onlyBusId) continue;
       const accessPoints = (bus.taps || []).length > 0
         ? bus.taps.map(tap => ({
             col: (tap.point?.col || 0) + (tap.point?.subCol || 0) / 4,

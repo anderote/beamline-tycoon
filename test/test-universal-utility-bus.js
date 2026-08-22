@@ -4,6 +4,7 @@ import { discoverNetworks } from '../src/utility/network-discovery.js';
 import { PLACEABLES } from '../src/data/placeables/index.js';
 import { COMPONENTS } from '../src/data/components.js';
 import { UniversalUtilityBusTool } from '../src/input/universal-utility-bus-tool.js';
+import { UtilityLineInputController } from '../src/input/UtilityLineInputController.js';
 import { standardPaletteKind } from '../src/ui/palette-collection.js';
 import {
   UNIVERSAL_BUS_MAX_CHANNELS,
@@ -73,9 +74,18 @@ assert.equal(powerNetworks.length, 1, 'all branches on one channel discover as o
 assert.deepEqual(new Set(powerNetworks[0].lineIds),
   new Set([powerChannel.lineId, branchId, secondBranchId]));
 
-for (const utilityType of ['vacuumPipe', 'coolingWater', 'dataFiber']) {
+for (const utilityType of ['vacuumPipe', 'dataFiber']) {
   assert.equal(buses.ensureChannel(busId, utilityType).ok, true);
 }
+const coolingBranchId = buses.connectLine({
+  utilityType: 'coolingWater',
+  line: {
+    start: null, end: null,
+    path: [{ col: 1, row: 0 }, { col: 1, row: 1 }],
+  },
+  busTapIds: { start: busId, end: null },
+});
+assert.ok(coolingBranchId, 'a cooling-water line can claim and connect to the rack');
 assert.equal(state.utilityBuses[0].channels.length, UNIVERSAL_BUS_MAX_CHANNELS,
   'four distinct utility types fill the four isolated channels');
 assert.deepEqual(
@@ -84,6 +94,23 @@ assert.deepEqual(
 assert.deepEqual(buses.ensureChannel(busId, 'cryoTransfer'), {
   ok: false, reason: 'bus_full',
 }, 'a fifth utility type is rejected');
+
+for (const utilityType of ['powerCable', 'vacuumPipe', 'rfWaveguide',
+  'coolingWater', 'cryoTransfer', 'dataFiber', 'hvCable']) {
+  const controller = new UtilityLineInputController({
+    game: { state, utilityBusSystem: buses },
+    renderer: {
+      raycastUtilityLine: () => ({
+        busId, universalUtilityBus: true, worldPos: { x: 3.8, z: 0.18 },
+      }),
+    },
+  });
+  controller.setUtilityType(utilityType);
+  const snap = controller._snapToNearest(9999, 9999, { x: 20, y: 20 });
+  assert.equal(snap?.busId, busId,
+    `${utilityType} can snap directly to the visible elevated tray`);
+  assert.equal(snap?.busTap, true);
+}
 
 const THREE_NS = await import('three');
 globalThis.THREE = THREE_NS;
@@ -115,7 +142,7 @@ assert.equal(parent.children.length, 0, 'renderer teardown removes rack and chan
 
 assert.equal(buses.removeBus(busId), true);
 assert.equal(state.utilityBuses.length, 0);
-assert.equal(state.utilityLines.size, 2,
+assert.equal(state.utilityLines.size, 3,
   'removing the rack removes its backbones but leaves external branch ownership explicit');
 
 console.log('universal utility bus tests passed');
