@@ -124,13 +124,10 @@ export class UtilityLineTool extends Tool {
     ctx.input._hideDragCostTooltip?.();
   }
 
-  // Where the cursor lands ON THE PLANE THIS UTILITY RUNS AT. Picking against
-  // the ground while drawing at height offsets every line a fixed distance
-  // up-screen from the mouse, and the offset differs per utility now that a
-  // power cord lies on the floor and a vacuum pipe rides at working height.
-  // The floor-level pick is still the right one for tile hover and hover
-  // tooltips, which are about what is under the cursor on the ground — hence
-  // two conversions, not one.
+  // Where the cursor lands ON THE PLANE THIS UTILITY RUNS AT. One line-of-sight
+  // projection owns the whole utility interaction: drawing, hover, snapping,
+  // erasing and tooltips. Consulting terrain for any one of those would make
+  // it disagree with the visible route whenever the working plane is raised.
   _cableWorld(e, ctx) {
     const r = ctx.renderer;
     const ctrl = ctx.input.utilityLineController;
@@ -169,8 +166,7 @@ export class UtilityLineTool extends Tool {
       this._updateDragTooltip(ctx, e.clientX, e.clientY);
       return true;
     }
-    const ground = renderer.screenToWorld(e.clientX, e.clientY);
-    const grid = isoToGrid(ground.x, ground.y);
+    const grid = isoToGrid(world.x, world.y);
     renderer.updateHover(grid.col, grid.row);
     // Hover: highlight the nearest port that matches the utility type.
     ctrl.onHover(world.x, world.y, { x: e.clientX, y: e.clientY });
@@ -178,10 +174,9 @@ export class UtilityLineTool extends Tool {
     input.lastMouseWorldY = world.y;
     input._lastScreenX = e.clientX;
     input._lastScreenY = e.clientY;
-    // Hover tooltips stayed live while the utility tool was armed. They read
-    // the ground pick — they are about the thing under the cursor, not about
-    // the cable plane.
-    input._checkHoverTooltip(ground, grid, e.clientX, e.clientY);
+    // Hover tooltips stay live while the utility tool is armed, using the same
+    // line-of-sight position as the route and its snap targets.
+    input._checkHoverTooltip(world, grid, e.clientX, e.clientY);
     return true;
   }
 

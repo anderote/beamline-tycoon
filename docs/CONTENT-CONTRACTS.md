@@ -245,7 +245,8 @@ the short authoring contract.
   a minimum straight lead-out or clearance strip in front of that fitting.
 - Interactive drawing projects the pointer's camera ray onto the armed
   utility's current route-height plane for every utility type, including HV.
-  Terrain projection remains a hover concern and does not place the route.
+  That one projected point also drives hover, tooltips, snapping, erasing, and
+  release; the utility tool does not derive a second point from terrain.
 - Vacuum pipe, RF waveguide, and cryogenic transfer line are fabricated rigid
   services with vertical route lanes. Vacuum and RF begin at the higher endpoint
   connector; cryogenic transfer begins on its low service rack because the
