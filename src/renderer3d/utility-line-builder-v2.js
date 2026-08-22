@@ -1391,6 +1391,7 @@ function addUtilitySupports(
     floorY: runY,
     spacingMeters: spacing,
     minimumRunMeters: minimum,
+    worldStationLattice: true,
   });
   for (const frame of frames) {
     const support = buildUtilitySupport(
@@ -2788,6 +2789,7 @@ export class UtilityLineBuilderV2 {
         floorY: runY,
         spacingMeters: descriptor.supportSpacingMeters,
         minimumRunMeters: descriptor.supportMinimumRunMeters,
+        worldStationLattice: true,
       });
       for (const frame of frames) {
         const key = supportStationKey(frame);
