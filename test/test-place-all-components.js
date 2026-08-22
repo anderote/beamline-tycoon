@@ -151,12 +151,22 @@ for (const type of infraTypes) {
         }
       }
     }
+    let utilityMount;
+    if (def.mount === 'utilityTap') {
+      const hostId = game.placePlaceable({
+        type: 'utilityPole', col: placementCol, row: placementRow + 4,
+        subCol: 0, subRow: 0, dir: 0, free: true, silent: true,
+      });
+      if (!hostId) throw new Error(`could not build tap host for ${type}`);
+      utilityMount = { hostPlaceableId: hostId, portName: 'hv_tap' };
+    }
     const result = game.placePlaceable({
       type,
       col: placementCol, row: placementRow,
       subCol: 0, subRow: 0,
       dir: 0,
       wallMount,
+      utilityMount,
       free: true,
       silent: true,
     });

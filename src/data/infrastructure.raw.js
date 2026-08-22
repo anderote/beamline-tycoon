@@ -1199,6 +1199,7 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
     autoConnectUtility: 'coolingWater',
+    plantGuide: false,
     requiredConnections: [],
     waterConverterGroups: [
       {
@@ -2201,6 +2202,7 @@ export const INFRASTRUCTURE_RAW = {
     category: 'power', subsection: 'routingHardware',
     paletteOrder: 3.625,
     cost: { funding: 42000 },
+    deprecated: true,
     stats: {}, energyCost: 0,
     mount: 'overhead',
     subL: 4, subW: 4, subH: 5, gridW: 4, gridH: 4,
@@ -2427,7 +2429,7 @@ export const INFRASTRUCTURE_RAW = {
   poleMountTransformer: {
     id: 'poleMountTransformer',
     name: 'Pole-Mount Service Transformer',
-    desc: 'Outdoor 100 kW service transformer. Bring HV from a utility pole into its roof inlet, then feed up to four ordinary branch-power circuits from the front terminals.',
+    desc: 'Compact 100 kW service box that snaps directly onto a free HV tap on a wood utility pole or indoor cable rack. Its four front outlets feed ordinary power cables.',
     category: 'power', subsection: 'distribution',
     paletteOrder: 2,
     cost: { funding: 95000 },
@@ -2435,7 +2437,9 @@ export const INFRASTRUCTURE_RAW = {
     stats: {},
     energyCost: 0,
     autoConnectRadius: 6,
-    subL: 2, subW: 2, subH: 4, gridW: 2, gridH: 2,
+    mount: 'utilityTap',
+    utilityTapMount: 'hvDistributionTap',
+    subL: 1, subW: 2, subH: 2, gridW: 2, gridH: 1,
     geometryType: 'box',
     baseMaterial: 'metal_dark',
     spriteKey: 'padMountTransformer',
@@ -2448,20 +2452,17 @@ export const INFRASTRUCTURE_RAW = {
       breaker: { utility: 'powerCable', rating: 100, tripDelayTicks: 5 },
     },
     parts: [
-      { w: 2.0, h: 0.20, l: 2.0, x: 0, y: 0, z: 0, color: 0x4a5052 },
-      { w: 1.55, h: 2.35, l: 1.55, x: 0, y: 0.20, z: 0, color: 0x6b7476 },
-      { w: 1.72, h: 0.18, l: 1.72, x: 0, y: 2.55, z: 0, color: 0x343a3c },
-      // One heavy roof-mounted HV inlet. Its cap top coincides with the shared
-      // top-input layout after SUB_UNIT scaling.
-      { w: 0.15, h: 0.26, l: 0.15, x: 0, y: 2.73, z: -0.36, color: 0x32291d },
-      { w: 0.19, h: 0.06, l: 0.19, x: 0, y: 2.99, z: -0.36, color: 0xb46e32, utilityTerminalCap: true },
-      { w: 1.18, h: 0.28, l: 0.16, x: 0, y: 1.05, z: 0.84, color: 0xe1b84b },
-      // Four branch terminals project from the front terminal bar. Their
-      // front faces coincide with DISTRIBUTION_FRONT_TERMINAL_LAYOUTS.
-      { w: 0.16, h: 0.16, l: 0.12, x: -0.60, y: 1.16, z: 0.80, color: 0xb46e32, utilityOutputTerminalCap: true },
-      { w: 0.16, h: 0.16, l: 0.12, x: -0.20, y: 1.16, z: 0.80, color: 0xb46e32, utilityOutputTerminalCap: true },
-      { w: 0.16, h: 0.16, l: 0.12, x: 0.20, y: 1.16, z: 0.80, color: 0xb46e32, utilityOutputTerminalCap: true },
-      { w: 0.16, h: 0.16, l: 0.12, x: 0.60, y: 1.16, z: 0.80, color: 0xb46e32, utilityOutputTerminalCap: true },
+      // The back bushing meets the host tap without a separate feeder cable.
+      // Keeping the body above local zero also leaves legacy saves readable
+      // until their old explicit feeder is rebuilt as a direct tap mount.
+      { name: 'cabinet', w: 1.40, h: 1.10, l: 0.54, x: 0, y: 0, z: 0, color: 0x6b7476 },
+      { name: 'lid', w: 1.48, h: 0.10, l: 0.60, x: 0, y: 1.10, z: 0, color: 0x343a3c },
+      { name: 'hv-inlet', w: 0.22, h: 0.22, l: 0.12, x: 0, y: 0.88, z: -0.50, color: 0xb46e32, utilityTerminalCap: true },
+      { name: 'outlet-bar', w: 1.18, h: 0.22, l: 0.10, x: 0, y: 0.16, z: 0.32, color: 0xe1b84b },
+      ...[-0.45, -0.15, 0.15, 0.45].map((x, index) => ({
+        name: `power-outlet-${index + 1}`, w: 0.16, h: 0.16, l: 0.12,
+        x, y: 0.32, z: 0.56, color: 0xb46e32, utilityOutputTerminalCap: true,
+      })),
     ],
     requiredConnections: [],
   },
@@ -2523,6 +2524,50 @@ export const INFRASTRUCTURE_RAW = {
       { w: 1.62, h: 0.12, l: 0.18, x: 0, y: 4.55, z: 2.55, color: 0x8a9498 },
       { w: 0.16, h: 4.55, l: 0.16, x: -0.72, y: 0, z: -2.55, color: 0x4b5357 },
       { w: 0.16, h: 4.55, l: 0.16, x: 0.72, y: 0, z: 2.55, color: 0x4b5357 },
+    ],
+    requiredConnections: [],
+  },
+  elevatedWireTray: {
+    id: 'elevatedWireTray',
+    name: 'Elevated Wire Tray',
+    desc: 'A stilt-mounted basket tray for ordinary power and data cables. Four numbered power lanes stay electrically isolated while the paired data connectors share one communications pathway. The 1.78 m tray deck runs just below indoor HV rack insulators.',
+    category: 'power', subsection: 'routingHardware',
+    paletteOrder: 3.625,
+    cost: { funding: 26000 },
+    stats: {},
+    energyCost: 0,
+    mount: 'overhead',
+    subL: 4, subW: 2, subH: 4, gridW: 2, gridH: 4,
+    geometryType: 'box',
+    baseMaterial: 'metal_brushed',
+    spriteKey: 'powerBus',
+    spriteColor: 0x667277,
+    accentColor: 0x51a7c4,
+    hasSurface: false,
+    placement: 'module',
+    ports: {},
+    electricalGroups: {
+      powerCable: [
+        ['pwr_in_1', 'pwr_out_1'], ['pwr_in_2', 'pwr_out_2'],
+        ['pwr_in_3', 'pwr_out_3'], ['pwr_in_4', 'pwr_out_4'],
+      ],
+    },
+    parts: [
+      // Parts dimensions use 0.5 m authored units. Every deck part tops out
+      // at the 1.78 m connector/cable-bearing datum.
+      { name: 'left-rail', shape: 'box', w: 0.16, h: 0.16, l: 3.82, x: -0.76, y: 3.40, z: 0, color: 0x667277 },
+      { name: 'right-rail', shape: 'box', w: 0.16, h: 0.16, l: 3.82, x: 0.76, y: 3.40, z: 0, color: 0x667277 },
+      ...[-1.72, -1.15, -0.58, 0, 0.58, 1.15, 1.72].map((z, index) => ({
+        name: `tray-rung-${index + 1}`, shape: 'box',
+        w: 1.52, h: 0.10, l: 0.12, x: 0, y: 3.46, z, color: 0x8b969a,
+      })),
+      { name: 'left-stilt-front', shape: 'box', w: 0.16, h: 3.40, l: 0.16, x: -0.76, y: 0, z: 1.72, color: 0x4b5559 },
+      { name: 'right-stilt-front', shape: 'box', w: 0.16, h: 3.40, l: 0.16, x: 0.76, y: 0, z: 1.72, color: 0x4b5559 },
+      { name: 'left-stilt-back', shape: 'box', w: 0.16, h: 3.40, l: 0.16, x: -0.76, y: 0, z: -1.72, color: 0x4b5559 },
+      { name: 'right-stilt-back', shape: 'box', w: 0.16, h: 3.40, l: 0.16, x: 0.76, y: 0, z: -1.72, color: 0x4b5559 },
+      // Blue side strips make the data pathway readable beside power cable.
+      { name: 'data-strip-left', shape: 'box', w: 0.05, h: 0.06, l: 3.50, x: -0.48, y: 3.50, z: 0, color: 0x51a7c4 },
+      { name: 'data-strip-right', shape: 'box', w: 0.05, h: 0.06, l: 3.50, x: 0.48, y: 3.50, z: 0, color: 0x51a7c4 },
     ],
     requiredConnections: [],
   },

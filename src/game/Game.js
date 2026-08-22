@@ -28,6 +28,11 @@ import { METRES_PER_SUB } from '../beamline/pipe-geometry.js';
 import { UtilityLineSystem } from '../utility/UtilityLineSystem.js';
 import { UniversalUtilityBusSystem } from '../utility/UniversalUtilityBusSystem.js';
 import { portWorldPosition } from '../utility/ports.js';
+import {
+  isUtilityTapMountDefinition,
+  mountedConnectionLine,
+  resolveUtilityTapMount,
+} from '../utility/tap-mounts.js';
 import { makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
 import { UtilityRegistry } from '../utility/registry.js';
 import { SolveRunner } from '../utility/solve-runner.js';
@@ -3257,9 +3262,13 @@ export class Game {
   }
   _placePlaceableInner(opts, opts2) {
     const {
-      type, col, row, subCol, subRow, dir = 0, params, variant = 0,
+      type, params, variant = 0,
       portsFlipped = false,
-      wallMount = null, free = false, silent = false, level: requestedLevel = 0,
+      wallMount = null, utilityMount = null,
+      free = false, silent = false, level: requestedLevel = 0,
+    } = opts;
+    let {
+      col, row, subCol, subRow, dir = 0,
     } = opts;
     const level = normalizeLevel(requestedLevel ?? wallMount?.level ?? 0);
     const skipBeamlineRoute = !!(opts2 && opts2.skipBeamlineRoute);
@@ -3267,6 +3276,19 @@ export class Game {
     const placeable = PLACEABLES[type];
     if (!placeable) return false;
     const kind = placeable.kind;
+
+    let resolvedUtilityMount = null;
+    if (isUtilityTapMountDefinition(placeable)) {
+      resolvedUtilityMount = resolveUtilityTapMount(this.state, utilityMount, {
+        mountKind: placeable.utilityTapMount,
+        level,
+      });
+      if (!resolvedUtilityMount) {
+        this.log(`${placeable.name} needs a free HV tap on a utility pole or indoor cable rack`, 'bad');
+        return false;
+      }
+      ({ col, row, subCol, subRow, dir } = resolvedUtilityMount);
+    }
 
     // Beam pipes and utility routing still use the ground-plane topology.
     // Keep beamline modules honest until those systems gain storey-aware
@@ -3472,6 +3494,10 @@ export class Game {
       stackParentId: null,
       stackChildren: [],
       wallMount: resolvedWallMount,
+      utilityMount: resolvedUtilityMount?.utilityMount || null,
+      worldX: resolvedUtilityMount?.worldX,
+      worldZ: resolvedUtilityMount?.worldZ,
+      mountY: resolvedUtilityMount?.mountY,
     }, level);
 
     // Beamline param init (was previously inline; only kind that needs it).
@@ -3500,6 +3526,28 @@ export class Game {
     this.state.placeables.push(entry);
     this.state.placeableIndex[id] = this.state.placeables.length - 1;
     this.powerReliability?.onPlaceablePlaced(entry);
+
+    if (resolvedUtilityMount) {
+      const lineId = this.utilityLineSystem.addLine({
+        utilityType: 'hvCable',
+        start: {
+          placeableId: resolvedUtilityMount.utilityMount.hostPlaceableId,
+          portName: resolvedUtilityMount.utilityMount.portName,
+        },
+        end: { placeableId: id, portName: 'hv_in' },
+        path: [resolvedUtilityMount.linePoint, resolvedUtilityMount.linePoint],
+      });
+      if (!lineId) {
+        this.state.placeables.pop();
+        delete this.state.placeableIndex[id];
+        this.powerReliability?.onPlaceableRemoved(id);
+        if (!free) this.refundConstruction(cost);
+        this.log(`Can't mount ${placeable.name} on that HV tap`, 'bad');
+        return false;
+      }
+      const line = this.state.utilityLines.get(lineId);
+      if (line) line.mountConnectionPlaceableId = id;
+    }
 
     if (stackTarget) {
       entry.placeY = stackTarget.placeY;
@@ -3605,6 +3653,50 @@ export class Game {
     const def = PLACEABLES[entry.type];
     if (!def) return false;
     const level = normalizeLevel(pose.level ?? levelOf(entry));
+
+    const mountedChildren = this.state.placeables.filter(
+      child => child.utilityMount?.hostPlaceableId === placeableId,
+    );
+    if (mountedChildren.length > 0) {
+      this.log(`Can't move ${def.name}: remove its tap-mounted equipment first`, 'bad');
+      return false;
+    }
+
+    if (isUtilityTapMountDefinition(def)) {
+      const resolved = resolveUtilityTapMount(this.state, pose.utilityMount, {
+        mountKind: def.utilityTapMount,
+        level,
+        ignorePlaceableId: placeableId,
+      });
+      const line = mountedConnectionLine(this.state, placeableId);
+      if (!resolved || !line) {
+        this.log(`Can't move ${def.name}: it needs a free HV tap`, 'bad');
+        return false;
+      }
+      entry.col = resolved.col;
+      entry.row = resolved.row;
+      entry.subCol = resolved.subCol;
+      entry.subRow = resolved.subRow;
+      entry.dir = resolved.dir;
+      entry.worldX = resolved.worldX;
+      entry.worldZ = resolved.worldZ;
+      entry.mountY = resolved.mountY;
+      entry.utilityMount = resolved.utilityMount;
+      entry.cells = def.footprintCells(
+        entry.col, entry.row, entry.subCol, entry.subRow, entry.dir,
+      );
+      line.start = {
+        placeableId: resolved.utilityMount.hostPlaceableId,
+        portName: resolved.utilityMount.portName,
+      };
+      line.path = [resolved.linePoint, resolved.linePoint].map(point => ({ ...point }));
+      line.subL = 0;
+      this.emit('utilityLinesChanged', {
+        utilityType: 'hvCable', action: 'moved', lineId: line.id,
+      });
+      this._markNavDirty();
+      return true;
+    }
 
     let { col, row } = pose;
     let wallMount = null;
@@ -3777,6 +3869,11 @@ export class Game {
     const attached = new Map();
     for (const line of lines.values()) {
       if (skipLineIds?.has?.(line.id)) continue;
+      // A tap mount is already re-anchored atomically by movePlaceable: its
+      // zero-length logical path has no terminal leg for the generic cable
+      // re-anchorer to slide. Running it through that path would dangle the
+      // transformer's own internal HV connection immediately after a move.
+      if (selected.has(line.mountConnectionPlaceableId)) continue;
       const positionsById = new Map();
       for (const ref of [line.start, line.end]) {
         if (!ref || !selected.has(ref.placeableId)) continue;
@@ -3805,10 +3902,21 @@ export class Game {
    * Remove a placeable by ID. Refunds 50% of cost.
    */
   removePlaceable(placeableId, opts = {}) {
-    const idx = this.state.placeableIndex[placeableId];
+    let idx = this.state.placeableIndex[placeableId];
     if (idx === undefined) return false;
 
-    const entry = this.state.placeables[idx];
+    let entry = this.state.placeables[idx];
+    if (!entry) return false;
+
+    // Port-mounted service boxes depend on the physical tap they are bolted
+    // to, just as wall fixtures depend on a wall. Removing the host therefore
+    // removes its children through their normal refund/lifecycle path.
+    const mountedChildIds = this.state.placeables
+      .filter(child => child.utilityMount?.hostPlaceableId === placeableId)
+      .map(child => child.id);
+    for (const childId of mountedChildIds) this.removePlaceable(childId, opts);
+    idx = this.state.placeableIndex[placeableId];
+    entry = idx === undefined ? null : this.state.placeables[idx];
     if (!entry) return false;
 
     const placeable = PLACEABLES[entry.type];
@@ -3835,6 +3943,9 @@ export class Game {
     // Lifecycle hook — runs before we clear cells / remove the entry so
     // subclasses (e.g. BeamlineModule) can still see the instance in place.
     placeable.onRemoved(this, entry);
+
+    const mountLine = mountedConnectionLine(this.state, placeableId);
+    if (mountLine) this.utilityLineSystem.removeLine(mountLine.id);
 
     // Free sub-grid cells — only for ground-level items. Stacked items also
     // carry cells (for sibling-collision tracking) but those subtiles belong

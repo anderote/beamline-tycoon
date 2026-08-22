@@ -65,7 +65,7 @@ function cellKey(c) {
  * All three can overlap ordinary equipment without replacing it.
  */
 export function usesFloorOccupancy(placeable) {
-  return !['overhead', 'wall', 'floor'].includes(placeable?.mount);
+  return !['overhead', 'wall', 'floor', 'utilityTap'].includes(placeable?.mount);
 }
 
 /** Snap a cursor fraction along a wall edge to one of its four sub-slots. */

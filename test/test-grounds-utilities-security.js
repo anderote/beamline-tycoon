@@ -137,7 +137,7 @@ test('functional overhead supports are linked into Infra Power and keep decorati
 });
 
 test('retired power routing props stay loadable but leave every build palette', () => {
-  const retired = ['cableTray', 'cableRiser', 'hvDuctBankVault'];
+  const retired = ['cableTray', 'cableRiser', 'hvDuctBankVault', 'indoorHvCableCornerRack'];
   const activePower = componentPaletteEntries(COMPONENTS, 'power').map(({ key }) => key);
   const searchIds = new Set(buildPaletteIndex(null).map(entry => entry.id));
   for (const id of retired) {

@@ -3935,6 +3935,10 @@ export class ThreeRenderer {
     const row = hover.row;
     let px = col * 2 + sc * SUB_UNIT + footW / 2;
     let pz = row * 2 + sr * SUB_UNIT + footH / 2;
+    if (Number.isFinite(hover.worldX) && Number.isFinite(hover.worldZ)) {
+      px = hover.worldX;
+      pz = hover.worldZ;
+    }
     const wallPose = placeable.mount === 'wall'
       ? (placeable.wallPassThrough === true
           ? wallFixturePose(hover.wallMount, 0)
@@ -3953,6 +3957,7 @@ export class ThreeRenderer {
     // Stacked items ride placeY above that same zero.
     const surfaceY = 0;
     let y = (isDetailed ? placeYOffset : placeYOffset + (vSubH * SUB_UNIT) / 2) + surfaceY;
+    if (Number.isFinite(hover.mountY)) y = hover.mountY;
     if (placeable.mount === 'wall' || placeable.light) {
       y = fixtureMountY(placeable, placeYOffset + surfaceY);
     }
@@ -3973,12 +3978,18 @@ export class ThreeRenderer {
     // brighter and larger than the live fitting so a translucent body never
     // buries an important port.
     const portDef = COMPONENTS[hover.id] || placeable;
-    this._addGhostUtilityPorts({ ...hover, type: hover.id }, portDef);
+    this._addGhostUtilityPorts({
+      ...hover,
+      type: hover.id,
+      worldX: px,
+      worldZ: pz,
+      yOffset: Number.isFinite(hover.mountY) ? hover.mountY : undefined,
+    }, portDef);
 
     // Wall fixtures are anchored to an edge, not a floor footprint. Their
     // tinted model is the placement marker; drawing a floor quad beneath it
     // suggests that equipment occupancy is involved when it is not.
-    if (placeable.mount === 'wall') return;
+    if (placeable.mount === 'wall' || placeable.mount === 'utilityTap') return;
 
     // Floor outline + fill on the post-flatten surface, so the footprint
     // marker and the ghost mesh sit on the same plane.
