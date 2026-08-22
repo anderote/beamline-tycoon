@@ -1,5 +1,6 @@
 // Local Scenario Admin catalogue, Save As, and New Game picker contracts.
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import {
   CUSTOM_SCENARIO_ID,
@@ -7,7 +8,9 @@ import {
   CUSTOM_SCENARIO_KEY,
   CUSTOM_SCENARIO_PREFIX,
   DEFAULT_STARTING_SCENARIO_KEY,
+  MINOR_LAB_SCENARIO_ID,
   PENDING_SCENARIO_KEY,
+  consolidateMinorLabScenarios,
   customScenarioRef,
   listCustomScenarios,
   listPlayableScenarios,
@@ -70,6 +73,26 @@ assert.equal(resolveScenario('realLab', storage), null,
 assert.equal(resolveScenario('smallBeamlineFacility', storage), null,
   'the former Small Beamline Facility fixture is not launchable from New Game');
 
+// The stock Minor Lab is the exact latest Scenario Admin export, not the old
+// tiny hand-written control nook. Pin its complete data graph and make sure the
+// generator returns a detached copy for each New Game session.
+const minorLabBaseText = readFileSync(
+  new URL('../src/data/scenarios/minorLab.base.json', import.meta.url), 'utf8',
+);
+const minorLabBase = JSON.parse(minorLabBaseText);
+assert.equal(minorLabBase.id, MINOR_LAB_SCENARIO_ID);
+assert.equal(minorLabBase.name, 'Minor Lab');
+assert.equal(
+  createHash('sha256').update(JSON.stringify(minorLabBase.data)).digest('hex'),
+  'cb138f0b4e2b709a87d18c3f86c2b8c5076a58ae534062d0bab1f3375a74495f',
+  'the complete latest Minor Lab export remains the built-in baseline',
+);
+const generatedMinorLab = resolveScenario('minorLab', memoryStorage()).generator();
+assert.deepEqual(generatedMinorLab, minorLabBase.data);
+generatedMinorLab.floors.pop();
+assert.equal(resolveScenario('minorLab', memoryStorage()).generator().floors.length, 361,
+  'each Minor Lab launch receives an independent copy of the baseline');
+
 const minorOverrideStorage = memoryStorage();
 saveCustomScenario({ id: 'minorLab', name: 'Minor Lab', data: baseData }, {
   storage: minorOverrideStorage,
@@ -77,6 +100,42 @@ saveCustomScenario({ id: 'minorLab', name: 'Minor Lab', data: baseData }, {
 assert.deepEqual(listPlayableScenarios(minorOverrideStorage).map(scenario => scenario.id),
   [customScenarioRef('minorLab'), 'sandbox'],
   'saving an edited Minor Lab replaces the stock card instead of duplicating it');
+
+// Older Scenario Admin builds minted minorLab2/minorLab3/minorLab4 for the
+// same display name. New Game consolidates them to one canonical override,
+// retaining the newest world and removing the obsolete indexed payloads.
+const duplicateMinorStorage = memoryStorage();
+const minorOldData = { ...baseData, floors: [{ type: 'concrete', col: 1, row: 1 }] };
+const minorLatestData = { ...baseData, floors: [{ type: 'concrete', col: 9, row: 9 }] };
+const seedMinor = (id, data, updatedAt) => {
+  duplicateMinorStorage.setItem(`${CUSTOM_SCENARIO_PREFIX}${id}`, JSON.stringify({
+    id, name: 'Minor Lab', data, sandbox: true, updatedAt,
+  }));
+};
+seedMinor('minorLab2', minorOldData, 100);
+seedMinor('minorLab4', minorLatestData, 400);
+duplicateMinorStorage.setItem(CUSTOM_SCENARIO_INDEX_KEY, JSON.stringify([
+  { id: 'minorLab2', name: 'Minor Lab', sandbox: true, updatedAt: 100 },
+  { id: 'minorLab4', name: 'Minor Lab', sandbox: true, updatedAt: 400 },
+]));
+assert.equal(consolidateMinorLabScenarios(duplicateMinorStorage)?.id, 'minorLab');
+assert.deepEqual(listCustomScenarios(duplicateMinorStorage).map(scenario => scenario.id), ['minorLab']);
+assert.deepEqual(loadCustomScenarioById('minorLab', duplicateMinorStorage)?.data, minorLatestData,
+  'the newest saved Minor Lab revision becomes the canonical local override');
+assert.equal(duplicateMinorStorage.getItem(`${CUSTOM_SCENARIO_PREFIX}minorLab2`), null);
+assert.equal(duplicateMinorStorage.getItem(`${CUSTOM_SCENARIO_PREFIX}minorLab4`), null);
+assert.deepEqual(listPlayableScenarios(duplicateMinorStorage).map(scenario => scenario.id),
+  [customScenarioRef('minorLab'), 'sandbox'],
+  'duplicate Minor Lab cards collapse to one local override plus Sandbox');
+
+const minorReplacementData = { ...baseData, floors: [{ type: 'labFloor', col: 12, row: 4 }] };
+const canonicalMinorSave = saveCustomScenario({
+  id: 'minorLab5', name: 'Minor Lab', data: minorReplacementData,
+}, { storage: duplicateMinorStorage });
+assert.equal(canonicalMinorSave.id, 'minorLab',
+  'saving a later Minor Lab filename still overwrites the canonical slot');
+assert.deepEqual(loadCustomScenarioById('minorLab5', duplicateMinorStorage)?.data, minorReplacementData,
+  'old suffixed Minor Lab references resolve to the canonical saved world');
 
 const balanceRef = customScenarioRef('balanceLab');
 const resolved = resolveScenario(balanceRef, storage);
@@ -288,6 +347,23 @@ assert.match(importLog.at(-1).message, /Use Save As/);
 assert.ok(importEditor.saveAs({ id: 'majorLab2', name: 'Major Lab' }));
 assert.deepEqual(loadCustomScenarioById('majorLab2', importStorage)?.data.floors, baseData.floors,
   'Save As publishes the imported world under the chosen identity');
+
+const importedMinorLab = parseScenarioExport(JSON.stringify({
+  id: 'minorLab4',
+  name: 'Minor Lab',
+  data: minorLatestData,
+}));
+assert.ok(importEditor.loadScenarioPayload(importedMinorLab, {
+  sourceName: 'minorLab4.scenario.json',
+  confirmReplace: () => true,
+}));
+const savedImportedMinor = importEditor.saveDesign();
+assert.equal(savedImportedMinor?.id, 'minorLab',
+  'Save on an imported Minor Lab revision directly targets the canonical baseline slot');
+assert.deepEqual(loadCustomScenarioById('minorLab', importStorage)?.data.floors,
+  minorLatestData.floors);
+assert.match(importLog.at(-1).message, /Saved "Minor Lab"/,
+  'the direct overwrite is reported as the ordinary saved Minor Lab');
 
 importState.floors.push({ type: 'concrete', col: 9, row: 9 });
 const retainedFloors = JSON.stringify(importState.floors);
