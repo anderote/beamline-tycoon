@@ -898,7 +898,7 @@ export const INFRASTRUCTURE_RAW = {
     cost: { funding: 475000 },
     stats: {},
     energyCost: 3,
-    subL: 6, subW: 4, subH: 4, gridW: 4, gridH: 6, geometryType: 'box',
+    subL: 4, subW: 3, subH: 4, gridW: 3, gridH: 4, geometryType: 'box',
     baseMaterial: 'metal_painted_gray',
     zoneTier: 2,
     spriteKey: 'vacuumCart',

@@ -8,6 +8,8 @@ const { COMPONENTS } = await import('../src/data/components.js');
 const {
   _buildRoughingPumpCartRoles,
   _buildTurboPumpCartRoles,
+  _buildVacuumCartRoles,
+  _buildHighCapacityVacuumStationRoles,
 } = await import('../src/renderer3d/builders/vacuum-builder.js');
 
 function boundsOf(buckets) {
@@ -37,6 +39,19 @@ function assertCompactEnvelope(name, bounds) {
     `${name} stays inside its 3-subtile height (${bounds.min.y}..${bounds.max.y})`);
 }
 
+function assertAuthoredEnvelope(name, bounds, def) {
+  const eps = 1e-6;
+  const halfW = def.subW * 0.25;
+  const halfL = def.subL * 0.25;
+  const height = def.subH * 0.5;
+  assert.ok(bounds.min.x >= -halfW - eps && bounds.max.x <= halfW + eps,
+    `${name} stays inside its ${def.subW}-subtile width`);
+  assert.ok(bounds.min.z >= -halfL - eps && bounds.max.z <= halfL + eps,
+    `${name} stays inside its ${def.subL}-subtile length`);
+  assert.ok(bounds.min.y >= -eps && bounds.max.y <= height + eps,
+    `${name} stays inside its ${def.subH}-subtile height`);
+}
+
 test('roughing and turbo carts declare the same compact 2×1×3-subtile envelope', () => {
   for (const id of ['roughingPumpCart', 'turboPumpCart']) {
     const def = COMPONENTS[id];
@@ -58,4 +73,43 @@ test('compact cart meshes stay inside their authored placement footprints', () =
 
   disposeBuckets(rough);
   disposeBuckets(turbo);
+});
+
+test('integrated mobile vacuum cart uses the smaller 1.5 × 2 metre footprint', () => {
+  const def = COMPONENTS.vacuumCart;
+  assert.equal(def.subW, 3, 'cart is three subtiles wide');
+  assert.equal(def.subL, 4, 'cart is four subtiles long');
+  assert.equal(def.gridW, 3, 'placement grid matches visual width');
+  assert.equal(def.gridH, 4, 'placement grid matches visual length');
+
+  const cart = _buildVacuumCartRoles();
+  const bounds = boundsOf(cart);
+  assertAuthoredEnvelope('mobile vacuum cart', bounds, def);
+  assert.ok(Math.abs(bounds.max.x - 0.70) < 1e-6,
+    'visible outlet reaches the authored right-side vacuum fitting');
+  assert.ok(cart.iron.length >= 4,
+    'two dry-pump motors, turbo motor, and isolation valve remain visible');
+  assert.ok(cart.pipe.length >= 6,
+    'roughing header, turbo body, foreline, and outlet are modeled');
+  assert.ok(cart.glow.length >= 4,
+    'controller display and individual status lamps are modeled');
+  disposeBuckets(cart);
+});
+
+test('high-capacity station is a detailed staged pumping skid within its footprint', () => {
+  const def = COMPONENTS.highCapacityVacuumStation;
+  const station = _buildHighCapacityVacuumStationRoles();
+  const bounds = boundsOf(station);
+  assertAuthoredEnvelope('high-capacity vacuum station', bounds, def);
+  assert.ok(Math.abs(bounds.max.x - def.subW * 0.25) < 1e-6,
+    'engineered outlet reaches the right edge of the station footprint');
+  assert.ok(station.pipe.length >= 18,
+    'high-vacuum header and backing forelines are separately modeled');
+  assert.ok(station.stand.length >= 19,
+    'open skid frame, pump pads, feet, and service guard are modeled');
+  assert.ok(station.iron.length >= 30,
+    'twin turbo stacks, flange bolts, valves, Roots ends, and motors are visible');
+  assert.ok(station.glow.length >= 5,
+    'PLC display, status lamps, and warning beacon are modeled');
+  disposeBuckets(station);
 });

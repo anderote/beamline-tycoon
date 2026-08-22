@@ -482,78 +482,147 @@ export function _buildTurboPumpCartRoles() {
 export function _buildVacuumCartRoles() {
   const b = makeBuckets();
 
-  // Low cart deck and raised push handle.
+  // Compact welded cart deck: the complete staged system now fits a 1.5 × 2 m
+  // service bay instead of occupying the footprint of a small room.
   {
-    const g = new THREE.BoxGeometry(1.72, 0.10, 2.55);
-    applyTiledBoxUVs(g, 1.72, 0.10, 2.55);
+    const g = new THREE.BoxGeometry(1.36, 0.10, 1.76);
+    applyTiledBoxUVs(g, 1.36, 0.10, 1.76);
     pushT(b.stand, g, trans(0, 0.22, 0));
   }
-  for (const x of [-0.72, 0.72]) {
-    for (const z of [-1.05, 1.05]) {
-      const g = new THREE.CylinderGeometry(0.14, 0.14, 0.09, 12);
-      applyTiledCylinderUVs(g, 0.14, 0.09, 12);
+  for (const x of [-0.62, 0.62]) {
+    for (const z of [-0.72, 0.72]) {
+      const g = new THREE.CylinderGeometry(0.12, 0.12, 0.08, 12);
+      applyTiledCylinderUVs(g, 0.12, 0.08, 12);
       const m = new THREE.Matrix4().multiplyMatrices(trans(x, 0.14, z), rotZ(Math.PI / 2));
       pushT(b.detail, g, m);
     }
   }
-  for (const x of [-0.72, 0.72]) {
-    const g = new THREE.BoxGeometry(0.06, 1.05, 0.06);
-    applyTiledBoxUVs(g, 0.06, 1.05, 0.06);
-    pushT(b.stand, g, trans(x, 0.77, -1.22));
+
+  // Four corner posts and top rails make the skid read as a mobile rack, not
+  // a collection of pumps balanced on a flat plate.
+  for (const x of [-0.61, 0.61]) {
+    for (const z of [-0.73, 0.73]) {
+      const g = new THREE.BoxGeometry(0.045, 0.92, 0.045);
+      applyTiledBoxUVs(g, 0.045, 0.92, 0.045);
+      pushT(b.stand, g, trans(x, 0.73, z));
+    }
+  }
+  for (const x of [-0.61, 0.61]) {
+    const g = new THREE.BoxGeometry(0.045, 0.045, 1.50);
+    applyTiledBoxUVs(g, 0.045, 0.045, 1.50);
+    pushT(b.stand, g, trans(x, 1.19, 0));
+  }
+
+  // Rear push handle.
+  for (const x of [-0.55, 0.55]) {
+    const g = new THREE.BoxGeometry(0.045, 0.35, 0.045);
+    applyTiledBoxUVs(g, 0.045, 0.35, 0.045);
+    pushT(b.stand, g, trans(x, 1.32, -0.88));
   }
   {
-    const g = new THREE.CylinderGeometry(0.035, 0.035, 1.48, 8);
-    applyTiledCylinderUVs(g, 0.035, 1.48, 8);
-    const m = new THREE.Matrix4().multiplyMatrices(trans(0, 1.28, -1.22), rotZ(Math.PI / 2));
+    const g = new THREE.CylinderGeometry(0.03, 0.03, 1.14, 8);
+    applyTiledCylinderUVs(g, 0.03, 1.14, 8);
+    const m = new THREE.Matrix4().multiplyMatrices(trans(0, 1.50, -0.88), rotZ(Math.PI / 2));
     pushT(b.stand, g, m);
   }
 
-  // Two horizontally-mounted dry roughing stages.
-  for (const x of [-0.48, 0.48]) {
-    const motor = new THREE.CylinderGeometry(0.22, 0.22, 0.62, SEGS);
-    applyTiledCylinderUVs(motor, 0.22, 0.62, SEGS);
+  // Two side-by-side dry roughing stages. Each has a finned motor, pump block,
+  // inlet riser, and visible accent band, preserving the integrated 30 L/s
+  // backing stage in the much smaller silhouette.
+  for (const x of [-0.32, 0.32]) {
+    const motor = new THREE.CylinderGeometry(0.16, 0.16, 0.38, SEGS);
+    applyTiledCylinderUVs(motor, 0.16, 0.38, SEGS);
     pushT(b.iron, motor, new THREE.Matrix4().multiplyMatrices(
-      trans(x, 0.55, -0.48), rotX(Math.PI / 2),
+      trans(x, 0.52, -0.39), rotX(Math.PI / 2),
     ));
-    const housing = new THREE.BoxGeometry(0.54, 0.48, 0.60);
-    applyTiledBoxUVs(housing, 0.54, 0.48, 0.60);
-    pushT(b.accent, housing, trans(x, 0.55, 0.10));
+    const housing = new THREE.BoxGeometry(0.46, 0.40, 0.42);
+    applyTiledBoxUVs(housing, 0.46, 0.40, 0.42);
+    pushT(b.accent, housing, trans(x, 0.52, 0.01));
+    for (const z of [-0.49, -0.39, -0.29]) {
+      const fin = new THREE.TorusGeometry(0.168, 0.012, 6, 12);
+      pushT(b.detail, fin, trans(x, 0.52, z));
+    }
+    const riser = new THREE.CylinderGeometry(0.035, 0.035, 0.28, 8);
+    applyTiledCylinderUVs(riser, 0.035, 0.28, 8);
+    pushT(b.pipe, riser, trans(x, 0.86, 0.08));
   }
 
-  // Central turbo stage above the common backing manifold.
+  // Central turbo stage rises between the rack rails at the front of the cart.
   {
-    const g = new THREE.CylinderGeometry(0.25, 0.25, 0.42, SEGS);
-    applyTiledCylinderUVs(g, 0.25, 0.42, SEGS);
-    pushT(b.iron, g, trans(0, 0.95, 0.65));
+    const g = new THREE.CylinderGeometry(0.23, 0.23, 0.34, SEGS);
+    applyTiledCylinderUVs(g, 0.23, 0.34, SEGS);
+    pushT(b.iron, g, trans(0, 0.52, 0.48));
   }
   {
-    const g = new THREE.CylinderGeometry(0.20, 0.20, 0.78, SEGS);
-    applyTiledCylinderUVs(g, 0.20, 0.78, SEGS);
-    pushT(b.pipe, g, trans(0, 1.55, 0.65));
+    const g = new THREE.CylinderGeometry(0.17, 0.20, 0.70, SEGS);
+    applyTiledCylinderUVs(g, 0.20, 0.70, SEGS);
+    pushT(b.pipe, g, trans(0, 1.04, 0.48));
+  }
+  for (const y of [0.72, 1.05, 1.37]) {
+    const g = new THREE.CylinderGeometry(0.235, 0.235, 0.035, SEGS);
+    applyTiledCylinderUVs(g, 0.235, 0.035, SEGS);
+    pushT(b.accent, g, trans(0, y, 0.48));
   }
   {
-    const g = new THREE.CylinderGeometry(0.32, 0.32, 0.06, SEGS);
-    applyTiledCylinderUVs(g, 0.32, 0.06, SEGS);
-    pushT(b.detail, g, trans(0, 1.97, 0.65));
+    const g = new THREE.CylinderGeometry(0.29, 0.29, 0.06, SEGS);
+    applyTiledCylinderUVs(g, 0.29, 0.06, SEGS);
+    pushT(b.detail, g, trans(0, 1.42, 0.48));
   }
 
-  // Common stainless backing manifold, branch legs, and control box.
+  // Common backing header joins both dry pumps to the turbo foreline.
   {
-    const g = new THREE.CylinderGeometry(0.075, 0.075, 1.18, 12);
-    applyTiledCylinderUVs(g, 0.075, 1.18, 12);
+    const g = new THREE.CylinderGeometry(0.06, 0.06, 0.78, 12);
+    applyTiledCylinderUVs(g, 0.06, 0.78, 12);
     pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
-      trans(0, 0.92, 0.26), rotZ(Math.PI / 2),
+      trans(0, 0.94, 0.08), rotZ(Math.PI / 2),
     ));
   }
-  for (const x of [-0.48, 0.48]) {
-    const g = new THREE.CylinderGeometry(0.045, 0.045, 0.44, 10);
-    applyTiledCylinderUVs(g, 0.045, 0.44, 10);
-    pushT(b.pipe, g, trans(x, 0.74, 0.26));
+  {
+    const g = new THREE.CylinderGeometry(0.05, 0.05, 0.40, 10);
+    applyTiledCylinderUVs(g, 0.05, 0.40, 10);
+    pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+      trans(0, 0.94, 0.28), rotX(Math.PI / 2),
+    ));
+  }
+
+  // Large-bore side outlet and isolation valve meet the authored vacuum port.
+  {
+    const g = new THREE.CylinderGeometry(0.10, 0.10, 0.70, 14);
+    applyTiledCylinderUVs(g, 0.10, 0.70, 14);
+    pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+      trans(0.35, 1.00, 0.42), rotZ(Math.PI / 2),
+    ));
   }
   {
-    const g = new THREE.BoxGeometry(0.56, 0.66, 0.28);
-    applyTiledBoxUVs(g, 0.56, 0.66, 0.28);
-    pushT(b.accent, g, trans(0.55, 1.20, -0.82));
+    const g = new THREE.BoxGeometry(0.13, 0.36, 0.34);
+    applyTiledBoxUVs(g, 0.13, 0.36, 0.34);
+    pushT(b.iron, g, trans(0.48, 1.00, 0.42));
+  }
+  {
+    const g = new THREE.CylinderGeometry(0.17, 0.17, 0.055, 14);
+    applyTiledCylinderUVs(g, 0.17, 0.055, 14);
+    pushT(b.detail, g, new THREE.Matrix4().multiplyMatrices(
+      trans(0.6725, 1.00, 0.42), rotZ(Math.PI / 2),
+    ));
+  }
+
+  // Compact controller with screen and status lamps on the rear corner.
+  {
+    const g = new THREE.BoxGeometry(0.36, 0.68, 0.30);
+    applyTiledBoxUVs(g, 0.36, 0.68, 0.30);
+    pushT(b.accent, g, trans(0.46, 0.91, -0.48));
+  }
+  {
+    const g = new THREE.BoxGeometry(0.23, 0.16, 0.018);
+    applyTiledBoxUVs(g, 0.23, 0.16, 0.018);
+    pushT(b.glow, g, trans(0.46, 1.06, -0.321));
+  }
+  for (const x of [0.39, 0.46, 0.53]) {
+    const g = new THREE.CylinderGeometry(0.018, 0.018, 0.014, 8);
+    applyTiledCylinderUVs(g, 0.018, 0.014, 8);
+    pushT(b.glow, g, new THREE.Matrix4().multiplyMatrices(
+      trans(x, 0.86, -0.322), rotX(Math.PI / 2),
+    ));
   }
 
   return b;
@@ -565,64 +634,235 @@ export function _buildVacuumCartRoles() {
  */
 export function _buildHighCapacityVacuumStationRoles() {
   const b = makeBuckets();
-  {
-    const g = new THREE.BoxGeometry(2.75, 0.16, 3.72);
-    applyTiledBoxUVs(g, 2.75, 0.16, 3.72);
-    pushT(b.stand, g, trans(0, 0.08, 0));
-  }
 
-  // Twin 1500 L/s turbo stacks.
-  for (const x of [-0.78, 0.78]) {
-    const motor = new THREE.CylinderGeometry(0.42, 0.42, 0.58, SEGS);
-    applyTiledCylinderUVs(motor, 0.42, 0.58, SEGS);
-    pushT(b.iron, motor, trans(x, 0.45, 0.72));
-    const turbo = new THREE.CylinderGeometry(0.35, 0.35, 1.42, 20);
-    applyTiledCylinderUVs(turbo, 0.35, 1.42, 20);
-    pushT(b.pipe, turbo, trans(x, 1.45, 0.72));
-    const flange = new THREE.CylinderGeometry(0.52, 0.52, 0.09, 20);
-    applyTiledCylinderUVs(flange, 0.52, 0.09, 20);
-    pushT(b.detail, flange, trans(x, 2.205, 0.72));
+  // Open structural skid. Perimeter rails, cross-members, and individual pump
+  // pads leave visible space beneath the machinery and establish its scale.
+  for (const x of [-1.36, 1.36]) {
+    const g = new THREE.BoxGeometry(0.14, 0.16, 3.72);
+    applyTiledBoxUVs(g, 0.14, 0.16, 3.72);
+    pushT(b.stand, g, trans(x, 0.12, 0));
   }
-
-  // Roots backing blowers along the rear of the skid.
+  for (const z of [-1.74, -0.62, 0.62, 1.74]) {
+    const g = new THREE.BoxGeometry(2.58, 0.12, 0.14);
+    applyTiledBoxUVs(g, 2.58, 0.12, 0.14);
+    pushT(b.stand, g, trans(0, 0.14, z));
+  }
+  for (const x of [-1.20, 1.20]) {
+    for (const z of [-1.68, 1.68]) {
+      const g = new THREE.BoxGeometry(0.28, 0.08, 0.34);
+      applyTiledBoxUVs(g, 0.28, 0.08, 0.34);
+      pushT(b.stand, g, trans(x, 0.04, z));
+    }
+  }
   for (const x of [-0.72, 0.72]) {
-    const housing = new THREE.BoxGeometry(1.02, 0.88, 0.92);
-    applyTiledBoxUVs(housing, 1.02, 0.88, 0.92);
-    pushT(b.accent, housing, trans(x, 0.64, -0.92));
-    for (const dx of [-0.24, 0.24]) {
-      const end = new THREE.CylinderGeometry(0.28, 0.28, 0.08, 14);
-      applyTiledCylinderUVs(end, 0.28, 0.08, 14);
-      pushT(b.iron, end, new THREE.Matrix4().multiplyMatrices(
-        trans(x + dx, 0.64, -1.40), rotX(Math.PI / 2),
+    const g = new THREE.BoxGeometry(1.02, 0.07, 1.18);
+    applyTiledBoxUVs(g, 1.02, 0.07, 1.18);
+    pushT(b.stand, g, trans(x, 0.235, 0.58));
+  }
+
+  // Twin 1500 L/s turbomolecular stacks. Tapered stainless stages, service
+  // rings, inlet necks, and bolted top flanges make the pump train readable.
+  for (const x of [-0.72, 0.72]) {
+    {
+      const g = new THREE.CylinderGeometry(0.40, 0.40, 0.52, 20);
+      applyTiledCylinderUVs(g, 0.40, 0.52, 20);
+      pushT(b.iron, g, trans(x, 0.55, 0.58));
+    }
+    {
+      const g = new THREE.CylinderGeometry(0.34, 0.40, 0.54, 20);
+      applyTiledCylinderUVs(g, 0.40, 0.54, 20);
+      pushT(b.pipe, g, trans(x, 1.08, 0.58));
+    }
+    {
+      const g = new THREE.CylinderGeometry(0.28, 0.34, 0.64, 20);
+      applyTiledCylinderUVs(g, 0.34, 0.64, 20);
+      pushT(b.pipe, g, trans(x, 1.67, 0.58));
+    }
+    for (const y of [0.82, 1.35, 1.99]) {
+      const g = new THREE.CylinderGeometry(0.43, 0.43, 0.055, 20);
+      applyTiledCylinderUVs(g, 0.43, 0.055, 20);
+      pushT(b.accent, g, trans(x, y, 0.58));
+    }
+    {
+      const g = new THREE.CylinderGeometry(0.25, 0.25, 0.20, 20);
+      applyTiledCylinderUVs(g, 0.25, 0.20, 20);
+      pushT(b.pipe, g, trans(x, 2.115, 0.58));
+    }
+    {
+      const g = new THREE.CylinderGeometry(0.50, 0.50, 0.10, 20);
+      applyTiledCylinderUVs(g, 0.50, 0.10, 20);
+      pushT(b.detail, g, trans(x, 2.265, 0.58));
+    }
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2;
+      const g = new THREE.CylinderGeometry(0.022, 0.022, 0.075, 6);
+      applyTiledCylinderUVs(g, 0.022, 0.075, 6);
+      pushT(b.iron, g, trans(
+        x + Math.cos(angle) * 0.41,
+        2.3275,
+        0.58 + Math.sin(angle) * 0.41,
       ));
     }
   }
 
-  // High-conductance common header and isolation valve wheels.
+  // High-conductance inlet manifold across the front. Short branch spools
+  // join both turbo inlets through pneumatic isolation valves; the right-hand
+  // drop lands exactly on the authored vacuum utility outlet.
   {
-    const g = new THREE.CylinderGeometry(0.16, 0.16, 2.24, 16);
-    applyTiledCylinderUVs(g, 0.16, 2.24, 16);
+    const g = new THREE.CylinderGeometry(0.18, 0.18, 2.42, 20);
+    applyTiledCylinderUVs(g, 0.18, 2.42, 20);
     pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
-      trans(0, 1.02, 1.38), rotZ(Math.PI / 2),
+      trans(0.04, 2.28, 1.38), rotZ(Math.PI / 2),
     ));
   }
-  for (const x of [-0.78, 0.78]) {
-    const g = new THREE.TorusGeometry(0.25, 0.035, 8, 16);
-    pushT(b.accent, g, new THREE.Matrix4().multiplyMatrices(
-      trans(x, 1.45, 1.38), rotX(Math.PI / 2),
+  for (const x of [-0.72, 0.72]) {
+    {
+      const g = new THREE.CylinderGeometry(0.16, 0.16, 0.80, 16);
+      applyTiledCylinderUVs(g, 0.16, 0.80, 16);
+      pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+        trans(x, 2.28, 0.98), rotX(Math.PI / 2),
+      ));
+    }
+    {
+      const g = new THREE.BoxGeometry(0.42, 0.42, 0.15);
+      applyTiledBoxUVs(g, 0.42, 0.42, 0.15);
+      pushT(b.iron, g, trans(x, 2.28, 1.10));
+    }
+    {
+      const g = new THREE.CylinderGeometry(0.085, 0.085, 0.32, 12);
+      applyTiledCylinderUVs(g, 0.085, 0.32, 12);
+      pushT(b.accent, g, trans(x, 2.65, 1.10));
+    }
+    {
+      const g = new THREE.BoxGeometry(0.22, 0.11, 0.18);
+      applyTiledBoxUVs(g, 0.22, 0.11, 0.18);
+      pushT(b.accent, g, trans(x, 2.865, 1.10));
+    }
+  }
+  {
+    const g = new THREE.CylinderGeometry(0.18, 0.18, 1.23, 20);
+    applyTiledCylinderUVs(g, 0.18, 1.23, 20);
+    pushT(b.pipe, g, trans(1.25, 1.665, 1.38));
+  }
+  for (const y of [1.05, 2.28]) {
+    const g = new THREE.SphereGeometry(0.18, 16, 10);
+    pushT(b.pipe, g, trans(1.25, y, 1.38));
+  }
+  {
+    const g = new THREE.CylinderGeometry(0.18, 0.18, 0.25, 20);
+    applyTiledCylinderUVs(g, 0.18, 0.25, 20);
+    pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+      trans(1.375, 1.05, 1.38), rotZ(Math.PI / 2),
+    ));
+  }
+  {
+    const g = new THREE.CylinderGeometry(0.28, 0.28, 0.055, 20);
+    applyTiledCylinderUVs(g, 0.28, 0.055, 20);
+    pushT(b.detail, g, new THREE.Matrix4().multiplyMatrices(
+      trans(1.4725, 1.05, 1.38), rotZ(Math.PI / 2),
     ));
   }
 
-  // Full-height controls cabinet at one end.
-  {
-    const g = new THREE.BoxGeometry(0.58, 1.75, 0.72);
-    applyTiledBoxUVs(g, 0.58, 1.75, 0.72);
-    pushT(b.accent, g, trans(1.08, 1.035, -0.12));
+  // Twin Roots backing blowers and their outboard drive motors.
+  for (const x of [-0.70, 0.70]) {
+    {
+      const g = new THREE.BoxGeometry(0.82, 0.68, 0.72);
+      applyTiledBoxUVs(g, 0.82, 0.68, 0.72);
+      pushT(b.accent, g, trans(x, 0.60, -0.93));
+    }
+    for (const dx of [-0.19, 0.19]) {
+      const g = new THREE.CylinderGeometry(0.205, 0.205, 0.075, 16);
+      applyTiledCylinderUVs(g, 0.205, 0.075, 16);
+      pushT(b.iron, g, new THREE.Matrix4().multiplyMatrices(
+        trans(x + dx, 0.60, -0.5325), rotX(Math.PI / 2),
+      ));
+    }
+    const motorX = x + Math.sign(x) * 0.54;
+    {
+      const g = new THREE.CylinderGeometry(0.21, 0.21, 0.32, 16);
+      applyTiledCylinderUVs(g, 0.21, 0.32, 16);
+      pushT(b.iron, g, new THREE.Matrix4().multiplyMatrices(
+        trans(motorX, 0.56, -0.93), rotZ(Math.PI / 2),
+      ));
+    }
+    for (let i = -1; i <= 1; i++) {
+      const g = new THREE.TorusGeometry(0.216, 0.012, 6, 12);
+      pushT(b.detail, g, new THREE.Matrix4().multiplyMatrices(
+        trans(motorX + i * 0.08, 0.56, -0.93),
+        new THREE.Matrix4().makeRotationY(Math.PI / 2),
+      ));
+    }
   }
-  for (let i = 0; i < 4; i++) {
-    const g = new THREE.BoxGeometry(0.36, 0.055, 0.025);
-    applyTiledBoxUVs(g, 0.36, 0.055, 0.025);
-    pushT(b.glow, g, trans(1.08, 1.52 - i * 0.20, 0.252));
+
+  // Stainless foreline header ties the Roots blowers to both turbo exhausts.
+  {
+    const g = new THREE.CylinderGeometry(0.09, 0.09, 1.72, 14);
+    applyTiledCylinderUVs(g, 0.09, 1.72, 14);
+    pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+      trans(0, 0.93, -0.34), rotZ(Math.PI / 2),
+    ));
+  }
+  for (const x of [-0.70, 0.70]) {
+    {
+      const g = new THREE.CylinderGeometry(0.075, 0.075, 0.59, 12);
+      applyTiledCylinderUVs(g, 0.075, 0.59, 12);
+      pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+        trans(x, 0.93, -0.635), rotX(Math.PI / 2),
+      ));
+    }
+    {
+      const g = new THREE.CylinderGeometry(0.075, 0.075, 0.92, 12);
+      applyTiledCylinderUVs(g, 0.075, 0.92, 12);
+      pushT(b.pipe, g, new THREE.Matrix4().multiplyMatrices(
+        trans(x, 0.93, 0.12), rotX(Math.PI / 2),
+      ));
+    }
+  }
+
+  // Full-height PLC cabinet with display, status lamps, cooling grille, and
+  // warning beacon. It sits clear of the pump service envelopes at the rear.
+  {
+    const g = new THREE.BoxGeometry(0.68, 1.82, 0.46);
+    applyTiledBoxUVs(g, 0.68, 1.82, 0.46);
+    pushT(b.accent, g, trans(1.02, 1.13, -1.53));
+  }
+  {
+    const g = new THREE.BoxGeometry(0.42, 0.25, 0.022);
+    applyTiledBoxUVs(g, 0.42, 0.25, 0.022);
+    pushT(b.glow, g, trans(1.02, 1.53, -1.289));
+  }
+  for (let i = 0; i < 5; i++) {
+    const g = new THREE.BoxGeometry(0.40, 0.035, 0.022);
+    applyTiledBoxUVs(g, 0.40, 0.035, 0.022);
+    pushT(b.iron, g, trans(1.02, 1.22 - i * 0.075, -1.288));
+  }
+  for (const x of [0.91, 1.02, 1.13]) {
+    const g = new THREE.CylinderGeometry(0.025, 0.025, 0.018, 8);
+    applyTiledCylinderUVs(g, 0.025, 0.018, 8);
+    pushT(b.glow, g, new THREE.Matrix4().multiplyMatrices(
+      trans(x, 1.77, -1.286), rotX(Math.PI / 2),
+    ));
+  }
+  {
+    const g = new THREE.CylinderGeometry(0.07, 0.07, 0.12, 12);
+    applyTiledCylinderUVs(g, 0.07, 0.12, 12);
+    pushT(b.glow, g, trans(1.02, 2.10, -1.53));
+  }
+
+  // Low service guard along the exposed left edge.
+  for (const z of [-1.45, 0, 1.45]) {
+    const g = new THREE.CylinderGeometry(0.025, 0.025, 0.82, 8);
+    applyTiledCylinderUVs(g, 0.025, 0.82, 8);
+    pushT(b.stand, g, trans(-1.34, 0.65, z));
+  }
+  for (const y of [0.58, 1.02]) {
+    for (const z of [-0.725, 0.725]) {
+      const g = new THREE.CylinderGeometry(0.025, 0.025, 1.45, 8);
+      applyTiledCylinderUVs(g, 0.025, 1.45, 8);
+      pushT(b.stand, g, new THREE.Matrix4().multiplyMatrices(
+        trans(-1.34, y, z), rotX(Math.PI / 2),
+      ));
+    }
   }
 
   return b;
