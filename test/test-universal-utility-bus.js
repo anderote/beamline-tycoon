@@ -47,6 +47,15 @@ assert.equal(UNIVERSAL_BUS_LANE_LIST.some(lane => lane.tier !== 'vertical'), fal
 assert.ok(UNIVERSAL_BUS_LANE_LIST.every((lane, index, lanes) =>
   index === 0 || lane.runY > lanes[index - 1].runY),
 'rack service heights increase monotonically from bottom to top');
+const suspendedUtilityTypes = ['coolingWater', 'powerCable', 'dataFiber', 'hvCable'];
+assert.deepEqual(
+  UNIVERSAL_BUS_LANE_LIST.filter(lane => lane.supportMode === 'tensioned-span')
+    .map(lane => lane.utilityType),
+  suspendedUtilityTypes,
+  'every flexible rack service is mechanically tensioned between posts');
+assert.ok(suspendedUtilityTypes.every(utilityType =>
+  universalBusLane(utilityType).runY > universalBusLane('vacuumPipe').runY),
+  'all suspended services have fixed support elevations above the vacuum line');
 for (const utilityType of ['cryoTransfer', 'rfWaveguide', 'vacuumPipe']) {
   assert.equal(universalBusLane(utilityType).runY, utilityLineHeight(utilityType),
     `${utilityType} enters the rack without changing its fixed route elevation`);
@@ -256,7 +265,10 @@ for (const utilityType of ['powerCable', 'vacuumPipe', 'rfWaveguide',
 
 const THREE_NS = await import('three');
 globalThis.THREE = THREE_NS;
-const { UtilityLineBuilderV2 } = await import('../src/renderer3d/utility-line-builder-v2.js');
+const {
+  UtilityLineBuilderV2,
+  buildSuspendedUniversalBusWorldPoints,
+} = await import('../src/renderer3d/utility-line-builder-v2.js');
 const parent = new THREE_NS.Group();
 const builder = new UtilityLineBuilderV2();
 builder.setPreview({
@@ -307,12 +319,51 @@ assert.deepEqual(
     .map(group => group.userData.channelSlot).sort(),
   [0, 1, 2, 3, 4, 5, 6],
   'rendered channels retain separate rack slots');
+for (const utilityType of suspendedUtilityTypes) {
+  const channelRecord = state.utilityBuses[0].channels.find(channel =>
+    channel.utilityType === utilityType);
+  const channelLine = state.utilityLines.get(channelRecord.lineId);
+  const lane = universalBusLane(utilityType);
+  const controlPoints = buildSuspendedUniversalBusWorldPoints(channelLine);
+  assert.ok(controlPoints.length > state.utilityBuses[0].taps.length,
+    `${utilityType} samples curved spans between its rack supports`);
+  for (const tap of state.utilityBuses[0].taps) {
+    const supportX = (tap.point.col + (tap.point.subCol || 0) / 4) * 2;
+    const supportZ = (tap.point.row + (tap.point.subRow || 0) / 4) * 2;
+    const support = controlPoints.find(point =>
+      Math.hypot(point.x - supportX, point.z - supportZ) < 1e-6);
+    assert.ok(support && Math.abs(support.y - lane.runY) < 1e-9,
+      `${utilityType} is pinned at its exact lane elevation on every post`);
+  }
+  const spanMidpoint = controlPoints.find(point =>
+    Math.abs(point.x - 1) < 1e-6 && Math.abs(point.z) < 1e-6);
+  assert.ok(spanMidpoint?.y < lane.runY - 0.04,
+    `${utilityType} bows under tension between consecutive posts`);
+  assert.ok(Math.min(...controlPoints.map(point => point.y))
+      > universalBusLane('vacuumPipe').runY,
+  `${utilityType} remains above the vacuum service throughout its sag`);
+}
 for (const channel of renderedRackGroups.filter(group => group.userData.channelSlot != null)) {
   const lane = universalBusLane(channel.userData.utilityType);
   assert.equal(channel.userData.busLaneTier, lane.tier,
     `${channel.userData.utilityType} renders on the ${lane.tier} carrier tier`);
   assert.equal(channel.userData.routeHeightMeters, lane.runY,
     `${channel.userData.utilityType} uses its designated carrier height`);
+  assert.equal(channel.userData.suspendedBetweenPosts,
+    lane.supportMode === 'tensioned-span',
+    `${channel.userData.utilityType} publishes its rack support presentation`);
+  if (lane.supportMode === 'tensioned-span') {
+    const suspendedMeshes = [];
+    const tensionSupports = [];
+    channel.traverse(object => {
+      if (object.userData?.isUniversalUtilityBusSuspendedSpan) suspendedMeshes.push(object);
+      if (object.userData?.isUniversalUtilityBusTensionSupport) tensionSupports.push(object);
+    });
+    assert.equal(suspendedMeshes.length, 1,
+      `${channel.userData.utilityType} renders as one continuous suspended sheath`);
+    assert.equal(tensionSupports.length, state.utilityBuses[0].taps.length,
+      `${channel.userData.utilityType} has a visible hanger at every rack post`);
+  }
   const channelBounds = new THREE_NS.Box3().setFromObject(channel);
   assert.ok(channelBounds.min.y < lane.runY && channelBounds.max.y > lane.runY,
     `${channel.userData.utilityType} geometry occupies its designated vertical slot`);

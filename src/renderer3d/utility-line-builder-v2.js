@@ -1156,6 +1156,74 @@ function busTapAnchor(line, which, lineById) {
   };
 }
 
+const BUS_SPAN_SAG_OPTIONS = Object.freeze({
+  sampleSpacing: 0.18,
+  sagRatio: 0.04,
+  minSag: 0.045,
+  maxSag: 0.14,
+});
+
+function tensionedBusSpanPoints(supports) {
+  const points = [];
+  for (let index = 0; index < supports.length - 1; index++) {
+    const span = tautCableControlPoints(
+      supports[index], supports[index + 1], BUS_SPAN_SAG_OPTIONS,
+    ).map(point => new THREE.Vector3(point.x, point.y, point.z));
+    if (span.length === 0) continue;
+    if (points.length > 0) span.shift();
+    points.push(...span);
+  }
+  return points;
+}
+
+/**
+ * Build one fixed-height support point at every universal-bus post, with a
+ * shallow gravity bow in each intervening span. The bus path remains the
+ * topology authority; authored taps are only the physical post locations.
+ */
+export function buildSuspendedUniversalBusWorldPoints(line) {
+  const lane = universalBusLane(line?.utilityType);
+  const path = line?.path || [];
+  if (line?.manifold?.type !== 'universalUtilityBus'
+    || lane?.supportMode !== 'tensioned-span' || path.length < 2) return [];
+
+  const startWorld = tileToWorld(path[0]);
+  const endWorld = tileToWorld(path[path.length - 1]);
+  const dx = endWorld.x - startWorld.x;
+  const dz = endWorld.z - startWorld.z;
+  const length = Math.hypot(dx, dz);
+  if (length < 1e-6) return [];
+  const ux = dx / length;
+  const uz = dz / length;
+  const candidates = [
+    { distance: 0, point: new THREE.Vector3(startWorld.x, lane.runY, startWorld.z) },
+  ];
+  for (const tap of line.manifold.taps || []) {
+    const raw = tap?.point || tap;
+    if (!raw || !Number.isFinite(raw.col) || !Number.isFinite(raw.row)) continue;
+    const x = (raw.col + (raw.subCol || 0) / 4) * 2;
+    const z = (raw.row + (raw.subRow || 0) / 4) * 2;
+    const distance = (x - startWorld.x) * ux + (z - startWorld.z) * uz;
+    if (distance < -1e-5 || distance > length + 1e-5) continue;
+    const projectedX = startWorld.x + ux * Math.max(0, Math.min(length, distance));
+    const projectedZ = startWorld.z + uz * Math.max(0, Math.min(length, distance));
+    if (Math.hypot(x - projectedX, z - projectedZ) > 0.05) continue;
+    candidates.push({
+      distance: Math.max(0, Math.min(length, distance)),
+      point: new THREE.Vector3(projectedX, lane.runY, projectedZ),
+    });
+  }
+  candidates.push({
+    distance: length,
+    point: new THREE.Vector3(endWorld.x, lane.runY, endWorld.z),
+  });
+  candidates.sort((a, b) => a.distance - b.distance);
+  const supports = candidates.filter((candidate, index, list) =>
+    index === 0 || candidate.distance - list[index - 1].distance > 1e-5)
+    .map(candidate => candidate.point);
+  return tensionedBusSpanPoints(supports);
+}
+
 function buildLineGroup(
   line, placeablesById, errorStatus, flowState, reversed, pointOverride = null,
   joinedOpenEnds = null, tapAnchors = null,
@@ -1163,16 +1231,21 @@ function buildLineGroup(
   const descriptor = UTILITY_TYPES[line.utilityType];
   if (!descriptor) return null;
   const busChannel = line.manifold?.type === 'universalUtilityBus';
+  const busLane = busChannel ? universalBusLane(line.utilityType) : null;
+  const suspendedBusChannel = busLane?.supportMode === 'tensioned-span';
   // A manifold is fabricated infrastructure even when its carried utility is
-  // ordinarily a loose cable. Render it as a rigid, visibly heavier trunk.
-  const flexible = isSoftCable(line.utilityType) && !line.manifold;
-  const points = pointOverride || (flexible
-    ? buildSoftCableWorldPoints(line, placeablesById, tapAnchors)
-    : buildWorldPoints(line, placeablesById, tapAnchors));
+  // ordinarily a loose cable. Bus posts are the exception: flexible services
+  // remain flexible and are held at their lane height by each post.
+  const flexible = (isSoftCable(line.utilityType) && !line.manifold)
+    || suspendedBusChannel;
+  const points = pointOverride || (suspendedBusChannel
+    ? buildSuspendedUniversalBusWorldPoints(line)
+    : flexible
+      ? buildSoftCableWorldPoints(line, placeablesById, tapAnchors)
+      : buildWorldPoints(line, placeablesById, tapAnchors));
   if (points.length < 2) return null;
   let busOffsetX = 0, busOffsetZ = 0;
   let busPortOffsetX = 0, busPortOffsetZ = 0;
-  const busLane = busChannel ? universalBusLane(line.utilityType) : null;
   if (busChannel) {
     const offset = busLane?.lateral ?? 0;
     const first = points[0], last = points[points.length - 1];
@@ -1185,7 +1258,7 @@ function buildLineGroup(
     for (const point of points) {
       point.x += busOffsetX;
       point.z += busOffsetZ;
-      point.y = busLane?.runY ?? 0.79;
+      if (!suspendedBusChannel) point.y = busLane?.runY ?? 0.79;
     }
   }
 
@@ -1204,6 +1277,7 @@ function buildLineGroup(
       busId: line.manifold.busId,
       channelSlot: busLane?.slot ?? line.manifold.slot,
       busLaneTier: busLane?.tier || null,
+      suspendedBetweenPosts: suspendedBusChannel,
     } : {}),
   };
   const radius = (descriptor.pipeRadiusMeters || 0.04)
@@ -1241,9 +1315,10 @@ function buildLineGroup(
   // physical direction energy travels is source->sink either way.
   let runDistCum = 0;
   const flexibleMesh = flexible
-    ? buildFlexibleCable(points, radius, mat, reversed, runY)
+    ? buildFlexibleCable(points, radius, mat, reversed, suspendedBusChannel ? null : runY)
     : null;
   if (flexibleMesh) {
+    if (suspendedBusChannel) flexibleMesh.userData.isUniversalUtilityBusSuspendedSpan = true;
     if (emissiveFlow) flexibleMesh.layers.enable(BLOOM_LAYER);
     group.add(flexibleMesh);
   }
@@ -1371,6 +1446,20 @@ function buildLineGroup(
       };
       const portX = busChannel ? x + busPortOffsetX : x;
       const portZ = busChannel ? z + busPortOffsetZ : z;
+      if (suspendedBusChannel) {
+        // The rack shelf sits 0.10 m below the lane centreline. Bridge that
+        // deliberate clearance with a visible hanger so each parabolic span
+        // reads as mechanically pinned here, not merely crossing a post.
+        const tensionSupport = buildCylinderSegment(
+          new THREE.Vector3(x, baseY - 0.08, z),
+          new THREE.Vector3(x, baseY, z),
+          Math.max(0.014, radius * 0.36), hardwareMat,
+        );
+        if (tensionSupport) {
+          tensionSupport.userData.isUniversalUtilityBusTensionSupport = true;
+          group.add(tensionSupport);
+        }
+      }
       const stem = buildCylinderSegment(
         new THREE.Vector3(x, baseY, z),
         new THREE.Vector3(portX, portTopY, portZ),
@@ -1503,12 +1592,13 @@ function buildPreviewLine(preview) {
   const descriptor = UTILITY_TYPES[preview.utilityType];
   if (!descriptor) return null;
   const busLane = preview.busLane ? universalBusLane(preview.utilityType) : null;
+  const suspendedBusLane = busLane?.supportMode === 'tensioned-span';
   const previewY = preview.rack ? 0.72
     : (busLane?.runY ?? utilityLineHeight(preview.utilityType, preview.routeHeightMeters));
-  const flexible = !preview.rack && !preview.manifold && !busLane
+  const flexible = suspendedBusLane || (!preview.rack && !preview.manifold && !busLane
     && isSoftCable(preview.utilityType)
-    && Array.isArray(preview.cablePath) && preview.cablePath.length >= 2;
-  const points = flexible
+    && Array.isArray(preview.cablePath) && preview.cablePath.length >= 2);
+  let points = flexible && !suspendedBusLane
     ? buildSoftCableWorldPoints({
         utilityType: preview.utilityType,
         path: preview.path,
@@ -1532,6 +1622,7 @@ function buildPreviewLine(preview) {
       point.z += offsetZ;
       point.y = busLane.runY;
     }
+    if (suspendedBusLane) points = tensionedBusSpanPoints(points);
   }
   if (!flexible && !busLane && preview.utilityType === 'rfWaveguide'
     && preview.endpointTransitions !== false) {
@@ -1551,9 +1642,12 @@ function buildPreviewLine(preview) {
   const mat = getPreviewMaterial(preview.utilityType, preview.valid !== false);
   const hardwareMat = getLineHardwareMaterial(preview.utilityType);
   const flexibleMesh = flexible
-    ? buildFlexibleCable(points, radius, mat, false, previewY)
+    ? buildFlexibleCable(points, radius, mat, false, suspendedBusLane ? null : previewY)
     : null;
-  if (flexibleMesh) group.add(flexibleMesh);
+  if (flexibleMesh) {
+    if (suspendedBusLane) flexibleMesh.userData.isUniversalUtilityBusSuspendedSpan = true;
+    group.add(flexibleMesh);
+  }
   for (let i = 0; !flexibleMesh && i < points.length - 1; i++) {
     const trimmed = trimmedSegment(points, i, descriptor);
     const a = trimmed.start, b = trimmed.end;
@@ -1882,7 +1976,11 @@ export class UtilityLineBuilderV2 {
         start: !!line.tapLineIds?.start && installedLineIds.has(line.tapLineIds.start),
         end: !!line.tapLineIds?.end && installedLineIds.has(line.tapLineIds.end),
       };
-      if (isSoftCable(line.utilityType)) {
+      // Ordinary flexible runs settle from the player's freehand trace. A
+      // universal-bus channel instead gets its deterministic post-to-post
+      // spans inside buildLineGroup; running it through the floor-rope solve
+      // here would erase those intermediate mechanical supports.
+      if (isSoftCable(line.utilityType) && !line.manifold) {
         const initialPoints = buildSoftCableWorldPoints(line, placeablesById, tapAnchors);
         const tensioned = isTensionedHvCable(line, placeablesById);
         const floorY = utilityLineHeight(line.utilityType);

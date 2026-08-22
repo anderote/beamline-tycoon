@@ -21,7 +21,8 @@ export const UNIVERSAL_BUS_PORT_LATERAL_METERS = 0.34;
 export const UNIVERSAL_BUS_LANES = Object.freeze({
   // Bottom -> top. Rigid services reuse their facility-wide route datums, so
   // a branch meets the rack without changing elevation. Flexible utilities
-  // rise locally to their assigned rack socket.
+  // rise locally to their assigned rack socket and are tensioned between the
+  // rack posts instead of lying on a continuous shelf.
   cryoTransfer: Object.freeze({
     slot: 0, tier: 'vertical', lateral: 0,
     runY: UNIVERSAL_RACK_SERVICE_HEIGHTS.cryoTransfer,
@@ -42,24 +43,28 @@ export const UNIVERSAL_BUS_LANES = Object.freeze({
   }),
   coolingWater: Object.freeze({
     slot: 3, tier: 'vertical', lateral: 0,
+    supportMode: 'tensioned-span',
     runY: UNIVERSAL_RACK_SERVICE_HEIGHTS.coolingWater,
     portY: UNIVERSAL_RACK_SERVICE_HEIGHTS.coolingWater,
     portLateral: UNIVERSAL_BUS_PORT_LATERAL_METERS,
   }),
   powerCable: Object.freeze({
     slot: 4, tier: 'vertical', lateral: 0,
+    supportMode: 'tensioned-span',
     runY: UNIVERSAL_RACK_SERVICE_HEIGHTS.powerCable,
     portY: UNIVERSAL_RACK_SERVICE_HEIGHTS.powerCable,
     portLateral: UNIVERSAL_BUS_PORT_LATERAL_METERS,
   }),
   dataFiber: Object.freeze({
     slot: 5, tier: 'vertical', lateral: 0,
+    supportMode: 'tensioned-span',
     runY: UNIVERSAL_RACK_SERVICE_HEIGHTS.dataFiber,
     portY: UNIVERSAL_RACK_SERVICE_HEIGHTS.dataFiber,
     portLateral: UNIVERSAL_BUS_PORT_LATERAL_METERS,
   }),
   hvCable: Object.freeze({
     slot: 6, tier: 'vertical', lateral: 0,
+    supportMode: 'tensioned-span',
     runY: UNIVERSAL_RACK_SERVICE_HEIGHTS.hvCable,
     portY: UNIVERSAL_RACK_SERVICE_HEIGHTS.hvCable,
     portLateral: UNIVERSAL_BUS_PORT_LATERAL_METERS,

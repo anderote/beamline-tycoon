@@ -149,10 +149,12 @@ the short authoring contract.
   content; the universal utility bus is the buildable carrier.
 - The bus is a utility-neutral vertical metal rack with one isolated,
   designated height slot for every registered utility. Cryogenic, RF, vacuum,
-  cooling, power, data, and HV stack bottom-to-top. Drawing the first line of a
-  utility onto the bus populates its slot; later lines of that utility reuse the
-  same slot. Slot position never depends on connection order. A direct drag
-  between two access points on the same bus explicitly
+  cooling, power, data, and HV stack bottom-to-top. Cooling water and the
+  flexible electrical/data services occupy fixed elevations above vacuum and
+  hang in shallow tensioned spans between consecutive rack posts. Drawing the
+  first line of a utility onto the bus populates its slot; later lines of that
+  utility reuse the same slot. Slot position never depends on connection order.
+  A direct drag between two access points on the same bus explicitly
   populates that utility's full channel; it must not attempt to commit a
   duplicate partial line over the generated backbone.
 - The floor-standing bus reserves only the narrow subtile strip physically
