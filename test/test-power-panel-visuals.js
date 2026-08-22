@@ -6,6 +6,7 @@ globalThis.THREE = THREE;
 
 const {
   _buildCompactHvDistributorRoles,
+  _buildHVTransformerRoles,
   _buildSwitchgearRoles,
   _buildMCCRoles,
   _buildCompactDistributionPanelRoles,
@@ -23,6 +24,37 @@ function disposeBuckets(buckets) {
     for (const geometry of parts) geometry.dispose();
   }
 }
+
+test('HV transformer feeder rack supports all four existing cable anchors', () => {
+  const transformer = _buildHVTransformerRoles();
+  const terminalCaps = transformer.copper.filter(geometry => {
+    geometry.computeBoundingBox();
+    return Math.abs(geometry.boundingBox.max.y - 1.45) < 1e-6;
+  });
+
+  assert.equal(transformer.accent.length, 19,
+    'four feeder terminals each add a ceramic post and three skirts');
+  assert.equal(terminalCaps.length, 4, 'the rack exposes four metal terminal caps');
+  assert.ok(transformer.iron.length >= 4, 'a crossarm and two brackets support the terminal row');
+
+  const centers = terminalCaps.map(geometry => {
+    return geometry.boundingBox.getCenter(new THREE.Vector3());
+  });
+  assert.deepEqual(centers.map(({ x }) => Number(x.toFixed(2))), [-0.75, -0.25, 0.25, 0.75]);
+  assert.ok(centers.every(({ z }) => Math.abs(z - 0.82) < 1e-6),
+    'terminal caps stay on the existing front cable plane');
+  for (const geometry of terminalCaps) {
+    assert.ok(Math.abs(geometry.boundingBox.max.y - 1.45) < 1e-6,
+      'each cable lands on the top of its visible terminal cap');
+  }
+
+  const sharedTank = _buildHVTransformerRoles(false);
+  assert.equal(sharedTank.accent.length, 3,
+    'two- and six-outlet transformer tiers do not inherit the four-terminal rack');
+
+  disposeBuckets(transformer);
+  disposeBuckets(sharedTank);
+});
 
 test('distribution panel rungs are detailed NEMA enclosures, not plain boxes', () => {
   const compact = _buildCompactDistributionPanelRoles();

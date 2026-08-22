@@ -46,7 +46,7 @@ function addCylinder(bucket, r, h, x, y, z, matrix = null, segs = 10) {
 
 // ── HV Transformer ────────────────────────────────────────────────
 // Oil-filled power transformer: 2.0m L × 1.5m W × 2.0m H
-export function _buildHVTransformerRoles() {
+export function _buildHVTransformerRoles(includeSecondaryRack = true) {
   const b = makeBuckets();
 
   // Base frame with rail channels
@@ -101,6 +101,32 @@ export function _buildHVTransformerRoles() {
     const cg = new THREE.CylinderGeometry(bushR + 0.02, bushR + 0.02, 0.03, SEGS);
     applyTiledCylinderUVs(cg, bushR + 0.02, 0.03, SEGS);
     pushT(b.copper, cg, trans(0, tankBase + tankH + bushH + 0.015, zOff));
+  }
+
+  // The 1.5 MW transformer's four front feeder cables terminate on a real
+  // crossarm instead of floating beside the tank.  Keep the metal caps at the
+  // authored cable anchors (x = ±0.75/±0.25, y = 1.45, z = 0.82); the renderer
+  // can therefore retain the existing cable paths while the terminal row gains
+  // a visible support and tower-style ceramic skirts.
+  //
+  // The facility and grid-intertie tiers currently share this tank builder but
+  // have two- and six-outlet layouts, so their registry entries opt out below.
+  if (includeSecondaryRack) {
+    const rackZ = 0.78;
+    const terminalZ = 0.82;
+
+    addBox(b.iron, 1.68, 0.06, 0.08, 0, 1.33, rackZ);
+    for (const x of [-0.55, 0.55]) {
+      addBox(b.iron, 0.07, 0.14, 0.07, x, 1.26, rackZ - 0.015);
+    }
+
+    for (const x of [-0.75, -0.25, 0.25, 0.75]) {
+      addCylinder(b.accent, 0.022, 0.07, x, 1.395, terminalZ, null, SEGS);
+      for (const y of [1.375, 1.40, 1.425]) {
+        addCylinder(b.accent, 0.055, 0.018, x, y, terminalZ, null, SEGS);
+      }
+      addCylinder(b.copper, 0.035, 0.02, x, 1.44, terminalZ, null, SEGS);
+    }
   }
 
   // Rear primary HV input. The authored `hv_in` port is deliberately on the
