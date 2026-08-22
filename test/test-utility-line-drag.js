@@ -328,7 +328,7 @@ console.log('\n--- 4. R flips which way the bend turns ---');
   assert(ctrl.preferVerticalFirst === !before, 'flipping the bend order as it goes');
 }
 
-console.log('\n--- 5. The tool picks on the cable plane, not the floor ---');
+console.log('\n--- 5. Tool picking follows each utility\'s placement contract ---');
 {
   // Lines are drawn at UTILITY_LINE_Y. A tool that picks against the ground
   // hands the controller a point that renders a fixed distance up-screen of
@@ -357,6 +357,27 @@ console.log('\n--- 5. The tool picks on the cable plane, not the floor ---');
     `down/move/up all pick on the cable plane (got ${planePicks.length})`);
   assert(planePicks.every(p => p[3] === utilityLineHeight('powerCable')),
     `at exactly the armed utility's run height (${utilityLineHeight('powerCable')})`);
+}
+
+{
+  // HV wall crossings are checked against authored edges on the ground grid.
+  // Its cursor route must therefore use the ground projection too: using the
+  // elevated render plane makes the route shift across an edge with camera
+  // angle when the mouse line of sight merely passes over a wall.
+  const game = makeGame();
+  const tool = new UtilityLineTool('hvCable');
+  const ctrl = new UtilityLineInputController({ game, renderer: {} });
+  ctrl.setUtilityType('hvCable');
+  const seen = [];
+  const ground = { x: 111, y: 222 };
+  const renderer = {
+    screenToWorld: () => { seen.push('ground'); return ground; },
+    screenToWorldAtHeight: () => { seen.push('plane'); return { x: 333, y: 444 }; },
+  };
+  const ctx = { game, renderer, input: { utilityLineController: ctrl } };
+  const picked = tool._cableWorld({ clientX: 10, clientY: 20 }, ctx);
+  assert(picked === ground && seen.join(',') === 'ground',
+    'HV drawing follows the ground-grid route used by wall crossing validation');
 }
 
 {
