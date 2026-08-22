@@ -296,7 +296,7 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     'assisted wiring requires a real source port of its selected utility');
   assert(hasProblem(problems, 'badFeedthrough', 'wallPassThrough', "mount: 'wall'"),
     'wall pass-throughs must use the wall placement layer');
-  assert(hasProblem(problems, 'badFeedthrough', 'wallPassThrough', 'exactly two passive'),
+  assert(hasProblem(problems, 'badFeedthrough', 'wallPassThrough', 'matching passive'),
     'wall pass-throughs require two passive ports on opposite faces');
   assert(hasProblem(problems, 'badDisconnect', 'electricalControl.breaker.utility'),
     'electrical breakers reject non-electrical utility types');

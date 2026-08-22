@@ -261,9 +261,9 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     }
   }
 
-  // A wall pass-through is a two-ended electrical fitting, not merely a
-  // wall-mounted prop. Both faces must expose passive ports of one cable type
-  // so network discovery can bridge the two separately terminated runs.
+  // A wall pass-through is a balanced electrical fitting, not merely a
+  // wall-mounted prop. Both faces expose the same number of passive ports of
+  // one cable type so network discovery can bridge separately terminated runs.
   function checkWallPassThrough(id, def) {
     if (def.wallPassThrough == null) return;
     if (def.wallPassThrough !== true) {
@@ -277,10 +277,12 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
       .filter(port => port?.utility === 'powerCable' || port?.utility === 'hvCable');
     const utilities = new Set(ports.map(port => port.utility));
     const sides = new Set(ports.map(port => port.side));
-    if (ports.length !== 2 || utilities.size !== 1
+    const frontCount = ports.filter(port => port.side === 'front').length;
+    const backCount = ports.filter(port => port.side === 'back').length;
+    if (ports.length < 2 || utilities.size !== 1
         || ports.some(port => port.role !== 'pass')
-        || !sides.has('front') || !sides.has('back')) {
-      problem(id, 'wallPassThrough', 'requires exactly two passive front/back ports of one electrical cable type');
+        || !sides.has('front') || !sides.has('back') || frontCount !== backCount) {
+      problem(id, 'wallPassThrough', 'requires matching passive front/back ports of one electrical cable type');
     }
   }
 

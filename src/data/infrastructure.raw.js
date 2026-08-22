@@ -1940,7 +1940,7 @@ export const INFRASTRUCTURE_RAW = {
   hvWallPassThrough: {
     id: 'hvWallPassThrough',
     name: 'HV Cable Wall Feedthrough',
-    desc: 'Shielded high-voltage bushing with protected terminals on both faces of an existing wall. Terminate the incoming feeder on the mounting face and draw a second feeder from the far face. Press M while placing to reverse the feed direction.',
+    desc: 'Shielded high-voltage bushing with protected terminals on both faces of an existing wall. Either terminal accepts a feeder from any direction, so route each side however the facility layout requires.',
     category: 'power', subsection: 'distribution',
     paletteOrder: 3,
     cost: { funding: 24000 },
@@ -1962,6 +1962,38 @@ export const INFRASTRUCTURE_RAW = {
       { shape: 'box', w: 0.86, h: 1.45, l: 0.18, x: 0, y: 2.00, z: -0.60, color: 0x59636b },
       { shape: 'box', w: 0.58, h: 0.82, l: 1.26, x: 0, y: 2.32, z: 0, color: 0x202328 },
       { shape: 'box', w: 0.68, h: 0.18, l: 1.32, x: 0, y: 3.25, z: 0, color: 0xd2a93d },
+    ],
+    requiredConnections: [],
+  },
+  hvWallPassThrough4x4: {
+    id: 'hvWallPassThrough4x4',
+    name: '4×4 HV Cable Wall Feedthrough',
+    desc: 'Four isolated, shielded HV cable passages through one full wall span. Each numbered terminal pair is omnidirectional and carries no authored power rating: source and downstream equipment remain the only capacity limits.',
+    category: 'power', subsection: 'distribution',
+    paletteOrder: 3.25,
+    cost: { funding: 82000 },
+    stats: {}, energyCost: 0,
+    mount: 'wall', wallPassThrough: true, wallSpan: 4,
+    subL: 1, subW: 4, subH: 4, gridW: 4, gridH: 1,
+    geometryType: 'box', baseMaterial: 'metal_dark',
+    spriteKey: 'switchgear', spriteColor: 0x59636b, accentColor: 0xd2a93d,
+    hasSurface: false, placement: 'module', ports: {},
+    // Four electrically isolated conductors: a 4×4 bushing never turns
+    // independent feeders into a shared bus.
+    electricalGroups: {
+      hvCable: [
+        ['hv_in_1', 'hv_out_1'], ['hv_in_2', 'hv_out_2'],
+        ['hv_in_3', 'hv_out_3'], ['hv_in_4', 'hv_out_4'],
+      ],
+    },
+    parts: [
+      { shape: 'box', w: 3.78, h: 1.50, l: 0.18, x: 0, y: 2.00, z: 0.60, color: 0x59636b },
+      { shape: 'box', w: 3.78, h: 1.50, l: 0.18, x: 0, y: 2.00, z: -0.60, color: 0x59636b },
+      { shape: 'box', w: 3.90, h: 0.18, l: 1.32, x: 0, y: 3.25, z: 0, color: 0xd2a93d },
+      { shape: 'box', w: 0.38, h: 0.38, l: 1.42, x: -1.35, y: 2.00, z: 0, color: 0x24282c },
+      { shape: 'box', w: 0.38, h: 0.38, l: 1.42, x: -0.45, y: 2.00, z: 0, color: 0x24282c },
+      { shape: 'box', w: 0.38, h: 0.38, l: 1.42, x: 0.45, y: 2.00, z: 0, color: 0x24282c },
+      { shape: 'box', w: 0.38, h: 0.38, l: 1.42, x: 1.35, y: 2.00, z: 0, color: 0x24282c },
     ],
     requiredConnections: [],
   },
