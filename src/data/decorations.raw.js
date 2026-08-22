@@ -152,7 +152,10 @@ export const DECORATIONS_RAW = {
     blocksBuild: true, category: 'utilities', paletteOrder: 1,
     selectionCategory: 'infra',
     subW: 2, subL: 2, subH: 16,
-    electricalGroups: { hvCable: [] },
+    // The low tap and all four overhead terminals share one passive HV bus.
+    electricalGroups: {
+      hvCable: [['hv_in', 'hv_out', 'hv_3', 'hv_4', 'hv_tap']],
+    },
     requires: 'electricalDistribution',
   },
   transmissionTower: {
@@ -345,7 +348,7 @@ const DECORATION_DESCS = {
   fountain: 'Ornamental fountain — the only unscheduled water feature allowed on site.',
   statue: 'Commemorates the founder, or possibly the first working klystron.',
   propaneTank: 'Horizontal propane vessel on concrete saddles for heating and emergency plant. Decorative site utility.',
-  utilityPole: 'Compact 2×2 functional HV distribution pole with four isolated insulator terminals and room for two wires on each. It takes up drawn cable slack while leaving a shallow suspended sag.',
+  utilityPole: 'Compact 2×2 functional HV distribution pole with four overhead insulator terminals and one low cabinet feeder tap on a shared passive bus. Each overhead terminal accepts two wires and tensions suspended spans.',
   transmissionTower: 'Half-height 4×4 steel lattice tower with six isolated hanging-insulator terminals and room for two wires on each. It takes up drawn cable slack while leaving a shallow suspended sag.',
   overheadPowerSpan: 'Legacy decorative two-pole span retained for old saves. Use functional Utility Poles and real HV feeders for new construction.',
   outdoorPipeRack: 'Elevated rack carrying color-coded campus service pipes. Decorative site utility.',

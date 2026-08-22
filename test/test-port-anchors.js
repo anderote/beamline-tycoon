@@ -37,7 +37,12 @@ import {
   setShellMeasureProvider,
   DEFAULT_ANCHOR_Y,
 } from '../src/utility/port-anchors.js';
-import { portAnchorOverride, PORT_ANCHOR_OVERRIDES } from '../src/data/utility-port-anchors.js';
+import {
+  portAnchorOverride,
+  PORT_ANCHOR_OVERRIDES,
+  POWER_HV_CABINET_INPUT_Y,
+  POWER_HV_INPUT_MOUNTS,
+} from '../src/data/utility-port-anchors.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -188,6 +193,34 @@ console.log('\n--- 3. Derivation, overrides, and the headless fallback ---');
     'the four-output HV transformer presents one flat 1.45 m terminal row');
   assert(transformerBank.map(port => port.along).join(',') === '-0.75,-0.25,0.25,0.75',
     'the HV transformer matches the 4×4 wall feedthrough\'s 0.5 m terminal spacing');
+
+  const actualPowerHvInputs = Object.entries(COMPONENTS).flatMap(([type, def]) =>
+    def?.category === 'power'
+      ? Object.entries(def.ports || {})
+        .filter(([, port]) => port.utility === 'hvCable' && port.role === 'sink')
+        .map(([portName]) => `${type}.${portName}`)
+      : []);
+  assert(actualPowerHvInputs.length === Object.keys(POWER_HV_INPUT_MOUNTS).length,
+    `the Power HV mount standard covers all ${actualPowerHvInputs.length} inputs`);
+  const nonStandardPowerInputs = actualPowerHvInputs.filter((key) => {
+    const [type, portName] = key.split('.');
+    const mount = portAnchorOverride(type, portName);
+    const standard = POWER_HV_INPUT_MOUNTS[type];
+    return !POWER_HV_INPUT_MOUNTS[type]
+      || mount.y !== standard.y || mount.localX !== standard.localX
+      || mount.localZ !== standard.localZ
+      || !Number.isFinite(mount.localX) || !Number.isFinite(mount.localZ)
+      || !mount.normal || !(mount.normal.y > 0.5 || mount.normal.z < -0.5);
+  });
+  assert(nonStandardPowerInputs.length === 0,
+    `every Power HV input uses explicit upper insulated hardware (${nonStandardPowerInputs.join(',') || 'all covered'})`);
+  for (const type of [
+    'powerPanel', 'sectionDistributionPanel', 'mainDistributionPanel',
+    'compactHvDistributor', 'switchgear', 'mcc', 'ups',
+  ]) {
+    assert(POWER_HV_INPUT_MOUNTS[type].y === POWER_HV_CABINET_INPUT_Y,
+      `${type} uses the common ${POWER_HV_CABINET_INPUT_Y} m cabinet/tap datum`);
+  }
 
   const sectorBanks = [
     ['cwCryomodule', [0, -1.728, 1.728], [1.728, -1.728, 0]],

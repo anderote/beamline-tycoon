@@ -304,7 +304,7 @@ export function isTensionedHvCable(line, placeablesById) {
   if (!placeablesById) return false;
   return [line.start, line.end].some(ref => {
     const endpoint = ref ? placeablesById.get(ref.placeableId) : null;
-    return isHvCableTensionAnchor(COMPONENTS[endpoint?.type]);
+    return isHvCableTensionAnchor(COMPONENTS[endpoint?.type], ref?.portName);
   });
 }
 

@@ -9,6 +9,7 @@
 
 import { applyTiledBoxUVs, applyTiledCylinderUVs } from '../uv-utils.js';
 import { DISTRIBUTION_OUTPUT_LAYOUTS } from '../../data/distribution-output-layout.js';
+import { POWER_HV_INPUT_MOUNTS } from '../../data/utility-port-anchors.js';
 
 const SEGS = 16;
 
@@ -43,6 +44,44 @@ function addCylinder(bucket, r, h, x, y, z, matrix = null, segs = 10) {
   const g = new THREE.CylinderGeometry(r, r, h, segs);
   applyTiledCylinderUVs(g, r, h, segs);
   pushT(bucket, g, matrix || trans(x, y, z));
+}
+
+// Visible ceramic hardware for the standardized Power-category HV inputs.
+// `mount` is also the presentation anchor, so the final metal cap ends exactly
+// where the generated fitting and cable terminate.
+function addVerticalHvInputBushing(b, mount, baseY) {
+  const capH = 0.035;
+  const ceramicTop = mount.y - capH;
+  const stemH = Math.max(0.10, ceramicTop - baseY);
+  const stemY = ceramicTop - stemH / 2;
+  addCylinder(b.accent, 0.045, stemH, mount.localX, stemY, mount.localZ, null, SEGS);
+  for (const fraction of [0.24, 0.52, 0.80]) {
+    const y = baseY + stemH * fraction;
+    addCylinder(b.accent, 0.075, 0.022, mount.localX, y, mount.localZ, null, SEGS);
+  }
+  addCylinder(b.copper, 0.042, capH,
+    mount.localX, mount.y - capH / 2, mount.localZ, null, SEGS);
+}
+
+function addRearHvInputBushing(b, mount, rearFaceZ) {
+  const sign = Math.sign(mount.localZ - rearFaceZ) || -1;
+  const capL = 0.035;
+  const ceramicEnd = mount.localZ - sign * capL;
+  const stemL = Math.max(0.10, Math.abs(ceramicEnd - rearFaceZ));
+  const stemZ = (ceramicEnd + rearFaceZ) / 2;
+  const alongZ = position => new THREE.Matrix4().multiplyMatrices(
+    trans(position.x, position.y, position.z), rotX(Math.PI / 2),
+  );
+  addCylinder(b.accent, 0.045, stemL, mount.localX, mount.y, stemZ,
+    alongZ({ x: mount.localX, y: mount.y, z: stemZ }), SEGS);
+  for (const fraction of [0.24, 0.52, 0.80]) {
+    const z = rearFaceZ + (ceramicEnd - rearFaceZ) * fraction;
+    addCylinder(b.accent, 0.075, 0.022, mount.localX, mount.y, z,
+      alongZ({ x: mount.localX, y: mount.y, z }), SEGS);
+  }
+  const capZ = mount.localZ - sign * capL / 2;
+  addCylinder(b.copper, 0.042, capL, mount.localX, mount.y, capZ,
+    alongZ({ x: mount.localX, y: mount.y, z: capZ }), SEGS);
 }
 
 // ── HV Transformer ────────────────────────────────────────────────
@@ -130,18 +169,9 @@ export function _buildHVTransformerRoles(includeSecondaryRack = true) {
     }
   }
 
-  // Rear primary HV input. The authored `hv_in` port is deliberately on the
-  // back service plane so the incoming feeder reads separately from the
-  // transformer’s front secondary outlets.
-  {
-    const z = -tankD / 2 - 0.06;
-    addBox(b.detail, 0.18, 0.18, 0.04, 0, tankBase + tankH * 0.58, z);
-    const gland = new THREE.CylinderGeometry(0.055, 0.055, 0.10, SEGS);
-    applyTiledCylinderUVs(gland, 0.055, 0.10, SEGS);
-    pushT(b.copper, gland, new THREE.Matrix4().multiplyMatrices(
-      trans(0, tankBase + tankH * 0.58, z - 0.05), rotX(Math.PI / 2),
-    ));
-  }
+  // The rear-most roof bushing is the real primary input. Its metal cap is at
+  // the corresponding POWER_HV_INPUT_MOUNTS entry; the remaining bushings
+  // read as phase hardware without inventing more logical ports.
 
   // Conservator tank on top (small horizontal cylinder)
   {
@@ -223,7 +253,7 @@ export function _buildDisconnectSwitchRoles() {
 }
 
 // ── Compact HV Distributor ─────────────────────────────────────────
-// A short 0.5 m-square 1-to-2 cabinet. The single rear gland and two front
+// A short 0.5 m-square 1-to-2 cabinet. The single roof bushing and two front
 // breaker/gland pairs mirror the logical HV ports instead of borrowing the
 // four-way switchgear's much larger enclosure.
 export function _buildCompactHvDistributorRoles() {
@@ -236,6 +266,9 @@ export function _buildCompactHvDistributorRoles() {
   addBox(b.stand, 0.46, baseH, 0.46, 0, baseH / 2, 0);
   addBox(b.iron, encW, encH, encD, 0, baseH + encH / 2, 0);
   addBox(b.accent, 0.44, 0.035, 0.42, 0, baseH + encH + 0.0175, 0);
+  addVerticalHvInputBushing(
+    b, POWER_HV_INPUT_MOUNTS.compactHvDistributor, baseH + encH + 0.035,
+  );
 
   // Recessed front service door with hinges, gasket and operating handle.
   addBox(b.accent, 0.25, 0.66, 0.025, -0.055, 0.46, frontZ + 0.018);
@@ -252,18 +285,7 @@ export function _buildCompactHvDistributorRoles() {
   }
   addBox(b.iron, 0.024, 0.12, 0.026, 0.045, 0.46, frontZ + 0.052);
 
-  // One rear 200 kW inlet at the authored hv_in presentation anchor.
-  {
-    const x = -0.10, y = 0.30, z = -(frontZ + 0.018);
-    addBox(b.detail, 0.16, 0.16, 0.025, x, y, z);
-    const gland = new THREE.CylinderGeometry(0.045, 0.045, 0.075, 10);
-    applyTiledCylinderUVs(gland, 0.045, 0.075, 10);
-    pushT(b.copper, gland, new THREE.Matrix4().multiplyMatrices(
-      trans(x, y, z - 0.042), rotX(Math.PI / 2),
-    ));
-  }
-
-  // Two independently wireable 100 kW outlets in one horizontal front row.
+  // Two independently wireable 300 kW outlets in one horizontal front row.
   for (const { x, y } of DISTRIBUTION_OUTPUT_LAYOUTS.compactHvDistributor) {
     const z = frontZ + 0.018;
     addBox(b.detail, 0.15, 0.15, 0.025, x, y, z);
@@ -305,9 +327,9 @@ export function _buildSwitchgearRoles() {
     applyTiledBoxUVs(g, 0.9, baseH, 1.4);
     pushT(b.stand, g, trans(0, baseH / 2, 0));
   }
-
   // Main enclosure
   const encW = 0.85, encH = 1.7, encD = 1.3;
+  addRearHvInputBushing(b, POWER_HV_INPUT_MOUNTS.switchgear, -encD / 2);
   {
     const g = new THREE.BoxGeometry(encW, encH, encD);
     applyTiledBoxUVs(g, encW, encH, encD);
@@ -339,20 +361,6 @@ export function _buildSwitchgearRoles() {
     const ig = new THREE.CylinderGeometry(0.035, 0.035, 0.04, SEGS);
     applyTiledCylinderUVs(ig, 0.035, 0.04, SEGS);
     pushT(b.accent, ig, trans(0, baseH + encH + 0.02, zOff));
-  }
-
-  // Rear incoming feeder: one breaker plate and one heavy cable gland at the
-  // authored hv_in anchor (back face, low and left).
-  {
-    const x = -0.28, y = 0.42, z = -(encD / 2 + 0.025);
-    const plate = new THREE.BoxGeometry(0.20, 0.20, 0.035);
-    applyTiledBoxUVs(plate, 0.20, 0.20, 0.035);
-    pushT(b.detail, plate, trans(x, y, z));
-    const gland = new THREE.CylinderGeometry(0.055, 0.055, 0.10, 10);
-    applyTiledCylinderUVs(gland, 0.055, 0.10, 10);
-    pushT(b.copper, gland, new THREE.Matrix4().multiplyMatrices(
-      trans(x, y, z - 0.055), rotX(Math.PI / 2),
-    ));
   }
 
   // Four output breaker/gland pairs in one horizontal row across the front,
@@ -441,8 +449,12 @@ export function _buildPadMountTransformerRoles() {
     pushT(b.iron, g, trans(0, 0.1 + bodyH + 0.02, 0));
   }
 
-  // 2 cable risers on top
-  for (const zOff of [-0.2, 0.2]) {
+  // The rear riser is the visible insulated HV input. The front riser remains
+  // the downstream feeder hardware.
+  addVerticalHvInputBushing(
+    b, POWER_HV_INPUT_MOUNTS.padMountTransformer, 0.1 + bodyH + 0.04,
+  );
+  for (const zOff of [0.2]) {
     const riserR = 0.03, riserH = 0.2;
     const g = new THREE.CylinderGeometry(riserR, riserR, riserH, 8);
     applyTiledCylinderUVs(g, riserR, riserH, 8);
@@ -478,9 +490,9 @@ export function _buildMCCRoles() {
     applyTiledBoxUVs(g, 1.8, baseH, 0.85);
     pushT(b.stand, g, trans(0, baseH / 2, 0));
   }
-
   // Main cabinet enclosure
   const encW = 1.7, encH = 1.8, encD = 0.8;
+  addRearHvInputBushing(b, POWER_HV_INPUT_MOUNTS.mcc, -encD / 2);
   {
     const g = new THREE.BoxGeometry(encW, encH, encD);
     applyTiledBoxUVs(g, encW, encH, encD);
@@ -555,9 +567,9 @@ export function _buildUPSRoles() {
     applyTiledBoxUVs(g, 1.35, baseH, 0.85);
     pushT(b.stand, g, trans(0, baseH / 2, 0));
   }
-
   // Main cabinet
   const encW = 1.3, encH = 1.8, encD = 0.8;
+  addRearHvInputBushing(b, POWER_HV_INPUT_MOUNTS.ups, -encD / 2);
   {
     const g = new THREE.BoxGeometry(encW, encH, encD);
     applyTiledBoxUVs(g, encW, encH, encD);
@@ -603,6 +615,12 @@ function _buildDistributionPanelRoles({ type, width, height, depth, doorCount })
     const g = new THREE.BoxGeometry(width, baseH, depth);
     applyTiledBoxUVs(g, width, baseH, depth);
     pushT(b.stand, g, trans(0, baseH / 2, 0));
+  }
+  const hvInput = POWER_HV_INPUT_MOUNTS[type];
+  if (hvInput.normal.y > 0.5) {
+    addVerticalHvInputBushing(b, hvInput, baseH + height + 0.035);
+  } else {
+    addRearHvInputBushing(b, hvInput, -depth / 2);
   }
   {
     const g = new THREE.BoxGeometry(width, height, depth);

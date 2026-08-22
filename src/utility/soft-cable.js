@@ -43,17 +43,23 @@ export function softCableBendRadiusMeters(utilityType) {
   return SOFT_CABLE_BEND_RADIUS_METERS[utilityType] || 0;
 }
 
-/** Components that mechanically support and tension an attached HV feeder. */
-export function isOverheadHvSupport(def) {
-  return def?.id === 'utilityPole' || def?.id === 'transmissionTower';
+/** Low distribution taps are accessible feeder landings, not tension points. */
+export function isHvDistributionTapPort(portName) {
+  return portName === 'hv_tap' || /^hv_tap_/.test(portName || '');
 }
 
-export function isIndoorHvRackSupport(def) {
-  return def?.hvCableSupport === 'indoorRack';
+/** Components/ports that mechanically support and tension an attached HV feeder. */
+export function isOverheadHvSupport(def, portName = null) {
+  return !isHvDistributionTapPort(portName)
+    && (def?.id === 'utilityPole' || def?.id === 'transmissionTower');
 }
 
-export function isHvCableTensionAnchor(def) {
-  return isOverheadHvSupport(def) || isIndoorHvRackSupport(def)
+export function isIndoorHvRackSupport(def, portName = null) {
+  return !isHvDistributionTapPort(portName) && def?.hvCableSupport === 'indoorRack';
+}
+
+export function isHvCableTensionAnchor(def, portName = null) {
+  return isOverheadHvSupport(def, portName) || isIndoorHvRackSupport(def, portName)
     || def?.wallPassThrough === true;
 }
 

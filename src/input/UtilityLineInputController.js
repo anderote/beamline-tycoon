@@ -297,7 +297,7 @@ export class UtilityLineInputController {
       tensioned: this._utilityType === 'hvCable' && [this._drawStart, snap].some(handle => {
         const endpoint = handle?.placeableId
           ? findUtilityEndpoint(this.game.state, handle.placeableId) : null;
-        return isHvCableTensionAnchor(COMPONENTS[endpoint?.type]);
+        return isHvCableTensionAnchor(COMPONENTS[endpoint?.type], handle?.portName);
       }),
       routeHeightMeters: this._runPlan?.stubs?.[0]?.routeHeightMeters
         ?? geom.routeHeightMeters,

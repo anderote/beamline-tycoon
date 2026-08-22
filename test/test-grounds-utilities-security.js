@@ -150,7 +150,7 @@ test('retired power routing props stay loadable but leave every build palette', 
     'the legacy prefab overhead span remains retired too');
 });
 
-test('wood pole draws exactly four physical insulators', () => {
+test('wood pole draws four overhead insulators plus one low HV tap insulator', () => {
   const def = PLACEABLES.utilityPole;
   const model = buildDecorationGroup(
     def.id, def.category, def.subW * 0.5, def.subL * 0.5, def.subH * 0.5,
@@ -159,7 +159,7 @@ test('wood pole draws exactly four physical insulators', () => {
   model.traverse(child => {
     if (child.isMesh && child.material?.color?.getHex() === 0xd7e0e4) insulators++;
   });
-  assert.equal(insulators, 4);
+  assert.equal(insulators, 5);
 });
 
 test('transmission tower has a tall lattice silhouette and projecting crossarms', () => {

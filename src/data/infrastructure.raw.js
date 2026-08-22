@@ -1999,7 +1999,7 @@ export const INFRASTRUCTURE_RAW = {
   indoorHvCableRack: {
     id: 'indoorHvCableRack',
     name: '4-Way Indoor HV Cable Rack',
-    desc: 'Freestanding steel bracket that carries four isolated HV cables on insulators suspended below its crossbar. Each attachment accepts two cable segments, takes up drawn lateral slack, and leaves the overhead feeder with visible gravity sag.',
+    desc: 'Freestanding six-point HV distribution rack. Four overhead terminals carry suspended feeders clear of the uprights, while insulated taps on both legs accept cabinet-height feeders. Every terminal shares one live HV bus.',
     category: 'power', subsection: 'routingHardware',
     paletteOrder: 3.5,
     cost: { funding: 36000 },
@@ -2012,9 +2012,13 @@ export const INFRASTRUCTURE_RAW = {
     spriteKey: 'switchgear', spriteColor: 0x5f686d, accentColor: 0xd2a93d,
     hasSurface: false, placement: 'module', ports: {},
     hvCableSupport: 'indoorRack',
-    // Each named insulator is one independent conductor. Two attached line
-    // segments meet through that attachment; the four positions never form a bus.
-    electricalGroups: { hvCable: [] },
+    // The four overhead terminals and both cabinet-height leg taps are one
+    // shared passive bus. Sources remain the sole capacity authority.
+    electricalGroups: {
+      hvCable: [[
+        'hv_1', 'hv_2', 'hv_3', 'hv_4', 'hv_tap_left', 'hv_tap_right',
+      ]],
+    },
     parts: [
       // Low feet and two uprights support a crossbar inside the standard
       // 2.57 m facility wall envelope. Dimensions are in 0.5 m
@@ -2025,12 +2029,18 @@ export const INFRASTRUCTURE_RAW = {
       { shape: 'box', w: 0.28, h: 4.55, l: 0.38, x: 1.62, y: 0.16, z: 0, color: 0x687278 },
       { name: 'crossbar', shape: 'box', w: 3.86, h: 0.30, l: 0.52, x: 0, y: 4.42, z: 0, color: 0x788389 },
       { name: 'crossbar-cap', shape: 'box', w: 3.42, h: 0.12, l: 0.70, x: 0, y: 4.72, z: 0, color: 0xd2a93d },
-      // Four hanging insulators retain the wall feedthrough's 0.5 m spacing.
-      // The cable attachment is at the bottom tip, not on a side of the bar.
-      ...[-1.50, -0.50, 0.50, 1.50].flatMap((x, index) => [
+      // Pull the four hanging insulators inside the uprights. Their 0.4 m
+      // pitch keeps the attachment tips clear of both steel legs.
+      ...[-1.20, -0.40, 0.40, 1.20].flatMap((x, index) => [
         { name: `insulator-${index + 1}-stem`, shape: 'cylinder', w: 0.14, h: 0.44, l: 0.14, x, y: 4.00, z: 0, color: 0x252a2e },
         { name: `insulator-${index + 1}-skirt-a`, shape: 'cylinder', w: 0.30, h: 0.08, l: 0.30, x, y: 4.08, z: 0, color: 0x343b40 },
         { name: `insulator-${index + 1}-skirt-b`, shape: 'cylinder', w: 0.26, h: 0.08, l: 0.26, x, y: 4.28, z: 0, color: 0x343b40 },
+      ]),
+      // Cabinet-height tap bushings project from the outside face of each leg.
+      ...[-1, 1].flatMap((side) => [
+        { name: `hv-tap-${side < 0 ? 'left' : 'right'}-stem`, shape: 'cylinder', axis: 'x', w: 0.34, h: 0.14, l: 0.14, x: side * 1.79, y: 3.03, z: 0, color: 0x343b40 },
+        { name: `hv-tap-${side < 0 ? 'left' : 'right'}-skirt`, shape: 'cylinder', axis: 'x', w: 0.08, h: 0.28, l: 0.28, x: side * 1.89, y: 2.96, z: 0, color: 0x343b40 },
+        { name: `hv-tap-${side < 0 ? 'left' : 'right'}-cap`, shape: 'cylinder', axis: 'x', w: 0.08, h: 0.18, l: 0.18, x: side * 1.92, y: 3.01, z: 0, color: 0xd2a93d },
       ]),
     ],
     requiredConnections: [],
@@ -2268,7 +2278,7 @@ export const INFRASTRUCTURE_RAW = {
   poleMountTransformer: {
     id: 'poleMountTransformer',
     name: 'Pole-Mount Service Transformer',
-    desc: 'Outdoor 100 kW service transformer. Bring HV from a utility pole into its rear bushing, then feed up to four ordinary branch-power circuits from the secondary terminals.',
+    desc: 'Outdoor 100 kW service transformer. Bring HV from a utility pole into its roof bushing, then feed up to four ordinary branch-power circuits from the secondary terminals.',
     category: 'power', subsection: 'distribution',
     paletteOrder: 2,
     cost: { funding: 95000 },

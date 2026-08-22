@@ -1139,12 +1139,24 @@ const INFRA_UTILITY_PORTS = {
       connectionKind: 'hvPassThrough', omnidirectional: true, params: {},
     }],
   ])),
-  indoorHvCableRack: Object.fromEntries([
-    [1, 0.125], [2, 0.375], [3, 0.625], [4, 0.875],
-  ].map(([index, offsetAlong]) => [`hv_${index}`, {
-    utility: 'hvCable', side: 'front', offsetAlong,
-    role: 'pass', omnidirectional: true, maxConnections: 2, params: {},
-  }])),
+  indoorHvCableRack: {
+    ...Object.fromEntries([
+      [1, 0.20], [2, 0.40], [3, 0.60], [4, 0.80],
+    ].map(([index, offsetAlong]) => [`hv_${index}`, {
+      utility: 'hvCable', side: 'front', offsetAlong,
+      role: 'pass', omnidirectional: true, maxConnections: 2, params: {},
+    }])),
+    hv_tap_left: {
+      utility: 'hvCable', side: 'left', offsetAlong: 0.5,
+      role: 'pass', connectionKind: 'hvDistributionTap',
+      omnidirectional: true, maxConnections: 1, params: {},
+    },
+    hv_tap_right: {
+      utility: 'hvCable', side: 'right', offsetAlong: 0.5,
+      role: 'pass', connectionKind: 'hvDistributionTap',
+      omnidirectional: true, maxConnections: 1, params: {},
+    },
+  },
   indoorHvCableCornerRack: Object.fromEntries([
     [1, 'back', 0.125], [2, 'back', 0.375],
     [3, 'front', 0.625], [4, 'front', 0.875],
@@ -1174,8 +1186,9 @@ const INFRA_UTILITY_PORTS = {
       params: { fieldCapacity: 400 },
     },
   },
-  // One passive, two-wire connector per visible insulator. Separate ports are
-  // isolated conductors; two lines sharing one named port are continuous.
+  // One passive, two-wire connector per visible overhead insulator plus one
+  // single-feeder low tap. The Utility Pole's electricalGroups entry buses
+  // all five; the transmission tower keeps its six conductors isolated.
   utilityPole: {
     hv_in: {
       utility: 'hvCable', side: 'back', offsetAlong: 0.5,
@@ -1189,6 +1202,11 @@ const INFRA_UTILITY_PORTS = {
     },
     hv_3: { utility: 'hvCable', side: 'back', offsetAlong: 0.5, role: 'pass', omnidirectional: true, maxConnections: 2, params: {} },
     hv_4: { utility: 'hvCable', side: 'front', offsetAlong: 0.5, role: 'pass', omnidirectional: true, maxConnections: 2, params: {} },
+    hv_tap: {
+      utility: 'hvCable', side: 'front', offsetAlong: 0.5,
+      role: 'pass', connectionKind: 'hvDistributionTap',
+      omnidirectional: true, maxConnections: 1, params: {},
+    },
   },
   transmissionTower: {
     hv_in: {

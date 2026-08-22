@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
 import { DISTRIBUTION_OUTPUT_LAYOUTS } from '../src/data/distribution-output-layout.js';
-import { portAnchorOverride } from '../src/data/utility-port-anchors.js';
+import {
+  portAnchorOverride,
+  POWER_HV_INPUT_MOUNTS,
+} from '../src/data/utility-port-anchors.js';
 
 globalThis.THREE = THREE;
 
@@ -11,6 +14,8 @@ const {
   _buildHVTransformerRoles,
   _buildSwitchgearRoles,
   _buildMCCRoles,
+  _buildUPSRoles,
+  _buildPadMountTransformerRoles,
   _buildCompactDistributionPanelRoles,
   _buildSectionDistributionPanelRoles,
   _buildMainDistributionPanelRoles,
@@ -90,6 +95,43 @@ test('HV transformer feeder rack supports all four existing cable anchors', () =
 
   disposeBuckets(transformer);
   disposeBuckets(sharedTank);
+});
+
+test('Power HV input anchors terminate on visible upper insulator caps', () => {
+  const cases = {
+    powerPanel: _buildCompactDistributionPanelRoles,
+    sectionDistributionPanel: _buildSectionDistributionPanelRoles,
+    mainDistributionPanel: _buildMainDistributionPanelRoles,
+    compactHvDistributor: _buildCompactHvDistributorRoles,
+    switchgear: _buildSwitchgearRoles,
+    mcc: _buildMCCRoles,
+    ups: _buildUPSRoles,
+    padMountTransformer: _buildPadMountTransformerRoles,
+    hvTransformer: _buildHVTransformerRoles,
+    facilityTransformer: () => _buildHVTransformerRoles(false),
+    gridIntertieTransformer: () => _buildHVTransformerRoles(false),
+  };
+
+  for (const [type, build] of Object.entries(cases)) {
+    const mount = POWER_HV_INPUT_MOUNTS[type];
+    const buckets = build();
+    const cap = buckets.copper.find((geometry) => {
+      geometry.computeBoundingBox();
+      const center = geometry.boundingBox.getCenter(new THREE.Vector3());
+      if (Math.abs(center.x - mount.localX) > 1e-6) return false;
+      if (mount.normal.y > 0.5) {
+        return Math.abs(center.z - mount.localZ) < 1e-6
+          && Math.abs(geometry.boundingBox.max.y - mount.y) < 1e-6;
+      }
+      return Math.abs(center.y - mount.y) < 1e-6
+        && Math.abs(geometry.boundingBox.min.z - mount.localZ) < 1e-6;
+    });
+    assert.ok(cap, `${type}.hv_in lands on a visible insulated terminal cap`);
+    const minimumCeramicParts = /Transformer$/.test(type) ? 3 : 4;
+    assert.ok(buckets.accent.length >= minimumCeramicParts,
+      `${type}.hv_in has visible ceramic insulation`);
+    disposeBuckets(buckets);
+  }
 });
 
 test('distribution panel rungs are detailed NEMA enclosures, not plain boxes', () => {

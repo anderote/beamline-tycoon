@@ -309,7 +309,9 @@ export function planPanelAutoConnect(state, panelId, {
     for (const portName of availablePorts(endpoint, def, utilityType, lines)) {
       const spec = getPortSpec(def, portName);
       if (!outlets.some(outlet => rolesCanAutoConnect(outlet.spec, spec, utilityType)
-          && (!overheadPeer || outlet.portName === portName))) continue;
+          && (!overheadPeer || (outlet.portName === portName
+            && isOverheadHvSupport(panelDef, outlet.portName)
+            && isOverheadHvSupport(def, portName))))) continue;
       const pos = resolvePortPosition(endpoint, def, portName);
       if (!pos) continue;
       const distance = Math.hypot(pos.x - centre.x, pos.z - centre.z) / 2;

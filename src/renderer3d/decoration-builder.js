@@ -1425,6 +1425,11 @@ function _utilityPoleModel(footW, _footL, totalH) {
       _siteSphere(group, 0.055, [x, y + 0.24, 0], metal);
     }
   }
+  // Reachable HV distribution tap. The ceramic sleeve and metal cap terminate
+  // at the authored utilityPole.hv_tap anchor on the pole's front side.
+  _siteBox(group, [0.12, 0.16, 0.16], [0, 0.75, 0.10], metal);
+  _siteCylinder(group, 0.055, 0.065, 0.16, [0, 0.75, 0.20], ceramic, 'z', 10);
+  _siteSphere(group, 0.055, [0, 0.75, 0.30], metal);
   _siteBox(group, [0.28, 0.44, 0.16], [0.18, poleH * 0.48, -0.1], metal);
   return group;
 }

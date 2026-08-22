@@ -47,6 +47,72 @@ import { DISTRIBUTION_OUTPUT_LAYOUTS } from './distribution-output-layout.js';
 
 const STANDARD_RF_FEED_Y = RF_PORT_STANDARDS.standardFeed.heightMeters;
 
+// Power-cabinet HV inputs share one reachable service height so feeders can
+// move cleanly between distribution gear and the low taps on an indoor rack.
+// Compact cabinets carry a roof bushing up to this datum; taller cabinets put
+// the same insulated fitting on their upper rear shoulder.
+export const POWER_HV_CABINET_INPUT_Y = 1.55;
+
+const TOP_NORMAL = Object.freeze({ x: 0, y: 1, z: 0 });
+const REAR_NORMAL = Object.freeze({ x: 0, y: 0, z: -1 });
+
+export const POWER_HV_INPUT_MOUNTS = Object.freeze({
+  powerPanel: Object.freeze({
+    y: POWER_HV_CABINET_INPUT_Y, localX: -0.15, localZ: 0, normal: TOP_NORMAL,
+  }),
+  sectionDistributionPanel: Object.freeze({
+    y: POWER_HV_CABINET_INPUT_Y, localX: -0.38, localZ: -0.40, normal: REAR_NORMAL,
+  }),
+  mainDistributionPanel: Object.freeze({
+    y: POWER_HV_CABINET_INPUT_Y, localX: -0.56, localZ: -0.42, normal: REAR_NORMAL,
+  }),
+  compactHvDistributor: Object.freeze({
+    y: POWER_HV_CABINET_INPUT_Y, localX: -0.10, localZ: 0, normal: TOP_NORMAL,
+  }),
+  switchgear: Object.freeze({
+    y: POWER_HV_CABINET_INPUT_Y, localX: -0.28, localZ: -0.80, normal: REAR_NORMAL,
+  }),
+  mcc: Object.freeze({
+    y: POWER_HV_CABINET_INPUT_Y, localX: -0.68, localZ: -0.55, normal: REAR_NORMAL,
+  }),
+  ups: Object.freeze({
+    y: POWER_HV_CABINET_INPUT_Y, localX: -0.48, localZ: -0.55, normal: REAR_NORMAL,
+  }),
+  // Transformer inputs terminate on their actual roof bushings rather than
+  // borrowing the common cabinet shoulder height.
+  hvTransformer: Object.freeze({
+    y: 1.85, localX: 0, localZ: -0.35, normal: TOP_NORMAL,
+  }),
+  facilityTransformer: Object.freeze({
+    y: 1.85, localX: 0, localZ: -0.35, normal: TOP_NORMAL,
+  }),
+  gridIntertieTransformer: Object.freeze({
+    y: 1.85, localX: 0, localZ: -0.35, normal: TOP_NORMAL,
+  }),
+  padMountTransformer: Object.freeze({
+    y: POWER_HV_CABINET_INPUT_Y, localX: 0, localZ: -0.20, normal: TOP_NORMAL,
+  }),
+  poleMountTransformer: Object.freeze({
+    y: 1.74, localX: -0.215, localZ: -0.125, normal: TOP_NORMAL,
+  }),
+});
+
+export const INDOOR_HV_RACK_TAP_MOUNTS = Object.freeze({
+  hv_tap_left: Object.freeze({
+    y: POWER_HV_CABINET_INPUT_Y, localX: -0.98, localZ: 0,
+    normal: Object.freeze({ x: -1, y: 0, z: 0 }),
+  }),
+  hv_tap_right: Object.freeze({
+    y: POWER_HV_CABINET_INPUT_Y, localX: 0.98, localZ: 0,
+    normal: Object.freeze({ x: 1, y: 0, z: 0 }),
+  }),
+});
+
+export const UTILITY_POLE_HV_TAP_MOUNT = Object.freeze({
+  y: 0.75, localX: 0, localZ: 0.30,
+  normal: Object.freeze({ x: 0, y: 0, z: 1 }),
+});
+
 function outputAnchorBank(type, prefix) {
   return Object.fromEntries(DISTRIBUTION_OUTPUT_LAYOUTS[type].map(({ x, y }, index) => [
     `${prefix}_${index + 1}`, { y, along: x },
@@ -245,11 +311,12 @@ export const PORT_ANCHOR_OVERRIDES = {
   // --- support plant -------------------------------------------------------
   // Electrical hardware uses readable terminal banks rather than model-bound
   // midpoints. Transformer secondaries sit high on the front cable side;
-  // distribution outputs run in horizontal rows of four (or two) across the
-  // front while the HV gland remains isolated low on the rear. These are
-  // presentation mounts only.
+  // distribution outputs run in horizontal rows across the front, while every
+  // Power-category HV input lands on a visible roof or upper-shoulder
+  // insulator. These are presentation mounts only.
   padMountTransformer: {
     _default: { y: 0.78, lat: 0.42 },
+    hv_in: POWER_HV_INPUT_MOUNTS.padMountTransformer,
     hv_out_1: { along: 0 },
   },
   gridServicePoint: {
@@ -258,53 +325,58 @@ export const PORT_ANCHOR_OVERRIDES = {
   },
   poleMountTransformer: {
     _default: { y: 0.72, lat: 0.43 },
-    hv_in: { y: 1.42, along: -0.28 },
+    hv_in: POWER_HV_INPUT_MOUNTS.poleMountTransformer,
     ...outputAnchorBank('poleMountTransformer', 'pwr_out'),
   },
   facilityTransformer: {
     _default: { y: 1.55, lat: 0.82 },
+    hv_in: POWER_HV_INPUT_MOUNTS.facilityTransformer,
     hv_out_1: { along: -0.25 }, hv_out_2: { along: 0.25 },
   },
   hvTransformer: {
     _default: { y: 1.42, lat: 0.82 },
+    hv_in: POWER_HV_INPUT_MOUNTS.hvTransformer,
     // Match the 4×4 wall feedthrough: one 1.45 m-high row at 0.5 m centres.
     hv_out_1: { y: 1.45, along: -0.75 }, hv_out_2: { y: 1.45, along: -0.25 },
     hv_out_3: { y: 1.45, along: 0.25 }, hv_out_4: { y: 1.45, along: 0.75 },
   },
   gridIntertieTransformer: {
     _default: { y: 1.38, lat: 0.82 },
+    hv_in: POWER_HV_INPUT_MOUNTS.gridIntertieTransformer,
     hv_out_1: { y: 1.22, along: -0.36 }, hv_out_2: { y: 1.22, along: 0 },
     hv_out_3: { y: 1.22, along: 0.36 }, hv_out_4: { y: 1.58, along: -0.36 },
     hv_out_5: { y: 1.58, along: 0 }, hv_out_6: { y: 1.58, along: 0.36 },
   },
   compactHvDistributor: {
     _default: { y: 0.45, lat: 0.21 },
-    hv_in: { y: 0.30, along: -0.10 },
+    hv_in: POWER_HV_INPUT_MOUNTS.compactHvDistributor,
     ...outputAnchorBank('compactHvDistributor', 'hv_out'),
   },
   switchgear: {
     _default: { y: 0.7, lat: 0.66 },
-    hv_in: { y: 0.42, along: -0.28 },
+    hv_in: POWER_HV_INPUT_MOUNTS.switchgear,
     ...outputAnchorBank('switchgear', 'hv_out'),
   },
   powerPanel: {
-    _default: { y: 0.5, lat: 0.19 }, hv_in: { y: 0.30, along: -0.15 },
+    _default: { y: 0.5, lat: 0.19 }, hv_in: POWER_HV_INPUT_MOUNTS.powerPanel,
     ...outputAnchorBank('powerPanel', 'pwr_out'),
   },
   sectionDistributionPanel: {
-    _default: { y: 0.5, lat: 0.24 }, hv_in: { y: 0.32, along: -0.38 },
+    _default: { y: 0.5, lat: 0.24 },
+    hv_in: POWER_HV_INPUT_MOUNTS.sectionDistributionPanel,
     ...outputAnchorBank('sectionDistributionPanel', 'pwr_out'),
   },
   mainDistributionPanel: {
-    _default: { y: 0.5, lat: 0.26 }, hv_in: { y: 0.32, along: -0.56 },
+    _default: { y: 0.5, lat: 0.26 },
+    hv_in: POWER_HV_INPUT_MOUNTS.mainDistributionPanel,
     ...outputAnchorBank('mainDistributionPanel', 'pwr_out'),
   },
   mcc: {
-    _default: { y: 0.7, lat: 0.41 }, hv_in: { y: 0.34, along: -0.68 },
+    _default: { y: 0.7, lat: 0.41 }, hv_in: POWER_HV_INPUT_MOUNTS.mcc,
     ...outputAnchorBank('mcc', 'pwr_out'),
   },
   ups: {
-    _default: { y: 0.7, lat: 0.41 }, hv_in: { y: 0.34, along: -0.48 },
+    _default: { y: 0.7, lat: 0.41 }, hv_in: POWER_HV_INPUT_MOUNTS.ups,
     ...outputAnchorBank('ups', 'pwr_out'),
   },
   powerBus: {
@@ -325,8 +397,9 @@ export const PORT_ANCHOR_OVERRIDES = {
   },
   indoorHvCableRack: {
     _default: { y: 2.00, lat: 0, out: -0.06 },
-    hv_1: { along: -0.75 }, hv_2: { along: -0.25 },
-    hv_3: { along: 0.25 }, hv_4: { along: 0.75 },
+    hv_1: { along: -0.60 }, hv_2: { along: -0.20 },
+    hv_3: { along: 0.20 }, hv_4: { along: 0.60 },
+    ...INDOOR_HV_RACK_TAP_MOUNTS,
   },
   indoorHvCableCornerRack: {
     _default: { y: 2.00, out: -0.06 },
@@ -350,6 +423,7 @@ export const PORT_ANCHOR_OVERRIDES = {
     hv_out: { y: 6.4064, along: 0.91 },
     hv_3: { y: 5.3536, along: -0.91 },
     hv_4: { y: 5.3536, along: 0.91 },
+    hv_tap: UTILITY_POLE_HV_TAP_MOUNT,
   },
   // Six hanging-insulator tips across the tower's three conductor tiers.
   transmissionTower: {
