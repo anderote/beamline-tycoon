@@ -1466,9 +1466,27 @@ function countInfra(g, c0, r0, c1, r1) {
   globalThis.window = { addEventListener() {} };
   const canvas = { handlers: {}, style: {}, addEventListener(type, fn) { (this.handlers[type] ||= []).push(fn); } };
   const dispatched = [];
+  const g = makeGame(101);
+  const lineId = 'ul_default_right_click';
+  g.state.utilityLines.set(lineId, {
+    id: lineId,
+    utilityType: 'powerCable',
+    start: null,
+    end: null,
+    path: [{ col: 2, row: 2 }, { col: 4, row: 2 }],
+  });
+  let pickedLine = { lineId, utilityType: 'powerCable' };
+  let pickTolerance = null;
   const handler = {
-    renderer: { app: { canvas }, ui: {} },
-    game: {},
+    renderer: {
+      app: { canvas }, ui: {},
+      raycastUtilityLine(_x, _y, tolerancePx) {
+        pickTolerance = tolerancePx;
+        return pickedLine;
+      },
+    },
+    game: g,
+    activeTool: null,
     _ctrlDown: false,
     isPanning: false,
     _hideDragCostTooltip() {},
@@ -1488,8 +1506,31 @@ function countInfra(g, c0, r0, c1, r1) {
     return rec;
   };
 
-  fire('mouseup', { button: 2, ctrlKey: false, metaKey: false });
+  const undoBeforeDefaultDelete = g._undoStack.length;
+  fire('mouseup', {
+    button: 2, clientX: 40, clientY: 50, ctrlKey: false, metaKey: false,
+  });
   assertOk(dispatched.at(-1) === 'onRightClick', 'a plain right release still reaches the tool');
+  assertOk(!g.state.utilityLines.has(lineId),
+    'with no tool armed, the same right release deletes the utility line under the cursor');
+  assertOk(pickTolerance === 12,
+    `default line deletion uses the shared 12px object-pick tolerance (got ${pickTolerance})`);
+  assertOk(g._undoStack.length === undoBeforeDefaultDelete + 1,
+    'default right-click deletion creates one undo entry');
+  g.undo();
+  assertOk(g.state.utilityLines.has(lineId), 'undo restores the default-right-clicked line');
+
+  // A stale/missed pick is a no-op and must preserve redo. The renderer can
+  // briefly retain a removed mesh until the next frame-coalesced refresh.
+  pickedLine = { lineId: 'ul_missing', utilityType: 'powerCable' };
+  const undoBeforeMiss = g._undoStack.length;
+  const redoBeforeMiss = g._redoStack.length;
+  fire('mouseup', {
+    button: 2, clientX: 40, clientY: 50, ctrlKey: false, metaKey: false,
+  });
+  assertOk(g._undoStack.length === undoBeforeMiss && g._redoStack.length === redoBeforeMiss,
+    'right-clicking a stale or missing line adds no undo entry and preserves redo');
+  pickedLine = null;
 
   dispatched.length = 0;
   fire('mouseup', { button: 2, ctrlKey: true, metaKey: false });

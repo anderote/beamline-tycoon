@@ -40,6 +40,7 @@ import { DemolishTool } from './demolish-tool.js';
 import { MoveTool, ProbeTool, SelectionActionTool } from './mode-tools.js';
 import { BeamlineTool } from './beamline-tool.js';
 import { UtilityLineTool } from './utility-line-tool.js';
+import { removeUtilityLineAtScreen } from './utility-line-commands.js';
 import { DeferredUtilityPortDrag } from './deferred-port-drag.js';
 import {
   commitPanelAutoConnect,
@@ -2828,7 +2829,20 @@ export class InputHandler {
         // wall and FloorTool.onRightClick would disarm the tool mid-gesture.
         // Ctrl already means "erase along the drawn path", so swallow it.
         if (e.ctrlKey || e.metaKey || this._ctrlDown) return;
-        this._toolConsumed('onRightClick', e);
+        if (this._toolConsumed('onRightClick', e)) return;
+
+        // With no build/mode tool armed, right-click is a direct utility-line
+        // eraser. Keep this after tool dispatch so every armed tool retains
+        // its established cancel/erase semantics, while the ordinary cursor
+        // can remove a visible run without selecting a demolish tool first.
+        if (!this.activeTool) {
+          removeUtilityLineAtScreen({
+            game: this.game,
+            renderer: this.renderer,
+            screenX: e.clientX,
+            screenY: e.clientY,
+          });
+        }
       }
     });
 
