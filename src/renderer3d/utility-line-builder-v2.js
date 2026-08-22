@@ -359,7 +359,7 @@ export function buildSoftCableWorldPoints(line, placeablesById, previewAnchors =
 
 // Build 3D points for a line's polyline, with orthogonal tails into anchored
 // ports. Returns an array of THREE.Vector3.
-export function buildWorldPoints(line, placeablesById) {
+export function buildWorldPoints(line, placeablesById, tapAnchors = null) {
   const points = [];
   const path = line.path || [];
   if (path.length === 0) return points;
@@ -372,8 +372,8 @@ export function buildWorldPoints(line, placeablesById) {
   // from the logical footprint edge; collapse that old terminal detour before
   // adding the vertical riser. Three-point L routes are safe too: the shared
   // corner absorbs the start's row and the end's column (or vice versa).
-  const startAnchor = anchorFor(line.start, placeablesById);
-  const endAnchor = anchorFor(line.end, placeablesById);
+  const startAnchor = anchorFor(line.start, placeablesById) || tapAnchors?.start || null;
+  const endAnchor = anchorFor(line.end, placeablesById) || tapAnchors?.end || null;
   const descriptor = UTILITY_TYPES[line.utilityType] || {};
   if (line.utilityType === 'rfWaveguide') {
     return attachWaveguideTransitions(points, startAnchor, endAnchor, runY, descriptor);
@@ -387,11 +387,33 @@ export function buildWorldPoints(line, placeablesById) {
   // orthogonal boundary bridge as a narrow fallback for that one shape.
   const startRunPoint = points[0];
   const endRunPoint = points[points.length - 1];
-  const startRiser = portRiser(line.start, placeablesById, runY, startRunPoint, startAnchor);
+  const startRiser = line.start
+    ? portRiser(line.start, placeablesById, runY, startRunPoint, startAnchor)
+    : busTapRiser(tapAnchors?.start, runY, startRunPoint);
   if (startRiser) points.splice(0, 1, ...startRiser.slice().reverse());
-  const endRiser = portRiser(line.end, placeablesById, runY, endRunPoint, endAnchor);
+  const endRiser = line.end
+    ? portRiser(line.end, placeablesById, runY, endRunPoint, endAnchor)
+    : busTapRiser(tapAnchors?.end, runY, endRunPoint);
   if (endRiser && points.length > 0) points.splice(points.length - 1, 1, ...endRiser);
   return points;
+}
+
+// The rack's logical tap is an open line endpoint, but its visible socket is
+// raised above the tray. Give rigid branches the same orthogonal rise that a
+// component port receives so the pipe visibly plugs into the populated lane.
+function busTapRiser(anchor, runY, runPoint) {
+  if (!anchor || !runPoint) return null;
+  const out = [new THREE.Vector3(runPoint.x, runY, runPoint.z)];
+  if (Math.abs(runPoint.x - anchor.x) > 1e-6) {
+    out.push(new THREE.Vector3(anchor.x, runY, runPoint.z));
+  }
+  if (Math.abs(runPoint.z - anchor.z) > 1e-6) {
+    out.push(new THREE.Vector3(anchor.x, runY, anchor.z));
+  }
+  if (Math.abs(anchor.y - runY) > 1e-6) {
+    out.push(new THREE.Vector3(anchor.x, anchor.y, anchor.z));
+  }
+  return out;
 }
 
 // The orthogonal tail that takes a cable from its floor-route endpoint into
@@ -978,8 +1000,30 @@ function resampleControlPoints(points, count) {
   return out;
 }
 
+/** Visible socket position for a branch explicitly joined to a bus backbone. */
+function busTapAnchor(line, which, lineById) {
+  const targetId = line?.tapLineIds?.[which];
+  const backbone = targetId ? lineById?.get(targetId) : null;
+  if (backbone?.manifold?.type !== 'universalUtilityBus') return null;
+  const path = backbone.path || [];
+  const branchPath = line.path || [];
+  if (path.length < 2 || branchPath.length < 1) return null;
+  const first = path[0], last = path[path.length - 1];
+  const dx = last.col - first.col, dz = last.row - first.row;
+  const length = Math.hypot(dx, dz) || 1;
+  const slotOffsets = [-0.15, -0.05, 0.05, 0.15];
+  const offset = slotOffsets[backbone.manifold.slot] ?? 0;
+  const endpoint = which === 'start' ? branchPath[0] : branchPath[branchPath.length - 1];
+  return {
+    x: endpoint.col * 2 - dz / length * offset,
+    y: 0.95,
+    z: endpoint.row * 2 + dx / length * offset,
+  };
+}
+
 function buildLineGroup(
   line, placeablesById, errorStatus, reversed, pointOverride = null, joinedOpenEnds = null,
+  tapAnchors = null,
 ) {
   const descriptor = UTILITY_TYPES[line.utilityType];
   if (!descriptor) return null;
@@ -988,8 +1032,8 @@ function buildLineGroup(
   // ordinarily a loose cable. Render it as a rigid, visibly heavier trunk.
   const flexible = isSoftCable(line.utilityType) && !line.manifold;
   const points = pointOverride || (flexible
-    ? buildSoftCableWorldPoints(line, placeablesById)
-    : buildWorldPoints(line, placeablesById));
+    ? buildSoftCableWorldPoints(line, placeablesById, tapAnchors)
+    : buildWorldPoints(line, placeablesById, tapAnchors));
   if (points.length < 2) return null;
   let busOffsetX = 0, busOffsetZ = 0;
   if (busChannel) {
@@ -1160,22 +1204,51 @@ function buildLineGroup(
     cap.userData.isUtilityOpenCap = true;
     group.add(cap);
   }
-  // Regular branch fittings make the carrier read as a tray/header rather
-  // than an unusually thick ordinary cable.  They are presentation only;
-  // topology is still the backbone line plus explicit branch taps.
+  // Every authored rack access point becomes a real, utility-coloured socket
+  // on each populated lane. Topology remains the backbone plus explicit
+  // branch taps, but the player can now see exactly where another source or
+  // sink can be plugged into this utility's shared network.
   if (line.manifold?.taps?.length) {
-    const tapGeo = new THREE.BoxGeometry(radius * 3.2, radius * 2.2, radius * 3.2);
     for (const tap of line.manifold.taps) {
       const point = tap?.point;
       if (!point) continue;
-      const fitting = new THREE.Mesh(tapGeo, hardwareMat);
-      fitting.position.set(
-        (point.col + point.subCol / 4) * 2 + busOffsetX,
-        busChannel ? 0.79 : runY,
-        (point.row + point.subRow / 4) * 2 + busOffsetZ,
+      const x = (point.col + (point.subCol || 0) / 4) * 2 + busOffsetX;
+      const z = (point.row + (point.subRow || 0) / 4) * 2 + busOffsetZ;
+      const baseY = busChannel ? 0.79 : runY;
+      const portTopY = busChannel ? 0.95 : runY + 0.12;
+      const port = new THREE.Group();
+      port.userData = {
+        isUtilityManifoldTap: true,
+        isUniversalUtilityBusPort: busChannel,
+        utilityType: line.utilityType,
+        busId: line.manifold.busId || null,
+        channelSlot: line.manifold.slot ?? null,
+        tapId: tap.id || null,
+      };
+      const stem = buildCylinderSegment(
+        new THREE.Vector3(x, baseY, z),
+        new THREE.Vector3(x, portTopY, z),
+        Math.max(0.018, radius * 0.48), hardwareMat,
       );
-      fitting.userData.isUtilityManifoldTap = true;
-      group.add(fitting);
+      if (stem) port.add(stem);
+      if (style === 'rectWaveguide') {
+        const socket = new THREE.Mesh(
+          new THREE.BoxGeometry(Math.max(0.1, radius * 2.5), 0.045,
+            Math.max(0.075, radius * 1.9)),
+          hardwareMat,
+        );
+        socket.position.set(x, portTopY, z);
+        port.add(socket);
+      } else {
+        const socketRadius = Math.max(0.04, radius * 1.32);
+        const socket = new THREE.Mesh(
+          new THREE.CylinderGeometry(socketRadius, socketRadius, 0.04, 12),
+          hardwareMat,
+        );
+        socket.position.set(x, portTopY, z);
+        port.add(socket);
+      }
+      group.add(port);
     }
   }
   // A branch endpoint that lands on a trunk is a tee, not a dangling glowing
@@ -1550,6 +1623,7 @@ export class UtilityLineBuilderV2 {
     const errorByLineId = opts.state ? this._buildErrorMap(opts.state) : new Map();
     const orientationByLineId = opts.state ? this._buildOrientationMap(opts.state, lines) : new Map();
     const records = typeof lines.values === 'function' ? Array.from(lines.values()) : Array.from(lines);
+    const lineById = new Map(records.map(line => [line?.id, line]));
     const installedLineIds = new Set(records.map(line => line?.id).filter(Boolean));
     for (const line of records) {
       if (!line || !line.id) continue;
@@ -1561,7 +1635,16 @@ export class UtilityLineBuilderV2 {
       // tap moving) has to rebuild every line whose orientation flips, same
       // as errorStatus already does for fault transitions.
       const reversed = orientationByLineId.get(line.id) || false;
-      const hash = this._hashLine(line, placeablesById) + '|' + errorStatus + '|' + (reversed ? 'rev' : 'fwd');
+      const tapAnchors = {
+        start: busTapAnchor(line, 'start', lineById),
+        end: busTapAnchor(line, 'end', lineById),
+      };
+      const tapAnchorHash = ['start', 'end'].map(which => {
+        const anchor = tapAnchors[which];
+        return anchor ? `${anchor.x},${anchor.y},${anchor.z}` : '-';
+      }).join(':');
+      const hash = this._hashLine(line, placeablesById) + '|' + errorStatus + '|'
+        + (reversed ? 'rev' : 'fwd') + '|' + tapAnchorHash;
       const prevHash = this._lineHashes.get(line.id);
       if (prevHash === hash && this._lineGroups.has(line.id)) continue;
       const isNewLine = prevHash === undefined;
@@ -1589,7 +1672,7 @@ export class UtilityLineBuilderV2 {
         end: !!line.tapLineIds?.end && installedLineIds.has(line.tapLineIds.end),
       };
       if (isSoftCable(line.utilityType)) {
-        const initialPoints = buildSoftCableWorldPoints(line, placeablesById);
+        const initialPoints = buildSoftCableWorldPoints(line, placeablesById, tapAnchors);
         const tensioned = isTensionedHvCable(line, placeablesById);
         const floorY = utilityLineHeight(line.utilityType);
         const bendRadius = softCableBendRadiusMeters(line.utilityType);
@@ -1645,7 +1728,7 @@ export class UtilityLineBuilderV2 {
         }
       }
       const group = buildLineGroup(
-        line, placeablesById, errorStatus, reversed, pointOverride, joinedOpenEnds);
+        line, placeablesById, errorStatus, reversed, pointOverride, joinedOpenEnds, tapAnchors);
       if (group) {
         parentGroup.add(group);
         this._lineGroups.set(line.id, group);
