@@ -26,7 +26,7 @@ import { buildPortRoutedPaths, pathLengthSubUnits } from '../utility/line-geomet
 import { validateDrawLine } from '../utility/line-drawing.js';
 import { isOverheadHvSupport } from '../utility/soft-cable.js';
 import { findUtilityEndpoint, listUtilityEndpoints } from '../utility/utility-endpoints.js';
-import { portWaterCircuit } from '../utility/water-circuits.js';
+import { lineWaterCircuit, portWaterCircuit } from '../utility/water-circuits.js';
 import { runWiringCost } from './utility-run-wiring.js';
 
 export const PANEL_AUTO_CONNECT_UTILITY = 'powerCable';
@@ -225,6 +225,48 @@ function directlyConnectedPeerPorts(state, lines, utilityType, placeableId) {
   return peers;
 }
 
+function inferredLineWaterCircuit(state, line) {
+  const authored = lineWaterCircuit(line);
+  if (authored) return authored;
+  const circuits = new Set();
+  for (const ref of [line?.start, line?.end]) {
+    if (!ref?.placeableId || !ref.portName) continue;
+    const endpoint = findUtilityEndpoint(state, ref.placeableId);
+    const circuit = portWaterCircuit(getPortSpec(COMPONENTS[endpoint?.type], ref.portName));
+    if (circuit) circuits.add(circuit);
+  }
+  return circuits.size === 1 ? [...circuits][0] : null;
+}
+
+/**
+ * A configurable water distributor does not author hot/cold on its flexible
+ * ports: the rigid pipe connected to the same converter group decides it.
+ * Assisted wiring must resolve that circuit before offering the outlet, or a
+ * single passive header could accidentally join a cold inlet to a hot return.
+ */
+function resolvedCoolingOutletSpec(state, panel, panelDef, portName, spec, lines) {
+  if (spec?.utility !== 'coolingWater' || portWaterCircuit(spec)) return spec;
+  const converter = panelDef?.waterConverterGroups?.find(group =>
+    group?.waterLinePorts?.includes(portName));
+  if (!converter) return spec;
+
+  const supplyPorts = new Set(converter.supplyPipePorts || []);
+  const circuits = new Set();
+  for (const line of iterLines(lines)) {
+    if (line?.utilityType !== 'waterSupplyPipe') continue;
+    const touchesGroup = [line.start, line.end].some(ref =>
+      ref?.placeableId === panel.id && supplyPorts.has(ref.portName));
+    if (!touchesGroup) continue;
+    const circuit = inferredLineWaterCircuit(state, line);
+    if (circuit) circuits.add(circuit);
+  }
+  if (circuits.size !== 1) return null;
+  return {
+    ...spec,
+    params: { ...(spec.params || {}), waterCircuit: [...circuits][0] },
+  };
+}
+
 const COOLING_PLANT_CAPABILITY_PARAMS = Object.freeze([
   'capacity',
   'heatRejectionCapacity',
@@ -303,13 +345,16 @@ export function planPanelAutoConnect(state, panelId, {
 
   const outlets = connectorPorts.map(portName => {
     const pos = resolvePortPosition(panel, panelDef, portName);
+    const spec = resolvedCoolingOutletSpec(
+      state, panel, panelDef, portName, getPortSpec(panelDef, portName), lines,
+    );
     return pos && {
       portName,
-      spec: getPortSpec(panelDef, portName),
+      spec,
       tile: portTile(pos),
       vec: portApproachVec(panel, panelDef, portName),
     };
-  }).filter(Boolean);
+  }).filter(outlet => outlet?.spec);
   const coolingOriginClasses = new Set(outlets
     .map(outlet => coolingAutoConnectClass(outlet.spec))
     .filter(Boolean));
@@ -332,9 +377,15 @@ export function planPanelAutoConnect(state, panelId, {
   }
 
   const candidates = [];
+  const supportsPairedWaterCircuits = utilityType === 'coolingWater'
+    && (panelDef.waterConverterGroups?.length || 0) > 1;
   for (const endpoint of listUtilityEndpoints(state)) {
     if (!endpoint || endpoint.id === panelId) continue;
-    if (devicesDirectlyConnected(lines, utilityType, panelId, endpoint.id)) continue;
+    // Paired water equipment intentionally has one cold and one hot run to
+    // the same distributor. Existing service on one circuit must not hide the
+    // still-free connector on the other circuit.
+    if (!supportsPairedWaterCircuits
+        && devicesDirectlyConnected(lines, utilityType, panelId, endpoint.id)) continue;
     const def = COMPONENTS[endpoint.type];
     if (!def?.ports) continue;
     const overheadPeer = utilityType === 'hvCable'

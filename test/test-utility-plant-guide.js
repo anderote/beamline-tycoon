@@ -24,6 +24,8 @@ test('only source-side plant equipment starts a contextual guide', () => {
   assert.equal(plantGuideTypeForPlaceable(endpoint('cold', 'coldBox4K')), 'cryoTransfer');
   assert.equal(plantGuideTypeForPlaceable(endpoint('tank', 'ln2Dewar')), 'cryoTransfer');
   assert.equal(plantGuideTypeForPlaceable(endpoint('manifold', 'coolingManifold')), null);
+  assert.equal(plantGuideTypeForPlaceable(endpoint('two-line', 'waterDistributor2')), null);
+  assert.equal(plantGuideTypeForPlaceable(endpoint('four-line', 'waterDistributor4')), null);
   assert.equal(plantGuideTypeForPlaceable(endpoint('load', 'quadrupole')), null);
 });
 
