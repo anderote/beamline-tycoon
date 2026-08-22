@@ -188,6 +188,7 @@ export class InputHandler {
     this.linePlaceSpacingSub = new Map();
     this._linePlaceLastWorld = null; // for re-previewing on spacing change
     this._suppressNextClick = false;
+    this._landPurchasePress = false;
     // Live modifier state, kept because synthesized events (the {clientX,
     // clientY, button} record _handleClick hands to onClick) carry no
     // modifier flags, and because a modifier can change under a stationary
@@ -2465,6 +2466,17 @@ export class InputHandler {
         return;
       }
 
+      // The map-corner land arrows are direct world controls, not build tools.
+      // Claim the whole press/release before an armed drag tool can turn the
+      // click into a wall, pipe, or placement outside the current site.
+      if (e.button === 0
+          && this.renderer.isLandPurchaseMarkerAtScreen?.(e.clientX, e.clientY)) {
+        this._landPurchasePress = true;
+        canvas.style.cursor = 'pointer';
+        e.preventDefault();
+        return;
+      }
+
       // Active tool gets first claim on the press (after camera controls,
       // which are built-in input handling, not tools).
       if (this._toolConsumed('onMouseDown', e)) return;
@@ -2539,6 +2551,12 @@ export class InputHandler {
         this.renderer.setPanFromDragDelta(this.panStartPan.x, this.panStartPan.y, dx, dy);
         return;
       }
+      if (this.renderer.updateLandPurchaseHover?.(e.clientX, e.clientY)) {
+        canvas.style.cursor = 'pointer';
+        this._hideTooltip();
+        return;
+      }
+      if (!this._landPurchasePress) canvas.style.cursor = this.activeTool?.cursor || '';
       this._lastScreenX = e.clientX;
       this._lastScreenY = e.clientY;
       this._updatePlacementKeyHint(e.clientX, e.clientY);
@@ -2577,6 +2595,8 @@ export class InputHandler {
     });
 
     canvas.addEventListener('mouseleave', () => {
+      this.renderer.clearLandPurchaseHover?.();
+      this._landPurchasePress = false;
       this._hideTooltip();
       this._hidePlacementKeyHint();
     });
@@ -2585,6 +2605,12 @@ export class InputHandler {
       this._hideDragCostTooltip();
       if (e.button === 0) this._deferredUtilityPortDrag.release();
       if (e.button === 1 && this._finishMiddleCameraGesture({ toggleClick: true })) return;
+      if (e.button === 0 && this._landPurchasePress) {
+        this._landPurchasePress = false;
+        canvas.style.cursor = this.activeTool?.cursor || '';
+        this.renderer.purchaseLandAtScreen?.(e.clientX, e.clientY);
+        return;
+      }
       if (this.isPanning) {
         this.isPanning = false;
         canvas.style.cursor = '';

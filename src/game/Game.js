@@ -789,6 +789,18 @@ export class Game {
     return nextLandParcel(this.state.mapHalfExtent);
   }
 
+  /** Published view model for map-corner purchase controls. Rendering code
+   * gets the extent, offer, and affordability here instead of reading mutable
+   * game state or independently reproducing the economy rule. */
+  getLandPurchaseStatus() {
+    const parcel = this.getNextLandParcel();
+    return {
+      mapHalfExtent: this.state.mapHalfExtent,
+      parcel,
+      affordable: !!parcel && this.canAfford({ funding: parcel.cost }),
+    };
+  }
+
   /**
    * Buy the next parcel of land, growing the map by 60 tiles per side.
    *
