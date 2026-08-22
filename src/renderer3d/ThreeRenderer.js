@@ -81,9 +81,12 @@ import { FramePacer } from './frame-pacer.js';
 import { LightRig } from './light-rig.js';
 import { VisualEffectSystem } from './visual-effect-system.js';
 import {
+  ambientDistributorSparkProfile,
+  ambientHvConnectionSparkProfile,
   equipmentPowerUpSparkProfile,
   utilityConnectionSparkProfile,
 } from './spark-presentation.js';
+import { AmbientElectricalSparkScheduler } from './ambient-electrical-sparks.js';
 import {
   previewParticleDescriptors,
   setParticleEffectProfile,
@@ -251,6 +254,7 @@ export class ThreeRenderer {
     this._frustumSize = 20;
     this._animFrameId = null;
     this._framePacer = null;
+    this._ambientElectricalSparks = new AmbientElectricalSparkScheduler();
 
     this.renderer = null;
     this.scene = null;
@@ -2075,6 +2079,30 @@ export class ThreeRenderer {
     this.emitVisualEffect({
       kind: 'particleBurst', position, normal: { x: 0, y: 1, z: 0 },
       ...equipmentPowerUpSparkProfile(count),
+      physicalLight: false,
+    });
+  }
+
+  /** Emit one scheduler-selected, presentation-only ambient electrical spit. */
+  _emitAmbientElectricalSpark(event) {
+    if (event?.kind === 'hvConnection') {
+      const anchor = this._utilitySparkAnchor(event.ref);
+      if (!anchor) return;
+      this.emitVisualEffect({
+        kind: 'particleBurst', ...anchor,
+        ...ambientHvConnectionSparkProfile(),
+        physicalLight: false,
+      });
+      return;
+    }
+    if (event?.kind !== 'distributor' || !event.placeableId) return;
+    const object = this.componentBuilder?.getGroup?.(event.placeableId)
+      || this.equipmentBuilder?.getGroup?.(event.placeableId);
+    const position = this._objectSparkOrigin(object);
+    if (!position) return;
+    this.emitVisualEffect({
+      kind: 'particleBurst', position, normal: { x: 0, y: 1, z: 0 },
+      ...ambientDistributorSparkProfile(event.utilization),
       physicalLight: false,
     });
   }
@@ -4683,6 +4711,15 @@ export class ThreeRenderer {
     // cost. See utility-flow.js.
     tickFlow(_dt);
     this.beamBuilder?.update(_dt);
+    // Utility solve outputs are sanctioned live renderer inputs (see
+    // _liveState): the scheduler reads their published capacity/demand at a
+    // one-second cadence and emits at most one tiny ambient burst per window.
+    const ambientElectricalSpark = this._ambientElectricalSparks?.update(
+      _dt,
+      this._liveState(),
+      type => COMPONENTS[type] || PLACEABLES[type] || null,
+    );
+    if (ambientElectricalSpark) this._emitAmbientElectricalSpark(ambientElectricalSpark);
     // Update moving visual instances/proxies before LightRig ranks those
     // proxies, so physical lights follow the current-frame pulse positions.
     this._effectSystem?.update(_dt, this._darkness ?? 0);
