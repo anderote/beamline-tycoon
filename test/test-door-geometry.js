@@ -351,6 +351,34 @@ console.log('\n=== 5. build(): the visible door panel ===\n');
       && near(smokedGlass.material.opacity, DOOR_TYPES.glassDoor.variantGlassOpacities[2]),
     'glass door variants produce visibly distinct glazing');
 
+  for (const id of [
+    'doubleDoor', 'cleanroomDoor', 'doubleLabDoor', 'panicExit',
+    'fireDoor', 'doubleFireDoor', 'labDoor',
+  ]) {
+    const wb = new WallBuilder(null);
+    const seg = { col: 0, row: 0, edge: 'n' };
+    wb.build(
+      [{ ...seg, type: id === 'doubleDoor' ? 'structuralWall' : 'officeWall',
+        variant: 0, baseY: { a: 0, b: 0 } }],
+      [{ ...seg, type: id, variant: 0, off: 1 }],
+      [], new Group(), 'up', null
+    );
+    const leaves = wb._meshes.filter(m => m.userData?.doorLeaf);
+    const panes = wb._meshes.filter(m => m.userData?.doorWindowGlass);
+    assert(leaves.length === (DOOR_TYPES[id].leafCount ?? 1)
+        && leaves.every(m => m.material.alphaMap && m.material.alphaTest > 0),
+      `${id} cuts its authored observation window through the opaque leaf`);
+    assert(panes.length === leaves.length
+        && panes.every(m => m.material.transparent === true && m.material.depthWrite === false),
+      `${id} fills every observation opening with order-safe transparent glass`);
+  }
+
+  for (const id of ['officeDoor', 'securityDoor', 'acousticDoor', 'serviceDoor']) {
+    const leaf = panelsOf(id, 0, id === 'serviceDoor' ? 'structuralWall' : 'officeWall')[0];
+    assert(!leaf.material.alphaMap,
+      `${id} remains solid because its artwork has no window`);
+  }
+
   const framedDoorBuilder = new WallBuilder(null);
   framedDoorBuilder.build(
     [{ col: 0, row: 0, edge: 'n', type: 'glassWall', variant: 0, baseY: { a: 0, b: 0 } }],
