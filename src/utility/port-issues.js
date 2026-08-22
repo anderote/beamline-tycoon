@@ -25,14 +25,38 @@ function recordIssue(out, issue) {
  */
 export function utilityPortIssues(state, endpointsById, getPorts) {
   const out = new Map();
+  const networks = state?.utilityNetworks;
+
+  // `unwiredSinks` deliberately has component + utility granularity because
+  // its HUD consumers answer "does this machine still need RF?". Compound
+  // beamline modules can have several sink ports for the same utility,
+  // though. Build the exact connected-port set from discovered topology so a
+  // remaining unwired sibling does not leave an exclamation mark over a port
+  // that is already receiving service.
+  const connectedSinkPorts = new Set();
+  if (networks instanceof Map) {
+    for (const nets of networks.values()) {
+      for (const network of nets || []) {
+        for (const sink of network?.sinks || []) {
+          if (sink.portKey) connectedSinkPorts.add(sink.portKey);
+          if (sink.placeableId && sink.portName) {
+            connectedSinkPorts.add(`${sink.placeableId}:${sink.portName}`);
+          }
+        }
+      }
+    }
+  }
 
   // Unwired sinks have no flow record. Resolve their concrete port names from
   // the authoritative definition rather than guessing a conventional name.
+  // The public summary is coarse, so subtract ports that topology proves are
+  // connected before creating per-port markers.
   for (const [placeableId, utilities] of Object.entries(state?.unwiredSinks || {})) {
     const endpoint = endpointsById?.get?.(placeableId);
     if (!endpoint || !utilities) continue;
     for (const [portName, spec] of Object.entries(getPorts?.(endpoint.type) || {})) {
       if (spec?.role !== 'sink' || !utilities[spec.utility]) continue;
+      if (connectedSinkPorts.has(`${placeableId}:${portName}`)) continue;
       recordIssue(out, {
         placeableId,
         portName,
@@ -43,7 +67,6 @@ export function utilityPortIssues(state, endpointsById, getPorts) {
   }
 
   const data = state?.utilityNetworkData;
-  const networks = state?.utilityNetworks;
   if (data instanceof Map && networks instanceof Map) {
     for (const [utilityType, nets] of networks) {
       const perType = data.get(utilityType);
