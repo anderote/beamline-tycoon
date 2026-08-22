@@ -440,6 +440,26 @@ console.log('\n--- 5. Tool picking follows each utility\'s placement contract --
     `a rigid draw follows its start port and then its resolved rack lane (${seen.join(' m → ')} m)`);
 }
 
+{
+  // Compact RF sources can have a lower output than the cavity feed they
+  // serve. The route used to inherit only the drag-start height, making the
+  // result depend on draw direction and sending a TWT-led guide down before
+  // it immediately rose into the cavity.
+  const game = makeGame();
+  const controller = new UtilityLineInputController({ game, renderer: {} });
+  controller.setUtilityType('rfWaveguide');
+  const low = { open: true, worldPos: { x: 0, z: 0 }, anchor: { y: 0.8 } };
+  const high = { open: true, worldPos: { x: 4, z: 2 }, anchor: { y: 1.2 } };
+
+  controller._drawStart = low;
+  const lowToHigh = controller._dragGeometry(0, 0, high);
+  controller._drawStart = high;
+  const highToLow = controller._dragGeometry(0, 0, low);
+
+  assert(lowToHigh.routeHeightMeters === 1.2 && highToLow.routeHeightMeters === 1.2,
+    'a rigid port-to-port run uses the higher connector lane in either draw direction');
+}
+
 console.log('\n--- 6. Right-click erases a line of the armed utility ---');
 {
   const game = makeGame();

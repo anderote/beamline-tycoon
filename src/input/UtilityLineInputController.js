@@ -541,8 +541,20 @@ export class UtilityLineInputController {
     // having anyway — past that the shapes are getting long and ugly enough
     // that refusing and saying why beats committing one of them.
     const limit = Math.min(candidates.length, MAX_ROUTE_CANDIDATES);
+    // A port-to-port fabricated run belongs to both connectors, so its first
+    // rack lane must not depend on which end the player happened to grab.
+    // Starting at a lower RF source (notably the compact TWT) used to choose
+    // that output's height even when the cavity input was higher; the guide
+    // visibly dropped toward the deck only to climb again at the sink. Prefer
+    // the higher endpoint so the free run clears both fittings. Explicit line
+    // taps remain authoritative in validateDrawLine and pin the branch to the
+    // tapped trunk's saved lane.
+    const endpointRouteHeights = [this._drawStart, endAnchor]
+      .map(anchor => anchor?.routeHeightMeters ?? anchor?.anchor?.y)
+      .filter(Number.isFinite);
     const preferredRouteHeightMeters = descriptor.verticalRouteLanes
-      ? (this._drawStart?.routeHeightMeters ?? this._drawStart?.anchor?.y)
+      && endpointRouteHeights.length > 0
+      ? Math.max(...endpointRouteHeights)
       : null;
     for (let i = 0; i < limit; i++) {
       const path = snapPath(candidates[i]);
