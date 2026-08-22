@@ -458,7 +458,15 @@ const BEAMLINE_UTILITY_PORTS = {
   cwCryomodule: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 16 } },
     cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'sink', params: { srfHeatW: 900 } },
-    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 100 } },
+    // Each rendered fundamental-power coupler is a real hookup. Split the
+    // placement's existing 100 kW demand across the three windows so adding
+    // physical ports does not rebalance the sector.
+    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.500, role: 'sink', params: { demand: 100 / 3 } },
+    rf_in_2: { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.356, role: 'sink', params: { demand: 100 / 3 } },
+    rf_in_3: { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.644, role: 'sink', params: { demand: 100 / 3 } },
+    vac_in:   { utility: 'vacuumPipe', side: 'left', offsetAlong: 0.644, role: 'sink', params: { outgassing: 6e-6 / 3 } },
+    vac_in_2: { utility: 'vacuumPipe', side: 'left', offsetAlong: 0.356, role: 'sink', params: { outgassing: 6e-6 / 3 } },
+    vac_in_3: { utility: 'vacuumPipe', side: 'left', offsetAlong: 0.500, role: 'sink', params: { outgassing: 6e-6 / 3 } },
   },
   // Six modules, but at 4.5 K rather than 2 K — which is the entire point of
   // Nb3Sn. Twice the modules of the CW sector for less than the cold, because
@@ -466,7 +474,10 @@ const BEAMLINE_UTILITY_PORTS = {
   nbSnCryomodule: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 20 } },
     cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'sink', params: { srfHeatW: 700 } },
-    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 200 } },
+    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.608, role: 'sink', params: { demand: 100 } },
+    rf_in_2: { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.392, role: 'sink', params: { demand: 100 } },
+    vac_in:   { utility: 'vacuumPipe', side: 'left', offsetAlong: 0.608, role: 'sink', params: { outgassing: 3e-6 } },
+    vac_in_2: { utility: 'vacuumPipe', side: 'left', offsetAlong: 0.392, role: 'sink', params: { outgassing: 3e-6 } },
   },
   // Seventeen cryomodules on one string. The cryo number is the reason a
   // sector is a sector: no single coldBox2K (800 W) covers it, so a collider
@@ -474,7 +485,12 @@ const BEAMLINE_UTILITY_PORTS = {
   srfLinacSector: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.2, role: 'sink', params: { demand: 45 } },
     cryo_in: { utility: 'cryoTransfer', side: 'right', offsetAlong: 0.5, role: 'sink', params: { srfHeatW: 4200 } },
-    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.8, role: 'sink', params: { demand: 600 } },
+    rf_in:   { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.500, role: 'sink', params: { demand: 200 } },
+    rf_in_2: { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.293, role: 'sink', params: { demand: 200 } },
+    rf_in_3: { utility: 'rfWaveguide',  side: 'right', offsetAlong: 0.707, role: 'sink', params: { demand: 200 } },
+    vac_in:   { utility: 'vacuumPipe', side: 'left', offsetAlong: 0.707, role: 'sink', params: { outgassing: 8e-6 / 3 } },
+    vac_in_2: { utility: 'vacuumPipe', side: 'left', offsetAlong: 0.293, role: 'sink', params: { outgassing: 8e-6 / 3 } },
+    vac_in_3: { utility: 'vacuumPipe', side: 'left', offsetAlong: 0.500, role: 'sink', params: { outgassing: 8e-6 / 3 } },
   },
 
   // ── Diagnostics (pwr + data) — draw almost nothing ────────────────

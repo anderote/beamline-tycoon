@@ -186,10 +186,12 @@ the short authoring contract.
   cryomodules, manifolds, and multi-output flange banks keep their physically
   authored exceptions rather than being forced onto the common mount.
 - Every beamline RF sink authors its 3D `rf_in` anchor on the visible inlet
-  window/coupler hardware. Sector-scale cryomodules use a representative
-  centre-adjacent window at the model's real beam-height coupler row; do not
-  place their single logical feed high on the vacuum jacket or at a generic
-  footprint fraction.
+  window/coupler hardware. Sector-scale cryomodules with several rendered
+  couplers expose a matching bank of independently connectable `rf_in*` sinks;
+  split the placement's aggregate RF demand across them and sum delivered RF
+  watts back at the component boundary. Distributed `vac_in*` sinks follow the
+  same total-load-preserving rule. Do not leave a rendered sector coupler as a
+  decorative false hookup or place these feeds high on the vacuum jacket.
 - RF waveguides and cryogenic transfer lines use the `rectilinear` routing
   profile: their paths must be axis-aligned with 90-degree bends, but do not
   reserve rigid equipment or service-clearance aisles.

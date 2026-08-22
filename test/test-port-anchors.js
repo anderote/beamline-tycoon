@@ -189,6 +189,22 @@ console.log('\n--- 3. Derivation, overrides, and the headless fallback ---');
   assert(transformerBank.map(port => port.along).join(',') === '-0.75,-0.25,0.25,0.75',
     'the HV transformer matches the 4×4 wall feedthrough\'s 0.5 m terminal spacing');
 
+  const sectorBanks = [
+    ['cwCryomodule', [0, -1.728, 1.728], [1.728, -1.728, 0]],
+    ['nbSnCryomodule', [1.296, -1.296], [1.296, -1.296]],
+    ['srfLinacSector', [0, -3.312, 3.312], [3.312, -3.312, 0]],
+  ];
+  for (const [type, rfAlong, vacuumAlong] of sectorBanks) {
+    const rf = rfAlong.map((_, index) =>
+      portAnchorOverride(type, index === 0 ? 'rf_in' : `rf_in_${index + 1}`));
+    const vacuum = vacuumAlong.map((_, index) =>
+      portAnchorOverride(type, index === 0 ? 'vac_in' : `vac_in_${index + 1}`));
+    assert(rf.map(port => port.along).join(',') === rfAlong.join(','),
+      `${type} RF anchors land on every rendered coupler`);
+    assert(vacuum.map(port => port.along).join(',') === vacuumAlong.join(','),
+      `${type} vacuum anchors are distributed along the sector`);
+  }
+
   // Heights are hand-authored per model, so nothing here can be checked
   // against geometry headless — but a typo'd metre is still catchable. The
   // portable spider box is intentionally ankle-height; nothing belongs below
@@ -482,44 +498,50 @@ console.log('\n--- 10. Every beamline RF sink lands on its visible inlet hardwar
 {
   useProviders(null, null);
   const inletWindows = [
-    ['ncRfGun', 0.63, 1.08, 0.02],
-    ['srfGun', 0.76, 1.05, 0.38],
-    ['ecrIonSource', -0.77, 1.05, -0.49],
-    ['protonLinacFrontEnd', -0.92, 1.08, -1.25],
-    ['positronSource', 0.72, 1.05, 0],
-    ['buncher', 0.5, 1.2, 0],
-    ['pillboxCavity', 0.5, 1.2, 0],
-    ['rfCavity', 0.46, 1.2, 0],
-    ['sbandStructure', 0.64, 1.35, 0.914],
-    ['cbandStructure', -0.90, 1.0, -1.22],
-    ['xbandStructure', 0, 1.42, -1.445],
-    ['industrialLinac', -0.49, 1.05, -0.18],
-    ['rfq', -1.0, 1.0, -0.77],
-    ['dtl', -0.73, 1.12, -0.78],
-    ['twoBeamModule', 0.385, 1.15, -4.76],
-    ['halfWaveResonator', 0.75, 1.0, 0],
-    ['spokeCavity', 0.75, 1.0, 0.465],
-    ['ellipticalSrfCavity', 0.75, 1.0, -0.468],
-    ['srf650Cryomodule', 1.0, 1.0, 0],
-    ['srf805Cryomodule', 0.94, 1.0, 1.296],
-    ['cryomodule', -0.76, 1.0, 0.390625],
-    ['cwCryomodule', 0.95, 1.0, 0],
-    ['nbSnCryomodule', 0.95, 1.0, 1.296],
-    ['srfLinacSector', 0.90, 1.0, 0],
+    ['ncRfGun', 'rf_in', 0.63, 1.08, 0.02],
+    ['srfGun', 'rf_in', 0.76, 1.05, 0.38],
+    ['ecrIonSource', 'rf_in', -0.77, 1.05, -0.49],
+    ['protonLinacFrontEnd', 'rf_in', -0.92, 1.08, -1.25],
+    ['positronSource', 'rf_in', 0.72, 1.05, 0],
+    ['buncher', 'rf_in', 0.5, 1.2, 0],
+    ['pillboxCavity', 'rf_in', 0.5, 1.2, 0],
+    ['rfCavity', 'rf_in', 0.46, 1.2, 0],
+    ['sbandStructure', 'rf_in', 0.64, 1.35, 0.914],
+    ['cbandStructure', 'rf_in', -0.90, 1.0, -1.22],
+    ['xbandStructure', 'rf_in', 0, 1.42, -1.445],
+    ['industrialLinac', 'rf_in', -0.49, 1.05, -0.18],
+    ['rfq', 'rf_in', -1.0, 1.0, -0.77],
+    ['dtl', 'rf_in', -0.73, 1.12, -0.78],
+    ['twoBeamModule', 'rf_in', 0.385, 1.15, -4.76],
+    ['halfWaveResonator', 'rf_in', 0.75, 1.0, 0],
+    ['spokeCavity', 'rf_in', 0.75, 1.0, 0.465],
+    ['ellipticalSrfCavity', 'rf_in', 0.75, 1.0, -0.468],
+    ['srf650Cryomodule', 'rf_in', 1.0, 1.0, 0],
+    ['srf805Cryomodule', 'rf_in', 0.94, 1.0, 1.296],
+    ['cryomodule', 'rf_in', -0.76, 1.0, 0.390625],
+    ['cwCryomodule', 'rf_in', 0.95, 1.0, 0],
+    ['cwCryomodule', 'rf_in_2', 0.95, 1.0, -1.728],
+    ['cwCryomodule', 'rf_in_3', 0.95, 1.0, 1.728],
+    ['nbSnCryomodule', 'rf_in', 0.95, 1.0, 1.296],
+    ['nbSnCryomodule', 'rf_in_2', 0.95, 1.0, -1.296],
+    ['srfLinacSector', 'rf_in', 0.90, 1.0, 0],
+    ['srfLinacSector', 'rf_in_2', 0.90, 1.0, -3.312],
+    ['srfLinacSector', 'rf_in_3', 0.90, 1.0, 3.312],
   ];
-  const actualRfSinks = Object.entries(COMPONENTS).filter(([, def]) =>
-    Object.values(def.ports || {}).some(port =>
-      port.utility === 'rfWaveguide' && port.role === 'sink'));
+  const actualRfSinks = Object.entries(COMPONENTS).flatMap(([type, def]) =>
+    Object.entries(def.ports || {})
+      .filter(([, port]) => port.utility === 'rfWaveguide' && port.role === 'sink')
+      .map(([portName]) => `${type}.${portName}`));
   assert(inletWindows.length === actualRfSinks.length,
     `the inlet audit covers all ${actualRfSinks.length} beamline RF sinks`);
-  for (const [type, localX, y, localZ] of inletWindows) {
+  for (const [type, portName, localX, y, localZ] of inletWindows) {
     const def = COMPONENTS[type];
     const p = place(type, { col: 0, row: 0, subCol: null, subRow: null, dir: 0 });
     const centre = { x: 1, z: 1 };
-    const anchor = portAnchor3D(p, def, 'rf_in');
+    const anchor = portAnchor3D(p, def, portName);
     assert(anchor && near(anchor.x, centre.x + localX)
         && near(anchor.y, y) && near(anchor.z, centre.z + localZ),
-      `${type}.rf_in sits on its visible inlet hardware (${fmtA(anchor)})`);
+      `${type}.${portName} sits on its visible inlet hardware (${fmtA(anchor)})`);
   }
 }
 

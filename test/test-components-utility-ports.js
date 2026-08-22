@@ -165,14 +165,15 @@ console.log('\n--- RF sink power is counted exactly once ---');
   let sinks = 0;
   for (const [id, c] of Object.entries(COMPONENTS)) {
     const ports = getUtilityPortsV2(id);
-    const rf = Object.values(ports).find(
+    const rf = Object.values(ports).filter(
       p => p.utility === 'rfWaveguide' && p.role === 'sink');
-    if (!rf) continue;
+    if (rf.length === 0) continue;
     sinks++;
     const pwr = Object.values(ports).find(
       p => p.utility === 'powerCable' && p.role === 'sink');
-    assert(rf.params.demand === c.rfPowerRequired,
-      `${id} rf_in demand matches rfPowerRequired (${c.rfPowerRequired} kW)`);
+    const rfDemand = rf.reduce((sum, port) => sum + port.params.demand, 0);
+    assert(Math.abs(rfDemand - c.rfPowerRequired) < 1e-9,
+      `${id} RF sink demand totals rfPowerRequired (${c.rfPowerRequired} kW across ${rf.length} port${rf.length === 1 ? '' : 's'})`);
     assert(pwr?.params?.demand === c.energyCost,
       `${id} pwr_in is only its billed auxiliary draw (${c.energyCost} kW)`);
   }
