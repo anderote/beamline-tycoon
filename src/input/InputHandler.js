@@ -40,6 +40,7 @@ import { DemolishTool } from './demolish-tool.js';
 import { MoveTool, ProbeTool, SelectionActionTool } from './mode-tools.js';
 import { BeamlineTool } from './beamline-tool.js';
 import { UtilityLineTool } from './utility-line-tool.js';
+import { removeUtilityLineAtScreen } from './utility-line-commands.js';
 import { DeferredUtilityPortDrag } from './deferred-port-drag.js';
 import {
   commitPanelAutoConnect,
@@ -50,6 +51,7 @@ import {
 } from './panel-auto-connect.js';
 import { portAnchor3D } from '../utility/port-anchors.js';
 import { portWorldPosition } from '../utility/ports.js';
+import { findUtilityTapMount } from '../utility/tap-mounts.js';
 import {
   captureSelectionGroup,
   previewSelectionGroup,
@@ -2828,7 +2830,20 @@ export class InputHandler {
         // wall and FloorTool.onRightClick would disarm the tool mid-gesture.
         // Ctrl already means "erase along the drawn path", so swallow it.
         if (e.ctrlKey || e.metaKey || this._ctrlDown) return;
-        this._toolConsumed('onRightClick', e);
+        if (this._toolConsumed('onRightClick', e)) return;
+
+        // With no build/mode tool armed, right-click is a direct utility-line
+        // eraser. Keep this after tool dispatch so every armed tool retains
+        // its established cancel/erase semantics, while the ordinary cursor
+        // can remove a visible run without selecting a demolish tool first.
+        if (!this.activeTool) {
+          removeUtilityLineAtScreen({
+            game: this.game,
+            renderer: this.renderer,
+            screenX: e.clientX,
+            screenY: e.clientY,
+          });
+        }
       }
     });
 
@@ -3653,6 +3668,42 @@ export class InputHandler {
     }
     const wx = this.lastMouseWorldX ?? 0;
     const wy = this.lastMouseWorldY ?? 0;
+    if (placeable.mount === 'utilityTap') {
+      const cursor = isoToGridFloat(wx, wy);
+      const utilityTap = findUtilityTapMount(this.game.state, cursor, {
+        mountKind: placeable.utilityTapMount,
+        level: this.game.activeLevel,
+        ignorePlaceableId,
+      });
+      const fallback = snapForPlaceable(wx, wy, placeable, this.placementDir);
+      const affordable = ignorePlaceableId
+        ? true
+        : canAffordCost(this.game, componentCostFor(placeable));
+      const ok = !!utilityTap && affordable;
+      const reason = utilityTap ? (affordable ? null : PLACE_UNAFFORDABLE) : 'utility_tap';
+      this.hoverPlaceable = {
+        id: armedId,
+        col: utilityTap?.col ?? fallback.col,
+        row: utilityTap?.row ?? fallback.row,
+        subCol: utilityTap?.subCol ?? fallback.subCol,
+        subRow: utilityTap?.subRow ?? fallback.subRow,
+        dir: utilityTap?.dir ?? this.placementDir,
+        portsFlipped: false,
+        placeY: 0,
+        utilityMount: utilityTap?.utilityMount || null,
+        worldX: utilityTap?.worldX,
+        worldZ: utilityTap?.worldZ,
+        mountY: utilityTap?.mountY,
+        valid: ok,
+        reason,
+        level: this.game.activeLevel,
+      };
+      this.renderer.renderPlaceableGhost(this.hoverPlaceable, ok, reason);
+      if (ignorePlaceableId) {
+        this.renderer.previewPlaceableUtilityDrag?.(ignorePlaceableId, this.hoverPlaceable);
+      }
+      return;
+    }
     const snap = snapForPlaceable(wx, wy, placeable, this.placementDir);
     let placeY = 0;
     let stackTargetId = null;
@@ -3757,7 +3808,7 @@ export class InputHandler {
     // For beamline modules, check if the click landed on an existing node
     // (opens its beamline window instead of placing).
     const comp = COMPONENTS[this.hoverPlaceable.id];
-    if (comp && comp.placement !== 'attachment') {
+    if (comp && comp.placement !== 'attachment' && placeable?.mount !== 'utilityTap') {
       const existingNode = this._getNodeAtScreenOrGrid(screenX, screenY, grid.col, grid.row);
       if (existingNode) {
         this.selectedNodeId = existingNode.id;
@@ -3776,6 +3827,7 @@ export class InputHandler {
         dir: this.hoverPlaceable.dir,
         portsFlipped: this.hoverPlaceable.portsFlipped === true,
         wallMount: this.hoverPlaceable.wallMount,
+        utilityMount: this.hoverPlaceable.utilityMount,
         params: this.selectedParamOverrides,
         variant: this.selectedPlaceableVariant,
         level: this.game.activeLevel,
@@ -3814,6 +3866,9 @@ export class InputHandler {
       const cost = componentCostFor(placeable);
       const missing = this.game?._missingResourceLabel?.(cost);
       return `Can't afford ${name}${missing ? ` (${missing})` : ''}.`;
+    }
+    if (hover?.reason === 'utility_tap') {
+      return `Can't place ${name}: hover a free side tap on a utility pole or indoor HV rack.`;
     }
     if (hover?.reason === PLACE_BLOCKED && placeable?.footprintCells) {
       const cells = placeable.footprintCells(
@@ -4586,6 +4641,7 @@ export class InputHandler {
           subRow: hp.subRow,
           dir: hp.dir ?? this.placementDir ?? placeable.dir ?? 0,
           portsFlipped: hp.portsFlipped === true,
+          utilityMount: hp.utilityMount,
           level: this.game.activeLevel,
         });
         if (!moved) return false;
@@ -4614,6 +4670,7 @@ export class InputHandler {
         dir: hp.dir ?? this.placementDir ?? 0,
         portsFlipped: hp.portsFlipped === true,
         wallMount: hp.wallMount,
+        utilityMount: hp.utilityMount,
         params: p.params,
         variant: p.variant,
         free: true,
@@ -4635,6 +4692,7 @@ export class InputHandler {
           dir: hp.dir ?? this.placementDir ?? entry.dir ?? 0,
           portsFlipped: hp.portsFlipped === true,
           wallMount: hp.wallMount,
+          utilityMount: hp.utilityMount,
           level: this.game.activeLevel,
         });
         if (!moved) return false;

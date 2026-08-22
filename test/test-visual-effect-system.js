@@ -315,3 +315,21 @@ test('spark bursts use one bounded glowing-pixel pool and never request lights',
   assert.equal(system.getStats().droppedKineticParticles, 4);
   system.dispose();
 });
+
+test('directed beam previews can explicitly disable gravity and upward bias', () => {
+  const scene = new Three.Scene();
+  const system = new VisualEffectSystem(scene, {
+    pulseBudget: 0, kineticBudget: 2, lightProxyBudget: 0, random: () => 0.5,
+  });
+  system.emit({
+    kind: 'particleBurst', position: { x: 0, y: 1, z: 0 },
+    normal: { x: 1, y: 0, z: 0 }, count: 1, speedMin: 2, speedMax: 2,
+    gravity: 0, upwardBias: 0, spread: 0, drag: 0,
+  });
+  const particle = system._kineticParticles[0];
+  assert.equal(particle.gravity, 0);
+  assert.equal(particle.vy, 0);
+  system.update(0.1, 0);
+  assert.equal(particle.y, 1, 'zero-gravity preview travels horizontally');
+  system.dispose();
+});

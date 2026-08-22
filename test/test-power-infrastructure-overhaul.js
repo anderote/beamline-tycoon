@@ -76,7 +76,7 @@ test('the active power catalog covers service, metering, and resilience', () => 
   assert.equal(COMPONENTS.laserSystem.category, 'experimentalSystems');
   assert.equal(COMPONENTS.petawattLaser.category, 'experimentalSystems');
   assert.equal(PLACEABLES.overheadPowerSpan.deprecated, true);
-  for (const id of ['cableTray', 'cableRiser', 'hvDuctBankVault']) {
+  for (const id of ['cableTray', 'cableRiser', 'hvDuctBankVault', 'indoorHvCableCornerRack']) {
     assert.equal(PLACEABLES[id].deprecated, true, `${id} is retained only for old saves`);
   }
 });

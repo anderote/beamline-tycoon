@@ -65,7 +65,7 @@ export const MODES = {
                       subsections: { lasers: { name: 'Laser Systems' } } },
       dataControls: { name: 'Data & Controls', color: '#eee',
                       utilityLineTools: ['dataFiber'],
-                      subsections: { transport: { name: 'Transport' }, distribution: { name: 'Distribution' }, controls: { name: 'Controls' }, safety: { name: 'Safety' } } },
+                      subsections: { transport: { name: 'Transport', linkedPlaceables: ['elevatedWireTray'] }, distribution: { name: 'Distribution' }, controls: { name: 'Controls' }, safety: { name: 'Safety' } } },
       ops:          { name: 'Ops',             color: '#888', subsections: { radiationSafety: { name: 'Radiation Safety' }, materialHandling: { name: 'Material Handling' } } },
     },
   },

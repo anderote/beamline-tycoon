@@ -5,6 +5,10 @@ import * as Three from 'three';
 globalThis.THREE = Three;
 
 const { BeamBuilder } = await import('../src/renderer3d/beam-builder.js');
+const {
+  resetParticleEffectProfile,
+  setParticleEffectProfile,
+} = await import('../src/renderer3d/particle-effect-tuning.js');
 
 test('live beam motion uses glowing pixel instances without allocating lights', () => {
   const parent = new Three.Group();
@@ -41,3 +45,28 @@ test('live beam motion uses glowing pixel instances without allocating lights', 
   builder.dispose(parent);
 });
 
+test('live beam meshes consume workshop density, size, and bunch controls', () => {
+  setParticleEffectProfile('beamline', {
+    density: 2,
+    size: 0.05,
+    bunchSize: 6,
+  });
+  const parent = new Three.Group();
+  const builder = new BeamBuilder();
+  builder.build([{
+    worldPoints: [{ col: 0, row: 0 }, { col: 4, row: 0 }],
+    visualMode: 'bunched',
+    visualProfile: [
+      { u: 0, beta: 0.4, speed: 2.8, bunch: 0 },
+      { u: 1, beta: 0.8, speed: 3.6, bunch: 1 },
+    ],
+    color: 0x44ff88,
+  }], parent);
+  const dc = parent.getObjectByName('beam-dc-pixel');
+  const bunch = parent.getObjectByName('beam-bunch-pixel');
+  assert.ok(dc.count > 30, 'density slider increases the looping pixel population');
+  assert.equal(bunch.count % 6, 0, 'bunch slider controls pixels per compact packet');
+  assert.equal(dc.geometry.parameters.width, 0.1, 'pixel-size slider reaches beam geometry');
+  builder.dispose(parent);
+  resetParticleEffectProfile('beamline');
+});

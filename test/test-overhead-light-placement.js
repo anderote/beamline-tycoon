@@ -128,15 +128,18 @@ console.log('\n=== indoor HV supports leave their work area buildable ===\n');
 {
   const game = makeGame(703);
   const pose = { col: 16, row: 16, subCol: 0, subRow: 0, dir: 0 };
+  const singleDef = PLACEABLES.indoorHvCableRack1Way;
   const compactDef = PLACEABLES.indoorHvCableRack2Way;
   const straightDef = PLACEABLES.indoorHvCableRack;
-  const cornerDef = PLACEABLES.indoorHvCableCornerRack;
+  const trayDef = PLACEABLES.elevatedWireTray;
 
-  assertOk([compactDef, straightDef, cornerDef].every(def => def.mount === 'overhead'),
-    'compact, straight, and corner indoor HV racks use overhead placement occupancy');
-  assertOk([compactDef, straightDef, cornerDef].every(def => !usesFloorOccupancy(def)),
-    'indoor HV support footprints do not reserve the floor layer');
+  assertOk([singleDef, compactDef, straightDef, trayDef].every(def => def.mount === 'overhead'),
+    'active HV racks and elevated wire tray use overhead placement occupancy');
+  assertOk([singleDef, compactDef, straightDef, trayDef].every(def => !usesFloorOccupancy(def)),
+    'active overhead utility supports do not reserve the floor layer');
 
+  const singleId = game.placePlaceable({ type: singleDef.id, ...pose });
+  assertOk(!!singleId, 'the single-conductor indoor HV rack can be built');
   const compactId = game.placePlaceable({ type: compactDef.id, ...pose });
   assertOk(!!compactId, 'the compact indoor HV rack can be built');
   const straightId = game.placePlaceable({ type: straightDef.id, ...pose });
@@ -151,14 +154,14 @@ console.log('\n=== indoor HV supports leave their work area buildable ===\n');
     'the equipment beneath the rack owns its normal floor cell');
 
   assertOk(canPlace(
-    game, cornerDef, pose.col, pose.row, pose.subCol, pose.subRow, pose.dir,
-  ).ok, 'an indoor corner rack can be previewed over occupied equipment');
-  const cornerId = game.placePlaceable({ type: cornerDef.id, ...pose });
-  assertOk(!!cornerId, 'an indoor corner rack can be built over occupied equipment');
+    game, trayDef, pose.col, pose.row, pose.subCol, pose.subRow, pose.dir,
+  ).ok, 'an elevated wire tray can be previewed over occupied equipment');
+  const trayId = game.placePlaceable({ type: trayDef.id, ...pose });
+  assertOk(!!trayId, 'an elevated wire tray can be built over occupied equipment');
 
   game._rebuildPlaceableIndex();
   assertOk(game.state.subgridOccupied[key(occupiedCell)]?.id === floorId,
-    'occupancy rebuild keeps all overhead HV racks off the floor layer');
+    'occupancy rebuild keeps all overhead utility supports off the floor layer');
 }
 
 console.log('\n=== floating fixtures remain directly interactive ===\n');

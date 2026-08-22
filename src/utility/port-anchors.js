@@ -362,7 +362,9 @@ export function portAnchor3D(placeable, def, portName) {
 
   return {
     x: simFallback ? simFallback.x : centre.x + offset.x,
-    y: mount.y + (Number.isFinite(placeable.yOffset) ? placeable.yOffset : 0),
+    y: mount.y + (Number.isFinite(placeable.yOffset)
+      ? placeable.yOffset
+      : (Number.isFinite(placeable.mountY) ? placeable.mountY : 0)),
     z: simFallback ? simFallback.z : centre.z + offset.z,
     out,
     standoff,

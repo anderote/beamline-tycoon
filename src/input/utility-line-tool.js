@@ -14,7 +14,8 @@
 import { Tool } from './Tool.js';
 import { canAffordFunding } from '../game/affordability.js';
 import { isoToGrid } from '../renderer/grid.js';
-import { UTILITY_TYPES, utilityLineHeight } from '../utility/registry.js';
+import { utilityLineHeight } from '../utility/registry.js';
+import { removeUtilityLineById } from './utility-line-commands.js';
 
 export class UtilityLineTool extends Tool {
   constructor(utilityType, waterCircuit = null) {
@@ -107,16 +108,7 @@ export class UtilityLineTool extends Tool {
       lineId = ctrl.nearestLine(world.x, world.y, 0.4)?.lineId || null;
     }
     if (!lineId) return false;
-    let removed = false;
-    game._withUndo(() => {
-      removed = game.removeUtilityLine(lineId);
-      return removed;
-    });
-    if (removed) {
-      const label = UTILITY_TYPES[this.utilityType]?.displayName || this.utilityType;
-      game.log(`Removed ${label} line`, 'info');
-    }
-    return removed;
+    return removeUtilityLineById(game, lineId, this.utilityType);
   }
 
   // Off-canvas release / focus loss: drop the in-flight line draw.
