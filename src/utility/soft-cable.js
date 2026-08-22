@@ -56,9 +56,9 @@ export function isHvCableTensionAnchor(def) {
 export function tautCableControlPoints(start, end, {
   sampleSpacing = 0.24,
   maxSamples = 192,
-  sagRatio = 0.018,
-  minSag = 0.08,
-  maxSag = 0.65,
+  sagRatio = 0.04,
+  minSag = 0.14,
+  maxSag = 1.10,
 } = {}) {
   if (![start, end].every(point => point && Number.isFinite(point.x)
     && Number.isFinite(point.y) && Number.isFinite(point.z))) return [];

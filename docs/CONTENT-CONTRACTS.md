@@ -187,7 +187,8 @@ the short authoring contract.
 - Utility poles and transmission towers are passive HV supports with named
   `hv_in` / `hv_out` terminals at their conductor elevation. An HV cable with
   either end on one of these supports, or on an electrical wall feedthrough,
-  renders as a straight tensioned span; other soft cables retain drawn slack.
+  removes drawn lateral slack but retains a visible, shallow gravity sag while
+  suspended between its endpoints; other soft cables retain drawn slack.
 - Passive inlet/outlet fittings keep their `pass` topology role but derive
   their physical arrow direction from the port name. Poles, transmission
   towers, wall feedthroughs, and transformers also carry one body-level arrow
