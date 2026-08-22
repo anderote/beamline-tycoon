@@ -32,7 +32,16 @@ export const MODES = {
       // beside it but is the less frequently selected transport tool.
       power:        { name: 'Power',           color: '#4c4',
                       utilityLineTools: ['powerCable', 'hvCable'],
-                      subsections: { transport: { name: 'Transport' }, routingHardware: { name: 'Routing Hardware', linkedPlaceables: ['utilityPole', 'transmissionTower'] }, hvSupply: { name: 'HV Supply' }, distribution: { name: 'Distribution' }, fieldDistribution: { name: 'Field Distribution' }, specialty: { name: 'Specialty' } } },
+                      subsections: {
+                        transport: { name: 'Transport' },
+                        gridSupply: { name: 'Grid Supply' },
+                        transformers: { name: 'Transformers' },
+                        overhead: { name: 'Overhead HV', linkedPlaceables: ['utilityPole', 'transmissionTower'] },
+                        routingHardware: { name: 'Wall Feedthroughs' },
+                        distribution: { name: 'Distribution' },
+                        fieldDistribution: { name: 'Field Distribution' },
+                        specialty: { name: 'Protection & Backup' },
+                      } },
       rfPower:      { name: 'RF Power',        color: '#c44',
                       utilityLineTools: ['rfWaveguide', 'hvCable'],
                       subsections: { transport: { name: 'Transport' }, supply: { name: 'RF Sources' }, distribution: { name: 'Distribution' }, controls: { name: 'Controls' } } },
@@ -123,7 +132,7 @@ export const MODES = {
                      linkedPlaceables: [
                        'gridServicePoint', 'gridServicePointHighCapacity', 'padMountTransformer', 'facilityTransformer',
                        'hvTransformer', 'gridIntertieTransformer', 'poleMountTransformer',
-                       'disconnectSwitch', 'hvDuctBankVault',
+                       'disconnectSwitch',
                        'waterTank', 'facilityWaterSupply', 'bulkWaterTank',
                      ] },
       security:    { name: 'Security',       color: '#b76', isDecorationTab: true,

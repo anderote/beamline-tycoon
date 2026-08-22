@@ -10,6 +10,7 @@ import { test } from 'node:test';
 
 import {
   DecorationBuilder,
+  decorationThumbnailFrame,
   decorationPlacement,
   decorationSeed,
 } from '../src/renderer3d/decoration-builder.js';
@@ -123,6 +124,16 @@ test('ghost without a position falls back to the nominal seed', () => {
   const { builder, calls } = recordingBuilder();
   builder._createGhost('oakTree', null, 0);
   assert.equal(calls[0].seed, 0);
+});
+
+test('thumbnail camera encloses the full transmission tower', () => {
+  const raw = DECORATIONS_RAW.transmissionTower;
+  const size = { x: raw.subW * SUB, y: raw.subH * SUB, z: raw.subL * SUB };
+  const frame = decorationThumbnailFrame(size);
+  const cameraDistance = frame.isoDist * Math.sqrt(3);
+  assert.ok(frame.far > cameraDistance + size.y,
+    `tower remains inside the thumbnail far plane (${frame.far} > ${cameraDistance + size.y})`);
+  assert.ok(frame.halfFrame > 0, 'tower thumbnail has a nonzero orthographic frame');
 });
 
 test('build applies rotation and swapped-footprint centering', () => {

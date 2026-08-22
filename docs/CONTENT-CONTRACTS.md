@@ -130,6 +130,11 @@ the short authoring contract.
 - `universalUtilityBus` is the one continuous carrier shown in every Infra
   Transport palette. Category-specific manifolds remain ordinary fixed
   equipment; they do not arm a second carrier-building interaction.
+- Retired carrier props remain registered with `deprecated: true` so existing
+  saves can load, but standard palettes, linked Grounds collections, global
+  search, and research rewards must not advertise them. Power's retired cable
+  tray, tray riser, duct-bank vault, and prefab overhead span are compatibility
+  content; the universal utility bus is the buildable carrier.
 - The bus is a utility-neutral metal rack with exactly four isolated channels.
   Drawing the first line of a utility onto it claims one channel; later lines
   of that utility reuse the same channel. A fifth distinct utility is refused.

@@ -381,9 +381,9 @@ console.log('\n--- Test 6: every utility type is reachable from the palette ---'
       === JSON.stringify(['powerCable', 'hvCable']),
   'Power transport lists the everyday Power Cable before the HV Feeder');
 
-  assert(Object.keys(MODES.infra.categories.power.subsections).slice(0, 2).join(',')
-      === 'transport,routingHardware',
-  'Power puts Routing Hardware immediately to the right of Transport');
+  assert(Object.keys(MODES.infra.categories.power.subsections).join(',')
+      === 'transport,gridSupply,transformers,overhead,routingHardware,distribution,fieldDistribution,specialty',
+  'Power follows transport, supply, transformation, overhead routing, wall entry, and distribution');
 
   assert(JSON.stringify(MODES.infra.categories.rfPower.utilityLineTools)
       === JSON.stringify(['rfWaveguide', 'hvCable']),

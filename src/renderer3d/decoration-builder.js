@@ -2330,6 +2330,23 @@ let _decThumbRenderer = null;
 let _decThumbScene = null;
 let _decThumbCamera = null;
 
+/** Pure framing math shared by the live decoration thumbnail renderer and tests. */
+export function decorationThumbnailFrame(size) {
+  const x = Number.isFinite(size?.x) ? size.x : 0;
+  const y = Number.isFinite(size?.y) ? size.y : 0;
+  const z = Number.isFinite(size?.z) ? size.z : 0;
+  const maxDim = Math.max(x, y, z, 0.01);
+  const projW = (x + z) / Math.SQRT2;
+  const projH = (x + 2 * y + z) / Math.sqrt(6);
+  const halfFrame = Math.max(projW, projH, 0.01) * 0.55;
+  const isoDist = maxDim * 4;
+  // Camera position offsets by isoDist on all three axes, so its actual
+  // distance is sqrt(3) times that value. Tall towers exceeded the old fixed
+  // 100 m far plane and disappeared from the palette entirely.
+  const far = Math.max(100, isoDist * Math.sqrt(3) + maxDim * 2);
+  return { maxDim, halfFrame, isoDist, far };
+}
+
 function _getDecThumbRenderer(size) {
   if (!THREE.WebGLRenderer) return null;
   if (!_decThumbRenderer) {
@@ -2388,18 +2405,15 @@ export function renderDecorationThumbnail(typeId, size = 96, variant = 0) {
   const box = new THREE.Box3().setFromObject(model);
   const center = box.getCenter(new THREE.Vector3());
   const bSize = box.getSize(new THREE.Vector3());
-  const maxDim = Math.max(bSize.x, bSize.y, bSize.z);
-  const projW = (bSize.x + bSize.z) / Math.SQRT2;
-  const projH = (bSize.x + 2 * bSize.y + bSize.z) / Math.sqrt(6);
-  const halfFrame = Math.max(projW, projH) * 0.55;
+  const { halfFrame, isoDist, far } = decorationThumbnailFrame(bSize);
 
   camera.left = -halfFrame;
   camera.right = halfFrame;
   camera.top = halfFrame;
   camera.bottom = -halfFrame;
+  camera.far = far;
   camera.updateProjectionMatrix();
 
-  const isoDist = maxDim * 4;
   camera.position.set(center.x + isoDist, center.y + isoDist, center.z + isoDist);
   camera.lookAt(center);
 
