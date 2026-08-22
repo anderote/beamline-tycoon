@@ -1,8 +1,9 @@
 // test/test-utility-route-quality.js — route QUALITY tests for the utility router
 //
-// Utility routes may turn immediately at a fitting, so authored port normals
-// do not constrain their first or last segment. This file owns route shape:
-// paths stay Manhattan, reversal-free, ranked, and spatially diverse.
+// Utility routes may turn immediately at a fitting. Authored port normals rank
+// tidy one-subtile leads and perimeter wraps but never make another route
+// illegal. This file owns route shape: paths stay Manhattan, reversal-free,
+// ranked, and spatially diverse.
 //
 // Tests:
 //   1. Full sweep: 4x4 port-normal pairs x 13 relative offsets x both
@@ -57,6 +58,20 @@ function isManhattan(path) {
     if (Math.abs(dc) > EPS && Math.abs(dr) > EPS) return false;
   }
   return true;
+}
+
+function direction(a, b) {
+  return {
+    dCol: Math.sign(b.col - a.col),
+    dRow: Math.sign(b.row - a.row),
+  };
+}
+
+function portPenalty(path, startVec, endVec) {
+  const first = direction(path[0], path[1]);
+  const last = direction(path[path.length - 2], path[path.length - 1]);
+  return Number(first.dCol !== startVec.dCol || first.dRow !== startVec.dRow)
+    + Number(last.dCol !== -endVec.dCol || last.dRow !== -endVec.dRow);
 }
 
 // ==========================================================================
@@ -119,8 +134,10 @@ console.log('\n--- Test 2: srcN / sinkS three tiles apart (the reported hairpin)
     );
     assert(pathReversals(path) === 0,
       `vf=${vf} routes without doubling back: ${fmt(path)}`);
-    assert(path.length === 2,
-      `vf=${vf} ignores port-facing clearance and takes the direct route: ${fmt(path)}`);
+    assert(path.length > 2
+        && direction(path[0], path[1]).dRow === -1
+        && direction(path[path.length - 2], path[path.length - 1]).dRow === -1,
+    `vf=${vf} prefers the tidy outward fitting wrap: ${fmt(path)}`);
   }
 }
 
@@ -137,8 +154,10 @@ console.log('\n--- Test 3: both ports facing north, sink three tiles north ---')
       { preferVerticalFirst: vf },
     );
     assert(pathReversals(path) === 0, `vf=${vf} routes without doubling back: ${fmt(path)}`);
-    assert(path.length === 2,
-      `vf=${vf} connects directly without an arrival tail: ${fmt(path)}`);
+    assert(path.length > 2
+        && direction(path[0], path[1]).dRow === -1
+        && direction(path[path.length - 2], path[path.length - 1]).dRow === 1,
+    `vf=${vf} wraps outside both north-facing fittings: ${fmt(path)}`);
   }
 }
 
@@ -209,14 +228,23 @@ console.log('\n--- Test 5: buildPortRoutedPaths ranking ---');
   }
   assert(allSound, 'every candidate is one the drag would be willing to commit');
 
-  // Corners ascending, then length — a fallback must never outrank the route
-  // it is falling back FROM.
+  // Port match ranks first, then corners and length. A tidy fitting wrap may
+  // intentionally outrank a shorter off-side route, while fallbacks within a
+  // quality tier still get progressively less attractive.
   let ordered = true;
   for (let i = 1; i < all.length; i++) {
-    const prevCorners = all[i - 1].length - 2, corners = all[i].length - 2;
-    if (corners < prevCorners) { ordered = false; break; }
+    const previous = [
+      portPenalty(all[i - 1], VECS.E, VECS.N),
+      all[i - 1].length - 2,
+    ];
+    const current = [portPenalty(all[i], VECS.E, VECS.N), all[i].length - 2];
+    if (current[0] < previous[0]
+        || (current[0] === previous[0] && current[1] < previous[1])) {
+      ordered = false;
+      break;
+    }
   }
-  assert(ordered, 'the list is ordered worst-last by corner count');
+  assert(ordered, 'the list is ordered by fitting match, then corner count');
 
   // The fallback walk is only worth anything if the alternatives run somewhere
   // ELSE. Near-duplicates that hug the same corridor would all be blocked by

@@ -1,10 +1,10 @@
 // Canonical physical elevations for utility routing and the universal rack.
 //
-// Rigid fabricated services own one facility-wide datum. Equipment may keep
+// Fixed-height fabricated services own one facility-wide datum. Equipment may keep
 // physically authored fittings at another height; the renderer adds the short
-// local transition between that hardware and the long run. Flexible services
-// remain freehand off-rack, but receive a stable slot while carried by the
-// universal utility rack.
+// local transition between that hardware and the long run. Soft-rendered
+// services use the same subtile construction grid off-rack and receive a stable
+// slot while carried by the universal utility rack.
 
 export const RIGID_UTILITY_SERVICE_HEIGHTS = Object.freeze({
   cryoTransfer: 0.30,

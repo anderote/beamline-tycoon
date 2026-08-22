@@ -19,6 +19,7 @@
 
 import { hvFeedFactor } from '../power-feed.js';
 import { resolvedElectricalSinkDemand } from '../electrical-demand.js';
+import { FLEXIBLE_SUBTILE_ROUTING_PROFILE } from '../routing-contract.js';
 
 export default {
   type: 'hvCable',
@@ -32,6 +33,7 @@ export default {
   // to aim at get lifted to something visible.
   markerColor: '#8fa0b8',
   geometryStyle: 'cylinder',
+  routingProfile: FLEXIBLE_SUBTILE_ROUTING_PROFILE,
   pipeRadiusMeters: 0.05,
   capacityUnit: 'kW',
   // Terminated at both ends into switchgear, and one feeder per outlet: a

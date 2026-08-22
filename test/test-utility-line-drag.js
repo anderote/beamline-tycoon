@@ -9,19 +9,15 @@ import { Game } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
 import { COMPONENTS } from '../src/data/components.js';
 import { PARAM_DEFS } from '../src/beamline/component-physics.js';
-import {
-  SOFT_CABLE_TRACE_STEP,
-  UtilityLineInputController,
-} from '../src/input/UtilityLineInputController.js';
+import { UtilityLineInputController } from '../src/input/UtilityLineInputController.js';
 import { UtilityLineTool } from '../src/input/utility-line-tool.js';
 import { utilityLineHeight, UTILITY_TYPE_LIST } from '../src/utility/registry.js';
-import { buildPortRoutedPath } from '../src/utility/line-geometry.js';
+import { buildPortRoutedPath, expandPath } from '../src/utility/line-geometry.js';
 import { validateDrawLine } from '../src/utility/line-drawing.js';
 import { portWorldPosition, portSide, portApproachVec } from '../src/utility/ports.js';
 import { findUtilityEndpoint } from '../src/utility/utility-endpoints.js';
 import { gridToIso, isoToGrid } from '../src/renderer/grid.js';
 import { discoverNetworks, makeDefaultPortLookup } from '../src/utility/network-discovery.js';
-import { roundedCableTilePath } from '../src/utility/soft-cable.js';
 
 globalThis.COMPONENTS = COMPONENTS;
 globalThis.PARAM_DEFS = PARAM_DEFS;
@@ -164,11 +160,11 @@ console.log('\n--- 2. The preview is the line that commits ---');
   const lines = powerLines(game);
   assert(lines.length === 1, 'the drag committed');
   assert(previewPath && lines.length === 1
-    && JSON.stringify(previewPath) === JSON.stringify(lines[0].cablePath),
-    'the freeform cable previewed on the last mousemove is the cable that landed');
+    && JSON.stringify(previewPath) === JSON.stringify(lines[0].path),
+    'the shared subtile route previewed on the last mousemove is the route that landed');
 }
 
-console.log('\n--- 2b. A hand-drawn S-curve is stored without subtile snapping ---');
+console.log('\n--- 2b. Soft-looking utilities use the same saved subtile route ---');
 {
   const game = makeGame();
   const src = portTile(game, 'src_1', 'pwr_out_1');
@@ -187,19 +183,21 @@ console.log('\n--- 2b. A hand-drawn S-curve is stored without subtile snapping -
   }
   const finish = gridToIso(sink.col, sink.row);
   ctrl.onMouseMove(finish.x, finish.y, {});
-  const preview = ctrl.preview?.cablePath?.map(point => ({ ...point }));
+  const preview = ctrl.preview?.path?.map(point => ({ ...point }));
   ctrl.onMouseUp(finish.x, finish.y, 0, {});
-  const cable = powerLines(game)[0]?.cablePath;
-  assert(Array.isArray(cable) && cable.length >= 5,
-    `the freehand curve keeps its bends (got ${cable?.length || 0} samples)`);
-  assert(cable?.some(point => Math.abs(point.col * 4 - Math.round(point.col * 4)) > 1e-6
-    || Math.abs(point.row * 4 - Math.round(point.row * 4)) > 1e-6),
-  'freeform samples are not confined to quarter-tile coordinates');
-  assert(JSON.stringify(preview) === JSON.stringify(cable),
-    'the exact S-curve preview is persisted on release');
+  const cable = powerLines(game)[0];
+  assert(Array.isArray(cable?.path) && cable.path.length >= 2,
+    `the cable stores a normal routed path (got ${cable?.path?.length || 0} waypoints)`);
+  assert(cable?.path.every(point => Math.abs(point.col * 4 - Math.round(point.col * 4)) < 1e-6
+    && Math.abs(point.row * 4 - Math.round(point.row * 4)) < 1e-6),
+  'power cable waypoints are confined to the shared quarter-tile grid');
+  assert(!Object.hasOwn(cable || {}, 'cablePath'),
+    'new soft-looking lines no longer persist a second freehand topology');
+  assert(JSON.stringify(preview) === JSON.stringify(cable?.path),
+    'the exact grid route preview is persisted on release');
 }
 
-console.log('\n--- 2c. Cooling hoses retain half-subtile detail during slow drawing ---');
+console.log('\n--- 2c. Cooling uses the identical route resolution ---');
 {
   const game = makeGame();
   const ctrl = new UtilityLineInputController({ game, renderer: {} });
@@ -217,14 +215,13 @@ console.log('\n--- 2c. Cooling hoses retain half-subtile detail during slow draw
   ctrl.onMouseUp(finish.x, finish.y, 0, {});
   const hose = Array.from(game.state.utilityLines.values())
     .find(line => line.utilityType === 'coolingWater');
-  assert(Array.isArray(hose?.cablePath) && hose.cablePath.length >= 5,
-    `slow cooling stroke retains half-subtile samples (got ${hose?.cablePath?.length || 0})`);
-  const longestSample = hose?.cablePath?.slice(1).reduce((longest, point, index) => {
-    const previous = hose.cablePath[index];
-    return Math.max(longest, Math.hypot(point.col - previous.col, point.row - previous.row));
-  }, 0) || 0;
-  assert(longestSample <= SOFT_CABLE_TRACE_STEP + 1e-6,
-    `cooling samples stay within one half-subtile (got ${longestSample})`);
+  assert(Array.isArray(hose?.path) && hose.path.length === 2,
+    `cooling commits the same simple subtile run (got ${hose?.path?.length || 0} waypoints)`);
+  assert(hose?.path.every(point => point.col * 4 === Math.round(point.col * 4)
+      && point.row * 4 === Math.round(point.row * 4)),
+    'cooling waypoints use the same quarter-tile coordinates as power');
+  assert(!Object.hasOwn(hose || {}, 'cablePath'),
+    'cooling rendering no longer changes its routing/topology contract');
 }
 
 console.log('\n--- 3. Open-ended drags are unchanged ---');
@@ -252,30 +249,17 @@ console.log('\n--- 3. Open-ended drags are unchanged ---');
 
 console.log('\n--- 4. R flips which way the bend turns ---');
 {
-  // dir:1 puts the source's pwr_out on its south side, facing the north-facing
-  // pwr_in it is being dragged to. Both bend orders then cost the same — same
-  // number of corners, same length — so the player's choice is the only thing
-  // separating them. Without this the corner was whatever _preferVerticalFirst
-  // happened to be initialised to, and nothing could change it.
-  //
-  // The source used to face EAST here, back when the controller kept whichever
-  // of the two orders the validator accepted and the validator accepted both.
-  // Now that the router scores routes, an east-facing source reaching a
-  // north-facing sink has one clearly better answer (a single corner against
-  // three), and R correctly refuses to make the route worse. R selects between
-  // equals; this case is the equals.
+  // With open endpoints there are no port normals to prefer, so the two simple
+  // L routes are exact peers. The player's bend-order choice breaks that tie.
+  // Anchored runs still rank a tidy outward fitting wrap above this preference.
   const corners = [];
   for (const vertFirst of [false, true]) {
-    // Front-face panel outlets face south at dir 0; this gives both legal
-    // bend orders room to differ while still obeying the real port leads.
     const game = makeGame({ dir: 0 });
     const ctrl = new UtilityLineInputController({ game, renderer: {} });
     ctrl.setUtilityType('powerCable');
     ctrl.setPreferVerticalFirst(vertFirst);
-    const src = portTile(game, 'src_1', 'pwr_out_1');
-    const sink = portTile(game, 'pl_2', 'pwr_in');
-    const from = gridToIso(src.col, src.row);
-    const to = gridToIso(sink.col, sink.row);
+    const from = gridToIso(14, 14);
+    const to = gridToIso(18, 18);
     ctrl.onMouseDown(from.x, from.y, 0, {});
     ctrl.onMouseMove(to.x, to.y, {});
     ctrl.onMouseUp(to.x, to.y, 0, {});
@@ -558,7 +542,7 @@ console.log('\n--- 6. Right-click erases a line of the armed utility ---');
   drag(game, src, sink);
   assert(powerLines(game).length === 1, 'a line to erase');
   const line = powerLines(game)[0];
-  const visible = roundedCableTilePath(line.cablePath, line.utilityType);
+  const visible = expandPath(line.path);
   const mid = visible[Math.floor(visible.length / 2)];
 
   const tool = new UtilityLineTool('powerCable');
@@ -743,8 +727,8 @@ console.log('\n--- 9. Touching flexible cables remain separate circuits ---');
     'the cable does not take a fake grid detour around another cable');
   assert(!!branch && branch.start.placeableId === 'src_2' && branch.end.placeableId === 'pl_1',
     'joining the two ports the player actually dragged between');
-  assert(!!branch && previewPath && JSON.stringify(previewPath) === JSON.stringify(branch.cablePath),
-    'and the freeform cable previewed is the cable that landed');
+  assert(!!branch && previewPath && JSON.stringify(previewPath) === JSON.stringify(branch.path),
+    'and the shared subtile route previewed is the route that landed');
   const networks = discoverNetworks(
     'powerCable', game.state.utilityLines, makeDefaultPortLookup(game.state));
   assert(networks.filter(network => network.sinks.length > 0).length === 2,

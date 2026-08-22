@@ -5,12 +5,14 @@
 // infraCanRun), soft error for overload.
 
 import { hvFeedFactor } from '../power-feed.js';
+import { FLEXIBLE_SUBTILE_ROUTING_PROFILE } from '../routing-contract.js';
 
 export default {
   type: 'powerCable',
   displayName: 'Power Cable',
   color: '#44cc44',
   geometryStyle: 'cylinder',
+  routingProfile: FLEXIBLE_SUBTILE_ROUTING_PROFILE,
   pipeRadiusMeters: 0.02,
   capacityUnit: 'kW',
   // A cable is point to point: terminated at both ends, one plug per socket.

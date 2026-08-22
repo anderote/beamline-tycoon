@@ -68,7 +68,7 @@ The old PixiJS renderer is **gone**. What survives: `grid.js` (iso ↔ grid coor
 `InputHandler.js` is the event hub. `Tool.js` defines the one-armed-tool contract; `placement-tools.js`, `structure-tools.js`, `demolish-tool.js`, `mode-tools.js`, `beamline-tool.js`, `utility-line-tool.js` are the families. Mutual exclusivity holds *by construction* — one `activeTool` slot (`Tool.js:5-9`). `selection-commands.js` owns atomic copy, move, and demolish transactions so they are testable without calling private `InputHandler` methods. `BeamlineInputController` and `UtilityLineInputController` own the multi-step gesture state that `ThreeRenderer` reads live each frame. `demolishScopes.js` owns what each demolish button may delete and its refund. Escape belongs to `ui/esc-stack.js`, never to a keydown listener of your own.
 
 ### `src/utility`
-`registry.js` (7 descriptors; adding an 8th is one import + one array entry) → `network-discovery.js` (union-find over port keys, plus **distribution buses** and **adjacency bridging**) → `solve-runner.js` (per-tick solve, topology-revision cache, persistent-state reconciliation) → `game/utility-gate.js` (policy). `UtilityLineSystem.js` is the only writer of `state.utilityLines`; `line-drawing.js` is its pure validator; `line-geometry.js` holds the Manhattan path math and default `UTILITY_LINE_Y`; `service-heights.js` owns the dependency-neutral fixed route/rack datums and `route-elevation.js` owns their physical-clearance arithmetic. `ports.js` answers *where on the footprint*; `port-anchors.js` answers *where on the model*; `port-contracts.js` resolves scenario-facing capability selectors to authored port names. `utility-endpoints.js` flattens `state.placeables` **and** `pipe.placements` into one endpoint list — everything utility-shaped must consume that, not `placeables` alone.
+`registry.js` (7 descriptors; adding an 8th is one import + one array entry) → `network-discovery.js` (union-find over port keys, plus **distribution buses** and **adjacency bridging**) → `solve-runner.js` (per-tick solve, topology-revision cache, persistent-state reconciliation) → `game/utility-gate.js` (policy). `UtilityLineSystem.js` is the only writer of `state.utilityLines`; `line-drawing.js` is its pure validator; `routing-contract.js` owns the universal quarter-tile profile and `line-geometry.js` owns its Manhattan path math. `route-obstacles.js` performs footprint broad-phase lookup and delegates actual model-envelope tests through dependency-neutral `utility-collision.js`; `ThreeRenderer` injects the measured triangle provider. `service-heights.js` owns the dependency-neutral fixed route/rack datums and `route-elevation.js` owns their physical-clearance arithmetic. `ports.js` answers *where on the footprint*; `port-anchors.js` answers *where on the model*; `port-contracts.js` resolves scenario-facing capability selectors to authored port names. `utility-endpoints.js` flattens `state.placeables` **and** `pipe.placements` into one endpoint list — everything utility-shaped must consume that, not `placeables` alone.
 
 ### `src/beamline`
 `BeamlineSystem.js` owns mutation of pipes, junctions and on-pipe placements (Game injects `placePlaceable`/`removePlaceable`/`movePlaceable` into it). `flattener.js` is **the single source of truth for beam element ordering** (`flattener.js:5-6`). `pipe-{drawing,splice,geometry,placements}.js` are pure validators. `pipe-placements.js` also owns longitudinal occupancy: ordinary placements claim intervals, while installed `inline` attachments claim points that may share interval boundaries. `designer-plan.js` plans a Designer *Apply* as an ordered op list; `designer-workspaces.js` owns the persistent per-beamline Current/alternative draft store; `BeamlineRegistry.js` holds per-beamline identity + `beamState`. `component-physics.js` holds `PARAM_DEFS` and the JS-side stat math; `physics-payload.js` builds the payload for Python; `physics.js` is the async client for the worker-owned Pyodide runtime.
@@ -276,9 +276,21 @@ RF, and vacuum services use the mandatory datums in `service-heights.js`
 (0.30/0.60/0.90 m); obsolete saved lane values are ignored. Exact equipment
 hardware may sit elsewhere, but its transition is local to the endpoint. The
 input tool always follows the armed utility's datum, so preview and pointer do
-not drift under the isometric camera. Different rigid utilities may cross when
+not drift under the isometric camera. Different fixed-height utilities may cross when
 `route-elevation.js` proves body clearance; a same-utility crossing is rejected
 unless it is an explicit tap.
+
+**U8. A footprint is only the broad phase for utility/equipment collision.**
+All seven utilities publish `flexibleSubtile` and author quarter-tile Manhattan
+paths through `routing-contract.js`. `route-obstacles.js` uses the rendered
+footprint to limit lookups, transforms each candidate cell into component-local
+coordinates, and calls the provider registered in `utility-collision.js`.
+`component-builder.utilityEnvelopeIntersectsModel` tests that 3D utility
+envelope against cached triangles from the actual component model. With no
+provider (headless logic), equipment contributes no footprint-only blocker.
+Endpoint host models are excluded so `port-anchors.js` and the renderer's local
+connector tails can wrap around their shells. Thus matching X/Z occupancy is
+not a collision by itself: a line may pass below or through open model volume.
 
 ### T — The utility system
 

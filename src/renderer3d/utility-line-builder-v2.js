@@ -1550,7 +1550,7 @@ function buildPreviewLine(preview) {
   // instead, even when their placement rules are deliberately forgiving.
   const sphereMat = mat;
   const markerPoints = flexible ? [points[0], points[points.length - 1]]
-    : (descriptor.fittingStyle || descriptor.routingProfile === 'rigid'
+    : (descriptor.fittingStyle
         ? [points[0], points[points.length - 1]] : points);
   for (const p of markerPoints) {
     const sg = new THREE.SphereGeometry(radius * 1.2, 10, 8);

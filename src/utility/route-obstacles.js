@@ -1,14 +1,19 @@
 // src/utility/route-obstacles.js
 //
-// Board-aware obstacle map for rigid utility services. The generic orthogonal
-// router in line-geometry.js intentionally knows nothing about game state;
-// this module translates installed equipment and any services that truly need
-// plan-view separation into the simple `blocked(col,row)` predicate it consumes.
+// Board-aware obstacle map for every utility service. The generic orthogonal
+// router knows nothing about game state; this module performs a cheap footprint
+// broad phase, then asks the renderer's measured model lookup whether the line
+// body at its actual Y datum intersects real 3D geometry.
 
 import { COMPONENTS } from '../data/components.js';
 import { expandPath } from './line-geometry.js';
-import { placeableCenterWorld, footprintHalfExtents } from './ports.js';
-import { UTILITY_TYPES } from './registry.js';
+import { placeableCenterWorld, footprintHalfExtents, rotateLocalOffset } from './ports.js';
+import { UTILITY_TYPES, utilityLineHeight } from './registry.js';
+import { routeBodyHalfHeight, usesFixedRouteHeight } from './route-elevation.js';
+import {
+  hasUtilityCollisionProvider,
+  utilityModelEnvelopeIntersects,
+} from './utility-collision.js';
 import { listUtilityEndpoints } from './utility-endpoints.js';
 
 const SUB_PER_TILE = 4;
@@ -24,63 +29,67 @@ function lookupDef(state, type) {
   return COMPONENTS[type] || null;
 }
 
-export function isRigidRoutedUtility(utilityType) {
-  return UTILITY_TYPES[utilityType]?.routingProfile === 'rigid';
-}
-
 /** Whether two installed service centre-lines must not cross or overlap. */
-export function rigidUtilitiesConflict(a, b) {
-  const da = UTILITY_TYPES[a];
-  const db = UTILITY_TYPES[b];
-  return !!(da?.avoidRigidIntersections && db?.avoidRigidIntersections);
+function fixedHeightUtilitiesConflict(a, b) {
+  return a === b && usesFixedRouteHeight(a) && usesFixedRouteHeight(b);
 }
 
-function addClearanceDisk(out, x, y, radiusSteps) {
+function addClearanceDiskWithFittings(out, x, y, radiusSteps, sharedFittings) {
   for (let dx = -radiusSteps; dx <= radiusSteps; dx++) {
     for (let dy = -radiusSteps; dy <= radiusSteps; dy++) {
-      // Match line-drawing's axis-aligned fitting envelope exactly. A diamond
-      // here would let A* choose the diagonal corner of another rigid run's
-      // clearance square, only for the commit validator to reject that route.
-      out.add(key(x + dx, y + dy));
+      const candidateX = x + dx;
+      const candidateY = y + dy;
+      const insideSharedFitting = sharedFittings.some(shared =>
+        Math.max(Math.abs(x - shared.x), Math.abs(y - shared.y)) <= shared.radiusSteps
+        && Math.max(
+          Math.abs(candidateX - shared.x),
+          Math.abs(candidateY - shared.y),
+        ) <= shared.radiusSteps);
+      if (!insideSharedFitting) out.add(key(candidateX, candidateY));
     }
   }
 }
 
 function addLineObstacles(out, state, utilityType, opts) {
   const candidate = UTILITY_TYPES[utilityType] || {};
-  const sharedClearances = [];
   const iter = state?.utilityLines && typeof state.utilityLines.values === 'function'
     ? state.utilityLines.values() : (state?.utilityLines || []);
   for (const line of iter) {
-    if (!line || !rigidUtilitiesConflict(utilityType, line.utilityType)) continue;
+    if (!line || !fixedHeightUtilitiesConflict(utilityType, line.utilityType)) continue;
     const other = UTILITY_TYPES[line.utilityType] || {};
     const clearanceTiles = Math.max(
-      candidate.routeClearanceTiles || 0,
-      other.routeClearanceTiles || 0,
+      candidate.routeClearanceTiles || 0.25,
+      other.routeClearanceTiles || 0.25,
     );
     const radiusSteps = Math.max(0, Math.ceil(clearanceTiles * SUB_PER_TILE - 1e-6));
     const expanded = expandPath(line.path || []);
-    for (const point of expanded) {
-      addClearanceDisk(out, q(point.col), q(point.row), radiusSteps);
-    }
     // A reusable rigid source is a real manifold junction. Reserve the same
     // fitting envelope the overlap validator allows, so A* can leave a source
     // that already has a run instead of finding itself boxed inside that run's
     // clearance halo.
+    const sharedFittings = [];
     for (const newRef of [opts.startRef, opts.endRef]) {
       if (!newRef) continue;
       for (const [lineRef, lineIndex] of [[line.start, 0], [line.end, expanded.length - 1]]) {
         if (!lineRef || lineRef.placeableId !== newRef.placeableId) continue;
         const point = expanded[lineIndex];
-        if (point) sharedClearances.push({ x: q(point.col), y: q(point.row), radiusSteps });
+        if (point) sharedFittings.push({
+          x: q(point.col),
+          y: q(point.row),
+          // The physical multi-branch fitting owns twice the ordinary line
+          // clearance so several runs can fan out before their aisles separate.
+          radiusSteps: radiusSteps * 2,
+        });
       }
     }
-  }
-  for (const shared of sharedClearances) {
-    for (let dx = -shared.radiusSteps; dx <= shared.radiusSteps; dx++) {
-      for (let dy = -shared.radiusSteps; dy <= shared.radiusSteps; dy++) {
-        out.delete(key(shared.x + dx, shared.y + dy));
-      }
+    for (const point of expanded) {
+      const x = q(point.col);
+      const y = q(point.row);
+      // Exempt a raster cell only when both it and the installed centreline
+      // point belong to the same shared fitting. This mirrors validation's
+      // pairwise exemption exactly; deleting the whole fitting square would
+      // also erase the halo of pipe just outside it.
+      addClearanceDiskWithFittings(out, x, y, radiusSteps, sharedFittings);
     }
   }
 }
@@ -118,9 +127,17 @@ function physicalEndpointCenterWorld(placeable, def) {
   return placeableCenterWorld(placeable, def);
 }
 
-function addEquipmentObstacles(out, state, utilityType, ignoredPlaceableIds) {
+function addEquipmentObstacles(
+  out, state, utilityType, ignoredPlaceableIds, equipmentPoints = null,
+) {
+  if (!hasUtilityCollisionProvider()) return;
   const descriptor = UTILITY_TYPES[utilityType] || {};
-  const clearance = Math.max(0, descriptor.equipmentClearanceTiles || 0);
+  const clearance = 0;
+  const runY = utilityLineHeight(utilityType);
+  const bodyHalfHeight = routeBodyHalfHeight(utilityType);
+  const radius = descriptor.pipeRadiusMeters || 0.02;
+  const bodyHalfWidth = descriptor.geometryStyle === 'jacketedCylinder'
+    ? radius * 1.6 : radius;
   for (const placeable of listUtilityEndpoints(state || {})) {
     if (!placeable?.id || ignoredPlaceableIds.has(placeable.id)) continue;
     const def = lookupDef(state, placeable.type);
@@ -134,8 +151,39 @@ function addEquipmentObstacles(out, state, utilityType, ignoredPlaceableIds) {
     const maxX = Math.floor((centerCol + half.col + clearance) * SUB_PER_TILE + 1e-6);
     const minY = Math.ceil((centerRow - half.row - clearance) * SUB_PER_TILE - 1e-6);
     const maxY = Math.floor((centerRow + half.row + clearance) * SUB_PER_TILE + 1e-6);
-    for (let x = minX; x <= maxX; x++) {
-      for (let y = minY; y <= maxY; y++) out.add(key(x, y));
+    const testPoint = (x, y) => {
+      const worldX = x / SUB_PER_TILE * 2;
+      const worldZ = y / SUB_PER_TILE * 2;
+      const inverseDir = (4 - (((placeable.dir || 0) % 4) + 4) % 4) % 4;
+      const local = rotateLocalOffset({
+        x: worldX - center.x,
+        z: worldZ - center.z,
+      }, inverseDir);
+      const baseY = (Number.isFinite(placeable.placeY) ? placeable.placeY : 0) * 0.5;
+      if (utilityModelEnvelopeIntersects(placeable.type, {
+        minX: local.x - bodyHalfWidth,
+        maxX: local.x + bodyHalfWidth,
+        minY: runY - baseY - bodyHalfHeight,
+        maxY: runY - baseY + bodyHalfHeight,
+        minZ: local.z - bodyHalfWidth,
+        maxZ: local.z + bodyHalfWidth,
+      })) out.add(key(x, y));
+    };
+    if (equipmentPoints) {
+      // Commit validation already knows the candidate path. Use those cells as
+      // the first lookup and touch model triangles only where both it and this
+      // footprint agree, instead of filling every footprint six times per
+      // mousemove while the controller walks ranked candidates.
+      for (const point of equipmentPoints) {
+        const x = q(point.col);
+        const y = q(point.row);
+        if (x >= minX && x <= maxX && y >= minY && y <= maxY) testPoint(x, y);
+      }
+    } else {
+      // A* needs a reusable board map because it has no candidate path yet.
+      for (let x = minX; x <= maxX; x++) {
+        for (let y = minY; y <= maxY; y++) testPoint(x, y);
+      }
     }
   }
 }
@@ -143,20 +191,22 @@ function addEquipmentObstacles(out, state, utilityType, ignoredPlaceableIds) {
 /**
  * Build a reusable obstacle predicate for one drag/validation pass.
  *
- * The source and destination machines are omitted: their connector and riser
- * geometry own the transition through their footprint. Every other placeable
- * is solid. Fabricated vacuum, cryogenic, and RF runs do not become 2D
- * obstacles to one another: commit validation assigns a clear support-rack
- * elevation when their plan routes meet.
+ * The source and destination machines are omitted: their connector/perimeter
+ * transition owns the local wrap. Other placeables block only at grid points
+ * where the measured model geometry intersects the utility body's 3D envelope.
+ * With no renderer provider, no footprint-only equipment obstacles are added.
  */
-export function buildRigidRouteObstacles(state, utilityType, opts = {}) {
+export function buildUtilityRouteObstacles(state, utilityType, opts = {}) {
   const blocked = new Set();
   const ignored = new Set([
     opts.startRef?.placeableId,
     opts.endRef?.placeableId,
   ].filter(Boolean));
   if (opts.includeLines !== false) addLineObstacles(blocked, state, utilityType, opts);
-  if (opts.includeEquipment !== false) addEquipmentObstacles(blocked, state, utilityType, ignored);
+  if (opts.includeEquipment !== false) {
+    addEquipmentObstacles(
+      blocked, state, utilityType, ignored, opts.equipmentPoints || null);
+  }
   return {
     blocked,
     isBlocked(col, row) { return blocked.has(key(q(col), q(row))); },

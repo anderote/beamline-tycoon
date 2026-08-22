@@ -4473,6 +4473,68 @@ export function getModelBounds(compType) {
   return out;
 }
 
+// type → flat local-space triangles. Utility routing asks many collision
+// questions while the cursor moves; extracting once avoids rebuilding a model
+// or traversing BufferGeometry for every quarter-tile candidate.
+const _utilityCollisionTriangles = new Map();
+
+function utilityCollisionTriangles(compType) {
+  if (_utilityCollisionTriangles.has(compType)) return _utilityCollisionTriangles.get(compType);
+  const triangles = [];
+  const model = _instantiateForMeasurement(compType);
+  if (model) {
+    model.updateMatrixWorld?.(true);
+    model.traverse?.((object) => {
+      if (!object?.isMesh || object.visible === false) return;
+      for (let parent = object.parent; parent; parent = parent.parent) {
+        if (parent.visible === false) return;
+      }
+      const geometry = object.geometry;
+      const position = geometry?.attributes?.position;
+      if (!position) return;
+      const index = geometry.index;
+      const triangleCount = index ? Math.floor(index.count / 3) : Math.floor(position.count / 3);
+      for (let triangleIndex = 0; triangleIndex < triangleCount; triangleIndex++) {
+        const offset = triangleIndex * 3;
+        const ia = index ? index.getX(offset) : offset;
+        const ib = index ? index.getX(offset + 1) : offset + 1;
+        const ic = index ? index.getX(offset + 2) : offset + 2;
+        const a = new THREE.Vector3().fromBufferAttribute(position, ia).applyMatrix4(object.matrixWorld);
+        const b = new THREE.Vector3().fromBufferAttribute(position, ib).applyMatrix4(object.matrixWorld);
+        const c = new THREE.Vector3().fromBufferAttribute(position, ic).applyMatrix4(object.matrixWorld);
+        triangles.push([
+          a.x, a.y, a.z,
+          b.x, b.y, b.z,
+          c.x, c.y, c.z,
+        ]);
+      }
+    });
+    _disposeMeasurementModel(model);
+  }
+  _utilityCollisionTriangles.set(compType, triangles);
+  return triangles;
+}
+
+/** Exact mesh-surface intersection with a local axis-aligned utility envelope. */
+export function utilityEnvelopeIntersectsModel(compType, envelope) {
+  if (!envelope || typeof THREE === 'undefined' || !THREE.Box3 || !THREE.Triangle) return false;
+  const values = ['minX', 'maxX', 'minY', 'maxY', 'minZ', 'maxZ']
+    .map(key => envelope[key]);
+  if (!values.every(Number.isFinite)) return false;
+  const box = new THREE.Box3(
+    new THREE.Vector3(envelope.minX, envelope.minY, envelope.minZ),
+    new THREE.Vector3(envelope.maxX, envelope.maxY, envelope.maxZ),
+  );
+  const triangle = new THREE.Triangle();
+  for (const raw of utilityCollisionTriangles(compType)) {
+    triangle.a.set(raw[0], raw[1], raw[2]);
+    triangle.b.set(raw[3], raw[4], raw[5]);
+    triangle.c.set(raw[6], raw[7], raw[8]);
+    if (box.intersectsTriangle(triangle)) return true;
+  }
+  return false;
+}
+
 // `${compType}|${request hash}` → Map<key, direct-distance|recovered-mount|null>.
 // A type is instantiated at most once per distinct request list, which in
 // practice means once: the anchor layer asks for all of a type's ports in a

@@ -1,10 +1,11 @@
-// Freeform presentation geometry for flexible cords and hoses.
+// Flexible presentation geometry for cords and hoses, plus legacy freehand
+// save compatibility.
 //
-// Power, HV, cooling and data remain ordinary utility networks. Their hidden
-// `path` is still the grid-routed compatibility path, while `cablePath` records
-// the player's unsnapped mouse trace. This module owns the latter so input,
-// pricing, hit testing and rendering agree about the flexible run actually
-// visible on the floor.
+// Newly authored power, HV, cooling and data runs use the same quarter-tile
+// `path` as every utility; render-time rounding and sag make them look soft.
+// Older saves may also contain an unsnapped `cablePath`. This module continues
+// to sanitize, copy, price, hit-test and render those paths faithfully without
+// making them a second topology for new construction.
 
 export const SOFT_CABLE_TYPES = Object.freeze([
   'powerCable', 'hvCable', 'coolingWater', 'dataFiber',
@@ -29,7 +30,7 @@ export function isSoftCable(utilityType) {
   return SOFT_SET.has(utilityType);
 }
 
-/** True when the visible freehand route, rather than its hidden grid route, joins networks. */
+/** True when a legacy visible freehand route, rather than its grid route, joins networks. */
 export function usesFreeformTopology(utilityType) {
   return FREEFORM_TOPOLOGY_SET.has(utilityType);
 }

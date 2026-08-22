@@ -43,6 +43,7 @@ import { CAVITY_SPECS, T_CRITICAL, pDiss } from '../../beamline/cavity-specs.js'
 import { endpointsById } from '../endpoint-lookup.js';
 import { powerFeedFactor } from '../power-feed.js';
 import { RIGID_UTILITY_SERVICE_HEIGHTS } from '../service-heights.js';
+import { FLEXIBLE_SUBTILE_ROUTING_PROFILE } from '../routing-contract.js';
 
 export const BOILOFF_PER_W_PER_TICK = 0.0005;
 // Compatibility export for callers that mean the central recovery/storage
@@ -365,9 +366,9 @@ export default {
   supportSpacingMeters: 3,
   supportMinimumRunMeters: 3,
   routeVerticalClearanceMeters: 0.06,
-  // Transfer lines share the forgiving rectilinear routing contract with RF:
-  // horizontal/vertical runs and 90-degree bends, without rigid clearances.
-  routingProfile: 'rectilinear',
+  // Transfer lines share the universal flexible subtile routing contract:
+  // horizontal/vertical runs and immediate 90-degree bends.
+  routingProfile: FLEXIBLE_SUBTILE_ROUTING_PROFILE,
   // Vacuum-jacketed transfer line is visually broad, so let the cursor acquire
   // it across most of a tile before projecting the actual tee onto the run.
   tapSnapRadiusTiles: 0.9,

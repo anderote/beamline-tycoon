@@ -153,28 +153,66 @@ console.log('\n--- Test 3: invalid path ---');
 }
 
 // ===========================================================================
-// Test 3b: power cables are valid zero-length jumpers; other services are not.
+// Test 3b: every service supports an anchored co-located fitting.
 // ===========================================================================
-console.log('\n--- Test 3b: power cable has no minimum length ---');
+console.log('\n--- Test 3b: all anchored utilities have no minimum length ---');
 {
+  const cryoDefs = {
+    source_rack: SRC_DEF,
+    sink_rack: SINK_DEF,
+    cryo_source: { subL: 2, subW: 2, ports: {
+      out: { side: 'right', utility: 'cryoTransfer', role: 'source' },
+    } },
+    cryo_sink: { subL: 2, subW: 2, ports: {
+      in: { side: 'left', utility: 'cryoTransfer', role: 'sink' },
+    } },
+  };
   const state = makeState({
-    placeables: [placeable('r1', 'source_rack', 2, 3, 0)],
+    placeables: [
+      placeable('r1', 'source_rack', 2, 3, 0),
+      placeable('r2', 'sink_rack', 2, 3, 0),
+      placeable('c1', 'cryo_source', 5, 3, 0),
+      placeable('c2', 'cryo_sink', 5, 3, 0),
+    ],
+    defs: cryoDefs,
   });
   const jumper = [{ col: 2, row: 3 }, { col: 2, row: 3 }];
   const power = validateDrawLine(state, {
     utilityType: 'powerCable',
     start: { placeableId: 'r1', portName: 'powerOut' },
-    end: null,
+    end: { placeableId: 'r2', portName: 'powerIn' },
     path: jumper,
   });
   assert(power.ok, `a co-located power jumper is valid (got ${JSON.stringify(power)})`);
   assert(power.line?.subL === 0, `the jumper stores zero sub-units, not an invented minimum (got ${power.line?.subL})`);
 
-  const other = validateDrawLine(state, {
-    utilityType: 'dataCable', start: null, end: null, path: jumper,
+  const cryo = validateDrawLine(state, {
+    utilityType: 'cryoTransfer',
+    start: { placeableId: 'c1', portName: 'out' },
+    end: { placeableId: 'c2', portName: 'in' },
+    path: [{ col: 5, row: 3 }, { col: 5, row: 3 }],
   });
-  assert(!other.ok && other.reason === 'invalid_path',
-    `other utilities retain their non-zero minimum (got ${other.ok ? 'ok' : other.reason})`);
+  assert(cryo.ok && cryo.line?.subL === 0,
+    `a co-located cryogenic fitting is equally valid (got ${cryo.ok ? 'ok' : cryo.reason})`);
+
+  const open = validateDrawLine(state, {
+    utilityType: 'vacuumPipe', start: null, end: null, path: jumper,
+  });
+  assert(!open.ok && open.reason === 'invalid_path',
+    'a zero-length route still needs two real port anchors');
+}
+
+// ===========================================================================
+// Test 3c: authored routes snap to the shared quarter-tile lattice.
+// ===========================================================================
+console.log('\n--- Test 3c: off-subtile coordinates are rejected ---');
+{
+  const res = validateDrawLine(makeState(), {
+    utilityType: 'coolingWater', start: null, end: null,
+    path: [{ col: 0, row: 0 }, { col: 0.1, row: 0 }],
+  });
+  assert(!res.ok && res.reason === 'off_subtile_grid',
+    `off-grid route is rejected at the contract boundary (got ${res.reason || 'ok'})`);
 }
 
 // ==========================================================================

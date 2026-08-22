@@ -34,7 +34,11 @@ import {
   pathLengthSubUnits,
 } from '../utility/line-geometry.js';
 import { validateDrawLine } from '../utility/line-drawing.js';
-import { buildRigidRouteObstacles } from '../utility/route-obstacles.js';
+import { buildUtilityRouteObstacles } from '../utility/route-obstacles.js';
+import {
+  snapUtilityRouteCoordinate,
+  usesFlexibleSubtileRouting,
+} from '../utility/routing-contract.js';
 import { listUtilityEndpoints, findUtilityEndpoint } from '../utility/utility-endpoints.js';
 
 // Half-width of the run corridor, in tiles. A sink port counts as "passed" if
@@ -45,7 +49,7 @@ export const RUN_CORRIDOR_TILES = 1.0;
 
 const EPS = 1e-6;
 
-function snapQ(v) { return Math.round(v * 4) / 4; }
+function snapQ(v) { return snapUtilityRouteCoordinate(v); }
 
 // Port world {x, z} → tile coords, snapped to the sub-tile grid the rest of
 // the utility-line path system stores. 1 tile = 2 world metres.
@@ -110,7 +114,6 @@ export function buildRunStubPath(srcTile, srcVec, sinkTile, sinkVec, preferVerti
   return buildPortRoutedPath(srcTile, srcVec, sinkTile, sinkVec, {
     preferVerticalFirst,
     allowZeroLength: !!opts.allowZeroLength,
-    minStraightTiles: opts.minStraightTiles,
   });
 }
 
@@ -240,14 +243,11 @@ export function planUtilityRun(state, {
     // Both bend orders are legal routes; take whichever the real validator
     // accepts, so an incompatible sink is skipped rather than failing the run.
     for (const vf of [preferVerticalFirst, !preferVerticalFirst]) {
-      const directPowerJumper = utilityType === 'powerCable'
-        && Math.abs(outlet.tile.col - c.tile.col) + Math.abs(outlet.tile.row - c.tile.row) <= 0.5;
       const path = buildRunStubPath(
-        outlet.tile, directPowerJumper ? null : outlet.vec,
-        c.tile, directPowerJumper ? null : c.vec,
+        outlet.tile, outlet.vec,
+        c.tile, c.vec,
         vf, {
-        allowZeroLength: utilityType === 'powerCable',
-        minStraightTiles: UTILITY_TYPES[utilityType]?.minStraightTiles,
+        allowZeroLength: true,
       });
       if (!path) continue;
       const checked = validateDrawLine(probeState, {
@@ -263,11 +263,11 @@ export function planUtilityRun(state, {
       }
     }
     const descriptor = UTILITY_TYPES[utilityType] || {};
-    if (!chosen && descriptor.routingProfile === 'rigid') {
-      const obstacles = buildRigidRouteObstacles(probeState, utilityType, { startRef: start, endRef: end });
+    if (!chosen && usesFlexibleSubtileRouting(descriptor)) {
+      const obstacles = buildUtilityRouteObstacles(
+        probeState, utilityType, { startRef: start, endRef: end });
       const path = findObstacleAwareRoute(outlet.tile, outlet.vec, c.tile, c.vec, {
         preferVerticalFirst,
-        minStraightTiles: descriptor.minStraightTiles,
         bendPenalty: descriptor.bendPenalty,
         blocked: obstacles.isBlocked,
       });

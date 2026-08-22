@@ -6,9 +6,9 @@
 // scripted content that places a beamline must also wire it.
 //
 // wireUtility() builds the same ranked, obstacle-aware Manhattan route the
-// interactive tool uses. Directional services leave and enter along their
-// authored port normals; rigid services may take a longer service aisle when
-// the compact L/U candidates are blocked. Coordinates are tile units
+// interactive tool uses. Authored port normals rank tidy local fitting wraps;
+// every service may take a longer subtile route when compact candidates are
+// blocked by installed lines or measured 3D equipment. Coordinates are tile units
 // (world/2), matching UtilityLineInputController's paths.
 
 import { COMPONENTS } from '../components.js';
@@ -21,7 +21,8 @@ import {
   findObstacleAwareRoute,
 } from '../../utility/line-geometry.js';
 import { validateDrawLine } from '../../utility/line-drawing.js';
-import { buildRigidRouteObstacles } from '../../utility/route-obstacles.js';
+import { buildUtilityRouteObstacles } from '../../utility/route-obstacles.js';
+import { usesFlexibleSubtileRouting } from '../../utility/routing-contract.js';
 
 function portAnchor(state, utilityType, ref, defaultRole) {
   // Endpoints, not state.placeables: components carried on beam pipes declare
@@ -72,14 +73,17 @@ export function wireUtility(game, utilityType, from, to, opts = {}) {
   const end = { placeableId: to.id, portName: b.portName };
   const routeOpts = {
     preferVerticalFirst: !!opts.preferVerticalFirst,
-    minStraightTiles: descriptor.minStraightTiles,
+    allowZeroLength: true,
   };
   const candidates = buildPortRoutedPaths(routeStart, a.vec, routeEnd, b.vec, routeOpts);
   let path = candidates.find(candidate => validateDrawLine(state, {
     utilityType, start, end, path: candidate,
   }).ok) || null;
-  if (!path && descriptor.routingProfile === 'rigid') {
-    const obstacles = buildRigidRouteObstacles(state, utilityType, { startRef: start, endRef: end });
+  if (!path && usesFlexibleSubtileRouting(descriptor)) {
+    const obstacles = buildUtilityRouteObstacles(state, utilityType, {
+      startRef: start,
+      endRef: end,
+    });
     const detour = findObstacleAwareRoute(routeStart, a.vec, routeEnd, b.vec, {
       ...routeOpts,
       blocked: obstacles.isBlocked,
@@ -92,7 +96,7 @@ export function wireUtility(game, utilityType, from, to, opts = {}) {
     }).ok) path = detour;
   }
   // Unknown/legacy utilities retain the deterministic ranked candidates above;
-  // descriptors without a rigid profile simply skip the obstacle-search pass.
+  // descriptors outside the shared routing profile skip the obstacle search.
   if (!path) {
     console.warn('[scenario-wiring] no routed path', utilityType, from, to);
     return null;

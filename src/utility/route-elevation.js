@@ -1,8 +1,8 @@
-// Fixed elevations for fabricated rigid utility services.
+// Fixed elevations for fabricated utility services.
 //
 // Routing and pricing remain two-dimensional: a saved line still owns one
 // Manhattan X/Z path. Vacuum pipe, cryogenic transfer line, and RF waveguide
-// each own one facility-wide Y datum. Different rigid utilities may therefore
+// each own one facility-wide Y datum. Different fixed-height utilities may therefore
 // share plan routes; independent runs of the same utility may not cross unless
 // the player creates an explicit tap.
 
