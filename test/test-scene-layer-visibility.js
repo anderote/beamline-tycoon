@@ -43,6 +43,7 @@ assert.deepEqual(WORLD_LAYER_IDS, [
     beamlineComponentGroup: object(),
     beamEffectGroup: object(),
     beamPipeGroup: object(),
+    pipeAttachmentGroup: object(),
     infrastructureComponentGroup: object(),
     connectionGroup: object(),
     utilityLineGroup: object(),
@@ -63,6 +64,19 @@ assert.deepEqual(WORLD_LAYER_IDS, [
   assert(targets.some(target => target.layers.includes('beamline')));
   assert(targets.some(target => target.layers.includes('infra')));
   assert(targets.some(target => target.layers.includes('staff')));
+
+  const controller = new SceneLayerVisibility(() => sceneLayerTargets(renderer));
+  controller.setVisible('beamline', false);
+  for (const group of [
+    renderer.beamlineComponentGroup,
+    renderer.beamEffectGroup,
+    renderer.beamPipeGroup,
+    renderer.pipeAttachmentGroup,
+  ]) {
+    assert.equal(group.visible, false, 'every beamline-owned render group is hidden');
+  }
+  assert.equal(renderer.infrastructureComponentGroup.visible, true,
+    'beamline visibility does not affect infrastructure hardware');
 }
 
 {

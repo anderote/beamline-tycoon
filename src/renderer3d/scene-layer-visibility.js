@@ -74,6 +74,7 @@ export function sceneLayerTargets(renderer) {
     renderer.beamlineComponentGroup,
     renderer.beamEffectGroup,
     renderer.beamPipeGroup,
+    renderer.pipeAttachmentGroup,
   );
   add(['infra'],
     renderer.infrastructureComponentGroup,
