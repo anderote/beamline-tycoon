@@ -858,5 +858,26 @@ console.log('\n=== 17. Material face finishes add thickness on the selected side
   assert(!!lined.material[4].map, 'the thick selected face uses a textured material');
 }
 
+// ---------------------------------------------------------------------------
+console.log('\n=== 18. Staff door activity animates leaves open and closed ===\n');
+{
+  const wb = new WallBuilder(null);
+  const group = new Group();
+  const wall = { col: 2, row: 3, edge: 'n', type: 'officeWall', variant: 0, baseY: { a: 0, b: 0 } };
+  wb.build([wall], [{
+    col: 2, row: 3, edge: 'n', type: 'officeDoor', variant: 0, off: 1,
+    navKey: '2,3,n', baseY: { a: 0, b: 0 },
+  }], [], group, 'up', null);
+  const leaf = wb._meshes.find(mesh => mesh.userData?.doorLeaf);
+  const closedX = leaf.position.x;
+  assert(wb.updateDoorAnimations(0.25, new Set(['2,3,n'])),
+    'an active staff crossing advances the door animation');
+  assert(!near(leaf.position.x, closedX), 'the leaf slides away from its closed position');
+  const openX = leaf.position.x;
+  for (let i = 0; i < 20; i++) wb.updateDoorAnimations(0.1, new Set());
+  assert(Math.abs(leaf.position.x - closedX) < Math.abs(openX - closedX),
+    'after activity expires the leaf eases back toward closed');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

@@ -308,6 +308,8 @@ export class WallBuilder {
     this._doorPickMeshes = [];
     /** Authored window panes used for perspective-correct picking. */
     this._windowPickMeshes = [];
+    /** Stable door key -> independently movable leaf pieces. */
+    this._doorAnimations = new Map();
     /** Collects `_meshes` into batches during a build; null when unbatched. */
     this._batcher = null;
     this._cacheKey = null;
@@ -370,8 +372,52 @@ export class WallBuilder {
    */
   _emit(mesh, parentGroup) {
     this._meshes.push(mesh);
-    if (this._batcher && this._batcher.add(mesh)) return;
+    if (!mesh.userData?.animatedDoor && this._batcher && this._batcher.add(mesh)) return;
     parentGroup.add(mesh);
+  }
+
+  _registerDoorPiece(door, mesh, axis, direction, travel) {
+    const key = door.navKey || `${door.col},${door.row},${door.edge}`;
+    let animation = this._doorAnimations.get(key);
+    if (!animation) {
+      animation = { openness: 0, pieces: [] };
+      this._doorAnimations.set(key, animation);
+    }
+    mesh.userData ||= {};
+    mesh.userData.animatedDoor = true;
+    animation.pieces.push({
+      mesh,
+      axis,
+      direction,
+      travel,
+      base: axis === 'x' ? mesh.position.x : mesh.position.z,
+    });
+  }
+
+  /**
+   * Slide door leaves open while a staff traversal owns their key, then ease
+   * them shut. Animated pieces stay out of the static wall batches so this is
+   * only a handful of matrix updates around active pedestrians.
+   */
+  updateDoorAnimations(dt, activeKeys = []) {
+    const active = activeKeys instanceof Set ? activeKeys : new Set(activeKeys);
+    let changed = false;
+    for (const [key, animation] of this._doorAnimations) {
+      const target = active.has(key) ? 1 : 0;
+      const rate = target > animation.openness ? 7 : 2.5;
+      const next = animation.openness + (target - animation.openness)
+        * (1 - Math.exp(-Math.max(0, dt) * rate));
+      if (Math.abs(next - animation.openness) < 1e-5) continue;
+      animation.openness = Math.abs(next - target) < 1e-4 ? target : next;
+      const eased = animation.openness * animation.openness * (3 - 2 * animation.openness);
+      for (const piece of animation.pieces) {
+        piece.mesh.position[piece.axis] = piece.base + piece.direction * piece.travel * eased;
+        piece.mesh.updateMatrix?.();
+        piece.mesh.updateMatrixWorld?.(true);
+      }
+      changed = true;
+    }
+    return changed;
   }
 
   /**
@@ -961,6 +1007,10 @@ export class WallBuilder {
           panel.matrixAutoUpdate = false;
           panel.updateMatrix();
           markDoorPick(panel);
+          const openDirection = leafCount === 2
+            ? (leafIndex === 0 ? -1 : 1)
+            : (layout.center < 0 ? 1 : -1);
+          this._registerDoorPiece(d, panel, isNS ? 'x' : 'z', openDirection, panelW * 0.92);
           this._emit(panel, parentGroup);
 
           if (doorDef.doorWindow) {
@@ -1002,6 +1052,7 @@ export class WallBuilder {
             glass.matrixAutoUpdate = false;
             glass.updateMatrix();
             markDoorPick(glass);
+            this._registerDoorPiece(d, glass, isNS ? 'x' : 'z', openDirection, panelW * 0.92);
             this._emit(glass, parentGroup);
           }
         }
@@ -1032,6 +1083,10 @@ export class WallBuilder {
             handle.matrixAutoUpdate = false;
             handle.updateMatrix();
             markDoorPick(handle);
+            const openDirection = leafCount === 2
+              ? (handleIndex === 0 ? -1 : 1)
+              : (layout.center < 0 ? 1 : -1);
+            this._registerDoorPiece(d, handle, isNS ? 'x' : 'z', openDirection, panelW * 0.92);
             this._emit(handle, parentGroup);
           }
         }
@@ -1879,5 +1934,6 @@ export class WallBuilder {
     this._meshes = [];
     this._doorPickMeshes = [];
     this._windowPickMeshes = [];
+    this._doorAnimations.clear();
   }
 }

@@ -4439,6 +4439,10 @@ export class ThreeRenderer {
         zoom: this.zoom || 1,
       });
     }
+    this.wallBuilder?.updateDoorAnimations(
+      _dt,
+      this.staffPawns?.activeDoorKeys?.() || [],
+    );
     // Real lights: fixture spots/shadows, ambient glow points, flash decay.
     // See light-rig.js — nightFactor was computed this same frame by
     // _updateSunCycle() above.

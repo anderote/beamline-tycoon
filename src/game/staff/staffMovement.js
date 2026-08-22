@@ -11,6 +11,7 @@ import {
 } from '../storeys.js';
 
 export const STAFF_TRAVEL_SUBTILES_PER_TICK = 2;
+const DOOR_PRESENTATION_HOLD_TICKS = 2;
 
 const WANDER_RADIUS_TILES = 6;
 const WANDER_TRIES = 16;
@@ -34,6 +35,15 @@ function copyNode(node) {
   return node ? withLevel({
     col: node.col, row: node.row, subCol: node.subCol, subRow: node.subRow,
   }, levelOf(node)) : null;
+}
+
+function edgeBetween(a, b) {
+  if (!a || !b || levelOf(a) !== levelOf(b)) return null;
+  if (a.subCol === 0 && b.col === a.col - 1 && b.row === a.row && b.subCol === 3) return 'w';
+  if (a.subCol === 3 && b.col === a.col + 1 && b.row === a.row && b.subCol === 0) return 'e';
+  if (a.subRow === 0 && b.row === a.row - 1 && b.col === a.col && b.subRow === 3) return 'n';
+  if (a.subRow === 3 && b.row === a.row + 1 && b.col === a.col && b.subRow === 0) return 's';
+  return null;
 }
 
 export function sameStaffNode(a, b) {
@@ -175,17 +185,33 @@ export function advanceStaffTravel(
   motion.pathIndex = nextIndex;
   member.fromNode = copyNode(motion.path[nextIndex]);
   if (nextIndex > startIndex) {
+    const traversed = [startNode, ...motion.path.slice(startIndex + 1, nextIndex + 1)]
+      .filter(Boolean);
+    const priorPresentation = member._staffPresentation;
+    const currentTick = state.tick || 0;
+    // Preserve a crossing across a short simulation catch-up burst. Without
+    // this, a later movement snapshot could replace the crossing before the
+    // renderer saw it, leaving the pawn to pass through a closed visual leaf.
+    const doorKeys = priorPresentation
+      && currentTick - (priorPresentation.tick || 0) <= DOOR_PRESENTATION_HOLD_TICKS
+      ? [...(priorPresentation.doorKeys || [])]
+      : [];
+    const nav = getNavGrid(state);
+    for (let i = 0; i < traversed.length - 1; i++) {
+      const edge = edgeBetween(traversed[i], traversed[i + 1]);
+      const doorKey = edge ? nav.doorAtCrossing(traversed[i], edge) : null;
+      if (doorKey && !doorKeys.includes(doorKey)) doorKeys.push(doorKey);
+    }
     member._staffPresentation = {
       sequence: (member._staffPresentation?.sequence || 0) + 1,
       kind,
       navRevision: revision,
-      tick: state.tick || 0,
+      tick: currentTick,
       // At most three nodes at today's speed: the prior authoritative node
       // plus the one/two traversed nodes. This is enough for exact corner
       // interpolation without serializing or retaining an entire A* result.
-      nodes: [startNode, ...motion.path.slice(startIndex + 1, nextIndex + 1)]
-        .filter(Boolean)
-        .map(copyNode),
+      nodes: traversed.map(copyNode),
+      doorKeys,
     };
   }
   const arrived = nextIndex >= motion.path.length - 1;

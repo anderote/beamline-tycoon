@@ -11,6 +11,7 @@ import { PLACEABLES } from '../data/placeables/index.js';
 import { getTileCornersY, sampleCornersTriangulated } from '../game/terrain.js';
 import { inMapRegion, DEFAULT_MAP_HALF_EXTENT } from '../game/map-generator.js';
 import { placementPose, placementSpanSubL } from '../beamline/pipe-placements.js';
+import { canonicalDoorEdgeKey } from '../game/staff/door-crossings.js';
 import { expandPipePath, pipeSubL } from '../beamline/pipe-geometry.js';
 import { flattenPath } from '../beamline/flattener.js';
 import { getBeamlineType } from '../data/beamline-types.js';
@@ -352,6 +353,7 @@ function buildDoors(game) {
       off: d.off ?? defaultDoorOff(def),
       tileSpan: doorTileSpan(def),
       segments,
+      navKey: canonicalDoorEdgeKey(first.col, first.row, first.edge, level),
       // Multi-tile records are canonical n/e runs, so their first `a` and
       // final `b` are the outer terrain endpoints of the complete opening.
       baseY: { a: firstBase.a, b: lastBase.b },

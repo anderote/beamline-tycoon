@@ -204,6 +204,7 @@ const FACING_HEADING = { s: 0, e: Math.PI / 2, n: Math.PI, w: -Math.PI / 2 };
 // Arrival tolerance, in world units, for "close enough" to a path node or
 // amble target — small relative to a subtile (0.5 units).
 const ARRIVE_EPS = 0.05;
+const DOOR_HOLD_SECONDS = 1.25;
 
 // 1 subtile = 0.5 world units — same convention equipment-builder.js and
 // component-builder.js each define locally for reading a def's `parts`
@@ -268,6 +269,8 @@ export class StaffPawns {
     this._pawns = new Map();
     /** Live roster index, rebuilt only on staffChanged/full sync. */
     this._membersById = new Map();
+    this._doorClock = 0;
+    this._activeDoorEdges = new Map();
   }
 
   // --- Lifecycle -----------------------------------------------------------
@@ -296,6 +299,7 @@ export class StaffPawns {
   dispose() {
     for (const pawn of this._pawns.values()) this._destroyPawn(pawn);
     this._pawns.clear();
+    this._activeDoorEdges.clear();
     if (this.group.parent) this.group.parent.remove(this.group);
   }
 
@@ -673,6 +677,9 @@ export class StaffPawns {
     if (snapshot && snapshot.sequence !== pawn.publishedSequence) {
       pawn.publishedSequence = snapshot.sequence;
       for (const node of snapshot.nodes || []) append(node);
+      for (const key of snapshot.doorKeys || []) {
+        this._activeDoorEdges.set(key, this._doorClock + DOOR_HOLD_SECONDS);
+      }
     }
     // A load, test fixture, or very fast catch-up can publish only the latest
     // authoritative node. Preserve correctness with one short interpolation;
@@ -1014,10 +1021,14 @@ export class StaffPawns {
   // --- Per-frame update ----------------------------------------------------
 
   update(dt, view = null) {
-    if (!this._pawns.size) return;
     // Keep presentation frozen with the simulation while paused.
     if (this.game?.state?.paused) return;
     if (!(dt > 0) || dt > 0.5) dt = 0.016; // clamp tab-switch spikes
+    this._doorClock += dt;
+    for (const [key, expires] of this._activeDoorEdges) {
+      if (expires <= this._doorClock) this._activeDoorEdges.delete(key);
+    }
+    if (!this._pawns.size) return;
 
     for (const pawn of this._pawns.values()) {
       const member = this._membersById.get(pawn.id);
@@ -1079,6 +1090,10 @@ export class StaffPawns {
       }
 
     }
+  }
+
+  activeDoorKeys() {
+    return new Set(this._activeDoorEdges.keys());
   }
 
   _poseFor(pawn, member) {
