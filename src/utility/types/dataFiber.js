@@ -9,8 +9,13 @@ export default {
   type: 'dataFiber',
   displayName: 'Data Fiber',
   color: '#eeeeee',
-  geometryStyle: 'cylinder',
-  pipeRadiusMeters: 0.01,
+  geometryStyle: 'fiberBundle',
+  // Overall routed envelope plus the visible strands inside it. The old
+  // single 1 cm fibre disappeared at ordinary map zoom; three slimmer cables
+  // read as a bundled data run without becoming power-cable sized plumbing.
+  pipeRadiusMeters: 0.025,
+  bundleStrandRadiusMeters: 0.008,
+  bundleSpacingMeters: 0.014,
   capacityUnit: 'nodes',
   topologyOnly: true,
   topology: 'bus',

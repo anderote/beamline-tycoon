@@ -83,9 +83,11 @@ export const FLOW_PARAMS = {
     lightIntensity: 0.075, lightDistance: 1.15, daylightFloor: 0.2,
   },
   dataFiber: {
-    // Tiny white packets travel both ways at once: Ethernet is peer traffic,
-    // not a source-to-sink service. Fibre remains intentionally lightless.
-    speed: 4.4, period: 0.50, width: 0.055, strength: 1.18, baseGlow: 0.025,
+    // Broad white packets travel both ways at once: Ethernet is peer traffic,
+    // not a source-to-sink service. Keep the cadence slow enough to read as
+    // traffic rather than rapid flashing, while remaining the fastest utility
+    // surface flow. Fibre stays intentionally lightless.
+    speed: 1.6, period: 1.4, width: 0.16, strength: 1.0, baseGlow: 0.025,
     bidirectional: true, light: false,
   },
 };
