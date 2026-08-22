@@ -1598,7 +1598,9 @@ export class Game {
     );
     if (newTiles === 0) {
       if (skippedNoFoundation > 0) {
-        this.log(`${infra.name} requires ${FLOORS[infra.requiresFoundation]?.name || infra.requiresFoundation}!`, 'bad');
+        this.log(level > 0
+          ? 'Upper floors can only be built on roofed tiles.'
+          : `${infra.name} requires ${FLOORS[infra.requiresFoundation]?.name || infra.requiresFoundation}!`, 'bad');
       }
       return true;
     }

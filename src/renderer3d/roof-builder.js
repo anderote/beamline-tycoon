@@ -54,4 +54,8 @@ export class RoofBuilder {
     this._meshes = [];
     this._materials = [];
   }
+  dispose(parent) {
+    this._cleanup(parent);
+    this._cacheKey = null;
+  }
 }

@@ -48,6 +48,12 @@ import { tickFlow } from './utility-flow.js';
 import { utilityLineVisualSignature } from './utility-visual-signature.js';
 import { buildWorldSnapshot, updateWorldSnapshot } from './world-snapshot.js';
 import { LowerStoreyPresentation } from './lower-storey-presentation.js';
+import {
+  createFloorWallModes,
+  floorWallMode,
+  previewSurfaceCorners,
+  rememberFloorWallMode,
+} from './storey-view.js';
 import { disposeGroupChildren, disposeSceneObject } from './dispose-utils.js';
 import { listUtilityEndpoints, makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
 import { utilityPortIssues } from '../utility/port-issues.js';
@@ -57,7 +63,7 @@ import { buildPortFitting, buildPortFittings, portFittingSignature, portFlowArro
 import { UTILITY_TYPES } from '../utility/registry.js';
 import { StaffPawns } from './StaffPawns.js';
 import { sampleSurfaceYAt, getTileCornersY } from '../game/terrain.js';
-import { doorTileSpan, normalizeDoorSpanPath } from '../game/edge-keys.js';
+import { doorTileSpan, findWallKey, normalizeDoorSpanPath } from '../game/edge-keys.js';
 import { PLACE_UNAFFORDABLE } from '../game/placement.js';
 import { syncMapEdgeServiceLeadVisual } from './map-edge-service-lead.js';
 import { DAY_LENGTH_TICKS } from '../game/Game.js';
@@ -165,6 +171,15 @@ const LIGHT_CANDIDATE_EVENTS = new Set([
 ]);
 const SHADOW_GEOMETRY_EVENTS = new Set([
   ...LIGHT_CANDIDATE_EVENTS, 'zonesChanged',
+]);
+
+// Everything whose snapshot depends on Game.activeLevel. Floor changes use
+// this list instead of rebuilding the unchanged full-map terrain/cliff data.
+const ACTIVE_LEVEL_SNAPSHOT_SECTIONS = Object.freeze([
+  'floors', 'roofs', 'grassSurfaces', 'walls', 'doors', 'windows',
+  'wallOccupancy', 'zones', 'components', 'equipment', 'decorations',
+  'beamPaths', 'furnishings', 'pipeAttachments', 'beamPipes',
+  'moduleSubTiles', 'utilityLines',
 ]);
 
 /** Ghost color for a (valid, reason) pair. Reasons come from placement.js. */
@@ -346,6 +361,8 @@ export class ThreeRenderer {
     this.utilityPortIssueGroup = null;
     this.portFittingGroup = null;
     this.wallVisibilityMode = 'transparent';
+    this.floorWallVisibilityModes = createFloorWallModes(this.wallVisibilityMode);
+    this.storeyOverview = false;
     this._snapshot = null;
     this.lowerStoreyPresentation = null;
 
@@ -856,8 +873,12 @@ export class ThreeRenderer {
         case 'activeLevelChanged':
           this._worldInvalidationScheduler.clear();
           this._clearPreview();
+          this.storeyOverview = false;
+          this.wallVisibilityMode = floorWallMode(
+            this.floorWallVisibilityModes, this.game.activeLevel,
+          );
           this._syncActiveLevelPresentation();
-          this.refresh();
+          this._refreshActiveLevel();
           break;
         case 'worldExplosion':
           this.explodeWorld(data?.position || data, data?.options || {});
@@ -1002,17 +1023,69 @@ export class ThreeRenderer {
     host.addEventListener('click', (event) => {
       const button = event.target.closest?.('[data-floor-level]');
       if (!button) return;
-      this.game.setActiveLevel(Number(button.dataset.floorLevel));
+      this.selectConstructionLevel(Number(button.dataset.floorLevel));
     });
+  }
+
+  selectConstructionLevel(level) {
+    const next = Math.max(0, Math.min(MAX_LEVEL, Number(level) || 0));
+    this.storeyOverview = false;
+    this.wallVisibilityMode = floorWallMode(this.floorWallVisibilityModes, next);
+    const changed = this.game.setActiveLevel(next);
+    if (!changed) {
+      this._clearPreview();
+      this._syncActiveLevelPresentation();
+      this.lowerStoreyPresentation?.sync(this._snapshot, { overview: false });
+      this._applyWallVisibility();
+      this._sceneLayerVisibility.apply();
+    }
+    return next;
+  }
+
+  setStoreyWallMode(mode) {
+    if (mode === 'roof') return this.showStoreyOverview();
+    this.storeyOverview = false;
+    this.floorWallVisibilityModes = rememberFloorWallMode(
+      this.floorWallVisibilityModes, this.game.activeLevel, mode,
+    );
+    this.wallVisibilityMode = floorWallMode(
+      this.floorWallVisibilityModes, this.game.activeLevel,
+    );
+    this._cutawayHoverKey = null;
+    this._transparentHoverKey = null;
+    this._syncActiveLevelPresentation();
+    this.lowerStoreyPresentation?.sync(this._snapshot, { overview: false });
+    this._applyWallVisibility();
+    this._applyDoorVisibility();
+    this._sceneLayerVisibility.apply();
+    return this.wallVisibilityMode;
+  }
+
+  showStoreyOverview() {
+    this.storeyOverview = true;
+    this.wallVisibilityMode = 'roof';
+    this._clearPreview();
+    this._syncActiveLevelPresentation();
+    this.lowerStoreyPresentation?.sync(this._snapshot, { overview: true });
+    this._applyWallVisibility();
+    this._applyDoorVisibility();
+    this._sceneLayerVisibility.apply();
+    return 'roof';
   }
 
   _syncActiveLevelPresentation() {
     const level = Math.max(0, Math.min(MAX_LEVEL, this.game.activeLevel || 0));
     document.querySelectorAll('.floor-view-btn').forEach((button) => {
       const buttonLevel = Number(button.dataset.floorLevel);
-      button.classList.toggle('active', buttonLevel === level);
-      button.setAttribute('aria-pressed', buttonLevel === level ? 'true' : 'false');
+      const active = !this.storeyOverview && buttonLevel === level;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
       button.setAttribute('aria-label', floorLabel(buttonLevel));
+    });
+    document.querySelectorAll('.wall-vis-btn').forEach((button) => {
+      const active = button.dataset.wallMode === this.wallVisibilityMode;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
     });
     const y = levelWorldY(level);
     if (this.previewGroup) this.previewGroup.position.y = y;
@@ -2573,12 +2646,17 @@ export class ThreeRenderer {
         seenRoots.add(root);
         this._outlineObject(root, 0xffffff, this.selectionGroup, 3);
       } else if (target?.targetKind === 'floor') {
-        const points = this._terrainTileBorderPoints(target.col, target.row, 0.055);
+        const baseY = levelWorldY(target.level);
+        const points = this._terrainTileBorderPoints(target.col, target.row, 0.055)
+          .map(point => new THREE.Vector3(point.x, point.y + baseY, point.z));
         this.selectionGroup.add(new THREE.Line(
           new THREE.BufferGeometry().setFromPoints(points), lineMaterial(),
         ));
       } else if (target?.targetKind === 'edge') {
         const ends = this._edgeEndpoints(target.col, target.row, target.edge, 0.045);
+        const baseY = levelWorldY(target.level);
+        ends.p0.y += baseY;
+        ends.p1.y += baseY;
         const height = (WALL_TYPES[target.wall?.type]?.wallHeight || 14) * HEIGHT_SCALE;
         const points = [
           ends.p0,
@@ -2708,6 +2786,7 @@ export class ThreeRenderer {
     const results = [];
     const box = new THREE.Box3();
     for (const target of selectionTargetsForState(state)) {
+      if ((target.level || 0) !== (this.game.activeLevel || 0)) continue;
       if (this.isWorldLayerVisible(target.selectionCategory) === false) continue;
       if (target.targetKind === 'placeable'
           && (target.entry?.stackParentId || (target.entry?.stackChildren || []).length > 0)) continue;
@@ -2732,17 +2811,23 @@ export class ThreeRenderer {
         }
       }
       if (projected.length === 0 && target.targetKind === 'floor') {
+        const floorY = target.level > 0 ? levelWorldY(target.level) : null;
         for (const [x, z] of [
           [target.col * 2, target.row * 2],
           [target.col * 2 + 2, target.row * 2],
           [target.col * 2 + 2, target.row * 2 + 2],
           [target.col * 2, target.row * 2 + 2],
         ]) {
-          const point = this.worldToScreen(x, sampleSurfaceYAt(state, x, z) + 0.05, z);
+          const point = this.worldToScreen(
+            x, (floorY ?? sampleSurfaceYAt(state, x, z)) + 0.05, z,
+          );
           if (point) projected.push(point);
         }
       } else if (projected.length === 0 && target.targetKind === 'edge') {
         const ends = this._edgeEndpoints(target.col, target.row, target.edge, 0);
+        const baseY = levelWorldY(target.level);
+        ends.p0.y += baseY;
+        ends.p1.y += baseY;
         const height = (WALL_TYPES[target.wall?.type]?.wallHeight || 14) * HEIGHT_SCALE;
         for (const point of [
           ends.p0, ends.p1,
@@ -2857,7 +2942,6 @@ export class ThreeRenderer {
     const mat = this._previewMat(color, 0.3);
     const QUAD_OFFSET = 0.02;
     const EDGE_OFFSET = 0.04;
-    const state = this._liveState();
     // Per-tile deformed quad so the fill drapes the slope instead of hovering
     // on a flat y=0.1 plane (matches renderDemolishPreview).
     for (let c = minC; c <= maxC; c++) {
@@ -2868,7 +2952,7 @@ export class ThreeRenderer {
     // Border around the full rectangle — sample every perimeter vertex so it
     // follows terrain across the multi-tile span.
     const edgeMat = this._previewEdgeMat(color);
-    const surfY = (x, z) => sampleSurfaceYAt(state, x, z) + EDGE_OFFSET;
+    const surfY = (x, z) => this._previewSurfaceYAt(x, z) + EDGE_OFFSET;
     const pts = [];
     const zN = minR * 2;
     for (let c = minC; c <= maxC + 1; c++) {
@@ -2966,7 +3050,9 @@ export class ThreeRenderer {
    * terrain heights (so the quad drapes the slope).
    */
   _terrainTileQuad(col, row, yOffset = 0) {
-    const c = getTileCornersY(this._liveState(), col, row);
+    const c = previewSurfaceCorners(
+      getTileCornersY(this._liveState(), col, row), this.game.activeLevel,
+    );
     const x0 = col * 2, x1 = col * 2 + 2;
     const z0 = row * 2, z1 = row * 2 + 2;
     const geo = new THREE.BufferGeometry();
@@ -2983,7 +3069,9 @@ export class ThreeRenderer {
 
   /** Closed-loop border points for a tile, sampled at corner heights. */
   _terrainTileBorderPoints(col, row, yOffset = 0) {
-    const c = getTileCornersY(this._liveState(), col, row);
+    const c = previewSurfaceCorners(
+      getTileCornersY(this._liveState(), col, row), this.game.activeLevel,
+    );
     const x0 = col * 2, x1 = col * 2 + 2;
     const z0 = row * 2, z1 = row * 2 + 2;
     return [
@@ -3000,7 +3088,9 @@ export class ThreeRenderer {
    * Each edge runs between two adjacent tile corners.
    */
   _edgeEndpoints(col, row, edge, yOffset = 0) {
-    const c = getTileCornersY(this._liveState(), col, row);
+    const c = previewSurfaceCorners(
+      getTileCornersY(this._liveState(), col, row), this.game.activeLevel,
+    );
     const x0 = col * 2, x1 = col * 2 + 2;
     const z0 = row * 2, z1 = row * 2 + 2;
     let ax, ay, az, bx, by, bz;
@@ -3015,6 +3105,12 @@ export class ThreeRenderer {
       p0: new THREE.Vector3(ax, ay + yOffset, az),
       p1: new THREE.Vector3(bx, by + yOffset, bz),
     };
+  }
+
+  _previewSurfaceYAt(x, z) {
+    return (this.game.activeLevel || 0) > 0
+      ? 0
+      : sampleSurfaceYAt(this._liveState(), x, z);
   }
 
   /**
@@ -3071,7 +3167,6 @@ export class ThreeRenderer {
     });
     const QUAD_OFFSET = 0.02;
     const EDGE_OFFSET = 0.04;
-    const state = this._liveState();
     // Per-tile deformed quad so the fill drapes the slope.
     for (let c = minC; c <= maxC; c++) {
       for (let r = minR; r <= maxR; r++) {
@@ -3083,7 +3178,7 @@ export class ThreeRenderer {
     const edgeMat = new THREE.LineBasicMaterial({
       color: 0xff4444, transparent: true, opacity: 0.9,
     });
-    const surfY = (x, z) => sampleSurfaceYAt(state, x, z) + EDGE_OFFSET;
+    const surfY = (x, z) => this._previewSurfaceYAt(x, z) + EDGE_OFFSET;
     const pts = [];
     // North edge: walk west→east along z = minR*2.
     const zN = minR * 2;
@@ -3130,9 +3225,11 @@ export class ThreeRenderer {
       const inwardZ = seg.edge === 'n' ? 1 : seg.edge === 's' ? -1 : 0;
       let inset = def?.insetSubtiles ? HT : 0;
       if (def?.wallOverlay) {
-        const hostKey = this.game?._wallSiteKey?.(seg.col, seg.row, seg.edge);
-        const host = hostKey && this.game?._wallAt?.(hostKey);
-        const hostDef = host && WALL_TYPES[host.type];
+        const occupied = this._liveState()?.wallOccupied || {};
+        const hostKey = findWallKey(
+          occupied, seg.col, seg.row, seg.edge, this.game.activeLevel,
+        );
+        const hostDef = hostKey && WALL_TYPES[occupied[hostKey]];
         const hostT = hostDef?.insetSubtiles ? 0.5 * hostDef.insetSubtiles : 0.08;
         inset = hostT / 2 + HT;
       }
@@ -3241,12 +3338,8 @@ export class ThreeRenderer {
    */
   _previewWallHeight(col, row, edge, doorDef) {
     const occupied = this._liveState()?.wallOccupied || {};
-    const opposite = { n: 's', e: 'w', s: 'n', w: 'e' }[edge];
-    const delta = { n: [0, -1], e: [1, 0], s: [0, 1], w: [-1, 0] }[edge];
-    let wallType = occupied[`${col},${row},${edge}`];
-    if (!wallType && delta) {
-      wallType = occupied[`${col + delta[0]},${row + delta[1]},${opposite}`];
-    }
+    const key = findWallKey(occupied, col, row, edge, this.game.activeLevel);
+    const wallType = key ? occupied[key] : null;
     const def = wallType ? WALL_TYPES[wallType] : null;
     const data = def?.wallHeight ?? doorDef?.wallHeight ?? 14;
     return data * HEIGHT_SCALE;
@@ -3997,7 +4090,9 @@ export class ThreeRenderer {
     );
     for (let dr = Math.ceil(-majorRadius); dr <= Math.floor(majorRadius); dr++) {
       for (let dc = Math.ceil(-majorRadius); dc <= Math.floor(majorRadius); dc++) {
-        const c = getTileCornersY(state, col + dc, row + dr);
+        const c = previewSurfaceCorners(
+          getTileCornersY(state, col + dc, row + dr), this.game.activeLevel,
+        );
         const x0 = (col + dc) * 2, x1 = x0 + 2;
         const z0 = (row + dr) * 2, z1 = z0 + 2;
         const yNW = c.nw + Y_OFFSET;
@@ -4051,7 +4146,9 @@ export class ThreeRenderer {
     for (let dr = -subRadius; dr <= subRadius; dr++) {
       for (let dc = -subRadius; dc <= subRadius; dc++) {
         const c = col + dc, r = row + dr;
-        const corners = getTileCornersY(state, c, r);
+        const corners = previewSurfaceCorners(
+          getTileCornersY(state, c, r), this.game.activeLevel,
+        );
         const nw = corners.nw + Y_OFFSET;
         const ne = corners.ne + Y_OFFSET;
         const se = corners.se + Y_OFFSET;
@@ -4648,8 +4745,13 @@ export class ThreeRenderer {
     this.cliffBuilder.build(snapshot.cliffs || [], this.terrainGroup);
     this._terrainMesh = this.terrainBuilder.getMesh();
     this.wildflowerBuilder.rebuild(snapshot);
+    this._applyActiveLevelSnapshot(snapshot);
+  }
+
+  _applyActiveLevelSnapshot(snapshot) {
     this.grassTuftBuilder.rebuild(snapshot);
     this.floorBuilder.build(snapshot.floors, this.floorGroup);
+    this.roofGroup.visible = roofVisibleForWallMode(this.wallVisibilityMode);
     this.roofBuilder.build(snapshot.roofs || [], this.roofGroup);
     let cutawayRoom = null;
     if (this.wallVisibilityMode === 'cutaway') {
@@ -4682,10 +4784,20 @@ export class ThreeRenderer {
     this._refreshPortFittings();
     this._refreshBeamPipes();
     this._refreshZones();
-    this.lowerStoreyPresentation?.sync(snapshot);
+    this.lowerStoreyPresentation?.sync(snapshot, { overview: this.storeyOverview });
     this._invalidateGridOverlay();
     this._markPhysicsBodiesDirty();
     this._sceneLayerVisibility.apply();
+  }
+
+  _refreshActiveLevel() {
+    const partial = buildWorldSnapshot(this.game, {
+      only: ACTIVE_LEVEL_SNAPSHOT_SECTIONS,
+    });
+    if (!this._snapshot) this._snapshot = partial;
+    else Object.assign(this._snapshot, partial);
+    this._applyActiveLevelSnapshot(this._snapshot);
+    this.staffPawns?.sync();
   }
 
   _markPhysicsBodiesDirty() {
@@ -4726,7 +4838,7 @@ export class ThreeRenderer {
     if (plan.portFittings) this._refreshPortFittings();
     if (plan.physicsBodies) this._markPhysicsBodiesDirty();
     if (plan.palette && this._refreshPalette) this._refreshPalette();
-    this.lowerStoreyPresentation?.sync(this._snapshot);
+    this.lowerStoreyPresentation?.sync(this._snapshot, { overview: this.storeyOverview });
     this._sceneLayerVisibility.apply();
     if (this._selectedBeamlineFocus
         && (plan.components || plan.beamPipes || plan.utilityLines)) {

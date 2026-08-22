@@ -1,9 +1,11 @@
-// Renderer-owned context for storeys below the active construction level.
-// The active world keeps its ordinary builders and materials; this coordinator
-// owns separate builder instances so lower geometry can be ghosted without
+// Renderer-owned cached context for storeys outside the active construction
+// level. The active world keeps its ordinary builders and materials; this
+// coordinator owns separate builder instances so lower geometry can be
+// ghosted in floor view and every storey can be solid in roof overview without
 // mutating shared materials or becoming a picking target.
 
 import { FloorBuilder } from './floor-builder.js';
+import { RoofBuilder } from './roof-builder.js';
 import { WallBuilder } from './wall-builder.js';
 import { ComponentBuilder } from './component-builder.js';
 import { EquipmentBuilder } from './equipment-builder.js';
@@ -11,24 +13,22 @@ import { DecorationBuilder } from './decoration-builder.js';
 import { BeamPipeBuilder } from './beam-pipe-builder.js';
 import { PipeAttachmentBuilder } from './pipe-attachment-builder.js';
 import { buildWorldSnapshot } from './world-snapshot.js';
-import { normalizeLevel } from '../game/storeys.js';
 import { contentKey } from './content-hash.js';
 import { applyStoreyGhost, restoreStoreyGhost } from './storey-ghost-material.js';
+import { storeyFramePlan } from './storey-view.js';
 
 const CONTEXT_SECTIONS = Object.freeze([
-  'floors', 'walls', 'doors', 'windows', 'components', 'equipment',
+  'floors', 'roofs', 'walls', 'doors', 'windows', 'components', 'equipment',
   'decorations', 'furnishings', 'beamPipes', 'moduleSubTiles', 'pipeAttachments',
 ]);
-
-export function lowerStoreyLevels(activeLevel) {
-  return Array.from({ length: normalizeLevel(activeLevel) }, (_, level) => level);
-}
 
 class LowerStoreyFrame {
   constructor(level, textureManager, parents) {
     this.level = level;
     this._key = null;
+    this._ghosted = false;
     this.floorBuilder = new FloorBuilder(textureManager);
+    this.roofBuilder = new RoofBuilder();
     this.wallBuilder = new WallBuilder(textureManager);
     this.componentBuilder = new ComponentBuilder();
     this.equipmentBuilder = new EquipmentBuilder();
@@ -41,8 +41,9 @@ class LowerStoreyFrame {
     this.structureGroup.name = `lower-storey-${level}-structure`;
     parents.structure.add(this.structureGroup);
     this.floorGroup = new THREE.Group();
+    this.roofGroup = new THREE.Group();
     this.wallGroup = new THREE.Group();
-    this.structureGroup.add(this.floorGroup, this.wallGroup);
+    this.structureGroup.add(this.floorGroup, this.roofGroup, this.wallGroup);
 
     this.facilityGroup = new THREE.Group();
     this.facilityGroup.name = `lower-storey-${level}-facility`;
@@ -65,13 +66,13 @@ class LowerStoreyFrame {
 
     this.beamPipeGroup = new THREE.Group();
     this.beamPipeGroup.name = `lower-storey-${level}-beam-pipes`;
-    parents.scene.add(this.beamPipeGroup);
+    this.componentGroup.add(this.beamPipeGroup);
   }
 
   groups() {
     return [
       this.structureGroup, this.facilityGroup, this.decorationGroup,
-      this.componentGroup, this.beamPipeGroup,
+      this.componentGroup,
     ];
   }
 
@@ -81,9 +82,10 @@ class LowerStoreyFrame {
         && !activeComponentIds.has(component.id));
     const key = contentKey({ ...snapshot, components });
     if (key === this._key) return;
-    for (const group of this.groups()) restoreStoreyGhost(group);
+    this.setGhosted(false);
 
     this.floorBuilder.build(snapshot.floors || [], this.floorGroup);
+    this.roofBuilder.build(snapshot.roofs || [], this.roofGroup);
     this.wallBuilder.build(
       snapshot.walls || [], snapshot.doors || [], snapshot.windows || [],
       this.wallGroup, 'up', null,
@@ -111,13 +113,29 @@ class LowerStoreyFrame {
     this.beamPipeBuilder.build(snapshot, this.beamPipeGroup);
     this.beamPipeBuilder.setDetailLevel(true);
 
-    for (const group of this.groups()) applyStoreyGhost(group);
     this._key = key;
+  }
+
+  setGhosted(ghosted) {
+    const next = ghosted === true;
+    if (next === this._ghosted) return;
+    for (const group of this.groups()) {
+      if (next) applyStoreyGhost(group);
+      else restoreStoreyGhost(group);
+    }
+    this._ghosted = next;
+  }
+
+  setPresentation({ visible, ghosted, roofsVisible }) {
+    for (const group of this.groups()) group.visible = visible === true;
+    this.roofGroup.visible = visible === true && roofsVisible === true;
+    this.setGhosted(visible === true && ghosted === true);
   }
 
   dispose(parents) {
     for (const group of this.groups()) restoreStoreyGhost(group);
     this.floorBuilder.dispose(this.floorGroup);
+    this.roofBuilder.dispose(this.roofGroup);
     this.wallBuilder.dispose(this.wallGroup);
     this.componentBuilder.dispose(this.componentGroup);
     this.equipmentBuilder.dispose(this.facilityGroup);
@@ -129,7 +147,6 @@ class LowerStoreyFrame {
     parents.facility.remove(this.facilityGroup);
     parents.grounds.remove(this.decorationGroup);
     parents.scene.remove(this.componentGroup);
-    parents.scene.remove(this.beamPipeGroup);
   }
 }
 
@@ -149,17 +166,18 @@ export class LowerStoreyPresentation {
     return [...this.frames.values()].map(frame => frame.infrastructureGroup);
   }
 
-  sync(activeSnapshot) {
-    const levels = new Set(lowerStoreyLevels(this.game.activeLevel));
+  sync(activeSnapshot, { overview = false } = {}) {
+    const plan = storeyFramePlan(this.game.activeLevel, overview);
     for (const [level, frame] of this.frames) {
-      if (levels.has(level)) continue;
-      frame.dispose(this.parents);
-      this.frames.delete(level);
+      const entry = plan[level];
+      frame.setPresentation(entry || { visible: false, ghosted: false, roofsVisible: false });
     }
     const activeComponentIds = new Set(
       (activeSnapshot?.components || []).map(component => component.id),
     );
-    for (const level of levels) {
+    for (const entry of plan) {
+      if (!entry.visible) continue;
+      const { level } = entry;
       let frame = this.frames.get(level);
       if (!frame) {
         frame = new LowerStoreyFrame(level, this.textureManager, this.parents);
@@ -169,6 +187,7 @@ export class LowerStoreyPresentation {
         level,
         only: CONTEXT_SECTIONS,
       }), activeComponentIds);
+      frame.setPresentation(entry);
     }
   }
 
