@@ -283,7 +283,7 @@ export class SelectionActionTool extends Tool {
     const grid = isoToGrid(world.x, world.y);
     const selected = input._selectPlaceableAt(
       world, grid, e.clientX, e.clientY,
-      { additive: false, refillReservoir: false },
+      { additive: false, refillReservoir: false, openInspector: false },
     );
     if (!selected) {
       input._showToast(`Nothing to ${this.action}`);
