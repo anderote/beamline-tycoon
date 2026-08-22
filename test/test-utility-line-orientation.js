@@ -30,6 +30,18 @@ function orientationsFor(utilityType, lines, lookup) {
   return result;
 }
 
+test('directionless data buses never derive source-to-sink line orientation', () => {
+  const network = {
+    utilityType: 'dataFiber', lineIds: ['fiber'],
+    sources: [{ portKey: 'a:data_out' }],
+  };
+  const lines = new Map([['fiber', line(
+    'fiber', 'dataFiber', ref('a', 'data_out'), ref('b', 'data_in'), 0,
+  )]]);
+  assert.equal(computeLineOrientations(network, lines).size, 0,
+    'data activity is bidirectional rather than oriented from a legacy source label');
+});
+
 test('authored electrical hierarchy flows supply -> distribution -> loads', () => {
   const state = {
     placeables: [

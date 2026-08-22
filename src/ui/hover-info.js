@@ -145,7 +145,6 @@ export function componentHoverInfo(comp, { autoConnectPlan = null } = {}) {
   const sourceSpecs = [
     ['cryoTransfer', 'coldCapacityW', 'Cryo output', 'W'],
     ['vacuumPipe', 'pumpSpeed', 'Pumping speed', 'L/s'],
-    ['dataFiber', 'capacity', 'Data output', 'Gbps'],
   ];
   for (const [utility, param, label, unit] of sourceSpecs) {
     const value = sumPorts(ports, [utility], 'source', param);

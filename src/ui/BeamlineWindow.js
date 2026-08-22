@@ -563,6 +563,8 @@ export class BeamlineWindow {
     const networks = [];
     let totalCapacity = 0;
     let totalDemand = 0;
+    let connectedNodeCount = 0;
+    let connectedLinkCount = 0;
     let worstQuality = null;
     const issues = [];
 
@@ -578,11 +580,16 @@ export class BeamlineWindow {
       }
       if (Number.isFinite(flow.totalCapacity)) totalCapacity += flow.totalCapacity;
       if (Number.isFinite(flow.totalDemand)) totalDemand += flow.totalDemand;
+      if (Number.isFinite(flow.connectedNodeCount)) connectedNodeCount += flow.connectedNodeCount;
+      if (Number.isFinite(flow.connectedLinkCount)) connectedLinkCount += flow.connectedLinkCount;
       for (const issue of flow.errors || []) issues.push({ ...issue, networkId: network.id });
       networks.push({ network, flow, beamlineSinkCount: beamlineSinks.length });
     }
 
-    return { networks, totalCapacity, totalDemand, worstQuality, issues };
+    return {
+      networks, totalCapacity, totalDemand, connectedNodeCount, connectedLinkCount,
+      worstQuality, issues,
+    };
   }
 
   _overviewVacuumHtml(nodeIds) {
@@ -650,10 +657,13 @@ export class BeamlineWindow {
       <div class="ctx-stat"><div class="ctx-stat-label">Ready</div><div class="ctx-stat-val">${coveragePct}</div></div>
       <div class="ctx-stat"><div class="ctx-stat-label">Network issues</div><div class="ctx-stat-val${problemCount ? ' warn' : ''}">${problemCount}</div></div>
     </div>
-    <div class="ctx-section-label">Demand and capacity</div>`;
+    <div class="ctx-section-label">Utility network status</div>`;
 
     for (const summary of summaries) {
-      const { key, label, coverage, networks, totalCapacity, totalDemand, worstQuality, issues } = summary;
+      const {
+        key, label, coverage, networks, totalCapacity, totalDemand,
+        connectedNodeCount, connectedLinkCount, worstQuality, issues,
+      } = summary;
       const { color, icon, text } = PRESENTATION[coverage.status];
       const descriptor = UTILITY_DESCRIPTORS[key] || {};
       const descriptorColor = descriptor.color || color;
@@ -676,14 +686,22 @@ export class BeamlineWindow {
         continue;
       }
 
-      html += `<div class="beamline-utility-subtitle">${coverage.wired} / ${coverage.declared} components connected · ${networks.length} solved ${networkWord}</div>
-        <div class="beamline-utility-metrics">
+      html += `<div class="beamline-utility-subtitle">${coverage.wired} / ${coverage.declared} components connected · ${networks.length} solved ${networkWord}</div>`;
+      if (descriptor.topologyOnly) {
+        html += `<div class="beamline-utility-metrics">
+          <div><span>Devices</span><strong>${networks.length ? connectedNodeCount : '--'}</strong></div>
+          <div><span>Links</span><strong>${networks.length ? connectedLinkCount : '--'}</strong></div>
+          <div><span>Topology</span><strong>Shared bus</strong></div>
+        </div>`;
+      } else {
+        html += `<div class="beamline-utility-metrics">
           <div><span>Demand</span><strong>${networks.length ? fmtUtilityQty(totalDemand) : '--'} ${escapeHtml(descriptor.demandUnit || descriptor.capacityUnit || '')}</strong></div>
           <div><span>Capacity</span><strong>${networks.length ? fmtUtilityQty(totalCapacity) : '--'} ${escapeHtml(descriptor.capacityUnit || '')}</strong></div>
           <div><span>Delivered</span><strong style="color:${worstQuality === null ? '#8888aa' : utilityQualityColor(worstQuality)}">${worstQuality === null ? '--' : `${(worstQuality * 100).toFixed(0)}%`}</strong></div>
         </div>`;
+      }
 
-      if (comparable && networks.length > 0) {
+      if (!descriptor.topologyOnly && comparable && networks.length > 0) {
         html += `<div class="beamline-utility-load">
           <span>Load</span><div><i style="width:${loadPct}%;background:${loadColor}"></i></div><strong style="color:${loadColor}">${loadPct.toFixed(0)}%</strong>
         </div>`;
@@ -695,7 +713,10 @@ export class BeamlineWindow {
         html += '<div class="beamline-network-list">';
         for (const item of networks) {
           const shortId = item.network.id.replace(`net_${key}_`, '');
-          html += `<span title="${escapeHtml(item.network.id)}">${escapeHtml(shortId)} · ${item.beamlineSinkCount} beamline sink${item.beamlineSinkCount === 1 ? '' : 's'}</span>`;
+          const endpointLabel = descriptor.topologyOnly
+            ? `${item.flow.connectedNodeCount || 0} peer device${item.flow.connectedNodeCount === 1 ? '' : 's'}`
+            : `${item.beamlineSinkCount} beamline sink${item.beamlineSinkCount === 1 ? '' : 's'}`;
+          html += `<span title="${escapeHtml(item.network.id)}">${escapeHtml(shortId)} · ${endpointLabel}</span>`;
         }
         html += '</div>';
       }

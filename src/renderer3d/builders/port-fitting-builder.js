@@ -145,6 +145,7 @@ function getFlowArrowGeometry(role) {
 
 function buildFlowArrow(utilityType, role) {
   const descriptor = UTILITY_TYPES[utilityType];
+  if (descriptor?.directional === false) return null;
   // Black HV conduit is excellent scenery but an invisible arrow. Reuse its
   // authored marker colour when it has one, then fall back to line colour.
   const color = descriptor?.markerColor || descriptor?.color || '#aaaaaa';
@@ -562,7 +563,8 @@ export function buildPortFitting(anchor, utilityType, role = 'pass', flowRole = 
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), axis);
 
   mesh.position.set(anchor.x, anchor.y, anchor.z);
-  mesh.add(buildFlowArrow(utilityType, flowRole));
+  const flowArrow = buildFlowArrow(utilityType, flowRole);
+  if (flowArrow) mesh.add(flowArrow);
   mesh.userData = {
     isUtilityPortFitting: true,
     utilityType,

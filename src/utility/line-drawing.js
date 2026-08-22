@@ -345,8 +345,9 @@ function isOverheadHvSupportSpan(state, utilityType, start, end) {
 function portConnectionLimit(spec, utilityType) {
   if (!spec) return 0;
   if (Number.isInteger(spec.maxConnections)) return spec.maxConnections;
-  if (spec.role !== 'source') return 1;
   const d = UTILITY_TYPES[utilityType];
+  if (d?.topology === 'bus') return d.fansOut !== false ? Infinity : 1;
+  if (spec.role !== 'source') return 1;
   return (!d || d.fansOut !== false) ? Infinity : 1;
 }
 
@@ -554,8 +555,8 @@ export function validateDrawLine(state, {
     return reject('invalid_port_pair');
   }
 
-  // Overlap against same-type lines only — branching at a shared source
-  // endpoint is allowed (capacity-based fanout). Interior overlaps still block.
+  // Overlap against same-type lines only — branching at a shared source or a
+  // directionless bus peer is allowed. Interior overlaps still block.
   const lines = state && state.utilityLines;
   // Build ignore set for branching: if start/end is a source that is already taken,
   // that endpoint is a fanout point and its exact endpoint overlap is permitted.
@@ -572,7 +573,7 @@ export function validateDrawLine(state, {
     // they leave the same raceway as its incoming feeder. Treat those outlets
     // like sources for the limited shared-device tray exemption only; they
     // remain single-use ports and never gain source semantics in the solver.
-    if (!spec || (spec.role !== 'source'
+    if (!spec || (descriptor.topology !== 'bus' && spec.role !== 'source'
         && connectionKind(spec, utilityType) !== 'powerFieldOut'
         && connectionKind(spec, utilityType) !== 'powerFieldPort')) continue;
     if (!deviceHasLine(state, ref.placeableId, utilityType)) continue;

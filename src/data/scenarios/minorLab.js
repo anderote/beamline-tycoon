@@ -70,7 +70,7 @@ export function setupMinorLab(game) {
   }
   if (captureId) {
     for (const id of [consoleId, monitorId]) {
-      if (id) wire('dataFiber', { id: captureId, role: 'source' }, { id, role: 'sink' });
+      if (id) wire('dataFiber', { id: captureId, role: 'pass' }, { id, role: 'sink' });
     }
   }
   game.state.resources.funding = funding0;

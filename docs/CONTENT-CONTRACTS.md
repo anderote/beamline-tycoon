@@ -155,6 +155,15 @@ the short authoring contract.
   the committed bus path and generated channel lines. They must not maintain a
   second, independently solved capacity model for racks.
 
+- Data fiber is a directionless bus network. Any data port may connect to any
+  other data port, trunks may be tee-branched, and every data port on one
+  device belongs to the same internal peer node. Data service is binary
+  connectivity to at least one other device; switches add real connection
+  ports and fan-out, never throughput capacity or source direction.
+- `networkSwitch` exposes eight internally joined peer ports and is available
+  from both Infra > Data & Controls and Facility > Control Room. It requires
+  power but does not require a separate upstream data source.
+
 - Read ports through `getUtilityPortsV2(id)` when solver defaults and derived RF
   band information matter. The flat table is raw authoring data.
 - Assisted distribution wiring uses `autoConnectRadius` and commits real paid

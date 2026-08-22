@@ -36,7 +36,7 @@ Each network type produces both a 0-1 quality scalar and a **physical quantity**
 | RF | Per-frequency buckets, forward power (kW), duty | peak power (W) per sink |
 | Cooling | Capacity (kW), heat load (kW), margin | temperature rise (K) per sink |
 | Cryo | Capacity (W), static + dynamic load (W) | bath temperature (K) per sink |
-| Data/Fiber | Binary: has a source or not | quality scalar (scales data income) |
+| Data/Fiber | Directionless bus: at least two peer devices connected | binary quality scalar (scales data income) |
 
 ### Hard Gates
 

@@ -5637,8 +5637,8 @@ export class Game {
     const gatewayByNetwork = new Map();
     if (Array.isArray(dataNetworks)) {
       for (const network of dataNetworks) {
-        const hasGateway = (network.sources || []).some(source => {
-          const placed = this.state.placeables.find(p => p.id === source.placeableId);
+        const hasGateway = (network.ports || []).some(peer => {
+          const placed = this.state.placeables.find(p => p.id === peer.placeableId);
           const spec = placed && PLACEABLES[placed.type]?.effects?.dataSystem;
           return !!(spec?.ingest > 0);
         });

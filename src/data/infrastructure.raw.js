@@ -1656,8 +1656,9 @@ export const INFRASTRUCTURE_RAW = {
   networkSwitch: {
     id: 'networkSwitch',
     name: 'Network Switch',
-    desc: 'Managed Ethernet switch for non-real-time data: camera feeds, archiver traffic, operator displays, and alarm notifications. Lower priority than timing fiber but still essential for monitoring. One switch covers a section of the facility.',
+    desc: 'Eight-port managed network switch. Every attached data device joins one bidirectional shared fabric; there is no inlet, outlet, or bandwidth direction. Available from Data & Controls and the Control Room.',
     category: 'dataControls', subsection: 'distribution',
+    zoneType: 'controlRoom', furnitureGroup: 'support',
     cost: { funding: 50000 },
     stats: {},
     energyCost: 0.2,
@@ -1671,7 +1672,7 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
 
-    requiredConnections: ['powerCable', 'dataFiber'],
+    requiredConnections: ['powerCable'],
   },
 
   // Distribution bus — serves every on-pipe data sink within reach on ONE

@@ -37,6 +37,20 @@ for (const type of UTILITY_TYPE_LIST) {
   const desc = UTILITY_TYPES[type];
   console.log(`\n--- ${type} ---`);
 
+  if (desc.topologyOnly) {
+    const flow = desc.solve({
+      id: `net_${type}_test`, utilityType: type, lineIds: ['line'],
+      ports: [
+        { placeableId: 'p1', portName: 'peer_1' },
+        { placeableId: 'p2', portName: 'peer_2' },
+      ],
+      sources: [], sinks: [],
+    }, {}, {}).flowState;
+    assert(flow.connectedNodeCount === 2 && flow.totalCapacity === 1 && flow.totalDemand === 0,
+      `${type} publishes peer topology instead of capacity/demand params`);
+    continue;
+  }
+
   const capParam = desc.capacityParam || 'capacity';
   const demParam = desc.demandParam || 'demand';
   assert(typeof capParam === 'string' && typeof demParam === 'string',
