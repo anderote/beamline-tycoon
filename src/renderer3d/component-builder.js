@@ -16,6 +16,7 @@ import { MATERIALS } from './materials/index.js';
 import { DECALS } from './materials/decals.js';
 import { applyTiledBoxUVs, applyTiledCylinderUVs } from './uv-utils.js';
 import { buildPlaceableVisualDetails } from './placeable-visual-details.js';
+import { createEquipmentPartGeometry } from './equipment-builder.js';
 import { BLOOM_LAYER } from './glow-pipeline.js';
 import { getGlowMaterial, setGlowNightFactor } from './machine-glow.js';
 export { getGlowMaterial, setGlowNightFactor } from './machine-glow.js';
@@ -4216,8 +4217,7 @@ function _buildPartsOrFallback(compDef) {
       const pw = (part.w || 1) * SUB_UNIT;
       const ph = (part.h || 1) * SUB_UNIT;
       const pl = (part.l || 1) * SUB_UNIT;
-      const geo = new THREE.BoxGeometry(pw, ph, pl);
-      applyTiledBoxUVs(geo, pw, ph, pl);
+      const geo = createEquipmentPartGeometry(part, pw, ph, pl);
       const partBase = part.material;
       let map = null;
       let color = part.color ?? baseColor;
@@ -4234,6 +4234,9 @@ function _buildPartsOrFallback(compDef) {
         ((part.y || 0) + (part.h || 1) / 2) * SUB_UNIT,
         (part.z || 0) * SUB_UNIT,
       );
+      if (Array.isArray(part.rotation)) {
+        mesh.rotation.set(part.rotation[0], part.rotation[1], part.rotation[2]);
+      }
       group.add(mesh);
     }
     return group;

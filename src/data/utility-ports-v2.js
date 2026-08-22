@@ -1133,6 +1133,13 @@ const INFRA_UTILITY_PORTS = {
     utility: 'hvCable', side: 'front', offsetAlong,
     role: 'pass', omnidirectional: true, maxConnections: 2, params: {},
   }])),
+  indoorHvCableCornerRack: Object.fromEntries([
+    [1, 'back', 0.125], [2, 'back', 0.375],
+    [3, 'front', 0.625], [4, 'front', 0.875],
+  ].map(([index, side, offsetAlong]) => [`hv_${index}`, {
+    utility: 'hvCable', side, offsetAlong,
+    role: 'pass', omnidirectional: true, maxConnections: 2, params: {},
+  }])),
   disconnectSwitch: {
     hv_in: {
       utility: 'hvCable', side: 'back', offsetAlong: 0.5,

@@ -45,8 +45,12 @@ export function isOverheadHvSupport(def) {
   return def?.id === 'utilityPole' || def?.id === 'transmissionTower';
 }
 
+export function isIndoorHvRackSupport(def) {
+  return def?.hvCableSupport === 'indoorRack';
+}
+
 export function isHvCableTensionAnchor(def) {
-  return isOverheadHvSupport(def) || def?.id === 'indoorHvCableRack'
+  return isOverheadHvSupport(def) || isIndoorHvRackSupport(def)
     || def?.wallPassThrough === true;
 }
 

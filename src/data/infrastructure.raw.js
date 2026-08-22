@@ -2024,7 +2024,7 @@ export const INFRASTRUCTURE_RAW = {
   indoorHvCableRack: {
     id: 'indoorHvCableRack',
     name: '4-Way Indoor HV Cable Rack',
-    desc: 'Freestanding steel bracket that carries four isolated HV cables in one flat row above head height and below the facility ceiling. Each saddle accepts two cable segments, takes up drawn lateral slack, and leaves the suspended feeder with visible gravity sag.',
+    desc: 'Freestanding steel bracket that carries four isolated HV cables on insulators suspended below its crossbar. Each attachment accepts two cable segments, takes up drawn lateral slack, and leaves the overhead feeder with visible gravity sag.',
     category: 'power', subsection: 'routingHardware',
     paletteOrder: 3.5,
     cost: { funding: 36000 },
@@ -2033,25 +2033,59 @@ export const INFRASTRUCTURE_RAW = {
     geometryType: 'box', baseMaterial: 'metal_dark',
     spriteKey: 'switchgear', spriteColor: 0x5f686d, accentColor: 0xd2a93d,
     hasSurface: false, placement: 'module', ports: {},
-    // Each named saddle is one independent conductor. Two attached line
-    // segments meet through that saddle; the four positions never form a bus.
+    hvCableSupport: 'indoorRack',
+    // Each named insulator is one independent conductor. Two attached line
+    // segments meet through that attachment; the four positions never form a bus.
     electricalGroups: { hvCable: [] },
     parts: [
-      // Low feet and two uprights support a 2.35 m-high crossbar inside the
-      // standard 2.57 m facility wall envelope. Dimensions are in 0.5 m
+      // Low feet and two uprights support a crossbar inside the standard
+      // 2.57 m facility wall envelope. Dimensions are in 0.5 m
       // subtiles, matching the rest of the parts authoring surface.
       { shape: 'box', w: 0.46, h: 0.18, l: 1.72, x: -1.62, y: 0, z: 0, color: 0x4c555a },
       { shape: 'box', w: 0.46, h: 0.18, l: 1.72, x: 1.62, y: 0, z: 0, color: 0x4c555a },
       { shape: 'box', w: 0.28, h: 4.55, l: 0.38, x: -1.62, y: 0.16, z: 0, color: 0x687278 },
       { shape: 'box', w: 0.28, h: 4.55, l: 0.38, x: 1.62, y: 0.16, z: 0, color: 0x687278 },
-      { shape: 'box', w: 3.86, h: 0.30, l: 0.52, x: 0, y: 4.42, z: 0, color: 0x788389 },
-      { shape: 'box', w: 3.42, h: 0.12, l: 0.70, x: 0, y: 4.72, z: 0, color: 0xd2a93d },
-      // Four dark insulating saddles in the same 0.5 m flat spacing as the
-      // four-way wall feedthrough.
-      { shape: 'box', w: 0.32, h: 0.34, l: 0.66, x: -1.50, y: 4.55, z: 0, color: 0x252a2e },
-      { shape: 'box', w: 0.32, h: 0.34, l: 0.66, x: -0.50, y: 4.55, z: 0, color: 0x252a2e },
-      { shape: 'box', w: 0.32, h: 0.34, l: 0.66, x: 0.50, y: 4.55, z: 0, color: 0x252a2e },
-      { shape: 'box', w: 0.32, h: 0.34, l: 0.66, x: 1.50, y: 4.55, z: 0, color: 0x252a2e },
+      { name: 'crossbar', shape: 'box', w: 3.86, h: 0.30, l: 0.52, x: 0, y: 4.42, z: 0, color: 0x788389 },
+      { name: 'crossbar-cap', shape: 'box', w: 3.42, h: 0.12, l: 0.70, x: 0, y: 4.72, z: 0, color: 0xd2a93d },
+      // Four hanging insulators retain the wall feedthrough's 0.5 m spacing.
+      // The cable attachment is at the bottom tip, not on a side of the bar.
+      ...[-1.50, -0.50, 0.50, 1.50].flatMap((x, index) => [
+        { name: `insulator-${index + 1}-stem`, shape: 'cylinder', w: 0.14, h: 0.44, l: 0.14, x, y: 4.00, z: 0, color: 0x252a2e },
+        { name: `insulator-${index + 1}-skirt-a`, shape: 'cylinder', w: 0.30, h: 0.08, l: 0.30, x, y: 4.08, z: 0, color: 0x343b40 },
+        { name: `insulator-${index + 1}-skirt-b`, shape: 'cylinder', w: 0.26, h: 0.08, l: 0.26, x, y: 4.28, z: 0, color: 0x343b40 },
+      ]),
+    ],
+    requiredConnections: [],
+  },
+  indoorHvCableCornerRack: {
+    id: 'indoorHvCableCornerRack',
+    name: '4-Way Indoor HV Corner Rack (45°)',
+    desc: 'A square-footprint version of the indoor HV rack with its crossbar and four isolated hanging insulators set at 45 degrees. Use it as a tension point when suspended feeders need to turn a corner.',
+    category: 'power', subsection: 'routingHardware',
+    paletteOrder: 3.625,
+    cost: { funding: 42000 },
+    stats: {}, energyCost: 0,
+    subL: 4, subW: 4, subH: 5, gridW: 4, gridH: 4,
+    geometryType: 'box', baseMaterial: 'metal_dark',
+    spriteKey: 'switchgear', spriteColor: 0x5f686d, accentColor: 0xd2a93d,
+    hasSurface: false, placement: 'module', ports: {},
+    hvCableSupport: 'indoorRack',
+    electricalGroups: { hvCable: [] },
+    parts: [
+      { name: 'foot-a', shape: 'box', w: 0.46, h: 0.18, l: 1.72, x: -1.30, y: 0, z: -1.30, rotation: [0, -Math.PI / 4, 0], color: 0x4c555a },
+      { name: 'foot-b', shape: 'box', w: 0.46, h: 0.18, l: 1.72, x: 1.30, y: 0, z: 1.30, rotation: [0, -Math.PI / 4, 0], color: 0x4c555a },
+      { name: 'upright-a', shape: 'box', w: 0.28, h: 4.55, l: 0.38, x: -1.30, y: 0.16, z: -1.30, rotation: [0, -Math.PI / 4, 0], color: 0x687278 },
+      { name: 'upright-b', shape: 'box', w: 0.28, h: 4.55, l: 0.38, x: 1.30, y: 0.16, z: 1.30, rotation: [0, -Math.PI / 4, 0], color: 0x687278 },
+      { name: 'crossbar', shape: 'box', w: 5.00, h: 0.30, l: 0.52, x: 0, y: 4.42, z: 0, rotation: [0, -Math.PI / 4, 0], color: 0x788389 },
+      { name: 'crossbar-cap', shape: 'box', w: 4.62, h: 0.12, l: 0.70, x: 0, y: 4.72, z: 0, rotation: [0, -Math.PI / 4, 0], color: 0xd2a93d },
+      ...[-1.50, -0.50, 0.50, 1.50].flatMap((offset, index) => {
+        const diagonal = offset / Math.SQRT2;
+        return [
+          { name: `insulator-${index + 1}-stem`, shape: 'cylinder', w: 0.14, h: 0.44, l: 0.14, x: diagonal, y: 4.00, z: diagonal, color: 0x252a2e },
+          { name: `insulator-${index + 1}-skirt-a`, shape: 'cylinder', w: 0.30, h: 0.08, l: 0.30, x: diagonal, y: 4.08, z: diagonal, color: 0x343b40 },
+          { name: `insulator-${index + 1}-skirt-b`, shape: 'cylinder', w: 0.26, h: 0.08, l: 0.26, x: diagonal, y: 4.28, z: diagonal, color: 0x343b40 },
+        ];
+      }),
     ],
     requiredConnections: [],
   },
