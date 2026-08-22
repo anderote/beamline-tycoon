@@ -66,15 +66,18 @@ function roofTerminalAnchorBank(type, prefix) {
 
 const TOP_NORMAL = Object.freeze({ x: 0, y: 1, z: 0 });
 
-// Low distribution taps share this reachable service datum. Cabinet inputs
-// themselves remain on the roof caps defined by their model-specific layouts.
-export const HV_DISTRIBUTION_TAP_Y = 1.55;
+// The compact pad transformer keeps a reachable service-height roof bushing.
+// Distribution cabinets themselves remain on their model-specific roof caps.
+const COMPACT_HV_INPUT_Y = 1.55;
+
+// All six straight-rack cable attachments share the crossbar terminal height.
+export const INDOOR_HV_RACK_TERMINAL_Y = 2.00;
 
 export const POWER_HV_INPUT_MOUNTS = Object.freeze({
   ...Object.fromEntries(Object.entries(DISTRIBUTION_TOP_TERMINAL_LAYOUTS)
     .map(([type, layout]) => [type, Object.freeze(roofTerminalAnchor(layout.input))])),
   padMountTransformer: Object.freeze({
-    y: HV_DISTRIBUTION_TAP_Y, localX: 0, localZ: -0.20, normal: TOP_NORMAL,
+    y: COMPACT_HV_INPUT_Y, localX: 0, localZ: -0.20, normal: TOP_NORMAL,
   }),
   hvTransformer: Object.freeze({
     y: 1.85, localX: 0, localZ: -0.35, normal: TOP_NORMAL,
@@ -89,11 +92,11 @@ export const POWER_HV_INPUT_MOUNTS = Object.freeze({
 
 export const INDOOR_HV_RACK_TAP_MOUNTS = Object.freeze({
   hv_tap_left: Object.freeze({
-    y: HV_DISTRIBUTION_TAP_Y, localX: -0.98, localZ: 0,
+    y: INDOOR_HV_RACK_TERMINAL_Y, localX: -0.98, localZ: 0,
     normal: Object.freeze({ x: -1, y: 0, z: 0 }),
   }),
   hv_tap_right: Object.freeze({
-    y: HV_DISTRIBUTION_TAP_Y, localX: 0.98, localZ: 0,
+    y: INDOOR_HV_RACK_TERMINAL_Y, localX: 0.98, localZ: 0,
     normal: Object.freeze({ x: 1, y: 0, z: 0 }),
   }),
 });
@@ -375,7 +378,7 @@ export const PORT_ANCHOR_OVERRIDES = {
     _default: { y: 1.45, lat: 0.22, out: 0.07 },
   },
   indoorHvCableRack: {
-    _default: { y: 2.00, lat: 0, out: -0.06 },
+    _default: { y: INDOOR_HV_RACK_TERMINAL_Y, lat: 0, out: -0.06 },
     hv_1: { along: -0.60 }, hv_2: { along: -0.20 },
     hv_3: { along: 0.20 }, hv_4: { along: 0.60 },
     ...INDOOR_HV_RACK_TAP_MOUNTS,

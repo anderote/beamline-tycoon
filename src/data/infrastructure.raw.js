@@ -1999,7 +1999,7 @@ export const INFRASTRUCTURE_RAW = {
   indoorHvCableRack: {
     id: 'indoorHvCableRack',
     name: '4-Way Indoor HV Cable Rack',
-    desc: 'Freestanding six-point HV distribution rack. Four overhead terminals carry suspended feeders clear of the uprights, while insulated taps on both legs accept cabinet-height feeders. Every terminal shares one live HV bus.',
+    desc: 'Freestanding six-point HV distribution rack. Four hanging terminals and two insulated side taps share the crossbar height, tension attached feeders, and form one live HV bus.',
     category: 'power', subsection: 'routingHardware',
     paletteOrder: 3.5,
     cost: { funding: 36000 },
@@ -2012,7 +2012,7 @@ export const INFRASTRUCTURE_RAW = {
     spriteKey: 'switchgear', spriteColor: 0x5f686d, accentColor: 0xd2a93d,
     hasSurface: false, placement: 'module', ports: {},
     hvCableSupport: 'indoorRack',
-    // The four overhead terminals and both cabinet-height leg taps are one
+    // The four overhead terminals and both crossbar-height leg taps are one
     // shared passive bus. Sources remain the sole capacity authority.
     electricalGroups: {
       hvCable: [[
@@ -2036,11 +2036,12 @@ export const INFRASTRUCTURE_RAW = {
         { name: `insulator-${index + 1}-skirt-a`, shape: 'cylinder', w: 0.30, h: 0.08, l: 0.30, x, y: 4.08, z: 0, color: 0x343b40 },
         { name: `insulator-${index + 1}-skirt-b`, shape: 'cylinder', w: 0.26, h: 0.08, l: 0.26, x, y: 4.28, z: 0, color: 0x343b40 },
       ]),
-      // Cabinet-height tap bushings project from the outside face of each leg.
+      // Side tap bushings project from the outside face of each leg at the
+      // same attachment height as the four hanging crossbar terminals.
       ...[-1, 1].flatMap((side) => [
-        { name: `hv-tap-${side < 0 ? 'left' : 'right'}-stem`, shape: 'cylinder', axis: 'x', w: 0.34, h: 0.14, l: 0.14, x: side * 1.79, y: 3.03, z: 0, color: 0x343b40 },
-        { name: `hv-tap-${side < 0 ? 'left' : 'right'}-skirt`, shape: 'cylinder', axis: 'x', w: 0.08, h: 0.28, l: 0.28, x: side * 1.89, y: 2.96, z: 0, color: 0x343b40 },
-        { name: `hv-tap-${side < 0 ? 'left' : 'right'}-cap`, shape: 'cylinder', axis: 'x', w: 0.08, h: 0.18, l: 0.18, x: side * 1.92, y: 3.01, z: 0, color: 0xd2a93d },
+        { name: `hv-tap-${side < 0 ? 'left' : 'right'}-stem`, shape: 'cylinder', axis: 'x', w: 0.34, h: 0.14, l: 0.14, x: side * 1.79, y: 3.93, z: 0, color: 0x343b40 },
+        { name: `hv-tap-${side < 0 ? 'left' : 'right'}-skirt`, shape: 'cylinder', axis: 'x', w: 0.08, h: 0.28, l: 0.28, x: side * 1.89, y: 3.86, z: 0, color: 0x343b40 },
+        { name: `hv-tap-${side < 0 ? 'left' : 'right'}-cap`, shape: 'cylinder', axis: 'x', w: 0.08, h: 0.18, l: 0.18, x: side * 1.92, y: 3.91, z: 0, color: 0xd2a93d },
       ]),
     ],
     requiredConnections: [],
