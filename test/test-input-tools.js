@@ -1094,6 +1094,9 @@ function structCtx(g, opts = {}) {
     clearDragPreview() {}, updateHover() {},
     renderDragPreview() { seen.preview.push('place-rect'); },
     renderLinePreview(_path, _type, erase) { seen.preview.push(erase ? 'erase-line' : 'place-line'); },
+    renderRoofPreview(_region, _def, _profile, erase) {
+      seen.preview.push(erase ? 'erase-roof' : 'place-roof');
+    },
     renderInfraHoverCursor() { seen.preview.push('place-hover'); },
     renderWallPreview() { seen.preview.push('place-wall'); },
     renderWallEdgeHighlight() { seen.preview.push('place-edge'); },
@@ -1199,6 +1202,31 @@ function countInfra(g, c0, r0, c1, r1) {
   tool.onClick({ clientX: p.x, clientY: p.y }, ctx);
   assertOk(!g.state.infraOccupied['3,3'],
     'Ctrl+click erases it again, reading the modifier from InputHandler._ctrlDown');
+}
+
+{
+  // Auto Roof is also a click-placement floor tool. Ctrl+click removes the
+  // roof over the whole enclosed region and previews that exact roof in red.
+  const g = makeGame(921);
+  const col = 12, row = 12;
+  g.placeInfraTile(col, row, 'concrete');
+  for (const edge of ['n', 'e', 's', 'w']) {
+    g.placeWall(col, row, edge, 'structuralWall');
+  }
+  assertOk(g.placeRoofRegion(col, row), 'setup: enclosed room has an auto roof');
+
+  const ctx = structCtx(g, { ctrl: true });
+  const tool = new FloorTool('roof');
+  const p = tileCenterIso(col, row);
+  tool.onMouseMove({ clientX: p.x, clientY: p.y, ctrlKey: true }, ctx);
+  assertOk(ctx.seen.preview.at(-1) === 'erase-roof'
+    && ctx.seen.tooltip?.kind === 'refund' && ctx.seen.tooltip.refund === 18,
+  'Ctrl-hover previews the enclosed roof in red with its refund');
+
+  tool.onClick({ clientX: p.x, clientY: p.y }, ctx);
+  assertOk(g.state.roofs.length === 0, 'Ctrl+click removes the auto roof region');
+  g.undo();
+  assertOk(g.state.roofs.length === 1, 'auto-roof removal is one undo step');
 }
 
 {
