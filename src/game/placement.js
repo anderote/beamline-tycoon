@@ -4,7 +4,7 @@
 // inside placePlaceable / removePlaceable, which take game as an argument.
 
 import { isoToGridFloat } from '../renderer/grid.js';
-import { edgeKey, findWallKey, mirrorEdge } from './edge-keys.js';
+import { edgeKey, findEdgeKey, findWallKey, mirrorEdge } from './edge-keys.js';
 import { WALL_TYPES } from '../data/structure.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { levelOf, normalizeLevel, subtileKey, tileKey, withLevel } from './storeys.js';
@@ -117,6 +117,22 @@ export function physicalWallKey(site) {
   return direct < alias ? direct : alias;
 }
 
+/** Hangings share wall space with fixtures; only structural openings block them. */
+export function isNonBlockingWallHanging(placeable) {
+  return placeable?.mount === 'wall' && placeable?.category === 'hangings';
+}
+
+/** True when either face of one physical wall edge carries a hanging. */
+export function wallEdgeHasHanging(game, col, row, edge, level = 0, ignoreId = null) {
+  const wanted = physicalWallKey({ col, row, edge, level });
+  if (!wanted) return false;
+  return (game?.state?.placeables || []).some((entry) => {
+    if (entry.id === ignoreId || !entry.wallMount) return false;
+    return isNonBlockingWallHanging(PLACEABLES[entry.type])
+      && physicalWallKey(entry.wallMount) === wanted;
+  });
+}
+
 /** Validate the actual wall and face-slot a wall-mounted fixture needs. */
 export function canPlaceWallFixture(game, placeable, site, ignoreId = null) {
   const requestedMount = normalizeWallMount(site);
@@ -132,11 +148,18 @@ export function canPlaceWallFixture(game, placeable, site, ignoreId = null) {
   );
   const wallType = wallKey ? game.state.wallOccupied[wallKey] : null;
   const hasWall = !!wallKey;
+  const openingOccupied = isNonBlockingWallHanging(placeable) && !!(
+    findEdgeKey(game?.state?.doorOccupied, mount.col, mount.row, mount.edge, levelOf(mount))
+    || findEdgeKey(game?.state?.windowOccupied, mount.col, mount.row, mount.edge, levelOf(mount))
+  );
   const keys = new Set(wallFixtureMountKeys(mount));
   const physicalSlots = new Set(physicalWallFixtureSlotKeys(mount));
-  const occupied = (game?.state?.placeables || []).some((entry) => {
+  const fixtureOccupied = (game?.state?.placeables || []).some((entry) => {
     if (entry.id === ignoreId || !entry.wallMount) return false;
     const otherDef = PLACEABLES[entry.type];
+    // A wall hanging neither claims a fixture slot nor prevents another
+    // fixture from using it later. Door/window openings are checked above.
+    if (isNonBlockingWallHanging(placeable) || isNonBlockingWallHanging(otherDef)) return false;
     const otherMount = {
       ...entry.wallMount,
       span: otherDef?.wallSpan ?? entry.wallMount.span ?? 1,
@@ -147,10 +170,12 @@ export function canPlaceWallFixture(game, placeable, site, ignoreId = null) {
     return (placeable.wallPassThrough === true || otherDef?.wallPassThrough === true)
       && physicalWallFixtureSlotKeys(otherMount).some(key => physicalSlots.has(key));
   });
+  const occupied = openingOccupied || fixtureOccupied;
   return {
     ok: hasWall && !occupied,
     hasWall,
     occupied,
+    openingOccupied,
     wallMount: hasWall
       ? { ...mount, faceOffset: wallFixtureFaceOffset(WALL_TYPES[wallType]) }
       : mount,

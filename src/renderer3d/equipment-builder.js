@@ -4,6 +4,8 @@
 // face) so a face can independently use a tiled MATERIAL or a DECAL.
 // THREE is a CDN global — do NOT import it.
 
+import { MeshBasicNodeMaterial } from 'three/webgpu';
+import { reflector } from 'three/tsl';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { MATERIALS } from './materials/index.js';
 import { DECALS } from './materials/decals.js';
@@ -30,6 +32,23 @@ const _equipMatCache = new Map();
 // `baseName|colorHex` so every leg/top/shelf sharing the same spec reuses
 // a single MeshStandardMaterial.
 const _partMatCache = new Map();
+
+function createReflectiveMirrorMaterial() {
+  // A true planar reflection is renderer-managed by ReflectorNode on both the
+  // native WebGPU and node-renderer WebGL2 paths. Keep the target deliberately
+  // low-resolution: bathroom mirrors are a visual accent, not another full
+  // resolution world render for every fixture.
+  const reflectionNode = reflector({
+    resolutionScale: 0.25,
+    bounces: false,
+    samples: 0,
+  });
+  const material = new MeshBasicNodeMaterial();
+  material.colorNode = reflectionNode;
+  material.toneMapped = true;
+  material.userData.reflectiveMirror = true;
+  return { material, reflectionNode };
+}
 
 function _partMaterial(baseName, colorHex) {
   const key = `${baseName || '-'}|${colorHex ?? 'x'}`;
@@ -417,7 +436,11 @@ export class EquipmentBuilder {
           const pw = (part.w || 1) * SUB_UNIT;
           const ph = (part.h || 1) * SUB_UNIT;
           const pl = (part.l || 1) * SUB_UNIT;
-          const geo = createEquipmentPartGeometry(part, pw, ph, pl);
+          const reflectiveMirror = part.surface === 'mirror'
+            && item.presentation !== 'ghost';
+          const geo = reflectiveMirror
+            ? new THREE.PlaneGeometry(pw, ph)
+            : createEquipmentPartGeometry(part, pw, ph, pl);
           const ov = partOverrides?.[part.name];
           const partMatName = (ov && 'material' in ov) ? ov.material : part.material;
           const partColorHex = (ov && 'color' in ov) ? ov.color : part.color;
@@ -436,6 +459,33 @@ export class EquipmentBuilder {
             partEuler.set(part.rotation[0], part.rotation[1], part.rotation[2]);
           } else {
             partEuler.set(0, 0, 0);
+          }
+
+          if (reflectiveMirror) {
+            // Bathroom furnishings face local -Z. Rotate both the visible
+            // plane and ReflectorNode's hidden target so its clipping plane
+            // and virtual camera use that same room-facing normal.
+            geo.rotateY(Math.PI);
+            const { material, reflectionNode } = createReflectiveMirrorMaterial();
+            const mesh = new THREE.Mesh(geo, material);
+            mesh.position.copy(partPos);
+            mesh.position.z -= pl / 2 + 0.002;
+            mesh.rotation.copy(partEuler);
+            reflectionNode.target.rotation.y = Math.PI;
+            reflectionNode.target.matrixAutoUpdate = false;
+            reflectionNode.target.updateMatrix();
+            mesh.add(reflectionNode.target);
+            mesh.castShadow = false;
+            mesh.receiveShadow = false;
+            mesh.userData.partName = part.name || null;
+            mesh.userData.parts = [{ name: part.name || null, shape: 'plane' }];
+            mesh.userData.isReflectiveMirrorSurface = true;
+            mesh.userData.reflectorBaseNode = reflectionNode.reflector;
+            mesh.userData.ownsMaterial = true;
+            mesh.matrixAutoUpdate = false;
+            mesh.updateMatrix();
+            group.add(mesh);
+            continue;
           }
 
           if (glowSpec) {
@@ -638,6 +688,8 @@ export class EquipmentBuilder {
     parentGroup.remove(obj);
     obj.traverse((child) => {
       if (child.isMesh && child.geometry) child.geometry.dispose();
+      child.userData?.reflectorBaseNode?.dispose?.();
+      if (child.userData?.ownsMaterial) child.material?.dispose?.();
     });
   }
 

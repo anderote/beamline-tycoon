@@ -107,9 +107,21 @@ console.log('\n=== wide hangings reserve their real wall span ===\n');
     'a two-slot painting stores its resolved span');
   assertOk(wallFixtureMountKeys(painting.wallMount).length === 2,
     'the painting owns both consecutive face slots');
-  assertOk(!canPlaceWallFixture(game, PLACEABLES.wallSconce,
+  assertOk(canPlaceWallFixture(game, PLACEABLES.wallSconce,
     { col: 4, row: 4, edge: 'n', off: 1 }).ok,
-  'a one-slot fixture cannot overlap the second half of the painting');
+  'a one-slot fixture can overlap the second half of a non-blocking hanging');
+  const sconceId = game.placePlaceable({
+    type: 'wallSconce', col: 4, row: 4, subCol: 0, subRow: 0,
+    wallMount: { col: 4, row: 4, edge: 'n', off: 1 },
+  });
+  assertOk(!!sconceId,
+    'placing a wall fixture after a hanging ignores the hanging slots');
+  const photographId = game.placePlaceable({
+    type: 'beamlinePhotograph', col: 4, row: 4, subCol: 0, subRow: 0,
+    wallMount: { col: 4, row: 4, edge: 'n', off: 0 },
+  });
+  assertOk(!!photographId,
+    'placing another hanging over an existing fixture is also allowed');
   assertOk(canPlaceWallFixture(game, PLACEABLES.wallSconce,
     { col: 4, row: 4, edge: 'n', off: 2 }).ok,
   'the first free slot beside the painting remains usable');
@@ -138,6 +150,36 @@ console.log('\n=== wide hangings reserve their real wall span ===\n');
     'committed hanging geometry uses the span-centered wall pose');
   assertOk(approx(rendered.position.y, PLACEABLES.abstractPainting.mountY),
     'committed hanging geometry uses its authored mounting height');
+}
+
+console.log('\n=== wall openings are the only hanging conflict ===\n');
+
+{
+  const game = makeGame(903);
+  assertOk(game.placeWall(10, 10, 'n', 'officeWall'), 'door conflict setup wall is built');
+  assertOk(game.placeDoor(10, 10, 'n', 'officeDoor'), 'setup door is placed');
+  const doorResult = canPlaceWallFixture(game, PLACEABLES.abstractPainting,
+    { col: 10, row: 10, edge: 'n', off: 0 });
+  assertOk(!doorResult.ok && doorResult.openingOccupied,
+    'a hanging cannot cover a door opening');
+
+  assertOk(game.placeWall(11, 10, 'n', 'officeWall'), 'window conflict setup wall is built');
+  assertOk(game.placeWindow(11, 10, 'n', 'officeWindow'), 'setup window is placed');
+  const windowResult = canPlaceWallFixture(game, PLACEABLES.landscapePainting,
+    { col: 11, row: 10, edge: 'n', off: 0 });
+  assertOk(!windowResult.ok && windowResult.openingOccupied,
+    'a hanging cannot cover a window opening');
+
+  assertOk(game.placeWall(12, 10, 'n', 'officeWall'), 'reverse conflict setup wall is built');
+  const hangingId = game.placePlaceable({
+    type: 'abstractPainting', col: 12, row: 10, subCol: 0, subRow: 0,
+    wallMount: { col: 12, row: 10, edge: 'n', off: 0 },
+  });
+  assertOk(!!hangingId, 'setup hanging is placed');
+  assertOk(!game.placeDoor(12, 10, 'n', 'officeDoor'),
+    'a door cannot be cut through an existing hanging');
+  assertOk(!game.placeWindow(12, 10, 'n', 'officeWindow'),
+    'a window cannot be cut through an existing hanging');
 }
 
 console.log('\n=== wall hangings do not mutate painted wall faces ===\n');

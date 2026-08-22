@@ -3622,6 +3622,7 @@ export class ThreeRenderer {
         type: hover.id,
         variant: hover.variant ?? 0,
         effectState: 'on',
+        presentation: 'ghost',
       }, placeable.kind === 'furnishing');
     }
     if (!obj) {
