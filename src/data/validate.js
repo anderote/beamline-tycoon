@@ -329,9 +329,7 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
       problem(id, 'wallPassThrough', "wall pass-throughs must declare mount: 'wall'");
     }
     const ports = Object.values(utilityPorts[id] || {})
-      .filter(port => port?.utility === 'powerCable'
-        || port?.utility === 'hvCable'
-        || port?.utility === 'waterSupplyPipe');
+      .filter(port => UTILITIES.has(port?.utility));
     const utilities = new Set(ports.map(port => port.utility));
     const sides = new Set(ports.map(port => port.side));
     const frontCount = ports.filter(port => port.side === 'front').length;
@@ -346,6 +344,24 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
           || new Set(ports.map(port => port.connectionKind)).size !== 1)) {
       problem(id, 'utilityFlowPresentation',
         'symmetric wall pass-throughs require one shared HV connection kind on both faces');
+    }
+    const automatic = def.automaticWallPassThrough;
+    if (automatic != null) {
+      if (typeof automatic !== 'object' || automatic.utilityType !== [...utilities][0]) {
+        problem(id, 'automaticWallPassThrough',
+          'automatic fitting utilityType must match its one authored port utility');
+      }
+      if (!Number.isFinite(automatic?.heightMeters) || automatic.heightMeters <= 0
+          || !Number.isFinite(automatic?.radiusMeters) || automatic.radiusMeters <= 0) {
+        problem(id, 'automaticWallPassThrough',
+          'automatic fittings require positive heightMeters and radiusMeters');
+      }
+      if (!Array.isArray(automatic?.portPairs) || automatic.portPairs.length < 1
+          || automatic.portPairs.some(pair => !Array.isArray(pair) || pair.length !== 2
+            || pair.some(name => !utilityPorts[id]?.[name]))) {
+        problem(id, 'automaticWallPassThrough',
+          'automatic fittings require real two-port front/back pairs');
+      }
     }
   }
 

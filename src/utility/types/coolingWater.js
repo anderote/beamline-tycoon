@@ -136,9 +136,9 @@ export default {
   // Use the shared forgiving pickup halo also used by data cable. Cooling
   // branches are still explicit named tees; this changes only cursor assist.
   fansOut: true,
-  // Flexible water lines are equipment hoses. They may run around a wall but
-  // never through the slab; building crossings belong to the new fabricated
-  // water-supply pipe and its rated wall penetrations.
+  // Flexible water lines are equipment hoses. They never pass directly through
+  // a slab; the input coordinator installs a circuit-colored wall sleeve and
+  // terminates the hose on each face.
   requiresWallPassThrough: true,
   // Adjacency bridging: touching components share the loop — a skid manifolds
   // straight into the unit bolted next to it.

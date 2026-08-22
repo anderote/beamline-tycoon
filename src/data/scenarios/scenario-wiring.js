@@ -20,9 +20,12 @@ import {
   buildPortRoutedPaths,
   findObstacleAwareRoute,
 } from '../../utility/line-geometry.js';
-import { validateDrawLine } from '../../utility/line-drawing.js';
 import { buildUtilityRouteObstacles } from '../../utility/route-obstacles.js';
 import { usesFlexibleSubtileRouting } from '../../utility/routing-contract.js';
+import {
+  executeAutomaticWallPassThroughPlan,
+  planAutomaticWallPassThroughs,
+} from '../../utility/automatic-wall-feedthroughs.js';
 
 function portAnchor(state, utilityType, ref, defaultRole) {
   // Endpoints, not state.placeables: components carried on beam pipes declare
@@ -76,11 +79,23 @@ export function wireUtility(game, utilityType, from, to, opts = {}) {
     allowZeroLength: true,
   };
   const candidates = buildPortRoutedPaths(routeStart, a.vec, routeEnd, b.vec, routeOpts);
-  let path = candidates.find(candidate => validateDrawLine(state, {
-    utilityType, start, end, path: candidate,
+  const planForPath = path => planAutomaticWallPassThroughs(game, {
+    utilityType,
+    start,
+    end,
+    path,
     waterCircuit: opts.waterCircuit,
-  }).ok) || null;
-  if (!path && usesFlexibleSubtileRouting(descriptor)) {
+  });
+  let path = null;
+  let plan = null;
+  for (const candidate of candidates) {
+    const candidatePlan = planForPath(candidate);
+    if (!candidatePlan.ok) continue;
+    path = candidate;
+    plan = candidatePlan;
+    break;
+  }
+  if (!plan && usesFlexibleSubtileRouting(descriptor)) {
     const obstacles = buildUtilityRouteObstacles(state, utilityType, {
       startRef: start,
       endRef: end,
@@ -92,10 +107,13 @@ export function wireUtility(game, utilityType, from, to, opts = {}) {
       searchMarginTiles: descriptor.searchMarginTiles,
       maxExpanded: descriptor.maxRouteExpanded,
     });
-    if (detour && validateDrawLine(state, {
-      utilityType, start, end, path: detour,
-      waterCircuit: opts.waterCircuit,
-    }).ok) path = detour;
+    if (detour) {
+      const detourPlan = planForPath(detour);
+      if (detourPlan.ok) {
+        path = detour;
+        plan = detourPlan;
+      }
+    }
   }
   // Unknown/legacy utilities retain the deterministic ranked candidates above;
   // descriptors outside the shared routing profile skip the obstacle search.
@@ -103,15 +121,11 @@ export function wireUtility(game, utilityType, from, to, opts = {}) {
     console.warn('[scenario-wiring] no routed path', utilityType, from, to);
     return null;
   }
-  const id = game.utilityLineSystem.addLine({
-    utilityType,
-    start,
-    end,
-    path,
-    waterCircuit: opts.waterCircuit,
-  });
+  const result = plan.ok ? executeAutomaticWallPassThroughPlan(game, plan) : null;
+  const id = result?.lineIds?.[0] || null;
   if (!id) {
-    console.warn('[scenario-wiring] addLine rejected', utilityType, from, to, path);
+    console.warn('[scenario-wiring] addLine rejected', utilityType, from, to,
+      plan.reason || 'commit failed', path);
   }
   return id;
 }

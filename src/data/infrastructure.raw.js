@@ -75,6 +75,71 @@
 // no consistent rule produces — they were the outliers, and they are the bulk
 // of the reduction.
 // ══════════════════════════════════════════════════════════════════════════
+// Compact wall sleeves used by automatic utility routing. Parts are authored
+// in half-metre sub-units, while `heightMeters` and `radiusMeters` deliberately
+// use the same real-world units as the utility renderer. Keeping the bore,
+// collars and port anchor on one datum makes a crossing a straight continuation
+// of the run instead of a decorative cabinet with a hidden vertical dogleg.
+function automaticWallSleeveParts({
+  heightMeters, radiusMeters, color, rectangular = false,
+}) {
+  const diameterSub = radiusMeters * 4;
+  const centreSub = heightMeters * 2;
+  const plateW = Math.min(0.82, Math.max(0.34, diameterSub + 0.22));
+  const plateH = Math.min(0.82, Math.max(0.34, diameterSub + 0.22));
+  const plateY = centreSub - plateH / 2;
+  const boreY = centreSub - diameterSub / 2;
+  const bore = rectangular
+    ? { shape: 'box', w: Math.max(0.38, diameterSub * 1.8), h: Math.max(0.24, diameterSub), l: 2.50,
+        x: 0, y: centreSub - Math.max(0.24, diameterSub) / 2, z: 0, color }
+    : { shape: 'cylinder', axis: 'z', w: diameterSub, h: diameterSub, l: 2.50,
+        x: 0, y: boreY, z: 0, color };
+  return [
+    { shape: 'box', w: plateW, h: plateH, l: 0.12, x: 0, y: plateY, z: -1.16, color: 0x52616a },
+    { shape: 'box', w: plateW, h: plateH, l: 0.12, x: 0, y: plateY, z: 1.16, color: 0x52616a },
+    bore,
+    { shape: rectangular ? 'box' : 'cylinder', axis: 'z',
+      w: rectangular ? Math.max(0.46, diameterSub * 2.05) : diameterSub + 0.12,
+      h: rectangular ? Math.max(0.30, diameterSub * 1.20) : diameterSub + 0.12,
+      l: 0.16, x: 0,
+      y: rectangular
+        ? centreSub - Math.max(0.30, diameterSub * 1.20) / 2
+        : centreSub - (diameterSub + 0.12) / 2,
+      z: -1.24, color },
+    { shape: rectangular ? 'box' : 'cylinder', axis: 'z',
+      w: rectangular ? Math.max(0.46, diameterSub * 2.05) : diameterSub + 0.12,
+      h: rectangular ? Math.max(0.30, diameterSub * 1.20) : diameterSub + 0.12,
+      l: 0.16, x: 0,
+      y: rectangular
+        ? centreSub - Math.max(0.30, diameterSub * 1.20) / 2
+        : centreSub - (diameterSub + 0.12) / 2,
+      z: 1.24, color },
+  ];
+}
+
+function automaticWallPassThrough({
+  id, name, desc, category, utilityType, ports, cost, heightMeters,
+  radiusMeters, color, rectangular = false, connectionGroups = 'utilityGroups',
+}) {
+  return {
+    id, name, desc,
+    category, subsection: category === 'power' ? 'routingHardware' : 'transport',
+    paletteHidden: true,
+    cost: { funding: cost }, stats: {}, energyCost: 0,
+    mount: 'wall', wallPassThrough: true, wallSpan: 1,
+    automaticWallPassThrough: {
+      utilityType, portPairs: [ports], heightMeters, radiusMeters,
+    },
+    subL: 1, subW: 1, subH: Math.max(1, Math.ceil(heightMeters * 2 + radiusMeters * 4)),
+    gridW: 1, gridH: 1, geometryType: 'box',
+    baseMaterial: 'metal_brushed', spriteKey: 'powerPanel', spriteColor: color,
+    accentColor: color, hasSurface: false, placement: 'module', ports: {},
+    [connectionGroups]: { [utilityType]: [ports] },
+    parts: automaticWallSleeveParts({ heightMeters, radiusMeters, color, rectangular }),
+    requiredConnections: [],
+  };
+}
+
 export const INFRASTRUCTURE_RAW = {
   universalUtilityBus: {
     id: 'universalUtilityBus',
@@ -1274,10 +1339,42 @@ export const INFRASTRUCTURE_RAW = {
       { shape: 'cylinder', axis: 'z', w: 0.16, h: 0.16, l: 1.72, x: 0.24, y: 0.66, z: 0, color: 0x87b9cf },
     ],
   },
+  coldWaterLineWallPassThrough: automaticWallPassThrough({
+    id: 'coldWaterLineWallPassThrough', name: 'Automatic Cold-Water Line Sleeve',
+    desc: 'Compact blue hose sleeve automatically installed when a cold flexible water line crosses a wall.',
+    category: 'cooling', utilityType: 'coolingWater',
+    ports: ['water_front', 'water_back'], cost: 3500,
+    heightMeters: 0.05, radiusMeters: 0.04, color: 0x287fc4,
+  }),
+  hotWaterLineWallPassThrough: automaticWallPassThrough({
+    id: 'hotWaterLineWallPassThrough', name: 'Automatic Hot-Water Line Sleeve',
+    desc: 'Compact red hose sleeve automatically installed when a hot flexible water line crosses a wall.',
+    category: 'cooling', utilityType: 'coolingWater',
+    ports: ['water_front', 'water_back'], cost: 3500,
+    heightMeters: 0.05, radiusMeters: 0.04, color: 0xc45b42,
+  }),
+  coldWaterSupplyWallPassThrough: automaticWallPassThrough({
+    id: 'coldWaterSupplyWallPassThrough', name: 'Automatic Cold-Water Supply Sleeve',
+    desc: 'Blue rigid-water sleeve automatically installed on the cold 0.60 m supply-pipe datum.',
+    category: 'cooling', utilityType: 'waterSupplyPipe',
+    ports: ['supply_front', 'supply_back'], cost: 9000,
+    heightMeters: 0.60, radiusMeters: 0.065, color: 0x287fc4,
+  }),
+  hotWaterSupplyWallPassThrough: automaticWallPassThrough({
+    id: 'hotWaterSupplyWallPassThrough', name: 'Automatic Hot-Water Return Sleeve',
+    desc: 'Red rigid-water sleeve automatically installed on the hot 0.90 m return-pipe datum.',
+    category: 'cooling', utilityType: 'waterSupplyPipe',
+    ports: ['supply_front', 'supply_back'], cost: 9000,
+    heightMeters: 0.90, radiusMeters: 0.065, color: 0xc45b42,
+  }),
   waterSupplyWallPassThrough1x1: {
     id: 'waterSupplyWallPassThrough1x1', name: '1×1 Water Pipe Penetration',
     desc: 'One sealed rigid-water pipe sleeve through an existing wall. Terminate the supply pipe on both faces; the sleeve preserves the connected hot or cold circuit.',
     category: 'cooling', subsection: 'transport', paletteOrder: 3,
+    // Save/scenario compatibility for facilities that authored the old
+    // circuit-neutral sleeve. New crossings use the circuit-specific hidden
+    // automatic fittings above.
+    paletteHidden: true,
     cost: { funding: 9000 }, stats: {}, energyCost: 0,
     mount: 'wall', wallPassThrough: true, wallSpan: 1,
     subL: 1, subW: 1, subH: 2, gridW: 1, gridH: 1, geometryType: 'box',
@@ -1980,40 +2077,13 @@ export const INFRASTRUCTURE_RAW = {
 
     requiredConnections: ['hvCable', 'coolingWater', 'dataFiber'],
   },
-  powerWallPassThrough: {
-    id: 'powerWallPassThrough',
-    name: 'Power Cable Wall Feedthrough',
-    desc: 'Paired low-voltage cable terminals through an existing wall. Mount it from the supply side, connect the incoming cable to the visible terminal, then continue from the terminal on the opposite face. Press M while placing to swap input and output faces.',
-    category: 'power', subsection: 'routingHardware',
-    paletteOrder: 2,
-    // Retained only so facilities authored before the meter-main replacement
-    // can still load and demolish their old low-voltage wall fittings.
-    deprecated: true,
-    cost: { funding: 6000 },
-    stats: {},
-    energyCost: 0,
-    mount: 'wall',
-    wallPassThrough: true,
-    subL: 1, subW: 2, subH: 3, gridW: 2, gridH: 1,
-    geometryType: 'box',
-    baseMaterial: 'metal_dark',
-    spriteKey: 'powerPanel',
-    spriteColor: 0x3d6b45,
-    accentColor: 0x58b86a,
-    hasSurface: false,
-    placement: 'module',
-    ports: {},
-    parts: [
-      // Wall mounts use one of four 0.5 m slots along a 2 m wall edge.
-      // Keep the face hardware inside that slot so it does not crowd the
-      // adjacent structural-wall hardware.
-      { shape: 'box', w: 0.78, h: 1.10, l: 0.16, x: 0, y: 1.85, z: 0.58, color: 0x405448 },
-      { shape: 'box', w: 0.78, h: 1.10, l: 0.16, x: 0, y: 1.85, z: -0.58, color: 0x405448 },
-      { shape: 'box', w: 0.52, h: 0.72, l: 1.22, x: 0, y: 2.04, z: 0, color: 0x202722 },
-      { shape: 'box', w: 0.62, h: 0.15, l: 1.28, x: 0, y: 2.78, z: 0, color: 0x58b86a },
-    ],
-    requiredConnections: [],
-  },
+  powerWallPassThrough: automaticWallPassThrough({
+    id: 'powerWallPassThrough', name: 'Automatic Power Cable Feedthrough',
+    desc: 'Compact low-voltage cable gland automatically installed when a power cable crosses a wall.',
+    category: 'power', utilityType: 'powerCable', ports: ['pwr_in', 'pwr_out'],
+    cost: 6000, heightMeters: 0.03, radiusMeters: 0.02, color: 0x58b86a,
+    connectionGroups: 'electricalGroups',
+  }),
   meterMain: {
     id: 'meterMain',
     name: 'Meter-Main Service Entrance',
@@ -2049,33 +2119,14 @@ export const INFRASTRUCTURE_RAW = {
     requiredConnections: [],
   },
   hvWallPassThrough: {
-    id: 'hvWallPassThrough',
-    name: 'HV Cable Wall Feedthrough',
-    desc: 'Shielded high-voltage bushing with protected terminals on both faces of an existing wall. Either terminal accepts a feeder from any direction, so route each side however the facility layout requires.',
-    category: 'power', subsection: 'routingHardware',
-    paletteOrder: 3,
-    cost: { funding: 24000 },
-    stats: {},
-    energyCost: 0,
-    mount: 'wall',
-    wallPassThrough: true,
+    ...automaticWallPassThrough({
+      id: 'hvWallPassThrough', name: 'Automatic HV Cable Feedthrough',
+      desc: 'Compact shielded HV bushing automatically installed when an HV feeder crosses a wall.',
+      category: 'power', utilityType: 'hvCable', ports: ['hv_in', 'hv_out'],
+      cost: 24000, heightMeters: 0.06, radiusMeters: 0.05, color: 0xd2a93d,
+      connectionGroups: 'electricalGroups',
+    }),
     utilityFlowPresentation: 'symmetric',
-    subL: 1, subW: 2, subH: 4, gridW: 2, gridH: 1,
-    geometryType: 'box',
-    baseMaterial: 'metal_dark',
-    spriteKey: 'switchgear',
-    spriteColor: 0x67727d,
-    accentColor: 0xd2a93d,
-    hasSurface: false,
-    placement: 'module',
-    ports: {},
-    parts: [
-      { shape: 'box', w: 0.86, h: 1.45, l: 0.18, x: 0, y: 2.00, z: 0.60, color: 0x59636b },
-      { shape: 'box', w: 0.86, h: 1.45, l: 0.18, x: 0, y: 2.00, z: -0.60, color: 0x59636b },
-      { shape: 'box', w: 0.58, h: 0.82, l: 1.26, x: 0, y: 2.32, z: 0, color: 0x202328 },
-      { shape: 'box', w: 0.68, h: 0.18, l: 1.32, x: 0, y: 3.25, z: 0, color: 0xd2a93d },
-    ],
-    requiredConnections: [],
   },
   hvWallPassThrough4x4: {
     id: 'hvWallPassThrough4x4',
@@ -2110,6 +2161,34 @@ export const INFRASTRUCTURE_RAW = {
     ],
     requiredConnections: [],
   },
+  dataFiberWallPassThrough: automaticWallPassThrough({
+    id: 'dataFiberWallPassThrough', name: 'Automatic Data-Fibre Feedthrough',
+    desc: 'Compact sealed fibre conduit automatically installed when a data-fibre bundle crosses a wall.',
+    category: 'dataControls', utilityType: 'dataFiber',
+    ports: ['fiber_front', 'fiber_back'], cost: 2500,
+    heightMeters: 0.035, radiusMeters: 0.025, color: 0xeeeeee,
+  }),
+  cryoWallPassThrough: automaticWallPassThrough({
+    id: 'cryoWallPassThrough', name: 'Automatic Cryogenic Transfer Sleeve',
+    desc: 'Vacuum-jacketed cryogenic sleeve automatically installed on the 0.30 m cryo service datum.',
+    category: 'cooling', utilityType: 'cryoTransfer',
+    ports: ['cryo_front', 'cryo_back'], cost: 28000,
+    heightMeters: 0.30, radiusMeters: 0.06, color: 0x44aacc,
+  }),
+  rfWallPassThrough: automaticWallPassThrough({
+    id: 'rfWallPassThrough', name: 'Automatic RF Waveguide Feedthrough',
+    desc: 'Flanged rectangular waveguide penetration automatically installed on the 1.20 m RF datum.',
+    category: 'rfPower', utilityType: 'rfWaveguide',
+    ports: ['rf_front', 'rf_back'], cost: 22000,
+    heightMeters: 1.20, radiusMeters: 0.05, color: 0xcc4444, rectangular: true,
+  }),
+  vacuumWallPassThrough: automaticWallPassThrough({
+    id: 'vacuumWallPassThrough', name: 'Automatic Vacuum Pipe Feedthrough',
+    desc: 'Flanged vacuum sleeve automatically installed on the 1.50 m vacuum service datum.',
+    category: 'vacuum', utilityType: 'vacuumPipe',
+    ports: ['vacuum_front', 'vacuum_back'], cost: 18000,
+    heightMeters: 1.50, radiusMeters: 0.06, color: 0x888888,
+  }),
   indoorHvCableRack: {
     id: 'indoorHvCableRack',
     name: '4-Way Indoor HV Cable Rack',

@@ -39,10 +39,12 @@ automatically.
 
 The compact 2:1 distributor converts two flexible lines to one rigid pipe. The
 4:2 distributor contains two isolated 2:1 headers, so it can carry a cold/hot
-pair or two independent circuits. Flexible Water Lines cannot cross walls.
-Use the 1x1 or 2x2 Water Pipe Penetration and rigid pipe for building crossings.
-Press **M** while placing to swap the headers to the opposite sides, or **F**
-to rotate the complete component.
+pair or two independent circuits. Flexible Water Lines never pass directly
+through wall slabs: drawing one across a wall automatically builds a compact
+red or blue sleeve and splits the hose through its two terminals. Rigid supply
+pipe does the same at its cold or hot service elevation. The larger 2×2 Water
+Pipe Penetration stays in the palette for a deliberately planned paired
+cold/hot crossing.
 
 #### Process Cooling
 
@@ -132,7 +134,7 @@ For a normal-conducting cavity, that temperature rise causes thermal expansion, 
 - Add a chiller when you add NC RF structures — they are where the heat actually is
 - Cooling tower for large facilities with many heat-producing systems
 - Use 2:1 or 4:2 distributors where flexible equipment branches meet the rigid plant headers
-- Plan wall crossings around Water Pipe Penetrations; flexible Water Lines cannot cross walls
+- Draw wall crossings where the automatic sleeve stack has room; use the manual 2×2 Water Pipe Penetration for paired rigid circuits
 - Watch the reservoir, not just the capacity bar. Big heat loads drink water fast, and an empty reservoir is a hard beam trip.
 
 ## The Math

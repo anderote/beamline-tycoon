@@ -196,13 +196,14 @@ for (const scenario of SCENARIOS) {
   // branches serve the console, display and capture rack. Vacuum/RF/cooling
   // retain their bus/stub layout, while four data runs cover science endpoints
   // and the two control-room consumers. The two cooled beam devices each have
-  // an explicit cold supply and hot return: 28 lines total.
-  assert((state.utilityLines?.size || 0) === 28,
-    `twenty-eight utility lines wire beam and control-room services (got ${state.utilityLines?.size})`);
+  // an explicit cold supply and hot return. Automatic sleeves split three of
+  // those authored logical runs into an additional physical segment.
+  assert((state.utilityLines?.size || 0) === 31,
+    `thirty-one physical line segments wire beam and control-room services (got ${state.utilityLines?.size})`);
   const hvLines = [...(state.utilityLines?.values() || [])]
     .filter(l => l.utilityType === 'hvCable');
-  assert(hvLines.length === 5,
-    `four downstream HV branches plus the service feeder include two terminated runs at the RF wall feedthrough (got ${hvLines.length})`);
+  assert(hvLines.length === 6,
+    `HV feeders and branches terminate at both manual and automatic wall fittings (got ${hvLines.length})`);
   assert(state.placeables.some(p => p.type === 'hvWallPassThrough'),
     'starter facility demonstrates an HV wall feedthrough');
   const branch = [...(state.utilityLines?.values() || [])]

@@ -428,13 +428,37 @@ export const PORT_ANCHOR_OVERRIDES = {
     pwr_out_7: { along: 0.54 }, pwr_out_8: { along: 0.54 },
   },
   powerWallPassThrough: {
-    _default: { y: 1.25, lat: 0.22, out: 0.04 },
+    _default: { y: 0.03, lat: 0.10, along: 0, out: 0.04 },
   },
   meterMain: {
     _default: { y: 1.35, lat: 0.22, out: 0.04 },
   },
   hvWallPassThrough: {
-    _default: { y: 1.45, lat: 0.22, out: 0.07 },
+    _default: { y: 0.06, lat: 0.10, along: 0, out: 0.07 },
+  },
+  dataFiberWallPassThrough: {
+    _default: { y: 0.035, lat: 0.10, along: 0, out: 0.03 },
+  },
+  coldWaterLineWallPassThrough: {
+    _default: { y: 0.05, lat: 0.10, along: 0, out: 0.04 },
+  },
+  hotWaterLineWallPassThrough: {
+    _default: { y: 0.05, lat: 0.10, along: 0, out: 0.04 },
+  },
+  coldWaterSupplyWallPassThrough: {
+    _default: { y: 0.60, lat: 0.10, along: 0, out: 0.06 },
+  },
+  hotWaterSupplyWallPassThrough: {
+    _default: { y: 0.90, lat: 0.10, along: 0, out: 0.06 },
+  },
+  cryoWallPassThrough: {
+    _default: { y: 0.30, lat: 0.10, along: 0, out: 0.06 },
+  },
+  rfWallPassThrough: {
+    _default: { y: 1.20, lat: 0.10, along: 0, out: 0.05 },
+  },
+  vacuumWallPassThrough: {
+    _default: { y: 1.50, lat: 0.10, along: 0, out: 0.06 },
   },
   indoorHvCableRack: {
     _default: { y: INDOOR_HV_RACK_TERMINAL_Y, lat: 0, out: -0.06 },

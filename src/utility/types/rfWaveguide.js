@@ -201,6 +201,7 @@ export default {
   supportSpacingMeters: RIGID_UTILITY_SUPPORT_SPACING_METERS,
   supportMinimumRunMeters: RIGID_UTILITY_SUPPORT_MINIMUM_RUN_METERS,
   fixedRouteHeight: true,
+  requiresWallPassThrough: true,
   routeVerticalClearanceMeters: 0.06,
   // Keep waveguide routing readable without making gallery layout a puzzle:
   // paths stay rectilinear, but may turn immediately at a fitting and cross

@@ -46,6 +46,13 @@ import {
 } from '../utility/water-circuits.js';
 import { listUtilityEndpoints, findUtilityEndpoint } from '../utility/utility-endpoints.js';
 import { planUtilityRun, runPreviewPath, runWiringCost } from './utility-run-wiring.js';
+import {
+  applyAutomaticWallPassThroughPlanToState,
+  combineConstructionCosts,
+  executeAutomaticWallPassThroughPlan,
+  executeAutomaticWallPassThroughPlans,
+  planAutomaticWallPassThroughs,
+} from '../utility/automatic-wall-feedthroughs.js';
 import { isoToGridFloat } from '../renderer/grid.js';
 import {
   cablePathLengthSubUnits,
@@ -355,23 +362,35 @@ export class UtilityLineInputController {
       // be one line at a time — and it would make a distribution bus (priced
       // to break even against the individual runs it replaces) strictly worse
       // than the runs.
+      const line = {
+        start: startRef, end: endRef, path, cablePath,
+        tapLineIds: geom.tapLineIds,
+        routeHeightMeters: geom.routeHeightMeters,
+        waterCircuit: geom.waterCircuit,
+      };
+      const wallPlan = populatingBusLane || geom.busTapIds.start || geom.busTapIds.end
+        ? null
+        : planAutomaticWallPassThroughs(this.game, {
+            utilityType: this._utilityType, ...line,
+          });
+      if (wallPlan && !wallPlan.ok) {
+        this.game.log(`Can't place utility line: ${reasonMessage(wallPlan.reason)}`, 'bad');
+        this._cancelDraw();
+        return true;
+      }
       this.game.commitGesture({
         validate: () => !(startRef && endRef
           && startRef.placeableId === endRef.placeableId
           && startRef.portName === endRef.portName),
-        cost: populatingBusLane ? undefined : (this._wiringCost(pricedSubL) || undefined),
+        cost: populatingBusLane ? undefined : (combineConstructionCosts(
+          this._wiringCost(pricedSubL), wallPlan?.fittingCost,
+        ) || undefined),
         mutate: () => {
-          const line = {
-            start: startRef, end: endRef, path, cablePath,
-            tapLineIds: geom.tapLineIds,
-            routeHeightMeters: geom.routeHeightMeters,
-            waterCircuit: geom.waterCircuit,
-          };
           return geom.busTapIds.start || geom.busTapIds.end
             ? this.game.utilityBusSystem?.connectLine({
                 utilityType: this._utilityType, line, busTapIds: geom.busTapIds,
               })
-            : this.game.utilityLineSystem.addLine({ utilityType: this._utilityType, ...line });
+            : executeAutomaticWallPassThroughPlan(this.game, wallPlan);
         },
       });
     }
@@ -579,7 +598,7 @@ export class UtilityLineInputController {
       const path = snapPath(candidates[i]);
       const res = validateDrawLine(this.game.state, {
         utilityType: this._utilityType, start: startRef, end: endRef, path, tapLineIds,
-        cablePath, waterCircuit,
+        cablePath, waterCircuit, allowAutomaticWallPassThrough: true,
       });
       if (res.ok) {
         chosen = path;
@@ -630,7 +649,7 @@ export class UtilityLineInputController {
         const path = snapPath(detour);
         const res = validateDrawLine(this.game.state, {
           utilityType: this._utilityType, start: startRef, end: endRef, path, tapLineIds,
-          cablePath, waterCircuit,
+          cablePath, waterCircuit, allowAutomaticWallPassThrough: true,
         });
         if (res.ok) {
           chosen = path;
@@ -762,31 +781,39 @@ export class UtilityLineInputController {
    */
   _commitRun(plan) {
     const game = this.game;
-    const planCost = plan.cost;
+    const probeState = {
+      ...game.state,
+      placeables: [...(game.state.placeables || [])],
+      utilityLines: new Map(game.state.utilityLines || []),
+    };
+    const probeGame = { ...game, state: probeState };
+    const wallPlans = [];
+    for (const stub of plan.stubs) {
+      const wallPlan = planAutomaticWallPassThroughs(probeGame, {
+        utilityType: this._utilityType,
+        start: stub.start,
+        end: stub.end,
+        path: stub.path,
+        routeHeightMeters: stub.routeHeightMeters,
+        waterCircuit: stub.waterCircuit,
+      });
+      if (!wallPlan.ok || !applyAutomaticWallPassThroughPlanToState(probeState, wallPlan)) {
+        game.log(`Can't wire run: ${reasonMessage(wallPlan.reason || 'invalid wall crossing')}`, 'bad');
+        return [];
+      }
+      wallPlans.push(wallPlan);
+    }
+    const planCost = combineConstructionCosts(
+      plan.cost,
+      ...wallPlans.map(wallPlan => wallPlan.fittingCost),
+    );
     const committed = [];
     game.commitGesture({
       cost: planCost || undefined,
       mutate: () => {
-        let subL = 0;
-        for (const stub of plan.stubs) {
-          const id = game.utilityLineSystem.addLine({
-            utilityType: this._utilityType,
-            start: stub.start,
-            end: stub.end,
-            path: stub.path,
-            routeHeightMeters: stub.routeHeightMeters,
-            waterCircuit: stub.waterCircuit,
-          });
-          if (id) { committed.push(id); subL += stub.subL; }
-        }
-        if (planCost && committed.length) {
-          const actual = this._wiringCost(subL) || {};
-          for (const [r, amount] of Object.entries(planCost)) {
-            const back = amount - (actual[r] || 0);
-            if (back > 0) game.refundConstruction({ [r]: back }, 1);
-          }
-        }
-        return committed.length > 0 ? committed : null;
+        const result = executeAutomaticWallPassThroughPlans(game, wallPlans);
+        if (result) committed.push(...result.lineIds);
+        return result;
       },
       failed: (result) => !result,
     });
