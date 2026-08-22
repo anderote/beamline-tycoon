@@ -237,9 +237,11 @@ the short authoring contract.
   below their crosspieces and below the standard facility ceiling, using the
   same 0.5 m spacing as the four-way wall feedthrough. The straight rack's
   attachment row is perpendicular to its footprint; the corner rack sets that
-  row at 45 degrees so four parallel suspended feeders can turn together. An
-  HV cable with either end on one of these supports, or on an electrical wall
-  feedthrough, removes drawn lateral slack but retains a visible, shallow
+  row at 45 degrees so four parallel suspended feeders can turn together.
+  Indoor HV racks use overhead placement occupancy: their footprint anchors
+  the frame but does not prevent ordinary equipment from being built beneath
+  it. An HV cable with either end on one of these supports, or on an electrical
+  wall feedthrough, removes drawn lateral slack but retains a visible, shallow
   gravity sag while suspended between its endpoints; other soft cables retain
   drawn slack.
 - Passive inlet/outlet fittings keep their `pass` topology role but derive
