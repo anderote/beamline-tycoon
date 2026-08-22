@@ -405,6 +405,12 @@ export const PORT_ANCHOR_OVERRIDES = {
     hv_3: { along: 0.20 }, hv_4: { along: 0.60 },
     ...INDOOR_HV_RACK_TAP_MOUNTS,
   },
+  indoorHvCableRack1Way: {
+    hv_1: {
+      y: INDOOR_HV_RACK_TERMINAL_Y, localX: 0, localZ: 0,
+      normal: { x: 0, y: 1, z: 0 },
+    },
+  },
   indoorHvCableRack2Way: {
     _default: { y: INDOOR_HV_RACK_TERMINAL_Y, lat: 0, out: -0.06 },
     hv_1: { along: -0.10 }, hv_2: { along: 0.30 },

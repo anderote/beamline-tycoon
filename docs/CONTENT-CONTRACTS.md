@@ -62,6 +62,10 @@ the short authoring contract.
   wall. HV feedthroughs set `utilityFlowPresentation: 'symmetric'`: both faces
   use passive, double-headed terminal arrows and the body carries no preferred
   flow arrow, because either face may be upstream.
+- `powerWallPassThrough` is retired compatibility content. Existing saves may
+  load and demolish it, but new low-voltage wall entry uses a meter-main or
+  other active distribution equipment and no build palette advertises the old
+  passive fitting.
 - An off-map service uses `mapEdgeConnection` with a positive integer
   `maxDistanceTiles` plus validated conductor presentation dimensions. Its
   complete footprint must remain on the map and inside that boundary band at
@@ -330,13 +334,15 @@ the short authoring contract.
   continuous, while the other support ports remain isolated. The former
   45-degree indoor HV corner rack remains registered only to load old saves
   and is absent from construction palettes and search.
-- The straight indoor HV racks are passive buses. The 4-way rack is one
-  six-point bus with four overhead terminals plus one insulated tap on each
-  leg. The compact 2-way rack is a three-point L-frame bus with two overhead
-  terminals plus one insulated tap on the upright's outside face. Every rack
-  attachment shares the 2.00 m crossbar-terminal height and tensions attached
-  cables. Overhead rows use 0.4 m spacing so the hanging insulators clear their
-  uprights.
+- The straight indoor HV racks support one, two, or four overhead conductors.
+  The 1-way rack is a single pole with one top-mounted insulated terminal; its
+  one port accepts two segments of the same continuous conductor. The 4-way
+  rack is one six-point bus with four overhead terminals plus one insulated tap
+  on each leg. The compact 2-way rack is a three-point L-frame bus with two
+  overhead terminals plus one insulated tap on the upright's outside face.
+  Every rack attachment shares the 2.00 m crossbar-terminal height and tensions
+  attached cables. Overhead rows use 0.4 m spacing so the hanging insulators
+  clear their uprights.
   The 2×2 Utility Pole likewise buses its four overhead terminals to one front
   `hv_tap` at 1.55 m. The Pole-Mount Service Transformer is a compact
   port-mounted 100 kW box: placement snaps its `hv_in` directly onto any free

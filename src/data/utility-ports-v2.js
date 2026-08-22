@@ -1288,6 +1288,12 @@ const INFRA_UTILITY_PORTS = {
       omnidirectional: true, maxConnections: 1, params: {},
     },
   },
+  indoorHvCableRack1Way: {
+    hv_1: {
+      utility: 'hvCable', side: 'front', offsetAlong: 0.5,
+      role: 'pass', omnidirectional: true, maxConnections: 2, params: {},
+    },
+  },
   indoorHvCableRack2Way: {
     ...Object.fromEntries([
       [1, 0.40], [2, 0.80],
