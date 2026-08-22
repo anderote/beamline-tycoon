@@ -154,9 +154,9 @@ function addEquipmentObstacles(
     const maxX = Math.floor((centerCol + half.col + clearance) * SUB_PER_TILE + 1e-6);
     const minY = Math.ceil((centerRow - half.row - clearance) * SUB_PER_TILE - 1e-6);
     const maxY = Math.floor((centerRow + half.row + clearance) * SUB_PER_TILE + 1e-6);
-    const testPoint = (x, y) => {
-      const worldX = x / SUB_PER_TILE * 2;
-      const worldZ = y / SUB_PER_TILE * 2;
+    const testPoint = (x, y, pointCol = x / SUB_PER_TILE, pointRow = y / SUB_PER_TILE) => {
+      const worldX = pointCol * 2;
+      const worldZ = pointRow * 2;
       const inverseDir = (4 - (((placeable.dir || 0) % 4) + 4) % 4) % 4;
       const local = rotateLocalOffset({
         x: worldX - center.x,
@@ -180,7 +180,15 @@ function addEquipmentObstacles(
       for (const point of equipmentPoints) {
         const x = q(point.col);
         const y = q(point.row);
-        if (x >= minX && x <= maxX && y >= minY && y <= maxY) testPoint(x, y);
+        if (point.col >= centerCol - half.col - clearance - 1e-6
+            && point.col <= centerCol + half.col + clearance + 1e-6
+            && point.row >= centerRow - half.row - clearance - 1e-6
+            && point.row <= centerRow + half.row + clearance + 1e-6) {
+          // Preserve the player's exact freehand coordinate for the measured
+          // 3D envelope. The quantized key is only how the caller asks whether
+          // this already-tested sample was blocked.
+          testPoint(x, y, point.col, point.row);
+        }
       }
     } else {
       // A* needs a reusable board map because it has no candidate path yet.

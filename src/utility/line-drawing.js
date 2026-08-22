@@ -2,8 +2,8 @@
 //
 // Pure validator for drawing a utility line between two ports. Mirrors the
 // shape of src/beamline/pipe-drawing.js but with these differences:
-//   - Paths may contain 90° Manhattan bends (no diagonals).
-//   - Every utility uses the same quarter-tile Manhattan routing freedom.
+//   - Compatibility paths contain 90° Manhattan bends (no diagonals).
+//   - Soft cords and hoses may also carry their unsnapped physical cablePath.
 //   - Equipment blocks only when measured 3D model geometry intersects the
 //     utility body at its actual route height.
 //   - Endpoints reference placeables via `placeableId` (not `junctionId`).
@@ -46,8 +46,27 @@ import {
 import { pathCrossesWall } from './wall-crossings.js';
 
 const EPS = 1e-6;
+const PHYSICAL_COLLISION_SAMPLE_STEP = 0.125;
 
 function reject(reason) { return { ok: false, reason }; }
+
+/** Densify arbitrary physical traces so a long segment cannot skip a model. */
+function samplePhysicalPath(path, maxStep = PHYSICAL_COLLISION_SAMPLE_STEP) {
+  if (!Array.isArray(path) || path.length === 0) return [];
+  const out = [{ col: path[0].col, row: path[0].row }];
+  for (let i = 1; i < path.length; i++) {
+    const start = path[i - 1];
+    const end = path[i];
+    const dc = end.col - start.col;
+    const dr = end.row - start.row;
+    const steps = Math.max(1, Math.ceil(Math.hypot(dc, dr) / maxStep));
+    for (let step = 1; step <= steps; step++) {
+      const t = step / steps;
+      out.push({ col: start.col + dc * t, row: start.row + dr * t });
+    }
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // Path shape validators.
@@ -466,9 +485,9 @@ export function validateDrawLine(state, {
 
   const descriptor = UTILITY_TYPES[utilityType] || {};
   const freeform = isSoftCable(utilityType) ? sanitizeCablePath(cablePath) : [];
-  // Legacy freehand electrical routes remain physical where the cable was
-  // visibly laid. Their compatibility path must not let a saved cable pass
-  // through a wall (or reject one whose visible trace went around it).
+  // Soft utilities are physical where the player visibly laid them. Their
+  // compatibility path must not let a cable pass through a wall (or reject
+  // one whose visible trace went around it).
   const physicalPath = freeform.length >= 2
     ? roundedCableTilePath(freeform, utilityType)
     : path;
@@ -553,9 +572,9 @@ export function validateDrawLine(state, {
     ignoreSharedSource[side] = ref;
   }
   // Loose electrical and data cords may cross on the floor without joining.
-  // Cooling hoses are equally smooth, but remain plumbed networks. Legacy
-  // cablePath saves use their grid route for deterministic clearance here and
-  // their visible route for the actual network join position in discovery.
+  // Cooling hoses are equally smooth, but remain plumbed networks. Their grid
+  // route keeps deterministic join clearance while the visible route supplies
+  // the exact network contact positions in discovery.
   let resolvedRouteHeight = null;
   if (!softCableSkipsOverlap(utilityType)) {
     if (usesFixedRouteHeight(utilityType)) {
@@ -580,7 +599,13 @@ export function validateDrawLine(state, {
   // use the neighboring subtile. Endpoint models are exempt because their
   // perimeter transition owns the final wrap into the fitting.
   if (usesFlexibleSubtileRouting(descriptor)) {
-    const expanded = expandPath(path);
+    // For soft utilities the freehand trace is the body the player sees and
+    // therefore the body that must clear solid equipment. The compatibility
+    // Manhattan path remains useful for endpoints and non-freeform topology,
+    // but it must neither block a visible detour nor hide a visible collision.
+    const expanded = freeform.length >= 2
+      ? samplePhysicalPath(physicalPath)
+      : expandPath(path);
     const obstacles = buildUtilityRouteObstacles(state, utilityType, {
       startRef: start, endRef: end, includeLines: false,
       equipmentPoints: expanded,

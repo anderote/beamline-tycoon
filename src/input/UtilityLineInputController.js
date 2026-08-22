@@ -4,7 +4,8 @@
 // Parallel to BeamlineInputController but scoped to the utility-line system:
 //   - Stores the current utility type (e.g. 'powerCable').
 //   - Snaps start/end to ports whose spec.utility matches the current type.
-//   - Every utility uses the same flexible quarter-tile orthogonal router.
+//   - Soft cords and hoses preserve the player's freehand stroke.
+//   - Fabricated services use the flexible quarter-tile orthogonal router.
 //   - Commit on mouse-up calls UtilityLineSystem.addLine().
 //
 // The controller is the single owner of the tool's render state:
@@ -43,9 +44,12 @@ import { listUtilityEndpoints, findUtilityEndpoint } from '../utility/utility-en
 import { planUtilityRun, runPreviewPath, runWiringCost } from './utility-run-wiring.js';
 import { isoToGridFloat } from '../renderer/grid.js';
 import {
+  cablePathLengthSubUnits,
   isHvCableTensionAnchor,
   isSoftCable,
   roundedCableTilePath,
+  sanitizeCablePath,
+  SOFT_CABLE_MAX_POINTS,
   usesFreeformTopology,
 } from '../utility/soft-cable.js';
 
@@ -78,6 +82,13 @@ const BUS_SNAP_RADIUS_TILES = 0.65;
 const RUN_TRACE_MIN_STEP = 0.5;      // tiles
 const RUN_TRACE_MAX_POINTS = 256;
 
+// Flexible cords and hoses follow the hand rather than the routing grid. One
+// half-subtile (1/8 tile, 25 cm in-world) between committed samples preserves
+// deliberate small bends without storing one point per mouse event. A live
+// endpoint follows the cursor between samples; the cap bounds save size and
+// preview rebuild cost while covering a 128-tile drawn run.
+export const SOFT_CABLE_TRACE_STEP = 0.125; // tiles
+
 // How far down the router's ranking a drag will look for a route the board
 // accepts. See _dragGeometry: each step costs a full validateDrawLine, which
 // expands every same-type line on the board, and this runs per mousemove.
@@ -107,6 +118,7 @@ export class UtilityLineInputController {
     this._runMode = false;
     this._runPlan = null;    // { stubs, totalSubL, skipped, cost } while dragging
     this._runTrace = [];     // tile points the cursor swept this drag
+    this._cableTrace = [];   // unsnapped hand path for flexible-line geometry
   }
 
   setUtilityType(type) {
@@ -198,7 +210,10 @@ export class UtilityLineInputController {
     // source/load branch already populates its lane without a second backbone
     // charge. Keep the explicit tap-to-tap lane gesture economically identical.
     if (this._sameBusLaneGesture()) return 0;
-    const c = this._wiringCost(pathLengthSubUnits(this._drawPath));
+    const cableSubL = isSoftCable(this._utilityType)
+      ? cablePathLengthSubUnits(this._cableTrace)
+      : 0;
+    const c = this._wiringCost(cableSubL || pathLengthSubUnits(this._drawPath));
     return (c && c.funding) || 0;
   }
 
@@ -223,6 +238,9 @@ export class UtilityLineInputController {
     // Manhattan preview: "wire everything this drag passed" is only
     // predictable if it means the path the player's hand drew.
     this._runTrace = [this._anchorTile()];
+    this._cableTrace = isSoftCable(this._utilityType)
+      ? [this._worldToTile(this._drawStart.worldPos)]
+      : [];
     this._preview = {
       utilityType: this._utilityType,
       path: [],
@@ -241,6 +259,7 @@ export class UtilityLineInputController {
     if (snap) snap.utilityType = this._utilityType;
     this._hoverPort = snap;
     const grew = this._traceCursor(worldX, worldY);
+    this._traceSoftCable(worldX, worldY, snap);
     const geom = this._dragGeometry(worldX, worldY, snap);
     this._drawPath = geom.path || [];
     // Re-plan only when the corridor moved or the modifier flipped — planning
@@ -252,7 +271,9 @@ export class UtilityLineInputController {
     const populatingBusLane = !!geom.populateBusId;
     const previewPath = (this._runPlan && this._runPlan.stubs.length > 0)
       ? runPreviewPath(this._runPlan.stubs)
-      : this._drawPath;
+      : (!populatingBusLane && isSoftCable(this._utilityType) && this._cableTrace.length >= 2
+          ? this._cableTrace
+          : this._drawPath);
     this._preview = {
       utilityType: this._utilityType,
       path: previewPath,
@@ -262,6 +283,9 @@ export class UtilityLineInputController {
       // and should preview the same adaptive drops the commit will build.
       endpointTransitions: !populatingBusLane
         && !(this._runPlan && this._runPlan.stubs.length > 0),
+      cablePath: !populatingBusLane && isSoftCable(this._utilityType) && !this._runPlan
+        ? this._cableTrace.map(point => ({ ...point }))
+        : null,
       busLane: populatingBusLane,
       startAnchor: this._drawStart?.anchor || null,
       endAnchor: snap?.anchor || null,
@@ -286,6 +310,7 @@ export class UtilityLineInputController {
     // End may be a port, an existing line's subtile (detected via overlap
     // during discovery), or just empty space.
     const endSnap = this._snapToNearest(worldX, worldY, screen);
+    this._traceSoftCable(worldX, worldY, endSnap, true);
     const geom = this._dragGeometry(worldX, worldY, endSnap);
     // Run-wiring wins over the single-line commit whenever it found something
     // to wire; an empty plan falls through so a modifier-held miss still
@@ -299,7 +324,13 @@ export class UtilityLineInputController {
     const path = geom.path;
     if (path) {
       const { startRef, endRef } = geom;
-      const pricedSubL = pathLengthSubUnits(path);
+      const populatingBusLane = !!geom.populateBusId;
+      const cablePath = !populatingBusLane && isSoftCable(this._utilityType)
+        ? sanitizeCablePath(this._cableTrace, SOFT_CABLE_MAX_POINTS)
+        : null;
+      const pricedSubL = cablePath && cablePath.length >= 2
+        ? cablePathLengthSubUnits(cablePath)
+        : pathLengthSubUnits(path);
       // Trivially self-looping port-to-same-port commits are the gesture's
       // validate step. addLine then runs its own validation (port direction,
       // overlap, port already taken, …) and returns null on rejection, so
@@ -312,7 +343,6 @@ export class UtilityLineInputController {
       // be one line at a time — and it would make a distribution bus (priced
       // to break even against the individual runs it replaces) strictly worse
       // than the runs.
-      const populatingBusLane = !!geom.populateBusId;
       this.game.commitGesture({
         validate: () => !(startRef && endRef
           && startRef.placeableId === endRef.placeableId
@@ -320,7 +350,7 @@ export class UtilityLineInputController {
         cost: populatingBusLane ? undefined : (this._wiringCost(pricedSubL) || undefined),
         mutate: () => {
           const line = {
-            start: startRef, end: endRef, path,
+            start: startRef, end: endRef, path, cablePath,
             tapLineIds: geom.tapLineIds,
             routeHeightMeters: geom.routeHeightMeters,
           };
@@ -347,6 +377,7 @@ export class UtilityLineInputController {
     this._runMode = false;
     this._runPlan = null;
     this._runTrace = [];
+    this._cableTrace = [];
   }
 
   /** The draw anchor as a snapped tile point. */
@@ -378,6 +409,49 @@ export class UtilityLineInputController {
     // anchor end of the corridor must survive an arbitrarily long drag.
     if (this._runTrace.length >= RUN_TRACE_MAX_POINTS) this._runTrace[this._runTrace.length - 1] = pt;
     else this._runTrace.push(pt);
+    return true;
+  }
+
+  /** Record the actual unsnapped hand path used to render a flexible run. */
+  _traceSoftCable(worldX, worldY, snap, final = false) {
+    if (!isSoftCable(this._utilityType) || this._runMode) return false;
+    if (!Array.isArray(this._cableTrace) || this._cableTrace.length === 0) return false;
+    const raw = snap?.worldPos
+      ? this._worldToTile(snap.worldPos)
+      : this._isoFloatToTile(worldX, worldY);
+    if (!Number.isFinite(raw.col) || !Number.isFinite(raw.row)) return false;
+    const point = { col: raw.col, row: raw.row };
+    const trace = this._cableTrace;
+    const last = trace[trace.length - 1];
+    if (Math.hypot(point.col - last.col, point.row - last.row) < 1e-6) return false;
+
+    if (trace.length === 1) {
+      trace.push(point);
+      return true;
+    }
+
+    // The last point is live, not committed. Measure from the point before it
+    // so a slow stream of tiny mouse moves accumulates distance instead of
+    // repeatedly replacing itself forever. Fill every half-subtile crossed in
+    // one fast mouse move so collision and rendering cannot skip thin objects.
+    trace.pop();
+    const anchor = trace[trace.length - 1];
+    const dc = point.col - anchor.col;
+    const dr = point.row - anchor.row;
+    const distance = Math.hypot(dc, dr);
+    const steps = Math.floor(distance / SOFT_CABLE_TRACE_STEP);
+    for (let i = 1; i <= steps && trace.length < SOFT_CABLE_MAX_POINTS - 1; i++) {
+      const along = Math.min(i * SOFT_CABLE_TRACE_STEP, distance);
+      trace.push({
+        col: anchor.col + dc * along / distance,
+        row: anchor.row + dr * along / distance,
+      });
+    }
+    const endpoint = trace[trace.length - 1];
+    if (final && endpoint
+      && Math.hypot(point.col - endpoint.col, point.row - endpoint.row) < 1e-6) return true;
+    if (trace.length < SOFT_CABLE_MAX_POINTS) trace.push(point);
+    else trace[trace.length - 1] = point;
     return true;
   }
 
@@ -460,6 +534,9 @@ export class UtilityLineInputController {
     }
 
     const descriptor = UTILITY_TYPES[this._utilityType] || {};
+    const cablePath = isSoftCable(this._utilityType) && !this._runMode
+      ? this._cableTrace
+      : null;
     const startVec = this._portVec(this._drawStart);
     const endVec = this._portVec(endAnchor);
     const routeOpts = {
@@ -474,6 +551,7 @@ export class UtilityLineInputController {
     let chosen = null;
     let chosenRouteHeight = null;
     let reason = null;
+    let freeformPhysicalBlock = false;
     const fallback = candidates.length > 0 ? snapPath(candidates[0]) : null;
     // This runs on every mousemove, and validateDrawLine walks the whole board
     // expanding every same-type line to sub-tile resolution. The ranking can be
@@ -486,6 +564,7 @@ export class UtilityLineInputController {
       const path = snapPath(candidates[i]);
       const res = validateDrawLine(this.game.state, {
         utilityType: this._utilityType, start: startRef, end: endRef, path, tapLineIds,
+        cablePath,
       });
       if (res.ok) {
         chosen = path;
@@ -496,6 +575,15 @@ export class UtilityLineInputController {
       // the route the player is looking at — the preview, which is candidate
       // zero — would be refused.
       if (reason === null) reason = res.reason;
+      // Every compatibility candidate carries the same visible freehand body.
+      // If that body hits a wall or solid model, trying five more hidden routes
+      // (and then A*) cannot change the answer; the player must draw around it.
+      if (cablePath?.length >= 2
+          && (res.reason === 'blocked_by_equipment'
+            || res.reason === 'wall_pass_through_required')) {
+        freeformPhysicalBlock = true;
+        break;
+      }
     }
     // Generic port-aligned L/U candidates are intentionally cheap. If measured
     // 3D geometry or an installed run rejects them, every utility gets the same
@@ -503,7 +591,7 @@ export class UtilityLineInputController {
     // absent from the obstacle map, so the best route may pass directly under
     // beamline hardware; a real collision produces a tidy perimeter wrap.
     let routedFallback = fallback;
-    if (!chosen && usesFlexibleSubtileRouting(descriptor)) {
+    if (!chosen && !freeformPhysicalBlock && usesFlexibleSubtileRouting(descriptor)) {
       const obstacles = buildUtilityRouteObstacles(this.game.state, this._utilityType, {
         startRef, endRef,
       });
@@ -519,6 +607,7 @@ export class UtilityLineInputController {
         const path = snapPath(detour);
         const res = validateDrawLine(this.game.state, {
           utilityType: this._utilityType, start: startRef, end: endRef, path, tapLineIds,
+          cablePath,
         });
         if (res.ok) {
           chosen = path;

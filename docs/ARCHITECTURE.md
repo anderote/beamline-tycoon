@@ -282,10 +282,13 @@ join automatically at every exact same-utility route contact; the other
 utilities retain their descriptor-specific crossing and tap rules.
 
 **U8. A footprint is only the broad phase for utility/equipment collision.**
-All seven utilities publish `flexibleSubtile` and author quarter-tile Manhattan
-paths through `routing-contract.js`. `route-obstacles.js` uses the rendered
-footprint to limit lookups, transforms each candidate cell into component-local
-coordinates, and calls the provider registered in `utility-collision.js`.
+All seven utilities publish `flexibleSubtile` and retain a quarter-tile
+Manhattan compatibility path through `routing-contract.js`. Power, HV, cooling,
+and data additionally store the unsnapped freehand `cablePath` the player drew;
+that visible trace is authoritative for pricing, wall checks, and equipment
+collision. `route-obstacles.js` uses the rendered footprint to limit lookups,
+transforms each candidate point into component-local coordinates, and calls the
+provider registered in `utility-collision.js`.
 `component-builder.utilityEnvelopeIntersectsModel` tests that 3D utility
 envelope against cached triangles from the actual component model. With no
 provider (headless logic), equipment contributes no footprint-only blocker.

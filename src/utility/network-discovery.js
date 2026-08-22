@@ -428,9 +428,9 @@ export function discoverNetworks(utilityType, lines, portLookup) {
     const joinsOnContact = UTILITY_TYPES[utilityType]?.joinsOnContact === true;
     const subtileToLines = new Map();
     for (const line of lineArr) {
-      // Legacy cooling hoses can be physically routed by a visible freehand
-      // trace. A branch snapped to one must join where the player clicked, not
-      // at its old hidden Manhattan compatibility path.
+      // Cooling hoses are physically routed by their visible freehand trace.
+      // A branch snapped to one must join where the player clicked, not at its
+      // hidden Manhattan compatibility path.
       const topologyPath = usesFreeformTopology(utilityType)
         && Array.isArray(line.cablePath) && line.cablePath.length >= 2
         ? roundedCableTilePath(line.cablePath, utilityType)
