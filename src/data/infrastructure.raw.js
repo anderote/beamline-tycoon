@@ -2279,7 +2279,7 @@ export const INFRASTRUCTURE_RAW = {
   poleMountTransformer: {
     id: 'poleMountTransformer',
     name: 'Pole-Mount Service Transformer',
-    desc: 'Outdoor 100 kW service transformer. Bring HV from a utility pole into its roof inlet, then feed up to four ordinary branch-power circuits from the adjacent roof terminals.',
+    desc: 'Outdoor 100 kW service transformer. Bring HV from a utility pole into its roof inlet, then feed up to four ordinary branch-power circuits from the front terminals.',
     category: 'power', subsection: 'distribution',
     paletteOrder: 2,
     cost: { funding: 95000 },
@@ -2303,19 +2303,17 @@ export const INFRASTRUCTURE_RAW = {
       { w: 2.0, h: 0.20, l: 2.0, x: 0, y: 0, z: 0, color: 0x4a5052 },
       { w: 1.55, h: 2.35, l: 1.55, x: 0, y: 0.20, z: 0, color: 0x6b7476 },
       { w: 1.72, h: 0.18, l: 1.72, x: 0, y: 2.55, z: 0, color: 0x343a3c },
-      // One heavy HV inlet and four branch terminals. The cap tops coincide
-      // with DISTRIBUTION_TOP_TERMINAL_LAYOUTS after SUB_UNIT scaling.
+      // One heavy roof-mounted HV inlet. Its cap top coincides with the shared
+      // top-input layout after SUB_UNIT scaling.
       { w: 0.15, h: 0.26, l: 0.15, x: 0, y: 2.73, z: -0.36, color: 0x32291d },
-      { w: 0.12, h: 0.26, l: 0.12, x: -0.60, y: 2.73, z: 0.36, color: 0x32291d },
-      { w: 0.12, h: 0.26, l: 0.12, x: -0.20, y: 2.73, z: 0.36, color: 0x32291d },
-      { w: 0.12, h: 0.26, l: 0.12, x: 0.20, y: 2.73, z: 0.36, color: 0x32291d },
-      { w: 0.12, h: 0.26, l: 0.12, x: 0.60, y: 2.73, z: 0.36, color: 0x32291d },
       { w: 0.19, h: 0.06, l: 0.19, x: 0, y: 2.99, z: -0.36, color: 0xb46e32, utilityTerminalCap: true },
-      { w: 0.16, h: 0.06, l: 0.16, x: -0.60, y: 2.99, z: 0.36, color: 0xb46e32, utilityTerminalCap: true },
-      { w: 0.16, h: 0.06, l: 0.16, x: -0.20, y: 2.99, z: 0.36, color: 0xb46e32, utilityTerminalCap: true },
-      { w: 0.16, h: 0.06, l: 0.16, x: 0.20, y: 2.99, z: 0.36, color: 0xb46e32, utilityTerminalCap: true },
-      { w: 0.16, h: 0.06, l: 0.16, x: 0.60, y: 2.99, z: 0.36, color: 0xb46e32, utilityTerminalCap: true },
       { w: 1.18, h: 0.28, l: 0.16, x: 0, y: 1.05, z: 0.84, color: 0xe1b84b },
+      // Four branch terminals project from the front terminal bar. Their
+      // front faces coincide with DISTRIBUTION_FRONT_TERMINAL_LAYOUTS.
+      { w: 0.16, h: 0.16, l: 0.12, x: -0.60, y: 1.16, z: 0.80, color: 0xb46e32, utilityOutputTerminalCap: true },
+      { w: 0.16, h: 0.16, l: 0.12, x: -0.20, y: 1.16, z: 0.80, color: 0xb46e32, utilityOutputTerminalCap: true },
+      { w: 0.16, h: 0.16, l: 0.12, x: 0.20, y: 1.16, z: 0.80, color: 0xb46e32, utilityOutputTerminalCap: true },
+      { w: 0.16, h: 0.16, l: 0.12, x: 0.60, y: 1.16, z: 0.80, color: 0xb46e32, utilityOutputTerminalCap: true },
     ],
     requiredConnections: [],
   },

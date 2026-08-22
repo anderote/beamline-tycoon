@@ -276,6 +276,9 @@ the short authoring contract.
   distributor cabinets, MCCs, and UPS cabinets use model-specific roof-cap
   heights; transformer inputs land on their actual roof-bushing caps. This is
   a presentation contract only and does not change the simulation port side.
+- Distribution-equipment outputs terminate at visible, independently selectable
+  front-face glands aligned with their breaker rows. Moving an HV input onto its
+  insulated roof bushing must not move the device's branch outputs off the front.
 - Transmission towers and the 45-degree indoor HV corner rack expose one
   passive HV port at every visible insulator or saddle. Each accepts two wire
   attachments; lines sharing one named port are continuous, while the other

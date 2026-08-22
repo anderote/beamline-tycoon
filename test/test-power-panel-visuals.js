@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
 import {
+  DISTRIBUTION_FRONT_TERMINAL_LAYOUTS,
   DISTRIBUTION_OUTPUT_LAYOUTS,
-  DISTRIBUTION_TOP_TERMINAL_LAYOUTS,
+  DISTRIBUTION_TOP_INPUT_LAYOUTS,
 } from '../src/data/distribution-output-layout.js';
 import { INFRASTRUCTURE_RAW } from '../src/data/infrastructure.raw.js';
 import { getUtilityPortsV2 } from '../src/data/utility-ports-v2.js';
@@ -63,7 +64,7 @@ test('electrical distribution breaker controls use horizontal rows of four or tw
   }
 });
 
-test('distribution cables terminate on visible top insulator caps', () => {
+test('distribution inputs stay on top while outputs terminate on visible front glands', () => {
   const builders = {
     compactHvDistributor: _buildCompactHvDistributorRoles,
     switchgear: _buildSwitchgearRoles,
@@ -78,57 +79,88 @@ test('distribution cables terminate on visible top insulator caps', () => {
     Object.values(getUtilityPortsV2(type)).some(port =>
       port.connectionKind === 'hvDistributionIn'));
   assert.deepEqual(
-    Object.keys(DISTRIBUTION_TOP_TERMINAL_LAYOUTS).sort(),
+    Object.keys(DISTRIBUTION_TOP_INPUT_LAYOUTS).sort(),
     authoredDistributionTypes.sort(),
-    'every HV distribution device has a roof-terminal layout',
+    'every HV distribution device has a top-input layout',
+  );
+  assert.deepEqual(
+    Object.keys(DISTRIBUTION_FRONT_TERMINAL_LAYOUTS).sort(),
+    authoredDistributionTypes.sort(),
+    'every HV distribution device has a front-output layout',
   );
 
-  for (const [type, layout] of Object.entries(DISTRIBUTION_TOP_TERMINAL_LAYOUTS)) {
+  for (const [type, inputLayout] of Object.entries(DISTRIBUTION_TOP_INPUT_LAYOUTS)) {
     const ports = getUtilityPortsV2(type);
     const outputs = Object.entries(ports)
       .filter(([, port]) => port.connectionKind === 'hvDistributionOut'
         || port.connectionKind === 'powerDistributionOut')
       .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
-    assert.equal(layout.outputs.length, outputs.length, `${type} lays out every physical output`);
+    const outputLayout = DISTRIBUTION_FRONT_TERMINAL_LAYOUTS[type];
+    assert.equal(outputLayout.length, outputs.length, `${type} lays out every physical output`);
 
-    const terminals = [
-      ['hv_in', layout.input],
-      ...outputs.map(([name], index) => [name, layout.outputs[index]]),
-    ];
-    for (const [portName, terminal] of terminals) {
+    const inputAnchor = portAnchorOverride(type, 'hv_in');
+    assert.deepEqual(inputAnchor.normal, { x: 0, y: 1, z: 0 },
+      `${type}.hv_in faces upward`);
+    assert.equal(inputAnchor.localX, inputLayout.input.x, `${type}.hv_in uses its cap X`);
+    assert.equal(inputAnchor.localZ, inputLayout.input.z, `${type}.hv_in uses its cap Z`);
+    assert.equal(inputAnchor.y, inputLayout.input.y, `${type}.hv_in lands on the cap top`);
+
+    for (const [[portName], terminal] of outputs.map((output, index) =>
+      [output, outputLayout[index]])) {
       const anchor = portAnchorOverride(type, portName);
-      assert.deepEqual(anchor.normal, { x: 0, y: 1, z: 0 },
-        `${type}.${portName} faces upward`);
-      assert.equal(anchor.localX, terminal.x, `${type}.${portName} uses its cap X`);
-      assert.equal(anchor.localZ, terminal.z, `${type}.${portName} uses its cap Z`);
-      assert.equal(anchor.y, terminal.y, `${type}.${portName} lands on the cap top`);
+      assert.deepEqual(anchor.normal, { x: 0, y: 0, z: 1 },
+        `${type}.${portName} faces forward`);
+      assert.equal(anchor.localX, terminal.x, `${type}.${portName} uses its gland X`);
+      assert.equal(anchor.localZ, terminal.z, `${type}.${portName} uses its gland Z`);
+      assert.equal(anchor.y, terminal.y, `${type}.${portName} uses its breaker-row height`);
     }
 
     const build = builders[type];
     if (!build) {
       // Pole-mounted gear uses its authored parts model rather than a role
-      // builder. Its tagged cap parts still share the exact terminal contract.
-      const capParts = INFRASTRUCTURE_RAW[type].parts
-        .filter(part => part.utilityTerminalCap === true);
-      assert.equal(capParts.length, terminals.length,
-        `${type} authors one metal cap per input/output anchor`);
-      for (const [, terminal] of terminals) {
-        assert.ok(capParts.some(part =>
+      // builder. Its tagged cap parts still share both terminal contracts.
+      const inputCap = INFRASTRUCTURE_RAW[type].parts
+        .find(part => part.utilityTerminalCap === true);
+      assert.ok(inputCap
+        && Math.abs(inputCap.x * 0.5 - inputLayout.input.x) < 1e-6
+        && Math.abs((inputCap.y + inputCap.h) * 0.5 - inputLayout.input.y) < 1e-6
+        && Math.abs(inputCap.z * 0.5 - inputLayout.input.z) < 1e-6,
+      `${type} authors one visible top input cap`);
+
+      const outputCaps = INFRASTRUCTURE_RAW[type].parts
+        .filter(part => part.utilityOutputTerminalCap === true);
+      assert.equal(outputCaps.length, outputLayout.length,
+        `${type} authors one front cap per output anchor`);
+      for (const terminal of outputLayout) {
+        assert.ok(outputCaps.some(part =>
           Math.abs(part.x * 0.5 - terminal.x) < 1e-6
-          && Math.abs((part.y + part.h) * 0.5 - terminal.y) < 1e-6
-          && Math.abs(part.z * 0.5 - terminal.z) < 1e-6),
+          && Math.abs(part.y * 0.5 - terminal.y) < 1e-6
+          && Math.abs((part.z + part.l / 2) * 0.5 - terminal.z) < 1e-6),
         `${type} has visible cap geometry at (${terminal.x}, ${terminal.y}, ${terminal.z})`);
       }
       continue;
     }
     const buckets = build();
-    const caps = buckets.copper.filter(geometry => {
+    const inputCap = buckets.copper.find(geometry => {
       geometry.computeBoundingBox();
-      return terminals.some(([, terminal]) =>
-        Math.abs(geometry.boundingBox.max.y - terminal.y) < 1e-6);
+      const center = geometry.boundingBox.getCenter(new THREE.Vector3());
+      return Math.abs(center.x - inputLayout.input.x) < 1e-6
+        && Math.abs(center.z - inputLayout.input.z) < 1e-6
+        && Math.abs(geometry.boundingBox.max.y - inputLayout.input.y) < 1e-6;
     });
-    assert.equal(caps.length, terminals.length,
-      `${type} renders one metal cap per input/output anchor`);
+    assert.ok(inputCap, `${type} renders a metal cap at its top input anchor`);
+
+    for (const terminal of outputLayout) {
+      const cap = buckets.copper.find(geometry => {
+        geometry.computeBoundingBox();
+        const center = geometry.boundingBox.getCenter(new THREE.Vector3());
+        return Math.abs(center.x - terminal.x) < 1e-6
+          && Math.abs(center.y - terminal.y) < 1e-6
+          && Math.abs(geometry.boundingBox.max.z - terminal.z) < 1e-6;
+      });
+      assert.ok(cap,
+        `${type} renders a front metal gland at (${terminal.x}, ${terminal.y}, ${terminal.z})`);
+    }
     disposeBuckets(buckets);
   }
 });
@@ -224,7 +256,7 @@ test('switchgear and MCC show serviceable electrical compartments', () => {
   const mcc = _buildMCCRoles();
 
   assert.ok(totalParts(compactHv) >= 20,
-    `compact HV distributor has a door, two breaker controls and roof terminals (${totalParts(compactHv)} parts)`);
+    `compact HV distributor has a door, two breaker controls and physical terminals (${totalParts(compactHv)} parts)`);
   assert.equal(compactHv.glow.length, 1, 'compact HV distributor has one restrained status lamp');
   assert.equal(compactHv.copper.length, 4,
     'compact HV distributor shows one inlet, two outlets and its grounding bond');

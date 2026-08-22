@@ -9,8 +9,9 @@
 
 import { applyTiledBoxUVs, applyTiledCylinderUVs } from '../uv-utils.js';
 import {
+  DISTRIBUTION_FRONT_TERMINAL_LAYOUTS,
   DISTRIBUTION_OUTPUT_LAYOUTS,
-  DISTRIBUTION_TOP_TERMINAL_LAYOUTS,
+  DISTRIBUTION_TOP_INPUT_LAYOUTS,
 } from '../../data/distribution-output-layout.js';
 import { POWER_HV_INPUT_MOUNTS } from '../../data/utility-port-anchors.js';
 
@@ -49,30 +50,6 @@ function addCylinder(bucket, r, h, x, y, z, matrix = null, segs = 10) {
   pushT(bucket, g, matrix || trans(x, y, z));
 }
 
-// Every physical cable endpoint on distribution gear is the metal cap of one
-// roof insulator. The anchor table reads this same shared layout, so cable
-// tails terminate in the attachment instead of floating over a cabinet face.
-function addDistributionRoofTerminals(b, type) {
-  const layout = DISTRIBUTION_TOP_TERMINAL_LAYOUTS[type];
-  if (!layout) return;
-  const terminals = [
-    { ...layout.input, input: true },
-    ...layout.outputs.map(terminal => ({ ...terminal, input: false })),
-  ];
-  for (const { x, y, z, input } of terminals) {
-    const radius = input ? 0.038 : 0.028;
-    const postH = 0.125;
-    addCylinder(b.accent, radius * 0.78, postH,
-      x, layout.roofY + postH / 2, z, null, SEGS);
-    for (const skirtY of [0.035, 0.075, 0.115]) {
-      addCylinder(b.accent, radius * 1.35, 0.015,
-        x, layout.roofY + skirtY, z, null, SEGS);
-    }
-    const capH = 0.035;
-    addCylinder(b.copper, radius, capH, x, y - capH / 2, z, null, SEGS);
-  }
-}
-
 // Transformer primary feeders terminate at the metal cap of a vertical roof
 // bushing. The authored anchor table shares the same mount coordinate so the
 // rendered cable lands on the hardware instead of on the enclosure shell.
@@ -89,6 +66,29 @@ function addVerticalHvInputBushing(b, mount, baseY) {
   }
   addCylinder(b.copper, 0.045, capH,
     mount.localX, mount.y - capH / 2, mount.localZ, null, SEGS);
+}
+
+// Distribution gear keeps one insulated HV inlet on top. Branch circuits
+// terminate in short horizontal glands on the front, sharing the exact layout
+// used by the authored cable anchors.
+function addDistributionTerminals(b, type) {
+  const inputLayout = DISTRIBUTION_TOP_INPUT_LAYOUTS[type];
+  const outputs = DISTRIBUTION_FRONT_TERMINAL_LAYOUTS[type];
+  if (!inputLayout || !outputs) return;
+
+  addVerticalHvInputBushing(b, POWER_HV_INPUT_MOUNTS[type], inputLayout.roofY);
+  for (const { x, y, z } of outputs) {
+    const collarLength = 0.025;
+    const capLength = 0.04;
+    addCylinder(b.accent, 0.041, collarLength, x, y, z, new THREE.Matrix4().multiplyMatrices(
+      trans(x, y, z - capLength - collarLength / 2),
+      rotX(Math.PI / 2),
+    ), SEGS);
+    addCylinder(b.copper, 0.030, capLength, x, y, z, new THREE.Matrix4().multiplyMatrices(
+      trans(x, y, z - capLength / 2),
+      rotX(Math.PI / 2),
+    ), SEGS);
+  }
 }
 
 // ── HV Transformer ────────────────────────────────────────────────
@@ -259,8 +259,8 @@ export function _buildDisconnectSwitchRoles() {
 }
 
 // ── Compact HV Distributor ─────────────────────────────────────────
-// A short 0.5 m-square 1-to-2 cabinet. Its face carries controls while the
-// single heavy inlet and two outgoing feeders land on roof terminals.
+// A short 0.5 m-square 1-to-2 cabinet. Its roof carries the heavy inlet while
+// its two outgoing feeders land beside the front breaker controls.
 export function _buildCompactHvDistributorRoles() {
   const b = makeBuckets();
 
@@ -271,7 +271,7 @@ export function _buildCompactHvDistributorRoles() {
   addBox(b.stand, 0.46, baseH, 0.46, 0, baseH / 2, 0);
   addBox(b.iron, encW, encH, encD, 0, baseH + encH / 2, 0);
   addBox(b.accent, 0.44, 0.035, 0.42, 0, baseH + encH + 0.0175, 0);
-  addDistributionRoofTerminals(b, 'compactHvDistributor');
+  addDistributionTerminals(b, 'compactHvDistributor');
 
   // Recessed front service door with hinges, gasket and operating handle.
   addBox(b.accent, 0.25, 0.66, 0.025, -0.055, 0.46, frontZ + 0.018);
@@ -288,8 +288,8 @@ export function _buildCompactHvDistributorRoles() {
   }
   addBox(b.iron, 0.024, 0.12, 0.026, 0.045, 0.46, frontZ + 0.052);
 
-  // Two independently wireable output breaker controls remain on the face;
-  // their actual cable attachments are the roof terminals above.
+  // Two independently wireable output breaker controls and cable glands share
+  // the front face.
   for (const { x, y } of DISTRIBUTION_OUTPUT_LAYOUTS.compactHvDistributor) {
     const z = frontZ + 0.018;
     addBox(b.detail, 0.15, 0.15, 0.025, x, y, z);
@@ -349,8 +349,8 @@ export function _buildSwitchgearRoles() {
     }
   }
 
-  // Four breaker controls occupy the front. The independently claimable HV
-  // inlet and outlets are the five insulator/cap terminals on the roof.
+  // Four breaker controls and independently claimable output glands occupy the
+  // front. The common HV inlet remains insulated on the roof.
   for (const { x, y } of DISTRIBUTION_OUTPUT_LAYOUTS.switchgear) {
     const z = encD / 2 + 0.025;
     const plate = new THREE.BoxGeometry(0.17, 0.19, 0.035);
@@ -364,7 +364,7 @@ export function _buildSwitchgearRoles() {
   const frontZ = encD / 2;
   addBox(b.accent, encW + 0.07, 0.045, encD + 0.07,
     0, baseH + encH + 0.022, 0);
-  addDistributionRoofTerminals(b, 'switchgear');
+  addDistributionTerminals(b, 'switchgear');
   addBox(b.accent, 0.47, 1.44, 0.030,
     -0.14, baseH + encH * 0.51, frontZ + 0.022);
   for (const sx of [-1, 1]) {
@@ -525,7 +525,7 @@ export function _buildMCCRoles() {
     0, baseH + encH - 0.10, frontZ + 0.024);
   addBox(b.accent, encW + 0.05, 0.035, encD + 0.05,
     0, baseH + encH + 0.0175, 0);
-  addDistributionRoofTerminals(b, 'mcc');
+  addDistributionTerminals(b, 'mcc');
   addBox(b.copper, encW * 0.78, 0.020, 0.025,
     0, baseH + 0.14, -(frontZ + 0.014));
 
@@ -559,7 +559,7 @@ export function _buildUPSRoles() {
     applyTiledBoxUVs(g, encW * 0.8, 0.04, encD * 0.6);
     pushT(b.detail, g, trans(0, baseH + encH + 0.02, 0));
   }
-  addDistributionRoofTerminals(b, 'ups');
+  addDistributionTerminals(b, 'ups');
 
   // Side ventilation slots
   for (const zSign of [-1, 1]) {
@@ -643,7 +643,7 @@ function _buildDistributionPanelRoles({ type, width, height, depth, doorCount })
   }
 
   // Breaker handles and circuit labels follow readable horizontal rows on the
-  // control face. The actual cable attachments are the roof terminals below.
+  // control face, with each cable attachment on the same front row.
   const bayW = Math.min(width * 0.18, 0.18);
   const bayH = Math.min(height * 0.09, 0.13);
   for (const { x, y } of DISTRIBUTION_OUTPUT_LAYOUTS[type]) {
@@ -678,14 +678,14 @@ function _buildDistributionPanelRoles({ type, width, height, depth, doorCount })
   addBox(b.copper, width * 0.58, 0.018, 0.025,
     0, baseH + 0.14, -(depth / 2 + 0.014));
 
-  // A roof entry plate supports one heavier HV inlet insulator and one capped
-  // branch terminal per physical outlet.
+  // A roof entry plate supports the heavier HV inlet insulator. Branch
+  // terminals remain on the front beside their corresponding controls.
   {
     const g = new THREE.BoxGeometry(width * 0.72, 0.025, depth * 0.62);
     applyTiledBoxUVs(g, width * 0.72, 0.025, depth * 0.62);
     pushT(b.detail, g, trans(0, baseH + height + 0.013, 0));
   }
-  addDistributionRoofTerminals(b, type);
+  addDistributionTerminals(b, type);
   return b;
 }
 
