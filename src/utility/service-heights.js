@@ -18,10 +18,10 @@ export const RIGID_UTILITY_SERVICE_HEIGHTS = Object.freeze({
   vacuumPipe: 1.50,
 });
 
-// Keep fabricated RF guides and pipework visibly carried without crowding
-// their routes. A two-metre pitch keeps long spans supported while leaving
-// bends and stacked services visually legible.
-export const RIGID_UTILITY_SUPPORT_SPACING_METERS = 2;
+// Fabricated RF guides and pipework use the player's requested one-metre
+// support pitch. Shared stations let co-located services consolidate into one
+// multi-level rack instead of multiplying coincident frames.
+export const RIGID_UTILITY_SUPPORT_SPACING_METERS = 1;
 export const RIGID_UTILITY_SUPPORT_MINIMUM_RUN_METERS = 3;
 
 export const UNIVERSAL_RACK_SERVICE_HEIGHTS = Object.freeze({
