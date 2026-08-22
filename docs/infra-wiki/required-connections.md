@@ -160,7 +160,7 @@ Recovery is facility-wide and counts each type once. The four contributing parts
 | Facility Transformer | 400 kW HV supply, 2 feeders |
 | HV Transformer | 1.5 MW HV input, 4 feeders |
 | Grid Intertie Transformer | 6 MW HV input, 6 feeders |
-| Compact HV Distributor | 1 HV input → 2 protected 100 kW HV feeders; no new capacity |
+| Compact HV Distributor | 1 HV input → 2 protected 300 kW HV feeders; 600 kW maximum; no new capacity |
 | HV Distributor Box | 1,200 kW HV input → 4 protected 300 kW HV feeders; no new capacity |
 | Motor Control Center | 1 HV input → 8 branch circuits; no new capacity |
 | Power Distribution Panel | 1 HV input → 4 branch circuits; no new capacity |

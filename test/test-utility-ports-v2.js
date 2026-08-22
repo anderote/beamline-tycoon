@@ -310,11 +310,13 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   const compactHvDistributorOutputs = Object.values(compactGear)
     .filter(p => p.connectionKind === 'hvDistributionOut');
   assert(compactGear.hv_in?.connectionKind === 'hvDistributionIn'
-      && compactGear.hv_in.params.demand === 200
+      && compactGear.hv_in.params.demand === 600
       && compactGear.hv_in.params.tracksDownstreamDemand === true
       && compactHvDistributorOutputs.length === 2
-      && compactHvDistributorOutputs.every(p => p.params.capacity === 100),
-    'Compact HV Distributor has one 200 kW input and two protected 100 kW outputs');
+      && compactHvDistributorOutputs.every(p => p.params.capacity === 300),
+    'Compact HV Distributor has one 600 kW input and two protected 300 kW outputs');
+  assert(INFRASTRUCTURE_RAW.compactHvDistributor.electricalControl?.breaker?.rating === 600,
+    'Compact HV Distributor breaker matches its 600 kW feeder rating');
 
   const gear = getUtilityPortsV2('switchgear');
   const hvDistributorOutputs = Object.values(gear)

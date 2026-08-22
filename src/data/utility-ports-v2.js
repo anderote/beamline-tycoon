@@ -1253,7 +1253,7 @@ const INFRA_UTILITY_PORTS = {
   facilityTransformer:      transformerPorts(400, 2),
   hvTransformer:            transformerPorts(1500, 4),
   gridIntertieTransformer:  transformerPorts(6000, 6),
-  compactHvDistributor:     hvDistributionPorts(200, 2),
+  compactHvDistributor:     hvDistributionPorts(600, 2),
   // UI name: HV Distributor Box. The stable id remains `switchgear` so older
   // saves retain the same placed object and utility-line endpoint ids.
   switchgear:               hvDistributionPorts(1200, 4),
