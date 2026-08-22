@@ -8721,110 +8721,92 @@ body.palette-expanded {
 .guided-check.done .guided-checkmark, .guided-check.done .guided-check-action { color: #66d58d; }
 .guided-setup-footer { display: flex; justify-content: space-between; gap: 7px; margin-top: 9px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.07); }
 
-/* Contextual plant assembly guide. Unlike the general beamline guide this
-   appears only after the first water/cryo plant component is built. */
+/* Quiet edge checklist for assembling the first water/cryo plant. */
 .plant-guide {
   --plant-guide-accent: #5aa7ff;
   position: fixed;
-  left: 18px;
-  top: 118px;
-  width: min(340px, calc(100vw - 36px));
-  z-index: 620;
-  color: #dce8ef;
-  font: 12px/1.35 "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  left: 10px;
+  top: 108px;
+  width: min(236px, calc(100vw - 20px));
+  z-index: 420;
+  color: #aebfc7;
+  font: 10px/1.3 "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
 }
 .plant-guide.hidden { display: none; }
 .plant-guide-panel {
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--plant-guide-accent) 45%, transparent);
-  border-radius: 9px;
-  background: linear-gradient(155deg, rgba(13, 25, 34, .97), rgba(8, 14, 20, .96));
-  box-shadow: 0 15px 42px rgba(0, 0, 0, .46), inset 0 1px rgba(255, 255, 255, .05);
-  backdrop-filter: blur(8px);
+  border: 1px solid rgba(143, 177, 191, .16);
+  border-radius: 5px;
+  background: rgba(9, 16, 21, .72);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, .18);
+  backdrop-filter: blur(4px);
 }
 .plant-guide.collapsed .plant-guide-panel { display: none; }
 .plant-guide-chip {
   display: none;
-  border: 1px solid color-mix(in srgb, var(--plant-guide-accent) 60%, transparent);
-  border-radius: 999px;
-  padding: 7px 12px;
-  color: #d8f6ff;
-  background: rgba(11, 25, 34, .93);
-  box-shadow: 0 8px 24px rgba(0,0,0,.36);
+  border: 1px solid rgba(143, 177, 191, .18);
+  border-radius: 4px;
+  padding: 4px 7px;
+  color: #91aab5;
+  background: rgba(9, 16, 21, .7);
+  box-shadow: none;
   font: inherit;
+  font-size: 9px;
   cursor: pointer;
 }
 .plant-guide.collapsed .plant-guide-chip { display: block; }
-.plant-guide.complete .plant-guide-chip { color: #a9efbd; border-color: rgba(92, 206, 123, .58); }
-.plant-guide.just-completed { animation: guided-complete 1.2s ease 2; }
+.plant-guide.complete .plant-guide-chip { color: #7fba91; border-color: rgba(92, 206, 123, .22); }
+.plant-guide.just-completed .plant-guide-panel { border-color: rgba(92, 206, 123, .34); }
 .plant-guide header {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
   align-items: center;
-  justify-content: space-between;
-  padding: 11px 12px 10px;
-  border-bottom: 1px solid rgba(115, 157, 179, .2);
-  background: linear-gradient(90deg, color-mix(in srgb, var(--plant-guide-accent) 18%, transparent), transparent);
+  gap: 7px;
+  padding: 6px 7px 5px;
+  border-bottom: 1px solid rgba(115, 157, 179, .1);
 }
-.plant-guide header > div { display: grid; gap: 2px; }
-.plant-guide-kicker { color: var(--plant-guide-accent); font-size: 9px; letter-spacing: .17em; }
-.plant-guide-title { color: #f0f7fa; font-size: 14px; }
+.plant-guide-title { color: #b8cad2; font-size: 10px; font-weight: 600; }
+.plant-guide-progress { color: #647c87; font-size: 8px; }
 .plant-guide-close {
   border: 0;
-  padding: 2px 6px;
-  color: #8da6b3;
+  padding: 0 2px;
+  color: #607680;
   background: transparent;
-  font-size: 21px;
+  font: inherit;
+  font-size: 12px;
   cursor: pointer;
 }
-.plant-guide-tabs { display: flex; gap: 4px; padding: 7px 10px 0; }
+.plant-guide-tabs { display: flex; gap: 2px; padding: 4px 6px 0; }
 .plant-guide-tabs.hidden { display: none; }
 .plant-guide-tabs button {
   border: 0;
-  border-bottom: 2px solid transparent;
-  padding: 4px 6px;
-  color: #78929e;
+  border-bottom: 1px solid transparent;
+  padding: 2px 4px;
+  color: #5f7680;
   background: transparent;
   font: inherit;
-  font-size: 9px;
+  font-size: 8px;
   cursor: pointer;
 }
-.plant-guide-tabs button.active { color: #dcebf1; border-bottom-color: var(--plant-guide-accent); }
-.plant-guide-body { padding: 10px; max-height: calc(100vh - 180px); overflow: auto; }
-.plant-guide-intro { margin: 0 3px 9px; color: #8fa8b4; font-size: 10px; }
-.plant-guide-intro strong { color: #cfe7f0; }
-.plant-guide-list { display: grid; gap: 3px; }
+.plant-guide-tabs button.active { color: #9bb3bd; border-bottom-color: color-mix(in srgb, var(--plant-guide-accent) 55%, transparent); }
+.plant-guide-body { padding: 5px 7px 6px; max-height: calc(100vh - 150px); overflow: auto; }
+.plant-guide-list { display: grid; gap: 1px; }
 .plant-guide-row {
   display: grid;
-  grid-template-columns: 22px 1fr;
-  gap: 7px;
+  grid-template-columns: 13px 1fr;
+  gap: 4px;
   align-items: start;
-  padding: 7px 6px;
-  border: 1px solid rgba(255,255,255,.055);
-  border-radius: 4px;
-  background: rgba(255,255,255,.025);
+  padding: 2px 1px;
 }
-.plant-guide-row > span:last-child { display: grid; gap: 2px; }
-.plant-guide-row strong { color: #dce9ee; font-size: 10px; }
-.plant-guide-row small { color: #718b97; font-size: 8px; }
-.plant-guide-mark { color: #d7a95b; font-size: 14px; text-align: center; }
-.plant-guide-row.placed .plant-guide-mark { color: #efc86c; }
-.plant-guide-row.connected .plant-guide-mark { color: #e58c68; }
-.plant-guide-row.complete { opacity: .74; }
-.plant-guide-row.complete .plant-guide-mark { color: #66d58d; }
-.plant-guide-row.complete strong { color: #a8cdb5; }
-.plant-guide-next {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 8px;
-  margin: 9px 2px 0;
-  padding-top: 8px;
-  border-top: 1px solid rgba(255,255,255,.08);
-  color: #9bb0ba;
-  font-size: 9px;
-}
-.plant-guide-next span { color: var(--plant-guide-accent); font-weight: 700; letter-spacing: .09em; }
-.plant-guide-next.complete { color: #a9dcb8; }
-.plant-guide-next.complete span { color: #66d58d; }
+.plant-guide-row > span:last-child { display: grid; gap: 1px; min-width: 0; }
+.plant-guide-row strong { overflow: hidden; color: #9aadb5; font-size: 9px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.plant-guide-row small { color: #687d86; font-size: 7px; line-height: 1.35; }
+.plant-guide-mark { color: #8b7651; font-size: 10px; text-align: center; }
+.plant-guide-row.placed .plant-guide-mark { color: #a98d53; }
+.plant-guide-row.connected .plant-guide-mark { color: #a96d59; }
+.plant-guide-row.complete { opacity: .46; }
+.plant-guide-row.complete .plant-guide-mark { color: #65a77a; }
+.plant-guide-row.complete strong { color: #81968a; text-decoration: line-through; }
 .bltype-source-note {
   margin: 12px 4px 2px;
   padding: 10px 12px;

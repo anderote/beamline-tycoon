@@ -32,10 +32,9 @@ export class UtilityPlantGuide {
     el.className = 'plant-guide hidden';
     el.setAttribute('aria-live', 'polite');
     el.innerHTML = '<button type="button" class="plant-guide-chip" data-plant-action="expand"></button>'
-      + '<div class="plant-guide-panel"><header><div>'
-      + '<span class="plant-guide-kicker">SYSTEM BUILD GUIDE</span>'
-      + '<strong class="plant-guide-title"></strong></div>'
-      + '<button type="button" class="plant-guide-close" data-plant-action="collapse" title="Collapse">×</button>'
+      + '<div class="plant-guide-panel"><header>'
+      + '<strong class="plant-guide-title"></strong><span class="plant-guide-progress"></span>'
+      + '<button type="button" class="plant-guide-close" data-plant-action="collapse" title="Collapse">−</button>'
       + '</header><nav class="plant-guide-tabs"></nav><div class="plant-guide-body"></div></div>';
     el.addEventListener('click', event => this._handleClick(event));
     document.body.appendChild(el);
@@ -144,7 +143,7 @@ export class UtilityPlantGuide {
         this._el?.classList.remove('just-completed');
         this.collapsed = true;
         this.render(true);
-      }, 2400);
+      }, 1400);
     }
 
     this._el.classList.remove('hidden');
@@ -154,6 +153,8 @@ export class UtilityPlantGuide {
 
     const title = this._el.querySelector('.plant-guide-title');
     if (title) title.textContent = checklist.config.title;
+    const progress = this._el.querySelector('.plant-guide-progress');
+    if (progress) progress.textContent = `${checklist.completeCount}/${checklist.rows.length}`;
     const chip = this._el.querySelector('.plant-guide-chip');
     if (chip) {
       chip.textContent = `${checklist.config.shortTitle} ${checklist.completeCount}/${checklist.rows.length}`
@@ -172,16 +173,14 @@ export class UtilityPlantGuide {
     const body = this._el.querySelector('.plant-guide-body');
     if (!body) return;
     const next = checklist.rows.find(row => !row.complete);
-    let html = `<p class="plant-guide-intro">Keep every required stage on the same <strong>${esc(checklist.config.lineName)}</strong> network. Equipment elsewhere does not count.</p>`;
-    html += '<div class="plant-guide-list">';
+    let html = '<div class="plant-guide-list">';
     for (const row of checklist.rows) {
-      html += `<div class="plant-guide-row ${esc(row.status)}">`
-        + `<span class="plant-guide-mark">${row.complete ? '✓' : row.status === 'placed' ? '!' : '○'}</span>`
-        + `<span><strong>${esc(row.label)}</strong><small>${esc(row.detail)}</small></span></div>`;
+      const isNext = row === next;
+      html += `<div class="plant-guide-row ${esc(row.status)}${isNext ? ' next' : ''}" title="${esc(row.detail)}">`
+        + `<span class="plant-guide-mark">${row.complete ? '✓' : row.status === 'placed' ? '•' : '○'}</span>`
+        + `<span><strong>${esc(row.label)}</strong>${isNext ? `<small>${esc(row.detail)}</small>` : ''}</span></div>`;
     }
     html += '</div>';
-    if (next) html += `<p class="plant-guide-next"><span>Next</span>${esc(next.detail)}</p>`;
-    else html += '<p class="plant-guide-next complete"><span>ONLINE</span>The plant is connected and serving its load.</p>';
     body.innerHTML = html;
   }
 }
