@@ -144,6 +144,29 @@ console.log('\n--- 1. The cursor can grab a line, and ports still win ---');
     'a port under the cursor still wins over a nearby line');
 }
 
+console.log('\n--- 1b. A rigid run is one continuous, forgiving magnetic target ---');
+{
+  const game = makeGame();
+  const lineId = game.utilityLineSystem.addLine({
+    utilityType: 'rfWaveguide', start: null, end: null,
+    path: [{ col: 2, row: 12 }, { col: 12, row: 12 }],
+  });
+  const ctrl = new UtilityLineInputController({ game, renderer: {} });
+  ctrl.setUtilityType('rfWaveguide');
+
+  // This is 0.55 tiles off the guide: outside the old 0.4-tile pickup, but
+  // still close enough to read as aiming at a thick fabricated service.
+  const iso = gridToIso(7.37, 12.55);
+  ctrl.onHover(iso.x, iso.y);
+  const hover = ctrl.hoverPort;
+  assert(hover?.tap === true && hover.lineId === lineId,
+    'the full RF segment attracts a nearby free-drag endpoint');
+  assert(hover && Math.abs(hover.worldPos.x / 2 - 7.25) < 1e-9
+      && Math.abs(hover.worldPos.z / 2 - 12) < 1e-9,
+    `the contact projects onto the quarter-tile topology grid (${JSON.stringify(
+      hover?.worldPos)})`);
+}
+
 console.log('\n--- 2. A drag onto the trunk commits, and joins its network ---');
 {
   const { game, trunk } = withTrunk();
@@ -305,6 +328,57 @@ console.log('\n--- 6. Vacuum pipes join pipe-to-pipe at arbitrary mid-span point
     && network.lineIds.includes(lowerId) && network.lineIds.includes(connector?.id)),
   `both trunks and their connector become one vacuum network (${JSON.stringify(
     networks.map(network => network.lineIds))})`);
+}
+
+console.log('\n--- 7. RF and cryogenic runs both build named line-to-line tees ---');
+{
+  for (const utilityType of ['rfWaveguide', 'cryoTransfer']) {
+    const game = makeGame();
+    const upperId = game.utilityLineSystem.addLine({
+      utilityType, start: null, end: null,
+      path: [{ col: 10, row: 22 }, { col: 20, row: 22 }],
+    });
+    const lowerId = game.utilityLineSystem.addLine({
+      utilityType, start: null, end: null,
+      path: [{ col: 10, row: 28 }, { col: 20, row: 28 }],
+    });
+    const ctrl = new UtilityLineInputController({ game, renderer: {} });
+    ctrl.setUtilityType(utilityType);
+    const a = gridToIso(15.37, 22.2);
+    const b = gridToIso(15.37, 27.8);
+    ctrl.onMouseDown(a.x, a.y, 0, {});
+    ctrl.onMouseMove(b.x, b.y, {});
+    ctrl.onMouseUp(b.x, b.y, 0, {});
+
+    const lines = Array.from(game.state.utilityLines.values())
+      .filter(line => line.utilityType === utilityType);
+    const connector = lines.find(line => line.id !== upperId && line.id !== lowerId);
+    assert(connector?.tapLineIds?.start === upperId
+        && connector?.tapLineIds?.end === lowerId,
+      `${utilityType} free-drag persists both named tee contacts`);
+    const networks = discoverNetworks(
+      utilityType, game.state.utilityLines, makeDefaultPortLookup(game.state));
+    assert(networks.some(network => [upperId, lowerId, connector?.id]
+      .every(id => network.lineIds.includes(id))),
+    `${utilityType} joins both trunks into one solved network`);
+  }
+}
+
+console.log('\n--- 8. Electrical lines still require distribution hardware ---');
+{
+  for (const utilityType of ['powerCable', 'hvCable']) {
+    const game = makeGame();
+    game.utilityLineSystem.addLine({
+      utilityType, start: null, end: null,
+      path: [{ col: 10, row: 34 }, { col: 20, row: 34 }],
+    });
+    const ctrl = new UtilityLineInputController({ game, renderer: {} });
+    ctrl.setUtilityType(utilityType);
+    const iso = gridToIso(15, 34);
+    ctrl.onHover(iso.x, iso.y);
+    assert(!ctrl.hoverPort?.tap,
+      `${utilityType} does not expose an improvised line-to-line tee`);
+  }
 }
 
 console.log(`\n=== ${passed} passed, ${failed} failed ===`);
