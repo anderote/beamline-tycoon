@@ -1,10 +1,23 @@
 import assert from 'node:assert/strict';
 import { UtilityLineSystem } from '../src/utility/UtilityLineSystem.js';
 import { discoverNetworks } from '../src/utility/network-discovery.js';
+import { PLACEABLES } from '../src/data/placeables/index.js';
+import { COMPONENTS } from '../src/data/components.js';
+import { UniversalUtilityBusTool } from '../src/input/universal-utility-bus-tool.js';
+import { standardPaletteKind } from '../src/ui/palette-collection.js';
 import {
   UNIVERSAL_BUS_MAX_CHANNELS,
   UniversalUtilityBusSystem,
 } from '../src/utility/UniversalUtilityBusSystem.js';
+
+assert.equal(PLACEABLES.universalUtilityBus, undefined,
+  'the bus is a drawn connection, not a placeable component');
+assert.ok(COMPONENTS.universalUtilityBus?.isDrawnConnection,
+  'the transport catalogue retains the drawn bus definition');
+assert.equal(standardPaletteKind(COMPONENTS.universalUtilityBus), 'utilityBus',
+  'the palette routes it through a line tool rather than component placement');
+assert.equal(new UniversalUtilityBusTool().armedPlaceableId, null,
+  'arming the bus cannot trigger the generic brick placement ghost');
 
 const state = {
   placeables: [], beamPipes: [], wallOccupied: {},
@@ -77,6 +90,15 @@ globalThis.THREE = THREE_NS;
 const { UtilityLineBuilderV2 } = await import('../src/renderer3d/utility-line-builder-v2.js');
 const parent = new THREE_NS.Group();
 const builder = new UtilityLineBuilderV2();
+builder.setPreview({
+  utilityType: 'powerCable', rack: true, valid: true,
+  path: [{ col: 0, row: 0 }, { col: 4, row: 0 }],
+}, parent);
+assert.equal(builder._previewObject?.userData?.isUniversalUtilityBusPreview, true,
+  'drag preview is a ladder tray, not a component box or thick cable');
+assert.ok(builder._previewObject.children.length >= 6,
+  'drag preview contains two rails and repeated crossbars');
+builder.setPreview(null, parent);
 builder.build(state.utilityLines, new Map(), parent, { state });
 const renderedRackGroups = parent.children.filter(group => group.userData?.isUniversalUtilityBus);
 assert.equal(renderedRackGroups.filter(group => group.userData.channelSlot == null).length, 1,

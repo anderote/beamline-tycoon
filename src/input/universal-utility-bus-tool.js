@@ -1,7 +1,7 @@
 // Click-drag construction tool for the utility-neutral four-channel rack.
 
 import { Tool } from './Tool.js';
-import { PLACEABLES } from '../data/placeables/index.js';
+import { COMPONENTS } from '../data/components.js';
 import { isoToGridFloat } from '../renderer/grid.js';
 import { planLinearManifold } from '../utility/linear-manifolds.js';
 
@@ -35,8 +35,6 @@ export class UniversalUtilityBusTool extends Tool {
     this.start = null;
   }
 
-  get armedPlaceableId() { return this.type; }
-
   onEnter(ctx) { ctx.renderer._renderCursors?.(); }
 
   onExit(ctx) { this.cancelGesture(ctx); ctx.renderer._clearGridOverlay?.(); }
@@ -52,7 +50,7 @@ export class UniversalUtilityBusTool extends Tool {
     const grid = isoToGridFloat(world.x, world.y);
     ctx.renderer.updateHover(Math.floor(grid.col), Math.floor(grid.row));
     if (!this.start) return true;
-    const plan = planFor(PLACEABLES[this.type], this.start, toSubtile(world));
+    const plan = planFor(COMPONENTS[this.type], this.start, toSubtile(world));
     ctx.input.utilityLineController.setExternalPreview({
       utilityType: 'powerCable', path: pathFor(plan), valid: plan.valid, rack: true,
     });
@@ -65,7 +63,7 @@ export class UniversalUtilityBusTool extends Tool {
   onMouseUp(e, ctx) {
     if (e.button !== 0 || !this.start) return false;
     const plan = planFor(
-      PLACEABLES[this.type], this.start,
+      COMPONENTS[this.type], this.start,
       toSubtile(ctx.renderer.screenToWorld(e.clientX, e.clientY)),
     );
     this.start = null;

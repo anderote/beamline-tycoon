@@ -2583,6 +2583,8 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
 
   const item = document.createElement('div');
   item.className = 'palette-item';
+  const isUniversalBus = !!comp.universalUtilityBus;
+  if (isUniversalBus) item.classList.add('utility-line-tool');
   item.dataset.paletteIndex = idx;
   item.dataset.paletteKey = key;
   item.dataset.paletteKind = paletteKind;
@@ -2610,10 +2612,19 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
   // Sprite preview — use 3D thumbnail if available, otherwise isometric box swatch
   const previewEl = document.createElement('div');
   previewEl.className = 'palette-preview';
-  const thumbUrl = paletteKind === 'decoration'
+  const thumbUrl = isUniversalBus ? null : paletteKind === 'decoration'
     ? renderDecorationThumbnail(key, 96)
     : renderComponentThumbnail(key, 96);
-  if (thumbUrl) {
+  if (isUniversalBus) {
+    const tray = document.createElement('div');
+    tray.setAttribute('aria-hidden', 'true');
+    tray.style.cssText = 'position:relative;width:52px;height:20px;margin:4px auto;'
+      + 'border-top:4px solid #9aa5ad;border-bottom:4px solid #68747c;'
+      + 'box-sizing:border-box;transform:skewX(-20deg);'
+      + 'background:repeating-linear-gradient(90deg,transparent 0 8px,#89959d 8px 11px);'
+      + 'filter:drop-shadow(0 2px 2px rgba(0,0,0,.55));';
+    previewEl.appendChild(tray);
+  } else if (thumbUrl) {
     const img = document.createElement('img');
     img.src = thumbUrl;
     img.width = 96;
@@ -2709,7 +2720,9 @@ UIHost.prototype._createPaletteItem = function(key, comp, idx) {
   // Cost
   const costEl = document.createElement('div');
   costEl.className = 'palette-cost';
-  const costs = Object.entries(comp.cost).map(([r, a]) =>
+  const costs = isUniversalBus
+    ? `$${this._fmt(comp.universalUtilityBus.costPerSubtile)} / 0.5m · drag to draw tray`
+    : Object.entries(comp.cost).map(([r, a]) =>
     r === 'funding' ? `$${this._fmt(a)}` : `${this._fmt(a)} ${r}`
   ).join(', ');
   if (zoneBlocked) {
