@@ -3149,7 +3149,9 @@ UIHost.prototype._bindHUDEvents = function() {
     const id = button.dataset.worldLayer || '';
     const label = id === 'infra'
       ? 'Infrastructure'
-      : `${id.slice(0, 1).toUpperCase()}${id.slice(1)}`;
+      : id === 'zoneLabels'
+        ? 'Zone labels'
+        : `${id.slice(0, 1).toUpperCase()}${id.slice(1)}`;
     button.classList.toggle('active', visible);
     button.setAttribute('aria-pressed', String(visible));
     button.title = `${visible ? 'Hide' : 'Show'} ${label} layer`;
@@ -3162,6 +3164,11 @@ UIHost.prototype._bindHUDEvents = function() {
   if (layerToggle && layerPanel) {
     layerToggle.addEventListener('click', () => {
       const opening = layerPanel.classList.contains('hidden');
+      if (opening) {
+        for (const button of layerButtons) {
+          syncLayerButton(button, this.renderer.isWorldLayerVisible(button.dataset.worldLayer));
+        }
+      }
       layerPanel.classList.toggle('hidden', !opening);
       layerToggle.setAttribute('aria-expanded', String(opening));
       layerToggle.title = `${opening ? 'Hide' : 'Show'} world layer visibility`;
