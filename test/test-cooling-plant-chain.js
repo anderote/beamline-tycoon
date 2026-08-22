@@ -17,9 +17,9 @@ const plantNetwork = {
 const state = {
   placeables: [{ id: 'chiller', type: 'chiller' }, { id: 'tower', type: 'coolingTower' }, { id: 'tank', type: 'waterTank' }],
   utilityNetworks: new Map([
-    ['powerCable', [{ id: 'power-1', ports: [{ placeableId: 'tower', portName: 'pwr_in' }, { placeableId: 'chiller', portName: 'pwr_in' }] }]],
+    ['hvCable', [{ id: 'hv-1', ports: [{ placeableId: 'tower', portName: 'hv_in' }, { placeableId: 'chiller', portName: 'hv_in' }] }]],
   ]),
-  utilityNetworkData: new Map([['powerCable', new Map([['power-1', { perSinkQuality: { 'tower:pwr_in': 1, 'chiller:pwr_in': 1 } }]])]]),
+  utilityNetworkData: new Map([['hvCable', new Map([['hv-1', { perSinkQuality: { 'tower:hv_in': 1, 'chiller:hv_in': 1 } }]])]]),
 };
 
 const process = coolingWater.solve(plantNetwork, { reservoirVolumeL: 500 }, state);
