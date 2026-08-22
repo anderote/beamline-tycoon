@@ -26,9 +26,12 @@
 //   B2. a two-point line sliding along its own axis stays a straight run.
 //   B3. a slide past the old terminal bend remains connected.
 //   B4. a line anchored to the same placeable at BOTH ends moves both legs.
-//   B5. both-ends dangle nulls both endpoints.
+//   B5. a line with both ends on one moved placeable stays connected.
 //   B6. an unrelated / unknown line is reported as not re-anchored, with no
 //       mutation and no event.
+//   B7. flexible lines have no move leash; fabricated rigid lines retain one.
+//   B8. exact off-grid model anchors cannot make a flexible line disconnect.
+//   B9. moving one end of a legacy zero-length line seeds visible geometry.
 
 import { Game } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
@@ -284,7 +287,26 @@ const LOOP_DEF = {
   },
 };
 
-function fixture() {
+function fixture(utilityType = 'powerCable') {
+  const sourceDef = {
+    ...SRC_DEF,
+    ports: {
+      powerOut: { ...SRC_DEF.ports.powerOut, utility: utilityType },
+    },
+  };
+  const sinkDef = {
+    ...SINK_DEF,
+    ports: {
+      powerIn: { ...SINK_DEF.ports.powerIn, utility: utilityType },
+    },
+  };
+  const loopDef = {
+    ...LOOP_DEF,
+    ports: {
+      powerOut: { ...LOOP_DEF.ports.powerOut, utility: utilityType },
+      powerIn: { ...LOOP_DEF.ports.powerIn, utility: utilityType },
+    },
+  };
   const state = {
     placeables: [
       { id: 'src1', type: 'source_rack', category: 'beamline', col: 2, row: 3, subCol: 0, subRow: 0, dir: 0 },
@@ -292,7 +314,7 @@ function fixture() {
       { id: 'loop1', type: 'loop_rack', category: 'beamline', col: 2, row: 3, subCol: 0, subRow: 0, dir: 0 },
     ],
     utilityLines: new Map(),
-    defs: { source_rack: SRC_DEF, sink_rack: SINK_DEF, loop_rack: LOOP_DEF },
+    defs: { source_rack: sourceDef, sink_rack: sinkDef, loop_rack: loopDef },
   };
   const events = [];
   const system = new UtilityLineSystem({
@@ -467,15 +489,17 @@ console.log('\n--- B6: unknown or unrelated lines are reported, not mutated ---'
 }
 
 // ==========================================================================
-// B7: rugged flexible services survive ordinary long moves, but installed
-// length is still the physical leash for an extreme displacement.
+// B7: flexible services never pop a plug during a move. Fabricated rigid
+// services retain an installed-length leash.
 // ==========================================================================
-console.log('\n--- B7: a genuinely overstretched line lets go ---');
+console.log('\n--- B7: flexible lines stay attached at any move distance ---');
 {
-  assert(utilityLineMoveStrainLimit('hvCable', 20) === 68,
-    'HV cable receives the rugged move allowance');
-  assert(utilityLineMoveStrainLimit('coolingWater', 20) === 68,
-    'cooling-water hose receives the rugged move allowance');
+  assert(utilityLineMoveStrainLimit('hvCable', 20) === Infinity,
+    'HV cable has no move-time disconnect threshold');
+  assert(utilityLineMoveStrainLimit('coolingWater', 20) === Infinity,
+    'cooling-water hose has no move-time disconnect threshold');
+  assert(utilityLineMoveStrainLimit('dataFiber', 20) === Infinity,
+    'data fiber follows the same flexible-line contract');
   assert(utilityLineMoveStrainLimit('rfWaveguide', 20) < 24,
     'fabricated rigid services keep the conservative leash');
   const { system, state } = fixture();
@@ -491,16 +515,96 @@ console.log('\n--- B7: a genuinely overstretched line lets go ---');
   });
   assert(resilient.ok === true && line.start?.placeableId === 'src1',
     `a rugged power lead stays attached through a long move (${JSON.stringify(resilient)})`);
-  const stretchedPath = JSON.stringify(line.path);
   const res = system.reanchorLine('l7', 'src1', {
     powerOut: { col: -30, row: 3 },
   });
-  assert(res.dangled === true && res.reason === 'overstretched',
-    `an over-limit pull reports the physical reason (${JSON.stringify(res)})`);
-  assert(line.start === null && line.end?.placeableId === 'sink1',
-    'only the plug on the carried machine disconnects');
-  assert(JSON.stringify(line.path) === stretchedPath && line.subL === 20,
-    'the loose run stays where it was and its installed length is unchanged');
+  assert(res.ok === true && res.dangled !== true,
+    `an extreme flexible pull still commits (${JSON.stringify(res)})`);
+  assert(line.start?.placeableId === 'src1' && line.end?.placeableId === 'sink1',
+    'both flexible-line endpoint identities survive');
+  assert(line.path[0].col === -30 && line.cablePath[0].col === -30,
+    'the committed logical and visible traces follow the moved fitting');
+  assert(line.subL > 20,
+    'the committed flexible length grows to cover the visible moved trace');
+
+  for (const utilityType of ['hvCable', 'coolingWater', 'dataFiber']) {
+    const service = fixture(utilityType);
+    const flexible = addRaw(service.state, {
+      id: `l7_${utilityType}`, utilityType, subL: 20,
+      start: { placeableId: 'src1', portName: 'powerOut' },
+      end: { placeableId: 'sink1', portName: 'powerIn' },
+      path: [{ col: 3, row: 3 }, { col: 8, row: 3 }],
+      cablePath: [{ col: 3, row: 3 }, { col: 8, row: 3 }],
+    });
+    const moved = service.system.reanchorLine(flexible.id, 'src1', {
+      powerOut: { col: -30, row: 3 },
+    });
+    assert(moved.ok === true && flexible.start?.placeableId === 'src1'
+        && flexible.end?.placeableId === 'sink1',
+    `${utilityType} preserves both endpoints through an extreme move`);
+  }
+
+  const rigid = addRaw(state, {
+    id: 'l7_rigid', utilityType: 'rfWaveguide', subL: 20,
+    start: { placeableId: 'src1', portName: 'powerOut' },
+    end: { placeableId: 'sink1', portName: 'powerIn' },
+    path: [{ col: 3, row: 3 }, { col: 8, row: 3 }],
+  });
+  const rigidRes = system.reanchorLine('l7_rigid', 'src1', {
+    powerOut: { col: -30, row: 3 },
+  });
+  assert(rigidRes.dangled === true && rigidRes.reason === 'overstretched'
+      && rigid.start === null,
+  'an over-limit fabricated service still requires rewiring');
+}
+
+// ==========================================================================
+// B8: measured connector anchors need not land exactly on the compatibility
+// grid. The freeform trace keeps the exact point while the logical route snaps.
+// ==========================================================================
+console.log('\n--- B8: exact model anchors cannot disconnect flexible lines ---');
+{
+  const { system, state } = fixture();
+  const line = addRaw(state, {
+    id: 'l8', utilityType: 'powerCable', subL: 20,
+    start: { placeableId: 'src1', portName: 'powerOut' },
+    end: { placeableId: 'sink1', portName: 'powerIn' },
+    path: [{ col: 3, row: 3 }, { col: 8, row: 3 }],
+    cablePath: [{ col: 3, row: 3 }, { col: 8, row: 3 }],
+  });
+  const res = system.reanchorLine('l8', 'src1', {
+    powerOut: { col: 4.13, row: 3.07 },
+  });
+  assert(res.ok === true && line.start?.placeableId === 'src1',
+    `an off-grid model anchor remains connected (${JSON.stringify(res)})`);
+  assert(line.cablePath[0].col === 4.13 && line.cablePath[0].row === 3.07,
+    'the visible flexible trace retains the exact fitting position');
+  assert(line.path[0].col === 4.25 && line.path[0].row === 3,
+    'the compatibility path independently stays on the quarter-tile grid');
+}
+
+// ==========================================================================
+// B9: old co-located connections stored duplicate endpoints. The soft-path
+// sanitizer collapses those, so moving one fitting must seed a new span.
+// ==========================================================================
+console.log('\n--- B9: moving a zero-length flexible line creates a real span ---');
+{
+  const { system, state } = fixture();
+  const line = addRaw(state, {
+    id: 'l9', utilityType: 'powerCable', subL: 0,
+    start: { placeableId: 'src1', portName: 'powerOut' },
+    end: { placeableId: 'sink1', portName: 'powerIn' },
+    path: [{ col: 3, row: 3 }, { col: 3, row: 3 }],
+    cablePath: [{ col: 3, row: 3 }, { col: 3, row: 3 }],
+  });
+  const res = system.reanchorLine('l9', 'src1', {
+    powerOut: { col: -4, row: 3 },
+  });
+  assert(res.ok === true && line.start?.placeableId === 'src1',
+    'the zero-length legacy connection stays attached');
+  assert(line.cablePath.length >= 2
+      && line.cablePath[0].col === -4 && line.cablePath.at(-1).col === 3,
+  'the committed cable grows a visible span between its fittings');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
