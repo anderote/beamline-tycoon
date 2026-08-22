@@ -193,9 +193,12 @@ the short authoring contract.
 
 - Read ports through `getUtilityPortsV2(id)` when solver defaults and derived RF
   band information matter. The flat table is raw authoring data.
-- An HV port with `tensionsCable: true` is a mechanical cable anchor: an
-  attached span discards drawn lateral slack and keeps only its shallow gravity
-  sag. The field is boolean and is invalid on every other utility.
+- An HV port with `tensionsCable: true` is a mechanical cable anchor. A span
+  discards drawn lateral slack and keeps only its shallow gravity sag when both
+  endpoints are mechanical anchors (including pole/rack supports and HV wall
+  fittings). A span with an ordinary equipment plug, line tap, or open cursor
+  at either end remains loose. The field is boolean and is invalid on every
+  other utility.
 - Assisted utility wiring commits real paid lines from real free connectors.
   A definition whose source/pass connectors belong to one utility opts in
   automatically; this covers utility supplies, manifolds, network switches,

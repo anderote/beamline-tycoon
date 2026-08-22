@@ -57,7 +57,7 @@ import {
 import { isoToGridFloat } from '../renderer/grid.js';
 import {
   cablePathLengthSubUnits,
-  isHvCableTensionAnchor,
+  isHvCableTensionSpan,
   isSoftCable,
   roundedCableTilePath,
   sanitizeCablePath,
@@ -309,11 +309,16 @@ export class UtilityLineInputController {
       busLane: populatingBusLane,
       startAnchor: this._drawStart?.anchor || null,
       endAnchor: snap?.anchor || null,
-      tensioned: this._utilityType === 'hvCable' && [this._drawStart, snap].some(handle => {
-        const endpoint = handle?.placeableId
-          ? findUtilityEndpoint(this.game.state, handle.placeableId) : null;
-        return isHvCableTensionAnchor(COMPONENTS[endpoint?.type], handle?.portName);
-      }),
+      // A suspended span needs hardware carrying tension at both ends. A pole,
+      // rack, wall fitting, or roof insulator must not pull the slack out of a
+      // cable whose other end is an ordinary equipment plug (or the cursor).
+      tensioned: this._utilityType === 'hvCable' && isHvCableTensionSpan(
+        [this._drawStart, snap].map(handle => {
+          const endpoint = handle?.placeableId
+            ? findUtilityEndpoint(this.game.state, handle.placeableId) : null;
+          return { def: COMPONENTS[endpoint?.type], portName: handle?.portName };
+        }),
+      ),
       routeHeightMeters: this._runPlan?.stubs?.[0]?.routeHeightMeters
         ?? geom.routeHeightMeters,
       waterCircuit: geom.waterCircuit || null,

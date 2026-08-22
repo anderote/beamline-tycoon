@@ -7,6 +7,7 @@ import {
   SOFT_CABLE_BEND_RADIUS_METERS,
   cablePathLengthSubUnits,
   draggedCablePath,
+  isHvCableTensionSpan,
   roundedCablePlanarPoints,
   relaxedCableControlPoints,
   sanitizeCablePath,
@@ -33,6 +34,18 @@ assert(SOFT_CABLE_BEND_RADIUS_METERS.powerCable
     && SOFT_CABLE_BEND_RADIUS_METERS.coolingWater
       < SOFT_CABLE_BEND_RADIUS_METERS.hvCable,
   'power bends tightest, then data, cooling and HV');
+
+const hvSupport = { ports: { hv: { utility: 'hvCable', tensionsCable: true } } };
+const ordinaryHvPlug = { ports: { hv: { utility: 'hvCable' } } };
+assert(isHvCableTensionSpan([
+  { def: hvSupport, portName: 'hv' }, { def: hvSupport, portName: 'hv' },
+]), 'two HV mechanical anchors tension their shared span');
+assert(!isHvCableTensionSpan([
+  { def: hvSupport, portName: 'hv' }, { def: ordinaryHvPlug, portName: 'hv' },
+]), 'one ordinary HV plug keeps the whole span loose');
+assert(!isHvCableTensionSpan([
+  { def: hvSupport, portName: 'hv' }, { def: null, portName: null },
+]), 'an open cursor end keeps an HV preview loose');
 
 const rightAngle = [
   { x: 0, z: 0 },

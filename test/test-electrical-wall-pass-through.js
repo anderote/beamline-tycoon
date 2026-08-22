@@ -300,10 +300,10 @@ test('indoor HV rack is a six-point bus with inset overhead terminals and two cr
   const networks = discoverNetworks('hvCable', lines, makeDefaultPortLookup(state));
   assert.equal(networks.length, 1,
     'a live feeder on any overhead terminal or side tap reaches all six rack points');
-  assert.equal(isTensionedHvCable(lines.get('cable-1-0'), new Map([[rack.id, rack]])), true,
-    'the indoor bracket applies the suspended HV tension-and-sag presentation');
-  assert.equal(isTensionedHvCable(lines.get('tap-left'), new Map([[rack.id, rack]])), true,
-    'a crossbar-height side tap applies the same cable tension as a utility-pole support');
+  assert.equal(isTensionedHvCable(lines.get('cable-1-0'), new Map([[rack.id, rack]])), false,
+    'one indoor bracket endpoint cannot tension a span with an open end');
+  assert.equal(isTensionedHvCable(lines.get('tap-left'), new Map([[rack.id, rack]])), false,
+    'one crossbar-height side tap cannot tension a span with an open end');
 });
 
 test('one-way indoor HV rack is one pole with one top-supported conductor', () => {
@@ -354,8 +354,8 @@ test('one-way indoor HV rack is one pole with one top-supported conductor', () =
   assert.equal(networks.length, 1,
     'both cable segments remain continuous through the single support point');
   assert.ok([...lines.values()].every(line => (
-    isTensionedHvCable(line, new Map([[rack.id, rack]]))
-  )), 'both attachments use suspended HV tension and sag');
+    !isTensionedHvCable(line, new Map([[rack.id, rack]]))
+  )), 'an open cable attachment remains loose despite its supported rack end');
 });
 
 test('compact indoor HV rack is an L-frame three-point bus for two overhead wires', () => {
@@ -430,8 +430,8 @@ test('compact indoor HV rack is an L-frame three-point bus for two overhead wire
   assert.equal(networks.length, 1,
     'either overhead conductor or the side tap energizes the complete compact rack');
   assert.ok([...lines.values()].every(line => (
-    isTensionedHvCable(line, new Map([[rack.id, rack]]))
-  )), 'all three elevated rack attachments use suspended HV tension and sag');
+    !isTensionedHvCable(line, new Map([[rack.id, rack]]))
+  )), 'all three elevated rack attachments remain loose while their other ends are open');
 });
 
 test('45-degree indoor HV rack turns four isolated suspended cables around corners', () => {
@@ -480,8 +480,8 @@ test('45-degree indoor HV rack turns four isolated suspended cables around corne
   const state = openState({ placeables: [rack], utilityLines: lines });
   const networks = discoverNetworks('hvCable', lines, makeDefaultPortLookup(state));
   assert.equal(networks.length, 4, 'the four corner conductors remain electrically isolated');
-  assert.equal(isTensionedHvCable(lines.get('corner-cable-1'), new Map([[rack.id, rack]])), true,
-    'the corner rack tensions attached HV spans');
+  assert.equal(isTensionedHvCable(lines.get('corner-cable-1'), new Map([[rack.id, rack]])), false,
+    'the corner rack cannot tension an attached span by itself');
 });
 
 test('outdoor poles and the transmission tower accept every HV approach', () => {
@@ -883,7 +883,7 @@ test('Utility-pole terminals take up lateral slack but retain visible suspension
     'the relaxed conductor hangs in a visible shallow bow rather than reading as rigid');
 });
 
-test('An HV wall pass-through tensions its attached feeder', () => {
+test('An HV wall pass-through leaves an ordinary equipment feeder loose', () => {
   const feed = {
     id: 'feed', type: 'hvWallPassThrough', col: 3, row: 5,
     subCol: 0, subRow: 0, dir: 3,
@@ -901,22 +901,18 @@ test('An HV wall pass-through tensions its attached feeder', () => {
     cablePath: [{ col: 3, row: 1 }, { col: 8, row: 3 }, { col: 3, row: 5 }],
   };
   const endpoints = new Map([['feed', feed], ['transformer', transformer]]);
-  assert.equal(isTensionedHvCable(line, endpoints), true);
+  assert.equal(isTensionedHvCable(line, endpoints), false);
   const cable = buildSoftCableWorldPoints(line, endpoints);
   const first = cable[0];
   const last = cable[cable.length - 1];
-  assert.ok(cable.every((point, index) => {
+  assert.ok(cable.some((point, index) => {
     const chord = first.clone().lerp(last, index / (cable.length - 1));
-    return Math.hypot(point.x - chord.x, point.z - chord.z) < 1e-8;
-  }), 'the pass-through removes drawn lateral slack');
-  const middleIndex = Math.floor(cable.length / 2);
-  const middleChord = first.clone().lerp(last, middleIndex / (cable.length - 1));
-  assert.ok(cable[middleIndex].y < middleChord.y - 0.36
-      && cable[middleIndex].y > middleChord.y - 1.36,
-    'the pass-through-supported conductor remains suspended with visible shallow sag');
+    return Math.hypot(point.x - chord.x, point.z - chord.z) > 1;
+  }), 'the loose feeder retains the player-drawn lateral route');
 });
 
 test('Every distribution cabinet roof tap accepts two segments and tensions HV cable', () => {
+  const panels = [];
   for (const [index, type] of [
     'compactHvDistributor', 'powerPanel', 'sectionDistributionPanel', 'mainDistributionPanel',
   ].entries()) {
@@ -924,6 +920,7 @@ test('Every distribution cabinet roof tap accepts two segments and tensions HV c
       id: `panel_${index}`, type, col: index * 3, row: 0,
       subCol: 0, subRow: 0, dir: 0,
     };
+    panels.push(panel);
     const ports = getUtilityPortsV2(type);
     assert.equal(ports.hv_in.maxConnections, 2, `${type} roof terminal accepts two cables`);
     assert.equal(ports.hv_in.tensionsCable, true, `${type} roof terminal declares tension support`);
@@ -931,17 +928,23 @@ test('Every distribution cabinet roof tap accepts two segments and tensions HV c
       utilityType: 'hvCable',
       start: { placeableId: panel.id, portName: 'hv_in' },
       end: null,
-    }, new Map([[panel.id, panel]])), true, `${type} tensions an attached span`);
+    }, new Map([[panel.id, panel]])), false, `${type} cannot tension an open-ended span`);
   }
+  const endpoints = new Map(panels.map(panel => [panel.id, panel]));
+  assert.equal(isTensionedHvCable({
+    utilityType: 'hvCable',
+    start: { placeableId: panels[0].id, portName: 'hv_in' },
+    end: { placeableId: panels[1].id, portName: 'hv_in' },
+  }, endpoints), true, 'two roof insulators tension the span between them');
 });
 
-test('A live HV draw from a tower stays taut to its open cursor end', () => {
+test('A live HV draw from a tower stays loose until it reaches another support', () => {
   const tower = {
     id: 'tower', type: 'transmissionTower',
     col: 0, row: 0, subCol: 0, subRow: 0, dir: 0,
   };
   const line = {
-    utilityType: 'hvCable', tensioned: true,
+    utilityType: 'hvCable', tensioned: false,
     path: [{ col: 0, row: 0 }, { col: 3, row: 4 }],
     cablePath: [{ col: 0, row: 0 }, { col: 2, row: 5 }, { col: 3, row: 4 }],
   };
@@ -949,13 +952,13 @@ test('A live HV draw from a tower stays taut to its open cursor end', () => {
   const cable = buildSoftCableWorldPoints(line, null, { start, end: null });
   const first = cable[0];
   const last = cable[cable.length - 1];
-  assert.ok(cable.every((point, index) => {
+  assert.ok(cable.some((point, index) => {
     const chord = first.clone().lerp(last, index / (cable.length - 1));
-    return Math.hypot(point.x - chord.x, point.z - chord.z) < 1e-8;
-  }), 'the draw preview ignores mouse-trace slack at a tension support');
+    return Math.hypot(point.x - chord.x, point.z - chord.z) > 1;
+  }), 'the draw preview retains mouse-trace slack with an open cursor end');
   const middleIndex = Math.floor(cable.length / 2);
   const middleChord = first.clone().lerp(last, middleIndex / (cable.length - 1));
   assert.ok(cable[middleIndex].y < middleChord.y,
-    'the live tensioned preview includes the suspended bow');
-  assert.ok(first.y > last.y, 'the preview reaches down from tower height to the cursor plane');
+    'the loose preview bows under gravity');
+  assert.ok(first.y > last.y, 'the loose preview still reaches down from tower height to the cursor plane');
 });
