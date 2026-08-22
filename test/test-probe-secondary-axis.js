@@ -4,6 +4,7 @@
 
 import fs from 'node:fs';
 import { ProbePlots } from '../src/ui/probe-plots.js';
+import { PROBE_PLOT_GROUPS } from '../src/ui/probe.js';
 
 let passed = 0;
 let failed = 0;
@@ -445,10 +446,10 @@ console.log('\n--- Designer controls ---');
   check(thirdPanelControls.includes('data-panel="2"')
     && thirdPanelControls.includes('<option value="phase-space" selected>Transverse Phase Space</option>')
     && thirdPanelControls.includes('<option value="eic-triangle">E / I / &epsilon; Triangle</option>')
-    && !thirdPanelControls.includes('value="energy"')
+    && thirdPanelControls.includes('<option value="energy">Energy</option>')
     && !thirdPanelControls.includes('value="energy-dispersion"')
     && !thirdPanelControls.includes('disabled'),
-  'the right panel defaults to transverse phase space and shares the grouped primary plot catalogue');
+  'the right panel defaults to transverse phase space and offers standalone Energy');
   check(html.includes('Secondary plot for panel 1')
     && html.includes('Third plot for panel 2'),
   'overlay selectors have channel- and panel-specific accessible labels');
@@ -458,6 +459,13 @@ console.log('\n--- Designer controls ---');
   'all three new optics quantities appear in the designer plot catalogue');
   check((html.match(/<option value="beam-power"(?: selected)?\s*>Beam Power<\/option>/g) || []).length === 7,
     'beam power appears in every primary and overlay Designer plot catalogue');
+  check((html.match(/<option value="energy">Energy<\/option>/g) || []).length === 7
+    && !html.includes('value="energy-dispersion"'),
+  'standalone Energy appears in every Designer catalogue without restoring the combined plot');
+  const probePlotIds = PROBE_PLOT_GROUPS.flatMap(group => group.plots.map(plot => plot.id));
+  check(probePlotIds.filter(id => id === 'energy').length === 1
+    && !probePlotIds.includes('energy-dispersion'),
+  'the Probe catalogue restores standalone Energy without the combined plot');
   check((html.match(/<option value="bunch-evolution"(?: selected)?\s*>Bunch Evolution<\/option>/g) || []).length === 3,
     'bunch evolution appears in every primary Designer catalogue without posing as one-axis overlay');
   check(controller.includes("canvas.addEventListener('mousemove'")
