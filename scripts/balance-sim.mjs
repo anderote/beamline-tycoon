@@ -242,7 +242,7 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   // Service row (8), two north of the line. Sizing, all of it forced by the
   // on-pipe demands that now gate individually:
   //   power ~830 kW (240 of it the four rfCavities, 380 the RF plant) -> the
-  //     1200 kW HV transformer, not the 400 kW switchgear;
+  //     1200 kW HV transformer; distribution gear does not add supply;
   //   RF at two frequencies — 2856 MHz cavities and a 162.5 MHz buncher — so a
   //     multibeam klystron for the cavities plus an SSA for the buncher;
   //     see the TODO(balance) on the waveguide wiring below;

@@ -2436,7 +2436,7 @@ export const INFRASTRUCTURE_RAW = {
     // component by what it does in the build palette. This is the facility's
     // HV splitter, not another source of electrical capacity.
     name: 'HV Distributor Box',
-    desc: 'Protected high-voltage distribution box. One incoming 400 kW HV feeder fans out to four independently wired 100 kW HV feeders for RF sources, cooling plant, or downstream power panels. It distributes existing capacity; it does not generate any.',
+    desc: 'Protected high-voltage distribution box. One incoming 1,200 kW HV feeder fans out to four independently wired 300 kW HV feeders for RF sources, cooling plant, or downstream power panels. It distributes existing capacity; it does not generate any.',
     category: 'power', subsection: 'distribution',
     paletteOrder: 5,
     cost: { funding: 400000 },
@@ -2454,7 +2454,7 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
     electricalControl: {
-      breaker: { utility: 'hvCable', rating: 400, tripDelayTicks: 5 },
+      breaker: { utility: 'hvCable', rating: 1200, tripDelayTicks: 5 },
     },
     requiredConnections: [],
   },

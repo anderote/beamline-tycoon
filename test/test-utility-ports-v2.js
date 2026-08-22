@@ -317,11 +317,13 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   const hvDistributorOutputs = Object.values(gear)
     .filter(p => p.connectionKind === 'hvDistributionOut');
   assert(gear.hv_in?.connectionKind === 'hvDistributionIn'
-      && gear.hv_in.params.demand === 400
+      && gear.hv_in.params.demand === 1200
       && gear.hv_in.params.tracksDownstreamDemand === true
       && hvDistributorOutputs.length === 4
-      && hvDistributorOutputs.every(p => p.params.capacity === 100),
-    'HV Distributor Box has one 400 kW input and four protected 100 kW outputs');
+      && hvDistributorOutputs.every(p => p.params.capacity === 300),
+    'HV Distributor Box has one 1,200 kW input and four protected 300 kW outputs');
+  assert(INFRASTRUCTURE_RAW.switchgear.electricalControl?.breaker?.rating === 1200,
+    'HV Distributor Box breaker matches its 1,200 kW feeder rating');
   assert(compactHvDistributorOutputs.length < hvDistributorOutputs.length
       && compactGear.hv_in.params.demand < gear.hv_in.params.demand,
     'compact HV distribution is the smaller 1-to-2 rung below the 1-to-4 box');

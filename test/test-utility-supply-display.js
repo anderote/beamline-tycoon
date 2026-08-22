@@ -40,7 +40,7 @@ function drawRows(id) {
 console.log('\n--- Test 1: source components report correct supply ---');
 {
   const POWER = {
-    hvTransformer: 1500, switchgear: 400, compactHvDistributor: 200, mcc: 250,
+    hvTransformer: 1500, switchgear: 1200, compactHvDistributor: 200, mcc: 250,
     padMountTransformer: 150, ups: 100, powerPanel: 40,
   };
   for (const [id, cap] of Object.entries(POWER)) {
@@ -187,6 +187,12 @@ console.log('\n--- Test 7: palette metrics expose placement requirements ---');
     'compact HV distributor: palette shows its 200 kW incoming feeder rating');
   assert(compactHvMetrics.some(r => r.label === 'Power capacity' && r.value === '200 kW'),
     'compact HV distributor: palette shows two outputs totaling 200 kW');
+
+  const hvDistributorMetrics = paletteUtilityMetrics(COMPONENTS.switchgear);
+  assert(hvDistributorMetrics.some(r => r.label === 'Power draw' && r.value === '1,200 kW'),
+    'HV Distributor Box: palette shows its 1,200 kW incoming feeder rating');
+  assert(hvDistributorMetrics.some(r => r.label === 'Power capacity' && r.value === '1,200 kW'),
+    'HV Distributor Box: palette shows four outputs totaling 1,200 kW');
 }
 
 // ======================================================================
