@@ -268,6 +268,30 @@ export class UtilityInspector {
           && s.params?.storageCapacityL > 0) {
           cap = s.params.storageCapacityL;
           sourceUnit = 'L storage';
+        } else if (network.utilityType === 'cryoTransfer' && !(cap > 0)
+          && s.params?.heatRejectionCapacityW > 0) {
+          cap = s.params.heatRejectionCapacityW;
+          sourceUnit = 'W heat rejection';
+        } else if (network.utilityType === 'cryoTransfer' && !(cap > 0)
+          && s.params?.storageCapacityL > 0) {
+          cap = s.params.storageCapacityL;
+          sourceUnit = 'L LHe storage';
+        } else if (network.utilityType === 'cryoTransfer' && !(cap > 0)
+          && s.params?.recoveryContribution > 0) {
+          cap = s.params.recoveryContribution * 100;
+          sourceUnit = '% recovery stage';
+        } else if (network.utilityType === 'cryoTransfer' && !(cap > 0)
+          && s.params?.preCoolingFraction > 0) {
+          cap = s.params.preCoolingFraction * 100;
+          sourceUnit = '% pre-cooling';
+        } else if (network.utilityType === 'cryoTransfer' && !(cap > 0)
+          && s.params?.staticHeatReductionFraction > 0) {
+          cap = s.params.staticHeatReductionFraction * 100;
+          sourceUnit = '% heat-leak reduction';
+        } else if (network.utilityType === 'cryoTransfer' && !(cap > 0)
+          && s.params?.ln2Reservoir) {
+          cap = 1;
+          sourceUnit = 'LN2 pre-cooling reservoir';
         }
         html += `<div class="utility-endpoint-row">
           <div class="utility-endpoint-name"><strong>${escapeHtml(this._placeableLabel(s.placeableId))}</strong><span>${escapeHtml(s.portName)}</span></div>

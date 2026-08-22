@@ -67,13 +67,14 @@ Carries cryogenic helium between cold boxes and SRF components. The network's ou
 
 - **Color:** Cyan (0x44aacc)
 - **Network type:** Thermal — heat load vs plant capacity, resolved into a bath temperature
-- **Source equipment:** 4K Cold Box (500 W), 2K Cold Box (800 W). A 2K Cold Box on the network sets its design temperature to 2.0 K.
+- **Plant chain:** Helium Recovery/Storage reservoir + 4K or 2K Cold Box chiller + powered Helium Compressor heat rejector. The compressor also needs a live cooling-water loop. A 2K Cold Box sets the network design temperature to 2.0 K.
+- **Integrated source:** Cryocooler (90 W, 50 L sealed inventory) combines all three plant roles for a small starter network.
 - **Consumers:** Half-Wave Resonator, Spoke Cavity, 9-cell Elliptical SRF, TESLA Cryomodule
-- **Cost:** $4,000/sub-unit ($16,000/tile) — the outlier of the ladder, by design
+- **Cost:** $160/sub-unit ($640/tile)
 - **Bus:** Cryo Valve Box, $400k, 6-cell service radius
-- **Support equipment (flavour only):** He Compressor, Cryomodule Housing, LN2 Pre-cooler, LN2 Dewar, He Recovery/Storage, Cryocooler
+- **Networked process equipment:** LN2 Dewar + powered LN2 Pre-cooler, Cryomodule Housing, Recovery Header, Gas Bag, powered Purifier, and powered Liquefier
 
-The **He Compressor is not required** for a cold box to work — the solver has no compressor check. The **Cryocooler declares no cryo source port** and therefore contributes zero capacity.
+Every buildable cryogenic item exposes a visible cryo connector. Missing storage, chilling, heat rejection, electrical power, or compressor cooling fails closed instead of silently producing refrigeration.
 
 ### Data/Fiber (white)
 Carries control signals and measurement data between diagnostics and the control system. It is a directionless shared fabric: every data port is a peer, and a device is connected when its bus reaches at least one other device.

@@ -6,7 +6,7 @@
 // lheVolumeL < QUENCH_THRESHOLD_L = 20; quality collapses to 0.
 // refillCost: $50/L up to 500L.
 
-import desc from '../src/utility/types/cryoTransfer.js';
+import desc, { RESERVOIR_MAX_L } from '../src/utility/types/cryoTransfer.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -16,12 +16,20 @@ function assert(cond, msg) {
 function approx(a, b, eps = 1e-6) { return Math.abs(a - b) < eps; }
 
 function mkNetwork(overrides) {
+  const sources = [
+    { portKey: 'cold:cryo', placeableId: 'cold', portName: 'cryo',
+      params: { coldCapacityW: 100, designTempK: 4.5 } },
+    { portKey: 'store:cryo', placeableId: 'store', portName: 'cryo',
+      params: { coldCapacityW: 0, storageCapacityL: RESERVOIR_MAX_L } },
+    { portKey: 'reject:cryo', placeableId: 'reject', portName: 'cryo',
+      params: { coldCapacityW: 0, heatRejectionCapacityW: 100 } },
+  ];
   return {
     id: 'net_x',
     utilityType: 'cryoTransfer',
     lineIds: [],
     ports: [],
-    sources: [],
+    sources,
     sinks: [],
     ...overrides,
   };
@@ -32,9 +40,9 @@ function mkNetwork(overrides) {
 // ==========================================================================
 console.log('\n--- Test 1: no sinks, full reservoir ---');
 {
-  const r = desc.solve(mkNetwork({}), { lheVolumeL: 500 }, {});
+  const r = desc.solve(mkNetwork({}), { lheVolumeL: RESERVOIR_MAX_L }, {});
   assert(r.errors.length === 0, `no errors (got ${r.errors.length})`);
-  assert(r.nextPersistentState.lheVolumeL === 500, `lhe unchanged (got ${r.nextPersistentState.lheVolumeL})`);
+  assert(r.nextPersistentState.lheVolumeL === RESERVOIR_MAX_L, `lhe unchanged (got ${r.nextPersistentState.lheVolumeL})`);
 }
 
 // ==========================================================================
@@ -43,14 +51,13 @@ console.log('\n--- Test 1: no sinks, full reservoir ---');
 console.log('\n--- Test 2: sink 18W, source 100W ---');
 {
   const net = mkNetwork({
-    sources: [{ portKey: 's1', placeableId: 'p1', portName: 'cryo', params: { coldCapacityW: 100 } }],
     sinks:   [{ portKey: 'k1', placeableId: 'p2', portName: 'cryo', params: { srfHeatW: 18 } }],
   });
-  const r = desc.solve(net, { lheVolumeL: 500 }, {});
+  const r = desc.solve(net, { lheVolumeL: RESERVOIR_MAX_L }, {});
   assert(r.flowState.perSinkQuality.k1 === 1, `k1 quality 1 (got ${r.flowState.perSinkQuality.k1})`);
   assert(r.errors.length === 0, `no errors (got ${r.errors.length})`);
-  assert(approx(r.nextPersistentState.lheVolumeL, 500 - 0.009),
-    `lhe 499.991 (got ${r.nextPersistentState.lheVolumeL})`);
+  assert(approx(r.nextPersistentState.lheVolumeL, RESERVOIR_MAX_L - 0.009),
+    `lhe ${RESERVOIR_MAX_L - 0.009} (got ${r.nextPersistentState.lheVolumeL})`);
 }
 
 // ==========================================================================
@@ -59,7 +66,6 @@ console.log('\n--- Test 2: sink 18W, source 100W ---');
 console.log('\n--- Test 3: reservoir 19 with sinks → quench ---');
 {
   const net = mkNetwork({
-    sources: [{ portKey: 's1', placeableId: 'p1', portName: 'cryo', params: { coldCapacityW: 100 } }],
     sinks:   [{ portKey: 'k1', placeableId: 'p2', portName: 'cryo', params: { srfHeatW: 18 } }],
   });
   const r = desc.solve(net, { lheVolumeL: 19 }, {});
@@ -79,10 +85,9 @@ console.log('\n--- Test 3: reservoir 19 with sinks → quench ---');
 console.log('\n--- Test 3b: healthy reservoir → not quenched ---');
 {
   const net = mkNetwork({
-    sources: [{ portKey: 's1', placeableId: 'p1', portName: 'cryo', params: { coldCapacityW: 100 } }],
     sinks:   [{ portKey: 'k1', placeableId: 'p2', portName: 'cryo', params: { srfHeatW: 18 } }],
   });
-  const r = desc.solve(net, { lheVolumeL: 500 }, {});
+  const r = desc.solve(net, { lheVolumeL: RESERVOIR_MAX_L }, {});
   assert(r.flowState.quenched === false, `flowState.quenched false (got ${r.flowState.quenched})`);
 }
 
@@ -91,10 +96,10 @@ console.log('\n--- Test 3b: healthy reservoir → not quenched ---');
 // ==========================================================================
 console.log('\n--- Test 4: refillCost basics ---');
 {
-  assert(desc.refillCost({ lheVolumeL: 500 }) === null, 'full → null');
-  const empty = desc.refillCost({ lheVolumeL: 0 });
-  assert(empty && empty.funding === 25000, `empty → $25000 (got ${JSON.stringify(empty)})`);
-  const partial = desc.refillCost({ lheVolumeL: 400 });
+  assert(desc.refillCost({ lheVolumeL: RESERVOIR_MAX_L, reservoirCapacityL: RESERVOIR_MAX_L }) === null, 'full → null');
+  const empty = desc.refillCost({ lheVolumeL: 0, reservoirCapacityL: RESERVOIR_MAX_L });
+  assert(empty && empty.funding === RESERVOIR_MAX_L * 50, `empty → full-price refill (got ${JSON.stringify(empty)})`);
+  const partial = desc.refillCost({ lheVolumeL: RESERVOIR_MAX_L - 100, reservoirCapacityL: RESERVOIR_MAX_L });
   assert(partial && partial.funding === 5000, `400L → $5000 (got ${JSON.stringify(partial)})`);
 }
 
@@ -104,7 +109,6 @@ console.log('\n--- Test 4: refillCost basics ---');
 console.log('\n--- Test 5: multiple ticks monotonic ---');
 {
   const net = mkNetwork({
-    sources: [{ portKey: 's1', placeableId: 'p1', portName: 'cryo', params: { coldCapacityW: 100 } }],
     sinks:   [{ portKey: 'k1', placeableId: 'p2', portName: 'cryo', params: { srfHeatW: 18 } }],
   });
   let p = { lheVolumeL: 21 };
@@ -128,7 +132,6 @@ console.log('\n--- Test 5: multiple ticks monotonic ---');
 console.log('\n--- Test 6: purity ---');
 {
   const net = mkNetwork({
-    sources: [{ portKey: 's1', placeableId: 'p1', portName: 'cryo', params: { coldCapacityW: 100 } }],
     sinks:   [{ portKey: 'k1', placeableId: 'p2', portName: 'cryo', params: { srfHeatW: 18 } }],
   });
   const netSnap = JSON.stringify(net);

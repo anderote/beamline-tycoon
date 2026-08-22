@@ -63,6 +63,15 @@ const COOLING_INVENTORY_METRICS = [
   ['storageCapacityL', 'Water storage', 'L'],
 ];
 
+const CRYO_CAPABILITY_METRICS = [
+  ['storageCapacityL', 'LHe storage', 'L'],
+  ['heatRejectionCapacityW', 'Cryo heat rejection', 'W'],
+  ['preCoolingFraction', 'Pre-cooling boost', '%', 100],
+  ['staticHeatReductionFraction', 'Static heat reduction', '%', 100],
+  ['recoveryContribution', 'Helium recovery', '%', 100],
+  ['liquefactionRateLPerTick', 'LHe make-up rate', 'L/tick'],
+];
+
 function compactNumber(value) {
   if (Math.abs(value) >= 1000) return Math.round(value).toLocaleString();
   // Vacuum loads are intentionally tiny (often 5e-7 mbar·L/s). Rounding
@@ -94,6 +103,17 @@ export function paletteUtilityMetrics(comp) {
           || { label, unit, value: 0, kind: 'capacity' };
         inventory.value += inventoryValue;
         totals.set(inventoryKey, inventory);
+      }
+    }
+    if (port.role === 'source' && port.utility === 'cryoTransfer') {
+      for (const [param, label, unit, scale = 1] of CRYO_CAPABILITY_METRICS) {
+        const raw = Number(port.params?.[param]);
+        if (!Number.isFinite(raw) || raw <= 0) continue;
+        const metricKey = `cryo:${param}`;
+        const metric = totals.get(metricKey)
+          || { label, unit, value: 0, kind: 'capacity' };
+        metric.value += raw * scale;
+        totals.set(metricKey, metric);
       }
     }
     const kind = port.role === 'sink' ? 'draw' : 'capacity';
@@ -244,6 +264,18 @@ export function utilityStatRows(comp) {
       amount += Number(port.params?.[param]) || 0;
     }
     if (amount > 0) rows.push({ label, value: `${Math.round(amount * 1e6) / 1e6} ${unit}` });
+  }
+
+  for (const [param, label, unit, scale = 1] of CRYO_CAPABILITY_METRICS) {
+    let amount = 0;
+    for (const port of Object.values((comp && comp.ports) || {})) {
+      if (port?.utility !== 'cryoTransfer' || port.role !== 'source') continue;
+      amount += (Number(port.params?.[param]) || 0) * scale;
+    }
+    if (amount > 0) rows.push({
+      label,
+      value: `${Math.round(amount * 1e6) / 1e6} ${unit}`,
+    });
   }
 
   return rows;

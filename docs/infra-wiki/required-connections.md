@@ -138,19 +138,24 @@ Equipment power demand is its own energy cost, so the panel and the bill can nev
 |-----------|:----------:|----------|:------------:|
 | 4K Cold Box | 15 | 500 W @ 4.5 K design | |
 | 2K Cold Box | 25 | 800 W, **sets network design temp to 2.0 K** | |
-| He Compressor | 20 | *nothing — not required by the solver* | 20 |
+| He Compressor | 20 | 800 W warm-end heat rejection; required by a central plant | 20 |
 | Cryo Valve Box | | Cryo bus, 6-cell reach | |
-| Cryocooler | 2 | *nothing — declares no cryo source port* | |
-| LN2 Dewar | | *inert* | |
-| LN2 Pre-cooler | | *inert* | |
-| Cryomodule Housing | | *inert* | |
-| He Recovery/Storage | 3 | raises recovery ceiling 0.70 → 0.90 | |
+| Cryocooler | 25 | Integrated 90 W chiller/rejector with sealed 50 L inventory | |
+| LN2 Dewar | | Enables LN2 precooling | |
+| LN2 Pre-cooler | 5 | +0.15 cold capacity with connected dewar | |
+| Cryomodule Housing | 2 | -0.05 static heat load (up to -0.25) | |
+| He Recovery/Storage | 3 | 2,000 L reservoir; raises recovery ceiling 0.70 → 0.90 | |
 | He Recovery Header | | +0.25 recovery fraction | |
 | He Gas Bag | | +0.15 recovery fraction | |
 | He Purifier | 3 | +0.20 recovery fraction | |
-| He Liquefier | 12 | +0.30 recovery fraction | |
+| He Liquefier | 12 | +0.30 recovery fraction; +1 L/tick make-up | |
 
-Recovery is facility-wide and counts each type once. The four contributing parts sum to 0.90, but the ceiling is 0.70 unless He Recovery/Storage is also built — you cannot keep more helium than you have vessels for. It multiplies net LHe loss, not boil-off.
+Every row has a cryo connector. Plant and recovery capabilities apply only on
+the network to which the equipment is wired, and powered stages count only
+with a live electrical feed. The compressor also requires a complete live
+cooling-water plant. Recovery counts each type once per network, multiplies net
+LHe loss rather than boil-off, and is capped at 0.70 unless bulk storage raises
+the ceiling to 0.90.
 
 ### Power
 | Equipment | Provides |

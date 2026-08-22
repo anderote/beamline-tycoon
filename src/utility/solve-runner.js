@@ -40,11 +40,12 @@ const ORPHAN_GRACE_PASSES = 300;
  * divided by `share`; anything else is carried over as-is. __portKeys is
  * dropped — the next solve() rewrites it from the live network's ports.
  */
-function splitPersistentState(entry, share) {
+function splitPersistentState(entry, share, intensiveFields = []) {
+  const intensive = new Set(intensiveFields);
   const out = {};
   for (const [k, v] of Object.entries(entry)) {
     if (k === '__portKeys' || k === '__orphanedAt') continue;
-    out[k] = typeof v === 'number' ? v * share : v;
+    out[k] = typeof v === 'number' && !intensive.has(k) ? v * share : v;
   }
   return out;
 }
@@ -209,18 +210,27 @@ export class SolveRunner {
     const inheritedType = new Map(); // netId -> utility type (for the cap below)
     const inheritedNetwork = new Map(); // netId -> live network (for dynamic caps)
     const claimed = new Set();   // orphan ids a live network inherited from
-    const addShare = (netId, entry, share) => {
-      const part = splitPersistentState(entry, share);
+    const addShare = (netId, entry, share, intensiveFields = []) => {
+      const intensive = new Set(intensiveFields);
+      const part = splitPersistentState(entry, share, intensiveFields);
       const cur = inherited.get(netId);
       if (!cur) { inherited.set(netId, part); return; }
       for (const [k, v] of Object.entries(part)) {
-        if (typeof v === 'number') cur[k] = (typeof cur[k] === 'number' ? cur[k] : 0) + v;
+        if (typeof v === 'number' && intensive.has(k)) {
+          // Temperature and similar state are intensive: splitting does not
+          // halve them, and joining keeps the conservative (worst/highest)
+          // value instead of summing two baths into an impossible 9 K one.
+          cur[k] = typeof cur[k] === 'number' ? Math.max(cur[k], v) : v;
+        } else if (typeof v === 'number') {
+          cur[k] = (typeof cur[k] === 'number' ? cur[k] : 0) + v;
+        }
         else if (cur[k] === undefined) cur[k] = v;
       }
     };
 
     for (const [utilityType, nets] of networksByType) {
       const typePrefix = `net_${utilityType}_`;
+      const intensiveFields = this.registry.types?.[utilityType]?.persistentIntensiveFields || [];
       const successors = nets
         .filter(n => !stateMap.has(n.id))
         .map(n => ({
@@ -241,7 +251,7 @@ export class SolveRunner {
           if (overlap > 0) { shares.push({ id: s.id, overlap }); total += overlap; }
         }
         for (const s of shares) {
-          addShare(s.id, entry, s.overlap / total);
+          addShare(s.id, entry, s.overlap / total, intensiveFields);
           inheritedType.set(s.id, utilityType);
           inheritedNetwork.set(s.id, nets.find(n => n.id === s.id));
         }

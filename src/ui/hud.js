@@ -3651,8 +3651,11 @@ UIHost.prototype._renderCryoStats = function(d, summary, detail, append = false)
     ${this._detailRow('Sub-Cooling 2K', dd.subCooling2K)}
     ${this._detailRow('Cryo Housings', dd.cryoHousings)}
     ${this._detailRow('LN2 Pre-coolers', dd.ln2Precoolers)}
+    ${this._detailRow('Plant Chain', dd.plantComplete ? 'Online' : 'Incomplete')}
+    ${this._detailRow('LHe Inventory', `${(dd.reservoirVolumeL || 0).toFixed(0)} / ${(dd.storageCapacityL || 0).toFixed(0)}`, 'L')}
     ${this._detailRow('He Recovery',
       `${Math.round((dd.heRecoveryFraction || 0) * 100)}% / ${Math.round((dd.heRecoveryCeiling || 0) * 100)}% cap`)}
+    ${this._detailRow('Recovery Stages', dd.recoveryStageCount || 0)}
     ${this._detailRow('Cryocoolers', dd.cryocoolers)}
     ${this._detailRow('Static Load', dd.staticLoad.toFixed(1), 'W')}
     ${this._detailRow('Dynamic Load', dd.dynamicLoad.toFixed(1), 'W')}

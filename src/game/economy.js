@@ -1,12 +1,5 @@
 import { COMPONENTS } from '../data/components.js';
 import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
-// Imported from the solver module directly, not through the utility registry:
-// the registry pulls in every type descriptor and economy.js is imported from
-// inside that graph. cryoTransfer.js itself only reaches for cavity-specs and
-// endpoint-lookup, both leaves.
-import {
-  heRecoveryFraction, HE_RECOVERY_CAP, HE_RECOVERY_CAP_NO_STORAGE, HE_STORAGE_TYPE,
-} from '../utility/types/cryoTransfer.js';
 import {
   poweredPlaceables, beamlineEnergyDraw, billedDataRate, facilityEnergyDraw,
   hardwareNodeCount, pumpCount as countPumps,
@@ -320,7 +313,9 @@ export function worstReflectedFraction(state) {
  */
 export function cryoNetworkSummary(state) {
   let tempK = null, staticLoad = 0, dynamicLoad = 0, capacity = 0, rated = 0;
-  let quenched = false, warming = false, found = false;
+  let storageCapacityL = 0, reservoirVolumeL = 0;
+  let boiloffL = 0, recoveredL = 0, recoveryCeiling = 0, recoveryStageCount = 0;
+  let quenched = false, warming = false, plantComplete = true, found = false;
   for (const [utilityType, perType] of (state?.utilityNetworkData || [])) {
     if (utilityType !== 'cryoTransfer') continue;
     for (const flow of perType.values()) {
@@ -333,12 +328,25 @@ export function cryoNetworkSummary(state) {
       dynamicLoad += flow.dynamicLoad || 0;
       capacity += flow.totalCapacity || 0;
       rated += flow.ratedCapacity || 0;
+      storageCapacityL += flow.storageCapacityL || 0;
+      reservoirVolumeL += flow.reservoirVolumeL || 0;
+      boiloffL += flow.boiloffL || 0;
+      recoveredL += flow.recoveredL || 0;
+      recoveryCeiling = Math.max(recoveryCeiling, flow.heRecoveryCeiling || 0);
+      recoveryStageCount += flow.recoveryStageCount || 0;
+      if (!flow.plantComplete) plantComplete = false;
       if (flow.quenched) quenched = true;
       if (flow.warming) warming = true;
     }
   }
   if (!found) return null;
-  return { tempK, staticLoad, dynamicLoad, capacity, rated, quenched, warming };
+  const heRecoveryFraction = boiloffL > 0 ? recoveredL / boiloffL : 0;
+  return {
+    tempK, staticLoad, dynamicLoad, capacity, rated, quenched, warming,
+    plantComplete, storageCapacityL, reservoirVolumeL,
+    boiloffL, recoveredL, heRecoveryFraction,
+    heRecoveryCeiling: recoveryCeiling, recoveryStageCount,
+  };
 }
 
 export function computeSystemStats(state) {
@@ -509,18 +517,6 @@ export function computeSystemStats(state) {
   const cryoHousings = counts.cryomoduleHousing || 0;
   const ln2Precool = counts.ln2Precooler || 0;
   const cryocoolers = counts.cryocooler || 0;
-  // "He Recovery: Yes/No" counted a single $4M block and meant nothing to the
-  // solver. The recovery chain is now a fraction of boil-off returned instead
-  // of vented, contributed once per installed TYPE — so the panel reports the
-  // fraction, which is the number that actually shows up on the helium bill.
-  // The table and the ceiling live with the solver that applies them. The
-  // ceiling is not a constant: bulk storage (heRecovery) raises it from 0.70
-  // to 0.90, so the panel prints the fraction AND the ceiling in force —
-  // otherwise a player with a finished chain sees 70% and no reason for it.
-  const heRecoveryFrac = heRecoveryFraction(Object.keys(counts));
-  const heRecoveryCeiling = counts[HE_STORAGE_TYPE]
-    ? HE_RECOVERY_CAP : HE_RECOVERY_CAP_NO_STORAGE;
-
   const cryoCapacity = portCapacity('cryo_out', 'coldCapacityW');
   // Every cryo sink counts, not just `cryomodule`: halfWaveResonator,
   // spokeCavity and ellipticalSrfCavity declare cryo_in.srfHeatW too, so a
@@ -542,7 +538,7 @@ export function computeSystemStats(state) {
   const cryoLive = cryoNetworkSummary(state);
   let staticLoad, dynamicLoad, opTemp;
   if (cryoLive) {
-    staticLoad = Math.round(cryoLive.staticLoad + cryoHousings * 3);
+    staticLoad = Math.round(cryoLive.staticLoad);
     dynamicLoad = Math.round(cryoLive.dynamicLoad);
     opTemp = cryoLive.tempK != null ? cryoLive.tempK : 0;
   } else {
@@ -580,8 +576,12 @@ export function computeSystemStats(state) {
       subCooling2K,
       cryoHousings,
       ln2Precoolers: ln2Precool,
-      heRecoveryFraction: heRecoveryFrac,
-      heRecoveryCeiling,
+      heRecoveryFraction: cryoLive?.heRecoveryFraction || 0,
+      heRecoveryCeiling: cryoLive?.heRecoveryCeiling || 0,
+      recoveryStageCount: cryoLive?.recoveryStageCount || 0,
+      reservoirVolumeL: cryoLive?.reservoirVolumeL || 0,
+      storageCapacityL: cryoLive?.storageCapacityL || 0,
+      plantComplete: cryoLive?.plantComplete || false,
       cryocoolers,
       staticLoad,
       dynamicLoad,

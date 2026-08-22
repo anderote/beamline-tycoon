@@ -141,6 +141,33 @@ export const PORT_ANCHOR_OVERRIDES = {
 
   // Cryogenic plant outlets coincide with visible bayonet caps rather than a
   // generic point on the refrigerator cabinet.
+  ln2Dewar: {
+    cryo_out: {
+      y: 0.21, localX: 0.48, localZ: 0,
+      normal: { x: 1, y: 0, z: 0 },
+    },
+  },
+  cryocooler: {
+    _default: { y: 0.8 },
+    cryo_out: {
+      y: 0.71, localX: 0.495, localZ: 0,
+      normal: { x: 1, y: 0, z: 0 },
+    },
+  },
+  ln2Precooler: {
+    _default: { y: 0.75 },
+    cryo_out: {
+      y: 0.75, localX: 0, localZ: 0.65,
+      normal: { x: 0, y: 0, z: 1 },
+    },
+  },
+  heCompressor: {
+    _default: { y: 0.8 },
+    cryo_out: {
+      y: 0.30, localX: 0.86, localZ: 1.48,
+      normal: { x: 0, y: 0, z: 1 },
+    },
+  },
   coldBox4K: {
     _default: { y: 0.8 },
     cryo_out: {
@@ -152,6 +179,46 @@ export const PORT_ANCHOR_OVERRIDES = {
     _default: { y: 0.8 },
     cryo_out: {
       y: 0.78, localX: 0.15, localZ: 0.95,
+      normal: { x: 1, y: 0, z: 0 },
+    },
+  },
+  cryomoduleHousing: {
+    _default: { y: 1.0 },
+    cryo_out: {
+      y: 2.30, localX: 0, localZ: 0,
+      normal: { x: 0, y: 1, z: 0 },
+    },
+  },
+  heRecovery: {
+    _default: { y: 0.8 },
+    cryo_out: {
+      y: 0.83, localX: 0.35, localZ: 1.25,
+      normal: { x: 0, y: 0, z: 1 },
+    },
+  },
+  heRecoveryHeader: {
+    cryo_out: {
+      y: 0.62, localX: 0, localZ: 0.98,
+      normal: { x: 0, y: 0, z: 1 },
+    },
+  },
+  heGasBag: {
+    cryo_out: {
+      y: 0.13, localX: 0, localZ: -0.70,
+      normal: { x: 0, y: 0, z: -1 },
+    },
+  },
+  hePurifier: {
+    _default: { y: 0.8 },
+    cryo_out: {
+      y: 1.52, localX: 0.24, localZ: -0.32,
+      normal: { x: 0, y: 1, z: 0 },
+    },
+  },
+  heLiquefier: {
+    _default: { y: 0.8 },
+    cryo_out: {
+      y: 0.83, localX: 0.83, localZ: 0.72,
       normal: { x: 1, y: 0, z: 0 },
     },
   },
