@@ -36,6 +36,7 @@ import { SaveLoadDialog } from './ui/SaveLoadDialog.js';
 import { CloudSaves } from './game/CloudSaves.js';
 import { OptionsDialog } from './ui/OptionsDialog.js';
 import { openUtilityInspectorForLine } from './ui/utility-inspector-command.js';
+import { UtilityStatsPanel } from './ui/UtilityStatsPanel.js';
 import { EconomyWindow } from './ui/EconomyWindow.js';
 import { AdvisorEngine, ADVICE_LEVEL_STORAGE_KEY } from './advisor/engine.js';
 import { buildAdvisorContext } from './advisor/context.js';
@@ -450,6 +451,13 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
   // Economy button — toggles the cash-flow window (same gesture as the K key)
   document.getElementById('btn-economy').addEventListener('click', () => {
     EconomyWindow.toggle(game);
+  });
+
+  // Facility utility overview. Discovery owns network membership, so the
+  // window can list every disconnected topology separately and route a row to
+  // the exact same inspector used by a direct world-line click.
+  document.getElementById('btn-utilities').addEventListener('click', () => {
+    UtilityStatsPanel.toggle(game);
   });
 
   // Load Design button inside the designer — opens library as a modal on top

@@ -56,6 +56,25 @@ console.log('\n--- Utility inspector click command ---');
 }
 
 {
+  const left = { id: 'line_left', utilityType: 'powerCable' };
+  const right = { id: 'line_right', utilityType: 'powerCable' };
+  const leftNetwork = {
+    id: 'net_powerCable_left', utilityType: 'powerCable', lineIds: [left.id],
+  };
+  const rightNetwork = {
+    id: 'net_powerCable_right', utilityType: 'powerCable', lineIds: [right.id],
+  };
+  const state = {
+    utilityLines: new Map([[left.id, left], [right.id, right]]),
+    utilityNetworks: new Map([['powerCable', [leftNetwork, rightNetwork]]]),
+  };
+
+  const resolved = utilityNetworkForLine(state, right.id);
+  assert(resolved?.network === rightNetwork,
+    'a line click selects its exact disconnected topology, not the first network of its type');
+}
+
+{
   const state = { utilityLines: new Map(), utilityNetworks: new Map() };
   let opened = false;
   assert(openUtilityInspectorForLine({ state }, 'missing', () => { opened = true; }) === false,
@@ -65,4 +84,3 @@ console.log('\n--- Utility inspector click command ---');
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
-
