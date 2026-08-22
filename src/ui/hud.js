@@ -3815,8 +3815,8 @@ UIHost.prototype._renderStaffBar = function() {
   }
 };
 
-UIHost.prototype._openStaffInspector = function(staffId) {
-  openStaffInspector(this.game, staffId);
+UIHost.prototype._openStaffInspector = function(staffId, options = {}) {
+  openStaffInspector(this.game, staffId, options);
 };
 
 UIHost.prototype._openHiringDialog = function() {
