@@ -48,8 +48,7 @@ function portAnchor(state, utilityType, ref, defaultRole) {
  *   source-end explicit port or capability selector
  * @param {{id: string, port?: string, role?: string|string[], side?: string, index?: number}} to
  *   sink-end explicit port or capability selector
- * @param {{stub?: number}} [opts]  stub = how far (tiles) the line runs
- *   straight out of each port before bending (default 0.5).
+ * @param {{preferVerticalFirst?: boolean}} [opts]
  * @returns {string|null} the new line id, or null on failure (logged).
  */
 export function wireUtility(game, utilityType, from, to, opts = {}) {
@@ -73,8 +72,6 @@ export function wireUtility(game, utilityType, from, to, opts = {}) {
   const end = { placeableId: to.id, portName: b.portName };
   const routeOpts = {
     preferVerticalFirst: !!opts.preferVerticalFirst,
-    portClearance: descriptor.portClearance !== false,
-    portTailTiles: opts.stub ?? descriptor.portTailTiles,
     minStraightTiles: descriptor.minStraightTiles,
   };
   const candidates = buildPortRoutedPaths(routeStart, a.vec, routeEnd, b.vec, routeOpts);

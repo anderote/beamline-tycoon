@@ -345,12 +345,12 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
   }
   // Reservoir, chillers, and heat rejection are roles on one cooling-water
   // topology. Join all three plant stages to the same manifolded network.
-  if (plantTank && ch1) wire('coolingWater', sourcePort(plantTank), sourcePort(ch1, 1));
-  if (tower && ch2) wire('coolingWater', sourcePort(tower), sourcePort(ch2, 1));
   // East chiller first: its drop runs along the same service row as the west
   // chiller's feed to the detector, and lines of one utility may not overlap
   // unless they share a source.
+  if (tower && ch2) wire('coolingWater', sourcePort(tower), sourcePort(ch2, 1));
   if (ch2 && coolE2) wire('coolingWater', sourcePort(ch2), passPort(coolE2, 'left'));
+  if (plantTank && ch1) wire('coolingWater', sourcePort(plantTank), sourcePort(ch1, 1));
   if (ch1) {
     for (const target of [sinkPort(src2), sinkPort(det), passPort(coolW2, 'left')]) {
       if (target.id) wire('coolingWater', sourcePort(ch1), target);

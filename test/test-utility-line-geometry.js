@@ -13,11 +13,10 @@
 import {
   buildManhattanPath,
   buildPortRoutedPaths,
-  portTailPoint,
   pathLengthSubUnits,
   expandPath,
 } from '../src/utility/line-geometry.js';
-import { UTILITY_TYPES } from '../src/utility/registry.js';
+import { UTILITY_TYPES, UTILITY_TYPE_LIST } from '../src/utility/registry.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -121,45 +120,29 @@ console.log('\n--- Test 8: adjacent facing ports route directly ---');
 }
 
 // ======================================================================
-// Test 9: each port owns its tail; incompatible nearby tails do not loop.
+// Test 9: no utility requires a minimum straight run at a port.
 // ======================================================================
-console.log('\n--- Test 9: fixed port tails preserve clearance ---');
+console.log('\n--- Test 9: ports have no minimum clearance ---');
 {
-  assertEq(portTailPoint({ col: 3, row: 5 }, { dCol: -1, dRow: 0 }),
-    { col: 2.75, row: 5 }, 'a port tail exits exactly one subtile along its normal');
-
-  const tooClose = buildPortRoutedPaths(
+  const adjacent = buildPortRoutedPaths(
     { col: 0, row: 0 }, { dCol: 1, dRow: 0 },
     { col: 0.25, row: 0 }, { dCol: 1, dRow: 0 },
   );
-  assert(tooClose.length === 0,
-    'nearby same-facing ports report no route instead of generating a self-crossing loop');
+  assertEq(adjacent[0], [{ col: 0, row: 0 }, { col: 0.25, row: 0 }],
+    'same-facing adjacent ports connect directly without clearance tails');
 
-  const noClearance = buildPortRoutedPaths(
-    { col: 0, row: 0 }, { dCol: 1, dRow: 0 },
-    { col: 0.25, row: 0 }, { dCol: 1, dRow: 0 },
-    { portClearance: false },
-  );
-  assertEq(noClearance[0], [{ col: 0, row: 0 }, { col: 0.25, row: 0 }],
-    'a no-clearance utility can turn/connect immediately beside its fitting');
-
-  for (const utilityType of ['vacuumPipe', 'rfWaveguide', 'cryoTransfer']) {
-    assert(UTILITY_TYPES[utilityType].portClearance === false,
-      `${utilityType} opts out of fixed port-clearance tails`);
-  }
+  assert(UTILITY_TYPE_LIST.every(utilityType => !Object.hasOwn(UTILITY_TYPES[utilityType], 'portClearance')),
+    'no registered utility declares a port-clearance exception');
   for (const utilityType of ['rfWaveguide', 'cryoTransfer']) {
     assert(UTILITY_TYPES[utilityType].routingProfile === 'rectilinear',
       `${utilityType} explicitly uses forgiving rectilinear routing`);
   }
-  assert(UTILITY_TYPES.powerCable.portClearance !== false,
-    'power cords retain their small fitting lead-outs');
-
   const freeRoute = buildPortRoutedPaths(
     { col: 0.25, row: 0 }, null,
     { col: 0.25, row: 0.25 }, null,
   )[0];
   assertEq(freeRoute, [{ col: 0.25, row: 0 }, { col: 0.25, row: 0.25 }],
-    'once clear of the port tails, a utility run can use adjacent subtiles freely');
+    'an ordinary utility run can use adjacent subtiles freely');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

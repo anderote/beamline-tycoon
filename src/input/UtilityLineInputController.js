@@ -465,12 +465,8 @@ export class UtilityLineInputController {
    * the router cannot see. So the router hands over its whole ranking and this
    * walks it, taking the best shape the validator accepts.
    *
-   * That walk is why this cannot collapse to one call. It used to try the two
-   * bend orders and keep whichever validated, and half of that was theatre: the
-   * mandatory lead-outs make the first and last segment directions correct in
-   * EVERY candidate, so the port-approach checks always passed for both and the
-   * hairpinning order won whenever preferVerticalFirst pointed at it. But the
-   * other half was real — overlap_same_type genuinely differs between shapes,
+   * That walk is why this cannot collapse to one call. Overlap_same_type
+   * genuinely differs between shapes,
    * and the alternate order was often the one clear of existing runs. Dropping
    * to a single candidate would have made a hall get harder to wire with every
    * cable laid. Walking the ranking is strictly better than the old pair: same
@@ -510,10 +506,7 @@ export class UtilityLineInputController {
     }
 
     const isPowerCable = this._utilityType === 'powerCable';
-    // Normal-length cords keep their small visual lead-outs: those give the
-    // router enough candidate lanes to steer around an occupied cable tray.
-    // Only a genuinely direct short jumper bypasses them, which is where they
-    // would otherwise impose an artificial minimum length.
+    // A genuinely direct short jumper may still collapse to zero length.
     const directPowerJumper = isPowerCable
       && Math.abs(startTile.col - endTile.col) + Math.abs(startTile.row - endTile.row) <= 0.5;
     const descriptor = UTILITY_TYPES[this._utilityType] || {};
@@ -522,13 +515,11 @@ export class UtilityLineInputController {
     const routeOpts = {
       preferVerticalFirst: this._preferVerticalFirst,
       allowZeroLength: isPowerCable,
-      portClearance: descriptor.portClearance !== false,
-      portTailTiles: descriptor.portTailTiles,
       minStraightTiles: descriptor.minStraightTiles,
     };
     const candidates = buildPortRoutedPaths(
       // Power cords can jumper directly between close fittings, including a
-      // zero-length co-located pair; longer runs retain tidy lead-outs.
+      // zero-length co-located pair; every longer run may turn at the fitting.
       startTile, startVec, endTile, endVec, routeOpts);
 
     let chosen = null;
@@ -611,11 +602,7 @@ export class UtilityLineInputController {
     // Why the gesture would be refused, for the drag tooltip. The commit path
     // logs this too, but the log has no on-screen surface — leaving "release
     // and nothing happens" as the only feedback the player ever got.
-    // A port-to-port drag with no candidates means a utility that retains
-    // fixed port tails has no non-overlapping route. Surface that spatial
-    // problem before release instead of presenting an empty preview that
-    // simply does nothing.
-    if (reason === null && !routedFallback && startRef && endRef) reason = 'port_clearance';
+    if (reason === null && !routedFallback && startRef && endRef) reason = 'invalid_path';
     this._dragReject = chosen ? null : reason;
     return {
       startTile, endTile, endAnchor, startRef, endRef, tapLineIds, busTapIds,
@@ -631,7 +618,7 @@ export class UtilityLineInputController {
     return { placeableId: anchor.placeableId, portName: anchor.portName };
   }
 
-  /** Geometry hint used to pick tidy visual lead-outs; never a validity rule. */
+  /** Port-facing geometry hint used only to rank otherwise equivalent routes. */
   _portVec(anchor) {
     const ref = this._anchorRef(anchor);
     if (!ref) return null;

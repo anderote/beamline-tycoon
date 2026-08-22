@@ -463,7 +463,6 @@ export default {
   bendPenalty: 1.5,
   fittingStyle: 'vacuumFlange',
   couplerSpacingMeters: 4,
-  portClearance: false,
   capacityUnit: 'L/s',
   allowsTap: true,
   fansOut: true,

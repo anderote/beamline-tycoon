@@ -374,7 +374,6 @@ export default {
   bendRadiusMeters: 0.30,
   fittingStyle: 'cryoBayonet',
   couplerSpacingMeters: 4,
-  portClearance: false,
   capacityUnit: 'W@4K',
   // A free-drag branch fabricates a real vacuum-jacketed tee at the contact,
   // using the same explicit tap topology as RF and vacuum. Valve boxes remain

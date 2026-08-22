@@ -11,7 +11,7 @@ import {
   routeHeightForLine,
   routeHeightsConflict,
 } from '../src/utility/route-elevation.js';
-import { UTILITY_TYPES } from '../src/utility/registry.js';
+import { UTILITY_TYPES, UTILITY_TYPE_LIST } from '../src/utility/registry.js';
 import { portWorldPosition } from '../src/utility/ports.js';
 import { UtilityLineInputController } from '../src/input/UtilityLineInputController.js';
 import { gridToIso } from '../src/renderer/grid.js';
@@ -125,7 +125,7 @@ console.log('\n--- 2. Board-aware search finds the service aisle around a blocke
   const route = findObstacleAwareRoute(
     { col: 0, row: 0 }, null,
     { col: 4, row: 0 }, null,
-    { portClearance: false, blocked: obstacles.isBlocked, bendPenalty: 1.5 },
+    { blocked: obstacles.isBlocked, bendPenalty: 1.5 },
   );
   assert(route && route.length === 2,
     `installed service lines no longer force a 2D detour (${JSON.stringify(route)})`);
@@ -154,7 +154,7 @@ console.log('\n--- 3. Equipment footprints are solid to rigid routes ---');
   const obstacles = buildRigidRouteObstacles(state, 'vacuumPipe');
   const route = findObstacleAwareRoute(
     direct[0], null, direct[1], null,
-    { portClearance: false, blocked: obstacles.isBlocked, bendPenalty: 1.5 },
+    { blocked: obstacles.isBlocked, bendPenalty: 1.5 },
   );
   assert(route && new Set(route.map(pointKey)).size === route.length,
     `equipment detour is simple and non-self-crossing (${JSON.stringify(route)})`);
@@ -247,8 +247,8 @@ console.log('\n--- 4. RF and cryo enforce shape, not physical clearance ---');
   const cryo = UTILITY_TYPES.cryoTransfer;
   assert(rf.routingProfile === 'rectilinear' && cryo.routingProfile === 'rectilinear',
     'RF and cryo publish the same rectilinear routing profile');
-  assert(rf.portClearance === false && cryo.portClearance === false,
-    'RF and cryo may turn immediately beside a fitting');
+  assert(UTILITY_TYPE_LIST.every(type => !Object.hasOwn(UTILITY_TYPES[type], 'portClearance')),
+    'no utility declares a port-clearance exception');
   assert(rf.bendStyle === 'mitered' && rf.miterLengthMeters > rf.pipeRadiusMeters,
     'RF publishes a compact mitered-elbow presentation contract');
   assert(!rf.avoidRigidIntersections && !cryo.avoidRigidIntersections,

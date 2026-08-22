@@ -238,6 +238,9 @@ the short authoring contract.
   and render a real service fitting. Collinear duplicate runs remain invalid.
   Power and HV cable do not allow casual tees; use distribution equipment or a
   utility bus so electrical branching retains protected physical outlets.
+- Every utility route may turn immediately at a port. Port facing selects the
+  visible fitting position and can guide route ranking, but no utility reserves
+  a minimum straight lead-out or clearance strip in front of that fitting.
 - Vacuum pipe, RF waveguide, and cryogenic transfer line are fabricated rigid
   services with vertical route lanes. Their saved `routeHeightMeters` starts at
   the source connector height and rises only as needed, so parallel or crossing

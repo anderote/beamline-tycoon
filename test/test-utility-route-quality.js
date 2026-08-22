@@ -1,16 +1,15 @@
 // test/test-utility-route-quality.js — route QUALITY tests for the utility router
 //
-// validateDrawLine only inspects the first and last segment of a path, and
-// buildPortRoutedPath's mandatory 0.25 lead-outs make those two segments
-// correct by construction. So the validator can never see a bad route — it can
-// only see an illegal one. Everything between the stubs is this file's job.
+// Utility routes may turn immediately at a fitting, so authored port normals
+// do not constrain their first or last segment. This file owns route shape:
+// paths stay Manhattan, reversal-free, ranked, and spatially diverse.
 //
 // Tests:
 //   1. Full sweep: 4x4 port-normal pairs x 13 relative offsets x both
 //      preferVerticalFirst values — every route must be reversal-free.
 //   2. The regression case (source faces N, sink 3 tiles south faces S), which
 //      used to route (8,6)->(8,5.75)->(8,9.25)->(8,9): two 180° hairpins.
-//   3. Every swept route is Manhattan and leaves/arrives on the port normals.
+//   3. Every swept route is Manhattan regardless of port normals.
 //   4. simplifyPath drops coincident and collinear vertices and leaves an
 //      already-minimal 2-point path alone.
 
@@ -60,26 +59,15 @@ function isManhattan(path) {
   return true;
 }
 
-function segDir(a, b) {
-  const dc = b.col - a.col, dr = b.row - a.row;
-  if (Math.abs(dc) > EPS && Math.abs(dr) < EPS) return { dCol: Math.sign(dc), dRow: 0 };
-  if (Math.abs(dr) > EPS && Math.abs(dc) < EPS) return { dCol: 0, dRow: Math.sign(dr) };
-  return null;
-}
-
-const sameVec = (a, b) => !!a && !!b && a.dCol === b.dCol && a.dRow === b.dRow;
-
 // ==========================================================================
-// Test 1-3: the sweep. Every combination has to route cleanly, stay Manhattan,
-// and honour both ports' approach directions.
+// Test 1-3: the sweep. Every combination has to route cleanly and stay
+// Manhattan regardless of both ports' approach directions.
 // ==========================================================================
 console.log('\n--- Test 1: reversal-free sweep over all port-normal pairs ---');
 {
   let cases = 0;
   const reversing = [];
   const nonManhattan = [];
-  const badStart = [];
-  const badEnd = [];
   const nullPath = [];
 
   for (const [sName, sVec] of Object.entries(VECS)) {
@@ -94,12 +82,6 @@ console.log('\n--- Test 1: reversal-free sweep over all port-normal pairs ---');
           if (!path || path.length < 2) { nullPath.push(`${label}: ${fmt(path)}`); continue; }
           if (pathReversals(path) > 0) reversing.push(`${label}: ${fmt(path)}`);
           if (!isManhattan(path)) nonManhattan.push(`${label}: ${fmt(path)}`);
-          // First segment runs ALONG the start normal; last runs AGAINST the
-          // end normal (portMatchesApproach's isEnd negation, spelled out).
-          const first = segDir(path[0], path[1]);
-          const last = segDir(path[path.length - 2], path[path.length - 1]);
-          if (!sameVec(first, sVec)) badStart.push(`${label}: ${fmt(path)}`);
-          if (!sameVec(last, { dCol: -eVec.dCol, dRow: -eVec.dRow })) badEnd.push(`${label}: ${fmt(path)}`);
         }
       }
     }
@@ -109,8 +91,6 @@ console.log('\n--- Test 1: reversal-free sweep over all port-normal pairs ---');
     [nullPath, 'produced no path'],
     [reversing, 'contain a 180° reversal'],
     [nonManhattan, 'are not Manhattan'],
-    [badStart, 'leave the start port off-normal'],
-    [badEnd, 'arrive at the end port off-normal'],
   ]) {
     if (list.length) {
       console.log(`    ${list.length} route(s) ${what}:`);
@@ -123,8 +103,6 @@ console.log('\n--- Test 1: reversal-free sweep over all port-normal pairs ---');
   assert(nullPath.length === 0, `every swept case produced a path (${nullPath.length} did not)`);
   assert(reversing.length === 0, `no swept route doubles back (${reversing.length} did)`);
   assert(nonManhattan.length === 0, `every swept route is Manhattan (${nonManhattan.length} were not)`);
-  assert(badStart.length === 0, `every swept route leaves along the start normal (${badStart.length} did not)`);
-  assert(badEnd.length === 0, `every swept route arrives against the end normal (${badEnd.length} did not)`);
 }
 
 // ==========================================================================
@@ -141,10 +119,8 @@ console.log('\n--- Test 2: srcN / sinkS three tiles apart (the reported hairpin)
     );
     assert(pathReversals(path) === 0,
       `vf=${vf} routes without doubling back: ${fmt(path)}`);
-    // The old shape was exactly four collinear points on col 8. Anything that
-    // reconciles the two outward normals has to leave that column.
-    const cols = new Set(path.map(p => p.col));
-    assert(cols.size > 1, `vf=${vf} route steps off the shared column: ${fmt(path)}`);
+    assert(path.length === 2,
+      `vf=${vf} ignores port-facing clearance and takes the direct route: ${fmt(path)}`);
   }
 }
 
@@ -161,9 +137,8 @@ console.log('\n--- Test 3: both ports facing north, sink three tiles north ---')
       { preferVerticalFirst: vf },
     );
     assert(pathReversals(path) === 0, `vf=${vf} routes without doubling back: ${fmt(path)}`);
-    assert(sameVec(segDir(path[0], path[1]), VECS.N), `vf=${vf} leaves northward: ${fmt(path)}`);
-    assert(sameVec(segDir(path[path.length - 2], path[path.length - 1]), VECS.S),
-      `vf=${vf} arrives southward into a north-facing port: ${fmt(path)}`);
+    assert(path.length === 2,
+      `vf=${vf} connects directly without an arrival tail: ${fmt(path)}`);
   }
 }
 
@@ -227,9 +202,7 @@ console.log('\n--- Test 5: buildPortRoutedPaths ranking ---');
 
   let allSound = true;
   for (const p of all) {
-    if (pathReversals(p) > 0 || !isManhattan(p)
-      || !sameVec(segDir(p[0], p[1]), VECS.E)
-      || !sameVec(segDir(p[p.length - 2], p[p.length - 1]), VECS.S)) {
+    if (pathReversals(p) > 0 || !isManhattan(p)) {
       allSound = false;
       console.log(`    unusable candidate: ${fmt(p)}`);
     }
