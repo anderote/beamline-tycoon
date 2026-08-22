@@ -2818,6 +2818,7 @@ function _srfCryomoduleRoles(opts) {
     header = false,          // heavy cryogenic header along the top
     distributionLine = false,// 2 K supply/return running the full length
     couplerSides = [1],      // +1 = +X row, -1 = -X row
+    couplerCount = null,     // representative RF couplers, not one per cell
     shellRole = 'pipe',
     pedestalCount = 3,
   } = opts;
@@ -2895,11 +2896,19 @@ function _srfCryomoduleRoles(opts) {
     });
   }
 
-  // --- Fundamental power couplers, one per cell per row ---
-  // Coax through the jacket, waveguide transformer box, bolted flange.
+  // --- Fundamental power couplers -----------------------------------------
+  // The catalogue utility contract exposes one `rf_in` for the complete
+  // placement.  The cell-by-cell coupler row is useful on a cutaway of one
+  // physical cavity, but it is misleading on sector abstractions: every box
+  // looks like another place where a waveguide can attach. Keep a small set of
+  // representative couplers for scale and leave the actual hookup to the
+  // single utility port fitting.
   const coaxL = 0.20, boxL = 0.16, capL = 0.05;
+  const visibleCouplerZs = Number.isFinite(couplerCount) && couplerCount > 0
+    ? _gSpread(Math.floor(couplerCount), stringL * 0.72)
+    : cellZs;
   for (const side of couplerSides) {
-    for (const zc of cellZs) {
+    for (const zc of visibleCouplerZs) {
       const coaxX = side * (vesselR + coaxL / 2);
       _gCylX(buckets.accent, 0.085, coaxL, { x: coaxX, z: zc });
       const boxX = side * (vesselR + coaxL + boxL / 2);
@@ -2963,6 +2972,7 @@ function _buildSrf650CryomoduleRoles() {
     cellPeakR: 0.55,
     cellPeriod: 1.45,
     cryoPorts: 1,
+    couplerCount: 1,
     pedestalCount: 3,
   });
 }
@@ -2980,6 +2990,7 @@ function _buildSrf805CryomoduleRoles() {
     cellPeakR: 0.44,
     cellPeriod: 1.20,
     cryoPorts: 2,
+    couplerCount: 2,
     pedestalCount: 4,
   });
 }
@@ -2999,7 +3010,7 @@ function _buildCwCryomoduleRoles() {
     cellPeriod: 1.20,
     cryoPorts: 2,
     header: true,
-    couplerSides: [1, -1],
+    couplerCount: 3,
     pedestalCount: 4,
   });
 }
@@ -3022,6 +3033,7 @@ function _buildNbSnCryomoduleRoles() {
     cryoPorts: 1,
     cryoPortR: 0.055,
     cryoPortH: 0.22,
+    couplerCount: 2,
     shellRole: 'accent',
     pedestalCount: 4,
   });
@@ -3044,6 +3056,7 @@ function _buildSrfLinacSectorRoles() {
     segments: 3,
     interconnectL: 0.6,
     cryoPorts: 3,
+    couplerCount: 3,
     distributionLine: true,
     pedestalCount: 5,
   });
