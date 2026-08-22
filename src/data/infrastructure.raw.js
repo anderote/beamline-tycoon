@@ -1986,6 +1986,40 @@ export const INFRASTRUCTURE_RAW = {
     ],
     requiredConnections: [],
   },
+  indoorHvCableRack: {
+    id: 'indoorHvCableRack',
+    name: '4-Way Indoor HV Cable Rack',
+    desc: 'Freestanding steel bracket that carries four isolated HV cables in one flat row above head height and below the facility ceiling. Each saddle accepts two cable segments, takes up drawn lateral slack, and leaves the suspended feeder with visible gravity sag.',
+    category: 'power', subsection: 'routingHardware',
+    paletteOrder: 3.5,
+    cost: { funding: 36000 },
+    stats: {}, energyCost: 0,
+    subL: 2, subW: 4, subH: 5, gridW: 4, gridH: 2,
+    geometryType: 'box', baseMaterial: 'metal_dark',
+    spriteKey: 'switchgear', spriteColor: 0x5f686d, accentColor: 0xd2a93d,
+    hasSurface: false, placement: 'module', ports: {},
+    // Each named saddle is one independent conductor. Two attached line
+    // segments meet through that saddle; the four positions never form a bus.
+    electricalGroups: { hvCable: [] },
+    parts: [
+      // Low feet and two uprights support a 2.35 m-high crossbar inside the
+      // standard 2.57 m facility wall envelope. Dimensions are in 0.5 m
+      // subtiles, matching the rest of the parts authoring surface.
+      { shape: 'box', w: 0.46, h: 0.18, l: 1.72, x: -1.62, y: 0, z: 0, color: 0x4c555a },
+      { shape: 'box', w: 0.46, h: 0.18, l: 1.72, x: 1.62, y: 0, z: 0, color: 0x4c555a },
+      { shape: 'box', w: 0.28, h: 4.55, l: 0.38, x: -1.62, y: 0.16, z: 0, color: 0x687278 },
+      { shape: 'box', w: 0.28, h: 4.55, l: 0.38, x: 1.62, y: 0.16, z: 0, color: 0x687278 },
+      { shape: 'box', w: 3.86, h: 0.30, l: 0.52, x: 0, y: 4.42, z: 0, color: 0x788389 },
+      { shape: 'box', w: 3.42, h: 0.12, l: 0.70, x: 0, y: 4.72, z: 0, color: 0xd2a93d },
+      // Four dark insulating saddles in the same 0.5 m flat spacing as the
+      // four-way wall feedthrough.
+      { shape: 'box', w: 0.32, h: 0.34, l: 0.66, x: -1.50, y: 4.55, z: 0, color: 0x252a2e },
+      { shape: 'box', w: 0.32, h: 0.34, l: 0.66, x: -0.50, y: 4.55, z: 0, color: 0x252a2e },
+      { shape: 'box', w: 0.32, h: 0.34, l: 0.66, x: 0.50, y: 4.55, z: 0, color: 0x252a2e },
+      { shape: 'box', w: 0.32, h: 0.34, l: 0.66, x: 1.50, y: 4.55, z: 0, color: 0x252a2e },
+    ],
+    requiredConnections: [],
+  },
   gridServicePoint: {
     id: 'gridServicePoint',
     name: 'Utility Service Point',

@@ -206,17 +206,20 @@ the short authoring contract.
   an elevated span and may cross any wall or fence in plan view. The exception
   requires two overhead supports; a transformer, panel, open end, or wall
   feedthrough at either end keeps the ordinary wall-pass-through requirement.
-- Utility poles and transmission towers expose one passive HV port at every
-  visible insulator. Each port accepts two wire attachments; those two lines
-  share one conductor, while different insulator ports remain isolated. An HV
-  cable with either end on one of these supports, or on an electrical wall
-  feedthrough, removes drawn lateral slack but retains a visible, shallow
-  gravity sag while suspended between its endpoints; other soft cables retain
-  drawn slack.
+- Utility poles, transmission towers, and freestanding indoor HV racks expose
+  one passive HV port at every visible insulator or saddle. Each port accepts
+  two wire attachments; those two lines share one conductor, while different
+  support ports remain isolated. The indoor rack carries four saddles in a
+  flat row above head height and below the standard facility ceiling, using
+  the same 0.5 m spacing as the four-way wall feedthrough. An HV cable with
+  either end on one of these supports, or on an electrical wall feedthrough,
+  removes drawn lateral slack but retains a visible, shallow gravity sag while
+  suspended between its endpoints; other soft cables retain drawn slack.
 - Passive inlet/outlet fittings keep their `pass` topology role but derive
-  their physical arrow direction from the port name. Isolated pole and tower
-  insulators remain nondirectional; wall feedthroughs and transformers carry a
-  body-level arrow derived from the world-space inlet/outlet anchor centroids.
+  their physical arrow direction from the port name. Isolated pole, tower, and
+  indoor-rack supports remain nondirectional; wall feedthroughs and
+  transformers carry a body-level arrow derived from the world-space
+  inlet/outlet anchor centroids.
 - Cooling supply displays use heat-rejection capacity when it is declared;
   reservoir volume is inventory, not cooling power.
 - Cooling-water ports author make-up flow as `supplyRateLPerTick` and tank

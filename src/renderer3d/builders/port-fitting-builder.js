@@ -191,8 +191,9 @@ function isDirectionalEquipment(def) {
     || /Transformer$/.test(def?.id || '');
 }
 
-function isOverheadSupport(def) {
-  return def?.id === 'utilityPole' || def?.id === 'transmissionTower';
+function isCableSupport(def) {
+  return def?.id === 'utilityPole' || def?.id === 'transmissionTower'
+    || def?.id === 'indoorHvCableRack';
 }
 
 function averageAnchor(entries) {
@@ -597,7 +598,7 @@ export function buildPortFittings(endpoints) {
       if (!anchor) continue;
       const fitting = buildPortFitting(
         anchor, spec.utility, spec.role,
-        isOverheadSupport(def) ? 'pass' : portFlowArrowRole(name, spec.role));
+        isCableSupport(def) ? 'pass' : portFlowArrowRole(name, spec.role));
       fitting.userData.placeableId = ep.id;
       fitting.userData.portName = name;
       group.add(fitting);

@@ -161,6 +161,11 @@ export const PORT_ANCHOR_OVERRIDES = {
   hvWallPassThrough: {
     _default: { y: 1.45, lat: 0.22, out: 0.07 },
   },
+  indoorHvCableRack: {
+    _default: { y: 2.35, lat: 0.16, out: 0.04 },
+    hv_1: { along: -0.75 }, hv_2: { along: -0.25 },
+    hv_3: { along: 0.25 }, hv_4: { along: 0.75 },
+  },
   disconnectSwitch: {
     _default: { y: 1.55, lat: 0.20, out: 0.08 },
   },
