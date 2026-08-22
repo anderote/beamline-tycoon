@@ -22,6 +22,7 @@ import {
   universalBusFootprintCells,
 } from '../src/utility/universal-bus-clearance.js';
 import { canPlace } from '../src/game/placement.js';
+import { gridToIso } from '../src/renderer/grid.js';
 
 assert.equal(PLACEABLES.universalUtilityBus, undefined,
   'the bus is a drawn connection, not a placeable component');
@@ -65,6 +66,42 @@ const busId = buses.addBus({
 });
 assert.equal(busId, 'bus_1');
 assert.equal(state.utilityBuses[0].channels.length, 0, 'a new rack is utility-neutral');
+
+const drawBusId = buses.addBus({
+  path: [{ col: 0, row: 20 }, { col: 4, row: 20 }],
+  taps: [0, 1, 2, 3, 4].map((col, index) => ({
+    id: `draw_tap_${index}`, index, point: { col, row: 20, subCol: 0, subRow: 0 },
+  })),
+});
+const gestureCosts = [];
+const drawGame = {
+  state,
+  utilityBusSystem: buses,
+  utilityLineSystem: lines,
+  commitGesture({ cost, mutate }) {
+    gestureCosts.push(cost || null);
+    return mutate();
+  },
+};
+const laneController = new UtilityLineInputController({ game: drawGame, renderer: {} });
+laneController.setUtilityType('vacuumPipe');
+const drawStart = gridToIso(0, 20);
+const drawEnd = gridToIso(4, 20);
+laneController.onMouseDown(drawStart.x, drawStart.y, 0, {});
+laneController.onMouseMove(drawEnd.x, drawEnd.y, {});
+assert.equal(laneController.preview?.busLane, true,
+  'a tap-to-tap drag previews the utility in its elevated carrier lane');
+assert.equal(laneController.dragCost, 0,
+  'populating a prepaid carrier lane does not charge for a duplicate loose run');
+laneController.onMouseUp(drawEnd.x, drawEnd.y, 0, {});
+const drawnChannelId = buses.channelLineId(drawBusId, 'vacuumPipe');
+assert.ok(drawnChannelId, 'dragging a utility along the bus visibly populates its lane');
+assert.equal(state.utilityLines.get(drawnChannelId)?.manifold?.busId, drawBusId,
+  'the gesture creates the real full-length bus backbone');
+assert.equal([...state.utilityLines.values()].filter(line =>
+  line.manifold?.busId === drawBusId).length, 1,
+  'the gesture does not add an overlapping partial branch over that backbone');
+assert.deepEqual(gestureCosts, [null], 'the lane-population gesture remains free');
 
 const busCells = universalBusFootprintCells(state.utilityBuses[0].path);
 assert.ok(busCells.some(cell => cell.row === -1 && cell.subRow === 3)
@@ -224,6 +261,19 @@ assert.equal(builder._previewObject?.userData?.isUniversalUtilityBusPreview, tru
 assert.ok(builder._previewObject.children.length >= 6,
   'drag preview contains two rails and repeated crossbars');
 builder.setPreview(null, parent);
+const vacuumLane = universalBusLane('vacuumPipe');
+builder.setPreview({
+  utilityType: 'vacuumPipe', busLane: true, valid: true,
+  routeHeightMeters: vacuumLane.runY,
+  path: [{ col: 0, row: 20 }, { col: 4, row: 20 }],
+}, parent);
+const lanePreviewBounds = new THREE_NS.Box3().setFromObject(builder._previewObject);
+const lanePreviewCenter = lanePreviewBounds.getCenter(new THREE_NS.Vector3());
+assert.ok(lanePreviewBounds.min.y > 0.7,
+  'the tap-to-tap preview appears above the tray instead of on the floor');
+assert.ok(Math.abs(lanePreviewCenter.z - (40 + vacuumLane.lateral)) < 1e-6,
+  'the tap-to-tap preview uses the selected utility lane offset');
+builder.setPreview(null, parent);
 builder.build(state.utilityLines, new Map(), parent, { state });
 const renderedRackGroups = parent.children.filter(group =>
   group.userData?.isUniversalUtilityBus && group.userData.busId === busId);
@@ -291,8 +341,8 @@ builder.dispose(parent);
 assert.equal(parent.children.length, 0, 'renderer teardown removes rack and channel meshes');
 
 assert.equal(buses.removeBus(busId), true);
-assert.equal(state.utilityBuses.length, 1, 'the unrelated balancing bus remains installed');
-assert.equal(state.utilityLines.size, 8,
+assert.equal(state.utilityBuses.length, 2, 'the unrelated buses remain installed');
+assert.equal(state.utilityLines.size, 9,
   'removing the rack removes its backbones but leaves external branch ownership explicit');
 
 console.log('universal utility bus tests passed');
