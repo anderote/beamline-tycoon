@@ -231,6 +231,44 @@ test('paired hot and cold cooling-water lines get separate sleeves in one wall s
   'both temperature circuits share the intended physical wall station');
 });
 
+test('rigid water extensions infer hot and lukewarm wall sleeves from their tapped pipe', () => {
+  for (const [waterCircuit, fittingType] of [
+    ['hot', 'hotWaterSupplyWallPassThrough'],
+    ['lukewarm', 'roomWaterSupplyWallPassThrough'],
+  ]) {
+    const routeHeightMeters = UTILITY_TYPES.waterSupplyPipe
+      .runHeightsByWaterCircuit[waterCircuit];
+    const lineId = `${waterCircuit}-stub`;
+    const state = blankState();
+    if (waterCircuit === 'hot') {
+      const coldPlan = planAutomaticWallPassThroughs(
+        { state }, lineOpts('waterSupplyPipe', 'cold'),
+      );
+      assert.equal(coldPlan.ok, true, coldPlan.reason);
+      assert.equal(applyAutomaticWallPassThroughPlanToState(state, coldPlan), true);
+    }
+    state.utilityLines.set(lineId, {
+      id: lineId,
+      utilityType: 'waterSupplyPipe',
+      waterCircuit,
+      routeHeightMeters,
+      start: null,
+      end: null,
+      path: [{ col: 0.5, row: 0.5 }, { col: 1.75, row: 0.5 }],
+    });
+    const plan = planAutomaticWallPassThroughs({ state }, {
+      utilityType: 'waterSupplyPipe',
+      path: [{ col: 1.75, row: 0.5 }, { col: 2.5, row: 0.5 }],
+      tapLineIds: { start: lineId, end: null },
+    });
+
+    assert.equal(plan.ok, true, `${waterCircuit}: ${plan.reason || 'ok'}`);
+    assert.deepEqual(plan.feedthroughs.map(fitting => fitting.type), [fittingType]);
+    assert.ok(plan.segments.every(segment => segment.waterCircuit === waterCircuit));
+    assert.ok(plan.segments.every(segment => segment.routeHeightMeters === routeHeightMeters));
+  }
+});
+
 test('a manually placed 4×4 HV fitting is reused instead of replaced', () => {
   const state = blankState({
     placeables: [{
