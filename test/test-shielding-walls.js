@@ -115,5 +115,20 @@ console.log('\n=== shielding layers and subtile occupancy survive save/load ===\
     'the one-subtile wall strip is reclaimed after load');
 }
 
+console.log('\n=== generic interior walls accept face finishes ===\n');
+{
+  assertOk(WALL_TYPES.interiorWall.paintable === true,
+    'the generic interior wall is paintable');
+  assertOk(WALL_TYPES.cinderblockWall.insetSubtiles === 1 && WALL_TYPES.leadWall.insetSubtiles === 1,
+    'shielding walls remain specialized physical construction');
+  const game = richGame();
+  assertOk(game.placeWall(28, 28, 'n', 'interiorWall'), 'generic interior wall places');
+  assertOk(game.paintWallFace(28, 28, 'n', 'paperSubway'),
+    'wallpaper applies to the selected interior face');
+  assertOk(game.paintWallFace(28, 27, 's', 'labBlue'),
+    'paint applies independently to the opposite interior face');
+  assertOk(game.placeWall(29, 29, 'n', 'leadWall'), 'shielding wall places');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

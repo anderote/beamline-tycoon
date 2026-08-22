@@ -531,6 +531,24 @@ export function floorRequirementLabel(requiredFloor) {
 // Structure walls — interior, exterior, shielding. Hedges and fencing
 // live in grounds.js but are merged into WALL_TYPES below.
 export const STRUCTURE_WALLS = {
+  interiorWall: {
+    id: 'interiorWall',
+    name: 'Interior Wall',
+    desc: 'Neutral partition wall for labs, hallways, offices, and other finished interiors. Paint or wallpaper each face independently.',
+    cost: 15,
+    color: 0xd2d0c9,
+    topColor: 0xe3e1d9,
+    subH: 6,
+    wallHeight: 24,
+    thickness: 1.2,
+    material: 'drywall',
+    subsection: 'walls',
+    isWall: true,
+    paintable: true,
+  },
+  // These IDs remain load/save compatible with older maps. They intentionally
+  // use the neutral interior-wall model and are hidden from the palette; new
+  // construction should use interiorWall instead.
   officeWall: {
     id: 'officeWall',
     name: 'Office Wall',
@@ -542,9 +560,11 @@ export const STRUCTURE_WALLS = {
     wallHeight: 24,
     thickness: 1.5,
     material: 'drywall',
-    texture: 'wall_office',
     subsection: 'walls',
     isWall: true,
+    paintable: true,
+    deprecated: true,
+    replacement: 'interiorWall',
   },
   hallwayWall: {
     id: 'hallwayWall',
@@ -557,9 +577,11 @@ export const STRUCTURE_WALLS = {
     wallHeight: 24,
     thickness: 1,
     material: 'drywall',
-    texture: 'wall_hallway',
     subsection: 'walls',
     isWall: true,
+    paintable: true,
+    deprecated: true,
+    replacement: 'interiorWall',
   },
   labWall: {
     id: 'labWall',
@@ -571,10 +593,12 @@ export const STRUCTURE_WALLS = {
     subH: 6,
     wallHeight: 24,
     thickness: 1.2,
-    material: 'sealedPanel',
-    texture: 'wall_lab',
+    material: 'drywall',
     subsection: 'walls',
     isWall: true,
+    paintable: true,
+    deprecated: true,
+    replacement: 'interiorWall',
   },
   cubicleWall: {
     id: 'cubicleWall',

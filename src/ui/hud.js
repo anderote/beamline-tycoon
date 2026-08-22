@@ -1065,7 +1065,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
     let renderedSections = 0;
     for (const subKey of subKeys) {
       const subDef = subsections[subKey];
-      const subItems = wallKeys.filter(k => WALL_TYPES[k]?.subsection === subKey);
+      const subItems = wallKeys.filter(k => WALL_TYPES[k]?.subsection === subKey && !WALL_TYPES[k]?.deprecated);
       // 'paint' and 'wallpaper' draw from WALL_PAINTS, not WALL_TYPES, so an
       // empty subItems list is expected for them rather than a reason to skip.
       if (subItems.length === 0 && subKey !== 'paint' && subKey !== 'wallpaper') continue;
@@ -1916,7 +1916,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
 
     for (const subKey of subKeys) {
       if (!subKey) continue;
-      const subItems = Object.entries(WALL_TYPES).filter(([, w]) => w.subsection === subKey);
+      const subItems = Object.entries(WALL_TYPES).filter(([, w]) => w.subsection === subKey && !w.deprecated);
       if (subItems.length === 0) continue;
 
       const subDef = wallCatDef.subsections?.[subKey];
