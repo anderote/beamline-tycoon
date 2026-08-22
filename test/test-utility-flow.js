@@ -501,27 +501,38 @@ console.log('\n--- 5. getLineMaterial: distinct per flowState, cached, tagged __
   assert(hotRigid.userData.flowUniforms.uFlowColor.value.getHexString() === 'c45b42'
       && hotHose.userData.flowUniforms.uFlowColor.value.getHexString() === 'c45b42',
     'functional hot rigid-pipe and hose pulses use the same red circuit color');
+  assert(coldRigid.userData.flowUniforms.uFlowColor.value.getHexString() === '287fc4'
+      && coldHose.userData.flowUniforms.uFlowColor.value.getHexString() === '287fc4',
+    'functional cold rigid-pipe and hose pulses use the same blue circuit color');
+  assert(coldRigid.customProgramCacheKey() !== hotRigid.customProgramCacheKey()
+      && coldHose.customProgramCacheKey() !== hotHose.customProgramCacheKey(),
+    'cold and hot flow shaders cannot share WebGPU uniform bindings');
   assert(hotRigid !== coldRigid && hotHose !== coldHose,
     'hot and cold circuits own distinct cached rendering materials');
 }
 
-console.log('\n--- 5a. Built hot-water lines retain red bodies and functional pulses ---');
+console.log('\n--- 5a. Built water lines keep body, shader, and light-proxy colors aligned ---');
 {
-  for (const utilityType of ['coolingWater', 'waterSupplyPipe']) {
-    const { group } = buildFlowLine(utilityType, 'hot');
-    const meshes = utilityType === 'coolingWater'
-      ? flexibleMeshes(group)
-      : cylinderMeshes(group);
-    assert(meshes.length > 0, `${utilityType} builds rendered line geometry`);
-    assert(meshes.every(mesh => mesh.material.color.getHexString() === 'c45b42'),
-      `${utilityType} renders its hot-water body red`);
-    assert(meshes.every(mesh => (
-      mesh.material.userData.flowUniforms.uFlowColor.value.getHexString() === 'c45b42'
-      && mesh.material.userData.flowUniforms.uStrength.value > 0
-    )), `${utilityType} renders an active red pulse while functional`);
-    const pulse = group.userData.visualEffects?.find(effect => effect.kind === 'pathPulse');
-    assert(pulse?.color === '#c45b42',
-      `${utilityType} publishes its supplemental path pulse in red`);
+  for (const [circuit, color, label] of [
+    ['cold', '287fc4', 'blue'],
+    ['hot', 'c45b42', 'red'],
+  ]) {
+    for (const utilityType of ['coolingWater', 'waterSupplyPipe']) {
+      const { group } = buildFlowLine(utilityType, circuit);
+      const meshes = utilityType === 'coolingWater'
+        ? flexibleMeshes(group)
+        : cylinderMeshes(group);
+      assert(meshes.length > 0, `${utilityType} builds rendered ${circuit} line geometry`);
+      assert(meshes.every(mesh => mesh.material.color.getHexString() === color),
+        `${utilityType} renders its ${circuit}-water body ${label}`);
+      assert(meshes.every(mesh => (
+        mesh.material.userData.flowUniforms.uFlowColor.value.getHexString() === color
+        && mesh.material.userData.flowUniforms.uStrength.value > 0
+      )), `${utilityType} renders an active ${label} pulse while functional`);
+      const pulse = group.userData.visualEffects?.find(effect => effect.kind === 'pathPulse');
+      assert(pulse?.color === `#${color}`,
+        `${utilityType} publishes its supplemental path pulse in ${label}`);
+    }
   }
 }
 

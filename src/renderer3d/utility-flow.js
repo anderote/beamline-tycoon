@@ -319,11 +319,13 @@ export function patchFlowMaterial(material, utilityType, flowState, colorOverrid
       .replace(flowAnchor, [flowAnchor, ...flowLines].join('\n'));
   };
 
-  // Without this, three's program cache can key two structurally-identical
-  // MeshStandardMaterials (same maps/defines — true of every utility's line
-  // material here) to the SAME compiled program and skip calling
-  // onBeforeCompile on the second one entirely, silently dropping its motion.
-  material.customProgramCacheKey = () => `flow:${utilityType}:${flowState}`;
+  // Keep the flow tint in the cache key as well as the shader structure.
+  // WebGPU shares a NodeBuilderState (including the uniform bindings cloned
+  // from the first material) between equal material cache keys. Cold and hot
+  // water use the same utility type and flow state, so omitting colorHex made
+  // whichever circuit compiled second inherit the first circuit's moving
+  // glow even though its body material still had the correct colour.
+  material.customProgramCacheKey = () => `flow:${utilityType}:${flowState}:${colorHex}`;
   material.userData.flowUniforms = uniforms;
   _patchedMaterials.add(material);
   return material;
