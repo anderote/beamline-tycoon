@@ -11,6 +11,7 @@ import {
   snapYaw,
 } from '../src/renderer3d/free-orbit-math.js';
 import { FACE_TO_YAW } from '../src/renderer3d/view-cube.js';
+import { readFileSync } from 'node:fs';
 
 let passed = 0;
 let failed = 0;
@@ -35,6 +36,10 @@ assert(targetPitchForMode('iso') === PITCH_REST, "'iso' -> PITCH_REST");
 assert(targetPitchForMode('steep') === PITCH_STEEP, "'steep' -> PITCH_STEEP");
 assert(targetPitchForMode('top') === PITCH_TOP, "'top' -> PITCH_TOP");
 assert(targetPitchForMode('garbage') === PITCH_REST, 'unknown mode falls back to PITCH_REST');
+
+console.log('default view');
+const rendererSource = readFileSync(new URL('../src/renderer3d/ThreeRenderer.js', import.meta.url), 'utf8');
+assert(rendererSource.includes("this.viewMode = 'steep';"), 'new renderers start in the steep construction view');
 
 console.log('YAW_STEP / YAW_DIVISIONS');
 assert(YAW_STEP === Math.PI / 4, 'yaw step = π/4');
