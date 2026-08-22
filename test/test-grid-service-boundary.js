@@ -37,6 +37,24 @@ test('Utility Service Point declares a four-tile map-edge connection', () => {
   assert.match(PLACEABLES.gridServicePoint.desc, /within four tiles/i);
 });
 
+test('6 MW Utility Service Point uses two three-phase incoming circuits', () => {
+  const def = PLACEABLES.gridServicePointHighCapacity;
+  const spec = def.mapEdgeConnection;
+  assert.equal(spec.maxDistanceTiles, 4);
+  assert.equal(spec.conductorCount, 6);
+
+  const paths = mapEdgeServiceLeadPaths({
+    ...spec,
+    insideMap: true,
+    edge: 'west',
+    startWorld: { x: -52, y: spec.leadHeightMeters, z: 1 },
+    endWorld: { x: -60, y: spec.leadHeightMeters, z: 1 },
+  });
+  assert.equal(paths.length, 6);
+  assert.equal(new Set(paths.map(path => path.world.start.z)).size, 6,
+    'each incoming conductor occupies a distinct station');
+});
+
 test('placement accepts the four-tile boundary band and rejects the interior or off-map', () => {
   const game = emptyPlacementGame();
   const def = PLACEABLES.gridServicePoint;

@@ -2423,7 +2423,10 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     mapEdgeConnection: {
       maxDistanceTiles: 4,
-      conductorCount: 4,
+      // Two three-phase circuits carry the high-capacity service from the
+      // off-map grid. The four HV ports below are downstream facility feeders,
+      // not a count of the incoming overhead conductors.
+      conductorCount: 6,
       leadHeightMeters: 2.45,
       conductorSpacingMeters: 0.42,
       conductorRadiusMeters: 0.045,
