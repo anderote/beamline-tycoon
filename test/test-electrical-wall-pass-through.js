@@ -60,6 +60,7 @@ const {
 } = await import('../src/renderer3d/utility-line-builder-v2.js');
 const {
   componentPose,
+  getModelBounds,
 } = await import('../src/renderer3d/component-builder.js');
 
 const crossingWall = { '1,0,e': 'officeWall' }; // boundary col=2, row 0..1
@@ -283,7 +284,7 @@ test('2×2 HV wall feedthrough scales the 4×4 fitting down to two isolated cond
   assert.equal(networks.length, 2, 'each numbered front/back pair is isolated from the other');
 });
 
-test('indoor HV rack carries four isolated cables in one head-height flat row', () => {
+test('indoor HV rack carries four isolated cables on hanging insulators', () => {
   const def = PLACEABLES.indoorHvCableRack;
   const ports = getUtilityPortsV2(def.id);
   assert.equal(def.kind, 'infrastructure');
@@ -310,8 +311,8 @@ test('indoor HV rack carries four isolated cables in one head-height flat row', 
   const anchors = Object.keys(ports).map(name => portAnchor3D(rack, COMPONENTS[def.id], name));
   assert.deepEqual(anchors.map(anchor => anchor.x), [0.25, 0.75, 1.25, 1.75],
     'the flat row uses the four-way wall feedthrough spacing');
-  assert.ok(anchors.every(anchor => anchor.y === 2.35),
-    'all four cables sit above head height in one flat row');
+  assert.ok(anchors.every(anchor => anchor.y === 2.00 && anchor.z === 0.5),
+    'all cable attachments sit at the hanging-insulator tips below the crossbar centreline');
   const visualTop = Math.max(...def.parts.map(part => ((part.y || 0) + (part.h || 1)) * 0.5));
   assert.ok(visualTop > 2.35 && visualTop < 2.5,
     'the metal bracket clears its cables but remains below the indoor ceiling envelope');
@@ -337,6 +338,56 @@ test('indoor HV rack carries four isolated cables in one head-height flat row', 
     'two segments meet through each saddle while all four carried cables remain isolated');
   assert.equal(isTensionedHvCable(lines.get('cable-1-0'), new Map([[rack.id, rack]])), true,
     'the indoor bracket applies the suspended HV tension-and-sag presentation');
+});
+
+test('45-degree indoor HV rack turns four isolated suspended cables around corners', () => {
+  const def = PLACEABLES.indoorHvCableCornerRack;
+  const ports = getUtilityPortsV2(def.id);
+  assert.equal(def.hvCableSupport, 'indoorRack');
+  assert.equal(def.subW, 4);
+  assert.equal(def.subL, 4);
+  assert.deepEqual(Object.keys(ports), ['hv_1', 'hv_2', 'hv_3', 'hv_4']);
+  assert.ok(Object.values(ports).every(port =>
+    port.utility === 'hvCable' && port.role === 'pass'
+      && port.omnidirectional === true && port.maxConnections === 2));
+  assert.deepEqual(def.electricalGroups.hvCable, []);
+
+  const rack = {
+    id: 'corner', type: def.id, col: 0, row: 0,
+    subCol: 0, subRow: 0, dir: 0,
+  };
+  setModelBoundsProvider(getModelBounds);
+  const anchors = Object.keys(ports).map(name => portAnchor3D(rack, COMPONENTS[def.id], name));
+  const spacings = anchors.slice(1).map((anchor, index) => Math.hypot(
+    anchor.x - anchors[index].x,
+    anchor.z - anchors[index].z,
+  ));
+  assert.ok(spacings.every(spacing => Math.abs(spacing - 0.5) < 1e-9),
+    'the diagonal row keeps the straight rack\'s 0.5 m conductor spacing');
+  assert.ok(anchors.every((anchor, index) => index === 0
+    || Math.abs((anchor.x - anchors[index - 1].x)
+      - (anchor.z - anchors[index - 1].z)) < 1e-9),
+  'the hanging attachment points follow a true 45-degree line');
+  assert.ok(anchors.every(anchor => anchor.y === 2.00),
+    'the corner-rack cables attach to the bottoms of the hanging insulators');
+  const bounds = getModelBounds(def.id);
+  assert.ok(bounds && Math.abs((bounds.maxX - bounds.minX) - (bounds.maxZ - bounds.minZ)) < 0.05,
+    'the authored 45-degree parts render diagonally within the square footprint');
+  setModelBoundsProvider(null);
+
+  const lines = new Map(Array.from({ length: 4 }, (_, index) => {
+    const n = index + 1;
+    return [`corner-cable-${n}`, {
+      id: `corner-cable-${n}`, utilityType: 'hvCable',
+      start: { placeableId: rack.id, portName: `hv_${n}` }, end: null,
+      path: [{ col: index, row: 0 }, { col: index, row: 1 }],
+    }];
+  }));
+  const state = openState({ placeables: [rack], utilityLines: lines });
+  const networks = discoverNetworks('hvCable', lines, makeDefaultPortLookup(state));
+  assert.equal(networks.length, 4, 'the four corner conductors remain electrically isolated');
+  assert.equal(isTensionedHvCable(lines.get('corner-cable-1'), new Map([[rack.id, rack]])), true,
+    'the corner rack tensions attached HV spans');
 });
 
 test('2×2 utility pole and 4×4 transmission tower accept every HV approach', () => {

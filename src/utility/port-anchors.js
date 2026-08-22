@@ -185,6 +185,14 @@ function resolveLat(override, bounds, measured, axis, sign, halfLat) {
       : bounds[axis === 'x' ? 'minX' : 'minZ'];
     if (Number.isFinite(edge)) lat = Math.abs(edge);
   }
+  // A deliberately authored mount may sit on the centreline: hanging
+  // insulators are the canonical case. The minimum lateral clearance below is
+  // only a guard for derived shell measurements, not an instruction to move
+  // explicit hardware onto one side of its support.
+  if (override && Number.isFinite(override.lat)) {
+    if (override.allowOutsideFootprint === true) return Math.max(0, lat);
+    return clamp(lat, 0, halfLat);
+  }
   // The footprint edge is the last resort and the headless answer, and it must
   // survive the clamp untouched — hence min/max rather than any rescaling.
   if (lat == null) lat = halfLat;

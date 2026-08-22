@@ -220,12 +220,15 @@ the short authoring contract.
 - Utility poles, transmission towers, and freestanding indoor HV racks expose
   one passive HV port at every visible insulator or saddle. Each port accepts
   two wire attachments; those two lines share one conductor, while different
-  support ports remain isolated. The indoor rack carries four saddles in a
-  flat row above head height and below the standard facility ceiling, using
-  the same 0.5 m spacing as the four-way wall feedthrough. An HV cable with
-  either end on one of these supports, or on an electrical wall feedthrough,
-  removes drawn lateral slack but retains a visible, shallow gravity sag while
-  suspended between its endpoints; other soft cables retain drawn slack.
+  support ports remain isolated. Indoor racks carry four hanging insulators
+  below their crosspieces and below the standard facility ceiling, using the
+  same 0.5 m spacing as the four-way wall feedthrough. The straight rack's
+  attachment row is perpendicular to its footprint; the corner rack sets that
+  row at 45 degrees so four parallel suspended feeders can turn together. An
+  HV cable with either end on one of these supports, or on an electrical wall
+  feedthrough, removes drawn lateral slack but retains a visible, shallow
+  gravity sag while suspended between its endpoints; other soft cables retain
+  drawn slack.
 - Passive inlet/outlet fittings keep their `pass` topology role but derive
   their physical arrow direction from the port name. Isolated pole, tower, and
   indoor-rack supports remain nondirectional; wall feedthroughs and

@@ -21,7 +21,8 @@
 //   lat    distance from the component's centreline out to the connector, in
 //          LOCAL metres (the unrotated frame: the axis the port's side faces).
 //          Overrides the raycast, so author it when the ray misses — a port
-//          over an open gap in the shell, say. Clamped to the footprint.
+//          over an open gap in the shell, say. Zero deliberately places
+//          hanging hardware on the centreline. Clamped to the footprint.
 //   along  position on the perpendicular local axis, in metres from the
 //          footprint centre, signed. Overrides the port's own `offsetAlong`
 //          fraction. Also clamped to the footprint.
@@ -162,9 +163,16 @@ export const PORT_ANCHOR_OVERRIDES = {
     _default: { y: 1.45, lat: 0.22, out: 0.07 },
   },
   indoorHvCableRack: {
-    _default: { y: 2.35, lat: 0.16, out: 0.04 },
+    _default: { y: 2.00, lat: 0, out: -0.06 },
     hv_1: { along: -0.75 }, hv_2: { along: -0.25 },
     hv_3: { along: 0.25 }, hv_4: { along: 0.75 },
+  },
+  indoorHvCableCornerRack: {
+    _default: { y: 2.00, out: -0.06 },
+    hv_1: { lat: 0.75 / Math.SQRT2, along: -0.75 / Math.SQRT2 },
+    hv_2: { lat: 0.25 / Math.SQRT2, along: -0.25 / Math.SQRT2 },
+    hv_3: { lat: 0.25 / Math.SQRT2, along: 0.25 / Math.SQRT2 },
+    hv_4: { lat: 0.75 / Math.SQRT2, along: 0.75 / Math.SQRT2 },
   },
   disconnectSwitch: {
     _default: { y: 1.55, lat: 0.20, out: 0.08 },

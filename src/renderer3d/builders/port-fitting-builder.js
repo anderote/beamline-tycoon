@@ -38,6 +38,7 @@
 
 import { COMPONENTS } from '../../data/components.js';
 import { portAnchor3D } from '../../utility/port-anchors.js';
+import { isIndoorHvRackSupport } from '../../utility/soft-cable.js';
 import { UTILITY_TYPES } from '../../utility/registry.js';
 import { _mergeGeometries } from '../component-builder.js';
 
@@ -193,7 +194,7 @@ function isDirectionalEquipment(def) {
 
 function isCableSupport(def) {
   return def?.id === 'utilityPole' || def?.id === 'transmissionTower'
-    || def?.id === 'indoorHvCableRack';
+    || isIndoorHvRackSupport(def);
 }
 
 function averageAnchor(entries) {
