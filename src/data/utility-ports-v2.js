@@ -696,7 +696,7 @@ for (const [id, comp] of Object.entries(BEAMLINE_COMPONENTS_RAW)) {
 // Infrastructure (sources). Capacity ladders per utility:
 //
 //   power   (kW):   padMount 150 → facilityTransformer 400 → hvTransformer
-//                   1200 → gridIntertieTransformer 3000. Those are the ONLY
+//                   1500 → gridIntertieTransformer 6000. Those are the ONLY
 //                   capacity sources; switchgear, panels, MCCs, buses and UPS
 //                   units distribute an upstream feed without creating power.
 //   rf      (kW):   magnetron 5 @S → wideband driver 5 @all
@@ -812,6 +812,17 @@ function supplyPorts(capacity, count) {
     };
   }
   return out;
+}
+
+/** A transformer consumes a rated upstream HV feeder before exposing its HV outputs. */
+function transformerPorts(capacity, count) {
+  return {
+    hv_in: {
+      utility: 'hvCable', side: 'back', offsetAlong: 0.5, role: 'sink',
+      connectionKind: 'hvLoadIn', params: { demand: capacity },
+    },
+    ...supplyPorts(capacity, count),
+  };
 }
 
 /**
@@ -1143,11 +1154,12 @@ const INFRA_UTILITY_PORTS = {
   // A distribution device's hv_in demand is its own rating, not its live draw:
   // you size the feeder for the panel. That keeps the HV solve local and makes
   // an oversized panel cost something instead of being a free upgrade.
-  gridServicePoint:         supplyPorts(1200, 2),
-  padMountTransformer:      supplyPorts(150, 1),
-  facilityTransformer:      supplyPorts(400, 2),
-  hvTransformer:            supplyPorts(1200, 4),
-  gridIntertieTransformer:  supplyPorts(3000, 6),
+  gridServicePoint:         supplyPorts(1500, 2),
+  gridServicePointHighCapacity: supplyPorts(6000, 4),
+  padMountTransformer:      transformerPorts(150, 1),
+  facilityTransformer:      transformerPorts(400, 2),
+  hvTransformer:            transformerPorts(1500, 4),
+  gridIntertieTransformer:  transformerPorts(6000, 6),
   compactHvDistributor:     hvDistributionPorts(200, 2),
   // UI name: HV Distributor Box. The stable id remains `switchgear` so older
   // saves retain the same placed object and utility-line endpoint ids.

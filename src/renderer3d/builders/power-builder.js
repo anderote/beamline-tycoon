@@ -103,6 +103,19 @@ export function _buildHVTransformerRoles() {
     pushT(b.copper, cg, trans(0, tankBase + tankH + bushH + 0.015, zOff));
   }
 
+  // Rear primary HV input. The authored `hv_in` port is deliberately on the
+  // back service plane so the incoming feeder reads separately from the
+  // transformer’s front secondary outlets.
+  {
+    const z = -tankD / 2 - 0.06;
+    addBox(b.detail, 0.18, 0.18, 0.04, 0, tankBase + tankH * 0.58, z);
+    const gland = new THREE.CylinderGeometry(0.055, 0.055, 0.10, SEGS);
+    applyTiledCylinderUVs(gland, 0.055, 0.10, SEGS);
+    pushT(b.copper, gland, new THREE.Matrix4().multiplyMatrices(
+      trans(0, tankBase + tankH * 0.58, z - 0.05), rotX(Math.PI / 2),
+    ));
+  }
+
   // Conservator tank on top (small horizontal cylinder)
   {
     const consR = 0.1, consH = 0.8;

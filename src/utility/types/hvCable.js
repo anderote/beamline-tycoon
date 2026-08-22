@@ -60,9 +60,9 @@ export default {
    * upgrade.
    */
   solve(network, persistent, worldState, context = {}) {
-    // A main switchgear cabinet is a downstream distributor, not a second
-    // grid connection. Its HV outputs inherit the quality of its one HV input;
-    // actual transformers have no hv_in and retain factor 1.
+    // A transformer or switchgear cabinet is downstream equipment, not a
+    // second grid connection. Its HV outputs inherit the quality of its one
+    // HV input; only utility service points retain factor 1.
     const suppliedCapacity = network.sources.reduce(
       (a, s) => a + (s.capacity || 0)
         * hvFeedFactor(worldState, s.placeableId, new Set(), context.getDefinition), 0);

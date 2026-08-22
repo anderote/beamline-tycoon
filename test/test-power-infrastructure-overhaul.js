@@ -63,7 +63,7 @@ function reliabilityFor(state, options = {}) {
 
 test('the power catalog covers service, routing, metering, and resilience', () => {
   for (const id of [
-    'gridServicePoint', 'poleMountTransformer', 'meterMain', 'disconnectSwitch',
+    'gridServicePoint', 'gridServicePointHighCapacity', 'poleMountTransformer', 'meterMain', 'disconnectSwitch',
     'cableTray', 'cableRiser', 'hvDuctBankVault', 'automaticTransferSwitch',
     'ups', 'backupGenerator',
   ]) {
@@ -93,7 +93,7 @@ test('utility service, pole, service transformer, and branch load solve end to e
 
   const hvFlow = [...state.utilityNetworkData.get('hvCable').values()][0];
   const branchFlow = [...state.utilityNetworkData.get('powerCable').values()][0];
-  assert.equal(hvFlow.totalCapacity, 1200);
+  assert.equal(hvFlow.totalCapacity, 1500);
   assert.equal(hvFlow.totalDemand, 100);
   assert.equal(branchFlow.totalCapacity, 100);
   assert.equal(branchFlow.totalDemand, 10);
@@ -101,6 +101,30 @@ test('utility service, pole, service transformer, and branch load solve end to e
   state.powerReliability.devices.grid.outageTicksRemaining = 2;
   runner.runSolve(state);
   assert.equal([...state.utilityNetworkData.get('hvCable').values()][0].totalCapacity, 0);
+});
+
+test('utility service point energizes transformer HV outputs only through its HV input', () => {
+  const state = world([
+    placed('service', 'gridServicePoint'),
+    placed('xfmr', 'hvTransformer'),
+    placed('panel', 'mainDistributionPanel'),
+  ], [
+    line('service_to_xfmr', 'hvCable', ref('service', 'hv_out_1'), ref('xfmr', 'hv_in'), 0),
+    line('xfmr_to_panel', 'hvCable', ref('xfmr', 'hv_out_1'), ref('panel', 'hv_in'), 2),
+  ]);
+  reliabilityFor(state);
+  const runner = runnerFor(state);
+  runner.runSolve(state);
+  const hvNetworks = [...state.utilityNetworkData.get('hvCable').values()];
+  const downstream = hvNetworks.find(flow => flow.totalDemand === 400);
+  assert.equal(downstream?.totalCapacity, 1500);
+
+  state.utilityLines.delete('service_to_xfmr');
+  runner.markTopologyDirty();
+  runner.runSolve(state);
+  const starved = [...state.utilityNetworkData.get('hvCable').values()]
+    .find(flow => flow.totalDemand === 400);
+  assert.equal(starved?.totalCapacity, 0);
 });
 
 test('an open disconnect divides its HV feeder immediately', () => {

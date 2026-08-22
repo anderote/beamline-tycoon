@@ -307,8 +307,8 @@ console.log('\n=== 7. Economy: quality 0 earns nothing; power capacity is real =
   g.placePlaceable({ type: 'hvTransformer', col: -20, row: -20, free: true, silent: true });
   g.placePlaceable({ type: 'hvTransformer', col: -18, row: -20, free: true, silent: true });
   const stats = computeSystemStats(g.state);
-  assert(stats.power.capacity === 2400,
-    `capacity tracks the placed transformers, 1200 kW each (got ${stats.power.capacity})`);
+  assert(stats.power.capacity === 3000,
+    `capacity tracks the placed transformers, 1500 kW each (got ${stats.power.capacity})`);
   assert(!('maxElectricalPower' in g.state) || g.state.maxElectricalPower === undefined,
     'the deprecated maxElectricalPower field is not resurrected');
 }

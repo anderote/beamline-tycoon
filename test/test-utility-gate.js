@@ -331,8 +331,8 @@ console.log('\n--- Test 6: on-pipe placements are gated and fail closed ---');
   const floor = declaredSinkQualityFloor('ellipticalSrfCavity');
   assert(floor?.cryoQuality === 0 && floor?.rfQuality === 0,
     `real SRF cavity declares cryo + RF sinks (got ${JSON.stringify(floor)})`);
-  assert(declaredSinkQualityFloor('hvTransformer') === null,
-    'a pure source declares no sink floor at all');
+  assert(declaredSinkQualityFloor('hvTransformer')?.hvQuality === 0,
+    'an HV transformer declares a fail-closed HV input floor');
 }
 
 // ==========================================================================

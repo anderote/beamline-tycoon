@@ -674,7 +674,7 @@ export const RESEARCH = {
     cost: { data: 228, funding: 6700000 },
     duration: 60,
     unlocks: [
-      'gridServicePoint', 'poleMountTransformer', 'meterMain', 'disconnectSwitch',
+      'gridServicePoint', 'gridServicePointHighCapacity', 'poleMountTransformer', 'meterMain', 'disconnectSwitch',
       'cableTray', 'cableRiser', 'hvDuctBankVault', 'utilityPole',
     ],
     requires: 'facilitySystems',

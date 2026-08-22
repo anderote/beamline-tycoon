@@ -150,13 +150,14 @@ export function setupSmallBeamlineFacility(game) {
 
   // Service row (north). The ordinary branch loads total 102 kW — gun 50,
   // cavities 30, quad 10, buncher 5, cup + BPM 2 and support gear 5. The RF
-  // amplifier is a separate 70 kW HV feeder, so this uses the 1.2 MW service
+  // amplifier is a separate 70 kW HV feeder, so this uses the 1.5 MW service
   // transformer tier and its matching main distribution panel rather than the
   // 150 kW pad-mount starter.
   // RF: the buncher and the three pillbox cavities are all 162.5 MHz, so they
   // share one network — which is the point of the low-band consolidation. Only
   // the SSA and the TWT cover VHF, and the SSA (35 kW against 17 kW of demand)
   // is the one with the power.
+  const servicePoint = game.placePlaceable({ type: 'gridServicePoint', col: -26, row: -1, free: true, silent: true });
   const xfmr = game.placePlaceable({ type: 'hvTransformer', col: -8, row: -1, free: true, silent: true });
   const mainPanel = game.placePlaceable({ type: 'mainDistributionPanel', col: -5, row: -1, free: true, silent: true });
   const roomPanel = game.placePlaceable({ type: 'powerPanel', col: -8, row: 4, free: true, silent: true });
@@ -198,9 +199,17 @@ export function setupSmallBeamlineFacility(game) {
 
   const wire = (util, from, to) => wireUtility(game, util, from, to);
 
+  // The transformer is fed by the map-edge utility service. Its secondary
+  // feeders are live only after this rated primary connection is present. The
+  // scenario's substation row has a deliberate service entrance opening in
+  // the west wall, matching the off-map feeder corridor.
+  delete game.state.wallOccupied['-8,-1,w'];
+  delete game.state.wallOccupied['-8,-2,w'];
+  if (servicePoint && xfmr) wire('hvCable', { id: servicePoint, port: 'hv_out_1' }, { id: xfmr, port: 'hv_in' });
+
   // Power runs supply → main distribution → branches.
   //
-  // The transformer carries the facility's 400 kW. The matching main panel
+  // The transformer carries the facility's 1.5 MW nameplate. The matching main panel
   // turns one HV feeder into eight 50 kW branch circuits; it adds no capacity.
   if (xfmr && mainPanel) wire('hvCable', { id: xfmr, port: 'hv_out_1' }, { id: mainPanel, port: 'hv_in' });
   // RF sources are dedicated high-voltage loads, not branch-circuit loads.
