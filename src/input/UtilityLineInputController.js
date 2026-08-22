@@ -242,6 +242,11 @@ export class UtilityLineInputController {
     // open-ended draw at the cursor's subtile. Either way, consume the click
     // since the utility-line tool is armed.
     const snap = this._snapToNearest(worldX, worldY, screen);
+    const descriptor = UTILITY_TYPES[this._utilityType];
+    if (descriptor?.portToPortDrawing && !snap?.placeableId) {
+      this._hoverPort = null;
+      return true;
+    }
     this._drawing = true;
     if (snap) {
       this._drawStart = snap;
@@ -344,6 +349,11 @@ export class UtilityLineInputController {
     const plan = this._planRun();
     if (plan && plan.stubs.length > 0) {
       this._commitRun(plan);
+      this._cancelDraw();
+      return true;
+    }
+    if (UTILITY_TYPES[this._utilityType]?.portToPortDrawing
+        && (!geom.startRef || !geom.endRef)) {
       this._cancelDraw();
       return true;
     }
@@ -534,6 +544,8 @@ export class UtilityLineInputController {
     const endTile = { col: snapQ(endTileRaw.col), row: snapQ(endTileRaw.row) };
     const startRef = this._anchorRef(this._drawStart);
     const endRef = this._anchorRef(endAnchor);
+    const descriptor = UTILITY_TYPES[this._utilityType] || {};
+    const portOnlyReject = descriptor.portToPortDrawing && (!startRef || !endRef);
     const waterCircuit = this._waterCircuitForRefs(startRef, endRef);
     // A tap end is an open end that is allowed to touch one specific line, at
     // exactly the subtile it lands on. Everything else about it is ordinary.
@@ -574,7 +586,6 @@ export class UtilityLineInputController {
       ) || null;
     }
 
-    const descriptor = UTILITY_TYPES[this._utilityType] || {};
     const cablePath = isSoftCable(this._utilityType) && !this._runMode
       ? this._cableTrace
       : null;
@@ -591,7 +602,9 @@ export class UtilityLineInputController {
 
     let chosen = null;
     let chosenRouteHeight = null;
-    let reason = null;
+    let reason = portOnlyReject
+      ? (startRef ? 'invalid_end' : 'invalid_start')
+      : null;
     let freeformPhysicalBlock = false;
     const fallback = candidates.length > 0 ? snapPath(candidates[0]) : null;
     // This runs on every mousemove, and validateDrawLine walks the whole board
@@ -600,7 +613,7 @@ export class UtilityLineInputController {
     // is a per-frame cost the player feels. The first few are the ones worth
     // having anyway — past that the shapes are getting long and ugly enough
     // that refusing and saying why beats committing one of them.
-    const limit = Math.min(candidates.length, MAX_ROUTE_CANDIDATES);
+    const limit = portOnlyReject ? 0 : Math.min(candidates.length, MAX_ROUTE_CANDIDATES);
     for (let i = 0; i < limit; i++) {
       const path = snapPath(candidates[i]);
       const res = validateDrawLine(this.game.state, {
@@ -632,7 +645,8 @@ export class UtilityLineInputController {
     // absent from the obstacle map, so the best route may pass directly under
     // beamline hardware; a real collision produces a tidy perimeter wrap.
     let routedFallback = fallback;
-    if (!chosen && !freeformPhysicalBlock && usesFlexibleSubtileRouting(descriptor)) {
+    if (!chosen && !portOnlyReject && !freeformPhysicalBlock
+        && usesFlexibleSubtileRouting(descriptor)) {
       const routeHeightMeters = descriptor.fixedRouteHeight
         ? utilityLineHeight(
             this._utilityType,
@@ -850,6 +864,8 @@ export class UtilityLineInputController {
   _snapToNearest(worldX, worldY, screen) {
     const port = this._snapToNearestPort(worldX, worldY, screen);
     if (port) return port;
+    const descriptor = UTILITY_TYPES[this._utilityType];
+    if (descriptor?.portToPortDrawing) return null;
     // The rack rises above the floor. A click on its visible mesh projects to
     // a different ground coordinate in an isometric camera, so resolve that
     // mesh hit before using the plan-view proximity fallback. Any utility tool
@@ -867,7 +883,6 @@ export class UtilityLineInputController {
     if (bus) return {
       open: true, busTap: true, busId: bus.busId, worldPos: bus.worldPos,
     };
-    const descriptor = UTILITY_TYPES[this._utilityType];
     const requestedWaterCircuit = this._waterCircuitForRefs(
       this._anchorRef(this._drawStart));
     const ordinaryTapAllowed = descriptor?.allowsTap !== false;

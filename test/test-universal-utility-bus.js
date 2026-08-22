@@ -261,6 +261,11 @@ for (const utilityType of ['powerCable', 'vacuumPipe', 'rfWaveguide',
   });
   controller.setUtilityType(utilityType);
   const snap = controller._snapToNearest(9999, 9999, { x: 20, y: 20 });
+  if (utilityType === 'coolingWater') {
+    assert.equal(snap, null,
+      'coolingWater hoses ignore racks because player drawing is port-to-port');
+    continue;
+  }
   assert.equal(snap?.busId, busId,
     `${utilityType} can snap directly to the visible vertical rack`);
   assert.equal(snap?.busTap, true);

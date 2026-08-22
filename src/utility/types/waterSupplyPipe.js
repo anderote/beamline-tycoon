@@ -56,11 +56,10 @@ export default {
   capacityUnit: 'kW thermal',
   capacityParam: 'capacity',
   demandParam: 'heatLoad',
+  // Rigid pipes may form explicit pipe-to-pipe tees. Keep their pickup halo
+  // tight so nearby parallel headers remain easy to route independently.
   allowsTap: true,
-  // Hot, cold, and plant-transfer headers are often laid in parallel. A
-  // quarter-tile-plus halo still makes an intentional tee easy to acquire but
-  // does not magnetize the adjacent routing lane.
-  tapSnapRadiusTiles: 0.3,
+  tapSnapRadiusTiles: 0.15,
   joinsOnContact: true,
   fansOut: true,
   bridgesAdjacent: false,

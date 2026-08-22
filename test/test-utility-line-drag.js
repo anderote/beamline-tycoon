@@ -202,18 +202,27 @@ console.log('\n--- 2b. A hand-drawn S-curve is stored without subtile snapping -
 console.log('\n--- 2c. Cooling hoses retain half-subtile detail during slow drawing ---');
 {
   const game = makeGame();
+  game.state.placeables.push({
+    id: 'water_src', type: 'packageChiller', kind: 'infrastructure',
+    category: 'infrastructure', col: 12, row: 12, subCol: 0, subRow: 0, dir: 0,
+  });
   const ctrl = new UtilityLineInputController({ game, renderer: {} });
   ctrl.setUtilityType('coolingWater');
-  const startTile = { col: 12, row: 12 };
+  const startTile = portTile(game, 'water_src', 'cool_out_a');
+  const finishTile = portTile(game, 'pl_4', 'cool_in');
   const start = gridToIso(startTile.col, startTile.row);
   ctrl.onMouseDown(start.x, start.y, 0, {});
-  // Each mouse event moves only 1/40 tile. The former live-endpoint logic
-  // replaced every one of these and retained no intermediate detail.
-  for (let i = 1; i <= 20; i++) {
-    const point = gridToIso(startTile.col + i / 40, startTile.row);
+  // Small mouse increments between two real hose ports must retain their
+  // intermediate detail instead of repeatedly replacing the live endpoint.
+  for (let i = 1; i <= 100; i++) {
+    const t = i / 100;
+    const point = gridToIso(
+      startTile.col + (finishTile.col - startTile.col) * t,
+      startTile.row + (finishTile.row - startTile.row) * t,
+    );
     ctrl.onMouseMove(point.x, point.y, {});
   }
-  const finish = gridToIso(startTile.col + 0.5, startTile.row);
+  const finish = gridToIso(finishTile.col, finishTile.row);
   ctrl.onMouseUp(finish.x, finish.y, 0, {});
   const hose = Array.from(game.state.utilityLines.values())
     .find(line => line.utilityType === 'coolingWater');
