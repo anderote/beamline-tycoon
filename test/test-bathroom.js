@@ -61,6 +61,25 @@ test('bathroom stall walls and doors have authored cubicle geometry', () => {
   assert.ok(door.parts.some(part => part.name === 'latch'));
 });
 
+test('bathroom stall door fills a complete tile with fixed side panels', () => {
+  const door = PLACEABLES.toiletStallDoor;
+  const part = name => door.parts.find(candidate => candidate.name === name);
+  const structuralParts = [
+    part('leftOuterPost'), part('leftInfill'), part('hingePost'),
+    part('doorLeaf'), part('latchPost'), part('rightInfill'), part('rightOuterPost'),
+  ];
+
+  assert.equal(door.gridW, 4, 'stall front reserves all four subtiles across one tile');
+  assert.equal(door.gridH, 1);
+  assert.ok(structuralParts.every(Boolean), 'door has both fixed side infills and framing posts');
+
+  const leftEdge = Math.min(...structuralParts.map(entry => entry.x - entry.w / 2));
+  const rightEdge = Math.max(...structuralParts.map(entry => entry.x + entry.w / 2));
+  assert.ok(Math.abs(leftEdge + 2) < 1e-9, 'stall front reaches the left tile edge');
+  assert.ok(Math.abs(rightEdge - 2) < 1e-9, 'stall front reaches the right tile edge');
+  assert.equal(part('topRail').w, 4, 'top rail spans the complete tile width');
+});
+
 test('bathroom fixture catalogue is complete, registered, and zone-scoped', () => {
   assert.ok(ROOM_FURNITURE_GROUPS.hygiene);
   for (const id of BATHROOM_FURNISHINGS) {
