@@ -69,8 +69,10 @@ const makeUpTank = componentHoverInfo(COMPONENTS.waterTank);
 assert(makeUpTank.detail === 'Water: 1 L/tick supply · 500 L storage',
   `make-up tank hover separates supply and storage (${makeUpTank.detail})`);
 const facilityWater = componentHoverInfo(COMPONENTS.facilityWaterSupply);
+assert(facilityWater.title === 'Water Replenishment Plant',
+  `dedicated water replenishment building has an explicit title (${facilityWater.title})`);
 assert(facilityWater.detail === 'Water: 20 L/tick supply',
-  `facility water hover claims no storage (${facilityWater.detail})`);
+  `water replenishment hover claims no storage (${facilityWater.detail})`);
 const bulkWater = componentHoverInfo(COMPONENTS.bulkWaterTank);
 assert(bulkWater.detail === 'Water: 5,000 L storage',
   `bulk tank hover claims no generation (${bulkWater.detail})`);

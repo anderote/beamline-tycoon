@@ -11,7 +11,7 @@ export const COOLING_WATER_INVENTORY = Object.freeze({
     storageCapacityL: 500,
   }),
 
-  // Plant-scale municipal/process-water connection. It can replace the
+  // Dedicated plant-scale replenishment connection. It can replace the
   // evaporation from 1 MW of heat load, but it needs a tank on the network.
   facilityWaterSupply: Object.freeze({
     supplyRateLPerTick: 20,

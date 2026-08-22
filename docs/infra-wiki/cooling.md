@@ -16,7 +16,7 @@ and detectors. Do not read every blue-capacity item as “a water source”:
 |------|-----------|--------------|
 | **Process cooling** | Package Chiller, LCW Skid, Dual-Circuit Chiller, Chiller | Conditions and circulates water for the beamline loop. These are the normal starting points for a blue-pipe network. |
 | **Heat rejection** | Fan-Coil Cooler, Dry Cooler Bank, Cooling Tower | Disposes of heat to room/outdoor air. The fan-coil does it directly; the dry cooler and tower are plant-scale rejectors. |
-| **Make-up supply** | Make-up Water Tank, Facility Water Supply | Replaces evaporated water at a finite rate. The facility supply has the larger flow but no onboard storage. |
+| **Make-up supply** | Make-up Water Tank, Water Replenishment Plant | Replaces evaporated water at a finite rate. The replenishment plant has the larger flow but no onboard storage. |
 | **Storage** | Make-up Water Tank, Bulk Water Storage Tanks | Sets how many litres the network can hold. Bulk tanks are passive and never generate water. |
 | **Water & treatment** | Deionizer | Keeps the loop clean; it does not add cooling capacity. |
 | **Distribution** | LCW Manifold | Extends a live process-water loop to nearby on-pipe sinks; it does not add capacity. |
@@ -63,7 +63,7 @@ In a real facility, the hierarchy is: cooling tower dumps heat to atmosphere, ch
 Cooling water pipes form isolated networks. A chiller only cools components it's plumbed to via cooling water tiles. Two separate pipe runs form two separate cooling networks, each with its own capacity budget.
 
 Water inventory is also local to that network. The **Make-up Water Tank**
-combines a 1 L/tick supply with 500 L of storage. The **Facility Water Supply**
+combines a 1 L/tick supply with 500 L of storage. The **Water Replenishment Plant**
 delivers 20 L/tick but stores nothing, so it needs a tank. **Bulk Water Storage
 Tanks** hold 5,000 L but supply 0 L/tick: without a make-up source their level
 only goes down. Connecting several tanks adds their capacities; connecting
@@ -113,7 +113,7 @@ For a normal-conducting cavity, that temperature rise causes thermal expansion, 
 
 - Start with a Package Chiller or LCW Skid for a small beamline
 - Add a Make-up Water Tank when evaporation begins to outrun manual refills
-- Pair the Facility Water Supply with Bulk Water Storage Tanks for a large plant
+- Pair the Water Replenishment Plant with Bulk Water Storage Tanks for a large loop
 - Add a chiller when you add NC RF structures — they are where the heat actually is
 - Cooling tower for large facilities with many heat-producing systems
 - A cooling manifold ($80k) beats individual runs at about four sinks; cooling pipe is $3,600/tile
@@ -155,7 +155,7 @@ stored_next = clamp(stored + make_up - evaporation, 0, storage_max)
 ```
 Refills cost $12/L up to the network's actual storage capacity. A 30 kW loop
 evaporates 0.6 L/tick, so the make-up tank's 1 L/tick feed keeps it full. A
-1 MW plant evaporates 20 L/tick, exactly the Facility Water Supply's rating.
+1 MW plant evaporates 20 L/tick, exactly the Water Replenishment Plant's rating.
 Bulk tanks extend the buffer but do not change either rate. The integrated
 Package Chiller and LCW Skid retain their automatic 0.1 L/tick and 0.5 L/tick
 feeds, enough to offset evaporation at their respective nameplate loads.

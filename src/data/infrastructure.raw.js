@@ -1142,8 +1142,8 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module', ports: {}, requiredConnections: [],
   },
   facilityWaterSupply: {
-    id: 'facilityWaterSupply', name: 'Facility Water Supply',
-    desc: 'Plant-scale water-main connection delivering 20 L/tick of treated make-up water. It has no storage capacity: pair it with a make-up tank or bulk storage tanks so the cooling loop has a real reservoir.',
+    id: 'facilityWaterSupply', name: 'Water Replenishment Plant',
+    desc: 'Dedicated plant that replenishes a Cooling Water network with 20 L/tick of treated make-up water. It does not cool or store water: pair it with a make-up tank or bulk storage tanks so the loop has a real reservoir.',
     category: 'cooling', subsection: 'waterSupply', accentColor: 0x277a9c,
     cost: { funding: 650000 }, stats: {}, energyCost: 0,
     subL: 4, subW: 3, subH: 3, gridW: 3, gridH: 4, geometryType: 'box',

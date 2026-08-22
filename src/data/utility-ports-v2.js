@@ -1310,8 +1310,8 @@ const INFRA_UTILITY_PORTS = {
   // The compact 5/25 kW packages buy an affordable start; the 175/300 kW
   // central chillers buy scale but need separate storage and heat rejection.
   // Water inventory is two independent capabilities. The make-up tank has a
-  // small float-valve feed plus storage, the facility main has a larger feed
-  // and no storage, and the bulk tanks have storage but never generate water.
+  // small float-valve feed plus storage, the replenishment plant has a larger
+  // feed and no storage, and the bulk tanks have storage but never generate water.
   // Explicit process capacity:0 keeps every one out of the cooling ladder.
   waterTank:             coolingPlantPorts({
     capacity: 0, ...COOLING_WATER_INVENTORY.waterTank,

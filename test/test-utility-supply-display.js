@@ -211,7 +211,7 @@ console.log('\n--- Test 8: water inventory metrics stay separate ---');
     'make-up tank displays both its flow rate and capacity');
   assert(main.some(r => r.label === 'Water supply' && r.value === '20 L/tick')
       && !main.some(r => r.label === 'Water storage'),
-    'facility main displays high flow and no invented storage');
+    'water replenishment plant displays high flow and no invented storage');
   assert(bulk.some(r => r.label === 'Water storage' && r.value === '5000 L')
       && !bulk.some(r => r.label === 'Water supply'),
     'bulk tanks display storage and no invented generation');
