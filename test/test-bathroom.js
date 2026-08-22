@@ -149,3 +149,36 @@ test('bathroom fixture catalogue is complete, registered, and zone-scoped', () =
     assert.ok(Array.isArray(def.parts) && def.parts.length > 0);
   }
 });
+
+test('bathroom mirror uses a real planar scene reflection', () => {
+  const mirrorDef = PLACEABLES.bathroomMirror;
+  const authoredGlass = mirrorDef.parts.find(part => part.name === 'glass');
+  assert.equal(authoredGlass?.surface, 'mirror',
+    'the mirror face carries the renderer-independent reflective surface role');
+
+  const parent = new THREE_REAL.Group();
+  const builder = new EquipmentBuilder();
+  builder.build([], [{
+    id: 'mirror-1', type: 'bathroomMirror',
+    col: 3, row: 4, subCol: 0, subRow: 0, dir: 0,
+  }], parent);
+  const rendered = builder.getGroup('mirror-1');
+  const surfaces = [];
+  rendered.traverse(object => {
+    if (object.userData?.isReflectiveMirrorSurface) surfaces.push(object);
+  });
+  assert.equal(surfaces.length, 1, 'the furnishing renders one dedicated mirror plane');
+  const surface = surfaces[0];
+  assert.equal(surface.geometry.type, 'PlaneGeometry');
+  assert.equal(surface.material.isMeshBasicNodeMaterial, true,
+    'the mirror uses the node-renderer material path shared by WebGPU and WebGL2');
+  assert.ok(surface.material.colorNode?.reflector,
+    'the visible color is supplied by a planar ReflectorNode scene render');
+  assert.equal(surface.userData.reflectorBaseNode.resolutionScale, 0.25,
+    'the live reflection uses a bounded render-target resolution');
+  assert.equal(surface.userData.reflectorBaseNode.bounces, false,
+    'mirrors do not recursively render one another');
+  assert.equal(surface.userData.reflectorBaseNode.target.parent, surface,
+    'the reflection plane follows the placed mirror transform');
+  builder.dispose(parent);
+});

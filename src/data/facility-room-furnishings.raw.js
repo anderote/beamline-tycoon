@@ -2004,7 +2004,10 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     gridW: 2, gridH: 1, subH: 3, spriteKey: 'bathroomMirror', effects: {}, baseMaterial: 'metal_brushed',
     parts: [
       { name: 'frame', x: 0, y: 1.45, z: 0.18, w: 1.92, h: 2.45, l: 0.1, material: 'metal_brushed' },
-      { name: 'glass', x: 0, y: 1.48, z: 0.1, w: 1.7, h: 2.2, l: 0.03, color: 0x80a9bc },
+      {
+        name: 'glass', surface: 'mirror',
+        x: 0, y: 1.48, z: 0.1, w: 1.7, h: 2.2, l: 0.03,
+      },
     ],
   },
   handDryer: {

@@ -63,6 +63,7 @@ const ATTACHMENT_KINDS = new Set(['inline']);
 const LIGHT_MOUNTS = new Set(['ground', 'wall', 'overhead', 'surface']);
 const LIGHT_SHAPES = new Set(['point', 'cone']);
 const PART_SHAPES = new Set(['box', 'cylinder', 'sphere', 'torus', 'cone']);
+const PART_SURFACES = new Set(['mirror']);
 const PART_AXES = new Set(['x', 'y', 'z']);
 const ELECTRICAL_UTILITIES = new Set(['powerCable', 'hvCable']);
 export const MAX_POWER_CABLE_DEMAND_KW = 50;
@@ -616,6 +617,14 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
           || part.topScale < 0 || part.topScale > 1)) {
         problem(id, `parts[${index}].topScale`,
           `topScale is only valid on cones and must be in [0, 1], got ${JSON.stringify(part.topScale)}`);
+      }
+      if (part.surface != null && !PART_SURFACES.has(part.surface)) {
+        problem(id, `parts[${index}].surface`,
+          `unknown part surface '${part.surface}' (known: ${[...PART_SURFACES].join(', ')})`);
+      }
+      if (part.surface === 'mirror' && shape !== 'box') {
+        problem(id, `parts[${index}].surface`,
+          "mirror surfaces must use the default box plane orientation");
       }
     });
   }

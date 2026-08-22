@@ -221,7 +221,7 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
       subW: 1, subL: 1, subH: 1,
       parts: [{
         name: 'badPrimitive', shape: 'banana', w: 0, h: 1, l: 1,
-        axis: 'diagonal', rotation: [0, 1], topScale: 2,
+        axis: 'diagonal', rotation: [0, 1], topScale: 2, surface: 'chrome',
       }],
     },
     badSelectionOwner: {
@@ -332,6 +332,8 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     'malformed primitive rotation reported');
   assert(hasProblem(problems, 'malformedPrimitive', 'parts[0].topScale', 'only valid on cones'),
     'invalid primitive top scale reported');
+  assert(hasProblem(problems, 'malformedPrimitive', 'parts[0].surface', "'chrome'"),
+    'unknown authored part surface reported');
   assert(hasProblem(problems, 'phantomComponent', 'utilityPorts'),
     'dangling utility-port ref reported');
   assert(hasProblem(problems, 'mysteryModule', 'utilityPorts.weird', "'steamPipe'"),

@@ -73,7 +73,7 @@ import { checkObjectives } from './objectives.js';
 import { findStackTarget, collapsePlan } from './stacking.js';
 import {
   canPlace, canPlaceWallFixture, normalizeWallMount, physicalWallKey,
-  usesFloorOccupancy,
+  usesFloorOccupancy, wallEdgeHasHanging,
 } from './placement.js';
 import { resolveMapEdgeConnection } from './map-edge-connection.js';
 import { wallFixtureDir } from './wall-fixture-geometry.js';
@@ -2294,6 +2294,10 @@ export class Game {
         this.log(`A ${dt.name} needs an unbroken run of ${sites.length} wall edges`, 'bad');
         return false;
       }
+      if (wallEdgeHasHanging(this, site.col, site.row, site.edge, level)) {
+        this.log(`Remove the wall hanging before cutting a ${dt.name} opening`, 'bad');
+        return false;
+      }
       if (findEdgeKey(this.state.wallOverlayOccupied, site.col, site.row, site.edge, level)) {
         this.log(`Remove the wall sheeting before cutting a ${dt.name} opening`, 'bad');
         return false;
@@ -2368,6 +2372,10 @@ export class Game {
       this.log(`No wall on that edge — a ${dt.name} has to hang on a wall`, 'bad');
       return false;
     }
+    if (wallEdgeHasHanging(this, col, row, edge, level)) {
+      this.log(`Remove the wall hanging before cutting a ${dt.name} opening`, 'bad');
+      return false;
+    }
     if (findEdgeKey(this.state.wallOverlayOccupied, col, row, edge, level)) {
       this.log(`Remove the wall sheeting before cutting a door opening`, 'bad');
       return false;
@@ -2423,10 +2431,15 @@ export class Game {
     let placed = 0;
     let updated = 0;
     let noWall = 0;
+    let blockedByHanging = 0;
     let brokeOnFunding = false;
     for (const pt of path) {
       const site = this._resolveDoorSite(pt.col, pt.row, pt.edge, dt, pt.off ?? off, level);
       if (!site) { noWall++; continue; }
+      if (wallEdgeHasHanging(this, pt.col, pt.row, pt.edge, level)) {
+        blockedByHanging++;
+        continue;
+      }
       if (findEdgeKey(this.state.wallOverlayOccupied, pt.col, pt.row, pt.edge, level)) { noWall++; continue; }
       if (this.state.doorOccupied[site.key] === doorType) {
         if (this._updateDoorRecord(site.key, variant, site.off)) updated++;
@@ -2457,6 +2470,9 @@ export class Game {
     }
     if (noWall > 0) {
       this.log(`Skipped ${noWall} ${dt.name} segment${noWall > 1 ? 's' : ''} — no wall on that edge`, 'bad');
+    }
+    if (blockedByHanging > 0) {
+      this.log(`Skipped ${blockedByHanging} ${dt.name} segment${blockedByHanging > 1 ? 's' : ''} — remove the wall hanging first`, 'bad');
     }
     if (brokeOnFunding) {
       this.log(`Ran out of funding for the rest of the ${dt.name} run ($${dt.cost} each)`, 'bad');
@@ -2563,6 +2579,7 @@ export class Game {
     // edge representation, the same way InputHandler._findWallOrDoorAtEdge does.
     const wallTypeId = this.state.wallOccupied[key] || this.state.wallOccupied[aliasKey];
     if (!wallTypeId) return false;
+    if (wallEdgeHasHanging(this, col, row, edge, level)) return false;
     const wallDef = WALL_TYPES[wallTypeId];
     // Fit rule: the wall must be tall enough to hold the sill, the opening,
     // and at least a token header above it.
@@ -2636,6 +2653,7 @@ export class Game {
       const aliasKey = edgeKey(alias.col, alias.row, alias.edge, level);
       const wallTypeId = this.state.wallOccupied[key] || this.state.wallOccupied[aliasKey];
       if (!wallTypeId) continue;
+      if (wallEdgeHasHanging(this, pt.col, pt.row, pt.edge, level)) continue;
       const wallDef = WALL_TYPES[wallTypeId];
       if (!wallDef || wallDef.wallHeight < wt.sillHeight + wt.openingHeight + 1) continue;
       // A window already on this edge may be recorded under either

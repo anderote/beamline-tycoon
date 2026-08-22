@@ -29,9 +29,16 @@ the short authoring contract.
   ordinary furnishing occupancy layer, so desks and chairs can sit on them.
 - Wall-mounted placeables use `mount: 'wall'`. Non-light hangings declare a
   positive `mountY` centre height in world metres. Wide fixtures may declare
-  `wallSpan` from 1–4 to reserve consecutive quarter-wall slots; the default is
-  one slot. Placement stores the resolved span on `wallMount` so render poses,
-  overlap checks, moves, and save/load agree.
+  `wallSpan` from 1–4 to cover consecutive quarter-wall slots; the default is
+  one slot. Placement stores the resolved span on `wallMount` so snapping,
+  render poses, moves, and save/load agree.
+- Structure Hangings do not reserve wall-fixture slots and may overlap other
+  hangings, lights, and fittings. A door or window opening on the same physical
+  wall edge is their only placement conflict, regardless of which wall face
+  was used to author either object.
+- A box-shaped equipment/furnishing part may declare `surface: 'mirror'` for a
+  real planar scene reflection. Mirror surfaces render as individual geometry
+  rather than joining the ordinary static-part material batches.
 - A placeable that moves staff between storeys declares `verticalConnector`
   with `toLevelDelta: 1` and a positive subtile `travelCost`. It is authored
   on the lower storey; placement requires finished floors at both landings,
