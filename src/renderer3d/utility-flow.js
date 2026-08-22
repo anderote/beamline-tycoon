@@ -103,13 +103,15 @@ for (const t of UTILITY_TYPE_LIST) {
 // Per-flowState modifiers, applied to the base FLOW_PARAMS entry at patch
 // time. 'ok' is the table above verbatim. 'soft' stutters and dims — a
 // network that's delivering but over capacity should read as struggling, not
-// as healthy. 'hard' zeroes everything: no pulses, unlit pipe, exactly like
-// the acceptance criteria asks for, and it needs no separate code path in the
-// shader — uStrength/uBaseGlow at 0 means the added term is 0.
+// as healthy. 'hard' zeroes everything for a faulted network; 'off' does the
+// same for a healthy-looking line whose source is not actually energized.
+// Both need no separate shader path: uStrength/uBaseGlow at 0 means the added
+// term is 0.
 const FLOW_STATE_MODS = {
   ok:   { speedMul: 1, strengthMul: 1,    baseGlowMul: 1,   stutter: 0 },
   soft: { speedMul: 1, strengthMul: 0.4,  baseGlowMul: 0.5, stutter: 1 },
   hard: { speedMul: 0, strengthMul: 0,    baseGlowMul: 0,   stutter: 0 },
+  off:  { speedMul: 0, strengthMul: 0,    baseGlowMul: 0,   stutter: 0 },
 };
 
 // ---- Run-distance UVs -----------------------------------------------------
@@ -197,7 +199,7 @@ const _patchedMaterials = new Set();
 /**
  * Install the flow pulse on `material` (a MeshStandardMaterial) via
  * onBeforeCompile, in `utilityType`'s colour and rhythm (FLOW_PARAMS) at
- * `flowState` ('ok' | 'soft' | 'hard'). A no-op — returns `material`
+ * `flowState` ('ok' | 'soft' | 'hard' | 'off'). A no-op — returns `material`
  * untouched — when the utility has no flow (FLOW_PARAMS[utilityType] is
  * null/undefined, e.g. vacuumPipe).
  *

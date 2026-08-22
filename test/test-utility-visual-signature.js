@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   utilityErrorVisualSignature,
+  utilityFlowVisualSignature,
   utilityLineVisualSignature,
   utilityTopologyVisualSignature,
 } from '../src/renderer3d/utility-visual-signature.js';
@@ -18,6 +19,17 @@ function state(errors = [], {
       sources,
     }]]]),
     utilityNetworkData: new Map([['powerCable', new Map([[networkId, { errors }]])]]),
+  };
+}
+
+function rfState(totalCapacity) {
+  return {
+    utilityNetworks: new Map([['rfWaveguide', [{
+      id: 'rf-net', lineIds: ['rf-b', 'rf-a'], sources: [{ portKey: 'amp:rf_out' }],
+    }]]]),
+    utilityNetworkData: new Map([['rfWaveguide', new Map([[
+      'rf-net', { totalCapacity, errors: [] },
+    ]])]]),
   };
 }
 
@@ -56,7 +68,7 @@ test('utility topology signature changes when solved flow direction can change',
   );
 });
 
-test('combined line signature covers topology and visible fault state only', () => {
+test('combined line signature covers topology, fault state, and RF flow state', () => {
   assert.equal(utilityLineVisualSignature({}), null);
   const healthy = utilityLineVisualSignature(state());
   assert.notEqual(healthy, utilityLineVisualSignature(state([], { lineIds: ['a', 'b', 'new-run'] })));
@@ -64,5 +76,17 @@ test('combined line signature covers topology and visible fault state only', () 
   assert.equal(
     utilityLineVisualSignature(state([{ severity: 'hard', message: 'first copy' }])),
     utilityLineVisualSignature(state([{ severity: 'hard', message: 'different copy' }])),
+  );
+});
+
+test('flow signature changes when solved RF power turns on or off', () => {
+  assert.equal(utilityFlowVisualSignature({}), null);
+  assert.equal(utilityFlowVisualSignature(state()), '');
+  assert.equal(utilityFlowVisualSignature(rfState(0)), '');
+  assert.equal(utilityFlowVisualSignature(rfState(300)), 'rf-a,rf-b');
+  assert.notEqual(
+    utilityLineVisualSignature(rfState(0)),
+    utilityLineVisualSignature(rfState(300)),
+    'the renderer invalidates cached RF materials when forward power changes',
   );
 });

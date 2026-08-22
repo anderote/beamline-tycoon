@@ -1,8 +1,9 @@
 // Utility-line rendering reads solved topology as well as line geometry. A
 // topology mutation event reaches the renderer immediately, but SolveRunner
 // publishes the replacement utilityNetworks map on the following solve pass.
-// The tick-time signature therefore has to cover both the published topology
-// (which controls source -> sink animation direction) and fault severity.
+// The render invalidation signature therefore has to cover the published topology
+// (which controls source -> sink animation direction), fault severity, and
+// whether an RF network has forward power to visualize.
 
 function sourceKey(source) {
   return source?.portKey
@@ -60,9 +61,25 @@ export function utilityErrorVisualSignature(state) {
     .map(([id, severity]) => `${id}:${severity}`).join('|');
 }
 
+export function utilityFlowVisualSignature(state) {
+  const data = state?.utilityNetworkData;
+  const networks = state?.utilityNetworks;
+  if (!(data instanceof Map) || !(networks instanceof Map)) return null;
+
+  const rfData = data.get('rfWaveguide');
+  if (!(rfData instanceof Map)) return '';
+  const energizedLineIds = new Set();
+  for (const network of networks.get('rfWaveguide') || []) {
+    if (!(Number(rfData.get(network.id)?.totalCapacity) > 0)) continue;
+    for (const lineId of network.lineIds || []) energizedLineIds.add(String(lineId));
+  }
+  return [...energizedLineIds].sort().join(',');
+}
+
 export function utilityLineVisualSignature(state) {
   const topology = utilityTopologyVisualSignature(state);
   const errors = utilityErrorVisualSignature(state);
-  if (topology === null || errors === null) return null;
-  return `${topology}#${errors}`;
+  const flow = utilityFlowVisualSignature(state);
+  if (topology === null || errors === null || flow === null) return null;
+  return `${topology}#${errors}#${flow}`;
 }
