@@ -27,6 +27,7 @@ import {
 import { levelOf, sameLevel, subtileKey, tileKey } from '../game/storeys.js';
 import { wallFixtureDir } from '../game/wall-fixture-geometry.js';
 import { BeamlineInputController } from './BeamlineInputController.js';
+import { LinearManifoldTool } from './linear-manifold-tool.js';
 import { UtilityLineInputController } from './UtilityLineInputController.js';
 import { PlaceableTool, ZonePaintTool } from './placement-tools.js';
 import { FloorTool, WallTool, WallPaintTool, DoorTool, WindowTool } from './structure-tools.js';
@@ -2982,6 +2983,11 @@ export class InputHandler {
    */
   selectComponentTool(key) {
     if (this.game._designer?.isOpen && this.game._designer.handlePaletteClick?.(key)) {
+      return;
+    }
+    const placeable = PLACEABLES[key];
+    if (placeable?.linearManifold) {
+      this.setTool(new LinearManifoldTool(key));
       return;
     }
     // Param-flyout overrides live on the UIHost (renderer.ui); fall back to

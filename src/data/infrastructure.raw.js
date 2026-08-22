@@ -789,6 +789,10 @@ export const INFRASTRUCTURE_RAW = {
     spriteColor: 0x2fbccc,
     placement: 'module',
     ports: {},
+    linearManifold: {
+      utility: 'cryoTransfer', tapSpacingSubtiles: 4, minLengthSubtiles: 4,
+      maxLengthSubtiles: 96, costPerSubtile: 28000, serviceRadius: 6,
+    },
 
     requiredConnections: [],
   },
@@ -1698,6 +1702,10 @@ export const INFRASTRUCTURE_RAW = {
     hasSurface: false,
     placement: 'module',
     ports: {},
+    linearManifold: {
+      utility: 'dataFiber', tapSpacingSubtiles: 4, minLengthSubtiles: 4,
+      maxLengthSubtiles: 256, costPerSubtile: 3500, serviceRadius: 12,
+    },
 
     requiredConnections: [],
   },

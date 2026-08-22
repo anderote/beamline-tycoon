@@ -187,6 +187,11 @@ export class UtilityLineSystem {
     }
     const line = result.line;
     line.id = this.nextLineId();
+    // A continuous manifold is still a utility run — its path is the
+    // backbone that discovery can join branch lines to — but records the
+    // authored carrier contract so input/rendering can show its regular taps
+    // and price it as fabricated infrastructure rather than loose cable.
+    if (opts.manifold) line.manifold = { ...opts.manifold };
     // A duct-bank run is identified by two real access-vault terminals. Save
     // the resolved elevation on the line itself so rendering, picking, moving,
     // copying and serialization all keep agreeing that the segment is buried.

@@ -115,6 +115,12 @@ export class UtilityLineInputController {
     this._hoverPort = null;
   }
 
+  /** Publish a non-port-routed preview (continuous manifold placement). */
+  setExternalPreview(preview) {
+    this._preview = preview || null;
+    this._hoverPort = null;
+  }
+
   isActive() {
     return this._drawing;
   }
@@ -694,7 +700,7 @@ export class UtilityLineInputController {
   _snapToNearest(worldX, worldY, screen) {
     const port = this._snapToNearestPort(worldX, worldY, screen);
     if (port) return port;
-    if (UTILITY_TYPES[this._utilityType]?.allowsTap === false) return null;
+    const ordinaryTapAllowed = UTILITY_TYPES[this._utilityType]?.allowsTap !== false;
     // Stacked runs project to different screen positions. If the cursor
     // actually hit a mesh, re-project onto THAT line's elevation and restrict
     // the subtile snap to its id; otherwise a plan-view tie would always grab
@@ -721,6 +727,10 @@ export class UtilityLineInputController {
     }
     tap = tap || this.nearestLine(worldX, worldY, TAP_SNAP_RADIUS_TILES);
     if (!tap) return null;
+    // Power, data and waveguide runs normally cannot be casually tee'd. A
+    // committed continuous carrier is the explicit fitting that makes that
+    // branch legal, so it remains tappable even for those utilities.
+    if (!ordinaryTapAllowed && !tap.manifold) return null;
     return {
       open: true,
       tap: true,
@@ -772,8 +782,9 @@ export class UtilityLineInputController {
           best = {
             lineId: line.id,
             worldPos: { x: pt.col * 2, z: pt.row * 2 },
-            routeHeightMeters,
-            dist: d,
+          routeHeightMeters,
+          manifold: !!line.manifold,
+          dist: d,
           };
         }
       }

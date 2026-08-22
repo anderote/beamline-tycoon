@@ -127,6 +127,11 @@ the short authoring contract.
   fittings, and gives every generated tap a stable name. Input, placement,
   solver lookup, and renderer code must consume that plan rather than
   independently spacing ports.
+- Selecting an opted-in manifold from the Infra palette arms click-drag
+  construction. The committed backbone is a tagged utility line, so it shares
+  its corridor with carriers of other utilities and may be tapped by ordinary
+  utility drawing. A tagged carrier is the explicit tee fitting for utilities
+  whose loose runs otherwise prohibit arbitrary taps.
 
 - Read ports through `getUtilityPortsV2(id)` when solver defaults and derived RF
   band information matter. The flat table is raw authoring data.

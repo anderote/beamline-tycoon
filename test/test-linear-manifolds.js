@@ -5,6 +5,8 @@ import {
   linearManifoldPortSpec,
   snapLinearManifoldPath,
 } from '../src/utility/linear-manifolds.js';
+import { UtilityLineSystem } from '../src/utility/UtilityLineSystem.js';
+import { validateDrawLine } from '../src/utility/line-drawing.js';
 
 const def = {
   linearManifold: {
@@ -44,5 +46,23 @@ const instance = { linearManifold: plan };
 assert.equal(linearManifoldPortSpec(instance, def, 'tap_002').utility, 'powerCable');
 assert.equal(linearManifoldPortSpec(instance, def, 'backbone').through, true);
 assert.equal(linearManifoldPortSpec(instance, def, 'missing'), null);
+
+// A committed carrier uses the ordinary utility-line topology, so a later
+// branch can join it even for powerCable (whose loose runs do not otherwise
+// permit casual tee connections).
+const state = { placeables: [], beamPipes: [], utilityLines: new Map(), wallOccupied: {} };
+const lines = new UtilityLineSystem({ state, nextLineId: () => 'manifold_1' });
+const manifoldId = lines.addLine({
+  utilityType: 'powerCable', start: null, end: null,
+  path: [{ col: 0, row: 0 }, { col: 2, row: 0 }],
+  manifold: { type: 'powerBus', trayFamily: 'utility-tray', taps: plan.taps },
+});
+assert.equal(manifoldId, 'manifold_1');
+assert.equal(state.utilityLines.get(manifoldId).manifold.type, 'powerBus');
+assert.equal(validateDrawLine(state, {
+  utilityType: 'powerCable', start: null, end: null,
+  path: [{ col: 1, row: 0 }, { col: 1, row: 1 }],
+  tapLineIds: { start: manifoldId, end: null },
+}).ok, true, 'a branch may join the explicit power manifold');
 
 console.log('linear manifold tests passed');

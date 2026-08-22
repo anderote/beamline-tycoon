@@ -905,7 +905,9 @@ function buildLineGroup(
 ) {
   const descriptor = UTILITY_TYPES[line.utilityType];
   if (!descriptor) return null;
-  const flexible = isSoftCable(line.utilityType);
+  // A manifold is fabricated infrastructure even when its carried utility is
+  // ordinarily a loose cable. Render it as a rigid, visibly heavier trunk.
+  const flexible = isSoftCable(line.utilityType) && !line.manifold;
   const points = pointOverride || (flexible
     ? buildSoftCableWorldPoints(line, placeablesById)
     : buildWorldPoints(line, placeablesById));
@@ -919,7 +921,7 @@ function buildLineGroup(
     routeHeightMeters: runY,
     errorStatus: errorStatus || 'ok',
   };
-  const radius = descriptor.pipeRadiusMeters || 0.04;
+  const radius = (descriptor.pipeRadiusMeters || 0.04) * (line.manifold ? 2.35 : 1);
   const mat = getLineMaterial(line.utilityType, errorStatus);
   const hardwareMat = getLineHardwareMaterial(line.utilityType);
   const style = descriptor.geometryStyle || 'cylinder';
@@ -1056,6 +1058,24 @@ function buildLineGroup(
     cap.userData.isUtilityOpenCap = true;
     group.add(cap);
   }
+  // Regular branch fittings make the carrier read as a tray/header rather
+  // than an unusually thick ordinary cable.  They are presentation only;
+  // topology is still the backbone line plus explicit branch taps.
+  if (line.manifold?.taps?.length) {
+    const tapGeo = new THREE.BoxGeometry(radius * 3.2, radius * 2.2, radius * 3.2);
+    for (const tap of line.manifold.taps) {
+      const point = tap?.point;
+      if (!point) continue;
+      const fitting = new THREE.Mesh(tapGeo, hardwareMat);
+      fitting.position.set(
+        (point.col + point.subCol / 4) * 2,
+        runY,
+        (point.row + point.subRow / 4) * 2,
+      );
+      fitting.userData.isUtilityManifoldTap = true;
+      group.add(fitting);
+    }
+  }
   // A branch endpoint that lands on a trunk is a tee, not a dangling glowing
   // ball. Its collar is deliberately the same fitting vocabulary as an elbow
   // so the network reads as assembled hardware from any camera angle.
@@ -1123,7 +1143,7 @@ function buildPreviewLine(preview) {
   const descriptor = UTILITY_TYPES[preview.utilityType];
   if (!descriptor) return null;
   const previewY = utilityLineHeight(preview.utilityType, preview.routeHeightMeters);
-  const flexible = isSoftCable(preview.utilityType)
+  const flexible = !preview.manifold && isSoftCable(preview.utilityType)
     && Array.isArray(preview.cablePath) && preview.cablePath.length >= 2;
   const points = flexible
     ? buildSoftCableWorldPoints({
@@ -1147,7 +1167,7 @@ function buildPreviewLine(preview) {
     isUtilityLinePreview: true,
     routeHeightMeters: previewY,
   };
-  const radius = (descriptor.pipeRadiusMeters || 0.04) * 1.1; // slightly chunkier so it reads
+  const radius = (descriptor.pipeRadiusMeters || 0.04) * (preview.manifold ? 2.58 : 1.1);
   const style = descriptor.geometryStyle || 'cylinder';
   const mat = getPreviewMaterial(preview.utilityType, preview.valid !== false);
   const hardwareMat = getLineHardwareMaterial(preview.utilityType);
@@ -1986,7 +2006,11 @@ export class UtilityLineBuilderV2 {
         if (a) endStr = `${a.x.toFixed(3)},${a.y.toFixed(3)},${a.z.toFixed(3)}`;
       }
     }
-    return `${line.utilityType}|${routeHeightStr}|${pathStr}|${cableStr}|${tapStr}|${startStr}|${endStr}`;
+    const manifoldStr = line.manifold
+      ? `${line.manifold.type || '-'}:${line.manifold.trayFamily || '-'}:`
+        + (line.manifold.taps || []).map(t => `${t.point?.col},${t.point?.row},${t.point?.subCol},${t.point?.subRow}`).join(';')
+      : '-';
+    return `${line.utilityType}|${routeHeightStr}|${pathStr}|${cableStr}|${tapStr}|${manifoldStr}|${startStr}|${endStr}`;
   }
 
   _disposeGroup(group) {
