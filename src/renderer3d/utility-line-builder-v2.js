@@ -227,9 +227,9 @@ function getLineHardwareMaterial(utilityType, waterCircuit = null) {
 function getUtilitySupportMaterial() {
   if (_utilitySupportMaterial) return _utilitySupportMaterial;
   _utilitySupportMaterial = shared(new THREE.MeshStandardMaterial({
-    color: 0x465158,
-    roughness: 0.42,
-    metalness: 0.72,
+    color: 0x99aabb,
+    roughness: 0.3,
+    metalness: 0.5,
   }));
   return _utilitySupportMaterial;
 }
