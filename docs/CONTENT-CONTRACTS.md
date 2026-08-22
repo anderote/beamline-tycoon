@@ -11,6 +11,10 @@ the short authoring contract.
   `DECORATIONS` are compatibility views, not authoring surfaces.
 - Use a category declared by `src/data/modes.js`, an object-valued numeric
   `cost`, and the normalized footprint fields expected by the registry.
+- Renderer-owned placeables whose player-facing ownership differs from their
+  implementation `kind` may declare `selectionCategory`. Use one of
+  `structure`, `beamline`, `infra`, `facility`, or `grounds`; selection and
+  every demolition path consume the same override.
 - Small equipment/furnishings with `stackable: true` normalize to
   `portable: true` and receive physical drop presentation after an individual
   placement or move. Set `portable: false` explicitly when a stackable item is

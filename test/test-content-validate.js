@@ -196,6 +196,11 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
         axis: 'diagonal', rotation: [0, 1], topScale: 2,
       }],
     },
+    badSelectionOwner: {
+      id: 'badSelectionOwner', name: 'Bad selection owner', cost: { funding: 1 },
+      kind: 'equipment', category: 'diagnostics', subW: 1, subL: 1, subH: 1,
+      selectionCategory: 'powerStuff',
+    },
   };
   const badPorts = {
     // Dangling ref: no such component in any registry.
@@ -244,6 +249,8 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     'unknown attachmentKind reported');
   assert(hasProblem(problems, 'misplacedInline', 'attachmentKind', 'requires'),
     'inline kind requires an on-pipe attachment role');
+  assert(hasProblem(problems, 'badSelectionOwner', 'selectionCategory', "'powerStuff'"),
+    'unknown player-facing selection ownership reported');
   assert(hasProblem(problems, 'badRouter', 'betaAcceptance', 'min <= design <= max'),
     'misordered beta acceptance window reported');
   assert(hasProblem(problems, 'badRouter', 'betaAcceptance.tracksBeam', 'boolean'),

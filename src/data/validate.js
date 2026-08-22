@@ -63,6 +63,9 @@ const PART_AXES = new Set(['x', 'y', 'z']);
 const ELECTRICAL_UTILITIES = new Set(['powerCable', 'hvCable']);
 const ELECTRICAL_CONTROL_KINDS = new Set(['disconnect', 'transfer']);
 const ELECTRICAL_SOURCE_KINDS = new Set(['grid', 'generator']);
+const SELECTION_CATEGORIES = new Set([
+  'structure', 'beamline', 'infra', 'facility', 'grounds',
+]);
 
 const BEAMLINE_CATEGORIES = new Set(Object.keys(MODES.beamline.categories));
 const INFRA_CATEGORIES = new Set(Object.keys(MODES.infra.categories));
@@ -148,6 +151,10 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     if (def.id !== id) problem(id, 'id', `def.id '${def.id}' does not match registry key '${id}'`);
     if (typeof def.name !== 'string' || def.name.length === 0) {
       problem(id, 'name', 'missing or empty name');
+    }
+    if (def.selectionCategory != null && !SELECTION_CATEGORIES.has(def.selectionCategory)) {
+      problem(id, 'selectionCategory',
+        `unknown selection category '${def.selectionCategory}' (known: ${[...SELECTION_CATEGORIES].join(', ')})`);
     }
     // cost must be an object of numeric resource amounts — Game.canAfford/
     // spend iterate Object.entries(cost); a bare number silently means free.
@@ -834,6 +841,10 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
   for (const [id, p] of Object.entries(placeables)) {
     if (!KNOWN_KINDS.has(p.kind)) {
       problem(id, 'kind', `unknown kind '${p.kind}' (known: ${[...KNOWN_KINDS].join(', ')})`);
+    }
+    if (p.selectionCategory != null && !SELECTION_CATEGORIES.has(p.selectionCategory)) {
+      problem(id, 'selectionCategory',
+        `unknown selection category '${p.selectionCategory}' (known: ${[...SELECTION_CATEGORIES].join(', ')})`);
     }
     checkDims(id, p);
     checkLight(id, p);

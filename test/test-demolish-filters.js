@@ -18,6 +18,12 @@ assert.deepEqual(DEMOLISH_FILTERS.map(filter => filter.key),
 const policy = createDemolishPolicy(defaults);
 assert.equal(policy.allowsPlaceable({ type: 'drift', kind: 'beamline' }), true);
 assert.equal(policy.allowsPlaceable({ type: 'gridServicePoint', kind: 'infrastructure' }), true);
+assert.equal(policy.has('decoration'), true,
+  'Infra lets the picker inspect renderer-owned utility decorations');
+assert.equal(policy.allowsPlaceable({ type: 'utilityPole', kind: 'decoration' }), true,
+  'utility poles use their authored Infra selection ownership');
+assert.equal(policy.allowsPlaceable({ type: 'transmissionTower', kind: 'decoration' }), true,
+  'transmission towers use their authored Infra selection ownership');
 assert.equal(policy.allowsPlaceable({ type: 'labBench', kind: 'furnishing' }), true);
 assert.equal(policy.allowsPlaceable({ type: 'wallSconce', kind: 'decoration' }), false,
   'Structure-off protects indoor fixtures');
@@ -41,6 +47,8 @@ assert.equal(structure.allowsEdge({ wallType: 'officeWall' }), true);
 assert.equal(structure.allowsEdge({ doorType: 'securityGate' }), false);
 
 const grounds = createDemolishPolicy(['grounds']);
+assert.equal(grounds.allowsPlaceable({ type: 'utilityPole', kind: 'decoration' }), false,
+  'utility poles are not misclassified as Grounds scenery');
 assert.equal(grounds.allowsPlaceable({ type: 'wallSconce', kind: 'decoration' }), false);
 assert.equal(grounds.allowsPlaceable({ type: 'lamppost', kind: 'decoration' }), true);
 assert.equal(grounds.allowsFloor('concrete'), false);

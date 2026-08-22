@@ -785,7 +785,42 @@ console.log('\n=== 6. Demolishing an object does not tear up the ground under it
   assertOk(swept.length === 4, `the 2x2 drag swept every tile (got ${swept.length})`);
 }
 
-console.log('\n=== 7. Demolish beam pipes by the section, not the whole run ===\n');
+console.log('\n=== 7. Utility demolition removes HV support placeables ===\n');
+
+// Utility poles and transmission towers render through the decoration builder,
+// but are player-facing Infra objects. The utility demolish shortcut used to
+// skip placeable picking entirely, then look only for a cable or bus under the
+// cursor, making both supports effectively undeletable from that tool.
+for (const [index, type] of ['utilityPole', 'transmissionTower'].entries()) {
+  const g = makeGame(100 + index);
+  const col = 12 + index * 4;
+  const row = 12;
+  const id = g.placePlaceable({ type, col, row, subCol: 0, subRow: 0, free: true });
+  const entry = g.getPlaceable(id);
+  assertOk(!!entry, `setup: placed ${type}`);
+
+  const input = {
+    _findDeletablePlaceable: (_world, _grid, _x, _y, policy) => {
+      assertOk(policy.allowsPlaceable(entry), `${type} belongs to the Infra demolish scope`);
+      return { kind: entry.kind, entry };
+    },
+  };
+  const ctx = {
+    game: g,
+    input,
+    renderer: {
+      screenToWorld: () => tileCenterIso(col, row),
+      raycastScreen: () => null,
+      raycastUtilityLine: () => null,
+    },
+  };
+  new DemolishTool('demolishUtility').onClick(
+    { clientX: 10, clientY: 10 }, ctx,
+  );
+  assertOk(!g.getPlaceable(id), `${type} can be deleted with utility demolition`);
+}
+
+console.log('\n=== 8. Demolish beam pipes by the section, not the whole run ===\n');
 
 // The gesture: press anchors a sweep on the 0.5 m sub-unit under the cursor,
 // the release removes everything swept. Shift takes the whole run instead.

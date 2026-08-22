@@ -464,7 +464,7 @@ export class DemolishTool extends Tool {
       // through _findDeletablePlaceable for consistent hover UX and click
       // behavior. Mode-specific non-placeable branches (utility lines, zones,
       // floors, walls, doors) still fall through below.
-      const scope = (dt === 'demolishAll' || dt === 'demolishBeamline')
+      const scope = (dt === 'demolishAll' || dt === 'demolishBeamline' || dt === 'demolishUtility')
         ? this.policy
         : null;
       if (scope) {
