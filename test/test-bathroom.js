@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import * as THREE_REAL from 'three';
 
 import { ZONES, itemMatchesZone } from '../src/data/facility.js';
 import { MODES, ROOM_FURNITURE_GROUPS } from '../src/data/modes.js';
@@ -7,10 +8,34 @@ import { PLACEABLES } from '../src/data/placeables/index.js';
 import { floorSupportsZone } from '../src/data/structure.js';
 import { Game } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
+import { wallFixturePose } from '../src/game/wall-fixture-geometry.js';
+import { buildWorldSnapshot } from '../src/renderer3d/world-snapshot.js';
+
+class FakeTextureLoader {
+  load() { return new THREE_REAL.Texture(); }
+}
+
+globalThis.THREE = { ...THREE_REAL, TextureLoader: FakeTextureLoader };
+globalThis.document = {
+  createElement() {
+    return {
+      width: 0, height: 0,
+      getContext() {
+        return {
+          createRadialGradient() { return { addColorStop() {} }; },
+          fillRect() {}, fillStyle: null,
+        };
+      },
+    };
+  },
+};
+
+const { EquipmentBuilder } = await import('../src/renderer3d/equipment-builder.js');
 
 const BATHROOM_FURNISHINGS = [
   'toilet', 'urinal', 'sinkVanity', 'bathroomMirror',
-  'handDryer', 'toiletStall', 'toiletStallWall', 'toiletStallDoor', 'paperTowelBin',
+  'handDryer', 'toiletStall', 'toiletStallWall', 'toiletStallDoor',
+  'toiletPaperRoll', 'paperTowelBin',
 ];
 
 test('bathroom is a tile-floor Facility room zone', () => {
@@ -61,23 +86,53 @@ test('bathroom stall walls and doors have authored cubicle geometry', () => {
   assert.ok(door.parts.some(part => part.name === 'latch'));
 });
 
-test('bathroom stall door fills a complete tile with fixed side panels', () => {
+test('bathroom stall door occupies exactly two subtiles', () => {
   const door = PLACEABLES.toiletStallDoor;
   const part = name => door.parts.find(candidate => candidate.name === name);
-  const structuralParts = [
-    part('leftOuterPost'), part('leftInfill'), part('hingePost'),
-    part('doorLeaf'), part('latchPost'), part('rightInfill'), part('rightOuterPost'),
-  ];
 
-  assert.equal(door.gridW, 4, 'stall front reserves all four subtiles across one tile');
+  assert.equal(door.gridW, 2, 'stall door reserves only two subtiles');
   assert.equal(door.gridH, 1);
-  assert.ok(structuralParts.every(Boolean), 'door has both fixed side infills and framing posts');
+  assert.equal(part('topRail').w, 2, 'top rail matches the two-subtile door width');
+  assert.equal(door.parts.some(entry => entry.name.includes('Infill')), false,
+    'stall door does not carry fixed side panels beyond its footprint');
+});
 
-  const leftEdge = Math.min(...structuralParts.map(entry => entry.x - entry.w / 2));
-  const rightEdge = Math.max(...structuralParts.map(entry => entry.x + entry.w / 2));
-  assert.ok(Math.abs(leftEdge + 2) < 1e-9, 'stall front reaches the left tile edge');
-  assert.ok(Math.abs(rightEdge - 2) < 1e-9, 'stall front reaches the right tile edge');
-  assert.equal(part('topRail').w, 4, 'top rail spans the complete tile width');
+test('toilet paper roll uses the shared wall-mounted furnishing contract', () => {
+  const roll = PLACEABLES.toiletPaperRoll;
+
+  assert.equal(roll.mount, 'wall');
+  assert.equal(roll.wallSpan, 1, 'roll occupies one quarter-wall slot');
+  assert.ok(roll.mountY > 0, 'roll declares its wall mounting height');
+  assert.equal(roll.gridW, 1);
+  assert.equal(roll.gridH, 1);
+  assert.ok(roll.parts.some(part => part.name === 'paperRoll' && part.shape === 'cylinder'));
+
+  const game = new Game(new BeamlineRegistry(), { seed: 92 });
+  game.state.resources.funding = 1e6;
+  assert.equal(game.placeFacilityZoneBrushTile(8, 8, 'bathroom'), true);
+  assert.equal(game.placeWall(8, 8, 'n', 'interiorWall'), true);
+  const id = game.placePlaceable({
+    type: 'toiletPaperRoll', col: 8, row: 8, subCol: 0, subRow: 0,
+    wallMount: { col: 8, row: 8, edge: 'n', off: 0 },
+  });
+  assert.ok(id, 'roll mounts to a bathroom wall');
+  assert.equal(game.getPlaceable(id).wallMount.span, 1,
+    'committed roll preserves its wall-slot span');
+
+  const snapshot = buildWorldSnapshot(game);
+  const furnishing = snapshot.furnishings.find(item => item.id === id);
+  assert.ok(furnishing?.wallMount, 'renderer snapshot preserves the wall mount');
+
+  const parent = new THREE_REAL.Group();
+  const builder = new EquipmentBuilder();
+  builder.build([], snapshot.furnishings, parent);
+  const rendered = builder.getGroup(id);
+  const expected = wallFixturePose(furnishing.wallMount);
+  assert.ok(rendered, 'wall-mounted roll builds through the furnishing renderer');
+  assert.ok(Math.abs(rendered.position.x - expected.x) < 1e-9);
+  assert.ok(Math.abs(rendered.position.z - expected.z) < 1e-9);
+  assert.ok(Math.abs(rendered.position.y - roll.mountY) < 1e-9,
+    'committed roll uses its authored wall mounting height');
 });
 
 test('bathroom fixture catalogue is complete, registered, and zone-scoped', () => {

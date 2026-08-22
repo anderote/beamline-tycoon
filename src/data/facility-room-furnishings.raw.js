@@ -2043,21 +2043,33 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
   toiletStallDoor: {
     id: 'toiletStallDoor', name: 'Toilet Stall Door', zoneType: 'bathroom', furnitureGroup: 'hygiene',
     cost: { funding: 340 }, energyCost: 0, spriteColor: 0x78909c,
-    gridW: 4, gridH: 1, subH: 4, spriteKey: 'toiletStallDoor', effects: {}, baseMaterial: 'metal_painted_white', hasSurface: false,
+    gridW: 2, gridH: 1, subH: 4, spriteKey: 'toiletStallDoor', effects: {}, baseMaterial: 'metal_painted_white', hasSurface: false,
     // The door is a room furnishing rather than a building opening: it
-    // visually completes a full-tile cubicle front and can be rotated to face
-    // its partition. Fixed infill panels flank the centred door leaf.
+    // visually completes a cubicle and can be rotated to face its partition.
     parts: [
-      { name: 'leftOuterPost', x: -1.92, y: 0, z: 0, w: 0.16, h: 3.8, l: 0.16, material: 'metal_brushed' },
-      { name: 'leftInfill', x: -1.45, y: 0.5, z: 0, w: 0.78, h: 3.2, l: 0.12, color: 0x8ca3ae },
-      { name: 'hingePost', x: -0.98, y: 0, z: 0, w: 0.16, h: 3.8, l: 0.16, material: 'metal_brushed' },
       { name: 'doorLeaf', x: 0, y: 0.5, z: 0, w: 1.82, h: 3.2, l: 0.12, color: 0x78909c },
-      { name: 'latchPost', x: 0.98, y: 0, z: 0, w: 0.16, h: 3.8, l: 0.16, material: 'metal_brushed' },
-      { name: 'rightInfill', x: 1.45, y: 0.5, z: 0, w: 0.78, h: 3.2, l: 0.12, color: 0x8ca3ae },
-      { name: 'rightOuterPost', x: 1.92, y: 0, z: 0, w: 0.16, h: 3.8, l: 0.16, material: 'metal_brushed' },
-      { name: 'topRail', x: 0, y: 3.7, z: 0, w: 4.0, h: 0.1, l: 0.16, material: 'metal_brushed' },
+      { name: 'hingePost', x: -0.86, y: 0, z: 0, w: 0.14, h: 3.8, l: 0.16, material: 'metal_brushed' },
+      { name: 'topRail', x: 0, y: 3.7, z: 0, w: 2.0, h: 0.1, l: 0.16, material: 'metal_brushed' },
       { name: 'latch', x: 0.62, y: 1.9, z: -0.09, w: 0.18, h: 0.13, l: 0.08, material: 'metal_brushed' },
       { name: 'vacantIndicator', x: 0.38, y: 2.28, z: -0.09, w: 0.22, h: 0.22, l: 0.04, color: 0x4d9d69 },
+    ],
+  },
+  toiletPaperRoll: {
+    id: 'toiletPaperRoll', name: 'Toilet Paper Roll', zoneType: 'bathroom', furnitureGroup: 'hygiene',
+    cost: { funding: 45 }, energyCost: 0, spriteColor: 0xeee9dc,
+    gridW: 1, gridH: 1, subH: 1, spriteKey: 'toiletPaperRoll', effects: {},
+    baseMaterial: 'metal_brushed', hasSurface: false,
+    mount: 'wall', wallSpan: 1, mountY: 0.75,
+    // Parts are authored around the wall mounting point. Local +Z projects
+    // into the bathroom, while the cylinder's X axis runs along the wall.
+    parts: [
+      { name: 'mountPlate', x: 0, y: -0.18, z: 0, w: 0.76, h: 0.36, l: 0.08, material: 'metal_brushed' },
+      { name: 'leftBracket', x: -0.36, y: -0.13, z: 0.16, w: 0.08, h: 0.18, l: 0.38, material: 'metal_brushed' },
+      { name: 'rightBracket', x: 0.36, y: -0.13, z: 0.16, w: 0.08, h: 0.18, l: 0.38, material: 'metal_brushed' },
+      { name: 'spindle', shape: 'cylinder', axis: 'x', x: 0, y: -0.08, z: 0.34, w: 0.82, h: 0.12, l: 0.12, material: 'metal_brushed' },
+      { name: 'paperRoll', shape: 'cylinder', axis: 'x', x: 0, y: -0.29, z: 0.34, w: 0.64, h: 0.54, l: 0.54, color: 0xeee9dc },
+      { name: 'cardboardCore', shape: 'cylinder', axis: 'x', x: 0, y: -0.08, z: 0.34, w: 0.68, h: 0.12, l: 0.12, color: 0xa77d4b },
+      { name: 'paperTail', x: 0.08, y: -0.72, z: 0.59, w: 0.42, h: 0.48, l: 0.04, color: 0xeee9dc },
     ],
   },
   paperTowelBin: {
@@ -2185,6 +2197,7 @@ const ROOM_FURNISHING_DESCS = {
   toiletStall: 'Privacy partition for arranging individual restroom stalls. Bathroom.',
   toiletStallWall: 'Freestanding partition wall for building individual restroom cubicles. Bathroom.',
   toiletStallDoor: 'Locking cubicle door that completes a toilet stall. Bathroom.',
+  toiletPaperRoll: 'Wall-mounted toilet paper roll with a simple metal holder. Bathroom.',
   paperTowelBin: 'Small stainless bin for the inevitable paper-towel backup. Bathroom.',
 };
 for (const [id, desc] of Object.entries(ROOM_FURNISHING_DESCS)) {

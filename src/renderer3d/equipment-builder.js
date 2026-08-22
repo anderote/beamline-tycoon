@@ -11,6 +11,7 @@ import { applyTiledBoxUVs } from './uv-utils.js';
 import { buildPlaceableVisualDetails } from './placeable-visual-details.js';
 import { configureGlowMesh, getGlowMaterial } from './machine-glow.js';
 import { contentKey } from './content-hash.js';
+import { fixtureMountY, wallFixturePose } from './fixture-light-math.js';
 // Phase 6: utility-port-builder removed; all buildPortStubs call sites in
 // this file were already commented out.
 
@@ -359,10 +360,12 @@ export class EquipmentBuilder {
       const tileZ = (item.row ?? 0) * 2;
       const subX = (item.subCol || 0) * SUB_UNIT;
       const subZ = (item.subRow || 0) * SUB_UNIT;
-      const centerX = tileX + subX + footW / 2;
-      const centerZ = tileZ + subZ + footL / 2;
-      const baseY = (item.placeY || 0) * SUB_UNIT;
-      const rotY = -dir * (Math.PI / 2);
+      const wallPose = compDef?.mount === 'wall' ? wallFixturePose(item.wallMount) : null;
+      const centerX = wallPose?.x ?? (tileX + subX + footW / 2);
+      const centerZ = wallPose?.z ?? (tileZ + subZ + footL / 2);
+      const floorY = (item.placeY || 0) * SUB_UNIT;
+      const baseY = compDef?.mount === 'wall' ? fixtureMountY(compDef, floorY) : floorY;
+      const rotY = wallPose?.yaw ?? (-dir * (Math.PI / 2));
       const fallbackColor = compDef?.spriteColor || compDef?.color || 0x888888;
       const baseName = compDef?.baseMaterial || null;
       const physicsId = item.id ?? `${isFurnishing ? 'furnishing' : 'equipment'}:${item.type}:${item.col}:${item.row}:${item.subCol ?? 0}:${item.subRow ?? 0}`;
