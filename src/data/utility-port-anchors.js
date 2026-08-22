@@ -83,6 +83,12 @@ export const INDOOR_HV_RACK_TERMINAL_Y = 2.00;
 export const POWER_HV_INPUT_MOUNTS = Object.freeze({
   ...Object.fromEntries(Object.entries(DISTRIBUTION_TOP_INPUT_LAYOUTS)
     .map(([type, layout]) => [type, Object.freeze(roofTerminalAnchor(layout.input))])),
+  // This service box is bolted straight to a host-side tap; its inlet faces
+  // back into the tap instead of upward like a floor cabinet's roof bushing.
+  poleMountTransformer: Object.freeze({
+    y: 0.55, localX: 0, localZ: -0.25,
+    normal: Object.freeze({ x: 0, y: 0, z: -1 }),
+  }),
   padMountTransformer: Object.freeze({
     y: COMPACT_HV_INPUT_Y, localX: 0, localZ: -0.20, normal: TOP_NORMAL,
   }),
@@ -319,7 +325,7 @@ export const PORT_ANCHOR_OVERRIDES = {
     hv_out_1: { along: -0.34 }, hv_out_2: { along: 0.34 },
   },
   poleMountTransformer: {
-    _default: { y: 0.72, lat: 0.43 },
+    _default: { y: 0.16, lat: 0.31 },
     hv_in: POWER_HV_INPUT_MOUNTS.poleMountTransformer,
     ...frontTerminalAnchorBank('poleMountTransformer', 'pwr_out'),
   },
@@ -443,6 +449,9 @@ export const PORT_ANCHOR_OVERRIDES = {
   },
   cableTray: {
     _default: { y: 2.35, lat: 0.46, out: 0.02 },
+  },
+  elevatedWireTray: {
+    _default: { y: 1.78, lat: 0.46, out: 0.02 },
   },
   cableRiser: {
     _default: { y: 0.18, lat: 0.42, out: 0.02 },

@@ -31,7 +31,7 @@ export function horizontalOutputRows(count, { span, bottomY, rowGap = 0 }) {
 }
 
 const SPECS = Object.freeze({
-  poleMountTransformer: Object.freeze({ count: 4, span: 0.60, bottomY: 0.58, frontZ: 0.43 }),
+  poleMountTransformer: Object.freeze({ count: 4, span: 0.45, bottomY: 0.16, frontZ: 0.31 }),
   compactHvDistributor: Object.freeze({ count: 2, span: 0.20, bottomY: 0.48, frontZ: 0.21 }),
   switchgear: Object.freeze({ count: 4, span: 0.60, bottomY: 0.58, frontZ: 0.66 }),
   powerPanel: Object.freeze({ count: 4, span: 0.30, bottomY: 0.38, frontZ: 0.19 }),
@@ -74,7 +74,7 @@ function topInputLayout({ roofY, inputZ }) {
 }
 
 const TOP_INPUT_SPECS = Object.freeze({
-  poleMountTransformer: Object.freeze({ roofY: 1.365, inputZ: -0.18 }),
+  poleMountTransformer: Object.freeze({ roofY: 0.39, inputZ: -0.25 }),
   compactHvDistributor: Object.freeze({ roofY: 0.895, inputZ: -0.10 }),
   switchgear: Object.freeze({ roofY: 1.845, inputZ: -0.28 }),
   powerPanel: Object.freeze({ roofY: 1.465, inputZ: -0.10 }),
