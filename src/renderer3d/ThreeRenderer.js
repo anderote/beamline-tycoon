@@ -1099,6 +1099,33 @@ export class ThreeRenderer {
   }
 
   /**
+   * Raycast only the walking staff figures. Staff live in their own scene
+   * layer, so keeping this separate prevents a person standing over a machine
+   * from changing which machine wins a normal placeable pick.
+   */
+  raycastStaffScreen(screenX, screenY, tolerancePx = 0) {
+    if (!this.renderer || !this.camera || !this.staffPawns?.group) return null;
+    const castAt = (x, y) => {
+      const { raycaster } = this._screenRay(x, y);
+      const hits = raycaster.intersectObjects(this.staffPawns.group.children, true);
+      hits.sort((a, b) => a.distance - b.distance);
+      for (const hit of hits) {
+        let obj = hit.object;
+        while (obj) {
+          if (obj.userData?.staffId) return {
+            staffId: obj.userData.staffId,
+            object: hit.object,
+            point: hit.point,
+          };
+          obj = obj.parent;
+        }
+      }
+      return null;
+    };
+    return pickWithScreenTolerance(screenX, screenY, tolerancePx, castAt);
+  }
+
+  /**
    * Raycast only rendered door assemblies, including while walls are in the
    * default transparent/click-through view. Door source meshes carry tight
    * bounds and their owning edge, so this avoids both facility-wide batch

@@ -3,7 +3,7 @@ import { ROLE_COLORS, escapeHtml } from './format.js';
 import { renderBioCard } from './StaffBioCard.js';
 import { describeJob } from '../game/staff/staffDiagnostics.js';
 
-export function openStaffInspector(game, staffId) {
+export function openStaffInspector(game, staffId, { onPickUp } = {}) {
   const m = (game.state.staffMembers || []).find(s => s.id === staffId);
   if (!m) return null;
   const winId = 'staff-' + staffId;
@@ -84,6 +84,10 @@ export function openStaffInspector(game, staffId) {
   const offStaff = game.on(_staffHandler);
 
   ctx.setActions([
+    { label: 'Pick up', title: 'Pick up this person with the tweezers', onClick: () => {
+      if (typeof onPickUp === 'function') onPickUp(staffId);
+      else game.emit?.('staffPickupRequested', staffId);
+    }},
     { label: 'Fire', variant: 'danger', onClick: () => {
       if (confirm(`Fire ${m.name}?`)) {
         const ok = game.fireStaffMember(staffId);

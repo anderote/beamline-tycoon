@@ -2723,6 +2723,17 @@ export class InputHandler {
       return;
     }
 
+    // Staff are rendered as animated figures rather than placeables. Give
+    // them first-class click priority so a person can be opened even while
+    // standing on top of a facility object.
+    const staffHit = this.renderer.raycastStaffScreen?.(
+      screenX, screenY, OBJECT_PICK_TOLERANCE_PX,
+    );
+    if (staffHit?.staffId) {
+      this.renderer._openStaffInspector?.(staffHit.staffId);
+      return;
+    }
+
     // Click-to-select: all placeable objects get a persistent white outline
     // and their info menu. Equipment wins before utility-line inspection so a
     // cable ending on (or crossing in front of) its mesh cannot steal the
