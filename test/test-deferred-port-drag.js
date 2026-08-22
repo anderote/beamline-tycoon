@@ -71,5 +71,33 @@ console.log('\n=== Deferred idle-port drag ===\n');
     'equipment selection wins before a connected utility line at the same pixel');
 }
 
+{
+  let openedLineId = null;
+  let pickTolerance = null;
+  const input = {
+    _suppressNextClick: false,
+    activeTool: null,
+    game: { _designPlacer: null },
+    renderer: {
+      screenToWorld: () => ({ x: 0, y: 0 }),
+      raycastUtilityLine: (_x, _y, tolerance) => {
+        pickTolerance = tolerance;
+        return { lineId: 'line_bus_power', utilityType: 'powerCable', busId: 'bus_1' };
+      },
+    },
+    _toolConsumed: () => false,
+    _selectPlaceableAt: () => false,
+    openUtilityInspectorForLine: (lineId) => {
+      openedLineId = lineId;
+      return true;
+    },
+  };
+  InputHandler.prototype._handleClick.call(input, 100, 100);
+  assert(openedLineId === 'line_bus_power',
+    'a populated universal-bus lane opens its utility network inspector');
+  assert(pickTolerance === 12,
+    'utility network clicks use the same forgiving screen-space margin as objects');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

@@ -18,6 +18,7 @@
 // its raycast/subgrid lookups — and take the payload as an argument.
 
 import { Tool } from './Tool.js';
+import { OBJECT_PICK_TOLERANCE_PX } from './pick-tolerance.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { isoToGrid } from '../renderer/grid.js';
 
@@ -274,8 +275,10 @@ export class ProbeTool extends Tool {
     // Utility-line click-to-inspect ran before the probe branch in the
     // legacy dispatch order — preserve it.
     if (typeof renderer.raycastUtilityLine === 'function') {
-      const hit = renderer.raycastUtilityLine(e.clientX, e.clientY);
-      if (hit && hit.lineId && input._openUtilityInspectorForLine(hit.lineId)) {
+      const hit = renderer.raycastUtilityLine(
+        e.clientX, e.clientY, OBJECT_PICK_TOLERANCE_PX,
+      );
+      if (hit && hit.lineId && input.openUtilityInspectorForLine(hit.lineId)) {
         return true;
       }
     }
