@@ -13,6 +13,7 @@ export default {
   color: '#eeeeee',
   geometryStyle: 'fiberBundle',
   routingProfile: FLEXIBLE_SUBTILE_ROUTING_PROFILE,
+  requiresWallPassThrough: true,
   // Ordinary data runs are loose flexible cables, sized to remain legible at
   // normal map zoom. Channels installed on the universal utility bus retain
   // the bus's rigid vertical-rack presentation.

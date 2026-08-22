@@ -266,6 +266,7 @@ export function planUtilityRun(state, {
         end,
         path,
         waterCircuit,
+        allowAutomaticWallPassThrough: true,
       });
       if (checked.ok) {
         chosen = path;
@@ -289,6 +290,7 @@ export function planUtilityRun(state, {
           end,
           path,
           waterCircuit,
+          allowAutomaticWallPassThrough: true,
         });
         if (checked.ok) {
           chosen = path;

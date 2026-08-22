@@ -367,6 +367,7 @@ export default {
   // renderer keeps that transition outside the cryostat body, while every
   // ordinary run and automatic same-type join stays on this low service datum.
   fixedRouteHeight: true,
+  requiresWallPassThrough: true,
   supportSpacingMeters: RIGID_UTILITY_SUPPORT_SPACING_METERS,
   supportMinimumRunMeters: RIGID_UTILITY_SUPPORT_MINIMUM_RUN_METERS,
   routeVerticalClearanceMeters: 0.06,

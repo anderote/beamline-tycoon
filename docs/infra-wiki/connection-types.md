@@ -49,8 +49,9 @@ Carries RF power from sources to accelerating cavities. Band-matched: a source d
 
 ### Cooling Water (blue/red)
 Flexible equipment hose for ordinary cooled components. Every run is tagged as
-cold supply or hot return, and flexible Water Lines cannot cross walls. Choose
-Cold Water or Hot Water from the Water Line palette flyout; directly dragging a
+cold supply or hot return and never passes directly through a wall; drawing
+across one automatically installs the matching blue or red sleeve. Choose Cold
+Water or Hot Water from the Water Line palette flyout; directly dragging a
 colored port infers the same choice.
 
 - **Color:** Blue cold supply / red hot return

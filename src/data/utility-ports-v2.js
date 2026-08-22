@@ -1226,6 +1226,22 @@ const INFRA_UTILITY_PORTS = {
       role: 'pass', connectionKind: 'powerPassThroughOut', params: {},
     },
   },
+  coldWaterLineWallPassThrough: {
+    water_front: { utility: 'coolingWater', side: 'front', role: 'pass', autoConnectClass: COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION, params: { waterCircuit: 'cold' } },
+    water_back: { utility: 'coolingWater', side: 'back', role: 'pass', autoConnectClass: COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION, params: { waterCircuit: 'cold' } },
+  },
+  hotWaterLineWallPassThrough: {
+    water_front: { utility: 'coolingWater', side: 'front', role: 'pass', autoConnectClass: COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION, params: { waterCircuit: 'hot' } },
+    water_back: { utility: 'coolingWater', side: 'back', role: 'pass', autoConnectClass: COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION, params: { waterCircuit: 'hot' } },
+  },
+  coldWaterSupplyWallPassThrough: {
+    supply_front: { utility: 'waterSupplyPipe', side: 'front', role: 'pass', params: { waterCircuit: 'cold' } },
+    supply_back: { utility: 'waterSupplyPipe', side: 'back', role: 'pass', params: { waterCircuit: 'cold' } },
+  },
+  hotWaterSupplyWallPassThrough: {
+    supply_front: { utility: 'waterSupplyPipe', side: 'front', role: 'pass', params: { waterCircuit: 'hot' } },
+    supply_back: { utility: 'waterSupplyPipe', side: 'back', role: 'pass', params: { waterCircuit: 'hot' } },
+  },
   waterSupplyWallPassThrough1x1: {
     supply_front: { utility: 'waterSupplyPipe', side: 'front', offsetAlong: 0.5, role: 'pass', params: {} },
     supply_back: { utility: 'waterSupplyPipe', side: 'back', offsetAlong: 0.5, role: 'pass', params: {} },
@@ -1270,6 +1286,22 @@ const INFRA_UTILITY_PORTS = {
       connectionKind: 'hvPassThrough', omnidirectional: true, params: {},
     }],
   ])),
+  dataFiberWallPassThrough: {
+    fiber_front: { utility: 'dataFiber', side: 'front', role: 'pass', params: {} },
+    fiber_back: { utility: 'dataFiber', side: 'back', role: 'pass', params: {} },
+  },
+  cryoWallPassThrough: {
+    cryo_front: { utility: 'cryoTransfer', side: 'front', role: 'pass', params: {} },
+    cryo_back: { utility: 'cryoTransfer', side: 'back', role: 'pass', params: {} },
+  },
+  rfWallPassThrough: {
+    rf_front: { utility: 'rfWaveguide', side: 'front', role: 'pass', params: {} },
+    rf_back: { utility: 'rfWaveguide', side: 'back', role: 'pass', params: {} },
+  },
+  vacuumWallPassThrough: {
+    vacuum_front: { utility: 'vacuumPipe', side: 'front', role: 'pass', params: {} },
+    vacuum_back: { utility: 'vacuumPipe', side: 'back', role: 'pass', params: {} },
+  },
   indoorHvCableRack: {
     ...Object.fromEntries([
       [1, 0.20], [2, 0.40], [3, 0.60], [4, 0.80],

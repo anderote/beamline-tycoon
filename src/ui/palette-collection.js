@@ -13,12 +13,12 @@ export function resolvePaletteCollection(categoryKey, categoryDef, {
   const seenComponents = new Set();
 
   const addDecoration = (id, def) => {
-    if (!def || def.deprecated || seenDecorations.has(id)) return;
+    if (!def || def.deprecated || def.paletteHidden || seenDecorations.has(id)) return;
     seenDecorations.add(id);
     decorationEntries.push([id, def]);
   };
   const addComponent = (id, def) => {
-    if (!def || def.deprecated || seenComponents.has(id)) return;
+    if (!def || def.deprecated || def.paletteHidden || seenComponents.has(id)) return;
     seenComponents.add(id);
     componentEntries.push([id, def]);
   };
@@ -43,7 +43,7 @@ export function resolvePaletteCollection(categoryKey, categoryDef, {
 export function componentPaletteEntries(components = {}, categoryKey, linkedIds = []) {
   const linked = new Set(linkedIds);
   return Object.entries(components)
-    .filter(([id, def]) => def && !def.deprecated
+    .filter(([id, def]) => def && !def.deprecated && !def.paletteHidden
       && (def.category === categoryKey || linked.has(id)))
     .map(([key, comp]) => ({ key, comp }));
 }

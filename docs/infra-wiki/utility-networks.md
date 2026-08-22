@@ -29,11 +29,16 @@ Vacuum pipe, RF waveguide, cryogenic transfer, and rigid water pipe share the
 same forgiving quarter-tile construction rules. Their different standard
 heights let them follow the same plan route. Co-located supports consolidate
 into one multi-level rack, but every line remains an independent network; hot
-and cold water also remain separate circuits and require water wall
-penetrations. Cold water is blue and hot water is red on pipes, hoses, port
-markers, and equipment fittings.
+and cold water also remain separate circuits. Cold water is blue and hot water
+is red on pipes, hoses, port markers, equipment fittings, and wall sleeves.
 
-**Distribution buses** shortcut the wiring without changing the physics: a wired bus stands in for the individual stub to every on-pipe sink of its utility within its service radius. It adds no capacity.
+No utility line passes directly through a wall. Draw the intended route across
+the wall and construction automatically installs the matching compact sleeve,
+then terminates and restarts the line on its two ports. Cryo, cold/hot rigid
+water, RF, and vacuum sleeves align vertically at their standard service
+heights, so several services can share one neat wall-stack position. Manual
+4×4 HV and 2×2 water assemblies remain useful when several circuits need one
+planned penetration.
 
 ### Network Properties
 

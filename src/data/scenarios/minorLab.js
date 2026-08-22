@@ -57,7 +57,9 @@ export function setupMinorLab(game) {
   const lowerDistributors = [
     place('waterDistributor2', -9, 0),
     place('waterDistributor2', -7, 0),
-    place('waterDistributor2', -5, 0),
+    // Turn the final header so its two hose tails approach independently;
+    // otherwise the target's long return fences in the adjacent quadrupole.
+    place('waterDistributor2', -5, 0, { dir: 1 }),
   ];
   const upperColdDistributor = place('waterDistributor2', -9, 8);
   const lowerColdDistributor = place('waterDistributor2', 0, 5);
@@ -67,24 +69,30 @@ export function setupMinorLab(game) {
   const upperSleeves = [sleeve(6), sleeve(7), sleeve(8)];
   const lowerSleeves = [sleeve(2), sleeve(3), sleeve(4)];
 
-  const connectReturns = (loads, distributors) => {
+  const connectReturns = (loads, distributors, preferredSlots = null) => {
     loads.forEach((id, index) => {
-      const distributor = distributors[Math.floor(index / 2)];
-      const connected = wireUtility(game, 'coolingWater', { id, port: 'hot_out' }, {
-        id: distributor, port: `water_line_${(index % 2) + 1}`,
-      }, { waterCircuit: 'hot' });
-      // The upper room's first quadrupole is boxed in by its legacy cold hose.
-      // The spare socket on the third return header gives the obstacle-aware
-      // router a clean approach without crossing the room wall.
-      if (!connected) {
-        wireUtility(game, 'coolingWater', { id, port: 'hot_out' }, {
-          id: distributors[2], port: 'water_line_2',
-        }, { waterCircuit: 'hot' });
+      const [preferredDistributorIndex, preferredPortIndex] = preferredSlots?.[index]
+        || [Math.floor(index / 2), (index % 2) + 1];
+      const distributor = distributors[preferredDistributorIndex];
+      const preferredPort = `water_line_${preferredPortIndex}`;
+      const candidates = [
+        [distributor, preferredPort],
+        ...distributors.flatMap(candidate => [1, 2]
+          .map(portIndex => [candidate, `water_line_${portIndex}`])),
+      ];
+      for (const [candidate, port] of candidates) {
+        if (wireUtility(game, 'coolingWater', { id, port: 'hot_out' }, {
+          id: candidate, port,
+        }, { waterCircuit: 'hot' })) break;
       }
     });
   };
   connectReturns(['bl_14', 'pl_1', 'pl_2', 'pl_3', 'bl_15'], upperDistributors);
-  connectReturns(['bl_16', 'pl_7', 'pl_8', 'bl_17', 'pl_9'], lowerDistributors);
+  connectReturns(
+    ['bl_16', 'pl_7', 'pl_8', 'pl_9', 'bl_17'],
+    lowerDistributors,
+    [[0, 1], [0, 2], [1, 1], [2, 1], [2, 2]],
+  );
 
   const hotPipe = { waterCircuit: 'hot' };
   const coldPipe = { waterCircuit: 'cold' };

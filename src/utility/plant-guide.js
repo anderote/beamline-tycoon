@@ -134,7 +134,7 @@ function rowDetail(requirement, status) {
  */
 export function plantGuideTypeForPlaceable(placeable) {
   const def = endpointDefinition(placeable);
-  if (!def) return null;
+  if (!def || def.waterConverterGroups) return null;
   for (const utilityType of Object.keys(PLANT_GUIDE_TYPES)) {
     if (sourcePortsForDefinition(def, utilityType).length > 0) return utilityType;
   }

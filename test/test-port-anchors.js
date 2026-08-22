@@ -231,15 +231,17 @@ console.log('\n--- 3. Derivation, overrides, and the headless fallback ---');
 
   // Heights are hand-authored per model, so nothing here can be checked
   // against geometry headless — but a typo'd metre is still catchable. The
-  // portable spider box is intentionally ankle-height; nothing belongs below
-  // its 0.1 m socket centre or above head height.
+  // portable spider box is intentionally ankle-height. Automatic wall sleeves
+  // are lower still because their bore must share the line's exact routing
+  // datum; all ordinary authored equipment remains above 0.1 m.
   const outOfBand = [];
   for (const [type, entry] of Object.entries(PORT_ANCHOR_OVERRIDES)) {
     for (const [port, spec] of Object.entries(entry)) {
       if (!spec || !Number.isFinite(spec.y)) continue;
       const maxY = type === 'transmissionTower' ? 18
         : type === 'utilityPole' ? 8 : 2.5;
-      if (spec.y < 0.1 || spec.y > maxY) outOfBand.push(`${type}.${port}=${spec.y}`);
+      const minY = COMPONENTS[type]?.automaticWallPassThrough ? 0.02 : 0.1;
+      if (spec.y < minY || spec.y > maxY) outOfBand.push(`${type}.${port}=${spec.y}`);
     }
   }
   assert(outOfBand.length === 0,

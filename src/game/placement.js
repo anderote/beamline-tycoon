@@ -133,6 +133,25 @@ export function wallEdgeHasHanging(game, col, row, edge, level = 0, ignoreId = n
   });
 }
 
+/** Vertical envelope occupied by one modular automatic utility sleeve. */
+export function automaticWallPassThroughInterval(placeable) {
+  const spec = placeable?.automaticWallPassThrough;
+  if (!spec) return null;
+  const centre = Number(spec.heightMeters);
+  const radius = Number(spec.radiusMeters);
+  if (!Number.isFinite(centre) || !Number.isFinite(radius) || radius <= 0) return null;
+  // Collars are intentionally a little broader than the carried service.
+  const halfHeight = radius + 0.045;
+  return { min: centre - halfHeight, max: centre + halfHeight };
+}
+
+function automaticWallPassThroughsConflict(a, b) {
+  const ia = automaticWallPassThroughInterval(a);
+  const ib = automaticWallPassThroughInterval(b);
+  if (!ia || !ib) return true;
+  return ia.min < ib.max - 1e-6 && ib.min < ia.max - 1e-6;
+}
+
 /** Validate the actual wall and face-slot a wall-mounted fixture needs. */
 export function canPlaceWallFixture(game, placeable, site, ignoreId = null) {
   const requestedMount = normalizeWallMount(site);
@@ -164,11 +183,23 @@ export function canPlaceWallFixture(game, placeable, site, ignoreId = null) {
       ...entry.wallMount,
       span: otherDef?.wallSpan ?? entry.wallMount.span ?? 1,
     };
-    if (wallFixtureMountKeys(otherMount).some(key => keys.has(key))) return true;
-    // An ordinary light occupies one face. A cable feedthrough pierces the
-    // slab and therefore reserves the matching slot on both faces.
-    return (placeable.wallPassThrough === true || otherDef?.wallPassThrough === true)
-      && physicalWallFixtureSlotKeys(otherMount).some(key => physicalSlots.has(key));
+    const sameFaceOverlap = wallFixtureMountKeys(otherMount).some(key => keys.has(key));
+    const physicalOverlap = physicalWallFixtureSlotKeys(otherMount)
+      .some(key => physicalSlots.has(key));
+    if (!sameFaceOverlap
+        && (!(placeable.wallPassThrough === true || otherDef?.wallPassThrough === true)
+          || !physicalOverlap)) return false;
+    // Automatic 1×1 sleeves form a vertical service stack in one physical
+    // quarter-wall slot. Only their real collar envelopes collide; manual
+    // fittings (including 4×4 HV and 2×2 water assemblies) continue to reserve
+    // their full authored span on both faces.
+    if (physicalOverlap && placeable.automaticWallPassThrough
+        && otherDef?.automaticWallPassThrough) {
+      return automaticWallPassThroughsConflict(placeable, otherDef);
+    }
+    return sameFaceOverlap
+      || ((placeable.wallPassThrough === true || otherDef?.wallPassThrough === true)
+        && physicalOverlap);
   });
   const occupied = openingOccupied || fixtureOccupied;
   return {

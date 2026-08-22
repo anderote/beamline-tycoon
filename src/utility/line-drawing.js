@@ -43,7 +43,7 @@ import {
   isOverheadHvSupport,
   softCableSkipsOverlap,
 } from './soft-cable.js';
-import { pathCrossesWall } from './wall-crossings.js';
+import { pathCrossesWall, pathRunsAlongWall } from './wall-crossings.js';
 import {
   isWaterUtility,
   lineWaterCircuit,
@@ -523,6 +523,7 @@ function connectedPeerSpecs(state, ref, utilityType) {
 
 export function validateDrawLine(state, {
   utilityType, start, end, path, tapLineIds, cablePath, waterCircuit = null,
+  allowAutomaticWallPassThrough = false,
 } = {}) {
   // Path shape.
   if (!Array.isArray(path) || path.length < 2) return reject('invalid_path');
@@ -546,14 +547,21 @@ export function validateDrawLine(state, {
   const freeform = isSoftCable(utilityType) ? sanitizeCablePath(cablePath) : [];
   // Soft utilities are physical where the player visibly laid them. Their
   // compatibility path must not let a cable or hose pass through a wall (or
-  // reject one whose visible trace went around it).
+  // reject one whose visible trace went around it). The input coordinator may
+  // waive this one check only while it plans real fittings and validates each
+  // separately terminated segment.
   const physicalPath = freeform.length >= 2
     ? roundedCableTilePath(freeform, utilityType)
     : path;
   if (descriptor.requiresWallPassThrough
-      && !isOverheadHvSupportSpan(state, utilityType, start, end)
-      && pathCrossesWall(state?.wallOccupied, physicalPath)) {
-    return reject('wall_pass_through_required');
+      && !isOverheadHvSupportSpan(state, utilityType, start, end)) {
+    if (pathRunsAlongWall(state?.wallOccupied, physicalPath)) {
+      return reject('wall_pass_through_required');
+    }
+    if (!allowAutomaticWallPassThrough
+        && pathCrossesWall(state?.wallOccupied, physicalPath)) {
+      return reject('wall_pass_through_required');
+    }
   }
   let startSpec = null;
   let endSpec = null;
