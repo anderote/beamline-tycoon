@@ -48,8 +48,6 @@ export const MODES = {
       vacuum:       { name: 'Vacuum',          color: '#999',
                       utilityLineTools: ['vacuumPipe'],
                       subsections: { transport: { name: 'Transport' }, supply: { name: 'Pumps & Supply' }, distribution: { name: 'Distribution' }, instruments: { name: 'Instruments' }, hardware: { name: 'Hardware' } } },
-      experimentalSystems: { name: 'Experimental Systems', color: '#b56',
-                      subsections: { lasers: { name: 'Laser Systems' } } },
       cooling:      { name: 'Cooling',         color: '#48c',
                       utilityLineTools: ['coolingWater', 'cryoTransfer'],
                       subsections: {
@@ -63,6 +61,8 @@ export const MODES = {
                         support: { name: 'Support Equipment' },
                         cryogenics: { name: 'Cryogenics' },
                       } },
+      experimentalSystems: { name: 'Experimental Systems', color: '#b56',
+                      subsections: { lasers: { name: 'Laser Systems' } } },
       dataControls: { name: 'Data & Controls', color: '#eee',
                       utilityLineTools: ['dataFiber'],
                       subsections: { transport: { name: 'Transport' }, distribution: { name: 'Distribution' }, controls: { name: 'Controls' }, safety: { name: 'Safety' } } },
