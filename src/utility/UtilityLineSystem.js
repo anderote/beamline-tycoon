@@ -168,7 +168,7 @@ export const REASON_MESSAGES = {
   invalid_end:          'ending port is missing or invalid',
   port_type_mismatch:   'port type does not match utility',
   port_taken:           'that port is already connected',
-  water_circuit_mismatch: 'hot return and cold supply water cannot be joined',
+  water_circuit_mismatch: 'different water-temperature circuits cannot be joined',
 };
 
 export function reasonMessage(r) { return REASON_MESSAGES[r] || r; }

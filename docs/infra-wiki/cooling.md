@@ -16,19 +16,21 @@ wall penetrations, and high-flow machines.
 
 | Role | Equipment | What it does |
 |------|-----------|--------------|
-| **Process cooling** | Package Chiller, LCW Skid, Dual-Circuit Chiller, Chiller | Conditions and circulates water for the beamline loop. These are the normal starting points for a blue-pipe network. |
-| **Heat rejection** | Fan-Coil Cooler, Dry Cooler Bank, Cooling Tower | Disposes of heat to room/outdoor air. The fan-coil does it directly; the dry cooler and tower are plant-scale rejectors. |
+| **Process cooling** | Lab Chiller Unit, Package Chiller, LCW Skid, Dual-Circuit Chiller, Chiller | Conditions and circulates water for the beamline loop. These are the normal starting points for a blue-pipe network. |
+| **Heat rejection** | Lab Heat Exchanger, Fan-Coil Cooler, Dry Cooler Bank, Cooling Tower | Converts hot return to room-temperature water. The 1 kW lab exchanger is a demonstration unit; the other rejectors dispose of that heat to room/outdoor air. |
 | **Make-up supply** | Make-up Water Tank, Water Replenishment Plant | Replaces evaporated water at a finite rate. The replenishment plant has the larger flow but no onboard storage. |
 | **Storage** | Make-up Water Tank, Bulk Water Storage Tanks | Sets how many litres the network can hold. Bulk tanks are passive and never generate water. |
 | **Water & treatment** | Deionizer | Keeps the loop clean; it does not add cooling capacity. |
 | **Distribution** | 2-Line Water Distributor, 4-Line Dual Water Distributor, LCW Manifold | Converts flexible branches to rigid headers without adding capacity. The LCW Manifold pairs four blue cold and four red hot hoses with one rigid header of each circuit. |
 
-Every water run is either a **cold supply** or **hot return** circuit. The two
-may cross, but they never join. A cooled beamline component has one cold inlet
-and one hot outlet. Central chillers expose four flexible cold branches plus a
-rigid cold outlet and rigid water inlet; tanks and make-up plants expose a
-room-temperature rigid outlet that can feed that inlet. Heat rejectors accept the collected
-hot circuit through rigid pipe. Large high-flow machines such as the 70 and
+Flexible load water uses a **cold supply** and **hot return** pair. Rigid plant
+pipe adds a third **room-temperature transfer** circuit; all three may cross,
+but they never join. A cooled beamline component has one blue cold inlet and
+one red hot outlet. Heat rejectors have a red hot inlet and green
+room-temperature outlet; central chillers have a green room-temperature inlet
+and blue cold outlet. Tanks and make-up plants expose a green room-temperature
+outlet. The Cooling Lab heat exchanger and chiller unit use the same port
+contracts at a deliberately tiny 1 kW demonstration rating. Large high-flow machines such as the 70 and
 230 MeV cyclotrons connect directly to paired rigid cold/hot ports.
 
 Click **Water Line** in the build palette and choose **Cold Water** (blue) or
@@ -37,12 +39,13 @@ variant shows only compatible ports and is stored on every committed hose;
 starting a drag directly from a blue or red equipment port selects that circuit
 automatically.
 
-The compact 2:1 distributor converts two flexible lines to one rigid pipe. The
-4:2 distributor contains two isolated 2:1 headers, so it can carry a cold/hot
-pair or two independent circuits. Flexible Water Lines never pass directly
+The compact 2-line distributor carries one cold and one hot branch. The 4-line
+distributor carries two cold and two hot branches. Their matching rigid ports
+are authored the same blue/red colors, and every drawn line inherits its
+circuit from the selected port. Flexible Water Lines never pass directly
 through wall slabs: drawing one across a wall automatically builds a compact
 red or blue sleeve and splits the hose through its two terminals. Rigid supply
-pipe does the same at its cold or hot service elevation. The larger 2×2 Water
+pipe does the same at its cold, room-temperature, or hot service elevation. The larger 2×2 Water
 Pipe Penetration stays in the palette for a deliberately planned paired
 cold/hot crossing.
 
@@ -73,7 +76,7 @@ In a real facility, the hierarchy is: cooling tower dumps heat to atmosphere, ch
 
 ### Cooling Networks
 
-Cold and hot water form isolated networks. A chiller only cools components
+Cold, room-temperature, and hot water form isolated networks. A chiller only cools components
 connected to its cold circuit, and every heated component needs a separate hot
 return to rejection. Distributors transfer capacity between flexible and rigid
 water without shorting the two temperature circuits together.
@@ -89,6 +92,7 @@ This means you need to plan both halves of the loop. A common strategy:
 - Run a rigid cold header from the chiller to distributors near the beamline
 - Use short flexible cold and hot Water Lines at each component
 - Collect returns through distributors into a rigid hot header to heat rejection
+- Run the green room-temperature outlet from heat rejection back to the chiller
 - Keep RF and magnet circuits separate when their capacity or temperature needs differ
 
 ### Heat Load
@@ -120,7 +124,9 @@ For a normal-conducting cavity, that temperature rise causes thermal expansion, 
 
 **Deionizer/Water Treatment** — keeps cooling water resistivity high (>1 MOhm-cm). Without it, dissolved ions cause electrical leakage and corrosion. Flavour only in gameplay: it adds no capacity and has no mechanical effect.
 
-**Heat Exchanger** — transfers heat between isolated cooling loops. Use between the beamline LCW circuit and the facility chilled water, or to isolate sensitive equipment.
+**Heat Exchanger** — the Cooling Lab demonstration unit accepts one red hot-water pipe and emits one green room-temperature (lukewarm) pipe. Its 1 kW rating is for tiny test loops; facility rejectors use the same hot-to-room contract at useful scale.
+
+**Chiller Unit** — the complementary 1 kW Cooling Lab test appliance: one green room-temperature inlet and one blue cold-water outlet.
 
 **High-Power Water Load** — absorbs reflected RF power as heat. Place near circulators.
 

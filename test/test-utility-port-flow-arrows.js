@@ -148,11 +148,13 @@ test('distribution-panel fittings inherit their declared in/out roles', () => {
     'the four branch circuits are visibly outputs');
 });
 
-test('equipment water fittings expose blue cold and red hot circuits', () => {
+test('equipment water fittings expose blue cold, green room, and red hot circuits', () => {
   const endpoints = [
     { id: 'quad', type: 'quadrupole', col: 0, row: 0, subCol: 0, subRow: 0, dir: 0 },
     { id: 'tower', type: 'coolingTower', col: 4, row: 0, subCol: 0, subRow: 0, dir: 0 },
     { id: 'manifold', type: 'coolingManifold', col: 8, row: 0, subCol: 0, subRow: 0, dir: 0 },
+    { id: 'chiller', type: 'chiller', col: 12, row: 0, subCol: 0, subRow: 0, dir: 0 },
+    { id: 'dist', type: 'waterDistributor2', col: 16, row: 0, subCol: 0, subRow: 0, dir: 0 },
   ];
   const { group } = buildPortFittings(endpoints);
   const fittings = new Map(fittingsOf(group).map(fitting => [
@@ -162,7 +164,16 @@ test('equipment water fittings expose blue cold and red hot circuits', () => {
 
   assert.equal(hex(fittings.get('quad:cool_in')), '#287fc4');
   assert.equal(hex(fittings.get('quad:hot_out')), '#c45b42');
-  assert.equal(hex(fittings.get('tower:supply_hot_1')), '#c45b42');
+  assert.equal(hex(fittings.get('tower:hot_in')), '#c45b42');
+  assert.equal(hex(fittings.get('tower:room_out')), '#4f9b72');
+  assert.equal(arrowOf(fittings.get('tower:hot_in'))?.userData.flowRole, 'sink');
+  assert.equal(arrowOf(fittings.get('tower:room_out'))?.userData.flowRole, 'source');
+  assert.equal(hex(fittings.get('chiller:room_in')), '#4f9b72');
+  assert.equal(hex(fittings.get('chiller:supply_cold_out')), '#287fc4');
+  assert.equal(hex(fittings.get('dist:water_line_1')), '#287fc4');
+  assert.equal(hex(fittings.get('dist:water_line_2')), '#c45b42');
+  assert.equal(hex(fittings.get('dist:supply_pipe_1')), '#287fc4');
+  assert.equal(hex(fittings.get('dist:supply_pipe_2')), '#c45b42');
   assert.equal(hex(fittings.get('manifold:supply_cold')), '#287fc4');
   assert.equal(hex(fittings.get('manifold:supply_hot')), '#c45b42');
   assert.equal(hex(fittings.get('manifold:cold_1')), '#287fc4');

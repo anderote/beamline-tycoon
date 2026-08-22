@@ -47,9 +47,9 @@ export function setupMinorLab(game) {
 
   // The imported facility predates explicit hot-water returns. Preserve its
   // working cold branches, then retrofit each of the two beam rooms with
-  // three 2:1 return headers. Each room uses one dual four-line distributor
-  // plus one two-line distributor, matching the compact one-sided catalogue
-  // layouts. Rigid hot-water pipe carries the collected heat through sealed
+  // three paired return headers. Their authored blue and red halves keep
+  // supply and return unmistakable.
+  // Rigid hot-water pipe carries the collected heat through sealed
   // wall sleeves to the existing cooling tower yard.
   const place = (type, col, row, extra = {}) => game.placePlaceable({
     type, col, row, free: true, silent: true, ...extra,
@@ -57,16 +57,23 @@ export function setupMinorLab(game) {
   const upperFourLine = place('waterDistributor4', -5, 8);
   const upperTwoLine = place('waterDistributor2', -1, 8);
   const lowerFourLine = place('waterDistributor4', -9, 0);
-  const lowerTwoLine = place('waterDistributor2', -5, 0);
-  const distributorHeaders = (fourLine, twoLine) => [
-    { id: fourLine, waterPorts: ['water_line_1', 'water_line_2'], supplyPort: 'supply_pipe_1' },
-    { id: fourLine, waterPorts: ['water_line_3', 'water_line_4'], supplyPort: 'supply_pipe_2' },
-    { id: twoLine, waterPorts: ['water_line_1', 'water_line_2'], supplyPort: 'supply_pipe_1' },
+  const lowerTwoLine = place('waterDistributor4', -5, 0);
+  const upperColdDistributor = place('waterDistributor4', -9, 8);
+  const lowerColdDistributor = place('waterDistributor4', 0, 5);
+  const fourLineHeader = id => ({
+    id, waterPorts: ['water_line_3', 'water_line_4'], supplyPort: 'supply_pipe_2',
+  });
+  const twoLineHeader = id => ({
+    id, waterPorts: ['water_line_2'], supplyPort: 'supply_pipe_2',
+  });
+  const upperHeaders = [
+    fourLineHeader(upperFourLine), twoLineHeader(upperTwoLine),
+    fourLineHeader(upperColdDistributor),
   ];
-  const upperHeaders = distributorHeaders(upperFourLine, upperTwoLine);
-  const lowerHeaders = distributorHeaders(lowerFourLine, lowerTwoLine);
-  const upperColdDistributor = place('waterDistributor2', -9, 8);
-  const lowerColdDistributor = place('waterDistributor2', 0, 5);
+  const lowerHeaders = [
+    fourLineHeader(lowerFourLine), fourLineHeader(lowerTwoLine),
+    fourLineHeader(lowerColdDistributor),
+  ];
   const sleeve = row => place('waterSupplyWallPassThrough1x1', 2, row, {
     wallMount: { col: 2, row, edge: 'e', off: 1 },
   });
@@ -74,17 +81,20 @@ export function setupMinorLab(game) {
   const lowerSleeves = [sleeve(2), sleeve(3), sleeve(4)];
 
   const connectReturns = (loads, headers) => {
+    const outlets = headers.flatMap(header => header.waterPorts.map(port => ({
+      header, port,
+    })));
     loads.forEach((id, index) => {
-      const header = headers[Math.floor(index / 2)];
+      const { header, port } = outlets[index];
       const connected = wireUtility(game, 'coolingWater', { id, port: 'hot_out' }, {
-        id: header.id, port: header.waterPorts[index % 2],
+        id: header.id, port,
       }, { waterCircuit: 'hot' });
       // The upper room's first quadrupole is boxed in by its legacy cold hose.
       // The spare socket on the third return header gives the obstacle-aware
       // router a clean approach without crossing the room wall.
       if (!connected) {
         wireUtility(game, 'coolingWater', { id, port: 'hot_out' }, {
-          id: headers[2].id, port: headers[2].waterPorts[1],
+          id: outlets.at(-1).header.id, port: outlets.at(-1).port,
         }, { waterCircuit: 'hot' });
       }
     });
@@ -92,8 +102,33 @@ export function setupMinorLab(game) {
   connectReturns(['pl_3', 'pl_2', 'pl_1', 'bl_14', 'bl_15'], upperHeaders);
   connectReturns(['pl_9', 'pl_8', 'pl_7', 'bl_16', 'bl_17'], lowerHeaders);
 
+  // The upper target's red fitting lands exactly on the hot hose already
+  // serving the adjacent compact distributor. Its equipment envelope leaves
+  // no separate approach corridor, so commit the physically correct tee at
+  // that coincident point instead of pretending a second parallel hose fits.
+  const upperTargetConnected = [...game.state.utilityLines.values()].some(line =>
+    line.utilityType === 'coolingWater'
+      && [line.start, line.end].some(ref =>
+        ref?.placeableId === 'bl_15' && ref.portName === 'hot_out'));
+  if (!upperTargetConnected) {
+    const hotTrunk = [...game.state.utilityLines.values()].find(line =>
+      line.utilityType === 'coolingWater' && line.waterCircuit === 'hot'
+        && [line.start, line.end].some(ref =>
+          ref?.placeableId === upperTwoLine && ref.portName === 'water_line_2'));
+    if (hotTrunk) {
+      game.utilityLineSystem?.addLine({
+        utilityType: 'coolingWater', waterCircuit: 'hot',
+        start: { placeableId: 'bl_15', portName: 'hot_out' }, end: null,
+        path: [{ col: -0.5, row: 8 }, { col: -0.25, row: 8 }],
+        cablePath: [{ col: -0.5, row: 8 }, { col: -0.25, row: 8 }],
+        tapLineIds: { start: hotTrunk.id },
+      });
+    }
+  }
+
   const hotPipe = { waterCircuit: 'hot' };
   const coldPipe = { waterCircuit: 'cold' };
+  const roomPipe = { waterCircuit: 'room' };
   wireUtility(game, 'waterSupplyPipe',
     { id: 'in_90', port: 'supply_cold_out' },
     { id: upperColdDistributor, port: 'supply_pipe_1' }, coldPipe);
@@ -114,14 +149,14 @@ export function setupMinorLab(game) {
     { id: 'in_130', port: 'cool_in' }, coldPipe);
 
   const upperRejection = [
-    ['in_112', 'supply_hot_1'],
-    ['in_112', 'supply_hot_2'],
-    ['in_244', 'supply_hot_1'],
+    ['in_112', 'hot_in'],
+    ['in_112', 'hot_in'],
+    ['in_244', 'hot_in'],
   ];
   const lowerRejection = [
-    ['in_113', 'supply_hot_1'],
-    ['in_113', 'supply_hot_2'],
-    ['in_244', 'supply_hot_2'],
+    ['in_113', 'hot_in'],
+    ['in_113', 'hot_in'],
+    ['in_244', 'hot_in'],
   ];
   const connectHotHeaders = (headers, sleeves, rejectors) => {
     headers.forEach((header, index) => {
@@ -135,6 +170,22 @@ export function setupMinorLab(game) {
   };
   connectHotHeaders(upperHeaders, upperSleeves, upperRejection);
   connectHotHeaders(lowerHeaders, lowerSleeves, lowerRejection);
+
+  // Close the central plant chain: each heat-rejection bank returns green
+  // room-temperature water to the matching chiller, which then produces the
+  // blue cold header used above.
+  wireUtility(game, 'waterSupplyPipe',
+    { id: 'in_112', port: 'room_out' },
+    { id: 'in_90', port: 'room_in' }, roomPipe);
+  wireUtility(game, 'waterSupplyPipe',
+    { id: 'in_113', port: 'room_out' },
+    { id: 'in_91', port: 'room_in' }, roomPipe);
+  wireUtility(game, 'waterSupplyPipe',
+    { id: 'in_116', port: 'room_out' },
+    { id: 'in_234', port: 'room_in' }, roomPipe);
+  wireUtility(game, 'waterSupplyPipe',
+    { id: 'in_117', port: 'room_out' },
+    { id: 'in_235', port: 'room_in' }, roomPipe);
 
   return powerRepair;
 }

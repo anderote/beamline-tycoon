@@ -74,6 +74,11 @@ const CRYO_CAPABILITY_METRICS = [
   ['liquefactionRateLPerTick', 'LHe make-up rate', 'L/tick'],
 ];
 
+function waterCapacityBucket(port) {
+  const circuit = port?.params?.waterCircuit || 'unspecified';
+  return `${port.utility}:${circuit}`;
+}
+
 function compactNumber(value) {
   if (Math.abs(value) >= 1000) return Math.round(value).toLocaleString();
   // Vacuum loads are intentionally tiny (often 5e-7 mbar·L/s). Rounding
@@ -129,9 +134,22 @@ export function paletteUtilityMetrics(comp) {
     if (port.role === 'sink' && (port.utility === 'powerCable' || port.utility === 'hvCable')) {
       hasElectricalSink = true;
     }
-    const metricKey = `${kind}:${port.utility}`;
-    const entry = totals.get(metricKey) || { label, unit, value: 0, kind };
-    entry.value += value;
+    const waterCapacity = kind === 'capacity'
+      && (port.utility === 'coolingWater' || port.utility === 'waterSupplyPipe');
+    const metricKey = waterCapacity ? `${kind}:waterCooling` : `${kind}:${port.utility}`;
+    const entry = totals.get(metricKey)
+      || { label, unit, value: 0, kind, amountsByCircuit: new Map() };
+    if (waterCapacity) {
+      const bucket = waterCapacityBucket(port);
+      entry.amountsByCircuit.set(bucket,
+        (entry.amountsByCircuit.get(bucket) || 0) + value);
+      // A thermal converter authors its equal rating on each temperature
+      // side. Those circuits are alternatives through one device, not two
+      // additive cooling plants, so show the largest per-circuit total.
+      entry.value = Math.max(...entry.amountsByCircuit.values());
+    } else {
+      entry.value += value;
+    }
     totals.set(metricKey, entry);
   }
 
@@ -180,8 +198,9 @@ export function paletteUtilityTags(comp) {
     const value = params.map(param => port.params?.[param]).find(Number.isFinite);
     if (!spec || !Number.isFinite(value)) continue;
     const current = totals.get(spec.key) || { ...spec, amount: 0, amountsByUtility: new Map() };
-    current.amountsByUtility.set(port.utility,
-      (current.amountsByUtility.get(port.utility) || 0) + value);
+    const bucket = spec.key === 'cooling' ? waterCapacityBucket(port) : port.utility;
+    current.amountsByUtility.set(bucket,
+      (current.amountsByUtility.get(bucket) || 0) + value);
     current.amount = spec.key === 'cooling'
       ? Math.max(...current.amountsByUtility.values())
       : [...current.amountsByUtility.values()].reduce((sum, amount) => sum + amount, 0);
@@ -240,8 +259,9 @@ export function utilityStatRows(comp) {
     const entry = totals.get(totalKey)
       ?? { utility: port.utility, spec, amount: 0, amountsByUtility: new Map(),
         dutyFactor: undefined, displayLabel: undefined };
-    entry.amountsByUtility.set(port.utility,
-      (entry.amountsByUtility.get(port.utility) || 0) + amount);
+    const bucket = spec.group ? waterCapacityBucket(port) : port.utility;
+    entry.amountsByUtility.set(bucket,
+      (entry.amountsByUtility.get(bucket) || 0) + amount);
     entry.amount = spec.group
       ? Math.max(...entry.amountsByUtility.values())
       : entry.amountsByUtility.get(port.utility);

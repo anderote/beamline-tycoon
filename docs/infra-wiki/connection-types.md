@@ -63,16 +63,17 @@ colored port infers the same choice.
 - **LCW Manifold:** $80k; requires explicit hoses and rigid headers, with no implicit service radius
 - **Support equipment:** Deionizer, Heat Exchanger, Water Load, Emergency Cooling
 
-### Water Supply Pipe (blue/red)
+### Water Supply Pipe (blue/green/red)
 Rigid fabricated bulk-water header, modeled like cryogenic transfer pipe. Cold
-supply uses the blue 0.60 m lane; hot return uses the red 0.90 m lane.
+supply is blue at 0.60 m, hot return is red at 0.90 m, and the separate
+room-temperature plant-transfer leg is green at 1.80 m.
 
-- **Network type:** Capacity-based, with hot and cold circuits kept isolated
+- **Network type:** Capacity-based, with cold, room-temperature, and hot circuits kept isolated
 - **Cold source:** Central chiller rigid cold outlet
-- **Hot rejection:** Fan-Coil Cooler, Dry Cooler Bank, Cooling Tower
+- **Plant chain:** Beamline cold inlet → beamline hot outlet → heat-rejector hot inlet → heat-rejector room-temperature outlet → chiller room-temperature inlet → chiller cold outlet
 - **Consumers:** High-flow equipment such as the 70 and 230 MeV cyclotrons, or flexible Water Lines through a distributor
 - **Wall crossings:** 1x1 and 2x2 Water Pipe Penetrations
-- **Supports:** Same 3 m support stations as cryo, RF, and vacuum, so independent runs can stack vertically
+- **Supports:** Same 1 m support stations as cryo, RF, and vacuum, so independent runs can stack vertically
 
 SRF cavities are **not** cooling-water consumers. Their thermal path is cryogenics.
 

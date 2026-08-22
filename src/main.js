@@ -624,13 +624,13 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
     for (const [id, port] of [[src,'vac_in'],[far,'vac_in'],[vacBus,'bus_left']])
       wire('vacuumPipe', pump,'vac_out', id, port);
     wire('rfWaveguide', kly,'rf_out', rfBus,'bus_left');
-    wire('waterSupplyPipe', tank,'water_supply_out', chil,'water_in');
     wire('waterSupplyPipe', chil,'supply_cold_out', coolBus,'supply_cold');
     for (const [index, id] of [src, demoQuad, demoCavity].entries()) {
       wire('coolingWater', coolBus,`cold_${index + 1}`, id,'cool_in');
       wire('coolingWater', coolBus,`hot_${index + 1}`, id,'hot_out');
     }
-    wire('waterSupplyPipe', coolBus,'supply_hot', condenser,'supply_hot_1');
+    wire('waterSupplyPipe', coolBus,'supply_hot', condenser,'hot_in');
+    wire('waterSupplyPipe', condenser,'room_out', chil,'room_in');
     for (const [id, port] of [[far,'data_in'],[demoBpm,'data_in']])
       wire('dataFiber', ioc,'data_out', id, port);
     renderer.refresh(); await sleep(500);

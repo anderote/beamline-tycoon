@@ -60,7 +60,7 @@ import { utilityPortIssues } from '../utility/port-issues.js';
 import { placeableCenterWorld, portWorldPosition } from '../utility/ports.js';
 import { portAnchor3D } from '../utility/port-anchors.js';
 import { buildPortFitting, buildPortFittings, portFittingSignature, portFlowArrowRole } from './builders/port-fitting-builder.js';
-import { portWaterCircuit } from '../utility/water-circuits.js';
+import { portWaterCircuit, waterCircuitColor } from '../utility/water-circuits.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
 import { StaffPawns } from './StaffPawns.js';
 import { sampleSurfaceYAt, getTileCornersY } from '../game/terrain.js';
@@ -3826,7 +3826,8 @@ export class ThreeRenderer {
       const anchor = portAnchor3D(endpoint, portDef, portName);
       if (!anchor) continue;
       const fitting = buildPortFitting(
-        anchor, spec.utility, spec.role, portFlowArrowRole(portName, spec.role),
+        anchor, spec.utility, spec.role,
+        spec.flowRole || portFlowArrowRole(portName, spec.role),
         portWaterCircuit(spec));
       fitting.scale.setScalar(1.35);
       fitting.renderOrder = 1002;
@@ -3835,7 +3836,7 @@ export class ThreeRenderer {
       const descriptor = UTILITY_TYPES[spec.utility];
       const isWaterPort = spec.utility === 'waterSupplyPipe' || spec.utility === 'coolingWater';
       const color = isWaterPort && circuit
-        ? (circuit === 'hot' ? descriptor?.hotColor : descriptor?.color) || '#ffff88'
+        ? waterCircuitColor(circuit, descriptor?.color || '#ffff88')
         : descriptor?.markerColor || descriptor?.color || '#ffff88';
       const glow = new THREE.Mesh(
         new THREE.SphereGeometry(0.11, 10, 8),
@@ -5737,7 +5738,7 @@ export class ThreeRenderer {
     // whose anchor resolved once model bounds were measured) forces a rebuild;
     // otherwise identity + severity fully determine the marker geometry.
     const sig = issues.map(issue =>
-      `${issue.placeableId}:${issue.portName}:${issue.severity}`).join(';');
+      `${issue.placeableId}:${issue.portName}:${issue.severity}:${issue.waterCircuit || ''}`).join(';');
     if (!force && sig === this._utilityPortIssueSig) return;
     this._utilityPortIssueSig = sig;
     if (issues.length === 0) {

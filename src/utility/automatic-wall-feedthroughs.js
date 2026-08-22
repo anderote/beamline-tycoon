@@ -39,6 +39,7 @@ const AUTOMATIC_FITTING_TYPES = Object.freeze({
   }),
   waterSupplyPipe: Object.freeze({
     cold: 'coldWaterSupplyWallPassThrough',
+    room: 'roomWaterSupplyWallPassThrough',
     hot: 'hotWaterSupplyWallPassThrough',
   }),
 });
@@ -266,7 +267,7 @@ export function planAutomaticWallPassThroughs(game, opts = {}) {
   const feedthroughs = [];
   const selections = [];
   const fittingType = automaticWallPassThroughType(opts.utilityType, opts.waterCircuit);
-  if (!fittingType) return { ok: false, reason: 'select hot or cold water before crossing a wall' };
+  if (!fittingType) return { ok: false, reason: 'select a water-temperature circuit before crossing a wall' };
   const powerForward = powerStartsUpstream(state, opts);
 
   for (let index = 0; index < crossings.length; index++) {

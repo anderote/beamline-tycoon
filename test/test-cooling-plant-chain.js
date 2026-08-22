@@ -40,8 +40,8 @@ const topology = {
   ],
   utilityLines: new Map([
     ['cold', { id: 'cold', utilityType: 'coolingWater', waterCircuit: 'cold', start: { placeableId: 'chiller', portName: 'cool_out' }, end: { placeableId: 'load', portName: 'cool_in' }, path: [{ col: 0, row: 0 }, { col: 3, row: 0 }] }],
-    ['hot', { id: 'hot', utilityType: 'coolingWater', waterCircuit: 'hot', start: { placeableId: 'load', portName: 'hot_out' }, end: { placeableId: 'dist', portName: 'water_line_1' }, path: [{ col: 3, row: 1 }, { col: 6, row: 1 }] }],
-    ['header', { id: 'header', utilityType: 'waterSupplyPipe', waterCircuit: 'hot', start: { placeableId: 'tower', portName: 'supply_hot_1' }, end: { placeableId: 'dist', portName: 'supply_pipe_1' }, path: [{ col: 6, row: 2 }, { col: 9, row: 2 }] }],
+    ['hot', { id: 'hot', utilityType: 'coolingWater', waterCircuit: 'hot', start: { placeableId: 'load', portName: 'hot_out' }, end: { placeableId: 'dist', portName: 'water_line_2' }, path: [{ col: 3, row: 1 }, { col: 6, row: 1 }] }],
+    ['header', { id: 'header', utilityType: 'waterSupplyPipe', waterCircuit: 'hot', start: { placeableId: 'tower', portName: 'hot_in' }, end: { placeableId: 'dist', portName: 'supply_pipe_2' }, path: [{ col: 6, row: 2 }, { col: 9, row: 2 }] }],
   ]),
 };
 const discovered = discoverNetworks('coolingWater', topology.utilityLines, makeDefaultPortLookup(topology));

@@ -124,3 +124,25 @@ test('a hard network failure promotes every affected sink to critical', () => {
     'critical',
   );
 });
+
+test('water issues preserve the exact port temperature circuit', () => {
+  const endpoints = new Map([['load', { id: 'load', type: 'waterLoad' }]]);
+  const waterPorts = {
+    waterLoad: {
+      cool_in: {
+        utility: 'coolingWater', role: 'sink', params: { waterCircuit: 'cold' },
+      },
+      hot_out: {
+        utility: 'coolingWater', role: 'sink', params: { waterCircuit: 'hot' },
+      },
+    },
+  };
+  const issues = utilityPortIssues({
+    unwiredSinks: { load: { coolingWater: true } },
+  }, endpoints, type => waterPorts[type]);
+
+  assert.deepEqual(issues.map(issue => [issue.portName, issue.waterCircuit]), [
+    ['cool_in', 'cold'],
+    ['hot_out', 'hot'],
+  ]);
+});
