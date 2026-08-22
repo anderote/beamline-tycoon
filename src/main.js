@@ -46,6 +46,7 @@ import {
 } from './ui/main-menu-navigation.js';
 import { ScenarioPicker } from './ui/ScenarioPicker.js';
 import { wireUtility } from './data/scenarios/scenario-wiring.js';
+import { EffectsWorkshop } from './ui/EffectsWorkshop.js';
 
 // Some code may still reference these as globals (Pyodide bridge, etc.)
 // Expose them on window during transition
@@ -129,6 +130,7 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
 
   const input = new InputHandler(renderer, game);
   renderer._inputHandler = input;
+  renderer.effectsWorkshop = new EffectsWorkshop(renderer, input);
   const designer = new BeamlineDesigner(game, renderer);
   game._designer = designer;
   const guidedSetup = new GuidedBeamlineSetup(game, renderer, input);

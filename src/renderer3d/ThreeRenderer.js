@@ -83,6 +83,10 @@ import {
   equipmentPowerUpSparkProfile,
   utilityConnectionSparkProfile,
 } from './spark-presentation.js';
+import {
+  previewParticleDescriptors,
+  setParticleEffectProfile,
+} from './particle-effect-tuning.js';
 import { fixtureMountY, wallFixturePose } from './fixture-light-math.js';
 import {
   DYNAMIC_POINT_LIGHT_FLASH_RESERVE, MAX_DYNAMIC_POINT_LIGHTS,
@@ -1203,6 +1207,32 @@ export class ThreeRenderer {
     return gridToIso(fCol, fRow);
   }
 
+  /** Closest visible scene point for presentation-only click effects. */
+  effectPointAtScreen(screenX, screenY) {
+    if (!this.camera || !this.renderer) return null;
+    const { raycaster, groundPlane } = this._screenRay(screenX, screenY);
+    const hits = [];
+    const groups = [
+      this.componentGroup, this.pipeAttachmentGroup, this.equipmentGroup,
+      this.decorationGroup, this.beamPipeGroup, this.wallGroup, this.connectionGroup,
+    ];
+    for (const group of groups) {
+      if (!group?.visible) continue;
+      for (const hit of raycaster.intersectObjects(group.children, true)) {
+        if (isVisiblePickObject(hit.object)) hits.push(hit);
+      }
+    }
+    if (this._terrainMesh?.visible) hits.push(...raycaster.intersectObject(this._terrainMesh));
+    const ground = new THREE.Vector3();
+    if (raycaster.ray.intersectPlane(groundPlane, ground)) {
+      hits.push({ point: ground, distance: raycaster.ray.origin.distanceTo(ground) });
+    }
+    if (!hits.length) return null;
+    hits.sort((a, b) => a.distance - b.distance);
+    const point = hits[0].point;
+    return { x: point.x, y: point.y + 0.04, z: point.z };
+  }
+
   /**
    * Raycast from a screen position into the 3D scene.
    * Returns the first intersected visible mesh (skipping preview/terrain/grid
@@ -1975,6 +2005,20 @@ export class ThreeRenderer {
     return this._effectSystem?.emit(descriptor) ?? null;
   }
 
+  /** Apply workshop tuning; live beam pixels rebuild immediately. */
+  setParticleEffectTuning(id, values) {
+    const profile = setParticleEffectProfile(id, values);
+    if (profile && id === 'beamline') this._refreshBeam();
+    return profile;
+  }
+
+  /** Presentation-only preview command. It never mutates Game state. */
+  previewParticleEffect(id, position) {
+    const descriptors = previewParticleDescriptors(id, position);
+    for (const descriptor of descriptors) this.emitVisualEffect(descriptor);
+    return descriptors.length;
+  }
+
   _utilitySparkAnchor(ref) {
     if (!ref?.placeableId || !ref.portName) return null;
     const endpoint = makeUtilityEndpointIndex(this._liveState()).get(ref.placeableId);
@@ -2019,7 +2063,7 @@ export class ThreeRenderer {
     return center;
   }
 
-  _emitPlaceablePowerUpSparks(placeableId, count = 10) {
+  _emitPlaceablePowerUpSparks(placeableId, count = 18) {
     if (!placeableId) return;
     const object = this.componentBuilder?.getGroup?.(placeableId)
       || this.pipeAttachmentBuilder?.getGroup?.(placeableId)
@@ -2042,7 +2086,7 @@ export class ThreeRenderer {
     const path = (this._snapshot?.beamPaths || [])
       .find(candidate => candidate.beamlineId === beamlineId);
     for (const id of (path?.hardwareIds || []).slice(0, 24)) {
-      this._emitPlaceablePowerUpSparks(id, 4);
+      this._emitPlaceablePowerUpSparks(id, 7);
     }
   }
 
@@ -2150,6 +2194,9 @@ export class ThreeRenderer {
    * incident back without touching the simulation save.
    */
   explodeWorld(position, options = {}) {
+    const particleDescriptor = previewParticleDescriptors('explosion', position)
+      .find(descriptor => descriptor.kind === 'particleBurst');
+    if (particleDescriptor) this.emitVisualEffect(particleDescriptor);
     return this._physicsPresentation.explode(
       position,
       options,

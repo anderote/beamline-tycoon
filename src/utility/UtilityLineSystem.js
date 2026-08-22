@@ -25,6 +25,19 @@ import { PLACEABLES } from '../data/placeables/index.js';
 const EPS = 1e-6;
 export const UTILITY_LINE_STRAIN_ALLOWANCE = 1.12;
 const UTILITY_LINE_STRAIN_GRACE_SUBUNITS = 0.5;
+const RUGGED_MOVE_STRAIN = Object.freeze({
+  hvCable: { allowance: 3, graceSubUnits: 8 },
+  powerCable: { allowance: 3, graceSubUnits: 8 },
+  coolingWater: { allowance: 3, graceSubUnits: 8 },
+});
+
+/** Physical leash used when a connected machine is carried to a new pose. */
+export function utilityLineMoveStrainLimit(utilityType, installedSubL) {
+  const rugged = RUGGED_MOVE_STRAIN[utilityType];
+  const allowance = rugged?.allowance ?? UTILITY_LINE_STRAIN_ALLOWANCE;
+  const grace = rugged?.graceSubUnits ?? UTILITY_LINE_STRAIN_GRACE_SUBUNITS;
+  return Math.max(0, Number(installedSubL) || 0) * allowance + grace;
+}
 
 /** Which axis a leg runs along: 'v' (col fixed), 'h' (row fixed), or null. */
 function legAxis(a, b) {
@@ -106,9 +119,10 @@ function pickPortPos(newPortPos, portName) {
 /**
  * Compare a moved fitting's straight-line reach with the amount of utility
  * line the player originally installed. Bends are usable slack: carrying a
- * cabinet pulls them out until the run is nearly taut. A small 12% allowance
- * reads as connector/hose compliance and prevents a harmless half-subtile
- * nudge from popping a plug.
+ * cabinet pulls them out until the run is nearly taut. Flexible HV, ordinary
+ * power, and cooling-water services have a generous coiled-lead allowance:
+ * ordinary equipment moves should drag the line instead of popping a plug.
+ * Fabricated rigid services retain the conservative limit.
  */
 export function utilityLineReachStatus(line, placeableId, newPortPos) {
   if (!line) return { canReach: false, reason: 'line_not_found' };
@@ -129,8 +143,7 @@ export function utilityLineReachStatus(line, placeableId, newPortPos) {
   const installedSubL = Number.isFinite(line.subL) && line.subL > 0
     ? line.subL : fallbackLength;
   const requiredSubL = Math.hypot(end.col - start.col, end.row - start.row) * 4;
-  const limitSubL = installedSubL * UTILITY_LINE_STRAIN_ALLOWANCE
-    + UTILITY_LINE_STRAIN_GRACE_SUBUNITS;
+  const limitSubL = utilityLineMoveStrainLimit(line.utilityType, installedSubL);
   return {
     canReach: requiredSubL <= limitSubL + EPS,
     installedSubL,
@@ -388,8 +401,7 @@ export class UtilityLineSystem {
     const installedSubL = Number.isFinite(line.subL) && line.subL > 0
       ? line.subL : fallbackLength;
     const requiredSubL = Math.hypot(endPos.col - startPos.col, endPos.row - startPos.row) * 4;
-    const limitSubL = installedSubL * UTILITY_LINE_STRAIN_ALLOWANCE
-      + UTILITY_LINE_STRAIN_GRACE_SUBUNITS;
+    const limitSubL = utilityLineMoveStrainLimit(line.utilityType, installedSubL);
     if (requiredSubL > limitSubL + EPS) return dangle('overstretched');
 
     if (atStart) {
