@@ -1209,6 +1209,28 @@ export class ThreeRenderer {
     return pickWithScreenTolerance(screenX, screenY, tolerancePx, castAt);
   }
 
+  /**
+   * Raycast visible door and window assemblies as one opening target family.
+   * Their source meshes retain tight per-opening bounds after wall batching,
+   * so raised glass and panels resolve before their ground projection lands
+   * on the host wall or a neighboring tile.
+   */
+  raycastOpeningScreen(screenX, screenY, tolerancePx = 0) {
+    if (!this.renderer || !this.camera || !this.wallBuilder) return null;
+    const targets = [
+      ...(this.wallBuilder.doorPickMeshes?.() || []),
+      ...(this.wallBuilder.windowPickMeshes?.() || []),
+    ];
+    if (targets.length === 0) return null;
+    const castAt = (x, y) => {
+      const { raycaster } = this._screenRay(x, y);
+      const hits = raycaster.intersectObjects(targets, false);
+      hits.sort((a, b) => a.distance - b.distance);
+      return hits.find(hit => isVisiblePickObject(hit.object)) || null;
+    };
+    return pickWithScreenTolerance(screenX, screenY, tolerancePx, castAt);
+  }
+
   /** Check if a mesh belongs to a given parent group */
   _isInGroup(obj, group) {
     while (obj) {

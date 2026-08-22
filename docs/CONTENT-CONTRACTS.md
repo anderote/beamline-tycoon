@@ -130,6 +130,10 @@ the short authoring contract.
 - A physical edge carries at most one opening. Half-edge placement chooses
   where that opening sits; it does not permit two independent doors or windows
   on the same edge. Mirrored edge spellings must mirror the stored offset.
+- Visible door leaves and window panes are direct demolition targets. A
+  demolition gesture begun on that geometry removes the opening (or its
+  connected opening run) while preserving the host wall; targeting the wall
+  itself retains complete-edge demolition behavior.
 
 ## Utility ports and scenarios
 

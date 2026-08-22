@@ -263,6 +263,8 @@ export class WallBuilder {
     this._batches = [];
     /** Authored door-frame/leaf meshes used for perspective-correct picking. */
     this._doorPickMeshes = [];
+    /** Authored window panes used for perspective-correct picking. */
+    this._windowPickMeshes = [];
     /** Collects `_meshes` into batches during a build; null when unbatched. */
     this._batcher = null;
     this._cacheKey = null;
@@ -308,6 +310,12 @@ export class WallBuilder {
   doorPickMeshes() {
     for (const mesh of this._doorPickMeshes) mesh.updateMatrixWorld?.(true);
     return this._doorPickMeshes;
+  }
+
+  /** Visible window panes as tight raycast targets with owning-edge identity. */
+  windowPickMeshes() {
+    for (const mesh of this._windowPickMeshes) mesh.updateMatrixWorld?.(true);
+    return this._windowPickMeshes;
   }
 
   /**
@@ -1340,6 +1348,7 @@ export class WallBuilder {
       const glass = new THREE.Mesh(glassGeo, glassMat);
       glass.userData ||= {};
       glass.userData.windowGlass = true;
+      glass.userData.windowEdge = { col, row, edge };
       glass.position.set(
         edgeCenter.x + (isNS ? layout.center : 0),
         base + jambY,
@@ -1350,6 +1359,7 @@ export class WallBuilder {
       glass.renderOrder = 2;
       glass.matrixAutoUpdate = false;
       glass.updateMatrix();
+      this._windowPickMeshes.push(glass);
       this._emit(glass, parentGroup);
     }
   }
@@ -1775,5 +1785,6 @@ export class WallBuilder {
 
     this._meshes = [];
     this._doorPickMeshes = [];
+    this._windowPickMeshes = [];
   }
 }

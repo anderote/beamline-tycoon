@@ -128,21 +128,25 @@ console.log('\n=== 1. Demolish edge paths rebuild walls once, not per edge ===\n
     `one wallsChanged for the whole drag (got ${counts.wallsChanged || 0}, ${RUN} edges)`);
 }
 
-console.log('\n=== 1a. Demolish resolves visible door geometry before its ground projection ===\n');
+console.log('\n=== 1a. Demolish resolves visible opening geometry before its ground projection ===\n');
 
-function doorDemolishCtx(g, edge, groundEdge) {
+function openingDemolishCtx(g, edge, groundEdge, kind = 'door') {
+  const edgeField = `${kind}Edge`;
   const renderer = {
-    raycastDoorScreen: () => ({ object: { userData: { doorEdge: edge } } }),
+    raycastOpeningScreen: () => ({ object: { userData: { [edgeField]: edge } } }),
     screenToWorld: () => tileCenterIso(groundEdge.col, groundEdge.row),
     clearDragPreview() {},
+    renderDemolishPathPreview() {},
   };
   const input = {
     renderer,
     game: g,
     _shiftDown: false,
     _edgeAlias: InputHandler.prototype._edgeAlias,
+    _findOpeningAtEdge: InputHandler.prototype._findOpeningAtEdge,
     _findWallOrDoorAtEdge: InputHandler.prototype._findWallOrDoorAtEdge,
     _getNearestEdge: () => groundEdge,
+    _buildWallLine: InputHandler.prototype._buildWallLine,
     findDemolishableEdgeAtScreen: InputHandler.prototype.findDemolishableEdgeAtScreen,
     _removeWallAndDoorAtEdge: InputHandler.prototype._removeWallAndDoorAtEdge,
   };
@@ -155,7 +159,7 @@ function doorDemolishCtx(g, edge, groundEdge) {
   const wrongGroundEdge = { col: 20, row: 20, edge: 's' };
   g.placeWall(doorEdge.col, doorEdge.row, doorEdge.edge, 'officeWall');
   g.placeDoor(doorEdge.col, doorEdge.row, doorEdge.edge, 'officeDoor');
-  const ctx = doorDemolishCtx(g, doorEdge, wrongGroundEdge);
+  const ctx = openingDemolishCtx(g, doorEdge, wrongGroundEdge);
 
   const found = ctx.input.findDemolishableEdgeAtScreen(300, 200);
   assertOk(found?.doorType === 'officeDoor'
@@ -167,6 +171,8 @@ function doorDemolishCtx(g, edge, groundEdge) {
   tool.onMouseUp({ button: 0, clientX: 300, clientY: 200 }, ctx);
   assertOk(g.state.doors.length === 0,
     'Building demolition removes the door selected through its visible panel');
+  assertOk(g.state.walls.length === 1,
+    'directly deleting a door preserves its host wall');
 }
 
 {
@@ -175,13 +181,38 @@ function doorDemolishCtx(g, edge, groundEdge) {
   const wrongGroundEdge = { col: 24, row: 24, edge: 'w' };
   g.placeWall(doorEdge.col, doorEdge.row, doorEdge.edge, 'officeWall');
   g.placeDoor(doorEdge.col, doorEdge.row, doorEdge.edge, 'officeDoor');
-  const ctx = doorDemolishCtx(g, doorEdge, wrongGroundEdge);
+  const ctx = openingDemolishCtx(g, doorEdge, wrongGroundEdge);
 
   const tool = new DemolishTool('demolishAll');
   tool.onMouseDown({ button: 0, clientX: 320, clientY: 220 }, ctx);
   tool.onMouseUp({ button: 0, clientX: 320, clientY: 220 }, ctx);
   assertOk(g.state.doors.length === 0,
     'catch-all demolition also removes a door selected above the wrong ground tile');
+  assertOk(g.state.walls.length === 1,
+    'catch-all directly deletes the door rather than its host wall');
+}
+
+{
+  const g = makeGame(46);
+  const windowEdge = { col: 10, row: 11, edge: 'n' };
+  const wrongGroundEdge = { col: 28, row: 28, edge: 's' };
+  g.placeWall(windowEdge.col, windowEdge.row, windowEdge.edge, 'officeWall');
+  g.placeWindow(windowEdge.col, windowEdge.row, windowEdge.edge, 'officeWindow');
+  const ctx = openingDemolishCtx(g, windowEdge, wrongGroundEdge, 'window');
+
+  const found = ctx.input.findDemolishableEdgeAtScreen(340, 240);
+  assertOk(found?.windowType === 'officeWindow' && found.wallType === null
+    && found.edge.col === windowEdge.col && found.edge.row === windowEdge.row,
+    'visible window ray wins when its ground projection lands on another edge');
+
+  const tool = new DemolishTool('demolishFiltered', new Set(['structure']));
+  tool.onMouseDown({ button: 0, clientX: 340, clientY: 240 }, ctx);
+  tool.onMouseMove({ clientX: 341, clientY: 241 }, ctx);
+  tool.onMouseUp({ button: 0, clientX: 340, clientY: 240 }, ctx);
+  assertOk(g.state.windows.length === 0,
+    'Structure-filtered demolition removes the window selected through its visible pane');
+  assertOk(g.state.walls.length === 1,
+    'directly deleting a window preserves its host wall');
 }
 
 console.log('\n=== 1b. Wall paint follows the selected floor tile ===\n');

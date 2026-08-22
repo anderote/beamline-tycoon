@@ -350,6 +350,10 @@ console.log('\n=== adaptive aperture proportions follow the host wall ===\n');
     'window glass keeps its slight roughness without an authored emissive glow');
   assert(glass.layers.enabled.size === 1 && glass.layers.enabled.has(0),
     'window glass stays on the normal render layer instead of a glow layer');
+  assert(wb.windowPickMeshes().length === 1 && wb.windowPickMeshes()[0] === glass
+      && glass.userData.windowEdge?.col === 8 && glass.userData.windowEdge?.row === 8
+      && glass.userData.windowEdge?.edge === 'n',
+    'the visible pane is a tight pick target that retains its owning edge');
 
   const factoryGridBars = group.children.filter(m => {
     const p = m.geometry.parameters;
