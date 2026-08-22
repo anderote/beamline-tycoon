@@ -62,4 +62,11 @@ test('LCW manifold puts four cold and four hot branches opposite two plant pipes
   assert.ok(supplyPositions.every(position => position.x < 0.25));
   assert.equal(new Set(branchPositions.map(position => position.z)).size, 8,
     'the eight branch endpoints do not overlap in plan view');
+  const sortedBranchZ = branchPositions.map(position => position.z).sort((a, b) => a - b);
+  const minimumBranchSpacing = Math.min(...sortedBranchZ.slice(1)
+    .map((z, index) => z - sortedBranchZ[index]));
+  assert.ok(minimumBranchSpacing > 0.22,
+    `branch endpoints clear the 0.22 m placement markers (${minimumBranchSpacing} m)`);
+  assert.ok(Math.abs(supplyPositions[0].z - supplyPositions[1].z) > 0.8,
+    'the rigid cold and hot supply endpoints occupy separate header stations');
 });

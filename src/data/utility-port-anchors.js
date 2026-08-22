@@ -778,7 +778,12 @@ export const PORT_ANCHOR_OVERRIDES = {
   // --- support plant -------------------------------------------------------
   // The other two bus heads, so all four read alike: powerBus 0.5 and
   // vacuumManifold 0.6 are already authored above.
-  coolingManifold: { _default: { y: 0.5 } },
+  // This model is two open headers on narrow stands. Automatic shell recovery
+  // otherwise moves several ports onto the same stand, collapsing their dots
+  // and fittings. The generated connectors belong on the 0.5 m footprint
+  // edges at the headers' actual centre height; offsetAlong still distributes
+  // them down the long faces.
+  coolingManifold: { _default: { y: 0.68, lat: 0.25 } },
   fiberBus: { _default: { y: 0.55 } },
 
   // Cooling-plant anchors coincide with the visible header stubs authored in
