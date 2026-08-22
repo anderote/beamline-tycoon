@@ -392,6 +392,10 @@ console.log('\n--- Test 6: every utility type is reachable from the palette ---'
   assert(Object.keys(MODES.beamline.categories).slice(0, 3).join(',')
       === 'source,rf,optics',
   'Beamline puts RF / Accel immediately beside Sources');
+
+  assert(BEAMLINE_COMPONENTS_RAW.dcInjector.category === 'rf'
+      && BEAMLINE_COMPONENTS_RAW.dcInjector.subsection === 'normalConducting',
+  'High-Voltage DC Injector appears in RF / Accel → Normal Conducting');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

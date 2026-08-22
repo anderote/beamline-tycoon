@@ -277,10 +277,14 @@ export const BEAMLINE_COMPONENTS_RAW = {
     physicsType: 'dcAccelerator',
     name: 'High-Voltage DC Injector',
     desc: 'A high-voltage electrostatic acceleration column followed by an einzel-lens, gas-compensated low-energy beam transport section. It pushes an unbunched source beam rapidly out of the worst space-charge regime and matches it toward an RFQ or first cavity without pretending that RF capture has already happened.',
-    category: 'source',
-    subsection: 'transport',
+    category: 'rf',
+    subsection: 'normalConducting',
     cost: { funding: 1500000 },
     stats: { energyGain: 0.00075, focusStrength: 0.9, spaceChargeCompensation: 99 },
+    // Low-energy electrostatic acceleration hands the beam to the RFQ/cavity
+    // capture ladder at roughly the same beta range as the injector's design
+    // energy; it does not itself impose an RF phase bucket.
+    betaAcceptance: { min: 0.005, design: 0.04, max: 0.10 },
     energyCost: 400,
     apertureRadius: 50,
     subL: 4,
