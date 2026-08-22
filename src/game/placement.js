@@ -13,6 +13,7 @@ import {
   wallFixtureFaceOffset,
 } from './wall-fixture-geometry.js';
 import { resolveMapEdgeConnection } from './map-edge-connection.js';
+import { placeableBusBlockedCells } from '../utility/universal-bus-clearance.js';
 
 /**
  * Snap a world (x,y) to the nearest subtile center, no clamping.
@@ -211,6 +212,16 @@ export function canPlace(
         c.col, c.row, c.subCol, c.subRow, level,
       )];
       if (occupant && occupant.id !== ignorePlaceableId) blocked.push(c);
+    }
+    // The universal bus is a drawn connection rather than a placeable, so it
+    // has no entry in subgridOccupied. Its floor-standing service spine still
+    // owns the narrow strip beneath the tray; equipment remains free to build
+    // flush alongside that strip.
+    if (level === 0) {
+      const blockedKeys = new Set(blocked.map(cellKey));
+      for (const cell of placeableBusBlockedCells(game.state, cells)) {
+        if (!blockedKeys.has(cellKey(cell))) blocked.push(cell);
+      }
     }
   }
   const wallBlocked = usesFloor && footprintCrossesWall(game.state.wallOccupied, cells, level);

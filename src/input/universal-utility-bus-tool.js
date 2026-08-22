@@ -4,6 +4,7 @@ import { Tool } from './Tool.js';
 import { COMPONENTS } from '../data/components.js';
 import { isoToGridFloat } from '../renderer/grid.js';
 import { planLinearManifold } from '../utility/linear-manifolds.js';
+import { canBuildUniversalBus } from '../utility/universal-bus-clearance.js';
 
 function toSubtile(world) {
   const grid = isoToGridFloat(world.x, world.y);
@@ -51,11 +52,15 @@ export class UniversalUtilityBusTool extends Tool {
     ctx.renderer.updateHover(Math.floor(grid.col), Math.floor(grid.row));
     if (!this.start) return true;
     const plan = planFor(COMPONENTS[this.type], this.start, toSubtile(world));
+    const path = pathFor(plan);
+    const clear = plan.valid && canBuildUniversalBus(ctx.game.state, path).ok;
     ctx.input.utilityLineController.setExternalPreview({
-      utilityType: 'powerCable', path: pathFor(plan), valid: plan.valid, rack: true,
+      utilityType: 'powerCable', path, valid: clear, rack: true,
     });
     ctx.input._showDragCostTooltip?.(plan.cost.funding, e.clientX, e.clientY, {
-      note: plan.valid ? `${plan.taps.length} utility access points` : plan.reason,
+      note: clear
+        ? `${plan.taps.length} utility access points`
+        : (plan.valid ? 'service corridor blocked' : plan.reason),
     });
     return true;
   }
@@ -69,12 +74,13 @@ export class UniversalUtilityBusTool extends Tool {
     this.start = null;
     ctx.input.utilityLineController.setExternalPreview(null);
     ctx.input._hideDragCostTooltip?.();
-    if (!plan.valid) return true;
+    const path = pathFor(plan);
+    if (!plan.valid || !canBuildUniversalBus(ctx.game.state, path).ok) return true;
     ctx.game.commitGesture({
       validate: () => !!ctx.game.utilityBusSystem,
       cost: plan.cost,
       mutate: () => ctx.game.utilityBusSystem.addBus({
-        path: pathFor(plan), taps: plan.taps, costFunding: plan.cost.funding,
+        path, taps: plan.taps, costFunding: plan.cost.funding,
       }),
     });
     return true;

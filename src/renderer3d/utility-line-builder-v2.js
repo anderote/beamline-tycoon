@@ -1878,13 +1878,17 @@ export class UtilityLineBuilderV2 {
         const hanger = new THREE.Group();
         hanger.userData.isUniversalUtilityBusHanger = true;
         for (const lateral of [-UNIVERSAL_BUS_HALF_WIDTH, UNIVERSAL_BUS_HALF_WIDTH]) {
-          const rod = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.32, 0.035), material);
-          rod.position.set(vertical ? w.x + lateral : w.x, 0.50,
+          const rod = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.62, 0.045), material);
+          rod.position.set(vertical ? w.x + lateral : w.x, 0.31,
             vertical ? w.z : w.z + lateral);
           hanger.add(rod);
+          const foot = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.04, 0.18), material);
+          foot.position.set(vertical ? w.x + lateral : w.x, 0.02,
+            vertical ? w.z : w.z + lateral);
+          hanger.add(foot);
         }
         const trapeze = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.045, 0.055), material);
-        trapeze.position.set(w.x, 0.34, w.z);
+        trapeze.position.set(w.x, 0.64, w.z);
         if (vertical) trapeze.rotation.y = Math.PI / 2;
         hanger.add(trapeze);
         group.add(hanger);

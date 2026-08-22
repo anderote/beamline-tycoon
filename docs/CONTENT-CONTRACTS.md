@@ -146,6 +146,10 @@ the short authoring contract.
   the tray; vacuum, cryogenic, and RF services hang below it. Drawing the first
   line of a utility onto the bus populates its lane; later lines of that utility
   reuse the same lane. Lane position never depends on connection order.
+- The floor-standing bus reserves only the narrow subtile strip physically
+  beneath its tray and supports. Ordinary equipment and another bus may not
+  overlap that strip, while the immediately adjacent subtiles remain buildable
+  so equipment can form parallel service rows alongside the carrier.
 - Each claimed channel is represented by a real tagged utility line along the
   rack. It creates no capacity: connected sources remain the sole capacity
   authority, and multiple sources combine through the ordinary network solver.

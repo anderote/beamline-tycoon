@@ -16,6 +16,11 @@ import {
   UNIVERSAL_BUS_LANE_LIST,
   universalBusLane,
 } from '../src/utility/universal-bus-layout.js';
+import {
+  canBuildUniversalBus,
+  universalBusFootprintCells,
+} from '../src/utility/universal-bus-clearance.js';
+import { canPlace } from '../src/game/placement.js';
 
 assert.equal(PLACEABLES.universalUtilityBus, undefined,
   'the bus is a drawn connection, not a placeable component');
@@ -42,7 +47,7 @@ assert.deepEqual(
 
 const state = {
   placeables: [], beamPipes: [], wallOccupied: {},
-  utilityLines: new Map(), utilityBuses: [],
+  utilityLines: new Map(), utilityBuses: [], subgridOccupied: {}, infraOccupied: {},
 };
 let nextLine = 1, nextBus = 1;
 const lines = new UtilityLineSystem({
@@ -61,6 +66,28 @@ const busId = buses.addBus({
 });
 assert.equal(busId, 'bus_1');
 assert.equal(state.utilityBuses[0].channels.length, 0, 'a new rack is utility-neutral');
+
+const busCells = universalBusFootprintCells(state.utilityBuses[0].path);
+assert.ok(busCells.some(cell => cell.row === -1 && cell.subRow === 3)
+  && busCells.some(cell => cell.row === 0 && cell.subRow === 0),
+  'a bus on a quarter-grid line reserves the two floor strips beneath its tray');
+assert.ok(!busCells.some(cell => cell.row === 0 && cell.subRow === 1),
+  'the next subtile remains free so equipment can build flush alongside the bus');
+const oneCellEquipment = {
+  mount: 'ground',
+  footprintCells: (col, row, subCol, subRow) => [{ col, row, subCol, subRow }],
+};
+assert.equal(canPlace({ state }, oneCellEquipment, 0, 0, 0, 0).ok, false,
+  'ordinary floor equipment cannot build underneath the bus');
+assert.equal(canPlace({ state }, oneCellEquipment, 0, 0, 0, 1).ok, true,
+  'ordinary floor equipment can build directly alongside the bus');
+assert.equal(canBuildUniversalBus(state, [{ col: 2, row: -1 }, { col: 2, row: 1 }]).ok, false,
+  'a second bus cannot cross the first bus corridor');
+state.subgridOccupied['10,0,0,0'] = { id: 'existing_equipment' };
+assert.equal(buses.addBus({
+  path: [{ col: 10, row: 0 }, { col: 12, row: 0 }], taps: [],
+}), null, 'bus construction refuses to run underneath existing equipment');
+delete state.subgridOccupied['10,0,0,0'];
 
 const branchId = buses.connectLine({
   utilityType: 'powerCable',
@@ -207,7 +234,10 @@ const carrierGroup = renderedRackGroups.find(group => group.userData.channelSlot
 assert.equal(
   carrierGroup.children.filter(child => child.userData?.isUniversalUtilityBusHanger).length,
   state.utilityBuses[0].taps.length,
-  'the wire tray renders one hanging trapeze support at every access point');
+  'the wire tray renders one floor-standing support at every access point');
+const carrierBounds = new THREE_NS.Box3().setFromObject(carrierGroup);
+assert.ok(Math.abs(carrierBounds.min.y) < 1e-6,
+  'the bus support feet sit on the ground plane instead of floating above it');
 assert.equal(renderedRackGroups.filter(group => group.userData.channelSlot != null).length, 7,
   'all seven populated service runs remain visible on the carrier');
 assert.deepEqual(
