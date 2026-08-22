@@ -4,15 +4,17 @@
 // Keep its physical floor strip explicit here so both bus construction and
 // ordinary placeable validation agree about the same narrow service spine.
 
+import { UNIVERSAL_BUS_HALF_WIDTH_TILES } from './universal-bus-layout.js';
+
 const SUBTILES_PER_TILE = 4;
 const CELL_SIZE = 1 / SUBTILES_PER_TILE;
 const CELL_HALF = CELL_SIZE / 2;
 
-// The rendered tray is 0.72 m wide. One tile is 2 m, so its half-width is
-// 0.18 tile. Cell intersection (rather than centre containment) reserves the
-// two half-metre subtiles beneath a bus drawn on a quarter-grid line while
-// leaving the next row free for equipment built alongside it.
-export const UNIVERSAL_BUS_HALF_WIDTH_TILES = 0.18;
+// The rendered tray is 1.0 m wide. Cell intersection (rather than centre
+// containment) reserves the two half-metre subtiles beneath a bus drawn on a
+// quarter-grid line while leaving the next row free for equipment built
+// alongside it.
+export { UNIVERSAL_BUS_HALF_WIDTH_TILES };
 
 function cellAt(subCol, subRow) {
   const col = Math.floor(subCol / SUBTILES_PER_TILE);

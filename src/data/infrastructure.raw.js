@@ -79,7 +79,7 @@ export const INFRASTRUCTURE_RAW = {
   universalUtilityBus: {
     id: 'universalUtilityBus',
     name: 'Universal Utility Bus',
-    desc: 'A draggable metal wire tray with a designated lane for every utility. HV, power, cooling, and data ride on top; vacuum, cryogenic, and RF services hang below. Connect additional sources to add capacity, then branch nearby equipment from its regular access points.',
+    desc: 'A draggable metal wire tray with a designated top-side lane for every utility. Lay HV, power, cooling, data, vacuum, cryogenic, or RF service into its fixed position, then connect sources and loads through frequent T-junction access points along the run.',
     category: 'power', subsection: 'transport', paletteOrder: -100,
     cost: { funding: 20000 },
     stats: {}, energyCost: 0,

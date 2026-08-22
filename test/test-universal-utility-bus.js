@@ -13,6 +13,7 @@ import {
   UniversalUtilityBusSystem,
 } from '../src/utility/UniversalUtilityBusSystem.js';
 import {
+  UNIVERSAL_BUS_HALF_WIDTH_METERS,
   UNIVERSAL_BUS_LANE_LIST,
   universalBusLane,
 } from '../src/utility/universal-bus-layout.js';
@@ -38,12 +39,10 @@ assert.deepEqual(
   'every registered utility has exactly one designated carrier lane');
 assert.deepEqual(
   UNIVERSAL_BUS_LANE_LIST.filter(lane => lane.tier === 'top').map(lane => lane.utilityType),
-  ['hvCable', 'powerCable', 'coolingWater', 'dataFiber'],
-  'electrical, cooling, and data services occupy the top wire tray');
-assert.deepEqual(
-  UNIVERSAL_BUS_LANE_LIST.filter(lane => lane.tier === 'bottom').map(lane => lane.utilityType),
-  ['vacuumPipe', 'cryoTransfer', 'rfWaveguide'],
-  'vacuum, cryogenic, and RF services occupy the hanging carrier positions');
+  ['hvCable', 'powerCable', 'coolingWater', 'dataFiber', 'vacuumPipe', 'cryoTransfer', 'rfWaveguide'],
+  'every registered service occupies a fixed position on top of the wire tray');
+assert.equal(UNIVERSAL_BUS_LANE_LIST.some(lane => lane.tier !== 'top'), false,
+  'the universal bus has no below-tray service lanes');
 
 const state = {
   placeables: [], beamPipes: [], wallOccupied: {},
@@ -255,13 +254,8 @@ for (const channel of renderedRackGroups.filter(group => group.userData.channelS
   const channelCenter = channelBounds.getCenter(new THREE_NS.Vector3());
   assert.ok(Math.abs(channelCenter.z - lane.lateral) < 1e-6,
     `${channel.userData.utilityType} geometry occupies its designated lateral lane`);
-  if (lane.tier === 'top') {
-    assert.ok(channelBounds.min.y > 0.7,
-      `${channel.userData.utilityType} geometry rides above the tray deck`);
-  } else {
-    assert.ok(channelBounds.max.y < 0.7,
-      `${channel.userData.utilityType} geometry hangs below the tray deck`);
-  }
+  assert.ok(channelBounds.min.y > 0.7,
+    `${channel.userData.utilityType} geometry rides above the tray deck`);
   const ports = [];
   channel.traverse(object => {
     if (object.userData?.isUniversalUtilityBusPort) ports.push(object);
@@ -270,6 +264,24 @@ for (const channel of renderedRackGroups.filter(group => group.userData.channelS
     `${channel.userData.utilityType} renders one utility-specific port at every rack tap`);
   assert.ok(ports.every(port => port.userData.utilityType === channel.userData.utilityType),
     'each periodic port is tagged as the utility carried by its lane');
+}
+const channelBoundsByLane = renderedRackGroups
+  .filter(group => group.userData.channelSlot != null)
+  .map(group => ({
+    utilityType: group.userData.utilityType,
+    bounds: new THREE_NS.Box3().setFromObject(group),
+  }))
+  .sort((a, b) => universalBusLane(a.utilityType).lateral
+    - universalBusLane(b.utilityType).lateral);
+assert.ok(channelBoundsByLane[0].bounds.min.z > -UNIVERSAL_BUS_HALF_WIDTH_METERS
+  && channelBoundsByLane.at(-1).bounds.max.z < UNIVERSAL_BUS_HALF_WIDTH_METERS,
+  'the outermost service fittings remain inside the tray rails');
+for (let index = 1; index < channelBoundsByLane.length; index++) {
+  const left = channelBoundsByLane[index - 1];
+  const right = channelBoundsByLane[index];
+  assert.ok(left.bounds.max.z < right.bounds.min.z,
+    `${left.utilityType} (${left.bounds.max.z}) and ${right.utilityType} `
+      + `(${right.bounds.min.z}) remain visually distinct on top of the tray`);
 }
 const coolingBranchGroup = builder._lineGroups.get(coolingBranchId);
 const coolingBranchBounds = new THREE_NS.Box3().setFromObject(coolingBranchGroup);
