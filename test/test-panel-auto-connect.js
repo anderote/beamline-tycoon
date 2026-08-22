@@ -9,7 +9,7 @@ import { PARAM_DEFS } from '../src/beamline/component-physics.js';
 import {
   commitPanelAutoConnect,
   connectedUtilityLineIds,
-  disconnectAutoConnectDevice,
+  disconnectAutoConnectDevices,
   planPanelAutoConnect,
   utilityAutoConnectProfile,
 } from '../src/input/panel-auto-connect.js';
@@ -199,9 +199,10 @@ console.log('\n--- 5. A hovered distribution panel owns Tab without selection --
     'multi-selection leaves Tab available to cycle palette categories');
 }
 
-console.log('\n--- 6. Ctrl+Tab removal spans utilities and is one undo step ---');
+console.log('\n--- 6. T removal spans selected devices and utilities in one undo step ---');
 {
   const game = makeGame();
+  game.state.placeables.push(item('panel_2', 'powerPanel', 16, 10));
   game.state.utilityLines.set('panel_power', {
     id: 'panel_power', utilityType: 'powerCable',
     start: { placeableId: 'panel', portName: 'pwr_out_1' },
@@ -220,20 +221,46 @@ console.log('\n--- 6. Ctrl+Tab removal spans utilities and is one undo step ---'
     end: { placeableId: 'near_3', portName: 'data' },
     path: [{ col: 12, row: 10 }, { col: 13, row: 10 }],
   });
+  game.state.utilityLines.set('panel_link', {
+    id: 'panel_link', utilityType: 'powerCable',
+    start: { placeableId: 'panel', portName: 'pwr_out_2' },
+    end: { placeableId: 'panel_2', portName: 'pwr_out_1' },
+    path: [{ col: 10.5, row: 10.5 }, { col: 16.5, row: 10.5 }],
+  });
   const undoBefore = game._undoStack.length;
-  assert(connectedUtilityLineIds(game.state, 'panel').sort().join(',') === 'panel_hv,panel_power',
+  assert(connectedUtilityLineIds(game.state, 'panel').sort().join(',')
+      === 'panel_hv,panel_link,panel_power',
     'all incident utility types are included in the disconnect set');
-  const removed = disconnectAutoConnectDevice(game, 'panel');
-  assert(removed.length === 2 && game.state.utilityLines.size === 1
+  const removed = disconnectAutoConnectDevices(game, ['panel', 'panel_2']);
+  assert(removed.length === 3 && game.state.utilityLines.size === 1
       && game.state.utilityLines.has('unrelated'),
-  'disconnect-all destroys only lines terminating on the target device');
+  'T destroys only lines terminating on selected auto-connect devices');
   assert(game._undoStack.length === undoBefore + 1,
-    'all removed connections share one undo entry');
+    'all selected-device removals share one undo entry');
   game.undo();
-  assert(game.state.utilityLines.size === 3
+  assert(game.state.utilityLines.size === 4
       && game.state.utilityLines.has('panel_power')
-      && game.state.utilityLines.has('panel_hv'),
+      && game.state.utilityLines.has('panel_hv')
+      && game.state.utilityLines.has('panel_link'),
   'one undo restores every disconnected line');
+
+  let disconnectedIds = null;
+  const input = {
+    game,
+    _selectionTargets: () => [
+      { id: 'panel', selectionCategory: 'infra' },
+      { id: 'panel_2', selectionCategory: 'infra' },
+    ],
+    _selectedAutoConnectPanelIds: InputHandler.prototype._selectedAutoConnectPanelIds,
+    _disconnectSelectedAutoConnectPanels: ids => { disconnectedIds = ids; },
+  };
+  let prevented = 0;
+  const handled = InputHandler.prototype.handleDisconnectSelectedUtilitiesKey.call(input, {
+    key: 't', ctrlKey: false, metaKey: false, altKey: false, shiftKey: false,
+    repeat: false, preventDefault: () => { prevented++; },
+  });
+  assert(handled && prevented === 1 && disconnectedIds?.join(',') === 'panel,panel_2',
+    'T claims the key for all selected auto-connect-capable devices');
 }
 
 console.log('\n--- 7. HV distributors auto-connect ordinary HV feeders ---');

@@ -9,6 +9,9 @@
 //     origin. Carried decorations keep the shift+drag line-place gesture,
 //     so the legacy duplicate line-place branches in InputHandler could
 //     finally be deleted.
+//   - SelectionActionTool ('c' / 'm'): click an object to copy or mirror it
+//     when the corresponding contextual shortcut was pressed with no active
+//     selection.
 //   - ProbeTool ('u'): click beamline nodes to pin probes; clicking a
 //     utility line still opens its inspector (legacy dispatch order).
 //
@@ -250,6 +253,45 @@ export class MoveTool extends Tool {
     return this.payload?.kind === 'selectionGroup'
       ? ctx.input._transformActiveSelectionGroup('rotate')
       : false;
+  }
+}
+
+/** Click-to-select bridge for contextual Copy and Mirror keyboard modes. */
+export class SelectionActionTool extends Tool {
+  constructor(action) {
+    super(`selection-action:${action}`, 'selectionAction');
+    this.action = action;
+    this.cursor = action === 'copy' ? 'copy' : 'alias';
+  }
+
+  onEnter(ctx) {
+    const label = this.action === 'copy' ? 'Copy' : 'Mirror';
+    ctx.input._showToast(`${label} mode (click an object, ESC to exit)`);
+  }
+
+  onMouseMove(e, ctx) {
+    const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
+    const grid = isoToGrid(world.x, world.y);
+    ctx.renderer.updateHover(grid.col, grid.row);
+    ctx.input._checkHoverTooltip?.(world, grid, e.clientX, e.clientY);
+    return true;
+  }
+
+  onClick(e, ctx) {
+    const input = ctx.input;
+    const world = ctx.renderer.screenToWorld(e.clientX, e.clientY);
+    const grid = isoToGrid(world.x, world.y);
+    const selected = input._selectPlaceableAt(
+      world, grid, e.clientX, e.clientY,
+      { additive: false, refillReservoir: false },
+    );
+    if (!selected) {
+      input._showToast(`Nothing to ${this.action}`);
+      return true;
+    }
+    if (this.action === 'copy') input._beginSelectedCopy(input.selectedPlaceableId);
+    else input._beginSelectedMirror(input.selectedPlaceableId);
+    return true;
   }
 }
 

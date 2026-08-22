@@ -103,15 +103,19 @@ export function connectedUtilityLineIds(state, endpointId) {
     .filter(Boolean);
 }
 
-/** Remove all utility runs on one auto-connect-capable device as one undo step. */
-export function disconnectAutoConnectDevice(game, endpointId) {
-  const endpoint = findUtilityEndpoint(game?.state, endpointId);
-  const def = COMPONENTS[endpoint?.type];
-  if (!game || !endpoint || !utilityAutoConnectProfile(def)) return [];
+/** Remove all utility runs on auto-connect-capable devices as one undo step. */
+export function disconnectAutoConnectDevices(game, endpointIds) {
+  if (!game) return [];
+  const endpoints = [...new Set(endpointIds || [])]
+    .map(endpointId => findUtilityEndpoint(game.state, endpointId))
+    .filter(endpoint => endpoint && utilityAutoConnectProfile(COMPONENTS[endpoint.type]));
+  if (endpoints.length === 0) return [];
 
   // Snapshot first: removing a run can also dangle lines connected to an
   // instrument mounted on it, so never iterate the live Map while mutating it.
-  const lineIds = connectedUtilityLineIds(game.state, endpointId);
+  const lineIds = [...new Set(endpoints.flatMap(endpoint => (
+    connectedUtilityLineIds(game.state, endpoint.id)
+  )))];
   if (lineIds.length === 0) return [];
 
   const removed = [];
@@ -126,12 +130,20 @@ export function disconnectAutoConnectDevice(game, endpointId) {
   });
 
   if (removed.length > 0) {
+    const deviceLabel = endpoints.length === 1
+      ? (COMPONENTS[endpoints[0].type]?.name || endpoints[0].type)
+      : `${endpoints.length} selected devices`;
     game.log(
-      `Removed ${removed.length} utility connection${removed.length === 1 ? '' : 's'} from ${def.name || endpoint.type}`,
+      `Removed ${removed.length} utility connection${removed.length === 1 ? '' : 's'} from ${deviceLabel}`,
       'info',
     );
   }
   return removed;
+}
+
+/** Retained single-device command for context panels and older integrations. */
+export function disconnectAutoConnectDevice(game, endpointId) {
+  return disconnectAutoConnectDevices(game, [endpointId]);
 }
 
 function rolesCanAutoConnect(originSpec, targetSpec, utilityType) {
