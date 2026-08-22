@@ -16,6 +16,7 @@ import { COMPONENTS } from '../data/components.js';
 import { portWorldPosition, availablePorts as availablePortsFor } from '../utility/ports.js';
 import { portAnchor3D } from '../utility/port-anchors.js';
 import { UTILITY_TYPES, UTILITY_TYPE_LIST, utilityLineHeight } from '../utility/registry.js';
+import { universalBusLane } from '../utility/universal-bus-layout.js';
 import { UTILITY_LINE_Y } from '../utility/line-geometry.js';
 import { FLOW_PARAMS, patchFlowMaterial, bakeRunDistanceUVs, bakeRunDistanceFromPositionZ } from './utility-flow.js';
 import { BLOOM_LAYER } from './glow-pipeline.js';
@@ -45,6 +46,8 @@ import {
 const PIPE_Y = UTILITY_LINE_Y;
 const SEGS = 12;     // cylinder radial segments
 const FLEXIBLE_RELAX_DURATION_SECONDS = 0.9;
+const UNIVERSAL_BUS_DECK_Y = 0.70;
+const UNIVERSAL_BUS_HALF_WIDTH = 0.36;
 
 // Material cache keyed by (utilityType, errorStatus) — 'ok' | 'soft' | 'hard'.
 // Keeps identical materials shared across lines for the same descriptor+state.
@@ -99,23 +102,24 @@ function buildUniversalBusPreview(points, valid = true) {
     const dx = b.x - a.x, dz = b.z - a.z;
     const length = Math.hypot(dx, dz);
     if (length < 1e-4) continue;
-    const ox = -dz / length * 0.22, oz = dx / length * 0.22;
+    const ox = -dz / length * UNIVERSAL_BUS_HALF_WIDTH;
+    const oz = dx / length * UNIVERSAL_BUS_HALF_WIDTH;
     for (const side of [-1, 1]) {
       const rail = buildRectSegment(
-        new THREE.Vector3(a.x + ox * side, a.y, a.z + oz * side),
-        new THREE.Vector3(b.x + ox * side, b.y, b.z + oz * side),
-        0.09, 0.08, material,
+        new THREE.Vector3(a.x + ox * side, a.y + 0.06, a.z + oz * side),
+        new THREE.Vector3(b.x + ox * side, b.y + 0.06, b.z + oz * side),
+        0.06, 0.16, material,
       );
       if (rail) group.add(rail);
     }
-    const rungCount = Math.max(1, Math.floor(length / 2));
+    const rungCount = Math.max(1, Math.floor(length));
     for (let rung = 0; rung <= rungCount; rung++) {
       const t = rung / rungCount;
       const x = a.x + dx * t, z = a.z + dz * t;
       const crossbar = buildRectSegment(
         new THREE.Vector3(x - ox * 1.25, a.y, z - oz * 1.25),
         new THREE.Vector3(x + ox * 1.25, a.y, z + oz * 1.25),
-        0.09, 0.07, material,
+        0.055, 0.045, material,
       );
       if (crossbar) group.add(crossbar);
     }
@@ -1011,12 +1015,12 @@ function busTapAnchor(line, which, lineById) {
   const first = path[0], last = path[path.length - 1];
   const dx = last.col - first.col, dz = last.row - first.row;
   const length = Math.hypot(dx, dz) || 1;
-  const slotOffsets = [-0.15, -0.05, 0.05, 0.15];
-  const offset = slotOffsets[backbone.manifold.slot] ?? 0;
+  const lane = universalBusLane(backbone.utilityType);
+  const offset = lane?.lateral ?? 0;
   const endpoint = which === 'start' ? branchPath[0] : branchPath[branchPath.length - 1];
   return {
     x: endpoint.col * 2 - dz / length * offset,
-    y: 0.95,
+    y: lane?.portY ?? 0.95,
     z: endpoint.row * 2 + dx / length * offset,
   };
 }
@@ -1036,9 +1040,9 @@ function buildLineGroup(
     : buildWorldPoints(line, placeablesById, tapAnchors));
   if (points.length < 2) return null;
   let busOffsetX = 0, busOffsetZ = 0;
+  const busLane = busChannel ? universalBusLane(line.utilityType) : null;
   if (busChannel) {
-    const slotOffsets = [-0.15, -0.05, 0.05, 0.15];
-    const offset = slotOffsets[line.manifold.slot] ?? 0;
+    const offset = busLane?.lateral ?? 0;
     const first = points[0], last = points[points.length - 1];
     const dx = last.x - first.x, dz = last.z - first.z;
     const length = Math.hypot(dx, dz) || 1;
@@ -1047,12 +1051,14 @@ function buildLineGroup(
     for (const point of points) {
       point.x += busOffsetX;
       point.z += busOffsetZ;
-      point.y = 0.79;
+      point.y = busLane?.runY ?? 0.79;
     }
   }
 
   const group = new THREE.Group();
-  const runY = utilityLineHeight(line.utilityType, line.routeHeightMeters);
+  const runY = busChannel
+    ? (busLane?.runY ?? utilityLineHeight(line.utilityType, line.routeHeightMeters))
+    : utilityLineHeight(line.utilityType, line.routeHeightMeters);
   group.userData = {
     lineId: line.id,
     utilityType: line.utilityType,
@@ -1062,6 +1068,7 @@ function buildLineGroup(
       isUniversalUtilityBus: true,
       busId: line.manifold.busId,
       channelSlot: line.manifold.slot,
+      busLaneTier: busLane?.tier || null,
     } : {}),
   };
   const radius = (descriptor.pipeRadiusMeters || 0.04)
@@ -1214,8 +1221,8 @@ function buildLineGroup(
       if (!point) continue;
       const x = (point.col + (point.subCol || 0) / 4) * 2 + busOffsetX;
       const z = (point.row + (point.subRow || 0) / 4) * 2 + busOffsetZ;
-      const baseY = busChannel ? 0.79 : runY;
-      const portTopY = busChannel ? 0.95 : runY + 0.12;
+      const baseY = busChannel ? (busLane?.runY ?? 0.79) : runY;
+      const portTopY = busChannel ? (busLane?.portY ?? 0.95) : runY + 0.12;
       const port = new THREE.Group();
       port.userData = {
         isUtilityManifoldTap: true,
@@ -1768,19 +1775,30 @@ export class UtilityLineBuilderV2 {
       if (old) { parentGroup.remove(old); this._disposeGroup(old); }
       const group = new THREE.Group();
       const material = universalBusMaterial();
-      const y = 0.72;
+      const y = UNIVERSAL_BUS_DECK_Y;
       for (let i = 0; i < bus.path.length - 1; i++) {
         const aw = tileToWorld(bus.path[i]), bw = tileToWorld(bus.path[i + 1]);
         const a = new THREE.Vector3(aw.x, y, aw.z);
         const b = new THREE.Vector3(bw.x, y, bw.z);
         const dx = b.x - a.x, dz = b.z - a.z;
         const length = Math.hypot(dx, dz) || 1;
-        const ox = -dz / length * 0.22, oz = dx / length * 0.22;
+        const ox = -dz / length * UNIVERSAL_BUS_HALF_WIDTH;
+        const oz = dx / length * UNIVERSAL_BUS_HALF_WIDTH;
         for (const side of [-1, 1]) {
           group.add(buildRectSegment(
-            new THREE.Vector3(a.x + ox * side, y, a.z + oz * side),
-            new THREE.Vector3(b.x + ox * side, y, b.z + oz * side),
-            0.09, 0.08, material,
+            new THREE.Vector3(a.x + ox * side, y + 0.06, a.z + oz * side),
+            new THREE.Vector3(b.x + ox * side, y + 0.06, b.z + oz * side),
+            0.06, 0.16, material,
+          ));
+        }
+        const rungCount = Math.max(1, Math.floor(length));
+        for (let rung = 0; rung <= rungCount; rung++) {
+          const t = rung / rungCount;
+          const x = a.x + dx * t, z = a.z + dz * t;
+          group.add(buildRectSegment(
+            new THREE.Vector3(x - ox * 1.04, y - 0.04, z - oz * 1.04),
+            new THREE.Vector3(x + ox * 1.04, y - 0.04, z + oz * 1.04),
+            0.055, 0.045, material,
           ));
         }
       }
@@ -1790,10 +1808,20 @@ export class UtilityLineBuilderV2 {
           col: (point.col || 0) + (point.subCol || 0) / 4,
           row: (point.row || 0) + (point.subRow || 0) / 4,
         });
-        const crossbar = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.07, 0.1), material);
-        crossbar.position.set(w.x, y, w.z);
-        if (bus.path[0].col === bus.path[bus.path.length - 1].col) crossbar.rotation.y = Math.PI / 2;
-        group.add(crossbar);
+        const vertical = bus.path[0].col === bus.path[bus.path.length - 1].col;
+        const hanger = new THREE.Group();
+        hanger.userData.isUniversalUtilityBusHanger = true;
+        for (const lateral of [-UNIVERSAL_BUS_HALF_WIDTH, UNIVERSAL_BUS_HALF_WIDTH]) {
+          const rod = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.32, 0.035), material);
+          rod.position.set(vertical ? w.x + lateral : w.x, 0.50,
+            vertical ? w.z : w.z + lateral);
+          hanger.add(rod);
+        }
+        const trapeze = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.045, 0.055), material);
+        trapeze.position.set(w.x, 0.34, w.z);
+        if (vertical) trapeze.rotation.y = Math.PI / 2;
+        hanger.add(trapeze);
+        group.add(hanger);
       }
       group.userData = { isUniversalUtilityBus: true, busId: bus.id };
       parentGroup.add(group);
