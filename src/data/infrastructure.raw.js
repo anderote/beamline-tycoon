@@ -2452,7 +2452,7 @@ export const INFRASTRUCTURE_RAW = {
   powerPanel: {
     id: 'powerPanel',
     name: 'Power Distribution Panel',
-    desc: 'Compact green distribution panel. A two-connection tensioned roof terminal taps an HV trunk into four 10 kW branch circuits (40 kW total) for diagnostics, small pumps, and electronics.',
+    desc: 'Compact green distribution panel. A two-connection roof terminal taps an HV trunk into four 10 kW branch circuits (40 kW total) for diagnostics, small pumps, and electronics.',
     category: 'power', subsection: 'distribution',
     paletteOrder: 10,
     cost: { funding: 60000 },

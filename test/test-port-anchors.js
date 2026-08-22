@@ -215,6 +215,18 @@ console.log('\n--- 3. Derivation, overrides, and the headless fallback ---');
   });
   assert(nonStandardPowerInputs.length === 0,
     `every Power HV input uses explicit upper insulated hardware (${nonStandardPowerInputs.join(',') || 'all covered'})`);
+  const nonTensioningTopHvInputs = new Set(['compactHvDistributor', 'powerPanel']);
+  const topHvInputs = utilityPorts.filter(({ type, name, def }) => {
+    const port = def.ports[name];
+    return port.utility === 'hvCable' && port.role === 'sink'
+      && portAnchorOverride(type, name)?.normal?.y > 0.5;
+  });
+  const invalidTopHvTension = topHvInputs.filter(({ type, def, name }) =>
+    (def.ports[name].tensionsCable === true) === nonTensioningTopHvInputs.has(type));
+  assert(topHvInputs.length > nonTensioningTopHvInputs.size
+      && invalidTopHvTension.length === 0,
+    'every top-mounted HV input tensions cable except the Compact HV Distributor '
+      + `and Power Distribution Panel (${invalidTopHvTension.map(({ type }) => type).join(',') || 'all covered'})`);
   const invalidLoadTapMounts = HV_LOAD_TAP_IDS.filter((type) => {
     const mount = portAnchorOverride(type, 'hv_in');
     return mount !== HV_LOAD_TAP_MOUNTS[type]

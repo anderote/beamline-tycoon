@@ -32,6 +32,7 @@ const { COMPONENTS } = await import('../src/data/components.js');
 const { PLACEABLES } = await import('../src/data/placeables/index.js');
 const { WALL_TYPES } = await import('../src/data/structure.js');
 const { getUtilityPortsV2 } = await import('../src/data/utility-ports-v2.js');
+const { HV_LOAD_TAP_IDS } = await import('../src/data/hv-load-taps.js');
 const {
   canPlaceWallFixture,
 } = await import('../src/game/placement.js');
@@ -911,31 +912,37 @@ test('An HV wall pass-through leaves an ordinary equipment feeder loose', () => 
   }), 'the loose feeder retains the player-drawn lateral route');
 });
 
-test('Every distribution cabinet roof tap accepts two segments and tensions HV cable', () => {
-  const panels = [];
-  for (const [index, type] of [
-    'compactHvDistributor', 'powerPanel', 'sectionDistributionPanel', 'mainDistributionPanel',
-  ].entries()) {
-    const panel = {
-      id: `panel_${index}`, type, col: index * 3, row: 0,
-      subCol: 0, subRow: 0, dir: 0,
-    };
-    panels.push(panel);
-    const ports = getUtilityPortsV2(type);
-    assert.equal(ports.hv_in.maxConnections, 2, `${type} roof terminal accepts two cables`);
-    assert.equal(ports.hv_in.tensionsCable, true, `${type} roof terminal declares tension support`);
-    assert.equal(isTensionedHvCable({
-      utilityType: 'hvCable',
-      start: { placeableId: panel.id, portName: 'hv_in' },
-      end: null,
-    }, new Map([[panel.id, panel]])), false, `${type} cannot tension an open-ended span`);
+test('Top-mounted HV inputs tension cable except on the two compact distributors', () => {
+  const tensioningTypes = [
+    'padMountTransformer', 'facilityTransformer', 'hvTransformer',
+    'gridIntertieTransformer', 'sectionDistributionPanel',
+    'mainDistributionPanel', 'mcc', 'ups', ...HV_LOAD_TAP_IDS,
+  ];
+  for (const type of tensioningTypes) {
+    assert.equal(getUtilityPortsV2(type).hv_in.tensionsCable, true,
+      `${type} roof terminal declares tension support`);
   }
-  const endpoints = new Map(panels.map(panel => [panel.id, panel]));
+  for (const type of ['compactHvDistributor', 'powerPanel']) {
+    const port = getUtilityPortsV2(type).hv_in;
+    assert.equal(port.maxConnections, 2, `${type} roof tap still accepts two cables`);
+    assert.notEqual(port.tensionsCable, true, `${type} roof tap remains non-tensioning`);
+  }
+
+  const support = {
+    id: 'feed', type: 'hvWallPassThrough', col: 3, row: 5,
+    subCol: 0, subRow: 0, dir: 3,
+    wallMount: { col: 3, row: 5, edge: 'n', off: 1, faceOffset: 0.0625 },
+  };
+  const transformer = {
+    id: 'transformer', type: 'padMountTransformer',
+    col: 3, row: 1, subCol: 0, subRow: 0, dir: 1,
+  };
   assert.equal(isTensionedHvCable({
     utilityType: 'hvCable',
-    start: { placeableId: panels[0].id, portName: 'hv_in' },
-    end: { placeableId: panels[1].id, portName: 'hv_in' },
-  }, endpoints), true, 'two roof insulators tension the span between them');
+    start: { placeableId: support.id, portName: 'hv_in' },
+    end: { placeableId: transformer.id, portName: 'hv_in' },
+  }, new Map([[support.id, support], [transformer.id, transformer]])), true,
+  'a utility support tensions the feeder into a transformer roof input');
 });
 
 test('A live HV draw from a tower stays loose until it reaches another support', () => {

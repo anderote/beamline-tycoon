@@ -882,7 +882,7 @@ function transformerPorts(capacity, count) {
   return {
     hv_in: {
       utility: 'hvCable', side: 'back', offsetAlong: 0.5, role: 'sink',
-      connectionKind: 'hvLoadIn',
+      connectionKind: 'hvLoadIn', tensionsCable: true,
       params: { demand: capacity, tracksDownstreamDemand: true },
     },
     ...supplyPorts(capacity, count),
@@ -901,7 +901,7 @@ function hvDistributionPorts(rating, count) {
     hv_in: {
       utility: 'hvCable', side: 'back', offsetAlong: 0.5,
       role: 'sink', connectionKind: 'hvDistributionTap',
-      omnidirectional: true, maxConnections: 2, tensionsCable: true,
+      omnidirectional: true, maxConnections: 2,
       params: { demand: rating, tracksDownstreamDemand: true },
     },
   };
@@ -927,14 +927,16 @@ function distributionPorts(rating, count, {
   hvCount = 0,
   hvOutputCapacity = 300,
   trunkTap = false,
+  tensionsCable = false,
 } = {}) {
   const out = {
     hv_in: {
       utility: 'hvCable', side: 'back', offsetAlong: 0.5,
       role: 'sink', connectionKind: trunkTap ? 'hvDistributionTap' : 'hvDistributionIn',
       ...(trunkTap ? {
-        omnidirectional: true, maxConnections: 2, tensionsCable: true,
+        omnidirectional: true, maxConnections: 2,
       } : {}),
+      ...(tensionsCable ? { tensionsCable: true } : {}),
       params: { demand: rating, tracksDownstreamDemand: true },
     },
   };
@@ -1588,15 +1590,21 @@ const INFRA_UTILITY_PORTS = {
   }),
   sectionDistributionPanel: distributionPorts(600, 6, {
     outletSide: 'front', branchCapacity: 50, hvCount: 1, trunkTap: true,
+    tensionsCable: true,
   }),
   mainDistributionPanel: distributionPorts(1200, 12, {
     outletSide: 'front', branchCapacity: 50, hvCount: 2, trunkTap: true,
+    tensionsCable: true,
   }),
   poleMountTransformer: distributionPorts(100, 4, { outletSide: 'front' }),
-  mcc:                 distributionPorts(250, 8, { outletSide: 'front' }),
+  mcc:                 distributionPorts(250, 8, {
+    outletSide: 'front', tensionsCable: true,
+  }),
   // Two outlets: the UPS's identity is that only the critical circuits go on
   // it. Make it wide and it becomes a strictly better panel.
-  ups:                 distributionPorts(100, 2, { outletSide: 'front' }),
+  ups:                 distributionPorts(100, 2, {
+    outletSide: 'front', tensionsCable: true,
+  }),
   backupGenerator: {
     pwr_out: {
       utility: 'powerCable', side: 'front', offsetAlong: 0.5,
@@ -1811,6 +1819,7 @@ const HV_LOAD_TAP_SHAPE = Object.freeze({
   connectionKind: 'hvLoadTap',
   omnidirectional: true,
   maxConnections: 2,
+  tensionsCable: true,
 });
 
 const INFRA_SINK_SHAPE_OVERRIDES = Object.fromEntries(
@@ -1859,6 +1868,7 @@ function buildInfraSinkPorts() {
         ...(shape.omnidirectional ? { omnidirectional: true } : {}),
         ...(Number.isInteger(shape.maxConnections)
           ? { maxConnections: shape.maxConnections } : {}),
+        ...(shape.tensionsCable === true ? { tensionsCable: true } : {}),
         params: { [shape.param]: load },
       };
     }
