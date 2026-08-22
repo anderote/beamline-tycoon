@@ -122,14 +122,18 @@ function insulatedHvRoofTap({ x, y, z }) {
 // physical output hardware instead of as glands floating on the front panel.
 export const GRID_SERVICE_HV_OUTPUT_MOUNTS = Object.freeze({
   gridServicePoint: Object.freeze([
-    insulatedHvRoofTap({ x: -0.34, y: 1.84, z: 0.42 }),
-    insulatedHvRoofTap({ x: 0.34, y: 1.84, z: 0.42 }),
+    insulatedHvRoofTap({ x: -0.60, y: 1.84, z: 0.42 }),
+    insulatedHvRoofTap({ x: -0.20, y: 1.84, z: 0.42 }),
+    insulatedHvRoofTap({ x: 0.20, y: 1.84, z: 0.42 }),
+    insulatedHvRoofTap({ x: 0.60, y: 1.84, z: 0.42 }),
   ]),
   gridServicePointHighCapacity: Object.freeze([
-    insulatedHvRoofTap({ x: -0.63, y: 2.22, z: 0.62 }),
-    insulatedHvRoofTap({ x: -0.21, y: 2.22, z: 0.62 }),
-    insulatedHvRoofTap({ x: 0.21, y: 2.22, z: 0.62 }),
-    insulatedHvRoofTap({ x: 0.63, y: 2.22, z: 0.62 }),
+    insulatedHvRoofTap({ x: -0.75, y: 2.22, z: 0.62 }),
+    insulatedHvRoofTap({ x: -0.45, y: 2.22, z: 0.62 }),
+    insulatedHvRoofTap({ x: -0.15, y: 2.22, z: 0.62 }),
+    insulatedHvRoofTap({ x: 0.15, y: 2.22, z: 0.62 }),
+    insulatedHvRoofTap({ x: 0.45, y: 2.22, z: 0.62 }),
+    insulatedHvRoofTap({ x: 0.75, y: 2.22, z: 0.62 }),
   ]),
 });
 
