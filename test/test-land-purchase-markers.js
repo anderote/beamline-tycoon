@@ -5,15 +5,19 @@ import {
 } from '../src/renderer3d/land-purchase-markers.js';
 
 const markers = landMarkerLayout(30);
-assert.equal(markers.length, 4, 'one purchase arrow is published at every corner');
-assert.deepEqual(markers.map(m => m.corner), ['nw', 'ne', 'se', 'sw']);
+assert.equal(markers.length, 4, 'one purchase arrow is published at every edge');
+assert.deepEqual(markers.map(m => m.side), ['n', 'e', 's', 'w']);
 
-const edge = (30 + LAND_MARKER_OFFSET) * LAND_WORLD_UNITS_PER_TILE;
+const center = LAND_WORLD_UNITS_PER_TILE / 2;
+const edgeDistance = (30 + LAND_MARKER_OFFSET + 0.5) * LAND_WORLD_UNITS_PER_TILE;
 for (const marker of markers) {
-  assert.equal(Math.abs(marker.x), edge, `${marker.corner} lies beyond the east/west edge`);
-  assert.equal(Math.abs(marker.z), edge, `${marker.corner} lies beyond the north/south edge`);
-  assert.equal(Math.sign(marker.dx), Math.sign(marker.x), `${marker.corner} points outward in x`);
-  assert.equal(Math.sign(marker.dz), Math.sign(marker.z), `${marker.corner} points outward in z`);
+  const alongX = marker.dx !== 0;
+  assert.equal(alongX ? marker.z : marker.x, center,
+    `${marker.side} is centred on its edge`);
+  assert.equal(Math.abs((alongX ? marker.x : marker.z) - center), edgeDistance,
+    `${marker.side} lies beyond the owned edge`);
+  assert.equal(Math.abs(marker.dx) + Math.abs(marker.dz), 1,
+    `${marker.side} points along exactly one tile axis`);
 }
 
 assert.equal(LAND_PARCEL_COST, 500_000, 'every square expansion costs $500k');
