@@ -123,7 +123,7 @@ test('distribution-panel fittings inherit their declared in/out roles', () => {
     'the four branch circuits are visibly outputs');
 });
 
-test('isolated pole terminals stay nondirectional while pass-through arrows follow their names', () => {
+test('supports and symmetric HV wall feedthrough terminals stay nondirectional', () => {
   assert.equal(portFlowArrowRole('hv_in', 'pass'), 'sink');
   assert.equal(portFlowArrowRole('hv_out_4', 'pass'), 'source');
   assert.equal(portFlowArrowRole('bus_1', 'pass'), 'pass');
@@ -148,13 +148,15 @@ test('isolated pole terminals stay nondirectional while pass-through arrows foll
   assert.equal(arrowOf(fittings.get('pole:hv_out'))?.userData.flowRole, 'pass');
   assert.equal(arrowOf(fittings.get('rack:hv_1'))?.userData.flowRole, 'pass');
   assert.equal(arrowOf(fittings.get('rack:hv_4'))?.userData.flowRole, 'pass');
-  assert.equal(arrowOf(fittings.get('feed:hv_in'))?.userData.flowRole, 'sink');
-  assert.equal(arrowOf(fittings.get('feed:hv_out'))?.userData.flowRole, 'source');
+  assert.equal(arrowOf(fittings.get('feed:hv_in'))?.userData.flowRole, 'pass');
+  assert.equal(arrowOf(fittings.get('feed:hv_out'))?.userData.flowRole, 'pass');
+  assert.equal(arrowOf(fittings.get('feed:hv_in'))?.userData.arrowheadPosition, 'both');
+  assert.equal(arrowOf(fittings.get('feed:hv_out'))?.userData.arrowheadPosition, 'both');
   assert.equal(fittings.get('feed:hv_in')?.userData.portRole, 'pass',
     'visual direction does not change the pass-through topology role');
 });
 
-test('every 4x4 wall feedthrough pair points in one world-space inlet-to-outlet direction', () => {
+test('every 4x4 HV wall feedthrough terminal presents symmetric flow', () => {
   const feed = {
     id: 'feed-4x4', type: 'hvWallPassThrough4x4', col: 4, row: 5,
     subCol: 0, subRow: 0, dir: 3,
@@ -164,23 +166,21 @@ test('every 4x4 wall feedthrough pair points in one world-space inlet-to-outlet 
   const fittings = new Map(fittingsOf(group).map(fitting => [
     fitting.userData.portName, fitting,
   ]));
-  const worldDirection = (fitting) => {
-    const sign = arrowOf(fitting).userData.flowDirection;
-    return new THREE_REAL.Vector3(sign, 0, 0).applyQuaternion(fitting.quaternion).normalize();
-  };
   for (let index = 1; index <= 4; index++) {
     const inlet = fittings.get(`hv_in_${index}`);
     const outlet = fittings.get(`hv_out_${index}`);
-    const inletDirection = worldDirection(inlet);
-    const outletDirection = worldDirection(outlet);
-    assert.ok(inletDirection.dot(outletDirection) > 0.999,
-      `pair ${index} points through the wall from inlet to outlet`);
-    assert.equal(arrowOf(inlet).userData.arrowheadPosition, 'outer',
-      `pair ${index} inlet arrowhead remains visible outside the wall box`);
+    for (const fitting of [inlet, outlet]) {
+      assert.equal(arrowOf(fitting).userData.flowDirection, 0,
+        `pair ${index} has no preferred flow direction on either face`);
+      assert.equal(arrowOf(fitting).userData.arrowheadPosition, 'both',
+        `pair ${index} uses a double-headed terminal arrow on either face`);
+    }
   }
+  assert.equal(equipmentArrowOf(group, feed.id), undefined,
+    'the feedthrough body has no inlet-to-outlet arrow');
 });
 
-test('wall pass-throughs and transformers carry body arrows but isolated supports do not', () => {
+test('only directional equipment carries a body-level flow arrow', () => {
   const endpoints = [
     { id: 'pole', type: 'utilityPole', col: 1, row: 2, subCol: 0, subRow: 0, dir: 1 },
     { id: 'tower', type: 'transmissionTower', col: 12, row: 8, subCol: 0, subRow: 0, dir: 2 },
@@ -193,11 +193,11 @@ test('wall pass-throughs and transformers carry body arrows but isolated support
     { id: 'xfmr', type: 'facilityTransformer', col: 8, row: 3, subCol: 0, subRow: 0, dir: 1 },
   ];
   const { group } = buildPortFittings(endpoints);
-  for (const endpoint of endpoints.slice(0, 3)) {
+  for (const endpoint of endpoints.slice(0, 4)) {
     assert.equal(equipmentArrowOf(group, endpoint.id), undefined,
       `${endpoint.type} has no misleading cross-insulator body arrow`);
   }
-  for (const endpoint of endpoints.slice(3)) {
+  for (const endpoint of endpoints.slice(4)) {
     const marker = equipmentArrowOf(group, endpoint.id);
     assert.ok(marker, `${endpoint.type} has a body-level direction arrow`);
     assert.ok(marker.userData.fromPortNames.every(name => name.includes('_in')),
