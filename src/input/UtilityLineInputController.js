@@ -63,7 +63,7 @@ const PORT_SNAP_RADIUS_PX = 42;
 // grab it, in tiles. Tighter than the port radius: ports are the primary
 // target and a trunk usually runs right past one, so a generous tap radius
 // would steal clicks meant for the port at the end of it.
-const TAP_SNAP_RADIUS_TILES = 0.4;
+const TAP_SNAP_RADIUS_TILES = 0.65;
 // Rack access points are one tile apart. A radius above half that pitch makes
 // the whole visible tray magnetic instead of leaving frustrating dead strips
 // between adjacent rungs when mesh raycasting is unavailable.
