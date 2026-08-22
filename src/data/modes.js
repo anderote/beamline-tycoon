@@ -142,7 +142,6 @@ export const MODES = {
                      ] },
       security:    { name: 'Security',       color: '#b76', isDecorationTab: true,
                      linkedPlaceables: ['floodLight'] },
-      bins:        { name: 'Bins & Signs',   color: '#888', isDecorationTab: true },
     },
   },
   demolish: {

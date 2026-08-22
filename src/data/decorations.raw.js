@@ -226,35 +226,35 @@ export const DECORATIONS_RAW = {
     subW: 1, subL: 1, subH: 3,
   },
 
-  // === Bins & Signs ===
+  // === Furniture: Bins & Signs ===
   trashCan: {
     id: 'trashCan', name: 'Trash Can', cost: { funding: 5 }, removeCost: 0,
     morale: 0.25, placement: 'outdoor', spriteKey: 'trash_can',
-    blocksBuild: false, category: 'bins',
+    blocksBuild: false, category: 'furniture',
     subW: 1, subL: 1, subH: 2,
   },
   recyclingBin: {
     id: 'recyclingBin', name: 'Recycling Bin', cost: { funding: 8 }, removeCost: 0,
     morale: 0.5, placement: 'outdoor', spriteKey: 'recycling_bin',
-    blocksBuild: false, category: 'bins',
+    blocksBuild: false, category: 'furniture',
     subW: 1, subL: 1, subH: 2,
   },
   infoSign: {
     id: 'infoSign', name: 'Info Sign', cost: { funding: 10 }, removeCost: 0,
     morale: 0.5, placement: 'outdoor', spriteKey: 'info_sign',
-    blocksBuild: false, category: 'bins',
+    blocksBuild: false, category: 'furniture',
     subW: 2, subL: 1, subH: 4,
   },
   directionSign: {
     id: 'directionSign', name: 'Direction Sign', cost: { funding: 8 }, removeCost: 0,
     morale: 0.25, placement: 'outdoor', spriteKey: 'direction_sign',
-    blocksBuild: false, category: 'bins',
+    blocksBuild: false, category: 'furniture',
     subW: 2, subL: 1, subH: 3,
   },
   flagpole: {
     id: 'flagpole', name: 'Flagpole', cost: { funding: 15 }, removeCost: 0,
     morale: 1, placement: 'outdoor', spriteKey: 'flagpole',
-    blocksBuild: false, category: 'bins',
+    blocksBuild: false, category: 'furniture',
     subW: 1, subL: 1, subH: 12,
   },
 
