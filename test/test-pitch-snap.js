@@ -41,6 +41,16 @@ console.log('default view');
 const rendererSource = readFileSync(new URL('../src/renderer3d/ThreeRenderer.js', import.meta.url), 'utf8');
 assert(rendererSource.includes("this.viewMode = 'steep';"), 'new renderers start in the steep construction view');
 
+console.log('free-orbit elevation lock');
+assert(rendererSource.includes('this._snapToPitch = this._freePitch;'),
+  'free-orbit release keeps its exact elevation instead of choosing a preset');
+assert(rendererSource.includes("this._snapTargetMode = 'custom';"),
+  'free-orbit release enters a custom elevation mode');
+assert(rendererSource.includes('this._lockedPitch = this._snapToPitch;'),
+  'the released elevation remains locked after the yaw snap completes');
+assert(rendererSource.includes("if (this.viewMode === 'custom') return this._customYawIdx;"),
+  'custom elevation retains its own Q/E facing index');
+
 console.log('YAW_STEP / YAW_DIVISIONS');
 assert(YAW_STEP === Math.PI / 4, 'yaw step = π/4');
 assert(YAW_DIVISIONS === 8, 'yaw has 8 divisions');

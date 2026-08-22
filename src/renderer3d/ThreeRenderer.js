@@ -180,6 +180,10 @@ export class ThreeRenderer {
     this._isoYawIdx = 0;
     this._steepYawIdx = 0;
     this._topYawIdx = 0;
+    this._customYawIdx = 0;
+    // A free-orbit release retains its exact elevation. Preset modes update
+    // this value when selected, while Q/E only changes the compass heading.
+    this._lockedPitch = PITCH_STEEP;
 
     // View rotation (RCT2-style Q/E 90° orbit). _viewRotationAngle is the
     // live, animated yaw — it's mode-independent (mode determines pitch only).
@@ -1472,12 +1476,14 @@ export class ThreeRenderer {
   _currentYawIdx() {
     if (this.viewMode === 'top') return this._topYawIdx;
     if (this.viewMode === 'steep') return this._steepYawIdx;
+    if (this.viewMode === 'custom') return this._customYawIdx;
     return this._isoYawIdx;
   }
 
   _setCurrentYawIdx(i) {
     if (this.viewMode === 'top') this._topYawIdx = i;
     else if (this.viewMode === 'steep') this._steepYawIdx = i;
+    else if (this.viewMode === 'custom') this._customYawIdx = i;
     else this._isoYawIdx = i;
   }
 
@@ -1527,7 +1533,12 @@ export class ThreeRenderer {
    * the live rotation angle, rather than the other mode's remembered facing.
    */
   toggleViewMode() {
-    this.setViewMode(toggledViewMode(this.viewMode));
+    // A custom elevation joins the nearest preset's cycle, so a click always
+    // returns the camera to a named preferred elevation.
+    const currentMode = this.viewMode === 'custom'
+      ? pickSnapMode(this._lockedPitch)
+      : this.viewMode;
+    this.setViewMode(toggledViewMode(currentMode));
   }
 
   /**
@@ -1564,22 +1575,19 @@ export class ThreeRenderer {
   }
 
   /**
-   * End a free-orbit drag. Picks the closest preferred preset by release
-   * pitch and kicks off a 400ms easeInOutQuad animation back to that view.
-   * Yaw snaps to the nearest π/4 multiple. On completion,
-   * viewMode and the destination mode's yaw index are updated so Q/E
-   * continues from the snapped pose.
+   * End a free-orbit drag. Its elevation remains exactly where the player
+   * released it, while yaw eases to the nearest of the eight compass facings.
+   * Q/E then continues around those same eight facings at the locked angle.
    */
   endFreeOrbit() {
     if (!this._freeOrbiting) return;
     this._freeOrbiting = false;
-    const targetMode = pickSnapMode(this._freePitch);
     this._snapFromYaw = this._freeYaw;
     this._snapFromPitch = this._freePitch;
     this._snapToYaw = snapYaw(this._freeYaw, YAW_STEP);
-    this._snapToPitch = targetPitchForMode(targetMode);
+    this._snapToPitch = this._freePitch;
     this._snapStartMs = performance.now();
-    this._snapTargetMode = targetMode;
+    this._snapTargetMode = 'custom';
     this._snapping = true;
   }
 
@@ -1592,12 +1600,14 @@ export class ThreeRenderer {
     this._updateCameraLookAt();
     if (this._updateAnchoredWindows) this._updateAnchoredWindows();
     if (t >= 1) {
-      // Commit the target mode and write the snapped yaw into that mode's index.
+      // Commit the target mode, preserving the released elevation, and write
+      // the snapped yaw into that mode's index.
       this.viewMode = this._snapTargetMode;
       this._viewRotationAngle = this._snapToYaw;
       const idx = ((Math.round(this._snapToYaw / YAW_STEP) % YAW_DIVISIONS) + YAW_DIVISIONS) % YAW_DIVISIONS;
       this._setCurrentYawIdx(idx);
-      this._freePitch = targetPitchForMode(this.viewMode);
+      this._lockedPitch = this._snapToPitch;
+      this._freePitch = this._lockedPitch;
       this._snapping = false;
       if (this.world) this.world.visible = true;
     }
@@ -4020,7 +4030,7 @@ export class ThreeRenderer {
   _effectivePitch() {
     return (this._freeOrbiting || this._snapping)
       ? this._freePitch
-      : targetPitchForMode(this.viewMode);
+      : this._lockedPitch;
   }
 
   _updateCameraLookAt() {

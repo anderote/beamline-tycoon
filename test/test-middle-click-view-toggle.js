@@ -40,8 +40,10 @@ const inputSource = readFileSync(new URL('../src/input/InputHandler.js', import.
 const rendererSource = readFileSync(new URL('../src/renderer3d/ThreeRenderer.js', import.meta.url), 'utf8');
 assert(inputSource.includes("this._finishMiddleCameraGesture({ toggleClick: true })"),
   'an on-canvas middle release opts into the elevation toggle');
-assert(rendererSource.includes('this.setViewMode(toggledViewMode(this.viewMode));'),
+assert(rendererSource.includes('this.setViewMode(toggledViewMode(currentMode));'),
   'the elevation toggle omits a destination yaw and therefore keeps setViewMode\'s live yaw');
+assert(rendererSource.includes("this.viewMode === 'custom'"),
+  'a custom elevation joins the nearest preferred-elevation cycle on click');
 assert(rendererSource.includes('let toYaw = fromYaw;'),
   'setViewMode preserves the exact current heading when no yaw is supplied');
 
