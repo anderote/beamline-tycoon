@@ -103,6 +103,20 @@ class BoxGeometry {
   dispose() {}
 }
 
+class CatmullRomCurve3 {
+  constructor(points) { this.points = points; }
+}
+
+class TubeGeometry {
+  constructor(curve, tubularSegments, radius, radialSegments) {
+    this.parameters = { curve, tubularSegments, radius, radialSegments };
+    this.attributes = {
+      uv: { array: new Float32Array([0, 0, 0, 1, 1, 0, 1, 1]), needsUpdate: false },
+    };
+  }
+  dispose() {}
+}
+
 globalThis.THREE = {
   Vector3: V3,
   Color: class { constructor(c) { this.c = c; } multiplyScalar(s) { this.scale = s; return this; } },
@@ -113,6 +127,8 @@ globalThis.THREE = {
   MeshBasicMaterial: class { constructor(opts = {}) { Object.assign(this, opts); this.userData = {}; } dispose() {} },
   BoxGeometry,
   CylinderGeometry,
+  CatmullRomCurve3,
+  TubeGeometry,
   SphereGeometry: class { constructor(...a) { this.args = a; } dispose() {} },
   TorusGeometry: class { constructor(...a) { this.args = a; } dispose() {} },
 };
@@ -191,6 +207,14 @@ function cylinderMeshes(group) {
     for (const c of o.children || []) walk(c);
   };
   walk(group);
+  return out;
+}
+
+function flexibleMeshes(group) {
+  const out = [];
+  group.traverse(object => {
+    if (object.isMesh && object.userData?.isFlexibleUtilityCable) out.push(object);
+  });
   return out;
 }
 
@@ -289,8 +313,8 @@ console.log('\n--- 3b. Electrical runs vary surface colour and cast bounded loca
 {
   for (const utilityType of ['powerCable', 'hvCable']) {
     const { group } = buildFlowLine(utilityType);
-    const meshes = cylinderMeshes(group);
-    assert(meshes.length >= 1, `${utilityType} still builds its cable geometry`);
+    const meshes = flexibleMeshes(group);
+    assert(meshes.length === 1, `${utilityType} builds one continuous flexible cable`);
     assert(meshes.every(mesh => mesh.layers.mask === 1),
       `${utilityType} stays off the bloom layer`);
     const effect = group.userData.visualEffects?.[0];
@@ -351,8 +375,9 @@ console.log('\n--- 4. FLOW_PARAMS covers every utility ---');
   assert(fiber.geometryStyle === 'fiberBundle'
       && fiber.pipeRadiusMeters >= 0.025
       && fiber.bundleStrandRadiusMeters > 0
-      && fiber.bundleSpacingMeters > fiber.bundleStrandRadiusMeters,
-    'data declares a thicker routed envelope containing distinct cable strands');
+      && fiber.bundleSpacingMeters > fiber.bundleStrandRadiusMeters
+      && fiber.defaultPortMaxConnections === 4,
+    'data retains its tray bundle dimensions and declares four-way peer ports');
   assert(FLOW_PARAMS.hvCable.period >= 12
       && FLOW_PARAMS.powerCable.period >= 3.2,
     'power and HV highlights are spaced far enough apart to avoid glowing rows');
@@ -375,11 +400,10 @@ console.log('\n--- 4. FLOW_PARAMS covers every utility ---');
   }
   assert(!buildFlowLine('dataFiber').group.userData.visualEffects,
     'data fiber uses only its moving line colour, with no shape or room-light effect');
-  const fiberStrands = cylinderMeshes(buildFlowLine('dataFiber').group)
-    .filter(mesh => Number.isInteger(mesh.userData?.fiberBundleStrand));
-  assert(fiberStrands.length === 6
-      && new Set(fiberStrands.map(mesh => mesh.userData.fiberBundleStrand)).size === 3,
-    `a two-segment data run renders as three parallel cables (${fiberStrands.length} strand segments)`);
+  const dataCables = flexibleMeshes(buildFlowLine('dataFiber').group);
+  assert(dataCables.length === 1
+      && dataCables[0].geometry instanceof TubeGeometry,
+    `a data run renders as one continuous flexible cable (${dataCables.length} mesh)`);
 }
 
 console.log('\n--- 5. getLineMaterial: distinct per flowState, cached, tagged __shared ---');

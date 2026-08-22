@@ -41,6 +41,13 @@ const SINK_DEF = {
   },
 };
 
+const DATA_DEF = {
+  subL: 2, subW: 2,
+  ports: {
+    dataPeer: { side: 'back', utility: 'dataFiber', role: 'pass' },
+  },
+};
+
 function placeable(id, type, col, row, dir = 0) {
   return {
     id, type,
@@ -330,6 +337,41 @@ console.log('\n--- Test 9: port_taken ---');
   });
   assert(res2 && res2.ok === false, 'port_taken isolated: ok=false');
   assert(res2.reason === 'port_taken', `reason=port_taken (got ${res2.reason})`);
+}
+
+// ==========================================================================
+// Test 9b: validator and port markers share data's four-attachment default.
+// ==========================================================================
+console.log('\n--- Test 9b: data port accepts four cables ---');
+{
+  const dataLine = index => ({
+    id: `fiber_${index}`,
+    utilityType: 'dataFiber',
+    start: { placeableId: 'peer', portName: 'dataPeer' },
+    end: null,
+    path: [{ col: 2, row: 2 }, { col: 2 + index, row: 2 }],
+  });
+  const makeDataState = count => makeState({
+    placeables: [placeable('peer', 'data_peer', 2, 2, 0)],
+    lines: Array.from({ length: count }, (_, index) => dataLine(index + 1)),
+    defs: { data_peer: DATA_DEF },
+  });
+  const fourth = validateDrawLine(makeDataState(3), {
+    utilityType: 'dataFiber',
+    start: { placeableId: 'peer', portName: 'dataPeer' },
+    end: null,
+    path: [{ col: 2, row: 2 }, { col: 2, row: 8 }],
+  });
+  assert(fourth.ok, `the fourth data cable commits (got ${fourth.reason || 'ok'})`);
+
+  const fifth = validateDrawLine(makeDataState(4), {
+    utilityType: 'dataFiber',
+    start: { placeableId: 'peer', portName: 'dataPeer' },
+    end: null,
+    path: [{ col: 2, row: 2 }, { col: 2, row: 9 }],
+  });
+  assert(!fifth.ok && fifth.reason === 'port_taken',
+    `the fifth data cable is rejected as port_taken (got ${fifth.reason || 'ok'})`);
 }
 
 // ==========================================================================

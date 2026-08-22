@@ -7,6 +7,7 @@ import { MODES } from '../src/data/modes.js';
 import { PLACEABLES } from '../src/data/placeables/index.js';
 import { getUtilityPortsV2 } from '../src/data/utility-ports-v2.js';
 import { discoverNetworks, makeDefaultPortLookup } from '../src/utility/network-discovery.js';
+import { UTILITY_TYPES } from '../src/utility/registry.js';
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {
@@ -44,12 +45,16 @@ console.log('\n=== Facility data systems ===\n');
   const switchDef = PLACEABLES.networkSwitch;
   const switchPorts = getUtilityPortsV2('networkSwitch');
   const dataPorts = Object.values(switchPorts).filter(port => port.utility === 'dataFiber');
+  const dataDescriptor = UTILITY_TYPES.dataFiber;
   assert(switchDef.category === 'dataControls'
       && itemMatchesZone(switchDef, 'controlRoom')
       && ZONE_FURNISHINGS.networkSwitch === switchDef,
   'the same Network Switch appears in Data & Controls and the Control Room catalogue');
   assert(dataPorts.length === 8 && dataPorts.every(port => port.role === 'pass'),
     'the Network Switch exposes eight interchangeable peer ports');
+  assert(dataDescriptor.topology === 'bus' && dataDescriptor.directional === false
+      && dataDescriptor.allowsTap === true && dataDescriptor.defaultPortMaxConnections === 4,
+    'data remains a directionless tappable peer bus with four attachments per port');
   assert(!switchDef.requiredConnections.includes('dataFiber'),
     'the switch needs power but no fictional upstream data source');
 
@@ -62,22 +67,24 @@ console.log('\n=== Facility data systems ===\n');
   };
   const lines = [
     {
-      id: 'fiber_a', utilityType: 'dataFiber',
-      start: { placeableId: 'switch', portName: 'data_1' },
-      end: { placeableId: 'display', portName: 'data_in' },
-      path: [{ col: 0, row: 0 }, { col: 2, row: 0 }],
+      id: 'fiber_b', utilityType: 'dataFiber',
+      start: { placeableId: 'console', portName: 'data_in' },
+      end: { placeableId: 'switch', portName: 'data_5' },
+      path: [{ col: 0, row: 0 }, { col: 0, row: 2 }],
     },
     {
-      id: 'fiber_b', utilityType: 'dataFiber',
-      start: { placeableId: 'switch', portName: 'data_5' },
-      end: { placeableId: 'console', portName: 'data_in' },
-      path: [{ col: 0, row: 0 }, { col: 0, row: 2 }],
+      id: 'fiber_a', utilityType: 'dataFiber',
+      start: { placeableId: 'display', portName: 'data_in' },
+      end: { placeableId: 'switch', portName: 'data_1' },
+      path: [{ col: 2, row: 0 }, { col: 0, row: 0 }],
     },
   ];
   const networks = discoverNetworks('dataFiber', lines, makeDefaultPortLookup(state));
   assert(networks.length === 1 && networks[0].sources.length === 0
-      && networks[0].peers.every(port => port.role === 'peer'),
-  'different switch sockets join every attached device into one directionless peer fabric');
+      && networks[0].peers.every(port => port.role === 'peer')
+      && ['switch', 'display', 'console'].every(id =>
+        networks[0].ports.some(port => port.placeableId === id)),
+  'reversed draw order still joins every attached device into one directionless peer fabric');
 }
 
 {

@@ -7,6 +7,7 @@
 // Tests:
 //   1. availablePorts returns names of ports whose utility === type (no claims).
 //   2. availablePorts excludes ports claimed by existing lines.
+//   2b. Data ports accept four attachments by default.
 //   3. portMatchesApproach: start port's rotated compass side vs approach dir.
 //   4. portMatchesApproach: end port's rotated compass side vs NEGATIVE approach.
 //   5. getPortSpec returns the spec object or null.
@@ -15,6 +16,7 @@
 
 import {
   availablePorts,
+  utilityPortConnectionLimit,
   portMatchesApproach,
   getPortSpec,
   isUtilityPort,
@@ -38,7 +40,7 @@ const RACK_DEF = {
     // Two power-cable ports on opposite sides, one data-port, one no-utility port.
     powerIn:   { side: 'left',  utility: 'powerCable' },
     powerOut:  { side: 'right', utility: 'powerCable' },
-    dataLink:  { side: 'back',  utility: 'dataCable'  },
+    dataLink:  { side: 'back',  utility: 'dataFiber', role: 'pass' },
     structural:{ side: 'front' }, // no utility — should never appear in power lists
   },
 };
@@ -84,6 +86,29 @@ console.log('\n--- Test 2: availablePorts with claims ---');
   const free = availablePorts(p, RACK_DEF, 'powerCable', lines);
   assert(free.length === 1, `1 power port free (got ${free.length})`);
   assert(free[0] === 'powerOut', `only powerOut free (got ${free[0]})`);
+}
+
+// ==========================================================================
+// Test 2b: data ports accept four attachments by default.
+// ==========================================================================
+console.log('\n--- Test 2b: data-port default fan-out ---');
+{
+  const p = placeable('r1', 0, 0);
+  const line = index => ({
+    id: `fiber_${index}`,
+    utilityType: 'dataFiber',
+    start: { placeableId: 'r1', portName: 'dataLink' },
+    end: null,
+    path: [],
+  });
+  assert(utilityPortConnectionLimit(RACK_DEF.ports.dataLink, 'dataFiber') === 4,
+    'an unauthored data-port limit resolves to four attachments');
+  assert(availablePorts(p, RACK_DEF, 'dataFiber', [1, 2, 3].map(line)).includes('dataLink'),
+    'the data port remains available for its fourth cable');
+  assert(!availablePorts(p, RACK_DEF, 'dataFiber', [1, 2, 3, 4].map(line)).includes('dataLink'),
+    'the data port is unavailable after four cables');
+  assert(utilityPortConnectionLimit({ ...RACK_DEF.ports.dataLink, maxConnections: 2 }, 'dataFiber') === 2,
+    'an authored per-port limit overrides the data default');
 }
 
 // ==========================================================================

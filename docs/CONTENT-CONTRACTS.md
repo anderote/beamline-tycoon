@@ -171,6 +171,10 @@ the short authoring contract.
   device belongs to the same internal peer node. Data service is binary
   connectivity to at least one other device; switches add real connection
   ports and fan-out, never throughput capacity or source direction.
+- Ordinary data runs use the same loose freehand cable routing and gravity
+  presentation as power cords, while retaining data's directionless bus
+  topology. Unless a port authors `maxConnections`, each physical data port
+  accepts four cable attachments. Cable draw order never defines data flow.
 - `networkSwitch` exposes eight internally joined peer ports and is available
   from both Infra > Data & Controls and Facility > Control Room. It requires
   power but does not require a separate upstream data source.

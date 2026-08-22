@@ -44,6 +44,7 @@ import {
   roundedCableTilePath,
   sanitizeCablePath,
   SOFT_CABLE_MAX_POINTS,
+  usesFreeformTopology,
 } from '../utility/soft-cable.js';
 
 // Snap tolerance between cursor and a port's world position, in world meters.
@@ -111,7 +112,7 @@ export class UtilityLineInputController {
     this._runMode = false;
     this._runPlan = null;    // { stubs, totalSubL, skipped, cost } while dragging
     this._runTrace = [];     // tile points the cursor swept this drag
-    this._cableTrace = [];   // unsnapped freehand points for power/HV visuals
+    this._cableTrace = [];   // unsnapped freehand points for flexible-line visuals
   }
 
   setUtilityType(type) {
@@ -837,9 +838,10 @@ export class UtilityLineInputController {
    * feel broken) and tapping a trunk to branch off it.
    *
    * Distance is measured against the rounded visible route for flexible runs,
-   * and against the expanded grid path for rigid ones. Network discovery uses
-   * that same rounded cooling route, so what the player grabs and where the
-   * plumbing joins remain the same point.
+   * and against the expanded grid path for rigid ones. Loose cables project
+   * continuously onto that visible route; an explicit named tap carries their
+   * topology. Cooling instead uses its exact rounded samples because that same
+   * visible hose route is its physical network topology.
    *
    * @param {string|null} [onlyLineId] restrict a mesh-confirmed snap to one run
    * @returns {{lineId, worldPos: {x, z}, routeHeightMeters, dist}|null}
@@ -855,11 +857,13 @@ export class UtilityLineInputController {
     for (const line of iter) {
       if (!line || line.utilityType !== this._utilityType) continue;
       if (onlyLineId && line.id !== onlyLineId) continue;
-      const freeformTopology = isSoftCable(line.utilityType) && Array.isArray(line.cablePath);
-      const visual = freeformTopology
+      const flexibleVisual = isSoftCable(line.utilityType) && Array.isArray(line.cablePath);
+      const visual = flexibleVisual
         ? roundedCableTilePath(line.cablePath, line.utilityType)
         : expandPath(line.path || []);
-      const candidates = freeformTopology ? visual : this._lineSnapCandidates(visual, cursor);
+      const candidates = usesFreeformTopology(line.utilityType)
+        ? visual
+        : this._lineSnapCandidates(visual, cursor, { quantize: !flexibleVisual });
       for (const pt of candidates) {
         const dx = pt.col * 2 - cursor.x;
         const dz = pt.row * 2 - cursor.z;
@@ -884,19 +888,19 @@ export class UtilityLineInputController {
   }
 
   /**
-   * Candidate contact points on a grid-routed line. `expandPath` gives stable
+   * Candidate contact points along a routed line. `expandPath` gives stable
    * quarter-tile topology points, but checking only those points makes the
    * magnetic target pulse as the cursor travels along a long segment. Project
-   * onto every segment and quantise the result back to the same topology grid,
-   * so the whole visible run is one continuous target and the saved tee still
-   * lands on a point network discovery can reproduce exactly.
+   * onto every segment so the whole visible run is one continuous target.
+   * Grid routes quantise that result back onto the topology grid; loose cable
+   * routes retain the exact projected visual contact carried by a named tap.
    *
    * Cooling-water hoses intentionally keep their rounded sampled path: their
    * visible freeform trace is also their topology path, and projecting a new
    * point between those samples could create a visually near-but-not-touching
    * explicit join.
    */
-  _lineSnapCandidates(path, cursorWorld) {
+  _lineSnapCandidates(path, cursorWorld, { quantize = true } = {}) {
     if (!Array.isArray(path) || path.length === 0) return [];
     const cursor = { col: cursorWorld.x / 2, row: cursorWorld.z / 2 };
     const candidates = path.map(point => ({ col: point.col, row: point.row }));
@@ -904,17 +908,14 @@ export class UtilityLineInputController {
       const a = path[i], b = path[i + 1];
       const dc = b.col - a.col;
       const dr = b.row - a.row;
-      if (Math.abs(dc) > 1e-9 && Math.abs(dr) <= 1e-9) {
-        candidates.push({
-          col: Math.max(Math.min(a.col, b.col), Math.min(Math.max(a.col, b.col), snapQ(cursor.col))),
-          row: a.row,
-        });
-      } else if (Math.abs(dr) > 1e-9 && Math.abs(dc) <= 1e-9) {
-        candidates.push({
-          col: a.col,
-          row: Math.max(Math.min(a.row, b.row), Math.min(Math.max(a.row, b.row), snapQ(cursor.row))),
-        });
-      }
+      const lengthSq = dc * dc + dr * dr;
+      if (lengthSq <= 1e-18) continue;
+      const t = Math.max(0, Math.min(1,
+        ((cursor.col - a.col) * dc + (cursor.row - a.row) * dr) / lengthSq));
+      const projected = { col: a.col + dc * t, row: a.row + dr * t };
+      candidates.push(quantize
+        ? { col: snapQ(projected.col), row: snapQ(projected.row) }
+        : projected);
     }
     return candidates;
   }

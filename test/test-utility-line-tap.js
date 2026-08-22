@@ -66,14 +66,14 @@ function portTile(game, id, portName) {
   return { col: p.x / 2, row: p.z / 2 };
 }
 
-function ctrlFor(game) {
+function ctrlFor(game, utilityType = 'coolingWater') {
   const c = new UtilityLineInputController({ game, renderer: {} });
-  c.setUtilityType('coolingWater');
+  c.setUtilityType(utilityType);
   return c;
 }
 
-function drag(game, from, to) {
-  const ctrl = ctrlFor(game);
+function drag(game, from, to, utilityType = 'coolingWater') {
+  const ctrl = ctrlFor(game, utilityType);
   const a = gridToIso(from.col, from.row);
   const b = gridToIso(to.col, to.row);
   ctrl.onMouseDown(a.x, a.y, 0, {});
@@ -81,6 +81,11 @@ function drag(game, from, to) {
   ctrl.onMouseMove(b.x, b.y, {});
   ctrl.onMouseUp(b.x, b.y, 0, {});
   return ctrl;
+}
+
+function dataLines(game) {
+  return Array.from(game.state.utilityLines.values())
+    .filter(line => line.utilityType === 'dataFiber');
 }
 
 function coolingLines(game) {
@@ -218,6 +223,49 @@ console.log('\n--- 2. A drag onto the trunk commits, and joins its network ---')
   const keys = withBoth[0] ? withBoth[0].ports.map(p => p.placeableId) : [];
   assert(keys.includes('src_1') && keys.includes('pl_1') && keys.includes('pl_2'),
     `the source now feeds both quads (${keys.join(',')})`);
+}
+
+console.log('\n--- 2b. Flexible data cables retain peer-bus taps ---');
+{
+  const game = new Game(new BeamlineRegistry(), { seed: 12 });
+  game.state.resources.funding = 1e9;
+  game.state.placeables.push(
+    { id: 'gateway', type: 'serverRack', col: 2, row: 2, subCol: 0, subRow: 0, dir: 0 },
+    { id: 'display', type: 'monitorBank', col: 10, row: 2, subCol: 0, subRow: 0, dir: 0 },
+    { id: 'console', type: 'operatorConsole', col: 6, row: 8, subCol: 0, subRow: 0, dir: 0 },
+  );
+
+  drag(
+    game,
+    portTile(game, 'gateway', 'data_out'),
+    portTile(game, 'display', 'data_in'),
+    'dataFiber',
+  );
+  const trunk = dataLines(game)[0];
+  assert(trunk?.cablePath?.length >= 2,
+    'the committed data trunk stores the freehand flexible route');
+
+  const mid = longestSegment(
+    roundedCableTilePath(trunk.cablePath, trunk.utilityType),
+  ).mid;
+  const tapController = ctrlFor(game, 'dataFiber');
+  const tapIso = gridToIso(mid.col, mid.row);
+  tapController.onHover(tapIso.x, tapIso.y);
+  assert(tapController.hoverPort?.tap === true
+      && tapController.hoverPort.lineId === trunk.id,
+    `the visible data cable offers a trunk tap (${JSON.stringify(tapController.hoverPort)})`);
+  drag(game, portTile(game, 'console', 'data_in'), mid, 'dataFiber');
+  const branch = dataLines(game).find(line => line.id !== trunk.id);
+  assert([branch?.tapLineIds?.start, branch?.tapLineIds?.end].includes(trunk.id),
+    `the flexible branch persists a named tap onto the data trunk (${JSON.stringify(
+      branch?.tapLineIds)})`);
+
+  const networks = discoverNetworks(
+    'dataFiber', game.state.utilityLines, makeDefaultPortLookup(game.state));
+  const peerIds = new Set(networks[0]?.ports.map(port => port.placeableId));
+  assert(networks.length === 1
+      && ['gateway', 'display', 'console'].every(id => peerIds.has(id)),
+    `the tapped cables form one three-device peer network (${[...peerIds].join(',')})`);
 }
 
 console.log('\n--- 3. The exemption is exactly one point wide ---');
