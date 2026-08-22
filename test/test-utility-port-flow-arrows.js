@@ -86,6 +86,19 @@ test('flow arrows stay faint, physical and attached to the fitting transform', (
     'the translucent arrow does not punch holes in nearby connector geometry');
 });
 
+test('top-mounted fittings orient their hardware and flow arrow vertically', () => {
+  const top = buildPortFitting(
+    { x: 1, y: 2, z: 3, out: { x: 0, y: 1, z: 0 }, standoff: 0.06 },
+    'cryoTransfer',
+    'sink',
+  );
+  const axis = new THREE_REAL.Vector3(1, 0, 0).applyQuaternion(top.quaternion);
+  assert.ok(axis.distanceTo(new THREE_REAL.Vector3(0, 1, 0)) < 1e-9,
+    'the +X-authored bayonet points along the exact +Y normal');
+  assert.equal(arrowOf(top)?.parent, top,
+    'the flow arrow inherits the same vertical fitting transform');
+});
+
 test('distribution-panel fittings inherit their declared in/out roles', () => {
   const endpoint = {
     id: 'panel-1', type: 'powerPanel',

@@ -3442,9 +3442,13 @@ export class ThreeRenderer {
         new THREE.SphereGeometry(0.11, 10, 8),
         new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.98, depthTest: false, depthWrite: false }),
       );
-      const out = anchor.out || { x: 0, z: 0 };
+      const out = anchor.out || { x: 0, y: 0, z: 0 };
       const standOff = (anchor.standoff || 0) + 0.11;
-      glow.position.set(anchor.x + out.x * standOff, anchor.y, anchor.z + out.z * standOff);
+      glow.position.set(
+        anchor.x + out.x * standOff,
+        anchor.y + (out.y || 0) * standOff,
+        anchor.z + out.z * standOff,
+      );
       glow.renderOrder = 1003;
       this.previewGroup.add(glow);
     }

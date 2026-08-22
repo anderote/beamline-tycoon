@@ -543,7 +543,7 @@ function getFittingGeometry(utilityType) {
  * One fitting: a single mesh, sharing this utility's cached style geometry and
  * cached material, stood at the anchor and spun onto the port's outward normal.
  *
- * @param {{x:number,y:number,z:number,out?:{x:number,z:number}}} anchor
+ * @param {{x:number,y:number,z:number,out?:{x:number,y?:number,z:number}}} anchor
  * @param {string} utilityType key into UTILITY_TYPES; unknown → generic collar
  * @param {'source'|'sink'|'pass'} [role] direction of flow through the port
  */
@@ -551,16 +551,12 @@ export function buildPortFitting(anchor, utilityType, role = 'pass', flowRole = 
   const color = UTILITY_TYPES[utilityType]?.color || '#999999';
   const mesh = new THREE.Mesh(getFittingGeometry(utilityType), getFittingMaterial(color));
 
-  const out = anchor.out || { x: 0, z: 0 };
-  const horizontal = Math.abs(out.x) > 1e-6 || Math.abs(out.z) > 1e-6;
-  // Geometry is authored along +X. For a horizontal normal both vectors lie in
-  // the XZ plane, so the minimal rotation between them is a pure spin about Y
-  // and the fitting's local "up" survives — which is what lets a junction box
-  // keep its lid on top. A port with no usable normal (shouldn't happen, but
-  // the old builder guarded it and so do we) stands straight up instead.
-  const axis = horizontal
-    ? new THREE.Vector3(out.x, 0, out.z).normalize()
-    : new THREE.Vector3(0, 1, 0);
+  const out = anchor.out || { x: 0, y: 0, z: 0 };
+  // Geometry is authored along +X. Horizontal normals still produce the old
+  // pure Y rotation, while exact top mounts rotate +X onto +Y.
+  const axis = new THREE.Vector3(out.x || 0, out.y || 0, out.z || 0);
+  if (axis.lengthSq() < 1e-12) axis.set(0, 1, 0);
+  else axis.normalize();
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), axis);
 
   mesh.position.set(anchor.x, anchor.y, anchor.z);
