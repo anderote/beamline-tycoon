@@ -61,6 +61,7 @@ const LIGHT_SHAPES = new Set(['point', 'cone']);
 const PART_SHAPES = new Set(['box', 'cylinder', 'sphere', 'torus', 'cone']);
 const PART_AXES = new Set(['x', 'y', 'z']);
 const ELECTRICAL_UTILITIES = new Set(['powerCable', 'hvCable']);
+export const MAX_POWER_CABLE_DEMAND_KW = 50;
 const ELECTRICAL_CONTROL_KINDS = new Set(['disconnect', 'transfer']);
 const ELECTRICAL_SOURCE_KINDS = new Set(['grid', 'generator']);
 const SELECTION_CATEGORIES = new Set([
@@ -895,6 +896,12 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
             || spec.params.demand <= 0)) {
         problem(id, `utilityPorts.${portName}`,
           'tracksDownstreamDemand is only valid as true on an HV sink with a positive demand cap');
+      }
+      if (spec.utility === 'powerCable' && spec.role === 'sink'
+          && Number.isFinite(spec.params?.demand)
+          && spec.params.demand > MAX_POWER_CABLE_DEMAND_KW) {
+        problem(id, `utilityPorts.${portName}`,
+          `electrical loads above ${MAX_POWER_CABLE_DEMAND_KW} kW must use hvCable`);
       }
     }
   }

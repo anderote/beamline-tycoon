@@ -14,7 +14,10 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-import { validateContent, roleBuilderFallbacks, KNOWN_PHYSICS_TYPES } from '../src/data/validate.js';
+import {
+  validateContent, roleBuilderFallbacks, KNOWN_PHYSICS_TYPES,
+  MAX_POWER_CABLE_DEMAND_KW,
+} from '../src/data/validate.js';
 import { PLACEABLES } from '../src/data/placeables/index.js';
 import { BEAMLINE_COMPONENTS_RAW } from '../src/data/beamline-components.raw.js';
 import { INFRASTRUCTURE_RAW } from '../src/data/infrastructure.raw.js';
@@ -168,6 +171,11 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
         sagMeters: 'low',
       },
     },
+    oversizedBranchLoad: {
+      id: 'oversizedBranchLoad', name: 'Oversized Branch Load', category: 'power',
+      cost: { funding: 100 }, subW: 1, subL: 1, subH: 1,
+      placement: 'module', requiredConnections: ['powerCable'],
+    },
   };
   const badDecorations = {
     freebie: {
@@ -223,6 +231,12 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     badCableCarrier: {
       in: { utility: 'powerCable', side: 'back', offsetAlong: 0.5, role: 'pass' },
       out: { utility: 'powerCable', side: 'front', offsetAlong: 0.5, role: 'pass' },
+    },
+    oversizedBranchLoad: {
+      pwr_in: {
+        utility: 'powerCable', side: 'left', offsetAlong: 0.5, role: 'sink',
+        params: { demand: MAX_POWER_CABLE_DEMAND_KW + 1 },
+      },
     },
   };
 
@@ -298,6 +312,8 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     'non-positive connection capacity reported');
   assert(hasProblem(problems, 'mysteryModule', 'utilityPorts.weird', 'tracksDownstreamDemand'),
     'dynamic downstream demand is restricted to rated HV sink ports');
+  assert(hasProblem(problems, 'oversizedBranchLoad', 'utilityPorts.pwr_in', 'must use hvCable'),
+    'branch-power loads above 50 kW are rejected');
   // mysteryModule requires powerCable but its only port spec is invalid →
   // no powerCable sink.
   assert(hasProblem(problems, 'mysteryModule', 'requiredConnections', "'powerCable'"),

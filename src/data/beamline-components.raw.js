@@ -125,7 +125,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     routing: [],
     ports: { exit: { side: 'front' } },
     beamlineTypes: ['testStand', 'ebeamProcessing', 'lightSource', 'xfel', 'euvFel', 'collider'],
-    requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide', 'dataFiber'],
+    requiredConnections: ['hvCable', 'coolingWater', 'rfWaveguide', 'dataFiber'],
     rfFrequency: 2856,
     rfBand: 'sband',
     rfPowerRequired: 12,
@@ -157,7 +157,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     routing: [],
     ports: { exit: { side: 'front' } },
     beamlineTypes: ['testStand', 'ebeamProcessing', 'lightSource', 'xfel', 'euvFel', 'collider'],
-    requiredConnections: ['powerCable', 'cryoTransfer', 'rfWaveguide', 'dataFiber'],
+    requiredConnections: ['hvCable', 'cryoTransfer', 'rfWaveguide', 'dataFiber'],
     rfFrequency: 1300,
     rfBand: 'lband',
     rfPowerRequired: 18,
@@ -265,7 +265,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     },
 
     beamlineTypes: ['isotopeIrradiation', 'therapy', 'spallation', 'blackHoleFactory'],
-    requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
+    requiredConnections: ['hvCable', 'coolingWater', 'rfWaveguide'],
     rfFrequency: 2450,
     rfBand: 'sband',
     // Sized for the 6 kW top end of the microwave-power control.
@@ -307,7 +307,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
       entry: { side: 'back' },
       exit: { side: 'front' },
     },
-    requiredConnections: ['powerCable', 'coolingWater'],
+    requiredConnections: ['hvCable', 'coolingWater'],
   },
 
   // ── Compound machines ───────────────────────────────────────────────────
@@ -459,7 +459,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // target, a pipe and a defocusing lattice to hit the spot-size band, so
     // it is a small beamline, not a free one.
     beamlineTypes: ['isotopeIrradiation'],
-    requiredConnections: ['powerCable', 'coolingWater'],
+    requiredConnections: ['hvCable', 'coolingWater'],
   },
   cyclotron70: {
     id: 'cyclotron70',
@@ -509,7 +509,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // 40 keV proton the transit-time factor floors at 0.01 and a 3.5 GeV
     // sector delivers 35 MeV over sixteen metres.
     beamlineTypes: ['isotopeIrradiation', 'therapy', 'blackHoleFactory'],
-    requiredConnections: ['powerCable', 'coolingWater'],
+    requiredConnections: ['hvCable', 'coolingWater'],
   },
   protonLinacFrontEnd: {
     id: 'protonLinacFrontEnd',
@@ -544,7 +544,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     extractionEnergy: 0.180,
     beamlineTypes: ['spallation'],
     requiredConnections: [
-      'powerCable', 'coolingWater', 'cryoTransfer', 'rfWaveguide',
+      'hvCable', 'coolingWater', 'cryoTransfer', 'rfWaveguide',
     ],
     rfFrequency: 650,
     rfBand: 'uhf',
@@ -627,7 +627,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // goes as the seventh root of sqrt(s), so 4.7x the energy buys 1.55x the
     // yield while swapping the front end buys five orders of magnitude.
     beamlineTypes: ['therapy', 'blackHoleFactory'],
-    requiredConnections: ['powerCable', 'coolingWater'],
+    requiredConnections: ['hvCable', 'coolingWater'],
   },
   lwfaStation: {
     id: 'lwfaStation',
@@ -685,7 +685,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // laser-to-plasma synchronisation is femtosecond-class and is distributed
     // over stabilised fibre, which is what dataFiber models. The petawatt
     // laser itself is a separate infrastructure placeable (petawattLaser).
-    requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
+    requiredConnections: ['hvCable', 'coolingWater', 'dataFiber'],
   },
   positronSource: {
     id: 'positronSource',
@@ -767,7 +767,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // The capture linac is a real S-band structure and wants a real klystron
     // behind it, which is what separates this from the cyclotrons: they fold
     // their RF into the crate, this one asks for the waveguide.
-    requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
+    requiredConnections: ['hvCable', 'coolingWater', 'rfWaveguide'],
     rfFrequency: 2856,
     rfBand: 'sband',
     rfPowerRequired: 60,
@@ -1170,7 +1170,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // without a dump that eats the facility's whole electricity bill.
     // lightSource second, where a recirculating injector is a real topology.
     beamlineTypes: ['euvFel', 'lightSource'],
-    requiredConnections: ['powerCable', 'coolingWater'],
+    requiredConnections: ['hvCable', 'coolingWater'],
   },
   undulator: {
     id: 'undulator',
@@ -1688,7 +1688,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     },
 
     beamlineTypes: ['lightSource', 'xfel', 'collider'],
-    requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
+    requiredConnections: ['hvCable', 'coolingWater', 'rfWaveguide'],
     rfFrequency: 11424,
     rfBand: 'xband',
     rfPowerRequired: 240,
@@ -1856,7 +1856,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     },
 
     beamlineTypes: ['collider'],
-    requiredConnections: ['powerCable', 'coolingWater', 'rfWaveguide'],
+    requiredConnections: ['hvCable', 'coolingWater', 'rfWaveguide'],
     // 11994 MHz, CLIC's number rather than the 11424 of the NLC line — same
     // band, different network. The waveguide feed is modest for the energy
     // because the DRIVE BEAM carries the power; what comes down the guide is
@@ -1907,7 +1907,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // that same power back as heat, and a femtosecond timing fibre: the
     // laser-to-plasma synchronisation is what sets the energy jitter of every
     // bunch it makes. Same shape as lwfaStation, for the same reasons.
-    requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
+    requiredConnections: ['hvCable', 'coolingWater', 'dataFiber'],
   },
   crystalChannelStage: {
     id: 'crystalChannelStage',
@@ -1977,7 +1977,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // the deposited beam back out as heat; the fibre is the alignment
     // interferometer, which is the one system that decides whether this thing
     // accelerates at all or just scatters a very expensive beam.
-    requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
+    requiredConnections: ['hvCable', 'coolingWater', 'dataFiber'],
   },
 
   // ── RF / Accel — Superconducting ──────────────────────────────────
@@ -2530,7 +2530,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     // A $50M 4-pi spectrometer is what a collider experiment IS, and it is not
     // what any other kind of facility buys.
     beamlineTypes: ['collider'],
-    requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
+    requiredConnections: ['hvCable', 'coolingWater', 'dataFiber'],
   },
   collisionPoint: {
     id: 'collisionPoint',
@@ -2599,7 +2599,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     },
 
     beamlineTypes: ['blackHoleFactory'],
-    requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
+    requiredConnections: ['hvCable', 'coolingWater', 'dataFiber'],
   },
   hawkingDetector: {
     id: 'hawkingDetector',
@@ -2631,7 +2631,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     },
 
     beamlineTypes: ['blackHoleFactory'],
-    requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
+    requiredConnections: ['hvCable', 'coolingWater', 'dataFiber'],
   },
   target: {
     id: 'target',
@@ -2749,7 +2749,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     geometryType: 'cylinder', interiorVolume: 900, requires: 'machineProtection', isEndpoint: true,
     spriteKey: 'target', spriteColor: 0x3fb9c4, accentColor: 0x3fb9c4,
     placement: 'module', role: 'junction', routing: [], ports: { entry: { side: 'back' } },
-    beamlineTypes: ['therapy'], requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
+    beamlineTypes: ['therapy'], requiredConnections: ['hvCable', 'coolingWater', 'dataFiber'],
   },
   spallationNeutronTarget: {
     id: 'spallationNeutronTarget',
@@ -2762,7 +2762,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     geometryType: 'box', interiorVolume: 600, requires: 'targetPhysics', isEndpoint: true,
     spriteKey: 'target', spriteColor: 0xd8463a, accentColor: 0xd8463a,
     placement: 'module', role: 'junction', routing: [], ports: { entry: { side: 'back' } },
-    beamlineTypes: ['spallation'], requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
+    beamlineTypes: ['spallation'], requiredConnections: ['hvCable', 'coolingWater', 'dataFiber'],
   },
   photonScienceHutch: {
     id: 'photonScienceHutch',
@@ -2775,7 +2775,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     geometryType: 'box', interiorVolume: 400, requires: 'synchrotronLight', isEndpoint: true,
     spriteKey: 'detector', spriteColor: 0xe8c33a, accentColor: 0xe8c33a,
     placement: 'module', role: 'junction', routing: [], ports: { entry: { side: 'back' } },
-    beamlineTypes: ['lightSource'], requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
+    beamlineTypes: ['lightSource'], requiredConnections: ['hvCable', 'coolingWater', 'dataFiber'],
   },
   xfelEndstation: {
     id: 'xfelEndstation',
@@ -2788,7 +2788,7 @@ export const BEAMLINE_COMPONENTS_RAW = {
     geometryType: 'box', interiorVolume: 500, requires: 'felTech', isEndpoint: true,
     spriteKey: 'detector', spriteColor: 0xcf5bb0, accentColor: 0xcf5bb0,
     placement: 'module', role: 'junction', routing: [], ports: { entry: { side: 'back' } },
-    beamlineTypes: ['xfel'], requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
+    beamlineTypes: ['xfel'], requiredConnections: ['hvCable', 'coolingWater', 'dataFiber'],
   },
   euvCollector: {
     id: 'euvCollector',
@@ -2801,6 +2801,6 @@ export const BEAMLINE_COMPONENTS_RAW = {
     geometryType: 'box', interiorVolume: 450, requires: 'energyRecovery', isEndpoint: true,
     spriteKey: 'target', spriteColor: 0x6457d6, accentColor: 0x6457d6,
     placement: 'module', role: 'junction', routing: [], ports: { entry: { side: 'back' } },
-    beamlineTypes: ['euvFel'], requiredConnections: ['powerCable', 'coolingWater', 'dataFiber'],
+    beamlineTypes: ['euvFel'], requiredConnections: ['hvCable', 'coolingWater', 'dataFiber'],
   },
 };
