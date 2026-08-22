@@ -1189,7 +1189,11 @@ export class ThreeRenderer {
       let obj = h.object;
       while (obj) {
         if (obj.userData?.isUniversalUtilityBus && obj.userData.busId) {
-          return { busId: obj.userData.busId, universalUtilityBus: true };
+          return {
+            busId: obj.userData.busId,
+            universalUtilityBus: true,
+            worldPos: h.point ? { x: h.point.x, z: h.point.z } : null,
+          };
         }
         if (obj.userData && obj.userData.lineId) {
           return { lineId: obj.userData.lineId, utilityType: obj.userData.utilityType };
