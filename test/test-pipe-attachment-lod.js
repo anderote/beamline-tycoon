@@ -44,11 +44,7 @@ function attachment(id, index) {
   };
 }
 
-function farMesh(parent, id) {
-  return parent.getObjectByName(`attachment-far-${id}`);
-}
-
-test('far attachment LOD honors cylindrical and box catalogue silhouettes', () => {
+test('zoomed-out attachment views keep authored geometry', () => {
   const parent = new THREE.Group();
   const builder = new PipeAttachmentBuilder();
   builder.build([
@@ -59,34 +55,24 @@ test('far attachment LOD honors cylindrical and box catalogue silhouettes', () =
   ], parent);
   builder.setDetailLevel(false);
 
-  for (const id of ['rfCavity', 'quadrupole', 'bpm']) {
-    assert.equal(COMPONENTS[id].geometryType, 'cylinder');
-    const mesh = farMesh(parent, id);
-    assert.ok(mesh, `${id} needs a far-LOD batch`);
-    assert.equal(mesh.geometry.type, 'CylinderGeometry',
-      `${id} should stay cylindrical when zoomed out`);
-    assert.equal(mesh.visible, true);
-  }
-
-  assert.equal(COMPONENTS.fastKicker.geometryType, 'box');
-  assert.equal(farMesh(parent, 'fastKicker').geometry.type, 'BoxGeometry',
-    'cabinet-shaped beam hardware should retain a box silhouette');
+  assert.equal(builder.getBatchStats().farBatches, 0,
+    'the low-resolution attachment batch is disabled');
+  assert.equal(parent.children.some(child => child.name?.startsWith('attachment-far-')), false,
+    'zoomed-out views must not add far attachment meshes');
+  assert.ok(builder.getBatchStats().nearBatches > 0,
+    'authored attachment geometry remains live');
 
   builder.dispose(parent);
 });
 
-test('cylindrical far LOD preserves authored width, height and beam-axis length', () => {
+test('disabled far LOD does not discard the component catalogue geometry', () => {
   const parent = new THREE.Group();
   const builder = new PipeAttachmentBuilder();
   builder.build([attachment('rfCavity', 0)], parent);
 
-  const geometry = farMesh(parent, 'rfCavity').geometry;
-  geometry.computeBoundingBox();
-  const size = geometry.boundingBox.getSize(new THREE.Vector3());
-  const def = COMPONENTS.rfCavity;
-  assert.ok(Math.abs(size.x - def.subW * 0.5) < 1e-6);
-  assert.ok(Math.abs(size.y - def.subH * 0.5) < 1e-6);
-  assert.ok(Math.abs(size.z - def.subL * 0.5) < 1e-6);
+  assert.equal(COMPONENTS.rfCavity.geometryType, 'cylinder');
+  assert.equal(builder.getBatchStats().farBatches, 0);
+  assert.ok(builder.getBatchStats().authoredParts > 0);
 
   builder.dispose(parent);
 });

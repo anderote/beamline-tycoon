@@ -165,22 +165,13 @@ export async function buildHeadlessBeamlineScene(snapshot, { quiet = false } = {
     componentGroup, attachmentGroup, beamPipeGroup, beamGroup,
   );
 
-  // Mirror ThreeRenderer._updateLOD exactly. At present only componentGroup
-  // participates, so pipe-mounted attachment detail remains visible far away.
-  // Keeping that distinction here turns a future attachment-LOD fix into a
-  // measurable improvement instead of silently assuming it already exists.
-  componentBuilder.setDetailLevel(false);
-  attachmentBuilder.setDetailLevel(false);
-  beamPipeBuilder.setDetailLevel(false);
-  beamBuilder.setDetailLevel(false);
+  // The live renderer keeps high-detail geometry at every zoom. Keep the
+  // headless measurement aligned with that presentation instead of inventing
+  // a separate low-detail scene for the benchmark.
   const far = collectSceneMetrics(root);
   const farBreakdown = collectBreakdown(
     componentGroup, attachmentGroup, beamPipeGroup, beamGroup,
   );
-  componentBuilder.setDetailLevel(true);
-  attachmentBuilder.setDetailLevel(true);
-  beamPipeBuilder.setDetailLevel(true);
-  beamBuilder.setDetailLevel(true);
 
   return {
     root,

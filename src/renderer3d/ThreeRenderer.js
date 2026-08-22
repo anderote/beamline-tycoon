@@ -128,8 +128,8 @@ import { worldRefreshPlan } from './world-refresh-plan.js';
 import { WorldInvalidationScheduler } from './world-invalidation-scheduler.js';
 import { selectionTargetsForState } from '../game/selection-targets.js';
 
-// Closest the camera may get. Detail meshes (userData.lod === 'detail') switch
-// on at zoom 2.0, so anything above that is inside the high-detail band.
+// Closest the camera may get. The renderer intentionally keeps the high-detail
+// presentation at every zoom; low-detail meshes made the world less readable.
 const ZOOM_MAX = 14;
 
 // Ghost tints. Amber is not a softer red: the placement still fails, but the
@@ -552,7 +552,7 @@ export class ThreeRenderer {
     this._lastSunAppliedTimeOfDay = null;
     this._sunSnapTarget = new THREE.Vector3();
     this._lastAnimTime = performance.now();
-    this._lastLodDetail = undefined; // force first LOD update
+    this._lastLodDetail = undefined; // force first detail-state update
 
     // Selective bloom / glow post-processing. Reads the persisted toggle so
     // the setting survives a reload; defaults on. Constructed here (renderer
@@ -4188,12 +4188,11 @@ export class ThreeRenderer {
   }
 
   /**
-   * Switch coordinated geometry/shadow LOD based on zoom. Only runs when the
-   * zoom band changes; each builder owns its batches, while decoration detail
-   * remains a small direct traversal.
+   * Keep the high-detail geometry active at every zoom. The builders still own
+   * their detail state, but there is no low-resolution zoom band to switch to.
    */
   _updateLOD() {
-    const showDetail = this.zoom >= 2.0;
+    const showDetail = true;
     if (showDetail === this._lastLodDetail) return;
     this._lastLodDetail = showDetail;
     const groups = [this.decorationGroup];
@@ -4393,12 +4392,12 @@ export class ThreeRenderer {
         infrastructure: this.infrastructureComponentGroup,
       },
     });
-    this.componentBuilder.setDetailLevel(this.zoom >= 2.0);
+    this.componentBuilder.setDetailLevel(true);
     this._effectSystem?.syncSurfaceGlows('components', this.componentGroup);
     this.pipeAttachmentBuilder.build(snapshot.pipeAttachments || [], this.pipeAttachmentGroup);
-    this.pipeAttachmentBuilder.setDetailLevel(this.zoom >= 2.0);
+    this.pipeAttachmentBuilder.setDetailLevel(true);
     this.beamBuilder.build(snapshot.beamPaths, this.beamEffectGroup);
-    this.beamBuilder.setDetailLevel(this.zoom >= 2.0);
+    this.beamBuilder.setDetailLevel(true);
     this.equipmentBuilder.build(snapshot.equipment, snapshot.furnishings, this.equipmentGroup);
     this._effectSystem?.syncSurfaceGlows('equipment', this.equipmentGroup);
     this.decorationBuilder.build(snapshot.decorations, this.decorationGroup);
@@ -5103,7 +5102,7 @@ export class ThreeRenderer {
     });
     if (pipeAttachments) {
       this.pipeAttachmentBuilder.build(snap.pipeAttachments || [], this.pipeAttachmentGroup);
-      this.pipeAttachmentBuilder.setDetailLevel(this.zoom >= 2.0);
+      this.pipeAttachmentBuilder.setDetailLevel(true);
     }
     this._effectSystem?.syncFromGroup('utility-lines', this.utilityLineGroup);
     this._utilityLineVisualSig = utilityLineVisualSignature(state);
@@ -5234,11 +5233,11 @@ export class ThreeRenderer {
       beamPipes: snap.beamPipes || [],
       moduleSubTiles: snap.moduleSubTiles || [],
     }, this.beamPipeGroup);
-    this.beamPipeBuilder.setDetailLevel(this.zoom >= 2.0);
+    this.beamPipeBuilder.setDetailLevel(true);
 
     // Inline attachments move with pipes, so they share the same refresh.
     this.pipeAttachmentBuilder.build(snap.pipeAttachments || [], this.pipeAttachmentGroup);
-    this.pipeAttachmentBuilder.setDetailLevel(this.zoom >= 2.0);
+    this.pipeAttachmentBuilder.setDetailLevel(true);
   }
 
   renderBeamPipePreview(path, mode, cost) {
@@ -5469,13 +5468,13 @@ export class ThreeRenderer {
   _refreshBeam() {
     const snap = this._updateSnapshot(['beamPaths']);
     this.beamBuilder.build(snap.beamPaths, this.beamEffectGroup);
-    this.beamBuilder.setDetailLevel(this.zoom >= 2.0);
+    this.beamBuilder.setDetailLevel(true);
   }
 
   _refreshPipeAttachments() {
     const snap = this._updateSnapshot(['pipeAttachments']);
     this.pipeAttachmentBuilder.build(snap.pipeAttachments || [], this.pipeAttachmentGroup);
-    this.pipeAttachmentBuilder.setDetailLevel(this.zoom >= 2.0);
+    this.pipeAttachmentBuilder.setDetailLevel(true);
   }
 
   _refreshComponents({ pipeAttachments = true, changeSet = null } = {}) {
@@ -5488,11 +5487,11 @@ export class ThreeRenderer {
         infrastructure: this.infrastructureComponentGroup,
       },
     });
-    this.componentBuilder.setDetailLevel(this.zoom >= 2.0);
+    this.componentBuilder.setDetailLevel(true);
     this._effectSystem?.syncSurfaceGlows('components', this.componentGroup);
     if (pipeAttachments) {
       this.pipeAttachmentBuilder.build(snap.pipeAttachments || [], this.pipeAttachmentGroup);
-      this.pipeAttachmentBuilder.setDetailLevel(this.zoom >= 2.0);
+      this.pipeAttachmentBuilder.setDetailLevel(true);
     }
     } catch(e) { console.error('[_refreshComponents] CRASH:', e); }
   }
