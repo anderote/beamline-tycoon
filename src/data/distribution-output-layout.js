@@ -114,7 +114,9 @@ function topInputLayout({ roofY, inputZ }) {
 }
 
 const TOP_INPUT_SPECS = Object.freeze({
-  poleMountTransformer: Object.freeze({ roofY: 0.39, inputZ: -0.25 }),
+  // The pole-mounted box uses this as a side-inlet centre rather than a roof
+  // cap; utility-port-anchors supplies its horizontal normal.
+  poleMountTransformer: Object.freeze({ roofY: 0.335, inputZ: -0.15 }),
   compactHvDistributor: Object.freeze({ roofY: 0.895, inputZ: -0.10 }),
   powerPanel: Object.freeze({ roofY: 0.895, inputZ: -0.10 }),
   sectionDistributionPanel: Object.freeze({ roofY: 1.765, inputZ: -0.16 }),

@@ -9,6 +9,8 @@ import {
   INDOOR_DATA_RACK_TERMINAL_Y,
   INDOOR_HV_RACK_TERMINAL_Y,
   PORT_ANCHOR_OVERRIDES,
+  POWER_HV_INPUT_MOUNTS,
+  UTILITY_POLE_HV_TAP_MOUNT,
 } from '../src/data/utility-port-anchors.js';
 import { MODES } from '../src/data/modes.js';
 import { Game } from '../src/game/Game.js';
@@ -92,6 +94,25 @@ test('service transformer mounts to a wood-pole tap with four power outlets', ()
     portName: 'hv_tap',
     connectionKind: 'hvDistributionTap',
   });
+  assert.equal(UTILITY_POLE_HV_TAP_MOUNT.y, 4.65,
+    'the transformer tap sits high on the pole below its lower crossarm');
+  assert.equal(transformer.mountY,
+    UTILITY_POLE_HV_TAP_MOUNT.y - POWER_HV_INPUT_MOUNTS.poleMountTransformer.y);
+  const poleCentre = {
+    x: candidates[0].host.col * 2 + 0.5,
+    z: candidates[0].host.row * 2 + 0.5,
+  };
+  assert.equal(transformer.worldX, poleCentre.x);
+  assert.ok(Math.abs(transformer.worldZ - (
+    poleCentre.z + UTILITY_POLE_HV_TAP_MOUNT.localZ
+      - POWER_HV_INPUT_MOUNTS.poleMountTransformer.localZ
+  )) < 1e-9, 'the transformer inlet lands directly on the pole surface');
+  const inletPart = PLACEABLES.poleMountTransformer.parts
+    .find(part => part.name === 'hv-inlet');
+  assert.equal(inletPart.z * 0.5, POWER_HV_INPUT_MOUNTS.poleMountTransformer.localZ);
+  assert.equal((inletPart.y + inletPart.h / 2) * 0.5,
+    POWER_HV_INPUT_MOUNTS.poleMountTransformer.y,
+  'the placement anchor is the centre of the visible inlet');
   assert.equal(Object.values(getUtilityPortsV2('poleMountTransformer'))
     .filter(port => port.utility === 'powerCable' && port.role === 'source').length, 4);
   assert.equal(usesFloorOccupancy(PLACEABLES.poleMountTransformer), false);
@@ -114,9 +135,23 @@ test('service transformer mounts to a wood-pole tap with four power outlets', ()
     port.placeableId === transformerId && port.portName === 'hv_in'
   )));
 
+  const saved = JSON.parse(game.serialize({ includeLog: false, includeAux: false }));
+  const savedTransformer = saved.state.placeables.find(entry => entry.id === transformerId);
+  savedTransformer.worldX += 1;
+  savedTransformer.worldZ += 1;
+  savedTransformer.mountY = 1;
   const restored = gameWithFunds(8803);
-  restored._applyState(JSON.parse(game.serialize({ includeLog: false, includeAux: false })));
+  restored._applyState(saved);
   assert.deepEqual(restored.getPlaceable(transformerId).utilityMount, transformer.utilityMount);
+  assert.deepEqual(
+    {
+      worldX: restored.getPlaceable(transformerId).worldX,
+      worldZ: restored.getPlaceable(transformerId).worldZ,
+      mountY: restored.getPlaceable(transformerId).mountY,
+    },
+    { worldX: transformer.worldX, worldZ: transformer.worldZ, mountY: transformer.mountY },
+    'load-time reconciliation repairs a previously saved tap-mount pose',
+  );
   assert.equal([...restored.state.utilityLines.values()]
     .some(line => line.mountConnectionPlaceableId === transformerId), true,
   'the direct tap connection survives save/load');

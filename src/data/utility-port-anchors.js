@@ -90,7 +90,7 @@ export const POWER_HV_INPUT_MOUNTS = Object.freeze({
   // This service box is bolted straight to a host-side tap; its inlet faces
   // back into the tap instead of upward like a floor cabinet's roof bushing.
   poleMountTransformer: Object.freeze({
-    y: 0.55, localX: 0, localZ: -0.25,
+    y: 0.495, localX: 0, localZ: -0.15,
     normal: Object.freeze({ x: 0, y: 0, z: -1 }),
   }),
   padMountTransformer: Object.freeze({
@@ -182,7 +182,10 @@ export const INDOOR_HV_RACK_TAP_MOUNTS = Object.freeze({
 });
 
 export const UTILITY_POLE_HV_TAP_MOUNT = Object.freeze({
-  y: COMPACT_HV_INPUT_Y, localX: 0, localZ: 0.30,
+  // Keep the service transformer high on the pole, tucked immediately below
+  // the lower crossarm. The shallow Z offset is the pole surface, not the
+  // footprint edge; tap-mounted equipment aligns to this authored hardware.
+  y: 4.65, localX: 0, localZ: 0.12,
   normal: Object.freeze({ x: 0, y: 0, z: 1 }),
 });
 

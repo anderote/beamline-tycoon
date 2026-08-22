@@ -2703,11 +2703,9 @@ export const INFRASTRUCTURE_RAW = {
     },
     parts: [
       // The back bushing meets the host tap without a separate feeder cable.
-      // Keeping the body above local zero also leaves legacy saves readable
-      // until their old explicit feeder is rebuilt as a direct tap mount.
       { name: 'cabinet', w: 1.40, h: 1.10, l: 0.54, x: 0, y: 0, z: 0, color: 0x6b7476 },
       { name: 'lid', w: 1.48, h: 0.10, l: 0.60, x: 0, y: 1.10, z: 0, color: 0x343a3c },
-      { name: 'hv-inlet', w: 0.22, h: 0.22, l: 0.12, x: 0, y: 0.88, z: -0.50, color: 0xb46e32, utilityTerminalCap: true },
+      { name: 'hv-inlet', w: 0.22, h: 0.22, l: 0.12, x: 0, y: 0.88, z: -0.30, color: 0xb46e32, utilityTerminalCap: true },
       { name: 'outlet-bar', w: 1.18, h: 0.22, l: 0.10, x: 0, y: 0.16, z: 0.32, color: 0xe1b84b },
       ...[-0.45, -0.15, 0.15, 0.45].map((x, index) => ({
         name: `power-outlet-${index + 1}`, w: 0.16, h: 0.16, l: 0.12,

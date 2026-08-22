@@ -4,9 +4,20 @@
 // authored connector height.
 
 import { PLACEABLES } from '../data/placeables/index.js';
+import {
+  portAnchorOverride,
+  POWER_HV_INPUT_MOUNTS,
+} from '../data/utility-port-anchors.js';
 import { levelOf, levelWorldY, normalizeLevel } from '../game/storeys.js';
 import { portAnchor3D } from './port-anchors.js';
-import { getPortSpec, portApproachVec, portWorldPosition } from './ports.js';
+import {
+  getPortSpec,
+  placeableCenterWorld,
+  placeableDirection,
+  portApproachVec,
+  portWorldPosition,
+  rotateLocalOffset,
+} from './ports.js';
 
 export const HV_TAP_MOUNT_KIND = 'hvDistributionTap';
 export const TAP_MOUNT_SNAP_DISTANCE_CELLS = 0.8;
@@ -27,6 +38,24 @@ function directionIndex(vec) {
   if (vec?.dRow === 1) return 2;
   if (vec?.dCol === -1) return 3;
   return 0;
+}
+
+function authoredHostAnchor(host, def, portName, fallback) {
+  const mount = portAnchorOverride(host.type, portName);
+  if (!Number.isFinite(mount?.localX) || !Number.isFinite(mount?.localZ)) {
+    return fallback;
+  }
+  const centre = placeableCenterWorld(host, def);
+  if (!centre) return fallback;
+  const offset = rotateLocalOffset(
+    { x: mount.localX, z: mount.localZ },
+    placeableDirection(host, def),
+  );
+  return {
+    x: centre.x + offset.x,
+    y: Number.isFinite(mount.y) ? mount.y : fallback?.y,
+    z: centre.z + offset.z,
+  };
 }
 
 export function utilityTapMountCandidates(state, mountKind = HV_TAP_MOUNT_KIND, {
@@ -65,11 +94,18 @@ export function resolveUtilityTapMount(state, mount, {
   }).find(item => item.host.id === mount.hostPlaceableId && item.portName === mount.portName);
   if (!candidate) return null;
   const { host, def, portName, position, outward } = candidate;
-  const anchor = portAnchor3D(host, def, portName);
-  // The compact box is 0.5 m deep. Its back-face inlet lands directly on the
-  // host tap when the centre is offset outward by half that depth.
-  const worldX = position.x + outward.dCol * 0.25;
-  const worldZ = position.z + outward.dRow * 0.25;
+  const measuredAnchor = portAnchor3D(host, def, portName);
+  const anchor = authoredHostAnchor(host, def, portName, measuredAnchor);
+  const dir = (directionIndex(outward) + 2) % 4;
+  const inlet = POWER_HV_INPUT_MOUNTS.poleMountTransformer;
+  const inletOffset = rotateLocalOffset(
+    { x: inlet.localX, z: inlet.localZ }, dir,
+  );
+  // Align the service box's authored inlet directly with the host's authored
+  // side tap. Using the host footprint edge here left a conspicuous gap on
+  // narrow wood poles even though the direct connection has no cable.
+  const worldX = (anchor?.x ?? position.x) - inletOffset.x;
+  const worldZ = (anchor?.z ?? position.z) - inletOffset.z;
   return {
     utilityMount: {
       hostPlaceableId: host.id,
@@ -78,9 +114,8 @@ export function resolveUtilityTapMount(state, mount, {
     },
     worldX,
     worldZ,
-    // The transformer's local HV inlet is 0.55 m above its base.
-    mountY: (anchor?.y ?? 1.55) + levelWorldY(levelOf(host)) - 0.55,
-    dir: (directionIndex(outward) + 2) % 4,
+    mountY: (anchor?.y ?? 1.55) + levelWorldY(levelOf(host)) - inlet.y,
+    dir,
     col: Math.floor(worldX / 2),
     row: Math.floor(worldZ / 2),
     subCol: 0,
