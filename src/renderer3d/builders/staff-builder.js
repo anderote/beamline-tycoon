@@ -3,17 +3,16 @@
 // Staff figurines — low-poly people, built from a STYLE config so the design
 // itself is data.
 //
-// The current target is RollerCoaster Tycoon 2 peeps — `rct2Peep`, the default:
-// chibi proportions (the head box alone is ~1/3.7 of the figure, and the hair
-// on top takes the visual head to nearly a third of total height), a face as
-// standard equipment, and the role color worn as a full uniform rather than
-// hinted at with a collar sliver. Its palette is SAMPLED from the extracted
-// RCT2 sprite sheets rather than guessed — see STAFF_PALETTES.rct2.
+// The production target is `facilityCrew`: a deliberately simple low-poly
+// figure with believable proportions. It keeps the strong role-colored
+// uniform and sampled RCT2 palette, but drops the mascot/chibi silhouette:
+// roughly six heads tall, longer legs, narrower shoulders and limbs, restrained
+// hands/feet, and a smaller world-space height beside facility equipment.
 //
 // The six variants before it explored an old-school RuneScape read (faceted
 // low-segment limbs, boxy vs cylindrical, stubby vs lean, flat vs smooth
 // shaded). They are kept exactly as they were: they are the record of what was
-// considered, and the gallery still renders all seven side by side.
+// considered, and the gallery still renders them beside the production style.
 //
 // Staff used to be flat camera-facing sprites with a hard black outline,
 // reading as a completely different art style from the procedural BoxGeometry
@@ -71,16 +70,22 @@
  * @property {string} note          one line: what this variant is testing
  * @property {number} height        total height, world units (tile = 2)
  * @property {number} headRatio     head height / total height (0.24 ≈ 4.2 heads)
+ * @property {number} headWidthScale multiplier on the baseline head width
+ * @property {number} headDepthScale multiplier on the baseline head depth
+ * @property {number} capScale      multiplier on hair/helmet crown height
+ * @property {number} hatScale      multiplier on helmet brim size
  * @property {number} legFrac       legs' share of (body minus head minus feet);
  *                                  lower = stubbier, higher = leaner
  * @property {'cylinder'|'box'} limbGeometry
  * @property {number} radialSegments  facet count for cylinder limbs (6 = OSRS)
  * @property {number} limbTaper     bottom radius / top radius
  * @property {number} limbThickness  multiplier on limb girth
+ * @property {number} armLengthScale multiplier on arm length relative to legs
  * @property {'prism'|'box'} torsoShape
  * @property {number} torsoSegments facet count for a prism torso
  * @property {number} torsoTaper    waist radius / shoulder radius
  * @property {number} bulk          multiplier on torso girth
+ * @property {number} collarScale   multiplier on collar height and overhang
  * @property {number} extremityScale hand/foot size multiplier (OSRS = big)
  * @property {boolean} flatShading
  * @property {number} roughness
@@ -100,15 +105,21 @@
 const BASE_STYLE = {
   height: 1.35,
   headRatio: 0.237,
+  headWidthScale: 1,
+  headDepthScale: 1,
+  capScale: 1,
+  hatScale: 1,
   legFrac: 0.435,
   limbGeometry: 'cylinder',
   radialSegments: 6,
   limbTaper: 0.76,
   limbThickness: 1.0,
+  armLengthScale: 0.95,
   torsoShape: 'prism',
   torsoSegments: 6,
   torsoTaper: 0.76,
   bulk: 1.0,
+  collarScale: 1,
   extremityScale: 1.0,
   flatShading: true,
   roughness: 1.0,
@@ -184,6 +195,32 @@ export const STAFF_STYLES = {
       roleUniform: true,
     },
   ),
+  facilityCrew: defineStyle(
+    'facilityCrew', 'Facility Crew',
+    'Production style: compact low-poly staff with a believable six-head silhouette, longer legs, and restrained girth and extremities.',
+    {
+      height: 1.18,
+      headRatio: 0.165,
+      headWidthScale: 0.80,
+      headDepthScale: 0.84,
+      capScale: 0.45,
+      hatScale: 0.55,
+      legFrac: 0.57,
+      limbThickness: 0.65,
+      armLengthScale: 0.78,
+      torsoTaper: 0.72,
+      bulk: 0.72,
+      collarScale: 0.55,
+      extremityScale: 0.65,
+      saturation: 1.05,
+      swingAmp: 0.62,
+      face: true,
+      faceScale: 0.75,
+      mouth: false,
+      palette: 'rct2',
+      roleUniform: true,
+    },
+  ),
 };
 
 /** Ordered list for the gallery UI. */
@@ -193,7 +230,7 @@ export const STAFF_STYLE_LIST = Object.values(STAFF_STYLES);
  * The style StaffPawns renders. Approving a gallery variant = repointing this.
  * @type {StaffStyle}
  */
-export const DEFAULT_STAFF_STYLE = STAFF_STYLES.rct2Peep;
+export const DEFAULT_STAFF_STYLE = STAFF_STYLES.facilityCrew;
 
 /** Total figure height for a style (feet at y=0, top of headwear at this y). */
 export function staffFigureHeight(style = DEFAULT_STAFF_STYLE) {
@@ -310,7 +347,7 @@ function _proportions(style) {
   const fs = style.faceScale ?? 1;
 
   const headH = H * style.headRatio;
-  const capH = H * 0.059;                       // hair cap / hard-hat crown
+  const capH = H * 0.059 * style.capScale;      // hair cap / hard-hat crown
   const footH = H * 0.059 * ext;
   const rest = H - headH - capH - footH;        // legs + torso
   const legLen = rest * style.legFrac;
@@ -325,17 +362,21 @@ function _proportions(style) {
 
   p = {
     H,
-    headH, headW: headH * 0.94, headD: headH * 0.90,
+    headH,
+    headW: headH * 0.94 * style.headWidthScale,
+    headD: headH * 0.90 * style.headDepthScale,
     capH,
-    brimH: H * 0.026, brimPad: H * 0.096,
+    brimH: H * 0.026 * style.hatScale,
+    brimPad: H * 0.096 * style.hatScale,
     footH, footW: H * 0.119 * ext, footD: H * 0.178 * ext, footFwd: H * 0.030 * ext,
     legLen, legRTop, legRBot: legRTop * style.limbTaper, legGap: H * 0.063,
     // Thigh (hip -> knee) and shin (knee -> foot) split the leg at the knee.
     thighLen: legLen * KNEE_FRAC, shinLen: legLen * (1 - KNEE_FRAC),
     kneeR: legRTop + (legRTop * style.limbTaper - legRTop) * KNEE_FRAC,
     torsoH, torsoRTop, torsoRBot: torsoRTop * style.torsoTaper,
-    collarH: H * 0.044, collarR: torsoRTop + H * 0.019,
-    armLen: legLen * 0.95, armRTop, armRBot: armRTop * style.limbTaper,
+    collarH: H * 0.044 * style.collarScale,
+    collarR: torsoRTop + H * 0.019 * style.collarScale,
+    armLen: legLen * style.armLengthScale, armRTop, armRBot: armRTop * style.limbTaper,
     armX: torsoRTop + armRTop - H * 0.015,
     handW: H * 0.074 * ext, handH: H * 0.067 * ext, handD: H * 0.074 * ext,
     hipY, torsoTop,
@@ -586,7 +627,7 @@ export function buildStaffFigure(look, style = DEFAULT_STAFF_STYLE) {
     0, p.torsoTop - p.collarH / 2, 0,
   ));
 
-  // Arms — origin at the shoulder, oversized boxy hand parented to each.
+  // Arms — origin at the shoulder, with each hand parented to its arm.
   const armGeo = _limbGeo(style, p.armRTop, p.armRBot, p.armLen);
   const handGeo = _boxGeo(p.handW, p.handH, p.handD);
   const arms = [];
@@ -622,7 +663,11 @@ export function buildStaffFigure(look, style = DEFAULT_STAFF_STYLE) {
   // changes the silhouette height.
   if (look.hardHat) {
     const hatMat = _figureMaterial(pal.hardHat, style);
-    add(_mesh(_boxGeo(p.headW - p.H * 0.037, p.capH, p.headD - p.H * 0.037), hatMat,
+    add(_mesh(_boxGeo(
+      p.headW - p.H * 0.037 * style.hatScale,
+      p.capH,
+      p.headD - p.H * 0.037 * style.hatScale,
+    ), hatMat,
       0, p.headTop + p.capH / 2, 0));
     add(_mesh(_boxGeo(p.headW + p.brimPad, p.brimH, p.headD + p.brimPad), hatMat,
       0, p.headTop - p.brimH / 2, 0));

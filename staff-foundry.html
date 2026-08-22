@@ -73,7 +73,7 @@
 <body>
   <h2>Staff Foundry</h2>
   <p class="sub">
-    Six figurine designs for facility staff. Each card shows a <b>close-up</b> of all four
+    Eight figurine designs for facility staff. Each card shows a <b>close-up</b> of all four
     roles for judging silhouette, proportion, shading, palette and face, plus a smaller
     <b>in-context</b> panel beside a real rfCavity at true game scale for the
     does-it-clash-with-the-machinery check. Both views use the game's exact lighting rig
@@ -129,8 +129,8 @@
     // ── View framing ──────────────────────────────────────────────────
     // Both views share the camera ANGLE; only the frustum height differs.
     //
-    // CLOSE_UP: frustum 2.1 units tall in a 270px-tall card => a 1.35-unit
-    // figure lands ~174px on screen (87px in the half-res buffer). This is
+    // CLOSE_UP: frustum 2.1 units tall in a 270px-tall card => the production
+    // figure lands ~152px on screen (76px in the half-res buffer). This is
     // the view the design decision is actually made in.
     //
     // CONTEXT: frustum 4.4 units tall in a 200px-tall card => ~31px per figure
@@ -165,7 +165,7 @@
     function warn(msg) { warnings.push(msg); warnEl.textContent = warnings.join('\n'); }
 
     // ── Shared renderer ───────────────────────────────────────────────
-    // One WebGL context drives all 12 viewports. The drawing buffer is sized
+    // One WebGL context drives all 16 viewports. The drawing buffer is sized
     // once per frame-batch to the CLOSE-UP size; the shorter in-context view
     // renders into a top-aligned viewport inside that same buffer and is
     // blitted out with a source rect. That keeps it to zero buffer resizes per
