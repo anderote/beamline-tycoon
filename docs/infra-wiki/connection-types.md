@@ -70,7 +70,8 @@ twin when co-routed. The separate lukewarm plant-transfer leg is green at 1.80 m
 
 - **Network type:** Capacity-based, with cold, lukewarm, and hot circuits kept isolated
 - **Cold source:** Central chiller rigid cold outlet
-- **Plant chain:** Beamline cold inlet → beamline hot outlet → heat-rejector hot inlet → heat-rejector lukewarm outlet → reservoir lukewarm in/out → chiller lukewarm inlet → chiller cold outlet
+- **Process loop:** Chiller cold outlet → beamline cold inlet → beamline hot outlet → chiller process-return inlet
+- **Condenser loop:** Heat-rejector lukewarm outlet → reservoir lukewarm in/out → chiller condenser inlet → chiller hot-reject outlet → heat-rejector hot inlet
 - **Consumers:** High-flow equipment such as the 70 and 230 MeV cyclotrons, or flexible Water Lines through a distributor
 - **Wall crossings:** 1x1 and 2x2 Water Pipe Penetrations
 - **Supports:** Same 1.25 m support stations as cryo, RF, and vacuum; co-routed cold/hot pipes share one widened shelf and two brackets while remaining independently selectable

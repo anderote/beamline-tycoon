@@ -56,6 +56,15 @@ console.log('\n=== Component info utility ports ===\n');
 }
 
 {
+  const chillerWater = group('chiller', 'waterSupplyPipe', 'source');
+  assert(chillerWater?.metrics.some(metric => metric.label === 'Header capacity'
+      && metric.value === '300 kW total')
+      && chillerWater.metrics.some(metric => metric.label === 'Process return'
+        && metric.value === '300 kW total'),
+  'central chiller distinguishes cold-header output from hot process-return acceptance');
+}
+
+{
   const rf = group('solidStateAmp', 'rfWaveguide', 'source');
   assert(rf?.metrics[0]?.label === 'Peak capacity'
       && rf.metrics[0].value === '35 kW total · 8.75 kW each · 100% duty',

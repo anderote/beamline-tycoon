@@ -373,12 +373,16 @@ export function buildLateGameFacility(game, { log = console.error } = {}) {
     });
     wire('waterSupplyPipe',
       { id: group.manifold, port: 'supply_hot' },
-      { id: group.rejector, port: 'hot_in' },
+      { id: group.chiller, port: 'return_hot_in' },
       { waterCircuit: 'hot' });
     wire('waterSupplyPipe',
       { id: group.rejector, port: 'room_out' },
       { id: group.chiller, port: 'room_in' },
       { waterCircuit: 'room' });
+    wire('waterSupplyPipe',
+      { id: group.chiller, port: 'reject_hot_out' },
+      { id: group.rejector, port: 'hot_in' },
+      { waterCircuit: 'hot' });
   }
   if (nsw) {
     for (const [index, id] of [det, bpm2, secondConsole].entries()) {

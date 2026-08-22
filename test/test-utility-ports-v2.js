@@ -92,9 +92,17 @@ console.log('\n--- Test 4: chiller ---');
   assert(names.every(name => ports[name].autoConnectClass
       === COOLING_AUTO_CONNECT_CLASS.LOAD_BRANCH),
   'the four primary chiller sockets are assisted-wiring load branches');
-  assert(ports.room_in.utility === 'waterSupplyPipe'
-      && ports.supply_cold_out.utility === 'waterSupplyPipe',
-  'the opposite chiller side exposes rigid lukewarm inlet and cold-supply outlet ports');
+  assert(ports.return_hot_in.utility === 'waterSupplyPipe'
+      && ports.supply_cold_out.utility === 'waterSupplyPipe'
+      && ports.room_in.utility === 'waterSupplyPipe'
+      && ports.reject_hot_out.utility === 'waterSupplyPipe',
+  'the chiller exposes separate rigid evaporator and condenser pairs');
+  assert(ports.return_hot_in.params.waterCircuit === 'hot'
+      && ports.return_hot_in.flowRole === 'sink'
+      && ports.reject_hot_out.params.waterCircuit === 'hot'
+      && ports.reject_hot_out.flowRole === 'source'
+      && ports.reject_hot_out.params.heatLoad === 360,
+  'the 300 kW chiller accepts process return and rejects 360 kW including compressor heat');
   assert(coolingAutoConnectClass(getUtilityPortsV2('dipole').cool_in)
       === COOLING_AUTO_CONNECT_CLASS.LOAD,
   'an ordinary cooling sink derives the load target class');
@@ -475,13 +483,22 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
     const flexible = coolingSources(ports);
     const rigid = Object.entries(ports)
       .filter(([, port]) => port.utility === 'waterSupplyPipe');
+    const compressorPower = type === 'chiller' ? 60 : 35;
+    const capacity = type === 'chiller' ? 300 : 175;
     assert(flexible.length === 4
         && flexible.every(([, port]) => port.params.waterCircuit === 'cold')
-        && rigid.length === 2
+        && rigid.length === 4
+        && ports.return_hot_in.params.waterCircuit === 'hot'
+        && ports.return_hot_in.flowRole === 'sink'
+        && ports.return_hot_in.params.processReturnCapacity === capacity
         && ports.room_in.params.waterCircuit === 'lukewarm'
         && ports.room_in.role === 'sink'
+        && ports.room_in.params.heatLoad === capacity + compressorPower
+        && ports.reject_hot_out.params.waterCircuit === 'hot'
+        && ports.reject_hot_out.flowRole === 'source'
+        && ports.reject_hot_out.params.heatLoad === capacity + compressorPower
         && ports.supply_cold_out.params.waterCircuit === 'cold',
-    `${type} exposes four cold-water lines plus lukewarm-in and cold-out supply pipe ports`);
+    `${type} exposes process supply/return and a condenser-water supply/reject pair`);
   }
   assert(total(tank, 'capacity') === 0,
     'make-up tank stores cooling water without supplying process-cooling capacity');

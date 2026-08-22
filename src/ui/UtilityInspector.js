@@ -261,6 +261,10 @@ export class UtilityInspector {
         if (network.utilityType === 'coolingWater' && !(cap > 0)
           && s.params?.heatRejectionCapacity > 0) {
           cap = s.params.heatRejectionCapacity;
+        } else if (network.utilityType === 'waterSupplyPipe' && !(cap > 0)
+          && s.params?.processReturnCapacity > 0) {
+          cap = s.params.processReturnCapacity;
+          sourceUnit = 'kW process return';
         } else if (network.utilityType === 'coolingWater' && !(cap > 0)
           && s.params?.supplyRateLPerTick > 0) {
           cap = s.params.supplyRateLPerTick;

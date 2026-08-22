@@ -1513,7 +1513,7 @@ export const INFRASTRUCTURE_RAW = {
   dualCircuitChiller: {
     id: 'dualCircuitChiller',
     name: 'Dual-Circuit Chiller',
-    desc: 'Two independent refrigerant circuits on one frame turn lukewarm plant water into 175 kW of cold process water for about 35 kW of electrical input at full load. Separate compressors and evaporator passes let the magnet and RF loops use different setpoints; one circuit keeps roughly 85 kW alive while the other is locked out. The compressor package takes a direct HV feed.',
+    desc: 'Two independent refrigerant circuits on one frame remove 175 kW from the process-water loop for about 35 kW of electrical input at full load. Connect the blue supply and red process return through the evaporator, then connect the green condenser-water inlet and red 210 kW heat-reject outlet to a powered rejector. Separate compressors let one circuit keep roughly 85 kW alive while the other is locked out. The compressor package takes a direct HV feed.',
     coolingRole: 'processCooling',
     category: 'cooling', subsection: 'processCooling',
     accentColor: 0x2fbccc,
@@ -1537,7 +1537,7 @@ export const INFRASTRUCTURE_RAW = {
   chiller: {
     id: 'chiller',
     name: 'Chiller',
-    desc: 'Precision 300 kW chilled-water system with a green lukewarm inlet and blue cold-water outlet. It draws about 60 kW at full load (COP 5) while maintaining water temperature to +/- 0.1°C. Feed the compressor plant directly from HV and distribute its cold output to temperature-sensitive RF and magnet loads.',
+    desc: 'Precision 300 kW water-cooled chiller with separate evaporator and condenser loops. It draws about 60 kW at full load (COP 5): blue water supplies RF and magnet loads, their red return enters the evaporator, green condenser water arrives from heat rejection, and a second red pipe carries 360 kW of process-plus-compressor heat back out. Feed the compressor plant directly from HV.',
     coolingRole: 'processCooling',
     category: 'cooling', subsection: 'processCooling',
     accentColor: 0x2fbccc,

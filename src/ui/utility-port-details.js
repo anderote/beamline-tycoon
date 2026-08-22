@@ -18,6 +18,11 @@ const SOURCE_METRICS = {
     ['supplyRateLPerTick', 'Water supply', 'L/tick'],
     ['storageCapacityL', 'Water storage', 'L'],
   ],
+  waterSupplyPipe: [
+    ['capacity', 'Header capacity', 'kW'],
+    ['heatRejectionCapacity', 'Heat rejection', 'kW'],
+    ['processReturnCapacity', 'Process return', 'kW'],
+  ],
 };
 
 function rounded(value) {
