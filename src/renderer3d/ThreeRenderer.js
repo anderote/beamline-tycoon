@@ -121,6 +121,7 @@ import {
   resolveLabelOverlaps,
 } from './zone-label.js';
 import { isVisiblePickObject, pickWithScreenTolerance } from './screen-picking.js';
+import { utilityLinePickFromIntersections } from './utility-line-picking.js';
 import {
   PLACEMENT_GRID_STYLE,
   appendPlacementGridDots,
@@ -1213,31 +1214,27 @@ export class ThreeRenderer {
    * Each line Group has `userData.lineId` and `userData.utilityType` set by
    * utility-line-builder-v2's buildLineGroup.
    */
-  raycastUtilityLine(screenX, screenY) {
+  raycastUtilityLine(screenX, screenY, tolerancePx = 0) {
     if (!this.renderer || !this.camera || !this.utilityLineGroup) return null;
-    const { raycaster } = this._screenRay(screenX, screenY);
-    const hits = raycaster.intersectObjects(this.utilityLineGroup.children, true);
-    if (!hits || hits.length === 0) return null;
-    // Find the closest hit and walk up to the group with lineId userData.
-    hits.sort((a, b) => a.distance - b.distance);
-    for (const h of hits) {
-      let obj = h.object;
-      while (obj) {
-        if (obj.userData?.isUniversalUtilityBus && obj.userData.busId) {
-          return {
-            busId: obj.userData.busId,
-            universalUtilityBus: true,
-            worldPos: h.point ? { x: h.point.x, z: h.point.z } : null,
-          };
-        }
-        if (obj.userData && obj.userData.lineId) {
-          return { lineId: obj.userData.lineId, utilityType: obj.userData.utilityType };
-        }
-        if (obj.parent === this.utilityLineGroup) break;
-        obj = obj.parent;
-      }
-    }
-    return null;
+    const castAt = (x, y) => {
+      const { raycaster } = this._screenRay(x, y);
+      const hits = raycaster.intersectObjects(this.utilityLineGroup.children, true)
+        .filter(hit => isVisiblePickObject(hit.object));
+      hits.sort((a, b) => a.distance - b.distance);
+      return utilityLinePickFromIntersections(hits, this.utilityLineGroup);
+    };
+
+    const exact = castAt(screenX, screenY);
+    if (exact?.lineId || !(tolerancePx > 0)) return exact;
+
+    // An exact neutral-tray hit must not prevent a nearby populated lane from
+    // being selected. Limit tolerance samples to real lines, then retain the
+    // exact bus fallback for bus placement/demolition semantics.
+    const nearbyLine = pickWithScreenTolerance(screenX, screenY, tolerancePx, (x, y) => {
+      const hit = castAt(x, y);
+      return hit?.lineId ? hit : null;
+    });
+    return nearbyLine || exact;
   }
 
   /**

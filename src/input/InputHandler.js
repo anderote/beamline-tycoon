@@ -8,10 +8,9 @@ import { MODES } from '../data/modes.js';
 import { DIR, DIR_DELTA } from '../data/directions.js';
 import { isoToGrid, isoToGridFloat, gridToIso, isoToSubGrid } from '../renderer/grid.js';
 import { formatEnergy, UNITS } from '../data/units.js';
-import { UtilityInspector } from '../ui/UtilityInspector.js';
+import { openUtilityInspectorForLine } from '../ui/utility-inspector-command.js';
 import { appendRequiredPortRequirements } from '../ui/required-port-preview.js';
 import { EconomyWindow } from '../ui/EconomyWindow.js';
-import { discoverNetworks, makeDefaultPortLookup } from '../utility/network-discovery.js';
 import { UTILITY_TYPES, utilityLineHeight } from '../utility/registry.js';
 import { projectOntoUtilityLine, utilityAttachmentPose } from '../utility/line-attachments.js';
 import { PLACEABLES } from '../data/placeables/index.js';
@@ -94,6 +93,7 @@ import {
   mouseSelectionCategoryEnabled,
   saveMouseSelectionCategories,
 } from './selection-preferences.js';
+import { OBJECT_PICK_TOLERANCE_PX } from './pick-tolerance.js';
 
 // === BEAMLINE TYCOON: INPUT HANDLER ===
 
@@ -111,11 +111,6 @@ export function isMiddleCameraDrag(start, current) {
   const dy = current.y - start.y;
   return dx * dx + dy * dy >= MIDDLE_CAMERA_DRAG_THRESHOLD_PX ** 2;
 }
-
-// A mesh ray is pixel-perfect, which is too strict for thin rails, legs and
-// small fittings. Selection/demolish clicks get this fixed screen-space margin
-// (rather than a world-space radius that changes feel with camera zoom).
-const OBJECT_PICK_TOLERANCE_PX = 12;
 
 function _categoryColor(category) {
   const colors = {
@@ -2841,9 +2836,11 @@ export class InputHandler {
     // reach this point. Opens a UtilityInspector for the clicked line's net.
     if (this.activeTool?.kind !== 'beamline'
         && typeof this.renderer.raycastUtilityLine === 'function') {
-      const hit = this.renderer.raycastUtilityLine(screenX, screenY);
+      const hit = this.renderer.raycastUtilityLine(
+        screenX, screenY, OBJECT_PICK_TOLERANCE_PX,
+      );
       if (hit && hit.lineId) {
-        if (this._openUtilityInspectorForLine(hit.lineId)) return;
+        if (this.openUtilityInspectorForLine(hit.lineId)) return;
       }
     }
 
@@ -4588,18 +4585,8 @@ export class InputHandler {
    * Given a utility line id, find its network and open a UtilityInspector.
    * Returns true if a window was opened (or an existing one focused).
    */
-  _openUtilityInspectorForLine(lineId) {
-    const state = this.game.state;
-    const lines = state.utilityLines;
-    if (!lines || typeof lines.get !== 'function') return false;
-    const line = lines.get(lineId);
-    if (!line) return false;
-    const lookup = makeDefaultPortLookup(state);
-    const nets = discoverNetworks(line.utilityType, lines, lookup);
-    const net = nets.find(n => (n.lineIds || []).includes(lineId));
-    if (!net) return false;
-    new UtilityInspector(this.game, line.utilityType, net.id);
-    return true;
+  openUtilityInspectorForLine(lineId) {
+    return openUtilityInspectorForLine(this.game, lineId);
   }
 
   setActiveMode(mode) {

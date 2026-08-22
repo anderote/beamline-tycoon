@@ -4,6 +4,7 @@ import {
   isVisiblePickObject,
   pickWithScreenTolerance,
 } from '../src/renderer3d/screen-picking.js';
+import { utilityLinePickFromIntersections } from '../src/renderer3d/utility-line-picking.js';
 
 let passed = 0;
 let failed = 0;
@@ -82,6 +83,59 @@ console.log('\n--- Screen-space object picking ---');
   const hiddenGroup = { visible: false, parent: null };
   const child = { visible: true, material: { visible: true }, parent: hiddenGroup };
   assert(!isVisiblePickObject(child), 'geometry below a hidden parent is not pickable');
+}
+
+console.log('\n--- Utility line and Universal Utility Bus picking ---');
+
+{
+  const root = { parent: null, userData: {} };
+  const carrier = {
+    parent: root,
+    userData: { isUniversalUtilityBus: true, busId: 'bus_1' },
+  };
+  const carrierMesh = { parent: carrier, userData: {} };
+  const channel = {
+    parent: root,
+    userData: {
+      lineId: 'line_power', utilityType: 'powerCable',
+      isUniversalUtilityBus: true, busId: 'bus_1', channelSlot: 3,
+    },
+  };
+  const channelMesh = { parent: channel, userData: {} };
+  const got = utilityLinePickFromIntersections([
+    { object: carrierMesh, distance: 2, point: { x: 1, z: 2 } },
+    { object: channelMesh, distance: 3, point: { x: 1.1, z: 2.1 } },
+  ], root);
+  assert(got?.lineId === 'line_power',
+    'a populated bus lane wins over the closer neutral carrier mesh');
+  assert(got?.busId === 'bus_1' && got?.channelSlot === 3,
+    'a populated lane preserves its bus metadata for bus-aware tools');
+}
+
+{
+  const root = { parent: null, userData: {} };
+  const carrier = {
+    parent: root,
+    userData: { isUniversalUtilityBus: true, busId: 'bus_empty' },
+  };
+  const got = utilityLinePickFromIntersections([
+    { object: { parent: carrier, userData: {} }, distance: 4, point: { x: 5, z: 6 } },
+  ], root);
+  assert(got?.busId === 'bus_empty' && !got?.lineId,
+    'an unpopulated carrier remains pickable as a bus');
+}
+
+{
+  const root = { parent: null, userData: {} };
+  const line = {
+    parent: root,
+    userData: { lineId: 'ordinary_line', utilityType: 'vacuumPipe' },
+  };
+  const got = utilityLinePickFromIntersections([
+    { object: { parent: line, userData: {} }, distance: 1, point: { x: 0, z: 0 } },
+  ], root);
+  assert(got?.lineId === 'ordinary_line' && got?.utilityType === 'vacuumPipe',
+    'ordinary utility lines retain their line identity');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

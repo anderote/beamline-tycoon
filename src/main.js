@@ -34,7 +34,7 @@ import { WelcomeDialog } from './ui/WelcomeDialog.js';
 import { SaveLoadDialog } from './ui/SaveLoadDialog.js';
 import { CloudSaves } from './game/CloudSaves.js';
 import { OptionsDialog } from './ui/OptionsDialog.js';
-import { UtilityInspector } from './ui/UtilityInspector.js';
+import { openUtilityInspectorForLine } from './ui/utility-inspector-command.js';
 import { EconomyWindow } from './ui/EconomyWindow.js';
 import { AdvisorEngine, ADVICE_LEVEL_STORAGE_KEY } from './advisor/engine.js';
 import { buildAdvisorContext } from './advisor/context.js';
@@ -44,7 +44,6 @@ import {
   returnToMainMenu,
 } from './ui/main-menu-navigation.js';
 import { ScenarioPicker } from './ui/ScenarioPicker.js';
-import { discoverNetworks, makeDefaultPortLookup } from './utility/network-discovery.js';
 import { wireUtility } from './data/scenarios/scenario-wiring.js';
 
 // Some code may still reference these as globals (Pyodide bridge, etc.)
@@ -509,15 +508,11 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
   // browser console. Unblocks Phase 6 playtesting if the 3D click path
   // misbehaves. window.openUtilityInspector('line-abc123').
   window.openUtilityInspector = (lineId) => {
-    const lines = game.state?.utilityLines;
-    if (!lines || typeof lines.get !== 'function') { console.warn('no utilityLines'); return null; }
-    const line = lines.get(lineId);
-    if (!line) { console.warn('line not found', lineId); return null; }
-    const lookup = makeDefaultPortLookup(game.state);
-    const nets = discoverNetworks(line.utilityType, lines, lookup);
-    const net = nets.find(n => (n.lineIds || []).includes(lineId));
-    if (!net) { console.warn('network not found for line', lineId); return null; }
-    return new UtilityInspector(game, line.utilityType, net.id);
+    if (!openUtilityInspectorForLine(game, lineId)) {
+      console.warn('network not found for line', lineId);
+      return null;
+    }
+    return true;
   };
 
   router.init(restoredView?.route);
