@@ -19,7 +19,7 @@ import { buildPortRoutedPath } from '../src/utility/line-geometry.js';
 import { validateDrawLine } from '../src/utility/line-drawing.js';
 import { portWorldPosition, portSide, portApproachVec } from '../src/utility/ports.js';
 import { findUtilityEndpoint } from '../src/utility/utility-endpoints.js';
-import { gridToIso } from '../src/renderer/grid.js';
+import { gridToIso, isoToGrid } from '../src/renderer/grid.js';
 import { discoverNetworks, makeDefaultPortLookup } from '../src/utility/network-discovery.js';
 import { roundedCableTilePath } from '../src/utility/soft-cable.js';
 
@@ -353,8 +353,7 @@ console.log('\n--- 5. Tool picking follows each utility\'s placement contract --
 
 {
   // Placement follows the camera ray on the visible route plane for every
-  // utility. Ground projection is reserved for hover/tooltips and must never
-  // move even an HV route away from the cursor.
+  // utility and must never move even an HV route toward the terrain.
   const failures = [];
   for (const utilityType of UTILITY_TYPE_LIST) {
     const game = makeGame();
@@ -377,6 +376,41 @@ console.log('\n--- 5. Tool picking follows each utility\'s placement contract --
   }
   assert(failures.length === 0,
     `all utility placement follows line of sight, never terrain (${failures.join(',') || 'all'})`);
+}
+
+{
+  // Idle hover used to perform a second ground projection after resolving the
+  // utility plane. Grid highlighting, snapping, and tooltips must all consume
+  // the exact same line-of-sight point.
+  const game = makeGame();
+  const tool = new UtilityLineTool('vacuumPipe');
+  const plane = { x: 333, y: 444 };
+  const seen = { plane: 0, ground: 0, hover: null, tooltip: null };
+  const renderer = {
+    screenToWorld: () => { seen.ground++; return { x: 111, y: 222 }; },
+    screenToWorldAtHeight: () => { seen.plane++; return plane; },
+    updateHover: (col, row) => { seen.hover = { col, row }; },
+  };
+  const ctrl = new UtilityLineInputController({ game, renderer });
+  ctrl.setUtilityType('vacuumPipe');
+  const input = {
+    utilityLineController: ctrl,
+    lastMouseWorldX: 0, lastMouseWorldY: 0, _lastScreenX: 0, _lastScreenY: 0,
+    _checkHoverTooltip: (world, grid) => { seen.tooltip = { world, grid }; },
+    _showDragCostTooltip() {}, _hideDragCostTooltip() {},
+  };
+  tool.onMouseMove({ clientX: 10, clientY: 20, shiftKey: false }, {
+    game, input, renderer,
+  });
+  const expectedGrid = isoToGrid(plane.x, plane.y);
+  assert(seen.plane === 1 && seen.ground === 0,
+    'utility hover performs one line-of-sight projection and no terrain projection');
+  assert(seen.hover?.col === expectedGrid.col && seen.hover?.row === expectedGrid.row,
+    'the grid hover follows the utility-plane point');
+  assert(seen.tooltip?.world === plane
+    && seen.tooltip?.grid.col === expectedGrid.col
+    && seen.tooltip?.grid.row === expectedGrid.row,
+    'the hover tooltip follows the same utility-plane point');
 }
 
 {
