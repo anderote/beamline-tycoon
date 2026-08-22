@@ -79,6 +79,7 @@ import {
 import {
   componentHoverInfo,
   furnishingHoverInfo,
+  staffHoverInfo,
   utilityNetworkHoverInfo,
 } from '../ui/hover-info.js';
 import { renderHoverTooltipDetail } from '../ui/hover-tooltip-detail.js';
@@ -354,6 +355,24 @@ export class InputHandler {
   _checkHoverTooltip(world, grid, screenX, screenY) {
     const col = grid.col, row = grid.row;
     const key = col + ',' + row;
+
+    // Staff are animated independently of placeables and can stand directly
+    // in front of equipment. Match click picking by giving the visible person
+    // priority, then reuse the inspector's canonical activity description.
+    const staffHit = this.renderer.raycastStaffScreen?.(screenX, screenY);
+    if (staffHit?.staffId) {
+      const member = (this.game.state.staffMembers || [])
+        .find(candidate => candidate.id === staffHit.staffId);
+      if (member) {
+        this._setHoverTooltip(
+          `staff:${member.id}`,
+          staffHoverInfo(member, this.game),
+          screenX,
+          screenY,
+        );
+        return;
+      }
+    }
 
     // Visible 3D objects win over lines or tile fallbacks.
     const hit = this.renderer.raycastScreen?.(screenX, screenY);

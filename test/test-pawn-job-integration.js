@@ -94,6 +94,20 @@ class MeshStandardMaterial {
   dispose() {}
 }
 
+class SpriteMaterial {
+  constructor(opts) { Object.assign(this, opts); }
+  dispose() {}
+}
+
+class Sprite extends Obj3D {
+  constructor(material) {
+    super();
+    this.material = material;
+    this.center = new Vec3();
+    this.visible = true;
+  }
+}
+
 class Color {
   constructor(css) {
     const hex = String(css).replace('#', '');
@@ -139,7 +153,9 @@ class Color {
   }
 }
 
-global.THREE = { Group, Mesh, BoxGeometry, CylinderGeometry, MeshStandardMaterial, Color };
+global.THREE = {
+  Group, Mesh, BoxGeometry, CylinderGeometry, MeshStandardMaterial, SpriteMaterial, Sprite, Color,
+};
 
 // --- State / world helpers (same idiom as test-pawn-pathing.js) ------------
 
@@ -571,6 +587,50 @@ console.log('\n=== 11. Staff visual levels respond to focus distance and zoom ==
     'a distant pawn uses the one-mesh silhouette');
   assertOk(staffVisualLevel(pawn, { x: 0, z: 0, zoom: 0.3 }) === 'far',
     'a fully zoomed-out view simplifies the whole roster');
+}
+
+console.log('\n=== 12. Finite work tasks publish an overhead progress bar ===\n');
+{
+  const state = makeState();
+  floorRect(state, 0, 2, 0, 2);
+  const node = { col: 1, row: 1, subCol: 0, subRow: 0 };
+  const member = {
+    id: 'progress-staff', profession: 'technician', fromNode: { ...node },
+    job: {
+      jobType: 'repair', target: { beamlineId: 'bl1', nodeId: 'mod1' },
+      stationKey: null, destNode: { ...node }, phase: 'work', progress: 15,
+    },
+  };
+  state.staffMembers = [member];
+
+  const pawns = makePawns(state);
+  pawns.sync();
+  const pawn = pawns._pawns.get(member.id);
+  pawns.update(0.02);
+  assertOk(pawn.progressBar?.group.visible === true,
+    'repair work shows the overhead task bar');
+  assertOk(pawn.progressBar?.progress === 0.25,
+    `repair progress uses the real 15/60 work total (got ${pawn.progressBar?.progress})`);
+
+  member.job = { ...member.job, jobType: 'commission', progress: 45 };
+  pawns.update(0.02);
+  assertOk(pawn.progressBar?.progress === 0.5,
+    `commissioning progress uses the real 45/90 work total (got ${pawn.progressBar?.progress})`);
+
+  member.job = { ...member.job, phase: 'travel' };
+  pawns.update(0.02);
+  assertOk(pawn.progressBar?.group.visible === false,
+    'the bar hides while travelling to the task');
+
+  member.job = { ...member.job, jobType: 'runBeam', phase: 'work', progress: 500 };
+  pawns.update(0.02);
+  assertOk(pawn.progressBar?.group.visible === false,
+    'open-ended beam operation does not show a meaningless completion bar');
+
+  member.job = null;
+  pawns.update(0.02);
+  assertOk(pawn.progressBar?.group.visible === false,
+    'the bar stays hidden after the task ends');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -2,6 +2,7 @@ import {
   beamlineRfOperatingInfo,
   componentHoverInfo,
   furnishingHoverInfo,
+  staffHoverInfo,
   utilityNetworkHoverInfo,
 } from '../src/ui/hover-info.js';
 import { COMPONENTS } from '../src/data/components.js';
@@ -172,10 +173,32 @@ const furnishing = furnishingHoverInfo({
 assert(furnishing.detail === 'Morale +10% · Research +2',
   'furnishing effects stay on one detail line');
 
+const workingStaff = staffHoverInfo({
+  id: 'staff_1',
+  name: 'Ada Chen',
+  profession: 'technician',
+  job: {
+    jobType: 'repair', phase: 'travel', target: { beamlineId: 'bl_1', nodeId: 'node_1' },
+  },
+}, { state: { staffMembers: [] } });
+assert(workingStaff.title === 'Ada Chen', 'staff hover names the person');
+assert(workingStaff.detail === 'Repair — travelling to the beamline',
+  `staff hover reports the current job and phase (${workingStaff.detail})`);
+
+const idleStaff = staffHoverInfo({
+  id: 'staff_2',
+  name: 'Sam Rivera',
+  profession: 'admin',
+  job: null,
+  idleReason: 'Nothing to do right now.',
+}, { state: { staffMembers: [] } });
+assert(idleStaff.detail === 'Nothing to do right now.',
+  `idle staff hover explains why they are idle (${idleStaff.detail})`);
+
 for (const info of [
   cavity, panel, actionablePanel, actionableHvDistributor, packageChiller, makeUpTank, facilityWater,
   bulkWater, network, exactlyCoveredNetwork, warningNetwork, criticalNetwork,
-  mismatchNetwork, hardFaultNetwork, furnishing,
+  mismatchNetwork, hardFaultNetwork, furnishing, workingStaff, idleStaff,
 ]) {
   assert(info && !info.title.includes('\n') && !info.detail.includes('\n'),
     `${info?.title || 'hover'} is limited to two logical lines`);

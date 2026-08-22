@@ -33,8 +33,10 @@
 // target-addressed job with no StationRef at all — repair/commission — the
 // nearest reachable subtile just outside the target's real footprint, via
 // jobs.js's own wall-aware perimeter walk), and tickJobs times the work and
-// completes/abandons it. This file never asks which kind of job it is. Arrival, `job.phase`, and
-// `member.fromNode` are simulation state owned by jobRunner/staffMovement;
+// completes/abandons it. Movement never branches on the job kind; the small
+// overhead indicator only asks jobs.js for a finite task's published completion
+// fraction. Arrival, `job.phase`, and `member.fromNode` are simulation state
+// owned by jobRunner/staffMovement;
 // this renderer never writes them. It still releases station RESERVATIONS
 // (releaseStation/releaseAllFor) on pawn teardown and via the raw
 // sendToStation/setDestination seam, Plan 2 machinery that predates the
@@ -68,10 +70,12 @@ import {
 import {
   getStationIndex, releaseStation, releaseAllFor,
 } from '../game/staff/stations.js';
+import { jobProgressFraction } from '../game/staff/jobs.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import {
   buildStaffFigure,
   disposeStaffFigure,
+  staffFigureHeight,
   staffPalette,
   staffStyleHipHeight,
   applyPose,
@@ -98,6 +102,72 @@ const SPAWN_TRIES = 10;       // sampled candidates before giving up on a nice s
 const ZONE_BIAS = 0.6;        // chance to head for the assigned zone
 
 const HEIGHT_JITTER = 0.04;   // ±4% per-staff scale
+
+const PROGRESS_BAR_WIDTH = 0.66;
+const PROGRESS_BAR_HEIGHT = 0.08;
+const PROGRESS_BAR_Y = staffFigureHeight(DEFAULT_STAFF_STYLE) + 0.16;
+let progressBarMaterials = null;
+
+function _progressMaterials() {
+  if (!progressBarMaterials) {
+    const options = { transparent: true, depthTest: false, depthWrite: false };
+    progressBarMaterials = {
+      outline: new THREE.SpriteMaterial({ ...options, color: 0x090914, opacity: 0.96 }),
+      track: new THREE.SpriteMaterial({ ...options, color: 0x292940, opacity: 0.96 }),
+      fill: new THREE.SpriteMaterial({ ...options, color: 0x68df7b, opacity: 1 }),
+    };
+  }
+  return progressBarMaterials;
+}
+
+/** Camera-facing, pixel-sized task progress indicator attached above a pawn. */
+function _createProgressBar() {
+  // Older lightweight rendering fixtures intentionally implement only the
+  // articulated mesh subset of THREE. The production renderer always has
+  // sprites; keeping this guard lets those fixtures remain about pathing.
+  if (typeof THREE.Sprite !== 'function' || typeof THREE.SpriteMaterial !== 'function') {
+    return null;
+  }
+  const materials = _progressMaterials();
+  const group = new THREE.Group();
+  group.name = 'staffTaskProgress';
+  group.position.set(0, PROGRESS_BAR_Y, 0);
+  group.visible = false;
+  group.userData.staffAuxiliary = 'progress';
+
+  const layer = (name, material, width, height, renderOrder) => {
+    const sprite = new THREE.Sprite(material);
+    sprite.name = name;
+    sprite.scale.set(width, height, 1);
+    sprite.center.set(0.5, 0.5);
+    sprite.renderOrder = renderOrder;
+    sprite.userData.staffAuxiliary = 'progress';
+    group.add(sprite);
+    return sprite;
+  };
+  layer('staffTaskProgressOutline', materials.outline,
+    PROGRESS_BAR_WIDTH + 0.08, PROGRESS_BAR_HEIGHT + 0.06, 1200);
+  layer('staffTaskProgressTrack', materials.track,
+    PROGRESS_BAR_WIDTH, PROGRESS_BAR_HEIGHT, 1201);
+  const fill = layer('staffTaskProgressFill', materials.fill,
+    PROGRESS_BAR_WIDTH, PROGRESS_BAR_HEIGHT, 1202);
+  fill.visible = false;
+  return { group, fill, progress: null };
+}
+
+function _updateProgressBar(progressBar, job) {
+  if (!progressBar) return;
+  const progress = jobProgressFraction(job);
+  progressBar.progress = progress;
+  progressBar.group.visible = progress !== null;
+  if (progress === null) return;
+  progressBar.fill.visible = progress > 0;
+  if (progress <= 0) return;
+  progressBar.fill.scale.x = PROGRESS_BAR_WIDTH * progress;
+  // Keep the left edge fixed at -width/2 while scale changes, without a
+  // camera-relative child offset that would skew when the view rotates.
+  progressBar.fill.center.x = 0.5 / progress;
+}
 
 // Stride: radians of walk phase per world unit travelled. One full cycle
 // (2π) every ~1.1 units => a ~0.55-unit stride, about a quarter tile.
@@ -262,6 +332,8 @@ export class StaffPawns {
 
     const figure = buildStaffFigure(look, DEFAULT_STAFF_STYLE);
     figure.group.userData.staffId = member.id;
+    const progressBar = _createProgressBar();
+    if (progressBar) figure.group.add(progressBar.group);
 
     const spawn = member.fromNode
       ? subtileToWorld(member.fromNode)
@@ -269,6 +341,7 @@ export class StaffPawns {
     const pawn = {
       id: member.id,
       figure,
+      progressBar,
       x: spawn.x,
       z: spawn.z,
       level: levelOf(member.fromNode || spawn),
@@ -970,6 +1043,7 @@ export class StaffPawns {
       // mode-based below runs this frame — see _syncJob's own doc comment
       // for the three-way split (no job / travel / work) this drives.
       this._syncJob(pawn, member);
+      _updateProgressBar(pawn.progressBar, member?.job);
 
       if (pawn.mode === 'idle') {
         // Only a JOBLESS pawn ambles on its own timer — a member holding a
