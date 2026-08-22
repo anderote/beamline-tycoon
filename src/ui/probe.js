@@ -6,7 +6,7 @@ import { makeDraggable } from './draggable.js';
 
 const PROBE_COLORS = ['#ff5555', '#55bbff', '#55bb55', '#ffaa55', '#bb55ff', '#55ffff'];
 const PROBE_GRID_LAYOUTS = [[1,1],[2,1],[1,2],[2,2],[3,2]];
-const PROBE_PLOT_GROUPS = [
+export const PROBE_PLOT_GROUPS = [
   { label: 'Beam Transport', plots: [
     { id: 'beam-envelope', name: 'Beam Envelope' },
     { id: 'current-loss', name: 'Current & Loss' },
@@ -14,6 +14,7 @@ const PROBE_PLOT_GROUPS = [
     { id: 'beta-acceptance', name: 'Beam β & Acceptance' },
   ] },
   { label: 'Longitudinal Beam', plots: [
+    { id: 'energy', name: 'Energy' },
     { id: 'beam-power', name: 'Beam Power' },
     { id: 'bunch-evolution', name: 'Bunch Evolution' },
     { id: 'peak-current', name: 'Peak Current' },

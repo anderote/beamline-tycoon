@@ -65,6 +65,16 @@ Loss is not currently a trip condition — a beamline that loses 99% of its curr
 
 ---
 
+### Energy
+
+**Quick Tip:** Shows beam kinetic energy along the beamline with automatic eV, keV, MeV, or GeV scaling.
+
+**How It Works:**
+
+The green trace shows how the beam gains energy through accelerating structures and loses energy in bending or radiating components. Step increases identify effective RF acceleration; a flat section is transporting rather than accelerating the beam. Mission energy bands appear directly on the plot, making it the clearest view for checking whether the endpoint reaches its required energy without conflating that value with current or dispersion.
+
+---
+
 ### Beam Power
 
 **Quick Tip:** Shows the beam's average power along the beamline, calculated by the physics solver as kinetic energy times surviving current.
