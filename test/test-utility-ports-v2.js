@@ -312,11 +312,12 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
     'split outlet ratings add back to each transformer nameplate capacity');
   assert(hv.hv_in.connectionKind === 'hvLoadIn'
       && grid.hv_in.connectionKind === 'hvLoadIn'
+      && [pad, facility, hv, grid].every(ports => ports.hv_in.tensionsCable === true)
       && hv.hv_in.params.demand === 1500
       && grid.hv_in.params.demand === 6000
       && hv.hv_in.params.tracksDownstreamDemand === true
       && grid.hv_in.params.tracksDownstreamDemand === true,
-    'large transformer inputs track downstream demand up to their nameplate ratings');
+    'top-mounted transformer inputs tension cable and track downstream demand');
   assert(pad.hv_out_1.params.capacity < facility.hv_out_1.params.capacity
       && facility.hv_out_1.params.capacity < hv.hv_out_1.params.capacity
       && hv.hv_out_1.params.capacity < grid.hv_out_1.params.capacity,
@@ -329,12 +330,12 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
       && compactGear.hv_in.role === 'sink'
       && compactGear.hv_in.omnidirectional === true
       && compactGear.hv_in.maxConnections === 2
-      && compactGear.hv_in.tensionsCable === true
+      && compactGear.hv_in.tensionsCable !== true
       && compactGear.hv_in.params.demand === 600
       && compactGear.hv_in.params.tracksDownstreamDemand === true
       && compactHvDistributorOutputs.length === 2
       && compactHvDistributorOutputs.every(p => p.params.capacity === 300),
-    'Compact HV Distributor taps a two-wire trunk into two protected 300 kW outputs');
+    'Compact HV Distributor keeps a non-tensioning two-wire trunk tap');
   assert(INFRASTRUCTURE_RAW.compactHvDistributor.electricalControl?.breaker?.rating === 600,
     'Compact HV Distributor breaker matches its 600 kW feeder rating');
   assert(!INFRASTRUCTURE_RAW.switchgear
@@ -349,8 +350,10 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
       && [panel, section, main].every(ports => ports.hv_in.params.tracksDownstreamDemand === true
         && ports.hv_in.connectionKind === 'hvDistributionTap'
         && ports.hv_in.omnidirectional === true
-        && ports.hv_in.maxConnections === 2
-        && ports.hv_in.tensionsCable === true),
+        && ports.hv_in.maxConnections === 2)
+      && panel.hv_in.tensionsCable !== true
+      && section.hv_in.tensionsCable === true
+      && main.hv_in.tensionsCable === true,
     'distribution ladder ratings cap dynamic draw: compact < section < main panel');
   const outlets = (t) => Object.keys(getUtilityPortsV2(t))
     .filter(n => n.startsWith('pwr_out')).length;
@@ -521,6 +524,7 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
     return port?.utility !== 'hvCable' || port.role !== 'sink'
       || port.connectionKind !== 'hvLoadTap'
       || port.omnidirectional !== true || port.maxConnections !== 2
+      || port.tensionsCable !== true
       || !(port.params.demand > 0);
   });
   assert(invalidLoadTaps.length === 0,
@@ -674,8 +678,11 @@ console.log('\n--- Distribution cabinet port layout ---');
     assert(new Set(outlets.map(([, p]) => p.offsetAlong)).size === count,
       `${id} branch outlets are spaced to distinct positions`);
     assert(ports.hv_in.side === 'back', `${id} HV feed keeps its logical rear route point`);
-    assert(ports.hv_in.maxConnections === 2 && ports.hv_in.tensionsCable === true,
-      `${id} roof terminal accepts and tensions two HV cable segments`);
+    assert(ports.hv_in.maxConnections === 2,
+      `${id} roof terminal accepts two HV cable segments`);
+    const tensionsCable = !['powerPanel'].includes(id);
+    assert((ports.hv_in.tensionsCable === true) === tensionsCable,
+      `${id} roof terminal ${tensionsCable ? 'tensions' : 'does not tension'} HV cable`);
   }
 }
 

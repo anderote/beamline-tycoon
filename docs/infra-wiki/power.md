@@ -41,9 +41,11 @@ transformer → HV feeder → distribution panel → branch circuit → field di
 - **Spider Box**: 30 kW field limit and four interchangeable sockets. Connect
   any socket to a panel; the other three become local taps.
 
-Distribution equipment adds no capacity. Every distribution cabinet accepts
-two cable segments on its tensioning roof tap, letting the trunk continue
-through the terminal; only one segment may lead to a live source. A field distributor cannot feed
+Distribution equipment adds no capacity. The Compact HV Distributor and
+compact/section/main panels accept two cable segments on their roof taps,
+letting the trunk continue through the terminal; only one segment may lead to
+a live source. The Section and Main panels tension attached cable, while the
+Compact HV Distributor and Power Distribution Panel do not. A field distributor cannot feed
 another field distributor. A spider box does not care which physical socket
 receives its feed, but wiring a second live feed is still invalid. Redundant
 feeds require an explicit transfer switch rather than silently paralleling two

@@ -11,7 +11,7 @@ Carries high-voltage power from a transformer to main/local distribution. It is 
 - **Color:** Black (0x141418)
 - **Network type:** Capacity-based (kW supply vs live downstream demand, capped by each distribution device's rating)
 - **Source equipment:** Pad-Mount, Facility, HV and Grid Intertie transformers; the Compact HV Distributor provides two protected feeders, the Section Distribution Panel one, and the Main Distribution Panel two
-- **Consumers:** Compact HV Distributor and compact/section/main distribution panels through their two-connection tensioning roof taps; RF sources and other dedicated HV loads remain terminal connections
+- **Consumers:** Compact HV Distributor and compact/section/main distribution panels through two-connection roof taps; the Section and Main panels tension cable while the compact distributor and Power Distribution Panel do not. Roof-fed plant and compatible RF cabinets use tensioning taps; exposed-tube RF sources remain terminal connections
 - **Cost:** $1,200/sub-unit ($4,800/tile)
 
 ### Power Cable (charcoal black)
