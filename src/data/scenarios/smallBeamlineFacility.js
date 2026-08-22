@@ -150,7 +150,7 @@ export function setupSmallBeamlineFacility(game) {
 
   // Service row (north). The ordinary branch loads total 102 kW — gun 50,
   // cavities 30, quad 10, buncher 5, cup + BPM 2 and support gear 5. The RF
-  // amplifier is a separate 70 kW HV feeder, so this uses the 1.5 MW service
+  // amplifier is a separate 70 kW HV feeder, so this uses the 3 MW service
   // transformer tier and its matching main distribution panel rather than the
   // 150 kW pad-mount starter.
   // RF: the buncher and the three pillbox cavities are all 162.5 MHz, so they

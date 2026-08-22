@@ -1242,7 +1242,7 @@ const INFRA_UTILITY_PORTS = {
   // A distribution device's hv_in draws its connected downstream load, capped
   // by its rating. Buying a larger panel adds outlets and headroom; it does not
   // consume unused electrical capacity.
-  gridServicePoint:         supplyPorts(1500, 2),
+  gridServicePoint:         supplyPorts(3000, 2),
   gridServicePointHighCapacity: supplyPorts(6000, 4),
   padMountTransformer:      transformerPorts(150, 1),
   facilityTransformer:      transformerPorts(400, 2),

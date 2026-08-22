@@ -48,9 +48,11 @@ the short authoring contract.
   so their emitter remains visible independently of the day/night cycle.
 - Electrical wall feedthroughs use `mount: 'wall'` and
   `wallPassThrough: true`. They reserve the matching quarter-wall slot on both
-  faces and declare matching passive front/back ports of one electrical
-  utility. Each conductor has one port on each face; same-device pass-port
-  continuity is the only connection through the wall.
+  faces for every slot in `wallSpan` and declare matching passive front/back
+  ports of one electrical utility. Multi-conductor fittings keep each authored
+  inlet/outlet pair in its own `electricalGroups` entry. A line terminates on
+  each face; same-device pair continuity is the only connection through the
+  wall.
 - An off-map service uses `mapEdgeConnection` with a positive integer
   `maxDistanceTiles` plus validated conductor presentation dimensions. Its
   complete footprint must remain on the map and inside that boundary band at

@@ -101,7 +101,7 @@ export function generateRealLab() {
 }
 
 // Bring the furnished control room up on real services. The small pad-mount
-// transformer stays outside the west wall, fed by the map-edge 1.5 MW service
+// transformer stays outside the west wall, fed by the map-edge 3 MW service
 // point; its HV feeder then terminates on a rated wall bushing before a second
 // cable continues to the panel inside.
 export function setupRealLab(game) {
