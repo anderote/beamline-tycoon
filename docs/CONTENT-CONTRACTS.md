@@ -48,9 +48,9 @@ the short authoring contract.
   so their emitter remains visible independently of the day/night cycle.
 - Electrical wall feedthroughs use `mount: 'wall'` and
   `wallPassThrough: true`. They reserve the matching quarter-wall slot on both
-  faces and declare exactly two passive front/back ports of one electrical
-  utility. A line terminates on each face; same-device pass-port continuity is
-  the only connection through the wall.
+  faces and declare matching passive front/back ports of one electrical
+  utility. Each conductor has one port on each face; same-device pass-port
+  continuity is the only connection through the wall.
 - An off-map service uses `mapEdgeConnection` with a positive integer
   `maxDistanceTiles` plus validated conductor presentation dimensions. Its
   complete footprint must remain on the map and inside that boundary band at
