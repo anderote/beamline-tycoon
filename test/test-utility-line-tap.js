@@ -250,7 +250,7 @@ console.log('\n--- 2. A drag onto the trunk commits, and joins its network ---')
     `the source now feeds both quads (${keys.join(',')})`);
 }
 
-console.log('\n--- 2b. Subtile-routed data cables retain peer-bus taps ---');
+console.log('\n--- 2b. Flexible data cables retain peer-bus taps ---');
 {
   const game = new Game(new BeamlineRegistry(), { seed: 12 });
   game.state.resources.funding = 1e9;
@@ -267,16 +267,18 @@ console.log('\n--- 2b. Subtile-routed data cables retain peer-bus taps ---');
     'dataFiber',
   );
   const trunk = dataLines(game)[0];
-  assert(trunk?.path?.length >= 2 && !trunk.cablePath,
-    'the committed data trunk stores only the shared subtile route');
+  assert(trunk?.cablePath?.length >= 2,
+    'the committed data trunk stores the freehand flexible route');
 
-  const mid = longestSegment(trunk.path).mid;
+  const mid = longestSegment(
+    roundedCableTilePath(trunk.cablePath, trunk.utilityType),
+  ).mid;
   const tapController = ctrlFor(game, 'dataFiber');
   const tapIso = gridToIso(mid.col, mid.row);
   tapController.onHover(tapIso.x, tapIso.y);
   assert(tapController.hoverPort?.tap === true
       && tapController.hoverPort.lineId === trunk.id,
-    `the rendered data cable offers a trunk tap (${JSON.stringify(tapController.hoverPort)})`);
+    `the visible data cable offers a trunk tap (${JSON.stringify(tapController.hoverPort)})`);
   drag(game, portTile(game, 'console', 'data_in'), mid, 'dataFiber');
   const branch = dataLines(game).find(line => line.id !== trunk.id);
   assert([branch?.tapLineIds?.start, branch?.tapLineIds?.end].includes(trunk.id),

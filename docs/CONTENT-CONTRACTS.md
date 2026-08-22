@@ -243,11 +243,13 @@ the short authoring contract.
   vacuum fittings meet the 1 m beam axis, cooling fittings use the low service
   band, and data fittings use the instrumentation band unless a per-port mount
   overrides them.
-- Every utility descriptor uses the `flexibleSubtile` routing profile. Newly
-  authored power, HV, cooling, data, vacuum, RF, and cryogenic runs all store
-  an axis-aligned path on quarter-tile coordinates and may turn on any such
-  coordinate. This is one construction topology even when a cable or hose is
-  rendered with sag and rounded bends.
+- Every utility descriptor uses the `flexibleSubtile` routing profile. Vacuum,
+  RF, and cryogenic runs author axis-aligned paths on quarter-tile coordinates
+  and may turn on any such coordinate. Power, HV, cooling, and data retain that
+  path for endpoint routing and compatibility, but also persist the unsnapped
+  freehand `cablePath` the player drew. The freehand trace owns their visible
+  geometry, length/cost, wall checks, and solid-equipment collision; cooling
+  additionally uses it for spatial topology.
 - Free-drag endpoints may snap to an existing compatible vacuum, cooling, RF,
   cryogenic-transfer, or data run and commit a named `tapLineIds` T-junction.
   Vacuum, RF, and cryogenic transfer also join automatically wherever an
@@ -288,8 +290,8 @@ the short authoring contract.
   `routeHeightMeters` values cannot override a fixed utility datum.
 - A utility descriptor with `requiresWallPassThrough: true` validates the
   physical rendered route against `wallOccupied`. Power and HV cable opt in;
-  their shared subtile `path` is authoritative for newly drawn lines.
-  `cablePath` remains load/copy/render compatible for legacy saves only.
+  their freehand `cablePath` is authoritative for newly drawn lines, with the
+  shared subtile `path` retained as a compatibility fallback.
   Fabricated pipe, waveguide, cooling, and cryogenic services retain direct
   wall crossing.
 - An HV cable whose two endpoints are overhead terminals on utility poles or

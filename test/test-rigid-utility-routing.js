@@ -206,7 +206,36 @@ console.log('\n--- 3. Footprints are a broad phase; measured 3D geometry decides
   setUtilityCollisionProvider(null);
 }
 
-console.log('\n--- 3a. On-pipe equipment blocks where its model is rendered ---');
+console.log('\n--- 3a. Freehand utilities collide along their visible route ---');
+{
+  const state = {
+    defs: { blocker: { subW: 4, subL: 8, ports: {} } },
+    placeables: [{ id: 'machine', type: 'blocker', col: 2, row: -1, dir: 0 }],
+    beamPipes: [], utilityLines: new Map(),
+  };
+  setUtilityCollisionProvider(type => type === 'blocker');
+  const visibleDetour = validateDrawLine(state, {
+    utilityType: 'powerCable', start: null, end: null,
+    path: [{ col: 0, row: 0 }, { col: 5, row: 0 }],
+    cablePath: [
+      { col: 0, row: 0 }, { col: 0, row: 3 },
+      { col: 5, row: 3 }, { col: 5, row: 0 },
+    ],
+  });
+  assert(visibleDetour.ok,
+    `a freehand cable may visibly wrap around solid equipment (${visibleDetour.reason || 'ok'})`);
+
+  const visibleCollision = validateDrawLine(state, {
+    utilityType: 'powerCable', start: null, end: null,
+    path: [{ col: 0, row: 3 }, { col: 5, row: 3 }],
+    cablePath: [{ col: 0, row: 0 }, { col: 5, row: 0 }],
+  });
+  assert(!visibleCollision.ok && visibleCollision.reason === 'blocked_by_equipment',
+    'a visible freehand cable through solid equipment cannot be hidden by a clear compatibility path');
+  setUtilityCollisionProvider(null);
+}
+
+console.log('\n--- 3b. On-pipe equipment blocks where its model is rendered ---');
 {
   // Beam-pipe path coordinates are tile-centre indices: the renderer places
   // this buncher at world (5, 1), or utility-route tile (2.5, 0.5). The
@@ -246,7 +275,7 @@ console.log('\n--- 3a. On-pipe equipment blocks where its model is rendered ---'
   setUtilityCollisionProvider(null);
 }
 
-console.log('\n--- 3b. The ordinary drag controller accepts an automatic join ---');
+console.log('\n--- 3c. The ordinary drag controller accepts an automatic join ---');
 {
   const state = {
     placeables: [], beamPipes: [],
@@ -266,7 +295,7 @@ console.log('\n--- 3b. The ordinary drag controller accepts an automatic join --
     `the joined route stays on the fixed vacuum datum (${geometry.routeHeightMeters} m)`);
 }
 
-console.log('\n--- 3c. Obsolete saved lane values canonicalize on read ---');
+console.log('\n--- 3d. Obsolete saved lane values canonicalize on read ---');
 {
   const lower = {
     id: 'lower', utilityType: 'vacuumPipe', start: null, end: null,
