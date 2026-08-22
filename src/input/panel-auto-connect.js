@@ -302,6 +302,78 @@ function coolingCandidateRank(candidate, originClasses, coveredCapabilities) {
   return newlyCovered > 0 ? -newlyCovered : 2;
 }
 
+function pairedCoolingAssignments(outlets, candidates) {
+  const branchOutlets = outlets.filter(outlet =>
+    coolingAutoConnectClass(outlet.spec) === COOLING_AUTO_CONNECT_CLASS.LOAD_BRANCH);
+  const coldOutlets = branchOutlets.filter(outlet => portWaterCircuit(outlet.spec) === 'cold');
+  const hotOutlets = branchOutlets.filter(outlet => portWaterCircuit(outlet.spec) === 'hot');
+  if (coldOutlets.length === 0 || coldOutlets.length !== hotOutlets.length) return [];
+
+  // Distributor branches share one face. Its outward normal tells us which
+  // plan axis runs along the header; preserving order on that axis prevents
+  // the familiar left-to-right braid when several beamline loads sit beside it.
+  const normal = branchOutlets.find(outlet => outlet.vec)?.vec;
+  const axis = normal?.dCol ? 'row' : normal?.dRow ? 'col' : (() => {
+    const colValues = branchOutlets.map(outlet => outlet.tile.col);
+    const rowValues = branchOutlets.map(outlet => outlet.tile.row);
+    const colSpan = Math.max(...colValues) - Math.min(...colValues);
+    const rowSpan = Math.max(...rowValues) - Math.min(...rowValues);
+    return colSpan > rowSpan ? 'col' : 'row';
+  })();
+  const coordinate = entry => entry.tile[axis];
+  const byHeaderPosition = (a, b) => coordinate(a) - coordinate(b)
+    || a.portName.localeCompare(b.portName);
+  coldOutlets.sort(byHeaderPosition);
+  hotOutlets.sort(byHeaderPosition);
+
+  // Cold and hot ports are authored in the same circuit order. Zipping those
+  // ordered lists preserves cold_1/hot_1 on the LCW manifold and maps the
+  // Water Distributor's first cold branch to its first hot branch.
+  const stations = coldOutlets.map((cold, index) => {
+    const hot = hotOutlets[index];
+    return {
+      cold,
+      hot,
+      coordinate: (coordinate(cold) + coordinate(hot)) / 2,
+    };
+  }).sort((a, b) => a.coordinate - b.coordinate);
+
+  const targetsByDevice = new Map();
+  for (const candidate of candidates) {
+    if (coolingAutoConnectClass(candidate.spec) !== COOLING_AUTO_CONNECT_CLASS.LOAD) continue;
+    const circuit = portWaterCircuit(candidate.spec);
+    if (circuit !== 'cold' && circuit !== 'hot') continue;
+    let target = targetsByDevice.get(candidate.placeableId);
+    if (!target) {
+      target = {
+        placeableId: candidate.placeableId,
+        deviceDistance: candidate.deviceDistance,
+        cold: null,
+        hot: null,
+      };
+      targetsByDevice.set(candidate.placeableId, target);
+    }
+    if (!target[circuit]) target[circuit] = candidate;
+  }
+
+  // Keep the existing nearest-device policy when there are more loads than
+  // physical pairs, then align the chosen devices with header stations. Both
+  // hoses for a target are planned together before generic single-line fallback.
+  const targets = [...targetsByDevice.values()]
+    .filter(target => target.cold && target.hot)
+    .sort((a, b) => a.deviceDistance - b.deviceDistance
+      || a.placeableId.localeCompare(b.placeableId))
+    .slice(0, stations.length)
+    .map(target => ({
+      ...target,
+      coordinate: (target.cold.tile[axis] + target.hot.tile[axis]) / 2,
+    }))
+    .sort((a, b) => a.coordinate - b.coordinate
+      || a.placeableId.localeCompare(b.placeableId));
+
+  return targets.map((target, index) => ({ station: stations[index], target }));
+}
+
 /**
  * Plan real lines from one utility source/distributor to nearby compatible
  * devices. Nearest devices normally win when targets outnumber connectors;
@@ -355,7 +427,8 @@ export function planPanelAutoConnect(state, panelId, {
       tile: portTile(pos),
       vec: portApproachVec(panel, panelDef, portName),
     };
-  }).filter(outlet => outlet?.spec);
+  }).filter(outlet => outlet?.spec)
+    .map((outlet, outletIndex) => ({ ...outlet, outletIndex }));
   const coolingOriginClasses = new Set(outlets
     .map(outlet => coolingAutoConnectClass(outlet.spec))
     .filter(Boolean));
@@ -455,6 +528,65 @@ export function planPanelAutoConnect(state, panelId, {
   const targetLimit = distributionOnly
     ? Math.max(0, 1 - connectedDistributionFeeds.size)
     : Infinity;
+
+  const routedStub = (outlet, sink, validationState) => {
+    const start = { placeableId: panelId, portName: outlet.portName };
+    const end = { placeableId: sink.placeableId, portName: sink.portName };
+    const directJumper = Math.abs(outlet.tile.col - sink.tile.col)
+      + Math.abs(outlet.tile.row - sink.tile.row) <= 0.5;
+    const routes = buildPortRoutedPaths(
+      outlet.tile, directJumper ? null : outlet.vec,
+      sink.tile, directJumper ? null : sink.vec,
+      { allowZeroLength: true },
+    );
+    const path = routes.find(candidate => validateDrawLine(validationState, {
+      utilityType,
+      start,
+      end,
+      path: candidate,
+    }).ok);
+    return path ? { start, end, path, subL: pathLengthSubUnits(path) } : null;
+  };
+
+  if (supportsPairedWaterCircuits) {
+    const assignments = pairedCoolingAssignments(outlets, candidates);
+    for (const { station, target } of assignments) {
+      const pairLines = [...plannedLines];
+      const pairProbeState = { ...state, utilityLines: pairLines };
+      const pairStubs = [];
+      for (const circuit of ['cold', 'hot']) {
+        const stub = routedStub(station[circuit], target[circuit], pairProbeState);
+        if (!stub) break;
+        pairStubs.push(stub);
+        pairLines.push({
+          id: `__panel_auto_pair_${stubs.length + pairStubs.length}`,
+          utilityType,
+          start: stub.start,
+          end: stub.end,
+          path: stub.path,
+        });
+      }
+      if (pairStubs.length !== 2) continue;
+
+      for (const stub of pairStubs) {
+        stubs.push(stub);
+        plannedLines.push({
+          id: `__panel_auto_${stubs.length}`,
+          utilityType,
+          start: stub.start,
+          end: stub.end,
+          path: stub.path,
+        });
+        totalSubL += stub.subL;
+      }
+      usedOutlets.add(station.cold.outletIndex);
+      usedOutlets.add(station.hot.outletIndex);
+      connectedTargetCircuits.add(`${target.placeableId}:cold`);
+      connectedTargetCircuits.add(`${target.placeableId}:hot`);
+      connectedTargetDevices.add(target.placeableId);
+    }
+  }
+
   const remainingCandidates = [...candidates];
 
   while (remainingCandidates.length > 0) {
@@ -491,36 +623,19 @@ export function planPanelAutoConnect(state, panelId, {
       && (!sink.overheadPeer || outlet.portName === sink.portName));
     if (outletIdx < 0) continue;
     const outlet = outlets[outletIdx];
-    const start = { placeableId: panelId, portName: outlet.portName };
-    const end = { placeableId: sink.placeableId, portName: sink.portName };
-    const directJumper = Math.abs(outlet.tile.col - sink.tile.col)
-      + Math.abs(outlet.tile.row - sink.tile.row) <= 0.5;
-    const routes = buildPortRoutedPaths(
-      outlet.tile, directJumper ? null : outlet.vec,
-      sink.tile, directJumper ? null : sink.vec,
-      {
-        allowZeroLength: true,
-      },
-    );
-    const path = routes.find(candidate => validateDrawLine(probeState, {
-      utilityType,
-      start,
-      end,
-      path: candidate,
-    }).ok);
-    if (!path) continue;
+    const stub = routedStub(outlet, sink, probeState);
+    if (!stub) continue;
 
-    const subL = pathLengthSubUnits(path);
-    stubs.push({ start, end, path, subL });
+    stubs.push(stub);
     plannedLines.push({
       id: `__panel_auto_${stubs.length}`,
       utilityType,
-      start,
-      end,
-      path,
+      start: stub.start,
+      end: stub.end,
+      path: stub.path,
     });
-    totalSubL += subL;
-    usedOutlets.add(outletIdx);
+    totalSubL += stub.subL;
+    usedOutlets.add(outlet.outletIndex);
     connectedTargetCircuits.add(sinkTargetKey);
     connectedTargetDevices.add(sink.placeableId);
     if (utilityType === 'coolingWater') {
