@@ -10,7 +10,13 @@ import { FLEXIBLE_SUBTILE_ROUTING_PROFILE } from '../routing-contract.js';
 export default {
   type: 'powerCable',
   displayName: 'Power Cable',
-  color: '#44cc44',
+  // Branch cords use a charcoal-black jacket. Keep them a little lighter and
+  // warmer than the near-black HV feeder so parallel electrical runs remain
+  // distinguishable by body, thickness, and energized surface motion.
+  color: '#25282c',
+  // Electrical ports stay green as an interaction/circuit cue; only the cord
+  // jacket changes to black.
+  markerColor: '#44cc44',
   geometryStyle: 'cylinder',
   routingProfile: FLEXIBLE_SUBTILE_ROUTING_PROFILE,
   pipeRadiusMeters: 0.02,

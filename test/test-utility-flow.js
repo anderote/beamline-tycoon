@@ -469,6 +469,12 @@ console.log('\n--- 5. getLineMaterial: distinct per flowState, cached, tagged __
 
   const powerOk = getLineMaterial('powerCable', 'ok');
   assert(powerOk !== ok, 'a different utility type is never the same cached instance');
+  assert(powerOk.color.getHexString() === '25282c'
+      && UTILITY_TYPES.hvCable.color === '#141418'
+      && UTILITY_TYPES.powerCable.color !== UTILITY_TYPES.hvCable.color,
+    'branch cords use their own charcoal black, distinct from near-black HV feeders');
+  assert(UTILITY_TYPES.powerCable.markerColor === '#44cc44',
+    'power ports retain their green interaction cue');
   assert(powerOk.colorNode && !powerOk.emissiveNode,
     'power flow is a surface colour variation rather than emissive light');
 
