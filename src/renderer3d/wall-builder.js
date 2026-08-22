@@ -399,7 +399,7 @@ export class WallBuilder {
         variant = _hashWallPos(col, row, edge) % def.variantTextures.length;
       }
       const height = def ? def.wallHeight * HEIGHT_SCALE : DEFAULT_WALL_HEIGHT;
-      const thickness = this._wallThickness(def);
+      const thickness = this._visualWallThickness(def, w);
       const color = def ? def.color : 0xcccccc;
 
       // Determine if this wall should be transparent. _mergeWalls resolved
@@ -544,7 +544,8 @@ export class WallBuilder {
       // Position at the center of the merged span. Y=0 since absolute Y is
       // now baked into geometry vertices.
       const pos = this._wallPosition(col, row, edge, height);
-      this._offsetWallPosition(pos, w, thickness);
+      this._offsetWallPosition(pos, w, this._wallThickness(def));
+      this._offsetForFaceFinishes(pos, w);
       pos.y = 0;
       if (span && span > 1) {
         if (isNS) {
@@ -665,6 +666,7 @@ export class WallBuilder {
       const wallDef = wallType ? WALL_TYPES[wallType] : null;
       const wallColor = wallDef ? wallDef.color : 0xcccccc;
       const edgeCenter = this._offsetEdgeCenter(rawEdgeCenter, wallEntry?.wall);
+      this._offsetForFaceFinishes(edgeCenter, wallEntry?.wall);
       const spanShift = (Math.max(1, d.tileSpan || 1) - 1) * TILE_SIZE / 2;
       if (isNS) edgeCenter.x += spanShift;
       else edgeCenter.z += spanShift;
@@ -682,7 +684,7 @@ export class WallBuilder {
         0.1,
         Math.min(nominalDoorHeight, wallHeight - LINTEL_HEIGHT)
       );
-      const wallThickness = this._wallThickness(wallDef);
+      const wallThickness = this._visualWallThickness(wallDef, wallEntry?.wall);
 
       // Get or create wall material for wall segments around the door.
       // Match the main wall material — tint white if textured so the map shows
@@ -1086,8 +1088,9 @@ export class WallBuilder {
   }) {
     const isNS = edge === 'n' || edge === 's';
     const edgeCenter = this._offsetEdgeCenter(this._edgeCenter(col, row, edge), wallRecord);
+    this._offsetForFaceFinishes(edgeCenter, wallRecord);
     const wallHeight = wallDef ? wallDef.wallHeight * HEIGHT_SCALE : DEFAULT_WALL_HEIGHT;
-    const wallThickness = this._wallThickness(wallDef);
+    const wallThickness = this._visualWallThickness(wallDef, wallRecord);
     const wallColor = wallDef ? wallDef.color : 0xcccccc;
 
     // Resolved lazily so an opening that emits no fill never allocates the
@@ -1203,8 +1206,9 @@ export class WallBuilder {
       const wallVariant = wallEntry?.variant ?? 0;
       const wallDef = wallType ? WALL_TYPES[wallType] : null;
       const edgeCenter = this._offsetEdgeCenter(rawEdgeCenter, wallEntry?.wall);
+      this._offsetForFaceFinishes(edgeCenter, wallEntry?.wall);
       const wallHeight = wallDef ? wallDef.wallHeight * HEIGHT_SCALE : DEFAULT_WALL_HEIGHT;
-      const wallThickness = this._wallThickness(wallDef);
+      const wallThickness = this._visualWallThickness(wallDef, wallEntry?.wall);
       const layout = windowOpeningLayout(edge, wnd.off, def);
       const openingWidth = layout.openingWidth;
       const matKey = this._ensureOpeningWallMaterial(
@@ -1505,6 +1509,27 @@ export class WallBuilder {
     return def
       ? Math.max(def.thickness * THICKNESS_SCALE, MIN_THICKNESS)
       : DEFAULT_WALL_THICKNESS;
+  }
+
+  _faceFinishProfile(wall) {
+    const inside = WALL_PAINTS[wall?.facePaint?.inside]?.thickness ?? 0;
+    const outside = WALL_PAINTS[wall?.facePaint?.outside]?.thickness ?? 0;
+    return { inside, outside, total: inside + outside };
+  }
+
+  _visualWallThickness(def, wall) {
+    return this._wallThickness(def) + this._faceFinishProfile(wall).total;
+  }
+
+  _offsetForFaceFinishes(position, wall) {
+    if (!wall) return position;
+    const { inside, outside } = this._faceFinishProfile(wall);
+    if (inside === outside) return position;
+    const inward = this._inward(wall.edge);
+    const amount = (inside - outside) / 2;
+    position.x += inward.x * amount;
+    position.z += inward.z * amount;
+    return position;
   }
 
   _inward(edge) {

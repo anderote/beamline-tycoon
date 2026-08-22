@@ -1,6 +1,6 @@
 import { COMPONENTS, commissioningSpecialtyFor } from '../data/components.js';
 import {
-  FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, variantCost,
+  FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, WALL_PAINTS, variantCost,
   floorSupportsZone, floorRequirementLabel,
 } from '../data/structure.js';
 import { findRoofRegion, isRoofedRegion, roofKey, roofProfileForRegion } from './roofing.js';
@@ -2088,9 +2088,11 @@ export class Game {
   }
 
   /**
-   * Paint one physical face of a wall. A request made through the wall's
+   * Finish one physical face of a wall. A request made through the wall's
    * stored edge paints its tile-facing side; its mirrored edge paints the
-   * opposite face. This keeps two rooms independently paintable.
+   * opposite face. This keeps two rooms independently finishable. Material
+   * layers may carry a construction cost and visible thickness; the legacy
+   * `facePaint` state name remains for save compatibility.
    */
   paintWallFace(col, row, edge, paintId = null, level = 0) {
     level = normalizeLevel(level);
@@ -2101,6 +2103,15 @@ export class Game {
     const face = requestedKey === key ? 'inside' : 'outside';
     const before = wall.facePaint?.[face] ?? null;
     if (before === paintId) return false;
+    const nextFinish = paintId ? WALL_PAINTS[paintId] : null;
+    if (paintId && !nextFinish) return false;
+    const nextCost = nextFinish?.cost ?? 0;
+    if (nextCost > 0 && !this.canAfford({ funding: nextCost })) return false;
+    const previousFinish = before ? WALL_PAINTS[before] : null;
+    if (previousFinish?.cost > 0) {
+      this.refundConstruction({ funding: previousFinish.cost });
+    }
+    if (nextCost > 0) this.chargeConstruction(nextCost);
     if (paintId) wall.facePaint = { ...(wall.facePaint || {}), [face]: paintId };
     else {
       wall.facePaint = { ...(wall.facePaint || {}) };

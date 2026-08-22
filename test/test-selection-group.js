@@ -4,6 +4,7 @@
 import { Game } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
 import { COMPONENTS } from '../src/data/components.js';
+import { WALL_PAINTS } from '../src/data/structure.js';
 import { PARAM_DEFS } from '../src/beamline/component-physics.js';
 import { InputHandler } from '../src/input/InputHandler.js';
 import { UtilityLineInputController } from '../src/input/UtilityLineInputController.js';
@@ -169,6 +170,7 @@ console.log('\n=== Selection groups ===\n');
   game.placeInfraTile(30, 30, 'concrete');
   game.placeInfraTile(30, 30, 'labFloor');
   game.placeWall(30, 30, 'n', 'officeWall');
+  game.paintWallFace(30, 30, 'n', 'leadLining');
   game.placeDoor(30, 30, 'n', 'officeDoor', 1, 2);
   game.placeWall(30, 30, 'e', 'officeWall');
   game.placeWindow(30, 30, 'e', 'officeWindow', 2);
@@ -209,8 +211,8 @@ console.log('\n=== Selection groups ===\n');
   const preview = previewSelectionGroup(game, captured.payload, destination);
   assert(preview.ok && preview.floorTargets.length === 1 && preview.edgeTargets.length === 2,
     'a structure-only copy previews at a clear tile-aligned destination');
-  assert((preview.structureCost.funding || 0) > 0,
-    'structure preview includes floor, foundation, wall, door, and window costs');
+  assert((preview.structureCost.funding || 0) >= WALL_PAINTS.leadLining.cost,
+    'structure preview includes floor, wall finish, wall, door, and window costs');
   const copied = copySelectionGroup(game, captured.payload, preview);
   const copiedFloor = selectionFloorTargets(captured.payload, destination)[0];
   assert(copied.ok && game.state.infraOccupied[`${copiedFloor.col},${copiedFloor.row}`] === 'labFloor',
@@ -218,6 +220,9 @@ console.log('\n=== Selection groups ===\n');
   assert(game.state.walls.length === 4 && game.state.doors.length === 2
       && game.state.windows.length === 2,
   'structure copy commits walls with their door/window openings');
+  assert(game.state.walls.some(w => w.col === 60 && w.row === 60
+      && w.facePaint?.inside === 'leadLining'),
+    'structure copy preserves and pays for a thick wall-face finish');
   game.undo();
   assert(game.state.walls.length === 2 && game.state.doors.length === 1
       && game.state.windows.length === 1,

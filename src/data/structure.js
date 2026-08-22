@@ -36,10 +36,12 @@ export function variantCost(def, variant = 0) {
   return typeof vc === 'number' ? vc : flat;
 }
 
-// Cosmetic finishes apply to one face of an existing wall. They deliberately
-// live outside WALL_TYPES: painting never changes a wall's construction cost,
-// height, collision, or shielding properties.
-// A finish is one of two things, distinguished by `texture`:
+// Face finishes apply to one side of an existing wall. They deliberately live
+// outside WALL_TYPES: a finish preserves the host wall's height, openings,
+// collision, and construction identity. `subsection` owns palette grouping.
+// A finish may be a zero-thickness paint/paper or a material layer with a
+// physical `thickness` in world metres and a per-segment construction `cost`.
+// Texturing is independent of thickness:
 //
 //   no texture  → PAINT. `color` multiplies the wall's own base material, so
 //                 brick stays brick and drywall stays drywall underneath.
@@ -50,7 +52,7 @@ export function variantCost(def, variant = 0) {
 //                 positional (no wainscot, chair rails or borders; they would
 //                 seam on any wall that isn't exactly one tile tall).
 //
-// `kind` drives nothing but the HUD grouping; `texture` is the real switch.
+// Legacy saves call the state field `facePaint`; it now stores any face finish.
 export const WALL_PAINTS = {
   // ---- Flat paints -------------------------------------------------------
   cleanWhite:  { id: 'cleanWhite',  name: 'Clean White',  color: 0xe9e5dc },
@@ -92,6 +94,34 @@ export const WALL_PAINTS = {
   paperFloral: {
     id: 'paperFloral', name: 'Floral Sprig', kind: 'wallpaper',
     texture: 'wallpaper_floral', color: 0xe4ded6,
+  },
+
+  // ---- Exterior surfaces ------------------------------------------------
+  exteriorStucco: {
+    id: 'exteriorStucco', name: 'Mineral Stucco', subsection: 'exterior',
+    texture: 'wall_exterior_stucco', color: 0xe6dcc7, thickness: 0.06, cost: 8,
+  },
+  exteriorMetal: {
+    id: 'exteriorMetal', name: 'Standing-Seam Metal', subsection: 'exterior',
+    texture: 'wall_exterior_metal', color: 0x3f474d, thickness: 0.1, cost: 18,
+  },
+  exteriorPrecast: {
+    id: 'exteriorPrecast', name: 'Precast Panels', subsection: 'exterior',
+    texture: 'wall_exterior_precast', color: 0xb9b9b4, thickness: 0.14, cost: 24,
+  },
+
+  // ---- Applied shielding ------------------------------------------------
+  // These are side-specific linings, not freestanding walls. Their thickness
+  // visibly builds out from the selected face while the host owns collision.
+  copperLining: {
+    id: 'copperLining', name: 'Copper RF Sheeting', subsection: 'shielding',
+    texture: 'copper', color: 0xb87333, thickness: 0.035, cost: 55,
+    shielding: 'rf',
+  },
+  leadLining: {
+    id: 'leadLining', name: 'Lead Shielding', subsection: 'shielding',
+    texture: 'metal_dark', color: 0x5a5a6e, thickness: 0.18, cost: 120,
+    shielding: 'radiation',
   },
 };
 
@@ -691,6 +721,7 @@ export const STRUCTURE_WALLS = {
     subsection: 'shielding',
     isWall: true,
     insetSubtiles: 1,
+    deprecated: true,
   },
   copperSheeting: {
     id: 'copperSheeting',
@@ -707,6 +738,7 @@ export const STRUCTURE_WALLS = {
     subsection: 'shielding',
     isWall: true,
     wallOverlay: true,
+    deprecated: true,
   },
 };
 

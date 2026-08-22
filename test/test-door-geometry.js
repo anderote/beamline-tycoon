@@ -796,5 +796,29 @@ console.log('\n=== 16. Door and window surrounds preserve wall paint ===\n');
   'window surround keeps the wall inside/outside finishes');
 }
 
+// ---------------------------------------------------------------------------
+console.log('\n=== 17. Material face finishes add thickness on the selected side ===\n');
+{
+  const build = (facePaint = null) => {
+    const wb = new WallBuilder(null);
+    wb.build([{
+      col: 2, row: 2, edge: 'n', type: 'officeWall', variant: 0,
+      ...(facePaint ? { facePaint } : {}), baseY: { a: 0, b: 0 },
+    }], [], [], new Group(), 'up', null);
+    return wb._meshes[0];
+  };
+  const plain = build();
+  const lined = build({ inside: 'leadLining' });
+  assert(near(
+    lined.geometry.parameters.depth - plain.geometry.parameters.depth,
+    WALL_PAINTS.leadLining.thickness,
+  ), 'lead lining adds its authored physical thickness to the wall slab');
+  assert(near(
+    lined.position.z - plain.position.z,
+    WALL_PAINTS.leadLining.thickness / 2,
+  ), 'a north-wall inside lining builds toward the selected tile-facing side');
+  assert(!!lined.material[4].map, 'the thick selected face uses a textured material');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

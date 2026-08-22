@@ -79,6 +79,18 @@ the short authoring contract.
   Every texture id must be registered in `renderer3d/materials/tiled.js` and
   backed by a committed PNG under `assets/textures/materials/`.
 
+## Wall face finishes
+
+- Paint, wallpaper, exterior cladding, and applied shielding are authored in
+  `WALL_PAINTS` and stored per physical wall face in the legacy `facePaint`
+  record. They do not replace the host wall or its collision/opening contract.
+- `subsection` selects `paint`, `wallpaper`, `exterior`, or `shielding` in the
+  Structure > Walls palette. Textured finishes name a material registered in
+  `renderer3d/materials/tiled.js` and backed by a committed PNG.
+- A material layer may declare a positive world-metre `thickness` and numeric
+  per-segment `cost`. The renderer adds that thickness only toward the selected
+  face; applying and stripping it use normal construction charge/refund rules.
+
 ## Beamline missions and research
 
 - Beamline mission families are purposes and target bands, not technology

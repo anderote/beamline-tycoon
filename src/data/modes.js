@@ -88,7 +88,7 @@ export const MODES = {
     name: 'Structure',
     categories: {
       flooring:    { name: 'Flooring',      color: '#999', subsections: { foundations: { name: 'Foundations' }, surfaces: { name: 'Surfaces' }, roofs: { name: 'Roofs' } } },
-      walls:       { name: 'Walls',         color: '#887', subsections: { walls: { name: 'Walls' }, shielding: { name: 'Shielding' }, paint: { name: 'Paint' }, wallpaper: { name: 'Wallpaper' } } },
+      walls:       { name: 'Walls',         color: '#887', subsections: { walls: { name: 'Walls' }, exterior: { name: 'Exterior Surfaces' }, shielding: { name: 'Shielding' }, paint: { name: 'Paint' }, wallpaper: { name: 'Wallpaper' } } },
       doors:       { name: 'Doors',         color: '#689', subsections: { interior: { name: 'Interior' }, exterior: { name: 'Exterior' }, gates: { name: 'Fence Gates' } } },
       windows:     { name: 'Windows',       color: '#8cf', subsections: { interior: { name: 'Interior' }, exterior: { name: 'Exterior' }, shielded: { name: 'Shielded' } } },
       hangings:    { name: 'Hangings',      color: '#b88', isDecorationTab: true },
