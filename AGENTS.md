@@ -132,11 +132,19 @@ into `master`, or committing new work on `master`.
 For owner-authorized promotion, whether performed manually or by an agent:
 
 1. Confirm `dev` is clean, integrated, and validated.
-2. Fast-forward `master` from `dev`; do not independently merge feature branches
+2. Capture the complete pre-promotion `master..dev` commit range for the
+   promotion report. Summarize all work in that range, not only the feature or
+   request that triggered the promotion.
+3. Fast-forward `master` from `dev`; do not independently merge feature branches
    into `master`.
-3. Push `master` only after that promotion.
-4. Keep `dev` at least equal to `master` at all times. If `master` ever advances
+4. Push `master` only after that promotion.
+5. Keep `dev` at least equal to `master` at all times. If `master` ever advances
    unexpectedly, reconcile it into `dev` immediately before starting more work.
+6. Report the promotion to the repository owner with a concise grouped summary
+   of the entire promoted range: player-facing features, fixes/performance work,
+   and workflow/documentation changes as applicable. Include the validation
+   performed, the promoted commit, push status, and any browser/gameplay checks
+   that remain for the owner. This report is required after every promotion.
 
 Promotion reference:
 
