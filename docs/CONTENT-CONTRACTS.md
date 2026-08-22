@@ -113,25 +113,24 @@ the short authoring contract.
 
 ## Utility ports and scenarios
 
-### Continuous utility manifolds
+### Universal utility bus
 
-- A continuous carrier declares `linearManifold` on its infrastructure raw
-  definition. Its `utility` is the one network it carries; it does not create
-  capacity. Upstream sources remain the sole capacity authority.
+- `universalUtilityBus` is the one continuous carrier shown in every Infra
+  Transport palette. Category-specific manifolds remain ordinary fixed
+  equipment; they do not arm a second carrier-building interaction.
+- The bus is a utility-neutral metal rack with exactly four isolated channels.
+  Drawing the first line of a utility onto it claims one channel; later lines
+  of that utility reuse the same channel. A fifth distinct utility is refused.
+- Each claimed channel is represented by a real tagged utility line along the
+  rack. It creates no capacity: connected sources remain the sole capacity
+  authority, and multiple sources combine through the ordinary network solver.
 - `tapSpacingSubtiles`, `minLengthSubtiles`, and `maxLengthSubtiles` are
   positive integer subtile dimensions. `costPerSubtile` prices the fabricated
-  run, and `trayFamily` groups visually co-located carriers so power, vacuum,
-  cooling, cryo, waveguide, and data trays may share a corridor without being
-  treated as one network.
-- The shared planner snaps a drag to one orthogonal axis, includes both end
-  fittings, and gives every generated tap a stable name. Input, placement,
-  solver lookup, and renderer code must consume that plan rather than
-  independently spacing ports.
-- Selecting an opted-in manifold from the Infra palette arms click-drag
-  construction. The committed backbone is a tagged utility line, so it shares
-  its corridor with carriers of other utilities and may be tapped by ordinary
-  utility drawing. A tagged carrier is the explicit tee fitting for utilities
-  whose loose runs otherwise prohibit arbitrary taps.
+  run. The shared planner snaps a drag to one orthogonal axis, includes both
+  end fittings, and gives every generated access point a stable identity.
+- Utility-line input, persistence, network discovery, and rendering consume
+  the committed bus path and generated channel lines. They must not maintain a
+  second, independently solved capacity model for racks.
 
 - Read ports through `getUtilityPortsV2(id)` when solver defaults and derived RF
   band information matter. The flat table is raw authoring data.

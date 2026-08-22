@@ -427,6 +427,10 @@ export class DemolishTool extends Tool {
           })) return;
 
           const lineHit = ctx.renderer.raycastUtilityLine?.(e.clientX, e.clientY);
+          if (lineHit?.busId && game.removeUtilityBus?.(lineHit.busId)) {
+            game.log('Removed Universal Utility Bus', 'info');
+            return;
+          }
           if (lineHit?.lineId && game.utilityLineSystem && game.removeUtilityLine(lineHit.lineId)) {
             const descriptor = UTILITY_TYPES[lineHit.utilityType];
             game.log(`Removed ${descriptor?.displayName || lineHit.utilityType} line`, 'info');
@@ -485,6 +489,10 @@ export class DemolishTool extends Tool {
           })) return true;
         }
         const hit = renderer.raycastUtilityLine?.(screenX, screenY);
+        if (hit?.busId && game.removeUtilityBus?.(hit.busId)) {
+          game.log('Removed Universal Utility Bus', 'info');
+          return true;
+        }
         if (hit && hit.lineId && game.utilityLineSystem) {
           if (game.removeUtilityLine(hit.lineId)) {
             const descriptor = UTILITY_TYPES[hit.utilityType];

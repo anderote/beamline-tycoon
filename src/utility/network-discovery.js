@@ -411,6 +411,13 @@ export function discoverNetworks(utilityType, lines, portLookup) {
       touchedPlaceables.add(line.end.placeableId);
       if (!touchedAnchor.has(line.end.placeableId)) touchedAnchor.set(line.end.placeableId, b);
     }
+    // Explicit taps are topology, not merely a validation exemption. This is
+    // especially important for power, data, and waveguide: casual geometric
+    // tees are forbidden for those utilities, but a fabricated bus fitting
+    // deliberately joins the branch to its named backbone line.
+    for (const targetId of [line.tapLineIds?.start, line.tapLineIds?.end]) {
+      if (targetId) dsu.union(ln, lineNodeKey(targetId));
+    }
   }
 
   // Spatial union: lines that meet END-ON merge. A run that ENDS on another

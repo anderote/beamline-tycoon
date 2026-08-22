@@ -28,6 +28,7 @@ import { levelOf, sameLevel, subtileKey, tileKey } from '../game/storeys.js';
 import { wallFixtureDir } from '../game/wall-fixture-geometry.js';
 import { BeamlineInputController } from './BeamlineInputController.js';
 import { LinearManifoldTool } from './linear-manifold-tool.js';
+import { UniversalUtilityBusTool } from './universal-utility-bus-tool.js';
 import { UtilityLineInputController } from './UtilityLineInputController.js';
 import { PlaceableTool, ZonePaintTool } from './placement-tools.js';
 import { FloorTool, WallTool, WallPaintTool, DoorTool, WindowTool } from './structure-tools.js';
@@ -638,7 +639,14 @@ export class InputHandler {
     // tile occupants).
     if (!found && policy?.allowsCategory('infra')) {
       const hit = this.renderer.raycastUtilityLine?.(screenX, screenY);
-      if (hit && hit.lineId) {
+      if (hit?.busId) {
+        this.renderer._clearPreview();
+        const bus = this.game.utilityBusSystem?.getBus(hit.busId);
+        this._showDemolishTooltip(
+          'Universal Utility Bus', (bus?.costFunding || 0) * 0.5, screenX, screenY,
+        );
+        found = true;
+      } else if (hit && hit.lineId) {
         // Drop the previous frame's outline/tile highlight like every sibling
         // branch does — utility lines have no highlight of their own, so the
         // stale one stayed on screen while the tooltip named the line.
@@ -2986,6 +2994,10 @@ export class InputHandler {
       return;
     }
     const placeable = PLACEABLES[key];
+    if (placeable?.universalUtilityBus) {
+      this.setTool(new UniversalUtilityBusTool(key));
+      return;
+    }
     if (placeable?.linearManifold) {
       this.setTool(new LinearManifoldTool(key));
       return;

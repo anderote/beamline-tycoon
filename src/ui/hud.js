@@ -2410,6 +2410,10 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         if (comp.subsection) return comp.subsection === subKey;
         return subIdx === 0; // default to first subsection
       });
+      if (subKey === 'transport' && this.activeMode === 'infra'
+          && !subComps.some(({ key }) => key === 'universalUtilityBus')) {
+        subComps.unshift({ key: 'universalUtilityBus', comp: COMPONENTS.universalUtilityBus });
+      }
 
       // Each infra category's `transport` subsection shows the new-system
       // utility-line tools for that category's utility type(s). Rendered

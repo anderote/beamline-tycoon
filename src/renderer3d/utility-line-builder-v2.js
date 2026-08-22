@@ -50,6 +50,7 @@ const _matCache = new Map();
 const _jacketMatCache = new Map();
 const _hardwareMatCache = new Map();
 let _utilitySupportMaterial = null;
+let _universalBusMaterial = null;
 
 function matKey(utilityType, errorStatus) {
   return `${utilityType}|${errorStatus || 'ok'}`;
@@ -62,6 +63,15 @@ function matKey(utilityType, errorStatus) {
 function shared(mat) {
   mat.userData.__shared = true;
   return mat;
+}
+
+function universalBusMaterial() {
+  if (!_universalBusMaterial) {
+    _universalBusMaterial = shared(new THREE.MeshStandardMaterial({
+      color: 0x7d8790, roughness: 0.38, metalness: 0.82,
+    }));
+  }
+  return _universalBusMaterial;
 }
 
 // A line's colour is its UTILITY, always and only.
@@ -905,6 +915,7 @@ function buildLineGroup(
 ) {
   const descriptor = UTILITY_TYPES[line.utilityType];
   if (!descriptor) return null;
+  const busChannel = line.manifold?.type === 'universalUtilityBus';
   // A manifold is fabricated infrastructure even when its carried utility is
   // ordinarily a loose cable. Render it as a rigid, visibly heavier trunk.
   const flexible = isSoftCable(line.utilityType) && !line.manifold;
@@ -912,6 +923,21 @@ function buildLineGroup(
     ? buildSoftCableWorldPoints(line, placeablesById)
     : buildWorldPoints(line, placeablesById));
   if (points.length < 2) return null;
+  let busOffsetX = 0, busOffsetZ = 0;
+  if (busChannel) {
+    const slotOffsets = [-0.15, -0.05, 0.05, 0.15];
+    const offset = slotOffsets[line.manifold.slot] ?? 0;
+    const first = points[0], last = points[points.length - 1];
+    const dx = last.x - first.x, dz = last.z - first.z;
+    const length = Math.hypot(dx, dz) || 1;
+    busOffsetX = -dz / length * offset;
+    busOffsetZ = dx / length * offset;
+    for (const point of points) {
+      point.x += busOffsetX;
+      point.z += busOffsetZ;
+      point.y = 0.79;
+    }
+  }
 
   const group = new THREE.Group();
   const runY = utilityLineHeight(line.utilityType, line.routeHeightMeters);
@@ -920,8 +946,14 @@ function buildLineGroup(
     utilityType: line.utilityType,
     routeHeightMeters: runY,
     errorStatus: errorStatus || 'ok',
+    ...(busChannel ? {
+      isUniversalUtilityBus: true,
+      busId: line.manifold.busId,
+      channelSlot: line.manifold.slot,
+    } : {}),
   };
-  const radius = (descriptor.pipeRadiusMeters || 0.04) * (line.manifold ? 2.35 : 1);
+  const radius = (descriptor.pipeRadiusMeters || 0.04)
+    * (busChannel ? 0.85 : line.manifold ? 2.35 : 1);
   const mat = getLineMaterial(line.utilityType, errorStatus);
   const hardwareMat = getLineHardwareMaterial(line.utilityType);
   const style = descriptor.geometryStyle || 'cylinder';
@@ -1008,8 +1040,10 @@ function buildLineGroup(
     if (descriptor.fittingStyle) addInlineCouplers(group, a, b, descriptor, hardwareMat);
   }
 
-  addUtilitySupports(
-    group, points, descriptor, line.utilityType, null, line.routeHeightMeters);
+  if (!busChannel) {
+    addUtilitySupports(
+      group, points, descriptor, line.utilityType, null, line.routeHeightMeters);
+  }
 
   // Elbows at every INTERIOR waypoint. The two terminal points are excluded on
   // purpose: they either disappear into a port fitting or carry an open-end
@@ -1040,7 +1074,7 @@ function buildLineGroup(
   // Open-end indicators: a small contrasting disc at any endpoint that
   // isn't anchored to a port. Signals "this side isn't wired up yet."
   const openCapMat = getOpenCapMaterial(line.utilityType);
-  if (!line.start && !joinedOpenEnds?.start && points.length > 0) {
+  if (!busChannel && !line.start && !joinedOpenEnds?.start && points.length > 0) {
     const cap = new THREE.Mesh(
       new THREE.SphereGeometry(radius * 1.35, 10, 8),
       openCapMat,
@@ -1049,7 +1083,7 @@ function buildLineGroup(
     cap.userData.isUtilityOpenCap = true;
     group.add(cap);
   }
-  if (!line.end && !joinedOpenEnds?.end && points.length > 0) {
+  if (!busChannel && !line.end && !joinedOpenEnds?.end && points.length > 0) {
     const cap = new THREE.Mesh(
       new THREE.SphereGeometry(radius * 1.35, 10, 8),
       openCapMat,
@@ -1068,9 +1102,9 @@ function buildLineGroup(
       if (!point) continue;
       const fitting = new THREE.Mesh(tapGeo, hardwareMat);
       fitting.position.set(
-        (point.col + point.subCol / 4) * 2,
-        runY,
-        (point.row + point.subRow / 4) * 2,
+        (point.col + point.subCol / 4) * 2 + busOffsetX,
+        busChannel ? 0.79 : runY,
+        (point.row + point.subRow / 4) * 2 + busOffsetZ,
       );
       fitting.userData.isUtilityManifoldTap = true;
       group.add(fitting);
@@ -1142,8 +1176,9 @@ function buildPreviewLine(preview) {
   if (!preview || !Array.isArray(preview.path) || preview.path.length < 2) return null;
   const descriptor = UTILITY_TYPES[preview.utilityType];
   if (!descriptor) return null;
-  const previewY = utilityLineHeight(preview.utilityType, preview.routeHeightMeters);
-  const flexible = !preview.manifold && isSoftCable(preview.utilityType)
+  const previewY = preview.rack ? 0.72
+    : utilityLineHeight(preview.utilityType, preview.routeHeightMeters);
+  const flexible = !preview.rack && !preview.manifold && isSoftCable(preview.utilityType)
     && Array.isArray(preview.cablePath) && preview.cablePath.length >= 2;
   const points = flexible
     ? buildSoftCableWorldPoints({
@@ -1167,7 +1202,8 @@ function buildPreviewLine(preview) {
     isUtilityLinePreview: true,
     routeHeightMeters: previewY,
   };
-  const radius = (descriptor.pipeRadiusMeters || 0.04) * (preview.manifold ? 2.58 : 1.1);
+  const radius = preview.rack ? 0.13
+    : (descriptor.pipeRadiusMeters || 0.04) * (preview.manifold ? 2.58 : 1.1);
   const style = descriptor.geometryStyle || 'cylinder';
   const mat = getPreviewMaterial(preview.utilityType, preview.valid !== false);
   const hardwareMat = getLineHardwareMaterial(preview.utilityType);
@@ -1398,6 +1434,8 @@ export class UtilityLineBuilderV2 {
     this._lineGroups = new Map();
     // (line.id → hash string) to detect path/descriptor changes.
     this._lineHashes = new Map();
+    this._busGroups = new Map();
+    this._busHashes = new Map();
     // line.id → one short-lived interpolation from the just-drawn hand shape
     // to its deterministic, gravity-settled rope solve.
     this._relaxations = new Map();
@@ -1561,7 +1599,61 @@ export class UtilityLineBuilderV2 {
         this._dragCableStates.delete(id);
       }
     }
+    this._buildUtilityBuses(opts.state?.utilityBuses || [], parentGroup);
     this._hasBuiltOnce = true;
+  }
+
+  _buildUtilityBuses(buses, parentGroup) {
+    const seen = new Set();
+    for (const bus of buses) {
+      if (!bus?.id || !Array.isArray(bus.path) || bus.path.length < 2) continue;
+      seen.add(bus.id);
+      const hash = JSON.stringify([bus.path, bus.taps]);
+      if (this._busHashes.get(bus.id) === hash && this._busGroups.has(bus.id)) continue;
+      const old = this._busGroups.get(bus.id);
+      if (old) { parentGroup.remove(old); this._disposeGroup(old); }
+      const group = new THREE.Group();
+      const material = universalBusMaterial();
+      const y = 0.72;
+      for (let i = 0; i < bus.path.length - 1; i++) {
+        const aw = tileToWorld(bus.path[i]), bw = tileToWorld(bus.path[i + 1]);
+        const a = new THREE.Vector3(aw.x, y, aw.z);
+        const b = new THREE.Vector3(bw.x, y, bw.z);
+        const dx = b.x - a.x, dz = b.z - a.z;
+        const length = Math.hypot(dx, dz) || 1;
+        const ox = -dz / length * 0.22, oz = dx / length * 0.22;
+        for (const side of [-1, 1]) {
+          group.add(buildRectSegment(
+            new THREE.Vector3(a.x + ox * side, y, a.z + oz * side),
+            new THREE.Vector3(b.x + ox * side, y, b.z + oz * side),
+            0.09, 0.08, material,
+          ));
+        }
+      }
+      for (const tap of bus.taps || []) {
+        const point = tap.point || tap;
+        const w = tileToWorld({
+          col: (point.col || 0) + (point.subCol || 0) / 4,
+          row: (point.row || 0) + (point.subRow || 0) / 4,
+        });
+        const crossbar = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.07, 0.1), material);
+        crossbar.position.set(w.x, y, w.z);
+        if (bus.path[0].col === bus.path[bus.path.length - 1].col) crossbar.rotation.y = Math.PI / 2;
+        group.add(crossbar);
+      }
+      group.userData = { isUniversalUtilityBus: true, busId: bus.id };
+      parentGroup.add(group);
+      this._busGroups.set(bus.id, group);
+      this._busHashes.set(bus.id, hash);
+    }
+    for (const id of [...this._busGroups.keys()]) {
+      if (seen.has(id)) continue;
+      const group = this._busGroups.get(id);
+      parentGroup.remove(group);
+      this._disposeGroup(group);
+      this._busGroups.delete(id);
+      this._busHashes.delete(id);
+    }
   }
 
   /** Select the one carried placeable whose attached lines receive inertia. */
@@ -1817,7 +1909,9 @@ export class UtilityLineBuilderV2 {
 
   /** Update the hover-port marker. Call every frame. */
   setHoverPort(hoverPort, parentGroup) {
-    const key = hoverPort?.tap
+    const key = hoverPort?.busTap
+      ? `bus:${hoverPort.busId}`
+      : hoverPort?.tap
       ? `tap:${hoverPort.lineId}`
       : hoverPort ? `${hoverPort.placeableId}:${hoverPort.portName}` : null;
     const anchor = key ? this._anchorByKey.get(key) : null;
@@ -1943,6 +2037,12 @@ export class UtilityLineBuilderV2 {
     }
     this._lineGroups.clear();
     this._lineHashes.clear();
+    for (const group of this._busGroups.values()) {
+      parentGroup.remove(group);
+      this._disposeGroup(group);
+    }
+    this._busGroups.clear();
+    this._busHashes.clear();
     this._relaxations.clear();
     this._dragCableStates.clear();
     this._dragLineIds.clear();

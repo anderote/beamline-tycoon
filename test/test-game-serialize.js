@@ -55,6 +55,12 @@ console.log('\n=== Save-payload whitelist ===\n');
 const gA = makeGame(42);
 const placed = buildSomething(gA);
 assertOk(placed, 'placed a concrete pad + magnetron on the starter map');
+const savedBusId = gA.utilityBusSystem.addBus({
+  path: [{ col: 1, row: 1 }, { col: 3, row: 1 }],
+  taps: [{ id: 'tap_0', point: { col: 1, row: 1, subCol: 0, subRow: 0 } }],
+  costFunding: 40000,
+});
+assertOk(!!savedBusId, 'placed a universal utility bus for persistence coverage');
 // A fresh Game never proactively runs recomputeZoneConnectivity() at
 // construction — it only populates state.zoneConnectivity the first time a
 // zone-tile mutation calls it. load()'s own _applyState always DOES call it
@@ -94,6 +100,8 @@ assertOk(Array.isArray(parsedA.state.placeables) &&
          'placed magnetron persists in payload');
 assertOk(parsedA.state.floors.some(f => f.type === 'concrete'),
          'placed concrete floor persists in payload');
+assertOk(parsedA.state.utilityBuses.some(bus => bus.id === savedBusId),
+         'universal utility bus persists in payload');
 
 console.log('\n=== Load round-trip ===\n');
 

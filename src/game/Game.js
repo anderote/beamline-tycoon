@@ -26,6 +26,7 @@ import { moduleBeamAxis, axisMatchesDirection } from '../beamline/module-axis.js
 import { BeamlineSystem, pipeRefund, missingResourceLabel } from '../beamline/BeamlineSystem.js';
 import { METRES_PER_SUB } from '../beamline/pipe-geometry.js';
 import { UtilityLineSystem } from '../utility/UtilityLineSystem.js';
+import { UniversalUtilityBusSystem } from '../utility/UniversalUtilityBusSystem.js';
 import { portWorldPosition } from '../utility/ports.js';
 import { UtilityRegistry } from '../utility/registry.js';
 import { SolveRunner } from '../utility/solve-runner.js';
@@ -131,7 +132,8 @@ const SERIALIZED_FIELDS = [
   'placeables', 'placeableNextId',
   'beamPipes', 'beamPipeNextId', 'placementNextId', 'placementMode',
   // utilities
-  'utilityLines', 'utilityNextId', 'utilityNetworkState', 'powerReliability',
+  'utilityLines', 'utilityNextId', 'utilityBuses', 'utilityBusNextId',
+  'utilityNetworkState', 'powerReliability',
   // designer library
   'savedDesigns', 'savedDesignNextId', 'beamlineDesignerWorkspaces',
 ];
@@ -451,6 +453,8 @@ export class Game {
       // Utility network lines (per-utility independent drawable pipes)
       utilityLines: new Map(),
       utilityNextId: 1,
+      utilityBuses: [],
+      utilityBusNextId: 1,
       utilityNetworkState: new Map(),
       utilityNetworkData: null,
       utilityNetworks: null,   // derived: discovery output published by solveRunner
@@ -581,6 +585,17 @@ export class Game {
       emit: this.emit.bind(this),
       log: this.log.bind(this),
       nextLineId: () => 'ul_' + (this.state.utilityNextId = (this.state.utilityNextId || 1) + 1),
+    });
+    this.utilityBusSystem = new UniversalUtilityBusSystem({
+      state: this.state,
+      utilityLineSystem: this.utilityLineSystem,
+      emit: this.emit.bind(this),
+      log: this.log.bind(this),
+      nextBusId: () => {
+        const next = this.state.utilityBusNextId || 1;
+        this.state.utilityBusNextId = next + 1;
+        return `ub_${next}`;
+      },
     });
 
     // SolveRunner computes per-network flow state each tick. Network
@@ -4233,6 +4248,14 @@ export class Game {
     return true;
   }
 
+  removeUtilityBus(busId) {
+    const bus = this.utilityBusSystem?.getBus(busId);
+    if (!bus || !this.utilityBusSystem.removeBus(busId)) return false;
+    this.refundConstruction({ funding: bus.costFunding || 0 });
+    this.emit('resourcesChanged');
+    return true;
+  }
+
   /**
    * Set the current pipe-placement UX mode (used by the placement controller
    * when committing a placement via `BeamlineSystem.placeOnPipe`).
@@ -6006,6 +6029,8 @@ export class Game {
     // Map entries [[id, line], ...]; network state is derived per-tick.
     this.state.utilityLines = new Map(scenarioData.utilityLines || []);
     this.state.utilityNextId = scenarioData.utilityNextId || 1;
+    this.state.utilityBuses = scenarioData.utilityBuses || [];
+    this.state.utilityBusNextId = scenarioData.utilityBusNextId || 1;
     this.state.utilityNetworkState = new Map();
     this.state.utilityNetworkData = null;
 
@@ -6069,7 +6094,9 @@ export class Game {
     this.emit('doorsChanged');
     this.emit('windowsChanged');
     this.emit('beamlineChanged');
-    if (this.state.utilityLines.size > 0) this.emit('utilityLinesChanged', {});
+    if (this.state.utilityLines.size > 0 || this.state.utilityBuses.length > 0) {
+      this.emit('utilityLinesChanged', {});
+    }
   }
 
   // === SAVE / LOAD ===
@@ -6479,6 +6506,8 @@ export class Game {
 
     // Rehydrate new-system utility state (Phase 6 / Task 24).
     this.state.utilityLines = new Map(Array.isArray(this.state.utilityLines) ? this.state.utilityLines : []);
+    this.state.utilityBuses = Array.isArray(this.state.utilityBuses) ? this.state.utilityBuses : [];
+    this.state.utilityBusNextId = this.state.utilityBusNextId || 1;
     this.state.utilityNetworkState = new Map(Array.isArray(this.state.utilityNetworkState) ? this.state.utilityNetworkState : []);
     this.state.utilityNextId = this.state.utilityNextId || 1;
     // utilityNetworkData / utilityNetworks are derived; solveRunner

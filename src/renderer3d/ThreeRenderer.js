@@ -1179,6 +1179,9 @@ export class ThreeRenderer {
     for (const h of hits) {
       let obj = h.object;
       while (obj) {
+        if (obj.userData?.isUniversalUtilityBus && obj.userData.busId) {
+          return { busId: obj.userData.busId, universalUtilityBus: true };
+        }
         if (obj.userData && obj.userData.lineId) {
           return { lineId: obj.userData.lineId, utilityType: obj.userData.utilityType };
         }
