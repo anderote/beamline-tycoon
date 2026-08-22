@@ -406,6 +406,10 @@ function oneOfPair(a, b, x, y) {
   return (a === x && b === y) || (a === y && b === x);
 }
 
+function isHvDistributionTap(spec) {
+  return spec?.role === 'sink' && spec.connectionKind === 'hvDistributionTap';
+}
+
 function portsCanConnect(startSpec, endSpec, utilityType) {
   if (!startSpec || !endSpec) return true; // open utility runs remain legal
   if (utilityType === 'hvCable') {
@@ -413,9 +417,15 @@ function portsCanConnect(startSpec, endSpec, utilityType) {
     // Passive terminals on poles, towers, switches, vaults and wall bushings
     // are interchangeable conductor supports. Distribution gear retains its
     // source/sink roles, so live outputs still cannot backfeed one another and
-    // two loads still cannot be tied together.
+    // ordinary terminal loads still cannot be tied together.
     if (startSpec.role === 'source' && endSpec.role === 'source') return false;
-    if (startSpec.role === 'sink' && endSpec.role === 'sink') return false;
+    if (startSpec.role === 'sink' && endSpec.role === 'sink') {
+      // An HV distributor's roof terminal is authored as a two-segment trunk
+      // tap. It may continue the feeder to another sink while drawing the
+      // cabinet's own downstream load. Ordinary load and panel inlets remain
+      // terminal ends and still cannot be daisy-chained.
+      return isHvDistributionTap(startSpec) || isHvDistributionTap(endSpec);
+    }
     return true;
   }
   if (utilityType === 'powerCable') {
@@ -482,6 +492,29 @@ function portConnectionCount(state, placeableId, portName) {
     }
   }
   return count;
+}
+
+/** Port specs at the far ends of lines already attached to one named port. */
+function connectedPeerSpecs(state, ref, utilityType) {
+  if (!ref) return [];
+  const lines = state && state.utilityLines;
+  const iter = lines && typeof lines.values === 'function'
+    ? lines.values()
+    : (lines || []);
+  const peers = [];
+  for (const line of iter) {
+    if (!line || line.utilityType !== utilityType) continue;
+    let peer = null;
+    if (line.start?.placeableId === ref.placeableId
+        && line.start.portName === ref.portName) peer = line.end;
+    else if (line.end?.placeableId === ref.placeableId
+        && line.end.portName === ref.portName) peer = line.start;
+    if (!peer) continue;
+    const endpoint = findPlaceable(state, peer.placeableId);
+    const spec = getPortSpec(lookupDef(state, endpoint?.type), peer.portName);
+    if (spec) peers.push(spec);
+  }
+  return peers;
 }
 
 // ---------------------------------------------------------------------------
@@ -566,6 +599,20 @@ export function validateDrawLine(state, {
         || connectionKind(startSpec, utilityType) === 'powerFieldPort'
         || connectionKind(endSpec, utilityType) === 'powerFieldPort')) {
     return reject('invalid_port_pair');
+  }
+
+  // The second attachment on an HV distributor is a downstream continuation,
+  // never a second incoming supply. Reject the direct source-paralleling case
+  // before the generic source -> sink role pairing accepts it.
+  if (utilityType === 'hvCable') {
+    for (const [tapRef, tapSpec, peerSpec] of [
+      [start, startSpec, endSpec],
+      [end, endSpec, startSpec],
+    ]) {
+      if (!isHvDistributionTap(tapSpec) || peerSpec?.role !== 'source') continue;
+      if (connectedPeerSpecs(state, tapRef, utilityType)
+        .some(spec => spec.role === 'source')) return reject('invalid_port_pair');
+    }
   }
 
   if (!portsCanConnect(startSpec, endSpec, utilityType)) {

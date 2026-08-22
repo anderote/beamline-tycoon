@@ -888,17 +888,18 @@ function transformerPorts(capacity, count) {
 }
 
 /**
- * HV distribution: one protected incoming feeder feeds `count` protected
- * outgoing feeders. It is deliberately split into separate HV networks: the
- * input is a sink, the outputs are sources gated by that input's hvQuality.
- * This keeps the electrical graph radial while letting one HV distributor
- * feed several downstream panels or dedicated HV loads.
+ * HV distribution: one roof tap on an HV trunk feeds `count` protected
+ * outgoing feeders. The tap accepts the incoming and continuing trunk cable,
+ * while remaining a demand-tracking sink; the outputs are separate sources
+ * gated by that input's hvQuality. This keeps the electrical graph radial
+ * while letting one HV distributor feed several downstream panels or loads.
  */
 function hvDistributionPorts(rating, count) {
   const out = {
     hv_in: {
       utility: 'hvCable', side: 'back', offsetAlong: 0.5,
-      role: 'sink', connectionKind: 'hvDistributionIn',
+      role: 'sink', connectionKind: 'hvDistributionTap',
+      omnidirectional: true, maxConnections: 2,
       params: { demand: rating, tracksDownstreamDemand: true },
     },
   };

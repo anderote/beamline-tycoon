@@ -2599,7 +2599,7 @@ export const INFRASTRUCTURE_RAW = {
   compactHvDistributor: {
     id: 'compactHvDistributor',
     name: 'Compact HV Distributor',
-    desc: 'Small protected 1-to-2 high-voltage splitter. One incoming 600 kW HV feeder fans out to two independently wired 300 kW HV feeders. It fits in a single subtile and distributes existing capacity without generating any.',
+    desc: 'Small protected high-voltage trunk tap. Its two-wire roof terminal continues an HV feeder while tapping up to 600 kW into two independently wired 300 kW outputs. It fits in a single subtile and adds no capacity.',
     category: 'power', subsection: 'distribution',
     paletteOrder: 4,
     cost: { funding: 180000 },
@@ -2626,7 +2626,7 @@ export const INFRASTRUCTURE_RAW = {
     // component by what it does in the build palette. This is the facility's
     // HV splitter, not another source of electrical capacity.
     name: 'HV Distributor Box',
-    desc: 'Protected high-voltage distribution box. One incoming 1,200 kW HV feeder fans out to four independently wired 300 kW HV feeders for RF sources, cooling plant, or downstream power panels. It distributes existing capacity; it does not generate any.',
+    desc: 'Protected high-voltage trunk-tap box. Its two-wire roof terminal continues an HV feeder while tapping up to 1,200 kW into four independently wired 300 kW outputs for RF sources, cooling plant, or downstream panels. It adds no capacity.',
     category: 'power', subsection: 'distribution',
     paletteOrder: 5,
     cost: { funding: 400000 },

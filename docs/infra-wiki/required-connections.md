@@ -165,8 +165,8 @@ the ceiling to 0.90.
 | Facility Transformer | 400 kW HV supply, 2 feeders |
 | HV Transformer | 1.5 MW HV input, 4 feeders |
 | Grid Intertie Transformer | 6 MW HV input, 6 feeders |
-| Compact HV Distributor | 1 HV input → 2 protected 300 kW HV feeders; 600 kW maximum; no new capacity |
-| HV Distributor Box | 1,200 kW HV input → 4 protected 300 kW HV feeders; no new capacity |
+| Compact HV Distributor | Two-wire HV trunk tap → 2 protected 300 kW HV feeders; 600 kW maximum; no new capacity |
+| HV Distributor Box | Two-wire HV trunk tap → 4 protected 300 kW HV feeders; 1,200 kW maximum; no new capacity |
 | Motor Control Center | 1 HV input → 8 branch circuits; no new capacity |
 | Power Distribution Panel | 1 HV input → 4 branch circuits; no new capacity |
 | UPS / Battery Bank | 1 HV input → 2 critical branch circuits; no new capacity |

@@ -32,12 +32,12 @@ const state = { placeables, beamPipes: [], utilityLines: new Map() };
 
 function ref(placeableId, portName) { return { placeableId, portName }; }
 function endpoint(r) { return placeables.find(p => p.id === r.placeableId); }
-function candidate(utilityType, start, end) {
+function candidate(utilityType, start, end, validationState = state) {
   const a = endpoint(start), b = endpoint(end);
   const da = COMPONENTS[a.type], db = COMPONENTS[b.type];
   const pa = portWorldPosition(a, da, start.portName);
   const pb = portWorldPosition(b, db, end.portName);
-  return validateDrawLine(state, {
+  return validateDrawLine(validationState, {
     utilityType, start, end,
     path: buildPortRoutedPath(
       { col: pa.x / 2, row: pa.z / 2 }, portApproachVec(a, da, start.portName),
@@ -67,6 +67,42 @@ assert(candidate('hvCable', ref('gear', 'hv_out_1'), ref('dryCooler', 'hv_in')).
   'HV Distributor Box -> dry cooler bank is a valid dedicated HV feeder');
 assert(candidate('hvCable', ref('gear', 'hv_out_2'), ref('rfSource', 'hv_in')).ok,
   'a separate HV Distributor Box output can feed an RF source');
+
+const trunkFeed = candidate(
+  'hvCable', ref('xfmr', 'hv_out_1'), ref('compactGear', 'hv_in'),
+).line;
+trunkFeed.id = 'trunk_feed';
+const tappedState = {
+  ...state,
+  utilityLines: new Map([[trunkFeed.id, trunkFeed]]),
+};
+const trunkContinuation = candidate(
+  'hvCable', ref('compactGear', 'hv_in'), ref('panelA', 'hv_in'), tappedState,
+);
+assert(trunkContinuation.ok,
+  'the compact distributor roof tap accepts a second wire that continues the HV trunk');
+trunkContinuation.line.id = 'trunk_continuation';
+tappedState.utilityLines.set(trunkContinuation.line.id, trunkContinuation.line);
+assert(candidate(
+  'hvCable', ref('compactGear', 'hv_in'), ref('panelB', 'hv_in'), tappedState,
+).reason === 'port_taken',
+  'the compact distributor roof tap rejects a third wire');
+const tappedNetworks = discoverNetworks(
+  'hvCable', tappedState.utilityLines, makeDefaultPortLookup(tappedState),
+);
+assert(tappedNetworks.length === 1
+    && tappedNetworks[0].sinks.some(sink => sink.portKey === 'compactGear:hv_in')
+    && tappedNetworks[0].sinks.some(sink => sink.portKey === 'panelA:hv_in'),
+  'the distributor and continued feeder share one HV network while both remain loads');
+
+const secondSourceState = {
+  ...state,
+  utilityLines: new Map([[trunkFeed.id, trunkFeed]]),
+};
+assert(candidate(
+  'hvCable', ref('xfmr', 'hv_out_2'), ref('compactGear', 'hv_in'), secondSourceState,
+).reason === 'invalid_port_pair',
+  'the distributor tap cannot parallel a second live source');
 
 console.log('\n--- Branch hierarchy ---');
 assert(candidate('powerCable', ref('panelA', 'pwr_out_1'), ref('bus', 'pwr_in')).ok,
