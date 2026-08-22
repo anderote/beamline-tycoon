@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import '../src/three-global.js';
 
-const { DecorationBuilder, TREE_VISUAL_VARIANTS, treeVisualSeed } =
+const { DecorationBuilder, PLANT_BATCH_CHUNK_TILES, TREE_VISUAL_VARIANTS, treeVisualSeed } =
   await import('../src/renderer3d/decoration-builder.js');
 const { DECORATIONS_RAW } = await import('../src/data/decorations.raw.js');
 
@@ -73,5 +73,25 @@ const identified = builder.resolveBatchHit(hit);
 assert.equal(identified?.nodeId, 'tree_0');
 assert.equal(identified?.rootObj, builder.getGroup('tree_0'),
   'renderer picking returns the lightweight root for just that tree');
+
+const remoteTrees = [
+  decoration('west_tree', 'oakTree', -PLANT_BATCH_CHUNK_TILES - 2, 0),
+  decoration('center_tree', 'oakTree', 0, 0),
+  decoration('east_tree', 'oakTree', PLANT_BATCH_CHUNK_TILES + 2, 0),
+];
+builder.build(remoteTrees, parent);
+const chunkedBatches = parent.children.filter(child => child.isBatchedMesh);
+assert.equal(builder.getBatchStats().chunkCount, 3,
+  'a forest spanning distant land parcels is divided into spatial chunks');
+assert.deepEqual(
+  new Set(chunkedBatches.map(batch => `${batch.userData.plantChunk.col},${batch.userData.plantChunk.row}`)),
+  new Set(['-2,0', '0,0', '1,0']),
+  'each plant batch publishes the tile chunk covered by its bounds',
+);
+for (const batch of chunkedBatches) {
+  assert.equal(batch.frustumCulled, true, 'spatial plant batches remain frustum-cullable');
+  assert.ok(batch.boundingBox || batch.geometry.boundingBox,
+    'each spatial batch has bounds for camera and shadow culling');
+}
 
 console.log('Tree batching tests passed.');

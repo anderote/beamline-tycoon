@@ -12,6 +12,14 @@ import { contentKey } from './content-hash.js';
 
 const SUB = 0.5; // 1 sub-tile = 0.5 world units
 
+// Plant geometry is authored into world-space BatchedMeshes. One batch for an
+// entire growable map defeats frustum culling: a tree at each extreme makes
+// the batch intersect every camera and shadow frustum, so buying land can make
+// every generated tree render forever. Material batches are therefore split
+// into modest spatial chunks. A normal construction view sees only a handful;
+// the chunk is still broad enough to keep draw-call overhead low.
+export const PLANT_BATCH_CHUNK_TILES = 24;
+
 const LIGHTING_DEFS_BY_ID = Object.fromEntries(LIGHTING_DEFS.map(d => [d.id, d]));
 
 // --- Procedural bark + foliage textures ---------------------------------
@@ -1935,7 +1943,10 @@ export class DecorationBuilder {
     this._plantSignature = null;
     /** Small reusable silhouette library: species × visual variant. */
     this._plantPrototypes = new Map();
-    this._batchStats = { plantCount: 0, batchCount: 0, partCount: 0, prototypeCount: 0 };
+    this._batchStats = {
+      plantCount: 0, batchCount: 0, chunkCount: 0,
+      partCount: 0, prototypeCount: 0,
+    };
   }
 
   /** The rendered group for a placeable id, or null. Mirrors ComponentBuilder's _meshMap lookup. */
@@ -2063,7 +2074,7 @@ export class DecorationBuilder {
     this._plantIds.clear();
     this._plantSignature = null;
     this._batchStats = {
-      plantCount: 0, batchCount: 0, partCount: 0,
+      plantCount: 0, batchCount: 0, chunkCount: 0, partCount: 0,
       prototypeCount: this._plantPrototypes.size,
     };
   }
@@ -2091,6 +2102,7 @@ export class DecorationBuilder {
   _buildPlantBatches(plants, parentGroup) {
     if (!plants.length) return;
     const buckets = new Map();
+    const chunks = new Set();
     const coloredGeometry = new WeakMap();
     const tempGeometry = new Set();
     const placementMatrix = new THREE.Matrix4();
@@ -2101,6 +2113,10 @@ export class DecorationBuilder {
 
     for (const dec of plants) {
       const p = decorationPlacement(dec);
+      const chunkCol = Math.floor((dec.col ?? 0) / PLANT_BATCH_CHUNK_TILES);
+      const chunkRow = Math.floor((dec.row ?? 0) / PLANT_BATCH_CHUNK_TILES);
+      const chunkKey = `${chunkCol},${chunkRow}`;
+      chunks.add(chunkKey);
       const floorY = (dec.y ?? 0) + (dec.placeY || 0) * SUB;
       const root = new THREE.Group();
       root.position.set(p.x, floorY, p.z);
@@ -2130,10 +2146,14 @@ export class DecorationBuilder {
           coloredGeometry.set(child.geometry, geometry);
           tempGeometry.add(geometry);
         }
-        const signature = _materialSignature(sourceMaterial, geometry);
+        const materialSignature = _materialSignature(sourceMaterial, geometry);
+        const signature = `${chunkKey}|${materialSignature}`;
         let bucket = buckets.get(signature);
         if (!bucket) {
-          bucket = { material: _batchMaterial(sourceMaterial), entries: [] };
+          bucket = {
+            material: _batchMaterial(sourceMaterial), entries: [],
+            chunkCol, chunkRow,
+          };
           buckets.set(signature, bucket);
         }
         bucket.entries.push({
@@ -2161,6 +2181,7 @@ export class DecorationBuilder {
       batch.castShadow = entries.some(e => e.castShadow);
       batch.receiveShadow = entries.some(e => e.receiveShadow);
       batch.userData.batchedPlants = true;
+      batch.userData.plantChunk = { col: bucket.chunkCol, row: bucket.chunkRow };
       batch.userData.batchNodeIds = [];
       for (const entry of entries) {
         const geometryId = batch.addGeometry(entry.geometry);
@@ -2178,6 +2199,7 @@ export class DecorationBuilder {
     this._batchStats = {
       plantCount: plants.length,
       batchCount: this._plantBatches.length,
+      chunkCount: chunks.size,
       partCount,
       prototypeCount: this._plantPrototypes.size,
     };
@@ -2305,7 +2327,7 @@ export class DecorationBuilder {
     this._fixturesById.clear();
     this._anonymousFixtures = [];
     this._batchStats = {
-      plantCount: 0, batchCount: 0, partCount: 0,
+      plantCount: 0, batchCount: 0, chunkCount: 0, partCount: 0,
       prototypeCount: this._plantPrototypes.size,
     };
   }

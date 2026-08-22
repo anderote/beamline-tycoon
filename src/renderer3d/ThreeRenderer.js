@@ -797,7 +797,7 @@ export class ThreeRenderer {
     this.gridOverlayGroup.renderOrder = 997;
     this.scene.add(this.gridOverlayGroup);
 
-    // Repeated at all four owned-map corners so the land purchase stays
+    // Repeated at all four owned-map edges so the land purchase stays
     // discoverable from every camera heading. It is a standalone coordinator:
     // ThreeRenderer only routes scene lifecycle and screen rays to it.
     this.landPurchaseMarkers = new LandPurchaseMarkers(this.game, this.scene);

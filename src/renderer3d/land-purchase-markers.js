@@ -1,6 +1,7 @@
-// Four large, world-space arrows at the corners of the owned map. Each arrow
-// buys the same next square parcel; they are repeated so the control is visible
-// from every camera heading and wherever the player is working near the edge.
+// Four large, world-space arrows at the edge midpoints of the owned map. Each
+// arrow buys the same next square parcel. Keeping them on the cardinal tile
+// axes makes the direction of growth legible in both isometric and top-down
+// views; diagonal corner arrows read 45 degrees off the grid.
 // THREE is loaded as a CDN global — do NOT import it.
 
 export const LAND_MARKER_OFFSET = 4;
@@ -8,12 +9,16 @@ export const LAND_WORLD_UNITS_PER_TILE = 2;
 
 /** Pure marker layout, kept independent of THREE for contract tests. */
 export function landMarkerLayout(mapHalfExtent, offset = LAND_MARKER_OFFSET) {
-  const edge = (mapHalfExtent + offset) * LAND_WORLD_UNITS_PER_TILE;
+  // Tiles -h..h span [-2h, 2h+2] in world space, so the square is centred at
+  // world coordinate (1, 1), not (0, 0). Measure from that true centre to put
+  // positive- and negative-side controls the same distance beyond the land.
+  const center = LAND_WORLD_UNITS_PER_TILE / 2;
+  const edgeDistance = (mapHalfExtent + offset + 0.5) * LAND_WORLD_UNITS_PER_TILE;
   return [
-    { x: -edge, z: -edge, dx: -1, dz: -1, corner: 'nw' },
-    { x:  edge, z: -edge, dx:  1, dz: -1, corner: 'ne' },
-    { x:  edge, z:  edge, dx:  1, dz:  1, corner: 'se' },
-    { x: -edge, z:  edge, dx: -1, dz:  1, corner: 'sw' },
+    { x: center, z: center - edgeDistance, dx:  0, dz: -1, side: 'n' },
+    { x: center + edgeDistance, z: center, dx:  1, dz:  0, side: 'e' },
+    { x: center, z: center + edgeDistance, dx:  0, dz:  1, side: 's' },
+    { x: center - edgeDistance, z: center, dx: -1, dz:  0, side: 'w' },
   ];
 }
 
