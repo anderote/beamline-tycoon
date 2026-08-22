@@ -215,8 +215,11 @@ export const ProbePlots = (() => {
     'phase-space': (env, yScale, pins, activePin) => {
       const d = _pinDatum(env, pins, activePin);
       if (!d) return null;
-      const rx = _ellipseMaxR(d.cov_xx, d.cov_xxp, d.cov_xpxp);
-      const ry = _ellipseMaxR(d.cov_yy, d.cov_yyp, d.cov_ypyp);
+      // The solver stores x/x' in metres/radians. Display the conventional
+      // accelerator units mm/mrad; every covariance entry therefore scales by
+      // 1e6 before the radial extent is calculated.
+      const rx = _ellipseMaxR(d.cov_xx * 1e6, d.cov_xxp * 1e6, d.cov_xpxp * 1e6);
+      const ry = _ellipseMaxR(d.cov_yy * 1e6, d.cov_yyp * 1e6, d.cov_ypyp * 1e6);
       if (rx == null && ry == null) return null;
       return [[0, rx || 0], [0, ry || 0]];
     },
@@ -1686,10 +1689,13 @@ export const ProbePlots = (() => {
     const halfW = Math.floor((w - 20) / 2);
     const plotH = h - PAD.top - PAD.bottom;
 
+    const mmMrad = 1e6;
     _drawEllipse(ctx, 10, PAD.top, halfW - 5, plotH,
-      d.cov_xx, d.cov_xxp, d.cov_xpxp, pin.color, 'x', "x'", d.emit_x, o, 0);
+      d.cov_xx * mmMrad, d.cov_xxp * mmMrad, d.cov_xpxp * mmMrad,
+      pin.color, 'x [mm]', "x' [mrad]", d.emit_x * mmMrad, o, 0);
     _drawEllipse(ctx, halfW + 15, PAD.top, halfW - 5, plotH,
-      d.cov_yy, d.cov_yyp, d.cov_ypyp, pin.color, 'y', "y'", d.emit_y, o, 1);
+      d.cov_yy * mmMrad, d.cov_yyp * mmMrad, d.cov_ypyp * mmMrad,
+      pin.color, 'y [mm]', "y' [mrad]", d.emit_y * mmMrad, o, 1);
   }
 
   // Radial extent an ellipse panel autoscales to (3 sigma of the major axis).

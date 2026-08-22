@@ -18,7 +18,7 @@ function check(condition, message, detail = '') {
 }
 
 function recordingCanvas() {
-  const events = { paths: [], text: [], fillRects: [], strokeRects: [], arcs: [] };
+  const events = { paths: [], text: [], fillRects: [], strokeRects: [], arcs: [], ellipses: [] };
   const ctx = {
     fillStyle: null,
     strokeStyle: null,
@@ -41,6 +41,7 @@ function recordingCanvas() {
     restore() {},
     translate() {},
     rotate() {},
+    ellipse(...args) { events.ellipses.push({ args }); },
     fill() {},
     arc(...args) { events.arcs.push({ args, fillStyle: this.fillStyle }); },
     closePath() {},
@@ -442,12 +443,12 @@ console.log('\n--- Designer controls ---');
     && html.includes('<option value="beam-power" selected>Beam Power</option>'),
   'the middle panel defaults to Bunch Evolution, Peak Current, and Beam Power');
   check(thirdPanelControls.includes('data-panel="2"')
-    && thirdPanelControls.includes('<option value="eic-triangle" selected>')
-    && thirdPanelControls.includes('<option value="phase-space">Phase Space</option>')
+    && thirdPanelControls.includes('<option value="phase-space" selected>Transverse Phase Space</option>')
+    && thirdPanelControls.includes('<option value="eic-triangle">E / I / &epsilon; Triangle</option>')
     && !thirdPanelControls.includes('value="energy"')
     && !thirdPanelControls.includes('value="energy-dispersion"')
     && !thirdPanelControls.includes('disabled'),
-  'the right panel defaults to the radar and shares the grouped primary plot catalogue');
+  'the right panel defaults to transverse phase space and shares the grouped primary plot catalogue');
   check(html.includes('Secondary plot for panel 1')
     && html.includes('Third plot for panel 2'),
   'overlay selectors have channel- and panel-specific accessible labels');
@@ -499,6 +500,33 @@ console.log('\n--- Designer controls ---');
   check(renderer.includes('const rect = canvas.getBoundingClientRect()')
     && renderer.includes("panel.classList.toggle('dsgn-plot-panel--radar', plotType === 'eic-triangle')"),
   'plot sizing excludes the control row and radar styling follows the selected plot');
+}
+
+console.log('\n--- Transverse phase-space display ---');
+{
+  const { canvas, events } = recordingCanvas();
+  const phaseEnvelope = [
+    { cov_xx: 1e-6, cov_xxp: 0, cov_xpxp: 4e-6,
+      cov_yy: 4e-6, cov_yyp: 0, cov_ypyp: 1e-6,
+      emit_x: 2e-6, emit_y: 2e-6 },
+    { cov_xx: 1e-6, cov_xxp: 0, cov_xpxp: 4e-6,
+      cov_yy: 4e-6, cov_yyp: 0, cov_ypyp: 1e-6,
+      emit_x: 2e-6, emit_y: 2e-6 },
+  ];
+  const phaseDomain = ProbePlots.yDomainFor(
+    'phase-space', phaseEnvelope, null, [{ elementIndex: 0 }], 0,
+  );
+  ProbePlots.draw(canvas, 'phase-space', phaseEnvelope,
+    [{ elementIndex: 0, color: '#5de6ff' }], 0, [0, 1], null);
+  check(Math.abs(phaseDomain[0][1] - 6) < 1e-9
+    && Math.abs(phaseDomain[1][1] - 6) < 1e-9,
+  'phase-space autoscale converts solver metres/radians to display mm/mrad');
+  check(events.ellipses.length === 2
+    && events.text.some(event => event.text === 'x [mm]')
+    && events.text.some(event => event.text === "x' [mrad]")
+    && events.text.some(event => event.text === 'y [mm]')
+    && events.text.some(event => event.text === "y' [mrad]"),
+  'transverse phase-space labels expose position and divergence units');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
