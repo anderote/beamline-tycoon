@@ -198,7 +198,7 @@ These plots show the beam state at the currently selected probe pin location.
 
 ### Phase Space
 
-**Quick Tip:** Shows x-x' and y-y' phase space ellipses at the probe location. The ellipse area is the emittance.
+**Quick Tip:** Shows x-x' and y-y' transverse phase space ellipses at the probe location, with position in mm and divergence (transverse momentum angle) in mrad. The ellipse area is the geometric emittance in mm·mrad.
 
 **How It Works:**
 

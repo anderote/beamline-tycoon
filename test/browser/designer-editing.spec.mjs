@@ -105,7 +105,7 @@ test('mission targets annotate performance plots without changing their scale', 
   expect(layout.largePanel, 'the oversized mission panel is gone').toBe(false);
   expect(layout.greenMap, 'the separate green target map is gone').toBe(false);
   expect(layout.plotPanels, 'three plots share the performance row').toBe(3);
-  expect(layout.plotTypes).toEqual(['beam-envelope', 'bunch-evolution', 'eic-triangle']);
+  expect(layout.plotTypes).toEqual(['beam-envelope', 'bunch-evolution', 'phase-space']);
   expect(layout.secondaryPlotTypes).toEqual(['current-loss', 'peak-current']);
   expect(layout.tertiaryPlotTypes).toEqual(['emittance', 'beam-power']);
   expect(layout.secondaryPlotOptions).toEqual([
