@@ -19,24 +19,26 @@ import { utilityAttachmentPose } from './line-attachments.js';
 import {
   cablePathLengthSubUnits,
   draggedCablePath,
+  isSoftCable,
 } from './soft-cable.js';
+import { snapUtilityRouteCoordinate } from './routing-contract.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 
 const EPS = 1e-6;
 export const UTILITY_LINE_STRAIN_ALLOWANCE = 1.12;
 const UTILITY_LINE_STRAIN_GRACE_SUBUNITS = 0.5;
-const RUGGED_MOVE_STRAIN = Object.freeze({
-  hvCable: { allowance: 3, graceSubUnits: 8 },
-  powerCable: { allowance: 3, graceSubUnits: 8 },
-  coolingWater: { allowance: 3, graceSubUnits: 8 },
-});
 
-/** Physical leash used when a connected machine is carried to a new pose. */
+/**
+ * Physical leash used when a connected machine is carried to a new pose.
+ * Loose cords and hoses are deliberately unbounded during a move: the move
+ * gesture promises that their plugs remain attached, and the committed trace
+ * grows to the length that was visibly dragged. Fabricated rigid services keep
+ * the conservative limit and may still require rewiring.
+ */
 export function utilityLineMoveStrainLimit(utilityType, installedSubL) {
-  const rugged = RUGGED_MOVE_STRAIN[utilityType];
-  const allowance = rugged?.allowance ?? UTILITY_LINE_STRAIN_ALLOWANCE;
-  const grace = rugged?.graceSubUnits ?? UTILITY_LINE_STRAIN_GRACE_SUBUNITS;
-  return Math.max(0, Number(installedSubL) || 0) * allowance + grace;
+  if (isSoftCable(utilityType)) return Infinity;
+  return Math.max(0, Number(installedSubL) || 0) * UTILITY_LINE_STRAIN_ALLOWANCE
+    + UTILITY_LINE_STRAIN_GRACE_SUBUNITS;
 }
 
 /** Which axis a leg runs along: 'v' (col fixed), 'h' (row fixed), or null. */
@@ -116,13 +118,26 @@ function pickPortPos(newPortPos, portName) {
   return null;
 }
 
+/** Logical compatibility paths remain on the universal quarter-tile grid. */
+function snappedPortPos(pos) {
+  return {
+    col: snapUtilityRouteCoordinate(pos.col),
+    row: snapUtilityRouteCoordinate(pos.row),
+  };
+}
+
+function directManhattanPath(start, end) {
+  return buildManhattanPath(start, end) || [
+    { col: start.col, row: start.row },
+    { col: end.col, row: end.row },
+  ];
+}
+
 /**
  * Compare a moved fitting's straight-line reach with the amount of utility
- * line the player originally installed. Bends are usable slack: carrying a
- * cabinet pulls them out until the run is nearly taut. Flexible HV, ordinary
- * power, and cooling-water services have a generous coiled-lead allowance:
- * ordinary equipment moves should drag the line instead of popping a plug.
- * Fabricated rigid services retain the conservative limit.
+ * line the player originally installed. Bends are usable slack for fabricated
+ * services. Flexible cords and hoses always remain attached and grow their
+ * committed trace to the visible dragged length.
  */
 export function utilityLineReachStatus(line, placeableId, newPortPos) {
   if (!line) return { canReach: false, reason: 'line_not_found' };
@@ -335,12 +350,11 @@ export class UtilityLineSystem {
   }
 
   /**
-   * A placeable this line is wired to has MOVED. Best-effort: slide the leg
-   * (or legs) that meet its port(s) onto the new port position and re-validate
-   * the whole line. On success the line survives untouched apart from its
-   * path; on failure it falls back to the existing convention — endpoint
-   * nulled, path kept as a dangling segment the player rewires — which is
-   * exactly what onPlaceableRemoved does.
+   * A placeable this line is wired to has MOVED. Slide the leg (or legs) that
+   * meet its port(s) onto the new port position and re-validate the whole line.
+   * Flexible cables and hoses preserve their endpoints unconditionally so the
+   * committed result matches the attached drag preview. A fabricated service
+   * that cannot reach still falls back to a visible dangling segment.
    *
    * Returns `{ok:true}`, `{ok:false, dangled:true}`, or
    * `{ok:false, dangled:false, reason}` when there was nothing to re-anchor.
@@ -375,6 +389,7 @@ export class UtilityLineSystem {
     const atStart = !!startPorts;
     const atEnd = !!endPorts;
     if (!atStart && !atEnd) return { ok: false, dangled: false, reason: 'not_anchored' };
+    const flexible = isSoftCable(line.utilityType) && line.manifold !== true;
 
     const dangle = (reason = null) => {
       // Same fallback as onPlaceableRemoved: keep the geometry the player drew
@@ -404,11 +419,39 @@ export class UtilityLineSystem {
     const limitSubL = utilityLineMoveStrainLimit(line.utilityType, installedSubL);
     if (requiredSubL > limitSubL + EPS) return dangle('overstretched');
 
+    // The renderer previews flexible fittings at their exact model anchors,
+    // while the topology path has a stricter quarter-tile contract. Keep both:
+    // cablePath follows the exact fitting, path follows its snapped routing
+    // coordinate. Feeding the exact anchor into path was enough to make a
+    // visually attached cable fail validation and disconnect on mouse-up.
+    const cableSource = flexible
+      ? (Array.isArray(line.cablePath) && line.cablePath.length >= 2
+        ? line.cablePath : path)
+      : null;
+    let cablePath = cableSource
+      ? draggedCablePath(cableSource, {
+        start: atStart ? pickPortPos(startPorts, line.start.portName) : null,
+        end: atEnd ? pickPortPos(endPorts, line.end.portName) : null,
+      })
+      : null;
+    // A legacy co-located connection may have two identical logical points,
+    // which sanitization collapses to one. Once either fitting moves, seed a
+    // real two-ended trace instead of leaving the renderer with no cable body.
+    if (flexible && (!cablePath || cablePath.length < 2)) {
+      cablePath = [startPos, endPos].map(point => ({ ...point }));
+    }
+
+    const logicalStart = snappedPortPos(startPos);
+    const logicalEnd = snappedPortPos(endPos);
+
     if (atStart) {
       const pos = pickPortPos(startPorts, line.start.portName);
       if (!pos) return dangle();
-      path = translateTerminal(path, 'start', pos);
-      if (!path) return dangle();
+      path = translateTerminal(path, 'start', snappedPortPos(pos));
+      if (!path) {
+        if (!flexible) return dangle();
+        path = directManhattanPath(logicalStart, logicalEnd);
+      }
     }
     if (atEnd) {
       const pos = pickPortPos(endPorts, line.end.portName);
@@ -416,29 +459,26 @@ export class UtilityLineSystem {
       // Runs on the path the start pass produced, so a line anchored to this
       // placeable at BOTH ends moves both of its legs rather than the last one
       // silently winning.
-      path = translateTerminal(path, 'end', pos);
-      if (!path) return dangle();
+      path = translateTerminal(path, 'end', snappedPortPos(pos));
+      if (!path) {
+        if (!flexible) return dangle();
+        path = directManhattanPath(logicalStart, logicalEnd);
+      }
     }
 
     path = dropDegenerate(path);
-    if (path.length < 2) return dangle();
-
-    // A flexible cable keeps its pooled middle on the floor when one attached
-    // machine moves; only the corresponding plug end follows the machine.
-    let cablePath = Array.isArray(line.cablePath)
-      ? line.cablePath.map(point => ({ col: point.col, row: point.row }))
-      : null;
-    if (cablePath && cablePath.length >= 2) {
-      const start = atStart ? pickPortPos(startPorts, line.start.portName) : null;
-      const end = atEnd ? pickPortPos(endPorts, line.end.portName) : null;
-      cablePath = draggedCablePath(cablePath, { start, end });
+    if (path.length < 2) {
+      if (!flexible) return dangle();
+      path = directManhattanPath(logicalStart, logicalEnd);
     }
 
     // Validate against every OTHER line: this line is still in state, so
     // leaving it in would have it collide with its own old path and occupy its
     // own ports — every reanchor would "fail" and dangle.
-    const others = [];
-    for (const other of lines.values()) if (other !== line) others.push(other);
+    const others = new Map();
+    for (const other of lines.values()) {
+      if (other !== line) others.set(other.id, other);
+    }
     const probeState = { ...this.state, utilityLines: others };
 
     const result = validateDrawLine(probeState, {
@@ -449,17 +489,38 @@ export class UtilityLineSystem {
       cablePath,
       routeHeightMeters: line.routeHeightMeters,
       waterCircuit: line.waterCircuit,
+      tapLineIds: line.tapLineIds,
     });
-    if (!result.ok) return dangle();
+    if (!result.ok && !flexible) return dangle(result.reason);
+
+    // A successfully placed object move is authoritative for loose cables and
+    // hoses. Collision and wall validation remains valuable while drawing a
+    // new line, but must not turn a committed move into a hidden unplug after
+    // the preview explicitly showed the fitting attached. Preserve the moved
+    // trace and endpoint identities even when the old route no longer passes
+    // new-line validation; the player can reroute it later without rewiring.
+    if (!result.ok) {
+      line.path = path.map(point => ({ ...point }));
+      line.cablePath = cablePath.map(point => ({ ...point }));
+      line.subL = Math.max(
+        installedSubL,
+        cablePathLengthSubUnits(line.cablePath),
+      );
+      this.emit('utilityLinesChanged', { utilityType: line.utilityType });
+      return { ok: true, dangled: false, preserved: true, reason: result.reason };
+    }
 
     line.path = result.line.path;
     if (Number.isFinite(result.line.routeHeightMeters)) {
       line.routeHeightMeters = result.line.routeHeightMeters;
     }
     if (result.line.cablePath) line.cablePath = result.line.cablePath;
-    // Moving equipment consumes slack; it does not silently buy or delete
-    // cable. Keep the installed length as the physical break threshold.
-    line.subL = installedSubL || result.line.subL;
+    // Never shrink an installed run during a move. Flexible traces may grow
+    // because staying plugged in is the move contract; rigid routes retain
+    // their original installed-length leash.
+    line.subL = flexible
+      ? Math.max(installedSubL, result.line.subL)
+      : (installedSubL || result.line.subL);
     this.emit('utilityLinesChanged', { utilityType: line.utilityType });
     return { ok: true };
   }
