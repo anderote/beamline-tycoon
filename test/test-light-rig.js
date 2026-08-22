@@ -724,3 +724,122 @@ test('moving effect proxies use the fixed point pool without pan-induced reassig
     'a small pan stays inside the rank slack instead of swapping lights');
   assert.equal(scene.addCalls, additions, 'animation and panning never allocate another THREE light');
 });
+
+test('a camera animation holds the fixture assignment, and releasing it re-ranks immediately', () => {
+  // Ranking reads the camera frustum, so a Q/E rotation reshuffles it on every
+  // frame of the sweep. Each reshuffle starts crossfades and churns the shadow
+  // assignment keys, which forces fixture shadow refreshes on back-to-back
+  // frames — cost spent on a view the player is not looking at yet, landing on
+  // the frames least able to afford it. ThreeRenderer passes freezeAssignment
+  // while _viewRotating / _snapping / _freeOrbiting is set.
+  const scene = new SceneStub();
+  // Five fixtures, as in the demotion test above: with only two, the loser
+  // never leaves the top-1 + slack-2 band and no handover would happen even
+  // without a hold, so the test would prove nothing.
+  const near = placeFixture(scene, 'A', DEF.lamppost, 0, 0);
+  placeFixture(scene, 'B', DEF.lamppost, 10, 0);
+  placeFixture(scene, 'C', DEF.lamppost, 20, 0);
+  placeFixture(scene, 'D', DEF.lamppost, 30, 0);
+  const far = placeFixture(scene, 'E', DEF.lamppost, 40, 0);
+  const rig = new LightRig(scene, { shadowSpotCount: 1, pointCount: 2 });
+
+  const camera = { position: new V3(0, 0, 0) };
+  for (let i = 0; i < 40; i++) rig.update(camera, 1, 0.05);  // settle past the hold
+  assert.equal(rig._spotSlots[0].assignedRef, near, 'the nearest fixture holds the spot');
+
+  // Sweep the camera the way a rotation does, but with the hold applied.
+  camera.position.set(40, 0, 0);
+  for (let i = 0; i < 60; i++) {
+    rig.update(camera, 1, 0.05, null, null, { freezeAssignment: true });
+  }
+  assert.equal(rig._spotSlots[0].assignedRef, near,
+    'three seconds of camera motion cannot move the assignment while the hold is on');
+  assert.equal(rig._spotSlots[0].releasing, false, 'and no handover was even started');
+
+  // Releasing the hold — an animation ending, or being interrupted — must
+  // re-rank on the very next frame. Nothing latches.
+  for (let i = 0; i < 45; i++) rig.update(camera, 1, 0.05);
+  assert.equal(rig._spotSlots[0].assignedRef, far,
+    'the ranking catches up as soon as the camera settles');
+});
+
+test('a held assignment still tracks its fixture and still finishes an in-flight crossfade', () => {
+  // The hold skips RANKING, not the crossfade: freezing the fade instead would
+  // leave the rig visibly mid-handover for the length of the animation.
+  const scene = new SceneStub();
+  const lamp = placeFixture(scene, 'A', DEF.lamppost, 0, 0);
+  const rig = new LightRig(scene, { shadowSpotCount: 1, pointCount: 2 });
+  const camera = { position: new V3(0, 0, 0) };
+
+  rig.update(camera, 1, 0.05);
+  const partway = rig._spotSlots[0].weight;
+  assert.ok(partway > 0 && partway < 1, 'the fade is in flight');
+
+  for (let i = 0; i < 6; i++) {
+    rig.update(camera, 1, 0.05, null, null, { freezeAssignment: true });
+  }
+  assert.ok(rig._spotSlots[0].weight > 0.99, 'the crossfade completed under the hold');
+  assert.equal(rig._spotSlots[0].assignedRef, lamp);
+  assert.ok(rig.getFixtureSuppression().get('A') > 0.99,
+    'and the paired pool suppression was published, so the fixture is not double-bright');
+});
+
+test('a fixture leaving the world overrides the camera-animation hold', () => {
+  // A hold must never outlast a demolition: a light burning over a lamppost
+  // the player just knocked down is worse than any amount of ranking churn.
+  const scene = new SceneStub();
+  const lamp = placeFixture(scene, 'A', DEF.lamppost, 0, 0);
+  const spare = placeFixture(scene, 'B', DEF.lamppost, 30, 0);
+  const rig = new LightRig(scene, { shadowSpotCount: 1, pointCount: 2 });
+  const camera = { position: new V3(0, 0, 0) };
+
+  rig.update(camera, 1, 0.05);
+  assert.equal(rig._spotSlots[0].assignedRef, lamp);
+
+  scene.remove(lamp);
+  rig.markDirty();
+  rig.update(camera, 1, 0.05, null, null, { freezeAssignment: true });
+  assert.equal(rig._spotSlots[0].releasing, true,
+    'the demolished fixture releases its spot mid-rotation, hold or no hold');
+
+  // The release fades out under the hold, so nothing is left burning in the
+  // air over the demolished lamppost — which is the property that matters.
+  for (let i = 0; i < 6; i++) {
+    rig.update(camera, 1, 0.05, null, null, { freezeAssignment: true });
+  }
+  assert.equal(rig._spotSlots[0].light.intensity, 0, 'the orphaned light is dark');
+  assert.ok(!(rig.getFixtureSuppression().get('A') > 0),
+    'and it no longer suppresses a painted pool (the slot publishes weight 0 until it is reassigned)');
+
+  // Refilling the freed slot is ranking work, so it waits for the camera to
+  // settle — one animation's worth of latency, not a stuck state.
+  rig.update(camera, 1, 0.05);
+  assert.equal(rig._spotSlots[0].assignedRef, spare,
+    'the slot is reassigned on the first frame after the animation ends');
+});
+
+test('one dirty fixture refreshes one shadow layer, not every live layer', () => {
+  // The shared fixture shadow array used to collapse onto a single scheduler
+  // slot, so any reassignment marked all twelve layers dirty and the array
+  // re-rendered the facility once per layer. Each layer owns its own slot now.
+  const scene = new SceneStub();
+  for (let i = 0; i < 8; i++) placeFixture(scene, `F${i}`, DEF.lamppost, i * 3, 0);
+  const rig = new LightRig(scene, {
+    shadowSpotCount: 6,
+    pointCount: 2,
+    shadowHz: 1000,                 // every slot is always due
+    shadowUpdatesPerFrame: 2,
+  });
+  const camera = { position: new V3(0, 0, 0) };
+
+  let sawOverBudget = 0;
+  for (let i = 0; i < 40; i++) {
+    rig.update(camera, 1, 0.05);
+    const dirty = rig._spotSlots
+      .slice(0, 6)
+      .filter((slot) => slot.light.shadow.needsUpdate).length;
+    if (dirty > 2) sawOverBudget++;
+  }
+  assert.equal(sawOverBudget, 0,
+    'no frame ever schedules more shadow layers than fixtureShadowUpdatesPerFrame allows');
+});

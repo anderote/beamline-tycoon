@@ -206,6 +206,7 @@ export class LightRig {
       ? new SharedSpotShadowArray(
         this._spotSlots.slice(0, this._shadowSpotCount).map((slot) => slot.light),
         this._shadowMapSize,
+        { maxLayersPerFrame: this._shadowUpdatesPerFrame },
       )
       : null;
     this._sharedShadowArray?.setActiveCount(this._activeShadowSpotCount);
@@ -254,11 +255,18 @@ export class LightRig {
     this._viewSphere = typeof THREE.Sphere === 'function'
       ? new THREE.Sphere(new THREE.Vector3(), 1)
       : null;
-    this._shadowScheduler = new ShadowScheduler(this._sharedShadowArray ? 1 : this._shadowSpotCount, {
+    // One scheduler slot per shadow layer, whether or not the layers live in
+    // one shared texture array. Collapsing the shared array onto a single slot
+    // (as this used to) made every fixture share one dirty bit, so a single
+    // reassignment refreshed all twelve layers at once — the spike the array
+    // now exists to avoid. SharedSpotShadowArray refreshes layers
+    // individually, so it wants exactly the same staggering the per-light
+    // path always had.
+    this._shadowScheduler = new ShadowScheduler(this._shadowSpotCount, {
       hz: this._shadowHz,
       maxUpdatesPerFrame: this._shadowUpdatesPerFrame,
     });
-    this._shadowAssignmentKeys = new Array(this._sharedShadowArray ? 1 : this._shadowSpotCount).fill(null);
+    this._shadowAssignmentKeys = new Array(this._shadowSpotCount).fill(null);
     this._shadowUpdatesLastFrame = 0;
     this._volumeCandidates = [];
     this._effectTimeMs = 0;
@@ -312,6 +320,7 @@ export class LightRig {
       hz: this._shadowHz,
       maxUpdatesPerFrame: this._shadowUpdatesPerFrame,
     });
+    this._sharedShadowArray?.setMaxLayersPerFrame(this._shadowUpdatesPerFrame);
     if (mapSize !== this._shadowMapSize) {
       this._shadowMapSize = mapSize;
       for (const slot of this._spotSlots.slice(0, this._shadowSpotCount)) {
@@ -429,7 +438,12 @@ export class LightRig {
    *        the center of the view. Passing the camera position here biases an
    *        isometric camera toward fixtures tens of metres behind the screen.
    */
-  update(camera, nightFactor, dt, focusPoint = null, effectTimeMs = null) {
+  /**
+   * @param {object} [options]
+   * @param {boolean} [options.freezeAssignment=false] hold the current
+   *        fixture-to-spot assignment instead of re-ranking. See _assignSpots.
+   */
+  update(camera, nightFactor, dt, focusPoint = null, effectTimeMs = null, options = {}) {
     const dtMs = Number.isFinite(dt) && dt > 0 ? dt * 1000 : 0;
     this._clockMs += dtMs;
     this._effectTimeMs = Number.isFinite(effectTimeMs) ? effectTimeMs : this._clockMs;
@@ -451,6 +465,9 @@ export class LightRig {
       return;
     }
 
+    // Captured before the flag is cleared: _assignSpots needs to know that
+    // the world changed THIS frame, and by the time it runs the flag is gone.
+    const candidatesChanged = this._candidatesDirty;
     if (this._candidatesDirty) {
       this._refreshCandidates();
       this._candidatesDirty = false;
@@ -461,7 +478,10 @@ export class LightRig {
     const focus = this._tmpCam.set(f.x || 0, f.y || 0, f.z || 0);
     this._prepareViewFrustum(camera);
     const nf = Number.isFinite(nightFactor) ? Math.max(0, Math.min(1, nightFactor)) : 0;
-    this._assignSpots(focus, nf, dtMs, camera);
+    this._assignSpots(
+      focus, nf, dtMs, camera,
+      options.freezeAssignment === true && !candidatesChanged,
+    );
     this._scheduleShadows(nf, dtMs);
     this._assignPoints(focus, nf);
   }
@@ -585,19 +605,45 @@ export class LightRig {
    *   4. ADVANCE the crossfade and publish — intensity and suppression from
    *      the SAME weight, so the two systems stay complementary.
    */
-  _assignSpots(camPos, nightFactor, dtMs, camera = null) {
+  _assignSpots(camPos, nightFactor, dtMs, camera = null, freezeAssignment = false) {
     const n = this._activeFixtureLightCount;
     for (let i = n; i < this._spotSlots.length; i++) this._parkSpot(i);
 
+    // --- 0. hold the assignment through a camera animation ---------------
+    // Ranking reads the camera frustum, so a Q/E rotation reshuffles it every
+    // frame: incumbents fall out of the slack band, crossfades start in both
+    // directions, and the shadow assignment keys churn — which marks the
+    // scheduler dirty and forces shadow refreshes on consecutive frames
+    // instead of at the preset cadence. All of that is spent on a view the
+    // player is not looking at yet, and it lands on the exact frames that can
+    // least afford it. Hold the current assignment and re-rank once the camera
+    // settles.
+    //
+    // Only steps 1-3 are skipped. Step 4 still runs, so an in-flight crossfade
+    // finishes and every held light keeps tracking its fixture — freezing the
+    // fade instead would leave the rig visibly mid-handover for the length of
+    // the animation.
+    //
+    // NOTHING LATCHES HERE. `freezeAssignment` is recomputed from the
+    // renderer's live animation flags every frame, so an interrupted rotation
+    // (startFreeOrbit clears _viewRotating, endFreeOrbit clears _freeOrbiting)
+    // releases the hold on the very next frame with no state to unwind. The
+    // one thing a hold must never outlast is a fixture leaving the world —
+    // update() already withholds the flag for a frame in which candidates
+    // changed, because a light burning over a demolished lamppost is worse
+    // than any amount of ranking churn. And a rig that has never ranked has
+    // nothing to hold.
+    const holdAssignment = freezeAssignment && this._fixtureRankCache.length > 0;
+
     // --- 1. rank ---------------------------------------------------------
-    let rankDirty = this._fixtureRankDirty
+    let rankDirty = !holdAssignment && (this._fixtureRankDirty
       || camPos.x !== this._fixtureRankFocus[0]
       || camPos.y !== this._fixtureRankFocus[1]
       || camPos.z !== this._fixtureRankFocus[2]
-      || camera !== this._fixtureRankCamera;
+      || camera !== this._fixtureRankCamera);
     const world = camera?.matrixWorld?.elements;
     const projection = camera?.projectionMatrix?.elements;
-    if (!rankDirty && world && projection) {
+    if (!holdAssignment && !rankDirty && world && projection) {
       for (let i = 0; i < 16; i++) {
         if (world[i] !== this._fixtureRankWorld[i]
           || projection[i] !== this._fixtureRankProjection[i]) {
@@ -623,6 +669,19 @@ export class LightRig {
       );
     }
     const ranked = this._fixtureRankCache;
+    if (!holdAssignment) this._assignSlots(ranked, n);
+
+    // --- 4. crossfade + publish ------------------------------------------
+    this._advanceSpotCrossfades(n, dtMs, nightFactor);
+  }
+
+  /**
+   * Steps 2 and 3 of the handover: release incumbents that have genuinely
+   * fallen out of the pool, then fill the slots that frees. Split out of
+   * _assignSpots so a camera animation can hold it while the crossfade in
+   * _advanceSpotCrossfades keeps running.
+   */
+  _assignSlots(ranked, n) {
     const pool = new Set();
     for (let i = 0; i < Math.min(n, ranked.length); i++) pool.add(ranked[i].obj);
     const slackPool = new Set(pool);
@@ -677,8 +736,14 @@ export class LightRig {
       held.add(ranked[next].obj);
       next++;
     }
+  }
 
-    // --- 4. crossfade + publish ------------------------------------------
+  /**
+   * Step 4: advance every slot's crossfade weight and publish the pool
+   * suppression that pairs with it. Runs every frame, including while the
+   * assignment above is held, so a handover already in flight completes.
+   */
+  _advanceSpotCrossfades(n, dtMs, nightFactor) {
     const nextSuppression = this._nextFixtureSuppression;
     nextSuppression.clear();
     const step = SPOT_CROSSFADE_MS > 0 ? dtMs / SPOT_CROSSFADE_MS : 1;
@@ -751,33 +816,6 @@ export class LightRig {
   _scheduleShadows(nightFactor, dtMs) {
     const hasLitFixture = this._spotSlots.some((slot, index) =>
       index < this._activeShadowSpotCount && slot.assignedRef && slot.light.intensity > 0.01);
-    if (this._sharedShadowArray) {
-      const keys = [];
-      for (let i = 0; i < this._activeShadowSpotCount; i++) {
-        const slot = this._spotSlots[i];
-        slot.light.shadow.needsUpdate = false;
-        if (slot.assignedRef && slot.light.intensity > 0) {
-          keys.push(slot.assignedRef.id
-            ?? slot.assignedRef.userData?.lightFixture?.id
-            ?? slot.assignedRef.uuid
-            ?? i);
-        }
-      }
-      const updates = this._shadowScheduler.step({
-        activeCount: keys.length ? 1 : 0,
-        enabled: this._enabled && hasLitFixture,
-        dtMs,
-        assignmentKeys: [keys.join('|')],
-      });
-      if (updates.length) {
-        for (let i = 0; i < this._activeShadowSpotCount; i++) {
-          this._spotSlots[i].light.shadow.needsUpdate = true;
-        }
-      }
-      this._shadowUpdatesLastFrame = updates.length ? this._activeShadowSpotCount : 0;
-      return;
-    }
-
     for (let i = 0; i < this._shadowSpotCount; i++) {
       const slot = this._spotSlots[i];
       slot.light.shadow.needsUpdate = false;
