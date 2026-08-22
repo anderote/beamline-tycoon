@@ -1252,7 +1252,8 @@ function waterDistributorPorts(flexibleCount, supplyCount) {
 
 function lcwManifoldPorts() {
   // Eight fittings share the long branch face. Fill its usable span evenly so
-  // the 0.22 m placement markers do not overlap at normal game scale.
+  // the 0.22 m placement markers do not overlap at normal game scale. Alternate
+  // cold supply and hot return outlets so each load's hose pair sits together.
   const branchOffsets = Array.from({ length: 8 }, (_, index) =>
     0.1 + (index * 0.8) / 7);
   const out = {
@@ -1265,16 +1266,16 @@ function lcwManifoldPorts() {
       role: 'pass', flowRole: 'source', params: { waterCircuit: 'hot' },
     },
   };
-  for (const [circuit, offsetIndex] of [['cold', 0], ['hot', 4]]) {
-    for (let index = 1; index <= 4; index++) {
-      out[`${circuit}_${index}`] = {
-        utility: 'coolingWater', side: 'right',
-        offsetAlong: branchOffsets[offsetIndex + index - 1],
-        role: 'source', autoConnectClass: COOLING_AUTO_CONNECT_CLASS.LOAD_BRANCH,
-        flowRole: circuit === 'cold' ? 'source' : 'sink',
-        params: { waterCircuit: circuit },
-      };
-    }
+  for (let offsetIndex = 0; offsetIndex < branchOffsets.length; offsetIndex++) {
+    const circuit = offsetIndex % 2 === 0 ? 'cold' : 'hot';
+    const outletIndex = Math.floor(offsetIndex / 2) + 1;
+    out[`${circuit}_${outletIndex}`] = {
+      utility: 'coolingWater', side: 'right',
+      offsetAlong: branchOffsets[offsetIndex],
+      role: 'source', autoConnectClass: COOLING_AUTO_CONNECT_CLASS.LOAD_BRANCH,
+      flowRole: circuit === 'cold' ? 'source' : 'sink',
+      params: { waterCircuit: circuit },
+    };
   }
   return out;
 }

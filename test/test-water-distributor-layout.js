@@ -50,14 +50,12 @@ test('LCW manifold puts four cold and four hot branches opposite two plant pipes
   assert.ok(branches.every(([, port]) => port.side === 'right'));
   assert.equal(new Set(branches.map(([, port]) => port.offsetAlong)).size, 8,
     'all eight flexible connections occupy distinct positions on the branch face');
-  const coldOffsets = branches
-    .filter(([, port]) => port.params.waterCircuit === 'cold')
-    .map(([, port]) => port.offsetAlong);
-  const hotOffsets = branches
-    .filter(([, port]) => port.params.waterCircuit === 'hot')
-    .map(([, port]) => port.offsetAlong);
-  assert.ok(Math.max(...coldOffsets) < Math.min(...hotOffsets),
-    'the four cold branches form one group before the four hot branches');
+  const circuitsByPosition = branches
+    .toSorted(([, left], [, right]) => left.offsetAlong - right.offsetAlong)
+    .map(([, port]) => port.params.waterCircuit);
+  assert.deepEqual(circuitsByPosition,
+    ['cold', 'hot', 'cold', 'hot', 'cold', 'hot', 'cold', 'hot'],
+    'cold and hot outlets alternate along the branch face');
 
   assert.equal(supplies.length, 2);
   assert.deepEqual(supplies.map(([, port]) => port.params.waterCircuit).sort(), ['cold', 'hot']);
