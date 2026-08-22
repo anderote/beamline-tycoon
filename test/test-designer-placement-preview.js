@@ -156,5 +156,45 @@ console.log('\n--- Public Designer preview seam ---');
     'public preview does not mutate the draft');
 }
 
+console.log('\n--- Schematic cursor chooses insertion boundary ---');
+{
+  const designer = Object.create(BeamlineDesigner.prototype);
+  designer.isOpen = true;
+  designer.insertMode = 'nearest';
+  designer.markerS = 0;
+  designer.totalLength = 4;
+  designer._hoverSchematicX = 180;
+  designer._compRegions = [
+    { index: 0, x: 0, w: 100 },
+    { index: 1, x: 100, w: 100 },
+  ];
+  designer._draftPhysicsRevision = 3;
+  designer.draftPhysicsResult = { totalLossFraction: 0 };
+  designer.draftNodes = [
+    { id: 'source', type: 'source', subL: 4, params: {} },
+    { id: 'drift', type: 'drift', subL: 4, params: {} },
+  ];
+  let solvedNodes = null;
+  designer._computePhysics = async nodes => {
+    solvedNodes = nodes;
+    return {
+      totalLossFraction: 0,
+      envelope: [
+        { index: 0, current: 10 },
+        { index: 1, current: 10 },
+        { index: 2, current: 10 },
+      ],
+    };
+  };
+
+  const summary = await designer.previewComponentPlacement('buncher');
+  check(solvedNodes?.[0]?.type === 'source'
+    && solvedNodes?.[1]?.type === 'drift'
+    && solvedNodes?.[2]?.type === 'buncher',
+  'palette hover previews insertion at the boundary nearest the schematic cursor');
+  check(summary?.heading === 'Insert at s=4.0 m',
+    'cursor-based preview reports the selected boundary position');
+}
+
 console.log(`\n${passed}/${passed + failed} assertions passed`);
 process.exit(failed > 0 ? 1 : 0);
