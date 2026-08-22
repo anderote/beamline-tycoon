@@ -243,6 +243,9 @@ the short authoring contract.
 - Every utility route may turn immediately at a port. Port facing selects the
   visible fitting position and can guide route ranking, but no utility reserves
   a minimum straight lead-out or clearance strip in front of that fitting.
+- Interactive drawing projects the pointer's camera ray onto the armed
+  utility's current route-height plane for every utility type, including HV.
+  Terrain projection remains a hover concern and does not place the route.
 - Vacuum pipe, RF waveguide, and cryogenic transfer line are fabricated rigid
   services with vertical route lanes. Their saved `routeHeightMeters` starts at
   the source connector height and rises only as needed, so parallel or crossing
