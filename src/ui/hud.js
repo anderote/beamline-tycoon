@@ -252,21 +252,21 @@ UIHost.prototype._updateSimControls = function() {
   });
 };
 
-UIHost.prototype._updateBeamSummary = function() {
+export function updateBeamSummary(ui) {
   const el = document.getElementById('beam-summary');
   if (!el) return;
-  const entries = this.game.registry.getAll();
+  const entries = ui.game.registry.getAll();
   const running = entries.filter(e => e.status === 'running').length;
   const total = entries.length;
-  const blockers = this.game.state.infraBlockers || [];
-  const canRun = this.game.state.infraCanRun !== false;
+  const blockers = ui.game.state.infraBlockers || [];
+  const canRun = ui.game.state.infraCanRun !== false;
   if (!canRun && blockers.length > 0) {
     const hardCount = blockers.filter(b => b.severity === 'hard').length;
     el.textContent = `⚠ ${hardCount} FAULT${hardCount === 1 ? '' : 'S'}`;
     el.className = 'beam-summary fault';
     const messages = [...new Set(blockers.map(b => b.message || b.code))];
-    el.title = `Beam tripped\n${messages.join('\n')}`;
-    el.onclick = null;
+    el.title = `Beam tripped — click for details\n${messages.join('\n')}`;
+    el.onclick = () => ui._showInfraBlockerPanel();
   } else if (total === 0) {
     el.textContent = 'No beamlines';
     el.className = 'beam-summary';
@@ -278,6 +278,10 @@ UIHost.prototype._updateBeamSummary = function() {
     el.title = '';
     el.onclick = null;
   }
+}
+
+UIHost.prototype._updateBeamSummary = function() {
+  updateBeamSummary(this);
 };
 
 // --- Infrastructure fault popup ---
