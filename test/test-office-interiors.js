@@ -66,6 +66,36 @@ assertOk(PLACEABLES.clubChair.gridW === 2 && PLACEABLES.clubChair.gridH === 2,
 assertOk(PLACEABLES.clubChair.parts.some(part => part.name === 'back' && part.w >= 1.8),
   'faculty lounge club chair upholstery fills its wider footprint');
 
+console.log('\n=== upholstered seating color variants ===\n');
+
+const colorSelectableSeating = [
+  'couch', 'visitorArmchair', 'ottoman', 'clubChair', 'tuftedSofa',
+  'waitingBench', 'officeChair', 'ergonomicChair', 'executiveChair', 'meetingChair',
+];
+for (const id of colorSelectableSeating) {
+  const def = PLACEABLES[id];
+  const partNames = new Set(def?.parts?.map(part => part.name));
+  assertOk(def?.variants?.length >= 3, `${id} offers at least three upholstery colors`);
+  assertOk(def.variants.length === def.variantPreviewColors?.length
+      && def.variants.length === def.variantOverrides?.length,
+  `${id} keeps labels, swatches, and rendered overrides index-aligned`);
+  assertOk(def.variantOverrides.slice(1).every(overrides => Object.keys(overrides).length > 0),
+    `${id} non-default colors alter authored upholstery`);
+  assertOk(def.variantOverrides.every(overrides => Object.keys(overrides).every(name => partNames.has(name))),
+    `${id} color overrides reference real geometry parts`);
+}
+
+{
+  const game = new Game(new BeamlineRegistry(), { seed: 1900 });
+  game.state.resources.funding = 1e9;
+  const chairId = game.placePlaceable({
+    type: 'visitorArmchair', variant: 2,
+    col: 68, row: 68, subCol: 0, subRow: 0, dir: 0,
+  });
+  assertOk(!!chairId && game.getPlaceable(chairId)?.variant === 2,
+    'an armchair placement retains its selected upholstery color');
+}
+
 for (const id of ['standingDesk', 'acousticPod', 'beamlineDisplayCase', 'collaborationTable']) {
   const def = PLACEABLES[id];
   assertOk(!!def && def.kind === 'furnishing', `${id} is registered as a furnishing`);
