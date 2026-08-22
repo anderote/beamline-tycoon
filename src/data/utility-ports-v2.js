@@ -696,6 +696,15 @@ const VACUUM_OUTGASSING = {
 // solver, which can see state.beamPipes and knows which pumps serve them.
 // Length-scaled outgassing is the dominant term on any real machine, so it
 // has to be counted somewhere that actually runs.
+//
+// Keep the per-component sink even for tiny inline hardware. It is not merely
+// a drawing convenience: utility-gate hard-gates each declared sink, and the
+// vacuum solver uses those sink records to associate continuous beam-pipe ids
+// with their volume and surface outgassing. Removing "redundant-looking"
+// fittings would therefore make hardware run at atmosphere and can drop pipe
+// surface area from the solve. Presentation places every generated CF flange
+// on the 1 m beam-axis service band; a future topology aggregation must first
+// introduce an explicit pipe-section vacuum endpoint and quality fan-out.
 for (const [id, comp] of Object.entries(BEAMLINE_COMPONENTS_RAW)) {
   if (comp.isDrawnConnection) continue;
   if (!BEAMLINE_UTILITY_PORTS[id]) BEAMLINE_UTILITY_PORTS[id] = {};

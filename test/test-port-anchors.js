@@ -264,10 +264,10 @@ const SHELL = 0.45;
 // bounds.minZ + 7.2 * offsetAlong, per port. Hand-computed, not derived.
 const ALONG = { pwr_in: -2.16, cryo_in: 0, rf_in: 0.390625, vac_in: 1.44 };
 // Straight out of PORT_ANCHOR_OVERRIDES.cryomodule (_default 1.15).
-const Y = { pwr_in: 1.15, cryo_in: 0.7, rf_in: 1.0, vac_in: 1.15 };
+const Y = { pwr_in: 1.15, cryo_in: 1.5, rf_in: 1.0, vac_in: 1.0 };
 // spec.side: left is local -x, right is local +x.
 const SIGN = { pwr_in: -1, vac_in: -1, cryo_in: 1, rf_in: -1 };
-const LAT = { pwr_in: SHELL, vac_in: SHELL, cryo_in: SHELL, rf_in: 0.76 };
+const LAT = { pwr_in: SHELL, vac_in: SHELL, cryo_in: 0.55, rf_in: 0.76 };
 const CM_PORTS = Object.keys(ALONG);
 
 const TOL = 1e-9;
@@ -298,15 +298,15 @@ console.log('\n--- 4b. Pipe attachments share the rendered model centre ---');
   const p = place(CM, { col: 2.25, row: 3.5, subCol: null, subRow: null, dir: 0 });
   const a = portAnchor3D(p, CM_DEF, 'cryo_in');
   const modelCentre = { x: p.col * 2 + 1, z: p.row * 2 + 1 };
-  assert(near(a.x, modelCentre.x + SHELL),
-    `pipe anchor is measured laterally from rendered centre (got ${fmtA(a)})`);
+  assert(near(a.x, modelCentre.x + LAT.cryo_in),
+    `pipe anchor uses its authored header mount from rendered centre (got ${fmtA(a)})`);
   assert(near(a.z, modelCentre.z + ALONG.cryo_in),
     `pipe anchor does not add half the ${CM_DEF.subL}-subtile footprint length`);
 
   // Rotation turns the local mount but never changes that same world centre.
   const turned = portAnchor3D({ ...p, dir: 1 }, CM_DEF, 'cryo_in');
   assert(near(turned.x, modelCentre.x - ALONG.cryo_in)
-      && near(turned.z, modelCentre.z + SHELL),
+      && near(turned.z, modelCentre.z + LAT.cryo_in),
     `rotated pipe anchor stays centred on the rendered component (got ${fmtA(turned)})`);
 
   // utility-endpoints uses a second record shape for the same attachment: it
@@ -321,7 +321,7 @@ console.log('\n--- 4b. Pipe attachments share the rendered model centre ---');
     isPlacement: true,
   };
   const endpointAnchor = portAnchor3D(endpoint, CM_DEF, 'cryo_in');
-  assert(near(endpointAnchor.x, modelCentre.x + SHELL)
+  assert(near(endpointAnchor.x, modelCentre.x + LAT.cryo_in)
       && near(endpointAnchor.z, modelCentre.z + ALONG.cryo_in),
     `utility endpoint record shares rendered centre (got ${fmtA(endpointAnchor)})`);
 }
@@ -390,9 +390,9 @@ console.log('\n--- 6. A connector never leaves the footprint, or enters the beam
   // pipe would bolt the connector to the machine's centreline. MIN_LATERAL
   // holds it out where a hand could reach it.
   useProviders(FAKE_BOUNDS, 0.001);
-  const tight = portAnchor3D(place(CM), CM_DEF, 'cryo_in');
-  assert(near(tight.x, 7.05),
-    `a 1 mm surface is held out to MIN_LATERAL, x = 7.05 (got ${tight.x})`);
+  const tight = portAnchor3D(place(CM), CM_DEF, 'pwr_in');
+  assert(near(tight.x, 6.95),
+    `a 1 mm surface is held out to MIN_LATERAL, x = 6.95 (got ${tight.x})`);
 
   // And the same for the longitudinal axis: a model reported longer than its
   // own footprint cannot push a connector into the next tile. minZ -50 /
@@ -545,6 +545,50 @@ console.log('\n--- 10. Every beamline RF sink lands on its visible inlet hardwar
   }
 }
 
+console.log('\n--- 10b. Every beamline cryogenic sink lands on authored service hardware ---');
+{
+  useProviders(null, null);
+  const cryogenicMounts = [
+    ['srfGun', 'cryo_in', 0, 1.84, -0.2, [0, 1, 0]],
+    ['protonLinacFrontEnd', 'cryo_in', 0.87, 1.62, 1.15, [1, 0, 0]],
+    ['finalFocusDoublet', 'cryo_in', 0, 1.72, -0.914, [0, 1, 0]],
+    ['halfWaveResonator', 'cryo_in', 0, 2.30, 0, [0, 1, 0]],
+    ['spokeCavity', 'cryo_in', 0, 2.45, 0.5952, [0, 1, 0]],
+    ['ellipticalSrfCavity', 'cryo_in', 0, 1.68, 0, [0, 1, 0]],
+    ['srf650Cryomodule', 'cryo_in', 0, 2.0, 0, [0, 1, 0]],
+    ['srf805Cryomodule', 'cryo_in', 0, 1.89, 2.52, [0, 1, 0]],
+    ['cryomodule', 'cryo_in', 0.55, 1.5, 0, [1, 0, 0]],
+    ['cwCryomodule', 'cryo_in', 0, 1.885, 0, [0, 1, 0]],
+    ['nbSnCryomodule', 'cryo_in', 0, 1.80, 0, [0, 1, 0]],
+    ['srfLinacSector', 'cryo_in', -0.76, 1.294, 0, [-1, 0, 0]],
+  ];
+  const actualCryoSinks = Object.entries(COMPONENTS).flatMap(([type, def]) =>
+    Object.entries(def.ports || {})
+      .filter(([, port]) => port.utility === 'cryoTransfer' && port.role === 'sink')
+      .map(([portName]) => `${type}.${portName}`));
+  assert(cryogenicMounts.length === actualCryoSinks.length,
+    `the cryogenic audit covers all ${actualCryoSinks.length} beamline sinks`);
+  for (const [type, portName, localX, y, localZ, normal] of cryogenicMounts) {
+    const def = COMPONENTS[type];
+    const p = place(type, { col: 0, row: 0, subCol: null, subRow: null, dir: 0 });
+    const anchor = portAnchor3D(p, def, portName);
+    assert(anchor && near(anchor.x, 1 + localX) && near(anchor.y, y)
+        && near(anchor.z, 1 + localZ)
+        && near(anchor.out.x, normal[0]) && near(anchor.out.y, normal[1])
+        && near(anchor.out.z, normal[2]),
+      `${type}.${portName} uses its visible service mount and 3D normal (${fmtA(anchor)})`);
+  }
+
+  const vertical = portAnchor3D(
+    place('halfWaveResonator', { col: 0, row: 0, subCol: null, subRow: null, dir: 3 }),
+    COMPONENTS.halfWaveResonator,
+    'cryo_in',
+  );
+  assert(vertical && near(vertical.out.x, 0) && near(vertical.out.y, 1)
+      && near(vertical.out.z, 0),
+    'a top-facing connector remains vertical through placeable rotation');
+}
+
 console.log('\n--- 11. Every real component port lands on rendered geometry ---');
 {
   // The synthetic sections above prove the coordinate arithmetic. This pass
@@ -608,19 +652,16 @@ console.log('\n--- 11. Every real component port lands on rendered geometry ---'
     + `(${unmeasured.slice(0, 5).join(',') || 'all attached'})`);
   assert(recovered > 0, `the audit exercised missed-ray recovery (${recovered} recovered)`);
 
-  // Penning's exit pipe lengthens the overall Z bounds beyond its magnet
-  // yoke. Both front-biased side ports used to request that empty extension;
-  // the lateral fallback then drew them away from the chassis. Recovery must
-  // keep their service height, move them back along the source, and prefer the
-  // broad yoke over the skinny beam support beside it.
-  for (const name of ['cool_in', 'vac_in']) {
-    const surface = measured.get(`penningIonSource.${name}`);
-    assert(surface && typeof surface === 'object'
-        && Math.abs(surface.y - 0.792) < 1e-3
-        && surface.along < 0.3
-        && surface.lat > 0.4,
-    `Penning ${name} recovers onto the magnet yoke (${JSON.stringify(surface)})`);
-  }
+  // Cooling belongs low on the magnet yoke, while vacuum now requests the
+  // beam-axis service band and therefore hits the actual chamber directly.
+  const penningCooling = measured.get('penningIonSource.cool_in');
+  assert(penningCooling && typeof penningCooling === 'object'
+      && Math.abs(penningCooling.y - 0.6) < 1e-3
+      && penningCooling.along < 0.3 && penningCooling.lat > 0.4,
+  `Penning cooling recovers onto the low magnet yoke (${JSON.stringify(penningCooling)})`);
+  const penningVacuum = measured.get('penningIonSource.vac_in');
+  assert(Number.isFinite(penningVacuum) && penningVacuum > 0.05 && penningVacuum < 0.15,
+    `Penning vacuum meets the beam-axis chamber directly (${penningVacuum})`);
 }
 
 // Leave the module as it was found: these providers are process-global, and a

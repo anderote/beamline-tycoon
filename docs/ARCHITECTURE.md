@@ -46,7 +46,7 @@ One line per area: what it owns, and what it must not own.
 | `validate.js` | The content contract, as a pure function returning problems. Also `validateResearch` (the unlock/gating two-way contract). | Throwing — the caller decides. |
 | `modes.js` | The palette tab taxonomy. `MODES[*].categories` keys **are** the legal `def.category` values (`validate.js:48-59`). | Item content. |
 | `utility-ports-v2.js` | The single home for per-component utility sink/source numbers (`utility-ports-v2.js:14`). | Anything derived — read it via `getUtilityPortsV2(id)`, not the raw export (Invariant U1). |
-| `utility-port-anchors.js` | Hand-authored *3D* port heights. "This table moves the picture, never the model" (`:9`). | x/z — those stay `portWorldPosition`. |
+| `utility-port-anchors.js` | Presentation-only utility mounts: service-band heights, exact model-local hardware coordinates/normals, and the explicit-vs-generated geometry audit. "This table moves the picture, never the model." | Simulation port identity, snapping, route topology, or pricing. |
 | `beamline-types.js`, `research.js`, `objectives.js`, `scenarios/`, `stock-designs/`, `wiki/` | Static content tables. | — |
 
 ### `src/renderer3d`
@@ -311,8 +311,14 @@ Cooling water is the dynamic-cap exception: `coolingWater.boundPersistentState` 
 **T9. Port identity: `${placeableId}:${portName}`, and only *utility* ports carry a `utility` field.**
 `network-discovery.js:23`, `ports.js:8-12`. `components.js:44-58` merges utility ports into each entry's `ports` object **without clobbering beam ports** (`entry`, `exit`, `linacEntry`, …) — beam ports win on a name collision, and a fresh merged object is always assigned so utility ports never leak back into the raw registries.
 
-**T10. `port-anchors.js` may move a connector's Y, never its X/Z.**
-`port-anchors.js:19-22`, `utility-port-anchors.js:5-9`. The bounds provider is injected (`setModelBoundsProvider`, `port-anchors.js:58`) so the module stays usable headless.
+**T10. Render anchors may move the picture, never the utility endpoint.**
+`port-anchors.js` starts from the canonical `portWorldPosition`, then may project
+the visible fitting onto measured shell geometry or an exact model-local
+hardware mount from `utility-port-anchors.js`. Exact mounts can carry a full 3D
+outward normal, including top-facing connectors. Port identity, snapping,
+routing topology, and pricing continue to use the canonical footprint point.
+The bounds provider is injected with `setModelBoundsProvider` so anchor
+resolution remains usable headless.
 
 ### B — Beam physics bridge
 

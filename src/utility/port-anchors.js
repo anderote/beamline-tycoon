@@ -14,7 +14,7 @@
 // the markers, the fittings and the cable ends alike:
 //
 //   portAnchor3D(placeable, def, portName)
-//     → { x, y, z, out: {x, z}, standoff } | null
+//     → { x, y, z, out: {x, y, z}, standoff } | null
 //
 // The anchor is presentation, and only presentation. The sim keeps reading
 // `portWorldPosition`, which is unchanged — topology, snapping, pathing and
@@ -78,7 +78,8 @@ const MIN_LATERAL = 0.05;
 let _boundsProvider = null;
 let _measureProvider = null;
 
-// `${type}:${portName}` → { lat, along, y }, all in local metres. Resolving a
+// `${type}:${portName}` → { lat, along, localX, localZ, y, normal }, all
+// positions in local metres. Resolving a
 // mount instantiates the model, so it happens once per type and is remembered;
 // re-registering either provider throws the lot away, because the answers were
 // computed from what the old providers said.
@@ -255,12 +256,37 @@ function resolveTypeMounts(type, def, portsFlipped = false) {
     // terminal banks. Otherwise a miss may be recovered by the renderer at a
     // nearby point on the same chassis. Keep the recovered point inside the
     // reserved footprint just like the authored/fractional path above.
-    const useRecoveredMount = !Number.isFinite(p.override?.lat) && surface;
+    const hasExactLocalPosition = Number.isFinite(p.override?.localX)
+      && Number.isFinite(p.override?.localZ);
+    const useRecoveredMount = !Number.isFinite(p.override?.lat)
+      && !hasExactLocalPosition && surface;
     const along = useRecoveredMount && Number.isFinite(surface.along)
       ? clamp(surface.along, -halfPerp, halfPerp)
       : p.along;
     const y = useRecoveredMount && Number.isFinite(surface.y) ? surface.y : p.y;
-    const mount = { lat, along, y };
+    const localLat = p.local.sign * lat;
+    const derivedLocal = p.local.axis === 'x'
+      ? { x: localLat, z: along }
+      : { x: along, z: localLat };
+    const localX = Number.isFinite(p.override?.localX)
+      ? p.override.localX : derivedLocal.x;
+    const localZ = Number.isFinite(p.override?.localZ)
+      ? p.override.localZ : derivedLocal.z;
+    const authoredNormal = p.override?.normal;
+    const defaultNormal = p.local.axis === 'x'
+      ? { x: p.local.sign, y: 0, z: 0 }
+      : { x: 0, y: 0, z: p.local.sign };
+    const normal = authoredNormal
+      && Number.isFinite(authoredNormal.x)
+      && Number.isFinite(authoredNormal.y)
+      && Number.isFinite(authoredNormal.z)
+      ? { x: authoredNormal.x, y: authoredNormal.y, z: authoredNormal.z }
+      : defaultNormal;
+    const normalLength = Math.hypot(normal.x, normal.y, normal.z) || 1;
+    normal.x /= normalLength;
+    normal.y /= normalLength;
+    normal.z /= normalLength;
+    const mount = { lat, along, localX, localZ, y, normal };
     mounts.set(p.portName, mount);
     if (type) _mountCache.set(`${type}:${p.portName}:${portsFlipped ? 1 : 0}`, mount);
   }
@@ -313,20 +339,25 @@ export function portAnchor3D(placeable, def, portName) {
     ? portWorldPosition(placeable, def, portName)
     : null;
 
-  const vec = portApproachVec(placeable, def, portName);
-  // Path coords are (col, row) = (x/2, z/2), so an outward normal of one tile
-  // step is one unit in each — direction only, magnitude comes from standoff.
-  const out = vec ? { x: vec.dCol, z: vec.dRow } : { x: 0, z: 0 };
-
   const override = type ? portAnchorOverride(type, portName) : null;
+  const vec = portApproachVec(placeable, def, portName);
+  // Exact mounts may face vertically. Otherwise retain the simulation side's
+  // rotated horizontal approach direction byte-for-byte.
+  const rotatedNormal = rotateLocalOffset(
+    { x: mount.normal.x, z: mount.normal.z },
+    placeableDirection(placeable, def),
+  );
+  const hasAuthoredNormal = !!override?.normal;
+  const out = hasAuthoredNormal
+    ? { x: rotatedNormal.x, y: mount.normal.y, z: rotatedNormal.z }
+    : (vec ? { x: vec.dCol, y: 0, z: vec.dRow } : { x: 0, y: 0, z: 0 });
+
   const standoff = BASE_STANDOFF + ((override && override.out) || 0);
 
   // Local offset → world: lateral outward along the port's own axis, `along`
   // on the perpendicular one, then the placeable's quarter turns.
-  const lat = local.sign * mount.lat;
   const offset = rotateLocalOffset(
-    local.axis === 'x' ? { x: lat, z: mount.along } : { x: mount.along, z: lat },
-    placeableDirection(placeable, def),
+    { x: mount.localX, z: mount.localZ }, placeableDirection(placeable, def),
   );
 
   return {

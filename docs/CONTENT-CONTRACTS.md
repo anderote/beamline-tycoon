@@ -201,6 +201,19 @@ the short authoring contract.
   watts back at the component boundary. Distributed `vac_in*` sinks follow the
   same total-load-preserving rule. Do not leave a rendered sector coupler as a
   decorative false hookup or place these feeds high on the vacuum jacket.
+- Every beamline cryogenic sink likewise authors its exact visible bayonet or
+  header mount. Use `localX`, `localZ`, and a model-local 3D `normal` in
+  `utility-port-anchors.js` when side-derived shell projection cannot identify
+  that hardware; `{ x: 0, y: 1, z: 0 }` is a top-facing fitting. These fields
+  affect presentation only and must not be used to change simulation endpoints.
+- Every utility port must resolve to either `explicit-hardware` or
+  `generated-hardware` through `portGeometryClassification`; `unreviewed` is a
+  failing content state. RF and cryogenic beamline sinks require explicit
+  mounts. Power/HV, cooling, vacuum, and data intentionally use their generated
+  type-specific terminal fittings on measured shells. Generated beamline
+  vacuum fittings meet the 1 m beam axis, cooling fittings use the low service
+  band, and data fittings use the instrumentation band unless a per-port mount
+  overrides them.
 - RF waveguides and cryogenic transfer lines use the `rectilinear` routing
   profile: their paths must be axis-aligned with 90-degree bends, but do not
   reserve rigid equipment or service-clearance aisles.

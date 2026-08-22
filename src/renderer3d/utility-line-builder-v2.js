@@ -272,11 +272,11 @@ function anchorFor(ref, placeablesById) {
 
 function anchorTip(anchor) {
   if (!anchor) return null;
-  const out = anchor.out || { x: 0, z: 0 };
+  const out = anchor.out || { x: 0, y: 0, z: 0 };
   const standoff = anchor.standoff || 0;
   return {
     x: anchor.x + out.x * standoff,
-    y: anchor.y,
+    y: anchor.y + (out.y || 0) * standoff,
     z: anchor.z + out.z * standoff,
   };
 }
@@ -438,7 +438,7 @@ function portRiser(ref, placeablesById, runY, runPoint, resolvedAnchor) {
   const def = COMPONENTS[rec.type];
   const anchor = resolvedAnchor || portAnchor3D(rec, def, ref.portName);
   if (!anchor) return null;
-  const out = anchor.out || { x: 0, z: 0 };
+  const out = anchor.out || { x: 0, y: 0, z: 0 };
   const d = anchor.standoff || 0;
   const logical = runPoint || new THREE.Vector3(anchor.x, runY, anchor.z);
   const tail = [];
@@ -465,7 +465,11 @@ function portRiser(ref, placeablesById, runY, runPoint, resolvedAnchor) {
     pushDistinct(anchor.x, anchor.y, anchor.z);
   }
   if (d > 0) {
-    pushDistinct(anchor.x + out.x * d, anchor.y, anchor.z + out.z * d);
+    pushDistinct(
+      anchor.x + out.x * d,
+      anchor.y + (out.y || 0) * d,
+      anchor.z + out.z * d,
+    );
   }
   return tail;
 }
@@ -1522,11 +1526,11 @@ function buildPortMarker(anchor, color, brightened) {
   const geo = new THREE.SphereGeometry(r, 10, 8);
   const mat = getPortMarkerMaterial(color, brightened);
   const mesh = new THREE.Mesh(geo, mat);
-  const out = anchor.out || { x: 0, z: 0 };
+  const out = anchor.out || { x: 0, y: 0, z: 0 };
   const d = (anchor.standoff || 0) + r;
   mesh.position.set(
     anchor.x + out.x * d,
-    anchor.y != null ? anchor.y : PIPE_Y + 0.3,
+    (anchor.y != null ? anchor.y : PIPE_Y + 0.3) + (out.y || 0) * d,
     anchor.z + out.z * d,
   );
   mesh.renderOrder = 999;

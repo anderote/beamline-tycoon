@@ -262,6 +262,10 @@ export function _buildColdBox2KRoles() {
       cyl(b, 'accent', 0.10, 0.035, canX + vx, 1.7575, canZ + vz, 8);
     }
   }
+  // Routable liquid-helium outlet on the +X side of the distribution can.
+  // The generated cryogenic fitting bolts to the cap at x = 0.15.
+  cylX(b, 'pipe', 0.09, 0.18, 0.03, 0.78, canZ, 8);
+  cylX(b, 'detail', 0.115, 0.03, 0.135, 0.78, canZ, 8);
 
   // Warm-return line to the compressor house, at ankle height
   cylZ(b, 'copper', 0.10, 3.20, -0.72, 0.30, 0);
@@ -500,10 +504,12 @@ export function _buildCryoValveBoxRoles() {
       cylZ(b, 'detail', 0.12, 0.03, bx, 0.50, zSign * 0.725, 8);
     }
   }
-  // +X face: the branch taps that feed the cryomodules on the segment.
-  for (const tz of [-0.30, 0.30]) {
-    cylX(b, 'pipe', 0.075, 0.12, 0.42, 0.36, tz, 8);
-    cylX(b, 'detail', 0.09, 0.025, 0.4825, 0.36, tz, 8);
+  // ±X faces: branch taps that feed cryomodules on either side of the box.
+  for (const xSign of [-1, 1]) {
+    for (const tz of [-0.30, 0.30]) {
+      cylX(b, 'pipe', 0.075, 0.12, xSign * 0.42, 0.36, tz, 8);
+      cylX(b, 'detail', 0.09, 0.025, xSign * 0.4825, 0.36, tz, 8);
+    }
   }
 
   // Relief stack and burst disc on the lid
