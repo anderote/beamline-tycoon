@@ -101,12 +101,11 @@ export default {
   // dryCoolerBank 500 → coolingTower 800); litres only track the reservoir
   // level.
   capacityUnit: 'kW',
-  // Pipework: tees and manifolds, same as vacuum.
+  // Player-drawn hoses terminate on authored equipment/manifold ports. Keep
+  // authored/scenario tap topology compatible, but never expose a nearby hose
+  // or utility rack as an interactive draw endpoint.
   allowsTap: true,
-  // Water hoses are commonly routed close together as paired supply/return
-  // runs. Keep taps discoverable without pulling a parallel run sideways from
-  // the shared, more generous utility-line pickup halo.
-  tapSnapRadiusTiles: 0.3,
+  portToPortDrawing: true,
   fansOut: true,
   // Flexible water lines are equipment hoses. They never pass directly through
   // a slab; the input coordinator installs a circuit-colored wall sleeve and

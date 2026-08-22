@@ -157,7 +157,7 @@ function hittableTrunkPoint(game, trunk, ctrl = ctrlFor(game)) {
   return trunkMid(trunk);
 }
 
-console.log('\n--- 1. The cursor can grab a line, and ports still win ---');
+console.log('\n--- 1. Hose ports still snap while hose runs do not ---');
 {
   const { game, trunk } = withTrunk();
   assert(!!trunk, 'a trunk to branch off');
@@ -167,10 +167,10 @@ console.log('\n--- 1. The cursor can grab a line, and ports still win ---');
   const iso = gridToIso(mid.col, mid.row);
   ctrl.onHover(iso.x, iso.y);
   const hov = ctrl.hoverPort;
-  assert(hov && hov.tap === true && hov.lineId === trunk.id,
-    `hovering the trunk offers a tap on it (${hov ? (hov.tap ? hov.lineId : 'port') : 'nothing'})`);
+  assert(!hov,
+    'hovering a water trunk does not offer a line-to-line tap');
 
-  // ...but a port under the cursor still wins, even though the trunk ends there.
+  // Port acquisition remains unchanged.
   const portPt = portTile(game, 'pl_2', 'cool_in');
   const pIso = gridToIso(portPt.col, portPt.row);
   ctrl.onHover(pIso.x, pIso.y);
@@ -201,29 +201,32 @@ console.log('\n--- 1b. A rigid run is one continuous, forgiving magnetic target 
       hover?.worldPos)})`);
 }
 
-console.log('\n--- 1c. Water runs use a tighter pickup halo than data cable ---');
+console.log('\n--- 1c. Hoses are port-only; rigid water pipes keep a tiny tap halo ---');
 {
   const game = makeGame();
-  for (const [utilityType, row] of [
-    ['coolingWater', 14],
-    ['waterSupplyPipe', 16],
-  ]) {
-    const lineId = game.utilityLineSystem.addLine({
-      utilityType, start: null, end: null,
-      path: [{ col: 2, row }, { col: 12, row }],
-    });
-    const ctrl = ctrlFor(game, utilityType);
+  const hoseId = game.utilityLineSystem.addLine({
+    utilityType: 'coolingWater', start: null, end: null,
+    path: [{ col: 2, row: 14 }, { col: 12, row: 14 }],
+  });
+  const hoseCtrl = ctrlFor(game, 'coolingWater');
+  let iso = gridToIso(7.25, 14);
+  hoseCtrl.onHover(iso.x, iso.y);
+  assert(!hoseCtrl.hoverPort,
+    `coolingWater does not offer a tap even directly over ${hoseId}`);
 
-    let iso = gridToIso(7.25, row + 0.25);
-    ctrl.onHover(iso.x, iso.y);
-    assert(ctrl.hoverPort?.tap === true && ctrl.hoverPort.lineId === lineId,
-      `${utilityType} still attracts a deliberately close endpoint`);
-
-    iso = gridToIso(7.25, row + 0.4);
-    ctrl.onHover(iso.x, iso.y);
-    assert(!ctrl.hoverPort,
-      `${utilityType} leaves a nearby parallel routing lane unsnapped`);
-  }
+  const pipeId = game.utilityLineSystem.addLine({
+    utilityType: 'waterSupplyPipe', start: null, end: null,
+    path: [{ col: 2, row: 16 }, { col: 12, row: 16 }],
+  });
+  const pipeCtrl = ctrlFor(game, 'waterSupplyPipe');
+  iso = gridToIso(7.25, 16.125);
+  pipeCtrl.onHover(iso.x, iso.y);
+  assert(pipeCtrl.hoverPort?.tap === true && pipeCtrl.hoverPort.lineId === pipeId,
+    'waterSupplyPipe still acquires an intentionally close pipe tee');
+  iso = gridToIso(7.25, 16.2);
+  pipeCtrl.onHover(iso.x, iso.y);
+  assert(!pipeCtrl.hoverPort,
+    'waterSupplyPipe leaves a nearby parallel cursor unsnapped');
 
   const dataLineId = game.utilityLineSystem.addLine({
     utilityType: 'dataFiber', start: null, end: null,
@@ -260,7 +263,7 @@ console.log('\n--- 1d. A broad cryo jacket gets a cryo-specific pickup halo ---'
       hover?.worldPos)})`);
 }
 
-console.log('\n--- 1e. Stacked water headers snap to the requested circuit ---');
+console.log('\n--- 1e. Low-level stacked-header lookup still resolves circuit ---');
 {
   const game = makeGame();
   game.state.utilityLines.set('cold-header', {
@@ -280,7 +283,7 @@ console.log('\n--- 1e. Stacked water headers snap to the requested circuit ---')
   const cold = ctrl.nearestLine(cursor.x, cursor.y, 0.65, null, 'cold');
   const hot = ctrl.nearestLine(cursor.x, cursor.y, 0.65, null, 'hot');
   assert(cold?.lineId === 'cold-header' && hot?.lineId === 'hot-header',
-    'a stacked header tap resolves by circuit instead of insertion order or height');
+    'stacked header lookup resolves by circuit instead of insertion order or height');
 
   const renderer = {
     raycastUtilityLine: () => ({
@@ -295,7 +298,7 @@ console.log('\n--- 1e. Stacked water headers snap to the requested circuit ---')
     'a mesh-selected stacked pipe carries its temperature circuit into the new draw');
 }
 
-console.log('\n--- 2. A drag onto the trunk commits, and joins its network ---');
+console.log('\n--- 2. A hose drag onto a hose run does not create a tee ---');
 {
   const { game, trunk } = withTrunk();
   const mid = hittableTrunkPoint(game, trunk);
@@ -304,24 +307,8 @@ console.log('\n--- 2. A drag onto the trunk commits, and joins its network ---')
   drag(game, portTile(game, 'pl_2', 'cool_in'), { col: mid.col, row: mid.row });
 
   const lines = coolingLines(game);
-  assert(lines.length === before + 1,
-    `the branch committed (got ${lines.length - before}`
-    + `${game._logs.length ? ' — ' + game._logs.join(' | ') : ''})`);
-
-  const branch = lines.find(l => l.id !== trunk.id);
-  assert(branch && branch.start && branch.start.placeableId === 'pl_2',
-    'anchored on the component at the far end');
-  assert(branch && branch.end === null,
-    'and open at the tap end — a tap is a join, not an endpoint reference');
-
-  const nets = discoverNetworks('coolingWater', game.state.utilityLines,
-    makeDefaultPortLookup(game.state));
-  const withBoth = nets.filter(n => n.lineIds.includes(trunk.id) && n.lineIds.includes(branch.id));
-  assert(withBoth.length === 1,
-    `trunk and branch solve as ONE network (got ${withBoth.length})`);
-  const keys = withBoth[0] ? withBoth[0].ports.map(p => p.placeableId) : [];
-  assert(keys.includes('src_1') && keys.includes('tap_header') && keys.includes('pl_2'),
-    `the source, header, and branch load share one network (${keys.join(',')})`);
+  assert(lines.length === before,
+    'a player water gesture without a destination port does not commit');
 }
 
 console.log('\n--- 2b. Flexible data cables retain peer-bus taps ---');
@@ -367,7 +354,7 @@ console.log('\n--- 2b. Flexible data cables retain peer-bus taps ---');
     `the tapped cables form one three-device peer network (${[...peerIds].join(',')})`);
 }
 
-console.log('\n--- 3. The exemption is exactly one point wide ---');
+console.log('\n--- 3. Authored tap exemptions remain exactly one point wide ---');
 {
   const { game, trunk } = withTrunk();
   // Work off the trunk's longest segment, so "along it" and "away from it" are
@@ -402,11 +389,12 @@ console.log('\n--- 3. The exemption is exactly one point wide ---');
     { col: mid.col, row: mid.row },
     { col: mid.col + perp.col * 2, row: mid.row + perp.row * 2 },
   ];
-  const okTap = validateDrawLine(game.state, {
+  const namedTap = validateDrawLine(game.state, {
     utilityType: 'coolingWater', start: null, end: null, path: branchPath,
     tapLineIds: { start: trunk.id, end: null },
   });
-  assert(okTap.ok, `a clean tap validates (got ${okTap.ok ? 'ok' : okTap.reason})`);
+  assert(namedTap.ok,
+    `an authored clean tap validates (got ${namedTap.ok ? 'ok' : namedTap.reason})`);
   const noTap = validateDrawLine(game.state, {
     utilityType: 'coolingWater', start: null, end: null, path: branchPath,
   });
@@ -504,9 +492,9 @@ console.log('\n--- 6. Vacuum pipes join pipe-to-pipe at arbitrary mid-span point
     networks.map(network => network.lineIds))})`);
 }
 
-console.log('\n--- 7. Cooling, RF and cryogenic runs build named line-to-line tees ---');
+console.log('\n--- 7. RF and cryogenic runs still build named line-to-line tees ---');
 {
-  for (const utilityType of ['coolingWater', 'rfWaveguide', 'cryoTransfer']) {
+  for (const utilityType of ['rfWaveguide', 'cryoTransfer']) {
     const game = makeGame();
     const upperId = game.utilityLineSystem.addLine({
       utilityType, start: null, end: null,
