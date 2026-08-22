@@ -192,10 +192,11 @@ console.log('\n--- 1b. bakeRunDistanceFromPositionZ rescales in isolation ---');
 // A three-waypoint, two-segment powered run: (0,0) -> (3,0) -> (3,4), both
 // ends open so buildWorldPoints emits the path verbatim (no port risers).
 // World coords are tile*2: (0,0)->(6,0)->(6,8). Segment lengths: 6 and 8.
-function buildFlowLine(utilityType) {
+function buildFlowLine(utilityType, waterCircuit = null) {
   const line = {
     id: 'ul_flow', utilityType, start: null, end: null,
     path: [{ col: 0, row: 0 }, { col: 3, row: 0 }, { col: 3, row: 4 }],
+    ...(waterCircuit ? { waterCircuit } : {}),
   };
   const builder = new UtilityLineBuilderV2();
   const parent = new Obj3();
@@ -491,8 +492,31 @@ console.log('\n--- 5. getLineMaterial: distinct per flowState, cached, tagged __
   assert(hotRigid.color.getHexString() === 'c45b42'
       && hotHose.color.getHexString() === 'c45b42',
     'hot rigid pipe and flexible hose use the same red circuit color');
+  assert(hotRigid.userData.flowUniforms.uFlowColor.value.getHexString() === 'c45b42'
+      && hotHose.userData.flowUniforms.uFlowColor.value.getHexString() === 'c45b42',
+    'functional hot rigid-pipe and hose pulses use the same red circuit color');
   assert(hotRigid !== coldRigid && hotHose !== coldHose,
     'hot and cold circuits own distinct cached rendering materials');
+}
+
+console.log('\n--- 5a. Built hot-water lines retain red bodies and functional pulses ---');
+{
+  for (const utilityType of ['coolingWater', 'waterSupplyPipe']) {
+    const { group } = buildFlowLine(utilityType, 'hot');
+    const meshes = utilityType === 'coolingWater'
+      ? flexibleMeshes(group)
+      : cylinderMeshes(group);
+    assert(meshes.length > 0, `${utilityType} builds rendered line geometry`);
+    assert(meshes.every(mesh => mesh.material.color.getHexString() === 'c45b42'),
+      `${utilityType} renders its hot-water body red`);
+    assert(meshes.every(mesh => (
+      mesh.material.userData.flowUniforms.uFlowColor.value.getHexString() === 'c45b42'
+      && mesh.material.userData.flowUniforms.uStrength.value > 0
+    )), `${utilityType} renders an active red pulse while functional`);
+    const pulse = group.userData.visualEffects?.find(effect => effect.kind === 'pathPulse');
+    assert(pulse?.color === '#c45b42',
+      `${utilityType} publishes its supplemental path pulse in red`);
+  }
 }
 
 console.log('\n--- 5b. RF waveguide glow follows published forward power ---');
