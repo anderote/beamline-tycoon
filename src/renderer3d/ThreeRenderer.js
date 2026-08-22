@@ -1898,6 +1898,31 @@ export class ThreeRenderer {
     return this._effectSystem?.emit(descriptor) ?? null;
   }
 
+  /**
+   * Trigger a reversible physics incident at the visual center of one
+   * selected placeable. Input passes the logical target; renderer ownership
+   * stays here because only this layer knows the live authored scene object.
+   */
+  explodeSelectionTarget(target, options = {}) {
+    if (target?.targetKind !== 'placeable' || !target.id) return false;
+    const object = target.rootObj
+      || this.componentBuilder?.getGroup?.(target.id)
+      || this.equipmentBuilder?.getGroup?.(target.id)
+      || this.decorationBuilder?.getGroup?.(target.id)
+      || null;
+    if (!object) return false;
+
+    object.updateWorldMatrix?.(true, true);
+    const bounds = new THREE.Box3().setFromObject(object);
+    const position = bounds.isEmpty()
+      ? object.getWorldPosition(new THREE.Vector3())
+      : bounds.getCenter(new THREE.Vector3());
+    const floorY = levelWorldY(target.level || 0);
+    position.y = Math.max(position.y, floorY + 0.2);
+    this.explodeWorld(position, { floorY, ...options });
+    return true;
+  }
+
   // Input controllers use these stable renderer-facing commands instead of
   // depending on UIHost's underscored forwarding implementation.
   openEquipmentWindow(entry) {

@@ -424,7 +424,9 @@ export class VisualEffectSystem {
     const fade = (1 - t) * (1 - t);
     const radius = Math.max(0.03, Number(burst.radius) || 0.16) * (0.65 + t * 1.8);
     this._position.set(burst.position.x, burst.position.y, burst.position.z);
-    this._scale.set(radius, radius, radius);
+    const horizontalScale = Math.max(0.01, Number(burst.horizontalScale) || 1);
+    const verticalScale = Math.max(0.01, Number(burst.verticalScale) || 1);
+    this._scale.set(radius * horizontalScale, radius * verticalScale, radius * horizontalScale);
     this._matrix.compose(this._position, this._burstQuat, this._scale);
     this._pulseMesh.setMatrixAt(index, this._matrix);
     this._color.set(effectColor(burst.color)).multiplyScalar(Math.max(0.2, fade));

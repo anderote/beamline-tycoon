@@ -206,14 +206,39 @@ export class WorldPhysicsPresentation {
 
     const radius = Math.max(0.1, Number(options.radius) || 7);
     const strength = Math.max(0, Number(options.strength) || 90);
-    emitVisualEffect?.({
-      kind: 'burst', position,
-      color: options.color ?? 0xffb04a,
-      intensity: options.lightIntensity ?? Math.min(80, strength * 0.55),
-      durationMs: options.durationMs ?? 700,
-      radius: options.visualRadius ?? Math.max(0.35, radius * 0.08),
-      groundRadius: options.groundRadius ?? radius * 0.45,
-    });
+    const visualRadius = options.visualRadius ?? Math.max(0.35, radius * 0.08);
+    const floorY = options.floorY;
+    // Layered packets share the existing bounded instanced-effect path: a
+    // short white-hot ignition, the orange fireball, and a flatter expanding
+    // pressure front. Only the ignition borrows a physical light slot.
+    const effects = [
+      {
+        kind: 'burst', position, color: options.coreColor ?? 0xfff4c2,
+        intensity: options.lightIntensity ?? Math.min(80, strength * 0.55),
+        durationMs: Math.min(220, options.durationMs ?? 700),
+        radius: visualRadius * 0.58,
+        groundRadius: options.groundRadius ?? radius * 0.38,
+        floorY,
+      },
+      {
+        kind: 'burst', position, color: options.color ?? 0xff8a2a,
+        physicalLight: false,
+        durationMs: options.durationMs ?? 700,
+        radius: visualRadius,
+        groundRadius: options.groundRadius ?? radius * 0.45,
+        floorY,
+      },
+      {
+        kind: 'burst', position, color: options.waveColor ?? 0xffc06a,
+        physicalLight: false, groundSpill: false,
+        durationMs: Math.max(320, (options.durationMs ?? 700) * 0.72),
+        radius: visualRadius * 1.18,
+        horizontalScale: 1.7,
+        verticalScale: 0.16,
+        floorY,
+      },
+    ];
+    for (const effect of effects) emitVisualEffect?.(effect);
 
     const ragdolls = options.ragdolls === false
       ? [] : (this.staffRagdolls?.ragdollNear(position, options.ragdollRadius ?? radius) || []);

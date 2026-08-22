@@ -108,6 +108,29 @@ try {
   assert.equal(unregistered, 1, 'finalization releases the temporary rigid body');
   portablePresentation.dispose();
 
+  const emittedEffects = [];
+  const incidentWorld = {
+    ready: true,
+    captureSnapshot: () => ({ id: 'before' }),
+    explode: () => [],
+  };
+  const incidentPresentation = new WorldPhysicsPresentation({});
+  incidentPresentation.world = incidentWorld;
+  incidentPresentation.ensureBodies = () => {};
+  incidentPresentation.explode(
+    { x: 4, y: 1, z: 5 },
+    { radius: 6, strength: 80, floorY: 0 },
+    effect => emittedEffects.push(effect),
+  );
+  assert.equal(emittedEffects.length, 3,
+    'an explosion emits ignition, fireball, and pressure-wave packets');
+  assert.equal(emittedEffects.filter(effect => effect.physicalLight !== false).length, 1,
+    'only the ignition packet borrows a bounded physical flash light');
+  assert.ok(emittedEffects[2].horizontalScale > 1
+      && emittedEffects[2].verticalScale < 1
+      && emittedEffects[2].groundSpill === false,
+  'the pressure packet expands as a flat wave instead of a third fireball');
+
   console.log('World physics presentation tests passed.');
 } finally {
   if (originalRequestIdleCallback === undefined) delete globalThis.requestIdleCallback;
