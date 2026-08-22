@@ -203,9 +203,11 @@ the short authoring contract.
   and `coolingDistributionFeed` is reserved for compatibility distribution
   content. The LCW manifold has no service radius: it fans out four cold and
   four hot `coolingLoadBranch` hoses from one rigid cold header and one rigid
-  hot header. Assisted wiring pairs ports by `waterCircuit` and may connect both
-  circuits on one load. These classes guide assisted routing only; they do not
-  change published capacity.
+  hot header. The eight hose ports fill the long branch face at non-overlapping
+  stations, while the two rigid feeds occupy separate, circuit-aligned stations
+  on the opposite face. Assisted wiring pairs ports by `waterCircuit` and may
+  connect both circuits on one load. These classes guide assisted routing only;
+  they do not change published capacity.
 - Configurable 2-line and 4-line water distributors auto-connect only their
   flexible `coolingLoadBranch` ports. Each isolated converter group inherits
   hot/cold identity from its connected rigid water-supply pipe; a group with no
