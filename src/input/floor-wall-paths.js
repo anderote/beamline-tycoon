@@ -46,6 +46,28 @@ export function buildFloorTileWallPath(origin) {
   }));
 }
 
+/** Return one contiguous run of wall faces along the clicked edge. */
+export function buildWallFaceRun(wallOccupied, origin) {
+  if (!origin || !Number.isFinite(origin.col) || !Number.isFinite(origin.row)) return [];
+  const horizontal = origin.edge === 'n' || origin.edge === 's';
+  if (!horizontal && origin.edge !== 'e' && origin.edge !== 'w') return [];
+  if (!findWallKey(wallOccupied, origin.col, origin.row, origin.edge)) return [];
+
+  const path = [{ col: origin.col, row: origin.row, edge: origin.edge }];
+  const axis = horizontal ? 'col' : 'row';
+  for (const direction of [-1, 1]) {
+    let cursor = { col: origin.col, row: origin.row };
+    for (;;) {
+      cursor = { ...cursor, [axis]: cursor[axis] + direction };
+      if (!findWallKey(wallOccupied, cursor.col, cursor.row, origin.edge)) break;
+      const point = { col: cursor.col, row: cursor.row, edge: origin.edge };
+      if (direction < 0) path.unshift(point);
+      else path.push(point);
+    }
+  }
+  return path;
+}
+
 /**
  * Find every wall surface bounding the floored interior that contains the
  * selected tile. Unlike the material-based wall-placement fill below, this

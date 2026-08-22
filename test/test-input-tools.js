@@ -290,6 +290,25 @@ console.log('\n=== 1d. Shift-wallpaper stays on room boundaries ===\n');
     'shift-wallpaper excludes a reconnecting partition instead of choosing its far-side face');
 }
 
+console.log('\n=== 1e. Ctrl-wallpaper paints one contiguous wall side ===\n');
+
+{
+  const g = makeGame(145);
+  for (let col = 4; col <= 7; col++) {
+    g.placeInfraTile(col, 30, 'concrete');
+    g.placeWall(col, 30, 'n', 'structuralWall');
+  }
+  const ctx = structCtx(g, {
+    ctrl: true,
+    edgeAt: () => ({ col: 6, row: 30, edge: 'n' }),
+  });
+  const tool = new WallPaintTool('paperGingham');
+  tool.onMouseDown({ button: 0, clientX: 6, clientY: 30 }, ctx);
+  tool.onMouseUp({ button: 2, clientX: 6, clientY: 30 }, ctx);
+  assertOk(g.state.walls.every(w => w.facePaint?.inside === 'paperGingham'),
+    'Ctrl-wallpaper paints the complete contiguous side from tile to tile');
+}
+
 console.log('\n=== 2. Undo while carrying does not duplicate the object ===\n');
 
 {
@@ -910,6 +929,7 @@ function structCtx(g, opts = {}) {
     renderInfraHoverCursor() { seen.preview.push('place-hover'); },
     renderWallPreview() { seen.preview.push('place-wall'); },
     renderWallEdgeHighlight() { seen.preview.push('place-edge'); },
+    renderWallPaintPreview(_col, _row, path) { seen.preview.push(`paint-run:${path.length}`); },
     renderDoorPreview() { seen.preview.push('place-door'); },
     renderWindowPreview() { seen.preview.push('place-window'); },
     renderDemolishPreview() { seen.preview.push('erase-rect'); },

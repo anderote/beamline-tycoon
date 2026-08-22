@@ -32,6 +32,7 @@
 import { Tool } from './Tool.js';
 import {
   buildFloorTileWallPath,
+  buildWallFaceRun,
   buildInteriorWallBoundary,
   FLOOR_INTERFACE_HOVER_THRESHOLD,
 } from './floor-wall-paths.js';
@@ -527,6 +528,7 @@ export class WallPaintTool extends Tool {
     super(`wallPaint:${paintId}`, 'wallPaint');
     this.paintId = paintId;
     this._selectionCache = null;
+    this._ctrlClickPending = false;
   }
 
   _paint(edge, ctx, paintId = this.paintId) {
@@ -559,14 +561,23 @@ export class WallPaintTool extends Tool {
     return selection;
   }
 
+  _runSelectionAt(screenX, screenY, ctx) {
+    const world = ctx.renderer.screenToWorld(screenX, screenY);
+    const tile = isoToGrid(world.x, world.y);
+    const edge = ctx.input._getNearestWallEdge?.(screenX, screenY);
+    return { tile, path: buildWallFaceRun(wallView(ctx.game), edge) };
+  }
+
   _existingWallFaces(path, ctx) {
     const occupied = ctx.game.state.wallOccupied;
     const level = activeLevel(ctx.game);
     return path.filter(edge => findWallKey(occupied, edge.col, edge.row, edge.edge, level));
   }
 
-  _renderPreview(screenX, screenY, ctx, expanded = false) {
-    const selection = this._selectionAt(screenX, screenY, ctx, expanded);
+  _renderPreview(screenX, screenY, ctx, mode = 'tile') {
+    const selection = mode === 'run'
+      ? this._runSelectionAt(screenX, screenY, ctx)
+      : this._selectionAt(screenX, screenY, ctx, mode === 'interior');
     const path = this._existingWallFaces(selection.path, ctx);
     const paint = WALL_PAINTS[this.paintId];
     ctx.renderer.renderWallPaintPreview(
@@ -578,20 +589,38 @@ export class WallPaintTool extends Tool {
   }
 
   onMouseMove(e, ctx) {
-    this._renderPreview(e.clientX, e.clientY, ctx, e.shiftKey || ctx.input._shiftDown);
+    const mode = e.ctrlKey || e.metaKey || ctx.input._ctrlDown
+      ? 'run' : (e.shiftKey || ctx.input._shiftDown ? 'interior' : 'tile');
+    this._renderPreview(e.clientX, e.clientY, ctx, mode);
     return true;
   }
 
   onClick(e, ctx) {
-    const { path } = this._selectionAt(
-      e.clientX,
-      e.clientY,
-      ctx,
-      e.shiftKey || ctx.input._shiftDown,
-    );
+    this._commitPaint(e, ctx);
+    return true;
+  }
+
+  _commitPaint(e, ctx) {
+    const run = e.ctrlKey || e.metaKey || ctx.input._ctrlDown;
+    const shift = e.shiftKey || ctx.input._shiftDown;
+    const { path } = run
+      ? this._runSelectionAt(e.clientX, e.clientY, ctx)
+      : this._selectionAt(e.clientX, e.clientY, ctx, shift);
     ctx.game.runUndoableMutation(() => ctx.game.batchEvents(() => {
       for (const edge of path) this._paint(edge, ctx);
     }));
+  }
+
+  onMouseDown(e, ctx) {
+    if (e.button !== 0 || !(e.ctrlKey || e.metaKey || ctx.input._ctrlDown)) return false;
+    this._ctrlClickPending = true;
+    return true;
+  }
+
+  onMouseUp(e, ctx) {
+    if (!this._ctrlClickPending) return false;
+    this._ctrlClickPending = false;
+    this._commitPaint(e, ctx);
     return true;
   }
 
@@ -611,11 +640,20 @@ export class WallPaintTool extends Tool {
   onShiftChange(down, ctx) {
     const input = ctx.input;
     if (input._lastScreenX == null) return;
-    this._renderPreview(input._lastScreenX, input._lastScreenY, ctx, down);
+    this._renderPreview(input._lastScreenX, input._lastScreenY, ctx,
+      down ? 'interior' : 'tile');
+  }
+
+  onCtrlChange(down, ctx) {
+    const input = ctx.input;
+    if (input._lastScreenX == null) return;
+    this._renderPreview(input._lastScreenX, input._lastScreenY, ctx,
+      down ? 'run' : (input._shiftDown ? 'interior' : 'tile'));
   }
 
   onExit(ctx) {
     this._selectionCache = null;
+    this._ctrlClickPending = false;
     ctx.renderer.clearDragPreview();
   }
 }
