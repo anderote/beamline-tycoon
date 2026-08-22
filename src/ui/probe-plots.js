@@ -6,14 +6,14 @@ export const ProbePlots = (() => {
     message: '11px monospace',
     tick: '10px monospace',
     label: '9px monospace',
-    legend: '9px monospace',
+    legend: '11px monospace',
     target: 'bold 13px monospace',
-    secondaryTick: '8px monospace',
-    secondaryLabel: 'bold 9px monospace',
-    secondaryLegend: '8px monospace',
+    secondaryTick: '9px monospace',
+    secondaryLabel: 'bold 10px monospace',
+    secondaryLegend: '10px monospace',
     value: '11px monospace',
-    readout: '9px monospace',
-    readoutHeader: 'bold 9px monospace',
+    readout: '11px monospace',
+    readoutHeader: 'bold 11px monospace',
   });
 
   // Ghost pass: dimmed + dashed marks, drawn underneath a live curve for comparison.
@@ -499,10 +499,10 @@ export const ProbePlots = (() => {
     let lx = a.x + 4;
     for (const it of items) {
       ctx.fillStyle = it.color;
-      ctx.fillRect(lx, a.y - 11, 8, 6);
+      ctx.fillRect(lx, a.y - 12, 10, 7);
       ctx.fillStyle = 'rgba(180, 180, 220, 0.8)'; ctx.textAlign = 'left';
-      ctx.fillText(it.label, lx + 11, a.y - 5);
-      lx += ctx.measureText(it.label).width + 24;
+      ctx.fillText(it.label, lx + 13, a.y - 5);
+      lx += ctx.measureText(it.label).width + 27;
     }
   }
 
@@ -1237,13 +1237,13 @@ export const ProbePlots = (() => {
   function _secondaryLegend(ctx, a, channels, seriesIndex) {
     ctx.font = FONT.secondaryLegend;
     let x = a.x + 4;
-    const y = a.y + 8 + Math.max(0, seriesIndex - 2) * 9;
+    const y = a.y + 9 + Math.max(0, seriesIndex - 2) * 12;
     for (const channel of channels) {
       ctx.fillStyle = channel.color;
-      ctx.fillRect(x, y - 5, 7, 2);
+      ctx.fillRect(x, y - 6, 9, 3);
       ctx.textAlign = 'left';
-      ctx.fillText(channel.label, x + 9, y);
-      x += ctx.measureText(channel.label).width + 20;
+      ctx.fillText(channel.label, x + 12, y);
+      x += ctx.measureText(channel.label).width + 23;
     }
   }
 
@@ -1566,8 +1566,8 @@ export const ProbePlots = (() => {
       ? (opts.pinLabel ? `TAG ${opts.pinLabel} · ` : 'PIN · ')
       : '';
     const header = `${pinPrefix}s=${_fmtPlotValue(snapS)} m${comparing ? `  ${solidTag}/${ghostTag}` : ''}`;
-    const lineHeight = 11;
-    const pad = 5;
+    const lineHeight = 14;
+    const pad = 7;
     ctx.font = FONT.readout;
     const textWidth = Math.max(ctx.measureText(header).width,
       ...rows.map(row => ctx.measureText(row.text).width));
@@ -1587,11 +1587,11 @@ export const ProbePlots = (() => {
     ctx.textAlign = 'left';
     ctx.font = FONT.readoutHeader;
     ctx.fillStyle = pinned ? pinColor : 'rgba(225, 230, 250, 0.96)';
-    ctx.fillText(header, boxX + pad, boxY + pad + 7);
+    ctx.fillText(header, boxX + pad, boxY + pad + 9);
     ctx.font = FONT.readout;
     rows.forEach((row, rowIndex) => {
       ctx.fillStyle = row.item.color;
-      ctx.fillText(row.text, boxX + pad, boxY + pad + 7 + (rowIndex + 1) * lineHeight);
+      ctx.fillText(row.text, boxX + pad, boxY + pad + 9 + (rowIndex + 1) * lineHeight);
     });
     ctx.restore();
     return {
@@ -1643,8 +1643,8 @@ export const ProbePlots = (() => {
     const distanceText = `${distanceDelta > 0 ? '+' : ''}${_fmtPlotValue(distanceDelta)} m`;
     const header = `TAG Δ · ${firstLabel}→${secondLabel} · Δs ${distanceText}`;
     const a = _area(canvas, { rightInset: opts.rightInset });
-    const lineHeight = 11;
-    const pad = 5;
+    const lineHeight = 14;
+    const pad = 7;
     ctx.save();
     ctx.font = FONT.readout;
     const textWidth = Math.max(ctx.measureText(header).width,
@@ -1661,11 +1661,11 @@ export const ProbePlots = (() => {
     ctx.textAlign = 'left';
     ctx.font = FONT.readoutHeader;
     ctx.fillStyle = 'rgba(235, 240, 255, 0.96)';
-    ctx.fillText(header, boxX + pad, boxY + pad + 7);
+    ctx.fillText(header, boxX + pad, boxY + pad + 9);
     ctx.font = FONT.readout;
     rows.forEach((row, rowIndex) => {
       ctx.fillStyle = row.color;
-      ctx.fillText(row.text, boxX + pad, boxY + pad + 7 + (rowIndex + 1) * lineHeight);
+      ctx.fillText(row.text, boxX + pad, boxY + pad + 9 + (rowIndex + 1) * lineHeight);
     });
     ctx.restore();
     return { distanceDelta, rows: rows.map(row => row.text) };

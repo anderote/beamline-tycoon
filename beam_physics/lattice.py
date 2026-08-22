@@ -306,7 +306,14 @@ def propagate(beamline_config, machine_type=None, source_params=None):
                 # Advance snap_idx to bracket target_s
                 while snap_idx < len(context.snapshots) - 1 and context.snapshots[snap_idx + 1].get("s", 0) <= target_s:
                     snap_idx += 1
-                resampled.append(context.snapshots[snap_idx])
+                # The selected snapshot supplies the beam state, but its
+                # original position is only the left edge of the resampling
+                # bracket. Publish the requested coordinate so the envelope
+                # always spans the full machine, including s=0 before a
+                # finite-length source such as ECR.
+                sample = dict(context.snapshots[snap_idx])
+                sample["s"] = target_s
+                resampled.append(sample)
             context.snapshots = resampled
 
     return {
