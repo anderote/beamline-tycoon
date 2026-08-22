@@ -149,13 +149,9 @@ export class EquipmentWindow {
   }
 
   _renderGroupInfo(container, entries) {
-    const slots = this.selectionActions.getSelectionSlots?.() || {};
     container.innerHTML = '<div class="selection-panel">'
       + '<div class="selection-panel-heading">Selected items</div>'
       + '<div class="selection-panel-list"></div>'
-      + '<div class="selection-panel-heading selection-panel-save-heading">Save selection</div>'
-      + '<div class="selection-panel-slots" aria-label="Save selection to slot"></div>'
-      + '<div class="selection-panel-help">Ctrl+1…9 saves · Shift+1…9 recalls</div>'
       + '</div>';
 
     const list = container.querySelector('.selection-panel-list');
@@ -166,22 +162,6 @@ export class EquipmentWindow {
         + `<span class="selection-panel-item-kind">${escapeHtml(item.category)}</span>`
         + `<span class="selection-panel-item-position">${item.position}</span>`;
       list.appendChild(row);
-    }
-
-    const slotGrid = container.querySelector('.selection-panel-slots');
-    for (let slot = 1; slot <= 9; slot++) {
-      const savedCount = Number(slots[slot]) || 0;
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'selection-panel-slot';
-      btn.innerHTML = `<span class="selection-panel-slot-key">${slot}</span>`
-        + `<span>${savedCount ? `${savedCount} saved` : 'empty'}</span>`;
-      btn.title = `Save these ${entries.length} items to formation slot ${slot}`;
-      btn.addEventListener('click', () => {
-        this.selectionActions.onSaveSlot?.(String(slot), this.equip.id);
-        this.refresh();
-      });
-      slotGrid.appendChild(btn);
     }
   }
 

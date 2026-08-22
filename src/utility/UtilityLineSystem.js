@@ -319,12 +319,28 @@ export class UtilityLineSystem {
    * @param {{col:number,row:number}|Object<string,{col:number,row:number}>} newPortPos
    */
   reanchorLine(lineId, placeableId, newPortPos) {
+    return this.reanchorLineEndpoints(lineId, new Map([[placeableId, newPortPos]]));
+  }
+
+  /**
+   * Re-anchor every selected endpoint of one line in a single validation
+   * pass. Group transforms need this because validating after moving only
+   * one end would compare the route against the other endpoint's already-
+   * updated port side and can incorrectly dangle an otherwise valid line.
+   *
+   * @param {string} lineId
+   * @param {Map<string, Object<string,{col:number,row:number}>>|Object} positionsById
+   */
+  reanchorLineEndpoints(lineId, positionsById) {
     const lines = this.state && this.state.utilityLines;
     const line = lines && typeof lines.get === 'function' ? lines.get(lineId) : null;
     if (!line) return { ok: false, dangled: false, reason: 'line_not_found' };
 
-    const atStart = !!(line.start && line.start.placeableId === placeableId);
-    const atEnd = !!(line.end && line.end.placeableId === placeableId);
+    const positionsFor = id => positionsById?.get?.(id) ?? positionsById?.[id] ?? null;
+    const startPorts = line.start ? positionsFor(line.start.placeableId) : null;
+    const endPorts = line.end ? positionsFor(line.end.placeableId) : null;
+    const atStart = !!startPorts;
+    const atEnd = !!endPorts;
     if (!atStart && !atEnd) return { ok: false, dangled: false, reason: 'not_anchored' };
 
     const dangle = (reason = null) => {
@@ -338,21 +354,32 @@ export class UtilityLineSystem {
       return { ok: false, dangled: true, ...(reason ? { reason } : {}) };
     };
 
-    const reach = utilityLineReachStatus(line, placeableId, newPortPos);
-    if (!reach.canReach) return dangle(reach.reason);
-    const installedSubL = reach.installedSubL;
-
     let path = (line.path || []).map(p => ({ col: p.col, row: p.row }));
     if (path.length < 2) return dangle();
 
+    const route = Array.isArray(line.cablePath) && line.cablePath.length >= 2
+      ? line.cablePath : path;
+    const startPos = atStart ? pickPortPos(startPorts, line.start.portName) : route[0];
+    const endPos = atEnd ? pickPortPos(endPorts, line.end.portName) : route[route.length - 1];
+    if (!startPos || !endPos) return dangle('invalid_port');
+    const fallbackLength = Array.isArray(line.cablePath) && line.cablePath.length >= 2
+      ? cablePathLengthSubUnits(line.cablePath)
+      : pathLengthSubUnits(path);
+    const installedSubL = Number.isFinite(line.subL) && line.subL > 0
+      ? line.subL : fallbackLength;
+    const requiredSubL = Math.hypot(endPos.col - startPos.col, endPos.row - startPos.row) * 4;
+    const limitSubL = installedSubL * UTILITY_LINE_STRAIN_ALLOWANCE
+      + UTILITY_LINE_STRAIN_GRACE_SUBUNITS;
+    if (requiredSubL > limitSubL + EPS) return dangle('overstretched');
+
     if (atStart) {
-      const pos = pickPortPos(newPortPos, line.start.portName);
+      const pos = pickPortPos(startPorts, line.start.portName);
       if (!pos) return dangle();
       path = translateTerminal(path, 'start', pos);
       if (!path) return dangle();
     }
     if (atEnd) {
-      const pos = pickPortPos(newPortPos, line.end.portName);
+      const pos = pickPortPos(endPorts, line.end.portName);
       if (!pos) return dangle();
       // Runs on the path the start pass produced, so a line anchored to this
       // placeable at BOTH ends moves both of its legs rather than the last one
@@ -370,8 +397,8 @@ export class UtilityLineSystem {
       ? line.cablePath.map(point => ({ col: point.col, row: point.row }))
       : null;
     if (cablePath && cablePath.length >= 2) {
-      const start = atStart ? pickPortPos(newPortPos, line.start.portName) : null;
-      const end = atEnd ? pickPortPos(newPortPos, line.end.portName) : null;
+      const start = atStart ? pickPortPos(startPorts, line.start.portName) : null;
+      const end = atEnd ? pickPortPos(endPorts, line.end.portName) : null;
       cablePath = draggedCablePath(cablePath, { start, end });
     }
 

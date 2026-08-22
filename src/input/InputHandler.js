@@ -56,6 +56,7 @@ import {
 import {
   copySelectionGroup,
   demolishSelection,
+  mirrorSelectionPorts,
   moveSelectionGroup,
 } from './selection-commands.js';
 import { reconcileSelectionWindow } from './selection-window.js';
@@ -2128,11 +2129,14 @@ export class InputHandler {
         return; // block other keys while placing (Esc cancel lives in _handleEscape)
       }
 
-      // M mirrors the utility-port layout of any armed placeable that has
-      // swappable ports. This runs before palette-slot hotkeys because M is
-      // also slot 7: while an applicable object is armed, transform the
-      // object the player is positioning instead of silently selecting a
-      // different palette entry.
+      // M mirrors selected beamline ports in place, or the utility-port
+      // layout of an armed placeable. This runs before palette-slot hotkeys
+      // because M is also slot 7: transform the active target instead of
+      // silently selecting a different palette entry.
+      const selectedMirrorHandled = typeof this._handleMirrorSelectedBeamlinePortsKey === 'function'
+        ? this._handleMirrorSelectedBeamlinePortsKey(e)
+        : InputHandler.prototype._handleMirrorSelectedBeamlinePortsKey.call(this, e);
+      if (selectedMirrorHandled) return;
       const mirrorHandled = typeof this._handleMirrorPortsKey === 'function'
         ? this._handleMirrorPortsKey(e)
         : InputHandler.prototype._handleMirrorPortsKey.call(this, e);
@@ -3351,6 +3355,25 @@ export class InputHandler {
     this._updatePlaceablePreview?.();
     // Candidate markers are cached separately from the placement ghost.
     this.renderer._portMarkersDirty = true;
+    return true;
+  }
+
+  /** Mirror selected beamline utility ports in place; selection stays active. */
+  _handleMirrorSelectedBeamlinePortsKey(e) {
+    if (e.key !== 'm' && e.key !== 'M') return false;
+    if (e.ctrlKey || e.metaKey || e.altKey || this.armedPlaceableId) return false;
+    const ids = [...(this.selectedPlaceableIds || [])];
+    if (!ids.length) return false;
+    const result = mirrorSelectionPorts(this.game, ids);
+    if (!result.ok) return false;
+
+    e.preventDefault?.();
+    this.renderer._portMarkersDirty = true;
+    this.renderer.refreshContextWindows?.();
+    const suffix = result.dangled
+      ? ` — ${result.dangled} utility ${result.dangled === 1 ? 'line needs' : 'lines need'} rewiring`
+      : '';
+    this._showToast?.(`Mirrored ports on ${result.mirrored} beamline component${result.mirrored === 1 ? '' : 's'}${suffix}`);
     return true;
   }
 
