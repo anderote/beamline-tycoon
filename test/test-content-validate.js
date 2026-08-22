@@ -423,6 +423,11 @@ console.log('\n--- Test 6: every utility type is reachable from the palette ---'
       === 'power,rfPower,vacuum',
   'Infra puts RF Power immediately beside Power');
 
+  const infraCategoryOrder = Object.keys(MODES.infra.categories);
+  assert(infraCategoryOrder.indexOf('experimentalSystems')
+      === infraCategoryOrder.indexOf('cooling') + 1,
+  'Infra puts Experimental Systems immediately to the right of Cooling');
+
   assert(Object.keys(MODES.beamline.categories).slice(0, 3).join(',')
       === 'source,rf,optics',
   'Beamline puts RF / Accel immediately beside Sources');
