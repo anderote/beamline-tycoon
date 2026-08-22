@@ -103,15 +103,13 @@ export function nearestOnPath(p, path) {
 // --- stub routing ----------------------------------------------------------
 
 /**
- * A Manhattan path from a source fitting to a sink fitting. Port vectors make
- * the lead-outs tidy visually; validator rules do not require their direction.
+ * A Manhattan path from a source fitting to a sink fitting. Port vectors are
+ * routing hints only; utility lines may turn immediately at either fitting.
  */
 export function buildRunStubPath(srcTile, srcVec, sinkTile, sinkVec, preferVerticalFirst, opts = {}) {
   return buildPortRoutedPath(srcTile, srcVec, sinkTile, sinkVec, {
     preferVerticalFirst,
     allowZeroLength: !!opts.allowZeroLength,
-    portClearance: opts.portClearance !== false,
-    portTailTiles: opts.portTailTiles,
     minStraightTiles: opts.minStraightTiles,
   });
 }
@@ -250,8 +248,6 @@ export function planUtilityRun(state, {
         c.tile, directPowerJumper ? null : c.vec,
         vf, {
         allowZeroLength: utilityType === 'powerCable',
-        portClearance: UTILITY_TYPES[utilityType]?.portClearance !== false,
-        portTailTiles: UTILITY_TYPES[utilityType]?.portTailTiles,
         minStraightTiles: UTILITY_TYPES[utilityType]?.minStraightTiles,
       });
       if (!path) continue;
@@ -273,8 +269,6 @@ export function planUtilityRun(state, {
       const obstacles = buildRigidRouteObstacles(probeState, utilityType, { startRef: start, endRef: end });
       const path = findObstacleAwareRoute(outlet.tile, outlet.vec, c.tile, c.vec, {
         preferVerticalFirst,
-        portClearance: descriptor.portClearance !== false,
-        portTailTiles: descriptor.portTailTiles,
         minStraightTiles: descriptor.minStraightTiles,
         bendPenalty: descriptor.bendPenalty,
         blocked: obstacles.isBlocked,
@@ -351,7 +345,7 @@ export function runPreviewPath(stubs) {
         out.push({ col: to.col, row: from.row });
       }
       // Land ON the next stub's origin: the next iteration appends from its
-      // second point, so without this the walk jumps straight to the lead-out.
+      // second point, so without this the walk skips the fitting itself.
       out.push({ col: to.col, row: to.row });
     }
   });

@@ -225,7 +225,6 @@ export function planPanelAutoConnect(state, panelId, {
       sink.tile, directJumper ? null : sink.vec,
       {
         allowZeroLength: true,
-        portClearance: UTILITY_TYPES[utilityType]?.portClearance !== false,
       },
     );
     const path = routes.find(candidate => validateDrawLine(probeState, {

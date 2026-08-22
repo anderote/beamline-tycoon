@@ -191,7 +191,6 @@ export default {
   // equipment/other services like the existing cryogenic transfer-line
   // contract. Network topology still decides what is electrically connected.
   routingProfile: 'rectilinear',
-  portClearance: false,
   // Presentation only: use a compact 45-degree miter body at each 90-degree
   // turn. The renderer trims it to fit short legs; it does not impose a
   // minimum straight run or reject a compact route.

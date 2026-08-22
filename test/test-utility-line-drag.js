@@ -1,16 +1,9 @@
 // test/test-utility-line-drag.js — the ORDINARY port-to-port utility drag.
 //
 // The player clicks a port marker, drags to another port marker, releases. That
-// has to commit whatever the two ports' facings are: a straight start→end
-// Manhattan L leaves the first leg horizontal and the last vertical, which
-// satisfies validateDrawLine's port-approach rule only when the two sides
-// happen to match that shape. Every other pair — dragging back toward the
-// source, a source facing away from its sink, two ports on the same axis —
-// silently died at commit with "doesn't align with port direction".
-//
-// So: route with a lead-out along each port's own outward normal (what
-// run-wiring already does for its stubs) and keep whichever bend order the real
-// validator accepts.
+// has to commit whatever the two ports' facings are. Port normals guide fitting
+// presentation and route ranking, but every utility may turn immediately at a
+// fitting. The controller keeps whichever bend order the real validator accepts.
 
 import { Game } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
@@ -151,8 +144,7 @@ console.log('\n--- 1. A port-to-port drag commits whatever way the ports face --
 }
 
 {
-  // Source east of its sink: the lead-out has to head away from the target
-  // before the path turns back, which a single-bend L can never do.
+  // Source east of its sink: facing does not prevent the direct route.
   const game = makeGame({ col: 14, row: 1 });
   const src = portTile(game, 'src_1', 'pwr_out_1');   // faces E, at col ~14.75
   const sink = portTile(game, 'pl_1', 'pwr_in');    // at col ~2.25
@@ -247,7 +239,7 @@ console.log('\n--- 3. Open-ended drags are unchanged ---');
 }
 
 {
-  // Port at one end only: lead-out on that end, cursor point on the other.
+  // Port at one end only: fitting on that end, cursor point on the other.
   const game = makeGame();
   const src = portTile(game, 'src_1', 'pwr_out_1');
   drag(game, src, { col: 12, row: 12 });
