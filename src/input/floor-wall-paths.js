@@ -61,28 +61,36 @@ export function buildInteriorWallBoundary(infraOccupied, wallOccupied, origin) {
 
   const visited = new Set([startKey]);
   const tiles = [{ col: origin.col, row: origin.row }];
-  const path = [];
-  // A partial partition can reconnect to the same floor region around its
-  // end. In that case the flood reaches both tiles beside one physical wall;
-  // keep the first (selected-region) face instead of painting both faces.
-  const seenWalls = new Set();
 
   for (let i = 0; i < tiles.length; i++) {
     const tile = tiles[i];
     for (const side of SIDES) {
-      const wallKey = findWallKey(wallOccupied, tile.col, tile.row, side.edge);
-      if (wallKey) {
-        if (seenWalls.has(wallKey)) continue;
-        seenWalls.add(wallKey);
-        path.push({ col: tile.col, row: tile.row, edge: side.edge });
-        continue;
-      }
+      if (findWallKey(wallOccupied, tile.col, tile.row, side.edge)) continue;
       const col = tile.col + side.dc;
       const row = tile.row + side.dr;
       const key = tileKey(col, row);
       if (!infraOccupied[key] || visited.has(key)) continue;
       visited.add(key);
       tiles.push({ col, row });
+    }
+  }
+
+  // Derive the boundary only after the flood is complete. A partial
+  // partition can reconnect around one end, which puts both of its adjacent
+  // tiles in this same interior. It is not a room boundary in that case, and
+  // choosing whichever face BFS happened to visit first can paper the far
+  // side of the wall. A real room boundary has its neighbouring tile outside
+  // this flood (or no floor there at all).
+  const path = [];
+  const seenWalls = new Set();
+  for (const tile of tiles) {
+    for (const side of SIDES) {
+      const wallKey = findWallKey(wallOccupied, tile.col, tile.row, side.edge);
+      if (!wallKey || seenWalls.has(wallKey)) continue;
+      const otherKey = tileKey(tile.col + side.dc, tile.row + side.dr);
+      if (visited.has(otherKey)) continue;
+      seenWalls.add(wallKey);
+      path.push({ col: tile.col, row: tile.row, edge: side.edge });
     }
   }
 

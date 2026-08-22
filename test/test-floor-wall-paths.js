@@ -59,8 +59,8 @@ console.log('\n=== smart floor wall geometry ===\n');
     '0,0,n': 'officeWall', '1,0,n': 'officeWall', '2,0,n': 'officeWall',
   };
   const result = buildInteriorWallBoundary(occ, walls, { col: 0, row: 0 });
-  assertOk(result.path.filter(point => point.col === 1 && point.edge === 'e').length === 1,
-    'a reconnecting floor region emits a partial partition only once');
+  assertOk(result.path.filter(point => point.col === 1 && point.edge === 'e').length === 0,
+    'a reconnecting floor region excludes a partial partition that does not bound the room');
 }
 
 {
