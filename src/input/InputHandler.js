@@ -43,6 +43,7 @@ import { UtilityLineTool } from './utility-line-tool.js';
 import { DeferredUtilityPortDrag } from './deferred-port-drag.js';
 import {
   commitPanelAutoConnect,
+  disconnectAutoConnectDevice,
   planPanelAutoConnect,
   utilityAutoConnectProfile,
 } from './panel-auto-connect.js';
@@ -1213,16 +1214,33 @@ export class InputHandler {
     return this._hoveredAutoConnectPanelId() || this._selectedAutoConnectPanelId();
   }
 
-  /** Public keyboard coordinator for panel auto-connect versus palette Tab. */
+  /** Public keyboard coordinator for device connections versus palette Tab. */
   handlePanelAutoConnectKey(event) {
-    if (event?.key !== 'Tab' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
+    if (event?.key !== 'Tab' || event.shiftKey || event.metaKey || event.altKey) {
       return false;
     }
     const panelId = this.panelAutoConnectTargetId();
     if (!panelId) return false;
     event.preventDefault();
-    if (!event.repeat) this._autoConnectPanel(panelId);
+    if (!event.repeat) {
+      if (event.ctrlKey) this._disconnectAutoConnectPanel(panelId);
+      else this._autoConnectPanel(panelId);
+    }
     return true;
+  }
+
+  /** Destroy every utility line terminating on this auto-connect device. */
+  _disconnectAutoConnectPanel(panelId) {
+    const removed = disconnectAutoConnectDevice(this.game, panelId);
+    if (removed.length === 0) this._showToast('No utility connections to remove');
+    else {
+      this._showToast(
+        `Removed ${removed.length} utility connection${removed.length === 1 ? '' : 's'}`,
+      );
+    }
+    this.renderer.refreshContextWindows?.();
+    this._renderSelectionOutlines();
+    return removed;
   }
 
   /** Re-plan at click time, then land all valid cables in one undo gesture. */
