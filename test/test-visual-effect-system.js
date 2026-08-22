@@ -201,6 +201,29 @@ test('utility ambient effects share one bounded instanced particle draw', () => 
   system.dispose();
 });
 
+test('mist descriptors can spend most of their cycle fully dormant', () => {
+  const scene = new Three.Scene();
+  const system = new VisualEffectSystem(scene, {
+    pulseBudget: 0, ambientBudget: 8, lightProxyBudget: 0,
+  });
+  system.syncScope('utilities', [{
+    id: 'intermittent-cryo', kind: 'ambientMist',
+    path: [{ x: 0, y: 0.4, z: 0 }, { x: 2, y: 0.4, z: 0 }],
+    spacing: 10, particlesPerEmitter: 1, cycle: 1, activeFraction: 0.2,
+  }]);
+
+  const counts = [];
+  for (let i = 0; i < 40; i++) {
+    system.update(0.05, 0);
+    counts.push(system._ambientMesh.count);
+  }
+  assert.ok(counts.some(count => count === 0),
+    'the mist disappears between short condensation puffs');
+  assert.ok(counts.some(count => count > 0),
+    'the same deterministic cycle still produces visible mist');
+  system.dispose();
+});
+
 test('surface glows animate independently while retaining shared shader structure', () => {
   const scene = new Three.Scene();
   const root = new Three.Group();

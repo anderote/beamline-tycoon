@@ -429,6 +429,8 @@ export class VisualEffectSystem {
     const particlesPerEmitter = Math.max(1, Math.min(3,
       Math.floor(Number(effect.particlesPerEmitter) || 2)));
     const cycle = Math.max(1, Number(effect.cycle) || 3.6);
+    const activeFraction = Math.max(0.05, Math.min(1,
+      Number(effect.activeFraction) || 1));
     const rise = Math.max(0.05, Number(effect.rise) || 0.42);
     const drift = Math.max(0, Number(effect.drift) || 0.16);
     const baseRadius = Math.max(0.025, Number(effect.radius) || 0.11);
@@ -439,11 +441,13 @@ export class VisualEffectSystem {
       const origin = sampleEffectPath(effect.path, distance, this._sample);
       if (!origin) continue;
       for (let particle = 0; particle < particlesPerEmitter; particle++) {
+        const seed = stableHashUnit(`${effect.id}:${emitter}:${particle}`);
+        const phase = positiveModulo(this._time / cycle
+          + seed + particle / particlesPerEmitter, 1);
+        if (phase >= activeFraction) continue;
         requested++;
         if (index >= this._ambientBudget) continue;
-        const seed = stableHashUnit(`${effect.id}:${emitter}:${particle}`);
-        const age = positiveModulo(this._time / cycle
-          + seed + particle / particlesPerEmitter, 1);
+        const age = phase / activeFraction;
         const angle = seed * Math.PI * 2 + age * 1.7;
         const outward = drift * (0.25 + age * 0.75);
         this._position.set(
