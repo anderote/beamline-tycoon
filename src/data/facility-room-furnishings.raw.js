@@ -274,6 +274,13 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 1200 }, energyCost: 0, spriteColor: 0x4a5a7a,
     gridW: 3, gridH: 1, subH: 2, spriteKey: 'couch',
     effects: { morale: 3 }, baseMaterial: 'metal_dark',
+    variants: ['Navy', 'Sage', 'Terracotta'],
+    variantPreviewColors: [0x4a5a7a, 0x64785e, 0x9a5b48],
+    variantOverrides: [
+      {},
+      { seat: { color: 0x64785e }, back: { color: 0x596d54 }, armL: { color: 0x64785e }, armR: { color: 0x64785e }, div1: { color: 0x465740 }, div2: { color: 0x465740 } },
+      { seat: { color: 0x9a5b48 }, back: { color: 0x854b3b }, armL: { color: 0x9a5b48 }, armR: { color: 0x9a5b48 }, div1: { color: 0x6f392e }, div2: { color: 0x6f392e } },
+    ],
     // 3×1 footprint. Three-seat office sofa — boxy upholstered frame.
     parts: [
       // Base frame (dark)
@@ -493,6 +500,13 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
   visitorArmchair: {
     id: 'visitorArmchair', name: 'Visitor Armchair', zoneTypes: ['officeSpace', 'privateOffice', 'meetingRoom', 'reception', 'facultyLounge'], furnitureGroup: 'seating',
     cost: { funding: 520 }, energyCost: 0, spriteColor: 0x536b78, gridW: 1, gridH: 1, subH: 2, spriteKey: 'visitorArmchair', effects: { morale: 2 }, baseMaterial: null, hasSurface: false,
+    variants: ['Slate', 'Sage', 'Ochre'],
+    variantPreviewColors: [0x536b78, 0x66785e, 0xa4773f],
+    variantOverrides: [
+      {},
+      { seat: { color: 0x66785e }, back: { color: 0x586a51 }, armL: { color: 0x586a51 }, armR: { color: 0x586a51 } },
+      { seat: { color: 0xa4773f }, back: { color: 0x8b6334 }, armL: { color: 0x8b6334 }, armR: { color: 0x8b6334 } },
+    ],
     parts: [
       { name: 'seat', x: 0, y: 0.68, z: -0.04, w: 0.86, h: 0.28, l: 0.74, color: 0x536b78 }, { name: 'back', x: 0, y: 1.3, z: 0.28, w: 0.88, h: 1.1, l: 0.18, color: 0x49616e },
       { name: 'armL', x: -0.43, y: 0.9, z: 0, w: 0.14, h: 0.58, l: 0.78, color: 0x49616e }, { name: 'armR', x: 0.43, y: 0.9, z: 0, w: 0.14, h: 0.58, l: 0.78, color: 0x49616e },
@@ -502,6 +516,13 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
   ottoman: {
     id: 'ottoman', name: 'Ottoman', zoneTypes: ['officeSpace', 'privateOffice', 'meetingRoom', 'reception', 'facultyLounge'], furnitureGroup: 'seating',
     cost: { funding: 260 }, energyCost: 0, spriteColor: 0x6b4a3c, gridW: 1, gridH: 1, subH: 1, spriteKey: 'ottoman', effects: { morale: 1 }, baseMaterial: null, hasSurface: false,
+    variants: ['Cognac', 'Teal', 'Plum'],
+    variantPreviewColors: [0x6b4a3c, 0x3f7471, 0x70506f],
+    variantOverrides: [
+      {},
+      { cushion: { color: 0x3f7471 }, base: { color: 0x2f5553 } },
+      { cushion: { color: 0x70506f }, base: { color: 0x523a52 } },
+    ],
     parts: [
       { name: 'cushion', x: 0, y: 0.44, z: 0, w: 0.78, h: 0.42, l: 0.62, color: 0x6b4a3c }, { name: 'base', x: 0, y: 0.12, z: 0, w: 0.7, h: 0.22, l: 0.54, color: 0x4a3027 },
       { name: 'footL', x: -0.25, y: 0, z: -0.18, w: 0.1, h: 0.14, l: 0.1, color: 0x30241d }, { name: 'footR', x: 0.25, y: 0, z: -0.18, w: 0.1, h: 0.14, l: 0.1, color: 0x30241d },
@@ -686,6 +707,13 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
   clubChair: {
     id: 'clubChair', name: 'Leather Club Chair', zoneType: 'facultyLounge', cost: { funding: 900 }, energyCost: 0,
     spriteColor: 0x2f6f68, gridW: 2, gridH: 2, subH: 2, spriteKey: 'clubChair', effects: { morale: 3 }, baseMaterial: null, hasSurface: false,
+    variants: ['Deep Teal', 'Oxblood', 'Cognac'],
+    variantPreviewColors: [0x2f6f68, 0x713b3d, 0x9a6238],
+    variantOverrides: [
+      {},
+      { seatBase: { color: 0x482326 }, seat: { color: 0x87484c }, back: { color: 0x713b3d }, armL: { color: 0x7b4145 }, armR: { color: 0x7b4145 } },
+      { seatBase: { color: 0x5c351e }, seat: { color: 0xae7142 }, back: { color: 0x925a34 }, armL: { color: 0x9e6339 }, armR: { color: 0x9e6339 } },
+    ],
     parts: [
       { name: 'seatBase', x: 0, y: 0.12, z: 0, w: 1.82, h: 0.12, l: 0.82, color: 0x183f3c }, { name: 'seat', x: 0, y: 0.72, z: -0.08, w: 1.76, h: 0.28, l: 0.72, color: 0x3e8a80 },
       { name: 'back', x: 0, y: 1.32, z: 0.28, w: 1.82, h: 1.12, l: 0.22, color: 0x2f6962 }, { name: 'armL', x: -0.86, y: 0.92, z: 0.02, w: 0.16, h: 0.66, l: 0.78, color: 0x34766f }, { name: 'armR', x: 0.86, y: 0.92, z: 0.02, w: 0.16, h: 0.66, l: 0.78, color: 0x34766f },
@@ -696,6 +724,13 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
   tuftedSofa: {
     id: 'tuftedSofa', name: 'Tufted Leather Sofa', zoneType: 'facultyLounge', cost: { funding: 2200 }, energyCost: 0,
     spriteColor: 0x6d405f, gridW: 3, gridH: 1, subH: 2, spriteKey: 'tuftedSofa', effects: { morale: 5 }, baseMaterial: null, hasSurface: false,
+    variants: ['Mulberry', 'Forest', 'Cognac'],
+    variantPreviewColors: [0x6d405f, 0x3f6651, 0x97613b],
+    variantOverrides: [
+      {},
+      { base: { color: 0x294536 }, seat: { color: 0x4d795f }, back: { color: 0x3f6651 }, armL: { color: 0x466f58 }, armR: { color: 0x466f58 }, tuft1: { color: 0x6e987d }, tuft2: { color: 0x6e987d }, tuft3: { color: 0x6e987d } },
+      { base: { color: 0x58351f }, seat: { color: 0xae7549 }, back: { color: 0x97613b }, armL: { color: 0xa46a40 }, armR: { color: 0xa46a40 }, tuft1: { color: 0xc58a5c }, tuft2: { color: 0xc58a5c }, tuft3: { color: 0xc58a5c } },
+    ],
     parts: [
       { name: 'base', x: 0, y: 0.15, z: 0, w: 2.8, h: 0.28, l: 0.86, color: 0x43253b }, { name: 'seat', x: 0, y: 0.7, z: -0.08, w: 2.62, h: 0.3, l: 0.7, color: 0x7d4969 }, { name: 'back', x: 0, y: 1.3, z: 0.28, w: 2.72, h: 1.08, l: 0.22, color: 0x693b5b },
       { name: 'armL', x: -1.34, y: 0.88, z: 0, w: 0.2, h: 0.78, l: 0.86, color: 0x713f61 }, { name: 'armR', x: 1.34, y: 0.88, z: 0, w: 0.2, h: 0.78, l: 0.86, color: 0x713f61 },
@@ -761,6 +796,13 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 650 }, energyCost: 0, spriteColor: 0x55718a,
     gridW: 3, gridH: 1, subH: 2, spriteKey: 'waitingBench',
     effects: { morale: 2 }, baseMaterial: 'metal_dark', hasSurface: false,
+    variants: ['Steel Blue', 'Burgundy', 'Olive'],
+    variantPreviewColors: [0x55718a, 0x7b454e, 0x6c7550],
+    variantOverrides: [
+      {},
+      { seat: { color: 0x7b454e }, back: { color: 0x673a42 }, dividerL: { color: 0x48272d }, dividerR: { color: 0x48272d } },
+      { seat: { color: 0x6c7550 }, back: { color: 0x596142 }, dividerL: { color: 0x3c422d }, dividerR: { color: 0x3c422d } },
+    ],
     parts: [
       { name: 'footL', x: -1.05, y: 0, z: 0, w: 0.55, h: 0.08, l: 0.75, material: 'metal_dark' },
       { name: 'footR', x: 1.05, y: 0, z: 0, w: 0.55, h: 0.08, l: 0.75, material: 'metal_dark' },
@@ -1681,6 +1723,13 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 150 }, energyCost: 0, spriteColor: 0x3a3a3a,
     gridW: 1, gridH: 1, subH: 2, spriteKey: 'officeChair',
     effects: { morale: 1 }, baseMaterial: 'metal_dark',
+    variants: ['Graphite', 'Navy', 'Moss'],
+    variantPreviewColors: [0x3a3e46, 0x435e7d, 0x5d6d50],
+    variantOverrides: [
+      {},
+      { seat: { color: 0x435e7d }, back: { color: 0x435e7d } },
+      { seat: { color: 0x5d6d50 }, back: { color: 0x5d6d50 } },
+    ],
     // Backrest sits at local +Z, so the sitter faces -Z. seatY is the seat
     // cushion's own bottom-of-part y (subtiles, same coordinate space as
     // `parts` below) — read off the 'seat' part's own y, not guessed.
@@ -1709,6 +1758,13 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 600 }, energyCost: 0, spriteColor: 0x2a5a8a,
     gridW: 1, gridH: 1, subH: 2, spriteKey: 'ergonomicChair',
     effects: { morale: 2 }, baseMaterial: 'metal_dark',
+    variants: ['Ocean Blue', 'Graphite', 'Burgundy'],
+    variantPreviewColors: [0x2a5a8a, 0x474d55, 0x784653],
+    variantOverrides: [
+      {},
+      { seat: { color: 0x474d55 }, back: { color: 0x59616b }, lumbar: { color: 0x474d55 }, headrest: { color: 0x474d55 } },
+      { seat: { color: 0x784653 }, back: { color: 0x8a5663 }, lumbar: { color: 0x784653 }, headrest: { color: 0x784653 } },
+    ],
     // Backrest sits at local +Z, so the sitter faces -Z. seatY is the seat
     // cushion's own bottom-of-part y (subtiles) — read off 'seat' below.
     seat: { facing: 'n', seatY: 0.8 },
@@ -1745,6 +1801,13 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 2000 }, energyCost: 0, spriteColor: 0x1a1412,
     gridW: 1, gridH: 1, subH: 2, spriteKey: 'executiveChair',
     effects: { morale: 3 }, baseMaterial: 'metal_dark',
+    variants: ['Black', 'Oxblood', 'Cognac'],
+    variantPreviewColors: [0x1a1412, 0x672f34, 0x87522f],
+    variantOverrides: [
+      {},
+      { seat: { color: 0x672f34 }, armPadL: { color: 0x672f34 }, armPadR: { color: 0x672f34 }, back: { color: 0x672f34 }, headrest: { color: 0x672f34 }, stitch: { color: 0x9a5a60 } },
+      { seat: { color: 0x87522f }, armPadL: { color: 0x87522f }, armPadR: { color: 0x87522f }, back: { color: 0x87522f }, headrest: { color: 0x87522f }, stitch: { color: 0xb77d52 } },
+    ],
     // Backrest sits at local +Z, so the sitter faces -Z. seatY is the seat
     // cushion's own bottom-of-part y (subtiles) — read off 'seat' below.
     seat: { facing: 'n', seatY: 0.8 },
@@ -1819,6 +1882,13 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
     cost: { funding: 100 }, energyCost: 0, spriteColor: 0x555555,
     gridW: 1, gridH: 1, subH: 2, spriteKey: 'meetingChair',
     effects: { morale: 1 }, baseMaterial: 'metal_dark',
+    variants: ['Graphite', 'Cobalt', 'Moss'],
+    variantPreviewColors: [0x4a4a54, 0x385f91, 0x5e7151],
+    variantOverrides: [
+      {},
+      { seat: { color: 0x385f91 }, back: { color: 0x385f91 } },
+      { seat: { color: 0x5e7151 }, back: { color: 0x5e7151 } },
+    ],
     // Backrest sits at local +Z, so the sitter faces -Z. seatY is the seat
     // cushion's own bottom-of-part y (subtiles) — read off 'seat' below.
     seat: { facing: 'n', seatY: 0.82 },
