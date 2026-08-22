@@ -686,7 +686,7 @@ console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines
   const input = {
     selectedPlaceableId: null,
     _selectPlaceableAt(_world, _grid, _x, _y, options) {
-      actions.push(`refill:${options.refillReservoir}`);
+      actions.push(`pick:${options.refillReservoir}:${options.openInspector}`);
       this.selectedPlaceableId = 'picked';
       return true;
     },
@@ -703,8 +703,30 @@ console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines
   };
   new SelectionActionTool('copy').onClick({ clientX: 10, clientY: 20 }, ctx);
   new SelectionActionTool('mirror').onClick({ clientX: 10, clientY: 20 }, ctx);
-  assertOk(actions.join(',') === 'refill:false,copy:picked,refill:false,mirror:picked',
-    'click-to-copy and click-to-mirror select a target without triggering reservoir refill');
+  assertOk(actions.join(',')
+      === 'pick:false:false,copy:picked,pick:false:false,mirror:picked',
+  'click-to-copy and click-to-mirror select without opening an inspector or refilling storage');
+
+  let opened = 0;
+  const selectionInput = {
+    selectedPlaceableId: null,
+    selectedPlaceableIds: new Set(),
+    selectedNodeId: null,
+    _selectedRootsById: new Map(),
+    _selectionCandidatesByKey: new Map(),
+    _renderSelectionOutlines() {},
+    _openPlaceableInfoWindow() { opened++; },
+    renderer: { refreshContextWindows() {} },
+  };
+  const entry = { id: 'copy-source', type: 'desk', category: 'facility' };
+  InputHandler.prototype._selectPlaceable.call(
+    selectionInput, entry, null, { openInspector: false },
+  );
+  assertOk(opened === 0,
+    'the source-selection path honors copy mode and leaves the object window closed');
+  InputHandler.prototype._selectPlaceable.call(selectionInput, entry);
+  assertOk(opened === 1,
+    'ordinary selection still opens the object window');
 }
 
 {

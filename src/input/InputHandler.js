@@ -1327,8 +1327,12 @@ export class InputHandler {
     return committed;
   }
 
-  /** Select a world object, persist its outline, and open its info menu. */
-  _selectPlaceable(entry, rootObj = null, { additive = false } = {}) {
+  /** Select a world object, optionally opening its info menu. */
+  _selectPlaceable(
+    entry,
+    rootObj = null,
+    { additive = false, openInspector = true } = {},
+  ) {
     if (!entry) return false;
     const target = selectionTargetForPlaceable(entry, rootObj);
     const previousSelection = [...this.selectedPlaceableIds];
@@ -1344,7 +1348,7 @@ export class InputHandler {
       const primary = this.selectedPlaceableId && this.game.getPlaceable(this.selectedPlaceableId);
       this.selectedNodeId = primary?.category === 'beamline' ? primary.id : null;
       this._renderSelectionOutlines();
-      this._reconcileSelectionWindow(previousSelection);
+      if (openInspector) this._reconcileSelectionWindow(previousSelection);
       return true;
     }
 
@@ -1355,19 +1359,28 @@ export class InputHandler {
     this.selectedNodeId = entry.category === 'beamline' ? entry.id : null;
     this._renderSelectionOutlines();
 
-    if (additive) {
-      this._reconcileSelectionWindow(previousSelection);
-    } else {
-      this._openPlaceableInfoWindow(entry);
-      this.renderer.refreshContextWindows?.();
+    // Contextual click-to-copy/mirror needs the selection identity only;
+    // opening a window here would cover the placement destination a moment
+    // before the action switches into its carry preview.
+    if (openInspector) {
+      if (additive) {
+        this._reconcileSelectionWindow(previousSelection);
+      } else {
+        this._openPlaceableInfoWindow(entry);
+        this.renderer.refreshContextWindows?.();
+      }
     }
     return true;
   }
 
-  _selectLogicalTarget(target, rootObj = null, { additive = false } = {}) {
+  _selectLogicalTarget(
+    target,
+    rootObj = null,
+    { additive = false, openInspector = true } = {},
+  ) {
     if (!target?.key) return false;
     if (target.targetKind === 'placeable') {
-      return this._selectPlaceable(target.entry, rootObj, { additive });
+      return this._selectPlaceable(target.entry, rootObj, { additive, openInspector });
     }
     const previousSelection = [...this.selectedPlaceableIds];
     if (!additive) {
@@ -1380,7 +1393,7 @@ export class InputHandler {
       const remaining = [...this.selectedPlaceableIds];
       this.selectedPlaceableId = remaining.at(-1) || null;
       this._renderSelectionOutlines();
-      this._reconcileSelectionWindow(previousSelection);
+      if (openInspector) this._reconcileSelectionWindow(previousSelection);
       return true;
     }
     const candidate = { ...target, rootObj: rootObj || target.rootObj || null };
@@ -1391,14 +1404,14 @@ export class InputHandler {
     this.selectedNodeId = target.selectionCategory === 'beamline'
       && target.targetKind === 'placeable' ? target.id : null;
     this._renderSelectionOutlines();
-    this._reconcileSelectionWindow(previousSelection);
+    if (openInspector) this._reconcileSelectionWindow(previousSelection);
     return true;
   }
 
   /** Resolve the visible placeable under a normal canvas click. */
   _selectPlaceableAt(
     _world, grid, screenX, screenY,
-    { additive = false, refillReservoir = true } = {},
+    { additive = false, refillReservoir = true, openInspector = true } = {},
   ) {
     const hit = this.renderer.raycastScreen?.(screenX, screenY, OBJECT_PICK_TOLERANCE_PX);
     const info = hit ? this.renderer.identifyHit?.(hit) : null;
@@ -1419,7 +1432,11 @@ export class InputHandler {
       // before opening the equipment window. Shift-click remains selection-
       // only so adding a tank to a group can never spend money unexpectedly.
       if (!additive && refillReservoir) this.game.refillEmptyReservoirForPlaceable?.(entry.id);
-      return this._selectPlaceable(entry, info.rootObj || null, { additive });
+      return this._selectPlaceable(
+        entry,
+        info.rootObj || null,
+        { additive, openInspector },
+      );
     }
 
     if (info?.group === 'attachment' && info.attachmentId) {
@@ -1429,7 +1446,13 @@ export class InputHandler {
       if (target && !mouseSelectionCategoryEnabled(
         this._mouseSelectionCategories, target.selectionCategory,
       )) return true;
-      if (target) return this._selectLogicalTarget(target, info.rootObj || null, { additive });
+      if (target) {
+        return this._selectLogicalTarget(
+          target,
+          info.rootObj || null,
+          { additive, openInspector },
+        );
+      }
     }
     if (info?.group === 'wall') {
       const edge = this._getNearestWallEdge(screenX, screenY);
@@ -1440,7 +1463,7 @@ export class InputHandler {
       if (target && !mouseSelectionCategoryEnabled(
         this._mouseSelectionCategories, target.selectionCategory,
       )) return true;
-      if (target) return this._selectLogicalTarget(target, null, { additive });
+      if (target) return this._selectLogicalTarget(target, null, { additive, openInspector });
     }
 
     // A rendered non-selectable object (for example a utility line or beam
@@ -1453,7 +1476,9 @@ export class InputHandler {
     if (floor && !mouseSelectionCategoryEnabled(
       this._mouseSelectionCategories, floor.selectionCategory,
     )) return true;
-    return floor ? this._selectLogicalTarget(floor, null, { additive }) : false;
+    return floor
+      ? this._selectLogicalTarget(floor, null, { additive, openInspector })
+      : false;
   }
 
   _getActiveBeamlineNodes() {
