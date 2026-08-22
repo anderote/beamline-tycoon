@@ -92,6 +92,7 @@ import { PLACEABLES } from '../data/placeables/index.js';
 import { placementFacingArrowDir } from './placement-facing.js';
 import {
   PITCH_REST,
+  PITCH_STEEP,
   PITCH_TOP,
   PITCH_MIN,
   PITCH_MAX,
@@ -172,7 +173,10 @@ export class ThreeRenderer {
     // Each mode remembers its own yaw index for view-cube navigation. The
     // middle-click elevation toggle deliberately carries the live heading
     // across instead, then updates the destination mode's remembered index.
-    this.viewMode = 'iso';
+    // Start new sessions in the construction-oriented angle. The shallower
+    // dimetric ('iso') and near-top-down ('top') views remain one middle-click
+    // cycle away.
+    this.viewMode = 'steep';
     this._isoYawIdx = 0;
     this._steepYawIdx = 0;
     this._topYawIdx = 0;
@@ -190,17 +194,17 @@ export class ThreeRenderer {
     // pan center; release animates back to the nearest preferred pitch.
     this._freeOrbiting = false;
     this._freeYaw = 0;
-    this._freePitch = PITCH_REST;
+    this._freePitch = PITCH_STEEP;
     this._snapping = false;
     this._snapFromYaw = 0;
     this._snapToYaw = 0;
-    this._snapFromPitch = PITCH_REST;
-    this._snapToPitch = PITCH_REST;
+    this._snapFromPitch = PITCH_STEEP;
+    this._snapToPitch = PITCH_STEEP;
     this._snapStartMs = 0;
     this._snapDurationMs = 400;
     // Mode the active snap animation will commit to on completion. Set by
     // endFreeOrbit() and setViewMode(); read by _tickFreeOrbitSnap().
-    this._snapTargetMode = 'iso';
+    this._snapTargetMode = 'steep';
 
     this._frustumSize = 20;
     this._animFrameId = null;
