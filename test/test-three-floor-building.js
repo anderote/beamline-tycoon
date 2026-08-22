@@ -46,6 +46,32 @@ for (const row of [0, 1]) {
 }
 assert.equal(game.state.floors.filter(tile => levelOf(tile) === 2).length, 2);
 
+const highBay = new Game(new BeamlineRegistry(), { seed: 305 });
+highBay.setSandboxMode(true);
+highBay.state.floors = [];
+highBay.state.roofs = [];
+highBay.state.infraOccupied = {};
+const bayCol = 8, bayRow = 8;
+assert.equal(highBay.placeInfraTile(bayCol, bayRow, 'concrete'), true);
+for (const edge of ['n', 'e', 's', 'w']) {
+  assert.equal(highBay.placeWall(bayCol, bayRow, edge, 'structuralWall'), true);
+}
+assert.equal(highBay.placeRoofRegion(bayCol, bayRow), true);
+assert.equal(highBay.placeInfraTile(bayCol, bayRow, 'concrete', 0, { level: 1 }), true);
+for (const edge of ['n', 'e', 's', 'w']) {
+  assert.equal(highBay.placeWall(bayCol, bayRow, edge, 'structuralWall', 0, 1), true);
+}
+assert.equal(highBay.placeRoofRegion(bayCol, bayRow, 'roof', 0, 1), true);
+
+assert.equal(highBay.removeRoofRegion(bayCol, bayRow), true,
+  'the temporary lower roof can be removed after constructing the second storey');
+assert.equal(highBay.state.roofs.some(tile => levelOf(tile) === 0), false,
+  'the high-bay room has no first-storey roof');
+assert.equal(highBay.state.roofs.some(tile => levelOf(tile) === 1), true,
+  'the second-storey roof remains over the combined high bay');
+assert.equal(highBay.state.infraOccupied[tileKey(bayCol, bayRow, 1)], 'concrete',
+  'removing the temporary roof preserves the already-built upper storey');
+
 const saveStore = new Map([['beamlineTycoon', game.serialize()]]);
 globalThis.localStorage = {
   getItem: key => saveStore.get(key) ?? null,

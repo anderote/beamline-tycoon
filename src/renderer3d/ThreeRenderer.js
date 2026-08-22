@@ -2906,10 +2906,10 @@ export class ThreeRenderer {
 
   clearDragPreview() { this._clearPreview(); }
 
-  renderRoofPreview(region, roofDef = null, profile = null) {
+  renderRoofPreview(region, roofDef = null, profile = null, erase = false) {
     this._clearPreview();
     if (!region?.length) return;
-    const mat = this._previewMat(roofDef?.topColor || 0x88bbff, 0.42);
+    const mat = this._previewMat(erase ? 0xff4444 : (roofDef?.topColor || 0x88bbff), 0.42);
     for (const tile of region) {
       this._addPreviewMesh(new THREE.Mesh(
         this._terrainTileQuad(tile.col, tile.row,

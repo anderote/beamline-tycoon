@@ -250,11 +250,25 @@ export class FloorTool extends Tool {
     this._showRectCost(ctx, screenX, screenY, c0, r0, c1, r1);
   }
 
-  _previewRoof(ctx, screenX, screenY) {
+  _previewRoof(ctx, screenX, screenY, erase = eraseHeld(null, ctx.input)) {
     const region = this._roofRegion(ctx, screenX, screenY);
     const profile = ctx.game.roofProfileForRegion?.(region);
-    ctx.renderer.renderRoofPreview?.(region, this._def(), profile);
     const level = activeLevel(ctx.game);
+    if (erase) {
+      const keys = new Set(region.map(tile => tileKey(tile.col, tile.row, level)));
+      const roofs = (ctx.game.state.roofs || []).filter(tile =>
+        sameLevel(tile, level) && keys.has(tileKey(tile.col, tile.row, level)),
+      );
+      ctx.renderer.renderRoofPreview?.(roofs, this._def(), profile, true);
+      const refund = roofs.reduce((sum, tile) => {
+        const def = FLOORS[tile.type] || FLOORS.roof;
+        return sum + (def.variantCosts?.[tile.variant ?? 0] ?? def.cost ?? 0);
+      }, 0);
+      showEraseTooltip(ctx, screenX, screenY, `Clear ${plural(roofs.length, 'roof tile')}`, refund);
+      return;
+    }
+    ctx.input._hideDemolishTooltip?.();
+    ctx.renderer.renderRoofPreview?.(region, this._def(), profile);
     const newTiles = region.filter(tile => !(ctx.game.state.roofs || []).some(
       r => r.col === tile.col && r.row === tile.row && sameLevel(r, level),
     )).length;
@@ -479,6 +493,10 @@ export class FloorTool extends Tool {
     const input = ctx.input;
     if (input._lastScreenX == null) return;
     this._erasing = down;
+    if (this._def()?.isRoofPlacement) {
+      this._previewRoof(ctx, input._lastScreenX, input._lastScreenY, down);
+      return;
+    }
     const world = ctx.renderer.screenToWorld(input._lastScreenX, input._lastScreenY);
     const grid = isoToGrid(world.x, world.y);
     if (down) {

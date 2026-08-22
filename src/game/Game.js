@@ -1744,12 +1744,10 @@ export class Game {
       keys.has(roofKey(tile.col, tile.row, levelOf(tile)))
     );
     if (!removed.length) return false;
-    if (level < MAX_LEVEL && removed.some(tile => this.state.infraOccupied[
-      tileKey(tile.col, tile.row, level + 1)
-    ])) {
-      this.log('Remove the floor above before demolishing its supporting roof.', 'bad');
-      return false;
-    }
+    // A lower roof is a construction prerequisite for an upper floor, not a
+    // permanent support dependency. Let the player remove that temporary deck
+    // after the next storey is built: this is how a two-storey shell becomes
+    // one open high-bay room with only the upper-storey roof left in place.
     this.state.roofs = this.state.roofs.filter(tile =>
       !keys.has(roofKey(tile.col, tile.row, levelOf(tile)))
     );
