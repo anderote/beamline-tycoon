@@ -4860,7 +4860,6 @@ UIHost.prototype._openEquipmentWindow = function(equip) {
     onCopy: id => input?._beginSelectedCopy(id),
     onCopyToClipboard: id => input?._copySelectionToClipboard(id),
     onPaste: () => input?._pasteSelectionClipboard(),
-    onSaveSlot: (slot, id) => input?._saveSelectionSlot(slot, id),
     onRotate: id => input?._beginSelectionTransform('rotate', id),
     onMirror: id => input?._beginSelectionTransform('mirror', id),
     onDemolish: id => input?._demolishSelected(id),
@@ -4870,8 +4869,6 @@ UIHost.prototype._openEquipmentWindow = function(equip) {
       .map(selectedId => this.game.getPlaceable(selectedId))
       .filter(Boolean),
     getClipboardCount: () => input?._selectionClipboard?.items?.length || 0,
-    getSelectionSlots: () => Object.fromEntries(Object.entries(input?._selectionSlots || {})
-      .map(([slot, payload]) => [slot, payload?.items?.length || 0])),
   });
   if (!ew.ctx) return;
   this._equipmentWindows[equip.id] = ew;
@@ -4916,7 +4913,6 @@ UIHost.prototype._openSelectionWindow = function(anchor) {
     onPlace: () => this.renderer.dispatchSelectionPanelAction('move'),
     onCopyToClipboard: () => this.renderer.dispatchSelectionPanelAction('copy'),
     onPaste: () => this.renderer.dispatchSelectionPanelAction('paste'),
-    onSaveSlot: slot => this.renderer.dispatchSelectionPanelAction('saveSlot', slot),
     onRotate: () => this.renderer.dispatchSelectionPanelAction('rotate'),
     onMirror: () => this.renderer.dispatchSelectionPanelAction('mirror'),
     onDemolish: () => this.renderer.dispatchSelectionPanelAction('demolish'),
@@ -4926,7 +4922,6 @@ UIHost.prototype._openSelectionWindow = function(anchor) {
     getCandidates: () => this.renderer.selectionPanelState().candidates,
     getSelectionEntries: () => this.renderer.selectionPanelState().entries,
     getClipboardCount: () => this.renderer.selectionPanelState().clipboardCount,
-    getSelectionSlots: () => this.renderer.selectionPanelState().slots,
   });
   if (!sw.ctx) return null;
   this._selectionWindow = sw;

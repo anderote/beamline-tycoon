@@ -164,6 +164,52 @@ console.log('\n=== Multi-selection window ===\n');
 }
 
 {
+  const priorDocument = globalThis.document;
+  const makeNode = () => ({
+    dataset: {},
+    appendChild() {},
+    addEventListener() {},
+    setAttribute() {},
+  });
+  globalThis.document = { createElement: makeNode };
+
+  const categories = makeNode();
+  const list = makeNode();
+  const selectionContainer = {
+    innerHTML: '',
+    querySelector(selector) {
+      if (selector === '.selection-category-list') return categories;
+      if (selector === '.selection-panel-list') return list;
+      return null;
+    },
+  };
+  SelectionWindow.prototype._render.call({
+    _candidates: () => [],
+    _selectedKeys: () => new Set(),
+    selectionActions: {},
+    refresh() {},
+  }, selectionContainer);
+
+  const equipmentContainer = {
+    innerHTML: '',
+    querySelector: selector => selector === '.selection-panel-list' ? list : null,
+  };
+  EquipmentWindow.prototype._renderGroupInfo.call({ selectionActions: {} }, equipmentContainer, [
+    { id: 'a', type: 'labBench', category: 'equipment', col: 1, row: 2 },
+    { id: 'b', type: 'labBench', category: 'equipment', col: 3, row: 4 },
+  ]);
+
+  assert(!selectionContainer.innerHTML.includes('Save selection')
+      && !selectionContainer.innerHTML.includes('selection-panel-slots')
+      && !equipmentContainer.innerHTML.includes('Save selection')
+      && !equipmentContainer.innerHTML.includes('selection-panel-slots'),
+  'selection panels no longer show the persistent save-selection slot block');
+
+  if (priorDocument === undefined) delete globalThis.document;
+  else globalThis.document = priorDocument;
+}
+
+{
   const action = equipmentAutoConnectAction({
     utilityType: 'hvCable', candidates: 2, stubs: [{}, {}],
     cost: { funding: 960 },

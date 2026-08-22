@@ -28,6 +28,7 @@ import { METRES_PER_SUB } from '../beamline/pipe-geometry.js';
 import { UtilityLineSystem } from '../utility/UtilityLineSystem.js';
 import { UniversalUtilityBusSystem } from '../utility/UniversalUtilityBusSystem.js';
 import { portWorldPosition } from '../utility/ports.js';
+import { makeUtilityEndpointIndex } from '../utility/utility-endpoints.js';
 import { UtilityRegistry } from '../utility/registry.js';
 import { SolveRunner } from '../utility/solve-runner.js';
 import { UtilityGate, declaredSinkQualityFloor } from './utility-gate.js';
@@ -3705,28 +3706,41 @@ export class Game {
    * a line secretly connected to the object's old position.
    */
   reanchorUtilityLinesForPlaceable(placeableId, { skipLineIds = null } = {}) {
-    const placeable = this.getPlaceable(placeableId);
+    return this.reanchorUtilityLinesForPlaceables([placeableId], { skipLineIds });
+  }
+
+  /** Re-anchor utility routes after several endpoints change in one gesture. */
+  reanchorUtilityLinesForPlaceables(placeableIds, { skipLineIds = null } = {}) {
     const lines = this.state.utilityLines;
-    if (!placeable || !lines || !this.utilityLineSystem) return 0;
-    const def = PLACEABLES[placeable.type] || COMPONENTS[placeable.type];
-    if (!def) return 0;
+    if (!lines || !this.utilityLineSystem) return 0;
+    const selected = new Set(placeableIds || []);
+    if (!selected.size) return 0;
+    const endpoints = makeUtilityEndpointIndex(this.state);
 
     let dangled = 0;
-    const attached = [];
+    const attached = new Map();
     for (const line of lines.values()) {
       if (skipLineIds?.has?.(line.id)) continue;
-      const ports = [];
-      if (line.start?.placeableId === placeableId) ports.push(line.start.portName);
-      if (line.end?.placeableId === placeableId) ports.push(line.end.portName);
-      if (ports.length) attached.push({ id: line.id, ports });
-    }
-    for (const { id, ports } of attached) {
-      const byPort = {};
-      for (const name of ports) {
-        const world = portWorldPosition(placeable, def, name);
-        if (world) byPort[name] = { col: world.x / 2, row: world.z / 2 };
+      const positionsById = new Map();
+      for (const ref of [line.start, line.end]) {
+        if (!ref || !selected.has(ref.placeableId)) continue;
+        const endpoint = endpoints.get(ref.placeableId);
+        const def = endpoint && (PLACEABLES[endpoint.type] || COMPONENTS[endpoint.type]);
+        const world = def && portWorldPosition(endpoint, def, ref.portName);
+        if (!world) continue;
+        let byPort = positionsById.get(ref.placeableId);
+        if (!byPort) {
+          byPort = {};
+          positionsById.set(ref.placeableId, byPort);
+        }
+        byPort[ref.portName] = { col: world.x / 2, row: world.z / 2 };
       }
-      if (this.utilityLineSystem.reanchorLine(id, placeableId, byPort)?.dangled) dangled++;
+      if (positionsById.size) attached.set(line.id, positionsById);
+    }
+    for (const [lineId, positionsById] of attached) {
+      if (this.utilityLineSystem.reanchorLineEndpoints(lineId, positionsById)?.dangled) {
+        dangled++;
+      }
     }
     return dangled;
   }

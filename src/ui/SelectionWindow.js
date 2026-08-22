@@ -94,9 +94,7 @@ export class SelectionWindow {
       + '<div class="selection-category-list" role="group" aria-label="Selection categories"></div>'
       + '<div class="selection-panel-heading selection-panel-items-heading">Selected objects</div>'
       + '<div class="selection-panel-list"></div>'
-      + '<div class="selection-panel-heading selection-panel-save-heading">Save selection</div>'
-      + '<div class="selection-panel-slots" aria-label="Save selection to slot"></div>'
-      + '<div class="selection-panel-help">Click a category to include/exclude it · Ctrl+1…9 saves · Shift+1…9 recalls</div>'
+      + '<div class="selection-panel-help">Click a category to include/exclude it · M mirrors selected beamline ports</div>'
       + '</div>';
 
     const categories = container.querySelector('.selection-category-list');
@@ -135,26 +133,6 @@ export class SelectionWindow {
       }
     }
 
-    const slots = this.selectionActions.getSelectionSlots?.() || {};
-    const availability = selectionActionAvailability(this._selected());
-    const slotGrid = container.querySelector('.selection-panel-slots');
-    for (let slot = 1; slot <= 9; slot++) {
-      const savedCount = Number(slots[slot]) || 0;
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'selection-panel-slot';
-      button.disabled = availability.copyableCount === 0;
-      button.title = compatibleActionTitle(
-        'copy', availability.copyableCount, availability.copyExcludedCount,
-      );
-      button.innerHTML = `<span class="selection-panel-slot-key">${slot}</span>`
-        + `<span>${savedCount ? `${savedCount} saved` : 'empty'}</span>`;
-      button.addEventListener('click', () => {
-        this.selectionActions.onSaveSlot?.(String(slot));
-        this.refresh();
-      });
-      slotGrid.appendChild(button);
-    }
   }
 
   _updateActions() {

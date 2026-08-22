@@ -10,6 +10,8 @@ import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
 import { COMPONENTS } from '../src/data/components.js';
 import { findSlot } from '../src/beamline/pipe-placements.js';
 import { listUtilityEndpoints } from '../src/utility/utility-endpoints.js';
+import { mirrorSelectionPorts } from '../src/input/selection-commands.js';
+import { attachmentSelectionKey } from '../src/game/selection-targets.js';
 import {
   portApproachVec,
   portSide,
@@ -166,6 +168,66 @@ console.log('\n=== free-placed infrastructure persists its mirrored side ===\n')
   const placed = id && game.getPlaceable(id);
   assert(placed?.kind === 'infrastructure' && placed.portsFlipped === true,
     'an infrastructure placement stores the M-selected mirrored layout');
+}
+
+console.log('\n=== selected beamline components mirror in place as one undoable command ===\n');
+{
+  const game = new Game(new BeamlineRegistry(), { seed: 20260822 });
+  game.state.resources.funding = 1e9;
+  const pipe = {
+    id: 'bp_group', subL: 24,
+    path: [{ col: 0, row: 0 }, { col: 0, row: 12 }],
+    placements: [], start: null, end: null,
+  };
+  game.state.beamPipes.push(pipe);
+  const firstId = game.beamline.placeOnPipe(pipe.id, {
+    type: 'buncher', position: 0.1, mode: 'snap', free: true,
+  });
+  const secondId = game.beamline.placeOnPipe(pipe.id, {
+    type: 'rfCavity', position: 0.5, mode: 'snap', free: true,
+  });
+  const keys = [attachmentSelectionKey(firstId), attachmentSelectionKey(secondId)];
+  const before = listUtilityEndpoints(game.state)
+    .filter(endpoint => [firstId, secondId].includes(endpoint.id));
+  const beforePortX = before.map(endpoint => {
+    const portName = Object.keys(COMPONENTS[endpoint.type].ports)
+      .find(name => COMPONENTS[endpoint.type].ports[name]?.utility);
+    return portWorldPosition(endpoint, COMPONENTS[endpoint.type], portName).x;
+  });
+
+  const mirrored = mirrorSelectionPorts(game, keys);
+  const after = listUtilityEndpoints(game.state)
+    .filter(endpoint => [firstId, secondId].includes(endpoint.id));
+  const afterPortX = after.map(endpoint => {
+    const portName = Object.keys(COMPONENTS[endpoint.type].ports)
+      .find(name => COMPONENTS[endpoint.type].ports[name]?.utility);
+    return portWorldPosition(endpoint, COMPONENTS[endpoint.type], portName).x;
+  });
+  assert(mirrored.ok && mirrored.mirrored === 2
+      && pipe.placements.every(placement => placement.portsFlipped === true),
+  'one command mirrors every selected on-pipe component without moving it');
+  assert(afterPortX.every((x, index) => Math.abs(x - beforePortX[index]) > 0.1),
+    'the selected components publish their utility ports on the opposite side');
+
+  game.undo();
+  assert(game.state.beamPipes[0].placements.every(placement => placement.portsFlipped !== true),
+    'one undo restores the complete selected port layout');
+
+  let prevented = 0;
+  const input = {
+    game,
+    selectedPlaceableIds: new Set(keys),
+    armedPlaceableId: null,
+    renderer: { _portMarkersDirty: false, refreshContextWindows() {} },
+    _showToast() {},
+  };
+  const consumed = InputHandler.prototype._handleMirrorSelectedBeamlinePortsKey.call(input, {
+    key: 'm', ctrlKey: false, metaKey: false, altKey: false,
+    preventDefault() { prevented++; },
+  });
+  assert(consumed && prevented === 1
+      && game.state.beamPipes[0].placements.every(placement => placement.portsFlipped === true),
+  'M consumes the key and mirrors the active beamline selection in place');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

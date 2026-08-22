@@ -4,6 +4,7 @@
 
 import { placeableMutationEvent } from '../game/placeable-events.js';
 import { selectionTargetByKey } from '../game/selection-targets.js';
+import { COMPONENTS } from '../data/components.js';
 import { mirrorEdge } from '../game/edge-keys.js';
 import { levelOf, subtileKey } from '../game/storeys.js';
 
@@ -257,4 +258,33 @@ export function demolishSelection(game, ids) {
     }
   }));
   return existing.map(target => target.key);
+}
+
+function hasUtilityPorts(target) {
+  return Object.values(COMPONENTS[target?.type]?.ports || {})
+    .some(port => port?.utility);
+}
+
+/** Toggle selected beamline components' utility-port sides without moving them. */
+export function mirrorSelectionPorts(game, keys) {
+  const targets = [...new Set(keys || [])]
+    .map(key => selectionTargetByKey(game.state, key))
+    .filter(target => target?.selectionCategory === 'beamline' && hasUtilityPorts(target));
+  if (!targets.length) return { ok: false, mirrored: 0, dangled: 0 };
+
+  const result = game.runUndoableMutation(() => game.batchEvents(() => {
+    for (const target of targets) {
+      const record = target.targetKind === 'beamlineAttachment'
+        ? target.attachment
+        : target.entry;
+      record.portsFlipped = record.portsFlipped !== true;
+    }
+    const dangled = game.reanchorUtilityLinesForPlaceables(
+      targets.map(target => target.id),
+    );
+    game.computeSystemStats();
+    game.emit('beamlineChanged');
+    return { ok: true, mirrored: targets.length, dangled };
+  }));
+  return result || { ok: false, mirrored: 0, dangled: 0 };
 }

@@ -22,7 +22,7 @@ const CONTROL_ROWS = [
   ['Mid-click', 'cycle preferred camera angle'],
   ['Mid-drag', 'orbit the camera'],
   ['F',      'rotate item while placing'],
-  ['M',      'mirror utility ports / a formation while placing'],
+  ['M',      'mirror utility ports on armed or selected beamline components'],
   ['Drag box', 'select a group of facility items'],
   ['Ctrl+1 / Shift+1', 'save / recall a formation slot'],
   ['Space',  'place item / beam ON-OFF'],
