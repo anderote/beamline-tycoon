@@ -930,7 +930,7 @@ class Planner {
       return false;
     }
     const symbol = this.sym('pl');
-    const res = findSlot(pipe, {
+    let res = findSlot(pipe, {
       type,
       requestedPosition: position,
       subL,
@@ -939,6 +939,34 @@ class Planner {
       params: { ...(node.params || {}) },
       idGenerator: () => symbol,
     });
+    // Designer insertion is an explicit request to make room for the new
+    // component. If an existing pipe-mounted attachment occupies that slot,
+    // remove it first and retry the real slot validator. Junction modules are
+    // deliberately excluded: moving/removing those changes beam topology and
+    // still needs an explicit draft operation.
+    if (!res.ok && mode === 'insert' && (res.reason === 'overlap' || res.reason === 'full')) {
+      const wantedStart = Math.max(0, (position || 0) * (pipe.subL || 0));
+      const wantedEnd = wantedStart + subL;
+      const victims = (pipe.placements || []).filter(existing => {
+        const start = (existing.position || 0) * (pipe.subL || 0);
+        const end = start + placementSpanSubL(existing);
+        return start < wantedEnd - EPS && end > wantedStart + EPS;
+      });
+      for (const victim of victims) {
+        this.emitRemoveFromPipe(pipeId, victim.id, victim.type);
+      }
+      if (victims.length) {
+        res = findSlot(pipe, {
+          type,
+          requestedPosition: position,
+          subL,
+          inline: compDef(type)?.attachmentKind === 'inline',
+          mode,
+          params: { ...(node.params || {}) },
+          idGenerator: () => symbol,
+        });
+      }
+    }
     if (!res.ok) {
       this.block(res.reason === 'invalid_pipe' ? NOT_STRAIGHT : NO_SPACE, nodeIndex,
         res.reason === 'full' || res.reason === 'overlap'
