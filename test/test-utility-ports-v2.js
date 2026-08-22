@@ -356,10 +356,16 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
     'distribution ladder ratings cap dynamic draw: compact < section < main panel');
   const outlets = (t) => Object.keys(getUtilityPortsV2(t))
     .filter(n => n.startsWith('pwr_out')).length;
-  assert(outlets('powerPanel') < outlets('sectionDistributionPanel')
-      && outlets('sectionDistributionPanel') < outlets('mainDistributionPanel'),
-    `outlet counts rise with the panel size (panel ${outlets('powerPanel')}, `
-    + `section ${outlets('sectionDistributionPanel')}, main ${outlets('mainDistributionPanel')})`);
+  assert([outlets('powerPanel'), outlets('sectionDistributionPanel'), outlets('mainDistributionPanel')]
+    .join(',') === '4,8,8',
+  'compact, section, and main panels expose 4, 8, and 8 physical outlets');
+  const sectionOutputs = Object.entries(section)
+    .filter(([name]) => name.startsWith('pwr_out'))
+    .map(([, spec]) => spec);
+  assert(section.hv_in.params.demand === 200
+      && sectionOutputs.every(spec => spec.params.capacity === 25)
+      && INFRASTRUCTURE_RAW.sectionDistributionPanel.electricalControl?.breaker?.rating === 200,
+  'section panel has eight 25 kW circuits behind one 200 kW feeder breaker');
   const panelOutputs = Object.entries(panel)
     .filter(([name]) => name.startsWith('pwr_out'))
     .map(([, spec]) => spec);
@@ -580,11 +586,12 @@ console.log('\n--- Test: infrastructure requiredConnections have sink ports ---'
 }
 
 // ==========================================================================
-// Distribution cabinets: terminals live together on the modeled front face.
+// Logical approach points remain spread over cabinet faces. Presentation
+// anchors independently move the physical connectors onto the roof hardware.
 // ==========================================================================
 console.log('\n--- Distribution cabinet port layout ---');
 {
-  for (const [id, count] of [['powerPanel', 4], ['sectionDistributionPanel', 6], ['mainDistributionPanel', 8]]) {
+  for (const [id, count] of [['powerPanel', 4], ['sectionDistributionPanel', 8], ['mainDistributionPanel', 8]]) {
     const ports = getUtilityPortsV2(id);
     const outlets = Object.entries(ports)
       .filter(([name]) => name.startsWith('pwr_out_'))

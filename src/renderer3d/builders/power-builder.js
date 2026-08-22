@@ -8,7 +8,10 @@
 //   - THREE is a CDN global — do NOT import it.
 
 import { applyTiledBoxUVs, applyTiledCylinderUVs } from '../uv-utils.js';
-import { DISTRIBUTION_OUTPUT_LAYOUTS } from '../../data/distribution-output-layout.js';
+import {
+  DISTRIBUTION_OUTPUT_LAYOUTS,
+  DISTRIBUTION_TOP_TERMINAL_LAYOUTS,
+} from '../../data/distribution-output-layout.js';
 
 const SEGS = 16;
 
@@ -43,6 +46,30 @@ function addCylinder(bucket, r, h, x, y, z, matrix = null, segs = 10) {
   const g = new THREE.CylinderGeometry(r, r, h, segs);
   applyTiledCylinderUVs(g, r, h, segs);
   pushT(bucket, g, matrix || trans(x, y, z));
+}
+
+// Every physical cable endpoint on distribution gear is the metal cap of one
+// roof insulator. The anchor table reads this same shared layout, so cable
+// tails terminate in the attachment instead of floating over a cabinet face.
+function addDistributionRoofTerminals(b, type) {
+  const layout = DISTRIBUTION_TOP_TERMINAL_LAYOUTS[type];
+  if (!layout) return;
+  const terminals = [
+    { ...layout.input, input: true },
+    ...layout.outputs.map(terminal => ({ ...terminal, input: false })),
+  ];
+  for (const { x, y, z, input } of terminals) {
+    const radius = input ? 0.038 : 0.028;
+    const postH = 0.125;
+    addCylinder(b.accent, radius * 0.78, postH,
+      x, layout.roofY + postH / 2, z, null, SEGS);
+    for (const skirtY of [0.035, 0.075, 0.115]) {
+      addCylinder(b.accent, radius * 1.35, 0.015,
+        x, layout.roofY + skirtY, z, null, SEGS);
+    }
+    const capH = 0.035;
+    addCylinder(b.copper, radius, capH, x, y - capH / 2, z, null, SEGS);
+  }
 }
 
 // ── HV Transformer ────────────────────────────────────────────────
@@ -223,9 +250,8 @@ export function _buildDisconnectSwitchRoles() {
 }
 
 // ── Compact HV Distributor ─────────────────────────────────────────
-// A short 0.5 m-square 1-to-2 cabinet. The single rear gland and two front
-// breaker/gland pairs mirror the logical HV ports instead of borrowing the
-// four-way switchgear's much larger enclosure.
+// A short 0.5 m-square 1-to-2 cabinet. Its face carries controls while the
+// single heavy inlet and two outgoing feeders land on roof terminals.
 export function _buildCompactHvDistributorRoles() {
   const b = makeBuckets();
 
@@ -236,6 +262,7 @@ export function _buildCompactHvDistributorRoles() {
   addBox(b.stand, 0.46, baseH, 0.46, 0, baseH / 2, 0);
   addBox(b.iron, encW, encH, encD, 0, baseH + encH / 2, 0);
   addBox(b.accent, 0.44, 0.035, 0.42, 0, baseH + encH + 0.0175, 0);
+  addDistributionRoofTerminals(b, 'compactHvDistributor');
 
   // Recessed front service door with hinges, gasket and operating handle.
   addBox(b.accent, 0.25, 0.66, 0.025, -0.055, 0.46, frontZ + 0.018);
@@ -252,27 +279,12 @@ export function _buildCompactHvDistributorRoles() {
   }
   addBox(b.iron, 0.024, 0.12, 0.026, 0.045, 0.46, frontZ + 0.052);
 
-  // One rear 200 kW inlet at the authored hv_in presentation anchor.
-  {
-    const x = -0.10, y = 0.30, z = -(frontZ + 0.018);
-    addBox(b.detail, 0.16, 0.16, 0.025, x, y, z);
-    const gland = new THREE.CylinderGeometry(0.045, 0.045, 0.075, 10);
-    applyTiledCylinderUVs(gland, 0.045, 0.075, 10);
-    pushT(b.copper, gland, new THREE.Matrix4().multiplyMatrices(
-      trans(x, y, z - 0.042), rotX(Math.PI / 2),
-    ));
-  }
-
-  // Two independently wireable 100 kW outlets in one horizontal front row.
+  // Two independently wireable output breaker controls remain on the face;
+  // their actual cable attachments are the roof terminals above.
   for (const { x, y } of DISTRIBUTION_OUTPUT_LAYOUTS.compactHvDistributor) {
     const z = frontZ + 0.018;
     addBox(b.detail, 0.15, 0.15, 0.025, x, y, z);
     addBox(b.pipe, 0.08, 0.035, 0.018, x, y + 0.042, z + 0.023);
-    const gland = new THREE.CylinderGeometry(0.038, 0.038, 0.075, 10);
-    applyTiledCylinderUVs(gland, 0.038, 0.075, 10);
-    pushT(b.copper, gland, new THREE.Matrix4().multiplyMatrices(
-      trans(x, y - 0.035, z + 0.042), rotX(Math.PI / 2),
-    ));
   }
 
   // Compact phase mimic, pilot lamp, side vents and a visible ground bond.
@@ -328,45 +340,13 @@ export function _buildSwitchgearRoles() {
     }
   }
 
-  // 3 bus bar risers on top
-  for (let i = 0; i < 3; i++) {
-    const zOff = -0.3 + i * 0.3;
-    const barR = 0.02, barH = 0.25;
-    const g = new THREE.CylinderGeometry(barR, barR, barH, 8);
-    applyTiledCylinderUVs(g, barR, barH, 8);
-    pushT(b.copper, g, trans(0, baseH + encH + barH / 2, zOff));
-    // Insulator at base of riser
-    const ig = new THREE.CylinderGeometry(0.035, 0.035, 0.04, SEGS);
-    applyTiledCylinderUVs(ig, 0.035, 0.04, SEGS);
-    pushT(b.accent, ig, trans(0, baseH + encH + 0.02, zOff));
-  }
-
-  // Rear incoming feeder: one breaker plate and one heavy cable gland at the
-  // authored hv_in anchor (back face, low and left).
-  {
-    const x = -0.28, y = 0.42, z = -(encD / 2 + 0.025);
-    const plate = new THREE.BoxGeometry(0.20, 0.20, 0.035);
-    applyTiledBoxUVs(plate, 0.20, 0.20, 0.035);
-    pushT(b.detail, plate, trans(x, y, z));
-    const gland = new THREE.CylinderGeometry(0.055, 0.055, 0.10, 10);
-    applyTiledCylinderUVs(gland, 0.055, 0.10, 10);
-    pushT(b.copper, gland, new THREE.Matrix4().multiplyMatrices(
-      trans(x, y, z - 0.055), rotX(Math.PI / 2),
-    ));
-  }
-
-  // Four output breaker/gland pairs in one horizontal row across the front,
-  // matching the independently claimable ports and presentation anchors.
+  // Four breaker controls occupy the front. The independently claimable HV
+  // inlet and outlets are the five insulator/cap terminals on the roof.
   for (const { x, y } of DISTRIBUTION_OUTPUT_LAYOUTS.switchgear) {
     const z = encD / 2 + 0.025;
     const plate = new THREE.BoxGeometry(0.17, 0.19, 0.035);
     applyTiledBoxUVs(plate, 0.17, 0.19, 0.035);
     pushT(b.detail, plate, trans(x, y, z));
-    const gland = new THREE.CylinderGeometry(0.045, 0.045, 0.09, 10);
-    applyTiledCylinderUVs(gland, 0.045, 0.09, 10);
-    pushT(b.copper, gland, new THREE.Matrix4().multiplyMatrices(
-      trans(x, y, z + 0.05), rotX(Math.PI / 2),
-    ));
   }
 
   // Folded roof, front service door and inspection hardware. Keep the right
@@ -375,6 +355,7 @@ export function _buildSwitchgearRoles() {
   const frontZ = encD / 2;
   addBox(b.accent, encW + 0.07, 0.045, encD + 0.07,
     0, baseH + encH + 0.022, 0);
+  addDistributionRoofTerminals(b, 'switchgear');
   addBox(b.accent, 0.47, 1.44, 0.030,
     -0.14, baseH + encH * 0.51, frontZ + 0.022);
   for (const sx of [-1, 1]) {
@@ -494,14 +475,6 @@ export function _buildMCCRoles() {
     pushT(b.detail, g, trans(0, baseH + encH + 0.015, 0));
   }
 
-  // Cable stub risers through gland plate
-  for (let i = 0; i < 4; i++) {
-    const xOff = -0.4 + i * 0.27;
-    const g = new THREE.CylinderGeometry(0.02, 0.02, 0.1, 8);
-    applyTiledCylinderUVs(g, 0.02, 0.1, 8);
-    pushT(b.copper, g, trans(xOff, baseH + encH + 0.05, 0));
-  }
-
   // Eight withdrawable starter/VFD buckets on the front, each with its own
   // handle, name strip, pilot lamp and ventilation slot. This is the visual
   // grammar of a real MCC lineup and mirrors its eight branch circuits.
@@ -537,6 +510,7 @@ export function _buildMCCRoles() {
     0, baseH + encH - 0.10, frontZ + 0.024);
   addBox(b.accent, encW + 0.05, 0.035, encD + 0.05,
     0, baseH + encH + 0.0175, 0);
+  addDistributionRoofTerminals(b, 'mcc');
   addBox(b.copper, encW * 0.78, 0.020, 0.025,
     0, baseH + 0.14, -(frontZ + 0.014));
 
@@ -570,6 +544,7 @@ export function _buildUPSRoles() {
     applyTiledBoxUVs(g, encW * 0.8, 0.04, encD * 0.6);
     pushT(b.detail, g, trans(0, baseH + encH + 0.02, 0));
   }
+  addDistributionRoofTerminals(b, 'ups');
 
   // Side ventilation slots
   for (const zSign of [-1, 1]) {
@@ -652,9 +627,8 @@ function _buildDistributionPanelRoles({ type, width, height, depth, doorCount })
       doorX + doorW * 0.34, doorY, doorFaceZ + 0.038);
   }
 
-  // Breaker handles and circuit labels follow the same horizontal rows as
-  // the real output fittings: four across, with a centred pair when a six-way
-  // panel needs a shorter second row.
+  // Breaker handles and circuit labels follow readable horizontal rows on the
+  // control face. The actual cable attachments are the roof terminals below.
   const bayW = Math.min(width * 0.18, 0.18);
   const bayH = Math.min(height * 0.09, 0.13);
   for (const { x, y } of DISTRIBUTION_OUTPUT_LAYOUTS[type]) {
@@ -689,19 +663,14 @@ function _buildDistributionPanelRoles({ type, width, height, depth, doorCount })
   addBox(b.copper, width * 0.58, 0.018, 0.025,
     0, baseH + 0.14, -(depth / 2 + 0.014));
 
-  // Top gland plate and steel conduit hubs distinguish electrical equipment
-  // from an ordinary green storage cabinet.
+  // A roof entry plate supports one heavier HV inlet insulator and one capped
+  // branch terminal per physical outlet.
   {
     const g = new THREE.BoxGeometry(width * 0.72, 0.025, depth * 0.62);
     applyTiledBoxUVs(g, width * 0.72, 0.025, depth * 0.62);
     pushT(b.detail, g, trans(0, baseH + height + 0.013, 0));
   }
-  for (let i = 0; i < Math.min(doorCount + 1, 4); i++) {
-    const x = (i - (Math.min(doorCount + 1, 4) - 1) / 2) * 0.13;
-    const g = new THREE.CylinderGeometry(0.022, 0.022, 0.12, 8);
-    applyTiledCylinderUVs(g, 0.022, 0.12, 8);
-    pushT(b.pipe, g, trans(x, baseH + height + 0.085, 0));
-  }
+  addDistributionRoofTerminals(b, type);
   return b;
 }
 

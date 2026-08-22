@@ -36,7 +36,7 @@ transformer → HV feeder → distribution panel → branch circuit → field di
 - **Compact HV Distributor**: one 600 kW HV feed, two protected 300 kW HV feeders; 1×1-subtile footprint.
 - **HV Distributor Box**: one 1,200 kW HV feed, four protected 300 kW HV feeders.
 - **Compact Distribution Panel**: 40 kW, one HV feed, four 10 kW branch outlets.
-- **Section Distribution Panel**: 150 kW, one HV feed, six 25 kW branch outlets.
+- **Section Distribution Panel**: 200 kW, one HV feed, eight 25 kW branch outlets.
 - **Main Distribution Panel**: 400 kW, one HV feed, eight 50 kW branch outlets.
 - **Beamline Busway**: 160 kW field limit, one branch feed, eight plug-in taps.
 - **Spider Box**: 30 kW field limit and four interchangeable sockets. Connect

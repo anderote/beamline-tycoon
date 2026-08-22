@@ -139,7 +139,7 @@ test('utility service point energizes transformer HV outputs only through its HV
 });
 
 test('a distribution panel caps upstream draw at its rating when downstream is overloaded', () => {
-  const loads = Array.from({ length: 6 }, (_, index) =>
+  const loads = Array.from({ length: 8 }, (_, index) =>
     placed(`load_${index + 1}`, 'source'));
   const state = world([
     placed('service', 'gridServicePoint'),
@@ -158,10 +158,10 @@ test('a distribution panel caps upstream draw at its rating when downstream is o
 
   const hvFlow = [...state.utilityNetworkData.get('hvCable').values()][0];
   const branchFlow = [...state.utilityNetworkData.get('powerCable').values()][0];
-  assert.equal(branchFlow.totalDemand, 300);
-  assert.equal(branchFlow.totalCapacity, 150);
-  assert.equal(hvFlow.totalDemand, 150,
-    'the overloaded 150 kW panel cannot pull more than its nameplate rating');
+  assert.equal(branchFlow.totalDemand, 400);
+  assert.equal(branchFlow.totalCapacity, 200);
+  assert.equal(hvFlow.totalDemand, 200,
+    'the overloaded 200 kW panel cannot pull more than its nameplate rating');
 });
 
 test('an HV distributor propagates mixed panel and dedicated downstream demand', () => {
