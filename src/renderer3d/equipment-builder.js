@@ -644,3 +644,37 @@ export class EquipmentBuilder {
     this._meshes = [];
   }
 }
+
+/**
+ * Build one furnishing/equipment visual at a floor-relative local origin.
+ *
+ * Placement ghosts use this instead of ComponentBuilder's beam-axis fallback
+ * so their geometry and vertical datum are identical to the committed object.
+ * The returned object is detached from the temporary builder group and is
+ * owned by the caller.
+ */
+export function createEquipmentObject(item, isFurnishing = false) {
+  const builder = new EquipmentBuilder();
+  const parent = new THREE.Group();
+  const localItem = {
+    ...item,
+    col: 0,
+    row: 0,
+    subCol: 0,
+    subRow: 0,
+    dir: 0,
+    placeY: 0,
+  };
+  builder.build(
+    isFurnishing ? [] : [localItem],
+    isFurnishing ? [localItem] : [],
+    parent,
+  );
+  const object = parent.children[0] || null;
+  if (!object) return null;
+  parent.remove(object);
+  object.position.set(0, 0, 0);
+  object.rotation.y = 0;
+  object.updateMatrix();
+  return object;
+}
