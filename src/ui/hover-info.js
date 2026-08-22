@@ -100,7 +100,7 @@ export function componentHoverInfo(comp, { autoConnectPlan = null } = {}) {
           autoConnectPlan.utilityType || comp.autoConnectUtility || 'powerCable', candidates,
         )} in range`
           + ` · Tab connects ${connectable}`
-          + ' · Ctrl+Tab disconnects all',
+          + ' · Select + T disconnects all',
       ),
     };
   }

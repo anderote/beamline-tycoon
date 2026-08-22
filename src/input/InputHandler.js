@@ -14,6 +14,7 @@ import { EconomyWindow } from '../ui/EconomyWindow.js';
 import { discoverNetworks, makeDefaultPortLookup } from '../utility/network-discovery.js';
 import { UTILITY_TYPES, utilityLineHeight } from '../utility/registry.js';
 import { projectOntoUtilityLine, utilityAttachmentPose } from '../utility/line-attachments.js';
+import { findUtilityEndpoint } from '../utility/utility-endpoints.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import {
   snapForPlaceable, canPlace, canPlaceWallFixture, previewPlacement,
@@ -37,13 +38,14 @@ import {
   buildSmartFloorWallPath,
 } from './floor-wall-paths.js';
 import { DemolishTool } from './demolish-tool.js';
-import { MoveTool, ProbeTool } from './mode-tools.js';
+import { MoveTool, ProbeTool, SelectionActionTool } from './mode-tools.js';
 import { BeamlineTool } from './beamline-tool.js';
 import { UtilityLineTool } from './utility-line-tool.js';
 import { DeferredUtilityPortDrag } from './deferred-port-drag.js';
 import {
   commitPanelAutoConnect,
   disconnectAutoConnectDevice,
+  disconnectAutoConnectDevices,
   planPanelAutoConnect,
   utilityAutoConnectProfile,
 } from './panel-auto-connect.js';
@@ -1209,6 +1211,18 @@ export class InputHandler {
     return utilityAutoConnectProfile(def) ? panel.id : null;
   }
 
+  /** Auto-connect-capable endpoints represented by the current selection. */
+  _selectedAutoConnectPanelIds() {
+    return this._selectionTargets()
+      .map(target => target.id)
+      .filter((id, index, ids) => id && ids.indexOf(id) === index)
+      .filter(id => {
+        const endpoint = findUtilityEndpoint(this.game.state, id);
+        const def = endpoint && (COMPONENTS[endpoint.type] || PLACEABLES[endpoint.type]);
+        return !!utilityAutoConnectProfile(def);
+      });
+  }
+
   /** The hovered panel wins; selection preserves the existing keyboard path. */
   panelAutoConnectTargetId() {
     return this._hoveredAutoConnectPanelId() || this._selectedAutoConnectPanelId();
@@ -1227,6 +1241,30 @@ export class InputHandler {
       else this._autoConnectPanel(panelId);
     }
     return true;
+  }
+
+  /** T removes utility runs from selected assisted-wiring devices. */
+  handleDisconnectSelectedUtilitiesKey(event) {
+    if ((event?.key !== 't' && event?.key !== 'T')
+        || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false;
+    const panelIds = this._selectedAutoConnectPanelIds();
+    if (panelIds.length === 0) return false;
+    event.preventDefault?.();
+    if (!event.repeat) this._disconnectSelectedAutoConnectPanels(panelIds);
+    return true;
+  }
+
+  _disconnectSelectedAutoConnectPanels(panelIds) {
+    const removed = disconnectAutoConnectDevices(this.game, panelIds);
+    if (removed.length === 0) this._showToast('No utility connections to remove');
+    else {
+      this._showToast(
+        `Removed ${removed.length} utility connection${removed.length === 1 ? '' : 's'}`,
+      );
+    }
+    this.renderer.refreshContextWindows?.();
+    this._renderSelectionOutlines();
+    return removed;
   }
 
   /** Destroy every utility line terminating on this auto-connect device. */
@@ -1329,7 +1367,10 @@ export class InputHandler {
   }
 
   /** Resolve the visible placeable under a normal canvas click. */
-  _selectPlaceableAt(_world, grid, screenX, screenY, { additive = false } = {}) {
+  _selectPlaceableAt(
+    _world, grid, screenX, screenY,
+    { additive = false, refillReservoir = true } = {},
+  ) {
     const hit = this.renderer.raycastScreen?.(screenX, screenY, OBJECT_PICK_TOLERANCE_PX);
     const info = hit ? this.renderer.identifyHit?.(hit) : null;
     // Rendered placeable wrappers carry their stable state id. Deliberately do
@@ -1348,7 +1389,7 @@ export class InputHandler {
       // action: if its solved network is at exactly zero, buy a full refill
       // before opening the equipment window. Shift-click remains selection-
       // only so adding a tank to a group can never spend money unexpectedly.
-      if (!additive) this.game.refillEmptyReservoirForPlaceable?.(entry.id);
+      if (!additive && refillReservoir) this.game.refillEmptyReservoirForPlaceable?.(entry.id);
       return this._selectPlaceable(entry, info.rootObj || null, { additive });
     }
 
@@ -2167,6 +2208,32 @@ export class InputHandler {
         : InputHandler.prototype._handleMirrorPortsKey.call(this, e);
       if (mirrorHandled) return;
 
+      // Contextual selection shortcuts. With a selection they immediately
+      // act on it; without one, Copy and Mirror become click-to-target modes
+      // and Delete arms the ordinary filtered demolish cursor.
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey
+          && (e.key === 'c' || e.key === 'C')) {
+        e.preventDefault();
+        const ids = this._selectionIdsForAnchor(this.selectedPlaceableId);
+        if (ids.length) this._beginSelectedCopy(this.selectedPlaceableId);
+        else this._toggleSelectionActionMode('copy');
+        return;
+      }
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey
+          && (e.key === 'm' || e.key === 'M')) {
+        e.preventDefault();
+        const ids = this._selectionIdsForAnchor(this.selectedPlaceableId);
+        if (ids.length) this._beginSelectedMirror(this.selectedPlaceableId);
+        else this._toggleSelectionActionMode('mirror');
+        return;
+      }
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey
+          && (e.key === 'd' || e.key === 'D')) {
+        e.preventDefault();
+        if (!this._deleteSelectedFromKeyboard()) this._activateDemolishMode();
+        return;
+      }
+
       // Arrow keys → palette navigation
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         e.preventDefault();
@@ -2174,22 +2241,24 @@ export class InputHandler {
         return;
       }
 
-      // Track pan keys for continuous movement (WASD only).
+      // Track pan keys for continuous movement. D now owns contextual Delete,
+      // so rightward keyboard pan remains available through ArrowRight.
       // Normalize to lowercase so Shift toggling mid-press doesn't strand
       // an uppercase entry in the set.
       const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-      if (k === 'w' || k === 'a' || k === 's' || k === 'd') {
+      if (k === 'w' || k === 'a' || k === 's') {
         this.keysDown.add(k);
         this._startPanLoop?.();
         e.preventDefault();
         return;
       }
 
-      // Mode hotkeys: 1..6 activate top-row mode buttons.
+      // Mode hotkeys: 1..5 activate the build menus. Demolish is D so the
+      // visible menu label and the actual shortcut use the same key.
       // Skip when modifiers are held so browser shortcuts pass through.
       if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey
-          && e.key >= '1' && e.key <= '6') {
-        const modeOrder = ['beamline', 'infra', 'facility', 'structure', 'grounds', 'demolish'];
+          && e.key >= '1' && e.key <= '5') {
+        const modeOrder = ['beamline', 'infra', 'facility', 'structure', 'grounds'];
         const mode = modeOrder[parseInt(e.key, 10) - 1];
         const btn = mode && document.querySelector(`.mode-btn[data-mode="${mode}"]`);
         if (btn) {
@@ -2199,12 +2268,12 @@ export class InputHandler {
         return;
       }
 
-      // Palette hotkeys: z,x,c,v,b,n,m select palette slots 0..6.
-      // Skip when modifiers are held so Shift+Z decoration-spacing and
-      // Ctrl+Z undo keep working.
+      // Remaining palette hotkeys preserve their original slot positions;
+      // C and M now belong to contextual Copy and Mirror everywhere.
+      const paletteHotkeySlots = { z: 0, x: 1, v: 3, b: 4, n: 5 };
       if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey
-          && 'zxcvbnm'.includes(k)) {
-        const slot = 'zxcvbnm'.indexOf(k);
+          && Object.hasOwn(paletteHotkeySlots, k)) {
+        const slot = paletteHotkeySlots[k];
         const items = document.querySelectorAll('#component-palette .palette-item');
         if (items.length > slot) {
           e.preventDefault();
@@ -2339,6 +2408,7 @@ export class InputHandler {
           break;
         }
         case 't': case 'T':
+          if (this.handleDisconnectSelectedUtilitiesKey(e)) break;
           if (this.game._designer && !this.game._designer.isOpen) {
             e.preventDefault();
             const blId = this.game.selectedBeamlineId || this.game.editingBeamlineId;
@@ -3363,7 +3433,7 @@ export class InputHandler {
   /**
    * Mirror utility ports on the currently armed object without rotating its
    * body or beam entry/exit ports. Returns true only when M had an applicable
-   * placement to transform, leaving the unarmed M palette shortcut intact.
+   * placement to transform, leaving unarmed M to the contextual Mirror mode.
    */
   _handleMirrorPortsKey(e) {
     if (e.key !== 'm' && e.key !== 'M') return false;
@@ -3390,16 +3460,16 @@ export class InputHandler {
     if (e.ctrlKey || e.metaKey || e.altKey || this.armedPlaceableId) return false;
     const ids = [...(this.selectedPlaceableIds || [])];
     if (!ids.length) return false;
-    const result = mirrorSelectionPorts(this.game, ids);
-    if (!result.ok) return false;
-
+    const hasBeamlineTarget = ids.some(id => (
+      selectionTargetByKey(this.game.state, id)?.selectionCategory === 'beamline'
+    ));
+    if (!hasBeamlineTarget) return false;
     e.preventDefault?.();
-    this.renderer._portMarkersDirty = true;
-    this.renderer.refreshContextWindows?.();
-    const suffix = result.dangled
-      ? ` — ${result.dangled} utility ${result.dangled === 1 ? 'line needs' : 'lines need'} rewiring`
-      : '';
-    this._showToast?.(`Mirrored ports on ${result.mirrored} beamline component${result.mirrored === 1 ? '' : 's'}${suffix}`);
+    if (typeof this._beginSelectedMirror === 'function') {
+      this._beginSelectedMirror(this.selectedPlaceableId);
+    } else {
+      InputHandler.prototype._beginSelectedMirror.call(this, this.selectedPlaceableId);
+    }
     return true;
   }
 
@@ -4034,6 +4104,16 @@ export class InputHandler {
     }
   }
 
+  _toggleSelectionActionMode(action) {
+    if (this.activeTool?.kind === 'selectionAction'
+        && this.activeTool.action === action) {
+      this.clearTool();
+      return false;
+    }
+    this.setTool(new SelectionActionTool(action));
+    return true;
+  }
+
   _selectionIdsForAnchor(anchorId = this.selectedPlaceableId) {
     if (anchorId && this.selectedPlaceableIds?.has?.(anchorId)) {
       return [...this.selectedPlaceableIds];
@@ -4074,6 +4154,35 @@ export class InputHandler {
 
   _beginSelectedCopy(anchorId = this.selectedPlaceableId) {
     return this._beginSelectionPlacement('copy', anchorId);
+  }
+
+  /** Mirror beamline ports in place, or spatially mirror movable selections. */
+  _beginSelectedMirror(anchorId = this.selectedPlaceableId) {
+    const resolvedAnchor = anchorId || [...(this.selectedPlaceableIds || [])].at(-1) || null;
+    const ids = typeof this._selectionIdsForAnchor === 'function'
+      ? this._selectionIdsForAnchor(resolvedAnchor)
+      : InputHandler.prototype._selectionIdsForAnchor.call(this, resolvedAnchor);
+    const portResult = mirrorSelectionPorts(this.game, ids);
+    if (portResult.ok) {
+      this.renderer._portMarkersDirty = true;
+      this.renderer.refreshContextWindows?.();
+      const suffix = portResult.dangled
+        ? ` — ${portResult.dangled} utility ${portResult.dangled === 1 ? 'line needs' : 'lines need'} rewiring`
+        : '';
+      this._showToast(
+        `Mirrored ports on ${portResult.mirrored} beamline component${portResult.mirrored === 1 ? '' : 's'}${suffix}`,
+      );
+      return true;
+    }
+
+    const selection = typeof this._selectionIdsForPanelAction === 'function'
+      ? this._selectionIdsForPanelAction('move')
+      : InputHandler.prototype._selectionIdsForPanelAction.call(this, 'move');
+    if (!selection.ids.length) {
+      this._showToast('Nothing selected can be mirrored');
+      return false;
+    }
+    return this._beginSelectionTransform('mirror', selection.anchorId, selection.ids);
   }
 
   _transformActiveSelectionGroup(kind) {
@@ -4544,6 +4653,17 @@ export class InputHandler {
     // Activate the same filtered cursor in-place without changing mode/menu.
     this.setTool(new DemolishTool('demolishFiltered', this.demolishFilters));
     this._renderPreview('Demolish', 'Uses the active Demolish-category filters', []);
+  }
+
+  /** Enter the same full Demolish mode as the bottom build-menu button. */
+  _activateDemolishMode() {
+    const button = document.querySelector?.('.mode-btn[data-mode="demolish"]');
+    if (button?.click) {
+      button.click();
+      return true;
+    }
+    this.setActiveMode('demolish');
+    return true;
   }
 
   /**

@@ -13,8 +13,8 @@
 //      mid-carry put the object back in the world while the tool still held
 //      it — the next drop minted a free second copy.)
 //   3. P on a selected item closes its info window before entering move mode.
-//   3b. Delete/Backspace removes ordinary selections while beamlines remain
-//       protected and D keeps its camera-pan binding.
+//   3b. D/Delete/Backspace remove ordinary selections while beamlines remain
+//       protected; C/M/P enter their contextual selection modes.
 //   4. Shift-drag decoration line placement emits one rebuild event.
 //   5. Preview lifecycle around arming and committing: a keyboard-armed tool
 //      must show its ghost before the mouse moves, the variant must not
@@ -29,12 +29,13 @@
 //      removes exactly what was swept (splitting the run on an interior cut),
 //      Shift still takes the whole pipe, and demolishAll opts out entirely.
 
+import { readFileSync } from 'node:fs';
 import { Game } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
 import { COMPONENTS } from '../src/data/components.js';
 import { PARAM_DEFS } from '../src/beamline/component-physics.js';
 import { DemolishTool } from '../src/input/demolish-tool.js';
-import { MoveTool } from '../src/input/mode-tools.js';
+import { MoveTool, SelectionActionTool } from '../src/input/mode-tools.js';
 import { InputHandler } from '../src/input/InputHandler.js';
 import { BeamlineWindow } from '../src/ui/BeamlineWindow.js';
 import { tileCenterIso } from '../src/renderer/grid.js';
@@ -501,6 +502,9 @@ console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines
   };
   globalThis.document = { addEventListener() {} };
   let deletes = 0;
+  let demolishModes = 0;
+  const selectionModes = [];
+  let moveModes = 0;
   const slots = [];
   const input = {
     keysDown: new Set(),
@@ -509,6 +513,12 @@ console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines
     _toolConsumed: () => false,
     _deleteSelectedFromKeyboard: () => { deletes++; return true; },
     _toggleContextDemolish() {},
+    _activateDemolishMode: () => { demolishModes++; },
+    _selectionIdsForAnchor: () => [],
+    _toggleSelectionActionMode: mode => selectionModes.push(mode),
+    _beginSelectedMove: () => false,
+    _toggleMoveMode: () => { moveModes++; },
+    handleDisconnectSelectedUtilitiesKey: () => false,
     _saveSelectionSlot: slot => slots.push(`save:${slot}`),
     _recallSelectionSlot: slot => slots.push(`recall:${slot}`),
   };
@@ -524,16 +534,79 @@ console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines
   keydown(event('Delete'));
   keydown(event('Backspace'));
   keydown(event('d'));
+  keydown(event('c'));
+  keydown(event('m'));
+  keydown(event('p'));
   keydown(event('1', { code: 'Digit1', ctrlKey: true }));
   keydown(event('!', { code: 'Digit1', shiftKey: true }));
-  assertOk(deletes === 2, 'Delete and Mac Backspace use selection deletion');
-  assertOk(input.keysDown.has('d'), 'D remains the camera pan-right key');
+  assertOk(deletes === 3 && demolishModes === 0,
+    'D, Delete, and Mac Backspace all use contextual selection deletion');
+  assertOk(!input.keysDown.has('d'), 'D no longer enters camera-pan state');
+  assertOk(selectionModes.join(',') === 'copy,mirror',
+    'C and M enter click-to-target modes when nothing is selected');
+  assertOk(moveModes === 1, 'P enters click-to-move mode when nothing is selected');
+  const selectedActions = [];
+  input.selectedPlaceableId = 'selected';
+  input._selectionIdsForAnchor = () => ['selected'];
+  input._beginSelectedCopy = id => { selectedActions.push(`copy:${id}`); return true; };
+  input._beginSelectedMirror = id => { selectedActions.push(`mirror:${id}`); return true; };
+  input._beginSelectedMove = () => { selectedActions.push('move:selected'); return true; };
+  keydown(event('c'));
+  keydown(event('m'));
+  keydown(event('p'));
+  assertOk(selectedActions.join(',') === 'copy:selected,mirror:selected,move:selected',
+    'C, M, and P act immediately on the current selection');
+
+  input._deleteSelectedFromKeyboard = () => false;
+  keydown(event('d'));
+  assertOk(demolishModes === 1, 'D enters the full Demolish build mode when nothing is selected');
+  let menuClicks = 0;
+  globalThis.document.querySelector = selector => (
+    selector === '.mode-btn[data-mode="demolish"]'
+      ? { click: () => { menuClicks++; } }
+      : null
+  );
+  InputHandler.prototype._activateDemolishMode.call(input);
+  assertOk(menuClicks === 1, 'the D command routes through the visible Demolish menu button');
   assertOk(slots.join(',') === 'save:1,recall:1',
     'Ctrl+digit saves and Shift+digit recalls the same formation slot');
   if (priorWindow === undefined) delete globalThis.window;
   else globalThis.window = priorWindow;
   if (priorDocument === undefined) delete globalThis.document;
   else globalThis.document = priorDocument;
+}
+
+{
+  const actions = [];
+  const input = {
+    selectedPlaceableId: null,
+    _selectPlaceableAt(_world, _grid, _x, _y, options) {
+      actions.push(`refill:${options.refillReservoir}`);
+      this.selectedPlaceableId = 'picked';
+      return true;
+    },
+    _beginSelectedCopy: id => actions.push(`copy:${id}`),
+    _beginSelectedMirror: id => actions.push(`mirror:${id}`),
+    _showToast() {},
+  };
+  const ctx = {
+    input,
+    renderer: {
+      screenToWorld: () => ({ x: 0, y: 0 }),
+      updateHover() {},
+    },
+  };
+  new SelectionActionTool('copy').onClick({ clientX: 10, clientY: 20 }, ctx);
+  new SelectionActionTool('mirror').onClick({ clientX: 10, clientY: 20 }, ctx);
+  assertOk(actions.join(',') === 'refill:false,copy:picked,refill:false,mirror:picked',
+    'click-to-copy and click-to-mirror select a target without triggering reservoir refill');
+}
+
+{
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  assertOk(/data-mode="demolish"><span class="mode-hotkey">D<\/span>Demolish/.test(html)
+      && !/data-mode="demolish"><span class="mode-hotkey">6<\/span>/.test(html),
+    'the bottom build menu advertises D, not 6, for Demolish');
 }
 
 console.log('\n=== 4. Shift+drag decoration line rebuilds decorations once ===\n');

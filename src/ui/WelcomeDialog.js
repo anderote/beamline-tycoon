@@ -11,7 +11,7 @@ const MODE_ROWS = [
   ['3', 'Facility',  '#6ec8e0', 'assign zones — labs, control room, offices, cafeteria'],
   ['4', 'Structure', '#c8b49a', 'floors, walls, doors & shielding'],
   ['5', 'Grounds',   '#9ade7a', 'outdoor site work — paths, trees, utilities, security'],
-  ['6', 'Demolish',  '#ff7a66', 'tear things back down'],
+  ['D', 'Demolish',  '#ff7a66', 'tear things back down'],
 ];
 
 // Only bindings verified in InputHandler.js / ThreeRenderer.js.

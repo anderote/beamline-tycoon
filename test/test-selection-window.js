@@ -216,7 +216,7 @@ console.log('\n=== Multi-selection window ===\n');
   });
   assert(action.label === 'Auto-connect 2 ($960) · Tab'
       && action.title.includes('2 unconnected HV connections')
-      && action.title.includes('Ctrl+Tab removes all utility connections'),
+      && action.title.includes('T removes all utility connections'),
   'HV distributor action copy identifies compatible connections');
 
   let footerActions = [];
