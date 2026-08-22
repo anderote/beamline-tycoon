@@ -251,6 +251,12 @@ the short authoring contract.
   freehand `cablePath` the player drew. The freehand trace owns their visible
   geometry, length/cost, wall checks, and solid-equipment collision; cooling
   additionally uses it for spatial topology.
+- Moving connected equipment pulls flexible HV cable, ordinary power cable,
+  and cooling-water hose with a generous coiled-lead strain allowance. These
+  rugged services should remain connected through ordinary layout edits and
+  only dangle after an extreme move exceeds their physical leash. Fabricated
+  vacuum, RF, cryogenic, and water-supply services keep the conservative rigid
+  re-anchor limit.
 - Free-drag endpoints may snap to an existing compatible vacuum, cooling, RF,
   cryogenic-transfer, or data run and commit a named `tapLineIds` T-junction.
   Vacuum, RF, and cryogenic transfer also join automatically wherever an

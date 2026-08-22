@@ -15,10 +15,10 @@ import { particleCollisionWorld, stepKineticParticle } from './kinetic-particles
 
 export const MAX_EFFECT_PULSES = 512;
 export const MAX_AMBIENT_PARTICLES = 512;
-export const MAX_KINETIC_PARTICLES = 384;
+export const MAX_KINETIC_PARTICLES = 512;
 const DEFAULT_PATH_PULSE_BUDGET = 384;
 const DEFAULT_AMBIENT_PARTICLE_BUDGET = 192;
-const DEFAULT_KINETIC_PARTICLE_BUDGET = 192;
+const DEFAULT_KINETIC_PARTICLE_BUDGET = 256;
 const DEFAULT_LIGHT_PROXY_BUDGET = 96;
 const FLOOR_Y = 0.022;
 
@@ -28,6 +28,11 @@ function clamp01(value) {
 
 function effectColor(value) {
   return value ?? 0xffffff;
+}
+
+function finiteOr(value, fallback) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
 }
 
 function makePulseMaterial() {
@@ -104,7 +109,7 @@ export class VisualEffectSystem {
     ));
     const kineticBudget = opts.kineticBudget
       ?? (opts.pulseBudget == null
-        ? DEFAULT_KINETIC_PARTICLE_BUDGET : Math.ceil(opts.pulseBudget / 2));
+        ? DEFAULT_KINETIC_PARTICLE_BUDGET : Math.ceil(opts.pulseBudget));
     this._kineticBudget = Math.min(MAX_KINETIC_PARTICLES, Math.max(
       0, Math.floor(kineticBudget),
     ));
@@ -257,7 +262,7 @@ export class VisualEffectSystem {
     const nz = (normal.z || 0) / normalLength;
     const speedMin = Math.max(0, Number(raw.speedMin) || 2.2);
     const speedMax = Math.max(speedMin, Number(raw.speedMax) || 7.5);
-    const spread = Math.max(0, Number(raw.spread) || 0.95);
+    const spread = Math.max(0, finiteOr(raw.spread, 0.95));
     const colors = Array.isArray(raw.colors) && raw.colors.length
       ? raw.colors : [raw.color ?? 0xffd36a, 0xff8a2a, 0xffffff];
     for (let i = 0; i < emitted; i++) {
@@ -265,7 +270,7 @@ export class VisualEffectSystem {
       const jitterY = this._random() * spread;
       const jitterZ = (this._random() * 2 - 1) * spread;
       const dx = nx + jitterX;
-      const dy = ny + jitterY + (Number(raw.upwardBias) || 0.35);
+      const dy = ny + jitterY + finiteOr(raw.upwardBias, 0.35);
       const dz = nz + jitterZ;
       const directionLength = Math.hypot(dx, dy, dz) || 1;
       const speed = speedMin + (speedMax - speedMin) * this._random();
@@ -283,10 +288,10 @@ export class VisualEffectSystem {
         age: 0,
         lifetime: lifetimeMin + (lifetimeMax - lifetimeMin) * this._random(),
         radius,
-        gravity: Math.max(0, Number(raw.gravity) || 9.81),
-        drag: Math.max(0, Number(raw.drag) || 0.7),
-        restitution: Math.max(0, Math.min(1, Number(raw.restitution) || 0.58)),
-        friction: Math.max(0, Math.min(1, Number(raw.friction) || 0.18)),
+        gravity: Math.max(0, finiteOr(raw.gravity, 9.81)),
+        drag: Math.max(0, finiteOr(raw.drag, 0.7)),
+        restitution: Math.max(0, Math.min(1, finiteOr(raw.restitution, 0.58))),
+        friction: Math.max(0, Math.min(1, finiteOr(raw.friction, 0.18))),
         color: colors[Math.floor(this._random() * colors.length) % colors.length],
       });
     }
@@ -412,7 +417,7 @@ export class VisualEffectSystem {
     ));
     this._kineticBudget = Math.min(MAX_KINETIC_PARTICLES, Math.max(
       0, Math.floor(quality.kineticParticleCount
-        ?? Math.ceil((quality.effectPulseCount ?? this._kineticBudget * 2) / 2)),
+        ?? Math.ceil(quality.effectPulseCount ?? this._kineticBudget)),
     ));
   }
 

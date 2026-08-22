@@ -24,8 +24,7 @@
 //   B1. perpendicular slide keeps the line intact (path translated, endpoints
 //       preserved) and emits utilityLinesChanged.
 //   B2. a two-point line sliding along its own axis stays a straight run.
-//   B3. a slide that flips the terminal leg past the port dangles: endpoint
-//       nulled, ORIGINAL path kept.
+//   B3. a slide past the old terminal bend remains connected.
 //   B4. a line anchored to the same placeable at BOTH ends moves both legs.
 //   B5. both-ends dangle nulls both endpoints.
 //   B6. an unrelated / unknown line is reported as not re-anchored, with no
@@ -36,7 +35,10 @@ import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
 import { COMPONENTS } from '../src/data/components.js';
 import { PARAM_DEFS } from '../src/beamline/component-physics.js';
 import { PLACEABLES } from '../src/data/placeables/index.js';
-import { UtilityLineSystem } from '../src/utility/UtilityLineSystem.js';
+import {
+  UtilityLineSystem,
+  utilityLineMoveStrainLimit,
+} from '../src/utility/UtilityLineSystem.js';
 import { getTileCorners } from '../src/game/terrain.js';
 
 globalThis.COMPONENTS = COMPONENTS;
@@ -465,10 +467,17 @@ console.log('\n--- B6: unknown or unrelated lines are reported, not mutated ---'
 }
 
 // ==========================================================================
-// B7: installed length is the physical leash.
+// B7: rugged flexible services survive ordinary long moves, but installed
+// length is still the physical leash for an extreme displacement.
 // ==========================================================================
 console.log('\n--- B7: a genuinely overstretched line lets go ---');
 {
+  assert(utilityLineMoveStrainLimit('hvCable', 20) === 68,
+    'HV cable receives the rugged move allowance');
+  assert(utilityLineMoveStrainLimit('coolingWater', 20) === 68,
+    'cooling-water hose receives the rugged move allowance');
+  assert(utilityLineMoveStrainLimit('rfWaveguide', 20) < 24,
+    'fabricated rigid services keep the conservative leash');
   const { system, state } = fixture();
   const line = addRaw(state, {
     id: 'l7', utilityType: 'powerCable', subL: 20,
@@ -477,15 +486,20 @@ console.log('\n--- B7: a genuinely overstretched line lets go ---');
     path: [{ col: 3, row: 3 }, { col: 8, row: 3 }],
     cablePath: [{ col: 3, row: 3 }, { col: 8, row: 3 }],
   });
-  const originalPath = JSON.stringify(line.path);
+  const resilient = system.reanchorLine('l7', 'src1', {
+    powerOut: { col: -8, row: 3 },
+  });
+  assert(resilient.ok === true && line.start?.placeableId === 'src1',
+    `a rugged power lead stays attached through a long move (${JSON.stringify(resilient)})`);
+  const stretchedPath = JSON.stringify(line.path);
   const res = system.reanchorLine('l7', 'src1', {
-    powerOut: { col: -10, row: 3 },
+    powerOut: { col: -30, row: 3 },
   });
   assert(res.dangled === true && res.reason === 'overstretched',
     `an over-limit pull reports the physical reason (${JSON.stringify(res)})`);
   assert(line.start === null && line.end?.placeableId === 'sink1',
     'only the plug on the carried machine disconnects');
-  assert(JSON.stringify(line.path) === originalPath && line.subL === 20,
+  assert(JSON.stringify(line.path) === stretchedPath && line.subL === 20,
     'the loose run stays where it was and its installed length is unchanged');
 }
 

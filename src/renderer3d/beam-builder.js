@@ -3,6 +3,7 @@
 
 import { sampleBeamVisualProfile } from './beam-visual-mode.js';
 import { BLOOM_LAYER } from './glow-pipeline.js';
+import { particleEffectProfile } from './particle-effect-tuning.js';
 
 function routedPoints(path) {
   const authored = (path.worldPoints || []).map(point => ({
@@ -67,6 +68,8 @@ export class BeamBuilder {
     this.dispose(parentGroup);
     if (!beamPathData?.length) return;
 
+    this._tuning = particleEffectProfile('beamline');
+
     const segmentBuckets = new Map();
     const packetBuckets = new Map();
     for (const path of beamPathData) {
@@ -83,8 +86,11 @@ export class BeamBuilder {
         ? profile.some(sample => sample.bunch > 0.01)
         : mode === 'bunched';
       const mixed = hasContinuous && hasBunched;
-      const coreOpacity = (mixed ? 0.30 : hasContinuous ? 0.64 : 0.16) * opacityScale;
-      const glowOpacity = (mixed ? 0.10 : hasContinuous ? 0.18 : 0.05) * opacityScale;
+      const coreScale = this._tuning.coreOpacity / 0.64;
+      const coreOpacity = Math.min(1,
+        (mixed ? 0.30 : hasContinuous ? 0.64 : 0.16) * coreScale * opacityScale);
+      const glowOpacity = Math.min(1,
+        (mixed ? 0.10 : hasContinuous ? 0.18 : 0.05) * coreScale * opacityScale);
       const core = bucketFor(segmentBuckets, `core:${coreOpacity}`, {
         role: 'core', radius: 0.05, opacity: coreOpacity,
       });
@@ -105,8 +111,8 @@ export class BeamBuilder {
       const movingStyles = [];
       if (hasBunched) {
         movingStyles.push(
-          { role: 'bunch-pixel', packetKind: 'bunch', radius: 0.052,
-            xScale: 1, opacity: 0.96 * opacityScale },
+          { role: 'bunch-pixel', packetKind: 'bunch', radius: this._tuning.size * 1.45,
+            xScale: 1, opacity: Math.min(1, this._tuning.pixelOpacity * 1.22) * opacityScale },
         );
       }
       if (hasContinuous) {
@@ -114,8 +120,8 @@ export class BeamBuilder {
         // core keeps DC delivery visually steady while the pixels communicate
         // direction and the beta-derived speed.
         movingStyles.push(
-          { role: 'dc-pixel', packetKind: 'dc', radius: 0.036,
-            xScale: 1, opacity: 0.74 * opacityScale },
+          { role: 'dc-pixel', packetKind: 'dc', radius: this._tuning.size,
+            xScale: 1, opacity: this._tuning.pixelOpacity * opacityScale },
         );
       }
       for (const style of movingStyles) {
@@ -178,22 +184,24 @@ export class BeamBuilder {
       lengths.push(total);
     }
     if (total < 0.01) return null;
-    const dcCount = Math.max(8, Math.min(56, Math.ceil(total / 0.34)));
-    const bunchCount = Math.max(2, Math.min(14, Math.ceil(total / 1.65)));
+    const density = this._tuning?.density || 1;
+    const dcCount = Math.max(2, Math.min(168, Math.ceil(total / 0.34 * density)));
+    const bunchCount = Math.max(1, Math.min(42, Math.ceil(total / 1.65 * density)));
     const packets = [];
     for (let i = 0; i < dcCount; i++) {
       packets.push({
         kind: 'dc', distance: (i / dcCount) * total, instances: {},
       });
     }
-    // Four adjacent pixels read as one compact bunch; the large empty gap to
+    // Adjacent pixels read as one compact bunch; the large empty gap to
     // the next group makes RF capture immediately legible at world scale.
     for (let group = 0; group < bunchCount; group++) {
       const center = (group / bunchCount) * total;
-      for (let pixel = 0; pixel < 4; pixel++) {
+      const bunchSize = this._tuning?.bunchSize || 4;
+      for (let pixel = 0; pixel < bunchSize; pixel++) {
         packets.push({
           kind: 'bunch',
-          distance: (center + (pixel - 1.5) * 0.075 + total) % total,
+          distance: (center + (pixel - (bunchSize - 1) / 2) * 0.075 + total) % total,
           instances: {},
         });
       }
@@ -255,7 +263,8 @@ export class BeamBuilder {
 
   _motionAt(run, distance) {
     const normalized = run.total > 0 ? distance / run.total : 0;
-    return sampleBeamVisualProfile(run.profile, normalized, run.fallbackMode);
+    const motion = sampleBeamVisualProfile(run.profile, normalized, run.fallbackMode);
+    return { ...motion, speed: motion.speed * (this._tuning?.speed || 1) };
   }
 
   _motionMatrix(point, motion, role, xScale, matrix) {
