@@ -7,10 +7,15 @@ import { UniversalUtilityBusTool } from '../src/input/universal-utility-bus-tool
 import { UtilityLineInputController } from '../src/input/UtilityLineInputController.js';
 import { standardPaletteKind } from '../src/ui/palette-collection.js';
 import coolingWater from '../src/utility/types/coolingWater.js';
+import { UTILITY_TYPE_LIST } from '../src/utility/registry.js';
 import {
   UNIVERSAL_BUS_MAX_CHANNELS,
   UniversalUtilityBusSystem,
 } from '../src/utility/UniversalUtilityBusSystem.js';
+import {
+  UNIVERSAL_BUS_LANE_LIST,
+  universalBusLane,
+} from '../src/utility/universal-bus-layout.js';
 
 assert.equal(PLACEABLES.universalUtilityBus, undefined,
   'the bus is a drawn connection, not a placeable component');
@@ -20,6 +25,20 @@ assert.equal(standardPaletteKind(COMPONENTS.universalUtilityBus), 'utilityBus',
   'the palette routes it through a line tool rather than component placement');
 assert.equal(new UniversalUtilityBusTool().armedPlaceableId, null,
   'arming the bus cannot trigger the generic brick placement ghost');
+assert.equal(UNIVERSAL_BUS_MAX_CHANNELS, 7,
+  'the carrier exposes one designated lane for every registered utility');
+assert.deepEqual(
+  UNIVERSAL_BUS_LANE_LIST.map(lane => lane.utilityType).sort(),
+  [...UTILITY_TYPE_LIST].sort(),
+  'every registered utility has exactly one designated carrier lane');
+assert.deepEqual(
+  UNIVERSAL_BUS_LANE_LIST.filter(lane => lane.tier === 'top').map(lane => lane.utilityType),
+  ['hvCable', 'powerCable', 'coolingWater', 'dataFiber'],
+  'electrical, cooling, and data services occupy the top wire tray');
+assert.deepEqual(
+  UNIVERSAL_BUS_LANE_LIST.filter(lane => lane.tier === 'bottom').map(lane => lane.utilityType),
+  ['vacuumPipe', 'cryoTransfer', 'rfWaveguide'],
+  'vacuum, cryogenic, and RF services occupy the hanging carrier positions');
 
 const state = {
   placeables: [], beamPipes: [], wallOccupied: {},
@@ -87,14 +106,16 @@ const coolingBranchId = buses.connectLine({
   busTapIds: { start: busId, end: null },
 });
 assert.ok(coolingBranchId, 'a cooling-water line can claim and connect to the rack');
+for (const utilityType of ['cryoTransfer', 'rfWaveguide', 'hvCable']) {
+  assert.equal(buses.ensureChannel(busId, utilityType).ok, true,
+    `${utilityType} can populate its own carrier position`);
+}
 assert.equal(state.utilityBuses[0].channels.length, UNIVERSAL_BUS_MAX_CHANNELS,
-  'four distinct utility types fill the four isolated channels');
+  'all seven utility types coexist on one carrier');
 assert.deepEqual(
-  state.utilityBuses[0].channels.map(channel => channel.slot), [0, 1, 2, 3],
-  'each utility occupies a stable visual channel');
-assert.deepEqual(buses.ensureChannel(busId, 'cryoTransfer'), {
-  ok: false, reason: 'bus_full',
-}, 'a fifth utility type is rejected');
+  Object.fromEntries(state.utilityBuses[0].channels.map(channel => [channel.utilityType, channel.slot])),
+  Object.fromEntries(UNIVERSAL_BUS_LANE_LIST.map(lane => [lane.utilityType, lane.slot])),
+  'each utility occupies its designated slot regardless of connection order');
 
 const balanceBusId = buses.addBus({
   path: [{ col: 0, row: 10 }, { col: 4, row: 10 }],
@@ -182,14 +203,35 @@ const renderedRackGroups = parent.children.filter(group =>
   group.userData?.isUniversalUtilityBus && group.userData.busId === busId);
 assert.equal(renderedRackGroups.filter(group => group.userData.channelSlot == null).length, 1,
   'the neutral metal rack renders independently of its utility channels');
-assert.equal(renderedRackGroups.filter(group => group.userData.channelSlot != null).length, 4,
-  'four colored channel runs visibly populate the rack');
+const carrierGroup = renderedRackGroups.find(group => group.userData.channelSlot == null);
+assert.equal(
+  carrierGroup.children.filter(child => child.userData?.isUniversalUtilityBusHanger).length,
+  state.utilityBuses[0].taps.length,
+  'the wire tray renders one hanging trapeze support at every access point');
+assert.equal(renderedRackGroups.filter(group => group.userData.channelSlot != null).length, 7,
+  'all seven populated service runs remain visible on the carrier');
 assert.deepEqual(
   renderedRackGroups.filter(group => group.userData.channelSlot != null)
     .map(group => group.userData.channelSlot).sort(),
-  [0, 1, 2, 3],
+  [0, 1, 2, 3, 4, 5, 6],
   'rendered channels retain separate rack slots');
 for (const channel of renderedRackGroups.filter(group => group.userData.channelSlot != null)) {
+  const lane = universalBusLane(channel.userData.utilityType);
+  assert.equal(channel.userData.busLaneTier, lane.tier,
+    `${channel.userData.utilityType} renders on the ${lane.tier} carrier tier`);
+  assert.equal(channel.userData.routeHeightMeters, lane.runY,
+    `${channel.userData.utilityType} uses its designated carrier height`);
+  const channelBounds = new THREE_NS.Box3().setFromObject(channel);
+  const channelCenter = channelBounds.getCenter(new THREE_NS.Vector3());
+  assert.ok(Math.abs(channelCenter.z - lane.lateral) < 1e-6,
+    `${channel.userData.utilityType} geometry occupies its designated lateral lane`);
+  if (lane.tier === 'top') {
+    assert.ok(channelBounds.min.y > 0.7,
+      `${channel.userData.utilityType} geometry rides above the tray deck`);
+  } else {
+    assert.ok(channelBounds.max.y < 0.7,
+      `${channel.userData.utilityType} geometry hangs below the tray deck`);
+  }
   const ports = [];
   channel.traverse(object => {
     if (object.userData?.isUniversalUtilityBusPort) ports.push(object);

@@ -259,8 +259,9 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
         problem(id, `universalUtilityBus.${field}`, `${field} must be a positive integer`);
       }
     }
-    if (bus.slotCount !== 4) {
-      problem(id, 'universalUtilityBus.slotCount', 'the universal bus must expose exactly four channels');
+    if (bus.slotCount !== UTILITY_TYPE_LIST.length) {
+      problem(id, 'universalUtilityBus.slotCount',
+        `the universal bus must expose one lane for each of the ${UTILITY_TYPE_LIST.length} utilities`);
     }
     if (Number.isInteger(bus.minLengthSubtiles) && Number.isInteger(bus.maxLengthSubtiles)
         && bus.minLengthSubtiles > bus.maxLengthSubtiles) {

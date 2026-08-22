@@ -139,9 +139,11 @@ the short authoring contract.
   search, and research rewards must not advertise them. Power's retired cable
   tray, tray riser, duct-bank vault, and prefab overhead span are compatibility
   content; the universal utility bus is the buildable carrier.
-- The bus is a utility-neutral metal rack with exactly four isolated channels.
-  Drawing the first line of a utility onto it claims one channel; later lines
-  of that utility reuse the same channel. A fifth distinct utility is refused.
+- The bus is a utility-neutral metal wire tray with one isolated, designated
+  lane for every registered utility. HV, power, cooling, and data ride above
+  the tray; vacuum, cryogenic, and RF services hang below it. Drawing the first
+  line of a utility onto the bus populates its lane; later lines of that utility
+  reuse the same lane. Lane position never depends on connection order.
 - Each claimed channel is represented by a real tagged utility line along the
   rack. It creates no capacity: connected sources remain the sole capacity
   authority, and multiple sources combine through the ordinary network solver.

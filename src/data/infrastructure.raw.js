@@ -79,7 +79,7 @@ export const INFRASTRUCTURE_RAW = {
   universalUtilityBus: {
     id: 'universalUtilityBus',
     name: 'Universal Utility Bus',
-    desc: 'A draggable metal service rack with four isolated channels. Draw power, vacuum, cooling, cryogenic, RF, or data lines onto the rack to claim a channel; connect additional sources to add capacity, then branch nearby equipment from its regular access points.',
+    desc: 'A draggable metal wire tray with a designated lane for every utility. HV, power, cooling, and data ride on top; vacuum, cryogenic, and RF services hang below. Connect additional sources to add capacity, then branch nearby equipment from its regular access points.',
     category: 'power', subsection: 'transport', paletteOrder: -100,
     cost: { funding: 20000 },
     stats: {}, energyCost: 0,
@@ -89,7 +89,7 @@ export const INFRASTRUCTURE_RAW = {
     hasSurface: false, placement: 'module', ports: {}, requiredConnections: [],
     isDrawnConnection: true,
     universalUtilityBus: {
-      slotCount: 4, tapSpacingSubtiles: 4, minLengthSubtiles: 4,
+      slotCount: 7, tapSpacingSubtiles: 4, minLengthSubtiles: 4,
       maxLengthSubtiles: 256, costPerSubtile: 5000,
       trayFamily: 'universal-utility-bus',
     },

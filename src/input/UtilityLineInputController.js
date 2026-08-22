@@ -726,8 +726,8 @@ export class UtilityLineInputController {
     // The rack rides above the floor. A click on its visible mesh projects to
     // a different ground coordinate in an isometric camera, so resolve that
     // mesh hit before using the plan-view proximity fallback. Any utility tool
-    // can claim the resulting access point; the four-channel limit is enforced
-    // transactionally by UniversalUtilityBusSystem when the line commits.
+    // can claim the resulting access point; UniversalUtilityBusSystem assigns
+    // that utility's fixed physical lane when the line commits.
     const rayHit = screen && this.renderer?.raycastUtilityLine?.(screen.x, screen.y);
     const hitBus = rayHit?.busId
       ? this.nearestBusAtWorld(

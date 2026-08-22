@@ -1,11 +1,16 @@
 // Universal utility bus mutation/coordinator.
 //
-// The physical rack is utility-neutral. Each distinct utility connected to it
-// claims one of four channels. A channel is represented by a real open-ended
+// The physical tray is utility-neutral. Each distinct utility connected to it
+// occupies its designated lane. A lane is represented by a real open-ended
 // utility line along the rack path, so existing discovery/solvers account for
 // source capacity and sink demand without a second network implementation.
 
-export const UNIVERSAL_BUS_MAX_CHANNELS = 4;
+import {
+  UNIVERSAL_BUS_LANE_COUNT,
+  universalBusLane,
+} from './universal-bus-layout.js';
+
+export const UNIVERSAL_BUS_MAX_CHANNELS = UNIVERSAL_BUS_LANE_COUNT;
 
 export class UniversalUtilityBusSystem {
   constructor({ state, utilityLineSystem, emit = () => {}, log = () => {}, nextBusId } = {}) {
@@ -45,29 +50,28 @@ export class UniversalUtilityBusSystem {
 
   ensureChannel(busId, utilityType) {
     const bus = this.getBus(busId);
-    if (!bus || !utilityType) return { ok: false, reason: 'invalid_bus' };
+    const lane = universalBusLane(utilityType);
+    if (!bus || !lane) return { ok: false, reason: 'invalid_bus' };
     bus.channels = (bus.channels || []).filter(channel =>
       this.state.utilityLines?.get?.(channel.lineId));
     const existing = this.channelLineId(busId, utilityType);
-    if (existing) return { ok: true, lineId: existing, created: false };
-    const distinct = new Set((bus.channels || []).map(c => c.utilityType));
-    if (!distinct.has(utilityType) && distinct.size >= UNIVERSAL_BUS_MAX_CHANNELS) {
-      this.log('Universal Utility Bus already carries four utility types.', 'bad');
-      return { ok: false, reason: 'bus_full' };
+    if (existing) {
+      const channel = bus.channels.find(c => c.utilityType === utilityType);
+      channel.slot = lane.slot;
+      const line = this.state.utilityLines.get(existing);
+      if (line?.manifold) line.manifold.slot = lane.slot;
+      return { ok: true, lineId: existing, created: false };
     }
-    const slot = distinct.has(utilityType)
-      ? (bus.channels.find(c => c.utilityType === utilityType)?.slot ?? 0)
-      : distinct.size;
     const lineId = this.utilityLineSystem.addLine({
       utilityType, start: null, end: null, path: bus.path,
       manifold: {
-        type: 'universalUtilityBus', busId, slot,
+        type: 'universalUtilityBus', busId, slot: lane.slot,
         trayFamily: 'universal-utility-bus', taps: bus.taps,
       },
     });
     if (!lineId) return { ok: false, reason: 'channel_rejected' };
     bus.channels = (bus.channels || []).filter(c => c.utilityType !== utilityType);
-    bus.channels.push({ utilityType, lineId, slot });
+    bus.channels.push({ utilityType, lineId, slot: lane.slot });
     this.emit('utilityLinesChanged', { utilityType, busId });
     return { ok: true, lineId, created: true };
   }
