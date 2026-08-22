@@ -212,6 +212,34 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     }
   }
 
+  function checkLinearManifold(id, def) {
+    const m = def.linearManifold;
+    if (m == null) return;
+    if (typeof m !== 'object' || Array.isArray(m)) {
+      problem(id, 'linearManifold', 'linearManifold must be an object');
+      return;
+    }
+    if (!UTILITIES.has(m.utility)) {
+      problem(id, 'linearManifold.utility', `unknown utility '${m.utility}' (known: ${[...UTILITIES].join(', ')})`);
+    }
+    for (const field of ['tapSpacingSubtiles', 'minLengthSubtiles', 'maxLengthSubtiles']) {
+      if (!Number.isInteger(m[field]) || m[field] <= 0) {
+        problem(id, `linearManifold.${field}`, `${field} must be a positive integer`);
+      }
+    }
+    if (Number.isInteger(m.minLengthSubtiles) && Number.isInteger(m.maxLengthSubtiles)
+        && m.minLengthSubtiles > m.maxLengthSubtiles) {
+      problem(id, 'linearManifold', 'minLengthSubtiles must not exceed maxLengthSubtiles');
+    }
+    if (m.costPerSubtile != null
+        && (!Number.isFinite(m.costPerSubtile) || m.costPerSubtile < 0)) {
+      problem(id, 'linearManifold.costPerSubtile', 'costPerSubtile must be non-negative');
+    }
+    if (m.trayFamily != null && (typeof m.trayFamily !== 'string' || !m.trayFamily)) {
+      problem(id, 'linearManifold.trayFamily', 'trayFamily must be a non-empty string');
+    }
+  }
+
   // Assisted wiring still commits ordinary utility lines, so its authored
   // utility must exist and the device needs a real source connector to start
   // each promised run. autoConnectUtility defaults to powerCable for the
@@ -747,6 +775,7 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     checkWallPassThrough(id, def);
     checkElectrical(id, def);
     checkMapEdgeConnection(id, def);
+    checkLinearManifold(id, def);
   }
 
   // ── Furnishings + equipment (zone-scoped) ─────────────────────────

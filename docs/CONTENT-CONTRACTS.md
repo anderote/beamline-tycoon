@@ -113,6 +113,21 @@ the short authoring contract.
 
 ## Utility ports and scenarios
 
+### Continuous utility manifolds
+
+- A continuous carrier declares `linearManifold` on its infrastructure raw
+  definition. Its `utility` is the one network it carries; it does not create
+  capacity. Upstream sources remain the sole capacity authority.
+- `tapSpacingSubtiles`, `minLengthSubtiles`, and `maxLengthSubtiles` are
+  positive integer subtile dimensions. `costPerSubtile` prices the fabricated
+  run, and `trayFamily` groups visually co-located carriers so power, vacuum,
+  cooling, cryo, waveguide, and data trays may share a corridor without being
+  treated as one network.
+- The shared planner snaps a drag to one orthogonal axis, includes both end
+  fittings, and gives every generated tap a stable name. Input, placement,
+  solver lookup, and renderer code must consume that plan rather than
+  independently spacing ports.
+
 - Read ports through `getUtilityPortsV2(id)` when solver defaults and derived RF
   band information matter. The flat table is raw authoring data.
 - Assisted distribution wiring uses `autoConnectRadius` and commits real paid

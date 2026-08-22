@@ -394,6 +394,10 @@ export const INFRASTRUCTURE_RAW = {
     hasSurface: false,
     placement: 'module',
     ports: {},
+    linearManifold: {
+      utility: 'rfWaveguide', tapSpacingSubtiles: 4, minLengthSubtiles: 4,
+      maxLengthSubtiles: 96, costPerSubtile: 18000, serviceRadius: 6,
+    },
 
     requiredConnections: [],
   },
@@ -991,6 +995,10 @@ export const INFRASTRUCTURE_RAW = {
     hasSurface: false,
     placement: 'module',
     ports: {},
+    linearManifold: {
+      utility: 'vacuumPipe', tapSpacingSubtiles: 4, minLengthSubtiles: 4,
+      maxLengthSubtiles: 128, costPerSubtile: 12000, serviceRadius: 5,
+    },
 
     requiredConnections: [],
   },
@@ -1011,6 +1019,10 @@ export const INFRASTRUCTURE_RAW = {
     hasSurface: false,
     placement: 'module',
     ports: {},
+    linearManifold: {
+      utility: 'vacuumPipe', tapSpacingSubtiles: 4, minLengthSubtiles: 4,
+      maxLengthSubtiles: 256, costPerSubtile: 10000, serviceRadius: 7,
+    },
 
     requiredConnections: [],
   },
@@ -1181,6 +1193,10 @@ export const INFRASTRUCTURE_RAW = {
     hasSurface: false,
     placement: 'module',
     ports: {},
+    linearManifold: {
+      utility: 'coolingWater', tapSpacingSubtiles: 4, minLengthSubtiles: 4,
+      maxLengthSubtiles: 160, costPerSubtile: 9000, serviceRadius: 8,
+    },
 
     requiredConnections: [],
   },
@@ -2149,6 +2165,10 @@ export const INFRASTRUCTURE_RAW = {
     hasSurface: false,
     placement: 'module',
     ports: {},
+    linearManifold: {
+      utility: 'powerCable', tapSpacingSubtiles: 4, minLengthSubtiles: 4,
+      maxLengthSubtiles: 256, costPerSubtile: 7000, serviceRadius: 10,
+    },
 
     requiredConnections: [],
   },
