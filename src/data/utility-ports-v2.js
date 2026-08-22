@@ -1223,7 +1223,7 @@ const INFRA_UTILITY_PORTS = {
   compactHvDistributor:     hvDistributionPorts(200, 2),
   // UI name: HV Distributor Box. The stable id remains `switchgear` so older
   // saves retain the same placed object and utility-line endpoint ids.
-  switchgear:               hvDistributionPorts(400, 4),
+  switchgear:               hvDistributionPorts(1200, 4),
   // This cabinet is only 0.5 m wide, so four outlets on its front collapse
   // into two routing cells. Spread the logical connectors around the cabinet
   // so every branch remains independently wireable.
