@@ -1435,9 +1435,11 @@ function buildPreviewLine(preview) {
   if (!preview || !Array.isArray(preview.path) || preview.path.length < 2) return null;
   const descriptor = UTILITY_TYPES[preview.utilityType];
   if (!descriptor) return null;
+  const busLane = preview.busLane ? universalBusLane(preview.utilityType) : null;
   const previewY = preview.rack ? 0.72
-    : utilityLineHeight(preview.utilityType, preview.routeHeightMeters);
-  const flexible = !preview.rack && !preview.manifold && isSoftCable(preview.utilityType)
+    : (busLane?.runY ?? utilityLineHeight(preview.utilityType, preview.routeHeightMeters));
+  const flexible = !preview.rack && !preview.manifold && !busLane
+    && isSoftCable(preview.utilityType)
     && Array.isArray(preview.cablePath) && preview.cablePath.length >= 2;
   const points = flexible
     ? buildSoftCableWorldPoints({
@@ -1452,7 +1454,19 @@ function buildPreviewLine(preview) {
         const w = tileToWorld(p);
       return new THREE.Vector3(w.x, previewY, w.z);
     });
-  if (!flexible && preview.utilityType === 'rfWaveguide'
+  if (busLane && points.length >= 2) {
+    const first = points[0], last = points[points.length - 1];
+    const dx = last.x - first.x, dz = last.z - first.z;
+    const length = Math.hypot(dx, dz) || 1;
+    const offsetX = -dz / length * busLane.lateral;
+    const offsetZ = dx / length * busLane.lateral;
+    for (const point of points) {
+      point.x += offsetX;
+      point.z += offsetZ;
+      point.y = busLane.runY;
+    }
+  }
+  if (!flexible && !busLane && preview.utilityType === 'rfWaveguide'
     && preview.endpointTransitions !== false) {
     attachWaveguideTransitions(
       points, preview.startAnchor, preview.endAnchor, previewY, descriptor);
@@ -1464,7 +1478,8 @@ function buildPreviewLine(preview) {
   };
   if (preview.rack) return buildUniversalBusPreview(points, preview.valid !== false);
   const radius = preview.rack ? 0.13
-    : (descriptor.pipeRadiusMeters || 0.04) * (preview.manifold ? 2.58 : 1.1);
+    : (descriptor.pipeRadiusMeters || 0.04)
+      * (busLane ? 0.85 : preview.manifold ? 2.58 : 1.1);
   const style = descriptor.geometryStyle || 'cylinder';
   const mat = getPreviewMaterial(preview.utilityType, preview.valid !== false);
   const hardwareMat = getLineHardwareMaterial(preview.utilityType);
@@ -1485,7 +1500,7 @@ function buildPreviewLine(preview) {
     }
     if (mesh) group.add(mesh);
   }
-  if (!flexible) {
+  if (!flexible && !busLane) {
     addUtilitySupports(
       group, points, descriptor, preview.utilityType, mat, preview.routeHeightMeters);
   }
@@ -2187,7 +2202,7 @@ export class UtilityLineBuilderV2 {
         preview.path.map(p => `${p.col},${p.row},${p.subCol ?? 0},${p.subRow ?? 0}`).join(';') + '|'
         + (preview.cablePath || []).map(p => `${p.col},${p.row}`).join(';') + '|'
         + (preview.endpointTransitions === false ? 'flat|' : 'drops|')
-        + (preview.rack ? 'rack|' : 'line|')
+        + (preview.rack ? 'rack|' : preview.busLane ? 'bus-lane|' : 'line|')
         + [preview.startAnchor, preview.endAnchor]
           .map(a => a ? `${a.x},${a.y},${a.z}` : '-').join('|')
       : null;

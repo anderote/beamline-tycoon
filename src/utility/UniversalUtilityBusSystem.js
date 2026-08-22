@@ -79,6 +79,15 @@ export class UniversalUtilityBusSystem {
   }
 
   connectLine({ utilityType, line, busTapIds = {} } = {}) {
+    // Dragging from one access point to another on the same carrier is the
+    // explicit "lay this utility in the tray" interaction. The channel itself
+    // is already the full physical backbone, so do not add a second line over
+    // part of the same path; that duplicate is both visually redundant and
+    // correctly illegal under the normal overlap rules.
+    if (busTapIds.start && busTapIds.start === busTapIds.end) {
+      const channel = this.ensureChannel(busTapIds.start, utilityType);
+      return channel.ok ? channel.lineId : null;
+    }
     const created = [];
     const tapLineIds = { ...(line?.tapLineIds || {}) };
     for (const end of ['start', 'end']) {

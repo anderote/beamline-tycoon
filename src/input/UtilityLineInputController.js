@@ -34,6 +34,7 @@ import { validateDrawLine } from '../utility/line-drawing.js';
 import { buildRigidRouteObstacles } from '../utility/route-obstacles.js';
 import { reasonMessage } from '../utility/UtilityLineSystem.js';
 import { UTILITY_TYPES, utilityLineHeight } from '../utility/registry.js';
+import { universalBusLane } from '../utility/universal-bus-layout.js';
 import { listUtilityEndpoints, findUtilityEndpoint } from '../utility/utility-endpoints.js';
 import { planUtilityRun, runPreviewPath, runWiringCost } from './utility-run-wiring.js';
 import { isoToGridFloat } from '../renderer/grid.js';
@@ -204,6 +205,10 @@ export class UtilityLineInputController {
     if (this._runPlan && this._runPlan.stubs.length > 0) {
       return (this._runPlan.cost && this._runPlan.cost.funding) || 0;
     }
+    // The carrier itself was paid for when it was built, and an ordinary
+    // source/load branch already populates its lane without a second backbone
+    // charge. Keep the explicit tap-to-tap lane gesture economically identical.
+    if (this._sameBusLaneGesture()) return 0;
     const cableSubL = isSoftCable(this._utilityType)
       ? cablePathLengthSubUnits(this._cableTrace)
       : 0;
@@ -262,9 +267,10 @@ export class UtilityLineInputController {
     if (grew || this._runMode !== wasRunMode) this._runPlan = this._planRun();
     // In run mode the preview IS the set of stubs that will be committed —
     // showing the drag line too would advertise geometry that never lands.
+    const populatingBusLane = !!geom.populateBusId;
     const previewPath = (this._runPlan && this._runPlan.stubs.length > 0)
       ? runPreviewPath(this._runPlan.stubs)
-      : (isSoftCable(this._utilityType) && this._cableTrace.length >= 2
+      : (!populatingBusLane && isSoftCable(this._utilityType) && this._cableTrace.length >= 2
           ? this._cableTrace
           : this._drawPath);
     this._preview = {
@@ -274,10 +280,12 @@ export class UtilityLineInputController {
       // A bulk run preview is a flattened set of independent stubs, so it has
       // no single start/end whose 3D dogleg can be shown. Ordinary RF draws do
       // and should preview the same adaptive drops the commit will build.
-      endpointTransitions: !(this._runPlan && this._runPlan.stubs.length > 0),
-      cablePath: isSoftCable(this._utilityType) && !this._runPlan
+      endpointTransitions: !populatingBusLane
+        && !(this._runPlan && this._runPlan.stubs.length > 0),
+      cablePath: !populatingBusLane && isSoftCable(this._utilityType) && !this._runPlan
         ? this._cableTrace.map(point => ({ ...point }))
         : null,
+      busLane: populatingBusLane,
       startAnchor: this._drawStart?.anchor || null,
       endAnchor: snap?.anchor || null,
       tensioned: this._utilityType === 'hvCable' && [this._drawStart, snap].some(handle => {
@@ -333,11 +341,12 @@ export class UtilityLineInputController {
       // be one line at a time — and it would make a distribution bus (priced
       // to break even against the individual runs it replaces) strictly worse
       // than the runs.
+      const populatingBusLane = !!geom.populateBusId;
       this.game.commitGesture({
         validate: () => !(startRef && endRef
           && startRef.placeableId === endRef.placeableId
           && startRef.portName === endRef.portName),
-        cost: this._wiringCost(pricedSubL) || undefined,
+        cost: populatingBusLane ? undefined : (this._wiringCost(pricedSubL) || undefined),
         mutate: () => {
           const line = {
             start: startRef, end: endRef, path, cablePath,
@@ -502,6 +511,27 @@ export class UtilityLineInputController {
       start: this._drawStart?.busTap ? this._drawStart.busId : null,
       end: endAnchor?.busTap ? endAnchor.busId : null,
     };
+    const populateBusId = busTapIds.start
+      && busTapIds.start === busTapIds.end
+      ? busTapIds.start
+      : null;
+    // A drag between two access points on one carrier means "lay this service
+    // in its designated lane". Treating it as an ordinary open-ended line
+    // would create the lane and then try to overlap it with a duplicate branch;
+    // the validator correctly rejects that duplicate and the gesture rolls the
+    // lane back, which is why the player previously saw nothing appear.
+    if (populateBusId) {
+      const moved = Math.abs(startTile.col - endTile.col)
+        + Math.abs(startTile.row - endTile.row) > 1e-9;
+      const lane = universalBusLane(this._utilityType);
+      this._dragReject = null;
+      return {
+        startTile, endTile, endAnchor, startRef, endRef, tapLineIds, busTapIds,
+        populateBusId,
+        path: moved ? [startTile, endTile] : null,
+        routeHeightMeters: lane?.runY ?? null,
+      };
+    }
     for (const end of ['start', 'end']) {
       if (!busTapIds[end]) continue;
       tapLineIds[end] = this.game.utilityBusSystem?.channelLineId(
@@ -629,6 +659,12 @@ export class UtilityLineInputController {
   _anchorRef(anchor) {
     if (!anchor || anchor.open || !anchor.placeableId) return null;
     return { placeableId: anchor.placeableId, portName: anchor.portName };
+  }
+
+  _sameBusLaneGesture(endAnchor = this._hoverPort) {
+    const startBusId = this._drawStart?.busTap ? this._drawStart.busId : null;
+    const endBusId = endAnchor?.busTap ? endAnchor.busId : null;
+    return startBusId && startBusId === endBusId ? startBusId : null;
   }
 
   /** Geometry hint used to pick tidy visual lead-outs; never a validity rule. */

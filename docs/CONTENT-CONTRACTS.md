@@ -148,7 +148,9 @@ the short authoring contract.
   cryogenic, and RF all ride above the tray in fixed lateral positions. Drawing
   the first line of a utility onto the bus populates its lane; later lines of
   that utility reuse the same lane. Lane position never depends on connection
-  order.
+  order. A direct drag between two access points on the same bus explicitly
+  populates that utility's full lane; it must not attempt to commit a duplicate
+  partial line over the generated backbone.
 - The floor-standing bus reserves only the narrow subtile strip physically
   beneath its tray and supports. Ordinary equipment and another bus may not
   overlap that strip, while the immediately adjacent subtiles remain buildable
