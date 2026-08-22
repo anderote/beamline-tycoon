@@ -14,12 +14,12 @@ Carries high-voltage power from a transformer to main/local distribution. It is 
 - **Consumers:** Compact HV Distributor and compact/section/main distribution panels through their two-connection tensioning roof taps; RF sources and other dedicated HV loads remain terminal connections
 - **Cost:** $1,200/sub-unit ($4,800/tile)
 
-### Power Cable (green)
+### Power Cable (charcoal black)
 Carries low-voltage branch power from distribution panels to field distribution or active equipment. It never starts at a transformer.
 
-- **Color:** Green (0x44cc44)
+- **Color:** Charcoal black (0x25282c), distinct from the darker HV feeder; ports and energized surface highlights remain green
 - **Network type:** Capacity-based (kW supply vs demand)
-- **Source equipment:** Compact, Section and Main Distribution Panels, with 4, 6 and 12 independently wired green outlets respectively
+- **Source equipment:** Compact, Section and Main Distribution Panels, with 4, 6 and 12 independently wired green-coded outlets respectively
 - **Consumers:** Nearly every beamline component, plus every piece of facility equipment with an energy cost
 - **Cost:** $600/sub-unit ($2,400/tile)
 - **Field distribution:** Beamline Busway ($70k, eight taps, 160 kW) and Spider Box (four interchangeable sockets, 30 kW). Connect a panel to any spider-box socket and use the remaining three for loads. Both add no capacity and cannot be chained.

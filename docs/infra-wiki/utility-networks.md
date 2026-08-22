@@ -17,7 +17,7 @@ That means membership is about *ports*, not tiles and not components. A cryomodu
 
 There are eight connection types, each forming its own independent networks:
 - **HV Feeder** (black) — carries upstream electrical power
-- **Power Cable** (green) — carries electrical power
+- **Power Cable** (charcoal black with green port/highlight cues) — carries electrical power
 - **Vacuum Pipe** (gray) — carries pumping speed
 - **RF Waveguide** (red) — carries RF power
 - **Cooling Water** (blue/red) — flexible cold supply or hot return branches

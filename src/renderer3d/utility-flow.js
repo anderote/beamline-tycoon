@@ -25,9 +25,8 @@ import { min, mix, mod, sin, smoothstep, uniform, uv } from 'three/tsl';
 // shape. Electrical cables are the exception only in shading — their visible
 // flow is an albedo variation rather than emissive output. Their bounded,
 // invisible moving point-light proxy can still cast restrained nearby light.
-// The surface variation needs an explicit lighter target colour so
-// powerCable's green-on-green variation remains visible and hvCable's
-// near-black trunk can visibly change at all.
+// The surface variation needs an explicit lighter target colour so the two
+// differently black electrical jackets can visibly change at all.
 //
 // `#8f94c8` remains a dim, desaturated blue-violet so HV reads differently
 // from ordinary branch power.
@@ -42,9 +41,9 @@ export const FLOW_PARAMS = {
     lightIntensity: 0.28, lightDistance: 2.05, daylightFloor: 0.34,
   },
   powerCable: {
-    // Sparse green surface gradients move at a deliberate crawl. A typical
-    // branch run now shows one or two travelling highlights instead of a
-    // tightly packed train of glowing points.
+    // Sparse green surface gradients move over the charcoal branch jacket at
+    // a deliberate crawl. A typical run shows one or two travelling
+    // highlights instead of a tightly packed train of glowing points.
     speed: 0.48, period: 3.2, width: 0.30, strength: 1.12, baseGlow: 0.09,
     color: '#9be39b',
     emissive: false,

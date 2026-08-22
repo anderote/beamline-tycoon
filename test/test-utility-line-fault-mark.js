@@ -3,7 +3,8 @@
 // point over each affected sink port.
 //
 // The defect: a network in a fault state painted its lines with an amber or
-// red emissive. Over powerCable's green that renders as solid yellow, which
+// red emissive. Over a utility's authored body color that produces a second,
+// inconsistent identity rather than a reusable fault language, which
 // reads as "this is a different kind of pipe" rather than "this run is
 // faulted" — and being a blend it lands on a different hue for each of the six
 // utilities, so there is nothing for the player to learn. The colour is the
@@ -106,6 +107,9 @@ console.log('\n--- 1. A faulted line keeps its utility colour ---');
   }
   assert(wrong.length === 0,
     `no status recolours or lights the pipe (wrong: ${wrong.join(',') || 'none'})`);
+  assert(getLineMaterial('powerCable', 'ok').color.c === '#25282c'
+      && UTILITY_TYPES.powerCable.markerColor === '#44cc44',
+  'power cords stay charcoal black while their port affordances stay green');
   assert(getLineMaterial('waterSupplyPipe', 'ok', 'cold').color.c === '#287fc4'
       && getLineMaterial('waterSupplyPipe', 'ok', 'room').color.c === '#4f9b72'
       && getLineMaterial('waterSupplyPipe', 'ok', 'hot').color.c === '#c45b42',
