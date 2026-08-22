@@ -1185,6 +1185,7 @@ export class ThreeRenderer {
       const hits = raycaster.intersectObjects(this.staffPawns.group.children, true);
       hits.sort((a, b) => a.distance - b.distance);
       for (const hit of hits) {
+        if (!isVisiblePickObject(hit.object)) continue;
         let obj = hit.object;
         while (obj) {
           if (obj.userData?.staffId) return {

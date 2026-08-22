@@ -95,6 +95,19 @@ export const JOB_TYPES = {
   privateOfficeWork: { id: 'privateOfficeWork', name: 'Private Office Work', professions: ['admin', 'scientist'], usesSpecialty: false, basePriority: 25, workTicks: 120, interruptible: true },
 };
 
+/**
+ * Published completion fraction for a finite job that is actively being
+ * worked, or null when a progress bar would be misleading (travel, idle, or
+ * an open-ended duty such as running a beam).
+ */
+export function jobProgressFraction(job) {
+  if (!job || job.phase !== 'work') return null;
+  const workTicks = JOB_TYPES[job.jobType]?.workTicks;
+  if (!Number.isFinite(workTicks) || workTicks <= 0) return null;
+  const progress = Number.isFinite(job.progress) ? job.progress : 0;
+  return Math.max(0, Math.min(1, progress / workTicks));
+}
+
 // A repair/commission node's priority-per-health-point term (see JOB_TYPES'
 // comment above). At the extreme (health 0) this adds 50 to repair's base
 // of 90, for a ceiling of 140 — still two orders of magnitude below eat/

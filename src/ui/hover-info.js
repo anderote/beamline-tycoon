@@ -2,6 +2,7 @@
 // Every hover result is exactly two logical lines: a title and one detail.
 
 import { RF_BANDS, bandForFrequencyHz } from '../utility/types/rfWaveguide.js';
+import { describeJob } from '../game/staff/staffDiagnostics.js';
 
 const RF_LABELS = Object.fromEntries(RF_BANDS.map(b => [b.id, b.label]));
 
@@ -194,6 +195,15 @@ export function furnishingHoverInfo(def) {
   return {
     title: def.name || humanize(def.id) || 'Furnishing',
     detail: effects.length ? effects.join(' · ') : humanize(def.category || 'Furnishing'),
+  };
+}
+
+/** Show the same current-activity wording as the staff inspector. */
+export function staffHoverInfo(member, game) {
+  if (!member) return null;
+  return {
+    title: member.name || 'Staff member',
+    detail: describeJob(member, game).status,
   };
 }
 
