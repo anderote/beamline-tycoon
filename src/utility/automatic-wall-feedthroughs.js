@@ -8,8 +8,12 @@
 import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { canPlaceWallFixture } from '../game/placement.js';
-import { wallFixtureDir, physicalWallFixtureSlotKeys } from '../game/wall-fixture-geometry.js';
-import { buildManhattanPath } from './line-geometry.js';
+import {
+  wallFixtureDir,
+  wallFixturePose,
+  physicalWallFixtureSlotKeys,
+} from '../game/wall-fixture-geometry.js';
+import { buildManhattanPath, simplifyPath } from './line-geometry.js';
 import { validateDrawLine } from './line-drawing.js';
 import { pathRunsAlongWall, pathWallCrossings } from './wall-crossings.js';
 import {
@@ -25,6 +29,13 @@ import {
 import { snapUtilityRouteCoordinate } from './routing-contract.js';
 
 const EPS = 1e-7;
+
+// These fabricated services use two half-wall stations rather than four
+// quarter-wall glands. A wall tile is 2 m long, so span 2 and offsets 0/2 are
+// one-metre reservations centred at 0.5 m and 1.5 m along its physical edge.
+const METER_WALL_STATION_UTILITIES = new Set([
+  'hvCable', 'cryoTransfer', 'rfWaveguide', 'waterSupplyPipe',
+]);
 
 const AUTOMATIC_FITTING_TYPES = Object.freeze({
   powerCable: 'powerWallPassThrough',
@@ -98,11 +109,12 @@ function passThroughPairs(def, utilityType) {
 }
 
 function samePhysicalSlot(entry, crossing) {
-  const wanted = new Set(physicalWallFixtureSlotKeys({ ...crossing.wallMount, span: 1 }));
-  return physicalWallFixtureSlotKeys({
+  const wanted = physicalWallFixtureSlotKeys(crossing.wallMount);
+  const occupied = new Set(physicalWallFixtureSlotKeys({
     ...entry.wallMount,
     span: PLACEABLES[entry.type]?.wallSpan ?? entry.wallMount?.span ?? 1,
-  }).some(key => wanted.has(key));
+  }));
+  return wanted.length > 0 && wanted.every(key => occupied.has(key));
 }
 
 function pairDistance(entry, def, pair, point) {
@@ -174,6 +186,21 @@ function snapPoint(point) {
   };
 }
 
+function snapCrossingToMeterStation(crossing, utilityType) {
+  if (!METER_WALL_STATION_UTILITIES.has(utilityType)) return crossing;
+  const wallMount = {
+    ...crossing.wallMount,
+    off: crossing.wallMount.off < 2 ? 0 : 2,
+    span: 2,
+  };
+  const pose = wallFixturePose(wallMount, 0);
+  return {
+    ...crossing,
+    wallMount,
+    point: pose ? { col: pose.x / 2, row: pose.z / 2 } : crossing.point,
+  };
+}
+
 function compatibilityPath(slice) {
   const start = snapPoint(slice[0]);
   const end = snapPoint(slice[slice.length - 1]);
@@ -203,6 +230,52 @@ function crossingSidePoint(crossing, path, outgoing) {
   const sign = crossingDirection(path, crossing) * (outgoing ? 1 : -1);
   point[crossing.axis] += sign * 0.25;
   return point;
+}
+
+function appendManhattan(out, point, firstAxis = 'col') {
+  const previous = out[out.length - 1];
+  if (!previous) {
+    out.push({ ...point });
+    return;
+  }
+  const dc = point.col - previous.col;
+  const dr = point.row - previous.row;
+  if (Math.abs(dc) > EPS && Math.abs(dr) > EPS) {
+    const corner = firstAxis === 'row'
+      ? { col: previous.col, row: point.row }
+      : { col: point.col, row: previous.row };
+    out.push(corner);
+  }
+  out.push({ ...point });
+}
+
+function rigidSliceThroughSnappedStations(slice, path, startCrossing, endCrossing) {
+  const points = slice.map(point => ({ ...point }));
+  if (startCrossing) {
+    points[0] = crossingSidePoint(startCrossing, path, true);
+  }
+  if (endCrossing) {
+    points[points.length - 1] = crossingSidePoint(endCrossing, path, false);
+  }
+
+  const out = [];
+  if (startCrossing) appendManhattan(out, startCrossing.point);
+  for (let index = 0; index < points.length; index++) {
+    // Depart perpendicular to the starting wall. At the other end, shift
+    // along the wall first and approach its fitting perpendicularly.
+    const firstAxis = startCrossing && index === 0
+      ? startCrossing.axis
+      : endCrossing && index === points.length - 1
+        ? (endCrossing.axis === 'col' ? 'row' : 'col')
+        : 'col';
+    appendManhattan(
+      out,
+      points[index],
+      firstAxis,
+    );
+  }
+  if (endCrossing) appendManhattan(out, endCrossing.point);
+  return simplifyPath(out.map(snapPoint));
 }
 
 function orientPair(entry, def, pair, crossing, path) {
@@ -252,7 +325,8 @@ export function planAutomaticWallPassThroughs(game, opts = {}) {
   if (pathRunsAlongWall(state.wallOccupied, physicalPath)) {
     return { ok: false, reason: 'route cannot run along the wall itself' };
   }
-  const crossings = pathWallCrossings(state.wallOccupied, physicalPath);
+  const crossings = pathWallCrossings(state.wallOccupied, physicalPath)
+    .map(crossing => snapCrossingToMeterStation(crossing, opts.utilityType));
   if (crossings.length === 0) return ordinary;
   const duplicate = crossings.some((hit, index) => crossings.slice(0, index).some(previous =>
     previous.wallKey === hit.wallKey && previous.wallMount.off === hit.wallMount.off));
@@ -343,11 +417,17 @@ export function planAutomaticWallPassThroughs(game, opts = {}) {
       placeableId: selections[index].entryId,
       portName: selections[index].incomingPort,
     };
+    const routedSlice = soft ? physicalSlice : rigidSliceThroughSnappedStations(
+      physicalSlice,
+      physicalPath,
+      index > 0 ? crossings[index - 1] : null,
+      index < crossings.length ? crossings[index] : null,
+    );
     const segment = {
       utilityType: opts.utilityType,
       start,
       end,
-      path: soft ? compatibilityPath(physicalSlice) : physicalSlice,
+      path: soft ? compatibilityPath(physicalSlice) : routedSlice,
       ...(soft ? { cablePath: physicalSlice } : {}),
       waterCircuit: opts.waterCircuit,
       routeHeightMeters: opts.routeHeightMeters,

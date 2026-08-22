@@ -120,7 +120,7 @@ function automaticWallSleeveParts({
 function automaticWallPassThrough({
   id, name, desc, category, utilityType, ports, cost, heightMeters,
   radiusMeters, color, rectangular = false, deprecated = false,
-  connectionGroups = 'utilityGroups',
+  connectionGroups = 'utilityGroups', wallSpan = 1,
 }) {
   return {
     id, name, desc,
@@ -128,12 +128,13 @@ function automaticWallPassThrough({
     category, subsection: category === 'power' ? 'routingHardware' : 'transport',
     paletteHidden: true,
     cost: { funding: cost }, stats: {}, energyCost: 0,
-    mount: 'wall', wallPassThrough: true, wallSpan: 1,
+    mount: 'wall', wallPassThrough: true, wallSpan,
     automaticWallPassThrough: {
       utilityType, portPairs: [ports], heightMeters, radiusMeters,
     },
-    subL: 1, subW: 1, subH: Math.max(1, Math.ceil(heightMeters * 2 + radiusMeters * 4)),
-    gridW: 1, gridH: 1, geometryType: 'box',
+    subL: 1, subW: wallSpan,
+    subH: Math.max(1, Math.ceil(heightMeters * 2 + radiusMeters * 4)),
+    gridW: wallSpan, gridH: 1, geometryType: 'box',
     baseMaterial: 'metal_brushed', spriteKey: 'powerPanel', spriteColor: color,
     accentColor: color, hasSurface: false, placement: 'module', ports: {},
     [connectionGroups]: { [utilityType]: [ports] },
@@ -1362,6 +1363,7 @@ export const INFRASTRUCTURE_RAW = {
     category: 'cooling', utilityType: 'waterSupplyPipe',
     ports: ['supply_front', 'supply_back'], cost: 9000,
     heightMeters: 0.60, radiusMeters: 0.065, color: 0x287fc4,
+    wallSpan: 2,
   }),
   hotWaterSupplyWallPassThrough: automaticWallPassThrough({
     id: 'hotWaterSupplyWallPassThrough', name: 'Automatic Hot-Water Return Sleeve',
@@ -1369,6 +1371,7 @@ export const INFRASTRUCTURE_RAW = {
     category: 'cooling', utilityType: 'waterSupplyPipe',
     ports: ['supply_front', 'supply_back'], cost: 9000,
     heightMeters: 0.90, radiusMeters: 0.065, color: 0xc45b42,
+    wallSpan: 2,
   }),
   roomWaterSupplyWallPassThrough: automaticWallPassThrough({
     id: 'roomWaterSupplyWallPassThrough', name: 'Automatic Room-Temperature Water Sleeve',
@@ -1376,6 +1379,7 @@ export const INFRASTRUCTURE_RAW = {
     category: 'cooling', utilityType: 'waterSupplyPipe',
     ports: ['supply_front', 'supply_back'], cost: 9000,
     heightMeters: 1.80, radiusMeters: 0.065, color: 0x4f9b72,
+    wallSpan: 2,
   }),
   waterSupplyWallPassThrough1x1: {
     id: 'waterSupplyWallPassThrough1x1', name: '1×1 Water Pipe Penetration',
@@ -2132,10 +2136,11 @@ export const INFRASTRUCTURE_RAW = {
   hvWallPassThrough: {
     ...automaticWallPassThrough({
       id: 'hvWallPassThrough', name: 'Automatic HV Cable Feedthrough',
-      desc: 'Compact shielded HV bushing automatically installed when an HV feeder crosses a wall.',
+      desc: 'Elevated shielded HV bushing automatically installed at a one-metre wall station when an HV feeder crosses a wall. It tensions the attached suspended cable.',
       category: 'power', utilityType: 'hvCable', ports: ['hv_in', 'hv_out'],
-      cost: 24000, heightMeters: 0.06, radiusMeters: 0.05, color: 0xd2a93d,
+      cost: 24000, heightMeters: 2.00, radiusMeters: 0.05, color: 0xd2a93d,
       connectionGroups: 'electricalGroups',
+      wallSpan: 2,
     }),
     utilityFlowPresentation: 'symmetric',
   },
@@ -2185,6 +2190,7 @@ export const INFRASTRUCTURE_RAW = {
     category: 'cooling', utilityType: 'cryoTransfer',
     ports: ['cryo_front', 'cryo_back'], cost: 28000,
     heightMeters: 0.30, radiusMeters: 0.06, color: 0x44aacc,
+    wallSpan: 2,
   }),
   rfWallPassThrough: automaticWallPassThrough({
     id: 'rfWallPassThrough', name: 'Automatic RF Waveguide Feedthrough',
@@ -2192,6 +2198,7 @@ export const INFRASTRUCTURE_RAW = {
     category: 'rfPower', utilityType: 'rfWaveguide',
     ports: ['rf_front', 'rf_back'], cost: 22000,
     heightMeters: 1.20, radiusMeters: 0.05, color: 0xcc4444, rectangular: true,
+    wallSpan: 2,
   }),
   vacuumWallPassThrough: automaticWallPassThrough({
     id: 'vacuumWallPassThrough', name: 'Automatic Vacuum Pipe Feedthrough',

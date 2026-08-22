@@ -36,6 +36,10 @@ const families = [
   ['vacuumPipe', null, 'vacuumWallPassThrough'],
 ];
 
+const meterStationUtilities = new Set([
+  'hvCable', 'cryoTransfer', 'rfWaveguide', 'waterSupplyPipe',
+]);
+
 function blankState(extra = {}) {
   return {
     placeables: [], beamPipes: [], utilityLines: new Map(),
@@ -56,13 +60,13 @@ function lineOpts(utilityType, waterCircuit) {
   return opts;
 }
 
-test('every routed utility owns a hidden automatic 1×1 wall fitting', () => {
+test('every routed utility owns a hidden automatic wall fitting at its declared station width', () => {
   for (const [utilityType, waterCircuit, type] of families) {
     assert.equal(UTILITY_TYPES[utilityType].requiresWallPassThrough, true, utilityType);
     assert.equal(automaticWallPassThroughType(utilityType, waterCircuit), type);
     const def = PLACEABLES[type];
     assert.equal(def.paletteHidden, true, type);
-    assert.equal(def.wallSpan, 1, type);
+    assert.equal(def.wallSpan, meterStationUtilities.has(utilityType) ? 2 : 1, type);
     assert.equal(def.mount, 'wall', type);
     assert.equal(def.automaticWallPassThrough.utilityType, utilityType, type);
   }
@@ -81,7 +85,7 @@ test('every routed utility owns a hidden automatic 1×1 wall fitting', () => {
     .some(({ key }) => key === 'waterSupplyWallPassThrough2x2'), 'manual 2×2 water remains');
 });
 
-test('modular sleeve bores and ports match exact utility elevations', () => {
+test('modular sleeve bores and ports match exact service elevations', () => {
   const wallMount = { col: 1, row: 0, edge: 'e', off: 2, faceOffset: 0.0625 };
   for (const [utilityType, waterCircuit, type] of families) {
     const def = COMPONENTS[type];
@@ -95,14 +99,70 @@ test('modular sleeve bores and ports match exact utility elevations', () => {
     assert.ok(bore, `${type} has a through-wall bore`);
     assert.ok(Math.abs((bore.y + bore.h / 2) * 0.5 - metadata.heightMeters) < 1e-9,
       `${type} bore centre`);
-    assert.ok(def.parts.every(part => (part.w || 1) <= 1), `${type} remains one-slot modular`);
+    assert.ok(def.parts.every(part => (part.w || 1) <= 1), `${type} keeps compact hardware`);
 
-    const expectedHeight = utilityType === 'waterSupplyPipe'
+    const expectedHeight = utilityType === 'hvCable'
+      ? 2.00
+      : utilityType === 'waterSupplyPipe'
       ? UTILITY_TYPES.waterSupplyPipe.runHeightsByWaterCircuit[waterCircuit]
       : utilityLineHeight(utilityType);
     assert.ok(Math.abs(metadata.heightMeters - expectedHeight) < 1e-9,
       `${type} matches ${utilityType} route datum`);
   }
+
+  const hvPorts = COMPONENTS.hvWallPassThrough.ports;
+  assert.ok(['hv_in', 'hv_out'].every(portName => hvPorts[portName].tensionsCable === true),
+    'both elevated HV terminals explicitly tension attached cable spans');
+});
+
+test('HV, cryo, RF and rigid supply water snap crossings to one-metre wall stations', () => {
+  for (const row of [0, 0.5]) {
+    const expectedOff = row < 0.5 ? 0 : 2;
+    const expectedRow = row < 0.5 ? 0.25 : 0.75;
+    for (const [utilityType, waterCircuit] of [
+      ['hvCable', null],
+      ['cryoTransfer', null],
+      ['rfWaveguide', null],
+      ['waterSupplyPipe', 'cold'],
+      ['waterSupplyPipe', 'room'],
+      ['waterSupplyPipe', 'hot'],
+    ]) {
+      const path = [{ col: 0.5, row }, { col: 2.5, row }];
+      const opts = {
+        utilityType,
+        path,
+        ...(utilityType === 'hvCable' ? { cablePath: path } : {}),
+        ...(waterCircuit ? { waterCircuit } : {}),
+      };
+      const plan = planAutomaticWallPassThroughs({ state: blankState() }, opts);
+      assert.equal(plan.ok, true, `${utilityType}/${waterCircuit}: ${plan.reason || 'ok'}`);
+      assert.deepEqual(plan.feedthroughs[0].wallMount, {
+        col: 1, row: 0, edge: 'e', off: expectedOff, span: 2, faceOffset: 0.0625,
+      });
+      if (utilityType !== 'hvCable') {
+        assert.deepEqual(plan.segments[0].path.at(-1), { col: 2, row: expectedRow });
+        assert.deepEqual(plan.segments[1].path[0], { col: 2, row: expectedRow });
+        assert.ok(plan.segments.every(segment => segment.path.every((point, index, points) => {
+          if (index === 0) return true;
+          return point.col === points[index - 1].col || point.row === points[index - 1].row;
+        })), `${utilityType}/${waterCircuit} stays Manhattan through the snapped station`);
+      }
+    }
+  }
+});
+
+test('one-metre stations preserve south-edge slot reversal and route alignment', () => {
+  const state = blankState({ wallOccupied: { '0,1,s': 'officeWall' } });
+  const path = [{ col: 0.5, row: 0.5 }, { col: 0.5, row: 2.5 }];
+  const plan = planAutomaticWallPassThroughs({ state }, {
+    utilityType: 'cryoTransfer', path,
+  });
+  assert.equal(plan.ok, true, plan.reason);
+  assert.deepEqual(plan.feedthroughs[0].wallMount, {
+    col: 0, row: 1, edge: 's', off: 2, span: 2, faceOffset: 0.0625,
+  });
+  assert.deepEqual(plan.segments[0].path.at(-1), { col: 0.25, row: 2 });
+  assert.deepEqual(plan.segments[1].path[0], { col: 0.25, row: 2 });
 });
 
 test('one crossing becomes a real fitting and two ordinary terminated runs', () => {

@@ -62,6 +62,10 @@ the short authoring contract.
   wall. HV feedthroughs set `utilityFlowPresentation: 'symmetric'`: both faces
   use passive, double-headed terminal arrows and the body carries no preferred
   flow arrow, because either face may be upstream.
+- Automatic HV feedthroughs reserve a two-slot (1 m) half-wall station at
+  `off: 0` or `off: 2`. Their terminals sit at the indoor-rack 2.00 m datum
+  and explicitly set `tensionsCable: true`, so either face supports a taut,
+  shallow-sag HV span.
 - `powerWallPassThrough` is retired compatibility content. Existing saves may
   load and demolish it, but new low-voltage wall entry uses a meter-main or
   other active distribution equipment and no build palette advertises the old
@@ -324,18 +328,21 @@ the short authoring contract.
   faces, charges line plus new-fitting cost, and records one undo entry. The
   freehand `cablePath` remains authoritative for soft power, HV, data, and
   flexible-water runs; rigid services use their routed `path`.
-- Automatic 1×1 fittings stay registered for saves and internal construction
-  but declare `paletteHidden: true`, excluding them from both category palettes
-  and build-menu search. Manual multi-circuit assemblies remain selectable:
+- Automatic fittings stay registered for saves and internal construction but
+  declare `paletteHidden: true`, excluding them from both category palettes and
+  build-menu search. Manual multi-circuit assemblies remain selectable:
   the 4×4 HV fitting carries four isolated conductors and the 2×2 water
   penetration carries two isolated sleeves. Routing may reuse a free pair in
   either assembly.
-- Automatic fitting models are compact one-slot sleeves. Their bore and both
-  port anchors share the utility's real route elevation. Cryo, cold supply
-  water, hot return water, RF, and vacuum fittings may share one physical wall
-  slot when their vertical collar envelopes do not overlap, forming the same
-  ordered service stack as their independent rigid runs. Manual multi-circuit
-  fittings continue to reserve their complete wall span.
+- Automatic fitting hardware remains compact around its bore. HV, cryo, RF,
+  and cold/room/hot rigid-water crossings reserve one of the wall tile's two
+  1 m stations (`wallSpan: 2`, `off: 0|2`); routing moves the physical crossing
+  and its orthogonal approach to that station centre. Compact power, data,
+  flexible-water, and vacuum sleeves retain quarter-wall placement. Rigid
+  fittings at different elevations may share a station when their vertical
+  collar envelopes do not overlap, forming the same ordered service stack as
+  their independent runs. Manual multi-circuit fittings continue to reserve
+  their complete wall span.
 - Water line bodies, previews, flow arrows, equipment fittings, and available
   port markers use blue for `cold` and red for `hot`. The LCW manifold's
   detailed model carries the same blue supply and red return header colors.

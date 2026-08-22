@@ -49,6 +49,11 @@ receives its feed, but wiring a second live feed is still invalid. Redundant
 feeds require an explicit transfer switch rather than silently paralleling two
 live sources.
 
+Drawing an HV feeder through a wall automatically installs an elevated
+feedthrough at one of the wall tile's two 1 m stations. Its terminals share the
+indoor-rack 2.00 m height and tension the suspended cable on both faces. The
+retired low-voltage passive wall feedthrough is not available for new builds.
+
 ### Demand
 
 Each component's power sink declares its own draw (kW), in rough tiers:

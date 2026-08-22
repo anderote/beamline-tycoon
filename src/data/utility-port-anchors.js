@@ -432,7 +432,7 @@ export const PORT_ANCHOR_OVERRIDES = {
     _default: { y: 1.35, lat: 0.22, out: 0.04 },
   },
   hvWallPassThrough: {
-    _default: { y: 0.06, lat: 0.10, along: 0, out: 0.07 },
+    _default: { y: 2.00, lat: 0.10, along: 0, out: 0.07 },
   },
   dataFiberWallPassThrough: {
     _default: { y: 0.035, lat: 0.10, along: 0, out: 0.03 },
