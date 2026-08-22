@@ -1099,28 +1099,37 @@ const INFRA_UTILITY_PORTS = {
       params: { fieldCapacity: 400 },
     },
   },
-  // Grounds owns the pole visually, but these are real HV endpoints. Local
-  // back/front lie along the conductor run; rotating a pole turns both the
-  // crossarm and its incoming/outgoing cable direction together.
+  // One passive, two-wire connector per visible insulator. Separate ports are
+  // isolated conductors; two lines sharing one named port are continuous.
   utilityPole: {
     hv_in: {
       utility: 'hvCable', side: 'back', offsetAlong: 0.5,
-      role: 'pass', connectionKind: 'hvPassThroughIn', omnidirectional: true, params: {},
+      role: 'pass', connectionKind: 'hvPassThroughIn', omnidirectional: true,
+      maxConnections: 2, params: {},
     },
     hv_out: {
       utility: 'hvCable', side: 'front', offsetAlong: 0.5,
-      role: 'pass', connectionKind: 'hvPassThroughOut', omnidirectional: true, params: {},
+      role: 'pass', connectionKind: 'hvPassThroughOut', omnidirectional: true,
+      maxConnections: 2, params: {},
     },
+    hv_3: { utility: 'hvCable', side: 'back', offsetAlong: 0.5, role: 'pass', omnidirectional: true, maxConnections: 2, params: {} },
+    hv_4: { utility: 'hvCable', side: 'front', offsetAlong: 0.5, role: 'pass', omnidirectional: true, maxConnections: 2, params: {} },
   },
   transmissionTower: {
     hv_in: {
       utility: 'hvCable', side: 'back', offsetAlong: 0.5,
-      role: 'pass', connectionKind: 'hvPassThroughIn', omnidirectional: true, params: {},
+      role: 'pass', connectionKind: 'hvPassThroughIn', omnidirectional: true,
+      maxConnections: 2, params: {},
     },
     hv_out: {
       utility: 'hvCable', side: 'front', offsetAlong: 0.5,
-      role: 'pass', connectionKind: 'hvPassThroughOut', omnidirectional: true, params: {},
+      role: 'pass', connectionKind: 'hvPassThroughOut', omnidirectional: true,
+      maxConnections: 2, params: {},
     },
+    hv_3: { utility: 'hvCable', side: 'back', offsetAlong: 0.5, role: 'pass', omnidirectional: true, maxConnections: 2, params: {} },
+    hv_4: { utility: 'hvCable', side: 'front', offsetAlong: 0.5, role: 'pass', omnidirectional: true, maxConnections: 2, params: {} },
+    hv_5: { utility: 'hvCable', side: 'back', offsetAlong: 0.5, role: 'pass', omnidirectional: true, maxConnections: 2, params: {} },
+    hv_6: { utility: 'hvCable', side: 'front', offsetAlong: 0.5, role: 'pass', omnidirectional: true, maxConnections: 2, params: {} },
   },
   cableTray: {
     pwr_in_1: { utility: 'powerCable', side: 'back', offsetAlong: 0.20, role: 'pass', connectionKind: 'powerPassThroughIn', params: { fieldCapacity: 160 } },

@@ -88,16 +88,16 @@ function sourceFansOut(utilityType) {
 
 export function availablePorts(placeable, def, utilityType, lines) {
   if (!placeable || !def || !def.ports) return [];
-  const claimed = new Set();
+  const claims = new Map();
   const iter = lines && typeof lines.values === 'function'
     ? lines.values()
     : (lines || []);
   for (const line of iter) {
     if (line && line.start && line.start.placeableId === placeable.id && line.start.portName) {
-      claimed.add(line.start.portName);
+      claims.set(line.start.portName, (claims.get(line.start.portName) || 0) + 1);
     }
     if (line && line.end && line.end.placeableId === placeable.id && line.end.portName) {
-      claimed.add(line.end.portName);
+      claims.set(line.end.portName, (claims.get(line.end.portName) || 0) + 1);
     }
   }
   const candidates = Object.entries(def.ports)
@@ -105,7 +105,13 @@ export function availablePorts(placeable, def, utilityType, lines) {
     .map(([name, spec]) => ({ name, spec }));
   const fanOut = sourceFansOut(utilityType);
   return candidates
-    .filter(({ name, spec }) => !claimed.has(name) || (fanOut && spec.role === 'source'))
+    .filter(({ name, spec }) => {
+      const authoredLimit = Number.isInteger(spec.maxConnections)
+        ? spec.maxConnections : null;
+      if (authoredLimit == null && fanOut && spec.role === 'source') return true;
+      const maxConnections = authoredLimit ?? 1;
+      return (claims.get(name) || 0) < maxConnections;
+    })
     .map(({ name }) => name);
 }
 

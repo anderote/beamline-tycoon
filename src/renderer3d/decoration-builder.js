@@ -1420,7 +1420,7 @@ function _utilityPoleModel(footW, _footL, totalH) {
   _siteBox(group, [armW, 0.11, 0.13], [0, poleH * 0.82, 0], wood);
   _siteBox(group, [armW * 0.68, 0.09, 0.11], [0, poleH * 0.68, 0], wood);
   for (const y of [poleH * 0.82, poleH * 0.68]) {
-    for (const x of [-armW * 0.35, 0, armW * 0.35]) {
+    for (const x of [-armW * 0.35, armW * 0.35]) {
       _siteCylinder(group, 0.045, 0.055, 0.18, [x, y + 0.14, 0], ceramic, 'y', 10);
       _siteSphere(group, 0.055, [x, y + 0.24, 0], metal);
     }

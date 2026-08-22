@@ -85,7 +85,7 @@ test('utility service, pole, service transformer, and branch load solve end to e
     placed('load', 'quadrupole'),
   ], [
     line('hv_a', 'hvCable', ref('grid', 'hv_out_1'), ref('pole', 'hv_in'), 0),
-    line('hv_b', 'hvCable', ref('pole', 'hv_out'), ref('xfmr', 'hv_in'), 2),
+    line('hv_b', 'hvCable', ref('pole', 'hv_in'), ref('xfmr', 'hv_in'), 2),
     line('pwr', 'powerCable', ref('xfmr', 'pwr_out_1'), ref('load', 'pwr_in'), 4),
   ]);
   reliabilityFor(state);

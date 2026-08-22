@@ -151,6 +151,7 @@ export const DECORATIONS_RAW = {
     morale: 0, placement: 'outdoor', spriteKey: 'utility_pole',
     blocksBuild: true, category: 'utilities', paletteOrder: 1,
     subW: 2, subL: 2, subH: 16,
+    electricalGroups: { hvCable: [] },
     requires: 'electricalDistribution',
   },
   transmissionTower: {
@@ -158,7 +159,8 @@ export const DECORATIONS_RAW = {
     cost: { funding: 42000 }, removeCost: 4500,
     morale: 0, placement: 'outdoor', spriteKey: 'utility_pole',
     blocksBuild: true, category: 'utilities', paletteOrder: 2,
-    subW: 4, subL: 4, subH: 36,
+    subW: 4, subL: 4, subH: 18,
+    electricalGroups: { hvCable: [] },
     requires: 'electricalDistribution',
   },
   overheadPowerSpan: {
@@ -341,8 +343,8 @@ const DECORATION_DESCS = {
   fountain: 'Ornamental fountain — the only unscheduled water feature allowed on site.',
   statue: 'Commemorates the founder, or possibly the first working klystron.',
   propaneTank: 'Horizontal propane vessel on concrete saddles for heating and emergency plant. Decorative site utility.',
-  utilityPole: 'Compact 2×2 functional HV distribution pole with omnidirectional incoming and outgoing crossarm terminals. It takes up drawn cable slack while leaving a shallow suspended sag.',
-  transmissionTower: 'Large 4×4 steel lattice transmission tower with projecting crossarm tiers, hanging insulators, and omnidirectional elevated HV terminals. It takes up drawn cable slack while leaving a shallow suspended sag.',
+  utilityPole: 'Compact 2×2 functional HV distribution pole with four isolated insulator terminals and room for two wires on each. It takes up drawn cable slack while leaving a shallow suspended sag.',
+  transmissionTower: 'Half-height 4×4 steel lattice tower with six isolated hanging-insulator terminals and room for two wires on each. It takes up drawn cable slack while leaving a shallow suspended sag.',
   overheadPowerSpan: 'Legacy decorative two-pole span retained for old saves. Use functional Utility Poles and real HV feeders for new construction.',
   outdoorPipeRack: 'Elevated rack carrying color-coded campus service pipes. Decorative site utility.',
   backupGenerator: '250 kW standby generator with finite fuel. Connect it to the backup terminal of an Automatic Transfer Switch; refuel and enable it from its equipment window.',

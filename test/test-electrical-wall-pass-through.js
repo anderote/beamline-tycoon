@@ -39,8 +39,10 @@ const {
 } = await import('../src/game/wall-fixture-geometry.js');
 const {
   portAnchor3D,
+  setModelBoundsProvider,
 } = await import('../src/utility/port-anchors.js');
 const {
+  availablePorts,
   portWorldPosition,
 } = await import('../src/utility/ports.js');
 const {
@@ -220,7 +222,12 @@ test('2×2 utility pole and 4×4 transmission tower accept every HV approach', (
     const ports = getUtilityPortsV2(type);
     assert.equal(def.subW, expectedSize);
     assert.equal(def.subL, expectedSize);
-    assert.ok(['hv_in', 'hv_out'].every(name => ports[name].omnidirectional === true));
+    const expectedNames = type === 'utilityPole'
+      ? ['hv_in', 'hv_out', 'hv_3', 'hv_4']
+      : ['hv_in', 'hv_out', 'hv_3', 'hv_4', 'hv_5', 'hv_6'];
+    assert.deepEqual(Object.keys(ports), expectedNames);
+    assert.ok(expectedNames.every(name =>
+      ports[name].omnidirectional === true && ports[name].maxConnections === 2));
     const state = openState({
       placeables: [{ id: 'support', type, col: 0, row: 0, subCol: 0, subRow: 0, dir: 1 }],
     });
@@ -258,6 +265,81 @@ test('2×2 utility pole and 4×4 transmission tower accept every HV approach', (
       path: [{ col: 0, row: 0 }, { col: 0, row: 3 }],
     }).ok, true, message);
   }
+});
+
+test('each overhead insulator accepts two connected wires and stays isolated from the others', () => {
+  const support = {
+    id: 'pole', type: 'utilityPole', col: 0, row: 0,
+    subCol: 0, subRow: 0, dir: 0,
+  };
+  const def = COMPONENTS.utilityPole;
+  const first = {
+    id: 'first', utilityType: 'hvCable',
+    start: { placeableId: 'pole', portName: 'hv_in' }, end: null,
+    path: [{ col: 0, row: 0 }, { col: 1, row: 0 }],
+  };
+  const second = {
+    id: 'second', utilityType: 'hvCable',
+    start: { placeableId: 'pole', portName: 'hv_in' }, end: null,
+    path: [{ col: 0, row: 0 }, { col: 0, row: 1 }],
+  };
+  const state = openState({ placeables: [support], utilityLines: new Map([['first', first]]) });
+  assert.ok(availablePorts(support, def, 'hvCable', state.utilityLines).includes('hv_in'),
+    'one attached wire leaves the insulator available');
+  assert.equal(validateDrawLine(state, {
+    utilityType: 'hvCable', start: second.start, path: second.path,
+  }).ok, true, 'a second wire can land on the same insulator');
+  state.utilityLines.set('second', second);
+  assert.ok(!availablePorts(support, def, 'hvCable', state.utilityLines).includes('hv_in'),
+    'two attached wires fill the insulator');
+  assert.equal(validateDrawLine(state, {
+    utilityType: 'hvCable', start: second.start,
+    path: [{ col: 0, row: 0 }, { col: -1, row: 0 }],
+  }).reason, 'port_taken', 'a third wire is rejected');
+
+  const otherA = {
+    id: 'other-a', utilityType: 'hvCable',
+    start: { placeableId: 'pole', portName: 'hv_out' }, end: null,
+    path: [{ col: 0, row: 0 }, { col: -1, row: 0 }],
+  };
+  const otherB = {
+    id: 'other-b', utilityType: 'hvCable',
+    start: { placeableId: 'pole', portName: 'hv_out' }, end: null,
+    path: [{ col: 0, row: 0 }, { col: 0, row: -1 }],
+  };
+  state.utilityLines.set('other-a', otherA);
+  state.utilityLines.set('other-b', otherB);
+  const networks = discoverNetworks(
+    'hvCable', state.utilityLines, makeDefaultPortLookup(state),
+  );
+  assert.equal(networks.length, 2,
+    'the two lines on each insulator share a net, while separate insulators do not');
+});
+
+test('overhead support anchors coincide with every visible insulator terminal', () => {
+  setModelBoundsProvider(() => ({ minX: -2, maxX: 2, minY: 0, maxY: 10, minZ: -1, maxZ: 1 }));
+  const cases = {
+    utilityPole: {
+      hv_in: [-0.91, 6.4064], hv_out: [0.91, 6.4064],
+      hv_3: [-0.91, 5.3536], hv_4: [0.91, 5.3536],
+    },
+    transmissionTower: {
+      hv_in: [-1.18, 4.6894], hv_out: [1.18, 4.6894],
+      hv_3: [-1, 6.0286], hv_4: [1, 6.0286],
+      hv_5: [-0.82, 7.2004], hv_6: [0.82, 7.2004],
+    },
+  };
+  for (const [type, expected] of Object.entries(cases)) {
+    const support = { id: type, type, col: 0, row: 0, subCol: 0, subRow: 0, dir: 0 };
+    const centre = type === 'utilityPole' ? 0.5 : 1;
+    for (const [name, [x, y]] of Object.entries(expected)) {
+      const anchor = portAnchor3D(support, COMPONENTS[type], name);
+      assert.ok(Math.abs(anchor.x - (centre + x)) < 1e-8, `${type}.${name} x`);
+      assert.ok(Math.abs(anchor.y - y) < 1e-8, `${type}.${name} y`);
+      assert.ok(Math.abs(Math.abs(anchor.z - centre) - 0.05) < 1e-8, `${type}.${name} z`);
+    }
+  }
+  setModelBoundsProvider(null);
 });
 
 test('Power and HV inspect the visible cable trace and refuse wall crossings', () => {
@@ -330,8 +412,8 @@ test('Feedthrough and pole connection kinds preserve the radial electrical chain
 
   hvState.utilityLines = new Map([
     ['a', { id: 'a', utilityType: 'hvCable', start: refs('supply', 'hv_out_1'), end: refs('poleA', 'hv_in'), path: [{ col: 0, row: 0 }, { col: 1, row: 0 }] }],
-    ['b', { id: 'b', utilityType: 'hvCable', start: refs('poleA', 'hv_out'), end: refs('poleB', 'hv_in'), path: [{ col: 2, row: 0 }, { col: 3, row: 0 }] }],
-    ['c', { id: 'c', utilityType: 'hvCable', start: refs('poleB', 'hv_out'), end: refs('panel', 'hv_in'), path: [{ col: 4, row: 0 }, { col: 5, row: 0 }] }],
+    ['b', { id: 'b', utilityType: 'hvCable', start: refs('poleA', 'hv_in'), end: refs('poleB', 'hv_in'), path: [{ col: 2, row: 0 }, { col: 3, row: 0 }] }],
+    ['c', { id: 'c', utilityType: 'hvCable', start: refs('poleB', 'hv_in'), end: refs('panel', 'hv_in'), path: [{ col: 4, row: 0 }, { col: 5, row: 0 }] }],
   ]);
   const networks = discoverNetworks(
     'hvCable', hvState.utilityLines, makeDefaultPortLookup(hvState),
@@ -347,8 +429,8 @@ test('Utility-pole terminals take up lateral slack but retain visible suspension
   const b = { id: 'b', type: 'utilityPole', col: 0, row: 6, subCol: 0, subRow: 0, dir: 0 };
   const start = portAnchor3D(a, def, 'hv_out');
   const end = portAnchor3D(b, def, 'hv_in');
-  assert.equal(start.y, 6.4);
-  assert.equal(end.y, 6.4);
+  assert.equal(start.y, 6.4064);
+  assert.equal(end.y, 6.4064);
   const line = {
     utilityType: 'hvCable',
     start: { placeableId: 'a', portName: 'hv_out' },

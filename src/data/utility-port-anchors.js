@@ -25,6 +25,8 @@
 //   along  position on the perpendicular local axis, in metres from the
 //          footprint centre, signed. Overrides the port's own `offsetAlong`
 //          fraction. Also clamped to the footprint.
+//   allowOutsideFootprint  permits an authored lat/along mount on projecting
+//          physical hardware such as an overhead support's crossarm.
 //
 // `lat`/`along` are in the component's local frame, NOT world space: they mean
 // the same thing at every rotation, and port-anchors.js turns them by `dir`.
@@ -165,16 +167,25 @@ export const PORT_ANCHOR_OVERRIDES = {
   hvDuctBankVault: {
     _default: { y: 0.18, lat: 0.30, out: 0.03 },
   },
-  // One logical feeder represents the pole's conductor bundle. Both ends sit
-  // at crossarm height so the flexible-cable rope solver hangs the run between
-  // poles instead of dropping it to the ground first.
+  // Each anchor is the metal cap of one visible insulator. A crossarm projects
+  // beyond the pole's compact placement footprint, so these authored mounts
+  // deliberately bypass the ordinary footprint clamp.
   utilityPole: {
-    _default: { y: 6.40, lat: 0.18, out: 0.08 },
+    _default: { lat: 0.05, out: 0, allowOutsideFootprint: true },
+    hv_in: { y: 6.4064, along: -0.91 },
+    hv_out: { y: 6.4064, along: 0.91 },
+    hv_3: { y: 5.3536, along: -0.91 },
+    hv_4: { y: 5.3536, along: 0.91 },
   },
-  // The game's one HV feeder represents the tower's three-phase conductor
-  // bundle and terminates at the upper crossarm elevation.
+  // Six hanging-insulator tips across the tower's three conductor tiers.
   transmissionTower: {
-    _default: { y: 15.20, lat: 0.42, out: 0.10 },
+    _default: { lat: 0.05, out: 0, allowOutsideFootprint: true },
+    hv_in: { y: 4.6894, along: -1.18 },
+    hv_out: { y: 4.6894, along: 1.18 },
+    hv_3: { y: 6.0286, along: -1.00 },
+    hv_4: { y: 6.0286, along: 1.00 },
+    hv_5: { y: 7.2004, along: -0.82 },
+    hv_6: { y: 7.2004, along: 0.82 },
   },
   cableTray: {
     _default: { y: 2.35, lat: 0.46, out: 0.02 },

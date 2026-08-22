@@ -102,7 +102,7 @@ test('distribution-panel fittings inherit their declared in/out roles', () => {
     'the four branch circuits are visibly outputs');
 });
 
-test('named inlet and outlet ports make passive pole and pass-through arrows directional', () => {
+test('isolated pole terminals stay nondirectional while pass-through arrows follow their names', () => {
   assert.equal(portFlowArrowRole('hv_in', 'pass'), 'sink');
   assert.equal(portFlowArrowRole('hv_out_4', 'pass'), 'source');
   assert.equal(portFlowArrowRole('bus_1', 'pass'), 'pass');
@@ -119,12 +119,12 @@ test('named inlet and outlet ports make passive pole and pass-through arrows dir
   const fittings = new Map(fittingsOf(group).map(fitting => [
     `${fitting.userData.placeableId}:${fitting.userData.portName}`, fitting,
   ]));
-  for (const id of ['pole', 'feed']) {
-    assert.equal(arrowOf(fittings.get(`${id}:hv_in`))?.userData.flowRole, 'sink');
-    assert.equal(arrowOf(fittings.get(`${id}:hv_out`))?.userData.flowRole, 'source');
-    assert.equal(fittings.get(`${id}:hv_in`)?.userData.portRole, 'pass',
-      'visual direction does not change the pass-through topology role');
-  }
+  assert.equal(arrowOf(fittings.get('pole:hv_in'))?.userData.flowRole, 'pass');
+  assert.equal(arrowOf(fittings.get('pole:hv_out'))?.userData.flowRole, 'pass');
+  assert.equal(arrowOf(fittings.get('feed:hv_in'))?.userData.flowRole, 'sink');
+  assert.equal(arrowOf(fittings.get('feed:hv_out'))?.userData.flowRole, 'source');
+  assert.equal(fittings.get('feed:hv_in')?.userData.portRole, 'pass',
+    'visual direction does not change the pass-through topology role');
 });
 
 test('every 4x4 wall feedthrough pair points in one world-space inlet-to-outlet direction', () => {
@@ -153,7 +153,7 @@ test('every 4x4 wall feedthrough pair points in one world-space inlet-to-outlet 
   }
 });
 
-test('rotated poles, wall pass-throughs and transformers carry inlet-to-outlet body arrows', () => {
+test('wall pass-throughs and transformers carry body arrows but isolated supports do not', () => {
   const endpoints = [
     { id: 'pole', type: 'utilityPole', col: 1, row: 2, subCol: 0, subRow: 0, dir: 1 },
     { id: 'tower', type: 'transmissionTower', col: 12, row: 8, subCol: 0, subRow: 0, dir: 2 },
@@ -165,7 +165,11 @@ test('rotated poles, wall pass-throughs and transformers carry inlet-to-outlet b
     { id: 'xfmr', type: 'facilityTransformer', col: 8, row: 3, subCol: 0, subRow: 0, dir: 1 },
   ];
   const { group } = buildPortFittings(endpoints);
-  for (const endpoint of endpoints) {
+  for (const endpoint of endpoints.slice(0, 2)) {
+    assert.equal(equipmentArrowOf(group, endpoint.id), undefined,
+      `${endpoint.type} has no misleading cross-insulator body arrow`);
+  }
+  for (const endpoint of endpoints.slice(2)) {
     const marker = equipmentArrowOf(group, endpoint.id);
     assert.ok(marker, `${endpoint.type} has a body-level direction arrow`);
     assert.ok(marker.userData.fromPortNames.every(name => name.includes('_in')),

@@ -332,10 +332,12 @@ function lookupDef(state, type) {
  * ports.availablePorts, which decides whether the marker is even offered; both
  * have to agree or the player can grab a port the commit then refuses.
  */
-function portReusable(spec, utilityType) {
-  if (!spec || spec.role !== 'source') return false;
+function portConnectionLimit(spec, utilityType) {
+  if (!spec) return 0;
+  if (Number.isInteger(spec.maxConnections)) return spec.maxConnections;
+  if (spec.role !== 'source') return 1;
   const d = UTILITY_TYPES[utilityType];
-  return !d || d.fansOut !== false;
+  return (!d || d.fansOut !== false) ? Infinity : 1;
 }
 
 // Electrical distribution is intentionally radial. The generic utility graph
@@ -422,21 +424,22 @@ function deviceHasLine(state, placeableId, utilityType) {
   return false;
 }
 
-function isPortTaken(state, placeableId, portName) {
+function portConnectionCount(state, placeableId, portName) {
   const lines = state && state.utilityLines;
   const iter = lines && typeof lines.values === 'function'
     ? lines.values()
     : (lines || []);
+  let count = 0;
   for (const line of iter) {
     if (!line) continue;
     if (line.start && line.start.placeableId === placeableId && line.start.portName === portName) {
-      return true;
+      count++;
     }
     if (line.end && line.end.placeableId === placeableId && line.end.portName === portName) {
-      return true;
+      count++;
     }
   }
-  return false;
+  return count;
 }
 
 // ---------------------------------------------------------------------------
@@ -492,8 +495,8 @@ export function validateDrawLine(state, {
     if (!spec) return reject('invalid_start');
     if (spec.utility !== utilityType) return reject('port_type_mismatch');
     startSpec = spec;
-    if (!portReusable(spec, utilityType)
-        && isPortTaken(state, start.placeableId, start.portName)) return reject('port_taken');
+    if (portConnectionCount(state, start.placeableId, start.portName)
+        >= portConnectionLimit(spec, utilityType)) return reject('port_taken');
 
     if (descriptor.requiresPortApproach) {
       const dir = segmentDirection(path[0], path[1]);
@@ -514,8 +517,8 @@ export function validateDrawLine(state, {
     if (!spec) return reject('invalid_end');
     if (spec.utility !== utilityType) return reject('port_type_mismatch');
     endSpec = spec;
-    if (!portReusable(spec, utilityType)
-        && isPortTaken(state, end.placeableId, end.portName)) return reject('port_taken');
+    if (portConnectionCount(state, end.placeableId, end.portName)
+        >= portConnectionLimit(spec, utilityType)) return reject('port_taken');
 
     if (descriptor.requiresPortApproach) {
       const dir = segmentDirection(path[path.length - 2], path[path.length - 1]);
