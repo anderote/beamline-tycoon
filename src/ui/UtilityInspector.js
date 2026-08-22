@@ -389,44 +389,8 @@ export class UtilityInspector {
   }
 
   _handleRefill() {
-    const game = this.game;
-    const desc = UTILITY_TYPES[this.utilityType];
-    if (!desc || typeof desc.refillCost !== 'function') return;
-    const state = game.state;
-    const persistent = (state.utilityNetworkState && state.utilityNetworkState.get)
-      ? (state.utilityNetworkState.get(this.networkId) || {})
-      : {};
-    let cost = null;
-    try { cost = desc.refillCost(persistent); } catch (_) { cost = null; }
-    if (!cost) return;
-
-    if (typeof game.canAfford === 'function' && !game.canAfford(cost)) {
-      if (typeof game.log === 'function') game.log('Cannot afford refill', 'bad');
-      return;
-    }
-    // chargeReservoirRefill, not spend: it books the charge into the next
-    // tick's economy snapshot as well as deducting it. A bare spend() here
-    // leaves the economy panel reporting a refill cost of $0 forever.
-    if (typeof game.chargeReservoirRefill === 'function') game.chargeReservoirRefill(cost);
-    else if (typeof game.spend === 'function') game.spend(cost);
-
-    // Fixed reservoirs refill to descriptor defaults. Dynamic reservoirs
-    // (cooling water) derive their full volume from the connected storage and
-    // expose a descriptor hook so a 5,000 L tank is not reset to a hard-coded
-    // legacy amount.
-    const defaults = desc.persistentStateDefaults || {};
-    const resetState = typeof desc.refilledPersistentState === 'function'
-      ? desc.refilledPersistentState(persistent)
-      : { ...persistent, ...defaults };
-    if (state.utilityNetworkState && typeof state.utilityNetworkState.set === 'function') {
-      state.utilityNetworkState.set(this.networkId, resetState);
-    }
-
-    if (typeof game.log === 'function') {
-      game.log(`${desc.displayName} refilled`, 'good');
-    }
-
-    if (this.ctx && this.ctx._el) this.ctx.update();
+    const result = this.game.refillUtilityNetwork?.(this.utilityType, this.networkId);
+    if (result?.ok && this.ctx && this.ctx._el) this.ctx.update();
   }
 
   _placeableLabel(id) {

@@ -34,6 +34,10 @@ import { SolveRunner } from '../utility/solve-runner.js';
 import { UtilityGate, declaredSinkQualityFloor } from './utility-gate.js';
 import { PowerReliabilityCoordinator } from './power-reliability.js';
 import {
+  refillEmptyReservoirForPlaceable as refillEmptyReservoirForPlaceableCommand,
+  refillUtilityNetwork as refillUtilityNetworkCommand,
+} from './reservoir-refill.js';
+import {
   EDGE_DELTAS, edgeKey, parseEdgeKey, findWallKey, findEdgeKey, isMirroredKey,
   clampDoorOff, defaultDoorOff, mirrorDoorOff,
   doorTileSpan, doorSpanPath, normalizeDoorSpanPath,
@@ -1323,6 +1327,35 @@ export class Game {
       this.state.resources[resource] = (this.state.resources[resource] || 0) - amount;
     }
     this._refillsCharged += (costs?.funding || 0);
+  }
+
+  /** Refill one utility network through the shared paid transaction command. */
+  refillUtilityNetwork(utilityType, networkId, { onlyIfEmpty = false } = {}) {
+    const result = refillUtilityNetworkCommand(this.state, utilityType, networkId, {
+      onlyIfEmpty,
+      canAfford: cost => this.canAfford(cost),
+      charge: cost => this.chargeReservoirRefill(cost),
+    });
+    return this._reportReservoirRefillResult(result);
+  }
+
+  /** Normal world clicks use this narrower empty-only reservoir action. */
+  refillEmptyReservoirForPlaceable(placeableId) {
+    const result = refillEmptyReservoirForPlaceableCommand(this.state, placeableId, {
+      canAfford: cost => this.canAfford(cost),
+      charge: cost => this.chargeReservoirRefill(cost),
+    });
+    return this._reportReservoirRefillResult(result);
+  }
+
+  _reportReservoirRefillResult(result) {
+    if (result?.ok) {
+      this.log(`${result.displayName} refilled for $${Number(result.cost?.funding || 0).toLocaleString()}`, 'good');
+      this.emit('resourcesChanged');
+    } else if (result?.reason === 'unaffordable') {
+      this.log('Cannot afford refill', 'bad');
+    }
+    return result;
   }
 
   isComponentUnlocked(comp) {
