@@ -188,6 +188,10 @@ the short authoring contract.
   physical rendered route against `wallOccupied`. Power and HV cable opt in;
   their freehand `cablePath` is authoritative when present. Fabricated pipe,
   waveguide, cooling, and cryogenic services retain direct wall crossing.
+- An HV cable whose two endpoints are utility poles or transmission towers is
+  an elevated span and may cross any wall or fence in plan view. The exception
+  requires two overhead supports; a transformer, panel, open end, or wall
+  feedthrough at either end keeps the ordinary wall-pass-through requirement.
 - Utility poles and transmission towers expose one passive HV port at every
   visible insulator. Each port accepts two wire attachments; those two lines
   share one conductor, while different insulator ports remain isolated. An HV

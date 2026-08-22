@@ -40,6 +40,7 @@ import {
   isSoftCable,
   roundedCableTilePath,
   sanitizeCablePath,
+  isOverheadHvSupport,
   softCableSkipsOverlap,
 } from './soft-cable.js';
 import { pathCrossesWall } from './wall-crossings.js';
@@ -324,6 +325,15 @@ function lookupDef(state, type) {
   return (type && COMPONENTS[type]) || null;
 }
 
+/** True only for a suspended HV span whose two ends are elevated supports. */
+function isOverheadHvSupportSpan(state, utilityType, start, end) {
+  if (utilityType !== 'hvCable' || !start || !end) return false;
+  return [start, end].every((ref) => {
+    const endpoint = findPlaceable(state, ref.placeableId);
+    return endpoint && isOverheadHvSupport(lookupDef(state, endpoint.type));
+  });
+}
+
 /**
  * May a port that already has a line take another?
  *
@@ -474,6 +484,7 @@ export function validateDrawLine(state, {
     ? roundedCableTilePath(freeform, utilityType)
     : path;
   if (descriptor.requiresWallPassThrough
+      && !isOverheadHvSupportSpan(state, utilityType, start, end)
       && pathCrossesWall(state?.wallOccupied, physicalPath)) {
     return reject('wall_pass_through_required');
   }

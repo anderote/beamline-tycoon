@@ -41,9 +41,12 @@ export function softCableBendRadiusMeters(utilityType) {
 }
 
 /** Components that mechanically support and tension an attached HV feeder. */
+export function isOverheadHvSupport(def) {
+  return def?.id === 'utilityPole' || def?.id === 'transmissionTower';
+}
+
 export function isHvCableTensionAnchor(def) {
-  return def?.id === 'utilityPole' || def?.id === 'transmissionTower'
-    || def?.wallPassThrough === true;
+  return isOverheadHvSupport(def) || def?.wallPassThrough === true;
 }
 
 /**
