@@ -6,6 +6,7 @@ import { COMPONENTS } from '../src/data/components.js';
 import { UniversalUtilityBusTool } from '../src/input/universal-utility-bus-tool.js';
 import { UtilityLineInputController } from '../src/input/UtilityLineInputController.js';
 import { standardPaletteKind } from '../src/ui/palette-collection.js';
+import coolingWater from '../src/utility/types/coolingWater.js';
 import {
   UNIVERSAL_BUS_MAX_CHANNELS,
   UniversalUtilityBusSystem,
@@ -95,6 +96,56 @@ assert.deepEqual(buses.ensureChannel(busId, 'cryoTransfer'), {
   ok: false, reason: 'bus_full',
 }, 'a fifth utility type is rejected');
 
+const balanceBusId = buses.addBus({
+  path: [{ col: 0, row: 10 }, { col: 4, row: 10 }],
+  taps: [0, 1, 2, 3, 4].map((col, index) => ({
+    id: `balance_tap_${index}`, index, point: { col, row: 10, subCol: 0, subRow: 0 },
+  })),
+});
+const balancePorts = [
+  ['source_a', 'out', 'source', {
+    capacity: 60, heatRejectionCapacity: 60, storageCapacityL: 300,
+    supplyRateLPerTick: 2,
+  }],
+  ['source_b', 'out', 'source', {
+    capacity: 50, heatRejectionCapacity: 50, storageCapacityL: 200,
+    supplyRateLPerTick: 2,
+  }],
+  ['sink_a', 'in', 'sink', { heatLoad: 40 }],
+  ['sink_b', 'in', 'sink', { heatLoad: 50 }],
+];
+for (let index = 0; index < balancePorts.length; index++) {
+  const [placeableId, portName] = balancePorts[index];
+  const id = buses.connectLine({
+    utilityType: 'coolingWater',
+    line: {
+      start: null, end: null,
+      path: [{ col: index, row: 10 }, { col: index, row: 11 }],
+    },
+    busTapIds: { start: balanceBusId, end: null },
+  });
+  assert.ok(id, `${placeableId} can branch from a periodic cooling tap`);
+  state.utilityLines.get(id).end = { placeableId, portName };
+}
+const specs = new Map(balancePorts.map(([id, name, role, params]) => [
+  `${id}:${name}`, { utility: 'coolingWater', role, params },
+]));
+const balancedNetworks = discoverNetworks(
+  'coolingWater', state.utilityLines,
+  (placeableId, portName) => specs.get(`${placeableId}:${portName}`) || null,
+);
+const balanced = balancedNetworks.find(network => network.sources.length === 2);
+assert.ok(balanced, 'all sources and sinks plugged into periodic taps form one bus network');
+assert.equal(balanced.sources.length, 2);
+assert.equal(balanced.sinks.length, 2);
+const solved = coolingWater.solve(balanced, { reservoirVolumeL: null }, {});
+assert.equal(solved.flowState.totalCapacity, 110,
+  'the universal network adds every connected cooling source');
+assert.equal(solved.flowState.totalDemand, 90,
+  'the universal network adds every connected cooling demand');
+assert.equal(solved.flowState.perSinkQuality['sink_a:in'], 1,
+  'combined bus supply serves connected demand through the ordinary solver');
+
 for (const utilityType of ['powerCable', 'vacuumPipe', 'rfWaveguide',
   'coolingWater', 'cryoTransfer', 'dataFiber', 'hvCable']) {
   const controller = new UtilityLineInputController({
@@ -127,7 +178,8 @@ assert.ok(builder._previewObject.children.length >= 6,
   'drag preview contains two rails and repeated crossbars');
 builder.setPreview(null, parent);
 builder.build(state.utilityLines, new Map(), parent, { state });
-const renderedRackGroups = parent.children.filter(group => group.userData?.isUniversalUtilityBus);
+const renderedRackGroups = parent.children.filter(group =>
+  group.userData?.isUniversalUtilityBus && group.userData.busId === busId);
 assert.equal(renderedRackGroups.filter(group => group.userData.channelSlot == null).length, 1,
   'the neutral metal rack renders independently of its utility channels');
 assert.equal(renderedRackGroups.filter(group => group.userData.channelSlot != null).length, 4,
@@ -137,12 +189,26 @@ assert.deepEqual(
     .map(group => group.userData.channelSlot).sort(),
   [0, 1, 2, 3],
   'rendered channels retain separate rack slots');
+for (const channel of renderedRackGroups.filter(group => group.userData.channelSlot != null)) {
+  const ports = [];
+  channel.traverse(object => {
+    if (object.userData?.isUniversalUtilityBusPort) ports.push(object);
+  });
+  assert.equal(ports.length, state.utilityBuses[0].taps.length,
+    `${channel.userData.utilityType} renders one utility-specific port at every rack tap`);
+  assert.ok(ports.every(port => port.userData.utilityType === channel.userData.utilityType),
+    'each periodic port is tagged as the utility carried by its lane');
+}
+const coolingBranchGroup = builder._lineGroups.get(coolingBranchId);
+const coolingBranchBounds = new THREE_NS.Box3().setFromObject(coolingBranchGroup);
+assert.ok(coolingBranchBounds.max.y > 0.9,
+  'a cooling branch visibly rises and plugs into its periodic tray port');
 builder.dispose(parent);
 assert.equal(parent.children.length, 0, 'renderer teardown removes rack and channel meshes');
 
 assert.equal(buses.removeBus(busId), true);
-assert.equal(state.utilityBuses.length, 0);
-assert.equal(state.utilityLines.size, 3,
+assert.equal(state.utilityBuses.length, 1, 'the unrelated balancing bus remains installed');
+assert.equal(state.utilityLines.size, 8,
   'removing the rack removes its backbones but leaves external branch ownership explicit');
 
 console.log('universal utility bus tests passed');
