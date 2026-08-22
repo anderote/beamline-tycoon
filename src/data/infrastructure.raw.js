@@ -76,6 +76,23 @@
 // of the reduction.
 // ══════════════════════════════════════════════════════════════════════════
 export const INFRASTRUCTURE_RAW = {
+  universalUtilityBus: {
+    id: 'universalUtilityBus',
+    name: 'Universal Utility Bus',
+    desc: 'A draggable metal service rack with four isolated channels. Draw power, vacuum, cooling, cryogenic, RF, or data lines onto the rack to claim a channel; connect additional sources to add capacity, then branch nearby equipment from its regular access points.',
+    category: 'power', subsection: 'transport', paletteOrder: -100,
+    cost: { funding: 20000 },
+    stats: {}, energyCost: 0,
+    subL: 4, subW: 2, subH: 1, gridW: 2, gridH: 4,
+    geometryType: 'box', baseMaterial: 'metal_brushed',
+    spriteKey: 'powerPanel', spriteColor: 0x8a8f96, accentColor: 0xb9c2ca,
+    hasSurface: false, placement: 'module', ports: {}, requiredConnections: [],
+    universalUtilityBus: {
+      slotCount: 4, tapSpacingSubtiles: 4, minLengthSubtiles: 4,
+      maxLengthSubtiles: 256, costPerSubtile: 5000,
+      trayFamily: 'universal-utility-bus',
+    },
+  },
   magnetron: {
     id: 'magnetron',
     name: 'Magnetron',
@@ -394,11 +411,6 @@ export const INFRASTRUCTURE_RAW = {
     hasSurface: false,
     placement: 'module',
     ports: {},
-    linearManifold: {
-      utility: 'rfWaveguide', tapSpacingSubtiles: 4, minLengthSubtiles: 4,
-      maxLengthSubtiles: 96, costPerSubtile: 18000, serviceRadius: 6,
-    },
-
     requiredConnections: [],
   },
   llrfController: {
@@ -789,11 +801,6 @@ export const INFRASTRUCTURE_RAW = {
     spriteColor: 0x2fbccc,
     placement: 'module',
     ports: {},
-    linearManifold: {
-      utility: 'cryoTransfer', tapSpacingSubtiles: 4, minLengthSubtiles: 4,
-      maxLengthSubtiles: 96, costPerSubtile: 28000, serviceRadius: 6,
-    },
-
     requiredConnections: [],
   },
 
@@ -999,11 +1006,6 @@ export const INFRASTRUCTURE_RAW = {
     hasSurface: false,
     placement: 'module',
     ports: {},
-    linearManifold: {
-      utility: 'vacuumPipe', tapSpacingSubtiles: 4, minLengthSubtiles: 4,
-      maxLengthSubtiles: 128, costPerSubtile: 12000, serviceRadius: 5,
-    },
-
     requiredConnections: [],
   },
   vacuumManifold8: {
@@ -1023,11 +1025,6 @@ export const INFRASTRUCTURE_RAW = {
     hasSurface: false,
     placement: 'module',
     ports: {},
-    linearManifold: {
-      utility: 'vacuumPipe', tapSpacingSubtiles: 4, minLengthSubtiles: 4,
-      maxLengthSubtiles: 256, costPerSubtile: 10000, serviceRadius: 7,
-    },
-
     requiredConnections: [],
   },
   piraniGauge: {
@@ -1197,11 +1194,6 @@ export const INFRASTRUCTURE_RAW = {
     hasSurface: false,
     placement: 'module',
     ports: {},
-    linearManifold: {
-      utility: 'coolingWater', tapSpacingSubtiles: 4, minLengthSubtiles: 4,
-      maxLengthSubtiles: 160, costPerSubtile: 9000, serviceRadius: 8,
-    },
-
     requiredConnections: [],
   },
   // The bottom two rungs of the cooling ladder. Every other utility had a
@@ -1702,11 +1694,6 @@ export const INFRASTRUCTURE_RAW = {
     hasSurface: false,
     placement: 'module',
     ports: {},
-    linearManifold: {
-      utility: 'dataFiber', tapSpacingSubtiles: 4, minLengthSubtiles: 4,
-      maxLengthSubtiles: 256, costPerSubtile: 3500, serviceRadius: 12,
-    },
-
     requiredConnections: [],
   },
 
@@ -2247,11 +2234,6 @@ export const INFRASTRUCTURE_RAW = {
     hasSurface: false,
     placement: 'module',
     ports: {},
-    linearManifold: {
-      utility: 'powerCable', tapSpacingSubtiles: 4, minLengthSubtiles: 4,
-      maxLengthSubtiles: 256, costPerSubtile: 7000, serviceRadius: 10,
-    },
-
     requiredConnections: [],
   },
   cableTray: {

@@ -240,6 +240,30 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     }
   }
 
+  function checkUniversalUtilityBus(id, def) {
+    const bus = def.universalUtilityBus;
+    if (bus == null) return;
+    if (typeof bus !== 'object' || Array.isArray(bus)) {
+      problem(id, 'universalUtilityBus', 'universalUtilityBus must be an object');
+      return;
+    }
+    for (const field of ['slotCount', 'tapSpacingSubtiles', 'minLengthSubtiles', 'maxLengthSubtiles']) {
+      if (!Number.isInteger(bus[field]) || bus[field] <= 0) {
+        problem(id, `universalUtilityBus.${field}`, `${field} must be a positive integer`);
+      }
+    }
+    if (bus.slotCount !== 4) {
+      problem(id, 'universalUtilityBus.slotCount', 'the universal bus must expose exactly four channels');
+    }
+    if (Number.isInteger(bus.minLengthSubtiles) && Number.isInteger(bus.maxLengthSubtiles)
+        && bus.minLengthSubtiles > bus.maxLengthSubtiles) {
+      problem(id, 'universalUtilityBus', 'minLengthSubtiles must not exceed maxLengthSubtiles');
+    }
+    if (!Number.isFinite(bus.costPerSubtile) || bus.costPerSubtile < 0) {
+      problem(id, 'universalUtilityBus.costPerSubtile', 'costPerSubtile must be non-negative');
+    }
+  }
+
   // Assisted wiring still commits ordinary utility lines, so its authored
   // utility must exist and the device needs a real source connector to start
   // each promised run. autoConnectUtility defaults to powerCable for the
@@ -778,6 +802,7 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
     checkElectrical(id, def);
     checkMapEdgeConnection(id, def);
     checkLinearManifold(id, def);
+    checkUniversalUtilityBus(id, def);
   }
 
   // ── Furnishings + equipment (zone-scoped) ─────────────────────────

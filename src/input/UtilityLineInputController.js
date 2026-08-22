@@ -327,15 +327,18 @@ export class UtilityLineInputController {
           && startRef.placeableId === endRef.placeableId
           && startRef.portName === endRef.portName),
         cost: this._wiringCost(pricedSubL) || undefined,
-        mutate: () => this.game.utilityLineSystem.addLine({
-          utilityType: this._utilityType,
-          start: startRef,
-          end: endRef,
-          path,
-          cablePath,
-          tapLineIds: geom.tapLineIds,
-          routeHeightMeters: geom.routeHeightMeters,
-        }),
+        mutate: () => {
+          const line = {
+            start: startRef, end: endRef, path, cablePath,
+            tapLineIds: geom.tapLineIds,
+            routeHeightMeters: geom.routeHeightMeters,
+          };
+          return geom.busTapIds.start || geom.busTapIds.end
+            ? this.game.utilityBusSystem?.connectLine({
+                utilityType: this._utilityType, line, busTapIds: geom.busTapIds,
+              })
+            : this.game.utilityLineSystem.addLine({ utilityType: this._utilityType, ...line });
+        },
       });
     }
     this._cancelDraw();
@@ -484,6 +487,16 @@ export class UtilityLineInputController {
       start: this._drawStart && this._drawStart.tap ? this._drawStart.lineId : null,
       end: endAnchor && endAnchor.tap ? endAnchor.lineId : null,
     };
+    const busTapIds = {
+      start: this._drawStart?.busTap ? this._drawStart.busId : null,
+      end: endAnchor?.busTap ? endAnchor.busId : null,
+    };
+    for (const end of ['start', 'end']) {
+      if (!busTapIds[end]) continue;
+      tapLineIds[end] = this.game.utilityBusSystem?.channelLineId(
+        busTapIds[end], this._utilityType,
+      ) || null;
+    }
 
     const isPowerCable = this._utilityType === 'powerCable';
     // Normal-length cords keep their small visual lead-outs: those give the
@@ -582,7 +595,7 @@ export class UtilityLineInputController {
     if (reason === null && !routedFallback && startRef && endRef) reason = 'port_clearance';
     this._dragReject = chosen ? null : reason;
     return {
-      startTile, endTile, endAnchor, startRef, endRef, tapLineIds,
+      startTile, endTile, endAnchor, startRef, endRef, tapLineIds, busTapIds,
       path: chosen || routedFallback,
       routeHeightMeters: chosenRouteHeight
         ?? (descriptor.verticalRouteLanes ? preferredRouteHeightMeters : null),
@@ -700,6 +713,10 @@ export class UtilityLineInputController {
   _snapToNearest(worldX, worldY, screen) {
     const port = this._snapToNearestPort(worldX, worldY, screen);
     if (port) return port;
+    const bus = this.nearestBus(worldX, worldY, TAP_SNAP_RADIUS_TILES);
+    if (bus) return {
+      open: true, busTap: true, busId: bus.busId, worldPos: bus.worldPos,
+    };
     const ordinaryTapAllowed = UTILITY_TYPES[this._utilityType]?.allowsTap !== false;
     // Stacked runs project to different screen positions. If the cursor
     // actually hit a mesh, re-project onto THAT line's elevation and restrict
@@ -738,6 +755,35 @@ export class UtilityLineInputController {
       worldPos: tap.worldPos,
       routeHeightMeters: tap.routeHeightMeters,
     };
+  }
+
+  /** Nearest access point on any utility-neutral rack. */
+  nearestBus(worldX, worldY, maxTiles = 0.4) {
+    const cursor = this._isoFloatToWorld(worldX, worldY);
+    let best = null;
+    let bestDist = maxTiles * 2;
+    for (const bus of this.game.state.utilityBuses || []) {
+      const accessPoints = (bus.taps || []).length > 0
+        ? bus.taps.map(tap => ({
+            col: (tap.point?.col || 0) + (tap.point?.subCol || 0) / 4,
+            row: (tap.point?.row || 0) + (tap.point?.subRow || 0) / 4,
+          }))
+        : expandPath(bus.path || []);
+      for (const point of accessPoints) {
+        const dx = point.col * 2 - cursor.x;
+        const dz = point.row * 2 - cursor.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = {
+            busId: bus.id,
+            worldPos: { x: point.col * 2, z: point.row * 2 },
+            dist,
+          };
+        }
+      }
+    }
+    return best;
   }
 
   /**
