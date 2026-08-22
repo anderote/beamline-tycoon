@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
-import { DISTRIBUTION_OUTPUT_LAYOUTS } from '../src/data/distribution-output-layout.js';
+import {
+  DISTRIBUTION_OUTPUT_LAYOUTS,
+  DISTRIBUTION_TOP_TERMINAL_LAYOUTS,
+} from '../src/data/distribution-output-layout.js';
+import { INFRASTRUCTURE_RAW } from '../src/data/infrastructure.raw.js';
+import { getUtilityPortsV2 } from '../src/data/utility-ports-v2.js';
 import { portAnchorOverride } from '../src/data/utility-port-anchors.js';
 
 globalThis.THREE = THREE;
@@ -11,6 +16,7 @@ const {
   _buildHVTransformerRoles,
   _buildSwitchgearRoles,
   _buildMCCRoles,
+  _buildUPSRoles,
   _buildCompactDistributionPanelRoles,
   _buildSectionDistributionPanelRoles,
   _buildMainDistributionPanelRoles,
@@ -27,37 +33,99 @@ function disposeBuckets(buckets) {
   }
 }
 
-test('electrical distribution outputs use horizontal rows of four or two', () => {
+test('electrical distribution breaker controls use horizontal rows of four or two', () => {
   const expectedRows = {
     poleMountTransformer: [4],
     compactHvDistributor: [2],
     switchgear: [4],
     powerPanel: [4],
-    sectionDistributionPanel: [4, 2],
+    sectionDistributionPanel: [4, 4],
     mainDistributionPanel: [4, 4],
     mcc: [4, 4],
     ups: [2],
   };
 
   for (const [type, rowCounts] of Object.entries(expectedRows)) {
-    const prefix = type === 'compactHvDistributor' || type === 'switchgear'
-      ? 'hv_out' : 'pwr_out';
     const positions = DISTRIBUTION_OUTPUT_LAYOUTS[type];
     const rows = [...new Set(positions.map(({ y }) => y))];
     assert.deepEqual(rows.map(y => positions.filter(pos => pos.y === y).length), rowCounts,
       `${type} uses the expected horizontal output rows`);
-
-    for (const [index, position] of positions.entries()) {
-      const anchor = portAnchorOverride(type, `${prefix}_${index + 1}`);
-      assert.equal(anchor.along, position.x, `${type} output ${index + 1} has the row's X position`);
-      assert.equal(anchor.y, position.y, `${type} output ${index + 1} has the row's height`);
-    }
 
     for (const y of rows) {
       const xs = positions.filter(pos => pos.y === y).map(({ x }) => x);
       assert.deepEqual(xs, [...xs].sort((a, b) => a - b),
         `${type} outputs run left-to-right within each row`);
     }
+  }
+});
+
+test('distribution cables terminate on visible top insulator caps', () => {
+  const builders = {
+    compactHvDistributor: _buildCompactHvDistributorRoles,
+    switchgear: _buildSwitchgearRoles,
+    powerPanel: _buildCompactDistributionPanelRoles,
+    sectionDistributionPanel: _buildSectionDistributionPanelRoles,
+    mainDistributionPanel: _buildMainDistributionPanelRoles,
+    mcc: _buildMCCRoles,
+    ups: _buildUPSRoles,
+  };
+
+  const authoredDistributionTypes = Object.keys(INFRASTRUCTURE_RAW).filter(type =>
+    Object.values(getUtilityPortsV2(type)).some(port =>
+      port.connectionKind === 'hvDistributionIn'));
+  assert.deepEqual(
+    Object.keys(DISTRIBUTION_TOP_TERMINAL_LAYOUTS).sort(),
+    authoredDistributionTypes.sort(),
+    'every HV distribution device has a roof-terminal layout',
+  );
+
+  for (const [type, layout] of Object.entries(DISTRIBUTION_TOP_TERMINAL_LAYOUTS)) {
+    const ports = getUtilityPortsV2(type);
+    const outputs = Object.entries(ports)
+      .filter(([, port]) => port.connectionKind === 'hvDistributionOut'
+        || port.connectionKind === 'powerDistributionOut')
+      .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
+    assert.equal(layout.outputs.length, outputs.length, `${type} lays out every physical output`);
+
+    const terminals = [
+      ['hv_in', layout.input],
+      ...outputs.map(([name], index) => [name, layout.outputs[index]]),
+    ];
+    for (const [portName, terminal] of terminals) {
+      const anchor = portAnchorOverride(type, portName);
+      assert.deepEqual(anchor.normal, { x: 0, y: 1, z: 0 },
+        `${type}.${portName} faces upward`);
+      assert.equal(anchor.localX, terminal.x, `${type}.${portName} uses its cap X`);
+      assert.equal(anchor.localZ, terminal.z, `${type}.${portName} uses its cap Z`);
+      assert.equal(anchor.y, terminal.y, `${type}.${portName} lands on the cap top`);
+    }
+
+    const build = builders[type];
+    if (!build) {
+      // Pole-mounted gear uses its authored parts model rather than a role
+      // builder. Its tagged cap parts still share the exact terminal contract.
+      const capParts = INFRASTRUCTURE_RAW[type].parts
+        .filter(part => part.utilityTerminalCap === true);
+      assert.equal(capParts.length, terminals.length,
+        `${type} authors one metal cap per input/output anchor`);
+      for (const [, terminal] of terminals) {
+        assert.ok(capParts.some(part =>
+          Math.abs(part.x * 0.5 - terminal.x) < 1e-6
+          && Math.abs((part.y + part.h) * 0.5 - terminal.y) < 1e-6
+          && Math.abs(part.z * 0.5 - terminal.z) < 1e-6),
+        `${type} has visible cap geometry at (${terminal.x}, ${terminal.y}, ${terminal.z})`);
+      }
+      continue;
+    }
+    const buckets = build();
+    const caps = buckets.copper.filter(geometry => {
+      geometry.computeBoundingBox();
+      return terminals.some(([, terminal]) =>
+        Math.abs(geometry.boundingBox.max.y - terminal.y) < 1e-6);
+    });
+    assert.equal(caps.length, terminals.length,
+      `${type} renders one metal cap per input/output anchor`);
+    disposeBuckets(buckets);
   }
 });
 
@@ -101,8 +169,8 @@ test('distribution panel rungs are detailed NEMA enclosures, not plain boxes', (
     `compact panel has doors, hinges, breakers, labels and vents (${totalParts(compact)} parts)`);
   assert.ok(totalParts(section) > totalParts(compact),
     'section panel visibly adds a second cabinet/breaker bank');
-  assert.ok(totalParts(main) > totalParts(section),
-    'main panel visibly carries the largest breaker lineup');
+  assert.equal(totalParts(main), totalParts(section),
+    'section and main panels both carry complete eight-breaker lineups');
 
   for (const [name, buckets] of [['compact', compact], ['section', section], ['main', main]]) {
     assert.ok(buckets.accent.length >= 3, `${name} panel has a cabinet, cap and proud door`);
@@ -119,7 +187,7 @@ test('switchgear and MCC show serviceable electrical compartments', () => {
   const mcc = _buildMCCRoles();
 
   assert.ok(totalParts(compactHv) >= 20,
-    `compact HV distributor has a door, two breaker outlets and rear inlet (${totalParts(compactHv)} parts)`);
+    `compact HV distributor has a door, two breaker controls and roof terminals (${totalParts(compactHv)} parts)`);
   assert.equal(compactHv.glow.length, 1, 'compact HV distributor has one restrained status lamp');
   assert.equal(compactHv.copper.length, 4,
     'compact HV distributor shows one inlet, two outlets and its grounding bond');
@@ -129,7 +197,7 @@ test('switchgear and MCC show serviceable electrical compartments', () => {
   assert.ok(totalParts(switchgear) >= 35,
     `switchgear has a door, meter, breaker hardware and lifting eyes (${totalParts(switchgear)} parts)`);
   assert.equal(switchgear.glow.length, 3, 'switchgear has three phase/status pilot lamps');
-  assert.ok(switchgear.copper.length >= 9, 'switchgear retains terminals plus a grounding strap');
+  assert.ok(switchgear.copper.length >= 7, 'switchgear retains five terminal caps plus bonded metalwork');
 
   assert.ok(totalParts(mcc) >= 70,
     `MCC has eight individually legible starter buckets (${totalParts(mcc)} parts)`);

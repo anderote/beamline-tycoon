@@ -79,7 +79,12 @@ function includesFloorPoint(points, target, utilityType) {
     && Math.abs(p.z - target.z) < 1e-6);
 }
 
-console.log('\n--- 1. Start-port tail remains orthogonal ---');
+function verticalSegments(points) {
+  return points.slice(1).map((point, index) => [points[index], point])
+    .filter(([a, b]) => Math.abs(a.y - b.y) > 1e-6);
+}
+
+console.log('\n--- 1. Start-port tail climbs outside a roof-terminal cabinet ---');
 {
   const points = buildWorldPoints({
     utilityType: 'powerCable', start: ref, end: null,
@@ -91,13 +96,17 @@ console.log('\n--- 1. Start-port tail remains orthogonal ---');
     ],
   }, endpoints);
   assert(includesPoint(points, anchor), 'moves the floor route onto the visible connector');
-  assert(!includesFloorPoint(points, logical, 'powerCable'),
-    'drops the old floor-level footprint endpoint instead of looping back to it');
+  assert(includesFloorPoint(points, logical, 'powerCable'),
+    'uses the logical footprint side as the outside vertical landing');
+  assert(verticalSegments(points).length === 1
+      && Math.abs(verticalSegments(points)[0][0].x - logical.x) < 1e-6
+      && Math.abs(verticalSegments(points)[0][0].z - logical.z) < 1e-6,
+    'the only vertical cable leg stays outside at the authored side');
   assert(points.length >= 6, `adds the connector riser (got ${points.length} points)`);
   assert(isOrthogonal(points), 'every connector-to-route segment changes only one axis');
 }
 
-console.log('\n--- 2. End-port tail remains orthogonal ---');
+console.log('\n--- 2. End-port tail climbs outside a roof-terminal cabinet ---');
 {
   const points = buildWorldPoints({
     utilityType: 'powerCable', start: null, end: ref,
@@ -109,8 +118,12 @@ console.log('\n--- 2. End-port tail remains orthogonal ---');
     ],
   }, endpoints);
   assert(includesPoint(points, anchor), 'moves the sink floor route onto the visible connector');
-  assert(!includesFloorPoint(points, logical, 'powerCable'),
-    'the sink tail does not revisit its old floor-level footprint edge');
+  assert(includesFloorPoint(points, logical, 'powerCable'),
+    'the sink tail uses its footprint side before crossing above the roof');
+  assert(verticalSegments(points).length === 1
+      && Math.abs(verticalSegments(points)[0][0].x - logical.x) < 1e-6
+      && Math.abs(verticalSegments(points)[0][0].z - logical.z) < 1e-6,
+    'the sink has no vertical cable segment through its cabinet');
   assert(points.length >= 6, `adds the unreversed sink riser (got ${points.length} points)`);
   assert(isOrthogonal(points), 'the sink tail has no diagonal segment');
 }
@@ -127,9 +140,11 @@ console.log('\n--- 3. A shared L corner absorbs both measured endpoints ---');
   }, endpoints);
   assert(includesPoint(points, anchor) && includesPoint(points, anchor2),
     'both floor terminals land on their visible connectors');
-  assert(!includesFloorPoint(points, logical, 'powerCable')
-    && !includesFloorPoint(points, logical2, 'powerCable'),
-    'neither end detours through its old floor-level footprint position');
+  assert(includesFloorPoint(points, logical, 'powerCable')
+    && includesFloorPoint(points, logical2, 'powerCable'),
+    'both roof-terminal tails climb at their equipment footprint sides');
+  assert(verticalSegments(points).length === 2,
+    'the shared run has one outside vertical leg per cabinet');
   assert(isOrthogonal(points), 'moving both ends keeps the shared corner Manhattan');
 }
 
@@ -155,8 +170,7 @@ console.log('\n--- 4. A top cryo bayonet drops outside its cryostat ---');
     ],
   }, cryoEndpoints);
   const tipY = cryoAnchor.y + cryoAnchor.out.y * cryoAnchor.standoff;
-  const verticals = points.slice(1).map((point, index) => [points[index], point])
-    .filter(([a, b]) => Math.abs(a.y - b.y) > 1e-6);
+  const verticals = verticalSegments(points);
 
   assert(isOrthogonal(points), 'the side-drop transition remains fully orthogonal');
   assert(points.some(point => Math.abs(point.x - cryoAnchor.x) < 1e-6

@@ -2181,7 +2181,7 @@ export const INFRASTRUCTURE_RAW = {
   sectionDistributionPanel: {
     id: 'sectionDistributionPanel',
     name: 'Section Distribution Panel',
-    desc: 'A larger green distribution panel for a beamline section or service bay. One HV feeder provides six 25 kW branch circuits (150 kW total).',
+    desc: 'A larger green distribution panel for a beamline section or service bay. One HV feeder provides eight 25 kW branch circuits (200 kW total).',
     category: 'power', subsection: 'distribution',
     paletteOrder: 20,
     cost: { funding: 180000 },
@@ -2196,7 +2196,7 @@ export const INFRASTRUCTURE_RAW = {
     placement: 'module',
     ports: {},
     electricalControl: {
-      breaker: { utility: 'powerCable', rating: 150, tripDelayTicks: 5 },
+      breaker: { utility: 'powerCable', rating: 200, tripDelayTicks: 5 },
     },
     requiredConnections: [],
   },
@@ -2268,7 +2268,7 @@ export const INFRASTRUCTURE_RAW = {
   poleMountTransformer: {
     id: 'poleMountTransformer',
     name: 'Pole-Mount Service Transformer',
-    desc: 'Outdoor 100 kW service transformer. Bring HV from a utility pole into its rear bushing, then feed up to four ordinary branch-power circuits from the secondary terminals.',
+    desc: 'Outdoor 100 kW service transformer. Bring HV from a utility pole into its roof inlet, then feed up to four ordinary branch-power circuits from the adjacent roof terminals.',
     category: 'power', subsection: 'distribution',
     paletteOrder: 2,
     cost: { funding: 95000 },
@@ -2292,8 +2292,18 @@ export const INFRASTRUCTURE_RAW = {
       { w: 2.0, h: 0.20, l: 2.0, x: 0, y: 0, z: 0, color: 0x4a5052 },
       { w: 1.55, h: 2.35, l: 1.55, x: 0, y: 0.20, z: 0, color: 0x6b7476 },
       { w: 1.72, h: 0.18, l: 1.72, x: 0, y: 2.55, z: 0, color: 0x343a3c },
-      { w: 0.22, h: 0.75, l: 0.22, x: -0.43, y: 2.73, z: -0.25, color: 0x32291d },
-      { w: 0.22, h: 0.75, l: 0.22, x: 0.43, y: 2.73, z: -0.25, color: 0x32291d },
+      // One heavy HV inlet and four branch terminals. The cap tops coincide
+      // with DISTRIBUTION_TOP_TERMINAL_LAYOUTS after SUB_UNIT scaling.
+      { w: 0.15, h: 0.26, l: 0.15, x: 0, y: 2.73, z: -0.36, color: 0x32291d },
+      { w: 0.12, h: 0.26, l: 0.12, x: -0.60, y: 2.73, z: 0.36, color: 0x32291d },
+      { w: 0.12, h: 0.26, l: 0.12, x: -0.20, y: 2.73, z: 0.36, color: 0x32291d },
+      { w: 0.12, h: 0.26, l: 0.12, x: 0.20, y: 2.73, z: 0.36, color: 0x32291d },
+      { w: 0.12, h: 0.26, l: 0.12, x: 0.60, y: 2.73, z: 0.36, color: 0x32291d },
+      { w: 0.19, h: 0.06, l: 0.19, x: 0, y: 2.99, z: -0.36, color: 0xb46e32, utilityTerminalCap: true },
+      { w: 0.16, h: 0.06, l: 0.16, x: -0.60, y: 2.99, z: 0.36, color: 0xb46e32, utilityTerminalCap: true },
+      { w: 0.16, h: 0.06, l: 0.16, x: -0.20, y: 2.99, z: 0.36, color: 0xb46e32, utilityTerminalCap: true },
+      { w: 0.16, h: 0.06, l: 0.16, x: 0.20, y: 2.99, z: 0.36, color: 0xb46e32, utilityTerminalCap: true },
+      { w: 0.16, h: 0.06, l: 0.16, x: 0.60, y: 2.99, z: 0.36, color: 0xb46e32, utilityTerminalCap: true },
       { w: 1.18, h: 0.28, l: 0.16, x: 0, y: 1.05, z: 0.84, color: 0xe1b84b },
     ],
     requiredConnections: [],

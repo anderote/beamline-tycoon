@@ -284,12 +284,12 @@ function anchorTip(anchor) {
   };
 }
 
-// A top-facing cryogenic bayonet cannot use the ordinary port riser: dropping
-// at the anchor's X/Z sends the transfer line vertically through the cryostat.
-// Its simulation port remains on the authored footprint side, which is an
-// ideal presentation-only landing point for the descent outside the vessel.
-function cryoSideDropLanding(utilityType, ref, placeablesById, anchor) {
-  if (utilityType !== 'cryoTransfer' || !ref || !placeablesById || !anchor) return null;
+// A top-facing fitting cannot use the ordinary port riser: dropping at the
+// anchor's X/Z sends the line vertically through the equipment. Its simulation
+// port remains on an authored footprint side, which is the presentation-only
+// landing point for a vertical leg outside the cabinet or vessel.
+function topPortSideDropLanding(ref, placeablesById, anchor) {
+  if (!ref || !placeablesById || !anchor) return null;
   if (!anchor.out || anchor.out.y < 0.5) return null;
   const rec = placeablesById.get(ref.placeableId);
   const def = rec && COMPONENTS[rec.type];
@@ -398,10 +398,10 @@ export function buildWorldPoints(line, placeablesById, tapAnchors = null) {
   if (line.utilityType === 'rfWaveguide') {
     return attachWaveguideTransitions(points, startAnchor, endAnchor, runY, descriptor);
   }
-  const startSideDrop = cryoSideDropLanding(
-    line.utilityType, line.start, placeablesById, startAnchor);
-  const endSideDrop = cryoSideDropLanding(
-    line.utilityType, line.end, placeablesById, endAnchor);
+  const startSideDrop = topPortSideDropLanding(
+    line.start, placeablesById, startAnchor);
+  const endSideDrop = topPortSideDropLanding(
+    line.end, placeablesById, endAnchor);
   const alignedShortRun = (startSideDrop || endSideDrop)
     && alignTwoPointRunToTargets(
       points,
@@ -486,7 +486,7 @@ function portRiser(
   pushDistinct(logical.x, runY, logical.z);
   if (sideDropLanding && out.y > 0.5) {
     // Ordered run-first: rise outside the footprint, cross above the roof, and
-    // terminate at the top of the bayonet. Reversing this list at a start port
+    // terminate at the top fitting. Reversing this list at a start port
     // naturally produces the requested "out to the side, then down" shape.
     const tipY = anchor.y + out.y * d;
     pushDistinct(logical.x, tipY, logical.z);
