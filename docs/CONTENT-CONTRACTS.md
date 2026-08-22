@@ -316,7 +316,7 @@ the short authoring contract.
   water at 0.75 m, RF at 1.20 m, vacuum at 1.50 m, and lukewarm water at
   1.80 m. Authored
   equipment fittings remain on their visible hardware and use short local
-  transitions to these datums. Every rigid descriptor uses the shared 1 m
+  transitions to these datums. Every rigid descriptor uses the shared 1.25 m
   support spacing and 3 m minimum supported-run threshold, so co-located runs
   form an aligned vertical stack on consolidated rack frames. Route planning
   and equipment collision use the connected port's water circuit. A cold and
