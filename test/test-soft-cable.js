@@ -20,17 +20,19 @@ function assert(condition, message) {
   else { failed++; console.log('FAIL ', message); }
 }
 
-assert(SOFT_CABLE_TYPES.join(',') === 'powerCable,hvCable,coolingWater',
-  'Power, HV and cooling water use flexible drawn geometry');
+assert(SOFT_CABLE_TYPES.join(',') === 'powerCable,hvCable,coolingWater,dataFiber',
+  'Power, HV, cooling water and data use flexible drawn geometry');
 assert(FREEFORM_TOPOLOGY_TYPES.join(',') === 'coolingWater',
   'only cooling uses its visible freehand route as network topology');
 assert(SOFT_CABLE_MAX_POINTS === 1024,
   'detailed freehand runs retain up to 1024 samples');
 assert(SOFT_CABLE_BEND_RADIUS_METERS.powerCable
+    < SOFT_CABLE_BEND_RADIUS_METERS.dataFiber
+    && SOFT_CABLE_BEND_RADIUS_METERS.dataFiber
     < SOFT_CABLE_BEND_RADIUS_METERS.coolingWater
     && SOFT_CABLE_BEND_RADIUS_METERS.coolingWater
       < SOFT_CABLE_BEND_RADIUS_METERS.hvCable,
-  'power bends tightest, cooling is intermediate, and HV bends broadest');
+  'power bends tightest, then data, cooling and HV');
 
 const rightAngle = [
   { x: 0, z: 0 },
@@ -46,7 +48,8 @@ for (const [utilityType, radius] of Object.entries(SOFT_CABLE_BEND_RADIUS_METERS
       && rounded[rounded.length - 1].x === 4 && rounded[rounded.length - 1].z === 4,
     `${utilityType} rounding preserves both connection endpoints`);
 }
-assert(turnStarts.powerCable > turnStarts.coolingWater
+assert(turnStarts.powerCable > turnStarts.dataFiber
+    && turnStarts.dataFiber > turnStarts.coolingWater
     && turnStarts.coolingWater > turnStarts.hvCable,
   `larger bend radii begin turning sooner (${JSON.stringify(turnStarts)})`);
 

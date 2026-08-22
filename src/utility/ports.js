@@ -72,18 +72,17 @@ export function portSide(def, portName, dir, portsFlipped = false) {
   return rotateCompass(base, dir || 0);
 }
 
-/**
- * Does a claimed SOURCE port of this utility stay available for more lines?
- *
- * A manifold outlet genuinely feeds several branches, so fluids fan out. A
- * power socket takes one plug: that is what makes a panel's outlet count a
- * resource rather than decoration, and what stops one transformer port wiring
- * an entire facility. Unknown utilities keep the old permissive behaviour so a
- * test's fake port table is unaffected.
- */
-function sourceFansOut(utilityType) {
-  const d = UTILITY_TYPES[utilityType];
-  return !d || d.fansOut !== false;
+/** Maximum simultaneous cable attachments accepted by one physical port. */
+export function utilityPortConnectionLimit(spec, utilityType) {
+  if (!spec) return 0;
+  if (Number.isInteger(spec.maxConnections)) return spec.maxConnections;
+  const descriptor = UTILITY_TYPES[utilityType];
+  if (Number.isInteger(descriptor?.defaultPortMaxConnections)) {
+    return descriptor.defaultPortMaxConnections;
+  }
+  if (descriptor?.topology === 'bus') return descriptor.fansOut !== false ? Infinity : 1;
+  if (spec.role !== 'source') return 1;
+  return (!descriptor || descriptor.fansOut !== false) ? Infinity : 1;
 }
 
 export function availablePorts(placeable, def, utilityType, lines) {
@@ -103,15 +102,9 @@ export function availablePorts(placeable, def, utilityType, lines) {
   const candidates = Object.entries(def.ports)
     .filter(([_, spec]) => spec && spec.utility === utilityType)
     .map(([name, spec]) => ({ name, spec }));
-  const fanOut = sourceFansOut(utilityType);
   return candidates
     .filter(({ name, spec }) => {
-      const authoredLimit = Number.isInteger(spec.maxConnections)
-        ? spec.maxConnections : null;
-      if (authoredLimit == null && fanOut
-          && (spec.role === 'source' || UTILITY_TYPES[utilityType]?.topology === 'bus')) return true;
-      const maxConnections = authoredLimit ?? 1;
-      return (claims.get(name) || 0) < maxConnections;
+      return (claims.get(name) || 0) < utilityPortConnectionLimit(spec, utilityType);
     })
     .map(({ name }) => name);
 }

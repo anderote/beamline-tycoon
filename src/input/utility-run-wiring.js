@@ -160,12 +160,14 @@ export function planUtilityRun(state, {
 
   // How many stubs this gesture can start, and from where.
   //
-  // A fanning utility (a manifold outlet feeding several branches) serves every
-  // stub from the one anchored port. A non-fanning one — power, HV, RF, fibre —
-  // takes one cable per socket, so the gesture walks the device's FREE OUTLETS
-  // in order and stops when they run out. That is the whole point of a
-  // distribution panel having four sockets instead of one: shift-dragging along
-  // a row of magnets wires as many as the panel can take, and says so.
+  // A fanning utility source serves stubs from the one anchored port;
+  // validateDrawLine still enforces any finite per-port attachment limit
+  // against the incrementally planned lines below.
+  // A non-fanning one — power, HV or RF — takes one cable per socket, so the
+  // gesture walks the device's FREE OUTLETS in order and stops when they run
+  // out. That is the whole point of a distribution panel having four sockets
+  // instead of one: shift-dragging along a row of magnets wires as many as the
+  // panel can take, and says so.
   const fanOut = (UTILITY_TYPES[utilityType] || {}).fansOut !== false;
   const outletNames = fanOut
     ? [source.portName]
@@ -313,8 +315,9 @@ export function planUtilityRun(state, {
         : {}),
     });
     totalSubL += subL;
-    // A fanning utility keeps serving every stub from the one port; a
-    // non-fanning one consumes a socket per committed stub.
+    // A fanning utility keeps offering the one port; validation stops planning
+    // when a finite attachment limit is reached. A non-fanning utility consumes
+    // a distinct socket per committed stub.
     if (!fanOut) outletIdx++;
   }
 

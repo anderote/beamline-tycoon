@@ -1,12 +1,14 @@
 // Freeform presentation geometry for flexible cords and hoses.
 //
-// Power, HV and cooling remain ordinary utility networks. Their hidden `path`
-// is still the grid-routed topology path, while `cablePath` records the
-// player's unsnapped mouse trace. This module owns the latter so input,
+// Power, HV, cooling and data remain ordinary utility networks. Their hidden
+// `path` is still the grid-routed compatibility path, while `cablePath` records
+// the player's unsnapped mouse trace. This module owns the latter so input,
 // pricing, hit testing and rendering agree about the flexible run actually
 // visible on the floor.
 
-export const SOFT_CABLE_TYPES = Object.freeze(['powerCable', 'hvCable', 'coolingWater']);
+export const SOFT_CABLE_TYPES = Object.freeze([
+  'powerCable', 'hvCable', 'coolingWater', 'dataFiber',
+]);
 export const FREEFORM_TOPOLOGY_TYPES = Object.freeze(['coolingWater']);
 export const SOFT_CABLE_MAX_POINTS = 1024;
 // Centreline bend radii in world metres. Branch power cords can tuck around a
@@ -14,6 +16,7 @@ export const SOFT_CABLE_MAX_POINTS = 1024;
 // feeder is deliberately the least willing to turn.
 export const SOFT_CABLE_BEND_RADIUS_METERS = Object.freeze({
   powerCable: 0.20,
+  dataFiber: 0.28,
   coolingWater: 0.45,
   hvCable: 0.80,
 });
@@ -31,7 +34,7 @@ export function usesFreeformTopology(utilityType) {
   return FREEFORM_TOPOLOGY_SET.has(utilityType);
 }
 
-/** Loose electrical cords may cross; plumbed hoses retain overlap/tap rules. */
+/** Loose electrical/data cords may cross; plumbed hoses retain overlap/tap rules. */
 export function softCableSkipsOverlap(utilityType) {
   return isSoftCable(utilityType) && !usesFreeformTopology(utilityType);
 }

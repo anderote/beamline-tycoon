@@ -10,9 +10,9 @@ export default {
   displayName: 'Data Fiber',
   color: '#eeeeee',
   geometryStyle: 'fiberBundle',
-  // Overall routed envelope plus the visible strands inside it. The old
-  // single 1 cm fibre disappeared at ordinary map zoom; three slimmer cables
-  // read as a bundled data run without becoming power-cable sized plumbing.
+  // Ordinary data runs are loose flexible cables, sized to remain legible at
+  // normal map zoom. Channels installed on the universal utility bus retain
+  // the bus's rigid tray presentation.
   pipeRadiusMeters: 0.025,
   bundleStrandRadiusMeters: 0.008,
   bundleSpacingMeters: 0.014,
@@ -20,6 +20,9 @@ export default {
   topologyOnly: true,
   topology: 'bus',
   directional: false,
+  // Every data fitting is a small peer hub by default. Individual authored
+  // ports may still narrow or widen this with their own maxConnections.
+  defaultPortMaxConnections: 4,
   // Data trunks accept tees and every connected port is a peer on the same
   // fabric. A switch supplies physical fan-out, not capacity or direction.
   allowsTap: true,

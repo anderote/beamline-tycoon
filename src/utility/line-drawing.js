@@ -20,6 +20,7 @@ import {
   getPortSpec,
   availablePorts,
   portMatchesApproach,
+  utilityPortConnectionLimit,
 } from './ports.js';
 import {
   pathLengthSubUnits,
@@ -102,11 +103,9 @@ function pointsOverlap(a, b, clearanceTiles = 0.25, inclusive = false) {
 //
 //   endpoint of one run, interior of the other   a tee: the runs are JOINED.
 //                                                Legal only for a utility that
-//                                                declares allowsTap (pipes get
-//                                                a fitting; cables, waveguides
-//                                                and fibres are terminated at
-//                                                both ends), and then only via
-//                                                the tapLineIds exemption.
+//                                                declares allowsTap, and then
+//                                                only via the tapLineIds
+//                                                exemption.
 //   interior of both, perpendicular              a crossing: one passes over
 //                                                the other, never joined.
 //                                                Legal when their service
@@ -334,23 +333,6 @@ function isOverheadHvSupportSpan(state, utilityType, start, end) {
   });
 }
 
-/**
- * May a port that already has a line take another?
- *
- * Only a source, and only for a utility whose runs fan out — a manifold outlet
- * feeds several branches, a power socket takes one plug. Mirrors
- * ports.availablePorts, which decides whether the marker is even offered; both
- * have to agree or the player can grab a port the commit then refuses.
- */
-function portConnectionLimit(spec, utilityType) {
-  if (!spec) return 0;
-  if (Number.isInteger(spec.maxConnections)) return spec.maxConnections;
-  const d = UTILITY_TYPES[utilityType];
-  if (d?.topology === 'bus') return d.fansOut !== false ? Infinity : 1;
-  if (spec.role !== 'source') return 1;
-  return (!d || d.fansOut !== false) ? Infinity : 1;
-}
-
 // Electrical distribution is intentionally radial. The generic utility graph
 // permits sources to merge (correct for fluid headers and some RF layouts),
 // but connecting two live outputs is a backfeed, not a useful power run. HV
@@ -508,7 +490,7 @@ export function validateDrawLine(state, {
     if (spec.utility !== utilityType) return reject('port_type_mismatch');
     startSpec = spec;
     if (portConnectionCount(state, start.placeableId, start.portName)
-        >= portConnectionLimit(spec, utilityType)) return reject('port_taken');
+        >= utilityPortConnectionLimit(spec, utilityType)) return reject('port_taken');
 
     if (descriptor.requiresPortApproach) {
       const dir = segmentDirection(path[0], path[1]);
@@ -530,7 +512,7 @@ export function validateDrawLine(state, {
     if (spec.utility !== utilityType) return reject('port_type_mismatch');
     endSpec = spec;
     if (portConnectionCount(state, end.placeableId, end.portName)
-        >= portConnectionLimit(spec, utilityType)) return reject('port_taken');
+        >= utilityPortConnectionLimit(spec, utilityType)) return reject('port_taken');
 
     if (descriptor.requiresPortApproach) {
       const dir = segmentDirection(path[path.length - 2], path[path.length - 1]);
@@ -580,8 +562,8 @@ export function validateDrawLine(state, {
     ignoreSharedSource = ignoreSharedSource || {};
     ignoreSharedSource[side] = ref;
   }
-  // Loose electrical cords may cross on the floor without joining. Cooling
-  // hoses are equally smooth, but remain plumbed networks and retain the
+  // Loose electrical and data cords may cross on the floor without joining.
+  // Cooling hoses are equally smooth, but remain plumbed networks and retain the
   // hidden grid route for deterministic overlap/tap-clearance validation.
   // Their visible route owns the actual network join position in discovery.
   let resolvedRouteHeight = null;
