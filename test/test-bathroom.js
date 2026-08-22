@@ -8,7 +8,7 @@ import { floorSupportsZone } from '../src/data/structure.js';
 
 const BATHROOM_FURNISHINGS = [
   'toilet', 'urinal', 'sinkVanity', 'bathroomMirror',
-  'handDryer', 'toiletStall', 'paperTowelBin',
+  'handDryer', 'toiletStall', 'toiletStallWall', 'toiletStallDoor', 'paperTowelBin',
 ];
 
 test('bathroom is a tile-floor Facility room zone', () => {
@@ -17,6 +17,14 @@ test('bathroom is a tile-floor Facility room zone', () => {
   assert.equal(MODES.facility.categories.bathroom?.group, 'rooms');
   assert.equal(floorSupportsZone('terrazzoFloor', ZONES.bathroom.requiredFloor), true);
   assert.equal(floorSupportsZone('officeFloor', ZONES.bathroom.requiredFloor), false);
+});
+
+test('bathroom stall walls and doors have authored cubicle geometry', () => {
+  const wall = PLACEABLES.toiletStallWall;
+  const door = PLACEABLES.toiletStallDoor;
+  assert.ok(wall.parts.some(part => part.name === 'panel' && part.h >= 3.8));
+  assert.ok(door.parts.some(part => part.name === 'doorLeaf' && part.h >= 3.8));
+  assert.ok(door.parts.some(part => part.name === 'latch'));
 });
 
 test('bathroom fixture catalogue is complete, registered, and zone-scoped', () => {
