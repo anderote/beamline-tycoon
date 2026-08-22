@@ -164,5 +164,22 @@ console.log('\n=== 7. _rebuildPlaceableCells bumps navRevision even when called 
     `direct _rebuildPlaceableCells call (bypassing movePlaceable) bumped navRevision (${before} -> ${g.state.navRevision})`);
 }
 
+console.log('\n=== 8. Beam-pipe edits invalidate staff routes ===\n');
+{
+  const g = makeGame(8);
+  const before = g.state.navRevision;
+  const pipeId = g.createBeamPipe(
+    null, null, null, null,
+    [{ col: 12, row: 12 }, { col: 12, row: 14 }],
+  );
+  assertOk(!!pipeId, 'setup: drew a free-standing beam pipe');
+  assertOk(g.state.navRevision > before,
+    `drawing physical beam pipe bumped navRevision (${before} -> ${g.state.navRevision})`);
+  const afterDraw = g.state.navRevision;
+  g.beamline.removePipe(pipeId);
+  assertOk(g.state.navRevision > afterDraw,
+    `removing beam pipe bumped navRevision again (${afterDraw} -> ${g.state.navRevision})`);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

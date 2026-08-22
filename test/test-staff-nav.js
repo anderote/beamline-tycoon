@@ -147,15 +147,52 @@ console.log('\n=== 4. Routes around a blocking 3x2 placeable ===\n');
   assertOk(!wentThroughDesk, 'the path detours around the desk rather than crossing it');
 }
 
-console.log('\n=== 5. A stackable desktop item does not block ===\n');
+console.log('\n=== 5. Floor-placed props block instead of being walked through ===\n');
 {
   const state = makeState();
   floorRect(state, 0, 1, 0, 0);
   placeItem(state, 'coffeeMachine', 0, 0, 1, 1, 0);
   const nav = buildNavGrid(state);
-  assertOk(nav.passable.has('0,0,1,1'), 'the subtile under a stackable coffee machine stays passable');
+  assertOk(!nav.passable.has('0,0,1,1'), 'the subtile under a floor-placed coffee machine is blocked');
   const path = findPath(nav, { col: 0, row: 0, subCol: 0, subRow: 0 }, { col: 1, row: 0, subCol: 3, subRow: 3 });
   assertOk(!!path, 'a path still exists across the tile the coffee machine sits on');
+}
+
+console.log('\n=== 5a. A single door opens only its authored half of the wall edge ===\n');
+{
+  const state = makeState({
+    doors: [{ type: 'officeDoor', col: 0, row: 0, edge: 'e', off: 0 }],
+  });
+  state.wallOccupied['0,0,e'] = 'officeWall';
+  state.doorOccupied['0,0,e'] = 'officeDoor';
+  const nav = buildNavGrid(state);
+  assertOk(!nav.edgeBlocked({ col: 0, row: 0, subCol: 3, subRow: 0 }, 'e'),
+    'the first lane crosses through an off=0 single door');
+  assertOk(!nav.edgeBlocked({ col: 0, row: 0, subCol: 3, subRow: 1 }, 'e'),
+    'the second lane crosses through the same opening');
+  assertOk(nav.edgeBlocked({ col: 0, row: 0, subCol: 3, subRow: 2 }, 'e'),
+    'the third lane remains blocked by the solid wall beside the door');
+  assertOk(nav.edgeBlocked({ col: 0, row: 0, subCol: 3, subRow: 3 }, 'e'),
+    'the fourth lane remains blocked too');
+  assertOk(!nav.edgeBlocked({ col: 1, row: 0, subCol: 0, subRow: 0 }, 'w'),
+    'the mirrored approach sees the identical open lane');
+}
+
+console.log('\n=== 5b. Drawn beam pipe is a physical staff obstacle ===\n');
+{
+  const state = makeState({
+    beamPipes: [{ id: 'bp_1', path: [{ col: 1, row: 1 }, { col: 3, row: 1 }] }],
+  });
+  floorRect(state, 0, 4, 0, 2);
+  const nav = buildNavGrid(state);
+  assertOk(!nav.passable.has('2,1,1,1') && !nav.passable.has('2,1,2,2'),
+    'staff clearance cells around the pipe axis are blocked');
+  const from = { col: 0, row: 1, subCol: 0, subRow: 2 };
+  const to = { col: 4, row: 1, subCol: 3, subRow: 2 };
+  const path = findPath(nav, from, to);
+  assertOk(!!path, 'a route around the pipe still exists');
+  assertOk(path.every(node => nav.passable.has(`${node.col},${node.row},${node.subCol},${node.subRow}`)),
+    'the route never crosses the pipe clearance cells');
 }
 
 console.log('\n=== 6a. Detached floor patch is reachable across bare ground ===\n');

@@ -1,10 +1,8 @@
 // src/game/staff/nav.js — subtile navigation grid and A* for staff pawns.
 //
-// Task 2 of the staff-professions-2 (nav-and-stations) plan. Builds a grid at
-// SUBTILE resolution (1 subtile = 0.5 world units, 4x4 subtiles per tile) so
-// pawns can walk around furniture and through doors instead of ambling in
-// straight lines through walls. Nothing consumes this yet — a later task
-// drives pawns with findPath and adds work stations.
+// Builds a grid at SUBTILE resolution (1 subtile = 0.5 world units, 4x4
+// subtiles per tile) so pawns walk around physical equipment and through the
+// authored opening within a door edge instead of crossing solid geometry.
 //
 // Coordinate model: a subtile node is { col, row, subCol, subRow } — col/row
 // identify the tile (as everywhere else in the game), subCol/subRow in
@@ -15,14 +13,14 @@
 //
 // Movement is 4-directional only, at subtile granularity. A step that stays
 // within one tile is never wall-blocked (walls only live on tile edges).
-// A step that crosses into a different tile is blocked exactly when
-// isBlocked(fromCol, fromRow, edge, state) says so, reusing the wall/door
-// test rooms.js already owns rather than growing a second one.
+// A step that crosses into a different tile checks the exact lane along that
+// edge. Walls block every lane except those covered by a door's width/offset.
 
-import { isBlocked } from '../../networks/rooms.js';
 import { PLACEABLES } from '../../data/placeables/index.js';
 import { FLOORS } from '../../data/structure.js';
-import { parseEdgeKey } from '../edge-keys.js';
+import { findEdgeKey, parseEdgeKey } from '../edge-keys.js';
+import { expandPipePath } from '../../beamline/pipe-geometry.js';
+import { buildDoorCrossingIndex, staffCrossingKey } from './door-crossings.js';
 import {
   MAX_LEVEL, levelOf, parseSubtileKey, parseTileKey,
   subtileKey as storeySubtileKey, tileKey, withLevel,
@@ -89,6 +87,11 @@ function makeLabelLookup(componentId, w, minColSub, minRowSub, maxColSub, maxRow
 // building without ever preferring it over an available floor route.
 const FLOOR_COST = 1;
 const GRASS_COST = 2.5;
+
+// The pipe axis sits on quarter-tile grid lines. Blocking the staff subtiles
+// touching that axis gives a pawn roughly shoulder-width clearance from live
+// beam transport instead of letting its centre walk through the tube.
+const PIPE_CLEARANCE_SUBTILES = 1;
 
 // Two-pass search budget — see the comment on heuristic()/search() for why
 // there are two passes instead of one weight.
@@ -172,6 +175,8 @@ export function buildNavGrid(state) {
   const doorOccupied = state.doorOccupied || {};
   const placeableIndex = state.placeableIndex || {};
   const placeables = state.placeables || [];
+  const beamPipes = state.beamPipes || [];
+  const doorCrossings = buildDoorCrossingIndex(state);
 
   // Union of every tile touched by floors, walls, doors, or a placeable
   // footprint — "built" content in the broadest sense. Walls and doors
@@ -251,6 +256,15 @@ export function buildNavGrid(state) {
       extendContent(entry.col, entry.row);
     }
   }
+  // Pipes do not claim placeable cells, but they still shape connectivity.
+  // Feed their raster footprint into the built bbox before label bounds are
+  // frozen below, otherwise an isolated run outside the current facility
+  // could be omitted from the O(1) reachability partition.
+  for (const pipe of beamPipes) {
+    for (const point of expandPipePath(pipe.path || [])) {
+      extendContent(Math.floor(point.col + 0.5), Math.floor(point.row + 0.5));
+    }
+  }
 
   let bounds;
   if (Number.isFinite(state.mapHalfExtent)) {
@@ -306,17 +320,46 @@ export function buildNavGrid(state) {
     const idx = placeableIndex[occ.id];
     const entry = idx !== undefined ? placeables[idx] : undefined;
     const def = entry ? PLACEABLES[entry.type] : undefined;
-    // Passable only when we can positively identify the occupant as
-    // something a pawn walks past/into rather than around: a small
-    // stackable desktop item, anything short enough to step over, or —
-    // load-bearing, not a detail — anything carrying a `seat` block. Every
-    // chair in the repo is subH: 2, so the subH check alone would make
-    // chairs solid, and a seated pawn's path destination IS the chair's
-    // tile. An unresolvable occupant (missing index/def entry) is treated
-    // as blocking, not passable.
-    const passableThrough = !!def
-      && (def.stackable || (def.subH ?? 1) <= 1 || !!def.seat || !!def.verticalConnector);
+    // Passable only when we can positively identify the occupant as a node
+    // staff must enter: a seat or vertical connector. Floor props and low or
+    // stackable equipment are still physical obstacles; allowing them here
+    // made pawns visibly walk through counters and small infrastructure.
+    // An unresolvable occupant is conservatively treated as blocking.
+    const passableThrough = !!def && (!!def.seat || !!def.verticalConnector);
     if (!passableThrough) blockedSubtiles.add(key);
+  }
+
+  // Drawn beam pipe is physical hardware too, but unlike modules it does not
+  // claim state.subgridOccupied. Rasterize its quarter-tile centreline onto
+  // the staff grid and inflate it by one subtile so routes go around it.
+  // Module footprints remain covered by the ordinary placeable pass above.
+  for (const pipe of beamPipes) {
+    for (const point of expandPipePath(pipe.path || [])) {
+      const absCol = point.col * 4 + 2;
+      const absRow = point.row * 4 + 2;
+      const baseCol = Math.floor(absCol);
+      const baseRow = Math.floor(absRow);
+      for (let dc = -PIPE_CLEARANCE_SUBTILES; dc < PIPE_CLEARANCE_SUBTILES; dc++) {
+        for (let dr = -PIPE_CLEARANCE_SUBTILES; dr < PIPE_CLEARANCE_SUBTILES; dr++) {
+          const sc = baseCol + dc;
+          const sr = baseRow + dr;
+          const col = Math.floor(sc / 4);
+          const row = Math.floor(sr / 4);
+          blockedSubtiles.add(subtileKey(col, row, sc - col * 4, sr - row * 4));
+        }
+      }
+    }
+  }
+
+  function edgeBlocked(node, edge) {
+    if (!findEdgeKey(wallOccupied, node.col, node.row, edge, levelOf(node))) return false;
+    const crossing = staffCrossingKey(node, edge);
+    return !crossing || !doorCrossings.has(crossing);
+  }
+
+  function doorAtCrossing(node, edge) {
+    const crossing = staffCrossingKey(node, edge);
+    return crossing ? doorCrossings.get(crossing) || null : null;
   }
 
   const verticalLinks = new Map();
@@ -429,7 +472,7 @@ export function buildNavGrid(state) {
     // wall-blocked) — every undirected adjacency edge exactly once, since
     // "west of A" and "north of A" together cover the same edges "east of
     // A's west neighbor" / "south of A's north neighbor" would from the
-    // other side (isBlocked is symmetric regardless of which side asks —
+    // other side (edgeBlocked is symmetric regardless of which side asks —
     // see neighborsOf()'s comment). Boundary cells (on the built bbox's
     // outer rim) ALSO union with OUTDOOR_NODE on whichever side(s) actually
     // face outward — skipped on any side that is also the map's own hard
@@ -452,10 +495,11 @@ export function buildNavGrid(state) {
             union(i, idxAt(absCol - 1, absRow));
           }
         } else if (absCol > minColSub) {
-          if (!blockedSubtiles.has(subtileKey(col - 1, row, 3, subRow)) && !isBlocked(col, row, 'w', state)) {
+          if (!blockedSubtiles.has(subtileKey(col - 1, row, 3, subRow))
+              && !edgeBlocked({ col, row, subCol, subRow }, 'w')) {
             union(i, idxAt(absCol - 1, absRow));
           }
-        } else if (minColSub > mapMinColSub && !isBlocked(col, row, 'w', state)) {
+        } else if (minColSub > mapMinColSub && !edgeBlocked({ col, row, subCol, subRow }, 'w')) {
           union(i, OUTDOOR_NODE);
         }
 
@@ -464,17 +508,20 @@ export function buildNavGrid(state) {
             union(i, idxAt(absCol, absRow - 1));
           }
         } else if (absRow > minRowSub) {
-          if (!blockedSubtiles.has(subtileKey(col, row - 1, subCol, 3)) && !isBlocked(col, row, 'n', state)) {
+          if (!blockedSubtiles.has(subtileKey(col, row - 1, subCol, 3))
+              && !edgeBlocked({ col, row, subCol, subRow }, 'n')) {
             union(i, idxAt(absCol, absRow - 1));
           }
-        } else if (minRowSub > mapMinRowSub && !isBlocked(col, row, 'n', state)) {
+        } else if (minRowSub > mapMinRowSub && !edgeBlocked({ col, row, subCol, subRow }, 'n')) {
           union(i, OUTDOOR_NODE);
         }
 
-        if (absCol === maxColSub && maxColSub < mapMaxColSub && !isBlocked(col, row, 'e', state)) {
+        if (absCol === maxColSub && maxColSub < mapMaxColSub
+            && !edgeBlocked({ col, row, subCol, subRow }, 'e')) {
           union(i, OUTDOOR_NODE);
         }
-        if (absRow === maxRowSub && maxRowSub < mapMaxRowSub && !isBlocked(col, row, 's', state)) {
+        if (absRow === maxRowSub && maxRowSub < mapMaxRowSub
+            && !edgeBlocked({ col, row, subCol, subRow }, 's')) {
           union(i, OUTDOOR_NODE);
         }
       }
@@ -505,11 +552,9 @@ export function buildNavGrid(state) {
     passable,
     cost,
     bounds,
-    // Not part of the documented shape — carried along so findPath/
-    // isReachable can run isBlocked() against the same state the grid was
-    // built from without every caller having to pass state back in.
-    _state: state,
     verticalLinks,
+    edgeBlocked,
+    doorAtCrossing,
     // Internal, lazy — see getComponentLabels() below. `_labels` starts
     // unbuilt so a nav grid built and never reachability-queried (e.g. most
     // hand-built test grids) never pays the labelling cost. `_buildLabels`
@@ -643,9 +688,8 @@ function heuristic(a, b, weight) {
 
 // The four cardinal neighbours of a subtile node. Steps that stay inside the
 // same tile carry no edge to test; steps that cross into a different tile
-// carry the edge isBlocked() should be asked about, tested from the CURRENT
-// tile's side (matching the dir/edge correspondence in src/data/directions.js
-// and src/networks/rooms.js's EDGE_DELTAS).
+// carry the edge nav.edgeBlocked() should test, from the CURRENT tile's side
+// (matching the dir/edge correspondence in src/data/directions.js).
 function neighborsOf(n, nav) {
   const out = [];
   const level = levelOf(n);
@@ -725,9 +769,7 @@ function runAStar(nav, from, to, fromKey, toKey, wantPath, weight, maxExpanded) 
       const nbKey = nodeKey(step.node);
       if (closed.has(nbKey)) continue;
       if (!nav.passable.has(nbKey)) continue;
-      if (step.edge && isBlocked(
-        current.node.col, current.node.row, step.edge, nav._state, levelOf(current.node),
-      )) continue;
+      if (step.edge && nav.edgeBlocked(current.node, step.edge)) continue;
 
       const stepCost = step.vertical ? step.cost : nav.cost.get(nbKey);
       const tentativeG = gScore.get(current.key) + stepCost;

@@ -576,6 +576,37 @@ console.log('\n=== 10. Real staff interpolate simulation-published route nodes w
     'presentation lands exactly on the authoritative destination');
 }
 
+console.log('\n=== 10b. Door crossings are published to presentation ===\n');
+{
+  const state = makeState({ tick: 1 });
+  floorRect(state, 0, 1, 0, 0);
+  state.wallOccupied['0,0,e'] = 'officeWall';
+  state.doorOccupied['0,0,e'] = 'officeDoor';
+  state.doors = [{ type: 'officeDoor', col: 0, row: 0, edge: 'e', off: 0 }];
+  const startNode = { col: 0, row: 0, subCol: 3, subRow: 0 };
+  const destNode = { col: 1, row: 0, subCol: 3, subRow: 0 };
+  const member = {
+    id: 'door-user', profession: 'technician', fromNode: { ...startNode },
+    job: { jobType: 'repair', target: null, stationKey: null, destNode, phase: 'travel', progress: 0 },
+  };
+  state.staffMembers = [member];
+  const pawns = makePawns(state);
+  pawns.sync();
+  const travel = advanceStaffTravel(state, member, destNode, 'job');
+  assertOk(travel.moved, 'the simulation crosses the adjacent doorway');
+  assertOk(member._staffPresentation?.doorKeys?.includes('0,0,e'),
+    'the authoritative movement snapshot publishes the crossed physical door');
+
+  state.tick++;
+  advanceStaffTravel(state, member, destNode, 'job');
+  assertOk(member._staffPresentation?.doorKeys?.includes('0,0,e'),
+    'a catch-up movement snapshot retains the recent crossing until presentation sees it');
+
+  pawns.update(0.02);
+  assertOk(pawns.activeDoorKeys().has('0,0,e'),
+    'staff presentation holds the crossed door open for animation');
+}
+
 console.log('\n=== 11. Staff visual levels respond to focus distance and zoom ===\n');
 {
   const pawn = { x: 0, z: 0 };

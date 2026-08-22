@@ -638,6 +638,10 @@ export class Game {
         this.solveRunner.markTopologyDirty();
       }
       if (event === 'beamlineChanged') {
+        // Drawn beam pipe is part of the staff obstacle map even though it
+        // does not claim subgridOccupied like a module. Every pipe edit must
+        // therefore invalidate cached routes and connected components.
+        this._markNavDirty();
         this.schedulePhysicsRecalc();
       }
     });
