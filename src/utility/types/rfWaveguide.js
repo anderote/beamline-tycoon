@@ -203,6 +203,10 @@ export default {
   // Waveguide may tee, but every tee introduces a modeled impedance mismatch.
   // Extra branches show up as reflected power and worse VSWR in the RF panel.
   allowsTap: true,
+  // A fabricated guide is broad enough to merit a wider pickup halo than the
+  // thin hose/cable default. The committed tee still lands on the shared
+  // quarter-tile topology grid.
+  tapSnapRadiusTiles: 0.65,
   // Ports still fan out, though. Socket-counting is a POWER mechanic — it is
   // what makes distribution panels a decision — and applying it here would
   // mean re-authoring every amplifier and IOC with a port per client for no
