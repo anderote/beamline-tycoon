@@ -1717,6 +1717,82 @@ export const FACILITY_ROOM_FURNISHINGS_RAW = {
       { name: 'back', x: 0, y: 1.25, z: 0.3, w: 0.58, h: 0.5, l: 0.05, color: 0xcc6622 },
     ],
   },
+
+  // Bathroom — deliberately self-contained fixtures for tiled restroom zones.
+  toilet: {
+    id: 'toilet', name: 'Toilet', zoneType: 'bathroom', furnitureGroup: 'hygiene',
+    cost: { funding: 450 }, energyCost: 0, spriteColor: 0xf1f3f2,
+    gridW: 1, gridH: 2, subH: 2, spriteKey: 'toilet', effects: {}, baseMaterial: 'metal_painted_white',
+    parts: [
+      { name: 'base', x: 0, y: 0, z: 0.18, w: 0.78, h: 0.72, l: 1.08, material: 'metal_painted_white' },
+      { name: 'seat', x: 0, y: 0.72, z: -0.1, w: 0.8, h: 0.1, l: 0.82, material: 'metal_painted_white' },
+      { name: 'bowl', x: 0, y: 0.82, z: -0.1, w: 0.5, h: 0.06, l: 0.48, color: 0x9bb3bb },
+      { name: 'tank', x: 0, y: 0.76, z: 0.54, w: 0.78, h: 1.02, l: 0.3, material: 'metal_painted_white' },
+      { name: 'flushButton', x: 0.2, y: 1.45, z: 0.36, w: 0.12, h: 0.12, l: 0.03, material: 'metal_brushed' },
+    ],
+  },
+  urinal: {
+    id: 'urinal', name: 'Wall Urinal', zoneType: 'bathroom', furnitureGroup: 'hygiene',
+    cost: { funding: 380 }, energyCost: 0, spriteColor: 0xf0f2f1,
+    gridW: 1, gridH: 1, subH: 3, spriteKey: 'urinal', effects: {}, baseMaterial: 'metal_painted_white',
+    parts: [
+      { name: 'bowl', x: 0, y: 0.75, z: 0.16, w: 0.7, h: 1.5, l: 0.42, material: 'metal_painted_white' },
+      { name: 'basin', x: 0, y: 1.03, z: -0.04, w: 0.42, h: 0.72, l: 0.1, color: 0x9bb3bb },
+      { name: 'flushPipe', x: 0, y: 2.18, z: 0.25, w: 0.1, h: 0.6, l: 0.1, material: 'metal_brushed' },
+      { name: 'flushValve', x: 0, y: 2.38, z: 0.08, w: 0.26, h: 0.18, l: 0.12, material: 'metal_brushed' },
+    ],
+  },
+  sinkVanity: {
+    id: 'sinkVanity', name: 'Sink Vanity', zoneType: 'bathroom', furnitureGroup: 'hygiene',
+    cost: { funding: 760 }, energyCost: 0, spriteColor: 0xd5d9d8,
+    gridW: 2, gridH: 1, subH: 3, surfaceY: 1.72, spriteKey: 'sinkVanity', effects: {}, baseMaterial: 'metal_painted_white',
+    parts: [
+      { name: 'cabinet', x: 0, y: 0, z: 0.12, w: 1.82, h: 1.55, l: 0.78, material: 'metal_painted_white' },
+      { name: 'counter', x: 0, y: 1.55, z: 0, w: 2.0, h: 0.16, l: 0.96, color: 0xc7cccd },
+      { name: 'basinL', x: -0.48, y: 1.71, z: -0.05, w: 0.55, h: 0.1, l: 0.48, color: 0x8eb3bd },
+      { name: 'basinR', x: 0.48, y: 1.71, z: -0.05, w: 0.55, h: 0.1, l: 0.48, color: 0x8eb3bd },
+      { name: 'faucetL', x: -0.48, y: 1.78, z: 0.28, w: 0.1, h: 0.35, l: 0.1, material: 'metal_brushed' },
+      { name: 'faucetR', x: 0.48, y: 1.78, z: 0.28, w: 0.1, h: 0.35, l: 0.1, material: 'metal_brushed' },
+    ],
+  },
+  bathroomMirror: {
+    id: 'bathroomMirror', name: 'Bathroom Mirror', zoneType: 'bathroom', furnitureGroup: 'hygiene',
+    cost: { funding: 180 }, energyCost: 0, spriteColor: 0x93b2c2,
+    gridW: 2, gridH: 1, subH: 3, spriteKey: 'bathroomMirror', effects: {}, baseMaterial: 'metal_brushed',
+    parts: [
+      { name: 'frame', x: 0, y: 1.45, z: 0.18, w: 1.92, h: 2.45, l: 0.1, material: 'metal_brushed' },
+      { name: 'glass', x: 0, y: 1.48, z: 0.1, w: 1.7, h: 2.2, l: 0.03, color: 0x80a9bc },
+    ],
+  },
+  handDryer: {
+    id: 'handDryer', name: 'Hand Dryer', zoneType: 'bathroom', furnitureGroup: 'hygiene',
+    cost: { funding: 320 }, energyCost: 0.15, spriteColor: 0xc7cbca,
+    gridW: 1, gridH: 1, subH: 2, spriteKey: 'handDryer', effects: {}, baseMaterial: 'metal_brushed',
+    parts: [
+      { name: 'body', x: 0, y: 1.05, z: 0.2, w: 0.58, h: 1.05, l: 0.28, material: 'metal_brushed' },
+      { name: 'nozzle', x: 0, y: 0.75, z: -0.02, w: 0.35, h: 0.18, l: 0.25, color: 0x565e62 },
+      { name: 'sensor', x: 0, y: 1.2, z: 0.03, w: 0.14, h: 0.14, l: 0.03, color: 0x1c2830 },
+    ],
+  },
+  toiletStall: {
+    id: 'toiletStall', name: 'Toilet Stall Partition', zoneType: 'bathroom', furnitureGroup: 'hygiene',
+    cost: { funding: 620 }, energyCost: 0, spriteColor: 0x8ca3ae,
+    gridW: 1, gridH: 3, subH: 4, spriteKey: 'toiletStall', effects: {}, baseMaterial: 'metal_painted_white', hasSurface: false,
+    parts: [
+      { name: 'partition', x: 0, y: 1.9, z: 0, w: 0.12, h: 3.8, l: 2.9, color: 0x8ca3ae },
+      { name: 'postFront', x: 0, y: 1.9, z: -1.35, w: 0.16, h: 3.8, l: 0.16, material: 'metal_brushed' },
+      { name: 'postBack', x: 0, y: 1.9, z: 1.35, w: 0.16, h: 3.8, l: 0.16, material: 'metal_brushed' },
+    ],
+  },
+  paperTowelBin: {
+    id: 'paperTowelBin', name: 'Paper Towel Bin', zoneType: 'bathroom', furnitureGroup: 'hygiene',
+    cost: { funding: 90 }, energyCost: 0, spriteColor: 0x6c7375,
+    gridW: 1, gridH: 1, subH: 1, spriteKey: 'paperTowelBin', effects: {}, baseMaterial: 'metal_brushed',
+    parts: [
+      { name: 'body', x: 0, y: 0, z: 0, w: 0.58, h: 0.72, l: 0.58, material: 'metal_brushed' },
+      { name: 'opening', x: 0, y: 0.74, z: 0, w: 0.4, h: 0.04, l: 0.4, color: 0x252a2c },
+    ],
+  },
 };
 
 // Palette-preview descriptions, kept in one block so the data table above
@@ -1815,6 +1891,13 @@ const ROOM_FURNISHING_DESCS = {
   cigarAshtray: 'Brass-edged ashtray for the era before smoke alarms acquired opinions. Faculty Lounge.',
   barStool: 'Tall counter seating with a foot rail. Cafeteria.',
   cafeteriaChair: 'Simple cafeteria seating; wipes clean. Cafeteria.',
+  toilet: 'Commercial porcelain fixture for a facility restroom. Bathroom.',
+  urinal: 'Wall-mounted, water-saving fixture for compact restroom layouts. Bathroom.',
+  sinkVanity: 'Double basin for handwashing before returning to the beamline. Bathroom.',
+  bathroomMirror: 'Wide, durable mirror above the sinks. Bathroom.',
+  handDryer: 'Automatic hand dryer; no towel-roll logistics required. Bathroom.',
+  toiletStall: 'Privacy partition for arranging individual restroom stalls. Bathroom.',
+  paperTowelBin: 'Small stainless bin for the inevitable paper-towel backup. Bathroom.',
 };
 for (const [id, desc] of Object.entries(ROOM_FURNISHING_DESCS)) {
   if (FACILITY_ROOM_FURNISHINGS_RAW[id]) FACILITY_ROOM_FURNISHINGS_RAW[id].desc = desc;

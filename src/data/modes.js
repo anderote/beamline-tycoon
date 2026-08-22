@@ -7,6 +7,7 @@ export const ROOM_FURNITURE_GROUPS = {
   presentation: { name: 'Presentation & Communication' },
   decor: { name: 'Decor & Accessories' },
   support: { name: 'Support & Operations' },
+  hygiene: { name: 'Bathroom Fixtures' },
   other: { name: 'Other Furniture' },
 };
 
@@ -78,6 +79,7 @@ export const MODES = {
       meetingRoom: { name: 'Meeting',        color: '#649', isZoneTab: true, zoneType: 'meetingRoom',  group: 'rooms', furnitureGroups: ROOM_FURNITURE_GROUPS },
       facultyLounge: { name: 'Faculty Lounge', color: '#865', isZoneTab: true, zoneType: 'facultyLounge', group: 'rooms', furnitureGroups: ROOM_FURNITURE_GROUPS },
       cafeteria:   { name: 'Cafeteria',      color: '#a64', isZoneTab: true, zoneType: 'cafeteria',    group: 'rooms', furnitureGroups: ROOM_FURNITURE_GROUPS },
+      bathroom:    { name: 'Bathroom',       color: '#4b8', isZoneTab: true, zoneType: 'bathroom',     group: 'rooms', furnitureGroups: ROOM_FURNITURE_GROUPS },
       storageRoom: { name: 'Storage',        color: '#687', isZoneTab: true, zoneType: 'storageRoom',  group: 'rooms', furnitureGroups: ROOM_FURNITURE_GROUPS },
     },
   },
