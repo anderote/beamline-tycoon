@@ -43,7 +43,7 @@ export function softCableBendRadiusMeters(utilityType) {
   return SOFT_CABLE_BEND_RADIUS_METERS[utilityType] || 0;
 }
 
-/** Low distribution taps are accessible feeder landings, not tension points. */
+/** Distribution-tap names remain distinguishable from overhead pole terminals. */
 export function isHvDistributionTapPort(portName) {
   return portName === 'hv_tap' || /^hv_tap_/.test(portName || '');
 }
@@ -54,8 +54,8 @@ export function isOverheadHvSupport(def, portName = null) {
     && (def?.id === 'utilityPole' || def?.id === 'transmissionTower');
 }
 
-export function isIndoorHvRackSupport(def, portName = null) {
-  return !isHvDistributionTapPort(portName) && def?.hvCableSupport === 'indoorRack';
+export function isIndoorHvRackSupport(def) {
+  return def?.hvCableSupport === 'indoorRack';
 }
 
 export function isHvCableTensionAnchor(def, portName = null) {
