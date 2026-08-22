@@ -182,6 +182,13 @@ console.log('\n--- 3. Derivation, overrides, and the headless fallback ---');
   assert(partial.length === 0,
     `an authored type answers for every one of its ports (${partial.join(',') || 'all covered'})`);
 
+  const transformerBank = [1, 2, 3, 4]
+    .map(index => portAnchorOverride('hvTransformer', `hv_out_${index}`));
+  assert(transformerBank.every(port => port.y === 1.45),
+    'the four-output HV transformer presents one flat 1.45 m terminal row');
+  assert(transformerBank.map(port => port.along).join(',') === '-0.75,-0.25,0.25,0.75',
+    'the HV transformer matches the 4×4 wall feedthrough\'s 0.5 m terminal spacing');
+
   // Heights are hand-authored per model, so nothing here can be checked
   // against geometry headless — but a typo'd metre is still catchable. The
   // portable spider box is intentionally ankle-height; nothing belongs below

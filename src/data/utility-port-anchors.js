@@ -93,8 +93,9 @@ export const PORT_ANCHOR_OVERRIDES = {
   },
   hvTransformer: {
     _default: { y: 1.42, lat: 0.82 },
-    hv_out_1: { y: 1.25, along: -0.34 }, hv_out_2: { y: 1.25, along: 0.34 },
-    hv_out_3: { y: 1.58, along: -0.34 }, hv_out_4: { y: 1.58, along: 0.34 },
+    // Match the 4×4 wall feedthrough: one 1.45 m-high row at 0.5 m centres.
+    hv_out_1: { y: 1.45, along: -0.75 }, hv_out_2: { y: 1.45, along: -0.25 },
+    hv_out_3: { y: 1.45, along: 0.25 }, hv_out_4: { y: 1.45, along: 0.75 },
   },
   gridIntertieTransformer: {
     _default: { y: 1.38, lat: 0.82 },

@@ -206,6 +206,60 @@ test('4×4 HV wall feedthrough keeps four omnidirectional, un-rated conductors i
   assert.equal(networks.length, 4, 'each numbered front/back pair is isolated from the other three');
 });
 
+test('2×2 utility pole and 4×4 transmission tower accept every HV approach', () => {
+  const paths = [
+    [{ col: 0, row: 0 }, { col: 1, row: 0 }],
+    [{ col: 0, row: 0 }, { col: -1, row: 0 }],
+    [{ col: 0, row: 0 }, { col: 0, row: 1 }],
+    [{ col: 0, row: 0 }, { col: 0, row: -1 }],
+  ];
+  for (const [type, expectedSize] of [
+    ['utilityPole', 2], ['transmissionTower', 4],
+  ]) {
+    const def = PLACEABLES[type];
+    const ports = getUtilityPortsV2(type);
+    assert.equal(def.subW, expectedSize);
+    assert.equal(def.subL, expectedSize);
+    assert.ok(['hv_in', 'hv_out'].every(name => ports[name].omnidirectional === true));
+    const state = openState({
+      placeables: [{ id: 'support', type, col: 0, row: 0, subCol: 0, subRow: 0, dir: 1 }],
+    });
+    for (const portName of ['hv_in', 'hv_out']) {
+      for (const path of paths) {
+        assert.equal(validateDrawLine(state, {
+          utilityType: 'hvCable', start: { placeableId: 'support', portName }, path,
+        }).ok, true, `${type}.${portName} accepts ${JSON.stringify(path[1])}`);
+      }
+    }
+  }
+
+  const linkedState = openState({
+    placeables: [
+      { id: 'tower', type: 'transmissionTower', col: 0, row: 0, subCol: 0, subRow: 0, dir: 0 },
+      { id: 'pole', type: 'utilityPole', col: 0, row: 3, subCol: 0, subRow: 0, dir: 3 },
+    ],
+  });
+  assert.equal(validateDrawLine(linkedState, {
+    utilityType: 'hvCable',
+    start: { placeableId: 'tower', portName: 'hv_out' },
+    end: { placeableId: 'pole', portName: 'hv_in' },
+    path: [{ col: 0, row: 0 }, { col: 0, row: 3 }],
+  }).ok, true, 'a transmission-tower output connects directly to a rotated utility-pole input');
+
+  const supportRef = (placeableId, portName) => ({ placeableId, portName });
+  for (const [start, end, message] of [
+    [supportRef('tower', 'hv_in'), supportRef('pole', 'hv_in'),
+      'passive support terminals connect without an authored in/out pairing'],
+    [supportRef('tower', 'hv_out'), supportRef('pole', 'hv_out'),
+      'matching passive output names do not cause a wrong-port error'],
+  ]) {
+    assert.equal(validateDrawLine(linkedState, {
+      utilityType: 'hvCable', start, end,
+      path: [{ col: 0, row: 0 }, { col: 0, row: 3 }],
+    }).ok, true, message);
+  }
+});
+
 test('Power and HV inspect the visible cable trace and refuse wall crossings', () => {
   const state = openState({ wallOccupied: crossingWall });
   for (const utilityType of ['powerCable', 'hvCable']) {
@@ -267,7 +321,11 @@ test('Feedthrough and pole connection kinds preserve the radial electrical chain
   });
   const refs = (placeableId, portName) => ({ placeableId, portName });
   assert.equal(candidate(hvState, 'hvCable', refs('supply', 'hv_out_1'), refs('poleA', 'hv_in')).ok, true);
+  assert.equal(candidate(hvState, 'hvCable', refs('supply', 'hv_out_1'), refs('poleA', 'hv_out')).ok, true,
+    'a source can use either passive pole terminal');
   assert.equal(candidate(hvState, 'hvCable', refs('poleA', 'hv_out'), refs('poleB', 'hv_in')).ok, true);
+  assert.equal(candidate(hvState, 'hvCable', refs('poleA', 'hv_in'), refs('panel', 'hv_in')).ok, true,
+    'either passive pole terminal can continue to a sink');
   assert.equal(candidate(hvState, 'hvCable', refs('poleB', 'hv_out'), refs('panel', 'hv_in')).ok, true);
 
   hvState.utilityLines = new Map([
