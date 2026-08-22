@@ -144,10 +144,11 @@ the short authoring contract.
   tray, tray riser, duct-bank vault, and prefab overhead span are compatibility
   content; the universal utility bus is the buildable carrier.
 - The bus is a utility-neutral metal wire tray with one isolated, designated
-  lane for every registered utility. HV, power, cooling, and data ride above
-  the tray; vacuum, cryogenic, and RF services hang below it. Drawing the first
-  line of a utility onto the bus populates its lane; later lines of that utility
-  reuse the same lane. Lane position never depends on connection order.
+  top-side lane for every registered utility. HV, power, cooling, data, vacuum,
+  cryogenic, and RF all ride above the tray in fixed lateral positions. Drawing
+  the first line of a utility onto the bus populates its lane; later lines of
+  that utility reuse the same lane. Lane position never depends on connection
+  order.
 - The floor-standing bus reserves only the narrow subtile strip physically
   beneath its tray and supports. Ordinary equipment and another bus may not
   overlap that strip, while the immediately adjacent subtiles remain buildable
@@ -158,7 +159,9 @@ the short authoring contract.
 - `tapSpacingSubtiles`, `minLengthSubtiles`, and `maxLengthSubtiles` are
   positive integer subtile dimensions. `costPerSubtile` prices the fabricated
   run. The shared planner snaps a drag to one orthogonal axis, includes both
-  end fittings, and gives every generated access point a stable identity.
+  end fittings, and gives every generated access point a stable identity. Each
+  access point is a real T-junction that may connect either a source or a sink
+  to the selected utility's shared backbone.
 - Utility-line input, persistence, network discovery, and rendering consume
   the committed bus path and generated channel lines. They must not maintain a
   second, independently solved capacity model for racks.

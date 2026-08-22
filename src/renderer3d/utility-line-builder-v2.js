@@ -16,7 +16,11 @@ import { COMPONENTS } from '../data/components.js';
 import { portWorldPosition, availablePorts as availablePortsFor } from '../utility/ports.js';
 import { portAnchor3D } from '../utility/port-anchors.js';
 import { UTILITY_TYPES, UTILITY_TYPE_LIST, utilityLineHeight } from '../utility/registry.js';
-import { universalBusLane } from '../utility/universal-bus-layout.js';
+import {
+  UNIVERSAL_BUS_DECK_Y,
+  UNIVERSAL_BUS_HALF_WIDTH_METERS,
+  universalBusLane,
+} from '../utility/universal-bus-layout.js';
 import { UTILITY_LINE_Y } from '../utility/line-geometry.js';
 import { FLOW_PARAMS, patchFlowMaterial, bakeRunDistanceUVs, bakeRunDistanceFromPositionZ } from './utility-flow.js';
 import { BLOOM_LAYER } from './glow-pipeline.js';
@@ -46,8 +50,7 @@ import {
 const PIPE_Y = UTILITY_LINE_Y;
 const SEGS = 12;     // cylinder radial segments
 const FLEXIBLE_RELAX_DURATION_SECONDS = 0.9;
-const UNIVERSAL_BUS_DECK_Y = 0.70;
-const UNIVERSAL_BUS_HALF_WIDTH = 0.36;
+const UNIVERSAL_BUS_HALF_WIDTH = UNIVERSAL_BUS_HALF_WIDTH_METERS;
 
 // Material cache keyed by (utilityType, errorStatus) — 'ok' | 'soft' | 'hard'.
 // Keeps identical materials shared across lines for the same descriptor+state.
