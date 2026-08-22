@@ -7,14 +7,14 @@ import { UniversalUtilityBusTool } from '../src/input/universal-utility-bus-tool
 import { UtilityLineInputController } from '../src/input/UtilityLineInputController.js';
 import { standardPaletteKind } from '../src/ui/palette-collection.js';
 import coolingWater from '../src/utility/types/coolingWater.js';
-import { UTILITY_TYPE_LIST } from '../src/utility/registry.js';
+import { UTILITY_TYPE_LIST, utilityLineHeight } from '../src/utility/registry.js';
 import {
   UNIVERSAL_BUS_MAX_CHANNELS,
   UniversalUtilityBusSystem,
 } from '../src/utility/UniversalUtilityBusSystem.js';
 import {
-  UNIVERSAL_BUS_HALF_WIDTH_METERS,
   UNIVERSAL_BUS_LANE_LIST,
+  UNIVERSAL_RACK_TOP_Y,
   universalBusLane,
 } from '../src/utility/universal-bus-layout.js';
 import {
@@ -39,11 +39,18 @@ assert.deepEqual(
   [...UTILITY_TYPE_LIST].sort(),
   'every registered utility has exactly one designated carrier lane');
 assert.deepEqual(
-  UNIVERSAL_BUS_LANE_LIST.filter(lane => lane.tier === 'top').map(lane => lane.utilityType),
-  ['hvCable', 'powerCable', 'coolingWater', 'dataFiber', 'vacuumPipe', 'cryoTransfer', 'rfWaveguide'],
-  'every registered service occupies a fixed position on top of the wire tray');
-assert.equal(UNIVERSAL_BUS_LANE_LIST.some(lane => lane.tier !== 'top'), false,
-  'the universal bus has no below-tray service lanes');
+  UNIVERSAL_BUS_LANE_LIST.filter(lane => lane.tier === 'vertical').map(lane => lane.utilityType),
+  ['cryoTransfer', 'rfWaveguide', 'vacuumPipe', 'coolingWater', 'powerCable', 'dataFiber', 'hvCable'],
+  'every registered service occupies a fixed bottom-to-top rack slot');
+assert.equal(UNIVERSAL_BUS_LANE_LIST.some(lane => lane.tier !== 'vertical'), false,
+  'the universal rack has no lateral tray lanes');
+assert.ok(UNIVERSAL_BUS_LANE_LIST.every((lane, index, lanes) =>
+  index === 0 || lane.runY > lanes[index - 1].runY),
+'rack service heights increase monotonically from bottom to top');
+for (const utilityType of ['cryoTransfer', 'rfWaveguide', 'vacuumPipe']) {
+  assert.equal(universalBusLane(utilityType).runY, utilityLineHeight(utilityType),
+    `${utilityType} enters the rack without changing its fixed route elevation`);
+}
 
 const state = {
   placeables: [], beamPipes: [], wallOccupied: {},
@@ -106,7 +113,7 @@ assert.deepEqual(gestureCosts, [null], 'the lane-population gesture remains free
 const busCells = universalBusFootprintCells(state.utilityBuses[0].path);
 assert.ok(busCells.some(cell => cell.row === -1 && cell.subRow === 3)
   && busCells.some(cell => cell.row === 0 && cell.subRow === 0),
-  'a bus on a quarter-grid line reserves the two floor strips beneath its tray');
+  'a bus on a quarter-grid line reserves the two floor strips beneath its rack');
 assert.ok(!busCells.some(cell => cell.row === 0 && cell.subRow === 1),
   'the next subtile remains free so equipment can build flush alongside the bus');
 const oneCellEquipment = {
@@ -243,7 +250,7 @@ for (const utilityType of ['powerCable', 'vacuumPipe', 'rfWaveguide',
   controller.setUtilityType(utilityType);
   const snap = controller._snapToNearest(9999, 9999, { x: 20, y: 20 });
   assert.equal(snap?.busId, busId,
-    `${utilityType} can snap directly to the visible elevated tray`);
+    `${utilityType} can snap directly to the visible vertical rack`);
   assert.equal(snap?.busTap, true);
 }
 
@@ -257,9 +264,13 @@ builder.setPreview({
   path: [{ col: 0, row: 0 }, { col: 4, row: 0 }],
 }, parent);
 assert.equal(builder._previewObject?.userData?.isUniversalUtilityBusPreview, true,
-  'drag preview is a ladder tray, not a component box or thick cable');
+  'drag preview is a vertical service rack, not a component box or thick cable');
 assert.ok(builder._previewObject.children.length >= 6,
-  'drag preview contains two rails and repeated crossbars');
+  'drag preview contains longitudinal rails, uprights, and slot shelves');
+const rackPreviewBounds = new THREE_NS.Box3().setFromObject(builder._previewObject);
+assert.ok(rackPreviewBounds.min.y <= 0.04
+    && rackPreviewBounds.max.y >= UNIVERSAL_RACK_TOP_Y - 0.04,
+  'drag preview shows the rack rising from the floor through every service slot');
 builder.setPreview(null, parent);
 const vacuumLane = universalBusLane('vacuumPipe');
 builder.setPreview({
@@ -269,10 +280,10 @@ builder.setPreview({
 }, parent);
 const lanePreviewBounds = new THREE_NS.Box3().setFromObject(builder._previewObject);
 const lanePreviewCenter = lanePreviewBounds.getCenter(new THREE_NS.Vector3());
-assert.ok(lanePreviewBounds.min.y > 0.7,
-  'the tap-to-tap preview appears above the tray instead of on the floor');
-assert.ok(Math.abs(lanePreviewCenter.z - (40 + vacuumLane.lateral)) < 1e-6,
-  'the tap-to-tap preview uses the selected utility lane offset');
+assert.ok(lanePreviewBounds.min.y > vacuumLane.runY - 0.1,
+  'the tap-to-tap preview appears at the vacuum rack height');
+assert.ok(Math.abs(lanePreviewCenter.z - 40) < 1e-6,
+  'the tap-to-tap preview uses the rack centreline rather than a lateral tray lane');
 builder.setPreview(null, parent);
 builder.build(state.utilityLines, new Map(), parent, { state });
 const renderedRackGroups = parent.children.filter(group =>
@@ -283,10 +294,12 @@ const carrierGroup = renderedRackGroups.find(group => group.userData.channelSlot
 assert.equal(
   carrierGroup.children.filter(child => child.userData?.isUniversalUtilityBusHanger).length,
   state.utilityBuses[0].taps.length,
-  'the wire tray renders one floor-standing support at every access point');
+  'the vertical rack renders one floor-standing frame at every access point');
 const carrierBounds = new THREE_NS.Box3().setFromObject(carrierGroup);
 assert.ok(Math.abs(carrierBounds.min.y) < 1e-6,
   'the bus support feet sit on the ground plane instead of floating above it');
+assert.ok(carrierBounds.max.y >= UNIVERSAL_RACK_TOP_Y,
+  'the carrier frame reaches above its highest utility slot');
 assert.equal(renderedRackGroups.filter(group => group.userData.channelSlot != null).length, 7,
   'all seven populated service runs remain visible on the carrier');
 assert.deepEqual(
@@ -301,11 +314,8 @@ for (const channel of renderedRackGroups.filter(group => group.userData.channelS
   assert.equal(channel.userData.routeHeightMeters, lane.runY,
     `${channel.userData.utilityType} uses its designated carrier height`);
   const channelBounds = new THREE_NS.Box3().setFromObject(channel);
-  const channelCenter = channelBounds.getCenter(new THREE_NS.Vector3());
-  assert.ok(Math.abs(channelCenter.z - lane.lateral) < 1e-6,
-    `${channel.userData.utilityType} geometry occupies its designated lateral lane`);
-  assert.ok(channelBounds.min.y > 0.7,
-    `${channel.userData.utilityType} geometry rides above the tray deck`);
+  assert.ok(channelBounds.min.y < lane.runY && channelBounds.max.y > lane.runY,
+    `${channel.userData.utilityType} geometry occupies its designated vertical slot`);
   const ports = [];
   channel.traverse(object => {
     if (object.userData?.isUniversalUtilityBusPort) ports.push(object);
@@ -314,6 +324,10 @@ for (const channel of renderedRackGroups.filter(group => group.userData.channelS
     `${channel.userData.utilityType} renders one utility-specific port at every rack tap`);
   assert.ok(ports.every(port => port.userData.utilityType === channel.userData.utilityType),
     'each periodic port is tagged as the utility carried by its lane');
+  assert.ok(ports.every((port) => {
+    const bounds = new THREE_NS.Box3().setFromObject(port);
+    return Math.abs(bounds.getCenter(new THREE_NS.Vector3()).y - lane.portY) < 1e-6;
+  }), `${channel.userData.utilityType} access sockets face sideways at their slot height`);
 }
 const channelBoundsByLane = renderedRackGroups
   .filter(group => group.userData.channelSlot != null)
@@ -321,22 +335,19 @@ const channelBoundsByLane = renderedRackGroups
     utilityType: group.userData.utilityType,
     bounds: new THREE_NS.Box3().setFromObject(group),
   }))
-  .sort((a, b) => universalBusLane(a.utilityType).lateral
-    - universalBusLane(b.utilityType).lateral);
-assert.ok(channelBoundsByLane[0].bounds.min.z > -UNIVERSAL_BUS_HALF_WIDTH_METERS
-  && channelBoundsByLane.at(-1).bounds.max.z < UNIVERSAL_BUS_HALF_WIDTH_METERS,
-  'the outermost service fittings remain inside the tray rails');
+  .sort((a, b) => universalBusLane(a.utilityType).runY
+    - universalBusLane(b.utilityType).runY);
 for (let index = 1; index < channelBoundsByLane.length; index++) {
-  const left = channelBoundsByLane[index - 1];
-  const right = channelBoundsByLane[index];
-  assert.ok(left.bounds.max.z < right.bounds.min.z,
-    `${left.utilityType} (${left.bounds.max.z}) and ${right.utilityType} `
-      + `(${right.bounds.min.z}) remain visually distinct on top of the tray`);
+  const lower = channelBoundsByLane[index - 1];
+  const upper = channelBoundsByLane[index];
+  assert.ok(lower.bounds.max.y < upper.bounds.min.y,
+    `${lower.utilityType} (${lower.bounds.max.y}) and ${upper.utilityType} `
+      + `(${upper.bounds.min.y}) remain visually distinct in the vertical rack`);
 }
 const coolingBranchGroup = builder._lineGroups.get(coolingBranchId);
 const coolingBranchBounds = new THREE_NS.Box3().setFromObject(coolingBranchGroup);
-assert.ok(coolingBranchBounds.max.y > 0.9,
-  'a cooling branch visibly rises and plugs into its periodic tray port');
+assert.ok(coolingBranchBounds.max.y > universalBusLane('coolingWater').runY - 0.05,
+  'a cooling branch visibly rises and plugs into its rack-height socket');
 builder.dispose(parent);
 assert.equal(parent.children.length, 0, 'renderer teardown removes rack and channel meshes');
 

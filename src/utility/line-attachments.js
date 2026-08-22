@@ -3,15 +3,16 @@
 // coordinates are tile units at world x/z = col/row * 2 (unlike beam pipes,
 // whose path coordinates identify tile centres and therefore add one metre).
 
+import { RIGID_UTILITY_SERVICE_HEIGHTS } from './service-heights.js';
+
 const EPS = 1e-9;
 
 // Supported vacuum-pipe centreline height. Kept here as a tiny cycle-free
 // presentation constant so utility-endpoints can describe a line-mounted
 // gauge without importing the solver registry through COMPONENTS ->
-// validation -> registry -> solver -> endpoint lookup. The vacuum descriptor
-// imports this same value for `runHeightMeters`, keeping mounted gauges and
-// their supporting line on one physical axis.
-export const VACUUM_LINE_MOUNT_Y = 0.24;
+// validation -> registry -> solver -> endpoint lookup. Both this attachment
+// pose and the vacuum descriptor read the same dependency-neutral datum.
+export const VACUUM_LINE_MOUNT_Y = RIGID_UTILITY_SERVICE_HEIGHTS.vacuumPipe;
 
 function pathMetrics(line) {
   const path = line?.path || [];

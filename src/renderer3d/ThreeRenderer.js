@@ -1227,7 +1227,7 @@ export class ThreeRenderer {
     const exact = castAt(screenX, screenY);
     if (exact?.lineId || !(tolerancePx > 0)) return exact;
 
-    // An exact neutral-tray hit must not prevent a nearby populated lane from
+    // An exact neutral-rack hit must not prevent a nearby populated slot from
     // being selected. Limit tolerance samples to real lines, then retain the
     // exact bus fallback for bus placement/demolition semantics.
     const nearbyLine = pickWithScreenTolerance(screenX, screenY, tolerancePx, (x, y) => {

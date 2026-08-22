@@ -9,11 +9,9 @@ import {
   Q_SPECIFIC_UNBAKED, Q_SPECIFIC_BAKED, outgassingForLength,
 } from '../../data/utility-ports-v2.js';
 import { endpointsById } from '../endpoint-lookup.js';
-import {
-  utilityAttachmentPose,
-  VACUUM_LINE_MOUNT_Y,
-} from '../line-attachments.js';
+import { utilityAttachmentPose } from '../line-attachments.js';
 import { powerFeedFactor } from '../power-feed.js';
+import { RIGID_UTILITY_SERVICE_HEIGHTS } from '../service-heights.js';
 
 export const BAKEOUT_FACTOR = Q_SPECIFIC_BAKED / Q_SPECIFIC_UNBAKED;
 export const VACUUM_TEMPERATURE_K = 300;
@@ -439,24 +437,17 @@ export default {
   color: '#888888',
   geometryStyle: 'cylinder',
   pipeRadiusMeters: BEAM_PIPE_RADIUS_M,
-  // Keep the process pipe visibly clear of the slab and carry it on periodic
-  // ground-footed stands. The renderer fills each leg to this run height.
-  runHeightMeters: VACUUM_LINE_MOUNT_Y,
+  // Every long vacuum run uses one facility-wide service datum. Equipment
+  // fittings at other heights receive a short local transition at the port.
+  runHeightMeters: RIGID_UTILITY_SERVICE_HEIGHTS.vacuumPipe,
   supportSpacingMeters: 3,
   supportMinimumRunMeters: 3,
-  // Vacuum fittings span several authored heights, from floor pumps to the
-  // 1 m beam axis. The long process pipe stays on one stable low rack and its
-  // endpoint risers meet those fittings; later lanes stack upward only when a
-  // real route conflict requires it.
-  routeAtBaseHeight: true,
-  verticalRouteLanes: true,
-  routeLaneSpacingMeters: 0.30,
+  fixedRouteHeight: true,
   routeVerticalClearanceMeters: 0.06,
-  maxRouteHeightMeters: 3.0,
   // Vacuum pipe is the forgiving rigid service: compact swept elbows and
   // tees are ordinary catalogue fittings, so it may turn on the next service
-  // grid point. It still routes around machines; other fabricated services
-  // may occupy the same plan route on a separate height lane.
+  // grid point. It still routes around machines and other independent vacuum
+  // runs; different fabricated utilities clear it on their own fixed datums.
   routingProfile: 'rigid',
   avoidRigidIntersections: true,
   routeClearanceTiles: 0.25,

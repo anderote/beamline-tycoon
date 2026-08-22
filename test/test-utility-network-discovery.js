@@ -318,9 +318,9 @@ console.log('\n--- Test 8: merge via bridge line ---');
 }
 
 // ==========================================================================
-// Test 9: Plan-view crossings only join fabricated services on one elevation.
+// Test 9: Fixed-height fabricated services join only at endpoint fittings.
 // ==========================================================================
-console.log('\n--- Test 9: elevated rigid routes stay topologically separate ---');
+console.log('\n--- Test 9: fixed-height rigid fittings remain explicit ---');
 {
   const lower = {
     id: 'vac_lower', utilityType: 'vacuumPipe', start: null, end: null,
@@ -332,16 +332,16 @@ console.log('\n--- Test 9: elevated rigid routes stay topologically separate ---
     routeHeightMeters: 0.54,
     path: [{ col: 2, row: 1 }, { col: 2, row: 4 }],
   };
-  const separated = discoverNetworks('vacuumPipe', [lower, upper], () => null);
-  assert(separated.length === 2,
-    `two plan-overlapping pipes on distinct rack lanes remain separate networks (got ${separated.length})`);
+  const joined = discoverNetworks('vacuumPipe', [lower, upper], () => null);
+  assert(joined.length === 1,
+    `obsolete saved heights cannot separate an endpoint fitting (got ${joined.length})`);
 
-  const tapped = discoverNetworks('vacuumPipe', [
+  const crossed = discoverNetworks('vacuumPipe', [
     lower,
-    { ...upper, routeHeightMeters: lower.routeHeightMeters },
+    { ...upper, path: [{ col: 2, row: 0 }, { col: 2, row: 4 }] },
   ], () => null);
-  assert(tapped.length === 1,
-    `an endpoint on a same-height trunk still forms a real tee (got ${tapped.length})`);
+  assert(crossed.length === 2,
+    `an interior/interior plan crossing is not an implicit tee (got ${crossed.length})`);
 }
 
 // ==========================================================================

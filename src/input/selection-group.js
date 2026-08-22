@@ -593,13 +593,10 @@ export function previewSelectionGroup(game, payload, anchorPose) {
             row: point.row + deltaRow,
           }))
         : undefined,
-      // A move keeps the fabricated rack elevation. A copy prefers the source
-      // elevation but may be lifted if it lands over the original route.
-      ...(moving && Number.isFinite(source.routeHeightMeters)
+      // Fixed rigid services are canonicalized by validateDrawLine. Preserve
+      // explicit non-fixed elevations (for example a buried HV duct bank).
+      ...(Number.isFinite(source.routeHeightMeters)
         ? { routeHeightMeters: source.routeHeightMeters }
-        : {}),
-      ...(!moving && Number.isFinite(source.routeHeightMeters)
-        ? { preferredRouteHeightMeters: source.routeHeightMeters }
         : {}),
     };
     const checked = validateDrawLine(utilityState, plan);

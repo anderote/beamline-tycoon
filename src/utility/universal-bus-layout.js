@@ -1,29 +1,69 @@
-// Fixed physical lanes for the universal utility bus.
+// Fixed physical slots for the universal vertical utility rack.
 //
 // Lane identity belongs to the utility, not to connection order. That keeps a
-// power cable in the same visible tray position on every carrier and lets all
+// power cable at the same visible height on every carrier and lets all
 // supported utility types coexist without competing for a generic slot.
 
-// Physical tray dimensions are shared by rendering and ground-clearance
-// validation. One tile is two world metres, so the 0.50 m tray half-width is
-// 0.25 tile in plan view. A one-metre tray is wide enough for all seven real
-// service geometries and their access fittings to remain distinct on top.
-export const UNIVERSAL_BUS_DECK_Y = 0.70;
-export const UNIVERSAL_BUS_HALF_WIDTH_METERS = 0.50;
+import {
+  UNIVERSAL_RACK_SERVICE_HEIGHTS,
+  UNIVERSAL_RACK_TOP_Y,
+} from './service-heights.js';
+
+// Physical rack dimensions are shared by rendering and ground-clearance
+// validation. The upright frame is narrow in plan because service separation
+// is vertical rather than lateral.
+export const UNIVERSAL_BUS_DECK_Y = 0.08;
+export { UNIVERSAL_RACK_TOP_Y };
+export const UNIVERSAL_BUS_HALF_WIDTH_METERS = 0.24;
 export const UNIVERSAL_BUS_HALF_WIDTH_TILES = UNIVERSAL_BUS_HALF_WIDTH_METERS / 2;
+export const UNIVERSAL_BUS_PORT_LATERAL_METERS = 0.34;
 
 export const UNIVERSAL_BUS_LANES = Object.freeze({
-  // Left rail -> right rail. Spacing is intentionally non-uniform: the
-  // jacketed cryogenic line and vacuum pipe need more physical width than a
-  // power cord or fibre bundle. All seven centre lines remain above the tray
-  // deck and inside its rails.
-  hvCable: Object.freeze({ slot: 0, tier: 'top', lateral: -0.413, runY: 0.84, portY: 0.96 }),
-  powerCable: Object.freeze({ slot: 1, tier: 'top', lateral: -0.307, runY: 0.82, portY: 0.94 }),
-  coolingWater: Object.freeze({ slot: 2, tier: 'top', lateral: -0.212, runY: 0.82, portY: 0.94 }),
-  dataFiber: Object.freeze({ slot: 3, tier: 'top', lateral: -0.117, runY: 0.82, portY: 0.94 }),
-  vacuumPipe: Object.freeze({ slot: 4, tier: 'top', lateral: 0.029, runY: 0.84, portY: 0.96 }),
-  cryoTransfer: Object.freeze({ slot: 5, tier: 'top', lateral: 0.231, runY: 0.84, portY: 0.98 }),
-  rfWaveguide: Object.freeze({ slot: 6, tier: 'top', lateral: 0.403, runY: 0.84, portY: 0.96 }),
+  // Bottom -> top. Rigid services reuse their facility-wide route datums, so
+  // a branch meets the rack without changing elevation. Flexible utilities
+  // rise locally to their assigned rack socket.
+  cryoTransfer: Object.freeze({
+    slot: 0, tier: 'vertical', lateral: 0,
+    runY: UNIVERSAL_RACK_SERVICE_HEIGHTS.cryoTransfer,
+    portY: UNIVERSAL_RACK_SERVICE_HEIGHTS.cryoTransfer,
+    portLateral: UNIVERSAL_BUS_PORT_LATERAL_METERS,
+  }),
+  rfWaveguide: Object.freeze({
+    slot: 1, tier: 'vertical', lateral: 0,
+    runY: UNIVERSAL_RACK_SERVICE_HEIGHTS.rfWaveguide,
+    portY: UNIVERSAL_RACK_SERVICE_HEIGHTS.rfWaveguide,
+    portLateral: UNIVERSAL_BUS_PORT_LATERAL_METERS,
+  }),
+  vacuumPipe: Object.freeze({
+    slot: 2, tier: 'vertical', lateral: 0,
+    runY: UNIVERSAL_RACK_SERVICE_HEIGHTS.vacuumPipe,
+    portY: UNIVERSAL_RACK_SERVICE_HEIGHTS.vacuumPipe,
+    portLateral: UNIVERSAL_BUS_PORT_LATERAL_METERS,
+  }),
+  coolingWater: Object.freeze({
+    slot: 3, tier: 'vertical', lateral: 0,
+    runY: UNIVERSAL_RACK_SERVICE_HEIGHTS.coolingWater,
+    portY: UNIVERSAL_RACK_SERVICE_HEIGHTS.coolingWater,
+    portLateral: UNIVERSAL_BUS_PORT_LATERAL_METERS,
+  }),
+  powerCable: Object.freeze({
+    slot: 4, tier: 'vertical', lateral: 0,
+    runY: UNIVERSAL_RACK_SERVICE_HEIGHTS.powerCable,
+    portY: UNIVERSAL_RACK_SERVICE_HEIGHTS.powerCable,
+    portLateral: UNIVERSAL_BUS_PORT_LATERAL_METERS,
+  }),
+  dataFiber: Object.freeze({
+    slot: 5, tier: 'vertical', lateral: 0,
+    runY: UNIVERSAL_RACK_SERVICE_HEIGHTS.dataFiber,
+    portY: UNIVERSAL_RACK_SERVICE_HEIGHTS.dataFiber,
+    portLateral: UNIVERSAL_BUS_PORT_LATERAL_METERS,
+  }),
+  hvCable: Object.freeze({
+    slot: 6, tier: 'vertical', lateral: 0,
+    runY: UNIVERSAL_RACK_SERVICE_HEIGHTS.hvCable,
+    portY: UNIVERSAL_RACK_SERVICE_HEIGHTS.hvCable,
+    portLateral: UNIVERSAL_BUS_PORT_LATERAL_METERS,
+  }),
 });
 
 export const UNIVERSAL_BUS_LANE_LIST = Object.freeze(

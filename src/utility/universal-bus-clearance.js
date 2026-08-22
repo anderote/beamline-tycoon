@@ -10,10 +10,9 @@ const SUBTILES_PER_TILE = 4;
 const CELL_SIZE = 1 / SUBTILES_PER_TILE;
 const CELL_HALF = CELL_SIZE / 2;
 
-// The rendered tray is 1.0 m wide. Cell intersection (rather than centre
-// containment) reserves the two half-metre subtiles beneath a bus drawn on a
-// quarter-grid line while leaving the next row free for equipment built
-// alongside it.
+// The upright rack is narrow in plan. Cell intersection (rather than centre
+// containment) reserves the two half-metre subtiles straddling a rack drawn on
+// a quarter-grid line while leaving the next row free for equipment alongside.
 export { UNIVERSAL_BUS_HALF_WIDTH_TILES };
 
 function cellAt(subCol, subRow) {

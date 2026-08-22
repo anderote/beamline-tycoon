@@ -42,6 +42,7 @@
 import { CAVITY_SPECS, T_CRITICAL, pDiss } from '../../beamline/cavity-specs.js';
 import { endpointsById } from '../endpoint-lookup.js';
 import { powerFeedFactor } from '../power-feed.js';
+import { RIGID_UTILITY_SERVICE_HEIGHTS } from '../service-heights.js';
 
 export const BOILOFF_PER_W_PER_TICK = 0.0005;
 // Compatibility export for callers that mean the central recovery/storage
@@ -356,20 +357,14 @@ export default {
   // The outer vacuum jacket rides above the slab on periodic steel stands.
   // Stand legs are presentation geometry derived from this centreline height;
   // topology and priced path length remain the authored 2D route.
-  runHeightMeters: 0.30,
-  // Cryomodule bayonets frequently sit 2–2.5 m above the deck. Carrying that
-  // height across the whole facility left only one or two automatic stacking
-  // lanes before the 3 m ceiling and made dense cryogenic routing needlessly
-  // fragile. The endpoint renderer already moves the vertical drop outside
-  // the cryostat body, so ordinary runs belong on this low service rack.
-  // Explicit taps still inherit their trunk's saved elevation.
-  routeAtBaseHeight: true,
+  runHeightMeters: RIGID_UTILITY_SERVICE_HEIGHTS.cryoTransfer,
+  // Cryomodule bayonets frequently sit 2–2.5 m above the deck. The endpoint
+  // renderer keeps that transition outside the cryostat body, while every
+  // ordinary run and explicit tap stays on this low service datum.
+  fixedRouteHeight: true,
   supportSpacingMeters: 3,
   supportMinimumRunMeters: 3,
-  verticalRouteLanes: true,
-  routeLaneSpacingMeters: 0.30,
   routeVerticalClearanceMeters: 0.06,
-  maxRouteHeightMeters: 3.0,
   // Transfer lines share the forgiving rectilinear routing contract with RF:
   // horizontal/vertical runs and 90-degree bends, without rigid clearances.
   routingProfile: 'rectilinear',

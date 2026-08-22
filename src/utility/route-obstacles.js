@@ -9,7 +9,6 @@ import { COMPONENTS } from '../data/components.js';
 import { expandPath } from './line-geometry.js';
 import { placeableCenterWorld, footprintHalfExtents } from './ports.js';
 import { UTILITY_TYPES } from './registry.js';
-import { usesVerticalRouteLanes } from './route-elevation.js';
 import { listUtilityEndpoints } from './utility-endpoints.js';
 
 const SUB_PER_TILE = 4;
@@ -54,11 +53,6 @@ function addLineObstacles(out, state, utilityType, opts) {
     ? state.utilityLines.values() : (state?.utilityLines || []);
   for (const line of iter) {
     if (!line || !rigidUtilitiesConflict(utilityType, line.utilityType)) continue;
-    // Fabricated services resolve shared plan routes with explicit Y lanes.
-    // Keep A* focused on true 2D obstacles (equipment); line-drawing assigns
-    // the first vertically clear lane and remains the commit authority.
-    if (usesVerticalRouteLanes(utilityType)
-        && usesVerticalRouteLanes(line.utilityType)) continue;
     const other = UTILITY_TYPES[line.utilityType] || {};
     const clearanceTiles = Math.max(
       candidate.routeClearanceTiles || 0,

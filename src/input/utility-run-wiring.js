@@ -179,7 +179,6 @@ export function planUtilityRun(state, {
       portName: name,
       vec,
       tile: portTile(pos),
-      routeHeightMeters: Number.isFinite(pos.y) ? pos.y : null,
     });
   }
   if (outlets.length === 0) return empty;
@@ -256,7 +255,6 @@ export function planUtilityRun(state, {
         start,
         end,
         path,
-        preferredRouteHeightMeters: outlet.routeHeightMeters,
       });
       if (checked.ok) {
         chosen = path;
@@ -279,7 +277,6 @@ export function planUtilityRun(state, {
           start,
           end,
           path,
-          preferredRouteHeightMeters: outlet.routeHeightMeters,
         });
         if (checked.ok) {
           chosen = path;

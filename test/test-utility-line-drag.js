@@ -454,7 +454,7 @@ console.log('\n--- 5. Tool picking follows each utility\'s placement contract --
   const ctrl = new UtilityLineInputController({ game, renderer: {} });
   ctrl.setUtilityType('vacuumPipe');
   // Vacuum fittings sit at several authored heights, but the long process
-  // pipe belongs on one stable low rack. Only a real route conflict lifts it.
+  // pipe always belongs on its one facility-wide datum.
   ctrl._drawing = true;
   ctrl._drawStart = { anchor: { y: 0.72 }, worldPos: { x: 0, z: 0 } };
   const seen = [];
@@ -469,8 +469,9 @@ console.log('\n--- 5. Tool picking follows each utility\'s placement contract --
   tool._cableWorld({ clientX: 1, clientY: 2 }, ctx);
   ctrl._preview = { routeHeightMeters: 0.54 };
   tool._cableWorld({ clientX: 3, clientY: 4 }, ctx);
-  assert(seen[0] === utilityLineHeight('vacuumPipe') && seen[1] === 0.54,
-    `vacuum drawing starts on its low rack and follows a resolved upper lane (${seen.join(' m → ')} m)`);
+  assert(seen[0] === utilityLineHeight('vacuumPipe')
+      && seen[1] === utilityLineHeight('vacuumPipe'),
+    `vacuum drawing ignores obsolete preview lanes (${seen.join(' m → ')} m)`);
 }
 
 {
@@ -487,14 +488,12 @@ console.log('\n--- 5. Tool picking follows each utility\'s placement contract --
 
   assert(lowToBeam.routeHeightMeters === utilityLineHeight('vacuumPipe')
       && beamToLow.routeHeightMeters === utilityLineHeight('vacuumPipe'),
-    'vacuum uses the same low rack lane in either draw direction');
+    'vacuum uses the same fixed datum in either draw direction');
 }
 
 {
-  // Compact RF sources can have a lower output than the cavity feed they
-  // serve. The route used to inherit only the drag-start height, making the
-  // result depend on draw direction and sending a TWT-led guide down before
-  // it immediately rose into the cavity.
+  // Equipment-specific RF hardware keeps its visible anchor, but the long
+  // guide immediately transitions to the standard RF datum.
   const game = makeGame();
   const controller = new UtilityLineInputController({ game, renderer: {} });
   controller.setUtilityType('rfWaveguide');
@@ -506,14 +505,14 @@ console.log('\n--- 5. Tool picking follows each utility\'s placement contract --
   controller._drawStart = high;
   const highToLow = controller._dragGeometry(0, 0, low);
 
-  assert(lowToHigh.routeHeightMeters === 1.2 && highToLow.routeHeightMeters === 1.2,
-    'a rigid port-to-port run uses the higher connector lane in either draw direction');
+  assert(lowToHigh.routeHeightMeters === utilityLineHeight('rfWaveguide')
+      && highToLow.routeHeightMeters === utilityLineHeight('rfWaveguide'),
+    'RF uses one standard route datum in either draw direction');
 }
 
 {
-  // Cryogenic transfer lines are the exception to endpoint-height routing.
-  // A top cryomodule bayonet owns a short outside-the-body drop; lifting the
-  // entire plant network to that fitting used up almost every stacking lane.
+  // A top cryomodule bayonet owns a short outside-the-body drop; the long
+  // transfer line remains on the facility-wide cryogenic datum.
   const game = makeGame();
   const controller = new UtilityLineInputController({ game, renderer: {} });
   controller.setUtilityType('cryoTransfer');
@@ -527,10 +526,10 @@ console.log('\n--- 5. Tool picking follows each utility\'s placement contract --
 
   assert(toBayonet.routeHeightMeters === utilityLineHeight('cryoTransfer')
       && fromBayonet.routeHeightMeters === utilityLineHeight('cryoTransfer'),
-    'cryo routes on its low rack in either draw direction');
+    'cryo routes on its fixed datum in either draw direction');
   controller._preview = null;
   assert(controller.drawHeight === utilityLineHeight('cryoTransfer'),
-    'the cryo cursor follows the low rack immediately after grabbing a top bayonet');
+    'the cryo cursor follows the fixed datum after grabbing a top bayonet');
 
   game.state.utilityLines.set('cryo_trunk', {
     id: 'cryo_trunk', utilityType: 'cryoTransfer', start: null, end: null,
@@ -546,8 +545,9 @@ console.log('\n--- 5. Tool picking follows each utility\'s placement contract --
     worldPos: { x: 0, z: 4 },
   });
   controller._preview = tappedBranch;
-  assert(tappedBranch.routeHeightMeters === 0.9 && controller.drawHeight === 0.9,
-    'an explicit cryo tap still inherits and follows its elevated trunk lane');
+  assert(tappedBranch.routeHeightMeters === utilityLineHeight('cryoTransfer')
+      && controller.drawHeight === utilityLineHeight('cryoTransfer'),
+    'an explicit cryo tap canonicalizes a retired trunk lane to the fixed datum');
 }
 
 console.log('\n--- 6. Right-click erases a line of the armed utility ---');

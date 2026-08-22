@@ -143,16 +143,16 @@ the short authoring contract.
   search, and research rewards must not advertise them. Power's retired cable
   tray, tray riser, duct-bank vault, and prefab overhead span are compatibility
   content; the universal utility bus is the buildable carrier.
-- The bus is a utility-neutral metal wire tray with one isolated, designated
-  top-side lane for every registered utility. HV, power, cooling, data, vacuum,
-  cryogenic, and RF all ride above the tray in fixed lateral positions. Drawing
-  the first line of a utility onto the bus populates its lane; later lines of
-  that utility reuse the same lane. Lane position never depends on connection
-  order. A direct drag between two access points on the same bus explicitly
-  populates that utility's full lane; it must not attempt to commit a duplicate
-  partial line over the generated backbone.
+- The bus is a utility-neutral vertical metal rack with one isolated,
+  designated height slot for every registered utility. Cryogenic, RF, vacuum,
+  cooling, power, data, and HV stack bottom-to-top. Drawing the first line of a
+  utility onto the bus populates its slot; later lines of that utility reuse the
+  same slot. Slot position never depends on connection order. A direct drag
+  between two access points on the same bus explicitly
+  populates that utility's full channel; it must not attempt to commit a
+  duplicate partial line over the generated backbone.
 - The floor-standing bus reserves only the narrow subtile strip physically
-  beneath its tray and supports. Ordinary equipment and another bus may not
+  beneath its uprights and feet. Ordinary equipment and another bus may not
   overlap that strip, while the immediately adjacent subtiles remain buildable
   so equipment can form parallel service rows alongside the carrier.
 - Each claimed channel is represented by a real tagged utility line along the
@@ -244,8 +244,8 @@ the short authoring contract.
   reserve rigid equipment or service-clearance aisles.
 - Free-drag endpoints may snap to an existing compatible vacuum, cooling, RF,
   cryogenic-transfer, or data run and commit a named `tapLineIds` T-junction.
-  The branch must meet the trunk at one point, inherit its physical route lane,
-  and render a real service fitting. Collinear duplicate runs remain invalid.
+  The branch must meet the trunk at one point on the utility's fixed datum and
+  render a real service fitting. Collinear duplicate runs remain invalid.
   Power and HV cable do not allow casual tees; use distribution equipment or a
   utility bus so electrical branching retains protected physical outlets.
 - Every utility route may turn immediately at a port. Port facing selects the
@@ -256,12 +256,13 @@ the short authoring contract.
   That one projected point also drives hover, tooltips, snapping, erasing, and
   release; the utility tool does not derive a second point from terrain.
 - Vacuum pipe, RF waveguide, and cryogenic transfer line are fabricated rigid
-  services with vertical route lanes. RF begins at the higher endpoint
-  connector. Vacuum and cryogenic transfer begin on their fixed low service
-  racks; endpoint risers reach fittings at other authored heights. All three
-  rise only as needed, so parallel or crossing runs may share X/Z coordinates
-  while remaining physically separate. A named tap is a real fitting and
-  therefore inherits the trunk's route height.
+  services with mandatory facility-wide route datums: cryogenic at 0.30 m, RF
+  at 0.60 m, and vacuum at 0.90 m. Authored equipment fittings remain on their
+  visible hardware and use short local transitions to these datums. Different
+  rigid utilities may share X/Z coordinates because their bodies have vertical
+  clearance. Independent runs of the same utility may not cross or overlap;
+  the player must route around them or create an explicit named tap. Retired
+  saved `routeHeightMeters` values cannot override a fixed utility datum.
 - A utility descriptor with `requiresWallPassThrough: true` validates the
   physical rendered route against `wallOccupied`. Power and HV cable opt in;
   their freehand `cablePath` is authoritative when present. Fabricated pipe,

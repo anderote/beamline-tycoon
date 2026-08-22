@@ -77,8 +77,9 @@ function utilityAttachmentRecord(line, att) {
     dir: pose.dir,
     params: att.params,
     utilityLineId: line.id,
-    yOffset: (Number.isFinite(line.routeHeightMeters)
-      ? line.routeHeightMeters : VACUUM_LINE_MOUNT_Y) - 1.0,
+    // Utility attachments currently belong to vacuum runs. Retired saved
+    // lane values cannot move the gauge away from the fixed vacuum datum.
+    yOffset: VACUUM_LINE_MOUNT_Y - 1.0,
     isPlacement: true,
     isUtilityAttachment: true,
   };

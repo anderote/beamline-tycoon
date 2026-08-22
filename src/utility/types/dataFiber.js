@@ -12,7 +12,7 @@ export default {
   geometryStyle: 'fiberBundle',
   // Ordinary data runs are loose flexible cables, sized to remain legible at
   // normal map zoom. Channels installed on the universal utility bus retain
-  // the bus's rigid tray presentation.
+  // the bus's rigid vertical-rack presentation.
   pipeRadiusMeters: 0.025,
   bundleStrandRadiusMeters: 0.008,
   bundleSpacingMeters: 0.014,
