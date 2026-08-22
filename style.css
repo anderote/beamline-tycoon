@@ -3527,9 +3527,9 @@ body.palette-expanded {
 
 .beam-summary { font-family:monospace; font-size:11px; color:#888; padding:4px 8px; white-space:nowrap; }
 .beam-summary.active { color:#4f4; }
-/* Faults stay visible without opening a panel over the playfield. The title
-   attribute carries the deduplicated detail on hover. */
-.beam-summary.fault { color:#ff7766; background:rgba(80,20,20,0.5); border:1px solid #77403b; border-radius:3px; cursor:help; }
+/* Faults stay visible without opening a panel over the playfield. Clicking
+   the chip opens the actionable blocker list; hover still summarizes it. */
+.beam-summary.fault { color:#ff7766; background:rgba(80,20,20,0.5); border:1px solid #77403b; border-radius:3px; cursor:pointer; }
 
 
 /* Designs Library — a BLT catalogue rather than a generic narrow overlay. */
