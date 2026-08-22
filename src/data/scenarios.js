@@ -1,7 +1,7 @@
-// Scenario definitions and regression fixtures. New Game intentionally offers
-// only browser-local Scenario Editor creations plus the blank Sandbox entry;
-// the older source-authored facilities remain here solely as headless fixtures
-// for utility, physics, and economy regression coverage.
+// Scenario definitions and regression fixtures. New Game offers browser-local
+// Scenario Editor creations, the editable stock Minor Lab, and blank Sandbox;
+// the older source-authored facilities remain headless fixtures for utility,
+// physics, and economy regression coverage.
 // Each scenario has metadata for the picker UI and a generator function
 // that returns the map data (floors, zones, walls, doors, placeables).
 // An optional setup(game) runs AFTER game.applyScenario(mapData): it builds
@@ -11,6 +11,7 @@
 
 import { generateRealLab, setupRealLab } from './scenarios/realLab.js';
 import { generateSmallBeamlineFacility, setupSmallBeamlineFacility } from './scenarios/smallBeamlineFacility.js';
+import { generateMinorLab, setupMinorLab } from './scenarios/minorLab.js';
 
 // Browser-local scenario catalogue: the dev-only Scenario Editor publishes
 // complete playable starting situations here without requiring a source-code
@@ -147,7 +148,7 @@ export function parseScenarioExport(text) {
 }
 
 function isNewGameBuiltInScenario(scenario) {
-  return scenario?.id === 'sandbox';
+  return scenario?.id === 'sandbox' || scenario?.id === 'minorLab';
 }
 
 /** Stable picker/launch id for a browser-local scenario. */
@@ -322,12 +323,14 @@ export function resolveScenario(id, storage = globalThis.localStorage) {
   return SCENARIOS.find(s => s.id === id && isNewGameBuiltInScenario(s)) || null;
 }
 
-/** The editor-authored starter situation followed by blank Sandbox. */
+/** Local starter situations, then stock choices that have not been locally overridden. */
 export function listPlayableScenarios(storage = globalThis.localStorage) {
   const local = listCustomScenarios(storage)
     .map(scenario => resolveScenario(customScenarioRef(scenario.id), storage))
     .filter(Boolean);
-  return [...local, ...SCENARIOS.filter(isNewGameBuiltInScenario)];
+  const localIds = new Set(local.map(scenario => scenario.localId));
+  return [...local, ...SCENARIOS.filter(scenario =>
+    isNewGameBuiltInScenario(scenario) && !localIds.has(scenario.id))];
 }
 
 /** Stage a picker selection for the existing post-reload scenario boot path. */
@@ -350,6 +353,15 @@ export function stageScenarioSelection(id, storage = globalThis.localStorage) {
 }
 
 export const SCENARIOS = [
+  {
+    id: 'minorLab',
+    name: 'Minor Lab',
+    desc: 'A compact, powered control nook with staff-care basics. Edit it into your own starting facility, then Save + Playtest locally.',
+    difficulty: 'Editable',
+    generator: generateMinorLab,
+    setup: setupMinorLab,
+    editable: true,
+  },
   {
     id: 'sandbox',
     name: 'Sandbox',

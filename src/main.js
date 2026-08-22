@@ -272,15 +272,30 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
     const { ScenarioEditor } = await import('./ui/ScenarioEditor.js');
     const editorTarget = bootParams.get('editor');
     const requestedFreshProject = editorTarget === 'new';
+    const builtInScenarioId = editorTarget?.startsWith('builtin:')
+      ? decodeURIComponent(editorTarget.slice('builtin:'.length))
+      : null;
     // A local id reopens exactly that playable scenario. `editor=1` keeps old
     // bookmarks working by opening the newest migrated single-slot project.
-    const existingScenario = requestedFreshProject
+    const localScenario = requestedFreshProject || builtInScenarioId
       ? null
       : editorTarget === '1'
         ? loadCustomScenario()
         : loadCustomScenarioById(editorTarget);
+    const builtInScenario = builtInScenarioId ? resolveScenario(builtInScenarioId) : null;
+    const existingScenario = localScenario || (builtInScenario && {
+      id: builtInScenario.id,
+      name: builtInScenario.name,
+      // Marks this stock baseline as saveable under the same local id. Its
+      // actual map is applied below, including dynamic setup content.
+      data: {},
+    });
     const freshEditorProject = requestedFreshProject || !existingScenario;
-    if (existingScenario?.data) game.applyScenario(existingScenario.data);
+    if (localScenario?.data) game.applyScenario(localScenario.data);
+    else if (builtInScenario?.generator) {
+      game.applyScenario(builtInScenario.generator());
+      builtInScenario.setup?.(game);
+    }
     const scenarioEditor = new ScenarioEditor(game, existingScenario, {
       fresh: freshEditorProject,
     });
