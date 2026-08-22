@@ -106,6 +106,10 @@ console.log('\n--- 1. A faulted line keeps its utility colour ---');
   }
   assert(wrong.length === 0,
     `no status recolours or lights the pipe (wrong: ${wrong.join(',') || 'none'})`);
+  assert(getLineMaterial('waterSupplyPipe', 'ok', 'cold').color.c === '#287fc4'
+      && getLineMaterial('waterSupplyPipe', 'ok', 'room').color.c === '#4f9b72'
+      && getLineMaterial('waterSupplyPipe', 'ok', 'hot').color.c === '#c45b42',
+  'rigid water lines keep blue, green, and red circuit identity');
 }
 
 console.log('\n--- 2. Faulted lines carry no red/amber X ---');
@@ -137,9 +141,13 @@ console.log('\n--- 3. Sink alerts are compact exclamation points over ports ---'
       placeableId: 'panel', portName: 'hv_in', utilityType: 'hvCable',
       severity: 'critical', x: 8, y: 0.6, z: 4,
     },
+    {
+      placeableId: 'quad', portName: 'hot_out', utilityType: 'coolingWater',
+      waterCircuit: 'hot', severity: 'critical', x: 3, y: 0.4, z: 3,
+    },
   ], parent);
   const markers = parent.children[0]?.children || [];
-  assert(markers.length === 3, 'one marker is drawn per affected sink port');
+  assert(markers.length === 4, 'one marker is drawn per affected sink port');
   assert(markers.every(marker => marker.children.length === 3),
     'each marker is a leader plus two-piece exclamation glyph, not an X');
   assert(markers.every(marker => marker.children[0].position.y < marker.children[1].position.y
@@ -156,6 +164,8 @@ console.log('\n--- 3. Sink alerts are compact exclamation points over ports ---'
     'the marker group starts at the exact affected port anchor');
   assert(markers[2]?.children[1].material.color.c === UTILITY_TYPES.hvCable.markerColor,
     'HV issues use its visible port-marker override, not the near-black cable color');
+  assert(markers[3]?.children[1].material.color.c === '#c45b42',
+    'a hot-water fault exclamation stays red instead of falling back to cold blue');
   builder.pulseUtilityPortIssueMarkers(0);
   assert(markers[0]?.children[1].material.emissiveIntensity
       < markers[1]?.children[1].material.emissiveIntensity,

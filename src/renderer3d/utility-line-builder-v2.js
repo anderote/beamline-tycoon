@@ -41,7 +41,7 @@ import {
   waveguideDropProfile,
   waveguideTransitionPoints,
 } from './waveguide-presentation.js';
-import { portWaterCircuit } from '../utility/water-circuits.js';
+import { portWaterCircuit, waterCircuitColor } from '../utility/water-circuits.js';
 
 // DEFAULT line centerline height. Per-utility heights come from
 // utilityLineHeight (registry): a power cord lies on the floor while a vacuum
@@ -67,8 +67,8 @@ const _universalBusPreviewMaterials = new Map();
 function utilityCircuitColor(utilityType, waterCircuit = null) {
   const descriptor = UTILITY_TYPES[utilityType];
   if ((utilityType === 'waterSupplyPipe' || utilityType === 'coolingWater')
-      && waterCircuit === 'hot') {
-    return descriptor?.hotColor || '#c45b42';
+      && waterCircuit) {
+    return waterCircuitColor(waterCircuit, descriptor?.color || '#ffffff');
   }
   return descriptor?.color || '#ffffff';
 }
@@ -1937,11 +1937,11 @@ function shadeHexColor(color, scale) {
 }
 
 const _issueMatCache = new Map();
-function getIssueMarkerMaterial(utilityType, severity) {
-  const key = `${utilityType}|${severity}`;
+function getIssueMarkerMaterial(utilityType, severity, waterCircuit = null) {
+  const key = `${utilityType}|${waterCircuit || '-'}|${severity}`;
   if (_issueMatCache.has(key)) return _issueMatCache.get(key);
   const descriptor = UTILITY_TYPES[utilityType];
-  const portColor = markerColorFor(descriptor);
+  const portColor = markerColorFor(descriptor, waterCircuit);
   const color = shadeHexColor(portColor, ISSUE_SHADE[severity] ?? 1);
   const emissiveBase = ISSUE_EMISSIVE[severity] ?? ISSUE_EMISSIVE.critical;
   const mat = new THREE.MeshStandardMaterial({
@@ -1958,7 +1958,7 @@ function getIssueMarkerMaterial(utilityType, severity) {
 }
 
 function buildUtilityPortIssueMarker(mark) {
-  const mat = getIssueMarkerMaterial(mark.utilityType, mark.severity);
+  const mat = getIssueMarkerMaterial(mark.utilityType, mark.severity, mark.waterCircuit);
   const g = new THREE.Group();
   const footY = Number.isFinite(mark.y) ? mark.y : PIPE_Y;
   const leaderHeight = ISSUE_MARK_RISE - ISSUE_DOT_RADIUS;
@@ -1985,6 +1985,7 @@ function buildUtilityPortIssueMarker(mark) {
     placeableId: mark.placeableId,
     portName: mark.portName,
     utilityType: mark.utilityType,
+    waterCircuit: mark.waterCircuit || null,
     severity: mark.severity,
   };
   return g;
@@ -2767,7 +2768,7 @@ export class UtilityLineBuilderV2 {
   /**
    * Render one exclamation marker per unhealthy sink port.
    *
-   * @param {Array<{placeableId,portName,utilityType,severity,x,y,z}>} marks
+   * @param {Array<{placeableId,portName,utilityType,waterCircuit,severity,x,y,z}>} marks
    *        world positions resolved by the caller (this builder only draws).
    * @param {THREE.Group} parentGroup
    *
@@ -2776,7 +2777,7 @@ export class UtilityLineBuilderV2 {
    */
   setUtilityPortIssueMarkers(marks, parentGroup) {
     const list = marks || [];
-    const sig = list.map(m => `${m.placeableId}:${m.portName}:${m.utilityType}:${m.severity}:`
+    const sig = list.map(m => `${m.placeableId}:${m.portName}:${m.utilityType}:${m.waterCircuit || '-'}:${m.severity}:`
       + `${m.x.toFixed(2)},${(m.y || 0).toFixed(2)},${m.z.toFixed(2)}`).join(';');
     if (sig === this._issueSig && this._issueGroup) return false;
     this._issueSig = sig;

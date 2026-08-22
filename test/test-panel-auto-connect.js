@@ -421,7 +421,7 @@ console.log('\n--- 12. The LCW manifold pairs blue and red hoses to four loads -
     'all eight occupied manifold connectors stay consumed on repeated auto-connect');
 }
 
-console.log('\n--- 13. Water distributors inherit pipe circuits before fanning out hoses ---');
+console.log('\n--- 13. Water distributors expose authored cold/hot branches ---');
 {
   for (const type of ['waterDistributor2', 'waterDistributor4']) {
     const profile = utilityAutoConnectProfile(COMPONENTS[type]);
@@ -435,8 +435,12 @@ console.log('\n--- 13. Water distributors inherit pipe circuits before fanning o
     item('magnet', 'quadrupole', 12, 10),
   );
   const unresolvedPlan = planPanelAutoConnect(unresolved.state, 'dist');
-  assert(unresolvedPlan.outlets === 0 && unresolvedPlan.stubs.length === 0,
-    'a configurable header never guesses hot versus cold before its rigid pipe is connected');
+  assert(unresolvedPlan.outlets === 2 && unresolvedPlan.stubs.length === 2
+      && unresolvedPlan.stubs.some(stub => stub.start.portName === 'water_line_1'
+        && stub.end.portName === 'cool_in')
+      && unresolvedPlan.stubs.some(stub => stub.start.portName === 'water_line_2'
+        && stub.end.portName === 'hot_out'),
+  'the paired compact header advertises one cold and one hot branch before pipe routing');
 
   const game = new Game(new BeamlineRegistry(), { seed: 98 });
   game.state.resources.funding = 1e9;
@@ -455,7 +459,7 @@ console.log('\n--- 13. Water distributors inherit pipe circuits before fanning o
   });
   game.state.utilityLines.set('hot_pipe', {
     id: 'hot_pipe', utilityType: 'waterSupplyPipe', waterCircuit: 'hot',
-    start: { placeableId: 'tower', portName: 'supply_hot_1' },
+    start: { placeableId: 'tower', portName: 'hot_in' },
     end: { placeableId: 'dist', portName: 'supply_pipe_2' },
     path: [{ col: 7, row: 13 }, { col: 10, row: 13 }],
   });

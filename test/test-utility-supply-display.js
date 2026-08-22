@@ -183,6 +183,10 @@ console.log('\n--- Test 7: palette metrics expose placement requirements ---');
   assert(fanCoilTags.some(tag => tag.text === 'C: +50 kW' && tag.direction === 'supply'),
     'fan coil: compact palette tag shows its cooling output');
 
+  const towerMetrics = paletteUtilityMetrics(COMPONENTS.coolingTower);
+  assert(towerMetrics.some(r => r.label === 'Water header capacity' && r.value === '800 kW thermal'),
+    'equal hot and room-temperature ratings describe one 800 kW converter, not 1.6 MW');
+
   const compactHvMetrics = paletteUtilityMetrics(COMPONENTS.compactHvDistributor);
   assert(compactHvMetrics.some(r => r.label === 'Power draw' && r.value === '600 kW'),
     'compact HV distributor: palette shows its 600 kW incoming feeder rating');

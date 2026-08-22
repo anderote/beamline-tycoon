@@ -43,6 +43,7 @@ import { universalBusLane } from '../utility/universal-bus-layout.js';
 import {
   lineWaterCircuit,
   portWaterCircuit,
+  waterCircuitColor,
 } from '../utility/water-circuits.js';
 import { listUtilityEndpoints, findUtilityEndpoint } from '../utility/utility-endpoints.js';
 import { planUtilityRun, runPreviewPath, runWiringCost } from './utility-run-wiring.js';
@@ -701,7 +702,10 @@ export class UtilityLineInputController {
 
   _lineColor(waterCircuit = this._selectedWaterCircuit) {
     const descriptor = UTILITY_TYPES[this._utilityType];
-    if (waterCircuit === 'hot') return descriptor?.hotColor || '#c45b42';
+    if ((this._utilityType === 'waterSupplyPipe' || this._utilityType === 'coolingWater')
+        && waterCircuit) {
+      return waterCircuitColor(waterCircuit, descriptor?.color || '#ffffff');
+    }
     return descriptor?.color || '#ffffff';
   }
 

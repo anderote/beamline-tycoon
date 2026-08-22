@@ -628,9 +628,9 @@ export function validateDrawLine(state, {
     return reject('invalid_port_pair');
   }
 
-  // Hot return and cold supply share the same construction tools but are
-  // distinct hydraulic circuits. Infer a new run from its exact terminal or
-  // tapped trunk, then refuse any gesture that would short the two together.
+  // All water temperatures share the same construction tools but are distinct
+  // hydraulic circuits. Infer a new run from its exact terminal or tapped
+  // trunk, then refuse any gesture that would short temperatures together.
   let resolvedWaterCircuit = isWaterUtility(utilityType) ? waterCircuit : null;
   if (isWaterUtility(utilityType)) {
     const circuits = new Set();

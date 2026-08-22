@@ -1297,29 +1297,30 @@ export const INFRASTRUCTURE_RAW = {
   },
   waterDistributor2: {
     id: 'waterDistributor2', name: '2-Line Water Distributor',
-    desc: 'Compact configurable header with two flexible water-line branches on one face and one rigid water-supply pipe on the opposite face. The connected pipe decides whether the isolated header carries cold supply or hot return water; assisted wiring then connects nearby matching equipment ports.',
+    desc: 'Compact paired station with one blue cold branch and one red hot-return branch on one face, plus matching rigid cold and hot pipe ports opposite. Every connection inherits its port color and the two circuits remain isolated.',
     category: 'cooling', subsection: 'distribution', paletteOrder: 1,
     accentColor: 0x2fbccc, cost: { funding: 45000 }, stats: {}, energyCost: 0,
     subL: 2, subW: 1, subH: 2, gridW: 1, gridH: 2, geometryType: 'box',
     baseMaterial: 'metal_painted_blue', spriteKey: 'waterLoad', spriteColor: 0x2fbccc,
     placement: 'module', ports: {}, autoConnectUtility: 'coolingWater', requiredConnections: [],
-    waterConverterGroups: [{
-      waterLinePorts: ['water_line_1', 'water_line_2'],
-      supplyPipePorts: ['supply_pipe_1'],
-    }],
+    waterConverterGroups: [
+      { waterLinePorts: ['water_line_1'], supplyPipePorts: ['supply_pipe_1'] },
+      { waterLinePorts: ['water_line_2'], supplyPipePorts: ['supply_pipe_2'] },
+    ],
     utilityGroups: {
-      coolingWater: [['water_line_1', 'water_line_2']],
-      waterSupplyPipe: [['supply_pipe_1']],
+      coolingWater: [['water_line_1'], ['water_line_2']],
+      waterSupplyPipe: [['supply_pipe_1'], ['supply_pipe_2']],
     },
     parts: [
       { shape: 'box', w: 0.88, h: 0.42, l: 0.88, x: 0, y: 0.30, z: 0, color: 0x277a9c },
-      { shape: 'cylinder', axis: 'x', w: 0.16, h: 0.16, l: 1.18, x: 0, y: 0.62, z: 0, color: 0x87b9cf },
+      { shape: 'cylinder', axis: 'x', w: 0.13, h: 0.13, l: 1.18, x: 0, y: 0.62, z: -0.20, color: 0x287fc4 },
+      { shape: 'cylinder', axis: 'x', w: 0.13, h: 0.13, l: 1.18, x: 0, y: 0.62, z: 0.20, color: 0xc45b42 },
       { shape: 'cylinder', axis: 'z', w: 0.09, h: 0.09, l: 0.92, x: 0, y: 0.48, z: 0, color: 0x2fbccc },
     ],
   },
   waterDistributor4: {
     id: 'waterDistributor4', name: '4-Line Dual Water Distributor',
-    desc: 'Two isolated 2-to-1 headers on a compact frame. Four flexible water-line branches share one face; the two rigid supply pipes sit opposite, allowing a paired cold/hot station or two same-temperature circuits. Assisted wiring follows each pipe circuit.',
+    desc: 'Two isolated 2-to-1 headers on a compact frame. Two blue cold branches and two red hot-return branches share one face; matching rigid cold and hot pipe ports sit opposite. Every connection inherits its port color.',
     category: 'cooling', subsection: 'distribution', paletteOrder: 2,
     accentColor: 0x2fbccc, cost: { funding: 85000 }, stats: {}, energyCost: 0,
     subL: 3, subW: 1, subH: 2, gridW: 1, gridH: 3, geometryType: 'box',
@@ -1337,8 +1338,8 @@ export const INFRASTRUCTURE_RAW = {
     },
     parts: [
       { shape: 'box', w: 0.94, h: 0.48, l: 1.38, x: 0, y: 0.32, z: 0, color: 0x277a9c },
-      { shape: 'cylinder', axis: 'z', w: 0.16, h: 0.16, l: 1.72, x: -0.24, y: 0.66, z: 0, color: 0x87b9cf },
-      { shape: 'cylinder', axis: 'z', w: 0.16, h: 0.16, l: 1.72, x: 0.24, y: 0.66, z: 0, color: 0x87b9cf },
+      { shape: 'cylinder', axis: 'z', w: 0.16, h: 0.16, l: 1.72, x: -0.24, y: 0.66, z: 0, color: 0x287fc4 },
+      { shape: 'cylinder', axis: 'z', w: 0.16, h: 0.16, l: 1.72, x: 0.24, y: 0.66, z: 0, color: 0xc45b42 },
     ],
   },
   coldWaterLineWallPassThrough: automaticWallPassThrough({
@@ -1369,9 +1370,16 @@ export const INFRASTRUCTURE_RAW = {
     ports: ['supply_front', 'supply_back'], cost: 9000,
     heightMeters: 0.90, radiusMeters: 0.065, color: 0xc45b42,
   }),
+  roomWaterSupplyWallPassThrough: automaticWallPassThrough({
+    id: 'roomWaterSupplyWallPassThrough', name: 'Automatic Room-Temperature Water Sleeve',
+    desc: 'Green rigid-water sleeve automatically installed on the 1.80 m room-temperature transfer-pipe datum.',
+    category: 'cooling', utilityType: 'waterSupplyPipe',
+    ports: ['supply_front', 'supply_back'], cost: 9000,
+    heightMeters: 1.80, radiusMeters: 0.065, color: 0x4f9b72,
+  }),
   waterSupplyWallPassThrough1x1: {
     id: 'waterSupplyWallPassThrough1x1', name: '1×1 Water Pipe Penetration',
-    desc: 'One sealed rigid-water pipe sleeve through an existing wall. Terminate the supply pipe on both faces; the sleeve preserves the connected hot or cold circuit.',
+    desc: 'One sealed rigid-water pipe sleeve through an existing wall. Terminate the supply pipe on both faces; the sleeve preserves the connected cold, room-temperature, or hot circuit.',
     category: 'cooling', subsection: 'transport', paletteOrder: 3,
     // Save/scenario compatibility for facilities that authored the old
     // circuit-neutral sleeve. New crossings use the circuit-specific hidden
@@ -1420,7 +1428,7 @@ export const INFRASTRUCTURE_RAW = {
   fanCoilCooler: {
     id: 'fanCoilCooler',
     name: 'Air-Cooled Condenser',
-    desc: 'Small air-cooled heat rejector for a starter cooling plant, with a paired supply and return on one side. Put it on the same Cooling Water network as a reservoir and chiller. It rejects 50 kW to hall air.',
+    desc: 'Small air-cooled heat rejector for a starter cooling plant. Its red inlet accepts hot return water and its green outlet sends room-temperature water to a chiller. It rejects 50 kW to hall air.',
     coolingRole: 'heatRejection',
     category: 'cooling', subsection: 'heatRejection',
     accentColor: 0x2fbccc,
@@ -1495,7 +1503,7 @@ export const INFRASTRUCTURE_RAW = {
   dualCircuitChiller: {
     id: 'dualCircuitChiller',
     name: 'Dual-Circuit Chiller',
-    desc: 'Two independent refrigerant circuits on one frame deliver 175 kW of process cooling for about 35 kW of electrical input at full load. Separate compressors and evaporator passes let the magnet and RF loops use different setpoints; one circuit keeps roughly 85 kW alive while the other is locked out. The compressor package takes a direct HV feed.',
+    desc: 'Two independent refrigerant circuits on one frame turn room-temperature plant water into 175 kW of cold process water for about 35 kW of electrical input at full load. Separate compressors and evaporator passes let the magnet and RF loops use different setpoints; one circuit keeps roughly 85 kW alive while the other is locked out. The compressor package takes a direct HV feed.',
     coolingRole: 'processCooling',
     category: 'cooling', subsection: 'processCooling',
     accentColor: 0x2fbccc,
@@ -1519,7 +1527,7 @@ export const INFRASTRUCTURE_RAW = {
   chiller: {
     id: 'chiller',
     name: 'Chiller',
-    desc: 'Precision 300 kW chilled-water system that draws about 60 kW at full load (COP 5) while maintaining water temperature to +/- 0.1°C. Feed the compressor plant directly from HV and distribute its output through Cooling Water connections to temperature-sensitive RF and magnet loads.',
+    desc: 'Precision 300 kW chilled-water system with a green room-temperature inlet and blue cold-water outlet. It draws about 60 kW at full load (COP 5) while maintaining water temperature to +/- 0.1°C. Feed the compressor plant directly from HV and distribute its cold output to temperature-sensitive RF and magnet loads.',
     coolingRole: 'processCooling',
     category: 'cooling', subsection: 'processCooling',
     accentColor: 0x2fbccc,
@@ -1544,7 +1552,7 @@ export const INFRASTRUCTURE_RAW = {
   dryCoolerBank: {
     id: 'dryCoolerBank',
     name: 'Dry Cooler Bank',
-    desc: 'A row of V-configuration finned coils under axial fans on a steel frame, rejecting 500 kW straight to outdoor air with an adiabatic pre-cool spray for the worst afternoons. No basin, no make-up water, no biocide dosing, no water-treatment contract and no Legionella sampling programme — every reason a facility reaches for one of these before it commits to a real evaporative tower. The rating is at design ambient, and that is the whole weakness: capacity sags as the air warms, so the August heat wave that has every magnet at full current is exactly when this bank has least to give.',
+    desc: 'A row of V-configuration finned coils under axial fans on a steel frame. Its red inlet accepts hot return water and its green outlet sends room-temperature water to a chiller while rejecting 500 kW straight to outdoor air. No basin, no make-up water, no biocide dosing, no water-treatment contract and no Legionella sampling programme — every reason a facility reaches for one of these before it commits to a real evaporative tower. The rating is at design ambient, and that is the whole weakness: capacity sags as the air warms, so the August heat wave that has every magnet at full current is exactly when this bank has least to give.',
     coolingRole: 'heatRejection',
     category: 'cooling', subsection: 'heatRejection',
     accentColor: 0x2fbccc,
@@ -1566,7 +1574,7 @@ export const INFRASTRUCTURE_RAW = {
   coolingTower: {
     id: 'coolingTower',
     name: 'Cooling Tower',
-    desc: 'Large evaporative tower that rejects up to 800 kW of facility heat using roughly 20 kW of fan and circulation power. Its motor controls take a direct HV feed. Place it outdoors and connect it to the same Cooling Water network as the central chillers and reservoir.',
+    desc: 'Large evaporative tower with a red hot-water inlet and green room-temperature outlet. It rejects up to 800 kW of facility heat using roughly 20 kW of fan and circulation power. Its motor controls take a direct HV feed.',
     coolingRole: 'heatRejection',
     category: 'cooling', subsection: 'heatRejection',
     accentColor: 0x2fbccc,

@@ -191,9 +191,13 @@ function sinkEffect(utility, klass, params, comp) {
     }
 
     case 'waterSupplyPipe': {
-      const circuit = params.waterCircuit === 'hot' ? 'hot return' : 'cold supply';
+      const circuit = params.waterCircuit === 'hot'
+        ? 'hot return'
+        : params.waterCircuit === 'room'
+          ? 'room-temperature transfer'
+          : 'cold supply';
       return `Rigid ${circuit} header carrying ${fmt(params.heatLoad)} kW for high-flow equipment. `
-        + 'Cold and hot circuits are solved independently and must never be joined.';
+        + 'Cold, room-temperature, and hot circuits are solved independently and must never be joined.';
     }
 
     case 'cryoTransfer': {

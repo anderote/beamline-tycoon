@@ -5,6 +5,8 @@
 // receiving nothing. Unwired sinks never enter a discovered network, so the
 // gate publishes those separately on state.unwiredSinks.
 
+import { portWaterCircuit } from './water-circuits.js';
+
 const ISSUE_RANK = { warning: 1, critical: 2 };
 
 function recordIssue(out, issue) {
@@ -21,7 +23,7 @@ function recordIssue(out, issue) {
  * @param {object} state game state with published utility solve results
  * @param {Map<string, object>} endpointsById flattened utility endpoint index
  * @param {(type: string) => object} getPorts authoritative port-table lookup
- * @returns {Array<{placeableId:string,portName:string,utilityType:string,severity:'warning'|'critical'}>}
+ * @returns {Array<{placeableId:string,portName:string,utilityType:string,waterCircuit?:string,severity:'warning'|'critical'}>}
  */
 export function utilityPortIssues(state, endpointsById, getPorts) {
   const out = new Map();
@@ -57,10 +59,12 @@ export function utilityPortIssues(state, endpointsById, getPorts) {
     for (const [portName, spec] of Object.entries(getPorts?.(endpoint.type) || {})) {
       if (spec?.role !== 'sink' || !utilities[spec.utility]) continue;
       if (connectedSinkPorts.has(`${placeableId}:${portName}`)) continue;
+      const waterCircuit = portWaterCircuit(spec);
       recordIssue(out, {
         placeableId,
         portName,
         utilityType: spec.utility,
+        ...(waterCircuit ? { waterCircuit } : {}),
         severity: 'critical',
       });
     }
@@ -81,10 +85,12 @@ export function utilityPortIssues(state, endpointsById, getPorts) {
           const rawQuality = qualities[sink.portKey];
           const quality = typeof rawQuality === 'number' ? rawQuality : NaN;
           if (!hardFailure && (!Number.isFinite(quality) || quality >= 1)) continue;
+          const waterCircuit = portWaterCircuit(sink);
           recordIssue(out, {
             placeableId: sink.placeableId,
             portName: sink.portName,
             utilityType,
+            ...(waterCircuit ? { waterCircuit } : {}),
             severity: hardFailure || quality <= 0 ? 'critical' : 'warning',
           });
         }

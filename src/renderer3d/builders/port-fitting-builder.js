@@ -41,7 +41,7 @@ import { portAnchor3D } from '../../utility/port-anchors.js';
 import { portAnchorOverride } from '../../data/utility-port-anchors.js';
 import { isIndoorHvRackSupport } from '../../utility/soft-cable.js';
 import { UTILITY_TYPES } from '../../utility/registry.js';
-import { portWaterCircuit } from '../../utility/water-circuits.js';
+import { portWaterCircuit, waterCircuitColor } from '../../utility/water-circuits.js';
 import { _mergeGeometries } from '../component-builder.js';
 
 // Envelope. Nothing below may exceed these; they are the budget that keeps a
@@ -152,7 +152,7 @@ function getFlowArrowGeometry(role) {
 function waterAwareColor(utilityType, waterCircuit = null) {
   const descriptor = UTILITY_TYPES[utilityType];
   if ((utilityType === 'waterSupplyPipe' || utilityType === 'coolingWater')
-      && waterCircuit === 'hot') return descriptor?.hotColor || '#c45b42';
+      && waterCircuit) return waterCircuitColor(waterCircuit, descriptor?.color || '#999999');
   return descriptor?.color || '#999999';
 }
 
@@ -642,7 +642,7 @@ export function buildPortFittings(endpoints) {
       const fitting = buildPortFitting(
         anchor, spec.utility, spec.role,
         isCableSupport(def) || def.utilityFlowPresentation === 'symmetric'
-          ? 'pass' : portFlowArrowRole(name, spec.role),
+          ? 'pass' : spec.flowRole || portFlowArrowRole(name, spec.role),
         portWaterCircuit(spec),
         portAnchorOverride(ep.type, name)?.fittingStyle || null);
       fitting.userData.placeableId = ep.id;

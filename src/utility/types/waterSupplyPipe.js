@@ -1,7 +1,7 @@
 // Rigid fabricated water header for high-flow plant and large equipment.
 // The physical construction follows cryogenic transfer pipe (fixed-diameter
 // formed runs, elbows, tees and supports), while every committed run is tagged
-// as either a cold supply or hot return circuit.
+// as cold supply, room-temperature plant transfer, or hot return.
 
 import { powerFeedFactor } from '../power-feed.js';
 import { FLEXIBLE_SUBTILE_ROUTING_PROFILE } from '../routing-contract.js';
@@ -14,6 +14,7 @@ import {
   WATER_CIRCUIT_COLD,
   WATER_CIRCUIT_COLORS,
   WATER_CIRCUIT_HOT,
+  WATER_CIRCUIT_ROOM,
   lineWaterCircuit,
   portWaterCircuit,
 } from '../water-circuits.js';
@@ -35,6 +36,7 @@ export default {
   type: 'waterSupplyPipe',
   displayName: 'Water Supply Pipe',
   color: WATER_CIRCUIT_COLORS[WATER_CIRCUIT_COLD],
+  roomColor: WATER_CIRCUIT_COLORS[WATER_CIRCUIT_ROOM],
   hotColor: WATER_CIRCUIT_COLORS[WATER_CIRCUIT_HOT],
   markerColor: '#64b9ef',
   geometryStyle: 'jacketedCylinder',
@@ -51,6 +53,7 @@ export default {
   runHeightMeters: RIGID_UTILITY_SERVICE_HEIGHTS.waterSupplyPipeCold,
   runHeightsByWaterCircuit: Object.freeze({
     [WATER_CIRCUIT_COLD]: RIGID_UTILITY_SERVICE_HEIGHTS.waterSupplyPipeCold,
+    [WATER_CIRCUIT_ROOM]: RIGID_UTILITY_SERVICE_HEIGHTS.waterSupplyPipeRoom,
     [WATER_CIRCUIT_HOT]: RIGID_UTILITY_SERVICE_HEIGHTS.waterSupplyPipeHot,
   }),
   fixedRouteHeight: true,
@@ -80,16 +83,21 @@ export default {
       quality = 0;
       errors.push({
         severity: 'hard', code: 'water_circuit_mixed',
-        message: 'Hot return and cold supply pipe are joined together.',
+        message: 'Different water-temperature circuits are joined together.',
         location: { networkId: network.id },
       });
     } else if (totalDemand > 0 && totalCapacity <= 0) {
       errors.push({
         severity: 'hard', code: circuit === WATER_CIRCUIT_HOT
-          ? 'water_return_unserved' : 'water_supply_unserved',
+          ? 'water_return_unserved'
+          : circuit === WATER_CIRCUIT_ROOM
+            ? 'water_transfer_unserved'
+            : 'water_supply_unserved',
         message: circuit === WATER_CIRCUIT_HOT
           ? 'Hot-water return has no heat rejection capacity.'
-          : 'Cold-water supply has no chiller capacity.',
+          : circuit === WATER_CIRCUIT_ROOM
+            ? 'Room-temperature transfer has no heat-rejection capacity.'
+            : 'Cold-water supply has no chiller capacity.',
         location: { networkId: network.id },
       });
     } else if (totalDemand > totalCapacity && totalCapacity > 0) {

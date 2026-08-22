@@ -12,7 +12,7 @@ function portsFor(type, utility) {
 
 test('water distributors use compact footprints with branches opposite supplies', () => {
   for (const [type, flexibleCount, supplyCount, expectedLength] of [
-    ['waterDistributor2', 2, 1, 2],
+    ['waterDistributor2', 2, 2, 2],
     ['waterDistributor4', 4, 2, 3],
   ]) {
     const def = PLACEABLES[type];
@@ -27,6 +27,14 @@ test('water distributors use compact footprints with branches opposite supplies'
     assert.ok(supplies.every(([, port]) => port.side === 'left'));
     assert.equal(new Set(branches.map(([, port]) => port.offsetAlong)).size, flexibleCount,
       `${type} gives every branch a distinct position`);
+    assert.equal(branches.filter(([, port]) => port.params.waterCircuit === 'cold').length,
+      flexibleCount / 2);
+    assert.equal(branches.filter(([, port]) => port.params.waterCircuit === 'hot').length,
+      flexibleCount / 2);
+    assert.equal(supplies.filter(([, port]) => port.params.waterCircuit === 'cold').length,
+      supplyCount / 2);
+    assert.equal(supplies.filter(([, port]) => port.params.waterCircuit === 'hot').length,
+      supplyCount / 2);
   }
 });
 

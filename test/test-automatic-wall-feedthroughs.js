@@ -29,6 +29,7 @@ const families = [
   ['coolingWater', 'cold', 'coldWaterLineWallPassThrough'],
   ['coolingWater', 'hot', 'hotWaterLineWallPassThrough'],
   ['waterSupplyPipe', 'cold', 'coldWaterSupplyWallPassThrough'],
+  ['waterSupplyPipe', 'room', 'roomWaterSupplyWallPassThrough'],
   ['waterSupplyPipe', 'hot', 'hotWaterSupplyWallPassThrough'],
   ['cryoTransfer', null, 'cryoWallPassThrough'],
   ['rfWaveguide', null, 'rfWallPassThrough'],

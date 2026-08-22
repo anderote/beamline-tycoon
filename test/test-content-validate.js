@@ -238,7 +238,7 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     // Bad spec shapes on a real-ish id.
     mysteryModule: {
       weird: {
-        utility: 'steamPipe', side: 'top', offsetAlong: 7, role: 'both', maxConnections: 0,
+        utility: 'steamPipe', side: 'top', offsetAlong: 7, role: 'both', flowRole: 'around', maxConnections: 0,
         params: { tracksDownstreamDemand: false },
       },
     },
@@ -340,6 +340,8 @@ console.log('\n--- Test 3: synthetic bad defs are rejected ---');
     'unknown port utility reported');
   assert(hasProblem(problems, 'mysteryModule', 'utilityPorts.weird', "role 'both'"),
     'invalid port role reported');
+  assert(hasProblem(problems, 'mysteryModule', 'utilityPorts.weird', "flowRole 'around'"),
+    'invalid physical flow-arrow role reported');
   assert(hasProblem(problems, 'mysteryModule', 'utilityPorts.weird', 'offsetAlong'),
     'out-of-range offsetAlong reported');
   assert(hasProblem(problems, 'mysteryModule', 'utilityPorts.weird', 'maxConnections'),

@@ -1106,23 +1106,21 @@ function coolingPlantPorts(params, names = [
 }
 
 function heatRejectorPorts(heatRejectionCapacity, side = 'right') {
-  // A rejector does not create chilled water; it only disposes of heat moved
-  // by a chiller. Declare capacity:0 explicitly so the generic source fallback
-  // cannot make a tower satisfy both plant roles by itself.
-  const params = {
-    capacity: 0,
-    heatRejectionCapacity: heatRejectionCapacity / 2,
-  };
+  // A rejector accepts the hot return and emits room-temperature water. Its
+  // two circuit nameplates are equal because they describe the same exchanger,
+  // not two additive sources on one network. The hot port remains a solver
+  // source because heat-rejection capacity serves hot-return loads; flowRole
+  // keeps its physical arrow pointing into the exchanger.
   return {
-    supply_hot_1: {
+    hot_in: {
       utility: 'waterSupplyPipe', side, offsetAlong: 0.33,
-      role: 'source',
-      params: { heatRejectionCapacity: heatRejectionCapacity / 2, waterCircuit: 'hot' },
+      role: 'source', flowRole: 'sink',
+      params: { capacity: 0, heatRejectionCapacity, waterCircuit: 'hot' },
     },
-    supply_hot_2: {
+    room_out: {
       utility: 'waterSupplyPipe', side, offsetAlong: 0.67,
       role: 'source',
-      params: { heatRejectionCapacity: heatRejectionCapacity / 2, waterCircuit: 'hot' },
+      params: { capacity: heatRejectionCapacity, heatRejectionCapacity: 0, waterCircuit: 'room' },
     },
   };
 }
@@ -1138,15 +1136,28 @@ function centralChillerPorts(capacity) {
       params: { capacity: capacity / 4, waterCircuit: 'cold' },
     };
   }
-  out.water_in = {
+  out.room_in = {
     utility: 'waterSupplyPipe', side: 'left', offsetAlong: 0.33,
-    role: 'pass', params: { waterCircuit: 'hot' },
+    role: 'sink', params: { heatLoad: capacity, waterCircuit: 'room' },
   };
   out.supply_cold_out = {
     utility: 'waterSupplyPipe', side: 'left', offsetAlong: 0.67,
     role: 'source', params: { capacity, waterCircuit: 'cold' },
   };
   return out;
+}
+
+function labChillerPorts(capacity) {
+  return {
+    room_in: {
+      utility: 'waterSupplyPipe', side: 'left', offsetAlong: 0.33,
+      role: 'sink', params: { heatLoad: capacity, waterCircuit: 'room' },
+    },
+    cold_out: {
+      utility: 'waterSupplyPipe', side: 'left', offsetAlong: 0.67,
+      role: 'source', params: { capacity, waterCircuit: 'cold' },
+    },
+  };
 }
 
 function waterInventoryPorts(params) {
@@ -1157,7 +1168,7 @@ function waterInventoryPorts(params) {
     water_supply_out: {
       utility: 'waterSupplyPipe', side: 'left', offsetAlong: 0.5,
       role: 'source', params: {
-        capacity: 0, ...params, waterCircuit: 'hot',
+        capacity: 0, ...params, waterCircuit: 'room',
       },
     },
   };
@@ -1171,17 +1182,20 @@ function waterDistributorPorts(flexibleCount, supplyCount) {
       ? [0.1, 0.35, 0.65, 0.9]
       : Array.from({ length: flexibleCount }, (_, i) => (i + 1) / (flexibleCount + 1));
   for (let i = 0; i < flexibleCount; i++) {
+    const waterCircuit = i < flexibleCount / 2 ? 'cold' : 'hot';
     out[`water_line_${i + 1}`] = {
       utility: 'coolingWater', side: 'right',
       offsetAlong: branchOffsets[i],
       role: 'pass', autoConnectClass: COOLING_AUTO_CONNECT_CLASS.LOAD_BRANCH,
-      params: {},
+      params: { waterCircuit },
     };
   }
   for (let i = 0; i < supplyCount; i++) {
+    const waterCircuit = i < supplyCount / 2 ? 'cold' : 'hot';
     out[`supply_pipe_${i + 1}`] = {
       utility: 'waterSupplyPipe', side: 'left',
-      offsetAlong: (i + 1) / (supplyCount + 1), role: 'pass', params: {},
+      offsetAlong: (i + 1) / (supplyCount + 1), role: 'pass',
+      params: { waterCircuit },
     };
   }
   return out;
@@ -1252,6 +1266,10 @@ const INFRA_UTILITY_PORTS = {
   hotWaterSupplyWallPassThrough: {
     supply_front: { utility: 'waterSupplyPipe', side: 'front', role: 'pass', params: { waterCircuit: 'hot' } },
     supply_back: { utility: 'waterSupplyPipe', side: 'back', role: 'pass', params: { waterCircuit: 'hot' } },
+  },
+  roomWaterSupplyWallPassThrough: {
+    supply_front: { utility: 'waterSupplyPipe', side: 'front', role: 'pass', params: { waterCircuit: 'room' } },
+    supply_back: { utility: 'waterSupplyPipe', side: 'back', role: 'pass', params: { waterCircuit: 'room' } },
   },
   waterSupplyWallPassThrough1x1: {
     supply_front: { utility: 'waterSupplyPipe', side: 'front', offsetAlong: 0.5, role: 'pass', params: {} },
@@ -1463,7 +1481,7 @@ const INFRA_UTILITY_PORTS = {
     },
   },
   coolingManifold: lcwManifoldPorts(),
-  waterDistributor2: waterDistributorPorts(2, 1),
+  waterDistributor2: waterDistributorPorts(2, 2),
   waterDistributor4: waterDistributorPorts(4, 2),
   vacuumManifold:      vacuumManifoldPorts(4, 5),
   vacuumManifold8:     vacuumManifoldPorts(8, 7),
@@ -1542,7 +1560,7 @@ const INFRA_UTILITY_PORTS = {
   highPowerSSA:        { rf_out:   { utility: 'rfWaveguide', ...SINGLE_RF_OUTPUT, role: 'source', params: { capacity: 300, dutyFactor: 1.0 } } },
   gyrotron:            { rf_out:   { utility: 'rfWaveguide', ...SINGLE_RF_OUTPUT, role: 'source', params: { capacity: 1000, dutyFactor: 1.0 } } },
   // Legacy compact plant retains its flexible-water header for compatibility.
-  // Central plant uses separate hot and cold circuits connected by rigid
+  // Central plant uses separate hot, room-temperature, and cold circuits connected by rigid
   // supply pipe, with flexible water lines reserved for local equipment runs.
   // The compact 5/25 kW packages buy an affordable start; the 175/300 kW
   // central chillers buy scale but need separate storage and heat rejection.
@@ -1557,6 +1575,10 @@ const INFRA_UTILITY_PORTS = {
   fanCoilCooler:         heatRejectorPorts(50, 'back'),
   dryCoolerBank:         heatRejectorPorts(500, 'back'),
   coolingTower:          heatRejectorPorts(800, 'right'),
+  // Cooling-Lab furnishings expose honest, usable service fittings, but their
+  // 1 kW demonstration rating keeps them from displacing facility plant.
+  heatExchanger:         heatRejectorPorts(1, 'right'),
+  chillerUnit:           labChillerPorts(1),
   // Keep all three historical package-chiller names so existing lines remain
   // attached after loading. The former front outlet now joins the two-port
   // secondary header opposite the four primary branches.

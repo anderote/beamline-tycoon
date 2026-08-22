@@ -92,9 +92,9 @@ console.log('\n--- Test 4: chiller ---');
   assert(names.every(name => ports[name].autoConnectClass
       === COOLING_AUTO_CONNECT_CLASS.LOAD_BRANCH),
   'the four primary chiller sockets are assisted-wiring load branches');
-  assert(ports.water_in.utility === 'waterSupplyPipe'
+  assert(ports.room_in.utility === 'waterSupplyPipe'
       && ports.supply_cold_out.utility === 'waterSupplyPipe',
-  'the opposite chiller side exposes rigid water inlet and cold-supply outlet ports');
+  'the opposite chiller side exposes rigid room-temperature inlet and cold-supply outlet ports');
   assert(coolingAutoConnectClass(getUtilityPortsV2('dipole').cool_in)
       === COOLING_AUTO_CONNECT_CLASS.LOAD,
   'an ordinary cooling sink derives the load target class');
@@ -468,9 +468,10 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
     assert(flexible.length === 4
         && flexible.every(([, port]) => port.params.waterCircuit === 'cold')
         && rigid.length === 2
-        && ports.water_in.params.waterCircuit === 'hot'
+        && ports.room_in.params.waterCircuit === 'room'
+        && ports.room_in.role === 'sink'
         && ports.supply_cold_out.params.waterCircuit === 'cold',
-    `${type} exposes four cold-water lines plus hot-in and cold-out supply pipe ports`);
+    `${type} exposes four cold-water lines plus room-in and cold-out supply pipe ports`);
   }
   assert(total(tank, 'capacity') === 0,
     'make-up tank stores cooling water without supplying process-cooling capacity');
@@ -492,6 +493,14 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
     assert(hasRejectorLayout(getUtilityPortsV2(type)),
       `${type} exposes its two heat-rejection connections on one side`);
   }
+  assert(hasRejectorLayout(getUtilityPortsV2('heatExchanger')),
+    'the lab heat exchanger exposes one hot inlet and one room-temperature outlet');
+  const labChiller = getUtilityPortsV2('chillerUnit');
+  assert(labChiller.room_in.params.waterCircuit === 'room'
+      && labChiller.room_in.role === 'sink'
+      && labChiller.cold_out.params.waterCircuit === 'cold'
+      && labChiller.cold_out.role === 'source',
+  'the lab chiller exposes one room-temperature inlet and one cold outlet');
   const ssaOutputs = Object.entries(solidStateAmp)
     .filter(([, port]) => port.utility === 'rfWaveguide' && port.role === 'source');
   assert(ssaOutputs.length === 4
@@ -584,8 +593,9 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
     const pipeSources = Object.values(getUtilityPortsV2(id))
       .filter(port => port.utility === 'waterSupplyPipe' && port.role === 'source');
     assert(pipeSources.length === 2
-        && pipeSources.every(port => port.params.waterCircuit === 'hot'),
-    `${id} exposes two rigid hot-water rejection connections`);
+        && pipeSources.filter(port => port.params.waterCircuit === 'hot').length === 1
+        && pipeSources.filter(port => port.params.waterCircuit === 'room').length === 1,
+    `${id} exposes one hot inlet and one room-temperature outlet`);
   }
   const manifoldPorts = Object.values(getUtilityPortsV2('coolingManifold'));
   const manifoldRigid = manifoldPorts.filter(port => port.utility === 'waterSupplyPipe');

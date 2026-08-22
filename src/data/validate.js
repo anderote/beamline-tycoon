@@ -931,6 +931,10 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
       if (!PORT_ROLES.has(spec.role)) {
         problem(id, `utilityPorts.${portName}`, `invalid role '${spec.role}' (known: ${[...PORT_ROLES].join(', ')})`);
       }
+      if (spec.flowRole != null && !PORT_ROLES.has(spec.flowRole)) {
+        problem(id, `utilityPorts.${portName}`,
+          `invalid flowRole '${spec.flowRole}' (known: ${[...PORT_ROLES].join(', ')})`);
+      }
       if (!PORT_SIDES.has(spec.side)) {
         problem(id, `utilityPorts.${portName}`, `invalid side '${spec.side}'`);
       }

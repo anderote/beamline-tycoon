@@ -119,6 +119,7 @@ console.log('\n--- 1. Utility services use fixed utility elevations ---');
   const services = [
     ['cryoTransfer', null],
     ['waterSupplyPipe', 'cold'],
+    ['waterSupplyPipe', 'room'],
     ['waterSupplyPipe', 'hot'],
     ['rfWaveguide', null],
     ['vacuumPipe', null],
@@ -135,7 +136,7 @@ console.log('\n--- 1. Utility services use fixed utility elevations ---');
     });
   }
   assert(allAccepted && stackedLines.size === services.length,
-    'cryo, cold water, hot water, RF, and vacuum share one parallel X/Z route');
+    'cryo, cold/room/hot water, RF, and vacuum share one parallel X/Z route');
   const stacked = [...stackedLines.values()];
   assert(stacked.every((line, index) => stacked.slice(index + 1).every(other =>
     !routeHeightsConflict(

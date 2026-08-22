@@ -150,7 +150,8 @@ the short authoring contract.
 
 ### Independent rigid utility stacks
 
-- Cryogenic transfer, cold-water supply, hot-water return, RF waveguide, and
+- Cryogenic transfer, cold-water supply, room-temperature water transfer,
+  hot-water return, RF waveguide, and
   vacuum pipe are independent fabricated services. They may follow the same
   plan route because each owns a distinct facility-wide elevation. Sharing X/Z
   coordinates never joins their topology or combines their capacity.
@@ -158,7 +159,7 @@ the short authoring contract.
   Manhattan paths, immediate bends at fittings, automatic same-service contact
   joins, measured 3D equipment clearance at the service's actual datum, and
   vertical coexistence with every other fabricated service. Water retains its
-  explicit wall-penetration rule and hot/cold circuit isolation.
+  explicit wall-penetration rule and cold/room/hot circuit isolation.
 - All fabricated rigid services use the same support spacing and minimum-run
   threshold. Identical plan paths therefore put every H-frame at the same plan
   station. Coincident frames consolidate into one multi-level support rack with
@@ -206,11 +207,11 @@ the short authoring contract.
   hot header. Assisted wiring pairs ports by `waterCircuit` and may connect both
   circuits on one load. These classes guide assisted routing only; they do not
   change published capacity.
-- Configurable 2-line and 4-line water distributors auto-connect only their
-  flexible `coolingLoadBranch` ports. Each isolated converter group inherits
-  hot/cold identity from its connected rigid water-supply pipe; a group with no
-  single resolved pipe circuit remains unavailable to assisted wiring. Passive
-  distributor branches never create cooling capacity.
+- The 2-line and 4-line water distributors auto-connect only their flexible
+  `coolingLoadBranch` ports. Their isolated converter groups author matching
+  blue cold and red hot ports on both the flexible and rigid sides, so lines
+  inherit circuit identity before any pipe is attached. Passive distributor
+  branches never create cooling capacity.
 - Electrical distributors and transformers add no demand of their own. Their
   HV inlet draws the actual connected downstream HV/branch load, capped by the
   device rating; unused nameplate capacity does not consume upstream supply.

@@ -34,6 +34,20 @@ console.log('\n--- paired equipment ports ---');
     assert.equal(ports.hot_out.params.waterCircuit, 'hot');
   }
 
+  const badBeamlinePairs = [];
+  for (const [type, def] of Object.entries(COMPONENTS)) {
+    if (def.kind !== 'beamline') continue;
+    const waterPorts = Object.entries(getUtilityPortsV2(type))
+      .filter(([, port]) => ['coolingWater', 'waterSupplyPipe'].includes(port.utility));
+    if (waterPorts.length === 0) continue;
+    const cold = waterPorts.filter(([, port]) => port.params.waterCircuit === 'cold');
+    const hot = waterPorts.filter(([, port]) => port.params.waterCircuit === 'hot');
+    if (cold.length !== 1 || hot.length !== 1
+        || cold[0][1].utility !== hot[0][1].utility) badBeamlinePairs.push(type);
+  }
+  assert.deepEqual(badBeamlinePairs, [],
+    'every water-cooled beamline component has one blue inlet and one red outlet');
+
   const chiller = getUtilityPortsV2('chiller');
   assert.equal(Object.values(chiller)
     .filter(port => port.utility === 'coolingWater').length, 4);
@@ -41,7 +55,22 @@ console.log('\n--- paired equipment ports ---');
     .filter(port => port.utility === 'waterSupplyPipe').length, 2);
   const tank = getUtilityPortsV2('waterTank');
   assert.equal(tank.water_supply_out.utility, 'waterSupplyPipe');
-  assert.equal(tank.water_supply_out.params.waterCircuit, 'hot');
+  assert.equal(tank.water_supply_out.params.waterCircuit, 'room');
+  assert.equal(chiller.room_in.params.waterCircuit, 'room');
+  assert.equal(chiller.room_in.role, 'sink');
+  const tower = getUtilityPortsV2('coolingTower');
+  assert.equal(tower.hot_in.params.waterCircuit, 'hot');
+  assert.equal(tower.room_out.params.waterCircuit, 'room');
+
+  const exchanger = getUtilityPortsV2('heatExchanger');
+  assert.equal(exchanger.hot_in.params.waterCircuit, 'hot');
+  assert.equal(exchanger.room_out.params.waterCircuit, 'room');
+  assert.equal(exchanger.hot_in.params.heatRejectionCapacity, 1);
+
+  const labChiller = getUtilityPortsV2('chillerUnit');
+  assert.equal(labChiller.room_in.params.waterCircuit, 'room');
+  assert.equal(labChiller.cold_out.params.waterCircuit, 'cold');
+  assert.equal(labChiller.cold_out.params.capacity, 1);
 }
 
 console.log('\n--- hot/cold topology and wall rules ---');
@@ -53,12 +82,40 @@ console.log('\n--- hot/cold topology and wall rules ---');
   };
   const mismatch = validateDrawLine(state, {
     utilityType: 'waterSupplyPipe',
-    start: { placeableId: 'tower', portName: 'supply_hot_1' },
+    start: { placeableId: 'tower', portName: 'hot_in' },
     end: { placeableId: 'cy', portName: 'cool_in' },
     path: [{ col: 0, row: 0 }, { col: 4, row: 0 }],
   });
   assert.equal(mismatch.ok, false);
   assert.equal(mismatch.reason, 'water_circuit_mismatch');
+
+  const plantState = {
+    placeables: [item('tank', 'waterTank', 0, 0), item('ch', 'chiller', 4, 0)],
+    utilityLines: new Map(), wallOccupied: {},
+  };
+  const roomTransfer = validateDrawLine(plantState, {
+    utilityType: 'waterSupplyPipe',
+    start: { placeableId: 'tank', portName: 'water_supply_out' },
+    end: { placeableId: 'ch', portName: 'room_in' },
+    path: [{ col: 0, row: 0 }, { col: 4, row: 0 }],
+  });
+  assert.equal(roomTransfer.ok, true);
+  assert.equal(roomTransfer.line.waterCircuit, 'room',
+    'a rigid line inherits room-temperature service from its equipment ports');
+  assert.equal(roomTransfer.line.routeHeightMeters,
+    UtilityRegistry.types.waterSupplyPipe.runHeightsByWaterCircuit.room);
+
+  const wrongPlantPair = validateDrawLine({
+    placeables: [item('tower', 'coolingTower', 0, 0), item('ch', 'chiller', 4, 0)],
+    utilityLines: new Map(), wallOccupied: {},
+  }, {
+    utilityType: 'waterSupplyPipe',
+    start: { placeableId: 'tower', portName: 'hot_in' },
+    end: { placeableId: 'ch', portName: 'room_in' },
+    path: [{ col: 0, row: 0 }, { col: 4, row: 0 }],
+  });
+  assert.equal(wrongPlantPair.reason, 'water_circuit_mismatch',
+    'hot rejection cannot be connected to a room-temperature chiller inlet');
 
   const crossingState = {
     placeables: [], utilityLines: new Map(),
@@ -90,7 +147,7 @@ console.log('\n--- hot/cold topology and wall rules ---');
   const legacyCrossing = {
     utilityType: 'coolingWater', waterCircuit: 'hot',
     start: { placeableId: 'q', portName: 'hot_out' },
-    end: { placeableId: 'dist', portName: 'water_line_1' },
+    end: { placeableId: 'dist', portName: 'water_line_2' },
     path: [{ col: 2, row: -2 }, { col: 2, row: 0 }],
   };
   assert.equal(validateDrawLine(legacyState, legacyCrossing).ok, true,
@@ -122,19 +179,25 @@ console.log('\n--- rigid high-flow loop solves cold supply and hot rejection sep
     { placeableId: 'ch', portName: 'supply_cold_out' },
     { placeableId: 'cy', portName: 'cool_in' }, 'cold', 0));
   state.utilityLines.set('hot', line('hot', 'waterSupplyPipe',
-    { placeableId: 'tower', portName: 'supply_hot_1' },
+    { placeableId: 'tower', portName: 'hot_in' },
     { placeableId: 'cy', portName: 'hot_out' }, 'hot', 1));
+  state.utilityLines.set('room', line('room', 'waterSupplyPipe',
+    { placeableId: 'tower', portName: 'room_out' },
+    { placeableId: 'ch', portName: 'room_in' }, 'room', 2));
   const runner = new SolveRunner({ state, registry: UtilityRegistry,
     getDefinition: type => COMPONENTS[type] });
   runner.runSolve(state);
   const flows = [...state.utilityNetworkData.get('waterSupplyPipe').values()];
-  assert.deepEqual(flows.map(flow => flow.waterCircuit).sort(), ['cold', 'hot']);
+  assert.deepEqual(flows.map(flow => flow.waterCircuit).sort(), ['cold', 'hot', 'room']);
   const cold = flows.find(flow => flow.waterCircuit === 'cold');
   const hot = flows.find(flow => flow.waterCircuit === 'hot');
+  const room = flows.find(flow => flow.waterCircuit === 'room');
   assert.equal(cold.totalCapacity, 300);
   assert.equal(cold.totalDemand, 310);
   assert.equal(hot.totalCapacity, 800);
   assert.equal(hot.totalDemand, 310);
+  assert.equal(room.totalCapacity, 800);
+  assert.equal(room.totalDemand, 300);
 }
 
 console.log('\n--- distributors bridge pipe capacity without joining hot and cold headers ---');
@@ -163,10 +226,10 @@ console.log('\n--- distributors bridge pipe capacity without joining hot and col
     { placeableId: 'coldDist', portName: 'water_line_1' },
     { placeableId: 'q', portName: 'cool_in' }, 'cold', 1));
   state.utilityLines.set('pipeHot', line('pipeHot', 'waterSupplyPipe',
-    { placeableId: 'tower', portName: 'supply_hot_1' },
-    { placeableId: 'hotDist', portName: 'supply_pipe_1' }, 'hot', 2));
+    { placeableId: 'tower', portName: 'hot_in' },
+    { placeableId: 'hotDist', portName: 'supply_pipe_2' }, 'hot', 2));
   state.utilityLines.set('lineHot', line('lineHot', 'coolingWater',
-    { placeableId: 'hotDist', portName: 'water_line_1' },
+    { placeableId: 'hotDist', portName: 'water_line_2' },
     { placeableId: 'q', portName: 'hot_out' }, 'hot', 3));
   const runner = new SolveRunner({ state, registry: UtilityRegistry,
     getDefinition: type => COMPONENTS[type] });
@@ -202,6 +265,8 @@ console.log('\n--- independent rigid runs replace the universal bus ---');
     utilityLineHeight('cryoTransfer'),
     utilityLineHeight('waterSupplyPipe', UtilityRegistry.types.waterSupplyPipe
       .runHeightsByWaterCircuit.cold),
+    utilityLineHeight('waterSupplyPipe', UtilityRegistry.types.waterSupplyPipe
+      .runHeightsByWaterCircuit.room),
     utilityLineHeight('waterSupplyPipe', UtilityRegistry.types.waterSupplyPipe
       .runHeightsByWaterCircuit.hot),
     utilityLineHeight('rfWaveguide'),
