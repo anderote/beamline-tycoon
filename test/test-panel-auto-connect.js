@@ -423,6 +423,38 @@ console.log('\n--- 12. The LCW manifold pairs blue and red hoses to four loads -
     'all eight occupied manifold connectors stay consumed on repeated auto-connect');
 }
 
+console.log('\n--- 12b. LCW hose pairs preserve distributor order across loads ---');
+{
+  const game = new Game(new BeamlineRegistry(), { seed: 961 });
+  game.state.resources.funding = 1e9;
+  // Deliberately insert the loads and name them out of spatial order. Pairing
+  // must follow the header/load layout rather than array or lexical order.
+  game.state.placeables.push(
+    item('manifold', 'coolingManifold', 10, 10),
+    item('right_load', 'quadrupole', 13, 12),
+    item('left_load', 'quadrupole', 13, 8),
+    item('middle_load', 'quadrupole', 13, 10),
+  );
+  const plan = planPanelAutoConnect(game.state, 'manifold');
+  const targetForPair = pairIndex => {
+    const pair = plan.stubs.filter(stub =>
+      stub.start.portName === `cold_${pairIndex}`
+        || stub.start.portName === `hot_${pairIndex}`);
+    return pair.length === 2 && pair[0].end.placeableId === pair[1].end.placeableId
+      ? pair[0].end.placeableId
+      : null;
+  };
+  assert(plan.stubs.length === 6,
+    `three loads receive three complete hose pairs (got ${plan.stubs.length} lines)`);
+  assert(targetForPair(1) === 'left_load'
+      && targetForPair(2) === 'middle_load'
+      && targetForPair(3) === 'right_load',
+  'left-to-right header pairs map to left-to-right beamline loads without braiding');
+  assert(plan.stubs.every(stub => validateDrawLine(game.state, {
+    utilityType: 'coolingWater', start: stub.start, end: stub.end, path: stub.path,
+  }).ok), 'every ordered cold/hot hose remains a normal valid utility line');
+}
+
 console.log('\n--- 13. Water distributors expose authored cold/hot branches ---');
 {
   for (const type of ['waterDistributor2', 'waterDistributor4']) {
@@ -480,6 +512,14 @@ console.log('\n--- 13. Water distributors expose authored cold/hot branches ---'
   assert(hotStubs.length === 2
       && hotStubs.every(stub => stub.end.portName === 'hot_out'),
   'the header on the rigid hot pipe connects only equipment hot returns');
+  assert([
+    ['water_line_1', 'water_line_3'],
+    ['water_line_2', 'water_line_4'],
+  ].every(([coldPort, hotPort]) => {
+    const cold = plan.stubs.find(stub => stub.start.portName === coldPort);
+    const hot = plan.stubs.find(stub => stub.start.portName === hotPort);
+    return cold?.end.placeableId === hot?.end.placeableId;
+  }), 'each dual-distributor cold/hot station serves one equipment load');
   const committed = commitPanelAutoConnect(game, plan);
   assert(committed.length === 4 && linesOf(game, 'coolingWater').length === 4,
     'the distributor commits four ordinary paid flexible water lines');

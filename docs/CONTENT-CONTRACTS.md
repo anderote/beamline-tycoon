@@ -222,7 +222,10 @@ the short authoring contract.
   hot header. The eight hose ports fill the long branch face at non-overlapping
   stations, while the two rigid feeds occupy separate, circuit-aligned stations
   on the opposite face. Assisted wiring pairs ports by `waterCircuit` and may
-  connect both circuits on one load. These classes guide assisted routing only;
+  connect both circuits on one load. When paired cold/hot load branches are
+  available, assisted wiring assigns both to one load as a unit and preserves
+  distributor-station order across nearby loads to avoid crossing hose runs.
+  These classes guide assisted routing only;
   they do not change published capacity.
 - The 2-line and 4-line water distributors auto-connect only their flexible
   `coolingLoadBranch` ports. Their isolated converter groups author matching
