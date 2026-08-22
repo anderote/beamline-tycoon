@@ -11,9 +11,9 @@
 //
 // Appearance is seeded from the staff id so pawns look the same across frames
 // and reloads. Skin, hair, coat and the per-role accents all come from the
-// builder's palette for the active style — currently the RCT2 set, sampled from
-// the real sprite sheets, where the role color is worn as a full uniform rather
-// than as a collar sliver. Technicians and engineers wear hard hats. A ±4%
+// builder's palette for the active style — the RCT2 color set, sampled from the
+// real sprite sheets, with the role color worn as a full uniform rather than as
+// a collar sliver. Technicians and engineers wear hard hats. A ±4%
 // per-staff height jitter keeps a crowd from looking cloned. The figure's design
 // lives entirely in the builder's style config; this file renders whatever
 // DEFAULT_STAFF_STYLE currently points at and never hardcodes a color.
@@ -88,8 +88,8 @@ import {
 } from '../game/storeys.js';
 
 // Skin/hair/coat choices and the per-role accents both live in the builder,
-// keyed by the style's palette, so a style change (e.g. RCT2's sampled palette
-// and full-uniform role colors) lands here with no edits.
+// keyed by the style's palette, so changes to proportions or wardrobe land here
+// with no edits.
 const PALETTE = staffPalette(DEFAULT_STAFF_STYLE);
 const DEFAULT_ROLE = PALETTE.roles.operator;
 

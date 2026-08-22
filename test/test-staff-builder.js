@@ -255,8 +255,8 @@ test('feet are planted at y=0 and the figure tops out at its style height', () =
     }
   }
   assert.equal(staffFigureHeight(), DEFAULT_STAFF_STYLE.height);
-  assert.ok(Math.abs(DEFAULT_STAFF_STYLE.height - 1.35) < 1e-9,
-    'default figure height should stay at the ~1.35 silhouette the sprites had');
+  assert.ok(Math.abs(DEFAULT_STAFF_STYLE.height - 1.18) < 1e-9,
+    'default figure height should stay at the compact facility scale');
 });
 
 test('role variation: hard hat replaces the hair cap, and the brim overhangs the head', () => {
@@ -357,13 +357,37 @@ test('disposeStaffFigure detaches without freeing the shared caches', () => {
 
 test('the default style is one of the reviewable variants and drives the walk', () => {
   assert.ok(STAFF_STYLE_LIST.includes(DEFAULT_STAFF_STYLE));
-  assert.equal(STAFF_STYLE_LIST.length, 7, 'the gallery expects seven variants');
-  assert.equal(DEFAULT_STAFF_STYLE.id, 'rct2Peep');
+  assert.equal(STAFF_STYLE_LIST.length, 8, 'the gallery expects eight variants');
+  assert.equal(DEFAULT_STAFF_STYLE.id, 'facilityCrew');
   assert.ok(DEFAULT_STAFF_STYLE.swingAmp > 0, 'StaffPawns reads swingAmp off the style');
   for (const s of STAFF_STYLE_LIST) {
     assert.ok(s.id && s.name && s.note, `variant ${s.id} needs a name and a note`);
     assert.ok(STAFF_PALETTES[s.palette], `variant ${s.id} names a palette that exists`);
   }
+});
+
+test('facilityCrew is smaller and uses a restrained six-head silhouette', () => {
+  const style = STAFF_STYLES.facilityCrew;
+  const fig = buildStaffFigure(look(), style);
+  const peep = buildStaffFigure(look(), STAFF_STYLES.rct2Peep);
+  const headsTall = style.height / (style.height * style.headRatio);
+
+  assert.ok(style.height < STAFF_STYLES.rct2Peep.height,
+    'production staff should be smaller in world space than the old peeps');
+  assert.ok(headsTall >= 6 && headsTall <= 6.5,
+    `production silhouette should be about six heads tall, got ${headsTall}`);
+  assert.ok(style.legFrac > 0.5, 'legs should occupy most of the headless body');
+  assert.ok(fig.head.geometry.w < peep.head.geometry.w * 0.5,
+    'the head should no longer dominate the silhouette');
+  assert.ok(fig.torso.geometry.w < peep.torso.geometry.w * 0.65,
+    'the torso should be visibly narrower than the old mascot build');
+  assert.ok(fig.leftArm.geometry.w / style.height < 0.07,
+    'arms should remain slender relative to figure height');
+  assert.ok(fig.leftShin.children[0].geometry.d / style.height < 0.13,
+    'feet should not read as oversized blocks');
+  assert.equal(style.roleUniform, true, 'role colors should remain readable');
+  assert.equal(style.face, true, 'the simple face should remain');
+  assert.equal(style.mouth, false, 'the production face should stay minimal');
 });
 
 test('every palette is complete, and the RCT2 one carries its sampled values', () => {
