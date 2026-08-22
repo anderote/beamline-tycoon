@@ -109,7 +109,7 @@ export const INDOOR_HV_RACK_TAP_MOUNTS = Object.freeze({
 });
 
 export const UTILITY_POLE_HV_TAP_MOUNT = Object.freeze({
-  y: 0.75, localX: 0, localZ: 0.30,
+  y: COMPACT_HV_INPUT_Y, localX: 0, localZ: 0.30,
   normal: Object.freeze({ x: 0, y: 0, z: 1 }),
 });
 

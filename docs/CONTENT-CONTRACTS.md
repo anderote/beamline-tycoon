@@ -271,9 +271,9 @@ the short authoring contract.
   waveguide, cooling, and cryogenic services retain direct wall crossing.
 - An HV cable whose two endpoints are overhead terminals on utility poles or
   transmission towers is an elevated span and may cross any wall or fence in
-  plan view. The exception requires two overhead support ports; a low pole tap,
-  transformer, panel, open end, or wall feedthrough at either end keeps the
-  ordinary wall-pass-through requirement.
+  plan view. The exception requires two overhead support ports; the pole's
+  pad-transformer tap, a transformer, panel, open end, or wall feedthrough at
+  either end keeps the ordinary wall-pass-through requirement.
 - Every Power-category `hv_in` presentation anchor lands on visible insulated
   hardware at the equipment roof or upper shoulder. Distribution panels, HV
   distributor cabinets, MCCs, and UPS cabinets use model-specific roof-cap
@@ -291,15 +291,18 @@ the short authoring contract.
   share the 2.00 m crossbar-terminal height and tension attached cables. Its
   overhead row uses 0.4 m spacing so the outer hanging insulators clear the
   uprights.
-  The 2×2 Utility Pole likewise buses its four overhead terminals to one low
-  front `hv_tap`. Sources remain the sole capacity authority. The low pole tap
-  does not tension cables or qualify a line for the elevated wall-crossing exception.
+  The 2×2 Utility Pole likewise buses its four overhead terminals to one front
+  `hv_tap` at the Pad-Mount Transformer's 1.55 m primary-bushing height.
+  Assisted wiring reserves that tap for `padMountTransformer.hv_in`, while
+  pole-to-pole spans retain the four overhead conductors. Sources remain the
+  sole capacity authority. The transformer tap does not tension cables or
+  qualify a line for the elevated wall-crossing exception.
   Indoor HV racks use overhead placement occupancy: their footprint anchors
   the frame but does not prevent ordinary equipment from being built beneath
   it. An HV cable with either end on an elevated support terminal, or on an
   electrical wall feedthrough, removes drawn lateral slack but retains a
-  visible, shallow gravity sag while suspended between its endpoints; the low
-  pole tap and other soft cables retain drawn slack.
+  visible, shallow gravity sag while suspended between its endpoints; the pole
+  transformer tap and other soft cables retain drawn slack.
 - Passive inlet/outlet fittings keep their `pass` topology role but normally
   derive their physical arrow direction from the port name. Pole, tower,
   indoor-rack support ports, and symmetric HV wall feedthroughs remain
