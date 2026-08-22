@@ -150,11 +150,12 @@ export const REASON_MESSAGES = {
   overlap_same_type:    'another line of this type already runs here',
   overlap_rigid_service:'another service body already occupies that route',
   blocked_by_equipment: 'that route intersects installed 3D equipment geometry',
-  wall_pass_through_required: 'electrical cables need a wall feedthrough here',
+  wall_pass_through_required: 'this utility needs a compatible wall pass-through here',
   invalid_start:        'starting port is missing or invalid',
   invalid_end:          'ending port is missing or invalid',
   port_type_mismatch:   'port type does not match utility',
   port_taken:           'that port is already connected',
+  water_circuit_mismatch: 'hot return and cold supply water cannot be joined',
 };
 
 export function reasonMessage(r) { return REASON_MESSAGES[r] || r; }
@@ -411,6 +412,7 @@ export class UtilityLineSystem {
       path,
       cablePath,
       routeHeightMeters: line.routeHeightMeters,
+      waterCircuit: line.waterCircuit,
     });
     if (!result.ok) return dangle();
 

@@ -38,7 +38,8 @@ const HARD_REQUIRED_UTILS = [
   // machine — and reporting it AT THE PANEL is the only way the player finds
   // out why a whole bank of machines went dark.
   'hvCable',
-  'powerCable', 'vacuumPipe', 'rfWaveguide', 'coolingWater', 'cryoTransfer',
+  'powerCable', 'vacuumPipe', 'rfWaveguide',
+  'waterSupplyPipe', 'coolingWater', 'cryoTransfer',
 ];
 // Exported because this map IS the utility -> blocker-code contract: the
 // advisor generates one advice rule per entry, so a utility added here gets
@@ -49,6 +50,7 @@ export const UNCONNECTED_CODES = {
   vacuumPipe:   'vacuum_unconnected',
   rfWaveguide:  'rf_unconnected',
   coolingWater: 'cooling_unconnected',
+  waterSupplyPipe: 'water_supply_unconnected',
   cryoTransfer: 'cryo_unconnected',
 };
 
@@ -75,6 +77,7 @@ export const UTILITY_TO_QUALITY_FIELD = {
   powerCable:   'powerQuality',
   rfWaveguide:  'rfQuality',
   coolingWater: 'coolingQuality',
+  waterSupplyPipe: 'coolingQuality',
   cryoTransfer: 'cryoQuality',
   vacuumPipe:   'vacuumQuality',
   dataFiber:    'dataQuality',

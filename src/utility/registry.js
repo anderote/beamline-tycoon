@@ -1,11 +1,12 @@
 // src/utility/registry.js
 // Registry of all utility-type descriptors. Imports each per-utility module and
-// exports a {type → descriptor} map. Adding a 7th utility = one import + entry.
+// exports a {type → descriptor} map. Adding a utility = one import + entry.
 
 import powerCable from './types/powerCable.js';
 import vacuumPipe from './types/vacuumPipe.js';
 import rfWaveguide from './types/rfWaveguide.js';
 import coolingWater from './types/coolingWater.js';
+import waterSupplyPipe from './types/waterSupplyPipe.js';
 import cryoTransfer from './types/cryoTransfer.js';
 import dataFiber from './types/dataFiber.js';
 import hvCable from './types/hvCable.js';
@@ -15,7 +16,10 @@ import { UTILITY_LINE_Y } from './line-geometry.js';
 // quality its own HV feed solved to, and SolveRunner walks this list in order,
 // so the feeder has to be solved on the same tick the panel reads it. Reverse
 // them and a panel reacts to losing its supply one tick late, every time.
-const all = [hvCable, powerCable, vacuumPipe, rfWaveguide, coolingWater, cryoTransfer, dataFiber];
+const all = [
+  hvCable, powerCable, vacuumPipe, rfWaveguide,
+  waterSupplyPipe, coolingWater, cryoTransfer, dataFiber,
+];
 
 export const UTILITY_TYPES = Object.fromEntries(all.map(d => [d.type, d]));
 
@@ -47,6 +51,12 @@ export function utilityLineHeight(utilityType, routeHeightMeters = null) {
   // from the retired automatic-lane system are deliberately ignored so old
   // runs immediately conform to the fixed-height contract after loading.
   if (d?.fixedRouteHeight === true && Number.isFinite(d.runHeightMeters)) {
+    const circuitHeights = Object.values(d.runHeightsByWaterCircuit || {})
+      .filter(Number.isFinite);
+    if (Number.isFinite(routeHeightMeters)
+        && circuitHeights.some(height => Math.abs(height - routeHeightMeters) < 1e-6)) {
+      return routeHeightMeters;
+    }
     return d.runHeightMeters;
   }
   if (Number.isFinite(routeHeightMeters)) return routeHeightMeters;

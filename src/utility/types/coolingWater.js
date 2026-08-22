@@ -13,6 +13,13 @@
 import { powerFeedFactor } from '../power-feed.js';
 import { COOLING_WATER_INVENTORY } from '../../data/cooling-water-inventory.js';
 import { FLEXIBLE_SUBTILE_ROUTING_PROFILE } from '../routing-contract.js';
+import { endpointsById } from '../endpoint-lookup.js';
+import {
+  lineWaterCircuit,
+  portWaterCircuit,
+  WATER_CIRCUIT_COLD,
+  WATER_CIRCUIT_HOT,
+} from '../water-circuits.js';
 
 export const EVAP_PER_KW_PER_TICK = 0.02;
 // Compatibility export for callers that mean the original LCW-skid / make-up
@@ -67,6 +74,46 @@ function reservoirLevel(persistent) {
   return { current, capacity };
 }
 
+function circuitForNetwork(network, worldState) {
+  const circuits = new Set();
+  for (const port of network?.ports || []) {
+    const circuit = portWaterCircuit(port);
+    if (circuit) circuits.add(circuit);
+  }
+  for (const lineId of network?.lineIds || []) {
+    const circuit = lineWaterCircuit(worldState?.utilityLines?.get?.(lineId));
+    if (circuit) circuits.add(circuit);
+  }
+  return circuits.size === 1 ? [...circuits][0] : (circuits.size > 1 ? 'mixed' : null);
+}
+
+function convertedSupplyCapacity(network, circuit, worldState, context) {
+  const pipeNetworks = context.networksByType?.get?.('waterSupplyPipe') || [];
+  const pipeFlows = worldState?.utilityNetworkData?.get?.('waterSupplyPipe');
+  const endpointMap = endpointsById(worldState);
+  const used = new Set();
+  let capacity = 0;
+  for (const port of network?.ports || []) {
+    const endpoint = endpointMap.get(port.placeableId);
+    const def = context.getDefinition?.(endpoint?.type);
+    for (const group of def?.waterConverterGroups || []) {
+      if (!(group.waterLinePorts || []).includes(port.portName)) continue;
+      for (const supplyName of group.supplyPipePorts || []) {
+        const key = `${port.placeableId}:${supplyName}`;
+        const pipeNetwork = pipeNetworks.find(candidate =>
+          candidate.ports?.some(p => `${p.placeableId}:${p.portName}` === key));
+        if (!pipeNetwork || used.has(pipeNetwork.id)) continue;
+        const flow = pipeFlows?.get?.(pipeNetwork.id);
+        if (flow?.waterCircuit !== circuit) continue;
+        used.add(pipeNetwork.id);
+        capacity += positive(flow.totalCapacity) * Math.max(0, Math.min(1,
+          flow.totalDemand > 0 ? flow.totalCapacity / flow.totalDemand : 1));
+      }
+    }
+  }
+  return capacity;
+}
+
 export default {
   type: 'coolingWater',
   displayName: 'Cooling Water',
@@ -84,6 +131,10 @@ export default {
   // Use the shared forgiving pickup halo also used by data cable. Cooling
   // branches are still explicit named tees; this changes only cursor assist.
   fansOut: true,
+  // Flexible water lines are equipment hoses. They may run around a wall but
+  // never through the slab; building crossings belong to the new fabricated
+  // water-supply pipe and its rated wall penetrations.
+  requiresWallPassThrough: true,
   // Adjacency bridging: touching components share the loop — a skid manifolds
   // straight into the unit bolted next to it.
   bridgesAdjacent: true,
@@ -97,6 +148,59 @@ export default {
   // The first solve resolves it against the network's authored storage.
   persistentStateDefaults: { reservoirVolumeL: null, reservoirCapacityL: 0 },
   solve(network, persistent, worldState, context = {}) {
+    const waterCircuit = circuitForNetwork(network, worldState);
+    if (waterCircuit) {
+      const capacityParam = waterCircuit === WATER_CIRCUIT_HOT
+        ? 'heatRejectionCapacity' : 'capacity';
+      const localCapacity = network.sources.reduce(
+        (sum, source) => sum + positive(source.params?.[capacityParam])
+          * powerFeedFactor(worldState, source.placeableId, context.getDefinition), 0);
+      const importedCapacity = waterCircuit === 'mixed'
+        ? 0 : convertedSupplyCapacity(network, waterCircuit, worldState, context);
+      const totalCapacity = localCapacity + importedCapacity;
+      const totalDemand = network.sinks.reduce(
+        (sum, sink) => sum + positive(sink.params?.heatLoad), 0);
+      let quality = totalDemand > 0 ? Math.min(1, totalCapacity / totalDemand) : 1;
+      const errors = [];
+      if (waterCircuit === 'mixed') {
+        quality = 0;
+        errors.push({ severity: 'hard', code: 'water_line_circuit_mixed',
+          message: 'Hot and cold flexible water lines are joined together.',
+          location: { networkId: network.id } });
+      } else if (totalDemand > 0 && totalCapacity <= 0) {
+        errors.push({ severity: 'hard',
+          code: waterCircuit === WATER_CIRCUIT_HOT
+            ? 'cooling_return_unserved' : 'cooling_supply_unserved',
+          message: waterCircuit === WATER_CIRCUIT_HOT
+            ? 'Hot-water lines have no route to heat rejection.'
+            : 'Cold-water lines have no route to a chiller.',
+          location: { networkId: network.id } });
+      } else if (totalDemand > totalCapacity && totalCapacity > 0) {
+        errors.push({ severity: 'soft', code: 'cooling_overload',
+          message: `Cooling circuit overloaded (${Math.round(totalDemand / totalCapacity * 100)}%).`,
+          location: { networkId: network.id } });
+      }
+      const perSinkQuality = {};
+      const perSinkDeltaT = {};
+      for (const sink of network.sinks) {
+        perSinkQuality[sink.portKey] = quality;
+        perSinkDeltaT[sink.portKey] = waterCircuit === WATER_CIRCUIT_COLD
+          ? MAX_DELTA_T * (1 - quality) : 0;
+      }
+      return {
+        flowState: {
+          networkId: network.id, utilityType: network.utilityType,
+          waterCircuit, totalCapacity, localCapacity, importedCapacity,
+          totalDemand,
+          utilization: totalCapacity > 0 ? Math.min(1, totalDemand / totalCapacity) : (totalDemand > 0 ? 1 : 0),
+          deltaT: waterCircuit === WATER_CIRCUIT_COLD ? MAX_DELTA_T * (1 - quality) : 0,
+          perSegmentLoad: [], perSinkQuality, perSinkDeltaT,
+          errors: [...errors],
+        },
+        nextPersistentState: persistent || {},
+        errors,
+      };
+    }
     const chillers = network.sources.filter(s => (s.params?.capacity || 0) > 0);
     const rejectors = network.sources.filter(s => (s.params?.heatRejectionCapacity || 0) > 0);
     const chillerCapacity = chillers.reduce(

@@ -194,7 +194,11 @@ function measure(game, ticks) {
   assert(frac > 0.2 && frac < 0.75,
     `late-game upkeep fraction 20-75% of gross (got ${(100 * frac).toFixed(1)}%)`);
   assert(m.dFunds > 0, `late-game still net-positive (${(m.dFunds / 700).toFixed(1)}/t)`);
-  assert(m.refills > 0, `reservoir refills occurred ($${m.refills})`);
+  const hotReturns = [...(state.utilityNetworkData?.get('coolingWater')?.values() || [])]
+    .filter(flow => flow.waterCircuit === 'hot');
+  assert(hotReturns.length >= 4
+      && hotReturns.every(flow => flow.totalCapacity > 0 && flow.totalDemand > 0),
+  `all late-game hot-return groups reach heat rejection (${hotReturns.length} facility-wide)`);
 }
 
 // ---------------------------------------------------------------------------

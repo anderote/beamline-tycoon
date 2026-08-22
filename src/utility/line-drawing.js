@@ -44,6 +44,13 @@ import {
   softCableSkipsOverlap,
 } from './soft-cable.js';
 import { pathCrossesWall } from './wall-crossings.js';
+import {
+  isWaterUtility,
+  lineWaterCircuit,
+  portWaterCircuit,
+  WATER_CIRCUIT_COLD,
+  WATER_CIRCUIT_HOT,
+} from './water-circuits.js';
 
 const EPS = 1e-6;
 const PHYSICAL_COLLISION_SAMPLE_STEP = 0.125;
@@ -183,6 +190,11 @@ function pathOverlapReason(newPath, lines, utilityType, opts = {}) {
   for (const line of iter) {
     if (!line) continue;
     const sameType = line.utilityType === utilityType;
+    const existingWaterCircuit = opts.resolveWaterCircuit?.(line)
+      || lineWaterCircuit(line);
+    if (sameType && isWaterUtility(utilityType)
+        && opts.waterCircuit && existingWaterCircuit
+        && opts.waterCircuit !== existingWaterCircuit) continue;
     const fixedHeightPair = usesFixedRouteHeight(utilityType)
       && usesFixedRouteHeight(line.utilityType);
     const physicalConflict = fixedHeightPair;
@@ -347,6 +359,20 @@ function lookupDef(state, type) {
   return (type && COMPONENTS[type]) || null;
 }
 
+function resolvedLineWaterCircuit(state, line) {
+  const authored = lineWaterCircuit(line);
+  if (authored) return authored;
+  const circuits = new Set();
+  for (const ref of [line?.start, line?.end]) {
+    if (!ref) continue;
+    const endpoint = findPlaceable(state, ref.placeableId);
+    const spec = getPortSpec(lookupDef(state, endpoint?.type), ref.portName);
+    const circuit = portWaterCircuit(spec);
+    if (circuit) circuits.add(circuit);
+  }
+  return circuits.size === 1 ? [...circuits][0] : null;
+}
+
 /** True only for a suspended HV span whose two ends are elevated supports. */
 function isOverheadHvSupportSpan(state, utilityType, start, end) {
   if (utilityType !== 'hvCable' || !start || !end) return false;
@@ -463,7 +489,7 @@ function portConnectionCount(state, placeableId, portName) {
 // ---------------------------------------------------------------------------
 
 export function validateDrawLine(state, {
-  utilityType, start, end, path, tapLineIds, cablePath,
+  utilityType, start, end, path, tapLineIds, cablePath, waterCircuit = null,
 } = {}) {
   // Path shape.
   if (!Array.isArray(path) || path.length < 2) return reject('invalid_path');
@@ -486,8 +512,8 @@ export function validateDrawLine(state, {
   const descriptor = UTILITY_TYPES[utilityType] || {};
   const freeform = isSoftCable(utilityType) ? sanitizeCablePath(cablePath) : [];
   // Soft utilities are physical where the player visibly laid them. Their
-  // compatibility path must not let a cable pass through a wall (or reject
-  // one whose visible trace went around it).
+  // compatibility path must not let a cable or hose pass through a wall (or
+  // reject one whose visible trace went around it).
   const physicalPath = freeform.length >= 2
     ? roundedCableTilePath(freeform, utilityType)
     : path;
@@ -546,6 +572,28 @@ export function validateDrawLine(state, {
     return reject('invalid_port_pair');
   }
 
+  // Hot return and cold supply share the same construction tools but are
+  // distinct hydraulic circuits. Infer a new run from its exact terminal or
+  // tapped trunk, then refuse any gesture that would short the two together.
+  let resolvedWaterCircuit = isWaterUtility(utilityType) ? waterCircuit : null;
+  if (isWaterUtility(utilityType)) {
+    const circuits = new Set();
+    for (const circuit of [
+      resolvedWaterCircuit,
+      portWaterCircuit(startSpec),
+      portWaterCircuit(endSpec),
+    ]) {
+      if (circuit) circuits.add(circuit);
+    }
+    for (const id of [tapLineIds?.start, tapLineIds?.end]) {
+      const target = id && state?.utilityLines?.get?.(id);
+      const circuit = resolvedLineWaterCircuit(state, target);
+      if (circuit) circuits.add(circuit);
+    }
+    if (circuits.size > 1) return reject('water_circuit_mismatch');
+    resolvedWaterCircuit = circuits.size === 1 ? [...circuits][0] : null;
+  }
+
   // Overlap against same-type lines only — branching at a shared source or a
   // directionless bus peer is allowed. Interior overlaps still block.
   const lines = state && state.utilityLines;
@@ -575,20 +623,28 @@ export function validateDrawLine(state, {
   // Cooling hoses are equally smooth, but remain plumbed networks. Their grid
   // route keeps deterministic join clearance while the visible route supplies
   // the exact network contact positions in discovery.
-  let resolvedRouteHeight = null;
+  let resolvedRouteHeight = utilityType === 'waterSupplyPipe'
+    ? descriptor.runHeightsByWaterCircuit?.[resolvedWaterCircuit]
+      ?? descriptor.runHeightMeters
+    : null;
   if (!softCableSkipsOverlap(utilityType)) {
     if (usesFixedRouteHeight(utilityType)) {
       // Ignore caller- or save-authored lane values. One utility means one
       // physical elevation; endpoint hardware meets it through a local riser.
-      resolvedRouteHeight = utilityLineHeight(utilityType);
+      resolvedRouteHeight = utilityLineHeight(utilityType, resolvedRouteHeight);
       const overlapReason = pathOverlapReason(path, lines, utilityType, {
         ignoreSharedSource, tapLineIds, start, end,
-        routeHeightMeters: resolvedRouteHeight,
+        routeHeightMeters: resolvedRouteHeight, waterCircuit: resolvedWaterCircuit,
+        resolveWaterCircuit: line => resolvedLineWaterCircuit(state, line),
       });
       if (overlapReason) return reject(overlapReason);
     } else {
       const overlapReason = pathOverlapReason(
-        path, lines, utilityType, { ignoreSharedSource, tapLineIds, start, end });
+        path, lines, utilityType, {
+          ignoreSharedSource, tapLineIds, start, end,
+          waterCircuit: resolvedWaterCircuit,
+          resolveWaterCircuit: line => resolvedLineWaterCircuit(state, line),
+        });
       if (overlapReason) return reject(overlapReason);
     }
   }
@@ -628,6 +684,7 @@ export function validateDrawLine(state, {
         ? { routeHeightMeters: resolvedRouteHeight }
         : {}),
       ...(freeform.length >= 2 ? { cablePath: freeform } : {}),
+      ...(resolvedWaterCircuit ? { waterCircuit: resolvedWaterCircuit } : {}),
       ...((tapLineIds?.start || tapLineIds?.end)
         ? { tapLineIds: { start: tapLineIds.start || null, end: tapLineIds.end || null } }
         : {}),
@@ -653,4 +710,5 @@ export const REASONS = Object.freeze({
   port_type_mismatch: 'port_type_mismatch',
   port_taken: 'port_taken',
   invalid_port_pair: 'invalid_port_pair',
+  water_circuit_mismatch: 'water_circuit_mismatch',
 });

@@ -2410,6 +2410,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         return subIdx === 0; // default to first subsection
       });
       if (subKey === 'transport' && this.activeMode === 'infra'
+          && !COMPONENTS.universalUtilityBus?.deprecated
           && !subComps.some(({ key }) => key === 'universalUtilityBus')) {
         subComps.unshift({ key: 'universalUtilityBus', comp: COMPONENTS.universalUtilityBus });
       }

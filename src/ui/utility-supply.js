@@ -40,7 +40,8 @@ const SUPPLY_SPEC = {
   hvCable:      { param: 'capacity',      unit: 'kW' },
   powerCable:   { param: 'capacity',      unit: 'kW' },
   rfWaveguide:  { param: 'capacity',      unit: 'kW' },
-  coolingWater: { param: ['heatRejectionCapacity', 'capacity'], unit: 'kW thermal' },
+  coolingWater: { param: ['heatRejectionCapacity', 'capacity'], unit: 'kW thermal', group: 'waterCooling' },
+  waterSupplyPipe: { param: ['heatRejectionCapacity', 'capacity'], unit: 'kW thermal', group: 'waterCooling' },
   cryoTransfer: { param: 'coldCapacityW', unit: 'W' },
   vacuumPipe:   { param: 'pumpSpeed',     unit: 'L/s' },
 };
@@ -53,6 +54,7 @@ const PALETTE_METRIC_SPEC = {
   powerCable:   { draw: ['demand', 'Power draw', 'kW'], capacity: ['capacity', 'Power capacity', 'kW'] },
   hvCable:      { draw: ['demand', 'Power draw', 'kW'], capacity: ['capacity', 'Power capacity', 'kW'] },
   coolingWater: { draw: ['heatLoad', 'Cooling draw', 'kW thermal'], capacity: [['heatRejectionCapacity', 'capacity'], 'Cooling capacity', 'kW thermal'] },
+  waterSupplyPipe: { draw: ['heatLoad', 'Water header draw', 'kW thermal'], capacity: [['heatRejectionCapacity', 'capacity'], 'Water header capacity', 'kW thermal'] },
   cryoTransfer: { draw: ['srfHeatW', 'Cryo draw', 'W'], capacity: ['coldCapacityW', 'Cryo capacity', 'W'] },
   rfWaveguide:  { draw: ['demand', 'RF draw', 'kW'], capacity: ['capacity', 'RF capacity', 'kW'] },
   vacuumPipe:   { draw: ['outgassing', 'Vacuum load', 'mbar·L/s'], capacity: ['pumpSpeed', 'Pumping capacity', 'L/s'] },
@@ -117,6 +119,7 @@ export function paletteUtilityMetrics(comp) {
       }
     }
     const kind = port.role === 'sink' ? 'draw' : 'capacity';
+    if (kind === 'draw' && port.params?.waterCircuit === 'hot') continue;
     const spec = PALETTE_METRIC_SPEC[port.utility]?.[kind];
     if (!spec) continue;
     const [param, label, unit] = spec;
@@ -152,6 +155,7 @@ const PALETTE_UTILITY_SPEC = {
   powerCable:   { key: 'power', label: 'P', param: 'capacity', unit: 'kW' },
   rfWaveguide:  { key: 'rf', label: 'R', param: 'capacity', unit: 'kW' },
   coolingWater: { key: 'cooling', label: 'C', param: ['heatRejectionCapacity', 'capacity'], unit: 'kW' },
+  waterSupplyPipe: { key: 'cooling', label: 'C', param: ['heatRejectionCapacity', 'capacity'], unit: 'kW' },
   cryoTransfer: { key: 'cryo', label: 'K', param: 'coldCapacityW', unit: 'W' },
   vacuumPipe:   { key: 'vacuum', label: 'V', param: 'pumpSpeed', unit: 'L/s' },
 };
@@ -175,7 +179,13 @@ export function paletteUtilityTags(comp) {
     const params = Array.isArray(spec?.param) ? spec.param : [spec?.param];
     const value = params.map(param => port.params?.[param]).find(Number.isFinite);
     if (!spec || !Number.isFinite(value)) continue;
-    totals.set(spec.key, { ...spec, amount: (totals.get(spec.key)?.amount || 0) + value });
+    const current = totals.get(spec.key) || { ...spec, amount: 0, amountsByUtility: new Map() };
+    current.amountsByUtility.set(port.utility,
+      (current.amountsByUtility.get(port.utility) || 0) + value);
+    current.amount = spec.key === 'cooling'
+      ? Math.max(...current.amountsByUtility.values())
+      : [...current.amountsByUtility.values()].reduce((sum, amount) => sum + amount, 0);
+    totals.set(spec.key, current);
   }
   for (const key of PALETTE_UTILITY_ORDER) {
     const total = totals.get(key);
@@ -226,9 +236,15 @@ export function utilityStatRows(comp) {
     const amount = params.map(param => port.params?.[param]).find(Number.isFinite);
     if (typeof amount !== 'number' || !Number.isFinite(amount)) continue;
 
-    const entry = totals.get(port.utility)
-      ?? { utility: port.utility, spec, amount: 0, dutyFactor: undefined, displayLabel: undefined };
-    entry.amount += amount;
+    const totalKey = spec.group || port.utility;
+    const entry = totals.get(totalKey)
+      ?? { utility: port.utility, spec, amount: 0, amountsByUtility: new Map(),
+        dutyFactor: undefined, displayLabel: undefined };
+    entry.amountsByUtility.set(port.utility,
+      (entry.amountsByUtility.get(port.utility) || 0) + amount);
+    entry.amount = spec.group
+      ? Math.max(...entry.amountsByUtility.values())
+      : entry.amountsByUtility.get(port.utility);
     if (entry.displayLabel === undefined && typeof port.params?.displayLabel === 'string') {
       entry.displayLabel = port.params.displayLabel;
     }
@@ -237,7 +253,7 @@ export function utilityStatRows(comp) {
     if (entry.dutyFactor === undefined && typeof port.params?.dutyFactor === 'number') {
       entry.dutyFactor = port.params.dutyFactor;
     }
-    totals.set(port.utility, entry);
+    totals.set(totalKey, entry);
   }
 
   for (const { utility, spec, amount, dutyFactor, displayLabel } of totals.values()) {

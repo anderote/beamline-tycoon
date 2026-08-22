@@ -26,6 +26,7 @@ const UTILITY_NAMES = {
   vacuumPipe: 'vacuum',
   rfWaveguide: 'RF',
   coolingWater: 'cooling water',
+  waterSupplyPipe: 'water supply pipe',
   cryoTransfer: 'cryogenics',
 };
 
@@ -36,6 +37,7 @@ const UTILITY_FIXES = {
   vacuumPipe: 'Run Vacuum Pipe from a roughing or turbo pump.',
   rfWaveguide: 'Run RF Waveguide from an amplifier that covers its band.',
   coolingWater: 'Run Cooling Water from a chiller or LCW skid.',
+  waterSupplyPipe: 'Connect both rigid cold-supply and hot-return water pipes.',
   cryoTransfer: 'Run Cryo Transfer line from a cold box.',
 };
 

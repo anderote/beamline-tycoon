@@ -5,9 +5,8 @@ import { PLACEABLES } from '../src/data/placeables/index.js';
 import { COMPONENTS } from '../src/data/components.js';
 import { UniversalUtilityBusTool } from '../src/input/universal-utility-bus-tool.js';
 import { UtilityLineInputController } from '../src/input/UtilityLineInputController.js';
-import { standardPaletteKind } from '../src/ui/palette-collection.js';
+import { componentPaletteEntries, standardPaletteKind } from '../src/ui/palette-collection.js';
 import coolingWater from '../src/utility/types/coolingWater.js';
-import { UTILITY_TYPE_LIST, utilityLineHeight } from '../src/utility/registry.js';
 import {
   UNIVERSAL_BUS_MAX_CHANNELS,
   UniversalUtilityBusSystem,
@@ -27,17 +26,23 @@ import { gridToIso } from '../src/renderer/grid.js';
 assert.equal(PLACEABLES.universalUtilityBus, undefined,
   'the bus is a drawn connection, not a placeable component');
 assert.ok(COMPONENTS.universalUtilityBus?.isDrawnConnection,
-  'the transport catalogue retains the drawn bus definition');
+  'legacy saves retain the drawn bus definition');
+assert.equal(COMPONENTS.universalUtilityBus.deprecated, true,
+  'the universal bus is retired from new construction');
+assert.equal(componentPaletteEntries(COMPONENTS, 'power')
+  .some(({ key }) => key === 'universalUtilityBus'), false,
+  'the retired bus is absent from the standard palette');
 assert.equal(standardPaletteKind(COMPONENTS.universalUtilityBus), 'utilityBus',
   'the palette routes it through a line tool rather than component placement');
 assert.equal(new UniversalUtilityBusTool().armedPlaceableId, null,
   'arming the bus cannot trigger the generic brick placement ghost');
 assert.equal(UNIVERSAL_BUS_MAX_CHANNELS, 7,
-  'the carrier exposes one designated lane for every registered utility');
+  'the compatibility carrier retains its seven historical lanes');
 assert.deepEqual(
   UNIVERSAL_BUS_LANE_LIST.map(lane => lane.utilityType).sort(),
-  [...UTILITY_TYPE_LIST].sort(),
-  'every registered utility has exactly one designated carrier lane');
+  ['coolingWater', 'cryoTransfer', 'dataFiber', 'hvCable', 'powerCable',
+    'rfWaveguide', 'vacuumPipe'],
+  'legacy carrier lanes do not expand to newly registered utility types');
 assert.deepEqual(
   UNIVERSAL_BUS_LANE_LIST.filter(lane => lane.tier === 'vertical').map(lane => lane.utilityType),
   ['cryoTransfer', 'rfWaveguide', 'vacuumPipe', 'coolingWater', 'powerCable', 'dataFiber', 'hvCable'],
@@ -56,10 +61,8 @@ assert.deepEqual(
 assert.ok(suspendedUtilityTypes.every(utilityType =>
   universalBusLane(utilityType).runY > universalBusLane('vacuumPipe').runY),
   'all suspended services have fixed support elevations above the vacuum line');
-for (const utilityType of ['cryoTransfer', 'rfWaveguide', 'vacuumPipe']) {
-  assert.equal(universalBusLane(utilityType).runY, utilityLineHeight(utilityType),
-    `${utilityType} enters the rack without changing its fixed route elevation`);
-}
+assert.equal(universalBusLane('waterSupplyPipe'), null,
+  'new rigid water supply pipe cannot be installed in the legacy bus');
 
 const state = {
   placeables: [], beamPipes: [], wallOccupied: {},

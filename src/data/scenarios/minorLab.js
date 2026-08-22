@@ -26,10 +26,109 @@ export function setupMinorLab(game) {
   for (const lineId of ['ul_261', 'ul_693']) {
     game.utilityLineSystem?.removeLine(lineId);
   }
-  return wireUtility(
+  const retainedColdBranches = new Set([
+    'ul_621', 'ul_622', 'ul_623', 'ul_624',
+    'ul_625', 'ul_626', 'ul_627', 'ul_628',
+  ]);
+  for (const [lineId, line] of [...game.state.utilityLines]) {
+    if (line.utilityType === 'coolingWater' && !retainedColdBranches.has(lineId)) {
+      game.utilityLineSystem?.removeLine(lineId);
+    }
+  }
+  const powerRepair = wireUtility(
     game,
     'powerCable',
     { id: 'in_118', role: 'source', index: 5 },
     { id: 'fn_26', role: 'sink' },
   );
+
+  // The imported facility predates explicit hot-water returns. Preserve its
+  // working cold branches, then retrofit each of the two beam rooms with
+  // three 2:1 return headers. Rigid hot-water pipe carries the collected heat
+  // through sealed wall sleeves to the existing cooling tower yard.
+  const place = (type, col, row, extra = {}) => game.placePlaceable({
+    type, col, row, free: true, silent: true, ...extra,
+  });
+  const upperDistributors = [
+    place('waterDistributor2', -5, 8),
+    place('waterDistributor2', -3, 8),
+    place('waterDistributor2', -1, 8),
+  ];
+  const lowerDistributors = [
+    place('waterDistributor2', -9, 0),
+    place('waterDistributor2', -7, 0),
+    place('waterDistributor2', -5, 0),
+  ];
+  const upperColdDistributor = place('waterDistributor2', -9, 8);
+  const lowerColdDistributor = place('waterDistributor2', 0, 5);
+  const sleeve = row => place('waterSupplyWallPassThrough1x1', 2, row, {
+    wallMount: { col: 2, row, edge: 'e', off: 1 },
+  });
+  const upperSleeves = [sleeve(6), sleeve(7), sleeve(8)];
+  const lowerSleeves = [sleeve(2), sleeve(3), sleeve(4)];
+
+  const connectReturns = (loads, distributors) => {
+    loads.forEach((id, index) => {
+      const distributor = distributors[Math.floor(index / 2)];
+      const connected = wireUtility(game, 'coolingWater', { id, port: 'hot_out' }, {
+        id: distributor, port: `water_line_${(index % 2) + 1}`,
+      }, { waterCircuit: 'hot' });
+      // The upper room's first quadrupole is boxed in by its legacy cold hose.
+      // The spare socket on the third return header gives the obstacle-aware
+      // router a clean approach without crossing the room wall.
+      if (!connected) {
+        wireUtility(game, 'coolingWater', { id, port: 'hot_out' }, {
+          id: distributors[2], port: 'water_line_2',
+        }, { waterCircuit: 'hot' });
+      }
+    });
+  };
+  connectReturns(['bl_14', 'pl_1', 'pl_2', 'pl_3', 'bl_15'], upperDistributors);
+  connectReturns(['bl_16', 'pl_7', 'pl_8', 'bl_17', 'pl_9'], lowerDistributors);
+
+  const hotPipe = { waterCircuit: 'hot' };
+  const coldPipe = { waterCircuit: 'cold' };
+  wireUtility(game, 'waterSupplyPipe',
+    { id: 'in_90', port: 'supply_cold_out' },
+    { id: upperColdDistributor, port: 'supply_pipe_1' }, coldPipe);
+  wireUtility(game, 'coolingWater',
+    { id: upperColdDistributor, port: 'water_line_1' },
+    { id: 'bl_15', port: 'cool_in' }, coldPipe);
+  wireUtility(game, 'coolingWater',
+    { id: upperColdDistributor, port: 'water_line_2' },
+    { id: 'in_249', port: 'cool_in' }, coldPipe);
+  wireUtility(game, 'waterSupplyPipe',
+    { id: 'in_91', port: 'supply_cold_out' },
+    { id: lowerColdDistributor, port: 'supply_pipe_1' }, coldPipe);
+  wireUtility(game, 'coolingWater',
+    { id: lowerColdDistributor, port: 'water_line_1' },
+    { id: 'bl_17', port: 'cool_in' }, coldPipe);
+  wireUtility(game, 'coolingWater',
+    { id: lowerColdDistributor, port: 'water_line_2' },
+    { id: 'in_130', port: 'cool_in' }, coldPipe);
+
+  const upperRejection = [
+    ['in_112', 'supply_hot_1'],
+    ['in_112', 'supply_hot_2'],
+    ['in_244', 'supply_hot_1'],
+  ];
+  const lowerRejection = [
+    ['in_113', 'supply_hot_1'],
+    ['in_113', 'supply_hot_2'],
+    ['in_244', 'supply_hot_2'],
+  ];
+  const connectHotHeaders = (distributors, sleeves, rejectors) => {
+    distributors.forEach((distributor, index) => {
+      wireUtility(game, 'waterSupplyPipe',
+        { id: distributor, port: 'supply_pipe_1' },
+        { id: sleeves[index], port: 'supply_front' }, hotPipe);
+      wireUtility(game, 'waterSupplyPipe',
+        { id: rejectors[index][0], port: rejectors[index][1] },
+        { id: sleeves[index], port: 'supply_back' }, hotPipe);
+    });
+  };
+  connectHotHeaders(upperDistributors, upperSleeves, upperRejection);
+  connectHotHeaders(lowerDistributors, lowerSleeves, lowerRejection);
+
+  return powerRepair;
 }

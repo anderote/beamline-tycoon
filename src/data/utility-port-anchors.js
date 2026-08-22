@@ -126,7 +126,7 @@ export const PORT_GEOMETRY_CLASS = Object.freeze({
 // height/face is their intentional geometry rather than an unstyled fallback.
 const EXACT_HARDWARE_UTILITIES = new Set(['rfWaveguide', 'cryoTransfer']);
 const GENERATED_HARDWARE_UTILITIES = new Set([
-  'powerCable', 'hvCable', 'coolingWater', 'vacuumPipe', 'dataFiber',
+  'powerCable', 'hvCable', 'coolingWater', 'waterSupplyPipe', 'vacuumPipe', 'dataFiber',
 ]);
 
 // RF source cabinets and the four-way manifold deliberately use the generated
@@ -157,6 +157,7 @@ const GENERATED_DEFINING_HARDWARE_PORTS = new Set([
 const BEAMLINE_SERVICE_BANDS = Object.freeze({
   vac_in: Object.freeze({ y: 1.0 }),
   cool_in: Object.freeze({ y: 0.6 }),
+  hot_out: Object.freeze({ y: 0.65 }),
   data_in: Object.freeze({ y: 1.2 }),
 });
 

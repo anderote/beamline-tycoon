@@ -160,7 +160,7 @@ function rolesCanAutoConnect(originSpec, targetSpec, utilityType) {
       case COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION_FEED:
         return targetClass === COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION;
       case COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION:
-        return targetClass === COOLING_AUTO_CONNECT_CLASS.PLANT_LINK
+        return targetClass === COOLING_AUTO_CONNECT_CLASS.LOAD_BRANCH
           || targetClass === COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION_FEED;
       default:
         return false;
@@ -386,6 +386,7 @@ export function planPanelAutoConnect(state, panelId, {
     .filter(peer => {
       const peerClass = coolingAutoConnectClass(peer.spec);
       return peerClass === COOLING_AUTO_CONNECT_CLASS.PLANT_LINK
+        || peerClass === COOLING_AUTO_CONNECT_CLASS.LOAD_BRANCH
         || peerClass === COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION_FEED;
     })
     .map(peer => peer.placeableId));

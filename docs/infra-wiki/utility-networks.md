@@ -15,11 +15,13 @@ Networks form by **union-find over ports**. Every utility connection is a drawn 
 
 That means membership is about *ports*, not tiles and not components. A cryomodule has a power sink, a cryo sink, an RF sink and a vacuum sink, and each one belongs to a different network. If two networks of the same utility both feed the same component, the **worst** feed wins.
 
-There are six connection types, each forming its own independent networks:
+There are eight connection types, each forming its own independent networks:
+- **HV Feeder** (black) — carries upstream electrical power
 - **Power Cable** (green) — carries electrical power
 - **Vacuum Pipe** (gray) — carries pumping speed
 - **RF Waveguide** (red) — carries RF power
-- **Cooling Water** (blue) — carries cooling capacity
+- **Cooling Water** (blue/red) — flexible cold supply or hot return branches
+- **Water Supply Pipe** (blue/red) — rigid bulk cold supply or hot return
 - **Cryo Transfer** (cyan) — carries cryogenic cooling
 - **Data/Fiber** (white) — carries control signals and data
 
@@ -35,6 +37,7 @@ Each network type produces both a 0-1 quality scalar and a **physical quantity**
 | Vacuum | Pump speed (L/s), gas load (mbar·L/s) | pressure (mbar) per sink |
 | RF | Per-frequency buckets, forward power (kW), duty | peak power (W) per sink |
 | Cooling | Capacity (kW), heat load (kW), margin | temperature rise (K) per sink |
+| Water Supply Pipe | Capacity/rejection (kW), circuit | cold supply or hot-return service |
 | Cryo | Capacity (W), static + dynamic load (W) | bath temperature (K) per sink |
 | Data/Fiber | Directionless bus: at least two peer devices connected | binary quality scalar (scales data income) |
 
@@ -42,7 +45,10 @@ Each network type produces both a 0-1 quality scalar and a **physical quantity**
 
 Five utilities are hard-required: **power, vacuum, RF, cooling, cryo**. A component that declares a sink for one of them and never wires it fails **closed** — the beam will not run, and that sink resolves to the worst possible value (0 W of RF, 300 K of helium, 1013 mbar of vacuum) rather than a permissive default. Ignoring infrastructure must never outscore wiring it badly.
 
-Beyond unwired sinks, the hard trips are: a power network with sinks and no capacity, a vacuum network with sinks and no pump, a cooling reservoir run dry, a cryo network in quench, and no active operator in the Control Room.
+Beyond unwired sinks, the hard trips include: a power network with sinks and no
+capacity, a vacuum network with sinks and no pump, a cold-water circuit without
+a chiller, a hot-water circuit without heat rejection, a cryo network in
+quench, and no active operator in the Control Room.
 
 Everything else — overload, frequency mismatch, poor vacuum, a warming cryo bath, a disconnected diagnostic — is **soft**. It degrades output without stopping the machine.
 

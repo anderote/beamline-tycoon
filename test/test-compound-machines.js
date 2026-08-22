@@ -339,7 +339,7 @@ console.log('\n--- the tier-1 pair are cheap to run, the big ones are not ---');
   // Cooling scales with the wall draw everywhere except the Van de Graaff,
   // which has no loop at all — that absence is its whole tier-1 identity.
   const cooled = id => Object.values(getUtilityPortsV2(id))
-    .some(p => p.utility === 'coolingWater' && p.role === 'sink');
+    .some(p => ['coolingWater', 'waterSupplyPipe'].includes(p.utility) && p.role === 'sink');
   assert(!cooled('vanDeGraaff'),
     'vanDeGraaff needs no cooling water — power and vacuum and nothing else');
   for (const id of ['cockcroftWalton', 'cyclotron30', 'cyclotron70', 'lwfaStation']) {

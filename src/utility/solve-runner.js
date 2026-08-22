@@ -138,6 +138,7 @@ export class SolveRunner {
         try {
           result = descriptor.solve(network, persistent, worldState, {
             getDefinition: this.getDefinition,
+            networksByType,
           }) || {};
         } catch (e) {
           result = {

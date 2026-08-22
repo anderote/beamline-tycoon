@@ -40,6 +40,7 @@ import {
 import { reasonMessage } from '../utility/UtilityLineSystem.js';
 import { UTILITY_TYPES, utilityLineHeight } from '../utility/registry.js';
 import { universalBusLane } from '../utility/universal-bus-layout.js';
+import { portWaterCircuit } from '../utility/water-circuits.js';
 import { listUtilityEndpoints, findUtilityEndpoint } from '../utility/utility-endpoints.js';
 import { planUtilityRun, runPreviewPath, runWiringCost } from './utility-run-wiring.js';
 import { isoToGridFloat } from '../renderer/grid.js';
@@ -296,6 +297,7 @@ export class UtilityLineInputController {
       }),
       routeHeightMeters: this._runPlan?.stubs?.[0]?.routeHeightMeters
         ?? geom.routeHeightMeters,
+      waterCircuit: geom.waterCircuit || null,
       color: UTILITY_TYPES[this._utilityType]?.color || '#ffffff',
     };
   }
@@ -353,6 +355,7 @@ export class UtilityLineInputController {
             start: startRef, end: endRef, path, cablePath,
             tapLineIds: geom.tapLineIds,
             routeHeightMeters: geom.routeHeightMeters,
+            waterCircuit: geom.waterCircuit,
           };
           return geom.busTapIds.start || geom.busTapIds.end
             ? this.game.utilityBusSystem?.connectLine({
@@ -495,6 +498,7 @@ export class UtilityLineInputController {
     const endTile = { col: snapQ(endTileRaw.col), row: snapQ(endTileRaw.row) };
     const startRef = this._anchorRef(this._drawStart);
     const endRef = this._anchorRef(endAnchor);
+    const waterCircuit = this._waterCircuitForRefs(startRef, endRef);
     // A tap end is an open end that is allowed to touch one specific line, at
     // exactly the subtile it lands on. Everything else about it is ordinary.
     const tapLineIds = {
@@ -522,6 +526,7 @@ export class UtilityLineInputController {
       return {
         startTile, endTile, endAnchor, startRef, endRef, tapLineIds, busTapIds,
         populateBusId,
+        waterCircuit,
         path: moved ? [startTile, endTile] : null,
         routeHeightMeters: lane?.runY ?? null,
       };
@@ -564,7 +569,7 @@ export class UtilityLineInputController {
       const path = snapPath(candidates[i]);
       const res = validateDrawLine(this.game.state, {
         utilityType: this._utilityType, start: startRef, end: endRef, path, tapLineIds,
-        cablePath,
+        cablePath, waterCircuit,
       });
       if (res.ok) {
         chosen = path;
@@ -607,7 +612,7 @@ export class UtilityLineInputController {
         const path = snapPath(detour);
         const res = validateDrawLine(this.game.state, {
           utilityType: this._utilityType, start: startRef, end: endRef, path, tapLineIds,
-          cablePath,
+          cablePath, waterCircuit,
         });
         if (res.ok) {
           chosen = path;
@@ -626,6 +631,7 @@ export class UtilityLineInputController {
     this._dragReject = chosen ? null : reason;
     return {
       startTile, endTile, endAnchor, startRef, endRef, tapLineIds, busTapIds,
+      waterCircuit,
       path: chosen || routedFallback,
       routeHeightMeters: chosenRouteHeight
         ?? (descriptor.fixedRouteHeight ? utilityLineHeight(this._utilityType) : null),
@@ -636,6 +642,17 @@ export class UtilityLineInputController {
   _anchorRef(anchor) {
     if (!anchor || anchor.open || !anchor.placeableId) return null;
     return { placeableId: anchor.placeableId, portName: anchor.portName };
+  }
+
+  _waterCircuitForRefs(...refs) {
+    for (const ref of refs) {
+      if (!ref) continue;
+      const endpoint = findUtilityEndpoint(this.game.state, ref.placeableId);
+      const spec = COMPONENTS[endpoint?.type]?.ports?.[ref.portName];
+      const circuit = portWaterCircuit(spec);
+      if (circuit) return circuit;
+    }
+    return null;
   }
 
   _sameBusLaneGesture(endAnchor = this._hoverPort) {

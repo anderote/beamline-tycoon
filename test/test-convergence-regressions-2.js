@@ -366,7 +366,7 @@ console.log('\n=== 8. Infra panels quote the same ladder the solver gates on ===
     assert(Math.abs(st1(t).cooling.coolingCapacity - rated) < 1e-9,
       `${t} cooling capacity matches the solver ladder (${rated} kW)`);
   }
-  assert(Math.abs(totalCap('coolingTower', 'cool_out', 'heatRejectionCapacity') - 800) < 1e-9,
+  assert(Math.abs(totalCap('coolingTower', 'supply_hot', 'heatRejectionCapacity') - 800) < 1e-9,
     'cooling tower exposes 800 kW of heat-rejection capacity, not process cooling');
 
   // Cryo LOAD counts every cryo sink, not just `cryomodule`.

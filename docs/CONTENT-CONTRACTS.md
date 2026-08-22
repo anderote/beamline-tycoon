@@ -144,42 +144,23 @@ the short authoring contract.
 
 ## Utility ports and scenarios
 
-### Universal utility bus
+### Independent rigid utility stacks
 
-- `universalUtilityBus` is the one continuous carrier shown in every Infra
-  Transport palette. Category-specific manifolds remain ordinary fixed
-  equipment; they do not arm a second carrier-building interaction.
-- Retired carrier props remain registered with `deprecated: true` so existing
-  saves can load, but standard palettes, linked Grounds collections, global
-  search, and research rewards must not advertise them. Power's retired cable
-  tray, tray riser, duct-bank vault, and prefab overhead span are compatibility
-  content; the universal utility bus is the buildable carrier.
-- The bus is a utility-neutral vertical metal rack with one isolated,
-  designated height slot for every registered utility. Cryogenic, RF, vacuum,
-  cooling, power, data, and HV stack bottom-to-top. Cooling water and the
-  flexible electrical/data services occupy fixed elevations above vacuum and
-  hang in shallow tensioned spans between consecutive rack posts. Drawing the
-  first line of a utility onto the bus populates its slot; later lines of that
-  utility reuse the same slot. Slot position never depends on connection order.
-  A direct drag between two access points on the same bus explicitly
-  populates that utility's full channel; it must not attempt to commit a
-  duplicate partial line over the generated backbone.
-- The floor-standing bus reserves only the narrow subtile strip physically
-  beneath its uprights and feet. Ordinary equipment and another bus may not
-  overlap that strip, while the immediately adjacent subtiles remain buildable
-  so equipment can form parallel service rows alongside the carrier.
-- Each claimed channel is represented by a real tagged utility line along the
-  rack. It creates no capacity: connected sources remain the sole capacity
-  authority, and multiple sources combine through the ordinary network solver.
-- `tapSpacingSubtiles`, `minLengthSubtiles`, and `maxLengthSubtiles` are
-  positive integer subtile dimensions. `costPerSubtile` prices the fabricated
-  run. The shared planner snaps a drag to one orthogonal axis, includes both
-  end fittings, and gives every generated access point a stable identity. Each
-  access point is a real T-junction that may connect either a source or a sink
-  to the selected utility's shared backbone.
-- Utility-line input, persistence, network discovery, and rendering consume
-  the committed bus path and generated channel lines. They must not maintain a
-  second, independently solved capacity model for racks.
+- Cryogenic transfer, cold-water supply, hot-water return, RF waveguide, and
+  vacuum pipe are independent fabricated services. They may follow the same
+  plan route because each owns a distinct facility-wide elevation. Sharing X/Z
+  coordinates never joins their topology or combines their capacity.
+- All fabricated rigid services use the same support spacing and minimum-run
+  threshold. Identical plan paths therefore put every H-frame at the same plan
+  station, visually forming a vertical service rack without introducing a bus
+  object or shared carrier network.
+- `universalUtilityBus` is retired compatibility content. It remains registered
+  with `deprecated: true` only so older facilities can load and be demolished;
+  palettes, linked collections, search, and research rewards must not advertise
+  it. New water-supply pipe cannot be installed into a legacy bus.
+- Other retired carrier props likewise remain registered only for save
+  compatibility. New construction uses ordinary utility-line tools and real
+  distribution equipment.
 
 - Data fiber is a directionless bus network. Any data port may connect to any
   other data port, trunks may be tee-branched, and every data port on one
@@ -267,8 +248,8 @@ the short authoring contract.
   the explicit endpoint tap.
   Cooling-water hoses use the same forgiving magnetic pickup halo as data
   cables; their connection still commits as an explicit plumbing tee.
-  Power and HV cable do not allow casual tees; use distribution equipment or a
-  utility bus so electrical branching retains protected physical outlets.
+  Power and HV cable do not allow casual tees; use distribution equipment so
+  electrical branching retains protected physical outlets.
 - Every utility route may turn immediately at a port. Port facing selects the
   visible fitting position and ranks a one-subtile outward lead or perimeter
   wrap, but no utility reserves
@@ -288,21 +269,22 @@ the short authoring contract.
   utility's current route-height plane for every utility type, including HV.
   That one projected point also drives hover, tooltips, snapping, erasing, and
   release; the utility tool does not derive a second point from terrain.
-- Vacuum pipe, RF waveguide, and cryogenic transfer line are fabricated rigid
-  services with mandatory facility-wide route datums: cryogenic at 0.30 m, RF
-  at 0.60 m, and vacuum at 0.90 m. Authored equipment fittings remain on their
-  visible hardware and use short local transitions to these datums. Different
-  rigid utilities may share X/Z coordinates because their bodies have vertical
-  clearance. Runs of the same rigid utility automatically form one network at
-  every exact route contact, so drawing across or along a compatible installed
-  service never produces a same-type occupancy error. Retired saved
-  `routeHeightMeters` values cannot override a fixed utility datum.
+- Cryogenic transfer, rigid water supply, RF waveguide, and vacuum pipe use
+  mandatory facility-wide route datums: cryogenic at 0.30 m, cold water at
+  0.60 m, hot water at 0.90 m, RF at 1.20 m, and vacuum at 1.50 m. Authored
+  equipment fittings remain on their visible hardware and use short local
+  transitions to these datums. Every rigid descriptor uses the shared 3 m
+  support spacing and 3 m minimum supported-run threshold, so co-located runs
+  form an aligned vertical stack. Runs remain independent by utility and water
+  circuit. Retired saved `routeHeightMeters` values cannot override a fixed
+  datum, except the two authored water-circuit datums are both valid.
 - A utility descriptor with `requiresWallPassThrough: true` validates the
   physical rendered route against `wallOccupied`. Power and HV cable opt in;
   their freehand `cablePath` is authoritative for newly drawn lines, with the
   shared subtile `path` retained as a compatibility fallback.
-  Fabricated pipe, waveguide, cooling, and cryogenic services retain direct
-  wall crossing.
+  Flexible cooling-water lines also opt in and cannot cross walls directly.
+  Rigid water supply pipe crosses only through a matching 1×1 or 2×2 water
+  pipe penetration. Vacuum, RF, and cryogenic services retain direct crossing.
 - An HV cable whose two endpoints are overhead terminals on utility poles or
   transmission towers is an elevated span and may cross any wall or fence in
   plan view. The exception requires two overhead support ports; the pole's

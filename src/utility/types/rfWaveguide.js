@@ -30,7 +30,11 @@
 import { powerFeedFactor } from '../power-feed.js';
 import { expandPath } from '../line-geometry.js';
 import { RF_BANDS, bandForFrequencyHz } from '../../data/rf-bands.js';
-import { RIGID_UTILITY_SERVICE_HEIGHTS } from '../service-heights.js';
+import {
+  RIGID_UTILITY_SERVICE_HEIGHTS,
+  RIGID_UTILITY_SUPPORT_MINIMUM_RUN_METERS,
+  RIGID_UTILITY_SUPPORT_SPACING_METERS,
+} from '../service-heights.js';
 import { FLEXIBLE_SUBTILE_ROUTING_PROFILE } from '../routing-contract.js';
 
 // Compatibility export for existing UI and tests. New data-layer consumers
@@ -194,8 +198,8 @@ export default {
   dropMinRampMeters: 0.35,
   dropMaxRampMeters: 1.35,
   dropRunPerRise: 1,
-  supportSpacingMeters: 3,
-  supportMinimumRunMeters: 3,
+  supportSpacingMeters: RIGID_UTILITY_SUPPORT_SPACING_METERS,
+  supportMinimumRunMeters: RIGID_UTILITY_SUPPORT_MINIMUM_RUN_METERS,
   fixedRouteHeight: true,
   routeVerticalClearanceMeters: 0.06,
   // Keep waveguide routing readable without making gallery layout a puzzle:

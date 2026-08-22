@@ -9,8 +9,10 @@ About 60% of the electrical power consumed by beamline and facility equipment en
 
 ### Cooling Plant Roles
 
-The blue pipe is the **process-water loop** that reaches magnets, RF, targets,
-and detectors. Do not read every blue-capacity item as “a water source”:
+Cooling uses two physical connection systems. Flexible **Water Lines** make the
+last connection to ordinary magnets, warm RF, targets, and detectors. Rigid
+**Water Supply Pipe** moves bulk water between plant equipment, distributors,
+wall penetrations, and high-flow machines.
 
 | Role | Equipment | What it does |
 |------|-----------|--------------|
@@ -19,26 +21,20 @@ and detectors. Do not read every blue-capacity item as “a water source”:
 | **Make-up supply** | Make-up Water Tank, Water Replenishment Plant | Replaces evaporated water at a finite rate. The replenishment plant has the larger flow but no onboard storage. |
 | **Storage** | Make-up Water Tank, Bulk Water Storage Tanks | Sets how many litres the network can hold. Bulk tanks are passive and never generate water. |
 | **Water & treatment** | Deionizer | Keeps the loop clean; it does not add cooling capacity. |
-| **Distribution** | LCW Manifold | Extends a live process-water loop to nearby on-pipe sinks; it does not add capacity. |
+| **Distribution** | 2-Line Water Distributor, 4-Line Dual Water Distributor, legacy LCW Manifold | Converts flexible branches to rigid headers without adding capacity. |
 
-The current simulation expresses both process cooling and heat rejection as
-capacity on the same cooling-water network. The palette and equipment cards
-now label them separately so their physical jobs remain clear.
+Every water run is either a **cold supply** or **hot return** circuit. The two
+may cross, but they never join. A cooled beamline component has one cold inlet
+and one hot outlet. Central chillers expose four flexible cold branches plus a
+rigid cold outlet and rigid water inlet; tanks and make-up plants expose a
+room-temperature rigid outlet that can feed that inlet. Heat rejectors accept the collected
+hot circuit through rigid pipe. Large high-flow machines such as the 70 and
+230 MeV cyclotrons connect directly to paired rigid cold/hot ports.
 
-Process-cooling equipment uses four independently routable load branches on
-the primary header and two plant-side connections opposite. Assisted wiring
-reserves the four primary branches for magnets, warm RF and other cooling loads;
-the opposite pair joins storage, make-up, heat rejection or a distribution
-manifold. Integrated package chillers use that opposite pair for distribution,
-because their storage and rejection equipment is already onboard. Tanks,
-make-up supplies and heat rejectors stay on the plant side and do not
-auto-connect directly to beamline loads. A manifold makes one upstream
-connection and serves nearby loads through its header radius.
-
-The sockets on a component still share one nameplate rating and one simulated
-network node; these assisted-routing roles do not multiply capacity or create
-separate hydraulic circuits. Heat rejectors expose one supply/return pair
-together on a single side.
+The compact 2:1 distributor converts two flexible lines to one rigid pipe. The
+4:2 distributor contains two isolated 2:1 headers, so it can carry a cold/hot
+pair or two independent circuits. Flexible Water Lines cannot cross walls.
+Use the 1x1 or 2x2 Water Pipe Penetration and rigid pipe for building crossings.
 Press **M** while placing to swap the headers to the opposite sides, or **F**
 to rotate the complete component.
 
@@ -69,7 +65,10 @@ In a real facility, the hierarchy is: cooling tower dumps heat to atmosphere, ch
 
 ### Cooling Networks
 
-Cooling water pipes form isolated networks. A chiller only cools components it's plumbed to via cooling water tiles. Two separate pipe runs form two separate cooling networks, each with its own capacity budget.
+Cold and hot water form isolated networks. A chiller only cools components
+connected to its cold circuit, and every heated component needs a separate hot
+return to rejection. Distributors transfer capacity between flexible and rigid
+water without shorting the two temperature circuits together.
 
 Water inventory is also local to that network. The **Make-up Water Tank**
 combines a 1 L/tick supply with 500 L of storage. The **Water Replenishment Plant**
@@ -78,10 +77,11 @@ Tanks** hold 5,000 L but supply 0 L/tick: without a make-up source their level
 only goes down. Connecting several tanks adds their capacities; connecting
 several sources adds their flow rates.
 
-This means you need to plan your pipe routing. A common strategy:
-- One cooling network for your magnet string
-- One cooling network for your RF system (which generates far more heat)
-- Separate networks can have different capacity — build bigger where the heat is
+This means you need to plan both halves of the loop. A common strategy:
+- Run a rigid cold header from the chiller to distributors near the beamline
+- Use short flexible cold and hot Water Lines at each component
+- Collect returns through distributors into a rigid hot header to heat rejection
+- Keep RF and magnet circuits separate when their capacity or temperature needs differ
 
 ### Heat Load
 
@@ -125,7 +125,8 @@ For a normal-conducting cavity, that temperature rise causes thermal expansion, 
 - Pair the Water Replenishment Plant with Bulk Water Storage Tanks for a large loop
 - Add a chiller when you add NC RF structures — they are where the heat actually is
 - Cooling tower for large facilities with many heat-producing systems
-- A cooling manifold ($80k) beats individual runs at about four sinks; cooling pipe is $3,600/tile
+- Use 2:1 or 4:2 distributors where flexible equipment branches meet the rigid plant headers
+- Plan wall crossings around Water Pipe Penetrations; flexible Water Lines cannot cross walls
 - Watch the reservoir, not just the capacity bar. Big heat loads drink water fast, and an empty reservoir is a hard beam trip.
 
 ## The Math
@@ -179,4 +180,7 @@ margin = (C_network - Q_network) / C_network * 100%
 flow_rate = C_network / (4.18 kJ/(kg*K) * 10 K) * 60 L/min
 ```
 
-**Hard gates:** a cooling sink not wired to any network; a network whose stored water has run dry without enough live make-up flow (`cooling_dry`); or an incomplete central plant without storage, a chiller, and a heat rejector (`cooling_plant_offline`). Exceeding thermal capacity is a **soft** derate — the loop warms and NC cavities detune, but the beam keeps running.
+**Hard gates:** either water port left unwired, a cold circuit with no chiller
+capacity, a hot circuit with no route to heat rejection, or a legacy loop whose
+stored water has run dry. Exceeding thermal capacity is a **soft** derate — the
+loop warms and NC cavities detune, but the beam keeps running.

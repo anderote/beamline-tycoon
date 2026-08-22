@@ -273,17 +273,17 @@ Three lists, all in `Game.js`: `UNDO_PRESERVED_FIELDS` (`:78-84`) — clock, res
 
 **U7. Every utility line has a geometric route height, and the input pick plane must follow it.**
 `registry.utilityLineHeight` supplies the physical height. Fabricated cryogenic,
-RF, and vacuum services use the mandatory datums in `service-heights.js`
-(0.30/0.60/0.90 m); obsolete saved lane values are ignored. Exact equipment
-hardware may sit elsewhere, but its transition is local to the endpoint. The
-input tool always follows the armed utility's datum, so preview and pointer do
-not drift under the isometric camera. Different fixed-height utilities may cross when
-`route-elevation.js` proves body clearance. Vacuum, cryogenic, and RF services
-join automatically at every exact same-utility route contact; the other
-utilities retain their descriptor-specific crossing and tap rules.
+cold-water, hot-water, RF, and vacuum services use the mandatory datums in
+`service-heights.js` (0.30/0.60/0.90/1.20/1.50 m); obsolete saved lane values
+are ignored. The two rigid-water heights are selected by circuit. Exact
+equipment hardware may sit elsewhere, but its transition is local to the
+endpoint. The input tool always follows the armed utility's datum, so preview
+and pointer do not drift under the isometric camera. Different fixed-height
+utilities may cross when `route-elevation.js` proves body clearance. Co-located
+rigid paths use common support stations but remain independent topology.
 
 **U8. A footprint is only the broad phase for utility/equipment collision.**
-All seven utilities publish `flexibleSubtile` and retain a quarter-tile
+All eight utilities publish `flexibleSubtile` and retain a quarter-tile
 Manhattan compatibility path through `routing-contract.js`. Power, HV, cooling,
 and data additionally store the unsnapped freehand `cablePath` the player drew;
 that visible trace is authoritative for pricing, wall checks, and equipment

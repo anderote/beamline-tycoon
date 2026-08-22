@@ -62,7 +62,7 @@ test('plant stages elsewhere in the facility do not complete the anchored coolin
   const guide = utilityPlantChecklist(state, 'coolingWater', 'tank');
   assert.equal(guide.rows.find(row => row.id === 'storage').status, 'complete');
   assert.equal(guide.rows.find(row => row.id === 'refrigeration').status, 'placed');
-  assert.equal(guide.rows.find(row => row.id === 'rejection').status, 'placed');
+  assert.equal(guide.rows.find(row => row.id === 'rejection').status, 'missing');
   assert.equal(guide.completed, false);
 });
 

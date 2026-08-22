@@ -317,7 +317,7 @@ console.log('\n--- 8. Utility sources and peer distributors opt in by capability
     'sink-only beamline equipment remains a target rather than an origin');
 }
 
-console.log('\n--- 9. Chillers reserve primary branches for loads and plant links for equipment ---');
+console.log('\n--- 9. Chillers reserve all four flexible branches for cold-water loads ---');
 {
   const game = new Game(new BeamlineRegistry(), { seed: 93 });
   game.state.resources.funding = 1e9;
@@ -333,29 +333,25 @@ console.log('\n--- 9. Chillers reserve primary branches for loads and plant link
   );
   const plan = planPanelAutoConnect(game.state, 'plant');
   const loadStubs = plan.stubs.filter(stub => stub.end.portName === 'cool_in');
-  const plantStubs = plan.stubs.filter(stub => stub.end.portName !== 'cool_in');
-  assert(plan.utilityType === 'coolingWater' && plan.candidates === 7,
-    `the chiller finds nearby cooling loads and plant peers (got ${plan.candidates})`);
+  assert(plan.utilityType === 'coolingWater' && plan.candidates === 4,
+    `the chiller finds only nearby cold-water loads (got ${plan.candidates})`);
   assert(loadStubs.length === 4
       && loadStubs.every(stub => ['cool_out', 'cool_out_2', 'cool_out_3', 'cool_out_4']
         .includes(stub.start.portName)),
   'all four beamline loads use only the four primary load branches');
-  assert(plantStubs.length === 2
-      && plantStubs.every(stub => ['cool_out_5', 'cool_out_6'].includes(stub.start.portName))
-      && plantStubs.some(stub => stub.end.placeableId === 'tank')
-      && plantStubs.some(stub => stub.end.placeableId === 'rejector'),
-  'the opposite pair completes storage and heat rejection before distribution');
-  assert(!plan.stubs.some(stub => stub.end.placeableId === 'manifold') && plan.skipped === 1,
-    'a seventh target is reported but cannot steal a load or plant connector');
+  assert(!plan.stubs.some(stub => ['tank', 'rejector', 'manifold']
+    .includes(stub.end.placeableId)),
+  'tank, heat rejection, and distribution use the separate rigid-water architecture');
+  assert(plan.skipped === 0, 'incompatible plant equipment is not counted as a skipped hose target');
   assert(plan.stubs.every(stub => validateDrawLine(game.state, {
     utilityType: 'coolingWater', start: stub.start, end: stub.end, path: stub.path,
   }).ok), 'chiller auto-connect routes pass through the normal cooling validator');
   commitPanelAutoConnect(game, plan);
-  assert(linesOf(game, 'coolingWater').length === 6,
+  assert(linesOf(game, 'coolingWater').length === 4,
     'the chiller action commits real cooling-water lines');
 }
 
-console.log('\n--- 10. Storage and rejection equipment never auto-connect to loads ---');
+console.log('\n--- 10. Storage and rejection equipment never auto-connect to flexible loads ---');
 {
   const game = new Game(new BeamlineRegistry(), { seed: 94 });
   game.state.resources.funding = 1e9;
@@ -372,7 +368,7 @@ console.log('\n--- 10. Storage and rejection equipment never auto-connect to loa
     const ends = plan.stubs.map(stub => stub.end.placeableId);
     assert(!ends.includes('magnet_1') && !ends.includes('magnet_2'),
       `${origin} ignores nearby beamline cooling sinks`);
-    assert(ends.includes('plant'), `${origin} can join the process chiller's plant header`);
+    assert(!ends.includes('plant'), `${origin} requires an explicitly routed rigid-water connection`);
   }
 }
 
@@ -390,12 +386,14 @@ console.log('\n--- 11. Integrated plants extend to loads and distribution only -
   const plan = planPanelAutoConnect(game.state, 'package');
   const ends = plan.stubs.map(stub => stub.end.placeableId);
   const manifoldStub = plan.stubs.find(stub => stub.end.placeableId === 'manifold');
-  assert(plan.candidates === 2 && ends.includes('magnet') && ends.includes('manifold'),
-    `the integrated package sees only its load and distributor (got ${ends.join(',')})`);
+  assert(plan.candidates === 2 && ends.includes('magnet'),
+    `the integrated package sees its cold-water load and header (got ${ends.join(',')})`);
   assert(!ends.includes('tank') && !ends.includes('rejector'),
     'the integrated package does not add redundant storage or heat rejection');
-  assert(['cool_out_side', 'cool_out_side_2'].includes(manifoldStub?.start.portName),
-    'the manifold uses one of the package plant-side distribution feeds');
+  assert(manifoldStub === undefined
+      || ['cool_out_a', 'cool_out_b', 'cool_out_c', 'cool_out_d']
+        .includes(manifoldStub.start.portName),
+  'a cold manifold can only consume a package cold-supply branch');
 }
 
 console.log('\n--- 12. A manifold plans one upstream connection and no sink hoses ---');
@@ -411,8 +409,12 @@ console.log('\n--- 12. A manifold plans one upstream connection and no sink hose
     item('magnet_2', 'quadrupole', 10, 12),
   );
   const plan = planPanelAutoConnect(game.state, 'manifold');
-  assert(plan.stubs.length === 1 && plan.stubs[0].end.placeableId === 'package',
-    'the manifold prefers one integrated distribution feed over nearer incomplete plant peers');
+  assert(plan.candidates >= 1 && plan.stubs.every(stub =>
+    ['central', 'package'].includes(stub.end.placeableId)
+      && stub.end.portName.startsWith('cool_out')
+      && !['cool_out_5', 'cool_out_6', 'cool_out_side', 'cool_out_side_2']
+        .includes(stub.end.portName)),
+  'the cold manifold considers only chiller cold-supply branches');
   assert(!plan.stubs.some(stub => stub.end.portName === 'cool_in'),
     'the manifold relies on service-radius coverage instead of individual sink hoses');
   commitPanelAutoConnect(game, plan);

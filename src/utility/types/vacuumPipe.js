@@ -11,7 +11,11 @@ import {
 import { endpointsById } from '../endpoint-lookup.js';
 import { utilityAttachmentPose } from '../line-attachments.js';
 import { powerFeedFactor } from '../power-feed.js';
-import { RIGID_UTILITY_SERVICE_HEIGHTS } from '../service-heights.js';
+import {
+  RIGID_UTILITY_SERVICE_HEIGHTS,
+  RIGID_UTILITY_SUPPORT_MINIMUM_RUN_METERS,
+  RIGID_UTILITY_SUPPORT_SPACING_METERS,
+} from '../service-heights.js';
 import { FLEXIBLE_SUBTILE_ROUTING_PROFILE } from '../routing-contract.js';
 
 export const BAKEOUT_FACTOR = Q_SPECIFIC_BAKED / Q_SPECIFIC_UNBAKED;
@@ -441,8 +445,8 @@ export default {
   // Every long vacuum run uses one facility-wide service datum. Equipment
   // fittings at other heights receive a short local transition at the port.
   runHeightMeters: RIGID_UTILITY_SERVICE_HEIGHTS.vacuumPipe,
-  supportSpacingMeters: 3,
-  supportMinimumRunMeters: 3,
+  supportSpacingMeters: RIGID_UTILITY_SUPPORT_SPACING_METERS,
+  supportMinimumRunMeters: RIGID_UTILITY_SUPPORT_MINIMUM_RUN_METERS,
   fixedRouteHeight: true,
   routeVerticalClearanceMeters: 0.06,
   // Vacuum shares the same quarter-tile routing freedom as every utility.

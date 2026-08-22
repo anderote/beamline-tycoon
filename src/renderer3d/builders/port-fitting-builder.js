@@ -488,6 +488,7 @@ const STYLE_OF = {
   powerCable: 'gland',
   hvCable: 'gland',
   coolingWater: 'barbs',
+  waterSupplyPipe: 'cfFlange',
   cryoTransfer: 'bayonet',
   rfWaveguide: 'waveguide',
   vacuumPipe: 'cfFlange',

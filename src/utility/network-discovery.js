@@ -21,8 +21,24 @@ import { expandPath } from './line-geometry.js';
 import { roundedCableTilePath, usesFreeformTopology } from './soft-cable.js';
 import { listUtilityEndpoints } from './utility-endpoints.js';
 import { electricalInternalPortGroups } from './electrical-state.js';
+import { lineWaterCircuit, portWaterCircuit } from './water-circuits.js';
 
 function portKey(ref) { return `${ref.placeableId}:${ref.portName}`; }
+
+// Older saves predate line-level water-circuit tags. Resolve those runs from
+// their authored terminal ports so a legacy cold branch can cross a newly
+// built hot return without being mistaken for a hydraulic tee.
+function resolvedLineWaterCircuit(line, portLookup) {
+  const authored = lineWaterCircuit(line);
+  if (authored) return authored;
+  const circuits = new Set();
+  for (const ref of [line?.start, line?.end]) {
+    if (!ref || typeof portLookup !== 'function') continue;
+    const circuit = portWaterCircuit(portLookup(ref.placeableId, ref.portName));
+    if (circuit) circuits.add(circuit);
+  }
+  return circuits.size === 1 ? [...circuits][0] : null;
+}
 
 // FNV-1a 32-bit hash. Keeps network ids 8 hex chars long — short but stable.
 function hashString(s) {
@@ -140,6 +156,7 @@ export function computeBusService(endpoints, getPorts, getDef = t => COMPONENTS[
         buses.push({
           id: rec.id,
           utility: spec.utility,
+          waterCircuit: portWaterCircuit(spec),
           radius: (spec.params && spec.params.serviceRadius) || DEFAULT_BUS_SERVICE_RADIUS,
           center,
         });
@@ -147,6 +164,7 @@ export function computeBusService(endpoints, getPorts, getDef = t => COMPONENTS[
         pipeSinks.push({
           portKey: `${rec.id}:${portName}`,
           utility: spec.utility,
+          waterCircuit: portWaterCircuit(spec),
           pipeId: rec.pipeId,
           center,
         });
@@ -161,6 +179,8 @@ export function computeBusService(endpoints, getPorts, getDef = t => COMPONENTS[
     const inRange = [];
     for (const s of pipeSinks) {
       if (s.utility !== bus.utility) continue;
+      if (bus.waterCircuit && s.waterCircuit
+          && bus.waterCircuit !== s.waterCircuit) continue;
       const dc = s.center.col - bus.center.col;
       const dr = s.center.row - bus.center.row;
       const d2 = dc * dc + dr * dr;
@@ -300,6 +320,13 @@ function bridgeablePortKeys(listPorts, placeableId, utilityType) {
   const ports = (listPorts(placeableId) || [])
     .filter(({ spec }) => spec && spec.utility === utilityType);
   if (ports.length === 0) return [];
+  // A cooled load now exposes a cold inlet and a hot outlet. Physical
+  // adjacency must never use that device as a bridge between the two water
+  // circuits; each side participates only through its explicitly attached
+  // line. Legacy single-circuit plant fittings retain adjacency bridging.
+  const waterCircuits = new Set(ports.map(({ spec }) => portWaterCircuit(spec))
+    .filter(Boolean));
+  if (waterCircuits.size > 1) return [];
   const roles = new Set(ports.map(({ spec }) => spec.role));
   if (UTILITY_TYPES[utilityType]?.topology !== 'bus'
       && roles.has('source') && roles.has('sink')) return [];
@@ -352,6 +379,10 @@ export function makeDefaultPortLookup(state) {
     const placeable = byId.get(placeableId);
     if (!placeable) return [];
     const def = COMPONENTS[placeable.type];
+    const authored = def?.utilityGroups?.[utilityType];
+    if (Array.isArray(authored)) {
+      return authored.map(group => group.filter(name => passNames.includes(name)));
+    }
     return electricalInternalPortGroups(state, placeable, def, utilityType, passNames);
   };
   return lookup;
@@ -453,6 +484,9 @@ export function discoverNetworks(utilityType, lines, portLookup) {
       for (let a = 0; a < hits.length; a++) {
         for (let b = a + 1; b < hits.length; b++) {
           if (hits[a].id === hits[b].id) continue;
+          const circuitA = resolvedLineWaterCircuit(hits[a].line, portLookup);
+          const circuitB = resolvedLineWaterCircuit(hits[b].line, portLookup);
+          if (circuitA && circuitB && circuitA !== circuitB) continue;
           // Ordinary tees require at least one line to END here. Services that
           // join on contact also union interior/interior intersections.
           if (!joinsOnContact && !hits[a].terminal && !hits[b].terminal) continue;
@@ -524,9 +558,22 @@ export function discoverNetworks(utilityType, lines, portLookup) {
       // panel's rating. Without this a 4-way panel would read as four separate
       // full-rating supplies and quadruple the facility's capacity.
       if (sourceNames.length >= 2) {
-        const keys = sourceNames.map(n => `${pid}:${n}`);
-        for (const k of keys) allPortKeys.add(k);
-        for (let i = 1; i < keys.length; i++) dsu.union(keys[0], keys[i]);
+        const groups = new Map();
+        for (const name of sourceNames) {
+          const spec = ports.find(port => port.name === name)?.spec;
+          const circuit = portWaterCircuit(spec) || '_default';
+          if (!groups.has(circuit)) groups.set(circuit, []);
+          groups.get(circuit).push(name);
+        }
+        for (const names of groups.values()) {
+          const keys = names.map(n => `${pid}:${n}`);
+          // A dual-temperature device has independent outlet headers. Touching
+          // one cold connector exposes the other cold outlets, but must not
+          // create an unconnected phantom hot-return network (or vice versa).
+          if (!keys.some(k => allPortKeys.has(k))) continue;
+          for (const k of keys) allPortKeys.add(k);
+          for (let i = 1; i < keys.length; i++) dsu.union(keys[0], keys[i]);
+        }
       }
     }
   }

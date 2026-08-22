@@ -51,6 +51,10 @@ export const UTILITY_META = {
     capacityParam: 'capacity', loadParam: 'heatLoad', loadUnit: 'kW',
     hardGate: true, article: 'infra-cooling',
   },
+  waterSupplyPipe: {
+    capacityParam: 'capacity', loadParam: 'heatLoad', loadUnit: 'kW',
+    hardGate: true, article: 'infra-cooling',
+  },
   cryoTransfer: {
     capacityParam: 'coldCapacityW', loadParam: 'srfHeatW', loadUnit: 'W',
     hardGate: true, article: 'infra-cryogenics',
@@ -184,6 +188,12 @@ function sinkEffect(utility, klass, params, comp) {
         + 'graded response — coolingDegradation is computed in gameplay.py and '
         + 'nothing reads it, and thermal detuning applies to normal-conducting '
         + 'cavities alone.';
+    }
+
+    case 'waterSupplyPipe': {
+      const circuit = params.waterCircuit === 'hot' ? 'hot return' : 'cold supply';
+      return `Rigid ${circuit} header carrying ${fmt(params.heatLoad)} kW for high-flow equipment. `
+        + 'Cold and hot circuits are solved independently and must never be joined.';
     }
 
     case 'cryoTransfer': {

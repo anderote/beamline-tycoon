@@ -261,6 +261,8 @@ export function setupSmallBeamlineFacility(game) {
   if (skid) {
     if (src) wire('coolingWater', { id: skid, port: 'cool_out' }, { id: src, port: 'cool_in' });
     if (quad) wire('coolingWater', { id: skid, port: 'cool_out' }, { id: quad, port: 'cool_in' });
+    if (src) wire('coolingWater', { id: skid, port: 'cool_out_5' }, { id: src, port: 'hot_out' });
+    if (quad) wire('coolingWater', { id: skid, port: 'cool_out_6' }, { id: quad, port: 'hot_out' });
   }
 
   // Data: soft-gated, but an unwired diagnostic still derates data income.

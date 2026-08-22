@@ -87,13 +87,13 @@ console.log('\n--- Test 4: chiller ---');
   assert(ports.cool_out.role === 'source', `cool_out.role === 'source' (got ${ports.cool_out.role})`);
   assert(ports.cool_out.params.capacity > 0,
     `cool_out.params.capacity > 0 (got ${ports.cool_out.params.capacity})`);
-  const names = ['cool_out', 'cool_out_2', 'cool_out_3', 'cool_out_4', 'cool_out_5', 'cool_out_6'];
-  assert(names.slice(0, 4).every(name => ports[name].autoConnectClass
+  const names = ['cool_out', 'cool_out_2', 'cool_out_3', 'cool_out_4'];
+  assert(names.every(name => ports[name].autoConnectClass
       === COOLING_AUTO_CONNECT_CLASS.LOAD_BRANCH),
   'the four primary chiller sockets are assisted-wiring load branches');
-  assert(names.slice(4).every(name => ports[name].autoConnectClass
-      === COOLING_AUTO_CONNECT_CLASS.PLANT_LINK),
-  'the opposite chiller pair is reserved for plant equipment');
+  assert(ports.water_in.utility === 'waterSupplyPipe'
+      && ports.supply_cold_out.utility === 'waterSupplyPipe',
+  'the opposite chiller side exposes rigid water inlet and cold-supply outlet ports');
   assert(coolingAutoConnectClass(getUtilityPortsV2('dipole').cool_in)
       === COOLING_AUTO_CONNECT_CLASS.LOAD,
   'an ordinary cooling sink derives the load target class');
@@ -406,6 +406,9 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
     .filter(([, port]) => port.utility === 'coolingWater' && port.role === 'source');
   const total = (ports, param) => coolingSources(ports)
     .reduce((sum, [, port]) => sum + (port.params?.[param] || 0), 0);
+  const totalSources = (ports, param) => Object.values(ports)
+    .filter(port => port.role === 'source')
+    .reduce((sum, port) => sum + (port.params?.[param] || 0), 0);
   const hasPlantLayout = ports => {
     const sources = coolingSources(ports);
     return sources.length === 6
@@ -417,7 +420,9 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
         .map(([, port]) => port.offsetAlong)).size === 2;
   };
   const hasRejectorLayout = ports => {
-    const sources = coolingSources(ports);
+    const sources = Object.entries(ports)
+      .filter(([, port]) => port.utility === 'waterSupplyPipe'
+        && port.role === 'source');
     return sources.length === 2
       && new Set(sources.map(([, port]) => port.side)).size === 1
       && new Set(sources.map(([, port]) => port.offsetAlong)).size === 2;
@@ -443,11 +448,21 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
       && Math.abs(total(packageChiller, 'storageCapacityL') - 100) < 1e-9
       && Math.abs(total(packageChiller, 'supplyRateLPerTick') - 0.1) < 1e-9,
   'package chiller has a 4+2 header sharing one self-contained 5 kW plant and 0.1 L/tick make-up');
-  for (const type of [
-    'waterTank', 'facilityWaterSupply', 'bulkWaterTank', 'dualCircuitChiller', 'chiller',
-  ]) {
+  for (const type of ['waterTank', 'facilityWaterSupply', 'bulkWaterTank']) {
     assert(hasPlantLayout(getUtilityPortsV2(type)),
       `${type} exposes four primary-side and two opposite-side connections`);
+  }
+  for (const type of ['dualCircuitChiller', 'chiller']) {
+    const ports = getUtilityPortsV2(type);
+    const flexible = coolingSources(ports);
+    const rigid = Object.entries(ports)
+      .filter(([, port]) => port.utility === 'waterSupplyPipe');
+    assert(flexible.length === 4
+        && flexible.every(([, port]) => port.params.waterCircuit === 'cold')
+        && rigid.length === 2
+        && ports.water_in.params.waterCircuit === 'hot'
+        && ports.supply_cold_out.params.waterCircuit === 'cold',
+    `${type} exposes four cold-water lines plus hot-in and cold-out supply pipe ports`);
   }
   assert(total(tank, 'capacity') === 0,
     'make-up tank stores cooling water without supplying process-cooling capacity');
@@ -477,8 +492,8 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   'solid-state amplifier exposes four left-side RF outputs totaling 35 kW');
   assert(solidStateAmp.hv_in.side === 'right',
     'solid-state amplifier keeps its HV input on the side opposite its RF outputs');
-  assert(Math.abs(total(tower, 'heatRejectionCapacity') - 800) < 1e-9,
-    'cooling tower provides heat rejection on Cooling Water');
+  assert(Math.abs(totalSources(tower, 'heatRejectionCapacity') - 800) < 1e-9,
+    'cooling tower provides heat rejection on hot Water Supply Pipe');
   assert(coolingSources(tank).every(([, port]) => port.params.storageCapacityL > 0
       && port.params.supplyRateLPerTick > 0),
     'every make-up tank header branch carries its share of both water capabilities');
@@ -534,13 +549,19 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
           === COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION_FEED),
     `${id} reserves four load branches and two distribution feeds`);
   }
-  for (const id of ['waterTank', 'facilityWaterSupply', 'bulkWaterTank',
-    'fanCoilCooler', 'dryCoolerBank', 'coolingTower']) {
+  for (const id of ['waterTank', 'facilityWaterSupply', 'bulkWaterTank']) {
     const coolingSources = Object.values(getUtilityPortsV2(id))
       .filter(port => port.utility === 'coolingWater' && port.role === 'source');
     assert(coolingSources.length > 0 && coolingSources.every(port => port.autoConnectClass
         === COOLING_AUTO_CONNECT_CLASS.PLANT_LINK),
     `${id} exposes only plant-side assisted-wiring connections`);
+  }
+  for (const id of ['fanCoilCooler', 'dryCoolerBank', 'coolingTower']) {
+    const pipeSources = Object.values(getUtilityPortsV2(id))
+      .filter(port => port.utility === 'waterSupplyPipe' && port.role === 'source');
+    assert(pipeSources.length === 2
+        && pipeSources.every(port => port.params.waterCircuit === 'hot'),
+    `${id} exposes two rigid hot-water rejection connections`);
   }
   assert(Object.values(getUtilityPortsV2('coolingManifold')).every(port =>
     port.autoConnectClass === COOLING_AUTO_CONNECT_CLASS.DISTRIBUTION),

@@ -195,9 +195,10 @@ for (const scenario of SCENARIOS) {
   // Seven main-panel branches serve beam/support loads; three room
   // branches serve the console, display and capture rack. Vacuum/RF/cooling
   // retain their bus/stub layout, while four data runs cover science endpoints
-  // and the two control-room consumers: 26 lines total.
-  assert((state.utilityLines?.size || 0) === 26,
-    `twenty-six utility lines wire beam and control-room services (got ${state.utilityLines?.size})`);
+  // and the two control-room consumers. The two cooled beam devices each have
+  // an explicit cold supply and hot return: 28 lines total.
+  assert((state.utilityLines?.size || 0) === 28,
+    `twenty-eight utility lines wire beam and control-room services (got ${state.utilityLines?.size})`);
   const hvLines = [...(state.utilityLines?.values() || [])]
     .filter(l => l.utilityType === 'hvCable');
   assert(hvLines.length === 5,
