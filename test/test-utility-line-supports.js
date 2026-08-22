@@ -66,13 +66,13 @@ function rackSignature(parent) {
 
 console.log('\n--- 1. Every rigid service receives the common periodic supports ---');
 for (const utilityType of ['rfWaveguide', 'cryoTransfer', 'waterSupplyPipe', 'vacuumPipe']) {
-  const { builder, parent } = build(utilityType);
+  const { builder, parent } = build(utilityType, 5);
   const supports = collect(parent, object => object.userData?.isUtilitySupport);
-  assert(UTILITY_TYPES[utilityType].supportSpacingMeters === 1,
-    `${utilityType} uses the one-metre support pitch`);
-  const expected = Math.floor(8 / UTILITY_TYPES[utilityType].supportSpacingMeters);
+  assert(UTILITY_TYPES[utilityType].supportSpacingMeters === 1.25,
+    `${utilityType} uses the 1.25-metre support pitch`);
+  const expected = Math.floor(10 / UTILITY_TYPES[utilityType].supportSpacingMeters);
   assert(supports.length === expected,
-    `${utilityType} gets ${expected} evenly-spaced supports on an 8 m run (${supports.length})`);
+    `${utilityType} gets ${expected} evenly-spaced supports on a 10 m run (${supports.length})`);
   assert(supports.every(support => support.userData.utilityType === utilityType
       && support.userData.centerlineHeight === utilityLineHeight(utilityType)
       && support.userData.legHeight > 0
@@ -230,10 +230,10 @@ console.log('\n--- 4b. Partial overlaps reuse the same rack regardless of build 
   );
   assert(sharedWaterFirst.length === expectedSharedStations
       && sharedWaterFirst.every(item => item.shelves === 2),
-  'vacuum built over the middle of a longer water run extends eight existing frames with a second shelf');
+  `vacuum built over the middle of a longer water run extends ${expectedSharedStations} existing frames with a second shelf`);
   assert(sharedVacuumFirst.length === expectedSharedStations
       && sharedVacuumFirst.every(item => item.shelves === 2),
-  'water built under an existing vacuum run produces the same eight shared frames');
+  `water built under an existing vacuum run produces the same ${expectedSharedStations} shared frames`);
   assert(JSON.stringify(waterFirst) === JSON.stringify(vacuumFirst),
     'the final support layout is independent of utility creation and map insertion order');
 

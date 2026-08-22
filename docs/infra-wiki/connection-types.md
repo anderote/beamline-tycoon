@@ -73,7 +73,7 @@ twin when co-routed. The separate lukewarm plant-transfer leg is green at 1.80 m
 - **Plant chain:** Beamline cold inlet → beamline hot outlet → heat-rejector hot inlet → heat-rejector lukewarm outlet → reservoir lukewarm in/out → chiller lukewarm inlet → chiller cold outlet
 - **Consumers:** High-flow equipment such as the 70 and 230 MeV cyclotrons, or flexible Water Lines through a distributor
 - **Wall crossings:** 1x1 and 2x2 Water Pipe Penetrations
-- **Supports:** Same 1 m support stations as cryo, RF, and vacuum; co-routed cold/hot pipes share one widened shelf and two brackets while remaining independently selectable
+- **Supports:** Same 1.25 m support stations as cryo, RF, and vacuum; co-routed cold/hot pipes share one widened shelf and two brackets while remaining independently selectable
 
 SRF cavities are **not** cooling-water consumers. Their thermal path is cryogenics.
 
