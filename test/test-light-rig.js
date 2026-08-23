@@ -843,3 +843,33 @@ test('one dirty fixture refreshes one shadow layer, not every live layer', () =>
   assert.equal(sawOverBudget, 0,
     'no frame ever schedules more shadow layers than fixtureShadowUpdatesPerFrame allows');
 });
+
+test('dusk does not turn the daylight shadow backlog into consecutive render passes', () => {
+  const scene = new SceneStub();
+  for (let i = 0; i < 12; i++) placeFixture(scene, `dusk-${i}`, DEF.lamppost, i * 2, 0);
+  const rig = new LightRig(scene, {
+    shadowSpotCount: 12,
+    activeShadowSpotCount: 12,
+    pointCount: 1,
+    shadowHz: 15,
+    shadowUpdatesPerFrame: 1,
+  });
+  const camera = { position: new V3(0, 0, 0) };
+
+  rig.update(camera, 0, 1);
+  assert.equal(rig.getStats().fixtureShadowQueuePending, 0,
+    'daylight keeps dark fixture slots out of the active shadow queue');
+
+  const scheduledFrames = [];
+  for (let frame = 0; frame < 80; frame++) {
+    rig.update(camera, 0.2, 0.016);
+    if (rig.getStats().shadowUpdatesLastFrame) scheduledFrames.push(frame);
+    if (rig.getStats().fixtureShadowQueuePending === 0 && scheduledFrames.length >= 12) break;
+  }
+
+  assert.equal(scheduledFrames[0], 0, 'dusk refreshes one shadow promptly');
+  assert.equal(scheduledFrames.length, 12, 'every newly lit fixture shadow eventually refreshes');
+  assert.ok(scheduledFrames.slice(1).every((frame, index) =>
+    frame - scheduledFrames[index] >= 4),
+    'the remaining full-scene passes obey the 15 Hz queue cadence');
+});

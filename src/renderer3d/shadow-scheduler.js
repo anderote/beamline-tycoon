@@ -1,7 +1,7 @@
-// Pure staggered shadow refresh scheduler. Dirty assignments refresh promptly,
-// then the active slots share one queue-wide periodic service rate. `hz` is
-// deliberately aggregate rather than per-slot: twelve shadows at 15 Hz must
-// cost 15 scene renders per second, not 180.
+// Pure staggered shadow refresh scheduler. A newly dirty idle queue begins
+// promptly, then every remaining active slot shares one queue-wide service
+// rate. `hz` is deliberately aggregate rather than per-slot: twelve shadows
+// at 15 Hz must cost 15 scene renders per second, not 180.
 
 export class ShadowScheduler {
   constructor(slotCount, opts = {}) {
@@ -11,6 +11,13 @@ export class ShadowScheduler {
     this._cursor = 0;
     this._periodicElapsedMs = 0;
     this._activeCount = 0;
+    // A newly dirty idle queue may refresh one layer immediately so a single
+    // reassigned light does not wait a full cadence interval. The rest of a
+    // bulk invalidation still shares the configured queue-wide rate. Without
+    // this distinction, the daylight backlog at dusk rendered one complete
+    // facility shadow pass on every consecutive frame until all layers had
+    // drained, overwhelming the GPU precisely during the lighting transition.
+    this._urgentDirty = false;
     this.configure(opts);
     this.markAllDirty();
   }
@@ -24,6 +31,7 @@ export class ShadowScheduler {
 
   markAllDirty() {
     this._dirty.fill(1);
+    if (this.slotCount > 0) this._urgentDirty = true;
   }
 
   resetSlot(index) {
@@ -47,15 +55,28 @@ export class ShadowScheduler {
     this._result = this._result || [];
     this._result.length = 0;
 
+    let hadQueuedDirty = false;
+    for (let i = 0; i < this.slotCount; i++) {
+      if (this._assignmentKeys[i] != null && this._dirty[i]) {
+        hadQueuedDirty = true;
+        break;
+      }
+    }
+    let addedDirty = false;
     for (let i = 0; i < this.slotCount; i++) {
       const key = i < active ? (assignmentKeys[i] ?? null) : null;
       if (key !== this._assignmentKeys[i]) {
         this._assignmentKeys[i] = key;
         this._dirty[i] = key == null ? 0 : 1;
+        if (key != null) addedDirty = true;
       } else if (i >= active) {
         this.resetSlot(i);
       }
     }
+    // Only an idle queue gets the low-latency first refresh. Assignment churn
+    // while a backlog already exists joins that backlog instead of reopening
+    // a one-pass-per-frame burst.
+    if (addedDirty && !hadQueuedDirty) this._urgentDirty = true;
 
     if (!enabled || active === 0 || this.hz <= 0) {
       this._periodicElapsedMs = 0;
@@ -72,13 +93,19 @@ export class ShadowScheduler {
       interval * this.maxUpdatesPerFrame,
     );
 
-    // Dirty assignments bypass the periodic clock so a newly selected light
-    // is not dark for a whole queue rotation. They still obey the hard frame
-    // cap and round-robin cursor, which is what turns the dusk transition into
-    // a short queue rather than one all-lights-at-once frame.
+    // An idle queue's first dirty assignment bypasses the periodic clock so a
+    // newly selected light is not dark for a whole interval. Any remaining
+    // dirty layers consume the SAME aggregate cadence as ordinary refreshes.
+    // This is load-bearing at dusk: all daylight-stale layers become eligible
+    // together, but they must not become consecutive full-scene render passes.
+    const dueFromClock = Math.min(
+      this.maxUpdatesPerFrame,
+      Math.floor(this._periodicElapsedMs / interval),
+    );
+    const dirtyBudget = this._urgentDirty ? Math.max(1, dueFromClock) : dueFromClock;
     let lastScheduled = -1;
     const dirtyStart = this._cursor;
-    for (let offset = 0; offset < active && this._result.length < this.maxUpdatesPerFrame; offset++) {
+    for (let offset = 0; offset < active && this._result.length < dirtyBudget; offset++) {
       const i = (dirtyStart + offset) % active;
       if (this._assignmentKeys[i] == null || !this._dirty[i]) continue;
       this._result.push(i);
@@ -87,17 +114,20 @@ export class ShadowScheduler {
     }
     if (this._result.length > 0) {
       this._cursor = (lastScheduled + 1) % Math.max(1, active);
-      // A dirty refresh is useful work from this queue too. Start the
-      // periodic cadence after the backlog drains instead of interleaving
-      // redundant refreshes with still-dirty layers.
-      this._periodicElapsedMs = 0;
+      const cadenceUpdates = Math.min(dueFromClock, this._result.length);
+      this._periodicElapsedMs = Math.max(
+        0,
+        this._periodicElapsedMs - cadenceUpdates * interval,
+      );
+      // The one urgent refresh starts a fresh interval when the clock had not
+      // already made work due. This prevents the second backlog layer from
+      // landing on the immediately following frame.
+      if (this._urgentDirty && dueFromClock === 0) this._periodicElapsedMs = 0;
+      this._urgentDirty = false;
       return this._result;
     }
 
-    let due = Math.min(
-      this.maxUpdatesPerFrame,
-      Math.floor(this._periodicElapsedMs / interval),
-    );
+    let due = dueFromClock;
     const periodicStart = this._cursor;
     lastScheduled = -1;
     for (let offset = 0; offset < active && due > 0; offset++) {
