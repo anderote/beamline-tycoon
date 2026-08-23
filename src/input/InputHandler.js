@@ -89,6 +89,10 @@ import {
   renderHoverTooltipTitle,
 } from '../ui/hover-tooltip-detail.js';
 import { placeableOperationalStatus } from '../ui/operational-status.js';
+import {
+  hoveredOperationalTarget,
+  toggleHoveredOperationalTarget,
+} from './hover-operational-toggle.js';
 import { placeableMutationEvent } from '../game/placeable-events.js';
 import {
   attachmentSelectionKey,
@@ -1289,6 +1293,18 @@ export class InputHandler {
     return true;
   }
 
+  /** Space toggles the simple on/off command owned by the hovered object. */
+  handleHoverOperationalToggleKey(event) {
+    if (event?.key !== ' ') return false;
+    const target = hoveredOperationalTarget(this.game, this._hoverTooltipTarget);
+    if (!target) return false;
+    event.preventDefault?.();
+    if (event.repeat) return true;
+    toggleHoveredOperationalTarget(this.game, this._hoverTooltipTarget);
+    this.renderer.refreshContextWindows?.();
+    return true;
+  }
+
   _disconnectSelectedAutoConnectPanels(panelIds) {
     const removed = disconnectAutoConnectDevices(this.game, panelIds);
     if (removed.length === 0) this._showToast('No utility connections to remove');
@@ -2235,9 +2251,12 @@ export class InputHandler {
         this.renderer.ui?._dismissConnectionGuide?.();
         return;
       }
-      // Skip if focused on text input
-      const tag = e.target.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      // World hotkeys must not also fire while a focused form control handles
+      // Space/typing of its own. This includes content-editable names and
+      // buttons, whose native Space activation would otherwise double-toggle.
+      const tag = e.target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+          || tag === 'BUTTON' || e.target?.isContentEditable) return;
 
       // Ctrl/Cmd+Z → undo, Ctrl/Cmd+Shift+Z → redo. The active tool gets to
       // abandon any mid-gesture carry first: undo replaces game state
@@ -2396,6 +2415,7 @@ export class InputHandler {
           // its onKey, delegating to the controller at the last cursor
           // position.)
           e.preventDefault();
+          if (!this.hoverPlaceable && this.handleHoverOperationalToggleKey(e)) break;
           this.game._withUndo(() => {
             if (this.hoverPlaceable) {
               // Unified placement — handles beamline / equipment / furnishing / decoration.
