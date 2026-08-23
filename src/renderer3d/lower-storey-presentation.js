@@ -30,7 +30,9 @@ class LowerStoreyFrame {
     this.floorBuilder = new FloorBuilder(textureManager);
     this.roofBuilder = new RoofBuilder();
     this.wallBuilder = new WallBuilder(textureManager);
-    this.componentBuilder = new ComponentBuilder();
+    // Context storeys are deliberately always rendered in their authored
+    // presentation, so they do not need the active-storey's adaptive proxies.
+    this.componentBuilder = new ComponentBuilder({ buildFarBatches: false });
     this.equipmentBuilder = new EquipmentBuilder();
     this.decorationBuilder = new DecorationBuilder();
     this.beamPipeBuilder = new BeamPipeBuilder();

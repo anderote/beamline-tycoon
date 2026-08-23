@@ -64,7 +64,7 @@ function circuitForNetwork(network, worldState) {
 function convertedSupplyCapacity(network, circuit, worldState, context) {
   const pipeNetworks = context.networksByType?.get?.('waterSupplyPipe') || [];
   const pipeFlows = worldState?.utilityNetworkData?.get?.('waterSupplyPipe');
-  const endpointMap = endpointsById(worldState);
+  const endpointMap = context.endpointIndex || endpointsById(worldState);
   const used = new Set();
   let capacity = 0;
   for (const port of network?.ports || []) {

@@ -30,6 +30,15 @@ mode when redirecting JSON so npm's own command banner is not mixed into it:
 npm run --silent benchmark:ten-large -- --json > ten-large.json
 ```
 
+Pass `--count=N` to exercise the same fixture at a larger scale. This remains
+a structural diagnostic rather than a separate gate: the fixed targets below
+describe the canonical ten-beamline case. For example, a quick 100-beamline
+CPU/render-structure pass is:
+
+```sh
+npm run benchmark:ten-large -- --count=100 --no-physics
+```
+
 The targets are optimization budgets, not FPS claims. An 8 ms
 tick/partial-snapshot budget preserves roughly half of a 60 Hz frame for
 rendering; the 16 ms physics-scheduling budget catches main-thread work capable
@@ -57,3 +66,17 @@ their presentation will be added as a second benchmark layer when utility-line
 batching begins; mixing an invented support layout into this first baseline
 would make it impossible to tell whether component or utility rendering caused
 a regression.
+
+## Large-world detail policy
+
+Facilities below 1,000 authored beam-pipe attachments retain full component
+and attachment detail at every zoom. At or above that threshold, zooming out
+uses catalogue-sized attachment silhouettes, hides ornamental component
+geometry, and disables their shadow submissions. A hysteresis band prevents
+the representation from flickering when the camera sits on the transition.
+The headless near/far measurements exercise both representations directly.
+
+Utility descriptors receive one shared endpoint index per solve pass. Keep
+endpoint resolution in that context for per-network work; rebuilding an index
+inside each network turns otherwise independent utility networks into
+quadratic work as a facility grows.

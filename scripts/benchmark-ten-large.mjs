@@ -2,18 +2,24 @@
 
 import { runTenLargeBenchmark } from './perf/ten-large-benchmark.mjs';
 
-const args = new Set(process.argv.slice(2));
+const argv = process.argv.slice(2);
+const args = new Set(argv);
 const json = args.has('--json');
 const gate = args.has('--gate');
 const includePhysics = !args.has('--no-physics');
+const countArg = argv.find(arg => arg.startsWith('--count='));
+const count = countArg == null ? undefined : Number.parseInt(countArg.slice('--count='.length), 10);
+if (countArg != null && (!Number.isInteger(count) || count < 1)) {
+  throw new Error('--count must be a positive integer');
+}
 
-const report = await runTenLargeBenchmark({ quiet: json, includePhysics });
+const report = await runTenLargeBenchmark({ quiet: json, includePhysics, count });
 
 if (json) {
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 } else {
   const round = value => Number.isFinite(value) ? Number(value.toFixed(2)) : value;
-  console.log('\n=== Ten Large Beamlines ===\n');
+  console.log(`\n=== ${report.scenario.beamlines} Large Beamlines ===\n`);
   console.table({
     beamlines: report.scenario.beamlines,
     hardware: report.scenario.hardware,

@@ -67,3 +67,28 @@ test('component builder routes and reparents wrappers by presentation category',
   builder.dispose(parent);
   assert.equal(infrastructure.children.length, 0);
 });
+
+test('far component presentation batches instances without losing picking ids', () => {
+  const parent = new THREE.Group();
+  const beamline = new THREE.Group();
+  parent.add(beamline);
+  const builder = new ComponentBuilder();
+  const components = Array.from({ length: 40 }, (_, index) =>
+    component(`beam-${index}`, 'beamline', index));
+
+  builder.build(components, parent, { categoryGroups: { beamline } });
+  const far = beamline.children.find(child => child.userData.batchedComponents);
+  assert.ok(far?.isInstancedMesh);
+  assert.equal(far.count, components.length);
+  assert.equal(far.visible, false);
+
+  builder.setDetailLevel(false);
+  assert.equal(far.visible, true);
+  assert.equal(builder.getGroup('beam-0').visible, false);
+  assert.equal(builder.resolveBatchHit({ object: far, instanceId: 17 }).nodeId, 'beam-17');
+
+  builder.setDetailLevel(true);
+  assert.equal(far.visible, false);
+  assert.equal(builder.getGroup('beam-0').visible, true);
+  builder.dispose(parent);
+});

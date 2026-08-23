@@ -73,6 +73,14 @@ function materialDrawCount(mesh) {
   return Math.max(1, materials.length);
 }
 
+function isEffectivelyVisible(object, root) {
+  for (let current = object; current; current = current.parent) {
+    if (current.visible === false) return false;
+    if (current === root) break;
+  }
+  return true;
+}
+
 /** Measure the visible scene structure without claiming to measure GPU time. */
 export function collectSceneMetrics(root) {
   const geometries = new Set();
@@ -94,10 +102,10 @@ export function collectSceneMetrics(root) {
 
   root.traverse(object => {
     metrics.objects++;
-    if (object.isLight && object.visible !== false) metrics.lights++;
+    if (object.isLight && isEffectivelyVisible(object, root)) metrics.lights++;
     if (!object.isMesh) return;
     metrics.meshes++;
-    if (object.visible === false) return;
+    if (!isEffectivelyVisible(object, root)) return;
     if (object.material?.visible === false) return; // renderer hitbox
 
     const instances = object.isInstancedMesh ? Math.max(0, object.count | 0) : 1;
@@ -165,13 +173,21 @@ export async function buildHeadlessBeamlineScene(snapshot, { quiet = false } = {
     componentGroup, attachmentGroup, beamPipeGroup, beamGroup,
   );
 
-  // The live renderer keeps high-detail geometry at every zoom. Keep the
-  // headless measurement aligned with that presentation instead of inventing
-  // a separate low-detail scene for the benchmark.
+  // Measure the adaptive large-world far presentation. Ordinary facilities
+  // may elect to keep detail at runtime, but this structural view proves the
+  // builders' cheap path remains inside its fixed budgets.
+  componentBuilder.setDetailLevel(false);
+  attachmentBuilder.setDetailLevel(false);
+  beamPipeBuilder.setDetailLevel(false);
+  beamBuilder.setDetailLevel(false);
   const far = collectSceneMetrics(root);
   const farBreakdown = collectBreakdown(
     componentGroup, attachmentGroup, beamPipeGroup, beamGroup,
   );
+  componentBuilder.setDetailLevel(true);
+  attachmentBuilder.setDetailLevel(true);
+  beamPipeBuilder.setDetailLevel(true);
+  beamBuilder.setDetailLevel(true);
 
   return {
     root,

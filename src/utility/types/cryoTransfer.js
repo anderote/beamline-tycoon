@@ -236,8 +236,8 @@ export function dynamicLoadAt(tempK, cavities) {
  * cryo sink in the game is a role-'placement' module living inside
  * pipe.placements, so a placeables-only lookup would find none of them.
  */
-function collectCavities(network, worldState) {
-  const byId = endpointsById(worldState);
+function collectCavities(network, worldState, endpointIndex = null) {
+  const byId = endpointIndex || endpointsById(worldState);
 
   const cavities = [];
   for (const sink of network.sinks) {
@@ -259,8 +259,10 @@ function collectCavities(network, worldState) {
  * merely having a cryogenic line: storage, refrigeration and warm-end heat
  * rejection are authored independently and all three must be present.
  */
-export function cryoPlantCapabilities(network, worldState, getDefinition = () => null) {
-  const byId = endpointsById(worldState);
+export function cryoPlantCapabilities(
+  network, worldState, getDefinition = () => null, endpointIndex = null,
+) {
+  const byId = endpointIndex || endpointsById(worldState);
   let coldCapacityW = 0;
   let heatRejectionCapacityW = 0;
   let designTempK = null;
@@ -322,8 +324,10 @@ export function cryoPlantCapabilities(network, worldState, getDefinition = () =>
 }
 
 /** Recovery/refill stages must be wired into this network and powered. */
-export function networkHeRecovery(network, worldState, getDefinition = () => null) {
-  const byId = endpointsById(worldState);
+export function networkHeRecovery(
+  network, worldState, getDefinition = () => null, endpointIndex = null,
+) {
+  const byId = endpointIndex || endpointsById(worldState);
   const contributions = new Map();
   let hasPoweredStorage = false;
   let liquefactionRateLPerTick = 0;
@@ -413,7 +417,10 @@ export default {
   },
   persistentIntensiveFields: ['tempK'],
   solve(network, persistent, worldState, context = {}) {
-    const plant = cryoPlantCapabilities(network, worldState, context.getDefinition);
+    const endpointIndex = context.endpointIndex || endpointsById(worldState);
+    const plant = cryoPlantCapabilities(
+      network, worldState, context.getDefinition, endpointIndex,
+    );
     const ratedCapacity = plant.enhancedColdCapacityW;
     const boundedPersistent = boundCryoPersistentState(persistent, network);
     // Declared srfHeatW is the STATIC load — vessel, transfer line and
@@ -430,7 +437,7 @@ export default {
     const prevTemp = Number.isFinite(boundedPersistent.tempK)
       ? boundedPersistent.tempK : designTempK;
 
-    const cavities = collectCavities(network, worldState);
+    const cavities = collectCavities(network, worldState, endpointIndex);
     const errors = [];
     const perSinkQuality = {};
     const perSinkTemp = {};
@@ -522,7 +529,9 @@ export default {
     // liquefier is inert. A sealed cryocooler is the packaged exception.
     const boiloff = (!plant.plantComplete || quenched)
       ? 0 : BOILOFF_PER_W_PER_TICK * totalLoad;
-    const recovery = networkHeRecovery(network, worldState, context.getDefinition);
+    const recovery = networkHeRecovery(
+      network, worldState, context.getDefinition, endpointIndex,
+    );
     let recoveredL = plant.sealedPlant ? boiloff : boiloff * recovery.fraction;
     if (!plant.sealedPlant && recovery.liquefactionRateLPerTick > 0) {
       recoveredL = Math.min(recoveredL, recovery.liquefactionRateLPerTick);

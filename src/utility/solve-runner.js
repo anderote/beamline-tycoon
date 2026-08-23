@@ -21,6 +21,7 @@
 import { discoverAll, makeDefaultPortLookup } from './network-discovery.js';
 import { computeElectricalSinkDemands } from './electrical-demand.js';
 import { buildPowerFeedIndex } from './power-feed.js';
+import { endpointsById } from './endpoint-lookup.js';
 
 function cloneDefaults(defaults) {
   if (defaults == null) return {};
@@ -129,6 +130,12 @@ export class SolveRunner {
     // either electrical solver runs to avoid a circular solve-order dependency.
     state.electricalSinkDemands = computeElectricalSinkDemands(networksByType);
 
+    // Vacuum, cryogenic and water descriptors all resolve endpoint ids while
+    // solving. Build that linear-time view once per pass instead of once (or
+    // several times) per network; large facilities commonly have hundreds of
+    // independent service networks over thousands of endpoints.
+    const endpointIndex = endpointsById(worldState);
+
     state.utilityNetworkData = new Map();
     const allErrors = [];
 
@@ -150,6 +157,7 @@ export class SolveRunner {
           result = descriptor.solve(network, persistent, worldState, {
             getDefinition: this.getDefinition,
             networksByType,
+            endpointIndex,
           }) || {};
         } catch (e) {
           result = {

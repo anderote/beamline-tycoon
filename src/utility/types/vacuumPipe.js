@@ -136,9 +136,9 @@ function endpointPoint(rec) {
   };
 }
 
-function pumpInventory(network, worldState, getDefinition) {
+function pumpInventory(network, worldState, getDefinition, endpointIndex = null) {
   const pumps = [];
-  const byId = endpointsById(worldState);
+  const byId = endpointIndex || endpointsById(worldState);
   for (const source of (network.sources || [])) {
     const p = source.params || {};
     if (!(p.pumpSpeed > 0)) continue;
@@ -479,7 +479,7 @@ export default {
   // generic split/join reconciler conserve gas across topology edits.
   persistentStateDefaults: { gasInventoryMbarL: null, pressureHistory: [] },
   solve(network, persistent, worldState, context = {}) {
-    const byId = endpointsById(worldState);
+    const byId = context.endpointIndex || endpointsById(worldState);
     const baked = isBaked(network, byId);
     const pipe = beamPipeStats(network, byId, worldState);
     const lines = networkLines(network, worldState);
@@ -495,7 +495,7 @@ export default {
     const previousPressure = volumeL > 0 && Number.isFinite(storedInventory)
       ? Math.max(0, storedInventory / volumeL)
       : ATMOSPHERE_MBAR;
-    const pumps = pumpInventory(network, worldState, context.getDefinition);
+    const pumps = pumpInventory(network, worldState, context.getDefinition, byId);
     const stack = activePumpStack(pumps, previousPressure);
     const effectiveSpeed = conductanceLimitedSpeed(stack.active, lines, stack.stage);
     const equilibriumPressure = effectiveSpeed > 0
