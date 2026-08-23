@@ -4237,6 +4237,19 @@ function _buildPartsOrFallback(compDef) {
       if (Array.isArray(part.rotation)) {
         mesh.rotation.set(part.rotation[0], part.rotation[1], part.rotation[2]);
       }
+      // Tiny power/data wall plates must sit on the actual host faces. Their
+      // world snapshot supplies wallMount.faceOffset, so retain only the
+      // content-authored side/clearance here and resolve the final local Z in
+      // syncWallPassThroughVisual when the instance is built.
+      if (part.wallFaceSide === -1 || part.wallFaceSide === 1) {
+        mesh.userData.wallFaceSide = part.wallFaceSide;
+        mesh.userData.wallFaceClearanceMeters = Number.isFinite(part.wallFaceClearanceMeters)
+          ? part.wallFaceClearanceMeters : 0;
+      }
+      if (part.wallThroughBody === true) {
+        mesh.userData.wallThroughBody = true;
+        mesh.userData.wallThroughBaseDepth = pl;
+      }
       group.add(mesh);
     }
     return group;
@@ -4329,6 +4342,31 @@ function _buildPartsOrFallback(compDef) {
   const group = new THREE.Group();
   group.add(mesh, details);
   return group;
+}
+
+/**
+ * Fit tagged cover-plate parts to the current host wall thickness.
+ *
+ * The wall centre remains the component origin. Face hardware moves to the
+ * two published face offsets; the concealed bore scales only along the wall
+ * normal so its diameter and exact service elevation never change.
+ */
+export function syncWallPassThroughVisual(obj, wallMount) {
+  if (!obj?.traverse) return;
+  const faceOffset = Number.isFinite(wallMount?.faceOffset)
+    ? Math.abs(wallMount.faceOffset) : 0.0625;
+  obj.traverse(child => {
+    const side = child?.userData?.wallFaceSide;
+    if ((side === -1 || side === 1) && child.position) {
+      child.position.z = side * (
+        faceOffset + (child.userData.wallFaceClearanceMeters || 0)
+      );
+    }
+    if (child?.userData?.wallThroughBody && child.scale) {
+      const baseDepth = child.userData.wallThroughBaseDepth;
+      if (baseDepth > 0) child.scale.z = Math.max(0.01, (faceOffset * 2) / baseDepth);
+    }
+  });
 }
 
 // ── Thumbnail renderer ──────────────────────────────────────────────
@@ -5034,6 +5072,7 @@ export class ComponentBuilder {
       const pose = componentPose(compDef, comp, isDetailed);
       obj.position.set(pose.x, pose.y, pose.z);
       obj.rotation.y = pose.rotY;
+      syncWallPassThroughVisual(obj, comp.wallMount);
       syncMapEdgeServiceLeadVisual(obj, comp.mapEdgeConnection, pose);
 
       // Dimming
