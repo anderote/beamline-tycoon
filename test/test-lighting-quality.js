@@ -63,23 +63,28 @@ test('fixture shadow topology stays inside the fragment texture-unit budget', ()
     'missing capability data uses the conservative WebGL baseline');
 });
 
-test('shadow scheduler immediately refreshes new assignments and staggers them', () => {
+test('shadow scheduler refreshes one new assignment immediately and rate-limits the backlog', () => {
   const s = new ShadowScheduler(4, { hz: 10, maxUpdatesPerFrame: 1 });
   const args = { activeCount: 4, enabled: true, dtMs: 16, assignmentKeys: ['a', 'b', 'c', 'd'] };
-  const seen = [];
-  for (let i = 0; i < 4; i++) seen.push(...s.step(args));
-  assert.deepEqual(seen.sort(), [0, 1, 2, 3]);
-  assert.equal(s.step(args).length, 0, 'no map refresh occurs before its interval');
-  assert.equal(s.step({ ...args, dtMs: 100 }).length, 1, 'periodic refresh remains staggered');
+  assert.deepEqual(s.step(args), [0], 'the first new assignment refreshes promptly');
+  assert.equal(s.step(args).length, 0,
+    'the remaining dirty assignments do not become one shadow pass per frame');
+  assert.deepEqual(s.step({ ...args, dtMs: 100 }), [1],
+    'the backlog resumes at the configured aggregate cadence');
+  assert.deepEqual(s.step({ ...args, dtMs: 100 }), [2]);
+  assert.deepEqual(s.step({ ...args, dtMs: 100 }), [3]);
 });
 
 test('fixture shadow Hz is a queue-wide budget, not a per-light multiplier', () => {
   const s = new ShadowScheduler(4, { hz: 10, maxUpdatesPerFrame: 1 });
   const args = { activeCount: 4, enabled: true, dtMs: 0, assignmentKeys: ['a', 'b', 'c', 'd'] };
 
-  // Drain the four newly assigned layers first. Dirty work is prompt, but it
-  // is still one layer per frame.
-  for (let i = 0; i < 4; i++) assert.equal(s.step(args).length, 1);
+  // Drain the four newly assigned layers first. One is prompt; the remaining
+  // backlog consumes the same aggregate cadence as steady-state refreshes.
+  assert.equal(s.step(args).length, 1);
+  for (let i = 0; i < 3; i++) {
+    assert.equal(s.step({ ...args, dtMs: 100 }).length, 1);
+  }
   assert.equal(s.pendingCount, 0);
 
   let refreshes = 0;
@@ -90,7 +95,7 @@ test('fixture shadow Hz is a queue-wide budget, not a per-light multiplier', () 
     'four active slots share ten refreshes per second instead of each receiving ten');
 });
 
-test('a large daylight backlog becomes a one-layer-per-frame dusk queue', () => {
+test('a large daylight backlog drains at the aggregate shadow rate after dusk', () => {
   const s = new ShadowScheduler(12, { hz: 15, maxUpdatesPerFrame: 1 });
   const keys = Array.from({ length: 12 }, (_, i) => `fixture-${i}`);
 
@@ -99,13 +104,19 @@ test('a large daylight backlog becomes a one-layer-per-frame dusk queue', () => 
   }), []);
   assert.equal(s.pendingCount, 12, 'daylight retains dirty assignments without rendering them');
 
-  const perFrame = [];
-  for (let frame = 0; frame < 12; frame++) {
-    perFrame.push(s.step({
+  const scheduledFrames = [];
+  for (let frame = 0; frame < 80; frame++) {
+    const updates = s.step({
       activeCount: 12, enabled: true, dtMs: 16, assignmentKeys: keys,
-    }).length);
+    });
+    if (updates.length) scheduledFrames.push(frame);
+    if (s.pendingCount === 0) break;
   }
-  assert.deepEqual(perFrame, new Array(12).fill(1));
+  assert.equal(scheduledFrames[0], 0, 'one first layer is available immediately at dusk');
+  assert.equal(scheduledFrames.length, 12, 'all stale layers drain within the test window');
+  assert.ok(scheduledFrames.slice(1).every((frame, index) =>
+    frame - scheduledFrames[index] >= 4),
+    'later layers are separated by the 15 Hz cadence instead of consecutive frames');
   assert.equal(s.pendingCount, 0, 'the full night set drains without an all-at-once frame');
 });
 
