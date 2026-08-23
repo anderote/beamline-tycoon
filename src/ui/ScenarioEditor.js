@@ -291,8 +291,8 @@ export class ScenarioEditor {
 
   _save(meta) {
     const data = this.collectScenarioData();
-    // A full quota is recoverable: recovery autosaves of the *played* game are
-    // expendable next to an authored scenario, so evict the oldest and retry.
+    // A full quota may still be recoverable for upgraded players: retired
+    // game recovery copies are expendable next to an authored scenario.
     // Named save slots, the active save, and other scenarios are never touched.
     const result = runWithQuotaRecovery(
       () => saveCustomScenario({ ...meta, data, sandbox: true }, { storage: this.storage }),

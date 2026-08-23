@@ -1,21 +1,17 @@
 // src/game/SaveSlots.js — named save-slot storage (pure logic, no UI).
 //
 // Storage layout:
-//   beamlineTycoon             — ACTIVE/autosave slot (untouched by this module
-//                                except via loadIntoActive)
+//   beamlineTycoon             — the single active autosave (written in place)
 //   beamlineTycoon.slotIndex   — JSON array of { id, name, savedAt, meta }
 //   beamlineTycoon.slots.<id>  — the serialized payload for that slot
-//   beamlineTycoon.autosaves.<id> — a rolling recovery snapshot
+//   beamlineTycoon.autosaves.<id> — retired recovery-copy storage (migration only)
 //
 // meta is a small summary for the list UI: { funding, staff, components, tick }.
 //
-// RETENTION. Recovery autosaves are the only thing in this module that grows
-// on its own, so they are the only thing allowed to be evicted. They are
-// bounded twice: by count (AUTOSAVE_LIMIT) and by total size
-// (AUTOSAVE_BUDGET). A mature world serializes to hundreds of kilobytes, so a
-// count-only cap is not a cap at all — it let recovery history monopolise the
-// origin quota and starve deliberate saves and authored scenarios.
-// The newest snapshot is always kept, even when it alone exceeds the budget.
+// Older builds also created rolling recovery copies. Those looked like extra
+// Minor Lab saves in the UI and multiplied very large world payloads. The
+// active key already is an overwrite-in-place autosave, so recovery copies are
+// now retired and eagerly removed whenever SaveSlots is used.
 
 import {
   getStorage,
@@ -30,22 +26,10 @@ const ACTIVE_KEY = 'beamlineTycoon';
 const INDEX_KEY = 'beamlineTycoon.slotIndex';
 const SLOT_PREFIX = 'beamlineTycoon.slots.';
 const AUTOSAVE_PREFIX = 'beamlineTycoon.autosaves.';
-// Six snapshots at AUTOSAVE_INTERVAL spacing is ~30 minutes of undoable
-// history. The count cap governs small worlds (where six snapshots are
-// nothing); on a large world the byte budget below bites first, so this is a
-// clutter bound, not the real protection.
-export const AUTOSAVE_LIMIT = 6;
-// UTF-16 code units (see storageUnits). Browsers budget localStorage by
-// UTF-16 storage size, so a nominal "5MB" origin is only ~2.6M units of text.
-// Measured (test/test-storage-quota.js): even a BLANK game serializes to
-// ~370k units, so the old cap of twelve reserved ~4.5M units — nearly twice
-// the whole origin — which is how a 450k-unit scenario ended up with nowhere
-// to go. 1.2M units is under half the origin: about three snapshots of a
-// typical save, or two of a large one, alongside the active save, the named
-// slots, and an authored scenario. Anything above that is evicted, and the
-// whole budget is surrendered on demand when a real save needs the room.
-export const AUTOSAVE_BUDGET = 1_200_000;
-const AUTOSAVE_INTERVAL = 5 * 60 * 1000;
+// Kept as zero-valued compatibility exports for diagnostics/tests that import
+// these names. Automatic history has no retention allowance anymore.
+export const AUTOSAVE_LIMIT = 0;
+export const AUTOSAVE_BUDGET = 0;
 
 export { ACTIVE_KEY, AUTOSAVE_PREFIX, INDEX_KEY, SLOT_PREFIX };
 
@@ -76,17 +60,9 @@ function autosaveEntries(index) {
     .sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
 }
 
-// Prefer the size recorded at write time; fall back to measuring the payload
-// for entries written before sizes were tracked.
-function entryUnits(entry, storage) {
-  if (Number.isFinite(entry.bytes)) return entry.bytes;
-  return storageUnits(safeGetItem(AUTOSAVE_PREFIX + entry.id, storage));
-}
-
 /**
- * Drop the oldest recovery autosave to free space. Named slots, the active
- * save, and scenario payloads are never touched — this is the only eviction
- * primitive in the codebase and it can only see autosaves.
+ * Drop one legacy recovery copy to free space. Named slots, the active save,
+ * and scenario payloads are never touched.
  *
  * `except` protects ids (e.g. the snapshot currently being written).
  * Returns true only when real bytes were released, which is what makes the
@@ -127,30 +103,36 @@ export function evictOldestAutosave({ except = [], storage, protectIndex = null 
 }
 
 /**
- * Apply the count + size retention policy. Returns the index with expired
- * autosave entries removed; their payloads are deleted from storage.
+ * Remove all indexed legacy recovery copies. This is retained under the old
+ * name so callers compiled against earlier versions migrate instead of
+ * creating another history.
  */
 export function pruneAutosaves(index, storage) {
   const store = getStorage(storage);
   const autosaves = autosaveEntries(index);
-  const expired = [];
-  let kept = 0;
-  let units = 0;
-  for (const entry of autosaves) {
-    const size = entryUnits(entry, store);
-    // The newest snapshot is always retained: an oversized world must still
-    // be recoverable, and it was just written successfully.
-    const withinCount = kept < AUTOSAVE_LIMIT;
-    const withinBudget = kept === 0 || units + size <= AUTOSAVE_BUDGET;
-    if (withinCount && withinBudget) {
-      kept++;
-      units += size;
-    } else {
-      expired.push(entry);
-    }
+  for (const entry of autosaves) safeRemoveItem(AUTOSAVE_PREFIX + entry.id, store);
+  return index.filter(entry => entry.kind !== 'autosave');
+}
+
+/** Purge historical autosave-copy payloads and remove them from the index. */
+export function purgeAutosaveCopies(storage) {
+  const store = getStorage(storage);
+  if (!store) return [];
+  const index = readIndex(store);
+  const cleaned = pruneAutosaves(index, store);
+
+  // Also remove orphan payloads left behind by interrupted old index writes.
+  const keys = [];
+  try {
+    if (typeof store.keys === 'function') keys.push(...store.keys());
+    else for (let i = 0; i < store.length; i++) keys.push(store.key(i));
+  } catch (_) {}
+  for (const key of keys) {
+    if (typeof key === 'string' && key.startsWith(AUTOSAVE_PREFIX)) safeRemoveItem(key, store);
   }
-  for (const old of expired) safeRemoveItem(AUTOSAVE_PREFIX + old.id, store);
-  return index.filter(s => !expired.some(old => old.id === s.id));
+
+  if (cleaned.length !== index.length) writeIndex(cleaned, store);
+  return cleaned;
 }
 
 export const SaveSlots = {
@@ -159,7 +141,7 @@ export const SaveSlots = {
 
   // List all slots, newest first: [{ id, name, savedAt, meta }]
   list() {
-    return readIndex().sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+    return purgeAutosaveCopies().sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
   },
 
   // Save payload into slot `id`, or a new slot when id is null/undefined.
@@ -168,13 +150,13 @@ export const SaveSlots = {
   saveTo(id, name, payload, meta = {}) {
     const store = getStorage();
     if (!store) return null;
-    const index = readIndex(store);
+    const index = purgeAutosaveCopies(store);
     const existing = id != null ? index.find(s => s.id === id) : null;
     const slotId = existing?.id
       ?? (id != null ? id : `slot_${Date.now()}_${Math.floor(Math.random() * 1e4)}`);
 
-    // Write the payload first: a named save outranks recovery autosaves, so
-    // it may evict them, but it must never leave a dangling index entry.
+    // Write the payload first. Any retired recovery data was purged above,
+    // and a failed new save must never leave a dangling index entry.
     const write = runWithQuotaRecovery(() => { store.setItem(SLOT_PREFIX + slotId, payload); return true; }, {
       reclaim: () => evictOldestAutosave({ storage: store }),
     });
@@ -207,8 +189,8 @@ export const SaveSlots = {
 
   // Return the payload string for a slot, or null if missing.
   load(id) {
-    const entry = readIndex().find(s => s.id === id);
-    return safeGetItem((entry?.kind === 'autosave' ? AUTOSAVE_PREFIX : SLOT_PREFIX) + id);
+    purgeAutosaveCopies();
+    return safeGetItem(SLOT_PREFIX + id);
   },
 
   // Copy a slot's payload into the ACTIVE key. Returns true on success.
@@ -216,21 +198,20 @@ export const SaveSlots = {
   loadIntoActive(id) {
     const payload = this.load(id);
     if (!payload) return false;
-    // Replacing the active save can itself exceed the quota; recovery
-    // autosaves are expendable next to the game the player asked to load.
+    // Replacing the active save can itself exceed the quota; any remaining
+    // retired recovery data is expendable next to the requested game.
     const write = setActiveSave(payload);
     return write.ok;
   },
 
   remove(id) {
-    const index = readIndex();
-    const entry = index.find(s => s.id === id);
-    safeRemoveItem((entry?.kind === 'autosave' ? AUTOSAVE_PREFIX : SLOT_PREFIX) + id);
+    const index = purgeAutosaveCopies();
+    safeRemoveItem(SLOT_PREFIX + id);
     writeIndex(index.filter(s => s.id !== id));
   },
 
   rename(id, name) {
-    const index = readIndex();
+    const index = purgeAutosaveCopies();
     const entry = index.find(s => s.id === id);
     if (!entry) return false;
     entry.name = name;
@@ -238,81 +219,43 @@ export const SaveSlots = {
     return true;
   },
 
-  // Keep a small, time-spaced recovery history in addition to the rolling
-  // active save. `force` is used before replacing a game, so even a very new
-  // session remains recoverable.
-  autosave(payload, meta = {}, { force = false, name = 'Autosave' } = {}) {
-    if (!payload) return null;
-    const store = getStorage();
-    if (!store) return null;
-    const newest = autosaveEntries(readIndex(store))[0];
-    const now = Date.now();
-    if (!force && newest && now - newest.savedAt < AUTOSAVE_INTERVAL) return newest.id;
-
-    const entry = {
-      id: `auto_${now}_${Math.floor(Math.random() * 1e4)}`,
-      name,
-      kind: 'autosave',
-      savedAt: now,
-      meta,
-      bytes: storageUnits(payload),
-    };
-    const write = runWithQuotaRecovery(() => { store.setItem(AUTOSAVE_PREFIX + entry.id, payload); return true; }, {
-      // Older snapshots make way for the newest one; nothing else is touched.
-      reclaim: () => evictOldestAutosave({ except: [entry.id], storage: store }),
-    });
-    if (!write.ok) {
-      // The rolling active save remains useful if localStorage is full.
-      safeRemoveItem(AUTOSAVE_PREFIX + entry.id, store);
-      return null;
-    }
-    const index = readIndex(store);
-    index.push(entry);
-    if (!writeIndex(pruneAutosaves(index, store), store)) {
-      safeRemoveItem(AUTOSAVE_PREFIX + entry.id, store);
-      return null;
-    }
-    return entry.id;
+  // Compatibility no-op: the active key is the one overwrite-in-place
+  // autosave. Calling this only migrates away old recovery copies.
+  autosave() {
+    purgeAutosaveCopies();
+    return null;
   },
 
-  // Snapshot the rolling save before New Game/scenario flows remove it.
-  preserveActive(name = 'Previous game') {
-    const payload = safeGetItem(ACTIVE_KEY);
-    if (!payload) return null;
-    let meta = {};
-    try {
-      const state = JSON.parse(payload)?.state || {};
-      meta = {
-        funding: Math.floor(state.resources?.funding ?? 0),
-        staff: (state.staffMembers || []).length,
-        components: (state.placeables || []).filter(p => p.category !== 'decoration').length,
-        tick: state.tick || 0,
-      };
-    } catch (_) {}
-    return this.autosave(payload, meta, { force: true, name });
+  // Compatibility no-op for older scenario-launch callers.
+  preserveActive() {
+    purgeAutosaveCopies();
+    return null;
   },
 
-  // Total UTF-16 units currently held by recovery autosaves. Exposed for
-  // diagnostics and retention tests.
+  // Compatibility diagnostic: retired recovery history always occupies zero.
   autosaveUnits() {
-    const store = getStorage();
-    return autosaveEntries(readIndex(store)).reduce((sum, e) => sum + entryUnits(e, store), 0);
+    purgeAutosaveCopies();
+    return 0;
   },
 
   evictOldestAutosave,
   pruneAutosaves,
+  purgeAutosaveCopies,
   isQuotaError,
 };
 
 /**
- * Write the ACTIVE save, evicting recovery autosaves if the quota blocks it.
- * The active save is the game in progress: it outranks every snapshot.
+ * Write the single ACTIVE autosave in place. Legacy recovery copies may be
+ * removed if they are the only thing blocking the write.
  */
 export function setActiveSave(payload, storage) {
   const store = getStorage(storage);
   if (!store) {
     return { ok: false, value: null, error: new Error('Storage is unavailable'), reclaimed: 0 };
   }
+  // Make the migration immediate on the next normal autosave, even if the
+  // player never opens the Load dialog.
+  purgeAutosaveCopies(store);
   return runWithQuotaRecovery(() => { store.setItem(ACTIVE_KEY, payload); return true; }, {
     reclaim: () => evictOldestAutosave({ storage: store }),
   });

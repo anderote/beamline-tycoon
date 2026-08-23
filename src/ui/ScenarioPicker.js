@@ -10,7 +10,6 @@ import {
   resolveScenario,
   stageScenarioSelection,
 } from '../data/scenarios.js';
-import { SaveSlots } from '../game/SaveSlots.js';
 import { SKIP_TITLE_SESSION_KEY } from './main-menu-navigation.js';
 
 function escapeText(value) {
@@ -58,7 +57,7 @@ export class ScenarioPicker {
 
     let html = '<div class="scenario-header"><h2 class="scenario-title" id="scenario-dialog-title">New Game</h2></div>';
     html += '<div class="scenario-body">';
-    html += '<p class="scenario-intro">Choose a starting situation. Your current game is kept in recovery saves after you confirm a choice.</p>';
+    html += '<p class="scenario-intro">Choose a starting situation. Starting it replaces your current game; use Save Game first if you want to keep it in a named slot.</p>';
 
     for (const scenario of scenarios) {
       if (scenario.local || scenario.editable) html += '<div class="scenario-card-row">';
@@ -131,11 +130,10 @@ export class ScenarioPicker {
       ? resolveScenario(builtInId, this.storage)
       : localId ? resolveScenario(customScenarioRef(localId), this.storage) : null;
     const message = scenario
-      ? `Edit “${scenario.name}”?\n\nYour current game will be saved and kept in recovery saves.`
-      : 'Create a new starting situation?\n\nYour current game will be saved and kept in recovery saves.';
+      ? `Edit “${scenario.name}”?\n\nThis replaces your current game. Use Save Game first if you want to keep it.`
+      : 'Create a new starting situation?\n\nThis replaces your current game. Use Save Game first if you want to keep it.';
     if (!this.confirm(message)) return;
     this.game.save();
-    SaveSlots.preserveActive('Before scenario construction');
     const editorTarget = builtInId
       ? `builtin:${encodeURIComponent(builtInId)}`
       : localId ? encodeURIComponent(localId) : 'new';
@@ -145,10 +143,9 @@ export class ScenarioPicker {
   _startScenario(id) {
     const scenario = resolveScenario(id, this.storage);
     if (!scenario) return;
-    if (!this.confirm(`Start “${scenario.name}”? Your current game will be kept in recovery saves.`)) return;
+    if (!this.confirm(`Start “${scenario.name}”? This replaces your current game. Use Save Game first if you want to keep it.`)) return;
 
     this.game.save();
-    SaveSlots.preserveActive(`Before ${scenario.name}`);
     try {
       // The pending selection is verified before the active save is removed.
       // If storage is unavailable, stay put with the current game intact.
