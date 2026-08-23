@@ -55,14 +55,20 @@ assert(panel.detail === 'Power: 40 kW consumed · 40 kW produced',
 const actionablePanel = componentHoverInfo(COMPONENTS.powerPanel, {
   autoConnectPlan: { candidates: 5, stubs: [{}, {}, {}, {}] },
 });
-assert(actionablePanel.detail === '5 unconnected power connections in range · Tab connects 4 · Select + T disconnects all',
+assert(actionablePanel.detail === '5 unconnected power connections in range · Tab connects 4 · T disconnects all',
   `placed panel hover reports both nearby plugs and Tab capacity (${actionablePanel.detail})`);
 
 const actionableHvDistributor = componentHoverInfo(COMPONENTS.compactHvDistributor, {
   autoConnectPlan: { utilityType: 'hvCable', candidates: 2, stubs: [{}] },
 });
-assert(actionableHvDistributor.detail === '2 unconnected HV connections in range · Tab connects 1 · Select + T disconnects all',
+assert(actionableHvDistributor.detail === '2 unconnected HV connections in range · Tab connects 1 · T disconnects all',
   `HV distributor hover names feeder inputs (${actionableHvDistributor.detail})`);
+
+const connectedCavity = componentHoverInfo(COMPONENTS.ellipticalSrfCavity, {
+  connectedUtilityCount: 2,
+});
+assert(connectedCavity.detail.endsWith(' · T disconnects all'),
+  'connected ordinary components advertise the hover disconnect shortcut');
 
 const packageChiller = componentHoverInfo(COMPONENTS.packageChiller);
 assert(packageChiller.detail === 'Cooling output: 5 kW',
