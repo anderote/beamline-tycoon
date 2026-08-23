@@ -61,6 +61,7 @@ const {
 const {
   componentPose,
   getModelBounds,
+  syncWallPassThroughVisual,
 } = await import('../src/renderer3d/component-builder.js');
 
 const crossingWall = { '1,0,e': 'officeWall' }; // boundary col=2, row 0..1
@@ -169,6 +170,25 @@ test('Feedthrough ports and committed component pose land on opposite wall faces
   const shieldedOut = portWorldPosition(shielded, def, 'pwr_out');
   assert.ok(shieldedIn.z > wallZ + 0.275 && shieldedOut.z < wallZ - 0.275,
     'both terminals clear a thick shielding-wall slab');
+});
+
+test('tiny cover plates track ordinary and shielding wall faces', () => {
+  const makePart = userData => ({ userData, position: { z: 0 }, scale: { z: 1 } });
+  const frontPlate = makePart({ wallFaceSide: 1, wallFaceClearanceMeters: 0.015 });
+  const backJack = makePart({ wallFaceSide: -1, wallFaceClearanceMeters: 0.05375 });
+  const bore = makePart({ wallThroughBody: true, wallThroughBaseDepth: 0.15 });
+  const obj = { traverse(fn) { [frontPlate, backJack, bore].forEach(fn); } };
+
+  syncWallPassThroughVisual(obj, { faceOffset: 0.20 });
+  assert.ok(Math.abs(frontPlate.position.z - 0.215) < 1e-12);
+  assert.ok(Math.abs(backJack.position.z + 0.25375) < 1e-12);
+  assert.ok(Math.abs(bore.scale.z - (0.40 / 0.15)) < 1e-12,
+    'concealed bore spans the thick wall without widening');
+
+  syncWallPassThroughVisual(obj, { faceOffset: 0.0625 });
+  assert.ok(Math.abs(frontPlate.position.z - 0.0775) < 1e-12);
+  assert.ok(Math.abs(bore.scale.z - (0.125 / 0.15)) < 1e-12,
+    'the same plate and bore collapse back onto an ordinary office wall');
 });
 
 test('HV wall feedthrough terminals accept cables from every cardinal direction', () => {

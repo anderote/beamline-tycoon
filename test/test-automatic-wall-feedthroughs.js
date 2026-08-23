@@ -107,7 +107,7 @@ test('modular sleeve bores and ports match exact service elevations', () => {
       assert.ok(Math.abs(portAnchor3D(entry, def, portName).y - metadata.heightMeters) < 1e-9,
         `${type}.${portName}`);
     }
-    const bore = def.parts.find(part => part.l === 2.50);
+    const bore = def.parts.find(part => part.wallThroughBody === true || part.l === 2.50);
     assert.ok(bore, `${type} has a through-wall bore`);
     assert.ok(Math.abs((bore.y + bore.h / 2) * 0.5 - metadata.heightMeters) < 1e-9,
       `${type} bore centre`);
@@ -125,6 +125,31 @@ test('modular sleeve bores and ports match exact service elevations', () => {
   const hvPorts = COMPONENTS.hvWallPassThrough.ports;
   assert.ok(['hv_in', 'hv_out'].every(portName => hvPorts[portName].tensionsCable === true),
     'both elevated HV terminals explicitly tension attached cable spans');
+});
+
+test('power and data wall crossings use tiny two-sided cover plates', () => {
+  const cases = [
+    ['powerWallPassThrough', 'powerOutlet', 'duplexOutlet'],
+    ['dataFiberWallPassThrough', 'ethernetJack', 'ethernetJack'],
+  ];
+  for (const [type, faceStyle, detailKind] of cases) {
+    const def = COMPONENTS[type];
+    assert.equal(def.automaticWallPassThrough.faceStyle, faceStyle, type);
+
+    const plates = def.parts.filter(part => part.wallCoverPlate === true);
+    assert.equal(plates.length, 2, `${type} has one plate on each wall face`);
+    for (const plate of plates) {
+      assert.ok(plate.w * 0.5 <= 0.08, `${type} plate is no wider than 8 cm`);
+      assert.ok(plate.h * 0.5 <= 0.12, `${type} plate is no taller than 12 cm`);
+      assert.ok(plate.l * 0.5 <= 0.03, `${type} plate stays shallow`);
+      assert.ok(plate.y >= 0, `${type} plate stays above the floor`);
+    }
+
+    const details = def.parts.filter(part => part.wallFaceDetail === detailKind);
+    assert.equal(details.length, 4, `${type} exposes recognizable hardware on both faces`);
+    assert.ok(details.every(part => part.w < plates[0].w && part.h < plates[0].h),
+      `${type} socket details fit inside the cover plate`);
+  }
 });
 
 test('fabricated rigid services cross walls as one continuous ordinary run', () => {

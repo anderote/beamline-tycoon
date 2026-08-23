@@ -117,11 +117,71 @@ function automaticWallSleeveParts({
   ];
 }
 
+// Domestic-scale face hardware for the two soft electrical services. Power
+// cords and data leads still terminate at their exact low routing datums, but
+// the thing mounted on the wall reads as a cover plate rather than as the
+// industrial collar used by pipes, waveguide, cryo and HV.
+//
+// Authored dimensions are half-metre sub-units: 0.16 × 0.24 is an 8 × 12 cm
+// single-gang plate. The plate begins 1 cm above the floor so neither low
+// cable datum makes its face hardware sink below the slab.
+function automaticWallCoverPlateParts({
+  heightMeters, radiusMeters, color, faceStyle, alongMeters = 0,
+}) {
+  const centreSub = heightMeters * 2;
+  const x = alongMeters * 2;
+  const plate = { w: 0.16, h: 0.24, l: 0.06, x, y: 0.02, color: 0xdadbd5,
+    wallCoverPlate: true, wallFaceClearanceMeters: 0.015 };
+  const boreDiameterSub = radiusMeters * 4;
+  const bore = faceStyle === 'ethernetJack'
+    ? { shape: 'box', w: 0.10, h: 0.05, l: 0.30, x,
+        y: centreSub - 0.025, z: 0, color, wallThroughBody: true }
+    : { shape: 'cylinder', axis: 'z', w: boreDiameterSub, h: boreDiameterSub,
+        l: 0.30, x, y: centreSub - boreDiameterSub / 2, z: 0, color,
+        wallThroughBody: true };
+
+  const parts = [
+    { ...plate, z: -0.15, wallFaceSide: -1 },
+    { ...plate, z: 0.15, wallFaceSide: 1 },
+    bore,
+  ];
+
+  for (const side of [-1, 1]) {
+    // Default-wall thumbnail position; live instances replace this with the
+    // exact host-face offset in syncWallPassThroughVisual.
+    const z = side * 0.20;
+    if (faceStyle === 'powerOutlet') {
+      // Two dark receptacle faces are legible at game scale without turning
+      // the plate into a chunky junction box.
+      parts.push(
+        { shape: 'cylinder', axis: 'z', w: 0.055, h: 0.055, l: 0.03,
+          x, y: 0.055, z, color: 0x4b4d49, wallFaceDetail: 'duplexOutlet',
+          wallFaceSide: side, wallFaceClearanceMeters: 0.0375 },
+        { shape: 'cylinder', axis: 'z', w: 0.055, h: 0.055, l: 0.03,
+          x, y: 0.145, z, color: 0x4b4d49, wallFaceDetail: 'duplexOutlet',
+          wallFaceSide: side, wallFaceClearanceMeters: 0.0375 },
+      );
+    } else {
+      // A dark keystone surround with a smaller blue socket opening reads as
+      // an Ethernet jack from either wall face.
+      parts.push(
+        { shape: 'box', w: 0.10, h: 0.065, l: 0.03,
+          x, y: 0.095, z, color: 0x343b3d, wallFaceDetail: 'ethernetJack',
+          wallFaceSide: side, wallFaceClearanceMeters: 0.0375 },
+        { shape: 'box', w: 0.07, h: 0.032, l: 0.035,
+          x, y: 0.105, z: side * 0.22, color: 0x397ba1, wallFaceDetail: 'ethernetJack',
+          wallFaceSide: side, wallFaceClearanceMeters: 0.05375 },
+      );
+    }
+  }
+  return parts;
+}
+
 function automaticWallPassThrough({
   id, name, desc, category, utilityType, ports, cost, heightMeters,
   radiusMeters, color, rectangular = false, deprecated = false,
   connectionGroups = 'utilityGroups', wallSpan = 1,
-  waterCircuit = null, alongMeters = 0,
+  waterCircuit = null, alongMeters = 0, faceStyle = null,
 }) {
   return {
     id, name, desc,
@@ -133,6 +193,7 @@ function automaticWallPassThrough({
     automaticWallPassThrough: {
       utilityType, portPairs: [ports], heightMeters, radiusMeters,
       ...(waterCircuit ? { waterCircuit } : {}),
+      ...(faceStyle ? { faceStyle } : {}),
     },
     subL: 1, subW: wallSpan,
     subH: Math.max(1, Math.ceil(heightMeters * 2 + radiusMeters * 4)),
@@ -140,9 +201,13 @@ function automaticWallPassThrough({
     baseMaterial: 'metal_brushed', spriteKey: 'powerPanel', spriteColor: color,
     accentColor: color, hasSurface: false, placement: 'module', ports: {},
     [connectionGroups]: { [utilityType]: [ports] },
-    parts: automaticWallSleeveParts({
-      heightMeters, radiusMeters, color, rectangular, alongMeters,
-    }),
+    parts: faceStyle
+      ? automaticWallCoverPlateParts({
+          heightMeters, radiusMeters, color, faceStyle, alongMeters,
+        })
+      : automaticWallSleeveParts({
+          heightMeters, radiusMeters, color, rectangular, alongMeters,
+        }),
     requiredConnections: [],
   };
 }
@@ -2099,11 +2164,12 @@ export const INFRASTRUCTURE_RAW = {
   },
   powerWallPassThrough: automaticWallPassThrough({
     id: 'powerWallPassThrough', name: 'Automatic Power Cable Feedthrough',
-    desc: 'Compact low-voltage cable gland automatically installed when a power cable crosses a wall.',
+    desc: 'Outlet-sized low-voltage cover plates automatically installed when a power cord crosses a wall.',
     category: 'power', utilityType: 'powerCable', ports: ['pwr_in', 'pwr_out'],
     cost: 6000, heightMeters: 0.03, radiusMeters: 0.02, color: 0x58b86a,
     deprecated: true,
     connectionGroups: 'electricalGroups',
+    faceStyle: 'powerOutlet',
   }),
   meterMain: {
     id: 'meterMain',
@@ -2185,10 +2251,11 @@ export const INFRASTRUCTURE_RAW = {
   },
   dataFiberWallPassThrough: automaticWallPassThrough({
     id: 'dataFiberWallPassThrough', name: 'Automatic Data-Fibre Feedthrough',
-    desc: 'Compact sealed fibre conduit automatically installed when a data-fibre bundle crosses a wall.',
+    desc: 'Ethernet-jack-sized cover plates automatically installed when a data-fibre lead crosses a wall.',
     category: 'dataControls', utilityType: 'dataFiber',
     ports: ['fiber_front', 'fiber_back'], cost: 2500,
     heightMeters: 0.035, radiusMeters: 0.025, color: 0xeeeeee,
+    faceStyle: 'ethernetJack',
   }),
   cryoWallPassThrough: automaticWallPassThrough({
     id: 'cryoWallPassThrough', name: 'Automatic Cryogenic Transfer Sleeve',
