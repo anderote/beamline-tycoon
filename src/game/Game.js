@@ -469,6 +469,7 @@ export class Game {
       utilityNetworkState: new Map(),
       utilityNetworkData: null,
       utilityNetworks: null,   // derived: discovery output published by solveRunner
+      utilityPerformanceHistory: new Map(), // derived: bounded solver telemetry for plots
       utilityPowerFeedIndex: null, // derived: O(1) powered-source topology lookup
       powerReliability: { devices: {} },
       // System-level infrastructure stats (computed by computeSystemStats)
@@ -6293,6 +6294,7 @@ export class Game {
     this.state.utilityBusNextId = scenarioData.utilityBusNextId || 1;
     this.state.utilityNetworkState = new Map();
     this.state.utilityNetworkData = null;
+    this.state.utilityPerformanceHistory = new Map();
 
     // Rebuild lookup tables
     this.state.infraOccupied = {};
@@ -6593,6 +6595,7 @@ export class Game {
     // emits below.
     this.state.utilityNetworkData = null;
     this.state.utilityNetworks = null;
+    this.state.utilityPerformanceHistory = new Map();
     this.state.nodeQualities = null;
     this.state.unwiredSinks = null;
 
@@ -6766,6 +6769,7 @@ export class Game {
     // just replaced wholesale, so cached network discovery is stale too.
     this.state.utilityNetworkData = null;
     this.state.utilityNetworks = null;
+    this.state.utilityPerformanceHistory = new Map();
     this.state.utilityPowerFeedIndex = null;
     // Derived from the solve too, and the physics pass fails closed on it:
     // carrying the pre-load session's map over would stamp a loaded facility

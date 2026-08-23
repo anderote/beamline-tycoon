@@ -115,6 +115,9 @@ console.log('\n--- Test 1: happy path writes flow + persistent state ---');
   assert(pubNets[0].id === networkId, 'published network id matches flow-data key');
   const flow = perType.get(networkId);
   assert(flow && flow.delivered === 42, `flow.delivered=42 (got ${JSON.stringify(flow)})`);
+  const performance = state.utilityPerformanceHistory?.get('fake')?.get(networkId);
+  assert(Array.isArray(performance) && performance.length === 1,
+    'solve runner publishes one bounded performance sample for the network');
   const persisted = state.utilityNetworkState.get(networkId);
   assert(persisted && persisted.reservoir === 7, `persisted.reservoir=7 (got ${JSON.stringify(persisted)})`);
   assert(calls.length === 1, '1 solve call');
