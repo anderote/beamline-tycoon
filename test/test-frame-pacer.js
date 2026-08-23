@@ -83,14 +83,13 @@ test('a completion retires every earlier frame, never fewer', async () => {
   assert.equal(pacer.inFlight, 0, 'a late earlier completion cannot push the count back up');
 });
 
-test('the watchdog refuses to let a dead device freeze the world for good', () => {
-  // This is the failure this whole module exists to prevent, so the guard
-  // against causing it has to be explicit.
+test('the watchdog probe does not erase slow GPU work or reopen the floodgate', async () => {
   let clock = 0;
   const queue = stubQueue();
   const pacer = new FramePacer(webgpu(queue), {
     maxFramesInFlight: 1,
     watchdogMs: 1000,
+    stallRecoveryMs: 10000,
     now: () => clock,
   });
 
@@ -98,14 +97,62 @@ test('the watchdog refuses to let a dead device freeze the world for good', () =
   clock = 500;
   assert.equal(pacer.shouldRender(), false, 'still within the grace period');
   clock = 1500;
-  assert.equal(pacer.shouldRender(), true, 'the frame is let through rather than lost');
+  assert.equal(pacer.shouldRender(), true, 'one probe frame is let through');
   assert.equal(pacer.getStats().framePacerWatchdogTrips, 1);
-  assert.equal(pacer.inFlight, 0, 'counters resynchronise so the loop keeps running');
+  assert.equal(pacer.inFlight, 1, 'the unfinished frame remains truthfully counted');
 
-  // And it keeps letting frames through forever after, one grace period apart.
   pacer.frameSubmitted();
   clock = 2600;
+  assert.equal(pacer.shouldRender(), false,
+    'a slow shadow frame cannot admit another probe every watchdog interval');
+  assert.equal(pacer.inFlight, 2, 'only the original and the single probe are queued');
+
+  await queue.settleAll();
+  assert.equal(pacer.inFlight, 0);
+  assert.equal(pacer.shouldRender(), true, 'real completion progress resumes normal rendering');
+});
+
+test('a persistently silent queue is handed to renderer recovery once', () => {
+  let clock = 0;
+  const stalls = [];
+  const pacer = new FramePacer(webgpu(stubQueue()), {
+    maxFramesInFlight: 1,
+    watchdogMs: 1000,
+    stallRecoveryMs: 5000,
+    now: () => clock,
+    onStall: info => stalls.push(info),
+  });
+
+  pacer.frameSubmitted();
+  assert.equal(pacer.shouldRender(), false);
+  clock = 1100;
+  assert.equal(pacer.shouldRender(), true, 'the single probe is submitted before recovery');
+  pacer.frameSubmitted();
+  clock = 5100;
+  assert.equal(pacer.shouldRender(), false, 'recovery owns a queue that never progressed');
+  assert.equal(stalls.length, 1);
+  assert.equal(stalls[0].reason, 'queue-stalled');
+  assert.equal(stalls[0].framesInFlight, 2);
+  assert.equal(pacer.getStats().framePacerStallRecoveries, 1);
+  clock = 9000;
+  assert.equal(pacer.shouldRender(), false);
+  assert.equal(stalls.length, 1, 'recovery is never requested repeatedly');
+});
+
+test('a standalone pacer without recovery fails open after a permanent stall', () => {
+  let clock = 0;
+  const pacer = new FramePacer(webgpu(stubQueue()), {
+    maxFramesInFlight: 1,
+    watchdogMs: 1000,
+    stallRecoveryMs: 5000,
+    now: () => clock,
+  });
+  pacer.frameSubmitted();
+  assert.equal(pacer.shouldRender(), false);
+  clock = 5100;
   assert.equal(pacer.shouldRender(), true);
+  assert.equal(pacer.supported, false);
+  assert.equal(pacer.shouldRender(), true, 'lack of a recovery owner never freezes rendering forever');
 });
 
 test('a rejected completion still counts as progress', async () => {
