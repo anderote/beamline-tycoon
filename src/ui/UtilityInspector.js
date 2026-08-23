@@ -1,10 +1,8 @@
 // src/ui/UtilityInspector.js
 //
-// Context window for inspecting a single utility network (new-system, Phase 5).
-// Opens when a utility line or port is clicked in the 3D scene while no
-// utility-line tool is armed. Shows capacity/demand, sources, sinks, errors,
-// descriptor-specific content, and a Refill button when the descriptor
-// provides a refillCost.
+// Context window for inspecting a utility network or one selected member run.
+// A world-line click opens on run identity/details with network performance
+// and topology tabs. Network-overview rows retain the network-first view.
 //
 // Mirrors the shape of NetworkWindow.js: registers a tick listener on the
 // game, re-renders on utilityLinesChanged, and unregisters via
@@ -20,6 +18,12 @@ import { renderRfSpectrum } from './rf-spectrum.js';
 import { DEFAULT_VACUUM_HISTORY_RANGE_TICKS } from '../utility/types/vacuumPipe.js';
 import { bindVacuumPressureRangeControls } from './vacuum-pressure-controls.js';
 import { waterCircuitLabel } from '../utility/water-circuits.js';
+import {
+  renderUtilityLineDetails,
+  renderUtilityPerformance,
+  utilityLineDetailsModel,
+  utilityPerformanceModel,
+} from './utility-line-details.js';
 
 // Titlebar accent derives from the utility's registry color (the single
 // source of truth for utility hues), darkened so the title gradient stays
@@ -85,7 +89,15 @@ function fmtQty(v) {
   return v.toExponential(2);
 }
 
-export function utilityInspectorTabs(utilityType) {
+export function utilityInspectorTabs(utilityType, lineId = null) {
+  if (lineId) {
+    return [
+      { key: 'run', label: 'Run Details' },
+      { key: 'performance', label: 'Performance' },
+      ...(utilityType === 'rfWaveguide' ? [{ key: 'spectrum', label: 'Spectrum' }] : []),
+      { key: 'overview', label: 'Network' },
+    ];
+  }
   return utilityType === 'rfWaveguide'
     ? [{ key: 'spectrum', label: 'Spectrum' }, { key: 'overview', label: 'Overview' }]
     : [{ key: 'overview', label: 'Overview' }];
@@ -96,13 +108,16 @@ export class UtilityInspector {
    * Open an inspector window for a specific (utilityType, networkId).
    * Call from the input layer when a utility line is clicked with no tool armed.
    */
-  constructor(game, utilityType, networkId) {
+  constructor(game, utilityType, networkId, lineId = null) {
     this.game = game;
     this.utilityType = utilityType;
     this.networkId = networkId;
+    this.lineId = lineId;
     this._vacuumHistoryRangeTicks = DEFAULT_VACUUM_HISTORY_RANGE_TICKS;
 
-    const winId = 'util-' + utilityType + '-' + networkId;
+    const winId = lineId
+      ? 'util-line-' + lineId
+      : 'util-network-' + utilityType + '-' + networkId;
     const existing = ContextWindow.getWindow(winId);
     if (existing) {
       existing.focus();
@@ -115,10 +130,10 @@ export class UtilityInspector {
     const icon = ICONS[utilityType] || '';
     const displayName = desc ? desc.displayName : utilityType;
 
-    const tabs = utilityInspectorTabs(utilityType);
+    const tabs = utilityInspectorTabs(utilityType, lineId);
     const ctx = new ContextWindow({
       id: winId,
-      title: displayName,
+      title: lineId ? `${displayName} Run` : displayName,
       icon,
       accentColor: accent,
       tabs,
@@ -126,6 +141,10 @@ export class UtilityInspector {
     });
     this.ctx = ctx;
 
+    if (lineId) {
+      ctx.onTabRender('run', (el) => this._renderRun(el));
+      ctx.onTabRender('performance', (el) => this._renderPerformance(el));
+    }
     ctx.onTabRender('overview', (el) => this._renderOverview(el));
     if (utilityType === 'rfWaveguide') {
       ctx.onTabRender('spectrum', (el) => this._renderSpectrum(el));
@@ -135,6 +154,7 @@ export class UtilityInspector {
     // listener channel (same pattern as NetworkWindow).
     this._listener = (event) => {
       if (event !== 'tick' && event !== 'utilityLinesChanged') return;
+      this._syncSelectedLineNetwork();
       if (this.ctx && this.ctx._el) this.ctx.update();
     };
     this._off = (typeof this.game.on === 'function') ? this.game.on(this._listener) : null;
@@ -148,10 +168,33 @@ export class UtilityInspector {
     this._listener = null;
   }
 
+  // Network ids are content hashes of port membership. If another run is
+  // added to or removed from this topology while the window is open, follow
+  // the selected line onto the replacement id instead of leaving its Network
+  // and Performance tabs pointed at the retired solve result.
+  _syncSelectedLineNetwork() {
+    if (!this.lineId) return;
+    const line = this.game.state.utilityLines?.get?.(this.lineId);
+    if (!line) return;
+    const networks = this.game.state.utilityNetworks?.get?.(line.utilityType) || [];
+    const network = networks.find(candidate => (candidate.lineIds || []).includes(this.lineId));
+    if (network) this.networkId = network.id;
+  }
+
   _renderSpectrum(el) {
     const perType = this.game.state.utilityNetworkData?.get?.(this.utilityType);
     const flow = perType?.get?.(this.networkId);
     el.innerHTML = renderRfSpectrum(flow);
+  }
+
+  _renderRun(el) {
+    const model = utilityLineDetailsModel(this.game.state, this.lineId, this.networkId);
+    el.innerHTML = renderUtilityLineDetails(model);
+  }
+
+  _renderPerformance(el) {
+    const model = utilityPerformanceModel(this.game.state, this.utilityType, this.networkId);
+    el.innerHTML = renderUtilityPerformance(model);
   }
 
   _renderOverview(el) {

@@ -46,13 +46,14 @@ console.log('\n--- Utility inspector click command ---');
     'line selection reuses the solver-published network object');
 
   let opened = null;
-  const didOpen = openUtilityInspectorForLine({ state }, line.id, (utilityType, networkId) => {
-    opened = { utilityType, networkId };
+  const didOpen = openUtilityInspectorForLine({ state }, line.id, (utilityType, networkId, lineId) => {
+    opened = { utilityType, networkId, lineId };
   });
   assert(didOpen === true, 'a line on a published network opens an inspector');
   assert(opened?.utilityType === 'powerCable'
-      && opened?.networkId === 'net_powerCable_published',
-  'the inspector receives the clicked line\'s solved utility type and network id');
+      && opened?.networkId === 'net_powerCable_published'
+      && opened?.lineId === line.id,
+  'the inspector receives the clicked run id and its solved network identity');
 }
 
 {

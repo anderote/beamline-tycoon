@@ -2,8 +2,9 @@
 //
 // Per-tick solve loop. Given the current state.utilityLines and a descriptor
 // registry, discover networks and call each descriptor's solve() — writing
-// flow results to state.utilityNetworkData (per type) and next-tick persistent
-// state to state.utilityNetworkState (keyed by network id). Descriptor throws
+// flow results to state.utilityNetworkData (per type), bounded plot telemetry
+// to state.utilityPerformanceHistory, and next-tick persistent state to
+// state.utilityNetworkState (keyed by network id). Descriptor throws
 // are trapped and surfaced as errors[{severity:'hard', code:'solve_threw'}].
 //
 // Topology-dirty caching: network discovery (union-find + spatial join over
@@ -22,6 +23,7 @@ import { discoverAll, makeDefaultPortLookup } from './network-discovery.js';
 import { computeElectricalSinkDemands } from './electrical-demand.js';
 import { buildPowerFeedIndex } from './power-feed.js';
 import { endpointsById } from './endpoint-lookup.js';
+import { appendUtilityPerformanceSample } from './performance-history.js';
 
 function cloneDefaults(defaults) {
   if (defaults == null) return {};
@@ -137,12 +139,17 @@ export class SolveRunner {
     const endpointIndex = endpointsById(worldState);
 
     state.utilityNetworkData = new Map();
+    const previousPerformance = state.utilityPerformanceHistory instanceof Map
+      ? state.utilityPerformanceHistory : new Map();
+    const nextPerformance = new Map();
     const allErrors = [];
 
     for (const utilityType of list) {
       const descriptor = this.registry.types && this.registry.types[utilityType];
       const perType = new Map();
+      const perTypePerformance = new Map();
       state.utilityNetworkData.set(utilityType, perType);
+      nextPerformance.set(utilityType, perTypePerformance);
       if (!descriptor) continue;
 
       const networks = networksByType.get(utilityType) || [];
@@ -171,7 +178,13 @@ export class SolveRunner {
             }],
           };
         }
-        if (result.flowState) perType.set(network.id, result.flowState);
+        if (result.flowState) {
+          perType.set(network.id, result.flowState);
+          const prior = previousPerformance.get(utilityType)?.get?.(network.id);
+          perTypePerformance.set(network.id, appendUtilityPerformanceSample(
+            prior, result.flowState, worldState?.tick,
+          ));
+        }
         if (result.nextPersistentState !== undefined && result.nextPersistentState !== null) {
           const next = result.nextPersistentState;
           // Record port membership alongside the descriptor's state so
@@ -183,6 +196,10 @@ export class SolveRunner {
         if (Array.isArray(result.errors)) allErrors.push(...result.errors);
       }
     }
+
+    // Derived and intentionally not serialized. Replacing the outer map also
+    // prunes histories for networks that no longer exist after a topology edit.
+    state.utilityPerformanceHistory = nextPerformance;
 
     return { errors: allErrors };
   }

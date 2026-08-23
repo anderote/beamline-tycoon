@@ -1,4 +1,4 @@
-// Public command for opening a solved utility network from one of its lines.
+// Public command for opening a line-specific inspector on its solved network.
 // The published discovery is authoritative; fresh discovery is only an
 // identity fallback during the short interval before the next solve pass.
 
@@ -34,7 +34,6 @@ export function openUtilityInspectorForLine(game, lineId, createInspector = null
   if (!resolved) return false;
   const open = createInspector
     || ((utilityType, networkId) => new UtilityInspector(game, utilityType, networkId));
-  open(resolved.line.utilityType, resolved.network.id);
+  open(resolved.line.utilityType, resolved.network.id, lineId);
   return true;
 }
-
