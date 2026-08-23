@@ -1,13 +1,12 @@
 // Minor Lab — canonical authored baseline.
 //
-// Source: the newest Minor Lab Scenario Admin export in Downloads on
-// 2026-08-22 (`minorLab4.scenario (3).json`, SHA-256
-// 794e9189b7583f66d1aba1b11a1b1fef3d6f879c0e342f30f68eee251206b97a).
-// The top-level scenario id was changed from `minorLab4` to the stable built-in
-// identity `minorLab`. Its power distribution nodes were subsequently migrated
-// to the current panel topology; the authored facility layout remains otherwise
-// preserved (data graph SHA-256
-// 4dc3972a1de6dcc5598f5a734b7dcb460f380800f70b39bfb3324251f10a6337).
+// Source: the most recent Minor Lab Scenario Admin export in Downloads on
+// 2026-08-22 (`minorLab.scenario (19).json`, SHA-256
+// 33a91472b136ab19d5926a67175dd32c3296ab3d555a1ea9d33339453ebc7073).
+// It already uses the stable built-in `minorLab` identity. One disconnected
+// `switchgear` record from a retired component was removed; the authored
+// layout is otherwise preserved (data graph SHA-256
+// 08781412bb28e387c24111afe4b0e836863329063d1e7358a70bf35c662762a7).
 
 import MINOR_LAB_BASE from './minorLab.base.json' with { type: 'json' };
 import { wireUtility } from './scenario-wiring.js';
@@ -20,175 +19,39 @@ export function generateMinorLab() {
 }
 
 /**
- * The export captured an unfinished cable gesture: `ul_261` leaves the main
- * panel's sixth branch socket and `ul_693` leaves the monitor-bank inlet, but
- * their free ends never joined. Replace those two authored dangling halves
- * with the single connection they describe. No other world data is changed.
+ * Complete the seven loose utility gestures in the authored export. Keeping
+ * these repairs outside the snapshot preserves the downloaded world verbatim,
+ * while every fresh Minor Lab still starts with both beamlines serviceable.
  */
 export function setupMinorLab(game) {
-  for (const lineId of ['ul_261', 'ul_693']) {
-    game.utilityLineSystem?.removeLine(lineId);
-  }
-  const retainedColdBranches = new Set([
-    'ul_621', 'ul_622', 'ul_623', 'ul_624',
-    'ul_625', 'ul_626', 'ul_627', 'ul_628',
-  ]);
-  for (const [lineId, line] of [...game.state.utilityLines]) {
-    if (line.utilityType === 'coolingWater' && !retainedColdBranches.has(lineId)) {
-      game.utilityLineSystem?.removeLine(lineId);
-    }
-  }
-  const powerRepair = wireUtility(
-    game,
-    'powerCable',
-    { id: 'in_118', role: 'source', index: 5 },
-    { id: 'fn_26', role: 'sink' },
-  );
-
-  // The imported facility predates explicit hot-water returns. Preserve its
-  // working cold branches, then retrofit each of the two beam rooms with
-  // three paired return headers. Their authored blue and red halves keep
-  // supply and return unmistakable.
-  // Rigid hot-water pipe carries the collected heat through sealed
-  // wall sleeves to the existing cooling tower yard.
-  const place = (type, col, row, extra = {}) => game.placePlaceable({
-    type, col, row, free: true, silent: true, ...extra,
-  });
-  const upperFourLine = place('waterDistributor4', -5, 8);
-  const upperTwoLine = place('waterDistributor2', -1, 8);
-  const lowerFourLine = place('waterDistributor4', -9, 0);
-  const lowerTwoLine = place('waterDistributor4', -5, 0);
-  const upperColdDistributor = place('waterDistributor4', -9, 8);
-  const lowerColdDistributor = place('waterDistributor4', 0, 5);
-  const fourLineHeader = id => ({
-    id, waterPorts: ['water_line_3', 'water_line_4'], supplyPort: 'supply_pipe_2',
-  });
-  const twoLineHeader = id => ({
-    id, waterPorts: ['water_line_2'], supplyPort: 'supply_pipe_2',
-  });
-  const upperHeaders = [
-    fourLineHeader(upperFourLine), twoLineHeader(upperTwoLine),
-    fourLineHeader(upperColdDistributor),
-  ];
-  const lowerHeaders = [
-    fourLineHeader(lowerFourLine), fourLineHeader(lowerTwoLine),
-    fourLineHeader(lowerColdDistributor),
-  ];
-  const sleeve = row => place('waterSupplyWallPassThrough1x1', 2, row, {
-    wallMount: { col: 2, row, edge: 'e', off: 1 },
-  });
-  const upperSleeves = [sleeve(6), sleeve(7), sleeve(8)];
-  const lowerSleeves = [sleeve(2), sleeve(3), sleeve(4)];
-
-  const connectReturns = (loads, headers) => {
-    const outlets = headers.flatMap(header => header.waterPorts.map(port => ({
-      header, port,
-    })));
-    loads.forEach((id, index) => {
-      const { header, port } = outlets[index];
-      const connected = wireUtility(game, 'coolingWater', { id, port: 'hot_out' }, {
-        id: header.id, port,
-      }, { waterCircuit: 'hot' });
-      // The upper room's first quadrupole is boxed in by its legacy cold hose.
-      // The spare socket on the third return header gives the obstacle-aware
-      // router a clean approach without crossing the room wall.
-      if (!connected) {
-        wireUtility(game, 'coolingWater', { id, port: 'hot_out' }, {
-          id: outlets.at(-1).header.id, port: outlets.at(-1).port,
-        }, { waterCircuit: 'hot' });
-      }
-    });
-  };
-  connectReturns(['pl_3', 'pl_2', 'pl_1', 'bl_14', 'bl_15'], upperHeaders);
-  connectReturns(['pl_9', 'pl_8', 'pl_7', 'bl_16', 'bl_17'], lowerHeaders);
-
-  // The upper target's red fitting lands exactly on the hot hose already
-  // serving the adjacent compact distributor. Its equipment envelope leaves
-  // no separate approach corridor, so commit the physically correct tee at
-  // that coincident point instead of pretending a second parallel hose fits.
-  const upperTargetConnected = [...game.state.utilityLines.values()].some(line =>
-    line.utilityType === 'coolingWater'
-      && [line.start, line.end].some(ref =>
-        ref?.placeableId === 'bl_15' && ref.portName === 'hot_out'));
-  if (!upperTargetConnected) {
-    const hotTrunk = [...game.state.utilityLines.values()].find(line =>
-      line.utilityType === 'coolingWater' && line.waterCircuit === 'hot'
-        && [line.start, line.end].some(ref =>
-          ref?.placeableId === upperTwoLine && ref.portName === 'water_line_2'));
-    if (hotTrunk) {
-      game.utilityLineSystem?.addLine({
-        utilityType: 'coolingWater', waterCircuit: 'hot',
-        start: { placeableId: 'bl_15', portName: 'hot_out' }, end: null,
-        path: [{ col: -0.5, row: 8 }, { col: -0.25, row: 8 }],
-        cablePath: [{ col: -0.5, row: 8 }, { col: -0.25, row: 8 }],
-        tapLineIds: { start: hotTrunk.id },
-      });
-    }
-  }
-
   const hotPipe = { waterCircuit: 'hot' };
-  const coldPipe = { waterCircuit: 'cold' };
-  const lukewarmPipe = { waterCircuit: 'lukewarm' };
+  const coldWater = { waterCircuit: 'cold' };
+  const hotWater = { waterCircuit: 'hot' };
+
+  // Close the two new chillers' condenser loops into the authored tower bank.
   wireUtility(game, 'waterSupplyPipe',
-    { id: 'in_90', port: 'supply_cold_out' },
-    { id: upperColdDistributor, port: 'supply_pipe_1' }, coldPipe);
-  wireUtility(game, 'coolingWater',
-    { id: upperColdDistributor, port: 'water_line_1' },
-    { id: 'bl_15', port: 'cool_in' }, coldPipe);
-  wireUtility(game, 'coolingWater',
-    { id: upperColdDistributor, port: 'water_line_2' },
-    { id: 'in_249', port: 'cool_in' }, coldPipe);
+    { id: 'in_1549', role: 'sink', side: 'front', index: 1 },
+    { id: 'in_1551', role: 'source', side: 'right', index: 0 }, hotPipe);
   wireUtility(game, 'waterSupplyPipe',
-    { id: 'in_91', port: 'supply_cold_out' },
-    { id: lowerColdDistributor, port: 'supply_pipe_1' }, coldPipe);
+    { id: 'in_1550', role: 'sink', side: 'front', index: 1 },
+    { id: 'in_1552', role: 'source', side: 'right', index: 0 }, hotPipe);
+
+  // Each beam-room manifold's fourth pair is the intended target branch.
   wireUtility(game, 'coolingWater',
-    { id: lowerColdDistributor, port: 'water_line_1' },
-    { id: 'bl_17', port: 'cool_in' }, coldPipe);
+    { id: 'in_1562', role: 'source', side: 'right', index: 6 },
+    { id: 'bl_15', role: 'sink', side: 'left', index: 0 }, coldWater);
   wireUtility(game, 'coolingWater',
-    { id: lowerColdDistributor, port: 'water_line_2' },
-    { id: 'in_130', port: 'cool_in' }, coldPipe);
+    { id: 'bl_15', role: 'sink', side: 'left', index: 1 },
+    { id: 'in_1562', role: 'source', side: 'right', index: 7 }, hotWater);
+  wireUtility(game, 'coolingWater',
+    { id: 'in_1518', role: 'source', side: 'right', index: 6 },
+    { id: 'bl_17', role: 'sink', side: 'left', index: 0 }, coldWater);
+  wireUtility(game, 'coolingWater',
+    { id: 'bl_17', role: 'sink', side: 'left', index: 1 },
+    { id: 'in_1518', role: 'source', side: 'right', index: 7 }, hotWater);
 
-  const upperProcessReturns = [
-    ['in_90', 'return_hot_in'],
-    ['in_90', 'return_hot_in'],
-    ['in_234', 'return_hot_in'],
-  ];
-  const lowerProcessReturns = [
-    ['in_91', 'return_hot_in'],
-    ['in_91', 'return_hot_in'],
-    ['in_235', 'return_hot_in'],
-  ];
-  const connectHotHeaders = (headers, sleeves, chillers) => {
-    headers.forEach((header, index) => {
-      wireUtility(game, 'waterSupplyPipe',
-        { id: header.id, port: header.supplyPort },
-        { id: sleeves[index], port: 'supply_front' }, hotPipe);
-      wireUtility(game, 'waterSupplyPipe',
-        { id: chillers[index][0], port: chillers[index][1] },
-        { id: sleeves[index], port: 'supply_back' }, hotPipe);
-    });
-  };
-
-  // Close each water-cooled chiller's condenser loop. The yard rejector sends
-  // green condenser water to `room_in`; the chiller sends process heat plus
-  // compressor input back through its separate red reject outlet.
-  const connectCondenser = (chiller, rejector) => {
-    wireUtility(game, 'waterSupplyPipe',
-      { id: rejector, port: 'room_out' },
-      { id: chiller, port: 'room_in' }, lukewarmPipe);
-    wireUtility(game, 'waterSupplyPipe',
-      { id: chiller, port: 'reject_hot_out' },
-      { id: rejector, port: 'hot_in' }, hotPipe);
-  };
-  connectCondenser('in_90', 'in_112');
-  connectCondenser('in_91', 'in_113');
-  connectCondenser('in_234', 'in_244');
-  connectCondenser('in_235', 'in_244');
-
-  // Route process returns after the condenser mains so the denser beam-room
-  // headers detour around those mandatory plant connections.
-  connectHotHeaders(upperHeaders, upperSleeves, upperProcessReturns);
-  connectHotHeaders(lowerHeaders, lowerSleeves, lowerProcessReturns);
-
-  return powerRepair;
+  // The lower beamline's BPM is the only data sink not already on the rack bus.
+  return wireUtility(game, 'dataFiber',
+    { id: 'fn_4', role: 'pass', side: 'front', index: 0 },
+    { id: 'pl_12', role: 'sink', side: 'right', index: 0 });
 }
