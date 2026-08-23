@@ -192,15 +192,29 @@ console.log('\n--- 1b. bakeRunDistanceFromPositionZ rescales in isolation ---');
 // A three-waypoint, two-segment powered run: (0,0) -> (3,0) -> (3,4), both
 // ends open so buildWorldPoints emits the path verbatim (no port risers).
 // World coords are tile*2: (0,0)->(6,0)->(6,8). Segment lengths: 6 and 8.
-function buildFlowLine(utilityType, waterCircuit = null) {
+function buildFlowLine(utilityType, waterCircuit = null, connected = false) {
+  const endpointType = utilityType === 'waterSupplyPipe' ? 'cyclotron70' : 'source';
+  const portName = waterCircuit === 'hot' ? 'hot_out' : 'cool_in';
   const line = {
-    id: 'ul_flow', utilityType, start: null, end: null,
+    id: 'ul_flow', utilityType,
+    start: connected ? { placeableId: 'water-a', portName } : null,
+    end: connected ? { placeableId: 'water-b', portName } : null,
     path: [{ col: 0, row: 0 }, { col: 3, row: 0 }, { col: 3, row: 4 }],
     ...(waterCircuit ? { waterCircuit } : {}),
   };
   const builder = new UtilityLineBuilderV2();
   const parent = new Obj3();
   const lines = new Map([[line.id, line]]);
+  const placeables = new Map(connected ? [
+    ['water-a', {
+      id: 'water-a', type: endpointType,
+      col: 0, row: 0, subCol: 0, subRow: 0, dir: 0,
+    }],
+    ['water-b', {
+      id: 'water-b', type: endpointType,
+      col: 3, row: 4, subCol: 0, subRow: 0, dir: 2,
+    }],
+  ] : []);
   const network = { id: 'net_flow', utilityType, lineIds: [line.id] };
   const state = {
     utilityNetworks: new Map([[utilityType, [network]]]),
@@ -208,7 +222,7 @@ function buildFlowLine(utilityType, waterCircuit = null) {
       [network.id, { totalCapacity: 1, errors: [] }],
     ])]]),
   };
-  builder.build(lines, new Map(), parent, { state });
+  builder.build(lines, placeables, parent, { state });
   return { group: parent.children[0] };
 }
 
@@ -430,12 +444,19 @@ console.log('\n--- 4. FLOW_PARAMS covers every utility ---');
       && cryoMist.activeFraction <= 0.28,
     'cryo lines publish sparse intermittent mist only at bayonets and bellows');
 
-  const waterEffects = buildFlowLine('coolingWater').group.userData.visualEffects;
-  const waterDrips = waterEffects?.find(effect => effect.kind === 'ambientDrip');
-  assert(waterDrips?.path?.length >= 3
-      && waterDrips.cycle <= waterDrips.fallDuration * 3.5
-      && waterDrips.spacing <= 2.5,
-    'cooling lines publish readable intermittent drips without becoming a continuous leak');
+  assert(!buildFlowLine('coolingWater', 'cold').group.userData.visualEffects
+    ?.some(effect => effect.kind === 'ambientDrip'),
+  'open construction caps stay dry instead of leaking along the hose body');
+  for (const utilityType of ['coolingWater', 'waterSupplyPipe']) {
+    for (const circuit of ['cold', 'hot']) {
+      const waterDrips = buildFlowLine(utilityType, circuit, true)
+        .group.userData.visualEffects?.find(effect => effect.kind === 'ambientDrip');
+      assert(waterDrips?.source === 'water-fittings'
+          && waterDrips.emitterMode === 'points'
+          && waterDrips.path.length === 2,
+        `${utilityType} publishes ${circuit} drops at its two connected fittings`);
+    }
+  }
 
   const dataCables = flexibleMeshes(buildFlowLine('dataFiber').group);
   assert(dataCables.length === 1

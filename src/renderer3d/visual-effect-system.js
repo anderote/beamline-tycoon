@@ -309,7 +309,9 @@ export class VisualEffectSystem {
     for (const raw of descriptors || []) {
       if (!raw?.id || !['pathPulse', 'ambientMist', 'ambientDrip'].includes(raw.kind)) continue;
       const path = prepareEffectPath(raw.path);
-      if (path.length <= 0) continue;
+      const discreteAmbientEmitter = raw.emitterMode === 'points'
+        && (raw.kind === 'ambientMist' || raw.kind === 'ambientDrip');
+      if (path.length <= 0 && !(discreteAmbientEmitter && path.points.length > 0)) continue;
       const id = `${prefix}${raw.id}`;
       this._effects.set(id, { ...raw, id, path, scopeId });
     }
@@ -619,17 +621,23 @@ export class VisualEffectSystem {
 
   _writeDripParticles(effect, startIndex) {
     const spacing = Math.max(1, Number(effect.spacing) || 3.4);
-    const emitterCount = Math.max(1, Math.ceil(effect.path.length / spacing));
+    const pointEmitters = effect.emitterMode === 'points';
+    const emitterCount = pointEmitters
+      ? effect.path.points.length
+      : Math.max(1, Math.ceil(effect.path.length / spacing));
     const fallDuration = Math.max(0.2, Number(effect.fallDuration) || 0.72);
     const baseCycle = Math.max(fallDuration + 0.5, Number(effect.cycle) || 4.4);
     const floorY = Number.isFinite(effect.floorY) ? effect.floorY : FLOOR_Y;
     const radius = Math.max(0.01, Number(effect.radius) || 0.026);
+    const elongation = Math.max(1, Number(effect.elongation) || 2.8);
     let index = startIndex;
     let requested = 0;
     for (let emitter = 0; emitter < emitterCount; emitter++) {
       const seed = stableHashUnit(`${effect.id}:${emitter}`);
       const distance = effect.path.length * (emitter + 0.5) / emitterCount;
-      const origin = sampleEffectPath(effect.path, distance, this._sample);
+      const origin = pointEmitters
+        ? effect.path.points[emitter]
+        : sampleEffectPath(effect.path, distance, this._sample);
       if (!origin || origin.y <= floorY + radius) continue;
       const cycle = baseCycle * (0.82 + seed * 0.42);
       const ageSeconds = positiveModulo(this._time + seed * cycle, cycle);
@@ -639,7 +647,7 @@ export class VisualEffectSystem {
       const fall = ageSeconds / fallDuration;
       const y = origin.y + (floorY - origin.y) * fall * fall;
       this._position.set(origin.x, Math.max(floorY + radius, y), origin.z);
-      this._scale.set(radius, radius * (2.8 - fall * 1.1), radius);
+      this._scale.set(radius, radius * Math.max(1, elongation - fall * 0.45), radius);
       this._matrix.compose(this._position, this._burstQuat, this._scale);
       this._ambientMesh.setMatrixAt(index, this._matrix);
       this._color.set(effectColor(effect.color || '#78bfff'))
