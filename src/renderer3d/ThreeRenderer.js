@@ -82,6 +82,11 @@ import { FramePacer } from './frame-pacer.js';
 import { LightRig } from './light-rig.js';
 import { VisualEffectSystem } from './visual-effect-system.js';
 import {
+  PLACEMENT_GHOST_LIFT,
+  PlacementFeedbackSystem,
+  placementFeedbackIds,
+} from './placement-feedback.js';
+import {
   ambientDistributorSparkProfile,
   ambientHvConnectionSparkProfile,
   equipmentPowerUpSparkProfile,
@@ -140,7 +145,7 @@ import {
   YAW_DIVISIONS,
 } from './free-orbit-math.js';
 import { ViewCube } from './view-cube.js';
-import { MAX_LEVEL, floorLabel, levelWorldY } from '../game/storeys.js';
+import { MAX_LEVEL, floorLabel, levelOf, levelWorldY } from '../game/storeys.js';
 import { loadLegacyThumbnailRenderer } from './legacy-thumbnail-renderer.js';
 import {
   DEFAULT_ZONE_LABEL_STYLE,
@@ -276,6 +281,7 @@ export class ThreeRenderer {
       },
       terrainMesh: () => this._terrainMesh,
     });
+    this._placementFeedback = null;
 
     // Overlay-shim references — set during init(). `app` keeps its old
     // Pixi-era shape ({canvas, screen}) for InputHandler/main.js readers;
@@ -804,6 +810,13 @@ export class ThreeRenderer {
     this.previewGroup.renderOrder = 999;
     this.scene.add(this.previewGroup);
 
+    // Placement feedback owns only temporary renderer transforms and one
+    // bounded dust-puff draw. It resolves wrappers after the frame-coalesced
+    // world refresh, so a newly-added id is guaranteed to have geometry.
+    this._placementFeedback = new PlacementFeedbackSystem(this.scene, {
+      resolveTarget: id => this._placementFeedbackTarget(id),
+    });
+
     // Selection is deliberately separate from previewGroup. Placement and
     // hover feedback clear that group every mouse move; a clicked object must
     // remain legible as selected while its information window is open.
@@ -871,6 +884,7 @@ export class ThreeRenderer {
         this._worldInvalidationScheduler.enqueue(worldPlan);
       }
       if (event === 'utilityLinesChanged') this._emitUtilityConnectionSparks(data);
+      if (event === 'placeableChanged') this._queuePlacementFeedback(data);
       switch (event) {
         case 'beamlineChanged':
         case 'infrastructureChanged':
@@ -2271,13 +2285,44 @@ export class ThreeRenderer {
     );
   }
 
-  /** Let a committed portable item visibly fall onto its canonical surface. */
+  /** Backward-compatible input seam for the unified placement settle. */
   dropPortablePlaceable(placeableId, options = {}) {
-    return this._physicsPresentation.dropPortable(placeableId, options)
-      .catch(error => {
-        console.warn(`[Physics] Portable drop failed for ${placeableId}.`, error);
-        return false;
-      });
+    return this._placementFeedback?.request(placeableId, options) ?? false;
+  }
+
+  /** Queue every exact add/move in one coalesced placeable mutation. */
+  _queuePlacementFeedback(data) {
+    for (const id of placementFeedbackIds(data)) this._placementFeedback?.request(id);
+  }
+
+  /** Resolve a canonical placeable snapshot to its renderer-owned wrapper. */
+  _placementFeedbackTarget(id) {
+    const sections = [
+      this._snapshot?.components,
+      this._snapshot?.equipment,
+      this._snapshot?.furnishings,
+      this._snapshot?.decorations,
+    ];
+    let entry = null;
+    for (const section of sections) {
+      entry = section?.find?.(candidate => String(candidate?.id) === String(id)) || null;
+      if (entry) break;
+    }
+    if (!entry) return null;
+    const def = PLACEABLES[entry.type] || COMPONENTS[entry.type];
+    if (!def || def.mount === 'wall' || def.mount === 'utilityTap' || def.mount === 'overhead') {
+      return { supported: false };
+    }
+    const object = this.equipmentBuilder?.getGroup?.(id)
+      || this.componentBuilder?.getGroup?.(id)
+      || this.decorationBuilder?.getGroup?.(id)
+      || null;
+    if (!object) return null;
+    return {
+      object,
+      dustY: levelWorldY(levelOf(entry)) + (Number(entry.placeY) || 0) * 0.5,
+      footprintRadius: Math.max(def.subW || 1, def.subL || 1) * 0.25,
+    };
   }
 
   undoLastPhysicsIncident() {
@@ -2502,6 +2547,7 @@ export class ThreeRenderer {
       this._clearDesignGhost();
       return;
     }
+    this.designGhostGroup.position.y = PLACEMENT_GHOST_LIFT;
 
     const design = placer.design;
     const sig = [
@@ -2683,7 +2729,10 @@ export class ThreeRenderer {
   _clearDesignGhost() {
     if (this._designGhostSig === null && !this.designGhostGroup?.children.length) return;
     this._designGhostSig = null;
-    if (this.designGhostGroup) this.designGhostGroup.clear();
+    if (this.designGhostGroup) {
+      this.designGhostGroup.clear();
+      this.designGhostGroup.position.y = 0;
+    }
     this._disposeDesignGhostProtos();
   }
 
@@ -4016,6 +4065,11 @@ export class ThreeRenderer {
       pz = wallPose.z;
     }
     const placeYOffset = (hover.placeY || 0) * SUB_UNIT;
+    const ghostLift = placeable.mount === 'wall'
+      || placeable.mount === 'utilityTap'
+      || placeable.mount === 'overhead'
+      ? 0
+      : PLACEMENT_GHOST_LIFT;
     const vSubH = placeable.visualSubH ?? placeable.subH ?? 2;
     // Game._placePlaceableInner auto-flattens every footprint tile to zero
     // before committing, so the ghost previews the POST-flatten surface, not
@@ -4028,6 +4082,7 @@ export class ThreeRenderer {
     if (placeable.mount === 'wall' || placeable.light) {
       y = fixtureMountY(placeable, placeYOffset + surfaceY);
     }
+    y += ghostLift;
     obj.position.set(px, y, pz);
     const rotY = wallPose?.yaw ?? (-(hover.dir || 0) * (Math.PI / 2));
     obj.rotation.y = rotY;
@@ -4050,7 +4105,9 @@ export class ThreeRenderer {
       type: hover.id,
       worldX: px,
       worldZ: pz,
-      yOffset: Number.isFinite(hover.mountY) ? hover.mountY : undefined,
+      yOffset: Number.isFinite(hover.mountY)
+        ? hover.mountY
+        : placeYOffset + surfaceY + ghostLift,
     }, portDef);
 
     // Wall fixtures are anchored to an edge, not a floor footprint. Their
@@ -4198,8 +4255,9 @@ export class ThreeRenderer {
     const SUB_UNIT = 0.5;
     // Attachments use `col * 2 + 1` (fractional col is already the
     // world-centered tile coordinate from the pipe projection).
+    const baseYOffset = Number.isFinite(mount?.yOffset) ? mount.yOffset : 0;
     const y = (isDetailed ? 0 : ((compDef.subH || 2) * SUB_UNIT) / 2)
-      + (Number.isFinite(mount?.yOffset) ? mount.yOffset : 0);
+      + baseYOffset + PLACEMENT_GHOST_LIFT;
     obj.position.set(px, y, pz);
     obj.rotation.y = -(direction || 0) * (Math.PI / 2);
     obj.renderOrder = 999;
@@ -4210,7 +4268,7 @@ export class ThreeRenderer {
     // an on-pipe placement to portAnchor3D, preserving its centred pose.
     this._addGhostUtilityPorts({
       type: compType, col, row, subCol: null, subRow: null, dir: direction,
-      worldX: px, worldZ: pz, yOffset: mount?.yOffset,
+      worldX: px, worldZ: pz, yOffset: baseYOffset + PLACEMENT_GHOST_LIFT,
       portsFlipped: portsFlipped === true,
     }, compDef);
 
@@ -4761,6 +4819,7 @@ export class ThreeRenderer {
     // Update moving visual instances/proxies before LightRig ranks those
     // proxies, so physical lights follow the current-frame pulse positions.
     this._effectSystem?.update(_dt, this._darkness ?? 0);
+    this._placementFeedback?.update(_dt);
     if (this.staffPawns) {
       this.staffPawns.update(_dt, {
         x: this._panX || 0,
@@ -6179,6 +6238,8 @@ export class ThreeRenderer {
     if (this.utilityLineBuilderV2 && this.utilityLineGroup) {
       this.utilityLineBuilderV2.dispose(this.utilityLineGroup);
     }
+    this._placementFeedback?.dispose();
+    this._placementFeedback = null;
     this._physicsPresentation.dispose();
     if (this.staffPawns) {
       this.staffPawns.dispose();
