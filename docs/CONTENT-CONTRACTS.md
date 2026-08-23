@@ -333,28 +333,29 @@ the short authoring contract.
   hot line may occupy the same logical X/Z path: presentation offsets their
   bodies laterally into a twin while topology and selection stay independent.
   Retired saved `routeHeightMeters` values cannot override a fixed datum.
-- Every routed utility descriptor sets `requiresWallPassThrough: true` and
-  validates its physical rendered route against `wallOccupied`. A player draw
-  that crosses a wall is one transaction: routing installs or reuses a matching
-  wall fitting, splits the gesture into ordinary terminated runs on its two
-  faces, charges line plus new-fitting cost, and records one undo entry. The
-  freehand `cablePath` remains authoritative for soft power, HV, data, and
-  flexible-water runs; rigid services use their routed `path`.
+- Soft power, HV, data, and flexible-water descriptors set
+  `requiresWallPassThrough: true` and validate their physical rendered route
+  against `wallOccupied`. A soft utility draw that crosses a wall is one
+  transaction: routing installs or reuses a matching wall fitting, splits the
+  gesture into ordinary terminated runs on its two faces, charges line plus
+  new-fitting cost, and records one undo entry. Its freehand `cablePath`
+  remains authoritative. Fabricated cryogenic transfer, rigid water supply,
+  RF waveguide, and vacuum pipe instead cross walls directly as one continuous
+  routed `path`; walls add no fitting, split, or extra construction cost.
 - Automatic fittings stay registered for saves and internal construction but
   declare `paletteHidden: true`, excluding them from both category palettes and
   build-menu search. Manual multi-circuit assemblies remain selectable:
   the 4×4 HV fitting carries four isolated conductors and the 2×2 water
   penetration carries two isolated sleeves. Routing may reuse a free pair in
   either assembly.
-- Automatic fitting hardware remains compact around its bore. HV, cryo, RF,
-  and cold/lukewarm/hot rigid-water crossings reserve one of the wall tile's two
-  1 m stations (`wallSpan: 2`, `off: 0|2`); routing moves the physical crossing
-  and its orthogonal approach to that station centre. Compact power, data,
-  flexible-water, and vacuum sleeves retain quarter-wall placement. Rigid
-  fittings at different elevations may share a station when their vertical
-  collar envelopes do not overlap, forming the same ordered service stack as
-  their independent runs. Manual multi-circuit fittings continue to reserve
-  their complete wall span.
+- Automatic fitting hardware remains compact around its bore. HV crossings
+  reserve one of the wall tile's two 1 m stations (`wallSpan: 2`, `off: 0|2`);
+  routing moves the physical crossing and its orthogonal approach to that
+  station centre. Compact power, data, and flexible-water sleeves retain
+  quarter-wall placement. Legacy hidden cryogenic, RF, vacuum, and rigid-water
+  fittings preserve their authored stations for saved facilities, but new
+  rigid routing neither creates nor reuses them. Manual multi-circuit fittings
+  continue to reserve their complete wall span.
 - Water line bodies, previews, flow arrows, equipment fittings, and available
   port markers use blue for `cold`, green for `lukewarm`, and red for `hot`.
   The LCW manifold's detailed model carries the same blue supply and red return
