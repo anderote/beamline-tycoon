@@ -3,7 +3,7 @@
 // publishes the replacement utilityNetworks map on the following solve pass.
 // The render invalidation signature therefore has to cover the published topology
 // (which controls source -> sink animation direction), fault severity, and
-// whether an RF network has forward power to visualize.
+// whether RF and cryogenic networks have live capacity to visualize.
 
 function sourceKey(source) {
   return source?.portKey
@@ -66,14 +66,19 @@ export function utilityFlowVisualSignature(state) {
   const networks = state?.utilityNetworks;
   if (!(data instanceof Map) || !(networks instanceof Map)) return null;
 
-  const rfData = data.get('rfWaveguide');
-  if (!(rfData instanceof Map)) return '';
-  const energizedLineIds = new Set();
-  for (const network of networks.get('rfWaveguide') || []) {
-    if (!(Number(rfData.get(network.id)?.totalCapacity) > 0)) continue;
-    for (const lineId of network.lineIds || []) energizedLineIds.add(String(lineId));
+  const entries = [];
+  for (const utilityType of ['rfWaveguide', 'cryoTransfer']) {
+    const perType = data.get(utilityType);
+    const energizedLineIds = new Set();
+    if (perType instanceof Map) {
+      for (const network of networks.get(utilityType) || []) {
+        if (!(Number(perType.get(network.id)?.totalCapacity) > 0)) continue;
+        for (const lineId of network.lineIds || []) energizedLineIds.add(String(lineId));
+      }
+    }
+    entries.push(`${utilityType}:${[...energizedLineIds].sort().join(',')}`);
   }
-  return [...energizedLineIds].sort().join(',');
+  return entries.join('|');
 }
 
 export function utilityLineVisualSignature(state) {

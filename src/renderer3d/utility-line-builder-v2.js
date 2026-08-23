@@ -235,9 +235,10 @@ function getJacketMaterial(utilityType, errorStatus, waterCircuit = null) {
 }
 
 // A transfer-line cryostat is read from the outside: an opaque stainless
-// vacuum vessel, not a visible cyan process tube inside a clear sleeve. The
-// restrained flow patch puts a cold-blue sheen on the metal without changing
-// its material identity. Hardware and identification bands remain unanimated.
+// vacuum vessel, not a visible process tube inside a clear sleeve. The
+// restrained flow patch puts a frosty near-white sheen on the metal without
+// changing its material identity. Hardware and identification bands remain
+// unanimated.
 function getCryostatJacketMaterial(utilityType, errorStatus) {
   const flowState = errorStatus || 'ok';
   const key = `${utilityType}|${flowState}`;
@@ -247,7 +248,8 @@ function getCryostatJacketMaterial(utilityType, errorStatus) {
     roughness: 0.22,
     metalness: 0.86,
   });
-  patchFlowMaterial(mat, utilityType, flowState, '#8de7f2');
+  patchFlowMaterial(
+    mat, utilityType, flowState, FLOW_PARAMS[utilityType]?.color || '#f4fbff');
   _cryostatJacketMatCache.set(key, shared(mat));
   return mat;
 }
@@ -2340,7 +2342,7 @@ function buildLineGroup(
   }
 
   const ambientPath = points.map((p) => ({ x: p.x, y: p.y, z: p.z }));
-  if (line.utilityType === 'cryoTransfer') {
+  if (line.utilityType === 'cryoTransfer' && flowState !== 'off') {
     if (cryoColdSpots.length > 0) {
       visualEffects.push({
         id: `cryo-mist:${line.id}`,
@@ -2750,7 +2752,9 @@ export class UtilityLineBuilderV2 {
     const lines = utilityLines || new Map();
     const errorByLineId = opts.state ? this._buildErrorMap(opts.state) : new Map();
     const energizedRfLineIds = opts.state
-      ? this._buildEnergizedRfLineIds(opts.state) : new Set();
+      ? this._buildEnergizedLineIds(opts.state, 'rfWaveguide') : new Set();
+    const energizedCryoLineIds = opts.state
+      ? this._buildEnergizedLineIds(opts.state, 'cryoTransfer') : new Set();
     const orientationByLineId = opts.state ? this._buildOrientationMap(opts.state, lines) : new Map();
     const records = typeof lines.values === 'function' ? Array.from(lines.values()) : Array.from(lines);
     const lineById = new Map(records.map(line => [line?.id, line]));
@@ -2761,13 +2765,16 @@ export class UtilityLineBuilderV2 {
       if (!line || !line.id) continue;
       seen.add(line.id);
       const errorStatus = errorByLineId.get(line.id) || 'ok';
-      // RF glow represents a real energized field, not merely the presence of
-      // copper waveguide. Solver output is the source of truth: an unpowered,
-      // disconnected, or frequency-incompatible source publishes zero
-      // capacity, so the guide remains ordinary dark metal even if its
-      // diagnostic severity is only soft.
-      const flowState = line.utilityType === 'rfWaveguide'
-        && !energizedRfLineIds.has(line.id) ? 'off' : errorStatus;
+      // RF glow and cryogenic frost represent live service, not merely
+      // installed metal. Solver output is the source of truth: a disconnected,
+      // incomplete, unpowered, or incompatible network publishes zero
+      // capacity, so its line remains ordinary dark metal even if diagnostic
+      // severity alone would permit a pulse.
+      const isUnenergizedRf = line.utilityType === 'rfWaveguide'
+        && !energizedRfLineIds.has(line.id);
+      const isUnenergizedCryo = line.utilityType === 'cryoTransfer'
+        && !energizedCryoLineIds.has(line.id);
+      const flowState = isUnenergizedRf || isUnenergizedCryo ? 'off' : errorStatus;
       // Draw order (line.start -> line.end) isn't necessarily source -> sink
       // — computeLineOrientations resolves that from network topology.
       // Included in the hash: rewiring a network (a new source appearing, a
@@ -3309,18 +3316,11 @@ export class UtilityLineBuilderV2 {
     return out;
   }
 
-  /**
-   * Return the RF lines whose solved network has usable forward power.
-   *
-   * This deliberately joins the renderer to the published solver value
-   * rather than re-evaluating equipment power feeds. Missing/stale solve data
-   * therefore fails closed: a waveguide cannot advertise RF energy until the
-   * simulation has actually published non-zero delivered capacity.
-   */
-  _buildEnergizedRfLineIds(state) {
+  /** Return lines whose solved network publishes usable service capacity. */
+  _buildEnergizedLineIds(state, utilityType) {
     const energized = new Set();
-    const networks = state?.utilityNetworks?.get?.('rfWaveguide') || [];
-    const flowByNetwork = state?.utilityNetworkData?.get?.('rfWaveguide');
+    const networks = state?.utilityNetworks?.get?.(utilityType) || [];
+    const flowByNetwork = state?.utilityNetworkData?.get?.(utilityType);
     if (!flowByNetwork || typeof flowByNetwork.get !== 'function') return energized;
     for (const network of networks) {
       const flow = flowByNetwork.get(network.id);

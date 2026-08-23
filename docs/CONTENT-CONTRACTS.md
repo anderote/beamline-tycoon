@@ -361,6 +361,10 @@ the short authoring contract.
   port markers use blue for `cold`, green for `lukewarm`, and red for `hot`.
   The LCW manifold's detailed model carries the same blue supply and red return
   header colors.
+- Cryogenic transfer jackets remain bare stainless until their solved network
+  publishes non-zero cooling capacity. A live jacket carries the shared moving
+  utility glow in frosty near-white; missing or stale solver data fails closed
+  so disconnected or incomplete cryogenic plant never appears live.
 - Water Line and Water Supply Pipe expose no cosmetic color/temperature picker.
   A gesture inherits its circuit from its first connected equipment port, then
   filters snapping, run-wiring targets, taps, previews, and the committed

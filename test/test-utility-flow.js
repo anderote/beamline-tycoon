@@ -407,8 +407,9 @@ console.log('\n--- 4. FLOW_PARAMS covers every utility ---');
       && FLOW_PARAMS.hvCable.lightIntensity > FLOW_PARAMS.powerCable.lightIntensity * 1.7,
     'power and HV cast stronger local light than support-service flow');
   assert(FLOW_PARAMS.cryoTransfer.baseGlow >= 0.18
-      && FLOW_PARAMS.cryoTransfer.strength >= 0.4,
-    'cryo restores its steady cool-blue frost glow over the jacketed line');
+      && FLOW_PARAMS.cryoTransfer.strength >= 0.4
+      && FLOW_PARAMS.cryoTransfer.color === '#f4fbff',
+    'cryo uses a steady near-white frost glow over the jacketed line');
   for (const type of [
     'hvCable', 'powerCable', 'vacuumPipe', 'rfWaveguide', 'coolingWater', 'cryoTransfer',
   ]) {
@@ -586,6 +587,54 @@ console.log('\n--- 5b. RF waveguide glow follows published forward power ---');
     'positive solved RF capacity rebuilds the guide with energized flow');
   assert(segment.layers.mask !== 1 && group.userData.visualEffects?.length === 1,
     'powered RF enters bloom and publishes its bounded moving light');
+}
+
+console.log('\n--- 5c. Cryogenic frost glow follows published cooling capacity ---');
+{
+  const line = {
+    id: 'cryo_capacity_state', utilityType: 'cryoTransfer', start: null, end: null,
+    path: [{ col: 0, row: 0 }, { col: 3, row: 0 }],
+  };
+  const network = {
+    id: 'cryo_net', utilityType: 'cryoTransfer', lineIds: [line.id],
+  };
+  const state = {
+    utilityNetworks: new Map([['cryoTransfer', [network]]]),
+    utilityNetworkData: new Map([['cryoTransfer', new Map([[
+      network.id, { totalCapacity: 0, errors: [] },
+    ]])]]),
+  };
+  const builder = new UtilityLineBuilderV2();
+  const parent = new Obj3();
+  const lines = new Map([[line.id, line]]);
+
+  builder.build(lines, new Map(), parent, { state });
+  let group = parent.children[0];
+  let segment = cylinderMeshes(group)[0];
+  let uniforms = segment.material.userData.flowUniforms;
+  assert(group.userData.flowState === 'off'
+      && uniforms.uStrength.value === 0
+      && uniforms.uBaseGlow.value === 0,
+    'zero-capacity cryo keeps its stainless jacket visually off');
+  assert(segment.layers.mask === 1 && !group.userData.visualEffects,
+    'inactive cryo stays out of bloom and publishes neither moving light nor frost mist');
+
+  state.utilityNetworkData.get('cryoTransfer').set(network.id, {
+    totalCapacity: 500, errors: [],
+  });
+  builder.build(lines, new Map(), parent, { state });
+  group = parent.children[0];
+  segment = cylinderMeshes(group)[0];
+  uniforms = segment.material.userData.flowUniforms;
+  const effects = group.userData.visualEffects || [];
+  assert(group.userData.flowState === 'ok'
+      && uniforms.uStrength.value > 0
+      && uniforms.uFlowColor.value.getHexString() === 'f4fbff',
+    'positive solved cryo capacity rebuilds the jacket with near-white frost flow');
+  assert(segment.layers.mask !== 1
+      && effects.some(effect => effect.kind === 'pathPulse' && effect.color === '#f4fbff')
+      && effects.some(effect => effect.kind === 'ambientMist'),
+    'live cryo enters bloom and publishes matching icy light and sparse fitting mist');
 }
 
 console.log('\n--- 6b. Vacuum visually flows from chamber to pump ---');

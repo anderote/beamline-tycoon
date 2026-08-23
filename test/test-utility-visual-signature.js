@@ -22,13 +22,13 @@ function state(errors = [], {
   };
 }
 
-function rfState(totalCapacity) {
+function flowState(utilityType, totalCapacity) {
   return {
-    utilityNetworks: new Map([['rfWaveguide', [{
-      id: 'rf-net', lineIds: ['rf-b', 'rf-a'], sources: [{ portKey: 'amp:rf_out' }],
+    utilityNetworks: new Map([[utilityType, [{
+      id: 'flow-net', lineIds: ['flow-b', 'flow-a'], sources: [{ portKey: 'source:out' }],
     }]]]),
-    utilityNetworkData: new Map([['rfWaveguide', new Map([[
-      'rf-net', { totalCapacity, errors: [] },
+    utilityNetworkData: new Map([[utilityType, new Map([[
+      'flow-net', { totalCapacity, errors: [] },
     ]])]]),
   };
 }
@@ -68,7 +68,7 @@ test('utility topology signature changes when solved flow direction can change',
   );
 });
 
-test('combined line signature covers topology, fault state, and RF flow state', () => {
+test('combined line signature covers topology, fault state, and live flow state', () => {
   assert.equal(utilityLineVisualSignature({}), null);
   const healthy = utilityLineVisualSignature(state());
   assert.notEqual(healthy, utilityLineVisualSignature(state([], { lineIds: ['a', 'b', 'new-run'] })));
@@ -79,14 +79,25 @@ test('combined line signature covers topology, fault state, and RF flow state', 
   );
 });
 
-test('flow signature changes when solved RF power turns on or off', () => {
+test('flow signature changes when solved RF or cryogenic capacity turns on or off', () => {
   assert.equal(utilityFlowVisualSignature({}), null);
-  assert.equal(utilityFlowVisualSignature(state()), '');
-  assert.equal(utilityFlowVisualSignature(rfState(0)), '');
-  assert.equal(utilityFlowVisualSignature(rfState(300)), 'rf-a,rf-b');
-  assert.notEqual(
-    utilityLineVisualSignature(rfState(0)),
-    utilityLineVisualSignature(rfState(300)),
-    'the renderer invalidates cached RF materials when forward power changes',
+  assert.equal(
+    utilityFlowVisualSignature(state()),
+    'rfWaveguide:|cryoTransfer:',
   );
+  for (const utilityType of ['rfWaveguide', 'cryoTransfer']) {
+    assert.equal(
+      utilityFlowVisualSignature(flowState(utilityType, 0)),
+      'rfWaveguide:|cryoTransfer:',
+    );
+    assert.match(
+      utilityFlowVisualSignature(flowState(utilityType, 300)),
+      new RegExp(`${utilityType}:flow-a,flow-b`),
+    );
+    assert.notEqual(
+      utilityLineVisualSignature(flowState(utilityType, 0)),
+      utilityLineVisualSignature(flowState(utilityType, 300)),
+      `the renderer invalidates cached ${utilityType} materials when capacity changes`,
+    );
+  }
 });
