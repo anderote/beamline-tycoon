@@ -83,11 +83,19 @@ export function beamlineRfOperatingInfo(nodes, components) {
 }
 
 /** Summarize a component definition into one title line and one detail line. */
-export function componentHoverInfo(comp, { autoConnectPlan = null } = {}) {
+export function componentHoverInfo(
+  comp,
+  { autoConnectPlan = null, operationalStatus = null } = {},
+) {
   if (!comp) return null;
   const ports = Object.values(comp.ports || {});
   const title = comp.name || humanize(comp.id) || 'Object';
   const detailWithHints = detail => `${detail}${linePlacementHint(comp)}`;
+  const info = detail => ({
+    title,
+    detail: detailWithHints(detail),
+    ...(operationalStatus ? { status: operationalStatus } : {}),
+  });
 
   if (autoConnectPlan
       && Number(autoConnectPlan.radius || comp.autoConnectRadius) > 0) {
@@ -95,28 +103,20 @@ export function componentHoverInfo(comp, { autoConnectPlan = null } = {}) {
     const connectable = Array.isArray(autoConnectPlan.stubs)
       ? autoConnectPlan.stubs.length
       : Math.max(0, Number(autoConnectPlan.connectable) || 0);
-    return {
-      title,
-      detail: detailWithHints(
+    return info(
         `${candidates} unconnected ${autoConnectTargetLabel(
           autoConnectPlan.utilityType || comp.autoConnectUtility || 'powerCable', candidates,
         )} in range`
           + ` · Tab connects ${connectable}`
           + ' · Select + T disconnects all',
-      ),
-    };
+    );
   }
 
   const powerOut = sumPorts(ports, ['powerCable', 'hvCable'], 'source', 'capacity');
   const powerIn = sumPorts(ports, ['powerCable', 'hvCable'], 'sink', 'demand');
   if (powerOut > 0) {
     const consumed = powerIn > 0 ? powerIn : (Number(comp.energyCost) || 0);
-    return {
-      title,
-      detail: detailWithHints(
-        `Power: ${fmtNumber(consumed)} kW consumed · ${fmtNumber(powerOut)} kW produced`,
-      ),
-    };
+    return info(`Power: ${fmtNumber(consumed)} kW consumed · ${fmtNumber(powerOut)} kW produced`);
   }
 
   const sink = rfSink(ports);
@@ -127,22 +127,19 @@ export function componentHoverInfo(comp, { autoConnectPlan = null } = {}) {
     if (hz > 0) parts.push(formatRfFrequencyHz(hz));
     const demand = Number(sink.params?.demand) || Number(comp.rfPowerRequired) || 0;
     if (demand > 0) parts.push(`${fmtNumber(demand)} kW demand`);
-    return { title, detail: detailWithHints(`RF: ${parts.join(' · ')}`) };
+    return info(`RF: ${parts.join(' · ')}`);
   }
 
   const rfOut = sumPorts(ports, ['rfWaveguide'], 'source', 'capacity');
   if (rfOut > 0) {
     const bands = (comp.rfBands || (comp.rfBand ? [comp.rfBand] : []))
       .map(b => RF_LABELS[b] || humanize(b)).join(', ');
-    return {
-      title,
-      detail: detailWithHints(`RF output: ${fmtNumber(rfOut)} kW${bands ? ` · ${bands}` : ''}`),
-    };
+    return info(`RF output: ${fmtNumber(rfOut)} kW${bands ? ` · ${bands}` : ''}`);
   }
 
   const coolingOut = sumPorts(ports, ['coolingWater'], 'source', 'capacity');
   if (coolingOut > 0) {
-    return { title, detail: detailWithHints(`Cooling output: ${fmtNumber(coolingOut)} kW`) };
+    return info(`Cooling output: ${fmtNumber(coolingOut)} kW`);
   }
 
   const waterSupply = sumPorts(
@@ -153,7 +150,7 @@ export function componentHoverInfo(comp, { autoConnectPlan = null } = {}) {
     const parts = [];
     if (waterSupply > 0) parts.push(`${fmtNumber(waterSupply)} L/tick supply`);
     if (waterStorage > 0) parts.push(`${fmtNumber(waterStorage)} L storage`);
-    return { title, detail: detailWithHints(`Water: ${parts.join(' · ')}`) };
+    return info(`Water: ${parts.join(' · ')}`);
   }
 
   const sourceSpecs = [
@@ -163,23 +160,17 @@ export function componentHoverInfo(comp, { autoConnectPlan = null } = {}) {
   for (const [utility, param, label, unit] of sourceSpecs) {
     const value = sumPorts(ports, [utility], 'source', param);
     if (value > 0) {
-      return { title, detail: detailWithHints(`${label}: ${fmtNumber(value)} ${unit}`) };
+      return info(`${label}: ${fmtNumber(value)} ${unit}`);
     }
   }
 
   if (Number(comp.energyCost) > 0) {
-    return { title, detail: detailWithHints(`Power use: ${fmtNumber(comp.energyCost)} kW`) };
+    return info(`Power use: ${fmtNumber(comp.energyCost)} kW`);
   }
   if (Number(comp.stats?.beamCurrent) > 0) {
-    return {
-      title,
-      detail: detailWithHints(`Beam current: ${fmtNumber(comp.stats.beamCurrent)} mA`),
-    };
+    return info(`Beam current: ${fmtNumber(comp.stats.beamCurrent)} mA`);
   }
-  return {
-    title,
-    detail: detailWithHints(humanize(comp.category || comp.kind || 'Placed object')),
-  };
+  return info(humanize(comp.category || comp.kind || 'Placed object'));
 }
 
 export function furnishingHoverInfo(def) {

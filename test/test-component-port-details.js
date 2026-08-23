@@ -1,9 +1,10 @@
-// Component info windows expose the resolved utility-port contract: connector
-// kinds, directions, names, and solver-facing demand/capacity values.
+// Component info windows expose the resolved utility-port contract as compact
+// requirement/capacity lines without leaking authored connector ids.
 
 import {
   componentUtilityPortGroups,
   componentUtilityPortSectionHtml,
+  componentUtilityPortSummary,
 } from '../src/ui/utility-port-details.js';
 
 let passed = 0;
@@ -72,10 +73,24 @@ console.log('\n=== Component info utility ports ===\n');
 }
 
 {
-  const html = componentUtilityPortSectionHtml('mcc');
+  const mccOutputs = group('mcc', 'powerCable', 'source');
+  assert(componentUtilityPortSummary(mccOutputs) === 'Supplies 250 kW · 31.25 kW/port',
+    'output banks reduce to one succinct total and per-port capacity line');
+  const html = componentUtilityPortSectionHtml('mcc', {
+    'hvCable:sink': {
+      tone: 'healthy', label: 'Operating normally', detail: 'Connected', color: '#44ff88',
+    },
+    'powerCable:source': {
+      tone: 'warning', label: 'Needs attention', detail: 'Supply is not connected', color: '#ffcc44',
+    },
+  });
   assert(html.includes('Connection ports') && html.includes('HV Feeder')
-      && html.includes('Outputs ×8') && html.includes('250 kW total · 31.25 kW each'),
-    'single-component info markup renders the port groups and capacities');
+      && html.includes('Requires 250 kW') && html.includes('Supplies 250 kW · 31.25 kW/port')
+      && html.includes('equipment-port-status-healthy')
+      && html.includes('equipment-port-status-warning'),
+    'single-component info markup renders succinct colored requirements and capacities');
+  assert(!html.includes('hv_in') && !html.includes('pwr_out_'),
+    'single-component info markup hides internal connector ids');
 }
 
 assert(componentUtilityPortGroups('flowerBed').length === 0,

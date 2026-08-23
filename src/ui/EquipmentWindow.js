@@ -6,6 +6,7 @@ import { PLACEABLES } from '../data/placeables/index.js';
 import { utilityStatRows } from './utility-supply.js';
 import { componentUtilityPortSectionHtml } from './utility-port-details.js';
 import { autoConnectTargetLabel } from './hover-info.js';
+import { placeableOperationalStatus } from './operational-status.js';
 
 export function equipmentAutoConnectAction(plan, fallbackUtilityType = 'powerCable') {
   const utilityType = plan?.utilityType || fallbackUtilityType;
@@ -141,6 +142,18 @@ export class EquipmentWindow {
     const count = this._selectionEntries().length;
     this.ctx?._el?.classList.toggle('selection-group-window', count > 1);
     this.ctx?.setTitle(count > 1 ? `${count} Items Selected` : this.comp.name);
+    if (count === 1) {
+      const operational = EquipmentWindow.prototype._operationalStatus.call(this);
+      this.ctx?.setStatus?.(operational.label, operational.color);
+    } else {
+      this.ctx?.setStatus?.('', '');
+    }
+  }
+
+  _operationalStatus() {
+    return placeableOperationalStatus(this.game?.state, this.equip, {
+      health: this.game?.getComponentHealth?.(this.equip.id),
+    });
   }
 
   _selectionEntries() {
@@ -198,7 +211,8 @@ export class EquipmentWindow {
     for (const r of utilityStatRows(comp)) {
       html += `<div class="equipment-utility">${r.label}: ${r.value}</div>`;
     }
-    html += componentUtilityPortSectionHtml(equip.type);
+    const operational = EquipmentWindow.prototype._operationalStatus.call(this);
+    html += componentUtilityPortSectionHtml(equip.type, operational.groups);
     const powerStatus = this.game?.getPowerDeviceStatus?.(equip.id);
     if (powerStatus?.rows?.length) {
       html += '<div class="equipment-section equipment-section-label">Electrical status:</div>';

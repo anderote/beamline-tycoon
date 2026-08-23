@@ -84,7 +84,11 @@ import {
   staffHoverInfo,
   utilityNetworkHoverInfo,
 } from '../ui/hover-info.js';
-import { renderHoverTooltipDetail } from '../ui/hover-tooltip-detail.js';
+import {
+  renderHoverTooltipDetail,
+  renderHoverTooltipTitle,
+} from '../ui/hover-tooltip-detail.js';
+import { placeableOperationalStatus } from '../ui/operational-status.js';
 import { placeableMutationEvent } from '../game/placeable-events.js';
 import {
   attachmentSelectionKey,
@@ -260,7 +264,7 @@ export class InputHandler {
     el.className = 'hover-tooltip';
     const title = document.createElement('div');
     title.className = 'hover-tooltip-title';
-    title.textContent = info.title;
+    renderHoverTooltipTitle(title, info);
     const detail = document.createElement('div');
     detail.className = 'hover-tooltip-detail';
     renderHoverTooltipDetail(detail, info);
@@ -290,7 +294,7 @@ export class InputHandler {
     // refresh the two text nodes as well as its position.
     const title = this._tooltipEl.querySelector?.('.hover-tooltip-title');
     const detail = this._tooltipEl.querySelector?.('.hover-tooltip-detail');
-    if (title && title.textContent !== info.title) title.textContent = info.title;
+    renderHoverTooltipTitle(title, info);
     renderHoverTooltipDetail(detail, info);
     this._positionTooltip(screenX, screenY);
   }
@@ -1220,7 +1224,10 @@ export class InputHandler {
     const autoConnectPlan = entry?.id && utilityAutoConnectProfile(def)
       ? this._panelAutoConnectPlan(entry.id)
       : null;
-    return componentHoverInfo(def, { autoConnectPlan });
+    const operationalStatus = placeableOperationalStatus(this.game.state, entry, {
+      health: this.game.getComponentHealth?.(entry?.id),
+    });
+    return componentHoverInfo(def, { autoConnectPlan, operationalStatus });
   }
 
   /** Resolve an auto-connect utility device from the current world-hover tooltip. */
