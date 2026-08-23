@@ -313,6 +313,12 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
     .filter(port => port.utility === 'hvCable' && port.role === 'source');
   assert([service, highService].map(ports => hvOutlets(ports).length).join(',') === '4,6',
     'utility service tiers expose four and six physical HV feeder outlets');
+  assert([service, highService].every(ports => hvOutlets(ports)
+    .every(port => port.tensionsCable === true)),
+    'every grid-service insulator is a mechanical HV tension anchor');
+  assert([service, highService].every(ports => hvOutlets(ports)
+    .every(port => port.maxConnections === 1)),
+    'every grid-service terminal accepts one player-drawn cable');
   assert([service, highService].map(ports => hvOutlets(ports)
     .reduce((sum, port) => sum + port.params.capacity, 0)).join(',') === '3000,6000',
     'utility service tiers provide 3 MW and 6 MW nameplate capacity');

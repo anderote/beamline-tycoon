@@ -1418,7 +1418,7 @@ function _propaneTank(footW, footL, totalH) {
   return group;
 }
 
-function _utilityPoleModel(footW, _footL, totalH) {
+export function buildUtilityPoleModel(footW, _footL, totalH) {
   const group = new THREE.Group();
   const wood = _siteMat(0x75512f, { roughness: 0.92 });
   const metal = _siteMat(0x667078, { metalness: 0.72, roughness: 0.42 });
@@ -1472,7 +1472,7 @@ function _utilityPole2WayModel(_footW, _footL, totalH) {
   return group;
 }
 
-function _transmissionTowerModel(footW, footL, totalH) {
+export function buildTransmissionTowerModel(footW, footL, totalH) {
   const group = new THREE.Group();
   const steel = _siteMat(0x707980, { metalness: 0.82, roughness: 0.38 });
   const darkSteel = _siteMat(0x41494f, { metalness: 0.86, roughness: 0.34 });
@@ -1773,8 +1773,8 @@ const ITEM_BUILDERS = {
   flagpole:      _flagpole,
   propaneTank:   _propaneTank,
   utilityPole2Way: _utilityPole2WayModel,
-  utilityPole:   _utilityPoleModel,
-  transmissionTower: _transmissionTowerModel,
+  utilityPole:   buildUtilityPoleModel,
+  transmissionTower: buildTransmissionTowerModel,
   overheadPowerSpan: _overheadPowerSpan,
   outdoorPipeRack: _outdoorPipeRack,
   backupGenerator: _backupGenerator,

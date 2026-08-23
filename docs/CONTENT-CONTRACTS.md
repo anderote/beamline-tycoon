@@ -75,10 +75,11 @@ the short authoring contract.
   complete footprint must remain on the map and inside that boundary band at
   placement or move time. The renderer derives its nearest edge and conductor
   endpoints from the current `mapHalfExtent`; land expansion extends existing
-  leads to the new boundary without relocating or deleting the service. Its
-  downstream HV output ports terminate on the visible porcelain insulators on
-  top of the cabinet, in a separate facility-facing row from the incoming
-  off-map conductor terminations.
+  leads to the new boundary without relocating or deleting the service. Grid
+  services reuse the ordinary wood-pole and transmission-tower footprints and
+  models. Every procedural off-map conductor and player-drawn HV feeder meets
+  at the same visible support terminal; each source port declares
+  `maxConnections: 1` and `tensionsCable: true`.
 - A `requiredConnections` entry must have a matching sink in
   `src/data/utility-ports-v2.js`.
 - If an item is research-gated, its gate and the research node's `unlocks` list

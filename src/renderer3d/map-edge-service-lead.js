@@ -14,18 +14,42 @@ function inverseYawPoint(point, pose) {
   };
 }
 
+function yawPoint(point, pose) {
+  const c = Math.cos(pose.rotY || 0);
+  const s = Math.sin(pose.rotY || 0);
+  return {
+    x: pose.x + c * point.x + s * point.z,
+    y: pose.y + point.y,
+    z: pose.z - s * point.x + c * point.z,
+  };
+}
+
 export function mapEdgeServiceLeadPaths(connection, pose = { x: 0, y: 0, z: 0, rotY: 0 }) {
   if (!connection?.insideMap || !connection.startWorld || !connection.endWorld) return [];
   const count = Math.max(1, Math.floor(connection.conductorCount || 3));
   const spacing = Number(connection.conductorSpacingMeters) || 0.34;
   const sag = Math.max(0, Number(connection.sagMeters) || 0.22);
   const spreadOnX = connection.edge === 'north' || connection.edge === 'south';
+  const terminals = Array.isArray(connection.terminalPointsLocal)
+    && connection.terminalPointsLocal.length === count
+    ? connection.terminalPointsLocal
+    : null;
   const paths = [];
   for (let index = 0; index < count; index++) {
     const offset = (index - (count - 1) / 2) * spacing;
-    const start = { ...connection.startWorld };
-    const end = { ...connection.endWorld };
-    if (spreadOnX) {
+    const start = terminals
+      ? yawPoint(terminals[index], pose)
+      : { ...connection.startWorld };
+    const end = terminals
+      ? { ...start }
+      : { ...connection.endWorld };
+    if (terminals) {
+      // Project each real terminal straight to the selected map boundary. The
+      // conductors keep their own height and lateral station instead of
+      // converging on an invented cabinet bushing.
+      if (spreadOnX) end.z = connection.endWorld.z;
+      else end.x = connection.endWorld.x;
+    } else if (spreadOnX) {
       start.x += offset;
       end.x += offset;
     } else {
@@ -104,22 +128,6 @@ export function syncMapEdgeServiceLeadVisual(wrapper, connection, pose, options 
     wire.renderOrder = ghost ? 999 : 0;
     group.add(wire);
 
-    // Small vertical bushings make it visually clear that the otherwise
-    // passive-looking off-map leads terminate on the service cabinet.
-    const bushingGeometry = new THREE.CylinderGeometry(0.065, 0.09, 0.28, 8);
-    const bushingMaterial = new THREE.MeshStandardMaterial({
-      color: ghost ? color : 0x9b8768,
-      roughness: 0.48,
-      metalness: 0.08,
-      transparent: ghost,
-      opacity: ghost ? 0.58 : 1,
-      depthWrite: !ghost,
-    });
-    const bushing = new THREE.Mesh(bushingGeometry, bushingMaterial);
-    bushing.position.set(start.x, start.y - 0.14, start.z);
-    bushing.castShadow = !ghost;
-    bushing.renderOrder = ghost ? 999 : 0;
-    group.add(bushing);
   }
   wrapper.add(group);
   wrapper.userData.mapEdgeLeadGroup = group;

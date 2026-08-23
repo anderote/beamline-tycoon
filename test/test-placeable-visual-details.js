@@ -65,6 +65,7 @@ test('every beamline component has dedicated geometry and every actual generic f
     ...[...source.matchAll(/ROLE_BUILDERS\.([A-Za-z0-9_]+)/g)].map(m => m[1]),
     'source', 'dcPhotoGun', 'ncRfGun', 'srfGun',
     'penningIonSource', 'ionSource', 'ecrIonSource', 'drift',
+    'gridServicePoint', 'gridServicePointHighCapacity',
   ]);
   const missingBeamlineBuilders = Object.values(BEAMLINE_COMPONENTS_RAW)
     .filter(def => !detailed.has(def.id))

@@ -26,6 +26,8 @@ import { utilityLineHeight } from '../utility/registry.js';
 import { isWorldChangeSet } from '../game/world-change-set.js';
 import { findRoofRegion, roofKey, roofProfileForRegion } from '../game/roofing.js';
 import { resolveMapEdgeConnection } from '../game/map-edge-connection.js';
+import { GRID_SERVICE_HV_OUTPUT_MOUNTS } from '../data/utility-port-anchors.js';
+import { PORT_ANCHOR_BASE_STANDOFF } from '../utility/port-anchors.js';
 import {
   STOREY_HEIGHT, levelOf, levelWorldY, normalizeLevel, sameLevel, tileKey,
 } from '../game/storeys.js';
@@ -455,13 +457,27 @@ function componentSnapshotEntry(game, p) {
     ? game.getComponentHealth(p.id)
     : undefined;
   const def = PLACEABLES[p.type] || COMPONENTS[p.type];
-  const mapEdgeConnection = def?.mapEdgeConnection
+  const resolvedMapEdgeConnection = def?.mapEdgeConnection
     ? resolveMapEdgeConnection(
         p.cells || def.footprintCells(p.col, p.row, p.subCol || 0, p.subRow || 0, p.dir || 0),
         game.state.mapHalfExtent ?? DEFAULT_MAP_HALF_EXTENT,
         def.mapEdgeConnection,
       )
     : null;
+  const terminalMounts = GRID_SERVICE_HV_OUTPUT_MOUNTS[p.type];
+  const mapEdgeConnection = resolvedMapEdgeConnection && terminalMounts
+    ? {
+        ...resolvedMapEdgeConnection,
+        terminalPointsLocal: terminalMounts.map(mount => ({
+          // Match the drawn utility cable's outer tip, not merely the
+          // hardware mount, so the procedural service and player feeder are
+          // a single contiguous conductor at the terminal cap.
+          x: mount.localX + mount.normal.x * PORT_ANCHOR_BASE_STANDOFF,
+          y: mount.y + mount.normal.y * PORT_ANCHOR_BASE_STANDOFF,
+          z: mount.localZ + mount.normal.z * PORT_ANCHOR_BASE_STANDOFF,
+        })),
+      }
+    : resolvedMapEdgeConnection;
 
   return {
     id: p.id,

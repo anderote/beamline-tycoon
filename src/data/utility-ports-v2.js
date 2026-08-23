@@ -854,7 +854,7 @@ function vacuumManifoldPorts(branchCount, serviceRadius) {
 const OUTLET_SIDES = ['right', 'front', 'left', 'back'];
 
 /** A supply: `count` HV outlets sharing `capacity` kW. */
-function supplyPorts(capacity, count) {
+function supplyPorts(capacity, count, { tensionsCable = false, maxConnections = null } = {}) {
   const out = {};
   for (let i = 0; i < count; i++) {
     out[`hv_out_${i + 1}`] = {
@@ -867,6 +867,8 @@ function supplyPorts(capacity, count) {
       offsetAlong: (i + 1) / (count + 1),
       role: 'source',
       connectionKind: 'hvSupplyOut',
+      ...(tensionsCable ? { tensionsCable: true } : {}),
+      ...(Number.isFinite(maxConnections) ? { maxConnections } : {}),
       // capacity/N per outlet, for the same reason distribution splits its
       // rating: discovery unites a device's source ports into one busbar, so
       // the outlets add back up to the supply's actual rating rather than
@@ -1594,8 +1596,15 @@ const INFRA_UTILITY_PORTS = {
   // A distribution device's hv_in draws its connected downstream load, capped
   // by its rating. Buying a larger panel adds outlets and headroom; it does not
   // consume unused electrical capacity.
-  gridServicePoint:         supplyPorts(3000, 4),
-  gridServicePointHighCapacity: supplyPorts(6000, 6),
+  // Grid sources are ordinary overhead supports whose insulators receive the
+  // procedural off-map service on one side and one player cable on the other.
+  // Their source terminals mechanically tension that player-drawn span.
+  gridServicePoint: supplyPorts(3000, 4, {
+    tensionsCable: true, maxConnections: 1,
+  }),
+  gridServicePointHighCapacity: supplyPorts(6000, 6, {
+    tensionsCable: true, maxConnections: 1,
+  }),
   padMountTransformer:      transformerPorts(150, 1),
   facilityTransformer:      transformerPorts(400, 2),
   hvTransformer:            transformerPorts(1500, 4),
