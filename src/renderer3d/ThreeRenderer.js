@@ -2214,6 +2214,23 @@ export class ThreeRenderer {
     return this._inputHandler?.dispatchSelectionPanelAction?.(action, value) ?? false;
   }
 
+  /** Resolve the live scene object used to outline one logical selection. */
+  selectionRootForTarget(target) {
+    if (!target?.id) return null;
+    if (target.targetKind === 'beamlineAttachment') {
+      return this.pipeAttachmentBuilder?.getGroup?.(target.id) || null;
+    }
+    return this.componentBuilder?.getGroup?.(target.id)
+      || this.equipmentBuilder?.getGroup?.(target.id)
+      || this.decorationBuilder?.getGroup?.(target.id)
+      || null;
+  }
+
+  /** Public HUD command for selecting a placeable or on-pipe attachment by id. */
+  selectWorldObject(placeableId, options = {}) {
+    return this._inputHandler?.selectWorldObject?.(placeableId, options) ?? false;
+  }
+
   closePlaceableInfoWindow(entry) {
     return this._closePlaceableInfoWindow?.(entry);
   }
@@ -2838,7 +2855,7 @@ export class ThreeRenderer {
     });
     const seenRoots = new Set();
     for (const target of targets || []) {
-      const root = target?.rootObj || null;
+      const root = target?.rootObj || this.selectionRootForTarget(target);
       if (root && !seenRoots.has(root)) {
         seenRoots.add(root);
         this._outlineObject(root, 0xffffff, this.selectionGroup, 3);

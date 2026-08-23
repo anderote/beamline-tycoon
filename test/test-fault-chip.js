@@ -53,7 +53,7 @@ globalThis.document = {
   },
 };
 
-const { updateBeamSummary } = await import('../src/ui/hud.js');
+const { activateInfraBlockerTarget, updateBeamSummary } = await import('../src/ui/hud.js');
 
 try {
   const game = {
@@ -81,6 +81,24 @@ try {
   chip.onclick();
   assert(panelOpenCount === 1,
     'clicking the fault chip opens the infrastructure blocker panel');
+
+  const focused = [];
+  const selected = [];
+  const activated = activateInfraBlockerTarget({
+    renderer: {
+      focusOnWorld: (x, z) => focused.push([x, z]),
+      selectWorldObject: id => selected.push(id),
+    },
+  }, {
+    placeableId: 'in_42',
+    world: { x: 12.5, z: -4.25 },
+  });
+  assert(activated && focused[0]?.[0] === 12.5 && focused[0]?.[1] === -4.25,
+    'clicking a locatable fault frames its utility endpoint');
+  assert(selected[0] === 'in_42',
+    'clicking a locatable fault selects and highlights its owning object');
+  assert(activateInfraBlockerTarget({ renderer: {} }, { placeableId: 'missing' }) === false,
+    'a fault without a world location remains non-interactive');
 
   ui.game.state.infraCanRun = true;
   ui.game.state.infraBlockers = [];

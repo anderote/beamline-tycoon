@@ -87,6 +87,7 @@ import {
 import { renderHoverTooltipDetail } from '../ui/hover-tooltip-detail.js';
 import { placeableMutationEvent } from '../game/placeable-events.js';
 import {
+  attachmentSelectionKey,
   floorSelectionKey,
   isSelectionCategory,
   physicalEdgeSelectionKey,
@@ -1327,6 +1328,19 @@ export class InputHandler {
     this.renderer.refreshContextWindows?.();
     this._renderSelectionOutlines();
     return committed;
+  }
+
+  /** Public command for selecting a placeable or on-pipe attachment by id. */
+  selectWorldObject(placeableId, { openInspector = true } = {}) {
+    if (placeableId == null) return false;
+    const target = selectionTargetByKey(this.game?.state, placeableId)
+      || selectionTargetByKey(this.game?.state, attachmentSelectionKey(placeableId));
+    if (!target) return false;
+    const rootObj = this.renderer.selectionRootForTarget?.(target) || null;
+    return this._selectLogicalTarget(target, rootObj, {
+      additive: false,
+      openInspector,
+    });
   }
 
   /** Select a world object, optionally opening its info menu. */
