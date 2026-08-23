@@ -32,8 +32,9 @@
 //   1. WATCHDOG. A completion that never arrives (a lost device, a tab the
 //      compositor has stopped scheduling) would otherwise pin inFlight above
 //      the limit forever and freeze the world for good — the exact bug this
-//      file exists to prevent. If no completion has landed for watchdogMs the
-//      next frame is let through and the counters are resynchronised.
+//      file exists to prevent. If no completion has landed for watchdogMs one
+//      probe frame is let through WITHOUT claiming that the older work
+//      completed. A queue that remains silent is handed to renderer recovery.
 //   2. UNSUPPORTED IS TRANSPARENT. three's WebGPURenderer silently falls back
 //      to a WebGL2 backend where there is no device queue and no
 //      onSubmittedWorkDone. There, `supported` is false and shouldRender() is
@@ -44,6 +45,7 @@
 
 const DEFAULT_MAX_FRAMES_IN_FLIGHT = 2;
 const DEFAULT_WATCHDOG_MS = 1000;
+const DEFAULT_STALL_RECOVERY_MS = 5000;
 
 const defaultNow = () => (
   typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -63,7 +65,10 @@ export class FramePacer {
    *        CPU build frame N+1 while the GPU runs frame N, which is the usual
    *        pipelining depth and what a healthy engine already achieves.
    * @param {number} [options.watchdogMs=1000] how long to wait for any
-   *        completion before assuming the signal is never coming.
+   *        completion before submitting one recovery probe frame.
+   * @param {number} [options.stallRecoveryMs=5000] how long a saturated queue
+   *        may make no completion progress before onStall is invoked.
+   * @param {Function} [options.onStall] renderer/device recovery callback.
    * @param {Function} [options.now] clock injection for tests.
    */
   constructor(renderer, options = {}) {
@@ -71,6 +76,16 @@ export class FramePacer {
       options.maxFramesInFlight ?? DEFAULT_MAX_FRAMES_IN_FLIGHT,
     ));
     this.watchdogMs = Math.max(0, Number(options.watchdogMs ?? DEFAULT_WATCHDOG_MS));
+    const requestedStallRecoveryMs = Number(
+      options.stallRecoveryMs ?? DEFAULT_STALL_RECOVERY_MS,
+    );
+    this.stallRecoveryMs = Math.max(
+      this.watchdogMs,
+      Number.isFinite(requestedStallRecoveryMs)
+        ? requestedStallRecoveryMs
+        : DEFAULT_STALL_RECOVERY_MS,
+    );
+    this._onStall = typeof options.onStall === 'function' ? options.onStall : null;
     this._now = typeof options.now === 'function' ? options.now : defaultNow;
 
     // Only the native WebGPU backend exposes a device queue. Reading through
@@ -88,7 +103,11 @@ export class FramePacer {
     this._completed = 0;
     this._skipped = 0;
     this._watchdogTrips = 0;
-    this._lastProgressAt = this._now();
+    this._stallRecoveries = 0;
+    this._lastCompletionAt = this._now();
+    this._backpressureStartedAt = null;
+    this._recoveryProbePending = false;
+    this._stallHandled = false;
     this._disposed = false;
   }
 
@@ -104,15 +123,54 @@ export class FramePacer {
    */
   shouldRender() {
     if (!this.supported || this._disposed) return true;
-    if (this.inFlight < this.maxFramesInFlight) return true;
+    if (this.inFlight < this.maxFramesInFlight) {
+      this._backpressureStartedAt = null;
+      return true;
+    }
 
-    if (this.watchdogMs > 0 && this._now() - this._lastProgressAt >= this.watchdogMs) {
-      // Nothing has completed in a long time. Either the device is gone or
-      // the completion signal is not coming; either way, refusing to draw
-      // forever is worse than drawing into a queue that may be stuck.
+    const now = this._now();
+    if (this._backpressureStartedAt === null) this._backpressureStartedAt = now;
+
+    if (
+      !this._stallHandled
+      && this.stallRecoveryMs > 0
+      && now - this._backpressureStartedAt >= this.stallRecoveryMs
+    ) {
+      this._stallHandled = true;
+      this._stallRecoveries++;
+      if (this._onStall) {
+        try {
+          this._onStall({
+            api: 'WebGPU',
+            reason: 'queue-stalled',
+            framesInFlight: this.inFlight,
+            stalledMs: now - this._backpressureStartedAt,
+          });
+          return false;
+        } catch (_) {
+          // A broken recovery callback must not turn pacing into a permanent
+          // freeze. Fall through to the same transparent fallback used when
+          // no recovery owner was supplied.
+        }
+      }
+
+      // Standalone consumers without a recovery owner must still fail open.
+      // Production always supplies onStall and takes the save/reload path.
+      this.supported = false;
+      this._queue = null;
+      return true;
+    }
+
+    if (
+      !this._recoveryProbePending
+      && this.watchdogMs > 0
+      && now - this._lastCompletionAt >= this.watchdogMs
+    ) {
+      // Let exactly one probe through. Crucially, do not advance _completed:
+      // a slow day/night shadow frame is still real queued work, and lying
+      // about its completion would reopen the floodgate every watchdog tick.
       this._watchdogTrips++;
-      this._completed = this._submitted;
-      this._lastProgressAt = this._now();
+      this._recoveryProbePending = true;
       return true;
     }
 
@@ -129,14 +187,15 @@ export class FramePacer {
   frameSubmitted() {
     if (!this.supported || this._disposed) return;
     const seq = ++this._submitted;
-    this._lastProgressAt = this._now();
     // Resolution means "everything submitted up to this call is done", so a
     // later frame's completion also retires every earlier one. Take the max
     // rather than decrementing, so out-of-order settling cannot under-count.
     const settle = () => {
       if (this._disposed) return;
       if (seq > this._completed) this._completed = seq;
-      this._lastProgressAt = this._now();
+      this._lastCompletionAt = this._now();
+      this._backpressureStartedAt = null;
+      this._recoveryProbePending = false;
     };
     // A rejection (device lost) is still information: it means this frame is
     // never completing, and holding the queue closed on it would freeze the
@@ -156,6 +215,7 @@ export class FramePacer {
       framesSubmitted: this._submitted,
       framesSkipped: this._skipped,
       framePacerWatchdogTrips: this._watchdogTrips,
+      framePacerStallRecoveries: this._stallRecoveries,
       maxFramesInFlight: this.maxFramesInFlight,
     };
   }

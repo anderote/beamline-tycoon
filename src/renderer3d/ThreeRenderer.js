@@ -645,7 +645,13 @@ export class ThreeRenderer {
     // the queue then grows until the compositor stalls it, which reads to the
     // player as a frozen world with a still-responsive UI. See frame-pacer.js.
     // Inert on the WebGL2 fallback backend, which has no device queue.
-    this._framePacer = new FramePacer(this.renderer);
+    this._framePacer = new FramePacer(this.renderer, {
+      // A queue that stays saturated after the one watchdog probe is not a
+      // camera/input failure; the graphics device has stopped presenting.
+      // Reuse the device-loss path so the live game is saved, WebGPU gets one
+      // clean retry, and a repeated stall falls back to WebGL 2.
+      onStall: (info) => this._rendererRecovery?.(info),
+    });
 
     // Declarative presentation effects: scalable instanced pulses/spill and
     // per-machine emissive animation. Builders publish descriptors; this is
