@@ -2756,8 +2756,11 @@ body.palette-expanded {
 /* === COMPONENT POPUP — NGE/RCT2 style === */
 #component-popup {
   position: absolute;
-  z-index: 150;
+  z-index: 650;
   width: 280px;
+  max-height: min(680px, calc(100vh - 16px));
+  display: flex;
+  flex-direction: column;
   background: rgba(8, 8, 24, 0.94);
   border: 2px solid rgba(200, 120, 40, 0.6);
   border-radius: 2px;
@@ -2800,7 +2803,9 @@ body.palette-expanded {
 }
 
 .popup-body {
+  min-height: 0;
   padding: 10px 14px 12px;
+  overflow-y: auto;
 }
 
 .popup-desc {
@@ -2878,11 +2883,14 @@ body.palette-expanded {
 }
 
 .popup-actions {
+  position: sticky;
+  bottom: -12px;
   display: flex;
   gap: 6px;
   margin-top: 10px;
-  padding-top: 8px;
+  padding: 8px 0 12px;
   border-top: 1px solid rgba(200, 120, 40, 0.2);
+  background: linear-gradient(180deg, rgba(8, 8, 24, 0.9), rgba(8, 8, 24, 0.99) 28%);
 }
 
 .popup-actions button {
@@ -2903,6 +2911,49 @@ body.palette-expanded {
   background: rgba(60, 40, 20, 0.8);
   border-color: rgba(200, 120, 40, 0.6);
   color: #ee9944;
+}
+
+.popup-actions button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.popup-actions button:disabled:hover {
+  background: rgba(30, 25, 20, 0.8);
+  border-color: rgba(200, 120, 40, 0.3);
+  color: rgba(200, 160, 120, 0.8);
+}
+
+.popup-action-hotkey,
+.ctx-action-hotkey {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  margin-left: 4px;
+  padding: 2px 3px;
+  border: 1px solid rgba(255, 220, 120, 0.5);
+  border-radius: 2px;
+  background: rgba(15, 13, 20, 0.72);
+  color: #ffe38a;
+  font: 6px/1 'Press Start 2P', monospace;
+}
+
+.popup-inline-action {
+  width: 100%;
+  margin: 8px 0 2px;
+  padding: 7px 8px;
+  border: 1px solid rgba(190, 196, 92, 0.5);
+  border-radius: 2px;
+  background: rgba(48, 50, 44, 0.72);
+  color: #e2e68e;
+  font: 7px/1.35 'Press Start 2P', monospace;
+  cursor: pointer;
+}
+
+.popup-inline-action:hover:not(:disabled) {
+  background: rgba(66, 69, 51, 0.9);
+  color: #f1f4aa;
 }
 
 .popup-actions button.btn-danger {

@@ -229,11 +229,17 @@ export class ContextWindow {
   _renderActions() {
     if (!this._actionsEl) return;
     this._actionsEl.innerHTML = '';
-    this._actions.forEach(({ label, title, style, variant, disabled, onClick }) => {
+    this._actions.forEach(({ label, hotkey, title, style, variant, disabled, onClick }) => {
       const btn = document.createElement('button');
       btn.className = 'ctx-action-btn';
       if (variant) btn.classList.add(`ctx-action-btn-${variant}`);
       btn.textContent = label;
+      if (hotkey) {
+        const key = document.createElement('kbd');
+        key.className = 'ctx-action-hotkey';
+        key.textContent = hotkey;
+        btn.appendChild(key);
+      }
       if (title) btn.title = title;
       if (style) btn.setAttribute('style', style);
       btn.disabled = !!disabled;
@@ -291,7 +297,7 @@ export class ContextWindow {
 
   /**
    * Set action buttons.
-   * @param {Array} actions - Array of { label, style, variant, onClick }
+   * @param {Array} actions - Array of { label, hotkey, style, variant, onClick }
    */
   setActions(actions) {
     this._actions = actions || [];
