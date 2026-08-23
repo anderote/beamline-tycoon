@@ -28,7 +28,7 @@ The player sets a demanded gradient; the plant decides what is achievable. The c
 
 A helium bath sits at the temperature the pressure above it dictates. A 2 K plant holds 2 K. **It does not settle at some intermediate temperature proportional to how overloaded it is.** Load decides whether the plant can *maintain* the design point:
 
-- Design temperature is **2.0 K** if a 2K Cold Box is on the network, otherwise **4.5 K**
+- Design temperature is **2.0 K** if a 2 K Cryogenic Supply is on the network, otherwise **4.5 K**
 - While capacity covers load, the bath holds that temperature
 - When load exceeds capacity, the bath **warms** — and the warming accelerates, because Q0 falls as temperature rises, which raises dissipation, which warms it faster
 - At **9.25 K** (niobium's critical temperature) superconductivity is lost: **quench**

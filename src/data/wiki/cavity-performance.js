@@ -209,9 +209,9 @@ function srfPerformance(id, spec, design) {
       note: `All ${spec.n_cav} cavit${spec.n_cav === 1 ? 'y' : 'ies'}, plus ${staticW} W `
         + 'declared static load. '
         + (t === T_NORMAL
-          ? 'A 4K Cold Box is rated 500 W, so this operating point is out of reach '
+          ? 'A 4 K Cryogenic Supply is rated 500 W, so this operating point is out of reach '
             + 'unless the gradient comes down.'
-          : 'Cold boxes on the ladder are rated 500 W (4K) and 800 W (2K).'),
+          : 'The cryogenic-supply ladder is rated 500 W (4 K) and 800 W (2 K).'),
     });
   }
 

@@ -15,20 +15,20 @@ A central cryogenic plant mirrors the cooling-water chain: physical inventory,
 active chilling, heat rejection, and make-up/recovery are separate jobs. All
 equipment must be connected to the same cryo-transfer network.
 
-1. **Helium Recovery/Storage** — the central liquid-helium reservoir (2,000 L). It is required for a central plant and also raises the maximum recovery fraction from 0.70 to 0.90.
-2. **4K or 2K Cold Box** — the chiller. The 4K unit supplies 500 W at 4.5 K; the 2K unit supplies 800 W and sets the network design temperature to 2.0 K.
-3. **Helium Compressor** — the warm-end heat rejector (800 W). It needs live high-voltage power and a complete cooling-water supply/chiller/rejector chain before its cryogenic capacity counts.
+1. **Helium Tank** — the central liquid-helium reservoir (2,000 L). It is required for a central plant and also raises the maximum recovery fraction from 0.70 to 0.90.
+2. **4 K or 2 K Cryogenic Supply** — the cold box. The 4 K unit supplies 500 W at 4.5 K; the 2 K unit supplies 800 W and sets the network design temperature to 2.0 K.
+3. **Helium Refrigeration** — the warm-end helium compressor and heat-rejection package (800 W). It needs live high-voltage power and a complete cooling-water supply/chiller/rejector chain before its cryogenic capacity counts.
 4. **Cryo Transfer Line** — connects the reservoir, cold box, compressor, and SRF loads. A valve box can distribute one plant to nearby consumers.
 5. **Recovery and Liquefaction** — a connected recovery header, gas bag, purifier, and liquefier capture boil-off and return part of it to the same network's reservoir. The liquefier also adds 1 L per tick while powered.
 
-The **Cryocooler** is a small integrated exception: it combines a sealed 50 L
+The **Compact Cryogenic Supply** is a small integrated exception: it combines a sealed 50 L
 reservoir, 90 W chiller, and 90 W heat rejector in one powered unit. It can run
 a small starter network without the central plant chain, but its inventory is
 closed-cycle and cannot be manually refilled.
 
-Two optional process stages improve a connected plant. An **LN2 Dewar** and
-powered **LN2 Pre-cooler** add up to 15% chilling capacity. A powered
-**Cryomodule Housing** reduces static heat load by 5%; multiple housings are
+Two optional process stages improve a connected plant. A **Liquid Nitrogen Tank** and
+powered **Liquid Nitrogen Pre-cooling** add up to 15% chilling capacity. Powered
+**Cryogenic Heat Shielding** reduces static heat load by 5%; multiple units are
 capped at 25%.
 
 ### Helium Recovery
@@ -41,11 +41,11 @@ Four components **contribute** to the fraction. A fifth **raises the ceiling** o
 
 | Component | Cost | Recovery | Cost per point |
 |-----------|------|:--------:|---------------|
-| He Recovery Header | $350k | +0.25 | $1.4M |
-| He Gas Bag | $450k | +0.15 | $3.0M |
-| He Purifier | $1.2M | +0.20 | $6.0M |
-| He Liquefier | $3.5M | +0.30 | $11.7M |
-| Helium Recovery/Storage | $4M | ceiling 0.70 → 0.90 | $20M |
+| Helium Recovery Header | $350k | +0.25 | $1.4M |
+| Helium Recovery Bag | $450k | +0.15 | $3.0M |
+| Helium Purification | $1.2M | +0.20 | $6.0M |
+| Helium Make-up | $3.5M | +0.30 | $11.7M |
+| Helium Tank | $4M | ceiling 0.70 → 0.90 | $20M |
 
 Three rules govern the total:
 
@@ -53,7 +53,7 @@ Three rules govern the total:
 - **Each type contributes once per network.** Five gas bags are five bags on one plant, not five complete recovery plants. The reward is for completing the chain, not for stamping out the cheapest rung.
 - **The ceiling is 0.70, or 0.90 with bulk storage.** No recovery plant is closed — cool-down transients, relief lifts, purge losses and the purifier's own vent all leave through the roof. A real facility recovering 90% of its helium is doing very well, and it only gets there with somewhere to put the gas.
 
-The four chain parts sum to 0.90 on their own, but without storage you are clipped to **0.70** no matter how complete the chain is. That is the point of the Helium Recovery/Storage block: it is a tank farm, and you cannot keep more helium than you have vessels for. Recovered gas with nowhere to go is vented like any other.
+The four chain parts sum to 0.90 on their own, but without storage you are clipped to **0.70** no matter how complete the chain is. That is the point of the Helium Tank: it is a tank farm, and you cannot keep more helium than you have vessels for. Recovered gas with nowhere to go is vented like any other.
 
 The central reservoir is required before a cold-box plant can run, but storage
 alone recovers nothing. The connected chain reaches 0.70 for $5.5M and the
@@ -66,7 +66,7 @@ The panel reports the fraction and the ceiling in force, e.g. `70% / 70% cap`, s
 
 The cryo network does not produce an abstract "cooling quality." It produces a **bath temperature**, and that temperature is what reaches the beam.
 
-The bath's design temperature is **2.0 K** if any 2K Cold Box sits on the network, and **4.5 K** otherwise. While the plant's capacity covers the heat load, the bath sits at that temperature. When load exceeds capacity, the bath warms — and the warming accelerates on its own, because the cavity's quality factor collapses as it warms, which makes it dissipate more, which warms it faster.
+The bath's design temperature is **2.0 K** if any 2 K Cryogenic Supply sits on the network, and **4.5 K** otherwise. While the plant's capacity covers the heat load, the bath sits at that temperature. When load exceeds capacity, the bath warms — and the warming accelerates on its own, because the cavity's quality factor collapses as it warms, which makes it dissipate more, which warms it faster.
 
 That runaway is the quench mechanic. It is emergent, not scripted, and it always gives you time to react. Measured against one cryomodule on a 300 W plant: a hard over-drive (25 MV/m) quenches at tick 21, a moderate one (22 MV/m) at tick 29, and a mild one (16 MV/m) never quenches at all. **Back off the demanded gradient and the plant pulls the bath back down.**
 
@@ -103,8 +103,8 @@ A quenched SRF cavity is converted to a drift — it accelerates nothing. It als
 ### Strategy
 
 - You don't need cryo until you place SRF components (half-wave resonator, spoke cavity, elliptical SRF, cryomodule)
-- Minimum central cryo: Helium Recovery/Storage + 4K Cold Box + powered Helium Compressor with cooling water + cryo transfer to every SRF load.
-- For a very small SRF load, a powered Cryocooler is an integrated 90 W alternative.
+- Minimum central cryo: Helium Tank + 4 K Cryogenic Supply + powered Helium Refrigeration with cooling water + cryo transfer to every SRF load.
+- For a very small SRF load, a powered Compact Cryogenic Supply is an integrated 90 W alternative.
 - 2K operation unlocks far higher cavity Q0 but costs 3x more wall power per watt removed
 - Watch the temperature readout, not just the margin bar. A warming bath is the early warning; the margin bar goes red at the same moment but the temperature tells you how fast
 - Cryo transfer costs $160/sub-unit ($640/tile); keep the plant and its process stages on one deliberately routed network.
@@ -164,15 +164,15 @@ C_network = min(chilling, rejection)
 The plant is offline unless storage, chilling, and heat rejection are all
 positive. A cold box counts only while powered. A compressor counts only while
 powered and supplied by a complete cooling-water plant. The integrated
-Cryocooler declares all three capabilities itself.
+Compact Cryogenic Supply declares all three capabilities itself.
 
-**LHe reservoir:** boil-off is `0.0005 L per W of total heat load per tick`; below 20 L the network **quenches**. Capacity is physical and network-local: the central storage unit provides 2,000 L, while the integrated Cryocooler carries a sealed 50 L inventory. Central storage refills cost $50/L, so a full 1,980 L top-up is about $99,000. Adding or removing a tank changes the persistent inventory ceiling without creating free helium during topology edits.
+**LHe reservoir:** boil-off is `0.0005 L per W of total heat load per tick`; below 20 L the network **quenches**. Capacity is physical and network-local: the Helium Tank provides 2,000 L, while the Compact Cryogenic Supply carries a sealed 50 L inventory. Central storage refills cost $50/L, so a full 1,980 L top-up is about $99,000. Adding or removing a tank changes the persistent inventory ceiling without creating free helium during topology edits.
 
 **Recovery:**
 ```
 net_loss = boiloff x (1 - f)
 f        = min(cap, sum of installed contributing TYPES)
-cap      = 0.90 with Helium Recovery/Storage, else 0.70
+cap      = 0.90 with Helium Tank, else 0.70
 ```
 The reservoir loses `net_loss`, not gross `boiloff`. Only live recovery stages
 connected to that reservoir's network contribute. A powered liquefier then

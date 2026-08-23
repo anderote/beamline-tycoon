@@ -83,12 +83,12 @@ Carries cryogenic helium between cold boxes and SRF components. The network's ou
 
 - **Color:** Cyan (0x44aacc)
 - **Network type:** Thermal — heat load vs plant capacity, resolved into a bath temperature
-- **Plant chain:** Helium Recovery/Storage reservoir + 4K or 2K Cold Box chiller + powered Helium Compressor heat rejector. The compressor also needs a live cooling-water loop. A 2K Cold Box sets the network design temperature to 2.0 K.
-- **Integrated source:** Cryocooler (90 W, 50 L sealed inventory) combines all three plant roles for a small starter network.
+- **Plant chain:** Helium Tank + 4 K or 2 K Cryogenic Supply + powered Helium Refrigeration. The refrigeration package also needs a live cooling-water loop. A 2 K Cryogenic Supply sets the network design temperature to 2.0 K.
+- **Integrated source:** Compact Cryogenic Supply (90 W, 50 L sealed inventory) combines all three plant roles for a small starter network.
 - **Consumers:** Half-Wave Resonator, Spoke Cavity, 9-cell Elliptical SRF, TESLA Cryomodule
 - **Cost:** $160/sub-unit ($640/tile)
 - **Bus:** Cryo Valve Box, $400k, 6-cell service radius
-- **Networked process equipment:** LN2 Dewar + powered LN2 Pre-cooler, Cryomodule Housing, Recovery Header, Gas Bag, powered Purifier, and powered Liquefier
+- **Networked process equipment:** Liquid Nitrogen Tank + powered Liquid Nitrogen Pre-cooling, Cryogenic Heat Shielding, Helium Recovery Header, Helium Recovery Bag, powered Helium Purification, and powered Helium Make-up
 
 Every buildable cryogenic item exposes a visible cryo connector. Missing storage, chilling, heat rejection, electrical power, or compressor cooling fails closed instead of silently producing refrigeration.
 

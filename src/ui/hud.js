@@ -3695,17 +3695,17 @@ UIHost.prototype._renderCryoStats = function(d, summary, detail, append = false)
   const dd = d.detail;
   const cryoDetail = `<div class="sstat-detail-grid" style="margin-top:6px;border-top:1px solid #333;padding-top:4px;">
     <div style="grid-column:1/-1;color:#4aa;font-size:10px;margin-bottom:2px;">CRYOGENICS</div>
-    ${this._detailRow('He Compressors', dd.compressors)}
-    ${this._detailRow('Cold Box 4K', dd.coldBox4K)}
-    ${this._detailRow('Sub-Cooling 2K', dd.subCooling2K)}
-    ${this._detailRow('Cryo Housings', dd.cryoHousings)}
-    ${this._detailRow('LN2 Pre-coolers', dd.ln2Precoolers)}
+    ${this._detailRow('Helium Refrigeration', dd.compressors)}
+    ${this._detailRow('4 K Cryogenic Supply', dd.coldBox4K)}
+    ${this._detailRow('2 K Cryogenic Supply', dd.subCooling2K)}
+    ${this._detailRow('Cryogenic Heat Shielding', dd.cryoHousings)}
+    ${this._detailRow('Liquid Nitrogen Pre-cooling', dd.ln2Precoolers)}
     ${this._detailRow('Plant Chain', dd.plantComplete ? 'Online' : 'Incomplete')}
     ${this._detailRow('LHe Inventory', `${(dd.reservoirVolumeL || 0).toFixed(0)} / ${(dd.storageCapacityL || 0).toFixed(0)}`, 'L')}
     ${this._detailRow('He Recovery',
       `${Math.round((dd.heRecoveryFraction || 0) * 100)}% / ${Math.round((dd.heRecoveryCeiling || 0) * 100)}% cap`)}
     ${this._detailRow('Recovery Stages', dd.recoveryStageCount || 0)}
-    ${this._detailRow('Cryocoolers', dd.cryocoolers)}
+    ${this._detailRow('Compact Cryogenic Supply', dd.cryocoolers)}
     ${this._detailRow('Static Load', dd.staticLoad.toFixed(1), 'W')}
     ${this._detailRow('Dynamic Load', dd.dynamicLoad.toFixed(1), 'W')}
   </div>`;
