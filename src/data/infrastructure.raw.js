@@ -1370,11 +1370,11 @@ export const INFRASTRUCTURE_RAW = {
   },
   waterDistributor2: {
     id: 'waterDistributor2', name: '2-Line Water Distributor',
-    desc: 'Compact paired station with one blue cold branch and one red hot-return branch on one face, plus matching rigid cold and hot pipe ports opposite. Every connection inherits its port color and the two circuits remain isolated.',
+    desc: 'An exposed pair of crossed-through pipes: one blue cold branch and one red hot-return branch, each with its own isolation valve and matching rigid pipe connection opposite. The two circuits remain isolated.',
     category: 'cooling', subsection: 'distribution', paletteOrder: 1,
     accentColor: 0x2fbccc, cost: { funding: 45000 }, stats: {}, energyCost: 0,
     subL: 2, subW: 1, subH: 2, gridW: 1, gridH: 2, geometryType: 'box',
-    baseMaterial: 'metal_painted_blue', spriteKey: 'waterLoad', spriteColor: 0x2fbccc,
+    baseMaterial: 'metal_brushed', spriteKey: 'waterLoad', spriteColor: 0x2fbccc,
     placement: 'module', ports: {}, autoConnectUtility: 'coolingWater', requiredConnections: [],
     waterConverterGroups: [
       { waterLinePorts: ['water_line_1'], supplyPipePorts: ['supply_pipe_1'] },
@@ -1385,19 +1385,38 @@ export const INFRASTRUCTURE_RAW = {
       waterSupplyPipe: [['supply_pipe_1'], ['supply_pipe_2']],
     },
     parts: [
-      { shape: 'box', w: 0.88, h: 0.42, l: 0.88, x: 0, y: 0.30, z: 0, color: 0x277a9c },
-      { shape: 'cylinder', axis: 'x', w: 0.13, h: 0.13, l: 1.18, x: 0, y: 0.62, z: -0.20, color: 0x287fc4 },
-      { shape: 'cylinder', axis: 'x', w: 0.13, h: 0.13, l: 1.18, x: 0, y: 0.62, z: 0.20, color: 0xc45b42 },
-      { shape: 'cylinder', axis: 'z', w: 0.09, h: 0.09, l: 0.92, x: 0, y: 0.48, z: 0, color: 0x2fbccc },
+      // Open tubular rack; no cabinet shell obscures the pipework.
+      { name: 'rack_leg_cold_left', shape: 'cylinder', axis: 'y', w: 0.08, h: 0.52, l: 0.08, x: -0.30, y: 0, z: -0.46, color: 0x56636a },
+      { name: 'rack_leg_cold_right', shape: 'cylinder', axis: 'y', w: 0.08, h: 0.52, l: 0.08, x: 0.30, y: 0, z: -0.46, color: 0x56636a },
+      { name: 'rack_leg_hot_left', shape: 'cylinder', axis: 'y', w: 0.08, h: 0.52, l: 0.08, x: -0.30, y: 0, z: 0.46, color: 0x56636a },
+      { name: 'rack_leg_hot_right', shape: 'cylinder', axis: 'y', w: 0.08, h: 0.52, l: 0.08, x: 0.30, y: 0, z: 0.46, color: 0x56636a },
+      { name: 'rack_crossbar_cold', shape: 'cylinder', axis: 'x', w: 0.78, h: 0.07, l: 0.07, x: 0, y: 0.47, z: -0.46, color: 0x56636a },
+      { name: 'rack_crossbar_hot', shape: 'cylinder', axis: 'x', w: 0.78, h: 0.07, l: 0.07, x: 0, y: 0.47, z: 0.46, color: 0x56636a },
+
+      // Each exposed pipe follows its actual left-supply/right-branch angle.
+      { name: 'cold_pipe', shape: 'cylinder', axis: 'x', w: 1.08, h: 0.20, l: 0.20, x: 0, y: 0.54, z: -0.466, rotation: [0, 0.261, 0], color: 0x287fc4 },
+      { name: 'hot_pipe', shape: 'cylinder', axis: 'x', w: 1.08, h: 0.20, l: 0.20, x: 0, y: 0.54, z: 0.466, rotation: [0, -0.261, 0], color: 0xc45b42 },
+      { name: 'cold_union_left', shape: 'cylinder', axis: 'x', w: 0.10, h: 0.27, l: 0.27, x: -0.45, y: 0.505, z: -0.346, rotation: [0, 0.261, 0], color: 0x9eaaae },
+      { name: 'cold_union_right', shape: 'cylinder', axis: 'x', w: 0.10, h: 0.27, l: 0.27, x: 0.45, y: 0.505, z: -0.586, rotation: [0, 0.261, 0], color: 0x9eaaae },
+      { name: 'hot_union_left', shape: 'cylinder', axis: 'x', w: 0.10, h: 0.27, l: 0.27, x: -0.45, y: 0.505, z: 0.346, rotation: [0, -0.261, 0], color: 0x9eaaae },
+      { name: 'hot_union_right', shape: 'cylinder', axis: 'x', w: 0.10, h: 0.27, l: 0.27, x: 0.45, y: 0.505, z: 0.586, rotation: [0, -0.261, 0], color: 0x9eaaae },
+
+      // Compact hand valves keep the two circuits immediately legible.
+      { name: 'cold_valve_body', shape: 'sphere', w: 0.27, h: 0.27, l: 0.27, x: 0.08, y: 0.505, z: -0.487, color: 0x287fc4 },
+      { name: 'cold_valve_stem', shape: 'cylinder', axis: 'y', w: 0.07, h: 0.28, l: 0.07, x: 0.08, y: 0.72, z: -0.487, color: 0x9eaaae },
+      { name: 'cold_valve_wheel', shape: 'torus', axis: 'y', w: 0.34, h: 0.07, l: 0.34, x: 0.08, y: 0.96, z: -0.487, color: 0x287fc4 },
+      { name: 'hot_valve_body', shape: 'sphere', w: 0.27, h: 0.27, l: 0.27, x: 0.08, y: 0.505, z: 0.487, color: 0xc45b42 },
+      { name: 'hot_valve_stem', shape: 'cylinder', axis: 'y', w: 0.07, h: 0.28, l: 0.07, x: 0.08, y: 0.72, z: 0.487, color: 0x9eaaae },
+      { name: 'hot_valve_wheel', shape: 'torus', axis: 'y', w: 0.34, h: 0.07, l: 0.34, x: 0.08, y: 0.96, z: 0.487, color: 0xc45b42 },
     ],
   },
   waterDistributor4: {
     id: 'waterDistributor4', name: '4-Line Dual Water Distributor',
-    desc: 'Two isolated 2-to-1 headers on a compact frame. Two blue cold branches and two red hot-return branches share one face; matching rigid cold and hot pipe ports sit opposite. Every connection inherits its port color.',
+    desc: 'Two exposed tee manifolds on a lightweight pipe rack. One blue header feeds two cold branches while one red header combines two hot returns; matching rigid cold and hot pipe ports sit opposite.',
     category: 'cooling', subsection: 'distribution', paletteOrder: 2,
     accentColor: 0x2fbccc, cost: { funding: 85000 }, stats: {}, energyCost: 0,
     subL: 3, subW: 1, subH: 2, gridW: 1, gridH: 3, geometryType: 'box',
-    baseMaterial: 'metal_painted_blue', spriteKey: 'waterLoad', spriteColor: 0x2fbccc,
+    baseMaterial: 'metal_brushed', spriteKey: 'waterLoad', spriteColor: 0x2fbccc,
     placement: 'module', ports: {}, autoConnectUtility: 'coolingWater', requiredConnections: [],
     waterConverterGroups: [
       { waterLinePorts: ['water_line_1', 'water_line_2'], supplyPipePorts: ['supply_pipe_1'] },
@@ -1410,9 +1429,45 @@ export const INFRASTRUCTURE_RAW = {
       waterSupplyPipe: [['supply_pipe_1'], ['supply_pipe_2']],
     },
     parts: [
-      { shape: 'box', w: 0.94, h: 0.48, l: 1.38, x: 0, y: 0.32, z: 0, color: 0x277a9c },
-      { shape: 'cylinder', axis: 'z', w: 0.16, h: 0.16, l: 1.72, x: -0.24, y: 0.66, z: 0, color: 0x287fc4 },
-      { shape: 'cylinder', axis: 'z', w: 0.16, h: 0.16, l: 1.72, x: 0.24, y: 0.66, z: 0, color: 0xc45b42 },
+      // Narrow tube rack leaves both color-coded manifolds fully exposed.
+      { name: 'rack_rail_left', shape: 'cylinder', axis: 'z', w: 0.08, h: 0.08, l: 2.70, x: -0.30, y: 0, z: 0, color: 0x56636a },
+      { name: 'rack_rail_right', shape: 'cylinder', axis: 'z', w: 0.08, h: 0.08, l: 2.70, x: 0.30, y: 0, z: 0, color: 0x56636a },
+      { name: 'rack_leg_cold_left', shape: 'cylinder', axis: 'y', w: 0.08, h: 0.52, l: 0.08, x: -0.30, y: 0, z: -1.25, color: 0x56636a },
+      { name: 'rack_leg_cold_right', shape: 'cylinder', axis: 'y', w: 0.08, h: 0.52, l: 0.08, x: 0.30, y: 0, z: -1.25, color: 0x56636a },
+      { name: 'rack_leg_hot_left', shape: 'cylinder', axis: 'y', w: 0.08, h: 0.52, l: 0.08, x: -0.30, y: 0, z: 1.25, color: 0x56636a },
+      { name: 'rack_leg_hot_right', shape: 'cylinder', axis: 'y', w: 0.08, h: 0.52, l: 0.08, x: 0.30, y: 0, z: 1.25, color: 0x56636a },
+      { name: 'rack_crossbar_cold', shape: 'cylinder', axis: 'x', w: 0.78, h: 0.07, l: 0.07, x: 0, y: 0.47, z: -1.25, color: 0x56636a },
+      { name: 'rack_crossbar_hot', shape: 'cylinder', axis: 'x', w: 0.78, h: 0.07, l: 0.07, x: 0, y: 0.47, z: 1.25, color: 0x56636a },
+
+      // Cold and hot headers each connect one rigid inlet to two branches.
+      { name: 'cold_branch_1', shape: 'cylinder', axis: 'x', w: 1.08, h: 0.20, l: 0.20, x: 0, y: 0.54, z: -1.20, color: 0x287fc4 },
+      { name: 'cold_branch_2', shape: 'cylinder', axis: 'x', w: 1.08, h: 0.20, l: 0.20, x: 0, y: 0.54, z: -0.45, color: 0x287fc4 },
+      { name: 'cold_header', shape: 'cylinder', axis: 'z', w: 0.22, h: 0.22, l: 0.95, x: -0.10, y: 0.53, z: -0.825, color: 0x287fc4 },
+      { name: 'hot_branch_1', shape: 'cylinder', axis: 'x', w: 1.08, h: 0.20, l: 0.20, x: 0, y: 0.54, z: 0.45, color: 0xc45b42 },
+      { name: 'hot_branch_2', shape: 'cylinder', axis: 'x', w: 1.08, h: 0.20, l: 0.20, x: 0, y: 0.54, z: 1.20, color: 0xc45b42 },
+      { name: 'hot_header', shape: 'cylinder', axis: 'z', w: 0.22, h: 0.22, l: 0.95, x: -0.10, y: 0.53, z: 0.825, color: 0xc45b42 },
+
+      // Six visible unions mark the two rigid feeds and four hose branches.
+      { name: 'cold_supply_union', shape: 'cylinder', axis: 'x', w: 0.10, h: 0.27, l: 0.27, x: -0.49, y: 0.505, z: -0.45, color: 0x9eaaae },
+      { name: 'cold_branch_union_1', shape: 'cylinder', axis: 'x', w: 0.10, h: 0.27, l: 0.27, x: 0.49, y: 0.505, z: -1.20, color: 0x9eaaae },
+      { name: 'cold_branch_union_2', shape: 'cylinder', axis: 'x', w: 0.10, h: 0.27, l: 0.27, x: 0.49, y: 0.505, z: -0.45, color: 0x9eaaae },
+      { name: 'hot_supply_union', shape: 'cylinder', axis: 'x', w: 0.10, h: 0.27, l: 0.27, x: -0.49, y: 0.505, z: 0.45, color: 0x9eaaae },
+      { name: 'hot_branch_union_1', shape: 'cylinder', axis: 'x', w: 0.10, h: 0.27, l: 0.27, x: 0.49, y: 0.505, z: 0.45, color: 0x9eaaae },
+      { name: 'hot_branch_union_2', shape: 'cylinder', axis: 'x', w: 0.10, h: 0.27, l: 0.27, x: 0.49, y: 0.505, z: 1.20, color: 0x9eaaae },
+
+      // One hand valve per flexible branch makes the split/return banks clear.
+      { name: 'cold_valve_body_1', shape: 'sphere', w: 0.27, h: 0.27, l: 0.27, x: 0.14, y: 0.505, z: -1.20, color: 0x287fc4 },
+      { name: 'cold_valve_stem_1', shape: 'cylinder', axis: 'y', w: 0.07, h: 0.28, l: 0.07, x: 0.14, y: 0.72, z: -1.20, color: 0x9eaaae },
+      { name: 'cold_valve_wheel_1', shape: 'torus', axis: 'y', w: 0.34, h: 0.07, l: 0.34, x: 0.14, y: 0.96, z: -1.20, color: 0x287fc4 },
+      { name: 'cold_valve_body_2', shape: 'sphere', w: 0.27, h: 0.27, l: 0.27, x: 0.14, y: 0.505, z: -0.45, color: 0x287fc4 },
+      { name: 'cold_valve_stem_2', shape: 'cylinder', axis: 'y', w: 0.07, h: 0.28, l: 0.07, x: 0.14, y: 0.72, z: -0.45, color: 0x9eaaae },
+      { name: 'cold_valve_wheel_2', shape: 'torus', axis: 'y', w: 0.34, h: 0.07, l: 0.34, x: 0.14, y: 0.96, z: -0.45, color: 0x287fc4 },
+      { name: 'hot_valve_body_1', shape: 'sphere', w: 0.27, h: 0.27, l: 0.27, x: 0.14, y: 0.505, z: 0.45, color: 0xc45b42 },
+      { name: 'hot_valve_stem_1', shape: 'cylinder', axis: 'y', w: 0.07, h: 0.28, l: 0.07, x: 0.14, y: 0.72, z: 0.45, color: 0x9eaaae },
+      { name: 'hot_valve_wheel_1', shape: 'torus', axis: 'y', w: 0.34, h: 0.07, l: 0.34, x: 0.14, y: 0.96, z: 0.45, color: 0xc45b42 },
+      { name: 'hot_valve_body_2', shape: 'sphere', w: 0.27, h: 0.27, l: 0.27, x: 0.14, y: 0.505, z: 1.20, color: 0xc45b42 },
+      { name: 'hot_valve_stem_2', shape: 'cylinder', axis: 'y', w: 0.07, h: 0.28, l: 0.07, x: 0.14, y: 0.72, z: 1.20, color: 0x9eaaae },
+      { name: 'hot_valve_wheel_2', shape: 'torus', axis: 'y', w: 0.34, h: 0.07, l: 0.34, x: 0.14, y: 0.96, z: 1.20, color: 0xc45b42 },
     ],
   },
   coldWaterLineWallPassThrough: automaticWallPassThrough({

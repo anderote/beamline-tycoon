@@ -35,6 +35,14 @@ test('water distributors use compact footprints with branches opposite supplies'
       supplyCount / 2);
     assert.equal(supplies.filter(([, port]) => port.params.waterCircuit === 'hot').length,
       supplyCount / 2);
+
+    const shapes = def.parts.map(part => part.shape || 'box');
+    assert.equal(shapes.filter(shape => shape === 'box').length, 0,
+      `${type} is exposed pipework with no cabinet shell`);
+    assert.ok(shapes.filter(shape => shape === 'cylinder').length >= flexibleCount * 4,
+      `${type} has a pipe-dominant authored silhouette`);
+    assert.equal(shapes.filter(shape => shape === 'torus').length, flexibleCount,
+      `${type} exposes one handwheel per flexible branch`);
   }
 });
 
