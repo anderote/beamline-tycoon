@@ -86,13 +86,13 @@ assert.equal(minorLabBase.id, MINOR_LAB_SCENARIO_ID);
 assert.equal(minorLabBase.name, 'Minor Lab');
 assert.equal(
   createHash('sha256').update(JSON.stringify(minorLabBase.data)).digest('hex'),
-  '4dc3972a1de6dcc5598f5a734b7dcb460f380800f70b39bfb3324251f10a6337',
+  '08781412bb28e387c24111afe4b0e836863329063d1e7358a70bf35c662762a7',
   'the migrated Minor Lab data remains the built-in baseline',
 );
 const generatedMinorLab = resolveScenario('minorLab', memoryStorage()).generator();
 assert.deepEqual(generatedMinorLab, minorLabBase.data);
 generatedMinorLab.floors.pop();
-assert.equal(resolveScenario('minorLab', memoryStorage()).generator().floors.length, 361,
+assert.equal(resolveScenario('minorLab', memoryStorage()).generator().floors.length, 393,
   'each Minor Lab launch receives an independent copy of the baseline');
 
 const minorOverrideStorage = memoryStorage();
@@ -116,9 +116,18 @@ const seedMinor = (id, data, updatedAt) => {
 };
 seedMinor('minorLab2', minorOldData, 100);
 seedMinor('minorLab4', minorLatestData, 400);
+duplicateMinorStorage.setItem(`${CUSTOM_SCENARIO_PREFIX}minorLab`, JSON.stringify({
+  id: 'minorLab',
+  name: 'Minor Lab',
+  data: minorLatestData,
+  sandbox: true,
+  updatedAt: 500,
+  minorLabBaselineVersion: '2026-08-22-minorLab4-3',
+}));
 duplicateMinorStorage.setItem(CUSTOM_SCENARIO_INDEX_KEY, JSON.stringify([
   { id: 'minorLab2', name: 'Minor Lab', sandbox: true, updatedAt: 100 },
   { id: 'minorLab4', name: 'Minor Lab', sandbox: true, updatedAt: 400 },
+  { id: 'minorLab', name: 'Minor Lab', sandbox: true, updatedAt: 500 },
 ]));
 assert.equal(consolidateMinorLabScenarios(duplicateMinorStorage), null);
 assert.deepEqual(listCustomScenarios(duplicateMinorStorage), []);
@@ -126,6 +135,8 @@ assert.equal(loadCustomScenarioById('minorLab', duplicateMinorStorage), null,
   'an unversioned saved Minor Lab cannot supersede the repository baseline');
 assert.equal(duplicateMinorStorage.getItem(`${CUSTOM_SCENARIO_PREFIX}minorLab2`), null);
 assert.equal(duplicateMinorStorage.getItem(`${CUSTOM_SCENARIO_PREFIX}minorLab4`), null);
+assert.equal(duplicateMinorStorage.getItem(`${CUSTOM_SCENARIO_PREFIX}minorLab`), null,
+  'the former canonical override is retired after its save is baked in');
 assert.deepEqual(listPlayableScenarios(duplicateMinorStorage).map(scenario => scenario.id),
   ['minorLab', 'sandbox'],
   'duplicate Minor Lab cards are removed in favor of the built-in baseline');

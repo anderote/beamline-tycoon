@@ -25,7 +25,7 @@ export const CUSTOM_SCENARIO_ID = '__custom__';
 export const CUSTOM_SCENARIO_INDEX_KEY = 'beamlineTycoon.customScenarioIndex';
 export const CUSTOM_SCENARIO_PREFIX = 'beamlineTycoon.customScenarios.';
 export const MINOR_LAB_SCENARIO_ID = 'minorLab';
-export const MINOR_LAB_BASELINE_VERSION = '2026-08-22-minorLab4-3';
+export const MINOR_LAB_BASELINE_VERSION = '2026-08-22-minorLab-19';
 // Exported for storage migration compatibility; New Game no longer reads it.
 export const DEFAULT_STARTING_SCENARIO_KEY = 'beamlineTycoon.defaultStartingScenario';
 export const PENDING_SCENARIO_KEY = 'beamlineTycoon.pendingScenario';
