@@ -38,6 +38,7 @@ import { OptionsDialog } from './ui/OptionsDialog.js';
 import { openUtilityInspectorForLine } from './ui/utility-inspector-command.js';
 import { UtilityStatsPanel } from './ui/UtilityStatsPanel.js';
 import { EconomyWindow } from './ui/EconomyWindow.js';
+import { ControlRoomWindow } from './ui/ControlRoomWindow.js';
 import { AdvisorEngine, ADVICE_LEVEL_STORAGE_KEY } from './advisor/engine.js';
 import { buildAdvisorContext } from './advisor/context.js';
 import { Stubby } from './ui/Stubby.js';
@@ -446,6 +447,12 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
   // Beamline Designer button — opens blank designer
   document.getElementById('btn-designer').addEventListener('click', () => {
     router.navigate('designer');
+  });
+
+  // Facility operations console — a display-only view over published beam,
+  // staffing, utility-fault, and economy snapshots.
+  document.getElementById('btn-control-room').addEventListener('click', () => {
+    ControlRoomWindow.toggle(game);
   });
 
   // Economy button — toggles the cash-flow window (same gesture as the K key)
