@@ -79,6 +79,49 @@ function fixture(seed) {
 console.log('\n=== Selection groups ===\n');
 
 {
+  const state = {
+    placeables: [{
+      id: 'plant', type: 'chiller', kind: 'infrastructure', category: 'infrastructure',
+      col: 3, row: 4,
+    }],
+    beamPipes: [{
+      id: 'pipe', path: [{ col: 0, row: 0 }, { col: 4, row: 0 }], subL: 16,
+      placements: [{ id: 'quad', type: 'quadrupole', position: 0.5, subL: 2 }],
+    }],
+    floors: [], walls: [], wallOverlays: [], doors: [], windows: [],
+  };
+  const roots = new Map([
+    ['plant', { name: 'plant-root' }],
+    ['quad', { name: 'quad-root' }],
+  ]);
+  const input = Object.create(InputHandler.prototype);
+  Object.assign(input, {
+    game: {
+      state,
+      getPlaceable: id => state.placeables.find(entry => entry.id === id) || null,
+    },
+    renderer: { selectionRootForTarget: target => roots.get(target.id) || null },
+    selectedNodeId: null,
+    selectedPlaceableId: null,
+    selectedPlaceableIds: new Set(),
+    _selectedRootsById: new Map(),
+    _selectionCandidatesByKey: new Map(),
+    _renderSelectionOutlines() {},
+  });
+
+  assert(input.selectWorldObject('plant', { openInspector: false })
+      && input.selectedPlaceableId === 'plant'
+      && input._selectedRootsById.get('plant') === roots.get('plant'),
+  'the public selection command selects an ordinary placeable with its live highlight root');
+  assert(input.selectWorldObject('quad', { openInspector: false })
+      && input.selectedPlaceableId === 'attachment:quad'
+      && input._selectedRootsById.get('attachment:quad') === roots.get('quad'),
+  'the public selection command resolves a raw utility endpoint id to an on-pipe attachment');
+  assert(input.selectWorldObject('unknown', { openInspector: false }) === false,
+    'the public selection command rejects stale fault targets safely');
+}
+
+{
   const payload = {
     anchor: { col: 0, row: 0, subCol: 1, subRow: 1 },
     items: [{ id: 'a', col: 0, row: 0, subCol: 1, subRow: 1 }],

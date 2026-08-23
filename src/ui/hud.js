@@ -291,7 +291,7 @@ UIHost.prototype._updateBeamSummary = function() {
 // tripped"), a dismiss button, and one row per offending COMPONENT (not per
 // port) — a cavity missing power, RF and cryo is one problem to the player,
 // three blockers to the gate. Rows that resolve to a world position are
-// clickable and frame the camera on the offender, which is the whole point —
+// clickable, frame the camera, and select the offender, which is the whole point —
 // with on-pipe placements wired individually, "20 hard blockers" is otherwise
 // an unnavigable list.
 //
@@ -303,6 +303,15 @@ UIHost.prototype._updateBeamSummary = function() {
 // self-contained; styles are inline for the same reason.
 const BLOCKER_PANEL_ID = 'infra-blocker-panel';
 const BLOCKER_ROWS_SHOWN = 10;
+
+/** Focus and select the world endpoint represented by one fault row. */
+export function activateInfraBlockerTarget(ui, target) {
+  const world = target?.world;
+  if (!world || target.placeableId == null) return false;
+  ui.renderer?.focusOnWorld?.(world.x, world.z);
+  ui.renderer?.selectWorldObject?.(target.placeableId);
+  return true;
+}
 
 function ensureBlockerPanel() {
   let panel = document.getElementById(BLOCKER_PANEL_ID);
@@ -398,6 +407,7 @@ UIHost.prototype._renderInfraBlockerList = function() {
     if (!g) {
       const ep = id ? byId.get(id) : null;
       g = {
+        placeableId: id,
         ep,
         // Frame on the offending PORT, not the component centre — that is the
         // spot the player has to drag a line to.
@@ -482,10 +492,9 @@ UIHost.prototype._renderInfraBlockerList = function() {
     }
 
     if (locatable) {
-      const { x, z } = g.world;
-      row.title = `${g.title} — ${g.codes.join(', ')}\nClick to locate`;
+      row.title = `${g.title} — ${g.codes.join(', ')}\nClick to locate and select`;
       row.addEventListener('click', () => {
-        this.renderer?.focusOnWorld?.(x, z);
+        activateInfraBlockerTarget(this, g);
       });
       const locate = document.createElement('span');
       locate.textContent = '⌖';
