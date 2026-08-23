@@ -20,6 +20,7 @@
 
 import { discoverAll, makeDefaultPortLookup } from './network-discovery.js';
 import { computeElectricalSinkDemands } from './electrical-demand.js';
+import { buildPowerFeedIndex } from './power-feed.js';
 
 function cloneDefaults(defaults) {
   if (defaults == null) return {};
@@ -75,6 +76,10 @@ export class SolveRunner {
    */
   markTopologyDirty() {
     this.topologyRevision++;
+    // A mutation invalidates the topology-derived electrical lookup just as
+    // it invalidates discovered networks. Calls made before the next solve
+    // safely fall back to scans rather than consulting stale membership.
+    if (this.state) this.state.utilityPowerFeedIndex = null;
   }
 
   /**
@@ -111,6 +116,12 @@ export class SolveRunner {
     // mapping — can reuse it instead of re-running discovery. Derived like
     // utilityNetworkData: never serialized, repopulated every solve pass.
     state.utilityNetworks = networksByType;
+    if (!state.utilityPowerFeedIndex
+        || state.utilityPowerFeedIndex.networksByType !== networksByType
+        || state.utilityPowerFeedIndex.placeables !== state.placeables
+        || state.utilityPowerFeedIndex.placeableCount !== (state.placeables || []).length) {
+      state.utilityPowerFeedIndex = buildPowerFeedIndex(state, networksByType);
+    }
 
     // HV must solve before branch power so panels receive same-tick feeder
     // quality. Their upstream draw, however, is the connected downstream load

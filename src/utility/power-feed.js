@@ -12,7 +12,55 @@ import {
 } from './electrical-state.js';
 import { resolvedElectricalSinkDemand } from './electrical-demand.js';
 
+/**
+ * Build the topology-only indexes used by every powered utility source.
+ *
+ * A utility solve can ask for a power factor hundreds of times. Walking all
+ * placeables and then every electrical network for each source turns that
+ * pass quadratic as a facility grows. SolveRunner builds this once whenever
+ * discovery changes and publishes it on the derived world state; callers
+ * before the first discovery retain the scan fallback below.
+ */
+export function buildPowerFeedIndex(worldState, networksByType = worldState?.utilityNetworks) {
+  const placeables = worldState?.placeables || [];
+  const placeablesById = new Map();
+  for (const placeable of placeables) {
+    if (placeable?.id) placeablesById.set(placeable.id, placeable);
+  }
+
+  const networkByPort = new Map();
+  for (const utilityType of ['hvCable', 'powerCable']) {
+    const perType = new Map();
+    for (const network of networksByType?.get?.(utilityType) || []) {
+      for (const port of network?.ports || []) {
+        if (!port?.placeableId || !port?.portName) continue;
+        perType.set(`${port.placeableId}:${port.portName}`, network);
+      }
+    }
+    networkByPort.set(utilityType, perType);
+  }
+
+  return {
+    placeables,
+    placeableCount: placeables.length,
+    networksByType,
+    placeablesById,
+    networkByPort,
+  };
+}
+
+function livePowerFeedIndex(worldState) {
+  const index = worldState?.utilityPowerFeedIndex;
+  if (!index) return null;
+  if (index.placeables !== worldState.placeables
+      || index.placeableCount !== (worldState.placeables || []).length
+      || index.networksByType !== worldState.utilityNetworks) return null;
+  return index;
+}
+
 function placeableForId(worldState, placeableId) {
+  const index = livePowerFeedIndex(worldState);
+  if (index) return index.placeablesById.get(placeableId) || null;
   for (const p of (worldState?.placeables || [])) {
     if (p?.id === placeableId) return p;
   }
@@ -20,6 +68,10 @@ function placeableForId(worldState, placeableId) {
 }
 
 function hvInputNetwork(worldState, placeableId) {
+  const index = livePowerFeedIndex(worldState);
+  if (index) {
+    return index.networkByPort.get('hvCable')?.get(`${placeableId}:hv_in`) || null;
+  }
   const networks = worldState?.utilityNetworks?.get?.('hvCable') || [];
   const inputKey = `${placeableId}:hv_in`;
   return networks.find(network => (network.ports || [])
@@ -27,6 +79,10 @@ function hvInputNetwork(worldState, placeableId) {
 }
 
 function powerInputNetwork(worldState, placeableId) {
+  const index = livePowerFeedIndex(worldState);
+  if (index) {
+    return index.networkByPort.get('powerCable')?.get(`${placeableId}:pwr_in`) || null;
+  }
   const networks = worldState?.utilityNetworks?.get?.('powerCable') || [];
   const inputKey = `${placeableId}:pwr_in`;
   return networks.find(network => (network.ports || [])
@@ -34,10 +90,7 @@ function powerInputNetwork(worldState, placeableId) {
 }
 
 function hvLoadInputNetwork(worldState, placeableId) {
-  const networks = worldState?.utilityNetworks?.get?.('hvCable') || [];
-  const inputKey = `${placeableId}:hv_in`;
-  return networks.find(network => (network.ports || [])
-    .some(port => `${port.placeableId}:${port.portName}` === inputKey)) || null;
+  return hvInputNetwork(worldState, placeableId);
 }
 
 // Evaluate a feeder tree directly from discovered topology. `hvCable` runs
