@@ -162,13 +162,14 @@ export class VisualEffectSystem {
     this._ambientMesh.instanceMatrix.setUsage?.(THREE.DynamicDrawUsage);
     this.group.add(this._ambientMesh);
 
-    // One draw call for every short-lived spark. Cubes intentionally read as
-    // hot pixels at the game's scale. Bloom makes their colour glow on screen;
-    // they are never registered as LightRig emitters and illuminate nothing.
+    // Sparks and water drops share the same little cube vocabulary. They use
+    // separate instance lists because sparks are kinetic one-shots while
+    // drops are deterministic ambient cycles, but share geometry/material so
+    // the latter cost only one small draw call and no duplicate GPU buffers.
+    const pixelGeometry = new THREE.BoxGeometry(1, 1, 1);
+    const pixelMaterial = makeKineticParticleMaterial();
     this._kineticMesh = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(1, 1, 1),
-      makeKineticParticleMaterial(),
-      MAX_KINETIC_PARTICLES,
+      pixelGeometry, pixelMaterial, MAX_KINETIC_PARTICLES,
     );
     this._kineticMesh.name = 'glowingPixelParticleInstances';
     this._kineticMesh.count = 0;
@@ -176,6 +177,16 @@ export class VisualEffectSystem {
     this._kineticMesh.instanceMatrix.setUsage?.(THREE.DynamicDrawUsage);
     this._kineticMesh.layers.enable(BLOOM_LAYER);
     this.group.add(this._kineticMesh);
+
+    this._dripMesh = new THREE.InstancedMesh(
+      pixelGeometry, pixelMaterial, MAX_AMBIENT_PARTICLES,
+    );
+    this._dripMesh.name = 'waterDripPixelInstances';
+    this._dripMesh.count = 0;
+    this._dripMesh.frustumCulled = false;
+    this._dripMesh.instanceMatrix.setUsage?.(THREE.DynamicDrawUsage);
+    this._dripMesh.layers.enable(BLOOM_LAYER);
+    this.group.add(this._dripMesh);
 
     this._matrix = new THREE.Matrix4();
     this._position = new THREE.Vector3();
@@ -457,6 +468,7 @@ export class VisualEffectSystem {
     let activeProxyCount = 0;
     let requested = 0;
     let ambientIndex = 0;
+    let dripIndex = 0;
     let requestedAmbient = 0;
     for (const proxy of this._lightProxies) {
       proxy.visible = false;
@@ -492,8 +504,8 @@ export class VisualEffectSystem {
         continue;
       }
       if (effect.kind === 'ambientDrip') {
-        const result = this._writeDripParticles(effect, ambientIndex);
-        ambientIndex = result.nextIndex;
+        const result = this._writeDripParticles(effect, dripIndex, ambientIndex);
+        dripIndex = result.nextIndex;
         requestedAmbient += result.requested;
         continue;
       }
@@ -529,19 +541,24 @@ export class VisualEffectSystem {
     this._pulseMesh.count = instanceIndex;
     this._spillMesh.count = spillIndex;
     this._ambientMesh.count = ambientIndex;
+    this._dripMesh.count = dripIndex;
     this._updateKineticParticles(dt);
     this._pulseMesh.instanceMatrix.needsUpdate = true;
     this._spillMesh.instanceMatrix.needsUpdate = true;
     this._ambientMesh.instanceMatrix.needsUpdate = true;
+    this._dripMesh.instanceMatrix.needsUpdate = true;
     if (this._pulseMesh.instanceColor) this._pulseMesh.instanceColor.needsUpdate = true;
     if (this._spillMesh.instanceColor) this._spillMesh.instanceColor.needsUpdate = true;
     if (this._ambientMesh.instanceColor) this._ambientMesh.instanceColor.needsUpdate = true;
+    if (this._dripMesh.instanceColor) this._dripMesh.instanceColor.needsUpdate = true;
     this._stats.pathPulses = pathPulseCount;
     this._stats.bursts = this._bursts.length;
-    this._stats.ambientParticles = ambientIndex;
+    this._stats.ambientParticles = ambientIndex + dripIndex;
     this._stats.lightCandidates = activeProxyCount;
     this._stats.droppedPulses = Math.max(0, requested - instanceIndex);
-    this._stats.droppedAmbientParticles = Math.max(0, requestedAmbient - ambientIndex);
+    this._stats.droppedAmbientParticles = Math.max(
+      0, requestedAmbient - ambientIndex - dripIndex,
+    );
     this._updateSurfaceGlows();
   }
 
@@ -619,7 +636,7 @@ export class VisualEffectSystem {
     return { nextIndex: index, requested };
   }
 
-  _writeDripParticles(effect, startIndex) {
+  _writeDripParticles(effect, startIndex, ambientParticlesUsed = 0) {
     const spacing = Math.max(1, Number(effect.spacing) || 3.4);
     const pointEmitters = effect.emitterMode === 'points';
     const emitterCount = pointEmitters
@@ -628,8 +645,9 @@ export class VisualEffectSystem {
     const fallDuration = Math.max(0.2, Number(effect.fallDuration) || 0.72);
     const baseCycle = Math.max(fallDuration + 0.5, Number(effect.cycle) || 4.4);
     const floorY = Number.isFinite(effect.floorY) ? effect.floorY : FLOOR_Y;
-    const radius = Math.max(0.01, Number(effect.radius) || 0.026);
-    const elongation = Math.max(1, Number(effect.elongation) || 2.8);
+    // Full cube width, deliberately smaller than the ordinary power spark's
+    // 0.026 m authored size (whose kinetic radius makes it larger still).
+    const size = Math.max(0.008, Number(effect.size) || 0.014);
     let index = startIndex;
     let requested = 0;
     for (let emitter = 0; emitter < emitterCount; emitter++) {
@@ -638,21 +656,21 @@ export class VisualEffectSystem {
       const origin = pointEmitters
         ? effect.path.points[emitter]
         : sampleEffectPath(effect.path, distance, this._sample);
-      if (!origin || origin.y <= floorY + radius) continue;
+      if (!origin || origin.y <= floorY + size) continue;
       const cycle = baseCycle * (0.82 + seed * 0.42);
       const ageSeconds = positiveModulo(this._time + seed * cycle, cycle);
       if (ageSeconds > fallDuration) continue;
       requested++;
-      if (index >= this._ambientBudget) continue;
+      if (ambientParticlesUsed + index >= this._ambientBudget) continue;
       const fall = ageSeconds / fallDuration;
       const y = origin.y + (floorY - origin.y) * fall * fall;
-      this._position.set(origin.x, Math.max(floorY + radius, y), origin.z);
-      this._scale.set(radius, radius * Math.max(1, elongation - fall * 0.45), radius);
+      this._position.set(origin.x, Math.max(floorY + size * 0.5, y), origin.z);
+      this._scale.set(size, size, size);
       this._matrix.compose(this._position, this._burstQuat, this._scale);
-      this._ambientMesh.setMatrixAt(index, this._matrix);
+      this._dripMesh.setMatrixAt(index, this._matrix);
       this._color.set(effectColor(effect.color || '#78bfff'))
         .multiplyScalar(0.72 + fall * 0.28);
-      this._ambientMesh.setColorAt(index, this._color);
+      this._dripMesh.setColorAt(index, this._color);
       index++;
     }
     return { nextIndex: index, requested };
@@ -781,6 +799,7 @@ export class VisualEffectSystem {
     this._pulseMesh.count = 0;
     this._spillMesh.count = 0;
     this._ambientMesh.count = 0;
+    this._dripMesh.count = 0;
     this._kineticMesh.count = 0;
     this._bursts.length = 0;
     this._kineticParticles.length = 0;
@@ -798,6 +817,8 @@ export class VisualEffectSystem {
     this._spillMesh.material.dispose();
     this._ambientMesh.geometry.dispose();
     this._ambientMesh.material.dispose();
+    // _dripMesh deliberately shares the kinetic mesh's pixel geometry and
+    // material; disposing those once below releases both owners.
     this._kineticMesh.geometry.dispose();
     this._kineticMesh.material.dispose();
     this._effects.clear();
