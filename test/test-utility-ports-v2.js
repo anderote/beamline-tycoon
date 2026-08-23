@@ -116,6 +116,7 @@ console.log('\n--- Test 5: turboPump ---');
   const cart = getUtilityPortsV2('roughingPumpCart');
   const ports = getUtilityPortsV2('turboPump');
   const turboCart = getUtilityPortsV2('turboPumpCart');
+  const highCapacity = getUtilityPortsV2('highCapacityVacuumStation');
   assert(cart.vac_out.params.roughingSpeed === 60,
     'four-pump cart supplies 60 L/s of roughing and backing speed');
   assert(cart.vac_out.params.vacuumStage === 'rough',
@@ -129,6 +130,8 @@ console.log('\n--- Test 5: turboPump ---');
     'turbo cart supplies four times the single-turbo high-vac speed');
   assert(turboCart.vac_out.params.backingDemand === cart.vac_out.params.roughingSpeed,
     'one roughing cart exactly backs one turbo cart');
+  assert(highCapacity.pwr_in?.params.demand === 45,
+    `high-capacity station reserves 45 kW on a 50 kW section-panel branch (got ${highCapacity.pwr_in?.params.demand})`);
 }
 
 // ==========================================================================

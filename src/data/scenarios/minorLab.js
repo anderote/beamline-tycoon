@@ -19,9 +19,10 @@ export function generateMinorLab() {
 }
 
 /**
- * Complete the seven loose utility gestures in the authored export. Keeping
- * these repairs outside the snapshot preserves the downloaded world verbatim,
- * while every fresh Minor Lab still starts with both beamlines serviceable.
+ * Complete the loose utility gestures in the authored export and move the
+ * large vacuum station to a section-panel branch. Keeping these repairs
+ * outside the snapshot preserves the downloaded world verbatim, while every
+ * fresh Minor Lab still starts with both beamlines serviceable.
  */
 export function setupMinorLab(game) {
   const hotPipe = { waterCircuit: 'hot' };
@@ -49,6 +50,17 @@ export function setupMinorLab(game) {
   wireUtility(game, 'coolingWater',
     { id: 'bl_17', role: 'sink', side: 'left', index: 1 },
     { id: 'in_1518', role: 'source', side: 'right', index: 7 }, hotWater);
+
+  // A free 50 kW section-panel circuit is the intended supply tier for the
+  // 45 kW high-capacity station; the retired compact-panel branch supplied
+  // only 40 kW in total.
+  const oldStationBranch = [...game.state.utilityLines.values()].find(line =>
+    line.utilityType === 'powerCable'
+      && [line.start, line.end].some(ref => ref?.placeableId === 'in_274'));
+  if (oldStationBranch) game.removeUtilityLine(oldStationBranch.id);
+  wireUtility(game, 'powerCable',
+    { id: 'in_97', role: 'source', side: 'front', index: 5 },
+    { id: 'in_274', role: 'sink', side: 'left', index: 0 });
 
   // The lower beamline's BPM is the only data sink not already on the rack bus.
   return wireUtility(game, 'dataFiber',

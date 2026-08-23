@@ -1055,7 +1055,10 @@ export const INFRASTRUCTURE_RAW = {
     category: 'vacuum', subsection: 'supply',
     cost: { funding: 2400000 },
     stats: {},
-    energyCost: 18,
+    // Building-scale Roots backing and twin turbo stages occupy nearly one
+    // dedicated 50 kW section-panel branch while leaving modest breaker
+    // headroom.
+    energyCost: 45,
     subL: 8, subW: 6, subH: 7, gridW: 6, gridH: 8, geometryType: 'box',
     baseMaterial: 'metal_brushed',
     zoneTier: 3,
