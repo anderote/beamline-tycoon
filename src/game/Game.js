@@ -469,6 +469,7 @@ export class Game {
       utilityNetworkState: new Map(),
       utilityNetworkData: null,
       utilityNetworks: null,   // derived: discovery output published by solveRunner
+      utilityPowerFeedIndex: null, // derived: O(1) powered-source topology lookup
       powerReliability: { devices: {} },
       // System-level infrastructure stats (computed by computeSystemStats)
       systemStats: null,
@@ -6769,11 +6770,12 @@ export class Game {
     this.state.utilityBusNextId = this.state.utilityBusNextId || 1;
     this.state.utilityNetworkState = new Map(Array.isArray(this.state.utilityNetworkState) ? this.state.utilityNetworkState : []);
     this.state.utilityNextId = this.state.utilityNextId || 1;
-    // utilityNetworkData / utilityNetworks are derived; solveRunner
-    // repopulates both on first tick. The utilityLines Map was just replaced
-    // wholesale, so the cached network discovery is stale — invalidate it.
+    // Utility solve outputs and its powered-source lookup are derived;
+    // solveRunner repopulates them on the first tick. The utilityLines Map was
+    // just replaced wholesale, so cached network discovery is stale too.
     this.state.utilityNetworkData = null;
     this.state.utilityNetworks = null;
+    this.state.utilityPowerFeedIndex = null;
     // Derived from the solve too, and the physics pass fails closed on it:
     // carrying the pre-load session's map over would stamp a loaded facility
     // with the qualities of the one it replaced.
