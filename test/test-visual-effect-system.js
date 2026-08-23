@@ -282,6 +282,39 @@ test('mist can use discrete hardware points instead of interpolating along a pip
   system.dispose();
 });
 
+test('drips can fall from one discrete water fitting without filling a line span', () => {
+  const scene = new Three.Scene();
+  const system = new VisualEffectSystem(scene, {
+    pulseBudget: 0, ambientBudget: 4, lightProxyBudget: 0,
+  });
+  system.syncScope('utilities', [{
+    id: 'water-spigot', kind: 'ambientDrip', emitterMode: 'points',
+    path: [{ x: 7, y: 1.2, z: 3 }],
+    cycle: 1.5, fallDuration: 1, elongation: 1.45,
+  }]);
+
+  assert.equal(system.getStats().descriptors, 1,
+    'a single fitting remains a valid discrete emitter even though it has no path length');
+  let observed = null;
+  for (let index = 0; index < 30 && !observed; index++) {
+    system.update(0.1, 0);
+    if (system._ambientMesh.count === 0) continue;
+    const matrix = new Three.Matrix4();
+    const position = new Three.Vector3();
+    const rotation = new Three.Quaternion();
+    const scale = new Three.Vector3();
+    system._ambientMesh.getMatrixAt(0, matrix);
+    matrix.decompose(position, rotation, scale);
+    observed = { position, scale };
+  }
+  assert.ok(observed && Math.abs(observed.position.x - 7) < 1e-6
+      && Math.abs(observed.position.z - 3) < 1e-6,
+    'the drop stays vertically beneath its authored fitting point');
+  assert.ok(observed.scale.y < observed.scale.x * 1.6,
+    'the fitting animation reads as a rounded dot instead of a long leak streak');
+  system.dispose();
+});
+
 test('surface glows animate independently while retaining shared shader structure', () => {
   const scene = new Three.Scene();
   const root = new Three.Group();

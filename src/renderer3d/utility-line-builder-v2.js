@@ -47,6 +47,7 @@ import {
   waterCircuitColor,
 } from '../utility/water-circuits.js';
 import { utilityLineJunctions } from '../utility/line-junctions.js';
+import { waterDripEffect } from './water-drip-presentation.js';
 
 // DEFAULT line centerline height. Per-utility heights come from
 // utilityLineHeight (registry): a power cord lies on the floor while a vacuum
@@ -2359,19 +2360,9 @@ function buildLineGroup(
         radius: 0.085,
       });
     }
-  } else if (line.utilityType === 'coolingWater') {
-    visualEffects.push({
-      id: `cooling-drips:${line.id}`,
-      kind: 'ambientDrip',
-      path: ambientPath,
-      color: '#78bfff',
-      spacing: 2.4,
-      cycle: 3.2,
-      fallDuration: 1.0,
-      radius: 0.022,
-      floorY: 0.025,
-    });
   }
+  const waterDrips = waterDripEffect(line, ambientPath, flowState);
+  if (waterDrips) visualEffects.push(waterDrips);
   if (visualEffects.length > 0) group.userData.visualEffects = visualEffects;
 
   return group;
