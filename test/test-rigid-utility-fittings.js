@@ -7,7 +7,7 @@ globalThis.THREE = THREE_NS;
 const { COMPONENTS } = await import('../src/data/components.js');
 const { portWorldPosition } = await import('../src/utility/ports.js');
 const { UTILITY_TYPES } = await import('../src/utility/registry.js');
-const { buildWorldPoints, UtilityLineBuilderV2 } =
+const { buildWorldPoints, twinWaterPresentationPoints, UtilityLineBuilderV2 } =
   await import('../src/renderer3d/utility-line-builder-v2.js');
 
 let passed = 0, failed = 0;
@@ -231,6 +231,105 @@ console.log('\n--- 4d. A run peeling off a shared header is a tee, not an elbow 
     'the shared-header divergence fabricates one three-flange tee');
   assert(elbows.length === 0,
     `the diverging leg no longer curves tangentially out of the header (${elbows.length} elbows)`);
+}
+
+console.log('\n--- 4e. Water bends use formed jackets and raised mechanical collars ---');
+{
+  const parent = build([{
+    id: 'water-bend', utilityType: 'waterSupplyPipe', waterCircuit: 'cold',
+    start: null, end: null,
+    path: [{ col: 0, row: 0 }, { col: 3, row: 0 }, { col: 3, row: 3 }],
+  }]);
+  const elbows = collect(parent, object => object.userData?.isUtilitySweepElbow);
+  const collars = collect(parent, object => object.userData?.isWaterSupplyFitting);
+  const sleeves = collect(parent,
+    object => object.userData?.waterSupplyFittingPart === 'sleeve');
+  const rings = collect(parent,
+    object => object.userData?.waterSupplyFittingPart === 'raised-ring');
+  assert(elbows.length === 2
+      && elbows.every(elbow => elbow.geometry instanceof THREE_NS.TubeGeometry),
+  'water bends sweep both the process pipe and its outer jacket through the corner');
+  assert(collars.length === 2 && sleeves.length === 2 && rings.length === 2,
+    'one raised mechanical collar brackets each side of the formed water elbow');
+}
+
+console.log('\n--- 4f. Water branches fabricate a three-arm tee body ---');
+{
+  const parent = build([
+    {
+      id: 'water-trunk', utilityType: 'waterSupplyPipe', waterCircuit: 'cold',
+      start: null, end: null,
+      path: [{ col: 0, row: 0 }, { col: 4, row: 0 }],
+    },
+    {
+      id: 'water-branch', utilityType: 'waterSupplyPipe', waterCircuit: 'cold',
+      start: null, end: null,
+      tapLineIds: { start: 'water-trunk', end: null },
+      path: [{ col: 2, row: 0 }, { col: 2, row: 3 }],
+    },
+  ]);
+  const tees = collect(parent, object => object.userData?.isUtilityTeeFitting);
+  const hubArms = tees.flatMap(tee => collect(tee,
+    object => object.userData?.waterSupplyFittingPart === 'hub-arm'));
+  const collars = tees.flatMap(tee => collect(tee,
+    object => object.userData?.isWaterSupplyFitting));
+  const centres = tees.flatMap(tee => collect(tee,
+    object => object.userData?.waterSupplyFittingPart === 'hub-centre'));
+  const caps = collect(parent, object => object.userData?.isUtilityOpenCap);
+  assert(tees.length === 1 && hubArms.length === 3 && collars.length === 3,
+    `the branch owns one formed tee with three arms and collars (${tees.length}/${hubArms.length}/${collars.length})`);
+  assert(caps.length === 3,
+    'the joined branch end is uncapped while the three genuinely open ends stay visible');
+  assert(centres.length === 1
+      && Math.abs(centres[0].position.x - 4.12) < 1e-6
+      && Math.abs(centres[0].position.z + 0.12) < 1e-6,
+  'the cold-water tee sits at the intersection of the shifted header and branch lanes');
+
+  const runY = UTILITY_TYPES.waterSupplyPipe.runHeightsByWaterCircuit.cold;
+  const branchPoints = twinWaterPresentationPoints([
+    new THREE_NS.Vector3(4, runY, 0),
+    new THREE_NS.Vector3(4, runY, 6),
+  ], {
+    utilityType: 'waterSupplyPipe', waterCircuit: 'cold',
+  }, {
+    junctions: [{
+      point: { col: 2, row: 0 },
+      directions: ['-1,0', '0,1', '1,0'],
+    }],
+  });
+  assert(Math.abs(branchPoints[0].x - centres[0].position.x) < 1e-6
+      && Math.abs(branchPoints[0].z - centres[0].position.z) < 1e-6,
+  'the shifted branch endpoint lands directly in the visible tee body');
+}
+
+console.log('\n--- 4g. Opposed water branches fabricate one four-way cross ---');
+{
+  const parent = build([
+    {
+      id: 'water-cross-trunk', utilityType: 'waterSupplyPipe', waterCircuit: 'hot',
+      start: null, end: null,
+      path: [{ col: 0, row: -3 }, { col: 0, row: 3 }],
+    },
+    {
+      id: 'water-cross-left', utilityType: 'waterSupplyPipe', waterCircuit: 'hot',
+      start: null, end: null,
+      tapLineIds: { start: 'water-cross-trunk', end: null },
+      path: [{ col: 0, row: 0 }, { col: -3, row: 0 }],
+    },
+    {
+      id: 'water-cross-right', utilityType: 'waterSupplyPipe', waterCircuit: 'hot',
+      start: null, end: null,
+      tapLineIds: { start: 'water-cross-trunk', end: null },
+      path: [{ col: 0, row: 0 }, { col: 3, row: 0 }],
+    },
+  ]);
+  const crosses = collect(parent, object => object.userData?.isUtilityCrossFitting);
+  const hubArms = crosses.flatMap(cross => collect(cross,
+    object => object.userData?.waterSupplyFittingPart === 'hub-arm'));
+  const collars = crosses.flatMap(cross => collect(cross,
+    object => object.userData?.isWaterSupplyFitting));
+  assert(crosses.length === 1 && hubArms.length === 4 && collars.length === 4,
+    `the crossing owns one four-arm body with four collars (${crosses.length}/${hubArms.length}/${collars.length})`);
 }
 
 console.log('\n--- 5. Cryo renders as an opaque fabricated cryostat ---');

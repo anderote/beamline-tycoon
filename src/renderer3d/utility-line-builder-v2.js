@@ -544,7 +544,31 @@ function canonicalPlanNormal(dx, dz) {
  * selectable/topological line. Coincident routes therefore read as a factory
  * twin while isolated and diverging routes remain ordinary independent runs.
  */
-export function twinWaterPresentationPoints(points, line) {
+function waterJunctionWorldPoint(spec, line, runY) {
+  const point = spec?.point;
+  if (!point) return null;
+  const world = new THREE.Vector3(point.col * 2, runY, point.row * 2);
+  const circuit = lineWaterCircuit(line);
+  if (line?.utilityType !== 'waterSupplyPipe'
+      || (circuit !== 'cold' && circuit !== 'hot')) return world;
+
+  // Cold/hot twins occupy stable opposite lanes. At a tee or cross, the
+  // visible fitting belongs at the intersection of those presented lanes,
+  // not at the unshifted simulation coordinate between them. Horizontal arms
+  // contribute the Z lane and vertical arms contribute the X lane.
+  const offset = WATER_TWIN_CENTER_SPACING_METERS * 0.5
+    * (circuit === 'cold' ? -1 : 1);
+  const directions = spec.directions || [];
+  if (directions.some(direction => String(direction).endsWith(',0'))) {
+    world.z += offset;
+  }
+  if (directions.some(direction => String(direction).startsWith('0,'))) {
+    world.x -= offset;
+  }
+  return world;
+}
+
+export function twinWaterPresentationPoints(points, line, junctionTopology = null) {
   const circuit = lineWaterCircuit(line);
   if (line?.utilityType !== 'waterSupplyPipe'
       || (circuit !== 'cold' && circuit !== 'hot')
@@ -577,6 +601,23 @@ export function twinWaterPresentationPoints(points, line) {
       point.z + nz * offset * miter,
     );
   });
+
+  // A one-legged branch endpoint has only its own lane normal, while the tee
+  // centre also includes the through-run's lane offset. Extend that endpoint
+  // along its existing axis to the shared fitting centre. The result remains
+  // orthogonal and closes the small diagonal gap that otherwise appears where
+  // a shifted branch meets a shifted header.
+  for (const spec of (junctionTopology?.junctions || [])) {
+    const fittingPoint = waterJunctionWorldPoint(spec, line, runY);
+    if (!fittingPoint) continue;
+    for (let index = 0; index < points.length; index++) {
+      const point = points[index];
+      if (Math.abs(point.y - runY) > 1e-5
+          || Math.abs(point.x - spec.point.col * 2) > 1e-5
+          || Math.abs(point.z - spec.point.row * 2) > 1e-5) continue;
+      shifted[index] = fittingPoint.clone();
+    }
+  }
 
   // Keep the final connector tail orthogonal and attached to its fitting.
   // A short cross-piece at the route datum bridges from the centered riser to
@@ -896,22 +937,27 @@ function cornerBendInfo(prev, at, next, descriptor) {
   };
 }
 
-function junctionAtWorldPoint(point, junctionTopology, runY) {
+function junctionAtWorldPoint(point, junctionTopology, runY, line = null) {
   if (!point || Math.abs(point.y - runY) > 1e-4) return null;
-  return (junctionTopology?.junctions || []).find(spec =>
-    Math.abs(point.x - spec.point.col * 2) < 1e-4
-      && Math.abs(point.z - spec.point.row * 2) < 1e-4) || null;
+  return (junctionTopology?.junctions || []).find(spec => {
+    const fittingPoint = waterJunctionWorldPoint(spec, line, runY);
+    return fittingPoint
+      && Math.abs(point.x - fittingPoint.x) < 1e-4
+      && Math.abs(point.z - fittingPoint.z) < 1e-4;
+  }) || null;
 }
 
-function trimmedSegment(points, index, descriptor, junctionTopology = null, runY = null) {
+function trimmedSegment(
+  points, index, descriptor, junctionTopology = null, runY = null, line = null,
+) {
   let start = points[index].clone();
   let end = points[index + 1].clone();
-  if (index > 0 && !junctionAtWorldPoint(points[index], junctionTopology, runY)) {
+  if (index > 0 && !junctionAtWorldPoint(points[index], junctionTopology, runY, line)) {
     const bend = cornerBendInfo(points[index - 1], points[index], points[index + 1], descriptor);
     if (bend) start = bend.end;
   }
   if (index + 1 < points.length - 1
-      && !junctionAtWorldPoint(points[index + 1], junctionTopology, runY)) {
+      && !junctionAtWorldPoint(points[index + 1], junctionTopology, runY, line)) {
     const bend = cornerBendInfo(points[index], points[index + 1], points[index + 2], descriptor);
     if (bend) end = bend.start;
   }
@@ -1152,10 +1198,56 @@ function buildCryostatBayonet(point, direction, descriptor, material, errorStatu
   return group;
 }
 
+function buildWaterSupplyFitting(point, direction, descriptor, material) {
+  const axis = direction.clone().normalize();
+  if (Math.hypot(axis.x || 0, axis.y || 0, axis.z || 0) < 0.5) return null;
+  const radius = descriptor.pipeRadiusMeters || 0.065;
+  const depth = Math.max(0.065, radius * 1.05);
+  const half = axis.clone().multiplyScalar(depth * 0.5);
+  const group = new THREE.Group();
+
+  // The opaque sleeve closes the translucent insulation jacket. Its raised
+  // ring keeps the joint readable at ordinary construction-camera zoom.
+  const sleeve = buildCylinderSegment(
+    new THREE.Vector3(point.x - half.x, point.y - half.y, point.z - half.z),
+    new THREE.Vector3(point.x + half.x, point.y + half.y, point.z + half.z),
+    radius * 1.72,
+    material,
+  );
+  if (sleeve) {
+    sleeve.userData.waterSupplyFittingPart = 'sleeve';
+    group.add(sleeve);
+  }
+  if (THREE.TorusGeometry) {
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(radius * 1.56, Math.max(0.009, radius * 0.16), 7, 18),
+      material,
+    );
+    ring.position.copy(point);
+    ring.quaternion.copy(new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(0, 0, 1), axis));
+    ring.matrixAutoUpdate = false;
+    ring.updateMatrix();
+    ring.userData.waterSupplyFittingPart = 'raised-ring';
+    group.add(ring);
+  }
+  group.userData = {
+    isUtilityJoint: true,
+    isUtilityFitting: true,
+    isWaterSupplyFitting: true,
+    fittingStyle: 'waterSupplyFlange',
+  };
+  markUtilityDetail(group);
+  return group.children.length > 0 ? group : null;
+}
+
 function buildServiceFitting(point, direction, descriptor, material, errorStatus = 'ok') {
   if (!point || !direction || !descriptor?.fittingStyle) return null;
   if (descriptor.fittingStyle === 'cryoBayonet') {
     return buildCryostatBayonet(point, direction, descriptor, material, errorStatus);
+  }
+  if (descriptor.fittingStyle === 'waterSupplyFlange') {
+    return buildWaterSupplyFitting(point, direction, descriptor, material);
   }
   const radius = descriptor.pipeRadiusMeters || 0.04;
   const depth = descriptor.fittingStyle === 'waveguideFlange' ? 0.055 : 0.045;
@@ -1266,6 +1358,33 @@ function buildTappedJunction(
       const flange = buildServiceFitting(
         flangePoint, direction, descriptor, hardwareMaterial, errorStatus);
       if (flange) group.add(flange);
+    }
+  } else if (descriptor?.fittingStyle === 'waterSupplyFlange') {
+    const directions = (spec.directions || []).map(directionVector)
+      .filter(direction => direction.lengthSq() >= 0.5);
+    const hubRadius = radius * 1.66;
+    const hubReach = radius * 2.55;
+    const centre = new THREE.Mesh(
+      new THREE.SphereGeometry(hubRadius, 12, 8), hardwareMaterial);
+    centre.position.copy(point);
+    centre.userData.waterSupplyFittingPart = 'hub-centre';
+    markUtilityDetail(centre);
+    group.add(centre);
+    for (const direction of directions) {
+      const collarPoint = new THREE.Vector3(
+        point.x + direction.x * hubReach,
+        point.y,
+        point.z + direction.z * hubReach,
+      );
+      const arm = buildCylinderSegment(point, collarPoint, hubRadius, hardwareMaterial);
+      if (arm) {
+        arm.userData.waterSupplyFittingPart = 'hub-arm';
+        markUtilityDetail(arm);
+        group.add(arm);
+      }
+      const collar = buildServiceFitting(
+        collarPoint, direction, descriptor, hardwareMaterial, errorStatus);
+      if (collar) group.add(collar);
     }
   } else {
     const direction = directionVector(spec.directions?.[0] || '1,0');
@@ -1856,7 +1975,7 @@ function buildLineGroup(
     : flexible
       ? buildSoftCableWorldPoints(line, placeablesById, tapAnchors)
       : buildWorldPoints(line, placeablesById, tapAnchors));
-  points = twinWaterPresentationPoints(points, line);
+  points = twinWaterPresentationPoints(points, line, joinedOpenEnds);
   if (points.length < 2) return null;
   let busOffsetX = 0, busOffsetZ = 0;
   let busPortOffsetX = 0, busPortOffsetZ = 0;
@@ -1956,7 +2075,7 @@ function buildLineGroup(
     group.add(flexibleMesh);
   }
   for (let i = 0; !flexibleMesh && i < points.length - 1; i++) {
-    const trimmed = trimmedSegment(points, i, descriptor, joinedOpenEnds, runY);
+    const trimmed = trimmedSegment(points, i, descriptor, joinedOpenEnds, runY, line);
     const a = trimmed.start;
     const b = trimmed.end;
     const segLen = segLens[i];
@@ -2035,7 +2154,7 @@ function buildLineGroup(
     ? getJacketMaterial(line.utilityType, flowState, line.waterCircuit) : null;
   for (let i = 1; !flexible && i < points.length - 1; i++) {
     const prev = points[i - 1], at = points[i], next = points[i + 1];
-    if (junctionAtWorldPoint(at, joinedOpenEnds, runY)) continue;
+    if (junctionAtWorldPoint(at, joinedOpenEnds, runY, line)) continue;
     const jointRadius = cryostatPresentation
       ? radius * (descriptor.jacketRadiusScale || 1.6) : radius;
     const jointMaterial = cryostatPresentation ? cryostatJacketMat : mat;
@@ -2186,8 +2305,7 @@ function buildLineGroup(
   // topology-aware fitting. One deterministic line owns each physical mesh.
   for (const junction of (joinedOpenEnds?.junctions || [])) {
     if (!junction.renderHardware) continue;
-    const point = new THREE.Vector3(
-      junction.point.col * 2, runY, junction.point.row * 2);
+    const point = waterJunctionWorldPoint(junction, line, runY);
     const fitting = buildTappedJunction(
       point, junction, descriptor, mat, hardwareMat, flowState);
     if (fitting) {
