@@ -60,8 +60,8 @@ export function waterDripEffect(line, worldPoints, flowState = 'ok') {
     color: waterCircuitColor(circuit, '#78bfff'),
     cycle: circuit === WATER_CIRCUIT_HOT ? 4.8 : 4.2,
     fallDuration: 0.92,
-    radius: 0.024,
-    elongation: 1.45,
+    // Uses the spark-pixel mesh, but at a distinctly smaller cube size.
+    size: 0.014,
     floorY: 0.025,
     enabled: flowState !== 'off' && flowState !== 'hard',
   };

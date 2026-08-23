@@ -182,7 +182,7 @@ test('path effects honor utility-specific silhouettes and can opt out of room li
   system.dispose();
 });
 
-test('utility ambient effects share one bounded instanced particle draw', () => {
+test('utility ambient effects share one budget across bounded instanced draws', () => {
   const scene = new Three.Scene();
   const system = new VisualEffectSystem(scene, {
     pulseBudget: 0, ambientBudget: 12, lightProxyBudget: 0,
@@ -196,7 +196,7 @@ test('utility ambient effects share one bounded instanced particle draw', () => 
     {
       id: 'water-1', kind: 'ambientDrip',
       path: [{ x: 0, y: 1.2, z: 2 }, { x: 8, y: 1.2, z: 2 }],
-      spacing: 2, cycle: 3, fallDuration: 0.8,
+      emitterMode: 'points', cycle: 3, fallDuration: 0.8, size: 0.014,
     },
   ]);
 
@@ -205,26 +205,33 @@ test('utility ambient effects share one bounded instanced particle draw', () => 
     'mist sources along the pipe fit inside the shared ambient budget');
   assert.equal(system.getStats().ambientBudget, 12);
   assert.equal(system.group.children.filter(child => child.name === 'ambientUtilityParticleInstances').length, 1,
-    'all mist and drips use one instanced mesh rather than per-particle scene objects');
+    'all mist uses one instanced mesh rather than per-particle scene objects');
+  assert.equal(system.group.children.filter(child => child.name === 'waterDripPixelInstances').length, 1,
+    'all connector drops use one bounded spark-pixel instance list');
 
   let sawDrip = false;
   for (let i = 0; i < 80 && !sawDrip; i++) {
     system.update(0.1, 0);
-    if (system._ambientMesh.count <= 8) continue;
+    if (system._dripMesh.count <= 0) continue;
     const matrix = new Three.Matrix4();
     const position = new Three.Vector3();
     const rotation = new Three.Quaternion();
     const scale = new Three.Vector3();
-    system._ambientMesh.getMatrixAt(8, matrix);
+    system._dripMesh.getMatrixAt(0, matrix);
     matrix.decompose(position, rotation, scale);
-    sawDrip = scale.y > scale.x * 1.5 && position.y >= 0.025;
+    sawDrip = Math.abs(scale.y - scale.x) < 1e-6
+      && scale.x < 0.026 && position.y >= 0.025;
   }
-  assert.equal(sawDrip, true, 'occasional water particles fall as narrow vertical droplets');
+  assert.equal(sawDrip, true,
+    'occasional water drops use cubes smaller than ordinary power-spark pixels');
+  assert.equal(system._dripMesh.geometry, system._kineticMesh.geometry);
+  assert.equal(system._dripMesh.material, system._kineticMesh.material,
+    'water drops reuse the spark pixel geometry and material');
 
   system.setQuality({ effectPulseCount: 4 });
   system.update(0.1, 0);
-  assert.ok(system._ambientMesh.count <= 2,
-    'lighting quality also bounds the ambient particle pool');
+  assert.ok(system._ambientMesh.count + system._dripMesh.count <= 2,
+    'lighting quality bounds mist and pixel drips through one ambient budget');
   system.dispose();
 });
 
@@ -290,7 +297,7 @@ test('drips can fall from one discrete water fitting without filling a line span
   system.syncScope('utilities', [{
     id: 'water-spigot', kind: 'ambientDrip', emitterMode: 'points',
     path: [{ x: 7, y: 1.2, z: 3 }],
-    cycle: 1.5, fallDuration: 1, elongation: 1.45,
+    cycle: 1.5, fallDuration: 1, size: 0.014,
   }]);
 
   assert.equal(system.getStats().descriptors, 1,
@@ -298,20 +305,21 @@ test('drips can fall from one discrete water fitting without filling a line span
   let observed = null;
   for (let index = 0; index < 30 && !observed; index++) {
     system.update(0.1, 0);
-    if (system._ambientMesh.count === 0) continue;
+    if (system._dripMesh.count === 0) continue;
     const matrix = new Three.Matrix4();
     const position = new Three.Vector3();
     const rotation = new Three.Quaternion();
     const scale = new Three.Vector3();
-    system._ambientMesh.getMatrixAt(0, matrix);
+    system._dripMesh.getMatrixAt(0, matrix);
     matrix.decompose(position, rotation, scale);
     observed = { position, scale };
   }
   assert.ok(observed && Math.abs(observed.position.x - 7) < 1e-6
       && Math.abs(observed.position.z - 3) < 1e-6,
     'the drop stays vertically beneath its authored fitting point');
-  assert.ok(observed.scale.y < observed.scale.x * 1.6,
-    'the fitting animation reads as a rounded dot instead of a long leak streak');
+  assert.ok(Math.abs(observed.scale.y - observed.scale.x) < 1e-6
+      && observed.scale.x < 0.026,
+    'the fitting animation reads as a cube smaller than a normal spark pixel');
   system.dispose();
 });
 

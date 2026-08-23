@@ -27,7 +27,8 @@ test('hot and cold water lines drip only at connected terminal fittings', () => 
       assert.equal(effect.emitterMode, 'points');
       assert.equal(effect.source, 'water-fittings');
       assert.deepEqual(effect.path, [points[0], points[2]]);
-      assert.ok(effect.elongation < 2, 'water reads as small dots rather than long streaks');
+      assert.ok(effect.size < 0.026,
+        'water reads as cubes smaller than ordinary power-spark pixels');
     }
   }
 });

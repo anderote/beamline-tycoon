@@ -454,7 +454,8 @@ console.log('\n--- 4. FLOW_PARAMS covers every utility ---');
         .group.userData.visualEffects?.find(effect => effect.kind === 'ambientDrip');
       assert(waterDrips?.source === 'water-fittings'
           && waterDrips.emitterMode === 'points'
-          && waterDrips.path.length === 2,
+          && waterDrips.path.length === 2
+          && waterDrips.size < 0.026,
         `${utilityType} publishes ${circuit} drops at its two connected fittings`);
     }
   }
