@@ -17,7 +17,7 @@ Accelerator jargon decoded — from conductance to VSWR.
 
 **Conductance** — A measure of how easily gas flows through a tube or opening, measured in liters per second (L/s). Short, wide tubes have high conductance; long, narrow tubes have low conductance. Molecular pump stages use tube conductance to calculate the effective speed delivered to the chamber.
 
-**Design temperature** — The temperature a helium bath holds while its plant can cover the load. 2.0 K if a 2K Cold Box sits on the network, 4.5 K otherwise. A bath does not settle at some intermediate temperature proportional to overload; it holds its design point or it warms.
+**Design temperature** — The temperature a helium bath holds while its plant can cover the load. 2.0 K if a 2 K Cryogenic Supply sits on the network, 4.5 K otherwise. A bath does not settle at some intermediate temperature proportional to overload; it holds its design point or it warms.
 
 **Detuning (thermal)** — The frequency shift of a normal-conducting cavity caused by thermal expansion when its cooling is inadequate. The cavity falls off resonance and reflects power rather than absorbing it. Roughly 20 kHz per kelvin at S-band.
 

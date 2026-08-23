@@ -661,8 +661,8 @@ export const INFRASTRUCTURE_RAW = {
   // ── Cryogenics ────────────────────────────────────────────────────
   ln2Dewar: {
     id: 'ln2Dewar',
-    name: 'LN2 Dewar',
-    desc: 'Basic liquid nitrogen storage vessel. Wire it into a Cryo Transfer network with an LN2 pre-cooler to intercept warm-end heat before it reaches the helium refrigerator. It does not store liquid helium and cannot replace the network\'s Helium Recovery/Storage reservoir.',
+    name: 'Liquid Nitrogen Tank',
+    desc: 'Basic liquid nitrogen storage vessel. Wire it into a Cryo Transfer network with Liquid Nitrogen Pre-cooling to intercept warm-end heat before it reaches the helium refrigerator. It does not store liquid helium and cannot replace the network\'s Helium Tank.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
     cost: { funding: 40000 },
@@ -681,7 +681,7 @@ export const INFRASTRUCTURE_RAW = {
   },
   cryocooler: {
     id: 'cryocooler',
-    name: 'Cryocooler',
+    name: 'Compact Cryogenic Supply',
     desc: 'Compact closed-cycle 4.5 K refrigerator for one small superconducting load. Its sealed helium charge, cold head, compressor and air-cooled heat rejection form a complete 90 W starter plant: connect power and one Cryo Transfer line. Larger SRF loads need separate storage, a cold box and a helium compressor.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
@@ -706,7 +706,7 @@ export const INFRASTRUCTURE_RAW = {
   },
   ln2Precooler: {
     id: 'ln2Precooler',
-    name: 'LN2 Pre-cooler',
+    name: 'Liquid Nitrogen Pre-cooling',
     desc: 'Uses liquid nitrogen to pre-cool helium gas from room temperature to 80K before the main helium refrigerator takes over. Dramatically reduces the load on your helium compressor, cutting cryo energy costs. A smart optimization that pays for itself quickly.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
@@ -728,8 +728,8 @@ export const INFRASTRUCTURE_RAW = {
   },
   heCompressor: {
     id: 'heCompressor',
-    name: 'Helium Compressor',
-    desc: 'Warm-end compressor and heat-rejection stage for up to 800 W of cold-box capacity. A central cryogenic network remains offline without one. Its industrial motor takes a direct HV feed and its aftercooler must also be served by a complete Cooling Water network.',
+    name: 'Helium Refrigeration',
+    desc: 'Warm-end helium compressor and heat-rejection stage for up to 800 W of cold-box capacity. A central cryogenic network remains offline without one. Its industrial motor takes a direct HV feed and its aftercooler must also be served by a complete Cooling Water network.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
     cost: { funding: 5000000 },
@@ -750,8 +750,8 @@ export const INFRASTRUCTURE_RAW = {
   },
   coldBox4K: {
     id: 'coldBox4K',
-    name: '4K Cold Box',
-    desc: 'Refrigeration unit that cools helium to 4.5 Kelvin (-269°C) with 500 W cooling capacity. Connect it by Cryo Transfer line to Helium Recovery/Storage, a powered and water-cooled Helium Compressor, and the superconducting loads. Its direct HV feed carries the cold-box process load.',
+    name: '4 K Cryogenic Supply',
+    desc: 'Cold-box refrigeration unit that cools helium to 4.5 Kelvin (-269°C) with 500 W cooling capacity. Connect it by Cryo Transfer line to a Helium Tank, powered and water-cooled Helium Refrigeration, and the superconducting loads. Its direct HV feed carries the cold-box process load.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
     cost: { funding: 8000000 },
@@ -772,8 +772,8 @@ export const INFRASTRUCTURE_RAW = {
   },
   coldBox2K: {
     id: 'coldBox2K',
-    name: '2K Cold Box',
-    desc: 'Industrial-scale cold box producing superfluid helium at 2 Kelvin using sub-atmospheric pumping, with 800 W of cooling capacity. It needs Helium Recovery/Storage and a powered, water-cooled Helium Compressor on the same Cryo Transfer network. The 600 kW cold-box process load takes a direct HV feed.',
+    name: '2 K Cryogenic Supply',
+    desc: 'Industrial-scale cold box producing superfluid helium at 2 Kelvin using sub-atmospheric pumping, with 800 W of cooling capacity. It needs a Helium Tank and powered, water-cooled Helium Refrigeration on the same Cryo Transfer network. The 600 kW cold-box process load takes a direct HV feed.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
     cost: { funding: 15000000 },
@@ -794,7 +794,7 @@ export const INFRASTRUCTURE_RAW = {
   },
   cryomoduleHousing: {
     id: 'cryomoduleHousing',
-    name: 'Cryomodule Housing',
+    name: 'Cryogenic Heat Shielding',
     desc: 'Auxiliary insulated vacuum vessel and thermal-intercept package for an SRF cryogenic loop. When wired into that Cryo Transfer network it reduces the network\'s static heat leak; its instrumentation and vacuum controls require branch power.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
@@ -814,7 +814,7 @@ export const INFRASTRUCTURE_RAW = {
   },
   heRecovery: {
     id: 'heRecovery',
-    name: 'Helium Recovery/Storage',
+    name: 'Helium Tank',
     desc: 'The central helium reservoir: 2,000 L of liquid-equivalent inventory plus high-pressure storage for recovered boil-off. Every separate cold-box network needs this storage, while a connected recovery header, gas bag, purifier and liquefier progressively return boiled-off helium. Its powered controls raise a complete recovery chain from a 70% to a 90% ceiling.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
@@ -843,7 +843,7 @@ export const INFRASTRUCTURE_RAW = {
   // boiled-off gas you buy back.
   heRecoveryHeader: {
     id: 'heRecoveryHeader',
-    name: 'He Recovery Header',
+    name: 'Helium Recovery Header',
     desc: 'The vacuum-jacketed return manifold that ties relief and boil-off flow back to the plant. It contributes recovery only when its bayonet is physically connected to the same Cryo Transfer network as the reservoir and loads; duplicates on one network do not stack.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
@@ -865,7 +865,7 @@ export const INFRASTRUCTURE_RAW = {
   },
   heGasBag: {
     id: 'heGasBag',
-    name: 'He Gas Bag',
+    name: 'Helium Recovery Bag',
     desc: 'A low-pressure surge buffer for recovered helium. Wire it into the Cryo Transfer network downstream of a recovery header so ramp-down gas is captured instead of lifting relief valves. Duplicates on one network do not stack.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
@@ -886,7 +886,7 @@ export const INFRASTRUCTURE_RAW = {
   },
   hePurifier: {
     id: 'hePurifier',
-    name: 'He Purifier',
+    name: 'Helium Purification',
     desc: 'Powered charcoal adsorber beds and molecular-sieve driers that clean recovered gas before liquefaction. It contributes recovery only while both its power input and Cryo Transfer bayonet are connected to the network.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
@@ -907,7 +907,7 @@ export const INFRASTRUCTURE_RAW = {
   },
   heLiquefier: {
     id: 'heLiquefier',
-    name: 'He Liquefier',
+    name: 'Helium Make-up',
     desc: 'Powered turbine-expander plant that re-liquefies clean recovered gas at 4.2 K and returns it to the connected reservoir. It is the refiller stage of the recovery chain: its effect and recovered-flow readout exist only on the Cryo Transfer network it is wired into.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,
@@ -930,7 +930,7 @@ export const INFRASTRUCTURE_RAW = {
   // pipe segment (see computeBusService in src/utility/network-discovery.js).
   cryoValveBox: {
     id: 'cryoValveBox',
-    name: 'Cryogenic Valve Box',
+    name: 'Cryogenic Distribution',
     desc: 'Vacuum-jacketed distribution box that taps one 2 K transfer line into supply and return branches for every cryomodule within reach on a single beamline segment. Replaces a bundle of individual transfer lines. Reach is short — vacuum-jacketed line is the most expensive plumbing in the building.',
     category: 'cooling', subsection: 'cryogenics',
     accentColor: 0x2fbccc,

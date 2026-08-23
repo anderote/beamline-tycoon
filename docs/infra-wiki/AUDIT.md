@@ -58,8 +58,8 @@ correction — it is pure beam physics with no game-mechanics claims.
 | Claim | Old | New | Source |
 |---|---|---|---|
 | Compressor requirement | Cold box acted as a complete plant by itself | Central plants require connected storage, chilling, and live heat rejection. The compressor provides heat rejection only while powered and cooling-water-fed. | `cryoTransfer.js` `cryoPlantCapabilities()` |
-| Cryocooler as a source | Declared no cryo source port and contributed zero capacity | Powered integrated starter plant: 90 W chilling/rejection and sealed 50 L inventory | `getUtilityPortsV2('cryocooler')`; `cryoPlantCapabilities()` |
-| Reservoir | Every network received an implicit fixed 500 L | Capacity is summed from connected `storageCapacityL` ports: 2,000 L central storage or 50 L integrated Cryocooler | `cryoInventoryForNetwork()`; `boundCryoPersistentState()` |
+| Compact Cryogenic Supply as a source | Declared no cryo source port and contributed zero capacity | Powered integrated starter plant: 90 W chilling/rejection and sealed 50 L inventory | `getUtilityPortsV2('cryocooler')`; `cryoPlantCapabilities()` |
+| Reservoir | Every network received an implicit fixed 500 L | Capacity is summed from connected `storageCapacityL` ports: 2,000 L Helium Tank or 50 L Compact Cryogenic Supply | `cryoInventoryForNetwork()`; `boundCryoPersistentState()` |
 | Recovery | Facility-wide by placed type, even unwired/unpowered | Network-local through real cryo ports; powered stages require live feeds | `networkHeRecovery()` |
 | Heat load | Static only | Static (declared `srfHeatW`) **plus** dynamic wall dissipation computed from last tick's achieved gradient at the current bath temperature | `cryoTransfer.js` `dynamicLoadAt()`, `collectCavities()`; write-back in `Game.js` `_writeBackCavityResults()` |
 | Plant capacity | Fixed rating | `min(rated x (T/T_design)^1.3, rated x 3)` — a plant run warmer delivers more | `cryoTransfer.js` `capacityAt()`, `COLD_CAPACITY_EXPONENT = 1.3` |

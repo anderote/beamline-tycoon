@@ -69,6 +69,10 @@ test('research-gated cryogenic hardware is reachable from its advertised node', 
 });
 
 test('catalogue exposes storage, refrigeration, heat rejection and refill roles', () => {
+  assert.equal(COMPONENTS.heRecovery.name, 'Helium Tank');
+  assert.equal(COMPONENTS.heCompressor.name, 'Helium Refrigeration');
+  assert.equal(COMPONENTS.coldBox4K.name, '4 K Cryogenic Supply');
+  assert.equal(COMPONENTS.coldBox2K.name, '2 K Cryogenic Supply');
   assert.equal(COMPONENTS.heRecovery.ports.cryo_out.params.storageCapacityL, 2000);
   assert.equal(COMPONENTS.coldBox4K.ports.cryo_out.params.coldCapacityW, 500);
   assert.equal(COMPONENTS.heCompressor.ports.cryo_out.params.heatRejectionCapacityW, 800);

@@ -204,7 +204,7 @@ function sinkEffect(utility, klass, params, comp) {
 
     case 'cryoTransfer': {
       return `Static heat load ${fmt(params.srfHeatW)} W. The bath holds its plant's `
-        + `design temperature — ${T_SUPERFLUID} K with a 2K Cold Box on the network, `
+        + `design temperature — ${T_SUPERFLUID} K with a 2 K Cryogenic Supply on the network, `
         + `otherwise ${T_NORMAL} K — for as long as capacity covers load. Overload `
         + 'warms it, Q₀ collapses as it warms, and the extra dissipation warms it '
         + `faster still; at ${T_CRITICAL} K the cavity quenches and the element `
