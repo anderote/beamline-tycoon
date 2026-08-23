@@ -448,7 +448,8 @@ export default {
   supportSpacingMeters: RIGID_UTILITY_SUPPORT_SPACING_METERS,
   supportMinimumRunMeters: RIGID_UTILITY_SUPPORT_MINIMUM_RUN_METERS,
   fixedRouteHeight: true,
-  requiresWallPassThrough: true,
+  // Fabricated pipe continues through structural walls as one ordinary run.
+  requiresWallPassThrough: false,
   routeVerticalClearanceMeters: 0.06,
   // Vacuum shares the same quarter-tile routing freedom as every utility.
   // Its actual body radius still participates in measured 3D collisions; a

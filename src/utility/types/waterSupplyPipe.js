@@ -63,7 +63,9 @@ export default {
   joinsOnContact: true,
   fansOut: true,
   bridgesAdjacent: false,
-  requiresWallPassThrough: true,
+  // Fabricated headers continue straight through structural walls. The wall
+  // does not split a new run or add separate penetration hardware.
+  requiresWallPassThrough: false,
   runHeightMeters: RIGID_UTILITY_SERVICE_HEIGHTS.waterSupplyPipeCold,
   runHeightsByWaterCircuit: Object.freeze({
     [WATER_CIRCUIT_COLD]: RIGID_UTILITY_SERVICE_HEIGHTS.waterSupplyPipeCold,

@@ -23,12 +23,15 @@ import { physicalWallFixtureSlotKeys } from '../src/game/wall-fixture-geometry.j
 const wallOccupied = { '1,0,e': 'officeWall' };
 const crossingPath = [{ col: 0.5, row: 0.5 }, { col: 2.5, row: 0.5 }];
 
-const families = [
+const automaticFamilies = [
   ['powerCable', null, 'powerWallPassThrough'],
   ['hvCable', null, 'hvWallPassThrough'],
   ['dataFiber', null, 'dataFiberWallPassThrough'],
   ['coolingWater', 'cold', 'coldWaterLineWallPassThrough'],
   ['coolingWater', 'hot', 'hotWaterLineWallPassThrough'],
+];
+
+const legacyRigidFamilies = [
   ['waterSupplyPipe', 'cold', 'coldWaterSupplyWallPassThrough'],
   ['waterSupplyPipe', 'lukewarm', 'roomWaterSupplyWallPassThrough'],
   ['waterSupplyPipe', 'hot', 'hotWaterSupplyWallPassThrough'],
@@ -36,6 +39,8 @@ const families = [
   ['rfWaveguide', null, 'rfWallPassThrough'],
   ['vacuumPipe', null, 'vacuumWallPassThrough'],
 ];
+
+const fittingFamilies = [...automaticFamilies, ...legacyRigidFamilies];
 
 const meterStationUtilities = new Set([
   'hvCable', 'cryoTransfer', 'rfWaveguide', 'waterSupplyPipe',
@@ -61,9 +66,8 @@ function lineOpts(utilityType, waterCircuit) {
   return opts;
 }
 
-test('every routed utility owns a hidden automatic wall fitting at its declared station width', () => {
-  for (const [utilityType, waterCircuit, type] of families) {
-    assert.equal(UTILITY_TYPES[utilityType].requiresWallPassThrough, true, utilityType);
+test('wall fittings stay hidden while only soft utilities require them for new routes', () => {
+  for (const [utilityType, waterCircuit, type] of fittingFamilies) {
     assert.equal(automaticWallPassThroughType(utilityType, waterCircuit), type);
     const def = PLACEABLES[type];
     assert.equal(def.paletteHidden, true, type);
@@ -72,7 +76,14 @@ test('every routed utility owns a hidden automatic wall fitting at its declared 
     assert.equal(def.automaticWallPassThrough.utilityType, utilityType, type);
   }
 
-  const hidden = new Set(families.map(([, , type]) => type));
+  for (const [utilityType] of automaticFamilies) {
+    assert.equal(UTILITY_TYPES[utilityType].requiresWallPassThrough, true, utilityType);
+  }
+  for (const [utilityType] of legacyRigidFamilies) {
+    assert.equal(UTILITY_TYPES[utilityType].requiresWallPassThrough, false, utilityType);
+  }
+
+  const hidden = new Set(fittingFamilies.map(([, , type]) => type));
   hidden.add('waterSupplyWallPassThrough1x1');
   for (const category of ['power', 'dataControls', 'cooling', 'rfPower', 'vacuum']) {
     assert.ok(componentPaletteEntries(COMPONENTS, category)
@@ -88,7 +99,7 @@ test('every routed utility owns a hidden automatic wall fitting at its declared 
 
 test('modular sleeve bores and ports match exact service elevations', () => {
   const wallMount = { col: 1, row: 0, edge: 'e', off: 2, faceOffset: 0.0625 };
-  for (const [utilityType, waterCircuit, type] of families) {
+  for (const [utilityType, waterCircuit, type] of fittingFamilies) {
     const def = COMPONENTS[type];
     const metadata = def.automaticWallPassThrough;
     const entry = { id: type, type, col: 1, row: 0, subCol: 0, subRow: 0, dir: 1, wallMount };
@@ -116,58 +127,20 @@ test('modular sleeve bores and ports match exact service elevations', () => {
     'both elevated HV terminals explicitly tension attached cable spans');
 });
 
-test('HV, cryo, RF and rigid supply water snap crossings to one-metre wall stations', () => {
-  for (const row of [0, 0.5]) {
-    const expectedOff = row < 0.5 ? 0 : 2;
-    const expectedRow = row < 0.5 ? 0.25 : 0.75;
-    for (const [utilityType, waterCircuit] of [
-      ['hvCable', null],
-      ['cryoTransfer', null],
-      ['rfWaveguide', null],
-      ['waterSupplyPipe', 'cold'],
-      ['waterSupplyPipe', 'lukewarm'],
-      ['waterSupplyPipe', 'hot'],
-    ]) {
-      const path = [{ col: 0.5, row }, { col: 2.5, row }];
-      const opts = {
-        utilityType,
-        path,
-        ...(utilityType === 'hvCable' ? { cablePath: path } : {}),
-        ...(waterCircuit ? { waterCircuit } : {}),
-      };
-      const plan = planAutomaticWallPassThroughs({ state: blankState() }, opts);
-      assert.equal(plan.ok, true, `${utilityType}/${waterCircuit}: ${plan.reason || 'ok'}`);
-      assert.deepEqual(plan.feedthroughs[0].wallMount, {
-        col: 1, row: 0, edge: 'e', off: expectedOff, span: 2, faceOffset: 0.0625,
-      });
-      if (utilityType !== 'hvCable') {
-        assert.deepEqual(plan.segments[0].path.at(-1), { col: 2, row: expectedRow });
-        assert.deepEqual(plan.segments[1].path[0], { col: 2, row: expectedRow });
-        assert.ok(plan.segments.every(segment => segment.path.every((point, index, points) => {
-          if (index === 0) return true;
-          return point.col === points[index - 1].col || point.row === points[index - 1].row;
-        })), `${utilityType}/${waterCircuit} stays Manhattan through the snapped station`);
-      }
-    }
+test('fabricated rigid services cross walls as one continuous ordinary run', () => {
+  for (const [utilityType, waterCircuit] of legacyRigidFamilies) {
+    const opts = lineOpts(utilityType, waterCircuit);
+    const plan = planAutomaticWallPassThroughs({ state: blankState() }, opts);
+    assert.equal(plan.ok, true, `${utilityType}/${waterCircuit}: ${plan.reason || 'ok'}`);
+    assert.deepEqual(plan.feedthroughs, [], utilityType);
+    assert.equal(plan.segments.length, 1, utilityType);
+    assert.deepEqual(plan.segments[0].path, opts.path, utilityType);
+    assert.equal(plan.fittingCost, null, utilityType);
   }
 });
 
-test('one-metre stations preserve south-edge slot reversal and route alignment', () => {
-  const state = blankState({ wallOccupied: { '0,1,s': 'officeWall' } });
-  const path = [{ col: 0.5, row: 0.5 }, { col: 0.5, row: 2.5 }];
-  const plan = planAutomaticWallPassThroughs({ state }, {
-    utilityType: 'cryoTransfer', path,
-  });
-  assert.equal(plan.ok, true, plan.reason);
-  assert.deepEqual(plan.feedthroughs[0].wallMount, {
-    col: 0, row: 1, edge: 's', off: 2, span: 2, faceOffset: 0.0625,
-  });
-  assert.deepEqual(plan.segments[0].path.at(-1), { col: 0.25, row: 2 });
-  assert.deepEqual(plan.segments[1].path[0], { col: 0.25, row: 2 });
-});
-
 test('one crossing becomes a real fitting and two ordinary terminated runs', () => {
-  for (const [utilityType, waterCircuit, type] of families) {
+  for (const [utilityType, waterCircuit, type] of automaticFamilies) {
     const state = blankState();
     const plan = planAutomaticWallPassThroughs({ state }, lineOpts(utilityType, waterCircuit));
     assert.equal(plan.ok, true, `${utilityType}/${waterCircuit}: ${plan.reason || 'ok'}`);
@@ -176,30 +149,6 @@ test('one crossing becomes a real fitting and two ordinary terminated runs', () 
     assert.equal(plan.segments[0].end.placeableId, plan.feedthroughs[0].probeId);
     assert.equal(plan.segments[1].start.placeableId, plan.feedthroughs[0].probeId);
   }
-});
-
-test('independent rigid services stack in one wall slot', () => {
-  const state = blankState();
-  const game = { state };
-  for (const [utilityType, waterCircuit] of [
-    ['cryoTransfer', null],
-    ['waterSupplyPipe', 'cold'],
-    ['waterSupplyPipe', 'hot'],
-    ['rfWaveguide', null],
-    ['vacuumPipe', null],
-  ]) {
-    const plan = planAutomaticWallPassThroughs(game, lineOpts(utilityType, waterCircuit));
-    assert.equal(plan.ok, true, `${utilityType}/${waterCircuit}: ${plan.reason || 'ok'}`);
-    assert.equal(applyAutomaticWallPassThroughPlanToState(state, plan), true);
-  }
-  const fittings = state.placeables.filter(placeable =>
-    PLACEABLES[placeable.type]?.automaticWallPassThrough);
-  assert.equal(fittings.length, 5);
-  assert.deepEqual(new Set(fittings.map(fitting => fitting.wallMount.off)), new Set([2]));
-  const waterFittings = fittings.filter(fitting =>
-    PLACEABLES[fitting.type]?.automaticWallPassThrough?.utilityType === 'waterSupplyPipe');
-  assert.deepEqual(waterFittings.map(fitting =>
-    PLACEABLES[fitting.type].automaticWallPassThrough.waterCircuit).sort(), ['cold', 'hot']);
 });
 
 test('paired hot and cold cooling-water lines get separate sleeves in one wall slot', () => {
@@ -231,22 +180,12 @@ test('paired hot and cold cooling-water lines get separate sleeves in one wall s
   'both temperature circuits share the intended physical wall station');
 });
 
-test('rigid water extensions infer hot and lukewarm wall sleeves from their tapped pipe', () => {
-  for (const [waterCircuit, fittingType] of [
-    ['hot', 'hotWaterSupplyWallPassThrough'],
-    ['lukewarm', 'roomWaterSupplyWallPassThrough'],
-  ]) {
+test('rigid water extensions infer their circuit without adding a wall sleeve', () => {
+  for (const waterCircuit of ['hot', 'lukewarm']) {
     const routeHeightMeters = UTILITY_TYPES.waterSupplyPipe
       .runHeightsByWaterCircuit[waterCircuit];
     const lineId = `${waterCircuit}-stub`;
     const state = blankState();
-    if (waterCircuit === 'hot') {
-      const coldPlan = planAutomaticWallPassThroughs(
-        { state }, lineOpts('waterSupplyPipe', 'cold'),
-      );
-      assert.equal(coldPlan.ok, true, coldPlan.reason);
-      assert.equal(applyAutomaticWallPassThroughPlanToState(state, coldPlan), true);
-    }
     state.utilityLines.set(lineId, {
       id: lineId,
       utilityType: 'waterSupplyPipe',
@@ -263,9 +202,12 @@ test('rigid water extensions infer hot and lukewarm wall sleeves from their tapp
     });
 
     assert.equal(plan.ok, true, `${waterCircuit}: ${plan.reason || 'ok'}`);
-    assert.deepEqual(plan.feedthroughs.map(fitting => fitting.type), [fittingType]);
-    assert.ok(plan.segments.every(segment => segment.waterCircuit === waterCircuit));
-    assert.ok(plan.segments.every(segment => segment.routeHeightMeters === routeHeightMeters));
+    assert.deepEqual(plan.feedthroughs, []);
+    assert.equal(plan.segments.length, 1);
+    assert.equal(applyAutomaticWallPassThroughPlanToState(state, plan), true);
+    const extension = [...state.utilityLines.values()].find(line => line.id !== lineId);
+    assert.equal(extension.waterCircuit, waterCircuit);
+    assert.equal(extension.routeHeightMeters, routeHeightMeters);
   }
 });
 
@@ -297,12 +239,13 @@ test('automatic fitting, split lines, price and undo are one gesture', () => {
   game.recomputeZoneConnectivity();
   game.state.wallOccupied['49,50,e'] = 'officeWall';
   const opts = {
-    utilityType: 'vacuumPipe',
+    utilityType: 'coolingWater', waterCircuit: 'cold',
     path: [{ col: 49.5, row: 50.5 }, { col: 51.5, row: 50.5 }],
+    cablePath: [{ col: 49.5, row: 50.5 }, { col: 51.5, row: 50.5 }],
   };
   const plan = planAutomaticWallPassThroughs(game, opts);
   assert.equal(plan.ok, true, plan.reason);
-  const lineCost = runWiringCost('vacuumPipe', pathLengthSubUnits(opts.path));
+  const lineCost = runWiringCost('coolingWater', pathLengthSubUnits(opts.path));
   const cost = combineConstructionCosts(lineCost, plan.fittingCost);
   const beforeFunding = game.state.resources.funding;
   const beforePlaceables = game.state.placeables.length;

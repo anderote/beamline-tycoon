@@ -148,15 +148,16 @@ console.log('\n--- hot/cold topology and wall rules ---');
     placeables: [], utilityLines: new Map(),
     wallOccupied: { '1,0,w': 'interiorWall' },
   };
-  for (const utilityType of ['coolingWater', 'waterSupplyPipe']) {
-    const blocked = validateDrawLine(crossingState, {
-      utilityType, waterCircuit: 'cold',
-      path: [{ col: 0, row: 0 }, { col: 2, row: 0 }],
-      ...(utilityType === 'coolingWater'
-        ? { cablePath: [{ col: 0, row: 0 }, { col: 2, row: 0 }] } : {}),
-    });
-    assert.equal(blocked.reason, 'wall_pass_through_required');
-  }
+  const wallPath = [{ col: 0, row: 0 }, { col: 2, row: 0 }];
+  const blockedHose = validateDrawLine(crossingState, {
+    utilityType: 'coolingWater', waterCircuit: 'cold',
+    path: wallPath, cablePath: wallPath,
+  });
+  assert.equal(blockedHose.reason, 'wall_pass_through_required');
+  const directPipe = validateDrawLine(crossingState, {
+    utilityType: 'waterSupplyPipe', waterCircuit: 'cold', path: wallPath,
+  });
+  assert.equal(directPipe.ok, true, directPipe.reason);
 
   const legacyState = {
     placeables: [
