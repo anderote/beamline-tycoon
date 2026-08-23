@@ -442,5 +442,37 @@ console.log('\n--- Test 8: split/merge conserves persistent state ---');
 }
 
 // ==========================================================================
+// Test 9: endpoint resolution is shared across every descriptor/network in a
+// solve pass. The index covers all three endpoint stores that solvers support.
+// ==========================================================================
+console.log('\n--- Test 9: solve context shares one complete endpoint index ---');
+{
+  const line = makeLine('L1', 'fake', 'src', 'out', 'dst', 'in');
+  line.attachments = [{ id: 'meter-1', type: 'meter' }];
+  const state = makeState([line]);
+  state.placeables = [{ id: 'plant-1', type: 'plant' }];
+  state.beamPipes = [{ id: 'pipe-1', placements: [{ id: 'cavity-1', type: 'cavity' }] }];
+  let index = null;
+  const descriptor = {
+    type: 'fake',
+    solve(network, persistent, worldState, context) {
+      index = context.endpointIndex;
+      return { flowState: {}, nextPersistentState: persistent, errors: [] };
+    },
+  };
+  const runner = new SolveRunner({
+    state,
+    registry: { types: { fake: descriptor }, list: ['fake'] },
+    portLookup: makeLookup(FAKE_SPECS),
+  });
+
+  runner.runSolve(state);
+  assert(index instanceof Map, 'descriptor receives a shared endpoint index');
+  assert(index.get('plant-1') === state.placeables[0], 'placeable endpoint is indexed');
+  assert(index.get('cavity-1')?.pipeId === 'pipe-1', 'beam-pipe placement carries its pipe id');
+  assert(index.get('meter-1')?.utilityLineId === 'L1', 'line attachment carries its utility-line id');
+}
+
+// ==========================================================================
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

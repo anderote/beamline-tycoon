@@ -4821,19 +4821,123 @@ export function renderComponentThumbnail(compType, size = 64) {
 
 // ── ComponentBuilder class ───────────────────────────────────────────
 
+function _farComponentGeometry(def, width, height, depth) {
+  if (def.geometryType === 'cylinder') {
+    const radius = width / 2;
+    const geometry = new THREE.CylinderGeometry(radius, radius, depth, 12);
+    geometry.rotateX(Math.PI / 2);
+    geometry.scale(1, height / width, 1);
+    return geometry;
+  }
+  return new THREE.BoxGeometry(width, height, depth);
+}
+
 export class ComponentBuilder {
-  constructor() {
+  constructor({ buildFarBatches = true } = {}) {
     // Map from component id -> THREE.Group or THREE.Mesh
     this._meshMap = new Map();
+    this._farBatches = [];
+    this._lastBuild = null;
+    this._showDetail = true;
+    this._buildFarBatches = buildFarBatches;
   }
 
   /** Public lookup for picking/selection coordinators. */
   getGroup(id) { return this._meshMap.get(id) || null; }
 
+  resolveBatchHit(hit) {
+    const object = hit?.object;
+    if (!object?.userData?.batchedComponents || !Number.isInteger(hit.instanceId)) return null;
+    const nodeId = object.userData.componentIds?.[hit.instanceId] ?? null;
+    return {
+      nodeId,
+      rootObj: nodeId != null ? (this.getGroup(nodeId) || object) : object,
+    };
+  }
+
+  _disposeFarBatches() {
+    for (const mesh of this._farBatches) {
+      mesh.parent?.remove(mesh);
+      mesh.dispose?.();
+      mesh.geometry?.dispose?.();
+      mesh.material?.dispose?.();
+    }
+    this._farBatches = [];
+  }
+
+  _rebuildFarBatches(componentData, parentGroup, categoryGroups) {
+    this._disposeFarBatches();
+    if (!this._buildFarBatches) return;
+    const buckets = new Map();
+    for (const comp of componentData || []) {
+      const obj = this._meshMap.get(comp.id);
+      if (!obj) continue;
+      const def = COMPONENTS[comp.type] || PLACEABLES[comp.type] || {};
+      const category = comp.category || '';
+      const focusDimmed = this._focusIds && !this._focusIds.has(comp.id);
+      const dimmed = comp.dimmed === true || focusDimmed;
+      const opacity = focusDimmed ? 0.12 : (dimmed ? 0.3 : 1);
+      const color = comp.accentColor ?? def.spriteColor ?? 0x778899;
+      const key = `${category}|${comp.type}|${color}|${opacity}`;
+      let bucket = buckets.get(key);
+      if (!bucket) {
+        bucket = { def, category, color, opacity, entries: [] };
+        buckets.set(key, bucket);
+      }
+      bucket.entries.push({ comp, obj });
+    }
+
+    const position = new THREE.Vector3();
+    const rotation = new THREE.Quaternion();
+    const scale = new THREE.Vector3(1, 1, 1);
+    const matrix = new THREE.Matrix4();
+    const yAxis = new THREE.Vector3(0, 1, 0);
+    for (const bucket of buckets.values()) {
+      const { def, entries, category, color, opacity } = bucket;
+      const width = Math.max(SUB_UNIT, (def.subW || def.gridW || 2) * SUB_UNIT);
+      const height = Math.max(SUB_UNIT, (def.subH || 2) * SUB_UNIT);
+      const depth = Math.max(SUB_UNIT, (def.subL || def.gridH || 2) * SUB_UNIT);
+      const material = new THREE.MeshStandardMaterial({
+        color,
+        roughness: 0.7,
+        metalness: 0.15,
+        transparent: opacity < 1,
+        opacity,
+        depthWrite: opacity >= 1,
+      });
+      const mesh = new THREE.InstancedMesh(
+        _farComponentGeometry(def, width, height, depth), material, entries.length,
+      );
+      mesh.name = `component-far-${entries[0].comp.type}`;
+      mesh.userData.batchedComponents = true;
+      mesh.userData.componentIds = [];
+      mesh.userData.lod = 'component-far';
+      mesh.castShadow = false;
+      mesh.receiveShadow = true;
+      mesh.visible = !this._showDetail;
+      for (let i = 0; i < entries.length; i++) {
+        const { comp, obj } = entries[i];
+        const beamlineY = category === 'beamline' ? BEAM_HEIGHT : height / 2;
+        position.set(obj.position.x, obj.position.y + beamlineY, obj.position.z);
+        rotation.setFromAxisAngle(yAxis, obj.rotation.y);
+        matrix.compose(position, rotation, scale);
+        mesh.setMatrixAt(i, matrix);
+        mesh.userData.componentIds[i] = comp.id;
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingBox();
+      mesh.computeBoundingSphere();
+      (categoryGroups?.[category] || parentGroup).add(mesh);
+      this._farBatches.push(mesh);
+    }
+  }
+
   /** Hide ornamental geometry and shadow submissions outside detail zoom. */
   setDetailLevel(showDetail) {
     const visible = !!showDetail;
+    this._showDetail = visible;
     for (const obj of this._meshMap.values()) {
+      obj.visible = visible;
       obj.traverse(child => {
         if (!child.isMesh) return;
         if (child.userData.lod === 'detail') child.visible = visible;
@@ -4843,6 +4947,7 @@ export class ComponentBuilder {
         child.castShadow = visible && child.userData.nearCastShadow;
       });
     }
+    for (const mesh of this._farBatches) mesh.visible = !visible;
   }
 
   /**
@@ -5008,6 +5113,13 @@ export class ComponentBuilder {
   setFocus(focusedIds = null) {
     this._focusIds = focusedIds == null ? null : new Set(focusedIds);
     for (const obj of this._meshMap.values()) this._applyDimState(obj);
+    if (this._lastBuild) {
+      this._rebuildFarBatches(
+        this._lastBuild.componentData,
+        this._lastBuild.parentGroup,
+        this._lastBuild.categoryGroups,
+      );
+    }
   }
 
   /**
@@ -5016,6 +5128,8 @@ export class ComponentBuilder {
    */
   build(componentData, parentGroup, { categoryGroups = null } = {}) {
     if (!componentData || !parentGroup) return;
+
+    this._lastBuild = { componentData, parentGroup, categoryGroups };
 
     const seen = new Set();
 
@@ -5093,6 +5207,8 @@ export class ComponentBuilder {
         this._meshMap.delete(id);
       }
     }
+    this._rebuildFarBatches(componentData, parentGroup, categoryGroups);
+    this.setDetailLevel(this._showDetail);
   }
 
   /**
@@ -5135,11 +5251,13 @@ export class ComponentBuilder {
    * Dispose all objects and clear the map.
    */
   dispose(parentGroup) {
+    this._disposeFarBatches();
     for (const [, obj] of this._meshMap) {
       if (obj.parent) obj.parent.remove(obj);
       else if (parentGroup) parentGroup.remove(obj);
       this._disposeWrapper(obj);
     }
     this._meshMap.clear();
+    this._lastBuild = null;
   }
 }

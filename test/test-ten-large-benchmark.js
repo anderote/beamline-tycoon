@@ -73,21 +73,28 @@ test('ten-large runner reports each measured subsystem without timing assertions
   assert.ok(report.timings.tick.p95Ms >= 0);
   assert.ok(report.render.near.drawCalls > 0);
   assert.ok(report.render.near.drawCalls >= report.render.far.drawCalls);
+  assert.ok(report.render.breakdown.far.components.drawCalls
+    < report.render.breakdown.near.components.drawCalls / 10,
+  'far component silhouettes should batch repeated hardware by type');
   assert.ok(report.render.breakdown.near.pipeAttachments.drawCalls > 0);
   assert.ok(report.render.breakdown.near.pipeAttachments.drawCalls <= 12,
     'attachment geometry should be batched by material');
-  assert.equal(report.render.breakdown.far.pipeAttachments.renderedTriangles,
-    report.render.breakdown.near.pipeAttachments.renderedTriangles,
-    'far views keep authored attachment geometry instead of low-res proxies');
+  assert.ok(report.render.breakdown.far.pipeAttachments.renderedTriangles > 0,
+    'far views keep visible attachment silhouettes');
+  assert.ok(report.render.breakdown.far.pipeAttachments.renderedTriangles
+    < report.render.breakdown.near.pipeAttachments.renderedTriangles / 10,
+  'far attachment silhouettes should remove most authored surface detail');
   assert.ok(report.render.breakdown.near.beamPipes.drawCalls <= 4,
     'thousands of authored pipe fittings should share a few instanced draws');
-  assert.equal(report.render.breakdown.far.beamPipes.drawCalls,
-    report.render.breakdown.near.beamPipes.drawCalls,
-    'far views keep the authored pipe presentation');
+  assert.ok(report.render.breakdown.far.beamPipes.drawCalls > 0,
+    'far views keep a visible beam-pipe presentation');
+  assert.ok(report.render.breakdown.far.beamPipes.drawCalls
+    <= report.render.breakdown.near.beamPipes.drawCalls,
+  'far beam-pipe presentation should not add draw calls');
   assert.ok(report.render.breakdown.near.beamEffects.drawCalls <= 8,
     'beam segments should be instanced across paths and colors');
-  assert.equal(report.render.far.shadowDrawCalls, report.render.near.shadowDrawCalls,
-    'far views keep the authored shadow presentation');
+  assert.ok(report.render.far.shadowDrawCalls < report.render.near.shadowDrawCalls / 10,
+    'far views should omit most per-object shadow draws');
   assert.equal(report.render.near.lights, 0,
     'beamline geometry should not create one real light per component');
   assert.ok(report.pipeDetailDemand.renderObjects > 4_000);

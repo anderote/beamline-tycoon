@@ -1,16 +1,29 @@
 // Batched renderer for components mounted along beam and utility pipes.
-// Near geometry retains the authored model in a few material batches. The
-// low-poly far path is intentionally absent: zoomed-out views keep the
-// authored beamline hardware.
+// Near geometry retains the authored model in a few material batches. Very
+// large facilities also get a silhouette-preserving far path: exact catalogue
+// dimensions, cylinder-vs-cabinet shape, and authored color remain visible,
+// while tiny hardware no longer submits thousands of unseen triangles.
 
 import { COMPONENTS } from '../data/components.js';
 import { ComponentBuilder, componentPose, isDetailedComponent } from './component-builder.js';
 
 const SUB = 0.5;
+const BEAM_Y = 1.0;
 
 function triangles(geometry) {
   if (!geometry?.attributes?.position) return 0;
   return (geometry.index?.count || geometry.attributes.position.count) / 3;
+}
+
+function makeFarGeometry(def, width, height, depth) {
+  if (def.geometryType === 'cylinder') {
+    const radius = width / 2;
+    const geometry = new THREE.CylinderGeometry(radius, radius, depth, 12);
+    geometry.rotateX(Math.PI / 2);
+    geometry.scale(1, height / width, 1);
+    return geometry;
+  }
+  return new THREE.BoxGeometry(width, height, depth);
 }
 
 function makeRoot(comp, def, pose) {
@@ -32,10 +45,11 @@ function makeRoot(comp, def, pose) {
 
 export class PipeAttachmentBuilder {
   constructor() {
-    this._factory = new ComponentBuilder();
-    this._ordinary = new ComponentBuilder();
+    this._factory = new ComponentBuilder({ buildFarBatches: false });
+    this._ordinary = new ComponentBuilder({ buildFarBatches: false });
     this._meshMap = new Map();
     this._nearBatches = [];
+    this._farBatches = [];
     this._stats = { attachments: 0, nearBatches: 0, farBatches: 0, authoredParts: 0 };
     this._showDetail = true;
   }
@@ -161,6 +175,63 @@ export class PipeAttachmentBuilder {
     return { accepted, rejected };
   }
 
+  _buildFar(components, parentGroup) {
+    const byType = new Map();
+    for (const comp of components) {
+      const def = COMPONENTS[comp.type] || {};
+      const pose = componentPose(def, comp, isDetailedComponent(comp.type, def));
+      let bucket = byType.get(comp.type);
+      if (!bucket) {
+        bucket = { def, entries: [] };
+        byType.set(comp.type, bucket);
+      }
+      bucket.entries.push({ comp, pose });
+    }
+
+    for (const [type, bucket] of byType) {
+      const { def } = bucket;
+      const width = Math.max(SUB, (def.subW || 2) * SUB);
+      const height = Math.max(SUB, (def.subH || 2) * SUB);
+      const depth = Math.max(SUB, (def.subL || 2) * SUB);
+      const mesh = new THREE.InstancedMesh(
+        makeFarGeometry(def, width, height, depth),
+        new THREE.MeshStandardMaterial({
+          color: def.spriteColor ?? 0x778899,
+          roughness: 0.7,
+          metalness: 0.15,
+        }),
+        bucket.entries.length,
+      );
+      mesh.name = `attachment-far-${type}`;
+      mesh.userData.batchedAttachments = true;
+      mesh.userData.attachmentIds = [];
+      mesh.userData.pipeIds = [];
+      mesh.userData.lineIds = [];
+      mesh.userData.lod = 'attachment-far';
+      mesh.castShadow = false;
+      mesh.receiveShadow = true;
+      const position = new THREE.Vector3();
+      const rotation = new THREE.Quaternion();
+      const scale = new THREE.Vector3(1, 1, 1);
+      const matrix = new THREE.Matrix4();
+      for (let i = 0; i < bucket.entries.length; i++) {
+        const { comp, pose } = bucket.entries[i];
+        position.set(pose.x, Number.isFinite(pose.y) ? pose.y : BEAM_Y, pose.z);
+        rotation.setFromAxisAngle(new THREE.Vector3(0, 1, 0), pose.rotY);
+        matrix.compose(position, rotation, scale);
+        mesh.setMatrixAt(i, matrix);
+        mesh.userData.attachmentIds[i] = comp.id;
+        mesh.userData.pipeIds[i] = comp.pipeId || null;
+        mesh.userData.lineIds[i] = comp.utilityLineId || null;
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingBox();
+      mesh.computeBoundingSphere();
+      parentGroup.add(mesh);
+      this._farBatches.push(mesh);
+    }
+  }
+
   build(componentData, parentGroup) {
     if (!parentGroup) return;
     this.dispose(parentGroup);
@@ -174,15 +245,17 @@ export class PipeAttachmentBuilder {
     const ordinary = all.filter(comp => !batchableSet.has(comp));
     const { accepted, rejected } = this._buildNear(batchable, parentGroup);
     this._ordinary.build([...ordinary, ...rejected], parentGroup);
+    this._buildFar(accepted, parentGroup);
     this._stats.attachments = all.length;
     this._stats.nearBatches = this._nearBatches.length;
-    this._stats.farBatches = 0;
+    this._stats.farBatches = this._farBatches.length;
     this.setDetailLevel(this._showDetail);
   }
 
   setDetailLevel(showDetail) {
     this._showDetail = !!showDetail;
-    for (const batch of this._nearBatches) batch.visible = true;
+    for (const batch of this._nearBatches) batch.visible = this._showDetail;
+    for (const batch of this._farBatches) batch.visible = !this._showDetail;
   }
 
   dispose(parentGroup) {
@@ -192,7 +265,14 @@ export class PipeAttachmentBuilder {
       batch.dispose?.();
       batch.material?.dispose?.();
     }
+    for (const mesh of this._farBatches) {
+      parentGroup?.remove(mesh);
+      mesh.dispose?.();
+      mesh.geometry?.dispose?.();
+      mesh.material?.dispose?.();
+    }
     this._nearBatches = [];
+    this._farBatches = [];
     this._meshMap.clear();
     this._stats = { attachments: 0, nearBatches: 0, farBatches: 0, authoredParts: 0 };
   }

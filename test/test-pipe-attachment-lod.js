@@ -1,5 +1,5 @@
-// Far pipe-attachment geometry should retain the broad silhouette authored in
-// the component catalogue instead of reducing every item to the same box.
+// Far pipe-attachment geometry retains catalogue dimensions, broad shape, and
+// color while replacing tiny authored detail with one instance per type.
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -44,7 +44,11 @@ function attachment(id, index) {
   };
 }
 
-test('zoomed-out attachment views keep authored geometry', () => {
+function farMesh(parent, id) {
+  return parent.getObjectByName(`attachment-far-${id}`);
+}
+
+test('zoomed-out attachment views keep catalogue silhouettes', () => {
   const parent = new THREE.Group();
   const builder = new PipeAttachmentBuilder();
   builder.build([
@@ -55,24 +59,31 @@ test('zoomed-out attachment views keep authored geometry', () => {
   ], parent);
   builder.setDetailLevel(false);
 
-  assert.equal(builder.getBatchStats().farBatches, 0,
-    'the low-resolution attachment batch is disabled');
-  assert.equal(parent.children.some(child => child.name?.startsWith('attachment-far-')), false,
-    'zoomed-out views must not add far attachment meshes');
-  assert.ok(builder.getBatchStats().nearBatches > 0,
-    'authored attachment geometry remains live');
+  for (const id of ['rfCavity', 'quadrupole', 'bpm']) {
+    assert.equal(COMPONENTS[id].geometryType, 'cylinder');
+    assert.equal(farMesh(parent, id)?.geometry.type, 'CylinderGeometry');
+    assert.equal(farMesh(parent, id)?.visible, true);
+  }
+  assert.equal(COMPONENTS.fastKicker.geometryType, 'box');
+  assert.equal(farMesh(parent, 'fastKicker')?.geometry.type, 'BoxGeometry');
+  assert.ok(builder.getBatchStats().farBatches > 0);
+  assert.ok(builder.getBatchStats().nearBatches > 0);
 
   builder.dispose(parent);
 });
 
-test('disabled far LOD does not discard the component catalogue geometry', () => {
+test('far LOD preserves authored width, height, and beam-axis length', () => {
   const parent = new THREE.Group();
   const builder = new PipeAttachmentBuilder();
   builder.build([attachment('rfCavity', 0)], parent);
 
-  assert.equal(COMPONENTS.rfCavity.geometryType, 'cylinder');
-  assert.equal(builder.getBatchStats().farBatches, 0);
-  assert.ok(builder.getBatchStats().authoredParts > 0);
+  const geometry = farMesh(parent, 'rfCavity').geometry;
+  geometry.computeBoundingBox();
+  const size = geometry.boundingBox.getSize(new THREE.Vector3());
+  const def = COMPONENTS.rfCavity;
+  assert.ok(Math.abs(size.x - def.subW * 0.5) < 1e-6);
+  assert.ok(Math.abs(size.y - def.subH * 0.5) < 1e-6);
+  assert.ok(Math.abs(size.z - def.subL * 0.5) < 1e-6);
 
   builder.dispose(parent);
 });
