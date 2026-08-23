@@ -125,13 +125,23 @@ Promotion is controlled by the repository owner. By default, agents may validate
 An agent may fast-forward and push `master` only when the repository owner
 explicitly requests that promotion in the current conversation (for example,
 "promote dev to master" or "push dev to master"). An explicit promotion request
-authorizes only the validated, fast-forward-only `dev` -> `master` workflow
+authorizes only the integrated, fast-forward-only `dev` -> `master` workflow
 below. It does not authorize force-pushing, merging a feature branch directly
 into `master`, or committing new work on `master`.
 
+Promotion itself is not another validation gate. Feature integrations should
+already have received their scoped validation on `dev`; do not rerun `npm test`,
+`npm run test:fast`, or `npm run build` solely because an owner requested a
+promotion. Fast-forward and push first, then observe the existing stable server
+on port `8000` while it rebuilds. Never start, stop, replace, or browser-control
+that listener. If it exists, preserve its exact process, check that it remains
+listening and HTTP-responsive, and inspect its already-accessible output for
+rebuild errors. If it is absent or its output is not accessible, report that
+instead of launching a replacement.
+
 For owner-authorized promotion, whether performed manually or by an agent:
 
-1. Confirm `dev` is clean, integrated, and validated.
+1. Confirm `dev` is clean and integrated.
 2. Capture the complete pre-promotion `master..dev` commit range for the
    promotion report. Summarize all work in that range, not only the feature or
    request that triggered the promotion.
@@ -140,11 +150,14 @@ For owner-authorized promotion, whether performed manually or by an agent:
 4. Push `master` only after that promotion.
 5. Keep `dev` at least equal to `master` at all times. If `master` ever advances
    unexpectedly, reconcile it into `dev` immediately before starting more work.
-6. Report the promotion to the repository owner with a concise grouped summary
+6. Observe the existing port `8000` listener as described above and record its
+   post-promotion rebuild/health result.
+7. Report the promotion to the repository owner with a concise grouped summary
    of the entire promoted range: player-facing features, fixes/performance work,
-   and workflow/documentation changes as applicable. Include the validation
-   performed, the promoted commit, push status, and any browser/gameplay checks
-   that remain for the owner. This report is required after every promotion.
+   and workflow/documentation changes as applicable. Include earlier validation
+   reported for the integrated work, the port `8000` observation, the promoted
+   commit, push status, and any browser/gameplay checks that remain for the
+   owner. This report is required after every promotion.
 
 Promotion reference:
 
