@@ -23,6 +23,10 @@ export { getGlowMaterial, setGlowNightFactor } from './machine-glow.js';
 import { wallFixturePose } from '../game/wall-fixture-geometry.js';
 import { syncMapEdgeServiceLeadVisual } from './map-edge-service-lead.js';
 import {
+  buildTransmissionTowerModel,
+  buildUtilityPoleModel,
+} from './decoration-builder.js';
+import {
   _buildBPMRoles,
   _buildICTRoles,
   _buildScreenRoles,
@@ -4050,6 +4054,21 @@ const DETAIL_BUILDERS = {
   ionSource: _buildDuoplasmatron,
   ecrIonSource: _buildEcrIonSource,
   drift: _buildDrift,
+  // Grid supplies are ordinary overhead utility structures with a special
+  // map-edge/source contract. Reuse the decoration builders so their physical
+  // models cannot drift away from the player-placeable pole and tower.
+  gridServicePoint: () => {
+    const def = PLACEABLES.utilityPole;
+    return buildUtilityPoleModel(
+      def.subW * SUB_UNIT, def.subL * SUB_UNIT, def.subH * SUB_UNIT,
+    );
+  },
+  gridServicePointHighCapacity: () => {
+    const def = PLACEABLES.transmissionTower;
+    return buildTransmissionTowerModel(
+      def.subW * SUB_UNIT, def.subL * SUB_UNIT, def.subH * SUB_UNIT,
+    );
+  },
 };
 
 // Coverage report: beamline components with no bespoke geometry render as a

@@ -68,7 +68,7 @@ const MAX_ANCHOR_Y = 2.0;
 
 // How far the connector stands off the shell, in metres, before the extra the
 // override table may add.
-const BASE_STANDOFF = 0.06;
+export const PORT_ANCHOR_BASE_STANDOFF = 0.06;
 
 // A measured surface closer to the axis than this is a bad measurement, not a
 // tiny machine — a ray that slipped through a gap and hit the beam pipe, say.
@@ -352,7 +352,7 @@ export function portAnchor3D(placeable, def, portName) {
     ? { x: rotatedNormal.x, y: mount.normal.y, z: rotatedNormal.z }
     : (vec ? { x: vec.dCol, y: 0, z: vec.dRow } : { x: 0, y: 0, z: 0 });
 
-  const standoff = BASE_STANDOFF + ((override && override.out) || 0);
+  const standoff = PORT_ANCHOR_BASE_STANDOFF + ((override && override.out) || 0);
 
   // Local offset → world: lateral outward along the port's own axis, `along`
   // on the perpendicular one, then the placeable's quarter turns.

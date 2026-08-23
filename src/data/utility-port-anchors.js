@@ -116,25 +116,35 @@ function insulatedHvRoofTap({ x, y, z }) {
   });
 }
 
-// The incoming off-map conductors already terminate on the service cabinet's
-// roof. Keep the usable downstream feeder terminals on a separate,
-// facility-facing row of porcelain insulators so the source ports read as the
-// physical output hardware instead of as glands floating on the front panel.
+function overheadSupportTerminal({ x, y, z, normalZ }) {
+  return Object.freeze({
+    y, localX: x, localZ: z,
+    normal: Object.freeze({ x: 0, y: 0, z: normalZ }),
+  });
+}
+
+// Exact conductor terminals shared by the ordinary overhead supports and the
+// two grid-source variants. A grid service is physically the same pole/tower;
+// its off-map lead and its player-drawn cable meet at this one metal point.
+export const UTILITY_POLE_HV_TERMINAL_MOUNTS = Object.freeze([
+  overheadSupportTerminal({ x: -0.91, y: 6.4064, z: -0.05, normalZ: -1 }),
+  overheadSupportTerminal({ x: 0.91, y: 6.4064, z: 0.05, normalZ: 1 }),
+  overheadSupportTerminal({ x: -0.91, y: 5.3536, z: -0.05, normalZ: -1 }),
+  overheadSupportTerminal({ x: 0.91, y: 5.3536, z: 0.05, normalZ: 1 }),
+]);
+
+export const TRANSMISSION_TOWER_HV_TERMINAL_MOUNTS = Object.freeze([
+  overheadSupportTerminal({ x: -1.18, y: 4.6894, z: -0.05, normalZ: -1 }),
+  overheadSupportTerminal({ x: 1.18, y: 4.6894, z: 0.05, normalZ: 1 }),
+  overheadSupportTerminal({ x: -1.00, y: 6.0286, z: -0.05, normalZ: -1 }),
+  overheadSupportTerminal({ x: 1.00, y: 6.0286, z: 0.05, normalZ: 1 }),
+  overheadSupportTerminal({ x: -0.82, y: 7.2004, z: -0.05, normalZ: -1 }),
+  overheadSupportTerminal({ x: 0.82, y: 7.2004, z: 0.05, normalZ: 1 }),
+]);
+
 export const GRID_SERVICE_HV_OUTPUT_MOUNTS = Object.freeze({
-  gridServicePoint: Object.freeze([
-    insulatedHvRoofTap({ x: -0.60, y: 1.84, z: 0.42 }),
-    insulatedHvRoofTap({ x: -0.20, y: 1.84, z: 0.42 }),
-    insulatedHvRoofTap({ x: 0.20, y: 1.84, z: 0.42 }),
-    insulatedHvRoofTap({ x: 0.60, y: 1.84, z: 0.42 }),
-  ]),
-  gridServicePointHighCapacity: Object.freeze([
-    insulatedHvRoofTap({ x: -0.75, y: 2.22, z: 0.62 }),
-    insulatedHvRoofTap({ x: -0.45, y: 2.22, z: 0.62 }),
-    insulatedHvRoofTap({ x: -0.15, y: 2.22, z: 0.62 }),
-    insulatedHvRoofTap({ x: 0.15, y: 2.22, z: 0.62 }),
-    insulatedHvRoofTap({ x: 0.45, y: 2.22, z: 0.62 }),
-    insulatedHvRoofTap({ x: 0.75, y: 2.22, z: 0.62 }),
-  ]),
+  gridServicePoint: UTILITY_POLE_HV_TERMINAL_MOUNTS,
+  gridServicePointHighCapacity: TRANSMISSION_TOWER_HV_TERMINAL_MOUNTS,
 });
 
 // Model-specific clear roof patches for two-segment HV load taps. Keeping the
@@ -380,12 +390,12 @@ export const PORT_ANCHOR_OVERRIDES = {
     hv_out_1: { along: 0 },
   },
   gridServicePoint: {
-    _default: { y: 1.25, lat: 0.72 },
+    _default: { allowOutsideFootprint: true },
     ...Object.fromEntries(GRID_SERVICE_HV_OUTPUT_MOUNTS.gridServicePoint
       .map((mount, index) => [`hv_out_${index + 1}`, mount])),
   },
   gridServicePointHighCapacity: {
-    _default: { y: 1.55, lat: 0.92 },
+    _default: { allowOutsideFootprint: true },
     ...Object.fromEntries(GRID_SERVICE_HV_OUTPUT_MOUNTS.gridServicePointHighCapacity
       .map((mount, index) => [`hv_out_${index + 1}`, mount])),
   },
@@ -526,10 +536,10 @@ export const PORT_ANCHOR_OVERRIDES = {
   // deliberately bypass the ordinary footprint clamp.
   utilityPole: {
     _default: { lat: 0.05, out: 0, allowOutsideFootprint: true },
-    hv_in: { y: 6.4064, along: -0.91 },
-    hv_out: { y: 6.4064, along: 0.91 },
-    hv_3: { y: 5.3536, along: -0.91 },
-    hv_4: { y: 5.3536, along: 0.91 },
+    hv_in: UTILITY_POLE_HV_TERMINAL_MOUNTS[0],
+    hv_out: UTILITY_POLE_HV_TERMINAL_MOUNTS[1],
+    hv_3: UTILITY_POLE_HV_TERMINAL_MOUNTS[2],
+    hv_4: UTILITY_POLE_HV_TERMINAL_MOUNTS[3],
     hv_tap: UTILITY_POLE_HV_TAP_MOUNT,
   },
   // Half of the full wood pole: two conductors occupy the same projected
@@ -549,12 +559,12 @@ export const PORT_ANCHOR_OVERRIDES = {
   // Six hanging-insulator tips across the tower's three conductor tiers.
   transmissionTower: {
     _default: { lat: 0.05, out: 0, allowOutsideFootprint: true },
-    hv_in: { y: 4.6894, along: -1.18 },
-    hv_out: { y: 4.6894, along: 1.18 },
-    hv_3: { y: 6.0286, along: -1.00 },
-    hv_4: { y: 6.0286, along: 1.00 },
-    hv_5: { y: 7.2004, along: -0.82 },
-    hv_6: { y: 7.2004, along: 0.82 },
+    hv_in: TRANSMISSION_TOWER_HV_TERMINAL_MOUNTS[0],
+    hv_out: TRANSMISSION_TOWER_HV_TERMINAL_MOUNTS[1],
+    hv_3: TRANSMISSION_TOWER_HV_TERMINAL_MOUNTS[2],
+    hv_4: TRANSMISSION_TOWER_HV_TERMINAL_MOUNTS[3],
+    hv_5: TRANSMISSION_TOWER_HV_TERMINAL_MOUNTS[4],
+    hv_6: TRANSMISSION_TOWER_HV_TERMINAL_MOUNTS[5],
   },
   cableTray: {
     _default: { y: 2.35, lat: 0.46, out: 0.02 },

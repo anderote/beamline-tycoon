@@ -125,7 +125,7 @@ test('cooling and cabinet RF load taps use tall porcelain roof bushings', () => 
   }
 });
 
-test('off-map utility service outputs are the porcelain insulators on top', () => {
+test('off-map utility services use the normal pole and tower terminals', () => {
   const types = ['gridServicePoint', 'gridServicePointHighCapacity'];
   const endpoints = types.map((type, index) => ({
     id: `service-${index}`, type,
@@ -142,18 +142,27 @@ test('off-map utility service outputs are the porcelain insulators on top', () =
       .filter(([, spec]) => spec.utility === 'hvCable' && spec.role === 'source')
       .map(([name]) => name);
     assert.equal(outputNames.length, mounts.length,
-      `${type} gives every feeder output its own roof insulator`);
+      `${type} gives every feeder output its own overhead terminal`);
 
     for (const [portIndex, portName] of outputNames.entries()) {
       const fitting = fittings.get(`service-${typeIndex}:${portName}`);
       const resolved = portAnchor3D(endpoints[typeIndex], COMPONENTS[type], portName);
       assert.ok(fitting, `${type}.${portName} has persistent output hardware`);
-      assert.equal(fitting.userData.fittingStyle, 'hvInsulator');
+      assert.equal(fitting.userData.fittingStyle, 'gland',
+        `${type}.${portName} uses the same terminal cap as an ordinary overhead support`);
+      assert.equal(COMPONENTS[type].ports[portName].tensionsCable, true,
+        `${type}.${portName} tensions cable at its overhead insulator`);
+      assert.equal(COMPONENTS[type].ports[portName].maxConnections, 1,
+        `${type}.${portName} accepts one player-drawn cable`);
       assert.equal(resolved.y, mounts[portIndex].y);
-      assert.equal(resolved.out.y, 1, `${type}.${portName} points up from the roof`);
+      assert.deepEqual(resolved.out, mounts[portIndex].normal,
+        `${type}.${portName} uses the normal support-terminal approach`);
       const axis = new THREE_REAL.Vector3(1, 0, 0).applyQuaternion(fitting.quaternion);
-      assert.ok(axis.distanceTo(new THREE_REAL.Vector3(0, 1, 0)) < 1e-9,
-        `${type}.${portName} renders as a vertical porcelain insulator`);
+      assert.ok(axis.distanceTo(new THREE_REAL.Vector3(
+        mounts[portIndex].normal.x,
+        mounts[portIndex].normal.y,
+        mounts[portIndex].normal.z,
+      )) < 1e-9, `${type}.${portName} follows the support-terminal axis`);
     }
   }
 });
