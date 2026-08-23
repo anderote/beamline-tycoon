@@ -1,6 +1,7 @@
-// Pure presentation model for the utility connectors shown in a component's
+// Pure presentation model for the utility connections shown in a component's
 // info window. Values come from getUtilityPortsV2 so solver defaults, derived
-// RF metadata, and utility-specific parameter names stay authoritative.
+// RF metadata, and utility-specific parameter names stay authoritative. The
+// compact window deliberately hides authored connector ids.
 
 import { getUtilityPortsV2 } from '../data/utility-ports-v2.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
@@ -101,8 +102,8 @@ function groupMetrics(group, descriptor) {
 
 /**
  * Group a component's resolved connectors by utility and direction.
- * Connector names remain available so a player can match the panel to the
- * physical fittings while repeated outlet banks stay compact.
+ * Connector names remain available to status code while repeated outlet banks
+ * stay compact; the equipment window does not expose those internal ids.
  */
 export function componentUtilityPortGroups(typeId) {
   const groups = new Map();
@@ -143,8 +144,31 @@ function escapeHtml(value) {
   })[char]);
 }
 
+function compactMetricValue(value) {
+  return String(value)
+    .replace(/ total · (.+) each$/, ' · $1/port')
+    .replace(/ total$/, '');
+}
+
+/** One-line requirement/capacity copy; authored connector ids stay hidden. */
+export function componentUtilityPortSummary(group) {
+  const metrics = group?.metrics || [];
+  if (!metrics.length) {
+    if (group?.role === 'sink') return 'Required';
+    if (group?.role === 'source') return 'Supply available';
+    return 'Pass-through';
+  }
+  if (metrics.length === 1) {
+    const verb = group.role === 'sink' ? 'Requires'
+      : group.role === 'source' ? 'Supplies' : 'Capacity';
+    return `${verb} ${compactMetricValue(metrics[0].value)}`;
+  }
+  return metrics.map(metric =>
+    `${metric.label}: ${compactMetricValue(metric.value)}`).join(' · ');
+}
+
 /** Render the complete ports section for a single-component info window. */
-export function componentUtilityPortSectionHtml(typeId) {
+export function componentUtilityPortSectionHtml(typeId, groupStatuses = {}) {
   const groups = componentUtilityPortGroups(typeId);
   if (!groups.length) return '';
 
@@ -152,21 +176,19 @@ export function componentUtilityPortSectionHtml(typeId) {
     + '<div class="equipment-port-heading">Connection ports</div>'
     + '<div class="equipment-port-list">';
   for (const group of groups) {
-    const roleLabel = group.count > 1
-      ? `${group.roleLabel}${group.roleLabel === 'Pass-through' ? '' : 's'}`
-      : group.roleLabel;
-    html += `<div class="equipment-port-row" style="--equipment-port-color:${escapeHtml(group.color)}">`
-      + '<div class="equipment-port-title">'
-      + `<span class="equipment-port-dot"></span><strong>${escapeHtml(group.utilityLabel)}</strong>`
-      + `<span class="equipment-port-role">${escapeHtml(roleLabel)}${group.count > 1 ? ` ×${group.count}` : ''}</span>`
-      + '</div>'
-      + `<div class="equipment-port-names">${group.portNames.map(escapeHtml).join(' · ')}</div>`;
-    if (group.metrics.length) {
-      html += '<div class="equipment-port-metrics">'
-        + group.metrics.map(metric => `<span><strong>${escapeHtml(metric.label)}:</strong> ${escapeHtml(metric.value)}</span>`).join('')
-        + '</div>';
-    }
-    html += '</div>';
+    const current = groupStatuses[`${group.utilityType}:${group.role}`] || {
+      tone: 'warning', label: 'Status unavailable', detail: 'Awaiting operational data',
+      color: '#ffcc44',
+    };
+    const summary = componentUtilityPortSummary(group);
+    const accessible = `${group.utilityLabel}: ${summary}. ${current.label}. ${current.detail || ''}`;
+    html += `<div class="equipment-port-row equipment-port-status-${escapeHtml(current.tone)}"`
+      + ` style="--equipment-port-color:${escapeHtml(group.color)};--equipment-status-color:${escapeHtml(current.color)}"`
+      + ` title="${escapeHtml(accessible)}" aria-label="${escapeHtml(accessible)}">`
+      + '<span class="equipment-port-dot" aria-hidden="true"></span>'
+      + `<strong class="equipment-port-name">${escapeHtml(group.utilityLabel)}</strong>`
+      + `<span class="equipment-port-summary">${escapeHtml(summary)}</span>`
+      + '</div>';
   }
   return html + '</div></section>';
 }

@@ -11,6 +11,7 @@ import { UTILITY_TYPES } from '../src/utility/registry.js';
 import {
   HOVER_DETAIL_TONE_CLASSES,
   renderHoverTooltipDetail,
+  renderHoverTooltipTitle,
 } from '../src/ui/hover-tooltip-detail.js';
 import { readFileSync } from 'node:fs';
 
@@ -161,6 +162,27 @@ assert(detailElement.textContent === warningNetwork.detail,
 assert(detailElement.children[0].className === HOVER_DETAIL_TONE_CLASSES.supply
     && detailElement.children[2].className === HOVER_DETAIL_TONE_CLASSES.warning,
   'network detail renderer applies supply and underpower color classes');
+
+const titleElement = {
+  ownerDocument: fakeDocument(),
+  children: [],
+  attributes: {},
+  replaceChildren(...children) {
+    this.children = children;
+    this.textContent = children.map(child => child.textContent).join('');
+  },
+  setAttribute(name, value) { this.attributes[name] = value; },
+  removeAttribute(name) { delete this.attributes[name]; },
+};
+renderHoverTooltipTitle(titleElement, {
+  title: 'Chiller',
+  status: { tone: 'warning', label: 'Needs attention', detail: 'Cooling is under-served' },
+});
+assert(titleElement.textContent === 'Chiller'
+    && titleElement.children[0].className.includes('hover-tooltip-status-warning'),
+  'component hover title renders a yellow operational-status dot without changing its name');
+assert(titleElement.attributes['aria-label'] === 'Chiller: Needs attention',
+  'the hover status remains readable without relying on color alone');
 
 const styles = readFileSync(new URL('../style.css', import.meta.url), 'utf8');
 assert(/\.hover-tooltip:not\(\.demolish-tooltip\):not\(\.drag-cost-tooltip\)\s*\{[^}]*width:\s*240px[^}]*white-space:\s*normal[^}]*overflow-wrap:\s*anywhere/s.test(styles),

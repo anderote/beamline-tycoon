@@ -9,6 +9,32 @@ export const HOVER_DETAIL_TONE_CLASSES = Object.freeze({
 });
 
 const DETAIL_RENDER_KEY = Symbol('hoverTooltipDetailRenderKey');
+const TITLE_RENDER_KEY = Symbol('hoverTooltipTitleRenderKey');
+
+/** Render an optional health dot before the safe plain-text title. */
+export function renderHoverTooltipTitle(element, info) {
+  if (!element) return;
+  const tone = HOVER_DETAIL_TONE_CLASSES[info?.status?.tone] ? info.status.tone : '';
+  const key = `${tone}:${info?.status?.label || ''}:${info?.title || ''}`;
+  if (element[TITLE_RENDER_KEY] === key) return;
+  if (!tone) {
+    element.textContent = info?.title || '';
+    element.removeAttribute?.('aria-label');
+    element.removeAttribute?.('title');
+    element[TITLE_RENDER_KEY] = key;
+    return;
+  }
+
+  const doc = element.ownerDocument || document;
+  const dot = doc.createElement('span');
+  dot.className = `hover-tooltip-status-dot hover-tooltip-status-${tone}`;
+  dot.setAttribute?.('aria-hidden', 'true');
+  const title = doc.createTextNode(String(info?.title || ''));
+  element.replaceChildren(dot, title);
+  element.setAttribute?.('aria-label', `${info.title}: ${info.status.label}`);
+  element.setAttribute?.('title', info.status.detail || info.status.label);
+  element[TITLE_RENDER_KEY] = key;
+}
 
 function detailRenderKey(info) {
   if (!Array.isArray(info?.detailSegments)) return `plain:${info?.detail || ''}`;

@@ -5291,9 +5291,23 @@ body.palette-expanded {
   overflow-wrap: anywhere;
 }
 .hover-tooltip-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   color: #eeeeff;
   font-weight: bold;
 }
+.hover-tooltip-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+}
+.hover-tooltip-status-healthy { color: #44ff88; }
+.hover-tooltip-status-warning { color: #ffcc44; }
+.hover-tooltip-status-critical { color: #ff5555; }
 .hover-tooltip-detail {
   color: #aaaacc;
 }
@@ -8318,45 +8332,35 @@ body.palette-expanded {
   letter-spacing: 0.7px;
   text-transform: uppercase;
 }
-.equipment-port-list { display: flex; flex-direction: column; gap: 5px; }
+.equipment-port-list { display: flex; flex-direction: column; gap: 3px; }
 .equipment-port-row {
+  display: grid;
+  grid-template-columns: 7px minmax(70px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
   padding: 5px 6px;
   border: 1px solid rgba(70, 85, 130, 0.3);
   border-left: 3px solid var(--equipment-port-color);
   border-radius: 3px;
   background: rgba(13, 18, 38, 0.72);
 }
-.equipment-port-title { display: flex; align-items: center; gap: 5px; color: #d2ddff; }
 .equipment-port-dot {
-  width: 6px;
-  height: 6px;
-  flex: 0 0 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: var(--equipment-port-color);
-  box-shadow: 0 0 5px var(--equipment-port-color);
+  background: var(--equipment-status-color);
+  box-shadow: 0 0 5px var(--equipment-status-color);
 }
-.equipment-port-role {
-  margin-left: auto;
-  color: var(--equipment-port-color);
-  font-size: 6px;
-  text-transform: uppercase;
-}
-.equipment-port-names {
-  margin-top: 3px;
-  overflow-wrap: anywhere;
-  color: #707796;
-  font-size: 6px;
-  line-height: 1.5;
-}
-.equipment-port-metrics {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: 3px;
+.equipment-port-name { color: #d2ddff; font-weight: normal; }
+.equipment-port-summary {
+  min-width: 0;
+  overflow: hidden;
   color: #b6bad0;
   font-size: 7px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.equipment-port-metrics strong { color: #dddd88; font-weight: normal; }
 .ctx-window.selection-group-window {
   width: 380px;
   max-width: calc(100vw - 24px);
