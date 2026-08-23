@@ -35,6 +35,7 @@ const game = {
     getAll: () => [{
       id: 'bl-1', name: 'North Line', accentColor: '#12abef', status: 'running',
       beamState: {
+        canRun: false, holdReason: 'The source power feed is open.',
         beamQuality: 0.82, totalLossFraction: 0.07, beamEnergy: 250,
         beamCurrent: 0.4, effectiveDataRate: 31, uptimeFraction: 0.75,
         totalLength: 42, serviceRevenue: 2800, serviceContract: 'Photon users',

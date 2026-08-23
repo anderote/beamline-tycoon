@@ -7,8 +7,8 @@ function finite(value, fallback = 0) {
   return Number.isFinite(value) ? value : fallback;
 }
 
-function lineStatus(entry, infraCanRun) {
-  if (entry?.status === 'running' && infraCanRun === false) return 'held';
+function lineStatus(entry) {
+  if (entry?.status === 'running' && entry?.beamState?.canRun === false) return 'held';
   if (entry?.status === 'running') return 'running';
   if (entry?.status === 'faulted') return 'faulted';
   return 'stopped';
@@ -31,7 +31,7 @@ export function buildControlRoomModel(game) {
       id: entry.id,
       name: entry.name || entry.id,
       accentColor: entry.accentColor || '#5b86c8',
-      status: lineStatus(entry, state.infraCanRun),
+      status: lineStatus(entry),
       beamQuality: finite(beam.beamQuality),
       totalLossFraction: finite(beam.totalLossFraction),
       beamEnergy: finite(beam.beamEnergy),
@@ -55,8 +55,9 @@ export function buildControlRoomModel(game) {
   ).length;
 
   let status = 'NO LINES';
-  if (blockers.length > 0) status = 'FACILITY FAULT';
+  if (heldCount > 0) status = 'FACILITY FAULT';
   else if (runningCount > 0) status = 'BEAM LIVE';
+  else if (blockers.length > 0) status = 'FACILITY ATTENTION';
   else if (beamlines.length > 0) status = 'STANDBY';
 
   return {

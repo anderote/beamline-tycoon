@@ -25,6 +25,19 @@ import { lineWaterCircuit, portWaterCircuit } from './water-circuits.js';
 
 function portKey(ref) { return `${ref.placeableId}:${ref.portName}`; }
 
+// A switched-off beamline component remains a vacuum vessel/beam pipe, but
+// its active services draw no load. Discovery caches resolved port specs, so
+// the toggle command invalidates topology even though no line moved.
+function operationalPortSpec(placeable, spec) {
+  if (!spec || placeable?.beamlineEnabled !== false || spec.role !== 'sink'
+      || spec.utility === 'vacuumPipe') return spec;
+  const params = { ...(spec.params || {}) };
+  for (const key of ['demand', 'heatLoad', 'srfHeatW']) {
+    if (Number.isFinite(params[key])) params[key] = 0;
+  }
+  return { ...spec, params };
+}
+
 // Older saves predate line-level water-circuit tags. Resolve those runs from
 // their authored terminal ports so a legacy cold branch can cross a newly
 // built hot return without being mistaken for a hydraulic tee.
@@ -359,14 +372,17 @@ export function makeDefaultPortLookup(state) {
     const placeable = byId.get(placeableId);
     if (!placeable) return null;
     const def = COMPONENTS[placeable.type];
-    return getPortSpec(def, portName);
+    return operationalPortSpec(placeable, getPortSpec(def, portName));
   };
   lookup.listPorts = function (placeableId) {
     const placeable = byId.get(placeableId);
     if (!placeable) return [];
     const def = COMPONENTS[placeable.type];
     if (!def || !def.ports) return [];
-    return Object.entries(def.ports).map(([name, spec]) => ({ name, spec }));
+    return Object.entries(def.ports).map(([name, spec]) => ({
+      name,
+      spec: operationalPortSpec(placeable, spec),
+    }));
   };
   lookup.busTargets = function (placeableId, utilityType) {
     const perUtil = busService.get(placeableId);

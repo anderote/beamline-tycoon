@@ -26,12 +26,11 @@ import { COMPONENTS } from '../data/components.js';
 import { getStationIndex } from './staff/stations.js';
 import { getNavGrid, isReachable } from './staff/nav.js';
 
-// Utilities whose unwired sinks hard-block the beam. Everything a component
-// physically cannot run without: no wall power, no beam vacuum, no RF drive,
-// no cooling for a magnet, no cryo for an SRF cavity. dataFiber is
+// Utilities whose unwired sinks are hard equipment faults. Game applies these
+// faults to each component's physics; only faults on a source's explicitly
+// required services prevent that source from emitting. dataFiber is
 // deliberately NOT here — it is modelled as a soft derate (dataQuality scales
-// data income via Game._dataConnectivityFactor), so an unwired BPM costs
-// money rather than tripping the machine.
+// data income via Game._dataConnectivityFactor).
 const HARD_REQUIRED_UTILS = [
   // hvCable is hard-required too: a distribution panel with no feeder behind
   // it powers nothing, so an unwired hv_in is every bit as fatal as an unwired
@@ -365,8 +364,8 @@ export class UtilityGate {
       }
 
       // The utility solve + the two synthesized checks are the only sources of
-      // infraBlockers. Hard errors block the beam; soft errors are logged but
-      // non-fatal.
+      // infraBlockers. infraCanRun remains the facility-wide diagnostic bit;
+      // Game derives each beamline's actual run readiness from its source.
       state.infraBlockers = hardErrs.map(e => ({
         ...e,
         fromUtilitySolve: true,
@@ -374,26 +373,10 @@ export class UtilityGate {
       }));
       state.infraCanRun = hardErrs.length === 0;
 
-      // Accrue AFTER infraCanRun is final, and only when it's true AND some
-      // beamline is actually RUNNING: beamHours is meant to record time the
-      // beam actually ran, not time a seated operator happened to be at
-      // their console while an UNRELATED fault (unwired power, a quenched
-      // cavity, the staffing gate itself) held the facility down — or,
-      // fix-round-2's own bug, while every registered beamline sat
-      // `'stopped'` and nobody had ever pressed Start at all. Before the
-      // runBeam cap counted registered (not running) beamlines this branch
-      // was unreachable: an operator could not even be SEATED against a
-      // beamline that wasn't running. Widening the cap made it reachable,
-      // so the guard has to widen too. `state.beamOn` (Game.js's
-      // _updateAggregateBeamline, `entry.status==='running' &&
-      // infraCanRun`) is one tick stale here — it's computed earlier in
-      // Game.tick(), before this gate re-derives infraCanRun for the
-      // CURRENT tick — the same pre-existing, symmetric one-tick lag
-      // _tickBeamline's own income read already has; not worth a second
-      // registry-status plumbing path through this gate just to shave off
-      // one tick. `beamlineCount > 0` mirrors the same guard the blocker
-      // above uses — no beamline, nothing to accrue.
-      if (beamlineCount > 0 && state.infraCanRun && state.beamOn) {
+      // Accrue only while at least one source is really emitting. state.beamOn
+      // is the per-beamline source-readiness aggregate from Game, so unrelated
+      // downstream equipment faults no longer erase operator beam hours.
+      if (beamlineCount > 0 && state.beamOn) {
         this._accrueBeamHours(coverage.operators);
       }
 
@@ -543,8 +526,11 @@ export class UtilityGate {
     // the expensive part and it is cached on topologyRevision either way.
     const allUnconnected = findUnconnectedSinks(
       endpoints, state.utilityLines, this.getPorts, ALL_GATED_UTILS);
+    const endpointById = new Map(endpoints.map(endpoint => [endpoint.id, endpoint]));
     const unconnected = allUnconnected.filter(
-      u => HARD_REQUIRED_UTILS.includes(u.utility));
+      u => HARD_REQUIRED_UTILS.includes(u.utility)
+        && !(endpointById.get(u.placeableId)?.beamlineEnabled === false
+          && u.utility !== 'vacuumPipe'));
     const unwiredSinks = {};
     for (const u of allUnconnected) {
       if (!unwiredSinks[u.placeableId]) unwiredSinks[u.placeableId] = {};

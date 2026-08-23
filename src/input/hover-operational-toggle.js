@@ -4,6 +4,7 @@
 
 import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
+import { findBeamlineComponent } from '../beamline/component-operation.js';
 
 const POWER_TOGGLE_ACTIONS = new Set(['toggleSwitch', 'toggleGenerator']);
 
@@ -15,6 +16,7 @@ function hoveredPlaceableId(hoverTarget) {
 function placeableById(game, id) {
   return game?.getPlaceable?.(id)
     || game?.state?.placeables?.find?.(entry => entry?.id === id)
+    || findBeamlineComponent(game?.state, id)
     || null;
 }
 
@@ -40,6 +42,13 @@ export function hoveredOperationalTarget(game, hoverTarget) {
     if (beamlineId) return { kind: 'beamline', id: beamlineId, placeableId };
   }
 
+  if ((entry.kind === 'beamline' || entry.category === 'beamline'
+      || def.role === 'placement' || def.role === 'junction') && !def.isSource) {
+    return {
+      kind: 'beamlineComponent', id: placeableId, placeableId,
+    };
+  }
+
   // Device panels may expose several maintenance/transfer actions. Space is
   // intentionally limited to the two actions whose meaning is truly on/off.
   const action = (game?.getPowerDeviceActions?.(placeableId) || [])
@@ -58,6 +67,8 @@ export function toggleHoveredOperationalTarget(game, hoverTarget) {
   const mutate = () => {
     if (target.kind === 'beamline') {
       result = game?.toggleBeam?.(target.id);
+    } else if (target.kind === 'beamlineComponent') {
+      result = game?.toggleBeamlineComponent?.(target.id);
     } else {
       result = game?.dispatchPowerDeviceAction?.(target.id, target.actionId);
     }

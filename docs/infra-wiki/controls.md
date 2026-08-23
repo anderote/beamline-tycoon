@@ -73,6 +73,12 @@ health   -= base_wear x wear_mult
 ```
 Below 20% health, each wear tick has a 5% chance of outright failure.
 
-**Staffing gate:** at least one operator with status `working`, actively seated and running the beam at a console. Fatigue and hunger level are not checked directly — an operator only drops out of coverage once a need is bad enough to pull them off the console onto an eat/rest job (or a stress breakdown). Otherwise the beam trips.
+Health now feeds the beam physics directly: active strength/output falls with
+health, source damage reduces current and worsens emittance, and a downstream
+component at 0% health becomes passive beam pipe. Hover any downstream
+beamline component and press **Space** to switch it between active service and
+the same passive-pipe state. Switched-off hardware does not accrue active wear.
+
+**Staffing gate:** at least one operator with status `working`, actively seated and running the beam at a console. Fatigue and hunger level are not checked directly — an operator only drops out of coverage once a need is bad enough to pull them off the console onto an eat/rest job (or a stress breakdown). Without coverage, the source is held until an operator returns.
 
 **Not implemented:** PPS presence check, shielding-per-kilowatt requirement, timing-system requirement for pulsed devices, circulator and modulator requirements.

@@ -43,6 +43,10 @@
 import { COMPONENTS } from '../data/components.js';
 import { PARAM_DEFS, computeStats } from './component-physics.js';
 import { declaredSinkQualityFloor } from '../game/utility-gate.js';
+import {
+  componentActsAsBeamPipe,
+  derateStatsForHealth,
+} from './component-operation.js';
 
 // Task 6 (staff-professions-3, jobs-and-gates): an uncommissioned component
 // (placed after this task, not yet signed off by a matching-specialty
@@ -70,6 +74,7 @@ const COMMISSIONING_DERATE = 0.7;
  *   sourceBeamRadiusMm?, sourceSpaceChargeCompensation?, infraQuality? }
  */
 function _buildPhysicsElements(orderedNodes, {
+  componentHealth,
   nodeQualities,
   includeInfrastructure = true,
   applyCommissioning = true,
@@ -98,6 +103,10 @@ function _buildPhysicsElements(orderedNodes, {
         if (typeof effectiveStats[k] === 'number') effectiveStats[k] *= COMMISSIONING_DERATE;
       }
     }
+    Object.assign(
+      effectiveStats,
+      derateStatsForHealth(effectiveStats, el.id, componentHealth),
+    );
     const physEl = {
       // `id` round-trips so per-cavity physics results (achieved gradient,
       // wall dissipation) can be written back onto the placeable, where the
@@ -145,12 +154,38 @@ function _buildPhysicsElements(orderedNodes, {
         physEl.infraQuality = floor ? { ...floor, ...nq } : nq;
       }
     }
+    // Switching out or fully losing a downstream element does not break the
+    // physical beam path. Preserve its occupied length (and vacuum service,
+    // when present) but remove every active field by handing the solver a
+    // drift element. The source is deliberately exempt: its failure is the
+    // run gate, not a way to conjure beam from a drift.
+    if (componentActsAsBeamPipe(el, componentHealth)) {
+      const passive = {
+        id: physEl.id,
+        type: 'drift',
+        subL: physEl.subL,
+        stats: {},
+        params: {},
+      };
+      if (physEl.infraQuality?.vacuumQuality !== undefined
+          || physEl.infraQuality?.vacuumPressure !== undefined) {
+        passive.infraQuality = {};
+        if (physEl.infraQuality.vacuumQuality !== undefined) {
+          passive.infraQuality.vacuumQuality = physEl.infraQuality.vacuumQuality;
+        }
+        if (physEl.infraQuality.vacuumPressure !== undefined) {
+          passive.infraQuality.vacuumPressure = physEl.infraQuality.vacuumPressure;
+        }
+      }
+      return passive;
+    }
     return physEl;
   });
 }
 
 export function buildPhysicsElements(orderedNodes, ctx = {}) {
   return _buildPhysicsElements(orderedNodes, {
+    componentHealth: ctx.componentHealth,
     nodeQualities: ctx.nodeQualities,
     includeInfrastructure: true,
     applyCommissioning: true,
@@ -166,6 +201,7 @@ export function buildPhysicsElements(orderedNodes, ctx = {}) {
  */
 export function buildDesignerPhysicsElements(draftNodes) {
   return _buildPhysicsElements(draftNodes, {
+    componentHealth: null,
     includeInfrastructure: false,
     applyCommissioning: false,
   });

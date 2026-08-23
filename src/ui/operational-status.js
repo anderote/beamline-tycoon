@@ -104,6 +104,9 @@ function connectedNetworkStatus(state, utilityType, networks) {
 
 function deviceStatus(state, entry, health) {
   let result = status('healthy', 'Operating normally');
+  if (entry?.beamlineEnabled === false) {
+    result = worse(result, status('critical', 'Switched off · acting as beam pipe'));
+  }
   if (entry?.needsCommissioning === true) {
     result = worse(result, status('critical', 'Commissioning required'));
   }

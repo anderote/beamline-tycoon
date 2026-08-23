@@ -434,7 +434,13 @@ console.log('\n=== 8. Space toggles the beam without an explicit id ===\n');
   // reading whatever the last tick left behind (it used to call the no-op
   // validateInfrastructure()). This block is about id resolution, so pin the
   // gate open rather than wiring six utility lines.
-  g.refreshInfrastructureGate = () => { g.state.infraCanRun = true; };
+  g.refreshInfrastructureGate = () => {
+    g.state.infraCanRun = true;
+    g.state.infraBlockers = [];
+    g.state.nodeQualities[src] = {
+      powerQuality: 1, coolingQuality: 1, vacuumQuality: 1,
+    };
+  };
   g.state.infraCanRun = true;
   g.toggleBeam();
   assert(entry.status === 'running', `the sole beamline starts from a bare toggleBeam() (${entry.status})`);

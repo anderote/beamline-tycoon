@@ -81,16 +81,27 @@ focusStrength *= powerQuality                                 (linear, correct)
 
 A utility a component *doesn't* consume stays absent and costs nothing. Zeroing the physical quantities would read as "ice cold" and "perfect vacuum" — the exact inversion this floor exists to prevent.
 
-### Hard vs Soft Failures
+### Source gates vs downstream faults
 
-**Hard** — these stop the beam:
+The source is the only hardware whose operating state gates beam emission. Its
+explicitly required operating services (depending on source type: power or HV,
+and sometimes RF, cooling, or cryogenics) must deliver a non-zero quality, the
+source must have health remaining, and an operator must be at the controls. If
+those conditions hold, the source can run regardless of downstream equipment
+faults. Beam-path vacuum remains a physics condition rather than a source
+switch.
 
-- A declared sink for **power, vacuum, RF, cooling, or cryo** that is not wired to any network
-- A power network with sinks and **zero** capacity (`power_starved`)
-- A vacuum network with sinks and **no pump** (`vacuum_no_pump`)
-- A cooling network whose reservoir has run **dry** (`cooling_dry`)
-- A cryo network in **quench** — LHe below 20 L, or the bath at 9.25 K
-- No active operator in the Control Room (`beam_unstaffed`)
+Downstream hard utility errors remain visible equipment faults, but they no
+longer turn the source off. They feed their zero or degraded service values
+into the beam solver, so the beam can lose energy, focus, current, quality, or
+die before reaching the endpoint while the source remains on.
+
+Hover a downstream beamline component and press **Space** to switch it out.
+An off component becomes passive beam pipe at the same length: its active
+power/RF/cooling/cryo/data demand drops to zero and it contributes no field,
+acceleration, or measurement. Its vacuum vessel remains part of the beam path,
+so bad vacuum can still scatter or lose the beam. Press Space again to restore
+it.
 
 **Soft** — these degrade but don't stop:
 
@@ -98,14 +109,16 @@ A utility a component *doesn't* consume stays absent and costs nothing. Zeroing 
 - An RF frequency bucket with no matching source (`rf_frequency_mismatch`) — that cavity gets zero power, but the beam keeps running.
 - A data-fiber sink with no source. Unwired diagnostics cost money, not beam.
 
-Note that **data fiber is deliberately not hard-gated**, and that an unwired sink is treated much more harshly than an under-served one. Wiring something badly is always better than not wiring it.
+Data fiber is deliberately never a source gate. An unwired downstream sink is
+still treated more harshly than an under-served one in that component's own
+physics.
 
 ## Known Limitations
 
 These are documented rather than papered over:
 
 - **Labs no longer boost networks.** `LAB_NETWORK_MAP` and `findLabNetworkBonuses` were removed. Zone furnishing `zoneOutput` bonuses are still computed and stored on the game state, but nothing reads them — they have no effect on network quality or anything else.
-- **Magnets have no graded response to cooling.** A `coolingDegradation` factor is computed in the physics layer and read by nothing. Magnets are hard-gated on having a cooling connection, but an under-served cooling loop does not degrade them; the only live cooling effect is NC-cavity detuning.
+- **Magnets have no graded response to cooling.** A `coolingDegradation` factor is computed in the physics layer and read by nothing. Missing cooling is reported but does not stop the source; the only live graded cooling effect is NC-cavity detuning.
 
 ## Viewing Network Quality
 

@@ -87,6 +87,7 @@ export function flattenPath(gameState, sourceId, opts = {}) {
       // would silently never derate the majority of the catalogue (every
       // on-pipe component). Both kinds carry this same flag for that reason.
       needsCommissioning: !!placeable.needsCommissioning,
+      beamlineEnabled: placeable.beamlineEnabled !== false,
     });
     beamStart += subL * 0.5;
 
@@ -154,6 +155,7 @@ export function flattenPath(gameState, sourceId, opts = {}) {
         pipeId: pipe.id,
         position: pl.position,
         needsCommissioning: !!pl.needsCommissioning,
+        beamlineEnabled: pl.beamlineEnabled !== false,
       });
       pipeCursor += plBeamLen;
       consumed += plBeamLen;

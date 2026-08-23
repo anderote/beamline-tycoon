@@ -614,10 +614,8 @@ console.log('\n=== 13b. Fix round 2 F1(a): a beam that WAS started, then stopped
 }
 
 // ==========================================================================
-// 13c. Round 2's F1(b) (BLOCKING): a beam blocked by REAL hard infra
-// faults (unconnected power/vacuum/cooling — toggleBeam itself would
-// refuse with "Cannot start beam: N infrastructure issues") must not be
-// told "press Start" — that advice fixes nothing here.
+// 13c. A beam whose SOURCE is unavailable must not be told "press Start" —
+// that advice fixes nothing until the source service is restored.
 // ==========================================================================
 console.log('\n=== 13c. Fix round 2 F1(b): a beam blocked by a real hard fault is not told to "press Start" ===\n');
 {
@@ -630,11 +628,13 @@ console.log('\n=== 13c. Fix round 2 F1(b): a beam blocked by a real hard fault i
     job: { jobType: 'runBeam', target: null, specialty: null, stationKey: `${console_.id}:0`, destNode: null, phase: 'work', progress: 0 },
   });
   state.staffMembers = [op];
-  state.infraCanRun = false; // six real power/vacuum/cooling_unconnected blockers, say
+  state.infraCanRun = false;
   state.infraBlockers = [
     { code: 'power_unconnected', severity: 'hard', message: 'source pwr_in not connected to powerCable', location: {} },
   ];
-  const game = { state, registry: { getAll: () => [{ id: 'bl1', status: 'stopped' }] } };
+  const game = { state, registry: { getAll: () => [{
+    id: 'bl1', status: 'stopped', beamState: { canRun: false },
+  }] } };
 
   const d = describeJob(op, game);
   assert(!/press start/i.test(d.status), `inspector does not blame the operator for a real infra fault (got "${d.status}")`);
@@ -906,16 +906,16 @@ console.log('\n=== TP1 (fix round 3 ruling): a seated, never-started operator be
   });
   state.staffMembers = [op];
   // A representative slice of a real "many hard faults" facility — the
-  // exact count doesn't matter, only that infraCanRun is false (so F4's
-  // own "press Start" check correctly stays quiet — round 2's F1(b)) and a
-  // real blocker exists for the fallback to eventually name.
+  // A real source blocker exists for the fallback to eventually name.
   state.infraCanRun = false;
   state.infraBlockers = [
     { code: 'power_unconnected', severity: 'hard', message: 'source pwr_in not connected to powerCable', location: { placeableId: 'src1', portName: 'pwr_in' } },
     { code: 'vacuum_unconnected', severity: 'hard', message: 'source vac_in not connected to vacuumPipe', location: { placeableId: 'src1', portName: 'vac_in' } },
   ];
   state.placeables.push({ id: 'src1', type: 'source', category: 'beamline' });
-  const game = { state, registry: { getAll: () => [{ id: 'bl1', status: 'stopped' }] } };
+  const game = { state, registry: { getAll: () => [{
+    id: 'bl1', status: 'stopped', beamState: { canRun: false },
+  }] } };
 
   // op.job.progress climbs every tick — jobRunner.js's tickJobs really does
   // this for a seated, phase:'work' runBeam job, unbounded, forever. Under

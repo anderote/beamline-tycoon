@@ -258,15 +258,21 @@ export function updateBeamSummary(ui) {
   if (!el) return;
   const entries = ui.game.registry.getAll();
   const running = entries.filter(e => e.status === 'running').length;
+  const held = entries.filter(e => e.status === 'running' && e.beamState?.canRun === false);
   const total = entries.length;
   const blockers = ui.game.state.infraBlockers || [];
-  const canRun = ui.game.state.infraCanRun !== false;
-  if (!canRun && blockers.length > 0) {
-    const hardCount = blockers.filter(b => b.severity === 'hard').length;
+  if (held.length > 0) {
+    el.textContent = `⚠ ${held.length} SOURCE HOLD${held.length === 1 ? '' : 'S'}`;
+    el.className = 'beam-summary fault';
+    const messages = [...new Set(held.map(entry => entry.beamState?.holdReason).filter(Boolean))];
+    el.title = `Source unavailable\n${messages.join('\n')}`;
+    el.onclick = () => ui._showInfraBlockerPanel();
+  } else if (blockers.some(blocker => blocker.severity === 'hard')) {
+    const hardCount = blockers.filter(blocker => blocker.severity === 'hard').length;
     el.textContent = `⚠ ${hardCount} FAULT${hardCount === 1 ? '' : 'S'}`;
     el.className = 'beam-summary fault';
-    const messages = [...new Set(blockers.map(b => b.message || b.code))];
-    el.title = `Beam tripped — click for details\n${messages.join('\n')}`;
+    const messages = [...new Set(blockers.map(blocker => blocker.message || blocker.code))];
+    el.title = `Equipment faults — click for details\n${messages.join('\n')}`;
     el.onclick = () => ui._showInfraBlockerPanel();
   } else if (total === 0) {
     el.textContent = 'No beamlines';
@@ -3927,7 +3933,9 @@ UIHost.prototype._openHiringDialog = function() {
 function facilitySig(game) {
   const state = game?.state || {};
   const entries = game?.registry?.getAll?.() || [];
-  return `${state.infraCanRun}|${entries.map(e => `${e.id}:${e.status}`).join(',')}`;
+  return `${state.infraCanRun}|${entries.map(e => (
+    `${e.id}:${e.status}:${e.beamState?.canRun}:${e.beamState?.holdReason || ''}`
+  )).join(',')}`;
 }
 
 // A cheap fingerprint of everything a staff inspector window's "Work"/

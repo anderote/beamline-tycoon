@@ -331,5 +331,56 @@ console.log('\n--- Test 6: front-end physics fields ---');
     'RFQ authored 162.5 MHz reaches Python instead of falling back to 1.3 GHz');
 }
 
+// ==========================================================================
+// Test 7: component operating state and health affect physics, never path
+// continuity. Off or failed downstream hardware becomes drift; partial health
+// derates active output while leaving physical length intact.
+// ==========================================================================
+console.log('\n--- Test 7: passive and damaged components ---');
+{
+  const node = {
+    kind: 'placement', id: 'q-health', type: 'quadrupole', subL: 2,
+    params: { gradient: 20, polarity: 0 },
+  };
+  const [healthy] = buildPhysicsElements([node], {
+    componentHealth: { 'q-health': 100 },
+  });
+  const [damaged] = buildPhysicsElements([node], {
+    componentHealth: { 'q-health': 50 },
+  });
+  assert(Math.abs(damaged.stats.focusStrength - healthy.stats.focusStrength * 0.5) < 1e-12,
+    'partial health proportionally derates active magnet strength');
+  assert(damaged.subL === healthy.subL,
+    'damage does not change the occupied beam-path length');
+
+  const [switchedOff] = buildPhysicsElements([
+    { ...node, beamlineEnabled: false },
+  ], { componentHealth: { 'q-health': 100 } });
+  assert(switchedOff.type === 'drift' && Object.keys(switchedOff.stats).length === 0,
+    'a switched-off downstream component is emitted as passive drift');
+
+  const [failed] = buildPhysicsElements([node], {
+    componentHealth: { 'q-health': 0 },
+  });
+  assert(failed.type === 'drift' && failed.subL === 2,
+    'a zero-health downstream component remains continuous beam pipe');
+
+  const sourceNode = {
+    kind: 'module', id: 'source-health', type: 'source', subL: 4,
+    params: { extractionVoltage: 50, cathodeTemperature: 1200 },
+  };
+  const [healthySource] = buildPhysicsElements([sourceNode], {
+    componentHealth: { 'source-health': 100 },
+  });
+  const [damagedSource] = buildPhysicsElements([sourceNode], {
+    componentHealth: { 'source-health': 50 },
+  });
+  assert(damagedSource.type === 'source'
+      && Math.abs(damagedSource.stats.beamCurrent - healthySource.stats.beamCurrent * 0.5) < 1e-12,
+  'a damaged-but-working source stays a source with reduced current');
+  assert(damagedSource.stats.emittance > healthySource.stats.emittance,
+    'source damage worsens emitted beam quality');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
