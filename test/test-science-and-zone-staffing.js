@@ -252,6 +252,7 @@ console.log('\n=== 3. Game data pipeline: scientist + hardware gate research dat
 
   const g = new Game(new BeamlineRegistry(), { seed: 909 });
   g.state.infraCanRun = true; // bypass the full utility gate — not this test's concern
+  g._beamlineReadiness = () => ({ canRun: true });
 
   const bs = makeDefaultBeamState('testStand');
   bs.dataRate = 10;
@@ -825,6 +826,7 @@ console.log('\n=== 18. Photon data is gated by the same scientist check as detec
   const { makeDefaultBeamState } = await import('../src/beamline/BeamlineRegistry.js');
   const g = new Game(new BeamlineRegistry(), { seed: 1313 });
   g.state.infraCanRun = true;
+  g._beamlineReadiness = () => ({ canRun: true });
 
   const bs = makeDefaultBeamState('lightSource');
   bs.dataRate = 0; // isolate the photon route from the detector route
@@ -865,6 +867,7 @@ console.log('\n=== 19. takeData total is independent of beamline count (fix roun
   const { makeDefaultBeamState } = await import('../src/beamline/BeamlineRegistry.js');
   const g = new Game(new BeamlineRegistry(), { seed: 1414 });
   g.state.infraCanRun = true;
+  g._beamlineReadiness = () => ({ canRun: true });
 
   const bs1 = makeDefaultBeamState('testStand'); bs1.dataRate = 10;
   const bs2 = makeDefaultBeamState('testStand'); bs2.dataRate = 10;

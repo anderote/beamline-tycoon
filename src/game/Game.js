@@ -15,6 +15,12 @@ import { BeamPhysics } from '../beamline/physics.js';
 import { PhysicsRecalcCoordinator } from '../beamline/physics-recalc-coordinator.js';
 import { aggregateBeamlinePhysics } from '../beamline/physics-result-aggregate.js';
 import { buildPhysicsElements } from '../beamline/physics-payload.js';
+import {
+  beamlineComponentEnabled,
+  beamlineRunReadiness,
+  componentHealthFraction,
+  toggleBeamlineComponentState,
+} from '../beamline/component-operation.js';
 import { makeDefaultBeamState } from '../beamline/BeamlineRegistry.js';
 import { getBeamlineType } from '../data/beamline-types.js';
 import { flattenPath } from '../beamline/flattener.js';
@@ -4969,6 +4975,7 @@ export class Game {
     if (blType) entry.beamState.machineType = blType.machineType;
 
     const ordered = entry.sourceId ? flattenPath(this.state, entry.sourceId) : [];
+    this._beamlineReadiness(entry, ordered);
 
     // Calculate energy cost and total length from templates
     let tLen = 0, tCost = 0, hasSrc = false;
@@ -4984,7 +4991,10 @@ export class Game {
         continue;
       }
       tLen += (el.subL ?? t.subL ?? 4) * 0.5;
-      tCost += (t.energyCost || 0) * ecm;
+      if (beamlineComponentEnabled(el)
+          && componentHealthFraction(el.id, entry.beamState.componentHealth) > 0) {
+        tCost += (t.energyCost || 0) * ecm;
+      }
       if (t.isSource) hasSrc = true;
     }
     entry.beamState.totalLength = tLen;
@@ -5003,6 +5013,7 @@ export class Game {
     // computeStats overlay and the fail-closed infraQuality floor all live in
     // physics-payload.js, which documents why each is shaped the way it is.
     const physicsBeamline = buildPhysicsElements(ordered, {
+      componentHealth: entry.beamState.componentHealth,
       nodeQualities: this.state.nodeQualities,
     });
 
@@ -5036,20 +5047,22 @@ export class Game {
 
     for (const entry of entries) {
       const bs = entry.beamState;
+      const readiness = this._beamlineReadiness(entry);
       totalLength += bs.totalLength || 0;
       totalDataCollected += bs.totalDataCollected || 0;
       totalBeamHours += bs.totalBeamHours || 0;
       totalBeamOnTicks += bs.beamOnTicks || 0;
 
-      if (entry.status === 'running' && this.state.infraCanRun) {
+      if (entry.status === 'running' && readiness.canRun) {
         beamOn = true;
         // Electricity is billed per running beamline (economy.computeTickUpkeep
         // reads state.totalEnergyCost). Summing stopped beamlines too charged
         // an idle machine full power whenever any OTHER beamline ran.
         totalEnergyCost += bs.totalEnergyCost || 0;
         if (bs.continuousBeamTicks > maxContinuousBeamTicks) maxContinuousBeamTicks = bs.continuousBeamTicks;
-      } else if (entry.status === 'running' && !this.state.infraCanRun) {
-        // Infra fault — reset continuous run, beam is effectively off for objectives
+      } else if (entry.status === 'running' && !readiness.canRun) {
+        // Source/staff hold — reset continuous run; downstream faults do not
+        // land here because they are represented in beam physics instead.
         bs.continuousBeamTicks = 0;
       }
       if (bs.beamEnergy > maxBeamEnergy) maxBeamEnergy = bs.beamEnergy;
@@ -5173,18 +5186,9 @@ export class Game {
     bs.felSaturated = !!result.felSaturated;
     this._writeBackCavityResults(result.cavities);
 
-    // If physics says beam tripped, fault this beamline
-    if (entry.status === 'running' && !result.beamAlive) {
-      entry.status = 'stopped';
-      bs.continuousBeamTicks = 0;
-      this.log('Beam TRIPPED -- too much loss! Fix your optics.', 'bad');
-      this.emit('beamToggled', {
-        beamlineId: entry.id,
-        status: entry.status,
-        started: false,
-        reason: 'physics-trip',
-      });
-    }
+    // A dead/lost downstream beam is a physics outcome, not a source trip.
+    // Keep the requested run state live so the player can bypass, retune, or
+    // repair components and immediately see the beam recover.
   }
 
   _fallbackStatsForBeamline(entry, physicsBeamline) {
@@ -5240,6 +5244,40 @@ export class Game {
 
   // === BEAM CONTROL ===
 
+  _beamlineReadiness(entry, orderedNodes = null) {
+    const ordered = orderedNodes
+      || (entry?.sourceId ? flattenPath(this.state, entry.sourceId) : []);
+    const readiness = beamlineRunReadiness(this.state, entry, ordered);
+    if (entry?.beamState) {
+      entry.beamState.canRun = readiness.canRun;
+      entry.beamState.holdReason = readiness.reason;
+    }
+    return readiness;
+  }
+
+  /** Toggle one downstream component between active hardware and beam pipe. */
+  toggleBeamlineComponent(componentId) {
+    const result = toggleBeamlineComponentState(this.state, componentId);
+    if (!result) return { ok: false, reason: 'not-toggleable' };
+
+    // Utility discovery caches resolved sink loads. Switching a component off
+    // removes its active-service demand, so invalidate that cache even though
+    // no cable or pipe endpoint moved.
+    this.solveRunner?.markTopologyDirty?.();
+    this.refreshInfrastructureGate();
+    this.recalcAllBeamlines();
+
+    const def = COMPONENTS[result.component.type];
+    this.log(`${def?.name || result.component.type} ${result.enabled ? 'ON' : 'OFF (beam pipe)'}`,
+      result.enabled ? 'good' : 'info');
+    this.emit('beamlineComponentToggled', {
+      componentId,
+      enabled: result.enabled,
+    });
+    this.emit('beamlineChanged');
+    return { ok: true, enabled: result.enabled };
+  }
+
   toggleBeam(beamlineId) {
     // Callers without an explicit id (the Space hotkey) get a default: the
     // currently selected beamline, or the only one that exists. Without this
@@ -5276,39 +5314,14 @@ export class Game {
       // arbitrarily stale in both directions (refusing a beam over faults the
       // player already fixed, or starting one with the utilities cut).
       this.refreshInfrastructureGate();
-      if (!this.state.infraCanRun) {
-        // toggleBeam refuses the same way for every hard blocker, staffing
-        // included — fixing the cold-start deadlock belongs in the CAP
-        // (src/game/staff/jobRunner.js's beamlineCount, now counting
-        // registered beamlines rather than only running ones — see that
-        // function's own comment), not by having this method quietly start
-        // a beam it knows is unstaffed. With the cap fixed, an operator can
-        // be seated against a beamline the moment it's BUILT, so ordinary
-        // play never needs this toggle to succeed ahead of staffing.
-        const blockers = this.state.infraBlockers || [];
-        const nonStaffing = blockers.filter(b => b.code !== 'beam_unstaffed');
-        if (nonStaffing.length > 0) {
-          const count = nonStaffing.length;
-          this.log(`Cannot start beam: ${count} infrastructure issue${count > 1 ? 's' : ''}`, 'bad');
-          for (const b of nonStaffing.slice(0, 3)) {
-            this.log(`  - ${b.reason}`, 'bad');
-          }
-          if (count > 3) this.log(`  ... and ${count - 3} more`, 'bad');
-          return;
+      const readiness = this._beamlineReadiness(entry, flat);
+      if (!readiness.canRun) {
+        if (readiness.code === 'beam_unstaffed') {
+          this.log(`Beam not started — waiting on an operator: ${readiness.reason}. `
+            + 'Press Start again once they are at the console.', 'info');
+        } else {
+          this.log(`Cannot start beam: ${readiness.reason}`, 'bad');
         }
-        // Every OTHER hard blocker is clear — beam_unstaffed is the only
-        // thing holding this line dark, and it's normally transient (an
-        // operator assigned moments ago is one or two ticks from phase:
-        // 'work' — see utility-gate.js's _unstaffedMessage). This must read
-        // as neither a real fault NOR a false "Beam ON!": the beam genuinely
-        // is not running, so the toggle still refuses (no status change, no
-        // pending-start state of any kind — this method sets nothing up to
-        // retry automatically), and the log must not promise otherwise. The
-        // player has to press Start again once staffed; "armed" previously
-        // implied they wouldn't.
-        const staffBlocker = blockers.find(b => b.code === 'beam_unstaffed');
-        this.log(`Beam not started — waiting on an operator: ${staffBlocker?.reason || ''}. `
-          + 'Press Start again once they are at the console.', 'info');
         return;
       }
       entry.status = 'running';
@@ -5899,7 +5912,7 @@ export class Game {
   _tickBeamline(entry, econ = null) {
     const bs = entry.beamState;
 
-    if (!this.state.infraCanRun) {
+    if (!this._beamlineReadiness(entry).canRun) {
       bs.effectiveDataRate = 0;
       bs.serviceRevenue = 0;
       return;
@@ -5973,7 +5986,7 @@ export class Game {
 
     // Component wear (every 10 ticks)
     if (this.state.tick % 10 === 0) {
-      this._applyWearForBeamline(entry);
+      if (this._applyWearForBeamline(entry)) this.schedulePhysicsRecalc();
     }
   }
 
@@ -6041,6 +6054,7 @@ export class Game {
 
   _applyWearForBeamline(entry) {
     const blNodes = entry.sourceId ? flattenPath(this.state, entry.sourceId) : [];
+    let physicsChanged = false;
     for (const node of blNodes) {
       const t = COMPONENTS[node.type];
       if (!t) continue;
@@ -6048,6 +6062,11 @@ export class Game {
       if (entry.beamState.componentHealth[node.id] === undefined) {
         entry.beamState.componentHealth[node.id] = 100;
       }
+      // Bypassed hardware is passive beam pipe: no active field, no active
+      // wear. A failed (0-health) component likewise waits for repair rather
+      // than repeatedly rolling the failure path.
+      if (!beamlineComponentEnabled(node)
+          || entry.beamState.componentHealth[node.id] <= 0) continue;
       // Base wear rate: higher energy cost = more stress
       const baseWear = 0.01 + (t.energyCost || 0) * 0.002;
       // Read from state.placeables, not the legacy state.facilityEquipment
@@ -6057,6 +6076,7 @@ export class Game {
       // $1M Machine Protection System had no mechanical effect at all.
       const hasMPS = (this.state.placeables || []).some(p => p.type === 'mps');
       const wearMult = hasMPS ? 1 : 2;
+      const before = entry.beamState.componentHealth[node.id];
       entry.beamState.componentHealth[node.id] = Math.max(0, entry.beamState.componentHealth[node.id] - baseWear * wearMult);
 
       // Random failure check below 20% health
@@ -6064,7 +6084,11 @@ export class Game {
         entry.beamState.componentHealth[node.id] = 0;
         this.log(`${t.name} FAILED! Repair needed.`, 'bad');
       }
+      if (Math.floor(before) !== Math.floor(entry.beamState.componentHealth[node.id])) {
+        physicsChanged = true;
+      }
     }
+    return physicsChanged;
   }
 
   getComponentHealth(id) {

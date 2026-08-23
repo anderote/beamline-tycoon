@@ -268,18 +268,12 @@ function stationLabel(member, game) {
 //     additional true-case for entries whose beamState hasn't been read
 //     into this call's registry snapshot for some reason — belt, not
 //     suspenders.
-//   - This function never consulted `state.infraCanRun` at all, so a beam
-//     genuinely blocked by real hard faults (six unconnected utilities, the
-//     exact fixture toggleBeam itself refuses with "Cannot start beam: 6
-//     infrastructure issues") still got told to "press Start" — false
-//     advice for a problem Start cannot fix. `infraCanRun` is checked
-//     first now; a real fault reaching THIS check at all means it isn't a
-//     staffing/never-started problem, and facilityProgressReport's own
-//     "prefer a live hard blocker" fallback (below) is what should speak
-//     to it instead, once the stall window actually elapses.
+//   - Source readiness, rather than the facility-wide infra diagnostic, tells
+//     us whether Start can work. A downstream fault may damage the beam but is
+//     no reason to suppress the prompt to turn on a healthy source.
 //
-// Returns the player-facing sentence, or null when: an unrelated hard fault
-// is already blocking the beam; staffing itself is the (already
+// Returns the player-facing sentence, or null when: every unstarted source is
+// unavailable; staffing itself is the (already
 // differently-surfaced) problem; there are no beamlines to run at all; or
 // EVERY registered line has, in fact, been started at least once.
 //
@@ -293,13 +287,13 @@ function stationLabel(member, game) {
 // gets caught regardless of how many others are already up.
 function beamNotStartedMessage(game) {
   const state = game.state;
-  if (state.infraCanRun === false) return null;
   if (countBeamlines(state) === 0) return null;
   if (!operatorCoverage(state).covered) return null;
   const entries = game.registry?.getAll?.() || [];
   if (entries.length === 0) return null; // no registry wired up (e.g. a bare fixture) — nothing to confirm against
   const hasEverRun = e => e.status === 'running' || (e.beamState?.beamOnTicks || 0) > 0;
   if (entries.every(hasEverRun)) return null;
+  if (entries.filter(e => !hasEverRun(e)).every(e => e.beamState?.canRun === false)) return null;
   return 'The beam is fully staffed but has never been started — press Start to begin operation.';
 }
 

@@ -22,6 +22,7 @@ function gameWith(entry, actions = []) {
     getPowerDeviceActions() { return actions; },
     runUndoableMutation(mutate) { calls.push(['undo']); return mutate(); },
     toggleBeam(id) { calls.push(['beam', id]); return true; },
+    toggleBeamlineComponent(id) { calls.push(['component', id]); return { ok: true }; },
     dispatchPowerDeviceAction(id, actionId) {
       calls.push(['device', id, actionId]);
       return { ok: true };
@@ -87,9 +88,23 @@ test('generator enable/disable is available but maintenance actions are not', ()
   assert.equal(hoveredOperationalTarget(game, 'placeable:generator_1'), null);
 });
 
+test('hovering downstream beamline hardware toggles that component', () => {
+  const { game, calls } = gameWith({
+    id: 'quad_1', type: 'quadrupole', category: 'beamline',
+  });
+
+  const outcome = toggleHoveredOperationalTarget(game, 'placeable:quad_1');
+
+  assert.equal(outcome.handled, true);
+  assert.deepEqual(outcome.target, {
+    kind: 'beamlineComponent', id: 'quad_1', placeableId: 'quad_1',
+  });
+  assert.deepEqual(calls, [['undo'], ['component', 'quad_1']]);
+});
+
 test('non-toggleable objects and non-placeable hover targets are ignored', () => {
-  const { game } = gameWith({ id: 'quad_1', type: 'quadrupole' });
-  assert.equal(hoveredOperationalTarget(game, 'placeable:quad_1'), null);
+  const { game } = gameWith({ id: 'tree_1', type: 'oakTree' });
+  assert.equal(hoveredOperationalTarget(game, 'placeable:tree_1'), null);
   assert.equal(hoveredOperationalTarget(game, 'utility:line_1'), null);
   assert.equal(toggleHoveredOperationalTarget(game, 'staff:staff_1').handled, false);
 });

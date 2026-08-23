@@ -291,6 +291,8 @@ realLog('\n--- G: electricity is billed per running beamline ---');
 {
   const g = mkGame(77);
   g.state.infraCanRun = true;
+  // This billing contract uses source-less registry stubs intentionally.
+  g._beamlineReadiness = () => ({ canRun: true });
   const a = g.registry.createBeamline('linac', null);
   const b = g.registry.createBeamline('linac', null);
   a.beamState.totalEnergyCost = 100;

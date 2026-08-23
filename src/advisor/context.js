@@ -95,7 +95,7 @@ export function buildAdvisorContext(game, designer) {
     net: econ.net || 0,
 
     blockers,
-    beamRunning: !!state.infraCanRun && countPlacements(state) > 0,
+    beamRunning: !!state.beamOn && countPlacements(state) > 0,
     placeableCount: (state.placeables || []).length,
     beamlineCount: (state.beamPipes || []).length,
     placementCount: countPlacements(state),

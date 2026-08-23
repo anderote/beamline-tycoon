@@ -42,6 +42,8 @@ export function makeDefaultBeamState(machineType) {
     nDiagnostics: 0,
     totalLossFraction: 0,
     componentHealth: {},
+    canRun: true,
+    holdReason: null,
     felSaturated: false,
     machineType: machineType,
   };

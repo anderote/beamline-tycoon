@@ -207,6 +207,10 @@ console.log('\n=== 5. Data rate: one billed number, end to end ===\n');
   Object.assign(entry.beamState, { dataRate: 30, beamQuality: 1 });
   entry.status = 'running';
   g.state.infraCanRun = true;
+  // This contract isolates billed data publication from source topology.
+  // The fixture intentionally creates a registry entry with no source, so
+  // pin the new source-readiness seam open for this one tick path.
+  g._beamlineReadiness = () => ({ canRun: true });
   // No data-fiber network exists, so nodeQualities is empty and the
   // connectivity factor is 1.0 (nothing to derate) — the published value
   // must equal the raw one in that case, and never be left undefined.
