@@ -544,7 +544,7 @@ console.log('\n=== Selection groups ===\n');
     },
     renderer: {
       setSelectionOutlines: selected => roots.push(selected.slice()),
-      openEquipmentWindow: entry => openedWindows.push(entry.id),
+      openPlaceableInfoPopup: entry => openedWindows.push(entry.id),
       closePlaceableInfoWindow: entry => closedWindows.push(entry.id),
       refreshContextWindows() {},
     },

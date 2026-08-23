@@ -49,6 +49,7 @@ export class UIHost {
     this._beamlineWindows = {};
     this._equipmentWindows = {};
     this._selectionWindow = null;
+    this._popupPlaceableId = null;
   }
 
   // Number formatter — shared fmtNumber, kept as a method so UI code can

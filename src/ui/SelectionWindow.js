@@ -148,6 +148,7 @@ export class SelectionWindow {
         label: moveExcludedCount > 0 && movableCount > 0
           ? `Move compatible (${movableCount})`
           : 'Move selection',
+        hotkey: 'P',
         title: compatibleActionTitle('Move', movableCount, moveExcludedCount),
         disabled: movableCount === 0,
         onClick: () => this.selectionActions.onPlace?.(),
@@ -156,6 +157,7 @@ export class SelectionWindow {
         label: copyExcludedCount > 0 && copyableCount > 0
           ? `Copy compatible (${copyableCount})`
           : 'Copy',
+        hotkey: 'C',
         title: copyableCount === 0 && availability.hasBeamline
           ? 'Beamline hardware copies through the Designer'
           : compatibleActionTitle('copy', copyableCount, copyExcludedCount),
@@ -183,7 +185,8 @@ export class SelectionWindow {
         onClick: () => this.selectionActions.onMirror?.(),
       },
       {
-        label: this.game?.sandboxMode ? 'Demolish active (no refund)' : 'Demolish active (50% refund)',
+        label: this.game?.sandboxMode ? 'Delete active (no refund)' : 'Delete active (50% refund)',
+        hotkey: 'Del',
         variant: 'danger',
         disabled: selectedCount === 0 || availability.hasBeamline,
         onClick: () => {

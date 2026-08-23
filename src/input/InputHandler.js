@@ -954,17 +954,13 @@ export class InputHandler {
   }
 
   /** Open the inspector appropriate for one selected placeable. */
-  _openPlaceableInfoWindow(entry) {
+  _openPlaceableInfoWindow(entry, screenX, screenY) {
     if (!entry) return;
-    if (entry.category === 'beamline') {
-      const blId = entry.beamlineId;
-      if (!blId) return;
-      this.game.selectedBeamlineId = blId;
-      this.renderer._openBeamlineWindow(blId, entry);
-      this.game.emit('beamlineSelected', blId);
-      return;
+    if (entry.category === 'beamline' && entry.beamlineId) {
+      this.game.selectedBeamlineId = entry.beamlineId;
+      this.game.emit('beamlineSelected', entry.beamlineId);
     }
-    this.renderer.openEquipmentWindow?.(entry);
+    this.renderer.openPlaceableInfoPopup?.(entry, screenX, screenY);
   }
 
   /** Leave one live context window representing the complete selection. */
@@ -1354,7 +1350,7 @@ export class InputHandler {
   _selectPlaceable(
     entry,
     rootObj = null,
-    { additive = false, openInspector = true } = {},
+    { additive = false, openInspector = true, screenX, screenY } = {},
   ) {
     if (!entry) return false;
     const target = selectionTargetForPlaceable(entry, rootObj);
@@ -1389,7 +1385,15 @@ export class InputHandler {
       if (additive) {
         this._reconcileSelectionWindow(previousSelection);
       } else {
-        this._openPlaceableInfoWindow(entry);
+        // A direct click has returned to one item. Retire any group panel and
+        // any prior item's inspector before showing the compact BLT popup.
+        this.renderer.closeSelectionWindow?.();
+        for (const id of previousSelection) {
+          if (id === entry.id) continue;
+          const previous = this.game.getPlaceable(id);
+          if (previous) this.renderer.closePlaceableInfoWindow?.(previous);
+        }
+        this._openPlaceableInfoWindow(entry, screenX, screenY);
         this.renderer.refreshContextWindows?.();
       }
     }
@@ -1399,11 +1403,13 @@ export class InputHandler {
   _selectLogicalTarget(
     target,
     rootObj = null,
-    { additive = false, openInspector = true } = {},
+    { additive = false, openInspector = true, screenX, screenY } = {},
   ) {
     if (!target?.key) return false;
     if (target.targetKind === 'placeable') {
-      return this._selectPlaceable(target.entry, rootObj, { additive, openInspector });
+      return this._selectPlaceable(target.entry, rootObj, {
+        additive, openInspector, screenX, screenY,
+      });
     }
     const previousSelection = [...this.selectedPlaceableIds];
     if (!additive) {
@@ -1458,7 +1464,7 @@ export class InputHandler {
       return this._selectPlaceable(
         entry,
         info.rootObj || null,
-        { additive, openInspector },
+        { additive, openInspector, screenX, screenY },
       );
     }
 
@@ -1473,7 +1479,7 @@ export class InputHandler {
         return this._selectLogicalTarget(
           target,
           info.rootObj || null,
-          { additive, openInspector },
+          { additive, openInspector, screenX, screenY },
         );
       }
     }
@@ -1486,7 +1492,11 @@ export class InputHandler {
       if (target && !mouseSelectionCategoryEnabled(
         this._mouseSelectionCategories, target.selectionCategory,
       )) return true;
-      if (target) return this._selectLogicalTarget(target, null, { additive, openInspector });
+      if (target) {
+        return this._selectLogicalTarget(target, null, {
+          additive, openInspector, screenX, screenY,
+        });
+      }
     }
 
     // A rendered non-selectable object (for example a utility line or beam
@@ -1500,7 +1510,9 @@ export class InputHandler {
       this._mouseSelectionCategories, floor.selectionCategory,
     )) return true;
     return floor
-      ? this._selectLogicalTarget(floor, null, { additive, openInspector })
+      ? this._selectLogicalTarget(floor, null, {
+          additive, openInspector, screenX, screenY,
+        })
       : false;
   }
 
@@ -3038,7 +3050,17 @@ export class InputHandler {
           if (comp) {
             if (!shiftKey) this.game.refillEmptyReservoirForPlaceable?.(equip.id);
             this.renderer.showNetworkOverlay(facId);
-            this.renderer.openEquipmentWindow(equip);
+            if (typeof this._selectPlaceable === 'function') {
+              this._selectPlaceable(equip, null, {
+                additive: shiftKey, screenX, screenY,
+              });
+            } else {
+              // Keep lightweight command facades usable in non-renderer
+              // integrations while the real handler takes the selection path.
+              if (this.renderer.openPlaceableInfoPopup) {
+                this.renderer.openPlaceableInfoPopup(equip, screenX, screenY);
+              } else this.renderer.openEquipmentWindow?.(equip);
+            }
             return;
           }
         }

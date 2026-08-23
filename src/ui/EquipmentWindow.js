@@ -69,11 +69,13 @@ export class EquipmentWindow {
       this.ctx.setActions([
         {
           label: 'Move selection',
+          hotkey: 'P',
           title: 'Pick up the complete selection and place it together',
           onClick: () => this.selectionActions.onPlace?.(this.equip.id),
         },
         {
           label: 'Copy',
+          hotkey: 'C',
           title: 'Copy the selection and its internal utility connections to the formation clipboard',
           onClick: () => {
             this.selectionActions.onCopyToClipboard?.(this.equip.id);
@@ -98,7 +100,7 @@ export class EquipmentWindow {
           title: 'Pick up and mirror the selection; M mirrors again while placing',
           onClick: () => this.selectionActions.onMirror?.(this.equip.id),
         },
-        { label: this.game?.sandboxMode ? 'Demolish all (no refund)' : 'Demolish all (50% refund)', variant: 'danger', onClick: () => {
+        { label: this.game?.sandboxMode ? 'Delete all (no refund)' : 'Delete all (50% refund)', hotkey: 'Del', variant: 'danger', onClick: () => {
           const removedIds = this.selectionActions.onDemolish?.(this.equip.id) || [];
           for (const id of removedIds) ContextWindow.getWindow('equip-' + id)?.close();
         }},
@@ -116,16 +118,18 @@ export class EquipmentWindow {
         },
       })),
       {
-        label: 'Place',
+        label: 'Move',
+        hotkey: 'P',
         title: 'Pick up the selection and place it together',
         onClick: () => this.selectionActions.onPlace?.(this.equip.id),
       },
       {
         label: 'Copy',
+        hotkey: 'C',
         title: 'Copy the selection and its internal utility connections',
         onClick: () => this.selectionActions.onCopy?.(this.equip.id),
       },
-      { label: this.game?.sandboxMode ? 'Demolish (no refund)' : 'Demolish (50% refund)', variant: 'danger', onClick: () => {
+      { label: this.game?.sandboxMode ? 'Delete (no refund)' : 'Delete (50% refund)', hotkey: 'Del', variant: 'danger', onClick: () => {
         if (this.selectionActions.onDemolish) {
           const removedIds = this.selectionActions.onDemolish(this.equip.id) || [];
           for (const id of removedIds) ContextWindow.getWindow('equip-' + id)?.close();

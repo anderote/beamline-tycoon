@@ -2196,6 +2196,10 @@ export class ThreeRenderer {
     return this._openEquipmentWindow?.(entry);
   }
 
+  openPlaceableInfoPopup(entry, screenX, screenY) {
+    return this.showPlaceablePopup?.(entry, screenX, screenY);
+  }
+
   openSelectionWindow(target) {
     return this._openSelectionWindow?.(target);
   }
@@ -6214,7 +6218,7 @@ const UI_METHODS = [
   '_sstat', '_ssep', '_detailRow', '_fmtPressure', '_superscript', '_qualityColor', '_marginColor',
   '_renderStaffBar', '_openStaffInspector', '_openHiringDialog', '_refreshStaffWindows',
   // overlays.js
-  'showPopup', 'showFacilityPopup', 'hidePopup',
+  'showPopup', 'showFacilityPopup', 'showPlaceablePopup', 'hidePopup',
   'drawSchematic',
   '_paramLabel', '_fmtParam', '_wirePopupSliders',
   '_buildTreeLayout', '_renderTechTree', '_bindTreeEvents', '_updateTreeProgress',

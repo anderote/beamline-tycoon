@@ -4,9 +4,10 @@
 import { _pxText } from '../renderer/Renderer.js';
 import { UIHost } from './UIHost.js';
 import { COMPONENTS } from '../data/components.js';
+import { PLACEABLES } from '../data/placeables/index.js';
 import { RESEARCH, RESEARCH_CATEGORIES, RESEARCH_LAB_MAP } from '../data/research.js';
 import { BeamlineWindow } from './BeamlineWindow.js';
-import { EquipmentWindow } from './EquipmentWindow.js';
+import { EquipmentWindow, equipmentAutoConnectAction } from './EquipmentWindow.js';
 import { SelectionWindow } from './SelectionWindow.js';
 import { pushEscHandler } from './esc-stack.js';
 import { ZONES } from '../data/facility.js';
@@ -16,6 +17,50 @@ import { PARAM_DEFS, computeStats } from '../beamline/component-physics.js';
 import { tileCenterIso } from '../renderer/grid.js';
 import { makeDraggable } from './draggable.js';
 import { utilityStatRows } from './utility-supply.js';
+import { componentUtilityPortSectionHtml } from './utility-port-details.js';
+import { placeableOperationalStatus } from './operational-status.js';
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, char => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[char]);
+}
+
+/** Consistent single-item footer commands and their real keyboard shortcuts. */
+export function singleItemPopupActions(entry) {
+  const beamline = entry?.category === 'beamline' || entry?.kind === 'beamline';
+  return [
+    {
+      id: 'move', label: 'Move', hotkey: 'P',
+      title: 'Pick up this item and place it elsewhere (P)',
+    },
+    {
+      id: 'copy', label: 'Copy', hotkey: 'C',
+      disabled: beamline,
+      title: beamline
+        ? 'Beamline hardware is copied through the Designer'
+        : 'Copy this item and attach the paid copy to the cursor (C)',
+    },
+    {
+      id: 'delete', label: 'Delete', hotkey: 'Del', variant: 'danger',
+      disabled: beamline,
+      title: beamline
+        ? 'Beamline component deletion is protected; edit the beamline in the Designer'
+        : 'Delete this item for the standard refund (Delete)',
+    },
+  ];
+}
+
+export function singleItemPopupActionsHtml(entry) {
+  return '<div class="popup-actions">' + singleItemPopupActions(entry).map(action => {
+    const classes = action.variant === 'danger' ? ' class="btn-danger"' : '';
+    const disabled = action.disabled ? ' disabled' : '';
+    return `<button type="button"${classes}${disabled}`
+      + ` data-popup-action="${action.id}" title="${escapeHtml(action.title)}">`
+      + `${escapeHtml(action.label)} <kbd class="popup-action-hotkey">${escapeHtml(action.hotkey)}</kbd>`
+      + '</button>';
+  }).join('') + '</div>';
+}
 
 /**
  * Resolve the schematic artwork used by a component.
@@ -149,14 +194,9 @@ UIHost.prototype.showPopup = function(node, screenX, screenY) {
     html += `<div class="stat-row health-row${healthClass}"><span class="stat-label">Health</span><span class="stat-value">${Math.round(health)}%</span></div>`;
     html += `<div class="popup-health-bar"><div class="popup-health-fill" style="width:${health}%;background:${healthColor}"></div></div>`;
 
-    // Actions
-    const refund = this.game.sandboxMode
-      ? 'no refund · sandbox build'
-      : Object.entries(comp.cost).map(([r, a]) => `${Math.floor(a * 0.5)} ${r}`).join(', ');
-    html += '<div class="popup-actions">';
-    html += `<button class="btn-danger" id="popup-remove-btn">Recycle (${refund})</button>`;
-    html += '<button class="popup-probe-btn" id="popup-probe-btn">Probe</button>';
-    html += '</div>';
+    const operational = placeableOperationalStatus(this.game.state, node, { health });
+    html += componentUtilityPortSectionHtml(node.type, operational.groups);
+    html += singleItemPopupActionsHtml(node);
 
     body.innerHTML = html;
 
@@ -181,21 +221,16 @@ UIHost.prototype.showPopup = function(node, screenX, screenY) {
       });
     });
 
-    document.getElementById('popup-remove-btn')?.addEventListener('click', () => {
-      this.game.demolishTarget({ kind: 'beamline', node });
-      this.hidePopup();
-    });
-
-    document.getElementById('popup-probe-btn')?.addEventListener('click', () => {
-      this.hidePopup();
-      if (this.onProbeClick) this.onProbeClick(node);
-    });
+    this._wireSingleItemPopupActions(node, body);
   }
 
   // Position near click, clamped to viewport
-  popup.style.left = Math.min(screenX + 14, window.innerWidth - 340) + 'px';
-  popup.style.top = Math.min(screenY + 14, window.innerHeight - 400) + 'px';
+  const x = Number.isFinite(screenX) ? screenX : 180;
+  const y = Number.isFinite(screenY) ? screenY : 90;
+  popup.style.left = Math.max(8, Math.min(x + 14, window.innerWidth - 340)) + 'px';
+  popup.style.top = Math.max(8, Math.min(y + 14, window.innerHeight - 400)) + 'px';
   popup.classList.remove('hidden');
+  this._popupPlaceableId = node.id;
 
   const closeBtn = popup.querySelector('.popup-close');
   if (closeBtn) {
@@ -296,23 +331,54 @@ UIHost.prototype.showFacilityPopup = function(equip, comp, screenX, screenY) {
 
   const body = popup.querySelector('.popup-body');
   if (body) {
-    let html = `<div class="popup-stats">`;
-    html += `<div>Type: ${comp.name}</div>`;
-    html += `<div>Category: ${comp.category}</div>`;
-    for (const r of utilityStatRows(comp)) html += `<div>${r.label}: ${r.value}</div>`;
-    html += `</div>`;
-    html += `<div class="popup-actions"><button class="btn-danger" id="popup-remove-facility-btn">${this.game.sandboxMode ? 'Remove (no sandbox refund)' : 'Remove (50% refund)'}</button></div>`;
+    const health = this.game.getComponentHealth?.(equip.id);
+    const operational = placeableOperationalStatus(this.game.state, equip, { health });
+    const row = (label, value) => '<div class="stat-row">'
+      + `<span class="stat-label">${escapeHtml(label)}</span>`
+      + `<span class="stat-value">${escapeHtml(value)}</span></div>`;
+    let html = comp.desc ? `<div class="popup-desc">${escapeHtml(comp.desc)}</div>` : '';
+    html += '<div class="popup-stats"><div class="popup-section-label">Info</div>';
+    html += row('Category', equip.category || comp.category || 'general');
+    html += row('Status', operational.label);
+    html += row('Position', `(${equip.col}, ${equip.row})`);
+    if (comp.cost) {
+      const cost = typeof comp.cost === 'object' ? comp.cost.funding || 0 : comp.cost;
+      html += row('Cost', `$${cost.toLocaleString()}`);
+    }
+    for (const r of utilityStatRows(comp)) html += row(r.label, r.value);
+    html += '</div>';
+    html += componentUtilityPortSectionHtml(equip.type, operational.groups);
+
+    const autoConnectRadius = Number(comp.autoConnectRadius);
+    const input = this.renderer?._inputHandler;
+    const autoConnectPlan = autoConnectRadius > 0
+      ? input?._panelAutoConnectPlan?.(equip.id) || null
+      : null;
+    if (autoConnectRadius > 0) {
+      const action = equipmentAutoConnectAction(
+        autoConnectPlan,
+        comp.autoConnectUtility || 'powerCable',
+      );
+      html += `<button type="button" class="popup-inline-action" data-popup-auto-connect`
+        + `${action.disabled ? ' disabled' : ''} title="${escapeHtml(action.title)}">`
+        + `${escapeHtml(action.label)}</button>`;
+    }
+    html += singleItemPopupActionsHtml(equip);
     body.innerHTML = html;
 
-    document.getElementById('popup-remove-facility-btn')?.addEventListener('click', () => {
-      this.game.demolishTarget({ kind: 'equipment', id: equip.id });
-      this.hidePopup();
+    body.querySelector('[data-popup-auto-connect]')?.addEventListener('click', () => {
+      input?._autoConnectPanel?.(equip.id);
+      this.showFacilityPopup(equip, comp, screenX, screenY);
     });
+    this._wireSingleItemPopupActions(equip, body);
   }
 
-  popup.style.left = Math.min(screenX + 10, window.innerWidth - 220) + 'px';
-  popup.style.top = Math.min(screenY + 10, window.innerHeight - 200) + 'px';
+  const x = Number.isFinite(screenX) ? screenX : 180;
+  const y = Number.isFinite(screenY) ? screenY : 90;
+  popup.style.left = Math.max(8, Math.min(x + 10, window.innerWidth - 300)) + 'px';
+  popup.style.top = Math.max(8, Math.min(y + 10, window.innerHeight - 360)) + 'px';
   popup.classList.remove('hidden');
+  this._popupPlaceableId = equip.id;
 
   const closeBtn2 = popup.querySelector('.popup-close');
   if (closeBtn2) closeBtn2.onclick = () => this.hidePopup();
@@ -329,6 +395,31 @@ UIHost.prototype.showFacilityPopup = function(equip, comp, screenX, screenY) {
 UIHost.prototype.hidePopup = function() {
   const popup = document.getElementById('component-popup');
   if (popup) popup.classList.add('hidden');
+  this._popupPlaceableId = null;
+};
+
+/** Restore the compact BLT-styled popup for an ordinary single selection. */
+UIHost.prototype.showPlaceablePopup = function(entry, screenX, screenY) {
+  if (!entry) return null;
+  const comp = COMPONENTS[entry.type] || PLACEABLES[entry.type];
+  if (!comp) return null;
+  if (entry.category === 'beamline' || entry.kind === 'beamline') {
+    return this.showPopup(entry, screenX, screenY);
+  }
+  return this.showFacilityPopup(entry, comp, screenX, screenY);
+};
+
+UIHost.prototype._wireSingleItemPopupActions = function(entry, body) {
+  const input = this.renderer?._inputHandler;
+  body.querySelector('[data-popup-action="move"]')?.addEventListener('click', () => {
+    input?._beginSelectedMove?.(entry.id);
+  });
+  body.querySelector('[data-popup-action="copy"]')?.addEventListener('click', () => {
+    input?._beginSelectedCopy?.(entry.id);
+  });
+  body.querySelector('[data-popup-action="delete"]')?.addEventListener('click', () => {
+    input?._deleteSelectedFromKeyboard?.();
+  });
 };
 
 // --- Schematic drawing ---
@@ -4947,6 +5038,7 @@ UIHost.prototype._closeSelectionWindow = function() {
 /** Close only the anchored info window belonging to a placeable being moved. */
 UIHost.prototype._closePlaceableInfoWindow = function(entry) {
   if (!entry) return;
+  if (this._popupPlaceableId === entry.id) this.hidePopup();
   if (entry.category === 'beamline') {
     this._beamlineWindows?.[entry.beamlineId]?.ctx?.close();
     return;
