@@ -44,8 +44,9 @@ import { removeUtilityLineAtScreen } from './utility-line-commands.js';
 import { DeferredUtilityPortDrag } from './deferred-port-drag.js';
 import {
   commitPanelAutoConnect,
+  connectedUtilityLineIds,
   disconnectAutoConnectDevice,
-  disconnectAutoConnectDevices,
+  disconnectUtilityEndpoints,
   planPanelAutoConnect,
   utilityAutoConnectProfile,
 } from './panel-auto-connect.js';
@@ -1227,7 +1228,21 @@ export class InputHandler {
     const operationalStatus = placeableOperationalStatus(this.game.state, entry, {
       health: this.game.getComponentHealth?.(entry?.id),
     });
-    return componentHoverInfo(def, { autoConnectPlan, operationalStatus });
+    const connectedUtilityCount = entry?.id
+      ? connectedUtilityLineIds(this.game.state, entry.id).length
+      : 0;
+    return componentHoverInfo(def, {
+      autoConnectPlan,
+      operationalStatus,
+      connectedUtilityCount,
+    });
+  }
+
+  /** Resolve any utility endpoint represented by the current world hover. */
+  hoveredUtilityEndpointId() {
+    const match = /^(?:placeable|equip):(.+)$/.exec(this._hoverTooltipTarget || '');
+    if (!match) return null;
+    return findUtilityEndpoint(this.game.state, match[1])?.id || null;
   }
 
   /** Resolve an auto-connect utility device from the current world-hover tooltip. */
@@ -1282,14 +1297,15 @@ export class InputHandler {
     return true;
   }
 
-  /** T removes utility runs from selected assisted-wiring devices. */
-  handleDisconnectSelectedUtilitiesKey(event) {
+  /** T disconnects the hovered endpoint, then falls back to assisted selections. */
+  handleDisconnectUtilitiesKey(event) {
     if ((event?.key !== 't' && event?.key !== 'T')
         || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false;
-    const panelIds = this._selectedAutoConnectPanelIds();
-    if (panelIds.length === 0) return false;
+    const hoveredId = this.hoveredUtilityEndpointId();
+    const endpointIds = hoveredId ? [hoveredId] : this._selectedAutoConnectPanelIds();
+    if (endpointIds.length === 0) return false;
     event.preventDefault?.();
-    if (!event.repeat) this._disconnectSelectedAutoConnectPanels(panelIds);
+    if (!event.repeat) this._disconnectUtilityEndpoints(endpointIds);
     return true;
   }
 
@@ -1305,8 +1321,13 @@ export class InputHandler {
     return true;
   }
 
-  _disconnectSelectedAutoConnectPanels(panelIds) {
-    const removed = disconnectAutoConnectDevices(this.game, panelIds);
+  /** Backward-compatible public name retained for integrations. */
+  handleDisconnectSelectedUtilitiesKey(event) {
+    return this.handleDisconnectUtilitiesKey(event);
+  }
+
+  _disconnectUtilityEndpoints(endpointIds) {
+    const removed = disconnectUtilityEndpoints(this.game, endpointIds);
     if (removed.length === 0) this._showToast('No utility connections to remove');
     else {
       this._showToast(
@@ -1316,6 +1337,10 @@ export class InputHandler {
     this.renderer.refreshContextWindows?.();
     this._renderSelectionOutlines();
     return removed;
+  }
+
+  _disconnectSelectedAutoConnectPanels(panelIds) {
+    return this._disconnectUtilityEndpoints(panelIds);
   }
 
   /** Destroy every utility line terminating on this auto-connect device. */
@@ -2534,7 +2559,8 @@ export class InputHandler {
           break;
         }
         case 't': case 'T':
-          // T is reserved for the contextual assisted-wiring disconnect.
+          // T is reserved for the contextual utility disconnect. Hover wins;
+          // assisted-wiring selections remain the keyboard-only fallback.
           // The Beamline Designer is intentionally available only through
           // its explicit UI actions, so an ineligible selection cannot turn
           // the same key into an unrelated full-screen navigation command.

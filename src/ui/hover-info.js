@@ -85,12 +85,13 @@ export function beamlineRfOperatingInfo(nodes, components) {
 /** Summarize a component definition into one title line and one detail line. */
 export function componentHoverInfo(
   comp,
-  { autoConnectPlan = null, operationalStatus = null } = {},
+  { autoConnectPlan = null, operationalStatus = null, connectedUtilityCount = 0 } = {},
 ) {
   if (!comp) return null;
   const ports = Object.values(comp.ports || {});
   const title = comp.name || humanize(comp.id) || 'Object';
-  const detailWithHints = detail => `${detail}${linePlacementHint(comp)}`;
+  const detailWithHints = detail => `${detail}${linePlacementHint(comp)}`
+    + (connectedUtilityCount > 0 ? ' · T disconnects all' : '');
   const info = detail => ({
     title,
     detail: detailWithHints(detail),
@@ -108,7 +109,7 @@ export function componentHoverInfo(
           autoConnectPlan.utilityType || comp.autoConnectUtility || 'powerCable', candidates,
         )} in range`
           + ` · Tab connects ${connectable}`
-          + ' · Select + T disconnects all',
+          + (connectedUtilityCount > 0 ? '' : ' · T disconnects all'),
     );
   }
 

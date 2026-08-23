@@ -11,6 +11,7 @@ import {
   commitPanelAutoConnect,
   connectedUtilityLineIds,
   disconnectAutoConnectDevices,
+  disconnectUtilityEndpoints,
   planPanelAutoConnect,
   utilityAutoConnectProfile,
 } from '../src/input/panel-auto-connect.js';
@@ -245,23 +246,50 @@ console.log('\n--- 6. T removal spans selected devices and utilities in one undo
       && game.state.utilityLines.has('panel_link'),
   'one undo restores every disconnected line');
 
+  const hoverGame = makeGame();
+  hoverGame.state.utilityLines.set('load_power', {
+    id: 'load_power', utilityType: 'powerCable',
+    start: { placeableId: 'panel', portName: 'pwr_out_1' },
+    end: { placeableId: 'near_1', portName: 'pwr_in' },
+    path: [{ col: 10.5, row: 10.5 }, { col: 11.25, row: 10.5 }],
+  });
+  const hoverUndoBefore = hoverGame._undoStack.length;
+  const hoverRemoved = disconnectUtilityEndpoints(hoverGame, ['near_1']);
+  assert(hoverRemoved.join(',') === 'load_power'
+      && hoverGame.state.utilityLines.size === 0,
+  'a sink-only hovered component can cut its incident utility lines');
+  assert(hoverGame._undoStack.length === hoverUndoBefore + 1,
+    'a hovered-component disconnect is one undoable gesture');
+
   let disconnectedIds = null;
   const input = {
     game,
+    _hoverTooltipTarget: 'placeable:near_1',
+    hoveredUtilityEndpointId: InputHandler.prototype.hoveredUtilityEndpointId,
     _selectionTargets: () => [
       { id: 'panel', selectionCategory: 'infra' },
       { id: 'panel_2', selectionCategory: 'infra' },
     ],
     _selectedAutoConnectPanelIds: InputHandler.prototype._selectedAutoConnectPanelIds,
-    _disconnectSelectedAutoConnectPanels: ids => { disconnectedIds = ids; },
+    _disconnectUtilityEndpoints: ids => { disconnectedIds = ids; },
   };
   let prevented = 0;
-  const handled = InputHandler.prototype.handleDisconnectSelectedUtilitiesKey.call(input, {
+  const handled = InputHandler.prototype.handleDisconnectUtilitiesKey.call(input, {
     key: 't', ctrlKey: false, metaKey: false, altKey: false, shiftKey: false,
     repeat: false, preventDefault: () => { prevented++; },
   });
-  assert(handled && prevented === 1 && disconnectedIds?.join(',') === 'panel,panel_2',
-    'T claims the key for all selected auto-connect-capable devices');
+  assert(handled && prevented === 1 && disconnectedIds?.join(',') === 'near_1',
+    'T prioritizes an ordinary hovered utility endpoint over the selection');
+
+  input._hoverTooltipTarget = null;
+  disconnectedIds = null;
+  const selectionHandled = InputHandler.prototype.handleDisconnectUtilitiesKey.call(input, {
+    key: 'T', ctrlKey: false, metaKey: false, altKey: false, shiftKey: false,
+    repeat: false, preventDefault: () => { prevented++; },
+  });
+  assert(selectionHandled && prevented === 2
+      && disconnectedIds?.join(',') === 'panel,panel_2',
+  'without a hover target, T retains the selected assisted-device fallback');
 }
 
 console.log('\n--- 7. The compact HV distributor auto-connects ordinary HV feeders ---');

@@ -104,12 +104,12 @@ export function connectedUtilityLineIds(state, endpointId) {
     .filter(Boolean);
 }
 
-/** Remove all utility runs on auto-connect-capable devices as one undo step. */
-export function disconnectAutoConnectDevices(game, endpointIds) {
+/** Remove every utility run terminating on the given endpoints as one undo step. */
+export function disconnectUtilityEndpoints(game, endpointIds) {
   if (!game) return [];
   const endpoints = [...new Set(endpointIds || [])]
     .map(endpointId => findUtilityEndpoint(game.state, endpointId))
-    .filter(endpoint => endpoint && utilityAutoConnectProfile(COMPONENTS[endpoint.type]));
+    .filter(Boolean);
   if (endpoints.length === 0) return [];
 
   // Snapshot first: removing a run can also dangle lines connected to an
@@ -140,6 +140,15 @@ export function disconnectAutoConnectDevices(game, endpointIds) {
     );
   }
   return removed;
+}
+
+/** Remove all utility runs on auto-connect-capable devices as one undo step. */
+export function disconnectAutoConnectDevices(game, endpointIds) {
+  const assistedIds = [...new Set(endpointIds || [])].filter(endpointId => {
+    const endpoint = findUtilityEndpoint(game?.state, endpointId);
+    return endpoint && utilityAutoConnectProfile(COMPONENTS[endpoint.type]);
+  });
+  return disconnectUtilityEndpoints(game, assistedIds);
 }
 
 /** Retained single-device command for context panels and older integrations. */
