@@ -70,12 +70,16 @@ function customScenarioStorageKey(id) {
   return CUSTOM_SCENARIO_PREFIX + encodeURIComponent(id);
 }
 
-function isMinorLabName(name) {
-  return String(name || '').trim().toLowerCase() === 'minor lab';
+function isMinorLabIdentifier(value) {
+  // Historical Save As flows produced variants such as minorLab2,
+  // "Minor Lab 4", and "Minor Lab Copy". Treat all of them as revisions of
+  // the one canonical starter instead of separate scenarios.
+  const compact = String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  return /^minorlab(?:copy)?\d*$/.test(compact);
 }
 
 function isMinorLabEntry(entry) {
-  return entry?.id === MINOR_LAB_SCENARIO_ID || isMinorLabName(entry?.name);
+  return isMinorLabIdentifier(entry?.id) || isMinorLabIdentifier(entry?.name);
 }
 
 /**
@@ -357,7 +361,7 @@ export function loadCustomScenarioById(id, storage = globalThis.localStorage) {
     consolidateMinorLabScenarios(storage);
     const direct = parseStoredScenario(storage?.getItem(customScenarioStorageKey(id)));
     if (direct) return direct;
-    if (/^minorLab\d*$/.test(String(id))) {
+    if (isMinorLabIdentifier(id)) {
       return parseStoredScenario(storage?.getItem(customScenarioStorageKey(MINOR_LAB_SCENARIO_ID)));
     }
     return null;
@@ -375,7 +379,7 @@ export function saveCustomScenario(payload, {
   if (!storage || !payload?.data) throw new Error('Scenario data is required');
   if (!payload.id) throw new Error('Scenario id is required');
   consolidateMinorLabScenarios(storage);
-  const canonicalMinorLab = payload.id === MINOR_LAB_SCENARIO_ID || isMinorLabName(payload.name);
+  const canonicalMinorLab = isMinorLabIdentifier(payload.id) || isMinorLabIdentifier(payload.name);
   const stored = {
     id: canonicalMinorLab ? MINOR_LAB_SCENARIO_ID : String(payload.id),
     name: canonicalMinorLab ? 'Minor Lab' : (payload.name || 'Custom Scenario'),

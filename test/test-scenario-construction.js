@@ -116,6 +116,7 @@ const seedMinor = (id, data, updatedAt) => {
 };
 seedMinor('minorLab2', minorOldData, 100);
 seedMinor('minorLab4', minorLatestData, 400);
+seedMinor('minorLabCopy', minorLatestData, 350);
 duplicateMinorStorage.setItem(`${CUSTOM_SCENARIO_PREFIX}minorLab`, JSON.stringify({
   id: 'minorLab',
   name: 'Minor Lab',
@@ -127,6 +128,7 @@ duplicateMinorStorage.setItem(`${CUSTOM_SCENARIO_PREFIX}minorLab`, JSON.stringif
 duplicateMinorStorage.setItem(CUSTOM_SCENARIO_INDEX_KEY, JSON.stringify([
   { id: 'minorLab2', name: 'Minor Lab', sandbox: true, updatedAt: 100 },
   { id: 'minorLab4', name: 'Minor Lab', sandbox: true, updatedAt: 400 },
+  { id: 'minorLabCopy', name: 'Renamed revision', sandbox: true, updatedAt: 350 },
   { id: 'minorLab', name: 'Minor Lab', sandbox: true, updatedAt: 500 },
 ]));
 assert.equal(consolidateMinorLabScenarios(duplicateMinorStorage), null);
@@ -135,6 +137,8 @@ assert.equal(loadCustomScenarioById('minorLab', duplicateMinorStorage), null,
   'an unversioned saved Minor Lab cannot supersede the repository baseline');
 assert.equal(duplicateMinorStorage.getItem(`${CUSTOM_SCENARIO_PREFIX}minorLab2`), null);
 assert.equal(duplicateMinorStorage.getItem(`${CUSTOM_SCENARIO_PREFIX}minorLab4`), null);
+assert.equal(duplicateMinorStorage.getItem(`${CUSTOM_SCENARIO_PREFIX}minorLabCopy`), null,
+  'a renamed historical copy is still recognized by its Minor Lab id');
 assert.equal(duplicateMinorStorage.getItem(`${CUSTOM_SCENARIO_PREFIX}minorLab`), null,
   'the former canonical override is retired after its save is baked in');
 assert.deepEqual(listPlayableScenarios(duplicateMinorStorage).map(scenario => scenario.id),

@@ -87,7 +87,7 @@ import { nextLandParcel } from '../data/land.js';
 import {
   serializeCornerHeights, deserializeCornerHeights, getTileCorners, setTileCorners,
 } from './terrain.js';
-import { SaveSlots, setActiveSave } from './SaveSlots.js';
+import { setActiveSave } from './SaveSlots.js';
 import { getStorage, isQuotaError } from './storageQuota.js';
 import { scheduleBrowserIdle } from './idle-work.js';
 import { tickDataSystems } from './data-systems.js';
@@ -6403,21 +6403,12 @@ export class Game {
     let payload;
     try { payload = this.serialize(); } catch (_) { return; }
 
-    // A full quota evicts the oldest recovery autosaves and retries: the game
-    // in progress outranks its own history. Named slots and authored
-    // scenarios are never touched.
+    // The active autosave always overwrites this same key. Legacy recovery
+    // copies may be removed if they are the only thing blocking the write;
+    // named slots and authored scenarios are never touched.
     const write = setActiveSave(payload);
     if (!write.ok) { this._reportSaveFailure(write.error); return; }
     this._saveFailureReported = false;
-
-    try {
-      SaveSlots.autosave(payload, {
-        funding: Math.floor(this.state.resources?.funding ?? 0),
-        staff: (this.state.staffMembers || []).length,
-        components: (this.state.placeables || []).filter(p => p.category !== 'decoration').length,
-        tick: this.state.tick || 0,
-      });
-    } catch (_) {}
   }
 
   // Autosave fires every few seconds; a persistent storage failure must be

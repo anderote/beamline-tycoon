@@ -17,7 +17,7 @@ import {
   SCENARIO_AUTOSAVE_INTERVAL,
 } from '../src/ui/ScenarioEditor.js';
 import { deserializeCornerHeights } from '../src/game/terrain.js';
-import { SaveSlots, AUTOSAVE_PREFIX } from '../src/game/SaveSlots.js';
+import { AUTOSAVE_PREFIX, INDEX_KEY } from '../src/game/SaveSlots.js';
 
 // ---------------------------------------------------------------- doubles --
 
@@ -208,8 +208,8 @@ assert.ok(SCENARIO_AUTOSAVE_INTERVAL > 0 && SCENARIO_AUTOSAVE_INTERVAL <= 5 * 60
 // ------------------------------------------- the draft respects the quota ---
 
 {
-  // A full origin makes room by dropping the oldest *game* autosave; the
-  // author's published scenarios and the previous draft are untouchable.
+  // Upgraded browsers can still reclaim retired game recovery copies; the
+  // author's published scenarios and previous draft are untouchable.
   const storage = memoryStorage({ limit: 30_000 });
   globalThis.localStorage = storage;
   try {
@@ -218,21 +218,19 @@ assert.ok(SCENARIO_AUTOSAVE_INTERVAL > 0 && SCENARIO_AUTOSAVE_INTERVAL <= 5 * 60
     editor.saveAs({ id: 'publishedLab', name: 'Published Lab' });
     const publishedBefore = storage.getItem(`${CUSTOM_SCENARIO_PREFIX}publishedLab`);
 
-    const realNow = Date.now;
-    let now = 8_000_000;
-    Date.now = () => now;
-    try {
-      for (let i = 0; i < 3; i++) {
-        now += 300_001;
-        SaveSlots.autosave('g'.repeat(2000), { tick: i });
-      }
-    } finally { Date.now = realNow; }
+    const legacyIndex = [];
+    for (let i = 0; i < 3; i++) {
+      const id = `legacy_${i}`;
+      storage.setItem(AUTOSAVE_PREFIX + id, 'g'.repeat(2000));
+      legacyIndex.push({ id, name: 'Minor Lab', kind: 'autosave', savedAt: i + 1 });
+    }
+    storage.setItem(INDEX_KEY, JSON.stringify(legacyIndex));
     const autosavesBefore = storage.keys().filter(k => k.startsWith(AUTOSAVE_PREFIX)).length;
     assert.ok(autosavesBefore >= 2);
 
     buildWorld(game.state, 200);
-    // Leave room for the draft plus exactly one game snapshot, so writing it
-    // must give up the two oldest snapshots and nothing else.
+    // Leave room for the draft plus one legacy snapshot, so writing it must
+    // give up older retired copies and nothing else.
     const snapshotUnits = JSON.stringify(editor.collectScenarioData()).length;
     const protectedUnits = storage.keys()
       .filter(k => !k.startsWith(AUTOSAVE_PREFIX))
@@ -241,7 +239,7 @@ assert.ok(SCENARIO_AUTOSAVE_INTERVAL > 0 && SCENARIO_AUTOSAVE_INTERVAL <= 5 * 60
     const draft = editor.autosaveDraft();
     assert.ok(draft, 'the draft write recovers from a full origin instead of giving up');
     assert.ok(storage.keys().filter(k => k.startsWith(AUTOSAVE_PREFIX)).length < autosavesBefore,
-      'expendable game snapshots are what pays for the draft');
+      'retired game snapshots are what pays for the draft');
     assert.equal(storage.getItem(`${CUSTOM_SCENARIO_PREFIX}publishedLab`), publishedBefore,
       'a published scenario is never sacrificed for a draft');
   } finally {

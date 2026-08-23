@@ -108,7 +108,7 @@ export class SaveLoadDialog {
   }
 
   _defaultName() {
-    return `Save ${SaveSlots.list().filter(s => s.kind !== 'autosave').length + 1}`;
+    return `Save ${SaveSlots.list().length + 1}`;
   }
 
   _metaLine(slot) {
@@ -124,8 +124,7 @@ export class SaveLoadDialog {
     const save = this.mode === 'save';
     this.el.querySelector('.sl-title').textContent = save ? 'Save Game' : 'Load Game';
 
-    const allSlots = SaveSlots.list();
-    const slots = save ? allSlots.filter(s => s.kind !== 'autosave') : allSlots;
+    const slots = SaveSlots.list();
     let rows = '';
 
     if (save) {
@@ -144,11 +143,10 @@ export class SaveLoadDialog {
         </div>`;
     } else {
       for (const slot of slots) {
-        const recovery = slot.kind === 'autosave';
         rows += `
           <div class="sl-row" data-id="${esc(slot.id)}">
             <div class="sl-row-main">
-              <div class="sl-row-name">${recovery ? '<span class="sl-slotnum">RECOVERY</span>' : ''}${esc(slot.name)}</div>
+              <div class="sl-row-name">${esc(slot.name)}</div>
               <div class="sl-row-sub">${fmtDate(slot.savedAt)}${this._metaLine(slot) ? ' &nbsp;·&nbsp; ' + this._metaLine(slot) : ''}</div>
             </div>
             <button class="sl-row-del" data-del="${esc(slot.id)}" title="Delete save">✕</button>
@@ -167,7 +165,7 @@ export class SaveLoadDialog {
           <input class="sl-name-input" type="text" maxlength="40" value="${esc(this._defaultName())}">
         </div>
         <div class="sl-label">${slots.length ? 'Slots — click one to overwrite' : 'Slots'}</div>` : `
-        <div class="sl-label">Saved games and recovery autosaves — click one to load it</div>`}
+        <div class="sl-label">Saved games — click one to load it</div>`}
       <div class="sl-list">${rows}</div>
     `;
 
@@ -182,7 +180,7 @@ export class SaveLoadDialog {
     const payload = this.game.serialize();
     const id = SaveSlots.saveTo(slotId, name, payload, this._buildMeta());
     if (!id) {
-      // Storage is full even after evicting recovery autosaves. Never leave
+      // Storage is full even after removing legacy recovery data. Never leave
       // the player with nothing: hand them the save as a file.
       const downloaded = downloadTextFile(`${saveFileName(name)}.beamline-save.json`, payload);
       this.game.log(downloaded
@@ -294,9 +292,9 @@ export class SaveLoadDialog {
       if (!rec || typeof rec.payload !== 'string' || !rec.payload) {
         throw new Error('empty payload');
       }
-      // Mirror the local flow: write into the active key and reload. A full
-      // origin evicts recovery autosaves first — the save the player asked to
-      // load outranks this session's own history.
+      // Mirror the local flow: write into the active key and reload. Any
+      // retired local recovery data is removed before installing the cloud
+      // save the player explicitly requested.
       const write = setActiveSave(rec.payload);
       if (!write.ok) {
         // The payload is already in hand; never drop it on the floor.
@@ -395,20 +393,6 @@ export class SaveLoadDialog {
       }
     }
 
-    if (!save) {
-      const recovery = SaveSlots.list().filter(s => s.kind === 'autosave');
-      for (const entry of recovery) {
-        const metaLine = this._metaLine(entry);
-        rows += `
-          <div class="sl-row${busy ? ' sl-row-disabled' : ''}" data-recovery="${esc(entry.id)}">
-            <div class="sl-row-main">
-              <div class="sl-row-name"><span class="sl-slotnum">RECOVERY</span>${esc(entry.name)}</div>
-              <div class="sl-row-sub">${fmtDate(entry.savedAt)}${metaLine ? ' &nbsp;·&nbsp; ' + metaLine : ''}</div>
-            </div>
-          </div>`;
-      }
-    }
-
     // Preserve any name the player already typed across re-renders.
     const prevInput = this.el.querySelector('.sl-name-input');
     const nameValue = prevInput ? prevInput.value : this._cloudDefaultName();
@@ -441,12 +425,6 @@ export class SaveLoadDialog {
       if (act === 'cloud-signin') { this._gotoSignin(); return; }
     }
     if (c.phase !== 'ready' || c.busy) return;
-
-    const recovery = e.target.closest('.sl-row[data-recovery]');
-    if (recovery && this.mode === 'load') {
-      this._doLoad(recovery.dataset.recovery);
-      return;
-    }
 
     const delBtn = e.target.closest('.sl-row-del[data-cdel]');
     if (delBtn) {

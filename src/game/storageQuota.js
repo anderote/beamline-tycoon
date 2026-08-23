@@ -1,8 +1,8 @@
 // src/game/storageQuota.js — quota-aware localStorage helpers (pure logic, no UI).
 //
 // Every persistence path in the game funnels through here so that a full
-// origin quota degrades into "evict recovery autosaves and retry", and — when
-// even that is not enough — into a file the player can keep, instead of an
+// origin quota may reclaim retired recovery-copy data and retry, and — when
+// that is not enough — offer a file the player can keep, instead of an
 // alert() that leaves hours of work trapped in a page that cannot persist.
 //
 // Storage may also be entirely unavailable (privacy mode, disabled cookies,
