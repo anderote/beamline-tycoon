@@ -89,7 +89,6 @@ const _cryostatJacketMatCache = new Map();
 const _cryostatBandMatCache = new Map();
 const _hardwareMatCache = new Map();
 let _utilitySupportMaterial = null;
-let _vacuumGasketMaterial = null;
 let _universalBusMaterial = null;
 const _universalBusPreviewMaterials = new Map();
 
@@ -296,16 +295,6 @@ function getUtilitySupportMaterial() {
     metalness: 0.5,
   }));
   return _utilitySupportMaterial;
-}
-
-function getVacuumGasketMaterial() {
-  if (_vacuumGasketMaterial) return _vacuumGasketMaterial;
-  _vacuumGasketMaterial = shared(new THREE.MeshStandardMaterial({
-    color: 0xb87333,
-    roughness: 0.24,
-    metalness: 0.88,
-  }));
-  return _vacuumGasketMaterial;
 }
 
 // Convert a tile-coord waypoint to 3D world (x,z). 1 tile = 2 world meters,
@@ -1194,64 +1183,6 @@ function buildServiceFitting(point, direction, descriptor, material, errorStatus
     rim.updateMatrix();
     rim.userData.utilityFlangePart = 'stainlessRim';
     group.add(rim);
-    const gasket = new THREE.Mesh(
-      new THREE.TorusGeometry(radius * 1.18, Math.max(0.006, radius * 0.095), 6, 16),
-      getVacuumGasketMaterial());
-    gasket.position.set(
-      point.x + axis.x * depth * 0.53,
-      point.y + axis.y * depth * 0.53,
-      point.z + axis.z * depth * 0.53,
-    );
-    gasket.quaternion.copy(flangeRotation);
-    gasket.matrixAutoUpdate = false;
-    gasket.updateMatrix();
-    gasket.userData = { utilityFlangePart: 'copperGasket', isVacuumCopperGasket: true };
-    group.add(gasket);
-
-    const reference = Math.abs(axis.y) < 0.9
-      ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
-    const rawU = {
-      x: axis.y * reference.z - axis.z * reference.y,
-      y: axis.z * reference.x - axis.x * reference.z,
-      z: axis.x * reference.y - axis.y * reference.x,
-    };
-    const uLength = Math.hypot(rawU.x, rawU.y, rawU.z) || 1;
-    const u = { x: rawU.x / uLength, y: rawU.y / uLength, z: rawU.z / uLength };
-    const rawV = {
-      x: axis.y * u.z - axis.z * u.y,
-      y: axis.z * u.x - axis.x * u.z,
-      z: axis.x * u.y - axis.y * u.x,
-    };
-    const vLength = Math.hypot(rawV.x, rawV.y, rawV.z) || 1;
-    const v = { x: rawV.x / vLength, y: rawV.y / vLength, z: rawV.z / vLength };
-    const boltCircle = radius * 1.28;
-    for (let index = 0; index < 8; index++) {
-      const angle = index * Math.PI / 4;
-      const cosOffset = Math.cos(angle) * boltCircle;
-      const sinOffset = Math.sin(angle) * boltCircle;
-      const boltCenter = new THREE.Vector3(
-        point.x + u.x * cosOffset + v.x * sinOffset,
-        point.y + u.y * cosOffset + v.y * sinOffset,
-        point.z + u.z * cosOffset + v.z * sinOffset,
-      );
-      const bolt = buildCylinderSegment(
-        new THREE.Vector3(
-          boltCenter.x - axis.x * depth * 0.72,
-          boltCenter.y - axis.y * depth * 0.72,
-          boltCenter.z - axis.z * depth * 0.72,
-        ),
-        new THREE.Vector3(
-          boltCenter.x + axis.x * depth * 0.72,
-          boltCenter.y + axis.y * depth * 0.72,
-          boltCenter.z + axis.z * depth * 0.72,
-        ),
-        Math.max(0.006, radius * 0.105), material,
-      );
-      if (bolt) {
-        bolt.userData.utilityFlangePart = 'bolt';
-        group.add(bolt);
-      }
-    }
     mesh = group;
   } else if (THREE.TorusGeometry) {
     const geo = new THREE.TorusGeometry(radius * 1.38, radius * 0.22, 6, 14);

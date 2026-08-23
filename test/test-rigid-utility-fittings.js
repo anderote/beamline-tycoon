@@ -36,7 +36,7 @@ function collect(root, predicate) {
   return out;
 }
 
-console.log('\n--- 1. Vacuum uses swept elbows and CF-style flange rings ---');
+console.log('\n--- 1. Vacuum uses swept elbows and simple stainless flange rings ---');
 {
   const parent = build([{
     id: 'vac', utilityType: 'vacuumPipe', start: null, end: null,
@@ -46,12 +46,16 @@ console.log('\n--- 1. Vacuum uses swept elbows and CF-style flange rings ---');
   const fittings = collect(parent, object => object.userData?.fittingStyle === 'vacuumFlange');
   const copperGaskets = collect(parent, object => object.userData?.isVacuumCopperGasket);
   const bolts = collect(parent, object => object.userData?.utilityFlangePart === 'bolt');
+  const plates = collect(parent, object => object.userData?.utilityFlangePart === 'plate');
+  const rims = collect(parent, object => object.userData?.utilityFlangePart === 'stainlessRim');
   assert(elbows.length === 1 && elbows[0].geometry instanceof THREE_NS.TubeGeometry,
     `one continuous round sweep replaces the corner ball (got ${elbows.length})`);
   assert(fittings.length >= 2 && fittings.every(fitting => fitting instanceof THREE_NS.Group),
-    `${fittings.length} complete CF flange assemblies bracket the elbow and long run`);
-  assert(copperGaskets.length === fittings.length && bolts.length === fittings.length * 8,
-    `${copperGaskets.length} copper gaskets and ${bolts.length} bolts make every CF joint explicit`);
+    `${fittings.length} simple flange assemblies bracket the elbow and long run`);
+  assert(plates.length === fittings.length && rims.length === fittings.length,
+    'every vacuum joint keeps one stainless plate and rim');
+  assert(copperGaskets.length === 0 && bolts.length === 0,
+    'vacuum joints add no copper gasket or bolt meshes');
 }
 
 console.log('\n--- 2. RF uses compact mitered elbows and guide collars ---');
@@ -141,10 +145,11 @@ console.log('\n--- 4. A tapped branch renders as a tee, not a dangling cap ---')
   const caps = collect(branch, object => object.userData?.isUtilityOpenCap);
   const teeFlanges = tees.flatMap(tee => collect(tee,
     object => object.userData?.fittingStyle === 'vacuumFlange'));
-  const teeGaskets = tees.flatMap(tee => collect(tee,
-    object => object.userData?.isVacuumCopperGasket));
-  assert(tees.length === 1 && teeFlanges.length === 3 && teeGaskets.length === 3,
-    'the joined endpoint becomes one three-arm CF tee with a copper gasket on every arm');
+  const teeDecorations = tees.flatMap(tee => collect(tee,
+    object => object.userData?.isVacuumCopperGasket
+      || object.userData?.utilityFlangePart === 'bolt'));
+  assert(tees.length === 1 && teeFlanges.length === 3 && teeDecorations.length === 0,
+    'the joined endpoint becomes one simple three-arm stainless tee');
   assert(caps.length === 1, 'only the genuinely open far end receives an open cap');
 }
 
@@ -169,12 +174,13 @@ console.log('\n--- 4b. Opposed branches fabricate one four-way vacuum cross ---'
   const crosses = collect(parent, object => object.userData?.isUtilityCrossFitting);
   const crossFlanges = crosses.flatMap(cross => collect(cross,
     object => object.userData?.fittingStyle === 'vacuumFlange'));
-  const crossGaskets = crosses.flatMap(cross => collect(cross,
-    object => object.userData?.isVacuumCopperGasket));
+  const crossDecorations = crosses.flatMap(cross => collect(cross,
+    object => object.userData?.isVacuumCopperGasket
+      || object.userData?.utilityFlangePart === 'bolt'));
   assert(crosses.length === 1 && crossFlanges.length === 4,
     `opposed branches share one four-arm cross (${crosses.length} cross, ${crossFlanges.length} flanges)`);
-  assert(crossGaskets.length === 4,
-    'the vacuum cross exposes one copper gasket at each demountable arm');
+  assert(crossDecorations.length === 0,
+    'the vacuum cross adds no copper gaskets or bolt meshes');
 }
 
 console.log('\n--- 4c. Compact vacuum transitions stay smooth and geometry-light ---');
