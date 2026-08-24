@@ -32,7 +32,7 @@
 // until Task 5 rebuilds fixture geometry — floodLight renders as nothing
 // until then, which is expected.
 //
-// energyCost is in kW, calibrated against a powerPanel's 40 kW capacity:
+// energyCost is in kW, calibrated to stay small beside a panel's 30 kW branch:
 // sconces and ceiling panels are near-free (tens of watts), lampposts and
 // bollards are small (hundreds of watts), and high masts/floods/high bays
 // carry the real cost (roughly half a kW to 1.5 kW) — see task-3-report.md

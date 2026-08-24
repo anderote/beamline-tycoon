@@ -52,8 +52,7 @@ export function setupMinorLab(game) {
     { id: 'in_1518', role: 'source', side: 'right', index: 7 }, hotWater);
 
   // A free 50 kW section-panel circuit is the intended supply tier for the
-  // 45 kW high-capacity station; the retired compact-panel branch supplied
-  // only 40 kW in total.
+  // 45 kW high-capacity station; a compact-panel branch supplies only 30 kW.
   const oldStationBranch = [...game.state.utilityLines.values()].find(line =>
     line.utilityType === 'powerCable'
       && [line.start, line.end].some(ref => ref?.placeableId === 'in_274'));

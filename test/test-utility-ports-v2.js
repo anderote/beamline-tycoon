@@ -404,10 +404,13 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
   const panelOutputs = Object.entries(panel)
     .filter(([name]) => name.startsWith('pwr_out'))
     .map(([, spec]) => spec);
-  assert(panelOutputs.length === 4
+  assert(panel.hv_in.params.demand === 120
+      && panelOutputs.length === 4
+      && panelOutputs.every(spec => spec.params.capacity === 30)
       && panelOutputs.every(spec => spec.side === 'front')
-      && new Set(panelOutputs.map(spec => spec.offsetAlong)).size === 4,
-    'power panel exposes four evenly spaced front-face branch sockets');
+      && new Set(panelOutputs.map(spec => spec.offsetAlong)).size === 4
+      && INFRASTRUCTURE_RAW.powerPanel.electricalControl?.breaker?.rating === 120,
+    'power panel exposes four evenly spaced 30 kW branches with a 120 kW feeder and breaker');
   assert(panel.hv_in.side === 'back', 'power panel HV feeder keeps its logical rear route point');
   const bus = getUtilityPortsV2('powerBus');
   const spider = getUtilityPortsV2('spiderBox');
@@ -653,7 +656,7 @@ console.log('\n--- Test 10: infrastructure capacity ladders ---');
 // Test: infrastructure sinks exist for every declared requiredConnection.
 //
 // Regression: the infra table held only SOURCE ports, so no infrastructure
-// component contributed demand to any network — a 40 kW panel could "feed" a
+// component contributed demand to any network — a panel could "feed" a
 // 2000 kW gyrotron plus every pump with utilization pinned at 0%.
 // ==========================================================================
 console.log('\n--- Test: infrastructure requiredConnections have sink ports ---');

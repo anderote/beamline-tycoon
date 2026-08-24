@@ -35,7 +35,7 @@ transformer → HV feeder → distribution panel → branch circuit → field di
 ```
 
 - **Compact HV Distributor**: a two-wire roof tap draws up to 600 kW from a continuing HV trunk and feeds two protected 300 kW outputs; 1×1-subtile footprint.
-- **Compact Distribution Panel**: 40 kW, four 10 kW green branch outlets; its cabinet is the same compact size as the Compact HV Distributor.
+- **Compact Distribution Panel**: 120 kW, four 30 kW green branch outlets; its cabinet is the same compact size as the Compact HV Distributor.
 - **Section Distribution Panel**: 600 kW total, six 50 kW green branch outlets plus one protected 300 kW HV outlet.
 - **Main Distribution Panel**: 1,200 kW total, twelve 50 kW green branch outlets plus two protected 300 kW HV outlets.
 - **Beamline Busway**: 160 kW field limit, one branch feed, eight plug-in taps.

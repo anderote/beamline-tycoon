@@ -154,8 +154,8 @@ const BEAMLINE_UTILITY_PORTS = {
 
   // The cheapest working accelerator in the game, and the only one with a
   // single utility. A belt in an SF6 tank has nothing to cool: 6 kW of beam
-  // and ~24 kW of column and vacuum losses go to the room. One power panel
-  // (40 kW) covers it exactly, which is the intended tick-1 shopping list.
+  // and ~24 kW of column and vacuum losses go to the room. One 30 kW panel
+  // branch covers it exactly, which is the intended tick-1 shopping list.
   vanDeGraaff: {
     pwr_in:  { utility: 'powerCable',   side: 'left',  offsetAlong: 0.3, role: 'sink', params: { demand: 30 } },
   },
@@ -1612,8 +1612,8 @@ const INFRA_UTILITY_PORTS = {
   compactHvDistributor:     hvDistributionPorts(600, 2),
   // Logical sides keep coarse routing endpoints independently approachable;
   // presentation anchors land the cable tails on visible front terminals.
-  powerPanel: distributionPorts(40, 4, {
-    outletSide: 'front', branchCapacity: 10, trunkTap: true,
+  powerPanel: distributionPorts(120, 4, {
+    outletSide: 'front', branchCapacity: 30, trunkTap: true,
   }),
   sectionDistributionPanel: distributionPorts(600, 6, {
     outletSide: 'front', branchCapacity: 50, hvCount: 1, trunkTap: true,
@@ -1815,7 +1815,7 @@ const INFRA_UTILITY_PORTS = {
 //
 // Infrastructure units declare what they need in `requiredConnections`, but
 // the table above only ever gave them SOURCE ports — so no infrastructure
-// component contributed any demand to any network: a 40 kW panel could "feed"
+// component contributed any demand to any network: a panel could "feed"
 // a 2000 kW gyrotron plus every pump at 0% utilization, while overlays.js
 // still drew a power hookup off requiredConnections that had no port to land
 // on. validate.js now enforces the sink-port rule for infrastructure too.

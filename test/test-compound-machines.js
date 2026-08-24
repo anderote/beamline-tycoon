@@ -325,10 +325,10 @@ console.log('\n--- the tier-1 pair are cheap to run, the big ones are not ---');
   const electrical = id => Object.values(getUtilityPortsV2(id))
     .find(p => ['powerCable', 'hvCable'].includes(p.utility) && p.role === 'sink');
   const demand = id => electrical(id)?.params.demand ?? 0;
-  // One powerPanel is 40 kW. The Van de Graaff has to fit behind one, or the
-  // "plop it on tick 1" promise is false.
-  assert(demand('vanDeGraaff') <= 40,
-    `vanDeGraaff draws ${demand('vanDeGraaff')} kW — inside one powerPanel's 40 kW`);
+  // One powerPanel branch is 30 kW. The Van de Graaff has to fit behind one,
+  // or the "plop it on tick 1" promise is false.
+  assert(demand('vanDeGraaff') <= 30,
+    `vanDeGraaff draws ${demand('vanDeGraaff')} kW — inside one powerPanel's 30 kW branch`);
   assert(demand('cyclotron30') > 50 && electrical('cyclotron30')?.utility === 'hvCable',
     `cyclotron30 draws ${demand('cyclotron30')} kW from HV`);
   assert(demand('cyclotron70') > 250,

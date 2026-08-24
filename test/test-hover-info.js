@@ -49,7 +49,7 @@ assert(!wallSconce.detail.includes('Shift+drag: line place'),
   'wall-mounted decoration hover omits unsupported line placement');
 
 const panel = componentHoverInfo(COMPONENTS.powerPanel);
-assert(panel.detail === 'Power: 40 kW consumed · 40 kW produced',
+assert(panel.detail === 'Power: 120 kW consumed · 120 kW produced',
   `power distributor hover compares consumed and produced power (${panel.detail})`);
 
 const actionablePanel = componentHoverInfo(COMPONENTS.powerPanel, {
