@@ -2,13 +2,17 @@
 //
 // Power, HV, cooling and data runs retain a quarter-tile compatibility `path`
 // for endpoint routing and selected topology rules, plus the unsnapped
-// `cablePath` the player actually drew. Rendering, pricing, wall clearance and
-// solid-equipment collision follow that visible physical trace.
+// `cablePath` the player actually drew. Rendering, pricing and wall clearance
+// follow that visible physical trace. Cooling hose also uses it for equipment
+// collision; loose electrical/data cable deliberately ignores model geometry.
 
 export const SOFT_CABLE_TYPES = Object.freeze([
   'powerCable', 'hvCable', 'coolingWater', 'dataFiber',
 ]);
 export const FREEFORM_TOPOLOGY_TYPES = Object.freeze(['coolingWater']);
+export const GEOMETRY_PERMISSIVE_CABLE_TYPES = Object.freeze([
+  'powerCable', 'hvCable', 'dataFiber',
+]);
 export const SOFT_CABLE_MAX_POINTS = 1024;
 // Centreline bend radii in world metres. Branch power cords can tuck around a
 // cabinet, cooling hose needs a broader sweep, and the thick armoured HV
@@ -22,6 +26,7 @@ export const SOFT_CABLE_BEND_RADIUS_METERS = Object.freeze({
 
 const SOFT_SET = new Set(SOFT_CABLE_TYPES);
 const FREEFORM_TOPOLOGY_SET = new Set(FREEFORM_TOPOLOGY_TYPES);
+const GEOMETRY_PERMISSIVE_SET = new Set(GEOMETRY_PERMISSIVE_CABLE_TYPES);
 const EPS = 1e-6;
 
 export function isSoftCable(utilityType) {
@@ -36,6 +41,11 @@ export function usesFreeformTopology(utilityType) {
 /** Loose electrical/data cords may cross; plumbed hoses retain overlap/tap rules. */
 export function softCableSkipsOverlap(utilityType) {
   return isSoftCable(utilityType) && !usesFreeformTopology(utilityType);
+}
+
+/** Loose electrical/data cable may be laid through or around model geometry. */
+export function cableSkipsEquipmentCollision(utilityType) {
+  return GEOMETRY_PERMISSIVE_SET.has(utilityType);
 }
 
 export function softCableBendRadiusMeters(utilityType) {

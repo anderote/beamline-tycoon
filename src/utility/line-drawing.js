@@ -4,8 +4,9 @@
 // shape of src/beamline/pipe-drawing.js but with these differences:
 //   - Compatibility paths contain 90° Manhattan bends (no diagonals).
 //   - Soft cords and hoses may also carry their unsnapped physical cablePath.
-//   - Equipment blocks only when measured 3D model geometry intersects the
-//     utility body at its actual route height.
+//   - Fabricated services and cooling hose block only when measured 3D model
+//     geometry intersects the utility body at its actual route height.
+//   - Loose power, HV and data cable ignores equipment-model geometry.
 //   - Endpoints reference placeables via `placeableId` (not `junctionId`).
 //   - Port normals guide route ranking but never make an otherwise valid path illegal.
 //
@@ -708,16 +709,18 @@ export function validateDrawLine(state, {
     }
   }
 
-  // Every service uses the same measured 3D collision check. A footprint is
-  // only the broad phase: empty space beneath/inside a compound beamline model
-  // remains routable, while a real mesh intersection asks the player/router to
-  // use the neighboring subtile. Endpoint models are exempt because their
-  // perimeter transition owns the final wrap into the fitting.
+  // Collision-participating services use the same measured 3D check. A
+  // footprint is only the broad phase: empty space beneath/inside a compound
+  // beamline model remains routable, while a real mesh intersection asks the
+  // player/router to use the neighboring subtile. Loose power/HV/data cable is
+  // intentionally exempt in route-obstacles. Endpoint models are also exempt
+  // because their perimeter transition owns the final wrap into the fitting.
   if (usesFlexibleSubtileRouting(descriptor)) {
-    // For soft utilities the freehand trace is the body the player sees and
-    // therefore the body that must clear solid equipment. The compatibility
-    // Manhattan path remains useful for endpoints and non-freeform topology,
-    // but it must neither block a visible detour nor hide a visible collision.
+    // For soft utilities the freehand trace is the body the player sees. When
+    // that service participates in equipment collision, this is therefore the
+    // body that must clear solid models. The compatibility Manhattan path
+    // remains useful for endpoints and non-freeform topology, but it must
+    // neither block a visible detour nor hide a visible collision.
     const expanded = freeform.length >= 2
       ? samplePhysicalPath(physicalPath)
       : expandPath(path);
