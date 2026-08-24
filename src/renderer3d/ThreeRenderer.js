@@ -453,11 +453,13 @@ export class ThreeRenderer {
     this.labelLevel = 0;
     this.zoneOverlayVisible = true;
     this.showZoneLabels = true;
-    // Simplified world objects are opt-in. The authored presentation remains
-    // stable while zooming unless the player explicitly enables LOD Objects
-    // in the Layers panel; this avoids a facility-wide visibility swap on an
-    // ordinary camera-wheel frame.
-    this._lodObjectsEnabled = false;
+    // Adaptive world detail is the default. init() runs _updateLOD before it
+    // resolves, so a zoomed-out saved facility builds its cached detailed and
+    // far presentations with the far batches already selected for the first
+    // real frame. This avoids compiling/submitting the entire authored scene
+    // behind the title screen. Players can still disable LOD Objects from the
+    // Layers panel when inspecting presentation differences.
+    this._lodObjectsEnabled = true;
     // Zone name paint (see zone-label.js). The style is swappable at runtime
     // so the variants can be compared in the real scene; the meshes list and
     // the camera-right signature drive the once-per-orbit direction flip.
@@ -2047,7 +2049,7 @@ export class ThreeRenderer {
     return state;
   }
 
-  /** Opt-in adaptive object simplification controlled by the Layers panel. */
+  /** Adaptive object simplification controlled by the Layers panel. */
   setLodObjectsEnabled(enabled) {
     const next = enabled === true;
     if (next === this._lodObjectsEnabled) return next;
@@ -5096,7 +5098,7 @@ export class ThreeRenderer {
     );
   }
 
-  /** Apply opt-in adaptive world and utility detail. */
+  /** Apply adaptive world and utility detail. */
   _updateLOD() {
     const showDetail = this._currentWorldDetail();
     if (showDetail !== this._lastLodDetail) {
