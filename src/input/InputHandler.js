@@ -8,7 +8,10 @@ import { MODES } from '../data/modes.js';
 import { DIR, DIR_DELTA } from '../data/directions.js';
 import { isoToGrid, isoToGridFloat, gridToIso, isoToSubGrid } from '../renderer/grid.js';
 import { formatEnergy, UNITS } from '../data/units.js';
-import { openUtilityInspectorForLine } from '../ui/utility-inspector-command.js';
+import {
+  openUtilityInspectorForLine,
+  utilityNetworkForLine,
+} from '../ui/utility-inspector-command.js';
 import { appendRequiredPortRequirements } from '../ui/required-port-preview.js';
 import { EconomyWindow } from '../ui/EconomyWindow.js';
 import { UTILITY_TYPES, utilityLineHeight } from '../utility/registry.js';
@@ -110,6 +113,7 @@ import {
 } from './selection-preferences.js';
 import { OBJECT_PICK_TOLERANCE_PX } from './pick-tolerance.js';
 import { selectedBeamlineFocusModel } from '../renderer3d/selected-beamline-focus.js';
+import { selectedUtilityNetworkFocusModel } from '../renderer3d/selected-utility-network-focus.js';
 
 // === BEAMLINE TYCOON: INPUT HANDLER ===
 
@@ -156,6 +160,7 @@ export class InputHandler {
     this.selectedParamOverrides = null; // param flyout overrides (BeamlineTool)
     this.selectedNodeId = null;
     this.selectedPlaceableId = null;
+    this.selectedUtilityLineId = null;
     // Ordered by selection time. selectedPlaceableId remains the primary /
     // most-recent id for legacy single-selection call sites.
     this.selectedPlaceableIds = new Set();
@@ -906,6 +911,7 @@ export class InputHandler {
   _clearSelection() {
     this.selectedNodeId = null;
     this.selectedPlaceableId = null;
+    this.selectedUtilityLineId = null;
     this.selectedPlaceableIds.clear();
     this._selectedRootsById.clear();
     this._selectionCandidatesByKey?.clear?.();
@@ -936,6 +942,9 @@ export class InputHandler {
     const targets = typeof this._selectionTargets === 'function'
       ? this._selectionTargets()
       : InputHandler.prototype._selectionTargets.call(this);
+    // Placeable/group selection and utility-network selection are mutually
+    // exclusive world intents. A new logical target retires the prior run.
+    if (targets.length > 0) this.selectedUtilityLineId = null;
     if (this.renderer.setSelectionTargets) this.renderer.setSelectionTargets(targets);
     else {
       const roots = targets.map(target => target.rootObj).filter(Boolean);
@@ -951,6 +960,11 @@ export class InputHandler {
         ? selectedBeamlineFocusModel(this.game.state, this.game.registry, beamlineTarget)
         : null,
     );
+    const utilityFocus = this.selectedUtilityLineId
+      ? selectedUtilityNetworkFocusModel(this.game.state, this.selectedUtilityLineId)
+      : null;
+    if (this.selectedUtilityLineId && !utilityFocus) this.selectedUtilityLineId = null;
+    this.renderer.setSelectedUtilityNetworkFocus?.(utilityFocus);
   }
 
   /** Re-resolve transient selection presentation after status/topology changes. */
@@ -1157,6 +1171,7 @@ export class InputHandler {
       this._clearMarquee();
       return false;
     }
+    this.selectedUtilityLineId = null;
     const rect = {
       left: Math.min(marquee.startX, marquee.endX),
       right: Math.max(marquee.startX, marquee.endX),
@@ -3177,6 +3192,7 @@ export class InputHandler {
     this.renderer.hidePopup();
     this.selectedNodeId = null;
     this.selectedPlaceableId = null;
+    this.selectedUtilityLineId = null;
     this.selectedPlaceableIds?.clear?.();
     this._selectedRootsById?.clear?.();
     this._selectionCandidatesByKey?.clear?.();
@@ -4964,8 +4980,15 @@ export class InputHandler {
    * Given a utility line id, find its network and open a UtilityInspector.
    * Returns true if a window was opened (or an existing one focused).
    */
-  openUtilityInspectorForLine(lineId) {
-    return openUtilityInspectorForLine(this.game, lineId);
+  openUtilityInspectorForLine(lineId, createInspector = null) {
+    const resolved = utilityNetworkForLine(this.game?.state, lineId);
+    if (!resolved) return false;
+    this._clearSelection();
+    this.selectedUtilityLineId = lineId;
+    this.renderer.setSelectedUtilityNetworkFocus?.(
+      selectedUtilityNetworkFocusModel(this.game.state, lineId, resolved.network),
+    );
+    return openUtilityInspectorForLine(this.game, lineId, createInspector);
   }
 
   setActiveMode(mode) {

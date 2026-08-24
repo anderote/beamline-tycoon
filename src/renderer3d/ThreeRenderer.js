@@ -332,6 +332,10 @@ export class ThreeRenderer {
     this.lightPoolGroup = null;
     this.lightHaloGroup = null;
     this.previewGroup = null;
+    this.selectionGroup = null;
+    this.utilitySelectionGroup = null;
+    this._selectedBeamlineFocus = null;
+    this._selectedUtilityNetworkFocus = null;
 
     // Design-placement ghost. Deliberately NOT in previewGroup: _clearPreview
     // wipes and disposes that group on every mousemove, and a whole beamline's
@@ -827,6 +831,15 @@ export class ThreeRenderer {
     this.selectionGroup.name = 'selectionOutline';
     this.selectionGroup.renderOrder = 1000;
     this.scene.add(this.selectionGroup);
+
+    // Utility-network selection has its own overlay lifecycle. Rebuilding a
+    // placeable selection must not strand endpoint outlines from a previously
+    // selected utility topology, and topology refreshes can replace them
+    // without disturbing the ordinary white selection outline.
+    this.utilitySelectionGroup = new THREE.Group();
+    this.utilitySelectionGroup.name = 'utilityNetworkSelectionOutline';
+    this.utilitySelectionGroup.renderOrder = 1001;
+    this.scene.add(this.utilitySelectionGroup);
 
     // Design-placement ghost — see the constructor field comment. Added before
     // previewGroup's tile quads in draw order would be wrong (the quads are
@@ -2972,8 +2985,7 @@ export class ThreeRenderer {
   /** Apply the selected beamline's machine/utility spotlight and run state. */
   setSelectedBeamlineFocus(model) {
     this._selectedBeamlineFocus = model || null;
-    this.componentBuilder?.setFocus?.(model?.focusedComponentIds || null);
-    this.utilityLineBuilderV2?.setFocus?.(model?.utilityLineIds || null);
+    this._applySelectedWorldFocus();
     if (!model || !this.selectionGroup) return;
 
     const presentation = beamlineStatusPresentation(model.status);
@@ -3037,6 +3049,48 @@ export class ThreeRenderer {
       sprite.scale.set(3.2, 0.8, 1);
       sprite.renderOrder = 1003;
       this.selectionGroup.add(sprite);
+    }
+  }
+
+  _applySelectedWorldFocus() {
+    const utility = this._selectedUtilityNetworkFocus;
+    const beamline = this._selectedBeamlineFocus;
+    this.componentBuilder?.setFocus?.(
+      utility?.connectedEndpointIds || beamline?.focusedComponentIds || null,
+    );
+    this.utilityLineBuilderV2?.setFocus?.(
+      utility?.utilityLineIds || beamline?.utilityLineIds || null,
+    );
+  }
+
+  _clearUtilitySelectionOutlines() {
+    while (this.utilitySelectionGroup?.children?.length) {
+      const child = this.utilitySelectionGroup.children[0];
+      this.utilitySelectionGroup.remove(child);
+      child.traverse?.(object => {
+        object.geometry?.dispose?.();
+        object.material?.map?.dispose?.();
+        object.material?.dispose?.();
+      });
+    }
+  }
+
+  /** Spotlight every run and endpoint in the selected utility network. */
+  setSelectedUtilityNetworkFocus(model) {
+    this._selectedUtilityNetworkFocus = model || null;
+    this._applySelectedWorldFocus();
+    this._clearUtilitySelectionOutlines();
+    if (!model || !this.utilitySelectionGroup) return;
+
+    const color = new THREE.Color(
+      UTILITY_TYPES[model.utilityType]?.color || '#69a7e8',
+    ).getHex();
+    for (const endpointId of model.connectedEndpointIds || []) {
+      const root = this.componentBuilder?.getGroup?.(endpointId)
+        || this.pipeAttachmentBuilder?.getGroup?.(endpointId)
+        || this.equipmentBuilder?.getGroup?.(endpointId)
+        || this.decorationBuilder?.getGroup?.(endpointId);
+      if (root) this._outlineObject(root, color, this.utilitySelectionGroup, 4);
     }
   }
 
@@ -3187,6 +3241,7 @@ export class ThreeRenderer {
 
   clearSelectionOutline() {
     this.setSelectedBeamlineFocus(null);
+    this.setSelectedUtilityNetworkFocus(null);
     while (this.selectionGroup?.children?.length) {
       const child = this.selectionGroup.children[0];
       this.selectionGroup.remove(child);
@@ -5189,7 +5244,7 @@ export class ThreeRenderer {
     }
     this.lowerStoreyPresentation?.sync(this._snapshot, { overview: this.storeyOverview });
     this._sceneLayerVisibility.apply();
-    if (this._selectedBeamlineFocus
+    if ((this._selectedBeamlineFocus || this._selectedUtilityNetworkFocus)
         && (plan.components || plan.beamPipes || plan.utilityLines)) {
       this._inputHandler?.refreshSelectionPresentation?.();
     }
@@ -6252,6 +6307,7 @@ export class ThreeRenderer {
     }
     window.removeEventListener('resize', this._boundOnResize);
     this._clearDesignGhost();
+    this._clearUtilitySelectionOutlines();
     this.lowerStoreyPresentation?.dispose();
     this.lowerStoreyPresentation = null;
     if (this.utilityLineBuilderV2 && this.utilityLineGroup) {
