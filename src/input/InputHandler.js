@@ -123,13 +123,13 @@ import { selectedUtilityNetworkFocusModel } from '../renderer3d/selected-utility
 const VARIANT_MEMORY_KEY = 'bt_lastVariantByKey';
 const SELECTION_SLOT_STORAGE_KEY = 'beamlineTycoon.selectionSlots.v1';
 const MARQUEE_DRAG_THRESHOLD_PX = 6;
-export const MIDDLE_CAMERA_DRAG_THRESHOLD_PX = 4;
+export const CAMERA_DRAG_THRESHOLD_PX = 4;
 
-/** Ignore normal mouse jitter when deciding whether MMB was a click or orbit. */
-export function isMiddleCameraDrag(start, current) {
+/** Ignore normal mouse jitter when deciding whether a camera press became a drag. */
+export function isCameraDrag(start, current) {
   const dx = current.x - start.x;
   const dy = current.y - start.y;
-  return dx * dx + dy * dy >= MIDDLE_CAMERA_DRAG_THRESHOLD_PX ** 2;
+  return dx * dx + dy * dy >= CAMERA_DRAG_THRESHOLD_PX ** 2;
 }
 
 function _categoryColor(category) {
@@ -180,6 +180,8 @@ export class InputHandler {
     this._selectionSlots = this._loadSelectionSlots();
     this.isPanning = false;
     this.isFreeOrbiting = false;
+    this.freeOrbitButton = null;
+    this.freeOrbitToggleOnClick = false;
     this.freeOrbitStart = { x: 0, y: 0 };
     this.freeOrbitLast = { x: 0, y: 0 };
     this.freeOrbitDragged = false;
@@ -213,9 +215,9 @@ export class InputHandler {
     // modifier flags, and because a modifier can change under a stationary
     // cursor with no mouse event to read it from.
     this._shiftDown = false;
-    // Ctrl (or Cmd) is the mirror of Shift for structure build tools: Shift
-    // EXTENDS the gesture, Ctrl INVERTS it into an erase along exactly the
-    // path the tool would have drawn. See structure-tools.js.
+    // Ctrl is the mirror of Shift for structure build tools: Shift EXTENDS
+    // the gesture, Ctrl INVERTS it into an erase along exactly the path the
+    // tool would have drawn. Command is reserved for camera orbit.
     this._ctrlDown = false;
     // Continuous panning
     this.keysDown = new Set();
@@ -2331,12 +2333,11 @@ export class InputHandler {
         // whole-run) refresh even with a stationary cursor.
         this.activeTool?.onShiftChange?.(true, this._toolCtx);
       }
-      // Cmd is the Mac spelling of Ctrl throughout this handler (undo,
-      // selection slots), so the erase modifier reads both. Tracked before
-      // the shortcut ladder below so a tool that repaints on the change sees
-      // the same state the ladder does.
-      this._ctrlDown = e.ctrlKey || e.metaKey;
-      if (e.key === 'Control' || e.key === 'Meta') {
+      // Structure-tool erase is Ctrl-only because Command + drag owns camera
+      // orbit. Track it before the shortcut ladder so a tool repainting on
+      // the modifier change sees the current state.
+      this._ctrlDown = e.ctrlKey;
+      if (e.key === 'Control') {
         this.activeTool?.onCtrlChange?.(true, this._toolCtx);
       }
       // Escape never routes through here — the esc-stack (ui/esc-stack.js)
@@ -2706,8 +2707,8 @@ export class InputHandler {
         // whole-run preview back to the single-edge highlight.
         this.activeTool?.onShiftChange?.(false, this._toolCtx);
       }
-      this._ctrlDown = e.ctrlKey || e.metaKey;
-      if (e.key === 'Control' || e.key === 'Meta') {
+      this._ctrlDown = e.ctrlKey;
+      if (e.key === 'Control') {
         // Structure tools drop the red erase preview back to their normal
         // placement ghost.
         this.activeTool?.onCtrlChange?.(false, this._toolCtx);
@@ -2719,8 +2720,7 @@ export class InputHandler {
     const clearHeldKeys = () => {
       this.keysDown.clear();
       this._shiftDown = false;
-      // Cmd-tab in particular swallows the Meta keyup, so a stale _ctrlDown
-      // would leave every later click erasing.
+      // A swallowed Control keyup would leave every later click erasing.
       if (this._ctrlDown) {
         this._ctrlDown = false;
         this.activeTool?.onCtrlChange?.(false, this._toolCtx);
@@ -2784,11 +2784,13 @@ export class InputHandler {
       // clicks, pans, and connector grabs all behave alike.
       this.renderer.ui?._dismissConnectionGuide?.();
 
-      // Middle mouse: a click cycles the preferred elevations at the same
-      // heading; movement
-      // beyond the jitter threshold becomes the existing free-orbit drag.
-      if (e.button === 1) {
+      // Middle mouse and Command + left mouse both own the free-orbit gesture.
+      // A plain middle click still cycles the preferred elevations; Command
+      // only modifies dragging, so a Command-click is consumed as a no-op.
+      if (e.button === 1 || (e.button === 0 && e.metaKey)) {
         this.isFreeOrbiting = true;
+        this.freeOrbitButton = e.button;
+        this.freeOrbitToggleOnClick = e.button === 1;
         this.freeOrbitStart = { x: e.clientX, y: e.clientY };
         this.freeOrbitLast = { x: e.clientX, y: e.clientY };
         this.freeOrbitDragged = false;
@@ -2870,7 +2872,7 @@ export class InputHandler {
       if (this.isFreeOrbiting) {
         if (!this.freeOrbitDragged) {
           const current = { x: e.clientX, y: e.clientY };
-          if (!isMiddleCameraDrag(this.freeOrbitStart, current)) return;
+          if (!isCameraDrag(this.freeOrbitStart, current)) return;
           this.freeOrbitDragged = true;
           this.renderer.startFreeOrbit();
           this.renderer.orbitBy(
@@ -2947,8 +2949,9 @@ export class InputHandler {
 
     canvas.addEventListener('mouseup', (e) => {
       this._hideDragCostTooltip();
+      if (this.isFreeOrbiting && e.button === this.freeOrbitButton
+          && this._finishCameraGesture({ allowClickAction: true })) return;
       if (e.button === 0) this._deferredUtilityPortDrag.release();
-      if (e.button === 1 && this._finishMiddleCameraGesture({ toggleClick: true })) return;
       if (e.button === 0 && this._landPurchasePress) {
         this._landPurchasePress = false;
         canvas.style.cursor = this.activeTool?.cursor || '';
@@ -2975,13 +2978,13 @@ export class InputHandler {
         // or deselects. ZonePaintTool erases the hovered zone while staying
         // armed; PlaceableTool keeps the legacy behavior of ignoring it.
         //
-        // ...except while Ctrl/Cmd is held. macOS reports a Ctrl+left-click
+        // ...except while Ctrl is held. macOS reports a Ctrl+left-click
         // as a right-click (WebKit rewrites the button; Chrome keeps button 0
         // but still fires contextmenu), so the erase drag would arrive here
         // as a right release — WallTool.onRightClick would remove one extra
         // wall and FloorTool.onRightClick would disarm the tool mid-gesture.
         // Ctrl already means "erase along the drawn path", so swallow it.
-        if (e.ctrlKey || e.metaKey || this._ctrlDown) return;
+        if (e.ctrlKey || this._ctrlDown) return;
         if (this._toolConsumed('onRightClick', e)) return;
 
         // With no build/mode tool armed, right-click is a direct utility-line
@@ -3004,7 +3007,7 @@ export class InputHandler {
       // Same macOS collision as above: the Ctrl+left-click that starts an
       // erase drag also fires contextmenu. Stop it here so nothing further
       // up can read it as a real right-click on the world.
-      if (e.ctrlKey || e.metaKey || this._ctrlDown) e.stopPropagation();
+      if (e.ctrlKey || this._ctrlDown) e.stopPropagation();
     });
 
     // Double-click: enter edit mode for the clicked beamline and open its window
@@ -3023,14 +3026,14 @@ export class InputHandler {
       }
     });
 
-    // Window-level fallback: if the user releases the middle mouse
-    // button while the cursor is off the canvas, end the orbit cleanly
-    // so the snap animation still runs.
+    // Window-level fallback: if the user releases the camera gesture button
+    // while the cursor is off the canvas, end the orbit cleanly so the snap
+    // animation still runs.
     window.addEventListener('mouseup', (e) => {
-      if (e.button === 1 && this.isFreeOrbiting) {
+      if (this.isFreeOrbiting && e.button === this.freeOrbitButton) {
         // Releasing off-world completes a real orbit, but does not turn a
         // pending press into a view-toggle click.
-        this._finishMiddleCameraGesture();
+        this._finishCameraGesture();
         return;
       }
       // The canvas is a full-screen overlay with the HUD, build bar, popups
@@ -3053,17 +3056,21 @@ export class InputHandler {
   }
 
   /**
-   * Finish the pending middle-button camera gesture. A drag owns a live
-   * renderer orbit and must snap it; an on-canvas click owns no orbit yet and
-   * toggles only the camera elevation. Off-canvas/abort callers pass false.
+   * Finish the pending camera gesture. A drag owns a live renderer orbit and
+   * must snap it; an on-canvas middle click owns no orbit yet and toggles only
+   * the camera elevation. Command-click has no click action. Off-canvas/abort
+   * callers leave allowClickAction false.
    */
-  _finishMiddleCameraGesture({ toggleClick = false } = {}) {
+  _finishCameraGesture({ allowClickAction = false } = {}) {
     if (!this.isFreeOrbiting) return false;
     const dragged = this.freeOrbitDragged;
+    const toggleOnClick = this.freeOrbitToggleOnClick;
     this.isFreeOrbiting = false;
+    this.freeOrbitButton = null;
+    this.freeOrbitToggleOnClick = false;
     this.freeOrbitDragged = false;
     if (dragged) this.renderer.endFreeOrbit?.();
-    else if (toggleClick) this.renderer.toggleViewMode?.();
+    else if (allowClickAction && toggleOnClick) this.renderer.toggleViewMode?.();
     const canvas = this.renderer?.app?.canvas || this.renderer?.canvas;
     if (canvas) canvas.style.cursor = '';
     return true;
@@ -3075,7 +3082,7 @@ export class InputHandler {
    */
   _abortPointerGesture() {
     this._hideDragCostTooltip?.();
-    this._finishMiddleCameraGesture();
+    this._finishCameraGesture();
     this.isPanning = false;
     this._deferredUtilityPortDrag?.cancel?.();
     this._clearMarquee?.();

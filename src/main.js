@@ -658,7 +658,7 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
     renderer.setViewMode('iso',0); renderer.refresh(); await sleep(700);
     renderer.setViewMode('top',0); renderer.refresh(); await sleep(700);
     renderer.setViewMode('iso',2); renderer.refresh(); panTo(4,7,1.3); await sleep(700);
-    console.log('[demo] done — use 1/2/3 tabs, Q/E rotate, middle-drag orbit');
+    console.log('[demo] done — use 1/2/3 tabs, Q/E rotate, Cmd/middle-drag orbit');
   }
   const params = new URLSearchParams(location.search);
   if (params.has('demo') || location.hash.includes('demo')) {

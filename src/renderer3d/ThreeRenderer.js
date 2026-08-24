@@ -245,8 +245,8 @@ export class ThreeRenderer {
     this._viewRotDurationMs = 400;
     this._viewRotating = false;
 
-    // Free-orbit state (middle-mouse drag orbits yaw + pitch around the
-    // pan center; release animates back to the nearest preferred pitch.
+    // Free-orbit state (middle-mouse or Command + left drag orbits yaw +
+    // pitch around the pan center; release animates the heading into place).
     this._freeOrbiting = false;
     this._freeYaw = 0;
     this._freePitch = PITCH_STEEP;
