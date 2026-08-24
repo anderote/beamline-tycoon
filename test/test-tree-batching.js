@@ -34,6 +34,8 @@ assert.ok(stats.batchCount > 0 && stats.batchCount < 8,
   `tree parts collapse into a few material batches (got ${stats.batchCount})`);
 assert.ok(stats.prototypeCount <= TREE_VISUAL_VARIANTS,
   `one species uses at most ${TREE_VISUAL_VARIANTS} silhouettes (got ${stats.prototypeCount})`);
+assert.ok(stats.geometryCount < stats.partCount / 2,
+  `repeated prototype parts reuse batch geometry (${stats.geometryCount}/${stats.partCount})`);
 assert.ok(stats.farBatchCount > 0,
   'a low-poly forest presentation is ready before the camera crosses the LOD boundary');
 assert.ok(stats.farTriangleCount < stats.nearTriangleCount / 5,

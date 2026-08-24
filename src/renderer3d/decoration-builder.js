@@ -1988,7 +1988,7 @@ export class DecorationBuilder {
     this._plantPrototypes = new Map();
     this._batchStats = {
       plantCount: 0, batchCount: 0, chunkCount: 0,
-      partCount: 0, prototypeCount: 0, farBatchCount: 0,
+      partCount: 0, geometryCount: 0, prototypeCount: 0, farBatchCount: 0,
       nearTriangleCount: 0, farTriangleCount: 0,
     };
     this._showDetail = true;
@@ -2129,7 +2129,7 @@ export class DecorationBuilder {
     this._plantSignature = null;
     this._batchStats = {
       plantCount: 0, batchCount: 0, chunkCount: 0, partCount: 0,
-      prototypeCount: this._plantPrototypes.size, farBatchCount: 0,
+      geometryCount: 0, prototypeCount: this._plantPrototypes.size, farBatchCount: 0,
       nearTriangleCount: 0, farTriangleCount: 0,
     };
   }
@@ -2165,6 +2165,7 @@ export class DecorationBuilder {
     const rotation = new THREE.Quaternion();
     const unitScale = new THREE.Vector3(1, 1, 1);
     let partCount = 0;
+    let geometryCount = 0;
     let nearTriangleCount = 0;
 
     for (const dec of plants) {
@@ -2227,8 +2228,16 @@ export class DecorationBuilder {
 
     for (const bucket of buckets.values()) {
       const entries = bucket.entries;
-      const maxVertices = entries.reduce((sum, e) => sum + e.geometry.getAttribute('position').count, 0);
-      const maxIndices = entries.reduce((sum, e) => sum + (e.geometry.getIndex()?.count || 0), 0);
+      // A bounded tree silhouette is repeated across many placements. Store
+      // each prototype part once per material/spatial batch, then point every
+      // matching instance at that geometry ID. Adding the geometry once per
+      // entry made Minor Lab reserve 9,218 geometry copies for 9,218 parts,
+      // despite having only 123 source prototypes.
+      const geometries = [...new Set(entries.map(entry => entry.geometry))];
+      const maxVertices = geometries.reduce(
+        (sum, geometry) => sum + geometry.getAttribute('position').count, 0);
+      const maxIndices = geometries.reduce(
+        (sum, geometry) => sum + (geometry.getIndex()?.count || 0), 0);
       const batch = new THREE.BatchedMesh(
         entries.length,
         maxVertices,
@@ -2243,9 +2252,12 @@ export class DecorationBuilder {
       batch.userData.lod = 'plant-near';
       batch.userData.plantChunk = { col: bucket.chunkCol, row: bucket.chunkRow };
       batch.userData.batchNodeIds = [];
+      const geometryIds = new Map();
+      for (const geometry of geometries) {
+        geometryIds.set(geometry, batch.addGeometry(geometry));
+      }
       for (const entry of entries) {
-        const geometryId = batch.addGeometry(entry.geometry);
-        const batchId = batch.addInstance(geometryId);
+        const batchId = batch.addInstance(geometryIds.get(entry.geometry));
         batch.setMatrixAt(batchId, entry.matrix);
         batch.userData.batchNodeIds[batchId] = entry.nodeId;
       }
@@ -2253,6 +2265,7 @@ export class DecorationBuilder {
       batch.computeBoundingSphere();
       parentGroup.add(batch);
       this._plantBatches.push(batch);
+      geometryCount += geometries.length;
     }
 
     for (const geometry of tempGeometry) geometry.dispose();
@@ -2262,6 +2275,7 @@ export class DecorationBuilder {
       batchCount: this._plantBatches.length,
       chunkCount: chunks.size,
       partCount,
+      geometryCount,
       prototypeCount: this._plantPrototypes.size,
       farBatchCount: this._farPlantBatches.length,
       nearTriangleCount,
@@ -2499,7 +2513,7 @@ export class DecorationBuilder {
     this._anonymousFixtures = [];
     this._batchStats = {
       plantCount: 0, batchCount: 0, chunkCount: 0, partCount: 0,
-      prototypeCount: this._plantPrototypes.size, farBatchCount: 0,
+      geometryCount: 0, prototypeCount: this._plantPrototypes.size, farBatchCount: 0,
       nearTriangleCount: 0, farTriangleCount: 0,
     };
   }
