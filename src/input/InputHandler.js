@@ -2741,7 +2741,7 @@ export class InputHandler {
 
   _startPanLoop() {
     if (this._panFrameId !== null) return;
-    const PAN_SPEED_BASE = 0.5; // world-pan units per frame at zoom=1
+    const PAN_SPEED_BASE = 1.0; // world-pan units per frame at zoom=1
     const loop = () => {
       this._panFrameId = null;
       const panning = this.keysDown.has('w') || this.keysDown.has('a')
