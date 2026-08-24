@@ -83,7 +83,7 @@ export function derateStatsForHealth(stats, componentId, componentHealth) {
  * Whether this beamline's source can emit right now. Downstream faults are
  * intentionally absent: they belong in the physics result, not this gate.
  */
-export function beamlineRunReadiness(state, entry, orderedNodes = []) {
+export function beamlineRunReadiness(state, entry, orderedNodes = [], options = {}) {
   const source = orderedNodes.find(node => COMPONENTS[node?.type]?.isSource)
     || findBeamlineComponent(state, entry?.sourceId);
   if (!source || !COMPONENTS[source.type]?.isSource) {
@@ -100,8 +100,13 @@ export function beamlineRunReadiness(state, entry, orderedNodes = []) {
 
   // Sandbox testing supplies ideal external services. Source existence,
   // switches, and damage remain real beamline facts; utility and operator
-  // infrastructure do not gate the run command in this scenario.
-  if (state?.scenarioRules?.idealInfrastructure === true) {
+  // infrastructure do not gate the run command. The optional override lets
+  // Game include its session-only sandbox toggle without copying that flag
+  // into serialized world state; direct state consumers retain the scenario
+  // rule fallback.
+  const idealInfrastructure = options.idealInfrastructure
+    ?? (state?.scenarioRules?.idealInfrastructure === true);
+  if (idealInfrastructure) {
     return { canRun: true, code: null, reason: null };
   }
 

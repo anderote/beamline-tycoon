@@ -674,6 +674,7 @@ export class Game {
       state: this.state,
       solveRunner: this.solveRunner,
       getPorts: getUtilityPortsV2,
+      hasIdealInfrastructure: () => this.hasIdealInfrastructure(),
       rng: () => this.rng(),
       log: (msg, kind) => this.log(msg, kind),
     });
@@ -1224,21 +1225,30 @@ export class Game {
   // === PLACEMENT ===
 
   /**
-   * Sandbox mode: build anything without being charged for it.
+   * Sandbox mode: build anything without being charged and test beamlines
+   * against ideal external services.
    *
-   * Deliberately narrow — it suppresses construction/action spending only. Income, upkeep,
-   * research, reputation and every physics consequence still run exactly as in
-   * a normal game, and prices are still displayed, because the point is to
-   * design machines without the capital grind rather than to disable the
-   * economy. Upkeep is not exempt: a sandbox facility still pays its
-   * electricity bill, so an over-provisioned build still reads as expensive.
+   * Income, upkeep, research, reputation, source condition and deliberate
+   * component switches still run exactly as in a normal game, and prices are
+   * still displayed. Utility plants, utility wiring, operators, commissioning,
+   * and maintenance infrastructure are not prerequisites for a sandbox beam
+   * test. Upkeep is not exempt: a sandbox facility still pays its electricity
+   * bill, so an over-provisioned build still reads as expensive.
    */
   setSandboxMode(on) {
+    const changed = this.sandboxMode !== !!on;
     this.sandboxMode = !!on;
     try { localStorage.setItem('beamlineTycoon.sandboxMode', this.sandboxMode ? '1' : '0'); } catch (_) {}
     this.log(this.sandboxMode
-      ? 'BALANCE SANDBOX ON — construction is free; income and operating costs stay live.'
+      ? 'BALANCE SANDBOX ON — construction is free and beams need no infrastructure; income and operating costs stay live.'
       : 'SANDBOX MODE OFF — costs are charged normally.', 'good');
+    if (changed && this.utilityGate) {
+      // Re-run both policy and physics immediately. sandboxMode is not part of
+      // nodeQualities, so its change would otherwise leave a paused running
+      // beam latched to the previous include-infrastructure physics result.
+      this._nodeQualitySig = null;
+      this.refreshInfrastructureGate();
+    }
     this.emit('resourcesChanged');
   }
 
@@ -1253,6 +1263,11 @@ export class Game {
   /** Whether capital/action charges are waived by an option or scenario. */
   isConstructionFree() {
     return this.sandboxMode || this.state.scenarioRules?.freeConstruction === true;
+  }
+
+  /** Whether beam testing should receive ideal external services. */
+  hasIdealInfrastructure() {
+    return this.sandboxMode || this.state.scenarioRules?.idealInfrastructure === true;
   }
 
   canAfford(costs) {
@@ -5044,8 +5059,8 @@ export class Game {
     const physicsBeamline = buildPhysicsElements(ordered, {
       componentHealth: entry.beamState.componentHealth,
       nodeQualities: this.state.nodeQualities,
-      includeInfrastructure: this.state.scenarioRules?.idealInfrastructure !== true,
-      applyCommissioning: this.state.scenarioRules?.idealInfrastructure !== true,
+      includeInfrastructure: !this.hasIdealInfrastructure(),
+      applyCommissioning: !this.hasIdealInfrastructure(),
     });
 
     // Gather research effects for physics
@@ -5278,7 +5293,9 @@ export class Game {
   _beamlineReadiness(entry, orderedNodes = null) {
     const ordered = orderedNodes
       || (entry?.sourceId ? flattenPath(this.state, entry.sourceId) : []);
-    const readiness = beamlineRunReadiness(this.state, entry, ordered);
+    const readiness = beamlineRunReadiness(this.state, entry, ordered, {
+      idealInfrastructure: this.hasIdealInfrastructure(),
+    });
     if (entry?.beamState) {
       entry.beamState.canRun = readiness.canRun;
       entry.beamState.holdReason = readiness.reason;
@@ -5882,7 +5899,7 @@ export class Game {
    * qualities, or no data-producing hardware).
    */
   _dataConnectivityFactor(nodes) {
-    if (this.state.scenarioRules?.idealInfrastructure === true) return 1;
+    if (this.hasIdealInfrastructure()) return 1;
     if (!this.state.nodeQualities) return 1;
     const dataNetworks = this.state.utilityNetworks?.get?.('dataFiber');
     const gatewayByNetwork = new Map();
@@ -6018,7 +6035,7 @@ export class Game {
 
     // Component wear (every 10 ticks)
     if (this.state.tick % 10 === 0
-        && this.state.scenarioRules?.idealInfrastructure !== true) {
+        && !this.hasIdealInfrastructure()) {
       if (this._applyWearForBeamline(entry)) this.schedulePhysicsRecalc();
     }
   }
