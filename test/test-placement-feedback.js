@@ -46,7 +46,13 @@ test('placement feedback offsets only renderer geometry and emits bounded dust o
   const system = new PlacementFeedbackSystem(scene, {
     random: () => 0.5,
     resolveTarget: id => id === 'machine'
-      ? { object, dustY: 1.25, footprintRadius: 1.5 }
+      ? {
+          object,
+          dustY: 1.25,
+          footprintRadius: 1.5,
+          footprintHalfWidth: 1.5,
+          footprintHalfDepth: 0.75,
+        }
       : { supported: false },
   });
 
@@ -60,6 +66,15 @@ test('placement feedback offsets only renderer geometry and emits bounded dust o
   system.update(0.1);
   assert.ok(system.dustMesh.count >= 5, 'impact emits a small ring of dust puffs');
   assert.ok(system.dustMesh.count <= system.maxDustPuffs, 'dust stays inside its fixed pool');
+  for (const puff of system.dust) {
+    const edgeRatio = Math.max(
+      Math.abs(puff.x - object.position.x) / 1.5,
+      Math.abs(puff.z - object.position.z) / 0.75,
+    );
+    assert.ok(edgeRatio >= 0.82 && edgeRatio <= 1.02,
+      `dust follows the rectangular footprint perimeter (${edgeRatio})`);
+    assert.ok(puff.radius <= 0.08, 'perimeter dust puffs remain compact');
+  }
 
   for (let i = 0; i < 5; i++) system.update(0.1);
   assert.equal(object.position.y, 2, 'settling restores the canonical authored pose exactly');

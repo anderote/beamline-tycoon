@@ -63,6 +63,8 @@ function setObjectYOffset(object, canonicalY, offset) {
  *   object: object,
  *   dustY?: number,
  *   footprintRadius?: number,
+ *   footprintHalfWidth?: number,
+ *   footprintHalfDepth?: number,
  *   supported?: boolean,
  * }} PlacementFeedbackTarget
  */
@@ -164,12 +166,19 @@ export class PlacementFeedbackSystem {
         continue;
       }
       const canonicalY = target.object.position.y;
+      const fallbackRadius = Math.max(0.25, Number(target.footprintRadius) || 0.5);
       const landing = {
         id,
         object: target.object,
         canonicalY,
         dustY: Number.isFinite(target.dustY) ? target.dustY : canonicalY,
-        footprintRadius: Math.max(0.25, Number(target.footprintRadius) || 0.5),
+        footprintRadius: fallbackRadius,
+        footprintHalfWidth: Math.max(
+          0.25, Number(target.footprintHalfWidth) || fallbackRadius,
+        ),
+        footprintHalfDepth: Math.max(
+          0.25, Number(target.footprintHalfDepth) || fallbackRadius,
+        ),
         lift: Math.max(0, Number(request.lift) || PLACEMENT_GHOST_LIFT),
         elapsed: 0,
         impacted: false,
@@ -186,19 +195,51 @@ export class PlacementFeedbackSystem {
     const count = Math.min(room, Math.max(5, Math.min(
       11, Math.round(5 + landing.footprintRadius * 1.8),
     )));
+    const halfWidth = landing.footprintHalfWidth;
+    const halfDepth = landing.footprintHalfDepth;
+    const perimeter = 4 * (halfWidth + halfDepth);
     for (let i = 0; i < count; i++) {
-      const angle = (i / count) * Math.PI * 2 + (this.random() - 0.5) * 0.5;
-      const speed = (0.48 + this.random() * 0.5)
-        * Math.min(1.65, 0.7 + landing.footprintRadius * 0.28);
-      const startRadius = landing.footprintRadius * (0.12 + this.random() * 0.12);
+      let distance = ((i + (this.random() - 0.5) * 0.45) / count) * perimeter;
+      distance = (distance + perimeter) % perimeter;
+      let localX;
+      let localZ;
+      let outwardX;
+      let outwardZ;
+      if (distance < halfWidth * 2) {
+        localX = -halfWidth + distance;
+        localZ = -halfDepth;
+        outwardX = 0;
+        outwardZ = -1;
+      } else if ((distance -= halfWidth * 2) < halfDepth * 2) {
+        localX = halfWidth;
+        localZ = -halfDepth + distance;
+        outwardX = 1;
+        outwardZ = 0;
+      } else if ((distance -= halfDepth * 2) < halfWidth * 2) {
+        localX = halfWidth - distance;
+        localZ = halfDepth;
+        outwardX = 0;
+        outwardZ = 1;
+      } else {
+        distance -= halfWidth * 2;
+        localX = -halfWidth;
+        localZ = halfDepth - distance;
+        outwardX = -1;
+        outwardZ = 0;
+      }
+      // Keep the impact localized: puffs begin just inside the footprint edge
+      // and only ease a little farther out instead of erupting from the centre.
+      const speed = (0.06 + this.random() * 0.1)
+        * Math.min(1.35, 0.85 + landing.footprintRadius * 0.12);
+      const inset = 0.82 + this.random() * 0.12;
       this.dust.push({
-        x: landing.object.position.x + Math.cos(angle) * startRadius,
+        x: landing.object.position.x + localX * inset,
         y: landing.dustY + 0.06 + this.random() * 0.04,
-        z: landing.object.position.z + Math.sin(angle) * startRadius,
-        vx: Math.cos(angle) * speed,
-        vz: Math.sin(angle) * speed,
-        rise: 0.12 + this.random() * 0.16,
-        radius: 0.09 + this.random() * 0.08,
+        z: landing.object.position.z + localZ * inset,
+        vx: outwardX * speed,
+        vz: outwardZ * speed,
+        rise: 0.06 + this.random() * 0.1,
+        radius: 0.04 + this.random() * 0.04,
         age: 0,
         lifetime: DUST_LIFETIME * (0.82 + this.random() * 0.36),
         color: DUST_COLORS[Math.floor(this.random() * DUST_COLORS.length) % DUST_COLORS.length],

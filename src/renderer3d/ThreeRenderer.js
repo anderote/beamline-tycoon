@@ -2317,10 +2317,17 @@ export class ThreeRenderer {
       || this.decorationBuilder?.getGroup?.(id)
       || null;
     if (!object) return null;
+    const swapFootprint = entry.dir === 1 || entry.dir === 3;
+    const authoredWidth = def.subW || 1;
+    const authoredDepth = def.subL || 1;
+    const footprintWidth = swapFootprint ? authoredDepth : authoredWidth;
+    const footprintDepth = swapFootprint ? authoredWidth : authoredDepth;
     return {
       object,
       dustY: levelWorldY(levelOf(entry)) + (Number(entry.placeY) || 0) * 0.5,
-      footprintRadius: Math.max(def.subW || 1, def.subL || 1) * 0.25,
+      footprintRadius: Math.max(footprintWidth, footprintDepth) * 0.25,
+      footprintHalfWidth: footprintWidth * 0.25,
+      footprintHalfDepth: footprintDepth * 0.25,
     };
   }
 
