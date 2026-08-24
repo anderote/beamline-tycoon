@@ -92,11 +92,13 @@ a regression.
 
 ## Large-world detail policy
 
-The authored detailed presentation is the default at every zoom. Players can
-opt into adaptive simplification with **Layers → LOD objects**. With that
-switch enabled, zooming out switches the complete modeled-object presentation
-regardless of facility size. Detail follows projected screen scale instead of
-an unrelated facility object-count threshold:
+Adaptive simplification is enabled by default and remains controllable through
+**Layers → LOD objects**. Zooming out switches the complete modeled-object
+presentation regardless of facility size. Detail follows projected screen
+scale instead of an unrelated facility object-count threshold. The renderer
+selects the initial zoom band before startup finishes, so a restored zoomed-out
+facility does not submit its complete authored scene for one expensive frame
+behind the title screen:
 
 - beamline modules keep a one-draw-per-type pipe, support, magnet, cavity,
   source, diagnostic, cyclotron, or endpoint silhouette;
