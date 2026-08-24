@@ -1042,9 +1042,6 @@ export class ThreeRenderer {
       this._updateCameraLookAt();
     }
 
-    // Load 3D assets
-    await this.loadAssets();
-
     // Initial 3D refresh
     this.refresh();
 
@@ -5266,8 +5263,12 @@ export class ThreeRenderer {
     setGlowNightFactor(GLOW_NIGHT_FACTOR_FLOOR + (1 - GLOW_NIGHT_FACTOR_FLOOR) * grade.darkness);
   }
 
-  async loadAssets() {
+  async hydrateDeferredAssets() {
     await this.textureManager.loadDecorationManifest();
+    // Initial boot uses authored material/color fallbacks. Once the optional
+    // texture set is warm, rebuild only its owning section rather than paying
+    // for a second full-world refresh.
+    this._refreshDecorations();
   }
 
   /**

@@ -83,7 +83,7 @@ test('camera motion selects the cheap render path and defers shadow refreshes', 
   assert.match(animate,
     /render\(\{ skipPostProcessing: cameraMoving \}\)/,
     'camera motion bypasses the expensive post-processing graph');
-  const sun = methodBody('_updateSunCycle', 'loadAssets');
+  const sun = methodBody('_updateSunCycle', 'hydrateDeferredAssets');
   assert.match(sun, /shadowRefreshPending[\s\S]*pendingCount/,
     'a deferred camera-following sun shadow is refreshed after motion settles');
   assert.match(sun,
