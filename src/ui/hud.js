@@ -3195,6 +3195,7 @@ UIHost.prototype._bindHUDEvents = function() {
   const layerToggle = document.getElementById('layer-visibility-toggle');
   const layerPanel = document.getElementById('layer-visibility-panel');
   const layerButtons = [...document.querySelectorAll('[data-world-layer]')];
+  const lodObjectsButton = document.querySelector('[data-lod-objects]');
   const syncLayerButton = (button, visible) => {
     const id = button.dataset.worldLayer || '';
     const label = id === 'infra'
@@ -3211,6 +3212,15 @@ UIHost.prototype._bindHUDEvents = function() {
     layerToggle?.setAttribute('aria-expanded', 'false');
     if (layerToggle) layerToggle.title = 'Show world layer visibility';
   };
+  const syncLodObjectsButton = () => {
+    if (!lodObjectsButton) return;
+    const enabled = this.renderer.isLodObjectsEnabled();
+    lodObjectsButton.classList.toggle('active', enabled);
+    lodObjectsButton.setAttribute('aria-pressed', String(enabled));
+    lodObjectsButton.title = enabled
+      ? 'Disable zoom-based simplified objects'
+      : 'Enable zoom-based simplified objects';
+  };
   if (layerToggle && layerPanel) {
     layerToggle.addEventListener('click', () => {
       const opening = layerPanel.classList.contains('hidden');
@@ -3218,6 +3228,7 @@ UIHost.prototype._bindHUDEvents = function() {
         for (const button of layerButtons) {
           syncLayerButton(button, this.renderer.isWorldLayerVisible(button.dataset.worldLayer));
         }
+        syncLodObjectsButton();
       }
       layerPanel.classList.toggle('hidden', !opening);
       layerToggle.setAttribute('aria-expanded', String(opening));
@@ -3232,6 +3243,11 @@ UIHost.prototype._bindHUDEvents = function() {
       if (visible !== null) syncLayerButton(button, visible);
     });
   }
+  syncLodObjectsButton();
+  lodObjectsButton?.addEventListener('click', () => {
+    this.renderer.toggleLodObjects();
+    syncLodObjectsButton();
+  });
   const layerReset = document.getElementById('layer-visibility-reset');
   if (layerReset) {
     layerReset.addEventListener('click', () => {

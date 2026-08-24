@@ -104,6 +104,9 @@ test('far beamline presentation keeps type identity without full-footprint color
     component('quad-far', 'beamline', 2, 'quadrupole'),
     component('cyclotron-far', 'beamline', 4, 'cyclotron30'),
     component('target-far', 'beamline', 8, 'target'),
+    component('hwr-far', 'beamline', 10, 'halfWaveResonator'),
+    component('spoke-far', 'beamline', 12, 'spokeCavity'),
+    component('elliptical-far', 'beamline', 15, 'ellipticalSrfCavity'),
   ];
 
   builder.build(components, parent, { categoryGroups: { beamline } });
@@ -114,9 +117,14 @@ test('far beamline presentation keeps type identity without full-footprint color
   ]));
 
   assert.equal(byType.get('drift')?.userData.farSilhouetteKind, 'beam-pipe');
-  assert.equal(byType.get('quadrupole')?.userData.farSilhouetteKind, 'focusing-magnet');
+  assert.equal(byType.get('quadrupole')?.userData.farSilhouetteKind, 'quadrupole-magnet');
   assert.equal(byType.get('cyclotron30')?.userData.farSilhouetteKind, 'cyclotron');
   assert.equal(byType.get('target')?.userData.farSilhouetteKind, 'beam-target');
+  assert.equal(byType.get('halfWaveResonator')?.userData.farSilhouetteKind,
+    'half-wave-resonator');
+  assert.equal(byType.get('spokeCavity')?.userData.farSilhouetteKind, 'spoke-cavity');
+  assert.equal(byType.get('ellipticalSrfCavity')?.userData.farSilhouetteKind,
+    'elliptical-srf-cavity');
   assert.deepEqual(new Set(byType.get('drift').userData.farPartRoles),
     new Set(['pipe', 'stand']),
   'a drift stays a thin pipe on supports rather than becoming a footprint box');
@@ -126,6 +134,17 @@ test('far beamline presentation keeps type identity without full-footprint color
   assert.ok(['pipe', 'target', 'accent'].every(role =>
     byType.get('target').userData.farPartRoles.includes(role)),
   'the target retains its incoming beam tube and a restrained target body');
+  assert.ok(['accent', 'darkBody', 'copper', 'pipe', 'stand'].every(role =>
+    byType.get('quadrupole').userData.farPartRoles.includes(role)),
+  'the quadrupole retains its hollow diamond yoke, poles, coils, pipe, and stand');
+  assert.ok(['cryostat', 'darkBody', 'accent', 'pipe', 'stand'].every(role =>
+    byType.get('halfWaveResonator').userData.farPartRoles.includes(role)),
+  'the half-wave resonator remains an upright ribbed cryostat with a side coupler');
+  assert.ok(byType.get('spokeCavity').userData.farPartCount
+    > byType.get('halfWaveResonator').userData.farPartCount,
+  'the spoke cavity keeps its paired couplers and cryogenic ports');
+  assert.ok(byType.get('ellipticalSrfCavity').userData.farPartCount >= 12,
+    'the elliptical SRF cavity keeps a readable multi-cell profile');
 
   for (const batch of batches) {
     assert.equal(batch.material.vertexColors, true,
