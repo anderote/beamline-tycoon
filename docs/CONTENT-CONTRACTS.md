@@ -304,6 +304,10 @@ the short authoring contract.
   only dangle after an extreme move exceeds their physical leash. Fabricated
   vacuum, RF, cryogenic, and water-supply services keep the conservative rigid
   re-anchor limit.
+- An above-ground HV cable with exactly one connected endpoint emits recurring
+  sparks from its loose tip only while its discovered network publishes live
+  capacity. Dead, fully detached, complete, and buried HV runs do not use this
+  exposed-conductor effect.
 - Free-drag endpoints may snap to an existing compatible vacuum, cooling, RF,
   cryogenic-transfer, or data run and commit a named `tapLineIds` T-junction.
   Vacuum, RF, and cryogenic transfer also join automatically wherever an

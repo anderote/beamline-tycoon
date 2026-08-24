@@ -2,10 +2,13 @@
 //
 // All electrical quantities consumed here are already published by the
 // utility solver. This module never discovers topology or recalculates load;
-// it only turns complete, energized connections and distributor utilization
-// into bounded wall-clock event rates for the renderer.
+// it only turns energized connections, exposed live ends, and distributor
+// utilization into bounded wall-clock event rates for the renderer.
+
+import { looseHvCableSparkAnchor } from './spark-presentation.js';
 
 export const HV_CONNECTION_SPARK_RATE_PER_SECOND = 1 / 300;
+export const LOOSE_HV_SPARK_RATE_PER_SECOND = 0.65;
 export const DISTRIBUTOR_MAX_SPARK_RATE_PER_SECOND = 1 / 180;
 
 function values(collection) {
@@ -36,10 +39,12 @@ function energizedHvNetworks(state) {
 /**
  * Build eligible emitters from solver-published state.
  *
- * A cable contributes one combined event rate split over its two plugged-in
- * ends. A distributor contributes only while its HV inlet is energized, its
- * breaker is closed, and it has real downstream demand. Its rate rises
- * linearly from zero to the deliberately low maximum at nameplate load.
+ * A complete cable contributes one combined event rate split over its two
+ * plugged-in ends. A live one-ended cable instead arcs frequently from its
+ * exposed tip. A distributor contributes only while its HV inlet is
+ * energized, its breaker is closed, and it has real downstream demand. Its
+ * rate rises linearly from zero to the deliberately low maximum at nameplate
+ * load.
  */
 export function ambientElectricalSparkCandidates(state, getDefinition = () => null) {
   const energized = energizedHvNetworks(state);
@@ -48,8 +53,20 @@ export function ambientElectricalSparkCandidates(state, getDefinition = () => nu
 
   for (const line of values(state?.utilityLines)) {
     if (!line?.id || line.utilityType !== 'hvCable'
-        || !line.start || !line.end || line.buried === true
+        || line.buried === true
         || !energizedLineIds.has(line.id)) continue;
+    const looseAnchor = looseHvCableSparkAnchor(line);
+    if (looseAnchor) {
+      candidates.push({
+        id: `hv:${line.id}:loose-${looseAnchor.looseEnd}`,
+        kind: 'looseHvEnd',
+        lineId: line.id,
+        ...looseAnchor,
+        ratePerSecond: LOOSE_HV_SPARK_RATE_PER_SECOND,
+      });
+      continue;
+    }
+    if (!line.start || !line.end) continue;
     const endpointRate = HV_CONNECTION_SPARK_RATE_PER_SECOND / 2;
     candidates.push({
       id: `hv:${line.id}:start`, kind: 'hvConnection', lineId: line.id,
@@ -123,4 +140,3 @@ export class AmbientElectricalSparkScheduler {
     );
   }
 }
-
