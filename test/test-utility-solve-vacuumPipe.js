@@ -245,7 +245,7 @@ console.log('\n--- Test 8: staged pumping and gas inventory ---');
 }
 
 // ==========================================================================
-console.log('\n--- Test 9: conductance and gauge history ---');
+console.log('\n--- Test 9: shared-header capacity and gauge history ---');
 {
   const line = {
     id: 'vac_line', utilityType: 'vacuumPipe',
@@ -281,11 +281,11 @@ console.log('\n--- Test 9: conductance and gauge history ---');
   const result = desc.solve(net, {
     gasInventoryMbarL: 1e-4 * volume, pressureHistory: [],
   }, world);
-  assert(result.flowState.effectivePumpSpeed < 300,
-    `a 40 m service run conductance-limits a 300 L/s turbo (${result.flowState.effectivePumpSpeed.toFixed(1)} L/s)`);
+  assert(result.flowState.effectivePumpSpeed === 300,
+    `a 300 L/s turbo contributes its full capacity anywhere on the connected header (${result.flowState.effectivePumpSpeed.toFixed(1)} L/s)`);
   assert(result.flowState.gauges.length === 1
       && result.flowState.gauges[0].type === 'piraniGauge',
-    'line-mounted gauges sample their local vacuum');
+    'line-mounted gauges sample the shared network vacuum');
   assert(result.flowState.pressureHistory.length === 1
       && result.flowState.pressureHistory[0].pressure === result.flowState.networkPressure
       && result.flowState.pressureHistory[0].readings.gauge_1 > 0,
@@ -295,9 +295,33 @@ console.log('\n--- Test 9: conductance and gauge history ---');
   assert(pipeZone?.outgassingMbarLps === result.flowState.pipeOutgas
       && pipeZone?.pumpingSpeedLps === result.flowState.effectivePumpSpeed
       && loadZone?.outgassingMbarLps === 1e-6
-      && loadZone?.pumpingSpeedLps > 0
+      && loadZone?.pumpingSpeedLps === result.flowState.effectivePumpSpeed
       && loadZone?.pressureMbar === result.flowState.perSinkPressure['load_1:vac_in'],
-    'solver publishes outgassing, local pumping, and pressure for each plotted vacuum zone');
+    'every plotted vacuum zone receives the shared header pumping and pressure');
+
+  const reversed = desc.solve({
+    ...net,
+    sources: [...net.sources].reverse(),
+    sinks: [...net.sinks, {
+      portKey: 'load_2:vac_in', placeableId: 'load_2', portName: 'vac_in',
+      params: { outgassing: 2e-6 },
+    }],
+  }, {
+    gasInventoryMbarL: 1e-4 * volume, pressureHistory: [],
+  }, {
+    ...world,
+    beamPipes: [{
+      id: 'bp_1', subL: 2,
+      placements: [
+        { id: 'load_1', type: 'bpm' },
+        { id: 'load_2', type: 'bpm', worldX: 1000, worldZ: 1000 },
+      ],
+    }],
+  });
+  assert(reversed.flowState.effectivePumpSpeed === 300
+      && reversed.flowState.perSinkPressure['load_1:vac_in']
+        === reversed.flowState.perSinkPressure['load_2:vac_in'],
+    'source order and sink distance do not change shared-header capacity or pressure');
   const html = desc.renderInspector(net, result.flowState, result.nextPersistentState);
   assert(VACUUM_HISTORY_TICKS === VACUUM_TICKS_PER_DAY * 10
       && DEFAULT_VACUUM_HISTORY_RANGE_TICKS === VACUUM_HISTORY_TICKS,

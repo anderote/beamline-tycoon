@@ -75,11 +75,11 @@ Correct and retained: 4K cold box 500 W / $8M, 2K cold box 800 W / $15M, boil-of
 
 | Claim | Old | New | Source |
 |---|---|---|---|
-| Network model | *"Conductance-based (pump speed degraded by pipe length)"*, with a fixed `C_tile = 50 L/s` | Dynamic gas inventory and staged pumping, with circular-tube molecular conductance and `S_eff = SC/(S+C)` | `src/utility/types/vacuumPipe.js` — `molecularConductanceLps()`, `activePumpStack()` |
+| Network model | *"Conductance-based (pump speed degraded by pipe length)"*, with a fixed `C_tile = 50 L/s` | Dynamic gas inventory and staged pumping on a shared header; active source capacity adds regardless of branch order or distance | `src/utility/types/vacuumPipe.js` — `activePumpStack()`, `effectivePumpSpeed` |
 | Gas load | *"proportional to beamline volume"*, `Q_gas = V_beamline * q_outgassing` | Proportional to **surface area**. 3,770 cm^2 per metre at r = 0.06 m; 3.77e-7 mbar·L/s per metre unbaked | `src/data/utility-ports-v2.js` `pipeSurfaceAreaCm2()`, `outgassingForLength()`, `Q_SPECIFIC_UNBAKED = 1e-10` |
 | Beam pipe cost | Zero — the article never charged for pipe | Every metre of pipe is charged to the pumps serving the components on it | `vacuumPipe.js` `beamPipeOutgassing()` |
 | Bakeout | *"improve ultimate vacuum after any vacuum break"* (no mechanic) | Connected Bakeout System applies the implemented 100x outgassing reduction | `vacuumPipe.js` `BAKEOUT_FACTOR`, `isBaked()`; `utility-ports-v2.js` `bakeoutSystem.vac_out` |
-| Consumers | *"Global beamline vacuum (not per-component)"* | Per-sink pressure published to every component | `vacuumPipe.js` `perSinkPressure` |
+| Consumers | *"Global beamline vacuum (not per-component)"* | The shared network pressure is published to every connected component | `vacuumPipe.js` `perSinkPressure` |
 | Quality mapping | Prose table only | Log-linear 1e-8 → 1, 1e-2 → 0; unpumped reported as 1013 mbar for the beam-gas module | `vacuumPipe.js` `qualityFromPressure()`, `reportedPressure` |
 | Panel pressure | *"Average pressure across the whole beamline"* | **Worst** network in the facility, and it is the same number the beam responds to (the old `1e-6/(S/V)` HUD formula is gone) | `src/game/economy.js` `worstVacuumPressure()` |
 | Pump colour | Gray 0x999999 | 0x888888 | `vacuumPipe.js` `color` |
@@ -121,7 +121,7 @@ Almost entirely correct. Changes:
 |---|---|---|---|
 | Network formation | *"flood-fill through adjacent tiles of the same type"*, cardinal directions only | **Union-find over named ports** joined by drawn lines. Membership is per-port, not per-tile or per-component. | `src/utility/network-discovery.js` — DSU over `${placeableId}:${portName}` |
 | Distribution buses | Not mentioned | Five legacy utility buses retain service radii (fiber 12, power 10, RF 6, cryo 6, vacuum 5). Cooling instead uses an explicit 4-cold/4-hot LCW manifold with paired rigid headers. Add no capacity. | `utility-ports-v2.js`; `network-discovery.js` `computeBusService()` |
-| Vacuum exception | *"The exception is vacuum, which uses conductance-based calculations"* | Discovery is shared; the vacuum solver then applies staged pump-down and conductance to the discovered network | `network-discovery.js`, `vacuumPipe.js` |
+| Vacuum exception | *"The exception is vacuum, which uses conductance-based calculations"* | Discovery is shared; the vacuum solver applies staged pump-down while all active pumps contribute to one header pressure | `network-discovery.js`, `vacuumPipe.js` |
 | Hard gate list | *"Missing utility connection entirely; no PPS interlock; insufficient radiation shielding"* | Unwired sink on any of five hard utilities; `power_starved`; `vacuum_no_pump`; `cooling_dry`; cryo quench; `beam_unstaffed`. **No PPS check and no shielding check exist.** | `utility-gate.js` `HARD_REQUIRED_UTILS` and `run()`; grep for `ppsInterlock` / `shielding` finds only counting in `economy.js` |
 | Fail-closed values | Not documented | Documented in full: qualities → 0, `rfPowerW` → 0, `cryoTempK` → 300 K, `coolingDeltaT` → 100 K, `vacuumPressure` → 1013 mbar | `utility-gate.js` `UTILITY_PHYSICAL_FIELDS`, `sinkQualityFloorFrom()` |
 | Wiring costs | Not mentioned | Full per-utility ladder $300–$4,000 per sub-unit added | each `src/utility/types/*.js` `costPerSubUnit` |

@@ -16,7 +16,7 @@ Each article has three sections:
 
 ### Systems
 - [power.md](power.md) — Electrical power: transformers, distribution panels, power cables, capacity budgeting
-- [vacuum.md](vacuum.md) — Staged pump-down, conductance, gas density, gauges, and beam-gas scattering
+- [vacuum.md](vacuum.md) — Staged pump-down, shared-header capacity, gas density, gauges, and beam-gas scattering
 - [rf-power.md](rf-power.md) — RF power: sources, duty factor, frequency matching, `sqrt(P)` gradient, reflected power
 - [cooling.md](cooling.md) — Cooling water: chillers, LCW, cooling towers, heat load, thermal detuning
 - [cryogenics.md](cryogenics.md) — Cryogenic systems: cold boxes, bath temperature, Q0(T), thermal quench

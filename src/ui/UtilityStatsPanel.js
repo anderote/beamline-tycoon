@@ -326,7 +326,7 @@ function renderRow(row) {
     metrics = `
       <span><small>Pressure / stage</small><strong>${formatUtilityQuantity(row.pressure)} mbar · ${escapeHtml(stage)}</strong></span>
       <span><small>Stage capacity</small><strong>${escapeHtml(capacity)} <em>L/s</em></strong></span>
-      <span><small>Effective / volume</small><strong>${formatUtilityQuantity(row.effectivePumpSpeed)} L/s · ${formatUtilityQuantity(row.volumeL)} L</strong></span>`;
+      <span><small>Active / volume</small><strong>${formatUtilityQuantity(row.effectivePumpSpeed)} L/s · ${formatUtilityQuantity(row.volumeL)} L</strong></span>`;
   } else {
     metrics = `
       <span><small>Capacity</small><strong>${formatUtilityQuantity(row.totalCapacity)} <em>${escapeHtml(row.capacityUnit)}</em></strong></span>

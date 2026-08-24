@@ -69,14 +69,14 @@ export const CONNECTION_GUIDE_SCHEMATICS = Object.freeze({
   vacuum: {
     code: 'VAC-02',
     nodes: [
-      node('ROUGH PUMP', 'PUMP-DOWN', 20, 116, 142, 50, { tag: '01' }),
-      node(['TURBO / UHV', 'PUMP'], 'HIGH VACUUM', 216, 105, 150, 61, { tag: '02' }),
+      node('ROUGH PUMP', 'PUMP-DOWN / BACKING', 20, 116, 162, 50, { tag: '01' }),
+      node(['TURBO / UHV', 'PUMP'], 'HIGH VACUUM', 20, 45, 162, 61, { tag: '02' }),
       node('BEAM VOLUME', 'SHARED VACUUM', 366, 52, 254, 52, { tag: '03' }),
       node('PRESSURE GAUGE', 'LINE TAP', 462, 6, 158, 36, { compact: true }),
     ],
     connections: [
-      connection([[162, 141], [216, 141]], 'BACKING LINE', [189, 91]),
-      connection([[291, 105], [291, 78], [366, 78]], 'VACUUM PIPE', [323, 30]),
+      connection([[182, 141], [280, 141], [280, 90], [366, 90]], 'SHARED HEADER', [272, 164]),
+      connection([[182, 75], [280, 75], [280, 90]], 'ANY ORDER', [232, 54]),
       connection([[541, 42], [541, 52]], 'GAUGE TAP', [410, 18]),
     ],
   },

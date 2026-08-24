@@ -356,7 +356,7 @@ export class UtilityInspector {
       html += `<div class="utility-summary-grid">
         <div class="utility-summary-stat"><span>Pressure</span><strong>${fmtQty(flow.pressure)}</strong><small>mbar · worst sink</small></div>
         <div class="utility-summary-stat"><span>Stage</span><strong>${escapeHtml(stage)}</strong><small>current pressure regime</small></div>
-        <div class="utility-summary-stat"><span>Effective pumping</span><strong>${fmtQty(flow.effectivePumpSpeed)}</strong><small>L/s after conductance</small></div>
+        <div class="utility-summary-stat"><span>Active pumping</span><strong>${fmtQty(flow.effectivePumpSpeed)}</strong><small>L/s on shared header</small></div>
         <div class="utility-summary-stat"><span>Evacuated volume</span><strong>${fmtQty(flow.volumeL)}</strong><small>L total</small></div>
       </div>`;
     } else {

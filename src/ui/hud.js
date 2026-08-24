@@ -730,16 +730,16 @@ export const CONNECTION_GUIDES = {
   },
   vacuum: {
     title: 'VACUUM PATH',
-    description: 'Connect roughing and high-vacuum pumps to the beam volume with Vacuum Pipe. Gauges are taps on that same line.',
+    description: 'Connect every pump to the same Vacuum Pipe network in any order. Roughing capacity backs turbos across the whole shared header; gauges are taps on that network.',
     accent: '#8fe5ff',
     diagram: 'vacuum',
     flow: [
-      { name: 'ROUGH PUMP', detail: 'pump-down' },
-      { name: 'TURBO / UHV', detail: 'high vacuum' },
+      { name: 'PUMP SOURCES', detail: 'rough + turbo / UHV' },
+      { name: 'SHARED HEADER', detail: 'capacities add by stage' },
       { name: 'BEAM VOLUME', detail: 'vacuum sink' },
       { name: 'GAUGE', detail: 'monitors pressure' },
     ],
-    links: ['BACKING STAGE', 'VACUUM PIPE', 'MOUNTS ON LINE'],
+    links: ['ANY ORDER', 'VACUUM PIPE', 'MOUNTS ON LINE'],
   },
   rfPower: {
     title: 'RF PATH',

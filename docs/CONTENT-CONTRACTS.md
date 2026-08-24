@@ -197,6 +197,13 @@ the short authoring contract.
   from both Infra > Data & Controls and Facility > Control Room. It requires
   power but does not require a separate upstream data source.
 
+- Vacuum pipe is a shared-header network. Every powered pump source on one
+  connected topology participates regardless of source order, branch order,
+  or distance along the header. Roughing capacity backs turbo capacity at the
+  network level; active capacity adds within the current pressure stage, while
+  passive manifolds add no pumping capacity. Every sink and line-mounted gauge
+  on that topology reads the same published network pressure.
+
 - Read ports through `getUtilityPortsV2(id)` when solver defaults and derived RF
   band information matter. The flat table is raw authoring data.
 - An HV or data port with `tensionsCable: true` is a mechanical cable anchor.

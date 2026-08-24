@@ -25,7 +25,7 @@ Carries low-voltage branch power from distribution panels to field distribution 
 - **Field distribution:** Beamline Busway ($70k, eight taps, 160 kW) and Spider Box (four interchangeable sockets, 30 kW). Connect a panel to any spider-box socket and use the remaining three for loads. Both add no capacity and cannot be chained.
 
 ### Vacuum Pipe (gray)
-Connects staged vacuum pumps to the beamline. The network tracks gas inventory and volume through time, hands off from roughing to backed high-vacuum and UHV stages, and limits remote molecular pumps by tube conductance.
+Connects staged vacuum pumps to the beamline. The network tracks gas inventory and volume through time, hands off from roughing to backed high-vacuum and UHV stages, and adds every active pump on the connected header regardless of branch order or distance.
 
 - **Color:** Gray (0x888888)
 - **Network type:** Dynamic pressure, approaching `P_eq = Q/S_eff + P_ultimate`

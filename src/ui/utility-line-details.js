@@ -266,7 +266,7 @@ function vacuumZoneBalance(flow, labelFor = value => value) {
       <header><span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(zone.portName || zone.id)}</small></span>
         <em>${escapeHtml(zone.pressureRegime || '--')} · ${fmt(zone.pressureMbar)} mbar</em></header>
       <div class="vacuum-zone-bar is-outgassing"><span>Outgassing</span><i><b style="width:${outgasPct.toFixed(2)}%"></b></i><em>${fmt(outgassing)} mbar·L/s</em></div>
-      <div class="vacuum-zone-bar is-pumping"><span>Local pumping</span><i><b style="width:${pumpPct.toFixed(2)}%"></b></i><em>${fmt(pumping)} L/s</em></div>
+      <div class="vacuum-zone-bar is-pumping"><span>Header pumping</span><i><b style="width:${pumpPct.toFixed(2)}%"></b></i><em>${fmt(pumping)} L/s</em></div>
     </article>`;
   }).join('');
   return `<section class="vacuum-zone-panel utility-instrument-panel">

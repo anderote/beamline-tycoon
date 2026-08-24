@@ -176,7 +176,7 @@ assert(vacuumHistory[0].roughingCapacity === 15
   'vacuum telemetry copies solver-published stage capacity and volume sources');
 assert(vacuumHtml.includes('Pressure history')
     && vacuumHtml.includes('PRESSURE-ZONE BALANCE')
-    && vacuumHtml.includes('Outgassing') && vacuumHtml.includes('Local pumping')
+    && vacuumHtml.includes('Outgassing') && vacuumHtml.includes('Header pumping')
     && vacuumHtml.includes('Ultra-high vacuum'),
   'vacuum plots combine pressure history with per-zone outgassing and pumping bars');
 

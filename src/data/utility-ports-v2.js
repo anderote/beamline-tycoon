@@ -633,8 +633,9 @@ const BEAMLINE_UTILITY_PORTS = {
 // At the game's 0.06 m pipe radius that is 3770 cm² per metre, so one metre of
 // unbaked pipe outgasses ~3.8e-7 — about as much as an entire component used
 // to. A 100 m line on one 100 L/s pump lands at quality 0.61; baked, ~1.00.
-// Long machines therefore need distributed pumping, and `bakeoutSystem`
-// (already in the tree with no gameplay effect) becomes a real 100x upgrade.
+// Long machines therefore need more pumping on their shared header, and
+// `bakeoutSystem` (already in the tree with no gameplay effect) becomes a real
+// 100x upgrade.
 export const Q_SPECIFIC_UNBAKED = 1e-10;
 export const Q_SPECIFIC_BAKED = 1e-12;
 const PIPE_RADIUS_M = 0.06;
@@ -804,7 +805,7 @@ for (const [id, comp] of Object.entries(BEAMLINE_COMPONENTS_RAW)) {
 // the physics each one is standing in for:
 //   fiber 12 (low-loss, cheap) > power 10 (busway) > cooling 8 (headered LCW)
 //   > RF 6 / cryo 6 (lossy waveguide, expensive vacuum-jacketed line)
-//   > vacuum 5 (conductance dies down a long manifold)
+//   > vacuum 5 (compact physical header and bounded wiring affordance)
 // A bus adds NO capacity — it only changes how many lines the player draws.
 // ---------------------------------------------------------------------------
 
