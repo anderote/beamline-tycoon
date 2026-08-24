@@ -157,7 +157,7 @@ export class BeamlineDesigner {
     // Utility lines a moveJunction op could not re-route, counted per apply.
     this._danglingLineCount = 0;
     // Physics-driven, non-mutating insertion recipes. `ghostQuads` remains a
-    // focus-only compatibility view for Stubby and older tests; all designer
+    // Focus-only compatibility view for older focused tests; all designer
     // rendering and one-click insertion use placementHints.
     this.placementHints = [];
     this.ghostQuads = [];
@@ -2771,9 +2771,6 @@ export class BeamlineDesigner {
     this._updateAdvisorReadout();
     this._renderAll?.();
     this._updateStackupPlannerPanel();
-    // Optics advice is only meaningful against the current draft, and the
-    // draft changes far faster than the tick Stubby normally runs on.
-    this.game?._runAdvisor?.();
   }
 
   /** Whether the player can actually insert a component into this machine. */
@@ -2795,8 +2792,8 @@ export class BeamlineDesigner {
       typeId,
       isUnlocked: comp => this.game?.isComponentUnlocked?.(comp) !== false,
     });
-    // Stubby's existing focus rules and the regression suite consume this
-    // narrow view. Keep it derived so it cannot disagree with the canvas.
+    // Focus-specific regression tests consume this narrow view. Keep it
+    // derived so it cannot disagree with the canvas.
     this.ghostQuads = this.placementHints
       .filter(hint => hint.kind === 'focus' && hint.componentType === 'quadrupole')
       .map(hint => ({

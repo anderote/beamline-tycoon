@@ -72,16 +72,6 @@ test('full session walk: boot -> build -> beam -> save/reload -> undo -> escape'
   const errors = createErrorCollector(page);
   autoAcceptDialogs(page);
   await blockRemoteDrive(page);
-  // TEMP-STUBBY-HACK
-  await page.addInitScript(() => {
-    const add = () => {
-      const s = document.createElement('style');
-      s.textContent = '#stubby{display:none!important;}';
-      (document.head || document.documentElement).appendChild(s);
-    };
-    if (document.head) add(); else document.addEventListener('DOMContentLoaded', add);
-  });
-
   // ── boot -> title screen ────────────────────────────────────────────────
   await test.step('boot to the title screen', async () => {
     await page.goto('/');
