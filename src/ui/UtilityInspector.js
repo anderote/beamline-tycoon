@@ -14,7 +14,6 @@ import { UTILITY_TYPES } from '../utility/registry.js';
 import { discoverNetworks, makeDefaultPortLookup } from '../utility/network-discovery.js';
 import { findUtilityEndpoint } from '../utility/utility-endpoints.js';
 import { escapeHtml } from './format.js';
-import { renderRfSpectrum } from './rf-spectrum.js';
 import { DEFAULT_VACUUM_HISTORY_RANGE_TICKS } from '../utility/types/vacuumPipe.js';
 import { bindVacuumPressureRangeControls } from './vacuum-pressure-controls.js';
 import { waterCircuitLabel } from '../utility/water-circuits.js';
@@ -94,15 +93,16 @@ export function utilityInspectorTabs(utilityType, lineId = null) {
   if (lineId) {
     return [
       { key: 'run', label: 'Run Details' },
-      { key: 'performance', label: 'Performance' },
+      { key: 'plots', label: 'Plots' },
       { key: 'topology', label: 'Topology' },
-      ...(utilityType === 'rfWaveguide' ? [{ key: 'spectrum', label: 'Spectrum' }] : []),
       { key: 'overview', label: 'Network' },
     ];
   }
-  return utilityType === 'rfWaveguide'
-    ? [{ key: 'topology', label: 'Topology' }, { key: 'spectrum', label: 'Spectrum' }, { key: 'overview', label: 'Details' }]
-    : [{ key: 'topology', label: 'Topology' }, { key: 'overview', label: 'Details' }];
+  return [
+    { key: 'topology', label: 'Topology' },
+    { key: 'plots', label: 'Plots' },
+    { key: 'overview', label: 'Details' },
+  ];
 }
 
 export class UtilityInspector {
@@ -148,13 +148,10 @@ export class UtilityInspector {
 
     if (lineId) {
       ctx.onTabRender('run', (el) => this._renderRun(el));
-      ctx.onTabRender('performance', (el) => this._renderPerformance(el));
     }
+    ctx.onTabRender('plots', (el) => this._renderPlots(el));
     ctx.onTabRender('topology', (el) => this._renderTopology(el));
     ctx.onTabRender('overview', (el) => this._renderOverview(el));
-    if (utilityType === 'rfWaveguide') {
-      ctx.onTabRender('spectrum', (el) => this._renderSpectrum(el));
-    }
 
     // Auto-refresh on tick / utilityLinesChanged using the game's single
     // listener channel (same pattern as NetworkWindow).
@@ -181,7 +178,7 @@ export class UtilityInspector {
   // Network ids are content hashes of port membership. If another run is
   // added to or removed from this topology while the window is open, follow
   // the selected line onto the replacement id instead of leaving its Network
-  // and Performance tabs pointed at the retired solve result.
+  // and Plots tabs pointed at the retired solve result.
   _syncSelectedLineNetwork() {
     if (!this.lineId) return;
     const line = this.game.state.utilityLines?.get?.(this.lineId);
@@ -191,23 +188,24 @@ export class UtilityInspector {
     if (network) this.networkId = network.id;
   }
 
-  _renderSpectrum(el) {
-    this._clearTopologyPanBinding();
-    const perType = this.game.state.utilityNetworkData?.get?.(this.utilityType);
-    const flow = perType?.get?.(this.networkId);
-    el.innerHTML = renderRfSpectrum(flow);
-  }
-
   _renderRun(el) {
     this._clearTopologyPanBinding();
     const model = utilityLineDetailsModel(this.game.state, this.lineId, this.networkId);
     el.innerHTML = renderUtilityLineDetails(model);
   }
 
-  _renderPerformance(el) {
+  _renderPlots(el) {
     this._clearTopologyPanBinding();
     const model = utilityPerformanceModel(this.game.state, this.utilityType, this.networkId);
-    el.innerHTML = renderUtilityPerformance(model);
+    el.innerHTML = renderUtilityPerformance(model, {
+      vacuumHistoryRangeTicks: this._vacuumHistoryRangeTicks,
+      labelFor: id => this._placeableLabel(id),
+    });
+    bindVacuumPressureRangeControls(el, rangeTicks => {
+      if (rangeTicks === this._vacuumHistoryRangeTicks) return;
+      this._vacuumHistoryRangeTicks = rangeTicks;
+      if (this.ctx && this.ctx._el) this.ctx.update();
+    });
   }
 
   _renderTopology(el) {

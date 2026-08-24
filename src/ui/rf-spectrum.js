@@ -53,6 +53,45 @@ function binAriaLabel(bin) {
     + `${formatRfSpectrumPower(bin.deliveredPeakPowerW)} peak forward power${quality}`;
 }
 
+export function renderRfNyquist(flow) {
+  if (!flow) {
+    return `<figure class="rf-nyquist-panel utility-instrument-panel">
+      <figcaption><span><strong>NYQUIST / REFLECTION PLANE</strong><small>Complex reflection coefficient Γ</small></span></figcaption>
+      <div class="ui-empty-state">Reflection data is not available yet.</div>
+    </figure>`;
+  }
+  const reflectionFraction = Math.max(0, Math.min(1,
+    finite(flow?.branchReflectionFraction ?? flow?.rfSpectrum?.reflectionFraction)));
+  const gamma = Math.sqrt(reflectionFraction);
+  const vswr = Math.max(1, finite(flow?.vswr ?? flow?.rfSpectrum?.vswr, 1));
+  const width = 320;
+  const height = 220;
+  const cx = 160;
+  const cy = 106;
+  const radius = 82;
+  const markerX = cx + gamma * radius;
+
+  return `<figure class="rf-nyquist-panel utility-instrument-panel">
+    <figcaption>
+      <span><strong>NYQUIST / REFLECTION PLANE</strong><small>Complex reflection coefficient Γ</small></span>
+      <em>|Γ| ${gamma.toFixed(3)} · VSWR ${vswr.toFixed(2)}:1</em>
+    </figcaption>
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="RF reflection coefficient magnitude ${gamma.toFixed(3)} on a Nyquist plane">
+      <line class="rf-nyquist-grid" x1="${cx - radius - 16}" y1="${cy}" x2="${cx + radius + 16}" y2="${cy}"/>
+      <line class="rf-nyquist-grid" x1="${cx}" y1="${cy - radius - 16}" x2="${cx}" y2="${cy + radius + 16}"/>
+      <circle class="rf-nyquist-unit" cx="${cx}" cy="${cy}" r="${radius}"/>
+      <circle class="rf-nyquist-guide" cx="${cx}" cy="${cy}" r="${radius / 2}"/>
+      <line class="rf-nyquist-vector" x1="${cx}" y1="${cy}" x2="${markerX.toFixed(2)}" y2="${cy}"/>
+      <circle class="rf-nyquist-marker" cx="${markerX.toFixed(2)}" cy="${cy}" r="5"/>
+      <text x="${cx + radius + 7}" y="${cy - 5}">+Re</text>
+      <text x="${cx + 5}" y="${cy - radius - 6}">+Im</text>
+      <text x="${cx + 5}" y="${cy + 15}">0</text>
+      <text x="${cx + radius - 4}" y="${cy + 15}">1</text>
+    </svg>
+    <p>Reflection phase is not modeled; the live marker places solver-published |Γ| on the reference axis.</p>
+  </figure>`;
+}
+
 export function renderRfSpectrum(flow) {
   const spectrum = flow?.rfSpectrum;
   if (!spectrum || !Array.isArray(spectrum.bins)) {

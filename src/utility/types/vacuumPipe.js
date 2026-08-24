@@ -50,6 +50,12 @@ const GAUGE_INFO = {
   baGauge:           { label: 'BA',           min: 1e-12, max: 1e-4, color: '#9b7ede' },
 };
 
+export function vacuumPressureRegime(pressureMbar) {
+  if (!(pressureMbar >= 0) || pressureMbar > TURBO_START_PRESSURE_MBAR) return 'Rough vacuum';
+  if (pressureMbar > UHV_START_PRESSURE_MBAR) return 'High vacuum';
+  return 'Ultra-high vacuum';
+}
+
 export function numberDensityFromPressure(pressureMbar, temperatureK = VACUUM_TEMPERATURE_K) {
   if (!(pressureMbar >= 0) || !(temperatureK > 0)) return 0;
   return pressureMbar * MBAR_TO_PA / (BOLTZMANN_J_PER_K * temperatureK);
@@ -566,6 +572,7 @@ export default {
     const volumeL = Object.values(volumeBreakdown).reduce((sum, value) => sum + value, 0);
     const componentOutgas = (network.sinks || []).reduce(
       (sum, sink) => sum + (sink.params?.outgassing || 0), 0);
+    const pipeOutgas = baked ? pipe.unbakedOutgas * BAKEOUT_FACTOR : pipe.unbakedOutgas;
     const rawOutgas = componentOutgas + pipe.unbakedOutgas;
     const totalOutgas = baked ? rawOutgas * BAKEOUT_FACTOR : rawOutgas;
 
@@ -609,6 +616,7 @@ export default {
     const perSinkQuality = {};
     const perSinkPressure = {};
     const perSinkNumberDensity = {};
+    const vacuumZones = [];
     for (const sink of (network.sinks || [])) {
       const target = endpointPoint(byId.get(sink.placeableId));
       const localSpeed = localEffectiveSpeed(stack.active, target, stack.stage);
@@ -619,6 +627,16 @@ export default {
       perSinkPressure[sink.portKey] = localPressure;
       perSinkNumberDensity[sink.portKey] = numberDensityFromPressure(localPressure);
       perSinkQuality[sink.portKey] = qualityFromPressure(localPressure);
+      vacuumZones.push({
+        id: sink.portKey,
+        placeableId: sink.placeableId,
+        portName: sink.portName,
+        pressureMbar: localPressure,
+        pressureRegime: vacuumPressureRegime(localPressure),
+        outgassingMbarLps: Math.max(0, Number(sink.params?.outgassing) || 0)
+          * (baked ? BAKEOUT_FACTOR : 1),
+        pumpingSpeedLps: localSpeed,
+      });
     }
     const sinkPressures = Object.values(perSinkPressure);
     const reportedPressure = sinkPressures.length > 0
@@ -701,7 +719,16 @@ export default {
       baked,
       gasSpecies: baked ? 'H₂-dominated' : 'H₂O-equivalent',
       componentOutgas,
-      pipeOutgas: baked ? pipe.unbakedOutgas * BAKEOUT_FACTOR : pipe.unbakedOutgas,
+      pipeOutgas,
+      vacuumZones: [{
+        id: 'network-pipework',
+        placeableId: null,
+        portName: 'service and beam pipe',
+        pressureMbar: pressure,
+        pressureRegime: vacuumPressureRegime(pressure),
+        outgassingMbarLps: pipeOutgas,
+        pumpingSpeedLps: effectiveSpeed,
+      }, ...vacuumZones],
       perSegmentLoad: [],
       perSinkQuality,
       perSinkPressure,

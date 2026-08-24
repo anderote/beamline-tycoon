@@ -290,6 +290,14 @@ console.log('\n--- Test 9: conductance and gauge history ---');
       && result.flowState.pressureHistory[0].pressure === result.flowState.networkPressure
       && result.flowState.pressureHistory[0].readings.gauge_1 > 0,
     'network and gauge pressure are recorded into the rolling history');
+  const pipeZone = result.flowState.vacuumZones.find(zone => zone.id === 'network-pipework');
+  const loadZone = result.flowState.vacuumZones.find(zone => zone.id === 'load_1:vac_in');
+  assert(pipeZone?.outgassingMbarLps === result.flowState.pipeOutgas
+      && pipeZone?.pumpingSpeedLps === result.flowState.effectivePumpSpeed
+      && loadZone?.outgassingMbarLps === 1e-6
+      && loadZone?.pumpingSpeedLps > 0
+      && loadZone?.pressureMbar === result.flowState.perSinkPressure['load_1:vac_in'],
+    'solver publishes outgassing, local pumping, and pressure for each plotted vacuum zone');
   const html = desc.renderInspector(net, result.flowState, result.nextPersistentState);
   assert(VACUUM_HISTORY_TICKS === VACUUM_TICKS_PER_DAY * 10
       && DEFAULT_VACUUM_HISTORY_RANGE_TICKS === VACUUM_HISTORY_TICKS,
