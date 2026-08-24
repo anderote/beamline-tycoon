@@ -968,6 +968,15 @@ export class InputHandler {
     this.renderer.openPlaceableInfoPopup?.(entry, screenX, screenY);
   }
 
+  /** Resolve placeable-like inspector data for a selectable world target. */
+  _placeableInfoEntryForTarget(target) {
+    if (target?.entry) return target.entry;
+    if (target?.targetKind === 'beamlineAttachment' && target.id) {
+      return findUtilityEndpoint(this.game?.state, target.id);
+    }
+    return null;
+  }
+
   /** Leave one live context window representing the complete selection. */
   _reconcileSelectionWindow(previousIds = []) {
     const selectedTargets = typeof this._selectionTargets === 'function'
@@ -1474,7 +1483,28 @@ export class InputHandler {
     this.selectedNodeId = target.selectionCategory === 'beamline'
       && target.targetKind === 'placeable' ? target.id : null;
     this._renderSelectionOutlines();
-    if (openInspector) this._reconcileSelectionWindow(previousSelection);
+    if (openInspector) {
+      const infoEntry = !additive && target.targetKind === 'beamlineAttachment'
+        ? this._placeableInfoEntryForTarget(target)
+        : null;
+      if (infoEntry) {
+        // On-pipe components are logical attachment targets, but a direct
+        // click is still a single beamline-component selection. Give them the
+        // same inspector as junction-mounted hardware; Shift-click and
+        // marquee gestures continue through the group-selection panel.
+        this.renderer.closeSelectionWindow?.();
+        for (const key of previousSelection) {
+          if (key === target.key) continue;
+          const previousTarget = selectionTargetByKey(this.game?.state, key);
+          const previousEntry = this._placeableInfoEntryForTarget(previousTarget);
+          if (previousEntry) this.renderer.closePlaceableInfoWindow?.(previousEntry);
+        }
+        this._openPlaceableInfoWindow(infoEntry, screenX, screenY);
+        this.renderer.refreshContextWindows?.();
+      } else {
+        this._reconcileSelectionWindow(previousSelection);
+      }
+    }
     return true;
   }
 

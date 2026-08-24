@@ -106,5 +106,66 @@ console.log('\n=== Single-item BLT info popup ===\n');
     'beamline single clicks open the compact component popup while preserving beamline focus');
 }
 
+{
+  const attachments = [
+    { id: 'quad-on-pipe', type: 'quadrupole', position: 0.25, subL: 2, params: {} },
+    {
+      id: 'srf-on-pipe', type: 'halfWaveResonator', position: 0.625, subL: 4, params: {},
+    },
+  ];
+  const opened = [];
+  let groupOpened = 0;
+  const renderer = {
+    selectionRootForTarget() { return null; },
+    setSelectionTargets() {},
+    setSelectedBeamlineFocus() {},
+    closeSelectionWindow() {},
+    openSelectionWindow() { groupOpened++; },
+    openPlaceableInfoPopup(entry) { opened.push(entry); },
+    refreshContextWindows() {},
+  };
+  const game = {
+    state: {
+      placeables: [],
+      beamPipes: [{
+        id: 'pipe-1', subL: 8,
+        path: [{ col: 1, row: 1 }, { col: 3, row: 1 }],
+        placements: attachments,
+      }],
+      floors: [], walls: [], wallOverlays: [], doors: [], windows: [],
+    },
+    registry: { getAll: () => [] },
+    getComponentHealth: () => 100,
+  };
+  const input = {
+    renderer,
+    game,
+    selectedNodeId: null,
+    selectedPlaceableId: null,
+    selectedPlaceableIds: new Set(),
+    _selectedRootsById: new Map(),
+    _selectionCandidatesByKey: new Map(),
+    _renderSelectionOutlines() {},
+    _selectLogicalTarget: InputHandler.prototype._selectLogicalTarget,
+    _placeableInfoEntryForTarget: InputHandler.prototype._placeableInfoEntryForTarget,
+    _openPlaceableInfoWindow: InputHandler.prototype._openPlaceableInfoWindow,
+  };
+
+  const selectedQuad = InputHandler.prototype.selectWorldObject.call(input, attachments[0].id);
+  const selectedSrf = InputHandler.prototype.selectWorldObject.call(input, attachments[1].id);
+  assert(selectedQuad === true && opened[0]?.id === attachments[0].id
+      && opened[0]?.category === 'beamline',
+  'a direct selection of an on-pipe Quad opens the beamline component inspector');
+  assert(selectedSrf === true && opened[1]?.id === attachments[1].id
+      && opened[1]?.type === 'halfWaveResonator',
+  'a direct selection of an on-pipe half-wave SRF cavity opens the component inspector');
+  assert(groupOpened === 0,
+    'a single on-pipe component does not open the multi-selection menu');
+
+  const actions = singleItemPopupActions(opened[1]);
+  assert(actions.find(action => action.id === 'move')?.disabled === true,
+    'the attachment inspector does not offer an unsupported direct Move action');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
