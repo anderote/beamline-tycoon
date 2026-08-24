@@ -20,6 +20,12 @@ function fmtNumber(value) {
   return value.toFixed(1).replace(/\.0$/, '');
 }
 
+function fmtScientific(value) {
+  if (!Number.isFinite(value)) return '--';
+  if (value === 0) return '0';
+  return value.toExponential(2);
+}
+
 function humanize(value) {
   return String(value || '')
     .replace(/([a-z])([A-Z])/g, '$1 $2')
@@ -205,28 +211,31 @@ export function utilityNetworkHoverInfo(descriptor, flow) {
   if (!flow) return { title, detail: 'Awaiting network data' };
   const capacity = Number(flow.totalCapacity) || 0;
   const demand = Number(flow.totalDemand) || 0;
-  const unit = descriptor?.capacityUnit || '';
-  const suffix = unit ? ` ${unit}` : '';
-  const supplyText = `Supply: ${fmtNumber(capacity)}${suffix}`;
-  const demandText = `Demand: ${fmtNumber(demand)}${suffix}`;
+  const capacityUnit = descriptor?.capacityUnit || '';
+  const demandUnit = descriptor?.demandUnit || capacityUnit;
+  const capacitySuffix = capacityUnit ? ` ${capacityUnit}` : '';
+  const demandSuffix = demandUnit ? ` ${demandUnit}` : '';
+  const comparableUnits = capacityUnit === demandUnit;
 
   // Exact coverage is healthy. Once demand exceeds supply, move from orange
-  // to red when less than half of the requested load can be served.
-  const coverage = demand > 0 ? capacity / demand : 1;
-  const demandTone = capacity >= demand
-    ? 'healthy'
-    : (coverage >= 0.5 ? 'warning' : 'critical');
-
+  // to red when less than half of the requested load can be served. Vacuum is
+  // intentionally excluded: pumping speed (L/s) and gas throughput
+  // (mbar·L/s) are different dimensions, so dividing them is pressure, not a
+  // coverage ratio.
   const errors = Array.isArray(flow.errors) ? flow.errors.filter(Boolean) : [];
   const qualityValues = Object.values(flow.perSinkQuality || {})
     .filter(value => typeof value === 'number' && Number.isFinite(value));
   const zeroService = qualityValues.some(quality => quality <= 0)
     || (demand > 0 && capacity <= 0);
   const underServed = qualityValues.some(quality => quality < 1)
-    || capacity < demand;
+    || (comparableUnits && capacity < demand);
+  const coverage = comparableUnits && demand > 0 ? capacity / demand : 1;
+  let demandTone = 'healthy';
+  if (zeroService || (comparableUnits && coverage < 0.5)) demandTone = 'critical';
+  else if (underServed || (comparableUnits && coverage < 1)) demandTone = 'warning';
   const issueMessages = [...new Set(errors.map(error =>
     error.message || humanize(error.code || 'Utility issue')))];
-  if (issueMessages.length === 0 && underServed) {
+  if (issueMessages.length === 0 && underServed && (comparableUnits || zeroService)) {
     issueMessages.push(zeroService
       ? 'Connected equipment is receiving no service.'
       : 'Connected equipment is under-served.');
@@ -238,11 +247,28 @@ export function utilityNetworkHoverInfo(descriptor, flow) {
     ? 'critical'
     : 'warning';
 
-  const detailSegments = [
-    { text: supplyText, tone: 'supply' },
-    { text: ' · ' },
-    { text: demandText, tone: demandTone },
-  ];
+  let detailSegments;
+  if (descriptor?.type === 'vacuumPipe') {
+    detailSegments = [];
+    const pressure = Number(flow.pressure);
+    if (Number.isFinite(pressure)) {
+      detailSegments.push(
+        { text: `Pressure: ${fmtScientific(pressure)} mbar`, tone: demandTone },
+        { text: ' · ' },
+      );
+    }
+    detailSegments.push(
+      { text: `Pumping: ${fmtNumber(capacity)}${capacitySuffix}`, tone: 'supply' },
+      { text: ' · ' },
+      { text: `Gas load: ${fmtScientific(demand)}${demandSuffix}`, tone: demandTone },
+    );
+  } else {
+    detailSegments = [
+      { text: `Supply: ${fmtNumber(capacity)}${capacitySuffix}`, tone: 'supply' },
+      { text: ' · ' },
+      { text: `Demand: ${fmtNumber(demand)}${demandSuffix}`, tone: demandTone },
+    ];
+  }
   if (issueText) detailSegments.push(
     { text: ' · ' },
     { text: issueText, tone: issueTone },
