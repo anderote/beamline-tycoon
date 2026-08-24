@@ -145,6 +145,7 @@ export class UtilityInspector {
       onClose: () => this._cleanup(),
     });
     this.ctx = ctx;
+    ctx._el?.classList.add('utility-inspector-window', `utility-inspector-window-${utilityType}`);
 
     if (lineId) {
       ctx.onTabRender('run', (el) => this._renderRun(el));

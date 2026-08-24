@@ -1,6 +1,8 @@
 // Clicked utility runs get their own identity/details model and plot only the
 // bounded network telemetry published by SolveRunner.
 
+import { readFileSync } from 'node:fs';
+
 import {
   renderUtilityLineDetails,
   renderUtilityPerformance,
@@ -21,6 +23,8 @@ function assert(condition, message) {
 }
 
 console.log('\n--- Utility run details and performance ---');
+
+const styles = readFileSync(new URL('../style.css', import.meta.url), 'utf8');
 
 const line = {
   id: 'line_power_detail',
@@ -97,12 +101,21 @@ const performance = utilityPerformanceModel(state, 'powerCable', network.id);
 const performanceHtml = renderUtilityPerformance(performance);
 assert(performance.history === history && performance.current.tick === history.at(-1).tick,
   'performance model reads the exact solver-published history without recomputing it');
-assert((performanceHtml.match(/class="utility-performance-plot"/g) || []).length === 2
+assert((performanceHtml.match(/class="utility-performance-plot\b/g) || []).length === 2
     && performanceHtml.includes('Electrical load profile')
     && performanceHtml.includes('Delivered voltage quality'),
   'power plots render a distinct electrical load and voltage-quality view');
-assert(performanceHtml.includes('Every run in this topology shares these live values'),
+assert(performanceHtml.includes('Every run in this topology shares these solver-published values'),
   'plot copy makes the network-wide scope of line performance explicit');
+assert(performanceHtml.includes('utility-performance-swatch')
+    && performanceHtml.includes('utility-plot-live')
+    && performanceHtml.includes('utility-performance-chart')
+    && performanceHtml.includes('utility-plot-time-scale'),
+  'plot markup carries the BLT telemetry header, live state, framed chart, and time rail');
+assert(/\.utility-performance-plots\s*\{[^}]*gap:\s*3px/s.test(styles)
+    && styles.includes('linear-gradient(90deg, #5de6c5 0 12px')
+    && /\.ctx-window\.utility-inspector-window\s*\{[^}]*border-color:\s*rgba\(75, 153, 153/s.test(styles),
+  'utility plots share the Designer deck spacing, corner brackets, and teal instrument chrome');
 
 const lineTabs = utilityInspectorTabs('powerCable', line.id);
 assert(lineTabs[0]?.key === 'run'
