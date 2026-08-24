@@ -63,7 +63,11 @@ test('live beam meshes consume workshop density, size, and bunch controls', () =
   setParticleEffectProfile('beamline', {
     density: 2,
     size: 0.05,
+    speed: 2,
+    coreOpacity: 0.32,
+    pixelOpacity: 0.4,
     bunchSize: 6,
+    slosh: 0,
   });
   const parent = new Three.Group();
   const builder = new BeamBuilder();
@@ -81,6 +85,79 @@ test('live beam meshes consume workshop density, size, and bunch controls', () =
   assert.ok(dc.count > 30, 'density slider increases the looping pixel population');
   assert.equal(bunch.count % 6, 0, 'bunch slider controls pixels per compact packet');
   assert.equal(dc.geometry.parameters.width, 0.1, 'pixel-size slider reaches beam geometry');
+  assert.equal(dc.material.opacity, 0.4, 'pixel-glow slider reaches live beam material');
+  assert.equal(parent.getObjectByName('beam-core').material.opacity, 0.15,
+    'core-glow slider reaches the live continuous beam core');
+  const before = new Three.Matrix4();
+  const after = new Three.Matrix4();
+  dc.getMatrixAt(0, before);
+  builder.update(0.1);
+  dc.getMatrixAt(0, after);
+  assert.ok(after.elements[12] - before.elements[12] > 0.5,
+    'speed scale advances actual live-beam instances');
   builder.dispose(parent);
   resetParticleEffectProfile('beamline');
+});
+
+test('cyclotron pane independently tunes live spiral particles', () => {
+  setParticleEffectProfile('cyclotron', {
+    density: 2,
+    size: 0.06,
+    speed: 2.5,
+    turns: 4,
+    orbitScale: 1.4,
+    extraction: 0.65,
+    slosh: 1.2,
+    brightness: 0.4,
+  });
+  setParticleEffectProfile('sourceFlow', {
+    density: 0.25,
+    size: 0.02,
+    brightness: 0.75,
+  });
+  const parent = new Three.Group();
+  const builder = new BeamBuilder();
+  builder.build([
+    {
+      beamlineId: 'cyclotron-beam',
+      worldPoints: [{ col: 0, row: 0 }, { col: 4, row: 0 }],
+      visualMode: 'continuous',
+      sourceEffect: {
+        kind: 'cyclotronSpiral', elementId: 'cyclotron', radius: 0.9, sourceLength: 2,
+      },
+      color: 0x44ff88,
+    },
+    {
+      beamlineId: 'ecr-beam',
+      worldPoints: [{ col: 0, row: 2 }, { col: 4, row: 2 }],
+      visualMode: 'continuous',
+      sourceEffect: {
+        kind: 'plasmaVortex', elementId: 'ecr', radius: 0.5, sourceLength: 1.5,
+      },
+      color: 0x44ff88,
+    },
+  ], parent);
+
+  const cyclotron = parent.getObjectByName('beam-cyclotron-flow');
+  const ecr = parent.getObjectByName('beam-ecr-plasma-flow');
+  assert.equal(cyclotron.count, 76, 'cyclotron density controls the live spiral population');
+  assert.equal(cyclotron.geometry.parameters.width, 0.06,
+    'cyclotron particle size reaches the live spiral geometry');
+  assert.equal(cyclotron.material.opacity, 0.4,
+    'cyclotron brightness reaches the live spiral material');
+  assert.equal(ecr.count, 8, 'ECR density remains on its independent source pane');
+  assert.equal(ecr.geometry.parameters.width, 0.02,
+    'ECR particle size is not overwritten by cyclotron tuning');
+
+  const before = new Three.Matrix4();
+  const after = new Three.Matrix4();
+  cyclotron.getMatrixAt(0, before);
+  builder.update(0.1);
+  cyclotron.getMatrixAt(0, after);
+  assert.notDeepEqual(after.elements, before.elements,
+    'cyclotron speed, turns, radius, extraction, and wobble feed live animation state');
+
+  builder.dispose(parent);
+  resetParticleEffectProfile('cyclotron');
+  resetParticleEffectProfile('sourceFlow');
 });

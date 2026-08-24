@@ -94,6 +94,7 @@ import {
 } from './spark-presentation.js';
 import { AmbientElectricalSparkScheduler } from './ambient-electrical-sparks.js';
 import {
+  isLiveBeamParticleEffect,
   previewParticleDescriptors,
   setParticleEffectProfile,
 } from './particle-effect-tuning.js';
@@ -2040,9 +2041,7 @@ export class ThreeRenderer {
   /** Apply workshop tuning; live beam and radiation pixels rebuild immediately. */
   setParticleEffectTuning(id, values) {
     const profile = setParticleEffectProfile(id, values);
-    if (profile && [
-      'beamline', 'targetRadiation', 'synchrotronRadiation', 'sourceFlow',
-    ].includes(id)) {
+    if (profile && isLiveBeamParticleEffect(id)) {
       this._refreshBeam();
     }
     return profile;

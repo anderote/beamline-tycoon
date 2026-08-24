@@ -90,6 +90,7 @@ export class BeamBuilder {
     this._targetTuning = particleEffectProfile('targetRadiation');
     this._synchrotronTuning = particleEffectProfile('synchrotronRadiation');
     this._sourceTuning = particleEffectProfile('sourceFlow');
+    this._cyclotronTuning = particleEffectProfile('cyclotron');
 
     const segmentBuckets = new Map();
     const packetBuckets = new Map();
@@ -350,10 +351,11 @@ export class BeamBuilder {
 
   _addSourceParticles(run, effect, buckets, opacityScale) {
     if (!effect) return;
-    const tuning = this._sourceTuning;
-    const countBase = effect.kind === 'cyclotronSpiral' ? 38 : 30;
+    const cyclotron = effect.kind === 'cyclotronSpiral';
+    const tuning = cyclotron ? this._cyclotronTuning : this._sourceTuning;
+    const countBase = cyclotron ? 38 : 30;
     const count = Math.max(8, Math.min(96, Math.round(countBase * tuning.density)));
-    const role = effect.kind === 'cyclotronSpiral' ? 'cyclotron-flow' : 'ecr-plasma-flow';
+    const role = cyclotron ? 'cyclotron-flow' : 'ecr-plasma-flow';
     const bucket = bucketFor(buckets, `${role}:${opacityScale}`, {
       role, size: tuning.size, opacity: tuning.brightness * opacityScale, elongated: false,
     });
@@ -365,7 +367,7 @@ export class BeamBuilder {
       y: exit.y,
       z: exit.z - tangentZ * effect.sourceLength * 0.5,
     };
-    const colors = effect.kind === 'cyclotronSpiral'
+    const colors = cyclotron
       ? [0xffffff, 0x69edff, 0x6fa2ff]
       : [0xffffff, 0xc05cff, 0x6d8cff, 0x58ecff];
     for (let i = 0; i < count; i++) {
@@ -381,6 +383,9 @@ export class BeamBuilder {
         sourceLength: effect.sourceLength,
         speed: tuning.speed * (0.82 + hashUnit(`${seed}:speed`) * 0.36),
         slosh: tuning.slosh,
+        turns: cyclotron ? tuning.turns : null,
+        orbitScale: cyclotron ? tuning.orbitScale : 1,
+        extraction: cyclotron ? tuning.extraction : null,
       };
       this._specialParticles.push(particle);
       bucket.entries.push({ particle, color: paletteColor(colors, seed) });
@@ -506,12 +511,12 @@ export class BeamBuilder {
     const sideX = -particle.tangentZ;
     const sideZ = particle.tangentX;
     if (particle.kind === 'cyclotronSpiral') {
-      const orbitEnd = 0.78;
+      const orbitEnd = particle.extraction;
       const q = Math.min(1, progress / orbitEnd);
       const finalAngle = Math.atan2(0.72, 0.22);
-      const angle = finalAngle - (1 - q) * Math.PI * 8
+      const angle = finalAngle - (1 - q) * Math.PI * 2 * particle.turns
         + Math.sin(this._time * 1.9 + particle.phase * 17) * 0.08 * particle.slosh;
-      const radius = particle.radius * q;
+      const radius = particle.radius * particle.orbitScale * q;
       const orbitX = particle.centre.x
         + sideX * Math.cos(angle) * radius + particle.tangentX * Math.sin(angle) * radius;
       const orbitZ = particle.centre.z
@@ -521,9 +526,9 @@ export class BeamBuilder {
       } else {
         const extract = (progress - orbitEnd) / (1 - orbitEnd);
         const outerX = particle.centre.x
-          + sideX * particle.radius * 0.22 + particle.tangentX * particle.radius * 0.72;
+          + sideX * radius * 0.22 + particle.tangentX * radius * 0.72;
         const outerZ = particle.centre.z
-          + sideZ * particle.radius * 0.22 + particle.tangentZ * particle.radius * 0.72;
+          + sideZ * radius * 0.22 + particle.tangentZ * radius * 0.72;
         x = outerX + (particle.exit.x - outerX) * extract;
         z = outerZ + (particle.exit.z - outerZ) * extract;
       }

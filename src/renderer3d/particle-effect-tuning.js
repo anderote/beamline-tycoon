@@ -47,6 +47,7 @@ const PROFILE_DEFS = {
   beamline: {
     label: 'Particle Beam',
     description: 'Looping live-beam pixels; real beam speed still follows published beta.',
+    liveBeam: true,
     fields: {
       density:     { label: 'Pixel density', min: 0.25, max: 3, step: 0.05, value: 1 },
       size:        { label: 'Pixel size', min: 0.012, max: 0.09, step: 0.002, value: 0.036 },
@@ -60,6 +61,7 @@ const PROFILE_DEFS = {
   targetRadiation: {
     label: 'Target Radiation',
     description: 'Secondary-particle showers where a live beam is absorbed by a target or stop.',
+    liveBeam: true,
     fields: {
       density:     { label: 'Shower density', min: 0.25, max: 3, step: 0.05, value: 1 },
       size:        { label: 'Particle size', min: 0.012, max: 0.09, step: 0.002, value: 0.03 },
@@ -72,6 +74,7 @@ const PROFILE_DEFS = {
   synchrotronRadiation: {
     label: 'Synchrotron Radiation',
     description: 'Narrow photon streaks emitted tangentially by a live beam in bending magnets.',
+    liveBeam: true,
     fields: {
       density:     { label: 'Streak density', min: 0.25, max: 3, step: 0.05, value: 1 },
       size:        { label: 'Streak width', min: 0.008, max: 0.07, step: 0.002, value: 0.022 },
@@ -83,13 +86,29 @@ const PROFILE_DEFS = {
     },
   },
   sourceFlow: {
-    label: 'Source Interior',
-    description: 'Cyclotron spiral orbits and ECR plasma vortices feeding the extracted beam.',
+    label: 'ECR Source',
+    description: 'Live plasma vortices inside ECR ion sources feeding the extracted beam.',
+    liveBeam: true,
     fields: {
       density:     { label: 'Particle density', min: 0.25, max: 3, step: 0.05, value: 1 },
       size:        { label: 'Particle size', min: 0.012, max: 0.09, step: 0.002, value: 0.032 },
       speed:       { label: 'Circulation speed', min: 0.15, max: 3, step: 0.05, value: 1 },
       slosh:       { label: 'Plasma slosh', min: 0, max: 1.5, step: 0.05, value: 0.8 },
+      brightness:  { label: 'Brightness', min: 0.1, max: 1, step: 0.05, value: 0.9 },
+    },
+  },
+  cyclotron: {
+    label: 'Cyclotron',
+    description: 'Live particles spiral through cyclotron orbits before joining the extracted beam.',
+    liveBeam: true,
+    fields: {
+      density:     { label: 'Particle density', min: 0.25, max: 3, step: 0.05, value: 1 },
+      size:        { label: 'Particle size', min: 0.012, max: 0.09, step: 0.002, value: 0.032 },
+      speed:       { label: 'Circulation speed', min: 0.15, max: 3, step: 0.05, value: 1 },
+      turns:       { label: 'Spiral turns', min: 1, max: 10, step: 0.25, value: 4 },
+      orbitScale:  { label: 'Orbit radius', min: 0.5, max: 1.5, step: 0.05, value: 1 },
+      extraction:  { label: 'Extraction point', min: 0.5, max: 0.95, step: 0.01, value: 0.78 },
+      slosh:       { label: 'Vertical wobble', min: 0, max: 1.5, step: 0.05, value: 0.8 },
       brightness:  { label: 'Brightness', min: 0.1, max: 1, step: 0.05, value: 0.9 },
     },
   },
@@ -112,8 +131,13 @@ export function particleEffectDefinitions() {
     id,
     label: def.label,
     description: def.description,
+    liveBeam: !!def.liveBeam,
     fields: Object.fromEntries(Object.entries(def.fields).map(([key, field]) => [key, { ...field }])),
   }]));
+}
+
+export function isLiveBeamParticleEffect(id) {
+  return !!PROFILE_DEFS[id]?.liveBeam;
 }
 
 export function particleEffectProfile(id) {
@@ -249,7 +273,7 @@ export function previewParticleDescriptors(id, position) {
       physicalLight: false,
     }];
   }
-  if (id === 'sourceFlow') {
+  if (id === 'sourceFlow' || id === 'cyclotron') {
     const p = particleEffectProfile(id);
     return [{
       kind: 'particleBurst', position, normal: { x: 1, y: 0.1, z: 0 },

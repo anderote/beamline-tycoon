@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { EffectPreviewTool } from '../src/input/effect-preview-tool.js';
 import {
   electricalSparkProfile,
+  isLiveBeamParticleEffect,
   particleEffectDefinitions,
   particleEffectProfile,
   previewParticleDescriptors,
@@ -14,13 +15,18 @@ test('workshop exposes independent slider contracts for all requested effects', 
   const defs = particleEffectDefinitions();
   assert.deepEqual(Object.keys(defs), [
     'hvConnection', 'powerConnection', 'explosion', 'beamline',
-    'targetRadiation', 'synchrotronRadiation', 'sourceFlow',
+    'targetRadiation', 'synchrotronRadiation', 'sourceFlow', 'cyclotron',
   ]);
   assert.ok(Object.keys(defs.hvConnection.fields).length >= 6);
   assert.ok(Object.keys(defs.beamline.fields).includes('density'));
   assert.ok(Object.keys(defs.targetRadiation.fields).includes('spread'));
   assert.ok(Object.keys(defs.synchrotronRadiation.fields).includes('streakLength'));
   assert.ok(Object.keys(defs.sourceFlow.fields).includes('slosh'));
+  assert.ok(Object.keys(defs.cyclotron.fields).includes('turns'));
+  assert.ok(Object.keys(defs.cyclotron.fields).includes('extraction'));
+  assert.equal(defs.cyclotron.liveBeam, true);
+  assert.equal(isLiveBeamParticleEffect('cyclotron'), true);
+  assert.equal(isLiveBeamParticleEffect('explosion'), false);
 });
 
 test('electrical defaults produce small, slow, numerous, long-lived falling pixels', () => {
@@ -51,7 +57,9 @@ test('beam preview is a directed zero-gravity pixel stream', () => {
 });
 
 test('radiation previews are directed zero-gravity particle showers', () => {
-  for (const id of ['targetRadiation', 'synchrotronRadiation', 'sourceFlow']) {
+  for (const id of [
+    'targetRadiation', 'synchrotronRadiation', 'sourceFlow', 'cyclotron',
+  ]) {
     const [descriptor] = previewParticleDescriptors(id, { x: 1, y: 2, z: 3 });
     assert.equal(descriptor.kind, 'particleBurst');
     assert.equal(descriptor.gravity, 0);

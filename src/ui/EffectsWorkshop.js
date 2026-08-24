@@ -142,7 +142,10 @@ export class EffectsWorkshop {
     }));
     this._rearming = false;
     if (this.status) {
-      this.status.textContent = `CLICK THE WORLD TO CREATE ${this.definitions[this.selectedId].label.toUpperCase()}`;
+      const def = this.definitions[this.selectedId];
+      this.status.textContent = def.liveBeam
+        ? `LIVE BEAMS UPDATE AS YOU TUNE · CLICK THE WORLD FOR A ${def.label.toUpperCase()} SAMPLE`
+        : `CLICK THE WORLD TO CREATE ${def.label.toUpperCase()}`;
     }
   }
 }
