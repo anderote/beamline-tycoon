@@ -92,8 +92,8 @@ function fmtQty(v) {
 export function utilityInspectorTabs(utilityType, lineId = null) {
   if (lineId) {
     return [
-      { key: 'run', label: 'Run Details' },
       { key: 'plots', label: 'Plots' },
+      { key: 'run', label: 'Run Details' },
       { key: 'topology', label: 'Topology' },
       { key: 'overview', label: 'Network' },
     ];
@@ -125,6 +125,7 @@ export class UtilityInspector {
       : 'util-network-' + utilityType + '-' + networkId;
     const existing = ContextWindow.getWindow(winId);
     if (existing) {
+      if (lineId) existing.switchTab('plots');
       existing.focus();
       this.ctx = existing;
       return;
