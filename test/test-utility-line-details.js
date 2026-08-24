@@ -122,5 +122,30 @@ assert(dataHistory[0].connectivity === 1 && dataHtml.includes('Connected fabric'
     && dataHtml.includes('Connection health') && dataHtml.includes('100%'),
   'topology-only fiber plots devices, links, and binary connection health');
 
+const vacuumHistory = appendUtilityPerformanceSample([], {
+  totalCapacity: 240, totalDemand: 2e-6, effectivePumpSpeed: 240,
+  networkPressure: 8e-8, perSinkQuality: { chamber: 0.9 },
+  stageCapacities: {
+    rough: { powered: 15 }, high: { backed: 300 }, uhv: { powered: 600 },
+  },
+  volumeL: 325,
+  volumeBreakdown: { beamPipeL: 100, servicePipeL: 25, componentChambersL: 200 },
+  errors: [],
+}, 30);
+const vacuumState = { utilityPerformanceHistory: new Map([
+  ['vacuumPipe', new Map([['net_vacuum', vacuumHistory]])],
+]) };
+const vacuumHtml = renderUtilityPerformance(
+  utilityPerformanceModel(vacuumState, 'vacuumPipe', 'net_vacuum'),
+);
+assert(vacuumHistory[0].roughingCapacity === 15
+    && vacuumHistory[0].highVacCapacity === 300
+    && vacuumHistory[0].componentChamberVolumeL === 200,
+  'vacuum telemetry copies solver-published stage capacity and volume sources');
+assert((vacuumHtml.match(/class="utility-performance-plot"/g) || []).length === 3
+    && vacuumHtml.includes('Pumping capacity by stage')
+    && vacuumHtml.includes('325.0 L evacuated · pipe 100.0 · service 25.0 · chambers 200.0'),
+  'vacuum performance tab plots stage capacities and captions the volume breakdown');
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

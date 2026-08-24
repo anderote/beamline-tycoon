@@ -175,6 +175,38 @@ assert(electricalHtml.includes('Sources / loads')
 assert(electricalHtml.includes('1 constrained'),
   'category detail surfaces graph diagnostics before a network is opened');
 
+const vacuumNetwork = {
+  id: 'net_vacuum_breakdown', utilityType: 'vacuumPipe', lineIds: ['vac_1'],
+  ports: [{}, {}, {}], sources: [{ portKey: 'turbo:out' }],
+  sinks: [{ portKey: 'chamber:in' }],
+};
+const vacuumState = {
+  utilityNetworks: new Map([['vacuumPipe', [vacuumNetwork]]]),
+  utilityNetworkData: new Map([['vacuumPipe', new Map([[vacuumNetwork.id, {
+    totalCapacity: 240, totalDemand: 2e-6, pressure: 8e-8,
+    vacuumStage: 'high', effectivePumpSpeed: 240, volumeL: 325,
+    stageCapacities: {
+      rough: { powered: 15 }, high: { backed: 300 }, uhv: { powered: 0 },
+    },
+    volumeBreakdown: { beamPipeL: 100, servicePipeL: 25, componentChambersL: 200 },
+    errors: [],
+  }]])]]),
+};
+const vacuumGroups = utilityNetworkOverview(vacuumState);
+const vacuumRow = vacuumGroups.find(group => group.utilityType === 'vacuumPipe')?.rows[0];
+assert(vacuumRow?.pressure === 8e-8
+    && vacuumRow?.stageCapacities?.high?.backed === 300
+    && vacuumRow?.volumeBreakdown?.componentChambersL === 200,
+  'vacuum overview keeps solver-published stage capacity and volume sources');
+const vacuumHtml = renderUtilityNetworkOverview(vacuumGroups, 'vacuum');
+assert(vacuumHtml.includes('Pressure / stage')
+    && vacuumHtml.includes('R 15.0 · H 300.0')
+    && vacuumHtml.includes('240.0 L/s · 325.0 L'),
+  'vacuum network row replaces generic capacity/load with pressure-stage and volume metrics');
+const vacuumDashboard = renderUtilityNetworkOverview(vacuumGroups);
+assert(vacuumDashboard.includes('8.00e-8 mbar worst · 325.0 L evacuated'),
+  'vacuum dashboard summarizes worst pressure and evacuated volume');
+
 const emptyHtml = renderUtilityNetworkOverview([]);
 assert(emptyHtml.includes('Electrical')
     && emptyHtml.includes('Vacuum')

@@ -160,9 +160,21 @@ export function componentHoverInfo(
     return info(`Water: ${parts.join(' · ')}`);
   }
 
+  const vacuumRough = sumPorts(ports, ['vacuumPipe'], 'source', 'roughingSpeed');
+  const vacuumHigh = sumPorts(ports, ['vacuumPipe'], 'source', 'highVacSpeed');
+  const vacuumUhv = sumPorts(ports, ['vacuumPipe'], 'source', 'uhvSpeed');
+  if (vacuumRough > 0 || vacuumHigh > 0 || vacuumUhv > 0) {
+    const parts = [];
+    if (vacuumRough > 0) parts.push(`roughing ${fmtNumber(vacuumRough)} L/s`);
+    if (vacuumHigh > 0) parts.push(`high-vac ${fmtNumber(vacuumHigh)} L/s`);
+    if (vacuumUhv > 0) parts.push(`UHV ${fmtNumber(vacuumUhv)} L/s`);
+    const backing = sumPorts(ports, ['vacuumPipe'], 'source', 'backingDemand');
+    if (backing > 0) parts.push(`needs ${fmtNumber(backing)} L/s backing`);
+    return info(`Vacuum: ${parts.join(' · ')}`);
+  }
+
   const sourceSpecs = [
     ['cryoTransfer', 'coldCapacityW', 'Cryo output', 'W'],
-    ['vacuumPipe', 'pumpSpeed', 'Pumping speed', 'L/s'],
   ];
   for (const [utility, param, label, unit] of sourceSpecs) {
     const value = sumPorts(ports, [utility], 'source', param);
@@ -251,16 +263,35 @@ export function utilityNetworkHoverInfo(descriptor, flow) {
   if (descriptor?.type === 'vacuumPipe') {
     detailSegments = [];
     const pressure = Number(flow.pressure);
+    const stageLabel = flow.vacuumStage === 'uhv' ? 'UHV'
+      : flow.vacuumStage === 'high' ? 'High vacuum'
+        : flow.vacuumStage === 'rough' ? 'Roughing' : 'Inactive';
     if (Number.isFinite(pressure)) {
       detailSegments.push(
         { text: `Pressure: ${fmtScientific(pressure)} mbar`, tone: demandTone },
         { text: ' · ' },
       );
     }
+    const stages = flow.stageCapacities || {};
+    const stageParts = [
+      ['R', stages.rough?.powered],
+      ['H', stages.high?.backed],
+      ['U', stages.uhv?.powered],
+    ].filter(([, value]) => Number(value) > 0)
+      .map(([label, value]) => `${label} ${fmtNumber(value)}`);
+    const volume = flow.volumeBreakdown || {};
     detailSegments.push(
-      { text: `Pumping: ${fmtNumber(capacity)}${capacitySuffix}`, tone: 'supply' },
+      { text: `${stageLabel}: ${fmtNumber(capacity)}${capacitySuffix} effective`, tone: 'supply' },
+      ...(stageParts.length ? [
+        { text: ' · ' },
+        { text: `Capacity ${stageParts.join(' / ')} L/s`, tone: 'supply' },
+      ] : []),
       { text: ' · ' },
       { text: `Gas load: ${fmtScientific(demand)}${demandSuffix}`, tone: demandTone },
+    );
+    if (Number.isFinite(flow.volumeL)) detailSegments.push(
+      { text: ' · ' },
+      { text: `Volume: ${fmtNumber(flow.volumeL)} L (pipe ${fmtNumber(volume.beamPipeL || 0)}, service ${fmtNumber(volume.servicePipeL || 0)}, chambers ${fmtNumber(volume.componentChambersL || 0)})` },
     );
   } else {
     detailSegments = [

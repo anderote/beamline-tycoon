@@ -70,15 +70,24 @@ console.log('\n--- Test 1: source components report correct supply ---');
   }
 
   const VACUUM = {
-    roughingPump: 15, roughingPumpCart: 60, turboPump: 300, turboPumpCart: 1200,
-    vacuumCart: 330,
-    tiSubPump: 400, negPump: 500, ionPump: 600,
-    highCapacityVacuumStation: 3000,
+    roughingPump: [['Roughing capacity', '15 L/s']],
+    roughingPumpCart: [['Roughing capacity', '60 L/s']],
+    turboPump: [['High-vac capacity', '300 L/s'], ['Turbo backing required', '15 L/s']],
+    turboPumpCart: [['High-vac capacity', '1200 L/s'], ['Turbo backing required', '60 L/s']],
+    vacuumCart: [['Roughing capacity', '30 L/s'], ['High-vac capacity', '300 L/s']],
+    tiSubPump: [['UHV capacity', '400 L/s']],
+    negPump: [['UHV capacity', '500 L/s']],
+    ionPump: [['UHV capacity', '600 L/s']],
+    highCapacityVacuumStation: [['Roughing capacity', '150 L/s'], ['High-vac capacity', '3000 L/s']],
   };
-  for (const [id, speed] of Object.entries(VACUUM)) {
-    const rows = supplyRows(id);
-    assert(rows.length === 1, `${id}: exactly one supply row`);
-    assert(rows[0]?.value === `${speed} L/s`, `${id}: supplies ${speed} L/s (got "${rows[0]?.value}")`);
+  for (const [id, expected] of Object.entries(VACUUM)) {
+    const rows = utilityStatRows(COMPONENTS[id]);
+    for (const [label, value] of expected) {
+      assert(rows.some(row => row.label === label && row.value === value),
+        `${id}: ${label} is ${value} (got ${JSON.stringify(rows)})`);
+    }
+    assert(supplyRows(id).length === 0,
+      `${id}: staged pumping is not flattened into a generic Supplies row`);
   }
 
   const RF = {
@@ -183,6 +192,16 @@ console.log('\n--- Test 7: palette metrics expose placement requirements ---');
   const cryoMetrics = paletteUtilityMetrics(COMPONENTS.ellipticalSrfCavity);
   assert(cryoMetrics.some(r => r.label === 'Cryo draw'),
     'SRF cavity: palette shows its cryogenic draw');
+
+  const turboMetrics = paletteUtilityMetrics(COMPONENTS.turboPump);
+  assert(turboMetrics.some(r => r.label === 'High-vac capacity' && r.value === '300 L/s')
+      && turboMetrics.some(r => r.label === 'Turbo backing required' && r.value === '15 L/s')
+      && !turboMetrics.some(r => r.label === 'Pumping capacity'),
+    'turbo palette metrics expose its pressure stage and backing requirement');
+  const vacuumCartMetrics = paletteUtilityMetrics(COMPONENTS.vacuumCart);
+  assert(vacuumCartMetrics.some(r => r.label === 'Roughing capacity' && r.value === '30 L/s')
+      && vacuumCartMetrics.some(r => r.label === 'High-vac capacity' && r.value === '300 L/s'),
+    'integrated vacuum cart exposes both installed pressure-stage capacities');
 
   const fanCoilTags = paletteUtilityTags(COMPONENTS.fanCoilCooler);
   assert(!fanCoilTags.some(tag => tag.key === 'power' && tag.direction === 'draw'),
