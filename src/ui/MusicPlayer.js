@@ -29,9 +29,42 @@ export function hasSavedPlayback(saved) {
       || (Number.isInteger(saved.currentIndex) && saved.currentIndex >= 0));
 }
 
+export function formatMusicThemeName(name) {
+  return String(name)
+    .replace(/[-_]+/g, ' ')
+    .replace(/\b\w/g, letter => letter.toUpperCase());
+}
+
+/** Combine soundtrack manifests without letting an empty local theme hide a
+ * hosted one. Sources are ordered by priority, so the web soundtrack remains
+ * canonical while development-only folders can contribute extra playlists. */
+export function mergeMusicManifests(sources) {
+  const themes = {};
+  const themeBaseUrls = {};
+
+  for (const source of sources || []) {
+    const manifest = source?.manifest;
+    const isHosted = manifest?.themes && typeof manifest.baseUrl === 'string';
+    const sourceThemes = isHosted ? manifest.themes : manifest;
+    const baseUrl = isHosted
+      ? manifest.baseUrl.replace(/\/$/, '')
+      : source?.manifestDir;
+    if (!sourceThemes || typeof sourceThemes !== 'object' || Array.isArray(sourceThemes)) continue;
+
+    for (const [name, files] of Object.entries(sourceThemes)) {
+      if (Object.hasOwn(themes, name) || !Array.isArray(files)) continue;
+      themes[name] = files;
+      themeBaseUrls[name] = baseUrl || 'music';
+    }
+  }
+
+  return { themes, themeBaseUrls };
+}
+
 export class MusicPlayer {
   constructor() {
     this.themes = {};          // { themeName: [file, ...] }
+    this.themeBaseUrls = {};   // { themeName: manifest-relative or hosted URL }
     this.themeNames = [];      // sorted theme names
     this.currentTheme = null;
     this.tracks = [];
@@ -175,33 +208,25 @@ export class MusicPlayer {
   }
 
   async _loadTracks() {
-    // Prefer the object-storage soundtrack in development so a checkout does
-    // not need the large, personal music library. The web build relocates that
-    // manifest to music/tracks.json, so retain the bundled-manifest fallback.
-    // Relative paths keep the game working when deployed under a subpath.
-    let manifest = null;
-    let manifestDir = 'music';
+    // The hosted soundtrack remains canonical, while a local manifest may add
+    // personal playlists (such as labtime-radio) without shipping their audio
+    // in the public web build. Relative paths support subpath deployments.
+    const manifestSources = [];
     for (const path of ['music-web/tracks.json', 'music/tracks.json']) {
       try {
         const resp = await fetch(path);
         if (!resp.ok) continue;
-        manifest = await resp.json();
-        manifestDir = path.replace(/\/tracks\.json$/, '');
-        break;
+        manifestSources.push({
+          manifest: await resp.json(),
+          manifestDir: path.replace(/\/tracks\.json$/, ''),
+        });
       } catch {
-        /* try the next path */
+        /* an absent or non-JSON source contributes no themes */
       }
     }
-    // Two manifest shapes: plain { theme: [files] } (local dev scan), or
-    // { baseUrl, themes } when tracks are hosted on object storage (the
-    // deployed site streams from Supabase Storage instead of bundling).
-    if (manifest && manifest.themes && typeof manifest.baseUrl === 'string') {
-      this.baseUrl = manifest.baseUrl.replace(/\/$/, '');
-      this.themes = manifest.themes;
-    } else {
-      this.baseUrl = manifestDir;
-      this.themes = manifest || {};
-    }
+    const resolved = mergeMusicManifests(manifestSources);
+    this.themes = resolved.themes;
+    this.themeBaseUrls = resolved.themeBaseUrls;
 
     this.themeNames = Object.keys(this.themes).sort();
 
@@ -308,7 +333,7 @@ export class MusicPlayer {
     for (const name of this.themeNames) {
       const opt = document.createElement('option');
       opt.value = name;
-      opt.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+      opt.textContent = formatMusicThemeName(name);
       this.themeSelect.appendChild(opt);
     }
     this.themeSelect.disabled = false;
@@ -316,8 +341,9 @@ export class MusicPlayer {
 
   _buildTracksForCurrentTheme() {
     const files = this.themes[this.currentTheme] || [];
+    const baseUrl = this.themeBaseUrls[this.currentTheme] || 'music';
     this.tracks = files.map(f => ({
-      url: `${this.baseUrl || 'music'}/${encodeURIComponent(this.currentTheme)}/${encodeURIComponent(f)}`,
+      url: `${baseUrl}/${encodeURIComponent(this.currentTheme)}/${encodeURIComponent(f)}`,
       file: String(f),
       name: f.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
     }));
