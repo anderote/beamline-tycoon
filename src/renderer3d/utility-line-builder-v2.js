@@ -59,8 +59,10 @@ import { waterDripEffect } from './water-drip-presentation.js';
 // camera. Kept here for the marker fallbacks, which are not per-line.
 const PIPE_Y = UTILITY_LINE_Y;
 const SEGS = 12;     // cylinder radial segments
+const FAR_RIGID_SEGS = 6;
 const FLEXIBLE_RELAX_DURATION_SECONDS = 0.9;
 const UTILITY_LOD_DETAIL = 'detail';
+const UTILITY_LOD_FAR = 'far';
 const UNIVERSAL_BUS_HALF_WIDTH = UNIVERSAL_BUS_HALF_WIDTH_METERS;
 const JOIN_ON_CONTACT_TYPES = new Set(UTILITY_TYPE_LIST.filter(
   utilityType => UTILITY_TYPES[utilityType]?.joinsOnContact === true));
@@ -71,10 +73,18 @@ function markUtilityDetail(object) {
   return object;
 }
 
+function markUtilityFar(object) {
+  if (object) object.userData = { ...object.userData, utilityLodRole: UTILITY_LOD_FAR };
+  return object;
+}
+
 function applyUtilityDetailLevel(root, showDetail) {
   root?.traverse?.(object => {
     if (object.userData?.utilityLodRole === UTILITY_LOD_DETAIL) {
       object.visible = !!showDetail;
+    }
+    if (object.userData?.utilityLodRole === UTILITY_LOD_FAR) {
+      object.visible = !showDetail;
     }
     const geometries = object.userData?.utilityLodGeometries;
     if (geometries?.detail && geometries?.far) {
@@ -739,11 +749,11 @@ function portRiser(
 // the whole polyline this segment belongs to — baked into the geometry's
 // uv.y so a flow-patched material's pulse reads continuous source→sink
 // across every segment of the run, not reset to 0..1 at each waypoint.
-function buildCylinderSegment(p0, p1, radius, material, runDist) {
+function buildCylinderSegment(p0, p1, radius, material, runDist, radialSegments = SEGS) {
   const dir = new THREE.Vector3().subVectors(p1, p0);
   const len = dir.length();
   if (len < 1e-4) return null;
-  const geo = new THREE.CylinderGeometry(radius, radius, len, SEGS);
+  const geo = new THREE.CylinderGeometry(radius, radius, len, radialSegments);
   if (runDist) bakeRunDistanceUVs(geo, runDist.start, runDist.end);
   const mesh = new THREE.Mesh(geo, material);
   // CylinderGeometry is Y-aligned; rotate so Y→(p1-p0).
@@ -906,6 +916,102 @@ function buildRectSegment(p0, p1, width, height, material, runDist) {
   mesh.matrixAutoUpdate = false;
   mesh.updateMatrix();
   return mesh;
+}
+
+// Collapse a rigid route to one facility-scale mesh. Close-up utility runs
+// deliberately use separate cylinders, elbows, collars, bellows, bands, and
+// supports so their construction reads at working zoom. None of that hardware
+// is resolvable from a whole-facility view, where retaining every part turns a
+// single saved line into dozens of draw submissions. The far mesh keeps the
+// service's authored cross-section, envelope, material, and exact rectilinear
+// centreline, but merges its low-sided straight sections into one geometry.
+function mergeTransformedRouteMeshes(meshes) {
+  if (!meshes.length) return null;
+  const positions = [];
+  const normals = [];
+  const uvs = [];
+  const indices = [];
+  let vertexOffset = 0;
+
+  for (const mesh of meshes) {
+    const geometry = mesh.geometry;
+    geometry.applyMatrix4(mesh.matrix);
+    const position = geometry.attributes?.position;
+    const normal = geometry.attributes?.normal;
+    const uv = geometry.attributes?.uv;
+    if (!position || !normal || !uv) {
+      geometry.dispose?.();
+      continue;
+    }
+    for (const value of position.array) positions.push(value);
+    for (const value of normal.array) normals.push(value);
+    for (const value of uv.array) uvs.push(value);
+    if (geometry.index) {
+      for (const index of geometry.index.array) indices.push(vertexOffset + index);
+    } else {
+      for (let index = 0; index < position.count; index++) {
+        indices.push(vertexOffset + index);
+      }
+    }
+    vertexOffset += position.count;
+    geometry.dispose?.();
+  }
+  if (vertexOffset === 0) return null;
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function buildFarRigidRoute(points, descriptor, radius, material, reversed = false) {
+  if (!THREE.BufferGeometry || !THREE.Float32BufferAttribute
+      || !Array.isArray(points) || points.length < 2) return null;
+  const style = descriptor?.geometryStyle || 'cylinder';
+  const cryostat = descriptor?.presentationStyle === 'cryostatLine';
+  const farRadius = cryostat
+    ? radius * (descriptor.jacketRadiusScale || 1.6)
+    : style === 'jacketedCylinder' ? radius * 1.6 : radius;
+  const lengths = [];
+  let totalLength = 0;
+  for (let index = 0; index < points.length - 1; index++) {
+    const length = points[index].distanceTo(points[index + 1]);
+    lengths.push(length);
+    totalLength += length;
+  }
+
+  const meshes = [];
+  let distance = 0;
+  for (let index = 0; index < points.length - 1; index++) {
+    const length = lengths[index];
+    const startDistance = distance;
+    distance += length;
+    if (length < 1e-4) continue;
+    const runDist = reversed
+      ? { start: totalLength - distance, end: totalLength - startDistance }
+      : { start: startDistance, end: distance };
+    const mesh = style === 'rectWaveguide'
+      ? buildRectSegment(
+        points[index], points[index + 1], radius * 2, radius * 1.4, material, runDist)
+      : buildCylinderSegment(
+        points[index], points[index + 1], farRadius, material, runDist, FAR_RIGID_SEGS);
+    if (mesh) meshes.push(mesh);
+  }
+  const geometry = mergeTransformedRouteMeshes(meshes);
+  if (!geometry) return null;
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.userData = {
+    isUtilityFarRoute: true,
+    utilityFarCrossSection: style === 'rectWaveguide' ? 'rectangular' : 'round',
+    utilityFarEnvelope: cryostat
+      ? 'cryostat-jacket' : style === 'jacketedCylinder' ? 'insulated-pipe' : 'service-pipe',
+    radialSegments: style === 'rectWaveguide' ? null : FAR_RIGID_SEGS,
+  };
+  return markUtilityFar(mesh);
 }
 
 function cornerBendInfo(prev, at, next, descriptor) {
@@ -2320,6 +2426,19 @@ function buildLineGroup(
     if (fitting) {
       group.add(fitting);
       addCryoColdSpot(point);
+    }
+  }
+
+  if (descriptor.fixedRouteHeight === true && !flexible) {
+    // Everything assembled so far is the authored close-up presentation. One
+    // merged route replaces that whole subtree beyond the utility LOD boundary;
+    // retaining lineId on the parent keeps ordinary line picking unchanged.
+    const detailChildren = [...group.children];
+    const farMaterial = cryostatPresentation ? cryostatJacketMat : mat;
+    const farRoute = buildFarRigidRoute(points, descriptor, radius, farMaterial, reversed);
+    if (farRoute) {
+      for (const child of detailChildren) markUtilityDetail(child);
+      group.add(farRoute);
     }
   }
 
