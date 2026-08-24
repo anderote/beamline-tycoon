@@ -114,9 +114,9 @@ assert(
   'RF uses the implemented HV-feed and waveguide path without inventing a modulator data link',
 );
 assert(
-  ['ROUGH PUMP', 'TURBO / UHV', 'BEAM VOLUME', 'GAUGE']
+  ['PUMP SOURCES', 'SHARED HEADER', 'BEAM VOLUME', 'GAUGE']
     .every(name => CONNECTION_GUIDES.vacuum.flow.some(stage => stage.name === name)),
-  'vacuum shows staged pumping, the vacuum volume, and a gauge tap',
+  'vacuum shows order-independent pump sources, the shared header, vacuum volume, and a gauge tap',
 );
 assert(
   ['STORAGE', 'CHILLER', 'HEAT LOAD', 'HEAT REJECTOR']
@@ -148,7 +148,7 @@ console.log('\n--- The diagram is a readable, labeled BLT blueprint ---\n');
   assert(canvas.width === 640 && canvas.height === 184,
     'the blueprint uses a wide, high-resolution field for legible labels');
   assert(
-    ['HV SUPPLY', 'HV FEEDER', 'POWER CABLES', 'RF WAVEGUIDE', 'VACUUM PIPE', 'DATA FIBER']
+    ['HV SUPPLY', 'HV FEEDER', 'POWER CABLES', 'RF WAVEGUIDE', 'SHARED HEADER', 'DATA FIBER']
       .every(label => labels.includes(label)),
     'equipment and connection names are drawn inside the schematic itself',
   );

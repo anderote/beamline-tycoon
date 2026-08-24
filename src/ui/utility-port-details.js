@@ -159,6 +159,13 @@ export function componentUtilityPortSummary(group) {
     return 'Pass-through';
   }
   if (metrics.length === 1) {
+    // Vacuum demand is gas throughput (outgassing), not a maximum pressure.
+    // Calling 1e-6 mbar·L/s a "requirement" invites comparison with the
+    // network's mbar reading even though those quantities have different
+    // dimensions. Name the physical load explicitly.
+    if (group.utilityType === 'vacuumPipe' && group.role === 'sink') {
+      return `Gas load ${compactMetricValue(metrics[0].value)}`;
+    }
     const verb = group.role === 'sink' ? 'Requires'
       : group.role === 'source' ? 'Supplies' : 'Capacity';
     return `${verb} ${compactMetricValue(metrics[0].value)}`;

@@ -1,15 +1,16 @@
 // src/utility/types/vacuumPipe.js
 //
 // Dynamic staged-vacuum solver. The state variable is gas inventory (mbar·L),
-// not an abstract quality scalar: pipe volume determines pump-down time,
-// internal surface area creates the outgassing load, and line conductance
-// limits the speed a remote molecular pump can deliver to the chamber.
+// not an abstract quality scalar: pipe volume determines pump-down time and
+// internal surface area creates the outgassing load. Once fittings and lines
+// discover one connected vacuum network, that header is a shared bus: every
+// active pump stage contributes to one network pressure regardless of branch
+// order or the source's position on the header.
 
 import {
   Q_SPECIFIC_UNBAKED, Q_SPECIFIC_BAKED, outgassingForLength,
 } from '../../data/utility-ports-v2.js';
 import { endpointsById } from '../endpoint-lookup.js';
-import { utilityAttachmentPose } from '../line-attachments.js';
 import { powerFeedFactor } from '../power-feed.js';
 import {
   RIGID_UTILITY_SERVICE_HEIGHTS,
@@ -41,7 +42,6 @@ export const VACUUM_HISTORY_SAMPLE_TICKS = 5; // half an in-game hour
 const SUB_UNIT_M = 0.5;
 const GRID_CELL_M = 2;
 const ATMOSPHERE_MBAR = 1013;
-const VACUUM_LINE_DIAMETER_CM = BEAM_PIPE_RADIUS_M * 2 * 100;
 const GAUGE_TYPES = new Set(['piraniGauge', 'coldCathodeGauge', 'baGauge']);
 
 const GAUGE_INFO = {
@@ -63,19 +63,6 @@ export function numberDensityFromPressure(pressureMbar, temperatureK = VACUUM_TE
 
 export function circularPipeVolumeLitres(lengthM, radiusM = BEAM_PIPE_RADIUS_M) {
   return Math.PI * radiusM * radiusM * Math.max(0, lengthM) * 1000;
-}
-
-/** Molecular-flow conductance of a long circular tube for air near 20 °C. */
-export function molecularConductanceLps(lengthM, diameterCm = VACUUM_LINE_DIAMETER_CM) {
-  if (!(lengthM > 0)) return Infinity;
-  return 12.1 * Math.pow(diameterCm, 3) / (lengthM * 100);
-}
-
-export function effectivePumpSpeedLps(pumpSpeed, conductance) {
-  if (!(pumpSpeed > 0)) return 0;
-  if (!isFinite(conductance)) return pumpSpeed;
-  if (!(conductance > 0)) return 0;
-  return pumpSpeed * conductance / (pumpSpeed + conductance);
 }
 
 function isBaked(network, byId) {
@@ -159,21 +146,8 @@ function componentVolumeStats(network, byId, getDefinition, pipeIds) {
   return { chamberVolumeL, displacedPipeVolumeL };
 }
 
-function endpointPoint(rec) {
-  if (!rec) return null;
-  if (Number.isFinite(rec.worldX) && Number.isFinite(rec.worldZ)) {
-    return { x: rec.worldX, z: rec.worldZ };
-  }
-  if (!Number.isFinite(rec.col) || !Number.isFinite(rec.row)) return null;
-  return {
-    x: (rec.col + (rec.subCol || 0) * 0.25) * GRID_CELL_M,
-    z: (rec.row + (rec.subRow || 0) * 0.25) * GRID_CELL_M,
-  };
-}
-
-function pumpInventory(network, worldState, getDefinition, endpointIndex = null) {
+function pumpInventory(network, worldState, getDefinition) {
   const pumps = [];
-  const byId = endpointIndex || endpointsById(worldState);
   for (const source of (network.sources || [])) {
     const p = source.params || {};
     if (!(p.pumpSpeed > 0)) continue;
@@ -189,7 +163,6 @@ function pumpInventory(network, worldState, getDefinition, endpointIndex = null)
     pumps.push({
       source,
       power,
-      point: endpointPoint(byId.get(source.placeableId)),
       nominalSpeed: p.pumpSpeed * power,
       legacy: !staged,
       installedRoughingSpeed,
@@ -304,43 +277,6 @@ function stageCapacityBreakdown(pumps, stack) {
   };
 }
 
-function sourceConnectionLengthM(pump, lines) {
-  let best = Infinity;
-  for (const line of lines) {
-    const touches = line?.start?.placeableId === pump.source.placeableId
-      || line?.end?.placeableId === pump.source.placeableId;
-    if (!touches) continue;
-    best = Math.min(best, lineLengthM(line));
-  }
-  return best;
-}
-
-function conductanceLimitedSpeed(active, lines, stage) {
-  const nominal = active.reduce((sum, p) => sum + p.speed, 0);
-  if (!(nominal > 0) || stage === 'rough') return nominal;
-  let total = 0;
-  for (const pump of active) {
-    const connectionLength = sourceConnectionLengthM(pump, lines);
-    total += isFinite(connectionLength)
-      ? effectivePumpSpeedLps(pump.speed, molecularConductanceLps(Math.max(0.1, connectionLength)))
-      : pump.speed; // adjacency-mounted stack: no service tube between stages
-  }
-  return total;
-}
-
-function localEffectiveSpeed(active, target, stage) {
-  if (stage === 'rough' || !target) return active.reduce((sum, p) => sum + p.speed, 0);
-  let total = 0;
-  for (const pump of active) {
-    if (!pump.point) { total += pump.speed; continue; }
-    const distance = Math.max(0.1, Math.hypot(
-      target.x - pump.point.x, target.z - pump.point.z,
-    ));
-    total += effectivePumpSpeedLps(pump.speed, molecularConductanceLps(distance));
-  }
-  return total;
-}
-
 function qualityFromPressure(pressure) {
   if (!isFinite(pressure)) return 0;
   if (pressure <= 1.000001e-8) return 1;
@@ -356,19 +292,14 @@ function gaugeReading(type, pressure, powered) {
   return { reading: pressure, status: 'ok' };
 }
 
-function collectGauges(
-  lines, active, stage, totalOutgas, networkPressure, ultimatePressure,
-  worldState, getDefinition,
-) {
+function collectGauges(lines, networkPressure, worldState, getDefinition) {
   const gauges = [];
   for (const line of lines) {
     for (const att of (line.attachments || [])) {
       if (!GAUGE_TYPES.has(att.type)) continue;
-      const pose = utilityAttachmentPose(line, att);
-      const target = pose ? { x: pose.worldX, z: pose.worldZ } : null;
-      const speed = localEffectiveSpeed(active, target, stage);
-      const equilibrium = speed > 0 ? totalOutgas / speed + ultimatePressure : ATMOSPHERE_MBAR;
-      const localPressure = Math.min(ATMOSPHERE_MBAR, Math.max(networkPressure, equilibrium));
+      // A connected vacuum header publishes one shared pressure. The
+      // attachment's pose owns where it renders, never a second local solve.
+      const localPressure = networkPressure;
       const powered = att.type === 'piraniGauge'
         || powerFeedFactor(worldState, att.id, getDefinition) > 0;
       const measured = gaugeReading(att.type, localPressure, powered);
@@ -592,10 +523,13 @@ export default {
     const previousPressure = volumeL > 0 && Number.isFinite(storedInventory)
       ? Math.max(0, storedInventory / volumeL)
       : ATMOSPHERE_MBAR;
-    const pumps = pumpInventory(network, worldState, context.getDefinition, byId);
+    const pumps = pumpInventory(network, worldState, context.getDefinition);
     const stack = activePumpStack(pumps, previousPressure);
     const stageCapacities = stageCapacityBreakdown(pumps, stack);
-    const effectiveSpeed = conductanceLimitedSpeed(stack.active, lines, stack.stage);
+    // Vacuum topology is a shared header, not a serial flow path. Pump source
+    // order and branch length cannot change capacity: all currently active
+    // stages on this discovered network add directly.
+    const effectiveSpeed = stack.active.reduce((sum, pump) => sum + pump.speed, 0);
     const equilibriumPressure = effectiveSpeed > 0
       ? totalOutgas / effectiveSpeed + stack.ultimatePressure
       : ATMOSPHERE_MBAR;
@@ -618,12 +552,8 @@ export default {
     const perSinkNumberDensity = {};
     const vacuumZones = [];
     for (const sink of (network.sinks || [])) {
-      const target = endpointPoint(byId.get(sink.placeableId));
-      const localSpeed = localEffectiveSpeed(stack.active, target, stack.stage);
-      const localEquilibrium = localSpeed > 0
-        ? totalOutgas / localSpeed + stack.ultimatePressure
-        : ATMOSPHERE_MBAR;
-      const localPressure = Math.min(ATMOSPHERE_MBAR, Math.max(pressure, localEquilibrium));
+      const localSpeed = effectiveSpeed;
+      const localPressure = pressure;
       perSinkPressure[sink.portKey] = localPressure;
       perSinkNumberDensity[sink.portKey] = numberDensityFromPressure(localPressure);
       perSinkQuality[sink.portKey] = qualityFromPressure(localPressure);
@@ -643,10 +573,7 @@ export default {
       ? Math.max(pressure, ...sinkPressures)
       : pressure;
 
-    const gauges = collectGauges(
-      lines, stack.active, stack.stage, totalOutgas, pressure,
-      stack.ultimatePressure, worldState, context.getDefinition,
-    );
+    const gauges = collectGauges(lines, pressure, worldState, context.getDefinition);
     const tick = Number.isFinite(worldState?.tick) ? worldState.tick : 0;
     const pressureHistory = nextHistory(
       persistent?.pressureHistory, gauges, tick, pressure,
@@ -764,7 +691,7 @@ export default {
         <div class="vacuum-physics-stat vacuum-physics-stat-primary"><span>Pressure</span><strong>${escape(fmtPressure(flow.pressure))}</strong></div>
         <div class="vacuum-physics-stat"><span>Active stage</span><strong>${escape(stage)}</strong></div>
         <div class="vacuum-physics-stat"><span>Evacuated volume</span><strong>${escape((flow.volumeL || 0).toFixed(1))} L</strong></div>
-        <div class="vacuum-physics-stat"><span>Effective pumping</span><strong>${escape(speed(flow.effectivePumpSpeed))}</strong><small>${escape(speed(flow.activeNominalPumpSpeed))} active before conductance</small></div>
+        <div class="vacuum-physics-stat"><span>Active pumping</span><strong>${escape(speed(flow.effectivePumpSpeed))}</strong><small>shared across the connected header</small></div>
         <div class="vacuum-physics-stat"><span>Gas density</span><strong>${escape((flow.numberDensity || 0).toExponential(2))} m⁻³</strong></div>
         <div class="vacuum-physics-stat"><span>Gas inventory</span><strong>${escape((flow.moleculeCount || 0).toExponential(2))} molecules</strong></div>
       </div>

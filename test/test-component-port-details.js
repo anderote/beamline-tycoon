@@ -40,6 +40,8 @@ console.log('\n=== Component info utility ports ===\n');
     'sink ports are labeled as inputs with their declared demand');
   assert(dipoleVacuum?.metrics[0]?.value === '5.0e-7 mbar·L/s',
     'utility-specific demand units and small values remain visible');
+  assert(componentUtilityPortSummary(dipoleVacuum) === 'Gas load 5.0e-7 mbar·L/s',
+    'vacuum outgassing is not mislabeled as a required pressure');
 }
 
 {

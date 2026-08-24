@@ -15,7 +15,7 @@ Accelerator jargon decoded — from conductance to VSWR.
 
 **Cold box** — A refrigeration unit that cools helium gas to cryogenic temperatures (4.5K or 2K). Contains heat exchangers, expansion turbines, and JT valves. The core of any helium cryogenic system.
 
-**Conductance** — A measure of how easily gas flows through a tube or opening, measured in liters per second (L/s). Short, wide tubes have high conductance; long, narrow tubes have low conductance. Molecular pump stages use tube conductance to calculate the effective speed delivered to the chamber.
+**Conductance** — A measure of how easily gas flows through a tube or opening, measured in liters per second (L/s). Beamline Tycoon's connected vacuum headers use bus semantics, so conductance is background engineering context rather than a capacity derate in the utility solver.
 
 **Design temperature** — The temperature a helium bath holds while its plant can cover the load. 2.0 K if a 2 K Cryogenic Supply sits on the network, 4.5 K otherwise. A bath does not settle at some intermediate temperature proportional to overload; it holds its design point or it warms.
 

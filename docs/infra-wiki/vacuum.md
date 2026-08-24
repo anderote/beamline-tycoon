@@ -1,7 +1,7 @@
 # Vacuum Systems
 
 ## Quick Tip
-Vacuum is a pump-down process, not an instant quality bonus. Start with roughing, back a turbo for high vacuum, and add ion/NEG/Ti-sub pumping for UHV. Long, narrow connections reduce the speed that reaches the beamline.
+Vacuum is a pump-down process, not an instant quality bonus. Start with roughing, back a turbo for high vacuum, and add ion/NEG/Ti-sub pumping for UHV. Every powered pump connected to the same vacuum header contributes to that network regardless of branch order or distance.
 
 ## How It Works
 
@@ -25,13 +25,13 @@ The stages are live. Roughing operates from atmosphere toward 1e-3 mbar. A backe
 
 The network stores its gas inventory in mbar·L. Beam-pipe, service-line and authored component-chamber volume set how long pump-down takes, so the four-pump roughing cart genuinely evacuates the same chamber about four times faster than one roughing pump. One of those compact roughing carts supplies exactly the 60 L/s backing capacity required by a turbo pump cart.
 
-### Gas Load, Volume and Conductance
+### Gas Load, Volume and Shared Capacity
 
 Outgassing from chamber walls is `Q = q_specific x A`; for a pipe, `A = 2 pi r L`. At the game's 0.06 m beam-pipe radius, one metre has **3,770 cm²** of internal surface and contributes about **3.8e-7 mbar·L/s** unbaked.
 
-Every metre of beam pipe adds gas load and volume. Every metre of narrow service pipe also adds volume and restricts molecular flow. Components with an authored chamber volume replace the beam-pipe slice they occupy, rather than hiding extra volume inside a generic pipe estimate. A remote turbo therefore delivers less effective speed than the same pump mounted close to the chamber. Use distributed pumps and short hookups on long machines.
+Every metre of beam pipe adds gas load and volume, and every metre of service pipe adds volume. Components with an authored chamber volume replace the beam-pipe slice they occupy, rather than hiding extra volume inside a generic pipe estimate. The discovered topology behaves as one shared header: active pump capacity adds no matter where the source joins it, and every connected sink and gauge reads the same pressure. Long machines still need more pumping because their extra internal surface creates more gas load.
 
-The network inspector shows installed, powered, backed and currently active capacity separately for roughing, high-vacuum and UHV stages. Its evacuated-volume breakdown separates utility pipe, beamline pipe and beamline components. The performance view plots all three stage capacities alongside the conductance-limited effective speed.
+The network inspector shows installed, powered, backed and currently active capacity separately for roughing, high-vacuum and UHV stages. Its evacuated-volume breakdown separates utility pipe, beamline pipe and beamline components. The performance view plots all three stage capacities alongside the active capacity shared by the connected header.
 
 Each beam pipe is charged once to the network serving its mounted components.
 
@@ -49,11 +49,11 @@ A connected **Bakeout System** drops the network's specific outgassing rate 100x
 
 Pirani, cold-cathode and BA gauges mount directly on a drawn vacuum run. Each has its own useful pressure range; powered cold-cathode and BA gauges read offline if their power connection is absent.
 
-Click a vacuum pipe network to see its pressure history. The inspector always plots the network pressure and adds one log-scale trace per mounted gauge, sampled every half in-game hour and retained for **10 in-game days**. The plot opens at the full 10-day range, with 1-day and 2-day views for closer inspection. This makes stage handoffs, slow pump-down and a weak remote connection visible instead of reducing the network to one number.
+Click a vacuum pipe network to see its pressure history. The inspector always plots the network pressure and adds one log-scale trace per mounted gauge, sampled every half in-game hour and retained for **10 in-game days**. The plot opens at the full 10-day range, with 1-day and 2-day views for closer inspection. This makes stage handoffs and pump-down visible instead of reducing the network to one number.
 
 ### How Vacuum Reaches the Beam
 
-Each sink receives its local pressure and gas number density. Residual gas affects the beam in two live ways:
+Each sink receives the shared network pressure and gas number density. Residual gas affects the beam in two live ways:
 
 - **Multiple Coulomb scattering** grows angular spread, emittance and therefore reduces beam quality.
 - **Beam-gas loss** removes particles through large-angle and nuclear scattering: `I *= exp(-n sigma L)`.
@@ -71,29 +71,28 @@ The scattering term scales as `1/(beta gamma)^2`. A low-energy beam is enormousl
 | Unusable | >= 1e-2 | Quality 0 |
 | None | No valid active stage on a network with sinks | **Beam blocked** |
 
-The Systems panel reports the facility's worst vacuum network. Within a network, remote sinks and gauges can read worse than the volume-average pressure because their local effective pumping speed is lower.
+The Systems panel reports the facility's worst vacuum network. Within a network, every connected sink and gauge reads that same shared pressure.
 
 ### Strategy
 
 - Start with a roughing pump and turbo, or buy an integrated vacuum cart.
 - One roughing pump backs one turbo; the four-pump roughing cart backs one four-stage turbo cart.
-- Distribute molecular pumps and keep their service runs short.
+- Add pump capacity anywhere on the connected header as the beamline's gas load grows.
 - Use ion, NEG or Ti-sub pumps only after high vacuum is established.
 - Use the 1×4 manifold ($120k) for a compact pump bank and the 1×8 ($260k) for a large sector; neither adds pumping speed.
 - Watch the pressure graph during pump-down, especially near the injector.
 
 ## The Math
 
-**Conductance and effective speed:**
+**Shared active speed:**
 ```
-C_tube = 12.1 d^3 / L                       L/s, air; d and L in cm
-S_eff  = S_pump C_tube / (S_pump + C_tube)
+S_active = sum(active powered pump stages on the connected header)
 ```
 
 **Dynamic pump-down:**
 ```
-P_eq   = Q_total / S_eff + P_ultimate
-P_next = P_eq + (P_previous - P_eq) exp(-S_eff dt / V)
+P_eq   = Q_total / S_active + P_ultimate
+P_next = P_eq + (P_previous - P_eq) exp(-S_active dt / V)
 ```
 `V` is the connected open beam-pipe, service-line and authored component-chamber volume; `dt` is one simulation second. The solver conserves `P V`, its gas inventory, when networks join or split. Newly connected volume begins at atmosphere instead of diluting an already evacuated network for free.
 
