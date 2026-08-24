@@ -118,11 +118,12 @@ assert(/\.utility-performance-plots\s*\{[^}]*gap:\s*3px/s.test(styles)
   'utility plots share the Designer deck spacing, corner brackets, and teal instrument chrome');
 
 const lineTabs = utilityInspectorTabs('powerCable', line.id);
-assert(lineTabs[0]?.key === 'run'
+assert(lineTabs[0]?.key === 'plots'
+    && lineTabs.some(tab => tab.key === 'run')
     && lineTabs.some(tab => tab.key === 'plots')
     && lineTabs.some(tab => tab.key === 'topology')
     && lineTabs.some(tab => tab.key === 'overview'),
-  'a clicked line opens Run Details, Plots, Topology, and Network tabs');
+  'a clicked line opens directly on Plots while retaining Run Details, Topology, and Network tabs');
 
 const dataHistory = appendUtilityPerformanceSample([], {
   connectedNodeCount: 3, connectedLinkCount: 2, perSinkQuality: {}, errors: [],
