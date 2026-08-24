@@ -4,6 +4,7 @@
 
 import {
   renderUtilityNetworkOverview,
+  utilityCategoryOverview,
   utilityNetworkOverview,
 } from '../src/ui/UtilityStatsPanel.js';
 
@@ -119,14 +120,67 @@ const waterRow = groups.find(group => group.utilityType === 'waterSupplyPipe')?.
 assert(waterRow?.circuitLabel === 'Hot return',
   'water topology exposes its published temperature circuit identity');
 
-const html = renderUtilityNetworkOverview(groups);
-assert(html.includes(`data-network-id="${powerA.id}"`)
-    && html.includes(`data-network-id="${powerB.id}"`),
-  'each topology keeps its exact network id on its inspector button');
-assert(html.includes('Sources / loads') && html.includes('Capacity') && html.includes('Load'),
-  'overview rows expose the requested capacity, source, and load fields');
-assert(html.includes('1 constrained'),
-  'overview rows surface graph diagnostics before the network is opened');
+const categories = utilityCategoryOverview(groups);
+assert(categories.length === 5
+    && categories.map(category => category.key).join(',')
+      === 'electrical,rf,vacuum,cooling,controls',
+  'the first level always exposes the five infrastructure families');
+
+const electrical = categories.find(category => category.key === 'electrical');
+assert(electrical?.networkCount === 2
+    && electrical?.lineCount === 3
+    && electrical?.sourceCount === 2
+    && electrical?.loadCount === 3,
+  'category cards aggregate high-level membership from their published networks');
+assert(electrical?.status.kind === 'soft'
+    && electrical?.status.label === '1 network warning',
+  'a category summary surfaces an unhealthy network instead of masking it');
+
+const powerSummary = electrical?.utilityGroups.find(group => group.utilityType === 'powerCable');
+assert(powerSummary?.totalCapacity === 140 && powerSummary?.totalDemand === 130,
+  'per-type dashboard totals join only published capacity and demand values');
+assert(powerSummary?.capacityUnit === 'kW' && powerSummary?.demandUnit === 'kW',
+  'dashboard totals retain the registry-published display units');
+
+const controls = categories.find(category => category.key === 'controls');
+const dataSummary = controls?.utilityGroups.find(group => group.utilityType === 'dataFiber');
+assert(dataSummary?.topologyOnly === true
+    && dataSummary?.connectedNodeCount === 3
+    && dataSummary?.connectedLinkCount === 2,
+  'topology-only dashboard summaries use published device and link counts');
+
+const vacuum = categories.find(category => category.key === 'vacuum');
+assert(vacuum?.networkCount === 0 && vacuum?.status.kind === 'inactive',
+  'unused infrastructure remains discoverable as an inactive category');
+
+const dashboardHtml = renderUtilityNetworkOverview(groups);
+assert(dashboardHtml.includes('Facility infrastructure')
+    && dashboardHtml.includes('data-utility-category="electrical"')
+    && dashboardHtml.includes('data-utility-category="vacuum"'),
+  'default rendering is the compact category dashboard');
+assert(dashboardHtml.includes('130.0 kW load · 140.0 kW capacity')
+    && dashboardHtml.includes('3 devices · 2 links'),
+  'dashboard cards display high-level capacity and topology summaries');
+assert(!dashboardHtml.includes('data-network-id='),
+  'the dashboard does not render the full list of individual networks');
+
+const electricalHtml = renderUtilityNetworkOverview(groups, 'electrical');
+assert(electricalHtml.includes(`data-network-id="${powerA.id}"`)
+    && electricalHtml.includes(`data-network-id="${powerB.id}"`),
+  'category detail keeps each topology exact network id on its inspector button');
+assert(electricalHtml.includes('Sources / loads')
+    && electricalHtml.includes('Capacity')
+    && electricalHtml.includes('Load'),
+  'category detail exposes capacity, source, and load fields for each network');
+assert(electricalHtml.includes('1 constrained'),
+  'category detail surfaces graph diagnostics before a network is opened');
+
+const emptyHtml = renderUtilityNetworkOverview([]);
+assert(emptyHtml.includes('Electrical')
+    && emptyHtml.includes('Vacuum')
+    && emptyHtml.includes('Data &amp; Controls')
+    && emptyHtml.includes('Not connected'),
+  'an empty facility still presents infrastructure categories instead of a blank state');
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
