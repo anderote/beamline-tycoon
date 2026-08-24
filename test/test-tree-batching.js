@@ -34,8 +34,12 @@ assert.ok(stats.batchCount > 0 && stats.batchCount < 8,
   `tree parts collapse into a few material batches (got ${stats.batchCount})`);
 assert.ok(stats.prototypeCount <= TREE_VISUAL_VARIANTS,
   `one species uses at most ${TREE_VISUAL_VARIANTS} silhouettes (got ${stats.prototypeCount})`);
-assert.ok(parent.children.length <= stats.batchCount + 1,
-  'the scene contains batches plus the ordinary bench, not one group per tree');
+assert.ok(stats.farBatchCount > 0,
+  'a low-poly forest presentation is ready before the camera crosses the LOD boundary');
+assert.ok(stats.farTriangleCount < stats.nearTriangleCount / 5,
+  `far forest triangles are materially lower (${stats.farTriangleCount}/${stats.nearTriangleCount})`);
+assert.ok(parent.children.length <= stats.batchCount + stats.farBatchCount + 1,
+  'the scene contains near/far batches plus the ordinary bench, not one group per tree');
 
 const batches = parent.children.filter(child => child.isBatchedMesh);
 assert.equal(batches.length, stats.batchCount);
@@ -65,7 +69,7 @@ const ray = new THREE.Raycaster(
   new THREE.Vector3(0, -1, 0),
 );
 const hit = ray.intersectObjects(parent.children, true)
-  .find(intersection => intersection.object.userData?.batchedPlants);
+  .find(intersection => intersection.object.userData?.lod === 'plant-near');
 assert.ok(hit && Number.isInteger(hit.batchId), 'batched tree geometry remains ray-pickable');
 assert.equal(hit.object.userData.batchNodeIds[hit.batchId], 'tree_0',
   'the batch intersection resolves to the individual tree id');
@@ -73,6 +77,24 @@ const identified = builder.resolveBatchHit(hit);
 assert.equal(identified?.nodeId, 'tree_0');
 assert.equal(identified?.rootObj, builder.getGroup('tree_0'),
   'renderer picking returns the lightweight root for just that tree');
+
+builder.setDetailLevel(false);
+assert.ok(parent.children.filter(child => child.userData?.lod === 'plant-near')
+  .every(child => child.visible === false), 'authored tree batches hide at far zoom');
+const farBatches = parent.children.filter(child => child.userData?.lod === 'plant-far');
+assert.ok(farBatches.length > 0 && farBatches.every(child => child.visible === true),
+  'low-poly forest batches replace them at far zoom');
+assert.ok(farBatches.every(child => child.castShadow === false),
+  'far forests do not multiply camera-pan shadow work');
+const farHit = new THREE.Raycaster(
+  new THREE.Vector3(1, 20, 1),
+  new THREE.Vector3(0, -1, 0),
+).intersectObjects(farBatches, true).find(intersection => intersection.object.userData?.batchedPlants);
+assert.ok(farHit && Number.isInteger(farHit.instanceId),
+  'far tree silhouettes remain ray-pickable');
+assert.equal(builder.resolveBatchHit(farHit)?.nodeId, 'tree_0',
+  'far silhouette picking resolves the original tree id');
+builder.setDetailLevel(true);
 
 const remoteTrees = [
   decoration('west_tree', 'oakTree', -PLANT_BATCH_CHUNK_TILES - 2, 0),

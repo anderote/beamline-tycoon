@@ -167,10 +167,11 @@ import { WorldInvalidationScheduler } from './world-invalidation-scheduler.js';
 import { selectionTargetsForState } from '../game/selection-targets.js';
 import { LandPurchaseMarkers } from './land-purchase-markers.js';
 import { beamlineStatusPresentation } from './selected-beamline-focus.js';
-import { worldDetailForZoom } from './world-lod.js';
+import { modeledWorldObjectCount, worldDetailForZoom } from './world-lod.js';
 
 // Closest the camera may get. Ordinary facilities keep authored detail at all
-// zooms; world-lod.js only reduces tiny hardware in genuinely large worlds.
+// zooms; world-lod.js reduces complex hardware and forests only in genuinely
+// large worlds.
 const ZOOM_MAX = 14;
 
 // Ghost tints. Amber is not a softer red: the placement still fails, but the
@@ -4878,7 +4879,7 @@ export class ThreeRenderer {
   _currentWorldDetail() {
     return worldDetailForZoom(
       this.zoom,
-      this._snapshot?.pipeAttachments?.length || 0,
+      modeledWorldObjectCount(this._snapshot),
       this._lastLodDetail,
     );
   }
@@ -4897,6 +4898,7 @@ export class ThreeRenderer {
           }
         });
       }
+      this.decorationBuilder?.setDetailLevel?.(showDetail);
       this.componentBuilder?.setDetailLevel?.(showDetail);
       this.pipeAttachmentBuilder?.setDetailLevel?.(showDetail);
       this.beamPipeBuilder?.setDetailLevel?.(showDetail);
@@ -5107,6 +5109,7 @@ export class ThreeRenderer {
     this.equipmentBuilder.build(snapshot.equipment, snapshot.furnishings, this.equipmentGroup);
     this._effectSystem?.syncSurfaceGlows('equipment', this.equipmentGroup);
     this.decorationBuilder.build(snapshot.decorations, this.decorationGroup);
+    this.decorationBuilder.setDetailLevel(this._currentWorldDetail());
     this.lightingGroup = this.decorationBuilder.getLightingFixtures();
     this._rebuildLightPools({ invalidateOcclusion: true });
     // Feed the same registry to the real-light rig's fixture discovery — see
@@ -5582,6 +5585,7 @@ export class ThreeRenderer {
     const result = this.decorationBuilder.build(snap.decorations, this.decorationGroup, {
       changes: contextualChange ? null : changeSet?.placeables || null,
     });
+    this.decorationBuilder.setDetailLevel(this._currentWorldDetail());
     if (!result?.lightingChanged) return;
     this.lightingGroup = this.decorationBuilder.getLightingFixtures();
     this._rebuildLightPools();

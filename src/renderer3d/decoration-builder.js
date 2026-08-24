@@ -20,6 +20,19 @@ const SUB = 0.5; // 1 sub-tile = 0.5 world units
 // the chunk is still broad enough to keep draw-call overhead low.
 export const PLANT_BATCH_CHUNK_TILES = 24;
 
+const FAR_EVERGREEN_TYPES = new Set(['pineTree', 'cedarTree']);
+const FAR_PLANT_COLORS = Object.freeze({
+  oakTree: 0x3f7d35,
+  mapleTree: 0x8a5134,
+  elmTree: 0x4f8538,
+  birchTree: 0x609447,
+  willowTree: 0x638f45,
+  smallTree: 0x4b853b,
+  pineTree: 0x285f36,
+  cedarTree: 0x32633a,
+  shrub: 0x3f7a38,
+});
+
 const LIGHTING_DEFS_BY_ID = Object.fromEntries(LIGHTING_DEFS.map(d => [d.id, d]));
 
 // --- Procedural bark + foliage textures ---------------------------------
@@ -1966,6 +1979,8 @@ export class DecorationBuilder {
     this._anonymousFixtures = [];
     /** Material-compatible BatchedMeshes used by trees and shrubs. */
     this._plantBatches = [];
+    /** Low-poly InstancedMeshes used in distant large-world views. */
+    this._farPlantBatches = [];
     /** IDs represented by the current shared plant batches. */
     this._plantIds = new Set();
     this._plantSignature = null;
@@ -1973,8 +1988,10 @@ export class DecorationBuilder {
     this._plantPrototypes = new Map();
     this._batchStats = {
       plantCount: 0, batchCount: 0, chunkCount: 0,
-      partCount: 0, prototypeCount: 0,
+      partCount: 0, prototypeCount: 0, farBatchCount: 0,
+      nearTriangleCount: 0, farTriangleCount: 0,
     };
+    this._showDetail = true;
   }
 
   /** The rendered group for a placeable id, or null. Mirrors ComponentBuilder's _meshMap lookup. */
@@ -1992,8 +2009,10 @@ export class DecorationBuilder {
   }
 
   resolveBatchHit(hit) {
-    if (!hit?.object?.userData?.batchedPlants || hit.batchId == null) return null;
-    const nodeId = hit.object.userData.batchNodeIds?.[hit.batchId] ?? null;
+    if (!hit?.object?.userData?.batchedPlants) return null;
+    const index = hit.batchId ?? hit.instanceId;
+    if (!Number.isInteger(index)) return null;
+    const nodeId = hit.object.userData.batchNodeIds?.[index] ?? null;
     return {
       nodeId,
       rootObj: nodeId != null ? (this.getGroup(nodeId) || hit.object) : hit.object,
@@ -2097,13 +2116,21 @@ export class DecorationBuilder {
       batch.material?.dispose?.();
       batch.dispose?.();
     }
+    for (const mesh of this._farPlantBatches) {
+      parentGroup.remove(mesh);
+      mesh.dispose?.();
+      mesh.geometry?.dispose?.();
+      mesh.material?.dispose?.();
+    }
     this._plantBatches = [];
+    this._farPlantBatches = [];
     for (const id of this._plantIds) this._groupsById.delete(id);
     this._plantIds.clear();
     this._plantSignature = null;
     this._batchStats = {
       plantCount: 0, batchCount: 0, chunkCount: 0, partCount: 0,
-      prototypeCount: this._plantPrototypes.size,
+      prototypeCount: this._plantPrototypes.size, farBatchCount: 0,
+      nearTriangleCount: 0, farTriangleCount: 0,
     };
   }
 
@@ -2138,6 +2165,7 @@ export class DecorationBuilder {
     const rotation = new THREE.Quaternion();
     const unitScale = new THREE.Vector3(1, 1, 1);
     let partCount = 0;
+    let nearTriangleCount = 0;
 
     for (const dec of plants) {
       const p = decorationPlacement(dec);
@@ -2192,6 +2220,8 @@ export class DecorationBuilder {
           receiveShadow: child.receiveShadow,
         });
         partCount++;
+        nearTriangleCount += (child.geometry.index?.count
+          || child.geometry.attributes?.position?.count || 0) / 3;
       });
     }
 
@@ -2206,9 +2236,11 @@ export class DecorationBuilder {
         bucket.material,
       );
       batch.name = 'batched-trees-plants';
+      batch.visible = this._showDetail;
       batch.castShadow = entries.some(e => e.castShadow);
       batch.receiveShadow = entries.some(e => e.receiveShadow);
       batch.userData.batchedPlants = true;
+      batch.userData.lod = 'plant-near';
       batch.userData.plantChunk = { col: bucket.chunkCol, row: bucket.chunkRow };
       batch.userData.batchNodeIds = [];
       for (const entry of entries) {
@@ -2224,13 +2256,124 @@ export class DecorationBuilder {
     }
 
     for (const geometry of tempGeometry) geometry.dispose();
+    const farStats = this._buildFarPlantBatches(plants, parentGroup);
     this._batchStats = {
       plantCount: plants.length,
       batchCount: this._plantBatches.length,
       chunkCount: chunks.size,
       partCount,
       prototypeCount: this._plantPrototypes.size,
+      farBatchCount: this._farPlantBatches.length,
+      nearTriangleCount,
+      farTriangleCount: farStats.triangleCount,
     };
+  }
+
+  /**
+   * Build a three-draws-per-chunk forest silhouette for distant views: one
+   * trunk mesh plus deciduous and evergreen crowns. Authored near trees often
+   * contain dozens of branch/canopy meshes each; these proxies retain height,
+   * footprint, species color, picking identity, and spatial frustum culling
+   * while dropping both their triangle load and all distant shadow casters.
+   */
+  _buildFarPlantBatches(plants, parentGroup) {
+    const chunks = new Map();
+    const rotation = new THREE.Quaternion();
+    const matrix = new THREE.Matrix4();
+    const yAxis = new THREE.Vector3(0, 1, 0);
+    const position = new THREE.Vector3();
+    const scale = new THREE.Vector3();
+
+    for (const dec of plants) {
+      const p = decorationPlacement(dec);
+      const chunkCol = Math.floor((dec.col ?? 0) / PLANT_BATCH_CHUNK_TILES);
+      const chunkRow = Math.floor((dec.row ?? 0) / PLANT_BATCH_CHUNK_TILES);
+      const key = `${chunkCol},${chunkRow}`;
+      let chunk = chunks.get(key);
+      if (!chunk) {
+        chunk = { chunkCol, chunkRow, trunk: [], deciduous: [], evergreen: [] };
+        chunks.set(key, chunk);
+      }
+      const floorY = (dec.y ?? 0) + (dec.placeY || 0) * SUB;
+      const isShrub = dec.type === 'shrub';
+      const isEvergreen = FAR_EVERGREEN_TYPES.has(dec.type);
+      const crownKind = isEvergreen ? 'evergreen' : 'deciduous';
+      const crownWidth = Math.max(0.35, p.geoW * (isShrub ? 0.9 : 0.96));
+      const crownDepth = Math.max(0.35, p.geoL * (isShrub ? 0.9 : 0.96));
+      const crownHeight = Math.max(0.35, p.totalH * (isShrub ? 0.82 : (isEvergreen ? 0.78 : 0.68)));
+      const trunkHeight = isShrub ? 0 : Math.max(0.24, p.totalH * (isEvergreen ? 0.28 : 0.38));
+      const trunkWidth = Math.max(0.08, Math.min(p.geoW, p.geoL) * 0.1);
+      rotation.setFromAxisAngle(yAxis, p.rotY);
+
+      if (!isShrub) {
+        position.set(p.x, floorY + trunkHeight / 2, p.z);
+        scale.set(trunkWidth, trunkHeight, trunkWidth);
+        matrix.compose(position, rotation, scale);
+        chunk.trunk.push({ id: dec.id ?? null, matrix: matrix.clone(), color: 0x765034 });
+      }
+
+      const crownY = isShrub
+        ? floorY + crownHeight / 2
+        : floorY + trunkHeight + crownHeight * (isEvergreen ? 0.42 : 0.48);
+      position.set(p.x, crownY, p.z);
+      scale.set(crownWidth, crownHeight, crownDepth);
+      matrix.compose(position, rotation, scale);
+      chunk[crownKind].push({
+        id: dec.id ?? null,
+        matrix: matrix.clone(),
+        color: FAR_PLANT_COLORS[dec.type] ?? FAR_PLANT_COLORS.shrub,
+      });
+    }
+
+    const geometries = {
+      trunk: () => new THREE.CylinderGeometry(0.5, 0.62, 1, 5),
+      deciduous: () => new THREE.SphereGeometry(0.5, 6, 4),
+      evergreen: () => new THREE.ConeGeometry(0.5, 1, 6),
+    };
+    let triangleCount = 0;
+    for (const chunk of chunks.values()) {
+      for (const kind of ['trunk', 'deciduous', 'evergreen']) {
+        const entries = chunk[kind];
+        if (!entries.length) continue;
+        const geometry = geometries[kind]();
+        const material = new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          roughness: 0.92,
+          metalness: 0,
+        });
+        const mesh = new THREE.InstancedMesh(geometry, material, entries.length);
+        mesh.name = `plant-far-${kind}`;
+        mesh.visible = !this._showDetail;
+        mesh.castShadow = false;
+        mesh.receiveShadow = true;
+        mesh.userData.batchedPlants = true;
+        mesh.userData.lod = 'plant-far';
+        mesh.userData.plantChunk = { col: chunk.chunkCol, row: chunk.chunkRow };
+        mesh.userData.batchNodeIds = [];
+        for (let i = 0; i < entries.length; i++) {
+          const entry = entries[i];
+          mesh.setMatrixAt(i, entry.matrix);
+          mesh.setColorAt(i, new THREE.Color(entry.color));
+          mesh.userData.batchNodeIds[i] = entry.id;
+        }
+        mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        mesh.computeBoundingBox();
+        mesh.computeBoundingSphere();
+        parentGroup.add(mesh);
+        this._farPlantBatches.push(mesh);
+        triangleCount += ((geometry.index?.count
+          || geometry.attributes?.position?.count || 0) / 3) * entries.length;
+      }
+    }
+    return { triangleCount };
+  }
+
+  /** Swap authored forests for low-poly, shadow-free silhouettes at distance. */
+  setDetailLevel(showDetail) {
+    this._showDetail = !!showDetail;
+    for (const batch of this._plantBatches) batch.visible = this._showDetail;
+    for (const mesh of this._farPlantBatches) mesh.visible = !this._showDetail;
   }
 
   /**
@@ -2356,7 +2499,8 @@ export class DecorationBuilder {
     this._anonymousFixtures = [];
     this._batchStats = {
       plantCount: 0, batchCount: 0, chunkCount: 0, partCount: 0,
-      prototypeCount: this._plantPrototypes.size,
+      prototypeCount: this._plantPrototypes.size, farBatchCount: 0,
+      nearTriangleCount: 0, farTriangleCount: 0,
     };
   }
 }
