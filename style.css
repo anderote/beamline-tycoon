@@ -3826,6 +3826,19 @@ body.palette-expanded {
 .ctx-window { position:absolute; width:560px; border:1px solid rgba(80, 80, 120, 0.4); border-radius:4px; background:rgba(20, 20, 40, 0.95); font-family:'Press Start 2P', monospace; font-size:9px; color:#aaaacc; pointer-events:auto; box-shadow:0 6px 20px rgba(0,0,0,0.6); }
 .ctx-titlebar { padding:8px 12px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(80, 80, 120, 0.3); cursor:grab; user-select:none; background:rgba(30, 30, 60, 0.8); }
 .ctx-title { color:#ccddff; font-weight:bold; font-size:10px; }
+.ctx-title-wrap { position:relative; min-width:0; }
+.ctx-title-button { padding:3px 5px; margin:-3px -5px; border:1px solid transparent; border-radius:3px; background:transparent; font-family:inherit; font-size:10px; font-weight:bold; color:#ccddff; cursor:pointer; }
+.ctx-title-button:hover, .ctx-title-button:focus-visible, .ctx-title-button[aria-expanded="true"] { color:#fff; background:rgba(95,135,220,.22); border-color:rgba(135,170,240,.35); outline:none; }
+.ctx-title-menu { position:absolute; top:calc(100% + 7px); left:-5px; z-index:5; width:max-content; min-width:260px; max-width:min(420px,80vw); max-height:min(360px,60vh); overflow-y:auto; padding:4px; border:1px solid rgba(90,110,170,.65); border-radius:4px; background:rgba(15,15,35,.99); box-shadow:0 6px 18px rgba(0,0,0,.65); }
+.ctx-title-menu.hidden { display:none; }
+.ctx-title-menu-item { display:grid; grid-template-columns:9px minmax(120px,1fr) auto; align-items:center; gap:8px; width:100%; padding:8px 7px; border:0; border-radius:2px; background:transparent; color:#aaaacc; font:8px 'Press Start 2P',monospace; text-align:left; cursor:pointer; }
+.ctx-title-menu-item:hover, .ctx-title-menu-item:focus-visible { color:#eef; background:rgba(68,136,255,.18); outline:none; }
+.ctx-title-menu-item.selected { background:rgba(68,136,255,.1); color:#fff; }
+.ctx-title-menu-accent { width:7px; height:7px; border-radius:50%; box-shadow:0 0 5px currentColor; }
+.ctx-title-menu-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ctx-title-menu-status { color:#777; font-size:7px; text-transform:uppercase; }
+.ctx-title-menu-status.status-running { color:#66dd77; }
+.ctx-title-menu-status.status-faulted { color:#ff7777; }
 .ctx-title-right { display:flex; align-items:center; gap:10px; }
 .ctx-status { font-size:8px; }
 .ctx-close { color:#8888aa; cursor:pointer; font-size:12px; }

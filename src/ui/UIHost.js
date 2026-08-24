@@ -73,8 +73,8 @@ export class UIHost {
   }
 
   /** Public UI command for opening or focusing a beamline information window. */
-  openBeamlineWindow(beamlineId, anchorNode = null) {
-    return this._openBeamlineWindow(beamlineId, anchorNode);
+  openBeamlineWindow(beamlineId, anchorNode = null, anchorTiles = null) {
+    return this._openBeamlineWindow(beamlineId, anchorNode, anchorTiles);
   }
 }
 
