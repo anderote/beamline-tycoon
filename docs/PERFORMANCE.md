@@ -71,10 +71,9 @@ a regression.
 
 The authored detailed presentation is the default at every zoom. Players can
 opt into adaptive simplification with **Layers → LOD objects**. With that
-switch enabled, facilities below 1,000 modeled placeables still retain full
-detail; at or above that threshold, zooming out switches the complete
-modeled-object presentation. The count includes beamline and infrastructure
-components, pipe attachments, equipment, furnishings, and decorations:
+switch enabled, zooming out switches the complete modeled-object presentation
+regardless of facility size. Detail follows projected screen scale instead of
+an unrelated facility object-count threshold:
 
 - beamline modules keep a one-draw-per-type pipe, support, magnet, cavity,
   source, diagnostic, cyclotron, or endpoint silhouette;

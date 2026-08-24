@@ -169,11 +169,10 @@ import { WorldInvalidationScheduler } from './world-invalidation-scheduler.js';
 import { selectionTargetsForState } from '../game/selection-targets.js';
 import { LandPurchaseMarkers } from './land-purchase-markers.js';
 import { beamlineStatusPresentation } from './selected-beamline-focus.js';
-import { modeledWorldObjectCount, worldDetailForZoom } from './world-lod.js';
+import { worldDetailForZoom } from './world-lod.js';
 
-// Closest the camera may get. Ordinary facilities keep authored detail at all
-// zooms; world-lod.js reduces complex hardware and forests only in genuinely
-// large worlds.
+// Closest the camera may get. Object LOD is independently controlled by the
+// Layers option and world-lod.js's hysteretic zoom policy.
 const ZOOM_MAX = 14;
 
 // Ghost tints. Amber is not a softer red: the placement still fails, but the
@@ -4972,7 +4971,6 @@ export class ThreeRenderer {
     if (!this._lodObjectsEnabled) return true;
     return worldDetailForZoom(
       this.zoom,
-      modeledWorldObjectCount(this._snapshot),
       this._lastLodDetail,
     );
   }
