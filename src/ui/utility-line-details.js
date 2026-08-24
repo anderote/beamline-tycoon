@@ -222,7 +222,7 @@ export function renderUtilityPerformance(model) {
     const max = Math.max(1,
       ...rough.filter(Number.isFinite), ...high.filter(Number.isFinite),
       ...uhv.filter(Number.isFinite), ...effective.filter(Number.isFinite));
-    const volumeCaption = `${fmt(current.evacuatedVolumeL)} L evacuated · pipe ${fmt(current.beamPipeVolumeL)} · service ${fmt(current.servicePipeVolumeL)} · chambers ${fmt(current.componentChamberVolumeL)}`;
+    const volumeCaption = `${fmt(current.evacuatedVolumeL)} L evacuated · utility pipe ${fmt(current.servicePipeVolumeL)} · beamline pipe ${fmt(current.beamPipeVolumeL)} · beamline components ${fmt(current.componentChamberVolumeL)}`;
     supplemental = performancePlot(
       'Pumping capacity by stage', `${fmt(current.effectivePumpSpeed)} L/s effective`,
       volumeCaption,

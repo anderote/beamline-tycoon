@@ -390,7 +390,9 @@ console.log('\n--- Test 11: published stage capacity and evacuated-volume breakd
     'capacity is published independently for roughing and backed high-vacuum stages');
   const html = desc.renderInspector(net, flow, result.nextPersistentState);
   assert(html.includes('Capacity by pressure stage')
-      && html.includes('Component chambers')
+      && html.includes('Utility pipe')
+      && html.includes('Beamline pipe')
+      && html.includes('Beamline components')
       && html.includes('300.0 L/s backed'),
     'vacuum inspector renders stage capacity and volume-source breakdowns');
 }

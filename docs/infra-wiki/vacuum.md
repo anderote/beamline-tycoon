@@ -31,7 +31,7 @@ Outgassing from chamber walls is `Q = q_specific x A`; for a pipe, `A = 2 pi r L
 
 Every metre of beam pipe adds gas load and volume. Every metre of narrow service pipe also adds volume and restricts molecular flow. Components with an authored chamber volume replace the beam-pipe slice they occupy, rather than hiding extra volume inside a generic pipe estimate. A remote turbo therefore delivers less effective speed than the same pump mounted close to the chamber. Use distributed pumps and short hookups on long machines.
 
-The network inspector shows installed, powered, backed and currently active capacity separately for roughing, high-vacuum and UHV stages. Its evacuated-volume breakdown separates open beam pipe, service pipe and component chambers. The performance view plots all three stage capacities alongside the conductance-limited effective speed.
+The network inspector shows installed, powered, backed and currently active capacity separately for roughing, high-vacuum and UHV stages. Its evacuated-volume breakdown separates utility pipe, beamline pipe and beamline components. The performance view plots all three stage capacities alongside the conductance-limited effective speed.
 
 Each beam pipe is charged once to the network serving its mounted components.
 
