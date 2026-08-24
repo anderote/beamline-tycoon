@@ -440,13 +440,13 @@ export function renderVacuumPressureGraph(
   let svg = `<svg class="vacuum-pressure-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Vacuum pressure over the last ${range.label} of in-game time">`;
   for (const decade of [3, 0, -3, -6, -9, -12]) {
     const py = y(Math.pow(10, decade));
-    svg += `<line x1="${x0}" y1="${py}" x2="${x1}" y2="${py}" stroke="#ffffff18"/>`;
-    svg += `<text x="${x0 - 4}" y="${py + 3}" fill="#aaa" font-size="9" text-anchor="end">1e${decade}</text>`;
+    svg += `<line class="vacuum-pressure-grid" x1="${x0}" y1="${py}" x2="${x1}" y2="${py}"/>`;
+    svg += `<text class="vacuum-pressure-axis" x="${x0 - 4}" y="${py + 3}" text-anchor="end">1e${decade}</text>`;
   }
   for (const [tick, label] of [[start, range.startLabel], [start + range.ticks / 2, range.midLabel], [now, 'now']]) {
     const px = x(tick);
-    svg += `<line x1="${px}" y1="${y0}" x2="${px}" y2="${y1}" stroke="#ffffff12"/>`;
-    svg += `<text x="${px}" y="${H - 7}" fill="#aaa" font-size="9" text-anchor="middle">${label}</text>`;
+    svg += `<line class="vacuum-pressure-grid is-time" x1="${px}" y1="${y0}" x2="${px}" y2="${y1}"/>`;
+    svg += `<text class="vacuum-pressure-axis" x="${px}" y="${H - 7}" text-anchor="middle">${label}</text>`;
   }
   const networkPressure = Number.isFinite(flow.networkPressure)
     ? flow.networkPressure : flow.pressure;
@@ -476,9 +476,9 @@ export function renderVacuumPressureGraph(
     }
     if (points.length === 1) {
       const [px, py] = points[0].split(',');
-      svg += `<circle cx="${px}" cy="${py}" r="2.5" fill="${trace.color}"/>`;
+      svg += `<circle cx="${px}" cy="${py}" r="2.5" fill="${trace.color}" style="--vacuum-trace-color:${trace.color}"/>`;
     } else if (points.length > 1) {
-      svg += `<polyline points="${points.join(' ')}" fill="none" stroke="${trace.color}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
+      svg += `<polyline points="${points.join(' ')}" fill="none" stroke="${trace.color}" stroke-width="2" vector-effect="non-scaling-stroke" style="--vacuum-trace-color:${trace.color}"/>`;
     }
   }
   svg += '</svg>';
@@ -489,17 +489,17 @@ export function renderVacuumPressureGraph(
         : trace.status === 'above_range' ? `>${fmtPressure(trace.reading)}`
           : `<${fmtPressure(trace.reading)}`;
     const detail = trace.id ? `${trace.id} · ${status}` : status;
-    legend += `<div><span style="color:${trace.color}">●</span> ${escape(trace.label)} <span class="ui-text-faint">${escape(detail)}</span></div>`;
+    legend += `<div><i style="--vacuum-trace-color:${trace.color}"></i><strong>${escape(trace.label)}</strong><span>${escape(detail)}</span></div>`;
   }
   legend += '</div>';
   const controls = VACUUM_HISTORY_RANGES.map(option => {
     const selected = option.ticks === range.ticks;
     return `<button type="button" class="vacuum-pressure-range-btn${selected ? ' is-active' : ''}" data-vacuum-range-ticks="${option.ticks}" aria-pressed="${selected ? 'true' : 'false'}">${option.label}</button>`;
   }).join('');
-  return `<div class="vacuum-pressure-plot">
+  return `<div class="vacuum-pressure-plot utility-instrument-panel">
     <div class="vacuum-pressure-heading">
-      <div><strong>Pressure history</strong><span class="vacuum-pressure-caption">mbar · log scale</span></div>
-      <div class="vacuum-pressure-range" role="group" aria-label="Pressure history range">${controls}</div>
+      <div><strong>PRESSURE HISTORY</strong><span class="vacuum-pressure-caption">CH 01 · mbar · log scale</span></div>
+      <div class="vacuum-pressure-toolbar"><span class="utility-plot-live"><i></i>LIVE</span><div class="vacuum-pressure-range" role="group" aria-label="Pressure history range">${controls}</div></div>
     </div>
     ${svg}${legend}
   </div>`;

@@ -179,12 +179,15 @@ function trace(values, color, options = {}) {
 }
 
 function performancePlot(title, value, caption, traces, legend = '') {
-  return `<figure class="utility-performance-plot">
+  return `<figure class="utility-performance-plot utility-instrument-panel">
     <figcaption><span><strong>${escapeHtml(title)}</strong><small>${escapeHtml(caption)}</small></span><em>${escapeHtml(value)}</em></figcaption>
-    <svg viewBox="0 0 ${PLOT_WIDTH} ${PLOT_HEIGHT}" role="img" aria-label="${escapeHtml(title)} recent history">
-      <path class="utility-performance-grid" d="M0 22H${PLOT_WIDTH}M0 44H${PLOT_WIDTH}M0 66H${PLOT_WIDTH}"></path>
-      ${traces}
-    </svg>
+    <div class="utility-performance-chart">
+      <svg viewBox="0 0 ${PLOT_WIDTH} ${PLOT_HEIGHT}" role="img" aria-label="${escapeHtml(title)} recent history">
+        <path class="utility-performance-grid" d="M0 22H${PLOT_WIDTH}M0 44H${PLOT_WIDTH}M0 66H${PLOT_WIDTH}M130 0V${PLOT_HEIGHT}M260 0V${PLOT_HEIGHT}M390 0V${PLOT_HEIGHT}"></path>
+        ${traces}
+      </svg>
+      <div class="utility-plot-time-scale"><span>HISTORY</span><span>LIVE</span></div>
+    </div>
     ${legend}
   </figure>`;
 }
@@ -361,12 +364,13 @@ export function renderUtilityPerformance(model, options = {}) {
     labelFor: options.labelFor || (value => value),
   });
 
-  return `<div class="utility-performance">
+  return `<div class="utility-performance" style="--utility-accent:${escapeHtml(model.color)}">
     <div class="utility-performance-heading">
-      <div><small>Connected utility network</small><code>${escapeHtml(model.networkId)}</code></div>
-      <span>${history.length} recorded tick${history.length === 1 ? '' : 's'}</span>
+      <i class="utility-performance-swatch" aria-hidden="true"></i>
+      <div><small>Network telemetry</small><strong>${escapeHtml(model.displayName)}</strong><code>${escapeHtml(model.networkId)}</code></div>
+      <span class="utility-plot-live"><i></i>LIVE</span>
     </div>
-    <p>Plots use solver-published network telemetry. Every run in this topology shares these live values.</p>
+    <div class="utility-performance-scope"><span>CONNECTED NETWORK</span><p>Every run in this topology shares these solver-published values.</p><em>${history.length} sample${history.length === 1 ? '' : 's'}</em></div>
     <div class="utility-performance-plots utility-performance-plots-${escapeHtml(model.utilityType)}">${plots}</div>
   </div>`;
 }

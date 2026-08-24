@@ -73,7 +73,7 @@ export function renderRfNyquist(flow) {
 
   return `<figure class="rf-nyquist-panel utility-instrument-panel">
     <figcaption>
-      <span><strong>NYQUIST / REFLECTION PLANE</strong><small>Complex reflection coefficient Γ</small></span>
+      <span><strong>NYQUIST / REFLECTION PLANE</strong><small>CH 01 · complex reflection coefficient Γ</small></span>
       <em>|Γ| ${gamma.toFixed(3)} · VSWR ${vswr.toFixed(2)}:1</em>
     </figcaption>
     <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="RF reflection coefficient magnitude ${gamma.toFixed(3)} on a Nyquist plane">
@@ -95,8 +95,8 @@ export function renderRfNyquist(flow) {
 export function renderRfSpectrum(flow) {
   const spectrum = flow?.rfSpectrum;
   if (!spectrum || !Array.isArray(spectrum.bins)) {
-    return `<div class="rf-spectrum-panel">
-      <div class="rf-spectrum-heading">RF POWER SPECTRUM</div>
+    return `<div class="rf-spectrum-panel utility-instrument-panel">
+      <div class="rf-spectrum-heading-row"><div><div class="rf-spectrum-heading">RF POWER SPECTRUM</div><div class="rf-spectrum-subheading">CH 01 · discrete carriers · peak forward power</div></div></div>
       <div class="ui-empty-state">Spectrum data is not available yet.</div>
     </div>`;
   }
@@ -110,13 +110,13 @@ export function renderRfSpectrum(flow) {
   const reflected = formatAveragePower(spectrum.reflectedAveragePowerKw);
   const vswr = Math.max(1, finite(spectrum.vswr, 1)).toFixed(2);
 
-  let html = `<div class="rf-spectrum-panel">
+  let html = `<div class="rf-spectrum-panel utility-instrument-panel">
     <div class="rf-spectrum-heading-row">
       <div>
         <div class="rf-spectrum-heading">RF POWER SPECTRUM</div>
-        <div class="rf-spectrum-subheading">Discrete network carriers · peak forward power</div>
+        <div class="rf-spectrum-subheading">CH 01 · discrete carriers · peak forward power</div>
       </div>
-      <span class="rf-spectrum-live">LIVE</span>
+      <span class="utility-plot-live rf-spectrum-live"><i></i>LIVE</span>
     </div>
     <div class="rf-spectrum-summary">
       <div><span>Carrier</span><strong>${escapeHtml(carrier)}</strong></div>
