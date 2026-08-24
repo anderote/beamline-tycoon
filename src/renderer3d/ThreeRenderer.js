@@ -74,6 +74,7 @@ import { CINEMATIC_LIGHTING } from './lighting-tuning.js';
 import {
   buildLightPools, buildLightHalos, applyPoolSuppression,
   emitterIntensityForDarkness, poolOpacityForDarkness, haloOpacityForDarkness,
+  disposeLightGlowTexture,
 } from './lighting-builder.js';
 import { OverlayShim } from './overlay-shim.js';
 import { GlowPipeline } from './glow-pipeline.js';
@@ -6280,6 +6281,7 @@ export class ThreeRenderer {
       this._effectSystem = null;
     }
     disposeLightCookies();
+    disposeLightGlowTexture();
     this.renderer.dispose();
     const threeCanvas = this.renderer.domElement;
     if (threeCanvas.parentNode) threeCanvas.parentNode.removeChild(threeCanvas);

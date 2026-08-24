@@ -178,3 +178,35 @@ test('the per-frame layer budget caps a bulk invalidation without dropping layer
 
   array.dispose();
 });
+
+test('saved renderer state belongs to one shadow array and is released on dispose', () => {
+  const makeArray = () => {
+    const light = new SpotLight();
+    light.castShadow = true;
+    light.intensity = 1;
+    light.shadow.needsUpdate = true;
+    light.shadow.autoUpdate = false;
+    const array = new SharedSpotShadowArray([light], 512);
+    array.shadowMap = { setSize() {}, dispose() {} };
+    return array;
+  };
+  const first = makeArray();
+  const second = makeArray();
+  const camera = { layers: { mask: 0xffffffff } };
+
+  first.updateBefore({ frameId: 1, renderer: stubRenderer(), scene: stubScene(), camera });
+  second.updateBefore({ frameId: 1, renderer: stubRenderer(), scene: stubScene(), camera });
+
+  assert.ok(first._rendererState);
+  assert.ok(second._rendererState);
+  assert.notEqual(first._rendererState, second._rendererState,
+    'two renderer instances never share a module-global saved-state object');
+
+  const secondState = second._rendererState;
+  first.dispose();
+  assert.equal(first._rendererState, null,
+    'teardown releases references captured from the renderer and scene');
+  assert.equal(second._rendererState, secondState,
+    'disposing one array cannot clear another renderer instance state');
+  second.dispose();
+});

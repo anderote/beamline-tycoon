@@ -7,7 +7,6 @@ import {
 } from 'three/tsl';
 
 const { resetRendererAndSceneState, restoreRendererAndSceneState } = RendererUtils;
-let _rendererState;
 
 /**
  * Which layers are lit AND dirty, in round-robin order starting at `cursor`.
@@ -93,6 +92,9 @@ export class SharedSpotShadowArray {
     this._lastFrameId = -1;
     this._cursor = 0;
     this._nodes = [];
+    // RendererUtils allocates its snapshot only for `undefined`; `null` is
+    // treated as an existing state object by Three r184.
+    this._rendererState = undefined;
 
     lights.forEach((light, layer) => {
       const node = shadow(light, light.shadow);
@@ -175,7 +177,7 @@ export class SharedSpotShadowArray {
     const currentMRT = renderer.getMRT();
     const useVelocity = currentMRT ? currentMRT.has('velocity') : false;
 
-    _rendererState = resetRendererAndSceneState(renderer, scene, _rendererState);
+    this._rendererState = resetRendererAndSceneState(renderer, scene, this._rendererState);
     scene.overrideMaterial = getShadowMaterial(this.lights[0]);
     renderer.setClearColor(0x000000, 0);
     // Keep the array at full topology depth. Every layer index has to stay
@@ -203,7 +205,7 @@ export class SharedSpotShadowArray {
     }
 
     renderer.setRenderObjectFunction(currentRenderObjectFunction);
-    restoreRendererAndSceneState(renderer, scene, _rendererState);
+    restoreRendererAndSceneState(renderer, scene, this._rendererState);
   }
 
   dispose() {
@@ -214,6 +216,7 @@ export class SharedSpotShadowArray {
     this.shadowMap?.dispose();
     this.shadowMap = null;
     this.depthTexture = null;
+    this._rendererState = null;
     this._nodes.length = 0;
   }
 }

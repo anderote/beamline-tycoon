@@ -73,7 +73,10 @@ class MeshStub {
   }
 }
 
-class CanvasTexture { constructor(c) { this.image = c; } dispose() {} }
+class CanvasTexture {
+  constructor(c) { this.image = c; this.disposeCount = 0; }
+  dispose() { this.disposeCount++; }
+}
 class Vector3 {
   constructor(x = 0, y = 0, z = 0) { this.set(x, y, z); }
   set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; }
@@ -123,7 +126,9 @@ globalThis.document = {
   },
 };
 
-const { buildLightPools, applyPoolSuppression, REAL_LIGHT_POOL_REMAINDER } =
+const {
+  buildLightPools, applyPoolSuppression, disposeLightGlowTexture, REAL_LIGHT_POOL_REMAINDER,
+} =
   await import('../src/renderer3d/lighting-builder.js');
 
 // --- fixture helpers --------------------------------------------------------
@@ -312,6 +317,21 @@ console.log('\n=== clamping and degenerate inputs ===\n');
 
   assert(buildLightPools([]) === null, 'no fixtures builds no mesh');
   assert(buildLightPools([fixture('A', null)]) === null, 'fixtures with nothing drawable build no mesh at all');
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n=== shared glow texture lifecycle ===\n');
+{
+  const first = buildLightPools([fixture('A', RED)]).material.map;
+  disposeLightGlowTexture();
+  assert(first.disposeCount === 1,
+    'full renderer teardown disposes the module-owned glow texture');
+
+  const second = buildLightPools([fixture('B', BLUE)]).material.map;
+  assert(second !== first,
+    'a later renderer gets a fresh texture instead of a disposed cached object');
+  disposeLightGlowTexture();
+  assert(second.disposeCount === 1, 'the replacement texture is independently disposable');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
