@@ -37,6 +37,9 @@ export function renderHoverTooltipTitle(element, info) {
 }
 
 function detailRenderKey(info) {
+  if (Array.isArray(info?.detailRows)) return `rows:${info.detailRows
+    .map(row => row.map(segment => `${segment?.tone || ''}:${segment?.text || ''}`).join('|'))
+    .join('||')}`;
   if (!Array.isArray(info?.detailSegments)) return `plain:${info?.detail || ''}`;
   return `segments:${info.detailSegments
     .map(segment => `${segment?.tone || ''}:${segment?.text || ''}`)
@@ -49,15 +52,10 @@ export function renderHoverTooltipDetail(element, info) {
   const key = detailRenderKey(info);
   if (element[DETAIL_RENDER_KEY] === key) return;
 
+  const rows = Array.isArray(info?.detailRows) ? info.detailRows : null;
   const segments = Array.isArray(info?.detailSegments) ? info.detailSegments : null;
-  if (!segments) {
-    element.textContent = info?.detail || '';
-    element[DETAIL_RENDER_KEY] = key;
-    return;
-  }
-
   const doc = element.ownerDocument || document;
-  const nodes = segments.map(segment => {
+  const renderSegment = segment => {
     const text = String(segment?.text ?? '');
     const className = HOVER_DETAIL_TONE_CLASSES[segment?.tone];
     if (!className) return doc.createTextNode(text);
@@ -65,7 +63,29 @@ export function renderHoverTooltipDetail(element, info) {
     span.className = className;
     span.textContent = text;
     return span;
-  });
+  };
+
+  if (rows) {
+    const rowNodes = rows.map(segmentsInRow => {
+      const row = doc.createElement('div');
+      row.className = 'hover-tooltip-detail-row';
+      row.replaceChildren(...segmentsInRow.map(renderSegment));
+      return row;
+    });
+    element.replaceChildren(...rowNodes);
+    element.setAttribute?.('aria-label', info?.detail || '');
+    element[DETAIL_RENDER_KEY] = key;
+    return;
+  }
+  if (!segments) {
+    element.textContent = info?.detail || '';
+    element.removeAttribute?.('aria-label');
+    element[DETAIL_RENDER_KEY] = key;
+    return;
+  }
+
+  const nodes = segments.map(renderSegment);
   element.replaceChildren(...nodes);
+  element.removeAttribute?.('aria-label');
   element[DETAIL_RENDER_KEY] = key;
 }

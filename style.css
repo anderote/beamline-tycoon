@@ -5478,6 +5478,12 @@ body.palette-expanded {
 .hover-tooltip-detail {
   color: #aaaacc;
 }
+.hover-tooltip-detail-row {
+  display: block;
+}
+.hover-tooltip-detail-row + .hover-tooltip-detail-row {
+  margin-top: 1px;
+}
 .hover-tooltip-segment-supply,
 .hover-tooltip-segment-healthy {
   color: #44ff88;

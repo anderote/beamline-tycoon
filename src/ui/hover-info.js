@@ -259,18 +259,17 @@ export function utilityNetworkHoverInfo(descriptor, flow) {
     ? 'critical'
     : 'warning';
 
-  let detailSegments;
+  let detailRows;
   if (descriptor?.type === 'vacuumPipe') {
-    detailSegments = [];
+    detailRows = [];
     const pressure = Number(flow.pressure);
     const stageLabel = flow.vacuumStage === 'uhv' ? 'UHV'
       : flow.vacuumStage === 'high' ? 'High vacuum'
         : flow.vacuumStage === 'rough' ? 'Roughing' : 'Inactive';
     if (Number.isFinite(pressure)) {
-      detailSegments.push(
+      detailRows.push([
         { text: `Pressure: ${fmtScientific(pressure)} mbar`, tone: demandTone },
-        { text: ' · ' },
-      );
+      ]);
     }
     const stages = flow.stageCapacities || {};
     const stageParts = [
@@ -280,34 +279,39 @@ export function utilityNetworkHoverInfo(descriptor, flow) {
     ].filter(([, value]) => Number(value) > 0)
       .map(([label, value]) => `${label} ${fmtNumber(value)}`);
     const volume = flow.volumeBreakdown || {};
-    detailSegments.push(
+    detailRows.push([
       { text: `${stageLabel}: ${fmtNumber(capacity)}${capacitySuffix} effective`, tone: 'supply' },
-      ...(stageParts.length ? [
-        { text: ' · ' },
-        { text: `Capacity ${stageParts.join(' / ')} L/s`, tone: 'supply' },
-      ] : []),
-      { text: ' · ' },
+    ]);
+    if (stageParts.length) detailRows.push([
+      { text: `Capacity ${stageParts.join(' / ')} L/s`, tone: 'supply' },
+    ]);
+    detailRows.push([
       { text: `Gas load: ${fmtScientific(demand)}${demandSuffix}`, tone: demandTone },
-    );
-    if (Number.isFinite(flow.volumeL)) detailSegments.push(
-      { text: ' · ' },
+    ]);
+    if (Number.isFinite(flow.volumeL)) detailRows.push([
       { text: `Volume: ${fmtNumber(flow.volumeL)} L (utility pipe ${fmtNumber(volume.servicePipeL || 0)}, beamline pipe ${fmtNumber(volume.beamPipeL || 0)}, beamline components ${fmtNumber(volume.componentChambersL || 0)})` },
-    );
+    ]);
   } else {
-    detailSegments = [
-      { text: `Supply: ${fmtNumber(capacity)}${capacitySuffix}`, tone: 'supply' },
-      { text: ' · ' },
-      { text: `Demand: ${fmtNumber(demand)}${demandSuffix}`, tone: demandTone },
+    detailRows = [
+      [{ text: `Supply: ${fmtNumber(capacity)}${capacitySuffix}`, tone: 'supply' }],
+      [{ text: `Demand: ${fmtNumber(demand)}${demandSuffix}`, tone: demandTone }],
     ];
   }
-  if (issueText) detailSegments.push(
-    { text: ' · ' },
+  if (issueText) detailRows.push([
     { text: issueText, tone: issueTone },
-  );
+  ]);
+
+  // Keep the legacy flat representation for plain-text consumers while the
+  // world-hover renderer uses the explicit rows below.
+  const detailSegments = detailRows.flatMap((row, index) => [
+    ...(index > 0 ? [{ text: ' · ' }] : []),
+    ...row,
+  ]);
 
   return {
     title,
     detail: detailSegments.map(segment => segment.text).join(''),
     detailSegments,
+    detailRows,
   };
 }
