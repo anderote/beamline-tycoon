@@ -9,6 +9,7 @@ export const WORLD_CHANGED_EVENT = 'worldChanged';
 
 const LEGACY_EVENT_DOMAINS = Object.freeze({
   beamlineChanged: ['beamline'],
+  mapExpanded: ['terrainExtent'],
   infrastructureChanged: ['terrain', 'infrastructure'],
   roofsChanged: ['infrastructure'],
   decorationsChanged: ['terrain', 'decorations'],

@@ -109,6 +109,8 @@ function floorDestroysDecoration(infraType, decoration) {
     && DECORATIONS[decoration?.type]?.category === 'treesPlants';
 }
 import {
+  addPlaceableChange,
+  createWorldChangeSet,
   mergeWorldChangePayloads,
   WORLD_CHANGED_EVENT,
   worldChangeForEvent,
@@ -887,13 +889,24 @@ export class Game {
     // `bounds` is derived from — and scatters new trees into subgridOccupied.
     this._markNavDirty();
     this.log(`${parcel.name} — the site is now ${parcel.tilesPerSide}×${parcel.tilesPerSide} tiles.`, 'good');
-    this.emit('mapExpanded');
-    // Two events because two things changed and the renderer rebuilds them
-    // from different handlers: the ground itself is wider
-    // ('infrastructureChanged' → _refreshTerrain) and there are trees on it
-    // that were not there a frame ago ('decorationsChanged').
-    this.emit('infrastructureChanged');
-    this.emit('decorationsChanged');
+    const changeSet = createWorldChangeSet({
+      reason: 'map-expanded',
+      domains: ['terrainExtent'],
+    });
+    for (const entry of placeables) {
+      addPlaceableChange(changeSet, {
+        id: entry.id,
+        kind: entry.kind,
+        action: 'added',
+      });
+    }
+    // The renderer can now grow the ground and append only this ring's trees.
+    // Broad infrastructure/decorations compatibility events used to discard
+    // that fact and rebuild every forest batch on the site.
+    this.emit('mapExpanded', worldChangePayload(changeSet, {
+      fromHalfExtent: from,
+      toHalfExtent: parcel.halfExtent,
+    }));
     this.emit('resourcesChanged');
     return { ok: true, parcel };
   }

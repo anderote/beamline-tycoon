@@ -11,7 +11,10 @@ import {
 import { placeableMutationEvent } from '../src/game/placeable-events.js';
 import { updateWorldSnapshot, buildWorldSnapshot } from '../src/renderer3d/world-snapshot.js';
 import { WorldInvalidationScheduler } from '../src/renderer3d/world-invalidation-scheduler.js';
-import { worldRefreshPlan } from '../src/renderer3d/world-refresh-plan.js';
+import {
+  splitExpansionRefreshPlan,
+  worldRefreshPlan,
+} from '../src/renderer3d/world-refresh-plan.js';
 
 function emptyPlacementState(game) {
   game.state.placeables = [];
@@ -108,6 +111,39 @@ test('legacy world events share the central conservative policy', () => {
   assert.equal(beamline.utilityIssues, 'force');
   assert.equal(worldRefreshPlan('resourcesChanged'), null);
   assert.equal(worldRefreshPlan('loaded').full, true);
+});
+
+test('map expansion preserves its append-only decoration facts', () => {
+  const changeSet = createWorldChangeSet({
+    reason: 'map-expanded',
+    domains: ['terrainExtent'],
+  });
+  addPlaceableChange(changeSet, {
+    id: 'new_tree', kind: 'decoration', action: 'added',
+  });
+
+  const plan = worldRefreshPlan('worldChanged', { changeSet, event: 'mapExpanded' });
+  assert.equal(plan.terrain, true, 'the owned ground mesh grows');
+  assert.equal(plan.decorations, true, 'the new ring vegetation is rendered');
+  assert.equal(plan.physicsBodies, true, 'new tree occupancy reaches presentation physics');
+  assert.equal(plan.infrastructure, undefined,
+    'map growth does not rebuild unchanged infrastructure');
+  assert.deepEqual(plan.changeSet.placeables.get('new_tree'), {
+    id: 'new_tree', kind: 'decoration', action: 'added',
+  });
+  assert.equal(plan.changeSet.domains.has('terrain'), false,
+    'extent growth stays distinct from a terrain-height context mutation');
+
+  const split = splitExpansionRefreshPlan(plan);
+  assert.equal(split.immediate.terrain, true);
+  assert.equal(split.immediate.decorations, undefined,
+    'ground growth owns the first frame');
+  assert.equal(split.deferred.decorations, true,
+    'new-ring vegetation follows on the adjacent frame');
+  assert.equal(split.deferred.terrainDetails, true,
+    'grass and flower instances share the vegetation continuation');
+  assert.strictEqual(split.deferred.changeSet, plan.changeSet,
+    'both refreshes retain the exact added-placeable contract');
 });
 
 test('stable-id snapshot patches preserve untouched equipment and furnishings', () => {

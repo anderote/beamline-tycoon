@@ -138,6 +138,12 @@ export class WildflowerBuilder {
     this._parent = null;
     this._stemMesh = null;
     this._bloomMesh = null;
+    this._stemMeshes = [];
+    this._bloomMeshes = [];
+    this._stemGeometry = null;
+    this._bloomGeometry = null;
+    this._stemMaterial = null;
+    this._bloomMaterial = null;
     this._cacheKey = null;
   }
 
@@ -147,6 +153,22 @@ export class WildflowerBuilder {
    */
   add(parent) {
     this._parent = parent;
+  }
+
+  _ensureResources() {
+    if (this._stemGeometry) return;
+    const stemH = 0.12;
+    const stemR = 0.012;
+    const bloomR = 0.05;
+    this._stemGeometry = new THREE.CylinderGeometry(stemR, stemR, stemH, 4);
+    this._stemGeometry.translate(0, stemH / 2, 0);
+    this._stemMaterial = new THREE.MeshStandardMaterial({
+      color: STEM_COLOR, roughness: 0.85,
+    });
+    this._bloomGeometry = new THREE.SphereGeometry(bloomR, 6, 4);
+    this._bloomGeometry.scale(1, 0.55, 1);
+    this._bloomGeometry.translate(0, stemH + bloomR * 0.3, 0);
+    this._bloomMaterial = new THREE.MeshStandardMaterial({ roughness: 0.55 });
   }
 
   /**
@@ -166,29 +188,14 @@ export class WildflowerBuilder {
     const terrain = snapshot?.terrain ?? [];
     if (terrain.length === 0) return;
 
-    // Base dimensions — per-instance scale further modulates these.
-    const STEM_H = 0.12;
-    const STEM_R = 0.012;
-    const BLOOM_R = 0.05;
-
-    const stemGeo = new THREE.CylinderGeometry(STEM_R, STEM_R, STEM_H, 4);
-    // Shift the cylinder so y=0 is its base, not its center — then the per-
-    // instance matrix positions the base right on the grass plane.
-    stemGeo.translate(0, STEM_H / 2, 0);
-    const stemMat = new THREE.MeshStandardMaterial({
-      color: STEM_COLOR, roughness: 0.85,
-    });
-
-    // Slightly flattened sphere for a disc-like bloom.
-    const bloomGeo = new THREE.SphereGeometry(BLOOM_R, 6, 4);
-    bloomGeo.scale(1, 0.55, 1);
-    bloomGeo.translate(0, STEM_H + BLOOM_R * 0.3, 0);
-    const bloomMat = new THREE.MeshStandardMaterial({ roughness: 0.55 });
+    this._ensureResources();
 
     // Upper bound: at most 3 flowers per cell.
     const maxCount = terrain.length * 3;
-    const stemMesh = new THREE.InstancedMesh(stemGeo, stemMat, maxCount);
-    const bloomMesh = new THREE.InstancedMesh(bloomGeo, bloomMat, maxCount);
+    const stemMesh = new THREE.InstancedMesh(
+      this._stemGeometry, this._stemMaterial, maxCount);
+    const bloomMesh = new THREE.InstancedMesh(
+      this._bloomGeometry, this._bloomMaterial, maxCount);
     stemMesh.matrixAutoUpdate = false;
     bloomMesh.matrixAutoUpdate = false;
 
@@ -234,25 +241,67 @@ export class WildflowerBuilder {
     this._parent.add(bloomMesh);
     this._stemMesh = stemMesh;
     this._bloomMesh = bloomMesh;
+    this._stemMeshes.push(stemMesh);
+    this._bloomMeshes.push(bloomMesh);
+  }
+
+  /** Add an ownership ring without reallocating flowers on existing land. */
+  appendTerrain(terrain, snapshot) {
+    if (!this._parent || typeof THREE === 'undefined') return;
+    if (this._cacheKey == null) {
+      this.rebuild(snapshot);
+      return;
+    }
+    if (terrain?.length) {
+      const retainedStems = this._stemMeshes;
+      const retainedBlooms = this._bloomMeshes;
+      this._stemMeshes = [];
+      this._bloomMeshes = [];
+      this._stemMesh = null;
+      this._bloomMesh = null;
+      this._cacheKey = null;
+      this.rebuild({ terrain });
+      this._stemMeshes = [...retainedStems, ...this._stemMeshes];
+      this._bloomMeshes = [...retainedBlooms, ...this._bloomMeshes];
+    }
+    this._cacheKey = computeWildflowerCacheKey(snapshot);
   }
 
   dispose() {
     this._disposeMeshes();
+    for (const resource of [
+      this._stemGeometry, this._bloomGeometry,
+      this._stemMaterial, this._bloomMaterial,
+    ]) resource?.dispose?.();
+    this._stemGeometry = null;
+    this._bloomGeometry = null;
+    this._stemMaterial = null;
+    this._bloomMaterial = null;
     this._parent = null;
     this._cacheKey = null;
   }
 
   _disposeMeshes() {
-    for (const m of [this._stemMesh, this._bloomMesh]) {
+    const meshes = new Set([
+      ...this._stemMeshes, ...this._bloomMeshes,
+      this._stemMesh, this._bloomMesh,
+    ]);
+    for (const m of meshes) {
       if (!m) continue;
       if (this._parent) this._parent.remove(m);
-      m.geometry.dispose();
-      m.material.dispose();
+      if (m.geometry !== this._stemGeometry && m.geometry !== this._bloomGeometry) {
+        m.geometry.dispose();
+      }
+      if (m.material !== this._stemMaterial && m.material !== this._bloomMaterial) {
+        m.material.dispose();
+      }
       // instanceMatrix/instanceColor live on the mesh, not the geometry —
       // only InstancedMesh.dispose() frees their GPU buffers.
       if (typeof m.dispose === 'function') m.dispose();
     }
     this._stemMesh = null;
     this._bloomMesh = null;
+    this._stemMeshes = [];
+    this._bloomMeshes = [];
   }
 }

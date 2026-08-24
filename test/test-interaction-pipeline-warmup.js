@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { prewarmInteractionPipelines } from '../src/renderer3d/interaction-pipeline-warmup.js';
+import {
+  precompileWorldPipelines,
+  prewarmInteractionPipelines,
+} from '../src/renderer3d/interaction-pipeline-warmup.js';
 
 test('prewarms the direct render target on native WebGPU', async () => {
   const scene = { name: 'world' };
@@ -35,6 +38,41 @@ test('skips compatibility rendering and unsupported renderer versions', async ()
   assert.equal(await prewarmInteractionPipelines(fallback, {}, {}), false);
   assert.equal(await prewarmInteractionPipelines({ backend: { isWebGPUBackend: true } }, {}, {}), false);
   assert.equal(compileCalls, 0);
+});
+
+test('mid-game world compilation does not submit a blocking render', async () => {
+  const calls = [];
+  const renderer = {
+    backend: {
+      isWebGPUBackend: true,
+      device: { queue: { async onSubmittedWorkDone() { calls.push(['drained']); } } },
+    },
+    async compileAsync(...args) { calls.push(['compile', ...args]); },
+    async renderAsync(...args) { calls.push(['renderAsync', ...args]); },
+    render(...args) { calls.push(['render', ...args]); },
+  };
+  const scene = { name: 'expanded-world' };
+  const camera = { name: 'camera' };
+
+  assert.equal(await precompileWorldPipelines(renderer, scene, camera), true);
+  assert.deepEqual(calls, [
+    ['compile', scene, camera],
+    ['renderAsync', scene, camera],
+    ['drained'],
+  ]);
+});
+
+test('later world growth reuses the warmed render context', async () => {
+  const calls = [];
+  const renderer = {
+    backend: { isWebGPUBackend: true },
+    async compileAsync() { calls.push('compile'); },
+    async renderAsync() { calls.push('render'); },
+  };
+  assert.equal(await precompileWorldPipelines(renderer, {}, {}, {
+    submit: false,
+  }), true);
+  assert.deepEqual(calls, ['compile']);
 });
 
 test('a warmup failure does not block game boot', async () => {
