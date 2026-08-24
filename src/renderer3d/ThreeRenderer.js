@@ -262,6 +262,10 @@ export class ThreeRenderer {
     this._snapTargetMode = 'steep';
 
     this._frustumSize = 20;
+    // A short event-local tail keeps camera motion on the cheap render path
+    // between raw pointer/wheel events. Full post-processing returns as soon
+    // as the view settles, without changing the player's quality setting.
+    this._cameraMotionUntilMs = 0;
     this._animFrameId = null;
     this._framePacer = null;
     this._ambientElectricalSparks = new AmbientElectricalSparkScheduler();
@@ -1541,9 +1545,9 @@ export class ThreeRenderer {
    * pre-first-snapshot) or when the ray misses the mesh (e.g. aimed at sky).
    * Uses the current camera orientation, so it respects view rotation.
    */
-  _raycastGround(screenX, screenY) {
+  _raycastGround(screenX, screenY, screenRect = null) {
     if (!this.camera || !this.renderer) return null;
-    const { raycaster, groundPlane } = this._screenRay(screenX, screenY);
+    const { raycaster, groundPlane } = this._screenRay(screenX, screenY, screenRect);
     if (this._terrainMesh) {
       const intersections = raycaster.intersectObject(this._terrainMesh);
       if (intersections.length > 0) return intersections[0].point;
@@ -1589,7 +1593,7 @@ export class ThreeRenderer {
    * plane is constant (y=0, +Y normal) and never mutated by intersectPlane.
    * Callers must consume the raycaster before the next _screenRay call.
    */
-  _screenRay(screenX, screenY) {
+  _screenRay(screenX, screenY, screenRect = null) {
     let s = this._rayScratch;
     if (!s) {
       s = this._rayScratch = {
@@ -1598,7 +1602,10 @@ export class ThreeRenderer {
         groundPlane: new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
       };
     }
-    const rect = this.renderer.domElement.getBoundingClientRect();
+    // Camera gestures perform two ground raycasts against the same unchanged
+    // canvas bounds. Reuse their event-local rect so a pan/zoom mousemove
+    // cannot trigger two additional layout reads.
+    const rect = screenRect || this.renderer.domElement.getBoundingClientRect();
     s.ndc.set(
       ((screenX - rect.left) / rect.width) * 2 - 1,
       -((screenY - rect.top) / rect.height) * 2 + 1,
@@ -1613,7 +1620,7 @@ export class ThreeRenderer {
    * use the rotation=0 iso formula regardless of current rotation, since
    * nothing is drawn through the overlay.
    */
-  _syncOverlayFromPan() {
+  _syncOverlayFromPan(updateFrustum = true) {
     if (!this.app || !this.world) return;
     const screenW = this.app.screen.width;
     const screenH = this.app.screen.height;
@@ -1625,16 +1632,29 @@ export class ThreeRenderer {
     this.world.x = screenW / 2 - this.zoom * isoX;
     this.world.y = screenH / 2 - this.zoom * isoY;
     this.world.scale = this.zoom;
-    this._frustumSize = Math.SQRT2 * screenH / (32 * this.zoom);
-    this._updateCameraFrustum();
+    // Panning and orbiting only move the camera; they do not change its
+    // orthographic projection. Avoid rebuilding the projection matrix on
+    // every raw mousemove. Zoom, focus-zoom, resize, initialization, and save
+    // restoration retain the default `true` path.
+    if (updateFrustum) {
+      this._frustumSize = Math.SQRT2 * screenH / (32 * this.zoom);
+      this._updateCameraFrustum();
+    }
+  }
+
+  _noteCameraMotion(now = performance.now()) {
+    if (now >= this._cameraMotionUntilMs) this._sunShadowScheduler?.markAllDirty();
+    this._cameraMotionUntilMs = Math.max(this._cameraMotionUntilMs, now + 120);
   }
 
   zoomAt(screenX, screenY, delta) {
     // Manual input wins over an in-flight focus animation, which would
     // otherwise keep overwriting pan/zoom for the rest of its duration.
     this._focusing = false;
+    this._noteCameraMotion();
     // Remember which world point is under the cursor before the zoom.
-    const before = this._raycastGround(screenX, screenY);
+    const screenRect = this.renderer.domElement.getBoundingClientRect();
+    const before = this._raycastGround(screenX, screenY, screenRect);
     this.zoom = Math.max(0.2, Math.min(ZOOM_MAX, this.zoom + delta));
     // Rebuild frustum from new zoom so the subsequent raycast uses the new view.
     const screenH = this.app.screen.height;
@@ -1643,14 +1663,16 @@ export class ThreeRenderer {
     // Find where the cursor now lands, and shift the pan so the original
     // world point ends up back under the cursor.
     if (before) {
-      const after = this._raycastGround(screenX, screenY);
+      const after = this._raycastGround(screenX, screenY, screenRect);
       if (after) {
         this._panX += (before.x - after.x);
         this._panY += (before.z - after.z);
       }
     }
     this._updateCameraLookAt();
-    this._syncOverlayFromPan();
+    // The new projection was applied above so the cursor-anchor raycast sees
+    // it immediately; only legacy overlay bookkeeping remains.
+    this._syncOverlayFromPan(false);
     if (this._updateAnchoredWindows) this._updateAnchoredWindows();
   }
 
@@ -1665,11 +1687,12 @@ export class ThreeRenderer {
   panBy(dxScreen, dyScreen) {
     if (!this.camera) return;
     this._focusing = false;   // manual pan cancels a focus animation
+    this._noteCameraMotion();
     const rect = this.renderer.domElement.getBoundingClientRect();
     const cx = rect.left + rect.width / 2;
     const cy = rect.top + rect.height / 2;
-    const p0 = this._raycastGround(cx, cy);
-    const p1 = this._raycastGround(cx + dxScreen, cy + dyScreen);
+    const p0 = this._raycastGround(cx, cy, rect);
+    const p1 = this._raycastGround(cx + dxScreen, cy + dyScreen, rect);
     if (!p0 || !p1) return;
     // p1 - p0 is the world delta that the offset cursor corresponds to.
     // Subtract so that dragging the cursor right shifts the lookAt LEFT,
@@ -1677,7 +1700,7 @@ export class ThreeRenderer {
     this._panX -= (p1.x - p0.x);
     this._panY -= (p1.z - p0.z);
     this._updateCameraLookAt();
-    this._syncOverlayFromPan();
+    this._syncOverlayFromPan(false);
     if (this._updateAnchoredWindows) this._updateAnchoredWindows();
   }
 
@@ -1690,6 +1713,7 @@ export class ThreeRenderer {
    */
   panScreenAligned(dxRight, dyUp) {
     this._focusing = false;   // manual pan cancels a focus animation
+    this._noteCameraMotion();
     const a = this._effectiveYaw();
     const cosA = Math.cos(a);
     const sinA = Math.sin(a);
@@ -1704,7 +1728,7 @@ export class ThreeRenderer {
     this._panX += dxRight * rx + dyUp * fx;
     this._panY += dxRight * rz + dyUp * fz;
     this._updateCameraLookAt();
-    this._syncOverlayFromPan();
+    this._syncOverlayFromPan(false);
     if (this._updateAnchoredWindows) this._updateAnchoredWindows();
   }
 
@@ -1832,10 +1856,11 @@ export class ThreeRenderer {
    */
   orbitBy(dxPx, dyPx) {
     if (!this._freeOrbiting) return;
+    this._noteCameraMotion();
     this._freeYaw += dxPx * ORBIT_YAW_SENSITIVITY;
     this._freePitch = clampPitch(this._freePitch - dyPx * ORBIT_PITCH_SENSITIVITY);
     this._updateCameraLookAt();
-    this._syncOverlayFromPan();
+    this._syncOverlayFromPan(false);
     if (this._updateAnchoredWindows) this._updateAnchoredWindows();
   }
 
@@ -4811,9 +4836,11 @@ export class ThreeRenderer {
     this._tickViewRotation();
     this._tickFreeOrbitSnap();
     this._tickCameraFocus();
+    const cameraMoving = this._viewRotating || this._snapping || this._focusing
+      || performance.now() < this._cameraMotionUntilMs;
     this._updateZoneLabelFacing();
     if (this._updateAnchoredWindows) this._updateAnchoredWindows();
-    this._updateSunCycle();
+    this._updateSunCycle(cameraMoving);
     this._updateLightingRamp();
     this._updateLOD();
     // New-system utility-line preview + port-hover highlight + candidate
@@ -4950,7 +4977,7 @@ export class ThreeRenderer {
         // frustum, which is an input to fixture ranking. Re-ranking mid-sweep
         // buys nothing the player can see and costs shadow refreshes on
         // exactly the frames that can least afford them.
-        { freezeAssignment: this._viewRotating || this._snapping || this._freeOrbiting },
+        { freezeAssignment: cameraMoving, deferShadows: cameraMoving },
       );
     }
     this._physicsPresentation.update(_dt);
@@ -4960,7 +4987,12 @@ export class ThreeRenderer {
     // holding more frames than it should. Shadow refreshes scheduled this
     // frame stay marked and land on the next frame that does render.
     if (!this._framePacer || this._framePacer.shouldRender()) {
-      this._glowPipeline.render();
+      // Native WebGPU glow includes GTAO, a selective scene pass, and two
+      // bloom chains. Those are valuable on a settled view but make a dense
+      // facility much more expensive to pan. Render the ordinary lit scene
+      // while the camera moves, then restore the configured pipeline after
+      // the short motion tail expires.
+      this._glowPipeline.render({ skipPostProcessing: cameraMoving });
       this._framePacer?.frameSubmitted();
     }
     if (this._viewCube) this._viewCube.update();
@@ -5007,7 +5039,7 @@ export class ThreeRenderer {
     this._effectSystem?.setScopeEnabled?.('utility-lines', showUtilityDetail);
   }
 
-  _updateSunCycle() {
+  _updateSunCycle(deferShadows = false) {
     const now = performance.now();
     const game = this.game;
     const authoritative = game?.state?.timeOfDay;
@@ -5020,10 +5052,15 @@ export class ThreeRenderer {
     const localTimeChanged = this._localTimeOfDay !== this._lastSunAppliedTimeOfDay;
     const panChanged = cx !== this._lastSunPanX || cz !== this._lastSunPanY;
     const timeMoving = !game.state.paused;
+    // Camera motion dirties the camera-following sun map but defers its scene
+    // render. Once the view settles, service that queued refresh even when a
+    // paused simulation would otherwise sleep this whole method forever.
+    const shadowRefreshPending = !deferShadows
+      && (this._sunShadowScheduler?.pendingCount ?? 0) > 0;
     // Day/night grading does not need a 60 Hz solve. Keep camera-following
     // shadows immediate while panning, but otherwise cap the orbit/material
     // work at 20 Hz and sleep completely when paused and unchanged.
-    if (!authoritativeChanged && !localTimeChanged && !panChanged) {
+    if (!authoritativeChanged && !localTimeChanged && !panChanged && !shadowRefreshPending) {
       if (!timeMoving || now - this._lastSunAppliedAt < 50) return;
     }
     const dt = (now - this._lastSunFrameTime) / 1000; // seconds
@@ -5110,7 +5147,8 @@ export class ThreeRenderer {
     this._sunLight.shadow.needsUpdate = false;
     const sunUpdates = this._sunShadowScheduler?.step({
       activeCount: 1,
-      enabled: this.renderer.shadowMap.enabled && grade.sunIntensity > 0.02,
+      enabled: !deferShadows
+        && this.renderer.shadowMap.enabled && grade.sunIntensity > 0.02,
       dtMs: dt * 1000,
       assignmentKeys: ['sun'],
     }) || [];

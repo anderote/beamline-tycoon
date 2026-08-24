@@ -119,6 +119,16 @@ sits on the transition. Floors, terrain, and walls are already merged/static
 presentation layers. Roof slabs are merged by surface into two draws per
 compatible material instead of submitting one six-material box per tile.
 
+Camera pan and orbit gestures update only the view transform. The orthographic
+projection matrix is invalidated by zoom or viewport-size changes, not by every
+raw pointer-move event; cursor-anchored zoom still applies the new projection
+before its corrective ground raycast. Multi-ray pan and zoom gestures also
+reuse one event-local canvas bounds read rather than repeatedly querying layout.
+While the camera is moving, native WebGPU renders the ordinary lit scene and
+retains cached shadows instead of scheduling GTAO, selective glow, bloom, or
+new facility shadow passes. The configured post-processing and shadow cadence
+return after a 120 ms settle tail; this does not change the saved glow setting.
+
 The stock Minor Lab is the whole-facility regression fixture. Its headless
 production-builder measurement currently drops more than 7,000 authored near
 draws to at most 550 far draws, at most 125,000 far triangles, and at most 60

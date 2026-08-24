@@ -444,6 +444,8 @@ export class LightRig {
    * @param {object} [options]
    * @param {boolean} [options.freezeAssignment=false] hold the current
    *        fixture-to-spot assignment instead of re-ranking. See _assignSpots.
+   * @param {boolean} [options.deferShadows=false] retain cached shadow maps
+   *        without scheduling facility shadow renders during camera motion.
    */
   update(camera, nightFactor, dt, focusPoint = null, effectTimeMs = null, options = {}) {
     const dtMs = Number.isFinite(dt) && dt > 0 ? dt * 1000 : 0;
@@ -484,7 +486,7 @@ export class LightRig {
       focus, nf, dtMs, camera,
       options.freezeAssignment === true && !candidatesChanged,
     );
-    this._scheduleShadows(nf, dtMs);
+    this._scheduleShadows(nf, dtMs, options.deferShadows === true);
     this._assignPoints(focus, nf);
   }
 
@@ -814,7 +816,7 @@ export class LightRig {
     this._shadowAssignmentKeys[index] = null;
   }
 
-  _scheduleShadows(nightFactor, dtMs) {
+  _scheduleShadows(nightFactor, dtMs, deferShadows = false) {
     const hasLitFixture = this._spotSlots.some((slot, index) =>
       index < this._activeShadowSpotCount && slot.assignedRef && slot.light.intensity > 0.01);
     for (let i = 0; i < this._shadowSpotCount; i++) {
@@ -827,7 +829,7 @@ export class LightRig {
     }
     const updates = this._shadowScheduler.step({
       activeCount: this._activeShadowSpotCount,
-      enabled: this._enabled && hasLitFixture,
+      enabled: this._enabled && hasLitFixture && !deferShadows,
       dtMs,
       assignmentKeys: this._shadowAssignmentKeys,
     });

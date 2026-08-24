@@ -254,6 +254,28 @@ test('quality changes park fixed slots and shadow refreshes obey the configured 
     'painted pools return when all real fixture slots are parked');
 });
 
+test('camera motion defers fixture shadow renders without discarding the queue', () => {
+  const scene = new SceneStub();
+  placeFixture(scene, 'motion-shadow', DEF.lamppost, 0, 0);
+  const rig = new LightRig(scene, {
+    shadowSpotCount: 1, activeShadowSpotCount: 1, pointCount: 1, shadowHz: 30,
+  });
+  const camera = { position: new V3(0, 0, 0) };
+
+  rig.update(camera, 1, 1, null, null, {
+    freezeAssignment: true,
+    deferShadows: true,
+  });
+  assert.equal(rig.getStats().shadowUpdatesLastFrame, 0,
+    'camera motion schedules no facility shadow render');
+  assert.equal(rig._spotSlots[0].light.shadow.needsUpdate, false);
+
+  rig.update(camera, 1, 1);
+  assert.equal(rig.getStats().shadowUpdatesLastFrame, 1,
+    'the deferred dirty shadow refreshes after the camera settles');
+  assert.equal(rig._spotSlots[0].light.shadow.needsUpdate, true);
+});
+
 test('real-light and shadow budgets remain independent at every quality tier', () => {
   const scene = new SceneStub();
   for (let i = 0; i < 40; i++) placeFixture(scene, `tier-${i}`, DEF.ceilingPanel, i, 0);

@@ -64,3 +64,22 @@ test('disposing glow releases both scene passes and every post-process owner', (
     assert.equal(disposeCounts.get(owner), 1, `${owner} is disposed exactly once`);
   }
 });
+
+test('camera motion can bypass post-processing without changing the glow setting', () => {
+  const pipeline = createPipeline(true);
+  let postProcessed = 0;
+  let direct = 0;
+  pipeline._pipeline.render = () => { postProcessed++; };
+  pipeline.renderer.render = () => { direct++; };
+
+  pipeline.render({ skipPostProcessing: true });
+  assert.equal(direct, 1, 'motion renders the lit scene directly');
+  assert.equal(postProcessed, 0, 'motion skips GTAO and bloom');
+  assert.equal(pipeline.enabled, true, 'the player glow preference remains enabled');
+
+  pipeline.render();
+  assert.equal(postProcessed, 1, 'the settled view restores post-processing');
+  assert.equal(direct, 1);
+
+  pipeline.dispose();
+});
