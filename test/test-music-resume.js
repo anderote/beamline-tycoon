@@ -2,7 +2,12 @@
 // These helpers are DOM-free so the identity rules can be tested without
 // pretending that Node's audio implementation behaves like a browser's.
 
-import { hasSavedPlayback, resolveSavedTrackIndex } from '../src/ui/MusicPlayer.js';
+import {
+  formatMusicThemeName,
+  hasSavedPlayback,
+  mergeMusicManifests,
+  resolveSavedTrackIndex,
+} from '../src/ui/MusicPlayer.js';
 
 let failures = 0;
 function check(name, condition, detail = '') {
@@ -41,6 +46,36 @@ check('invalid indices do not select a random track',
   resolveSavedTrackIndex(reorderedTracks, { currentIndex: 99 }) === -1);
 check('an empty preference does not suppress the first-run welcome track',
   !hasSavedPlayback({ selectedTheme: 'sovietcore', currentIndex: -1 }));
+
+console.log('\nmusic manifest composition');
+
+const hostedBase = 'https://audio.example.test/soundtrack';
+const merged = mergeMusicManifests([
+  {
+    manifest: {
+      baseUrl: `${hostedBase}/`,
+      themes: { bardcore: ['hosted.mp3'], sovietcore: ['night-drive.mp3'] },
+    },
+    manifestDir: 'music-web',
+  },
+  {
+    manifest: {
+      bardcore: [],
+      'labtime-radio': ['001 - Atom Bomb Baby.mp3'],
+    },
+    manifestDir: 'music',
+  },
+]);
+check('local playlists join the hosted soundtrack',
+  Object.keys(merged.themes).length === 3 && merged.themes['labtime-radio'].length === 1);
+check('an empty local folder does not hide a hosted theme',
+  merged.themes.bardcore[0] === 'hosted.mp3');
+check('hosted themes retain their object-storage base URL',
+  merged.themeBaseUrls.sovietcore === hostedBase);
+check('local themes retain their local manifest base URL',
+  merged.themeBaseUrls['labtime-radio'] === 'music');
+check('playlist slugs have a player-friendly label',
+  formatMusicThemeName('labtime-radio') === 'Labtime Radio');
 
 if (failures) {
   console.log(`\n${failures} check(s) failed`);

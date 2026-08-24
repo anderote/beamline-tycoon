@@ -17,6 +17,7 @@ import { makeDraggable } from './draggable.js';
 import { pushEscHandler } from './esc-stack.js';
 import { openWikiWindow } from './WikiWindow.js';
 import { SELECTION_CATEGORIES } from '../game/selection-targets.js';
+import { formatMusicThemeName } from './MusicPlayer.js';
 
 export class OptionsDialog {
   constructor({ game, renderer, musicPlayer, inputHandler = null }) {
@@ -73,7 +74,7 @@ export class OptionsDialog {
       for (const name of mp.themeNames) {
         const opt = document.createElement('option');
         opt.value = name;
-        opt.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+        opt.textContent = formatMusicThemeName(name);
         themeSel.appendChild(opt);
       }
       themeSel.disabled = false;
