@@ -176,7 +176,14 @@ export function placeableOperationalStatus(state, entry, { health } = {}) {
   let overall = base;
 
   for (const group of groups.values()) {
-    let groupStatus = base;
+    // A port row answers only whether this utility connection is healthy.
+    // Device-wide faults (commissioning, wear, switched-off state, breaker
+    // state, and so on) still own the window's overall status above, but must
+    // not paint every utility row red. Doing so made a fully served Cooling
+    // row claim the connection was bad whenever, for example, the same
+    // cyclotron was still commissioning or its vacuum section was pumping
+    // down. That contradicted the solver-owned line tooltip beside it.
+    let groupStatus = status('healthy', 'Connected');
     const connected = connectedNetworksFor(
       state, entry.id, group.utilityType, group.portNames,
     );

@@ -60,6 +60,18 @@ test('component wear is yellow while an actual failure is red', () => {
   assert.equal(placeableOperationalStatus(tripped, entry, { health: 100 }).tone, 'critical');
 });
 
+test('device-wide faults do not masquerade as utility connection faults', () => {
+  const commissioning = { ...entry, needsCommissioning: true };
+  const result = placeableOperationalStatus(connectedState(), commissioning, { health: 80 });
+
+  assert.equal(result.tone, 'critical', 'commissioning still controls the overall device status');
+  assert.equal(result.detail, 'Commissioning required');
+  assert.equal(result.groups['hvCable:sink'].tone, 'healthy');
+  assert.equal(result.groups['hvCable:sink'].detail, 'Connected');
+  assert.equal(result.groups['powerCable:source'].tone, 'healthy');
+  assert.equal(result.groups['powerCable:source'].detail, 'Connected');
+});
+
 test('an unused supply is yellow rather than falsely reported as broken', () => {
   const state = connectedState();
   state.utilityNetworks.set('powerCable', []);
