@@ -188,8 +188,6 @@ export class StaffMember {
     if (this.traits.includes('careful')) moodMult *= 0.9;
     // zone tier: 0→0.5, 4→1.0
     const tierMult = 0.5 + 0.5 * Math.min(4, zoneTier) / 4;
-    // nightOwl shift modifier (assume day tick: tick%240 <120 is day)
-    // caller can pass isNight
     let result = (skill / 5) * tierMult * moodMult;
     if (jobSpecialty != null && this.specialty != null && jobSpecialty !== this.specialty) {
       result *= CROSS_SPECIALTY_EFFICIENCY;

@@ -22,11 +22,10 @@ export const STAFF_ROUTINES_ENABLED = true;
 // efficiency — see that test's own header for the full "workTicks: 150 met
 // fatigue += 0.02" history this constant exists to keep from repeating.
 //
-// Was 0.02 (threshold crossed at tick 41 — see this task's balance report),
-// which is roughly a quarter of DAY_LENGTH_TICKS (Game.js: 240) and left no
-// job of any real duration completable in one window even before travel.
-// 0.005 crosses NEEDS_THRESHOLD (0.8) at tick 160 — about two-thirds of one
-// in-game day, i.e. roughly one sleep per day rather than six.
+// Was 0.02 (threshold crossed at tick 41 — see this task's balance report)
+// and left no job of any real duration completable in one window even before
+// travel. 0.005 crosses NEEDS_THRESHOLD (0.8) at tick 160. Needs pacing is
+// intentionally tick-based and independent of the slower presentation clock.
 export const FATIGUE_PER_TICK = 0.005;
 
 // Base hunger accrual per tick while 'working' (before the gourmand trait's
@@ -37,9 +36,9 @@ export const FATIGUE_PER_TICK = 0.005;
 // deadlock-guard control, and the term real walking distance to a cafeteria
 // makes materially worse (a facility with any real travel distance to feed
 // pays this cost far more often than the zero-travel headless tests here
-// can see). 0.0033 crosses threshold at tick ~242 — about one meal per
-// in-game day (DAY_LENGTH_TICKS, Game.js: 240), matching what fix round 1
-// already did for sleep via FATIGUE_PER_TICK above.
+// can see). 0.0033 crosses threshold at tick ~242, matching what fix round 1
+// already did for sleep via FATIGUE_PER_TICK above. Like fatigue, this remains
+// tick-based rather than stretching when the presentation day is retuned.
 export const HUNGER_PER_TICK = 0.0033;
 const GOURMAND_HUNGER_MULT = 1.2; // unchanged ratio from the old 0.01 -> 0.012
 

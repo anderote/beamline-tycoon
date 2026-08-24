@@ -438,13 +438,13 @@ console.log('\n=== 11. beamHours: deduped per tick, not per run() call ===\n');
   // this headless gate doesn't have. Set directly here since nothing else
   // in this hand-built state computes it.
   state.beamOn = true;
-  state.tick = 10; // a multiple of DAY_LENGTH_TICKS/24 (240/24 = 10) — an accrual tick
+  state.tick = 60; // a multiple of DAY_LENGTH_TICKS/24 (1440/24 = 60) — an accrual tick
   const gate = makeGate(state);
   for (let i = 0; i < 10; i++) gate.run(); // simulates toggling off/on repeatedly while paused
   assert(op.stats.beamHours === 1,
     `ten run() calls on the SAME tick accrue exactly once (got ${op.stats.beamHours})`);
 
-  state.tick = 20; // the next accrual tick
+  state.tick = 120; // the next accrual tick
   gate.run();
   assert(op.stats.beamHours === 2, `a later accrual tick accrues again (got ${op.stats.beamHours})`);
 }

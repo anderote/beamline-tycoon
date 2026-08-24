@@ -239,13 +239,14 @@ const BEAM_GRAPH_SOURCE_GAP_M = 1;
 
 // The single day/night clock. state.timeOfDay advances by 1/DAY_LENGTH_TICKS
 // every tick (see tick(), near TICK_MS in the constructor), so at
-// TICK_MS = 1000 this is a 4-minute day at 1x speed, scaling for free with
-// game.state.speed since the tick interval itself is what speed scales.
-// 240 is deliberately the period the sim already ran isNight on
-// (`tick % 240`) before this refactor, so staff-needs pacing is unchanged.
+// TICK_MS = 1000 this is a 24-minute day at 1x speed, scaling for free with
+// game.state.speed since the tick interval itself is what speed scales. That
+// gives each in-game hour 60 normal-speed seconds and keeps daylight/nighttime
+// around long enough for building and inspection instead of changing several
+// times during one short play session.
 // The renderer (ThreeRenderer._updateSunCycle) reads timeOfDay instead of
 // keeping its own wall-clock sun — this is the one clock now.
-export const DAY_LENGTH_TICKS = 240;
+export const DAY_LENGTH_TICKS = 1440;
 
 // _detectRoom's flood-fill cap: a fill that hits this many tiles is treated
 // as having escaped into the outdoors rather than having found a genuinely
@@ -264,16 +265,14 @@ export const DAYLIGHT_ROOM_CAP = 3.0;
 // `((tick + TIME_OF_DAY_PHASE_OFFSET_TICKS) % DAY_LENGTH_TICKS) / DAY_LENGTH_TICKS`
 // rather than accumulating `+= 1/DAY_LENGTH_TICKS` on every tick. The two
 // are mathematically the same clock, but repeated float addition of
-// 1/240 (not exactly representable in binary) drifts by the time it
-// reaches the isNightAt boundaries — verified to land one tick early/late
-// at ticks 120/240/360/... — which is exactly the phase shift this
-// refactor promises not to introduce. Recomputing from the exact integer
-// tick every time is immune to that: it lands on exactly 0.25/0.5/0.75 at
-// the ticks that matter, because those quotients (60/240, 120/240,
-// 180/240) are themselves exactly representable in binary. The offset is
+// 1/DAY_LENGTH_TICKS (not exactly representable in binary) can drift by the
+// time it reaches the isNightAt boundaries. Recomputing from the exact integer
+// tick every time is immune to that: the quarter-day boundaries divide this
+// duration evenly, and their normalized values are exactly representable in
+// binary. The offset is
 // 1/4 of a day so a fresh game (tick 0) starts at timeOfDay 0.25 — the
-// value that reproduces the pre-refactor `(tick % 240) >= 120` phase
-// exactly (see the state.timeOfDay initializer and isNightAt below).
+// established dawn phase (see the state.timeOfDay initializer and isNightAt
+// below).
 const TIME_OF_DAY_PHASE_OFFSET_TICKS = DAY_LENGTH_TICKS / 4;
 
 // Pure: true for the half of the day centred on midnight. timeOfDay is a
@@ -371,9 +370,7 @@ export class Game {
       discoveries: 0,
       tick: 0,
       // The single day/night clock — see DAY_LENGTH_TICKS/isNightAt above.
-      // Matches what tick() computes for tick 0, i.e. 0.25 (dawn): the
-      // value that reproduces the pre-refactor `(tick % 240) >= 120` phase
-      // exactly (tick 0..119 day, 120..239 night, repeat).
+      // Matches what tick() computes for tick 0: 0.25, the dawn boundary.
       timeOfDay: TIME_OF_DAY_PHASE_OFFSET_TICKS / DAY_LENGTH_TICKS,
       // Tick-loop control. speed only changes real-time tick rate;
       // 1 tick = 1 sim-second at any speed, so tick-modulo logic is untouched.

@@ -2,11 +2,10 @@
 //
 // Before this, "it is night" was two disagreeing facts: the renderer orbited
 // a sun on a wall-clock (performance.now(), full cycle in 1 real hour) while
-// the sim derived isNight from `tick % 240` (240 ticks = 4 min at 1x). This
+// the sim derived isNight from a short tick cycle. This
 // pins the replacement: state.timeOfDay is the single authoritative clock,
-// isNightAt is a pure function of it, and the sim's day/night phase relative
-// to tick count is exactly what it was before the refactor — that phase
-// match is the one thing a future change to this file must not break.
+// isNightAt is a pure function of it, and the configured duration remains a
+// deliberate player-facing contract.
 
 import { Game, DAY_LENGTH_TICKS, isNightAt } from '../src/game/Game.js';
 import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
@@ -32,6 +31,8 @@ function mkGame(seed) {
 console.log('\n=== A fresh game has a valid clock ===\n');
 {
   const game = mkGame(1);
+  assert(DAY_LENGTH_TICKS === 1440,
+    `a full day lasts 1,440 ticks / 24 real minutes at 1x (got ${DAY_LENGTH_TICKS})`);
   assert(typeof game.state.timeOfDay === 'number', 'timeOfDay is a number');
   assert(game.state.timeOfDay >= 0 && game.state.timeOfDay < 1,
     `timeOfDay starts in [0, 1) (got ${game.state.timeOfDay})`);
@@ -69,23 +70,21 @@ console.log('\n=== isNightAt flips exactly at the quarter-day boundaries ===\n')
 }
 
 // ---------------------------------------------------------------------------
-console.log('\n=== isNightAt(timeOfDay) reproduces the old tick%240 phase exactly ===\n');
+console.log('\n=== isNightAt(timeOfDay) follows the configured tick phase exactly ===\n');
 {
-  // The sim used to derive isNight as `(tick % 240) >= 120` directly off the
-  // tick counter. timeOfDay now drives it instead, but staff-needs pacing
-  // must not shift by a single tick: for every tick from a fresh game,
-  // isNightAt(state.timeOfDay) has to agree with the old formula bit for
-  // bit, tick for tick, across more than one full day.
+  // A fresh game begins at dawn. The second half of every configured cycle is
+  // night, and the next cycle boundary returns to dawn without a one-tick
+  // floating-point slip.
   const game = mkGame(3);
   let mismatches = 0;
   for (let t = 1; t <= DAY_LENGTH_TICKS * 2; t++) {
     game.tick();
-    const oldIsNight = (t % 240) >= 120;
+    const expectedNight = (t % DAY_LENGTH_TICKS) >= DAY_LENGTH_TICKS / 2;
     const newIsNight = isNightAt(game.state.timeOfDay);
-    if (oldIsNight !== newIsNight) mismatches++;
+    if (expectedNight !== newIsNight) mismatches++;
   }
   assert(mismatches === 0,
-    `isNightAt(timeOfDay) matches (tick % 240) >= 120 for every tick across two full days (${mismatches} mismatches)`);
+    `isNightAt(timeOfDay) matches the configured half-cycle across two full days (${mismatches} mismatches)`);
 }
 
 // ---------------------------------------------------------------------------
