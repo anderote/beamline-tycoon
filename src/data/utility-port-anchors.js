@@ -82,6 +82,7 @@ const COMPACT_HV_INPUT_Y = 1.55;
 
 // All six straight-rack cable attachments share the crossbar terminal height.
 export const INDOOR_HV_RACK_TERMINAL_Y = 2.00;
+export const INDOOR_DATA_RACK_TERMINAL_Y = 1.55;
 
 export const POWER_HV_INPUT_MOUNTS = Object.freeze({
   ...Object.fromEntries(Object.entries(DISTRIBUTION_TOP_INPUT_LAYOUTS)
@@ -570,7 +571,15 @@ export const PORT_ANCHOR_OVERRIDES = {
     _default: { y: 2.35, lat: 0.46, out: 0.02 },
   },
   elevatedWireTray: {
-    _default: { y: 1.78, lat: 0.46, out: 0.02 },
+    _default: { y: INDOOR_DATA_RACK_TERMINAL_Y, lat: 0, out: -0.04 },
+    data_bus: {
+      y: INDOOR_DATA_RACK_TERMINAL_Y, localX: -0.05, localZ: 0,
+      normal: { x: 0, y: 1, z: 0 },
+    },
+    data_tap_right: {
+      y: 1.34, localX: 0.49, localZ: 0,
+      normal: { x: 1, y: 0, z: 0 },
+    },
   },
   cableRiser: {
     _default: { y: 0.18, lat: 0.42, out: 0.02 },

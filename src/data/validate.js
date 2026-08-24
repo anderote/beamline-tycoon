@@ -949,9 +949,10 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
       if (spec.tensionsCable != null && typeof spec.tensionsCable !== 'boolean') {
         problem(id, `utilityPorts.${portName}`,
           `tensionsCable must be a boolean, got ${JSON.stringify(spec.tensionsCable)}`);
-      } else if (spec.tensionsCable === true && spec.utility !== 'hvCable') {
+      } else if (spec.tensionsCable === true
+          && spec.utility !== 'hvCable' && spec.utility !== 'dataFiber') {
         problem(id, `utilityPorts.${portName}`,
-          'tensionsCable is only valid on HV cable ports');
+          'tensionsCable is only valid on HV or data cable ports');
       }
       if (spec.autoConnectClass != null) {
         if (spec.utility !== 'coolingWater'
