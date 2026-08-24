@@ -481,7 +481,7 @@ body {
 }
 
 .mp-theme {
-  font-family: 'Press Start 2P', monospace;
+  font-family: var(--ui-font-display);
   font-size: 8px;
   height: 24px;
   padding: 0 16px 0 6px;
@@ -514,7 +514,7 @@ body {
 .mp-theme option {
   background: rgba(20, 20, 40, 0.98);
   color: #aaaacc;
-  font-family: 'Press Start 2P', monospace;
+  font-family: var(--ui-font-display);
   font-size: 8px;
   padding: 4px 6px;
 }
@@ -6912,6 +6912,15 @@ body.palette-expanded {
   max-width: 180px;
 }
 .opt-select:focus { border-color: #0c0c18 #8a7ab8 #8a7ab8 #0c0c18; }
+
+/* Playlist names are interface labels, not body-copy values. Keep both the
+   compact HUD picker and the Options-dialog picker in the BLT display face;
+   native select menus require the font on their option elements as well. */
+#opt-music-theme,
+#opt-music-theme option {
+  font-family: var(--ui-font-display);
+  font-size: 8px;
+}
 
 .opt-note {
   margin-top: 12px;

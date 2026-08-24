@@ -47,6 +47,10 @@ assert(/#top-bar-info:has\(\.menu-dropdown:not\(\.hidden\)\)\s*\{[^}]*overflow:\
   'an open menu escapes the clipped second row instead of disappearing below it');
 assert(musicSource.includes("this.el.closest('#top-bar')"),
   'the embedded music player cannot restore a floating position inside the navbar');
+assert(/\.mp-theme\s*\{[^}]*font-family:\s*var\(--ui-font-display\)/s.test(css)
+    && /\.mp-theme option\s*\{[^}]*font-family:\s*var\(--ui-font-display\)/s.test(css)
+    && /#opt-music-theme,\s*#opt-music-theme option\s*\{[^}]*font-family:\s*var\(--ui-font-display\)/s.test(css),
+  'music playlist selectors and their options use the BLT display typeface');
 assert(/--hud-topbar-height:\s*98px/.test(css)
     && /--hud-bottom-height:\s*296px/.test(css),
   'top and bottom HUD rails have explicit stable heights');

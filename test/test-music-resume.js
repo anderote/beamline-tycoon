@@ -7,6 +7,7 @@ import {
   hasSavedPlayback,
   mergeMusicManifests,
   resolveSavedTrackIndex,
+  resolveStartingMusic,
 } from '../src/ui/MusicPlayer.js';
 
 let failures = 0;
@@ -76,6 +77,21 @@ check('local themes retain their local manifest base URL',
   merged.themeBaseUrls['labtime-radio'] === 'music');
 check('playlist slugs have a player-friendly label',
   formatMusicThemeName('labtime-radio') === 'Labtime Radio');
+
+console.log('\nmusic starting playlist');
+
+const firstRun = resolveStartingMusic(merged.themes, null, true);
+check('Labtime Radio is the first-run playlist when locally available',
+  firstRun.theme === 'labtime-radio' && firstRun.welcomeTheme === 'labtime-radio');
+const resumed = resolveStartingMusic(merged.themes, stableSave, false);
+check('a saved playlist remains authoritative over the first-run default',
+  resumed.theme === 'sovietcore' && resumed.welcomeTheme === null);
+const hostedOnly = resolveStartingMusic({
+  bardcore: ['bard-song.mp3'],
+  sovietcore: ['01 - Russian Doomer music Vol 1 (Night Drive).mp3'],
+}, null, true);
+check('hosted builds without Labtime Radio retain the welcome soundtrack',
+  hostedOnly.theme === 'sovietcore' && hostedOnly.welcomeTheme === 'sovietcore');
 
 if (failures) {
   console.log(`\n${failures} check(s) failed`);

@@ -2,8 +2,9 @@
 
 import { makeDraggable } from './draggable.js';
 
-// The welcome/title screen always opens on this track (matched on its name):
-// "01 - Russian Doomer music Vol 1 (Night Drive)".
+// Labtime Radio is the local first-run soundtrack. Hosted builds without that
+// personal library retain this named Sovietcore welcome-track fallback.
+const DEFAULT_THEME = 'labtime-radio';
 const WELCOME_TRACK_MATCH = 'night drive';
 const MUSIC_STATE_KEY = 'beamlineTycoon.music';
 
@@ -59,6 +60,38 @@ export function mergeMusicManifests(sources) {
   }
 
   return { themes, themeBaseUrls };
+}
+
+/** Resolve first-run music without overriding a real saved playlist. Labtime
+ * Radio is local-only, so deployments without it retain the established
+ * Sovietcore welcome track and then fall back to the first non-empty theme. */
+export function resolveStartingMusic(themes, saved, forceWelcome = false) {
+  const themeNames = Object.keys(themes || {}).sort();
+  const hasTracks = name => Array.isArray(themes?.[name]) && themes[name].length > 0;
+
+  let welcomeTheme = null;
+  if (forceWelcome) {
+    if (hasTracks(DEFAULT_THEME)) {
+      welcomeTheme = DEFAULT_THEME;
+    } else {
+      welcomeTheme = themeNames.find(name =>
+        (themes[name] || []).some(file =>
+          String(file).toLowerCase().includes(WELCOME_TRACK_MATCH)
+        )
+      ) || null;
+    }
+  }
+
+  const savedTheme = saved?.selectedTheme;
+  const fallbackTheme = hasTracks(DEFAULT_THEME)
+    ? DEFAULT_THEME
+    : hasTracks('sovietcore')
+      ? 'sovietcore'
+      : themeNames.find(hasTracks) || themeNames[0] || null;
+  const theme = welcomeTheme
+    || (savedTheme && Object.hasOwn(themes || {}, savedTheme) ? savedTheme : fallbackTheme);
+
+  return { theme, welcomeTheme };
 }
 
 export class MusicPlayer {
@@ -245,29 +278,13 @@ export class MusicPlayer {
     // Pull saved state (including selectedTheme) before picking a theme
     const saved = this._readSavedState();
 
-    // On the welcome/title screen we always open on a specific track from the
-    // start (not the saved resume). TitleScreen sets window.__blWelcomeMusic
-    // when it mounts. Once in the game, normal save/resume takes over.
-    // The welcome track is a first-run default, not a reload override. The old
-    // unconditional flag made the otherwise-persisted song and time unreachable
-    // on every ordinary title-screen boot.
+    // TitleScreen requests a from-the-top first-run soundtrack. Saved playback
+    // remains authoritative on reload; Labtime Radio wins only without a save,
+    // with the named Sovietcore welcome track as the hosted-build fallback.
     const forceWelcome = typeof window !== 'undefined'
       && window.__blWelcomeMusic
       && !hasSavedPlayback(saved);
-    let welcomeTheme = null;
-    if (forceWelcome) {
-      for (const th of this.themeNames) {
-        if ((this.themes[th] || []).some((f) => String(f).toLowerCase().includes(WELCOME_TRACK_MATCH))) {
-          welcomeTheme = th;
-          break;
-        }
-      }
-    }
-
-    let theme = welcomeTheme || saved?.selectedTheme;
-    if (!theme || !this.themes[theme]) {
-      theme = this.themes['sovietcore'] ? 'sovietcore' : this.themeNames[0];
-    }
+    const { theme, welcomeTheme } = resolveStartingMusic(this.themes, saved, forceWelcome);
     this.currentTheme = theme;
     if (this.themeSelect) this.themeSelect.value = theme;
     this._buildTracksForCurrentTheme();
