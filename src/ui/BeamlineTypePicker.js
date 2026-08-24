@@ -96,6 +96,11 @@ export function stockDesignCost(design) {
     (sum, c) => sum + (COMPONENTS[c.type]?.cost?.funding || 0), 0);
 }
 
+/** Player-facing construction price, honoring the game's free-build mode. */
+export function constructionPriceText(cost, freeConstruction = false) {
+  return freeConstruction ? 'Free' : `$${Math.max(0, cost || 0).toLocaleString()}`;
+}
+
 /**
  * A comparable starting-price estimate for a beamline mission.
  *
@@ -325,7 +330,7 @@ const TYPE_COST_CAVEAT =
   + 'Concrete, beam pipe, utility plant, rooms and land cost extra.';
 
 /** One mission card, kept independently renderable for its display contract. */
-export function beamlineTypeCardHtml(type, selected = false) {
+export function beamlineTypeCardHtml(type, selected = false, { freeConstruction = false } = {}) {
   if (!type) return '';
 
   const accent = hex(type.accentColor);
@@ -355,9 +360,12 @@ export function beamlineTypeCardHtml(type, selected = false) {
       + `<strong>${esc(current)}</strong></span>`;
   }
   if (approxCost != null) {
-    html += `<span class="bltype-requirement bltype-cost-estimate" title="${esc(TYPE_COST_CAVEAT)}">`
-      + '<span class="bltype-requirement-label">Starts at</span>'
-      + `<strong>≈ ${esc(fmtMoney(approxCost))}</strong></span>`;
+    const costTitle = freeConstruction
+      ? `Free construction is on. Nominal entry hardware cost: ${fmtMoney(approxCost)}.`
+      : TYPE_COST_CAVEAT;
+    html += `<span class="bltype-requirement bltype-cost-estimate${freeConstruction ? ' is-free' : ''}" title="${esc(costTitle)}">`
+      + `<span class="bltype-requirement-label">${freeConstruction ? 'Build cost' : 'Starts at'}</span>`
+      + `<strong>${freeConstruction ? 'Free' : `≈ ${esc(fmtMoney(approxCost))}`}</strong></span>`;
   }
   html += '</div>';
   html += `<div class="bltype-blurb">${esc(type.blurb)}</div>`;
@@ -373,7 +381,12 @@ export function beamlineTypeCardHtml(type, selected = false) {
  * nobody has authored blueprints for yet — which is most of them today — and
  * it stays there once they have, because building it yourself is the game.
  */
-export function blueprintPanelHtml(type, selectedDesignId, researchState) {
+export function blueprintPanelHtml(
+  type,
+  selectedDesignId,
+  researchState,
+  { freeConstruction = false } = {},
+) {
   if (!type) {
     return '<div class="blueprint-empty">Pick a machine type to see the beamlines it ships with.</div>';
   }
@@ -396,6 +409,10 @@ export function blueprintPanelHtml(type, selectedDesignId, researchState) {
     const unlockPath = designUnlockPath(d, researchState);
     const locked = unlockPath.length ? ' locked' : '';
     const cost = stockDesignCost(d);
+    const costText = constructionPriceText(cost, freeConstruction);
+    const costTitle = freeConstruction
+      ? `Free construction is on. Nominal hardware cost: $${cost.toLocaleString()}. Concrete and beam pipe are also free when placed.`
+      : 'Hardware cost only; concrete and beam pipe are quoted when placed.';
     const perf = formatMeasuredPerformance(d.id);
 
     const position = ['Budget', 'Balanced', 'Premium'][index] || `Option ${index + 1}`;
@@ -408,9 +425,9 @@ export function blueprintPanelHtml(type, selectedDesignId, researchState) {
     html += `<span class="blueprint-name">${esc(d.name)}</span>`;
     html += '<span class="blueprint-head-meta">';
     html += `<span class="bltype-tier">T${d.tier}</span>`;
-    html += '<span class="blueprint-cost" '
-      + 'title="Hardware cost only; concrete and beam pipe are quoted when placed.">'
-      + `<span class="blueprint-cost-label">Cost</span> $${cost.toLocaleString()}</span>`;
+    html += `<span class="blueprint-cost${freeConstruction ? ' is-free' : ''}" `
+      + `title="${esc(costTitle)}">`
+      + `<span class="blueprint-cost-label">Cost</span> ${esc(costText)}</span>`;
     html += '</span>';
     html += '</div>';
     html += '<div class="bltype-specs">';
@@ -488,6 +505,7 @@ export function openBeamlineTypePicker(game, {
   // '' means Custom. RCT2 opens a track type on its stock designs rather than
   // on an empty editor, so the lowest tier is the default where one exists.
   let selectedDesignId = showBlueprints ? defaultDesignFor(selected) : '';
+  const freeConstruction = game.isConstructionFree?.() ?? game.sandboxMode === true;
 
   function defaultDesignFor(typeId) {
     if (!showBlueprints || !typeId) return '';
@@ -505,6 +523,7 @@ export function openBeamlineTypePicker(game, {
         selected ? getBeamlineType(selected) : null,
         selectedDesignId,
         game.state,
+        { freeConstruction },
       );
     }
     html += '<section class="bltype-roster">';
@@ -512,7 +531,7 @@ export function openBeamlineTypePicker(game, {
     html += '<div class="bltype-roster-scroll"><div class="bltype-grid">';
 
     for (const t of types) {
-      html += beamlineTypeCardHtml(t, selected === t.id);
+      html += beamlineTypeCardHtml(t, selected === t.id, { freeConstruction });
     }
 
     html += '</div>';

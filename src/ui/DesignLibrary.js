@@ -14,7 +14,7 @@ import { pushEscHandler } from './esc-stack.js';
 import { STOCK_DESIGNS } from '../data/stock-designs.js';
 import { getBeamlineType } from '../data/beamline-types.js';
 import {
-  stockDesignCost, formatMeasuredPerformance, MEASURED_CAVEAT,
+  constructionPriceText, stockDesignCost, formatMeasuredPerformance, MEASURED_CAVEAT,
 } from './BeamlineTypePicker.js';
 
 const CATEGORIES = [
@@ -169,6 +169,11 @@ export class DesignLibrary {
     }
   }
 
+  _constructionPrice(cost) {
+    const free = this.game.isConstructionFree?.() ?? this.game.sandboxMode === true;
+    return constructionPriceText(cost, free);
+  }
+
   _createCard(design) {
     const card = document.createElement('div');
     card.className = 'design-card';
@@ -200,7 +205,7 @@ export class DesignLibrary {
     this._appendMetaSpecs(meta, [
       `${compCount} parts`,
       `${totalLength.toFixed(1)} m`,
-      `$${totalCost.toLocaleString()}`,
+      this._constructionPrice(totalCost),
     ]);
     body.appendChild(meta);
 
@@ -302,7 +307,7 @@ export class DesignLibrary {
       type ? type.name : design.typeId,
       `T${design.tier}`,
       `${design.components.length} parts`,
-      `$${stockDesignCost(design).toLocaleString()}`,
+      this._constructionPrice(stockDesignCost(design)),
     ]);
     body.appendChild(meta);
 

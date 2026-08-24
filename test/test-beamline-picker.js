@@ -32,7 +32,7 @@ import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
 import { BeamlineDesigner } from '../src/ui/BeamlineDesigner.js';
 import {
   beamlineTypeHidesComponent, formatEnergyBand, formatCurrentBand,
-  designUnlockPath, blueprintPanelHtml, stockDesignCost,
+  constructionPriceText, designUnlockPath, blueprintPanelHtml, stockDesignCost,
   beamlineTypeApproxCost, beamlineTypeCardHtml,
 } from '../src/ui/BeamlineTypePicker.js';
 import { BEAMLINE_TYPES, getBeamlineType } from '../src/data/beamline-types.js';
@@ -378,6 +378,20 @@ console.log('\n=== Missions stay open while hardware remains gated ===\n');
   assert(head.includes('class="blueprint-head-meta"')
     && head.includes('class="blueprint-cost"') && head.includes(exactCost),
     `a stock tier publishes its exact ${exactCost} hardware cost in the card header`);
+  const freePanel = blueprintPanelHtml(
+    BEAMLINE_TYPES.testStand, design.id, {}, { freeConstruction: true },
+  );
+  const freeMission = beamlineTypeCardHtml(
+    BEAMLINE_TYPES.testStand, false, { freeConstruction: true },
+  );
+  assert(constructionPriceText(stockDesignCost(design), true) === 'Free'
+    && freePanel.includes('class="blueprint-cost is-free"')
+    && freePanel.includes('Cost</span> Free')
+    && freePanel.includes(`Nominal hardware cost: $${stockDesignCost(design).toLocaleString()}`),
+  'Sandbox stock cards show Free while retaining nominal hardware cost in their tooltip');
+  assert(freeMission.includes('class="bltype-requirement-label">Build cost')
+    && freeMission.includes('<strong>Free</strong>'),
+  'Sandbox mission cards replace the misleading starting price with a Free build cost');
   assert(head.indexOf('class="blueprint-cost"') > head.indexOf('class="bltype-tier"'),
     'the prominent cost sits at the far right of the tier header');
   assert(css.includes('.blueprint-cost') && css.includes('.blueprint-head-meta'),
