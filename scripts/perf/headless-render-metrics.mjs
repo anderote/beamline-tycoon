@@ -1,4 +1,4 @@
-// Scene-structure measurements for the ten-large-beamline benchmark. This is
+// Shared scene-structure measurements for facility and beamline benchmarks. This is
 // intentionally a renderer construction benchmark, not a fake FPS claim: GPU
 // frame timing belongs to the explicitly-enabled browser lane.
 
@@ -192,8 +192,7 @@ export async function buildHeadlessBeamlineScene(snapshot, { quiet = false } = {
     componentGroup, attachmentGroup, beamPipeGroup, beamGroup,
   );
 
-  // Measure the adaptive large-world far presentation. Ordinary facilities
-  // may elect to keep detail at runtime, but this structural view proves the
+  // Measure the opt-in far presentation. This structural view proves the
   // builders' cheap path remains inside its fixed budgets.
   componentBuilder.setDetailLevel(false);
   attachmentBuilder.setDetailLevel(false);
@@ -222,6 +221,13 @@ function collectFacilityBreakdown(groups) {
   return Object.fromEntries(Object.entries(groups)
     .filter(([name]) => name !== 'root')
     .map(([name, group]) => [name, collectSceneMetrics(group)]));
+}
+
+function setFacilityDetail(builders, showDetail) {
+  for (const name of [
+    'components', 'equipment', 'decorations', 'beamPipes', 'attachments',
+    'beamEffects', 'utilities',
+  ]) builders[name].setDetailLevel(showDetail);
 }
 
 /**
@@ -267,42 +273,61 @@ export async function buildHeadlessFacilityScene(snapshot, {
     beamEffects: new BeamBuilder(),
     utilities: new UtilityLineBuilderV2(),
   };
+  const builderMs = {};
+  const timeBuilder = (name, build) => {
+    const builderStarted = performance.now();
+    build();
+    builderMs[name] = performance.now() - builderStarted;
+  };
   const started = performance.now();
-  builders.floors.build(snapshot.floors || [], groups.floors);
-  builders.walls.build(
+  timeBuilder('floors', () => builders.floors.build(snapshot.floors || [], groups.floors));
+  timeBuilder('walls', () => builders.walls.build(
     snapshot.walls || [], snapshot.doors || [], snapshot.windows || [],
     groups.walls, 'up', null,
-  );
-  builders.roofs.build(snapshot.roofs || [], groups.roofs);
-  builders.components.build(snapshot.components || [], groups.components, {
-    categoryGroups: {
-      beamline: groups.beamline,
-      infrastructure: groups.infrastructure,
+  ));
+  timeBuilder('roofs', () => builders.roofs.build(snapshot.roofs || [], groups.roofs));
+  timeBuilder('components', () => builders.components.build(
+    snapshot.components || [], groups.components, {
+      categoryGroups: {
+        beamline: groups.beamline,
+        infrastructure: groups.infrastructure,
+      },
     },
-  });
-  builders.equipment.build(
+  ));
+  timeBuilder('equipment', () => builders.equipment.build(
     snapshot.equipment || [], snapshot.furnishings || [], groups.equipment,
-  );
-  builders.decorations.build(snapshot.decorations || [], groups.decorations);
-  builders.beamPipes.build({
+  ));
+  timeBuilder('decorations', () => builders.decorations.build(
+    snapshot.decorations || [], groups.decorations,
+  ));
+  timeBuilder('beamPipes', () => builders.beamPipes.build({
     beamPipes: snapshot.beamPipes || [],
     moduleSubTiles: snapshot.moduleSubTiles || [],
-  }, groups.beamPipes);
-  builders.attachments.build(snapshot.pipeAttachments || [], groups.attachments);
-  builders.beamEffects.build(snapshot.beamPaths || [], groups.beamEffects);
-  builders.utilities.build(
+  }, groups.beamPipes));
+  timeBuilder('attachments', () => builders.attachments.build(
+    snapshot.pipeAttachments || [], groups.attachments,
+  ));
+  timeBuilder('beamEffects', () => builders.beamEffects.build(
+    snapshot.beamPaths || [], groups.beamEffects,
+  ));
+  timeBuilder('utilities', () => builders.utilities.build(
     snapshot.utilityLines || [], endpointIndex, groups.utilities, { state },
-  );
+  ));
   const buildMs = performance.now() - started;
 
   const near = collectSceneMetrics(root);
   const nearBreakdown = collectFacilityBreakdown(groups);
-  for (const name of [
-    'components', 'equipment', 'decorations', 'beamPipes', 'attachments',
-    'beamEffects', 'utilities',
-  ]) builders[name].setDetailLevel(false);
+  const firstFarStarted = performance.now();
+  setFacilityDetail(builders, false);
+  const firstFarMs = performance.now() - firstFarStarted;
   const far = collectSceneMetrics(root);
   const farBreakdown = collectFacilityBreakdown(groups);
+  const restoreNearStarted = performance.now();
+  setFacilityDetail(builders, true);
+  const restoreNearMs = performance.now() - restoreNearStarted;
+  const warmFarStarted = performance.now();
+  setFacilityDetail(builders, false);
+  const warmFarMs = performance.now() - warmFarStarted;
   groups.roofs.visible = true;
   const farRoofOverview = collectSceneMetrics(root);
   groups.roofs.visible = false;
@@ -312,6 +337,8 @@ export async function buildHeadlessFacilityScene(snapshot, {
     groups,
     builders,
     buildMs,
+    builderMs,
+    lodTransitionMs: { firstFarMs, restoreNearMs, warmFarMs },
     near,
     far,
     farRoofOverview,

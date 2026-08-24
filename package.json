@@ -12,6 +12,7 @@
     "test:all": "node scripts/run-tests.mjs --all",
     "test:fast": "node scripts/run-tests.mjs --fast",
     "test:simulation": "node scripts/run-tests.mjs --simulation",
+    "benchmark:minor-lab": "node scripts/benchmark-minor-lab.mjs",
     "benchmark:ten-large": "node scripts/benchmark-ten-large.mjs",
     "benchmark:staff": "node scripts/benchmark-staff-scale.mjs",
     "assets": "node tools/asset-gen/server.cjs",
