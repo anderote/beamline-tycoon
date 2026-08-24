@@ -26,6 +26,7 @@ globalThis.document = {
 
 const { ComponentBuilder } = await import('../src/renderer3d/component-builder.js');
 const { UtilityLineBuilderV2 } = await import('../src/renderer3d/utility-line-builder-v2.js');
+const { ThreeRenderer } = await import('../src/renderer3d/ThreeRenderer.js');
 
 function component(id, category, col) {
   return {
@@ -95,4 +96,54 @@ test('utility focus fades unrelated runs and restores their shared materials', (
 
   builder.setFocus(null);
   assert.equal(firstVisibleMaterial(other), otherMaterial);
+});
+
+test('selected utility topology takes focus and outlines every connected endpoint', () => {
+  const renderer = Object.create(ThreeRenderer.prototype);
+  const endpointRoots = new Map([
+    ['source', new THREE.Group()],
+    ['load', new THREE.Group()],
+  ]);
+  let componentFocus = null;
+  let lineFocus = null;
+  renderer.componentBuilder = {
+    setFocus(ids) { componentFocus = ids; },
+    getGroup(id) { return endpointRoots.get(id) || null; },
+  };
+  renderer.utilityLineBuilderV2 = { setFocus(ids) { lineFocus = ids; } };
+  renderer.pipeAttachmentBuilder = { getGroup() { return null; } };
+  renderer.equipmentBuilder = { getGroup() { return null; } };
+  renderer.decorationBuilder = { getGroup() { return null; } };
+  renderer.utilitySelectionGroup = new THREE.Group();
+  renderer._selectedBeamlineFocus = {
+    focusedComponentIds: new Set(['beam']),
+    utilityLineIds: new Set(['beam_service']),
+  };
+  renderer._selectedUtilityNetworkFocus = null;
+  renderer._outlineObject = (root, color, target) => {
+    const marker = new THREE.Group();
+    marker.userData = { root, color };
+    target.add(marker);
+  };
+
+  const model = {
+    utilityType: 'powerCable',
+    utilityLineIds: new Set(['trunk', 'branch']),
+    connectedEndpointIds: new Set(['source', 'load']),
+  };
+  renderer.setSelectedUtilityNetworkFocus(model);
+
+  assert.equal(componentFocus, model.connectedEndpointIds);
+  assert.equal(lineFocus, model.utilityLineIds);
+  assert.equal(renderer.utilitySelectionGroup.children.length, 2);
+  assert.deepEqual(
+    new Set(renderer.utilitySelectionGroup.children.map(child => child.userData.root)),
+    new Set(endpointRoots.values()),
+  );
+
+  renderer.setSelectedUtilityNetworkFocus(null);
+  assert.equal(componentFocus, renderer._selectedBeamlineFocus.focusedComponentIds,
+    'clearing utility selection restores the underlying beamline focus');
+  assert.equal(lineFocus, renderer._selectedBeamlineFocus.utilityLineIds);
+  assert.equal(renderer.utilitySelectionGroup.children.length, 0);
 });
