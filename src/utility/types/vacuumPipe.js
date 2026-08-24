@@ -124,6 +124,35 @@ function beamPipeStats(network, byId, worldState) {
   };
 }
 
+function componentVolumeStats(network, byId, getDefinition, pipeIds) {
+  const seen = new Set();
+  let chamberVolumeL = 0;
+  let displacedPipeVolumeL = 0;
+  for (const sink of (network.sinks || [])) {
+    if (!sink?.placeableId || seen.has(sink.placeableId)) continue;
+    seen.add(sink.placeableId);
+    const rec = byId.get(sink.placeableId);
+    const def = rec?.type && typeof getDefinition === 'function'
+      ? getDefinition(rec.type) : null;
+    const interiorVolume = Number(def?.interiorVolume);
+    if (!(interiorVolume > 0)) continue;
+    chamberVolumeL += interiorVolume;
+
+    // Ordinary on-pipe chambers replace the equal-length circular beam-pipe
+    // slice. Subtract that slice before adding their authored interior volume
+    // so a 100 L vessel is not presented or pumped as 100 L plus a second,
+    // hidden 12 cm-diameter tube through the same physical space. Junctions
+    // and point-like inline attachments do not displace a pipe interval.
+    if (rec?.pipeId && pipeIds.has(rec.pipeId) && rec.inline !== true) {
+      const spanSubL = Number(rec.subL ?? def.subL);
+      if (spanSubL > 0) {
+        displacedPipeVolumeL += circularPipeVolumeLitres(spanSubL * SUB_UNIT_M);
+      }
+    }
+  }
+  return { chamberVolumeL, displacedPipeVolumeL };
+}
+
 function endpointPoint(rec) {
   if (!rec) return null;
   if (Number.isFinite(rec.worldX) && Number.isFinite(rec.worldZ)) {
@@ -148,15 +177,21 @@ function pumpInventory(network, worldState, getDefinition, endpointIndex = null)
     // now declares an explicit stage.
     const staged = p.roughingSpeed != null || p.highVacSpeed != null || p.uhvSpeed != null;
     const legacyRoughing = staged ? 0 : p.pumpSpeed;
+    const installedRoughingSpeed = p.roughingSpeed || legacyRoughing;
+    const installedHighVacSpeed = p.highVacSpeed || 0;
+    const installedUhvSpeed = p.uhvSpeed || 0;
     pumps.push({
       source,
       power,
       point: endpointPoint(byId.get(source.placeableId)),
       nominalSpeed: p.pumpSpeed * power,
       legacy: !staged,
-      roughingSpeed: (p.roughingSpeed || legacyRoughing) * power,
-      highVacSpeed: (p.highVacSpeed || 0) * power,
-      uhvSpeed: (p.uhvSpeed || 0) * power,
+      installedRoughingSpeed,
+      installedHighVacSpeed,
+      installedUhvSpeed,
+      roughingSpeed: installedRoughingSpeed * power,
+      highVacSpeed: installedHighVacSpeed * power,
+      uhvSpeed: installedUhvSpeed * power,
       backingDemand: (p.backingDemand || 0) * power,
       integratedBacking: p.integratedBacking === true,
     });
@@ -232,6 +267,34 @@ function activePumpStack(pumps, previousPressure) {
   return {
     active, stage, ultimatePressure, roughExternal, integratedRough,
     backingDemand, backingFactor, highReady, uhvReady,
+  };
+}
+
+function stageCapacityBreakdown(pumps, stack) {
+  const sum = (field) => pumps.reduce((total, pump) => total + (pump[field] || 0), 0);
+  const active = (stage) => stack.active.reduce(
+    (total, pump) => total + (pump.stage === stage ? pump.speed : 0), 0);
+  const backedHighVacSpeed = pumps.reduce((total, pump) => {
+    const factor = pump.integratedBacking ? 1 : stack.backingFactor;
+    return total + pump.highVacSpeed * factor;
+  }, 0);
+  return {
+    rough: {
+      installed: sum('installedRoughingSpeed'),
+      powered: sum('roughingSpeed'),
+      active: active('rough'),
+    },
+    high: {
+      installed: sum('installedHighVacSpeed'),
+      powered: sum('highVacSpeed'),
+      backed: backedHighVacSpeed,
+      active: active('high'),
+    },
+    uhv: {
+      installed: sum('installedUhvSpeed'),
+      powered: sum('uhvSpeed'),
+      active: active('uhv'),
+    },
   };
 }
 
@@ -477,7 +540,11 @@ export default {
   // null means a newly-created network starts at atmosphere once its actual
   // volume is known. Storing gas inventory (an extensive quantity) lets the
   // generic split/join reconciler conserve gas across topology edits.
-  persistentStateDefaults: { gasInventoryMbarL: null, pressureHistory: [] },
+  persistentStateDefaults: {
+    gasInventoryMbarL: null,
+    evacuatedVolumeL: null,
+    pressureHistory: [],
+  },
   solve(network, persistent, worldState, context = {}) {
     const byId = context.endpointIndex || endpointsById(worldState);
     const baked = isBaked(network, byId);
@@ -485,18 +552,42 @@ export default {
     const lines = networkLines(network, worldState);
     const serviceLengthM = lines.reduce((sum, line) => sum + lineLengthM(line), 0);
     const serviceVolumeL = circularPipeVolumeLitres(serviceLengthM);
-    const volumeL = pipe.volumeL + serviceVolumeL;
+    const componentVolume = componentVolumeStats(
+      network, byId, context.getDefinition, pipe.pipeIds,
+    );
+    const beamPipeVolumeL = Math.max(
+      0, pipe.volumeL - componentVolume.displacedPipeVolumeL,
+    );
+    const volumeBreakdown = {
+      beamPipeL: beamPipeVolumeL,
+      servicePipeL: serviceVolumeL,
+      componentChambersL: componentVolume.chamberVolumeL,
+    };
+    const volumeL = Object.values(volumeBreakdown).reduce((sum, value) => sum + value, 0);
     const componentOutgas = (network.sinks || []).reduce(
       (sum, sink) => sum + (sink.params?.outgassing || 0), 0);
     const rawOutgas = componentOutgas + pipe.unbakedOutgas;
     const totalOutgas = baked ? rawOutgas * BAKEOUT_FACTOR : rawOutgas;
 
-    const storedInventory = persistent?.gasInventoryMbarL;
+    let storedInventory = persistent?.gasInventoryMbarL;
+    const storedVolumeL = persistent?.evacuatedVolumeL;
+    if (Number.isFinite(storedInventory) && storedVolumeL > 0 && volumeL > 0) {
+      if (volumeL > storedVolumeL) {
+        // A newly connected chamber or run begins at atmosphere. Add its gas
+        // inventory instead of dividing the old inventory by a larger volume,
+        // which would make opening a vented expansion improve the vacuum.
+        storedInventory += (volumeL - storedVolumeL) * ATMOSPHERE_MBAR;
+      } else if (volumeL < storedVolumeL) {
+        // Removing uniformly mixed volume removes the same fraction of gas.
+        storedInventory *= volumeL / storedVolumeL;
+      }
+    }
     const previousPressure = volumeL > 0 && Number.isFinite(storedInventory)
       ? Math.max(0, storedInventory / volumeL)
       : ATMOSPHERE_MBAR;
     const pumps = pumpInventory(network, worldState, context.getDefinition, byId);
     const stack = activePumpStack(pumps, previousPressure);
+    const stageCapacities = stageCapacityBreakdown(pumps, stack);
     const effectiveSpeed = conductanceLimitedSpeed(stack.active, lines, stack.stage);
     const equilibriumPressure = effectiveSpeed > 0
       ? totalOutgas / effectiveSpeed + stack.ultimatePressure
@@ -545,6 +636,7 @@ export default {
     const errors = [];
     const hasSinks = (network.sinks || []).length > 0;
     const nominalPumpSpeed = pumps.reduce((sum, p) => sum + p.nominalSpeed, 0);
+    const activeNominalPumpSpeed = stack.active.reduce((sum, p) => sum + p.speed, 0);
     if (hasSinks && !(effectiveSpeed > 0)) {
       errors.push({
         severity: 'hard', code: nominalPumpSpeed > 0 ? 'vacuum_no_active_pump' : 'vacuum_no_pump',
@@ -594,12 +686,15 @@ export default {
       moleculeCount: networkNumberDensity * volumeL / 1000,
       gasInventoryMbarL: pressure * volumeL,
       volumeL,
+      volumeBreakdown,
       beamPipeLengthM: pipe.lengthM,
       serviceLineLengthM: serviceLengthM,
       effectivePumpSpeed: effectiveSpeed,
+      activeNominalPumpSpeed,
       equilibriumPressure,
       ultimatePressure: stack.ultimatePressure,
       vacuumStage: stack.stage,
+      stageCapacities,
       roughingSpeed: stack.roughExternal + stack.integratedRough,
       backingDemand: stack.backingDemand,
       backingFactor: stack.backingFactor,
@@ -621,6 +716,7 @@ export default {
       nextPersistentState: {
         ...persistent,
         gasInventoryMbarL: flowState.gasInventoryMbarL,
+        evacuatedVolumeL: volumeL,
         pressureHistory,
       },
       errors,
@@ -630,16 +726,47 @@ export default {
     const stage = flow.vacuumStage === 'uhv' ? 'UHV'
       : flow.vacuumStage === 'high' ? 'High vacuum'
         : flow.vacuumStage === 'rough' ? 'Roughing' : 'Inactive';
+    const speed = value => `${(Number(value) || 0).toFixed(1)} L/s`;
+    const capacities = flow.stageCapacities || {};
+    const rough = capacities.rough || {};
+    const high = capacities.high || {};
+    const uhv = capacities.uhv || {};
+    const volume = flow.volumeBreakdown || {};
     return `<div class="vacuum-network-physics">
       <div class="vacuum-physics-grid">
         <div class="vacuum-physics-stat vacuum-physics-stat-primary"><span>Pressure</span><strong>${escape(fmtPressure(flow.pressure))}</strong></div>
         <div class="vacuum-physics-stat"><span>Active stage</span><strong>${escape(stage)}</strong></div>
         <div class="vacuum-physics-stat"><span>Evacuated volume</span><strong>${escape((flow.volumeL || 0).toFixed(1))} L</strong></div>
-        <div class="vacuum-physics-stat"><span>Effective pumping</span><strong>${escape((flow.effectivePumpSpeed || 0).toFixed(1))} L/s</strong><small>${escape((flow.nominalPumpSpeed || 0).toFixed(1))} L/s nominal</small></div>
+        <div class="vacuum-physics-stat"><span>Effective pumping</span><strong>${escape(speed(flow.effectivePumpSpeed))}</strong><small>${escape(speed(flow.activeNominalPumpSpeed))} active before conductance</small></div>
         <div class="vacuum-physics-stat"><span>Gas density</span><strong>${escape((flow.numberDensity || 0).toExponential(2))} m⁻³</strong></div>
         <div class="vacuum-physics-stat"><span>Gas inventory</span><strong>${escape((flow.moleculeCount || 0).toExponential(2))} molecules</strong></div>
       </div>
       <div class="vacuum-physics-footnote"><span>${escape(flow.gasSpecies || '--')}</span><span>${escape((flow.beamPipeLengthM || 0).toFixed(1))} m beam pipe</span><span>${escape((flow.serviceLineLengthM || 0).toFixed(1))} m service line</span></div>
+      <div class="vacuum-breakdown-heading"><strong>Capacity by pressure stage</strong><span>Installed · powered · currently active</span></div>
+      <div class="vacuum-stage-grid">
+        <div class="vacuum-stage-card${rough.active > 0 ? ' is-active' : ''}">
+          <span>Roughing</span><strong>${escape(speed(rough.active))} active</strong>
+          <small>${escape(speed(rough.powered))} powered · ${escape(speed(rough.installed))} installed</small>
+          <em>Atmosphere → turbo handoff at ${TURBO_START_PRESSURE_MBAR} mbar</em>
+        </div>
+        <div class="vacuum-stage-card${high.active > 0 ? ' is-active' : ''}">
+          <span>High vacuum</span><strong>${escape(speed(high.active))} active</strong>
+          <small>${escape(speed(high.backed))} backed · ${escape(speed(high.powered))} powered · ${escape(speed(high.installed))} installed</small>
+          <em>Starts below ${TURBO_START_PRESSURE_MBAR} mbar · ${HIGH_ULTIMATE_PRESSURE_MBAR.toExponential(0)} mbar floor</em>
+        </div>
+        <div class="vacuum-stage-card${uhv.active > 0 ? ' is-active' : ''}">
+          <span>UHV</span><strong>${escape(speed(uhv.active))} active</strong>
+          <small>${escape(speed(uhv.powered))} powered · ${escape(speed(uhv.installed))} installed</small>
+          <em>Starts below ${UHV_START_PRESSURE_MBAR.toExponential(0)} mbar · ${UHV_ULTIMATE_PRESSURE_MBAR.toExponential(0)} mbar floor</em>
+        </div>
+      </div>
+      <div class="vacuum-breakdown-heading"><strong>Evacuated volume</strong><span>What the active pump stage is evacuating</span></div>
+      <div class="vacuum-volume-grid">
+        <div><span>Beam pipe</span><strong>${escape((volume.beamPipeL || 0).toFixed(1))} L</strong></div>
+        <div><span>Service pipe</span><strong>${escape((volume.servicePipeL || 0).toFixed(1))} L</strong></div>
+        <div><span>Component chambers</span><strong>${escape((volume.componentChambersL || 0).toFixed(1))} L</strong></div>
+        <div class="is-total"><span>Total</span><strong>${escape((flow.volumeL || 0).toFixed(1))} L</strong></div>
+      </div>
       ${renderVacuumPressureGraph(flow, viewOptions.vacuumHistoryRangeTicks)}
     </div>`;
   },

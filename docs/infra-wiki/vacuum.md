@@ -23,13 +23,15 @@ Particle beams must travel through ultra-high vacuum. The better your vacuum, th
 
 The stages are live. Roughing operates from atmosphere toward 1e-3 mbar. A backed turbo takes over below 1 mbar and can approach 1e-8 mbar. Ion, NEG and Ti-sub pumps join below 1e-5 mbar only when a working high-vacuum stage is present. A lone turbo reports an unbacked-pump blocker; a lone UHV pump cannot evacuate a vented chamber.
 
-The network stores its gas inventory in mbar·L. Beam-pipe and service-line volume set how long pump-down takes, so the four-pump roughing cart genuinely evacuates the same chamber about four times faster than one roughing pump. One of those compact roughing carts supplies exactly the 60 L/s backing capacity required by a turbo pump cart.
+The network stores its gas inventory in mbar·L. Beam-pipe, service-line and authored component-chamber volume set how long pump-down takes, so the four-pump roughing cart genuinely evacuates the same chamber about four times faster than one roughing pump. One of those compact roughing carts supplies exactly the 60 L/s backing capacity required by a turbo pump cart.
 
 ### Gas Load, Volume and Conductance
 
 Outgassing from chamber walls is `Q = q_specific x A`; for a pipe, `A = 2 pi r L`. At the game's 0.06 m beam-pipe radius, one metre has **3,770 cm²** of internal surface and contributes about **3.8e-7 mbar·L/s** unbaked.
 
-Every metre of beam pipe adds gas load and volume. Every metre of narrow service pipe also adds volume and restricts molecular flow. A remote turbo therefore delivers less effective speed than the same pump mounted close to the chamber. Use distributed pumps and short hookups on long machines.
+Every metre of beam pipe adds gas load and volume. Every metre of narrow service pipe also adds volume and restricts molecular flow. Components with an authored chamber volume replace the beam-pipe slice they occupy, rather than hiding extra volume inside a generic pipe estimate. A remote turbo therefore delivers less effective speed than the same pump mounted close to the chamber. Use distributed pumps and short hookups on long machines.
+
+The network inspector shows installed, powered, backed and currently active capacity separately for roughing, high-vacuum and UHV stages. Its evacuated-volume breakdown separates open beam pipe, service pipe and component chambers. The performance view plots all three stage capacities alongside the conductance-limited effective speed.
 
 Each beam pipe is charged once to the network serving its mounted components.
 
@@ -93,7 +95,7 @@ S_eff  = S_pump C_tube / (S_pump + C_tube)
 P_eq   = Q_total / S_eff + P_ultimate
 P_next = P_eq + (P_previous - P_eq) exp(-S_eff dt / V)
 ```
-`V` is the connected beam-pipe plus service-line volume and `dt` is one simulation second. The solver conserves `P V`, its gas inventory, when networks join or split.
+`V` is the connected open beam-pipe, service-line and authored component-chamber volume; `dt` is one simulation second. The solver conserves `P V`, its gas inventory, when networks join or split. Newly connected volume begins at atmosphere instead of diluting an already evacuated network for free.
 
 **Gas load:**
 ```
@@ -124,6 +126,6 @@ d<theta²> = K_transport n L / (beta gamma)²
 I        *= exp(-n sigma_loss L),   sigma_loss = 1e-22 m²
 ```
 
-Bellows are charged by their own length rather than a size class. Beam pipe (`drift`) is a drawn connection rather than a placeable, so its surface area and volume are added directly by the vacuum solver.
+Bellows are charged by their own length rather than a size class. Beam pipe (`drift`) is a drawn connection rather than a placeable, so its surface area and volume are added directly by the vacuum solver. Authored `interiorVolume` replaces the equivalent occupied beam-pipe slice for an ordinary on-pipe chamber, preventing double counting.
 
 **Hard gate:** a vacuum sink not wired to any network, or a network with sinks but no valid active stage. Poor pressure itself remains a soft warning.

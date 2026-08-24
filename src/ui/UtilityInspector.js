@@ -349,6 +349,16 @@ export class UtilityInspector {
         <div class="utility-summary-stat"><span>Topology</span><strong>Bus</strong><small>bidirectional</small></div>
         <div class="utility-summary-stat"><span>Status</span><strong>${connected ? 'Connected' : 'Isolated'}</strong><small>${connected ? 'shared fabric' : 'needs a peer'}</small></div>
       </div>`;
+    } else if (this.utilityType === 'vacuumPipe') {
+      const stage = flow.vacuumStage === 'uhv' ? 'UHV'
+        : flow.vacuumStage === 'high' ? 'High vacuum'
+          : flow.vacuumStage === 'rough' ? 'Roughing' : 'Inactive';
+      html += `<div class="utility-summary-grid">
+        <div class="utility-summary-stat"><span>Pressure</span><strong>${fmtQty(flow.pressure)}</strong><small>mbar · worst sink</small></div>
+        <div class="utility-summary-stat"><span>Stage</span><strong>${escapeHtml(stage)}</strong><small>current pressure regime</small></div>
+        <div class="utility-summary-stat"><span>Effective pumping</span><strong>${fmtQty(flow.effectivePumpSpeed)}</strong><small>L/s after conductance</small></div>
+        <div class="utility-summary-stat"><span>Evacuated volume</span><strong>${fmtQty(flow.volumeL)}</strong><small>L total</small></div>
+      </div>`;
     } else {
       html += `<div class="utility-summary-grid">
         <div class="utility-summary-stat"><span>Capacity</span><strong>${fmtQty(totalCapacity)}</strong><small>${escapeHtml(desc.capacityUnit || '')}</small></div>
@@ -390,7 +400,17 @@ export class UtilityInspector {
       for (const s of network.sources) {
         let cap = (s.params && s.params[capParam]) != null ? s.params[capParam] : s.capacity;
         let sourceUnit = desc.capacityUnit || '';
-        if (network.utilityType === 'coolingWater' && !(cap > 0)
+        let sourceValue = null;
+        if (network.utilityType === 'vacuumPipe') {
+          const parts = [];
+          if (s.params?.roughingSpeed > 0) parts.push(`R ${fmtQty(s.params.roughingSpeed)} L/s`);
+          if (s.params?.highVacSpeed > 0) parts.push(`H ${fmtQty(s.params.highVacSpeed)} L/s`);
+          if (s.params?.uhvSpeed > 0) parts.push(`U ${fmtQty(s.params.uhvSpeed)} L/s`);
+          if (s.params?.backingDemand > 0) {
+            parts.push(`needs ${fmtQty(s.params.backingDemand)} L/s backing`);
+          }
+          sourceValue = parts.length ? parts.join(' · ') : 'No pumping capacity';
+        } else if (network.utilityType === 'coolingWater' && !(cap > 0)
           && s.params?.heatRejectionCapacity > 0) {
           cap = s.params.heatRejectionCapacity;
         } else if (network.utilityType === 'waterSupplyPipe' && !(cap > 0)
@@ -432,7 +452,7 @@ export class UtilityInspector {
         }
         html += `<div class="utility-endpoint-row">
           <div class="utility-endpoint-name"><strong>${escapeHtml(this._placeableLabel(s.placeableId))}</strong><span>${escapeHtml(s.portName)}</span></div>
-          <span class="utility-endpoint-value">${fmtQty(cap != null ? cap : 0)} ${escapeHtml(sourceUnit)}</span>
+          <span class="utility-endpoint-value">${sourceValue === null ? `${fmtQty(cap != null ? cap : 0)} ${escapeHtml(sourceUnit)}` : escapeHtml(sourceValue)}</span>
         </div>`;
       }
       html += '</div></section>';

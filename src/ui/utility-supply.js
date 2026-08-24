@@ -74,6 +74,13 @@ const CRYO_CAPABILITY_METRICS = [
   ['liquefactionRateLPerTick', 'LHe make-up rate', 'L/tick'],
 ];
 
+const VACUUM_STAGE_METRICS = [
+  ['roughingSpeed', 'Roughing capacity', 'L/s'],
+  ['highVacSpeed', 'High-vac capacity', 'L/s'],
+  ['uhvSpeed', 'UHV capacity', 'L/s'],
+  ['backingDemand', 'Turbo backing required', 'L/s'],
+];
+
 function waterCapacityBucket(port) {
   const circuit = port?.params?.waterCircuit || 'unspecified';
   return `${port.utility}:${circuit}`;
@@ -122,6 +129,18 @@ export function paletteUtilityMetrics(comp) {
         metric.value += raw * scale;
         totals.set(metricKey, metric);
       }
+    }
+    if (port.role === 'source' && port.utility === 'vacuumPipe') {
+      for (const [param, label, unit] of VACUUM_STAGE_METRICS) {
+        const value = Number(port.params?.[param]);
+        if (!(value > 0)) continue;
+        const metricKey = `vacuum:${param}`;
+        const metric = totals.get(metricKey)
+          || { label, unit, value: 0, kind: 'capacity' };
+        metric.value += value;
+        totals.set(metricKey, metric);
+      }
+      continue;
     }
     const kind = port.role === 'sink' ? 'draw' : 'capacity';
     if (kind === 'draw' && port.params?.waterCircuit === 'hot') continue;
@@ -236,6 +255,7 @@ function fmtDutyPercent(dutyFactor) {
  */
 export function utilityStatRows(comp) {
   const rows = [];
+  const vacuumStages = new Map();
 
   if (comp && comp.energyCost) {
     rows.push({ label: DRAW_LABEL, value: `${comp.energyCost} kW` });
@@ -249,6 +269,16 @@ export function utilityStatRows(comp) {
   const totals = new Map();
   for (const port of Object.values((comp && comp.ports) || {})) {
     if (!port || port.role !== 'source') continue;
+    if (port.utility === 'vacuumPipe') {
+      for (const [param, label, unit] of VACUUM_STAGE_METRICS) {
+        const value = Number(port.params?.[param]);
+        if (!(value > 0)) continue;
+        const metric = vacuumStages.get(param) || { label, unit, amount: 0 };
+        metric.amount += value;
+        vacuumStages.set(param, metric);
+      }
+      continue;
+    }
     const spec = SUPPLY_SPEC[port.utility];
     if (!spec) continue;
     const params = Array.isArray(spec.param) ? spec.param : [spec.param];
@@ -288,6 +318,11 @@ export function utilityStatRows(comp) {
       value += ` peak (${fmtDutyPercent(dutyFactor)} duty)`;
     }
     rows.push({ label: displayLabel || SUPPLY_LABEL, value });
+  }
+
+  for (const { label, unit, amount } of vacuumStages.values()) {
+    const shown = Math.round(amount * 1e6) / 1e6;
+    rows.push({ label, value: `${shown} ${unit}` });
   }
 
   // Water inventory is not thermal cooling capacity. Report both authored

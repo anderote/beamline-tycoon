@@ -121,6 +121,12 @@ export function utilityNetworkOverview(state) {
         demandUnit: descriptor.demandUnit || descriptor.capacityUnit || '',
         totalCapacity: finiteOrNull(flow?.totalCapacity),
         totalDemand: finiteOrNull(flow?.totalDemand),
+        pressure: finiteOrNull(flow?.pressure),
+        vacuumStage: flow?.vacuumStage || null,
+        effectivePumpSpeed: finiteOrNull(flow?.effectivePumpSpeed),
+        volumeL: finiteOrNull(flow?.volumeL),
+        stageCapacities: flow?.stageCapacities || null,
+        volumeBreakdown: flow?.volumeBreakdown || null,
         sourceCount,
         loadCount,
         portCount,
@@ -252,6 +258,13 @@ function summarizeUtilityGroup(group) {
     connectedLinkCount: allTopologyCountsPublished
       ? group.rows.reduce((sum, row) => sum + row.connectedLinkCount, 0)
       : null,
+    worstPressure: group.utilityType === 'vacuumPipe'
+      ? group.rows.reduce((worst, row) => Number.isFinite(row.pressure)
+        ? Math.max(worst, row.pressure) : worst, 0)
+      : null,
+    totalVolumeL: group.utilityType === 'vacuumPipe'
+      ? group.rows.reduce((sum, row) => sum + (row.volumeL || 0), 0)
+      : null,
   };
 }
 
@@ -298,6 +311,22 @@ function renderRow(row) {
       <span><small>Devices</small><strong>${devices}</strong></span>
       <span><small>Links</small><strong>${links}</strong></span>
       <span><small>Topology</small><strong>${escapeHtml(row.topologyLabel)}</strong></span>`;
+  } else if (row.utilityType === 'vacuumPipe') {
+    const stage = row.vacuumStage === 'uhv' ? 'UHV'
+      : row.vacuumStage === 'high' ? 'High vacuum'
+        : row.vacuumStage === 'rough' ? 'Roughing' : 'Inactive';
+    const stages = row.stageCapacities || {};
+    const capacity = [
+      ['R', stages.rough?.powered],
+      ['H', stages.high?.backed],
+      ['U', stages.uhv?.powered],
+    ].filter(([, value]) => Number(value) > 0)
+      .map(([label, value]) => `${label} ${formatUtilityQuantity(value)}`)
+      .join(' · ') || '--';
+    metrics = `
+      <span><small>Pressure / stage</small><strong>${formatUtilityQuantity(row.pressure)} mbar · ${escapeHtml(stage)}</strong></span>
+      <span><small>Stage capacity</small><strong>${escapeHtml(capacity)} <em>L/s</em></strong></span>
+      <span><small>Effective / volume</small><strong>${formatUtilityQuantity(row.effectivePumpSpeed)} L/s · ${formatUtilityQuantity(row.volumeL)} L</strong></span>`;
   } else {
     metrics = `
       <span><small>Capacity</small><strong>${formatUtilityQuantity(row.totalCapacity)} <em>${escapeHtml(row.capacityUnit)}</em></strong></span>
@@ -326,6 +355,8 @@ function renderTypeSummary(group) {
     const devices = group.connectedNodeCount ?? group.portCount;
     const links = group.connectedLinkCount ?? group.lineCount;
     detail = `${devices} device${devices === 1 ? '' : 's'} · ${links} link${links === 1 ? '' : 's'}`;
+  } else if (group.utilityType === 'vacuumPipe' && group.rows.length > 0) {
+    detail = `${formatUtilityQuantity(group.worstPressure)} mbar worst · ${formatUtilityQuantity(group.totalVolumeL)} L evacuated`;
   } else if (group.totalCapacity !== null && group.totalDemand !== null) {
     detail = `${formatUtilityQuantity(group.totalDemand)} ${escapeHtml(group.demandUnit)} load · ${formatUtilityQuantity(group.totalCapacity)} ${escapeHtml(group.capacityUnit)} capacity`;
   } else {

@@ -86,6 +86,13 @@ const bulkWater = componentHoverInfo(COMPONENTS.bulkWaterTank);
 assert(bulkWater.detail === 'Water: 5,000 L storage',
   `bulk tank hover claims no generation (${bulkWater.detail})`);
 
+const turboPump = componentHoverInfo(COMPONENTS.turboPump);
+assert(turboPump.detail === 'Vacuum: high-vac 300 L/s · needs 15 L/s backing',
+  `vacuum pump hover names its pressure stage and backing requirement (${turboPump.detail})`);
+const vacuumCart = componentHoverInfo(COMPONENTS.vacuumCart);
+assert(vacuumCart.detail === 'Vacuum: roughing 30 L/s · high-vac 300 L/s',
+  `integrated vacuum cart hover exposes both pressure-stage capacities (${vacuumCart.detail})`);
+
 const network = utilityNetworkHoverInfo(UTILITY_TYPES.powerCable, {
   utilization: 0.75,
   totalDemand: 75,
@@ -150,16 +157,23 @@ const vacuumNetwork = utilityNetworkHoverInfo(UTILITY_TYPES.vacuumPipe, {
   totalCapacity: 1722,
   totalDemand: 1e-6,
   pressure: 1.33e-8,
+  vacuumStage: 'high',
+  stageCapacities: {
+    rough: { powered: 15 }, high: { backed: 1722 }, uhv: { powered: 600 },
+  },
+  volumeL: 250,
+  volumeBreakdown: { beamPipeL: 80, servicePipeL: 20, componentChambersL: 150 },
   perSinkQuality: { 'source:vac_in': 0.98 },
 });
 assert(vacuumNetwork.detail
-    === 'Pressure: 1.33e-8 mbar · Pumping: 1,722 L/s · Gas load: 1.00e-6 mbar·L/s',
-  `vacuum hover reports pressure, pumping, and gas throughput in their real units (${vacuumNetwork.detail})`);
+    === 'Pressure: 1.33e-8 mbar · High vacuum: 1,722 L/s effective · Capacity R 15 / H 1,722 / U 600 L/s · Gas load: 1.00e-6 mbar·L/s · Volume: 250 L (pipe 80, service 20, chambers 150)',
+  `vacuum hover reports pressure-stage capacity, gas throughput, and volume sources (${vacuumNetwork.detail})`);
 assert(!vacuumNetwork.detail.includes('Demand: 0 L/s'),
   'vacuum hover never rounds gas throughput to a dimensionally incorrect zero-L/s demand');
 assert(vacuumNetwork.detailSegments[0].tone === 'warning'
     && vacuumNetwork.detailSegments[2].tone === 'supply'
-    && vacuumNetwork.detailSegments[4].tone === 'warning',
+    && vacuumNetwork.detailSegments[4].tone === 'supply'
+    && vacuumNetwork.detailSegments[6].tone === 'warning',
   'suboptimal vacuum pressure warns without treating pumping speed as demand coverage');
 
 function fakeDocument() {

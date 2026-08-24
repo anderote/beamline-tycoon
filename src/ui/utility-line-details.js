@@ -196,6 +196,7 @@ export function renderUtilityPerformance(model) {
   }
 
   let primary;
+  let supplemental = '';
   if (model.topologyOnly) {
     const nodes = history.map(sample => sample.connectedNodeCount);
     const links = history.map(sample => sample.connectedLinkCount);
@@ -213,6 +214,28 @@ export function renderUtilityPerformance(model) {
     primary = performancePlot(
       'Network pressure', `${fmt(current.networkPressure)} mbar`,
       'Log scale · lower is better', trace(logs, model.color),
+    );
+    const rough = history.map(sample => sample.roughingCapacity);
+    const high = history.map(sample => sample.highVacCapacity);
+    const uhv = history.map(sample => sample.uhvCapacity);
+    const effective = history.map(sample => sample.effectivePumpSpeed);
+    const max = Math.max(1,
+      ...rough.filter(Number.isFinite), ...high.filter(Number.isFinite),
+      ...uhv.filter(Number.isFinite), ...effective.filter(Number.isFinite));
+    const volumeCaption = `${fmt(current.evacuatedVolumeL)} L evacuated · pipe ${fmt(current.beamPipeVolumeL)} · service ${fmt(current.servicePipeVolumeL)} · chambers ${fmt(current.componentChamberVolumeL)}`;
+    supplemental = performancePlot(
+      'Pumping capacity by stage', `${fmt(current.effectivePumpSpeed)} L/s effective`,
+      volumeCaption,
+      trace(rough, '#d7b36a', { min: 0, max })
+        + trace(high, '#69d2ff', { min: 0, max })
+        + trace(uhv, '#ba8cff', { min: 0, max })
+        + trace(effective, '#55e38a', { min: 0, max }),
+      legend([
+        { label: 'Roughing', color: '#d7b36a' },
+        { label: 'High vacuum', color: '#69d2ff' },
+        { label: 'UHV', color: '#ba8cff' },
+        { label: 'Effective active', color: '#55e38a' },
+      ]),
     );
   } else {
     const capacities = history.map(sample => sample.totalCapacity);
@@ -245,6 +268,6 @@ export function renderUtilityPerformance(model) {
       <span>${history.length} tick${history.length === 1 ? '' : 's'}</span>
     </div>
     <p>Utility performance is solved for the connected network. Every run in this topology shares these live values.</p>
-    <div class="utility-performance-plots">${primary}${secondary}</div>
+    <div class="utility-performance-plots">${primary}${supplemental}${secondary}</div>
   </div>`;
 }

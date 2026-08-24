@@ -339,5 +339,89 @@ console.log('\n--- Test 10: ungauged network history ---');
 }
 
 // ==========================================================================
+console.log('\n--- Test 11: published stage capacity and evacuated-volume breakdown ---');
+{
+  const line = {
+    id: 'vac_breakdown_line', utilityType: 'vacuumPipe',
+    path: [{ col: 0, row: 0 }, { col: 1, row: 0 }],
+    start: { placeableId: 'cart_1', portName: 'vac_out' }, end: null,
+  };
+  const net = mkNetwork({
+    lineIds: [line.id],
+    sources: [{
+      portKey: 'cart_1:vac_out', placeableId: 'cart_1', portName: 'vac_out',
+      params: {
+        pumpSpeed: 330, roughingSpeed: 30, highVacSpeed: 300,
+        integratedBacking: true, vacuumStage: 'integrated',
+      },
+    }],
+    sinks: [{
+      portKey: 'chamber_1:vac_in', placeableId: 'chamber_1', portName: 'vac_in',
+      params: { outgassing: 1e-6 },
+    }],
+  });
+  const world = {
+    placeables: [{ id: 'cart_1', type: 'vacuumCart', col: 0, row: 0 }],
+    beamPipes: [{
+      id: 'bp_breakdown', subL: 4,
+      placements: [{ id: 'chamber_1', type: 'testChamber', subL: 2, position: 0 }],
+    }],
+    utilityLines: new Map([[line.id, line]]),
+  };
+  const result = desc.solve(net, {}, world, {
+    getDefinition: type => type === 'testChamber'
+      ? { subL: 2, interiorVolume: 100 } : null,
+  });
+  const flow = result.flowState;
+  const expectedBeamPipe = circularPipeVolumeLitres(1);
+  const expectedServicePipe = circularPipeVolumeLitres(2);
+  assert(approx(flow.volumeBreakdown.beamPipeL, expectedBeamPipe)
+      && approx(flow.volumeBreakdown.servicePipeL, expectedServicePipe)
+      && flow.volumeBreakdown.componentChambersL === 100,
+    'evacuated volume separates open beam pipe, service pipe, and authored chamber volume');
+  assert(approx(flow.volumeL, expectedBeamPipe + expectedServicePipe + 100)
+      && result.nextPersistentState.evacuatedVolumeL === flow.volumeL,
+    'published and persistent volume equal the sum of the displayed breakdown');
+  assert(flow.stageCapacities.rough.installed === 30
+      && flow.stageCapacities.rough.active === 30
+      && flow.stageCapacities.high.installed === 300
+      && flow.stageCapacities.high.backed === 300
+      && flow.stageCapacities.high.active === 0,
+    'capacity is published independently for roughing and backed high-vacuum stages');
+  const html = desc.renderInspector(net, flow, result.nextPersistentState);
+  assert(html.includes('Capacity by pressure stage')
+      && html.includes('Component chambers')
+      && html.includes('300.0 L/s backed'),
+    'vacuum inspector renders stage capacity and volume-source breakdowns');
+}
+
+// ==========================================================================
+console.log('\n--- Test 12: newly connected volume begins at atmosphere ---');
+{
+  const line = {
+    id: 'vac_expansion_line', utilityType: 'vacuumPipe',
+    path: [{ col: 0, row: 0 }, { col: 1, row: 0 }],
+    start: null, end: null, attachments: [],
+  };
+  const net = mkNetwork({ lineIds: [line.id] });
+  const world = { utilityLines: new Map([[line.id, line]]) };
+  const measured = desc.solve(net, {}, world);
+  const currentVolume = measured.flowState.volumeL;
+  const oldVolume = currentVolume / 2;
+  const oldPressure = 1e-6;
+  const expanded = desc.solve(net, {
+    gasInventoryMbarL: oldVolume * oldPressure,
+    evacuatedVolumeL: oldVolume,
+    pressureHistory: [],
+  }, world);
+  const expectedPressure = (
+    oldVolume * oldPressure + (currentVolume - oldVolume) * 1013
+  ) / currentVolume;
+  assert(approx(expanded.flowState.networkPressure, expectedPressure)
+      && expanded.nextPersistentState.evacuatedVolumeL === currentVolume,
+    'added volume contributes atmospheric gas instead of improving the stored vacuum');
+}
+
+// ==========================================================================
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
