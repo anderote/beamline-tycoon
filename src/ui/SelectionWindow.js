@@ -140,7 +140,7 @@ export class SelectionWindow {
         variant: 'danger',
         title: availability.hasBeamline
           ? 'Exclude Beamline before deleting; beamline deletion is protected'
-          : this.game?.sandboxMode ? 'Delete the active selection with no refund'
+          : (this.game?.isConstructionFree?.() ?? this.game?.sandboxMode) ? 'Delete the active selection with no refund'
             : 'Delete the active selection for a 50% refund',
         disabled: selectedCount === 0 || availability.hasBeamline,
         onClick: () => {

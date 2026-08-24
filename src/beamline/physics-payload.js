@@ -187,8 +187,8 @@ export function buildPhysicsElements(orderedNodes, ctx = {}) {
   return _buildPhysicsElements(orderedNodes, {
     componentHealth: ctx.componentHealth,
     nodeQualities: ctx.nodeQualities,
-    includeInfrastructure: true,
-    applyCommissioning: true,
+    includeInfrastructure: ctx.includeInfrastructure !== false,
+    applyCommissioning: ctx.applyCommissioning !== false,
   });
 }
 

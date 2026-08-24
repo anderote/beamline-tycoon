@@ -317,7 +317,7 @@ export class DesignPlacer {
         title: `Place ${design.name || 'beamline'}?`,
         applyLabel: 'Place design',
         backLabel: 'Back to placement',
-        freeConstruction: this.game.sandboxMode === true,
+        freeConstruction: this.game.isConstructionFree?.() ?? this.game.sandboxMode === true,
       });
       if (choice !== 'apply' || !this.active || this.design !== design) return false;
 

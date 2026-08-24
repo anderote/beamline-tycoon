@@ -19,6 +19,7 @@ import {
   MINOR_LAB_SCENARIO_ID,
   normalizeScenarioExport,
   parseScenarioExport,
+  PENDING_SCENARIO_KEY,
   saveCustomScenario,
   stageScenarioSelection,
 } from '../data/scenarios.js';
@@ -643,7 +644,7 @@ export class ScenarioEditor {
       sessionStorage.setItem(SKIP_TITLE_SESSION_KEY, '1');
       this.storage.removeItem('beamlineTycoon');
     } catch (error) {
-      try { stageScenarioSelection('sandbox', this.storage); } catch (_) {}
+      try { this.storage.removeItem(PENDING_SCENARIO_KEY); } catch (_) {}
       try { sessionStorage.removeItem(SKIP_TITLE_SESSION_KEY); } catch (_) {}
       this._leaving = false;
       this.startDraftAutosave();

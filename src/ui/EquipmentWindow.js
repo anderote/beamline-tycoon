@@ -85,7 +85,7 @@ export class EquipmentWindow {
         title: 'Copy the selection and its internal utility connections',
         onClick: () => this.selectionActions.onCopy?.(this.equip.id),
       },
-      { label: this.game?.sandboxMode ? 'Delete (no refund)' : 'Delete (50% refund)', hotkey: 'Del', variant: 'danger', onClick: () => {
+      { label: (this.game?.isConstructionFree?.() ?? this.game?.sandboxMode) ? 'Delete (no refund)' : 'Delete (50% refund)', hotkey: 'Del', variant: 'danger', onClick: () => {
         if (this.selectionActions.onDemolish) {
           const removedIds = this.selectionActions.onDemolish(this.equip.id) || [];
           for (const id of removedIds) ContextWindow.getWindow('equip-' + id)?.close();

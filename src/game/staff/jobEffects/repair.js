@@ -96,7 +96,8 @@ registerJobEffect('repair', (game, member, job) => {
 
   // A job can outlive the inventory that made it eligible (another repair
   // may have completed first), so check again at completion.
-  if (!game.sandboxMode && (state.resources.spares || 0) <= 0) {
+  const freeConstruction = game.isConstructionFree?.() ?? game.sandboxMode;
+  if (!freeConstruction && (state.resources.spares || 0) <= 0) {
     game.log(`No spares to repair the ${label} with — the job will be re-offered once some are available.`, 'bad');
     return;
   }
