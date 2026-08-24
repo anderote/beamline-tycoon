@@ -23,6 +23,15 @@ state vary. Draw, triangle, shadow, and detail/glow leakage budgets are the
 portable regression contract. The benchmark does not measure GPU time, browser
 FPS, post-processing, driver submission, or visual fidelity.
 
+## Welcome-screen boot budget
+
+The title scene's CRT warp copies display-resolution pixels on the main thread.
+While application boot is pending it is capped at 12 fps, and after the player
+clicks into the loading state it freezes until the title menu is ready. Optional
+decoration textures hydrate after that gate and refresh only their owning scene
+section. The loading label names the active boot phase so a future stall can be
+localized without browser automation or a console capture.
+
 ## Ten large beamlines
 
 `npm run benchmark:ten-large` constructs ten copies of the shipped

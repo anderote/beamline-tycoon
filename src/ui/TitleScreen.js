@@ -48,6 +48,13 @@ export class TitleScreen {
     this._raf = 0;
     this._dismissed = false;
     this._t0 = performance.now();
+    // The CRT warp gathers millions of display-resolution pixels per draw.
+    // Keep a little motion while boot is in progress, but do not let the
+    // covered welcome scene consume a core that the renderer needs to start.
+    this._bootPending = true;
+    this._waitingForBootAfterClick = false;
+    this._lastBootFrameAt = -Infinity;
+    this._loadingStatus = 'STARTING 3D...';
 
     // The welcome screen requests the doomer "night drive" track as a
     // first-run default. MusicPlayer ignores this request when it has a saved
@@ -120,6 +127,7 @@ export class TitleScreen {
     const loadingSub = document.createElement('div');
     loadingSub.className = 'title-loading-sub';
     loadingSub.textContent = 'press to begin · music on';
+    this.loadingSubEl = loadingSub;
     this.loadingEl.appendChild(loadingSub);
     this._onLoadingClick = (e) => {
       // The speaker lives inside the picture, so it shares this listener — and
@@ -140,9 +148,10 @@ export class TitleScreen {
         this._showMenu(this._pendingReady);
         this._pendingReady = null;
       } else if (this.loadingEl.firstChild?.nodeType === Node.TEXT_NODE) {
-        // Booted not yet — fall back to a plain loading state.
-        this.loadingEl.firstChild.textContent = 'LOADING...';
-        if (loadingSub) loadingSub.textContent = 'loading...';
+        // Booted not yet. Freeze the expensive scene until ready() rather than
+        // spending the main thread warping pixels hidden behind a status label.
+        this._waitingForBootAfterClick = true;
+        this._applyLoadingStatus();
       }
     };
     this.el.addEventListener('pointerdown', this._onLoadingClick);
@@ -332,6 +341,17 @@ export class TitleScreen {
 
     const loop = (now) => {
       if (this._dismissed) return;
+      if (this._waitingForBootAfterClick) {
+        this._raf = requestAnimationFrame(loop);
+        return;
+      }
+      // Twelve animated frames per second are plenty for a covered boot
+      // screen. Once ready() runs, the title returns to the normal rAF rate.
+      if (this._bootPending && now - this._lastBootFrameAt < 1000 / 12) {
+        this._raf = requestAnimationFrame(loop);
+        return;
+      }
+      this._lastBootFrameAt = now;
       this._draw(now);
       this._warp.edge(this.ctx, this.W, this.H);
       this._warp.apply(this.ctx, this._viewCtx, this.W, this.H, this.W * this.SS, this.H * this.SS);
@@ -342,8 +362,25 @@ export class TitleScreen {
 
   // ── Public API ─────────────────────────────────────────────────────
 
+  setLoadingStatus(message) {
+    if (typeof message === 'string' && message.trim()) {
+      this._loadingStatus = message.trim().toUpperCase();
+    }
+    if (this._userReady && !this._pendingReady) this._applyLoadingStatus();
+  }
+
+  _applyLoadingStatus() {
+    if (this.loadingEl.firstChild?.nodeType === Node.TEXT_NODE) {
+      this.loadingEl.firstChild.textContent = this._loadingStatus;
+    }
+    // The old lower-case duplicate looked like a second loading operation.
+    this.loadingSubEl?.classList.add('hidden');
+  }
+
   ready(cfg) {
     if (this._dismissed) return;
+    this._bootPending = false;
+    this._waitingForBootAfterClick = false;
     // Gate the menu behind the deliberate "click to continue" gesture.
     if (!this._userReady) {
       this._pendingReady = cfg;
@@ -354,6 +391,8 @@ export class TitleScreen {
 
   _showMenu({ hasSave, onContinue, onNewGame }) {
     if (this._dismissed) return;
+    this._bootPending = false;
+    this._waitingForBootAfterClick = false;
     this.loadingEl.classList.add('hidden');
     this.menuEl.innerHTML = '';
 

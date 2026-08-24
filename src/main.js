@@ -122,13 +122,13 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
     // before the first tick. setDevMode also emits resourcesChanged.
     game.setDevMode(true);
   }
+  titleScreen?.setLoadingStatus('Starting 3D...');
   await renderer.init();
 
+  titleScreen?.setLoadingStatus('Indexing UI...');
   await spriteManager.loadTileSprites();
   await spriteManager.loadDecorationSprites();
   await spriteManager.loadSpriteOffsets();
-  // Force re-render now that textures are loaded (initial render used fallbacks)
-  renderer.refresh();
 
   const input = new InputHandler(renderer, game);
   renderer._inputHandler = input;
@@ -276,6 +276,7 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
     scenarioEditor.init();
     window.scenarioEditor = scenarioEditor;
   } else {
+    titleScreen?.setLoadingStatus('Restoring facility...');
     game.load();
 
     // Apply pending scenario (set by scenario picker or the editor's
@@ -336,6 +337,8 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
       }
     }
   }
+
+  titleScreen?.setLoadingStatus('Finalizing...');
 
   // game.load()/scenario launch can replace nearly the entire scene after the
   // renderer's initial build. Rebuild that final world now, then compile the
@@ -520,6 +523,13 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
       onNewGame: () => scenarioPicker.open(),
     });
   }
+
+  // Decoration textures are presentation-only and every builder has a color
+  // fallback. Hydrate them after the title gate is usable, then refresh only
+  // decorations; never hold TitleScreen.ready() on dozens of image decodes.
+  renderer.hydrateDeferredAssets().catch((error) => {
+    console.warn('[Renderer] Deferred decoration assets failed:', error);
+  });
 
   // ── Live demo / remote-drive for watch-while-iterating ──────────────
   // 1) ?demo=1 auto-builds a showcase facility+beamline on load so
