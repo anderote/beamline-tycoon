@@ -102,16 +102,29 @@ assert.deepEqual(WORLD_LAYER_IDS, [
   for (const id of WORLD_LAYER_IDS) {
     assert.match(html, new RegExp(`data-world-layer="${id}"`), `${id} has a HUD switch`);
   }
+  assert.match(html,
+    /class="layer-visibility-btn"[^>]*data-lod-objects[^>]*aria-pressed="false"/,
+    'adaptive LOD is a separate Layers option and defaults off');
   assert.match(css, /#layer-visibility-control\s*\{[^}]*bottom:\s*calc\(var\(--hud-bottom-height\) \+ 8px\)[^}]*left:\s*12px/s,
     'layer control is anchored above the lower-left build bar');
   assert.match(hud, /this\.renderer\.toggleWorldLayer\(id\)/,
     'HUD delegates layer toggles through the renderer public API');
   assert.match(hud, /if \(opening\)[\s\S]*isWorldLayerVisible\(button\.dataset\.worldLayer\)/,
     'opening the panel refreshes switches changed by shortcuts or Options');
+  assert.match(hud, /this\.renderer\.toggleLodObjects\(\)/,
+    'the LOD option delegates through the renderer public API');
+  assert.match(hud, /this\.renderer\.isLodObjectsEnabled\(\)/,
+    'the LOD option reflects the renderer-owned presentation state');
   assert.match(renderer, /obj\.parent === this\.beamlineComponentGroup/,
     'component picking recognizes the presentation subgroups');
   assert.match(renderer, /toggleZoneLabels\(\)\s*\{\s*return this\.toggleWorldLayer\('zoneLabels'\)/,
     'the layer panel, keyboard shortcut, and options dialog share one zone-label state');
+  assert.match(renderer, /this\._lodObjectsEnabled\s*=\s*false/,
+    'detailed objects remain the default at every zoom');
+  assert.match(renderer, /_currentWorldDetail\(\)\s*\{\s*if \(!this\._lodObjectsEnabled\) return true;/,
+    'world LOD transitions are gated by the opt-in switch');
+  assert.match(renderer, /const showUtilityDetail = this\._lodObjectsEnabled[\s\S]*: true;/,
+    'utility LOD transitions are gated by the same opt-in switch');
 }
 
 console.log('scene layer visibility contract passed');

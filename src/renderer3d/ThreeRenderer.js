@@ -439,6 +439,11 @@ export class ThreeRenderer {
     this.labelLevel = 0;
     this.zoneOverlayVisible = true;
     this.showZoneLabels = true;
+    // Simplified world objects are opt-in. The authored presentation remains
+    // stable while zooming unless the player explicitly enables LOD Objects
+    // in the Layers panel; this avoids a facility-wide visibility swap on an
+    // ordinary camera-wheel frame.
+    this._lodObjectsEnabled = false;
     // Zone name paint (see zone-label.js). The style is swappable at runtime
     // so the variants can be compared in the real scene; the meshes list and
     // the camera-right signature drive the once-per-orbit direction flip.
@@ -1956,6 +1961,23 @@ export class ThreeRenderer {
     const state = this._sceneLayerVisibility.reset();
     this.showZoneLabels = state.zoneLabels;
     return state;
+  }
+
+  /** Opt-in adaptive object simplification controlled by the Layers panel. */
+  setLodObjectsEnabled(enabled) {
+    const next = enabled === true;
+    if (next === this._lodObjectsEnabled) return next;
+    this._lodObjectsEnabled = next;
+    this._updateLOD();
+    return next;
+  }
+
+  toggleLodObjects() {
+    return this.setLodObjectsEnabled(!this._lodObjectsEnabled);
+  }
+
+  isLodObjectsEnabled() {
+    return this._lodObjectsEnabled === true;
   }
 
   /**
@@ -4947,6 +4969,7 @@ export class ThreeRenderer {
   }
 
   _currentWorldDetail() {
+    if (!this._lodObjectsEnabled) return true;
     return worldDetailForZoom(
       this.zoom,
       modeledWorldObjectCount(this._snapshot),
@@ -4954,7 +4977,7 @@ export class ThreeRenderer {
     );
   }
 
-  /** Apply adaptive large-world detail plus the utility-specific far LOD. */
+  /** Apply opt-in adaptive world and utility detail. */
   _updateLOD() {
     const showDetail = this._currentWorldDetail();
     if (showDetail !== this._lastLodDetail) {
@@ -4977,8 +5000,9 @@ export class ThreeRenderer {
       this._lightRig?.markDirty?.();
     }
 
-    const showUtilityDetail = utilityDetailForZoom(
-      this.zoom, this._lastUtilityLodDetail);
+    const showUtilityDetail = this._lodObjectsEnabled
+      ? utilityDetailForZoom(this.zoom, this._lastUtilityLodDetail)
+      : true;
     if (showUtilityDetail === this._lastUtilityLodDetail) return;
     this._lastUtilityLodDetail = showUtilityDetail;
     this.utilityLineBuilderV2?.setDetailLevel?.(showUtilityDetail);
