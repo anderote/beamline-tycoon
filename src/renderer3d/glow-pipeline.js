@@ -171,8 +171,8 @@ class ModernGlowPipeline {
   // transient targets on render, so this API is intentionally a no-op.
   setSize() {}
 
-  render() {
-    if (this._enabled) {
+  render({ skipPostProcessing = false } = {}) {
+    if (this._enabled && !skipPostProcessing) {
       if (this._selectiveBloomEnabled) {
         this._glowCamera.copy(this.camera);
         this._glowCamera.layers.set(BLOOM_LAYER);
