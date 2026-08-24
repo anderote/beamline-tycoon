@@ -86,13 +86,18 @@ server still needs to be stopped before the task is handed off.
   then `npm run test:fast` and `npm run build` before handoff.
 - Run `npm run test:simulation` whenever economy, staffing, scenario, or
   utility-topology changes can affect a facility's operating balance.
-- `npm test` / `npm run test:all` is the complete non-browser gate. Codex and
-  other development agents must never launch or control a browser, open browser
-  windows, run Playwright or `npm run test:browser`, use Browser, Chrome, or
-  computer-use tools to operate a browser, or perform manual game playtesting
-  while working in this repository. The repository owner performs all browser
-  and gameplay validation. Agents must restrict validation to non-browser tests
-  and builds, then hand off any remaining playtesting checklist to the owner.
+- `npm test` / `npm run test:all` is the complete non-browser gate. Browser and
+  gameplay validation is owner-authorized: an agent may launch or control a
+  browser window, run Playwright or `npm run test:browser`, use Browser, Chrome,
+  or computer-use tools, and perform scoped manual playtesting only when the
+  repository owner explicitly authorizes browser operation in the current
+  conversation. Authorization applies to the current task only and does not
+  carry into later work. Without that authorization, agents restrict validation
+  to non-browser tests and builds and hand off the remaining browser checklist.
+  An authorized browser run must use the isolated ephemeral-server lifecycle
+  above, preserve port `8000`, track the exact server process and browser
+  windows/tabs it opens, close only those resources after testing, and report
+  what was exercised.
 - A changed contract requires a test at the contract boundary, not only a test
   of the current implementation's private helpers.
 
