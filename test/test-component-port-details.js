@@ -1,6 +1,8 @@
 // Component info windows expose the resolved utility-port contract as compact
 // requirement/capacity lines without leaking authored connector ids.
 
+import { readFileSync } from 'node:fs';
+
 import {
   componentUtilityPortGroups,
   componentUtilityPortSectionHtml,
@@ -97,6 +99,15 @@ assert(componentUtilityPortGroups('flowerBed').length === 0,
   'placeables without utility connectors do not gain an empty ports section');
 assert(componentUtilityPortSectionHtml('flowerBed') === '',
   'the ports section renderer stays absent when a component has no connectors');
+
+{
+  const css = readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  assert(/#component-popup\s*\{[^}]*width:\s*380px;[^}]*max-width:/s.test(css),
+    'the single-component inspector is wider while remaining viewport-bounded');
+  assert(/\.equipment-port-summary\s*\{[^}]*overflow-wrap:\s*anywhere;[^}]*white-space:\s*normal;/s.test(css)
+      && !/\.equipment-port-summary\s*\{[^}]*text-overflow:\s*ellipsis;/s.test(css),
+    'input and output port summaries wrap in full instead of being ellipsized');
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

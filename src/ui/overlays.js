@@ -26,13 +26,27 @@ function escapeHtml(value) {
   })[char]);
 }
 
+function positionComponentPopup(popup, screenX, screenY, offset = 14) {
+  const x = Number.isFinite(screenX) ? screenX : 180;
+  const y = Number.isFinite(screenY) ? screenY : 90;
+  popup.classList.remove('hidden');
+  const width = popup.offsetWidth || 380;
+  const height = popup.offsetHeight || 400;
+  popup.style.left = Math.max(8, Math.min(x + offset, window.innerWidth - width - 8)) + 'px';
+  popup.style.top = Math.max(8, Math.min(y + offset, window.innerHeight - height - 8)) + 'px';
+}
+
 /** Consistent single-item footer commands and their real keyboard shortcuts. */
 export function singleItemPopupActions(entry) {
   const beamline = entry?.category === 'beamline' || entry?.kind === 'beamline';
+  const onPipeBeamline = beamline && entry?.isPlacement === true;
   return [
     {
       id: 'move', label: 'Move', hotkey: 'P',
-      title: 'Pick up this item and place it elsewhere (P)',
+      disabled: onPipeBeamline,
+      title: onPipeBeamline
+        ? 'On-pipe beamline hardware is repositioned through the Designer'
+        : 'Pick up this item and place it elsewhere (P)',
     },
     {
       id: 'copy', label: 'Copy', hotkey: 'C',
@@ -224,12 +238,8 @@ UIHost.prototype.showPopup = function(node, screenX, screenY) {
     this._wireSingleItemPopupActions(node, body);
   }
 
-  // Position near click, clamped to viewport
-  const x = Number.isFinite(screenX) ? screenX : 180;
-  const y = Number.isFinite(screenY) ? screenY : 90;
-  popup.style.left = Math.max(8, Math.min(x + 14, window.innerWidth - 340)) + 'px';
-  popup.style.top = Math.max(8, Math.min(y + 14, window.innerHeight - 400)) + 'px';
-  popup.classList.remove('hidden');
+  // Position near click, clamped using the popup's rendered dimensions.
+  positionComponentPopup(popup, screenX, screenY);
   this._popupPlaceableId = node.id;
 
   const closeBtn = popup.querySelector('.popup-close');
@@ -373,11 +383,7 @@ UIHost.prototype.showFacilityPopup = function(equip, comp, screenX, screenY) {
     this._wireSingleItemPopupActions(equip, body);
   }
 
-  const x = Number.isFinite(screenX) ? screenX : 180;
-  const y = Number.isFinite(screenY) ? screenY : 90;
-  popup.style.left = Math.max(8, Math.min(x + 10, window.innerWidth - 300)) + 'px';
-  popup.style.top = Math.max(8, Math.min(y + 10, window.innerHeight - 360)) + 'px';
-  popup.classList.remove('hidden');
+  positionComponentPopup(popup, screenX, screenY, 10);
   this._popupPlaceableId = equip.id;
 
   const closeBtn2 = popup.querySelector('.popup-close');

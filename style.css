@@ -3583,7 +3583,9 @@ body.palette-expanded {
 
 /* Parameter sliders in popup */
 #component-popup {
-  width: 320px;
+  width: 380px;
+  max-width: calc(100vw - 16px);
+  max-height: min(760px, calc(100vh - 16px));
 }
 
 .popup-sliders {
@@ -8405,12 +8407,12 @@ body.palette-expanded {
 .equipment-port-name { color: #d2ddff; font-weight: normal; }
 .equipment-port-summary {
   min-width: 0;
-  overflow: hidden;
   color: #b6bad0;
   font-size: 7px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
   text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
 }
 .ctx-window.selection-group-window {
   width: 380px;
