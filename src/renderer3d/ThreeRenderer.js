@@ -80,6 +80,7 @@ import { OverlayShim } from './overlay-shim.js';
 import { GlowPipeline } from './glow-pipeline.js';
 import { createRendererRecovery, createWorldRenderer } from './renderer-backend.js';
 import { FramePacer } from './frame-pacer.js';
+import { FrameRenderPolicy } from './frame-render-policy.js';
 import { LightRig } from './light-rig.js';
 import { VisualEffectSystem } from './visual-effect-system.js';
 import {
@@ -264,6 +265,7 @@ export class ThreeRenderer {
     this._frustumSize = 20;
     this._animFrameId = null;
     this._framePacer = null;
+    this._frameRenderPolicy = null;
     this._ambientElectricalSparks = new AmbientElectricalSparkScheduler();
 
     this.renderer = null;
@@ -670,6 +672,7 @@ export class ThreeRenderer {
       // clean retry, and a repeated stall falls back to WebGL 2.
       onStall: (info) => this._rendererRecovery?.(info),
     });
+    this._frameRenderPolicy = new FrameRenderPolicy(this._framePacer);
 
     // Declarative presentation effects: scalable instanced pulses/spill and
     // per-machine emissive animation. Builders publish descriptors; this is
@@ -4811,9 +4814,18 @@ export class ThreeRenderer {
     this._tickViewRotation();
     this._tickFreeOrbitSnap();
     this._tickCameraFocus();
+    // Decide GPU admission before either shadow scheduler runs. The old
+    // ordering scheduled a fixture/sun refresh, discovered at the bottom of
+    // the frame that back-pressure required skipping the render, then cleared
+    // needsUpdate on the next rAF. Besides losing the queued shadow update,
+    // periodic full-scene shadow passes could land in the middle of a camera
+    // gesture and make the geometry look frozen while screen-space lighting
+    // continued to track the view.
+    const { renderAllowed, cameraMoving, deferShadows } =
+      this._frameRenderPolicy.beginFrame(this, this._inputHandler);
     this._updateZoneLabelFacing();
     if (this._updateAnchoredWindows) this._updateAnchoredWindows();
-    this._updateSunCycle();
+    this._updateSunCycle(deferShadows);
     this._updateLightingRamp();
     this._updateLOD();
     // New-system utility-line preview + port-hover highlight + candidate
@@ -4950,7 +4962,10 @@ export class ThreeRenderer {
         // frustum, which is an input to fixture ranking. Re-ranking mid-sweep
         // buys nothing the player can see and costs shadow refreshes on
         // exactly the frames that can least afford them.
-        { freezeAssignment: this._viewRotating || this._snapping || this._freeOrbiting },
+        {
+          freezeAssignment: cameraMoving,
+          deferShadows,
+        },
       );
     }
     this._physicsPresentation.update(_dt);
@@ -4959,7 +4974,7 @@ export class ThreeRenderer {
     // submission below is skippable, and only while the device is already
     // holding more frames than it should. Shadow refreshes scheduled this
     // frame stay marked and land on the next frame that does render.
-    if (!this._framePacer || this._framePacer.shouldRender()) {
+    if (renderAllowed) {
       this._glowPipeline.render();
       this._framePacer?.frameSubmitted();
     }
@@ -5007,7 +5022,7 @@ export class ThreeRenderer {
     this._effectSystem?.setScopeEnabled?.('utility-lines', showUtilityDetail);
   }
 
-  _updateSunCycle() {
+  _updateSunCycle(deferShadows = false) {
     const now = performance.now();
     const game = this.game;
     const authoritative = game?.state?.timeOfDay;
@@ -5107,14 +5122,16 @@ export class ThreeRenderer {
     this._sunLight.intensity = grade.sunIntensity;
     this._sunLight.color.setRGB(...grade.sunColor);
 
-    this._sunLight.shadow.needsUpdate = false;
-    const sunUpdates = this._sunShadowScheduler?.step({
-      activeCount: 1,
-      enabled: this.renderer.shadowMap.enabled && grade.sunIntensity > 0.02,
-      dtMs: dt * 1000,
-      assignmentKeys: ['sun'],
-    }) || [];
-    if (sunUpdates.length) this._sunLight.shadow.needsUpdate = true;
+    if (!deferShadows) {
+      this._sunLight.shadow.needsUpdate = false;
+      const sunUpdates = this._sunShadowScheduler?.step({
+        activeCount: 1,
+        enabled: this.renderer.shadowMap.enabled && grade.sunIntensity > 0.02,
+        dtMs: dt * 1000,
+        assignmentKeys: ['sun'],
+      }) || [];
+      if (sunUpdates.length) this._sunLight.shadow.needsUpdate = true;
+    }
 
     this._ambientLight.intensity = grade.ambientIntensity;
     this._ambientLight.color.setRGB(...grade.ambientColor);
@@ -6368,6 +6385,7 @@ export class ThreeRenderer {
       this._framePacer.dispose();
       this._framePacer = null;
     }
+    this._frameRenderPolicy = null;
     if (this._lightRig) {
       this._lightRig.dispose();
       this._lightRig = null;
