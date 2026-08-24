@@ -32,6 +32,8 @@ assert(pickSnapMode(0) === 'iso', 'pitch=0 picks iso');
 assert(pickSnapMode(Math.PI / 2) === 'top', 'pitch=π/2 picks top');
 
 console.log('targetPitchForMode');
+assert(Math.abs(PITCH_STEEP - (55 * Math.PI) / 180) < 1e-9,
+  'Build view is 55° (15° steeper than before)');
 assert(targetPitchForMode('iso') === PITCH_REST, "'iso' -> PITCH_REST");
 assert(targetPitchForMode('steep') === PITCH_STEEP, "'steep' -> PITCH_STEEP");
 assert(targetPitchForMode('top') === PITCH_TOP, "'top' -> PITCH_TOP");

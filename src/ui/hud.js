@@ -3094,11 +3094,6 @@ UIHost.prototype.updatePalette = function(category, { freshTab = false } = {}) {
 
 UIHost.prototype._syncCameraSettings = function() {
   const settings = this.renderer.getCameraSettings();
-  document.querySelectorAll('[data-camera-projection]').forEach((button) => {
-    const active = button.dataset.cameraProjection === settings.projection;
-    button.classList.toggle('active', active);
-    button.setAttribute('aria-pressed', String(active));
-  });
   document.querySelectorAll('[data-camera-angle]').forEach((button) => {
     const active = button.dataset.cameraAngle === settings.angle;
     button.classList.toggle('active', active);
@@ -3106,6 +3101,22 @@ UIHost.prototype._syncCameraSettings = function() {
   });
   const glow = document.querySelector('[data-camera-glow]');
   if (glow) glow.checked = settings.glowEnabled;
+  const tilt = settings.tiltShift;
+  const tiltEnabled = document.querySelector('[data-camera-tilt-enabled]');
+  if (tiltEnabled) tiltEnabled.checked = tilt.enabled;
+  const controls = document.querySelector('[data-camera-tilt-controls]');
+  controls?.classList.toggle('disabled', !tilt.enabled);
+  controls?.querySelectorAll('[data-camera-tilt]').forEach((input) => {
+    input.disabled = !tilt.enabled;
+    input.value = String(tilt[input.dataset.cameraTilt]);
+  });
+  const formatTiltValue = (key, value) => key === 'strength'
+    ? `${value.toFixed(2)}×`
+    : `${Math.round(value * 100)}%`;
+  document.querySelectorAll('[data-camera-tilt-value]').forEach((output) => {
+    const key = output.dataset.cameraTiltValue;
+    output.value = formatTiltValue(key, tilt[key]);
+  });
 };
 
 UIHost.prototype._bindHUDEvents = function() {
@@ -3154,12 +3165,6 @@ UIHost.prototype._bindHUDEvents = function() {
       cameraToggle.title = `${opening ? 'Hide' : 'Show'} camera settings`;
     });
   }
-  document.querySelectorAll('[data-camera-projection]').forEach((button) => {
-    button.addEventListener('click', () => {
-      this.renderer.setCameraProjection(button.dataset.cameraProjection);
-      this._syncCameraSettings();
-    });
-  });
   document.querySelectorAll('[data-camera-angle]').forEach((button) => {
     button.addEventListener('click', () => {
       this.renderer.setViewMode(button.dataset.cameraAngle);
@@ -3169,6 +3174,18 @@ UIHost.prototype._bindHUDEvents = function() {
   document.querySelector('[data-camera-glow]')?.addEventListener('change', (event) => {
     this.renderer.setGlowEnabled(event.target.checked);
     this._syncCameraSettings();
+  });
+  document.querySelector('[data-camera-tilt-enabled]')?.addEventListener('change', (event) => {
+    this.renderer.setTiltShiftSettings({ enabled: event.target.checked });
+    this._syncCameraSettings();
+  });
+  document.querySelectorAll('[data-camera-tilt]').forEach((input) => {
+    input.addEventListener('input', () => {
+      this.renderer.setTiltShiftSettings({
+        [input.dataset.cameraTilt]: Number(input.value),
+      });
+      this._syncCameraSettings();
+    });
   });
   this._syncCameraSettings();
 

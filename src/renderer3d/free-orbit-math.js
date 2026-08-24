@@ -14,9 +14,9 @@ export const CAM_D = 50;
 export const ORBIT_RADIUS = (2 * CAM_D * Math.sqrt(6)) / 3;
 
 export const PITCH_REST = Math.atan(1 / Math.sqrt(3));
-// A slightly steeper construction view: more of each machine's top face is
-// visible while retaining the diagonal, isometric-style presentation.
-export const PITCH_STEEP = (40 * Math.PI) / 180;
+// A steep construction view: 15° higher than the former 40° angle so dense
+// facilities expose more floor plan while retaining readable machine sides.
+export const PITCH_STEEP = (55 * Math.PI) / 180;
 // Top-down view sits just below π/2 to avoid the lookAt(up=+Y) gimbal
 // degeneracy. cos(89°) ≈ 0.0175, nonzero, so the look direction stays
 // well-defined and yaw remains meaningful.

@@ -1040,16 +1040,13 @@ body {
   text-transform: uppercase;
 }
 
-.camera-projection-buttons,
 .camera-angle-buttons {
   display: grid;
   gap: 4px;
 }
 
-.camera-projection-buttons { grid-template-columns: 1fr 1fr; }
 .camera-angle-buttons { grid-template-columns: repeat(3, 1fr); }
 
-.camera-projection-buttons button,
 .camera-angle-buttons button {
   min-height: 29px;
   padding: 5px;
@@ -1062,9 +1059,7 @@ body {
   cursor: pointer;
 }
 
-.camera-projection-buttons button:hover,
 .camera-angle-buttons button:hover,
-.camera-projection-buttons button.active,
 .camera-angle-buttons button.active {
   border-color: #70dbea;
   background: rgba(43, 88, 104, 0.94);
@@ -1085,6 +1080,42 @@ body {
 }
 
 .camera-effects-toggle input { accent-color: #70dbea; }
+
+.camera-tilt-controls {
+  margin-top: 5px;
+  padding: 3px 7px 7px;
+  border: 1px solid rgba(80, 112, 142, 0.3);
+  border-radius: 3px;
+  background: rgba(8, 19, 31, 0.6);
+}
+
+.camera-tilt-controls.disabled {
+  opacity: 0.42;
+}
+
+.camera-tilt-slider {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 8px;
+  padding-top: 7px;
+  color: #91a9bd;
+  font-size: 6px;
+  text-transform: uppercase;
+}
+
+.camera-tilt-slider output {
+  color: #82e8f4;
+  font: 9px var(--ui-font-body);
+  text-align: right;
+}
+
+.camera-tilt-slider input[type="range"] {
+  grid-column: 1 / -1;
+  width: 100%;
+  accent-color: #70dbea;
+  cursor: ew-resize;
+}
 
 .camera-settings-hint {
   margin: 9px 1px 0;
@@ -1359,9 +1390,9 @@ body.palette-expanded #layer-visibility-control {
 
 #layer-visibility-toggle:focus-visible,
 #camera-settings-toggle:focus-visible,
-.camera-projection-buttons button:focus-visible,
 .camera-angle-buttons button:focus-visible,
 .camera-effects-toggle:focus-within,
+.camera-tilt-slider input:focus-visible,
 #layer-visibility-reset:focus-visible,
 .layer-visibility-btn:focus-visible {
   box-shadow: var(--ui-focus-ring);

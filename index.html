@@ -147,11 +147,6 @@
       </button>
       <section id="camera-settings-panel" class="hidden" aria-label="Camera settings">
         <div class="camera-settings-header">Camera Settings</div>
-        <div class="camera-settings-label">Projection</div>
-        <div class="camera-projection-buttons" role="group" aria-label="Camera projection">
-          <button type="button" data-camera-projection="isometric" aria-pressed="true">Isometric</button>
-          <button type="button" data-camera-projection="perspective" aria-pressed="false">Perspective</button>
-        </div>
         <div class="camera-settings-label">View angle</div>
         <div class="camera-angle-buttons" role="group" aria-label="Camera angle">
           <button type="button" data-camera-angle="iso" aria-pressed="false">Low</button>
@@ -162,6 +157,27 @@
           <input type="checkbox" data-camera-glow>
           <span>Glow &amp; bloom</span>
         </label>
+        <label class="camera-effects-toggle">
+          <input type="checkbox" data-camera-tilt-enabled>
+          <span>Tilt shift</span>
+        </label>
+        <div class="camera-tilt-controls" data-camera-tilt-controls>
+          <label class="camera-tilt-slider">
+            <span>Strength</span>
+            <output data-camera-tilt-value="strength">1.20×</output>
+            <input type="range" min="0.25" max="2.5" step="0.05" value="1.2" data-camera-tilt="strength">
+          </label>
+          <label class="camera-tilt-slider">
+            <span>Focus position</span>
+            <output data-camera-tilt-value="focus">52%</output>
+            <input type="range" min="0" max="1" step="0.01" value="0.52" data-camera-tilt="focus">
+          </label>
+          <label class="camera-tilt-slider">
+            <span>Focus width</span>
+            <output data-camera-tilt-value="band">28%</output>
+            <input type="range" min="0.08" max="0.7" step="0.01" value="0.28" data-camera-tilt="band">
+          </label>
+        </div>
         <p class="camera-settings-hint">Middle-drag or ⌘-drag to orbit · drag to pan · wheel to zoom</p>
       </section>
     </div>
