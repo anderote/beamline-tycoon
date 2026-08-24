@@ -55,6 +55,10 @@ console.log('\n=== 2. The new vacuum supply ladder is real catalog data ===\n');
     'turbo cart combines four high-vac stages and needs one roughing cart');
   assert(COMPONENTS.vacuumCart?.energyCost === 3,
     'mobile cart is a placeable integrated pumping package');
+  assert(COMPONENTS.vacuumCart?.subW === 2
+      && COMPONENTS.vacuumCart?.subL === 2
+      && COMPONENTS.vacuumCart?.subH === 3,
+    'mobile cart uses exactly twice either dedicated cart footprint');
   assert(getUtilityPortsV2('vacuumCart').vac_out.params.pumpSpeed === 330,
     'cart capacity equals two 15 L/s roughing stages plus one 300 L/s turbo');
   assert(getUtilityPortsV2('highCapacityVacuumStation').vac_out.params.pumpSpeed === 3000,
@@ -92,6 +96,28 @@ console.log('\n=== 3. The armed placement tool finds and previews vacuum runs ==
   input._updateAttachmentPreview('piraniGauge', cursor.x, cursor.y);
   assert(ghost?.[4] === true && ghost?.[7]?.worldX === hit.proj.worldX,
     'green placement ghost renders at the exact utility-run mount pose');
+
+  // Clicking an elevated pipe projects to a different point on the ground
+  // plane. The visible mesh hit must win so every rendered pipe section is an
+  // easy gauge target instead of requiring the player to hunt below it.
+  input.renderer.raycastUtilityLine = (_x, _y, tolerancePx) => ({
+    lineId: line.id,
+    utilityType: 'vacuumPipe',
+    worldPos: { x: 6.4, z: 4.1 },
+    tolerancePx,
+  });
+  input.game.state.utilityLines.set('ul_ground_projection', {
+    id: 'ul_ground_projection', utilityType: 'vacuumPipe',
+    path: [{ col: 7, row: 8 }, { col: 9, row: 8 }], attachments: [],
+  });
+  const farGround = gridToIso(8, 8);
+  const picked = input._snapAttachmentToUtilityLine(
+    'piraniGauge', farGround.x, farGround.y, 200, 120,
+  );
+  assert(picked?.line.id === line.id
+      && Math.abs(picked.proj.worldX - 6.4) < 1e-9
+      && picked.proj.worldZ === 4,
+    'visible elevated pipe geometry selects the exact section under the cursor');
 }
 
 console.log('\n=== 4. A palette-tool click mounts the gauge at the cursor ===\n');

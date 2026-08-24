@@ -75,17 +75,21 @@ test('compact cart meshes stay inside their authored placement footprints', () =
   disposeBuckets(turbo);
 });
 
-test('integrated mobile vacuum cart uses the smaller 1.5 × 2 metre footprint', () => {
+test('integrated mobile vacuum cart is exactly twice either dedicated cart footprint', () => {
   const def = COMPONENTS.vacuumCart;
-  assert.equal(def.subW, 3, 'cart is three subtiles wide');
-  assert.equal(def.subL, 4, 'cart is four subtiles long');
-  assert.equal(def.gridW, 3, 'placement grid matches visual width');
-  assert.equal(def.gridH, 4, 'placement grid matches visual length');
+  assert.equal(def.subW, 2, 'cart is two subtiles wide');
+  assert.equal(def.subL, 2, 'cart is two subtiles long');
+  assert.equal(def.subH, 3, 'cart stays the same height as the dedicated carts');
+  assert.equal(def.gridW, 2, 'placement grid matches visual width');
+  assert.equal(def.gridH, 2, 'placement grid matches visual length');
+  assert.equal(def.subW * def.subL, COMPONENTS.turboPumpCart.subW
+    * COMPONENTS.turboPumpCart.subL * 2,
+    'combined cart footprint is exactly two dedicated-cart footprints');
 
   const cart = _buildVacuumCartRoles();
   const bounds = boundsOf(cart);
   assertAuthoredEnvelope('mobile vacuum cart', bounds, def);
-  assert.ok(Math.abs(bounds.max.x - 0.70) < 1e-6,
+  assert.ok(Math.abs(bounds.max.x - 0.50) < 1e-6,
     'visible outlet reaches the authored right-side vacuum fitting');
   assert.ok(cart.iron.length >= 4,
     'two dry-pump motors, turbo motor, and isolation valve remain visible');

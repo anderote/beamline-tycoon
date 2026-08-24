@@ -1036,7 +1036,9 @@ export const INFRASTRUCTURE_RAW = {
     cost: { funding: 475000 },
     stats: {},
     energyCost: 3,
-    subL: 4, subW: 3, subH: 4, gridW: 3, gridH: 4, geometryType: 'box',
+    // Dedicated-cart-scale roughing and turbo stages sit side by side: the
+    // combined package is exactly twice either 1x2-subtile cart footprint.
+    subL: 2, subW: 2, subH: 3, gridW: 2, gridH: 2, geometryType: 'box',
     baseMaterial: 'metal_painted_gray',
     zoneTier: 2,
     spriteKey: 'vacuumCart',
