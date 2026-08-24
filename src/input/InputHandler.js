@@ -114,6 +114,7 @@ import {
 import { OBJECT_PICK_TOLERANCE_PX } from './pick-tolerance.js';
 import { selectedBeamlineFocusModel } from '../renderer3d/selected-beamline-focus.js';
 import { selectedUtilityNetworkFocusModel } from '../renderer3d/selected-utility-network-focus.js';
+import { inspectBeamPipe } from './beam-pipe-inspection.js';
 
 // === BEAMLINE TYCOON: INPUT HANDLER ===
 
@@ -3148,6 +3149,26 @@ export class InputHandler {
       world, grid, screenX, screenY,
       { additive: shiftKey },
     )) return;
+
+    // Drawn pipe is part of a beamline even though it is not a placeable and
+    // therefore does not enter the general selection panel. Its production
+    // mesh carries the canonical pipe id, which the inspection command maps
+    // back to the owning registry entry before opening the beamline window.
+    const pipeHit = this.renderer.raycastScreen?.(
+      screenX, screenY, OBJECT_PICK_TOLERANCE_PX,
+    );
+    const pipeInfo = pipeHit ? this.renderer.identifyHit?.(pipeHit) : null;
+    if (pipeInfo?.group === 'beampipe' && pipeInfo.pipeId) {
+      const opened = inspectBeamPipe(
+        this.game,
+        pipeInfo.pipeId,
+        (...args) => this.renderer.ui?.openBeamlineWindow?.(...args),
+      );
+      if (opened) {
+        if (!shiftKey) this._clearSelection();
+        return;
+      }
+    }
 
     // Utility-line click-to-inspect is the fallback after the placeable pick.
     // An armed beamline tool suppresses it; tools that consume clicks never

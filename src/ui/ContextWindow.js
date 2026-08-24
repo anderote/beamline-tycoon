@@ -19,8 +19,11 @@ export class ContextWindow {
    * @param {string} [opts.accentColor] - CSS color for title bar gradient accent
    * @param {Array}  [opts.tabs]        - Array of { key, label } tab descriptors
    * @param {Function} [opts.onClose]   - Callback invoked when window is closed
+   * @param {object} [opts.titleMenu]    - Clickable title menu configuration
    */
-  constructor({ id, title, icon = '', accentColor = '#226', tabs = [], onClose } = {}) {
+  constructor({
+    id, title, icon = '', accentColor = '#226', tabs = [], onClose, titleMenu = null,
+  } = {}) {
     if (registry.has(id)) {
       // Bring existing window to front instead of creating a duplicate
       registry.get(id).focus();
@@ -33,6 +36,7 @@ export class ContextWindow {
     this._accentColor = accentColor;
     this._tabs = tabs;
     this._onClose = onClose;
+    this._titleMenuConfig = titleMenu;
     this._activeTab = tabs.length > 0 ? tabs[0].key : null;
     this._tabRenderers = new Map(); // key -> fn(container)
     this._actions = [];
@@ -74,7 +78,12 @@ export class ContextWindow {
       const z = parseInt(win._el?.style.zIndex, 10) || 0;
       if (z > topZ) { topZ = z; topWin = win; }
     }
-    if (topWin) { topWin.close(); return true; }
+    if (topWin) {
+      if (topWin._titleMenuEl && !topWin._titleMenuEl.classList.contains('hidden')) {
+        topWin.closeTitleMenu();
+      } else topWin.close();
+      return true;
+    }
     return false;
   }
 
@@ -108,9 +117,25 @@ export class ContextWindow {
     titlebar.className = 'ctx-titlebar';
     titlebar.style.background = this._gradientStyle();
 
-    const titleSpan = document.createElement('span');
-    titleSpan.className = 'ctx-title';
-    titleSpan.textContent = (this._icon ? this._icon + ' ' : '') + this._title;
+    const titleWrap = document.createElement('div');
+    titleWrap.className = 'ctx-title-wrap';
+    const titleSpan = document.createElement(titleMenu ? 'button' : 'span');
+    titleSpan.className = titleMenu ? 'ctx-title ctx-title-button' : 'ctx-title';
+    if (titleMenu) {
+      titleSpan.type = 'button';
+      titleSpan.setAttribute('aria-haspopup', 'menu');
+      titleSpan.setAttribute('aria-expanded', 'false');
+      titleSpan.addEventListener('click', (event) => {
+        event.stopPropagation();
+        this.toggleTitleMenu();
+      });
+    }
+    titleWrap.appendChild(titleSpan);
+
+    const titleMenuEl = document.createElement('div');
+    titleMenuEl.className = 'ctx-title-menu hidden';
+    titleMenuEl.setAttribute('role', 'menu');
+    titleWrap.appendChild(titleMenuEl);
 
     const titleRight = document.createElement('div');
     titleRight.className = 'ctx-title-right';
@@ -128,7 +153,7 @@ export class ContextWindow {
 
     titleRight.appendChild(statusSpan);
     titleRight.appendChild(closeBtn);
-    titlebar.appendChild(titleSpan);
+    titlebar.appendChild(titleWrap);
     titlebar.appendChild(titleRight);
 
     // Tab bar
@@ -166,10 +191,20 @@ export class ContextWindow {
     // Store refs
     this._el = el;
     this._titleSpan = titleSpan;
+    this._titleWrap = titleWrap;
+    this._titleMenuEl = titleMenuEl;
     this._statusSpan = statusSpan;
     this._tabBar = tabBar;
     this._body = body;
     this._actionsEl = actions;
+
+    this._renderTitleText();
+    this._renderTitleMenu();
+
+    this._closeTitleMenuOnOutsidePointer = (event) => {
+      if (!this._titleWrap?.contains?.(event.target)) this.closeTitleMenu();
+    };
+    document.addEventListener?.('mousedown', this._closeTitleMenuOnOutsidePointer);
 
     // Drag behaviour
     this._initDrag(titlebar);
@@ -193,7 +228,7 @@ export class ContextWindow {
 
   _initDrag(handle) {
     this._disposeDrag = makeDraggable(this._el, handle, {
-      exclude: '.ctx-close',
+      exclude: '.ctx-close, .ctx-title-button, .ctx-title-menu',
       grabCursor: true,
       onStart: () => ({
         origLeft: parseInt(this._el.style.left, 10) || 0,
@@ -264,9 +299,87 @@ export class ContextWindow {
   setTitle(title) {
     this._title = title;
     if (this._el) this._el.setAttribute('aria-label', title);
-    if (this._titleSpan) {
-      this._titleSpan.textContent = (this._icon ? this._icon + ' ' : '') + title;
+    this._renderTitleText();
+  }
+
+  _renderTitleText() {
+    if (!this._titleSpan) return;
+    const prefix = this._icon ? this._icon + ' ' : '';
+    const suffix = this._titleMenuConfig ? ' ▾' : '';
+    this._titleSpan.textContent = prefix + this._title + suffix;
+    if (this._titleMenuConfig) {
+      this._titleSpan.setAttribute('aria-label', `Switch beamline. Current: ${this._title}`);
     }
+  }
+
+  _renderTitleMenu() {
+    if (!this._titleMenuEl) return;
+    this._titleMenuEl.replaceChildren();
+    const config = this._titleMenuConfig;
+    this._titleMenuEl.style.display = config ? '' : 'none';
+    if (!config) return;
+    const doc = this._titleMenuEl.ownerDocument || document;
+    for (const item of config.items || []) {
+      const button = doc.createElement('button');
+      button.type = 'button';
+      button.className = 'ctx-title-menu-item';
+      button.dataset.titleMenuKey = item.key;
+      button.setAttribute('role', 'menuitem');
+      if (item.key === config.selectedKey) {
+        button.classList.add('selected');
+        button.setAttribute('aria-current', 'true');
+      }
+
+      const accent = doc.createElement('span');
+      accent.className = 'ctx-title-menu-accent';
+      if (Number.isFinite(item.accentColor)) {
+        accent.style.backgroundColor = `#${(item.accentColor >>> 0).toString(16).padStart(6, '0').slice(-6)}`;
+      }
+      const label = doc.createElement('span');
+      label.className = 'ctx-title-menu-label';
+      label.textContent = item.label;
+      const status = doc.createElement('span');
+      status.className = `ctx-title-menu-status status-${item.status || 'stopped'}`;
+      status.textContent = item.status || 'stopped';
+      button.append(accent, label, status);
+      button.addEventListener('click', () => {
+        this.closeTitleMenu();
+        if (item.key !== config.selectedKey) config.onSelect?.(item.key);
+      });
+      this._titleMenuEl.appendChild(button);
+    }
+  }
+
+  setTitleMenu(items, selectedKey, onSelect) {
+    if (!this._titleMenuEl || !this._titleSpan?.classList?.contains('ctx-title-button')) return false;
+    this._titleMenuConfig = { items: items || [], selectedKey, onSelect };
+    this._renderTitleText();
+    this._renderTitleMenu();
+    return true;
+  }
+
+  toggleTitleMenu() {
+    if (!this._titleMenuConfig || !this._titleMenuEl) return;
+    const opening = this._titleMenuEl.classList.contains('hidden');
+    this._titleMenuEl.classList.toggle('hidden', !opening);
+    this._titleSpan?.setAttribute('aria-expanded', opening ? 'true' : 'false');
+  }
+
+  closeTitleMenu() {
+    this._titleMenuEl?.classList.add('hidden');
+    this._titleSpan?.setAttribute?.('aria-expanded', 'false');
+  }
+
+  /** Change the registry identity of a live window without rebuilding it. */
+  setId(id) {
+    if (!id || id === this.id) return true;
+    const occupied = registry.get(id);
+    if (occupied && occupied !== this) return false;
+    registry.delete(this.id);
+    this.id = id;
+    registry.set(id, this);
+    if (this._el) this._el.dataset.ctxId = id;
+    return true;
   }
 
   /** Switch to the tab with the given key. */
@@ -282,6 +395,10 @@ export class ContextWindow {
     });
 
     this._renderBody();
+  }
+
+  get activeTab() {
+    return this._activeTab;
   }
 
   /**
@@ -377,6 +494,7 @@ export class ContextWindow {
       this._disposeDrag();
       this._disposeDrag = null;
     }
+    document.removeEventListener?.('mousedown', this._closeTitleMenuOnOutsidePointer);
     if (this._el && this._el.parentNode) {
       this._el.parentNode.removeChild(this._el);
     }

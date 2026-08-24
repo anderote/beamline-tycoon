@@ -22,6 +22,7 @@ import { UTILITY_TO_QUALITY_FIELD } from '../game/utility-gate.js';
 import { getCavitySpec } from '../beamline/cavity-specs.js';
 import { beamlineRfOperatingInfo } from './hover-info.js';
 import { componentUtilityPortGroups } from './utility-port-details.js';
+import { beamlinesMenuModel } from './BeamlinesMenu.js';
 
 // Utility type keys to display in the utilities tab
 const UTILITY_TYPES = [
@@ -222,6 +223,11 @@ const COMP_COLORS = {
   default: '#888',
 };
 
+// ContextWindow prevents duplicate DOM windows; keep the BeamlineWindow owner
+// paired with it too so a UIHost can adopt a window first opened elsewhere
+// (for example from the Control Room) without creating a stale second wrapper.
+const beamlineWindowOwners = new WeakMap();
+
 function _compColor(type) {
   const comp = COMPONENTS[type];
   if (!comp) return COMP_COLORS.default;
@@ -241,12 +247,14 @@ export class BeamlineWindow {
    * @param {object} game        - Game instance
    * @param {string} beamlineId  - Registry ID (e.g. 'bl-1')
    */
-  constructor(game, beamlineId, selectedNode = null) {
+  constructor(game, beamlineId, selectedNode = null, { onBeamlineChanged } = {}) {
     this.game = game;
     this.beamlineId = beamlineId;
     this.selectedComponentId = selectedNode?.id || null;
     this._selectedComponentFallback = selectedNode || null;
     this._vacuumHistoryRangeTicks = DEFAULT_VACUUM_HISTORY_RANGE_TICKS;
+    this._onBeamlineChanged = onBeamlineChanged;
+    this._titleMenuSignature = '';
 
     const entry = game.registry.get(beamlineId);
     if (!entry) {
@@ -258,6 +266,11 @@ export class BeamlineWindow {
     const existing = ContextWindow.getWindow('bl-' + beamlineId);
     if (existing) {
       existing.focus();
+      const owner = beamlineWindowOwners.get(existing);
+      if (owner) {
+        if (onBeamlineChanged) owner._onBeamlineChanged = onBeamlineChanged;
+        return owner;
+      }
       this.ctx = existing;
       return;
     }
@@ -267,6 +280,16 @@ export class BeamlineWindow {
       title: entry.name,
       icon: '⚡',
       accentColor: '#2a4a7f',
+      titleMenu: {
+        items: beamlinesMenuModel(game.registry).map(item => ({
+          key: item.id,
+          label: item.name,
+          accentColor: item.accentColor,
+          status: item.status,
+        })),
+        selectedKey: beamlineId,
+        onSelect: id => this.switchBeamline(id),
+      },
       tabs: [
         { key: 'overview',    label: 'Overview' },
         { key: 'component',   label: 'Component' },
@@ -278,6 +301,8 @@ export class BeamlineWindow {
       ],
     });
     this.ctx = ctx;
+    beamlineWindowOwners.set(ctx, this);
+    this._updateTitleMenu(true);
 
     // Register tab renderers
     ctx.onTabRender('overview',   (el) => this._renderOverview(el));
@@ -297,6 +322,56 @@ export class BeamlineWindow {
   // ---------------------------------------------------------------------------
   // Status & Actions
   // ---------------------------------------------------------------------------
+
+  _updateTitleMenu(force = false) {
+    const items = beamlinesMenuModel(this.game.registry).map(item => ({
+      key: item.id,
+      label: item.name,
+      accentColor: item.accentColor,
+      status: item.status,
+    }));
+    const signature = JSON.stringify(items.map(item => [
+      item.key, item.label, item.accentColor, item.status,
+    ]));
+    if (!force && signature === this._titleMenuSignature) return;
+    this._titleMenuSignature = signature;
+    this.ctx?.setTitleMenu(items, this.beamlineId, id => this.switchBeamline(id));
+  }
+
+  /** Retarget this live context window to another registry beamline. */
+  switchBeamline(beamlineId) {
+    const entry = this.game.registry.get(beamlineId);
+    if (!entry || !this.ctx) return false;
+    if (beamlineId === this.beamlineId) {
+      this.ctx.closeTitleMenu?.();
+      return true;
+    }
+
+    const occupied = ContextWindow.getWindow('bl-' + beamlineId);
+    if (occupied && occupied !== this.ctx) {
+      occupied.focus();
+      this.ctx.close();
+      this.game.selectedBeamlineId = beamlineId;
+      this.game.emit?.('beamlineSelected', beamlineId);
+      return true;
+    }
+
+    const previousId = this.beamlineId;
+    if (!this.ctx.setId('bl-' + beamlineId)) return false;
+    this.beamlineId = beamlineId;
+    this.selectedComponentId = null;
+    this._selectedComponentFallback = null;
+    this.game.selectedBeamlineId = beamlineId;
+    this.game.emit?.('beamlineSelected', beamlineId);
+    this.ctx.setTitle(entry.name);
+    if (this.ctx.activeTab === 'component') this.ctx.switchTab('overview');
+    this._updateTitleMenu(true);
+    this._updateStatus();
+    this._updateActions();
+    this.ctx.update();
+    this._onBeamlineChanged?.(previousId, beamlineId, this);
+    return true;
+  }
 
   _updateStatus() {
     const entry = this.game.registry.get(this.beamlineId);
@@ -352,6 +427,7 @@ export class BeamlineWindow {
           if (newName && newName.trim()) {
             entry.name = newName.trim();
             this.ctx.setTitle(entry.name);
+            this._updateTitleMenu(true);
           }
         },
       },
@@ -969,6 +1045,7 @@ export class BeamlineWindow {
     if (!this.ctx || !this.ctx._el) return;
     this._updateStatus();
     this._updateActions();
+    this._updateTitleMenu();
     this.ctx.update();
   }
 }

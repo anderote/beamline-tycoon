@@ -4901,14 +4901,21 @@ UIHost.prototype._bindTreeEvents = function() {
 // Beamline context windows
 // ---------------------------------------------------------------------------
 
-UIHost.prototype._openBeamlineWindow = function(beamlineId, anchorNode) {
+UIHost.prototype._openBeamlineWindow = function(beamlineId, anchorNode, anchorTiles = null) {
   if (!this._beamlineWindows) this._beamlineWindows = {};
   let bw = this._beamlineWindows[beamlineId];
   if (bw) {
     if (anchorNode) bw.selectComponent(anchorNode);
     bw.ctx.focus();
   } else {
-    bw = new BeamlineWindow(this.game, beamlineId, anchorNode);
+    bw = new BeamlineWindow(this.game, beamlineId, anchorNode, {
+      onBeamlineChanged: (previousId, nextId, switchedWindow) => {
+        if (this._beamlineWindows[previousId] === switchedWindow) {
+          delete this._beamlineWindows[previousId];
+        }
+        this._beamlineWindows[nextId] = switchedWindow;
+      },
+    });
     this._beamlineWindows[beamlineId] = bw;
   }
 
@@ -4916,7 +4923,9 @@ UIHost.prototype._openBeamlineWindow = function(beamlineId, anchorNode) {
   // centroid (fallback for programmatic opens that don't know a click origin).
   const entry = this.game.registry.get(beamlineId);
   if (entry && bw.ctx) {
-    const tiles = anchorNode
+    const tiles = anchorTiles?.length
+      ? anchorTiles
+      : anchorNode
       ? (anchorNode.cells || [{ col: anchorNode.col, row: anchorNode.row }])
       : this.game.state.placeables
           .filter(p => p.beamlineId === beamlineId)
@@ -4942,7 +4951,9 @@ UIHost.prototype._openBeamlineWindow = function(beamlineId, anchorNode) {
     bw._selectionCloseWrapped = true;
     const origClose = bw.ctx._onClose;
     bw.ctx._onClose = () => {
-      delete this._beamlineWindows[beamlineId];
+      for (const [id, candidate] of Object.entries(this._beamlineWindows)) {
+        if (candidate === bw) delete this._beamlineWindows[id];
+      }
       if (origClose) origClose();
     };
   }
