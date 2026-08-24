@@ -1066,7 +1066,7 @@ export class InputHandler {
     }
     if (action === 'copy') {
       const selection = formationSelection('copy');
-      return this._copySelectionToClipboard(selection.anchorId, selection.ids);
+      return this._beginSelectionPlacement('copy', selection.anchorId, selection.ids);
     }
     if (action === 'paste') return this._pasteSelectionClipboard();
     if (action === 'saveSlot') {

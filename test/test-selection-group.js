@@ -473,10 +473,6 @@ console.log('\n=== Selection groups ===\n');
 
   const calls = [];
   input._selectionIdsForPanelAction = InputHandler.prototype._selectionIdsForPanelAction;
-  input._copySelectionToClipboard = (anchorId, ids) => {
-    calls.push(['copy', anchorId, ids]);
-    return true;
-  };
   input._beginSelectionPlacement = (operation, anchorId, ids) => {
     calls.push([operation, anchorId, ids]);
     return true;
@@ -485,7 +481,7 @@ console.log('\n=== Selection groups ===\n');
   InputHandler.prototype.dispatchSelectionPanelAction.call(input, 'move');
   assert(calls[0][0] === 'copy' && calls[0][1] === 'wall'
       && calls[0][2].join(',') === 'panel,wall',
-  'the public panel copy command forwards only its compatible subset');
+  'the public panel copy command immediately places only its compatible subset');
   assert(calls[1][0] === 'move' && calls[1][1] === 'panel'
       && calls[1][2].join(',') === 'panel',
   'the public panel move command forwards only movable placeables');
