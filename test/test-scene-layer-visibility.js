@@ -105,8 +105,12 @@ assert.deepEqual(WORLD_LAYER_IDS, [
   assert.match(html,
     /class="layer-visibility-btn"[^>]*data-lod-objects[^>]*aria-pressed="false"/,
     'adaptive LOD is a separate Layers option and defaults off');
-  assert.match(css, /#layer-visibility-control\s*\{[^}]*bottom:\s*calc\(var\(--hud-bottom-height\) \+ 8px\)[^}]*left:\s*12px/s,
-    'layer control is anchored above the lower-left build bar');
+  assert.match(css, /#camera-settings-control\s*\{[^}]*bottom:\s*calc\(var\(--hud-bottom-height\) \+ 8px\)[^}]*left:\s*12px/s,
+    'camera settings own the first lower-left slot above the build bar');
+  assert.match(css, /#layer-visibility-control\s*\{[^}]*bottom:\s*calc\(var\(--hud-bottom-height\) \+ 8px\)[^}]*left:\s*112px/s,
+    'layer visibility remains on the lower-left control rail beside Camera');
+  assert.match(css, /body\.palette-expanded #camera-settings-control,[\s\S]*#layer-visibility-control\s*\{[^}]*--hud-expanded-bottom-height/s,
+    'camera and layer controls both follow the expanded build bar');
   assert.match(hud, /this\.renderer\.toggleWorldLayer\(id\)/,
     'HUD delegates layer toggles through the renderer public API');
   assert.match(hud, /if \(opening\)[\s\S]*isWorldLayerVisible\(button\.dataset\.worldLayer\)/,

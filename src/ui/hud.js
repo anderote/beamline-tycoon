@@ -3092,6 +3092,22 @@ UIHost.prototype.updatePalette = function(category, { freshTab = false } = {}) {
 
 // --- HUD event bindings ---
 
+UIHost.prototype._syncCameraSettings = function() {
+  const settings = this.renderer.getCameraSettings();
+  document.querySelectorAll('[data-camera-projection]').forEach((button) => {
+    const active = button.dataset.cameraProjection === settings.projection;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  document.querySelectorAll('[data-camera-angle]').forEach((button) => {
+    const active = button.dataset.cameraAngle === settings.angle;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  const glow = document.querySelector('[data-camera-glow]');
+  if (glow) glow.checked = settings.glowEnabled;
+};
+
 UIHost.prototype._bindHUDEvents = function() {
   // The build palette is filtered by the type of the beamline being edited, so
   // any change of edit/selection focus can change what it is allowed to show.
@@ -3116,6 +3132,45 @@ UIHost.prototype._bindHUDEvents = function() {
   }
 
   this._bindPaletteSearch();
+
+  const cameraControl = document.getElementById('camera-settings-control');
+  const cameraToggle = document.getElementById('camera-settings-toggle');
+  const cameraPanel = document.getElementById('camera-settings-panel');
+  const closeCameraPanel = () => {
+    cameraPanel?.classList.add('hidden');
+    cameraToggle?.setAttribute('aria-expanded', 'false');
+    if (cameraToggle) cameraToggle.title = 'Show camera settings';
+  };
+  if (cameraToggle && cameraPanel) {
+    cameraToggle.addEventListener('click', () => {
+      const opening = cameraPanel.classList.contains('hidden');
+      if (opening) {
+        this._syncCameraSettings();
+        document.getElementById('layer-visibility-panel')?.classList.add('hidden');
+        document.getElementById('layer-visibility-toggle')?.setAttribute('aria-expanded', 'false');
+      }
+      cameraPanel.classList.toggle('hidden', !opening);
+      cameraToggle.setAttribute('aria-expanded', String(opening));
+      cameraToggle.title = `${opening ? 'Hide' : 'Show'} camera settings`;
+    });
+  }
+  document.querySelectorAll('[data-camera-projection]').forEach((button) => {
+    button.addEventListener('click', () => {
+      this.renderer.setCameraProjection(button.dataset.cameraProjection);
+      this._syncCameraSettings();
+    });
+  });
+  document.querySelectorAll('[data-camera-angle]').forEach((button) => {
+    button.addEventListener('click', () => {
+      this.renderer.setViewMode(button.dataset.cameraAngle);
+      this._syncCameraSettings();
+    });
+  });
+  document.querySelector('[data-camera-glow]')?.addEventListener('change', (event) => {
+    this.renderer.setGlowEnabled(event.target.checked);
+    this._syncCameraSettings();
+  });
+  this._syncCameraSettings();
 
   // Mode switcher
   document.querySelectorAll('.mode-btn').forEach(btn => {
@@ -3224,6 +3279,7 @@ UIHost.prototype._bindHUDEvents = function() {
     layerToggle.addEventListener('click', () => {
       const opening = layerPanel.classList.contains('hidden');
       if (opening) {
+        closeCameraPanel();
         for (const button of layerButtons) {
           syncLayerButton(button, this.renderer.isWorldLayerVisible(button.dataset.worldLayer));
         }
@@ -3275,6 +3331,12 @@ UIHost.prototype._bindHUDEvents = function() {
     this.game.viewRouter.on((view) => {
       layerControl.classList.toggle('hidden', view !== 'game');
       if (view !== 'game') closeLayerPanel();
+    });
+  }
+  if (cameraControl && this.game.viewRouter) {
+    this.game.viewRouter.on((view) => {
+      cameraControl.classList.toggle('hidden', view !== 'game');
+      if (view !== 'game') closeCameraPanel();
     });
   }
 
