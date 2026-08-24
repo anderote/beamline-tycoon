@@ -42,7 +42,7 @@ console.log('\n--- Test 1: source components report correct supply ---');
   const POWER = {
     gridServicePoint: 3000, hvTransformer: 1500,
     compactHvDistributor: 600, mcc: 250,
-    padMountTransformer: 150, ups: 100, powerPanel: 40,
+    padMountTransformer: 150, ups: 100, powerPanel: 120,
   };
   for (const [id, cap] of Object.entries(POWER)) {
     const rows = supplyRows(id);

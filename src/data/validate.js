@@ -499,7 +499,7 @@ export function validateContent({ placeables = {}, rawRegistries = {}, utilityPo
   // utility-ports-v2 table, or the solver can never connect or gate it.
   // Applies to beamline AND infrastructure: an infrastructure unit with a
   // power requirement but no pwr_in contributes no demand to any network,
-  // so a 40 kW panel can "feed" a 2000 kW gyrotron at 0% utilization while
+  // so a distribution panel can "feed" a 2000 kW gyrotron at 0% utilization while
   // the overlay still draws it a power hookup the player can never make.
   function checkSinkPortsForRequired(id, def) {
     if (!Array.isArray(def.requiredConnections)) return;

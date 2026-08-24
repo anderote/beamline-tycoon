@@ -167,7 +167,7 @@ the ceiling to 0.90.
 | Grid Intertie Transformer | 6 MW HV input, 6 feeders |
 | Compact HV Distributor | Two-wire HV trunk tap → 2 protected 300 kW HV feeders; 600 kW maximum; no new capacity |
 | Motor Control Center | 1 HV input → 8 branch circuits; no new capacity |
-| Power Distribution Panel | Two-wire tensioning HV roof tap → 4 × 10 kW green branch circuits; 40 kW maximum; no new capacity |
+| Power Distribution Panel | Two-wire non-tensioning HV roof tap → 4 × 30 kW green branch circuits; 120 kW maximum; no new capacity |
 | Section Distribution Panel | Two-wire tensioning HV roof tap → 6 × 50 kW green branches + 1 × 300 kW HV feeder; 600 kW maximum; no new capacity |
 | Main Distribution Panel | Two-wire tensioning HV roof tap → 12 × 50 kW green branches + 2 × 300 kW HV feeders; 1,200 kW maximum; no new capacity |
 | UPS / Battery Bank | 1 HV input → 2 critical branch circuits; no new capacity |

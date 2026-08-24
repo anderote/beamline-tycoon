@@ -92,7 +92,7 @@ console.log('\n--- 1. One line to a bus feeds every covered placement ---');
   assert(panelOutlets.length === net.sources.length && panelOutlets.length === 4,
     `the panel is the only supply, across its four outlets (got ${net.sources.length})`);
   const panelCapacity = panelOutlets.reduce((a, s) => a + s.capacity, 0);
-  assert(panelCapacity === 40,
+  assert(panelCapacity === 120,
     `and they sum to the panel's rating, not four times it (got ${panelCapacity} kW)`);
   const sinkIds = net.sinks.map(s => s.placeableId).sort();
   assert(JSON.stringify(sinkIds) === JSON.stringify(['q1', 'q2', 'q3']),
