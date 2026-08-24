@@ -70,6 +70,15 @@ const FLASH_POINT_DECAY = 2;
 const DEFAULT_FLASH_DURATION_MS = 600;
 const POINT_RANK_SLACK = 4;
 
+function _effectivelyVisible(candidate) {
+  let object = candidate?.group || candidate;
+  while (object) {
+    if (object.visible === false) return false;
+    object = object.parent;
+  }
+  return true;
+}
+
 // ---- Spot handover (the fixture LOD) ---------------------------------------
 //
 // There are two lighting systems and they are an LOD, not rivals: every
@@ -558,7 +567,7 @@ export class LightRig {
   }
 
   _rankCandidates(candidates, focus, radiusFor = null) {
-    return candidates.filter((obj) => obj && obj.visible !== false).map((obj, index) => {
+    return candidates.filter((obj) => obj && _effectivelyVisible(obj)).map((obj, index) => {
       const p = this._worldPos(obj);
       const dx = p.x - focus.x, dy = p.y - focus.y, dz = p.z - focus.z;
       let visible = true;

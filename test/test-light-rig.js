@@ -436,6 +436,38 @@ function placeFixture(scene, id, def, x, z, dir = 0) {
   return g;
 }
 
+test('hidden LOD owners do not retain real fixture or glow lights', () => {
+  const scene = new SceneStub();
+  const detailOwner = new Group();
+  const fixture = new Group();
+  const glow = new Mesh(new BoxGeometry(0.1, 0.1, 0.1), new MeshStandardMaterial());
+  glow.userData.role = 'glow';
+  glow.userData.ambientLight = { intensity: 1, distance: 2 };
+  detailOwner.add(fixture);
+  detailOwner.add(glow);
+  scene.add(detailOwner);
+  detailOwner.visible = false;
+
+  const rig = new LightRig(scene, {
+    shadowSpotCount: 1, pointCount: 1, flashReserve: 0,
+  });
+  rig.setFixtureRegistry([{ id: 'hidden-fixture', def: DEF.lamppost, group: fixture }]);
+  rig.update({ position: new V3(0, 0, 0) }, 1, 0.25);
+  assert.equal(rig._spotSlots[0].assignedRef, null,
+    'a registry fixture beneath a hidden detailed group cannot claim a shadow spot');
+  assert.equal(rig._pointSlots[0].assignedRef, null,
+    'a glow mesh beneath a hidden detailed group cannot claim a point light');
+
+  detailOwner.visible = true;
+  rig.markDirty();
+  rig.update({ position: new V3(0, 0, 0) }, 1, 0.25);
+  assert.ok(rig._spotSlots[0].assignedRef,
+    'the authored fixture becomes eligible again when detail returns');
+  assert.ok(rig._pointSlots[0].assignedRef,
+    'the authored glow becomes eligible again when detail returns');
+  rig.dispose();
+});
+
 test('a fixture at the rank boundary never strobes: no slot swap across 120 oscillating frames', () => {
   const scene = new SceneStub();
   // Two fixtures a hair apart, and one spot to fight over.

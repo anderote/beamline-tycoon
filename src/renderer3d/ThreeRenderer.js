@@ -1484,6 +1484,10 @@ export class ThreeRenderer {
         };
       }
       if (obj.parent === this.equipmentGroup) {
+        const batched = this.equipmentBuilder?.resolveBatchHit?.(hit);
+        if (batched) {
+          return { group: 'equipment', rootObj: batched.rootObj, nodeId: batched.nodeId };
+        }
         return { group: 'equipment', rootObj: obj, nodeId: obj.userData.nodeId ?? null };
       }
       if (obj.parent === this.decorationGroup) {
@@ -4901,9 +4905,11 @@ export class ThreeRenderer {
       }
       this.decorationBuilder?.setDetailLevel?.(showDetail);
       this.componentBuilder?.setDetailLevel?.(showDetail);
+      this.equipmentBuilder?.setDetailLevel?.(showDetail);
       this.pipeAttachmentBuilder?.setDetailLevel?.(showDetail);
       this.beamPipeBuilder?.setDetailLevel?.(showDetail);
       this.beamBuilder?.setDetailLevel?.(showDetail);
+      this._lightRig?.markDirty?.();
     }
 
     const showUtilityDetail = utilityDetailForZoom(
@@ -5108,6 +5114,7 @@ export class ThreeRenderer {
     this.beamBuilder.build(snapshot.beamPaths, this.beamEffectGroup);
     this.beamBuilder.setDetailLevel(this._currentWorldDetail());
     this.equipmentBuilder.build(snapshot.equipment, snapshot.furnishings, this.equipmentGroup);
+    this.equipmentBuilder.setDetailLevel(this._currentWorldDetail());
     this._effectSystem?.syncSurfaceGlows('equipment', this.equipmentGroup);
     this.decorationBuilder.build(snapshot.decorations, this.decorationGroup);
     this.decorationBuilder.setDetailLevel(this._currentWorldDetail());
@@ -5576,6 +5583,7 @@ export class ThreeRenderer {
     this.equipmentBuilder.build(snap.equipment, snap.furnishings, this.equipmentGroup, {
       changes: changeSet?.placeables || null,
     });
+    this.equipmentBuilder.setDetailLevel(this._currentWorldDetail());
     this._effectSystem?.syncSurfaceGlows('equipment', this.equipmentGroup);
   }
 

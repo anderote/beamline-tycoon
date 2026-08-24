@@ -23,6 +23,17 @@ const FACE_INDEX = { '+X': 0, '-X': 1, '+Y': 2, '-Y': 3, '+Z': 4, '-Z': 5 };
 
 const SUB_UNIT = 0.5;
 const PRIMITIVE_SEGMENTS = 16;
+const FAR_PRIMITIVE_SEGMENTS = 8;
+
+const FAR_EQUIPMENT_COLORS = Object.freeze({
+  frame: 0x303841,
+  dark: 0x20272e,
+  metal: 0x8b98a2,
+  surface: 0xb8aa91,
+  screen: 0x42b7c8,
+  sanitary: 0xdce5e7,
+  plant: 0x47734a,
+});
 
 // Cache per (compType + faceKey + base + override) -> material so identical
 // face configs share. Module-level cache lives across rebuilds and instances.
@@ -188,6 +199,164 @@ function _mergePartGeometries(entries) {
   return merged;
 }
 
+function _equipmentPlacement(item, compDef, isFurnishing) {
+  const dir = item.dir || 0;
+  const swapFoot = dir === 1 || dir === 3;
+  const defW = compDef?.subW || (isFurnishing ? 1 : 2);
+  const defL = compDef?.subL || compDef?.subH || (isFurnishing ? 1 : 2);
+  const footW = (swapFoot ? defL : defW) * SUB_UNIT;
+  const footL = (swapFoot ? defW : defL) * SUB_UNIT;
+  const tileX = (item.col ?? 0) * 2;
+  const tileZ = (item.row ?? 0) * 2;
+  const subX = (item.subCol || 0) * SUB_UNIT;
+  const subZ = (item.subRow || 0) * SUB_UNIT;
+  const wallPose = compDef?.mount === 'wall' ? wallFixturePose(item.wallMount) : null;
+  const floorY = (item.placeY || 0) * SUB_UNIT;
+  return {
+    centerX: wallPose?.x ?? (tileX + subX + footW / 2),
+    centerZ: wallPose?.z ?? (tileZ + subZ + footL / 2),
+    baseY: compDef?.mount === 'wall' ? fixtureMountY(compDef, floorY) : floorY,
+    rotY: wallPose?.yaw ?? (-dir * (Math.PI / 2)),
+  };
+}
+
+function _equipmentVisualDimensions(compDef, isFurnishing) {
+  const vSubW = compDef?.visualSubW ?? compDef?.subW ?? (isFurnishing ? 1 : 2);
+  const vSubH = compDef?.visualSubH ?? compDef?.subH ?? (isFurnishing ? 1 : 2);
+  const vSubL = compDef?.visualSubL ?? compDef?.subL ?? compDef?.subH
+    ?? (isFurnishing ? 1 : 2);
+  return { width: vSubW * SUB_UNIT, height: vSubH * SUB_UNIT, depth: vSubL * SUB_UNIT };
+}
+
+function _farEquipmentPart(entries, roles, role, shape, dimensions, position) {
+  const part = shape === 'cylinder'
+    ? { shape, axis: dimensions.axis || 'y' }
+    : { shape: 'box' };
+  const geometry = createEquipmentPartGeometry(
+    part, dimensions.width, dimensions.height, dimensions.depth,
+  );
+  geometry.translate(position.x, position.y, position.z);
+  const color = new THREE.Color(dimensions.color);
+  entries.push({ geometry, color });
+  roles.push(role);
+}
+
+function _farEquipmentGeometry(compDef, isFurnishing) {
+  const id = compDef.id || '';
+  const { width, height, depth } = _equipmentVisualDimensions(compDef, isFurnishing);
+  const entries = [];
+  const roles = [];
+  const bodyColor = compDef.spriteColor || compDef.color || 0x78848c;
+  const box = (role, w, h, d, x, y, z, color = bodyColor) =>
+    _farEquipmentPart(entries, roles, role, 'box',
+      { width: w, height: h, depth: d, color }, { x, y, z });
+  const cylinder = (role, w, h, d, x, y, z, color = bodyColor, axis = 'y') =>
+    _farEquipmentPart(entries, roles, role, 'cylinder',
+      { width: w, height: h, depth: d, color, axis }, { x, y, z });
+
+  let kind = 'facility-machine';
+  if (/plant/i.test(id)) {
+    kind = 'indoor-plant';
+    box('pot', width * 0.48, height * 0.28, depth * 0.48,
+      0, height * 0.14, 0, 0x765740);
+    cylinder('stem', width * 0.10, height * 0.52, depth * 0.10,
+      0, height * 0.50, 0, 0x43643b);
+    box('canopy', width * 0.76, height * 0.34, depth * 0.76,
+      0, height * 0.80, 0, FAR_EQUIPMENT_COLORS.plant);
+  } else if (/chair|stool|armchair|sofa|couch|bench$/i.test(id)) {
+    kind = /stool/i.test(id) ? 'stool' : (/sofa|couch|bench$/i.test(id) ? 'seating' : 'chair');
+    const seatY = Math.max(0.28, height * 0.42);
+    box('seat', width * 0.78, Math.max(0.10, height * 0.12), depth * 0.72,
+      0, seatY, 0, bodyColor);
+    if (!/stool/i.test(id)) {
+      box('back', width * 0.76, Math.max(0.28, height * 0.46), depth * 0.12,
+        0, Math.min(height * 0.76, seatY + height * 0.28), depth * 0.31,
+        FAR_EQUIPMENT_COLORS.dark);
+    }
+    for (const x of [-width * 0.28, width * 0.28]) {
+      box('leg', 0.07, seatY, 0.07, x, seatY * 0.5, 0,
+        FAR_EQUIPMENT_COLORS.frame);
+    }
+  } else if (/table|desk|bench|counter|workstand|workbench|console|station|bar$/i.test(id)) {
+    kind = /console/i.test(id) ? 'console' : 'work-surface';
+    const topY = Math.max(0.40, height * 0.68);
+    box('surface', width * 0.90, Math.max(0.10, height * 0.10), depth * 0.86,
+      0, topY, 0, FAR_EQUIPMENT_COLORS.surface);
+    for (const x of [-width * 0.34, width * 0.34]) {
+      box('frame', Math.max(0.08, width * 0.10), topY, depth * 0.66,
+        x, topY * 0.5, 0, FAR_EQUIPMENT_COLORS.frame);
+    }
+    if (/console|computer|monitor/i.test(id)) {
+      box('screen', width * 0.50, height * 0.24, depth * 0.10,
+        0, Math.min(height * 0.88, topY + height * 0.16), depth * 0.31,
+        FAR_EQUIPMENT_COLORS.screen);
+    }
+  } else if (/rack|shelf|bookcase|locker|cabinet|refrigerator|vending|appliance|chamber|cage|stall|credenza|sideboard/i.test(id)) {
+    kind = /rack|shelf|bookcase/i.test(id) ? 'storage-rack' : 'facility-cabinet';
+    box('body', width * 0.82, height * 0.92, depth * 0.78,
+      0, height * 0.46, 0, FAR_EQUIPMENT_COLORS.dark);
+    box('front', width * 0.64, height * 0.68, Math.max(0.04, depth * 0.06),
+      0, height * 0.50, depth * 0.41, bodyColor);
+    box('accent', width * 0.48, Math.max(0.04, height * 0.045), depth * 0.07,
+      0, height * 0.72, depth * 0.45, FAR_EQUIPMENT_COLORS.screen);
+  } else if (/cart|trolley/i.test(id)) {
+    kind = 'mobile-cart';
+    box('body', width * 0.84, height * 0.48, depth * 0.78,
+      0, height * 0.48, 0, bodyColor);
+    for (const x of [-width * 0.30, width * 0.30]) {
+      cylinder('wheel', 0.15, 0.08, 0.15, x, 0.10, 0,
+        FAR_EQUIPMENT_COLORS.dark, 'z');
+    }
+  } else if (/toilet|urinal|sink|dryer/i.test(id)) {
+    kind = 'sanitary-fixture';
+    box('base', width * 0.62, height * 0.52, depth * 0.72,
+      0, height * 0.26, 0, FAR_EQUIPMENT_COLORS.sanitary);
+    box('back', width * 0.72, height * 0.38, depth * 0.28,
+      0, height * 0.68, depth * 0.20, FAR_EQUIPMENT_COLORS.metal);
+  } else if (/coil|generator|antenna|cylinder|crane|hoist|lathe|mill|press|welder|pump|exchanger|chiller/i.test(id)) {
+    kind = 'shop-machine';
+    box('stand', width * 0.76, Math.max(0.12, height * 0.12), depth * 0.74,
+      0, Math.max(0.06, height * 0.06), 0, FAR_EQUIPMENT_COLORS.frame);
+    cylinder('body', width * 0.50, height * 0.66, depth * 0.50,
+      0, height * 0.46, 0, bodyColor);
+    box('accent', width * 0.58, Math.max(0.06, height * 0.07), depth * 0.58,
+      0, height * 0.58, 0, FAR_EQUIPMENT_COLORS.screen);
+  } else {
+    box('body', width * 0.78, height * 0.78, depth * 0.76,
+      0, height * 0.39, 0, bodyColor);
+    box('front', width * 0.52, height * 0.26, Math.max(0.04, depth * 0.07),
+      0, height * 0.47, depth * 0.40, FAR_EQUIPMENT_COLORS.dark);
+    box('accent', width * 0.34, Math.max(0.04, height * 0.05), depth * 0.08,
+      0, height * 0.54, depth * 0.44, FAR_EQUIPMENT_COLORS.screen);
+  }
+
+  const geometry = _mergePartGeometries(entries);
+  for (const entry of entries) entry.geometry.dispose();
+  geometry.userData.farSilhouetteKind = kind;
+  geometry.userData.farPartRoles = [...new Set(roles)];
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function _showEquipmentAtFar(item, compDef, isFurnishing) {
+  if (!compDef || compDef.isRack) return false;
+  if (compDef.mount === 'wall' || compDef.mount === 'surface'
+      || compDef.mount === 'overhead') return false;
+  if ((item.placeY || 0) > 0.1 || compDef.stackable === true) return false;
+  if (/rug|organizer|ashtray|wastebasket|paperTowelBin/i.test(compDef.id || '')) return false;
+  const { width, height, depth } = _equipmentVisualDimensions(compDef, isFurnishing);
+  const recognizableSmall = /chair|stool|toilet|urinal|plant/i.test(compDef.id || '');
+  return recognizableSmall || width > 0.55 || height > 0.65 || depth > 0.55;
+}
+
+/** Public catalogue contract used by tests and presentation diagnostics. */
+export function equipmentFarPresentation(item, isFurnishing = false) {
+  return _showEquipmentAtFar(item, PLACEABLES[item?.type], isFurnishing)
+    ? 'silhouette'
+    : 'hidden';
+}
+
 /**
  * Build one authored equipment part inside an exact w/h/l bounding box.
  * `box` remains the backwards-compatible default; the small primitive set
@@ -337,11 +506,17 @@ function _setFaceUVsClamped(geometry, faceKey) {
 }
 
 export class EquipmentBuilder {
-  constructor() {
+  constructor({ buildFarBatches = true } = {}) {
     /** @type {THREE.Mesh[]} */
     this._meshes = [];
     this._objectsById = new Map();
     this._signaturesById = new Map();
+    this._farBatches = [];
+    this._farSource = null;
+    this._farSignature = null;
+    this._builtFarSignature = null;
+    this._showDetail = true;
+    this._buildFarBatches = buildFarBatches;
   }
 
   /** Public lookup for picking, selection, and incident coordinators. */
@@ -349,6 +524,122 @@ export class EquipmentBuilder {
     return this._objectsById.get(`equipment:${id}`)
       || this._objectsById.get(`furnishing:${id}`)
       || null;
+  }
+
+  resolveBatchHit(hit) {
+    const object = hit?.object;
+    if (!object?.userData?.batchedEquipment || !Number.isInteger(hit.instanceId)) return null;
+    const nodeId = object.userData.nodeIds?.[hit.instanceId] ?? null;
+    return {
+      nodeId,
+      rootObj: nodeId != null ? (this.getGroup(nodeId) || object) : object,
+    };
+  }
+
+  _disposeFarBatches() {
+    for (const mesh of this._farBatches) {
+      mesh.parent?.remove(mesh);
+      mesh.dispose?.();
+      mesh.geometry?.dispose?.();
+      mesh.material?.dispose?.();
+    }
+    this._farBatches = [];
+    this._builtFarSignature = null;
+  }
+
+  _queueFarBatches(equipmentData, furnishingData, parentGroup) {
+    if (!this._buildFarBatches) return;
+    const signature = contentKey([equipmentData || [], furnishingData || []]);
+    this._farSource = {
+      equipmentData: equipmentData || [],
+      furnishingData: furnishingData || [],
+      parentGroup,
+    };
+    this._farSignature = signature;
+    if (this._builtFarSignature && this._builtFarSignature !== signature) {
+      this._disposeFarBatches();
+    }
+    if (!this._showDetail) this._rebuildFarBatches();
+  }
+
+  _rebuildFarBatches() {
+    if (!this._buildFarBatches || !this._farSource) return;
+    if (this._builtFarSignature === this._farSignature) {
+      for (const mesh of this._farBatches) mesh.visible = !this._showDetail;
+      return;
+    }
+    this._disposeFarBatches();
+    const { equipmentData, furnishingData, parentGroup } = this._farSource;
+    const buckets = new Map();
+    const collect = (item, isFurnishing) => {
+      const def = PLACEABLES[item.type];
+      if (!_showEquipmentAtFar(item, def, isFurnishing)) return;
+      const key = `${isFurnishing ? 'furnishing' : 'equipment'}|${item.type}`;
+      let bucket = buckets.get(key);
+      if (!bucket) {
+        bucket = { def, isFurnishing, entries: [] };
+        buckets.set(key, bucket);
+      }
+      bucket.entries.push(item);
+    };
+    for (const item of equipmentData) collect(item, false);
+    for (const item of furnishingData) collect(item, true);
+
+    const position = new THREE.Vector3();
+    const rotation = new THREE.Quaternion();
+    const scale = new THREE.Vector3(1, 1, 1);
+    const matrix = new THREE.Matrix4();
+    const yAxis = new THREE.Vector3(0, 1, 0);
+    for (const { def, isFurnishing, entries } of buckets.values()) {
+      const geometry = _farEquipmentGeometry(def, isFurnishing);
+      const material = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        vertexColors: true,
+        roughness: 0.66,
+        metalness: 0.16,
+      });
+      const mesh = new THREE.InstancedMesh(geometry, material, entries.length);
+      mesh.name = `equipment-far-${entries[0].type}`;
+      mesh.userData.batchedEquipment = true;
+      mesh.userData.nodeIds = [];
+      mesh.userData.lod = 'equipment-far';
+      mesh.userData.farSilhouetteKind = geometry.userData.farSilhouetteKind;
+      mesh.userData.farPartRoles = geometry.userData.farPartRoles;
+      mesh.castShadow = false;
+      mesh.receiveShadow = true;
+      mesh.visible = !this._showDetail;
+      for (let index = 0; index < entries.length; index++) {
+        const item = entries[index];
+        const pose = _equipmentPlacement(item, def, isFurnishing);
+        position.set(pose.centerX, pose.baseY, pose.centerZ);
+        rotation.setFromAxisAngle(yAxis, pose.rotY);
+        matrix.compose(position, rotation, scale);
+        mesh.setMatrixAt(index, matrix);
+        mesh.userData.nodeIds[index] = item.id ?? null;
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingBox();
+      mesh.computeBoundingSphere();
+      parentGroup.add(mesh);
+      this._farBatches.push(mesh);
+    }
+    this._builtFarSignature = this._farSignature;
+  }
+
+  setDetailLevel(showDetail) {
+    this._showDetail = !!showDetail;
+    for (const object of this._objectsById.values()) {
+      object.visible = this._showDetail;
+      object.traverse(child => {
+        if (!child.isMesh) return;
+        if (child.userData.nearCastShadow == null) {
+          child.userData.nearCastShadow = child.castShadow === true;
+        }
+        child.castShadow = this._showDetail && child.userData.nearCastShadow;
+      });
+    }
+    if (!this._showDetail) this._rebuildFarBatches();
+    for (const mesh of this._farBatches) mesh.visible = !this._showDetail;
   }
 
   /**
@@ -368,23 +659,8 @@ export class EquipmentBuilder {
       // Footprint (in subtiles) — must match Placeable.footprintCells, which
       // swaps subW/subL when dir is 1 or 3. The visual mesh/group is then
       // rotated around its center (set below) so geometry matches occupancy.
-      const dir = item.dir || 0;
-      const swapFoot = (dir === 1 || dir === 3);
-      const defW = compDef?.subW || (isFurnishing ? 1 : 2);
-      const defL = compDef?.subL || compDef?.subH || (isFurnishing ? 1 : 2);
-      const footW = (swapFoot ? defL : defW) * SUB_UNIT;
-      const footL = (swapFoot ? defW : defL) * SUB_UNIT;
-
-      const tileX = (item.col ?? 0) * 2;
-      const tileZ = (item.row ?? 0) * 2;
-      const subX = (item.subCol || 0) * SUB_UNIT;
-      const subZ = (item.subRow || 0) * SUB_UNIT;
-      const wallPose = compDef?.mount === 'wall' ? wallFixturePose(item.wallMount) : null;
-      const centerX = wallPose?.x ?? (tileX + subX + footW / 2);
-      const centerZ = wallPose?.z ?? (tileZ + subZ + footL / 2);
-      const floorY = (item.placeY || 0) * SUB_UNIT;
-      const baseY = compDef?.mount === 'wall' ? fixtureMountY(compDef, floorY) : floorY;
-      const rotY = wallPose?.yaw ?? (-dir * (Math.PI / 2));
+      const { centerX, centerZ, baseY, rotY } =
+        _equipmentPlacement(item, compDef, isFurnishing);
       const fallbackColor = compDef?.spriteColor || compDef?.color || 0x888888;
       const baseName = compDef?.baseMaterial || null;
       const physicsId = item.id ?? `${isFurnishing ? 'furnishing' : 'equipment'}:${item.type}:${item.col}:${item.row}:${item.subCol ?? 0}:${item.subRow ?? 0}`;
@@ -563,12 +839,8 @@ export class EquipmentBuilder {
       // Visual dims — may be smaller (or larger) than the footprint so a
       // benchtop instrument can take a full subtile of room but render at
       // realistic scale. Defaults to the footprint when not authored.
-      const vSubW = compDef?.visualSubW ?? compDef?.subW ?? (isFurnishing ? 1 : 2);
-      const vSubH = compDef?.visualSubH ?? compDef?.subH ?? (isFurnishing ? 1 : 2);
-      const vSubL = compDef?.visualSubL ?? compDef?.subL ?? compDef?.subH ?? (isFurnishing ? 1 : 2);
-      const w = vSubW * SUB_UNIT;
-      const h = vSubH * SUB_UNIT;
-      const l = vSubL * SUB_UNIT;
+      const { width: w, height: h, depth: l } =
+        _equipmentVisualDimensions(compDef, isFurnishing);
 
       const geo = new THREE.BoxGeometry(w, h, l);
       applyTiledBoxUVs(geo, w, h, l);
@@ -658,6 +930,8 @@ export class EquipmentBuilder {
         replace(id, item ? desiredEntry(item, isFurnishing)[1] : null);
       }
       this._meshes = Array.from(this._objectsById.values());
+      this._queueFarBatches(equipmentData, furnishingData, parentGroup);
+      this.setDetailLevel(this._showDetail);
       return;
     }
 
@@ -682,6 +956,8 @@ export class EquipmentBuilder {
       this._signaturesById.delete(id);
     }
     this._meshes = Array.from(this._objectsById.values());
+    this._queueFarBatches(equipmentData, furnishingData, parentGroup);
+    this.setDetailLevel(this._showDetail);
   }
 
   _disposeObject(obj, parentGroup) {
@@ -700,10 +976,13 @@ export class EquipmentBuilder {
    * @param {THREE.Group} parentGroup
    */
   dispose(parentGroup) {
+    this._disposeFarBatches();
     for (const obj of this._objectsById.values()) this._disposeObject(obj, parentGroup);
     this._objectsById.clear();
     this._signaturesById.clear();
     this._meshes = [];
+    this._farSource = null;
+    this._farSignature = null;
   }
 }
 
