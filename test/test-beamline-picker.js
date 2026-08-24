@@ -351,6 +351,29 @@ console.log('\n=== Missions stay open while hardware remains gated ===\n');
   assert(designUnlockPath(ringTop, { completedResearch: [] })
     .some(node => node.id === 'nDopedSrf'),
     'the flagship light ring remains gated on its high-performance SRF research');
+
+  const sandboxState = {
+    completedResearch: [],
+    scenarioRules: { unlockAllComponents: true },
+  };
+  assertEq(designUnlockPath(upgrade, sandboxState).length, 0,
+    'Sandbox removes component research gates from predesigned beamlines');
+  const sandboxPanel = blueprintPanelHtml(
+    BEAMLINE_TYPES.spallation,
+    upgrade.id,
+    sandboxState,
+    { freeConstruction: true },
+  );
+  const sandboxCardStart = sandboxPanel.indexOf(`data-design-id="${upgrade.id}"`);
+  const sandboxNextCard = sandboxPanel.indexOf(
+    '<div class="blueprint-card',
+    sandboxCardStart + 1,
+  );
+  const sandboxCard = sandboxPanel.slice(sandboxCardStart, sandboxNextCard);
+  assert(!sandboxCard.includes('locked')
+      && sandboxCard.includes('tabindex="0"')
+      && !sandboxCard.includes('Hardware needed'),
+  'the New Beamline picker makes every Sandbox blueprint selectable');
 }
 
 {
