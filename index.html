@@ -140,6 +140,32 @@
     <!-- Camera view-cube widget (lower-right, above wall visibility) -->
     <div id="view-cube-widget"></div>
 
+    <!-- Camera projection and presentation controls (lower-left) -->
+    <div id="camera-settings-control">
+      <button id="camera-settings-toggle" type="button" aria-expanded="false" aria-controls="camera-settings-panel" title="Show camera settings">
+        <span aria-hidden="true">▣</span> Camera
+      </button>
+      <section id="camera-settings-panel" class="hidden" aria-label="Camera settings">
+        <div class="camera-settings-header">Camera Settings</div>
+        <div class="camera-settings-label">Projection</div>
+        <div class="camera-projection-buttons" role="group" aria-label="Camera projection">
+          <button type="button" data-camera-projection="isometric" aria-pressed="true">Isometric</button>
+          <button type="button" data-camera-projection="perspective" aria-pressed="false">Perspective</button>
+        </div>
+        <div class="camera-settings-label">View angle</div>
+        <div class="camera-angle-buttons" role="group" aria-label="Camera angle">
+          <button type="button" data-camera-angle="iso" aria-pressed="false">Low</button>
+          <button type="button" data-camera-angle="steep" aria-pressed="true">Build</button>
+          <button type="button" data-camera-angle="top" aria-pressed="false">Top</button>
+        </div>
+        <label class="camera-effects-toggle">
+          <input type="checkbox" data-camera-glow>
+          <span>Glow &amp; bloom</span>
+        </label>
+        <p class="camera-settings-hint">Middle-drag or ⌘-drag to orbit · drag to pan · wheel to zoom</p>
+      </section>
+    </div>
+
     <!-- World layer visibility (lower-left, above bottom HUD) -->
     <div id="layer-visibility-control">
       <button id="layer-visibility-toggle" type="button" aria-expanded="false" aria-controls="layer-visibility-panel" title="Show world layer visibility">

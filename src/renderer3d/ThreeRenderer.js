@@ -81,6 +81,13 @@ import { GlowPipeline } from './glow-pipeline.js';
 import { createRendererRecovery, createWorldRenderer } from './renderer-backend.js';
 import { FramePacer } from './frame-pacer.js';
 import { FrameRenderPolicy } from './frame-render-policy.js';
+import {
+  CAMERA_PROJECTION_ISOMETRIC,
+  CAMERA_PROJECTION_PERSPECTIVE,
+  PERSPECTIVE_FOV_DEGREES,
+  normalizeCameraProjection,
+  perspectiveDistanceForViewHeight,
+} from './camera-projection.js';
 import { LightRig } from './light-rig.js';
 import { VisualEffectSystem } from './visual-effect-system.js';
 import {
@@ -264,6 +271,7 @@ export class ThreeRenderer {
     this._snapTargetMode = 'steep';
 
     this._frustumSize = 20;
+    this.cameraProjection = CAMERA_PROJECTION_ISOMETRIC;
     // A short event-local tail keeps camera motion on the cheap render path
     // between raw pointer/wheel events. Full post-processing returns as soon
     // as the view settles, without changing the player's quality setting.
@@ -571,25 +579,12 @@ export class ThreeRenderer {
     this.scene.background = new THREE.Color(0x091126);
     this.scene.fog = new THREE.FogExp2(0x14213a, CINEMATIC_LIGHTING.atmosphere.dayDensity);
 
-    // Isometric orthographic camera
+    // Start in the established orthographic isometric projection. The camera
+    // settings panel can replace this with a perspective lens while keeping
+    // the same target, heading, pitch, and visible world height.
     const aspect = gameEl.clientWidth / gameEl.clientHeight;
-    const fs = this._frustumSize;
-    this.camera = new THREE.OrthographicCamera(
-      -fs * aspect / 2,
-       fs * aspect / 2,
-       fs / 2,
-      -fs / 2,
-      0.1,
-      1000
-    );
-    // 2:1 dimetric camera — matches the PixiJS isometric tile formula
-    // (col-row)*32, (col+row)*16 where tiles are 64×32 pixels.
-    // For camera at (d, h, d): the screen X:Y ratio for a grid axis is
-    // sqrt(2h² + 4d²) / (h·sqrt(2)). Setting this = 2 gives h = d·sqrt(6)/3.
-    const CAM_D = 50;
-    const CAM_H = CAM_D * Math.sqrt(6) / 3; // ≈ 40.82
-    this.camera.position.set(CAM_D, CAM_H, CAM_D);
-    this.camera.lookAt(0, 0, 0);
+    this.camera = this._createCamera(CAMERA_PROJECTION_ISOMETRIC, aspect);
+    this._updateCameraLookAt();
 
     // Lighting — dynamic day/night cycle
     this._ambientLight = new THREE.HemisphereLight(0xdceeff, 0x473c30, CINEMATIC_LIGHTING.ambient.day);
@@ -1542,6 +1537,67 @@ export class ThreeRenderer {
   }
 
   // --- Camera controls (PixiJS-compatible, syncs to Three.js) ---
+
+  /**
+   * Switch between the construction-friendly orthographic lens and a true
+   * perspective lens. Matching visible height prevents a projection switch
+   * from behaving like an unexpected zoom.
+   */
+  setCameraProjection(projection) {
+    const next = normalizeCameraProjection(projection);
+    if (!this.camera || next === this.cameraProjection) return this.cameraProjection;
+
+    const gameEl = document.getElementById('game');
+    const aspect = gameEl.clientWidth / gameEl.clientHeight;
+    const previousCamera = this.camera;
+    const nextCamera = this._createCamera(next, aspect);
+    nextCamera.layers.mask = previousCamera.layers.mask;
+
+    this.cameraProjection = next;
+    this.camera = nextCamera;
+    this._updateCameraFrustum();
+    this._updateCameraLookAt();
+    this.camera.updateMatrixWorld(true);
+
+    // Render passes retain the camera supplied at construction. Rebuild the
+    // presentation pipeline once at lens-switch time; world geometry, lights,
+    // shadow maps, and the player's quality choices remain untouched.
+    if (this._glowPipeline) {
+      const glowEnabled = this._glowPipeline.enabled;
+      this._glowPipeline.dispose();
+      this._glowPipeline = new GlowPipeline(this.renderer, this.scene, this.camera, {
+        enabled: glowEnabled,
+        quality: this._lightingQuality,
+      });
+    }
+
+    this._noteCameraMotion();
+    this._updateAnchoredWindows?.();
+    return this.cameraProjection;
+  }
+
+  getCameraSettings() {
+    return {
+      projection: this.cameraProjection,
+      angle: this._snapping ? this._snapTargetMode : this.viewMode,
+      glowEnabled: this.isGlowEnabled(),
+    };
+  }
+
+  _createCamera(projection, aspect) {
+    if (projection === CAMERA_PROJECTION_PERSPECTIVE) {
+      return new THREE.PerspectiveCamera(PERSPECTIVE_FOV_DEGREES, aspect, 0.1, 1000);
+    }
+    const fs = this._frustumSize;
+    return new THREE.OrthographicCamera(
+      -fs * aspect / 2,
+      fs * aspect / 2,
+      fs / 2,
+      -fs / 2,
+      0.1,
+      1000,
+    );
+  }
 
   /**
    * Raycast a screen pixel to the terrain surface. Returns a THREE.Vector3 or
@@ -4747,6 +4803,13 @@ export class ThreeRenderer {
   _updateCameraFrustum() {
     const gameEl = document.getElementById('game');
     const aspect = gameEl.clientWidth / gameEl.clientHeight;
+    if (this.cameraProjection === CAMERA_PROJECTION_PERSPECTIVE) {
+      this.camera.aspect = aspect;
+      this.camera.fov = PERSPECTIVE_FOV_DEGREES;
+      this.camera.updateProjectionMatrix();
+      this._updateCameraLookAt();
+      return;
+    }
     const fs = this._frustumSize;
     this.camera.left   = -fs * aspect / 2;
     this.camera.right  =  fs * aspect / 2;
@@ -4778,7 +4841,14 @@ export class ThreeRenderer {
     const yaw = this._effectiveYaw();
     const pitch = this._effectivePitch();
     const off = cameraOffset(yaw, pitch);
-    this.camera.position.set(this._panX + off.x, off.y, this._panY + off.z);
+    const orbitScale = this.cameraProjection === CAMERA_PROJECTION_PERSPECTIVE
+      ? perspectiveDistanceForViewHeight(this._frustumSize) / ORBIT_RADIUS
+      : 1;
+    this.camera.position.set(
+      this._panX + off.x * orbitScale,
+      off.y * orbitScale,
+      this._panY + off.z * orbitScale,
+    );
     this.camera.lookAt(this._panX, 0, this._panY);
   }
 

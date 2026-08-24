@@ -76,6 +76,11 @@ export class UIHost {
   openBeamlineWindow(beamlineId, anchorNode = null) {
     return this._openBeamlineWindow(beamlineId, anchorNode);
   }
+
+  /** Refresh camera panel state after save restoration or an external switch. */
+  syncCameraSettings() {
+    return this._syncCameraSettings?.();
+  }
 }
 
 // --- Pass-through properties: reads/writes delegate to the renderer. ---
