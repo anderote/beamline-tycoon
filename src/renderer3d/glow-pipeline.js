@@ -5,10 +5,12 @@
 // the old WebGLRenderer/EffectComposer rollback path was unreachable while
 // still pulling the entire classic Three graph into the startup bundle.
 import { RenderPipeline } from 'three/webgpu';
-import { mix, mrt, normalView, output, pass, uniform, vec3, vec4 } from 'three/tsl';
+import { mix, mrt, normalView, output, pass, smoothstep, uniform, uv, vec3, vec4 } from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
+import { gaussianBlur } from 'three/addons/tsl/display/GaussianBlurNode.js';
 import { CINEMATIC_LIGHTING } from './lighting-tuning.js';
+import { normalizeTiltShiftSettings } from './tilt-shift-settings.js';
 
 // Layer index glow meshes are assigned to (`mesh.layers.enable(BLOOM_LAYER)`).
 // Object3Ds default to layer 0 only, so anything that never opts in is
@@ -70,6 +72,13 @@ class ModernGlowPipeline {
     this.camera = camera;
     this._enabled = opts.enabled !== undefined ? !!opts.enabled : true;
     this._quality = opts.quality || { glowScale: 0.5, softGlow: true };
+    this._tiltShift = normalizeTiltShiftSettings(opts.tiltShift);
+    this._tiltStrength = uniform(this._tiltShift.strength);
+    this._tiltFocus = uniform(this._tiltShift.focus);
+    this._tiltBand = uniform(this._tiltShift.band);
+    this._tiltBlur = null;
+    this._tiltSource = null;
+    this._tiltOutput = null;
 
     // The base pass publishes view normals alongside colour so GTAO can add
     // stable contact grounding beneath machines, walls, and pipework.
@@ -138,7 +147,64 @@ class ModernGlowPipeline {
 
   get enabled() { return this._enabled; }
 
-  setEnabled(value) { this._enabled = !!value; }
+  setEnabled(value) {
+    const next = !!value;
+    if (next === this._enabled) return;
+    this._enabled = next;
+    this._updateOutputGraph();
+  }
+
+  get tiltShiftSettings() { return { ...this._tiltShift }; }
+
+  setTiltShift(settings = {}) {
+    const previousEnabled = this._tiltShift.enabled;
+    this._tiltShift = normalizeTiltShiftSettings({ ...this._tiltShift, ...settings });
+    this._tiltStrength.value = this._tiltShift.strength;
+    this._tiltFocus.value = this._tiltShift.focus;
+    this._tiltBand.value = this._tiltShift.band;
+    if (previousEnabled !== this._tiltShift.enabled) this._updateOutputGraph();
+    return this.tiltShiftSettings;
+  }
+
+  _disposeTiltBlur() {
+    this._tiltBlur?.dispose();
+    this._tiltBlur = null;
+    this._tiltSource = null;
+    this._tiltOutput = null;
+  }
+
+  _updateOutputGraph() {
+    if (!this._pipeline) return;
+    const sharpOutput = this._enabled
+      ? (this._quality.softGlow ? this._outputWithSoftGlow : this._outputWithoutSoftGlow)
+      : this._groundedSceneColor;
+    let outputNode = sharpOutput;
+
+    if (this._tiltShift.enabled) {
+      if (this._tiltSource !== sharpOutput) {
+        this._disposeTiltBlur();
+        this._tiltSource = sharpOutput;
+        // A half-resolution separable blur keeps the miniature effect
+        // affordable. Screen-space banding is intentional: unlike physical
+        // depth of field it stays predictable with an orthographic camera.
+        this._tiltBlur = gaussianBlur(sharpOutput, this._tiltStrength, 3, {
+          resolutionScale: 0.5,
+        });
+        const distanceFromFocus = uv().y.sub(this._tiltFocus).abs();
+        const focusEdge = this._tiltBand.mul(0.5);
+        const blurWeight = smoothstep(focusEdge, focusEdge.add(0.18), distanceFromFocus);
+        this._tiltOutput = mix(sharpOutput, this._tiltBlur, blurWeight);
+      }
+      outputNode = this._tiltOutput;
+    } else {
+      this._disposeTiltBlur();
+    }
+
+    if (this._pipeline.outputNode !== outputNode) {
+      this._pipeline.outputNode = outputNode;
+      this._pipeline.needsUpdate = true;
+    }
+  }
 
   setQuality(quality = {}) {
     this._quality = { ...this._quality, ...quality };
@@ -146,15 +212,10 @@ class ModernGlowPipeline {
     // Omitting the node from output is important: setting strength to zero
     // alone still schedules its full mip-chain blur. Low quality now pays for
     // neither the broad bloom nor its work.
-    const outputNode = this._quality.softGlow
-      ? this._outputWithSoftGlow
-      : this._outputWithoutSoftGlow;
-    if (this._pipeline.outputNode !== outputNode) {
-      this._pipeline.outputNode = outputNode;
-      // RenderPipeline does not observe outputNode assignments. Marking it
-      // dirty is what actually rebuilds the post-process graph at runtime.
-      this._pipeline.needsUpdate = true;
-    }
+    // RenderPipeline does not observe outputNode assignments. The coordinator
+    // chooses the correct glow/no-glow and tilt/no-tilt graph and invalidates
+    // it only when that graph shape changes.
+    this._updateOutputGraph();
     // Three r184's BloomNode owns fixed half-resolution mip chains and exposes
     // no resolution-scale control. Assigning a private `_resolutionScale`
     // property here looked like a quality setting but BloomNode never read it.
@@ -172,7 +233,7 @@ class ModernGlowPipeline {
   setSize() {}
 
   render({ skipPostProcessing = false } = {}) {
-    if (this._enabled && !skipPostProcessing) {
+    if ((this._enabled || this._tiltShift.enabled) && !skipPostProcessing) {
       if (this._selectiveBloomEnabled) {
         this._glowCamera.copy(this.camera);
         this._glowCamera.layers.set(BLOOM_LAYER);
@@ -184,6 +245,7 @@ class ModernGlowPipeline {
   }
 
   dispose() {
+    this._disposeTiltBlur();
     this._bloomPass.dispose();
     this._softGlowPass.dispose();
     this._aoPass?.dispose();

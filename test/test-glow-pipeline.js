@@ -83,3 +83,50 @@ test('camera motion can bypass post-processing without changing the glow setting
 
   pipeline.dispose();
 });
+
+test('tilt shift switches graphs and updates its live focus controls', () => {
+  const pipeline = createPipeline(true);
+  const sharpGraph = pipeline._pipeline.outputNode;
+
+  pipeline.setTiltShift({ enabled: true, strength: 1.5, focus: 0.6, band: 0.32 });
+  const tiltGraph = pipeline._pipeline.outputNode;
+  const blur = pipeline._tiltBlur;
+  assert.notEqual(tiltGraph, sharpGraph, 'enabling tilt shift selects the band-blur graph');
+  assert.ok(blur, 'tilt shift allocates one half-resolution Gaussian blur');
+  assert.equal(blur.resolutionScale, 0.5);
+
+  pipeline._pipeline.needsUpdate = false;
+  pipeline.setTiltShift({ strength: 2, focus: 0.4, band: 0.2 });
+  assert.equal(pipeline._tiltBlur, blur, 'slider changes reuse the compiled blur graph');
+  assert.equal(pipeline._pipeline.outputNode, tiltGraph);
+  assert.equal(pipeline._pipeline.needsUpdate, false, 'uniform-only changes do not rebuild the graph');
+  assert.equal(pipeline._tiltStrength.value, 2);
+  assert.equal(pipeline._tiltFocus.value, 0.4);
+  assert.equal(pipeline._tiltBand.value, 0.2);
+
+  let blurDisposals = 0;
+  const disposeBlur = blur.dispose.bind(blur);
+  blur.dispose = () => { blurDisposals++; disposeBlur(); };
+  pipeline.setTiltShift({ enabled: false });
+  assert.equal(pipeline._pipeline.outputNode, sharpGraph, 'disabling restores the sharp graph');
+  assert.equal(blurDisposals, 1, 'the unused blur targets are released');
+  pipeline.dispose();
+});
+
+test('tilt shift can render independently of the glow preference', () => {
+  const pipeline = createPipeline(true);
+  pipeline.setEnabled(false);
+  pipeline.setTiltShift({ enabled: true });
+  let postProcessed = 0;
+  let direct = 0;
+  pipeline._pipeline.render = () => { postProcessed++; };
+  pipeline.renderer.render = () => { direct++; };
+
+  pipeline.render();
+  assert.equal(postProcessed, 1, 'tilt shift keeps its post-process graph active');
+  assert.equal(direct, 0, 'disabled bloom does not disable tilt shift');
+
+  pipeline.render({ skipPostProcessing: true });
+  assert.equal(direct, 1, 'camera motion still bypasses tilt shift');
+  pipeline.dispose();
+});

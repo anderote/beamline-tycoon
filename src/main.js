@@ -209,7 +209,6 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
       worldY: renderer.world.y,
       panX: renderer._panX,
       panY: renderer._panY,
-      cameraProjection: renderer.cameraProjection,
       viewRotationIndex: renderer._isoYawIdx,
       activeMode: input.activeMode,
       selectedCategory: input.selectedCategory,
@@ -295,7 +294,6 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
 
   if (restoredView) {
     renderer.zoom = restoredView.zoom;
-    renderer.setCameraProjection(restoredView.cameraProjection);
     if (typeof restoredView.panX === 'number') {
       renderer._panX = restoredView.panX;
       renderer._panY = restoredView.panY;

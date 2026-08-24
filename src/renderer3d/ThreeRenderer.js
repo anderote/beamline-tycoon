@@ -82,12 +82,11 @@ import { createRendererRecovery, createWorldRenderer } from './renderer-backend.
 import { FramePacer } from './frame-pacer.js';
 import { FrameRenderPolicy } from './frame-render-policy.js';
 import {
-  CAMERA_PROJECTION_ISOMETRIC,
-  CAMERA_PROJECTION_PERSPECTIVE,
-  PERSPECTIVE_FOV_DEGREES,
-  normalizeCameraProjection,
-  perspectiveDistanceForViewHeight,
-} from './camera-projection.js';
+  DEFAULT_TILT_SHIFT_SETTINGS,
+  TILT_SHIFT_STORAGE_KEY,
+  normalizeTiltShiftSettings,
+  parseTiltShiftSettings,
+} from './tilt-shift-settings.js';
 import { LightRig } from './light-rig.js';
 import { VisualEffectSystem } from './visual-effect-system.js';
 import {
@@ -143,7 +142,6 @@ import {
   PITCH_TOP,
   PITCH_MIN,
   PITCH_MAX,
-  ORBIT_RADIUS,
   ORBIT_YAW_SENSITIVITY,
   ORBIT_PITCH_SENSITIVITY,
   clampPitch,
@@ -271,7 +269,7 @@ export class ThreeRenderer {
     this._snapTargetMode = 'steep';
 
     this._frustumSize = 20;
-    this.cameraProjection = CAMERA_PROJECTION_ISOMETRIC;
+    this._tiltShiftSettings = { ...DEFAULT_TILT_SHIFT_SETTINGS };
     // A short event-local tail keeps camera motion on the cheap render path
     // between raw pointer/wheel events. Full post-processing returns as soon
     // as the view settles, without changing the player's quality setting.
@@ -581,11 +579,18 @@ export class ThreeRenderer {
     this.scene.background = new THREE.Color(0x091126);
     this.scene.fog = new THREE.FogExp2(0x14213a, CINEMATIC_LIGHTING.atmosphere.dayDensity);
 
-    // Start in the established orthographic isometric projection. The camera
-    // settings panel can replace this with a perspective lens while keeping
-    // the same target, heading, pitch, and visible world height.
+    // Orthographic construction camera. Free orbit changes its heading and
+    // elevation without introducing perspective distortion.
     const aspect = gameEl.clientWidth / gameEl.clientHeight;
-    this.camera = this._createCamera(CAMERA_PROJECTION_ISOMETRIC, aspect);
+    const fs = this._frustumSize;
+    this.camera = new THREE.OrthographicCamera(
+      -fs * aspect / 2,
+      fs * aspect / 2,
+      fs / 2,
+      -fs / 2,
+      0.1,
+      1000,
+    );
     this._updateCameraLookAt();
 
     // Lighting — dynamic day/night cycle
@@ -640,6 +645,9 @@ export class ThreeRenderer {
     // :463 ran *before* this and guards its pipeline call for that reason.
     let glowStored;
     try { glowStored = localStorage.getItem('beamlineTycoon.glow'); } catch (_) { glowStored = null; }
+    let tiltShiftStored;
+    try { tiltShiftStored = localStorage.getItem(TILT_SHIFT_STORAGE_KEY); } catch (_) { tiltShiftStored = null; }
+    this._tiltShiftSettings = parseTiltShiftSettings(tiltShiftStored);
     let qualityStored;
     try { qualityStored = localStorage.getItem('beamlineTycoon.lightingQuality'); } catch (_) { qualityStored = null; }
     this._lightingQualityRequested = normalizeLightingQuality(qualityStored);
@@ -660,6 +668,7 @@ export class ThreeRenderer {
     this._glowPipeline = new GlowPipeline(this.renderer, this.scene, this.camera, {
       enabled: glowStored !== '0',
       quality: this._lightingQuality,
+      tiltShift: this._tiltShiftSettings,
     });
 
     // GPU back-pressure. WebGPU's render() submits and returns, so without
@@ -1537,65 +1546,12 @@ export class ThreeRenderer {
 
   // --- Camera controls (PixiJS-compatible, syncs to Three.js) ---
 
-  /**
-   * Switch between the construction-friendly orthographic lens and a true
-   * perspective lens. Matching visible height prevents a projection switch
-   * from behaving like an unexpected zoom.
-   */
-  setCameraProjection(projection) {
-    const next = normalizeCameraProjection(projection);
-    if (!this.camera || next === this.cameraProjection) return this.cameraProjection;
-
-    const gameEl = document.getElementById('game');
-    const aspect = gameEl.clientWidth / gameEl.clientHeight;
-    const previousCamera = this.camera;
-    const nextCamera = this._createCamera(next, aspect);
-    nextCamera.layers.mask = previousCamera.layers.mask;
-
-    this.cameraProjection = next;
-    this.camera = nextCamera;
-    this._updateCameraFrustum();
-    this._updateCameraLookAt();
-    this.camera.updateMatrixWorld(true);
-
-    // Render passes retain the camera supplied at construction. Rebuild the
-    // presentation pipeline once at lens-switch time; world geometry, lights,
-    // shadow maps, and the player's quality choices remain untouched.
-    if (this._glowPipeline) {
-      const glowEnabled = this._glowPipeline.enabled;
-      this._glowPipeline.dispose();
-      this._glowPipeline = new GlowPipeline(this.renderer, this.scene, this.camera, {
-        enabled: glowEnabled,
-        quality: this._lightingQuality,
-      });
-    }
-
-    this._noteCameraMotion();
-    this._updateAnchoredWindows?.();
-    return this.cameraProjection;
-  }
-
   getCameraSettings() {
     return {
-      projection: this.cameraProjection,
       angle: this._snapping ? this._snapTargetMode : this.viewMode,
       glowEnabled: this.glowEnabled,
+      tiltShift: this.tiltShiftSettings,
     };
-  }
-
-  _createCamera(projection, aspect) {
-    if (projection === CAMERA_PROJECTION_PERSPECTIVE) {
-      return new THREE.PerspectiveCamera(PERSPECTIVE_FOV_DEGREES, aspect, 0.1, 1000);
-    }
-    const fs = this._frustumSize;
-    return new THREE.OrthographicCamera(
-      -fs * aspect / 2,
-      fs * aspect / 2,
-      fs / 2,
-      -fs / 2,
-      0.1,
-      1000,
-    );
   }
 
   /**
@@ -2091,6 +2047,22 @@ export class ThreeRenderer {
 
   get glowEnabled() {
     return this._glowPipeline ? this._glowPipeline.enabled : true;
+  }
+
+  setTiltShiftSettings(settings) {
+    const next = normalizeTiltShiftSettings({
+      ...this._tiltShiftSettings,
+      ...settings,
+    });
+    this._tiltShiftSettings = next;
+    this._glowPipeline?.setTiltShift(next);
+    try { localStorage.setItem(TILT_SHIFT_STORAGE_KEY, JSON.stringify(next)); } catch (_) {}
+    return { ...next };
+  }
+
+  get tiltShiftSettings() {
+    return this._glowPipeline?.tiltShiftSettings
+      || { ...this._tiltShiftSettings };
   }
 
   setLightingQuality(value) {
@@ -4802,13 +4774,6 @@ export class ThreeRenderer {
   _updateCameraFrustum() {
     const gameEl = document.getElementById('game');
     const aspect = gameEl.clientWidth / gameEl.clientHeight;
-    if (this.cameraProjection === CAMERA_PROJECTION_PERSPECTIVE) {
-      this.camera.aspect = aspect;
-      this.camera.fov = PERSPECTIVE_FOV_DEGREES;
-      this.camera.updateProjectionMatrix();
-      this._updateCameraLookAt();
-      return;
-    }
     const fs = this._frustumSize;
     this.camera.left   = -fs * aspect / 2;
     this.camera.right  =  fs * aspect / 2;
@@ -4840,14 +4805,7 @@ export class ThreeRenderer {
     const yaw = this._effectiveYaw();
     const pitch = this._effectivePitch();
     const off = cameraOffset(yaw, pitch);
-    const orbitScale = this.cameraProjection === CAMERA_PROJECTION_PERSPECTIVE
-      ? perspectiveDistanceForViewHeight(this._frustumSize) / ORBIT_RADIUS
-      : 1;
-    this.camera.position.set(
-      this._panX + off.x * orbitScale,
-      off.y * orbitScale,
-      this._panY + off.z * orbitScale,
-    );
+    this.camera.position.set(this._panX + off.x, off.y, this._panY + off.z);
     this.camera.lookAt(this._panX, 0, this._panY);
   }
 
