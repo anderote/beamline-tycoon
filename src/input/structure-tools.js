@@ -67,14 +67,14 @@ function wallView(game) {
   return view;
 }
 
-// --- Ctrl/Cmd: the erase modifier -------------------------------------------
+// --- Ctrl: the erase modifier -----------------------------------------------
 //
 // Shift EXTENDS a structure gesture (smart region select, whole-run select).
-// Ctrl — Cmd on macOS, the same pair every other binding in InputHandler
-// accepts — is its mirror image: the same drag ERASES along exactly the path
-// the tool would have drawn. So each gesture below comes in a pair, place vs.
-// remove over identical geometry, previewed with the demolish renderer's red
-// instead of the placement blue and quoted as a refund instead of a cost.
+// Ctrl is its mirror image: the same drag ERASES along exactly the path the
+// tool would have drawn. Command is reserved for camera orbit. So each gesture
+// below comes in a pair, place vs. remove over identical geometry, previewed
+// with the demolish renderer's red instead of the placement blue and quoted
+// as a refund instead of a cost.
 //
 // Synthesized clicks (the {clientX, clientY, button} record _handleClick hands
 // to onClick) carry no modifier flags at all, which is why InputHandler tracks
@@ -82,7 +82,7 @@ function wallView(game) {
 // press: releasing Ctrl halfway through a drag must not turn the rest of the
 // run into a placement.
 function eraseHeld(e, input) {
-  return !!(e?.ctrlKey || e?.metaKey || input?._ctrlDown);
+  return !!(e?.ctrlKey || input?._ctrlDown);
 }
 
 const EDGE_DEFS = {
@@ -183,7 +183,7 @@ export class FloorTool extends Tool {
     this._drawingLine = false;
     this._lineStart = null; // { col, row }
     this._linePath = [];
-    // Ctrl/Cmd latched at gesture start: this drag clears the rect / L path
+    // Ctrl latched at gesture start: this drag clears the rect / L path
     // instead of laying it.
     this._erasing = false;
   }
@@ -607,7 +607,7 @@ export class WallPaintTool extends Tool {
   }
 
   onMouseMove(e, ctx) {
-    const mode = e.ctrlKey || e.metaKey || ctx.input._ctrlDown
+    const mode = e.ctrlKey || ctx.input._ctrlDown
       ? 'run' : (e.shiftKey || ctx.input._shiftDown ? 'interior' : 'tile');
     this._renderPreview(e.clientX, e.clientY, ctx, mode);
     return true;
@@ -619,7 +619,7 @@ export class WallPaintTool extends Tool {
   }
 
   _commitPaint(e, ctx) {
-    const run = e.ctrlKey || e.metaKey || ctx.input._ctrlDown;
+    const run = e.ctrlKey || ctx.input._ctrlDown;
     const shift = e.shiftKey || ctx.input._shiftDown;
     const { path } = run
       ? this._runSelectionAt(e.clientX, e.clientY, ctx)
@@ -630,7 +630,7 @@ export class WallPaintTool extends Tool {
   }
 
   onMouseDown(e, ctx) {
-    if (e.button !== 0 || !(e.ctrlKey || e.metaKey || ctx.input._ctrlDown)) return false;
+    if (e.button !== 0 || !(e.ctrlKey || ctx.input._ctrlDown)) return false;
     this._ctrlClickPending = true;
     return true;
   }
@@ -688,7 +688,7 @@ export class WallTool extends Tool {
     this._shiftDragStart = null;
     this._shiftStartScreen = null;
     this._smartCache = null;
-    // Ctrl/Cmd: this gesture clears the run (or the smart selection, with
+    // Ctrl: this gesture clears the run (or the smart selection, with
     // Shift also held) instead of drawing it.
     this._erasing = false;
   }
@@ -1063,7 +1063,7 @@ export class DoorTool extends Tool {
     // Subtile offset of the opening along the edge, quantized from the
     // cursor's along-edge fraction. See _offFor.
     this._off = null;
-    // Ctrl/Cmd: this drag clears the doors along the run instead of hanging
+    // Ctrl: this drag clears the doors along the run instead of hanging
     // them.
     this._erasing = false;
   }
@@ -1241,7 +1241,7 @@ export class WindowTool extends Tool {
     this._start = null;
     this._path = [];
     this._off = null;
-    // Ctrl/Cmd: this drag clears the windows along the run.
+    // Ctrl: this drag clears the windows along the run.
     this._erasing = false;
   }
 

@@ -21,7 +21,7 @@
 //      must show its ghost before the mouse moves, the variant must not
 //      survive an arm into another family, and a commit must re-preview so
 //      the ghost stops claiming a tile it just filled.
-//   8. Ctrl/Cmd is the mirror of Shift on the structure build tools: the same
+//   8. Ctrl is the mirror of Shift on the structure build tools: the same
 //      gesture ERASES along exactly the path it would have drawn, previewed in
 //      demolish red and quoted as a refund. Includes the macOS collision where
 //      a Ctrl+left-click also arrives as a right-click.
@@ -628,6 +628,7 @@ console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines
   };
   InputHandler.prototype._bindKeyboard.call(input);
   const keydown = listeners.keydown[0];
+  const keyup = listeners.keyup[0];
   const event = (key, opts = {}) => ({
     key, target: { tagName: 'BODY' },
     ctrlKey: false, metaKey: false, altKey: false, shiftKey: false,
@@ -635,6 +636,18 @@ console.log('\n=== 3b. Delete removes ordinary selections but protects beamlines
     ...opts,
     preventDefault() {},
   });
+  const ctrlChanges = [];
+  input.activeTool = { onCtrlChange: down => ctrlChanges.push(down) };
+  keydown(event('Meta', { metaKey: true }));
+  assertOk(input._ctrlDown === false && ctrlChanges.length === 0,
+    'Command is reserved for camera orbit and does not arm structure erase');
+  keydown(event('Control', { ctrlKey: true }));
+  assertOk(input._ctrlDown === true && ctrlChanges.at(-1) === true,
+    'Control still arms structure erase');
+  keyup(event('Control'));
+  assertOk(input._ctrlDown === false && ctrlChanges.at(-1) === false,
+    'releasing Control disarms structure erase');
+  input.activeTool = null;
   keydown(event('Delete'));
   keydown(event('Backspace'));
   keydown(event('d'));
@@ -1143,7 +1156,7 @@ function sweep(tool, ctx, from, to) {
   assertOk(g.state.beamPipes.length === 1, 'and the press alone changed nothing');
 }
 
-console.log('\n=== 8. Ctrl/Cmd+drag erases along the path the tool would have drawn ===\n');
+console.log('\n=== 8. Ctrl+drag erases along the path the tool would have drawn ===\n');
 
 // Shift EXTENDS a structure gesture; Ctrl inverts it. The tools are driven
 // through their handler contract with a stub ctx that records which preview
@@ -1255,7 +1268,7 @@ function countInfra(g, c0, r0, c1, r1) {
 
 {
   // FloorTool, click placement: Ctrl+click erases the tile the click would
-  // have laid. The synthesized click record does not carry Ctrl/Cmd (see
+  // have laid. The synthesized click record does not carry Ctrl (see
   // InputHandler._handleClick), so this has to read _ctrlDown.
   const g = makeGame(92);
   const ctx = structCtx(g);
@@ -1491,7 +1504,7 @@ function countInfra(g, c0, r0, c1, r1) {
     isPanning: false,
     _hideDragCostTooltip() {},
     _deferredUtilityPortDrag: { release() {}, update: () => null, begin() {} },
-    _finishMiddleCameraGesture: () => false,
+    _finishCameraGesture: () => false,
     _finishMarquee: () => false,
     // Real tools consume their own release; returning false here lets the
     // handler fall through to the button-2 routing this test is about.
@@ -1537,7 +1550,7 @@ function countInfra(g, c0, r0, c1, r1) {
   assertOk(!dispatched.includes('onRightClick'),
     'a Ctrl+left-click arriving as a right release is swallowed, not routed to onRightClick');
 
-  handler._ctrlDown = true;   // Cmd/Ctrl held with no flag on the event itself
+  handler._ctrlDown = true;   // Ctrl held with no flag on the event itself
   dispatched.length = 0;
   fire('mouseup', { button: 2, ctrlKey: false, metaKey: false });
   assertOk(!dispatched.includes('onRightClick'), 'the tracked modifier state guards it too');

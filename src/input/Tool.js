@@ -20,7 +20,8 @@
 //   - onShiftChange(down, ctx): fired when the Shift key goes down/up so
 //     tools with shift-modified previews (smart floor wall paths, demolish
 //     whole-run) can refresh without waiting for a mousemove.
-//   - onCtrlChange(down, ctx): the same, for Ctrl (or Cmd on macOS). Where
+//   - onCtrlChange(down, ctx): the same, for Ctrl. Command + drag is reserved
+//     for camera orbit. Where
 //     Shift EXTENDS a structure gesture, Ctrl INVERTS it — the tool erases
 //     along exactly the path it would have drawn — so the preview has to
 //     swap between the placement ghost and the red demolish preview even
