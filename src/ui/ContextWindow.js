@@ -2,6 +2,11 @@
 
 import { makeDraggable } from './draggable.js';
 import { pushEscHandler } from './esc-stack.js';
+import {
+  contextWindowSizeKey,
+  persistContextWindowSize,
+  readContextWindowSize,
+} from './context-window-size.js';
 
 const registry = new Map(); // id -> ContextWindow instance
 let zCounter = 600;
@@ -20,9 +25,12 @@ export class ContextWindow {
    * @param {Array}  [opts.tabs]        - Array of { key, label } tab descriptors
    * @param {Function} [opts.onClose]   - Callback invoked when window is closed
    * @param {object} [opts.titleMenu]    - Clickable title menu configuration
+   * @param {string} [opts.sizeKey]      - Shared persistent-size preference key
+   * @param {boolean} [opts.resizable]   - Whether the user may resize the window
    */
   constructor({
     id, title, icon = '', accentColor = '#226', tabs = [], onClose, titleMenu = null,
+    sizeKey = null, resizable = true,
   } = {}) {
     if (registry.has(id)) {
       // Bring existing window to front instead of creating a duplicate
@@ -37,6 +45,8 @@ export class ContextWindow {
     this._tabs = tabs;
     this._onClose = onClose;
     this._titleMenuConfig = titleMenu;
+    this._resizable = resizable !== false;
+    this._sizeKey = sizeKey || contextWindowSizeKey(id);
     this._activeTab = tabs.length > 0 ? tabs[0].key : null;
     this._tabRenderers = new Map(); // key -> fn(container)
     this._actions = [];
@@ -183,10 +193,16 @@ export class ContextWindow {
     const actions = document.createElement('div');
     actions.className = 'ctx-actions';
 
+    const resizeGrip = document.createElement('span');
+    resizeGrip.className = 'ctx-resize-grip';
+    resizeGrip.setAttribute('aria-hidden', 'true');
+    resizeGrip.title = 'Drag to resize';
+
     el.appendChild(titlebar);
     el.appendChild(tabBar);
     el.appendChild(body);
     el.appendChild(actions);
+    if (this._resizable) el.appendChild(resizeGrip);
     container.appendChild(el);
 
     // Store refs
@@ -198,6 +214,7 @@ export class ContextWindow {
     this._tabBar = tabBar;
     this._body = body;
     this._actionsEl = actions;
+    this._resizeGrip = resizeGrip;
 
     this._renderTitleText();
     this._renderTitleMenu();
@@ -209,6 +226,7 @@ export class ContextWindow {
 
     // Drag behaviour
     this._initDrag(titlebar);
+    this._initResizePersistence();
 
     // Focus on click anywhere in window
     el.addEventListener('mousedown', () => this.focus(), true);
@@ -248,6 +266,46 @@ export class ContextWindow {
         }
       },
     });
+  }
+
+  _initResizePersistence() {
+    if (!this._resizable || !this._el) return;
+    const el = this._el;
+    el.classList.add('ctx-resizable');
+    const saved = readContextWindowSize(this._sizeKey, {
+      viewport: { width: globalThis.innerWidth, height: globalThis.innerHeight },
+    });
+    if (saved) {
+      el.style.width = `${saved.width}px`;
+      el.style.height = `${saved.height}px`;
+      el.classList.add('ctx-window-user-sized');
+    }
+
+    this._handleResizeMouseDown = (event) => {
+      if (event.button !== 0) return;
+      const rect = el.getBoundingClientRect?.();
+      if (!rect) return;
+      const grip = 20;
+      if (event.clientX < rect.right - grip || event.clientY < rect.bottom - grip) return;
+      // Freeze the current auto-layout dimensions before native CSS resizing
+      // begins. The body can then flex without changing the starting geometry.
+      el.style.width = `${Math.round(rect.width)}px`;
+      el.style.height = `${Math.round(rect.height)}px`;
+      el.classList.add('ctx-window-user-sized');
+      this._userResizing = true;
+    };
+    this._handleResizeMouseUp = () => {
+      if (!this._userResizing) return;
+      this._userResizing = false;
+      const rect = el.getBoundingClientRect?.();
+      if (!rect) return;
+      persistContextWindowSize(this._sizeKey, {
+        width: rect.width,
+        height: rect.height,
+      });
+    };
+    el.addEventListener('mousedown', this._handleResizeMouseDown, true);
+    document.addEventListener?.('mouseup', this._handleResizeMouseUp);
   }
 
   // ---------------------------------------------------------------------------
@@ -495,6 +553,8 @@ export class ContextWindow {
       this._disposeDrag();
       this._disposeDrag = null;
     }
+    this._el?.removeEventListener?.('mousedown', this._handleResizeMouseDown, true);
+    document.removeEventListener?.('mouseup', this._handleResizeMouseUp);
     document.removeEventListener?.('mousedown', this._closeTitleMenuOnOutsidePointer);
     if (this._el && this._el.parentNode) {
       this._el.parentNode.removeChild(this._el);
