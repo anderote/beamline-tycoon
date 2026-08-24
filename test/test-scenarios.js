@@ -103,6 +103,24 @@ for (const scenario of SCENARIOS) {
       + rendered.decorations.length;
     assert(renderedPlaceableCount === state.placeables.length,
       `Minor Lab renderer receives every authored placeable (${renderedPlaceableCount}/${state.placeables.length})`);
+
+    // The authored beam rooms each have distinct cold-supply and hot-return
+    // circuits. Pin the real solver ledger behind the player-facing line
+    // tooltip: both cyclotrons and both targets must receive full cooling,
+    // and the loop demand must stay far below its connected capacity.
+    const coolingFlows = [...(state.utilityNetworkData?.get?.('coolingWater')?.values?.() || [])];
+    const beamRoomFlows = coolingFlows.filter(flow =>
+      Object.keys(flow.perSinkQuality || {}).some(key =>
+        ['bl_14', 'bl_15', 'bl_16', 'bl_17'].some(id => key.startsWith(`${id}:`))));
+    assert(beamRoomFlows.length === 4,
+      `Minor Lab has two cold and two hot beam-room circuits (got ${beamRoomFlows.length})`);
+    assert(beamRoomFlows.every(flow => flow.totalCapacity >= 1000
+        && flow.totalDemand === 179),
+      `Minor Lab beam-room cooling ledger is 179 kW against at least 1,000 kW `
+        + `(${beamRoomFlows.map(flow => `${flow.totalDemand}/${flow.totalCapacity}`).join(', ')})`);
+    assert(['bl_14', 'bl_15', 'bl_16', 'bl_17'].every(id =>
+      state.nodeQualities?.[id]?.coolingQuality === 1),
+      'Minor Lab cyclotrons and targets receive 100% cooling');
   }
 
   // Blocker-free is not the same as served. Unwired sinks fail CLOSED to
