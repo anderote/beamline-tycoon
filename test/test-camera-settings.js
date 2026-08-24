@@ -33,7 +33,10 @@ test('camera panel exposes real projection, angle, and effects commands', () => 
   assert.match(hud, /this\.renderer\.setViewMode\(button\.dataset\.cameraAngle\)/);
   assert.match(hud, /this\.renderer\.setGlowEnabled\(event\.target\.checked\)/);
   assert.match(renderer, /setCameraProjection\(projection\)/);
-  assert.match(renderer, /getCameraSettings\(\)/);
+  assert.match(renderer, /getCameraSettings\(\)[\s\S]*glowEnabled:\s*this\.glowEnabled/,
+    'camera settings read the renderer glow state during startup');
+  assert.doesNotMatch(renderer, /this\.isGlowEnabled\(\)/,
+    'camera settings do not call an undefined glow method');
   assert.match(main, /cameraProjection: renderer\.cameraProjection/);
   assert.match(main, /renderer\.setCameraProjection\(restoredView\.cameraProjection\)/);
 });

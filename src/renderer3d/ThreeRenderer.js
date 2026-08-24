@@ -1582,7 +1582,7 @@ export class ThreeRenderer {
     return {
       projection: this.cameraProjection,
       angle: this._snapping ? this._snapTargetMode : this.viewMode,
-      glowEnabled: this.isGlowEnabled(),
+      glowEnabled: this.glowEnabled,
     };
   }
 

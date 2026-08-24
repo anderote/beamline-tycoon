@@ -1,4 +1,16 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+const contextWindowSource = readFileSync(
+  new URL('../src/ui/ContextWindow.js', import.meta.url),
+  'utf8',
+);
+
+assert.match(contextWindowSource,
+  /const hasTitleMenu = Boolean\(this\._titleMenuConfig\)/,
+  'ContextWindow builds its title control from the constructor-owned menu configuration');
+assert.doesNotMatch(contextWindowSource, /document\.createElement\(titleMenu\s*\?/,
+  'ContextWindow does not reference the constructor parameter outside constructor scope');
 
 globalThis.window = { addEventListener() {} };
 

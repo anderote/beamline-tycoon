@@ -13,6 +13,7 @@ import './renderer/designer-renderer.js';
 // attach DOM-side UI methods to UIHost.prototype.
 import { ThreeRenderer } from './renderer3d/ThreeRenderer.js';
 import { YAW_STEP } from './renderer3d/free-orbit-math.js';
+import { prewarmInteractionPipelines } from './renderer3d/interaction-pipeline-warmup.js';
 import { InputHandler } from './input/InputHandler.js';
 import { BeamlineDesigner } from './ui/BeamlineDesigner.js';
 import { GuidedBeamlineSetup } from './ui/GuidedBeamlineSetup.js';
@@ -335,6 +336,14 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
       }
     }
   }
+
+  // game.load()/scenario launch can replace nearly the entire scene after the
+  // renderer's initial build. Rebuild that final world now, then compile the
+  // direct-to-canvas WebGPU path used during camera motion while the title is
+  // still in its loading state. Otherwise the first orbit/pan has to compile
+  // every visible material pipeline in one interactive frame.
+  renderer.refresh();
+  await prewarmInteractionPipelines(renderer.renderer, renderer.scene, renderer.camera);
 
   if (restoredProbe) {
     probeWindow.fromJSON(restoredProbe);
