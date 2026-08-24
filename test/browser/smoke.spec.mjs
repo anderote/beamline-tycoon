@@ -490,8 +490,9 @@ test('full session walk: boot -> build -> beam -> save/reload -> undo -> escape'
     await expect(page.locator('#btn-goals')).toHaveCount(0);
     await expect(page.locator('#goals-overlay')).toHaveCount(0);
 
-    // 4. beamline designer
-    await page.click('#btn-designer');
+    // 4. beamline designer, opened for an existing line from Beamlines
+    await page.click('#btn-beamlines');
+    await page.locator('[data-beamline-action="designer"]').first().click();
     await expect(page.locator('#designer-overlay')).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(page.locator('#designer-overlay')).toBeHidden();
