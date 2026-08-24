@@ -3,9 +3,11 @@
 import {
   SOFT_CABLE_TYPES,
   FREEFORM_TOPOLOGY_TYPES,
+  GEOMETRY_PERMISSIVE_CABLE_TYPES,
   SOFT_CABLE_MAX_POINTS,
   SOFT_CABLE_BEND_RADIUS_METERS,
   cablePathLengthSubUnits,
+  cableSkipsEquipmentCollision,
   draggedCablePath,
   isHvCableTensionSpan,
   roundedCablePlanarPoints,
@@ -25,6 +27,10 @@ assert(SOFT_CABLE_TYPES.join(',') === 'powerCable,hvCable,coolingWater,dataFiber
   'Power, HV, cooling water and data use flexible drawn geometry');
 assert(FREEFORM_TOPOLOGY_TYPES.join(',') === 'coolingWater',
   'only cooling uses its visible freehand route as network topology');
+assert(GEOMETRY_PERMISSIVE_CABLE_TYPES.join(',') === 'powerCable,hvCable,dataFiber'
+    && GEOMETRY_PERMISSIVE_CABLE_TYPES.every(cableSkipsEquipmentCollision)
+    && !cableSkipsEquipmentCollision('coolingWater'),
+  'power, HV and data ignore equipment geometry while cooling hose does not');
 assert(SOFT_CABLE_MAX_POINTS === 1024,
   'detailed freehand runs retain up to 1024 samples');
 assert(SOFT_CABLE_BEND_RADIUS_METERS.powerCable

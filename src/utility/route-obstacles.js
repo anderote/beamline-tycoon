@@ -10,6 +10,7 @@ import { expandPath } from './line-geometry.js';
 import { placeableCenterWorld, footprintHalfExtents, rotateLocalOffset } from './ports.js';
 import { UTILITY_TYPES, utilityLineHeight } from './registry.js';
 import { routeBodyHalfHeight, usesFixedRouteHeight } from './route-elevation.js';
+import { cableSkipsEquipmentCollision } from './soft-cable.js';
 import {
   hasUtilityCollisionProvider,
   utilityModelEnvelopeIntersects,
@@ -134,6 +135,11 @@ function addEquipmentObstacles(
   out, state, utilityType, ignoredPlaceableIds, equipmentPoints = null,
   routeHeightMeters = null,
 ) {
+  // Loose power, HV and data cable is intentionally player-friendly: its
+  // topology and wall rules still apply, but arbitrary model triangles do not
+  // force fiddly detours or reject a freehand gesture. Fabricated services and
+  // cooling hose retain measured physical clearance.
+  if (cableSkipsEquipmentCollision(utilityType)) return;
   if (!hasUtilityCollisionProvider()) return;
   const descriptor = UTILITY_TYPES[utilityType] || {};
   const clearance = 0;
@@ -207,8 +213,10 @@ function addEquipmentObstacles(
  * Build a reusable obstacle predicate for one drag/validation pass.
  *
  * The source and destination machines are omitted: their connector/perimeter
- * transition owns the local wrap. Other placeables block only at grid points
- * where the measured model geometry intersects the utility body's 3D envelope.
+ * transition owns the local wrap. For collision-participating services, other
+ * placeables block only at grid points where the measured model geometry
+ * intersects the utility body's 3D envelope. Loose power/HV/data cable ignores
+ * equipment geometry entirely.
  * With no renderer provider, no footprint-only equipment obstacles are added.
  */
 export function buildUtilityRouteObstacles(state, utilityType, opts = {}) {

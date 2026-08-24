@@ -285,8 +285,10 @@ the short authoring contract.
   and may turn on any such coordinate. Power, HV, cooling, and data retain that
   path for endpoint routing and compatibility, but also persist the unsnapped
   freehand `cablePath` the player drew. The freehand trace owns their visible
-  geometry, length/cost, wall checks, and solid-equipment collision; cooling
-  additionally uses it for spatial topology.
+  geometry, length/cost, and wall checks. Cooling additionally uses it for
+  solid-equipment collision and spatial topology. Loose power, HV, and data
+  cable ignores equipment-model geometry while retaining endpoint, wall,
+  connection-limit, and network-topology validation.
 - Moving connected equipment pulls flexible HV cable, ordinary power cable,
   and cooling-water hose with a generous coiled-lead strain allowance. These
   rugged services should remain connected through ordinary layout edits and

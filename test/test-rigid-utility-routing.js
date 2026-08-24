@@ -245,16 +245,33 @@ console.log('\n--- 3. Footprints are a broad phase; measured 3D geometry decides
   setUtilityCollisionProvider(null);
 }
 
-console.log('\n--- 3a. Freehand utilities collide along their visible route ---');
+console.log('\n--- 3a. Loose cable ignores equipment geometry; cooling hose does not ---');
 {
   const state = {
     defs: { blocker: { subW: 4, subL: 8, ports: {} } },
     placeables: [{ id: 'machine', type: 'blocker', col: 2, row: -1, dir: 0 }],
     beamPipes: [], utilityLines: new Map(),
   };
-  setUtilityCollisionProvider(type => type === 'blocker');
+  let geometryLookups = 0;
+  setUtilityCollisionProvider(type => {
+    geometryLookups++;
+    return type === 'blocker';
+  });
+  for (const utilityType of ['powerCable', 'hvCable', 'dataFiber']) {
+    const permissive = validateDrawLine(state, {
+      utilityType, start: null, end: null,
+      path: [{ col: 0, row: 0 }, { col: 5, row: 0 }],
+      cablePath: [{ col: 0, row: 0 }, { col: 5, row: 0 }],
+    });
+    const obstacles = buildUtilityRouteObstacles(state, utilityType);
+    assert(permissive.ok && !obstacles.isBlocked(3, 0),
+      `${utilityType} may be laid through equipment without a forced detour`);
+  }
+  assert(geometryLookups === 0,
+    'permissive cable routing does not spend time querying model triangles');
+
   const visibleDetour = validateDrawLine(state, {
-    utilityType: 'powerCable', start: null, end: null,
+    utilityType: 'coolingWater', start: null, end: null,
     path: [{ col: 0, row: 0 }, { col: 5, row: 0 }],
     cablePath: [
       { col: 0, row: 0 }, { col: 0, row: 3 },
@@ -262,15 +279,15 @@ console.log('\n--- 3a. Freehand utilities collide along their visible route ---'
     ],
   });
   assert(visibleDetour.ok,
-    `a freehand cable may visibly wrap around solid equipment (${visibleDetour.reason || 'ok'})`);
+    `a cooling hose may visibly wrap around solid equipment (${visibleDetour.reason || 'ok'})`);
 
   const visibleCollision = validateDrawLine(state, {
-    utilityType: 'powerCable', start: null, end: null,
+    utilityType: 'coolingWater', start: null, end: null,
     path: [{ col: 0, row: 3 }, { col: 5, row: 3 }],
     cablePath: [{ col: 0, row: 0 }, { col: 5, row: 0 }],
   });
   assert(!visibleCollision.ok && visibleCollision.reason === 'blocked_by_equipment',
-    'a visible freehand cable through solid equipment cannot be hidden by a clear compatibility path');
+    'a cooling hose through solid equipment cannot be hidden by a clear compatibility path');
   setUtilityCollisionProvider(null);
 }
 

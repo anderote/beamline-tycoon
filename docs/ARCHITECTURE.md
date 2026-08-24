@@ -286,10 +286,13 @@ rigid paths use common support stations but remain independent topology.
 All eight utilities publish `flexibleSubtile` and retain a quarter-tile
 Manhattan compatibility path through `routing-contract.js`. Power, HV, cooling,
 and data additionally store the unsnapped freehand `cablePath` the player drew;
-that visible trace is authoritative for pricing, wall checks, and equipment
-collision. `route-obstacles.js` uses the rendered footprint to limit lookups,
-transforms each candidate point into component-local coordinates, and calls the
-provider registered in `utility-collision.js`.
+that visible trace is authoritative for pricing and wall checks. Cooling also
+uses it for equipment collision. Loose power, HV, and data cable deliberately
+ignores equipment-model geometry so ordinary wiring never requires a fiddly 3D
+detour. For collision-participating services, `route-obstacles.js` uses the
+rendered footprint to limit lookups, transforms each candidate point into
+component-local coordinates, and calls the provider registered in
+`utility-collision.js`.
 `component-builder.utilityEnvelopeIntersectsModel` tests that 3D utility
 envelope against cached triangles from the actual component model. With no
 provider (headless logic), equipment contributes no footprint-only blocker.
