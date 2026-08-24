@@ -119,9 +119,10 @@ export class ContextWindow {
 
     const titleWrap = document.createElement('div');
     titleWrap.className = 'ctx-title-wrap';
-    const titleSpan = document.createElement(titleMenu ? 'button' : 'span');
-    titleSpan.className = titleMenu ? 'ctx-title ctx-title-button' : 'ctx-title';
-    if (titleMenu) {
+    const hasTitleMenu = Boolean(this._titleMenuConfig);
+    const titleSpan = document.createElement(hasTitleMenu ? 'button' : 'span');
+    titleSpan.className = hasTitleMenu ? 'ctx-title ctx-title-button' : 'ctx-title';
+    if (hasTitleMenu) {
       titleSpan.type = 'button';
       titleSpan.setAttribute('aria-haspopup', 'menu');
       titleSpan.setAttribute('aria-expanded', 'false');
