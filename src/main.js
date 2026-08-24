@@ -40,9 +40,6 @@ import { UtilityStatsPanel } from './ui/UtilityStatsPanel.js';
 import { EconomyWindow } from './ui/EconomyWindow.js';
 import { ControlRoomWindow } from './ui/ControlRoomWindow.js';
 import { BeamlinesMenu } from './ui/BeamlinesMenu.js';
-import { AdvisorEngine, ADVICE_LEVEL_STORAGE_KEY } from './advisor/engine.js';
-import { buildAdvisorContext } from './advisor/context.js';
-import { Stubby } from './ui/Stubby.js';
 import {
   SKIP_TITLE_SESSION_KEY,
   returnToMainMenu,
@@ -238,46 +235,6 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
     }
   });
 
-  // --- Stubby, the facility advisor -----------------------------------------
-  // Evaluated on the tick rather than per frame: every rule is a cheap
-  // predicate, but the context assembles arrays and the tutorial's conditions
-  // walk the pipe list, which is not work to do sixty times a second.
-  const advisorEngine = new AdvisorEngine();
-  const stubby = new Stubby(game, advisorEngine, renderer);
-  game._advisor = advisorEngine;
-  game._stubby = stubby;
-
-  const ADVISOR_TICK_INTERVAL = 2;   // TICK_MS is 1000, so ~2 s of game time
-  // AdvisorEngine already wraps every rule, but context assembly and the DOM
-  // update are outside it — and this runs from a `tick` listener that
-  // Game.emit invokes with a bare forEach, so anything thrown here takes out
-  // every listener registered after it AND the rest of the tick. An advisor
-  // is the last thing in this game that should be able to stop the sim.
-  const runAdvisor = () => {
-    try {
-      stubby.update(advisorEngine.evaluate(buildAdvisorContext(game, game._designer)));
-    } catch (e) {
-      console.error('[advisor] evaluation failed:', e);
-    }
-  };
-  game._runAdvisor = runAdvisor;
-
-  let lastAdvisorTick = -Infinity;
-  game.on((event) => {
-    if (event !== 'tick') return;
-    const tick = game.state.tick || 0;
-    if (tick - lastAdvisorTick < ADVISOR_TICK_INTERVAL) return;
-    lastAdvisorTick = tick;
-    runAdvisor();
-  });
-
-  // Silenced advice is a durable preference; cooldowns and dismissals are
-  // session state, so a reloaded game says again what is still broken.
-  game.registerSerializer('advisor', {
-    save: () => advisorEngine.toJSON(),
-    load: (data) => advisorEngine.fromJSON(data),
-  });
-
   // Scenario Editor (dev-only): fresh blank world — skip loading the
   // player's save AND suppress autosave, so their real game survives the
   // editor session untouched. Exit reloads without ?editor=1 and the
@@ -341,18 +298,6 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
         game.log(`Scenario "${scenario.name}" loaded.`, 'good');
       }
     }
-  }
-
-  // Advice level is both save-portable (the advisor serializer above) and a
-  // global player preference. The global choice wins when switching slots or
-  // starting a new facility; if it does not exist yet, migrate the level from
-  // the active save into it.
-  try {
-    const preferredAdviceLevel = localStorage.getItem(ADVICE_LEVEL_STORAGE_KEY);
-    if (preferredAdviceLevel) advisorEngine.setLevel(preferredAdviceLevel);
-    else localStorage.setItem(ADVICE_LEVEL_STORAGE_KEY, advisorEngine.level());
-  } catch {
-    /* Storage may be unavailable in privacy-restricted embeds. */
   }
 
   if (restoredView) {

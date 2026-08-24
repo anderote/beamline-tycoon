@@ -156,21 +156,7 @@ Blocked on B for a reliable reproduction.
 
 ---
 
-## D. Stubby has never run inside the real game
-
-`src/ui/Stubby.js` + `src/advisor/rules.js` are on master and you play master.
-
-Verified by its author in node and against a harness generated from the real CSS
-and sprite sources, but the **live** integration is unconfirmed: tick cadence,
-and where he sits over the HUD and the designer overlay.
-
-Eyeball first. If anything in the bottom-right corner stops accepting clicks,
-that is the place to look — the container is `pointer-events: none` with only
-the sprite and bubble taking events, so a mistake there swallows input silently.
-
----
-
-## E. `DesignPlacer` writes occupancy behind the game's back
+## D. `DesignPlacer` writes occupancy behind the game's back
 
 **Verified.** `src/ui/DesignPlacer.js:364` does
 `game.state.infraOccupied[key] = 'concrete'` directly inside `confirm()`,
@@ -185,7 +171,7 @@ removes the class of bug rather than the instance.
 
 ---
 
-## F. Stale concern — no work needed
+## E. Stale concern — no work needed
 
 The render session flagged "two disagreeing clocks" (renderer `_sunAngle` on
 wall-clock vs `state.tick % 240` in the sim). **This is already fixed on

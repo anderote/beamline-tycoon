@@ -80,11 +80,11 @@ test.describe('wall batching', () => {
     await page.waitForTimeout(4000);
     await installPageHelpers(page);
 
-    // Get the welcome guide and the advisor out of the shot.
+    // Get transient welcome and guide overlays out of the shot.
     for (let i = 0; i < 3; i++) { await page.keyboard.press('Escape'); await page.waitForTimeout(150); }
     await page.evaluate(() => {
       for (const el of document.querySelectorAll(
-        '.modal-overlay, .dialog-overlay, [class*="welcome"], [class*="guide-overlay"], [class*="advisor"], [class*="stubby"]')) {
+        '.modal-overlay, .dialog-overlay, [class*="welcome"], [class*="guide-overlay"]')) {
         el.remove();
       }
     });

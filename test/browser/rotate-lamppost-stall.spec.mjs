@@ -1365,7 +1365,7 @@ test.describe('frozen world', () => {
       for (const el of document.querySelectorAll(
         '#bottom-hud, #top-hud, #hud, #component-palette, #category-tabs, #beam-stats-panel,'
         + ' #beamline-warnings, #context-windows-container, .modal-overlay, .dialog-overlay,'
-        + ' [class*="welcome"], [class*="guide-overlay"], [class*="advisor"], [class*="stubby"]')) {
+        + ' [class*="welcome"], [class*="guide-overlay"]')) {
         el.remove();
       }
     });
