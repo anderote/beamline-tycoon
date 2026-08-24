@@ -27,6 +27,13 @@ function installHeadlessDom() {
             clearRect() {},
             drawImage() {},
             fillText() {},
+            beginPath() {},
+            arc() {},
+            fill() {},
+            stroke() {},
+            moveTo() {},
+            lineTo() {},
+            strokeRect() {},
             measureText() { return { width: 0 }; },
             fillStyle: null,
             font: '',
@@ -48,13 +55,25 @@ async function rendererModules({ quiet = false } = {}) {
     try {
       const [
         { ComponentBuilder }, { BeamBuilder }, { PipeAttachmentBuilder }, { BeamPipeBuilder },
+        { EquipmentBuilder }, { DecorationBuilder }, { UtilityLineBuilderV2 },
+        { FloorBuilder }, { WallBuilder }, { RoofBuilder },
       ] = await Promise.all([
         import('../../src/renderer3d/component-builder.js'),
         import('../../src/renderer3d/beam-builder.js'),
         import('../../src/renderer3d/pipe-attachment-builder.js'),
         import('../../src/renderer3d/beam-pipe-builder.js'),
+        import('../../src/renderer3d/equipment-builder.js'),
+        import('../../src/renderer3d/decoration-builder.js'),
+        import('../../src/renderer3d/utility-line-builder-v2.js'),
+        import('../../src/renderer3d/floor-builder.js'),
+        import('../../src/renderer3d/wall-builder.js'),
+        import('../../src/renderer3d/roof-builder.js'),
       ]);
-      return { ComponentBuilder, BeamBuilder, PipeAttachmentBuilder, BeamPipeBuilder };
+      return {
+        ComponentBuilder, BeamBuilder, PipeAttachmentBuilder, BeamPipeBuilder,
+        EquipmentBuilder, DecorationBuilder, UtilityLineBuilderV2,
+        FloorBuilder, WallBuilder, RoofBuilder,
+      };
     } finally {
       console.info = priorInfo;
     }
@@ -196,5 +215,106 @@ export async function buildHeadlessBeamlineScene(snapshot, { quiet = false } = {
     far,
     breakdown: { near: nearBreakdown, far: farBreakdown },
     pipeStats: beamPipeBuilder.getStats(),
+  };
+}
+
+function collectFacilityBreakdown(groups) {
+  return Object.fromEntries(Object.entries(groups)
+    .filter(([name]) => name !== 'root')
+    .map(([name, group]) => [name, collectSceneMetrics(group)]));
+}
+
+/**
+ * Construct the complete modeled-object presentation used by an ordinary
+ * facility view. Terrain is deliberately omitted (it is already one merged
+ * draw); floors, walls, roofs, hardware, utilities, furnishings, and grounds
+ * objects all use their production builders.
+ */
+export async function buildHeadlessFacilityScene(snapshot, {
+  state = null,
+  endpointIndex = new Map(),
+  quiet = false,
+} = {}) {
+  const {
+    ComponentBuilder, BeamBuilder, PipeAttachmentBuilder, BeamPipeBuilder,
+    EquipmentBuilder, DecorationBuilder, UtilityLineBuilderV2,
+    FloorBuilder, WallBuilder, RoofBuilder,
+  } = await rendererModules({ quiet });
+  const root = new globalThis.THREE.Group();
+  const groups = {};
+  for (const name of [
+    'components', 'equipment', 'decorations', 'floors', 'walls', 'roofs',
+    'beamPipes', 'attachments', 'beamEffects', 'utilities',
+  ]) {
+    groups[name] = new globalThis.THREE.Group();
+    groups[name].name = `headless-${name}`;
+    root.add(groups[name]);
+  }
+  groups.beamline = new globalThis.THREE.Group();
+  groups.infrastructure = new globalThis.THREE.Group();
+  groups.components.add(groups.beamline, groups.infrastructure);
+  groups.roofs.visible = false;
+
+  const builders = {
+    components: new ComponentBuilder(),
+    equipment: new EquipmentBuilder(),
+    decorations: new DecorationBuilder(),
+    floors: new FloorBuilder(),
+    walls: new WallBuilder(),
+    roofs: new RoofBuilder(),
+    beamPipes: new BeamPipeBuilder(),
+    attachments: new PipeAttachmentBuilder(),
+    beamEffects: new BeamBuilder(),
+    utilities: new UtilityLineBuilderV2(),
+  };
+  const started = performance.now();
+  builders.floors.build(snapshot.floors || [], groups.floors);
+  builders.walls.build(
+    snapshot.walls || [], snapshot.doors || [], snapshot.windows || [],
+    groups.walls, 'up', null,
+  );
+  builders.roofs.build(snapshot.roofs || [], groups.roofs);
+  builders.components.build(snapshot.components || [], groups.components, {
+    categoryGroups: {
+      beamline: groups.beamline,
+      infrastructure: groups.infrastructure,
+    },
+  });
+  builders.equipment.build(
+    snapshot.equipment || [], snapshot.furnishings || [], groups.equipment,
+  );
+  builders.decorations.build(snapshot.decorations || [], groups.decorations);
+  builders.beamPipes.build({
+    beamPipes: snapshot.beamPipes || [],
+    moduleSubTiles: snapshot.moduleSubTiles || [],
+  }, groups.beamPipes);
+  builders.attachments.build(snapshot.pipeAttachments || [], groups.attachments);
+  builders.beamEffects.build(snapshot.beamPaths || [], groups.beamEffects);
+  builders.utilities.build(
+    snapshot.utilityLines || [], endpointIndex, groups.utilities, { state },
+  );
+  const buildMs = performance.now() - started;
+
+  const near = collectSceneMetrics(root);
+  const nearBreakdown = collectFacilityBreakdown(groups);
+  for (const name of [
+    'components', 'equipment', 'decorations', 'beamPipes', 'attachments',
+    'beamEffects', 'utilities',
+  ]) builders[name].setDetailLevel(false);
+  const far = collectSceneMetrics(root);
+  const farBreakdown = collectFacilityBreakdown(groups);
+  groups.roofs.visible = true;
+  const farRoofOverview = collectSceneMetrics(root);
+  groups.roofs.visible = false;
+
+  return {
+    root,
+    groups,
+    builders,
+    buildMs,
+    near,
+    far,
+    farRoofOverview,
+    breakdown: { near: nearBreakdown, far: farBreakdown },
   };
 }

@@ -33,7 +33,7 @@ class LowerStoreyFrame {
     // Context storeys are deliberately always rendered in their authored
     // presentation, so they do not need the active-storey's adaptive proxies.
     this.componentBuilder = new ComponentBuilder({ buildFarBatches: false });
-    this.equipmentBuilder = new EquipmentBuilder();
+    this.equipmentBuilder = new EquipmentBuilder({ buildFarBatches: false });
     this.decorationBuilder = new DecorationBuilder();
     this.beamPipeBuilder = new BeamPipeBuilder();
     this.beamAttachmentBuilder = new PipeAttachmentBuilder();

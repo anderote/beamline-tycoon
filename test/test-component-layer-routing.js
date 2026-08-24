@@ -28,11 +28,12 @@ globalThis.document = {
 };
 
 const { ComponentBuilder } = await import('../src/renderer3d/component-builder.js');
+const { COMPONENTS } = await import('../src/data/components.js');
 
-function component(id, category, col) {
+function component(id, category, col, type = 'quadrupole') {
   return {
     id,
-    type: 'quadrupole',
+    type,
     category,
     col,
     row: 0,
@@ -90,5 +91,121 @@ test('far component presentation batches instances without losing picking ids', 
   builder.setDetailLevel(true);
   assert.equal(far.visible, false);
   assert.equal(builder.getGroup('beam-0').visible, true);
+  builder.dispose(parent);
+});
+
+test('far beamline presentation keeps type identity without full-footprint color blocks', () => {
+  const parent = new THREE.Group();
+  const beamline = new THREE.Group();
+  parent.add(beamline);
+  const builder = new ComponentBuilder();
+  const components = [
+    component('drift-far', 'beamline', 0, 'drift'),
+    component('quad-far', 'beamline', 2, 'quadrupole'),
+    component('cyclotron-far', 'beamline', 4, 'cyclotron30'),
+    component('target-far', 'beamline', 8, 'target'),
+  ];
+
+  builder.build(components, parent, { categoryGroups: { beamline } });
+  builder.setDetailLevel(false);
+  const batches = beamline.children.filter(child => child.userData.batchedComponents);
+  const byType = new Map(batches.map(batch => [
+    batch.name.replace('component-far-', ''), batch,
+  ]));
+
+  assert.equal(byType.get('drift')?.userData.farSilhouetteKind, 'beam-pipe');
+  assert.equal(byType.get('quadrupole')?.userData.farSilhouetteKind, 'focusing-magnet');
+  assert.equal(byType.get('cyclotron30')?.userData.farSilhouetteKind, 'cyclotron');
+  assert.equal(byType.get('target')?.userData.farSilhouetteKind, 'beam-target');
+  assert.deepEqual(new Set(byType.get('drift').userData.farPartRoles),
+    new Set(['pipe', 'stand']),
+  'a drift stays a thin pipe on supports rather than becoming a footprint box');
+  assert.ok(['stand', 'body', 'accent', 'pipe'].every(role =>
+    byType.get('cyclotron30').userData.farPartRoles.includes(role)),
+  'the cyclotron retains a base, squat body, identifying band, and extraction pipe');
+  assert.ok(['pipe', 'target', 'accent'].every(role =>
+    byType.get('target').userData.farPartRoles.includes(role)),
+  'the target retains its incoming beam tube and a restrained target body');
+
+  for (const batch of batches) {
+    assert.equal(batch.material.vertexColors, true,
+      `${batch.name} uses merged per-part colors in one draw`);
+    const colors = batch.geometry.attributes.color;
+    const distinct = new Set();
+    for (let index = 0; index < colors.count; index++) {
+      distinct.add(`${colors.getX(index).toFixed(3)}:${colors.getY(index).toFixed(3)}:${colors.getZ(index).toFixed(3)}`);
+    }
+    assert.ok(distinct.size >= 2,
+      `${batch.name} is not one solid beamline-accent block`);
+    assert.equal(batch.castShadow, false);
+  }
+  assert.equal(builder.resolveBatchHit({ object: byType.get('target'), instanceId: 0 }).nodeId,
+    'target-far', 'every simplified silhouette remains pickable');
+
+  builder.dispose(parent);
+});
+
+test('every beamline catalogue type has a merged facility-scale silhouette', () => {
+  const catalogueCategories = new Set(['source', 'rf', 'optics', 'diagnostic', 'endpoint']);
+  const types = Object.values(COMPONENTS)
+    .filter(def => catalogueCategories.has(def.category))
+    .map(def => def.id)
+    .sort();
+  const parent = new THREE.Group();
+  const beamline = new THREE.Group();
+  parent.add(beamline);
+  const builder = new ComponentBuilder();
+  const components = types.map((type, index) =>
+    component(`catalogue-far-${type}`, 'beamline', index * 8, type));
+
+  builder.build(components, parent, { categoryGroups: { beamline } });
+  builder.setDetailLevel(false);
+  const batches = beamline.children.filter(child => child.userData.batchedComponents);
+  assert.equal(batches.length, types.length,
+    'every catalogue type contributes one batched silhouette draw');
+  for (const batch of batches) {
+    assert.ok(batch.userData.farSilhouetteKind !== 'footprint',
+      `${batch.name} uses a type-aware silhouette`);
+    assert.ok(batch.userData.farPartRoles.includes('pipe'),
+      `${batch.name} preserves the common beam tube`);
+    assert.ok(batch.geometry.attributes.color?.count > 0,
+      `${batch.name} publishes merged per-part color geometry`);
+  }
+
+  builder.dispose(parent);
+});
+
+test('every infrastructure catalogue type has a merged facility-scale silhouette', () => {
+  const catalogueCategories = new Set([
+    'power', 'rfPower', 'cooling', 'vacuum', 'dataControls', 'ops',
+    'experimentalSystems',
+  ]);
+  const types = Object.values(COMPONENTS)
+    .filter(def => catalogueCategories.has(def.category))
+    .map(def => def.id)
+    .sort();
+  const parent = new THREE.Group();
+  const infrastructure = new THREE.Group();
+  parent.add(infrastructure);
+  const builder = new ComponentBuilder();
+  const components = types.map((type, index) =>
+    component(`catalogue-far-${type}`, 'infrastructure', index * 8, type));
+
+  builder.build(components, parent, { categoryGroups: { infrastructure } });
+  builder.setDetailLevel(false);
+  const batches = infrastructure.children.filter(child => child.userData.batchedComponents);
+  assert.equal(batches.length, types.length,
+    'every infrastructure type contributes one batched silhouette draw');
+  for (const batch of batches) {
+    assert.notEqual(batch.userData.farSilhouetteKind, 'footprint',
+      `${batch.name} uses a type-aware silhouette`);
+    assert.ok(batch.userData.farPartRoles.length >= 2,
+      `${batch.name} retains at least two visually distinct structural roles`);
+    assert.ok(batch.geometry.attributes.color?.count > 0,
+      `${batch.name} publishes merged per-part color geometry`);
+    assert.equal(batch.material.vertexColors, true);
+    assert.equal(batch.castShadow, false);
+  }
+
   builder.dispose(parent);
 });

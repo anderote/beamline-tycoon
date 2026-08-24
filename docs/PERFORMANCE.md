@@ -69,12 +69,39 @@ a regression.
 
 ## Large-world detail policy
 
-Facilities below 1,000 authored beam-pipe attachments retain full component
-and attachment detail at every zoom. At or above that threshold, zooming out
-uses catalogue-sized attachment silhouettes, hides ornamental component
-geometry, and disables their shadow submissions. A hysteresis band prevents
-the representation from flickering when the camera sits on the transition.
-The headless near/far measurements exercise both representations directly.
+Facilities below 1,000 modeled placeables retain full authored detail at every
+zoom. The count includes beamline and infrastructure components, pipe
+attachments, equipment, furnishings, and decorations. At or above that
+threshold, zooming out switches the complete modeled-object presentation:
+
+- beamline modules keep a one-draw-per-type pipe, support, magnet, cavity,
+  source, diagnostic, cyclotron, or endpoint silhouette;
+- infrastructure keeps a one-draw-per-type cabinet, rack, vessel, manifold,
+  pump, transformer, tower, or plant silhouette;
+- large equipment and furnishings use instanced chair, table, console, rack,
+  cabinet, sanitary-fixture, cart, and machine silhouettes;
+- benchtop apparatus, wall fittings, rugs, and other pixel-scale facility
+  clutter disappear;
+- trees use the shared low-poly trunk/crown batches, while grounds utilities,
+  security, furniture, signs, and outdoor lighting use type batches;
+- hangings, flower beds, bins, and small wall/ceiling/surface fixtures disappear;
+- beam pipes, pipe attachments, and utility networks retain their existing
+  thin route silhouettes while hiding optional fittings and support detail;
+- all non-structural far presentations stop casting shadows, and hidden detail
+  no longer owns real fixture or glow-light slots.
+
+A hysteresis band prevents the representation from flickering when the camera
+sits on the transition. Floors, terrain, and walls are already merged/static
+presentation layers. Roof slabs are merged by surface into two draws per
+compatible material instead of submitting one six-material box per tile.
+
+The stock Minor Lab is the whole-facility regression fixture. Its headless
+production-builder measurement currently drops more than 7,000 authored near
+draws to at most 550 far draws, at most 125,000 far triangles, and at most 60
+far shadow draws. `test/test-minor-lab-far-render-budget.js` pins those budgets
+and reports per-layer counts for components, equipment, decorations, and
+utilities. These are structural submission counts, not an FPS claim; final
+camera feel and appearance remain part of repository-owner gameplay testing.
 
 Utility descriptors receive one shared endpoint index per solve pass. Keep
 endpoint resolution in that context for per-network work; rebuilding an index

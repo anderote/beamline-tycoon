@@ -1956,6 +1956,181 @@ export function lightingYaw(def, rotY, seed) {
   return rotY + _prng(seed)() * Math.PI * 2;
 }
 
+const FAR_DECORATION_COLORS = Object.freeze({
+  dark: 0x30383d,
+  metal: 0x8b969c,
+  wood: 0x856446,
+  concrete: 0x8e9494,
+  light: 0xf1d27a,
+  water: 0x4f9eb3,
+  security: 0xd8a52a,
+});
+
+/** Explicit facility-scale policy for every non-tree decoration definition. */
+export function decorationFarPresentation(typeId) {
+  if (_isBatchablePlant(typeId)) return 'plant-silhouette';
+  const def = LIGHTING_DEFS_BY_ID[typeId] || DECORATIONS_RAW[typeId];
+  if (!def) return 'hidden';
+  if (def.category === 'hangings' || _isFlowerBedType(typeId)) return 'hidden';
+  if (def.mount === 'wall' || def.mount === 'overhead' || def.mount === 'surface') return 'hidden';
+  if (/trashCan|recyclingBin|bollardLight|floorLamp|arcFloorLamp|torchiere/i.test(typeId)) {
+    return 'hidden';
+  }
+  return 'silhouette';
+}
+
+function _farDecorationGeometry(def) {
+  const id = def.id || '';
+  const width = Math.max(0.25, (def.subW ?? 2) * SUB);
+  const height = Math.max(0.25, (def.subH ?? 2) * SUB);
+  const depth = Math.max(0.25, (def.subL ?? 2) * SUB);
+  const accent = def.spriteColor || def.color || 0x748087;
+  const parts = [];
+  const roles = [];
+  const add = (role, geometry, x, y, z, color) => {
+    geometry.translate(x, y, z);
+    parts.push({ geometry, color: new THREE.Color(color) });
+    roles.push(role);
+  };
+  const box = (role, w, h, d, x, y, z, color = accent) =>
+    add(role, new THREE.BoxGeometry(w, h, d), x, y, z, color);
+  const cylinder = (role, radius, length, axis, x, y, z, color = accent) => {
+    const geometry = new THREE.CylinderGeometry(radius, radius, length, 7);
+    if (axis === 'x') geometry.rotateZ(Math.PI / 2);
+    if (axis === 'z') geometry.rotateX(Math.PI / 2);
+    add(role, geometry, x, y, z, color);
+  };
+  let kind = 'grounds-object';
+
+  if (/utilityPole|transmissionTower|guardTower|CameraMast|flagpole|MastLight|lamppost/i.test(id)) {
+    kind = /Tower|tower/i.test(id) ? 'tower' : 'pole';
+    const shaftH = height * 0.92;
+    cylinder('shaft', Math.max(0.055, width * 0.07), shaftH, 'y',
+      0, shaftH * 0.5, 0, FAR_DECORATION_COLORS.dark);
+    box('crossarm', Math.max(width * 0.76, 0.38), 0.08, 0.10,
+      0, shaftH * 0.80, 0, FAR_DECORATION_COLORS.metal);
+    if (/light|lamppost/i.test(id)) {
+      box('lamp', Math.max(0.18, width * 0.32), 0.11, Math.max(0.18, depth * 0.32),
+        0, shaftH, 0, FAR_DECORATION_COLORS.light);
+    } else {
+      box('accent', Math.max(width * 0.34, 0.18), 0.08, 0.12,
+        0, shaftH * 0.94, 0, FAR_DECORATION_COLORS.security);
+    }
+  } else if (/overheadPowerSpan/i.test(id)) {
+    kind = 'power-span';
+    for (const x of [-width * 0.42, width * 0.42]) {
+      cylinder('pole', Math.max(0.06, depth * 0.06), height * 0.90, 'y',
+        x, height * 0.45, 0, FAR_DECORATION_COLORS.dark);
+    }
+    box('crossarm', width * 0.92, 0.09, depth * 0.22,
+      0, height * 0.82, 0, FAR_DECORATION_COLORS.metal);
+    for (const z of [-depth * 0.22, 0, depth * 0.22]) {
+      cylinder('wire', 0.025, width * 0.84, 'x',
+        0, height * 0.72, z, FAR_DECORATION_COLORS.dark);
+    }
+  } else if (/Tank/i.test(id)) {
+    kind = 'utility-tank';
+    cylinder('tank', Math.min(height * 0.34, depth * 0.38), width * 0.78, 'x',
+      0, height * 0.48, 0, accent);
+    for (const x of [-width * 0.25, width * 0.25]) {
+      box('stand', 0.10, height * 0.30, depth * 0.44,
+        x, height * 0.15, 0, FAR_DECORATION_COLORS.dark);
+    }
+  } else if (/PipeRack/i.test(id)) {
+    kind = 'outdoor-pipe-rack';
+    for (const x of [-width * 0.38, width * 0.38]) {
+      box('stand', 0.10, height * 0.72, depth * 0.66,
+        x, height * 0.36, 0, FAR_DECORATION_COLORS.dark);
+    }
+    for (const z of [-depth * 0.22, 0, depth * 0.22]) {
+      cylinder('pipe', 0.075, width * 0.82, 'x',
+        0, height * 0.64, z, z === 0 ? accent : FAR_DECORATION_COLORS.metal);
+    }
+  } else if (/Generator|Gatehouse/i.test(id)) {
+    kind = /Gatehouse/i.test(id) ? 'gatehouse' : 'generator';
+    box('body', width * 0.84, height * 0.76, depth * 0.80,
+      0, height * 0.38, 0, accent);
+    box('front', width * 0.48, height * 0.34, 0.07,
+      0, height * 0.42, depth * 0.42, FAR_DECORATION_COLORS.dark);
+    box('accent', width * 0.30, 0.08, 0.08,
+      0, height * 0.60, depth * 0.46, FAR_DECORATION_COLORS.security);
+  } else if (/Barrier|Bollard/i.test(id)) {
+    kind = 'security-barrier';
+    for (const x of [-width * 0.36, width * 0.36]) {
+      box('post', 0.11, height * 0.82, 0.11,
+        x, height * 0.41, 0, FAR_DECORATION_COLORS.dark);
+    }
+    box('barrier', width * 0.82, 0.12, depth * 0.24,
+      0, height * 0.62, 0, FAR_DECORATION_COLORS.security);
+  } else if (/Bench|Table/i.test(id)) {
+    kind = /Bench/i.test(id) ? 'outdoor-bench' : 'picnic-table';
+    box('surface', width * 0.88, 0.12, depth * 0.72,
+      0, height * 0.58, 0, FAR_DECORATION_COLORS.wood);
+    for (const x of [-width * 0.30, width * 0.30]) {
+      box('stand', 0.10, height * 0.58, depth * 0.56,
+        x, height * 0.29, 0, FAR_DECORATION_COLORS.dark);
+    }
+    if (/Bench/i.test(id)) {
+      box('back', width * 0.84, height * 0.34, 0.10,
+        0, height * 0.78, depth * 0.28, FAR_DECORATION_COLORS.wood);
+    }
+  } else if (/Fountain/i.test(id)) {
+    kind = 'fountain';
+    cylinder('basin', width * 0.40, height * 0.18, 'y',
+      0, height * 0.09, 0, FAR_DECORATION_COLORS.concrete);
+    cylinder('water', width * 0.06, height * 0.58, 'y',
+      0, height * 0.47, 0, FAR_DECORATION_COLORS.water);
+  } else if (/Statue/i.test(id)) {
+    kind = 'statue';
+    box('plinth', width * 0.70, height * 0.30, depth * 0.70,
+      0, height * 0.15, 0, FAR_DECORATION_COLORS.concrete);
+    cylinder('figure', width * 0.20, height * 0.62, 'y',
+      0, height * 0.61, 0, accent);
+  } else if (/Sign/i.test(id)) {
+    kind = 'sign';
+    box('post', 0.09, height * 0.62, 0.09,
+      0, height * 0.31, 0, FAR_DECORATION_COLORS.dark);
+    box('sign', width * 0.82, height * 0.36, Math.max(0.07, depth * 0.18),
+      0, height * 0.76, 0, accent);
+  } else if (/floodLight/i.test(id)) {
+    kind = 'flood-light';
+    box('stand', 0.09, height * 0.70, 0.09,
+      0, height * 0.35, 0, FAR_DECORATION_COLORS.dark);
+    box('lamp', width * 0.64, height * 0.22, depth * 0.42,
+      0, height * 0.79, 0, FAR_DECORATION_COLORS.light);
+  } else {
+    box('body', width * 0.80, height * 0.76, depth * 0.76,
+      0, height * 0.38, 0, accent);
+    box('accent', width * 0.54, Math.max(0.06, height * 0.08), depth * 0.80,
+      0, height * 0.58, 0, FAR_DECORATION_COLORS.dark);
+  }
+
+  const positions = [];
+  const normals = [];
+  const colors = [];
+  for (const part of parts) {
+    const geometry = part.geometry.index ? part.geometry.toNonIndexed() : part.geometry;
+    const position = geometry.attributes.position;
+    const normal = geometry.attributes.normal;
+    for (const value of position.array) positions.push(value);
+    for (const value of normal.array) normals.push(value);
+    for (let index = 0; index < position.count; index++) {
+      colors.push(part.color.r, part.color.g, part.color.b);
+    }
+    if (geometry !== part.geometry) geometry.dispose();
+    part.geometry.dispose();
+  }
+  const merged = new THREE.BufferGeometry();
+  merged.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  merged.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  merged.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  merged.userData.farSilhouetteKind = kind;
+  merged.userData.farPartRoles = [...new Set(roles)];
+  merged.computeBoundingBox();
+  merged.computeBoundingSphere();
+  return merged;
+}
+
 // --- Public builder class -----------------------------------------------
 
 export class DecorationBuilder {
@@ -1981,6 +2156,11 @@ export class DecorationBuilder {
     this._plantBatches = [];
     /** Low-poly InstancedMeshes used in distant large-world views. */
     this._farPlantBatches = [];
+    /** Type-batched silhouettes for non-plant grounds and fixture objects. */
+    this._farOrdinaryBatches = [];
+    this._farOrdinarySource = null;
+    this._farOrdinarySignature = null;
+    this._builtFarOrdinarySignature = null;
     /** IDs represented by the current shared plant batches. */
     this._plantIds = new Set();
     this._plantSignature = null;
@@ -2009,7 +2189,8 @@ export class DecorationBuilder {
   }
 
   resolveBatchHit(hit) {
-    if (!hit?.object?.userData?.batchedPlants) return null;
+    if (!hit?.object?.userData?.batchedPlants
+        && !hit?.object?.userData?.batchedDecorations) return null;
     const index = hit.batchId ?? hit.instanceId;
     if (!Number.isInteger(index)) return null;
     const nodeId = hit.object.userData.batchNodeIds?.[index] ?? null;
@@ -2059,6 +2240,7 @@ export class DecorationBuilder {
     );
     group.userData ||= {};
     group.userData.nodeId = dec.id ?? null;
+    group.userData.ordinaryDecoration = true;
 
     // Ground fixtures sit on the floor. Wall/overhead fixture geometry is
     // authored around its mounting point, so lift that origin to the
@@ -2094,6 +2276,92 @@ export class DecorationBuilder {
       this._groupsById.set(dec.id, group);
     } else this._anonymousGroups.push(group);
     return group;
+  }
+
+  _disposeFarOrdinaryBatches() {
+    for (const mesh of this._farOrdinaryBatches) {
+      mesh.parent?.remove(mesh);
+      mesh.dispose?.();
+      mesh.geometry?.dispose?.();
+      mesh.material?.dispose?.();
+    }
+    this._farOrdinaryBatches = [];
+    this._builtFarOrdinarySignature = null;
+  }
+
+  _queueFarOrdinaryBatches(ordinary, parentGroup) {
+    const signature = contentKey(ordinary || []);
+    this._farOrdinarySource = { ordinary: ordinary || [], parentGroup };
+    this._farOrdinarySignature = signature;
+    if (this._builtFarOrdinarySignature
+        && this._builtFarOrdinarySignature !== signature) {
+      this._disposeFarOrdinaryBatches();
+    }
+    if (!this._showDetail) this._rebuildFarOrdinaryBatches();
+  }
+
+  _rebuildFarOrdinaryBatches() {
+    if (!this._farOrdinarySource) return;
+    if (this._builtFarOrdinarySignature === this._farOrdinarySignature) {
+      for (const mesh of this._farOrdinaryBatches) mesh.visible = !this._showDetail;
+      return;
+    }
+    this._disposeFarOrdinaryBatches();
+    const { ordinary, parentGroup } = this._farOrdinarySource;
+    const buckets = new Map();
+    for (const dec of ordinary) {
+      if (decorationFarPresentation(dec.type) !== 'silhouette') continue;
+      const def = LIGHTING_DEFS_BY_ID[dec.type] || DECORATIONS_RAW[dec.type];
+      if (!def) continue;
+      let bucket = buckets.get(dec.type);
+      if (!bucket) {
+        bucket = { def, entries: [] };
+        buckets.set(dec.type, bucket);
+      }
+      bucket.entries.push(dec);
+    }
+
+    const position = new THREE.Vector3();
+    const rotation = new THREE.Quaternion();
+    const scale = new THREE.Vector3(1, 1, 1);
+    const matrix = new THREE.Matrix4();
+    const yAxis = new THREE.Vector3(0, 1, 0);
+    for (const [type, { def, entries }] of buckets) {
+      const geometry = _farDecorationGeometry(def);
+      const material = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        vertexColors: true,
+        roughness: 0.72,
+        metalness: 0.12,
+      });
+      const mesh = new THREE.InstancedMesh(geometry, material, entries.length);
+      mesh.name = `decoration-far-${type}`;
+      mesh.visible = !this._showDetail;
+      mesh.castShadow = false;
+      mesh.receiveShadow = true;
+      mesh.userData.batchedDecorations = true;
+      mesh.userData.lod = 'decoration-far';
+      mesh.userData.batchNodeIds = [];
+      mesh.userData.farSilhouetteKind = geometry.userData.farSilhouetteKind;
+      mesh.userData.farPartRoles = geometry.userData.farPartRoles;
+      for (let index = 0; index < entries.length; index++) {
+        const dec = entries[index];
+        const p = decorationPlacement(dec);
+        const floorY = (dec.y ?? 0) + (dec.placeY || 0) * SUB;
+        position.set(p.x, floorY, p.z);
+        rotation.setFromAxisAngle(yAxis,
+          LIGHTING_DEFS_BY_ID[type] ? lightingYaw(def, p.rotY, p.seed) : p.rotY);
+        matrix.compose(position, rotation, scale);
+        mesh.setMatrixAt(index, matrix);
+        mesh.userData.batchNodeIds[index] = dec.id ?? null;
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingBox();
+      mesh.computeBoundingSphere();
+      parentGroup.add(mesh);
+      this._farOrdinaryBatches.push(mesh);
+    }
+    this._builtFarOrdinarySignature = this._farOrdinarySignature;
   }
 
   _disposeOrdinaryDecoration(id, parentGroup) {
@@ -2383,11 +2651,26 @@ export class DecorationBuilder {
     return { triangleCount };
   }
 
-  /** Swap authored forests for low-poly, shadow-free silhouettes at distance. */
+  /** Swap authored objects for low-poly, shadow-free silhouettes at distance. */
   setDetailLevel(showDetail) {
     this._showDetail = !!showDetail;
     for (const batch of this._plantBatches) batch.visible = this._showDetail;
     for (const mesh of this._farPlantBatches) mesh.visible = !this._showDetail;
+    for (const group of this._ordinaryGroupsById.values()) {
+      group.visible = this._showDetail;
+      group.traverse(child => {
+        if (!child.isMesh) return;
+        if (child.userData.nearCastShadow == null) {
+          child.userData.nearCastShadow = child.castShadow === true;
+        }
+        child.castShadow = this._showDetail && child.userData.nearCastShadow;
+      });
+    }
+    for (const group of this._anonymousGroups) {
+      if (group.userData?.ordinaryDecoration) group.visible = this._showDetail;
+    }
+    if (!this._showDetail) this._rebuildFarOrdinaryBatches();
+    for (const mesh of this._farOrdinaryBatches) mesh.visible = !this._showDetail;
   }
 
   /**
@@ -2419,6 +2702,8 @@ export class DecorationBuilder {
       for (const dec of ordinary) this._addOrdinaryDecoration(dec, parentGroup);
       if (canBatch) this._buildPlantBatches(plants, parentGroup);
       this._plantSignature = contentKey(plants);
+      this._queueFarOrdinaryBatches(ordinary, parentGroup);
+      this.setDetailLevel(this._showDetail);
       this._syncPublicCollections({ lightingChanged: true });
       return { decorationsChanged: true, lightingChanged: true, plantsRebuilt: true };
     }
@@ -2457,6 +2742,8 @@ export class DecorationBuilder {
         decorationsChanged = true;
         plantsRebuilt = true;
       }
+      this._queueFarOrdinaryBatches(ordinary, parentGroup);
+      this.setDetailLevel(this._showDetail);
       this._syncPublicCollections({ lightingChanged });
       return { decorationsChanged, lightingChanged, plantsRebuilt };
     }
@@ -2482,6 +2769,8 @@ export class DecorationBuilder {
       decorationsChanged = true;
       plantsRebuilt = true;
     }
+    this._queueFarOrdinaryBatches(ordinary, parentGroup);
+    this.setDetailLevel(this._showDetail);
     this._syncPublicCollections({ lightingChanged });
     return { decorationsChanged, lightingChanged, plantsRebuilt };
   }
@@ -2491,6 +2780,7 @@ export class DecorationBuilder {
    * @param {THREE.Group} parentGroup
    */
   dispose(parentGroup) {
+    this._disposeFarOrdinaryBatches();
     this._disposePlantBatches(parentGroup);
     for (const id of [...this._ordinaryGroupsById.keys()]) {
       this._disposeOrdinaryDecoration(id, parentGroup);
@@ -2511,6 +2801,8 @@ export class DecorationBuilder {
     this._lightingFixtures = [];
     this._fixturesById.clear();
     this._anonymousFixtures = [];
+    this._farOrdinarySource = null;
+    this._farOrdinarySignature = null;
     this._batchStats = {
       plantCount: 0, batchCount: 0, chunkCount: 0, partCount: 0,
       geometryCount: 0, prototypeCount: this._plantPrototypes.size, farBatchCount: 0,
