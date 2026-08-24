@@ -4,7 +4,7 @@ import * as THREE_NS from 'three';
 
 globalThis.THREE = THREE_NS;
 
-const { UTILITY_TYPE_LIST } = await import('../src/utility/registry.js');
+const { UTILITY_TYPES, UTILITY_TYPE_LIST } = await import('../src/utility/registry.js');
 const { UtilityLineBuilderV2 } = await import('../src/renderer3d/utility-line-builder-v2.js');
 const {
   UTILITY_DETAIL_ENTER_ZOOM,
@@ -70,6 +70,13 @@ test('every utility keeps its route silhouette while far detail is suppressed', 
     assert.ok(group, `${utilityType} creates a committed line group`);
     assert.ok(collect(group, object => object.isMesh && effectivelyVisible(object)).length > 0,
       `${utilityType} retains visible low-detail route geometry`);
+    if (UTILITY_TYPES[utilityType].fixedRouteHeight === true) {
+      const farRoutes = collect(group, object => object.userData?.isUtilityFarRoute);
+      assert.equal(farRoutes.length, 1,
+        `${utilityType} collapses its rigid route to one facility-scale mesh`);
+      assert.ok(effectivelyVisible(farRoutes[0]),
+        `${utilityType} exposes its merged route in the far band`);
+    }
   }
 
   const detailObjects = collect(parent,
@@ -93,6 +100,9 @@ test('every utility keeps its route silhouette while far detail is suppressed', 
   builder.setDetailLevel(true);
   assert.ok(detailObjects.every(object => effectivelyVisible(object)),
     'zooming back in restores every authored utility detail');
+  assert.ok(collect(parent, object => object.userData?.isUtilityFarRoute)
+    .every(object => !effectivelyVisible(object)),
+  'zooming back in hides every merged far route');
   assert.equal(flexible.geometry.parameters.radialSegments, 8,
     'soft utilities restore their rounded near tube');
   assert.ok(flexible.geometry.parameters.tubularSegments > farTubularSegments,
