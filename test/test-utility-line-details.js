@@ -107,8 +107,9 @@ assert(performanceHtml.includes('Every run in this topology shares these live va
 const lineTabs = utilityInspectorTabs('powerCable', line.id);
 assert(lineTabs[0]?.key === 'run'
     && lineTabs.some(tab => tab.key === 'performance')
+    && lineTabs.some(tab => tab.key === 'topology')
     && lineTabs.some(tab => tab.key === 'overview'),
-  'a clicked line opens its own Run Details, Performance, and Network tabs');
+  'a clicked line opens Run Details, Performance, Topology, and Network tabs');
 
 const dataHistory = appendUtilityPerformanceSample([], {
   connectedNodeCount: 3, connectedLinkCount: 2, perSinkQuality: {}, errors: [],

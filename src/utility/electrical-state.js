@@ -17,7 +17,7 @@ export function electricalSourceAvailability(worldState, placeable, def) {
   if (!worldState || !placeable || !def) return 1;
   const control = def.electricalControl || {};
   const live = electricalDeviceState(worldState, placeable.id) || {};
-  if (live.breakerTripped === true) return 0;
+  if (live.breakerTripped === true || live.breakerOpen === true) return 0;
 
   if (control.source?.kind === 'grid' && (live.outageTicksRemaining || 0) > 0) {
     return 0;
@@ -43,12 +43,13 @@ export function electricalInternalPortGroups(
   const control = def?.electricalControl || {};
 
   if (control.kind === 'disconnect') {
-    if (live.breakerTripped === true || live.switchClosed === false) return [];
+    if (live.breakerTripped === true || live.breakerOpen === true
+        || live.switchClosed === false) return [];
     return [passNames];
   }
 
   if (control.kind === 'transfer') {
-    if (live.breakerTripped === true) return [];
+    if (live.breakerTripped === true || live.breakerOpen === true) return [];
     const active = live.transferActive === 'backup' ? 'backup_in' : 'normal_in';
     const output = passNames.includes('pwr_out') ? 'pwr_out' : null;
     return output && passNames.includes(active) ? [[active, output]] : [];

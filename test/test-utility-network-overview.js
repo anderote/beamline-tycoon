@@ -73,7 +73,8 @@ const state = {
       [powerB.id, {
         totalCapacity: 40,
         totalDemand: 55,
-        errors: [{ severity: 'soft', code: 'power_overload' }],
+        errors: [],
+        topology: { diagnostics: { deadBranches: 1, constrainedNodes: 1 } },
       }],
     ])],
     ['dataFiber', new Map([[data.id, {
@@ -104,8 +105,9 @@ assert(powerGroup?.rows[0].sourceCount === 1
     && powerGroup?.rows[0].loadCount === 2
     && powerGroup?.rows[0].lineCount === 2,
   'source, load, and run membership comes from the matching published topology');
-assert(powerGroup?.rows[1].softErrorCount === 1,
-  'a fault on one topology is not hidden by a healthy sibling network');
+assert(powerGroup?.rows[1].constrainedNodeCount === 1
+    && powerGroup?.rows[1].deadBranchCount === 1,
+  'topology diagnostics on one network are not hidden by a healthy sibling');
 
 const dataRow = groups.find(group => group.utilityType === 'dataFiber')?.rows[0];
 assert(dataRow?.topologyOnly === true && dataRow?.topologyLabel === 'Bus',
@@ -123,6 +125,8 @@ assert(html.includes(`data-network-id="${powerA.id}"`)
   'each topology keeps its exact network id on its inspector button');
 assert(html.includes('Sources / loads') && html.includes('Capacity') && html.includes('Load'),
   'overview rows expose the requested capacity, source, and load fields');
+assert(html.includes('1 constrained'),
+  'overview rows surface graph diagnostics before the network is opened');
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

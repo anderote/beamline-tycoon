@@ -60,6 +60,7 @@ export function utilityNetworkOverview(state) {
       const loadCount = Array.isArray(network.sinks) ? network.sinks.length : 0;
       const portCount = Array.isArray(network.ports) ? network.ports.length : 0;
       const lineCount = Array.isArray(network.lineIds) ? network.lineIds.length : 0;
+      const topologyDiagnostics = flow?.topology?.diagnostics || {};
 
       return {
         utilityType,
@@ -83,6 +84,10 @@ export function utilityNetworkOverview(state) {
         solved: flow !== null,
         hardErrorCount,
         softErrorCount,
+        deadBranchCount: finiteOrNull(topologyDiagnostics.deadBranches) || 0,
+        constrainedNodeCount: finiteOrNull(topologyDiagnostics.constrainedNodes) || 0,
+        deenergizedNodeCount: finiteOrNull(topologyDiagnostics.deenergizedNodes) || 0,
+        idleNodeCount: finiteOrNull(topologyDiagnostics.idleNodes) || 0,
       };
     });
 
@@ -105,10 +110,34 @@ function rowStatus(row) {
       kind: 'hard',
     };
   }
+  if (row.deenergizedNodeCount > 0) {
+    return {
+      label: `${row.deenergizedNodeCount} de-energized`,
+      kind: 'hard',
+    };
+  }
+  if (row.constrainedNodeCount > 0) {
+    return {
+      label: `${row.constrainedNodeCount} constrained`,
+      kind: 'soft',
+    };
+  }
   if (row.softErrorCount > 0) {
     return {
       label: `${row.softErrorCount} warning${row.softErrorCount === 1 ? '' : 's'}`,
       kind: 'soft',
+    };
+  }
+  if (row.deadBranchCount > 0) {
+    return {
+      label: `${row.deadBranchCount} dead branch${row.deadBranchCount === 1 ? '' : 'es'}`,
+      kind: 'soft',
+    };
+  }
+  if (row.idleNodeCount > 0) {
+    return {
+      label: `${row.idleNodeCount} idle`,
+      kind: 'pending',
     };
   }
   return { label: 'Healthy', kind: 'good' };
@@ -156,7 +185,7 @@ export function renderUtilityNetworkOverview(groups) {
   }
 
   return `<div class="utility-networks-overview">
-    <div class="utility-networks-help">Disconnected topologies are listed separately. Select a network for sources, loads, capacity, quality, and faults.</div>
+    <div class="utility-networks-help">Disconnected topologies are listed separately. Select a network for its live source-to-load graph, branch flow, capacity, and faults.</div>
     ${groups.map(group => `<section class="utility-network-group">
       <div class="utility-network-group-heading">
         <span class="utility-network-swatch" style="--utility-color:${escapeHtml(group.color)}"></span>

@@ -107,11 +107,12 @@ console.log('\n--- Same band, two frequencies: network splits ---');
 console.log('\n--- Spectrum inspector markup ---');
 {
   const html = renderRfSpectrum(splitFlow);
-  assert(utilityInspectorTabs('rfWaveguide')[0].key === 'spectrum',
-    'clicking an RF network opens on the Spectrum tab');
-  assert(utilityInspectorTabs('powerCable').length === 1
-      && utilityInspectorTabs('powerCable')[0].key === 'overview',
-    'other utility inspectors still open on Overview');
+  assert(utilityInspectorTabs('rfWaveguide')[0].key === 'topology'
+      && utilityInspectorTabs('rfWaveguide').some(tab => tab.key === 'spectrum'),
+    'RF networks open on Topology while retaining the Spectrum tab');
+  assert(utilityInspectorTabs('powerCable')[0].key === 'topology'
+      && utilityInspectorTabs('powerCable').some(tab => tab.key === 'overview'),
+    'other utility inspectors open on Topology with details available');
   assert(html.includes('RF POWER SPECTRUM'), 'inspector identifies the spectrum view');
   assert(html.includes('162.5 MHz') && html.includes('325 MHz'),
     'inspector labels every requested frequency');

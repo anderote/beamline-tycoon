@@ -6,7 +6,7 @@ import { COMPONENTS } from '../data/components.js';
 import { PLACEABLES } from '../data/placeables/index.js';
 import { findBeamlineComponent } from '../beamline/component-operation.js';
 
-const POWER_TOGGLE_ACTIONS = new Set(['toggleSwitch', 'toggleGenerator']);
+const POWER_TOGGLE_ACTIONS = new Set(['toggleSwitch', 'toggleBreaker', 'toggleGenerator']);
 
 function hoveredPlaceableId(hoverTarget) {
   const match = /^(?:placeable|equip|furn):(.+)$/.exec(hoverTarget || '');

@@ -27,7 +27,7 @@ function authoredDemand(sink) {
  * Map dynamic HV sink port keys to their actual connected downstream demand.
  * Each tracked inlet remains capped by its authored nameplate demand.
  */
-export function computeElectricalSinkDemands(networksByType) {
+export function computeElectricalSinkDemands(networksByType, worldState = null) {
   const hvNetworks = networksByType?.get?.('hvCable') || [];
   const powerNetworks = networksByType?.get?.('powerCable') || [];
   const hvBySource = networksSuppliedByDevice(hvNetworks);
@@ -42,6 +42,14 @@ export function computeElectricalSinkDemands(networksByType) {
   const deviceDemand = (placeableId, visiting = new Set()) => {
     if (memo.has(placeableId)) return memo.get(placeableId);
     if (visiting.has(placeableId)) return 0;
+    // An open or tripped device cannot draw its downstream load through the
+    // upstream feeder. Without this isolation, its outputs correctly went
+    // dark while the parent cable still appeared to carry the old load.
+    const live = worldState?.powerReliability?.devices?.[placeableId];
+    if (live?.breakerTripped === true || live?.breakerOpen === true) {
+      memo.set(placeableId, 0);
+      return 0;
+    }
     const nextVisiting = new Set(visiting);
     nextVisiting.add(placeableId);
     let demand = 0;
@@ -75,4 +83,3 @@ export function resolvedElectricalSinkDemand(worldState, sink) {
   const resolved = worldState?.electricalSinkDemands?.get?.(sink?.portKey);
   return Number.isFinite(resolved) ? resolved : authoredDemand(sink);
 }
-

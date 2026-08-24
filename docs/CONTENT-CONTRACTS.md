@@ -249,6 +249,11 @@ the short authoring contract.
   tension attached cable, but remain ordinary demand-counted loads and add no
   output capacity. Exposed-tube RF sources remain single-ended. Other ordinary
   load inlets remain single-ended, and no tap may parallel live sources.
+- Breakers on distribution and source equipment may be opened manually. An
+  open or tripped breaker contributes zero downstream capacity and presents
+  zero downstream demand to its upstream feeder; closing it restores both on
+  the next solve. Breaker trip decisions use the solver-published demand on
+  the protected output network, never an equipment nameplate estimate.
 - Any electrical sink with demand strictly above 50 kW must use `hvCable`.
   Loads at or below 50 kW may remain on the green `powerCable`; purpose-built
   equipment may still use an authored HV connection below that threshold.
