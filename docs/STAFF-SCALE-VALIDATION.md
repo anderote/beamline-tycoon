@@ -18,10 +18,11 @@ any employee does not arrive or the route-start budget is exceeded. Timing is
 diagnostic rather than a hard cross-machine gate; the functional contract also
 runs in `test/test-staff-scale.js`.
 
-## Owner browser/profile checklist
+## Owner-authorized browser/profile checklist
 
-Repository agents do not run browser or gameplay validation. The owner should
-profile this checklist on target hardware after a staff-rendering change:
+The owner may profile this checklist directly or explicitly authorize a
+repository agent to run it for the current task. Profile on target hardware
+after a staff-rendering change:
 
 1. Create or load facilities with approximately 25, 50, and 100 employees.
 2. At normal zoom, center the camera on a busy control room/cafeteria transition
