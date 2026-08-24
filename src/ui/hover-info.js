@@ -291,7 +291,7 @@ export function utilityNetworkHoverInfo(descriptor, flow) {
     );
     if (Number.isFinite(flow.volumeL)) detailSegments.push(
       { text: ' · ' },
-      { text: `Volume: ${fmtNumber(flow.volumeL)} L (pipe ${fmtNumber(volume.beamPipeL || 0)}, service ${fmtNumber(volume.servicePipeL || 0)}, chambers ${fmtNumber(volume.componentChambersL || 0)})` },
+      { text: `Volume: ${fmtNumber(flow.volumeL)} L (utility pipe ${fmtNumber(volume.servicePipeL || 0)}, beamline pipe ${fmtNumber(volume.beamPipeL || 0)}, beamline components ${fmtNumber(volume.componentChambersL || 0)})` },
     );
   } else {
     detailSegments = [

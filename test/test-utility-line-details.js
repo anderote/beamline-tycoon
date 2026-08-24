@@ -144,7 +144,7 @@ assert(vacuumHistory[0].roughingCapacity === 15
   'vacuum telemetry copies solver-published stage capacity and volume sources');
 assert((vacuumHtml.match(/class="utility-performance-plot"/g) || []).length === 3
     && vacuumHtml.includes('Pumping capacity by stage')
-    && vacuumHtml.includes('325.0 L evacuated · pipe 100.0 · service 25.0 · chambers 200.0'),
+    && vacuumHtml.includes('325.0 L evacuated · utility pipe 25.0 · beamline pipe 100.0 · beamline components 200.0'),
   'vacuum performance tab plots stage capacities and captions the volume breakdown');
 
 console.log(`\n${passed} passed, ${failed} failed`);

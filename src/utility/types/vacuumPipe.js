@@ -762,9 +762,9 @@ export default {
       </div>
       <div class="vacuum-breakdown-heading"><strong>Evacuated volume</strong><span>What the active pump stage is evacuating</span></div>
       <div class="vacuum-volume-grid">
-        <div><span>Beam pipe</span><strong>${escape((volume.beamPipeL || 0).toFixed(1))} L</strong></div>
-        <div><span>Service pipe</span><strong>${escape((volume.servicePipeL || 0).toFixed(1))} L</strong></div>
-        <div><span>Component chambers</span><strong>${escape((volume.componentChambersL || 0).toFixed(1))} L</strong></div>
+        <div><span>Utility pipe</span><strong>${escape((volume.servicePipeL || 0).toFixed(1))} L</strong></div>
+        <div><span>Beamline pipe</span><strong>${escape((volume.beamPipeL || 0).toFixed(1))} L</strong></div>
+        <div><span>Beamline components</span><strong>${escape((volume.componentChambersL || 0).toFixed(1))} L</strong></div>
         <div class="is-total"><span>Total</span><strong>${escape((flow.volumeL || 0).toFixed(1))} L</strong></div>
       </div>
       ${renderVacuumPressureGraph(flow, viewOptions.vacuumHistoryRangeTicks)}

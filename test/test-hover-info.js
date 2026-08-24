@@ -166,7 +166,7 @@ const vacuumNetwork = utilityNetworkHoverInfo(UTILITY_TYPES.vacuumPipe, {
   perSinkQuality: { 'source:vac_in': 0.98 },
 });
 assert(vacuumNetwork.detail
-    === 'Pressure: 1.33e-8 mbar · High vacuum: 1,722 L/s effective · Capacity R 15 / H 1,722 / U 600 L/s · Gas load: 1.00e-6 mbar·L/s · Volume: 250 L (pipe 80, service 20, chambers 150)',
+    === 'Pressure: 1.33e-8 mbar · High vacuum: 1,722 L/s effective · Capacity R 15 / H 1,722 / U 600 L/s · Gas load: 1.00e-6 mbar·L/s · Volume: 250 L (utility pipe 20, beamline pipe 80, beamline components 150)',
   `vacuum hover reports pressure-stage capacity, gas throughput, and volume sources (${vacuumNetwork.detail})`);
 assert(!vacuumNetwork.detail.includes('Demand: 0 L/s'),
   'vacuum hover never rounds gas throughput to a dimensionally incorrect zero-L/s demand');
