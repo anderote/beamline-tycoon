@@ -1,10 +1,7 @@
-// Category-aware context panel for mixed marquee selections.
+// Compact category-and-actions panel for multi-object selections.
 
 import { ContextWindow } from './ContextWindow.js';
-import {
-  SELECTION_CATEGORIES,
-  selectionTargetPosition,
-} from '../game/selection-targets.js';
+import { SELECTION_CATEGORIES } from '../game/selection-targets.js';
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, char => ({
@@ -29,7 +26,7 @@ export function selectionCategoryRows(candidates, selectedKeys) {
   });
 }
 
-export function selectionActionAvailability(entries, clipboardCount = 0) {
+export function selectionActionAvailability(entries) {
   const selected = entries || [];
   const copyable = selected.filter(
     target => target.selectionCategory !== 'beamline',
@@ -41,15 +38,14 @@ export function selectionActionAvailability(entries, clipboardCount = 0) {
     movableCount: movable.length,
     copyExcludedCount: selected.length - copyable.length,
     moveExcludedCount: selected.length - movable.length,
-    clipboardCount: Number(clipboardCount) || 0,
     hasBeamline: selected.some(target => target.selectionCategory === 'beamline'),
   };
 }
 
 function compatibleActionTitle(action, included, excluded) {
   const base = action === 'copy'
-    ? `Copy ${included} compatible item${included === 1 ? '' : 's'} to the formation clipboard`
-    : `${action} ${included} movable item${included === 1 ? '' : 's'}`;
+    ? `Duplicate ${included} compatible item${included === 1 ? '' : 's'} and attach the copy to the cursor`
+    : `Move ${included} movable item${included === 1 ? '' : 's'} together`;
   return excluded > 0
     ? `${base}; ${excluded} incompatible selected item${excluded === 1 ? '' : 's'} will be excluded`
     : base;
@@ -90,21 +86,19 @@ export class SelectionWindow {
     const selectedKeys = this._selectedKeys();
     const rows = selectionCategoryRows(candidates, selectedKeys);
     container.innerHTML = '<div class="selection-panel">'
-      + '<div class="selection-panel-heading">Include categories</div>'
+      + '<div class="selection-panel-heading">Included categories</div>'
       + '<div class="selection-category-list" role="group" aria-label="Selection categories"></div>'
-      + '<div class="selection-panel-heading selection-panel-items-heading">Selected objects</div>'
-      + '<div class="selection-panel-list"></div>'
-      + '<div class="selection-panel-help">Click a category to include/exclude it · M mirrors selected beamline ports</div>'
       + '</div>';
 
     const categories = container.querySelector('.selection-category-list');
-    for (const row of rows) {
+    for (const row of rows.filter(candidate => candidate.count > 0)) {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = `selection-category${row.enabled ? ' active' : ''}`;
       button.disabled = row.count === 0;
       button.dataset.selectionCategory = row.key;
       button.setAttribute('aria-pressed', row.enabled ? 'true' : 'false');
+      button.title = `${row.enabled ? 'Exclude' : 'Include'} ${row.label} items`;
       button.innerHTML = `<span class="selection-category-check">${row.enabled ? '✓' : ''}</span>`
         + `<span class="selection-category-name">${escapeHtml(row.label)}</span>`
         + `<span class="selection-category-count">${row.selectedCount}/${row.count}</span>`;
@@ -114,80 +108,40 @@ export class SelectionWindow {
       });
       categories.appendChild(button);
     }
-
-    const list = container.querySelector('.selection-panel-list');
-    for (const row of rows) {
-      if (!row.count) continue;
-      const heading = document.createElement('div');
-      heading.className = `selection-panel-category-heading${row.enabled ? '' : ' disabled'}`;
-      heading.textContent = `${row.label} · ${row.selectedCount} selected`;
-      list.appendChild(heading);
-      for (const target of row.targets) {
-        const item = document.createElement('div');
-        const active = selectedKeys.has(target.key);
-        item.className = `selection-panel-item${active ? '' : ' excluded'}`;
-        item.innerHTML = `<span class="selection-panel-item-name">${escapeHtml(target.name)}</span>`
-          + `<span class="selection-panel-item-kind">${escapeHtml(target.targetKind)}</span>`
-          + `<span class="selection-panel-item-position">${escapeHtml(selectionTargetPosition(target))}</span>`;
-        list.appendChild(item);
-      }
-    }
-
   }
 
   _updateActions() {
     const entries = this._selected();
-    const clipboardCount = this.selectionActions.getClipboardCount?.() || 0;
-    const availability = selectionActionAvailability(entries, clipboardCount);
+    const availability = selectionActionAvailability(entries);
     const {
       selectedCount, copyableCount, movableCount, copyExcludedCount,
       moveExcludedCount,
     } = availability;
     this.ctx.setActions([
       {
-        label: moveExcludedCount > 0 && movableCount > 0
-          ? `Move compatible (${movableCount})`
-          : 'Move selection',
-        hotkey: 'P',
-        title: compatibleActionTitle('Move', movableCount, moveExcludedCount),
-        disabled: movableCount === 0,
-        onClick: () => this.selectionActions.onPlace?.(),
-      },
-      {
-        label: copyExcludedCount > 0 && copyableCount > 0
-          ? `Copy compatible (${copyableCount})`
-          : 'Copy',
+        label: 'Copy',
         hotkey: 'C',
         title: copyableCount === 0 && availability.hasBeamline
           ? 'Beamline hardware copies through the Designer'
           : compatibleActionTitle('copy', copyableCount, copyExcludedCount),
         disabled: copyableCount === 0,
-        onClick: () => {
-          this.selectionActions.onCopyToClipboard?.();
-          this.refresh();
-        },
+        onClick: () => this.selectionActions.onCopy?.(),
       },
       {
-        label: clipboardCount ? `Paste (${clipboardCount})` : 'Paste',
-        disabled: clipboardCount === 0,
-        onClick: () => this.selectionActions.onPaste?.(),
-      },
-      {
-        label: 'Rotate group',
-        title: compatibleActionTitle('Rotate', movableCount, moveExcludedCount),
+        label: 'Move',
+        hotkey: 'P',
+        title: compatibleActionTitle('move', movableCount, moveExcludedCount),
         disabled: movableCount === 0,
-        onClick: () => this.selectionActions.onRotate?.(),
+        onClick: () => this.selectionActions.onPlace?.(),
       },
       {
-        label: 'Mirror group',
-        title: compatibleActionTitle('Mirror', movableCount, moveExcludedCount),
-        disabled: movableCount === 0,
-        onClick: () => this.selectionActions.onMirror?.(),
-      },
-      {
-        label: this.game?.sandboxMode ? 'Delete active (no refund)' : 'Delete active (50% refund)',
+        label: 'Delete',
         hotkey: 'Del',
         variant: 'danger',
+        title: availability.hasBeamline
+          ? 'Exclude Beamline before deleting; beamline deletion is protected'
+          : this.game?.sandboxMode ? 'Delete the active selection with no refund'
+            : 'Delete the active selection for a 50% refund',
         disabled: selectedCount === 0 || availability.hasBeamline,
         onClick: () => {
           const removed = this.selectionActions.onDemolish?.() || [];

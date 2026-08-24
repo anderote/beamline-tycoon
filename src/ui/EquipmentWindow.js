@@ -63,50 +63,6 @@ export class EquipmentWindow {
   }
 
   _updateActions() {
-    const selectionCount = this._selectionEntries().length;
-    if (selectionCount > 1) {
-      const clipboardCount = this.selectionActions.getClipboardCount?.() || 0;
-      this.ctx.setActions([
-        {
-          label: 'Move selection',
-          hotkey: 'P',
-          title: 'Pick up the complete selection and place it together',
-          onClick: () => this.selectionActions.onPlace?.(this.equip.id),
-        },
-        {
-          label: 'Copy',
-          hotkey: 'C',
-          title: 'Copy the selection and its internal utility connections to the formation clipboard',
-          onClick: () => {
-            this.selectionActions.onCopyToClipboard?.(this.equip.id);
-            this.refresh();
-          },
-        },
-        {
-          label: clipboardCount > 0 ? `Paste (${clipboardCount})` : 'Paste',
-          title: clipboardCount > 0
-            ? 'Attach the copied formation to the cursor'
-            : 'Copy a selection before pasting it',
-          disabled: clipboardCount === 0,
-          onClick: () => this.selectionActions.onPaste?.(),
-        },
-        {
-          label: 'Rotate group',
-          title: 'Pick up the selection rotated 90°; F rotates again while placing',
-          onClick: () => this.selectionActions.onRotate?.(this.equip.id),
-        },
-        {
-          label: 'Mirror group',
-          title: 'Pick up and mirror the selection; M mirrors again while placing',
-          onClick: () => this.selectionActions.onMirror?.(this.equip.id),
-        },
-        { label: this.game?.sandboxMode ? 'Delete all (no refund)' : 'Delete all (50% refund)', hotkey: 'Del', variant: 'danger', onClick: () => {
-          const removedIds = this.selectionActions.onDemolish?.(this.equip.id) || [];
-          for (const id of removedIds) ContextWindow.getWindow('equip-' + id)?.close();
-        }},
-      ]);
-      return;
-    }
     const actions = [
       ...(this.game?.getPowerDeviceActions?.(this.equip.id) || []).map(action => ({
         label: action.label,
@@ -143,15 +99,10 @@ export class EquipmentWindow {
   }
 
   _updateTitle() {
-    const count = this._selectionEntries().length;
-    this.ctx?._el?.classList.toggle('selection-group-window', count > 1);
-    this.ctx?.setTitle(count > 1 ? `${count} Items Selected` : this.comp.name);
-    if (count === 1) {
-      const operational = EquipmentWindow.prototype._operationalStatus.call(this);
-      this.ctx?.setStatus?.(operational.label, operational.color);
-    } else {
-      this.ctx?.setStatus?.('', '');
-    }
+    this.ctx?._el?.classList.remove('selection-group-window');
+    this.ctx?.setTitle(this.comp.name);
+    const operational = EquipmentWindow.prototype._operationalStatus.call(this);
+    this.ctx?.setStatus?.(operational.label, operational.color);
   }
 
   _operationalStatus() {
@@ -160,36 +111,9 @@ export class EquipmentWindow {
     });
   }
 
-  _selectionEntries() {
-    const entries = this.selectionActions.getSelectionEntries?.(this.equip.id);
-    return Array.isArray(entries) && entries.length ? entries : [this.equip];
-  }
-
-  _renderGroupInfo(container, entries) {
-    container.innerHTML = '<div class="selection-panel">'
-      + '<div class="selection-panel-heading">Selected items</div>'
-      + '<div class="selection-panel-list"></div>'
-      + '</div>';
-
-    const list = container.querySelector('.selection-panel-list');
-    for (const item of selectionWindowItems(entries)) {
-      const row = document.createElement('div');
-      row.className = 'selection-panel-item';
-      row.innerHTML = `<span class="selection-panel-item-name">${escapeHtml(item.name)}</span>`
-        + `<span class="selection-panel-item-kind">${escapeHtml(item.category)}</span>`
-        + `<span class="selection-panel-item-position">${item.position}</span>`;
-      list.appendChild(row);
-    }
-  }
-
   _renderInfo(container) {
     const comp = this.comp;
     const equip = this.equip;
-    const selectionEntries = this._selectionEntries();
-    if (selectionEntries.length > 1) {
-      this._renderGroupInfo(container, selectionEntries);
-      return;
-    }
 
     let html = '<div class="equipment-details">';
     html += `<div class="equipment-name">${comp.name}</div>`;
@@ -269,18 +193,6 @@ export class EquipmentWindow {
     this._updateActions();
     this.ctx.update();
   }
-}
-
-export function selectionWindowItems(entries) {
-  return (entries || []).map(entry => {
-    const def = COMPONENTS[entry?.type] || PLACEABLES[entry?.type] || {};
-    return {
-      id: entry?.id,
-      name: def.name || entry?.type || 'Unknown item',
-      category: entry?.category || def.category || 'general',
-      position: `(${entry?.col ?? '?'}, ${entry?.row ?? '?'})`,
-    };
-  });
 }
 
 function escapeHtml(value) {

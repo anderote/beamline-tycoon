@@ -3,7 +3,6 @@
 import {
   EquipmentWindow,
   equipmentAutoConnectAction,
-  selectionWindowItems,
 } from '../src/ui/EquipmentWindow.js';
 import { reconcileSelectionWindow } from '../src/input/selection-window.js';
 import { COMPONENTS } from '../src/data/components.js';
@@ -56,12 +55,12 @@ console.log('\n=== Multi-selection window ===\n');
     _selected: () => [{
       key: 'edge:1,1,n', targetKind: 'edge', selectionCategory: 'structure',
     }],
-    selectionActions: { getClipboardCount: () => 0 },
+    selectionActions: {},
     ctx: { setActions(next) { actions = next; } },
   };
   SelectionWindow.prototype._updateActions.call(panel);
   assert(actions.find(action => action.label === 'Copy')?.disabled === false
-      && actions.find(action => action.label === 'Move selection')?.disabled === true,
+      && actions.find(action => action.label === 'Move')?.disabled === true,
   'structure-only selections can be copied but cannot be picked up');
 
   panel._selected = () => [{
@@ -78,12 +77,13 @@ console.log('\n=== Multi-selection window ===\n');
     { key: 'wall', targetKind: 'edge', selectionCategory: 'structure' },
   ];
   SelectionWindow.prototype._updateActions.call(panel);
-  assert(actions.find(action => action.label === 'Copy compatible (2)')?.disabled === false
-      && actions.find(action => action.label === 'Move compatible (1)')?.disabled === false,
+  assert(actions.map(action => action.label).join(',') === 'Copy,Move,Delete'
+      && actions.find(action => action.label === 'Copy')?.disabled === false
+      && actions.find(action => action.label === 'Move')?.disabled === false,
   'unsupported items no longer disable compatible formation actions');
-  const availability = selectionActionAvailability(panel._selected(), 3);
+  const availability = selectionActionAvailability(panel._selected());
   assert(availability.copyableCount === 2 && availability.movableCount === 1
-      && availability.clipboardCount === 3,
+      && availability.hasBeamline === true,
   'action availability separates copyable and movable selection subsets');
 }
 
@@ -112,98 +112,62 @@ console.log('\n=== Multi-selection window ===\n');
 }
 
 {
-  const items = selectionWindowItems([
-    { id: 'a', type: 'labBench', category: 'equipment', col: 4, row: 7 },
-    { id: 'b', type: 'flowerBed', category: 'decoration', col: 8, row: 2 },
-  ]);
-  assert(items.length === 2, 'every selected placeable becomes a list row');
-  assert(items[0].name === 'Lab Bench' && items[0].position === '(4, 7)',
-    'rows expose the display name and position');
-  assert(items[1].category === 'decoration', 'rows expose the placeable category');
-}
-
-{
   let actions = [];
-  let copied = null;
-  let pasted = 0;
-  let refreshed = 0;
+  let copied = 0;
   const panel = {
-    equip: { id: 'primary' },
-    _selectionEntries: () => [{ id: 'primary' }, { id: 'other' }],
+    game: { sandboxMode: false },
+    _selected: () => [
+      { key: 'a', targetKind: 'placeable', selectionCategory: 'infra' },
+      { key: 'b', targetKind: 'placeable', selectionCategory: 'facility' },
+    ],
     selectionActions: {
-      getClipboardCount: () => 2,
-      onCopyToClipboard: id => { copied = id; },
-      onPaste: () => { pasted++; },
+      onCopy: () => { copied++; },
     },
     ctx: { setActions(next) { actions = next; } },
-    refresh() { refreshed++; },
   };
-  EquipmentWindow.prototype._updateActions.call(panel);
+  SelectionWindow.prototype._updateActions.call(panel);
   const labels = actions.map(action => action.label);
-  assert(labels.includes('Copy') && labels.includes('Paste (2)')
-      && labels.includes('Rotate group') && labels.includes('Mirror group'),
-  'group window exposes clipboard and transform actions');
+  assert(labels.join(',') === 'Copy,Move,Delete',
+  'the multi-selection window exposes only the three basic actions');
   actions.find(action => action.label === 'Copy').onClick();
-  actions.find(action => action.label === 'Paste (2)').onClick();
-  assert(copied === 'primary' && refreshed === 1,
-    'Copy targets the complete anchored selection and refreshes slot state');
-  assert(pasted === 1, 'Paste recalls the formation clipboard');
-}
-
-{
-  let actions = [];
-  const panel = {
-    equip: { id: 'primary' },
-    _selectionEntries: () => [{ id: 'primary' }, { id: 'other' }],
-    selectionActions: { getClipboardCount: () => 0 },
-    ctx: { setActions(next) { actions = next; } },
-  };
-  EquipmentWindow.prototype._updateActions.call(panel);
-  assert(actions.find(action => action.label === 'Paste')?.disabled === true,
-    'Paste is disabled until a formation has been copied');
+  assert(copied === 1, 'Copy immediately invokes the group-copy action');
 }
 
 {
   const priorDocument = globalThis.document;
   const makeNode = () => ({
     dataset: {},
-    appendChild() {},
+    children: [],
+    appendChild(child) { this.children.push(child); },
     addEventListener() {},
     setAttribute() {},
   });
   globalThis.document = { createElement: makeNode };
 
   const categories = makeNode();
-  const list = makeNode();
   const selectionContainer = {
     innerHTML: '',
     querySelector(selector) {
       if (selector === '.selection-category-list') return categories;
-      if (selector === '.selection-panel-list') return list;
       return null;
     },
   };
   SelectionWindow.prototype._render.call({
-    _candidates: () => [],
-    _selectedKeys: () => new Set(),
+    _candidates: () => [
+      { key: 'beam', selectionCategory: 'beamline' },
+      { key: 'panel', selectionCategory: 'infra' },
+    ],
+    _selectedKeys: () => new Set(['beam', 'panel']),
     selectionActions: {},
     refresh() {},
   }, selectionContainer);
 
-  const equipmentContainer = {
-    innerHTML: '',
-    querySelector: selector => selector === '.selection-panel-list' ? list : null,
-  };
-  EquipmentWindow.prototype._renderGroupInfo.call({ selectionActions: {} }, equipmentContainer, [
-    { id: 'a', type: 'labBench', category: 'equipment', col: 1, row: 2 },
-    { id: 'b', type: 'labBench', category: 'equipment', col: 3, row: 4 },
-  ]);
-
-  assert(!selectionContainer.innerHTML.includes('Save selection')
-      && !selectionContainer.innerHTML.includes('selection-panel-slots')
-      && !equipmentContainer.innerHTML.includes('Save selection')
-      && !equipmentContainer.innerHTML.includes('selection-panel-slots'),
-  'selection panels no longer show the persistent save-selection slot block');
+  assert(categories.children.length === 2,
+    'the compact panel renders only categories present in the selection');
+  assert(!selectionContainer.innerHTML.includes('Selected objects')
+      && !selectionContainer.innerHTML.includes('selection-panel-list')
+      && !selectionContainer.innerHTML.includes('selection-panel-help'),
+  'the compact panel omits item inventory and instructional detail');
 
   if (priorDocument === undefined) delete globalThis.document;
   else globalThis.document = priorDocument;
