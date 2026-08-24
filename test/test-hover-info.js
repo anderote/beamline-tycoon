@@ -101,6 +101,10 @@ const network = utilityNetworkHoverInfo(UTILITY_TYPES.powerCable, {
 assert(network.title === 'Power Cable Network', 'network hover names the utility');
 assert(network.detail === 'Supply: 100 kW · Demand: 75 kW',
   `network hover labels numeric supply and demand (${network.detail})`);
+assert(network.detailRows.length === 2
+    && network.detailRows[0][0].text === 'Supply: 100 kW'
+    && network.detailRows[1][0].text === 'Demand: 75 kW',
+  'network hover gives supply and demand their own rows');
 assert(network.detailSegments[0].tone === 'supply'
     && network.detailSegments[2].tone === 'healthy',
   'network hover is green when supply exceeds demand');
@@ -168,6 +172,9 @@ const vacuumNetwork = utilityNetworkHoverInfo(UTILITY_TYPES.vacuumPipe, {
 assert(vacuumNetwork.detail
     === 'Pressure: 1.33e-8 mbar · High vacuum: 1,722 L/s effective · Capacity R 15 / H 1,722 / U 600 L/s · Gas load: 1.00e-6 mbar·L/s · Volume: 250 L (utility pipe 20, beamline pipe 80, beamline components 150)',
   `vacuum hover reports pressure-stage capacity, gas throughput, and volume sources (${vacuumNetwork.detail})`);
+assert(vacuumNetwork.detailRows.length === 5
+    && vacuumNetwork.detailRows.every(row => row.length === 1),
+  'vacuum hover gives every published diagnostic its own row');
 assert(!vacuumNetwork.detail.includes('Demand: 0 L/s'),
   'vacuum hover never rounds gas throughput to a dimensionally incorrect zero-L/s demand');
 assert(vacuumNetwork.detailSegments[0].tone === 'warning'
@@ -180,7 +187,15 @@ function fakeDocument() {
   const textNode = text => ({ textContent: String(text) });
   return {
     createTextNode: textNode,
-    createElement: () => ({ className: '', textContent: '' }),
+    createElement: () => ({
+      className: '',
+      textContent: '',
+      children: [],
+      replaceChildren(...children) {
+        this.children = children;
+        this.textContent = children.map(child => child.textContent).join('');
+      },
+    }),
   };
 }
 
@@ -191,13 +206,20 @@ const detailElement = {
     this.children = children;
     this.textContent = children.map(child => child.textContent).join('');
   },
+  attributes: {},
+  setAttribute(name, value) { this.attributes[name] = value; },
+  removeAttribute(name) { delete this.attributes[name]; },
 };
 renderHoverTooltipDetail(detailElement, warningNetwork);
-assert(detailElement.textContent === warningNetwork.detail,
-  'colored network detail preserves the plain tooltip text');
-assert(detailElement.children[0].className === HOVER_DETAIL_TONE_CLASSES.supply
-    && detailElement.children[2].className === HOVER_DETAIL_TONE_CLASSES.warning,
-  'network detail renderer applies supply and underpower color classes');
+assert(detailElement.children.length === 3
+    && detailElement.children.every(row => row.className === 'hover-tooltip-detail-row'),
+  'utility detail renderer creates one block element per metric or issue');
+assert(detailElement.children[0].children[0].className === HOVER_DETAIL_TONE_CLASSES.supply
+    && detailElement.children[1].children[0].className === HOVER_DETAIL_TONE_CLASSES.warning
+    && detailElement.children[2].children[0].className === HOVER_DETAIL_TONE_CLASSES.warning,
+  'row-based network detail renderer preserves metric and issue colors');
+assert(detailElement.attributes['aria-label'] === warningNetwork.detail,
+  'row-based network detail keeps the complete plain-text summary for assistive technology');
 
 const titleElement = {
   ownerDocument: fakeDocument(),
@@ -223,6 +245,8 @@ assert(titleElement.attributes['aria-label'] === 'Chiller: Needs attention',
 const styles = readFileSync(new URL('../style.css', import.meta.url), 'utf8');
 assert(/\.hover-tooltip:not\(\.demolish-tooltip\):not\(\.drag-cost-tooltip\)\s*\{[^}]*width:\s*240px[^}]*white-space:\s*normal[^}]*overflow-wrap:\s*anywhere/s.test(styles),
   'world hover tooltips have a stable wrapping width');
+assert(/\.hover-tooltip-detail-row\s*\{[^}]*display:\s*block/s.test(styles),
+  'utility metric rows have an explicit block layout');
 
 const furnishing = furnishingHoverInfo({
   name: 'Operator Desk',
@@ -255,8 +279,7 @@ assert(idleStaff.detail === 'Nothing to do right now.',
 
 for (const info of [
   cavity, panel, actionablePanel, actionableHvDistributor, packageChiller, makeUpTank, facilityWater,
-  bulkWater, network, exactlyCoveredNetwork, warningNetwork, criticalNetwork,
-  mismatchNetwork, hardFaultNetwork, vacuumNetwork, furnishing, workingStaff, idleStaff,
+  bulkWater, furnishing, workingStaff, idleStaff,
 ]) {
   assert(info && !info.title.includes('\n') && !info.detail.includes('\n'),
     `${info?.title || 'hover'} is limited to two logical lines`);
