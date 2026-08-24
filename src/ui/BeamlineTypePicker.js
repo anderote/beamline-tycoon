@@ -302,6 +302,13 @@ function researchPathForRoots(rootIds, researchState) {
 
 /** Remaining component research before a particular stock design is honest. */
 export function designUnlockPath(design, researchState) {
+  // Sandbox publishes the same unlock contract consumed by the build palette
+  // and placement paths through Game.isComponentUnlocked(). The picker only
+  // has the serializable state here, so honor that rule before reconstructing
+  // a component research path of its own. Otherwise Sandbox can place every
+  // part but the New Beamline shelf still marks the predesigned machine locked.
+  if (researchState?.scenarioRules?.unlockAllComponents === true) return [];
+
   const roots = [];
   for (const part of design?.components || []) {
     const req = COMPONENTS[part.type]?.requires;
