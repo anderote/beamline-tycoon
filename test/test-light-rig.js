@@ -816,6 +816,38 @@ test('a held assignment still tracks its fixture and still finishes an in-flight
     'and the paired pool suppression was published, so the fixture is not double-bright');
 });
 
+test('deferred shadows preserve queued work and resume within the normal frame budget', () => {
+  const scene = new SceneStub();
+  for (let i = 0; i < 4; i++) placeFixture(scene, `defer-${i}`, DEF.lamppost, i * 4, 0);
+  const rig = new LightRig(scene, {
+    shadowSpotCount: 4,
+    activeShadowSpotCount: 4,
+    pointCount: 1,
+    shadowHz: 30,
+    shadowUpdatesPerFrame: 1,
+  });
+  const camera = { position: new V3(0, 0, 0) };
+
+  rig.update(camera, 1, 0.05, null, null, { deferShadows: true });
+  assert.equal(rig.getStats().shadowUpdatesLastFrame, 0,
+    'camera motion issues no fixture shadow pass');
+  assert.equal(rig.getStats().fixtureShadowQueuePending, 0,
+    'deferral does not advance the scheduler into a false submitted state');
+
+  rig.update(camera, 1, 0.05);
+  assert.equal(rig.getStats().shadowUpdatesLastFrame, 1,
+    'the first admitted settled frame resumes queued assignment work');
+  assert.equal(rig.getStats().fixtureShadowUpdatesPendingRender, 1,
+    'resumption keeps the configured one-shadow-per-frame ceiling');
+
+  // This is the GPU-back-pressure case: once a refresh has been marked, an
+  // animation tick that cannot submit must leave the flag intact for the next
+  // admitted render instead of erasing it.
+  rig.update(camera, 1, 0.05, null, null, { deferShadows: true });
+  assert.equal(rig.getStats().fixtureShadowUpdatesPendingRender, 1,
+    'a skipped GPU frame cannot silently clear its scheduled shadow refresh');
+});
+
 test('a fixture leaving the world overrides the camera-animation hold', () => {
   // A hold must never outlast a demolition: a light burning over a lamppost
   // the player just knocked down is worse than any amount of ranking churn.

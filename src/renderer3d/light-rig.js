@@ -360,6 +360,9 @@ export class LightRig {
       assignedFixtureShadows: this._spotSlots.slice(0, this._activeShadowSpotCount)
         .filter((slot) => slot.assignedRef && slot.light.intensity > 0).length,
       shadowUpdatesLastFrame: this._shadowUpdatesLastFrame,
+      fixtureShadowUpdatesPendingRender: this._spotSlots
+        .slice(0, this._activeShadowSpotCount)
+        .filter((slot) => slot.light.shadow.needsUpdate).length,
       fixtureShadowQueuePending: this._shadowScheduler.pendingCount,
       fixtureShadowMapSize: this._shadowMapSize,
       fixtureShadowHz: this._shadowHz,
@@ -444,6 +447,10 @@ export class LightRig {
    * @param {object} [options]
    * @param {boolean} [options.freezeAssignment=false] hold the current
    *        fixture-to-spot assignment instead of re-ranking. See _assignSpots.
+   * @param {boolean} [options.deferShadows=false] preserve queued shadow work
+   *        without issuing a shadow-map render this frame. Camera interaction
+   *        and GPU back-pressure use this so a costly full-scene depth pass
+   *        cannot stall the frame the player is trying to move.
    */
   update(camera, nightFactor, dt, focusPoint = null, effectTimeMs = null, options = {}) {
     const dtMs = Number.isFinite(dt) && dt > 0 ? dt * 1000 : 0;
@@ -484,7 +491,7 @@ export class LightRig {
       focus, nf, dtMs, camera,
       options.freezeAssignment === true && !candidatesChanged,
     );
-    this._scheduleShadows(nf, dtMs);
+    this._scheduleShadows(nf, dtMs, options.deferShadows === true);
     this._assignPoints(focus, nf);
   }
 
@@ -814,7 +821,17 @@ export class LightRig {
     this._shadowAssignmentKeys[index] = null;
   }
 
-  _scheduleShadows(nightFactor, dtMs) {
+  _scheduleShadows(nightFactor, dtMs, defer = false) {
+    // Do not even clear needsUpdate while a GPU submission is being skipped.
+    // A refresh scheduled on the preceding animation tick may still be
+    // waiting for the next admitted render; clearing it here would silently
+    // lose that work. The scheduler's dirty bits and cadence also stay put,
+    // so camera interaction never accumulates wall-clock shadow debt and the
+    // first settled frame resumes with at most the ordinary per-frame budget.
+    if (defer) {
+      this._shadowUpdatesLastFrame = 0;
+      return;
+    }
     const hasLitFixture = this._spotSlots.some((slot, index) =>
       index < this._activeShadowSpotCount && slot.assignedRef && slot.light.intensity > 0.01);
     for (let i = 0; i < this._shadowSpotCount; i++) {
