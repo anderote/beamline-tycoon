@@ -5,7 +5,11 @@ import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
 import { COMPONENTS } from '../src/data/components.js';
 import { PLACEABLES } from '../src/data/placeables/index.js';
 import { getUtilityPortsV2 } from '../src/data/utility-ports-v2.js';
-import { INDOOR_HV_RACK_TERMINAL_Y, PORT_ANCHOR_OVERRIDES } from '../src/data/utility-port-anchors.js';
+import {
+  INDOOR_DATA_RACK_TERMINAL_Y,
+  INDOOR_HV_RACK_TERMINAL_Y,
+  PORT_ANCHOR_OVERRIDES,
+} from '../src/data/utility-port-anchors.js';
 import { MODES } from '../src/data/modes.js';
 import { Game } from '../src/game/Game.js';
 import { usesFloorOccupancy } from '../src/game/placement.js';
@@ -19,24 +23,44 @@ function gameWithFunds(seed = 8801) {
   return game;
 }
 
-test('elevated wire tray carries power and data below indoor HV terminals', () => {
-  const tray = PLACEABLES.elevatedWireTray;
-  const ports = getUtilityPortsV2(tray.id);
-  assert.equal(tray.deprecated, undefined);
-  assert.equal(tray.mount, 'overhead');
-  assert.equal(usesFloorOccupancy(tray), false);
-  assert.equal(PORT_ANCHOR_OVERRIDES.elevatedWireTray._default.y, 1.78);
-  assert.equal(Math.max(...tray.parts.map(part => (part.y + part.h) * 0.5)), 1.78,
-    'the visible tray deck tops out at the authored cable datum');
-  assert.ok(PORT_ANCHOR_OVERRIDES.elevatedWireTray._default.y < INDOOR_HV_RACK_TERMINAL_Y);
-  assert.equal(Object.values(ports).filter(port => port.utility === 'powerCable').length, 8);
-  assert.equal(Object.values(ports).filter(port => port.utility === 'dataFiber').length, 2);
-  assert.deepEqual(tray.electricalGroups.powerCable, [
+test('indoor data rack is one taut bus below a co-located compact HV rack', () => {
+  const rack = PLACEABLES.elevatedWireTray;
+  const hvRack = PLACEABLES.indoorHvCableRack2Way;
+  const ports = getUtilityPortsV2(rack.id);
+  const activePorts = Object.fromEntries(Object.entries(ports)
+    .filter(([, port]) => !port.legacyOnly));
+  assert.equal(rack.name, 'Indoor Data Cable Rack');
+  assert.equal(rack.deprecated, undefined);
+  assert.equal(rack.category, 'dataControls');
+  assert.equal(rack.subsection, 'transport');
+  assert.equal(rack.mount, 'overhead');
+  assert.equal(usesFloorOccupancy(rack), false);
+  assert.deepEqual([rack.subW, rack.subL], [hvRack.subW, hvRack.subL],
+    'the data and compact HV racks share one 2x2 placement pose');
+  assert.ok(rack.parts.find(part => part.name === 'upright').x > 0
+      && hvRack.parts.find(part => part.name === 'upright').x < 0,
+  'the mirrored uprights remain visible when both racks share a pose');
+  assert.equal(PORT_ANCHOR_OVERRIDES.elevatedWireTray._default.y,
+    INDOOR_DATA_RACK_TERMINAL_Y);
+  assert.equal(INDOOR_DATA_RACK_TERMINAL_Y, 1.55);
+  assert.equal(Math.max(...rack.parts.map(part => (part.y + part.h) * 0.5)),
+    INDOOR_DATA_RACK_TERMINAL_Y,
+  'the visible data saddle tops out at the authored cable datum');
+  assert.ok(INDOOR_DATA_RACK_TERMINAL_Y < INDOOR_HV_RACK_TERMINAL_Y);
+  assert.deepEqual(Object.keys(activePorts).sort(), ['data_bus', 'data_tap_right']);
+  assert.equal(activePorts.data_bus.utility, 'dataFiber');
+  assert.equal(activePorts.data_bus.maxConnections, 2,
+    'one supported bus clamp accepts the incoming and continuing spans');
+  assert.equal(activePorts.data_bus.tensionsCable, true);
+  assert.equal(activePorts.data_tap_right.maxConnections, 1);
+  assert.equal(activePorts.data_tap_right.tensionsCable, true);
+  assert.equal(Object.values(ports)
+    .filter(port => port.utility === 'powerCable' && !port.legacyOnly).length, 0);
+  assert.deepEqual(rack.electricalGroups.powerCable, [
     ['pwr_in_1', 'pwr_out_1'], ['pwr_in_2', 'pwr_out_2'],
     ['pwr_in_3', 'pwr_out_3'], ['pwr_in_4', 'pwr_out_4'],
-  ]);
-  assert.ok(MODES.infra.categories.dataControls.subsections.transport
-    .linkedPlaceables.includes(tray.id));
+  ], 'retired tray conductors remain isolated when an old save loads');
+  assert.equal(MODES.infra.categories.dataControls.subsections.transport.name, 'Transport');
   assert.equal(PLACEABLES.indoorHvCableCornerRack.deprecated, true);
 });
 

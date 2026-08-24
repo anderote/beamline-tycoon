@@ -1538,16 +1538,28 @@ const INFRA_UTILITY_PORTS = {
     pwr_out_4: { utility: 'powerCable', side: 'front', offsetAlong: 0.80, role: 'pass', connectionKind: 'powerPassThroughOut', params: { fieldCapacity: 160 } },
   },
   elevatedWireTray: {
-    pwr_in_1: { utility: 'powerCable', side: 'back', offsetAlong: 0.15, role: 'pass', connectionKind: 'powerPassThroughIn', params: { fieldCapacity: 160 } },
-    pwr_in_2: { utility: 'powerCable', side: 'back', offsetAlong: 0.32, role: 'pass', connectionKind: 'powerPassThroughIn', params: { fieldCapacity: 160 } },
-    pwr_in_3: { utility: 'powerCable', side: 'back', offsetAlong: 0.49, role: 'pass', connectionKind: 'powerPassThroughIn', params: { fieldCapacity: 160 } },
-    pwr_in_4: { utility: 'powerCable', side: 'back', offsetAlong: 0.66, role: 'pass', connectionKind: 'powerPassThroughIn', params: { fieldCapacity: 160 } },
-    data_in: { utility: 'dataFiber', side: 'back', offsetAlong: 0.84, role: 'pass', connectionKind: 'dataTrayPassThrough', params: {} },
-    pwr_out_1: { utility: 'powerCable', side: 'front', offsetAlong: 0.15, role: 'pass', connectionKind: 'powerPassThroughOut', params: { fieldCapacity: 160 } },
-    pwr_out_2: { utility: 'powerCable', side: 'front', offsetAlong: 0.32, role: 'pass', connectionKind: 'powerPassThroughOut', params: { fieldCapacity: 160 } },
-    pwr_out_3: { utility: 'powerCable', side: 'front', offsetAlong: 0.49, role: 'pass', connectionKind: 'powerPassThroughOut', params: { fieldCapacity: 160 } },
-    pwr_out_4: { utility: 'powerCable', side: 'front', offsetAlong: 0.66, role: 'pass', connectionKind: 'powerPassThroughOut', params: { fieldCapacity: 160 } },
-    data_out: { utility: 'dataFiber', side: 'front', offsetAlong: 0.84, role: 'pass', connectionKind: 'dataTrayPassThrough', params: {} },
+    data_bus: {
+      utility: 'dataFiber', side: 'front', offsetAlong: 0.40,
+      role: 'pass', connectionKind: 'dataRackSupport', omnidirectional: true,
+      maxConnections: 2, tensionsCable: true, params: {},
+    },
+    data_tap_right: {
+      utility: 'dataFiber', side: 'right', offsetAlong: 0.5,
+      role: 'pass', connectionKind: 'dataRackTap', omnidirectional: true,
+      maxConnections: 1, tensionsCable: true, params: {},
+    },
+    // Retired mixed-tray connectors remain resolvable for old facilities but
+    // are not shown, snapped to, or usable for new construction.
+    pwr_in_1: { utility: 'powerCable', side: 'back', offsetAlong: 0.15, role: 'pass', connectionKind: 'powerPassThroughIn', legacyOnly: true, params: { fieldCapacity: 160 } },
+    pwr_in_2: { utility: 'powerCable', side: 'back', offsetAlong: 0.32, role: 'pass', connectionKind: 'powerPassThroughIn', legacyOnly: true, params: { fieldCapacity: 160 } },
+    pwr_in_3: { utility: 'powerCable', side: 'back', offsetAlong: 0.49, role: 'pass', connectionKind: 'powerPassThroughIn', legacyOnly: true, params: { fieldCapacity: 160 } },
+    pwr_in_4: { utility: 'powerCable', side: 'back', offsetAlong: 0.66, role: 'pass', connectionKind: 'powerPassThroughIn', legacyOnly: true, params: { fieldCapacity: 160 } },
+    data_in: { utility: 'dataFiber', side: 'back', offsetAlong: 0.84, role: 'pass', connectionKind: 'dataTrayPassThrough', tensionsCable: true, legacyOnly: true, params: {} },
+    pwr_out_1: { utility: 'powerCable', side: 'front', offsetAlong: 0.15, role: 'pass', connectionKind: 'powerPassThroughOut', legacyOnly: true, params: { fieldCapacity: 160 } },
+    pwr_out_2: { utility: 'powerCable', side: 'front', offsetAlong: 0.32, role: 'pass', connectionKind: 'powerPassThroughOut', legacyOnly: true, params: { fieldCapacity: 160 } },
+    pwr_out_3: { utility: 'powerCable', side: 'front', offsetAlong: 0.49, role: 'pass', connectionKind: 'powerPassThroughOut', legacyOnly: true, params: { fieldCapacity: 160 } },
+    pwr_out_4: { utility: 'powerCable', side: 'front', offsetAlong: 0.66, role: 'pass', connectionKind: 'powerPassThroughOut', legacyOnly: true, params: { fieldCapacity: 160 } },
+    data_out: { utility: 'dataFiber', side: 'front', offsetAlong: 0.84, role: 'pass', connectionKind: 'dataTrayPassThrough', tensionsCable: true, legacyOnly: true, params: {} },
   },
   cableRiser: {
     pwr_in_1: { utility: 'powerCable', side: 'back', offsetAlong: 0.33, role: 'pass', connectionKind: 'powerPassThroughIn', params: { fieldCapacity: 80 } },

@@ -9,12 +9,14 @@ import {
   cablePathLengthSubUnits,
   cableSkipsEquipmentCollision,
   draggedCablePath,
+  isCableTensionSpan,
   isHvCableTensionSpan,
   roundedCablePlanarPoints,
   relaxedCableControlPoints,
   sanitizeCablePath,
   softCableControlPoints,
   tautCableControlPoints,
+  tensionedCableControlPoints,
 } from '../src/utility/soft-cable.js';
 
 let passed = 0, failed = 0;
@@ -52,6 +54,20 @@ assert(!isHvCableTensionSpan([
 assert(!isHvCableTensionSpan([
   { def: hvSupport, portName: 'hv' }, { def: null, portName: null },
 ]), 'an open cursor end keeps an HV preview loose');
+
+const dataSupport = {
+  ports: { data: { utility: 'dataFiber', tensionsCable: true } },
+};
+const ordinaryDataPlug = { ports: { data: { utility: 'dataFiber' } } };
+assert(isCableTensionSpan('dataFiber', [
+  { def: dataSupport, portName: 'data' }, { def: dataSupport, portName: 'data' },
+]), 'two data strain-relief anchors tension their shared bus span');
+assert(!isCableTensionSpan('dataFiber', [
+  { def: dataSupport, portName: 'data' }, { def: ordinaryDataPlug, portName: 'data' },
+]), 'an ordinary data plug keeps a rack drop loose');
+assert(!isCableTensionSpan('powerCable', [
+  { def: dataSupport, portName: 'data' }, { def: dataSupport, portName: 'data' },
+]), 'a tension anchor cannot affect another cable utility');
 
 const rightAngle = [
   { x: 0, z: 0 },
@@ -110,6 +126,16 @@ assert(Math.abs(taut[0].y - 6.4) < 1e-9
     && taut[tautMiddleIndex].y < tautMiddleChordY
     && taut[tautMiddleIndex].y > tautMiddleChordY - 0.66,
   'a tensioned suspended span keeps its supports pinned with only shallow sag');
+
+const tightData = tensionedCableControlPoints(
+  'dataFiber',
+  { x: 0, y: 1.55, z: 0 },
+  { x: 10, y: 1.55, z: 0 },
+);
+const tightMiddle = tightData[Math.floor(tightData.length / 2)];
+assert(tightData[0].y === 1.55 && tightData.at(-1).y === 1.55
+    && tightMiddle.y > 1.44,
+  'the indoor data bus is pinned with no more than ten centimetres of sag');
 
 const pooled = softCableControlPoints(trace, {
   start: { x: 0, y: 0.8, z: 0 },

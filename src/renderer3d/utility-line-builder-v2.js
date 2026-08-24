@@ -29,12 +29,13 @@ import { BLOOM_LAYER } from './glow-pipeline.js';
 import { computeLineOrientations } from '../utility/line-orientation.js';
 import {
   draggedCablePath,
-  isHvCableTensionSpan,
+  isCableTensionSpan,
   isSoftCable,
   relaxedCableControlPoints,
   softCableBendRadiusMeters,
   softCableControlPoints,
   tautCableControlPoints,
+  tensionedCableControlPoints,
 } from '../utility/soft-cable.js';
 import {
   utilitySupportFrames,
@@ -390,16 +391,21 @@ function topPortSideDropLanding(ref, placeablesById, anchor) {
   return landing ? { x: landing.x, z: landing.z } : null;
 }
 
-/** HV spans shed drawn slack only between two mechanical tension supports. */
-export function isTensionedHvCable(line, placeablesById) {
-  if (line?.utilityType !== 'hvCable') return false;
+/** Soft cable sheds drawn slack only between two matching tension supports. */
+export function isTensionedCable(line, placeablesById) {
+  if (!isSoftCable(line?.utilityType)) return false;
   // Live previews have no placeable references here; the input controller has
   // already evaluated both snapped endpoints before setting this flag.
   if (!placeablesById) return line.tensioned === true;
-  return isHvCableTensionSpan([line.start, line.end].map(ref => {
+  return isCableTensionSpan(line.utilityType, [line.start, line.end].map(ref => {
     const endpoint = ref ? placeablesById.get(ref.placeableId) : null;
     return { def: COMPONENTS[endpoint?.type], portName: ref?.portName };
   }));
+}
+
+/** Compatibility export for HV-specific callers and contract tests. */
+export function isTensionedHvCable(line, placeablesById) {
+  return line?.utilityType === 'hvCable' && isTensionedCable(line, placeablesById);
 }
 
 function waveguideDropOptions(descriptor) {
@@ -450,12 +456,12 @@ export function buildSoftCableWorldPoints(line, placeablesById, previewAnchors =
   const runY = utilityLineHeight(line.utilityType, line.routeHeightMeters);
   const start = anchorTip(previewAnchors?.start || anchorFor(line.start, placeablesById));
   const end = anchorTip(previewAnchors?.end || anchorFor(line.end, placeablesById));
-  if (isTensionedHvCable(line, placeablesById)) {
+  if (isTensionedCable(line, placeablesById)) {
     const first = laidTrace?.[0];
     const last = laidTrace?.[laidTrace.length - 1];
     const tautStart = start || (first ? { x: first.col * 2, y: runY, z: first.row * 2 } : null);
     const tautEnd = end || (last ? { x: last.col * 2, y: runY, z: last.row * 2 } : null);
-    return tautCableControlPoints(tautStart, tautEnd)
+    return tensionedCableControlPoints(line.utilityType, tautStart, tautEnd)
       .map(point => new THREE.Vector3(point.x, point.y, point.z));
   }
   const trace = draggedCablePath(laidTrace, {
@@ -2816,7 +2822,7 @@ export class UtilityLineBuilderV2 {
       // here would erase those intermediate mechanical supports.
       if (isSoftCable(line.utilityType) && !line.manifold) {
         const initialPoints = buildSoftCableWorldPoints(line, placeablesById, tapAnchors);
-        const tensioned = isTensionedHvCable(line, placeablesById);
+        const tensioned = isTensionedCable(line, placeablesById);
         const floorY = utilityLineHeight(line.utilityType);
         const bendRadius = softCableBendRadiusMeters(line.utilityType);
         const finalPoints = (tensioned ? initialPoints : relaxedCableControlPoints(initialPoints, {

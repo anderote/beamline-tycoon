@@ -2779,23 +2779,26 @@ export const INFRASTRUCTURE_RAW = {
   },
   elevatedWireTray: {
     id: 'elevatedWireTray',
-    name: 'Elevated Wire Tray',
-    desc: 'A stilt-mounted basket tray for ordinary power and data cables. Four numbered power lanes stay electrically isolated while the paired data connectors share one communications pathway. The 1.78 m tray deck runs just below indoor HV rack insulators.',
-    category: 'power', subsection: 'routingHardware',
+    name: 'Indoor Data Cable Rack',
+    desc: 'A compact L-frame support for one taut overhead data bus, with a side tap for equipment drops. Its 1.55 m cable saddle nests below the 2.00 m indoor HV rack terminals, and the mirrored upright lets both racks share the same placement.',
+    category: 'dataControls', subsection: 'transport',
     paletteOrder: 3.625,
     cost: { funding: 26000 },
     stats: {},
     energyCost: 0,
     mount: 'overhead',
-    subL: 4, subW: 2, subH: 4, gridW: 2, gridH: 4,
+    subL: 2, subW: 2, subH: 4, gridW: 2, gridH: 2,
     geometryType: 'box',
     baseMaterial: 'metal_brushed',
-    spriteKey: 'powerBus',
+    spriteKey: 'networkSwitch',
     spriteColor: 0x667277,
     accentColor: 0x51a7c4,
     hasSurface: false,
     placement: 'module',
     ports: {},
+    // Save-only continuity for retired mixed-tray power ports. These groups
+    // are invisible to new construction but must not short old four-circuit
+    // facilities into one conductor after the visual replacement.
     electricalGroups: {
       powerCable: [
         ['pwr_in_1', 'pwr_out_1'], ['pwr_in_2', 'pwr_out_2'],
@@ -2803,21 +2806,17 @@ export const INFRASTRUCTURE_RAW = {
       ],
     },
     parts: [
-      // Parts dimensions use 0.5 m authored units. Every deck part tops out
-      // at the 1.78 m connector/cable-bearing datum.
-      { name: 'left-rail', shape: 'box', w: 0.16, h: 0.16, l: 3.82, x: -0.76, y: 3.40, z: 0, color: 0x667277 },
-      { name: 'right-rail', shape: 'box', w: 0.16, h: 0.16, l: 3.82, x: 0.76, y: 3.40, z: 0, color: 0x667277 },
-      ...[-1.72, -1.15, -0.58, 0, 0.58, 1.15, 1.72].map((z, index) => ({
-        name: `tray-rung-${index + 1}`, shape: 'box',
-        w: 1.52, h: 0.10, l: 0.12, x: 0, y: 3.46, z, color: 0x8b969a,
-      })),
-      { name: 'left-stilt-front', shape: 'box', w: 0.16, h: 3.40, l: 0.16, x: -0.76, y: 0, z: 1.72, color: 0x4b5559 },
-      { name: 'right-stilt-front', shape: 'box', w: 0.16, h: 3.40, l: 0.16, x: 0.76, y: 0, z: 1.72, color: 0x4b5559 },
-      { name: 'left-stilt-back', shape: 'box', w: 0.16, h: 3.40, l: 0.16, x: -0.76, y: 0, z: -1.72, color: 0x4b5559 },
-      { name: 'right-stilt-back', shape: 'box', w: 0.16, h: 3.40, l: 0.16, x: 0.76, y: 0, z: -1.72, color: 0x4b5559 },
-      // Blue side strips make the data pathway readable beside power cable.
-      { name: 'data-strip-left', shape: 'box', w: 0.05, h: 0.06, l: 3.50, x: -0.48, y: 3.50, z: 0, color: 0x51a7c4 },
-      { name: 'data-strip-right', shape: 'box', w: 0.05, h: 0.06, l: 3.50, x: 0.48, y: 3.50, z: 0, color: 0x51a7c4 },
+      // Mirror the compact HV rack's left-hand upright so both overhead
+      // supports can occupy one 2x2 placement without hiding each other.
+      { name: 'foot', shape: 'box', w: 0.46, h: 0.18, l: 1.72, x: 0.62, y: 0, z: 0, color: 0x4b5559 },
+      { name: 'upright', shape: 'box', w: 0.28, h: 2.82, l: 0.38, x: 0.62, y: 0.16, z: 0, color: 0x667277 },
+      { name: 'crossbar', shape: 'box', w: 1.86, h: 0.22, l: 0.42, x: 0, y: 2.82, z: 0, color: 0x7b878c },
+      { name: 'data-saddle', shape: 'box', w: 0.50, h: 0.10, l: 0.34, x: -0.10, y: 3.00, z: 0, color: 0x51a7c4 },
+      { name: 'data-clamp-left', shape: 'box', w: 0.08, h: 0.16, l: 0.38, x: -0.31, y: 2.94, z: 0, color: 0x9bc9d7 },
+      { name: 'data-clamp-right', shape: 'box', w: 0.08, h: 0.16, l: 0.38, x: 0.11, y: 2.94, z: 0, color: 0x9bc9d7 },
+      // Blue strain-relief hardware marks the dedicated side tap on the
+      // upright's outside face; generated port geometry finishes the gland.
+      { name: 'tap-bracket', shape: 'box', w: 0.18, h: 0.34, l: 0.38, x: 0.72, y: 2.50, z: 0, color: 0x51a7c4 },
     ],
     requiredConnections: [],
   },

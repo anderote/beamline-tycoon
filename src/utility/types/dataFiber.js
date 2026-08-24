@@ -15,8 +15,8 @@ export default {
   routingProfile: FLEXIBLE_SUBTILE_ROUTING_PROFILE,
   requiresWallPassThrough: true,
   // Ordinary data runs are loose flexible cables, sized to remain legible at
-  // normal map zoom. Channels installed on the universal utility bus retain
-  // the bus's rigid vertical-rack presentation.
+  // normal map zoom. Authored rack anchors can pull a span into the much
+  // tighter overhead-bus presentation.
   pipeRadiusMeters: 0.025,
   bundleStrandRadiusMeters: 0.008,
   bundleSpacingMeters: 0.014,

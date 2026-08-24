@@ -73,12 +73,25 @@ export function isHvCableTensionAnchor(def, portName = null) {
     || def?.wallPassThrough === true;
 }
 
-/** True only when both ends of one HV span are mechanical tension anchors. */
-export function isHvCableTensionSpan(endpoints) {
+/** A port that mechanically tensions the selected soft cable utility. */
+export function isCableTensionAnchor(utilityType, def, portName = null) {
+  const port = def?.ports?.[portName];
+  if (!port || port.utility !== utilityType) return false;
+  if (port.tensionsCable === true) return true;
+  return utilityType === 'hvCable' && isHvCableTensionAnchor(def, portName);
+}
+
+/** True when both ends mechanically tension the same cable utility. */
+export function isCableTensionSpan(utilityType, endpoints) {
   return Array.isArray(endpoints) && endpoints.length === 2
     && endpoints.every(endpoint => (
-      isHvCableTensionAnchor(endpoint?.def, endpoint?.portName)
+      isCableTensionAnchor(utilityType, endpoint?.def, endpoint?.portName)
     ));
+}
+
+/** True only when both ends of one HV span are mechanical tension anchors. */
+export function isHvCableTensionSpan(endpoints) {
+  return isCableTensionSpan('hvCable', endpoints);
 }
 
 /**
@@ -109,6 +122,21 @@ export function tautCableControlPoints(start, end, {
       z: start.z + (end.z - start.z) * t,
     };
   });
+}
+
+/**
+ * Utility-specific suspended cable profile.
+ *
+ * Indoor data racks use a strain-relieved fibre bus: it still has enough bow
+ * to read as cable instead of a rigid rod, but only about one tenth of the HV
+ * span's sag. HV retains its existing shallow catenary presentation.
+ */
+export function tensionedCableControlPoints(utilityType, start, end) {
+  return tautCableControlPoints(start, end, utilityType === 'dataFiber' ? {
+    sagRatio: 0.006,
+    minSag: 0.015,
+    maxSag: 0.10,
+  } : {});
 }
 
 /** Copy a finite freeform tile path, removing coincident samples. */

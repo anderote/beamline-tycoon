@@ -189,21 +189,25 @@ the short authoring contract.
   ports and fan-out, never throughput capacity or source direction.
 - Ordinary data runs use the shared subtile routing contract and the same
   rounded, gravity-affected presentation as power cords, while retaining data's directionless bus
-  topology. Unless a port authors `maxConnections`, each physical data port
-  accepts four cable attachments. Cable draw order never defines data flow.
+  topology. A span between two authored data tension anchors instead discards
+  drawn lateral slack and uses a near-straight, high-tension gravity bow.
+  Unless a port authors `maxConnections`, each physical data port accepts four
+  cable attachments. Cable draw order never defines data flow.
 - `networkSwitch` exposes eight internally joined peer ports and is available
   from both Infra > Data & Controls and Facility > Control Room. It requires
   power but does not require a separate upstream data source.
 
 - Read ports through `getUtilityPortsV2(id)` when solver defaults and derived RF
   band information matter. The flat table is raw authoring data.
-- An HV port with `tensionsCable: true` is a mechanical cable anchor. A span
-  discards drawn lateral slack and keeps only its shallow gravity sag when both
-  endpoints are mechanical anchors (including pole/rack supports and HV wall
-  fittings). Top-mounted HV equipment inlets are mechanical anchors except on
-  the Compact HV Distributor and Power Distribution Panel. A span with an
-  ordinary equipment plug, non-tensioning line tap, or open cursor at either
-  end remains loose. The field is boolean and is invalid on every other utility.
+- An HV or data port with `tensionsCable: true` is a mechanical cable anchor.
+  A span discards drawn lateral slack and keeps only its utility-specific
+  gravity sag when both endpoints are mechanical anchors. HV anchors include
+  pole/rack supports and HV wall fittings; top-mounted HV equipment inlets are
+  anchors except on the Compact HV Distributor and Power Distribution Panel.
+  Data rack spans use a substantially tighter bow than suspended HV. A span
+  with an ordinary equipment plug, non-tensioning line tap, or open cursor at
+  either end remains loose. The field is boolean and is invalid on every other
+  utility.
 - Assisted utility wiring commits real paid lines from real free connectors.
   A definition whose source/pass connectors belong to one utility opts in
   automatically; this covers utility supplies, manifolds, network switches,
@@ -429,13 +433,14 @@ the short authoring contract.
   electrical wall feedthrough, removes drawn lateral slack but retains a
   visible, shallow gravity sag while suspended between its endpoints; the pole
   transformer tap and other soft cables retain drawn slack.
-- The active Elevated Wire Tray is an overhead, stilt-mounted mixed-utility
-  carrier. Its cable deck and connector band are exactly 1.78 m above the
-  local floor, below the indoor HV rack's 2.00 m insulators. Four numbered
-  `powerCable` inlet/outlet pairs are isolated conductor groups; the paired
-  `dataFiber` connectors share one data pathway. It owns no floor occupancy
-  and is linked into both Power / Cable Routing and Data & Controls / Transport.
-  The former `cableTray` remains registered only for old saves.
+- The active Indoor Data Cable Rack retains the `elevatedWireTray` save id but
+  is a data-only 2x2 overhead L-frame. Its mirrored upright lets it share one
+  placement pose with the compact indoor HV rack, while its one two-attachment
+  `data_bus` saddle sits at 1.55 m, below the HV rack's 2.00 m terminals. The
+  saddle tensions one continuing `dataFiber` bus and the upright carries one
+  single-attachment side tap. It owns no floor occupancy and appears only in
+  Data & Controls / Transport. Retired mixed-tray power ports and the former
+  `cableTray` remain registered only for old saves.
 - Passive inlet/outlet fittings keep their `pass` topology role but normally
   derive their physical arrow direction from the port name. Pole, tower,
   indoor-rack support ports, and symmetric HV wall feedthroughs remain
