@@ -109,9 +109,16 @@ test('service transformer mounts to a wood-pole tap with four power outlets', ()
   )) < 1e-9, 'the transformer inlet lands directly on the pole surface');
   const inletPart = PLACEABLES.poleMountTransformer.parts
     .find(part => part.name === 'hv-inlet');
+  const cabinetPart = PLACEABLES.poleMountTransformer.parts
+    .find(part => part.name === 'cabinet');
+  assert.deepEqual(
+    [cabinetPart.w, cabinetPart.h, cabinetPart.l],
+    [1.20, 0.90, 0.46],
+    'the pole-mounted service cabinet stays visibly smaller than its original box',
+  );
   assert.equal(inletPart.z * 0.5, POWER_HV_INPUT_MOUNTS.poleMountTransformer.localZ);
-  assert.equal((inletPart.y + inletPart.h / 2) * 0.5,
-    POWER_HV_INPUT_MOUNTS.poleMountTransformer.y,
+  assert.ok(Math.abs((inletPart.y + inletPart.h / 2) * 0.5
+    - POWER_HV_INPUT_MOUNTS.poleMountTransformer.y) < 1e-9,
   'the placement anchor is the centre of the visible inlet');
   assert.equal(Object.values(getUtilityPortsV2('poleMountTransformer'))
     .filter(port => port.utility === 'powerCable' && port.role === 'source').length, 4);

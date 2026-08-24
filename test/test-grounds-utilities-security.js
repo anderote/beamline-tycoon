@@ -123,6 +123,8 @@ test('functional overhead supports are linked into Infra Power and keep decorati
   assert.equal(powerSubsections.routingHardware.name, 'Cable Routing');
   assert.deepEqual(powerSubsections.overhead.linkedPlaceables,
     ['utilityPole2Way', 'utilityPole', 'transmissionTower']);
+  assert.equal(PLACEABLES.poleMountTransformer.subsection, 'overhead',
+    'the pole-mount service box lives beside its wood-pole hosts in Overhead HV');
   const halfPole = PLACEABLES.utilityPole2Way;
   assert.equal(halfPole.kind, 'decoration');
   assert.equal(halfPole.category, 'utilities');

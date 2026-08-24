@@ -2679,8 +2679,8 @@ export const INFRASTRUCTURE_RAW = {
   poleMountTransformer: {
     id: 'poleMountTransformer',
     name: 'Pole-Mount Service Transformer',
-    desc: 'Compact 100 kW service box that snaps directly onto a free HV tap on a wood utility pole or indoor cable rack. Its four front outlets feed ordinary power cables.',
-    category: 'power', subsection: 'distribution',
+    desc: 'Small 100 kW service box that snaps directly onto a free elevated HV tap on a wood utility pole or indoor cable rack. Its four front outlets feed ordinary power cables.',
+    category: 'power', subsection: 'overhead',
     paletteOrder: 2,
     cost: { funding: 95000 },
     requires: 'electricalDistribution',
@@ -2703,13 +2703,13 @@ export const INFRASTRUCTURE_RAW = {
     },
     parts: [
       // The back bushing meets the host tap without a separate feeder cable.
-      { name: 'cabinet', w: 1.40, h: 1.10, l: 0.54, x: 0, y: 0, z: 0, color: 0x6b7476 },
-      { name: 'lid', w: 1.48, h: 0.10, l: 0.60, x: 0, y: 1.10, z: 0, color: 0x343a3c },
-      { name: 'hv-inlet', w: 0.22, h: 0.22, l: 0.12, x: 0, y: 0.88, z: -0.30, color: 0xb46e32, utilityTerminalCap: true },
-      { name: 'outlet-bar', w: 1.18, h: 0.22, l: 0.10, x: 0, y: 0.16, z: 0.32, color: 0xe1b84b },
-      ...[-0.45, -0.15, 0.15, 0.45].map((x, index) => ({
-        name: `power-outlet-${index + 1}`, w: 0.16, h: 0.16, l: 0.12,
-        x, y: 0.32, z: 0.56, color: 0xb46e32, utilityOutputTerminalCap: true,
+      { name: 'cabinet', w: 1.20, h: 0.90, l: 0.46, x: 0, y: 0, z: 0, color: 0x6b7476 },
+      { name: 'lid', w: 1.28, h: 0.08, l: 0.52, x: 0, y: 0.90, z: 0, color: 0x343a3c },
+      { name: 'hv-inlet', w: 0.18, h: 0.18, l: 0.10, x: 0, y: 0.72, z: -0.26, color: 0xb46e32, utilityTerminalCap: true },
+      { name: 'outlet-bar', w: 1.00, h: 0.18, l: 0.08, x: 0, y: 0.13, z: 0.27, color: 0xe1b84b },
+      ...[-0.38, -0.38 / 3, 0.38 / 3, 0.38].map((x, index) => ({
+        name: `power-outlet-${index + 1}`, w: 0.13, h: 0.13, l: 0.10,
+        x, y: 0.27, z: 0.48, color: 0xb46e32, utilityOutputTerminalCap: true,
       })),
     ],
     requiredConnections: [],
