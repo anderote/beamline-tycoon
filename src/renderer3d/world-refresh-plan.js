@@ -12,6 +12,10 @@ import { placeableRefreshPlan } from './placeable-refresh-plan.js';
 
 const DOMAIN_PLANS = Object.freeze({
   terrain: { terrain: true },
+  // Ownership growth changes the drawn ground boundary without changing the
+  // height/room context of any existing decoration. Keeping this distinct
+  // from `terrain` lets the snapshot and plant builder append the new ring.
+  terrainExtent: { terrain: true },
   infrastructure: { infrastructure: true, physicsBodies: true },
   decorations: { decorations: true, physicsBodies: true },
   walls: { walls: true, physicsBodies: true },
@@ -70,6 +74,27 @@ export function mergeWorldRefreshPlans(...plans) {
     merged.changeSet = mergeWorldChangeSets(...changeSets);
   }
   return merged;
+}
+
+/**
+ * Land growth has two independent visual commits: the owned ground boundary
+ * and the newly generated vegetation. Put them on adjacent frames so neither
+ * a very dense forest nor the largest terrain resize monopolizes one frame.
+ */
+export function splitExpansionRefreshPlan(plan) {
+  const shouldSplit = plan?.terrain === true && plan?.decorations === true
+    && plan.changeSet?.domains?.has('terrainExtent');
+  if (!shouldSplit) return { immediate: plan, deferred: null };
+  const immediate = { ...plan };
+  delete immediate.decorations;
+  return {
+    immediate,
+    deferred: {
+      decorations: true,
+      terrainDetails: true,
+      changeSet: plan.changeSet,
+    },
+  };
 }
 
 function planForDomains(domains) {

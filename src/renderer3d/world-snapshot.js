@@ -54,17 +54,33 @@ function grassHash(col, row) {
 
 // --- Terrain brightness (2D gaussian blobs) ---
 
+const TERRAIN_BLOB_SAMPLE_CACHE = new WeakMap();
+
+function terrainBlobSamples(blobs) {
+  let samples = TERRAIN_BLOB_SAMPLE_CACHE.get(blobs);
+  if (samples) return samples;
+  samples = blobs.map(blob => ({
+    cx: blob.cx,
+    cy: blob.cy,
+    cos: Math.cos(blob.angle),
+    sin: Math.sin(blob.angle),
+    invSx: 1 / (2 * blob.sx * blob.sx),
+    invSy: 1 / (2 * blob.sy * blob.sy),
+    brightness: blob.brightness,
+  }));
+  TERRAIN_BLOB_SAMPLE_CACHE.set(blobs, samples);
+  return samples;
+}
+
 function sampleTerrainBrightness(col, row, blobs) {
   let val = 0;
-  for (const blob of blobs) {
+  for (const blob of terrainBlobSamples(blobs)) {
     const dx = col - blob.cx;
     const dy = row - blob.cy;
-    const cos = Math.cos(blob.angle);
-    const sin = Math.sin(blob.angle);
-    const lx = dx * cos + dy * sin;
-    const ly = -dx * sin + dy * cos;
-    const ex = (lx * lx) / (2 * blob.sx * blob.sx);
-    const ey = (ly * ly) / (2 * blob.sy * blob.sy);
+    const lx = dx * blob.cos + dy * blob.sin;
+    const ly = -dx * blob.sin + dy * blob.cos;
+    const ex = lx * lx * blob.invSx;
+    const ey = ly * ly * blob.invSy;
     val += blob.brightness * Math.exp(-(ex + ey));
   }
   return Math.max(-1, Math.min(1, val));
@@ -75,6 +91,15 @@ function sampleTerrainBrightness(col, row, blobs) {
 // tiles instead of re-running every Gaussian and corner-height sample.
 const TERRAIN_BASE_CACHE = new WeakMap();
 
+function terrainBaseTile(state, col, row, blobs) {
+  return {
+    col, row,
+    hash: grassHash(col, row),
+    brightness: sampleTerrainBrightness(col, row, blobs),
+    cornersY: getTileCornersY(state, col, row),
+  };
+}
+
 function terrainBase(game) {
   const state = game.state;
   const range = grassRange(game);
@@ -84,16 +109,17 @@ function terrainBase(game) {
   if (prior && prior.range === range && prior.blobs === blobs && prior.revision === revision) {
     return prior;
   }
-  const tiles = [];
+  // Land purchases only add an outer ring. Terrain blobs and existing corner
+  // heights stay immutable, so retain the expensive Gaussian/corner samples
+  // for owned tiles and calculate just the newly acquired annulus.
+  const canExtend = prior && prior.range < range
+    && prior.blobs === blobs && prior.revision === revision;
+  const tiles = canExtend ? prior.tiles.slice() : [];
   for (let col = -range; col <= range; col++) {
     for (let row = -range; row <= range; row++) {
       if (!inMapRegion(col, row, range)) continue;
-      tiles.push({
-        col, row,
-        hash: grassHash(col, row),
-        brightness: sampleTerrainBrightness(col, row, blobs),
-        cornersY: getTileCornersY(state, col, row),
-      });
+      if (canExtend && inMapRegion(col, row, prior.range)) continue;
+      tiles.push(terrainBaseTile(state, col, row, blobs));
     }
   }
   const next = { range, blobs, revision, tiles, cliffs: null };

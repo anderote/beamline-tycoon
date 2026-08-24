@@ -198,6 +198,12 @@ export class GrassTuftBuilder {
     this._parent = null;
     this._clumpMesh = null;
     this._tallMesh = null;
+    this._clumpMeshes = [];
+    this._tallMeshes = [];
+    this._clumpGeometry = null;
+    this._clumpMaterial = null;
+    this._tallGeometry = null;
+    this._tallMaterial = null;
     this._cacheKey = null;
   }
 
@@ -225,8 +231,38 @@ export class GrassTuftBuilder {
     if (tallCells.length > 0) this._buildTallMesh(tallCells);
   }
 
+  /** Add an ownership ring without reallocating tufts on existing land. */
+  appendTerrain(terrain, snapshot) {
+    if (!this._parent || typeof THREE === 'undefined') return;
+    if (this._cacheKey == null) {
+      this.rebuild(snapshot);
+      return;
+    }
+    if (terrain?.length) {
+      const retainedClumps = this._clumpMeshes;
+      const retainedTall = this._tallMeshes;
+      this._clumpMeshes = [];
+      this._tallMeshes = [];
+      this._clumpMesh = null;
+      this._tallMesh = null;
+      this._cacheKey = null;
+      this.rebuild({ terrain, grassSurfaces: [] });
+      this._clumpMeshes = [...retainedClumps, ...this._clumpMeshes];
+      this._tallMeshes = [...retainedTall, ...this._tallMeshes];
+    }
+    this._cacheKey = computeGrassTuftCacheKey(snapshot);
+  }
+
   dispose() {
     this._disposeMeshes();
+    for (const resource of [
+      this._clumpGeometry, this._clumpMaterial,
+      this._tallGeometry, this._tallMaterial,
+    ]) resource?.dispose?.();
+    this._clumpGeometry = null;
+    this._clumpMaterial = null;
+    this._tallGeometry = null;
+    this._tallMaterial = null;
     this._parent = null;
     this._cacheKey = null;
   }
@@ -268,17 +304,20 @@ export class GrassTuftBuilder {
         tipX,         tipY, tipZ,
       );
     }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geo.computeVertexNormals();
-
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0xffffff, roughness: 0.9, side: THREE.DoubleSide,
-    });
+    if (!this._clumpGeometry) {
+      this._clumpGeometry = new THREE.BufferGeometry();
+      this._clumpGeometry.setAttribute(
+        'position', new THREE.Float32BufferAttribute(positions, 3));
+      this._clumpGeometry.computeVertexNormals();
+      this._clumpMaterial = new THREE.MeshStandardMaterial({
+        color: 0xffffff, roughness: 0.9, side: THREE.DoubleSide,
+      });
+    }
 
     // Upper bound: 12/cell default + ~36/cell for wildgrass/tallgrass (3× mul).
     const maxCount = terrain.length * 12 + clumpCells.length * 40;
-    const mesh = new THREE.InstancedMesh(geo, mat, maxCount);
+    const mesh = new THREE.InstancedMesh(
+      this._clumpGeometry, this._clumpMaterial, maxCount);
     mesh.matrixAutoUpdate = false;
     mesh.instanceColor = new THREE.InstancedBufferAttribute(
       new Float32Array(maxCount * 3), 3
@@ -310,6 +349,7 @@ export class GrassTuftBuilder {
 
     this._parent.add(mesh);
     this._clumpMesh = mesh;
+    this._clumpMeshes.push(mesh);
   }
 
   _writeInstance(mesh, dummy, color, idx, t, yScale) {
@@ -337,17 +377,20 @@ export class GrassTuftBuilder {
        W * 0.5, 0, 0,
        0,       H, 0,
     ];
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geo.computeVertexNormals();
-
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0xffffff, roughness: 0.95, side: THREE.DoubleSide,
-    });
+    if (!this._tallGeometry) {
+      this._tallGeometry = new THREE.BufferGeometry();
+      this._tallGeometry.setAttribute(
+        'position', new THREE.Float32BufferAttribute(positions, 3));
+      this._tallGeometry.computeVertexNormals();
+      this._tallMaterial = new THREE.MeshStandardMaterial({
+        color: 0xffffff, roughness: 0.95, side: THREE.DoubleSide,
+      });
+    }
 
     // Per-tuft max 22 blades × up to 10 tufts = 220; allocate 240 to be safe.
     const maxCount = tallCells.length * 240;
-    const mesh = new THREE.InstancedMesh(geo, mat, maxCount);
+    const mesh = new THREE.InstancedMesh(
+      this._tallGeometry, this._tallMaterial, maxCount);
     mesh.matrixAutoUpdate = false;
     mesh.instanceColor = new THREE.InstancedBufferAttribute(
       new Float32Array(maxCount * 3), 3
@@ -379,19 +422,30 @@ export class GrassTuftBuilder {
 
     this._parent.add(mesh);
     this._tallMesh = mesh;
+    this._tallMeshes.push(mesh);
   }
 
   _disposeMeshes() {
-    for (const m of [this._clumpMesh, this._tallMesh]) {
+    const meshes = new Set([
+      ...this._clumpMeshes, ...this._tallMeshes,
+      this._clumpMesh, this._tallMesh,
+    ]);
+    for (const m of meshes) {
       if (!m) continue;
       if (this._parent) this._parent.remove(m);
-      m.geometry.dispose();
-      m.material.dispose();
+      if (m.geometry !== this._clumpGeometry && m.geometry !== this._tallGeometry) {
+        m.geometry.dispose();
+      }
+      if (m.material !== this._clumpMaterial && m.material !== this._tallMaterial) {
+        m.material.dispose();
+      }
       // instanceMatrix/instanceColor live on the mesh, not the geometry —
       // only InstancedMesh.dispose() frees their GPU buffers.
       if (typeof m.dispose === 'function') m.dispose();
     }
     this._clumpMesh = null;
     this._tallMesh = null;
+    this._clumpMeshes = [];
+    this._tallMeshes = [];
   }
 }

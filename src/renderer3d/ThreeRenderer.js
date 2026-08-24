@@ -171,7 +171,11 @@ import {
   appendPlacementGridDots,
   placementGridAlphaAt,
 } from './placement-grid-style.js';
-import { worldRefreshPlan } from './world-refresh-plan.js';
+import {
+  splitExpansionRefreshPlan,
+  worldRefreshPlan,
+} from './world-refresh-plan.js';
+import { precompileWorldPipelines } from './interaction-pipeline-warmup.js';
 import { WorldInvalidationScheduler } from './world-invalidation-scheduler.js';
 import { selectionTargetsForState } from '../game/selection-targets.js';
 import { LandPurchaseMarkers } from './land-purchase-markers.js';
@@ -190,11 +194,11 @@ const GHOST_TINT_BLOCKED = 0xff4444;
 const GHOST_TINT_UNAFFORDABLE = 0xffb020;
 
 const PORT_MARKER_EVENTS = new Set([
-  'beamlineChanged', 'loaded', 'restored', 'infrastructureChanged', 'roofsChanged',
+  'beamlineChanged', 'loaded', 'restored', 'mapExpanded', 'infrastructureChanged', 'roofsChanged',
   'placeableChanged', 'facilityChanged', 'connectionsChanged', 'utilityLinesChanged',
 ]);
 const LIGHT_CANDIDATE_EVENTS = new Set([
-  'beamlineChanged', 'loaded', 'restored', 'infrastructureChanged', 'roofsChanged',
+  'beamlineChanged', 'loaded', 'restored', 'mapExpanded', 'infrastructureChanged', 'roofsChanged',
   'decorationsChanged', 'wallsChanged', 'doorsChanged', 'windowsChanged',
   'placeableChanged', 'facilityChanged', 'connectionsChanged', 'utilityLinesChanged',
 ]);
@@ -4877,7 +4881,9 @@ export class ThreeRenderer {
     // gesture and make the geometry look frozen while screen-space lighting
     // continued to track the view.
     const framePlan = this._frameRenderPolicy.beginFrame(this, this._inputHandler);
-    const renderAllowed = framePlan.renderAllowed;
+    const renderAllowed = framePlan.renderAllowed
+      && !this._worldPipelineCompilePending
+      && !this._worldExpansionContinuationPending;
     const cameraMoving = framePlan.cameraMoving
       || performance.now() < this._cameraMotionUntilMs;
     const deferShadows = framePlan.deferShadows || cameraMoving;
@@ -5332,7 +5338,19 @@ export class ThreeRenderer {
       this.refresh();
       return;
     }
-    if (plan.terrain) this._refreshTerrain();
+    const split = splitExpansionRefreshPlan(plan);
+    plan = split.immediate;
+    if (split.deferred) {
+      this._worldExpansionContinuationPending = true;
+      this._worldInvalidationScheduler.enqueue(split.deferred);
+    }
+    if (plan.terrain) this._refreshTerrain(plan.changeSet, {
+      deferDetails: !!split.deferred,
+    });
+    if (plan.terrainDetails) {
+      this._refreshTerrainDetails();
+      if (!split.deferred) this._worldExpansionContinuationPending = false;
+    }
     if (plan.infrastructure) this._refreshInfra();
     if (plan.zones) this._refreshZones();
     if (plan.walls) this._refreshWalls();
@@ -5363,6 +5381,22 @@ export class ThreeRenderer {
     if (plan.components || plan.equipment || plan.decorations || plan.walls || plan.terrain) {
       this._syncParticleCollisionWorld();
     }
+    if (!split.deferred && plan.changeSet?.domains?.has('terrainExtent')) {
+      const submitWarmup = this._expandedWorldPipelinesWarmed !== true;
+      const pending = precompileWorldPipelines(
+        this.renderer, this.scene, this.camera,
+        { submit: submitWarmup },
+      );
+      this._worldPipelineCompilePending = pending;
+      pending.then((warmed) => {
+        if (warmed && submitWarmup) this._expandedWorldPipelinesWarmed = true;
+      });
+      pending.finally(() => {
+        if (this._worldPipelineCompilePending === pending) {
+          this._worldPipelineCompilePending = null;
+        }
+      });
+    }
     this.lowerStoreyPresentation?.sync(this._snapshot, { overview: this.storeyOverview });
     this._sceneLayerVisibility.apply();
     if ((this._selectedBeamlineFocus || this._selectedUtilityNetworkFocus)
@@ -5385,6 +5419,8 @@ export class ThreeRenderer {
   }
 
   refresh() {
+    this._worldExpansionContinuationPending = false;
+    this._pendingTerrainDetailAppend = null;
     const snapshot = buildWorldSnapshot(this.game);
     this.applySnapshot(snapshot);
     if (this.staffPawns) this.staffPawns.sync();
@@ -5404,19 +5440,50 @@ export class ThreeRenderer {
     this._markPhysicsBodiesDirty();
   }
 
-  _refreshTerrain() {
+  _refreshTerrain(changeSet = null, { deferDetails = false } = {}) {
     // Tuft/wildflower builders read snapshot.terrain + snapshot.grassSurfaces.
     // Every builder below is content-hash cached, so calling this on events
     // that leave the terrain unchanged costs only the snapshot walk + hash.
+    const previousTerrain = this._snapshot?.terrain || [];
     const snap = this._updateSnapshot(['terrain', 'cliffs', 'grassSurfaces']);
     this.terrainBuilder.build(snap.terrain, this.terrainGroup);
     this.cliffBuilder.build(snap.cliffs || [], this.terrainGroup);
     this._terrainMesh = this.terrainBuilder.getMesh();
     this._syncPhysicsTerrain();
-    this.wildflowerBuilder.rebuild(snap);
-    this.grassTuftBuilder.rebuild(snap);
+    const appendOnlyExtent = changeSet?.domains?.has('terrainExtent')
+      && !['terrain', 'zones'].some(domain => changeSet.domains.has(domain));
+    if (appendOnlyExtent) {
+      const priorTiles = new Set(previousTerrain.map(tile => `${tile.col},${tile.row}`));
+      const addedTerrain = snap.terrain.filter(
+        tile => !priorTiles.has(`${tile.col},${tile.row}`));
+      if (deferDetails) {
+        const priorPending = this._pendingTerrainDetailAppend;
+        this._pendingTerrainDetailAppend = {
+          addedTerrain: priorPending
+            ? [...priorPending.addedTerrain, ...addedTerrain]
+            : addedTerrain,
+          snapshot: snap,
+        };
+      } else {
+        this._pendingTerrainDetailAppend = null;
+        this.wildflowerBuilder.appendTerrain(addedTerrain, snap);
+        this.grassTuftBuilder.appendTerrain(addedTerrain, snap);
+      }
+    } else {
+      this._pendingTerrainDetailAppend = null;
+      this.wildflowerBuilder.rebuild(snap);
+      this.grassTuftBuilder.rebuild(snap);
+    }
     // Cached overlay lines bake the old heights (placement auto-flattens).
     this._invalidateGridOverlay();
+  }
+
+  _refreshTerrainDetails() {
+    const pending = this._pendingTerrainDetailAppend;
+    this._pendingTerrainDetailAppend = null;
+    if (!pending) return;
+    this.wildflowerBuilder.appendTerrain(pending.addedTerrain, pending.snapshot);
+    this.grassTuftBuilder.appendTerrain(pending.addedTerrain, pending.snapshot);
   }
 
   _refreshInfra() {

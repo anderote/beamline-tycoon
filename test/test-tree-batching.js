@@ -61,6 +61,27 @@ for (let seed = 1; seed <= 1000; seed++) variants.add(treeVisualSeed('oakTree', 
 assert.equal(variants.size, TREE_VISUAL_VARIANTS,
   'coordinate seeds distribute across the complete bounded silhouette set');
 
+const retainedBatches = new Set(parent.children.filter(child => child.isBatchedMesh));
+const retainedMaterials = new Set([...retainedBatches].map(batch => batch.material));
+const addedTrees = [
+  decoration('new_tree_1', 'oakTree', 28, 0),
+  decoration('new_tree_2', 'oakTree', 29, 1),
+];
+builder.build([...trees, ...addedTrees, bench], parent, {
+  changes: new Map(addedTrees.map(tree => [tree.id, {
+    id: tree.id, kind: 'decoration', action: 'added',
+  }])),
+});
+assert.equal(builder.getBatchStats().plantCount, trees.length + addedTrees.length,
+  'an exact added-tree patch accumulates the forest count');
+assert.ok([...retainedBatches].every(batch => parent.children.includes(batch)),
+  'append-only land vegetation retains every existing GPU batch');
+const appendedBatches = parent.children.filter(
+  child => child.isBatchedMesh && !retainedBatches.has(child));
+assert.ok(appendedBatches.length > 0, 'new land receives its own spatial batches');
+assert.ok(appendedBatches.every(batch => retainedMaterials.has(batch.material)),
+  'new forest batches reuse already-compiled plant materials');
+
 builder.build(trees.slice(0, 2), parent);
 assert.equal(builder.getBatchStats().plantCount, 2);
 assert.equal(parent.children.filter(child => child.isBatchedMesh).length, builder.getBatchStats().batchCount,

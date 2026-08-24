@@ -2162,6 +2162,12 @@ export class DecorationBuilder {
     this._plantSignature = null;
     /** Small reusable silhouette library: species × visual variant. */
     this._plantPrototypes = new Map();
+    /** Immutable render parts derived once from each retained prototype. */
+    this._plantPrototypeParts = new WeakMap();
+    this._plantColoredGeometries = new Set();
+    /** Material programs survive forest batch replacement and land growth. */
+    this._plantBatchMaterials = new Map();
+    this._farPlantMaterials = new Map();
     this._batchStats = {
       plantCount: 0, batchCount: 0, chunkCount: 0,
       partCount: 0, geometryCount: 0, prototypeCount: 0, farBatchCount: 0,
@@ -2377,14 +2383,12 @@ export class DecorationBuilder {
   _disposePlantBatches(parentGroup) {
     for (const batch of this._plantBatches) {
       parentGroup.remove(batch);
-      batch.material?.dispose?.();
       batch.dispose?.();
     }
     for (const mesh of this._farPlantBatches) {
       parentGroup.remove(mesh);
       mesh.dispose?.();
       mesh.geometry?.dispose?.();
-      mesh.material?.dispose?.();
     }
     this._plantBatches = [];
     this._farPlantBatches = [];
@@ -2418,26 +2422,70 @@ export class DecorationBuilder {
     return prototype;
   }
 
-  _buildPlantBatches(plants, parentGroup) {
+  _plantBatchMaterial(signature, source) {
+    let material = this._plantBatchMaterials.get(signature);
+    if (!material) {
+      material = _batchMaterial(source);
+      this._plantBatchMaterials.set(signature, material);
+    }
+    return material;
+  }
+
+  _farPlantMaterial(kind) {
+    let material = this._farPlantMaterials.get(kind);
+    if (!material) {
+      material = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 0.92,
+        metalness: 0,
+      });
+      this._farPlantMaterials.set(kind, material);
+    }
+    return material;
+  }
+
+  _partsForPlantPrototype(prototype) {
+    let parts = this._plantPrototypeParts.get(prototype);
+    if (parts) return parts;
+    parts = [];
+    prototype.updateMatrixWorld(true);
+    prototype.traverse((child) => {
+      if (!child.isMesh || !child.geometry || !child.material) return;
+      const sourceMaterial = Array.isArray(child.material) ? child.material[0] : child.material;
+      if (!sourceMaterial) return;
+      const geometry = _geometryWithBakedColor(child.geometry, sourceMaterial);
+      this._plantColoredGeometries.add(geometry);
+      parts.push({
+        geometry,
+        material: sourceMaterial,
+        materialSignature: _materialSignature(sourceMaterial, geometry),
+        matrix: child.matrixWorld.clone(),
+        castShadow: child.castShadow,
+        receiveShadow: child.receiveShadow,
+        triangleCount: (child.geometry.index?.count
+          || child.geometry.attributes?.position?.count || 0) / 3,
+      });
+    });
+    this._plantPrototypeParts.set(prototype, parts);
+    return parts;
+  }
+
+  _buildPlantBatches(plants, parentGroup, { append = false } = {}) {
     if (!plants.length) return;
     const buckets = new Map();
-    const chunks = new Set();
-    const coloredGeometry = new WeakMap();
-    const tempGeometry = new Set();
     const placementMatrix = new THREE.Matrix4();
     const worldMatrix = new THREE.Matrix4();
     const rotation = new THREE.Quaternion();
     const unitScale = new THREE.Vector3(1, 1, 1);
-    let partCount = 0;
-    let geometryCount = 0;
-    let nearTriangleCount = 0;
+    let partCount = append ? this._batchStats.partCount : 0;
+    let geometryCount = append ? this._batchStats.geometryCount : 0;
+    let nearTriangleCount = append ? this._batchStats.nearTriangleCount : 0;
 
     for (const dec of plants) {
       const p = decorationPlacement(dec);
       const chunkCol = Math.floor((dec.col ?? 0) / PLANT_BATCH_CHUNK_TILES);
       const chunkRow = Math.floor((dec.row ?? 0) / PLANT_BATCH_CHUNK_TILES);
       const chunkKey = `${chunkCol},${chunkRow}`;
-      chunks.add(chunkKey);
       const floorY = (dec.y ?? 0) + (dec.placeY || 0) * SUB;
       const root = new THREE.Group();
       root.position.set(p.x, floorY, p.z);
@@ -2456,38 +2504,27 @@ export class DecorationBuilder {
       rotation.setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.rotY);
       placementMatrix.compose(root.position, rotation, unitScale);
       const prototype = this._plantPrototype(dec, p);
-      prototype.updateMatrixWorld(true);
-      prototype.traverse((child) => {
-        if (!child.isMesh || !child.geometry || !child.material) return;
-        const sourceMaterial = Array.isArray(child.material) ? child.material[0] : child.material;
-        if (!sourceMaterial) return;
-        let geometry = coloredGeometry.get(child.geometry);
-        if (!geometry) {
-          geometry = _geometryWithBakedColor(child.geometry, sourceMaterial);
-          coloredGeometry.set(child.geometry, geometry);
-          tempGeometry.add(geometry);
-        }
-        const materialSignature = _materialSignature(sourceMaterial, geometry);
+      for (const part of this._partsForPlantPrototype(prototype)) {
+        const { geometry, materialSignature } = part;
         const signature = `${chunkKey}|${materialSignature}`;
         let bucket = buckets.get(signature);
         if (!bucket) {
           bucket = {
-            material: _batchMaterial(sourceMaterial), entries: [],
+            material: this._plantBatchMaterial(materialSignature, part.material), entries: [],
             chunkCol, chunkRow,
           };
           buckets.set(signature, bucket);
         }
         bucket.entries.push({
           geometry,
-          matrix: worldMatrix.multiplyMatrices(placementMatrix, child.matrixWorld).clone(),
+          matrix: worldMatrix.multiplyMatrices(placementMatrix, part.matrix).clone(),
           nodeId: dec.id ?? null,
-          castShadow: child.castShadow,
-          receiveShadow: child.receiveShadow,
+          castShadow: part.castShadow,
+          receiveShadow: part.receiveShadow,
         });
         partCount++;
-        nearTriangleCount += (child.geometry.index?.count
-          || child.geometry.attributes?.position?.count || 0) / 3;
-      });
+        nearTriangleCount += part.triangleCount;
+      }
     }
 
     for (const bucket of buckets.values()) {
@@ -2532,18 +2569,28 @@ export class DecorationBuilder {
       geometryCount += geometries.length;
     }
 
-    for (const geometry of tempGeometry) geometry.dispose();
     const farStats = this._buildFarPlantBatches(plants, parentGroup);
+    const allChunks = new Set([
+      ...this._plantBatches.map(batch => {
+        const chunk = batch.userData.plantChunk;
+        return `${chunk.col},${chunk.row}`;
+      }),
+      ...this._farPlantBatches.map(mesh => {
+        const chunk = mesh.userData.plantChunk;
+        return `${chunk.col},${chunk.row}`;
+      }),
+    ]);
     this._batchStats = {
-      plantCount: plants.length,
+      plantCount: (append ? this._batchStats.plantCount : 0) + plants.length,
       batchCount: this._plantBatches.length,
-      chunkCount: chunks.size,
+      chunkCount: allChunks.size,
       partCount,
       geometryCount,
       prototypeCount: this._plantPrototypes.size,
       farBatchCount: this._farPlantBatches.length,
       nearTriangleCount,
-      farTriangleCount: farStats.triangleCount,
+      farTriangleCount: (append ? this._batchStats.farTriangleCount : 0)
+        + farStats.triangleCount,
     };
   }
 
@@ -2614,11 +2661,7 @@ export class DecorationBuilder {
         const entries = chunk[kind];
         if (!entries.length) continue;
         const geometry = geometries[kind]();
-        const material = new THREE.MeshStandardMaterial({
-          color: 0xffffff,
-          roughness: 0.92,
-          metalness: 0,
-        });
+        const material = this._farPlantMaterial(kind);
         const mesh = new THREE.InstancedMesh(geometry, material, entries.length);
         mesh.name = `plant-far-${kind}`;
         mesh.visible = !this._showDetail;
@@ -2724,16 +2767,30 @@ export class DecorationBuilder {
       && Array.from(changes.values()).every(change => change.kind != null);
     if (exactChanges) {
       let plantTouched = false;
+      let appendOnlyPlants = true;
+      const addedPlants = [];
       for (const change of changes.values()) {
         if (change.kind !== 'decoration') continue;
         const dec = byId.get(change.id) || null;
         const isPlantNow = !!dec && canBatch && _isBatchablePlant(dec.type);
-        if (this._plantIds.has(change.id) || isPlantNow) plantTouched = true;
+        const wasPlant = this._plantIds.has(change.id);
+        if (wasPlant || isPlantNow) {
+          plantTouched = true;
+          if (change.action === 'added' && isPlantNow && !wasPlant) {
+            addedPlants.push(dec);
+          } else {
+            appendOnlyPlants = false;
+          }
+        }
         replaceOrdinary(change.id, isPlantNow ? null : dec);
       }
       if (plantTouched) {
-        this._disposePlantBatches(parentGroup);
-        if (canBatch) this._buildPlantBatches(plants, parentGroup);
+        if (appendOnlyPlants && addedPlants.length > 0) {
+          this._buildPlantBatches(addedPlants, parentGroup, { append: true });
+        } else {
+          this._disposePlantBatches(parentGroup);
+          if (canBatch) this._buildPlantBatches(plants, parentGroup);
+        }
         this._plantSignature = contentKey(plants);
         decorationsChanged = true;
         plantsRebuilt = true;
@@ -2778,6 +2835,13 @@ export class DecorationBuilder {
   dispose(parentGroup) {
     this._disposeFarOrdinaryBatches();
     this._disposePlantBatches(parentGroup);
+    for (const geometry of this._plantColoredGeometries) geometry.dispose?.();
+    this._plantColoredGeometries.clear();
+    this._plantPrototypeParts = new WeakMap();
+    for (const material of this._plantBatchMaterials.values()) material.dispose?.();
+    for (const material of this._farPlantMaterials.values()) material.dispose?.();
+    this._plantBatchMaterials.clear();
+    this._farPlantMaterials.clear();
     for (const id of [...this._ordinaryGroupsById.keys()]) {
       this._disposeOrdinaryDecoration(id, parentGroup);
     }

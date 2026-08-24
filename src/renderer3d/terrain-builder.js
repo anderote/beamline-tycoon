@@ -14,6 +14,8 @@ export class TerrainBuilder {
     this._textureManager = textureManager;
     /** @type {THREE.Mesh | null} */
     this._mesh = null;
+    /** Terrain resizes replace geometry, but keep one shader/material alive. */
+    this._material = null;
     this._cacheKey = null;
   }
 
@@ -135,16 +137,21 @@ export class TerrainBuilder {
     geo.computeVertexNormals();
 
     const grassMat = MATERIALS.tile_grass;
-    const mat = new THREE.MeshStandardMaterial({
-      map: grassMat?.map ?? null,
-      color: 0xffffff,
-      roughness: 1.0,
-      metalness: 0.0,
-      side: THREE.FrontSide,
-      vertexColors: true,
-    });
+    if (!this._material) {
+      this._material = new THREE.MeshStandardMaterial({
+        map: grassMat?.map ?? null,
+        color: 0xffffff,
+        roughness: 1.0,
+        metalness: 0.0,
+        side: THREE.FrontSide,
+        vertexColors: true,
+      });
+    } else if (this._material.map !== (grassMat?.map ?? null)) {
+      this._material.map = grassMat?.map ?? null;
+      this._material.needsUpdate = true;
+    }
 
-    const mesh = new THREE.Mesh(geo, mat);
+    const mesh = new THREE.Mesh(geo, this._material);
     mesh.receiveShadow = true;
     mesh.castShadow = false;
     mesh.matrixAutoUpdate = false;
@@ -156,6 +163,8 @@ export class TerrainBuilder {
 
   dispose(parentGroup) {
     this._cleanup(parentGroup);
+    this._material?.dispose();
+    this._material = null;
     this._cacheKey = null;
   }
 
@@ -163,7 +172,6 @@ export class TerrainBuilder {
     if (this._mesh) {
       parentGroup.remove(this._mesh);
       this._mesh.geometry.dispose();
-      this._mesh.material.dispose();
       this._mesh = null;
     }
   }
