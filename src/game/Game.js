@@ -6920,6 +6920,36 @@ export class Game {
     // views. This also repairs already-saved custom Minor Lab scenarios.
     normalizePlaceableInstances(this.state.placeables);
 
+    // Tap-mounted equipment stores its presentation pose so committed meshes
+    // and placement ghosts agree, but the host's authored connector remains
+    // authoritative. Re-resolve on load so geometry corrections also repair
+    // existing saves instead of leaving old service boxes stranded at their
+    // previous height or footprint-edge offset.
+    for (const entry of this.state.placeables) {
+      const def = PLACEABLES[entry.type];
+      if (!isUtilityTapMountDefinition(def) || !entry.utilityMount) continue;
+      const resolved = resolveUtilityTapMount(this.state, entry.utilityMount, {
+        mountKind: def.utilityTapMount,
+        level: levelOf(entry),
+        ignorePlaceableId: entry.id,
+      });
+      if (!resolved) continue;
+      Object.assign(entry, {
+        col: resolved.col,
+        row: resolved.row,
+        subCol: resolved.subCol,
+        subRow: resolved.subRow,
+        dir: resolved.dir,
+        worldX: resolved.worldX,
+        worldZ: resolved.worldZ,
+        mountY: resolved.mountY,
+        utilityMount: resolved.utilityMount,
+      });
+      entry.cells = def.footprintCells(
+        entry.col, entry.row, entry.subCol, entry.subRow, entry.dir,
+      );
+    }
+
     // Ensure stacking fields have defaults, then rebuild the derived
     // placeableIndex/subgridOccupied maps. Unconditional: the constructor
     // built them from the starter map, which load just replaced.

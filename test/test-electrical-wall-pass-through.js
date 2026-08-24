@@ -665,8 +665,8 @@ test('overhead support anchors coincide with every visible insulator terminal', 
   );
   assert.deepEqual(
     [halfPoleTap.x, halfPoleTap.y, halfPoleTap.z, halfPoleTap.out.x, halfPoleTap.out.y, halfPoleTap.out.z],
-    [0.5, 1.55, 0.8, 0, 0, 1],
-    'the compact-pole tap lands on its visible transformer feeder insulator',
+    [0.5, 4.65, 0.62, 0, 0, 1],
+    'the compact-pole tap lands on its elevated transformer mount',
   );
   const poleTap = portAnchor3D(
     { id: 'pole', type: 'utilityPole', col: 0, row: 0, subCol: 0, subRow: 0, dir: 0 },
@@ -675,19 +675,11 @@ test('overhead support anchors coincide with every visible insulator terminal', 
   );
   assert.deepEqual(
     [poleTap.x, poleTap.y, poleTap.z, poleTap.out.x, poleTap.out.y, poleTap.out.z],
-    [0.5, 1.55, 0.8, 0, 0, 1],
-    'the utility-pole tap lands on its visible pad-transformer feeder insulator',
+    [0.5, 4.65, 0.62, 0, 0, 1],
+    'the utility-pole tap lands on its elevated service-transformer mount',
   );
-  const transformerInput = portAnchor3D(
-    {
-      id: 'transformer', type: 'padMountTransformer', col: 2, row: 0,
-      subCol: 0, subRow: 0, dir: 0,
-    },
-    COMPONENTS.padMountTransformer,
-    'hv_in',
-  );
-  assert.equal(poleTap.y, transformerInput.y,
-    'the pole tap and green transformer primary bushing share one feeder height');
+  assert.equal(poleTap.y, halfPoleTap.y,
+    'both wood-pole sizes carry the service transformer at the same height');
   setModelBoundsProvider(null);
 });
 

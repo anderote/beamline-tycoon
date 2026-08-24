@@ -34,7 +34,7 @@ export function horizontalOutputRows(count, {
 }
 
 const POWER_OUTPUT_SPECS = Object.freeze({
-  poleMountTransformer: Object.freeze({ count: 4, span: 0.45, bottomY: 0.16, frontZ: 0.31 }),
+  poleMountTransformer: Object.freeze({ count: 4, span: 0.38, bottomY: 0.135, frontZ: 0.265 }),
   powerPanel: Object.freeze({
     count: 4, maxPerRow: 2, span: 0.20, bottomY: 0.30, rowGap: 0.20, frontZ: 0.21,
   }),
@@ -114,7 +114,9 @@ function topInputLayout({ roofY, inputZ }) {
 }
 
 const TOP_INPUT_SPECS = Object.freeze({
-  poleMountTransformer: Object.freeze({ roofY: 0.39, inputZ: -0.25 }),
+  // The pole-mounted box uses this as a side-inlet centre rather than a roof
+  // cap; utility-port-anchors supplies its horizontal normal.
+  poleMountTransformer: Object.freeze({ roofY: 0.245, inputZ: -0.13 }),
   compactHvDistributor: Object.freeze({ roofY: 0.895, inputZ: -0.10 }),
   powerPanel: Object.freeze({ roofY: 0.895, inputZ: -0.10 }),
   sectionDistributionPanel: Object.freeze({ roofY: 1.765, inputZ: -0.16 }),

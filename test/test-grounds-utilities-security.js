@@ -123,6 +123,8 @@ test('functional overhead supports are linked into Infra Power and keep decorati
   assert.equal(powerSubsections.routingHardware.name, 'Cable Routing');
   assert.deepEqual(powerSubsections.overhead.linkedPlaceables,
     ['utilityPole2Way', 'utilityPole', 'transmissionTower']);
+  assert.equal(PLACEABLES.poleMountTransformer.subsection, 'overhead',
+    'the pole-mount service box lives beside its wood-pole hosts in Overhead HV');
   const halfPole = PLACEABLES.utilityPole2Way;
   assert.equal(halfPole.kind, 'decoration');
   assert.equal(halfPole.category, 'utilities');
@@ -164,7 +166,7 @@ test('retired power routing props stay loadable but leave every build palette', 
     'the legacy prefab overhead span remains retired too');
 });
 
-test('wood pole draws four overhead insulators plus one low HV tap insulator', () => {
+test('wood pole draws four overhead insulators plus one elevated HV tap insulator', () => {
   const def = PLACEABLES.utilityPole;
   const model = buildDecorationGroup(
     def.id, def.category, def.subW * 0.5, def.subL * 0.5, def.subH * 0.5,
@@ -190,6 +192,8 @@ test('2×2 wood pole is the one-sided two-level half of the full pole', () => {
   assert.equal(ceramicPositions.length, 3, 'two overhead insulators plus one tap');
   const overhead = ceramicPositions.filter(position => position.y > 5);
   assert.equal(overhead.length, 2);
+  assert.ok(ceramicPositions.some(position => position.y > 4.5 && position.y < 5),
+    'the transformer tap is tucked just below the lower crossarm');
   assert.ok(overhead.every(position => position.x > 0),
     'both overhead conductors sit on the same side of the pole');
   assert.equal(new Set(overhead.map(position => position.y.toFixed(4))).size, 2,

@@ -140,9 +140,12 @@ test('distribution inputs meet explicit inlet hardware while outputs use front g
       // builder. Its tagged cap parts still share both terminal contracts.
       const inputCap = INFRASTRUCTURE_RAW[type].parts
         .find(part => part.utilityTerminalCap === true);
+      const inputCapY = type === 'poleMountTransformer'
+        ? (inputCap.y + inputCap.h / 2) * 0.5
+        : (inputCap.y + inputCap.h) * 0.5;
       assert.ok(inputCap
         && Math.abs(inputCap.x * 0.5 - inputLayout.input.x) < 1e-6
-        && Math.abs((inputCap.y + inputCap.h) * 0.5 - inputLayout.input.y) < 1e-6
+        && Math.abs(inputCapY - inputLayout.input.y) < 1e-6
         && Math.abs(inputCap.z * 0.5 - inputLayout.input.z) < 1e-6,
       `${type} authors one visible input cap`);
 
