@@ -90,6 +90,7 @@ import {
 import {
   ambientDistributorSparkProfile,
   ambientHvConnectionSparkProfile,
+  ambientLooseHvSparkProfile,
   equipmentPowerUpSparkProfile,
   utilityConnectionSparkProfile,
 } from './spark-presentation.js';
@@ -2134,6 +2135,15 @@ export class ThreeRenderer {
 
   /** Emit one scheduler-selected, presentation-only ambient electrical spit. */
   _emitAmbientElectricalSpark(event) {
+    if (event?.kind === 'looseHvEnd') {
+      if (!event.position || !event.normal) return;
+      this.emitVisualEffect({
+        kind: 'particleBurst', position: event.position, normal: event.normal,
+        ...ambientLooseHvSparkProfile(),
+        physicalLight: false,
+      });
+      return;
+    }
     if (event?.kind === 'hvConnection') {
       const anchor = this._utilitySparkAnchor(event.ref);
       if (!anchor) return;
