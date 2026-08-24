@@ -5,6 +5,7 @@ import { BeamlineRegistry } from './beamline/BeamlineRegistry.js';
 import { BeamPhysics } from './beamline/physics.js';
 import { PARAM_DEFS } from './beamline/component-physics.js';
 import { Game } from './game/Game.js';
+import { launchScenario } from './game/scenario-launch.js';
 import { SpriteManager } from './renderer/sprites.js';
 // designer-renderer attaches methods to BeamlineDesigner.prototype.
 import './renderer/designer-renderer.js';
@@ -282,18 +283,7 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
     if (pendingScenario) {
       localStorage.removeItem(PENDING_SCENARIO_KEY);
       const scenario = resolveScenario(pendingScenario);
-      if (scenario?.generator) {
-        if (scenario.sandbox === true) {
-          // devMode pins funding at 1e12 every tick and would hide the balance
-          // signal this scenario is meant to expose.
-          if (game.devMode) game.setDevMode(false);
-          if (!game.sandboxMode) game.setSandboxMode(true);
-        }
-        const mapData = scenario.generator();
-        game.applyScenario(mapData);
-        // Dynamic scenario content (beamline, pipes, utility wiring) builds
-        // through the normal Game APIs so it satisfies utility gating.
-        if (scenario.setup) scenario.setup(game);
+      if (launchScenario(game, scenario)) {
         game.save();
         game.log(`Scenario "${scenario.name}" loaded.`, 'good');
       }

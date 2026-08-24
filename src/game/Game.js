@@ -125,7 +125,7 @@ const SERIALIZED_FIELDS = [
   // resources / progression
   'resources', 'completedResearch', 'activeResearch', 'researchProgress',
   'completedObjectives', 'discoveries', 'tick', 'timeOfDay', 'paused', 'speed', 'log',
-  'tutorialDismissed', 'welcomeSeen',
+  'tutorialDismissed', 'welcomeSeen', 'scenarioRules',
   // staff
   'staffCosts', 'staffMembers', 'staffNextId', 'staffCandidates', 'staffHireDiscount',
   'stationReservations',
@@ -208,6 +208,14 @@ const BEAMSTATE_PRESERVED_FIELDS = [
 
 // Stand-in log used while building an undo snapshot (see _snapshot).
 const EMPTY_LOG = [];
+
+function normalizeScenarioRules(rules = {}) {
+  return {
+    freeConstruction: rules?.freeConstruction === true,
+    idealInfrastructure: rules?.idealInfrastructure === true,
+    unlockAllComponents: rules?.unlockAllComponents === true,
+  };
+}
 
 // The state fields a Beamline Designer apply can touch, and therefore
 // everything snapshotBeamlineState()/restoreBeamlineState() must round-trip.
@@ -368,6 +376,9 @@ export class Game {
       researchProgress: 0,
       completedObjectives: [],
       discoveries: 0,
+      // Scenario-owned creative rules travel with the save and therefore do
+      // not leak into a different New Game or named save.
+      scenarioRules: normalizeScenarioRules(),
       tick: 0,
       // The single day/night clock — see DAY_LENGTH_TICKS/isNightAt above.
       // Matches what tick() computes for tick 0: 0.25, the dawn boundary.
@@ -1150,7 +1161,7 @@ export class Game {
     // Sandbox spend() is intentionally a no-op, so there is nothing to hand
     // back if the mutation fails. Treating it as charged would mint resources
     // on every rejected sandbox gesture.
-    let refund = !!costs && !this.sandboxMode;   // cleared once mutation succeeds
+    let refund = !!costs && !this.isConstructionFree(); // cleared once mutation succeeds
     try {
       if (costs) this.spend(costs);
       result = mutate();
@@ -1231,8 +1242,21 @@ export class Game {
     this.emit('resourcesChanged');
   }
 
+  /** Install the persistent gameplay rules carried by a scenario. */
+  setScenarioRules(rules = {}) {
+    this.state.scenarioRules = normalizeScenarioRules(rules);
+    this.solveRunner?.markTopologyDirty?.();
+    this.state.nodeQualities = null;
+    this.state.unwiredSinks = null;
+  }
+
+  /** Whether capital/action charges are waived by an option or scenario. */
+  isConstructionFree() {
+    return this.sandboxMode || this.state.scenarioRules?.freeConstruction === true;
+  }
+
   canAfford(costs) {
-    if (this.sandboxMode) return true;
+    if (this.isConstructionFree()) return true;
     for (const [r, a] of Object.entries(costs))
       if ((this.state.resources[r] || 0) < a) return false;
     return true;
@@ -1276,7 +1300,7 @@ export class Game {
   }
 
   spend(costs) {
-    if (this.sandboxMode) return;
+    if (this.isConstructionFree()) return;
     for (const [r, a] of Object.entries(costs)) {
       if (r === 'spares') this.state.resources[r] = Math.max(0, (this.state.resources[r] || 0) - a);
       else this.state.resources[r] -= a;
@@ -1291,7 +1315,7 @@ export class Game {
   refundConstruction(costs, fraction = 0.5) {
     const credited = {};
     for (const [resource, amount] of Object.entries(costs || {})) {
-      const refund = this.sandboxMode ? 0 : Math.floor(amount * fraction);
+      const refund = this.isConstructionFree() ? 0 : Math.floor(amount * fraction);
       credited[resource] = refund;
       if (refund > 0) {
         this.state.resources[resource] = (this.state.resources[resource] || 0) + refund;
@@ -1315,7 +1339,7 @@ export class Game {
    * a plain funding debit is free to keep passing a number.
    */
   chargeConstruction(cost) {
-    if (this.sandboxMode) return;
+    if (this.isConstructionFree()) return;
     const c = typeof cost === 'number' ? { funding: cost } : (cost || {});
     for (const [resource, amount] of Object.entries(c)) {
       if (!amount) continue;
@@ -1374,6 +1398,7 @@ export class Game {
   }
 
   isComponentUnlocked(comp) {
+    if (this.state.scenarioRules?.unlockAllComponents === true) return true;
     if (comp.unlocked) return true;
     if (!comp.requires) return true;   // no requirement = available by default
     if (Array.isArray(comp.requires)) {
@@ -4038,7 +4063,7 @@ export class Game {
     this._rebuildPlaceableIndex();
     this._markNavDirty();
 
-    this.log(`Removed ${placeable.name} (${this.sandboxMode ? 'no sandbox refund' : '50% refund'})`, 'info');
+    this.log(`Removed ${placeable.name} (${this.isConstructionFree() ? 'no sandbox refund' : '50% refund'})`, 'info');
 
     if (entry.category === 'beamline') {
       this._deriveBeamGraph();
@@ -4151,7 +4176,7 @@ export class Game {
     this._rebuildPlaceableIndex();
     this._markNavDirty();
 
-    this.log(`Removed ${placeable.name} (${this.sandboxMode ? 'no sandbox refund' : '50% refund'})`, 'info');
+    this.log(`Removed ${placeable.name} (${this.isConstructionFree() ? 'no sandbox refund' : '50% refund'})`, 'info');
 
     if (entry.category === 'beamline') {
       this._deriveBeamGraph();
@@ -4557,7 +4582,7 @@ export class Game {
     }
 
     this.state.beamPipes.splice(idx, 1);
-    if (!opts.silent) this.log(`Removed beam pipe (${this.sandboxMode ? 'no sandbox refund' : '50% refund'})`, 'info');
+    if (!opts.silent) this.log(`Removed beam pipe (${this.isConstructionFree() ? 'no sandbox refund' : '50% refund'})`, 'info');
     this._deriveBeamGraph();
     this.schedulePhysicsRecalc();
     this.emit('beamlineChanged');
@@ -5019,6 +5044,8 @@ export class Game {
     const physicsBeamline = buildPhysicsElements(ordered, {
       componentHealth: entry.beamState.componentHealth,
       nodeQualities: this.state.nodeQualities,
+      includeInfrastructure: this.state.scenarioRules?.idealInfrastructure !== true,
+      applyCommissioning: this.state.scenarioRules?.idealInfrastructure !== true,
     });
 
     // Gather research effects for physics
@@ -5855,6 +5882,7 @@ export class Game {
    * qualities, or no data-producing hardware).
    */
   _dataConnectivityFactor(nodes) {
+    if (this.state.scenarioRules?.idealInfrastructure === true) return 1;
     if (!this.state.nodeQualities) return 1;
     const dataNetworks = this.state.utilityNetworks?.get?.('dataFiber');
     const gatewayByNetwork = new Map();
@@ -5989,7 +6017,8 @@ export class Game {
     }
 
     // Component wear (every 10 ticks)
-    if (this.state.tick % 10 === 0) {
+    if (this.state.tick % 10 === 0
+        && this.state.scenarioRules?.idealInfrastructure !== true) {
       if (this._applyWearForBeamline(entry)) this.schedulePhysicsRecalc();
     }
   }
@@ -6125,7 +6154,7 @@ export class Game {
     // repair.js's identical sandbox reasoning for its own one spend).
     const discount = this.state.staffHireDiscount || 0;
     const cost = Math.round(staffHireCost(cand, this.state.staffCosts) * (1 - discount));
-    if (!this.sandboxMode && this.state.resources.funding < cost) { this.log(`Can't afford hire $${cost}`, 'bad'); return false; }
+    if (!this.isConstructionFree() && this.state.resources.funding < cost) { this.log(`Can't afford hire $${cost}`, 'bad'); return false; }
     this.chargeConstruction(cost);
     this.state.staffHireDiscount = 0;
     const m = new StaffMember({ ...cand, id: `staff_${this.state.staffNextId++}` });
@@ -6185,7 +6214,7 @@ export class Game {
     // sees the benefit an admin's paperwork is supposed to buy every hire.
     const discount = this.state.staffHireDiscount || 0;
     const hireCost = Math.round(this.state.staffCosts[profession] * 10 * (1 - discount)); // 10 ticks upfront
-    if (!this.sandboxMode && this.state.resources.funding < hireCost) {
+    if (!this.isConstructionFree() && this.state.resources.funding < hireCost) {
       this.log(`Can't afford to hire (need $${hireCost})`, 'bad');
       return false;
     }
@@ -6678,6 +6707,12 @@ export class Game {
       resources = this._reconcileResources(data.state?.resources, opts.ledgerAt);
     }
     Object.assign(this.state, data.state);
+    // A pre-Sandbox-rules save loaded over a creative session must restore
+    // ordinary behavior instead of inheriting the live world's rules merely
+    // because the older payload has no field to overwrite them with.
+    if (!Object.prototype.hasOwnProperty.call(data.state || {}, 'scenarioRules')) {
+      this.state.scenarioRules = normalizeScenarioRules();
+    }
     if (preserved) {
       Object.assign(this.state, preserved);
       this.state.resources = resources;
@@ -7007,7 +7042,9 @@ export class Game {
     delete this.state.electricalPower;
     delete this.state.maxElectricalPower;
 
-    // Ensure infra validation state exists
+    // Ensure scenario rules and infra validation state exist. Old saves omit
+    // the rules and therefore retain ordinary career behavior.
+    this.state.scenarioRules = normalizeScenarioRules(this.state.scenarioRules);
     this.state.infraBlockers = this.state.infraBlockers || [];
     this.state.infraCanRun = this.state.infraCanRun !== undefined ? this.state.infraCanRun : true;
 

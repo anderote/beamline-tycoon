@@ -497,7 +497,11 @@ the short authoring contract.
 - **New Game** always opens the scenario picker. Its playable choices are the
   local Scenario Editor-authored starter game and the `sandbox` registry entry;
   source-authored regression fixtures do not appear. Sandbox is the explicit
-  blank-map path; do not add a second implicit blank-game flow.
+  blank-map path; do not add a second implicit blank-game flow. Its rules make
+  construction free, unlock every placeable, and supply ideal beamline power,
+  vacuum, RF, cooling, data, staffing, and commissioning without authored
+  infrastructure. Those rules persist with the Sandbox save and must not alter
+  ordinary scenarios.
 - Separate networks that cannot physically bridge (notably RF and cryogenics)
   instead of relying on adjacency.
 - Keep balance assertions about player outcomes and physical constraints. When

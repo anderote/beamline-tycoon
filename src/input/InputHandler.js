@@ -789,7 +789,7 @@ export class InputHandler {
     }
     const el = this._demolishTooltipEl;
     let html = `<span style="color:#ff6666">${name}</span>`;
-    if (refund > 0 && this.game.sandboxMode) {
+    if (refund > 0 && (this.game.isConstructionFree?.() ?? this.game.sandboxMode)) {
       html += '<br><span style="color:#d6b867">No refund · free sandbox build</span>';
     } else if (refund > 0) {
       html += `<br><span style="color:#66ff88">+$${refund.toLocaleString()}</span>`;

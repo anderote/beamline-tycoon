@@ -7,6 +7,7 @@
 import {
   customScenarioRef,
   listPlayableScenarios,
+  PENDING_SCENARIO_KEY,
   resolveScenario,
   stageScenarioSelection,
 } from '../data/scenarios.js';
@@ -154,7 +155,7 @@ export class ScenarioPicker {
       this.sessionStorage.setItem(SKIP_TITLE_SESSION_KEY, '1');
       this.storage.removeItem('beamlineTycoon');
     } catch (error) {
-      try { stageScenarioSelection('sandbox', this.storage); } catch (_) {}
+      try { this.storage.removeItem(PENDING_SCENARIO_KEY); } catch (_) {}
       try { this.sessionStorage.removeItem(SKIP_TITLE_SESSION_KEY); } catch (_) {}
       this.game.log?.(`NEW GAME FAILED — ${error.message || 'the scenario could not be staged'}.`, 'bad');
       return;

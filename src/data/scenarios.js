@@ -30,6 +30,12 @@ export const MINOR_LAB_BASELINE_VERSION = '2026-08-22-minorLab-19';
 export const DEFAULT_STARTING_SCENARIO_KEY = 'beamlineTycoon.defaultStartingScenario';
 export const PENDING_SCENARIO_KEY = 'beamlineTycoon.pendingScenario';
 
+export const SANDBOX_SCENARIO_RULES = Object.freeze({
+  freeConstruction: true,
+  idealInfrastructure: true,
+  unlockAllComponents: true,
+});
+
 function parseStoredScenario(raw) {
   try {
     if (!raw) return null;
@@ -468,16 +474,11 @@ export function stageScenarioSelection(id, storage = globalThis.localStorage) {
   const scenario = resolveScenario(id, storage);
   if (!scenario) return null;
   if (!storage) throw new Error('Storage is unavailable');
-  if (scenario.generator) {
-    storage.setItem(PENDING_SCENARIO_KEY, scenario.id);
-    if (storage.getItem(PENDING_SCENARIO_KEY) !== scenario.id) {
-      throw new Error(`Could not stage scenario "${scenario.name}"`);
-    }
-  } else {
-    storage.removeItem(PENDING_SCENARIO_KEY);
-    if (storage.getItem(PENDING_SCENARIO_KEY) != null) {
-      throw new Error('Could not clear the previously staged scenario');
-    }
+  // Blank Sandbox still needs a staged id: its world comes from Game's fresh
+  // starter map, but its creative rules must be applied after the reload.
+  storage.setItem(PENDING_SCENARIO_KEY, scenario.id);
+  if (storage.getItem(PENDING_SCENARIO_KEY) !== scenario.id) {
+    throw new Error(`Could not stage scenario "${scenario.name}"`);
   }
   return scenario;
 }
@@ -495,8 +496,10 @@ export const SCENARIOS = [
   {
     id: 'sandbox',
     name: 'Sandbox',
-    desc: 'Start from scratch with an empty plot and $2.5M. Full freedom to design your facility from the ground up.',
-    difficulty: 'Open',
+    desc: 'Freely build and run beamline components on an empty plot. All parts are unlocked and ideal power, vacuum, RF, cooling, data, and staffing are supplied automatically.',
+    difficulty: 'Creative',
+    sandbox: true,
+    rules: SANDBOX_SCENARIO_RULES,
     generator: null,  // null = default blank game
   },
   {

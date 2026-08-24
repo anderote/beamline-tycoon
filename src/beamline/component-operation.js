@@ -98,6 +98,13 @@ export function beamlineRunReadiness(state, entry, orderedNodes = []) {
     return { canRun: false, code: 'source_failed', reason: 'The source is broken.' };
   }
 
+  // Sandbox testing supplies ideal external services. Source existence,
+  // switches, and damage remain real beamline facts; utility and operator
+  // infrastructure do not gate the run command in this scenario.
+  if (state?.scenarioRules?.idealInfrastructure === true) {
+    return { canRun: true, code: null, reason: null };
+  }
+
   const staffBlocker = (state?.infraBlockers || []).find(
     blocker => blocker?.code === 'beam_unstaffed',
   );

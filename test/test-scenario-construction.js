@@ -213,8 +213,8 @@ assert.equal(stageScenarioSelection(balanceRef, storage)?.id, balanceRef);
 assert.equal(storage.getItem(PENDING_SCENARIO_KEY), balanceRef,
   'a local picker choice stages its stable catalogue reference');
 assert.equal(stageScenarioSelection('sandbox', storage)?.id, 'sandbox');
-assert.equal(storage.getItem(PENDING_SCENARIO_KEY), null,
-  'the explicit Sandbox picker choice clears pending scenario data for a blank map');
+assert.equal(storage.getItem(PENDING_SCENARIO_KEY), 'sandbox',
+  'the blank Sandbox choice is staged so its creative rules survive the reload');
 
 const unreliableStageStorage = memoryStorage();
 saveCustomScenario({ id: 'unstageableLab', name: 'Unstageable Lab', data: baseData }, {

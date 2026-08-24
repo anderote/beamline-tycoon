@@ -317,7 +317,10 @@ export class UtilityGate {
       // unaffected.
       const result = this.solveRunner.runSolve(state);
       const errs = Array.isArray(result && result.errors) ? result.errors : [];
-      const hardErrs = errs.filter(e => e && e.severity === 'hard');
+      const idealInfrastructure = state.scenarioRules?.idealInfrastructure === true;
+      const hardErrs = idealInfrastructure
+        ? []
+        : errs.filter(e => e && e.severity === 'hard');
       const softErrs = errs.filter(e => e && e.severity === 'soft');
 
       // Unconnected-sink detection lives in network-discovery (topology
@@ -333,14 +336,16 @@ export class UtilityGate {
       }
       const { unconnected, unwiredSinks, declaredFloors, beamlineCount } = this._topoCache;
 
-      for (const u of unconnected) {
-        hardErrs.push({
-          severity: 'hard',
-          code: UNCONNECTED_CODES[u.utility],
-          message: `${u.placeableType} ${u.portName} not connected to ${u.utility}`,
-          location: { placeableId: u.placeableId, portName: u.portName },
-          fromUnconnectedCheck: true,
-        });
+      if (!idealInfrastructure) {
+        for (const u of unconnected) {
+          hardErrs.push({
+            severity: 'hard',
+            code: UNCONNECTED_CODES[u.utility],
+            message: `${u.placeableType} ${u.portName} not connected to ${u.utility}`,
+            location: { placeableId: u.placeableId, portName: u.portName },
+            fromUnconnectedCheck: true,
+          });
+        }
       }
 
       // RimWorld-like staffing: beamlines need enough operators actually
@@ -351,7 +356,7 @@ export class UtilityGate {
       // "how many DISTINCT beamlines need staffing" count for the capacity
       // comparison itself.
       const coverage = operatorCoverage(state);
-      if (beamlineCount > 0 && !coverage.covered) {
+      if (!idealInfrastructure && beamlineCount > 0 && !coverage.covered) {
         hardErrs.push({
           severity: 'hard',
           code: 'beam_unstaffed',
