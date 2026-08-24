@@ -54,16 +54,31 @@ export function ambientLooseHvSparkProfile() {
   };
 }
 
+/** Lower-voltage loose cords spit fewer, softer sparks than exposed HV. */
+export function ambientLoosePowerSparkProfile() {
+  const profile = electricalSparkProfile('powerConnection');
+  return {
+    ...profile,
+    count: 4,
+    speedMin: profile.speedMin * 0.48,
+    speedMax: profile.speedMax * 0.62,
+    lifetimeMin: profile.lifetimeMin * 0.26,
+    lifetimeMax: profile.lifetimeMax * 0.34,
+    size: profile.size * 0.9,
+    restitution: Math.min(profile.restitution, 0.4),
+  };
+}
+
 /**
- * Locate the rendered loose tip of a one-ended HV cable.
+ * Locate the rendered loose tip of a one-ended electrical cable.
  *
  * Soft-cable rendering preserves the first and last trace samples exactly;
  * an unanchored terminal rests at the utility's route height. Keeping this
  * conversion pure lets the scheduler publish a ready-to-render anchor without
  * reaching into Three.js scene geometry or rediscovering topology.
  */
-export function looseHvCableSparkAnchor(line) {
-  if (line?.utilityType !== 'hvCable' || line.buried === true
+export function looseElectricalCableSparkAnchor(line) {
+  if (!['hvCable', 'powerCable'].includes(line?.utilityType) || line.buried === true
       || !!line.start === !!line.end) return null;
   const trace = sanitizeCablePath(
     Array.isArray(line.cablePath) && line.cablePath.length >= 2
@@ -89,6 +104,11 @@ export function looseHvCableSparkAnchor(line) {
       ? { x: dx / length, y: 0.18, z: dz / length }
       : { x: 0, y: 1, z: 0 },
   };
+}
+
+/** Compatibility seam for existing HV-only presentation consumers. */
+export function looseHvCableSparkAnchor(line) {
+  return line?.utilityType === 'hvCable' ? looseElectricalCableSparkAnchor(line) : null;
 }
 
 /** Slightly fuller near nameplate load, while remaining a small cabinet spit. */

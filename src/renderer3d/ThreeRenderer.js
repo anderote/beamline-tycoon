@@ -91,6 +91,7 @@ import {
   ambientDistributorSparkProfile,
   ambientHvConnectionSparkProfile,
   ambientLooseHvSparkProfile,
+  ambientLoosePowerSparkProfile,
   equipmentPowerUpSparkProfile,
   utilityConnectionSparkProfile,
 } from './spark-presentation.js';
@@ -2156,11 +2157,13 @@ export class ThreeRenderer {
 
   /** Emit one scheduler-selected, presentation-only ambient electrical spit. */
   _emitAmbientElectricalSpark(event) {
-    if (event?.kind === 'looseHvEnd') {
+    if (event?.kind === 'looseHvEnd' || event?.kind === 'loosePowerEnd') {
       if (!event.position || !event.normal) return;
+      const profile = event.utilityType === 'hvCable'
+        ? ambientLooseHvSparkProfile() : ambientLoosePowerSparkProfile();
       this.emitVisualEffect({
         kind: 'particleBurst', position: event.position, normal: event.normal,
-        ...ambientLooseHvSparkProfile(),
+        ...profile,
         physicalLight: false,
       });
       return;

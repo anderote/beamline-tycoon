@@ -5,10 +5,11 @@
 // it only turns energized connections, exposed live ends, and distributor
 // utilization into bounded wall-clock event rates for the renderer.
 
-import { looseHvCableSparkAnchor } from './spark-presentation.js';
+import { looseElectricalCableSparkAnchor } from './spark-presentation.js';
 
 export const HV_CONNECTION_SPARK_RATE_PER_SECOND = 1 / 300;
 export const LOOSE_HV_SPARK_RATE_PER_SECOND = 0.65;
+export const LOOSE_POWER_SPARK_RATE_PER_SECOND = 0.22;
 export const DISTRIBUTOR_MAX_SPARK_RATE_PER_SECOND = 1 / 180;
 
 function values(collection) {
@@ -28,9 +29,9 @@ function networkHasPort(network, placeableId, portName) {
       || (port?.placeableId === placeableId && port?.portName === portName));
 }
 
-function energizedHvNetworks(state) {
-  const flows = state?.utilityNetworkData?.get?.('hvCable');
-  return (state?.utilityNetworks?.get?.('hvCable') || []).filter(network => {
+function energizedNetworks(state, utilityType) {
+  const flows = state?.utilityNetworkData?.get?.(utilityType);
+  return (state?.utilityNetworks?.get?.(utilityType) || []).filter(network => {
     const flow = flows?.get?.(network.id);
     return (flow?.totalCapacity || 0) > 0;
   });
@@ -47,25 +48,32 @@ function energizedHvNetworks(state) {
  * load.
  */
 export function ambientElectricalSparkCandidates(state, getDefinition = () => null) {
-  const energized = energizedHvNetworks(state);
-  const energizedLineIds = new Set(energized.flatMap(network => network.lineIds || []));
+  const energizedHv = energizedNetworks(state, 'hvCable');
+  const energizedLines = new Map(['hvCable', 'powerCable'].map(utilityType => [
+    utilityType,
+    new Set(energizedNetworks(state, utilityType).flatMap(network => network.lineIds || [])),
+  ]));
   const candidates = [];
 
   for (const line of values(state?.utilityLines)) {
-    if (!line?.id || line.utilityType !== 'hvCable'
+    if (!line?.id || !energizedLines.has(line.utilityType)
         || line.buried === true
-        || !energizedLineIds.has(line.id)) continue;
-    const looseAnchor = looseHvCableSparkAnchor(line);
+        || !energizedLines.get(line.utilityType).has(line.id)) continue;
+    const looseAnchor = looseElectricalCableSparkAnchor(line);
     if (looseAnchor) {
+      const isHv = line.utilityType === 'hvCable';
       candidates.push({
-        id: `hv:${line.id}:loose-${looseAnchor.looseEnd}`,
-        kind: 'looseHvEnd',
+        id: `${isHv ? 'hv' : 'power'}:${line.id}:loose-${looseAnchor.looseEnd}`,
+        kind: isHv ? 'looseHvEnd' : 'loosePowerEnd',
         lineId: line.id,
+        utilityType: line.utilityType,
         ...looseAnchor,
-        ratePerSecond: LOOSE_HV_SPARK_RATE_PER_SECOND,
+        ratePerSecond: isHv
+          ? LOOSE_HV_SPARK_RATE_PER_SECOND : LOOSE_POWER_SPARK_RATE_PER_SECOND,
       });
       continue;
     }
+    if (line.utilityType !== 'hvCable') continue;
     if (!line.start || !line.end) continue;
     const endpointRate = HV_CONNECTION_SPARK_RATE_PER_SECOND / 2;
     candidates.push({
@@ -86,7 +94,7 @@ export function ambientElectricalSparkCandidates(state, getDefinition = () => nu
     const rating = Number(breaker?.rating) || 0;
     if (!placeable?.id || def?.category !== 'power' || def?.subsection !== 'distribution'
         || !(rating > 0) || liveDevices[placeable.id]?.breakerTripped === true) continue;
-    const inletNetwork = energized.find(network => networkHasPort(
+    const inletNetwork = energizedHv.find(network => networkHasPort(
       network, placeable.id, 'hv_in',
     ));
     if (!inletNetwork) continue;
