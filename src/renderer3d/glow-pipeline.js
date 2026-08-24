@@ -126,6 +126,12 @@ class ModernGlowPipeline {
     this._softGlowPass.smoothWidth.value = opts.softSmoothWidth ?? SOFT_SMOOTH_WIDTH;
     this._softStrength = opts.softStrength ?? SOFT_STRENGTH;
 
+    // Build both graph shapes once. Runtime quality changes can then switch
+    // between them without allocating a fresh chain of TSL AddNodes on every
+    // toggle (and without leaving the soft bloom mip chain scheduled on low).
+    this._outputWithoutSoftGlow = this._groundedSceneColor.add(this._bloomPass);
+    this._outputWithSoftGlow = this._outputWithoutSoftGlow.add(this._softGlowPass);
+
     this._pipeline = new RenderPipeline(renderer);
     this.setQuality(this._quality);
   }
@@ -140,9 +146,15 @@ class ModernGlowPipeline {
     // Omitting the node from output is important: setting strength to zero
     // alone still schedules its full mip-chain blur. Low quality now pays for
     // neither the broad bloom nor its work.
-    this._pipeline.outputNode = this._quality.softGlow
-      ? this._groundedSceneColor.add(this._bloomPass).add(this._softGlowPass)
-      : this._groundedSceneColor.add(this._bloomPass);
+    const outputNode = this._quality.softGlow
+      ? this._outputWithSoftGlow
+      : this._outputWithoutSoftGlow;
+    if (this._pipeline.outputNode !== outputNode) {
+      this._pipeline.outputNode = outputNode;
+      // RenderPipeline does not observe outputNode assignments. Marking it
+      // dirty is what actually rebuilds the post-process graph at runtime.
+      this._pipeline.needsUpdate = true;
+    }
     // Three r184's BloomNode owns fixed half-resolution mip chains and exposes
     // no resolution-scale control. Assigning a private `_resolutionScale`
     // property here looked like a quality setting but BloomNode never read it.
@@ -175,6 +187,8 @@ class ModernGlowPipeline {
     this._bloomPass.dispose();
     this._softGlowPass.dispose();
     this._aoPass?.dispose();
+    this._glowScenePass?.dispose();
+    this._scenePass.dispose();
     this._pipeline.dispose();
   }
 }
