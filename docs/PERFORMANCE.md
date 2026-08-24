@@ -1,5 +1,28 @@
 # Performance benchmarks
 
+## Minor Lab saved scenario
+
+`npm run benchmark:minor-lab` loads the shipped Minor Lab save through the real
+scenario setup, world snapshot, and complete production facility builders. It
+reports cold/warm snapshot time, total and per-subsystem scene construction,
+first and warm LOD transition CPU time, near/far draw calls, triangles, shadow
+draws, and a per-subsystem structural breakdown.
+
+Use `--iterations=N` to collect more scene-build timing samples, `--json` for a
+machine-readable report, and `--gate` to fail when the stable structural
+budgets are exceeded:
+
+```sh
+npm run benchmark:minor-lab -- --iterations=5
+npm run --silent benchmark:minor-lab -- --json > minor-lab.json
+npm run benchmark:minor-lab -- --gate
+```
+
+CPU timings are diagnostic rather than gated because host speed and thermal
+state vary. Draw, triangle, shadow, and detail/glow leakage budgets are the
+portable regression contract. The benchmark does not measure GPU time, browser
+FPS, post-processing, driver submission, or visual fidelity.
+
 ## Ten large beamlines
 
 `npm run benchmark:ten-large` constructs ten copies of the shipped

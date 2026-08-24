@@ -5,29 +5,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { Game } from '../src/game/Game.js';
-import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
-import { generateMinorLab, setupMinorLab } from '../src/data/scenarios/minorLab.js';
-import { buildWorldSnapshot } from '../src/renderer3d/world-snapshot.js';
-import { makeUtilityEndpointIndex } from '../src/utility/utility-endpoints.js';
-import { buildHeadlessFacilityScene } from '../scripts/perf/headless-render-metrics.mjs';
-
-globalThis.localStorage = {
-  getItem() { return null; },
-  setItem() {},
-  removeItem() {},
-};
+import { runMinorLabBenchmark } from '../scripts/perf/minor-lab-benchmark.mjs';
 
 test('Minor Lab far presentation stays within the whole-facility render budget', async () => {
-  const game = new Game(new BeamlineRegistry(), { seed: 1234 });
-  game.applyScenario(generateMinorLab());
-  setupMinorLab(game);
-  const snapshot = buildWorldSnapshot(game);
-  const report = await buildHeadlessFacilityScene(snapshot, {
-    state: game.state,
-    endpointIndex: makeUtilityEndpointIndex(game.state),
+  const benchmark = await runMinorLabBenchmark({
+    iterations: 1,
+    snapshotIterations: 1,
     quiet: true,
   });
+  const report = benchmark.render;
 
   assert.ok(report.near.drawCalls > 7000,
     'fixture still exercises the expensive authored scene that prompted the LOD');
@@ -47,4 +33,9 @@ test('Minor Lab far presentation stays within the whole-facility render budget',
   assert.ok(far.utilities.drawCalls <= 320);
   assert.ok(report.far.drawCalls < report.near.drawCalls / 10,
     `far LOD removes over 90% of authored draws (${report.near.drawCalls} -> ${report.far.drawCalls})`);
+  assert.ok(benchmark.timings.sceneBuild.meanMs > 0,
+    'the reusable benchmark reports production scene construction time');
+  assert.ok(benchmark.timings.lodTransition.firstFarMs.meanMs > 0,
+    'the reusable benchmark reports first-transition CPU time');
+  assert.equal(benchmark.pass, true, 'the benchmark structural gate passes');
 });
