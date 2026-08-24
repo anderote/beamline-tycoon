@@ -2090,19 +2090,45 @@ export class InputHandler {
     return { snap, pipe, proj, cells, collidesWithModule };
   }
 
-  /** Snap a compatible instrument to the nearest point on its utility run. */
-  _snapAttachmentToUtilityLine(compKey, worldX, worldY) {
+  /** Snap a compatible instrument to the utility run under/near the cursor. */
+  _snapAttachmentToUtilityLine(compKey, worldX, worldY, screenX = null, screenY = null) {
     const def = COMPONENTS[compKey];
     if (!def?.utilityMount) return null;
-    const gf = isoToGridFloat(worldX, worldY);
     const lines = this.game.state.utilityLines;
     const iter = lines && typeof lines.values === 'function' ? lines.values() : (lines || []);
     let best = null;
-    for (const line of iter) {
-      if (!line || line.utilityType !== def.utilityMount) continue;
-      const proj = projectOntoUtilityLine(line, gf.col, gf.row);
-      if (!proj || proj.distance > 0.45) continue;
-      if (!best || proj.distance < best.proj.distance) best = { line, proj };
+
+    // Elevated rigid services do not project to the same ground point as the
+    // visible pipe under an oblique camera. Prefer the renderer's actual mesh
+    // hit (with the standard screen-space pickup halo), then resolve the exact
+    // longitudinal mount position from that 3D intersection.
+    if (Number.isFinite(screenX) && Number.isFinite(screenY)
+        && typeof this.renderer?.raycastUtilityLine === 'function') {
+      const picked = this.renderer.raycastUtilityLine(
+        screenX, screenY, OBJECT_PICK_TOLERANCE_PX,
+      );
+      if (picked?.lineId && picked.utilityType === def.utilityMount
+          && Number.isFinite(picked.worldPos?.x) && Number.isFinite(picked.worldPos?.z)) {
+        const pickedLine = typeof lines?.get === 'function'
+          ? lines.get(picked.lineId)
+          : (lines || []).find(line => line?.id === picked.lineId);
+        if (pickedLine?.utilityType === def.utilityMount) {
+          const proj = projectOntoUtilityLine(
+            pickedLine, picked.worldPos.x / 2, picked.worldPos.z / 2,
+          );
+          if (proj) best = { line: pickedLine, proj };
+        }
+      }
+    }
+
+    if (!best) {
+      const gf = isoToGridFloat(worldX, worldY);
+      for (const line of iter) {
+        if (!line || line.utilityType !== def.utilityMount) continue;
+        const proj = projectOntoUtilityLine(line, gf.col, gf.row);
+        if (!proj || proj.distance > 0.45) continue;
+        if (!best || proj.distance < best.proj.distance) best = { line, proj };
+      }
     }
     if (!best) return null;
     best.collidesWithAttachment = (best.line.attachments || []).some(att => {
@@ -2116,8 +2142,10 @@ export class InputHandler {
   }
 
   /** Prefer a declared utility mount, while preserving beam-pipe mounting. */
-  _resolveAttachmentTarget(compKey, worldX, worldY) {
-    const lineHit = this._snapAttachmentToUtilityLine(compKey, worldX, worldY);
+  _resolveAttachmentTarget(compKey, worldX, worldY, screenX = null, screenY = null) {
+    const lineHit = this._snapAttachmentToUtilityLine(
+      compKey, worldX, worldY, screenX, screenY,
+    );
     if (lineHit) return lineHit;
     const pipeHit = this._snapAttachmentToPipe(compKey, worldX, worldY);
     return pipeHit ? { kind: 'beamPipe', ...pipeHit } : null;
@@ -2162,8 +2190,8 @@ export class InputHandler {
    * the unified subgrid snap for the footprint and the pipe projection for
    * pipe-alignment.
    */
-  _updateAttachmentPreview(compKey, worldX, worldY) {
-    const hit = this._resolveAttachmentTarget(compKey, worldX, worldY);
+  _updateAttachmentPreview(compKey, worldX, worldY, screenX = null, screenY = null) {
+    const hit = this._resolveAttachmentTarget(compKey, worldX, worldY, screenX, screenY);
     if (!hit) {
       // No pipe under the cursor: drop the ghost mesh but keep the placement
       // grid every other placement tool shows (a full _clearPreview stripped
@@ -3235,7 +3263,10 @@ export class InputHandler {
     if (this.lastMouseWorldX == null || this.lastMouseWorldY == null) return;
     const def = COMPONENTS[armedId];
     if (def?.placement === 'attachment' && !def.role) {
-      this._updateAttachmentPreview(armedId, this.lastMouseWorldX, this.lastMouseWorldY);
+      this._updateAttachmentPreview(
+        armedId, this.lastMouseWorldX, this.lastMouseWorldY,
+        this._lastScreenX, this._lastScreenY,
+      );
       return;
     }
     this._updatePlaceablePreview();

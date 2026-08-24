@@ -128,7 +128,7 @@ export class BeamlineTool extends Tool {
     // valves) get the pipe-projected ghost instead of the unified one; running
     // both drew a full ghost that the attachment preview immediately erased.
     if (def?.placement === 'attachment' && !def.role) {
-      input._updateAttachmentPreview(this.key, world.x, world.y);
+      input._updateAttachmentPreview(this.key, world.x, world.y, e.clientX, e.clientY);
     } else {
       // Unified ghost — routes junction/placement hover to the controller,
       // skips drawn connections, renders the module ghost otherwise.
@@ -168,7 +168,9 @@ export class BeamlineTool extends Tool {
     // Infrastructure gauges can mount on a drawn vacuum run or a beam pipe;
     // valves remain beam-pipe-only.
     if (def?.placement === 'attachment' && !def.role) {
-      const hit = input._resolveAttachmentTarget(this.key, world.x, world.y);
+      const hit = input._resolveAttachmentTarget(
+        this.key, world.x, world.y, e.clientX, e.clientY,
+      );
       if (!hit) {
         const mount = def.utilityMount ? 'a vacuum line or beam pipe' : 'a beam pipe';
         const message = `${def?.name || 'Attachment'} must be placed on ${mount}.`;
