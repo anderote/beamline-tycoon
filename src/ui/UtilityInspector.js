@@ -24,6 +24,7 @@ import {
   utilityLineDetailsModel,
   utilityPerformanceModel,
 } from './utility-line-details.js';
+import { renderUtilityTopology } from './utility-topology.js';
 
 // Titlebar accent derives from the utility's registry color (the single
 // source of truth for utility hues), darkened so the title gradient stays
@@ -94,13 +95,14 @@ export function utilityInspectorTabs(utilityType, lineId = null) {
     return [
       { key: 'run', label: 'Run Details' },
       { key: 'performance', label: 'Performance' },
+      { key: 'topology', label: 'Topology' },
       ...(utilityType === 'rfWaveguide' ? [{ key: 'spectrum', label: 'Spectrum' }] : []),
       { key: 'overview', label: 'Network' },
     ];
   }
   return utilityType === 'rfWaveguide'
-    ? [{ key: 'spectrum', label: 'Spectrum' }, { key: 'overview', label: 'Overview' }]
-    : [{ key: 'overview', label: 'Overview' }];
+    ? [{ key: 'topology', label: 'Topology' }, { key: 'spectrum', label: 'Spectrum' }, { key: 'overview', label: 'Details' }]
+    : [{ key: 'topology', label: 'Topology' }, { key: 'overview', label: 'Details' }];
 }
 
 export class UtilityInspector {
@@ -145,6 +147,7 @@ export class UtilityInspector {
       ctx.onTabRender('run', (el) => this._renderRun(el));
       ctx.onTabRender('performance', (el) => this._renderPerformance(el));
     }
+    ctx.onTabRender('topology', (el) => this._renderTopology(el));
     ctx.onTabRender('overview', (el) => this._renderOverview(el));
     if (utilityType === 'rfWaveguide') {
       ctx.onTabRender('spectrum', (el) => this._renderSpectrum(el));
@@ -195,6 +198,43 @@ export class UtilityInspector {
   _renderPerformance(el) {
     const model = utilityPerformanceModel(this.game.state, this.utilityType, this.networkId);
     el.innerHTML = renderUtilityPerformance(model);
+  }
+
+  _renderTopology(el) {
+    const desc = UTILITY_TYPES[this.utilityType] || {};
+    const flow = this.game.state.utilityNetworkData?.get?.(this.utilityType)?.get?.(this.networkId);
+    el.innerHTML = renderUtilityTopology(flow?.topology, {
+      capacityUnit: desc.capacityUnit || '',
+      demandUnit: desc.demandUnit || desc.capacityUnit || '',
+      labelFor: id => this._placeableLabel(id),
+      actionsFor: id => (this.utilityType === 'powerCable' || this.utilityType === 'hvCable')
+        ? (this.game.getPowerDeviceActions?.(id) || []) : [],
+    });
+    el.querySelectorAll('[data-topology-placeable][data-topology-action]').forEach(button => {
+      button.onclick = () => {
+        const placeableId = button.dataset.topologyPlaceable;
+        const result = this.game.dispatchPowerDeviceAction?.(
+          placeableId, button.dataset.topologyAction,
+        );
+        if (!result?.ok) return;
+        this._followTopologyAfterControl(placeableId);
+        if (this.ctx && this.ctx._el) this.ctx.update();
+      };
+    });
+  }
+
+  _followTopologyAfterControl(placeableId) {
+    if (this.lineId) {
+      this._syncSelectedLineNetwork();
+      return;
+    }
+    const current = this.game.state.utilityNetworks?.get?.(this.utilityType) || [];
+    if (current.some(network => network.id === this.networkId)) return;
+    const candidates = current.filter(network => (network.ports || []).some(port =>
+      port.placeableId === placeableId));
+    candidates.sort((a, b) => (b.sinks?.length || 0) - (a.sinks?.length || 0)
+      || String(a.id).localeCompare(String(b.id)));
+    if (candidates[0]) this.networkId = candidates[0].id;
   }
 
   _renderOverview(el) {

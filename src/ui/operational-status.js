@@ -122,6 +122,9 @@ function deviceStatus(state, entry, health) {
   if (live.breakerTripped === true) {
     result = worse(result, status('critical', 'Breaker tripped'));
   }
+  if (live.breakerOpen === true) {
+    result = worse(result, status('critical', 'Breaker open'));
+  }
   if (live.switchClosed === false) {
     result = worse(result, status('critical', 'Switch open'));
   }

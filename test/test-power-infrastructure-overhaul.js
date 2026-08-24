@@ -166,6 +166,40 @@ test('a distribution panel caps upstream draw at its rating when downstream is o
     'the overloaded mixed-output section panel cannot pull more than its 600 kW nameplate');
 });
 
+test('opening a panel breaker removes upstream draw and cuts every downstream load', () => {
+  const state = world([
+    placed('service', 'gridServicePoint'),
+    placed('panel', 'powerPanel'),
+    placed('load', 'quadrupole'),
+  ], [
+    line('feed', 'hvCable', ref('service', 'hv_out_1'), ref('panel', 'hv_in'), 0),
+    line('branch', 'powerCable', ref('panel', 'pwr_out_1'), ref('load', 'pwr_in'), 2),
+  ]);
+  const reliability = reliabilityFor(state);
+  const runner = runnerFor(state);
+  runner.runSolve(state);
+  assert.equal([...state.utilityNetworkData.get('hvCable').values()][0].totalDemand, 10);
+  assert.ok(reliability.actions('panel').some(action =>
+    action.id === 'toggleBreaker' && action.label === 'Open breaker'));
+
+  assert.equal(reliability.dispatch('panel', 'toggleBreaker').ok, true);
+  runner.runSolve(state);
+  const openHv = [...state.utilityNetworkData.get('hvCable').values()][0];
+  const openBranch = [...state.utilityNetworkData.get('powerCable').values()][0];
+  assert.equal(openHv.totalDemand, 0,
+    'an open downstream breaker no longer presents phantom load upstream');
+  assert.equal(openBranch.totalCapacity, 0);
+  assert.equal(openBranch.perSinkQuality['load:pwr_in'], 0);
+  assert.equal(openBranch.topology.nodes.find(node => node.placeableId === 'panel')?.fault,
+    'breaker_open');
+
+  assert.equal(reliability.dispatch('panel', 'toggleBreaker').poweredOn, true);
+  runner.runSolve(state);
+  const restored = [...state.utilityNetworkData.get('powerCable').values()][0];
+  assert.equal(restored.totalCapacity, 120);
+  assert.equal(restored.perSinkQuality['load:pwr_in'], 1);
+});
+
 test('a main distribution panel propagates mixed panel and dedicated downstream demand', () => {
   const state = world([
     placed('service', 'gridServicePoint'),

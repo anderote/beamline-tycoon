@@ -35,6 +35,7 @@ export function initialPowerDeviceState(def) {
   }
   if (control.breaker) {
     out.breakerTripped = false;
+    out.breakerOpen = false;
     out.overloadTicks = 0;
     out.breakerRetryTicks = 0;
   }
@@ -197,6 +198,10 @@ export class PowerReliabilityCoordinator {
   _tickBreaker(entry, def, live) {
     const breaker = def.electricalControl?.breaker;
     if (!breaker) return false;
+    if (live.breakerOpen === true) {
+      live.overloadTicks = 0;
+      return false;
+    }
     if (live.breakerTripped) {
       const remaining = Number.isFinite(live.breakerRetryTicks) && live.breakerRetryTicks > 0
         ? live.breakerRetryTicks
@@ -293,7 +298,10 @@ export class PowerReliabilityCoordinator {
       rows.push({ label: 'Active source', value: live.transferActive || 'normal' });
     }
     if (control.breaker) {
-      rows.push({ label: 'Breaker', value: live.breakerTripped ? 'TRIPPED' : 'Closed' });
+      rows.push({
+        label: 'Breaker',
+        value: live.breakerTripped ? 'TRIPPED' : (live.breakerOpen ? 'Open' : 'Closed'),
+      });
       if (live.breakerTripped) {
         const retryTicks = Number.isFinite(live.breakerRetryTicks)
           && live.breakerRetryTicks > 0
@@ -356,6 +364,12 @@ export class PowerReliabilityCoordinator {
       actions.push({ id: 'cycleTransfer', label: `Transfer: ${live.transferMode || 'auto'} → ${next}` });
     }
     if (live.breakerTripped) actions.push({ id: 'resetBreaker', label: 'Reset breaker' });
+    else if (control.breaker && control.kind !== 'disconnect') {
+      actions.push({
+        id: 'toggleBreaker',
+        label: live.breakerOpen ? 'Close breaker' : 'Open breaker',
+      });
+    }
     if (control.source?.kind === 'generator') {
       actions.push({
         id: 'toggleGenerator',
@@ -392,6 +406,12 @@ export class PowerReliabilityCoordinator {
       live.breakerRetryTicks = 0;
       topologyChanged = control.kind === 'disconnect' || control.kind === 'transfer';
       poweredOn = true;
+    } else if (action === 'toggleBreaker' && control.breaker
+        && control.kind !== 'disconnect' && !live.breakerTripped) {
+      live.breakerOpen = live.breakerOpen !== true;
+      live.overloadTicks = 0;
+      live.breakerRetryTicks = 0;
+      poweredOn = live.breakerOpen !== true;
     } else if (action === 'toggleGenerator' && control.source?.kind === 'generator') {
       live.generatorEnabled = live.generatorEnabled === false;
       poweredOn = live.generatorEnabled !== false;

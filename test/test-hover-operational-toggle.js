@@ -88,6 +88,17 @@ test('generator enable/disable is available but maintenance actions are not', ()
   assert.equal(hoveredOperationalTarget(game, 'placeable:generator_1'), null);
 });
 
+test('panel breaker open/close is a world-hover power toggle', () => {
+  const { game } = gameWith(
+    { id: 'panel_1', type: 'powerPanel' },
+    [{ id: 'toggleBreaker', label: 'Open breaker' }],
+  );
+  assert.equal(
+    hoveredOperationalTarget(game, 'placeable:panel_1')?.actionId,
+    'toggleBreaker',
+  );
+});
+
 test('hovering downstream beamline hardware toggles that component', () => {
   const { game, calls } = gameWith({
     id: 'quad_1', type: 'quadrupole', category: 'beamline',

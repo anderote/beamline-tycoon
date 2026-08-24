@@ -24,6 +24,7 @@ import { computeElectricalSinkDemands } from './electrical-demand.js';
 import { buildPowerFeedIndex } from './power-feed.js';
 import { endpointsById } from './endpoint-lookup.js';
 import { appendUtilityPerformanceSample } from './performance-history.js';
+import { buildUtilityTopologySnapshot } from './topology-snapshot.js';
 
 function cloneDefaults(defaults) {
   if (defaults == null) return {};
@@ -130,7 +131,7 @@ export class SolveRunner {
     // quality. Their upstream draw, however, is the connected downstream load
     // rather than nameplate rating. Resolve that topology-only quantity before
     // either electrical solver runs to avoid a circular solve-order dependency.
-    state.electricalSinkDemands = computeElectricalSinkDemands(networksByType);
+    state.electricalSinkDemands = computeElectricalSinkDemands(networksByType, worldState);
 
     // Vacuum, cryogenic and water descriptors all resolve endpoint ids while
     // solving. Build that linear-time view once per pass instead of once (or
@@ -179,6 +180,11 @@ export class SolveRunner {
           };
         }
         if (result.flowState) {
+          const topology = buildUtilityTopologySnapshot(
+            worldState, network, result.flowState, descriptor,
+          );
+          result.flowState.topology = topology;
+          result.flowState.perSegmentLoad = topology.perSegmentLoad;
           perType.set(network.id, result.flowState);
           const prior = previousPerformance.get(utilityType)?.get?.(network.id);
           perTypePerformance.set(network.id, appendUtilityPerformanceSample(
