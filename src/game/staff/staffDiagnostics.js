@@ -390,7 +390,10 @@ export function describeJob(member, game) {
 // a few ticks between two consecutive calls — normal play never does)
 // as exactly that, and starts the clock over — the behavior the module
 // comment always claimed but, before this fix, never actually implemented.
-const STALL_WINDOW_FLOOR_TICKS = 240; // one in-game day (Game.js's DAY_LENGTH_TICKS) — the window even when nobody's actively working ANYTHING in flight.
+// Four normal-speed minutes. This operational watchdog is deliberately based
+// on elapsed simulation work, not on the presentation clock: slowing the sun
+// must not make a genuinely stalled facility wait six times longer to report.
+const STALL_WINDOW_FLOOR_TICKS = 240;
 // Exported (fix round 3's issue E) so test/test-staff-diagnostics.js's own
 // advanceProgress helper can assert its stepSize stays under this cliff by
 // construction, rather than by a comment a future edit could silently

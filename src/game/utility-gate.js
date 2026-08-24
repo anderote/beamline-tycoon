@@ -266,12 +266,12 @@ export function operatorCoverage(state) {
   return { covered: capacity >= beamlineCount, capacity, operators };
 }
 
-// Must match Game.js's DAY_LENGTH_TICKS (240) — duplicated rather than
+// Must match Game.js's DAY_LENGTH_TICKS (1440) — duplicated rather than
 // imported to avoid a circular import (Game.js imports this module). Keep
 // this in sync if DAY_LENGTH_TICKS ever changes; jobRunner.js's own
 // SUBTILE_UNIT/SLOWEST_PAWN_SPEED duplication (from StaffPawns.js) is the
 // same trade for the same reason.
-const DAY_LENGTH_TICKS = 240;
+const DAY_LENGTH_TICKS = 1440;
 const BEAM_HOURS_TICK_INTERVAL = DAY_LENGTH_TICKS / 24; // ticks per in-game hour
 
 export class UtilityGate {
