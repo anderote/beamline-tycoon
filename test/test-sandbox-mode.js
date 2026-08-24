@@ -8,6 +8,7 @@ import { BeamlineRegistry } from '../src/beamline/BeamlineRegistry.js';
 import { COMPONENTS } from '../src/data/components.js';
 import { SCENARIOS } from '../src/data/scenarios.js';
 import { launchScenario } from '../src/game/scenario-launch.js';
+import { buildWorldSnapshot } from '../src/renderer3d/world-snapshot.js';
 
 const store = new Map();
 globalThis.localStorage = {
@@ -192,6 +193,58 @@ console.log('\n--- Sandbox scenario is an infrastructure-free beamline test benc
   store.set('beamlineTycoon', JSON.stringify(legacyPayload));
   assert(restored.load() === true && restored.isConstructionFree() === false,
     'an older save cannot inherit Sandbox rules from the world it replaces');
+}
+
+console.log('\n--- the persistent sandbox toggle also supplies ideal beam infrastructure ---');
+{
+  store.clear();
+  const g = mk();
+  g.setSandboxMode(true);
+
+  let sourceId = null;
+  let pipeId = null;
+  for (let row = -18; row <= 18 && !pipeId; row += 3) {
+    sourceId = g.beamline.placeJunction({
+      type: 'ecrIonSource', col: -12, row, dir: 3, free: true, silent: true,
+    });
+    if (!sourceId) continue;
+    pipeId = g.beamline.drawPipe(
+      { junctionId: sourceId, portName: 'exit' },
+      null,
+      [{ col: -12, row }, { col: 12, row }],
+    );
+    if (!pipeId) {
+      g.removePlaceable(sourceId);
+      sourceId = null;
+    }
+  }
+  assert(!!pipeId, 'an ECR source with an open beam pipe builds for the sandbox fixture');
+
+  // No scenario rules are involved: this is specifically the Options toggle
+  // used in an existing game.
+  assert(g.state.scenarioRules.idealInfrastructure === false,
+    'the fixture is not relying on the dedicated Sandbox scenario');
+  g.refreshInfrastructureGate();
+  assert(g.state.infraCanRun === true && g.state.infraBlockers.length === 0,
+    'the sandbox toggle bypasses utilities and operator infrastructure');
+
+  const beamline = g.registry.getAll().find(entry => entry.sourceId === sourceId);
+  g.toggleBeam(beamline?.id);
+  assert(beamline?.status === 'running', 'the unwired ECR beamline turns on');
+  g.tick();
+  assert(g.state.beamOn === true && (beamline?.beamState?.beamCurrent || 0) > 0,
+    'the ECR beam remains live with a non-zero ideal-services physics result');
+
+  const path = buildWorldSnapshot(g, { only: ['beamPaths'] }).beamPaths
+    .find(entry => entry.beamlineId === beamline?.id);
+  assert(path?.worldPoints?.length >= 2,
+    'the live open-ended ECR beam publishes a routed particle path');
+  assert(path?.sourceEffect?.kind === 'plasmaVortex',
+    'the renderer receives the ECR plasma-flow particle effect while the beam is on');
+
+  g.setSandboxMode(false);
+  assert(g.state.infraCanRun === false && g.state.beamOn === false,
+    'turning sandbox off immediately restores normal infrastructure gating');
 }
 
 console.log('\n--- persistence ---');

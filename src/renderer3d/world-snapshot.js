@@ -637,7 +637,12 @@ function buildBeamPaths(game) {
     const nodes = flat
       .filter(el => el.kind === 'module' && el.placeable)
       .map(el => el.placeable);
-    if (nodes.length < 2) continue;
+    // A source feeding an open-ended beam pipe is already a real routed beam
+    // path even though it has only one junction module. Requiring two modules
+    // hid both its travelling beam pixels and source-internal effects (most
+    // visibly the ECR plasma vortex) until an endpoint was installed.
+    const worldPoints = beamVisualPath(flat, game.state.beamPipes);
+    if (worldPoints.length < 2) continue;
 
     const dimmed = !!(editingId && entry.id !== editingId);
 
@@ -670,7 +675,7 @@ function buildBeamPaths(game) {
       ),
       sourceEffect: beamSourceEffect(visualElements),
       color: entry.accentColor || 0x44ff44,
-      worldPoints: beamVisualPath(flat, game.state.beamPipes),
+      worldPoints,
     });
   }
 

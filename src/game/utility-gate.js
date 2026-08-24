@@ -277,6 +277,11 @@ export class UtilityGate {
     this.state = opts.state;
     this.solveRunner = opts.solveRunner;
     this.getPorts = opts.getPorts;
+    // Game owns session-only sandboxMode, while scenarioRules live on state.
+    // Accept the policy as a callback so this dependency-neutral gate can
+    // honor both without copying Game state or importing Game.js.
+    this.hasIdealInfrastructure = opts.hasIdealInfrastructure
+      || (() => this.state?.scenarioRules?.idealInfrastructure === true);
     // Player-facing message sink. Soft errors used to reach console.warn and
     // nowhere else, so an overloaded network announced itself ONLY by
     // recolouring its cables — a signal with no legend and no explanation.
@@ -317,7 +322,7 @@ export class UtilityGate {
       // unaffected.
       const result = this.solveRunner.runSolve(state);
       const errs = Array.isArray(result && result.errors) ? result.errors : [];
-      const idealInfrastructure = state.scenarioRules?.idealInfrastructure === true;
+      const idealInfrastructure = this.hasIdealInfrastructure() === true;
       const hardErrs = idealInfrastructure
         ? []
         : errs.filter(e => e && e.severity === 'hard');
