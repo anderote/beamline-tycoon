@@ -9353,7 +9353,14 @@ body.palette-expanded {
     linear-gradient(90deg, rgba(34, 41, 75, 0.15) 1px, transparent 1px),
     rgba(9, 10, 24, 0.72);
   background-size: 18px 18px;
+  cursor: grab;
+  overscroll-behavior: contain;
+  scrollbar-color: rgba(112, 146, 207, 0.72) rgba(9, 10, 24, 0.72);
+  user-select: none;
 }
+.utility-topology-canvas:focus-visible { outline: 1px solid var(--ui-blue); outline-offset: 2px; }
+.utility-topology-canvas.is-panning { cursor: grabbing; }
+.utility-topology-canvas button { cursor: pointer; }
 .utility-topology-level { min-width: 480px; }
 .utility-topology-level-label {
   margin: 1px 0 5px;
