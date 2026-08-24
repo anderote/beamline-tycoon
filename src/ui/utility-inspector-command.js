@@ -33,7 +33,9 @@ export function openUtilityInspectorForLine(game, lineId, createInspector = null
   const resolved = utilityNetworkForLine(game?.state, lineId);
   if (!resolved) return false;
   const open = createInspector
-    || ((utilityType, networkId) => new UtilityInspector(game, utilityType, networkId));
+    || ((utilityType, networkId, selectedLineId) => (
+      new UtilityInspector(game, utilityType, networkId, selectedLineId)
+    ));
   open(resolved.line.utilityType, resolved.network.id, lineId);
   return true;
 }

@@ -13,6 +13,7 @@
 
 import { Tool } from './Tool.js';
 import { canAffordFunding } from '../game/affordability.js';
+import { DEFERRED_PORT_DRAG_THRESHOLD_PX } from './deferred-port-drag.js';
 import { isoToGrid } from '../renderer/grid.js';
 import { utilityLineHeight } from '../utility/registry.js';
 import { removeUtilityLineById } from './utility-line-commands.js';
@@ -22,6 +23,7 @@ export class UtilityLineTool extends Tool {
     super(`utility:${utilityType}`, 'utility');
     this.utilityType = utilityType;
     this.waterCircuit = waterCircuit;
+    this._inspectClick = null;
   }
 
   onEnter(ctx) {
@@ -31,6 +33,7 @@ export class UtilityLineTool extends Tool {
   }
 
   onExit(ctx) {
+    this._inspectClick = null;
     // setUtilityType(null) also cancels a mid-gesture draw.
     ctx.input.utilityLineController.setUtilityType(null);
     document.querySelectorAll('.palette-item.util-line-active')
@@ -113,6 +116,7 @@ export class UtilityLineTool extends Tool {
 
   // Off-canvas release / focus loss: drop the in-flight line draw.
   cancelGesture(ctx) {
+    this._inspectClick = null;
     ctx.input.utilityLineController.onEscape?.();
     ctx.input._hideDragCostTooltip?.();
   }
@@ -136,6 +140,15 @@ export class UtilityLineTool extends Tool {
 
   onMouseDown(e, ctx) {
     if (e.button !== 0) return false;
+    // A run is both an inspection target and a valid branch anchor. Keep that
+    // press ambiguous until it moves: a click opens the existing run, while a
+    // drag continues through the controller's ordinary tap-drawing path.
+    const hit = ctx.renderer.raycastUtilityLine?.(
+      e.clientX, e.clientY, DEFERRED_PORT_DRAG_THRESHOLD_PX,
+    );
+    this._inspectClick = hit?.lineId && hit.utilityType === this.utilityType
+      ? { lineId: hit.lineId, clientX: e.clientX, clientY: e.clientY }
+      : null;
     const world = this._cableWorld(e, ctx);
     // Anchors on a port when near one, otherwise starts an open-ended draw;
     // either way the controller consumes the click while armed. Shift arms
@@ -148,6 +161,12 @@ export class UtilityLineTool extends Tool {
     const input = ctx.input;
     const renderer = ctx.renderer;
     const ctrl = input.utilityLineController;
+    if (this._inspectClick && Math.hypot(
+      e.clientX - this._inspectClick.clientX,
+      e.clientY - this._inspectClick.clientY,
+    ) >= DEFERRED_PORT_DRAG_THRESHOLD_PX) {
+      this._inspectClick = null;
+    }
     const world = this._cableWorld(e, ctx);
     if (ctrl.isActive()) {
       // Mid-draw: update the Manhattan preview path.
@@ -176,6 +195,16 @@ export class UtilityLineTool extends Tool {
   onMouseUp(e, ctx) {
     const ctrl = ctx.input.utilityLineController;
     if (!ctrl.isActive()) return false;
+    const inspectClick = this._inspectClick;
+    this._inspectClick = null;
+    if (inspectClick && Math.hypot(
+      e.clientX - inspectClick.clientX,
+      e.clientY - inspectClick.clientY,
+    ) < DEFERRED_PORT_DRAG_THRESHOLD_PX) {
+      ctrl.onEscape?.();
+      ctx.input._hideDragCostTooltip?.();
+      return !!ctx.input.openUtilityInspectorForLine?.(inspectClick.lineId);
+    }
     // Draw end — commits through Game.commitGesture (one undo entry, whether
     // that is a single line or a whole run).
     const world = this._cableWorld(e, ctx);
