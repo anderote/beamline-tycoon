@@ -38,9 +38,12 @@ assert(info.indexOf('id="btn-economy"') < info.indexOf('id="btn-hire"')
     && info.indexOf('id="btn-hire"') < info.indexOf('id="btn-build-forward"')
     && /id="btn-hire"[^>]*>Staff<\/button>/.test(info),
   'Staff navigation sits between Economy and Build Forward');
-assert(info.indexOf('id="btn-designer"') < info.indexOf('id="resources"')
+assert(info.indexOf('id="btn-beamlines"') < info.indexOf('id="resources"')
     && info.indexOf('id="resources"') < info.indexOf('id="beam-stats-panel"'),
-  'second row flows from Beamline Designer actions into statistics');
+  'second row flows from Beamlines actions into statistics');
+assert(/id="btn-beamlines"[^>]*>Beamlines<\/button>/.test(info)
+    && info.includes('id="beamlines-dropdown"'),
+  'top-left Beamlines control owns the per-beamline menu');
 assert(/#top-bar-primary #sim-controls\s*\{[^}]*margin-left:\s*auto/s.test(css),
   'simulation controls stay at the right edge of the spacious first row');
 assert(/#top-bar-info:has\(\.menu-dropdown:not\(\.hidden\)\)\s*\{[^}]*overflow:\s*visible/s.test(css),

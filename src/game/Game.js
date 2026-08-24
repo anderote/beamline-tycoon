@@ -4829,11 +4829,18 @@ export class Game {
     instance.beamlineId = null;
   }
 
-  _openDesignerForBeamline(beamlineId) {
+  openDesignerForBeamline(beamlineId) {
     if (!this._designer) return;
     const entry = this.registry.get(beamlineId);
     if (!entry || !entry.sourceId) return;
     this._designer.openFromSource(entry.sourceId);
+  }
+
+  // Backward-compatible alias for older UI surfaces. New cross-module callers
+  // use the public command above rather than creating a private integration
+  // seam.
+  _openDesignerForBeamline(beamlineId) {
+    return this.openDesignerForBeamline(beamlineId);
   }
 
   recalcBeamline(beamlineId) {

@@ -39,6 +39,7 @@ import { openUtilityInspectorForLine } from './ui/utility-inspector-command.js';
 import { UtilityStatsPanel } from './ui/UtilityStatsPanel.js';
 import { EconomyWindow } from './ui/EconomyWindow.js';
 import { ControlRoomWindow } from './ui/ControlRoomWindow.js';
+import { BeamlinesMenu } from './ui/BeamlinesMenu.js';
 import { AdvisorEngine, ADVICE_LEVEL_STORAGE_KEY } from './advisor/engine.js';
 import { buildAdvisorContext } from './advisor/context.js';
 import { Stubby } from './ui/Stubby.js';
@@ -135,6 +136,9 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
   renderer.effectsWorkshop = new EffectsWorkshop(renderer, input);
   const designer = new BeamlineDesigner(game, renderer);
   game._designer = designer;
+  const beamlinesMenu = new BeamlinesMenu(game, {
+    onOpenInfo: beamlineId => renderer.ui.openBeamlineWindow(beamlineId),
+  });
   const guidedSetup = new GuidedBeamlineSetup(game, renderer, input);
   game._guidedSetup = guidedSetup;
   const utilityPlantGuide = new UtilityPlantGuide(game);
@@ -444,11 +448,6 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
     }
   });
 
-  // Beamline Designer button — opens blank designer
-  document.getElementById('btn-designer').addEventListener('click', () => {
-    router.navigate('designer');
-  });
-
   // Facility operations console — a display-only view over published beam,
   // staffing, utility-fault, and economy snapshots.
   document.getElementById('btn-control-room').addEventListener('click', () => {
@@ -487,8 +486,10 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
   // Menu dropdown toggle
   const menuBtn = document.getElementById('btn-menu');
   const menuDropdown = document.getElementById('menu-dropdown');
+  beamlinesMenu.button?.addEventListener('click', () => menuDropdown.classList.add('hidden'));
   menuBtn.addEventListener('click', (e) => {
     e.stopPropagation();
+    beamlinesMenu.close();
     menuDropdown.classList.toggle('hidden');
   });
   document.addEventListener('click', () => menuDropdown.classList.add('hidden'));

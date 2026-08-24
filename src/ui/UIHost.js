@@ -71,6 +71,11 @@ export class UIHost {
   _setDemolishFilter(key, enabled) {
     return this.renderer._inputHandler?.setDemolishFilter(key, enabled);
   }
+
+  /** Public UI command for opening or focusing a beamline information window. */
+  openBeamlineWindow(beamlineId, anchorNode = null) {
+    return this._openBeamlineWindow(beamlineId, anchorNode);
+  }
 }
 
 // --- Pass-through properties: reads/writes delegate to the renderer. ---
