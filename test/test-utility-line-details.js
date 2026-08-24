@@ -98,18 +98,18 @@ const performanceHtml = renderUtilityPerformance(performance);
 assert(performance.history === history && performance.current.tick === history.at(-1).tick,
   'performance model reads the exact solver-published history without recomputing it');
 assert((performanceHtml.match(/class="utility-performance-plot"/g) || []).length === 2
-    && performanceHtml.includes('Demand and capacity')
-    && performanceHtml.includes('Worst delivered quality'),
-  'performance tab renders load/capacity and delivered-quality history plots');
+    && performanceHtml.includes('Electrical load profile')
+    && performanceHtml.includes('Delivered voltage quality'),
+  'power plots render a distinct electrical load and voltage-quality view');
 assert(performanceHtml.includes('Every run in this topology shares these live values'),
   'plot copy makes the network-wide scope of line performance explicit');
 
 const lineTabs = utilityInspectorTabs('powerCable', line.id);
 assert(lineTabs[0]?.key === 'run'
-    && lineTabs.some(tab => tab.key === 'performance')
+    && lineTabs.some(tab => tab.key === 'plots')
     && lineTabs.some(tab => tab.key === 'topology')
     && lineTabs.some(tab => tab.key === 'overview'),
-  'a clicked line opens Run Details, Performance, Topology, and Network tabs');
+  'a clicked line opens Run Details, Plots, Topology, and Network tabs');
 
 const dataHistory = appendUtilityPerformanceSample([], {
   connectedNodeCount: 3, connectedLinkCount: 2, perSinkQuality: {}, errors: [],
@@ -134,7 +134,25 @@ const vacuumHistory = appendUtilityPerformanceSample([], {
 }, 30);
 const vacuumState = { utilityPerformanceHistory: new Map([
   ['vacuumPipe', new Map([['net_vacuum', vacuumHistory]])],
-]) };
+]), utilityNetworkData: new Map([['vacuumPipe', new Map([['net_vacuum', {
+  networkPressure: 8e-8,
+  pressure: 9e-8,
+  tick: 30,
+  gauges: [],
+  pressureHistory: [{ tick: 30, pressure: 8e-8, readings: {} }],
+  vacuumZones: [
+    {
+      id: 'network-pipework', placeableId: null, portName: 'service and beam pipe',
+      pressureMbar: 8e-8, pressureRegime: 'Ultra-high vacuum',
+      outgassingMbarLps: 1e-7, pumpingSpeedLps: 240,
+    },
+    {
+      id: 'chamber:vac_in', placeableId: 'chamber', portName: 'vac_in',
+      pressureMbar: 9e-8, pressureRegime: 'Ultra-high vacuum',
+      outgassingMbarLps: 2e-6, pumpingSpeedLps: 180,
+    },
+  ],
+}]])]]) };
 const vacuumHtml = renderUtilityPerformance(
   utilityPerformanceModel(vacuumState, 'vacuumPipe', 'net_vacuum'),
 );
@@ -142,10 +160,32 @@ assert(vacuumHistory[0].roughingCapacity === 15
     && vacuumHistory[0].highVacCapacity === 300
     && vacuumHistory[0].componentChamberVolumeL === 200,
   'vacuum telemetry copies solver-published stage capacity and volume sources');
-assert((vacuumHtml.match(/class="utility-performance-plot"/g) || []).length === 3
-    && vacuumHtml.includes('Pumping capacity by stage')
-    && vacuumHtml.includes('325.0 L evacuated · utility pipe 25.0 · beamline pipe 100.0 · beamline components 200.0'),
-  'vacuum performance tab plots stage capacities and captions the volume breakdown');
+assert(vacuumHtml.includes('Pressure history')
+    && vacuumHtml.includes('PRESSURE-ZONE BALANCE')
+    && vacuumHtml.includes('Outgassing') && vacuumHtml.includes('Local pumping')
+    && vacuumHtml.includes('Ultra-high vacuum'),
+  'vacuum plots combine pressure history with per-zone outgassing and pumping bars');
+
+const distinctCases = [
+  ['hvCable', 'High-voltage load profile'],
+  ['coolingWater', 'Loop temperature rise'],
+  ['waterSupplyPipe', 'Make-up and evaporation'],
+  ['cryoTransfer', 'Helium bath temperature'],
+];
+for (const [utilityType, expectedTitle] of distinctCases) {
+  const sampleFlow = {
+    totalCapacity: 100, totalDemand: 50, perSinkQuality: { sink: 1 }, errors: [],
+    deltaT: 3, reservoirVolumeL: 80, storageCapacityL: 100,
+    evaporationL: 2, suppliedWaterL: 2, tempK: 2.1, designTempK: 2,
+    boiloffL: 1, recoveredL: 0.8, netLheLossL: 0.2,
+  };
+  const samples = appendUtilityPerformanceSample([], sampleFlow, 40);
+  const caseState = { utilityPerformanceHistory: new Map([
+    [utilityType, new Map([['net_case', samples]])],
+  ]) };
+  const html = renderUtilityPerformance(utilityPerformanceModel(caseState, utilityType, 'net_case'));
+  assert(html.includes(expectedTitle), `${utilityType} uses its dedicated plot vocabulary`);
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

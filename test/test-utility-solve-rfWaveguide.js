@@ -7,7 +7,7 @@
 // soft rf_frequency_mismatch, too few of them means a soft rf_overload.
 
 import desc, { RF_BANDS, bandForFrequencyHz, RF_BRANCH_REFLECTION_PER_JUNCTION } from '../src/utility/types/rfWaveguide.js';
-import { renderRfSpectrum } from '../src/ui/rf-spectrum.js';
+import { renderRfNyquist, renderRfSpectrum } from '../src/ui/rf-spectrum.js';
 import { utilityInspectorTabs } from '../src/ui/UtilityInspector.js';
 
 let passed = 0, failed = 0;
@@ -108,8 +108,8 @@ console.log('\n--- Spectrum inspector markup ---');
 {
   const html = renderRfSpectrum(splitFlow);
   assert(utilityInspectorTabs('rfWaveguide')[0].key === 'topology'
-      && utilityInspectorTabs('rfWaveguide').some(tab => tab.key === 'spectrum'),
-    'RF networks open on Topology while retaining the Spectrum tab');
+      && utilityInspectorTabs('rfWaveguide').some(tab => tab.key === 'plots'),
+    'RF networks open on Topology while retaining the shared Plots tab');
   assert(utilityInspectorTabs('powerCable')[0].key === 'topology'
       && utilityInspectorTabs('powerCable').some(tab => tab.key === 'overview'),
     'other utility inspectors open on Topology with details available');
@@ -118,6 +118,11 @@ console.log('\n--- Spectrum inspector markup ---');
     'inspector labels every requested frequency');
   assert(html.includes('CARRIED') && html.includes('REJECTED'),
     'inspector distinguishes delivered and rejected spectral lines');
+  const nyquist = renderRfNyquist(splitFlow);
+  assert(nyquist.includes('NYQUIST / REFLECTION PLANE')
+      && nyquist.includes('Reflection phase is not modeled')
+      && nyquist.includes('VSWR'),
+    'RF plots include an honest magnitude-only Nyquist reflection view');
 }
 
 console.log('\n--- Pulsed source spectrum uses peak power ---');

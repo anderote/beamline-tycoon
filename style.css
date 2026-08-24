@@ -9508,10 +9508,16 @@ body.palette-expanded {
 }
 .vacuum-volume-grid .is-total strong { color: #75c7ff; }
 .vacuum-pressure-plot {
+  position: relative;
+  overflow: hidden;
   padding: 8px;
-  border: 1px solid var(--ui-border-subtle);
-  border-radius: var(--ui-radius);
-  background: rgba(8, 8, 22, 0.55);
+  border: 1px solid rgba(77, 165, 166, 0.3);
+  border-radius: 1px;
+  background-color: rgba(2, 7, 13, 0.9);
+  background-image:
+    linear-gradient(rgba(57, 126, 130, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(57, 126, 130, 0.055) 1px, transparent 1px);
+  background-size: 24px 24px;
 }
 .vacuum-pressure-heading {
   display: flex;
@@ -9678,12 +9684,37 @@ body.palette-expanded {
   gap: 8px;
 }
 .utility-performance-plot {
+  position: relative;
+  overflow: hidden;
   min-width: 0;
   margin: 0;
   padding: 9px;
-  border: 1px solid var(--ui-border-subtle);
-  border-radius: var(--ui-radius);
-  background: rgba(8, 8, 22, 0.62);
+  border: 1px solid rgba(77, 165, 166, 0.3);
+  border-radius: 1px;
+  background-color: rgba(2, 7, 13, 0.9);
+  background-image:
+    linear-gradient(rgba(57, 126, 130, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(57, 126, 130, 0.055) 1px, transparent 1px);
+  background-size: 24px 24px;
+  box-shadow: inset 0 0 28px rgba(0, 0, 0, 0.4);
+}
+.utility-performance-plot::after,
+.vacuum-pressure-plot::after,
+.rf-spectrum-panel::after,
+.rf-nyquist-panel::after,
+.vacuum-zone-panel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  opacity: 0.32;
+  background:
+    linear-gradient(90deg, #5de6c5 0 12px, transparent 12px) top left / 28px 1px no-repeat,
+    linear-gradient(#5de6c5 0 12px, transparent 12px) top left / 1px 28px no-repeat,
+    linear-gradient(270deg, #5de6c5 0 12px, transparent 12px) top right / 28px 1px no-repeat,
+    linear-gradient(#5de6c5 0 12px, transparent 12px) top right / 1px 28px no-repeat,
+    repeating-linear-gradient(180deg, transparent 0 3px, rgba(120, 220, 200, 0.018) 3px 4px);
 }
 .utility-performance-plot figcaption {
   display: flex;
@@ -9717,6 +9748,76 @@ body.palette-expanded {
 .utility-performance-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; color: var(--ui-text-faint); font-size: 7px; }
 .utility-performance-legend span { display: inline-flex; align-items: center; gap: 4px; }
 .utility-performance-legend i { width: 12px; height: 2px; background: var(--utility-plot-color); }
+.utility-performance-plots-rfWaveguide,
+.utility-performance-plots-vacuumPipe { display: block; }
+.utility-rf-plots {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(250px, 0.75fr);
+  gap: 8px;
+}
+.utility-vacuum-plots { display: grid; gap: 8px; }
+.utility-instrument-panel { position: relative; min-width: 0; }
+.utility-instrument-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.utility-instrument-heading strong,
+.utility-instrument-heading small { display: block; }
+.utility-instrument-heading strong { color: #8adfd6; font: 8px var(--ui-font-display); letter-spacing: .55px; }
+.utility-instrument-heading small { margin-top: 3px; color: var(--ui-text-faint); font-size: 7px; }
+.utility-instrument-heading em { color: #77c8c0; font: 7px var(--ui-font-display); font-style: normal; }
+.rf-nyquist-panel,
+.vacuum-zone-panel {
+  overflow: hidden;
+  margin: 0;
+  padding: 9px;
+  border: 1px solid rgba(77, 165, 166, 0.3);
+  border-radius: 1px;
+  background-color: rgba(2, 7, 13, 0.9);
+  background-image:
+    linear-gradient(rgba(57, 126, 130, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(57, 126, 130, 0.055) 1px, transparent 1px);
+  background-size: 24px 24px;
+  box-shadow: inset 0 0 28px rgba(0, 0, 0, 0.4);
+}
+.rf-nyquist-panel figcaption {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 7px;
+}
+.rf-nyquist-panel figcaption span,
+.rf-nyquist-panel figcaption strong,
+.rf-nyquist-panel figcaption small { display: block; }
+.rf-nyquist-panel figcaption strong { color: #ff8b75; font: 8px var(--ui-font-display); letter-spacing: .5px; }
+.rf-nyquist-panel figcaption small { margin-top: 3px; color: var(--ui-text-faint); font-size: 7px; }
+.rf-nyquist-panel figcaption em { color: #ffb09f; font: 7px var(--ui-font-display); font-style: normal; text-align: right; }
+.rf-nyquist-panel svg { display: block; width: 100%; max-height: 245px; }
+.rf-nyquist-panel svg text { fill: #638481; font: 8px var(--ui-font-body); }
+.rf-nyquist-grid { stroke: rgba(93, 230, 197, 0.2); stroke-width: 1; }
+.rf-nyquist-unit { fill: rgba(21, 67, 62, 0.1); stroke: rgba(93, 230, 197, 0.65); stroke-width: 1.5; }
+.rf-nyquist-guide { fill: none; stroke: rgba(93, 230, 197, 0.18); stroke-dasharray: 3 4; }
+.rf-nyquist-vector { stroke: #ff8b75; stroke-width: 2; }
+.rf-nyquist-marker { fill: #ff8b75; stroke: #ffd2c9; stroke-width: 1.5; filter: drop-shadow(0 0 5px rgba(255, 102, 80, .75)); }
+.rf-nyquist-panel > p { margin: 0; color: var(--ui-text-faint); font-size: 7px; }
+.vacuum-zone-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.vacuum-zone-row { min-width: 0; padding: 8px; border: 1px solid rgba(78, 135, 137, .22); background: rgba(4, 12, 20, .72); }
+.vacuum-zone-row header { display: flex; align-items: flex-start; justify-content: space-between; gap: 7px; margin-bottom: 7px; }
+.vacuum-zone-row header span,
+.vacuum-zone-row header strong,
+.vacuum-zone-row header small { display: block; min-width: 0; }
+.vacuum-zone-row header strong { overflow: hidden; color: var(--ui-text-strong); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.vacuum-zone-row header small { color: var(--ui-text-faint); font-size: 7px; }
+.vacuum-zone-row header em { color: #8adfd6; font: 6px/1.45 var(--ui-font-display); font-style: normal; text-align: right; }
+.vacuum-zone-bar { display: grid; grid-template-columns: 72px minmax(40px, 1fr) 112px; align-items: center; gap: 6px; margin-top: 4px; color: var(--ui-text-faint); font-size: 7px; }
+.vacuum-zone-bar > i { display: block; height: 5px; overflow: hidden; border: 1px solid rgba(255, 255, 255, .09); background: rgba(0, 0, 0, .35); }
+.vacuum-zone-bar > i > b { display: block; height: 100%; min-width: 1px; }
+.vacuum-zone-bar > em { overflow: hidden; color: var(--ui-text-muted); font-style: normal; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.vacuum-zone-bar.is-outgassing > i > b { background: #ff8b75; box-shadow: 0 0 5px rgba(255, 139, 117, .4); }
+.vacuum-zone-bar.is-pumping > i > b { background: #5de6c5; box-shadow: 0 0 5px rgba(93, 230, 197, .35); }
 
 @media (max-width: 700px) {
   .utility-network-row { grid-template-columns: 1fr; }
@@ -9732,6 +9833,8 @@ body.palette-expanded {
   .vacuum-pressure-heading { align-items: flex-start; flex-direction: column; }
   .utility-line-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .utility-performance-plots { grid-template-columns: 1fr; }
+  .utility-rf-plots,
+  .vacuum-zone-list { grid-template-columns: 1fr; }
 }
 
 .ctx-window[data-ctx-id^="util-rfWaveguide-"] {
@@ -9739,6 +9842,16 @@ body.palette-expanded {
   max-width: calc(100vw - 24px);
 }
 .rf-spectrum-panel {
+  position: relative;
+  overflow: hidden;
+  padding: 9px;
+  border: 1px solid rgba(77, 165, 166, 0.3);
+  border-radius: 1px;
+  background-color: rgba(2, 7, 13, 0.9);
+  background-image:
+    linear-gradient(rgba(57, 126, 130, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(57, 126, 130, 0.055) 1px, transparent 1px);
+  background-size: 24px 24px;
   color: #bac2dc;
   font: 10px/1.45 var(--ui-font-body);
 }

@@ -7,8 +7,13 @@ import { cablePathLengthSubUnits } from '../utility/soft-cable.js';
 import { findUtilityEndpoint } from '../utility/utility-endpoints.js';
 import { UTILITY_TYPES } from '../utility/registry.js';
 import { waterCircuitLabel } from '../utility/water-circuits.js';
+import {
+  DEFAULT_VACUUM_HISTORY_RANGE_TICKS,
+  renderVacuumPressureGraph,
+} from '../utility/types/vacuumPipe.js';
 import { sparklinePoints } from './control-room-model.js';
 import { escapeHtml } from './format.js';
+import { renderRfNyquist, renderRfSpectrum } from './rf-spectrum.js';
 
 const PLOT_WIDTH = 520;
 const PLOT_HEIGHT = 88;
@@ -137,6 +142,7 @@ export function utilityPerformanceModel(state, utilityType, networkId) {
   const descriptor = UTILITY_TYPES[utilityType] || {};
   const history = state?.utilityPerformanceHistory?.get?.(utilityType)?.get?.(networkId) || [];
   const current = history[history.length - 1] || null;
+  const flow = state?.utilityNetworkData?.get?.(utilityType)?.get?.(networkId) || null;
   return {
     utilityType,
     networkId,
@@ -148,6 +154,7 @@ export function utilityPerformanceModel(state, utilityType, networkId) {
     comparableLoad: !descriptor.demandUnit || descriptor.demandUnit === descriptor.capacityUnit,
     history,
     current,
+    flow,
   };
 }
 
@@ -187,87 +194,179 @@ function legend(items) {
     `<span style="--utility-plot-color:${escapeHtml(item.color)}"><i></i>${escapeHtml(item.label)}</span>`).join('')}</div>`;
 }
 
-export function renderUtilityPerformance(model) {
-  const history = model?.history || [];
-  const current = model?.current;
-  if (!history.length || !current) {
-    return `<div class="ui-empty-state">Performance telemetry is waiting for the next utility solve.<br/>
-      <span class="ui-text-faint">The chart begins recording as the simulation advances.</span></div>`;
-  }
+function rangeMax(...series) {
+  return Math.max(1, ...series.flat().filter(Number.isFinite));
+}
 
-  let primary;
-  let supplemental = '';
-  if (model.topologyOnly) {
-    const nodes = history.map(sample => sample.connectedNodeCount);
-    const links = history.map(sample => sample.connectedLinkCount);
-    const max = Math.max(1, ...nodes.filter(Number.isFinite), ...links.filter(Number.isFinite));
-    primary = performancePlot(
-      'Connected fabric', `${fmt(current.connectedNodeCount, 0)} devices`,
-      'Solver-published network membership',
-      trace(nodes, '#69d2ff', { min: 0, max }) + trace(links, '#d7d9e0', { min: 0, max }),
-      legend([{ label: 'Devices', color: '#69d2ff' }, { label: 'Links', color: '#d7d9e0' }]),
-    );
-  } else if (model.utilityType === 'vacuumPipe') {
-    const pressures = history.map(sample => sample.networkPressure)
-      .filter(value => Number.isFinite(value) && value > 0);
-    const logs = pressures.map(value => Math.log10(value));
-    primary = performancePlot(
-      'Network pressure', `${fmt(current.networkPressure)} mbar`,
-      'Log scale · lower is better', trace(logs, model.color),
-    );
-    const rough = history.map(sample => sample.roughingCapacity);
-    const high = history.map(sample => sample.highVacCapacity);
-    const uhv = history.map(sample => sample.uhvCapacity);
-    const effective = history.map(sample => sample.effectivePumpSpeed);
-    const max = Math.max(1,
-      ...rough.filter(Number.isFinite), ...high.filter(Number.isFinite),
-      ...uhv.filter(Number.isFinite), ...effective.filter(Number.isFinite));
-    const volumeCaption = `${fmt(current.evacuatedVolumeL)} L evacuated · utility pipe ${fmt(current.servicePipeVolumeL)} · beamline pipe ${fmt(current.beamPipeVolumeL)} · beamline components ${fmt(current.componentChamberVolumeL)}`;
-    supplemental = performancePlot(
-      'Pumping capacity by stage', `${fmt(current.effectivePumpSpeed)} L/s effective`,
-      volumeCaption,
-      trace(rough, '#d7b36a', { min: 0, max })
-        + trace(high, '#69d2ff', { min: 0, max })
-        + trace(uhv, '#ba8cff', { min: 0, max })
-        + trace(effective, '#55e38a', { min: 0, max }),
-      legend([
-        { label: 'Roughing', color: '#d7b36a' },
-        { label: 'High vacuum', color: '#69d2ff' },
-        { label: 'UHV', color: '#ba8cff' },
-        { label: 'Effective active', color: '#55e38a' },
-      ]),
-    );
-  } else {
-    const capacities = history.map(sample => sample.totalCapacity);
-    const demands = history.map(sample => sample.totalDemand);
-    const max = Math.max(1, ...capacities.filter(Number.isFinite), ...demands.filter(Number.isFinite));
-    primary = performancePlot(
-      'Demand and capacity', `${fmt(current.totalDemand)} ${model.demandUnit}`,
-      model.comparableLoad ? 'Shared scale · network total' : 'Published solver quantities',
-      trace(capacities, '#69d2ff', { min: 0, max }) + trace(demands, '#ffb14e', { min: 0, max }),
-      legend([
-        { label: `Capacity (${model.capacityUnit})`, color: '#69d2ff' },
-        { label: `Demand (${model.demandUnit})`, color: '#ffb14e' },
-      ]),
-    );
-  }
+function loadCapacityPlot(model, title, caption = 'Shared scale · network total') {
+  const history = model.history;
+  const current = model.current;
+  const capacities = history.map(sample => sample.totalCapacity);
+  const demands = history.map(sample => sample.totalDemand);
+  const max = rangeMax(capacities, demands);
+  return performancePlot(
+    title, `${fmt(current.totalDemand)} ${model.demandUnit}`, caption,
+    trace(capacities, '#69d2ff', { min: 0, max })
+      + trace(demands, '#ffb14e', { min: 0, max }),
+    legend([
+      { label: `Capacity (${model.capacityUnit})`, color: '#69d2ff' },
+      { label: `Demand (${model.demandUnit})`, color: '#ffb14e' },
+    ]),
+  );
+}
 
+function qualityPlot(model, title = 'Worst delivered quality') {
+  const history = model.history;
+  const current = model.current;
   const quality = history.map(sample => model.topologyOnly
     ? sample.connectivity : sample.deliveredQuality);
   const fault = current.hardErrorCount > 0 ? `${current.hardErrorCount} faults`
     : current.softErrorCount > 0 ? `${current.softErrorCount} warnings` : 'No active faults';
-  const secondary = performancePlot(
-    model.topologyOnly ? 'Connection health' : 'Worst delivered quality',
-    percent(model.topologyOnly ? current.connectivity : current.deliveredQuality), fault,
+  return performancePlot(
+    title, percent(model.topologyOnly ? current.connectivity : current.deliveredQuality), fault,
     trace(quality, current.hardErrorCount ? '#ff5b55' : '#55e38a', { min: 0, max: 1 }),
   );
+}
+
+function inventoryPlot(model, title, caption) {
+  const volumes = model.history.map(sample => sample.reservoirVolumeL);
+  const capacities = model.history.map(sample => sample.storageCapacityL);
+  const max = rangeMax(volumes, capacities);
+  return performancePlot(
+    title, `${fmt(model.current.reservoirVolumeL)} L`, caption,
+    trace(capacities, '#55708c', { min: 0, max })
+      + trace(volumes, '#59d3ff', { min: 0, max }),
+    legend([
+      { label: 'Storage capacity', color: '#55708c' },
+      { label: 'Inventory', color: '#59d3ff' },
+    ]),
+  );
+}
+
+function vacuumZoneBalance(flow, labelFor = value => value) {
+  const zones = Array.isArray(flow?.vacuumZones) ? flow.vacuumZones : [];
+  if (!zones.length) {
+    return `<section class="vacuum-zone-panel utility-instrument-panel">
+      <div class="utility-instrument-heading"><strong>PRESSURE-ZONE BALANCE</strong></div>
+      <div class="ui-empty-state">Zone telemetry is waiting for the next vacuum solve.</div>
+    </section>`;
+  }
+  const maxOutgassing = Math.max(0, ...zones.map(zone => zone.outgassingMbarLps || 0));
+  const maxPumping = Math.max(0, ...zones.map(zone => zone.pumpingSpeedLps || 0));
+  const rows = zones.map(zone => {
+    const label = zone.placeableId ? (labelFor(zone.placeableId) || zone.placeableId) : 'Network pipework';
+    const outgassing = Number.isFinite(zone.outgassingMbarLps) ? zone.outgassingMbarLps : 0;
+    const pumping = Number.isFinite(zone.pumpingSpeedLps) ? zone.pumpingSpeedLps : 0;
+    const outgasPct = maxOutgassing > 0 ? outgassing / maxOutgassing * 100 : 0;
+    const pumpPct = maxPumping > 0 ? pumping / maxPumping * 100 : 0;
+    return `<article class="vacuum-zone-row">
+      <header><span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(zone.portName || zone.id)}</small></span>
+        <em>${escapeHtml(zone.pressureRegime || '--')} · ${fmt(zone.pressureMbar)} mbar</em></header>
+      <div class="vacuum-zone-bar is-outgassing"><span>Outgassing</span><i><b style="width:${outgasPct.toFixed(2)}%"></b></i><em>${fmt(outgassing)} mbar·L/s</em></div>
+      <div class="vacuum-zone-bar is-pumping"><span>Local pumping</span><i><b style="width:${pumpPct.toFixed(2)}%"></b></i><em>${fmt(pumping)} L/s</em></div>
+    </article>`;
+  }).join('');
+  return `<section class="vacuum-zone-panel utility-instrument-panel">
+    <div class="utility-instrument-heading"><span><strong>PRESSURE-ZONE BALANCE</strong><small>Bars normalize each quantity independently across zones</small></span><em>${zones.length} zone${zones.length === 1 ? '' : 's'}</em></div>
+    <div class="vacuum-zone-list">${rows}</div>
+  </section>`;
+}
+
+function renderDistinctPlots(model, options) {
+  const { history, current, utilityType, flow } = model;
+  if (utilityType === 'rfWaveguide') {
+    return `<div class="utility-rf-plots">${renderRfSpectrum(flow)}${renderRfNyquist(flow)}</div>`;
+  }
+  if (utilityType === 'vacuumPipe') {
+    return `<div class="utility-vacuum-plots">
+      ${renderVacuumPressureGraph(flow || {}, options.vacuumHistoryRangeTicks)}
+      ${vacuumZoneBalance(flow, options.labelFor)}
+    </div>`;
+  }
+  if (!history.length || !current) return '';
+
+  if (model.topologyOnly) {
+    const nodes = history.map(sample => sample.connectedNodeCount);
+    const links = history.map(sample => sample.connectedLinkCount);
+    const max = rangeMax(nodes, links);
+    return performancePlot(
+      'Connected fabric', `${fmt(current.connectedNodeCount, 0)} devices`,
+      'Solver-published network membership',
+      trace(nodes, '#69d2ff', { min: 0, max }) + trace(links, '#d7d9e0', { min: 0, max }),
+      legend([{ label: 'Devices', color: '#69d2ff' }, { label: 'Links', color: '#d7d9e0' }]),
+    ) + qualityPlot(model, 'Connection health');
+  }
+  if (utilityType === 'coolingWater') {
+    const deltaT = history.map(sample => sample.deltaT);
+    return loadCapacityPlot(model, 'Thermal load and heat removal')
+      + performancePlot('Loop temperature rise', `${fmt(current.deltaT)} K`,
+        'Solver-published worst-case ΔT', trace(deltaT, '#ff8f72', { min: 0, max: 40 }))
+      + inventoryPlot(model, 'Cooling-water inventory', 'Usable loop reservoir');
+  }
+  if (utilityType === 'waterSupplyPipe') {
+    const supplied = history.map(sample => sample.suppliedWaterL);
+    const evaporation = history.map(sample => sample.evaporationL);
+    const max = rangeMax(supplied, evaporation);
+    return loadCapacityPlot(model, 'Process-water thermal transfer')
+      + inventoryPlot(model, 'Water inventory', 'Lukewarm circuit storage')
+      + performancePlot('Make-up and evaporation', `${fmt(current.evaporationL)} L/tick evaporated`,
+        'Network inventory flows',
+        trace(supplied, '#59d3ff', { min: 0, max }) + trace(evaporation, '#ffb14e', { min: 0, max }),
+        legend([{ label: 'Make-up', color: '#59d3ff' }, { label: 'Evaporation', color: '#ffb14e' }]));
+  }
+  if (utilityType === 'cryoTransfer') {
+    const temperatures = history.map(sample => sample.tempK);
+    const design = history.map(sample => sample.designTempK);
+    const tempMax = rangeMax(temperatures, design);
+    const boiloff = history.map(sample => sample.boiloffL);
+    const recovered = history.map(sample => sample.recoveredL);
+    const flowMax = rangeMax(boiloff, recovered);
+    return loadCapacityPlot(model, 'Cryogenic heat balance')
+      + performancePlot('Helium bath temperature', `${fmt(current.tempK, 2)} K`,
+        `Design ${fmt(current.designTempK, 2)} K`,
+        trace(design, '#55708c', { min: 0, max: tempMax })
+          + trace(temperatures, '#ba8cff', { min: 0, max: tempMax }),
+        legend([{ label: 'Design', color: '#55708c' }, { label: 'Bath', color: '#ba8cff' }]))
+      + inventoryPlot(model, 'Liquid-helium inventory', 'Cryogenic storage')
+      + performancePlot('Boil-off and recovery', `${fmt(current.netLheLossL)} L/tick net loss`,
+        'Inventory flow per tick',
+        trace(boiloff, '#ffb14e', { min: 0, max: flowMax })
+          + trace(recovered, '#55e38a', { min: 0, max: flowMax }),
+        legend([{ label: 'Boil-off', color: '#ffb14e' }, { label: 'Recovered', color: '#55e38a' }]));
+  }
+  if (utilityType === 'hvCable') {
+    return loadCapacityPlot(model, 'High-voltage load profile')
+      + qualityPlot(model, 'HV field regulation');
+  }
+  if (utilityType === 'powerCable') {
+    return loadCapacityPlot(model, 'Electrical load profile')
+      + qualityPlot(model, 'Delivered voltage quality');
+  }
+  return loadCapacityPlot(model, 'Demand and capacity',
+    model.comparableLoad ? 'Shared scale · network total' : 'Published solver quantities')
+    + qualityPlot(model);
+}
+
+export function renderUtilityPerformance(model, options = {}) {
+  const history = model?.history || [];
+  const current = model?.current;
+  const canRenderLive = model?.utilityType === 'rfWaveguide' || model?.utilityType === 'vacuumPipe';
+  if ((!history.length || !current) && !canRenderLive) {
+    return `<div class="ui-empty-state">Performance telemetry is waiting for the next utility solve.<br/>
+      <span class="ui-text-faint">The chart begins recording as the simulation advances.</span></div>`;
+  }
+  const plots = renderDistinctPlots(model, {
+    vacuumHistoryRangeTicks: options.vacuumHistoryRangeTicks
+      ?? DEFAULT_VACUUM_HISTORY_RANGE_TICKS,
+    labelFor: options.labelFor || (value => value),
+  });
 
   return `<div class="utility-performance">
     <div class="utility-performance-heading">
-      <div><small>Selected run · connected network</small><code>${escapeHtml(model.networkId)}</code></div>
-      <span>${history.length} tick${history.length === 1 ? '' : 's'}</span>
+      <div><small>Connected utility network</small><code>${escapeHtml(model.networkId)}</code></div>
+      <span>${history.length} recorded tick${history.length === 1 ? '' : 's'}</span>
     </div>
-    <p>Utility performance is solved for the connected network. Every run in this topology shares these live values.</p>
-    <div class="utility-performance-plots">${primary}${supplemental}${secondary}</div>
+    <p>Plots use solver-published network telemetry. Every run in this topology shares these live values.</p>
+    <div class="utility-performance-plots utility-performance-plots-${escapeHtml(model.utilityType)}">${plots}</div>
   </div>`;
 }
