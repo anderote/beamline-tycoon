@@ -24,7 +24,7 @@ import {
   utilityLineDetailsModel,
   utilityPerformanceModel,
 } from './utility-line-details.js';
-import { renderUtilityTopology } from './utility-topology.js';
+import { bindUtilityTopologyPan, renderUtilityTopology } from './utility-topology.js';
 
 // Titlebar accent derives from the utility's registry color (the single
 // source of truth for utility hues), darkened so the title gradient stays
@@ -116,6 +116,9 @@ export class UtilityInspector {
     this.networkId = networkId;
     this.lineId = lineId;
     this._vacuumHistoryRangeTicks = DEFAULT_VACUUM_HISTORY_RANGE_TICKS;
+    this._topologyPanState = { left: 0, top: 0 };
+    this._topologyPanning = false;
+    this._disposeTopologyPan = null;
 
     const winId = lineId
       ? 'util-line-' + lineId
@@ -158,6 +161,9 @@ export class UtilityInspector {
     this._listener = (event) => {
       if (event !== 'tick' && event !== 'utilityLinesChanged') return;
       this._syncSelectedLineNetwork();
+      // Replacing the topology DOM during a drag would cancel the gesture.
+      // The next tick refreshes its live values after the pointer is released.
+      if (this._topologyPanning) return;
       if (this.ctx && this.ctx._el) this.ctx.update();
     };
     this._off = (typeof this.game.on === 'function') ? this.game.on(this._listener) : null;
@@ -166,6 +172,7 @@ export class UtilityInspector {
   }
 
   _cleanup() {
+    this._clearTopologyPanBinding();
     if (this._off) this._off();
     this._off = null;
     this._listener = null;
@@ -185,22 +192,30 @@ export class UtilityInspector {
   }
 
   _renderSpectrum(el) {
+    this._clearTopologyPanBinding();
     const perType = this.game.state.utilityNetworkData?.get?.(this.utilityType);
     const flow = perType?.get?.(this.networkId);
     el.innerHTML = renderRfSpectrum(flow);
   }
 
   _renderRun(el) {
+    this._clearTopologyPanBinding();
     const model = utilityLineDetailsModel(this.game.state, this.lineId, this.networkId);
     el.innerHTML = renderUtilityLineDetails(model);
   }
 
   _renderPerformance(el) {
+    this._clearTopologyPanBinding();
     const model = utilityPerformanceModel(this.game.state, this.utilityType, this.networkId);
     el.innerHTML = renderUtilityPerformance(model);
   }
 
   _renderTopology(el) {
+    const previousCanvas = el.querySelector?.('.utility-topology-canvas');
+    if (previousCanvas) this._topologyPanState.left = previousCanvas.scrollLeft || 0;
+    if (Number.isFinite(el.scrollTop)) this._topologyPanState.top = el.scrollTop;
+    this._clearTopologyPanBinding();
+
     const desc = UTILITY_TYPES[this.utilityType] || {};
     const flow = this.game.state.utilityNetworkData?.get?.(this.utilityType)?.get?.(this.networkId);
     el.innerHTML = renderUtilityTopology(flow?.topology, {
@@ -221,6 +236,24 @@ export class UtilityInspector {
         if (this.ctx && this.ctx._el) this.ctx.update();
       };
     });
+
+    const canvas = el.querySelector?.('.utility-topology-canvas');
+    if (canvas) {
+      canvas.scrollLeft = this._topologyPanState.left;
+      el.scrollTop = this._topologyPanState.top;
+      this._disposeTopologyPan = bindUtilityTopologyPan(canvas, {
+        scrollParent: el,
+        onScroll: position => { this._topologyPanState = position; },
+        onPanStart: () => { this._topologyPanning = true; },
+        onPanEnd: () => { this._topologyPanning = false; },
+      });
+    }
+  }
+
+  _clearTopologyPanBinding() {
+    this._disposeTopologyPan?.();
+    this._disposeTopologyPan = null;
+    this._topologyPanning = false;
   }
 
   _followTopologyAfterControl(placeableId) {
@@ -238,6 +271,7 @@ export class UtilityInspector {
   }
 
   _renderOverview(el) {
+    this._clearTopologyPanBinding();
     const game = this.game;
     const state = game.state;
     const desc = UTILITY_TYPES[this.utilityType];

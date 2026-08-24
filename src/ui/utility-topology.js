@@ -1,6 +1,63 @@
-// Display-only renderer for SolveRunner's published utility topology graph.
+// Rendering and interaction helpers for SolveRunner's utility topology graph.
 
 import { escapeHtml } from './format.js';
+import { makeDraggable } from './draggable.js';
+
+const PAN_EXCLUDE = 'button, a, input, select, textarea, [role="button"]';
+
+/**
+ * Turn the topology viewport into a grab-to-pan surface. Horizontal motion
+ * moves the wide graph while vertical motion moves its owning context-window
+ * body, so a large topology can be explored without chasing either scrollbar.
+ * The drag implementation is injectable to keep this DOM wiring testable in
+ * the non-browser suite.
+ */
+export function bindUtilityTopologyPan(canvas, options = {}) {
+  if (!canvas) return () => {};
+  const scrollParent = options.scrollParent || canvas.closest?.('.ctx-body') || null;
+  const drag = options.makeDraggable || makeDraggable;
+  const reportScroll = () => options.onScroll?.({
+    left: canvas.scrollLeft || 0,
+    top: scrollParent?.scrollTop || 0,
+  });
+  const handleCanvasScroll = () => reportScroll();
+  const handleParentScroll = () => reportScroll();
+
+  canvas.addEventListener('scroll', handleCanvasScroll, { passive: true });
+  scrollParent?.addEventListener?.('scroll', handleParentScroll, { passive: true });
+
+  const disposeDrag = drag(canvas, canvas, {
+    button: 0,
+    threshold: 3,
+    exclude: PAN_EXCLUDE,
+    grabCursor: true,
+    onStart: () => {
+      options.onPanStart?.();
+      return {
+        left: canvas.scrollLeft || 0,
+        top: scrollParent?.scrollTop || 0,
+      };
+    },
+    onMove: (_event, dx, dy, start) => {
+      canvas.scrollLeft = start.left - dx;
+      if (scrollParent) scrollParent.scrollTop = start.top - dy;
+      canvas.classList?.add('is-panning');
+      reportScroll();
+    },
+    onEnd: (_event, moved) => {
+      canvas.classList?.remove('is-panning');
+      options.onPanEnd?.(moved);
+      reportScroll();
+    },
+  });
+
+  return () => {
+    disposeDrag?.();
+    canvas.removeEventListener('scroll', handleCanvasScroll);
+    scrollParent?.removeEventListener?.('scroll', handleParentScroll);
+    canvas.classList?.remove('is-panning');
+  };
+}
 
 function qty(value) {
   if (!Number.isFinite(value)) return '--';
@@ -160,11 +217,11 @@ export function renderUtilityTopology(topology, options = {}) {
 
   return `<div class="utility-topology">
     <div class="utility-topology-intro">
-      <div><strong>Live network flow</strong><span>Supply is shown at the top; loads and dead ends flow downward.</span></div>
+      <div><strong>Live network flow</strong><span>Supply flows downward. Drag the diagram to pan.</span></div>
       <div class="utility-topology-chips">${chips.map(([label, tone]) =>
         `<span class="utility-topology-chip utility-topology-chip-${tone}">${escapeHtml(label)}</span>`).join('')}</div>
     </div>
-    <div class="utility-topology-canvas">${graph}</div>
+    <div class="utility-topology-canvas" tabindex="0" role="region" aria-label="Network topology diagram. Drag to pan.">${graph}</div>
     ${!topology.radial && topology.direction !== 'shared'
       ? '<p class="utility-topology-footnote">Exact branch quantities are withheld for loops, implicit joins, and multi-source networks because flow can take more than one valid path.</p>' : ''}
   </div>`;
