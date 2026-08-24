@@ -146,6 +146,22 @@ assert(hardFaultNetwork.detail.includes('Issue: Power network has no capacity.')
     && hardFaultNetwork.detailSegments[4].tone === 'critical',
   'a hard failure puts its solver explanation in red on the line hover');
 
+const vacuumNetwork = utilityNetworkHoverInfo(UTILITY_TYPES.vacuumPipe, {
+  totalCapacity: 1722,
+  totalDemand: 1e-6,
+  pressure: 1.33e-8,
+  perSinkQuality: { 'source:vac_in': 0.98 },
+});
+assert(vacuumNetwork.detail
+    === 'Pressure: 1.33e-8 mbar · Pumping: 1,722 L/s · Gas load: 1.00e-6 mbar·L/s',
+  `vacuum hover reports pressure, pumping, and gas throughput in their real units (${vacuumNetwork.detail})`);
+assert(!vacuumNetwork.detail.includes('Demand: 0 L/s'),
+  'vacuum hover never rounds gas throughput to a dimensionally incorrect zero-L/s demand');
+assert(vacuumNetwork.detailSegments[0].tone === 'warning'
+    && vacuumNetwork.detailSegments[2].tone === 'supply'
+    && vacuumNetwork.detailSegments[4].tone === 'warning',
+  'suboptimal vacuum pressure warns without treating pumping speed as demand coverage');
+
 function fakeDocument() {
   const textNode = text => ({ textContent: String(text) });
   return {
@@ -226,7 +242,7 @@ assert(idleStaff.detail === 'Nothing to do right now.',
 for (const info of [
   cavity, panel, actionablePanel, actionableHvDistributor, packageChiller, makeUpTank, facilityWater,
   bulkWater, network, exactlyCoveredNetwork, warningNetwork, criticalNetwork,
-  mismatchNetwork, hardFaultNetwork, furnishing, workingStaff, idleStaff,
+  mismatchNetwork, hardFaultNetwork, vacuumNetwork, furnishing, workingStaff, idleStaff,
 ]) {
   assert(info && !info.title.includes('\n') && !info.detail.includes('\n'),
     `${info?.title || 'hover'} is limited to two logical lines`);
