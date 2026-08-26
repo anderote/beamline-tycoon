@@ -119,10 +119,11 @@ selects the initial zoom band before startup finishes, so a restored zoomed-out
 facility does not submit its complete authored scene for one expensive frame
 behind the title screen:
 
-- beamline modules keep a one-draw-per-type pipe, support, magnet, cavity,
-  source, diagnostic, cyclotron, or endpoint silhouette;
-- infrastructure keeps a one-draw-per-type cabinet, rack, vessel, manifold,
-  pump, transformer, tower, or plant silhouette;
+- beamline modules keep one instanced draw per type, built automatically from
+  the three-to-five largest primitives in the authored detailed model;
+- infrastructure uses the same footprint-relative largest-part reduction, so
+  cabinets, racks, vessels, transformers, and overhead supports retain their
+  real proportions instead of switching to unrelated substitute geometry;
 - large equipment and furnishings use instanced chair, table, console, rack,
   cabinet, sanitary-fixture, cart, and machine silhouettes;
 - benchtop apparatus, wall fittings, rugs, and other pixel-scale facility
@@ -158,6 +159,15 @@ far shadow draws. `test/test-minor-lab-far-render-budget.js` pins those budgets
 and reports per-layer counts for components, equipment, decorations, and
 utilities. These are structural submission counts, not an FPS claim; final
 camera feel and appearance remain part of repository-owner gameplay testing.
+
+The authored-geometry reducer ranks primitives by projected bounding-box area,
+which keeps long pipes and broad plates relevant even when their enclosed
+volume is small. Parts below a footprint-relative cutoff are removed, with a
+three-part minimum when the source model has enough geometry and a hard
+five-part maximum. Structural feet and decorative trim receive a lower generic
+selection weight so they cannot crowd a machine's main body out of that budget.
+The selected original BufferGeometries retain their exact transforms and are
+merged with vertex colours into the per-type far batch.
 
 Utility descriptors receive one shared endpoint index per solve pass. Keep
 endpoint resolution in that context for per-network work; rebuilding an index

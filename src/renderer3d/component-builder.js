@@ -17,6 +17,10 @@ import { DECALS } from './materials/decals.js';
 import { applyTiledBoxUVs, applyTiledCylinderUVs } from './uv-utils.js';
 import { buildPlaceableVisualDetails } from './placeable-visual-details.js';
 import { createEquipmentPartGeometry } from './equipment-builder.js';
+import {
+  buildAuthoredGeometryLod,
+  selectLargestAuthoredParts,
+} from './authored-geometry-lod.js';
 import { BLOOM_LAYER } from './glow-pipeline.js';
 import { getGlowMaterial, setGlowNightFactor } from './machine-glow.js';
 export { getGlowMaterial, setGlowNightFactor } from './machine-glow.js';
@@ -250,6 +254,14 @@ function _setInfraFaceUVsClamped(geometry, faceKey) {
 
 const ROLES = /** @type {const} */ (['accent', 'iron', 'copper', 'pipe', 'stand', 'detail', 'coldWater', 'hotWater', 'glow']);
 
+// Structural feet and decorative trim still qualify when they are genuinely
+// large, but they should not crowd a machine's body out of a five-part budget.
+const AUTHORED_FAR_ROLE_IMPORTANCE = Object.freeze({
+  stand: 0.35,
+  detail: 0.55,
+  glow: 0.40,
+});
+
 // Paint-on-iron for the accent role. The color is overridden per beamline;
 // this base exists only to be cloned.
 const ACCENT_BASE_ROUGHNESS = 0.6;
@@ -327,6 +339,7 @@ const DEFAULT_GLOW_COLOR = 0x40e0ff;
 
 /** @type {Map<string, Record<string, THREE.Mesh>>} */
 const _templateCache = new Map();
+const _authoredFarRolePartsCache = new Map();
 
 /**
  * Registry of role-based builders. Unlike DETAIL_BUILDERS (legacy — returns
@@ -350,6 +363,29 @@ function _getRoleTemplate(compType) {
   if (!builder) return null;
 
   const buckets = builder();
+  if (!_authoredFarRolePartsCache.has(compType)) {
+    const def = COMPONENTS[compType] || {};
+    const sourceParts = [];
+    for (const role of ROLES) {
+      for (const [index, geometry] of (buckets[role] || []).entries()) {
+        sourceParts.push({
+          geometry,
+          role,
+          name: `${role}-${index + 1}`,
+          importance: AUTHORED_FAR_ROLE_IMPORTANCE[role] ?? 1,
+        });
+      }
+    }
+    const footprintWidth = Math.max(SUB_UNIT, (def.subW || def.gridW || 2) * SUB_UNIT);
+    const footprintDepth = Math.max(SUB_UNIT, (def.subL || def.gridH || 2) * SUB_UNIT);
+    const selected = selectLargestAuthoredParts(sourceParts, {
+      footprintArea: footprintWidth * footprintDepth,
+    });
+    _authoredFarRolePartsCache.set(compType, {
+      sourcePartCount: sourceParts.length,
+      parts: selected.map(part => ({ ...part, geometry: part.geometry.clone() })),
+    });
+  }
   const template = {};
   for (const role of ROLES) {
     const list = buckets[role];
@@ -4851,44 +4887,6 @@ function _farComponentGeometry(def, width, height, depth) {
   return new THREE.BoxGeometry(width, height, depth);
 }
 
-const FAR_CYCLOTRONS = new Set(['cyclotron30', 'cyclotron70', 'cyclotron230']);
-const FAR_COLUMN_SOURCES = new Set(['vanDeGraaff', 'cockcroftWalton']);
-const FAR_LARGE_SOURCES = new Set([
-  'protonLinacFrontEnd', 'lwfaStation', 'positronSource',
-]);
-const FAR_BENDING_OPTICS = new Set([
-  'dipole', 'injectionSeptum', 'fastKicker', 'combinedFunctionMagnet',
-  'scanningMagnet',
-]);
-const FAR_LATTICE_OPTICS = new Set([
-  'quadrupole', 'solenoid', 'sextupole', 'finalFocusDoublet',
-]);
-const FAR_SECTION_OPTICS = new Set([
-  'chicane', 'recirculationArc', 'undulator', 'energyDegrader',
-]);
-const FAR_SRF = new Set([
-  'srfGun', 'halfWaveResonator', 'spokeCavity', 'ellipticalSrfCavity',
-  'srf650Cryomodule', 'srf805Cryomodule', 'cryomodule', 'cwCryomodule',
-  'nbSnCryomodule', 'srfLinacSector',
-]);
-const FAR_BOX_RF = new Set([
-  'industrialLinac', 'twoBeamModule', 'plasmaAfterburner',
-  'crystalChannelStage', 'srfLinacSector',
-]);
-const FAR_CRYOMODULE_RF = new Set([
-  'srf650Cryomodule', 'srf805Cryomodule', 'cryomodule', 'cwCryomodule',
-  'nbSnCryomodule',
-]);
-const FAR_TRAVELING_WAVE_RF = new Set([
-  'sbandStructure', 'cbandStructure', 'xbandStructure',
-]);
-const FAR_LARGE_ENDPOINTS = new Set([
-  'blackHoleChamber', 'hawkingDetector', 'collisionPoint',
-  'materialsTestStation', 'xRayConverterStation', 'eBeamIrradiationVault',
-  'isotopeProductionTarget', 'radiationEffectsStation', 'protonTherapyGantry',
-  'spallationNeutronTarget', 'photonScienceHutch', 'xfelEndstation', 'euvCollector',
-]);
-
 const FAR_ROLE_COLORS = Object.freeze({
   pipe: 0x9aaab3,
   stand: 0x42494f,
@@ -4899,612 +4897,98 @@ const FAR_ROLE_COLORS = Object.freeze({
   target: 0x6a5e53,
 });
 
-function _farBoxPart(role, width, height, depth, x = 0, y = 0, z = 0) {
-  const geometry = new THREE.BoxGeometry(
-    Math.max(0.025, width), Math.max(0.025, height), Math.max(0.025, depth));
-  geometry.translate(x, y, z);
-  return { role, geometry };
+const AUTHORED_FAR_ROLE_COLORS = Object.freeze({
+  accent: null,
+  iron: FAR_ROLE_COLORS.darkBody,
+  copper: FAR_ROLE_COLORS.copper,
+  pipe: FAR_ROLE_COLORS.pipe,
+  stand: FAR_ROLE_COLORS.stand,
+  detail: FAR_ROLE_COLORS.darkBody,
+  coldWater: 0x287fc4,
+  hotWater: 0xc45b42,
+  glow: 0x40e0ff,
+});
+
+function _authoredFarRoleColor(role, accentColor) {
+  return new THREE.Color(role === 'accent'
+    ? accentColor
+    : (AUTHORED_FAR_ROLE_COLORS[role] ?? FAR_ROLE_COLORS.body));
 }
 
-function _farRotatedBoxPart(
-  role, width, height, depth, localX, localY, z, rotationZ,
-) {
-  const geometry = new THREE.BoxGeometry(
-    Math.max(0.025, width), Math.max(0.025, height), Math.max(0.025, depth));
-  geometry.rotateZ(rotationZ);
-  const cos = Math.cos(rotationZ);
-  const sin = Math.sin(rotationZ);
-  geometry.translate(
-    cos * localX - sin * localY,
-    sin * localX + cos * localY,
-    z,
-  );
-  return { role, geometry };
+function _visualPartColor(material, fallbackColor) {
+  const materials = Array.isArray(material) ? material : [material];
+  const colors = materials.map(candidate => candidate?.color).filter(color => color?.isColor);
+  if (colors.length === 0) return new THREE.Color(fallbackColor);
+  const color = new THREE.Color(0x000000);
+  for (const candidate of colors) color.add(candidate);
+  return color.multiplyScalar(1 / colors.length);
 }
 
-function _farEllipsoidPart(
-  role, radiusX, radiusY, radiusZ, x = 0, y = 0, z = 0,
-) {
-  const geometry = new THREE.SphereGeometry(1, 8, 5);
-  geometry.scale(
-    Math.max(0.015, radiusX),
-    Math.max(0.015, radiusY),
-    Math.max(0.015, radiusZ),
-  );
-  geometry.translate(x, y, z);
-  return { role, geometry };
-}
-
-function _farCylinderPart(
-  role, radius, length, axis = 'z', x = 0, y = 0, z = 0, segments = 8,
-) {
-  const geometry = new THREE.CylinderGeometry(
-    Math.max(0.015, radius), Math.max(0.015, radius), Math.max(0.025, length), segments);
-  if (axis === 'z') geometry.rotateX(Math.PI / 2);
-  else if (axis === 'x') geometry.rotateZ(Math.PI / 2);
-  geometry.translate(x, y, z);
-  return { role, geometry };
-}
-
-function _farPipeParts(depth, { stands = true } = {}) {
-  const parts = [
-    _farCylinderPart('pipe', PIPE_R * 1.12, depth, 'z', 0, 0, 0, 6),
-  ];
-  if (!stands) return parts;
-  const pedestalH = Math.max(0.18, BEAM_HEIGHT - 0.15);
-  const standZ = Math.max(0, depth * 0.28);
-  for (const z of standZ > 0.18 ? [-standZ, standZ] : [0]) {
-    parts.push(_farBoxPart(
-      'stand', 0.10, pedestalH, 0.10,
-      0, -BEAM_HEIGHT + pedestalH * 0.5, z,
-    ));
-    parts.push(_farBoxPart('stand', 0.34, 0.08, 0.12, 0, -0.16, z));
-  }
-  return parts;
-}
-
-function _farQuadrupoleParts(width, height, depth, z = 0, lengthScale = 0.68) {
+function _partsFromAuthoredVisual(visual, fallbackColor) {
   const parts = [];
-  const rotationZ = Math.PI / 4;
-  const outer = Math.max(0.30, Math.min(width, height) * 0.43);
-  const wall = Math.max(0.09, outer * 0.28);
-  const magnetDepth = Math.max(0.18, depth * lengthScale);
-  const side = outer * 2;
-  const inner = outer - wall;
-  for (const sign of [-1, 1]) {
-    parts.push(_farRotatedBoxPart(
-      'accent', side, wall, magnetDepth,
-      0, sign * (outer - wall * 0.5), z, rotationZ,
-    ));
-    parts.push(_farRotatedBoxPart(
-      'accent', wall, side - wall * 2, magnetDepth,
-      sign * (outer - wall * 0.5), 0, z, rotationZ,
-    ));
-  }
-
-  const poleTip = PIPE_R * 1.65;
-  const poleLength = Math.max(0.07, inner - poleTip);
-  const poleWidth = Math.max(0.13, inner * 0.72);
-  const poleCenter = poleTip + poleLength * 0.5;
-  for (const sign of [-1, 1]) {
-    parts.push(_farRotatedBoxPart(
-      'darkBody', poleWidth, poleLength, magnetDepth * 0.96,
-      0, sign * poleCenter, z, rotationZ,
-    ));
-    parts.push(_farRotatedBoxPart(
-      'darkBody', poleLength, poleWidth, magnetDepth * 0.96,
-      sign * poleCenter, 0, z, rotationZ,
-    ));
-  }
-
-  const coilSize = Math.max(0.065, wall * 0.62);
-  const coilRadius = inner * 0.82;
-  for (const angle of [0, Math.PI / 2, Math.PI, Math.PI * 1.5]) {
-    parts.push(_farBoxPart(
-      'copper', coilSize, coilSize, magnetDepth * 1.03,
-      Math.cos(angle) * coilRadius,
-      Math.sin(angle) * coilRadius,
-      z,
-    ));
-  }
+  visual.updateMatrixWorld?.(true);
+  visual.traverse?.(child => {
+    if (!child.isMesh || !child.geometry?.attributes?.position) return;
+    if (child.visible === false || child.material?.visible === false) return;
+    const geometry = child.geometry.clone();
+    geometry.applyMatrix4(child.matrixWorld);
+    parts.push({
+      geometry,
+      color: _visualPartColor(child.material, fallbackColor),
+      role: child.userData?.role || 'body',
+      name: child.name || child.userData?.role || 'body',
+    });
+  });
   return parts;
 }
 
-function _farVerticalResonatorParts(width, height, depth, { spokes = false } = {}) {
-  const parts = _farPipeParts(depth, { stands: false });
-  const bodyWidth = Math.max(0.60, width * 0.58);
-  const bodyDepth = Math.max(0.55, depth * 0.84);
-  const bodyHeight = Math.max(1.15, Math.min(1.92, height * 0.92));
-  const bodyY = -BEAM_HEIGHT + 0.06 + bodyHeight * 0.5;
-  parts.push(_farBoxPart('cryostat', bodyWidth, bodyHeight, bodyDepth, 0, bodyY, 0));
-  parts.push(_farBoxPart('stand', bodyWidth * 1.12, 0.08, bodyDepth * 1.08,
-    0, -BEAM_HEIGHT + 0.04, 0));
-  parts.push(_farBoxPart('darkBody', bodyWidth * 1.10, 0.09, bodyDepth * 1.06,
-    0, bodyY + bodyHeight * 0.5, 0));
-  for (const fraction of [-0.28, 0, 0.28]) {
-    parts.push(_farBoxPart('darkBody', bodyWidth * 1.07, 0.055, bodyDepth * 1.04,
-      0, bodyY + fraction * bodyHeight, 0));
-  }
-
-  const couplerZs = spokes ? [-bodyDepth * 0.25, bodyDepth * 0.25] : [0];
-  for (const couplerZ of couplerZs) {
-    parts.push(_farBoxPart('accent', bodyWidth * 0.34, 0.24, 0.24,
-      bodyWidth * 0.66, 0, couplerZ));
-  }
-  const portZs = spokes ? [-bodyDepth * 0.28, bodyDepth * 0.28] : [0];
-  for (const portZ of portZs) {
-    parts.push(_farCylinderPart(
-      'pipe', 0.07, 0.26, 'y',
-      0, bodyY + bodyHeight * 0.5 + 0.16, portZ, 6,
-    ));
-  }
-  return parts;
+function _disposeAuthoredSourceParts(parts) {
+  for (const part of parts) part.geometry?.dispose?.();
 }
 
-function _farEllipticalCavityParts(width, depth, role = 'cryostat') {
-  const parts = _farPipeParts(depth);
-  const cellCount = 5;
-  const activeLength = depth * 0.74;
-  const period = activeLength / cellCount;
-  const cellRadius = Math.max(0.16, Math.min(width * 0.23, 0.30));
-  for (let index = 0; index < cellCount; index++) {
-    const z = -activeLength * 0.5 + period * (index + 0.5);
-    parts.push(_farEllipsoidPart(
-      role, cellRadius, cellRadius, period * 0.62, 0, 0, z,
-    ));
-  }
-  for (const fraction of [-0.34, 0, 0.34]) {
-    parts.push(_farCylinderPart(
-      'darkBody', cellRadius * 1.13, 0.045, 'z',
-      0, 0, fraction * activeLength, 8,
-    ));
-  }
-  parts.push(_farCylinderPart(
-    'accent', 0.075, width * 0.34, 'x', width * 0.28, 0, -activeLength * 0.28, 6,
-  ));
-  parts.push(_farCylinderPart(
-    'pipe', 0.065, 0.30, 'y', 0, cellRadius + 0.15, 0, 6,
-  ));
-  return parts;
+function _disposeAuthoredSourceVisual(visual) {
+  const disposed = new Set();
+  visual?.traverse?.(child => {
+    if (!child.geometry || disposed.has(child.geometry)) return;
+    disposed.add(child.geometry);
+    child.geometry.dispose?.();
+  });
 }
 
-function _farBeamlineParts(def, width, height, depth) {
-  const id = def.id;
-  const category = def.category;
-  const parts = [];
-  let kind = 'inline-machine';
-
-  if (id === 'drift') {
-    return { kind: 'beam-pipe', parts: _farPipeParts(depth) };
-  }
-  if (id === 'bellows') {
-    parts.push(..._farPipeParts(depth));
-    parts.push(_farCylinderPart('darkBody', PIPE_R * 1.8, depth * 0.42, 'z', 0, 0, 0, 8));
-    return { kind: 'bellows-pipe', parts };
-  }
-
-  if (FAR_CYCLOTRONS.has(id)) {
-    kind = 'cyclotron';
-    const radius = Math.max(0.48, Math.min(width, depth) * 0.38);
-    const bodyH = Math.max(0.75, Math.min(height * 0.78, 2.35));
-    const bodyY = -BEAM_HEIGHT + bodyH * 0.5 + 0.10;
-    parts.push(_farBoxPart('stand', radius * 2.05, 0.12, radius * 2.05,
-      0, -BEAM_HEIGHT + 0.06, 0));
-    parts.push(_farCylinderPart('body', radius, bodyH, 'y', 0, bodyY, 0, 10));
-    parts.push(_farCylinderPart('accent', radius * 1.035, 0.18, 'y', 0, bodyY + 0.06, 0, 10));
-    const exitLength = Math.max(0.35, depth * 0.5 - radius * 0.35);
-    parts.push(_farCylinderPart(
-      'pipe', PIPE_R * 1.35, exitLength, 'z',
-      0, 0, radius * 0.72 + exitLength * 0.5, 6,
-    ));
-    return { kind, parts };
+/** Build the far model from the same primitive list that authors the near model. */
+function _authoredFarGeometry(def, accentColor, sourceObject = null) {
+  const compType = def.id;
+  let parts = [];
+  let sourceVisual = null;
+  let disposeSourceVisual = false;
+  let sourcePartCount = null;
+  const roleBuilder = ROLE_BUILDERS[compType];
+  const cachedRoleParts = roleBuilder ? _authoredFarRolePartsCache.get(compType) : null;
+  if (cachedRoleParts) {
+    sourcePartCount = cachedRoleParts.sourcePartCount;
+    parts = cachedRoleParts.parts.map(part => ({
+      ...part,
+      color: _authoredFarRoleColor(part.role, accentColor),
+    }));
+  } else {
+    sourceVisual = sourceObject
+      || DETAIL_BUILDERS[compType]?.()
+      || _buildPartsOrFallback(def);
+    disposeSourceVisual = !sourceObject;
+    parts = _partsFromAuthoredVisual(
+      sourceVisual,
+      def.spriteColor ?? def.accentColor ?? accentColor,
+    );
   }
 
-  if (FAR_COLUMN_SOURCES.has(id)) {
-    kind = 'electrostatic-column';
-    const bodyH = Math.max(0.8, height * 0.78);
-    const bodyY = -BEAM_HEIGHT + bodyH * 0.5 + 0.08;
-    parts.push(_farBoxPart('stand', width * 0.72, 0.12, depth * 0.72,
-      0, -BEAM_HEIGHT + 0.06, 0));
-    parts.push(_farCylinderPart('body', Math.min(width, depth) * 0.28,
-      bodyH, 'y', 0, bodyY, 0, 8));
-    parts.push(_farCylinderPart('accent', Math.min(width, depth) * 0.32,
-      0.12, 'y', 0, bodyY + bodyH * 0.18, 0, 8));
-    parts.push(_farCylinderPart('pipe', PIPE_R * 1.15, depth * 0.68, 'z', 0, 0, depth * 0.22, 6));
-    return { kind, parts };
-  }
-
-  if (category === 'source') {
-    kind = FAR_LARGE_SOURCES.has(id) ? 'source-skid' : 'beam-source';
-    parts.push(..._farPipeParts(depth));
-    if (FAR_LARGE_SOURCES.has(id)) {
-      const bodyH = Math.max(0.55, height * 0.58);
-      parts.push(_farBoxPart('body', width * 0.76, bodyH, depth * 0.72,
-        0, -BEAM_HEIGHT + bodyH * 0.5 + 0.08, -depth * 0.08));
-      parts.push(_farBoxPart('accent', width * 0.82, 0.11, depth * 0.20,
-        0, -BEAM_HEIGHT + bodyH + 0.10, -depth * 0.08));
-    } else {
-      const bodyR = Math.max(0.16, Math.min(width * 0.27, height * 0.30));
-      parts.push(_farCylinderPart('body', bodyR, depth * 0.62, 'z', 0, 0, -depth * 0.10, 8));
-      parts.push(_farCylinderPart('accent', bodyR * 1.12, 0.13, 'z', 0, 0, depth * 0.08, 8));
-    }
-    return { kind, parts };
-  }
-
-  if (category === 'rf') {
-    if (id === 'halfWaveResonator') {
-      return {
-        kind: 'half-wave-resonator',
-        parts: _farVerticalResonatorParts(width, height, depth),
-      };
-    }
-    if (id === 'spokeCavity') {
-      return {
-        kind: 'spoke-cavity',
-        parts: _farVerticalResonatorParts(width, height, depth, { spokes: true }),
-      };
-    }
-    if (id === 'ellipticalSrfCavity') {
-      return {
-        kind: 'elliptical-srf-cavity',
-        parts: _farEllipticalCavityParts(width, depth),
-      };
-    }
-    if (id === 'rfCavity') {
-      return {
-        kind: 'multi-cell-copper-cavity',
-        parts: _farEllipticalCavityParts(width, depth, 'copper'),
-      };
-    }
-
-    kind = FAR_SRF.has(id) ? 'superconducting-rf' : 'copper-rf';
-    parts.push(..._farPipeParts(depth));
-    if (FAR_BOX_RF.has(id)) {
-      const bodyH = Math.max(0.38, Math.min(height * 0.56, 1.15));
-      parts.push(_farBoxPart(
-        FAR_SRF.has(id) ? 'cryostat' : 'copper',
-        width * 0.70, bodyH, depth * 0.82, 0, 0, 0,
-      ));
-      parts.push(_farBoxPart('accent', width * 0.76, 0.09, depth * 0.16,
-        0, bodyH * 0.44, 0));
-    } else if (FAR_CRYOMODULE_RF.has(id)) {
-      kind = 'srf-cryomodule';
-      const bodyR = Math.max(0.26, Math.min(width * 0.31, height * 0.31));
-      parts.push(_farCylinderPart('cryostat', bodyR, depth * 0.88, 'z', 0, 0, 0, 10));
-      const bandCount = Math.max(3, Math.min(7, Math.round(depth / 1.8)));
-      for (let index = 0; index < bandCount; index++) {
-        const z = -depth * 0.39 + depth * 0.78 * (index / (bandCount - 1));
-        parts.push(_farCylinderPart('darkBody', bodyR * 1.05, 0.065, 'z', 0, 0, z, 8));
-      }
-    } else if (FAR_TRAVELING_WAVE_RF.has(id) || id === 'rfq' || id === 'dtl') {
-      kind = id === 'rfq' ? 'radio-frequency-quadrupole'
-        : id === 'dtl' ? 'drift-tube-linac' : 'traveling-wave-structure';
-      const bodyR = Math.max(0.18, Math.min(width * 0.25, height * 0.28));
-      parts.push(_farCylinderPart('copper', bodyR, depth * 0.86, 'z', 0, 0, 0, 8));
-      const bandCount = id === 'rfq' ? 5 : 7;
-      for (let index = 0; index < bandCount; index++) {
-        const z = -depth * 0.36 + depth * 0.72 * (index / (bandCount - 1));
-        parts.push(_farCylinderPart('accent', bodyR * 1.07, 0.045, 'z', 0, 0, z, 8));
-      }
-    } else {
-      const bodyR = Math.max(0.15, Math.min(width * 0.30, height * 0.34));
-      parts.push(_farCylinderPart(
-        FAR_SRF.has(id) ? 'cryostat' : 'copper',
-        bodyR, depth * 0.78, 'z', 0, 0, 0, 8,
-      ));
-      for (const z of [-depth * 0.24, depth * 0.24]) {
-        parts.push(_farCylinderPart('accent', bodyR * 1.08, 0.08, 'z', 0, 0, z, 8));
-      }
-    }
-    return { kind, parts };
-  }
-
-  if (category === 'optics') {
-    parts.push(..._farPipeParts(depth));
-    if (FAR_BENDING_OPTICS.has(id)) {
-      kind = 'bending-magnet';
-      const gap = Math.max(0.10, PIPE_R * 2.8);
-      const yokeH = Math.max(0.18, Math.min(height * 0.22, 0.42));
-      parts.push(_farBoxPart('accent', width * 0.72, yokeH, depth * 0.70,
-        0, gap + yokeH * 0.5, 0));
-      parts.push(_farBoxPart('accent', width * 0.72, yokeH, depth * 0.70,
-        0, -gap - yokeH * 0.5, 0));
-      parts.push(_farBoxPart('darkBody', width * 0.12, yokeH * 2 + gap * 2,
-        depth * 0.70, -width * 0.30, 0, 0));
-    } else if (FAR_SECTION_OPTICS.has(id)) {
-      kind = 'lattice-section';
-      const cellW = Math.max(0.16, width * 0.42);
-      for (const z of [-0.30, -0.10, 0.10, 0.30].map(f => f * depth)) {
-        parts.push(_farBoxPart('accent', cellW, 0.34, Math.max(0.10, depth * 0.10), 0, 0, z));
-      }
-    } else if (id === 'quadrupole') {
-      kind = 'quadrupole-magnet';
-      parts.push(..._farQuadrupoleParts(width, height, depth));
-    } else if (id === 'sextupole') {
-      kind = 'sextupole-magnet';
-      const bodyR = Math.max(0.16, Math.min(width * 0.34, height * 0.34));
-      const poleR = Math.max(0.06, bodyR * 0.27);
-      for (let index = 0; index < 6; index++) {
-        const angle = (index / 6) * Math.PI * 2;
-        parts.push(_farCylinderPart(
-          index % 2 === 0 ? 'accent' : 'darkBody',
-          poleR, depth * 0.66, 'z',
-          Math.cos(angle) * bodyR * 0.72,
-          Math.sin(angle) * bodyR * 0.72,
-          0, 6,
-        ));
-      }
-      parts.push(_farCylinderPart('copper', bodyR * 1.08, 0.07, 'z', 0, 0, 0, 8));
-    } else if (id === 'solenoid') {
-      kind = 'solenoid-magnet';
-      const bodyR = Math.max(0.16, Math.min(width * 0.32, height * 0.32));
-      parts.push(_farCylinderPart('copper', bodyR, depth * 0.68, 'z', 0, 0, 0, 10));
-      for (const fraction of [-0.28, 0, 0.28]) {
-        parts.push(_farCylinderPart(
-          'darkBody', bodyR * 1.08, 0.065, 'z', 0, 0, fraction * depth, 8,
-        ));
-      }
-    } else if (id === 'finalFocusDoublet') {
-      kind = 'final-focus-doublet';
-      const magnetDepth = depth * 0.31;
-      parts.push(..._farQuadrupoleParts(
-        width * 0.80, height * 0.80, magnetDepth,
-        -depth * 0.20, 0.96,
-      ));
-      parts.push(..._farQuadrupoleParts(
-        width * 0.62, height * 0.62, magnetDepth * 0.82,
-        depth * 0.22, 0.96,
-      ));
-    } else if (FAR_LATTICE_OPTICS.has(id)) {
-      kind = 'focusing-magnet';
-      const bodyR = Math.max(0.16, Math.min(width * 0.34, height * 0.34));
-      parts.push(_farCylinderPart('accent', bodyR, depth * 0.62, 'z', 0, 0, 0, 8));
-      parts.push(_farCylinderPart('darkBody', bodyR * 1.12, 0.10, 'z', 0, 0, 0, 8));
-    } else {
-      kind = 'beam-aperture';
-      parts.push(_farBoxPart('darkBody', width * 0.62,
-        Math.max(0.24, height * 0.42), Math.max(0.10, depth * 0.30), 0, 0, 0));
-      parts.push(_farBoxPart('accent', width * 0.70, 0.08,
-        Math.max(0.12, depth * 0.34), 0, Math.max(0.16, height * 0.22), 0));
-    }
-    return { kind, parts };
-  }
-
-  if (category === 'diagnostic') {
-    kind = 'diagnostic-station';
-    parts.push(..._farPipeParts(depth));
-    parts.push(_farCylinderPart('body', Math.max(0.14, width * 0.30),
-      Math.max(0.08, depth * 0.18), 'z', 0, 0, 0, 8));
-    parts.push(_farBoxPart('accent', Math.max(0.10, width * 0.16),
-      Math.max(0.18, height * 0.35), 0.08,
-      width * 0.22, Math.max(0.15, height * 0.18), 0));
-    return { kind, parts };
-  }
-
-  if (category === 'endpoint') {
-    kind = FAR_LARGE_ENDPOINTS.has(id) ? 'beam-endstation' : 'beam-target';
-    parts.push(..._farPipeParts(depth * 0.72));
-    if (FAR_LARGE_ENDPOINTS.has(id)) {
-      const bodyH = Math.max(0.55, height * 0.68);
-      parts.push(_farBoxPart('body', width * 0.78, bodyH, depth * 0.68,
-        0, -BEAM_HEIGHT + bodyH * 0.5 + 0.08, depth * 0.08));
-      parts.push(_farBoxPart('accent', width * 0.52, 0.10, depth * 0.54,
-        0, -BEAM_HEIGHT + bodyH + 0.10, depth * 0.08));
-    } else {
-      parts.push(_farBoxPart('target', width * 0.56,
-        Math.max(0.34, height * 0.46), depth * 0.40, 0, 0, depth * 0.12));
-      parts.push(_farBoxPart('accent', width * 0.62,
-        Math.max(0.08, height * 0.08), depth * 0.46, 0, 0, depth * 0.12));
-    }
-    return { kind, parts };
-  }
-
-  parts.push(..._farPipeParts(depth));
-  parts.push(_farBoxPart('body', width * 0.60, Math.max(0.30, height * 0.45),
-    depth * 0.58, 0, 0, 0));
-  return { kind, parts };
-}
-
-function _farRoleColor(role, accentColor) {
-  return role === 'accent' ? accentColor : (FAR_ROLE_COLORS[role] || FAR_ROLE_COLORS.body);
-}
-
-function _mergeFarParts(parts, accentColor) {
-  const positions = [];
-  const normals = [];
-  const colors = [];
-  const roles = [];
-  for (const part of parts) {
-    const geometry = part.geometry.index ? part.geometry.toNonIndexed() : part.geometry;
-    const position = geometry.attributes?.position;
-    const normal = geometry.attributes?.normal;
-    if (!position || !normal) {
-      if (geometry !== part.geometry) geometry.dispose?.();
-      part.geometry.dispose?.();
-      continue;
-    }
-    const color = new THREE.Color(_farRoleColor(part.role, accentColor));
-    for (const value of position.array) positions.push(value);
-    for (const value of normal.array) normals.push(value);
-    for (let index = 0; index < position.count; index++) {
-      colors.push(color.r, color.g, color.b);
-    }
-    roles.push(part.role);
-    if (geometry !== part.geometry) geometry.dispose?.();
-    part.geometry.dispose?.();
-  }
-  if (positions.length === 0) return null;
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  geometry.userData.farPartRoles = [...new Set(roles)];
-  geometry.userData.farPartCount = roles.length;
-  geometry.computeBoundingBox();
-  geometry.computeBoundingSphere();
-  return geometry;
-}
-
-function _farBeamlineGeometry(def, width, height, depth, accentColor) {
-  const silhouette = _farBeamlineParts(def, width, height, depth);
-  const geometry = _mergeFarParts(silhouette.parts, accentColor);
-  if (geometry) geometry.userData.farSilhouetteKind = silhouette.kind;
-  return geometry;
-}
-
-function _farInfrastructureParts(def, width, height, depth) {
-  const id = def.id || '';
-  const category = def.category || '';
-  const parts = [];
-  const floorCenter = partHeight => -BEAM_HEIGHT + partHeight * 0.5;
-  const cabinet = (role = 'body', widthScale = 0.72, depthScale = 0.72) => {
-    const bodyH = Math.max(0.38, height * 0.78);
-    parts.push(_farBoxPart(role, width * widthScale, bodyH, depth * depthScale,
-      0, floorCenter(bodyH) + 0.05, 0));
-    parts.push(_farBoxPart('accent', width * widthScale * 0.78, bodyH * 0.08,
-      depth * depthScale + 0.025, 0, floorCenter(bodyH) + bodyH * 0.18, 0));
-  };
-
-  if (/PassThrough|Feedthrough|WallPassThrough/i.test(id)) {
-    const bodyH = Math.max(0.20, Math.min(height * 0.42, 0.72));
-    parts.push(_farBoxPart('darkBody', width * 0.72, bodyH, Math.max(0.10, depth * 0.34),
-      0, 0, 0));
-    parts.push(_farCylinderPart('accent', Math.max(0.035, Math.min(width, bodyH) * 0.10),
-      depth * 0.62, 'z', 0, 0, 0, 6));
-    return { kind: 'wall-feedthrough', parts };
-  }
-
-  if (/Rack|Tray|Bus|DuctBank|fiberBus|elevatedWireTray/i.test(id)) {
-    const runH = Math.max(0.10, Math.min(height * 0.20, 0.30));
-    const runY = Math.max(-0.25, -BEAM_HEIGHT + height * 0.72);
-    parts.push(_farBoxPart('darkBody', width * 0.86, runH, depth * 0.82, 0, runY, 0));
-    parts.push(_farBoxPart('accent', width * 0.68, runH * 0.32, depth * 0.86,
-      0, runY + runH * 0.62, 0));
-    const legH = Math.max(0.16, runY + BEAM_HEIGHT - runH * 0.5);
-    for (const x of [-width * 0.30, width * 0.30]) {
-      parts.push(_farBoxPart('stand', 0.07, legH, 0.08,
-        x, -BEAM_HEIGHT + legH * 0.5, 0));
-    }
-    return { kind: 'service-rack', parts };
-  }
-
-  if (/gridServicePoint|TransmissionTower/i.test(id)) {
-    const towerH = Math.max(1.2, height * 0.94);
-    for (const x of [-width * 0.28, width * 0.28]) {
-      parts.push(_farBoxPart('stand', 0.10, towerH, 0.10,
-        x, floorCenter(towerH), 0));
-    }
-    for (const y of [0.30, 0.58, 0.82]) {
-      parts.push(_farBoxPart('darkBody', width * (1 - y * 0.42), 0.08, depth * 0.16,
-        0, -BEAM_HEIGHT + towerH * y, 0));
-    }
-    return { kind: 'grid-tower', parts };
-  }
-
-  if (category === 'vacuum') {
-    const bodyH = Math.max(0.32, height * 0.58);
-    const radius = Math.max(0.13, Math.min(width, depth) * 0.28);
-    parts.push(_farBoxPart('stand', width * 0.66, 0.12, depth * 0.66,
-      0, -BEAM_HEIGHT + 0.06, 0));
-    parts.push(_farCylinderPart('body', radius, bodyH, 'y',
-      0, -BEAM_HEIGHT + 0.12 + bodyH * 0.5, 0, 8));
-    parts.push(_farCylinderPart('pipe', Math.max(0.035, radius * 0.22),
-      Math.max(0.18, depth * 0.52), 'z', 0, -0.18, depth * 0.18, 6));
-    parts.push(_farCylinderPart('accent', radius * 1.08, 0.08, 'y',
-      0, -BEAM_HEIGHT + 0.12 + bodyH * 0.72, 0, 8));
-    return { kind: 'vacuum-plant', parts };
-  }
-
-  if (category === 'cooling') {
-    if (/Tank|Dewar|Tower|Recovery|GasBag/i.test(id)) {
-      const bodyH = Math.max(0.48, height * 0.84);
-      const radius = Math.max(0.18, Math.min(width, depth) * 0.34);
-      parts.push(_farCylinderPart('cryostat', radius, bodyH, 'y',
-        0, floorCenter(bodyH) + 0.06, 0, 8));
-      parts.push(_farCylinderPart('accent', radius * 1.04, 0.10, 'y',
-        0, floorCenter(bodyH) + bodyH * 0.20, 0, 8));
-      parts.push(_farBoxPart('stand', radius * 1.55, 0.10, radius * 1.55,
-        0, -BEAM_HEIGHT + 0.05, 0));
-      return { kind: 'cooling-vessel', parts };
-    }
-    if (/Manifold|Distributor|Header|ValveBox/i.test(id)) {
-      parts.push(_farCylinderPart('pipe', 0.075, depth * 0.82, 'z', 0, -0.12, 0, 6));
-      for (const z of [-depth * 0.24, 0, depth * 0.24]) {
-        parts.push(_farCylinderPart('accent', 0.095, width * 0.62, 'x', 0, -0.12, z, 6));
-      }
-      parts.push(..._farPipeParts(depth * 0.72));
-      return { kind: 'cooling-manifold', parts };
-    }
-    cabinet('body', 0.80, 0.78);
-    parts.push(_farCylinderPart('pipe', 0.055, width * 0.64, 'x', 0,
-      -BEAM_HEIGHT + Math.max(0.25, height * 0.30), depth * 0.34, 6));
-    return { kind: 'cooling-skid', parts };
-  }
-
-  if (category === 'rfPower') {
-    const bodyH = Math.max(0.42, height * 0.72);
-    if (/klystron|gyrotron|magnetron|twt|iot/i.test(id)) {
-      const radius = Math.max(0.14, Math.min(width, depth) * 0.27);
-      parts.push(_farCylinderPart('copper', radius, bodyH, 'y',
-        0, floorCenter(bodyH) + 0.06, -depth * 0.08, 8));
-      parts.push(_farBoxPart('stand', width * 0.68, 0.12, depth * 0.68,
-        0, -BEAM_HEIGHT + 0.06, 0));
-    } else cabinet('body', 0.74, 0.70);
-    parts.push(_farBoxPart('accent', Math.max(0.12, width * 0.30), 0.13,
-      Math.max(0.18, depth * 0.42), width * 0.28, -0.05, depth * 0.12));
-    return { kind: 'rf-plant', parts };
-  }
-
-  if (category === 'power') {
-    if (/Transformer/i.test(id)) {
-      const bodyH = Math.max(0.42, height * 0.58);
-      parts.push(_farBoxPart('body', width * 0.76, bodyH, depth * 0.72,
-        0, floorCenter(bodyH) + 0.06, 0));
-      for (const x of [-width * 0.22, 0, width * 0.22]) {
-        parts.push(_farCylinderPart('accent', 0.07, Math.max(0.18, height * 0.24),
-          'y', x, -BEAM_HEIGHT + bodyH + height * 0.12, 0, 6));
-      }
-      return { kind: 'transformer', parts };
-    }
-    cabinet('body');
-    return { kind: 'electrical-cabinet', parts };
-  }
-
-  if (category === 'dataControls') {
-    cabinet('darkBody', 0.72, 0.70);
-    parts.push(_farBoxPart('accent', width * 0.42, Math.max(0.05, height * 0.04),
-      depth * 0.74, 0, -BEAM_HEIGHT + height * 0.62, 0));
-    return { kind: 'controls-rack', parts };
-  }
-
-  if (category === 'ops') {
-    if (id === 'internalStairs') {
-      const steps = 5;
-      for (let index = 0; index < steps; index++) {
-        parts.push(_farBoxPart('body', width * 0.80, height / steps,
-          depth / steps, 0, -BEAM_HEIGHT + height * (index + 0.5) / steps,
-          -depth * 0.36 + depth * index / steps));
-      }
-      for (const x of [-width * 0.43, width * 0.43]) {
-        parts.push(_farBoxPart('accent', 0.055, height * 0.72, 0.055,
-          x, -BEAM_HEIGHT + height * 0.56, 0));
-      }
-      return { kind: 'stairs', parts };
-    }
-    cabinet(id === 'shielding' ? 'darkBody' : 'body', 0.88, 0.86);
-    return { kind: 'operations-structure', parts };
-  }
-
-  cabinet('darkBody', 0.82, 0.80);
-  parts.push(_farCylinderPart('accent', Math.max(0.10, width * 0.13),
-    Math.max(0.28, height * 0.48), 'y', 0, -BEAM_HEIGHT + height * 0.76, 0, 8));
-  return { kind: 'experimental-plant', parts };
-}
-
-function _farInfrastructureGeometry(def, width, height, depth, accentColor) {
-  const silhouette = _farInfrastructureParts(def, width, height, depth);
-  const geometry = _mergeFarParts(silhouette.parts, accentColor);
-  if (geometry) geometry.userData.farSilhouetteKind = silhouette.kind;
+  const footprintWidth = Math.max(SUB_UNIT, (def.subW || def.gridW || 2) * SUB_UNIT);
+  const footprintDepth = Math.max(SUB_UNIT, (def.subL || def.gridH || 2) * SUB_UNIT);
+  const geometry = buildAuthoredGeometryLod(parts, {
+    footprintArea: footprintWidth * footprintDepth,
+    sourcePartCount,
+  });
+  if (!cachedRoleParts) _disposeAuthoredSourceParts(parts);
+  if (disposeSourceVisual) _disposeAuthoredSourceVisual(sourceVisual);
   return geometry;
 }
 
@@ -5516,6 +5000,7 @@ export class ComponentBuilder {
     this._lastBuild = null;
     this._showDetail = true;
     this._buildFarBatches = buildFarBatches;
+    this._farGeometryCache = new Map();
   }
 
   /** Public lookup for picking/selection coordinators. */
@@ -5535,10 +5020,21 @@ export class ComponentBuilder {
     for (const mesh of this._farBatches) {
       mesh.parent?.remove(mesh);
       mesh.dispose?.();
-      mesh.geometry?.dispose?.();
+      if (!mesh.geometry?.userData?.sharedFarGeometry) mesh.geometry?.dispose?.();
       mesh.material?.dispose?.();
     }
     this._farBatches = [];
+  }
+
+  _getAuthoredFarGeometry(def, color, sourceObject) {
+    const key = `${def.id || 'unknown'}|${color}`;
+    let geometry = this._farGeometryCache.get(key);
+    if (geometry) return geometry;
+    geometry = _authoredFarGeometry(def, color, sourceObject);
+    if (!geometry) return null;
+    geometry.userData.sharedFarGeometry = true;
+    this._farGeometryCache.set(key, geometry);
+    return geometry;
   }
 
   _rebuildFarBatches(componentData, parentGroup, categoryGroups) {
@@ -5576,18 +5072,16 @@ export class ComponentBuilder {
       const typeAwareBeamline = category === 'beamline';
       const typeAwareInfrastructure = category === 'infrastructure';
       const typeAware = typeAwareBeamline || typeAwareInfrastructure;
-      const geometry = typeAwareBeamline
-        ? (_farBeamlineGeometry(def, width, height, depth, color)
+      const geometry = typeAware
+        ? (this._getAuthoredFarGeometry(def, color, entries[0]?.obj)
           || _farComponentGeometry(def, width, height, depth))
-        : typeAwareInfrastructure
-          ? (_farInfrastructureGeometry(def, width, height, depth, color)
-            || _farComponentGeometry(def, width, height, depth))
-          : _farComponentGeometry(def, width, height, depth);
+        : _farComponentGeometry(def, width, height, depth);
+      const usesVertexColors = !!geometry.attributes?.color;
       const material = new THREE.MeshStandardMaterial({
-        color: typeAware ? 0xffffff : color,
-        vertexColors: typeAware,
-        roughness: typeAware ? 0.58 : 0.7,
-        metalness: typeAware ? 0.28 : 0.15,
+        color: usesVertexColors ? 0xffffff : color,
+        vertexColors: usesVertexColors,
+        roughness: usesVertexColors ? 0.58 : 0.7,
+        metalness: usesVertexColors ? 0.28 : 0.15,
         transparent: opacity < 1,
         opacity,
         depthWrite: opacity >= 1,
@@ -5602,19 +5096,17 @@ export class ComponentBuilder {
       mesh.userData.farSilhouetteKind = geometry.userData?.farSilhouetteKind || 'footprint';
       mesh.userData.farPartRoles = geometry.userData?.farPartRoles || ['body'];
       mesh.userData.farPartCount = geometry.userData?.farPartCount || 1;
+      mesh.userData.farSourcePartCount = geometry.userData?.farSourcePartCount || 1;
+      mesh.userData.farSelectedPartNames = geometry.userData?.farSelectedPartNames || [];
       mesh.castShadow = false;
       mesh.receiveShadow = true;
       mesh.visible = !this._showDetail;
       for (let i = 0; i < entries.length; i++) {
         const { comp, obj } = entries[i];
-        // Type-aware ground silhouettes are authored from floor level so they
-        // share a stable origin regardless of their catalogue height. Wall
-        // fixtures retain the legacy centre lift because their geometry is
-        // centred on the authored wall opening.
-        const presentationY = typeAware && def.mount !== 'wall'
-          ? BEAM_HEIGHT
-          : height / 2;
-        position.set(obj.position.x, obj.position.y + presentationY, obj.position.z);
+        // Geometry-derived LODs retain the detailed model's local coordinate
+        // frame, so the instance uses the exact wrapper pose with no synthetic
+        // beam-height or footprint-centre correction.
+        position.set(obj.position.x, obj.position.y, obj.position.z);
         rotation.setFromAxisAngle(yAxis, obj.rotation.y);
         matrix.compose(position, rotation, scale);
         mesh.setMatrixAt(i, matrix);
@@ -5948,6 +5440,8 @@ export class ComponentBuilder {
    */
   dispose(parentGroup) {
     this._disposeFarBatches();
+    for (const geometry of this._farGeometryCache.values()) geometry.dispose?.();
+    this._farGeometryCache.clear();
     for (const [, obj] of this._meshMap) {
       if (obj.parent) obj.parent.remove(obj);
       else if (parentGroup) parentGroup.remove(obj);

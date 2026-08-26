@@ -94,7 +94,7 @@ test('far component presentation batches instances without losing picking ids', 
   builder.dispose(parent);
 });
 
-test('far beamline presentation keeps type identity without full-footprint color blocks', () => {
+test('far beamline presentation is derived from a bounded set of authored primitives', () => {
   const parent = new THREE.Group();
   const beamline = new THREE.Group();
   parent.add(beamline);
@@ -116,48 +116,26 @@ test('far beamline presentation keeps type identity without full-footprint color
     batch.name.replace('component-far-', ''), batch,
   ]));
 
-  assert.equal(byType.get('drift')?.userData.farSilhouetteKind, 'beam-pipe');
-  assert.equal(byType.get('quadrupole')?.userData.farSilhouetteKind, 'quadrupole-magnet');
-  assert.equal(byType.get('cyclotron30')?.userData.farSilhouetteKind, 'cyclotron');
-  assert.equal(byType.get('target')?.userData.farSilhouetteKind, 'beam-target');
-  assert.equal(byType.get('halfWaveResonator')?.userData.farSilhouetteKind,
-    'half-wave-resonator');
-  assert.equal(byType.get('spokeCavity')?.userData.farSilhouetteKind, 'spoke-cavity');
-  assert.equal(byType.get('ellipticalSrfCavity')?.userData.farSilhouetteKind,
-    'elliptical-srf-cavity');
-  assert.deepEqual(new Set(byType.get('drift').userData.farPartRoles),
-    new Set(['pipe', 'stand']),
-  'a drift stays a thin pipe on supports rather than becoming a footprint box');
-  assert.ok(['stand', 'body', 'accent', 'pipe'].every(role =>
-    byType.get('cyclotron30').userData.farPartRoles.includes(role)),
-  'the cyclotron retains a base, squat body, identifying band, and extraction pipe');
-  assert.ok(['pipe', 'target', 'accent'].every(role =>
-    byType.get('target').userData.farPartRoles.includes(role)),
-  'the target retains its incoming beam tube and a restrained target body');
-  assert.ok(['accent', 'darkBody', 'copper', 'pipe', 'stand'].every(role =>
-    byType.get('quadrupole').userData.farPartRoles.includes(role)),
-  'the quadrupole retains its hollow diamond yoke, poles, coils, pipe, and stand');
-  assert.ok(['cryostat', 'darkBody', 'accent', 'pipe', 'stand'].every(role =>
-    byType.get('halfWaveResonator').userData.farPartRoles.includes(role)),
-  'the half-wave resonator remains an upright ribbed cryostat with a side coupler');
-  assert.ok(byType.get('spokeCavity').userData.farPartCount
-    > byType.get('halfWaveResonator').userData.farPartCount,
-  'the spoke cavity keeps its paired couplers and cryogenic ports');
-  assert.ok(byType.get('ellipticalSrfCavity').userData.farPartCount >= 12,
-    'the elliptical SRF cavity keeps a readable multi-cell profile');
-
   for (const batch of batches) {
+    assert.equal(batch.userData.farSilhouetteKind, 'authored-largest-parts');
+    assert.ok(batch.userData.farPartCount >= 3 && batch.userData.farPartCount <= 5,
+      `${batch.name} keeps a bounded three-to-five-part silhouette`);
+    assert.ok(batch.userData.farSourcePartCount > batch.userData.farPartCount,
+      `${batch.name} drops smaller authored geometry`);
+    assert.equal(batch.userData.farSelectedPartNames.length,
+      batch.userData.farPartCount);
     assert.equal(batch.material.vertexColors, true,
-      `${batch.name} uses merged per-part colors in one draw`);
-    const colors = batch.geometry.attributes.color;
-    const distinct = new Set();
-    for (let index = 0; index < colors.count; index++) {
-      distinct.add(`${colors.getX(index).toFixed(3)}:${colors.getY(index).toFixed(3)}:${colors.getZ(index).toFixed(3)}`);
-    }
-    assert.ok(distinct.size >= 2,
-      `${batch.name} is not one solid beamline-accent block`);
+      `${batch.name} carries its selected primitives' authored role colours`);
     assert.equal(batch.castShadow, false);
   }
+  assert.ok(byType.get('halfWaveResonator').userData.farSelectedPartNames
+    .includes('pipe-1'), 'the HWR retains its exact main cryostat primitive');
+  assert.ok(byType.get('spokeCavity').userData.farSelectedPartNames
+    .includes('pipe-1'), 'the spoke cavity retains its exact main cryostat primitive');
+  assert.ok(byType.get('ellipticalSrfCavity').geometry.attributes.position.count / 3 > 300,
+    'the elliptical cavity retains original curved cells instead of replacement boxes');
+  assert.ok(byType.get('cyclotron30').geometry.attributes.position.count / 3 > 500,
+    'the cyclotron retains its large authored curved body geometry');
   assert.equal(builder.resolveBatchHit({ object: byType.get('target'), instanceId: 0 }).nodeId,
     'target-far', 'every simplified silhouette remains pickable');
 
@@ -183,10 +161,13 @@ test('every beamline catalogue type has a merged facility-scale silhouette', () 
   assert.equal(batches.length, types.length,
     'every catalogue type contributes one batched silhouette draw');
   for (const batch of batches) {
-    assert.ok(batch.userData.farSilhouetteKind !== 'footprint',
-      `${batch.name} uses a type-aware silhouette`);
-    assert.ok(batch.userData.farPartRoles.includes('pipe'),
-      `${batch.name} preserves the common beam tube`);
+    assert.equal(batch.userData.farSilhouetteKind, 'authored-largest-parts',
+      `${batch.name} is selected from the detailed model`);
+    assert.ok(batch.userData.farPartCount <= 5,
+      `${batch.name} stays inside the authored-part budget`);
+    assert.ok(batch.userData.farPartCount >= Math.min(3, batch.userData.farSourcePartCount),
+      `${batch.name} keeps three primitives when its source has them`);
+    assert.ok(batch.userData.farSourcePartCount >= batch.userData.farPartCount);
     assert.ok(batch.geometry.attributes.color?.count > 0,
       `${batch.name} publishes merged per-part color geometry`);
   }
@@ -216,15 +197,27 @@ test('every infrastructure catalogue type has a merged facility-scale silhouette
   assert.equal(batches.length, types.length,
     'every infrastructure type contributes one batched silhouette draw');
   for (const batch of batches) {
-    assert.notEqual(batch.userData.farSilhouetteKind, 'footprint',
-      `${batch.name} uses a type-aware silhouette`);
-    assert.ok(batch.userData.farPartRoles.length >= 2,
-      `${batch.name} retains at least two visually distinct structural roles`);
+    assert.equal(batch.userData.farSilhouetteKind, 'authored-largest-parts',
+      `${batch.name} is selected from the detailed model`);
+    assert.ok(batch.userData.farPartCount <= 5,
+      `${batch.name} stays inside the authored-part budget`);
+    assert.ok(batch.userData.farPartCount >= Math.min(3, batch.userData.farSourcePartCount),
+      `${batch.name} keeps three primitives when its source has them`);
+    assert.ok(batch.userData.farSourcePartCount >= batch.userData.farPartCount);
     assert.ok(batch.geometry.attributes.color?.count > 0,
       `${batch.name} publishes merged per-part color geometry`);
     assert.equal(batch.material.vertexColors, true);
     assert.equal(batch.castShadow, false);
   }
+
+  const elevatedTray = batches.find(batch => batch.name === 'component-far-elevatedWireTray');
+  assert.equal(elevatedTray?.userData.farSourcePartCount, 7);
+  assert.equal(elevatedTray?.userData.farPartCount, 5,
+    'the overhead data rack keeps its authored foot, upright, crossbar, saddle, and bracket');
+  const traySize = new THREE.Vector3();
+  elevatedTray.geometry.boundingBox.getSize(traySize);
+  assert.ok(traySize.y > 1.5 && traySize.z > 0.8,
+    'the far overhead rack retains the authored L-frame proportions');
 
   builder.dispose(parent);
 });
