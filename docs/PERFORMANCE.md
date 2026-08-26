@@ -32,10 +32,15 @@ WebGPU does not render the full facility continuously behind that opaque scene:
 startup builds the loaded world once, submits one ordinary prepared frame, and
 keeps camera motion on that compiled pipeline family rather than bulk-compiling
 a second direct-to-canvas family. Optional decoration textures hydrate after
-the title gate and refresh only their owning scene section. Rapier and its
-terrain collider remain unloaded until an incident, ragdoll, or portable-drop
-command actually needs them. The loading label names the active boot phase so
-a future stall can be localized without browser automation or a console capture.
+the title gate and refresh only their owning scene section. Their bounded
+parallel loader prevents hosted latency from stretching dozens of tiny serial
+requests into first play. Rapier and its terrain collider remain unloaded until
+an incident, ragdoll, or portable-drop command actually needs them.
+Worker-hosted Pyodide/Numpy gets an eight-second interactive runway after
+Continue and then starts on an idle slice; an explicit Designer physics request
+can still initialize it immediately. The loading label names the active boot
+phase so a future stall can be localized without browser automation or a console
+capture.
 
 ## Ten large beamlines
 

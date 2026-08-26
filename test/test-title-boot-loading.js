@@ -65,3 +65,12 @@ test('the opaque title gate suspends hidden 3D frame submission', () => {
   assert.match(main, /renderer\.renderPreparedWorldFrame\(\)/,
     'native WebGPU submits one prepared final-world frame behind the title');
 });
+
+test('hosted Python physics does not start on the first playable frame', () => {
+  assert.match(main, /createDeferredPhysicsStart\(startPhysics\)/);
+  assert.match(main,
+    /renderer\.setRenderingSuspended\(false\);\s*deferredPhysicsStart\.schedule\(\);/,
+    'Continue resumes rendering before scheduling the heavy worker warmup');
+  assert.doesNotMatch(main, /renderer\.setRenderingSuspended\(false\);\s*startPhysics\(\);/,
+    'the 30 MB Pyodide load never competes with the first interactive frame');
+});
