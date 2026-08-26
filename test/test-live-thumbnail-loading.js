@@ -18,7 +18,7 @@ const source = readFileSync(
 );
 const afterFirstFrame = source.slice(
   source.indexOf('    this._animate();'),
-  source.indexOf('    this._physicsPresentation.scheduleInit(this.scene);'),
+  source.indexOf('\n  // --- Coordinate conversion'),
 );
 
 assert(
@@ -32,6 +32,10 @@ assert(
 assert(
   !/addEventListener\(['"](?:pointerenter|pointerdown|focusin)['"]/.test(afterFirstFrame),
   'thumbnail hydration is not gated on palette interaction',
+);
+assert(
+  !source.includes('this._physicsPresentation.scheduleInit(this.scene)'),
+  'Rapier and the terrain collider remain on-demand instead of joining cold startup',
 );
 
 console.log(`\n${passed} passed, ${failed} failed`);

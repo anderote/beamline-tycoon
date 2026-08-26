@@ -287,6 +287,7 @@ export class ThreeRenderer {
     this.scene = null;
     this.camera = null;
     this.canvas = null;  // interactive canvas (overlay event-capture canvas)
+    this.renderingSuspended = false;
     this._physicsPresentation = new WorldPhysicsPresentation({
       equipmentMeshes: () => this.equipmentBuilder?._meshes,
       componentMeshes: () => this.componentBuilder?._meshMap,
@@ -939,6 +940,17 @@ export class ThreeRenderer {
         case 'utilityLinesChanged':
           break; // queued above; drained once at the start of the next frame
         case 'loaded':
+          // main.js owns the single final world build during startup, after
+          // the saved camera/LOD state has been restored. A runtime Load has
+          // no later finalization pass, so it still rebuilds here.
+          if (data?.duringStartup) {
+            if (this._renderTechTree) this._renderTechTree();
+            break;
+          }
+          this._worldInvalidationScheduler.clear();
+          this.refresh();
+          if (this._renderTechTree) this._renderTechTree();
+          break;
         case 'restored':   // undo/redo snapshot restore
           this._worldInvalidationScheduler.clear();
           this.refresh(); // full 3D rebuild
@@ -1086,9 +1098,11 @@ export class ThreeRenderer {
     loadLegacyThumbnailRenderer().then((ready) => {
       if (ready && this._refreshPalette) this._refreshPalette();
     });
-    // Rapier is a large WASM chunk and ordinary construction never needs it.
-    // Warm it after the first playable frame instead of blocking init/title.
-    this._physicsPresentation.scheduleInit(this.scene);
+    // Rapier stays genuinely on-demand. Its main-thread WASM initialization
+    // and terrain-collider upload can monopolize Chrome during the same cold
+    // start that is decoding the world and physics-worker assets. Incident,
+    // ragdoll, and portable-drop commands call WorldPhysicsPresentation.init()
+    // themselves before they need a body.
   }
 
   // --- Coordinate conversion (PixiJS-compatible) ---
@@ -4868,6 +4882,15 @@ export class ThreeRenderer {
 
   _animate() {
     this._animFrameId = requestAnimationFrame(() => this._animate());
+    // The title screen is an opaque, separately rendered scene. Submitting
+    // the complete facility behind it wastes GPU memory and can overlap a
+    // large saved-world rebuild with post-processing and shadow allocation.
+    // Keep the rAF alive so resuming is immediate, but do no hidden frame
+    // work until main.js releases the title gate.
+    if (this.renderingSuspended) {
+      this._lastAnimTime = performance.now();
+      return;
+    }
     try {
     this._worldInvalidationScheduler?.flush();
     this._tickViewRotation();
@@ -5039,16 +5062,41 @@ export class ThreeRenderer {
     // holding more frames than it should. Shadow refreshes scheduled this
     // frame stay marked and land on the next frame that does render.
     if (renderAllowed) {
-      // Native WebGPU glow includes GTAO, a selective scene pass, and two
-      // bloom chains. Those are valuable on a settled view but make a dense
-      // facility much more expensive to pan. Render the ordinary lit scene
-      // while the camera moves, then restore the configured pipeline after
-      // the short motion tail expires.
-      this._glowPipeline.render({ skipPostProcessing: cameraMoving });
+      // Keep the backend-specific camera path below synchronized with startup
+      // pipeline policy. Shadows and assignment work are already deferred by
+      // cameraMoving above regardless of which scene pipeline renders.
+      // Native WebGPU keeps one stable post-processing pipeline family during
+      // camera motion. Bulk-compiling a second direct-to-swapchain family on
+      // a large saved world can exhaust Chrome's GPU process during startup.
+      // The WebGL2 fallback keeps its proven direct motion path, where the
+      // compatibility pipeline is simpler and compile behavior is synchronous.
+      this._glowPipeline.render({
+        skipPostProcessing: cameraMoving && !this.usesNativeWebGPU(),
+      });
       this._framePacer?.frameSubmitted();
     }
     if (this._viewCube) this._viewCube.update();
     } catch (e) { console.error('[ThreeRenderer] animate error:', e); }
+  }
+
+  /** Pause expensive hidden world frames while another full-screen scene owns the display. */
+  setRenderingSuspended(suspended) {
+    this.renderingSuspended = suspended === true;
+    this._lastAnimTime = performance.now();
+    return this.renderingSuspended;
+  }
+
+  /** Whether the world uses native WebGPU rather than Three's WebGL2 fallback. */
+  usesNativeWebGPU() {
+    return this._rendererBackend?.backend === 'webgpu';
+  }
+
+  /** Submit one final-world frame while the opaque title still owns input. */
+  renderPreparedWorldFrame() {
+    if (!this.renderer || !this.scene || !this.camera || !this._glowPipeline) return false;
+    this._glowPipeline.render({ skipPostProcessing: false });
+    this._framePacer?.frameSubmitted();
+    return true;
   }
 
   _currentWorldDetail() {

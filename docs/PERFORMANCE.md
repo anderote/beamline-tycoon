@@ -27,10 +27,15 @@ FPS, post-processing, driver submission, or visual fidelity.
 
 The title scene's CRT warp copies display-resolution pixels on the main thread.
 While application boot is pending it is capped at 12 fps, and after the player
-clicks into the loading state it freezes until the title menu is ready. Optional
-decoration textures hydrate after that gate and refresh only their owning scene
-section. The loading label names the active boot phase so a future stall can be
-localized without browser automation or a console capture.
+clicks into the loading state it freezes until the title menu is ready. Native
+WebGPU does not render the full facility continuously behind that opaque scene:
+startup builds the loaded world once, submits one ordinary prepared frame, and
+keeps camera motion on that compiled pipeline family rather than bulk-compiling
+a second direct-to-canvas family. Optional decoration textures hydrate after
+the title gate and refresh only their owning scene section. Rapier and its
+terrain collider remain unloaded until an incident, ragdoll, or portable-drop
+command actually needs them. The loading label names the active boot phase so
+a future stall can be localized without browser automation or a console capture.
 
 ## Ten large beamlines
 
@@ -135,10 +140,11 @@ projection matrix is invalidated by zoom or viewport-size changes, not by every
 raw pointer-move event; cursor-anchored zoom still applies the new projection
 before its corrective ground raycast. Multi-ray pan and zoom gestures also
 reuse one event-local canvas bounds read rather than repeatedly querying layout.
-While the camera is moving, native WebGPU renders the ordinary lit scene and
-retains cached shadows instead of scheduling GTAO, selective glow, bloom, or
-new facility shadow passes. The configured post-processing and shadow cadence
-return after a 120 ms settle tail; this does not change the saved glow setting.
+While the camera is moving, native WebGPU retains its prepared post-processing
+pipeline and cached shadows rather than allocating a second startup pipeline
+family. The WebGL2 compatibility backend uses the direct ordinary-lit scene
+path during motion. New facility shadow passes remain deferred until the 120 ms
+settle tail; this does not change the saved glow setting.
 
 The stock Minor Lab is the whole-facility regression fixture. Its headless
 production-builder measurement currently drops more than 7,000 authored near

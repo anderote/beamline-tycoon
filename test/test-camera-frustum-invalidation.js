@@ -69,7 +69,7 @@ test('multi-ray camera gestures reuse one canvas bounds read', () => {
     'both pan mapping raycasts share those bounds');
 });
 
-test('camera motion selects the cheap render path and defers shadow refreshes', () => {
+test('camera motion uses the backend-safe render path and defers shadow refreshes', () => {
   const animate = methodBody('_animate', '_currentWorldDetail');
   assert.match(animate,
     /const cameraMoving = framePlan\.cameraMoving[\s\S]*this\._cameraMotionUntilMs;/,
@@ -81,8 +81,8 @@ test('camera motion selects the cheap render path and defers shadow refreshes', 
     /freezeAssignment: cameraMoving,[\s\S]*deferShadows,/,
     'fixture ranking and shadow refresh work are held during motion');
   assert.match(animate,
-    /render\(\{ skipPostProcessing: cameraMoving \}\)/,
-    'camera motion bypasses the expensive post-processing graph');
+    /skipPostProcessing: cameraMoving && !this\.usesNativeWebGPU\(\)/,
+    'native WebGPU reuses its prepared graph while WebGL keeps the direct motion path');
   const sun = methodBody('_updateSunCycle', 'hydrateDeferredAssets');
   assert.match(sun, /shadowRefreshPending[\s\S]*pendingCount/,
     'a deferred camera-following sun shadow is refreshed after motion settles');
