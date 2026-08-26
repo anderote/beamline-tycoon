@@ -120,10 +120,13 @@ facility does not submit its complete authored scene for one expensive frame
 behind the title screen:
 
 - beamline modules keep one instanced draw per type, built automatically from
-  the three-to-five largest primitives in the authored detailed model;
-- infrastructure uses the same footprint-relative largest-part reduction, so
+  the largest logical shape groups in the authored detailed model; repeated
+  ribs, symmetric poles, coils, and paired pumps stay together, and larger
+  footprints receive a modestly larger three-to-eight-group budget;
+- infrastructure uses the same footprint-relative grouped-shape reduction, so
   cabinets, racks, vessels, transformers, and overhead supports retain their
-  real proportions instead of switching to unrelated substitute geometry;
+  real proportions and characteristic role colours instead of switching to
+  unrelated substitute geometry;
 - large equipment and furnishings use instanced chair, table, console, rack,
   cabinet, sanitary-fixture, cart, and machine silhouettes;
 - benchtop apparatus, wall fittings, rugs, and other pixel-scale facility
@@ -133,8 +136,9 @@ behind the title screen:
 - hangings, flower beds, bins, and small wall/ceiling/surface fixtures disappear;
 - beam pipes, pipe attachments, and utility networks retain their existing
   thin route silhouettes while hiding optional fittings and support detail;
-- all non-structural far presentations stop casting shadows, and hidden detail
-  no longer owns real fixture or glow-light slots.
+- all non-structural far presentations stop casting shadows; the fixed-size
+  point-light pool keeps existing equipment/screen assignments through the LOD
+  swap without allocating lights or rescanning the scene.
 
 A hysteresis band prevents the representation from flickering when the camera
 sits on the transition. Floors, terrain, and walls are already merged/static

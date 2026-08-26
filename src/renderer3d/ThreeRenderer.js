@@ -5127,7 +5127,10 @@ export class ThreeRenderer {
       this.pipeAttachmentBuilder?.setDetailLevel?.(showDetail);
       this.beamPipeBuilder?.setDetailLevel?.(showDetail);
       this.beamBuilder?.setDetailLevel?.(showDetail);
-      this._lightRig?.markDirty?.();
+      // Candidate objects remain stable; only their presentation parents are
+      // hidden. Preserve the bounded screen/equipment lights and avoid a full
+      // scene traversal every time the camera crosses the LOD threshold.
+      this._lightRig?.setWorldDetail?.(showDetail);
     }
 
     const showUtilityDetail = this._lodObjectsEnabled

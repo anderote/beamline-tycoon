@@ -118,11 +118,13 @@ test('far beamline presentation is derived from a bounded set of authored primit
 
   for (const batch of batches) {
     assert.equal(batch.userData.farSilhouetteKind, 'authored-largest-parts');
-    assert.ok(batch.userData.farPartCount >= 3 && batch.userData.farPartCount <= 5,
-      `${batch.name} keeps a bounded three-to-five-part silhouette`);
-    assert.ok(batch.userData.farSourcePartCount > batch.userData.farPartCount,
+    assert.ok(batch.userData.farPartCount >= 3 && batch.userData.farPartCount <= 8,
+      `${batch.name} keeps a bounded footprint-scaled assembly silhouette`);
+    assert.ok(batch.userData.farSourcePartCount > batch.userData.farPrimitiveCount,
       `${batch.name} drops smaller authored geometry`);
     assert.equal(batch.userData.farSelectedPartNames.length,
+      batch.userData.farPrimitiveCount);
+    assert.equal(batch.userData.farSelectedGroupNames.length,
       batch.userData.farPartCount);
     assert.equal(batch.material.vertexColors, true,
       `${batch.name} carries its selected primitives' authored role colours`);
@@ -132,6 +134,20 @@ test('far beamline presentation is derived from a bounded set of authored primit
     .includes('pipe-1'), 'the HWR retains its exact main cryostat primitive');
   assert.ok(byType.get('spokeCavity').userData.farSelectedPartNames
     .includes('pipe-1'), 'the spoke cavity retains its exact main cryostat primitive');
+  assert.ok(byType.get('quadrupole').userData.farPartRoles.includes('copper')
+    && byType.get('quadrupole').userData.farPrimitiveCount >= 16,
+  'the quadrupole retains its complete symmetric yoke, poles, and coil bars');
+  assert.ok(byType.get('spokeCavity').userData.farPrimitiveCount > 5,
+    'the spoke cavity keeps its repeated stiffener assembly');
+  assert.ok(byType.get('spokeCavity').userData.farPartRoles.includes('accent'),
+    'the spoke cavity keeps a characteristic red RF-coupler assembly');
+  const quadColors = byType.get('quadrupole').geometry.attributes.color.array;
+  const expectedAccent = new THREE.Color(0xc62828);
+  assert.ok(Array.from({ length: quadColors.length / 3 }, (_, index) => index * 3)
+    .some(offset => Math.abs(quadColors[offset] - expectedAccent.r) < 1e-6
+      && Math.abs(quadColors[offset + 1] - expectedAccent.g) < 1e-6
+      && Math.abs(quadColors[offset + 2] - expectedAccent.b) < 1e-6),
+  'the far quadrupole uses the same default red accent as its near model');
   assert.ok(byType.get('ellipticalSrfCavity').geometry.attributes.position.count / 3 > 300,
     'the elliptical cavity retains original curved cells instead of replacement boxes');
   assert.ok(byType.get('cyclotron30').geometry.attributes.position.count / 3 > 500,
@@ -163,11 +179,12 @@ test('every beamline catalogue type has a merged facility-scale silhouette', () 
   for (const batch of batches) {
     assert.equal(batch.userData.farSilhouetteKind, 'authored-largest-parts',
       `${batch.name} is selected from the detailed model`);
-    assert.ok(batch.userData.farPartCount <= 5,
-      `${batch.name} stays inside the authored-part budget`);
-    assert.ok(batch.userData.farPartCount >= Math.min(3, batch.userData.farSourcePartCount),
+    assert.ok(batch.userData.farPartCount <= 8,
+      `${batch.name} stays inside the footprint-scaled assembly budget`);
+    assert.ok(batch.userData.farPrimitiveCount >= Math.min(3, batch.userData.farSourcePartCount),
       `${batch.name} keeps three primitives when its source has them`);
-    assert.ok(batch.userData.farSourcePartCount >= batch.userData.farPartCount);
+    assert.ok(batch.userData.farSourcePartCount >= batch.userData.farPrimitiveCount);
+    assert.ok(batch.userData.farPrimitiveCount <= 36);
     assert.ok(batch.geometry.attributes.color?.count > 0,
       `${batch.name} publishes merged per-part color geometry`);
   }
@@ -199,11 +216,12 @@ test('every infrastructure catalogue type has a merged facility-scale silhouette
   for (const batch of batches) {
     assert.equal(batch.userData.farSilhouetteKind, 'authored-largest-parts',
       `${batch.name} is selected from the detailed model`);
-    assert.ok(batch.userData.farPartCount <= 5,
-      `${batch.name} stays inside the authored-part budget`);
-    assert.ok(batch.userData.farPartCount >= Math.min(3, batch.userData.farSourcePartCount),
+    assert.ok(batch.userData.farPartCount <= 8,
+      `${batch.name} stays inside the footprint-scaled assembly budget`);
+    assert.ok(batch.userData.farPrimitiveCount >= Math.min(3, batch.userData.farSourcePartCount),
       `${batch.name} keeps three primitives when its source has them`);
-    assert.ok(batch.userData.farSourcePartCount >= batch.userData.farPartCount);
+    assert.ok(batch.userData.farSourcePartCount >= batch.userData.farPrimitiveCount);
+    assert.ok(batch.userData.farPrimitiveCount <= 36);
     assert.ok(batch.geometry.attributes.color?.count > 0,
       `${batch.name} publishes merged per-part color geometry`);
     assert.equal(batch.material.vertexColors, true);
@@ -212,7 +230,7 @@ test('every infrastructure catalogue type has a merged facility-scale silhouette
 
   const elevatedTray = batches.find(batch => batch.name === 'component-far-elevatedWireTray');
   assert.equal(elevatedTray?.userData.farSourcePartCount, 7);
-  assert.equal(elevatedTray?.userData.farPartCount, 5,
+  assert.equal(elevatedTray?.userData.farPrimitiveCount, 5,
     'the overhead data rack keeps its authored foot, upright, crossbar, saddle, and bracket');
   const traySize = new THREE.Vector3();
   elevatedTray.geometry.boundingBox.getSize(traySize);

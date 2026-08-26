@@ -2014,14 +2014,21 @@ function _farDecorationGeometry(def) {
     }
   } else if (/overheadPowerSpan/i.test(id)) {
     kind = 'power-span';
-    for (const x of [-width * 0.42, width * 0.42]) {
+    const poleX = width * 0.46;
+    const armW = Math.max(depth * 1.45, 1.1);
+    const wireZs = [-armW * 0.34, 0, armW * 0.34];
+    for (const x of [-poleX, poleX]) {
       cylinder('pole', Math.max(0.06, depth * 0.06), height * 0.90, 'y',
         x, height * 0.45, 0, FAR_DECORATION_COLORS.dark);
+      box('crossarm', 0.12, 0.12, armW,
+        x, height * 0.82, 0, FAR_DECORATION_COLORS.metal);
+      for (const z of wireZs) {
+        cylinder('insulator', 0.04, 0.17, 'y',
+          x, height * 0.84, z, FAR_DECORATION_COLORS.metal);
+      }
     }
-    box('crossarm', width * 0.92, 0.09, depth * 0.22,
-      0, height * 0.82, 0, FAR_DECORATION_COLORS.metal);
-    for (const z of [-depth * 0.22, 0, depth * 0.22]) {
-      cylinder('wire', 0.025, width * 0.84, 'x',
+    for (const z of wireZs) {
+      cylinder('wire', 0.025, poleX * 2, 'x',
         0, height * 0.72, z, FAR_DECORATION_COLORS.dark);
     }
   } else if (/Tank/i.test(id)) {

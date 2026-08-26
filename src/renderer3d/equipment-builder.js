@@ -299,6 +299,24 @@ function _farEquipmentGeometry(compDef, isFurnishing) {
       0, height * 0.50, depth * 0.41, bodyColor);
     box('accent', width * 0.48, Math.max(0.04, height * 0.045), depth * 0.07,
       0, height * 0.72, depth * 0.45, FAR_EQUIPMENT_COLORS.screen);
+  } else if (/pump/i.test(id) && /cart|trolley/i.test(id)) {
+    kind = 'mobile-pump-cart';
+    box('deck', width * 0.90, Math.max(0.08, height * 0.08), depth * 0.84,
+      0, height * 0.16, 0, FAR_EQUIPMENT_COLORS.frame);
+    cylinder('pump', width * 0.42, height * 0.55, depth * 0.42,
+      -width * 0.12, height * 0.48, 0, bodyColor);
+    cylinder('flange', width * 0.52, Math.max(0.07, height * 0.07), depth * 0.52,
+      -width * 0.12, height * 0.72, 0, FAR_EQUIPMENT_COLORS.metal);
+    box('controller', width * 0.30, height * 0.42, depth * 0.30,
+      width * 0.27, height * 0.48, -depth * 0.16, FAR_EQUIPMENT_COLORS.dark);
+    box('screen', width * 0.20, height * 0.12, Math.max(0.035, depth * 0.04),
+      width * 0.27, height * 0.55, depth * 0.01, FAR_EQUIPMENT_COLORS.screen);
+    for (const x of [-width * 0.32, width * 0.32]) {
+      cylinder('wheel', 0.15, 0.08, 0.15, x, 0.10, 0,
+        FAR_EQUIPMENT_COLORS.dark, 'z');
+    }
+    box('handle', 0.07, height * 0.62, 0.07,
+      width * 0.40, height * 0.47, -depth * 0.34, FAR_EQUIPMENT_COLORS.metal);
   } else if (/cart|trolley/i.test(id)) {
     kind = 'mobile-cart';
     box('body', width * 0.84, height * 0.48, depth * 0.78,
@@ -630,6 +648,7 @@ export class EquipmentBuilder {
     this._showDetail = !!showDetail;
     for (const object of this._objectsById.values()) {
       object.visible = this._showDetail;
+      object.userData.lodHidden = !this._showDetail;
       object.traverse(child => {
         if (!child.isMesh) return;
         if (child.userData.nearCastShadow == null) {

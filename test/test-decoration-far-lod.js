@@ -94,9 +94,41 @@ test('all decoration and lighting types use an explicit distant-view policy', ()
   const bench = ordinaryBatches.get('parkBench');
   assert.equal(builder.resolveBatchHit({ object: bench, instanceId: 0 }).nodeId,
     'catalogue-parkBench', 'ordinary far batches retain placeable identity');
+  const overhead = ordinaryBatches.get('overheadPowerSpan');
+  const overheadSize = overhead.geometry.boundingBox.getSize(new THREE.Vector3());
+  assert.ok(overheadSize.x > overheadSize.z * 3,
+    'the unrotated power-span wires run between poles while crossarms run across them');
 
   builder.setDetailLevel(true);
   assert.ok([...ordinaryBatches.values()].every(batch => batch.visible === false));
   assert.ok([...builder._ordinaryGroupsById.values()].every(group => group.visible === true));
+  builder.dispose(parent);
+});
+
+test('the legacy overhead span far model preserves wire and crossarm axes in both rotations', () => {
+  const def = DECORATIONS_RAW.overheadPowerSpan;
+  const first = item(def, 0);
+  first.id = 'span-x';
+  const second = item(def, 1);
+  second.id = 'span-z';
+  second.dir = 1;
+  const parent = new THREE.Group();
+  const builder = new DecorationBuilder();
+  builder.build([first, second], parent);
+  builder.setDetailLevel(false);
+  const batch = parent.children.find(child =>
+    child.name === 'decoration-far-overheadPowerSpan');
+  assert.equal(batch.count, 2);
+  const localBounds = batch.geometry.boundingBox;
+  const matrix = new THREE.Matrix4();
+  const sizes = [];
+  for (let index = 0; index < 2; index++) {
+    batch.getMatrixAt(index, matrix);
+    sizes.push(localBounds.clone().applyMatrix4(matrix).getSize(new THREE.Vector3()));
+  }
+  assert.ok(sizes[0].x > sizes[0].z * 3,
+    'direction 0 runs its conductors along world X');
+  assert.ok(sizes[1].z > sizes[1].x * 3,
+    'direction 1 rotates the complete span once and runs conductors along world Z');
   builder.dispose(parent);
 });

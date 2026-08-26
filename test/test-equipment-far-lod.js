@@ -38,6 +38,7 @@ test('facility equipment batches recognizable silhouettes and culls tabletop det
     { id: 'console', type: 'operatorConsole', col: 4, row: 0 },
     { id: 'paper', type: 'toiletPaperRoll', col: 5, row: 0,
       wallMount: { col: 5, row: 0, edge: 'n', off: 0 } },
+    { id: 'pump-cart', type: 'pumpCart', col: 7, row: 0 },
   ];
 
   builder.build(equipment, furnishings, parent);
@@ -53,6 +54,10 @@ test('facility equipment batches recognizable silhouettes and culls tabletop det
     'repeated chairs share one instanced draw');
   assert.equal(byType.get('labTable')?.userData.farSilhouetteKind, 'work-surface');
   assert.equal(byType.get('operatorConsole')?.userData.farSilhouetteKind, 'console');
+  assert.equal(byType.get('pumpCart')?.userData.farSilhouetteKind, 'mobile-pump-cart');
+  assert.ok(byType.get('pumpCart')?.userData.farPartRoles.includes('screen')
+    && byType.get('pumpCart')?.geometry.attributes.position.count > 250,
+  'the pump cart retains its vessel, controller, screen, running gear, and handle');
   assert.equal(byType.has('oscilloscope'), false, 'tabletop instruments disappear at far zoom');
   assert.equal(byType.has('toiletPaperRoll'), false, 'tiny wall fittings disappear at far zoom');
   assert.ok([...builder._objectsById.values()].every(object => object.visible === false));

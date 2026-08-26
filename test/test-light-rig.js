@@ -727,6 +727,37 @@ test('the flash reserve keeps idle point slots back, so an explosion never has t
   assert.ok(thirdIdx < 6, `with the reserve saturated the third flash spills into the ambient band (index ${thirdIdx})`);
 });
 
+test('bounded screen light assignments survive an object LOD swap without reallocating lights', () => {
+  const scene = new SceneStub();
+  const machine = new Group();
+  const screen = new Mesh(
+    new BoxGeometry(1, 1, 1),
+    new MeshStandardMaterial({ emissive: new ColorStub(0x40e0ff) }),
+  );
+  screen.userData.role = 'glow';
+  machine.add(screen);
+  scene.add(machine);
+  const rig = new LightRig(scene, { shadowSpotCount: 0, pointCount: 2, flashReserve: 0 });
+  const camera = { position: new V3(0, 2, 2) };
+  rig.update(camera, 1, 0.016);
+  const originalLightCount = scene.addCalls;
+  assert.ok(rig._pointSlots[0].light.intensity > 0);
+
+  machine.visible = false;
+  machine.userData.lodHidden = true;
+  rig.setWorldDetail(false);
+  rig.update(camera, 1, 0.016);
+  assert.ok(rig._pointSlots[0].light.intensity > 0,
+    'the far silhouette keeps the same bounded screen light alive');
+  assert.equal(scene.addCalls, originalLightCount,
+    'the transition creates no additional light objects');
+
+  rig.setWorldDetail(true);
+  rig.update(camera, 1, 0.016);
+  assert.equal(rig._pointSlots[0].light.intensity, 0,
+    'ordinary hidden-state semantics resume outside the far LOD presentation');
+});
+
 test('moving effect proxies use the fixed point pool without pan-induced reassignment', () => {
   const scene = new SceneStub();
   const rig = new LightRig(scene, {

@@ -257,6 +257,8 @@ const ROLES = /** @type {const} */ (['accent', 'iron', 'copper', 'pipe', 'stand'
 // Structural feet and decorative trim still qualify when they are genuinely
 // large, but they should not crowd a machine's body out of a five-part budget.
 const AUTHORED_FAR_ROLE_IMPORTANCE = Object.freeze({
+  accent: 1.35,
+  copper: 1.10,
   stand: 0.35,
   detail: 0.55,
   glow: 0.40,
@@ -4888,7 +4890,7 @@ function _farComponentGeometry(def, width, height, depth) {
 }
 
 const FAR_ROLE_COLORS = Object.freeze({
-  pipe: 0x9aaab3,
+  pipe: 0xaeb4b7,
   stand: 0x42494f,
   body: 0x707b82,
   darkBody: 0x505a61,
@@ -4983,8 +4985,17 @@ function _authoredFarGeometry(def, accentColor, sourceObject = null) {
 
   const footprintWidth = Math.max(SUB_UNIT, (def.subW || def.gridW || 2) * SUB_UNIT);
   const footprintDepth = Math.max(SUB_UNIT, (def.subL || def.gridH || 2) * SUB_UNIT);
+  const footprintArea = footprintWidth * footprintDepth;
   const geometry = buildAuthoredGeometryLod(parts, {
-    footprintArea: footprintWidth * footprintDepth,
+    footprintArea,
+    // Legacy assembled visuals usually expose every child as the same generic
+    // body role. Three major shape groups are enough for compact fittings;
+    // larger authored machines scale back up with their physical footprint.
+    maxParts: roleBuilder
+      ? undefined
+      : parts.length <= 8
+        ? 5
+        : Math.min(5, 3 + Math.floor(Math.sqrt(footprintArea) / 3)),
     sourcePartCount,
   });
   if (!cachedRoleParts) _disposeAuthoredSourceParts(parts);
@@ -5049,7 +5060,10 @@ export class ComponentBuilder {
       const focusDimmed = this._focusIds && !this._focusIds.has(comp.id);
       const dimmed = comp.dimmed === true || focusDimmed;
       const opacity = focusDimmed ? 0.12 : (dimmed ? 0.3 : 1);
-      const color = comp.accentColor ?? def.spriteColor ?? 0x778899;
+      // Role-authored near models use red when an instance has no explicit
+      // accent. spriteColor is a catalogue-thumbnail tint and can be blue or
+      // brown, so using it here made the same quadrupole change colour at LOD.
+      const color = comp.accentColor ?? 0xc62828;
       const key = `${category}|${comp.type}|${color}|${opacity}`;
       let bucket = buckets.get(key);
       if (!bucket) {
@@ -5096,8 +5110,11 @@ export class ComponentBuilder {
       mesh.userData.farSilhouetteKind = geometry.userData?.farSilhouetteKind || 'footprint';
       mesh.userData.farPartRoles = geometry.userData?.farPartRoles || ['body'];
       mesh.userData.farPartCount = geometry.userData?.farPartCount || 1;
+      mesh.userData.farPrimitiveCount = geometry.userData?.farPrimitiveCount
+        || geometry.userData?.farPartCount || 1;
       mesh.userData.farSourcePartCount = geometry.userData?.farSourcePartCount || 1;
       mesh.userData.farSelectedPartNames = geometry.userData?.farSelectedPartNames || [];
+      mesh.userData.farSelectedGroupNames = geometry.userData?.farSelectedGroupNames || [];
       mesh.castShadow = false;
       mesh.receiveShadow = true;
       mesh.visible = !this._showDetail;
@@ -5126,6 +5143,7 @@ export class ComponentBuilder {
     this._showDetail = visible;
     for (const obj of this._meshMap.values()) {
       obj.visible = visible;
+      obj.userData.lodHidden = !visible;
       obj.traverse(child => {
         if (!child.isMesh) return;
         if (child.userData.lod === 'detail') child.visible = visible;

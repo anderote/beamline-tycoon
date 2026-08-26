@@ -110,3 +110,33 @@ test('every utility keeps its route silhouette while far detail is suppressed', 
 
   builder.dispose(parent);
 });
+
+test('far HV cable tessellation preserves horizontal and vertical route orientation', () => {
+  const builder = new UtilityLineBuilderV2();
+  const parent = new THREE_NS.Group();
+  const horizontal = line('hv-horizontal', 'hvCable', 0);
+  const vertical = {
+    ...line('hv-vertical', 'hvCable', 2),
+    path: [{ col: 0, row: 2 }, { col: 0, row: 6 }],
+    cablePath: [
+      { col: 0, row: 2 }, { col: 0.3, row: 4 }, { col: 0, row: 6 },
+    ],
+  };
+  builder.setDetailLevel(false);
+  builder.build(new Map([
+    [horizontal.id, horizontal], [vertical.id, vertical],
+  ]), new Map(), parent);
+
+  const sizeFor = id => {
+    const group = parent.children.find(child => child.userData?.lineId === id);
+    const cable = collect(group, object => object.userData?.isFlexibleUtilityCable)[0];
+    assert.equal(cable.geometry, cable.userData.utilityLodGeometries.far);
+    cable.geometry.computeBoundingBox();
+    return cable.geometry.boundingBox.getSize(new THREE_NS.Vector3());
+  };
+  const xSize = sizeFor(horizontal.id);
+  const zSize = sizeFor(vertical.id);
+  assert.ok(xSize.x > xSize.z * 5, 'the east/west far cable stays east/west');
+  assert.ok(zSize.z > zSize.x * 5, 'the north/south far cable stays north/south');
+  builder.dispose(parent);
+});

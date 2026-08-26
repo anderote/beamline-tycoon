@@ -70,10 +70,11 @@ const FLASH_POINT_DECAY = 2;
 const DEFAULT_FLASH_DURATION_MS = 600;
 const POINT_RANK_SLACK = 4;
 
-function _effectivelyVisible(candidate) {
+function _effectivelyVisible(candidate, allowLodHidden = false) {
   let object = candidate?.group || candidate;
   while (object) {
-    if (object.visible === false) return false;
+    if (object.visible === false
+        && !(allowLodHidden && object.userData?.lodHidden === true)) return false;
     object = object.parent;
   }
   return true;
@@ -162,6 +163,7 @@ export class LightRig {
     // without real timers, and ties flash decay to the same dt the rest of
     // the frame (tickFlow, staffPawns.update) already uses.
     this._clockMs = 0;
+    this._preserveAmbientThroughLod = false;
 
     // ---- Fixture spots: stable shadow leaders + dynamically batched tail --
     this._spotSlots = [];
@@ -392,6 +394,11 @@ export class LightRig {
     this._effectEmitterRegistry = Array.isArray(emitters) ? emitters : [];
   }
 
+  /** Keep bounded equipment/screen point lights stable across object LOD. */
+  setWorldDetail(showDetail) {
+    this._preserveAmbientThroughLod = !showDetail;
+  }
+
   setEnabled(v) {
     this._enabled = !!v;
     if (!this._enabled) {
@@ -573,8 +580,8 @@ export class LightRig {
     this._frustumReady = true;
   }
 
-  _rankCandidates(candidates, focus, radiusFor = null) {
-    return candidates.filter((obj) => obj && _effectivelyVisible(obj)).map((obj, index) => {
+  _rankCandidates(candidates, focus, radiusFor = null, allowLodHidden = false) {
+    return candidates.filter((obj) => obj && _effectivelyVisible(obj, allowLodHidden)).map((obj, index) => {
       const p = this._worldPos(obj);
       const dx = p.x - focus.x, dy = p.y - focus.y, dz = p.z - focus.z;
       let visible = true;
@@ -943,7 +950,9 @@ export class LightRig {
     const candidates = this._effectEmitterRegistry.length
       ? this._glowCandidates.concat(this._effectEmitterRegistry)
       : this._glowCandidates;
-    const ranked = this._rankCandidates(candidates, camPos);
+    const ranked = this._rankCandidates(
+      candidates, camPos, null, this._preserveAmbientThroughLod,
+    );
     const rankByObject = new Map(ranked.map((entry, index) => [entry.obj, { ...entry, index }]));
     const keepThrough = Math.min(ranked.length, freeSlots.length + POINT_RANK_SLACK);
     const claimed = new Set();
