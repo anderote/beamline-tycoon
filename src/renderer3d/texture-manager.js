@@ -3,6 +3,22 @@
 // Replaces PIXI.Assets loading from SpriteManager for the Three.js renderer.
 // Note: THREE is a CDN global — not imported.
 
+const DEFERRED_TEXTURE_CONCURRENCY = 6;
+
+async function mapConcurrent(items, limit, visit) {
+  let next = 0;
+  const workers = Array.from(
+    { length: Math.min(Math.max(1, limit), items.length) },
+    async () => {
+      while (next < items.length) {
+        const index = next++;
+        await visit(items[index], index);
+      }
+    },
+  );
+  await Promise.all(workers);
+}
+
 export class TextureManager {
   constructor() {
     /** @type {Map<string, THREE.Texture>} Cache keyed by file path */
@@ -120,10 +136,15 @@ export class TextureManager {
       const manifest = await resp.json();
       let count = 0;
 
-      for (const [, info] of Object.entries(manifest)) {
+      // A hosted cold load pays real latency for every image. Loading this
+      // manifest serially stretched 55 tiny textures across the title
+      // transition and caused a late decoration rebuild during first play.
+      // Keep a modest pool so the set finishes promptly without asking Chrome
+      // to decode and upload every image in one burst.
+      await mapConcurrent(Object.values(manifest), DEFERRED_TEXTURE_CONCURRENCY, async (info) => {
         const tex = await this.load(info.file);
         if (tex) count++;
-      }
+      });
 
       console.log(`TextureManager: loaded ${count} decoration textures`);
     } catch (e) {

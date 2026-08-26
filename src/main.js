@@ -3,6 +3,7 @@
 import './three-global.js';
 import { BeamlineRegistry } from './beamline/BeamlineRegistry.js';
 import { BeamPhysics } from './beamline/physics.js';
+import { createDeferredPhysicsStart } from './beamline/deferred-physics-start.js';
 import { PARAM_DEFS } from './beamline/component-physics.js';
 import { Game } from './game/Game.js';
 import { launchScenario } from './game/scenario-launch.js';
@@ -649,14 +650,12 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
     } catch {}
   }, 800);
 
-  // Pyodide + numpy is a ~30MB download — by far the heaviest part of boot.
-  // The title screen doesn't need physics, so defer the download until the
-  // player actually enters the game (the sim already tolerates physics
-  // arriving late: we recalc when it lands).
-  let physicsStarted = false;
+  // Pyodide + numpy is a ~30MB download and WASM compile. Starting it on the
+  // exact Continue frame made cold hosted sessions contend with WebGPU's
+  // first interactive pipeline work. Give rendering a short playable runway,
+  // then start on a browser-idle slice. Explicit Designer physics remains
+  // truly on-demand through BeamPhysics.computeAsync()/init().
   const startPhysics = () => {
-    if (physicsStarted) return;
-    physicsStarted = true;
     BeamPhysics.init().then(() => {
       game.log('Beam physics engine loaded.', 'good');
       game.recalcAllBeamlines();
@@ -670,19 +669,20 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
       console.error('BeamPhysics init error:', err);
     });
   };
+  const deferredPhysicsStart = createDeferredPhysicsStart(startPhysics);
   if (titleScreen) {
-    // Kick off once the player leaves the title for the game. New Game /
-    // Scenarios reload with skipTitle set and take the immediate branch.
+    // Begin the runway once the player leaves the title for the game. New Game
+    // and Scenarios reload with skipTitle set and take the branch below.
     const prevDismiss = titleScreen.dismiss.bind(titleScreen);
     titleScreen.dismiss = (...args) => {
       const result = prevDismiss(...args);
       renderer.setRenderingSuspended(false);
-      startPhysics();
+      deferredPhysicsStart.schedule();
       return result;
     };
   } else {
     renderer.setRenderingSuspended(false);
-    startPhysics();
+    deferredPhysicsStart.schedule();
   }
 
 
