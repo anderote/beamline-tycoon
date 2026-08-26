@@ -52,3 +52,16 @@ test('optional decoration textures do not block TitleScreen.ready', () => {
     /async hydrateDeferredAssets\(\) \{[\s\S]*loadDecorationManifest\(\)[\s\S]*this\._refreshDecorations\(\)/,
     'hydration refreshes only the owning decoration section');
 });
+
+test('the opaque title gate suspends hidden 3D frame submission', () => {
+  assert.match(main, /renderer\.setRenderingSuspended\(true\)/,
+    'main suspends the world renderer before any startup world replacement');
+  assert.match(renderer,
+    /if \(this\.renderingSuspended\) \{[\s\S]*this\._lastAnimTime = performance\.now\(\);[\s\S]*return;/,
+    'the animation loop yields before hidden world and GPU work');
+  assert.match(main,
+    /titleScreen\.dismiss = \(\.\.\.args\) => \{[\s\S]*renderer\.setRenderingSuspended\(false\);/,
+    'the world resumes when the title is dismissed');
+  assert.match(main, /renderer\.renderPreparedWorldFrame\(\)/,
+    'native WebGPU submits one prepared final-world frame behind the title');
+});

@@ -6538,7 +6538,12 @@ export class Game {
       }
 
       this.log('Game loaded.', 'info');
-      this.emit('loaded');
+      // Startup restores happen before start() enters the runtime lifecycle. The
+      // renderer still performs one final, camera-aware world build in
+      // main.js; rebuilding synchronously from this event as well briefly
+      // keeps two complete GPU scenes alive on large saves. Runtime loads do
+      // not have that later finalization pass and must refresh immediately.
+      this.emit('loaded', { duringStartup: !this._started });
       return true;
     } catch (e) { console.error('Save load failed:', e); return false; }
   }

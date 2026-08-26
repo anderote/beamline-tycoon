@@ -13,7 +13,6 @@ import './renderer/designer-renderer.js';
 // attach DOM-side UI methods to UIHost.prototype.
 import { ThreeRenderer } from './renderer3d/ThreeRenderer.js';
 import { YAW_STEP } from './renderer3d/free-orbit-math.js';
-import { prewarmInteractionPipelines } from './renderer3d/interaction-pipeline-warmup.js';
 import { InputHandler } from './input/InputHandler.js';
 import { BeamlineDesigner } from './ui/BeamlineDesigner.js';
 import { GuidedBeamlineSetup } from './ui/GuidedBeamlineSetup.js';
@@ -105,6 +104,10 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
   const spriteManager = new SpriteManager();
 
   const renderer = new ThreeRenderer(game, spriteManager);
+  // Keep every boot from submitting frames while load/scenario wiring is
+  // still replacing the world. Title boots retain the gate through Continue;
+  // skip-title boots release it once all startup composition is complete.
+  renderer.setRenderingSuspended(true);
   window._renderer = renderer;
   window.game = game;
   window.dev = {
@@ -339,12 +342,13 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
   titleScreen?.setLoadingStatus('Finalizing...');
 
   // game.load()/scenario launch can replace nearly the entire scene after the
-  // renderer's initial build. Rebuild that final world now, then compile the
-  // direct-to-canvas WebGPU path used during camera motion while the title is
-  // still in its loading state. Otherwise the first orbit/pan has to compile
-  // every visible material pipeline in one interactive frame.
+  // renderer's initial build. Rebuild that final world once, after restoring
+  // the saved camera so startup LOD is correct. Native WebGPU submits exactly
+  // one ordinary post-processed frame behind the opaque title after that peak
+  // allocation phase; it does not bulk-compile a second camera-motion pipeline
+  // family during startup.
   renderer.refresh();
-  await prewarmInteractionPipelines(renderer.renderer, renderer.scene, renderer.camera);
+  if (renderer.usesNativeWebGPU()) renderer.renderPreparedWorldFrame();
 
   if (restoredProbe) {
     probeWindow.fromJSON(restoredProbe);
@@ -520,6 +524,11 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
       },
       onNewGame: () => scenarioPicker.open(),
     });
+    // WebGL compiles pipelines synchronously during real draws. Once world
+    // construction is complete, let the covered compatibility renderer
+    // amortize that work before Continue; native WebGPU keeps the stricter
+    // gate after its one prepared frame until the player chooses Continue.
+    if (!renderer.usesNativeWebGPU()) renderer.setRenderingSuspended(false);
   }
 
   // Decoration textures are presentation-only and every builder has a color
@@ -665,8 +674,14 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
     // Kick off once the player leaves the title for the game. New Game /
     // Scenarios reload with skipTitle set and take the immediate branch.
     const prevDismiss = titleScreen.dismiss.bind(titleScreen);
-    titleScreen.dismiss = (...args) => { startPhysics(); return prevDismiss(...args); };
+    titleScreen.dismiss = (...args) => {
+      const result = prevDismiss(...args);
+      renderer.setRenderingSuspended(false);
+      startPhysics();
+      return result;
+    };
   } else {
+    renderer.setRenderingSuspended(false);
     startPhysics();
   }
 
