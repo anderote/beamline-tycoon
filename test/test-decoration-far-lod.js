@@ -30,6 +30,17 @@ const { LIGHTING_DEFS } = await import('../src/data/placeables/lighting.js');
 const { DecorationBuilder, decorationFarPresentation } =
   await import('../src/renderer3d/decoration-builder.js');
 
+function farType(parent, type) {
+  for (const batch of parent.children.filter(child => child.userData.batchedDecorations)) {
+    const metadata = batch.userData.farMetadataByType?.[type];
+    if (!metadata) continue;
+    const batchIds = batch.userData.types
+      .flatMap((candidate, index) => candidate === type ? [index] : []);
+    return { batch, metadata, batchIds };
+  }
+  return null;
+}
+
 function item(def, index) {
   return {
     id: `catalogue-${def.id}`,
@@ -64,9 +75,8 @@ test('all decoration and lighting types use an explicit distant-view policy', ()
   builder.build(decorations, parent);
   builder.setDetailLevel(false);
 
-  const ordinaryBatches = new Map(parent.children
-    .filter(child => child.userData.batchedDecorations)
-    .map(batch => [batch.name.replace('decoration-far-', ''), batch]));
+  const ordinaryBatches = parent.children
+    .filter(child => child.userData.batchedDecorations);
   const farPlantIds = new Set(parent.children
     .filter(child => child.userData.lod === 'plant-far')
     .flatMap(batch => batch.userData.batchNodeIds));
@@ -78,30 +88,34 @@ test('all decoration and lighting types use an explicit distant-view policy', ()
         `${def.id} uses the shared low-poly vegetation presentation`);
       continue;
     }
-    const batch = ordinaryBatches.get(def.id);
+    const presentation = farType(parent, def.id);
     if (policy === 'hidden') {
-      assert.equal(batch, undefined, `${def.id} intentionally disappears at facility scale`);
+      assert.equal(presentation, null, `${def.id} intentionally disappears at facility scale`);
       continue;
     }
-    assert.ok(batch, `${def.id} has a type-specific grounds silhouette`);
-    assert.equal(batch.userData.farSilhouetteKind, 'authored-largest-parts',
+    assert.ok(presentation, `${def.id} has a type-specific grounds silhouette`);
+    const { batch, metadata } = presentation;
+    assert.equal(metadata.farSilhouetteKind, 'authored-largest-parts',
       `${def.id} must retain original decoration geometry instead of a regex proxy`);
-    assert.ok(batch.userData.farPartRoles.length >= 1);
-    assert.ok(batch.userData.farSourcePartCount >= batch.userData.farPrimitiveCount);
-    assert.ok(batch.userData.farSelectedPartNames.length > 0);
-    assert.ok(batch.geometry.attributes.color?.count > 0);
+    assert.ok(metadata.farPartRoles.length >= 1);
+    assert.ok(metadata.farSourcePartCount >= metadata.farPrimitiveCount);
+    assert.ok(metadata.farSelectedPartNames.length > 0);
+    assert.equal(metadata.hasVertexColors, true);
     assert.equal(batch.castShadow, false);
   }
 
   assert.ok([...builder._ordinaryGroupsById.values()].every(group => group.visible === false),
     'authored ordinary decoration meshes are absent from the far render');
-  assert.equal(new Set([...ordinaryBatches.values()].map(batch => batch.material)).size, 1,
+  assert.equal(new Set(ordinaryBatches.map(batch => batch.material)).size, 1,
     'ordinary grounds silhouettes share one warmed far material');
-  const bench = ordinaryBatches.get('parkBench');
-  assert.equal(builder.resolveBatchHit({ object: bench, instanceId: 0 }).nodeId,
+  assert.ok(ordinaryBatches.length < 4,
+    'ordinary grounds silhouettes share a bounded number of GPU batches');
+  const bench = farType(parent, 'parkBench');
+  const benchFace = bench.batch.userData.farTriangleRanges[bench.batchIds[0]].start;
+  assert.equal(builder.resolveBatchHit({ object: bench.batch, faceIndex: benchFace }).nodeId,
     'catalogue-parkBench', 'ordinary far batches retain placeable identity');
-  const overhead = ordinaryBatches.get('overheadPowerSpan');
-  const overheadSize = overhead.geometry.boundingBox.getSize(new THREE.Vector3());
+  const overhead = farType(parent, 'overheadPowerSpan');
+  const overheadSize = overhead.metadata.localBounds.getSize(new THREE.Vector3());
   assert.ok(overheadSize.x > overheadSize.z * 3,
     'the unrotated power-span wires run between poles while crossarms run across them');
 
@@ -112,7 +126,7 @@ test('all decoration and lighting types use an explicit distant-view policy', ()
   }
   builder.setDetailLevel(true);
   for (let index = 0; index < roots.length; index++) roots[index].traverse = traversals[index];
-  assert.ok([...ordinaryBatches.values()].every(batch => batch.visible === false));
+  assert.ok(ordinaryBatches.every(batch => batch.visible === false));
   assert.ok([...builder._ordinaryGroupsById.values()].every(group => group.visible === true));
   builder.dispose(parent);
 });
@@ -128,14 +142,14 @@ test('the legacy overhead span far model preserves wire and crossarm axes in bot
   const builder = new DecorationBuilder();
   builder.build([first, second], parent);
   builder.setDetailLevel(false);
-  const batch = parent.children.find(child =>
-    child.name === 'decoration-far-overheadPowerSpan');
-  assert.equal(batch.count, 2);
-  const localBounds = batch.geometry.boundingBox;
+  const presentation = farType(parent, 'overheadPowerSpan');
+  const { batch, batchIds } = presentation;
+  assert.equal(batchIds.length, 2);
+  const localBounds = presentation.metadata.localBounds;
   const matrix = new THREE.Matrix4();
   const sizes = [];
-  for (let index = 0; index < 2; index++) {
-    batch.getMatrixAt(index, matrix);
+  for (const batchId of batchIds) {
+    matrix.copy(batch.userData.farMatrices[batchId]);
     sizes.push(localBounds.clone().applyMatrix4(matrix).getSize(new THREE.Vector3()));
   }
   assert.ok(sizes[0].x > sizes[0].z * 3,

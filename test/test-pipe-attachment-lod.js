@@ -43,8 +43,16 @@ function attachment(id, index) {
   };
 }
 
-function farMesh(parent, id) {
-  return parent.getObjectByName(`attachment-far-${id}`);
+function farType(parent, type) {
+  for (const batch of parent.children.filter(child => child.userData.batchedAttachments
+      && child.userData.lod === 'attachment-far')) {
+    const metadata = batch.userData.farMetadataByType?.[type];
+    if (!metadata) continue;
+    const batchIds = batch.userData.types
+      .flatMap((candidate, index) => candidate === type ? [index] : []);
+    return { batch, metadata, batchIds };
+  }
+  return null;
 }
 
 test('zoomed-out attachments keep authored silhouettes and role colors', () => {
@@ -59,19 +67,25 @@ test('zoomed-out attachments keep authored silhouettes and role colors', () => {
   builder.setDetailLevel(false);
 
   for (const id of ['rfCavity', 'quadrupole', 'bpm', 'fastKicker']) {
-    const far = farMesh(parent, id);
-    assert.equal(far?.userData.farSilhouetteKind, 'authored-largest-parts');
-    assert.equal(far?.material.vertexColors, true);
-    assert.ok(far?.userData.farPrimitiveCount >= 1);
-    assert.equal(far?.visible, true);
+    const far = farType(parent, id);
+    assert.equal(far?.metadata.farSilhouetteKind, 'authored-largest-parts');
+    assert.equal(far?.batch.material.vertexColors, true);
+    assert.ok(far?.metadata.farPrimitiveCount >= 1);
+    assert.equal(far?.batch.visible, true);
   }
-  assert.ok(farMesh(parent, 'quadrupole').userData.farSelectedGroupNames
+  assert.ok(farType(parent, 'quadrupole').metadata.farSelectedGroupNames
     .includes('quadrupole-yoke'));
   assert.equal(new Set(['rfCavity', 'quadrupole', 'bpm', 'fastKicker']
-    .map(id => farMesh(parent, id).material)).size, 1,
+    .map(id => farType(parent, id).batch.material)).size, 1,
   'all authored pipe attachments share one warmed far material pipeline');
+  assert.equal(builder.getBatchStats().farBatches, 1,
+    'compatible attachment silhouettes share one GPU allocation');
   assert.ok(builder.getBatchStats().farBatches > 0);
   assert.ok(builder.getBatchStats().nearBatches > 0);
+  const quad = farType(parent, 'quadrupole');
+  const quadFace = quad.batch.userData.farTriangleRanges[quad.batchIds[0]].start;
+  assert.equal(builder.resolveBatchHit({ object: quad.batch, faceIndex: quadFace }).attachmentId,
+    'quadrupole-1', 'merged far geometry retains attachment picking identity');
 
   builder.dispose(parent);
 });
@@ -81,16 +95,15 @@ test('far attachment LOD preserves the authored model bounds', () => {
   const builder = new PipeAttachmentBuilder();
   builder.build([attachment('spokeCavity', 0)], parent);
 
-  const geometry = farMesh(parent, 'spokeCavity').geometry;
-  geometry.computeBoundingBox();
-  const size = geometry.boundingBox.getSize(new THREE.Vector3());
+  const far = farType(parent, 'spokeCavity');
+  const size = far.metadata.localBounds.getSize(new THREE.Vector3());
   assert.ok(size.x > 1.2 && size.x < 1.4,
     'side couplers extend the authored cryostat width');
   assert.ok(size.y > 2.4 && size.y < 2.5,
     'top cryogenic ports retain the authored height');
   assert.ok(size.z > 2 && size.z < 2.1,
     'beam flanges retain the authored beam-axis length');
-  assert.ok(farMesh(parent, 'spokeCavity').userData.farSelectedPartNames
+  assert.ok(far.metadata.farSelectedPartNames
     .includes('pipe-1'), 'the main grey cryostat is present');
 
   builder.dispose(parent);

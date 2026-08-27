@@ -49,6 +49,7 @@ import {
 } from '../utility/water-circuits.js';
 import { utilityLineJunctions } from '../utility/line-junctions.js';
 import { waterDripEffect } from './water-drip-presentation.js';
+import { createFarMergedMesh, farGeometryLayoutKey } from './far-mesh-merge.js';
 
 // DEFAULT line centerline height. Per-utility heights come from
 // utilityLineHeight (registry): a power cord lies on the floor while a vacuum
@@ -2866,6 +2867,12 @@ export class UtilityLineBuilderV2 {
     // Sink-port issue markers + the signature that guards their rebuild.
     this._issueGroup = null;
     this._issueSig = null;
+    // Facility-wide ordinary meshes that replace one far route per utility
+    // line. Source routes remain in their owning groups for focused
+    // fallback/picking, but stay hidden during the normal far presentation.
+    this._farRouteBatches = [];
+    this._farRouteSources = [];
+    this._farFlexibleSources = [];
   }
 
   /**
@@ -3042,8 +3049,96 @@ export class UtilityLineBuilderV2 {
     }
     this._buildRigidUtilitySupports(records, placeablesById, lineById, parentGroup);
     this._buildUtilityBuses(opts.state?.utilityBuses || [], parentGroup);
+    this._rebuildFarRouteBatches(parentGroup);
     this._applyFocus();
     this._hasBuiltOnce = true;
+  }
+
+  _disposeFarRouteBatches(parentGroup) {
+    for (const mesh of this._farRouteBatches) {
+      (mesh.parent || parentGroup)?.remove(mesh);
+      mesh.geometry?.dispose?.();
+    }
+    this._farRouteBatches = [];
+    this._farRouteSources = [];
+    this._farFlexibleSources = [];
+  }
+
+  _syncFarRoutePresentation() {
+    const useMerged = this._focusLineIds == null;
+    for (const source of this._farRouteSources) {
+      source.visible = !this._showDetail && !useMerged;
+    }
+    for (const source of this._farFlexibleSources) {
+      source.visible = this._showDetail || !useMerged;
+    }
+    for (const mesh of this._farRouteBatches) {
+      mesh.visible = !this._showDetail && useMerged;
+    }
+  }
+
+  _rebuildFarRouteBatches(parentGroup) {
+    this._disposeFarRouteBatches(parentGroup);
+    const presentations = [];
+    for (const [lineId, group] of this._lineGroups) {
+      group.updateWorldMatrix?.(true, true);
+      group.traverse(object => {
+        if (!object.isMesh || !object.material || Array.isArray(object.material)) return;
+        const flexibleFar = object.userData?.isFlexibleUtilityCable
+          ? object.userData.utilityLodGeometries?.far : null;
+        const geometry = object.userData?.isUtilityFarRoute
+          ? object.geometry : flexibleFar;
+        if (!geometry?.clone || !geometry.getAttribute?.('position')) return;
+        if (flexibleFar) {
+          object.userData.utilityFarMergedFlexibleSource = true;
+          this._farFlexibleSources.push(object);
+        } else {
+          object.userData.utilityFarMergedSource = true;
+          this._farRouteSources.push(object);
+        }
+        object.visible = false;
+        presentations.push({
+          geometry,
+          matrix: object.matrixWorld.clone(),
+          material: object.material,
+          receiveShadow: object.receiveShadow,
+          lineId,
+          utilityType: group.userData.utilityType,
+          layout: farGeometryLayoutKey(geometry),
+        });
+      });
+    }
+
+    const buckets = new Map();
+    for (const entry of presentations) {
+      const key = `${entry.material.uuid}|${entry.layout}`;
+      let bucket = buckets.get(key);
+      if (!bucket) {
+        bucket = [];
+        buckets.set(key, bucket);
+      }
+      bucket.push(entry);
+    }
+    for (const entries of buckets.values()) {
+      const built = createFarMergedMesh(entries, entries[0].material);
+      if (!built) continue;
+      const { mesh, instanceIds } = built;
+      mesh.name = `utility-far-batch-${this._farRouteBatches.length}`;
+      mesh.userData.isUtilityFarRouteBatch = true;
+      mesh.userData.utilityLodRole = UTILITY_LOD_FAR;
+      mesh.userData.lineIds = [];
+      mesh.userData.utilityTypes = [];
+      mesh.castShadow = false;
+      mesh.receiveShadow = entries.some(entry => entry.receiveShadow === true);
+      for (let index = 0; index < entries.length; index++) {
+        const instanceId = instanceIds[index];
+        mesh.userData.lineIds[instanceId] = entries[index].lineId;
+        mesh.userData.utilityTypes[instanceId] = entries[index].utilityType;
+      }
+      parentGroup.add(mesh);
+      this._farRouteBatches.push(mesh);
+    }
+    this._syncFarRoutePresentation();
   }
 
   _setGroupFocusDimmed(group, dimmed) {
@@ -3177,6 +3272,7 @@ export class UtilityLineBuilderV2 {
   setFocus(lineIds = null) {
     this._focusLineIds = lineIds == null ? null : new Set(lineIds);
     this._applyFocus();
+    this._syncFarRoutePresentation();
   }
 
   /**
@@ -3193,6 +3289,7 @@ export class UtilityLineBuilderV2 {
       applyUtilityDetailLevel(group, next);
     }
     applyUtilityDetailLevel(this._rigidSupportGroup, next);
+    this._syncFarRoutePresentation();
   }
 
   _buildUtilityBuses(buses, parentGroup) {
@@ -3668,6 +3765,7 @@ export class UtilityLineBuilderV2 {
 
 
   dispose(parentGroup) {
+    this._disposeFarRouteBatches(parentGroup);
     for (const g of this._lineGroups.values()) {
       parentGroup.remove(g);
       this._disposeGroup(g);

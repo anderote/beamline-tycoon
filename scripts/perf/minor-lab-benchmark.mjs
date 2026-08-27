@@ -8,7 +8,7 @@ import { makeUtilityEndpointIndex } from '../../src/utility/utility-endpoints.js
 import { buildHeadlessFacilityScene } from './headless-render-metrics.mjs';
 
 export const MINOR_LAB_PERFORMANCE_TARGETS = Object.freeze({
-  farDrawCalls: 550,
+  farDrawCalls: 220,
   // Exporting the original major pieces for on-pipe components, furnishings,
   // and grounds objects costs ~13.5k triangles versus the former synthetic
   // proxies. Keep the complete catalogue-fidelity pass bounded at 140k while

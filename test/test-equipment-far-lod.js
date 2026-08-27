@@ -25,6 +25,17 @@ const { PLACEABLES } = await import('../src/data/placeables/index.js');
 const { EquipmentBuilder, equipmentFarPresentation } =
   await import('../src/renderer3d/equipment-builder.js');
 
+function farType(parent, type) {
+  for (const batch of parent.children.filter(child => child.userData.batchedEquipment)) {
+    const metadata = batch.userData.farMetadataByType?.[type];
+    if (!metadata) continue;
+    const batchIds = batch.userData.types
+      .flatMap((candidate, index) => candidate === type ? [index] : []);
+    return { batch, metadata, batchIds };
+  }
+  return null;
+}
+
 test('facility equipment batches recognizable silhouettes and culls tabletop detail', () => {
   const parent = new THREE.Group();
   const builder = new EquipmentBuilder();
@@ -47,23 +58,26 @@ test('facility equipment batches recognizable silhouettes and culls tabletop det
   builder.setDetailLevel(false);
 
   const batches = parent.children.filter(child => child.userData.batchedEquipment);
-  const byType = new Map(batches.map(batch => [
-    batch.name.replace('equipment-far-', ''), batch,
-  ]));
-  assert.equal(byType.get('cafeteriaChair')?.count, 2,
-    'repeated chairs share one instanced draw');
-  assert.equal(byType.get('labTable')?.userData.farSilhouetteKind, 'authored-largest-parts');
-  assert.equal(byType.get('operatorConsole')?.userData.farSilhouetteKind,
+  assert.equal(batches.length, 1,
+    'all compatible facility silhouettes share one GPU allocation and draw');
+  assert.equal(farType(parent, 'cafeteriaChair')?.batchIds.length, 2,
+    'repeated chairs share one geometry inside the batch');
+  assert.equal(farType(parent, 'labTable')?.metadata.farSilhouetteKind,
     'authored-largest-parts');
-  assert.equal(byType.get('pumpCart')?.userData.farSilhouetteKind,
+  assert.equal(farType(parent, 'operatorConsole')?.metadata.farSilhouetteKind,
     'authored-largest-parts');
-  assert.ok(byType.get('pumpCart')?.userData.farPrimitiveCount >= 5
-    && byType.get('pumpCart')?.userData.farSourcePartCount >= 8,
+  assert.equal(farType(parent, 'pumpCart')?.metadata.farSilhouetteKind,
+    'authored-largest-parts');
+  assert.ok(farType(parent, 'pumpCart')?.metadata.farPrimitiveCount >= 5
+    && farType(parent, 'pumpCart')?.metadata.farSourcePartCount >= 8,
   'the pump cart is selected from its authored housing, vessel, running gear, and handle');
-  assert.equal(byType.has('oscilloscope'), false, 'tabletop instruments disappear at far zoom');
-  assert.equal(byType.has('toiletPaperRoll'), false, 'tiny wall fittings disappear at far zoom');
+  assert.equal(farType(parent, 'oscilloscope'), null, 'tabletop instruments disappear at far zoom');
+  assert.equal(farType(parent, 'toiletPaperRoll'), null, 'tiny wall fittings disappear at far zoom');
   assert.ok([...builder._objectsById.values()].every(object => object.visible === false));
-  assert.equal(builder.resolveBatchHit({ object: byType.get('cafeteriaChair'), instanceId: 1 }).nodeId,
+  const chair = farType(parent, 'cafeteriaChair');
+  const chairB = chair.batch.userData.nodeIds.indexOf('chair-b');
+  const chairFace = chair.batch.userData.farTriangleRanges[chairB].start;
+  assert.equal(builder.resolveBatchHit({ object: chair.batch, faceIndex: chairFace }).nodeId,
     'chair-b', 'batched furnishings remain individually pickable');
   assert.ok(batches.every(batch => batch.castShadow === false
     && batch.material.vertexColors === true));
@@ -105,27 +119,29 @@ test('every facility catalogue item has an explicit far silhouette or hidden pol
   const builder = new EquipmentBuilder();
   builder.build(equipment, furnishings, parent);
   builder.setDetailLevel(false);
-  const batches = new Map(parent.children
-    .filter(child => child.userData.batchedEquipment)
-    .map(batch => [batch.name.replace('equipment-far-', ''), batch]));
+  const batches = parent.children.filter(child => child.userData.batchedEquipment);
+  assert.ok(batches.length < definitions.length / 10,
+    'the catalogue is packaged into a bounded number of GPU batches');
 
   for (const def of definitions) {
     const item = (def.kind === 'furnishing' ? furnishings : equipment)
       .find(candidate => candidate.type === def.id);
     const policy = equipmentFarPresentation(item, def.kind === 'furnishing');
-    const batch = batches.get(def.id);
+    const presentation = farType(parent, def.id);
     if (policy === 'hidden') {
-      assert.equal(batch, undefined, `${def.id} is intentionally culled at facility scale`);
+      assert.equal(presentation, null, `${def.id} is intentionally culled at facility scale`);
       continue;
     }
-    assert.ok(batch, `${def.id} has a facility-scale silhouette`);
-    assert.notEqual(batch.userData.farSilhouetteKind, 'footprint');
-    assert.ok(batch.userData.farPartRoles.length >= 1);
-    assert.equal(batch.userData.farSilhouetteKind, 'authored-largest-parts',
+    assert.ok(presentation, `${def.id} has a facility-scale silhouette`);
+    const { batch, metadata } = presentation;
+    assert.notEqual(metadata.farSilhouetteKind, 'footprint');
+    assert.ok(metadata.farPartRoles.length >= 1);
+    assert.equal(metadata.farSilhouetteKind, 'authored-largest-parts',
       `${def.id} must be exported from its authored geometry instead of a regex proxy`);
-    assert.ok(batch.userData.farSourcePartCount >= batch.userData.farPrimitiveCount);
-    assert.ok(batch.userData.farSelectedPartNames.length > 0);
-    assert.ok(batch.geometry.attributes.color?.count > 0);
+    assert.ok(metadata.farSourcePartCount >= metadata.farPrimitiveCount);
+    assert.ok(metadata.farSelectedPartNames.length > 0);
+    assert.equal(metadata.hasVertexColors, true);
+    assert.equal(batch.castShadow, false);
   }
 
   builder.dispose(parent);

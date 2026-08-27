@@ -138,5 +138,26 @@ console.log('\n--- Utility line and Universal Utility Bus picking ---');
     'ordinary utility lines retain their line identity');
 }
 
+{
+  const root = { parent: null, userData: {} };
+  const merged = {
+    parent: root,
+    userData: {
+      isUtilityFarRouteBatch: true,
+      lineIds: ['far_power', 'far_water'],
+      utilityTypes: ['powerCable', 'waterSupplyPipe'],
+      farTriangleRanges: [
+        { start: 0, end: 12, instanceIndex: 0 },
+        { start: 12, end: 30, instanceIndex: 1 },
+      ],
+    },
+  };
+  const got = utilityLinePickFromIntersections([
+    { object: merged, faceIndex: 20, distance: 2, point: { x: 4, z: 8 } },
+  ], root);
+  assert(got?.lineId === 'far_water' && got?.utilityType === 'waterSupplyPipe',
+    'facility-wide far route meshes preserve per-line picking by triangle range');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

@@ -1,6 +1,8 @@
 // Resolve utility-line ray intersections without letting the neutral carrier
 // of a Universal Utility Bus hide a populated utility lane behind it.
 
+import { mergedFarInstanceIndex } from './far-mesh-merge.js';
+
 function worldPosition(point) {
   return point ? { x: point.x, z: point.z } : null;
 }
@@ -22,6 +24,17 @@ export function utilityLinePickFromIntersections(intersections, utilityLineGroup
     let object = hit.object;
     let line = null;
     let bus = null;
+
+    if (object?.userData?.isUtilityFarRouteBatch) {
+      const index = mergedFarInstanceIndex(hit);
+      const lineId = Number.isInteger(index) ? object.userData.lineIds?.[index] : null;
+      if (lineId) return {
+        lineId,
+        utilityType: object.userData.utilityTypes?.[index],
+        worldPos: worldPosition(hit.point),
+        distance: hit.distance,
+      };
+    }
 
     while (object) {
       const data = object.userData || {};
@@ -62,4 +75,3 @@ export function utilityLinePickFromIntersections(intersections, utilityLineGroup
 
   return busFallback;
 }
-

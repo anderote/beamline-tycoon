@@ -43,6 +43,17 @@ function component(id, category, col, type = 'quadrupole') {
   };
 }
 
+function farType(group, type) {
+  for (const batch of group.children.filter(child => child.userData.batchedComponents)) {
+    const metadata = batch.userData.farMetadataByType?.[type];
+    if (!metadata) continue;
+    const batchIds = batch.userData.types
+      .flatMap((candidate, index) => candidate === type ? [index] : []);
+    return { batch, metadata, batchIds };
+  }
+  return null;
+}
+
 test('component builder routes and reparents wrappers by presentation category', () => {
   const parent = new THREE.Group();
   const beamline = new THREE.Group();
@@ -79,14 +90,16 @@ test('far component presentation batches instances without losing picking ids', 
 
   builder.build(components, parent, { categoryGroups: { beamline } });
   const far = beamline.children.find(child => child.userData.batchedComponents);
-  assert.ok(far?.isInstancedMesh);
-  assert.equal(far.count, components.length);
+  assert.ok(far?.isMesh && !far.isBatchedMesh,
+    'far geometry uses an ordinary merged mesh, avoiding the multi-draw GPU path');
+  assert.equal(far.userData.componentIds.length, components.length);
   assert.equal(far.visible, false);
 
   builder.setDetailLevel(false);
   assert.equal(far.visible, true);
   assert.equal(builder.getGroup('beam-0').visible, false);
-  assert.equal(builder.resolveBatchHit({ object: far, instanceId: 17 }).nodeId, 'beam-17');
+  const beamFace = far.userData.farTriangleRanges[17].start;
+  assert.equal(builder.resolveBatchHit({ object: far, faceIndex: beamFace }).nodeId, 'beam-17');
 
   builder.setDetailLevel(true);
   assert.equal(far.visible, false);
@@ -112,44 +125,43 @@ test('far beamline presentation is derived from a bounded set of authored primit
   builder.build(components, parent, { categoryGroups: { beamline } });
   builder.setDetailLevel(false);
   const batches = beamline.children.filter(child => child.userData.batchedComponents);
-  const byType = new Map(batches.map(batch => [
-    batch.name.replace('component-far-', ''), batch,
-  ]));
+  const byType = new Map(components.map(({ type }) => [type, farType(beamline, type)]));
 
-  for (const batch of batches) {
-    assert.equal(batch.userData.farSilhouetteKind, 'authored-largest-parts');
-    assert.ok(batch.userData.farPartCount >= 1 && batch.userData.farPartCount <= 8,
-      `${batch.name} keeps a bounded footprint-scaled assembly silhouette`);
-    assert.ok(batch.userData.farSourcePartCount > batch.userData.farPrimitiveCount,
-      `${batch.name} drops smaller authored geometry`);
-    assert.equal(batch.userData.farSelectedPartNames.length,
-      batch.userData.farPrimitiveCount);
-    assert.equal(batch.userData.farSelectedGroupNames.length,
-      batch.userData.farPartCount);
+  for (const [type, presentation] of byType) {
+    const { batch, metadata } = presentation;
+    assert.equal(metadata.farSilhouetteKind, 'authored-largest-parts');
+    assert.ok(metadata.farPartCount >= 1 && metadata.farPartCount <= 8,
+      `${type} keeps a bounded footprint-scaled assembly silhouette`);
+    assert.ok(metadata.farSourcePartCount > metadata.farPrimitiveCount,
+      `${type} drops smaller authored geometry`);
+    assert.equal(metadata.farSelectedPartNames.length, metadata.farPrimitiveCount);
+    assert.equal(metadata.farSelectedGroupNames.length, metadata.farPartCount);
     assert.equal(batch.material.vertexColors, true,
-      `${batch.name} carries its selected primitives' authored role colours`);
+      `${type} carries its selected primitives' authored role colours`);
     assert.equal(batch.castShadow, false);
   }
+  assert.ok(batches.length <= 2,
+    'all selected beamline geometry is packed into at most two index-compatible batches');
   assert.equal(new Set(batches.map(batch => batch.material)).size, 1,
     'authored component types reuse one opaque far material pipeline');
-  assert.ok(byType.get('halfWaveResonator').userData.farSelectedPartNames
+  assert.ok(byType.get('halfWaveResonator').metadata.farSelectedPartNames
     .includes('pipe-1'), 'the HWR retains its exact main cryostat primitive');
-  assert.ok(byType.get('spokeCavity').userData.farSelectedPartNames
+  assert.ok(byType.get('spokeCavity').metadata.farSelectedPartNames
     .includes('pipe-1'), 'the spoke cavity retains its exact main cryostat primitive');
-  assert.ok(byType.get('quadrupole').userData.farPartRoles.includes('copper')
-    && byType.get('quadrupole').userData.farPrimitiveCount >= 16,
+  assert.ok(byType.get('quadrupole').metadata.farPartRoles.includes('copper')
+    && byType.get('quadrupole').metadata.farPrimitiveCount >= 16,
   'the quadrupole retains its complete symmetric yoke, poles, and coil bars');
-  assert.ok(byType.get('spokeCavity').userData.farPrimitiveCount > 5,
+  assert.ok(byType.get('spokeCavity').metadata.farPrimitiveCount > 5,
     'the spoke cavity keeps its repeated stiffener assembly');
-  assert.ok(byType.get('spokeCavity').userData.farPartRoles.includes('accent'),
+  assert.ok(byType.get('spokeCavity').metadata.farPartRoles.includes('accent'),
     'the spoke cavity keeps a characteristic red RF-coupler assembly');
-  assert.deepEqual(byType.get('quadrupole').userData.farSelectedGroupNames, [
+  assert.deepEqual(byType.get('quadrupole').metadata.farSelectedGroupNames, [
     'quadrupole-yoke',
     'quadrupole-poles',
     'quadrupole-coils',
     'quadrupole-beam-pipe',
   ], 'the quad far mesh copies its four defining authored assemblies');
-  assert.deepEqual(byType.get('spokeCavity').userData.farSelectedGroupNames, [
+  assert.deepEqual(byType.get('spokeCavity').metadata.farSelectedGroupNames, [
     'spoke-cryostat',
     'spoke-ridges',
     'spoke-rf-couplers',
@@ -157,18 +169,19 @@ test('far beamline presentation is derived from a bounded set of authored primit
     'spoke-beam-line',
     'spoke-base',
   ], 'the spoke far mesh copies its defining authored assemblies');
-  const quadColors = byType.get('quadrupole').geometry.attributes.color.array;
   const expectedAccent = new THREE.Color(0xc62828);
-  assert.ok(Array.from({ length: quadColors.length / 3 }, (_, index) => index * 3)
-    .some(offset => Math.abs(quadColors[offset] - expectedAccent.r) < 1e-6
-      && Math.abs(quadColors[offset + 1] - expectedAccent.g) < 1e-6
-      && Math.abs(quadColors[offset + 2] - expectedAccent.b) < 1e-6),
+  assert.ok(byType.get('quadrupole').metadata.farColorTriples
+    .some(([r, g, b]) => Math.abs(r - expectedAccent.r) < 1e-6
+      && Math.abs(g - expectedAccent.g) < 1e-6
+      && Math.abs(b - expectedAccent.b) < 1e-6),
   'the far quadrupole uses the same default red accent as its near model');
-  assert.ok(byType.get('ellipticalSrfCavity').geometry.attributes.position.count / 3 > 300,
+  assert.ok(byType.get('ellipticalSrfCavity').metadata.vertexCount / 3 > 300,
     'the elliptical cavity retains original curved cells instead of replacement boxes');
-  assert.ok(byType.get('cyclotron30').geometry.attributes.position.count / 3 > 500,
+  assert.ok(byType.get('cyclotron30').metadata.vertexCount / 3 > 500,
     'the cyclotron retains its large authored curved body geometry');
-  assert.equal(builder.resolveBatchHit({ object: byType.get('target'), instanceId: 0 }).nodeId,
+  const target = byType.get('target');
+  const targetFace = target.batch.userData.farTriangleRanges[target.batchIds[0]].start;
+  assert.equal(builder.resolveBatchHit({ object: target.batch, faceIndex: targetFace }).nodeId,
     'target-far', 'every simplified silhouette remains pickable');
 
   builder.dispose(parent);
@@ -190,19 +203,20 @@ test('every beamline catalogue type has a merged facility-scale silhouette', () 
   builder.build(components, parent, { categoryGroups: { beamline } });
   builder.setDetailLevel(false);
   const batches = beamline.children.filter(child => child.userData.batchedComponents);
-  assert.equal(batches.length, types.length,
-    'every catalogue type contributes one batched silhouette draw');
-  for (const batch of batches) {
-    assert.equal(batch.userData.farSilhouetteKind, 'authored-largest-parts',
-      `${batch.name} is selected from the detailed model`);
-    assert.ok(batch.userData.farPartCount <= 8,
-      `${batch.name} stays inside the footprint-scaled assembly budget`);
-    assert.ok(batch.userData.farPrimitiveCount >= 1,
-      `${batch.name} keeps at least its dominant authored primitive`);
-    assert.ok(batch.userData.farSourcePartCount >= batch.userData.farPrimitiveCount);
-    assert.ok(batch.userData.farPrimitiveCount <= 36);
-    assert.ok(batch.geometry.attributes.color?.count > 0,
-      `${batch.name} publishes merged per-part color geometry`);
+  assert.ok(batches.length < types.length / 10,
+    'the beamline catalogue shares a bounded number of GPU batches');
+  for (const type of types) {
+    const metadata = farType(beamline, type)?.metadata;
+    assert.equal(metadata?.farSilhouetteKind, 'authored-largest-parts',
+      `${type} is selected from the detailed model`);
+    assert.ok(metadata.farPartCount <= 8,
+      `${type} stays inside the footprint-scaled assembly budget`);
+    assert.ok(metadata.farPrimitiveCount >= 1,
+      `${type} keeps at least its dominant authored primitive`);
+    assert.ok(metadata.farSourcePartCount >= metadata.farPrimitiveCount);
+    assert.ok(metadata.farPrimitiveCount <= 36);
+    assert.equal(metadata.hasVertexColors, true,
+      `${type} publishes merged per-part color geometry`);
   }
 
   builder.dispose(parent);
@@ -227,29 +241,31 @@ test('every infrastructure catalogue type has a merged facility-scale silhouette
   builder.build(components, parent, { categoryGroups: { infrastructure } });
   builder.setDetailLevel(false);
   const batches = infrastructure.children.filter(child => child.userData.batchedComponents);
-  assert.equal(batches.length, types.length,
-    'every infrastructure type contributes one batched silhouette draw');
-  for (const batch of batches) {
-    assert.equal(batch.userData.farSilhouetteKind, 'authored-largest-parts',
-      `${batch.name} is selected from the detailed model`);
-    assert.ok(batch.userData.farPartCount <= 8,
-      `${batch.name} stays inside the footprint-scaled assembly budget`);
-    assert.ok(batch.userData.farPrimitiveCount >= 1,
-      `${batch.name} keeps at least its dominant authored primitive`);
-    assert.ok(batch.userData.farSourcePartCount >= batch.userData.farPrimitiveCount);
-    assert.ok(batch.userData.farPrimitiveCount <= 36);
-    assert.ok(batch.geometry.attributes.color?.count > 0,
-      `${batch.name} publishes merged per-part color geometry`);
+  assert.ok(batches.length < types.length / 10,
+    'the infrastructure catalogue shares a bounded number of GPU batches');
+  for (const type of types) {
+    const presentation = farType(infrastructure, type);
+    const { batch, metadata } = presentation;
+    assert.equal(metadata.farSilhouetteKind, 'authored-largest-parts',
+      `${type} is selected from the detailed model`);
+    assert.ok(metadata.farPartCount <= 8,
+      `${type} stays inside the footprint-scaled assembly budget`);
+    assert.ok(metadata.farPrimitiveCount >= 1,
+      `${type} keeps at least its dominant authored primitive`);
+    assert.ok(metadata.farSourcePartCount >= metadata.farPrimitiveCount);
+    assert.ok(metadata.farPrimitiveCount <= 36);
+    assert.equal(metadata.hasVertexColors, true,
+      `${type} publishes merged per-part color geometry`);
     assert.equal(batch.material.vertexColors, true);
     assert.equal(batch.castShadow, false);
   }
 
-  const elevatedTray = batches.find(batch => batch.name === 'component-far-elevatedWireTray');
-  assert.equal(elevatedTray?.userData.farSourcePartCount, 7);
-  assert.equal(elevatedTray?.userData.farPrimitiveCount, 5,
+  const elevatedTray = farType(infrastructure, 'elevatedWireTray');
+  assert.equal(elevatedTray?.metadata.farSourcePartCount, 7);
+  assert.equal(elevatedTray?.metadata.farPrimitiveCount, 5,
     'the overhead data rack keeps its authored foot, upright, crossbar, saddle, and bracket');
   const traySize = new THREE.Vector3();
-  elevatedTray.geometry.boundingBox.getSize(traySize);
+  elevatedTray.metadata.localBounds.getSize(traySize);
   assert.ok(traySize.y > 1.5 && traySize.z > 0.8,
     'the far overhead rack retains the authored L-frame proportions');
 
@@ -259,8 +275,8 @@ test('every infrastructure catalogue type has a merged facility-scale silhouette
     ['bulkWaterTank', 5],
     ['facilityWaterSupply', 4],
   ]) {
-    const batch = batches.find(candidate => candidate.name === `component-far-${type}`);
-    assert.ok(batch?.userData.farPrimitiveCount >= minimumPrimitives,
+    const presentation = farType(infrastructure, type);
+    assert.ok(presentation?.metadata.farPrimitiveCount >= minimumPrimitives,
       `${type} retains its vessel/tank assembly rather than a footprint proxy`);
   }
 

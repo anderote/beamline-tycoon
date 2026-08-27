@@ -21,6 +21,12 @@ import {
   buildAuthoredGeometryLod,
   selectLargestAuthoredPartGroups,
 } from './authored-geometry-lod.js';
+import {
+  createFarMergedMesh,
+  farGeometryColorTriples,
+  farGeometryLayoutKey,
+  mergedFarInstanceIndex,
+} from './far-mesh-merge.js';
 import { BLOOM_LAYER } from './glow-pipeline.js';
 import { getGlowMaterial, setGlowNightFactor } from './machine-glow.js';
 export { getGlowMaterial, setGlowNightFactor } from './machine-glow.js';
@@ -5102,8 +5108,9 @@ export class ComponentBuilder {
 
   resolveBatchHit(hit) {
     const object = hit?.object;
-    if (!object?.userData?.batchedComponents || !Number.isInteger(hit.instanceId)) return null;
-    const nodeId = object.userData.componentIds?.[hit.instanceId] ?? null;
+    const index = mergedFarInstanceIndex(hit);
+    if (!object?.userData?.batchedComponents || !Number.isInteger(index)) return null;
+    const nodeId = object.userData.componentIds?.[index] ?? null;
     return {
       nodeId,
       rootObj: nodeId != null ? (this.getGroup(nodeId) || object) : object,
@@ -5184,6 +5191,7 @@ export class ComponentBuilder {
     const scale = new THREE.Vector3(1, 1, 1);
     const matrix = new THREE.Matrix4();
     const yAxis = new THREE.Vector3(0, 1, 0);
+    const presentations = [];
     for (const bucket of buckets.values()) {
       const { def, entries, category, color, opacity } = bucket;
       const width = Math.max(SUB_UNIT, (def.subW || def.gridW || 2) * SUB_UNIT);
@@ -5198,38 +5206,76 @@ export class ComponentBuilder {
         : _farComponentGeometry(def, width, height, depth);
       const usesVertexColors = !!geometry.attributes?.color;
       const material = this._farMaterial(usesVertexColors, color, opacity);
-      const mesh = new THREE.InstancedMesh(
-        geometry, material, entries.length,
-      );
-      mesh.name = `component-far-${entries[0].comp.type}`;
-      mesh.userData.batchedComponents = true;
-      mesh.userData.componentIds = [];
-      mesh.userData.lod = 'component-far';
-      mesh.userData.farSilhouetteKind = geometry.userData?.farSilhouetteKind || 'footprint';
-      mesh.userData.farPartRoles = geometry.userData?.farPartRoles || ['body'];
-      mesh.userData.farPartCount = geometry.userData?.farPartCount || 1;
-      mesh.userData.farPrimitiveCount = geometry.userData?.farPrimitiveCount
-        || geometry.userData?.farPartCount || 1;
-      mesh.userData.farSourcePartCount = geometry.userData?.farSourcePartCount || 1;
-      mesh.userData.farSelectedPartNames = geometry.userData?.farSelectedPartNames || [];
-      mesh.userData.farSelectedGroupNames = geometry.userData?.farSelectedGroupNames || [];
-      mesh.castShadow = false;
-      mesh.receiveShadow = true;
-      mesh.visible = !this._showDetail;
-      for (let i = 0; i < entries.length; i++) {
-        const { comp, obj } = entries[i];
+      const metadata = {
+        type: entries[0].comp.type,
+        category,
+        farSilhouetteKind: geometry.userData?.farSilhouetteKind || 'footprint',
+        farPartRoles: geometry.userData?.farPartRoles || ['body'],
+        farPartCount: geometry.userData?.farPartCount || 1,
+        farPrimitiveCount: geometry.userData?.farPrimitiveCount
+          || geometry.userData?.farPartCount || 1,
+        farSourcePartCount: geometry.userData?.farSourcePartCount || 1,
+        farSelectedPartNames: geometry.userData?.farSelectedPartNames || [],
+        farSelectedGroupNames: geometry.userData?.farSelectedGroupNames || [],
+        localBounds: geometry.boundingBox?.clone?.() || null,
+        vertexCount: geometry.attributes.position.count,
+        hasVertexColors: usesVertexColors,
+        farColorTriples: farGeometryColorTriples(geometry),
+      };
+      const layout = farGeometryLayoutKey(geometry);
+      for (const { comp, obj } of entries) {
         // Geometry-derived LODs retain the detailed model's local coordinate
         // frame, so the instance uses the exact wrapper pose with no synthetic
         // beam-height or footprint-centre correction.
         position.set(obj.position.x, obj.position.y, obj.position.z);
         rotation.setFromAxisAngle(yAxis, obj.rotation.y);
         matrix.compose(position, rotation, scale);
-        mesh.setMatrixAt(i, matrix);
-        mesh.userData.componentIds[i] = comp.id;
+        presentations.push({
+          geometry,
+          matrix: matrix.clone(),
+          comp,
+          category,
+          material,
+          metadata,
+          layout,
+        });
       }
-      mesh.instanceMatrix.needsUpdate = true;
-      mesh.computeBoundingBox();
-      mesh.computeBoundingSphere();
+    }
+
+    const presentationBatches = new Map();
+    for (const entry of presentations) {
+      const key = `${entry.category}|${entry.material.uuid}|${entry.layout}`;
+      let batchEntries = presentationBatches.get(key);
+      if (!batchEntries) {
+        batchEntries = [];
+        presentationBatches.set(key, batchEntries);
+      }
+      batchEntries.push(entry);
+    }
+    for (const batchEntries of presentationBatches.values()) {
+      const material = batchEntries[0].material;
+      const category = batchEntries[0].category;
+      const built = createFarMergedMesh(batchEntries, material);
+      if (!built) continue;
+      const { mesh, instanceIds } = built;
+      mesh.name = `component-far-batch-${category || 'default'}-${this._farBatches.length}`;
+      mesh.userData.batchedComponents = true;
+      mesh.userData.componentIds = [];
+      mesh.userData.types = [];
+      mesh.userData.farMetadata = [];
+      mesh.userData.farMetadataByType = {};
+      mesh.userData.lod = 'component-far';
+      mesh.castShadow = false;
+      mesh.receiveShadow = true;
+      mesh.visible = !this._showDetail;
+      for (let index = 0; index < batchEntries.length; index++) {
+        const entry = batchEntries[index];
+        const batchId = instanceIds[index];
+        mesh.userData.componentIds[batchId] = entry.comp.id;
+        mesh.userData.types[batchId] = entry.comp.type;
+        mesh.userData.farMetadata[batchId] = entry.metadata;
+        mesh.userData.farMetadataByType[entry.comp.type] = entry.metadata;
+      }
       (categoryGroups?.[category] || parentGroup).add(mesh);
       this._farBatches.push(mesh);
     }

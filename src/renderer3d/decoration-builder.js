@@ -10,6 +10,11 @@ import { fixtureMountY, wallFixturePose } from './fixture-light-math.js';
 import { buildHanging, hasHangingGeometry } from './hanging-builder.js';
 import { contentKey } from './content-hash.js';
 import { buildAuthoredGeometryLod } from './authored-geometry-lod.js';
+import {
+  createFarMergedMesh,
+  farGeometryLayoutKey,
+  mergedFarInstanceIndex,
+} from './far-mesh-merge.js';
 
 const SUB = 0.5; // 1 sub-tile = 0.5 world units
 
@@ -2244,7 +2249,9 @@ export class DecorationBuilder {
   resolveBatchHit(hit) {
     if (!hit?.object?.userData?.batchedPlants
         && !hit?.object?.userData?.batchedDecorations) return null;
-    const index = hit.batchId ?? hit.instanceId;
+    const index = hit.object.userData.batchedDecorations
+      ? mergedFarInstanceIndex(hit)
+      : (hit.batchId ?? hit.instanceId);
     if (!Number.isInteger(index)) return null;
     const nodeId = hit.object.userData.batchNodeIds?.[index] ?? null;
     return {
@@ -2378,6 +2385,7 @@ export class DecorationBuilder {
     const scale = new THREE.Vector3(1, 1, 1);
     const matrix = new THREE.Matrix4();
     const yAxis = new THREE.Vector3(0, 1, 0);
+    const presentations = [];
     for (const [type, { def, entries }] of buckets) {
       const source = entries[0]?.id != null
         ? this._ordinaryGroupsById.get(entries[0].id)
@@ -2391,39 +2399,76 @@ export class DecorationBuilder {
         metalness: 0.12,
       });
       this._farOrdinaryMaterial.userData.sharedFarMaterial = true;
-      const material = this._farOrdinaryMaterial;
-      const mesh = new THREE.InstancedMesh(geometry, material, entries.length);
-      mesh.name = `decoration-far-${type}`;
-      mesh.visible = !this._showDetail;
-      mesh.castShadow = false;
-      mesh.receiveShadow = true;
-      mesh.userData.batchedDecorations = true;
-      mesh.userData.lod = 'decoration-far';
-      mesh.userData.batchNodeIds = [];
-      mesh.userData.farSilhouetteKind = geometry.userData.farSilhouetteKind;
-      mesh.userData.farPartRoles = geometry.userData.farPartRoles;
-      mesh.userData.farPartCount = geometry.userData.farPartCount || 1;
-      mesh.userData.farPrimitiveCount = geometry.userData.farPrimitiveCount
-        || geometry.userData.farPartCount || 1;
-      mesh.userData.farSourcePartCount = geometry.userData.farSourcePartCount || 1;
-      mesh.userData.farSelectedPartNames = geometry.userData.farSelectedPartNames || [];
-      mesh.userData.farSelectedGroupNames = geometry.userData.farSelectedGroupNames || [];
-      for (let index = 0; index < entries.length; index++) {
-        const dec = entries[index];
+      const metadata = {
+        type,
+        farSilhouetteKind: geometry.userData.farSilhouetteKind,
+        farPartRoles: geometry.userData.farPartRoles,
+        farPartCount: geometry.userData.farPartCount || 1,
+        farPrimitiveCount: geometry.userData.farPrimitiveCount
+          || geometry.userData.farPartCount || 1,
+        farSourcePartCount: geometry.userData.farSourcePartCount || 1,
+        farSelectedPartNames: geometry.userData.farSelectedPartNames || [],
+        farSelectedGroupNames: geometry.userData.farSelectedGroupNames || [],
+        localBounds: geometry.boundingBox?.clone?.() || null,
+        vertexCount: geometry.attributes.position.count,
+        hasVertexColors: !!geometry.attributes.color,
+      };
+      for (const dec of entries) {
         const p = decorationPlacement(dec);
         const floorY = (dec.y ?? 0) + (dec.placeY || 0) * SUB;
         position.set(p.x, floorY, p.z);
         rotation.setFromAxisAngle(yAxis,
           LIGHTING_DEFS_BY_ID[type] ? lightingYaw(def, p.rotY, p.seed) : p.rotY);
         matrix.compose(position, rotation, scale);
-        mesh.setMatrixAt(index, matrix);
-        mesh.userData.batchNodeIds[index] = dec.id ?? null;
+        presentations.push({
+          geometry,
+          matrix: matrix.clone(),
+          dec,
+          metadata,
+          layout: farGeometryLayoutKey(geometry),
+        });
       }
-      mesh.instanceMatrix.needsUpdate = true;
-      mesh.computeBoundingBox();
-      mesh.computeBoundingSphere();
+    }
+
+    const byLayout = new Map();
+    for (const entry of presentations) {
+      let batchEntries = byLayout.get(entry.layout);
+      if (!batchEntries) {
+        batchEntries = [];
+        byLayout.set(entry.layout, batchEntries);
+      }
+      batchEntries.push(entry);
+    }
+    for (const [layout, batchEntries] of byLayout) {
+      const built = createFarMergedMesh(batchEntries, this._farOrdinaryMaterial);
+      if (!built) continue;
+      const { mesh, instanceIds } = built;
+      mesh.name = `decoration-far-batch-${this._farOrdinaryBatches.length}`;
+      mesh.visible = !this._showDetail;
+      mesh.castShadow = false;
+      mesh.receiveShadow = true;
+      mesh.userData.batchedDecorations = true;
+      mesh.userData.lod = 'decoration-far';
+      mesh.userData.batchNodeIds = [];
+      mesh.userData.types = [];
+      mesh.userData.farMetadata = [];
+      mesh.userData.farMetadataByType = {};
+      mesh.userData.farMatrices = [];
+      mesh.userData.geometryLayout = layout;
+      for (let index = 0; index < batchEntries.length; index++) {
+        const entry = batchEntries[index];
+        const batchId = instanceIds[index];
+        mesh.userData.batchNodeIds[batchId] = entry.dec.id ?? null;
+        mesh.userData.types[batchId] = entry.dec.type;
+        mesh.userData.farMetadata[batchId] = entry.metadata;
+        mesh.userData.farMetadataByType[entry.dec.type] = entry.metadata;
+        mesh.userData.farMatrices[batchId] = entry.matrix.clone();
+      }
       parentGroup.add(mesh);
       this._farOrdinaryBatches.push(mesh);
+    }
+    for (const geometry of new Set(presentations.map(entry => entry.geometry))) {
+      geometry.dispose?.();
     }
     this._builtFarOrdinarySignature = this._farOrdinarySignature;
   }

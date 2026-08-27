@@ -17,8 +17,8 @@ test('Minor Lab far presentation stays within the whole-facility render budget',
 
   assert.ok(report.near.drawCalls > 7000,
     'fixture still exercises the expensive authored scene that prompted the LOD');
-  assert.ok(report.far.drawCalls <= 550,
-    `far facility stays at or below 550 draws (got ${report.far.drawCalls})`);
+  assert.ok(report.far.drawCalls <= 220,
+    `far facility stays at or below 220 draws (got ${report.far.drawCalls})`);
   assert.ok(report.far.renderedTriangles <= 140000,
     `far facility stays at or below 140k triangles (got ${report.far.renderedTriangles})`);
   assert.ok(report.far.shadowDrawCalls <= 60,
@@ -30,7 +30,8 @@ test('Minor Lab far presentation stays within the whole-facility render budget',
   assert.ok(far.components.drawCalls <= 40);
   assert.ok(far.equipment.drawCalls <= 40);
   assert.ok(far.decorations.drawCalls <= 60);
-  assert.ok(far.utilities.drawCalls <= 320);
+  assert.ok(far.utilities.drawCalls <= 40,
+    `far utility routes stay batched by material (got ${far.utilities.drawCalls})`);
   assert.ok(report.far.drawCalls < report.near.drawCalls / 10,
     `far LOD removes over 90% of authored draws (${report.near.drawCalls} -> ${report.far.drawCalls})`);
   assert.ok(benchmark.timings.sceneBuild.meanMs > 0,

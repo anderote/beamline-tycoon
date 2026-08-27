@@ -63,19 +63,27 @@ test('every utility keeps its route silhouette while far detail is suppressed', 
   // already zoomed out must inherit the current presentation immediately.
   builder.setDetailLevel(false);
   builder.build(lines, new Map(), parent);
+  const farBatches = parent.children.filter(child => child.userData?.isUtilityFarRouteBatch);
+  assert.ok(farBatches.length > 0 && farBatches.length <= UTILITY_TYPE_LIST.length,
+    'far routes use at most one material-compatible GPU mesh per utility type');
 
   for (const utilityType of UTILITY_TYPE_LIST) {
     const group = parent.children.find(child =>
       child.userData?.lineId === `lod-${utilityType}`);
     assert.ok(group, `${utilityType} creates a committed line group`);
-    assert.ok(collect(group, object => object.isMesh && effectivelyVisible(object)).length > 0,
+    const representedByBatch = farBatches.some(batch =>
+      batch.userData.lineIds.includes(`lod-${utilityType}`));
+    assert.ok(collect(group, object => object.isMesh && effectivelyVisible(object)).length > 0
+      || representedByBatch,
       `${utilityType} retains visible low-detail route geometry`);
     if (UTILITY_TYPES[utilityType].fixedRouteHeight === true) {
       const farRoutes = collect(group, object => object.userData?.isUtilityFarRoute);
       assert.equal(farRoutes.length, 1,
         `${utilityType} collapses its rigid route to one facility-scale mesh`);
-      assert.ok(effectivelyVisible(farRoutes[0]),
-        `${utilityType} exposes its merged route in the far band`);
+      assert.equal(effectivelyVisible(farRoutes[0]), false,
+        `${utilityType} hides its per-line source after facility-wide merging`);
+      assert.ok(representedByBatch,
+        `${utilityType} is represented in a facility-wide far route mesh`);
     }
   }
 
@@ -97,6 +105,20 @@ test('every utility keeps its route silhouette while far detail is suppressed', 
     'soft utilities swap to a four-sided far tube instead of retaining near tessellation');
   const farTubularSegments = flexible.geometry.parameters.tubularSegments;
 
+  const firstRigidType = UTILITY_TYPE_LIST.find(type =>
+    UTILITY_TYPES[type].fixedRouteHeight === true);
+  builder.setFocus([`lod-${firstRigidType}`]);
+  assert.ok(farBatches.every(batch => !effectivelyVisible(batch)),
+    'focused utility inspection falls back to independently dimmable line routes');
+  const focusedSource = collect(parent.children.find(child =>
+    child.userData?.lineId === `lod-${firstRigidType}`),
+  object => object.userData?.isUtilityFarRoute)[0];
+  assert.ok(effectivelyVisible(focusedSource),
+    'the focused line keeps a selectable per-line far route');
+  builder.setFocus(null);
+  assert.ok(farBatches.every(batch => effectivelyVisible(batch)),
+    'clearing focus restores the facility-wide route batches');
+
   const indexedRoots = [
     ...builder._lineGroups.values(),
     ...builder._busGroups.values(),
@@ -115,6 +137,8 @@ test('every utility keeps its route silhouette while far detail is suppressed', 
   assert.ok(collect(parent, object => object.userData?.isUtilityFarRoute)
     .every(object => !effectivelyVisible(object)),
   'zooming back in hides every merged far route');
+  assert.ok(farBatches.every(batch => !effectivelyVisible(batch)),
+    'zooming back in also hides facility-wide far route batches');
   assert.equal(flexible.geometry.parameters.radialSegments, 8,
     'soft utilities restore their rounded near tube');
   assert.ok(flexible.geometry.parameters.tubularSegments > farTubularSegments,

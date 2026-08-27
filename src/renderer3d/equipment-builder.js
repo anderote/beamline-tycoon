@@ -15,6 +15,11 @@ import { configureGlowMesh, getGlowMaterial } from './machine-glow.js';
 import { contentKey } from './content-hash.js';
 import { fixtureMountY, wallFixturePose } from './fixture-light-math.js';
 import { buildAuthoredGeometryLod } from './authored-geometry-lod.js';
+import {
+  createFarMergedMesh,
+  farGeometryLayoutKey,
+  mergedFarInstanceIndex,
+} from './far-mesh-merge.js';
 // Phase 6: utility-port-builder removed; all buildPortStubs call sites in
 // this file were already commented out.
 
@@ -674,8 +679,9 @@ export class EquipmentBuilder {
 
   resolveBatchHit(hit) {
     const object = hit?.object;
-    if (!object?.userData?.batchedEquipment || !Number.isInteger(hit.instanceId)) return null;
-    const nodeId = object.userData.nodeIds?.[hit.instanceId] ?? null;
+    const index = mergedFarInstanceIndex(hit);
+    if (!object?.userData?.batchedEquipment || !Number.isInteger(index)) return null;
+    const nodeId = object.userData.nodeIds?.[index] ?? null;
     return {
       nodeId,
       rootObj: nodeId != null ? (this.getGroup(nodeId) || object) : object,
@@ -735,7 +741,8 @@ export class EquipmentBuilder {
     const scale = new THREE.Vector3(1, 1, 1);
     const matrix = new THREE.Matrix4();
     const yAxis = new THREE.Vector3(0, 1, 0);
-    for (const { def, isFurnishing, entries } of buckets.values()) {
+    const presentations = [];
+    for (const [typeKey, { def, isFurnishing, entries }] of buckets) {
       const geometry = _authoredFarEquipmentGeometry(def, isFurnishing)
         || _farEquipmentGeometry(def, isFurnishing);
       this._farMaterial ??= new THREE.MeshStandardMaterial({
@@ -745,37 +752,73 @@ export class EquipmentBuilder {
         metalness: 0.16,
       });
       this._farMaterial.userData.sharedFarMaterial = true;
-      const material = this._farMaterial;
-      const mesh = new THREE.InstancedMesh(geometry, material, entries.length);
-      mesh.name = `equipment-far-${entries[0].type}`;
-      mesh.userData.batchedEquipment = true;
-      mesh.userData.nodeIds = [];
-      mesh.userData.lod = 'equipment-far';
-      mesh.userData.farSilhouetteKind = geometry.userData.farSilhouetteKind;
-      mesh.userData.farPartRoles = geometry.userData.farPartRoles;
-      mesh.userData.farPartCount = geometry.userData.farPartCount || 1;
-      mesh.userData.farPrimitiveCount = geometry.userData.farPrimitiveCount
-        || geometry.userData.farPartCount || 1;
-      mesh.userData.farSourcePartCount = geometry.userData.farSourcePartCount || 1;
-      mesh.userData.farSelectedPartNames = geometry.userData.farSelectedPartNames || [];
-      mesh.userData.farSelectedGroupNames = geometry.userData.farSelectedGroupNames || [];
-      mesh.castShadow = false;
-      mesh.receiveShadow = true;
-      mesh.visible = !this._showDetail;
-      for (let index = 0; index < entries.length; index++) {
-        const item = entries[index];
+      const metadata = {
+        type: entries[0].type,
+        typeKey,
+        farSilhouetteKind: geometry.userData.farSilhouetteKind,
+        farPartRoles: geometry.userData.farPartRoles,
+        farPartCount: geometry.userData.farPartCount || 1,
+        farPrimitiveCount: geometry.userData.farPrimitiveCount
+          || geometry.userData.farPartCount || 1,
+        farSourcePartCount: geometry.userData.farSourcePartCount || 1,
+        farSelectedPartNames: geometry.userData.farSelectedPartNames || [],
+        farSelectedGroupNames: geometry.userData.farSelectedGroupNames || [],
+        localBounds: geometry.boundingBox?.clone?.() || null,
+        vertexCount: geometry.attributes.position.count,
+        hasVertexColors: !!geometry.attributes.color,
+      };
+      for (const item of entries) {
         const pose = _equipmentPlacement(item, def, isFurnishing);
         position.set(pose.centerX, pose.baseY, pose.centerZ);
         rotation.setFromAxisAngle(yAxis, pose.rotY);
         matrix.compose(position, rotation, scale);
-        mesh.setMatrixAt(index, matrix);
-        mesh.userData.nodeIds[index] = item.id ?? null;
+        presentations.push({
+          geometry,
+          matrix: matrix.clone(),
+          item,
+          metadata,
+          layout: farGeometryLayoutKey(geometry),
+        });
       }
-      mesh.instanceMatrix.needsUpdate = true;
-      mesh.computeBoundingBox();
-      mesh.computeBoundingSphere();
+    }
+
+    const byLayout = new Map();
+    for (const entry of presentations) {
+      let batchEntries = byLayout.get(entry.layout);
+      if (!batchEntries) {
+        batchEntries = [];
+        byLayout.set(entry.layout, batchEntries);
+      }
+      batchEntries.push(entry);
+    }
+    for (const [layout, batchEntries] of byLayout) {
+      const built = createFarMergedMesh(batchEntries, this._farMaterial);
+      if (!built) continue;
+      const { mesh, instanceIds } = built;
+      mesh.name = `equipment-far-batch-${this._farBatches.length}`;
+      mesh.userData.batchedEquipment = true;
+      mesh.userData.nodeIds = [];
+      mesh.userData.types = [];
+      mesh.userData.farMetadata = [];
+      mesh.userData.farMetadataByType = {};
+      mesh.userData.geometryLayout = layout;
+      mesh.userData.lod = 'equipment-far';
+      mesh.castShadow = false;
+      mesh.receiveShadow = true;
+      mesh.visible = !this._showDetail;
+      for (let index = 0; index < batchEntries.length; index++) {
+        const entry = batchEntries[index];
+        const batchId = instanceIds[index];
+        mesh.userData.nodeIds[batchId] = entry.item.id ?? null;
+        mesh.userData.types[batchId] = entry.item.type;
+        mesh.userData.farMetadata[batchId] = entry.metadata;
+        mesh.userData.farMetadataByType[entry.item.type] = entry.metadata;
+      }
       parentGroup.add(mesh);
       this._farBatches.push(mesh);
+    }
+    for (const geometry of new Set(presentations.map(entry => entry.geometry))) {
+      geometry.dispose?.();
     }
     this._builtFarSignature = this._farSignature;
   }

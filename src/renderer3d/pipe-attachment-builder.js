@@ -5,6 +5,11 @@
 
 import { COMPONENTS } from '../data/components.js';
 import { ComponentBuilder, componentPose, isDetailedComponent } from './component-builder.js';
+import {
+  createFarMergedMesh,
+  farGeometryLayoutKey,
+  mergedFarInstanceIndex,
+} from './far-mesh-merge.js';
 
 const SUB = 0.5;
 const BEAM_Y = 1.0;
@@ -60,7 +65,9 @@ export class PipeAttachmentBuilder {
   resolveBatchHit(hit) {
     const object = hit?.object;
     if (!object?.userData?.batchedAttachments) return null;
-    const index = hit.batchId ?? hit.instanceId;
+    const index = object.userData.lod === 'attachment-far'
+      ? mergedFarInstanceIndex(hit)
+      : (hit.batchId ?? hit.instanceId);
     if (!Number.isInteger(index)) return null;
     const attachmentId = object.userData.attachmentIds?.[index] ?? null;
     return {
@@ -188,6 +195,7 @@ export class PipeAttachmentBuilder {
       bucket.entries.push({ comp, pose });
     }
 
+    const presentations = [];
     for (const [type, bucket] of byType) {
       const { def } = bucket;
       const width = Math.max(SUB, (def.subW || 2) * SUB);
@@ -204,46 +212,79 @@ export class PipeAttachmentBuilder {
           metalness: usesVertexColors ? 0.28 : 0.15,
         });
       this._farMaterial.userData.sharedFarMaterial = true;
-      const mesh = new THREE.InstancedMesh(
-        geometry,
-        this._farMaterial,
-        bucket.entries.length,
-      );
-      mesh.name = `attachment-far-${type}`;
-      mesh.userData.batchedAttachments = true;
-      mesh.userData.attachmentIds = [];
-      mesh.userData.pipeIds = [];
-      mesh.userData.lineIds = [];
-      mesh.userData.lod = 'attachment-far';
-      mesh.userData.farSilhouetteKind = geometry.userData?.farSilhouetteKind || 'footprint';
-      mesh.userData.farPartRoles = geometry.userData?.farPartRoles || ['body'];
-      mesh.userData.farPartCount = geometry.userData?.farPartCount || 1;
-      mesh.userData.farPrimitiveCount = geometry.userData?.farPrimitiveCount
-        || geometry.userData?.farPartCount || 1;
-      mesh.userData.farSourcePartCount = geometry.userData?.farSourcePartCount || 1;
-      mesh.userData.farSelectedPartNames = geometry.userData?.farSelectedPartNames || [];
-      mesh.userData.farSelectedGroupNames = geometry.userData?.farSelectedGroupNames || [];
-      mesh.castShadow = false;
-      mesh.receiveShadow = true;
+      const metadata = {
+        type,
+        farSilhouetteKind: geometry.userData?.farSilhouetteKind || 'footprint',
+        farPartRoles: geometry.userData?.farPartRoles || ['body'],
+        farPartCount: geometry.userData?.farPartCount || 1,
+        farPrimitiveCount: geometry.userData?.farPrimitiveCount
+          || geometry.userData?.farPartCount || 1,
+        farSourcePartCount: geometry.userData?.farSourcePartCount || 1,
+        farSelectedPartNames: geometry.userData?.farSelectedPartNames || [],
+        farSelectedGroupNames: geometry.userData?.farSelectedGroupNames || [],
+        localBounds: geometry.boundingBox?.clone?.() || null,
+        vertexCount: geometry.attributes.position.count,
+        hasVertexColors: usesVertexColors,
+      };
       const position = new THREE.Vector3();
       const rotation = new THREE.Quaternion();
       const scale = new THREE.Vector3(1, 1, 1);
       const matrix = new THREE.Matrix4();
-      for (let i = 0; i < bucket.entries.length; i++) {
-        const { comp, pose } = bucket.entries[i];
+      const yAxis = new THREE.Vector3(0, 1, 0);
+      for (const { comp, pose } of bucket.entries) {
         position.set(pose.x, Number.isFinite(pose.y) ? pose.y : BEAM_Y, pose.z);
-        rotation.setFromAxisAngle(new THREE.Vector3(0, 1, 0), pose.rotY);
+        rotation.setFromAxisAngle(yAxis, pose.rotY);
         matrix.compose(position, rotation, scale);
-        mesh.setMatrixAt(i, matrix);
-        mesh.userData.attachmentIds[i] = comp.id;
-        mesh.userData.pipeIds[i] = comp.pipeId || null;
-        mesh.userData.lineIds[i] = comp.utilityLineId || null;
+        presentations.push({
+          geometry,
+          matrix: matrix.clone(),
+          comp,
+          metadata,
+          layout: farGeometryLayoutKey(geometry),
+        });
       }
-      mesh.instanceMatrix.needsUpdate = true;
-      mesh.computeBoundingBox();
-      mesh.computeBoundingSphere();
+    }
+
+    const byLayout = new Map();
+    for (const entry of presentations) {
+      let batchEntries = byLayout.get(entry.layout);
+      if (!batchEntries) {
+        batchEntries = [];
+        byLayout.set(entry.layout, batchEntries);
+      }
+      batchEntries.push(entry);
+    }
+    for (const [layout, batchEntries] of byLayout) {
+      const built = createFarMergedMesh(batchEntries, this._farMaterial);
+      if (!built) continue;
+      const { mesh, instanceIds } = built;
+      mesh.name = `attachment-far-batch-${this._farBatches.length}`;
+      mesh.userData.batchedAttachments = true;
+      mesh.userData.attachmentIds = [];
+      mesh.userData.pipeIds = [];
+      mesh.userData.lineIds = [];
+      mesh.userData.types = [];
+      mesh.userData.farMetadata = [];
+      mesh.userData.farMetadataByType = {};
+      mesh.userData.geometryLayout = layout;
+      mesh.userData.lod = 'attachment-far';
+      mesh.castShadow = false;
+      mesh.receiveShadow = true;
+      for (let index = 0; index < batchEntries.length; index++) {
+        const entry = batchEntries[index];
+        const batchId = instanceIds[index];
+        mesh.userData.attachmentIds[batchId] = entry.comp.id;
+        mesh.userData.pipeIds[batchId] = entry.comp.pipeId || null;
+        mesh.userData.lineIds[batchId] = entry.comp.utilityLineId || null;
+        mesh.userData.types[batchId] = entry.comp.type;
+        mesh.userData.farMetadata[batchId] = entry.metadata;
+        mesh.userData.farMetadataByType[entry.comp.type] = entry.metadata;
+      }
       parentGroup.add(mesh);
       this._farBatches.push(mesh);
+    }
+    for (const geometry of new Set(presentations.map(entry => entry.geometry))) {
+      if (!geometry.userData?.sharedFarGeometry) geometry.dispose?.();
     }
   }
 
