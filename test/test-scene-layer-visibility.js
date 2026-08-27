@@ -128,8 +128,8 @@ assert.deepEqual(WORLD_LAYER_IDS, [
   assert.match(renderer, /_currentWorldDetail\(\)\s*\{\s*if \(!this\._lodObjectsEnabled\) return true;/,
     'the Layers switch can still disable world LOD transitions');
   assert.match(renderer,
-    /const showUtilityDetail = motionUtilityFar[\s\S]{0,200}: \(this\._lodObjectsEnabled[\s\S]{0,200}utilityDetailForZoom[\s\S]{0,200}: true\);/,
-    'the Layers switch controls utility LOD transitions even through the motion queue');
+    /const showUtilityDetail = this\._lodObjectsEnabled[\s\S]{0,160}utilityDetailForZoom[\s\S]{0,160}: true;/,
+    'the Layers switch controls utility LOD transitions without camera-motion overrides');
 }
 
 console.log('scene layer visibility contract passed');

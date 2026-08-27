@@ -81,8 +81,8 @@ test('camera motion uses the backend-safe render path and defers shadow refreshe
     /freezeAssignment: cameraMoving,[\s\S]*deferShadows,/,
     'fixture ranking and shadow refresh work are held during motion');
   assert.match(animate,
-    /skipPostProcessing: cameraMoving && !this\.usesNativeWebGPU\(\)/,
-    'native WebGPU reuses its prepared graph while WebGL keeps the direct motion path');
+    /skipPostProcessing: cameraMoving/,
+    'every backend uses the prewarmed direct path during camera motion');
   const sun = methodBody('_updateSunCycle', 'hydrateDeferredAssets');
   assert.match(sun, /shadowRefreshPending[\s\S]*pendingCount/,
     'a deferred camera-following sun shadow is refreshed after motion settles');
@@ -107,6 +107,6 @@ test('camera motion preserves world fidelity outside real zoom-boundary crossing
     'world detail is selected exclusively by the hysteretic zoom policy');
   assert.doesNotMatch(lod, /motionWorldFar/,
     'panning, orbiting, and ordinary close-zoom motion never force every object to far LOD');
-  assert.match(lod, /const motionUtilityFar = staged && cameraMoving/,
-    'the dense utility-only safeguard remains isolated from visible world-object fidelity');
+  assert.doesNotMatch(lod, /motionUtilityFar/,
+    'camera motion alone does not force utility fittings to far LOD');
 });

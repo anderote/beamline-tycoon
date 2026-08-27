@@ -176,6 +176,7 @@ import {
   worldRefreshPlan,
 } from './world-refresh-plan.js';
 import { precompileWorldPipelines } from './interaction-pipeline-warmup.js';
+import { shouldSuppressDensePostProcessing } from './post-processing-budget.js';
 import { releaseGraphicsForReload } from './reload-graphics-release.js';
 import { WorldInvalidationScheduler } from './world-invalidation-scheduler.js';
 import { LodPreparationScheduler } from './lod-preparation-scheduler.js';
@@ -678,8 +679,10 @@ export class ThreeRenderer {
     // GlowPipeline reads the renderer's current size in its own constructor
     // (already correct — _setSize() ran above at :463, before this point),
     // so no separate setSize() call is needed here.
+    this._glowRequested = glowStored !== '0';
+    this._postProcessingSuppressedForDensity = false;
     this._glowPipeline = new GlowPipeline(this.renderer, this.scene, this.camera, {
-      enabled: glowStored !== '0',
+      enabled: this._glowRequested,
       quality: this._lightingQuality,
       tiltShift: this._tiltShiftSettings,
     });
@@ -690,6 +693,12 @@ export class ThreeRenderer {
     // player as a frozen world with a still-responsive UI. See frame-pacer.js.
     // Inert on the WebGL2 fallback backend, which has no device queue.
     this._framePacer = new FramePacer(this.renderer, {
+      // Keep presentation latency bounded. Two frames in flight allowed the
+      // frame immediately after a heavy shadow/LOD submission to enter
+      // Three's encoder and block there until the driver drained, producing
+      // the observed multi-second camera freeze. A single in-flight frame
+      // yields honestly lower FPS under load without queuing stale views.
+      maxFramesInFlight: 1,
       // A queue that stays saturated after the one watchdog probe is not a
       // camera/input failure; the graphics device has stopped presenting.
       // Reuse the device-loss path so the live game is saved, WebGPU gets one
@@ -2066,13 +2075,33 @@ export class ThreeRenderer {
    * which owns 'beamlineTycoon.glow').
    */
   setGlowEnabled(enabled) {
-    if (this._glowPipeline) this._glowPipeline.setEnabled(enabled);
-    if (this._effectSystem) this._effectSystem.setEnabled(enabled);
-    if (this._lightRig) this._lightRig.setEnabled(enabled);
+    this._glowRequested = enabled !== false;
+    if (this._glowPipeline) {
+      this._glowPipeline.setEnabled(
+        this._glowRequested && !this._postProcessingSuppressedForDensity,
+      );
+    }
+    if (this._effectSystem) this._effectSystem.setEnabled(this._glowRequested);
+    if (this._lightRig) {
+      this._lightRig.setEnabled(
+        this._glowRequested && !this._postProcessingSuppressedForDensity,
+      );
+    }
   }
 
   get glowEnabled() {
-    return this._glowPipeline ? this._glowPipeline.enabled : true;
+    return this._glowRequested !== false;
+  }
+
+  _syncPostProcessingBudget(snapshot = this._snapshot) {
+    this._postProcessingSuppressedForDensity = shouldSuppressDensePostProcessing(snapshot);
+    this._glowPipeline?.setEnabled(
+      this._glowRequested && !this._postProcessingSuppressedForDensity,
+    );
+    this._lightRig?.setEnabled(
+      this._glowRequested && !this._postProcessingSuppressedForDensity,
+    );
+    return this._postProcessingSuppressedForDensity;
   }
 
   setTiltShiftSettings(settings) {
@@ -2123,6 +2152,7 @@ export class ThreeRenderer {
       rendererBackend: this._rendererBackend?.backend || 'unknown',
       quality: this._lightingQuality?.name || 'unknown',
       requestedQuality: this.lightingQuality,
+      postProcessingSuppressedForDensity: this._postProcessingSuppressedForDensity,
       fixtureCandidates: this.lightingGroup?.length || 0,
       sunShadowUpdate: !!this._sunLight?.shadow?.needsUpdate,
       ...(this._lightRig?.getStats() || {}),
@@ -5087,13 +5117,13 @@ export class ThreeRenderer {
       // Keep the backend-specific camera path below synchronized with startup
       // pipeline policy. Shadows and assignment work are already deferred by
       // cameraMoving above regardless of which scene pipeline renders.
-      // Native WebGPU keeps one stable post-processing pipeline family during
-      // camera motion. Bulk-compiling a second direct-to-swapchain family on
-      // a large saved world can exhaust Chrome's GPU process during startup.
-      // The WebGL2 fallback keeps its proven direct motion path, where the
-      // compatibility pipeline is simpler and compile behavior is synchronous.
+      // Camera gestures use the direct scene path. The composed AO/bloom pass
+      // remains active at rest, but on a dense native-WebGPU scene it can take
+      // seconds to submit while the view changes. prepareInteractiveLod warms
+      // this direct path for both LOD bands before input is released, so the
+      // switch changes screen-space finishing, never object fidelity.
       this._glowPipeline.render({
-        skipPostProcessing: cameraMoving && !this.usesNativeWebGPU(),
+        skipPostProcessing: cameraMoving,
       });
       this._framePacer?.frameSubmitted();
       this._trackLodTransitionSubmission(lodTransitionStep);
@@ -5189,10 +5219,10 @@ export class ThreeRenderer {
 
     const savedZoom = this.zoom;
     try {
-      // Both values sit safely outside world-lod.js's hysteresis band. Utility
-      // construction remains merged at each value, so this never bulk-warms
-      // the thousands of tightly zoomed fittings that caused the old crash.
-      for (const zoom of [1.7, 2.3]) {
+      // These values sit safely outside both hysteresis bands. Near utilities
+      // are spatially packaged, so the close pass warms only the neighbourhood
+      // the player can actually see instead of bulk-uploading the facility.
+      for (const zoom of [1.7, 2.3, 3.2]) {
         this.zoom = zoom;
         this._updateCameraLookAt();
         this._updateLOD();
@@ -5253,7 +5283,7 @@ export class ThreeRenderer {
    * world families one at a time; explicit/startup callers retain the
    * immediate behavior needed to prewarm and validate a complete scene.
    */
-  _updateLOD({ staged = false, advance = true, cameraMoving = false } = {}) {
+  _updateLOD({ staged = false, advance = true } = {}) {
     let transitionStep = null;
     // Panning and orbiting must not change object fidelity. Only an actual
     // zoom-boundary crossing selects a new world presentation, and the
@@ -5279,26 +5309,15 @@ export class ThreeRenderer {
       if (transitionStep != null) this._lodTransitionGpuReady = false;
     }
 
-    // Utility fittings account for most of Minor Lab's detailed draw count
-    // (thousands of meshes versus a few hundred for every other family). Keep
-    // their already-built merged routes during every camera gesture, even at
-    // close zoom. Collapsing is an immediate visibility reduction and is safe
-    // on the interaction frame; detailed chunks return through the GPU-gated
-    // queue only after the camera settles.
-    const motionUtilityFar = staged && cameraMoving && this._lodObjectsEnabled;
-    const showUtilityDetail = motionUtilityFar
-      ? false
-      : (this._lodObjectsEnabled
-        ? utilityDetailForZoom(this.zoom, this._lastUtilityLodDetail)
-        : true);
+    // Utility fittings follow their own, later zoom boundary. Camera motion
+    // alone must not swap their presentation: repeated hide/restore cycles at
+    // close zoom are both visually conspicuous and harder on WebGPU than
+    // retaining already-admitted detail.
+    const showUtilityDetail = this._lodObjectsEnabled
+      ? utilityDetailForZoom(this.zoom, this._lastUtilityLodDetail)
+      : true;
     if (showUtilityDetail === this._lastUtilityLodDetail) return transitionStep;
     this._lastUtilityLodDetail = showUtilityDetail;
-    if (motionUtilityFar) {
-      this._lodTransitionQueue.removeGroup('utilities');
-      this.utilityLineBuilderV2?.setDetailLevel?.(false);
-      this._effectSystem?.setScopeEnabled?.('utility-lines', false);
-      return transitionStep;
-    }
     if (staged) {
       const steps = this.utilityLineBuilderV2?.createDetailTransitionSteps?.(
         showUtilityDetail,
@@ -5504,6 +5523,7 @@ export class ThreeRenderer {
   }
 
   _applyActiveLevelSnapshot(snapshot) {
+    this._syncPostProcessingBudget(snapshot);
     this.grassTuftBuilder.rebuild(snapshot);
     this.floorBuilder.build(snapshot.floors, this.floorGroup);
     this.roofGroup.visible = roofVisibleForWallMode(this.wallVisibilityMode);

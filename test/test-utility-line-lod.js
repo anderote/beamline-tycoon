@@ -134,8 +134,16 @@ test('every utility keeps its route silhouette while far detail is suppressed', 
   for (let index = 0; index < indexedRoots.length; index++) {
     indexedRoots[index].traverse = traversals[index];
   }
-  assert.ok(detailObjects.every(object => effectivelyVisible(object)),
-    'zooming back in restores every authored utility detail');
+  const nearBatches = parent.children.filter(child =>
+    child.userData?.isUtilityNearDetailBatch);
+  const lodStats = builder.getLodPresentationStats();
+  assert.ok(lodStats.nearBatchCount > 0
+    && lodStats.nearSourceCount > lodStats.nearBatchCount,
+  'authored near utility pieces are packaged into fewer compatible meshes');
+  assert.ok(nearBatches.every(effectivelyVisible),
+    'zooming back in restores the spatially packaged authored utility detail');
+  assert.ok(builder._nearDetailSources.every(object => !effectivelyVisible(object)),
+    'the equivalent per-piece sources stay hidden during ordinary near rendering');
   assert.ok(collect(parent, object => object.userData?.isUtilityFarRoute)
     .every(object => !effectivelyVisible(object)),
   'zooming back in hides every merged far route');
@@ -145,6 +153,15 @@ test('every utility keeps its route silhouette while far detail is suppressed', 
     'soft utilities restore their rounded near tube');
   assert.ok(flexible.geometry.parameters.tubularSegments > farTubularSegments,
     'the near flexible route restores denser longitudinal sampling');
+
+  builder.setFocus([`lod-${firstRigidType}`]);
+  assert.ok(nearBatches.every(batch => !effectivelyVisible(batch)),
+    'focused inspection swaps near packages for independently dimmable sources');
+  assert.ok(builder._nearDetailSources.some(effectivelyVisible),
+    'focused inspection exposes authored source pieces without rebuilding them');
+  builder.setFocus(null);
+  assert.ok(nearBatches.every(effectivelyVisible),
+    'clearing focused inspection restores near packages');
 
   builder.dispose(parent);
 });
@@ -165,20 +182,27 @@ test('dense utility detail is restored in bounded chunks without route holes', (
     return collect(group, object => object.userData?.utilityLodRole === 'detail');
   });
   const farBatches = parent.children.filter(child => child.userData?.isUtilityFarRouteBatch);
+  const nearBatches = parent.children.filter(child => child.userData?.isUtilityNearDetailBatch);
   assert.ok(farBatches.some(effectivelyVisible), 'far routes begin visible');
 
   const entering = builder.createDetailTransitionSteps(true, { lineChunkSize: 1 });
   assert.equal(entering.filter(step => step.id.startsWith('utility-lines-')).length, 3,
     'one-line test chunks expose the requested bounded work units');
   entering[0].apply();
-  assert.ok(detailByLine[0].some(effectivelyVisible), 'the first detail chunk is admitted');
-  assert.ok(detailByLine.slice(1).every(objects => objects.every(object => !effectivelyVisible(object))),
-    'later detail chunks stay hidden');
+  assert.ok(builder._nearDetailSources.every(object => !effectivelyVisible(object)),
+    'authored sources remain hidden while their packaged presentation is staged');
+  assert.ok(nearBatches.every(batch => !effectivelyVisible(batch)),
+    'near packages stay hidden until their admission step');
   assert.ok(farBatches.some(effectivelyVisible),
     'merged route silhouettes remain visible during the partial transition');
-  for (const step of entering.slice(1)) step.apply();
-  assert.ok(detailByLine.every(objects => objects.some(effectivelyVisible)),
-    'all authored detail is visible after the final chunk');
+  const nearStepIndex = entering.findIndex(step => step.id === 'utility-near-batches');
+  assert.ok(nearStepIndex > 0, 'near packages publish one bounded admission step');
+  for (const step of entering.slice(1, nearStepIndex + 1)) step.apply();
+  assert.ok(nearBatches.every(effectivelyVisible),
+    'the spatial near packages become visible as one cullable presentation');
+  assert.ok(farBatches.some(effectivelyVisible),
+    'far silhouettes remain until near packages have been admitted');
+  for (const step of entering.slice(nearStepIndex + 1)) step.apply();
   assert.ok(farBatches.every(batch => !effectivelyVisible(batch)),
     'the completed near presentation removes the merged route overlap');
 
@@ -191,6 +215,8 @@ test('dense utility detail is restored in bounded chunks without route holes', (
     'the completed far presentation hides all authored utility detail');
   assert.ok(farBatches.some(effectivelyVisible),
     'the completed far presentation retains its route silhouette');
+  assert.ok(nearBatches.every(batch => !effectivelyVisible(batch)),
+    'the completed far presentation hides every near package');
 
   builder.dispose(parent);
 });

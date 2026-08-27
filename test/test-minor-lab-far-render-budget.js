@@ -15,8 +15,12 @@ test('Minor Lab far presentation stays within the whole-facility render budget',
   });
   const report = benchmark.render;
 
-  assert.ok(report.near.drawCalls > 7000,
-    'fixture still exercises the expensive authored scene that prompted the LOD');
+  assert.ok(report.near.renderedTriangles > 1_000_000,
+    'fixture still exercises the million-triangle authored scene that prompted the LOD');
+  assert.ok(report.near.drawCalls <= 2100,
+    `near authored geometry stays packaged below 2,100 draws (got ${report.near.drawCalls})`);
+  assert.ok(report.breakdown.near.utilities.drawCalls <= 300,
+    `near utility detail stays spatially packaged (got ${report.breakdown.near.utilities.drawCalls})`);
   assert.ok(report.far.drawCalls <= 220,
     `far facility stays at or below 220 draws (got ${report.far.drawCalls})`);
   assert.ok(report.far.renderedTriangles <= 140000,

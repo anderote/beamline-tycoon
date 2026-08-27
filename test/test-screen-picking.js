@@ -159,5 +159,30 @@ console.log('\n--- Utility line and Universal Utility Bus picking ---');
     'facility-wide far route meshes preserve per-line picking by triangle range');
 }
 
+{
+  const root = { parent: null, userData: {} };
+  const merged = {
+    parent: root,
+    userData: {
+      isUtilityNearDetailBatch: true,
+      lineIds: ['near_power', 'near_bus_lane'],
+      utilityTypes: ['powerCable', 'rfWaveguide'],
+      busIds: [null, 'bus_near'],
+      channelSlots: [null, 2],
+      farTriangleRanges: [
+        { start: 0, end: 18, instanceIndex: 0 },
+        { start: 18, end: 42, instanceIndex: 1 },
+      ],
+    },
+  };
+  const got = utilityLinePickFromIntersections([
+    { object: merged, faceIndex: 24, distance: 1, point: { x: 3, z: 7 } },
+  ], root);
+  assert(got?.lineId === 'near_bus_lane' && got?.utilityType === 'rfWaveguide',
+    'spatial near-detail packages preserve per-line picking by triangle range');
+  assert(got?.busId === 'bus_near' && got?.channelSlot === 2,
+    'near-detail packages preserve Universal Utility Bus lane metadata');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

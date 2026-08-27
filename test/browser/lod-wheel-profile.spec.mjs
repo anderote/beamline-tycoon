@@ -36,7 +36,6 @@ test.describe('Minor Lab wheel-driven LOD transition', () => {
       window.game?.state?.placeables?.length > 1000
       && window._renderer?.renderingSuspended === false
     ), null, { timeout: 300_000 });
-
     const initial = await page.evaluate(() => {
       const renderer = window._renderer;
       const calls = [];
@@ -102,8 +101,11 @@ test.describe('Minor Lab wheel-driven LOD transition', () => {
       };
       return {
         backend: renderer.usesNativeWebGPU?.() ? 'webgpu' : 'webgl',
+        timeOrigin: performance.timeOrigin,
         zoom: renderer.zoom,
         placeables: window.game.state.placeables.length,
+        postProcessingSuppressed: renderer.getLightingStats()
+          .postProcessingSuppressedForDensity,
         canvasRect: (() => {
           const rect = renderer.app.canvas.getBoundingClientRect();
           return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
@@ -138,6 +140,8 @@ test.describe('Minor Lab wheel-driven LOD transition', () => {
       zoom: window._renderer.zoom,
       detail: window._renderer._lastLodDetail,
       utilityDetail: window._renderer._lastUtilityLodDetail,
+      utilityPresentation: window._renderer.utilityLineBuilderV2
+        .getLodPresentationStats(),
     }));
     const panMotionState = await page.evaluate(async () => {
       const renderer = window._renderer;
@@ -153,6 +157,21 @@ test.describe('Minor Lab wheel-driven LOD transition', () => {
       && window._renderer?._lastLodDetail === true
       && window._renderer?._lastUtilityLodDetail === true
     ), null, { timeout: 10_000 });
+    const orbitMotionState = await page.evaluate(async () => {
+      const renderer = window._renderer;
+      renderer.startFreeOrbit();
+      renderer.orbitBy(28, -10);
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const during = {
+        detail: renderer._lastLodDetail,
+        utilityDetail: renderer._lastUtilityLodDetail,
+      };
+      renderer.endFreeOrbit();
+      return during;
+    });
+    await page.waitForFunction(() => window._renderer?._snapping === false, null, {
+      timeout: 10_000,
+    });
     for (let step = 0; step < 7; step++) {
       await wheel(100);
       await page.waitForTimeout(30);
@@ -188,6 +207,7 @@ test.describe('Minor Lab wheel-driven LOD transition', () => {
         maxFrameGapMs: worstFrame.gap,
         frameGapsOver100Ms: frames.filter(frame => frame.gap > 100),
         queueDrainMs: performance.now() - queueStart,
+        timeOrigin: performance.timeOrigin,
       };
     });
 
@@ -195,17 +215,27 @@ test.describe('Minor Lab wheel-driven LOD transition', () => {
       initial,
       nearState,
       panMotionState,
+      orbitMotionState,
       gestureWallMs: Date.now() - gestureStart,
       ...result,
     }));
     expect(initial.backend).toBe('webgpu');
+    expect(initial.postProcessingSuppressed).toBe(true);
     expect(nearState.zoom).toBeGreaterThan(3);
     expect(nearState.detail).toBe(true);
     expect(nearState.utilityDetail).toBe(true);
     expect(panMotionState.detail).toBe(true);
+    expect(panMotionState.utilityDetail).toBe(true);
+    expect(orbitMotionState.detail).toBe(true);
+    expect(orbitMotionState.utilityDetail).toBe(true);
+    expect(nearState.utilityPresentation.nearSourceCount)
+      .toBeGreaterThan(nearState.utilityPresentation.nearBatchCount);
+    expect(nearState.utilityPresentation.nearBatchCount).toBeLessThanOrEqual(300);
     expect(result.zoom).toBeLessThan(1.1);
     expect(result.detail).toBe(false);
     expect(result.pendingFamilies).toBe(0);
+    expect(result.timeOrigin).toBe(initial.timeOrigin);
+    expect(result.renderMaxCpuMs).toBeLessThan(150);
     expect(result.maxFrameGapMs).toBeLessThan(500);
   });
 });

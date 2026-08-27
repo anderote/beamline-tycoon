@@ -25,12 +25,30 @@ export function utilityLinePickFromIntersections(intersections, utilityLineGroup
     let line = null;
     let bus = null;
 
-    if (object?.userData?.isUtilityFarRouteBatch) {
+    if (object?.userData?.isUtilityFarRouteBatch
+        || object?.userData?.isUtilityNearDetailBatch) {
       const index = mergedFarInstanceIndex(hit);
       const lineId = Number.isInteger(index) ? object.userData.lineIds?.[index] : null;
       if (lineId) return {
         lineId,
         utilityType: object.userData.utilityTypes?.[index],
+        ...(object.userData.busIds?.[index] ? {
+          busId: object.userData.busIds[index],
+          universalUtilityBus: true,
+        } : {}),
+        ...(object.userData.channelSlots?.[index] != null ? {
+          channelSlot: object.userData.channelSlots[index],
+        } : {}),
+        worldPos: worldPosition(hit.point),
+        distance: hit.distance,
+      };
+      const busId = Number.isInteger(index) ? object.userData.busIds?.[index] : null;
+      if (busId) return {
+        busId,
+        universalUtilityBus: true,
+        ...(object.userData.channelSlots?.[index] != null ? {
+          channelSlot: object.userData.channelSlots[index],
+        } : {}),
         worldPos: worldPosition(hit.point),
         distance: hit.distance,
       };

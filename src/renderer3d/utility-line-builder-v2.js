@@ -62,6 +62,12 @@ const PIPE_Y = UTILITY_LINE_Y;
 const SEGS = 12;     // cylinder radial segments
 const FAR_RIGID_SEGS = 6;
 const FLEXIBLE_RELAX_DURATION_SECONDS = 0.9;
+// Near utility packages must remain small enough for camera-frustum culling.
+// One facility-wide mesh traded thousands of draws for rendering every pipe
+// triangle even when a close camera could only see a few rooms. Six tiles per
+// cell keeps each admission bounded while still merging the repeated authored
+// fittings inside the visible neighbourhood.
+const NEAR_DETAIL_BATCH_CELL_WORLD = 12;
 const UTILITY_LOD_DETAIL = 'detail';
 const UTILITY_LOD_FAR = 'far';
 const UNIVERSAL_BUS_HALF_WIDTH = UNIVERSAL_BUS_HALF_WIDTH_METERS;
@@ -102,7 +108,9 @@ function applyUtilityDetailLevel(root, showDetail) {
   const bindings = utilityLodBindings(root);
   if (!bindings) return;
   const detail = !!showDetail;
-  for (const object of bindings.detail) object.visible = detail;
+  for (const object of bindings.detail) {
+    object.visible = detail && object.userData?.utilityNearMergedSource !== true;
+  }
   for (const object of bindings.far) object.visible = !detail;
   for (const object of bindings.geometry) {
     const geometries = object.userData?.utilityLodGeometries;
@@ -2873,6 +2881,11 @@ export class UtilityLineBuilderV2 {
     this._farRouteBatches = [];
     this._farRouteSources = [];
     this._farFlexibleSources = [];
+    // Spatial authored-detail batches. Source meshes stay CPU-side for
+    // line edits and focused inspection, but ordinary close-up rendering uses
+    // these compatible-material packages instead of thousands of draws.
+    this._nearDetailBatches = [];
+    this._nearDetailSources = [];
   }
 
   /**
@@ -3049,6 +3062,7 @@ export class UtilityLineBuilderV2 {
     }
     this._buildRigidUtilitySupports(records, placeablesById, lineById, parentGroup);
     this._buildUtilityBuses(opts.state?.utilityBuses || [], parentGroup);
+    this._rebuildNearDetailBatches(parentGroup);
     this._rebuildFarRouteBatches(parentGroup);
     this._applyFocus();
     this._hasBuiltOnce = true;
@@ -3062,6 +3076,140 @@ export class UtilityLineBuilderV2 {
     this._farRouteBatches = [];
     this._farRouteSources = [];
     this._farFlexibleSources = [];
+  }
+
+  _disposeNearDetailBatches(parentGroup) {
+    for (const mesh of this._nearDetailBatches) {
+      (mesh.parent || parentGroup)?.remove(mesh);
+      mesh.geometry?.dispose?.();
+    }
+    for (const source of this._nearDetailSources) {
+      delete source.userData.utilityNearMergedSource;
+      source.visible = true;
+    }
+    this._nearDetailBatches = [];
+    this._nearDetailSources = [];
+  }
+
+  _syncNearDetailPresentation() {
+    const useMerged = this._focusLineIds == null && this._nearDetailBatches.length > 0;
+    for (const source of this._nearDetailSources) {
+      source.visible = this._showDetail && !useMerged;
+    }
+    for (const mesh of this._nearDetailBatches) {
+      mesh.visible = this._showDetail && useMerged;
+    }
+  }
+
+  _rebuildNearDetailBatches(parentGroup) {
+    this._disposeNearDetailBatches(parentGroup);
+    // A few focused unit suites use a deliberately tiny THREE geometry stub.
+    // They validate flow-distance baking, not renderer packaging; leave their
+    // authored sources untouched when matrix/geometry merge support is absent.
+    if (typeof THREE.Matrix4 !== 'function') return;
+    const presentations = [];
+    const roots = [
+      ...[...this._lineGroups.entries()].map(([lineId, group]) => ({
+        group,
+        lineId,
+        utilityType: group.userData.utilityType,
+        busId: group.userData.busId || null,
+        channelSlot: group.userData.channelSlot ?? null,
+      })),
+      ...[...this._busGroups.entries()].map(([busId, group]) => ({
+        group,
+        lineId: null,
+        utilityType: null,
+        busId,
+        channelSlot: null,
+      })),
+      ...(this._rigidSupportGroup ? [{
+        group: this._rigidSupportGroup,
+        lineId: null,
+        utilityType: null,
+        busId: null,
+        channelSlot: null,
+      }] : []),
+    ];
+    for (const root of roots) {
+      const { group, lineId, utilityType, busId, channelSlot } = root;
+      group.updateWorldMatrix?.(true, true);
+      group.traverse(object => {
+        if (!object.isMesh || !object.material || Array.isArray(object.material)) return;
+        // Flexible cable geometry is replaced while dragging/settling and
+        // therefore remains an independent mesh. Rigid authored hardware is
+        // static between utility rebuilds and safe to package.
+        if (object.userData?.isFlexibleUtilityCable) return;
+        let role = object.userData?.utilityLodRole || null;
+        for (let owner = object.parent; !role && owner && owner !== group.parent; owner = owner.parent) {
+          role = owner.userData?.utilityLodRole || null;
+        }
+        if (role !== UTILITY_LOD_DETAIL) return;
+        object.userData.utilityNearMergedSource = true;
+        object.visible = false;
+        this._nearDetailSources.push(object);
+        presentations.push({
+          geometry: object.geometry,
+          matrix: object.matrixWorld.clone(),
+          material: object.material,
+          lineId,
+          utilityType,
+          busId,
+          channelSlot,
+          layout: farGeometryLayoutKey(object.geometry),
+          layersMask: object.layers.mask,
+          renderOrder: object.renderOrder || 0,
+          castShadow: object.castShadow === true,
+          receiveShadow: object.receiveShadow === true,
+          cellX: Math.floor(object.matrixWorld.elements[12] / NEAR_DETAIL_BATCH_CELL_WORLD),
+          cellZ: Math.floor(object.matrixWorld.elements[14] / NEAR_DETAIL_BATCH_CELL_WORLD),
+        });
+      });
+    }
+
+    const buckets = new Map();
+    for (const entry of presentations) {
+      const key = [
+        entry.material.uuid,
+        entry.layout,
+        entry.layersMask,
+        entry.renderOrder,
+        entry.castShadow ? 1 : 0,
+        entry.receiveShadow ? 1 : 0,
+        entry.cellX,
+        entry.cellZ,
+      ].join('|');
+      const bucket = buckets.get(key) || [];
+      bucket.push(entry);
+      buckets.set(key, bucket);
+    }
+    for (const entries of buckets.values()) {
+      const built = createFarMergedMesh(entries, entries[0].material);
+      if (!built) continue;
+      const { mesh, instanceIds } = built;
+      mesh.name = `utility-near-batch-${this._nearDetailBatches.length}`;
+      mesh.userData.isUtilityNearDetailBatch = true;
+      mesh.userData.utilityLodRole = UTILITY_LOD_DETAIL;
+      mesh.userData.lineIds = [];
+      mesh.userData.utilityTypes = [];
+      mesh.userData.busIds = [];
+      mesh.userData.channelSlots = [];
+      mesh.layers.mask = entries[0].layersMask;
+      mesh.renderOrder = entries[0].renderOrder;
+      mesh.castShadow = entries[0].castShadow;
+      mesh.receiveShadow = entries[0].receiveShadow;
+      for (let index = 0; index < entries.length; index++) {
+        const instanceId = instanceIds[index];
+        const entry = entries[index];
+        mesh.userData.lineIds[instanceId] = entry.lineId;
+        mesh.userData.utilityTypes[instanceId] = entry.utilityType;
+        mesh.userData.busIds[instanceId] = entry.busId;
+        mesh.userData.channelSlots[instanceId] = entry.channelSlot;
+      }
+      parentGroup.add(mesh);
+      this._nearDetailBatches.push(mesh);
+    }
+    this._syncNearDetailPresentation();
   }
 
   _syncFarRoutePresentation() {
@@ -3272,6 +3420,7 @@ export class UtilityLineBuilderV2 {
   setFocus(lineIds = null) {
     this._focusLineIds = lineIds == null ? null : new Set(lineIds);
     this._applyFocus();
+    this._syncNearDetailPresentation();
     this._syncFarRoutePresentation();
   }
 
@@ -3323,11 +3472,19 @@ export class UtilityLineBuilderV2 {
       id,
       apply: () => {
         applyState();
+        this._syncNearDetailPresentation();
         this._syncFarRoutePresentation();
       },
     });
+    const nearBatches = {
+      id: 'utility-near-batches',
+      apply: () => {
+        applyState();
+        this._syncNearDetailPresentation();
+      },
+    };
     return next
-      ? [...chunks, infrastructure, farRoutes('utility-far-routes')]
+      ? [...chunks, infrastructure, nearBatches, farRoutes('utility-far-routes')]
       : [
         farRoutes('utility-far-routes'),
         infrastructure,
@@ -3337,6 +3494,17 @@ export class UtilityLineBuilderV2 {
         // chunk so the final scene retains only the facility-wide batches.
         farRoutes('utility-far-routes-final'),
       ];
+  }
+
+  getLodPresentationStats() {
+    return {
+      nearBatchCount: this._nearDetailBatches.length,
+      nearSourceCount: this._nearDetailSources.length,
+      farBatchCount: this._farRouteBatches.length,
+      farSourceCount: this._farRouteSources.length + this._farFlexibleSources.length,
+      showDetail: this._showDetail,
+      focused: this._focusLineIds != null,
+    };
   }
 
   _buildUtilityBuses(buses, parentGroup) {
@@ -3812,6 +3980,7 @@ export class UtilityLineBuilderV2 {
 
 
   dispose(parentGroup) {
+    this._disposeNearDetailBatches(parentGroup);
     this._disposeFarRouteBatches(parentGroup);
     for (const g of this._lineGroups.values()) {
       parentGroup.remove(g);
