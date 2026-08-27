@@ -2164,6 +2164,7 @@ function _authoredFarDecorationGeometry(def, source) {
     const role = _decorationFarRole(child, material);
     parts.push({
       geometry,
+      material: child.material,
       color: material?.color?.clone?.()
         || new THREE.Color(def.spriteColor || def.color || 0x748087),
       role,

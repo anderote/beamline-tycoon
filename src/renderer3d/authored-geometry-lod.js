@@ -216,6 +216,60 @@ export function selectLargestAuthoredParts(parts, options = {}) {
     .flatMap(group => group.parts);
 }
 
+function partMaterials(part) {
+  const source = part.materials ?? part.material;
+  if (Array.isArray(source)) return source;
+  return source ? [source] : [];
+}
+
+function fallbackPartColor(part) {
+  return part.color?.isColor
+    ? part.color
+    : new THREE.Color(part.color ?? 0x778899);
+}
+
+/**
+ * Bake the same colour inputs used by the near mesh into the far geometry.
+ *
+ * A Mesh can carry more than one material through BufferGeometry groups, and
+ * an authored geometry can additionally carry per-vertex colours. Flattening
+ * either case to `material[0]` (or to one average colour) makes a multicolour
+ * object visibly repaint itself at the LOD boundary. The far batches use one
+ * white vertex-colour material, so resolve those inputs per vertex here.
+ */
+function appendPartColors(target, part, geometry) {
+  const position = geometry.attributes.position;
+  const sourceColors = geometry.attributes.color;
+  const materials = partMaterials(part);
+  const fallback = fallbackPartColor(part);
+  const materialByVertex = new Int32Array(position.count);
+  materialByVertex.fill(-1);
+  for (const group of geometry.groups || []) {
+    const end = Math.min(position.count, group.start + group.count);
+    for (let index = Math.max(0, group.start); index < end; index++) {
+      materialByVertex[index] = group.materialIndex ?? 0;
+    }
+  }
+
+  for (let index = 0; index < position.count; index++) {
+    const materialIndex = materialByVertex[index] >= 0 ? materialByVertex[index] : 0;
+    const material = materials[materialIndex] || materials[0] || null;
+    const base = material?.color?.isColor ? material.color : fallback;
+    let r = base.r;
+    let g = base.g;
+    let b = base.b;
+    // This is exactly how Three combines Mesh material tint and geometry
+    // vertex colours. Respect vertexColors=false so dormant colour attributes
+    // do not unexpectedly alter the far presentation.
+    if (sourceColors && (!material || material.vertexColors === true)) {
+      r *= sourceColors.getX(index);
+      g *= sourceColors.getY(index);
+      b *= sourceColors.getZ(index);
+    }
+    target.push(r, g, b);
+  }
+}
+
 /**
  * Merge selected authored primitives into one vertex-coloured BufferGeometry.
  * Input geometries are not disposed; ownership remains with the caller.
@@ -249,14 +303,9 @@ export function buildAuthoredGeometryLod(parts, options = {}) {
       geometry.computeVertexNormals();
       normal = geometry.attributes.normal;
     }
-    const color = part.color?.isColor
-      ? part.color
-      : new THREE.Color(part.color ?? 0x778899);
     for (const value of position.array) positions.push(value);
     for (const value of normal.array) normals.push(value);
-    for (let index = 0; index < position.count; index++) {
-      colors.push(color.r, color.g, color.b);
-    }
+    appendPartColors(colors, part, geometry);
     roles.push(part.role || 'body');
     names.push(part.name || part.role || 'body');
     if (geometry !== source) geometry.dispose?.();

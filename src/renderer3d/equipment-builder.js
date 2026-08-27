@@ -459,6 +459,7 @@ function _authoredEquipmentParts(compDef, isFurnishing) {
     }, material);
     parts.push({
       geometry,
+      material: child.material,
       color: _equipmentFarPartColor(compDef, {}, material),
       role,
       name: child.name || role,

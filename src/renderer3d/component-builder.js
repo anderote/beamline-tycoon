@@ -5002,15 +5002,6 @@ function _authoredFarRoleColor(role, accentColor) {
     : (AUTHORED_FAR_ROLE_COLORS[role] ?? FAR_ROLE_COLORS.body));
 }
 
-function _visualPartColor(material, fallbackColor) {
-  const materials = Array.isArray(material) ? material : [material];
-  const colors = materials.map(candidate => candidate?.color).filter(color => color?.isColor);
-  if (colors.length === 0) return new THREE.Color(fallbackColor);
-  const color = new THREE.Color(0x000000);
-  for (const candidate of colors) color.add(candidate);
-  return color.multiplyScalar(1 / colors.length);
-}
-
 function _partsFromAuthoredVisual(visual, fallbackColor) {
   const parts = [];
   visual.updateMatrixWorld?.(true);
@@ -5030,7 +5021,8 @@ function _partsFromAuthoredVisual(visual, fallbackColor) {
     geometry.applyMatrix4(localMatrix);
     parts.push({
       geometry,
-      color: _visualPartColor(child.material, fallbackColor),
+      material: child.material,
+      color: new THREE.Color(fallbackColor),
       role: child.userData?.role || 'body',
       name: child.name || child.userData?.role || 'body',
     });

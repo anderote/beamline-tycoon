@@ -91,3 +91,57 @@ test('rotated and repeated authored primitives remain together as one logical as
   geometry.dispose();
   for (const part of parts) part.geometry.dispose();
 });
+
+test('authored LOD preserves every material-group color on one mesh', () => {
+  const geometry = new THREE.BoxGeometry(2, 2, 2);
+  const materials = [
+    0xd32f2f, 0x1976d2, 0x388e3c, 0xf9a825, 0x7b1fa2, 0x6d4c41,
+  ].map(color => new THREE.MeshStandardMaterial({ color }));
+  const lod = buildAuthoredGeometryLod([{
+    name: 'multicolor-housing',
+    role: 'body',
+    geometry,
+    material: materials,
+  }], { minParts: 1, maxParts: 1 });
+
+  const colors = lod.getAttribute('color');
+  const actual = new Set();
+  for (let index = 0; index < colors.count; index++) {
+    actual.add([colors.getX(index), colors.getY(index), colors.getZ(index)]
+      .map(value => value.toFixed(6)).join('|'));
+  }
+  const expected = new Set(materials.map(material => [
+    material.color.r, material.color.g, material.color.b,
+  ].map(value => value.toFixed(6)).join('|')));
+  assert.deepEqual(actual, expected,
+    'the six authored face materials survive conversion instead of becoming material[0]');
+
+  lod.dispose();
+  geometry.dispose();
+  for (const material of materials) material.dispose();
+});
+
+test('authored LOD preserves enabled vertex colors multiplied by material tint', () => {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([
+    0, 0, 0, 1, 0, 0, 0, 1, 0,
+  ], 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute([
+    1, 0.5, 0.25, 0.2, 1, 0.4, 0.8, 0.1, 1,
+  ], 3));
+  const material = new THREE.MeshStandardMaterial({ color: 0x80c040, vertexColors: true });
+  const lod = buildAuthoredGeometryLod([{
+    name: 'painted-panel', role: 'body', geometry, material,
+  }], { minParts: 1, maxParts: 1 });
+  const colors = lod.getAttribute('color');
+  const source = geometry.getAttribute('color');
+  for (let index = 0; index < colors.count; index++) {
+    assert.ok(Math.abs(colors.getX(index) - material.color.r * source.getX(index)) < 1e-6);
+    assert.ok(Math.abs(colors.getY(index) - material.color.g * source.getY(index)) < 1e-6);
+    assert.ok(Math.abs(colors.getZ(index) - material.color.b * source.getZ(index)) < 1e-6);
+  }
+
+  lod.dispose();
+  geometry.dispose();
+  material.dispose();
+});
