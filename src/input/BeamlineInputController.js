@@ -73,7 +73,7 @@ export class BeamlineInputController {
     this._hoverPoint = null;          // {col,row} in pipe-path space
     this._hoverOpenEnd = null;        // { pipeId, openEnd } when snapped to a cap
     this._hoverValidAnchor = false;   // true when a click here would start a draw
-    this._guidedPath = null;          // two-point starter stub from Build Forward
+    this._guidedPath = null;          // two-point starter stub from Guide
 
     // Last valid placement-on-pipe preview, set by _previewPlacement and
     // consumed by onMouseDown. Null when no pipe is under the cursor or the

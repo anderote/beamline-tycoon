@@ -37,7 +37,7 @@ assert(info.includes('id="top-buttons"') && info.includes('id="resources"') && i
 assert(info.indexOf('id="btn-economy"') < info.indexOf('id="btn-hire"')
     && info.indexOf('id="btn-hire"') < info.indexOf('id="btn-build-forward"')
     && /id="btn-hire"[^>]*>Staff<\/button>/.test(info),
-  'Staff navigation sits between Economy and Build Forward');
+  'Staff navigation sits between Economy and Guide');
 assert(info.indexOf('id="btn-beamlines"') < info.indexOf('id="resources"')
     && info.indexOf('id="resources"') < info.indexOf('id="beam-stats-panel"'),
   'second row flows from Beamlines actions into statistics');

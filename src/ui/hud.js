@@ -3229,7 +3229,7 @@ UIHost.prototype._bindHUDEvents = function() {
     });
   }
 
-  // Build Forward replaces the parallel Goals checklist. It reopens the
+  // Guide replaces the parallel Goals checklist. It reopens the
   // contextual assistant for the selected (or only) beamline.
   const buildForwardBtn = document.getElementById('btn-build-forward');
   if (buildForwardBtn) {

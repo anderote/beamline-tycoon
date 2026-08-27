@@ -475,8 +475,8 @@ test('full session walk: boot -> build -> beam -> save/reload -> undo -> escape'
     await page.keyboard.press('Escape');
     await expect(page.locator('#research-overlay')).toBeHidden();
 
-    // 3. Build Forward is the sole guided-build surface; Goals is gone.
-    await expect(page.locator('#btn-build-forward')).toHaveText('Build Forward');
+    // 3. Guide is the sole guided-build surface; Goals is gone.
+    await expect(page.locator('#btn-build-forward')).toHaveText('Guide');
     await expect(page.locator('#btn-goals')).toHaveCount(0);
     await expect(page.locator('#goals-overlay')).toHaveCount(0);
 

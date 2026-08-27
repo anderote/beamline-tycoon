@@ -27,7 +27,7 @@ test('source choice narrows the target beamline types by particle family', () =>
   assert.ok(!protons.includes('testStand'));
 });
 
-test('Build Forward returns the exact physics recipes used by Designer', () => {
+test('Guide returns the exact physics recipes used by Designer', () => {
   const nodes = [
     { kind: 'module', type: 'source', beamStart: 0, subL: 4 },
     { kind: 'drift', beamStart: 2, subL: 20, pipeId: 'pipe-1' },
@@ -86,7 +86,7 @@ test('physics insertion boundaries map to forward and reverse pipe coordinates',
     'reverse traversal subtracts the component span from the authored coordinate');
 });
 
-test('Build Forward auto-place commits the physics tuning parameters', () => {
+test('Guide auto-place commits the physics tuning parameters', () => {
   const guided = Object.create(GuidedBeamlineSetup.prototype);
   guided.suggestionId = 'quadrupole';
   guided.suggestionPipeId = 'pipe-1';
@@ -148,13 +148,13 @@ test('infrastructure checklist is derived from real component sink ports', () =>
   assert.ok(infrastructureChecklistForNodes(nodes, state).every(r => r.complete));
 });
 
-test('Build Forward is the sole guidance surface and exposes physics auto-place', () => {
+test('Guide is the sole guidance surface and exposes physics auto-place', () => {
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const hud = readFileSync(new URL('../src/ui/hud.js', import.meta.url), 'utf8');
   const input = readFileSync(new URL('../src/input/InputHandler.js', import.meta.url), 'utf8');
   const guided = readFileSync(new URL('../src/ui/GuidedBeamlineSetup.js', import.meta.url), 'utf8');
 
-  assert.match(html, /id="btn-build-forward"[^>]*>Build Forward</);
+  assert.match(html, /id="btn-build-forward"[^>]*>Guide</);
   assert.doesNotMatch(html, /btn-goals|goals-overlay/);
   assert.match(hud, /_guidedSetup\?\.toggle\?\.\(\)/);
   assert.match(input, /case 'g': case 'G':[\s\S]*?_guidedSetup\?\.toggle\?\.\(\)/);

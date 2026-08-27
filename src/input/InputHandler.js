@@ -2578,7 +2578,7 @@ export class InputHandler {
         }
         case 'k': case 'K': {
           // K, not E/F/B/M: every mnemonic for "economy" is already a mode,
-          // palette slot or camera key. Toggles like the Research/Build Forward keys.
+          // palette slot or camera key. Toggles like the Research/Guide keys.
           if (e.ctrlKey || e.metaKey || e.altKey) break;
           EconomyWindow.toggle(this.game);
           break;

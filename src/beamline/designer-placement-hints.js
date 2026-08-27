@@ -356,7 +356,7 @@ export function computePlacementHints({
 
 /**
  * The shared availability contract for every physics-hint consumer.
- * Build Forward and Designer must never disagree because one of them applied
+ * Guide and Designer must never disagree because one of them applied
  * a mission exclusion or research gate that the other forgot.
  */
 export function placementHintComponentAvailable({
@@ -378,7 +378,7 @@ export function placementHintComponentAvailable({
 }
 
 /**
- * Mission-aware entry point shared by Designer and the in-world Build Forward
+ * Mission-aware entry point shared by Designer and the in-world Guide
  * assistant. Both surfaces therefore consume the same propagated envelope,
  * candidate ordering, compatibility rules, and suggested component params.
  */

@@ -1,4 +1,4 @@
-// Pure planning helpers for the contextual "Build Forward" assistant.
+// Pure planning helpers for the contextual Guide assistant.
 // Keeping recommendation policy out of the DOM/input controller makes it
 // testable and ensures the world helper and Designer speak about the same
 // beamline type without embedding UI state in the save model.

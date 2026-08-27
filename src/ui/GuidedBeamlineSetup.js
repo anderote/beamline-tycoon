@@ -75,7 +75,7 @@ export class GuidedBeamlineSetup {
     el.setAttribute('aria-live', 'polite');
     el.innerHTML = '<button type="button" class="guided-setup-chip" data-guide-action="expand">Setup</button>'
       + '<div class="guided-setup-panel">'
-      + '<header><div><span class="guided-setup-kicker">BUILD FORWARD</span>'
+      + '<header><div><span class="guided-setup-kicker">GUIDE</span>'
       + '<strong class="guided-setup-title">New Beamline</strong></div>'
       + '<button type="button" class="guided-setup-close" data-guide-action="collapse" title="Collapse">×</button></header>'
       + '<div class="guided-setup-body"></div></div>';
@@ -128,13 +128,13 @@ export class GuidedBeamlineSetup {
     return all.length === 1 ? all[0] : null;
   }
 
-  /** Reopen Build Forward for the selected (or only) beamline. */
+  /** Reopen Guide for the selected (or only) beamline. */
   open(beamlineId = null) {
     const entry = this._entryForOpen(beamlineId);
     if (!entry) {
       const count = this.game.registry.getAll().filter(candidate => candidate?.sourceId).length;
       this.game.log(
-        count > 1 ? 'Select a beamline to use Build Forward' : 'Build a beam source to use Build Forward',
+        count > 1 ? 'Select a beamline to use Guide' : 'Build a beam source to use Guide',
         'info',
       );
       return false;
