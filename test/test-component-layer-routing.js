@@ -118,7 +118,7 @@ test('far beamline presentation is derived from a bounded set of authored primit
 
   for (const batch of batches) {
     assert.equal(batch.userData.farSilhouetteKind, 'authored-largest-parts');
-    assert.ok(batch.userData.farPartCount >= 3 && batch.userData.farPartCount <= 8,
+    assert.ok(batch.userData.farPartCount >= 1 && batch.userData.farPartCount <= 8,
       `${batch.name} keeps a bounded footprint-scaled assembly silhouette`);
     assert.ok(batch.userData.farSourcePartCount > batch.userData.farPrimitiveCount,
       `${batch.name} drops smaller authored geometry`);
@@ -130,6 +130,8 @@ test('far beamline presentation is derived from a bounded set of authored primit
       `${batch.name} carries its selected primitives' authored role colours`);
     assert.equal(batch.castShadow, false);
   }
+  assert.equal(new Set(batches.map(batch => batch.material)).size, 1,
+    'authored component types reuse one opaque far material pipeline');
   assert.ok(byType.get('halfWaveResonator').userData.farSelectedPartNames
     .includes('pipe-1'), 'the HWR retains its exact main cryostat primitive');
   assert.ok(byType.get('spokeCavity').userData.farSelectedPartNames
@@ -195,8 +197,8 @@ test('every beamline catalogue type has a merged facility-scale silhouette', () 
       `${batch.name} is selected from the detailed model`);
     assert.ok(batch.userData.farPartCount <= 8,
       `${batch.name} stays inside the footprint-scaled assembly budget`);
-    assert.ok(batch.userData.farPrimitiveCount >= Math.min(3, batch.userData.farSourcePartCount),
-      `${batch.name} keeps three primitives when its source has them`);
+    assert.ok(batch.userData.farPrimitiveCount >= 1,
+      `${batch.name} keeps at least its dominant authored primitive`);
     assert.ok(batch.userData.farSourcePartCount >= batch.userData.farPrimitiveCount);
     assert.ok(batch.userData.farPrimitiveCount <= 36);
     assert.ok(batch.geometry.attributes.color?.count > 0,
@@ -232,8 +234,8 @@ test('every infrastructure catalogue type has a merged facility-scale silhouette
       `${batch.name} is selected from the detailed model`);
     assert.ok(batch.userData.farPartCount <= 8,
       `${batch.name} stays inside the footprint-scaled assembly budget`);
-    assert.ok(batch.userData.farPrimitiveCount >= Math.min(3, batch.userData.farSourcePartCount),
-      `${batch.name} keeps three primitives when its source has them`);
+    assert.ok(batch.userData.farPrimitiveCount >= 1,
+      `${batch.name} keeps at least its dominant authored primitive`);
     assert.ok(batch.userData.farSourcePartCount >= batch.userData.farPrimitiveCount);
     assert.ok(batch.userData.farPrimitiveCount <= 36);
     assert.ok(batch.geometry.attributes.color?.count > 0,
@@ -250,6 +252,17 @@ test('every infrastructure catalogue type has a merged facility-scale silhouette
   elevatedTray.geometry.boundingBox.getSize(traySize);
   assert.ok(traySize.y > 1.5 && traySize.z > 0.8,
     'the far overhead rack retains the authored L-frame proportions');
+
+  for (const [type, minimumPrimitives] of [
+    ['coolingTower', 8],
+    ['waterTank', 5],
+    ['bulkWaterTank', 5],
+    ['facilityWaterSupply', 4],
+  ]) {
+    const batch = batches.find(candidate => candidate.name === `component-far-${type}`);
+    assert.ok(batch?.userData.farPrimitiveCount >= minimumPrimitives,
+      `${type} retains its vessel/tank assembly rather than a footprint proxy`);
+  }
 
   builder.dispose(parent);
 });

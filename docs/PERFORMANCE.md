@@ -158,7 +158,7 @@ settle tail; this does not change the saved glow setting.
 
 The stock Minor Lab is the whole-facility regression fixture. Its headless
 production-builder measurement currently drops more than 7,000 authored near
-draws to at most 550 far draws, at most 125,000 far triangles, and at most 60
+draws to at most 550 far draws, at most 140,000 far triangles, and at most 60
 far shadow draws. `test/test-minor-lab-far-render-budget.js` pins those budgets
 and reports per-layer counts for components, equipment, decorations, and
 utilities. These are structural submission counts, not an FPS claim; final

@@ -52,12 +52,14 @@ test('facility equipment batches recognizable silhouettes and culls tabletop det
   ]));
   assert.equal(byType.get('cafeteriaChair')?.count, 2,
     'repeated chairs share one instanced draw');
-  assert.equal(byType.get('labTable')?.userData.farSilhouetteKind, 'work-surface');
-  assert.equal(byType.get('operatorConsole')?.userData.farSilhouetteKind, 'console');
-  assert.equal(byType.get('pumpCart')?.userData.farSilhouetteKind, 'mobile-pump-cart');
-  assert.ok(byType.get('pumpCart')?.userData.farPartRoles.includes('screen')
-    && byType.get('pumpCart')?.geometry.attributes.position.count > 250,
-  'the pump cart retains its vessel, controller, screen, running gear, and handle');
+  assert.equal(byType.get('labTable')?.userData.farSilhouetteKind, 'authored-largest-parts');
+  assert.equal(byType.get('operatorConsole')?.userData.farSilhouetteKind,
+    'authored-largest-parts');
+  assert.equal(byType.get('pumpCart')?.userData.farSilhouetteKind,
+    'authored-largest-parts');
+  assert.ok(byType.get('pumpCart')?.userData.farPrimitiveCount >= 5
+    && byType.get('pumpCart')?.userData.farSourcePartCount >= 8,
+  'the pump cart is selected from its authored housing, vessel, running gear, and handle');
   assert.equal(byType.has('oscilloscope'), false, 'tabletop instruments disappear at far zoom');
   assert.equal(byType.has('toiletPaperRoll'), false, 'tiny wall fittings disappear at far zoom');
   assert.ok([...builder._objectsById.values()].every(object => object.visible === false));
@@ -65,6 +67,8 @@ test('facility equipment batches recognizable silhouettes and culls tabletop det
     'chair-b', 'batched furnishings remain individually pickable');
   assert.ok(batches.every(batch => batch.castShadow === false
     && batch.material.vertexColors === true));
+  assert.equal(new Set(batches.map(batch => batch.material)).size, 1,
+    'all authored furnishing batches share one warmed far material');
 
   const roots = [...builder._objectsById.values()];
   const traversals = roots.map(root => root.traverse);
@@ -116,9 +120,29 @@ test('every facility catalogue item has an explicit far silhouette or hidden pol
     }
     assert.ok(batch, `${def.id} has a facility-scale silhouette`);
     assert.notEqual(batch.userData.farSilhouetteKind, 'footprint');
-    assert.ok(batch.userData.farPartRoles.length >= 2);
+    assert.ok(batch.userData.farPartRoles.length >= 1);
+    assert.equal(batch.userData.farSilhouetteKind, 'authored-largest-parts',
+      `${def.id} must be exported from its authored geometry instead of a regex proxy`);
+    assert.ok(batch.userData.farSourcePartCount >= batch.userData.farPrimitiveCount);
+    assert.ok(batch.userData.farSelectedPartNames.length > 0);
     assert.ok(batch.geometry.attributes.color?.count > 0);
   }
 
+  builder.dispose(parent);
+});
+
+test('far furnishing geometry can be prepared while near detail remains selected', () => {
+  const parent = new THREE.Group();
+  const builder = new EquipmentBuilder();
+  builder.build([], [{ id: 'desk', type: 'workstation', col: 0, row: 0 }], parent);
+  const near = builder.getGroup('desk');
+  assert.equal(near.visible, true);
+  assert.equal(parent.children.some(child => child.userData.batchedEquipment), false);
+
+  builder.prepareFarPresentation();
+  const far = parent.children.find(child => child.userData.batchedEquipment);
+  assert.ok(far, 'idle preparation builds the dormant authored batch');
+  assert.equal(far.visible, false);
+  assert.equal(near.visible, true, 'preparation does not change the current LOD');
   builder.dispose(parent);
 });

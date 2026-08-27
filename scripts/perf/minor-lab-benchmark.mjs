@@ -9,7 +9,11 @@ import { buildHeadlessFacilityScene } from './headless-render-metrics.mjs';
 
 export const MINOR_LAB_PERFORMANCE_TARGETS = Object.freeze({
   farDrawCalls: 550,
-  farRenderedTriangles: 125_000,
+  // Exporting the original major pieces for on-pipe components, furnishings,
+  // and grounds objects costs ~13.5k triangles versus the former synthetic
+  // proxies. Keep the complete catalogue-fidelity pass bounded at 140k while
+  // retaining roughly 90% triangle savings from the authored near scene.
+  farRenderedTriangles: 140_000,
   farShadowDrawCalls: 60,
   maximumFarDrawRatio: 0.10,
   farDetailMeshes: 0,

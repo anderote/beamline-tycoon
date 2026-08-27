@@ -14,6 +14,7 @@ import { buildPlaceableVisualDetails } from './placeable-visual-details.js';
 import { configureGlowMesh, getGlowMaterial } from './machine-glow.js';
 import { contentKey } from './content-hash.js';
 import { fixtureMountY, wallFixturePose } from './fixture-light-math.js';
+import { buildAuthoredGeometryLod } from './authored-geometry-lod.js';
 // Phase 6: utility-port-builder removed; all buildPortStubs call sites in
 // this file were already commented out.
 
@@ -357,6 +358,132 @@ function _farEquipmentGeometry(compDef, isFurnishing) {
   return geometry;
 }
 
+function _equipmentFarRole(compDef, part = {}, material = null) {
+  const name = part.name || '';
+  if (equipmentPartGlowSpec(compDef, part) || part.role === 'glow') return 'glow';
+  if (/copper|coil|winding|bus/i.test(name)) return 'copper';
+  if (/screen|display|lcd|monitor/i.test(name)) return 'glow';
+  if (/leg|foot|frame|stand|brace|rail|post|wheel|caster/i.test(name)) return 'frame';
+  if (/top|surface|counter|worktop|desktop/i.test(name)) return 'surface';
+  if (/pipe|tube|manifold|line|hose/i.test(name)) return 'metal';
+  if (part.role) return part.role;
+  if ((material?.metalness ?? 0) > 0.45) return 'metal';
+  return 'body';
+}
+
+function _equipmentFarPartColor(compDef, part = {}, material = null) {
+  const explicit = part.color;
+  if (explicit != null) return new THREE.Color(explicit);
+  if (material?.color) return material.color.clone();
+  const materialName = part.material ?? compDef.baseMaterial;
+  if (materialName && MATERIALS[materialName]?.color) {
+    return MATERIALS[materialName].color.clone();
+  }
+  return new THREE.Color(compDef.spriteColor || compDef.color || 0x78848c);
+}
+
+function _authoredEquipmentParts(compDef, isFurnishing) {
+  const parts = [];
+  if (Array.isArray(compDef.parts) && compDef.parts.length > 0) {
+    const matrix = new THREE.Matrix4();
+    const position = new THREE.Vector3();
+    const quaternion = new THREE.Quaternion();
+    const scale = new THREE.Vector3(1, 1, 1);
+    const euler = new THREE.Euler();
+    for (const part of compDef.parts) {
+      const width = (part.w || 1) * SUB_UNIT;
+      const height = (part.h || 1) * SUB_UNIT;
+      const depth = (part.l || 1) * SUB_UNIT;
+      // A mirror's near path uses a reflection plane. At facility scale its
+      // authored physical envelope is the useful silhouette, so retain a thin
+      // box instead of pulling a renderer-only reflector into the LOD export.
+      const geometry = part.surface === 'mirror'
+        ? new THREE.BoxGeometry(width, height, Math.max(0.012, depth))
+        : createEquipmentPartGeometry(part, width, height, depth);
+      position.set(
+        (part.x || 0) * SUB_UNIT,
+        ((part.y || 0) + (part.h || 1) / 2) * SUB_UNIT,
+        (part.z || 0) * SUB_UNIT,
+      );
+      if (Array.isArray(part.rotation)) euler.set(...part.rotation);
+      else euler.set(0, 0, 0);
+      quaternion.setFromEuler(euler);
+      matrix.compose(position, quaternion, scale);
+      geometry.applyMatrix4(matrix);
+      const role = _equipmentFarRole(compDef, part);
+      parts.push({
+        geometry,
+        color: _equipmentFarPartColor(compDef, part),
+        role,
+        name: part.name || role,
+        groupKey: part.lodGroup,
+        importance: part.lodImportance
+          ?? (role === 'glow' || role === 'copper' ? 1.35 : 1),
+      });
+    }
+    return parts;
+  }
+
+  // Legacy single-housing placeables are still authored models: the housing
+  // plus buildPlaceableVisualDetails' reviewed mechanical primitives. Export
+  // those exact meshes rather than inventing a second regex-selected model.
+  const { width, height, depth } = _equipmentVisualDimensions(compDef, isFurnishing);
+  const fallbackColor = compDef.spriteColor || compDef.color || 0x78848c;
+  const housing = new THREE.BoxGeometry(width, height, depth);
+  housing.translate(0, height / 2, 0);
+  parts.push({
+    geometry: housing,
+    color: new THREE.Color(fallbackColor),
+    role: 'body',
+    name: `${compDef.id || 'equipment'}-housing`,
+  });
+  const details = buildPlaceableVisualDetails(compDef, {
+    width, height, length: depth, color: fallbackColor,
+  });
+  if (!details) return parts;
+  details.position.y = height / 2;
+  details.updateMatrixWorld(true);
+  details.traverse(child => {
+    if (!child.isMesh || !child.geometry) return;
+    const geometry = child.geometry.clone();
+    geometry.applyMatrix4(child.matrixWorld);
+    const material = Array.isArray(child.material) ? child.material[0] : child.material;
+    const role = _equipmentFarRole(compDef, {
+      name: child.name,
+      role: child.userData?.role,
+    }, material);
+    parts.push({
+      geometry,
+      color: _equipmentFarPartColor(compDef, {}, material),
+      role,
+      name: child.name || role,
+      groupKey: child.userData?.lodGroup,
+      importance: child.userData?.lodImportance
+        ?? (role === 'glow' || role === 'copper' ? 1.35 : 1),
+    });
+  });
+  details.traverse(child => child.geometry?.dispose?.());
+  return parts;
+}
+
+/** Build a distant model from the same primitives as the near furnishing. */
+function _authoredFarEquipmentGeometry(compDef, isFurnishing) {
+  const parts = _authoredEquipmentParts(compDef, isFurnishing);
+  const { width, depth } = _equipmentVisualDimensions(compDef, isFurnishing);
+  const usesReviewedFallback = !(Array.isArray(compDef.parts) && compDef.parts.length > 0)
+    && parts.length > 1;
+  const geometry = buildAuthoredGeometryLod(parts, {
+    footprintArea: width * depth,
+    // The old fallback housing carries the labelled/decal face, but is not a
+    // complete model on its own. Always keep two mechanical groups beside it
+    // so a pump cart, pipe rack, or instrument cannot regress to a plain box.
+    minParts: usesReviewedFallback ? Math.min(3, parts.length) : undefined,
+    sourcePartCount: parts.length,
+  });
+  for (const part of parts) part.geometry.dispose?.();
+  return geometry;
+}
+
 function _showEquipmentAtFar(item, compDef, isFurnishing) {
   if (!compDef || compDef.isRack) return false;
   if (compDef.mount === 'wall' || compDef.mount === 'surface'
@@ -535,6 +662,7 @@ export class EquipmentBuilder {
     this._builtFarSignature = null;
     this._showDetail = true;
     this._buildFarBatches = buildFarBatches;
+    this._farMaterial = null;
   }
 
   /** Public lookup for picking, selection, and incident coordinators. */
@@ -559,7 +687,6 @@ export class EquipmentBuilder {
       mesh.parent?.remove(mesh);
       mesh.dispose?.();
       mesh.geometry?.dispose?.();
-      mesh.material?.dispose?.();
     }
     this._farBatches = [];
     this._builtFarSignature = null;
@@ -609,13 +736,16 @@ export class EquipmentBuilder {
     const matrix = new THREE.Matrix4();
     const yAxis = new THREE.Vector3(0, 1, 0);
     for (const { def, isFurnishing, entries } of buckets.values()) {
-      const geometry = _farEquipmentGeometry(def, isFurnishing);
-      const material = new THREE.MeshStandardMaterial({
+      const geometry = _authoredFarEquipmentGeometry(def, isFurnishing)
+        || _farEquipmentGeometry(def, isFurnishing);
+      this._farMaterial ??= new THREE.MeshStandardMaterial({
         color: 0xffffff,
         vertexColors: true,
         roughness: 0.66,
         metalness: 0.16,
       });
+      this._farMaterial.userData.sharedFarMaterial = true;
+      const material = this._farMaterial;
       const mesh = new THREE.InstancedMesh(geometry, material, entries.length);
       mesh.name = `equipment-far-${entries[0].type}`;
       mesh.userData.batchedEquipment = true;
@@ -623,6 +753,12 @@ export class EquipmentBuilder {
       mesh.userData.lod = 'equipment-far';
       mesh.userData.farSilhouetteKind = geometry.userData.farSilhouetteKind;
       mesh.userData.farPartRoles = geometry.userData.farPartRoles;
+      mesh.userData.farPartCount = geometry.userData.farPartCount || 1;
+      mesh.userData.farPrimitiveCount = geometry.userData.farPrimitiveCount
+        || geometry.userData.farPartCount || 1;
+      mesh.userData.farSourcePartCount = geometry.userData.farSourcePartCount || 1;
+      mesh.userData.farSelectedPartNames = geometry.userData.farSelectedPartNames || [];
+      mesh.userData.farSelectedGroupNames = geometry.userData.farSelectedGroupNames || [];
       mesh.castShadow = false;
       mesh.receiveShadow = true;
       mesh.visible = !this._showDetail;
@@ -651,6 +787,12 @@ export class EquipmentBuilder {
       object.userData.lodHidden = !this._showDetail;
     }
     if (!this._showDetail) this._rebuildFarBatches();
+    for (const mesh of this._farBatches) mesh.visible = !this._showDetail;
+  }
+
+  /** Build dormant far batches before the player reaches the zoom boundary. */
+  prepareFarPresentation() {
+    this._rebuildFarBatches();
     for (const mesh of this._farBatches) mesh.visible = !this._showDetail;
   }
 
@@ -995,6 +1137,8 @@ export class EquipmentBuilder {
     this._meshes = [];
     this._farSource = null;
     this._farSignature = null;
+    this._farMaterial?.dispose?.();
+    this._farMaterial = null;
   }
 }
 

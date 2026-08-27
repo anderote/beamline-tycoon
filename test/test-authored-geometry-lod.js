@@ -30,28 +30,39 @@ test('authored LOD selects exact large primitives with a footprint-scaled group 
 
   const selected = selectLargestAuthoredParts(parts, { footprintArea: 12 });
   assert.deepEqual(selected.map(part => part.name),
-    ['main-body', 'top-plate', 'side-body', 'crossbar'],
+    ['main-body', 'side-body', 'crossbar'],
     'selection is based on the authored primitive bounds, not replacement geometry');
 
   const geometry = buildAuthoredGeometryLod(parts, { footprintArea: 12 });
   assert.equal(geometry.userData.farSilhouetteKind, 'authored-largest-parts');
-  assert.equal(geometry.userData.farPartCount, 4);
-  assert.equal(geometry.userData.farPrimitiveCount, 4);
+  assert.equal(geometry.userData.farPartCount, 3);
+  assert.equal(geometry.userData.farPrimitiveCount, 3);
   assert.equal(geometry.userData.farSourcePartCount, parts.length);
   assert.deepEqual(geometry.userData.farSelectedPartNames,
-    ['main-body', 'top-plate', 'side-body', 'crossbar']);
-  assert.equal(geometry.attributes.position.count, 4 * 36,
+    ['main-body', 'side-body', 'crossbar']);
+  assert.equal(geometry.attributes.position.count, 3 * 36,
     'the merged output contains the selected original boxes exactly');
 
   geometry.dispose();
   for (const part of parts) part.geometry.dispose();
 });
 
-test('large footprints receive a larger minimum assembly budget below the cutoff', () => {
+test('distributed geometry keeps enough groups to reach cumulative coverage', () => {
   const parts = Array.from({ length: 8 }, (_, index) =>
     box(`small-${index}`, [0.08, 0.08, 0.08], [index * 0.1, 0, 0]));
   const selected = selectLargestAuthoredParts(parts, { footprintArea: 100 });
-  assert.equal(selected.length, 5);
+  assert.equal(selected.length, 8);
+  for (const part of parts) part.geometry.dispose();
+});
+
+test('one volume-dominant primitive can represent the whole far silhouette', () => {
+  const parts = [
+    box('dominant-vessel', [5, 4, 3], [0, 2, 0]),
+    ...Array.from({ length: 8 }, (_, index) =>
+      box(`bolt-${index}`, [0.05, 0.05, 0.05], [index * 0.1, 4.1, 0])),
+  ];
+  const selected = selectLargestAuthoredParts(parts, { footprintArea: 20 });
+  assert.deepEqual(selected.map(part => part.name), ['dominant-vessel']);
   for (const part of parts) part.geometry.dispose();
 });
 

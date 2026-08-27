@@ -1,11 +1,12 @@
 // Builds a bounded far-LOD mesh from the largest primitives in an authored
 // model. THREE is provided as a global by the renderer entry point.
 
-const DEFAULT_MIN_PARTS = 3;
+const DEFAULT_MIN_PARTS = 1;
 const DEFAULT_MAX_PARTS = 5;
-const DEFAULT_FOOTPRINT_AREA_RATIO = 0.025;
-const DEFAULT_LARGEST_PART_RATIO = 0.08;
 const DEFAULT_MIN_PRIMITIVES = 18;
+const DEFAULT_COVERAGE_TARGET = 0.76;
+const VOLUME_WEIGHT = 0.72;
+const SILHOUETTE_WEIGHT = 1 - VOLUME_WEIGHT;
 const CHARACTERISTIC_COLOR_ROLES = new Set([
   'accent', 'copper', 'glow', 'coldWater', 'hotWater',
 ]);
@@ -13,11 +14,22 @@ const CHARACTERISTIC_COLOR_ROLES = new Set([
 function footprintBudgets(footprintArea, minParts, maxParts, maxPrimitives) {
   const span = Math.sqrt(Math.max(0, footprintArea));
   return {
-    minGroups: minParts ?? Math.min(5, DEFAULT_MIN_PARTS + Math.floor(span / 3)),
+    minGroups: minParts ?? DEFAULT_MIN_PARTS,
     maxGroups: maxParts ?? Math.min(8, DEFAULT_MAX_PARTS + Math.floor(span / 3)),
     maxPrimitives: maxPrimitives
       ?? Math.min(36, Math.max(DEFAULT_MIN_PRIMITIVES, 12 + Math.round(span * 3))),
   };
+}
+
+function footprintCoverageTarget(footprintArea, configuredTarget) {
+  if (Number.isFinite(configuredTarget)) {
+    return Math.max(0, Math.min(1, configuredTarget));
+  }
+  // A large facility-scale machine earns a little more descriptive geometry.
+  // The logarithm keeps that increase bounded instead of making a 10 m plant
+  // effectively render its full near model.
+  return Math.min(0.9,
+    DEFAULT_COVERAGE_TARGET + Math.log2(1 + Math.max(0, footprintArea)) * 0.015);
 }
 
 function quantizedDimension(value) {
@@ -51,26 +63,27 @@ function partMetrics(part, index) {
   // important even though their enclosed volume is small.
   const apparentArea = size.x * size.y + size.x * size.z + size.y * size.z;
   if (!Number.isFinite(apparentArea)) return null;
-  const selectionScore = apparentArea * Math.max(0, part.importance ?? 1);
-  return { part, index, apparentArea, selectionScore, size };
+  const geometricVolume = size.x * size.y * size.z;
+  if (!Number.isFinite(geometricVolume)) return null;
+  return { part, index, apparentArea, geometricVolume, size };
 }
 
 /**
  * Select the largest authored primitives for a facility-scale model.
  *
- * The footprint cutoff prevents tiny bolts and fittings from consuming the
- * budget on a large machine. The relative cutoff adapts to components whose
- * authored model is intentionally much smaller than its reservation. We keep
- * at least three logical groups when available, scaling to eight for the
- * largest footprints while retaining a separate primitive ceiling.
+ * Logical groups are ranked by the fraction of authored bounding-box volume
+ * and projected silhouette area they explain. We then keep the smallest set
+ * that reaches a footprint-scaled cumulative coverage target. A model whose
+ * form is one dominant vessel can therefore keep one group, while a machine
+ * whose form is distributed across several magnets, tanks, or ribs retains
+ * those groups together. Repeated/rotated copies remain one logical group.
  */
 export function selectLargestAuthoredPartGroups(parts, {
   footprintArea = 1,
   minParts = undefined,
   maxParts = undefined,
   maxPrimitives = undefined,
-  footprintAreaRatio = DEFAULT_FOOTPRINT_AREA_RATIO,
-  largestPartRatio = DEFAULT_LARGEST_PART_RATIO,
+  coverageTarget = undefined,
   requiredGroupKeys = [],
 } = {}) {
   const metrics = (parts || [])
@@ -89,17 +102,30 @@ export function selectLargestAuthoredPartGroups(parts, {
     group.parts.push(metric.part);
     group.metrics.push(metric);
   }
-  const ranked = [...grouped.values()].map(group => {
-    const largest = Math.max(...group.metrics.map(metric => metric.selectionScore));
-    // Repetition is visual evidence of an authored assembly, but grows
-    // sub-linearly so rows of bolts cannot outrank a machine's main vessel.
-    const repetition = 1 + Math.log2(group.parts.length) * 0.55;
-    return { ...group, selectionScore: largest * repetition };
-  }).sort((a, b) => b.selectionScore - a.selectionScore || a.index - b.index);
+  const rawGroups = [...grouped.values()].map(group => ({
+    ...group,
+    geometricVolume: group.metrics.reduce((sum, metric) => sum + metric.geometricVolume, 0),
+    apparentArea: group.metrics.reduce((sum, metric) => sum + metric.apparentArea, 0),
+    importance: Math.max(...group.parts.map(part => Math.max(0, part.importance ?? 1))),
+    bounds: group.metrics.reduce((box, metric) => box.union(metric.part.geometry.boundingBox),
+      new THREE.Box3()),
+  }));
+  const totalVolume = rawGroups.reduce((sum, group) => sum + group.geometricVolume, 0) || 1;
+  const totalArea = rawGroups.reduce((sum, group) => sum + group.apparentArea, 0) || 1;
+  const scored = rawGroups.map(group => ({
+    ...group,
+    selectionScore: (
+      VOLUME_WEIGHT * (group.geometricVolume / totalVolume)
+      + SILHOUETTE_WEIGHT * (group.apparentArea / totalArea)
+    ) * group.importance,
+  }));
+  const totalScore = scored.reduce((sum, group) => sum + group.selectionScore, 0) || 1;
+  const ranked = scored.map(group => ({
+    ...group,
+    coverageShare: group.selectionScore / totalScore,
+  })).sort((a, b) => b.selectionScore - a.selectionScore || a.index - b.index);
 
-  const floor = Math.max(0, footprintArea) * footprintAreaRatio;
-  const relative = ranked[0].selectionScore * largestPartRatio;
-  const cutoff = Math.max(floor, relative);
+  const targetCoverage = footprintCoverageTarget(footprintArea, coverageTarget);
   const budgets = footprintBudgets(footprintArea, minParts, maxParts, maxPrimitives);
   const maximum = Math.min(Math.max(0, budgets.maxGroups), ranked.length);
   const required = Math.min(Math.max(0, budgets.minGroups), maximum);
@@ -120,13 +146,43 @@ export function selectLargestAuthoredPartGroups(parts, {
   for (const key of requiredGroupKeys) {
     trySelect(ranked.find(group => group.key === key), true);
   }
+  let covered = selected.reduce((sum, group) => sum + group.coverageShare, 0);
   for (const group of ranked) {
-    if (group.selectionScore < cutoff) continue;
-    trySelect(group);
+    if (selected.length >= required && covered >= targetCoverage) break;
+    if (trySelect(group)) covered += group.coverageShare;
   }
   for (const group of ranked) {
     if (selected.length >= required) break;
-    trySelect(group, true);
+    if (trySelect(group, true)) covered += group.coverageShare;
+  }
+
+  // Cumulative volume can miss a thin top cap, exhaust, side tank, or long
+  // beam pipe whose small mass materially changes the outline. Grow the bounds
+  // of the selected set toward the full authored bounds, but only with groups
+  // that carry a non-trivial share of the model and fit the same hard budgets.
+  const selectedBounds = new THREE.Box3();
+  for (const group of selected) selectedBounds.union(group.bounds);
+  const fullBounds = rawGroups.reduce((box, group) => box.union(group.bounds), new THREE.Box3());
+  const fullSize = fullBounds.getSize(new THREE.Vector3());
+  const outlinePool = ranked.filter(group => !selected.includes(group)
+    && group.coverageShare >= 0.002);
+  while (outlinePool.length > 0 && selected.length < maximum) {
+    const candidates = outlinePool.map(group => ({
+      group,
+      extension: (
+        Math.max(0, selectedBounds.min.x - group.bounds.min.x) / Math.max(0.001, fullSize.x)
+        + Math.max(0, group.bounds.max.x - selectedBounds.max.x) / Math.max(0.001, fullSize.x)
+        + Math.max(0, selectedBounds.min.y - group.bounds.min.y) / Math.max(0.001, fullSize.y)
+        + Math.max(0, group.bounds.max.y - selectedBounds.max.y) / Math.max(0.001, fullSize.y)
+        + Math.max(0, selectedBounds.min.z - group.bounds.min.z) / Math.max(0.001, fullSize.z)
+        + Math.max(0, group.bounds.max.z - selectedBounds.max.z) / Math.max(0.001, fullSize.z)
+      ),
+    })).sort((a, b) => b.extension - a.extension
+      || b.group.selectionScore - a.group.selectionScore);
+    const best = candidates[0];
+    if (!best || best.extension < 0.02) break;
+    outlinePool.splice(outlinePool.indexOf(best.group), 1);
+    if (trySelect(best.group)) selectedBounds.union(best.group.bounds);
   }
 
   // A modest but characteristic painted/copper/screen assembly can be more
@@ -136,7 +192,7 @@ export function selectLargestAuthoredPartGroups(parts, {
   for (const role of CHARACTERISTIC_COLOR_ROLES) {
     if (selected.some(group => roleOf(group) === role)) continue;
     const candidate = ranked.find(group => roleOf(group) === role);
-    if (!candidate || candidate.selectionScore < cutoff * 0.75) continue;
+    if (!candidate || candidate.coverageShare < 0.002) continue;
     if (selected.length < maximum && trySelect(candidate)) continue;
     const roleTallies = new Map();
     for (const group of selected) {

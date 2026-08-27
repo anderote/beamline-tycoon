@@ -19,8 +19,8 @@ test('Minor Lab far presentation stays within the whole-facility render budget',
     'fixture still exercises the expensive authored scene that prompted the LOD');
   assert.ok(report.far.drawCalls <= 550,
     `far facility stays at or below 550 draws (got ${report.far.drawCalls})`);
-  assert.ok(report.far.renderedTriangles <= 125000,
-    `far facility stays at or below 125k triangles (got ${report.far.renderedTriangles})`);
+  assert.ok(report.far.renderedTriangles <= 140000,
+    `far facility stays at or below 140k triangles (got ${report.far.renderedTriangles})`);
   assert.ok(report.far.shadowDrawCalls <= 60,
     `only structural walls retain far shadows (got ${report.far.shadowDrawCalls})`);
   assert.equal(report.far.detailMeshes, 0, 'no detail-tagged geometry leaks into far zoom');

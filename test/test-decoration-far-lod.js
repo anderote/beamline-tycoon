@@ -84,13 +84,19 @@ test('all decoration and lighting types use an explicit distant-view policy', ()
       continue;
     }
     assert.ok(batch, `${def.id} has a type-specific grounds silhouette`);
-    assert.ok(batch.userData.farPartRoles.length >= 2);
+    assert.equal(batch.userData.farSilhouetteKind, 'authored-largest-parts',
+      `${def.id} must retain original decoration geometry instead of a regex proxy`);
+    assert.ok(batch.userData.farPartRoles.length >= 1);
+    assert.ok(batch.userData.farSourcePartCount >= batch.userData.farPrimitiveCount);
+    assert.ok(batch.userData.farSelectedPartNames.length > 0);
     assert.ok(batch.geometry.attributes.color?.count > 0);
     assert.equal(batch.castShadow, false);
   }
 
   assert.ok([...builder._ordinaryGroupsById.values()].every(group => group.visible === false),
     'authored ordinary decoration meshes are absent from the far render');
+  assert.equal(new Set([...ordinaryBatches.values()].map(batch => batch.material)).size, 1,
+    'ordinary grounds silhouettes share one warmed far material');
   const bench = ordinaryBatches.get('parkBench');
   assert.equal(builder.resolveBatchHit({ object: bench, instanceId: 0 }).nodeId,
     'catalogue-parkBench', 'ordinary far batches retain placeable identity');

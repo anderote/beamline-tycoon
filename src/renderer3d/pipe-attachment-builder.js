@@ -1,8 +1,7 @@
 // Batched renderer for components mounted along beam and utility pipes.
-// Near geometry retains the authored model in a few material batches. Very
-// large facilities also get a silhouette-preserving far path: exact catalogue
-// dimensions, cylinder-vs-cabinet shape, and authored color remain visible,
-// while tiny hardware no longer submits thousands of unseen triangles.
+// Near geometry retains the authored model in a few material batches. Far
+// geometry is exported from those same authored primitives by ComponentBuilder
+// and instanced here; this keeps both runtime ownership paths visually aligned.
 
 import { COMPONENTS } from '../data/components.js';
 import { ComponentBuilder, componentPose, isDetailedComponent } from './component-builder.js';
@@ -15,7 +14,7 @@ function triangles(geometry) {
   return (geometry.index?.count || geometry.attributes.position.count) / 3;
 }
 
-function makeFarGeometry(def, width, height, depth) {
+function makeFallbackFarGeometry(def, width, height, depth) {
   if (def.geometryType === 'cylinder') {
     const radius = width / 2;
     const geometry = new THREE.CylinderGeometry(radius, radius, depth, 12);
@@ -52,6 +51,7 @@ export class PipeAttachmentBuilder {
     this._farBatches = [];
     this._stats = { attachments: 0, nearBatches: 0, farBatches: 0, authoredParts: 0 };
     this._showDetail = true;
+    this._farMaterial = null;
   }
 
   getGroup(id) { return this._meshMap.get(id) || this._ordinary.getGroup(id); }
@@ -193,13 +193,20 @@ export class PipeAttachmentBuilder {
       const width = Math.max(SUB, (def.subW || 2) * SUB);
       const height = Math.max(SUB, (def.subH || 2) * SUB);
       const depth = Math.max(SUB, (def.subL || 2) * SUB);
+      const accentColor = bucket.entries[0]?.comp?.accentColor ?? 0xc62828;
+      const geometry = this._factory.getAuthoredFarGeometry(def, accentColor)
+        || makeFallbackFarGeometry(def, width, height, depth);
+      const usesVertexColors = !!geometry.attributes?.color;
+      this._farMaterial ??= new THREE.MeshStandardMaterial({
+          color: usesVertexColors ? 0xffffff : (def.spriteColor ?? 0x778899),
+          vertexColors: usesVertexColors,
+          roughness: usesVertexColors ? 0.58 : 0.7,
+          metalness: usesVertexColors ? 0.28 : 0.15,
+        });
+      this._farMaterial.userData.sharedFarMaterial = true;
       const mesh = new THREE.InstancedMesh(
-        makeFarGeometry(def, width, height, depth),
-        new THREE.MeshStandardMaterial({
-          color: def.spriteColor ?? 0x778899,
-          roughness: 0.7,
-          metalness: 0.15,
-        }),
+        geometry,
+        this._farMaterial,
         bucket.entries.length,
       );
       mesh.name = `attachment-far-${type}`;
@@ -208,6 +215,14 @@ export class PipeAttachmentBuilder {
       mesh.userData.pipeIds = [];
       mesh.userData.lineIds = [];
       mesh.userData.lod = 'attachment-far';
+      mesh.userData.farSilhouetteKind = geometry.userData?.farSilhouetteKind || 'footprint';
+      mesh.userData.farPartRoles = geometry.userData?.farPartRoles || ['body'];
+      mesh.userData.farPartCount = geometry.userData?.farPartCount || 1;
+      mesh.userData.farPrimitiveCount = geometry.userData?.farPrimitiveCount
+        || geometry.userData?.farPartCount || 1;
+      mesh.userData.farSourcePartCount = geometry.userData?.farSourcePartCount || 1;
+      mesh.userData.farSelectedPartNames = geometry.userData?.farSelectedPartNames || [];
+      mesh.userData.farSelectedGroupNames = geometry.userData?.farSelectedGroupNames || [];
       mesh.castShadow = false;
       mesh.receiveShadow = true;
       const position = new THREE.Vector3();
@@ -268,12 +283,13 @@ export class PipeAttachmentBuilder {
     for (const mesh of this._farBatches) {
       parentGroup?.remove(mesh);
       mesh.dispose?.();
-      mesh.geometry?.dispose?.();
-      mesh.material?.dispose?.();
+      if (!mesh.geometry?.userData?.sharedFarGeometry) mesh.geometry?.dispose?.();
     }
     this._nearBatches = [];
     this._farBatches = [];
     this._meshMap.clear();
     this._stats = { attachments: 0, nearBatches: 0, farBatches: 0, authoredParts: 0 };
+    this._farMaterial?.dispose?.();
+    this._farMaterial = null;
   }
 }

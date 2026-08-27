@@ -9,6 +9,7 @@ import { buildLightFixture, isAimedFixture } from './lighting-builder.js';
 import { fixtureMountY, wallFixturePose } from './fixture-light-math.js';
 import { buildHanging, hasHangingGeometry } from './hanging-builder.js';
 import { contentKey } from './content-hash.js';
+import { buildAuthoredGeometryLod } from './authored-geometry-lod.js';
 
 const SUB = 0.5; // 1 sub-tile = 0.5 world units
 
@@ -2134,6 +2135,48 @@ function _farDecorationGeometry(def) {
   return merged;
 }
 
+function _decorationFarRole(child, material) {
+  const name = child.name || '';
+  if (child.userData?.role === 'glow' || /lamp|light|glow|screen/i.test(name)) return 'glow';
+  if (/wire|cable|conductor/i.test(name)) return 'metal';
+  if (/trunk|wood|bench|table/i.test(name)) return 'surface';
+  if (/post|pole|frame|stand|brace|rail|leg/i.test(name)) return 'frame';
+  if ((material?.metalness ?? 0) > 0.45) return 'metal';
+  return child.userData?.role || 'body';
+}
+
+/** Export the largest original meshes from an already-built decoration. */
+function _authoredFarDecorationGeometry(def, source) {
+  if (!source?.traverse) return null;
+  source.updateMatrixWorld(true);
+  const inverseRoot = source.matrixWorld.clone().invert();
+  const parts = [];
+  source.traverse(child => {
+    if (!child.isMesh || !child.geometry?.attributes?.position) return;
+    const material = Array.isArray(child.material) ? child.material[0] : child.material;
+    const geometry = child.geometry.clone();
+    geometry.applyMatrix4(inverseRoot.clone().multiply(child.matrixWorld));
+    const role = _decorationFarRole(child, material);
+    parts.push({
+      geometry,
+      color: material?.color?.clone?.()
+        || new THREE.Color(def.spriteColor || def.color || 0x748087),
+      role,
+      name: child.name || role,
+      groupKey: child.userData?.lodGroup,
+      importance: child.userData?.lodImportance
+        ?? (role === 'glow' ? 1.35 : 1),
+    });
+  });
+  const geometry = buildAuthoredGeometryLod(parts, {
+    footprintArea: Math.max(0.25, (def.subW ?? 2) * SUB)
+      * Math.max(0.25, (def.subL ?? 2) * SUB),
+    sourcePartCount: parts.length,
+  });
+  for (const part of parts) part.geometry.dispose?.();
+  return geometry;
+}
+
 // --- Public builder class -----------------------------------------------
 
 export class DecorationBuilder {
@@ -2164,6 +2207,7 @@ export class DecorationBuilder {
     this._farOrdinarySource = null;
     this._farOrdinarySignature = null;
     this._builtFarOrdinarySignature = null;
+    this._farOrdinaryMaterial = null;
     /** IDs represented by the current shared plant batches. */
     this._plantIds = new Set();
     this._plantSignature = null;
@@ -2292,7 +2336,6 @@ export class DecorationBuilder {
       mesh.parent?.remove(mesh);
       mesh.dispose?.();
       mesh.geometry?.dispose?.();
-      mesh.material?.dispose?.();
     }
     this._farOrdinaryBatches = [];
     this._builtFarOrdinarySignature = null;
@@ -2336,13 +2379,19 @@ export class DecorationBuilder {
     const matrix = new THREE.Matrix4();
     const yAxis = new THREE.Vector3(0, 1, 0);
     for (const [type, { def, entries }] of buckets) {
-      const geometry = _farDecorationGeometry(def);
-      const material = new THREE.MeshStandardMaterial({
+      const source = entries[0]?.id != null
+        ? this._ordinaryGroupsById.get(entries[0].id)
+        : null;
+      const geometry = _authoredFarDecorationGeometry(def, source)
+        || _farDecorationGeometry(def);
+      this._farOrdinaryMaterial ??= new THREE.MeshStandardMaterial({
         color: 0xffffff,
         vertexColors: true,
         roughness: 0.72,
         metalness: 0.12,
       });
+      this._farOrdinaryMaterial.userData.sharedFarMaterial = true;
+      const material = this._farOrdinaryMaterial;
       const mesh = new THREE.InstancedMesh(geometry, material, entries.length);
       mesh.name = `decoration-far-${type}`;
       mesh.visible = !this._showDetail;
@@ -2353,6 +2402,12 @@ export class DecorationBuilder {
       mesh.userData.batchNodeIds = [];
       mesh.userData.farSilhouetteKind = geometry.userData.farSilhouetteKind;
       mesh.userData.farPartRoles = geometry.userData.farPartRoles;
+      mesh.userData.farPartCount = geometry.userData.farPartCount || 1;
+      mesh.userData.farPrimitiveCount = geometry.userData.farPrimitiveCount
+        || geometry.userData.farPartCount || 1;
+      mesh.userData.farSourcePartCount = geometry.userData.farSourcePartCount || 1;
+      mesh.userData.farSelectedPartNames = geometry.userData.farSelectedPartNames || [];
+      mesh.userData.farSelectedGroupNames = geometry.userData.farSelectedGroupNames || [];
       for (let index = 0; index < entries.length; index++) {
         const dec = entries[index];
         const p = decorationPlacement(dec);
@@ -2712,6 +2767,12 @@ export class DecorationBuilder {
     for (const mesh of this._farOrdinaryBatches) mesh.visible = !this._showDetail;
   }
 
+  /** Build dormant ordinary silhouettes during an idle startup slice. */
+  prepareFarPresentation() {
+    this._rebuildFarOrdinaryBatches();
+    for (const mesh of this._farOrdinaryBatches) mesh.visible = !this._showDetail;
+  }
+
   /**
    * Build decoration groups from snapshot data.
    * @param {Array} decorationData - Array of decoration objects from WorldSnapshot
@@ -2842,6 +2903,8 @@ export class DecorationBuilder {
     for (const material of this._farPlantMaterials.values()) material.dispose?.();
     this._plantBatchMaterials.clear();
     this._farPlantMaterials.clear();
+    this._farOrdinaryMaterial?.dispose?.();
+    this._farOrdinaryMaterial = null;
     for (const id of [...this._ordinaryGroupsById.keys()]) {
       this._disposeOrdinaryDecoration(id, parentGroup);
     }

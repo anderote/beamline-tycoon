@@ -269,6 +269,22 @@ const AUTHORED_FAR_ROLE_IMPORTANCE = Object.freeze({
 // primitives; these profiles only prevent a defining assembly from losing to
 // a broad but visually generic plate in the size ranking.
 const AUTHORED_FAR_COMPONENT_PROFILES = Object.freeze({
+  elevatedWireTray: Object.freeze({
+    minParts: 5,
+    maxParts: 5,
+  }),
+  coolingTower: Object.freeze({
+    minParts: 6,
+    maxParts: 6,
+  }),
+  waterTank: Object.freeze({
+    minParts: 2,
+    maxParts: 2,
+  }),
+  bulkWaterTank: Object.freeze({
+    minParts: 2,
+    maxParts: 2,
+  }),
   quadrupole: Object.freeze({
     minParts: 4,
     maxParts: 4,
@@ -5078,6 +5094,7 @@ export class ComponentBuilder {
     this._showDetail = true;
     this._buildFarBatches = buildFarBatches;
     this._farGeometryCache = new Map();
+    this._farMaterialCache = new Map();
   }
 
   /** Public lookup for picking/selection coordinators. */
@@ -5098,12 +5115,35 @@ export class ComponentBuilder {
       mesh.parent?.remove(mesh);
       mesh.dispose?.();
       if (!mesh.geometry?.userData?.sharedFarGeometry) mesh.geometry?.dispose?.();
-      mesh.material?.dispose?.();
     }
     this._farBatches = [];
   }
 
-  _getAuthoredFarGeometry(def, color, sourceObject) {
+  _farMaterial(usesVertexColors, color, opacity) {
+    const key = `${usesVertexColors ? 'vertex' : color}|${opacity}`;
+    let material = this._farMaterialCache.get(key);
+    if (material) return material;
+    material = new THREE.MeshStandardMaterial({
+      color: usesVertexColors ? 0xffffff : color,
+      vertexColors: usesVertexColors,
+      roughness: usesVertexColors ? 0.58 : 0.7,
+      metalness: usesVertexColors ? 0.28 : 0.15,
+      transparent: opacity < 1,
+      opacity,
+      depthWrite: opacity >= 1,
+    });
+    material.userData.sharedFarMaterial = true;
+    this._farMaterialCache.set(key, material);
+    return material;
+  }
+
+  /**
+   * Return the cached far-LOD geometry exported from this component's
+   * authored visual. PipeAttachmentBuilder uses the same public factory so
+   * on-pipe magnets and cavities cannot silently fall back to catalogue
+   * cylinders while free-grid modules use their real geometry.
+   */
+  getAuthoredFarGeometry(def, color, sourceObject = null) {
     const key = `${def.id || 'unknown'}|${color}`;
     let geometry = this._farGeometryCache.get(key);
     if (geometry) return geometry;
@@ -5153,19 +5193,11 @@ export class ComponentBuilder {
       const typeAwareInfrastructure = category === 'infrastructure';
       const typeAware = typeAwareBeamline || typeAwareInfrastructure;
       const geometry = typeAware
-        ? (this._getAuthoredFarGeometry(def, color, entries[0]?.obj)
+        ? (this.getAuthoredFarGeometry(def, color, entries[0]?.obj)
           || _farComponentGeometry(def, width, height, depth))
         : _farComponentGeometry(def, width, height, depth);
       const usesVertexColors = !!geometry.attributes?.color;
-      const material = new THREE.MeshStandardMaterial({
-        color: usesVertexColors ? 0xffffff : color,
-        vertexColors: usesVertexColors,
-        roughness: usesVertexColors ? 0.58 : 0.7,
-        metalness: usesVertexColors ? 0.28 : 0.15,
-        transparent: opacity < 1,
-        opacity,
-        depthWrite: opacity >= 1,
-      });
+      const material = this._farMaterial(usesVertexColors, color, opacity);
       const mesh = new THREE.InstancedMesh(
         geometry, material, entries.length,
       );
@@ -5518,6 +5550,8 @@ export class ComponentBuilder {
     this._disposeFarBatches();
     for (const geometry of this._farGeometryCache.values()) geometry.dispose?.();
     this._farGeometryCache.clear();
+    for (const material of this._farMaterialCache.values()) material.dispose?.();
+    this._farMaterialCache.clear();
     for (const [, obj] of this._meshMap) {
       if (obj.parent) obj.parent.remove(obj);
       else if (parentGroup) parentGroup.remove(obj);

@@ -178,6 +178,7 @@ import {
 import { precompileWorldPipelines } from './interaction-pipeline-warmup.js';
 import { releaseGraphicsForReload } from './reload-graphics-release.js';
 import { WorldInvalidationScheduler } from './world-invalidation-scheduler.js';
+import { LodPreparationScheduler } from './lod-preparation-scheduler.js';
 import { selectionTargetsForState } from '../game/selection-targets.js';
 import { LandPurchaseMarkers } from './land-purchase-markers.js';
 import { beamlineStatusPresentation } from './selected-beamline-focus.js';
@@ -283,6 +284,7 @@ export class ThreeRenderer {
     this._framePacer = null;
     this._frameRenderPolicy = null;
     this._ambientElectricalSparks = new AmbientElectricalSparkScheduler();
+    this._lodPreparationScheduler = new LodPreparationScheduler({ scope: window });
 
     this.renderer = null;
     this.scene = null;
@@ -5123,6 +5125,21 @@ export class ThreeRenderer {
     return true;
   }
 
+  /**
+   * Build dormant CPU-side LOD batches one subsystem per browser-idle slice.
+   * This removes the only measurable JavaScript work from the first boundary
+   * crossing without moving an 11 ms all-at-once build onto startup's critical
+   * path. GPU pipeline admission remains demand-driven on native WebGPU; bulk
+   * compiling both complete scene variants was the source of earlier Chrome
+   * GPU-process failures.
+   */
+  prepareLodPresentations() {
+    return this._lodPreparationScheduler.schedule([
+      this.equipmentBuilder,
+      this.decorationBuilder,
+    ]);
+  }
+
   _currentWorldDetail() {
     if (!this._lodObjectsEnabled) return true;
     return worldDetailForZoom(
@@ -5491,6 +5508,7 @@ export class ThreeRenderer {
     this.applySnapshot(snapshot);
     if (this.staffPawns) this.staffPawns.sync();
     this.landPurchaseMarkers?.sync();
+    this.prepareLodPresentations();
   }
 
   /**
@@ -5904,6 +5922,7 @@ export class ThreeRenderer {
     });
     this.equipmentBuilder.setDetailLevel(this._currentWorldDetail());
     this._effectSystem?.syncSurfaceGlows('equipment', this.equipmentGroup);
+    this.prepareLodPresentations();
   }
 
   _refreshDecorations(changeSet = null) {
@@ -5914,6 +5933,7 @@ export class ThreeRenderer {
       changes: contextualChange ? null : changeSet?.placeables || null,
     });
     this.decorationBuilder.setDetailLevel(this._currentWorldDetail());
+    this.prepareLodPresentations();
     if (!result?.lightingChanged) return;
     this.lightingGroup = this.decorationBuilder.getLightingFixtures();
     this._rebuildLightPools();
@@ -6564,6 +6584,7 @@ export class ThreeRenderer {
   }
 
   dispose() {
+    this._lodPreparationScheduler.cancel();
     this._worldInvalidationScheduler?.clear();
     if (this._animFrameId !== null) {
       cancelAnimationFrame(this._animFrameId);
@@ -6624,6 +6645,7 @@ export class ThreeRenderer {
    * GPU devices from overlapping during New Game.
    */
   prepareForReload() {
+    this._lodPreparationScheduler.cancel();
     this.renderingSuspended = true;
     this._worldInvalidationScheduler?.clear();
     if (this._animFrameId !== null) {
