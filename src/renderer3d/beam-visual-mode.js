@@ -18,6 +18,62 @@ function clamp01(value) {
   return Math.max(0, Math.min(1, value));
 }
 
+function elementLengthMeters(element) {
+  const subL = Number(element?.subL);
+  return Number.isFinite(subL) && subL >= 0 ? subL * 0.5 : 0;
+}
+
+/**
+ * The rendered beam starts at the source's exit port and ends at the final
+ * pipe/endpoint entrance.  Physics, however, includes the full source and
+ * endpoint bodies on its s-axis.  Locate the interval the world-space route
+ * actually represents so RF changes do not appear one source-length late.
+ */
+function renderedBeamWindow(elements, fallbackEnd) {
+  const pathElements = (Array.isArray(elements) ? elements : [])
+    .filter(element => element?.kind !== 'module'
+      && Number.isFinite(element?.beamStart));
+  if (!pathElements.length) return { start: 0, end: fallbackEnd };
+
+  const first = pathElements[0];
+  const last = pathElements[pathElements.length - 1];
+  const start = Math.max(0, first.beamStart);
+  const end = Math.max(start, last.beamStart + elementLengthMeters(last));
+  return end > start ? { start, end } : { start: 0, end: fallbackEnd };
+}
+
+function normalizedRenderedPosition(s, window) {
+  const length = window.end - window.start;
+  if (!(length > 0)) return 0;
+  return clamp01((s - window.start) / length);
+}
+
+function hardwareFallbackProfile(elements, window, fallbackMode) {
+  if (fallbackMode !== 'bunched') return null;
+  const buncher = (Array.isArray(elements) ? elements : [])
+    .find(element => BUNCHING_COMPONENTS.has(element?.type)
+      && Number.isFinite(element?.beamStart));
+  if (!buncher || !(window.end > window.start)) return null;
+
+  const startU = normalizedRenderedPosition(buncher.beamStart, window);
+  const endU = normalizedRenderedPosition(
+    buncher.beamStart + elementLengthMeters(buncher), window,
+  );
+  const speed = beamVisualSpeed();
+  const startsBeforeRoute = buncher.beamStart < window.start;
+  const profile = [
+    { u: 0, beta: DEFAULT_VISUAL_BETA, speed, bunch: startsBeforeRoute ? 1 : 0 },
+  ];
+  if (startU > 0) profile.push({ u: startU, beta: DEFAULT_VISUAL_BETA, speed, bunch: 0 });
+  if (endU > startU) {
+    profile.push({ u: endU, beta: DEFAULT_VISUAL_BETA, speed, bunch: 1 });
+  }
+  if (profile[profile.length - 1].u < 1) {
+    profile.push({ u: 1, beta: DEFAULT_VISUAL_BETA, speed, bunch: 1 });
+  }
+  return profile;
+}
+
 /**
  * Map a published beam current to a readable, non-zero visual brightness.
  * The floor is intentional: a weak but surviving beam should remain visible
@@ -112,22 +168,24 @@ export function beamVisualMode(beamlineType, elements = []) {
 export function beamVisualProfile(beamlineType, elements = [], envelope = []) {
   const fallbackMode = beamVisualMode(beamlineType, elements);
   const fallbackBunch = fallbackMode === 'bunched' ? 1 : 0;
-  const fallback = () => ([
-    { u: 0, beta: DEFAULT_VISUAL_BETA, speed: beamVisualSpeed(), bunch: fallbackBunch },
-    { u: 1, beta: DEFAULT_VISUAL_BETA, speed: beamVisualSpeed(), bunch: fallbackBunch },
-  ]);
 
   const samples = (Array.isArray(envelope) ? envelope : [])
     .filter(sample => Number.isFinite(sample?.s) && sample.s >= 0)
     .slice()
     .sort((a, b) => a.s - b.s);
-  if (samples.length < 2) return fallback();
-
-  const maxS = samples[samples.length - 1].s;
-  if (!(maxS > 0)) return fallback();
-
+  const maxS = samples.length ? samples[samples.length - 1].s : 0;
+  const window = renderedBeamWindow(elements, maxS);
   const forcedPackets = Number.isFinite(beamlineType?.dutyFactor)
     && beamlineType.dutyFactor < 0.75;
+  const fallback = () => (!forcedPackets
+    && hardwareFallbackProfile(elements, window, fallbackMode)) || ([
+    { u: 0, beta: DEFAULT_VISUAL_BETA, speed: beamVisualSpeed(), bunch: fallbackBunch },
+    { u: 1, beta: DEFAULT_VISUAL_BETA, speed: beamVisualSpeed(), bunch: fallbackBunch },
+  ]);
+  if (samples.length < 2) return fallback();
+
+  if (!(window.end > window.start)) return fallback();
+
   const hasPublishedBunching = samples.some(sample =>
     Object.prototype.hasOwnProperty.call(sample, 'bunch_frequency'));
   const massGeV = particleMassGeV(beamlineType);
@@ -144,7 +202,7 @@ export function beamVisualProfile(beamlineType, elements = [], envelope = []) {
         ? (Number(sample.bunch_frequency) > 0 ? 1 : 0)
         : fallbackBunch);
     const next = {
-      u: clamp01(sample.s / maxS),
+      u: normalizedRenderedPosition(sample.s, window),
       beta,
       speed: beamVisualSpeed(beta),
       bunch,

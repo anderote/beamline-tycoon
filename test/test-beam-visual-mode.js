@@ -51,6 +51,41 @@ assert(sampleBeamVisualProfile(mixedProfile, 0.5).bunch === 0
     && sampleBeamVisualProfile(mixedProfile, 0.8).bunch === 1,
   'CW presentation changes to indicative packets after bunch capture');
 
+const routedElements = [
+  { kind: 'module', type: 'ionSource', beamStart: 0, subL: 4 },
+  { kind: 'drift', beamStart: 2, subL: 4 },
+  { kind: 'placement', type: 'buncher', beamStart: 4, subL: 2 },
+  { kind: 'drift', beamStart: 5, subL: 10 },
+  { kind: 'module', type: 'detector', beamStart: 10, subL: 4 },
+];
+const routedProfile = beamVisualProfile(
+  { dutyFactor: 1, particle: 'p+' },
+  routedElements,
+  [
+    { s: 0, rel_beta: 0.05, bunch_frequency: 0 },
+    { s: 4, rel_beta: 0.10, bunch_frequency: 0 },
+    { s: 4.5, rel_beta: 0.11, bunch_frequency: 162.5e6 },
+    { s: 12, rel_beta: 0.30, bunch_frequency: 162.5e6 },
+  ],
+);
+assert(sampleBeamVisualProfile(routedProfile, 0.24).bunch === 0,
+  'source-body physics length does not move bunching ahead of its hardware');
+assert(sampleBeamVisualProfile(routedProfile, 0.34).bunch === 1,
+  'physics capture inside a buncher is rendered inside that buncher, not downstream');
+
+const fallbackRoutedProfile = beamVisualProfile(
+  { dutyFactor: 1, particle: 'p+' }, routedElements, [],
+);
+assert(sampleBeamVisualProfile(fallbackRoutedProfile, 0.24).bunch === 0
+    && sampleBeamVisualProfile(fallbackRoutedProfile, 0.38).bunch === 1,
+  'hardware fallback transitions through the buncher instead of bunching the whole line');
+
+const pulsedFallbackProfile = beamVisualProfile(
+  { dutyFactor: 0.05, particle: 'p+' }, routedElements, [],
+);
+assert(pulsedFallbackProfile.every(sample => sample.bunch === 1),
+  'low-duty fallback remains pulsed before and after bunching hardware');
+
 const pulsedProfile = beamVisualProfile(
   { dutyFactor: 0.05, particle: 'p+' },
   [],
