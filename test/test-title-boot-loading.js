@@ -45,7 +45,7 @@ test('optional decoration textures do not block TitleScreen.ready', () => {
   assert.doesNotMatch(initBody, /loadDecorationManifest|hydrateDeferredAssets/);
 
   const readyAt = main.indexOf('    titleScreen.ready({');
-  const hydrateAt = main.indexOf('  renderer.hydrateDeferredAssets()');
+  const hydrateAt = main.indexOf('renderer.hydrateDeferredAssets()');
   assert.ok(readyAt >= 0 && hydrateAt > readyAt,
     'deferred texture hydration starts only after the title gate is usable');
   assert.match(renderer,
@@ -60,8 +60,8 @@ test('the opaque title gate suspends hidden 3D frame submission', () => {
     /if \(this\.renderingSuspended\) \{[\s\S]*this\._lastAnimTime = performance\.now\(\);[\s\S]*return;/,
     'the animation loop yields before hidden world and GPU work');
   assert.match(main,
-    /titleScreen\.dismiss = \(\.\.\.args\) => \{[\s\S]*renderer\.setRenderingSuspended\(false\);/,
-    'the world resumes when the title is dismissed');
+    /titleScreen\.dismiss = \(\.\.\.args\) => \{[\s\S]*deferredPresentationReady[\s\S]*renderer\.prepareInteractiveLod\(\)[\s\S]*renderer\.setRenderingSuspended\(false\);/,
+    'both LOD sides finish warming before the title releases the world');
   assert.match(main, /renderer\.renderPreparedWorldFrame\(\)/,
     'native WebGPU submits one prepared final-world frame behind the title');
 });

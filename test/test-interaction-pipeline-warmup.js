@@ -48,7 +48,7 @@ test('boot builds the final world before one ordinary prepared title frame', () 
   assert.ok(restoredView >= 0 && restoredView < refresh,
     'the final world refresh follows restored camera configuration');
   assert.ok(refresh < preparedFrame && preparedFrame < restoredProbe,
-    'one normal frame follows the final build without a second pipeline warmup');
+    'one normal frame follows the final build before deferred presentation work');
   assert.doesNotMatch(source, /prewarmInteractionPipelines|createInteractionPipelineWarmup/,
     'startup never bulk-compiles the direct camera-motion pipeline family');
 });

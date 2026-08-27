@@ -369,6 +369,15 @@ export class TitleScreen {
     if (this._userReady && !this._pendingReady) this._applyLoadingStatus();
   }
 
+  /** Keep the opaque input gate visible while final renderer work drains. */
+  showFinalizing(message = 'Finalizing graphics...') {
+    if (this._dismissed) return;
+    this.setLoadingStatus(message);
+    this.menuEl.classList.add('hidden');
+    this.loadingEl.classList.remove('hidden');
+    this._applyLoadingStatus();
+  }
+
   _applyLoadingStatus() {
     if (this.loadingEl.firstChild?.nodeType === Node.TEXT_NODE) {
       this.loadingEl.firstChild.textContent = this._loadingStatus;
