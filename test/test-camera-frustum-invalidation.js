@@ -100,3 +100,13 @@ test('camera motion uses the backend-safe render path and defers shadow refreshe
       `${name} extends the motion-quality window`);
   }
 });
+
+test('camera motion preserves world fidelity outside real zoom-boundary crossings', () => {
+  const lod = methodBody('_updateLOD', '_updateSunCycle');
+  assert.match(lod, /const showDetail = this\._currentWorldDetail\(\);/,
+    'world detail is selected exclusively by the hysteretic zoom policy');
+  assert.doesNotMatch(lod, /motionWorldFar/,
+    'panning, orbiting, and ordinary close-zoom motion never force every object to far LOD');
+  assert.match(lod, /const motionUtilityFar = staged && cameraMoving/,
+    'the dense utility-only safeguard remains isolated from visible world-object fidelity');
+});

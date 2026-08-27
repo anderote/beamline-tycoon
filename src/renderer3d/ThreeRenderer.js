@@ -5255,19 +5255,15 @@ export class ThreeRenderer {
    */
   _updateLOD({ staged = false, advance = true, cameraMoving = false } = {}) {
     let transitionStep = null;
-    // Camera projection changes are the worst time to carry thousands of
-    // authored draw submissions. Collapse to the complete far presentation
-    // immediately for every pan/zoom/orbit gesture, then restore the zoom-
-    // appropriate detail through the gated queue after motion settles.
-    const motionWorldFar = staged && cameraMoving && this._lodObjectsEnabled;
-    const showDetail = motionWorldFar ? false : this._currentWorldDetail();
+    // Panning and orbiting must not change object fidelity. Only an actual
+    // zoom-boundary crossing selects a new world presentation, and the
+    // expensive admission of that presentation waits in the gated queue
+    // until the gesture settles.
+    const showDetail = this._currentWorldDetail();
     if (showDetail !== this._lastLodDetail) {
       this._lastLodDetail = showDetail;
       const steps = this._worldLodTransitionSteps(showDetail);
-      if (motionWorldFar) {
-        this._lodTransitionQueue.removeGroup('world');
-        for (const step of steps) step.apply();
-      } else if (staged) this._lodTransitionQueue.replaceGroup('world', steps);
+      if (staged) this._lodTransitionQueue.replaceGroup('world', steps);
       else {
         this._lodTransitionQueue.removeGroup('world');
         this._lodTransitionGpuReady = true;
