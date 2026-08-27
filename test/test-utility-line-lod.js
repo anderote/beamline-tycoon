@@ -149,6 +149,52 @@ test('every utility keeps its route silhouette while far detail is suppressed', 
   builder.dispose(parent);
 });
 
+test('dense utility detail is restored in bounded chunks without route holes', () => {
+  const builder = new UtilityLineBuilderV2();
+  const parent = new THREE_NS.Group();
+  const utilityTypes = ['vacuumPipe', 'rfWaveguide', 'waterSupplyPipe'];
+  const lines = new Map(utilityTypes.map((utilityType, index) => {
+    const record = line(`chunk-${utilityType}`, utilityType, index * 2);
+    return [record.id, record];
+  }));
+
+  builder.setDetailLevel(false);
+  builder.build(lines, new Map(), parent);
+  const detailByLine = utilityTypes.map(utilityType => {
+    const group = builder._lineGroups.get(`chunk-${utilityType}`);
+    return collect(group, object => object.userData?.utilityLodRole === 'detail');
+  });
+  const farBatches = parent.children.filter(child => child.userData?.isUtilityFarRouteBatch);
+  assert.ok(farBatches.some(effectivelyVisible), 'far routes begin visible');
+
+  const entering = builder.createDetailTransitionSteps(true, { lineChunkSize: 1 });
+  assert.equal(entering.filter(step => step.id.startsWith('utility-lines-')).length, 3,
+    'one-line test chunks expose the requested bounded work units');
+  entering[0].apply();
+  assert.ok(detailByLine[0].some(effectivelyVisible), 'the first detail chunk is admitted');
+  assert.ok(detailByLine.slice(1).every(objects => objects.every(object => !effectivelyVisible(object))),
+    'later detail chunks stay hidden');
+  assert.ok(farBatches.some(effectivelyVisible),
+    'merged route silhouettes remain visible during the partial transition');
+  for (const step of entering.slice(1)) step.apply();
+  assert.ok(detailByLine.every(objects => objects.some(effectivelyVisible)),
+    'all authored detail is visible after the final chunk');
+  assert.ok(farBatches.every(batch => !effectivelyVisible(batch)),
+    'the completed near presentation removes the merged route overlap');
+
+  const leaving = builder.createDetailTransitionSteps(false, { lineChunkSize: 1 });
+  leaving[0].apply();
+  assert.ok(farBatches.some(effectivelyVisible),
+    'zooming out exposes merged routes before hiding detail chunks');
+  for (const step of leaving.slice(1)) step.apply();
+  assert.ok(detailByLine.every(objects => objects.every(object => !effectivelyVisible(object))),
+    'the completed far presentation hides all authored utility detail');
+  assert.ok(farBatches.some(effectivelyVisible),
+    'the completed far presentation retains its route silhouette');
+
+  builder.dispose(parent);
+});
+
 test('far HV cable tessellation preserves horizontal and vertical route orientation', () => {
   const builder = new UtilityLineBuilderV2();
   const parent = new THREE_NS.Group();

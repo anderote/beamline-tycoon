@@ -3280,16 +3280,63 @@ export class UtilityLineBuilderV2 {
    * and flexible-line tessellation as one coordinated zoom presentation.
    */
   setDetailLevel(showDetail) {
+    for (const step of this.createDetailTransitionSteps(showDetail)) step.apply();
+  }
+
+  /**
+   * Break a dense utility-detail swap into bounded GPU-admission families.
+   * The renderer runs one returned step only after the previous step's frame
+   * has completed. Entering detail retains the merged far routes until all
+   * line chunks are ready; leaving detail exposes the far routes first, so a
+   * partially completed transition never creates holes in the network.
+   */
+  createDetailTransitionSteps(showDetail, { lineChunkSize = 32 } = {}) {
     const next = !!showDetail;
-    this._showDetail = next;
-    for (const group of this._lineGroups.values()) {
-      applyUtilityDetailLevel(group, next);
+    const chunks = [];
+    const groups = [...this._lineGroups.values()];
+    const chunkSize = Math.max(1, Math.floor(lineChunkSize || 32));
+    let stateApplied = false;
+    const applyState = () => {
+      if (stateApplied) return;
+      stateApplied = true;
+      this._showDetail = next;
+    };
+    for (let start = 0; start < groups.length; start += chunkSize) {
+      const slice = groups.slice(start, start + chunkSize);
+      chunks.push({
+        id: `utility-lines-${start / chunkSize}`,
+        apply: () => {
+          applyState();
+          for (const group of slice) applyUtilityDetailLevel(group, next);
+        },
+      });
     }
-    for (const group of this._busGroups.values()) {
-      applyUtilityDetailLevel(group, next);
-    }
-    applyUtilityDetailLevel(this._rigidSupportGroup, next);
-    this._syncFarRoutePresentation();
+    const infrastructure = {
+      id: 'utility-infrastructure',
+      apply: () => {
+        applyState();
+        for (const group of this._busGroups.values()) applyUtilityDetailLevel(group, next);
+        applyUtilityDetailLevel(this._rigidSupportGroup, next);
+      },
+    };
+    const farRoutes = id => ({
+      id,
+      apply: () => {
+        applyState();
+        this._syncFarRoutePresentation();
+      },
+    });
+    return next
+      ? [...chunks, infrastructure, farRoutes('utility-far-routes')]
+      : [
+        farRoutes('utility-far-routes'),
+        infrastructure,
+        ...chunks,
+        // applyUtilityDetailLevel exposes per-line far geometry while it
+        // hides fittings. Reassert the merged-source policy after every
+        // chunk so the final scene retains only the facility-wide batches.
+        farRoutes('utility-far-routes-final'),
+      ];
   }
 
   _buildUtilityBuses(buses, parentGroup) {

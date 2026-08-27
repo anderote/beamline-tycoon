@@ -127,8 +127,9 @@ assert.deepEqual(WORLD_LAYER_IDS, [
     'adaptive object detail is enabled before the first rendered frame');
   assert.match(renderer, /_currentWorldDetail\(\)\s*\{\s*if \(!this\._lodObjectsEnabled\) return true;/,
     'the Layers switch can still disable world LOD transitions');
-  assert.match(renderer, /const showUtilityDetail = this\._lodObjectsEnabled[\s\S]*: true;/,
-    'the Layers switch controls utility LOD transitions too');
+  assert.match(renderer,
+    /const showUtilityDetail = motionUtilityFar[\s\S]{0,200}: \(this\._lodObjectsEnabled[\s\S]{0,200}utilityDetailForZoom[\s\S]{0,200}: true\);/,
+    'the Layers switch controls utility LOD transitions even through the motion queue');
 }
 
 console.log('scene layer visibility contract passed');
