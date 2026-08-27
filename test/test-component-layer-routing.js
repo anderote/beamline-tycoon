@@ -107,6 +107,27 @@ test('far component presentation batches instances without losing picking ids', 
   builder.dispose(parent);
 });
 
+test('authored far geometry stays local when its first live source is off-origin', () => {
+  const localCenterAt = (col) => {
+    const parent = new THREE.Group();
+    const beamline = new THREE.Group();
+    parent.add(beamline);
+    const builder = new ComponentBuilder();
+    builder.build([
+      component(`source-${col}`, 'beamline', col, 'thermionicGun'),
+    ], parent, { categoryGroups: { beamline } });
+    const center = farType(beamline, 'thermionicGun').metadata.localBounds
+      .getCenter(new THREE.Vector3());
+    builder.dispose(parent);
+    return center;
+  };
+
+  const origin = localCenterAt(0);
+  const translated = localCenterAt(18);
+  assert.ok(origin.distanceTo(translated) < 1e-6,
+    'the cached silhouette excludes the first source instance world transform');
+});
+
 test('far beamline presentation is derived from a bounded set of authored primitives', () => {
   const parent = new THREE.Group();
   const beamline = new THREE.Group();

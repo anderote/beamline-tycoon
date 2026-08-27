@@ -83,5 +83,50 @@ test('title-screen Minor Lab reuses one renderer without a second page boot', as
   expect(after.started).toBe(true);
 
   await expectRendererLive(page);
-  errors.checkAll('title-screen Minor Lab startup');
+
+  // Reproduce the player's restart at the formerly dangerous object-detail
+  // boundary. The saved camera must come back at the same zoom without hiding
+  // the restored world or wedging the renderer behind an updating light field.
+  await page.evaluate(() => {
+    window._renderer.zoom = 2.3;
+    window._renderer._updateCameraLookAt?.();
+    window._renderer._updateLOD();
+    window.game.save();
+  });
+  const saved = await page.evaluate(() => {
+    const payload = JSON.parse(localStorage.getItem('beamlineTycoon'));
+    return {
+      placeables: payload.state.placeables.length,
+      beamlines: payload.beamlines.entries.length,
+      zoom: payload.aux.view.zoom,
+    };
+  });
+  expect(saved.placeables).toBe(after.placeables);
+  expect(saved.beamlines).toBe(after.beamlines);
+  expect(saved.zoom).toBe(2.3);
+
+  // A browser restart must restore the scenario behind the title. This is a
+  // distinct lifecycle from the in-place start above: startup load rebuilds
+  // the final world once, then Continue only releases the render gate.
+  await page.reload();
+  await page.mouse.click(720, 450);
+  await waitForBoot(page, 300_000);
+  await expect(page.getByRole('button', { name: 'Continue', exact: true }))
+    .toBeVisible({ timeout: 300_000 });
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(page.locator('#title-screen')).toHaveCount(0, { timeout: 300_000 });
+  await page.waitForFunction(({ placeables, beamlines }) => (
+    window.game?.state?.placeables?.length === placeables
+      && window.game?.registry?.getAll?.().length === beamlines
+      && window._renderer?.renderingSuspended === false
+  ), saved, { timeout: 300_000 });
+
+  const restored = await page.evaluate(() => ({
+    placeables: window.game.state.placeables.length,
+    beamlines: window.game.registry.getAll().length,
+    zoom: window._renderer.zoom,
+  }));
+  expect(restored).toEqual(saved);
+  await expectRendererLive(page);
+  errors.checkAll('title-screen Minor Lab startup and restart/Continue');
 });

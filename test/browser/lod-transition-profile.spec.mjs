@@ -80,6 +80,7 @@ test.describe('Minor Lab native WebGPU LOD transition', () => {
         const activeLightsBefore = lights();
         const start = performance.now();
         renderer.zoom = zoom;
+        renderer._updateCameraLookAt?.();
         renderer._updateLOD();
         const jsMs = performance.now() - start;
         await nextPaint();
@@ -102,12 +103,20 @@ test.describe('Minor Lab native WebGPU LOD transition', () => {
       const restoreNear = await cross(2.3);
       const warmFar = await cross(1.7);
       const warmNear = await cross(2.3);
+      const utilityNear = await cross(3.2);
+      const utilityFar = await cross(2.3);
+      const warmUtilityNear = await cross(3.2);
+      const warmUtilityFar = await cross(2.3);
       return {
         backend: renderer.usesNativeWebGPU?.() ? 'webgpu' : 'webgl',
         coldFar,
         restoreNear,
         warmFar,
         warmNear,
+        utilityNear,
+        utilityFar,
+        warmUtilityNear,
+        warmUtilityFar,
       };
     });
 
@@ -124,11 +133,22 @@ test.describe('Minor Lab native WebGPU LOD transition', () => {
       .toBeLessThan(300);
     expect(profile.warmFar.paintedMs, 'warm far transition avoids a visible stall').toBeLessThan(500);
     expect(profile.warmNear.paintedMs, 'warm near transition avoids a visible stall').toBeLessThan(500);
+    expect(profile.utilityNear.paintedMs,
+      'tightly zoomed utility detail avoids saturating the GPU queue').toBeLessThan(1000);
+    expect(profile.utilityFar.paintedMs,
+      'returning to merged utility routes avoids a visible stall').toBeLessThan(500);
+    expect(profile.warmUtilityNear.paintedMs,
+      'repeated utility detail crossings remain smooth').toBeLessThan(500);
+    expect(profile.warmUtilityFar.paintedMs,
+      'repeated utility merge crossings remain smooth').toBeLessThan(500);
     expect(profile.coldFar.activeLightsAfter,
       'equipment/screen lights remain stable across the far boundary')
       .toBe(profile.coldFar.activeLightsBefore);
     expect(profile.restoreNear.activeLightsAfter,
       'lights remain stable when authored detail returns')
       .toBe(profile.restoreNear.activeLightsBefore);
+    expect(profile.utilityNear.activeLightsAfter,
+      'utility construction detail does not rebuild the light field')
+      .toBe(profile.utilityNear.activeLightsBefore);
   });
 });
