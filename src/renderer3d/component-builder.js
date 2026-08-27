@@ -5014,11 +5014,20 @@ function _visualPartColor(material, fallbackColor) {
 function _partsFromAuthoredVisual(visual, fallbackColor) {
   const parts = [];
   visual.updateMatrixWorld?.(true);
+  // `visual` may be the live wrapper of an already placed component. Extract
+  // child transforms relative to that wrapper, never relative to the scene.
+  // Baking matrixWorld directly here stores the first instance's placement in
+  // the cached type geometry; the far batch then applies the placement again,
+  // making a source visibly jump when the LOD boundary is crossed.
+  const rootWorldInverse = visual.matrixWorld?.clone?.().invert?.()
+    || new THREE.Matrix4();
+  const localMatrix = new THREE.Matrix4();
   visual.traverse?.(child => {
     if (!child.isMesh || !child.geometry?.attributes?.position) return;
     if (child.visible === false || child.material?.visible === false) return;
     const geometry = child.geometry.clone();
-    geometry.applyMatrix4(child.matrixWorld);
+    localMatrix.multiplyMatrices(rootWorldInverse, child.matrixWorld);
+    geometry.applyMatrix4(localMatrix);
     parts.push({
       geometry,
       color: _visualPartColor(child.material, fallbackColor),

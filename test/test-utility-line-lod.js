@@ -39,6 +39,8 @@ function line(id, utilityType, row) {
 
 test('utility zoom policy uses a stable hysteresis band', () => {
   assert.ok(UTILITY_DETAIL_EXIT_ZOOM < UTILITY_DETAIL_ENTER_ZOOM);
+  assert.ok(UTILITY_DETAIL_EXIT_ZOOM > 2.15,
+    'dense utility construction stays merged through the ordinary object LOD boundary');
   assert.equal(utilityDetailForZoom(UTILITY_DETAIL_EXIT_ZOOM - 0.01, true), false,
     'zooming out crosses into low detail at the lower boundary');
   assert.equal(utilityDetailForZoom(
