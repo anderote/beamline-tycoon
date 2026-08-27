@@ -139,6 +139,20 @@ test.describe('Minor Lab wheel-driven LOD transition', () => {
       detail: window._renderer._lastLodDetail,
       utilityDetail: window._renderer._lastUtilityLodDetail,
     }));
+    const panMotionState = await page.evaluate(async () => {
+      const renderer = window._renderer;
+      renderer.panScreenAligned(0.25, 0);
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      return {
+        detail: renderer._lastLodDetail,
+        utilityDetail: renderer._lastUtilityLodDetail,
+      };
+    });
+    await page.waitForFunction(() => (
+      window._renderer?._lodTransitionQueue?.pendingCount === 0
+      && window._renderer?._lastLodDetail === true
+      && window._renderer?._lastUtilityLodDetail === true
+    ), null, { timeout: 10_000 });
     for (let step = 0; step < 7; step++) {
       await wheel(100);
       await page.waitForTimeout(30);
@@ -180,6 +194,7 @@ test.describe('Minor Lab wheel-driven LOD transition', () => {
     console.log('  wheel LOD profile: ' + JSON.stringify({
       initial,
       nearState,
+      panMotionState,
       gestureWallMs: Date.now() - gestureStart,
       ...result,
     }));
@@ -187,6 +202,7 @@ test.describe('Minor Lab wheel-driven LOD transition', () => {
     expect(nearState.zoom).toBeGreaterThan(3);
     expect(nearState.detail).toBe(true);
     expect(nearState.utilityDetail).toBe(true);
+    expect(panMotionState.detail).toBe(true);
     expect(result.zoom).toBeLessThan(1.1);
     expect(result.detail).toBe(false);
     expect(result.pendingFamilies).toBe(0);
