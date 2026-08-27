@@ -10,6 +10,7 @@ import {
   BEAM_FLANGE_RADIUS as FLANGE_R,
   BEAM_FLANGE_WIDTH as FLANGE_H,
 } from '../../beamline/visual-geometry.js';
+import { cyclotronVisualProfile } from '../cyclotron-presentation.js';
 
 const SEGS = 16;
 
@@ -169,34 +170,15 @@ function buildCyclotron({ footprint, bodyR, bodyH, coilR, serviceCount, shieldRi
 }
 
 export function _buildCyclotron30Roles() {
-  return buildCyclotron({
-    footprint: 4.0,
-    bodyR: 1.28,
-    bodyH: 0.72,
-    coilR: 1.03,
-    serviceCount: 2,
-  });
+  return buildCyclotron(cyclotronVisualProfile('cyclotron30'));
 }
 
 export function _buildCyclotron70Roles() {
-  return buildCyclotron({
-    footprint: 5.0,
-    bodyR: 1.65,
-    bodyH: 0.90,
-    coilR: 1.34,
-    serviceCount: 3,
-  });
+  return buildCyclotron(cyclotronVisualProfile('cyclotron70'));
 }
 
 export function _buildCyclotron230Roles() {
-  return buildCyclotron({
-    footprint: 6.0,
-    bodyR: 2.05,
-    bodyH: 1.00,
-    coilR: 1.68,
-    serviceCount: 4,
-    shieldRing: true,
-  });
+  return buildCyclotron(cyclotronVisualProfile('cyclotron230'));
 }
 
 export function _buildProtonLinacFrontEndRoles() {

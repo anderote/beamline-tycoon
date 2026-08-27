@@ -4,6 +4,7 @@
 import { sampleBeamVisualProfile } from './beam-visual-mode.js';
 import { BLOOM_LAYER } from './glow-pipeline.js';
 import { particleEffectProfile } from './particle-effect-tuning.js';
+import { cyclotronParticlePathPoint } from './cyclotron-presentation.js';
 
 function routedPoints(path) {
   const authored = (path.worldPoints || []).map(point => ({
@@ -80,6 +81,8 @@ export class BeamBuilder {
     this._motionScale = new THREE.Vector3();
     this._specialDirection = new THREE.Vector3();
     this._specialXAxis = new THREE.Vector3(1, 0, 0);
+    this._cyclotronPathOptions = {};
+    this._cyclotronPathPoint = {};
   }
 
   build(beamPathData, parentGroup) {
@@ -381,6 +384,10 @@ export class BeamBuilder {
         tangentZ,
         radius: effect.radius,
         sourceLength: effect.sourceLength,
+        orbitExitSide: effect.orbitExitSide,
+        orbitExitForward: effect.orbitExitForward,
+        channelJoinForward: effect.channelJoinForward,
+        exitForward: effect.exitForward,
         speed: tuning.speed * (0.82 + hashUnit(`${seed}:speed`) * 0.36),
         slosh: tuning.slosh,
         turns: cyclotron ? tuning.turns : null,
@@ -511,29 +518,22 @@ export class BeamBuilder {
     const sideX = -particle.tangentZ;
     const sideZ = particle.tangentX;
     if (particle.kind === 'cyclotronSpiral') {
-      const orbitEnd = particle.extraction;
-      const q = Math.min(1, progress / orbitEnd);
-      const finalAngle = Math.atan2(0.72, 0.22);
-      const angle = finalAngle - (1 - q) * Math.PI * 2 * particle.turns
-        + Math.sin(this._time * 1.9 + particle.phase * 17) * 0.08 * particle.slosh;
-      const radius = particle.radius * particle.orbitScale * q;
-      const orbitX = particle.centre.x
-        + sideX * Math.cos(angle) * radius + particle.tangentX * Math.sin(angle) * radius;
-      const orbitZ = particle.centre.z
-        + sideZ * Math.cos(angle) * radius + particle.tangentZ * Math.sin(angle) * radius;
-      if (progress <= orbitEnd) {
-        x = orbitX; z = orbitZ;
-      } else {
-        const extract = (progress - orbitEnd) / (1 - orbitEnd);
-        const outerX = particle.centre.x
-          + sideX * radius * 0.22 + particle.tangentX * radius * 0.72;
-        const outerZ = particle.centre.z
-          + sideZ * radius * 0.22 + particle.tangentZ * radius * 0.72;
-        x = outerX + (particle.exit.x - outerX) * extract;
-        z = outerZ + (particle.exit.z - outerZ) * extract;
-      }
+      const pathOptions = this._cyclotronPathOptions;
+      pathOptions.progress = progress;
+      pathOptions.orbitEnd = particle.extraction;
+      pathOptions.turns = particle.turns;
+      pathOptions.orbitScale = particle.orbitScale;
+      pathOptions.angularWobble = Math.sin(this._time * 1.9 + particle.phase * 17)
+        * 0.08 * particle.slosh;
+      const point = cyclotronParticlePathPoint(
+        particle, pathOptions, this._cyclotronPathPoint,
+      );
+      const angle = point.angle;
+      x = particle.centre.x + sideX * point.side + particle.tangentX * point.forward;
+      z = particle.centre.z + sideZ * point.side + particle.tangentZ * point.forward;
       y = particle.centre.y
-        + Math.sin(angle * 0.5 + this._time * 2) * 0.035 * particle.slosh;
+        + Math.sin(angle * 0.5 + this._time * 2) * 0.035 * particle.slosh
+          * point.verticalWobbleScale;
       scale = 0.68 + 0.32 * Math.sin(progress * Math.PI);
     } else {
       const angle = progress * Math.PI * 12 + this._time * 2.4

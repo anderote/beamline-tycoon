@@ -2,6 +2,8 @@
 // already-published physics envelope. This module deliberately has no THREE or
 // game-state dependency so the snapshot boundary remains easy to test.
 
+import { cyclotronExtractionContract } from './cyclotron-presentation.js';
+
 const DEFAULT_STRENGTH = 0.55;
 
 function clamp01(value) {
@@ -90,10 +92,11 @@ export function beamSourceEffect(elements = []) {
   const width = Math.max(0.5, (Number(source.subW) || 2) * 0.5);
   const length = Math.max(0.5, (Number(source.subL) || 2) * 0.5);
   if (/^cyclotron\d+$/i.test(source.type || '')) {
+    const extraction = cyclotronExtractionContract(source.type, Math.min(width, length));
     return {
       kind: 'cyclotronSpiral', elementId: source.id,
-      radius: Math.min(width, length) * 0.36,
-      sourceLength: length,
+      radius: Math.hypot(extraction.orbitExitSide, extraction.orbitExitForward),
+      ...extraction,
     };
   }
   if (source.type === 'ecrIonSource') {
