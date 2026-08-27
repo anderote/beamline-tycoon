@@ -4677,6 +4677,19 @@ body.palette-expanded {
 .dsgn-confirm:hover {
   background: rgba(40, 80, 40, 0.6);
 }
+.dsgn-confirm:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+.dsgn-apply-status {
+  flex: 0 0 auto;
+  padding: 7px 12px;
+  border-bottom: 1px solid rgba(255, 104, 104, 0.45);
+  background: rgba(92, 24, 32, 0.72);
+  color: #ffb2b2;
+  font: 10px/1.5 monospace;
+}
+.dsgn-apply-status.hidden { display: none; }
 .dsgn-cancel {
   color: #ff8888;
   border-color: rgba(180, 80, 80, 0.4);

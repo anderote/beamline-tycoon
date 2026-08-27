@@ -134,14 +134,20 @@ designer._cleanup = () => { designer.isOpen = false; };
 
 const originalOpen = applyPreviewDialog.open;
 let preview = null;
+let duplicateConfirmation = null;
 try {
   applyPreviewDialog.open = async (summary, opts) => {
     preview = { summary, opts };
+    duplicateConfirmation = designer.confirm();
     return 'apply';
   };
 
   const applied = await designer.confirm();
   assert(applied === true, 'Confirm commits the Designer plan in Scenario Admin');
+  assert(preview?.opts.applyLabel === 'Build & Exit'
+      && preview?.opts.backLabel === 'Keep editing'
+      && /on map\?$/.test(preview?.opts.title || ''),
+  'the decisive preview names the map build and its exit behavior');
   assert(preview?.summary.totalCost > 0,
     'the popup receives the nominal build cost despite a zero balance');
   assert(preview?.summary.removes.some(row => row.type === 'coolantPump'),
@@ -154,9 +160,42 @@ try {
     'accepting the popup builds the proposed beamline component');
   assert(game.state.resources.funding === 0 && game.state.resources.spares === 0,
     'free construction charges no funds or spares and grants no demolition refund');
+  assert(designer.isOpen === false,
+    'a successful map build exits the Designer');
+  assert(duplicateConfirmation === false && designer._confirmationPending === false,
+    'a repeated Confirm click cannot compete with the active build request');
 } finally {
   applyPreviewDialog.open = originalOpen;
 }
+
+console.log('\n=== Designer confirmation feedback ===\n');
+
+let blockerHidden = true;
+const blockedDesigner = Object.create(BeamlineDesigner.prototype);
+Object.assign(blockedDesigner, {
+  game,
+  isOpen: true,
+  mode: 'edit',
+  editSourceId: 'missing-source',
+  draftNodes: [],
+  originalNodes: [],
+  draftWorkspaceId: null,
+  _confirmationPending: false,
+  applyStatusEl: {
+    textContent: '',
+    classList: {
+      toggle(name, hidden) {
+        if (name === 'hidden') blockerHidden = hidden;
+      },
+    },
+  },
+});
+blockedDesigner._saveActiveWorkspaceDraft = () => {};
+blockedDesigner._renderAll = () => {};
+const blocked = await blockedDesigner.confirm();
+assert(blocked === false, 'a planner blocker refuses the map build');
+assert(!blockerHidden && /Can't build on map:/.test(blockedDesigner.applyStatusEl.textContent),
+  'a planner blocker is visible inside the Designer instead of only in the hidden map log');
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

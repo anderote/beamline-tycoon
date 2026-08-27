@@ -224,6 +224,8 @@ export class BeamlineDesigner {
     this.overlay = document.getElementById('designer-overlay');
     this.summaryEl = document.getElementById('dsgn-draft-summary');
     this.costEl = document.getElementById('dsgn-draft-cost');
+    this.applyStatusEl = document.getElementById('dsgn-apply-status');
+    this._confirmationPending = false;
 
     this._suppressHashUpdate = false;
     this._designNameDialog = new DesignNameDialog();
@@ -1452,12 +1454,17 @@ export class BeamlineDesigner {
   }
 
   confirm() {
-    if (!this.isOpen) return;
-    if (this.mode === 'design') return; // designs are saved, not confirmed
-    if (!this.editSourceId) return;
+    if (!this.isOpen) return false;
+    if (this.mode === 'design') return false; // designs are saved, not confirmed
+    if (!this.editSourceId || this._confirmationPending) return false;
     // Returns a promise so tests (and any future caller) can await the
     // preview; the button handler fires and forgets.
-    return this._planAndApply();
+    this._confirmationPending = true;
+    this._setConfirmPending(true);
+    return this._planAndApply().finally(() => {
+      this._confirmationPending = false;
+      this._setConfirmPending(false);
+    });
   }
 
   cancel() {
@@ -1503,6 +1510,7 @@ export class BeamlineDesigner {
    * or executed off the main task.
    */
   async _planAndApply() {
+    this._clearApplyStatus();
     // A blocked or rejected Apply is still valuable design work. Persist it
     // before planning so any later exit always has an exact recovery point.
     this._saveActiveWorkspaceDraft();
@@ -1521,9 +1529,13 @@ export class BeamlineDesigner {
       return false;
     }
 
+    const beamlineName = this._editedBeamlineName();
     const choice = await applyPreviewDialog.open(plan.summary, {
-      name: this._editedBeamlineName(),
-      applyLabel: 'Confirm changes',
+      title: beamlineName
+        ? `Build changes to ${beamlineName} on map?`
+        : 'Build changes on map?',
+      applyLabel: 'Build & Exit',
+      backLabel: 'Keep editing',
       freeConstruction: this.game.isConstructionFree?.() ?? this.game.sandboxMode === true,
     });
     if (choice !== 'apply') return false;
@@ -1585,6 +1597,7 @@ export class BeamlineDesigner {
 
     this._clearDraftState();
     this._cleanup();
+    this.game.log('Beamline changes built on map', 'good');
     return true;
   }
 
@@ -1622,6 +1635,7 @@ export class BeamlineDesigner {
       ? blockers
       : [{ message: 'These changes cannot be applied.', nodeIndex: -1 }];
     for (const b of list) this.game.log(`Can't apply: ${b.message}`, 'bad');
+    this._setApplyStatus(`Can't build on map: ${list.map(b => b.message).join(' ')}`);
 
     const pointed = list.find(b => b.nodeIndex >= 0 && b.nodeIndex < this.draftNodes.length);
     if (pointed) {
@@ -1631,11 +1645,32 @@ export class BeamlineDesigner {
     this._renderAll();
   }
 
+  _setConfirmPending(pending) {
+    const button = typeof document !== 'undefined'
+      ? document.getElementById('dsgn-confirm')
+      : null;
+    if (!button) return;
+    button.disabled = pending;
+    button.textContent = pending ? 'Checking…' : 'Build on Map';
+  }
+
+  _setApplyStatus(message) {
+    const el = this.applyStatusEl;
+    if (!el) return;
+    el.textContent = message || '';
+    el.classList.toggle('hidden', !message);
+  }
+
+  _clearApplyStatus() {
+    this._setApplyStatus('');
+  }
+
   _cleanup() {
     this._hideDesignerPaletteHover?.();
     if (this._optimizerDialog?.isOpen) this._optimizerDialog.close();
     else this._cancelDesignerOptimizer();
     this.isOpen = false;
+    this._clearApplyStatus();
     this._escUnsub?.();
     this._escUnsub = null;
     this.beamlineId = null;
@@ -2885,6 +2920,9 @@ export class BeamlineDesigner {
   }
 
   _updateDraftBar() {
+    // A prior planner blocker describes the old draft. Any edit that refreshes
+    // this bar gets a clean attempt and must not leave stale failure text up.
+    this._clearApplyStatus();
     this._renderWorkspaceTabs();
     if (this.mode === 'design') {
       this.summaryEl.textContent = `${this.draftNodes.length} components · ${this.totalLength.toFixed(1)}m`;
