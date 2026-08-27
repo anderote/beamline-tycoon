@@ -75,8 +75,8 @@ test('camera motion uses the backend-safe render path and defers shadow refreshe
     /const cameraMoving = framePlan\.cameraMoving[\s\S]*this\._cameraMotionUntilMs;/,
     'the frame policy and pointer-event settle tail share one motion signal');
   assert.match(animate,
-    /const deferShadows = framePlan\.deferShadows \|\| cameraMoving;/,
-    'camera motion and GPU back-pressure share shadow deferral');
+    /const lodTransitionActive = this\._lodTransitionQueue\.pendingCount > 0[\s\S]*const deferShadows = framePlan\.deferShadows \|\| cameraMoving \|\| lodTransitionActive;/,
+    'camera motion, GPU back-pressure, and staged LOD admission share shadow deferral');
   assert.match(animate,
     /freezeAssignment: cameraMoving,[\s\S]*deferShadows,/,
     'fixture ranking and shadow refresh work are held during motion');

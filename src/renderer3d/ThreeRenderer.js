@@ -179,6 +179,7 @@ import { precompileWorldPipelines } from './interaction-pipeline-warmup.js';
 import { releaseGraphicsForReload } from './reload-graphics-release.js';
 import { WorldInvalidationScheduler } from './world-invalidation-scheduler.js';
 import { LodPreparationScheduler } from './lod-preparation-scheduler.js';
+import { LodTransitionQueue } from './lod-transition-queue.js';
 import { selectionTargetsForState } from '../game/selection-targets.js';
 import { LandPurchaseMarkers } from './land-purchase-markers.js';
 import { beamlineStatusPresentation } from './selected-beamline-focus.js';
@@ -285,6 +286,8 @@ export class ThreeRenderer {
     this._frameRenderPolicy = null;
     this._ambientElectricalSparks = new AmbientElectricalSparkScheduler();
     this._lodPreparationScheduler = new LodPreparationScheduler({ scope: window });
+    this._lodTransitionQueue = new LodTransitionQueue();
+    this._lodTransitionGpuReady = true;
     this._lodPresentationRevision = 0;
     this._interactiveLodPreparedRevision = -1;
 
@@ -4914,12 +4917,26 @@ export class ThreeRenderer {
       && !this._worldExpansionContinuationPending;
     const cameraMoving = framePlan.cameraMoving
       || performance.now() < this._cameraMotionUntilMs;
-    const deferShadows = framePlan.deferShadows || cameraMoving;
+    const lodTransitionActive = this._lodTransitionQueue.pendingCount > 0
+      || !this._lodTransitionGpuReady;
+    const deferShadows = framePlan.deferShadows || cameraMoving || lodTransitionActive;
+    // A category's visibility swap is cheap, but the GPU admission it causes
+    // is not. Do not expose the next family until the exact frame carrying the
+    // previous family has completed. At 120 Hz, one-family-per-rAF alone can
+    // enqueue four or five individually healthy uploads and recreate the
+    // original multi-second cliff on the final submit.
+    const lodTransitionCanAdvance = renderAllowed
+      && this._lodTransitionGpuReady
+      && !cameraMoving;
     this._updateZoneLabelFacing();
     if (this._updateAnchoredWindows) this._updateAnchoredWindows();
     this._updateSunCycle(deferShadows);
     this._updateLightingRamp();
-    this._updateLOD();
+    const lodTransitionStep = this._updateLOD({
+      staged: true,
+      advance: lodTransitionCanAdvance,
+      cameraMoving,
+    });
     // New-system utility-line preview + port-hover highlight + candidate
     // port indicators (visible whenever a utility-line tool is armed).
     const utilCtrl = this._inputHandler?.utilityLineController;
@@ -5079,6 +5096,7 @@ export class ThreeRenderer {
         skipPostProcessing: cameraMoving && !this.usesNativeWebGPU(),
       });
       this._framePacer?.frameSubmitted();
+      this._trackLodTransitionSubmission(lodTransitionStep);
     }
     if (this._viewCube) this._viewCube.update();
     } catch (e) { console.error('[ThreeRenderer] animate error:', e); }
@@ -5204,30 +5222,107 @@ export class ThreeRenderer {
     );
   }
 
-  /** Apply adaptive world and utility detail. */
-  _updateLOD() {
-    const showDetail = this._currentWorldDetail();
+  _worldLodTransitionSteps(showDetail) {
+    return [
+      { id: 'components', apply: () => this.componentBuilder?.setDetailLevel?.(showDetail) },
+      { id: 'attachments', apply: () => this.pipeAttachmentBuilder?.setDetailLevel?.(showDetail) },
+      { id: 'equipment', apply: () => this.equipmentBuilder?.setDetailLevel?.(showDetail) },
+      { id: 'decorations', apply: () => this.decorationBuilder?.setDetailLevel?.(showDetail) },
+      { id: 'beam-pipes', apply: () => this.beamPipeBuilder?.setDetailLevel?.(showDetail) },
+      { id: 'beams', apply: () => this.beamBuilder?.setDetailLevel?.(showDetail) },
+      // Candidate objects stay stable through the transition. Change the
+      // ambient-light visibility policy only after the geometry families have
+      // reached their target so screens and fixtures never blink midway.
+      { id: 'lights', apply: () => this._lightRig?.setWorldDetail?.(showDetail) },
+    ];
+  }
+
+  _trackLodTransitionSubmission(step) {
+    if (step == null) return;
+    const queue = this.renderer?.backend?.device?.queue;
+    if (typeof queue?.onSubmittedWorkDone !== 'function') {
+      this._lodTransitionGpuReady = true;
+      return;
+    }
+    const settled = () => { this._lodTransitionGpuReady = true; };
+    queue.onSubmittedWorkDone().then(settled, settled);
+  }
+
+  /**
+   * Apply adaptive world and utility detail. Animation frames stage ordinary
+   * world families one at a time; explicit/startup callers retain the
+   * immediate behavior needed to prewarm and validate a complete scene.
+   */
+  _updateLOD({ staged = false, advance = true, cameraMoving = false } = {}) {
+    let transitionStep = null;
+    // Camera projection changes are the worst time to carry thousands of
+    // authored draw submissions. Collapse to the complete far presentation
+    // immediately for every pan/zoom/orbit gesture, then restore the zoom-
+    // appropriate detail through the gated queue after motion settles.
+    const motionWorldFar = staged && cameraMoving && this._lodObjectsEnabled;
+    const showDetail = motionWorldFar ? false : this._currentWorldDetail();
     if (showDetail !== this._lastLodDetail) {
       this._lastLodDetail = showDetail;
-      this.decorationBuilder?.setDetailLevel?.(showDetail);
-      this.componentBuilder?.setDetailLevel?.(showDetail);
-      this.equipmentBuilder?.setDetailLevel?.(showDetail);
-      this.pipeAttachmentBuilder?.setDetailLevel?.(showDetail);
-      this.beamPipeBuilder?.setDetailLevel?.(showDetail);
-      this.beamBuilder?.setDetailLevel?.(showDetail);
-      // Candidate objects remain stable; only their presentation parents are
-      // hidden. Preserve the bounded screen/equipment lights and avoid a full
-      // scene traversal every time the camera crosses the LOD threshold.
-      this._lightRig?.setWorldDetail?.(showDetail);
+      const steps = this._worldLodTransitionSteps(showDetail);
+      if (motionWorldFar) {
+        this._lodTransitionQueue.removeGroup('world');
+        for (const step of steps) step.apply();
+      } else if (staged) this._lodTransitionQueue.replaceGroup('world', steps);
+      else {
+        this._lodTransitionQueue.removeGroup('world');
+        this._lodTransitionGpuReady = true;
+        for (const step of steps) step.apply();
+      }
+    } else if (!staged && this._lodTransitionQueue.pendingCount > 0) {
+      // Startup preparation and explicit layer toggles require a complete
+      // scene immediately even if they interrupt a staged camera transition.
+      this._lodTransitionQueue.flush();
+    }
+    if (staged && advance) {
+      transitionStep = this._lodTransitionQueue.advance();
+      if (transitionStep != null) this._lodTransitionGpuReady = false;
     }
 
-    const showUtilityDetail = this._lodObjectsEnabled
-      ? utilityDetailForZoom(this.zoom, this._lastUtilityLodDetail)
-      : true;
-    if (showUtilityDetail === this._lastUtilityLodDetail) return;
+    // Utility fittings account for most of Minor Lab's detailed draw count
+    // (thousands of meshes versus a few hundred for every other family). Keep
+    // their already-built merged routes during every camera gesture, even at
+    // close zoom. Collapsing is an immediate visibility reduction and is safe
+    // on the interaction frame; detailed chunks return through the GPU-gated
+    // queue only after the camera settles.
+    const motionUtilityFar = staged && cameraMoving && this._lodObjectsEnabled;
+    const showUtilityDetail = motionUtilityFar
+      ? false
+      : (this._lodObjectsEnabled
+        ? utilityDetailForZoom(this.zoom, this._lastUtilityLodDetail)
+        : true);
+    if (showUtilityDetail === this._lastUtilityLodDetail) return transitionStep;
     this._lastUtilityLodDetail = showUtilityDetail;
-    this.utilityLineBuilderV2?.setDetailLevel?.(showUtilityDetail);
-    this._effectSystem?.setScopeEnabled?.('utility-lines', showUtilityDetail);
+    if (motionUtilityFar) {
+      this._lodTransitionQueue.removeGroup('utilities');
+      this.utilityLineBuilderV2?.setDetailLevel?.(false);
+      this._effectSystem?.setScopeEnabled?.('utility-lines', false);
+      return transitionStep;
+    }
+    if (staged) {
+      const steps = this.utilityLineBuilderV2?.createDetailTransitionSteps?.(
+        showUtilityDetail,
+      ) || [{
+        id: 'utilities',
+        apply: () => this.utilityLineBuilderV2?.setDetailLevel?.(showUtilityDetail),
+      }];
+      steps.push({
+        id: 'utility-effects',
+        apply: () => this._effectSystem?.setScopeEnabled?.(
+          'utility-lines', showUtilityDetail,
+        ),
+      });
+      this._lodTransitionQueue.replaceGroup('utilities', steps);
+    } else {
+      this._lodTransitionQueue.removeGroup('utilities');
+      this.utilityLineBuilderV2?.setDetailLevel?.(showUtilityDetail);
+      this._effectSystem?.setScopeEnabled?.('utility-lines', showUtilityDetail);
+    }
+    return transitionStep;
   }
 
   _updateSunCycle(deferShadows = false) {
