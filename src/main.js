@@ -365,7 +365,10 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
   // allocation phase; it does not bulk-compile a second camera-motion pipeline
   // family during startup.
   renderer.refresh();
-  if (renderer.usesNativeWebGPU()) renderer.renderPreparedWorldFrame();
+  if (renderer.usesNativeWebGPU()) {
+    renderer.finishLodPreparations();
+    renderer.renderPreparedWorldFrame();
+  }
 
   if (restoredProbe) {
     probeWindow.fromJSON(restoredProbe);
@@ -552,9 +555,16 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
   // Decoration textures are presentation-only and every builder has a color
   // fallback. Hydrate them after the title gate is usable, then refresh only
   // decorations; never hold TitleScreen.ready() on dozens of image decodes.
-  renderer.hydrateDeferredAssets().catch((error) => {
-    console.warn('[Renderer] Deferred decoration assets failed:', error);
-  });
+  const deferredPresentationReady = renderer.hydrateDeferredAssets()
+    .catch((error) => {
+      console.warn('[Renderer] Deferred decoration assets failed:', error);
+    })
+    // Texture hydration replaces decoration geometry. Warm that final form
+    // while the title still owns input; a fast Continue waits on this same
+    // promise instead of racing it on the first camera gesture.
+    .then(() => (renderer.usesNativeWebGPU()
+      ? renderer.prepareInteractiveLod()
+      : true));
 
   // ── Live demo / remote-drive for watch-while-iterating ──────────────
   // 1) ?demo=1 auto-builds a showcase facility+beamline on load so
@@ -691,13 +701,35 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
     // Begin the runway once the player leaves the title for the game. New Game
     // and Scenarios reload with skipTitle set and take the branch below.
     const prevDismiss = titleScreen.dismiss.bind(titleScreen);
+    let titleDismissPending = null;
     titleScreen.dismiss = (...args) => {
-      const result = prevDismiss(...args);
-      renderer.setRenderingSuspended(false);
-      deferredPhysicsStart.schedule();
-      return result;
+      if (titleDismissPending) return titleDismissPending;
+      if (!renderer.usesNativeWebGPU()) {
+        renderer.finishLodPreparations();
+        const result = prevDismiss(...args);
+        renderer.setRenderingSuspended(false);
+        deferredPhysicsStart.schedule();
+        titleDismissPending = Promise.resolve(result);
+        return titleDismissPending;
+      }
+      titleScreen.showFinalizing('Finalizing graphics...');
+      titleDismissPending = deferredPresentationReady
+        .then(() => renderer.prepareInteractiveLod())
+        .then(() => {
+          const result = prevDismiss(...args);
+          renderer.setRenderingSuspended(false);
+          deferredPhysicsStart.schedule();
+          return result;
+        });
+      return titleDismissPending;
     };
   } else {
+    if (renderer.usesNativeWebGPU()) {
+      await deferredPresentationReady;
+      await renderer.prepareInteractiveLod();
+    } else {
+      renderer.finishLodPreparations();
+    }
     renderer.setRenderingSuspended(false);
     deferredPhysicsStart.schedule();
   }

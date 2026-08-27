@@ -82,6 +82,28 @@ test('LOD preparation cancellation prevents the remaining queue from running', (
   assert.equal(scheduler.pending, false);
 });
 
+test('LOD preparation flush finishes queued builders and invalidates idle callbacks', () => {
+  const scope = idleScope();
+  const scheduler = new LodPreparationScheduler({ scope });
+  const calls = [];
+
+  scheduler.schedule([
+    { prepareFarPresentation: () => calls.push('equipment') },
+    { prepareFarPresentation: () => calls.push('decorations') },
+  ]);
+  const staleCallback = [...scope.callbacks.values()][0].callback;
+
+  assert.equal(scheduler.flush(), 2);
+  assert.deepEqual(calls, ['equipment', 'decorations']);
+  assert.deepEqual(scope.cancelled, [1]);
+  assert.equal(scheduler.pending, false);
+
+  staleCallback();
+  assert.deepEqual(calls, ['equipment', 'decorations'],
+    'a cancelled idle callback cannot rebuild the flushed world');
+  assert.equal(scheduler.flush(), 0);
+});
+
 test('LOD preparation uses a short timer when idle callbacks are unavailable', () => {
   let scheduled = null;
   const scope = {

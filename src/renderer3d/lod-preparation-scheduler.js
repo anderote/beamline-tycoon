@@ -10,27 +10,47 @@ export class LodPreparationScheduler {
     this._fallbackDelay = fallbackDelay;
     this._handle = null;
     this._token = 0;
+    this._queue = [];
   }
 
   schedule(builders) {
     this.cancel();
-    const queue = Array.from(builders || [])
+    this._queue = Array.from(builders || [])
       .filter(builder => typeof builder?.prepareFarPresentation === 'function');
-    if (!queue.length) return false;
+    if (!this._queue.length) return false;
 
     const token = this._token;
     const step = () => {
       if (token !== this._token) return;
       this._handle = null;
-      queue.shift().prepareFarPresentation();
-      if (queue.length && token === this._token) this._schedule(step);
+      this._queue.shift()?.prepareFarPresentation();
+      if (this._queue.length && token === this._token) this._schedule(step);
     };
     this._schedule(step);
     return true;
   }
 
+  /**
+   * Finish any idle preparation before the renderer becomes interactive.
+   * Most title sessions drain this queue naturally while the player is at the
+   * menu. A fast Continue click must not move the same work onto the first
+   * camera gesture, where WebGPU pipeline admission can amplify it into a
+   * multi-second visible stall.
+   */
+  flush() {
+    const queue = this._queue.splice(0);
+    const pending = this._handle;
+    this._handle = null;
+    this._token++;
+    if (pending?.kind === 'idle') this._scope.cancelIdleCallback?.(pending.id);
+    else if (pending) this._scope.clearTimeout?.(pending.id);
+    for (const builder of queue) builder.prepareFarPresentation();
+    return queue.length;
+  }
+
   cancel() {
     this._token++;
+    this._queue = [];
     const pending = this._handle;
     this._handle = null;
     if (!pending) return;

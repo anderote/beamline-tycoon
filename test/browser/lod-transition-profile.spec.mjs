@@ -79,6 +79,7 @@ test.describe('Minor Lab native WebGPU LOD transition', () => {
       const cross = async (zoom) => {
         const activeLightsBefore = lights();
         const start = performance.now();
+        renderer._noteCameraMotion?.();
         renderer.zoom = zoom;
         renderer._updateCameraLookAt?.();
         renderer._updateLOD();
@@ -120,10 +121,64 @@ test.describe('Minor Lab native WebGPU LOD transition', () => {
       };
     });
 
+    const saved = await page.evaluate(() => {
+      window._renderer.zoom = 2.3;
+      window._renderer._updateCameraLookAt?.();
+      window._renderer._updateLOD();
+      window.game.save();
+      return {
+        placeables: window.game.state.placeables.length,
+        beamlines: window.game.registry.getAll().length,
+      };
+    });
+    await page.reload();
+    await page.mouse.click(720, 450);
+    await waitForBoot(page, 300_000);
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(page.locator('#title-screen')).toHaveCount(0, { timeout: 300_000 });
+    await page.waitForFunction(({ placeables, beamlines }) => (
+      window.game?.state?.placeables?.length === placeables
+        && window.game?.registry?.getAll?.().length === beamlines
+        && window._renderer?.renderingSuspended === false
+    ), saved, { timeout: 300_000 });
+    const restoredProfile = await page.evaluate(async () => {
+      const renderer = window._renderer;
+      const nextPaint = () => new Promise(resolve => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+      });
+      const lights = () => {
+        let active = 0;
+        renderer.scene.traverse(object => {
+          if (object.isLight && object.intensity > 0) active++;
+        });
+        return active;
+      };
+      const cross = async (zoom) => {
+        const activeLightsBefore = lights();
+        const start = performance.now();
+        renderer._noteCameraMotion?.();
+        renderer.zoom = zoom;
+        renderer._updateCameraLookAt?.();
+        renderer._updateLOD();
+        await nextPaint();
+        return {
+          zoom,
+          paintedMs: performance.now() - start,
+          activeLightsBefore,
+          activeLightsAfter: lights(),
+        };
+      };
+      return {
+        far: await cross(1.7),
+        near: await cross(2.3),
+      };
+    });
+
     console.log('  native LOD profile: ' + JSON.stringify({
       navigationMs: Date.now() - navigationStart,
       scenarioMs,
       ...profile,
+      restoredProfile,
     }));
     expect(profile.backend).toBe('webgpu');
     expect(scenarioMs, 'Minor Lab becomes interactive without a prolonged startup stall')
@@ -141,6 +196,10 @@ test.describe('Minor Lab native WebGPU LOD transition', () => {
       'repeated utility detail crossings remain smooth').toBeLessThan(500);
     expect(profile.warmUtilityFar.paintedMs,
       'repeated utility merge crossings remain smooth').toBeLessThan(500);
+    expect(restoredProfile.far.paintedMs,
+      'the first post-Continue far crossing is already prepared').toBeLessThan(500);
+    expect(restoredProfile.near.paintedMs,
+      'the first post-Continue near crossing avoids a visible stall').toBeLessThan(500);
     expect(profile.coldFar.activeLightsAfter,
       'equipment/screen lights remain stable across the far boundary')
       .toBe(profile.coldFar.activeLightsBefore);

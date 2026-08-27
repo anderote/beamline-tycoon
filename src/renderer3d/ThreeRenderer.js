@@ -285,6 +285,8 @@ export class ThreeRenderer {
     this._frameRenderPolicy = null;
     this._ambientElectricalSparks = new AmbientElectricalSparkScheduler();
     this._lodPreparationScheduler = new LodPreparationScheduler({ scope: window });
+    this._lodPresentationRevision = 0;
+    this._interactiveLodPreparedRevision = -1;
 
     this.renderer = null;
     this.scene = null;
@@ -5128,16 +5130,70 @@ export class ThreeRenderer {
   /**
    * Build dormant CPU-side LOD batches one subsystem per browser-idle slice.
    * This removes the only measurable JavaScript work from the first boundary
-   * crossing without moving an 11 ms all-at-once build onto startup's critical
-   * path. GPU pipeline admission remains demand-driven on native WebGPU; bulk
-   * compiling both complete scene variants was the source of earlier Chrome
-   * GPU-process failures.
+   * crossing. Most of it runs while the title is visible; any remainder is
+   * flushed immediately before the renderer becomes interactive. GPU pipeline
+   * admission remains demand-driven on native WebGPU; bulk compiling both
+   * complete scene variants was the source of earlier Chrome GPU-process
+   * failures.
    */
   prepareLodPresentations() {
     return this._lodPreparationScheduler.schedule([
       this.equipmentBuilder,
       this.decorationBuilder,
     ]);
+  }
+
+  /** Complete dormant CPU-side LOD batches before accepting camera input. */
+  finishLodPreparations() {
+    return this._lodPreparationScheduler.flush();
+  }
+
+  needsInteractiveLodPreparation() {
+    return this._interactiveLodPreparedRevision !== this._lodPresentationRevision;
+  }
+
+  /**
+   * Admit both sides of the ordinary object LOD boundary while rendering is
+   * still gated. CPU geometry preparation alone prevents synchronous batch
+   * construction, but a freshly reloaded WebGPU device must also upload those
+   * buffers and create their pipelines. Doing that here leaves Continue with
+   * a warm, bounded queue instead of making the first wheel gesture appear to
+   * freeze an otherwise responsive light field.
+   */
+  async prepareInteractiveLod() {
+    this.finishLodPreparations();
+    const revision = this._lodPresentationRevision;
+    if (!this.needsInteractiveLodPreparation()) return true;
+    if (!this.usesNativeWebGPU() || !this._lodObjectsEnabled) {
+      this._interactiveLodPreparedRevision = revision;
+      return false;
+    }
+
+    const savedZoom = this.zoom;
+    try {
+      // Both values sit safely outside world-lod.js's hysteresis band. Utility
+      // construction remains merged at each value, so this never bulk-warms
+      // the thousands of tightly zoomed fittings that caused the old crash.
+      for (const zoom of [1.7, 2.3]) {
+        this.zoom = zoom;
+        this._updateCameraLookAt();
+        this._updateLOD();
+        await precompileWorldPipelines(this.renderer, this.scene, this.camera);
+        // The game submits through GlowPipeline rather than renderer.render()
+        // directly. Exercise that exact composed path as well, then apply
+        // queue back-pressure while the opaque title still covers the frame.
+        this.renderPreparedWorldFrame();
+        await this.renderer?.backend?.device?.queue?.onSubmittedWorkDone?.();
+      }
+    } finally {
+      this.zoom = savedZoom;
+      this._updateCameraLookAt();
+      this._updateLOD();
+    }
+    if (revision === this._lodPresentationRevision) {
+      this._interactiveLodPreparedRevision = revision;
+    }
+    return true;
   }
 
   _currentWorldDetail() {
@@ -5506,6 +5562,7 @@ export class ThreeRenderer {
     this._pendingTerrainDetailAppend = null;
     const snapshot = buildWorldSnapshot(this.game);
     this.applySnapshot(snapshot);
+    this._lodPresentationRevision++;
     if (this.staffPawns) this.staffPawns.sync();
     this.landPurchaseMarkers?.sync();
     this.prepareLodPresentations();
@@ -5922,6 +5979,7 @@ export class ThreeRenderer {
     });
     this.equipmentBuilder.setDetailLevel(this._currentWorldDetail());
     this._effectSystem?.syncSurfaceGlows('equipment', this.equipmentGroup);
+    this._lodPresentationRevision++;
     this.prepareLodPresentations();
   }
 
@@ -5933,6 +5991,7 @@ export class ThreeRenderer {
       changes: contextualChange ? null : changeSet?.placeables || null,
     });
     this.decorationBuilder.setDetailLevel(this._currentWorldDetail());
+    this._lodPresentationRevision++;
     this.prepareLodPresentations();
     if (!result?.lightingChanged) return;
     this.lightingGroup = this.decorationBuilder.getLightingFixtures();
