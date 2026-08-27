@@ -5136,15 +5136,6 @@ export class ThreeRenderer {
     const showDetail = this._currentWorldDetail();
     if (showDetail !== this._lastLodDetail) {
       this._lastLodDetail = showDetail;
-      const groups = [this.decorationGroup];
-      for (const g of groups) {
-        if (!g) continue;
-        g.traverse((child) => {
-          if (child.isMesh && child.userData.lod === 'detail') {
-            child.visible = showDetail;
-          }
-        });
-      }
       this.decorationBuilder?.setDetailLevel?.(showDetail);
       this.componentBuilder?.setDetailLevel?.(showDetail);
       this.equipmentBuilder?.setDetailLevel?.(showDetail);

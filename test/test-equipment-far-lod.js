@@ -66,7 +66,13 @@ test('facility equipment batches recognizable silhouettes and culls tabletop det
   assert.ok(batches.every(batch => batch.castShadow === false
     && batch.material.vertexColors === true));
 
+  const roots = [...builder._objectsById.values()];
+  const traversals = roots.map(root => root.traverse);
+  for (const root of roots) {
+    root.traverse = () => { throw new Error('LOD transition rescanned equipment descendants'); };
+  }
   builder.setDetailLevel(true);
+  for (let index = 0; index < roots.length; index++) roots[index].traverse = traversals[index];
   assert.ok(batches.every(batch => batch.visible === false));
   assert.ok([...builder._objectsById.values()].every(object => object.visible === true));
   builder.dispose(parent);

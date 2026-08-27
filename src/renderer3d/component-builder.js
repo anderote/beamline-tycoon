@@ -19,7 +19,7 @@ import { buildPlaceableVisualDetails } from './placeable-visual-details.js';
 import { createEquipmentPartGeometry } from './equipment-builder.js';
 import {
   buildAuthoredGeometryLod,
-  selectLargestAuthoredParts,
+  selectLargestAuthoredPartGroups,
 } from './authored-geometry-lod.js';
 import { BLOOM_LAYER } from './glow-pipeline.js';
 import { getGlowMaterial, setGlowNightFactor } from './machine-glow.js';
@@ -264,6 +264,37 @@ const AUTHORED_FAR_ROLE_IMPORTANCE = Object.freeze({
   glow: 0.40,
 });
 
+// Fidelity-critical beamline types name the structural assemblies that make
+// them recognizable. The far mesh is still selected from the original
+// primitives; these profiles only prevent a defining assembly from losing to
+// a broad but visually generic plate in the size ranking.
+const AUTHORED_FAR_COMPONENT_PROFILES = Object.freeze({
+  quadrupole: Object.freeze({
+    minParts: 4,
+    maxParts: 4,
+    maxPrimitives: 24,
+    requiredGroupKeys: Object.freeze([
+      'quadrupole-yoke',
+      'quadrupole-poles',
+      'quadrupole-coils',
+      'quadrupole-beam-pipe',
+    ]),
+  }),
+  spokeCavity: Object.freeze({
+    minParts: 6,
+    maxParts: 6,
+    maxPrimitives: 30,
+    requiredGroupKeys: Object.freeze([
+      'spoke-cryostat',
+      'spoke-ridges',
+      'spoke-rf-couplers',
+      'spoke-cryo-ports',
+      'spoke-beam-line',
+      'spoke-base',
+    ]),
+  }),
+});
+
 // Paint-on-iron for the accent role. The color is overridden per beamline;
 // this base exists only to be cloned.
 const ACCENT_BASE_ROUGHNESS = 0.6;
@@ -374,18 +405,27 @@ function _getRoleTemplate(compType) {
           geometry,
           role,
           name: `${role}-${index + 1}`,
-          importance: AUTHORED_FAR_ROLE_IMPORTANCE[role] ?? 1,
+          groupKey: geometry.userData?.lodGroup,
+          importance: geometry.userData?.lodImportance
+            ?? AUTHORED_FAR_ROLE_IMPORTANCE[role] ?? 1,
         });
       }
     }
     const footprintWidth = Math.max(SUB_UNIT, (def.subW || def.gridW || 2) * SUB_UNIT);
     const footprintDepth = Math.max(SUB_UNIT, (def.subL || def.gridH || 2) * SUB_UNIT);
-    const selected = selectLargestAuthoredParts(sourceParts, {
+    const profile = AUTHORED_FAR_COMPONENT_PROFILES[compType] || {};
+    const selectedGroups = selectLargestAuthoredPartGroups(sourceParts, {
       footprintArea: footprintWidth * footprintDepth,
+      ...profile,
     });
     _authoredFarRolePartsCache.set(compType, {
       sourcePartCount: sourceParts.length,
-      parts: selected.map(part => ({ ...part, geometry: part.geometry.clone() })),
+      selectedGroupKeys: selectedGroups.map(group => group.key),
+      parts: selectedGroups.flatMap(group => group.parts.map(part => ({
+        ...part,
+        groupKey: group.key,
+        geometry: part.geometry.clone(),
+      }))),
     });
   }
   const template = {};
@@ -1352,6 +1392,12 @@ function _pushTransformed(bucket, geom, matrix) {
   bucket.push(geom);
 }
 
+function _tagAuthoredLod(geometry, groupKey, importance = undefined) {
+  geometry.userData.lodGroup = groupKey;
+  if (importance != null) geometry.userData.lodImportance = importance;
+  return geometry;
+}
+
 /**
  * Build the role buckets for a C-clamp magnet. The C opens toward local
  * -X. Dipoles use `bentPipe: true`, which routes the internal beam pipe
@@ -1531,6 +1577,7 @@ function _buildQuadrupoleRoles() {
   // Top and bottom slabs
   for (const sign of [1, -1]) {
     const g = new THREE.BoxGeometry(slabLen, wall, magL);
+    _tagAuthoredLod(g, 'quadrupole-yoke', 1.5);
     applyTiledBoxUVs(g, slabLen, wall, magL);
     pushRotated(buckets.accent, g, 0, sign * (yokeOuter - wall / 2), 0);
   }
@@ -1538,6 +1585,7 @@ function _buildQuadrupoleRoles() {
   for (const sign of [1, -1]) {
     const shortLen = slabLen - 2 * wall;
     const g = new THREE.BoxGeometry(wall, shortLen, magL);
+    _tagAuthoredLod(g, 'quadrupole-yoke', 1.5);
     applyTiledBoxUVs(g, wall, shortLen, magL);
     pushRotated(buckets.accent, g, sign * (yokeOuter - wall / 2), 0, 0);
   }
@@ -1553,12 +1601,14 @@ function _buildQuadrupoleRoles() {
   // Top/bottom poles: Y is the radial direction
   for (const sign of [1, -1]) {
     const g = new THREE.BoxGeometry(poleW, poleLen, magL);
+    _tagAuthoredLod(g, 'quadrupole-poles', 1.35);
     applyTiledBoxUVs(g, poleW, poleLen, magL);
     pushRotated(buckets.iron, g, 0, sign * (poleTipR + poleLen / 2), 0);
   }
   // Left/right poles: X is the radial direction — use a sideways box
   for (const sign of [1, -1]) {
     const g = new THREE.BoxGeometry(poleLen, poleW, magL);
+    _tagAuthoredLod(g, 'quadrupole-poles', 1.35);
     applyTiledBoxUVs(g, poleLen, poleW, magL);
     pushRotated(buckets.iron, g, sign * (poleTipR + poleLen / 2), 0, 0);
   }
@@ -1575,12 +1625,14 @@ function _buildQuadrupoleRoles() {
       // Top/bottom poles: radial = Y, tangential = X
       {
         const g = new THREE.BoxGeometry(coilBarW, coilBarH, magL);
+        _tagAuthoredLod(g, 'quadrupole-coils', 1.25);
         applyTiledBoxUVs(g, coilBarW, coilBarH, magL);
         pushRotated(buckets.copper, g, tSign * coilTanOff, sign * coilRadC, 0);
       }
       // Left/right poles: radial = X, tangential = Y — swap box dims
       {
         const g = new THREE.BoxGeometry(coilBarH, coilBarW, magL);
+        _tagAuthoredLod(g, 'quadrupole-coils', 1.25);
         applyTiledBoxUVs(g, coilBarH, coilBarW, magL);
         pushRotated(buckets.copper, g, sign * coilRadC, tSign * coilTanOff, 0);
       }
@@ -1590,6 +1642,7 @@ function _buildQuadrupoleRoles() {
   // --- Straight beam pipe through the centre (pipe) ---
   {
     const g = new THREE.CylinderGeometry(PIPE_R, PIPE_R, magL, SEGS);
+    _tagAuthoredLod(g, 'quadrupole-beam-pipe', 1.1);
     applyTiledCylinderUVs(g, PIPE_R, magL, SEGS);
     const rot = new THREE.Matrix4().makeRotationX(Math.PI / 2);
     const trans = new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT, 0);
@@ -2252,6 +2305,7 @@ function _buildSpokeCavityRoles() {
   // Main cryostat body.
   {
     const g = new THREE.BoxGeometry(vesselW, vesselH, vesselL);
+    _tagAuthoredLod(g, 'spoke-cryostat', 1.6);
     applyTiledBoxUVs(g, vesselW, vesselH, vesselL);
     _pushTransformed(buckets.pipe, g, new THREE.Matrix4().makeTranslation(0, vesselY, 0));
   }
@@ -2262,6 +2316,7 @@ function _buildSpokeCavityRoles() {
   const ridgeYs = [0.32, 0.68, 1.04, 1.40, 1.76];
   for (const y of ridgeYs) {
     const g = new THREE.BoxGeometry(vesselW + ridgeGrow, ridgeTh, vesselL + ridgeGrow);
+    _tagAuthoredLod(g, 'spoke-ridges', 1.25);
     applyTiledBoxUVs(g, vesselW + ridgeGrow, ridgeTh, vesselL + ridgeGrow);
     _pushTransformed(buckets.detail, g, new THREE.Matrix4().makeTranslation(0, y, 0));
   }
@@ -2284,6 +2339,7 @@ function _buildSpokeCavityRoles() {
     const plateL = vesselL + 0.16;
     const plateH = 0.09;
     const g = new THREE.BoxGeometry(plateW, plateH, plateL);
+    _tagAuthoredLod(g, 'spoke-cryostat', 1.6);
     applyTiledBoxUVs(g, plateW, plateH, plateL);
     _pushTransformed(buckets.pipe, g, new THREE.Matrix4().makeTranslation(0, vesselTop + plateH / 2, 0));
   }
@@ -2294,6 +2350,7 @@ function _buildSpokeCavityRoles() {
     const footL = vesselL + 0.14;
     const footH = 0.06;
     const g = new THREE.BoxGeometry(footW, footH, footL);
+    _tagAuthoredLod(g, 'spoke-base', 0.8);
     applyTiledBoxUVs(g, footW, footH, footL);
     _pushTransformed(buckets.stand, g, new THREE.Matrix4().makeTranslation(0, footH / 2, 0));
   }
@@ -2304,10 +2361,12 @@ function _buildSpokeCavityRoles() {
   for (const zc of couplerZs) {
     const cW = 0.26, cH = 0.26, cL = 0.26;
     const g = new THREE.BoxGeometry(cL, cH, cW);
+    _tagAuthoredLod(g, 'spoke-rf-couplers', 1.35);
     applyTiledBoxUVs(g, cL, cH, cW);
     _pushTransformed(buckets.accent, g, new THREE.Matrix4().makeTranslation(vesselW / 2 + cL / 2, BEAM_HEIGHT, zc));
     const capL = 0.05;
     const capG = new THREE.BoxGeometry(capL, cH * 1.25, cW * 1.25);
+    _tagAuthoredLod(capG, 'spoke-rf-couplers', 1.35);
     applyTiledBoxUVs(capG, capL, cH * 1.25, cW * 1.25);
     _pushTransformed(buckets.detail, capG, new THREE.Matrix4().makeTranslation(vesselW / 2 + cL + capL / 2, BEAM_HEIGHT, zc));
   }
@@ -2318,9 +2377,11 @@ function _buildSpokeCavityRoles() {
   for (const zc of cryoZs) {
     const portR = 0.09, portH = 0.32;
     const g = new THREE.CylinderGeometry(portR, portR, portH, SEGS);
+    _tagAuthoredLod(g, 'spoke-cryo-ports', 1.15);
     applyTiledCylinderUVs(g, portR, portH, SEGS);
     _pushTransformed(buckets.pipe, g, new THREE.Matrix4().makeTranslation(0, lidTop + portH / 2, zc));
     const capGeo = new THREE.CylinderGeometry(portR * 1.5, portR * 1.5, 0.04, SEGS);
+    _tagAuthoredLod(capGeo, 'spoke-cryo-ports', 1.15);
     applyTiledCylinderUVs(capGeo, portR * 1.5, 0.04, SEGS);
     _pushTransformed(buckets.detail, capGeo, new THREE.Matrix4().makeTranslation(0, lidTop + portH + 0.02, zc));
   }
@@ -2328,6 +2389,7 @@ function _buildSpokeCavityRoles() {
   // Beam pipe passes straight through the vessel along Z at beam height.
   {
     const g = new THREE.CylinderGeometry(PIPE_R, PIPE_R, 2 * tileEdge, SEGS);
+    _tagAuthoredLod(g, 'spoke-beam-line', 1.2);
     applyTiledCylinderUVs(g, PIPE_R, 2 * tileEdge, SEGS);
     const rot = new THREE.Matrix4().makeRotationX(Math.PI / 2);
     const trans = new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT, 0);
@@ -2336,6 +2398,7 @@ function _buildSpokeCavityRoles() {
   // CF flanges at tile edges
   for (const sign of [-1, 1]) {
     const fg = new THREE.CylinderGeometry(FLANGE_R, FLANGE_R, FLANGE_H, SEGS);
+    _tagAuthoredLod(fg, 'spoke-beam-line', 1.2);
     applyTiledCylinderUVs(fg, FLANGE_R, FLANGE_H, SEGS);
     const frot = new THREE.Matrix4().makeRotationX(Math.PI / 2);
     const ftrans = new THREE.Matrix4().makeTranslation(0, BEAM_HEIGHT, sign * tileEdge);
@@ -4986,16 +5049,19 @@ function _authoredFarGeometry(def, accentColor, sourceObject = null) {
   const footprintWidth = Math.max(SUB_UNIT, (def.subW || def.gridW || 2) * SUB_UNIT);
   const footprintDepth = Math.max(SUB_UNIT, (def.subL || def.gridH || 2) * SUB_UNIT);
   const footprintArea = footprintWidth * footprintDepth;
+  const profile = AUTHORED_FAR_COMPONENT_PROFILES[compType] || {};
   const geometry = buildAuthoredGeometryLod(parts, {
     footprintArea,
+    ...profile,
+    preselectedGroupKeys: cachedRoleParts?.selectedGroupKeys,
     // Legacy assembled visuals usually expose every child as the same generic
     // body role. Three major shape groups are enough for compact fittings;
     // larger authored machines scale back up with their physical footprint.
-    maxParts: roleBuilder
+    maxParts: profile.maxParts ?? (roleBuilder
       ? undefined
       : parts.length <= 8
         ? 5
-        : Math.min(5, 3 + Math.floor(Math.sqrt(footprintArea) / 3)),
+        : Math.min(5, 3 + Math.floor(Math.sqrt(footprintArea) / 3))),
     sourcePartCount,
   });
   if (!cachedRoleParts) _disposeAuthoredSourceParts(parts);
@@ -5137,21 +5203,13 @@ export class ComponentBuilder {
     }
   }
 
-  /** Hide ornamental geometry and shadow submissions outside detail zoom. */
+  /** Swap cached near/far roots without touching descendant render state. */
   setDetailLevel(showDetail) {
     const visible = !!showDetail;
     this._showDetail = visible;
     for (const obj of this._meshMap.values()) {
       obj.visible = visible;
       obj.userData.lodHidden = !visible;
-      obj.traverse(child => {
-        if (!child.isMesh) return;
-        if (child.userData.lod === 'detail') child.visible = visible;
-        if (child.userData.nearCastShadow == null) {
-          child.userData.nearCastShadow = child.castShadow === true;
-        }
-        child.castShadow = visible && child.userData.nearCastShadow;
-      });
     }
     for (const mesh of this._farBatches) mesh.visible = !visible;
   }

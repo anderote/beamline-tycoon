@@ -2704,13 +2704,6 @@ export class DecorationBuilder {
     for (const mesh of this._farPlantBatches) mesh.visible = !this._showDetail;
     for (const group of this._ordinaryGroupsById.values()) {
       group.visible = this._showDetail;
-      group.traverse(child => {
-        if (!child.isMesh) return;
-        if (child.userData.nearCastShadow == null) {
-          child.userData.nearCastShadow = child.castShadow === true;
-        }
-        child.castShadow = this._showDetail && child.userData.nearCastShadow;
-      });
     }
     for (const group of this._anonymousGroups) {
       if (group.userData?.ordinaryDecoration) group.visible = this._showDetail;

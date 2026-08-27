@@ -71,6 +71,7 @@ export function selectLargestAuthoredPartGroups(parts, {
   maxPrimitives = undefined,
   footprintAreaRatio = DEFAULT_FOOTPRINT_AREA_RATIO,
   largestPartRatio = DEFAULT_LARGEST_PART_RATIO,
+  requiredGroupKeys = [],
 } = {}) {
   const metrics = (parts || [])
     .map(partMetrics)
@@ -112,6 +113,13 @@ export function selectLargestAuthoredPartGroups(parts, {
     primitiveCount += group.parts.length;
     return true;
   };
+  // Some repeated primitives form one defining authored assembly even when
+  // their individual projected areas are modest (a magnet's four poles, for
+  // example). Builders may name those assemblies and require them here. This
+  // still copies the original primitives; it does not introduce proxy shapes.
+  for (const key of requiredGroupKeys) {
+    trySelect(ranked.find(group => group.key === key), true);
+  }
   for (const group of ranked) {
     if (group.selectionScore < cutoff) continue;
     trySelect(group);
@@ -157,7 +165,12 @@ export function selectLargestAuthoredParts(parts, options = {}) {
  * Input geometries are not disposed; ownership remains with the caller.
  */
 export function buildAuthoredGeometryLod(parts, options = {}) {
-  const selectedGroups = selectLargestAuthoredPartGroups(parts, options);
+  const selectedGroups = Array.isArray(options.preselectedGroupKeys)
+    ? options.preselectedGroupKeys.map(key => ({
+        key,
+        parts: parts.filter(part => part.groupKey === key),
+      })).filter(group => group.parts.length > 0)
+    : selectLargestAuthoredPartGroups(parts, options);
   const selected = selectedGroups.flatMap(group => group.parts);
   if (selected.length === 0) return null;
 

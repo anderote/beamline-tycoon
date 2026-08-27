@@ -78,19 +78,35 @@ function markUtilityFar(object) {
   return object;
 }
 
-function applyUtilityDetailLevel(root, showDetail) {
-  root?.traverse?.(object => {
+function utilityLodBindings(root) {
+  if (!root) return null;
+  const cached = root.userData?.utilityLodBindings;
+  if (cached) return cached;
+  const bindings = { detail: [], far: [], geometry: [] };
+  root.traverse?.(object => {
     if (object.userData?.utilityLodRole === UTILITY_LOD_DETAIL) {
-      object.visible = !!showDetail;
+      bindings.detail.push(object);
     }
     if (object.userData?.utilityLodRole === UTILITY_LOD_FAR) {
-      object.visible = !showDetail;
+      bindings.far.push(object);
     }
     const geometries = object.userData?.utilityLodGeometries;
-    if (geometries?.detail && geometries?.far) {
-      object.geometry = showDetail ? geometries.detail : geometries.far;
-    }
+    if (geometries?.detail && geometries?.far) bindings.geometry.push(object);
   });
+  root.userData.utilityLodBindings = bindings;
+  return bindings;
+}
+
+function applyUtilityDetailLevel(root, showDetail) {
+  const bindings = utilityLodBindings(root);
+  if (!bindings) return;
+  const detail = !!showDetail;
+  for (const object of bindings.detail) object.visible = detail;
+  for (const object of bindings.far) object.visible = !detail;
+  for (const object of bindings.geometry) {
+    const geometries = object.userData?.utilityLodGeometries;
+    object.geometry = detail ? geometries.detail : geometries.far;
+  }
 }
 
 // Material cache keyed by (utilityType, errorStatus) — 'ok' | 'soft' | 'hard'.

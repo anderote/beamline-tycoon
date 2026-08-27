@@ -649,13 +649,6 @@ export class EquipmentBuilder {
     for (const object of this._objectsById.values()) {
       object.visible = this._showDetail;
       object.userData.lodHidden = !this._showDetail;
-      object.traverse(child => {
-        if (!child.isMesh) return;
-        if (child.userData.nearCastShadow == null) {
-          child.userData.nearCastShadow = child.castShadow === true;
-        }
-        child.castShadow = this._showDetail && child.userData.nearCastShadow;
-      });
     }
     if (!this._showDetail) this._rebuildFarBatches();
     for (const mesh of this._farBatches) mesh.visible = !this._showDetail;

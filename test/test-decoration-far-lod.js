@@ -99,7 +99,13 @@ test('all decoration and lighting types use an explicit distant-view policy', ()
   assert.ok(overheadSize.x > overheadSize.z * 3,
     'the unrotated power-span wires run between poles while crossarms run across them');
 
+  const roots = [...builder._ordinaryGroupsById.values()];
+  const traversals = roots.map(root => root.traverse);
+  for (const root of roots) {
+    root.traverse = () => { throw new Error('LOD transition rescanned decoration descendants'); };
+  }
   builder.setDetailLevel(true);
+  for (let index = 0; index < roots.length; index++) roots[index].traverse = traversals[index];
   assert.ok([...ordinaryBatches.values()].every(batch => batch.visible === false));
   assert.ok([...builder._ordinaryGroupsById.values()].every(group => group.visible === true));
   builder.dispose(parent);

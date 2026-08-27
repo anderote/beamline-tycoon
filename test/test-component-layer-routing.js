@@ -141,6 +141,20 @@ test('far beamline presentation is derived from a bounded set of authored primit
     'the spoke cavity keeps its repeated stiffener assembly');
   assert.ok(byType.get('spokeCavity').userData.farPartRoles.includes('accent'),
     'the spoke cavity keeps a characteristic red RF-coupler assembly');
+  assert.deepEqual(byType.get('quadrupole').userData.farSelectedGroupNames, [
+    'quadrupole-yoke',
+    'quadrupole-poles',
+    'quadrupole-coils',
+    'quadrupole-beam-pipe',
+  ], 'the quad far mesh copies its four defining authored assemblies');
+  assert.deepEqual(byType.get('spokeCavity').userData.farSelectedGroupNames, [
+    'spoke-cryostat',
+    'spoke-ridges',
+    'spoke-rf-couplers',
+    'spoke-cryo-ports',
+    'spoke-beam-line',
+    'spoke-base',
+  ], 'the spoke far mesh copies its defining authored assemblies');
   const quadColors = byType.get('quadrupole').geometry.attributes.color.array;
   const expectedAccent = new THREE.Color(0xc62828);
   assert.ok(Array.from({ length: quadColors.length / 3 }, (_, index) => index * 3)

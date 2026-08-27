@@ -97,7 +97,19 @@ test('every utility keeps its route silhouette while far detail is suppressed', 
     'soft utilities swap to a four-sided far tube instead of retaining near tessellation');
   const farTubularSegments = flexible.geometry.parameters.tubularSegments;
 
+  const indexedRoots = [
+    ...builder._lineGroups.values(),
+    ...builder._busGroups.values(),
+    builder._rigidSupportGroup,
+  ].filter(Boolean);
+  const traversals = indexedRoots.map(root => root.traverse);
+  for (const root of indexedRoots) {
+    root.traverse = () => { throw new Error('LOD transition rescanned a utility hierarchy'); };
+  }
   builder.setDetailLevel(true);
+  for (let index = 0; index < indexedRoots.length; index++) {
+    indexedRoots[index].traverse = traversals[index];
+  }
   assert.ok(detailObjects.every(object => effectivelyVisible(object)),
     'zooming back in restores every authored utility detail');
   assert.ok(collect(parent, object => object.userData?.isUtilityFarRoute)
