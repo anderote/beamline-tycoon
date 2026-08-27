@@ -60,6 +60,15 @@ export class UtilityPlantGuide {
     this.render(true);
   }
 
+  resetForNewSession() {
+    this.guides.clear();
+    this.activeUtility = null;
+    this.collapsed = false;
+    this._lastCompleted.clear();
+    this._renderSignature = '';
+    this.render(true);
+  }
+
   _startFor(placeable) {
     const utilityType = plantGuideTypeForPlaceable(placeable);
     if (!utilityType || this.guides.has(utilityType)) return false;

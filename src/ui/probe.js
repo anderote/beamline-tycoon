@@ -246,6 +246,18 @@ export class ProbeWindow {
     this.el.classList.add('hidden');
   }
 
+  resetForNewSession() {
+    this.close();
+    this.gridLayout = [2, 2];
+    this.cells = [
+      { type: 'beam-envelope' },
+      { type: 'emittance' },
+      { type: 'current-loss' },
+      { type: 'summary' },
+    ];
+    this.el.classList.remove('minimized');
+  }
+
   toggleMinimize() {
     this.el.classList.toggle('minimized');
   }

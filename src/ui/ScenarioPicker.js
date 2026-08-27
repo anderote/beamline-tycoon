@@ -30,6 +30,9 @@ export class ScenarioPicker {
     location = globalThis.location,
     confirm = message => globalThis.confirm(message),
     editorEnabled = import.meta.env.DEV,
+    startInPlace = null,
+    beforeReload = null,
+    scheduleReload = callback => globalThis.setTimeout(callback, 0),
   } = {}) {
     this.game = game;
     this.storage = storage;
@@ -38,6 +41,9 @@ export class ScenarioPicker {
     this.location = location;
     this.confirm = confirm;
     this.editorEnabled = editorEnabled;
+    this.startInPlace = startInPlace;
+    this.beforeReload = beforeReload;
+    this.scheduleReload = scheduleReload;
   }
 
   open() {
@@ -147,6 +153,20 @@ export class ScenarioPicker {
     if (!this.confirm(`Start “${scenario.name}”? This replaces your current game. Use Save Game first if you want to keep it.`)) return;
 
     this.game.save();
+
+    // The title screen already owns a fully initialized renderer. Reusing it
+    // avoids a second WebGPU/WebGL initialization and its peak GPU allocation.
+    // Runtime New Game actions still use the reload transaction below because
+    // they may have arbitrary editor/windows/interaction state to tear down.
+    try {
+      if (this.startInPlace?.(scenario) === true) {
+        this.document.getElementById('scenario-dialog')?.remove();
+        return;
+      }
+    } catch (error) {
+      console.warn('[scenario] In-place New Game failed; falling back to reload:', error);
+    }
+
     try {
       // The pending selection is verified before the active save is removed.
       // If storage is unavailable, stay put with the current game intact.
@@ -160,6 +180,16 @@ export class ScenarioPicker {
       this.game.log?.(`NEW GAME FAILED — ${error.message || 'the scenario could not be staged'}.`, 'bad');
       return;
     }
-    this.location.reload();
+    // A page reload does not guarantee that a WebGPU device and its render
+    // targets are released before the replacement page asks Chrome for a new
+    // device. On large New Game scenes that overlap can saturate or kill the
+    // GPU process. The composition root supplies a scoped teardown for the
+    // current renderer; yield one task after it so disposal reaches the
+    // browser before renderer initialization starts again.
+    try { this.beforeReload?.(); }
+    catch (error) {
+      console.warn('[scenario] Renderer cleanup before New Game reload failed:', error);
+    }
+    this.scheduleReload(() => this.location.reload());
   }
 }

@@ -47,6 +47,7 @@ import {
   returnToMainMenu,
 } from './ui/main-menu-navigation.js';
 import { ScenarioPicker } from './ui/ScenarioPicker.js';
+import { startTitleScenario } from './ui/title-scenario-start.js';
 import { wireUtility } from './data/scenarios/scenario-wiring.js';
 import { EffectsWorkshop } from './ui/EffectsWorkshop.js';
 
@@ -93,7 +94,6 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
 
   const registry = new BeamlineRegistry();
   const game = new Game(registry);
-  const scenarioPicker = new ScenarioPicker(game);
 
   // Cloud-save detection (Deep Tech Week deployment). Non-blocking — local
   // dev has no API and stays in local mode. The Save/Load dialog reads
@@ -105,6 +105,22 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
   const spriteManager = new SpriteManager();
 
   const renderer = new ThreeRenderer(game, spriteManager);
+  let titleSessionActive = !!titleScreen;
+  const scenarioPicker = new ScenarioPicker(game, {
+    startInPlace: (scenario) => {
+      if (!titleSessionActive) return false;
+      const started = startTitleScenario({
+        game, scenario, renderer, input, router, probeWindow, guidedSetup,
+        utilityPlantGuide, titleScreen, maybeShowWelcome,
+      });
+      if (started) titleSessionActive = false;
+      return started;
+    },
+    beforeReload: () => {
+      game.stop();
+      renderer.prepareForReload();
+    },
+  });
   // Keep every boot from submitting frames while load/scenario wiring is
   // still replacing the world. Title boots retain the gate through Continue;
   // skip-title boots release it once all startup composition is complete.
@@ -517,6 +533,7 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
     titleScreen.ready({
       hasSave: hadSave,
       onContinue: () => {
+        titleSessionActive = false;
         titleScreen.dismiss();
         // Restore whatever pause state the loaded save had, not an
         // unconditional resume.

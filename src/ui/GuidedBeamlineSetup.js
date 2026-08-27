@@ -104,6 +104,16 @@ export class GuidedBeamlineSetup {
     this.render();
   }
 
+  resetForNewSession() {
+    this.activeSourceId = null;
+    this.activePipeId = null;
+    this.collapsed = true;
+    this.completed = false;
+    this.dismissedSources.clear();
+    this._clearSuggestion();
+    this.render();
+  }
+
   _entryForOpen(beamlineId = null) {
     const selectedId = beamlineId
       || this.game.selectedBeamlineId

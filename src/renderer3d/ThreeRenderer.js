@@ -176,6 +176,7 @@ import {
   worldRefreshPlan,
 } from './world-refresh-plan.js';
 import { precompileWorldPipelines } from './interaction-pipeline-warmup.js';
+import { releaseGraphicsForReload } from './reload-graphics-release.js';
 import { WorldInvalidationScheduler } from './world-invalidation-scheduler.js';
 import { selectionTargetsForState } from '../game/selection-targets.js';
 import { LandPurchaseMarkers } from './land-purchase-markers.js';
@@ -5086,6 +5087,29 @@ export class ThreeRenderer {
     return this.renderingSuspended;
   }
 
+  /** Restore the constructor camera pose for a new title-screen session. */
+  resetViewForNewSession() {
+    this._focusing = false;
+    this._viewRotating = false;
+    this._freeOrbiting = false;
+    this._snapping = false;
+    this._panX = 0;
+    this._panY = 0;
+    this.zoom = 1;
+    this.viewMode = 'steep';
+    this._isoYawIdx = 0;
+    this._steepYawIdx = 0;
+    this._topYawIdx = 0;
+    this._customYawIdx = 0;
+    this._lockedPitch = PITCH_STEEP;
+    this._viewRotationAngle = 0;
+    this._freeYaw = 0;
+    this._freePitch = PITCH_STEEP;
+    this._updateCameraLookAt();
+    this._syncOverlayFromPan();
+    this.ui?.syncCameraSettings?.();
+  }
+
   /** Whether the world uses native WebGPU rather than Three's WebGL2 fallback. */
   usesNativeWebGPU() {
     return this._rendererBackend?.backend === 'webgpu';
@@ -5476,6 +5500,16 @@ export class ThreeRenderer {
     this.applySnapshot(snapshot);
     if (this.staffPawns) this.staffPawns.sync();
     this.landPurchaseMarkers?.sync();
+  }
+
+  /**
+   * Replace the title-screen world once and discard compatibility events that
+   * described the same scenario transaction. Without this, those queued
+   * events rebuild parts of the new campus again on the first playable frame.
+   */
+  refreshForNewSession() {
+    this._worldInvalidationScheduler?.clear();
+    this.refresh();
   }
 
   _refreshBeamlineWorld() {
@@ -6590,6 +6624,24 @@ export class ThreeRenderer {
     const threeCanvas = this.renderer.domElement;
     if (threeCanvas.parentNode) threeCanvas.parentNode.removeChild(threeCanvas);
     this.overlay.dispose();
+  }
+
+  /**
+   * Stop browser-owned graphics work before a page reload without walking the
+   * complete scene graph. Page destruction will reclaim the ordinary JS-side
+   * objects; this seam exists specifically to prevent the old and replacement
+   * GPU devices from overlapping during New Game.
+   */
+  prepareForReload() {
+    this.renderingSuspended = true;
+    this._worldInvalidationScheduler?.clear();
+    if (this._animFrameId !== null) {
+      cancelAnimationFrame(this._animFrameId);
+      this._animFrameId = null;
+    }
+    this._framePacer?.dispose();
+    if (this.canvas) this.canvas.style.pointerEvents = 'none';
+    return releaseGraphicsForReload(this.renderer);
   }
 }
 

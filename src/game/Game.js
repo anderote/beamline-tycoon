@@ -696,6 +696,46 @@ export class Game {
 
     // RimWorld-like staff: seed one operator pawn if none exists
     this._ensureStaffSeed();
+
+    // A title-screen New Game can replace the world without destroying and
+    // recreating the browser's graphics device. Keep the pristine constructor
+    // state as a save-format payload so resetForNewSession() can restore it
+    // through the same state/registry/index contract as an ordinary load.
+    // Host serializers are intentionally absent at this point: camera and UI
+    // session state are reset by the composition root, not copied into a new
+    // game.
+    this._newSessionBaseline = typeof this.registry?.toJSON === 'function'
+      && typeof this.registry?.fromJSON === 'function'
+      ? this.serialize({ includeAux: false })
+      : null;
+  }
+
+  /**
+   * Restore this Game instance to its pristine constructor state.
+   *
+   * Systems retain their references to the one mutable `state` object, while
+   * the registry and every derived index are rebuilt by _applyState. The
+   * caller owns applying the chosen scenario and restarting the tick loop.
+   */
+  resetForNewSession() {
+    if (!this._newSessionBaseline) return false;
+
+    this.stop();
+    this._applyState(JSON.parse(this._newSessionBaseline));
+
+    this.activeLevel = 0;
+    this.editingBeamlineId = null;
+    this.selectedBeamlineId = null;
+    this.pendingBeamlineTypeId = null;
+    this._undoStack.length = 0;
+    this._redoStack.length = 0;
+    this._resourceLedger = {};
+    this._resourceMark = { ...this.state.resources };
+    this._gestureDepth = 0;
+    this._eventBatch = null;
+    this._nodeQualitySig = '';
+    this._saveFailureReported = false;
+    return true;
   }
 
   _ensureStaffSeed() {
