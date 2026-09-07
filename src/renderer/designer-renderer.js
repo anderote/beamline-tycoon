@@ -11,7 +11,7 @@ import { MODES } from '../data/modes.js';
 import { UNITS } from '../data/units.js';
 import { isFacilityCategory } from './Renderer.js';
 import { beamlineTypeHidesComponent } from '../ui/BeamlineTypePicker.js';
-import { getBeamlineType } from '../data/beamline-types.js';
+import { getBeamlineType, isWithinBeamlineBand } from '../data/beamline-types.js';
 import { ProbePlots } from '../ui/probe-plots.js';
 import {
   beamVisualIntensity,
@@ -64,11 +64,7 @@ const _missionFomLabels = {
   integratedLuminosity: 'Luminosity', blackHoleYield: 'Predicted yield',
 };
 
-function _inBand(value, band) {
-  if (!band || band.length !== 2) return value > 0;
-  if (!(value > 0)) return false;
-  return (band[0] == null || value >= band[0]) && (band[1] == null || value <= band[1]);
-}
+const _inBand = isWithinBeamlineBand;
 
 function _fmtEnergyValue(gev) {
   const out = formatEnergy(gev || 0);

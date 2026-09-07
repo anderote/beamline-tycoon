@@ -1,0 +1,2575 @@
+{
+  "physics": "native Python",
+  "ticks": 600,
+  "policy": "Start available beams; no hiring; no building, research, repair or refill automation.",
+  "initial": {
+    "resources": {
+      "funding": 4997500,
+      "reputation": 0,
+      "data": 0,
+      "spares": 50
+    },
+    "staff": {
+      "operator": 1,
+      "technician": 0,
+      "engineer": 0,
+      "scientist": 1,
+      "machinist": 0,
+      "admin": 0
+    },
+    "placeables": 1440,
+    "utilityLines": 287,
+    "beamlines": [
+      {
+        "id": "bl-1",
+        "type": null
+      },
+      {
+        "id": "bl-2",
+        "type": null
+      }
+    ]
+  },
+  "firstBeamTick": 1,
+  "firstDataTick": 8,
+  "checkpoints": [
+    {
+      "tick": 100,
+      "resources": {
+        "funding": 9102905.971624149,
+        "reputation": 30.108883367616002,
+        "data": 18.09999999999997,
+        "spares": 50
+      },
+      "economy": {
+        "tick": 100,
+        "income": {
+          "grant": 110,
+          "reputation": 120,
+          "beam": 3661.1746715570753,
+          "dataFees": 1,
+          "total": 3892.1746715570753
+        },
+        "upkeep": {
+          "staff": 370,
+          "power": 989.74,
+          "pumps": 104,
+          "refills": 0,
+          "total": 1463.74
+        },
+        "net": 2428.4346715570755,
+        "contributingBeamlines": 2
+      },
+      "data": {
+        "capacity": {
+          "ingest": 48,
+          "storage": 3320,
+          "cpu": 48,
+          "gpu": 68,
+          "units": {
+            "allInOne": 1,
+            "daq": 1,
+            "storage": 1,
+            "cpu": 1,
+            "gpu": 1
+          },
+          "gateways": 2,
+          "inactive": {
+            "noGateway": 0,
+            "noPower": 0
+          }
+        },
+        "requested": 0.2,
+        "ingested": 0.2,
+        "dropped": 0,
+        "ingestDropped": 0,
+        "storageDropped": 0,
+        "stored": 0,
+        "processed": 0.2,
+        "bottleneck": "Clear",
+        "processedByWorkload": {
+          "cpu": 0.2,
+          "gpu": 0,
+          "balanced": 0
+        },
+        "ingestUtilization": 0.004166666666666667,
+        "storageUtilization": 0,
+        "cpuUtilization": 0.011514104778353573,
+        "gpuUtilization": 0
+      },
+      "running": 2,
+      "beams": [
+        {
+          "type": null,
+          "energy": 0.04432761983639688,
+          "current": 0.06255967885180097,
+          "quality": 0.9402931771602173,
+          "alive": true,
+          "serviceRevenue": 0
+        },
+        {
+          "type": null,
+          "energy": 0.04161021265429077,
+          "current": 0.06330219072042785,
+          "quality": 0.9087849397878004,
+          "alive": true,
+          "serviceRevenue": 0
+        }
+      ]
+    },
+    {
+      "tick": 200,
+      "resources": {
+        "funding": 9346160.037873747,
+        "reputation": 32.32879592474349,
+        "data": 38.10000000000001,
+        "spares": 50
+      },
+      "economy": {
+        "tick": 200,
+        "income": {
+          "grant": 110,
+          "reputation": 125,
+          "beam": 3664.916606452808,
+          "dataFees": 1,
+          "total": 3900.916606452808
+        },
+        "upkeep": {
+          "staff": 370,
+          "power": 989.74,
+          "pumps": 104,
+          "refills": 0,
+          "total": 1463.74
+        },
+        "net": 2437.1766064528083,
+        "contributingBeamlines": 2
+      },
+      "data": {
+        "capacity": {
+          "ingest": 48,
+          "storage": 3320,
+          "cpu": 48,
+          "gpu": 68,
+          "units": {
+            "allInOne": 1,
+            "daq": 1,
+            "storage": 1,
+            "cpu": 1,
+            "gpu": 1
+          },
+          "gateways": 2,
+          "inactive": {
+            "noGateway": 0,
+            "noPower": 0
+          }
+        },
+        "requested": 0.2,
+        "ingested": 0.2,
+        "dropped": 0,
+        "ingestDropped": 0,
+        "storageDropped": 0,
+        "stored": 0,
+        "processed": 0.2,
+        "bottleneck": "Clear",
+        "processedByWorkload": {
+          "cpu": 0.2,
+          "gpu": 0,
+          "balanced": 0
+        },
+        "ingestUtilization": 0.004166666666666667,
+        "storageUtilization": 0,
+        "cpuUtilization": 0.009818360333824439,
+        "gpuUtilization": 0
+      },
+      "running": 2,
+      "beams": [
+        {
+          "type": null,
+          "energy": 0.0442648570745694,
+          "current": 0.04843443492407218,
+          "quality": 0.9409042371791639,
+          "alive": true,
+          "serviceRevenue": 0
+        },
+        {
+          "type": null,
+          "energy": 0.04155951731287921,
+          "current": 0.05168233337695579,
+          "quality": 0.9100637458778098,
+          "alive": true,
+          "serviceRevenue": 0
+        }
+      ]
+    },
+    {
+      "tick": 300,
+      "resources": {
+        "funding": 9590186.075892547,
+        "reputation": 34.55144213978548,
+        "data": 58.10000000000029,
+        "spares": 50
+      },
+      "economy": {
+        "tick": 300,
+        "income": {
+          "grant": 110,
+          "reputation": 127,
+          "beam": 3668.3105590671066,
+          "dataFees": 1,
+          "total": 3906.3105590671066
+        },
+        "upkeep": {
+          "staff": 370,
+          "power": 989.74,
+          "pumps": 104,
+          "refills": 0,
+          "total": 1463.74
+        },
+        "net": 2442.570559067107,
+        "contributingBeamlines": 2
+      },
+      "data": {
+        "capacity": {
+          "ingest": 48,
+          "storage": 3320,
+          "cpu": 48,
+          "gpu": 68,
+          "units": {
+            "allInOne": 1,
+            "daq": 1,
+            "storage": 1,
+            "cpu": 1,
+            "gpu": 1
+          },
+          "gateways": 2,
+          "inactive": {
+            "noGateway": 0,
+            "noPower": 0
+          }
+        },
+        "requested": 0.2,
+        "ingested": 0.2,
+        "dropped": 0,
+        "ingestDropped": 0,
+        "storageDropped": 0,
+        "stored": 0,
+        "processed": 0.2,
+        "bottleneck": "Clear",
+        "processedByWorkload": {
+          "cpu": 0.2,
+          "gpu": 0,
+          "balanced": 0
+        },
+        "ingestUtilization": 0.004166666666666667,
+        "storageUtilization": 0,
+        "cpuUtilization": 0.008557980316645453,
+        "gpuUtilization": 0
+      },
+      "running": 2,
+      "beams": [
+        {
+          "type": null,
+          "energy": 0.04419584984446778,
+          "current": 0.03483648068884714,
+          "quality": 0.9415820564006383,
+          "alive": true,
+          "serviceRevenue": 0
+        },
+        {
+          "type": null,
+          "energy": 0.04150378025311685,
+          "current": 0.03981992263337697,
+          "quality": 0.9114826736454057,
+          "alive": true,
+          "serviceRevenue": 0
+        }
+      ]
+    },
+    {
+      "tick": 400,
+      "resources": {
+        "funding": 10635845.71537097,
+        "reputation": 40.66385656698902,
+        "data": 59.10000000000031,
+        "spares": 50
+      },
+      "economy": {
+        "tick": 400,
+        "income": {
+          "grant": 110,
+          "reputation": 140,
+          "beam": 3672.111010400138,
+          "dataFees": 1,
+          "total": 3923.111010400138
+        },
+        "upkeep": {
+          "staff": 370,
+          "power": 989.74,
+          "pumps": 104,
+          "refills": 0,
+          "total": 1463.74
+        },
+        "net": 2459.3710104001384,
+        "contributingBeamlines": 2
+      },
+      "data": {
+        "capacity": {
+          "ingest": 48,
+          "storage": 3320,
+          "cpu": 48,
+          "gpu": 68,
+          "units": {
+            "allInOne": 1,
+            "daq": 1,
+            "storage": 1,
+            "cpu": 1,
+            "gpu": 1
+          },
+          "gateways": 2,
+          "inactive": {
+            "noGateway": 0,
+            "noPower": 0
+          }
+        },
+        "requested": 0.2,
+        "ingested": 0.2,
+        "dropped": 0,
+        "ingestDropped": 0,
+        "storageDropped": 0,
+        "stored": 18.999999999999964,
+        "processed": 0,
+        "bottleneck": "Data scientist",
+        "processedByWorkload": {
+          "cpu": 0,
+          "gpu": 0,
+          "balanced": 0
+        },
+        "ingestUtilization": 0.004166666666666667,
+        "storageUtilization": 0.0057228915662650495,
+        "cpuUtilization": 0,
+        "gpuUtilization": 0
+      },
+      "running": 2,
+      "beams": [
+        {
+          "type": null,
+          "energy": 0.044133145078224745,
+          "current": 0.024461207150335267,
+          "quality": 0.9422034344726347,
+          "alive": true,
+          "serviceRevenue": 0
+        },
+        {
+          "type": null,
+          "energy": 0.04145313559021602,
+          "current": 0.030108568861695578,
+          "quality": 0.9127838575972511,
+          "alive": true,
+          "serviceRevenue": 0
+        }
+      ]
+    },
+    {
+      "tick": 500,
+      "resources": {
+        "funding": 10882220.148264403,
+        "reputation": 42.89065442910407,
+        "data": 98.10000000000039,
+        "spares": 50
+      },
+      "economy": {
+        "tick": 500,
+        "income": {
+          "grant": 110,
+          "reputation": 144,
+          "beam": 3676.3275848893836,
+          "dataFees": 1,
+          "total": 3931.3275848893836
+        },
+        "upkeep": {
+          "staff": 370,
+          "power": 989.74,
+          "pumps": 104,
+          "refills": 0,
+          "total": 1463.74
+        },
+        "net": 2467.587584889384,
+        "contributingBeamlines": 2
+      },
+      "data": {
+        "capacity": {
+          "ingest": 48,
+          "storage": 3320,
+          "cpu": 48,
+          "gpu": 68,
+          "units": {
+            "allInOne": 1,
+            "daq": 1,
+            "storage": 1,
+            "cpu": 1,
+            "gpu": 1
+          },
+          "gateways": 2,
+          "inactive": {
+            "noGateway": 0,
+            "noPower": 0
+          }
+        },
+        "requested": 0.2,
+        "ingested": 0.2,
+        "dropped": 0,
+        "ingestDropped": 0,
+        "storageDropped": 0,
+        "stored": 0,
+        "processed": 0.2,
+        "bottleneck": "Clear",
+        "processedByWorkload": {
+          "cpu": 0.2,
+          "gpu": 0,
+          "balanced": 0
+        },
+        "ingestUtilization": 0.004166666666666667,
+        "storageUtilization": 0,
+        "cpuUtilization": 0.008333333333333415,
+        "gpuUtilization": 0
+      },
+      "running": 2,
+      "beams": [
+        {
+          "type": null,
+          "energy": 0.04407046816234239,
+          "current": 0.01610701956011304,
+          "quality": 0.9428297824235625,
+          "alive": true,
+          "serviceRevenue": 0
+        },
+        {
+          "type": null,
+          "energy": 0.04140251520923466,
+          "current": 0.021636056934118682,
+          "quality": 0.9140958727173667,
+          "alive": true,
+          "serviceRevenue": 0
+        }
+      ]
+    },
+    {
+      "tick": 600,
+      "resources": {
+        "funding": 11629839.688646263,
+        "reputation": 49.12025386162495,
+        "data": 118.10000000000068,
+        "spares": 50
+      },
+      "economy": {
+        "tick": 600,
+        "income": {
+          "grant": 110,
+          "reputation": 152,
+          "beam": 3680.193957682596,
+          "dataFees": 1,
+          "total": 3943.193957682596
+        },
+        "upkeep": {
+          "staff": 370,
+          "power": 989.74,
+          "pumps": 104,
+          "refills": 0,
+          "total": 1463.74
+        },
+        "net": 2479.4539576825964,
+        "contributingBeamlines": 2
+      },
+      "data": {
+        "capacity": {
+          "ingest": 48,
+          "storage": 3320,
+          "cpu": 48,
+          "gpu": 68,
+          "units": {
+            "allInOne": 1,
+            "daq": 1,
+            "storage": 1,
+            "cpu": 1,
+            "gpu": 1
+          },
+          "gateways": 2,
+          "inactive": {
+            "noGateway": 0,
+            "noPower": 0
+          }
+        },
+        "requested": 0.2,
+        "ingested": 0.2,
+        "dropped": 0,
+        "ingestDropped": 0,
+        "storageDropped": 0,
+        "stored": 0,
+        "processed": 0.2,
+        "bottleneck": "Clear",
+        "processedByWorkload": {
+          "cpu": 0.2,
+          "gpu": 0,
+          "balanced": 0
+        },
+        "ingestUtilization": 0.004166666666666667,
+        "storageUtilization": 0,
+        "cpuUtilization": 0.008333333333333415,
+        "gpuUtilization": 0
+      },
+      "running": 2,
+      "beams": [
+        {
+          "type": null,
+          "energy": 0.04401408287511954,
+          "current": 0.01032678390626783,
+          "quality": 0.9433977750157073,
+          "alive": true,
+          "serviceRevenue": 0
+        },
+        {
+          "type": null,
+          "energy": 0.04135697770724034,
+          "current": 0.015216091618940103,
+          "quality": 0.915286041995705,
+          "alive": true,
+          "serviceRevenue": 0
+        }
+      ]
+    }
+  ],
+  "objectives": [
+    "fullUtilities",
+    "tenComponents",
+    "firstBeam",
+    "firstMeasurement",
+    "firstTarget",
+    "firstData",
+    "stableBeam",
+    "cwOperation",
+    "collect100data"
+  ],
+  "labs": {
+    "rfLab": {
+      "active": false,
+      "tileCount": 9,
+      "tileTier": 2,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    },
+    "coolingLab": {
+      "active": false,
+      "tileCount": 0,
+      "tileTier": 0,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    },
+    "vacuumLab": {
+      "active": false,
+      "tileCount": 0,
+      "tileTier": 0,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    },
+    "officeSpace": {
+      "active": false,
+      "tileCount": 12,
+      "tileTier": 2,
+      "tier": 2,
+      "staffedOutput": 0,
+      "peakTier": 2
+    },
+    "privateOffice": {
+      "active": false,
+      "tileCount": 14,
+      "tileTier": 2,
+      "tier": 2,
+      "staffedOutput": 0,
+      "peakTier": 2
+    },
+    "controlRoom": {
+      "active": true,
+      "tileCount": 12,
+      "tileTier": 2,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    },
+    "machineShop": {
+      "active": false,
+      "tileCount": 0,
+      "tileTier": 0,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    },
+    "maintenance": {
+      "active": false,
+      "tileCount": 0,
+      "tileTier": 0,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    },
+    "opticsLab": {
+      "active": false,
+      "tileCount": 0,
+      "tileTier": 0,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    },
+    "diagnosticsLab": {
+      "active": false,
+      "tileCount": 0,
+      "tileTier": 0,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    },
+    "cafeteria": {
+      "active": false,
+      "tileCount": 40,
+      "tileTier": 4,
+      "tier": 4,
+      "staffedOutput": 0,
+      "peakTier": 4
+    },
+    "kitchen": {
+      "active": false,
+      "tileCount": 0,
+      "tileTier": 0,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    },
+    "bathroom": {
+      "active": false,
+      "tileCount": 9,
+      "tileTier": 2,
+      "tier": 2,
+      "staffedOutput": 0,
+      "peakTier": 2
+    },
+    "meetingRoom": {
+      "active": false,
+      "tileCount": 0,
+      "tileTier": 0,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    },
+    "facultyLounge": {
+      "active": false,
+      "tileCount": 0,
+      "tileTier": 0,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    },
+    "reception": {
+      "active": false,
+      "tileCount": 0,
+      "tileTier": 0,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    },
+    "storageRoom": {
+      "active": false,
+      "tileCount": 0,
+      "tileTier": 0,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    }
+  },
+  "research": {
+    "nodes": 70,
+    "totals": {
+      "funding": 597960000,
+      "data": 18499,
+      "reputation": 2200,
+      "baseSeconds": 5005
+    },
+    "availableAtOpening": [
+      {
+        "id": "beamOptics",
+        "cost": {
+          "data": 105,
+          "funding": 1700000
+        },
+        "speedMultiplier": 4
+      },
+      {
+        "id": "rfFundamentals",
+        "cost": {
+          "data": 65,
+          "funding": 980000
+        },
+        "speedMultiplier": 4
+      },
+      {
+        "id": "basicVacuum",
+        "cost": {
+          "data": 65,
+          "funding": 980000
+        },
+        "speedMultiplier": 4
+      },
+      {
+        "id": "cryoFundamentals",
+        "cost": {
+          "data": 90,
+          "funding": 1500000
+        },
+        "speedMultiplier": 4
+      },
+      {
+        "id": "beamDiagnostics",
+        "cost": {
+          "data": 105,
+          "funding": 1700000
+        },
+        "speedMultiplier": 4
+      },
+      {
+        "id": "synchrotronLight",
+        "cost": {
+          "data": 228,
+          "funding": 6700000
+        },
+        "speedMultiplier": 4
+      },
+      {
+        "id": "dataAnalysis",
+        "cost": {
+          "data": 171,
+          "funding": 3900000
+        },
+        "speedMultiplier": 4
+      },
+      {
+        "id": "cyclotronTech",
+        "cost": {
+          "data": 140,
+          "funding": 2600000
+        },
+        "speedMultiplier": 4
+      },
+      {
+        "id": "targetPhysics",
+        "cost": {
+          "data": 140,
+          "funding": 2600000
+        },
+        "speedMultiplier": 4
+      }
+    ]
+  },
+  "designs": [
+    {
+      "id": "testStand-bench",
+      "type": "testStand",
+      "measured": {
+        "beamEnergy": 0.0057639116225563685,
+        "beamCurrent": 21.188302393174745,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 0.5762339521365052,
+        "finalBeamSizeX": 0.007380909225952691,
+        "finalBeamSizeY": 0.007380909225952691,
+        "finalNormEmittanceX": 2.1325021185355423e-06,
+        "finalNormEmittanceY": 2.1325021185355423e-06,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 4.897457522568794e-10,
+        "luminosity": 0,
+        "photonRate": 0,
+        "dataRate": 0.1,
+        "felSaturated": false,
+        "collisionRate": 0,
+        "maxDispersion": 0,
+        "nDiagnostics": 1,
+        "peakBeamSizeX": 0.007380909225952691,
+        "peakBeamSizeY": 0.007380909225952691,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 98.54892516983811,
+        "dataFees": 0.5,
+        "total": 99.04892516983811,
+        "operationsRevenue": 90,
+        "effectiveDataRate": 0.1,
+        "serviceEndpointId": "faradayCup",
+        "serviceBaseRevenue": 35,
+        "serviceDriverLabel": "Commissioning beam delivery",
+        "serviceDescription": "Commissioning teams rent in-band beam time to qualify sources and upstream hardware.",
+        "serviceRevenue": 8.548925169838117,
+        "serviceContract": "Commissioning time",
+        "serviceWorkload": "cpu",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 0.24425500485251767,
+        "serviceBeamPowerKw": 12.212750242625884,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 1960000,
+      "researchNodes": 0,
+      "research": {
+        "funding": 0,
+        "data": 0,
+        "reputation": 0,
+        "baseSeconds": 0
+      }
+    },
+    {
+      "id": "testStand-sband",
+      "type": "testStand",
+      "measured": {
+        "beamEnergy": 0.03968858287495046,
+        "beamCurrent": 9.999999689705733,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 0.5000000155147133,
+        "finalBeamSizeX": 0.0010067066499276354,
+        "finalBeamSizeY": 0.0011220071187938445,
+        "finalNormEmittanceX": 1.3954412654951252e-06,
+        "finalNormEmittanceY": 1.3954579424459962e-06,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 4.897371347249213e-10,
+        "luminosity": 0,
+        "photonRate": 0,
+        "dataRate": 0.1,
+        "felSaturated": false,
+        "collisionRate": 0,
+        "maxDispersion": 0,
+        "nDiagnostics": 1,
+        "peakBeamSizeX": 0.005446687699388408,
+        "peakBeamSizeY": 0.005446687699388408,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 242.87889391637137,
+        "dataFees": 0.5,
+        "total": 243.37889391637137,
+        "operationsRevenue": 100,
+        "effectiveDataRate": 0.1,
+        "serviceEndpointId": "materialsTestStation",
+        "serviceBaseRevenue": 180,
+        "serviceDriverLabel": "Delivered beam power",
+        "serviceDescription": "Materials labs pay for useful beam power delivered to samples inside the test envelope.",
+        "serviceRevenue": 142.87889391637137,
+        "serviceContract": "Materials qualification",
+        "serviceWorkload": "cpu",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 0.7937716328687299,
+        "serviceBeamPowerKw": 39.68858164343649,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 1700000,
+      "researchNodes": 0,
+      "research": {
+        "funding": 0,
+        "data": 0,
+        "reputation": 0,
+        "baseSeconds": 0
+      }
+    },
+    {
+      "id": "testStand-highpower",
+      "type": "testStand",
+      "measured": {
+        "beamEnergy": 0.0397118263608686,
+        "beamCurrent": 23.530531152580995,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 0.9394929198933631,
+        "finalBeamSizeX": 0.013196711717912438,
+        "finalBeamSizeY": 0.012558205085353817,
+        "finalNormEmittanceX": 0.00019582151241583486,
+        "finalNormEmittanceY": 0.00019582150657313643,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 4.900984021512776e-10,
+        "luminosity": 0,
+        "photonRate": 0,
+        "dataRate": 0.1,
+        "felSaturated": false,
+        "collisionRate": 0,
+        "maxDispersion": 0,
+        "nDiagnostics": 4,
+        "peakBeamSizeX": 0.03408295044284766,
+        "peakBeamSizeY": 0.03408295044284766,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 486.39853223171,
+        "dataFees": 0.5,
+        "total": 486.89853223171,
+        "operationsRevenue": 150,
+        "effectiveDataRate": 0.1,
+        "serviceEndpointId": "materialsTestStation",
+        "serviceBaseRevenue": 180,
+        "serviceDriverLabel": "Delivered beam power",
+        "serviceDescription": "Materials labs pay for useful beam power delivered to samples inside the test envelope.",
+        "serviceRevenue": 336.39853223171,
+        "serviceContract": "Materials qualification",
+        "serviceWorkload": "cpu",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 1.8688807346206113,
+        "serviceBeamPowerKw": 93.44403673103056,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 2390000,
+      "researchNodes": 1,
+      "research": {
+        "funding": 1700000,
+        "data": 105,
+        "reputation": 0,
+        "baseSeconds": 30
+      }
+    },
+    {
+      "id": "ebeam-crosslinker",
+      "type": "ebeamProcessing",
+      "measured": {
+        "beamEnergy": 0.00622794616398101,
+        "beamCurrent": 95.4729740539327,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 0.5089961334369175,
+        "finalBeamSizeX": 0.007659547074396187,
+        "finalBeamSizeY": 0.007659547074396187,
+        "finalNormEmittanceX": 5.8300783125598e-06,
+        "finalNormEmittanceY": 5.8300783125598e-06,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 2.8001875938679955e-11,
+        "luminosity": 0,
+        "photonRate": 0,
+        "dataRate": 0.1,
+        "felSaturated": false,
+        "collisionRate": 0,
+        "maxDispersion": 0,
+        "nDiagnostics": 1,
+        "peakBeamSizeX": 0.007659547074396187,
+        "peakBeamSizeY": 0.007659547074396187,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 678.3845642239706,
+        "dataFees": 0.5,
+        "total": 678.8845642239706,
+        "operationsRevenue": 60,
+        "effectiveDataRate": 0.1,
+        "serviceEndpointId": "xRayConverterStation",
+        "serviceBaseRevenue": 520,
+        "serviceDriverLabel": "X-ray conversion delivery",
+        "serviceDescription": "Inspection customers pay for useful converted X-ray output below the activation ceiling.",
+        "serviceRevenue": 618.3845642239706,
+        "serviceContract": "X-ray inspection",
+        "serviceWorkload": "balanced",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 1.1892010850460975,
+        "serviceBeamPowerKw": 594.6005425230487,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 1290000,
+      "researchNodes": 0,
+      "research": {
+        "funding": 0,
+        "data": 0,
+        "reputation": 0,
+        "baseSeconds": 0
+      }
+    },
+    {
+      "id": "ebeam-sterilisation",
+      "type": "ebeamProcessing",
+      "measured": {
+        "beamEnergy": 0.010567155643538178,
+        "beamCurrent": 59.36219197182433,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 0.5251024642254054,
+        "finalBeamSizeX": 0.008327648048930585,
+        "finalBeamSizeY": 0.008327648048930585,
+        "finalNormEmittanceX": 4.773691150741767e-06,
+        "finalNormEmittanceY": 4.773691150741767e-06,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 4.897653418722199e-10,
+        "luminosity": 0,
+        "photonRate": 0,
+        "dataRate": 0.1,
+        "felSaturated": false,
+        "collisionRate": 0,
+        "maxDispersion": 0,
+        "nDiagnostics": 1,
+        "peakBeamSizeX": 0.008327648048930585,
+        "peakBeamSizeY": 0.008327648048930585,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 1199.1211394341483,
+        "dataFees": 0.5,
+        "total": 1199.6211394341483,
+        "operationsRevenue": 70,
+        "effectiveDataRate": 0.1,
+        "serviceEndpointId": "eBeamIrradiationVault",
+        "serviceBaseRevenue": 900,
+        "serviceDriverLabel": "Delivered processing power",
+        "serviceDescription": "Sterilisation and materials-processing work is paid on delivered beam power below the regulatory energy ceiling.",
+        "serviceRevenue": 1129.1211394341483,
+        "serviceContract": "Industrial irradiation",
+        "serviceWorkload": "cpu",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 1.2545790438157203,
+        "serviceBeamPowerKw": 627.2895219078601,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 2640000,
+      "researchNodes": 0,
+      "research": {
+        "funding": 0,
+        "data": 0,
+        "reputation": 0,
+        "baseSeconds": 0
+      }
+    },
+    {
+      "id": "ebeam-highpower",
+      "type": "ebeamProcessing",
+      "measured": {
+        "beamEnergy": 0.010572181516494566,
+        "beamCurrent": 85.70555047522156,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 0.5886133577189365,
+        "finalBeamSizeX": 0.010816042191886642,
+        "finalBeamSizeY": 0.010816042191886642,
+        "finalNormEmittanceX": 9.159218181987214e-06,
+        "finalNormEmittanceY": 9.159218181987214e-06,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 4.897735723022244e-10,
+        "luminosity": 0,
+        "photonRate": 0,
+        "dataRate": 0.1,
+        "felSaturated": false,
+        "collisionRate": 0,
+        "maxDispersion": 0,
+        "nDiagnostics": 2,
+        "peakBeamSizeX": 0.010816042191886642,
+        "peakBeamSizeY": 0.010816042191886642,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 1710.970345871233,
+        "dataFees": 0.5,
+        "total": 1711.470345871233,
+        "operationsRevenue": 80,
+        "effectiveDataRate": 0.1,
+        "serviceEndpointId": "eBeamIrradiationVault",
+        "serviceBaseRevenue": 900,
+        "serviceDriverLabel": "Delivered processing power",
+        "serviceDescription": "Sterilisation and materials-processing work is paid on delivered beam power below the regulatory energy ceiling.",
+        "serviceRevenue": 1630.970345871233,
+        "serviceContract": "Industrial irradiation",
+        "serviceWorkload": "cpu",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 1.8121892731902587,
+        "serviceBeamPowerKw": 906.0946365951294,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 2670000,
+      "researchNodes": 0,
+      "research": {
+        "funding": 0,
+        "data": 0,
+        "reputation": 0,
+        "baseSeconds": 0
+      }
+    },
+    {
+      "id": "isotope-cyclone30",
+      "type": "isotopeIrradiation",
+      "measured": {
+        "beamEnergy": 0.030000000000000027,
+        "beamCurrent": 0.30463479429366036,
+        "beamQuality": 0.9986967546689999,
+        "beamAlive": true,
+        "totalLossFraction": 0.12961487344668465,
+        "finalBeamSizeX": 0.017185800452949384,
+        "finalBeamSizeY": 0.01986599718501962,
+        "finalNormEmittanceX": 6.006545511710606e-06,
+        "finalNormEmittanceY": 6.009113840238711e-06,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 1.6621645742182037e-09,
+        "luminosity": 0,
+        "photonRate": 0,
+        "dataRate": 0.1,
+        "felSaturated": false,
+        "collisionRate": 0.5296080780269095,
+        "maxDispersion": 0,
+        "nDiagnostics": 2,
+        "peakBeamSizeX": 0.017185800452949384,
+        "peakBeamSizeY": 0.01986599718501962,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 1149.2443417483867,
+        "dataFees": 0.5,
+        "total": 1149.7443417483867,
+        "operationsRevenue": 79.89574037351998,
+        "effectiveDataRate": 0.1,
+        "serviceEndpointId": "radiationEffectsStation",
+        "serviceBaseRevenue": 1200,
+        "serviceDriverLabel": "Test dose / fluence",
+        "serviceDescription": "Aerospace and electronics customers pay for useful dose delivered across the device under test.",
+        "serviceRevenue": 1069.3486013748666,
+        "serviceContract": "Electronics radiation testing",
+        "serviceWorkload": "cpu",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 0.8911238344790554,
+        "serviceBeamPowerKw": 7.311235063047855,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 8870000,
+      "researchNodes": 2,
+      "research": {
+        "funding": 7600000,
+        "data": 340,
+        "reputation": 0,
+        "baseSeconds": 100
+      }
+    },
+    {
+      "id": "isotope-spoke-booster",
+      "type": "isotopeIrradiation",
+      "measured": {
+        "beamEnergy": 0.04720986231687618,
+        "beamCurrent": 0.16399050551356717,
+        "beamQuality": 0.9540216390728239,
+        "beamAlive": true,
+        "totalLossFraction": 0.5314556985326653,
+        "finalBeamSizeX": 0.017290135989376745,
+        "finalBeamSizeY": 0.022987158013549017,
+        "finalNormEmittanceX": 7.85215131061575e-06,
+        "finalNormEmittanceY": 7.997899205503524e-06,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 1.7862229125765214e-09,
+        "luminosity": 0,
+        "photonRate": 0,
+        "dataRate": 0.1,
+        "felSaturated": false,
+        "collisionRate": 0.21991195786608275,
+        "maxDispersion": 0,
+        "nDiagnostics": 1,
+        "peakBeamSizeX": 0.017290135989376745,
+        "peakBeamSizeY": 0.022987158013549017,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 1194.8404319306278,
+        "dataFees": 0.5,
+        "total": 1195.3404319306278,
+        "operationsRevenue": 95.40216390728239,
+        "effectiveDataRate": 0.1,
+        "serviceEndpointId": "isotopeProductionTarget",
+        "serviceBaseRevenue": 1500,
+        "serviceDriverLabel": "Isotope production delivery",
+        "serviceDescription": "Isotope customers pay for sustained in-band proton delivery that drives target yield.",
+        "serviceRevenue": 1099.4382680233455,
+        "serviceContract": "Medical isotope supply",
+        "serviceWorkload": "cpu",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 0.732958845348897,
+        "serviceBeamPowerKw": 6.193575349256345,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 11030000,
+      "researchNodes": 2,
+      "research": {
+        "funding": 5200000,
+        "data": 280,
+        "reputation": 0,
+        "baseSeconds": 85
+      }
+    },
+    {
+      "id": "isotope-spoke-70",
+      "type": "isotopeIrradiation",
+      "measured": {
+        "beamEnergy": 0.07000000000000006,
+        "beamCurrent": 0.7005530517814205,
+        "beamQuality": 0.999492139995347,
+        "beamAlive": true,
+        "totalLossFraction": 0.06592926429143942,
+        "finalBeamSizeX": 0.015923473654216997,
+        "finalBeamSizeY": 0.018119761801940977,
+        "finalNormEmittanceX": 8.003522097461323e-06,
+        "finalNormEmittanceY": 8.00460779145855e-06,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 4.1189379093018884e-10,
+        "luminosity": 0,
+        "photonRate": 0,
+        "dataRate": 0.12053089645364748,
+        "felSaturated": false,
+        "collisionRate": 1.962101334322448,
+        "maxDispersion": 0,
+        "nDiagnostics": 2,
+        "peakBeamSizeX": 0.015923473654216997,
+        "peakBeamSizeY": 0.018119761801940977,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 3829.9593711996276,
+        "dataFees": 0.6026544822682374,
+        "total": 3830.562025681896,
+        "operationsRevenue": 79.95937119962777,
+        "effectiveDataRate": 0.12053089645364748,
+        "serviceEndpointId": "isotopeProductionTarget",
+        "serviceBaseRevenue": 1500,
+        "serviceDriverLabel": "Isotope production delivery",
+        "serviceDescription": "Isotope customers pay for sustained in-band proton delivery that drives target yield.",
+        "serviceRevenue": 3750,
+        "serviceContract": "Medical isotope supply",
+        "serviceWorkload": "cpu",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 2.5,
+        "serviceBeamPowerKw": 39.23097089975958,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 25670000,
+      "researchNodes": 3,
+      "research": {
+        "funding": 14100000,
+        "data": 558,
+        "reputation": 600,
+        "baseSeconds": 165
+      }
+    },
+    {
+      "id": "therapy-ocular70",
+      "type": "therapy",
+      "measured": {
+        "beamEnergy": 0.07000000000000006,
+        "beamCurrent": 0.003087609064712162,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 0.9958831879137171,
+        "finalBeamSizeX": 0.014373782498936456,
+        "finalBeamSizeY": 0.1801479325972944,
+        "finalNormEmittanceX": 4.594926723224933e-06,
+        "finalNormEmittanceY": 8.697800165566777e-06,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 1.0002868308739978e-09,
+        "luminosity": 0,
+        "photonRate": 0,
+        "dataRate": 0.1,
+        "felSaturated": false,
+        "collisionRate": 0,
+        "maxDispersion": 0,
+        "nDiagnostics": 2,
+        "peakBeamSizeX": 0.03724420913936412,
+        "peakBeamSizeY": 0.1801479325972944,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 2620,
+        "dataFees": 0.5,
+        "total": 2620.5,
+        "operationsRevenue": 120,
+        "effectiveDataRate": 0.1,
+        "serviceEndpointId": "protonTherapyGantry",
+        "serviceBaseRevenue": 2500,
+        "serviceDriverLabel": "Safe delivery & availability",
+        "serviceDescription": "Hospitals pay for safe, available treatment delivery; excess current earns nothing extra.",
+        "serviceRevenue": 2500,
+        "serviceContract": "Patient treatments",
+        "serviceWorkload": "cpu",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 1,
+        "serviceBeamPowerKw": 0.21613263452985154,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 51670000,
+      "researchNodes": 5,
+      "research": {
+        "funding": 17500000,
+        "data": 768,
+        "reputation": 600,
+        "baseSeconds": 220
+      }
+    },
+    {
+      "id": "therapy-spoke145",
+      "type": "therapy",
+      "measured": {
+        "beamEnergy": 0.14448367197357603,
+        "beamCurrent": 0.002827556118685861,
+        "beamQuality": 0.8680505445976219,
+        "beamAlive": true,
+        "totalLossFraction": 0.9962299251750856,
+        "finalBeamSizeX": 0.06454114120046456,
+        "finalBeamSizeY": 0.0346369041990165,
+        "finalNormEmittanceX": 1.2963659785461867e-05,
+        "finalNormEmittanceY": 1.4019424416640134e-05,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 1.3185849766141509e-09,
+        "luminosity": 0,
+        "photonRate": 0,
+        "dataRate": 0.1,
+        "felSaturated": false,
+        "collisionRate": 0,
+        "maxDispersion": 0,
+        "nDiagnostics": 2,
+        "peakBeamSizeX": 0.06454114120046456,
+        "peakBeamSizeY": 0.0346369041990165,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 2387.1389976434602,
+        "dataFees": 0.5,
+        "total": 2387.6389976434602,
+        "operationsRevenue": 217.01263614940547,
+        "effectiveDataRate": 0.1,
+        "serviceEndpointId": "protonTherapyGantry",
+        "serviceBaseRevenue": 2500,
+        "serviceDriverLabel": "Safe delivery & availability",
+        "serviceDescription": "Hospitals pay for safe, available treatment delivery; excess current earns nothing extra.",
+        "serviceRevenue": 2170.126361494055,
+        "serviceContract": "Patient treatments",
+        "serviceWorkload": "cpu",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 0.8680505445976219,
+        "serviceBeamPowerKw": 0.40853569073908574,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 57270000,
+      "researchNodes": 5,
+      "research": {
+        "funding": 17500000,
+        "data": 768,
+        "reputation": 600,
+        "baseSeconds": 220
+      }
+    },
+    {
+      "id": "therapy-spoke230",
+      "type": "therapy",
+      "measured": {
+        "beamEnergy": 0.23149616291696828,
+        "beamCurrent": 0.001741276548846352,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 0.9976782979348715,
+        "finalBeamSizeX": 0.030515212694700606,
+        "finalBeamSizeY": 0.02090492579035792,
+        "finalNormEmittanceX": 1.3551170115808516e-05,
+        "finalNormEmittanceY": 1.64325414611137e-05,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 1.0958841031715654e-09,
+        "luminosity": 0,
+        "photonRate": 0,
+        "dataRate": 0.1,
+        "felSaturated": false,
+        "collisionRate": 0,
+        "maxDispersion": 0,
+        "nDiagnostics": 2,
+        "peakBeamSizeX": 0.030515212694700606,
+        "peakBeamSizeY": 0.027558410027271336,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 2690,
+        "dataFees": 0.5,
+        "total": 2690.5,
+        "operationsRevenue": 190,
+        "effectiveDataRate": 0.1,
+        "serviceEndpointId": "protonTherapyGantry",
+        "serviceBaseRevenue": 2500,
+        "serviceDriverLabel": "Safe delivery & availability",
+        "serviceDescription": "Hospitals pay for safe, available treatment delivery; excess current earns nothing extra.",
+        "serviceRevenue": 2500,
+        "serviceContract": "Patient treatments",
+        "serviceWorkload": "cpu",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 1,
+        "serviceBeamPowerKw": 0.40309883963523135,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 63670000,
+      "researchNodes": 9,
+      "research": {
+        "funding": 46480000,
+        "data": 1728,
+        "reputation": 1100,
+        "baseSeconds": 485
+      }
+    },
+    {
+      "id": "spallation-compact-800",
+      "type": "spallation",
+      "measured": {
+        "beamEnergy": 0.8800860417859453,
+        "beamCurrent": 24.967675246368717,
+        "beamQuality": 0.47725553433009016,
+        "beamAlive": true,
+        "totalLossFraction": 0.5006464950726257,
+        "finalBeamSizeX": 0.011299692131703298,
+        "finalBeamSizeY": 0.012030696861917321,
+        "finalNormEmittanceX": 1.384619309347186e-06,
+        "finalNormEmittanceY": 1.297512864078926e-06,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 2.7521656799130684e-10,
+        "luminosity": 0,
+        "photonRate": 0,
+        "dataRate": 1.5801983045835064,
+        "felSaturated": false,
+        "collisionRate": 47.60221588118045,
+        "maxDispersion": 0,
+        "nDiagnostics": 2,
+        "peakBeamSizeX": 0.011299692131703298,
+        "peakBeamSizeY": 0.012030696861917321,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 569.8019427883119,
+        "dataFees": 7.900991522917532,
+        "total": 577.7029343112293,
+        "operationsRevenue": 62.04321946291172,
+        "effectiveDataRate": 1.5801983045835064,
+        "serviceEndpointId": "spallationNeutronTarget",
+        "serviceBaseRevenue": 1400,
+        "serviceDriverLabel": "Neutron production delivery",
+        "serviceDescription": "Instrument users pay for neutron production driven by useful beam power on the spallation target.",
+        "serviceRevenue": 507.7587233254002,
+        "serviceContract": "Neutron instrument time",
+        "serviceWorkload": "balanced",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 0.36268480237528583,
+        "serviceBeamPowerKw": 1098.6851240086787,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 165470000,
+      "researchNodes": 5,
+      "research": {
+        "funding": 31580000,
+        "data": 1100,
+        "reputation": 1100,
+        "baseSeconds": 310
+      }
+    },
+    {
+      "id": "spallation-sns-1600",
+      "type": "spallation",
+      "measured": {
+        "beamEnergy": 1.6664588674786691,
+        "beamCurrent": 24.99960915271305,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 0.500007816945739,
+        "finalBeamSizeX": 0.008158850829033932,
+        "finalBeamSizeY": 0.008932573999672152,
+        "finalNormEmittanceX": 5.70035656796561e-07,
+        "finalNormEmittanceY": 5.968792332413556e-07,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 2.510825654999432e-10,
+        "luminosity": 0,
+        "photonRate": 0,
+        "dataRate": 6.420857246757478,
+        "felSaturated": false,
+        "collisionRate": 99.99687324614625,
+        "maxDispersion": 0,
+        "nDiagnostics": 3,
+        "peakBeamSizeX": 0.008158850829033932,
+        "peakBeamSizeY": 0.008932573999672152,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 1618.1287124613846,
+        "dataFees": 32.10428623378739,
+        "total": 1650.232998695172,
+        "operationsRevenue": 160,
+        "effectiveDataRate": 6.420857246757478,
+        "serviceEndpointId": "spallationNeutronTarget",
+        "serviceBaseRevenue": 1400,
+        "serviceDriverLabel": "Neutron production delivery",
+        "serviceDescription": "Instrument users pay for neutron production driven by useful beam power on the spallation target.",
+        "serviceRevenue": 1458.1287124613846,
+        "serviceContract": "Neutron instrument time",
+        "serviceWorkload": "balanced",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 1.041520508900989,
+        "serviceBeamPowerKw": 2083.041017801978,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 199070000,
+      "researchNodes": 10,
+      "research": {
+        "funding": 54580000,
+        "data": 1944,
+        "reputation": 1100,
+        "baseSeconds": 545
+      }
+    },
+    {
+      "id": "spallation-ess-2800",
+      "type": "spallation",
+      "measured": {
+        "beamEnergy": 2.8472227887221164,
+        "beamCurrent": 24.998013372419273,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 0.5000397325516146,
+        "finalBeamSizeX": 0.00845806926913063,
+        "finalBeamSizeY": 0.009362177874046286,
+        "finalNormEmittanceX": 1.337135799183562e-06,
+        "finalNormEmittanceY": 7.534934108145135e-07,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 0.0002919380879321806,
+        "luminosity": 0,
+        "photonRate": 0,
+        "dataRate": 7.564718817390091,
+        "felSaturated": false,
+        "collisionRate": 99.98410761082444,
+        "maxDispersion": 0.26234293457080277,
+        "nDiagnostics": 3,
+        "peakBeamSizeX": 0.00845806926913063,
+        "peakBeamSizeY": 0.009928760803409221,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 2711.121967135632,
+        "dataFees": 37.82359408695045,
+        "total": 2748.9455612225825,
+        "operationsRevenue": 220,
+        "effectiveDataRate": 7.564718817390091,
+        "serviceEndpointId": "spallationNeutronTarget",
+        "serviceBaseRevenue": 1400,
+        "serviceDriverLabel": "Neutron production delivery",
+        "serviceDescription": "Instrument users pay for neutron production driven by useful beam power on the spallation target.",
+        "serviceRevenue": 2491.121967135632,
+        "serviceContract": "Neutron instrument time",
+        "serviceWorkload": "balanced",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 1.7793728336683088,
+        "serviceBeamPowerKw": 3558.7456673366178,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 261270000,
+      "researchNodes": 13,
+      "research": {
+        "funding": 71880000,
+        "data": 2555,
+        "reputation": 1100,
+        "baseSeconds": 705
+      }
+    },
+    {
+      "id": "light-ring-2500",
+      "type": "lightSource",
+      "measured": {
+        "beamEnergy": 2.5325198984846375,
+        "beamCurrent": 249.9999631815703,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 0.5000000736368594,
+        "finalBeamSizeX": 0.0016402841547059686,
+        "finalBeamSizeY": 0.016484661150207452,
+        "finalNormEmittanceX": 0.00036380690615307347,
+        "finalNormEmittanceY": 1.6677619233489626e-05,
+        "finalEnergySpread": 0.0010000001922980048,
+        "finalBunchLength": 0.00022626999222263424,
+        "luminosity": 0,
+        "photonRate": 511294345288637350000,
+        "dataRate": 0.1,
+        "felSaturated": false,
+        "collisionRate": 0,
+        "maxDispersion": 1.6089017666940932,
+        "nDiagnostics": 1,
+        "peakBeamSizeX": 0.005215982519146129,
+        "peakBeamSizeY": 0.016484661150207452,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 4700,
+        "dataFees": 0.5,
+        "total": 4700.5,
+        "operationsRevenue": 200,
+        "effectiveDataRate": 0.1,
+        "serviceEndpointId": "photonScienceHutch",
+        "serviceBaseRevenue": 1800,
+        "serviceDriverLabel": "Useful photon output",
+        "serviceDescription": "Photon-science users pay for useful light delivered to their instruments.",
+        "serviceRevenue": 4500,
+        "serviceContract": "Synchrotron user time",
+        "serviceWorkload": "balanced",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 2.5,
+        "serviceBeamPowerKw": 633129.8813777536,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 136430000,
+      "researchNodes": 13,
+      "research": {
+        "funding": 85600000,
+        "data": 2917,
+        "reputation": 1100,
+        "baseSeconds": 810
+      }
+    },
+    {
+      "id": "light-ring-3000",
+      "type": "lightSource",
+      "measured": {
+        "beamEnergy": 2.990054149782502,
+        "beamCurrent": 291.6666152616966,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 0.5000000881228058,
+        "finalBeamSizeX": 0.0026560417318010456,
+        "finalBeamSizeY": 0.06103568435522832,
+        "finalNormEmittanceX": 0.0011095033164772725,
+        "finalNormEmittanceY": 0.00012914924434862275,
+        "finalEnergySpread": 0.0010000006618481126,
+        "finalBunchLength": 0.000396853681931179,
+        "luminosity": 0,
+        "photonRate": 669873711337116400000,
+        "dataRate": 0.1,
+        "felSaturated": false,
+        "collisionRate": 0,
+        "maxDispersion": 1.613054586937039,
+        "nDiagnostics": 1,
+        "peakBeamSizeX": 0.005323734065832518,
+        "peakBeamSizeY": 0.06103568435522832,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 4750,
+        "dataFees": 0.5,
+        "total": 4750.5,
+        "operationsRevenue": 250,
+        "effectiveDataRate": 0.1,
+        "serviceEndpointId": "photonScienceHutch",
+        "serviceBaseRevenue": 1800,
+        "serviceDriverLabel": "Useful photon output",
+        "serviceDescription": "Photon-science users pay for useful light delivered to their instruments.",
+        "serviceRevenue": 4500,
+        "serviceContract": "Synchrotron user time",
+        "serviceWorkload": "balanced",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 2.5,
+        "serviceBeamPowerKw": 872098.9733162525,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 163830000,
+      "researchNodes": 13,
+      "research": {
+        "funding": 85600000,
+        "data": 2917,
+        "reputation": 1100,
+        "baseSeconds": 810
+      }
+    },
+    {
+      "id": "light-ring-5800",
+      "type": "lightSource",
+      "measured": {
+        "beamEnergy": 5.755811638911961,
+        "beamCurrent": 437.49992278046875,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 0.5000000882508928,
+        "finalBeamSizeX": 0.006260593747889692,
+        "finalBeamSizeY": 0.08159125336768502,
+        "finalNormEmittanceX": 0.0032809053573456142,
+        "finalNormEmittanceY": 0.0007661676135998945,
+        "finalEnergySpread": 0.0010000175181738534,
+        "finalBunchLength": 0.0004141521196351608,
+        "luminosity": 0,
+        "photonRate": 1.1733456519724717e+21,
+        "dataRate": 0.1,
+        "felSaturated": false,
+        "collisionRate": 0,
+        "maxDispersion": 1.6593549621582515,
+        "nDiagnostics": 1,
+        "peakBeamSizeX": 0.006260593747889692,
+        "peakBeamSizeY": 0.08159125336768502,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 4750,
+        "dataFees": 0.5,
+        "total": 4750.5,
+        "operationsRevenue": 250,
+        "effectiveDataRate": 0.1,
+        "serviceEndpointId": "photonScienceHutch",
+        "serviceBaseRevenue": 1800,
+        "serviceDriverLabel": "Useful photon output",
+        "serviceDescription": "Photon-science users pay for useful light delivered to their instruments.",
+        "serviceRevenue": 4500,
+        "serviceContract": "Synchrotron user time",
+        "serviceWorkload": "balanced",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 2.5,
+        "serviceBeamPowerKw": 2518167.1475629066,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 243830000,
+      "researchNodes": 17,
+      "research": {
+        "funding": 116580000,
+        "data": 4036,
+        "reputation": 1500,
+        "baseSeconds": 1095
+      }
+    },
+    {
+      "id": "xfel-plasma-injector",
+      "type": "xfel",
+      "measured": {
+        "beamEnergy": 6.299482008656168,
+        "beamCurrent": 0.0006499998666086437,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 0.35000013339135627,
+        "finalBeamSizeX": 0.0002314169895405683,
+        "finalBeamSizeY": 0.0005658762013767587,
+        "finalNormEmittanceX": 1.0641077695061624e-05,
+        "finalNormEmittanceY": 1.0641090678667283e-05,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 4.897075172058318e-10,
+        "luminosity": 0,
+        "photonRate": 4.193206608573355e-27,
+        "dataRate": 0.1,
+        "felSaturated": false,
+        "collisionRate": 0,
+        "maxDispersion": 0,
+        "nDiagnostics": 1,
+        "peakBeamSizeX": 0.0005756917052684137,
+        "peakBeamSizeY": 0.0007320866621351028,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 209.03967964341706,
+        "dataFees": 0.5,
+        "total": 209.53967964341706,
+        "operationsRevenue": 180,
+        "effectiveDataRate": 0.1,
+        "serviceEndpointId": "xfelEndstation",
+        "serviceBaseRevenue": 650,
+        "serviceDriverLabel": "FEL photon performance",
+        "serviceDescription": "XFEL users pay for useful saturated photon performance, not raw electron power.",
+        "serviceRevenue": 29.039679643417074,
+        "serviceContract": "XFEL user programme",
+        "serviceWorkload": "gpu",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 0.044676430220641654,
+        "serviceBeamPowerKw": 0.024567974791980363,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 312480000,
+      "researchNodes": 15,
+      "research": {
+        "funding": 117280000,
+        "data": 3808,
+        "reputation": 1500,
+        "baseSeconds": 1035
+      }
+    },
+    {
+      "id": "xfel-hard-xray",
+      "type": "xfel",
+      "measured": {
+        "beamEnergy": 8.198175075481885,
+        "beamCurrent": 0.0006499998163907303,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 0.35000018360926977,
+        "finalBeamSizeX": 0.00021305701275793637,
+        "finalBeamSizeY": 0.00018980454318170406,
+        "finalNormEmittanceX": 1.0639591819139403e-05,
+        "finalNormEmittanceY": 1.0639613546122744e-05,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 4.897075172058318e-10,
+        "luminosity": 0,
+        "photonRate": 1.6929034605995137e-26,
+        "dataRate": 0.1,
+        "felSaturated": false,
+        "collisionRate": 0,
+        "maxDispersion": 0,
+        "nDiagnostics": 2,
+        "peakBeamSizeX": 0.00041183357817286046,
+        "peakBeamSizeY": 0.0005436055726643354,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 327.7923707270575,
+        "dataFees": 0.5,
+        "total": 328.2923707270575,
+        "operationsRevenue": 290,
+        "effectiveDataRate": 0.1,
+        "serviceEndpointId": "xfelEndstation",
+        "serviceBaseRevenue": 650,
+        "serviceDriverLabel": "FEL photon performance",
+        "serviceDescription": "XFEL users pay for useful saturated photon performance, not raw electron power.",
+        "serviceRevenue": 37.7923707270575,
+        "serviceContract": "XFEL user programme",
+        "serviceWorkload": "gpu",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 0.0581421088108577,
+        "serviceBeamPowerKw": 0.031972873762813714,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 384230000,
+      "researchNodes": 11,
+      "research": {
+        "funding": 95980000,
+        "data": 3069,
+        "reputation": 1500,
+        "baseSeconds": 830
+      }
+    },
+    {
+      "id": "xfel-flagship",
+      "type": "xfel",
+      "measured": {
+        "beamEnergy": 16.54547680871131,
+        "beamCurrent": 0.0006499996563211527,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 0.35000034367884736,
+        "finalBeamSizeX": 0.0001516539564897833,
+        "finalBeamSizeY": 8.915853337945703e-05,
+        "finalNormEmittanceX": 1.0607034146014719e-05,
+        "finalNormEmittanceY": 1.0607057068208822e-05,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 4.897075172058318e-10,
+        "luminosity": 0,
+        "photonRate": 5.263578834201975e-26,
+        "dataRate": 0.1,
+        "felSaturated": false,
+        "collisionRate": 0,
+        "maxDispersion": 0,
+        "nDiagnostics": 3,
+        "peakBeamSizeX": 0.00041183357817286046,
+        "peakBeamSizeY": 0.0005277502443987772,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 546.272174437406,
+        "dataFees": 0.5,
+        "total": 546.772174437406,
+        "operationsRevenue": 470,
+        "effectiveDataRate": 0.1,
+        "serviceEndpointId": "xfelEndstation",
+        "serviceBaseRevenue": 650,
+        "serviceDriverLabel": "FEL photon performance",
+        "serviceDescription": "XFEL users pay for useful saturated photon performance, not raw electron power.",
+        "serviceRevenue": 76.27217443740591,
+        "serviceContract": "XFEL user programme",
+        "serviceWorkload": "gpu",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 0.11734180682677832,
+        "serviceBeamPowerKw": 0.06452732543599171,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 686020000,
+      "researchNodes": 12,
+      "research": {
+        "funding": 97680000,
+        "data": 3174,
+        "reputation": 1500,
+        "baseSeconds": 860
+      }
+    },
+    {
+      "id": "euvfel-pilot",
+      "type": "euvFel",
+      "measured": {
+        "beamEnergy": 0.9963122619948832,
+        "beamCurrent": 6.626592181864123,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 0.8674681563627176,
+        "finalBeamSizeX": 0.008758700805272124,
+        "finalBeamSizeY": 0.002812638583669195,
+        "finalNormEmittanceX": 1.870779062854612e-06,
+        "finalNormEmittanceY": 1.868772449485303e-06,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 6.121363052826993e-11,
+        "luminosity": 0,
+        "photonRate": 3.620061558792867e-23,
+        "dataRate": 0.3003829559429038,
+        "felSaturated": false,
+        "collisionRate": 0,
+        "maxDispersion": 0,
+        "nDiagnostics": 2,
+        "peakBeamSizeX": 0.008758700805272124,
+        "peakBeamSizeY": 0.008011806558349668,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 5120,
+        "dataFees": 1.5019147797145191,
+        "total": 5121.501914779715,
+        "operationsRevenue": 120,
+        "effectiveDataRate": 0.3003829559429038,
+        "serviceEndpointId": "euvCollector",
+        "serviceBaseRevenue": 5000,
+        "serviceDriverLabel": "Usable EUV output",
+        "serviceDescription": "The fabrication contract pays for available, usable EUV photon power at the collector.",
+        "serviceRevenue": 5000,
+        "serviceContract": "EUV fab contract",
+        "serviceWorkload": "gpu",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 1,
+        "serviceBeamPowerKw": 6602.155046030653,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 160170000,
+      "researchNodes": 11,
+      "research": {
+        "funding": 54980000,
+        "data": 2056,
+        "reputation": 600,
+        "baseSeconds": 575
+      }
+    },
+    {
+      "id": "euvfel-production",
+      "type": "euvFel",
+      "measured": {
+        "beamEnergy": 0.99628824771016,
+        "beamCurrent": 6.916891756958275,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 0.8616621648608345,
+        "finalBeamSizeX": 0.0019924211593384394,
+        "finalBeamSizeY": 0.01986274554606254,
+        "finalNormEmittanceX": 1.8538067927046336e-06,
+        "finalNormEmittanceY": 1.8937148762455588e-06,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 6.121356778842118e-11,
+        "luminosity": 0,
+        "photonRate": 9.722927304433358e-23,
+        "dataRate": 0.4928208354702503,
+        "felSaturated": false,
+        "collisionRate": 0,
+        "maxDispersion": 0,
+        "nDiagnostics": 2,
+        "peakBeamSizeX": 0.005118746912980486,
+        "peakBeamSizeY": 0.01986274554606254,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 5160,
+        "dataFees": 2.4641041773512513,
+        "total": 5162.464104177351,
+        "operationsRevenue": 160,
+        "effectiveDataRate": 0.4928208354702503,
+        "serviceEndpointId": "euvCollector",
+        "serviceBaseRevenue": 5000,
+        "serviceDriverLabel": "Usable EUV output",
+        "serviceDescription": "The fabrication contract pays for available, usable EUV photon power at the collector.",
+        "serviceRevenue": 5000,
+        "serviceContract": "EUV fab contract",
+        "serviceWorkload": "gpu",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 1,
+        "serviceBeamPowerKw": 6891.217968140811,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 181570000,
+      "researchNodes": 11,
+      "research": {
+        "funding": 54980000,
+        "data": 2056,
+        "reputation": 600,
+        "baseSeconds": 575
+      }
+    },
+    {
+      "id": "euvfel-fab",
+      "type": "euvFel",
+      "measured": {
+        "beamEnergy": 0.9962642345824577,
+        "beamCurrent": 7.569769089426822,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 0.9158914545619242,
+        "finalBeamSizeX": 0.011503527426212997,
+        "finalBeamSizeY": 0.02477292073792646,
+        "finalNormEmittanceX": 2.4039654685194153e-06,
+        "finalNormEmittanceY": 2.4380076553565375e-06,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 6.12135682121456e-11,
+        "luminosity": 0,
+        "photonRate": 1.6775492086999428e-22,
+        "dataRate": 0.31345128990445975,
+        "felSaturated": false,
+        "collisionRate": 0,
+        "maxDispersion": 0,
+        "nDiagnostics": 3,
+        "peakBeamSizeX": 0.011503527426212997,
+        "peakBeamSizeY": 0.02477292073792646,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 5200,
+        "dataFees": 1.5672564495222987,
+        "total": 5201.567256449523,
+        "operationsRevenue": 200,
+        "effectiveDataRate": 0.31345128990445975,
+        "serviceEndpointId": "euvCollector",
+        "serviceBaseRevenue": 5000,
+        "serviceDriverLabel": "Usable EUV output",
+        "serviceDescription": "The fabrication contract pays for available, usable EUV photon power at the collector.",
+        "serviceRevenue": 5000,
+        "serviceContract": "EUV fab contract",
+        "serviceWorkload": "gpu",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 1,
+        "serviceBeamPowerKw": 7541.490207843762,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 185170000,
+      "researchNodes": 12,
+      "research": {
+        "funding": 56680000,
+        "data": 2161,
+        "reputation": 600,
+        "baseSeconds": 605
+      }
+    },
+    {
+      "id": "collider-zpole",
+      "type": "collider",
+      "measured": {
+        "beamEnergy": 45.699925158349565,
+        "beamCurrent": 0.010499994245461731,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 0.500000274025632,
+        "finalBeamSizeX": 0.0018652662896297449,
+        "finalBeamSizeY": 1.8728338130484936e-05,
+        "finalNormEmittanceX": 4.000032719186528e-05,
+        "finalNormEmittanceY": 4.00003011432716e-05,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 6.121343965073609e-11,
+        "luminosity": 0,
+        "photonRate": 0,
+        "dataRate": 0,
+        "felSaturated": false,
+        "collisionRate": 0,
+        "maxDispersion": 0,
+        "nDiagnostics": 1,
+        "peakBeamSizeX": 0.0019696488027423713,
+        "peakBeamSizeY": 0.0011690142003852927,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 240,
+        "dataFees": 0,
+        "total": 240,
+        "operationsRevenue": 240,
+        "effectiveDataRate": 0,
+        "serviceEndpointId": "collisionPoint",
+        "serviceBaseRevenue": 0,
+        "serviceDriverLabel": "Collision performance",
+        "serviceDescription": "Luminosity creates discoveries, not commercial endpoint revenue.",
+        "serviceRevenue": 0,
+        "serviceContract": "Fundamental research",
+        "serviceWorkload": "gpu",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 2.3992447559035113,
+        "serviceBeamPowerKw": 2.3992447559035113,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 1478530000,
+      "researchNodes": 9,
+      "research": {
+        "funding": 119500000,
+        "data": 2934,
+        "reputation": 2200,
+        "baseSeconds": 810
+      }
+    },
+    {
+      "id": "collider-higgs",
+      "type": "collider",
+      "measured": {
+        "beamEnergy": 123.69999227152806,
+        "beamCurrent": 0.010499308307545712,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 0.5000329377359185,
+        "finalBeamSizeX": 0.0018794265546279052,
+        "finalBeamSizeY": 6.422641546151762e-05,
+        "finalNormEmittanceX": 4.000041242132349e-05,
+        "finalNormEmittanceY": 4.0000339998689545e-05,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 6.121343965073591e-11,
+        "luminosity": 0,
+        "photonRate": 0,
+        "dataRate": 0,
+        "felSaturated": false,
+        "collisionRate": 0,
+        "maxDispersion": 0,
+        "nDiagnostics": 1,
+        "peakBeamSizeX": 0.001920639694688946,
+        "peakBeamSizeY": 0.001125555897611735,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 440,
+        "dataFees": 0,
+        "total": 440,
+        "operationsRevenue": 440,
+        "effectiveDataRate": 0,
+        "serviceEndpointId": "collisionPoint",
+        "serviceBaseRevenue": 0,
+        "serviceDriverLabel": "Collision performance",
+        "serviceDescription": "Luminosity creates discoveries, not commercial endpoint revenue.",
+        "serviceRevenue": 0,
+        "serviceContract": "Fundamental research",
+        "serviceWorkload": "gpu",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 2.5,
+        "serviceBeamPowerKw": 6.493821782498974,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 3326530000,
+      "researchNodes": 9,
+      "research": {
+        "funding": 119500000,
+        "data": 2934,
+        "reputation": 2200,
+        "baseSeconds": 810
+      }
+    },
+    {
+      "id": "collider-tev",
+      "type": "collider",
+      "measured": {
+        "beamEnergy": 490.6999748353004,
+        "beamCurrent": 0.010499990189401403,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 0.5000004671713618,
+        "finalBeamSizeX": 0.0012392540811467837,
+        "finalBeamSizeY": 0.0010617904841271376,
+        "finalNormEmittanceX": 4.000044565108044e-05,
+        "finalNormEmittanceY": 4.000044304105731e-05,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 6.121343965073874e-11,
+        "luminosity": 0,
+        "photonRate": 0,
+        "dataRate": 0,
+        "felSaturated": false,
+        "collisionRate": 0,
+        "maxDispersion": 0,
+        "nDiagnostics": 1,
+        "peakBeamSizeX": 0.0012401473787654765,
+        "peakBeamSizeY": 0.0011523535432645428,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 460,
+        "dataFees": 0,
+        "total": 460,
+        "operationsRevenue": 460,
+        "effectiveDataRate": 0,
+        "serviceEndpointId": "collisionPoint",
+        "serviceBaseRevenue": 0,
+        "serviceDriverLabel": "Collision performance",
+        "serviceDescription": "Luminosity creates discoveries, not commercial endpoint revenue.",
+        "serviceRevenue": 0,
+        "serviceContract": "Fundamental research",
+        "serviceWorkload": "gpu",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 2.5,
+        "serviceBeamPowerKw": 25.76172460855085,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 8728530000,
+      "researchNodes": 13,
+      "research": {
+        "funding": 165200000,
+        "data": 4269,
+        "reputation": 2200,
+        "baseSeconds": 1180
+      }
+    },
+    {
+      "id": "blackhole-threshold",
+      "type": "blackHoleFactory",
+      "measured": {
+        "beamEnergy": 107482.5775981984,
+        "beamCurrent": 2.9035562197908494e-245,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 1,
+        "finalBeamSizeX": 0.015029580551257407,
+        "finalBeamSizeY": 0.015029580551257407,
+        "finalNormEmittanceX": 2.2815769212875827e-05,
+        "finalNormEmittanceY": 2.2815769212875827e-05,
+        "finalEnergySpread": 0.001,
+        "finalBunchLength": 6.121375105344463e-11,
+        "luminosity": 0,
+        "photonRate": 0,
+        "dataRate": 0,
+        "felSaturated": false,
+        "collisionRate": 0,
+        "maxDispersion": 0,
+        "nDiagnostics": 1,
+        "peakBeamSizeX": 0.015029580551257407,
+        "peakBeamSizeY": 0.015029580551257407,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 140,
+        "dataFees": 0,
+        "total": 140,
+        "operationsRevenue": 140,
+        "effectiveDataRate": 0,
+        "serviceEndpointId": "blackHoleChamber",
+        "serviceBaseRevenue": 0,
+        "serviceDriverLabel": "Discovery yield",
+        "serviceDescription": "Predicted event yield creates scientific progress, not commercial endpoint revenue.",
+        "serviceRevenue": 0,
+        "serviceContract": "Fundamental research",
+        "serviceWorkload": "gpu",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 3.120817067044016e-240,
+        "serviceBeamPowerKw": 3.120817067044016e-240,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 12122030000,
+      "researchNodes": 10,
+      "research": {
+        "funding": 78000000,
+        "data": 2573,
+        "reputation": 1100,
+        "baseSeconds": 700
+      }
+    },
+    {
+      "id": "blackhole-quarter-pev",
+      "type": "blackHoleFactory",
+      "measured": {
+        "beamEnergy": 251482.57757451254,
+        "beamCurrent": 0,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 1,
+        "finalBeamSizeX": 0.007923345025750081,
+        "finalBeamSizeY": 0.01162596680368643,
+        "finalNormEmittanceX": 2.3998050570193527e-05,
+        "finalNormEmittanceY": 2.294794702318542e-05,
+        "finalEnergySpread": 0.0009907769608745024,
+        "finalBunchLength": 6.38803243951801e-10,
+        "luminosity": 0,
+        "photonRate": 0,
+        "dataRate": 0,
+        "felSaturated": false,
+        "collisionRate": 0,
+        "maxDispersion": 0,
+        "nDiagnostics": 1,
+        "peakBeamSizeX": 0.021981571414291343,
+        "peakBeamSizeY": 0.014773178228286391,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 300,
+        "dataFees": 0,
+        "total": 300,
+        "operationsRevenue": 300,
+        "effectiveDataRate": 0,
+        "serviceEndpointId": "blackHoleChamber",
+        "serviceBaseRevenue": 0,
+        "serviceDriverLabel": "Discovery yield",
+        "serviceDescription": "Predicted event yield creates scientific progress, not commercial endpoint revenue.",
+        "serviceRevenue": 0,
+        "serviceContract": "Fundamental research",
+        "serviceWorkload": "gpu",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 0,
+        "serviceBeamPowerKw": 0,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 22922780000,
+      "researchNodes": 10,
+      "research": {
+        "funding": 78000000,
+        "data": 2573,
+        "reputation": 1100,
+        "baseSeconds": 700
+      }
+    },
+    {
+      "id": "blackhole-pev",
+      "type": "blackHoleFactory",
+      "measured": {
+        "beamEnergy": 498582.7203797886,
+        "beamCurrent": 0,
+        "beamQuality": 1,
+        "beamAlive": true,
+        "totalLossFraction": 1,
+        "finalBeamSizeX": 0.007726546632199934,
+        "finalBeamSizeY": 0.011383473948166595,
+        "finalNormEmittanceX": 2.3908007545453586e-05,
+        "finalNormEmittanceY": 2.296794875841178e-05,
+        "finalEnergySpread": 433.2225678244907,
+        "finalBunchLength": 7.157815693169225e-10,
+        "luminosity": 0,
+        "photonRate": 0,
+        "dataRate": 0,
+        "felSaturated": false,
+        "collisionRate": 0,
+        "maxDispersion": 0,
+        "nDiagnostics": 1,
+        "peakBeamSizeX": 0.021627481342358142,
+        "peakBeamSizeY": 0.014616411226319669,
+        "nElements": 1000
+      },
+      "bandCheck": {
+        "ok": true,
+        "problems": []
+      },
+      "idealGrossRevenue": {
+        "beam": 510,
+        "dataFees": 0,
+        "total": 510,
+        "operationsRevenue": 510,
+        "effectiveDataRate": 0,
+        "serviceEndpointId": "blackHoleChamber",
+        "serviceBaseRevenue": 0,
+        "serviceDriverLabel": "Discovery yield",
+        "serviceDescription": "Predicted event yield creates scientific progress, not commercial endpoint revenue.",
+        "serviceRevenue": 0,
+        "serviceContract": "Fundamental research",
+        "serviceWorkload": "gpu",
+        "serviceEnergyScore": 1,
+        "serviceCurrentScore": 1,
+        "serviceBandScore": 1,
+        "servicePerformanceScore": 0,
+        "serviceBeamPowerKw": 0,
+        "photonPortCount": 0,
+        "photonUserFees": 0
+      },
+      "hardwareOnly": 41822780000,
+      "researchNodes": 10,
+      "research": {
+        "funding": 78000000,
+        "data": 2573,
+        "reputation": 1100,
+        "baseSeconds": 700
+      }
+    }
+  ]
+}

@@ -300,7 +300,7 @@ export const OBJECTIVES = [
     desc: 'Complete all research projects.',
     condition: (state) => {
       const nonHidden = Object.values(RESEARCH).filter(r => !r.hidden);
-      return state.completedResearch.length >= nonHidden.length;
+      return nonHidden.every(r => state.completedResearch.includes(r.id));
     },
     reward: { funding: 3000000, reputation: 40 },
     tier: 4,

@@ -34,7 +34,7 @@ import { join } from 'node:path';
 
 import '../scripts/balance-env.mjs';
 import { COMPONENTS } from '../src/data/components.js';
-import { BEAMLINE_TYPES } from '../src/data/beamline-types.js';
+import { BEAMLINE_TYPES, isWithinBeamlineBand } from '../src/data/beamline-types.js';
 import { layoutDesign } from '../src/beamline/design-layout.js';
 import { placementSpanSubL } from '../src/beamline/pipe-placements.js';
 import { buildPhysicsElements } from '../src/beamline/physics-payload.js';
@@ -201,13 +201,7 @@ export function evaluate(design) {
 
 // --- Band checking --------------------------------------------------------
 
-const inBand = (v, band) => {
-  if (!band) return null;
-  const [lo, hi] = band;
-  if (lo != null && v < lo) return false;
-  if (hi != null && v > hi) return false;
-  return true;
-};
+const inBand = (v, band) => band ? isWithinBeamlineBand(v, band) : null;
 
 /**
  * Judge a measurement against its type's spec.

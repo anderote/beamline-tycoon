@@ -1,0 +1,880 @@
+{
+  "physics": "native Python",
+  "ticks": 300,
+  "policy": "Start available beams; no building, hiring, research, repair or refill automation.",
+  "initial": {
+    "resources": {
+      "funding": 5000000,
+      "reputation": 0,
+      "data": 0,
+      "spares": 50
+    },
+    "staff": {
+      "operator": 1,
+      "technician": 0,
+      "engineer": 0,
+      "scientist": 0,
+      "machinist": 0,
+      "admin": 0
+    },
+    "placeables": 1440,
+    "utilityLines": 287,
+    "beamlines": [
+      {
+        "id": "bl-1",
+        "type": null
+      },
+      {
+        "id": "bl-2",
+        "type": null
+      }
+    ]
+  },
+  "firstBeamTick": 1,
+  "firstDataTick": null,
+  "checkpoints": [
+    {
+      "tick": 100,
+      "resources": {
+        "funding": 8880245.971624149,
+        "reputation": 28.108883367616002,
+        "data": 0,
+        "spares": 50
+      },
+      "economy": {
+        "tick": 100,
+        "income": {
+          "grant": 110,
+          "reputation": 116,
+          "beam": 3661.1746715570753,
+          "dataFees": 1,
+          "total": 3888.1746715570753
+        },
+        "upkeep": {
+          "staff": 120,
+          "power": 989.74,
+          "pumps": 104,
+          "refills": 0,
+          "total": 1213.74
+        },
+        "net": 2674.4346715570755,
+        "contributingBeamlines": 2
+      },
+      "data": {
+        "capacity": {
+          "ingest": 48,
+          "storage": 3320,
+          "cpu": 48,
+          "gpu": 68,
+          "units": {
+            "allInOne": 1,
+            "daq": 1,
+            "storage": 1,
+            "cpu": 1,
+            "gpu": 1
+          },
+          "gateways": 2,
+          "inactive": {
+            "noGateway": 0,
+            "noPower": 0
+          }
+        },
+        "requested": 0.2,
+        "ingested": 0.2,
+        "dropped": 0,
+        "ingestDropped": 0,
+        "storageDropped": 0,
+        "stored": 18.099999999999966,
+        "processed": 0,
+        "bottleneck": "Data scientist",
+        "processedByWorkload": {
+          "cpu": 0,
+          "gpu": 0,
+          "balanced": 0
+        },
+        "ingestUtilization": 0.004166666666666667,
+        "storageUtilization": 0.005451807228915652,
+        "cpuUtilization": 0,
+        "gpuUtilization": 0
+      },
+      "running": 2,
+      "beams": [
+        {
+          "type": null,
+          "energy": 0.04432761983639688,
+          "current": 0.06255967885180097,
+          "quality": 0.9402931771602173,
+          "alive": true,
+          "serviceRevenue": 0
+        },
+        {
+          "type": null,
+          "energy": 0.04161021265429077,
+          "current": 0.06330219072042785,
+          "quality": 0.9087849397878004,
+          "alive": true,
+          "serviceRevenue": 0
+        }
+      ]
+    },
+    {
+      "tick": 200,
+      "resources": {
+        "funding": 9148100.037873747,
+        "reputation": 30.328795924743485,
+        "data": 0,
+        "spares": 50
+      },
+      "economy": {
+        "tick": 200,
+        "income": {
+          "grant": 110,
+          "reputation": 121,
+          "beam": 3664.916606452808,
+          "dataFees": 1,
+          "total": 3896.916606452808
+        },
+        "upkeep": {
+          "staff": 120,
+          "power": 989.74,
+          "pumps": 104,
+          "refills": 0,
+          "total": 1213.74
+        },
+        "net": 2683.1766064528083,
+        "contributingBeamlines": 2
+      },
+      "data": {
+        "capacity": {
+          "ingest": 48,
+          "storage": 3320,
+          "cpu": 48,
+          "gpu": 68,
+          "units": {
+            "allInOne": 1,
+            "daq": 1,
+            "storage": 1,
+            "cpu": 1,
+            "gpu": 1
+          },
+          "gateways": 2,
+          "inactive": {
+            "noGateway": 0,
+            "noPower": 0
+          }
+        },
+        "requested": 0.2,
+        "ingested": 0.2,
+        "dropped": 0,
+        "ingestDropped": 0,
+        "storageDropped": 0,
+        "stored": 38.1,
+        "processed": 0,
+        "bottleneck": "Data scientist",
+        "processedByWorkload": {
+          "cpu": 0,
+          "gpu": 0,
+          "balanced": 0
+        },
+        "ingestUtilization": 0.004166666666666667,
+        "storageUtilization": 0.011475903614457831,
+        "cpuUtilization": 0,
+        "gpuUtilization": 0
+      },
+      "running": 2,
+      "beams": [
+        {
+          "type": null,
+          "energy": 0.0442648570745694,
+          "current": 0.04843443492407218,
+          "quality": 0.9409042371791639,
+          "alive": true,
+          "serviceRevenue": 0
+        },
+        {
+          "type": null,
+          "energy": 0.04155951731287921,
+          "current": 0.05168233337695579,
+          "quality": 0.9100637458778098,
+          "alive": true,
+          "serviceRevenue": 0
+        }
+      ]
+    },
+    {
+      "tick": 300,
+      "resources": {
+        "funding": 9416726.075892547,
+        "reputation": 32.55144213978548,
+        "data": 0,
+        "spares": 50
+      },
+      "economy": {
+        "tick": 300,
+        "income": {
+          "grant": 110,
+          "reputation": 123,
+          "beam": 3668.3105590671066,
+          "dataFees": 1,
+          "total": 3902.3105590671066
+        },
+        "upkeep": {
+          "staff": 120,
+          "power": 989.74,
+          "pumps": 104,
+          "refills": 0,
+          "total": 1213.74
+        },
+        "net": 2688.570559067107,
+        "contributingBeamlines": 2
+      },
+      "data": {
+        "capacity": {
+          "ingest": 48,
+          "storage": 3320,
+          "cpu": 48,
+          "gpu": 68,
+          "units": {
+            "allInOne": 1,
+            "daq": 1,
+            "storage": 1,
+            "cpu": 1,
+            "gpu": 1
+          },
+          "gateways": 2,
+          "inactive": {
+            "noGateway": 0,
+            "noPower": 0
+          }
+        },
+        "requested": 0.2,
+        "ingested": 0.2,
+        "dropped": 0,
+        "ingestDropped": 0,
+        "storageDropped": 0,
+        "stored": 58.100000000000286,
+        "processed": 0,
+        "bottleneck": "Data scientist",
+        "processedByWorkload": {
+          "cpu": 0,
+          "gpu": 0,
+          "balanced": 0
+        },
+        "ingestUtilization": 0.004166666666666667,
+        "storageUtilization": 0.017500000000000085,
+        "cpuUtilization": 0,
+        "gpuUtilization": 0
+      },
+      "running": 2,
+      "beams": [
+        {
+          "type": null,
+          "energy": 0.04419584984446778,
+          "current": 0.03483648068884714,
+          "quality": 0.9415820564006383,
+          "alive": true,
+          "serviceRevenue": 0
+        },
+        {
+          "type": null,
+          "energy": 0.04150378025311685,
+          "current": 0.03981992263337697,
+          "quality": 0.9114826736454057,
+          "alive": true,
+          "serviceRevenue": 0
+        }
+      ]
+    }
+  ],
+  "objectives": [
+    "fullUtilities",
+    "tenComponents",
+    "firstBeam",
+    "firstMeasurement",
+    "firstTarget",
+    "stableBeam"
+  ],
+  "labs": {
+    "rfLab": {
+      "active": false,
+      "tileCount": 9,
+      "tileTier": 2,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    },
+    "coolingLab": {
+      "active": false,
+      "tileCount": 0,
+      "tileTier": 0,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    },
+    "vacuumLab": {
+      "active": false,
+      "tileCount": 0,
+      "tileTier": 0,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    },
+    "officeSpace": {
+      "active": false,
+      "tileCount": 12,
+      "tileTier": 2,
+      "tier": 2,
+      "staffedOutput": 0,
+      "peakTier": 2
+    },
+    "privateOffice": {
+      "active": false,
+      "tileCount": 14,
+      "tileTier": 2,
+      "tier": 2,
+      "staffedOutput": 0,
+      "peakTier": 2
+    },
+    "controlRoom": {
+      "active": true,
+      "tileCount": 12,
+      "tileTier": 2,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    },
+    "machineShop": {
+      "active": false,
+      "tileCount": 0,
+      "tileTier": 0,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    },
+    "maintenance": {
+      "active": false,
+      "tileCount": 0,
+      "tileTier": 0,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    },
+    "opticsLab": {
+      "active": false,
+      "tileCount": 0,
+      "tileTier": 0,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    },
+    "diagnosticsLab": {
+      "active": false,
+      "tileCount": 0,
+      "tileTier": 0,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    },
+    "cafeteria": {
+      "active": false,
+      "tileCount": 40,
+      "tileTier": 4,
+      "tier": 4,
+      "staffedOutput": 0,
+      "peakTier": 4
+    },
+    "kitchen": {
+      "active": false,
+      "tileCount": 0,
+      "tileTier": 0,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    },
+    "bathroom": {
+      "active": false,
+      "tileCount": 9,
+      "tileTier": 2,
+      "tier": 2,
+      "staffedOutput": 0,
+      "peakTier": 2
+    },
+    "meetingRoom": {
+      "active": false,
+      "tileCount": 0,
+      "tileTier": 0,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    },
+    "facultyLounge": {
+      "active": false,
+      "tileCount": 0,
+      "tileTier": 0,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    },
+    "reception": {
+      "active": false,
+      "tileCount": 0,
+      "tileTier": 0,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    },
+    "storageRoom": {
+      "active": false,
+      "tileCount": 0,
+      "tileTier": 0,
+      "tier": 0,
+      "staffedOutput": 0,
+      "peakTier": 0
+    }
+  },
+  "research": {
+    "nodes": 70,
+    "totals": {
+      "funding": 597960000,
+      "data": 18499,
+      "reputation": 2200,
+      "baseSeconds": 5005
+    },
+    "availableAtOpening": [
+      {
+        "id": "beamOptics",
+        "cost": {
+          "data": 105,
+          "funding": 1700000
+        },
+        "speedMultiplier": 4
+      },
+      {
+        "id": "rfFundamentals",
+        "cost": {
+          "data": 65,
+          "funding": 980000
+        },
+        "speedMultiplier": 4
+      },
+      {
+        "id": "basicVacuum",
+        "cost": {
+          "data": 65,
+          "funding": 980000
+        },
+        "speedMultiplier": 4
+      },
+      {
+        "id": "cryoFundamentals",
+        "cost": {
+          "data": 90,
+          "funding": 1500000
+        },
+        "speedMultiplier": 4
+      },
+      {
+        "id": "beamDiagnostics",
+        "cost": {
+          "data": 105,
+          "funding": 1700000
+        },
+        "speedMultiplier": 4
+      },
+      {
+        "id": "synchrotronLight",
+        "cost": {
+          "data": 228,
+          "funding": 6700000
+        },
+        "speedMultiplier": 4
+      },
+      {
+        "id": "dataAnalysis",
+        "cost": {
+          "data": 171,
+          "funding": 3900000
+        },
+        "speedMultiplier": 4
+      },
+      {
+        "id": "cyclotronTech",
+        "cost": {
+          "data": 140,
+          "funding": 2600000
+        },
+        "speedMultiplier": 4
+      },
+      {
+        "id": "targetPhysics",
+        "cost": {
+          "data": 140,
+          "funding": 2600000
+        },
+        "speedMultiplier": 4
+      }
+    ]
+  },
+  "designs": [
+    {
+      "id": "testStand-bench",
+      "type": "testStand",
+      "hardwareOnly": 1960000,
+      "researchNodes": 0,
+      "research": {
+        "funding": 0,
+        "data": 0,
+        "reputation": 0,
+        "baseSeconds": 0
+      }
+    },
+    {
+      "id": "testStand-sband",
+      "type": "testStand",
+      "hardwareOnly": 2080000,
+      "researchNodes": 0,
+      "research": {
+        "funding": 0,
+        "data": 0,
+        "reputation": 0,
+        "baseSeconds": 0
+      }
+    },
+    {
+      "id": "testStand-highpower",
+      "type": "testStand",
+      "hardwareOnly": 2470000,
+      "researchNodes": 1,
+      "research": {
+        "funding": 1700000,
+        "data": 105,
+        "reputation": 0,
+        "baseSeconds": 30
+      }
+    },
+    {
+      "id": "ebeam-crosslinker",
+      "type": "ebeamProcessing",
+      "hardwareOnly": 840000,
+      "researchNodes": 0,
+      "research": {
+        "funding": 0,
+        "data": 0,
+        "reputation": 0,
+        "baseSeconds": 0
+      }
+    },
+    {
+      "id": "ebeam-sterilisation",
+      "type": "ebeamProcessing",
+      "hardwareOnly": 1040000,
+      "researchNodes": 0,
+      "research": {
+        "funding": 0,
+        "data": 0,
+        "reputation": 0,
+        "baseSeconds": 0
+      }
+    },
+    {
+      "id": "ebeam-highpower",
+      "type": "ebeamProcessing",
+      "hardwareOnly": 1340000,
+      "researchNodes": 0,
+      "research": {
+        "funding": 0,
+        "data": 0,
+        "reputation": 0,
+        "baseSeconds": 0
+      }
+    },
+    {
+      "id": "isotope-cyclone30",
+      "type": "isotopeIrradiation",
+      "hardwareOnly": 8870000,
+      "researchNodes": 2,
+      "research": {
+        "funding": 7600000,
+        "data": 340,
+        "reputation": 0,
+        "baseSeconds": 100
+      }
+    },
+    {
+      "id": "isotope-spoke-booster",
+      "type": "isotopeIrradiation",
+      "hardwareOnly": 8830000,
+      "researchNodes": 2,
+      "research": {
+        "funding": 5200000,
+        "data": 280,
+        "reputation": 0,
+        "baseSeconds": 85
+      }
+    },
+    {
+      "id": "isotope-spoke-70",
+      "type": "isotopeIrradiation",
+      "hardwareOnly": 10030000,
+      "researchNodes": 2,
+      "research": {
+        "funding": 5200000,
+        "data": 280,
+        "reputation": 0,
+        "baseSeconds": 85
+      }
+    },
+    {
+      "id": "therapy-ocular70",
+      "type": "therapy",
+      "hardwareOnly": 23870000,
+      "researchNodes": 3,
+      "research": {
+        "funding": 13200000,
+        "data": 523,
+        "reputation": 600,
+        "baseSeconds": 150
+      }
+    },
+    {
+      "id": "therapy-spoke145",
+      "type": "therapy",
+      "hardwareOnly": 29470000,
+      "researchNodes": 3,
+      "research": {
+        "funding": 13200000,
+        "data": 523,
+        "reputation": 600,
+        "baseSeconds": 150
+      }
+    },
+    {
+      "id": "therapy-spoke230",
+      "type": "therapy",
+      "hardwareOnly": 37270000,
+      "researchNodes": 2,
+      "research": {
+        "funding": 11500000,
+        "data": 418,
+        "reputation": 600,
+        "baseSeconds": 120
+      }
+    },
+    {
+      "id": "spallation-compact-800",
+      "type": "spallation",
+      "hardwareOnly": 165470000,
+      "researchNodes": 5,
+      "research": {
+        "funding": 31580000,
+        "data": 1100,
+        "reputation": 1100,
+        "baseSeconds": 310
+      }
+    },
+    {
+      "id": "spallation-sns-1600",
+      "type": "spallation",
+      "hardwareOnly": 199070000,
+      "researchNodes": 10,
+      "research": {
+        "funding": 54580000,
+        "data": 1944,
+        "reputation": 1100,
+        "baseSeconds": 545
+      }
+    },
+    {
+      "id": "spallation-ess-2800",
+      "type": "spallation",
+      "hardwareOnly": 261270000,
+      "researchNodes": 13,
+      "research": {
+        "funding": 71880000,
+        "data": 2555,
+        "reputation": 1100,
+        "baseSeconds": 705
+      }
+    },
+    {
+      "id": "light-ring-2500",
+      "type": "lightSource",
+      "hardwareOnly": 136430000,
+      "researchNodes": 13,
+      "research": {
+        "funding": 85600000,
+        "data": 2917,
+        "reputation": 1100,
+        "baseSeconds": 810
+      }
+    },
+    {
+      "id": "light-ring-3000",
+      "type": "lightSource",
+      "hardwareOnly": 163830000,
+      "researchNodes": 13,
+      "research": {
+        "funding": 85600000,
+        "data": 2917,
+        "reputation": 1100,
+        "baseSeconds": 810
+      }
+    },
+    {
+      "id": "light-ring-5800",
+      "type": "lightSource",
+      "hardwareOnly": 243830000,
+      "researchNodes": 17,
+      "research": {
+        "funding": 116580000,
+        "data": 4036,
+        "reputation": 1500,
+        "baseSeconds": 1095
+      }
+    },
+    {
+      "id": "xfel-plasma-injector",
+      "type": "xfel",
+      "hardwareOnly": 247680000,
+      "researchNodes": 14,
+      "research": {
+        "funding": 102280000,
+        "data": 3438,
+        "reputation": 1500,
+        "baseSeconds": 935
+      }
+    },
+    {
+      "id": "xfel-hard-xray",
+      "type": "xfel",
+      "hardwareOnly": 319430000,
+      "researchNodes": 10,
+      "research": {
+        "funding": 80980000,
+        "data": 2699,
+        "reputation": 1500,
+        "baseSeconds": 730
+      }
+    },
+    {
+      "id": "xfel-flagship",
+      "type": "xfel",
+      "hardwareOnly": 621220000,
+      "researchNodes": 11,
+      "research": {
+        "funding": 82680000,
+        "data": 2804,
+        "reputation": 1500,
+        "baseSeconds": 760
+      }
+    },
+    {
+      "id": "euvfel-pilot",
+      "type": "euvFel",
+      "hardwareOnly": 50370000,
+      "researchNodes": 7,
+      "research": {
+        "funding": 32300000,
+        "data": 1212,
+        "reputation": 600,
+        "baseSeconds": 350
+      }
+    },
+    {
+      "id": "euvfel-production",
+      "type": "euvFel",
+      "hardwareOnly": 71770000,
+      "researchNodes": 11,
+      "research": {
+        "funding": 54980000,
+        "data": 2056,
+        "reputation": 600,
+        "baseSeconds": 575
+      }
+    },
+    {
+      "id": "euvfel-fab",
+      "type": "euvFel",
+      "hardwareOnly": 75370000,
+      "researchNodes": 12,
+      "research": {
+        "funding": 56680000,
+        "data": 2161,
+        "reputation": 600,
+        "baseSeconds": 605
+      }
+    },
+    {
+      "id": "collider-zpole",
+      "type": "collider",
+      "hardwareOnly": 1478530000,
+      "researchNodes": 9,
+      "research": {
+        "funding": 119500000,
+        "data": 2934,
+        "reputation": 2200,
+        "baseSeconds": 810
+      }
+    },
+    {
+      "id": "collider-higgs",
+      "type": "collider",
+      "hardwareOnly": 3326530000,
+      "researchNodes": 9,
+      "research": {
+        "funding": 119500000,
+        "data": 2934,
+        "reputation": 2200,
+        "baseSeconds": 810
+      }
+    },
+    {
+      "id": "collider-tev",
+      "type": "collider",
+      "hardwareOnly": 8728530000,
+      "researchNodes": 13,
+      "research": {
+        "funding": 165200000,
+        "data": 4269,
+        "reputation": 2200,
+        "baseSeconds": 1180
+      }
+    },
+    {
+      "id": "blackhole-threshold",
+      "type": "blackHoleFactory",
+      "hardwareOnly": 12122030000,
+      "researchNodes": 10,
+      "research": {
+        "funding": 78000000,
+        "data": 2573,
+        "reputation": 1100,
+        "baseSeconds": 700
+      }
+    },
+    {
+      "id": "blackhole-quarter-pev",
+      "type": "blackHoleFactory",
+      "hardwareOnly": 22922780000,
+      "researchNodes": 10,
+      "research": {
+        "funding": 78000000,
+        "data": 2573,
+        "reputation": 1100,
+        "baseSeconds": 700
+      }
+    },
+    {
+      "id": "blackhole-pev",
+      "type": "blackHoleFactory",
+      "hardwareOnly": 41822780000,
+      "researchNodes": 10,
+      "research": {
+        "funding": 78000000,
+        "data": 2573,
+        "reputation": 1100,
+        "baseSeconds": 700
+      }
+    }
+  ]
+}
