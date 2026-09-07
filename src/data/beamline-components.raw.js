@@ -2127,10 +2127,9 @@ export const BEAMLINE_COMPONENTS_RAW = {
       exit: { side: 'front' },
     },
 
-    // The only type in the roster that needs 0.8-3 GeV of protons. therapy
-    // tops out at 250 MeV and isotopeIrradiation at 70, so neither would ever
-    // reach the energy where a medium-beta elliptical is the right answer.
-    beamlineTypes: ['spallation'],
+    // A spoke injector can reach the medium-beta acceptance before this
+    // module boosts it to clinical energies; larger strings serve spallation.
+    beamlineTypes: ['therapy', 'spallation'],
     requiredConnections: ['powerCable', 'cryoTransfer', 'rfWaveguide'],
     rfFrequency: 650,
     rfBand: 'uhf',

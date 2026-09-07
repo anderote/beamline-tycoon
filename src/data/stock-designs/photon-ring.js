@@ -7,6 +7,8 @@
 // devices produce incoherent photon flux. See beam_physics/gameplay.py and
 // modules/synchrotron_light.py for those two explicit model steps.
 
+// The injector voltage/solenoid settings preserve useful injected current.
+// The final ring also needs stronger matching to reach its data-producing hutch.
 export const PHOTON_RING_DESIGNS = [
   {
     id: 'light-ring-2500',
@@ -15,8 +17,8 @@ export const PHOTON_RING_DESIGNS = [
     name: 'Compact 2.5 GeV Ring',
     blurb: 'A five-sector injector fills a compact two-straight ring: the affordable first public light source, with enough soft X-rays to build a user community.',
     components: [
-      { type: 'source', params: { extractionVoltage: 42 } },
-      { type: 'solenoid', params: { fieldStrength: 0.005 } },
+      { type: 'source', params: { extractionVoltage: 175, cathodeTemperature: 1600 } },
+      { type: 'solenoid', params: { fieldStrength: 0.003 } },
       { type: 'cwCryomodule', params: {} },
       { type: 'cwCryomodule', params: {} },
       { type: 'cwCryomodule', params: {} },
@@ -44,8 +46,8 @@ export const PHOTON_RING_DESIGNS = [
     name: '3 GeV User Facility',
     blurb: 'A six-sector injector and three insertion-device straights: the workhorse ring that turns a photon-science programme into a national facility.',
     components: [
-      { type: 'source', params: { extractionVoltage: 42 } },
-      { type: 'solenoid', params: { fieldStrength: 0.005 } },
+      { type: 'source', params: { extractionVoltage: 150, cathodeTemperature: 1600 } },
+      { type: 'solenoid', params: { fieldStrength: 0.003 } },
       { type: 'cwCryomodule', params: {} },
       { type: 'cwCryomodule', params: {} },
       { type: 'cwCryomodule', params: {} },
@@ -76,8 +78,8 @@ export const PHOTON_RING_DESIGNS = [
     name: '6 GeV Diffraction-Limited Ring',
     blurb: 'Nb3Sn injector sectors, a tightly controlled multi-bend arc and hard-X-ray straights: a flagship source whose beamlines define the research frontier.',
     components: [
-      { type: 'source', params: { extractionVoltage: 42 } },
-      { type: 'solenoid', params: { fieldStrength: 0.005 } },
+      { type: 'source', params: { extractionVoltage: 100, cathodeTemperature: 1600 } },
+      { type: 'solenoid', params: { fieldStrength: 0.003 } },
       { type: 'nbSnCryomodule', params: {} },
       { type: 'nbSnCryomodule', params: {} },
       { type: 'nbSnCryomodule', params: {} },
@@ -88,13 +90,13 @@ export const PHOTON_RING_DESIGNS = [
       { type: 'injectionSeptum', params: {} },
       { type: 'fastKicker', params: {} },
       { type: 'combinedFunctionMagnet', params: { quadGradient: 1 } },
-      { type: 'quadrupole', params: { gradient: 9, polarity: 0 } },
-      { type: 'quadrupole', params: { gradient: 9, polarity: 1 } },
+      { type: 'quadrupole', params: { gradient: 18, polarity: 0 } },
+      { type: 'quadrupole', params: { gradient: 18, polarity: 1 } },
       { type: 'undulator', params: { gap: 8 } },
       { type: 'sextupole', params: {} },
       { type: 'combinedFunctionMagnet', params: { quadGradient: 1 } },
-      { type: 'quadrupole', params: { gradient: 9, polarity: 0 } },
-      { type: 'quadrupole', params: { gradient: 9, polarity: 1 } },
+      { type: 'quadrupole', params: { gradient: 18, polarity: 0 } },
+      { type: 'quadrupole', params: { gradient: 18, polarity: 1 } },
       { type: 'undulator', params: { gap: 6 } },
       { type: 'combinedFunctionMagnet', params: { quadGradient: 1 } },
       { type: 'undulator', params: { gap: 6 } },

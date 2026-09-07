@@ -18,6 +18,11 @@ export function isResearchAvailable(id, state) {
 }
 
 export function startResearch(id, state, log) {
+  // Research has one paid project slot. Never discard a project's cost/progress.
+  if (state.activeResearch) {
+    log('Finish the current research project first', 'bad');
+    return false;
+  }
   if (!isResearchAvailable(id, state)) return false;
   const r = RESEARCH[id];
   // Check lab gate

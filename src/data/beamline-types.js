@@ -117,8 +117,10 @@ export const BEAMLINE_TYPES = {
       dutyMin: 0.8,
     },
     fom: 'beamPowerKw',
-    // The Rhodotron nameplate: 10 MeV x 10 mA = 100 kW delivered.
-    fomRef: 100,
+    // Reference delivery: 10 MeV x 50 mA = 500 kW. The old 100 kW
+    // reference saturated service revenue before a normal in-band upgrade,
+    // making extra processing current economically pointless.
+    fomRef: 500,
     // Tight, because the upper edge is a regulator's line rather than a
     // physics preference. Going over does not earn less — it earns nothing.
     bandWidth: 0.15,
@@ -485,4 +487,15 @@ export function getBeamlineType(id) {
 /** All mission families, in roster order. Research gates hardware, not purpose. */
 export function beamlineTypesFor() {
   return Object.values(BEAMLINE_TYPES);
+}
+
+/** Inclusive mission bands tolerate floating-point roundoff, not tuning error. */
+export function isWithinBeamlineBand(value, band) {
+  if (!Number.isFinite(value) || !(value > 0)) return false;
+  if (!band || band.length !== 2) return true;
+  const near = bound => Math.abs(value - bound)
+    <= 16 * Number.EPSILON * Math.max(Math.abs(value), Math.abs(bound));
+  const [lo, hi] = band;
+  return (lo == null || value >= lo || near(lo))
+    && (hi == null || value <= hi || near(hi));
 }

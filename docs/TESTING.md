@@ -7,7 +7,7 @@ integration worktree; none require the stable server on port 8000.
 |---|---|---|
 | Focused | `node test/test-name.js` | First check while changing one contract |
 | Fast | `npm run test:fast` | Node unit/integration suites plus pytest, excluding economy scenarios |
-| Simulation | `npm run test:simulation` | Scripted operating-economy scenarios |
+| Simulation | `npm run test:simulation` | Operating-economy scenarios and native stock-service contracts |
 | All non-browser | `npm test` or `npm run test:all` | Required integration gate before merge |
 | Browser | `npm run test:browser` | Rendering, startup, and real interaction paths |
 | Build | `npm run build` | Vite dependency/export resolution and production bundling |
@@ -15,6 +15,13 @@ integration worktree; none require the stable server on port 8000.
 Staff scale work also runs `npm run benchmark:staff`; see
 [`docs/STAFF-SCALE-VALIDATION.md`](STAFF-SCALE-VALIDATION.md) for its contract
 and the owner-authorized browser/profile checklist.
+
+The simulation lane also evaluates every stock design with native Python physics,
+checks commercial endpoint revenue/data and upgrade incentives, and exercises the
+Minor Lab opening through the native Game physics seam. These checks require
+Python and the same dependencies as the physics tests; they do not launch a browser.
+A band pass for a frontier research machine does not prove discovery yield or
+FEL saturation.
 
 The simulation lane is required for changes to economy, staffing, utility
 topology, scripted scenarios, or catalogue operating costs. The repository does

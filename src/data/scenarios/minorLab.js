@@ -61,6 +61,15 @@ export function setupMinorLab(game) {
     { id: 'in_97', role: 'source', side: 'front', index: 5 },
     { id: 'in_274', role: 'sink', side: 'left', index: 0 });
 
+  // A career starter needs usable research data as well as a running beam.
+  // The authored campus already has workstations and a data backbone,
+  // but its fresh-game roster contains only an operator. Seed the missing
+  // scientist through the normal hiring contract (including the hiring cost).
+  if (!game.state.staffMembers.some(member => member.profession === 'scientist')
+      && !game.hireStaff('scientist')) {
+    throw new Error('Minor Lab could not hire its starting scientist');
+  }
+
   // The lower beamline's BPM is the only data sink not already on the rack bus.
   return wireUtility(game, 'dataFiber',
     { id: 'fn_4', role: 'pass', side: 'front', index: 0 },

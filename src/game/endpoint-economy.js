@@ -1,5 +1,5 @@
 import { COMPONENTS } from '../data/components.js';
-import { getBeamlineType } from '../data/beamline-types.js';
+import { getBeamlineType, isWithinBeamlineBand } from '../data/beamline-types.js';
 
 // Endpoint contracts are intentionally expressed in player-facing dollars per
 // tick. The beamline type supplies the acceptable operating band; the endpoint
@@ -99,7 +99,7 @@ function scoreBand(value, band, width = 0.3, hardHigh = false) {
   if (!band || band.length !== 2) return 1;
   const [lo, hi] = band;
   if (!(value > 0)) return 0;
-  if (value >= lo && value <= hi) return 1;
+  if (isWithinBeamlineBand(value, band)) return 1;
   if (hardHigh && value > hi) return 0;
   const edge = value < lo ? lo : hi;
   const decades = Math.abs(Math.log10(value / edge));

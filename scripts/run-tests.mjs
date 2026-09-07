@@ -28,6 +28,7 @@ if (!['all', 'fast', 'simulation'].includes(lane)) {
 
 const simulationSuites = new Set([
   'test-economy-balance.js',
+  'test-stock-service-balance.js',
 ]);
 
 const discoveredFiles = readdirSync(testDir)
