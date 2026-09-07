@@ -499,6 +499,20 @@ class TestFELGain(unittest.TestCase):
                        f"sigma_x={beam.beam_size_x()*1e6:.1f}um, "
                        f"sat_frac={report.details['saturation_fraction']:.2f}")
 
+    def test_saturation_power_has_watt_units(self):
+        # A controlled 1 GeV, 1 kA beam carries 1 TW. Saturation transfers
+        # rho of that beam power to light, rather than joules times amps.
+        beam = make_beam(energy=1.0 - ELECTRON_MASS, sigma_dE=1e-6)
+        beam.peak_current = 1000.0
+        report = FELGainModule().apply(beam, {
+            "type": "undulator", "length": 100000.0,
+            "period": 0.03, "kParameter": 1.5,
+        }, PropagationContext("fel"))
+        self.assertTrue(report.details["saturated"])
+        efficiency = report.details["rho"]
+        self.assertAlmostEqual(report.details["power_w"] / 1e12, efficiency)
+        self.assertGreater(report.details["power_w"], 1e6)
+
     def test_no_saturation_short_undulator(self):
         mod = FELGainModule()
         beam = self._make_fel_beam()

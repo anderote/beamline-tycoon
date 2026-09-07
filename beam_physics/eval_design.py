@@ -45,6 +45,10 @@ SUMMARY_FIELDS = (
     "photonRate",
     "dataRate",
     "felSaturated",
+    "felPower",             # peak W, not average delivered photon power
+    "felWavelength",        # m
+    "felGainLength",        # m
+    "blackHoleYield",
     "collisionRate",
     "maxDispersion",
     "nDiagnostics",

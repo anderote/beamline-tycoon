@@ -182,7 +182,12 @@ export function computeEndpointService(typeId, beamState, nodes = []) {
     energy, type.spec?.energyGeV, type.bandWidth, contract.hardEnergyCeiling,
   );
   const currentScore = scoreBand(current, type.spec?.currentMA, type.bandWidth);
-  const bandScore = energyScore * currentScore;
+  // Palette filtering is not an execution boundary: imported designs and
+  // saved lines can contain a customer endpoint from another mission.
+  const compatibleEndpoint = type.requiredEndpoint?.includes(endpointId) === true;
+  const canDeliver = beamState?.beamAlive !== false && energy > 0 && current > 0
+    && Number.isFinite(energy) && Number.isFinite(current);
+  const bandScore = compatibleEndpoint && canDeliver ? energyScore * currentScore : 0;
   const outputScore = performanceScore(type, beamState, contract);
   const revenue = contract.baseRevenue * bandScore * outputScore;
 

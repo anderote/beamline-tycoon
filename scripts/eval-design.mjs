@@ -251,6 +251,29 @@ export function checkBands(design, m) {
   return { ok: problems.length === 0, problems };
 }
 
+/** Necessary output checks, beyond transport bands; not full facility certification. */
+export function checkMissionOutput(design, measured) {
+  const band = checkBands(design, measured);
+  const problems = [...band.problems];
+  const positive = key => Number.isFinite(measured[key]) && measured[key] > 0;
+  if (!positive('beamCurrent')) problems.push('no delivered beam current');
+  if (!positive('dataRate')) problems.push('no research data produced');
+  if (design.typeId === 'lightSource' && !positive('photonRate')) {
+    problems.push('no synchrotron photon output');
+  }
+  if (['xfel', 'euvFel'].includes(design.typeId)) {
+    if (!measured.felSaturated) problems.push('FEL does not reach saturation');
+    if (!positive('felPower')) problems.push('no FEL power');
+  }
+  if (['collider', 'blackHoleFactory'].includes(design.typeId) && !positive('luminosity')) {
+    problems.push('no collision luminosity');
+  }
+  if (design.typeId === 'blackHoleFactory' && !positive('blackHoleYield')) {
+    problems.push('no predicted frontier event yield');
+  }
+  return { ok: problems.length === 0, problems };
+}
+
 // --- Formatting -----------------------------------------------------------
 
 function fmtGeV(v) {
@@ -294,8 +317,10 @@ function main() {
   for (const d of designs) {
     const m = evaluate(d);
     const verdict = checkBands(d, m);
-    results.push({ id: d.id, typeId: d.typeId, tier: d.tier, measured: m, ...verdict });
-    if (!verdict.ok) failed++;
+    const missionOutput = checkMissionOutput(d, m);
+    const selectedVerdict = flags.has('--mission-output') ? missionOutput : verdict;
+    results.push({ id: d.id, typeId: d.typeId, tier: d.tier, measured: m, ...verdict, missionOutput });
+    if (!selectedVerdict.ok) failed++;
 
     if (!flags.has('--json')) {
       if (d.typeId !== lastType) {
@@ -304,18 +329,18 @@ function main() {
           + `E ${fmtBand(t?.spec?.energyGeV, fmtGeV)}   I ${fmtBand(t?.spec?.currentMA, fmtMA)}`);
         lastType = d.typeId;
       }
-      const mark = verdict.ok ? '\x1b[32mPASS\x1b[0m' : '\x1b[31mFAIL\x1b[0m';
+      const mark = selectedVerdict.ok ? '\x1b[32mPASS\x1b[0m' : '\x1b[31mFAIL\x1b[0m';
       console.log(`  ${mark} T${d.tier} ${d.id.padEnd(28)}`
         + `${fmtGeV(m.beamEnergy).padStart(11)} ${fmtMA(m.beamCurrent).padStart(11)}`
         + `  q=${(m.beamQuality ?? 0).toFixed(2)} loss=${(m.totalLossFraction ?? 0).toFixed(2)}`);
-      for (const p of verdict.problems) console.log(`         \x1b[33m${p}\x1b[0m`);
+      for (const p of selectedVerdict.problems) console.log(`         \x1b[33m${p}\x1b[0m`);
     }
   }
 
   if (flags.has('--json')) {
     console.log(JSON.stringify(results, null, 2));
   } else {
-    console.log(`\n${results.length - failed}/${results.length} blueprints in band`);
+    console.log(`\n${results.length - failed}/${results.length} blueprints ${flags.has('--mission-output') ? 'pass mission output checks' : 'in band'}`);
   }
 
   if (flags.has('--write')) {
@@ -333,7 +358,7 @@ function main() {
     }
     const out = join(ROOT, 'src/data/stock-designs.measured.json');
     writeFileSync(out, JSON.stringify(measured, null, 2) + '\n');
-    console.log(`wrote ${out}`);
+    console.error(`wrote ${out}`);
   }
 
   process.exit(failed > 0 ? 1 : 0);
