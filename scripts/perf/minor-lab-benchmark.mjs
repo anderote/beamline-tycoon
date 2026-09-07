@@ -10,6 +10,7 @@ import { buildHeadlessFacilityScene } from './headless-render-metrics.mjs';
 export const MINOR_LAB_PERFORMANCE_TARGETS = Object.freeze({
   nearDrawCalls: 2100,
   nearUtilityDrawCalls: 300,
+  nearUtilityTriangles: 580_000,
   farDrawCalls: 220,
   // Exporting the original major pieces for on-pipe components, furnishings,
   // and grounds objects costs ~13.5k triangles versus the former synthetic
@@ -54,6 +55,8 @@ function evaluateTargets(render, targets = MINOR_LAB_PERFORMANCE_TARGETS) {
     ['near draw calls', render.near.drawCalls, targets.nearDrawCalls, 'calls'],
     ['near utility draw calls', render.breakdown.near.utilities.drawCalls,
       targets.nearUtilityDrawCalls, 'calls'],
+    ['near utility triangles', render.breakdown.near.utilities.renderedTriangles,
+      targets.nearUtilityTriangles, 'triangles'],
     ['far draw calls', render.far.drawCalls, targets.farDrawCalls, 'calls'],
     ['far rendered triangles', render.far.renderedTriangles, targets.farRenderedTriangles, 'triangles'],
     ['far shadow draw calls', render.far.shadowDrawCalls, targets.farShadowDrawCalls, 'calls'],

@@ -50,6 +50,7 @@ import {
 import { utilityLineJunctions } from '../utility/line-junctions.js';
 import { waterDripEffect } from './water-drip-presentation.js';
 import { createFarMergedMesh, farGeometryLayoutKey } from './far-mesh-merge.js';
+import { utilityFittingBatchGeometry } from './utility-fitting-occlusion.js';
 
 // DEFAULT line centerline height. Per-utility heights come from
 // utilityLineHeight (registry): a power cord lies on the floor while a vacuum
@@ -1303,6 +1304,9 @@ function buildCryostatBayonet(point, direction, descriptor, material, errorStatu
     ring.userData = {
       cryostatPart: 'bellows-convolution',
       cryostatBellowsIndex: index + 2,
+      utilitySleeveOccluder: {
+        radius: jacketRadius * 1.08, halfLength, centerZ: -ring.position.z, radialSegments: SEGS,
+      },
     };
     group.add(ring);
   }
@@ -1314,6 +1318,9 @@ function buildCryostatBayonet(point, direction, descriptor, material, errorStatu
     );
     collar.position.z = side * halfLength * 0.82;
     collar.userData.cryostatPart = 'bayonet-collar';
+    collar.userData.utilitySleeveOccluder = {
+      radius: jacketRadius * 1.08, halfLength, centerZ: -collar.position.z, radialSegments: SEGS,
+    };
     group.add(collar);
   }
 
@@ -1369,6 +1376,9 @@ function buildWaterSupplyFitting(point, direction, descriptor, material) {
     ring.matrixAutoUpdate = false;
     ring.updateMatrix();
     ring.userData.waterSupplyFittingPart = 'raised-ring';
+    ring.userData.utilitySleeveOccluder = {
+      radius: radius * 1.72, halfLength: depth * 0.5, radialSegments: SEGS,
+    };
     group.add(ring);
   }
   group.userData = {
@@ -1414,6 +1424,9 @@ function buildServiceFitting(point, direction, descriptor, material, errorStatus
     rim.matrixAutoUpdate = false;
     rim.updateMatrix();
     rim.userData.utilityFlangePart = 'stainlessRim';
+    rim.userData.utilitySleeveOccluder = {
+      radius: radius * 1.58, halfLength: depth * 0.5, radialSegments: SEGS,
+    };
     group.add(rim);
     mesh = group;
   } else if (THREE.TorusGeometry) {
@@ -3150,6 +3163,7 @@ export class UtilityLineBuilderV2 {
         this._nearDetailSources.push(object);
         presentations.push({
           geometry: object.geometry,
+          source: object,
           matrix: object.matrixWorld.clone(),
           material: object.material,
           lineId,
@@ -3184,7 +3198,17 @@ export class UtilityLineBuilderV2 {
       buckets.set(key, bucket);
     }
     for (const entries of buckets.values()) {
-      const built = createFarMergedMesh(entries, entries[0].material);
+      const batchEntries = entries.map(entry => ({
+        ...entry, geometry: utilityFittingBatchGeometry(entry.source),
+      }));
+      let built;
+      try {
+        built = createFarMergedMesh(batchEntries, entries[0].material);
+      } finally {
+        for (let i = 0; i < batchEntries.length; i++) {
+          if (batchEntries[i].geometry !== entries[i].geometry) batchEntries[i].geometry.dispose();
+        }
+      }
       if (!built) continue;
       const { mesh, instanceIds } = built;
       mesh.name = `utility-near-batch-${this._nearDetailBatches.length}`;

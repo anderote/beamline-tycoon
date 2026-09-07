@@ -71,3 +71,40 @@ profile cold Continue, first zoom across both LOD boundaries, rapid wheel
 reversals, and close-up utility-heavy views; inspect colors, highlights and
 picking across transitions. Compare CPU/GPU frame-time distributions on the
 same device and save. Use the isolated ephemeral-server workflow in AGENTS.md.
+
+## Follow-up: omit buried fitting surfaces
+
+The utility source-mesh breakdown showed that repeated torus fittings, rather
+than flexible cables alone, dominated near geometry. Water collar rings,
+cryostat bellows/collars, and vacuum flange rims overlap closed opaque sleeves.
+
+Near batches now omit a triangle only when all three vertices are strictly
+inside the sleeve's inscribed cylinder and end planes. The contained volume is
+convex and lies wholly inside the actual 12-sided sleeve, so this test cannot
+remove an exterior surface. Crossing triangles remain intact. Positions,
+normals, UVs and visible tessellation stay exactly as authored.
+
+This optimization affects only merged opaque presentations. Complete source
+meshes remain available for picking and translucent focus mode; no geometry is
+removed from the simulation or saved routes. Transparent and wireframe sources
+skip the optimization. Far geometry is unchanged.
+
+| Metric | Before follow-up | After follow-up |
+| --- | ---: | ---: |
+| Near utility triangles | 764,224 | 572,040 |
+| Whole near-scene triangles | 1,241,740 | 1,049,556 |
+| Near utility draw calls | 279 | 279 |
+| Far triangles | 138,484 | 138,484 |
+
+This removes 192,184 submitted triangles: 25.1% of near utility geometry and
+15.5% of the whole near scene. The Minor Lab benchmark now gates near utility
+geometry at 580,000 triangles. Three-iteration utility construction means were
+180 ms before / 187 ms after; this pass trades a small construction-time filter
+for fewer triangles on subsequent rendered frames. Browser frame-time impact
+remains unmeasured.
+
+Regression coverage compares first surface intersections from 600 exterior
+viewpoints per fitting family, checks exact retained attributes and complete
+source geometry, and exercises batching/focus restoration through the public
+utility builder. The owner browser checklist above still applies, with special
+attention to close-up fitting surfaces and translucent utility focus views.

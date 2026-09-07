@@ -21,6 +21,8 @@ test('Minor Lab far presentation stays within the whole-facility render budget',
     `near authored geometry stays packaged below 2,100 draws (got ${report.near.drawCalls})`);
   assert.ok(report.breakdown.near.utilities.drawCalls <= 300,
     `near utility detail stays spatially packaged (got ${report.breakdown.near.utilities.drawCalls})`);
+  assert.ok(report.breakdown.near.utilities.renderedTriangles <= 580000,
+    `near utility fittings omit buried faces (got ${report.breakdown.near.utilities.renderedTriangles})`);
   assert.ok(report.far.drawCalls <= 220,
     `far facility stays at or below 220 draws (got ${report.far.drawCalls})`);
   assert.ok(report.far.renderedTriangles <= 140000,
