@@ -130,5 +130,22 @@ assert(Object.entries(ENDPOINT_CONTRACTS).every(([, contract]) =>
     'photon user fees remain part of the beam-income term');
 }
 
+// Execution must enforce mission compatibility even for imported/saved layouts.
+{
+  const invalid = computeEndpointService(
+    'testStand', beam(0.02, 2.5), node('protonTherapyGantry'),
+  );
+  assert(invalid.revenue === 0, 'a test stand cannot bill for patient treatments');
+  for (const extra of [{ beamAlive: false }, { beamCurrent: 0 },
+    { beamEnergy: Infinity }, { beamCurrent: NaN }]) {
+    const stopped = computeEndpointService(
+      'therapy', beam(0.15, 0.01, extra), node('protonTherapyGantry'),
+    );
+    assert(stopped.revenue === 0, 'dead, empty or invalid delivery cannot bill an availability contract');
+  }
+  const disposal = computeEndpointService('therapy', beam(0.15, 0.01), node('beamStop'));
+  assert(disposal.revenue === 0, 'a valid commissioning dump is still not a treatment customer');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

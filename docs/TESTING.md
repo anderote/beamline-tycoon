@@ -51,3 +51,14 @@ launch Vite directly with `--strictPort`, as documented in `AGENTS.md`. Track
 and terminate the exact server process, close only the browser windows/tabs
 opened for the run, then confirm the selected port has no listener. Never stop,
 replace, or automate the stable game on port 8000.
+
+### Necessary mission outputs
+
+`node scripts/eval-design.mjs --mission-output` checks output beyond energy/current
+bands: usable current and data, light for rings, saturation for FELs, luminosity
+for colliders, and predicted yield for frontier machines. It currently fails for
+the six FEL and six collider/frontier stocks; see
+`docs/balance/2026-09-07-beamline-types-review.md`. This diagnostic is intentionally
+separate from the passing transport regression gate. `--json` includes both
+verdicts and the relevant native physics quantities. Passing does not certify
+full facility operation or validate EUV average delivered power.

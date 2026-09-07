@@ -76,8 +76,10 @@ class FELGainModule(PhysicsModule):
         saturation_fraction = und_length / L_sat if L_sat > 0 and np.isfinite(L_sat) else 0.0
         saturated = bool(saturation_fraction >= 1.0)
 
-        E_beam_J = beam.energy * 1.602e-10
-        P_sat = rho * E_beam_J * I_peak if rho > 0 else 0.0
+        # Saturation efficiency is rho of electron beam power. Current is
+        # charge/second, so GeV must become volts, not joules per electron:
+        # 1 GeV x 1 A = 1 GW. The former joules x amps lost a factor 1/e.
+        P_sat = rho * beam.energy * 1e9 * I_peak if rho > 0 else 0.0
 
         P_noise = 1e-3
         if saturated:
