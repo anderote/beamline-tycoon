@@ -52,6 +52,17 @@ export class UIHost {
     this._popupPlaceableId = null;
   }
 
+  /** Render one latest-state HUD update for a synchronous burst of game events. */
+  requestHUDUpdate() {
+    if (this._hudUpdatePending) return;
+    this._hudUpdatePending = true;
+    const schedule = globalThis.requestAnimationFrame || queueMicrotask;
+    schedule(() => {
+      this._hudUpdatePending = false;
+      this._updateHUD?.();
+    });
+  }
+
   // Number formatter — shared fmtNumber, kept as a method so UI code can
   // call `this._fmt(n)` without a renderer round-trip.
   _fmt(n) {

@@ -1,0 +1,1407 @@
+{
+  "bootMs": 2274.3999996185303,
+  "longTasks": [
+    {
+      "start": 1417.2999997138977,
+      "duration": 845
+    }
+  ],
+  "resources": [
+    {
+      "name": "http://127.0.0.1:61391/@vite/client",
+      "duration": 157.7000002861023,
+      "bytes": 205057
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/main.js",
+      "duration": 13.100000381469727,
+      "bytes": 174373
+    },
+    {
+      "name": "http://127.0.0.1:61391/style.css",
+      "duration": 86.10000038146973,
+      "bytes": 270632
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/deferred-physics-start.js",
+      "duration": 57.59999990463257,
+      "bytes": 11309
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/three-global.js",
+      "duration": 72.09999990463257,
+      "bytes": 10288
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/component-physics.js",
+      "duration": 79.2000002861023,
+      "bytes": 269890
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/BeamlineRegistry.js",
+      "duration": 80.80000019073486,
+      "bytes": 21798
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/physics.js",
+      "duration": 81.59999990463257,
+      "bytes": 42886
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer/sprites.js",
+      "duration": 82.09999990463257,
+      "bytes": 28911
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/scenario-launch.js",
+      "duration": 104.30000019073486,
+      "bytes": 3093
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/Game.js",
+      "duration": 123.30000019073486,
+      "bytes": 1657851
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer/designer-renderer.js",
+      "duration": 139.7000002861023,
+      "bytes": 385518
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/free-orbit-math.js",
+      "duration": 104.40000009536743,
+      "bytes": 23852
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/GuidedBeamlineSetup.js",
+      "duration": 141.7000002861023,
+      "bytes": 127277
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/ThreeRenderer.js",
+      "duration": 140.5,
+      "bytes": 1537946
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/UtilityPlantGuide.js",
+      "duration": 144.7000002861023,
+      "bytes": 40267
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/BeamlineDesigner.js",
+      "duration": 144.90000009536743,
+      "bytes": 680821
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/input/InputHandler.js",
+      "duration": 145.40000009536743,
+      "bytes": 1204309
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/ViewRouter.js",
+      "duration": 146.60000038146973,
+      "bytes": 9394
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/DesignPlacer.js",
+      "duration": 146.40000009536743,
+      "bytes": 109040
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/DesignLibrary.js",
+      "duration": 147.60000038146973,
+      "bytes": 87059
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/probe.js",
+      "duration": 150,
+      "bytes": 92707
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/modes.js",
+      "duration": 150.40000009536743,
+      "bytes": 68913
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/scenarios.js",
+      "duration": 151.69999980926514,
+      "bytes": 104593
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/MusicPlayer.js",
+      "duration": 152.90000009536743,
+      "bytes": 144209
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/lazy-dialog.js",
+      "duration": 168.90000009536743,
+      "bytes": 2200
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/WelcomeDialog.js",
+      "duration": 169,
+      "bytes": 26010
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/components.js",
+      "duration": 169,
+      "bytes": 25447
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/CloudSaves.js",
+      "duration": 170.5,
+      "bytes": 18825
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/utility-inspector-command.js",
+      "duration": 170.59999990463257,
+      "bytes": 9566
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/UtilityStatsPanel.js",
+      "duration": 171.90000009536743,
+      "bytes": 114808
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/TitleScreen.js",
+      "duration": 168.09999990463257,
+      "bytes": 1700540
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/ControlRoomWindow.js",
+      "duration": 172.59999990463257,
+      "bytes": 64910
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/EconomyWindow.js",
+      "duration": 173.09999990463257,
+      "bytes": 61757
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/BeamlinesMenu.js",
+      "duration": 173.2999997138977,
+      "bytes": 27144
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/main-menu-navigation.js",
+      "duration": 174.5,
+      "bytes": 4234
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/title-scenario-start.js",
+      "duration": 175,
+      "bytes": 5732
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/ScenarioPicker.js",
+      "duration": 174.90000009536743,
+      "bytes": 46476
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/scenarios/scenario-wiring.js",
+      "duration": 175.19999980926514,
+      "bytes": 26838
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/EffectsWorkshop.js",
+      "duration": 175.5,
+      "bytes": 28902
+    },
+    {
+      "name": "https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap",
+      "duration": 198.2000002861023,
+      "bytes": 837
+    },
+    {
+      "name": "http://127.0.0.1:61391/node_modules/.vite/deps/three_webgpu.js?v=5f57e33f",
+      "duration": 161.30000019073486,
+      "bytes": 1877505
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/accent-colors.js",
+      "duration": 153.7000002861023,
+      "bytes": 7324
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/physics-protocol.js",
+      "duration": 153,
+      "bytes": 1651
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/structure.js",
+      "duration": 219.09999990463257,
+      "bytes": 263173
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/roofing.js",
+      "duration": 176.7000002861023,
+      "bytes": 24356
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/storeys.js",
+      "duration": 115.40000009536743,
+      "bytes": 13030
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/physics-recalc-coordinator.js",
+      "duration": 167.7000002861023,
+      "bytes": 6937
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/research.js",
+      "duration": 167.80000019073486,
+      "bytes": 273445
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/component-params.js",
+      "duration": 175.5,
+      "bytes": 20676
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/facility.js",
+      "duration": 176.2000002861023,
+      "bytes": 57733
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/physics-result-aggregate.js",
+      "duration": 190.60000038146973,
+      "bytes": 9947
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/physics-payload.js",
+      "duration": 191.2000002861023,
+      "bytes": 47388
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/component-operation.js",
+      "duration": 191.5,
+      "bytes": 30194
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/beamline-types.js",
+      "duration": 192.59999990463257,
+      "bytes": 138290
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/flattener.js",
+      "duration": 193.19999980926514,
+      "bytes": 53093
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/designer-workspaces.js",
+      "duration": 193.39999961853027,
+      "bytes": 21442
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/module-axis.js",
+      "duration": 193.69999980926514,
+      "bytes": 7506
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/BeamlineSystem.js",
+      "duration": 195.59999990463257,
+      "bytes": 216776
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/pipe-geometry.js",
+      "duration": 196.5,
+      "bytes": 94161
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/utility/UniversalUtilityBusSystem.js",
+      "duration": 198.59999990463257,
+      "bytes": 27420
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/utility/UtilityLineSystem.js",
+      "duration": 198.2999997138977,
+      "bytes": 121233
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/utility/utility-endpoints.js",
+      "duration": 201.7999997138977,
+      "bytes": 27492
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/utility/registry.js",
+      "duration": 201.90000009536743,
+      "bytes": 17376
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/utility/tap-mounts.js",
+      "duration": 201.5,
+      "bytes": 31128
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/utility/solve-runner.js",
+      "duration": 203,
+      "bytes": 89234
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/utility-gate.js",
+      "duration": 204.19999980926514,
+      "bytes": 177349
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/utility/ports.js",
+      "duration": 204.90000009536743,
+      "bytes": 63955
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/power-reliability.js",
+      "duration": 207,
+      "bytes": 93205
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/reservoir-refill.js",
+      "duration": 207.09999990463257,
+      "bytes": 21251
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/edge-keys.js",
+      "duration": 207.5,
+      "bytes": 52645
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/staff/StaffMember.js",
+      "duration": 212.90000009536743,
+      "bytes": 68021
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/utility-ports-v2.js",
+      "duration": 212.5,
+      "bytes": 593008
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/staff/stations.js",
+      "duration": 214.90000009536743,
+      "bytes": 84391
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/staff/staffSystem.js",
+      "duration": 218.40000009536743,
+      "bytes": 52338
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/professions.js",
+      "duration": 221.30000019073486,
+      "bytes": 26037
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/decorations.js",
+      "duration": 221.40000009536743,
+      "bytes": 2700
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/placeables/index.js",
+      "duration": 221.59999990463257,
+      "bytes": 6212
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/staff/jobRunner.js",
+      "duration": 221.2000002861023,
+      "bytes": 319689
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/economy.js",
+      "duration": 223,
+      "bytes": 174928
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/aggregates.js",
+      "duration": 226.2000002861023,
+      "bytes": 33140
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/research.js",
+      "duration": 226.59999990463257,
+      "bytes": 42522
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/objectives.js",
+      "duration": 226.69999980926514,
+      "bytes": 3868
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/stacking.js",
+      "duration": 227,
+      "bytes": 38447
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/placement.js",
+      "duration": 227.7999997138977,
+      "bytes": 84653
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/map-edge-connection.js",
+      "duration": 227.89999961853027,
+      "bytes": 19551
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/wall-fixture-geometry.js",
+      "duration": 230.5,
+      "bytes": 17007
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/land.js",
+      "duration": 232,
+      "bytes": 18026
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/map-generator.js",
+      "duration": 231.89999961853027,
+      "bytes": 145999
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/SaveSlots.js",
+      "duration": 233,
+      "bytes": 51059
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/terrain.js",
+      "duration": 232.59999990463257,
+      "bytes": 55622
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/storageQuota.js",
+      "duration": 234,
+      "bytes": 25770
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/idle-work.js",
+      "duration": 237.5,
+      "bytes": 3605
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/data-systems.js",
+      "duration": 238,
+      "bytes": 47787
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/placeable-events.js",
+      "duration": 238.09999990463257,
+      "bytes": 4864
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/placeable-state.js",
+      "duration": 238.19999980926514,
+      "bytes": 7308
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/world-change-set.js",
+      "duration": 238.40000009536743,
+      "bytes": 32041
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/designer-optimizer.js",
+      "duration": 225.59999990463257,
+      "bytes": 101813
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/units.js",
+      "duration": 239.09999990463257,
+      "bytes": 17172
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer/Renderer.js",
+      "duration": 239,
+      "bytes": 9847
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/BeamlineTypePicker.js",
+      "duration": 240.30000019073486,
+      "bytes": 153935
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/probe-plots.js",
+      "duration": 246.60000038146973,
+      "bytes": 484094
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/beam-visual-mode.js",
+      "duration": 248.19999980926514,
+      "bytes": 51380
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/designer-plot-controls.js",
+      "duration": 248.19999980926514,
+      "bytes": 33487
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/utility-supply.js",
+      "duration": 252.90000009536743,
+      "bytes": 90721
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/designer-revenue-breakdown.js",
+      "duration": 253.7999997138977,
+      "bytes": 37762
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/required-port-preview.js",
+      "duration": 254,
+      "bytes": 12277
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/pipe-placements.js",
+      "duration": 252.5,
+      "bytes": 77338
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/guided-setup-plan.js",
+      "duration": 253.2000002861023,
+      "bytes": 41177
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/texture-manager.js",
+      "duration": 251.89999961853027,
+      "bytes": 35756
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/terrain-builder.js",
+      "duration": 258,
+      "bytes": 38601
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/cliff-builder.js",
+      "duration": 259.7999997138977,
+      "bytes": 38973
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/wildflower-builder.js",
+      "duration": 261.19999980926514,
+      "bytes": 61067
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/grass-tuft-builder.js",
+      "duration": 261.19999980926514,
+      "bytes": 98182
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/floor-builder.js",
+      "duration": 263.90000009536743,
+      "bytes": 64064
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/roof-builder.js",
+      "duration": 263.90000009536743,
+      "bytes": 24066
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/roof-visibility.js",
+      "duration": 265.59999990463257,
+      "bytes": 1282
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/wall-builder.js",
+      "duration": 270.09999990463257,
+      "bytes": 471006
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/pipe-attachment-builder.js",
+      "duration": 298,
+      "bytes": 70316
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/beam-pipe-builder.js",
+      "duration": 298.19999980926514,
+      "bytes": 71667
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/visual-geometry.js",
+      "duration": 297.80000019073486,
+      "bytes": 2589
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/component-builder.js",
+      "duration": 296.09999990463257,
+      "bytes": 1264201
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/utility/utility-collision.js",
+      "duration": 305.80000019073486,
+      "bytes": 4591
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/utility/port-anchors.js",
+      "duration": 305.90000009536743,
+      "bytes": 85126
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/beam-builder.js",
+      "duration": 307.09999990463257,
+      "bytes": 132260
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/decoration-builder.js",
+      "duration": 314,
+      "bytes": 691324
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/equipment-builder.js",
+      "duration": 325.09999990463257,
+      "bytes": 277443
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/utility-line-builder-v2.js",
+      "duration": 322.2000002861023,
+      "bytes": 909822
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/utility-lod.js",
+      "duration": 330.40000009536743,
+      "bytes": 6554
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/utility-flow.js",
+      "duration": 330.40000009536743,
+      "bytes": 92550
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/utility-visual-signature.js",
+      "duration": 330.6000003814697,
+      "bytes": 19304
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/lower-storey-presentation.js",
+      "duration": 332.6000003814697,
+      "bytes": 40066
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/storey-view.js",
+      "duration": 332.80000019073486,
+      "bytes": 9466
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/world-snapshot.js",
+      "duration": 332.40000009536743,
+      "bytes": 208903
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/utility/port-issues.js",
+      "duration": 340.5,
+      "bytes": 24100
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/dispose-utils.js",
+      "duration": 340.5,
+      "bytes": 8189
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/utility/water-circuits.js",
+      "duration": 342.19999980926514,
+      "bytes": 8451
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/builders/port-fitting-builder.js",
+      "duration": 342,
+      "bytes": 152568
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/map-edge-service-lead.js",
+      "duration": 344.7999997138977,
+      "bytes": 26488
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/StaffPawns.js",
+      "duration": 344.40000009536743,
+      "bytes": 277215
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/day-night.js",
+      "duration": 346.2999997138977,
+      "bytes": 36431
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/lighting-tuning.js",
+      "duration": 346.40000009536743,
+      "bytes": 4532
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/overlay-shim.js",
+      "duration": 350.09999990463257,
+      "bytes": 12586
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/lighting-builder.js",
+      "duration": 350.2999997138977,
+      "bytes": 329773
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/glow-pipeline.js",
+      "duration": 353.7999997138977,
+      "bytes": 61452
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/renderer-backend.js",
+      "duration": 353.7999997138977,
+      "bytes": 32987
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/frame-pacer.js",
+      "duration": 354.09999990463257,
+      "bytes": 49451
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/frame-render-policy.js",
+      "duration": 354,
+      "bytes": 8170
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/tilt-shift-settings.js",
+      "duration": 354.09999990463257,
+      "bytes": 6843
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/light-rig.js",
+      "duration": 357.5,
+      "bytes": 259744
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/spark-presentation.js",
+      "duration": 360.30000019073486,
+      "bytes": 22973
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/placement-feedback.js",
+      "duration": 360.2000002861023,
+      "bytes": 55004
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/ambient-electrical-sparks.js",
+      "duration": 360.30000019073486,
+      "bytes": 30684
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/visual-effect-system.js",
+      "duration": 360.5,
+      "bytes": 177863
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/particle-effect-tuning.js",
+      "duration": 362.7000002861023,
+      "bytes": 72048
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/fixture-light-math.js",
+      "duration": 362.7000002861023,
+      "bytes": 50534
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/light-dynamics.js",
+      "duration": 363.6000003814697,
+      "bytes": 9122
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/lighting-quality.js",
+      "duration": 363.5,
+      "bytes": 30425
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/shadow-scheduler.js",
+      "duration": 363.5,
+      "bytes": 31484
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/fixture-activation.js",
+      "duration": 363.5,
+      "bytes": 5165
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/light-cookie.js",
+      "duration": 363.8999996185303,
+      "bytes": 8290
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/UIHost.js",
+      "duration": 363.8999996185303,
+      "bytes": 21290
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/scene-layer-visibility.js",
+      "duration": 364.8999996185303,
+      "bytes": 15739
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/world-physics-presentation.js",
+      "duration": 365,
+      "bytes": 75459
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/hud.js",
+      "duration": 378.59999990463257,
+      "bytes": 999101
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer/grid.js",
+      "duration": 393,
+      "bytes": 11886
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/overlays.js",
+      "duration": 391.3999996185303,
+      "bytes": 1168300
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/placement-facing.js",
+      "duration": 392.19999980926514,
+      "bytes": 3600
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/view-cube.js",
+      "duration": 392.40000009536743,
+      "bytes": 77593
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/legacy-thumbnail-renderer.js",
+      "duration": 392.59999990463257,
+      "bytes": 4861
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/directions.js",
+      "duration": 393.09999990463257,
+      "bytes": 4740
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/zone-label.js",
+      "duration": 395.5,
+      "bytes": 104696
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/utility-line-picking.js",
+      "duration": 393.69999980926514,
+      "bytes": 17127
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/screen-picking.js",
+      "duration": 393.90000009536743,
+      "bytes": 13492
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/placement-grid-style.js",
+      "duration": 394.09999990463257,
+      "bytes": 17639
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/interaction-pipeline-warmup.js",
+      "duration": 394.5,
+      "bytes": 6011
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/world-refresh-plan.js",
+      "duration": 394.5,
+      "bytes": 22037
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/post-processing-budget.js",
+      "duration": 396.09999990463257,
+      "bytes": 3846
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/reload-graphics-release.js",
+      "duration": 396.19999980926514,
+      "bytes": 5533
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/world-invalidation-scheduler.js",
+      "duration": 396.2000002861023,
+      "bytes": 4796
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/lod-preparation-scheduler.js",
+      "duration": 396.30000019073486,
+      "bytes": 13967
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/lod-transition-queue.js",
+      "duration": 396.59999990463257,
+      "bytes": 12263
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/game/selection-targets.js",
+      "duration": 396.80000019073486,
+      "bytes": 41338
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/land-purchase-markers.js",
+      "duration": 397.59999990463257,
+      "bytes": 34440
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/selected-beamline-focus.js",
+      "duration": 397.7000002861023,
+      "bytes": 21213
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/world-lod.js",
+      "duration": 397.80000019073486,
+      "bytes": 3553
+    },
+    {
+      "name": "http://127.0.0.1:61391/@fs/Users/andrewcote/Documents/software/beamline-tycoon/node_modules/vite/dist/client/env.mjs",
+      "duration": 397.5,
+      "bytes": 3778
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/utility/plant-guide.js",
+      "duration": 397.19999980926514,
+      "bytes": 47222
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/ContextWindow.js",
+      "duration": 398.5,
+      "bytes": 111036
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/designer-plan.js",
+      "duration": 402.8999996185303,
+      "bytes": 390424
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/designer-apply.js",
+      "duration": 403.09999990463257,
+      "bytes": 38555
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/draggable.js",
+      "duration": 403.59999990463257,
+      "bytes": 22497
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/esc-stack.js",
+      "duration": 404.09999990463257,
+      "bytes": 11037
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/ApplyPreviewDialog.js",
+      "duration": 404.90000009536743,
+      "bytes": 48884
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/DesignNameDialog.js",
+      "duration": 405.5,
+      "bytes": 23817
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/designer-placement-hints.js",
+      "duration": 408.09999990463257,
+      "bytes": 80966
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/stackup-planner.js",
+      "duration": 408.40000009536743,
+      "bytes": 49728
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/designer-placement-preview.js",
+      "duration": 408.69999980926514,
+      "bytes": 40727
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/BeamlineOptimizerDialog.js",
+      "duration": 409.90000009536743,
+      "bytes": 90384
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/utility/line-attachments.js",
+      "duration": 409.90000009536743,
+      "bytes": 22087
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/input/BeamlineInputController.js",
+      "duration": 413.1000003814697,
+      "bytes": 233624
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/input/linear-manifold-tool.js",
+      "duration": 415.7999997138977,
+      "bytes": 21025
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/input/universal-utility-bus-tool.js",
+      "duration": 416.5,
+      "bytes": 17371
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/input/UtilityLineInputController.js",
+      "duration": 419.5,
+      "bytes": 274506
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/input/placement-tools.js",
+      "duration": 420.5,
+      "bytes": 56667
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/input/floor-wall-paths.js",
+      "duration": 423.19999980926514,
+      "bytes": 43125
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/input/structure-tools.js",
+      "duration": 422.8999996185303,
+      "bytes": 295101
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/input/demolish-tool.js",
+      "duration": 425,
+      "bytes": 146138
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/input/mode-tools.js",
+      "duration": 426,
+      "bytes": 66264
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/input/beamline-tool.js",
+      "duration": 426.40000009536743,
+      "bytes": 54142
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/input/utility-line-tool.js",
+      "duration": 426.59999990463257,
+      "bytes": 58363
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/input/deferred-port-drag.js",
+      "duration": 426.90000009536743,
+      "bytes": 9827
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/input/utility-line-commands.js",
+      "duration": 426.7999997138977,
+      "bytes": 7342
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/input/panel-auto-connect.js",
+      "duration": 428.7999997138977,
+      "bytes": 139804
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/input/selection-group.js",
+      "duration": 429.2999997138977,
+      "bytes": 125179
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/input/selection-window.js",
+      "duration": 430.09999990463257,
+      "bytes": 5836
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/input/selection-commands.js",
+      "duration": 430,
+      "bytes": 58686
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/input/demolishScopes.js",
+      "duration": 430.30000019073486,
+      "bytes": 33317
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/hover-info.js",
+      "duration": 430.5,
+      "bytes": 69616
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/hover-tooltip-detail.js",
+      "duration": 430.90000009536743,
+      "bytes": 18215
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/operational-status.js",
+      "duration": 431.7000002861023,
+      "bytes": 46150
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/input/hover-operational-toggle.js",
+      "duration": 431.90000009536743,
+      "bytes": 16475
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/input/pick-tolerance.js",
+      "duration": 432.30000019073486,
+      "bytes": 1000
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/input/selection-preferences.js",
+      "duration": 432.40000009536743,
+      "bytes": 7343
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/input/beam-pipe-inspection.js",
+      "duration": 433.30000019073486,
+      "bytes": 3149
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/renderer3d/selected-utility-network-focus.js",
+      "duration": 435.1000003814697,
+      "bytes": 8437
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/design-placement-geometry.js",
+      "duration": 434.09999990463257,
+      "bytes": 27196
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/beamline/design-layout.js",
+      "duration": 433.8999996185303,
+      "bytes": 60160
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/stock-designs.js",
+      "duration": 434.7999997138977,
+      "bytes": 20610
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/scenarios/realLab.js",
+      "duration": 430.40000009536743,
+      "bytes": 44397
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/scenarios/smallBeamlineFacility.js",
+      "duration": 431.80000019073486,
+      "bytes": 92582
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/scenarios/minorLab.js",
+      "duration": 432.40000009536743,
+      "bytes": 20882
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/beamline-components.raw.js",
+      "duration": 423.30000019073486,
+      "bytes": 696054
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/infrastructure.raw.js",
+      "duration": 428.1000003814697,
+      "bytes": 785480
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/facility-room-furnishings.raw.js",
+      "duration": 437.7000002861023,
+      "bytes": 1047241
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/facility-lab-furnishings.raw.js",
+      "duration": 445.2000002861023,
+      "bytes": 913175
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/decorations.raw.js",
+      "duration": 446.09999990463257,
+      "bytes": 101968
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/data/validate.js",
+      "duration": 449.09999990463257,
+      "bytes": 300803
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/utility/network-discovery.js",
+      "duration": 449.2000002861023,
+      "bytes": 201544
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/UtilityInspector.js",
+      "duration": 450.2999997138977,
+      "bytes": 144312
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/format.js",
+      "duration": 449,
+      "bytes": 11926
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/crtWarp.js",
+      "duration": 448.69999980926514,
+      "bytes": 40962
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/WikiWindow.js",
+      "duration": 449.90000009536743,
+      "bytes": 174956
+    },
+    {
+      "name": "http://127.0.0.1:61391/node_modules/.vite/deps/vault66-crt-effect_element.js?v=5f57e33f",
+      "duration": 452.30000019073486,
+      "bytes": 18907
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/control-room-model.js",
+      "duration": 452.09999990463257,
+      "bytes": 22081
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/ui/BeamlineWindow.js",
+      "duration": 451.80000019073486,
+      "bytes": 273143
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/utility/line-geometry.js",
+      "duration": 451.59999990463257,
+      "bytes": 111873
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/utility/routing-contract.js",
+      "duration": 452.19999980926514,
+      "bytes": 4444
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/utility/route-obstacles.js",
+      "duration": 452.09999990463257,
+      "bytes": 54941
+    },
+    {
+      "name": "http://127.0.0.1:61391/src/input/effect-preview-tool.js",
+      "duration": 453.2000002861023,
+      "bytes": 4731
+    }
+  ],
+  "renderer": {
+    "calls": 29,
+    "frameCalls": 0,
+    "drawCalls": 0,
+    "triangles": 0,
+    "points": 0,
+    "lines": 0,
+    "timestamp": 0
+  },
+  "scenarioMs": 22426,
+  "frameSample": {
+    "intervals": [
+      1.5000003814711818,
+      16.799999999999272,
+      16.599999999998545,
+      16.700000000000728,
+      16.599999999998545,
+      16.700000000000728,
+      16.700000000000728,
+      16.599999999998545,
+      16.700000000000728,
+      16.700000000000728,
+      16.599999999998545,
+      16.700000000000728,
+      16.700000000000728,
+      16.599999999998545,
+      16.700000000000728,
+      16.600000000002183,
+      16.799999999999272,
+      16.599999999998545,
+      16.600000000002183,
+      16.799999999999272,
+      16.599999999998545,
+      16.700000000000728,
+      16.700000000000728,
+      16.599999999998545,
+      16.600000000002183,
+      16.69999999999709,
+      16.700000000000728,
+      16.700000000000728,
+      16.599999999998545,
+      16.600000000002183,
+      16.799999999999272,
+      16.599999999998545,
+      16.700000000000728,
+      16.700000000000728,
+      16.599999999998545,
+      16.700000000000728,
+      16.700000000000728,
+      16.700000000000728,
+      16.599999999998545,
+      16.700000000000728,
+      16.700000000000728,
+      16.599999999998545,
+      16.600000000002183,
+      16.69999999999709,
+      16.700000000000728,
+      16.600000000002183,
+      16.69999999999709,
+      16.700000000000728,
+      16.700000000000728,
+      16.700000000000728,
+      16.599999999998545,
+      16.600000000002183,
+      16.69999999999709,
+      16.700000000000728,
+      16.600000000002183,
+      16.799999999999272,
+      16.599999999998545,
+      16.700000000000728,
+      16.599999999998545,
+      16.700000000000728,
+      16.700000000000728,
+      16.599999999998545,
+      16.600000000002183,
+      16.700000000000728,
+      16.69999999999709,
+      16.600000000002183,
+      16.700000000000728,
+      16.69999999999709,
+      16.700000000000728,
+      16.600000000002183,
+      16.69999999999709,
+      16.600000000002183,
+      16.700000000000728,
+      16.69999999999709,
+      16.700000000000728,
+      16.600000000002183,
+      16.69999999999709,
+      16.700000000000728,
+      16.600000000002183,
+      16.69999999999709,
+      16.700000000000728,
+      16.600000000002183,
+      16.599999999998545,
+      16.799999999999272,
+      16.600000000002183,
+      16.69999999999709,
+      16.700000000000728,
+      16.600000000002183,
+      16.599999999998545,
+      16.799999999999272,
+      16.700000000000728,
+      16.599999999998545,
+      16.700000000000728,
+      16.600000000002183,
+      16.69999999999709,
+      16.700000000000728,
+      16.600000000002183,
+      16.599999999998545,
+      16.700000000000728,
+      16.700000000000728,
+      16.69999999999709,
+      16.700000000000728,
+      16.600000000002183,
+      16.69999999999709,
+      16.600000000002183,
+      16.700000000000728,
+      16.69999999999709,
+      16.700000000000728,
+      16.600000000002183,
+      16.599999999998545,
+      16.700000000000728,
+      16.700000000000728,
+      16.599999999998545,
+      16.700000000000728,
+      16.700000000000728,
+      16.599999999998545,
+      16.700000000000728,
+      16.700000000000728,
+      16.69999999999709,
+      16.600000000002183
+    ],
+    "render": {
+      "calls": 236,
+      "frameCalls": 2,
+      "drawCalls": 1920,
+      "triangles": 455171,
+      "points": 0,
+      "lines": 0,
+      "timestamp": 0
+    }
+  },
+  "errors": [],
+  "bootError": null,
+  "backend": "Chrome default GPU"
+}

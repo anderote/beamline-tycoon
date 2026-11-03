@@ -1,3 +1,4 @@
+import { StaticRoleBatches } from './static-role-batches.js';
 // src/renderer3d/component-builder.js
 // Builds Three.js meshes for beamline components from world snapshot data.
 // THREE is a CDN global — do NOT import it.
@@ -5099,6 +5100,7 @@ export class ComponentBuilder {
     this._farBatches = [];
     this._lastBuild = null;
     this._showDetail = true;
+    this._nearRoleBatches = new StaticRoleBatches();
     this._buildFarBatches = buildFarBatches;
     this._farGeometryCache = new Map();
     this._farMaterialCache = new Map();
@@ -5286,6 +5288,7 @@ export class ComponentBuilder {
   setDetailLevel(showDetail) {
     const visible = !!showDetail;
     this._showDetail = visible;
+    this._nearRoleBatches.setVisible(visible);
     for (const obj of this._meshMap.values()) {
       obj.visible = visible;
       obj.userData.lodHidden = !visible;
@@ -5454,8 +5457,11 @@ export class ComponentBuilder {
 
   /** Keep only selected-beamline hardware and its serving plant fully opaque. */
   setFocus(focusedIds = null) {
+    this._nearRoleBatches.clear();
     this._focusIds = focusedIds == null ? null : new Set(focusedIds);
     for (const obj of this._meshMap.values()) this._applyDimState(obj);
+    this._nearRoleBatches.rebuild(this._meshMap.values());
+    this._nearRoleBatches.setVisible(this._showDetail);
     if (this._lastBuild) {
       this._rebuildFarBatches(
         this._lastBuild.componentData,
@@ -5472,6 +5478,7 @@ export class ComponentBuilder {
   build(componentData, parentGroup, { categoryGroups = null } = {}) {
     if (!componentData || !parentGroup) return;
 
+    this._nearRoleBatches.clear();
     this._lastBuild = { componentData, parentGroup, categoryGroups };
 
     const seen = new Set();
@@ -5551,6 +5558,7 @@ export class ComponentBuilder {
       }
     }
     this._rebuildFarBatches(componentData, parentGroup, categoryGroups);
+    this._nearRoleBatches.rebuild(this._meshMap.values());
     this.setDetailLevel(this._showDetail);
   }
 
@@ -5594,6 +5602,7 @@ export class ComponentBuilder {
    * Dispose all objects and clear the map.
    */
   dispose(parentGroup) {
+    this._nearRoleBatches.clear();
     this._disposeFarBatches();
     for (const geometry of this._farGeometryCache.values()) geometry.dispose?.();
     this._farGeometryCache.clear();

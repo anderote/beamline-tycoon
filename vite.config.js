@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import { versionedAssetsPlugin } from './scripts/versioned-assets.mjs';
 import fs from 'fs';
 import path from 'path';
 
@@ -73,7 +74,7 @@ export default defineConfig({
       '/api': 'http://localhost:8001',
     },
   },
-  plugins: [musicManifestPlugin(), diagSinkPlugin()],
+  plugins: [musicManifestPlugin(), diagSinkPlugin(), versionedAssetsPlugin()],
   build: {
     outDir: 'dist',
   },

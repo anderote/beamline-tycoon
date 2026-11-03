@@ -1024,7 +1024,7 @@ export class ThreeRenderer {
           this._refreshBeam();
           break;
         case 'tick':
-          if (this._updateHUD) this._updateHUD();
+          this.ui?.requestHUDUpdate();
           if (this._updateTreeProgress) this._updateTreeProgress();
           // A topology event can arrive one solve pass before the replacement
           // utilityNetworks map. Watch the published topology as well as fault
@@ -1046,6 +1046,7 @@ export class ThreeRenderer {
           break;
         case 'mapExpanded':
         case 'resourcesChanged':
+          this.ui?.requestHUDUpdate();
           this.landPurchaseMarkers?.sync();
           break;
         case 'staffChanged':
@@ -1106,15 +1107,6 @@ export class ThreeRenderer {
     this._syncActiveLevelPresentation();
 
     this._animate();
-    // Most palette entries have static thumbnails. Fetch the small classic
-    // renderer for the remaining entries after the first playable frame, then
-    // redraw the active category. Waiting for palette interaction leaves the
-    // initial fallback blocks in place indefinitely when the pointer is
-    // already over the build menu or the player navigates elsewhere first.
-    // The dynamic import remains off the blocking initialization path.
-    loadLegacyThumbnailRenderer().then((ready) => {
-      if (ready && this._refreshPalette) this._refreshPalette();
-    });
     // Rapier stays genuinely on-demand. Its main-thread WASM initialization
     // and terrain-collider upload can monopolize Chrome during the same cold
     // start that is decoding the world and physics-worker assets. Incident,
@@ -5135,6 +5127,17 @@ export class ThreeRenderer {
   /** Pause expensive hidden world frames while another full-screen scene owns the display. */
   setRenderingSuspended(suspended) {
     this.renderingSuspended = suspended === true;
+    // Hydrate live thumbnails only after the first playable frame. While the
+    // title covers the HUD, a second GL context and thumbnail shaders compete
+    // with world startup without producing anything the player can see.
+    if (!this.renderingSuspended && !this._thumbnailHydrationScheduled) {
+      this._thumbnailHydrationScheduled = true;
+      requestAnimationFrame(() => setTimeout(() => {
+        loadLegacyThumbnailRenderer().then(ready => {
+          if (ready && this._refreshPalette) this._refreshPalette();
+        });
+      }, 0));
+    }
     this._lastAnimTime = performance.now();
     return this.renderingSuspended;
   }
@@ -5209,7 +5212,9 @@ export class ThreeRenderer {
    * freeze an otherwise responsive light field.
    */
   async prepareInteractiveLod() {
-    this.finishLodPreparations();
+    do {
+      await this._lodPreparationScheduler.drain();
+    } while (this._lodPreparationScheduler.pending);
     const revision = this._lodPresentationRevision;
     if (!this.needsInteractiveLodPreparation()) return true;
     if (!this.usesNativeWebGPU() || !this._lodObjectsEnabled) {

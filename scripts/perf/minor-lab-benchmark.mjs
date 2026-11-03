@@ -8,7 +8,7 @@ import { makeUtilityEndpointIndex } from '../../src/utility/utility-endpoints.js
 import { buildHeadlessFacilityScene } from './headless-render-metrics.mjs';
 
 export const MINOR_LAB_PERFORMANCE_TARGETS = Object.freeze({
-  nearDrawCalls: 2100,
+  nearDrawCalls: 1900,
   nearUtilityDrawCalls: 300,
   nearUtilityTriangles: 530_000,
   farDrawCalls: 220,

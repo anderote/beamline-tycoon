@@ -31,3 +31,7 @@
 import * as THREE_WEBGPU from 'three/webgpu';
 
 globalThis.THREE ??= Object.freeze({ ...THREE_WEBGPU });
+
+// All Three-managed texture/image requests share the build's asset revision.
+import { assetUrl } from './assets/url.js';
+globalThis.THREE.DefaultLoadingManager?.setURLModifier?.(assetUrl);

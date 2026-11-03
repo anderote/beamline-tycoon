@@ -1,0 +1,613 @@
+{
+  "scenario": {
+    "id": "minorLab",
+    "name": "Minor Lab",
+    "placeables": 1440,
+    "components": 83,
+    "equipment": 10,
+    "furnishings": 110,
+    "decorations": 1237,
+    "utilityLines": 287,
+    "beamPipes": 2
+  },
+  "timings": {
+    "coldSnapshotMs": 8.009083000000004,
+    "warmSnapshot": {
+      "iterations": 10,
+      "meanMs": 1.3375539000000003,
+      "p50Ms": 1.1459999999999866,
+      "p95Ms": 2.4584580000000074,
+      "minMs": 0.8301660000000197,
+      "maxMs": 2.4584580000000074
+    },
+    "sceneBuild": {
+      "iterations": 3,
+      "meanMs": 343.3009306666667,
+      "p50Ms": 316.010667,
+      "p95Ms": 404.31116599999996,
+      "minMs": 309.5809590000001,
+      "maxMs": 404.31116599999996
+    },
+    "builders": {
+      "floors": {
+        "iterations": 3,
+        "meanMs": 1.2574309999999969,
+        "p50Ms": 0.9204169999999294,
+        "p95Ms": 2.2856669999999895,
+        "minMs": 0.5662090000000717,
+        "maxMs": 2.2856669999999895
+      },
+      "walls": {
+        "iterations": 3,
+        "meanMs": 10.497180333333375,
+        "p50Ms": 7.220333000000096,
+        "p95Ms": 17.479749999999996,
+        "minMs": 6.791458000000034,
+        "maxMs": 17.479749999999996
+      },
+      "roofs": {
+        "iterations": 3,
+        "meanMs": 0.049027666666698146,
+        "p50Ms": 0.006708000000003267,
+        "p95Ms": 0.13429199999998787,
+        "minMs": 0.006083000000103311,
+        "maxMs": 0.13429199999998787
+      },
+      "components": {
+        "iterations": 3,
+        "meanMs": 39.927111000000004,
+        "p50Ms": 27.371125000000006,
+        "p95Ms": 65.26837499999999,
+        "minMs": 27.14183300000002,
+        "maxMs": 65.26837499999999
+      },
+      "equipment": {
+        "iterations": 3,
+        "meanMs": 9.31116666666668,
+        "p50Ms": 8.761624999999981,
+        "p95Ms": 11.226207999999986,
+        "minMs": 7.945667000000071,
+        "maxMs": 11.226207999999986
+      },
+      "decorations": {
+        "iterations": 3,
+        "meanMs": 81.54854166666665,
+        "p50Ms": 82.96624999999995,
+        "p95Ms": 85.33012500000001,
+        "minMs": 76.34924999999998,
+        "maxMs": 85.33012500000001
+      },
+      "beamPipes": {
+        "iterations": 3,
+        "meanMs": 0.57873600000003,
+        "p50Ms": 0.5742910000000165,
+        "p95Ms": 0.9204169999999863,
+        "minMs": 0.2415000000000873,
+        "maxMs": 0.9204169999999863
+      },
+      "attachments": {
+        "iterations": 3,
+        "meanMs": 4.6725973333333854,
+        "p50Ms": 4.267999999999972,
+        "p95Ms": 7.504583000000025,
+        "minMs": 2.245209000000159,
+        "maxMs": 7.504583000000025
+      },
+      "beamEffects": {
+        "iterations": 3,
+        "meanMs": 0.052194333333318355,
+        "p50Ms": 0.0027079999999841675,
+        "p95Ms": 0.1518750000000182,
+        "minMs": 0.0019999999999527063,
+        "maxMs": 0.1518750000000182
+      },
+      "utilities": {
+        "iterations": 3,
+        "meanMs": 195.38529166666663,
+        "p50Ms": 187.512792,
+        "p95Ms": 217.20958300000007,
+        "minMs": 181.43349999999987,
+        "maxMs": 217.20958300000007
+      }
+    },
+    "lodTransition": {
+      "firstFarMs": {
+        "iterations": 3,
+        "meanMs": 10.205277999999984,
+        "p50Ms": 10.480249999999955,
+        "p95Ms": 11.887875000000008,
+        "minMs": 8.247708999999986,
+        "maxMs": 11.887875000000008
+      },
+      "restoreNearMs": {
+        "iterations": 3,
+        "meanMs": 0.331930666666608,
+        "p50Ms": 0.303749999999809,
+        "p95Ms": 0.41904199999999037,
+        "minMs": 0.27300000000002456,
+        "maxMs": 0.41904199999999037
+      },
+      "warmFarMs": {
+        "iterations": 3,
+        "meanMs": 0.1400416666666994,
+        "p50Ms": 0.12433299999997871,
+        "p95Ms": 0.184833000000026,
+        "minMs": 0.11095900000009351,
+        "maxMs": 0.184833000000026
+      }
+    }
+  },
+  "render": {
+    "near": {
+      "objects": 9445,
+      "lights": 0,
+      "meshes": 7591,
+      "visibleMeshes": 1823,
+      "drawCalls": 1873,
+      "renderedTriangles": 999588,
+      "shadowDrawCalls": 945,
+      "shadowTriangles": 430316,
+      "detailMeshes": 97,
+      "glowMeshes": 191,
+      "uniqueGeometries": 1746,
+      "uniqueMaterials": 647
+    },
+    "far": {
+      "objects": 9447,
+      "lights": 0,
+      "meshes": 7593,
+      "visibleMeshes": 182,
+      "drawCalls": 182,
+      "renderedTriangles": 138484,
+      "shadowDrawCalls": 49,
+      "shadowTriangles": 8348,
+      "detailMeshes": 0,
+      "glowMeshes": 0,
+      "uniqueGeometries": 182,
+      "uniqueMaterials": 73
+    },
+    "farRoofOverview": {
+      "objects": 9447,
+      "lights": 0,
+      "meshes": 7593,
+      "visibleMeshes": 182,
+      "drawCalls": 182,
+      "renderedTriangles": 138484,
+      "shadowDrawCalls": 49,
+      "shadowTriangles": 8348,
+      "detailMeshes": 0,
+      "glowMeshes": 0,
+      "uniqueGeometries": 182,
+      "uniqueMaterials": 73
+    },
+    "breakdown": {
+      "near": {
+        "components": {
+          "objects": 1082,
+          "lights": 0,
+          "meshes": 906,
+          "visibleMeshes": 608,
+          "drawCalls": 623,
+          "renderedTriangles": 97384,
+          "shadowDrawCalls": 287,
+          "shadowTriangles": 58748,
+          "detailMeshes": 57,
+          "glowMeshes": 31,
+          "uniqueGeometries": 555,
+          "uniqueMaterials": 304
+        },
+        "equipment": {
+          "objects": 534,
+          "lights": 0,
+          "meshes": 404,
+          "visibleMeshes": 404,
+          "drawCalls": 439,
+          "renderedTriangles": 16936,
+          "shadowDrawCalls": 277,
+          "shadowTriangles": 14856,
+          "detailMeshes": 0,
+          "glowMeshes": 160,
+          "uniqueGeometries": 404,
+          "uniqueMaterials": 100
+        },
+        "decorations": {
+          "objects": 520,
+          "lights": 0,
+          "meshes": 467,
+          "visibleMeshes": 419,
+          "drawCalls": 419,
+          "renderedTriangles": 346692,
+          "shadowDrawCalls": 324,
+          "shadowTriangles": 344892,
+          "detailMeshes": 40,
+          "glowMeshes": 0,
+          "uniqueGeometries": 395,
+          "uniqueMaterials": 155
+        },
+        "floors": {
+          "objects": 19,
+          "lights": 0,
+          "meshes": 18,
+          "visibleMeshes": 18,
+          "drawCalls": 18,
+          "renderedTriangles": 1572,
+          "shadowDrawCalls": 0,
+          "shadowTriangles": 0,
+          "detailMeshes": 0,
+          "glowMeshes": 0,
+          "uniqueGeometries": 18,
+          "uniqueMaterials": 18
+        },
+        "walls": {
+          "objects": 85,
+          "lights": 0,
+          "meshes": 84,
+          "visibleMeshes": 84,
+          "drawCalls": 84,
+          "renderedTriangles": 9476,
+          "shadowDrawCalls": 49,
+          "shadowTriangles": 8348,
+          "detailMeshes": 0,
+          "glowMeshes": 0,
+          "uniqueGeometries": 84,
+          "uniqueMaterials": 31
+        },
+        "roofs": {
+          "objects": 1,
+          "lights": 0,
+          "meshes": 0,
+          "visibleMeshes": 0,
+          "drawCalls": 0,
+          "renderedTriangles": 0,
+          "shadowDrawCalls": 0,
+          "shadowTriangles": 0,
+          "detailMeshes": 0,
+          "glowMeshes": 0,
+          "uniqueGeometries": 0,
+          "uniqueMaterials": 0
+        },
+        "beamPipes": {
+          "objects": 5,
+          "lights": 0,
+          "meshes": 4,
+          "visibleMeshes": 3,
+          "drawCalls": 3,
+          "renderedTriangles": 496,
+          "shadowDrawCalls": 1,
+          "shadowTriangles": 384,
+          "detailMeshes": 0,
+          "glowMeshes": 0,
+          "uniqueGeometries": 3,
+          "uniqueMaterials": 3
+        },
+        "attachments": {
+          "objects": 10,
+          "lights": 0,
+          "meshes": 9,
+          "visibleMeshes": 8,
+          "drawCalls": 8,
+          "renderedTriangles": 4960,
+          "shadowDrawCalls": 7,
+          "shadowTriangles": 3088,
+          "detailMeshes": 0,
+          "glowMeshes": 0,
+          "uniqueGeometries": 8,
+          "uniqueMaterials": 8
+        },
+        "beamEffects": {
+          "objects": 1,
+          "lights": 0,
+          "meshes": 0,
+          "visibleMeshes": 0,
+          "drawCalls": 0,
+          "renderedTriangles": 0,
+          "shadowDrawCalls": 0,
+          "shadowTriangles": 0,
+          "detailMeshes": 0,
+          "glowMeshes": 0,
+          "uniqueGeometries": 0,
+          "uniqueMaterials": 0
+        },
+        "utilities": {
+          "objects": 7187,
+          "lights": 0,
+          "meshes": 5699,
+          "visibleMeshes": 279,
+          "drawCalls": 279,
+          "renderedTriangles": 522072,
+          "shadowDrawCalls": 0,
+          "shadowTriangles": 0,
+          "detailMeshes": 0,
+          "glowMeshes": 0,
+          "uniqueGeometries": 279,
+          "uniqueMaterials": 31
+        },
+        "beamline": {
+          "objects": 47,
+          "lights": 0,
+          "meshes": 38,
+          "visibleMeshes": 15,
+          "drawCalls": 15,
+          "renderedTriangles": 4168,
+          "shadowDrawCalls": 11,
+          "shadowTriangles": 3400,
+          "detailMeshes": 4,
+          "glowMeshes": 0,
+          "uniqueGeometries": 12,
+          "uniqueMaterials": 8
+        },
+        "infrastructure": {
+          "objects": 1034,
+          "lights": 0,
+          "meshes": 868,
+          "visibleMeshes": 593,
+          "drawCalls": 608,
+          "renderedTriangles": 93216,
+          "shadowDrawCalls": 276,
+          "shadowTriangles": 55348,
+          "detailMeshes": 53,
+          "glowMeshes": 31,
+          "uniqueGeometries": 543,
+          "uniqueMaterials": 301
+        }
+      },
+      "far": {
+        "components": {
+          "objects": 1082,
+          "lights": 0,
+          "meshes": 906,
+          "visibleMeshes": 2,
+          "drawCalls": 2,
+          "renderedTriangles": 24468,
+          "shadowDrawCalls": 0,
+          "shadowTriangles": 0,
+          "detailMeshes": 0,
+          "glowMeshes": 0,
+          "uniqueGeometries": 2,
+          "uniqueMaterials": 1
+        },
+        "equipment": {
+          "objects": 535,
+          "lights": 0,
+          "meshes": 405,
+          "visibleMeshes": 1,
+          "drawCalls": 1,
+          "renderedTriangles": 9432,
+          "shadowDrawCalls": 0,
+          "shadowTriangles": 0,
+          "detailMeshes": 0,
+          "glowMeshes": 0,
+          "uniqueGeometries": 1,
+          "uniqueMaterials": 1
+        },
+        "decorations": {
+          "objects": 521,
+          "lights": 0,
+          "meshes": 468,
+          "visibleMeshes": 49,
+          "drawCalls": 49,
+          "renderedTriangles": 61512,
+          "shadowDrawCalls": 0,
+          "shadowTriangles": 0,
+          "detailMeshes": 0,
+          "glowMeshes": 0,
+          "uniqueGeometries": 49,
+          "uniqueMaterials": 4
+        },
+        "floors": {
+          "objects": 19,
+          "lights": 0,
+          "meshes": 18,
+          "visibleMeshes": 18,
+          "drawCalls": 18,
+          "renderedTriangles": 1572,
+          "shadowDrawCalls": 0,
+          "shadowTriangles": 0,
+          "detailMeshes": 0,
+          "glowMeshes": 0,
+          "uniqueGeometries": 18,
+          "uniqueMaterials": 18
+        },
+        "walls": {
+          "objects": 85,
+          "lights": 0,
+          "meshes": 84,
+          "visibleMeshes": 84,
+          "drawCalls": 84,
+          "renderedTriangles": 9476,
+          "shadowDrawCalls": 49,
+          "shadowTriangles": 8348,
+          "detailMeshes": 0,
+          "glowMeshes": 0,
+          "uniqueGeometries": 84,
+          "uniqueMaterials": 31
+        },
+        "roofs": {
+          "objects": 1,
+          "lights": 0,
+          "meshes": 0,
+          "visibleMeshes": 0,
+          "drawCalls": 0,
+          "renderedTriangles": 0,
+          "shadowDrawCalls": 0,
+          "shadowTriangles": 0,
+          "detailMeshes": 0,
+          "glowMeshes": 0,
+          "uniqueGeometries": 0,
+          "uniqueMaterials": 0
+        },
+        "beamPipes": {
+          "objects": 5,
+          "lights": 0,
+          "meshes": 4,
+          "visibleMeshes": 1,
+          "drawCalls": 1,
+          "renderedTriangles": 384,
+          "shadowDrawCalls": 0,
+          "shadowTriangles": 0,
+          "detailMeshes": 0,
+          "glowMeshes": 0,
+          "uniqueGeometries": 1,
+          "uniqueMaterials": 1
+        },
+        "attachments": {
+          "objects": 10,
+          "lights": 0,
+          "meshes": 9,
+          "visibleMeshes": 1,
+          "drawCalls": 1,
+          "renderedTriangles": 4480,
+          "shadowDrawCalls": 0,
+          "shadowTriangles": 0,
+          "detailMeshes": 0,
+          "glowMeshes": 0,
+          "uniqueGeometries": 1,
+          "uniqueMaterials": 1
+        },
+        "beamEffects": {
+          "objects": 1,
+          "lights": 0,
+          "meshes": 0,
+          "visibleMeshes": 0,
+          "drawCalls": 0,
+          "renderedTriangles": 0,
+          "shadowDrawCalls": 0,
+          "shadowTriangles": 0,
+          "detailMeshes": 0,
+          "glowMeshes": 0,
+          "uniqueGeometries": 0,
+          "uniqueMaterials": 0
+        },
+        "utilities": {
+          "objects": 7187,
+          "lights": 0,
+          "meshes": 5699,
+          "visibleMeshes": 26,
+          "drawCalls": 26,
+          "renderedTriangles": 27160,
+          "shadowDrawCalls": 0,
+          "shadowTriangles": 0,
+          "detailMeshes": 0,
+          "glowMeshes": 0,
+          "uniqueGeometries": 26,
+          "uniqueMaterials": 16
+        },
+        "beamline": {
+          "objects": 47,
+          "lights": 0,
+          "meshes": 38,
+          "visibleMeshes": 1,
+          "drawCalls": 1,
+          "renderedTriangles": 3056,
+          "shadowDrawCalls": 0,
+          "shadowTriangles": 0,
+          "detailMeshes": 0,
+          "glowMeshes": 0,
+          "uniqueGeometries": 1,
+          "uniqueMaterials": 1
+        },
+        "infrastructure": {
+          "objects": 1034,
+          "lights": 0,
+          "meshes": 868,
+          "visibleMeshes": 1,
+          "drawCalls": 1,
+          "renderedTriangles": 21412,
+          "shadowDrawCalls": 0,
+          "shadowTriangles": 0,
+          "detailMeshes": 0,
+          "glowMeshes": 0,
+          "uniqueGeometries": 1,
+          "uniqueMaterials": 1
+        }
+      }
+    }
+  },
+  "savings": {
+    "drawCallsPercent": 90.28296849973304,
+    "trianglesPercent": 86.1458921075483,
+    "shadowDrawCallsPercent": 94.81481481481482
+  },
+  "targets": [
+    {
+      "name": "near draw calls",
+      "actual": 1873,
+      "target": 2100,
+      "unit": "calls",
+      "pass": true
+    },
+    {
+      "name": "near utility draw calls",
+      "actual": 279,
+      "target": 300,
+      "unit": "calls",
+      "pass": true
+    },
+    {
+      "name": "near utility triangles",
+      "actual": 522072,
+      "target": 530000,
+      "unit": "triangles",
+      "pass": true
+    },
+    {
+      "name": "far draw calls",
+      "actual": 182,
+      "target": 220,
+      "unit": "calls",
+      "pass": true
+    },
+    {
+      "name": "far rendered triangles",
+      "actual": 138484,
+      "target": 140000,
+      "unit": "triangles",
+      "pass": true
+    },
+    {
+      "name": "far shadow draw calls",
+      "actual": 49,
+      "target": 60,
+      "unit": "calls",
+      "pass": true
+    },
+    {
+      "name": "far/near draw ratio",
+      "actual": 0.09717031500266951,
+      "target": 0.1,
+      "unit": "ratio",
+      "pass": true
+    },
+    {
+      "name": "far detail meshes",
+      "actual": 0,
+      "target": 0,
+      "unit": "meshes",
+      "pass": true
+    },
+    {
+      "name": "far glow meshes",
+      "actual": 0,
+      "target": 0,
+      "unit": "meshes",
+      "pass": true
+    }
+  ],
+  "pass": true,
+  "scope": {
+    "included": [
+      "saved Minor Lab scenario",
+      "full world snapshot",
+      "production facility builders",
+      "near/far scene structure",
+      "first and warm LOD swaps"
+    ],
+    "excluded": [
+      "GPU frame time",
+      "post-processing",
+      "driver submission",
+      "browser FPS",
+      "visual quality judgment"
+    ]
+  }
+}

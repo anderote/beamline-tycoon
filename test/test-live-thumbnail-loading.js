@@ -17,12 +17,12 @@ const source = readFileSync(
   'utf8',
 );
 const afterFirstFrame = source.slice(
-  source.indexOf('    this._animate();'),
-  source.indexOf('\n  // --- Coordinate conversion'),
+  source.indexOf('  setRenderingSuspended(suspended) {'),
+  source.indexOf('  resetViewForNewSession() {'),
 );
 
 assert(
-  afterFirstFrame.includes('loadLegacyThumbnailRenderer().then((ready) => {'),
+  afterFirstFrame.includes('loadLegacyThumbnailRenderer().then(ready => {'),
   'the live thumbnail renderer starts automatically after the first playable frame',
 );
 assert(
@@ -33,6 +33,8 @@ assert(
   !/addEventListener\(['"](?:pointerenter|pointerdown|focusin)['"]/.test(afterFirstFrame),
   'thumbnail hydration is not gated on palette interaction',
 );
+assert(afterFirstFrame.includes('!this.renderingSuspended && !this._thumbnailHydrationScheduled'),
+  'hidden world startup does not allocate a thumbnail context');
 assert(
   !source.includes('this._physicsPresentation.scheduleInit(this.scene)'),
   'Rapier and the terrain collider remain on-demand instead of joining cold startup',

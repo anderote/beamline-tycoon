@@ -122,3 +122,26 @@ test('LOD preparation uses a short timer when idle callbacks are unavailable', (
   scheduled.callback();
   assert.equal(calls, 1);
 });
+
+test('startup drain yields between builders and stops after replacement', async () => {
+  const scope = idleScope();
+  const timers = [];
+  scope.setTimeout = callback => timers.push(callback);
+  const scheduler = new LodPreparationScheduler({ scope });
+  const calls = [];
+  scheduler.schedule([
+    { prepareFarPresentation: () => calls.push('first') },
+    { prepareFarPresentation: () => calls.push('obsolete') },
+  ]);
+  const pending = scheduler.drain();
+  assert.deepEqual(calls, [], 'drain yields before starting expensive work');
+  timers.shift()();
+  await Promise.resolve();
+  assert.deepEqual(calls, ['first']);
+  scheduler.schedule([{ prepareFarPresentation: () => calls.push('new') }]);
+  timers.shift()();
+  assert.equal(await pending, 1);
+  assert.deepEqual(calls, ['first'], 'old world cannot resume after replacement');
+  scheduler.flush();
+  assert.deepEqual(calls, ['first', 'new']);
+});

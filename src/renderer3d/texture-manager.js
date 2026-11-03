@@ -1,3 +1,4 @@
+import { assetUrl } from '../assets/url.js';
 // === TEXTURE MANAGER ===
 // Loads and caches THREE.Texture instances for all game assets.
 // Replaces PIXI.Assets loading from SpriteManager for the Three.js renderer.
@@ -76,7 +77,7 @@ export class TextureManager {
    */
   async loadTileManifest() {
     try {
-      const resp = await fetch('assets/tiles/tile-manifest.json');
+      const resp = await fetch(assetUrl('assets/tiles/tile-manifest.json'));
       if (!resp.ok) {
         console.warn('TextureManager: tile-manifest.json not found');
         return;
@@ -128,7 +129,7 @@ export class TextureManager {
    */
   async loadDecorationManifest() {
     try {
-      const resp = await fetch('assets/decorations/decoration-manifest.json');
+      const resp = await fetch(assetUrl('assets/decorations/decoration-manifest.json'));
       if (!resp.ok) {
         console.warn('TextureManager: decoration-manifest.json not found');
         return;

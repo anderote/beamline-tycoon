@@ -1,3 +1,4 @@
+import { panFrameScale } from './pan-timing.js';
 import { COMPONENTS } from '../data/components.js';
 import {
   FLOORS, WALL_TYPES, DOOR_TYPES, WINDOW_TYPES, variantCost, floorRequirementLabel,
@@ -2742,8 +2743,11 @@ export class InputHandler {
 
   _startPanLoop() {
     if (this._panFrameId !== null) return;
-    const PAN_SPEED_BASE = 1.0; // world-pan units per frame at zoom=1
-    const loop = () => {
+    const PAN_SPEED_BASE = 1.0; // world-pan units per 60Hz frame at zoom=1
+    let previousTime = performance.now();
+    const loop = now => {
+      const frameScale = panFrameScale(now - previousTime);
+      previousTime = now;
       this._panFrameId = null;
       const panning = this.keysDown.has('w') || this.keysDown.has('a')
         || this.keysDown.has('s') || this.keysDown.has('d');
@@ -2751,7 +2755,7 @@ export class InputHandler {
       // Scale inversely with zoom so screen-space pan speed stays consistent
       // (at high zoom, world-space motion is slower).
       const shiftMul = this._shiftDown ? 2.5 : 1;
-      const speed = (PAN_SPEED_BASE * shiftMul) / (this.renderer.zoom || 1);
+      const speed = (PAN_SPEED_BASE * shiftMul * frameScale) / (this.renderer.zoom || 1);
       let dxRight = 0, dyUp = 0;
       if (this.keysDown.has('w') || this.keysDown.has('W')) dyUp += speed;
       if (this.keysDown.has('s') || this.keysDown.has('S')) dyUp -= speed;

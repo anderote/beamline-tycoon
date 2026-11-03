@@ -48,6 +48,22 @@ export class LodPreparationScheduler {
     return queue.length;
   }
 
+  /** Finish startup work without combining all remaining builders into one task. */
+  async drain() {
+    const queue = this._queue.splice(0);
+    this.cancel();
+    const token = this._token;
+    let completed = 0;
+    for (const builder of queue) {
+      // A timer yields to input and painting; a resolved promise does not.
+      await new Promise(resolve => (this._scope.setTimeout || setTimeout)(resolve, 0));
+      if (token !== this._token) break;
+      builder.prepareFarPresentation();
+      completed++;
+    }
+    return completed;
+  }
+
   cancel() {
     this._token++;
     this._queue = [];

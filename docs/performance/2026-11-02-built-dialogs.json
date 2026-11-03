@@ -1,0 +1,1500 @@
+{
+  "bootMs": 7561.400000095367,
+  "longTasks": [
+    {
+      "start": 3920,
+      "duration": 1795
+    },
+    {
+      "start": 5760,
+      "duration": 109
+    }
+  ],
+  "resources": [
+    {
+      "name": "http://127.0.0.1:62566/assets/index-Dwn48fmi.js",
+      "duration": 4.699999809265137,
+      "bytes": 974
+    },
+    {
+      "name": "http://127.0.0.1:62566/assets/three.core-bzpCg3oz.js",
+      "duration": 12,
+      "bytes": 98994
+    },
+    {
+      "name": "http://127.0.0.1:62566/assets/three-global-DrUZ-KOv.js",
+      "duration": 5.099999904632568,
+      "bytes": 594
+    },
+    {
+      "name": "http://127.0.0.1:62566/assets/index-uEC8bkZm.css",
+      "duration": 7.900000095367432,
+      "bytes": 39441
+    },
+    {
+      "name": "http://127.0.0.1:62566/assets/preload-helper-CRCYWEfm.js",
+      "duration": 18.40000009536743,
+      "bytes": 177352
+    },
+    {
+      "name": "https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap",
+      "duration": 3358.8999996185303,
+      "bytes": 837
+    },
+    {
+      "name": "http://127.0.0.1:62566/assets/main-BY3AFU8L.js",
+      "duration": 52.799999713897705,
+      "bytes": 662395
+    },
+    {
+      "name": "http://127.0.0.1:62566/assets/component-physics-D3-r677u.js",
+      "duration": 5.400000095367432,
+      "bytes": 17318
+    },
+    {
+      "name": "http://127.0.0.1:62566/assets/components-D8De9O5X.js",
+      "duration": 13.900000095367432,
+      "bytes": 129866
+    },
+    {
+      "name": "http://127.0.0.1:62566/assets/esc-stack-B4855wdL.js",
+      "duration": 5.5,
+      "bytes": 1047
+    },
+    {
+      "name": "http://127.0.0.1:62566/assets/CloudSaves-C7rzNH7q.js",
+      "duration": 5.599999904632568,
+      "bytes": 2794
+    },
+    {
+      "name": "http://127.0.0.1:62566/assets/MusicPlayer-Dp99dthr.js",
+      "duration": 14,
+      "bytes": 130978
+    },
+    {
+      "name": "http://127.0.0.1:62566/music-web/tracks.json",
+      "duration": 1.1999998092651367,
+      "bytes": 2160
+    },
+    {
+      "name": "http://127.0.0.1:62566/api/beamline-tycoon/me",
+      "duration": 7.699999809265137,
+      "bytes": 300
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/tiles/tile-manifest.json",
+      "duration": 2.6999998092651367,
+      "bytes": 981
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/components/offsets.json",
+      "duration": 2.9000000953674316,
+      "bytes": 647
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/decoration-manifest.json",
+      "duration": 2.9000000953674316,
+      "bytes": 1158
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/metal_dark.png",
+      "duration": 2.0999999046325684,
+      "bytes": 2508
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/metal_brushed.png",
+      "duration": 2.3000001907348633,
+      "bytes": 2969
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/metal_painted_white.png",
+      "duration": 7.400000095367432,
+      "bytes": 3296
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/copper.png",
+      "duration": 8.099999904632568,
+      "bytes": 2935
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/concrete_floor.png",
+      "duration": 8.200000286102295,
+      "bytes": 3353
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/concrete_wall.png",
+      "duration": 8.5,
+      "bytes": 3291
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/drywall_painted.png",
+      "duration": 8.599999904632568,
+      "bytes": 2887
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/wall_office.png",
+      "duration": 10.200000286102295,
+      "bytes": 2534
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/wall_lab.png",
+      "duration": 10.400000095367432,
+      "bytes": 2356
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/ceiling_acoustic_tile.png",
+      "duration": 10.400000095367432,
+      "bytes": 2536
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/ceiling_highbay.png",
+      "duration": 10.400000095367432,
+      "bytes": 2646
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/wall_hallway.png",
+      "duration": 10.400000095367432,
+      "bytes": 2468
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/wall_cement.png",
+      "duration": 10.600000381469727,
+      "bytes": 3517
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/wall_shingle.png",
+      "duration": 11.5,
+      "bytes": 3158
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/wall_siding.png",
+      "duration": 11.5,
+      "bytes": 2754
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/wall_brick.png",
+      "duration": 11.600000381469727,
+      "bytes": 3241
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/wall_exterior_stucco.png",
+      "duration": 11.700000286102295,
+      "bytes": 6768
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/wall_exterior_metal.png",
+      "duration": 11.900000095367432,
+      "bytes": 4000
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/wall_exterior_precast.png",
+      "duration": 13.200000286102295,
+      "bytes": 4749
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/wall_cinderblock.png",
+      "duration": 13,
+      "bytes": 3397
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/wall_chain_link.png",
+      "duration": 13.099999904632568,
+      "bytes": 3495
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/wall_barbed_wire.png",
+      "duration": 13.399999618530273,
+      "bytes": 3701
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/wallpaper_pinstripe.png",
+      "duration": 13.399999618530273,
+      "bytes": 2799
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/wallpaper_gingham.png",
+      "duration": 14.399999618530273,
+      "bytes": 2821
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/wallpaper_subway.png",
+      "duration": 14.5,
+      "bytes": 2917
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/wallpaper_geometric.png",
+      "duration": 14.400000095367432,
+      "bytes": 3417
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/wallpaper_damask.png",
+      "duration": 14.400000095367432,
+      "bytes": 3124
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/wallpaper_floral.png",
+      "duration": 14.599999904632568,
+      "bytes": 3264
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/fence_hedge.png",
+      "duration": 16.09999990463257,
+      "bytes": 10069
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/fence_hedge_alt.png",
+      "duration": 16,
+      "bytes": 10067
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/fence_tall_hedge.png",
+      "duration": 16.09999990463257,
+      "bytes": 10226
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/fence_tall_hedge_alt.png",
+      "duration": 16.199999809265137,
+      "bytes": 10216
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/fence_iron.png",
+      "duration": 16.300000190734863,
+      "bytes": 3143
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/fence_stone_wall.png",
+      "duration": 17.199999809265137,
+      "bytes": 7050
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/fence_wood.png",
+      "duration": 17.5,
+      "bytes": 7201
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/fence_picket.png",
+      "duration": 17.5,
+      "bytes": 3020
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/rubber_mat.png",
+      "duration": 17.5,
+      "bytes": 3184
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_floor_white.png",
+      "duration": 17.5,
+      "bytes": 2581
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/rack_vent_mesh.png",
+      "duration": 18.40000009536743,
+      "bytes": 2818
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/cable_tray.png",
+      "duration": 18.40000009536743,
+      "bytes": 2281
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/metal_painted_red.png",
+      "duration": 18.59999990463257,
+      "bytes": 3279
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/metal_painted_blue.png",
+      "duration": 18.700000286102295,
+      "bytes": 3301
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/metal_painted_green.png",
+      "duration": 18.800000190734863,
+      "bytes": 3270
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/metal_painted_yellow.png",
+      "duration": 19.700000286102295,
+      "bytes": 3321
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/metal_painted_gray.png",
+      "duration": 19.800000190734863,
+      "bytes": 3210
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/metal_corrugated.png",
+      "duration": 19.90000009536743,
+      "bytes": 2578
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/cryo_frost.png",
+      "duration": 19.90000009536743,
+      "bytes": 3294
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/hazard_stripe.png",
+      "duration": 19.90000009536743,
+      "bytes": 3346
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_brick.png",
+      "duration": 20.800000190734863,
+      "bytes": 3296
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_cobblestone.png",
+      "duration": 20.800000190734863,
+      "bytes": 3059
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_concrete.png",
+      "duration": 21,
+      "bytes": 3277
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_dirt.png",
+      "duration": 21,
+      "bytes": 3197
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_rocky_dirt.png",
+      "duration": 21,
+      "bytes": 3710
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_grass.png",
+      "duration": 21.699999809265137,
+      "bytes": 3844
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_wildgrass.png",
+      "duration": 21.699999809265137,
+      "bytes": 5357
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_tallgrass.png",
+      "duration": 22,
+      "bytes": 6097
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_groomedGrass.png",
+      "duration": 21.799999713897705,
+      "bytes": 3361
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_hallway.png",
+      "duration": 21.90000009536743,
+      "bytes": 6836
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_hardwood.png",
+      "duration": 22.5,
+      "bytes": 3485
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_hardwood_birch.png",
+      "duration": 22.59999990463257,
+      "bytes": 2888
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_hardwood_oak.png",
+      "duration": 22.699999809265137,
+      "bytes": 2920
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_hardwood_maple.png",
+      "duration": 22.59999990463257,
+      "bytes": 2877
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_hardwood_walnut.png",
+      "duration": 22.699999809265137,
+      "bytes": 2889
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_hardwood_herringbone_oak.png",
+      "duration": 23.59999990463257,
+      "bytes": 3490
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_hardwood_herringbone_walnut.png",
+      "duration": 23.59999990463257,
+      "bytes": 3473
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_carpet_plain.png",
+      "duration": 24,
+      "bytes": 3622
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_carpet_berber.png",
+      "duration": 24,
+      "bytes": 4065
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_carpet_diamond.png",
+      "duration": 24,
+      "bytes": 3656
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_carpet_tile.png",
+      "duration": 24.800000190734863,
+      "bytes": 2902
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_vinyl_speckle.png",
+      "duration": 24.800000190734863,
+      "bytes": 3580
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_linoleum_marbled.png",
+      "duration": 25.09999990463257,
+      "bytes": 3397
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_cork.png",
+      "duration": 25.09999990463257,
+      "bytes": 3877
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_terrazzo.png",
+      "duration": 25.09999990463257,
+      "bytes": 3919
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_ceramic_square.png",
+      "duration": 26.59999990463257,
+      "bytes": 2047
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_rubber_coin.png",
+      "duration": 26.59999990463257,
+      "bytes": 3377
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_rubber_speckle.png",
+      "duration": 26.59999990463257,
+      "bytes": 3684
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_labFloor.png",
+      "duration": 26.800000190734863,
+      "bytes": 3763
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_lab_check_black.png",
+      "duration": 26.800000190734863,
+      "bytes": 3862
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_lab_check_red.png",
+      "duration": 28.300000190734863,
+      "bytes": 3870
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_lab_houndstooth.png",
+      "duration": 28.200000286102295,
+      "bytes": 3910
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_officeFloor.png",
+      "duration": 28.40000009536743,
+      "bytes": 10684
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/tile_pavement.png",
+      "duration": 28.300000190734863,
+      "bytes": 3204
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/door_double.png",
+      "duration": 28.600000381469727,
+      "bytes": 8521
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/door_security.png",
+      "duration": 30.40000009536743,
+      "bytes": 5292
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/door_office.png",
+      "duration": 30.5,
+      "bytes": 6661
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/door_fire.png",
+      "duration": 30.5,
+      "bytes": 6061
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/door_lab.png",
+      "duration": 30.800000190734863,
+      "bytes": 3814
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/door_chain_link.png",
+      "duration": 30.699999809265137,
+      "bytes": 8198
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/door_wood_gate.png",
+      "duration": 32.09999990463257,
+      "bytes": 6828
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/door_security_gate.png",
+      "duration": 32.299999713897705,
+      "bytes": 8644
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/materials/door_rolling_shutter.png",
+      "duration": 32.09999990463257,
+      "bytes": 7385
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/oscilloscope_front.png",
+      "duration": 32,
+      "bytes": 2397
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/scope_screen.png",
+      "duration": 32,
+      "bytes": 1013
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/signal_generator_front.png",
+      "duration": 33.59999990463257,
+      "bytes": 1893
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/spectrum_analyzer_front.png",
+      "duration": 33.69999980926514,
+      "bytes": 2797
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/network_analyzer_front.png",
+      "duration": 33.799999713897705,
+      "bytes": 5185
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/oscilloscope_side.png",
+      "duration": 33.69999980926514,
+      "bytes": 1330
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/signal_generator_side.png",
+      "duration": 34.09999990463257,
+      "bytes": 835
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/spectrum_analyzer_side.png",
+      "duration": 37.59999990463257,
+      "bytes": 1182
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/network_analyzer_side.png",
+      "duration": 37.799999713897705,
+      "bytes": 1425
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/klystron_pulsed_front.png",
+      "duration": 37.90000009536743,
+      "bytes": 924
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/klystron_cw_front.png",
+      "duration": 39.799999713897705,
+      "bytes": 1046
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/klystron_multibeam_front.png",
+      "duration": 39.69999980926514,
+      "bytes": 1070
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/modulator_front.png",
+      "duration": 45.80000019073486,
+      "bytes": 2717
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/ssa_rack_front.png",
+      "duration": 45.80000019073486,
+      "bytes": 1061
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/iot_front.png",
+      "duration": 45.90000009536743,
+      "bytes": 1246
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/cold_box_front.png",
+      "duration": 45.80000019073486,
+      "bytes": 1265
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/he_compressor_front.png",
+      "duration": 47.40000009536743,
+      "bytes": 988
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/bakeout_front.png",
+      "duration": 51,
+      "bytes": 1513
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/rack_ioc_front.png",
+      "duration": 51,
+      "bytes": 1054
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/pps_panel.png",
+      "duration": 51.09999990463257,
+      "bytes": 1234
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/chiller_front.png",
+      "duration": 50.90000009536743,
+      "bytes": 1274
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/mps_panel.png",
+      "duration": 51.30000019073486,
+      "bytes": 1251
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/power_panel_front.png",
+      "duration": 52.700000286102295,
+      "bytes": 1193
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/switchgear_front.png",
+      "duration": 52.700000286102295,
+      "bytes": 1065
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/mcc_front.png",
+      "duration": 52.80000019073486,
+      "bytes": 1561
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/ups_front.png",
+      "duration": 52.80000019073486,
+      "bytes": 1306
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/patch_panel_front.png",
+      "duration": 53.40000009536743,
+      "bytes": 1575
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/bpm_electronics_front.png",
+      "duration": 54.80000019073486,
+      "bytes": 954
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/blm_readout_front.png",
+      "duration": 54.80000019073486,
+      "bytes": 1156
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/network_switch_front.png",
+      "duration": 54.80000019073486,
+      "bytes": 884
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/archiver_front.png",
+      "duration": 55.10000038146973,
+      "bytes": 1264
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/search_secure_panel.png",
+      "duration": 55.10000038146973,
+      "bytes": 1406
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/access_control_panel.png",
+      "duration": 56.69999980926514,
+      "bytes": 1085
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/laser_alignment_front.png",
+      "duration": 56.799999713897705,
+      "bytes": 2226
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/laser_alignment_side.png",
+      "duration": 56.799999713897705,
+      "bytes": 1030
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/mirror_mount_front.png",
+      "duration": 56.89999961853027,
+      "bytes": 708
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/beam_profiler_front.png",
+      "duration": 56.89999961853027,
+      "bytes": 951
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/interferometer_front.png",
+      "duration": 58.799999713897705,
+      "bytes": 1045
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/photodetector_front.png",
+      "duration": 58.89999961853027,
+      "bytes": 627
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/polarizer_front.png",
+      "duration": 58.799999713897705,
+      "bytes": 730
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/fiber_coupler_front.png",
+      "duration": 58.799999713897705,
+      "bytes": 622
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/optical_chopper_front.png",
+      "duration": 59.09999990463257,
+      "bytes": 736
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/power_meter_front.png",
+      "duration": 61.69999980926514,
+      "bytes": 683
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/scope_station_front.png",
+      "duration": 61.69999980926514,
+      "bytes": 1836
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/spatial_filter_front.png",
+      "duration": 62.799999713897705,
+      "bytes": 626
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/wire_scanner_bench_front.png",
+      "duration": 62.80000019073486,
+      "bytes": 1221
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/wire_scanner_bench_side.png",
+      "duration": 62.80000019073486,
+      "bytes": 763
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/bpm_test_fixture_front.png",
+      "duration": 65.19999980926514,
+      "bytes": 1232
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/bpm_test_fixture_side.png",
+      "duration": 66.30000019073486,
+      "bytes": 744
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/server_cluster_front.png",
+      "duration": 66.90000009536743,
+      "bytes": 3226
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/server_cluster_side.png",
+      "duration": 66.90000009536743,
+      "bytes": 1380
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/test_chamber_front.png",
+      "duration": 66.90000009536743,
+      "bytes": 2060
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/test_chamber_side.png",
+      "duration": 67.2000002861023,
+      "bytes": 1615
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/leak_detector_front.png",
+      "duration": 67.7000002861023,
+      "bytes": 1007
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/pump_cart_front.png",
+      "duration": 68,
+      "bytes": 1616
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/pump_cart_side.png",
+      "duration": 68.30000019073486,
+      "bytes": 1068
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/gas_manifold_front.png",
+      "duration": 68.40000009536743,
+      "bytes": 1218
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/rga_front.png",
+      "duration": 68.7000002861023,
+      "bytes": 1126
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/rga_side.png",
+      "duration": 68.7000002861023,
+      "bytes": 1193
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/coolant_pump_front.png",
+      "duration": 69,
+      "bytes": 1907
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/coolant_pump_side.png",
+      "duration": 69.30000019073486,
+      "bytes": 1060
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/heat_exchanger_side.png",
+      "duration": 69.60000038146973,
+      "bytes": 1205
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/heat_exchanger_front.png",
+      "duration": 69.60000038146973,
+      "bytes": 1833
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/pipe_rack_front.png",
+      "duration": 70.5,
+      "bytes": 1411
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/chiller_unit_front.png",
+      "duration": 70.5,
+      "bytes": 2165
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/chiller_unit_side.png",
+      "duration": 70.59999990463257,
+      "bytes": 1380
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/textures/decals/flow_meter_front.png",
+      "duration": 70.59999990463257,
+      "bytes": 931
+    },
+    {
+      "name": "http://127.0.0.1:62566/music/tracks.json",
+      "duration": 6.800000190734863,
+      "bytes": 302
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/decoration-manifest.json",
+      "duration": 0.9000000953674316,
+      "bytes": 300
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/grass_tile_0.png",
+      "duration": 3.4000000953674316,
+      "bytes": 9422
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/grass_tile_1.png",
+      "duration": 3.5,
+      "bytes": 9453
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/grass_tile_2.png",
+      "duration": 3.5,
+      "bytes": 9408
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/grass_tile_3.png",
+      "duration": 3.5,
+      "bytes": 9396
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/grass_tile_4.png",
+      "duration": 3.5999999046325684,
+      "bytes": 9795
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/grass_tile_5.png",
+      "duration": 3.5999999046325684,
+      "bytes": 9807
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/grass_tile_6.png",
+      "duration": 1.700000286102295,
+      "bytes": 9751
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/grass_tile_7.png",
+      "duration": 1.5,
+      "bytes": 9768
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/grass_tile_8.png",
+      "duration": 1.4000000953674316,
+      "bytes": 9765
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/grass_tile_9.png",
+      "duration": 1.5,
+      "bytes": 9769
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/grass_tile_10.png",
+      "duration": 1.5,
+      "bytes": 9784
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/grass_tile_11.png",
+      "duration": 1.5,
+      "bytes": 9742
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/grass_tile_12.png",
+      "duration": 1.3000001907348633,
+      "bytes": 9749
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/grass_tile_13.png",
+      "duration": 1.200000286102295,
+      "bytes": 9791
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/grass_tile_14.png",
+      "duration": 1.200000286102295,
+      "bytes": 9759
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/grass_tile_15.png",
+      "duration": 1.299999713897705,
+      "bytes": 9745
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/grass_tile_16.png",
+      "duration": 1.299999713897705,
+      "bytes": 10036
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/grass_tile_17.png",
+      "duration": 1.299999713897705,
+      "bytes": 10045
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/grass_tile_18.png",
+      "duration": 1.9000000953674316,
+      "bytes": 10053
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/grass_tile_19.png",
+      "duration": 2,
+      "bytes": 10038
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/grass_tile_20.png",
+      "duration": 1.9000000953674316,
+      "bytes": 10061
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/grass_tile_21.png",
+      "duration": 2.1999998092651367,
+      "bytes": 10066
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/grass_tile_22.png",
+      "duration": 2.1999998092651367,
+      "bytes": 10044
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/grass_tile_23.png",
+      "duration": 2.0999999046325684,
+      "bytes": 10062
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/hedge_0.png",
+      "duration": 1.5,
+      "bytes": 2132
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/hedge_1.png",
+      "duration": 2.200000286102295,
+      "bytes": 2194
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/oak_tree.png",
+      "duration": 2.3000001907348633,
+      "bytes": 7575
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/maple_tree.png",
+      "duration": 2.0999999046325684,
+      "bytes": 5607
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/elm_tree.png",
+      "duration": 2.1999998092651367,
+      "bytes": 5273
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/birch_tree.png",
+      "duration": 2.299999713897705,
+      "bytes": 4407
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/pine_tree.png",
+      "duration": 2.9000000953674316,
+      "bytes": 2868
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/cedar_tree.png",
+      "duration": 1.1999998092651367,
+      "bytes": 4657
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/small_tree.png",
+      "duration": 2,
+      "bytes": 2348
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/shrub.png",
+      "duration": 2.0999999046325684,
+      "bytes": 2136
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/park_bench.png",
+      "duration": 2,
+      "bytes": 430
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/flower_bed.png",
+      "duration": 2,
+      "bytes": 2414
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/lamppost.png",
+      "duration": 5.399999618530273,
+      "bytes": 436
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/iron_fence.png",
+      "duration": 6.400000095367432,
+      "bytes": 425
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/willow_tree.png",
+      "duration": 6.400000095367432,
+      "bytes": 6699
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/flower_garden.png",
+      "duration": 6.5,
+      "bytes": 3483
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/hedge_corner.png",
+      "duration": 6.399999618530273,
+      "bytes": 416
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/tall_hedge.png",
+      "duration": 6.399999618530273,
+      "bytes": 430
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/wood_fence.png",
+      "duration": 2.200000286102295,
+      "bytes": 436
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/chain_link.png",
+      "duration": 1.5999999046325684,
+      "bytes": 444
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/stone_wall.png",
+      "duration": 1.5999999046325684,
+      "bytes": 452
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/picnic_table.png",
+      "duration": 1.700000286102295,
+      "bytes": 467
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/fountain.png",
+      "duration": 1.700000286102295,
+      "bytes": 623
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/statue.png",
+      "duration": 1.700000286102295,
+      "bytes": 506
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/bollard_light.png",
+      "duration": 1.700000286102295,
+      "bytes": 433
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/spot_light.png",
+      "duration": 1.5,
+      "bytes": 452
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/trash_can.png",
+      "duration": 1.5,
+      "bytes": 459
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/recycling_bin.png",
+      "duration": 1.4000000953674316,
+      "bytes": 463
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/info_sign.png",
+      "duration": 1.4000000953674316,
+      "bytes": 440
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/direction_sign.png",
+      "duration": 1.3000001907348633,
+      "bytes": 455
+    },
+    {
+      "name": "http://127.0.0.1:62566/versioned-assets/cc89d4a9f2b942c33b69/decorations/flagpole.png",
+      "duration": 1.200000286102295,
+      "bytes": 485
+    },
+    {
+      "name": "http://127.0.0.1:62566/favicon.ico",
+      "duration": 0.8000001907348633,
+      "bytes": 300
+    }
+  ],
+  "renderer": {
+    "calls": 30,
+    "frameCalls": 0,
+    "drawCalls": 0,
+    "triangles": 0,
+    "points": 0,
+    "lines": 0,
+    "timestamp": 0
+  },
+  "scenarioMs": 73979,
+  "scenarioTimings": [
+    {
+      "name": "refreshForNewSession",
+      "started": 20757.5,
+      "duration": 397.40000009536743
+    },
+    {
+      "name": "renderPreparedWorldFrame",
+      "started": 76688.19999980927,
+      "duration": 16.40000009536743
+    },
+    {
+      "name": "compileAsync",
+      "started": 76732.19999980927,
+      "duration": 9930.900000095367
+    },
+    {
+      "name": "renderPreparedWorldFrame",
+      "started": 90305,
+      "duration": 12.900000095367432
+    },
+    {
+      "name": "compileAsync",
+      "started": 90355.69999980927,
+      "duration": 2734.9000000953674
+    },
+    {
+      "name": "renderPreparedWorldFrame",
+      "started": 93260.90000009537,
+      "duration": 14.699999809265137
+    },
+    {
+      "name": "compileAsync",
+      "started": 93312.90000009537,
+      "duration": 2.0999999046325684
+    },
+    {
+      "name": "renderPreparedWorldFrame",
+      "started": 93370.5,
+      "duration": 6.299999713897705
+    },
+    {
+      "name": "compileAsync",
+      "started": 93404.19999980927,
+      "duration": 3.200000286102295
+    },
+    {
+      "name": "renderPreparedWorldFrame",
+      "started": 93449.7999997139,
+      "duration": 10.700000286102295
+    },
+    {
+      "name": "compileAsync",
+      "started": 93495.2999997139,
+      "duration": 3.6000003814697266
+    },
+    {
+      "name": "renderPreparedWorldFrame",
+      "started": 93554,
+      "duration": 13.099999904632568
+    },
+    {
+      "name": "prepareInteractiveLod",
+      "started": 93312.90000009537,
+      "duration": 294.59999990463257
+    }
+  ],
+  "frameSample": {
+    "intervals": [
+      3.299999904629658,
+      16.80000000000291,
+      16.60000000000582,
+      16.59999999999127,
+      16.69999999999709,
+      16.70000000001164,
+      16.69999999999709,
+      16.59999999999127,
+      16.70000000001164,
+      16.59999999999127,
+      16.69999999999709,
+      16.70000000001164,
+      16.69999999999709,
+      16.69999999999709,
+      16.60000000000582,
+      16.69999999999709,
+      16.59999999999127,
+      16.70000000001164,
+      16.59999999999127,
+      16.80000000000291,
+      16.60000000000582,
+      16.59999999999127,
+      16.69999999999709,
+      16.70000000001164,
+      16.59999999999127,
+      16.69999999999709,
+      16.70000000001164,
+      16.69999999999709,
+      16.59999999999127,
+      16.60000000000582,
+      16.69999999999709,
+      16.69999999999709,
+      16.70000000001164,
+      16.59999999999127,
+      16.69999999999709,
+      16.70000000001164,
+      16.59999999999127,
+      16.80000000000291,
+      16.60000000000582,
+      16.59999999999127,
+      16.69999999999709,
+      16.70000000001164,
+      16.59999999999127,
+      16.69999999999709,
+      16.70000000001164,
+      16.69999999999709,
+      16.59999999999127,
+      16.70000000001164,
+      16.69999999999709,
+      16.59999999999127,
+      16.60000000000582,
+      16.80000000000291,
+      16.59999999999127,
+      16.60000000000582,
+      16.69999999999709,
+      16.69999999999709,
+      16.70000000001164,
+      16.59999999999127,
+      16.69999999999709,
+      16.70000000001164,
+      16.59999999999127,
+      16.69999999999709,
+      16.70000000001164,
+      16.59999999999127,
+      16.69999999999709,
+      16.70000000001164,
+      16.69999999999709,
+      16.59999999999127,
+      16.70000000001164,
+      16.59999999999127,
+      16.69999999999709,
+      16.70000000001164,
+      16.59999999999127,
+      16.60000000000582,
+      16.80000000000291,
+      16.69999999999709,
+      16.59999999999127,
+      16.60000000000582,
+      16.69999999999709,
+      16.69999999999709,
+      16.70000000001164,
+      16.59999999999127,
+      16.69999999999709,
+      16.70000000001164,
+      16.59999999999127,
+      16.69999999999709,
+      16.60000000000582,
+      16.69999999999709,
+      16.69999999999709,
+      16.60000000000582,
+      16.69999999999709,
+      16.69999999999709,
+      16.70000000001164,
+      16.69999999999709,
+      16.59999999999127,
+      16.60000000000582,
+      16.69999999999709,
+      16.69999999999709,
+      16.70000000001164,
+      16.59999999999127,
+      16.69999999999709,
+      16.60000000000582,
+      16.69999999999709,
+      16.69999999999709,
+      16.60000000000582,
+      16.69999999999709,
+      16.60000000000582,
+      16.80000000000291,
+      16.59999999999127,
+      16.69999999999709,
+      16.60000000000582,
+      16.69999999999709,
+      16.69999999999709,
+      16.70000000001164,
+      16.59999999999127,
+      16.69999999999709,
+      16.60000000000582,
+      16.69999999999709,
+      16.69999999999709,
+      16.70000000001164
+    ],
+    "render": {
+      "calls": 143,
+      "frameCalls": 0,
+      "drawCalls": 0,
+      "triangles": 0,
+      "points": 0,
+      "lines": 0,
+      "timestamp": 0
+    }
+  },
+  "dialogChecks": [
+    "options",
+    "save-game",
+    "load-game"
+  ],
+  "panFrames": {
+    "intervals": [
+      -0.40000009536743164,
+      16.60000000000582,
+      16.79999999998836,
+      16.60000000000582,
+      16.60000000000582,
+      16.69999999999709,
+      16.69999999999709,
+      16.60000000000582,
+      16.79999999998836,
+      16.60000000000582,
+      16.69999999999709,
+      16.69999999999709,
+      16.60000000000582,
+      16.69999999999709,
+      16.60000000000582,
+      16.69999999999709,
+      16.60000000000582,
+      16.79999999998836,
+      16.60000000000582,
+      16.60000000000582,
+      16.69999999999709,
+      16.69999999999709,
+      16.69999999999709,
+      16.60000000000582,
+      16.59999999999127,
+      16.80000000000291,
+      16.60000000000582,
+      16.69999999999709,
+      16.69999999999709,
+      16.60000000000582,
+      16.59999999999127,
+      16.80000000000291,
+      16.60000000000582,
+      16.69999999999709,
+      16.60000000000582,
+      16.69999999999709,
+      16.69999999999709,
+      16.60000000000582,
+      16.79999999998836,
+      16.60000000000582,
+      16.69999999999709,
+      16.60000000000582,
+      16.69999999999709,
+      16.60000000000582,
+      16.69999999999709,
+      16.59999999999127,
+      16.70000000001164,
+      16.69999999999709,
+      16.69999999999709,
+      16.60000000000582,
+      16.69999999999709,
+      16.59999999999127,
+      16.80000000000291,
+      16.60000000000582,
+      16.69999999999709,
+      16.60000000000582,
+      16.69999999999709,
+      16.69999999999709,
+      16.60000000000582,
+      16.69999999999709,
+      16.69999999999709,
+      16.69999999999709,
+      16.60000000000582,
+      16.59999999999127,
+      16.70000000001164,
+      16.69999999999709,
+      16.59999999999127,
+      16.70000000001164,
+      16.69999999999709,
+      16.59999999999127,
+      16.80000000000291,
+      16.60000000000582,
+      16.69999999999709,
+      16.60000000000582,
+      16.69999999999709,
+      16.69999999999709,
+      16.69999999999709,
+      16.5,
+      16.69999999999709,
+      16.70000000001164,
+      16.69999999999709,
+      16.59999999999127,
+      16.70000000001164,
+      16.69999999999709,
+      16.69999999999709,
+      16.60000000000582,
+      16.69999999999709,
+      16.59999999999127,
+      16.70000000001164,
+      16.69999999999709
+    ],
+    "before": 0,
+    "after": 0
+  },
+  "errors": [],
+  "failedRequests": [
+    {
+      "url": "http://127.0.0.1:62566/api/beamline-tycoon/me",
+      "status": 502
+    }
+  ],
+  "bootError": null,
+  "backend": "Chrome default GPU"
+}

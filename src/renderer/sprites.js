@@ -1,3 +1,4 @@
+import { assetUrl } from '../assets/url.js';
 // === SPRITE MANAGER ===
 // Path/manifest bookkeeping for sprite assets. The Three.js renderer loads
 // its own textures (see renderer3d/texture-manager.js); what survives here
@@ -29,7 +30,7 @@ export class SpriteManager {
    */
   async loadSpriteOffsets() {
     try {
-      const resp = await fetch('assets/components/offsets.json');
+      const resp = await fetch(assetUrl('assets/components/offsets.json'));
       if (!resp.ok) return;
       this.spriteOffsets = await resp.json();
       console.log(`Loaded sprite offsets for ${Object.keys(this.spriteOffsets).length} sprites`);
@@ -42,7 +43,8 @@ export class SpriteManager {
    * Get offset for a sprite path. Returns { x, y, rotation, scale } or defaults.
    */
   getSpriteOffset(path) {
-    return this.spriteOffsets[path] || { x: 0, y: 0, scale: 1 };
+    const sourcePath = path?.replace(/^versioned-assets\/[^/]+\//, 'assets/');
+    return this.spriteOffsets[sourcePath] || { x: 0, y: 0, scale: 1 };
   }
 
   /**
@@ -51,7 +53,7 @@ export class SpriteManager {
    */
   async loadTileSprites() {
     try {
-      const resp = await fetch('assets/tiles/tile-manifest.json');
+      const resp = await fetch(assetUrl('assets/tiles/tile-manifest.json'));
       if (!resp.ok) return;
       const manifest = await resp.json();
       let count = 0;
@@ -75,7 +77,7 @@ export class SpriteManager {
 
   async loadDecorationSprites() {
     try {
-      const resp = await fetch('assets/decorations/decoration-manifest.json');
+      const resp = await fetch(assetUrl('assets/decorations/decoration-manifest.json'));
       if (!resp.ok) return;
       const manifest = await resp.json();
       let count = 0;
@@ -95,7 +97,7 @@ export class SpriteManager {
    * Return the file path for a sprite/decoration/tile for use in HTML img tags.
    */
   getSpritePath(key) {
-    return this.spritePaths[key] || null;
+    return assetUrl(this.spritePaths[key] || null);
   }
 
   getTilePath(gameId, variant = 0) {
@@ -111,17 +113,17 @@ export class SpriteManager {
     const def = FLOORS[gameId] || WALL_TYPES[gameId] || DOOR_TYPES[gameId] || WINDOW_TYPES[gameId];
     if (def) {
       const varTex = def.variantTextures?.[variant];
-      if (varTex) return `assets/textures/materials/${varTex}.png`;
-      if (def.texture) return `assets/textures/materials/${def.texture}.png`;
+      if (varTex) return assetUrl(`assets/textures/materials/${varTex}.png`);
+      if (def.texture) return assetUrl(`assets/textures/materials/${def.texture}.png`);
     }
-    return this.tilePaths[gameId] || null;
+    return assetUrl(this.tilePaths[gameId] || null);
   }
 
   getZoneVariantPath(gameId, col, row) {
     const paths = this.zoneVariantPaths[gameId];
     if (!paths || !paths.length) return null;
     const idx = ((col * 7 + row * 13) & 0xffff) % paths.length;
-    return paths[idx];
+    return assetUrl(paths[idx]);
   }
 
   // --- Color helpers (used by hud.js for CSS iso-box previews) ---

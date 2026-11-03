@@ -1,3 +1,4 @@
+import { assetUrl } from '../assets/url.js';
 // === HUD EXTENSION ===
 // Adds HUD update, palette rendering, beam button, and system stats to UIHost.prototype.
 
@@ -127,7 +128,8 @@ UIHost.prototype._updateHUD = function() {
   // Resources
   const setEl = (id, val) => {
     const el = document.getElementById(id);
-    if (el) el.textContent = typeof val === 'string' ? val : this._fmt(val);
+    const text = typeof val === 'string' ? val : this._fmt(val);
+    if (el && el.textContent !== text) el.textContent = text;
   };
   const localFundingBtn = document.getElementById('btn-local-funding');
   if (localFundingBtn) {
@@ -1177,7 +1179,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
           // solid swatch tells you nothing about a pattern. image-rendering
           // keeps the 64x64 source crisp instead of smearing it.
           previewEl.innerHTML = paint.texture
-            ? `<div style="width:48px;height:32px;border-radius:3px;background-image:url('assets/textures/materials/${paint.texture}.png');background-size:32px 32px;background-repeat:repeat;image-rendering:pixelated"></div>`
+            ? `<div style="width:48px;height:32px;border-radius:3px;background-image:url('${assetUrl(`assets/textures/materials/${paint.texture}.png`)}');background-size:32px 32px;background-repeat:repeat;image-rendering:pixelated"></div>`
             : `<div style="width:48px;height:32px;background:#${paint.color.toString(16).padStart(6, '0')};border-radius:3px"></div>`;
           item.appendChild(previewEl);
           const nameEl = document.createElement('div');
@@ -2055,7 +2057,7 @@ UIHost.prototype._renderPaletteImpl = function(tabCategory) {
         } else {
           const spritePath = this.sprites.getSpritePath(dec.spriteKey);
           const img = document.createElement('img');
-          img.src = spritePath || `assets/decorations/${dec.spriteKey}.png`;
+          img.src = spritePath || assetUrl(`assets/decorations/${dec.spriteKey}.png`);
           img.alt = dec.name;
           img.onerror = () => { img.style.display = 'none'; };
           previewEl.appendChild(img);
@@ -4185,7 +4187,7 @@ UIHost.prototype._buildSearchResultPreview = function(result, def) {
     } else {
       const spritePath = this.sprites.getSpritePath(def.spriteKey);
       const img = document.createElement('img');
-      img.src = spritePath || `assets/decorations/${def.spriteKey}.png`;
+      img.src = spritePath || assetUrl(`assets/decorations/${def.spriteKey}.png`);
       img.alt = def.name;
       img.onerror = () => { img.style.display = 'none'; };
       previewEl.appendChild(img);
