@@ -372,6 +372,10 @@ export class TitleScreen {
   /** Keep the opaque input gate visible while final renderer work drains. */
   showFinalizing(message = 'Finalizing graphics...') {
     if (this._dismissed) return;
+    // Keep the last title frame while world pipelines compile. The loading
+    // label is DOM text, so it stays live without running the CRT canvas pass
+    // on every yield from Three's asynchronous shader builder.
+    this._waitingForBootAfterClick = true;
     this.setLoadingStatus(message);
     this.menuEl.classList.add('hidden');
     this.loadingEl.classList.remove('hidden');

@@ -151,3 +151,52 @@ Fast/build exec47979: /tmp/beamline-input-fast.txt, /tmp/beamline-input-build.tx
 Profiler now records pan start/end timestamps to isolate CPU-profile samples
 for the slow interaction. Need compare cold/warm pan with latest build and
 inspect actual GPU/CPU reason. Do not confuse idle60Hz with interactive speed.
+
+## Shader-stall attribution and instancing corrections
+
+Latest committed build profile /tmp/beamline-input-profile.json: scenario21.950s,
+median pan16.7ms, p95pan116.6ms. Pan-only cpuprofile identifies Three node/shader
+construction (~addNode186ms, build160ms, others) when new objects enter view;
+steady median is not the issue. Need warm-pan comparison and mitigation.
+
+Review found source meshes hidden by instancing were skipped by outlines, and
+animated root wrappers could diverge from static matrices. Fixed with explicit
+instancedRoleSource metadata (outline treats these as authored geometry) and
+syncPresentationTransforms after placement/physics updates. Static wrappers
+produce no matrix upload; changed roots update their instance matrices/bounds.
+Focused tests cover motion and unchanged-frame behavior. Still need browser
+selection/movement/incident validation.
+
+TitleScreen.showFinalizing previously left full-rate CRT animation running
+while Three compileAsync repeatedly yielded. It now freezes the last canvas
+frame, retaining live DOM loading text. This targets observed CRT CPU overhead
+without dropping game visual quality. Current exec62652: fast->build->built
+profile; logs /tmp/beamline-finalizing-fast.txt, /tmp/beamline-finalizing-build.txt,
+/tmp/beamline-finalizing-profile.log and /tmp/beamline-finalizing-profile.json.
+Last stable commit f5897385. Current changes uncommitted. Prior profile44823
+completed and its resources closed; no server should be assumed running.
+
+## Latest shader preparation experiment
+
+Title freeze + instancing corrections passed367/367 and built run: scenario20.086s,
+pan median16.7ms/p9516.8ms, no page errors. This is encouraging but still requires
+same-toolchain baseline comparison; timings have been variable.
+
+Added IdlePipelineWarmup: one actual visible mesh per idle task, compileAsync
+against real scene lighting, temporarily disable frustum culling only during
+synchronous list construction, restore immediately, no frame submission. Pauses
+for camera motion and rendering gates, cancels on refresh/reload/disposal. Focused
+pacing/culling/cancellation tests pass; fast gate368/368 passes. Exec99144 is now
+running built profile with a 10-second idle warmup before pan; logs:
+/tmp/beamline-idle-{fast,build}.txt, /tmp/beamline-idle-profile.{log,json}.
+
+Created immutable baseline source snapshot ec69f50a at
+/tmp/beamline-baseline.TZWJ5R (path also /tmp/beamline-baseline-location), built
+with the same installed dependencies; copied original runtime asset folders
+as original build-web does. No root checkout changes. Once current GPU profile
+is terminal, run PROFILE_ROOT=<that path> PROFILE_BUILT=1 PROFILE_GAME=1 with
+scripts/profile-startup.mjs, sequentially, to compare loading and pan.
+Profiler now includes a public selection-outline check for instanced source
+parts, but this addition happened after exec99144 started, so rerun candidate
+for that evidence. Baseline intentionally skips the instanced selection check.
+Current changes uncommitted since f5897385; port63850 from prior run closed.

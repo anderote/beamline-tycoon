@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import { IdlePipelineWarmup } from '../src/renderer3d/idle-pipeline-warmup.js';
+const callbacks = new Map(); let id = 0, busy = true;
+const scope = { requestIdleCallback: f => { callbacks.set(++id, f); return id; }, cancelIdleCallback: id => callbacks.delete(id) };
+const objects = [1, 2].map(() => ({ isMesh: true, material: { visible: true }, frustumCulled: true }));
+const scene = { traverseVisible: f => objects.forEach(f) };
+const calls = [];
+const renderer = { backend: { isWebGPUBackend: true }, compileAsync(object, camera, context) {
+  assert.equal(object.frustumCulled, false); assert.equal(context, scene); calls.push(object); return Promise.resolve();
+} };
+const warmup = new IdlePipelineWarmup({ scope, busy: () => busy });
+const run = async () => { const [key, f] = callbacks.entries().next().value; callbacks.delete(key); await f(); };
+warmup.schedule(renderer, scene, {});
+assert.equal(calls.length, 0);
+await run(); assert.equal(calls.length, 0, 'camera gestures have priority');
+busy = false; await run();
+assert.equal(calls.length, 1); assert.equal(objects[0].frustumCulled, true);
+assert.equal(warmup.remaining, 1);
+warmup.cancel(); assert.equal(callbacks.size, 0);
+console.log('Idle shader preparation pacing, culling and cancellation pass');

@@ -1,3 +1,4 @@
+import { IdlePipelineWarmup } from './idle-pipeline-warmup.js';
 // src/renderer3d/ThreeRenderer.js — Three.js scaffold with isometric camera
 // THREE is loaded as a CDN global — do NOT import it
 //
@@ -289,6 +290,11 @@ export class ThreeRenderer {
     this._lodPreparationScheduler = new LodPreparationScheduler({ scope: window });
     this._lodTransitionQueue = new LodTransitionQueue();
     this._lodTransitionGpuReady = true;
+    this._idlePipelineWarmup = new IdlePipelineWarmup({
+      busy: () => this.renderingSuspended || this._worldPipelineCompilePending
+        || this._worldExpansionContinuationPending
+        || performance.now() < this._cameraMotionUntilMs,
+    });
     this._lodPresentationRevision = 0;
     this._interactiveLodPreparedRevision = -1;
 
@@ -3032,7 +3038,7 @@ export class ThreeRenderer {
       if (!child.isMesh || !child.geometry) return;
       // Skip invisible hitbox meshes (used for raycasting only — see
       // ComponentBuilder.createObject which adds a larger Box hitbox).
-      if (child.visible === false) return;
+      if (child.visible === false && !child.userData?.instancedRoleSource) return;
       const mat = Array.isArray(child.material) ? child.material[0] : child.material;
       if (mat && mat.visible === false) return;
       const edges = new THREE.EdgesGeometry(child.geometry, 20);
@@ -5100,6 +5106,7 @@ export class ThreeRenderer {
       );
     }
     this._physicsPresentation.update(_dt);
+    this.componentBuilder?.syncPresentationTransforms();
     // Everything above is simulation and state: it runs every frame so the
     // sim, the camera animation and the HUD never stutter. Only the GPU
     // submission below is skippable, and only while the device is already
@@ -5245,6 +5252,7 @@ export class ThreeRenderer {
     }
     if (revision === this._lodPresentationRevision) {
       this._interactiveLodPreparedRevision = revision;
+      this._idlePipelineWarmup.schedule(this.renderer, this.scene, this.camera);
     }
     return true;
   }
@@ -5674,6 +5682,7 @@ export class ThreeRenderer {
   }
 
   refresh() {
+    this._idlePipelineWarmup?.cancel();
     this._worldExpansionContinuationPending = false;
     this._pendingTerrainDetailAppend = null;
     const snapshot = buildWorldSnapshot(this.game);
@@ -6759,6 +6768,7 @@ export class ThreeRenderer {
   }
 
   dispose() {
+    this._idlePipelineWarmup?.cancel();
     this._lodPreparationScheduler.cancel();
     this._worldInvalidationScheduler?.clear();
     if (this._animFrameId !== null) {
@@ -6820,6 +6830,7 @@ export class ThreeRenderer {
    * GPU devices from overlapping during New Game.
    */
   prepareForReload() {
+    this._idlePipelineWarmup?.cancel();
     this._lodPreparationScheduler.cancel();
     this.renderingSuspended = true;
     this._worldInvalidationScheduler?.clear();

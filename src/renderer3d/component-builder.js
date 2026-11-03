@@ -5106,6 +5106,8 @@ export class ComponentBuilder {
     this._farMaterialCache = new Map();
   }
 
+  syncPresentationTransforms() { return this._nearRoleBatches.syncTransforms(); }
+
   /** Public lookup for picking/selection coordinators. */
   getGroup(id) { return this._meshMap.get(id) || null; }
 

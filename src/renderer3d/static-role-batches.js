@@ -2,15 +2,19 @@
 // wrappers/hitboxes for selection and ownership. Glow and movable parts stay
 // on their original meshes. Batches never own shared geometry or materials.
 export class StaticRoleBatches {
-  constructor() { this.meshes = []; this.sources = []; }
+  constructor() { this.meshes = []; this.sources = []; this.roots = new Map(); }
   clear() {
-    for (const source of this.sources) source.visible = true;
+    for (const source of this.sources) {
+      source.visible = true;
+      delete source.userData.instancedRoleSource;
+    }
     for (const mesh of this.meshes) {
       mesh.parent?.remove(mesh);
       mesh.dispose?.();
     }
     this.meshes = [];
     this.sources = [];
+    this.roots.clear();
   }
   rebuild(roots) {
     this.clear();
@@ -51,6 +55,13 @@ export class StaticRoleBatches {
       entries.forEach((entry, index) => {
         batch.setMatrixAt(index, entry.matrix);
         entry.mesh.visible = false;
+        entry.mesh.userData.instancedRoleSource = true;
+        let tracking = this.roots.get(entry.root);
+        if (!tracking) {
+          entry.root.updateMatrix();
+          this.roots.set(entry.root, tracking = { matrix: entry.root.matrix.clone(), entries: [] });
+        }
+        tracking.entries.push({ source: entry.mesh, batch, index, parent });
         this.sources.push(entry.mesh);
       });
       batch.instanceMatrix.needsUpdate = true;
@@ -58,6 +69,26 @@ export class StaticRoleBatches {
       parent.add(batch);
       this.meshes.push(batch);
     }
+  }
+  /** Placement settles and physical incidents move canonical wrappers. */
+  syncTransforms() {
+    const changed = new Set();
+    for (const [root, tracking] of this.roots) {
+      root.updateMatrix();
+      if (root.matrix.equals(tracking.matrix)) continue;
+      tracking.matrix.copy(root.matrix);
+      root.updateWorldMatrix(true, true);
+      for (const { source, batch, index, parent } of tracking.entries) {
+        const matrix = parent.matrixWorld.clone().invert().multiply(source.matrixWorld);
+        batch.setMatrixAt(index, matrix);
+        changed.add(batch);
+      }
+    }
+    for (const batch of changed) {
+      batch.instanceMatrix.needsUpdate = true;
+      batch.computeBoundingSphere();
+    }
+    return changed.size;
   }
   setVisible(visible) { for (const mesh of this.meshes) mesh.visible = visible; }
 }

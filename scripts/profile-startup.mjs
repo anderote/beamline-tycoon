@@ -22,7 +22,7 @@ try {
   await profiler.send('Profiler.start');
   const errors = [];
   const failedRequests = [];
-  page.on('response', response => { if (response.status() >= 400) failedRequests.push({ url: response.url(), status: response.status() }); });
+  page.on('response', response => { if (response.status() >= 400) { failedRequests.push({ url: response.url(), status: response.status() }); console.error('[HTTP]', response.status(), response.url()); } });
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', msg => { if (msg.type() === 'error') console.error('[browser]', msg.text()); });
   await page.addInitScript(() => {
@@ -75,6 +75,30 @@ try {
       requestAnimationFrame(tick);
     }));
     await page.getByRole('button', { name: "LET'S GO", exact: true }).click();
+    report.selectionCheck = await page.evaluate(() => {
+      const renderer = window._renderer;
+      let root = null, expected = 0, instanced = 0;
+      for (const placeable of window.game.state.placeables) {
+        const candidate = renderer.componentBuilder.getGroup(placeable.id);
+        if (!candidate) continue;
+        let count = 0;
+        candidate.traverse(mesh => { if (mesh.userData?.instancedRoleSource) count++; });
+        if (count) { root = candidate; instanced = count; break; }
+      }
+      if (!root) return { skipped: true, reason: 'No instanced components in this build' };
+      root.traverse(mesh => {
+        const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+        if (mesh.isMesh && mesh.geometry && material?.visible !== false
+            && (mesh.visible || mesh.userData?.instancedRoleSource)) expected++;
+      });
+      renderer.setSelectionOutline(root);
+      let actual = 0;
+      renderer.selectionGroup.traverse(object => { if (object.isLineSegments) actual++; });
+      renderer.clearSelectionOutline();
+      return { id: root.userData.nodeId, expected, actual, instanced };
+    });
+    if (report.selectionCheck.expected !== report.selectionCheck.actual) errors.push('Incomplete instanced selection outline');
+
     report.dialogChecks = [];
     for (const [action, selector, close] of [['options', '#options-dialog', '.opt-close'], ['save-game', '#saveload-dialog', '.sl-close'], ['load-game', '#saveload-dialog', '.sl-close']]) {
       await page.locator('#btn-menu').click();
@@ -83,7 +107,11 @@ try {
       report.dialogChecks.push(action);
       await page.locator(`${selector} ${close}`).click();
     }
+    if (process.env.PROFILE_WARM_IDLE === '1') await page.waitForTimeout(10000);
     await page.evaluate(() => document.activeElement?.blur());
+    const startupProfile = await profiler.send('Profiler.stop');
+    await writeFile((process.argv[2] || '/tmp/beamline-startup.json') + '.startup.cpuprofile', JSON.stringify(startupProfile.profile));
+    await profiler.send('Profiler.start');
     await page.keyboard.down('w');
     report.panFrames = await page.evaluate(() => new Promise(resolve => {
       const intervals = []; let last = performance.now();
@@ -109,8 +137,9 @@ try {
   report.failedRequests = failedRequests;
   report.bootError = bootError;
   report.backend = process.env.PROFILE_SOFTWARE === '1' ? 'SwiftShader' : 'Chrome default GPU';
-  await writeFile(process.argv[2] || '/tmp/beamline-startup.json', JSON.stringify(report, null, 2));
   await page.screenshot({ path: '/tmp/beamline-startup.png' });
+  report.resources = await page.evaluate(() => performance.getEntriesByType('resource').map(e => ({ name: e.name, duration: e.duration, bytes: e.transferSize })));
+  await writeFile(process.argv[2] || '/tmp/beamline-startup.json', JSON.stringify(report, null, 2));
   console.log(JSON.stringify({ bootMs: report.bootMs, longTasks: report.longTasks.length, errors, port }));
 } finally {
   await browser?.close();

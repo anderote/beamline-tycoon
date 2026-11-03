@@ -1,0 +1,16 @@
+{
+  "revision": "cc89d4a9f2b942c33b69",
+  "files": 293,
+  "bytes": 32966155,
+  "identicalBytes": true,
+  "deploymentRule": {
+    "source": "/beamline-tycoon-game/versioned-assets/:revision/:path*",
+    "headers": [
+      {
+        "key": "Cache-Control",
+        "value": "public, max-age=31536000, immutable"
+      }
+    ]
+  },
+  "deployed": false
+}
