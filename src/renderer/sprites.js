@@ -14,6 +14,15 @@ export class SpriteManager {
     this.spriteOffsets = {}; // file path -> { x, y, rotation, scale }
   }
 
+  /** Independent indexes may overlap both each other and renderer startup. */
+  loadIndexes() {
+    return Promise.all([
+      this.loadTileSprites(),
+      this.loadDecorationSprites(),
+      this.loadSpriteOffsets(),
+    ]);
+  }
+
   /**
    * Load sprite offsets from assets/components/offsets.json.
    * These are per-sprite-file adjustments set in the asset generator preview grid.

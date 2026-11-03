@@ -34,9 +34,8 @@ import {
 import { MusicPlayer } from './ui/MusicPlayer.js';
 import { TitleScreen } from './ui/TitleScreen.js';
 import { WelcomeDialog } from './ui/WelcomeDialog.js';
-import { SaveLoadDialog } from './ui/SaveLoadDialog.js';
+import { lazyDialog } from './ui/lazy-dialog.js';
 import { CloudSaves } from './game/CloudSaves.js';
-import { OptionsDialog } from './ui/OptionsDialog.js';
 import { openUtilityInspectorForLine } from './ui/utility-inspector-command.js';
 import { UtilityStatsPanel } from './ui/UtilityStatsPanel.js';
 import { EconomyWindow } from './ui/EconomyWindow.js';
@@ -103,6 +102,7 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
   const router = new ViewRouter();
   game.viewRouter = router;
   const spriteManager = new SpriteManager();
+  const spriteIndexesReady = spriteManager.loadIndexes();
 
   const renderer = new ThreeRenderer(game, spriteManager);
   let titleSessionActive = !!titleScreen;
@@ -146,9 +146,7 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
   await renderer.init();
 
   titleScreen?.setLoadingStatus('Indexing UI...');
-  await spriteManager.loadTileSprites();
-  await spriteManager.loadDecorationSprites();
-  await spriteManager.loadSpriteOffsets();
+  await spriteIndexesReady;
 
   const input = new InputHandler(renderer, game);
   renderer._inputHandler = input;
@@ -453,7 +451,10 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
   });
 
   // Named save/load slots dialog (Menu > Save Game / Load Game)
-  const saveLoadDialog = new SaveLoadDialog(game);
+  const openSaveLoad = lazyDialog(async () => {
+    const { SaveLoadDialog } = await import('./ui/SaveLoadDialog.js');
+    return new SaveLoadDialog(game);
+  });
 
   // Menu dropdown toggle
   const menuBtn = document.getElementById('btn-menu');
@@ -474,13 +475,13 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
         scenarioPicker.open();
         break;
       case 'save-game':
-        saveLoadDialog.open('save');
+        openSaveLoad('save').catch(error => console.error('[save dialog]', error));
         break;
       case 'load-game':
-        saveLoadDialog.open('load');
+        openSaveLoad('load').catch(error => console.error('[load dialog]', error));
         break;
       case 'options':
-        optionsDialog.open();
+        openOptions().catch(error => console.error('[options dialog]', error));
         break;
       case 'guide':
         welcomeDialog.open();
@@ -499,7 +500,10 @@ catch (error) { console.warn('[scenario] Legacy scenario migration deferred:', e
   // Options dialog (Menu > Options) — music / view / gameplay settings.
   // Declared after musicPlayer; the menu click handler above only runs
   // post-init, so the binding is live by then.
-  const optionsDialog = new OptionsDialog({ game, renderer, musicPlayer, inputHandler: input });
+  const openOptions = lazyDialog(async () => {
+    const { OptionsDialog } = await import('./ui/OptionsDialog.js');
+    return new OptionsDialog({ game, renderer, musicPlayer, inputHandler: input });
+  });
 
   // Debug fallback: open a utility inspector for a given line id from the
   // browser console. Unblocks Phase 6 playtesting if the 3D click path

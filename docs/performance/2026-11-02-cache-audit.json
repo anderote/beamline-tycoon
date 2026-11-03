@@ -1,0 +1,22 @@
+[
+  {
+    "url": "https://www.deep-tech-week.com/beamline-tycoon-game/assets/index-DDACHZ1z.js",
+    "headers": "HTTP/2 200 \naccess-control-allow-origin: *\nage: 0\ncache-control: public, max-age=31536000, immutable\ncontent-disposition: inline; filename=\"index-DDACHZ1z.js\"\ncontent-encoding: gzip\ncontent-type: application/javascript; charset=utf-8\ndate: Tue, 03 Nov 2026 06:09:21 GMT\netag: W/\"103e5502bc08c8ee2f8d9b7338df96e1\"\nlast-modified: Tue, 03 Nov 2026 06:09:21 GMT\nserver: Vercel\nstrict-transport-security: max-age=63072000\nx-vercel-cache: MISS\nx-vercel-id: sfo1::9mg4z-1793686161495-8463b2ba5004\n\n"
+  },
+  {
+    "url": "https://www.deep-tech-week.com/beamline-tycoon-game/assets/three.core-uxv90ibb.js",
+    "headers": "HTTP/2 200 \naccess-control-allow-origin: *\nage: 0\ncache-control: public, max-age=31536000, immutable\ncontent-disposition: inline; filename=\"three.core-uxv90ibb.js\"\ncontent-encoding: gzip\ncontent-type: application/javascript; charset=utf-8\ndate: Tue, 03 Nov 2026 06:09:22 GMT\netag: W/\"c37e2e0950f13d21f976f4821a3bff94\"\nlast-modified: Tue, 03 Nov 2026 06:09:21 GMT\nserver: Vercel\nstrict-transport-security: max-age=63072000\nx-vercel-cache: MISS\nx-vercel-id: sfo1::pc59p-1793686161816-e38cc4dffb19\n\n"
+  },
+  {
+    "url": "https://www.deep-tech-week.com/beamline-tycoon-game/assets/units-j5-YuVTU.js",
+    "headers": "HTTP/2 200 \naccess-control-allow-origin: *\nage: 0\ncache-control: public, max-age=31536000, immutable\ncontent-disposition: inline; filename=\"units-j5-YuVTU.js\"\ncontent-encoding: gzip\ncontent-type: application/javascript; charset=utf-8\ndate: Tue, 03 Nov 2026 06:09:22 GMT\netag: W/\"c2652bbb0eedfe6af5a0ad97216ac45d\"\nlast-modified: Tue, 03 Nov 2026 06:09:22 GMT\nserver: Vercel\nstrict-transport-security: max-age=63072000\nx-vercel-cache: MISS\nx-vercel-id: sfo1::tmxs9-1793686162105-3de4887a0e17\n\n"
+  },
+  {
+    "url": "https://www.deep-tech-week.com/beamline-tycoon-game/assets/tiles/tile-manifest.json",
+    "headers": "HTTP/2 200 \naccess-control-allow-origin: *\nage: 0\ncache-control: public, max-age=0, must-revalidate\ncontent-disposition: inline; filename=\"tile-manifest.json\"\ncontent-encoding: gzip\ncontent-type: application/json; charset=utf-8\ndate: Tue, 03 Nov 2026 06:09:22 GMT\netag: W/\"4016981beacb2b2493fb92cf664b758f\"\nlast-modified: Tue, 03 Nov 2026 06:09:22 GMT\nserver: Vercel\nstrict-transport-security: max-age=63072000\nx-vercel-cache: MISS\nx-vercel-id: sfo1::j6pdh-1793686162492-6fd393fd2c8c\n\n"
+  },
+  {
+    "url": "https://www.deep-tech-week.com/beamline-tycoon-game/assets/textures/materials/metal_brushed.png",
+    "headers": "HTTP/2 200 \naccept-ranges: bytes\naccess-control-allow-origin: *\nage: 0\ncache-control: public, max-age=0, must-revalidate\ncontent-disposition: inline; filename=\"metal_brushed.png\"\ncontent-type: image/png\ndate: Tue, 03 Nov 2026 06:09:22 GMT\netag: \"73113b7891660996fd8a48a0570b7dad\"\nlast-modified: Tue, 03 Nov 2026 06:09:22 GMT\nserver: Vercel\nstrict-transport-security: max-age=63072000\nx-vercel-cache: MISS\nx-vercel-id: sfo1::mg4fj-1793686162757-6b00cae3d46f\ncontent-length: 2669\n\n"
+  }
+]
