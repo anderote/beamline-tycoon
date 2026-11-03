@@ -851,9 +851,11 @@ function buildFlexibleCableGeometry(
   }
   let length = 0;
   for (let i = 1; i < points.length; i++) length += points[i - 1].distanceTo(points[i]);
-  const samplesPerMeter = quality?.samplesPerMeter || 8;
+  // Four longitudinal samples per metre retain the authored spline while
+  // avoiding excessive triangles on long utility runs. Radial detail is unchanged.
+  const samplesPerMeter = quality?.samplesPerMeter || 4;
   const minimumSegments = quality?.minimumSegments || 16;
-  const maximumSegments = quality?.maximumSegments || 512;
+  const maximumSegments = quality?.maximumSegments || 256;
   const radialSegments = quality?.radialSegments || 8;
   const tubularSegments = Math.max(
     minimumSegments, Math.min(maximumSegments, Math.ceil(length * samplesPerMeter)));
